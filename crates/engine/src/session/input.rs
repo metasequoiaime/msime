@@ -95,6 +95,7 @@ pub(super) struct InputSession {
     pub prefix_query_input: String,
     pub prefix_candidates: Vec<WordItem>,
     pub shuangpin_preedit_uses_raw: bool,
+    pub single_character_only: bool,
     /// Writes phrases under complete quanpin keys whatever the active scheme is, so a shuangpin session never feeds a canonical key back through its profile; opened on first use.
     pub canonical_phrase_engine: Option<QuanpinEngine>,
 }
@@ -161,6 +162,7 @@ impl InputSession {
             prefix_query_input: String::new(),
             prefix_candidates: Vec::new(),
             shuangpin_preedit_uses_raw: true,
+            single_character_only: options.single_character_only,
             canonical_phrase_engine: None,
             paths,
         };

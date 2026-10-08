@@ -10,7 +10,7 @@ use crate::ime::queries::MODE_ENGLISH_LIMIT;
 use crate::local::date_time::LocalDateTime;
 use crate::local::jianpin::jianpin_ranking_context;
 use crate::pinyin::segment::{cut_pinyin_by_mode, join_segments, CutMode};
-use crate::text::count_utf8_chars;
+use crate::text::{count_utf8_chars, is_han_phrase};
 use crate::types::{
     CandidateSource, FrequencyAdjustmentMode, FrequencyAdjustmentOptions, KeyResult,
     LocalInputMode, PersonalDictionaryKind, SchemeType, WordItem,
@@ -451,6 +451,10 @@ impl InputSession {
             self.local_mode,
         );
         self.apply_candidate_positions(&mut mixed);
+        // 放在固定位置之后：单字母输入时固定位置会补回列表里没有的词。
+        if self.single_character_only && scheme.filters_to_single_characters() {
+            mixed.retain(|item| !is_han_phrase(&item.word));
+        }
         mixed
     }
 }

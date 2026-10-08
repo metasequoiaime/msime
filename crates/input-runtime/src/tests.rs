@@ -3111,6 +3111,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
+        single_character_only: false,
         learning: false,
         autocorrect_transposition: true,
         autocorrect_neighbor: true,

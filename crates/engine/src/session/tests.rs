@@ -4649,3 +4649,33 @@ fn a_glide_is_left_to_the_host_outside_quanpin_composition() {
     assert!(!session.glide(&broken, &points).handled);
     assert!(session.snapshot().editing_text.is_empty());
 }
+
+/// 只出单字：全拼列表里只剩单字（不含汉字的 `GitHub` 照旧），选一个字上屏一个字，剩下的拼写接着出单字；九宫格从同一个选项拿到开关。
+#[test]
+fn single_character_only_offers_one_character_at_a_time() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    assert!(words(&session).contains(&"你好".to_owned()));
+    session.command(Command::Cancel);
+
+    let mut session = fixture.session_with(|options| options.single_character_only = true);
+    type_text(&mut session, "nihao");
+    assert_eq!(words(&session), ["GitHub", "你"]);
+    assert_eq!(
+        select_word(&mut session, "你").commit.as_deref(),
+        Some("你")
+    );
+    assert_eq!(session.snapshot().editing_text, "hao");
+    assert_eq!(words(&session), ["好"]);
+    assert_eq!(
+        select_word(&mut session, "好").commit.as_deref(),
+        Some("好")
+    );
+    assert!(session.snapshot().editing_text.is_empty());
+
+    let mut session = fixture.session_with(|options| options.single_character_only = true);
+    session.set_nine_key_enabled(true);
+    type_text(&mut session, "64426");
+    assert_eq!(words(&session), ["GitHub", "你"]);
+}

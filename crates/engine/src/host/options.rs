@@ -108,6 +108,8 @@ pub struct EngineOptions {
     pub rescoring_context: String,
     /// Ask for every whole-sentence reading; the runtime reorders and crops them.
     pub sentence_alternatives: bool,
+    /// 只出单字（`SessionOptions::single_character_only`）。
+    pub single_character_only: bool,
     /// 0 Telex, 1 VNI (`vietnamese::InputMethod`).
     pub vietnamese_input_method: u8,
     /// 0 modern (hoà), 1 classic (hòa) (`vietnamese::ToneStyle`).
@@ -158,6 +160,7 @@ pub fn prepare_options_for(
         enabled_schemes,
         shuangpin_profile: ShuangpinProfileKind::Xiaohe as u8,
         shuangpin_preedit_uses_raw: true,
+        single_character_only: false,
         learning: false,
         autocorrect_transposition: false,
         autocorrect_neighbor: false,
@@ -234,6 +237,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.enabled_schemes = options.enabled_schemes;
     session.shuangpin_profile = shuangpin_profile;
     session.shuangpin_preedit_uses_raw = options.shuangpin_preedit_uses_raw;
+    session.single_character_only = options.single_character_only;
     session.vietnamese_input_method = vietnamese_input_method;
     session.vietnamese_tone_style = vietnamese_tone_style;
     session.cantonese_dictionary = PathBuf::from(&options.cantonese_dictionary);

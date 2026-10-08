@@ -822,6 +822,9 @@ pub struct Preferences {
     /// The Vietnamese input method and tone placement.
     #[serde(default)]
     pub vietnamese: VietnamesePreferences,
+    /// 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字，选一个字后剩下的拼写接着组字。默认关闭。
+    #[serde(default)]
+    pub single_character_only: bool,
     pub candidate_page_size: u8,
     /// Linux IBus can release the number row to the application while a
     /// candidate list is visible. Other hosts preserve this preference even
@@ -1853,6 +1856,7 @@ impl Default for Preferences {
             shuangpin_profile: ShuangpinProfile::default(),
             shuangpin_preedit_uses_raw: true,
             vietnamese: VietnamesePreferences::default(),
+            single_character_only: false,
             candidate_page_size: 6,
             number_row_selection: true,
             candidate_font_size: default_candidate_font_size(),

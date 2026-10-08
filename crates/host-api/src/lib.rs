@@ -478,6 +478,7 @@ impl HostSession {
         options.vietnamese_tone_style = vietnamese_tone_style_code(preferences.vietnamese);
         options.shuangpin_profile = profile_code(preferences.shuangpin_profile);
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
+        options.single_character_only = preferences.single_character_only;
         options.learning = preferences.learning;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
@@ -1083,6 +1084,7 @@ impl HostOptions {
             enabled_schemes: engine_schemes(edition),
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
+            single_character_only: self.preferences.single_character_only,
             learning: self.preferences.learning,
             autocorrect_transposition: self.preferences.quanpin.autocorrect_transposition,
             autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,

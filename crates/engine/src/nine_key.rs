@@ -13,7 +13,7 @@ use crate::paths::RuntimePaths;
 use crate::pinyin::syllables::intact_pinyin_list;
 use crate::quanpin::QuanpinDictionary;
 use crate::session::SessionSnapshot;
-use crate::text::count_utf8_chars;
+use crate::text::{count_utf8_chars, is_han_phrase};
 use crate::types::{
     Command, EnglishInputOptions, FrequencyAdjustmentMode, FrequencyAdjustmentOptions,
     FuzzyPinyinOptions, KeyResult, LocalInputMode, PersonalDictionaryKind, SchemeType, WordItem,
@@ -60,6 +60,8 @@ pub struct NineKeySession {
     english_only: bool,
     /// 会话允许全拼时为真。为假时九宫格只拼英文，拼音词库永远不打开。
     pinyin: bool,
+    /// 只出单字：拼音读法里只收单个汉字，见 `SessionOptions::single_character_only`。
+    single_character_only: bool,
     /// Opened on first use.
     dictionary: Option<QuanpinDictionary>,
     english: Option<EnglishDictionary>,
@@ -74,6 +76,7 @@ impl NineKeySession {
         fuzzy: FuzzyPinyinOptions,
         english: EnglishInputOptions,
         pinyin: bool,
+        single_character_only: bool,
     ) -> Self {
         Self {
             paths: paths.clone(),
@@ -89,6 +92,7 @@ impl NineKeySession {
             candidates: Vec::new(),
             english_only: false,
             pinyin,
+            single_character_only,
             dictionary: None,
             english: None,
         }
@@ -393,6 +397,9 @@ impl NineKeySession {
             }
             let full_len = self.locked.len() + path.len();
             for mut candidate in dictionary.query(&key, &key, 0, self.fuzzy) {
+                if self.single_character_only && is_han_phrase(&candidate.word) {
+                    continue;
+                }
                 let canonical = if candidate.canonical_pinyin.is_empty() {
                     candidate.pinyin.clone()
                 } else {
@@ -1385,6 +1392,7 @@ mod tests {
             FuzzyPinyinOptions::default(),
             EnglishInputOptions::default(),
             true,
+            false,
         )
     }
 
@@ -1469,6 +1477,7 @@ mod tests {
             FuzzyPinyinOptions::default(),
             english,
             true,
+            false,
         )
     }
 
@@ -1582,6 +1591,7 @@ mod tests {
             FrequencyAdjustmentOptions::default(),
             FuzzyPinyinOptions::default(),
             mixed(),
+            false,
             false,
         );
         for session in [&mut english_only, &mut without_pinyin] {
@@ -1726,6 +1736,30 @@ mod tests {
         session.choose_spelling(ming);
         assert_eq!(session.snapshot().editing_text, "6464");
         assert_eq!(session.snapshot().preedit, "ming");
+    }
+
+    /// 只出单字时拼音读法只剩单字，英文行照旧；选一个字后剩下的数字接着出单字。
+    #[test]
+    fn single_character_only_keeps_one_character_readings() {
+        let fixture = fixture();
+        let mut session = NineKeySession::new(
+            &fixture.paths,
+            false,
+            FrequencyAdjustmentOptions::default(),
+            FuzzyPinyinOptions::default(),
+            mixed(),
+            true,
+            true,
+        );
+        type_digits(&mut session, "64426");
+        assert_eq!(words(&session), ["你", "米", "ogham"]);
+        let result = session.select(index_of(&session, "你"));
+        assert_eq!(result.commit.as_deref(), Some("你"));
+        assert_eq!(session.snapshot().editing_text, "426");
+        assert_eq!(words(&session), ["好"]);
+        let result = session.finish(0);
+        assert_eq!(result.commit.as_deref(), Some("好"));
+        assert!(!session.active());
     }
 
     #[test]
@@ -1960,6 +1994,7 @@ mod tests {
             FrequencyAdjustmentOptions::default(),
             FuzzyPinyinOptions::default(),
             mixed(),
+            false,
             false,
         );
         type_digits(&mut session, "64");

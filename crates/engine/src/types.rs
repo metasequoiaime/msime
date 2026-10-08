@@ -232,6 +232,19 @@ impl SchemeType {
         }
     }
 
+    /// 「只出单字」打开时，候选里去掉含汉字的词和整句，只留单个汉字。只用于选一个候选就上屏、剩下的拼写接着组字的方案；注音的候选列表是给组字里的一段改字，笔画本来只出单字。
+    pub const fn filters_to_single_characters(self) -> bool {
+        match self {
+            Self::Quanpin | Self::Shuangpin | Self::Wubi | Self::Cantonese => true,
+            Self::JapaneseRomaji
+            | Self::Korean
+            | Self::Vietnamese
+            | Self::Tibetan
+            | Self::Stroke
+            | Self::Zhuyin => false,
+        }
+    }
+
     /// 组字中键入 `www.`、`http:` 等时进入网址模式。
     pub const fn detects_urls(self) -> bool {
         match self {

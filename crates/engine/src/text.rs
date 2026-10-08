@@ -54,6 +54,11 @@ pub fn is_all_han(text: &str) -> bool {
     !text.is_empty() && text.chars().all(is_han)
 }
 
+/// 含汉字且不止一个字符：「只出单字」要去掉的词和整句（`你好`、`T恤`）。单个汉字、英文、表情和颜文字都不算。
+pub fn is_han_phrase(text: &str) -> bool {
+    text.chars().nth(1).is_some() && text.chars().any(is_han)
+}
+
 /// The last `count` Unicode scalars of `text`; empty for zero.
 pub fn last_characters(text: &str, count: usize) -> &str {
     if count == 0 {
@@ -78,6 +83,12 @@ mod tests {
         assert_eq!(last_characters("a你好", 2), "你好");
         assert_eq!(last_characters("a你好", 0), "");
         assert_eq!(last_characters("好", 5), "好");
+        assert!(is_han_phrase("你好"));
+        assert!(is_han_phrase("T恤"));
+        assert!(!is_han_phrase("你"));
+        assert!(!is_han_phrase("𠀀"));
+        assert!(!is_han_phrase("GitHub"));
+        assert!(!is_han_phrase("(^_^)"));
         assert!(is_all_han("你好"));
         assert!(!is_all_han("你a"));
     }

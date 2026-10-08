@@ -48,6 +48,7 @@ impl Session {
             options.fuzzy_pinyin,
             options.english,
             options.enabled_schemes.contains(SchemeType::Quanpin),
+            options.single_character_only,
         );
         Ok(Session {
             input,

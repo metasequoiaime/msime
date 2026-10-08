@@ -23,6 +23,7 @@ fn options(root: &Path) -> EngineOptions {
         enabled_schemes: crate::types::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
+        single_character_only: false,
         learning: false,
         autocorrect_transposition: true,
         autocorrect_neighbor: true,
@@ -1551,6 +1552,7 @@ fn session_options_map_every_host_field() {
     value.scheme = 1;
     value.shuangpin_profile = 2;
     value.shuangpin_preedit_uses_raw = false;
+    value.single_character_only = true;
     value.learning = true;
     value.autocorrect_transposition = false;
     value.autocorrect_neighbor = true;
@@ -1591,6 +1593,7 @@ fn session_options_map_every_host_field() {
         crate::ShuangpinProfileKind::Shoudao
     );
     assert!(!mapped.shuangpin_preedit_uses_raw);
+    assert!(mapped.single_character_only);
     assert!(mapped.learning);
     assert_eq!(mapped.autocorrect_types, crate::autocorrect_type::NEIGHBOR);
     assert_eq!(mapped.fuzzy_pinyin.rules, crate::fuzzy_rule::ALL);

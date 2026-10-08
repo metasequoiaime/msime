@@ -145,6 +145,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
+        single_character_only: false,
         learning: false,
         autocorrect_transposition: false,
         autocorrect_neighbor: false,
@@ -866,6 +867,37 @@ fn wubi_mixed_pinyin_reaches_engine_and_applies_after_composition() {
     assert_eq!(disabled["value"]["deferred"], false);
     SESSIONS.with(|sessions| {
         assert!(!sessions.borrow()[&handle].options.wubi_mixed_pinyin);
+    });
+    read(msime_client_destroy(handle));
+}
+
+/// 「只出单字」和其他候选偏好一样等组字结束才重建 Engine，关掉时立即生效。
+#[test]
+fn single_character_only_reaches_engine_after_composition() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    read(msime_client_character(handle, b'n', false));
+    let mut preferences = Preferences {
+        single_character_only: true,
+        ..Preferences::default()
+    };
+    assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
+    SESSIONS.with(|sessions| {
+        assert!(!sessions.borrow()[&handle].options.single_character_only);
+    });
+
+    read(msime_client_command(handle, 3));
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert!(session.options.single_character_only);
+        assert!(session.applied.single_character_only);
+    });
+
+    preferences.single_character_only = false;
+    assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
+    SESSIONS.with(|sessions| {
+        assert!(!sessions.borrow()[&handle].options.single_character_only);
     });
     read(msime_client_destroy(handle));
 }
@@ -4693,6 +4725,7 @@ fn shuangpin_preedit_mode_is_applied_after_composition() {
     let before = read(msime_client_character(handle, b'k', false))["value"]["view"].clone();
     let expanded = Preferences {
         shuangpin_preedit_uses_raw: false,
+        single_character_only: false,
         ..raw.clone()
     };
     let queued = update(handle, 1, &expanded);
