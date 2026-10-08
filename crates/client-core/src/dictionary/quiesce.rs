@@ -40,7 +40,7 @@ fn read_lease(path: &Path) -> Option<String> {
     {
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
         let directory = open_lease_directory(parent).ok()?;
-        return read_lease_at(&directory, path.file_name()?).ok();
+        read_lease_at(&directory, path.file_name()?).ok()
     }
     #[cfg(not(unix))]
     {

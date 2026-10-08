@@ -138,7 +138,7 @@ pub(crate) fn remove_private(path: &Path) -> io::Result<()> {
             io::Error::new(io::ErrorKind::InvalidInput, "private file has no name")
         })?;
         let directory = open_private_directory(parent)?;
-        return remove_private_at(&directory, name);
+        remove_private_at(&directory, name)
     }
     #[cfg(not(unix))]
     {
@@ -164,7 +164,7 @@ pub(crate) fn write(path: &Path, contents: &[u8]) -> io::Result<()> {
             .file_name()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "file path has no name"))?;
         let directory = open_private_directory(&parent)?;
-        return write_in_directory(&directory, name, contents);
+        write_in_directory(&directory, name, contents)
     }
     #[cfg(not(unix))]
     {
