@@ -621,11 +621,14 @@ impl ImeSession {
 
     /// 宿主只在五笔方案里显示反查编码（含混输拼音的候选），其他方案的每次刷新都不必逐个候选去查五笔表。
     fn refresh_wubi_codes(&mut self) {
-        self.state.wubi_codes = if self.current_scheme_type() == SchemeType::Wubi {
-            self.registry.reverse_wubi_codes(&self.state.candidates)
-        } else {
-            Vec::new()
-        };
+        if self.current_scheme_type() != SchemeType::Wubi {
+            self.state.wubi_codes.clear();
+            return;
+        }
+        let mut codes = std::mem::take(&mut self.state.wubi_codes);
+        self.registry
+            .reverse_wubi_codes(&self.state.candidates, &mut codes);
+        self.state.wubi_codes = codes;
     }
 
     /// The scheme's request with the session's switches, autocorrect suppression and the shuangpin double-helpcode segmentation applied.
