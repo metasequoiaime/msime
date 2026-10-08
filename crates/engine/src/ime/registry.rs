@@ -194,7 +194,9 @@ impl ProviderRegistry {
                     .map_or_else(Vec::new, |wubi| wubi.query(request));
             }
             SchemeType::JapaneseRomaji => return self.japanese_candidates(request),
-            SchemeType::Korean if request.korean_hanja => return hanja::candidates(request),
+            SchemeType::Korean if request.korean_hanja => {
+                return self.korean_hanja_candidates(request)
+            }
             SchemeType::Cantonese => return self.cantonese_candidates(request),
             SchemeType::Stroke => return self.stroke_candidates(request),
             // 越南文和藏文在组字里直接拼出文字，没有候选；注音的列表来自它的编辑器。
@@ -432,6 +434,18 @@ impl ProviderRegistry {
         } else {
             destination.clear();
         }
+    }
+
+    pub(super) fn query_korean_hanja_into(
+        &mut self,
+        request: &QueryRequest,
+        destination: &mut Vec<WordItem>,
+    ) {
+        hanja::query_into(request, destination);
+    }
+
+    fn korean_hanja_candidates(&mut self, request: &QueryRequest) -> Vec<WordItem> {
+        hanja::candidates(request)
     }
 
     fn japanese_candidates(&mut self, request: &QueryRequest) -> Vec<WordItem> {

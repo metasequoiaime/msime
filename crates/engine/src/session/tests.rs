@@ -2403,6 +2403,31 @@ fn korean_hanja_list_offers_the_composing_syllable_with_its_gloss() {
 }
 
 #[test]
+fn korean_hanja_refresh_reuses_candidate_strings() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = korean_session(&fixture);
+    open_hanja(&mut session, "gks");
+    let pointers = session
+        .input
+        .engine
+        .candidates()
+        .iter()
+        .map(|row| (row.word.as_ptr(), row.pinyin.as_ptr()))
+        .collect::<Vec<_>>();
+    session.input.engine.handle_key(SchemeKey::Requery);
+    assert_eq!(
+        session
+            .input
+            .engine
+            .candidates()
+            .iter()
+            .map(|row| (row.word.as_ptr(), row.pinyin.as_ptr()))
+            .collect::<Vec<_>>(),
+        pointers
+    );
+}
+
+#[test]
 fn choosing_a_hanja_commits_it_and_learns_nothing() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {
