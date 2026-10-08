@@ -173,7 +173,8 @@ public final class DeveloperPage extends DetailPage {
         debug.toggle("记录输入日志", "仅保存在本机，不会上传", settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG),
             on -> edit(AndroidLocalSettings.DEVELOPER_INPUT_LOG, on));
         String level = settings.choice(AndroidLocalSettings.DEVELOPER_LOG_LEVEL);
-        debug.nav("日志级别", null, levelLabel(level), snapshot == null ? null : () -> showLevelSheet(level));
+        debug.nav("日志级别", "只影响系统日志（logcat），导出的诊断包不受它影响", levelLabel(level),
+            snapshot == null ? null : () -> showLevelSheet(level));
 
         GroupCard data = GroupCard.add(target, "数据");
         data.button("导出诊断包", null, "导出", this::exportBundle).setEnabled(!busy && snapshot != null);
@@ -480,7 +481,8 @@ public final class DeveloperPage extends DetailPage {
     };
 
     private void showLevelSheet(String current) {
-        OptionSheet sheet = new OptionSheet(requireContext(), "日志级别", null);
+        OptionSheet sheet = new OptionSheet(requireContext(), "日志级别",
+            "从上到下越来越详细，每一级都包含上面各级的内容。只影响连电脑用 adb logcat 看到的系统日志，导出的诊断包不受影响");
         for (String[] level : LEVELS) {
             sheet.option(level[1], level[0].equals(current),
                 () -> edit(AndroidLocalSettings.DEVELOPER_LOG_LEVEL, level[0]));

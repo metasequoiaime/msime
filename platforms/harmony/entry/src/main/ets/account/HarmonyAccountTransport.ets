@@ -5,7 +5,7 @@ import {
   AccountSessionStore, AccountTransport, AccountTransportResponse, parseResponseContentLength
 } from './AccountCloudBridge';
 import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
-import { sessionFitsStorage, sessionWriteComplete } from './AccountSessionPolicy';
+import { MAX_SESSION_BYTES, sessionFitsStorage, sessionWriteComplete } from './AccountSessionPolicy';
 
 /**
  * The account session file and the HTTPS transport, shared by the settings application and the keyboard extension.

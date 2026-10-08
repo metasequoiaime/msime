@@ -256,6 +256,11 @@ impl QuanpinDictionary {
         initial_items(self.database.query_initial(code, limit))
     }
 
+    /// 简拼 `codes`（同样长度，一个字母一个音节）对应的词条，按权重从高到低最多 `limit` 行，见 `PinyinDatabase::query_jianpin_codes`。`pinyin` 和 `canonical_pinyin` 都是词条的全拼键，用户自己加的词（学习写进词库的整句、自造词）也在里面。
+    pub fn query_jianpin_codes(&self, codes: &[String], limit: usize) -> Vec<WordItem> {
+        initial_items(self.database.query_jianpin_codes(codes, limit))
+    }
+
     /// Replace the capped 24-row run with every row of the initial (QD:506-558); updates the row cache and the series slot of the query `(raw, segmentation, autocorrect_types)` that produced `candidates`.
     pub fn expand_initial_candidates(
         &mut self,

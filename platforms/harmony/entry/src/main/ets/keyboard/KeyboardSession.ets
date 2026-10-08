@@ -2589,10 +2589,11 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   voiceInputConfiguration(): VoiceInputConfiguration {
     const root: string = this.clipboardRoot();
-    return {
-      ...this.voiceInput,
-      local_model_root: root.length > 0 ? `${root}/voice-models` : ''
-    };
+    // 交出去的是一份拷贝，受管目录不能写回缓存的配置。ArkTS 不能展开对象（arkts-no-spread），配置里只有字符串、布尔和 token 表，JSON 往返拷贝不丢东西。
+    const configuration: VoiceInputConfiguration =
+      JSON.parse(JSON.stringify(this.voiceInput)) as VoiceInputConfiguration;
+    configuration.local_model_root = root.length > 0 ? `${root}/voice-models` : '';
+    return configuration;
   }
 
   /** The prepared host options the on-device recognizer reads the user's own words through, or null before the host has been prepared. */

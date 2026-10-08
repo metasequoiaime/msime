@@ -1,6 +1,6 @@
 //! Korean Hangul key handling on the Dubeolsik layout. The composition is the key letters of the open syllable; a key that starts the next syllable moves the finished one into `committed`, which the session hands to the host with the key's result. While the Hanja list is open the request asks for the syllable's Hanja; any edit of the composition closes the list.
 
-use super::dubeolsik::{compose, split_finished};
+use super::dubeolsik::{compose, compose_into, split_finished};
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
 
 #[derive(Debug, Clone, Default)]
@@ -51,19 +51,29 @@ impl KoreanScheme {
 
     /// Only the composing text is described: `normalized_segmentation` carries the Hangul the way the Japanese scheme carries its kana reading, and is the syllable the Hanja table is read with while the list is open.
     pub fn build_request(&self) -> QueryRequest {
-        let hangul = compose(&self.raw);
-        QueryRequest {
-            scheme: SchemeType::Korean,
-            raw_input: self.raw.to_ascii_lowercase(),
-            raw_input_with_cases: self.raw.clone(),
-            normalized_input: self.raw.to_ascii_lowercase(),
-            raw_segmentation: self.raw.clone(),
-            normalized_segmentation: hangul.clone(),
-            segmentation: hangul,
-            korean_hanja: self.hanja,
-            valid: !self.raw.is_empty(),
-            ..QueryRequest::default()
-        }
+        let mut request = QueryRequest::default();
+        self.build_request_into(&mut request);
+        request
+    }
+
+    /// 将韩文请求写入已有存储，避免逐键刷新重复分配相同的按键字符串。
+    pub fn build_request_into(&self, request: &mut QueryRequest) {
+        request.scheme = SchemeType::Korean;
+        request.raw_input.clear();
+        request.raw_input.extend(
+            self.raw
+                .bytes()
+                .map(|byte| char::from(byte.to_ascii_lowercase())),
+        );
+        request.raw_input_with_cases.clone_from(&self.raw);
+        request.normalized_input.clone_from(&request.raw_input);
+        request.raw_segmentation.clone_from(&self.raw);
+        compose_into(&self.raw, &mut request.normalized_segmentation);
+        request
+            .segmentation
+            .clone_from(&request.normalized_segmentation);
+        request.korean_hanja = self.hanja;
+        request.valid = !self.raw.is_empty();
     }
 
     /// The composed Hangul, never the key letters.

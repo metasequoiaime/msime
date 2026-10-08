@@ -359,7 +359,8 @@ export class KeySoundPlayer {
       return file;
     } catch (error) {
       if (file !== undefined) fs.closeSync(file);
-      throw error;
+      // ArkTS 只允许抛 Error（arkts-limited-throw）；原样抛出同一个对象，调用方仍能读到它的错误码。
+      throw error as Error;
     }
   }
 

@@ -2732,8 +2732,16 @@ group("sentence capitalization looks past closers and whitespace", () => {
     "a full stop ends a sentence",
   );
   check(
-    EnglishCapitalizationPolicy.shouldShift(sentences, "Hi.") === true,
-    "even without the space",
+    EnglishCapitalizationPolicy.shouldShift(sentences, "Hi.") === false,
+    "a stop the cursor is still touching does not start a sentence yet",
+  );
+  check(
+    EnglishCapitalizationPolicy.shouldShift(sentences, 'Hi."') === false,
+    "nor does a stop behind a closing quote with no space",
+  );
+  check(
+    EnglishCapitalizationPolicy.shouldShift(sentences, "3.") === false,
+    "a decimal point is not the end of a sentence",
   );
   check(
     EnglishCapitalizationPolicy.shouldShift(sentences, "Hi") === false,
@@ -2752,8 +2760,12 @@ group("sentence capitalization looks past closers and whitespace", () => {
     "a newline starts a sentence",
   );
   check(
-    EnglishCapitalizationPolicy.shouldShift(sentences, "你好。") === true,
+    EnglishCapitalizationPolicy.shouldShift(sentences, "你好。 ") === true,
     "the full-width stop ends a sentence too",
+  );
+  check(
+    EnglishCapitalizationPolicy.shouldShift(sentences, "你好。") === false,
+    "switching to English right after a Chinese stop stays lowercase",
   );
   check(
     EnglishCapitalizationPolicy.shouldShift(sentences, "   ") === true,
@@ -2823,6 +2835,23 @@ group("a double tap inside the interval locks, a slow one does not", () => {
   slow.toggle(1000 + EnglishLetterCaseState.CAPS_LOCK_INTERVAL_MILLIS + 1);
   check(slow.mode() === LetterCaseMode.LOWERCASE, "one millisecond later it just toggles off");
   check(slow.keyText() === "⇧", "the key face shows the plain shift");
+
+  const sentenceStart = new EnglishLetterCaseState();
+  sentenceStart.applyAutomatic(true);
+  sentenceStart.toggle(1000);
+  check(sentenceStart.mode() === LetterCaseMode.LOWERCASE, "句首自动大写时第一下关掉大写");
+  sentenceStart.toggle(1200);
+  check(sentenceStart.mode() === LetterCaseMode.CAPS_LOCK, "第二下照样锁定");
+
+  const echoed = new EnglishLetterCaseState();
+  echoed.toggle(1000);
+  echoed.applyAutomatic(true);
+  echoed.toggle(1200);
+  check(echoed.mode() === LetterCaseMode.CAPS_LOCK, "两次点按之间自动大写重算一次，双击仍然锁定");
+  echoed.toggle(1300);
+  check(echoed.mode() === LetterCaseMode.LOWERCASE, "锁定时点一下回到小写");
+  echoed.toggle(1400);
+  check(echoed.mode() === LetterCaseMode.SHIFTED, "紧接着的一下只是单次大写，不会又锁上");
 });
 
 group("automatic shift never overrides caps lock", () => {

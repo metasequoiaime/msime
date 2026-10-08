@@ -8,7 +8,9 @@ use crate::file_lock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
+#[cfg(not(unix))]
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -557,11 +559,24 @@ impl PersonalDictionaryStore {
         if bytes.len() > MAX_STATE_BYTES {
             return Err(PersonalDictionaryError::InvalidState);
         }
-        let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
-        temporary.write_all(&bytes)?;
-        temporary.as_file().sync_all()?;
-        temporary.persist(file).map_err(|error| error.error)?;
-        Ok(())
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(&self.directory)?;
+            crate::storage::write_private_file_at(
+                &directory,
+                std::ffi::OsStr::new("sync.json"),
+                &bytes,
+            )?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
+            temporary.write_all(&bytes)?;
+            temporary.as_file().sync_all()?;
+            temporary.persist(file).map_err(|error| error.error)?;
+            Ok(())
+        }
     }
 }
 
@@ -633,7 +648,7 @@ fn read_file(file: &Path) -> Result<PersonalDictionaryState, PersonalDictionaryE
     if !metadata.file_type().is_file() {
         return Err(PersonalDictionaryError::InvalidState);
     }
-    let file_handle = crate::storage::open_private_file(file)?;
+    let file_handle = crate::storage::open_private_file_in(file)?;
     let bytes = crate::bounded_io::read_bounded_file(file_handle, MAX_STATE_BYTES as u64, || {
         PersonalDictionaryError::InvalidState
     })?;

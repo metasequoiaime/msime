@@ -445,6 +445,8 @@ final class ImeStyler {
             applySkinBackground(s.aiPolishContainer);
         if (s.replyKeyboard != null)
             applySkinBackground(s.replyKeyboard);
+        if (s.textEditPanel != null)
+            applySkinBackground(s.textEditPanel);
         if (s.handwritingCanvas != null) s.handwritingCanvas.applySkin(s.handwritingSkin);
         applySkinToView(s.keyboardRoot);
         // The keyboard-wide pass already styled these subtrees; re-walk the two that carry their

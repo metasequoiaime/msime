@@ -1897,6 +1897,43 @@ fn temporary_japanese_returns_to_the_original_scheme() {
 }
 
 #[test]
+fn japanese_engine_refresh_reuses_candidate_strings() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::JapaneseRomaji);
+    type_text(&mut session, "ka");
+    let before = session.input.engine.candidates().to_vec();
+    let pointers = session
+        .input
+        .engine
+        .candidates()
+        .iter()
+        .map(|row| {
+            (
+                row.word.as_ptr(),
+                row.pinyin.as_ptr(),
+                row.canonical_pinyin.as_ptr(),
+            )
+        })
+        .collect::<Vec<_>>();
+    session.input.engine.handle_key(SchemeKey::Requery);
+    assert_eq!(session.input.engine.candidates(), before);
+    assert_eq!(
+        session
+            .input
+            .engine
+            .candidates()
+            .iter()
+            .map(|row| (
+                row.word.as_ptr(),
+                row.pinyin.as_ptr(),
+                row.canonical_pinyin.as_ptr()
+            ))
+            .collect::<Vec<_>>(),
+        pointers
+    );
+}
+
+#[test]
 fn temporary_japanese_refresh_reuses_candidate_buffer() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| options.scheme = SchemeType::Shuangpin);
@@ -2363,6 +2400,60 @@ fn korean_hanja_list_offers_the_composing_syllable_with_its_gloss() {
         .iter()
         .all(|item| item.scheme == SchemeType::Korean && item.pinyin == "gks"));
     assert!(session.online_query().is_none());
+}
+
+#[test]
+fn korean_hanja_refresh_reuses_candidate_strings() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = korean_session(&fixture);
+    open_hanja(&mut session, "gks");
+    let pointers = session
+        .input
+        .engine
+        .candidates()
+        .iter()
+        .map(|row| (row.word.as_ptr(), row.pinyin.as_ptr()))
+        .collect::<Vec<_>>();
+    session.input.engine.handle_key(SchemeKey::Requery);
+    assert_eq!(
+        session
+            .input
+            .engine
+            .candidates()
+            .iter()
+            .map(|row| (row.word.as_ptr(), row.pinyin.as_ptr()))
+            .collect::<Vec<_>>(),
+        pointers
+    );
+}
+
+#[test]
+fn korean_refresh_reuses_request_strings() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = korean_session(&fixture);
+    type_korean(&mut session, "gks");
+    let request = session.input.engine.request();
+    let pointers = [
+        request.raw_input.as_ptr(),
+        request.raw_input_with_cases.as_ptr(),
+        request.normalized_input.as_ptr(),
+        request.raw_segmentation.as_ptr(),
+        request.normalized_segmentation.as_ptr(),
+        request.segmentation.as_ptr(),
+    ];
+    session.input.engine.handle_key(SchemeKey::Requery);
+    let request = session.input.engine.request();
+    assert_eq!(
+        [
+            request.raw_input.as_ptr(),
+            request.raw_input_with_cases.as_ptr(),
+            request.normalized_input.as_ptr(),
+            request.raw_segmentation.as_ptr(),
+            request.normalized_segmentation.as_ptr(),
+            request.segmentation.as_ptr(),
+        ],
+        pointers
+    );
 }
 
 #[test]
@@ -3099,6 +3190,35 @@ fn vietnamese_option_change_keeps_the_raw_key_display() {
     assert!(session.snapshot().preedit.is_empty());
 }
 
+#[test]
+fn vietnamese_refresh_reuses_request_strings() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::Vietnamese);
+    type_text(&mut session, "Tieens");
+    let request = session.input.engine.request();
+    let pointers = [
+        request.raw_input.as_ptr(),
+        request.raw_input_with_cases.as_ptr(),
+        request.normalized_input.as_ptr(),
+        request.raw_segmentation.as_ptr(),
+        request.normalized_segmentation.as_ptr(),
+        request.segmentation.as_ptr(),
+    ];
+    session.input.engine.handle_key(SchemeKey::Requery);
+    let request = session.input.engine.request();
+    assert_eq!(
+        [
+            request.raw_input.as_ptr(),
+            request.raw_input_with_cases.as_ptr(),
+            request.normalized_input.as_ptr(),
+            request.raw_segmentation.as_ptr(),
+            request.normalized_segmentation.as_ptr(),
+            request.segmentation.as_ptr(),
+        ],
+        pointers
+    );
+}
+
 // ---- 藏文 ----
 
 fn tibetan_session(fixture: &Fixture) -> Session {
@@ -3594,6 +3714,70 @@ fn stroke_composes_glyphs_from_its_keys() {
     assert!(result.commit.is_none());
     assert!(session.snapshot().preedit.is_empty());
     assert!(session.snapshot().candidates.is_empty());
+}
+
+#[test]
+fn stroke_candidate_refresh_reuses_row_storage() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = stroke_session(&fixture);
+    type_text(&mut session, "hs");
+    let pointers = session
+        .input
+        .engine
+        .candidates()
+        .iter()
+        .map(|row| {
+            (
+                row.word.as_ptr(),
+                row.pinyin.as_ptr(),
+                row.canonical_pinyin.as_ptr(),
+            )
+        })
+        .collect::<Vec<_>>();
+    session.input.engine.handle_key(SchemeKey::Requery);
+    assert_eq!(
+        session
+            .input
+            .engine
+            .candidates()
+            .iter()
+            .map(|row| (
+                row.word.as_ptr(),
+                row.pinyin.as_ptr(),
+                row.canonical_pinyin.as_ptr()
+            ))
+            .collect::<Vec<_>>(),
+        pointers
+    );
+}
+
+#[test]
+fn stroke_refresh_reuses_request_strings() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = stroke_session(&fixture);
+    type_text(&mut session, "hs");
+    let request = session.input.engine.request();
+    let pointers = [
+        request.raw_input.as_ptr(),
+        request.raw_input_with_cases.as_ptr(),
+        request.normalized_input.as_ptr(),
+        request.raw_segmentation.as_ptr(),
+        request.normalized_segmentation.as_ptr(),
+        request.segmentation.as_ptr(),
+    ];
+    session.input.engine.handle_key(SchemeKey::Requery);
+    let request = session.input.engine.request();
+    assert_eq!(
+        [
+            request.raw_input.as_ptr(),
+            request.raw_input_with_cases.as_ptr(),
+            request.normalized_input.as_ptr(),
+            request.raw_segmentation.as_ptr(),
+            request.normalized_segmentation.as_ptr(),
+            request.segmentation.as_ptr(),
+        ],
+        pointers
+    );
 }
 
 #[test]
@@ -4713,4 +4897,13 @@ fn single_character_only_offers_one_character_at_a_time() {
     session.set_nine_key_enabled(true);
     type_text(&mut session, "64426");
     assert_eq!(words(&session), ["GitHub", "你"]);
+}
+
+/// 九宫格选中整句时存词的音节上限与全拼键盘相同（#5640）。
+#[test]
+fn nine_key_sentence_learning_shares_the_syllable_cap() {
+    assert_eq!(
+        crate::nine_key::MAX_LEARNED_SENTENCE_SYLLABLES,
+        super::learning::MAX_LEARNED_SENTENCE_SYLLABLES
+    );
 }

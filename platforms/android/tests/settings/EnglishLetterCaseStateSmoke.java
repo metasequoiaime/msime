@@ -35,6 +35,35 @@ public final class EnglishLetterCaseStateSmoke {
         state.toggle(3_000);
         state.toggle(3_351);
         check(state.mode() == EnglishLetterCaseState.Mode.LOWERCASE);
+
+        // 句首自动大写时双击：第一下关掉大写，第二下锁定。
+        EnglishLetterCaseState sentenceStart = new EnglishLetterCaseState();
+        sentenceStart.applyAutomatic(true);
+        sentenceStart.toggle(4_000);
+        check(sentenceStart.mode() == EnglishLetterCaseState.Mode.LOWERCASE);
+        sentenceStart.toggle(4_200);
+        check(sentenceStart.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
+
+        // 两次点按之间编辑器回报光标位置，自动大写重新计算，双击仍然锁定。
+        EnglishLetterCaseState echoed = new EnglishLetterCaseState();
+        echoed.toggle(5_000);
+        check(echoed.isPressedShift());
+        echoed.applyAutomatic(true);
+        echoed.toggle(5_200);
+        check(echoed.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
+        check(!echoed.isPressedShift());
+
+        // 锁定时点一下回到小写，紧接着的一下只是单次大写，不会又锁上。
+        echoed.toggle(5_300);
+        check(echoed.mode() == EnglishLetterCaseState.Mode.LOWERCASE);
+        echoed.toggle(5_400);
+        check(echoed.mode() == EnglishLetterCaseState.Mode.SHIFTED);
+        check(echoed.isPressedShift());
+
+        // 自动大写不是手动按下的。
+        EnglishLetterCaseState automatic = new EnglishLetterCaseState();
+        automatic.applyAutomatic(true);
+        check(!automatic.isPressedShift());
         System.out.println("Android English letter case: one-shot Shift, Caps Lock and automatic state passed");
     }
 }
