@@ -1063,6 +1063,150 @@ fn plugin_preferences_are_validated() {
 }
 
 #[test]
+fn game_compatibility_defaults_on_and_stays_out_of_the_document() {
+    let defaults = GameCompatibilityPreferences::default();
+    assert!(defaults.candidate_overlay);
+    assert!(defaults.overlay_processes.is_empty() && defaults.excluded_processes.is_empty());
+    assert_eq!(Preferences::default().game_compatibility, defaults);
+
+    // 等于默认值时不写进文档，没有这个键的旧版本照样能读；缺这个键的文档读成默认值，读取时也不改写文件。
+    let serialized = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(serialized.get("game_compatibility").is_none());
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let legacy = serde_json::to_vec(&PreferencesSnapshot::default()).unwrap();
+    fs::write(store.path(), &legacy).unwrap();
+    assert_eq!(
+        store.load().unwrap().preferences.game_compatibility,
+        defaults
+    );
+    assert_eq!(fs::read(store.path()).unwrap(), legacy);
+
+    // 只写了一部分的段落，其余各项取默认值。
+    let mut value = serialized.clone();
+    value["game_compatibility"] = serde_json::json!({ "overlay_processes": ["game.exe"] });
+    let partial: Preferences = serde_json::from_value(value).unwrap();
+    assert!(partial.game_compatibility.candidate_overlay);
+    assert_eq!(partial.game_compatibility.overlay_processes, ["game.exe"]);
+    assert!(partial.game_compatibility.excluded_processes.is_empty());
+
+    // 关掉开关、写下两张表，保存再读回来原样不变。
+    let chosen = Preferences {
+        game_compatibility: GameCompatibilityPreferences {
+            candidate_overlay: false,
+            overlay_processes: vec!["Game.EXE".into(), "my game.exe".into()],
+            excluded_processes: vec!["launcher.exe".into()],
+        },
+        ..Preferences::default()
+    };
+    let written = serde_json::to_value(&chosen).unwrap();
+    assert_eq!(
+        written["game_compatibility"],
+        serde_json::json!({
+            "candidate_overlay": false,
+            "overlay_processes": ["Game.EXE", "my game.exe"],
+            "excluded_processes": ["launcher.exe"],
+        })
+    );
+    let saved = store.save(0, chosen.clone()).unwrap();
+    assert_eq!(
+        saved.preferences.game_compatibility,
+        chosen.game_compatibility
+    );
+    assert_eq!(
+        store.load().unwrap().preferences.game_compatibility,
+        chosen.game_compatibility
+    );
+    // 恢复默认时回到开启、两张表清空。
+    assert_eq!(chosen.restored_to_defaults().game_compatibility, defaults);
+
+    // 段落里多出未知的键时整份文档读不进来。
+    let mut value = serialized.clone();
+    value["game_compatibility"] = serde_json::json!({ "auto_rules": true });
+    assert!(serde_json::from_value::<Preferences>(value).is_err());
+    let mut value = serialized;
+    value["game_compatibility"] = serde_json::json!({ "candidate_overlay": "yes" });
+    assert!(serde_json::from_value::<Preferences>(value).is_err());
+}
+
+#[test]
+fn game_compatibility_process_names_are_validated() {
+    let too_many = |game: &mut GameCompatibilityPreferences| {
+        game.overlay_processes = (0..GameCompatibilityPreferences::MAX_PROCESSES / 2)
+            .map(|index| format!("overlay{index}.exe"))
+            .collect();
+        game.excluded_processes = (0..=GameCompatibilityPreferences::MAX_PROCESSES / 2)
+            .map(|index| format!("excluded{index}.exe"))
+            .collect();
+    };
+    let invalid: [fn(&mut GameCompatibilityPreferences); 18] = [
+        |game| game.overlay_processes = vec![String::new()],
+        |game| game.overlay_processes = vec!["game".into()],
+        |game| game.overlay_processes = vec!["game.exe.bak".into()],
+        |game| game.overlay_processes = vec!["game.ex".into()],
+        |game| game.overlay_processes = vec![r"C:\Games\game.exe".into()],
+        |game| game.overlay_processes = vec!["games/game.exe".into()],
+        |game| game.overlay_processes = vec!["c:game.exe".into()],
+        |game| game.overlay_processes = vec!["*.exe".into()],
+        |game| game.overlay_processes = vec!["game?.exe".into()],
+        |game| game.overlay_processes = vec!["\"game\".exe".into()],
+        |game| game.excluded_processes = vec!["<game>.exe".into()],
+        |game| game.excluded_processes = vec!["a|b.exe".into()],
+        |game| game.excluded_processes = vec!["game\n.exe".into()],
+        |game| game.excluded_processes = vec!["game\u{7f}.exe".into()],
+        |game| game.overlay_processes = vec![format!("{}.exe", "a".repeat(61))],
+        |game| game.overlay_processes = vec!["game.exe".into(), "game.exe".into()],
+        // 两张表之间只差大小写也算重复：DLL 不分大小写地比较进程名。
+        |game| {
+            game.overlay_processes = vec!["Game.exe".into()];
+            game.excluded_processes = vec!["GAME.EXE".into()];
+        },
+        too_many,
+    ];
+    for (index, change) in invalid.into_iter().enumerate() {
+        let mut preferences = Preferences::default();
+        change(&mut preferences.game_compatibility);
+        assert!(
+            matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidGameCompatibility)
+            ),
+            "{index}"
+        );
+    }
+
+    // 恰好 64 个字符（按字符而不是字节计）、大写后缀、名字里有空格和非 ASCII 字符、合计恰好 32 条，都是合法的。
+    let mut preferences = Preferences::default();
+    preferences.game_compatibility.overlay_processes = vec![
+        format!("{}.exe", "a".repeat(60)),
+        format!("{}.exe", "游".repeat(60)),
+        "League of Legends.EXE".into(),
+    ];
+    preferences.game_compatibility.excluded_processes = (3
+        ..GameCompatibilityPreferences::MAX_PROCESSES)
+        .map(|index| format!("excluded{index}.exe"))
+        .collect();
+    assert!(preferences.validate().is_ok());
+
+    // 只差非 ASCII 大小写的两项不算重复：去重按 ASCII 折叠，和 WinUI 设置页的检查一致，否则设置页放行的条目会在保存时被拒。
+    let mut preferences = Preferences::default();
+    preferences.game_compatibility.overlay_processes = vec!["Ä.exe".into()];
+    preferences.game_compatibility.excluded_processes = vec!["ä.exe".into()];
+    assert!(preferences.validate().is_ok());
+
+    // 拒绝的文档不会被保存。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut rejected = Preferences::default();
+    rejected.game_compatibility.overlay_processes = vec!["game".into()];
+    assert!(matches!(
+        store.save(0, rejected),
+        Err(PreferencesError::InvalidGameCompatibility)
+    ));
+    assert!(!store.path().exists());
+}
+
+#[test]
 fn appearance_preferences_absent_defaults_and_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
