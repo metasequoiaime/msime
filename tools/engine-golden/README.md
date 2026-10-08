@@ -105,3 +105,5 @@ Four reference ctests fail against this build because an overlay changed what th
 - `wubi_mixed_input_session` -> `wubi_mixed_*`: the tail `wq` after selecting 你好 gets wubi rows (apply_engine_wubi_mixed_candidates.py).
 - `nine_key_session` -> `nine_key_*`: `64426` gives [你好, 米好 (Generated), 你, 米, ogham] (apply_engine_lattice_reading.py, 2-syllable lattice).
 - `personal_dictionary` -> `personal_dictionary_entries`: `{English, hello, different}` is accepted (apply_engine_english_display.py).
+
+One later product change is recorded the same way: since #5640 the nine-key grid also reads every digit as one syllable's initial, so `64` adds 你好 (n'h) after the syllable rows in `nine_key_*` and `personal_context_public_session`, and the frequency adjustments those scenarios record are computed over the longer list.

@@ -307,7 +307,7 @@
      "O",
      "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -325,6 +325,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -377,7 +386,7 @@
      "O",
      "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -395,6 +404,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -447,7 +465,7 @@
      "O",
      "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -465,6 +483,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -882,7 +909,7 @@
      "O",
      "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -900,6 +927,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -1185,7 +1221,7 @@
      "O",
      "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -1203,6 +1239,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -1276,7 +1321,7 @@
      "O",
      "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -1294,6 +1339,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -1366,7 +1420,7 @@
      "O",
      "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -1384,6 +1438,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {

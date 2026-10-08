@@ -4746,3 +4746,12 @@ fn a_glide_is_left_to_the_host_outside_quanpin_composition() {
     assert!(!session.glide(&broken, &points).handled);
     assert!(session.snapshot().editing_text.is_empty());
 }
+
+/// 九宫格选中整句时存词的音节上限与全拼键盘相同（#5640）。
+#[test]
+fn nine_key_sentence_learning_shares_the_syllable_cap() {
+    assert_eq!(
+        crate::nine_key::MAX_LEARNED_SENTENCE_SYLLABLES,
+        super::learning::MAX_LEARNED_SENTENCE_SYLLABLES
+    );
+}
