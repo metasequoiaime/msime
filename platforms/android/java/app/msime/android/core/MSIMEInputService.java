@@ -268,6 +268,14 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarHidden;
     /** 剪贴板面板一行排几条，来自本地设置 `platform.android.clipboard_columns`。 */
     int clipboardColumns = 1;
+    /** 工具栏是否显示最近复制的文字，来自本地设置 `platform.android.clipboard_suggestion`。 */
+    boolean clipboardSuggestionEnabled = true;
+    /** 工具栏上的「最近复制」（#5692）。 */
+    final RecentClipboardSuggestion recentClip = new RecentClipboardSuggestion();
+    /** 占工具栏那一行位置的「最近复制」：粘贴按钮和关闭按钮；有内容可显示时替换工具栏。 */
+    LinearLayout recentClipRow;
+    Button recentClipButton;
+    private final Runnable recentClipExpiry = this::render;
     /** 功能面板上直接切换的三项：模糊音（共享偏好）、单手模式（off / left / right）与隐私模式（本地设置）。 */
     boolean fuzzyPinyinEnabled;
     String oneHandedMode = "off";
@@ -509,8 +517,10 @@ public final class MSIMEInputService extends InputMethodService {
     private long personalDictionarySyncGeneration;
     private Runnable personalDictionarySyncTask;
     /** 用户每复制一次就记进本机剪贴板历史；只在本服务（当前默认输入法）存活期间监听，关掉剪贴板历史或命中隐私规则时什么也不记。 */
-    private final ClipboardManager.OnPrimaryClipChangedListener clipboardWatcher =
-        () -> captureClipboard(ClipboardCapturePolicy.Trigger.COPIED, false);
+    private final ClipboardManager.OnPrimaryClipChangedListener clipboardWatcher = () -> {
+        captureClipboard(ClipboardCapturePolicy.Trigger.COPIED, false);
+        offerRecentClip(true);
+    };
     private long engineStartGeneration;
     private Runnable inputViewRefreshTask;
     final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
@@ -1210,6 +1220,8 @@ public final class MSIMEInputService extends InputMethodService {
             refreshLocalSettings();
             refreshPreferencesOnInputView();
             updateAutomaticCapitalization();
+            // 键盘进程不在时复制的那一条，监听收不到；弹出键盘时看一眼是不是刚复制的。
+            offerRecentClip(false);
             render();
         };
         main.postDelayed(inputViewRefreshTask, INPUT_VIEW_REFRESH_DELAY_MILLIS);
@@ -1289,6 +1301,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onDestroy() {
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
         if (clipboard != null) clipboard.removePrimaryClipChangedListener(clipboardWatcher);
+        main.removeCallbacks(recentClipExpiry);
         imeLetterRows.cancelBackspaceRepeat();
         cancelInputViewRefresh();
         engineStartGeneration++;
@@ -1578,6 +1591,7 @@ public final class MSIMEInputService extends InputMethodService {
         toolbarHidden = localSettings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
         clipboardColumns = ClipboardLayoutPolicy.columns(
             localSettings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS));
+        clipboardSuggestionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
         oneHandedMode = localSettings.choice(AndroidLocalSettings.ONE_HANDED);
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
@@ -2708,6 +2722,10 @@ public final class MSIMEInputService extends InputMethodService {
             && candidateHeader.getVisibility() == View.VISIBLE;
         if (shortcutScroll != null)
             setFixedHeight(shortcutScroll,
+                pixels((idleHeader ? 0 : ImeToolbar.READING_ROW_DP) + line));
+        // 「最近复制」占的是工具栏那一行的位置，同高，出现和消失时键盘不跳。
+        if (recentClipRow != null)
+            setFixedHeight(recentClipRow,
                 pixels((idleHeader ? 0 : ImeToolbar.READING_ROW_DP) + line));
     }
 
@@ -5197,6 +5215,45 @@ public final class MSIMEInputService extends InputMethodService {
             .putString(HANDLED_CLIP_KEY, identity).apply();
     }
 
+    /**
+     * 把系统剪贴板里刚复制的那一条交给工具栏的「最近复制」（#5692）。
+     *
+     * <p>`copiedNow` 为真时是复制监听：这一下就是用户刚复制的，系统给不出复制时刻也按现在算。为假时是弹出键盘时的补看：先只读剪贴板的描述（不读内容）看复制时刻，过了显示窗口就不读内容；读不到复制时刻时不提供，免得一条很久以前的内容被当成刚复制的。系统标为敏感的内容、开关关着、隐私模式和密码类输入框都不提供。
+     */
+    void offerRecentClip(boolean copiedNow) {
+        if (!clipboardSuggestionEnabled || !imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY)) return;
+        try {
+            ClipboardManager manager = getSystemService(ClipboardManager.class);
+            if (manager == null || !manager.hasPrimaryClip()) return;
+            long now = System.currentTimeMillis();
+            ClipDescription description = manager.getPrimaryClipDescription();
+            if (description == null) return;
+            long copiedAt = description.getTimestamp();
+            if (copiedAt <= 0 && copiedNow) copiedAt = now;
+            if (!RecentClipboardSuggestion.fresh(copiedAt, now)) return;
+            PrimaryClip clip = readPrimaryClip();
+            if (clip == null || clip.sensitive()) return;
+            recentClip.offer(clip.identity(), clip.text(), copiedAt);
+        } catch (SecurityException error) {
+            return;
+        }
+        // 弹出键盘时的补看紧跟着就会 render，这里只为复制监听重画。
+        if (copiedNow) render();
+    }
+
+    /** 点工具栏上的「最近复制」：粘贴它，这一条不再出现。 */
+    void pasteRecentClip() {
+        String text = recentClip.text(System.currentTimeMillis());
+        recentClip.dismiss();
+        if (text != null) insertClipboardText(text);
+        render();
+    }
+
+    void dismissRecentClip() {
+        recentClip.dismiss();
+        render();
+    }
+
     /** 用户删掉或清空历史后，把系统剪贴板里当前那一条记为已处理，下一次打开面板的补读就不会把它记回来。 */
     private void forgetCurrentClip() {
         try {
@@ -6115,6 +6172,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateRegion.addView(diagnosticView, KeyboardGeometry.matchWidthWrapParams());
         candidateRegion.addView(shortcutScroll, KeyboardGeometry.matchWidthHeightPx(
             pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
+        imeToolbar.addRecentClipRow(candidateRegion);
         nineKeySpellings = KeyboardGeometry.row(this);
         nineKeySpellingScroll = new HorizontalScrollView(this);
         nineKeySpellingScroll.setHorizontalScrollBarEnabled(false);
@@ -6840,8 +6898,18 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setVisible(candidateHeader, !heightMode && !hasDiagnostic && (!idle || modeLabel));
             if (idle && !modeLabel) announceIdleNotice(preferencesNotice);
         }
+        boolean toolbarRow = !heightMode && idle && !hasDiagnostic && !toolbarHidden;
+        // 开始打字就收起「最近复制」：用户已经在输入别的内容了。
+        if (!idle) recentClip.dismiss();
+        long nowMs = System.currentTimeMillis();
+        String recent = toolbarRow && !anyToolbarPanelOpen() && clipboardSuggestionEnabled
+            && connection != null && imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY)
+            ? recentClip.text(nowMs) : null;
+        imeToolbar.updateRecentClipRow(recent);
+        main.removeCallbacks(recentClipExpiry);
+        if (recent != null) main.postDelayed(recentClipExpiry, recentClip.remainingMs(nowMs) + 50);
         if (shortcutScroll != null)
-            ViewPolicy.setVisible(shortcutScroll, !heightMode && idle && !hasDiagnostic && !toolbarHidden);
+            ViewPolicy.setVisible(shortcutScroll, toolbarRow && recent == null);
         if (candidateLine != null)
             ViewPolicy.setVisible(candidateLine, !heightMode && !idle && !hasDiagnostic);
         if (replyKeyboard == null || replyKeyboard.getVisibility() != View.VISIBLE)

@@ -204,6 +204,52 @@ final class ImeToolbar {
         };
     }
 
+    /**
+     * 「最近复制」（#5692）：刚复制的文字占工具栏那一行，左边是文字本身（点按粘贴），右边是关闭。和工具栏同高，替换它显示，过了显示窗口、用过、关掉或开始打字后换回工具栏。
+     */
+    void addRecentClipRow(LinearLayout candidateRegion) {
+        LinearLayout row = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(row);
+        KeyboardGeometry.setPaddingDp(row, s, 6, 4, 2, 4);
+        row.setContentDescription("最近复制");
+        KeyboardPressButton paste = ViewPolicy.newPressButton(s);
+        paste.setKeyboardRole(KeyboardKeyRole.KEY);
+        ViewPolicy.setAllCapsFalse(paste);
+        ViewPolicy.setStartCenteredTextSizeSp(paste, 15);
+        ViewPolicy.setMaxLinesEllipsized(paste, 1);
+        KeyboardGeometry.setSymmetricPaddingDp(paste, s, 12, 0);
+        ViewPolicy.clearMinimumSize(paste);
+        ViewPolicy.clearStateListAnimator(paste);
+        bindToolbarAction(paste, s::pasteRecentClip);
+        row.addView(paste, KeyboardGeometry.weightedMatchParentParams(1));
+        KeyboardPressButton dismiss = ViewPolicy.newPressButton(s);
+        dismiss.setKeyboardRole(KeyboardKeyRole.GLYPH);
+        ViewPolicy.setAllCapsFalse(dismiss);
+        dismiss.setText("×");
+        KeyboardGeometry.setKeyTextSize(dismiss, 18);
+        ViewPolicy.clearMinimumSize(dismiss);
+        ViewPolicy.clearPadding(dismiss);
+        dismiss.setContentDescription("不再显示这条复制的内容");
+        bindToolbarAction(dismiss, s::dismissRecentClip);
+        row.addView(dismiss, KeyboardGeometry.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
+        ViewPolicy.hide(row);
+        s.recentClipRow = row;
+        s.recentClipButton = paste;
+        candidateRegion.addView(row, KeyboardGeometry.matchWidthHeightPx(
+            s.pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
+    }
+
+    /** 有内容时显示「最近复制」并换上它的预览，没有时藏起来。 */
+    void updateRecentClipRow(String text) {
+        if (s.recentClipRow == null || s.recentClipButton == null) return;
+        boolean visible = text != null;
+        ViewPolicy.setVisible(s.recentClipRow, visible);
+        if (!visible) return;
+        String preview = RecentClipboardSuggestion.preview(text);
+        if (!preview.contentEquals(s.recentClipButton.getText())) s.recentClipButton.setText(preview);
+        s.recentClipButton.setContentDescription("粘贴最近复制的内容：" + preview);
+    }
+
     /** 内联键盘高度条：调整时替换整行工具栏。 */
     void addInlineHeightBar(LinearLayout candidateRegion) {
         InlineHeightBar bar = new InlineHeightBar(s);
