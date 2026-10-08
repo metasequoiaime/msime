@@ -4124,7 +4124,7 @@ public final class MSIMEInputService extends InputMethodService {
             : preferences.optString("theme", "system");
         boolean dark = KeyboardSkin.resolveDark(surfaceMode, appMode, systemDark());
         String globalTheme = preferences == null ? "system"
-            : preferences.optString("global_theme", "system");
+            : InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONObject customTheme = preferences == null ? null
             : preferences.optJSONObject("custom_theme");
         return themeSkin(globalTheme, customTheme, dark);
@@ -4613,7 +4613,7 @@ public final class MSIMEInputService extends InputMethodService {
             expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             preferences = pending.getJSONObject("preferences");
-            String current = preferences.optString("global_theme", "system");
+            String current = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
             if (design == null) {
                 if (identifier.equals(current)) return;
                 preferences.put("global_theme", identifier);

@@ -18,6 +18,7 @@ import app.msime.android.R;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
 import app.msime.android.ViewPolicy;
+import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -82,7 +83,7 @@ final class KeyboardSheets {
      * 选中一个自定义设计：与键盘自己的皮肤面板（`MSIMEInputService.saveKeyboardSkin`）写法相同——原来显示的主题记进 `custom_theme.base` 并清掉 `candidate_skin`，设计写进 `custom_theme.keyboard`，`global_theme` 改成 `custom`；另外按 P23 写设计带的按键音包（静音不改音包）。按键动画和本地按键音开关不在共享偏好里，由 {@link #applyLocalFeedback} 另写。
      */
     static void applyDesign(JSONObject preferences, JSONObject design) throws JSONException {
-        String current = preferences.optString("global_theme", "system");
+        String current = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONObject customTheme = child(preferences, "custom_theme");
         if (!"custom".equals(current)) {
             customTheme.put("base", current);

@@ -15,6 +15,7 @@ import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.ViewPolicy;
+import app.msime.android.core.InputViewValuePolicy;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
@@ -58,7 +59,7 @@ public final class SkinsPage extends DetailPage {
     @Nullable private static Model read(Context context, boolean systemDark, String season) {
         JSONObject preferences = KeyboardSheets.preferences(context);
         if (preferences == null) return null;
-        String current = preferences.optString("global_theme", "system");
+        String current = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONArray catalog = HostStore.themeCatalog();
         List<Card> themes = new ArrayList<>(catalog.length());
         try {
