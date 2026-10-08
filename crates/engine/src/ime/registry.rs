@@ -523,6 +523,7 @@ fn fill_cantonese_candidates(
     if destination.len() > source.len() {
         destination.truncate(source.len());
     } else {
+        destination.reserve_exact(source.len() - destination.len());
         destination.extend(source[common..].iter().map(|candidate| {
             let mut item = WordItem::new(
                 &input[..candidate.end],
@@ -576,6 +577,9 @@ mod tests {
             registry.query_cantonese_scheme_into(&scheme, &mut direct);
             registry.query_cantonese_into(&request, &mut requested);
             assert_eq!(direct, requested, "输入：{raw}");
+            if raw == "nei" {
+                assert_eq!(requested.capacity(), requested.len());
+            }
         }
 
         // 预热字典及候选缓冲；请求路径的备用方案仍需复制一次输入。
