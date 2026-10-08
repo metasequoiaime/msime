@@ -828,7 +828,7 @@ final class ImeLayoutRows {
             return;
         }
         for (int extra = 1; extra < JapaneseNineKeyLayout.LONGEST_STROKE && s.view != null
-                && JapaneseNineKeyLayout.endsWithPendingRomaji(s.view.optString("reading", "")); extra++) {
+                && JapaneseNineKeyLayout.endsWithPendingRomaji(InputViewValuePolicy.text(s.view, "reading")); extra++) {
             if (!s.command(0)) return;
         }
     }
