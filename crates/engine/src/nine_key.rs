@@ -206,12 +206,14 @@ impl NineKeySession {
                 return KeyResult::unhandled();
             }
             let caret = self.caret_position();
-            self.unlock_from(caret);
-            if caret > self.locked_length() && !self.splits.contains(&caret) {
-                let at = self.splits.partition_point(|&split| split < caret);
-                self.splits.insert(at, caret);
-                self.refresh();
+            // 开头和锁定拼写之间的边界本来就是音节的分界，切分没有作用，锁定的拼写也不解除；只有切在一个锁定拼写中间时，才从那个音节起解除锁定，再记下切分。
+            if self.on_lock_boundary(caret) || self.splits.contains(&caret) {
+                return KeyResult::handled();
             }
+            self.unlock_from(caret);
+            let at = self.splits.partition_point(|&split| split < caret);
+            self.splits.insert(at, caret);
+            self.refresh();
             return KeyResult::handled();
         }
         if !(b'2'..=b'9').contains(&digit) {
@@ -247,6 +249,16 @@ impl NineKeySession {
 
     fn set_caret(&mut self, caret: usize) {
         self.caret = (caret < self.digits.len()).then_some(caret);
+    }
+
+    /// `position` 是开头，或者正好是某个锁定拼写的结尾。
+    fn on_lock_boundary(&self, position: usize) -> bool {
+        let mut end = 0;
+        position == 0
+            || self.locked.iter().any(|spelling| {
+                end += spelling.len();
+                end == position
+            })
     }
 
     /// 在 `position` 处改数字前，解除盖住它的锁定拼写和其后的全部锁定：改动之后那些拼写不一定还拼得出来。锁定少了，原来落在锁定范围里的切分（不会有，切分总在锁定之后）不受影响。解除的锁定连同撤销记录一起丢掉，数字保持锁定时的样子（拼写补齐的数字留着），不像退格撤销锁定那样换回键入的数字：光标位置是按现在的数字算的。首字母限定的是第一个未锁定的音节，锁定少了它的位置就变了，一并丢掉。
@@ -1045,9 +1057,8 @@ impl NineKeySession {
     fn consume(&mut self, count: usize) {
         let count = count.min(self.digits.len());
         self.digits.drain(..count);
-        if let Some(caret) = self.caret {
-            self.set_caret(caret.saturating_sub(count));
-        }
+        // 与全拼键盘相同（`session/commit.rs` 的 `commit`）：选中一行后光标回到末尾。改完中间的数字选掉前一个词，接着打的是下一个词，应接在剩下的数字后面，而不是插在它们中间。
+        self.caret = None;
         self.splits = self
             .splits
             .iter()
@@ -2833,7 +2844,7 @@ mod tests {
         );
         assert_eq!(session.snapshot().editing_text, "644426");
 
-        // 选掉前面一段后，光标跟着剩下的数字走。
+        // 选掉前面一段后光标回到末尾，接着打的数字接在剩下的数字后面。
         session.command(Command::Cancel);
         type_digits(&mut session, "64426");
         session.command(Command::MoveLeft);
@@ -2841,7 +2852,38 @@ mod tests {
         assert_eq!(ni.commit.as_deref(), Some("你"));
         let view = session.snapshot();
         assert_eq!(view.editing_text, "426");
-        assert_eq!(view.caret_position, 2);
+        assert_eq!(view.caret_position, 3);
+        type_digits(&mut session, "6");
+        assert_eq!(session.snapshot().editing_text, "4266");
+        session.command(Command::Cancel);
+
+        // 切在开头或锁定拼写之间的边界上没有作用，锁定的拼写都留着；切在锁定拼写中间时从那个音节起解除锁定。
+        type_digits(&mut session, "64426");
+        for spelling in ["ni", "hao"] {
+            let index = session
+                .snapshot()
+                .nine_key_spellings
+                .iter()
+                .position(|offered| offered == spelling)
+                .unwrap_or_else(|| panic!("{spelling} offered"));
+            session.choose_spelling(index);
+        }
+        assert_eq!(session.snapshot().preedit, "ni'hao");
+        let before = session.snapshot();
+        session.command(Command::MoveHome);
+        assert!(session.character(b'\'').handled);
+        session.command(Command::MoveRight);
+        session.command(Command::MoveRight);
+        assert!(session.character(b'\'').handled);
+        assert_eq!(session.locked, ["ni", "hao"]);
+        let after = session.snapshot();
+        assert_eq!(after.preedit, before.preedit);
+        assert_eq!(after.candidates, before.candidates);
+        assert_eq!(after.nine_key_reading, before.nine_key_reading);
+        session.command(Command::MoveRight);
+        assert!(session.character(b'\'').handled);
+        assert_eq!(session.locked, ["ni"]);
+        assert_eq!(session.snapshot().preedit, "ni'4'26");
     }
 
     /// #5613 的光标与左列的首字母、锁定的撤销记录和换选：退格只在光标在末尾时撤销最后一步，光标在中间时是在那里改字；改到锁定的拼写时撤销记录随锁定一起丢掉；取消把光标和这些状态一起复位。
@@ -2937,6 +2979,17 @@ mod tests {
         let view = session.snapshot();
         assert_eq!(view.preedit, "64");
         assert_eq!(view.caret_position, 2);
+        session.command(Command::Cancel);
+
+        // 左列的数字直接上屏第一位，与选中候选一样光标回到末尾。
+        type_digits(&mut session, "64426");
+        session.command(Command::MoveHome);
+        session.command(Command::MoveRight);
+        let result = session.choose_spelling(spelling_index(&session, "6"));
+        assert_eq!(result.commit.as_deref(), Some("6"));
+        let view = session.snapshot();
+        assert_eq!(view.editing_text, "4426");
+        assert_eq!(view.caret_position, 4);
     }
 
     #[test]
