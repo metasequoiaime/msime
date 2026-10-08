@@ -826,6 +826,23 @@ fn typing_at_a_caret_reuses_the_editing_text_length() {
     );
 }
 
+#[test]
+fn selecting_a_quanpin_candidate_clones_only_needed_request_fields() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.learning = false;
+        options.personal_context = false;
+    });
+    type_text(&mut session, "nihao");
+    let index = index_of(&session, "你好");
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.select(index));
+
+    assert_eq!(result.commit.as_deref(), Some("你好"));
+    assert_eq!(allocations, 36, "selection allocations: {allocations}");
+}
+
 /// The reported case: in mixed Wubi `jixu` is the wubi code of 曳光弹 and the pinyin of 继续. The fourth key must leave both on offer; without pinyin rows the same code still commits its one wubi row.
 #[test]
 fn a_four_letter_code_that_is_also_pinyin_stays_open_in_mixed_wubi() {

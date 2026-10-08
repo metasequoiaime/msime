@@ -3149,6 +3149,50 @@ const STALE_TEMPORARY_AGE: std::time::Duration = std::time::Duration::from_secs(
 /// Only files a day old are touched, and the age is what makes this safe rather than the lock: the
 /// statistics document stages its writes into this same directory under a lock of its own, so a
 /// sweep that went by name alone could delete a write that was in flight.
+#[cfg(unix)]
+fn sweep_stale_temporaries(directory: &Path) {
+    let Ok(directory) = crate::storage::open_private_directory(directory) else {
+        return;
+    };
+    let Ok(mut entries) = rustix::fs::Dir::read_from(&directory) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    while let Some(Ok(entry)) = entries.next() {
+        let name = entry.file_name();
+        if !name.to_bytes().starts_with(b".tmp") {
+            continue;
+        }
+        let Ok(fd) = rustix::fs::openat(
+            &directory,
+            name,
+            rustix::fs::OFlags::RDONLY
+                | rustix::fs::OFlags::NOFOLLOW
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::empty(),
+        ) else {
+            continue;
+        };
+        let file: File = fd.into();
+        let Ok(metadata) = file.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let abandoned = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= STALE_TEMPORARY_AGE);
+        if abandoned {
+            let _ = rustix::fs::unlinkat(&directory, name, rustix::fs::AtFlags::empty());
+        }
+    }
+}
+
+#[cfg(not(unix))]
 fn sweep_stale_temporaries(directory: &Path) {
     let Ok(entries) = std::fs::read_dir(directory) else {
         return;

@@ -165,7 +165,32 @@ fn sqlite_path_no_follow_with_parent_policy(
         let name = path.file_name().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "database path has no filename")
         })?;
-        Ok(std::fs::canonicalize(parent)?.join(name))
+        let resolved = std::fs::canonicalize(parent)?.join(name);
+        if let Ok(metadata) = std::fs::symlink_metadata(&resolved) {
+            let single_link = {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    metadata.nlink() == 1
+                }
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    metadata.number_of_links() == 1
+                }
+                #[cfg(not(any(unix, windows)))]
+                {
+                    true
+                }
+            };
+            if metadata.file_type().is_symlink() || !single_link {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "database is not a single-link regular file",
+                ));
+            }
+        }
+        Ok(resolved)
     }
 }
 
@@ -285,5 +310,19 @@ mod tests {
             paths.dictionary(assets::MAIN_DICTIONARY),
             paths.dictionaries.join("msime-pinyin.db")
         );
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn sqlite_paths_reject_hard_linked_databases() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = root.path().join("database.db");
+        let external = outside.path().join("database.db");
+        std::fs::write(&external, b"synthetic database").unwrap();
+        std::fs::hard_link(&external, &target).unwrap();
+
+        assert!(sqlite_path_no_follow(&target).is_err());
+        assert_eq!(std::fs::read(&external).unwrap(), b"synthetic database");
     }
 }

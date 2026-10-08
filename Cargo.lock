@@ -2767,6 +2767,7 @@ dependencies = [
  "unicode-general-category",
  "unicode-segmentation",
  "uuid",
+ "winapi-util",
  "zip",
  "zune-jpeg",
 ]
@@ -2848,6 +2849,7 @@ dependencies = [
  "unicode-segmentation",
  "vi",
  "wana_kana",
+ "winapi-util",
 ]
 
 [[package]]
