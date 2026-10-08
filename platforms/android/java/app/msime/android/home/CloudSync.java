@@ -347,35 +347,13 @@ public final class CloudSync {
             return SyncMergePolicy.withoutLocalOnly(map(merged));
         }
 
-        /** 把一份云端文档应用到本机：偏好由 client-core 按修订号保存，按键反馈、皮肤库和 Android 本地设置由这里写回各自的存储。 */
         private void apply(SyncApi.Preferences cloud) throws IOException, JSONException {
-            JSONObject request = new JSONObject()
-                .put("preferences_directory", directory)
-                .put("cloud", document(cloud.revision(), SyncMergePolicy.withoutLocalOnly(cloud.settings())))
-                .put("schema", schema)
-                .put("feedback", feedback());
-            JSONObject value = nativeValue(NativeClient.accountSettingsApply(request.toString()));
-            JSONObject applied = value.optJSONObject("feedback");
-            if (applied != null) {
-                KeyboardFeedbackStore.save(context, KeyboardFeedbackStore.fromValues(
-                    applied.opt("soundEnabled"), applied.opt("hapticsEnabled"),
-                    applied.opt("hapticStrength")));
-            }
-            if (value.opt("custom_keyboard_skins") instanceof String library) {
-                CustomSkinLibrary.importDesigns(Paths.get(directory), library);
-            }
-            JSONObject local = value.optJSONObject("android_local");
-            if (local != null) AndroidLocalSettings.applySynced(context, map(local));
-            JSONArray skipped = value.optJSONArray("skipped");
-            if (skipped != null && skipped.length() > 0) Log.i(TAG, "settings skipped on this device: " + skipped);
+            applySettings(context, directory,
+                document(cloud.revision(), SyncMergePolicy.withoutLocalOnly(cloud.settings())), schema);
         }
 
         private JSONObject feedback() throws JSONException {
-            KeyboardFeedbackStore.Settings settings = KeyboardFeedbackStore.load(context);
-            return new JSONObject()
-                .put("soundEnabled", settings.soundEnabled())
-                .put("hapticsEnabled", settings.hapticsEnabled())
-                .put("hapticStrength", settings.hapticStrength().id());
+            return hostFeedback(context);
         }
 
         // ---- 常用语 ----
@@ -566,17 +544,11 @@ public final class CloudSync {
         }
 
         private String hostOptions() throws IOException {
-            File files = context.getFilesDir();
-            if (files == null) throw new IOException("private files unavailable");
-            return HostOptionsPolicy.read(new File(files, "runtime-options.json"));
+            return CloudSync.hostOptions(context);
         }
 
         private int userWordCount() throws IOException, JSONException {
-            JSONObject value = nativeValue(NativeClient.dictionary(new JSONObject()
-                .put("options", new JSONObject(hostOptions()))
-                .put("action", new JSONObject().put("operation", "count").put("user_only", true)).toString()));
-            Integer count = DictionaryCollectionsStore.nonNegativeInteger(value.opt("count"));
-            return count == null ? 0 : count;
+            return CloudSync.userWordCount(context);
         }
 
         private int pendingQueueCount() throws IOException, JSONException {
@@ -589,55 +561,134 @@ public final class CloudSync {
         }
 
         private void exportSnapshot(Path destination) throws IOException, JSONException {
-            Files.deleteIfExists(destination);
-            nativeValue(NativeClient.dictionary(new JSONObject()
-                .put("options", new JSONObject(hostOptions()))
-                .put("action", new JSONObject().put("operation", "export_snapshot")
-                    .put("destination", destination.toAbsolutePath().toString())).toString()));
+            exportDictionarySnapshot(context, destination);
         }
 
         /** 下载的快照交给现有的激活队列，键盘下次没有会话时整份激活。 */
         private void enqueueSnapshot(Path file, long revision) throws IOException, DictionarySnapshotQueue.Failure {
-            File files = context.getFilesDir();
-            if (files == null) throw new IOException("private files unavailable");
-            Path root = files.toPath().toAbsolutePath().normalize();
-            DictionarySnapshotQueue queue = new DictionarySnapshotQueue(root, root.resolve(QUEUE_PATH));
-            String localVersion = queue.read().localVersion();
-            if (localVersion == null) throw new IOException("keyboard has not published a dictionary version yet");
-            queue.enqueue(file.toAbsolutePath(), SyncSwitch.accountId(context), revision, localVersion, DigestPolicy.sha256Hex(file));
+            enqueueDictionarySnapshot(context, file, SyncSwitch.accountId(context), revision);
         }
 
-        /** 「合并」：把云端的词经个人词库队列导入本机，键盘下次开会话时应用。整批被拒时逐条再试，坏的那条跳过。 */
+        /** 「合并」：把云端的词经个人词库队列导入本机，键盘下次开会话时应用。 */
         private void importWords(List<SyncMergePolicy.Word> words) throws IOException, JSONException {
-            String options = hostOptions();
-            for (List<SyncMergePolicy.Word> batch : SyncMergePolicy.batches(words, SyncMergePolicy.PERSONAL_IMPORT_BATCH)) {
-                if (queueImport(options, batch)) continue;
-                for (SyncMergePolicy.Word word : batch) {
-                    if (!queueImport(options, List.of(word))) Log.w(TAG, "cloud word skipped during merge");
-                }
-            }
+            int skipped = queueWords(context, words, "cloud-merge-");
+            if (skipped > 0) Log.w(TAG, skipped + " cloud words skipped during merge");
         }
+    }
 
-        private boolean queueImport(String options, List<SyncMergePolicy.Word> words) throws JSONException {
-            JSONArray entries = new JSONArray();
-            for (SyncMergePolicy.Word word : words) {
-                entries.put(new JSONObject().put("kind", word.kind()).put("key", word.key())
-                    .put("value", word.value()).put("weight", word.weight()));
-            }
-            String file = new JSONObject().put("format", "msime-personal-dictionary").put("version", 1)
-                .put("entries", entries).toString();
-            JSONObject response = new JSONObject(NativeClient.personalDictionaryRequest(new JSONObject()
-                .put("options", new JSONObject(options))
-                .put("action", new JSONObject().put("operation", "import_personal").put("text", file)
-                    .put("request_id", "cloud-merge-" + UUID.randomUUID())).toString()));
-            return JsonPolicy.strictTrue(response.opt("ok"));
+    // ---- 设置文档（云同步和本地备份共用） ----
+
+    /** 把一份设置文档（`{revision, settings}`）应用到本机：偏好由 client-core 按修订号保存，按键反馈、皮肤库和 Android 本地设置由这里写回各自的存储。`schema` 是服务端的字段表；本地备份恢复时是按备份里的值声明的字段表（{@link LocalBackup}）。 */
+    static void applySettings(Context context, String directory, JSONObject document, JSONObject schema)
+            throws IOException, JSONException {
+        JSONObject request = new JSONObject()
+            .put("preferences_directory", directory)
+            .put("cloud", document)
+            .put("schema", schema)
+            .put("feedback", hostFeedback(context));
+        JSONObject value = nativeValue(NativeClient.accountSettingsApply(request.toString()));
+        JSONObject applied = value.optJSONObject("feedback");
+        if (applied != null) {
+            KeyboardFeedbackStore.save(context, KeyboardFeedbackStore.fromValues(
+                applied.opt("soundEnabled"), applied.opt("hapticsEnabled"),
+                applied.opt("hapticStrength")));
         }
+        if (value.opt("custom_keyboard_skins") instanceof String library) {
+            CustomSkinLibrary.importDesigns(Paths.get(directory), library);
+        }
+        JSONObject local = value.optJSONObject("android_local");
+        if (local != null) AndroidLocalSettings.applySynced(context, map(local));
+        JSONArray skipped = value.optJSONArray("skipped");
+        if (skipped != null && skipped.length() > 0) Log.i(TAG, "settings skipped on this device: " + skipped);
+    }
+
+    /** 宿主当前的按键反馈，设置文档的导出和应用都要带上它。 */
+    static JSONObject hostFeedback(Context context) throws JSONException {
+        KeyboardFeedbackStore.Settings settings = KeyboardFeedbackStore.load(context);
+        return new JSONObject()
+            .put("soundEnabled", settings.soundEnabled())
+            .put("hapticsEnabled", settings.hapticsEnabled())
+            .put("hapticStrength", settings.hapticStrength().id());
+    }
+
+    // ---- 个人词库（云同步和本地备份共用） ----
+
+    /** 本机的宿主选项（`runtime-options.json`），词库操作都要带上它。 */
+    static String hostOptions(Context context) throws IOException {
+        File files = context.getFilesDir();
+        if (files == null) throw new IOException("private files unavailable");
+        return HostOptionsPolicy.read(new File(files, "runtime-options.json"));
+    }
+
+    /** 把本机个人词库写成云端快照格式的 NDJSON（`export_snapshot`），返回快照的元数据（`entries` 是词数）：云同步上传和本地备份（{@link LocalBackup}）都用它。 */
+    static JSONObject exportDictionarySnapshot(Context context, Path destination) throws IOException, JSONException {
+        Files.deleteIfExists(destination);
+        return nativeValue(NativeClient.dictionary(new JSONObject()
+            .put("options", new JSONObject(hostOptions(context)))
+            .put("action", new JSONObject().put("operation", "export_snapshot")
+                .put("destination", destination.toAbsolutePath().toString())).toString()));
+    }
+
+    /** 本机用户词库里的词数（不含内置词库）。 */
+    static int userWordCount(Context context) throws IOException, JSONException {
+        JSONObject value = nativeValue(NativeClient.dictionary(new JSONObject()
+            .put("options", new JSONObject(hostOptions(context)))
+            .put("action", new JSONObject().put("operation", "count").put("user_only", true)).toString()));
+        Integer count = DictionaryCollectionsStore.nonNegativeInteger(value.opt("count"));
+        return count == null ? 0 : count;
+    }
+
+    /** 把一份词库快照交给激活队列，键盘下次没有会话时用它整份替换用户词库。键盘还没发布过本机词库版本时抛 IOException。`owner` 是请求的来源：云同步是账号 id，本地备份是固定的标记。 */
+    static void enqueueDictionarySnapshot(Context context, Path file, String owner, long revision)
+            throws IOException, DictionarySnapshotQueue.Failure {
+        File files = context.getFilesDir();
+        if (files == null) throw new IOException("private files unavailable");
+        Path root = files.toPath().toAbsolutePath().normalize();
+        DictionarySnapshotQueue queue = new DictionarySnapshotQueue(root, root.resolve(QUEUE_PATH));
+        String localVersion = queue.read().localVersion();
+        if (localVersion == null) throw new IOException("keyboard has not published a dictionary version yet");
+        queue.enqueue(file.toAbsolutePath(), owner, revision, localVersion, DigestPolicy.sha256Hex(file));
+    }
+
+    /**
+     * 经个人词库队列导入一批词，键盘下次开会话时应用；已有的词由队列合并，不会重复。整批被拒时逐条再试，坏的那条跳过。云同步的「合并」和本地备份的恢复都用它。
+     *
+     * @param requestPrefix 队列请求 id 的前缀，区分来源（只进日志）
+     * @return 没能排进队列的词数
+     */
+    static int queueWords(Context context, List<SyncMergePolicy.Word> words, String requestPrefix)
+            throws IOException, JSONException {
+        String options = hostOptions(context);
+        int skipped = 0;
+        for (List<SyncMergePolicy.Word> batch : SyncMergePolicy.batches(words, SyncMergePolicy.PERSONAL_IMPORT_BATCH)) {
+            if (queueImport(options, batch, requestPrefix)) continue;
+            for (SyncMergePolicy.Word word : batch) {
+                if (!queueImport(options, List.of(word), requestPrefix)) skipped++;
+            }
+        }
+        return skipped;
+    }
+
+    private static boolean queueImport(String options, List<SyncMergePolicy.Word> words, String requestPrefix)
+            throws JSONException {
+        JSONArray entries = new JSONArray();
+        for (SyncMergePolicy.Word word : words) {
+            entries.put(new JSONObject().put("kind", word.kind()).put("key", word.key())
+                .put("value", word.value()).put("weight", word.weight()));
+        }
+        String file = new JSONObject().put("format", "msime-personal-dictionary").put("version", 1)
+            .put("entries", entries).toString();
+        JSONObject response = new JSONObject(NativeClient.personalDictionaryRequest(new JSONObject()
+            .put("options", new JSONObject(options))
+            .put("action", new JSONObject().put("operation", "import_personal").put("text", file)
+                .put("request_id", requestPrefix + UUID.randomUUID())).toString()));
+        return JsonPolicy.strictTrue(response.opt("ok"));
     }
 
     // ---- JSON 小工具 ----
 
     /** client-core 的标准响应 `{ok, value, error}`：失败时抛出，信息只进日志。 */
-    private static JSONObject nativeValue(String response) throws JSONException {
+    static JSONObject nativeValue(String response) throws JSONException {
         JSONObject root = new JSONObject(response == null ? "" : response);
         if (!JsonPolicy.strictTrue(root.opt("ok")))
             throw new IllegalStateException(root.optString("error", "native call failed"));
@@ -655,7 +706,7 @@ public final class CloudSync {
         return document.getJSONObject("settings");
     }
 
-    private static Map<String, Object> map(JSONObject settings) {
+    static Map<String, Object> map(JSONObject settings) {
         LinkedHashMap<String, Object> result = new LinkedHashMap<>(settings.length());
         Iterator<String> keys = settings.keys();
         while (keys.hasNext()) {

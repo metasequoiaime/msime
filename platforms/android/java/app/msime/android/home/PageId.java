@@ -61,6 +61,8 @@ public enum PageId {
         "保留时长", "最近", "清空"),
     PROFILE("ProfilePage", "个人资料", HostDeepLink.TAB_ACCOUNT,
         "账号", "昵称", "水杉 ID", "邮箱", "登录方式", "关联", "云端数据", "导出我的数据", "退出登录", "注销账号"),
+    BACKUP("BackupPage", "备份与恢复", HostDeepLink.TAB_ACCOUNT,
+        "导出备份", "从备份恢复", "导入数据", "导出数据", "本地备份", "换手机"),
     DEVICES("DevicesPage", "我的设备", HostDeepLink.TAB_ACCOUNT,
         "设备"),
     PRIVACY("PrivacyPage", "隐私", HostDeepLink.TAB_ACCOUNT,
