@@ -1179,6 +1179,8 @@ final class ImeLayoutRows {
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.PLAIN);
         KeyboardGeometry.setKeyTextSize(key, 14);
         ViewPolicy.setSingleLine(key);
+        // 最长的拼音（zhuang、shuang）在窄侧栏里等比缩小字号放下，而不是被侧栏边缘切掉（#5591）。
+        ViewPolicy.setAutoSizeSp(key, 9, 14, 1);
         ViewPolicy.clearMinimumHeight(key);
         ViewPolicy.setHorizontalPadding(key, s.pixels(2));
         key.setLayoutParams(KeyboardGeometry.matchWidthHeightPx(s.pixels(SPELLING_ROW_DP)));

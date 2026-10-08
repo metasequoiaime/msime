@@ -2818,19 +2818,29 @@ public final class MSIMEInputService extends InputMethodService {
             candidateOfflineTargets());
     }
 
-    private void updateCandidateViewportHeight() {
+    void updateCandidateViewportHeight() {
         if (candidateLine == null) return;
         // 42 dp 的候选行容下候选字、一行释义和选中 chip 的留白；第二行起每行再加高一些。
         int reserved = CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows());
         int extraRows = BoundsPolicy.nonNegative(reserved - 1);
         int line = ImeToolbar.CANDIDATE_LINE_DP + extraRows * ImeToolbar.EXTRA_GLOSS_ROW_DP;
         setFixedHeight(candidateLine, pixels(line));
-        // 空闲时的工具栏和组词时的读音行 + 候选行占同一个位置，两者同高，打字时键盘才不会变高。空闲时读音行若在显示常驻的模式标签（直接输入、准备中），它已经占了那 14 dp，工具栏只取候选行的高度，总高不变。
+        // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加高，见 ReadingRowPolicy。
+        int readingRow = readingRowHeight();
+        if (candidateHeader != null) setFixedHeight(candidateHeader, readingRow);
+        // 空闲时的工具栏和组词时的读音行 + 候选行占同一个位置，两者同高，打字时键盘才不会变高。空闲时读音行若在显示常驻的模式标签（直接输入、准备中），它已经占了读音行那一截，工具栏只取候选行的高度，总高不变。
         boolean idleHeader = candidateHeader != null
             && candidateHeader.getVisibility() == View.VISIBLE;
         if (shortcutScroll != null)
-            setFixedHeight(shortcutScroll,
-                pixels((idleHeader ? 0 : ImeToolbar.READING_ROW_DP) + line));
+            setFixedHeight(shortcutScroll, (idleHeader ? 0 : readingRow) + pixels(line));
+    }
+
+    private int readingRowHeight() {
+        int design = pixels(ImeToolbar.READING_ROW_DP);
+        if (preedit == null) return design;
+        Paint.FontMetricsInt metrics = preedit.getPaint().getFontMetricsInt();
+        return ReadingRowPolicy.heightPx(design, metrics.ascent, metrics.descent,
+            preedit.getPaddingTop() + preedit.getPaddingBottom());
     }
 
     private static void setFixedHeight(View view, int height) {
