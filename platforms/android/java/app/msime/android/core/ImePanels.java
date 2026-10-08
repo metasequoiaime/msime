@@ -41,7 +41,7 @@ final class ImePanels {
 
     void showLocalInputMenu() {
         if (s.preedit == null || !s.supportsLocalTools() || s.view == null
-                || !s.view.optString("editing_text", "").isEmpty()
+                || !JsonPolicy.strictStringOrEmpty(s.view.opt("editing_text")).isEmpty()
                 || !"none".equals(JsonPolicy.strictStringOrEmpty(s.view.opt("local_mode")))) return;
         PopupMenu popup = new PopupMenu(s, s.preedit);
         for (LocalInputMode mode : s.localInputModes()) {
