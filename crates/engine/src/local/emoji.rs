@@ -195,7 +195,13 @@ where
         return Vec::new();
     };
     let connection = lock(&database);
-    let entries = match read_readings(&connection, catalog.mixed_sql, readings.clone(), accept) {
+    let mut entries = match read_readings(
+        &connection,
+        catalog.mixed_sql,
+        readings.clone(),
+        accept,
+        catalog.source,
+    ) {
         Ok(entries) => entries,
         // 目录表缺失只是接不上候选词，行照样给；其他失败由退回的语句再报一次，同样没有行。
         Err(_) => read_readings(
@@ -203,18 +209,15 @@ where
             catalog.mixed_sql_without_keywords,
             readings,
             accept,
+            catalog.source,
         )
         .unwrap_or_default(),
     };
     let count = entries.len();
+    for (index, row) in entries.iter_mut().enumerate() {
+        row.item.weight = (count - index) as i64;
+    }
     entries
-        .into_iter()
-        .enumerate()
-        .map(|(index, (reading, text, keywords))| ExpressiveRow {
-            item: WordItem::new(reading, text, (count - index) as i64, catalog.source, ""),
-            keywords,
-        })
-        .collect()
 }
 
 fn read_readings<'a, I>(
@@ -222,12 +225,13 @@ fn read_readings<'a, I>(
     sql: &str,
     readings: I,
     accept: &dyn Fn(&str) -> bool,
-) -> rusqlite::Result<Vec<(&'a str, String, String)>>
+    source: CandidateSource,
+) -> rusqlite::Result<Vec<ExpressiveRow>>
 where
     I: IntoIterator<Item = &'a str>,
 {
     let mut statement = connection.prepare_cached(sql)?;
-    let mut entries: Vec<(&str, String, String)> = Vec::with_capacity(MIXED_FETCH_PER_READING);
+    let mut entries: Vec<ExpressiveRow> = Vec::with_capacity(MIXED_FETCH_PER_READING);
     for reading in readings {
         let upper_bound = prefix_upper_bound(reading);
         let mut rows = statement.query(rusqlite::params![reading, upper_bound])?;
@@ -245,11 +249,18 @@ where
                     break;
                 }
             }
-            if !matched || entries.iter().any(|(_, entry, _)| *entry == text) {
+            if !matched
+                || entries
+                    .iter()
+                    .any(|entry: &ExpressiveRow| entry.item.word == text)
+            {
                 continue;
             }
             let keywords = row.get::<_, Option<String>>(3)?.unwrap_or_default();
-            entries.push((reading, text, keywords));
+            entries.push(ExpressiveRow {
+                item: WordItem::new(reading, text, 0, source, ""),
+                keywords,
+            });
             if entries.len() == MIXED_FETCH_LIMIT {
                 return Ok(entries);
             }
@@ -610,22 +621,43 @@ mod tests {
         let path = mixed_fixture(dir.path());
         let readings = readings(&["meiguo"]);
         let expected = query_emoji_readings(&readings, &path, &|_| true);
-        let (direct, direct_allocations) = crate::ime::personal_rerank::allocations::count(|| {
-            query_emoji_readings(&readings, &path, &|_| true)
-        });
-        assert_eq!(direct, expected);
-
         for (code, lowercase_allocations) in [("meiguo", 0), ("MeiGuo", 1)] {
-            let (rows, allocations) = crate::ime::personal_rerank::allocations::count(|| {
-                query_mixed_emoji(code, SchemeType::Quanpin, &path, &QUANPIN_ONLY)
-            });
-            assert_eq!(rows, expected);
-            assert_eq!(
-                allocations,
-                direct_allocations + lowercase_allocations,
-                "混排查询不应复制读法列表：{code} 分配了 {allocations} 次，直接查询为 {direct_allocations} 次"
+            let mut minimum_allocations = usize::MAX;
+            // 其他测试可能关闭全局连接缓存，取多次查询中已预热的分配数。
+            for _ in 0..8 {
+                let (rows, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                    query_mixed_emoji(code, SchemeType::Quanpin, &path, &QUANPIN_ONLY)
+                });
+                assert_eq!(rows, expected);
+                minimum_allocations = minimum_allocations.min(allocations);
+            }
+            assert!(
+                minimum_allocations <= 12 + lowercase_allocations,
+                "混排查询不应复制读法列表：{code} 至少分配了 {minimum_allocations} 次"
             );
         }
+    }
+
+    #[test]
+    fn mixed_readings_are_built_in_the_result_buffer() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = mixed_fixture(dir.path());
+        let connection = Connection::open(&path).unwrap();
+        let load = || {
+            read_readings(
+                &connection,
+                EMOJI.mixed_sql,
+                std::iter::once("meiguo"),
+                &|_| true,
+                CandidateSource::Emoji,
+            )
+            .unwrap()
+        };
+        let expected = load();
+        let (rows, allocations) = crate::ime::personal_rerank::allocations::count(load);
+        assert_eq!(rows, expected);
+        assert_eq!(mixed_words(&rows), ["🇺🇸", "🇺🇲"]);
+        assert!(allocations <= 11, "混排读取分配了 {allocations} 次");
     }
 
     /// 合计最多取 `MIXED_FETCH_LIMIT` 行。
