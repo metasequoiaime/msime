@@ -371,6 +371,7 @@ final class ImeLayoutRows {
                         return true;
                     });
                 }
+                if (!digits) bindNineKeySwipe(keyButton, key);
                 addNineKey(row, keyButton);
             }
             grid.addView(row, KeyboardGeometry.weightedWidthParams(1));
@@ -628,6 +629,76 @@ final class ImeLayoutRows {
         if (s.strokeWildcardKey == null) return;
         ViewPolicy.setEnabled(s.strokeWildcardKey,
             StrokeKeyboardLayout.sends(StrokeKeyboardLayout.WILDCARD, s.hasEngineComposition()));
+    }
+
+    /**
+     * 拼音九键网格键的滑动（#5580，规则见 {@link NineKeySwipePolicy}）：沿「滑动输入符号」的方向滑过阈值，键面换成数字、松手上屏这个数字；往反方向滑，弹出和长按一样的数字与字母选项。按下时不拦截，没滑过阈值时点按和长按照常由按钮自己处理；滑过阈值的那一刻给按钮补一个 CANCEL，它就不会再点按或长按。长按选项已经弹出时不再判定滑动。
+     */
+    private void bindNineKeySwipe(NineKeyDigitButton keyButton, NineKeyLayout.Key key) {
+        final float[] downY = new float[1];
+        final NineKeySwipePolicy.Gesture[] gesture = {NineKeySwipePolicy.Gesture.NONE};
+        final String face = keyButton.getText().toString();
+        final String digit = NineKeyLayout.digitInput(key);
+        final boolean hasLetters = Character.isDigit(key.input()) && key.label().length() > 1;
+        Runnable restoreFace = () -> {
+            keyButton.setText(face);
+            keyButton.setDigitText(Character.isDigit(key.input()) ? digit : "");
+        };
+        keyButton.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    downY[0] = KeyboardGeometry.fromPixels(s, event.getY());
+                    gesture[0] = NineKeySwipePolicy.Gesture.NONE;
+                    return false;
+                }
+                case MotionEvent.ACTION_MOVE -> {
+                    if (gesture[0] != NineKeySwipePolicy.Gesture.NONE) return true;
+                    if (s.nineKeyHoldPopup != null) return false;
+                    NineKeySwipePolicy.Gesture next = NineKeySwipePolicy.gesture(
+                        s.localSettings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS),
+                        s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION), downY[0],
+                        KeyboardGeometry.fromPixels(s, event.getY()), hasLetters);
+                    if (next == NineKeySwipePolicy.Gesture.NONE) return false;
+                    gesture[0] = next;
+                    MotionEvent cancel = MotionEvent.obtain(event);
+                    cancel.setAction(MotionEvent.ACTION_CANCEL);
+                    keyButton.onTouchEvent(cancel);
+                    cancel.recycle();
+                    if (next == NineKeySwipePolicy.Gesture.LETTERS) {
+                        // 和长按一样：这一下是这个键的一次按压，之后从弹窗里选的不是另一次按键。
+                        s.countKey(keyButton);
+                        showNineKeyHoldOptions(keyButton, key);
+                    } else {
+                        keyButton.setPressed(true);
+                        keyButton.setText(digit);
+                        keyButton.setDigitText("");
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_UP -> {
+                    NineKeySwipePolicy.Gesture done = gesture[0];
+                    gesture[0] = NineKeySwipePolicy.Gesture.NONE;
+                    if (done == NineKeySwipePolicy.Gesture.NONE) return false;
+                    if (done == NineKeySwipePolicy.Gesture.DIGIT) {
+                        keyButton.setPressed(false);
+                        restoreFace.run();
+                        s.imeKeyFeedback.playFeedback(keyButton);
+                        s.countKey(keyButton);
+                        commitNineKeyLiteral(digit);
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_CANCEL -> {
+                    if (gesture[0] == NineKeySwipePolicy.Gesture.DIGIT) {
+                        keyButton.setPressed(false);
+                        restoreFace.run();
+                    }
+                    gesture[0] = NineKeySwipePolicy.Gesture.NONE;
+                    return false;
+                }
+                default -> { return gesture[0] != NineKeySwipePolicy.Gesture.NONE; }
+            }
+        });
     }
 
     /** Show the digit and literal letters printed on a nine-key key, like Apple's hold popup. */

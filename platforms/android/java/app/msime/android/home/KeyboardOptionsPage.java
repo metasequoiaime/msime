@@ -131,7 +131,7 @@ public final class KeyboardOptionsPage extends DetailPage {
 
         GroupCard gestures = GroupCard.add(target, "手势");
         boolean swipeSymbols = settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS);
-        gestures.toggle("滑动输入符号", "在字母键上滑动，输入角标符号；长按字母键始终可以输入", swipeSymbols,
+        gestures.toggle("滑动输入符号", "在 26 键字母键上滑动输入角标符号，在九键上滑动输入数字、往反方向滑动弹出字母；长按始终可以输入", swipeSymbols,
             checked -> saveLocal(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
         String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
         GroupCard.Row directionRow = gestures.nav("滑动方向", null,
