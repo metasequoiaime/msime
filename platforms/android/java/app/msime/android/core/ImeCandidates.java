@@ -175,7 +175,7 @@ final class ImeCandidates {
         String text = s.chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = s.candidatePanelSnapshot == null ? ""
-            : s.candidatePanelSnapshot.optString("preedit", "");
+            : InputViewValuePolicy.textOr(s.candidatePanelSnapshot, "preedit", "");
         String annotation = s.candidateAnnotation(candidate, typed);
         button.setText(s.candidateLabel("", text, annotation, highlighted));
         int labelLines = MSIMEInputService.candidateLabelLines(annotation);
@@ -277,7 +277,7 @@ final class ImeCandidates {
         int count = entries == null ? 0 : entries.length();
         String reading = InputViewValuePolicy.textOr(s.candidatePanelSnapshot, "reading", "");
         String compositionText = reading.isEmpty()
-            ? s.candidatePanelSnapshot.optString("preedit", "") : reading;
+            ? InputViewValuePolicy.textOr(s.candidatePanelSnapshot, "preedit", "") : reading;
         // 设计的网格不画标题；组合文本和候选总数留在网格的描述里给读屏。
         CandidateWrapLayout list = new CandidateWrapLayout(s, s.pixels(6));
         list.setContentDescription("完整候选列表；" + compositionText + "；" + count + " 个候选");
