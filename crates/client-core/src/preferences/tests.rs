@@ -1392,15 +1392,8 @@ fn global_theme_ids_round_trip_and_reject_unknown_ids() {
     use crate::skin::theme::GlobalTheme;
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    // 新安装：桌面跟随系统，触屏构建用薄荷晨光自定义主题（#2178）。
-    assert_eq!(
-        Preferences::default().global_theme,
-        if TOUCH_KEYBOARD_BUILD {
-            GlobalTheme::Custom
-        } else {
-            GlobalTheme::System
-        }
-    );
+    // 新安装在所有构建上都跟随系统。
+    assert_eq!(Preferences::default().global_theme, GlobalTheme::System);
     for (revision, global_theme) in GlobalTheme::ALL.into_iter().enumerate() {
         let preferences = Preferences {
             global_theme,
@@ -2884,23 +2877,12 @@ fn candidate_font_size_bounds_are_strict() {
     assert_eq!(initial.preferences.candidate_font_size, 18);
     assert_eq!(initial.preferences.candidate_preedit_font_size, 15);
     assert_eq!(initial.preferences.candidate_page_size, 6);
-    // 新安装：桌面跟随系统，触屏构建用薄荷晨光自定义主题（#2178）。
-    if TOUCH_KEYBOARD_BUILD {
-        assert_eq!(
-            initial.preferences.global_theme,
-            crate::skin::theme::GlobalTheme::Custom
-        );
-        assert_eq!(
-            initial.preferences.custom_theme.keyboard,
-            Some(TouchKeyboardSkinDesign::mint_morning())
-        );
-    } else {
-        assert_eq!(
-            initial.preferences.global_theme,
-            crate::skin::theme::GlobalTheme::System
-        );
-        assert_eq!(initial.preferences.custom_theme, CustomTheme::default());
-    }
+    // 新安装在所有构建上都跟随系统，自定义主题为空。
+    assert_eq!(
+        initial.preferences.global_theme,
+        crate::skin::theme::GlobalTheme::System
+    );
+    assert_eq!(initial.preferences.custom_theme, CustomTheme::default());
     assert_eq!(initial.preferences.theme, ThemeMode::System);
     assert_eq!(initial.preferences.candidate_font_family, "Noto Sans SC");
     assert_eq!(
@@ -4014,23 +3996,12 @@ fn mint_morning_is_the_community_design_and_a_valid_custom_theme() {
         ..Preferences::default()
     };
     assert!(preferences.validate().is_ok());
-    // 桌面构建的新安装跟随系统；触屏构建（Android、iOS、鸿蒙）的新安装用薄荷晨光自定义主题。两种构建都要能编译并跑这条测试，client-core 的单测在 Android 模拟器上整套运行（`platforms/android/tests/device/run-core-test.sh`）。
-    if TOUCH_KEYBOARD_BUILD {
-        assert_eq!(
-            Preferences::default().global_theme,
-            crate::skin::theme::GlobalTheme::Custom
-        );
-        assert_eq!(
-            Preferences::default().custom_theme.keyboard,
-            Some(TouchKeyboardSkinDesign::mint_morning())
-        );
-    } else {
-        assert_eq!(
-            Preferences::default().global_theme,
-            crate::skin::theme::GlobalTheme::System
-        );
-        assert_eq!(Preferences::default().custom_theme, CustomTheme::default());
-    }
+    // 薄荷晨光不再是触屏构建的默认值：新安装在桌面和触屏构建（Android、iOS、鸿蒙）上都跟随系统，自定义主题为空。client-core 的单测也在 Android 模拟器上整套运行（`platforms/android/tests/device/run-core-test.sh`），两种构建都要守住这一点。
+    assert_eq!(
+        Preferences::default().global_theme,
+        crate::skin::theme::GlobalTheme::System
+    );
+    assert_eq!(Preferences::default().custom_theme, CustomTheme::default());
 }
 
 #[test]
@@ -4477,7 +4448,7 @@ fn every_credential_like_preference_field_is_listed() {
         .iter()
         .map(|(path, _)| *path)
         .collect();
-    // 键盘皮肤只在触屏构建的默认值里有，桌面默认是 `None`；两种构建都填上它，扫描才覆盖得到这一段字段。
+    // 默认值里没有键盘皮肤（`None`），填上一份，扫描才覆盖得到这一段字段。
     let mut scanned = Preferences::default();
     scanned.custom_theme.keyboard = Some(TouchKeyboardSkinDesign::mint_morning());
     let document = serde_json::to_value(with_every_credential(scanned)).unwrap();

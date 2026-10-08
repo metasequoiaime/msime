@@ -132,7 +132,7 @@ public final class DiagnosticsApi {
 
     /** `GET` 的回答；`snapshot` 为 null 表示云端没有快照。 */
     public record State(Snapshot snapshot, List<Access> accesses) {
-        public static final State EMPTY = new State(null, Collections.emptyList());
+        public static final State EMPTY = new State(null, ListPolicy.copyOrEmpty(null));
     }
 
     private final CloudApi api;

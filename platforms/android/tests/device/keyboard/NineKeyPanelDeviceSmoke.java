@@ -80,7 +80,8 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             tap(described("候选面板 删除"));
             await(described(PANEL));
             await(inPanel(described("选择拼音 ba")));
-            awaitGone(inPanel(described("选择拼音 bai")));
+            // 删掉的是数字：读音从 ning'224 变成 ning'22（显示为 ning'ba）。拼音栏现在也列出以这两个数字开头的更长音节（ba、bai、ban…），所以不能再用「bai 消失」来判断。
+            await(imeTextContains("ning'ba"));
 
             stage = "single-character filter";
             tap(inPanel(described("只显示单字")));
@@ -145,7 +146,7 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             if (!present) return;
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new AssertionError("Synthetic UI state did not go away");
+        throw new AssertionError("Synthetic UI state did not go away; IME showed " + imeTexts());
     }
 
     private void restartIme() throws Exception {

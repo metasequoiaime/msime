@@ -37,11 +37,11 @@ final class MorePanelFoldTests: XCTestCase {
   /// 先是设计稿里的各项，再是在别处没有位置的 iOS 工具；振动相关的项只在有 Taptic Engine 的设备上出现。
   private var expectedTitles: [String] {
     let haptics = KeyboardFeedbackPreference.hapticsAvailable
-    return ["全角", "中文标点", "模糊音", "繁体", "手写", "词库", "键盘布局", "设置", "按键音"]
+    return ["全角", "中文标点", "模糊音", "繁体", "手写", "词库", "键盘高度", "设置", "按键音"]
       + (haptics ? ["振动"] : [])
       + ["单手模式", "隐私模式", "反馈", "关于", "AI 润色", "高情商回复", "本地输入", "语音结果"]
       + (haptics ? ["振动强度 \(KeyboardFeedbackPreference.hapticStrength.title)"] : [])
-      + ["表情", "剪贴板历史", "清除候选缓存"]
+      + ["键盘布局", "表情", "剪贴板历史", "清除候选缓存"]
   }
 
   func testEveryToolIsReachableByPagingInTheDesignsOrder() throws {
@@ -183,6 +183,76 @@ final class MorePanelFoldTests: XCTestCase {
     stored = FuzzyPinyinPreference.settings(in: MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
     XCTAssertEqual(stored?.rules, Set(FuzzyPinyinPreference.ruleIDs))
     XCTAssertEqual(stored?.seeded, true)
+  }
+
+  /// 「键盘高度」把工具栏换成内联调节条，调节时实时预览，只在点「完成」时保存；「取消」把高度恢复原样。
+  func testKeyboardHeightTileAdjustsInline() throws {
+    KeyboardLayoutPreference.heightAdjustment = 0
+    let controller = makeController(width: 390)
+    let heightConstraint = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
+    let start = heightConstraint.constant
+    _ = try openMenu(in: controller)
+    try tile("moreCard-键盘高度", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardMorePicker" })
+    let bar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "inlineHeightBar" } as? InlineHeightBar)
+    let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" })
+    XCTAssertTrue(toolbar.isHidden, "the bar takes the toolbar's place")
+    XCTAssertEqual(bar.percent, 100)
+    XCTAssertEqual(try button("spaceKey", in: controller).superview?.alpha, 1, "the keys stay live under the bar")
+    let keyBlock = KeyboardViewController.keyBlockHeight(keyHeight: 42, rows: 4, rowSpacing: CGFloat(KeyboardLayoutPreference.rowSpacing))
+    XCTAssertEqual(bar.range.lowerBound, KeyboardViewController.heightPercent(adjustment: -12, keyBlock: keyBlock))
+    XCTAssertEqual(bar.range.upperBound, KeyboardViewController.heightPercent(adjustment: 48, keyBlock: keyBlock))
+
+    // VoiceOver 的增大操作对应调节条的 5% 步长；键盘只预览，不保存。
+    let handle = try XCTUnwrap(descendants(bar).first { $0.accessibilityIdentifier == "inlineHeightHandle" })
+    handle.accessibilityIncrement()
+    let preview = KeyboardViewController.heightAdjustment(percent: 105, keyBlock: keyBlock)
+    XCTAssertEqual(heightConstraint.constant, start + preview, accuracy: 0.5)
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0, "nothing is saved before 完成")
+    try control("inlineHeightCancel", in: bar).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(heightConstraint.constant, start, accuracy: 0.5)
+    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "inlineHeightBar" })
+    XCTAssertFalse(toolbar.isHidden)
+
+    _ = try openMenu(in: controller)
+    try tile("moreCard-键盘高度", in: controller).sendActions(for: .primaryActionTriggered)
+    let again = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "inlineHeightBar" })
+    try XCTUnwrap(descendants(again).first { $0.accessibilityIdentifier == "inlineHeightHandle" }).accessibilityIncrement()
+    try control("inlineHeightDone", in: again).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, Double(preview))
+    XCTAssertEqual(heightConstraint.constant, start + preview, accuracy: 0.5)
+  }
+
+  /// 调节条开着时按键照常可用，所以按键打开的面板（这里是 123 层的表情键）不会结束调整、也不会丢掉预览的高度；与 Android 一样，只有「取消」「完成」或收起键盘才结束，收起键盘按「取消」处理。
+  func testKeyboardHeightPreviewSurvivesKeyPanelsAndIsCancelledWhenTheKeyboardGoesAway() throws {
+    KeyboardLayoutPreference.heightAdjustment = 0
+    let controller = makeController(width: 390)
+    let heightConstraint = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
+    let start = heightConstraint.constant
+    _ = try openMenu(in: controller)
+    try tile("moreCard-键盘高度", in: controller).sendActions(for: .primaryActionTriggered)
+    let bar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "inlineHeightBar" })
+    try XCTUnwrap(descendants(bar).first { $0.accessibilityIdentifier == "inlineHeightHandle" }).accessibilityIncrement()
+    let previewed = heightConstraint.constant
+    XCTAssertGreaterThan(previewed, start + 0.5)
+
+    let hasBar = { self.descendants(controller.view).contains { $0.accessibilityIdentifier == "inlineHeightBar" } }
+    let hasPicker = { self.descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardEmojiPicker" } }
+    try button("layerEmojiKey", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(hasPicker())
+    XCTAssertTrue(hasBar(), "a panel opened from the keys leaves the bar in place")
+    XCTAssertEqual(heightConstraint.constant, previewed, accuracy: 0.5, "and keeps the previewed height")
+    try control("closeEmojiPicker", in: controller.view).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(hasPicker())
+    XCTAssertTrue(hasBar())
+    XCTAssertEqual(heightConstraint.constant, previewed, accuracy: 0.5)
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0, "nothing is saved before 完成")
+
+    controller.viewWillDisappear(false)
+    XCTAssertFalse(hasBar())
+    XCTAssertEqual(heightConstraint.constant, start, accuracy: 0.5, "putting the keyboard away cancels the preview")
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0)
   }
 
   func testHeightPercentRoundTripsThroughPoints() {

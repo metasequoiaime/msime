@@ -50,7 +50,10 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             stage = "real nine-key digit entry";
             tap(key("MNO"));
             tap(key("JKL"));
-            await(field("msime-test-plain").and(node -> equalsText("65", node.getText())));
+            // 九键的组字（按下的数字）不写进输入框，只显示在键盘自己的预编辑栏上（MSIMEInputService 里 hidesNineKeyComposing 的说明）：输入框保持空，引擎收到两个数字后有了候选，「展开」可用。
+            await(key("展开").and(AccessibilityNodeInfo::isEnabled));
+            await(field("msime-test-plain").and(node -> node.getText() == null
+                || node.getText().length() == 0 || equalsText("Plain editor", node.getText())));
 
             // dict-v1.0.0 has zero English weights, so production acceptance deliberately
             // checks the complete Engine candidate set instead of assuming first-page rank.
@@ -59,7 +62,8 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             tap(candidate("ok"));
 
             stage = "nine-key English commit identity";
-            await(field("msime-test-plain").and(node -> equalsText("ok", node.getText())));
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().toString().equalsIgnoreCase("ok")));
         } finally {
             shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
@@ -75,7 +79,9 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             int delimiter = description.indexOf('：');
             if (!description.startsWith("候选 ") || delimiter < 0) return false;
             String value = description.substring(delimiter + 1);
-            return value.equals(text) || value.startsWith(text + "；");
+            // 英文候选按英文词典的写法显示（ok 显示为 OK），不区分大小写比较。
+            String head = value.contains("；") ? value.substring(0, value.indexOf('；')) : value;
+            return head.equalsIgnoreCase(text);
         };
     }
 

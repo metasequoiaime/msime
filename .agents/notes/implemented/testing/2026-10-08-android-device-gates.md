@@ -24,7 +24,7 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 - 设备测试读控件状态走 `DeviceSmoke.state()`/`switchState()`：API 30 起读状态描述，更早的系统按应用实际暴露的 `isSelected`/`isEnabled` 折算。
 - `DeviceSmoke.await` 超时时附上输入法窗口里看得见的文字（最多 30 条，只读输入法自己的节点），失败信息直接说明界面停在哪里。
 - `smoke.sh` 的套件改成一个循环；`MSIME_DEVICE_SMOKE_SKIP` 列出的套件跳过并打印出来，不算通过。CI 的跳过名单写在 `android-device.yml`，每一项带原因，修好一个删一个，不往里加新的来让门禁变绿。
-- `smoke.sh` 给应用授予 `POST_NOTIFICATIONS`：安卓 13 起没有通知权限的应用从后台发的 Toast 会被系统吞掉，测试按授过权的用户来测。
+- `smoke.sh` 不授予通知权限，按没授过权的普通用户来测：输入法的提示显示在键盘的诊断行（`MSIMEInputService.notice`），不依赖 Toast。
 
 ## 第一次真正跑起来时查到的
 
@@ -32,8 +32,8 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 
 - 测试过时或写错，已修：两个套件没在清单里声明（`smoke.sh` 一直在调用它们）；Preferences 等一个已改成 Toast 的提示；Emoji 要求首页至少 64 个表情，而首页会去掉设备字体画不出的表情（模拟器上 55 个）；改版前后的无障碍状态读取。
 - 真 bug，已修：123 和 #+= 层的标点不跟「中文标点」开关（0.2.0 的改版只按中英文模式选），关掉中文标点后仍上屏「，」「。」。
-- 真问题，未修，单独报告：安卓 13 起未授通知权限时，输入法的所有失败提示（Toast）都不显示；开 z=zh 模糊音打 `zongguo` 时，按原拼音生成的整句「总国」排在「中国」前面。
-- 未查清，列在跳过名单：MoreTools（时序不稳）、FuzzyPinyin（上一条）、CandidateGloss、NineKeyEnglish、NineKeyPanel、ChineseHelpcode、MicrosoftShuangpin。
+- 真问题，随后修掉：安卓 13 起未授通知权限时输入法的提示（Toast）全被系统吞掉，改为显示在键盘里；「更多」面板翻页动画中途被移出窗口后卡在两页之间（`PagedTileGrid`）；微软双拼组字时分号键被当成标点，ing 韵母打不出（b73a611a8 起）；开 z=zh 打 `zongguo` 时整句「总国」排在「中国」前（#6033）。
+- 其余是测试跟不上改版：组字从不进输入框改为写进输入框、九键组字不写进输入框、读音行可点后 `key()` 会点到读音行、英文释义改为另起一行且默认关、弹出菜单可点的是整行、九键拼音栏会列出更长的补全音节。跳过名单最后只剩 FuzzyPinyin，等 #6033 合并。
 
 ## API 28 上的已知缺口
 
@@ -50,7 +50,7 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 
 - **收益**：Android 上的运行时问题（权限、SELinux、旧系统缺陷、首次启动崩溃）在 PR 上就会失败；发版前同一个提交再过一遍。本机和 CI 用同一组脚本。
 - **代价**：动到 Android 或共享代码的 PR 多两个 job，每个都要从头编 x86_64 原生库和测试程序（没有缓存），预计各 40 到 60 分钟；Release Android 也要多等这么久。
-- **仍然没有覆盖**：跳过名单里的七个套件；API 28 上「更多」面板及之后的套件；真机；Android 10（API 29）到 14（API 34）之间的版本只在本机手动跑过 31。
+- **仍然没有覆盖**：API 28 上「更多」面板及之后的套件；真机；Android 10（API 29）到 14（API 34）之间的版本只在本机手动跑过 31。
 
 ## Verification
 

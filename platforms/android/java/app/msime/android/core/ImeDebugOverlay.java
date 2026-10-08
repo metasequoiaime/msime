@@ -217,6 +217,11 @@ final class ImeDebugOverlay {
             pendingKeyAt = -1;
             recordPerf(Event.CANDIDATE_SHOWN, lastEngineMillis);
         }
+        showMessage(value);
+    }
+
+    /** 在诊断行显示一句话，{@link InputDiagnosticPolicy#DISMISS_DELAY_MILLIS} 后消失；空串清掉当前那句。和引擎诊断共用一行，但不计入按键耗时。 */
+    void showMessage(String value) {
         s.diagnosticGeneration++;
         if (s.diagnosticDismissTask != null) {
             s.main.removeCallbacks(s.diagnosticDismissTask);

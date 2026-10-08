@@ -348,7 +348,7 @@ mod tests {
             background: 0x654321,
             ..TouchKeyboardSkinDesign::default()
         };
-        // 恢复的是试用前的键盘皮肤：桌面默认没有，触屏构建默认是薄荷晨光。
+        // 恢复的是试用前的键盘皮肤，新安装的默认值里没有。
         let before = preferences
             .load()
             .unwrap()

@@ -45,7 +45,7 @@ targets:
   MSIMEApp:
     type: application
     platform: iOS
-    # 只放 INFOPLIST_KEY_* 表达不了的字典键：一个 URL scheme（键盘扩展里没有 UIApplication,它要打开本应用只能走一个自己注册的 scheme）、ATS 的局域网例外和界面语言的声明。
+    # 只放 INFOPLIST_KEY_* 表达不了的键：两个 URL scheme（键盘扩展里没有 UIApplication,它要打开本应用只能走一个自己注册的 scheme；另一个是 Google 登录的回调）、Google 登录的两个 client ID、ATS 的局域网例外和界面语言的声明。
     # 其余的键仍由 GENERATE_INFOPLIST_FILE 和下面的 INFOPLIST_KEY_* 合进来。
     info:
       path: App/Resources/Info.plist
@@ -54,6 +54,13 @@ targets:
           - CFBundleURLName: app.msime.ios
             CFBundleTypeRole: Editor
             CFBundleURLSchemes: [msime]
+          # Google 登录的回调 scheme，是下面 GIDClientID 倒过来写。
+          - CFBundleURLName: app.msime.ios.google
+            CFBundleTypeRole: Editor
+            CFBundleURLSchemes: [com.googleusercontent.apps.237074057301-dam9p3icuapsr31tv85q35gn4erm1kmt]
+        # GoogleSignIn 从这两个键读配置。GIDClientID 是 Google Cloud 项目 237074057301 里 bundle ID 为 app.msime.ios 的 iOS 类型 OAuth client；GIDServerClientID 是 Android 也在用的 web client，它决定 ID token 的 audience，后端认的是它。两个都不是机密。
+        GIDClientID: 237074057301-dam9p3icuapsr31tv85q35gn4erm1kmt.apps.googleusercontent.com
+        GIDServerClientID: 237074057301-q5av9h30kspkqnjat4i9hn9oer9ogfpp.apps.googleusercontent.com
         # AI 辅助可以连本机或局域网里的 http 模型服务（如 LM Studio），哪些地址能用由 SharedUI/core/AIEndpointPolicy.swift 判断，公网仍然只走 https。iOS 10 起 ATS 本来就不拦 IP 地址、无点主机名和 .local，这里显式写出来，免得以后有人加 ATS 配置时把它关掉；它不放开任何公网域名。
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -77,6 +84,9 @@ targets:
       - path: SharedResources/MLKit-NOTICES.txt
         buildPhase: resources
       - path: SharedResources/MLKit-Dependencies.txt
+        buildPhase: resources
+      # 通过 Google 登录用的 GoogleSignIn 及其依赖（CocoaPods 生成的 Pods-MSIMEApp 致谢文件，均为 Apache-2.0）。
+      - path: SharedResources/GoogleSignIn-Dependencies.txt
         buildPhase: resources
       # Licences of the embedded SherpaOnnxC.xcframework below: sherpa-onnx (Apache-2.0) and the ONNX Runtime linked into it (MIT), plus the notices ONNX Runtime carries for what it bundles, shared with the desktops.
       - path: SharedResources/VoiceRuntime-NOTICES.txt

@@ -257,6 +257,22 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("func use(at index: Int) -> Bool { false }", fallback)
         self.assertIn("func commitFirst() -> Bool { false }", fallback)
 
+    def test_google_sign_in_is_linked_into_the_app_only(self):
+        podfile = (IOS_ROOT / "Podfile").read_text()
+        app, extension = podfile.split("target 'MSIMEKeyboardExtension' do", 1)
+        self.assertIn("pod 'GoogleSignIn', '10.0.0'", app)
+        # 键盘扩展不登录。它要是嵌套在 MSIMEApp 里就会继承 GoogleSignIn，所以必须是顶层 target，MSIMEApp 的块在它之前结束。
+        self.assertRegex(app, r"target 'MSIMEApp' do\n(?:  [^\n]*\n|\n)*end\n")
+        self.assertNotIn("GoogleSignIn", extension)
+        self.assertIn("pod 'MLKitDigitalInkRecognition', '8.0.0'", extension)
+        # 回调 scheme 必须是 GIDClientID 倒过来写，否则 Google 登录页回不到 App。
+        project = (IOS_ROOT / "project.yml").read_text()
+        client = re.search(r"GIDClientID: (\S+)\.apps\.googleusercontent\.com\n", project).group(1)
+        self.assertIn(f"CFBundleURLSchemes: [com.googleusercontent.apps.{client}]", project)
+        self.assertIn("GIDServerClientID: 237074057301-q5av9h30kspkqnjat4i9hn9oer9ogfpp.apps.googleusercontent.com", project)
+        android = (IOS_ROOT / "../android/res/values/strings.xml").read_text()
+        self.assertIn("237074057301-q5av9h30kspkqnjat4i9hn9oer9ogfpp.apps.googleusercontent.com", android)
+
     def test_every_keyboard_scroll_view_turns_off_the_ios26_edge_effect(self):
         roots = [IOS_ROOT / "SharedUI", IOS_ROOT / "KeyboardExtension/Sources"]
         sources = sorted(path for root in roots for path in root.rglob("*.swift"))

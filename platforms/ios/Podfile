@@ -5,9 +5,13 @@ workspace 'MSIMEClient.xcworkspace'
 use_frameworks! :linkage => :static
 
 target 'MSIMEApp' do
-  target 'MSIMEKeyboardExtension' do
-    pod 'MLKitDigitalInkRecognition', '8.0.0'
-  end
+  # 通过 Google 登录，只在主 App 里用：拿到 ID token 交给后端换会话，键盘扩展不登录。
+  pod 'GoogleSignIn', '10.0.0'
+end
+
+# 键盘扩展不嵌套在 MSIMEApp 里：嵌套 target 默认继承上一层的 pod，会把 GoogleSignIn 也链进扩展；写成嵌套加 `inherit! :none` 时，CocoaPods 又会把 ML Kit 的预编译框架从扩展的链接参数里漏掉。
+target 'MSIMEKeyboardExtension' do
+  pod 'MLKitDigitalInkRecognition', '8.0.0'
 end
 
 post_install do |installer|

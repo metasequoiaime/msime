@@ -82,16 +82,10 @@ jobs:
           bash platforms/android/build-apk.sh "$resource_dir"
       - name: Install, prepare resources and accept input on the AVD
         # 这几个套件在 2026-10-08 第一次真正跑起来时就失败，各有原因，正在逐个修；smoke.sh 跳过时会打印出来。修好一个就从名单里删掉一个，不要往里加新的来让门禁变绿。
-        # - MoreToolsDeviceSmoke：时好时坏，首页磁贴在面板展开动画中被测量（宽度只有一列的四分之一），翻到第二页后面板被关掉，测试的等待时机待修。
-        # - FuzzyPinyinDeviceSmoke：开 z=zh 打 zongguo，首位是按原拼音生成的整句「总国」，「中国」排第二（引擎整句解码不含模糊音变体）。
-        # - CandidateGlossDeviceSmoke：候选条下没有离线英文释义，资源或开关待查。
-        # - NineKeyEnglishDeviceSmoke、NineKeyPanelDeviceSmoke：九键数字输入和面板内退格与测试期望不一致，待查是改版还是回归。
-        # - ChineseHelpcodeDeviceSmoke：Shift 加字母后键面停在大写，和手动操作看到的不一样，待查。
-        # - MicrosoftShuangpinDeviceSmoke：ing 键（;）没有走到引擎，待查。
+        # - FuzzyPinyinDeviceSmoke：开 z=zh 打 zongguo，首位是按原拼音生成的整句「总国」，「中国」排第二；#6033 修，合并后删掉这一项。
         env:
           MSIME_DEVICE_SMOKE_SKIP: >-
-            MoreToolsDeviceSmoke FuzzyPinyinDeviceSmoke CandidateGlossDeviceSmoke NineKeyEnglishDeviceSmoke
-            NineKeyPanelDeviceSmoke ChineseHelpcodeDeviceSmoke MicrosoftShuangpinDeviceSmoke
+            FuzzyPinyinDeviceSmoke
         run: bash platforms/android/tests/device/smoke.sh "$SERIAL" ${{ matrix.smoke }}
       - name: Collect device logs
         if: failure()

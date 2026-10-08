@@ -26,13 +26,11 @@ avd_name=$("$adb" -s "$serial" emu avd name | tr -d '\r' | head -1)
 bash platforms/android/tests/device/build-editor.sh
 "$adb" -s "$serial" install --no-incremental -r target/android/msime-android.apk
 "$adb" -s "$serial" install --no-incremental -r target/android/editor-test.apk
-# 安卓 13 起，没有通知权限的应用从后台发的 Toast 会被系统吞掉（logcat: Suppressing toast from package app.msime.android by user request），而输入法的失败提示全是 Toast。这里按授过权的用户来测；没授权的用户看不到这些提示，是产品侧另一个问题。安卓 12 及以下没有这个运行时权限，授予失败不影响测试。
-"$adb" -s "$serial" shell pm grant app.msime.android android.permission.POST_NOTIFICATIONS 2>/dev/null || true
 mkdir -p target/android/device-test
 xml="$repo_root/target/android/device-test/window.xml"
 dump() {
-  "$adb" -s "$serial" shell uiautomator dump /data/local/tmp/msime-test-window.xml >/dev/null
-  "$adb" -s "$serial" pull /data/local/tmp/msime-test-window.xml "$xml" >/dev/null 2>&1
+  "$adb" -s "$serial" shell uiautomator dump /data/local/tmp/msime-test-window.xml >/dev/null \
+    && "$adb" -s "$serial" pull /data/local/tmp/msime-test-window.xml "$xml" >/dev/null 2>&1
 }
 tap() {
   dump
@@ -47,7 +45,8 @@ tap() {
 ready=false
 settled=0
 for attempt in $(seq 1 60); do
-  dump
+  # 应用刚启动、窗口还在切换时，uiautomator 偶尔报 `ERROR: null root node returned by UiTestAutomationBridge.` 并以非零退出；set -e 下这一次失败会让整个冒烟在第一条用例之前退出（API 35 上出现过）。轮询里把它当作这一拍还没就绪。
+  if ! dump; then settled=0; sleep 1; continue; fi
   if [[ $(xmllint --xpath 'boolean(//node[contains(@text,"词库准备失败")])' "$xml") == true ]]; then echo "Device bootstrap failed" >&2; exit 1; fi
   if [[ $(xmllint --xpath 'boolean(//node[contains(@resource-id,":id/onboarding_skip")])' "$xml") == true ]]; then
     settled=0

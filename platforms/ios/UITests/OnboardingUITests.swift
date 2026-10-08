@@ -515,6 +515,48 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(app.textFields["backendCodeTarget"].value as? String, "tester@example.com")
   }
 
+  /// 点「通过 Google 登录」要先向后端拿到 challenge，再由系统弹出 Google 的登录页。取消后回到登录面板，提示里不出现错误。
+  @MainActor
+  func testGoogleSignInOpensGoogleAndCancelReturnsToSheet() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["我的"].tap()
+    let loginAlert = app.alerts["账号与登录"]
+    if loginAlert.waitForExistence(timeout: 5) { loginAlert.buttons["好"].tap() }
+    let card = app.buttons["accountProfileCard"]
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+    guard card.label == "未登录，点按登录" else { throw XCTSkip("模拟器上已有登录会话") }
+    card.tap()
+    XCTAssertTrue(app.descendants(matching: .any)["accountLoginSheet"].waitForExistence(timeout: 5))
+    let google = app.buttons["backendGoogleSignIn"]
+    // 不装 pod 的构建没有 GoogleSignIn，账号服务也可能没开 Google 登录。
+    guard google.waitForExistence(timeout: 10) else { throw XCTSkip("这个构建或账号服务不提供 Google 登录") }
+    google.tap()
+
+    // ASWebAuthenticationSession 先由系统询问是否允许打开 google.com。
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    let consent = springboard.alerts.firstMatch
+    XCTAssertTrue(consent.waitForExistence(timeout: 15))
+    let proceed = consent.buttons.matching(NSPredicate(format: "label IN %@", ["继续", "Continue"])).firstMatch
+    XCTAssertTrue(proceed.exists)
+    proceed.tap()
+    let page = app.webViews.firstMatch
+    XCTAssertTrue(page.waitForExistence(timeout: 20))
+    XCTAssertTrue(page.staticTexts.firstMatch.waitForExistence(timeout: 30))
+    // client ID 或回调 scheme 配错时，Google 在这一页显示「Error 400: invalid_request」之类的错误，而不是账号选择。
+    let rejection = NSPredicate(format: "label CONTAINS[c] 'invalid_' OR label CONTAINS[c] 'Error 40' OR label CONTAINS '错误 40'")
+    XCTAssertEqual(page.staticTexts.matching(rejection).count, 0)
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "Google sign-in page"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+
+    app.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"])).firstMatch.tap()
+    XCTAssertTrue(google.waitForExistence(timeout: 10))
+    XCTAssertFalse(app.staticTexts["accountLoginStatus"].exists)
+  }
+
   @MainActor
   func testCancellingPublicationPreservesCommunitySearch() {
     let app = XCUIApplication()

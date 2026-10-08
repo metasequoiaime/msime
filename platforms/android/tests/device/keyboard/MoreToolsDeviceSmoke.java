@@ -30,9 +30,12 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         AccessibilityNodeInfo panel = await(toolPanel());
         await(described("返回键盘"));
         stage = "function panel first page";
+        String[] firstPage = {"全角", "中文标点", "模糊音", "繁体输出", "手写", "词库", "键盘高度", "设置"};
+        // 面板打开时磁贴有一段展开动画（同一磁贴先后量到过 73、109 像素宽），等它停下再量。
+        awaitStableBounds(tool(firstPage[0]));
+        panel = await(toolPanel());
         Rect panelBounds = new Rect();
         panel.getBoundsInScreen(panelBounds);
-        String[] firstPage = {"全角", "中文标点", "模糊音", "繁体输出", "手写", "词库", "键盘高度", "设置"};
         AccessibilityNodeInfo[] tiles = new AccessibilityNodeInfo[firstPage.length];
         int expectedHeight = Math.round(52 * getTargetContext()
             .getResources().getDisplayMetrics().density);

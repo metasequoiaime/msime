@@ -106,7 +106,7 @@ struct AccountLoginSheet: View {
   }
 }
 
-/// 登录面板上的登录按钮，`AppleAccountSection` 也会把它放进 Form 里显示：通过 Apple 登录、展开成内嵌邮箱和验证码输入框的「使用邮箱登录」，以及打开手机验证码流程的「手机号登录」文字按钮。显示哪些按钮取决于后端的登录方式列表。登录成功、且本视图弹出的面板都已关闭后，才运行 `onFinish`。
+/// 登录面板上的登录按钮，`AppleAccountSection` 也会把它放进 Form 里显示：通过 Apple 登录、通过 Google 登录、展开成内嵌邮箱和验证码输入框的「使用邮箱登录」，以及打开手机验证码流程的「手机号登录」文字按钮。显示哪些按钮取决于后端的登录方式列表；Google 还要这个构建能发起 Google 登录（`GoogleSignInSupport`）。登录成功、且本视图弹出的面板都已关闭后，才运行 `onFinish`。
 struct AccountLoginOptions: View {
   private enum Field: Hashable { case email, code }
 
@@ -137,7 +137,8 @@ struct AccountLoginOptions: View {
     trimmedEmail.range(of: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", options: .regularExpression) != nil
   }
   private var codeValid: Bool { code.utf8.count == 6 && code.utf8.allSatisfy { (48...57).contains($0) } }
-  private var offersAny: Bool { ["apple", "email", "phone"].contains { model.providers[$0] == true } }
+  private var offersGoogle: Bool { model.providers["google"] == true && GoogleSignInSupport.available }
+  private var offersAny: Bool { offersGoogle || ["apple", "email", "phone"].contains { model.providers[$0] == true } }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -153,6 +154,7 @@ struct AccountLoginOptions: View {
           .accessibilityIdentifier("accountLoginRetry")
       } else {
         if model.providers["apple"] == true { appleButton }
+        if offersGoogle { googleButton }
         if model.providers["email"] == true {
           emailButton
           if emailExpanded { emailForm.transition(.opacity) }
@@ -225,6 +227,21 @@ struct AccountLoginOptions: View {
       .disabled(model.preparingApple || model.busy)
       .accessibilityIdentifier("backendApplePrepare")
     }
+  }
+
+  /// 按 Google 的品牌规范画：彩色 G 标加「通过 Google 登录」，浅色下白底细描边，深色下深灰底。
+  private var googleButton: some View {
+    Button { pending = Task { await model.signInWithGoogle() } } label: {
+      HStack(spacing: 8) {
+        Image("GoogleMark").resizable().frame(width: 18, height: 18)
+        Text("通过 Google 登录")
+      }
+    }
+    .buttonStyle(AccountLoginButtonStyle(fill: colorScheme == .dark ? Color(white: 0.075) : .white,
+                                         foreground: colorScheme == .dark ? Color(white: 0.89) : Color(white: 0.12),
+                                         stroke: colorScheme == .dark ? Color(white: 0.56) : Color(white: 0.45)))
+    .disabled(model.busy)
+    .accessibilityIdentifier("backendGoogleSignIn")
   }
 
   private var emailButton: some View {
@@ -340,10 +357,13 @@ struct AccountLoginOptions: View {
   }
 }
 
-/// 面板里 50pt 高的按钮：圆角 12 的填充底上是 17pt semibold 文字，按下时不透明度降到 .7。
+/// 面板里 50pt 高的按钮：圆角 12 的填充底上是 17pt semibold 文字，可选一像素描边，按下时不透明度降到 .7。
 private struct AccountLoginButtonStyle: ButtonStyle {
   let fill: Color
   let foreground: Color
+  /// 一像素描边的颜色；nil 时不描边。
+  var stroke: Color? = nil
+  @Environment(\.displayScale) private var displayScale
 
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
@@ -352,6 +372,11 @@ private struct AccountLoginButtonStyle: ButtonStyle {
       .lineLimit(1).minimumScaleFactor(0.8)
       .frame(maxWidth: .infinity, minHeight: 50)
       .background(fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .overlay {
+        if let stroke {
+          RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(stroke, lineWidth: 1 / displayScale)
+        }
+      }
       .opacity(configuration.isPressed ? 0.7 : 1)
       .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
   }

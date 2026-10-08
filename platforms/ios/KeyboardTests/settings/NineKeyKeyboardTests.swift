@@ -1410,7 +1410,7 @@ final class NineKeyKeyboardTests: XCTestCase {
   }
 
   func testKeyShadowsFollowTheKeysWhenTheKeyboardShrinksIntoPlace() throws {
-    // 按钮层的阴影只属于内置主题；触屏键盘默认的薄荷晨光（#2178）是自定义设计，阴影由 `SkinKeySurfaceView` 自己画，按钮的 `shadowOpacity` 为 0。
+    // 按钮层的阴影只属于内置主题；自定义设计（例如薄荷晨光）的阴影由 `SkinKeySurfaceView` 自己画，按钮的 `shadowOpacity` 为 0，所以这里先选内置的 paper。
     preserveSharedTheme()
     XCTAssertTrue(GlobalThemePreference.save("paper"))
     let controller = KeyboardViewController()

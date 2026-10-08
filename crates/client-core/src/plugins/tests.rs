@@ -932,6 +932,7 @@ fn leftover_sweep_does_not_follow_a_replaced_kind_root() {
     let leftover = sound.join(".old-typewriter-dead");
     fs::create_dir(&leftover).unwrap();
     fs::write(leftover.join("keep.wav"), b"synthetic outside data").unwrap();
+    fs::create_dir(outside.path().join(".old-typewriter-dead")).unwrap();
     let moved = state.path().join("sound-moved");
     fs::rename(&sound, &moved).unwrap();
     symlink(outside.path(), &sound).unwrap();
@@ -939,7 +940,7 @@ fn leftover_sweep_does_not_follow_a_replaced_kind_root() {
     import::sweep_leftovers(&root, std::time::SystemTime::now() + import::LEFTOVER_AGE);
 
     assert!(moved.join(".old-typewriter-dead/keep.wav").exists());
-    assert!(!outside.path().join(".old-typewriter-dead").exists());
+    assert!(outside.path().join(".old-typewriter-dead").exists());
 }
 
 #[test]

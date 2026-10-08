@@ -23,6 +23,7 @@ import app.msime.android.BitmapPolicy;
 import app.msime.android.CloudApi;
 import app.msime.android.DeviceDataApi;
 import app.msime.android.HttpBodyPolicy;
+import app.msime.android.ListPolicy;
 import app.msime.android.SyncSwitch;
 import app.msime.android.ViewPolicy;
 import java.io.File;
@@ -106,8 +107,10 @@ public final class ProfilePage extends DetailPage {
         if (kind.isEmpty()) return;
         String previousAccount = SyncSwitch.accountId(context);
         if (profile.id().equals(previousAccount) && kind.equals(SyncSwitch.loginKind(context))) return;
-        SignIn.cancelPendingSnapshot(context, previousAccount);
-        SyncSwitch.bindAccount(context, profile.id(), kind);
+        synchronized (SyncSwitch.bindingLock()) {
+            SignIn.cancelPendingSnapshot(context, previousAccount);
+            SyncSwitch.bindAccount(context, profile.id(), kind);
+        }
     }
 
     /** 读头像图片：只认账号头像服务的 HTTPS 主机、不超过 1 MiB；读不到时为 null，界面显示首字头像。阻塞。 */
@@ -312,7 +315,8 @@ public final class ProfilePage extends DetailPage {
 
     private void link() {
         Loaded before = loaded;
-        List<String> linked = before == null || before.profile() == null ? List.of() : before.profile().providers();
+        List<String> linked = ListPolicy.copyOrEmpty(
+            before == null || before.profile() == null ? null : before.profile().providers());
         LoginSheet.show(requireActivity(), "link", failure -> {
             if (!isAdded()) return;
             if (!failure.isEmpty()) {

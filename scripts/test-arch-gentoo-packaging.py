@@ -109,6 +109,16 @@ def main() -> None:
         syntax = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True)
         check(syntax.returncode == 0, f"{path.relative_to(ROOT)} is not valid bash: {syntax.stderr.strip()}")
 
+    # file(1) 在 fakeroot 下会因 SIGSYS 崩溃，用它判断 ELF 会让 package() 里以它为条件的循环整体跳过，
+    # 核对静默失效、构建照旧通过。两个 PKGBUILD 都改用 _msime_is_elf，别再退回 file(1)（注释里提到它不算）。
+    for name in ("msime", "msime-bin"):
+        code = "\n".join(
+            line for line in (ARCH / name / "PKGBUILD").read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        check(not re.search(r"^\s*(?:if\s+)?file\s", code, re.MULTILINE), f"arch/{name}/PKGBUILD runs file(1), which crashes under fakeroot; use _msime_is_elf")
+        check("_msime_is_elf" in code, f"arch/{name}/PKGBUILD does not define _msime_is_elf")
+
     # 许可证：PKGBUILD 与 RPM 规格文件描述的是同一批文件，元数据不能一边写全、一边只写项目自己的 GPL。
     spec = (PACKAGING / "rpm" / "msime.spec").read_text(encoding="utf-8")
     spec_licenses = re.search(r"^License:\s*(.+)$", spec, re.MULTILINE).group(1).split(" AND ")

@@ -68,7 +68,8 @@ export function settingsPageProjections({
         (item.id !== "developer" || showDeveloperPage) &&
         (item.id !== "plugins" || hasPlugins) &&
         (item.id !== "handwriting" || hasHandwriting) &&
-        (item.id !== "more" || mobilePlatform),
+        (item.id !== "more" || mobilePlatform) &&
+        (item.id !== "try-keyboard" || (mobilePlatform && hasHomePage)),
     )
     .map((item) => ({
       ...item,

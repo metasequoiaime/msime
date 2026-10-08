@@ -358,7 +358,7 @@ final class ImeVoiceEntry {
             s.launchVoiceActivity();
             return;
         }
-        android.widget.Toast.makeText(s, PlatformSpeechPolicy.message(error), android.widget.Toast.LENGTH_LONG).show();
+        s.notice(PlatformSpeechPolicy.message(error));
     }
 
     private void releasePlatform() {
@@ -377,22 +377,22 @@ final class ImeVoiceEntry {
         streaming = null;
         releasePlatform();
         if (text == null || text.isEmpty()) {
-            if (failure != null) android.widget.Toast.makeText(s, failure, android.widget.Toast.LENGTH_SHORT).show();
+            if (failure != null) s.notice(failure);
             dismiss();
             return;
         }
         // 聆听可能长达一分钟：这期间用户点到了别处、应用改写了输入框，或者开始了组字，结果就不能盲目插在现在的光标处。与识别窗口那条路一样，先存进语音结果，由用户在结果面板里显式插入。
         if (!s.voiceInsertionReady() || !s.voiceTargetMatches()) {
             boolean kept = s.stashVoiceResult(text);
-            android.widget.Toast.makeText(s, kept ? "输入位置已变化，结果已保留，可在语音结果中插入"
-                : "输入位置已变化；结果已安全清除", android.widget.Toast.LENGTH_SHORT).show();
+            s.notice(kept ? "输入位置已变化，结果已保留，可在语音结果中插入"
+                : "输入位置已变化；结果已安全清除");
             dismiss();
             if (kept) s.showVoiceResult();
             return;
         }
         boolean committed = s.commitText(text, TypingSource.VOICE);
         if (!committed) {
-            android.widget.Toast.makeText(s, "编辑器拒绝插入；结果已安全清除", android.widget.Toast.LENGTH_SHORT).show();
+            s.notice("编辑器拒绝插入；结果已安全清除");
             dismiss();
             return;
         }

@@ -344,14 +344,24 @@ impl InputSession {
             self.prefix_query_input.clear();
             return;
         }
-        let prefix_with_cases = raw_with_cases[..end].to_owned();
-        let prefix = prefix_with_cases.to_ascii_lowercase();
+        let prefix_with_cases = &raw_with_cases[..end];
+        let lowercase = prefix_with_cases
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte == b'\'');
         // Caret moves inside one unit keep the same prefix; only a new prefix costs a query.
-        if self.prefix_query_input != prefix {
-            self.prefix_candidates = self
-                .engine
-                .query_raw_candidates(&prefix, &prefix_with_cases);
-            self.prefix_query_input = prefix;
+        if lowercase {
+            if self.prefix_query_input != prefix_with_cases {
+                let prefix = prefix_with_cases.to_owned();
+                self.prefix_candidates = self.engine.query_raw_candidates(&prefix, &prefix);
+                self.prefix_query_input = prefix;
+            }
+        } else {
+            let prefix = prefix_with_cases.to_ascii_lowercase();
+            if self.prefix_query_input != prefix {
+                let raw_with_cases = prefix_with_cases.to_owned();
+                self.prefix_candidates = self.engine.query_raw_candidates(&prefix, &raw_with_cases);
+                self.prefix_query_input = prefix;
+            }
         }
         self.prefix_active = true;
     }

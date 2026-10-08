@@ -12,7 +12,7 @@ import java.nio.file.Files;
 import java.util.function.Predicate;
 import org.json.JSONObject;
 
-/** Device acceptance for default-on offline candidate gloss presentation and selection identity. */
+/** 离线英文释义的设备验收：候选条和展开列表上的释义、长按菜单、选中身份和关闭。英文释义的默认值由 client-core 决定（新装是关），这里先显式打开再测功能本身。 */
 public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
         return "offline candidate gloss strip, expanded long press, selection and opt-out";
@@ -31,9 +31,10 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
         JSONObject base = new JSONObject(options.getJSONObject("preferences").toString())
             .put("scheme", "quanpin")
             .put("touch_keyboard_layout", "twenty_six_key")
-            .put("traditional_chinese_output", false);
+            .put("traditional_chinese_output", false)
+            .put("candidate_english_gloss", true);
         try {
-            stage = "default offline gloss preference";
+            stage = "offline gloss preference on";
             publish(preferences, snapshot(revision + 1, new JSONObject(base.toString())));
             restartIme();
             openEditor();
@@ -98,14 +99,16 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
 
     private Predicate<AccessibilityNodeInfo> expandedGlossCandidate() {
         return node -> preview(node) && node.getText() != null
-            && node.getText().toString().startsWith("你好  ")
+            // 释义现在在候选字下面另起一行（「你好」换行「hello」），不再用两个空格接在后面。
+            && node.getText().toString().startsWith("你好")
             && node.getText().toString().contains("hello")
             && node.getContentDescription() != null
             && node.getContentDescription().toString().startsWith("候选 1：你好");
     }
 
     private Predicate<AccessibilityNodeInfo> glossMenuItem() {
-        return node -> preview(node) && equalsText("hello", node.getText()) && node.isClickable();
+        // 长按菜单是系统 PopupMenu：可点的是整行，显示「hello」的文字节点本身不可点。
+        return node -> preview(node) && equalsText("hello", node.getText()) && clickableWithin(node, 3);
     }
 
     private Predicate<AccessibilityNodeInfo> plainCandidate() {
@@ -119,6 +122,15 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
     private Predicate<AccessibilityNodeInfo> candidatePanelClose() {
         return node -> preview(node) && node.getContentDescription() != null
             && equalsText("收起候选面板", node.getContentDescription());
+    }
+
+    /** 自己或往上 `levels` 层内的祖先可点击。 */
+    private static boolean clickableWithin(AccessibilityNodeInfo node, int levels) {
+        for (AccessibilityNodeInfo current = node; current != null && levels >= 0;
+                current = current.getParent(), levels--) {
+            if (current.isClickable()) return true;
+        }
+        return false;
     }
 
     private boolean preview(AccessibilityNodeInfo node) {

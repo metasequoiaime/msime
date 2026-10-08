@@ -10,6 +10,7 @@ import android.view.View;
 import androidx.annotation.Nullable;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.KeyPressIds;
+import app.msime.android.MapPolicy;
 import app.msime.android.R;
 import app.msime.android.TypingStatisticsSummary;
 import app.msime.android.ViewPolicy;
@@ -87,7 +88,7 @@ public final class KeyHeatmapView extends View {
 
     /** 这段时间每个键的按键次数。 */
     public void setKeys(Map<String, Long> values) {
-        counts = values == null ? Map.of() : Map.copyOf(values);
+        counts = MapPolicy.copyOrEmpty(values);
         long sum = 0;
         for (long value : counts.values()) sum += BoundsPolicy.nonNegative(value);
         total = sum;

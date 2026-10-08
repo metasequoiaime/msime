@@ -33,7 +33,7 @@ import org.json.JSONObject;
  *
  * <p>日语的日文词典，粤拼、注音和笔画共用的语言词库，以及英文以外目标语言的离线释义都是按需下载的资源包（{@link ResourcePacks}）。还没下载的语言照样列在「添加语言」里，标出要下载的大小；添加时先把方案写进 `enabled`，再经 {@link ResourcePackService} 下载（按流量计费的网络先确认），词典到达前键盘不列出它，装好后下一次进入输入框就出现。已经添加、词典还没到的语言在列表里显示下载状态：需下载、下载中 x%、校验中、失败和原因，点开可以下载、取消、重试或移除。页面从不自己发起下载，只响应用户的点击。
  *
- * <p>辅助码方案列表来自 `NativeClient.hostCapabilities` 的 `helpcode_schemas`，没有这个字段时用不含郑码的内置列表（P14）；方案写进当前方案所属的那一份（双拼用 `shuangpin_helpcode`，其余用 `quanpin_helpcode`）。共享的辅助码设置没有「部首 / 笔画 / 混合」模式，所以本页不提供模式选择。
+ * <p>辅助码方案列表来自 `NativeClient.hostCapabilities` 的 `helpcode_schemas`，没有这个字段时用不含郑码的内置列表（P14）；开关和方案都写进当前方案所属的那一份（双拼用 `shuangpin_helpcode`，其余用 `quanpin_helpcode`），关掉时不再列出方案。共享的辅助码设置没有「部首 / 笔画 / 混合」模式，所以本页不提供模式选择。
  */
 public final class TypingPage extends DetailPage {
     /** 深链参数：打开时展开「添加语言」（键盘的输入方式面板「+ 添加语言」用）。 */
@@ -253,9 +253,14 @@ public final class TypingPage extends DetailPage {
         String family = shuangpin ? "shuangpin_helpcode" : "quanpin_helpcode";
         JSONObject helpcode = preferences.optJSONObject(family);
         String schema = helpcode == null ? (shuangpin ? "lantian" : "ziranma") : helpcode.optString("schema", "ziranma");
+        boolean helpcodeOn = helpcode == null || helpcode.optBoolean("enabled", true);
         GroupCard aux = GroupCard.add(target, "辅助码");
-        aux.nav("辅助码方案", shuangpin ? "双拼" : "全拼", labelOf(state.helpcodeSchemas(), schema),
-            () -> pickHelpcode(family, shuangpin, state.helpcodeSchemas(), schema));
+        aux.toggle("启用辅助码", (shuangpin ? "双拼" : "全拼") + "组字时，先按 Shift 再输入的字母用来缩小候选",
+            helpcodeOn, checked -> saveHelpcode(family, shuangpin, "enabled", checked));
+        if (helpcodeOn) {
+            aux.nav("辅助码方案", shuangpin ? "双拼" : "全拼", labelOf(state.helpcodeSchemas(), schema),
+                () -> pickHelpcode(family, shuangpin, state.helpcodeSchemas(), schema));
+        }
 
         GroupCard translation = GroupCard.add(target, "翻译");
         InputFeatureToggle translations = InputFeatureToggle.CANDIDATE_TRANSLATIONS;
@@ -582,7 +587,7 @@ public final class TypingPage extends DetailPage {
     }
 
     /** `*_helpcode` 拒绝未知字段且 `schema` 必填，缺这个对象时按各自的默认值补齐再改。 */
-    private void saveHelpcode(String family, boolean shuangpin, String member, String value) {
+    private void saveHelpcode(String family, boolean shuangpin, String member, Object value) {
         save(values -> {
             JSONObject helpcode = values.optJSONObject(family);
             if (helpcode == null) {

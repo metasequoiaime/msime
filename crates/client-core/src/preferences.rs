@@ -137,7 +137,7 @@ impl Default for TouchKeyboardSkinDesign {
 }
 
 impl TouchKeyboardSkinDesign {
-    /// 薄荷晨光: a clear mint gradient under rounded white keys with deep green text. The 水杉精选 design of the same name in the skin community, and the touch keyboards' default.
+    /// 薄荷晨光：薄荷绿渐变底、圆角白键、深绿文字，即皮肤社区里同名的水杉精选设计。曾是触屏键盘新装的默认皮肤（#2178），现在新装跟随系统，它仍排在各端皮肤模板的第一位。
     pub fn mint_morning() -> Self {
         Self {
             background: 0xD8F0E4,
@@ -1875,30 +1875,6 @@ fn default_doubao_auth_mode() -> String {
     "api_key".to_owned()
 }
 
-/// Builds for a touch keyboard: iOS, Android and HarmonyOS. The desktop hosts keep their own defaults.
-const TOUCH_KEYBOARD_BUILD: bool = cfg!(any(
-    target_os = "ios",
-    target_os = "android",
-    target_env = "ohos"
-));
-
-/// A new install on a touch keyboard starts on the custom theme drawn with 薄荷晨光, the keyboard skin the phones ship as their default; on the desktop it follows the system. A saved document always carries `global_theme`, so this only decides what a device that has never saved looks like, and what 恢复默认设置 returns to.
-fn default_global_theme() -> crate::skin::theme::GlobalTheme {
-    if TOUCH_KEYBOARD_BUILD {
-        crate::skin::theme::GlobalTheme::Custom
-    } else {
-        crate::skin::theme::GlobalTheme::default()
-    }
-}
-
-/// The custom theme a new install starts with: 薄荷晨光 on a touch keyboard over the system base, so the candidate colours still follow the platform; empty on the desktop.
-fn default_custom_theme() -> CustomTheme {
-    CustomTheme {
-        keyboard: TOUCH_KEYBOARD_BUILD.then(TouchKeyboardSkinDesign::mint_morning),
-        ..CustomTheme::default()
-    }
-}
-
 impl Default for Preferences {
     fn default() -> Self {
         Self {
@@ -1921,8 +1897,9 @@ impl Default for Preferences {
             voice_theme: SettingsTheme::default(),
             emoji_theme: SettingsTheme::default(),
             menu_theme: SettingsTheme::default(),
-            global_theme: default_global_theme(),
-            custom_theme: default_custom_theme(),
+            // 新装在所有平台都跟随系统。触屏键盘的跟随系统皮肤按应用主题当前季节取色，键盘与应用界面是同一套颜色；原先触屏默认的薄荷晨光是固定配色，秋冬季节和应用主题对不上。
+            global_theme: crate::skin::theme::GlobalTheme::default(),
+            custom_theme: CustomTheme::default(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
             show_candidate_page_number: true,

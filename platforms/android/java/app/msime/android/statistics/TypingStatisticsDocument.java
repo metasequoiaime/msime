@@ -64,8 +64,8 @@ public final class TypingStatisticsDocument {
             BoundsPolicy.nonNegative(KeyboardGeometry.strictLong(root.opt("total"), 0)),
             root.optString("retention", "forever"),
             counts(root.optJSONObject("days")),
-            detail == null ? Map.of() : counts(detail.optJSONObject("characters")),
-            detail == null ? Map.of() : counts(detail.optJSONObject("sources")),
+            MapPolicy.copyOrEmpty(detail == null ? null : counts(detail.optJSONObject("characters"))),
+            MapPolicy.copyOrEmpty(detail == null ? null : counts(detail.optJSONObject("sources"))),
             Map.copyOf(dailyCharacters),
             Map.copyOf(dailySources),
             Map.copyOf(dailyKeys));

@@ -261,6 +261,8 @@ public final class PagedTileGrid extends ViewGroup {
 
     @Override protected void onDetachedFromWindow() {
         scroller.forceFinished(true);
+        // 翻页动画中途被移出窗口（「更多」面板重画时先 removeAllViews 再挂回同一个网格）：停下的同时对齐到当前页。否则滚动位置留在两页之间，再挂回来时尺寸没变、onLayout 不会重新对齐，面板一直卡在半页上，左右各露出半截磁贴。
+        scrollTo(page * getWidth(), 0);
         recycleVelocity();
         super.onDetachedFromWindow();
     }

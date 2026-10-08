@@ -182,9 +182,52 @@ pub(crate) fn sweep_leftovers(root: &Path, now: SystemTime) {
         let Ok(directory_handle) = crate::storage::open_private_directory(&directory) else {
             continue;
         };
+        #[cfg(unix)]
+        let Ok(entries) = rustix::fs::Dir::read_from(&directory_handle) else {
+            continue;
+        };
+        #[cfg(unix)]
+        for entry in entries.flatten() {
+            use std::os::unix::ffi::OsStrExt;
+            let bytes = entry.file_name().to_bytes();
+            let Some(name) = std::str::from_utf8(bytes).ok() else {
+                continue;
+            };
+            if ![".staging-", ".replaced-", ".old-"]
+                .iter()
+                .any(|prefix| name.starts_with(prefix))
+                || !entry.file_type().is_dir()
+            {
+                continue;
+            }
+            let name = std::ffi::OsStr::from_bytes(bytes);
+            let Ok(file) = rustix::fs::openat(
+                &directory_handle,
+                name,
+                rustix::fs::OFlags::RDONLY
+                    | rustix::fs::OFlags::DIRECTORY
+                    | rustix::fs::OFlags::NOFOLLOW
+                    | rustix::fs::OFlags::CLOEXEC
+                    | rustix::fs::OFlags::NONBLOCK,
+                rustix::fs::Mode::empty(),
+            ) else {
+                continue;
+            };
+            let Ok(metadata) = std::fs::File::from(file).metadata() else {
+                continue;
+            };
+            if metadata.modified().is_ok_and(|modified| {
+                now.duration_since(modified)
+                    .is_ok_and(|age| age >= LEFTOVER_AGE)
+            }) {
+                let _ = crate::storage::remove_private_tree_at(&directory_handle, name);
+            }
+        }
+        #[cfg(not(unix))]
         let Ok(entries) = fs::read_dir(&directory) else {
             continue;
         };
+        #[cfg(not(unix))]
         for entry in entries.flatten() {
             let name = entry.file_name();
             let Some(name) = name.to_str() else {

@@ -10,7 +10,6 @@ import type { ImeSetupClient } from "../core/host-contracts";
 import type { Preferences } from "../index";
 import { touchKeyboardSchemeTitle } from "../settings/touch-keyboard-scheme-helpers";
 import { SetupStatusCard } from "./setup-status-card";
-import { TryKeyboardSheet } from "./try-keyboard-sheet";
 import {
   RootSettingsList,
   RootSettingsRowView,
@@ -144,7 +143,7 @@ const searchField =
 /**
  * 触屏首页，即「设置」根页（大标题由外壳绘制）：一个搜索胶囊、设置状态卡片，以及分组行形式的各页面。有查询时隐藏卡片和分组，列出标题或当前值包含查询的行，与 Android 的「设置」页一样；Escape 清空查询。
  *
- * 「试用键盘」在宿主有对应窗口时打开宿主的键盘，否则打开页面内的试用面板；宿主打开窗口失败时也回退到这里。
+ * 「试用键盘」在宿主有对应窗口时打开宿主的键盘，否则打开子页面「试用键盘」；宿主打开窗口失败时也回退到这里。
  */
 function TouchHomePage({
   preferences,
@@ -158,7 +157,6 @@ function TouchHomePage({
   rootPages?: readonly RootPage[];
 }) {
   const [query, setQuery] = useState("");
-  const [trying, setTrying] = useState(false);
   const groups = rootPages ? rootSettingsGroups(rootPages, preferences) : [];
   const needle = query.trim().toLowerCase();
   const matches = needle
@@ -174,10 +172,10 @@ function TouchHomePage({
   const tryKeyboard = () => {
     const openKeyboard = actions?.openKeyboard;
     if (!openKeyboard) {
-      setTrying(true);
+      onOpenPage("try-keyboard");
       return;
     }
-    void openKeyboard().catch(() => setTrying(true));
+    void openKeyboard().catch(() => onOpenPage("try-keyboard"));
   };
   const searchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Escape" || !query) return;
@@ -242,7 +240,6 @@ function TouchHomePage({
           )}
         </>
       )}
-      {trying && <TryKeyboardSheet actions={actions} onClose={() => setTrying(false)} />}
     </section>
   );
 }

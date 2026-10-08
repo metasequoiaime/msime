@@ -48,7 +48,8 @@ public final class MicrosoftShuangpinDeviceSmoke extends DeviceSmoke {
             stage = "Microsoft ing key Engine route";
             tap(key("b"));
             tap(microsoftKey());
-            await(field("msime-test-plain").and(node -> equalsText("", node.getText())));
+            // ; 是 ing 韵母，留在组字里（组字现在写进输入框）；被当成分号时会上屏「把；」。
+            await(field("msime-test-plain").and(node -> equalsText("b;", node.getText())));
             await(imeTextContains("b;"));
         } finally {
             shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");

@@ -57,6 +57,16 @@ public final class SafePaths {
         }
     }
 
+    /** Read a private regular file only when its directory entry is its sole link. */
+    public static boolean isSingleLink(Path path) {
+        try {
+            Object links = Files.getAttribute(path, "unix:nlink", LinkOption.NOFOLLOW_LINKS);
+            return links instanceof Number && ((Number) links).longValue() == 1;
+        } catch (IOException | UnsupportedOperationException | SecurityException error) {
+            return false;
+        }
+    }
+
     /** 先确认没有链接重定向 {@code directory} 再创建它，创建后再检查一次。 */
     public static void ensureDirectory(Path directory) throws IOException {
         rejectSymlinkComponents(directory);

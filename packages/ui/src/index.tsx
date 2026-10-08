@@ -4,6 +4,7 @@ import { ToastProvider } from "./core/toast";
 import { appThemeStyle, seasonAttr } from "./core/app-theme-style";
 import type { AppThemeClient, FeedbackClient, HostChromeClient } from "./core/host-contracts";
 import { SetupWarningStrip } from "./keyboard/setup-status-card";
+import { TryKeyboardPage } from "./keyboard/try-keyboard-page";
 import { mobilePageTitle } from "./settings/mobile-tab-helpers";
 import { desktopDownloadUrl, fallbackAppVersion } from "./settings/app-resources";
 import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
@@ -3230,6 +3231,8 @@ export function SettingsPage(props: SettingsPageProps) {
   const harmonyPhone = settingsPlatform === "harmony" && mobilePlatform;
   const tabRootPage = mobilePrimaryPageIds.includes(page as MobilePrimaryPageId);
   const pushedPage = harmonyPhone && !tabRootPage;
+  // 「试用键盘」是一页对话：对话区在页面内滚动，输入栏贴着内容区底部，和 Android 的试用页一样不带底部标签栏，键盘弹起时输入栏直接落在键盘上方。
+  const fillsContent = mobilePlatform && page === "try-keyboard";
   const pageColumnRef = useRef<HTMLDivElement>(null);
   const launchPage = useRef(page);
   // 从一个推入页面再推入的页面（反馈 到 帮助）会保留内容列的动画类，所以要重启动画，而不是让它停在已结束的状态。用重启动画而不是按页面给内容列设 key，能让表单页面像在其他宿主上一样保持挂载、保留状态。
@@ -3301,7 +3304,10 @@ export function SettingsPage(props: SettingsPageProps) {
   };
   // A phone collapses the large title into a compact bar on the 设置 tab's pages, the way the design does; the other tabs and the untitled pages have no large title to collapse.
   const collapsingTitle =
-    mobilePlatform && mobileActiveTab === "home" && !untitledOnPhone.includes(page);
+    mobilePlatform &&
+    mobileActiveTab === "home" &&
+    !untitledOnPhone.includes(page) &&
+    !fillsContent;
   // The design searches in the Windows caption and at the top of the macOS and HarmonyOS 2-in-1 sidebars; GNOME has none. A Windows window without a caption (a browser preview) keeps the search in the sidebar so the filter is still reachable.
   const searchInTitlebar = winShell && titlebarShown;
   const searchInSidebar =
@@ -3376,7 +3382,7 @@ export function SettingsPage(props: SettingsPageProps) {
         )}
         <div className={settings.body} data-settings-body="">
           {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so assistive technology and keyboard focus still reach the navigation first, and the bottom padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
-          {mobilePlatform && (
+          {mobilePlatform && !fillsContent && (
             <MobileSettingsTabs
               tabs={mobilePrimaryPages}
               activeTab={mobileActiveTab}
@@ -3440,7 +3446,7 @@ export function SettingsPage(props: SettingsPageProps) {
           <main
             ref={settingsContentRef}
             id="settings-content"
-            className={`${settings.content} ${ipadSidebarShown ? "" : "ipad:col-span-2"}`}
+            className={`${settings.content} ${ipadSidebarShown ? "" : "ipad:col-span-2"} ${fillsContent ? "flex flex-col" : ""}`}
             aria-labelledby="page-title"
             onScroll={
               collapsingTitle
@@ -3464,7 +3470,7 @@ export function SettingsPage(props: SettingsPageProps) {
             )}
             <div
               ref={pageColumnRef}
-              className={`${settings.contentColumn} ${pushedPage ? "animate-ms-push-in motion-reduce:animate-none" : ""}`}
+              className={`${settings.contentColumn} ${pushedPage ? "animate-ms-push-in motion-reduce:animate-none" : ""} ${fillsContent ? "flex min-h-0 flex-1 flex-col" : ""}`}
               // 社区、统计 和 我的 使用更紧凑的标签页列表，样式表依据这个属性区分。
               data-tab-page={harmonyPhone && tabRootPage && page !== "home" ? "" : undefined}
             >
@@ -3526,6 +3532,20 @@ export function SettingsPage(props: SettingsPageProps) {
                   rootPages={mobileSecondaryGroups
                     .flatMap((group) => group.pages)
                     .map((item) => ({ id: item.id, title: item.title }))}
+                />
+              )}
+              {client.home && page === "try-keyboard" && (
+                <TryKeyboardPage
+                  actions={client.home}
+                  chat={client.chat}
+                  onLogin={openAccountLogin}
+                  onOpenUrl={
+                    client.openExternalUrl
+                      ? (url: string) => {
+                          void openExternalUrl(url);
+                        }
+                      : undefined
+                  }
                 />
               )}
               {page === "more" && (

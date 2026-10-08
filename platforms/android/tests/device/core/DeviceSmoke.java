@@ -131,8 +131,10 @@ public class DeviceSmoke extends Instrumentation {
     protected Predicate<AccessibilityNodeInfo> key(String text) {
         boolean letter = text.length() == 1 && Character.isLetter(text.charAt(0))
             && text.charAt(0) < 128;
+        // 组字时读音行可以点（点中的字母前放组字光标，#5613），它的文字可能就是一个字母（打了 n，读音行是 n）；只认按钮，不然会点到读音行上去。
         return node -> equalsText("app.msime.android", node.getPackageName())
             && (letter ? node.getText() != null && text.equalsIgnoreCase(node.getText().toString())
+                    && equalsText("android.widget.Button", node.getClassName())
                 : equalsText(text, node.getText()));
     }
     /**
@@ -238,6 +240,21 @@ public class DeviceSmoke extends Instrumentation {
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Expected synthetic control was not observed; IME showed " + imeTexts());
+    }
+
+    /** 等控件的位置和大小连续两次读到一样：面板打开、翻页有动画，动画中量到的尺寸是过渡值。 */
+    protected AccessibilityNodeInfo awaitStableBounds(Predicate<AccessibilityNodeInfo> match) {
+        Rect previous = null;
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            AccessibilityNodeInfo node = await(match);
+            Rect bounds = new Rect();
+            node.getBoundsInScreen(bounds);
+            if (bounds.equals(previous)) return node;
+            previous = bounds;
+            SystemClock.sleep(250);
+        }
+        throw new AssertionError("Bounds never settled; IME showed " + imeTexts());
     }
 
     /** 超时时输入法窗口里看得见的文字（键面、候选、提示），最多 30 条：只读输入法自己的节点，不读编辑器内容。 */

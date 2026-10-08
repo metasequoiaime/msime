@@ -89,6 +89,12 @@ export const pages = [
     icon: new URL("../assets/vocabulary.svg", import.meta.url).href,
   },
   { id: "help", title: "帮助", icon: new URL("../assets/help.svg", import.meta.url).href },
+  // 触屏宿主「设置」根页状态卡片上的「试用键盘」打开的子页面；桌面首页有自己的键盘入口，没有这一页。
+  {
+    id: "try-keyboard",
+    title: "试用键盘",
+    icon: new URL("../assets/screen-keyboard.svg", import.meta.url).href,
+  },
   // Mobile only, and the one page that is a list of the other pages. The phone bar carries the source's four tabs, so everything else is reached the way the source reaches it: through the 设置 tab, down one level, into a list.
   {
     id: "more",
@@ -118,4 +124,5 @@ export const subPageParents: Partial<Record<SettingsPageId, SettingsPageId>> = {
   chat: "ai",
   vocabulary: "dictionary",
   help: "feedback",
+  "try-keyboard": "home",
 };
