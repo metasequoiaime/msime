@@ -208,7 +208,7 @@ final class ImeNineKeyPanel {
             candidateHolder.addView(empty, KeyboardGeometry.frameMatchWidthWrapParams(Gravity.CENTER));
             return;
         }
-        String reading = s.view.optString("nine_key_reading", "");
+        String reading = InputViewValuePolicy.textOr(s.view, "nine_key_reading", "");
         CandidateWrapLayout list = new CandidateWrapLayout(s, s.pixels(6));
         list.setContentDescription("完整候选列表；" + reading + "；" + count + " 个候选");
         for (int index = 0; index < count; index++) {
@@ -286,7 +286,7 @@ final class ImeNineKeyPanel {
     }
 
     private String strokesFilter() {
-        return s.view == null ? "" : s.view.optString("nine_key_strokes", "");
+        return InputViewValuePolicy.textOr(s.view, "nine_key_strokes", "");
     }
 
     private void backspace() {
