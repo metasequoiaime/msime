@@ -12,7 +12,7 @@ Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列
 
 语音输入使用 HarmonyOS Core Speech Kit 的 `speechRecognizer` 离线短语音模式。工具面板可以开始、停止或取消识别，最终文字经过长度和控制字符边界检查后通过当前 `KeyboardSession` 提交；原始音频始终留在系统服务内，不写入文件、不进入日志，也不复制到 Engine。该路径需要 `SystemCapability.AI.SpeechRecognizer` 和用户授予 `ohos.permission.MICROPHONE`，单次录音受系统 60 秒上限约束。
 
-云联想与 AI 联想复用 Engine 的 `online_query` 代际契约：Harmony NAPI 只传递有界查询和结果，ArkTS 通过系统 HTTPS 栈异步访问云候选或用户配置的 Chat Completions 服务，结果再交回 Engine 做会话、偏好和 generation 校验。请求防抖、超时、响应大小、重复候选和控制字符检查均在宿主边界完成，失败只丢弃可选展示结果，不阻塞本地输入，也不把查询或响应写入日志。
+云联想与 AI 联想复用 Engine 的 `online_query` 代际契约：Harmony NAPI 只传递有界查询和结果，ArkTS 通过系统 HTTPS 栈异步访问云候选或用户配置的 Chat Completions 服务，结果再交回 Engine 做会话、偏好和 generation 校验。请求防抖、超时、响应大小、重复候选和控制字符检查均在宿主边界完成，失败只丢弃可选展示结果，不阻塞本地输入，也不把查询或响应写入日志。用户配置的 AI 服务地址按 `keyboard/settings/AiEndpointPolicy.ts` 检查（与 `crates/client-core/src/ai/endpoint.rs` 同一规则、同一组用例 `shared/contracts/ai-endpoint/cases.json`）：https 不限主机，http 只能指向本机或局域网（回环、私有地址、`100.64.0.0/10`、链路本地、IPv6 唯一本地地址、`.local`），这样 LM Studio 这类本地模型服务可以直接用 `http://192.168.x.x:1234/v1`，公网主机仍然只走 https。本工程没有 `network_config.json`，按 HarmonyOS 网络安全配置的默认值（`cleartextTrafficPermitted` 未配置时允许明文），系统 http 模块不会拦下这类请求；这一点尚未在设备上验证，若设备报 2300997（Cleartext traffic not permitted），再在 `entry/src/main/resources/base/profile/network_config.json` 里按需放开。
 
 共享设置页的「AI 对话」现在也由 Harmony 承载，对应 MSIME-Apple 的 `KeyboardChatView` 与 `BackendChatClient`。它与「AI」页那个用户自配的服务不是一回事：后者带着用户自己的 endpoint 和 token，而这一个用宿主已经持有的账号会话认证，所以页面只在登录后才提供它，WebView 全程看不到任何凭据。模型列表走 `/v1/models`，回复走 `/v1/chat/completions`，请求与响应的边界在 `AccountCloudBridge` 里校验，数值与 Apple 的 `BackendChatClient` 逐条对齐——16 条历史、单条 16 KB、请求体 64 KB、模型 id 200 字节、最多 33 个模型且默认模型必须在列表内。回复内容按字节设限而不按字符类别：这里的换行是内容而不是控制字符，按桥上其它校验器的规则会把每一条分段的回答都拒掉。
 
