@@ -721,9 +721,11 @@ while IFS= read -r source; do
   class=$(basename "$source" .java)
   smoke_classes+=("${package:+$package.}$class")
 done < <(find "$repo_root/platforms/android/tests" -name "*.java" -print | LC_ALL=C sort)
-# 下限就是当前发现的冒烟数（174）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
-if [[ ${#smoke_classes[@]} -lt 174 ]]; then
-  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 174" >&2
+# 换一条路独立数一遍冒烟：在 `tests/` 里只按文件名找 `*Smoke.java`，得到仓库内的相对路径，再去掉同样的三处排除。两边对不上，说明上面循环的筛选或路径匹配坏了。这里原来是一个写死的下限，每个新增冒烟的 PR 都要改同一行，并行的 Android PR 因此两两冲突；现在新增或删除冒烟都不用改这里。两边都数出 0 也算失败，那是 `tests/` 的位置错了。
+expected_smokes=$( (cd "$repo_root/platforms/android/tests" && find . -name "*Smoke.java" -print) \
+  | grep -cvxE '\./device/.*|\./core/NativeSmoke\.java|\./settings/KeyboardGeometryStrictIntSmoke\.java' || true)
+if [[ $expected_smokes -eq 0 || ${#smoke_classes[@]} -ne $expected_smokes ]]; then
+  echo "Discovered ${#smoke_classes[@]} Android JVM smokes, but platforms/android/tests holds $expected_smokes; the discovery filter is wrong" >&2
   exit 1
 fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
