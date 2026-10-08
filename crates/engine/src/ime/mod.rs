@@ -589,7 +589,11 @@ impl ImeSession {
 
     /// ime_session.cpp:299-369.
     fn refresh_candidates(&mut self) {
-        let request = self.prepare_request(&self.scheme);
+        let mut request = std::mem::take(&mut self.state.request);
+        self.scheme.build_request_into(&mut request);
+        self.apply_request_options(&mut request);
+        self.apply_autocorrect_suppression(&mut request);
+        apply_shuangpin_helpcode_segmentation(&mut request, profile(self.profile));
         reuse_request_preedit(&request, &mut self.state.preedit);
         if !request.valid {
             // An emptied composition is an invalid request, and Backspace never goes through `reset`: the next code must be answered by the wubi table again.
