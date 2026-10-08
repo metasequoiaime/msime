@@ -384,8 +384,7 @@ pub(super) fn quanpin_raw_boundaries(raw: &str, display: &str) -> Vec<usize> {
     if raw_letter_count == 0 {
         return Vec::new();
     }
-    let separator_count = display.bytes().filter(|byte| *byte == b'\'').count();
-    let mut boundaries = Vec::with_capacity(separator_count + 2);
+    let mut boundaries = Vec::with_capacity(raw_letter_count + 1);
     boundaries.push(0);
     let mut raw_offset = 0;
     let mut letters_seen = 0;
