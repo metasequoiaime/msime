@@ -37,14 +37,14 @@ final class ImeToolbar {
         this.s = s;
     }
 
-    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、收起，等分整行宽度；哪些显示由 render 按 `touch_toolbar` 决定。 */
+    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、浮动键盘、收起，等分整行宽度；哪些显示由 render 按 `touch_toolbar` 与本地设置决定。 */
     void installShortcutBar(Button dismissButton) {
         s.shortcutBar.removeAllViews();
         s.dismissShortcutButton = dismissButton;
         Button[] buttons = {s.moreButton, s.emojiShortcutButton, s.phraseShortcutButton,
-            s.clipboardShortcutButton, s.skinButton, s.schemeButton, dismissButton};
+            s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton, dismissButton};
         shortcutButtons = new Button[] {s.emojiShortcutButton, s.phraseShortcutButton,
-            s.clipboardShortcutButton, s.skinButton, s.schemeButton};
+            s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton};
         for (Button button : buttons) {
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
@@ -116,6 +116,10 @@ final class ImeToolbar {
             KeyboardShortcutIconPolicy.Icon.CLIPBOARD,
             panelToggle(() -> s.clipboardScroll, s.imePanels::showClipboardHistory));
         s.clipboardShortcutButton.setContentDescription("剪贴板");
+        // 浮动键盘按钮默认不在工具栏上，用户在设置「键盘工具栏」里打开（#5621）。
+        s.floatingShortcutButton = s.shortcutButton(s.shortcutBar, "浮动键盘",
+            KeyboardShortcutIconPolicy.Icon.FLOATING, s::toggleFloatingKeyboard);
+        s.floatingShortcutButton.setContentDescription("浮动键盘");
         s.voiceShortcutButton = s.shortcutButton(s.shortcutBar, "语音",
             KeyboardShortcutIconPolicy.Icon.VOICE, s::showVoiceResult);
         s.voiceShortcutButton.setContentDescription("打开语音结果");
@@ -250,6 +254,7 @@ final class ImeToolbar {
         if (s.inlineHeightBar != null)
             s.inlineHeightBar.setColors(foregroundColor, hintColor,
                 returnBackgroundColor, returnForegroundColor);
+        if (s.floatingBar != null) s.floatingBar.setColors(foregroundColor);
         if (s.preedit != null) {
             ViewPolicy.setTextColor(s.preedit, hintColor);
             KeyboardGeometry.setKeyTextSize(s.preedit, 12);

@@ -11,6 +11,7 @@ permissions: {contents: write}
 concurrency: {group: release-ios, cancel-in-progress: false}
 jobs:
   release:
+    # 留在 GitHub 托管的 runner 上，不要搬到 Depot：这个 job 用到签名证书和 App Store Connect 凭据这些长期凭据。只做构建、不碰长期凭据的 job 才放 Depot。
     runs-on: macos-15
     # 模拟器包之外还要再编一次真机版并上传 App Store Connect。
     timeout-minutes: 120

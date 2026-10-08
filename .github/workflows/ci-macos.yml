@@ -145,10 +145,18 @@ jobs:
     # 活跃分支就能把队列堵死,而堵住队列的绝大多数 job 什么也没做。
     runs-on: ${{ matrix.build == 'true' && matrix.runner || 'ubuntu-24.04' }}
     timeout-minutes: 60
+    env:
+      # 空串让 cargo 不用 wrapper。
+      RUSTC_WRAPPER: ${{ (matrix.build == 'true' && startsWith(matrix.runner, 'depot-')) && 'sccache' || '' }}
+      CARGO_INCREMENTAL: '0'
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {persist-credentials: false}
+      # Depot 的 runner 启动时已把 SCCACHE_WEBDAV_ENDPOINT 指向 Depot Cache，配上 job 级 env 的 RUSTC_WRAPPER，rustc 的产物就跨运行缓存，不需要 token。CARGO_INCREMENTAL=0 是因为 sccache 不缓存增量编译。 x86_64 那条腿在 GitHub 的 Intel runner 上，没有 Depot Cache 可用，那里既不装 sccache，RUSTC_WRAPPER 也留空。
+      - name: Install sccache
+        if: ${{ matrix.build == 'true' && startsWith(matrix.runner, 'depot-') }}
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       # Cheap and runs before the build so a formatting slip fails in seconds rather than after the full compile. Formatting is architecture independent, so only one leg checks it. Same pinned formatter version as MSIME-Linux.
       - name: Check formatting
         if: ${{ matrix.architecture == 'arm64' }}
@@ -302,11 +310,16 @@ jobs:
     name: Sanitizers
     runs-on: depot-macos-15
     timeout-minutes: 90
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       # runner 上下文在 job 级 env 里不可用,所以在这里写进 GITHUB_ENV,后面的步骤都能读到。
       - name: Point the Sparkle download at the cache
         run: echo "METASEQUOIA_SPARKLE_CACHE_DIR=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
