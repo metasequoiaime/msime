@@ -19,6 +19,7 @@ import app.msime.android.R;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * 读设备信息（#5662）：「关于」页列出来，「关于」和「帮助与反馈」都能一键复制，反馈问题时贴进去。显示格式和复制的文本在 {@link DeviceInfoReport}。
@@ -66,20 +67,30 @@ final class DeviceInfo {
         });
     }
 
+    /** 逐项读；任何一项在改过系统的机型上抛异常都只让那一项显示为未知，不让整组卡在「正在读取」、复制也没有反应。 */
     static List<Entry> collect(Context context, Screen screen) {
         List<Entry> entries = new ArrayList<>(11);
-        entries.add(new Entry("应用版本", appVersion(context)));
-        entries.add(new Entry("品牌", Build.BRAND));
-        entries.add(new Entry("型号", Build.MODEL));
-        entries.add(new Entry("系统版本", DeviceInfoReport.android(Build.VERSION.RELEASE, Build.VERSION.SDK_INT)));
-        entries.add(new Entry("系统构建", Build.DISPLAY));
-        entries.add(new Entry("处理器架构", DeviceInfoReport.abis(Build.SUPPORTED_ABIS)));
-        entries.add(new Entry("屏幕分辨率", DeviceInfoReport.resolution(screen.width(), screen.height(), screen.dpi())));
-        entries.add(new Entry("存储空间", storage()));
-        entries.add(new Entry("运行内存", memory(context)));
-        entries.add(new Entry("Android System WebView", webView()));
-        entries.add(new Entry("键盘", DeviceInfoReport.keyboard(ImeSetup.enabled(context), ImeSetup.isDefault(context))));
+        entries.add(entry("应用版本", () -> appVersion(context)));
+        entries.add(entry("品牌", () -> Build.BRAND));
+        entries.add(entry("型号", () -> Build.MODEL));
+        entries.add(entry("系统版本", () -> DeviceInfoReport.android(Build.VERSION.RELEASE, Build.VERSION.SDK_INT)));
+        entries.add(entry("系统构建", () -> Build.DISPLAY));
+        entries.add(entry("处理器架构", () -> DeviceInfoReport.abis(Build.SUPPORTED_ABIS)));
+        entries.add(entry("屏幕分辨率", () -> DeviceInfoReport.resolution(screen.width(), screen.height(), screen.dpi())));
+        entries.add(entry("存储空间", DeviceInfo::storage));
+        entries.add(entry("运行内存", () -> memory(context)));
+        entries.add(entry("Android System WebView", DeviceInfo::webView));
+        entries.add(entry("键盘", () -> DeviceInfoReport.keyboard(ImeSetup.enabled(context), ImeSetup.isDefault(context))));
         return entries;
+    }
+
+    /** 系统接口是这里的边界：厂商改过的系统可能在任何一项上抛运行时异常。 */
+    private static Entry entry(String label, Supplier<String> value) {
+        try {
+            return new Entry(label, value.get());
+        } catch (RuntimeException unavailable) {
+            return new Entry(label, DeviceInfoReport.UNKNOWN);
+        }
     }
 
     private static String appVersion(Context context) {
