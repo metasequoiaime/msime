@@ -352,7 +352,7 @@ public final class CommonPhrasesStore {
         }
         try {
             JSONObject root = new JSONObject(response == null ? "" : response);
-            if (!Boolean.TRUE.equals(strictBoolean(root.opt("ok"))))
+            if (!JsonPolicy.strictTrue(root.opt("ok")))
                 return Result.failed(failureMessage(root.optString("error", "")));
             JSONObject value = root.optJSONObject("value");
             if (value == null) return Result.failed(failureMessage(""));
