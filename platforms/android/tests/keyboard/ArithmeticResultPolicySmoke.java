@@ -34,11 +34,24 @@ public final class ArithmeticResultPolicySmoke {
         check("1000000", "1/7*7000000");
         check("1", "1/3*3");
         check("33.3333333333", "100/3");
+        // 只排除日期和号码的写法，真正的减法、连除和小数照常算。
+        check("7", "10-3");
+        check("5", "20 - 10 - 5");
+        check("40", "100/5*2");
+        check("1.55", "1.05+0.5");
+        check("0.5", "0.25*2");
+        check("1", "0-1+2");
+        check("98", "100 - 1 - 1");
     }
 
     private static void noResult() {
         for (String text : new String[] {"", "12", "-5", "(5)", "12*", "12*12=144", "1/0", "2*(3", "1..2+3",
-                "1000000000000000*1", "abc", "12+3a"}) {
+                "1000000000000000*1", "abc", "12+3a",
+                // 日期、电话号码不是算式。
+                "2026-10-08", "2026/10/08", "今天 2026-10-08", "138-1234-5678", "+86 138-1234-5678", "0571-88886666",
+                "10-08", "电话 010-12345678",
+                // 代价：不带空格的同号连减、连除也当成号码；加上空格或换个运算符就照常算。
+                "20-10-5", "100/5/2"}) {
             check(ArithmeticResultPolicy.evaluateTrailing(text) == null, "no result for " + text);
         }
         check(ArithmeticResultPolicy.evaluateTrailing(null) == null, "no text, no result");

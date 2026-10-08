@@ -7,7 +7,7 @@ import java.math.RoundingMode;
 /**
  * 数字键面上的简单四则运算（#5688）：从光标前的文字末尾找出一个算式（如 `12*12`、`3.5+2×(4-1)`），算出结果给工具栏显示，点一下上屏。
  *
- * <p>只认加减乘除、括号、小数点和一元负号；`×` `÷` 与全角的数字、运算符（全角输入打出来的）一并认得。算式要以数字或右括号结尾、至少有一次二元运算，所以打到 `12*` 时没有结果，单独一个数字也没有。末尾已经有 `=` 时只给结果本身，否则上屏的是 `=结果`，凑成 `12*12=144`。用 BigDecimal 计算，`0.1+0.2` 是 `0.3`；除不尽时保留 10 位小数，除以零或结果的绝对值达到 10^15 时不给结果。
+ * <p>只认加减乘除、括号、小数点和一元负号；`×` `÷` 与全角的数字、运算符（全角输入打出来的）一并认得。算式要以数字或右括号结尾、至少有一次二元运算，所以打到 `12*` 时没有结果，单独一个数字也没有。像日期、电话号码的写法（`2026-10-08`、`138-1234-5678`、`0571-88886666`）不算（{@link #looksLikeNumberSequence}）。末尾已经有 `=` 时只给结果本身，否则上屏的是 `=结果`，凑成 `12*12=144`。用 BigDecimal 计算，`0.1+0.2` 是 `0.3`；除不尽时保留 10 位小数，除以零或结果的绝对值达到 10^15 时不给结果。
  */
 public final class ArithmeticResultPolicy {
     /** 最多看光标前多少个字符；也是调用方向编辑器要上文时的长度。 */
@@ -61,8 +61,11 @@ public final class ArithmeticResultPolicy {
             if (!isDigit(first) && first != '(' && first != '-' && first != '.') continue;
             // 不从一个数的中间开始：`123+4` 里的 `23+4` 不是用户写的算式。
             if (candidate > 0 && (isDigit(text.charAt(candidate - 1)) || text.charAt(candidate - 1) == '.')) continue;
-            BigDecimal value = new Parser(text.substring(candidate, end)).parse();
+            String expression = text.substring(candidate, end);
+            BigDecimal value = new Parser(expression).parse();
             if (value == null) continue;
+            // 最长的完整算式像日期、电话号码时整体不算，也不退到它更短的后缀（`1234-5678` 同样不是算式）。
+            if (looksLikeNumberSequence(expression)) return null;
             String formatted = format(value);
             return formatted == null ? null : new Result(formatted, afterEquals);
         }
@@ -93,6 +96,31 @@ public final class ArithmeticResultPolicy {
     private static boolean expressionChar(char c) {
         return (c >= '0' && c <= '9') || c == '.' || c == '+' || c == '-' || c == '*' || c == '/'
             || c == '(' || c == ')' || c == ' ';
+    }
+
+    /**
+     * 形式上是算式、其实是日期或号码的写法，不给结果：两个以上同一个 `-` 或 `/` 连着的纯数字段（`2026-10-08`、`2026/10/08`、`138-1234-5678`），或者有以 0 开头的多位整数（`0571-88886666`、`10-08`），算术里不会这样写数。代价是不带空格的同号连减、连除（`20-10-5`、`100/5/2`）也不给结果，写成 `20 - 10 - 5` 或混用别的运算符就照常算；数字键盘上打日期、电话号码远比这种写法常见。
+     */
+    static boolean looksLikeNumberSequence(String expression) {
+        for (int index = 0; index + 1 < expression.length(); index++) {
+            boolean numberStart = index == 0 || (!isDigit(expression.charAt(index - 1)) && expression.charAt(index - 1) != '.');
+            if (numberStart && expression.charAt(index) == '0' && isDigit(expression.charAt(index + 1))) return true;
+        }
+        char separator = 0;
+        int separators = 0;
+        boolean digitBefore = false;
+        for (int index = 0; index < expression.length(); index++) {
+            char c = expression.charAt(index);
+            if (isDigit(c)) {
+                digitBefore = true;
+                continue;
+            }
+            if ((c != '-' && c != '/') || !digitBefore || (separator != 0 && c != separator)) return false;
+            separator = c;
+            separators++;
+            digitBefore = false;
+        }
+        return digitBefore && separators >= 2;
     }
 
     private static String format(BigDecimal value) {
