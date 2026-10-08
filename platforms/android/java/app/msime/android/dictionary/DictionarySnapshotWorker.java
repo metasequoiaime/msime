@@ -68,7 +68,8 @@ public final class DictionarySnapshotWorker {
         if (!JsonPolicy.strictTrue(result.opt("ok")))
             throw new IllegalStateException("snapshot version unavailable");
         JSONObject value = result.getJSONObject("value");
-        String digest = value.getString("version");
+        String digest = JsonPolicy.strictString(value.opt("version"));
+        if (digest == null) throw new IllegalStateException("snapshot version missing");
         Object rawGeneration = value.opt("generation");
         String generation = rawGeneration == null || rawGeneration == JSONObject.NULL
             ? "legacy" : strictString(rawGeneration);
