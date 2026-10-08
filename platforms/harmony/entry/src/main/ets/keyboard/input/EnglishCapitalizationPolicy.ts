@@ -101,6 +101,8 @@ export class EnglishCapitalizationPolicy {
     if (context.length === 0) {
       return true;
     }
+    // 句末标点后要隔着空白才算新句，与 Android 的 `TextUtils.getCapsMode` 一致；否则刚点下 `.`、删字删到 `abc.` 后面或在 `你好。` 后切到英文都会立刻变成大写。
+    let whitespaceAfter: boolean = false;
     let offset: number = context.length;
     while (offset > 0) {
       const codePoint: number = codePointBefore(context, offset);
@@ -108,10 +110,14 @@ export class EnglishCapitalizationPolicy {
       if (codePoint === 0x0a || codePoint === 0x0d) {
         return true;
       }
-      if (matches(WHITESPACE, codePoint) || isClosing(codePoint)) {
+      if (matches(WHITESPACE, codePoint)) {
+        whitespaceAfter = true;
         continue;
       }
-      return isSentenceTerminator(codePoint);
+      if (isClosing(codePoint)) {
+        continue;
+      }
+      return whitespaceAfter && isSentenceTerminator(codePoint);
     }
     return true;
   }

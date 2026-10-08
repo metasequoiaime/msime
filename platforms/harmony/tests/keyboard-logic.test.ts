@@ -2732,8 +2732,16 @@ group("sentence capitalization looks past closers and whitespace", () => {
     "a full stop ends a sentence",
   );
   check(
-    EnglishCapitalizationPolicy.shouldShift(sentences, "Hi.") === true,
-    "even without the space",
+    EnglishCapitalizationPolicy.shouldShift(sentences, "Hi.") === false,
+    "a stop the cursor is still touching does not start a sentence yet",
+  );
+  check(
+    EnglishCapitalizationPolicy.shouldShift(sentences, 'Hi."') === false,
+    "nor does a stop behind a closing quote with no space",
+  );
+  check(
+    EnglishCapitalizationPolicy.shouldShift(sentences, "3.") === false,
+    "a decimal point is not the end of a sentence",
   );
   check(
     EnglishCapitalizationPolicy.shouldShift(sentences, "Hi") === false,
@@ -2752,8 +2760,12 @@ group("sentence capitalization looks past closers and whitespace", () => {
     "a newline starts a sentence",
   );
   check(
-    EnglishCapitalizationPolicy.shouldShift(sentences, "你好。") === true,
+    EnglishCapitalizationPolicy.shouldShift(sentences, "你好。 ") === true,
     "the full-width stop ends a sentence too",
+  );
+  check(
+    EnglishCapitalizationPolicy.shouldShift(sentences, "你好。") === false,
+    "switching to English right after a Chinese stop stays lowercase",
   );
   check(
     EnglishCapitalizationPolicy.shouldShift(sentences, "   ") === true,
