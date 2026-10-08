@@ -566,7 +566,7 @@ public final class DictionaryCollectionsStore {
     private static String errorOf(String response) {
         if (response == null) return "";
         try {
-            return new JSONObject(response).optString("error", "");
+            return JsonPolicy.strictStringOrEmpty(new JSONObject(response).opt("error"));
         } catch (JSONException error) {
             return "";
         }
