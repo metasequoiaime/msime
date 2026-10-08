@@ -2238,7 +2238,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 笔画的 editing_text 是字母 hspnzx，reading 才是用户按下的笔画字形（一丨丿丶乛＊），所以同样标记 reading。日语的 editing_text 是罗马字（九键的 ち 送的是 chi），reading 才是假名。哪些方案这样做由引擎的 `draws_reading` 决定。
         String composing = KoreanInputPolicy.composing(
             InputSchemeTraits.drawsReading(nextViewScheme) && !nextDedicatedEnglish,
-            next.optString("phrase_prefix", ""), next.getString("editing_text"),
+            InputViewValuePolicy.textOr(next, "phrase_prefix", ""), next.getString("editing_text"),
             InputViewValuePolicy.textOr(next, "reading", ""));
         // 九键的 editing_text 是按下的数字键（64426），写进输入框对用户没有意义；和 iOS 默认一样不在输入框里标记组词，组词只显示在键盘自己的预编辑栏上（选过的音节显示为拼音，如 ni'426）。注音 9 键例外：上面已经按大千的规则标记 reading（转换结果加未完成的数字），照常留在输入框里。
         if (ZhuyinInputPolicy.hidesNineKeyComposing(InputViewValuePolicy.booleanValue(
@@ -7413,7 +7413,7 @@ public final class MSIMEInputService extends InputMethodService {
             boolean idleTitle = idle && editingText.isEmpty();
             // 新设计去掉了空闲时的品牌药丸：空闲时读音行整行隐藏，品牌标在工具栏最左。
             brandPillVisible = false;
-            String phrasePrefix = view == null ? "" : view.optString("phrase_prefix", "");
+            String phrasePrefix = InputViewValuePolicy.textOr(view, "phrase_prefix", "");
             // 组字光标（#5613）：点读音行把光标移到点中的字母前；光标被移离末尾时画进读音行（「不显示」也画，下一个键就作用在那里）。读音对不上按键时退回画原始按键。
             boolean caretEditable = !idleTitle && view != null && CompositionCaretPolicy.editable(
                 InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText);
