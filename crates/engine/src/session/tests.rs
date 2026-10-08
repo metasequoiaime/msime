@@ -82,6 +82,32 @@ const ENGLISH_FIXTURE: &str = "INSERT INTO english_words VALUES('he','HE',110);\
 INSERT INTO english_words VALUES('hello','Hello',100);\
 INSERT INTO english_words VALUES('help','Help',90);";
 
+#[test]
+fn mixed_candidate_refresh_reuses_rows_for_engine_and_caret_prefix() {
+    let fixture = Fixture::new(CARET_PREFIX_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    let word_pointer = session.input.mixed_candidates[0].word.as_ptr();
+    let before = session.snapshot();
+    session.input.update_mixed_candidates();
+    assert_eq!(
+        session.input.mixed_candidates[0].word.as_ptr(),
+        word_pointer
+    );
+    assert_eq!(session.snapshot(), before);
+
+    session.set_caret(Some(2));
+    assert!(session.input.prefix_active);
+    let word_pointer = session.input.mixed_candidates[0].word.as_ptr();
+    let before = session.snapshot();
+    session.input.update_mixed_candidates();
+    assert_eq!(
+        session.input.mixed_candidates[0].word.as_ptr(),
+        word_pointer
+    );
+    assert_eq!(session.snapshot(), before);
+}
+
 /// One directory standing in for all four runtime roots, as the reference session tests used.
 struct Fixture {
     directory: tempfile::TempDir,

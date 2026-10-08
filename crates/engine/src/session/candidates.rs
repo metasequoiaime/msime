@@ -38,17 +38,42 @@ fn plain_position_context(context: &str) -> String {
     plain
 }
 
+fn clone_candidate_rows(source: &[WordItem], destination: &mut Vec<WordItem>) {
+    let common = source.len().min(destination.len());
+    for (target, item) in destination.iter_mut().take(common).zip(source.iter()) {
+        target.pinyin.clone_from(&item.pinyin);
+        target.canonical_pinyin.clone_from(&item.canonical_pinyin);
+        target.word.clone_from(&item.word);
+        target.weight = item.weight;
+        target.source = item.source;
+        target.scheme = item.scheme;
+        target.fixed_position = item.fixed_position;
+        target.fuzzy = item.fuzzy;
+        target.corrected_from.clone_from(&item.corrected_from);
+        target.sentence_association = item.sentence_association;
+        target.sentence_words.clone_from(&item.sentence_words);
+    }
+    if destination.len() > source.len() {
+        destination.truncate(source.len());
+    } else {
+        destination.extend(source[common..].iter().cloned());
+    }
+}
+
 impl InputSession {
     /// Prefix or engine rows, then personal context rerank, mixed English / emoji / kaomoji, fixed positions (input_session.cpp:1057-1078).
     pub(super) fn update_mixed_candidates(&mut self) {
         self.refresh_prefix_candidates();
-        let decoded = if self.prefix_active {
-            self.prefix_candidates.clone()
+        let mut decoded = self
+            .ranking_candidates
+            .take()
+            .unwrap_or_else(|| std::mem::take(&mut self.mixed_candidates));
+        if self.prefix_active {
+            clone_candidate_rows(&self.prefix_candidates, &mut decoded);
         } else {
-            self.engine.candidates().to_vec()
-        };
+            clone_candidate_rows(self.engine.candidates(), &mut decoded);
+        }
         self.personal_reranked = false;
-        self.ranking_candidates = None;
         // At the chain start the preference is context-free, which is the frequency setting's business, not this one's.
         let reordered = match self.chain.previous.as_deref() {
             Some(previous) if self.personal_context_applies() => {
@@ -432,7 +457,8 @@ impl InputSession {
 
 #[cfg(test)]
 mod tests {
-    use super::{english_position_context, plain_position_context};
+    use super::{clone_candidate_rows, english_position_context, plain_position_context};
+    use crate::types::{CandidateSource, WordItem};
 
     #[test]
     fn english_position_context_preserves_non_ascii_while_lowercasing_ascii() {
@@ -447,5 +473,50 @@ mod tests {
         let plain = plain_position_context(&source);
         assert_eq!(plain, source.replace('\'', ""));
         assert_eq!(plain.capacity(), source.len());
+    }
+
+    #[test]
+    fn cloning_candidate_rows_reuses_existing_storage() {
+        let source = vec![
+            WordItem::new("ni", "你", 1, CandidateSource::Database, "ni"),
+            WordItem::new("hao", "好", 1, CandidateSource::Database, "hao"),
+        ];
+        let mut destination = source.clone();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            clone_candidate_rows(&source, &mut destination);
+        });
+
+        assert_eq!(destination, source);
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn cloning_candidate_rows_replaces_metadata_and_handles_length_changes() {
+        let marked = WordItem {
+            pinyin: "ni'hao".to_owned(),
+            canonical_pinyin: "li'hao".to_owned(),
+            word: "合成词".to_owned(),
+            weight: 42,
+            source: CandidateSource::Generated,
+            scheme: crate::types::SchemeType::Shuangpin,
+            fixed_position: 2,
+            fuzzy: true,
+            corrected_from: "lihao".to_owned(),
+            sentence_association: true,
+            sentence_words: vec!["合".to_owned(), "成词".to_owned()],
+        };
+        let plain = WordItem::new("ni", "你", 1, CandidateSource::Database, "ni");
+        let mut destination = vec![marked.clone(), marked.clone(), marked.clone()];
+        let source = vec![plain.clone(), marked];
+
+        clone_candidate_rows(&source, &mut destination);
+        assert_eq!(destination, source);
+
+        let larger = vec![plain; 4];
+        clone_candidate_rows(&larger, &mut destination);
+        assert_eq!(destination, larger);
+        clone_candidate_rows(&[], &mut destination);
+        assert!(destination.is_empty());
     }
 }
