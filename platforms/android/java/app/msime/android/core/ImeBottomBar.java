@@ -8,6 +8,7 @@ import android.os.Build;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewConfiguration;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -136,7 +137,7 @@ final class ImeBottomBar {
     /**
      * 键盘视图收到新的 insets 时调用：记下视图的系统栏 inset，再读屏幕底部导航栏与系统手势区的高度。
      *
-     * <p>导航栏高度从输入法窗口的 WindowMetrics 取，与键盘视图收到的 inset 取较大的那个。Android 14 及以前输入法窗口默认停在导航栏上方，视图收到的底部 inset 是 0，只看它会把三键导航当成没有导航栏；WindowMetrics 按整块屏幕的范围算，导航栏总在里面。系统自己画输入法导航按钮时，视图收到的是那条 48 dp 的框高。Android 11 的 WindowMetrics 在有父窗口时按窗口自己的范围算 inset，可能同样是 0，所以 Android 11 及以前不画底栏。
+     * <p>导航栏高度从输入法窗口的 WindowMetrics 取，与键盘视图收到的 inset 取较大的那个。Android 14 及以前输入法窗口默认停在导航栏上方，视图收到的底部 inset 是 0，只看它会把三键导航当成没有导航栏；WindowMetrics 按整块屏幕的范围算，导航栏总在里面。Android 11 的 WindowMetrics 在有父窗口时按窗口自己的范围算 inset，可能同样是 0，所以 Android 11 及以前不画底栏。
      */
     void readInsets(WindowInsets viewInsets) {
         insets.set(WindowLayout.systemBars(viewInsets));
@@ -173,8 +174,23 @@ final class ImeBottomBar {
         boolean phoneLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             && !KeyboardFormFactorPolicy.expanded(configuration.smallestScreenWidthDp);
         return KeyboardBottomBarPolicy.shown(s.localSettings.bool(AndroidLocalSettings.BOTTOM_BAR),
-            navigationKnown, s.floatingDrawn(), s.hardwareKeysCollapsed(), phoneLandscape,
+            systemDrawsImeButtons(), navigationKnown, s.floatingDrawn(), s.hardwareKeysCollapsed(), phoneLandscape,
             KeyboardGeometry.fromPixels(s, navigationBottom));
+    }
+
+    /**
+     * 系统是否自己在输入法窗口底部画了收起和切换按钮。Android 13 起原生系统在手势导航下把这一条（`android.inputmethodservice.navigationbar.NavigationBarFrame`）直接加在输入法窗口的 decor 下，三键导航或系统不画时它不存在或不可见。没有公开接口能问，只能按类名看 decor 的直接子视图；国产系统不画这条时，这里是假。
+     */
+    private boolean systemDrawsImeButtons() {
+        Dialog dialog = s.getWindow();
+        Window window = dialog == null ? null : dialog.getWindow();
+        if (window == null || !(window.peekDecorView() instanceof ViewGroup decor)) return false;
+        for (int index = 0; index < decor.getChildCount(); index++) {
+            View child = decor.getChildAt(index);
+            if (child.getVisibility() == View.VISIBLE
+                    && "NavigationBarFrame".equals(child.getClass().getSimpleName())) return true;
+        }
+        return false;
     }
 
     /**

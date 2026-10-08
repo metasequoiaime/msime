@@ -12,26 +12,28 @@ public final class KeyboardBottomBarPolicySmoke {
     }
 
     private static void navigationHeight() {
-        // 手势条（含隐藏手势条的 0）画；三键导航和系统自己画输入法导航按钮时的 48 dp 不画。
+        // 手势条（含隐藏手势条的 0）画；三键导航的 48 dp 不画。AOSP 模拟器手势导航下给输入法的导航栏是 63 px（24 dp）。
         for (float dp : new float[] {0f, 13.5f, 16f, 24f, 31.9f}) {
-            check(KeyboardBottomBarPolicy.shown(true, true, false, false, false, dp), "thin bar " + dp + " dp");
+            check(KeyboardBottomBarPolicy.shown(true, false, true, false, false, false, dp), "thin bar " + dp + " dp");
         }
         for (float dp : new float[] {32f, 42f, 48f, 56f}) {
-            check(!KeyboardBottomBarPolicy.shown(true, true, false, false, false, dp), "tall bar " + dp + " dp");
+            check(!KeyboardBottomBarPolicy.shown(true, false, true, false, false, false, dp), "tall bar " + dp + " dp");
         }
         for (float dp : new float[] {Float.NaN, Float.POSITIVE_INFINITY, -1f}) {
-            check(!KeyboardBottomBarPolicy.shown(true, true, false, false, false, dp), "invalid height " + dp);
+            check(!KeyboardBottomBarPolicy.shown(true, false, true, false, false, false, dp), "invalid height " + dp);
         }
     }
 
     private static void otherStates() {
-        check(!KeyboardBottomBarPolicy.shown(false, true, false, false, false, 16f), "off when the setting is off");
-        check(!KeyboardBottomBarPolicy.shown(true, false, false, false, false, 0f),
+        check(!KeyboardBottomBarPolicy.shown(false, false, true, false, false, false, 16f), "off when the setting is off");
+        check(!KeyboardBottomBarPolicy.shown(true, false, false, false, false, false, 0f),
             "not drawn when the navigation height cannot be read (Android 11 and earlier)");
-        check(!KeyboardBottomBarPolicy.shown(true, true, true, false, false, 16f), "not under a floating keyboard");
-        check(!KeyboardBottomBarPolicy.shown(true, true, false, true, false, 16f),
+        check(!KeyboardBottomBarPolicy.shown(true, true, true, false, false, false, 16f),
+            "not when the system draws its own IME buttons on the gesture strip (Android 13+ AOSP)");
+        check(!KeyboardBottomBarPolicy.shown(true, false, true, true, false, false, 16f), "not under a floating keyboard");
+        check(!KeyboardBottomBarPolicy.shown(true, false, true, false, true, false, 16f),
             "not while a hardware keyboard collapses the keys");
-        check(!KeyboardBottomBarPolicy.shown(true, true, false, false, true, 16f), "not on a phone in landscape");
+        check(!KeyboardBottomBarPolicy.shown(true, false, true, false, false, true, 16f), "not on a phone in landscape");
     }
 
     private static void bottomMargin() {
