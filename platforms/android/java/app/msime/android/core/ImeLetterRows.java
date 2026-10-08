@@ -364,6 +364,7 @@ final class ImeLetterRows {
         s.shuangpinKeyInputs.clear();
         s.microsoftFinalKey = null;
         s.nineKeySidebar = null;
+        s.nineKeySymbolKey = null;
         s.strokeWildcardKey = null;
         s.japaneseSpaceKey = null;
         s.japaneseReturnKey = null;

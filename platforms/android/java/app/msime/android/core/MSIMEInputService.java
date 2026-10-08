@@ -301,6 +301,8 @@ public final class MSIMEInputService extends InputMethodService {
     Button globeButton;
     Button deleteButton;
     View nineKeySidebar;
+    /** 拼音九键的 1 键：组字时显示「分词」，否则「@#」，render 时按组字状态更新。 */
+    Button nineKeySymbolKey;
     /** 笔画网格的通配键：只在组字中可用，render 时按组字状态更新。 */
     Button strokeWildcardKey;
     String actionRowSignature = "";
@@ -6677,6 +6679,7 @@ public final class MSIMEInputService extends InputMethodService {
         updateShuangpinKeyHints();
         updateQuickPunctuation();
         imeLayoutRows.updateStrokeWildcardKey();
+        imeLayoutRows.updateNineKeySymbolKey();
         String currentEditingText = view == null ? "" : view.optString("editing_text", "");
         if (!japaneseSchemeActive() || currentEditingText.isEmpty()) {
             japaneseConversionIndex = null;
