@@ -68,8 +68,7 @@ public final class AiPolishModelCatalog {
                 if (id.isEmpty() || id.length() > MAX_MODEL_ID_LENGTH) continue;
                 JSONArray endpointTypes = model.optJSONArray("supported_endpoint_types");
                 if (endpointTypes != null && endpointTypes.length() > 0) {
-                    boolean supported = Boolean.TRUE.equals(
-                        strictBoolean(model.opt("chat_completions_bridge")));
+                    boolean supported = JsonPolicy.strictTrue(model.opt("chat_completions_bridge"));
                     for (int item = 0; item < endpointTypes.length(); item++) {
                         String type = strictString(endpointTypes.opt(item));
                         if ("openai".equals(type)) supported = true;
