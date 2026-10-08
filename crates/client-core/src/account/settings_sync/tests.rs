@@ -133,6 +133,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.key_sound_pack",
             "platform.android.keyboard_height_adjustment",
             "platform.android.keyboard_layout",
+            "platform.android.number_keypad_order",
             "platform.android.sound_enabled",
             "platform.android.theme",
             "platform.android.toolbar_ai",
@@ -196,6 +197,7 @@ fn settings_sync_round_trips_every_exported_key() {
         touch_row_spacing_tenths: 60,
         touch_keyboard_height_adjustment: 10,
         touch_voice_shortcut: !Preferences::default().touch_voice_shortcut,
+        touch_number_keypad_order: NumberKeypadOrder::Calculator,
         ..Preferences::default()
     };
     expected.frequency = FrequencyPreferences {
@@ -507,6 +509,7 @@ fn settings_sync_host_feedback_is_read_only_when_the_document_has_it() {
         })
     );
     assert!(valid_haptic_strength("light") && !valid_haptic_strength("off"));
+    assert!(valid_haptic_strength("system"), "跟随系统");
 }
 
 #[test]
