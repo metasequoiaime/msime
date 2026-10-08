@@ -38,7 +38,7 @@ public enum PageId {
         "已安装", "拼音词库", "新建词库", "导入词库", "导出", "发现词库", "记忆新词", "学习"),
     LEXICON_DETAIL("LexiconDetailPage", "词库详情", HostDeepLink.TAB_SETTINGS),
     PHRASES("PhrasesPage", "常用语", HostDeepLink.TAB_SETTINGS,
-        "添加常用语"),
+        "添加常用语", "修改常用语", "删除常用语"),
     VOICE("VoicePage", "语音输入", HostDeepLink.TAB_SETTINGS,
         "识别", "识别语言", "自动添加标点", "离线识别", "启动方式", "长按空格", "隐私", "上传语音以改进识别"),
     HANDWRITING("HandwritingPage", "手写输入", HostDeepLink.TAB_SETTINGS,
