@@ -11,8 +11,10 @@ import java.util.Set;
  * <p>符号栏一屏显示 {@link #VISIBLE_ROWS} 个，多出来的上下滚动；原来三个符号铺满三行键高，间距大到还能再放两个（#5574）。拼音九键的数字键面是用来打数字和算式的，左栏换成四则运算符号，叹号挪到运算符号后面，滚动才看得到（#5590）。存储格式是用空格分开的符号，读不出或不合规时整张表回到默认值。
  */
 public final class NineKeySidebarPolicy {
-    /** 符号栏一屏显示几个符号；符号不足这么多时按实际个数均分整栏高度。 */
+    /** 符号栏一屏最多显示几个符号；符号不足这么多时按实际个数均分整栏高度。 */
     public static final int VISIBLE_ROWS = 5;
+    /** 每个符号键至少多高（dp）：键盘高度调到最矮时一屏少放几个，不把键压得比字还矮。 */
+    public static final int MIN_ROW_HEIGHT_DP = 28;
     /** 一张符号表最多几个符号。 */
     public static final int MAX_SYMBOLS = 30;
     /** 一个符号最多几个码位（「……」「:-)」这类短串也允许）。 */
@@ -85,15 +87,17 @@ public final class NineKeySidebarPolicy {
     }
 
     /**
-     * 符号栏里每个符号占的高度（像素）：一屏放 {@link #VISIBLE_ROWS} 个，符号少于这么多时均分整栏，不留空白。
+     * 符号栏里每个符号占的高度（像素）：一屏放 {@link #VISIBLE_ROWS} 个，符号少于这么多时均分整栏，不留空白；放这么多会让每个低于 `minRowHeight` 时少放几个。
      *
      * @param railHeight 符号栏的可见高度
      * @param count 符号个数
+     * @param minRowHeight 每个符号的最小高度（像素，{@link #MIN_ROW_HEIGHT_DP} 换算后）
      */
-    public static int rowHeight(int railHeight, int count) {
+    public static int rowHeight(int railHeight, int count, int minRowHeight) {
         if (railHeight <= 0) return 0;
-        int rows = Math.max(1, Math.min(count, VISIBLE_ROWS));
-        return railHeight / rows;
+        int rows = Math.min(count, VISIBLE_ROWS);
+        if (minRowHeight > 0) rows = Math.min(rows, railHeight / minRowHeight);
+        return railHeight / Math.max(1, rows);
     }
 
     /** 列出时给设置页显示的摘要：最多前 `limit` 个符号，后面用「等 N 个」收尾。 */

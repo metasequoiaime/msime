@@ -14,7 +14,7 @@ Android 拼音九键左侧的符号栏原来是 ，。？ 三个键铺满三行�
 
 ### 左侧符号栏
 
-- 拼音九键和笔画键盘的左栏是 `NineKeySymbolRail`（`platforms/android/java/app/msime/android/keyboard/NineKeySymbolRail.java`）：一个不显示滚动条、带上下渐隐边的 `ScrollView`，一屏显示 `NineKeySidebarPolicy.VISIBLE_ROWS`（5）个符号，多出来的上下滑动。每个符号键的高度在 `onMeasure` 里按栏高均分（`NineKeySidebarPolicy.rowHeight`），并扣掉键自己的上下外边距，所以键盘高度和行距偏好变了不用重建；符号不足五个时按实际个数均分整栏，不留空白。
+- 拼音九键和笔画键盘的左栏是 `NineKeySymbolRail`（`platforms/android/java/app/msime/android/keyboard/NineKeySymbolRail.java`）：一个不显示滚动条、带上下渐隐边的 `ScrollView`，一屏显示 `NineKeySidebarPolicy.VISIBLE_ROWS`（5）个符号，多出来的上下滑动。每个符号键的高度在 `onMeasure` 里按栏高均分（`NineKeySidebarPolicy.rowHeight`），并扣掉键自己的上下外边距，所以键盘高度和行距偏好变了不用重建；符号不足五个时按实际个数均分整栏，不留空白；键盘高度调到最矮、五个会让每个低于 `MIN_ROW_HEIGHT_DP`（28 dp）时一屏少放几个。
 - 符号表来自本地设置 `platform.android.nine_key_symbols`（`AndroidLocalSettings` 新增的 `TEXT` 类设置）：用空格分开的符号，存储前经 `NineKeySidebarPolicy.normalize` 规范成单空格连接、去重；空串、单个符号超过 4 个码位、含控制字符、超过 30 个符号或文本超过 200 个 UTF-16 单元一律不合规，写入时拒收，读到时整张表回到默认值。默认表是 `， 。 ？ 、 ： ； …… ～ @`：前三个和原来一样，！ 仍在右列最下面，不在左栏重复。
 - 设置页「键盘 › 布局 › 九键左侧符号」用 `InputDialog` 编辑这张表，留空恢复默认（删掉这一项）。键盘每次出现时重读本地设置，`ImeLayoutRows.sidebarStale` 发现屏上的符号表和设置不同时，`render` 重建键行。
 - 这个设置只在本机，不随账号同步：同步表在 `crates/client-core/src/account/settings_sync.rs` 的 `ANDROID_LOCAL_SETTINGS`，那里只有布尔、选项和整数三种类型。

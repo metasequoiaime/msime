@@ -39,11 +39,14 @@ public final class NineKeySidebarPolicySmoke {
     }
 
     private static void rowHeight() {
-        check(NineKeySidebarPolicy.rowHeight(500, 9) == 100, "five rows share a full rail");
-        check(NineKeySidebarPolicy.rowHeight(300, 3) == 100, "three symbols fill the rail as before");
-        check(NineKeySidebarPolicy.rowHeight(300, 1) == 300, "a single symbol fills the rail");
-        check(NineKeySidebarPolicy.rowHeight(300, 0) == 300, "an empty rail does not divide by zero");
-        check(NineKeySidebarPolicy.rowHeight(0, 9) == 0, "an unmeasured rail has no rows");
+        check(NineKeySidebarPolicy.rowHeight(500, 9, 28) == 100, "five rows share a full rail");
+        check(NineKeySidebarPolicy.rowHeight(300, 3, 28) == 100, "three symbols fill the rail as before");
+        check(NineKeySidebarPolicy.rowHeight(300, 1, 28) == 300, "a single symbol fills the rail");
+        check(NineKeySidebarPolicy.rowHeight(300, 0, 28) == 300, "an empty rail does not divide by zero");
+        check(NineKeySidebarPolicy.rowHeight(0, 9, 28) == 0, "an unmeasured rail has no rows");
+        check(NineKeySidebarPolicy.rowHeight(120, 9, 28) == 30, "a short keyboard shows four rows rather than squeezing five");
+        check(NineKeySidebarPolicy.rowHeight(20, 9, 28) == 20, "a rail shorter than one row still shows one");
+        check(NineKeySidebarPolicy.rowHeight(500, 9, 0) == 100, "no minimum means five rows");
     }
 
     private static void parsing() {
