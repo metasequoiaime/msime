@@ -392,9 +392,27 @@ struct MSIMECandidatePageGeometry {
     CGFloat contentLeft = 0;
 };
 
+// 释义每个目标语言占一行，宿主内部用 "\n" 分行；共享会话每个候选只存一条不含控制字符的释义，msime_client_apply_translations 遇到 "\n" 会把整批释义拒收，设了第二释义语言后候选下一条释义都不显示（#5598）。所以交给会话时把行分隔换成 U+2028 LINE SEPARATOR（它不是控制字符），读回时在 CandidateTranslation 这唯一的读取处换回 "\n"。
+static NSString *const MSIMEGlossLineSeparator = @"\u2028";
+
 static NSString *CandidateTranslation(NSDictionary *candidate) {
     id text = candidate[@"translation"];
-    return [text isKindOfClass:NSString.class] ? text : @"";
+    return [text isKindOfClass:NSString.class] ? [text stringByReplacingOccurrencesOfString:MSIMEGlossLineSeparator withString:@"\n"] : @"";
+}
+
+// 交给会话的释义。来源自带的 U+2028、U+2029 先折成空格：词典、账号和自定义接口都可能原样带着它，不折掉的话读回时会多出一行，第二语言的释义被挤到第三行，按列上屏也会取错列。
+static NSArray<NSDictionary *> *MSIMESessionTranslations(NSArray<NSDictionary *> *results) {
+    NSMutableArray<NSDictionary *> *session = [NSMutableArray arrayWithCapacity:results.count];
+    for (NSDictionary *entry in results) {
+        NSString *translation = [entry isKindOfClass:NSDictionary.class] ? entry[@"translation"] : nil;
+        if (![translation isKindOfClass:NSString.class]) { [session addObject:entry]; continue; }
+        NSString *flat = [[translation stringByReplacingOccurrencesOfString:MSIMEGlossLineSeparator withString:@" "]
+            stringByReplacingOccurrencesOfString:@"\u2029" withString:@" "];
+        NSMutableDictionary *encoded = [entry mutableCopy];
+        encoded[@"translation"] = [flat stringByReplacingOccurrencesOfString:@"\n" withString:MSIMEGlossLineSeparator];
+        [session addObject:encoded];
+    }
+    return session;
 }
 
 // Candidate pinning is a macOS presentation preference. The Engine's ranking is
@@ -2023,7 +2041,7 @@ static NSImage *MSIMECandidateLogoImage() {
     [self invalidateServiceSnapshots];
     uint64_t generation = 0;
     if (!MSIMEStrictUnsignedInteger(view[@"generation"], &generation)) return NO;
-    NSDictionary *applied = [_session applyTranslations:results generation:generation error:nil];
+    NSDictionary *applied = [_session applyTranslations:MSIMESessionTranslations(results) generation:generation error:nil];
     if (!MSIMEStrictBoolean(applied[@"applied"])) return NO;
     // A gloss changes what the card shows, never the composition, so only the card is redrawn. Going through apply: re-sent the marked text on every arrival, and IMK services the next key inside that synchronous setMarkedText: call - the whole keystroke, reranking included, ran nested in it, after which the outer apply: wrote the older view back over the newer one.
     NSDictionary *next = applied[@"view"];
