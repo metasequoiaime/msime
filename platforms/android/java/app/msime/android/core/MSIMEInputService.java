@@ -2910,14 +2910,14 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean helpcodeCompositionEligible() {
         if (view == null) return false;
         return ChineseHelpcodePolicy.eligible(dedicatedEnglish,
-            view.optString("editing_text", ""), InputViewValuePolicy.scheme(view, -1),
+            InputViewValuePolicy.editingText(view), InputViewValuePolicy.scheme(view, -1),
             view.optString("local_mode", "none"));
     }
 
     private boolean entersHelpcode() {
         if (view == null) return false;
         return ChineseHelpcodePolicy.entersHelpcode(dedicatedEnglish, letterCase.usesUppercase(),
-            view.optString("editing_text", ""), InputViewValuePolicy.scheme(view, -1),
+            InputViewValuePolicy.editingText(view), InputViewValuePolicy.scheme(view, -1),
             view.optString("local_mode", "none"));
     }
 
