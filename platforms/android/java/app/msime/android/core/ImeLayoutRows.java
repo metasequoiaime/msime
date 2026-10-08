@@ -902,7 +902,7 @@ final class ImeLayoutRows {
     void moveJapaneseCaretLeft() {
         resetJapaneseToggle();
         if (s.connection == null) return;
-        if (s.view == null || s.view.optString("editing_text", "").isEmpty())
+        if (s.view == null || JsonPolicy.strictStringOrEmpty(s.view.opt("editing_text")).isEmpty())
             s.sendDownUpKeyEvents(android.view.KeyEvent.KEYCODE_DPAD_LEFT);
     }
 
@@ -911,7 +911,7 @@ final class ImeLayoutRows {
         boolean toggling = japaneseToggleCurrent(false);
         resetJapaneseToggle();
         if (toggling || s.connection == null) return;
-        if (s.view == null || s.view.optString("editing_text", "").isEmpty())
+        if (s.view == null || JsonPolicy.strictStringOrEmpty(s.view.opt("editing_text")).isEmpty())
             s.sendDownUpKeyEvents(android.view.KeyEvent.KEYCODE_DPAD_RIGHT);
     }
 
