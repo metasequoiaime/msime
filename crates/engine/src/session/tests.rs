@@ -4077,6 +4077,26 @@ fn cantonese_rows_are_never_learned_or_edited() {
 }
 
 #[test]
+fn selecting_a_cantonese_candidate_does_not_clone_the_full_row() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese_dictionary(fixture.path());
+    });
+    type_text(&mut session, "neihou");
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.select(0));
+
+    assert_eq!(result.commit.as_deref(), Some("你好"));
+    assert!(session.snapshot().preedit.is_empty());
+    assert!(
+        allocations <= 1,
+        "Cantonese candidate selection allocations: {allocations}"
+    );
+}
+
+#[test]
 fn cantonese_caret_edits_keep_the_shown_syllables() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {

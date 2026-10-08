@@ -372,10 +372,12 @@ impl ImeSession {
         }
     }
 
-    /// Takes the letters a selected Cantonese row covers out of the composition and answers what is left; returns whether letters are left composing.
-    pub fn select_cantonese(&mut self, item: &WordItem) -> bool {
-        let composing = self.scheme.select_cantonese(item);
-        self.refresh_candidates();
+    /// 按候选覆盖的字节数选择粤语候选，提交时无需复制完整候选行。
+    pub fn select_cantonese_end(&mut self, end: usize) -> bool {
+        let composing = self.scheme.select_cantonese_end(end);
+        if composing {
+            self.refresh_candidates();
+        }
         composing
     }
 

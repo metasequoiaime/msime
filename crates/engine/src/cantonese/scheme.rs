@@ -288,7 +288,12 @@ impl CantoneseScheme {
 
     /// Takes the letters `candidate` covers out of the composition, with the boundary after them. Returns whether letters are left composing; the caller commits the candidate's text either way.
     pub fn select(&mut self, candidate: &CantoneseCandidate) -> bool {
-        self.input.drain(..candidate.end);
+        self.select_end(candidate.end)
+    }
+
+    /// 按候选覆盖的字节数删掉组字前缀，避免提交路径复制整行候选。
+    pub fn select_end(&mut self, end: usize) -> bool {
+        self.input.drain(..end);
         let boundaries = self.input.len() - self.input.trim_start_matches('\'').len();
         self.input.drain(..boundaries);
         !self.input.is_empty()

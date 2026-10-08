@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::cantonese::{CantoneseCandidate, CantoneseScheme, Inventory};
+use crate::cantonese::{CantoneseScheme, Inventory};
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::japanese::JapaneseRomajiScheme;
@@ -13,7 +13,7 @@ use crate::shuangpin::profile::profile;
 use crate::shuangpin::ShuangpinScheme;
 use crate::stroke::StrokeScheme;
 use crate::tibetan::TibetanScheme;
-use crate::types::{QueryRequest, SchemeKey, SchemeType, ShuangpinProfileKind, WordItem};
+use crate::types::{QueryRequest, SchemeKey, SchemeType, ShuangpinProfileKind};
 use crate::vietnamese::{InputMethod, ToneStyle, VietnameseScheme};
 use crate::wubi::scheme::WubiScheme;
 use crate::zhuyin::scheme::ZhuyinScheme;
@@ -217,17 +217,11 @@ impl Scheme {
         }
     }
 
-    /// Takes the letters a Cantonese candidate covers out of the composition, as `CantoneseScheme::select`; returns whether letters are left composing. False, with nothing changed, for every other scheme.
-    pub fn select_cantonese(&mut self, item: &WordItem) -> bool {
+    /// 按候选覆盖的字节数选择粤语候选，提交时无需复制完整候选行。
+    pub fn select_cantonese_end(&mut self, end: usize) -> bool {
         let Self::Cantonese(scheme) = self else {
             return false;
         };
-        scheme.select(&CantoneseCandidate {
-            text: item.word.clone(),
-            weight: item.weight,
-            key: item.canonical_pinyin.clone(),
-            syllables: item.canonical_pinyin.split(' ').count(),
-            end: item.pinyin.len(),
-        })
+        scheme.select_end(end)
     }
 }
