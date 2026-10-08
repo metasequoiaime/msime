@@ -271,9 +271,9 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
                 + ").value === '60' && (" + ROW_SPACING + ").value === '70' && !("
                 + VOICE_SHORTCUT + ").checked");
             stage = "cross-process system input uses saved preferences";
-            shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
-            shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
-            shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
+            shell("ime disable app.msime.android/.MSIMEInputService");
+            shell("ime enable app.msime.android/.MSIMEInputService");
+            shell("ime set app.msime.android/.MSIMEInputService");
             SystemClock.sleep(1000);
             shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
@@ -289,9 +289,9 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             assertSharedSchemePicker();
             stage = "scheme visibility survives IME restart";
             shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
-            shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
-            shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
-            shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
+            shell("ime disable app.msime.android/.MSIMEInputService");
+            shell("ime enable app.msime.android/.MSIMEInputService");
+            shell("ime set app.msime.android/.MSIMEInputService");
             SystemClock.sleep(1000);
             shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
@@ -311,7 +311,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         stage = prefix + ": selected fallback card";
         await(node -> equalsText("app.msime.android", node.getPackageName())
             && equalsText("输入方案卡片 全拼 26 键", node.getContentDescription())
-            && equalsText("已选中", node.getStateDescription()));
+            && equalsText("已选中", state(node, "已选中", "未选中")));
         stage = prefix + ": hidden card absence";
         for (var window : automation.getWindows()) {
             if (find(window.getRoot(), node -> equalsText("app.msime.android", node.getPackageName())

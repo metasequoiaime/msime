@@ -747,6 +747,25 @@ fn url_entry_readiness_at_the_end_does_not_build_the_preedit_twice() {
 }
 
 #[test]
+fn url_trigger_reversion_reuses_the_remaining_text_buffer() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+    assert!(session.punctuation(b'.').handled);
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.command(Command::Backspace));
+
+    assert!(result.handled);
+    assert_eq!(session.snapshot().preedit, "www");
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+    assert!(
+        allocations <= 33,
+        "URL trigger reversion allocations: {allocations}"
+    );
+}
+
+#[test]
 fn prefix_end_does_not_build_editing_text_to_clamp_the_caret() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();
@@ -805,6 +824,23 @@ fn typing_at_a_caret_reuses_the_editing_text_length() {
         allocations <= 283,
         "caret insertion allocations: {allocations}"
     );
+}
+
+#[test]
+fn selecting_a_quanpin_candidate_clones_only_needed_request_fields() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.learning = false;
+        options.personal_context = false;
+    });
+    type_text(&mut session, "nihao");
+    let index = index_of(&session, "你好");
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.select(index));
+
+    assert_eq!(result.commit.as_deref(), Some("你好"));
+    assert_eq!(allocations, 36, "selection allocations: {allocations}");
 }
 
 /// The reported case: in mixed Wubi `jixu` is the wubi code of 曳光弹 and the pinyin of 继续. The fourth key must leave both on offer; without pinyin rows the same code still commits its one wubi row.

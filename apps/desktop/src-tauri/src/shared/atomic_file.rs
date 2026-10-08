@@ -81,10 +81,17 @@ pub(crate) fn open_private(path: &Path) -> io::Result<File> {
             .read(true)
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
         let file = options.open(path)?;
-        if !file.metadata()?.is_file() {
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "private input is not a regular file",
+            ));
+        }
+        if !msime_client_core::file_lock::has_single_link(&file)? {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "private input must have a single link",
             ));
         }
         return Ok(file);
@@ -123,6 +130,12 @@ pub(crate) fn open_private_fd(directory: &OwnedFd, name: &OsStr) -> io::Result<F
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "private input is not a regular file",
+        ));
+    }
+    if stat.st_nlink != 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private input must have a single link",
         ));
     }
     Ok(descriptor.into())
@@ -484,6 +497,38 @@ mod private_open_tests {
         std::fs::write(&target, b"synthetic-private-data").unwrap();
         let linked = root.path().join("private.json");
         symlink(&target, &linked).unwrap();
+
+        assert!(open_private(&linked).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-private-data");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_open_rejects_a_hard_linked_leaf() {
+        use super::open_private;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.json");
+        std::fs::write(&target, b"synthetic-private-data").unwrap();
+        let linked = root.path().join("private.json");
+        std::fs::hard_link(&target, &linked).unwrap();
+
+        assert!(open_private(&linked).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-private-data");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn private_open_rejects_a_hard_linked_leaf() {
+        use super::open_private;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.json");
+        std::fs::write(&target, b"synthetic-private-data").unwrap();
+        let linked = root.path().join("private.json");
+        std::fs::hard_link(&target, &linked).unwrap();
 
         assert!(open_private(&linked).is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-private-data");

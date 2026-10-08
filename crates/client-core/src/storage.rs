@@ -95,30 +95,13 @@ pub(crate) fn open_private_file_at(directory: &File, name: &OsStr) -> io::Result
     )?;
     let file: File = descriptor.into();
     let metadata = file.metadata()?;
-    if !metadata.is_file() || !has_single_link(&metadata) {
+    if !metadata.is_file() || !crate::file_lock::has_single_link(&file)? {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "private input is not a single-link regular file",
         ));
     }
     Ok(file)
-}
-
-#[cfg(unix)]
-fn has_single_link(metadata: &fs::Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    metadata.nlink() == 1
-}
-
-#[cfg(windows)]
-fn has_single_link(metadata: &fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-    metadata.number_of_links() == 1
-}
-
-#[cfg(not(any(unix, windows)))]
-fn has_single_link(_: &fs::Metadata) -> bool {
-    true
 }
 
 /// Open a real child directory without following a symlink. The returned

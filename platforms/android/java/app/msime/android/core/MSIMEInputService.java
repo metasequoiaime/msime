@@ -111,6 +111,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeLetterRows imeLetterRows;
     ImeGlideTyping imeGlideTyping;
     ImeBottomRow imeBottomRow;
+    ImeBottomBar imeBottomBar;
     ImeLayoutRows imeLayoutRows;
     ImeStyler imeStyler;
     ImeFrame imeFrame;
@@ -697,7 +698,10 @@ public final class MSIMEInputService extends InputMethodService {
         if (localModes == null) localModes = new JSONObject();
         // 候选条的配色和字号与皮肤同理：按副本重算，候选条会先铺一层出厂薄荷底、字号回到出厂的 18/15，实时偏好到了才换回来（#5933）。副本这条路径保留当前外观，也就是上次真正读到的偏好或 onCreate 按皮肤片段算好的那一份。
         if (live) applyCandidateAppearance(preferences);
-        applyTouchGeometry(preferences);
+        // 键距、行距、语音快捷键和数字键顺序同理：副本里是出厂值，onStartInput 紧接着就按它重建键行，调过键距的用户每换一个输入框，键盘都先按出厂间距排一帧，实时偏好到了才跳回来。副本这条路径保留当前几何，也就是上次真正读到的偏好或 onCreate 按皮肤片段算好的那一份。键高例外：本地设置里有键高时那份是实时的，照旧跟着刷新；没有时 heightAdjustmentFrom 会退回副本里的出厂值，所以要先判断。
+        if (live) applyTouchGeometry(preferences);
+        else if (localSettings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT))
+            adoptSavedHeightAdjustment(heightAdjustmentFrom(preferences));
         // 工具栏按钮开关与皮肤同理：runtime-options.json 那份出厂默认里剪贴板按钮是关的，拿它画，新打开的应用里工具栏先少一格、其余按钮跟着挪位，一两秒后实时偏好到了才补回来（#5680）。那条路径改用上次真正读到的开关，没有时才退回这份副本。
         JSONObject toolbar = live || rememberedToolbar == null
             ? (preferences == null ? null : preferences.optJSONObject("touch_toolbar"))
@@ -1237,6 +1241,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeLetterRows = new ImeLetterRows(this);
         imeGlideTyping = new ImeGlideTyping(this);
         imeBottomRow = new ImeBottomRow(this);
+        imeBottomBar = new ImeBottomBar(this);
         imeLayoutRows = new ImeLayoutRows(this);
         imeStyler = new ImeStyler(this);
         imeFrame = new ImeFrame(this);
@@ -1264,6 +1269,7 @@ public final class MSIMEInputService extends InputMethodService {
             emojiSkin = surfaceSkin(hint, "emoji_theme");
             handwritingSkin = surfaceSkin(hint, "handwriting_theme");
             applyCandidateAppearance(hint);
+            applyTouchGeometry(hint);
         }
         Telemetry.beginInputSession(this);
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
@@ -1711,10 +1717,16 @@ public final class MSIMEInputService extends InputMethodService {
             : KeyboardGeometry.strictInt(preferences, "touch_key_spacing_tenths", -1));
         touchRowSpacingTenths = KeyboardGeometry.rowSpacing(preferences == null ? -1
             : KeyboardGeometry.strictInt(preferences, "touch_row_spacing_tenths", -1));
-        touchKeyboardHeightAdjustment = heightAdjustmentFrom(preferences);
+        adoptSavedHeightAdjustment(heightAdjustmentFrom(preferences));
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
         numberKeypadCalculator = numberKeypadCalculatorFrom(preferences);
+    }
+
+    /** 用上保存的键高。键盘里正在拖动高度时（应用 `restartInput` 同一个输入框时会走到这里，不经过 onFinishInputView）不动预览，只改「取消」要回到的值，与 applyPreferencesSnapshot 一致；否则预览跳回保存值，按「完成」什么也存不下。 */
+    private void adoptSavedHeightAdjustment(int saved) {
+        if (inlineHeightActive) inlineHeightOriginal = saved;
+        else touchKeyboardHeightAdjustment = saved;
     }
 
     private static boolean numberKeypadCalculatorFrom(JSONObject preferences) {
@@ -4052,10 +4064,13 @@ public final class MSIMEInputService extends InputMethodService {
         return surfaceSkin(preferences, "screen_keyboard_theme");
     }
 
-    /** 决定键盘、表情、手写面板皮肤与候选条外观的偏好字段，加上工具栏按钮开关 `touch_toolbar`；{@link #rememberSkinHint} 只记这几项。 */
+    /** 决定键盘、表情、手写面板皮肤与候选条外观的偏好字段，{@link #applyTouchGeometry} 读的键盘几何字段，加上工具栏按钮开关 `touch_toolbar`；{@link #rememberSkinHint} 只记这几项。 */
     private static final String[] SKIN_HINT_KEYS = {"global_theme", "custom_theme", "theme",
         "candidate_theme", "candidate_font_family", "candidate_english_font", "candidate_fallback_fonts",
-        "candidate_font_size", "candidate_preedit_font_size", "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
+        "candidate_font_size", "candidate_preedit_font_size",
+        "touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
+        "touch_voice_shortcut", NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY,
+        "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
     /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
     private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";
     private String writtenSkinHint;
@@ -6505,19 +6520,16 @@ public final class MSIMEInputService extends InputMethodService {
         });
         imeStyler.applyKeyboardSurfaceGeometry();
         LinearLayout keyboard = KeyboardGeometry.column(this);
-        // 停靠时键盘列按系统栏留出内边距（导航栏那一截画键盘底色）；浮动时面板悬在应用上面，不留，系统栏的四边只用来限制面板能拖到哪里。
+        // 停靠时键盘列按系统栏留出内边距（导航栏那一截画键盘底色），手势导航下再垫一条底栏（ImeBottomBar）；浮动时面板悬在应用上面，不留，系统栏的四边只用来限制面板能拖到哪里。
         keyboard.setOnApplyWindowInsetsListener((target, insets) -> {
-            systemBarInsets.set(WindowLayout.systemBars(insets));
-            if (floatingDrawn()) {
-                ViewPolicy.setPadding(target, 0, 0, 0, 0);
-                positionFloatingKeyboard();
-            } else {
-                ViewPolicy.setPadding(target, systemBarInsets.left, systemBarInsets.top,
-                    systemBarInsets.right, systemBarInsets.bottom);
-            }
+            imeBottomBar.readInsets(insets);
+            systemBarInsets.set(imeBottomBar.insets());
+            imeBottomBar.apply((LinearLayout) target);
+            if (floatingDrawn()) positionFloatingKeyboard();
             return insets;
         });
         keyboardSurface.addView(keyboard, KeyboardGeometry.frameMatchParentParams());
+        imeBottomBar.build(surface);
         japaneseFlickPreview = new JapaneseFlickPreview(this);
         keyboardSurface.addView(japaneseFlickPreview, KeyboardGeometry.frameMatchParentParams());
         quickDeleteOverlay = new QuickDeleteOverlay(this);
@@ -6546,6 +6558,8 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.hide(nineKeySpellingScroll);
         candidates = KeyboardGeometry.row(this);
         horizontalCandidateScroll = new HorizontalScrollView(this);
+        // 和九键拼音行一样不要滚动条：候选条只有一行高，默认滚动条贴在底边，浅色皮肤上是一条细灰线（#5933 录屏里看得到）。
+        horizontalCandidateScroll.setHorizontalScrollBarEnabled(false);
         horizontalCandidateScroll.addView(candidates);
         verticalCandidates = KeyboardGeometry.column(this);
         verticalCandidateScroll = new ScrollView(this);
@@ -7333,9 +7347,13 @@ public final class MSIMEInputService extends InputMethodService {
     void render() {
         // 浮动开关或外接键盘的候选条模式变了：先把窗口换成对应的布局，下面判断分离式键盘、单手模式时用的是新状态。
         applyFloatingLayout(false);
+        // 底栏随本地设置、浮动、外接键盘的候选条模式和旋转出现或消失。
+        imeBottomBar.apply(imeFrame.keyboard);
         // 旋转、设置变化或布局切换让分离式键盘该画与否变了，而键行还是按旧状态建的：先按新状态重建，下面的底行排布也会跟着换。
         // 设置页改了九键左侧符号栏的符号：同样按新的符号表重建。
-        if (imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()) imeLetterRows.rebuildKeyRows();
+        // 中文标点开关在 123 / #+= 层上切换了（工具面板、设置页、Ctrl + .）：这一层的标点按新状态重画。
+        if (imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()
+                || imeLetterRows.layerPunctuationStale()) imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();
         updateShuangpinKeyHints();
         updateQuickPunctuation();

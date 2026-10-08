@@ -502,11 +502,26 @@ impl TelemetryStore {
         let _lock = self.lock()?;
         remove_file(&self.directory.join(QUEUE_FILE))?;
         remove_file(&self.directory.join(SESSION_FILE))?;
-        let crashes = self.directory.join(CRASH_DIRECTORY);
-        match fs::remove_dir_all(&crashes) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(&self.directory)?;
+            match crate::storage::remove_private_tree_at(
+                &directory,
+                std::ffi::OsStr::new(CRASH_DIRECTORY),
+            ) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let crashes = self.directory.join(CRASH_DIRECTORY);
+            match fs::remove_dir_all(&crashes) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
         }
         let mut state = self.read_state();
         if !state.active_day.is_empty() || state.retry_after_unix_ms != 0 {

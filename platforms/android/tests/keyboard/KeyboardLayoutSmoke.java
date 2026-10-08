@@ -44,6 +44,14 @@ public final class KeyboardLayoutSmoke {
         check(texts(english.get(2)).equals(List.of("#+=", ".", ",", "?", "!", "…", "⌫")));
         check(english.get(3).get(0).text().equals("ABC")
             && english.get(3).get(0).description().equals("切换到字母键盘"));
+        // 中文模式关掉中文标点：标点和符号是半角英文，返回键仍是「拼音」。0.2.0 起这一层只看中英文模式，关掉中文标点照样上屏「，」。
+        List<List<KeyboardLayout.LayerKey>> halfWidth = KeyboardLayout.numberLayer(true, false);
+        check(texts(halfWidth.get(1)).equals(texts(english.get(1))));
+        check(texts(halfWidth.get(2)).equals(texts(english.get(2))));
+        check(halfWidth.get(3).get(0).text().equals("拼音"));
+        check(texts(KeyboardLayout.moreSymbolLayer(true, false).get(1))
+            .equals(texts(KeyboardLayout.moreSymbolLayer(false).get(1))));
+        check(KeyboardLayout.moreSymbolLayer(true, false).get(3).get(0).text().equals("拼音"));
         // #+= 层：左下原表情位是打开符号面板的「符号」键，切换键翻成 123。
         List<List<KeyboardLayout.LayerKey>> more = KeyboardLayout.moreSymbolLayer(true);
         check(texts(more.get(0)).equals(List.of("[", "]", "{", "}", "#", "%", "^", "*", "+", "=")));

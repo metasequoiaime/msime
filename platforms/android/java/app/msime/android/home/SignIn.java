@@ -235,12 +235,13 @@ final class SignIn {
         }
     }
 
-    /** 退出登录：删掉本机会话并关闭同步、清空同步游标。阻塞；清除会话失败时抛出，界面不能按已退出处理。 */
+    /** 退出登录：删掉本机会话并关闭同步、清空同步游标，再请 Credential Manager 清掉它记住的登录状态（尽力而为，见 {@link GoogleSignInFlow#clearCredentialState}）。阻塞；清除会话失败时抛出，界面不能按已退出处理。 */
     static void signOut(Context context) {
         synchronized (SyncSwitch.bindingLock()) {
             new BackendAccount(context).signOut();
             SyncSwitch.clear(context);
         }
+        GoogleSignInFlow.clearCredentialState(context);
     }
 
     /** 记下这次登录的账号；读不到用户 id 时按换账号处理（SyncSwitch 会清空同步状态）。 */
