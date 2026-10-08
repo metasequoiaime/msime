@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { Row, Segmented } from "../core/platform-controls";
+import { PickerRow, Row, Segmented, textOf } from "../core/platform-controls";
+import { useOptionalSettingsForm } from "./settings-form-context";
 
 export interface SegmentedRowOption<T extends string> {
   value: T;
@@ -20,7 +21,7 @@ export interface SegmentedRowProps<T extends string> {
   onChange: (value: T) => void;
 }
 
-/** A settings row that presents a segmented radio control. */
+/** 呈现分段单选控件的设置行；在 HarmonyOS 手机上改为整行点开选择面板。 */
 export function SegmentedRow<T extends string>({
   title,
   description,
@@ -31,6 +32,41 @@ export function SegmentedRow<T extends string>({
   onChange,
   ...labels
 }: SegmentedRowProps<T>) {
+  const form = useOptionalSettingsForm();
+  if (form?.settingsPlatform === "harmony") {
+    const current = options.find((option) => option.value === value);
+    return (
+      <PickerRow
+        title={title}
+        description={description}
+        hidden={hidden}
+        disabled={disabled}
+        valueLabel={current ? textOf(current.label) : ""}
+        options={options.map((option) => ({
+          value: option.value,
+          label: textOf(option.label),
+          selected: option.value === value,
+          disabled: option.disabled,
+        }))}
+        onSelect={(next) => {
+          const chosen = options.find((option) => option.value === next);
+          if (chosen && chosen.value !== value) onChange(chosen.value);
+        }}
+        control={(titleId) => (
+          <Segmented
+            options={options}
+            value={value}
+            disabled={disabled}
+            onChange={onChange}
+            {...labels}
+            aria-labelledby={
+              labels["aria-labelledby"] ?? (labels["aria-label"] ? undefined : titleId)
+            }
+          />
+        )}
+      />
+    );
+  }
   return (
     <Row title={title} description={description} hidden={hidden}>
       <Segmented

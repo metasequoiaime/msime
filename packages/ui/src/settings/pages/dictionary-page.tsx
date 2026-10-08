@@ -14,7 +14,7 @@ import { DictionaryFailuresNotice } from "../dictionary-failures-notice";
 import { DictionaryPagination } from "../dictionary-pagination";
 import { TextInputRow } from "../text-input-row";
 import { SelectRow } from "../select-row";
-import { DictionaryFormatOptions } from "../../dictionary/dictionary-format-options";
+import { dictionaryFormatOptions } from "../../dictionary/dictionary-format-options";
 import { OpenPanelRow } from "../open-panel-row";
 import { ActionRow } from "../action-row";
 import { ActionButton } from "../action-button";
@@ -180,7 +180,7 @@ export function DictionarySettingsPage() {
             disabled={phraseBusy}
             onChange={(event) => setDictionaryFormat(event.target.value as LocalDictionaryFormat)}
           >
-            <DictionaryFormatOptions pinyin={dictionaryKind === "pinyin"} rime />
+            {dictionaryFormatOptions({ pinyin: dictionaryKind === "pinyin", rime: true })}
           </SelectRow>
           <SettingsManagerBlock>
             <SettingsManagerActions>

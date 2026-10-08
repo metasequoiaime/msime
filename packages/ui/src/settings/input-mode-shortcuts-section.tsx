@@ -28,6 +28,8 @@ export interface InputModeShortcutsSectionProps {
   showFullwidthChord: boolean;
   fullwidthChord?: string;
   windows: boolean;
+  /** HarmonyOS 手机的「通用」分组：只列出其硬件按键路由处理的组合键，每项都是一个可选「无」的选择，并且没有分组说明。 */
+  harmonyPhone?: boolean;
 }
 
 /** 中英文切换快捷键各占一项；Ctrl+Space 只在 Linux 提供，另有「不使用」。 */
@@ -87,8 +89,11 @@ export function InputModeShortcutsSection({
   showFullwidthChord,
   fullwidthChord = "Alt+Shift+H",
   windows,
+  harmonyPhone = false,
 }: InputModeShortcutsSectionProps) {
   if (!showModeSwitchShortcuts) return null;
+  if (harmonyPhone)
+    return <HarmonyPhoneInputModeShortcuts keybindings={keybindings} onChange={onChange} />;
 
   // 按宿主显示按键名称：macOS 使用 Control 和 Option。
   const languageSwitchOptions: [LanguageSwitchChoice, string][] = [
@@ -154,6 +159,54 @@ export function InputModeShortcutsSection({
           />
         )}
       </SettingsRowStack>
+    </GroupList>
+  );
+}
+
+/** HarmonyOS 上 `KeyboardSession` 路由的语言切换组合键（Shift、单独的 Ctrl、Ctrl+Alt+Space），使用设计稿的标签。 */
+const harmonyLanguageSwitchOptions: [LanguageSwitchChoice, string][] = [
+  ["shift", "Shift"],
+  ["ctrl", "Ctrl"],
+  ["ctrl_alt_space", "Ctrl + Alt + Space"],
+  ["none", "无"],
+];
+
+type CharacterSetChoice = "ctrl_shift_f" | "none";
+
+/** HarmonyOS 手机的「通用」组：中/英文切换和简繁切换各是一行选择，没有组说明。全角、标点、打开设置等组合键 Harmony 的按键路由不处理，所以不列。 */
+function HarmonyPhoneInputModeShortcuts({
+  keybindings,
+  onChange,
+}: Pick<InputModeShortcutsSectionProps, "keybindings" | "onChange">) {
+  return (
+    <GroupList title="通用">
+      {/* 与其他宿主一样，只显示第一个已启用的组合键，用户选择之前不写入任何内容；「无」会关闭手机路由的所有组合键。 */}
+      <SelectRow
+        title="中/英文切换"
+        value={languageSwitchChoice(keybindings, false)}
+        onChange={(event) =>
+          onChange(languageSwitchPatch(event.target.value as LanguageSwitchChoice, false))
+        }
+      >
+        {harmonyLanguageSwitchOptions.map(([choice, label]) => (
+          <option key={choice} value={choice}>
+            {label}
+          </option>
+        ))}
+      </SelectRow>
+      <SelectRow
+        title="简繁切换"
+        value={keybindings.toggle_character_set_ctrl_shift_f ? "ctrl_shift_f" : "none"}
+        onChange={(event) =>
+          onChange({
+            toggle_character_set_ctrl_shift_f:
+              (event.target.value as CharacterSetChoice) === "ctrl_shift_f",
+          })
+        }
+      >
+        <option value="ctrl_shift_f">Ctrl + Shift + F</option>
+        <option value="none">无</option>
+      </SelectRow>
     </GroupList>
   );
 }

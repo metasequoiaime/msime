@@ -32,15 +32,17 @@ export const groupNote =
   "m-0 [padding:var(--p-row-pad)] [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 /** Content in a group that is not a single row: a card, an editor, a list of checks. */
 export const groupBlock = "min-w-0 [padding:var(--p-row-pad)]";
-/** The fixed track a slider row gives its range input, so the row's title keeps the rest of the width. */
-export const sliderControl = "block w-40 max-phone:w-32";
+/** 滑块行给范围输入框的固定轨道宽度，让行标题占据其余宽度。HarmonyOS 手机设计稿在 30px 的点击区域内画 110px 的轨道。 */
+export const sliderControl =
+  "block w-40 max-phone:w-32 harmony:flex harmony:h-[30px] harmony:w-[110px] harmony:items-center";
 /** A slider row's track with its current value read out after it, as the reference window's slider rows show it. */
-export const sliderWithValue = "flex items-center gap-3";
-/** The value after a slider: wide enough for two digits, so the track does not shift as the value changes. */
-export const sliderValue = "min-w-[2ch] text-right tabular-nums";
-/** Rows that belong together inside a group, such as a labelled set of them; divided the way a group divides its own rows. */
+export const sliderWithValue = "flex items-center gap-3 harmony:gap-2.5";
+/** 滑块后的数值：宽到能放下两位数字，数值变化时轨道不会移动。HarmonyOS 用次要颜色以 13px 显示在固定 46px 宽的列中，足以放下 18px 这样带单位的值。 */
+export const sliderValue =
+  "min-w-[2ch] text-right tabular-nums harmony:w-[46px] harmony:shrink-0 harmony:text-[13px] harmony:text-[var(--p-sub)]";
+/** 组内彼此相关的行，例如一组带标签的行；分隔方式与组分隔自身各行相同（见 `groupRows`：1px 上边框，HarmonyOS 手机上则是缩进的 .5px 细线）。 */
 export const rowStack =
-  "flex min-w-0 flex-col gap-[var(--p-row-gap)] [&>:not([hidden])~:not([hidden])]:[border-top:1px_solid_var(--p-row-divider)]";
+  "flex min-w-0 flex-col gap-[var(--p-row-gap)] [&>:not([hidden])~:not([hidden])]:[border-top:1px_solid_var(--p-row-divider)] harmony:[&>:not([hidden])~:not([hidden])]:[border-top:0] harmony:[&>:not([hidden])~:not([hidden])]:[background-image:linear-gradient(var(--p-row-divider),var(--p-row-divider))] harmony:[&>:not([hidden])~:not([hidden])]:[background-position:right_top] harmony:[&>:not([hidden])~:not([hidden])]:[background-size:calc(100%_-_var(--p-row-divider-inset))_var(--p-row-divider-w)] harmony:[&>:not([hidden])~:not([hidden])]:[background-repeat:no-repeat]";
 
 // ---- the theme page: its card gallery ----
 
@@ -142,7 +144,7 @@ export const settingsWarning = "mt-1.5 mb-0 text-[13px] leading-normal text-[#a2
 
 /** The history as rows of the group it sits in, divided the way the group divides its own rows. */
 export const clipboardList =
-  "flex min-w-0 flex-col [&>:not([hidden])~:not([hidden])]:[border-top:1px_solid_var(--p-row-divider)]";
+  "flex min-w-0 flex-col [&>:not([hidden])~:not([hidden])]:[border-top:1px_solid_var(--p-row-divider)] harmony:[&>:not([hidden])~:not([hidden])]:[border-top:0] harmony:[&>:not([hidden])~:not([hidden])]:[background-image:linear-gradient(var(--p-row-divider),var(--p-row-divider))] harmony:[&>:not([hidden])~:not([hidden])]:[background-position:right_top] harmony:[&>:not([hidden])~:not([hidden])]:[background-size:calc(100%_-_var(--p-row-divider-inset))_var(--p-row-divider-w)] harmony:[&>:not([hidden])~:not([hidden])]:[background-repeat:no-repeat]";
 export const clipboardRow =
   "flex min-h-[var(--p-row-h)] min-w-0 items-center justify-between gap-3 [padding:var(--p-row-pad)] [&_.secondary]:mt-0 [&_.secondary]:shrink-0 [&_.secondary]:grow-0 [&_.secondary]:basis-auto [&_.secondary]:px-[9px] [&_.secondary]:py-1";
 export const clipboardActions = "flex shrink-0 flex-wrap justify-end gap-1.5";
@@ -283,11 +285,21 @@ export const body =
  */
 export const content =
   "min-h-0 min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] win:rounded-tl-lg win:border-t win:border-l win:border-[rgba(0,0,0,0.1)] win:bg-[#1c1c1c] win:light-theme:border-[rgba(0,0,0,0.06)] win:light-theme:bg-[rgba(255,255,255,0.5)] mac:bg-[#1f1f21] mac:light-theme:bg-[#f2f2f4] linux:bg-[var(--p-bg)] hm2:bg-[#121212] hm2:light-theme:bg-[#f1f3f5] max-phone:win:rounded-none max-phone:win:border-l-0";
-/** The page column: Windows 36/56/48 inside the layer, macOS 24/48/44 with no width limit, GNOME 24/32/28 up to 680, HarmonyOS 2-in-1 8/28/28 up to 760, the iPad detail 16/28/28 up to 720. */
+/** 页面列：Windows 在图层内 36/56/48，macOS 24/48/44 且不限宽，GNOME 24/32/28 最宽 680，HarmonyOS 2-in-1 8/28/28 最宽 760，iPad 详情页 16/28/28 最宽 720，HarmonyOS 手机 4/16/24。 */
 export const contentColumn =
-  "mx-auto w-full max-w-[900px] px-7 pt-3.5 pb-6 max-phone:px-3 max-phone:py-3 win:px-14 win:pt-9 win:pb-12 mac:max-w-none mac:px-12 mac:pt-6 mac:pb-11 linux:max-w-[680px] linux:px-8 linux:pt-6 linux:pb-7 hm2:max-w-[760px] hm2:px-7 hm2:pt-2 hm2:pb-7 ipad:max-w-[720px] ipad:px-7 ipad:pt-4 ipad:pb-7 max-phone:win:px-4 max-phone:win:pt-5 max-phone:mac:px-4 max-phone:linux:px-4 max-phone:hm2:px-4";
-/** The page's large title, sized by the platform's `--p-title-*` tokens. macOS puts it in the toolbar instead. */
-export const pageHeader = "mb-6 flex items-center gap-2.5 hm2:mb-4";
+  "mx-auto w-full max-w-[900px] px-7 pt-3.5 pb-6 max-phone:px-3 max-phone:py-3 win:px-14 win:pt-9 win:pb-12 mac:max-w-none mac:px-12 mac:pt-6 mac:pb-11 linux:max-w-[680px] linux:px-8 linux:pt-6 linux:pb-7 hm2:max-w-[760px] hm2:px-7 hm2:pt-2 hm2:pb-7 ipad:max-w-[720px] ipad:px-7 ipad:pt-4 ipad:pb-7 max-phone:win:px-4 max-phone:win:pt-5 max-phone:mac:px-4 max-phone:linux:px-4 max-phone:hm2:px-4 max-phone:harmony:px-4 max-phone:harmony:pt-1 max-phone:harmony:pb-6";
+/** 页面的大标题，大小由平台的 `--p-title-*` token 决定。macOS 改放在工具栏里。HarmonyOS 手机上标题行至少 36px，与下方第一个块相隔 10px；推入标签页的页面绘制时不带自身内边距（dc.html 的详情页标题行），所以标题和返回按钮落在列的 4/16 缩进上。 */
+export const pageHeader =
+  "mb-6 flex items-center gap-2.5 hm2:mb-4 max-phone:harmony:mb-2.5 max-phone:harmony:min-h-9";
+/** HarmonyOS 手机上标签页的根标题，设计稿给它 6/4/10 的内边距（`titlePad`）：文字距屏幕边缘 20px（列 16 加行 4），下方 10px 内边距之后才是到下一个块的间距。 */
+export const pageHeaderTabRoot =
+  "max-phone:harmony:px-1 max-phone:harmony:pt-1.5 max-phone:harmony:pb-2.5";
+/** HarmonyOS 手机上「设置」根页面的标题，代替 `pageHeaderTabRoot`：设计稿的列中各块间隔 20px，所以标题的 10px 内边距加上这段间隔，让搜索框位于文字下方 30px。标题栏自身的 10px 外边距算在这 30px 里，所以这里的底部内边距是 20px；写成内边距而不是第二个外边距类，以免与上方的外边距冲突。 */
+export const pageHeaderHome =
+  "max-phone:harmony:px-1 max-phone:harmony:pt-1.5 max-phone:harmony:pb-5";
+/** HarmonyOS 手机上从推入标签页的页面返回的方式：标题前一个 40px 的圆形按钮，向列的边距伸出 10px、向标题靠 6px，让箭头与内容对齐。 */
+export const pageBackButton =
+  "-mr-1.5 -ml-2.5 flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-[var(--p-text)] active:bg-[var(--p-press)] focus-visible:outline-2 focus-visible:outline-accent";
 /** The way back from a sub-page (AI 对话, 背单词, 帮助) to the page it opens from, above the title. */
 export const backLink =
   "mb-1 inline-flex min-h-8 items-center self-start rounded-md border-0 bg-transparent px-0 text-[13px] text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent";
@@ -300,10 +312,10 @@ export const subViewTitle =
 export const pageTitle =
   "m-0 text-[length:var(--p-title-fs)] leading-tight [font-weight:var(--p-title-w)]";
 /**
- * The compact title bar a phone page fades in once its large title scrolls away. It sticks to the top of the scrolling content and takes no room of its own (the negative margin cancels its height). iOS and HarmonyOS centre 17/600 on a 44px blurred bar over a hairline; Android left-aligns 22/400 on a 64px surface-container bar.
+ * 手机页面在大标题滚出后淡入的紧凑标题栏。它吸附在滚动内容顶部，自身不占空间（负外边距抵消了它的高度）。iOS 和 HarmonyOS 在 44px 的毛玻璃栏上居中显示 17/600，底部一条细线；Android 在 64px 的 surface-container 栏上左对齐 22/400。HarmonyOS 用页面自身的背景色（应用主题下是当季的颜色）给栏着色，并让标题距两侧各 96px。
  */
 export const collapsedTitle = (shown: boolean) =>
-  `pointer-events-none hidden h-11 items-center justify-center overflow-hidden border-b-[0.5px] border-[var(--p-hair)] bg-[rgba(18,18,20,0.8)] px-14 text-[17px] font-semibold whitespace-nowrap text-[var(--p-text)] backdrop-blur-[20px] backdrop-saturate-[1.8] transition-opacity duration-[180ms] max-phone:sticky max-phone:top-0 max-phone:z-10 max-phone:-mb-11 max-phone:flex light-theme:bg-[rgba(249,249,249,0.8)] android:-mb-16 android:h-16 android:justify-start android:border-b-0 android:bg-[#1d201d] android:px-4 android:text-[22px] android:font-normal android:[-webkit-backdrop-filter:none] android:[backdrop-filter:none] android:light-theme:bg-[#ebefe7] ${
+  `pointer-events-none hidden h-11 items-center justify-center overflow-hidden border-b-[0.5px] border-[var(--p-hair)] bg-[rgba(18,18,20,0.8)] px-14 text-[17px] font-semibold whitespace-nowrap text-[var(--p-text)] backdrop-blur-[20px] backdrop-saturate-[1.8] transition-opacity duration-[180ms] max-phone:sticky max-phone:top-0 max-phone:z-10 max-phone:-mb-11 max-phone:flex light-theme:bg-[rgba(249,249,249,0.8)] harmony:bg-[color-mix(in_srgb,var(--p-bg)_82%,transparent)] harmony:px-24 harmony:light-theme:bg-[color-mix(in_srgb,var(--p-bg)_82%,transparent)] android:-mb-16 android:h-16 android:justify-start android:border-b-0 android:bg-[#1d201d] android:px-4 android:text-[22px] android:font-normal android:[-webkit-backdrop-filter:none] android:[backdrop-filter:none] android:light-theme:bg-[#ebefe7] ${
     shown ? "opacity-100" : "opacity-0"
   }`;
 

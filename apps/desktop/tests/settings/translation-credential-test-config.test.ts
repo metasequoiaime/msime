@@ -9,12 +9,12 @@ import {
 } from "../../../../packages/ui/src/settings/translation-credential-test-config";
 
 test("builds NiuTrans credential test configuration", () => {
-  expect(niutransCredentialTestConfig({ app_id: "synthetic-app", apikey: "synthetic-key" })).toEqual(
-    {
-      app_id: "synthetic-app",
-      apikey: "synthetic-key",
-    },
-  );
+  expect(
+    niutransCredentialTestConfig({ app_id: "synthetic-app", apikey: "synthetic-key" }),
+  ).toEqual({
+    app_id: "synthetic-app",
+    apikey: "synthetic-key",
+  });
 });
 
 test("builds Tencent translation credential test configuration", () => {

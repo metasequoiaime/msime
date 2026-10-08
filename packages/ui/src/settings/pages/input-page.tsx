@@ -15,6 +15,10 @@ import { createSettingsDraftActions } from "../settings-draft-actions";
 import { createHelpcodeSettingsActions } from "../helpcode-settings-actions";
 import { ResourcePackRow, resourcePackStatus, useResourcePacks } from "../resource-packs";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
+import { SelectRow } from "../select-row";
+import { SwitchRow } from "../switch-row";
+import { CandidateTranslationOptionsSection } from "../candidate-translation-options-section";
+import { CandidateEnglishGlossSection } from "../candidate-english-gloss-section";
 
 /** The 输入 page of the settings form. */
 export function InputSettingsPage() {
@@ -23,6 +27,7 @@ export function InputSettingsPage() {
     confirm,
     host,
     iosPlatform,
+    harmonyPlatform,
     linuxPlatform,
     mobilePlatform,
     macosPlatform,
@@ -51,12 +56,19 @@ export function InputSettingsPage() {
     selectedTouchKeyboardScheme,
     selectTouchKeyboardScheme,
     setTouchKeyboardSchemeEnabled,
+    selectHomeScheme,
     localModes,
     mobileKeyboardFeedback,
     mobileKeyboardFeedbackBusy,
     saveMobileKeyboardFeedback,
     setError,
     retrySave,
+    candidateTranslations,
+    candidateEnglishGloss,
+    candidateGlossLanguagesEnabled,
+    translationTargetLanguage,
+    visibleTranslationLanguages,
+    visibleSecondaryLanguages,
   } = useSettingsForm();
   const { onLocalModesChange } = createUtilitiesSettingsActions({ setDraft });
   const { onPreferencesChange, onVoiceChange } = createSettingsDraftActions({ setDraft });
@@ -73,6 +85,38 @@ export function InputSettingsPage() {
   const temporaryJapanese = host?.edition?.temporary_japanese ?? true;
   // 不带键盘神经模型的版本（host-api 也始终把它关掉）在触屏宿主上不列出神经联想开关。
   const neuralKeyboard = host?.edition?.neural_keyboard ?? true;
+  // HarmonyOS 手机像 Android 的 `TypingPage` 一样画设计稿的 输入 页：语言与方案、中文、辅助码 和 翻译 直接可见，其余都放进末尾的 更多 折叠区。翻页键在它的 候选栏 页，整句联想 在它的 表达 页，所以这里不画。
+  const harmonyPhone = harmonyPlatform && mobilePlatform;
+  // 拼音纠错 是两项全拼纠错共用的一个开关，只有两项都开启时才显示为开；打开或关闭会同时设置两项，和 Android 的 `TypingPage` 一样。
+  const autocorrect =
+    (draft.quanpin?.autocorrect_transposition ?? true) &&
+    (draft.quanpin?.autocorrect_neighbor ?? true);
+  const fuzzyPinyinSection = (layout: "section" | "row") => (
+    <FuzzyPinyinSection
+      preferences={fuzzyPinyin}
+      onChange={(fuzzy_pinyin) => onPreferencesChange({ fuzzy_pinyin })}
+      confirm={confirm}
+      layout={layout}
+    />
+  );
+  const helpcodeGroup = showHelpcode && (
+    <HelpcodeSettingsGroup
+      value={draft}
+      customSchemas={customHelpcodeSchemas}
+      packs={helpcodePacks}
+      mobile={mobilePlatform}
+      showShiftEntry={showHelpcodeShiftEntry}
+      // 当前方案所属那一族的辅助码，选法与 Android 的 `pickHelpcode` 一致：双拼 方案用 双拼，其他用 全拼。
+      activeFamily={
+        harmonyPhone
+          ? draft.scheme === "shuangpin"
+            ? "shuangpin_helpcode"
+            : "quanpin_helpcode"
+          : undefined
+      }
+      onChange={onHelpcodeChange}
+    />
+  );
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "input"} ariaLabel="输入">
       {/* 组的顺序按「基础 → 进阶」排：先选方案，再是每次打字都会碰到的中英文、选词与翻页，然后是候选从哪来（含中英混输）、以什么形式输出，最后是少数人才调的快捷模式、模糊音、辅助码和调频。这里不再沿用参考窗口的顺序，不要按参考窗口把它们挪回去。方案相关的行在当前方案用不到时隐藏而不删除，换方案时原样出现。 */}
@@ -101,8 +145,78 @@ export function InputSettingsPage() {
         onMacosShuangpinKeymapChange={setShuangpinKeymap}
         onMacosWubiAutoCommitUniqueChange={setWubiAutoCommitUnique}
         resourcePacks={resourcePacks}
+        languageCard={harmonyPhone}
+        onEnableAndSelectTouchKeyboardScheme={selectHomeScheme}
       />
+      {harmonyPhone && (
+        <>
+          <GroupList title="中文">
+            <SelectRow
+              title="中文字符集"
+              value={draft.traditional_chinese_output ? "traditional" : "simplified"}
+              onChange={(event) =>
+                onPreferencesChange({
+                  traditional_chinese_output: event.target.value === "traditional",
+                })
+              }
+            >
+              <option value="simplified">简体</option>
+              <option value="traditional">繁体</option>
+            </SelectRow>
+            <SwitchRow
+              title="拼音纠错"
+              checked={autocorrect}
+              onChange={(checked) =>
+                onPreferencesChange({
+                  quanpin: {
+                    ...draft.quanpin,
+                    autocorrect_transposition: checked,
+                    autocorrect_neighbor: checked,
+                  },
+                })
+              }
+            />
+            {client.fuzzyPinyin && fuzzyPinyinSection("row")}
+          </GroupList>
+          {helpcodeGroup}
+          <GroupList title="翻译">
+            <CandidateTranslationOptionsSection
+              layout="phone"
+              enabled={candidateTranslations}
+              targetLanguage={translationTargetLanguage}
+              secondaryLanguage={draft.translation_secondary_language ?? ""}
+              candidateGlossLanguagesEnabled={candidateGlossLanguagesEnabled}
+              visibleLanguages={visibleTranslationLanguages}
+              visibleSecondaryLanguages={visibleSecondaryLanguages}
+              showSecondaryLanguage
+              showAccountTranslation={false}
+              accountTranslation={false}
+              onEnabledChange={(candidate_translations) =>
+                onPreferencesChange({ candidate_translations })
+              }
+              onTargetLanguageChange={(translation_target_language) =>
+                onPreferencesChange({ translation_target_language })
+              }
+              onSecondaryLanguageChange={(value) =>
+                onPreferencesChange({ translation_secondary_language: value === "" ? null : value })
+              }
+              onAccountTranslationChange={() => {}}
+              beforeMore={
+                client.candidateEnglishGloss && (
+                  <CandidateEnglishGlossSection
+                    value={candidateEnglishGloss}
+                    onChange={(candidate_english_gloss) =>
+                      onPreferencesChange({ candidate_english_gloss })
+                    }
+                  />
+                )
+              }
+            />
+          </GroupList>
+        </>
+      )}
       <InputSharedSettingsSection
+        foldIntoMore={harmonyPhone}
         preferences={draft}
         wordCharacter={wordCharacter}
         navigation={navigation}
@@ -114,29 +228,33 @@ export function InputSettingsPage() {
         mixedInput={mixedInput}
         onMixedInputChange={(mixed_input) => onPreferencesChange({ mixed_input })}
         paging={
-          <NavigationSection
-            navigation={navigation}
-            wordCharacter={wordCharacter}
-            linux={linuxPlatform}
-            onChange={(next) =>
-              onPreferencesChange({
-                // 只有占用了「以词定字」按键的翻页键才会改动它；否则未设置的值保持未设置。
-                ...(next.wordCharacter !== wordCharacter
-                  ? { word_character: next.wordCharacter }
-                  : {}),
-                navigation: next.navigation,
-              })
-            }
-          />
+          !harmonyPhone && (
+            <NavigationSection
+              navigation={navigation}
+              wordCharacter={wordCharacter}
+              linux={linuxPlatform}
+              onChange={(next) =>
+                onPreferencesChange({
+                  // 只有占用了「以词定字」按键的翻页键才会改动它；否则未设置的值保持未设置。
+                  ...(next.wordCharacter !== wordCharacter
+                    ? { word_character: next.wordCharacter }
+                    : {}),
+                  navigation: next.navigation,
+                })
+              }
+            />
+          )
         }
         beforeLearning={
-          <SentenceAssociationSection
-            value={draft.sentence_association}
-            mobile={mobilePlatform}
-            neuralKeyboard={neuralKeyboard}
-            resourcePacks={resourcePacks}
-            onChange={(sentence_association) => onPreferencesChange({ sentence_association })}
-          />
+          !harmonyPhone && (
+            <SentenceAssociationSection
+              value={draft.sentence_association}
+              mobile={mobilePlatform}
+              neuralKeyboard={neuralKeyboard}
+              resourcePacks={resourcePacks}
+              onChange={(sentence_association) => onPreferencesChange({ sentence_association })}
+            />
+          )
         }
         afterLearning={
           // iOS 的英文建议存在原生 App Group 里，读写走 mobileKeyboardFeedback，与屏幕键盘页的按键反馈同一个来源。
@@ -176,25 +294,10 @@ export function InputSettingsPage() {
                   <ResourcePackRow packs={resourcePacks} id="japanese" note="临时日语需要它" />
                 </GroupList>
               )}
-            {client.fuzzyPinyin && (
-              <GroupList title="模糊音">
-                <FuzzyPinyinSection
-                  preferences={fuzzyPinyin}
-                  onChange={(fuzzy_pinyin) => onPreferencesChange({ fuzzy_pinyin })}
-                  confirm={confirm}
-                />
-              </GroupList>
+            {!harmonyPhone && client.fuzzyPinyin && (
+              <GroupList title="模糊音">{fuzzyPinyinSection("section")}</GroupList>
             )}
-            {showHelpcode && (
-              <HelpcodeSettingsGroup
-                value={draft}
-                customSchemas={customHelpcodeSchemas}
-                packs={helpcodePacks}
-                mobile={mobilePlatform}
-                showShiftEntry={showHelpcodeShiftEntry}
-                onChange={onHelpcodeChange}
-              />
-            )}
+            {!harmonyPhone && helpcodeGroup}
           </>
         }
         onPreferencesChange={onPreferencesChange}

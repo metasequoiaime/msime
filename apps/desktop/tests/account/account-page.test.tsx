@@ -7,10 +7,16 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import {
   AccountPage,
   SettingsPage,
+  ToastProvider,
   WelcomeFlowPage,
   type AccountClient,
   type AccountProfile,
   type AccountUser,
+  type AppThemeCatalogEntry,
+  type AppThemeClient,
+  type AppThemeId,
+  type Preferences,
+  type SettingsSyncClient,
   type Snapshot,
 } from "@msime/ui";
 
@@ -249,7 +255,8 @@ test("Harmony uses the mobile account flow instead of desktop account controls",
   expect(screen.queryByRole("heading", { name: "个人资料" })).toBeNull();
   expect(screen.queryByText("账号操作")).toBeNull();
   fireEvent.click(profileCard);
-  expect(await screen.findByRole("heading", { name: "编辑资料" })).not.toBeNull();
+  expect(await screen.findByRole("heading", { name: "个人资料" })).not.toBeNull();
+  expect(window.history.state).toMatchObject({ accountSubpage: "profile" });
 });
 
 test("Harmony 2-in-1 uses desktop account controls even though its platform is Harmony", async () => {
@@ -285,7 +292,7 @@ test("the mobile login sheet exposes its caller's cancel action", async () => {
   render(<AccountPage client={account()} platform="harmony" onCancelLogin={onCancelLogin} />);
 
   expect(await screen.findByRole("heading", { name: "登录水杉" })).not.toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   expect(onCancelLogin).toHaveBeenCalledOnce();
 });
 
@@ -313,7 +320,7 @@ test("Harmony chat login focuses the tryout and cancel returns to it", async () 
   fireEvent.click(await screen.findByRole("button", { name: "登录使用 AI" }));
   expect(await screen.findByRole("heading", { name: "登录水杉" })).not.toBeNull();
   expect(screen.queryByText("账号操作")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   expect(await screen.findByRole("button", { name: "登录使用 AI" })).not.toBeNull();
 });
 
@@ -1196,4 +1203,304 @@ test("a host without avatar upload offers no avatar button", async () => {
   const dialog = screen.getByRole("dialog", { name: "编辑个人资料" });
   expect(within(dialog).queryByRole("button", { name: "更换头像" })).toBeNull();
   expect(within(dialog).queryByText(/点头像可更换/)).toBeNull();
+});
+
+// ---- HarmonyOS 手机上的 我的 ----
+
+const appThemeCatalog: AppThemeCatalogEntry[] = [
+  { id: "siji", title: "水杉四季", season: null, seasonal: true },
+  { id: "chunya", title: "春芽", season: "spring", seasonal: false },
+  { id: "xiayin", title: "夏荫", season: "summer", seasonal: false },
+  { id: "qiushan", title: "秋杉", season: "autumn", seasonal: false },
+  { id: "dongxue", title: "冬雪", season: "winter", seasonal: false },
+];
+
+function appThemeClient(initial: AppThemeId = "siji") {
+  let saved = initial;
+  const listeners = new Set<() => void>();
+  const client = {
+    load: () => saved,
+    save: vi.fn((id: AppThemeId) => {
+      saved = id;
+      for (const listener of listeners) listener();
+      return true;
+    }),
+    resolve: () => ({
+      id: saved,
+      season: "autumn" as const,
+      accent: "#B5562B",
+      accent_soft: "#B5562B38",
+      on_accent: "#FFFFFF",
+      background: "#F6E9DC",
+      card: "#FFFBF6",
+      hair: "#0000000F",
+    }),
+    catalog: () => appThemeCatalog,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  } satisfies AppThemeClient;
+  return client;
+}
+
+function harmonyMe(props: Partial<Parameters<typeof AccountPage>[0]> = {}) {
+  return render(
+    <ToastProvider>
+      <AccountPage platform="harmony" mobile {...props} />
+    </ToastProvider>,
+  );
+}
+
+test("Harmony 我的 shows a signed-out card that opens the code sign-in sheet", async () => {
+  const client = account({ providers: vi.fn().mockResolvedValue({ email: true, phone: false }) });
+  const onOpenUrl = vi.fn();
+  harmonyMe({ client, onOpenUrl });
+
+  const card = await screen.findByRole("button", { name: "未登录，点按登录" });
+  expect(card.textContent).toContain("未登录");
+  expect(card.textContent).toContain("登录后同步词库、皮肤和设置");
+  // 登录现在放在弹窗里，不再内嵌在页面上。
+  expect(screen.queryByRole("button", { name: "使用邮箱登录" })).toBeNull();
+  expect(screen.queryByText("欢迎来到水杉")).toBeNull();
+
+  fireEvent.click(card);
+  const sheet = within(await screen.findByRole("dialog", { name: "登录水杉" }));
+  expect(sheet.getByText("在手机、平板和电脑之间同步词库、皮肤和云剪贴板")).not.toBeNull();
+  expect(sheet.queryByRole("button", { name: "使用手机号登录" })).toBeNull();
+  expect(sheet.queryByRole("button", { name: /Apple|Google/ })).toBeNull();
+  fireEvent.click(sheet.getByRole("button", { name: "《隐私政策》" }));
+  expect(onOpenUrl).toHaveBeenCalledWith("https://msime.app/privacy/");
+
+  fireEvent.click(sheet.getByRole("button", { name: "使用邮箱登录" }));
+  const send = sheet.getByRole("button", { name: "发送验证码" }) as HTMLButtonElement;
+  expect(send.disabled).toBe(true);
+  fireEvent.change(sheet.getByRole("textbox", { name: "邮箱地址" }), {
+    target: { value: " fixture@example.test " },
+  });
+  fireEvent.click(send);
+  await waitFor(() =>
+    expect(client.requestCode).toHaveBeenCalledWith("email", "fixture@example.test"),
+  );
+  fireEvent.change(await sheet.findByRole("textbox", { name: "6 位验证码" }), {
+    target: { value: "123456" },
+  });
+  fireEvent.click(sheet.getByRole("button", { name: "登录" }));
+  await waitFor(() => expect(client.login).toHaveBeenCalledWith("fixture-challenge", "123456"));
+
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "登录水杉" })).toBeNull());
+  expect(await screen.findByText("已登录")).not.toBeNull();
+  const signedIn = await screen.findByRole("button", { name: "编辑个人资料" });
+  expect(signedIn.textContent).toContain("水杉测试用户");
+  expect(signedIn.textContent).toContain("水杉账号已登录");
+  await waitFor(() => expect(client.profile).toHaveBeenCalled());
+});
+
+test("Harmony 我的 groups its rows with real values and destinations", async () => {
+  const calls: string[] = [];
+  const record = (name: string) => () => void calls.push(name);
+  const onOpenPage = vi.fn();
+  const onOpenUrl = vi.fn();
+  const mailUser = { ...user, email: "fixture@example.test" };
+  const client = account({
+    status: vi.fn().mockResolvedValue({ user: mailUser }),
+    profile: vi.fn().mockResolvedValue({ user: mailUser, providers: ["email"] }),
+  });
+  harmonyMe({
+    client,
+    preferences: { ...preferences.preferences, global_theme: "shuishan" } as Preferences,
+    onOpenPage,
+    onOpenUrl,
+    appTheme: appThemeClient(),
+    desktopDownloadUrl: "https://msime.app/download/",
+    appVersion: "1.2.3",
+    onOpenCloudClipboard: record("clipboard"),
+    onOpenLocalDesigns: record("designs"),
+    onOpenFeedback: record("feedback"),
+    onOpenAbout: record("about"),
+    onReplayOnboarding: record("onboarding"),
+  });
+
+  const card = await screen.findByRole("button", { name: "编辑个人资料" });
+  expect(card.textContent).toContain("fixture@example.test");
+
+  const content = within(screen.getByRole("region", { name: "我的内容" }));
+  expect(content.getAllByRole("button").map((button) => button.textContent)).toEqual([
+    "我的皮肤水杉",
+    "我的词库",
+    "云剪贴板",
+  ]);
+  fireEvent.click(content.getByRole("button", { name: "我的皮肤" }));
+  fireEvent.click(content.getByRole("button", { name: "我的词库" }));
+  fireEvent.click(content.getByRole("button", { name: "云剪贴板" }));
+  expect(onOpenPage.mock.calls).toEqual([["skin"], ["dictionary"]]);
+
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "社区作品" })).getByRole("button", {
+      name: "我的设计",
+    }),
+  );
+
+  const general = within(screen.getByRole("region", { name: "通用" }));
+  expect(general.getByRole("button", { name: "应用主题" }).textContent).toContain("四季 · 秋杉");
+  const privacy = general.getByRole("button", { name: "隐私" });
+  expect(privacy.textContent).toContain("本地优先");
+  fireEvent.click(privacy);
+  expect(onOpenUrl).toHaveBeenCalledWith("https://msime.app/privacy/");
+
+  expect(screen.getByRole("button", { name: "其他平台下载" }).textContent).toContain("7 个平台");
+  expect(screen.getByRole("button", { name: "关于" }).textContent).toContain("1.2.3");
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(screen.getByRole("button", { name: "新手引导" }));
+  expect(calls).toEqual(["clipboard", "designs", "feedback", "about", "onboarding"]);
+
+  // 旧的区块都没了：没有工具分组，没有内嵌的同步卡片，也没有数据区块标题。
+  expect(screen.queryByRole("region", { name: "工具" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "本地数据与云端作品" })).toBeNull();
+  expect(screen.getByText(/皮肤设计和打字统计保存在本机/)).not.toBeNull();
+});
+
+test("Harmony 应用主题 saves the theme chosen in its action sheet", async () => {
+  const appTheme = appThemeClient();
+  harmonyMe({ client: account(), appTheme });
+
+  const row = await screen.findByRole("button", { name: "应用主题" });
+  fireEvent.click(row);
+  const sheet = within(screen.getByRole("dialog", { name: "应用主题" }));
+  expect(sheet.getByText("四季会随季节自动更换配色")).not.toBeNull();
+  expect(sheet.getAllByRole("button").map((button) => button.textContent?.trim())).toEqual([
+    "水杉四季（自动）",
+    "春芽",
+    "夏荫",
+    "秋杉",
+    "冬雪",
+    "取消",
+  ]);
+  expect(sheet.getByRole("button", { name: "水杉四季（自动）" }).getAttribute("aria-current")).toBe(
+    "true",
+  );
+  fireEvent.click(sheet.getByRole("button", { name: "冬雪" }));
+
+  expect(appTheme.save).toHaveBeenCalledWith("dongxue");
+  expect(screen.queryByRole("dialog", { name: "应用主题" })).toBeNull();
+  expect(await screen.findByText("已切换为「冬雪」")).not.toBeNull();
+  expect(screen.getByRole("button", { name: "应用主题" }).textContent).toContain("冬雪");
+});
+
+test("Harmony 其他平台下载 is a pushed page that copies and opens the one download page", async () => {
+  window.history.replaceState({ msimeSettings: true, page: "account" }, "");
+  const onOpenUrl = vi.fn();
+  const copyText = vi.fn().mockResolvedValue(undefined);
+  harmonyMe({
+    client: account(),
+    onOpenUrl,
+    copyText,
+    desktopDownloadUrl: "https://msime.app/download/",
+  });
+
+  fireEvent.click(await screen.findByRole("button", { name: "其他平台下载" }));
+  expect(await screen.findByRole("heading", { name: "其他平台下载" })).not.toBeNull();
+  expect(window.history.state).toMatchObject({ accountSubpage: "download" });
+  expect(screen.getByText("msime.app/download")).not.toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "复制下载页链接" }));
+  expect(copyText).toHaveBeenCalledWith("https://msime.app/download/");
+  expect(await screen.findByText("已复制下载链接")).not.toBeNull();
+  expect(screen.getByRole("button", { name: "已复制下载页链接" }).textContent).toBe("已复制");
+
+  const desktop = within(screen.getByRole("region", { name: "电脑" }));
+  expect(desktop.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(
+    ["获取，HarmonyOS 2in1", "获取，Windows", "获取，macOS", "获取，Linux"],
+  );
+  fireEvent.click(desktop.getByRole("button", { name: "获取，Windows" }));
+  expect(onOpenUrl).toHaveBeenCalledWith("https://msime.app/download/");
+  const phones = within(screen.getByRole("region", { name: "手机和平板" }));
+  expect(phones.queryByRole("button", { name: "获取，HarmonyOS" })).toBeNull();
+  expect(phones.getByText("当前设备")).not.toBeNull();
+  expect(screen.queryByText("发送链接")).toBeNull();
+
+  act(() => {
+    window.history.replaceState({ msimeSettings: true, page: "account" }, "");
+    window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+  });
+  expect(await screen.findByRole("button", { name: "其他平台下载" })).not.toBeNull();
+});
+
+test("Harmony 个人资料 lists the account, copies its ID, renames in a sheet and signs out", async () => {
+  window.history.replaceState({ msimeSettings: true, page: "account" }, "");
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const renamed: AccountProfile = {
+    user: { ...user, displayName: "新的名字" },
+    providers: ["email"],
+  };
+  const client = account({
+    status: vi.fn().mockResolvedValue({ user }),
+    rename: vi.fn().mockResolvedValue(renamed),
+  });
+  harmonyMe({ client });
+
+  fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
+  expect(await screen.findByRole("heading", { name: "个人资料" })).not.toBeNull();
+  expect(screen.getByText("通过 邮箱 登录")).not.toBeNull();
+  const methods = within(screen.getByRole("region", { name: "登录方式" }));
+  expect(methods.getByText("已关联")).not.toBeNull();
+  expect(methods.queryByRole("button")).toBeNull();
+  expect(screen.getByText("关联后可以用任意一种方式登录同一个账号")).not.toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "复制水杉 ID，fixture-user-id" }));
+  expect(writeText).toHaveBeenCalledWith("fixture-user-id");
+  expect(await screen.findByText("已复制")).not.toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "昵称，水杉测试用户" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "昵称" }));
+  const save = sheet.getByRole("button", { name: "保存" }) as HTMLButtonElement;
+  expect(save.disabled).toBe(true);
+  fireEvent.change(sheet.getByRole("textbox", { name: "编辑社区昵称" }), {
+    target: { value: "  新的名字  " },
+  });
+  fireEvent.click(save);
+  await waitFor(() => expect(client.rename).toHaveBeenCalledWith("新的名字"));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "昵称" })).toBeNull());
+  expect(await screen.findByRole("button", { name: "昵称，新的名字" })).not.toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
+  fireEvent.click(await screen.findByRole("button", { name: "确认退出登录" }));
+  await waitFor(() => expect(client.logout).toHaveBeenCalledWith(false));
+  expect(await screen.findByText("已退出登录")).not.toBeNull();
+  expect(await screen.findByRole("button", { name: "未登录，点按登录" })).not.toBeNull();
+});
+
+test("Harmony 同步 rows confirm in an action sheet and report through a toast", async () => {
+  const upload = vi
+    .fn()
+    .mockResolvedValue({ revision: 8, settings: { "input.schema": "quanpin" } });
+  const settingsSync: SettingsSyncClient = {
+    schema: vi.fn().mockResolvedValue({
+      fields: {},
+      maximumBytes: 1024,
+      updateMode: "merge",
+      revisionRequired: true,
+    }),
+    load: vi.fn().mockResolvedValue({ revision: 7, settings: {} }),
+    upload,
+    apply: vi.fn(),
+  };
+  harmonyMe({ client: account({ status: vi.fn().mockResolvedValue({ user }), settingsSync }) });
+
+  const sync = within(await screen.findByRole("region", { name: "同步" }));
+  const uploadRow = sync.getByRole("button", { name: "上传本机设置" }) as HTMLButtonElement;
+  await waitFor(() => expect(uploadRow.disabled).toBe(false));
+  // 云端还什么都没有，所以没有可应用的内容。
+  expect(
+    (sync.getByRole("button", { name: "下载并应用云端设置" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(screen.queryByRole("button", { name: "刷新云端设置" })).toBeNull();
+
+  fireEvent.click(uploadRow);
+  const sheet = within(screen.getByRole("dialog", { name: "上传本机设置" }));
+  fireEvent.click(sheet.getByRole("button", { name: "确认上传" }));
+  await waitFor(() => expect(upload).toHaveBeenCalledOnce());
+  expect(await screen.findByText("本机设置已上传")).not.toBeNull();
 });

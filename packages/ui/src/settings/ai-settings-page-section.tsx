@@ -2,7 +2,7 @@ import { SettingsGroupNote } from "./settings-group-note";
 import type { ReactNode } from "react";
 import { clamp } from "../core/number";
 import { GroupList, MoreOptions, Row } from "../core/platform-controls";
-import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
+import { customPromptSlotOptions } from "./custom-prompt-slot-options";
 import { ModelSelect } from "./model-select";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import { SwitchRow } from "./switch-row";
@@ -183,7 +183,7 @@ export function AiSettingsPageSection({
           value={promptSlot}
           onChange={(event) => onPromptIdChange(event.target.value)}
         >
-          <CustomPromptSlotOptions />
+          {customPromptSlotOptions()}
         </SelectRow>
         <SettingsManagerBlock>
           <SettingsTextareaField

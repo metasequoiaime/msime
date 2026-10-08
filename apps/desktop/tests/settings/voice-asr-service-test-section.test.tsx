@@ -31,7 +31,9 @@ test("renders the supported ASR test with its provider-specific label", () => {
     />,
   );
 
-  expect(screen.getByText("测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。")).toBeTruthy();
+  expect(
+    screen.getByText("测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。"),
+  ).toBeTruthy();
   expect(screen.getByRole("button", { name: "测试豆包识别配置" })).toBeTruthy();
   expect(credentialTestControl).toHaveBeenCalledWith(
     "voice.asr",

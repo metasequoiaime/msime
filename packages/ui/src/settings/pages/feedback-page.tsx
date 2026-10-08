@@ -8,11 +8,15 @@ import { GroupList, LinkRow, PageIntro } from "../../core/platform-controls";
 import { SubPageEntries } from "./sub-page-entries";
 import { createSettingsExternalActions } from "../settings-external-actions";
 import { FeedbackChannels } from "../feedback-channels";
-import { FeedbackReportFields } from "../feedback-report-fields";
+import {
+  FeedbackReportFields,
+  FeedbackSubmissionForm,
+  feedbackDiagnostics,
+} from "../feedback-report-fields";
 import { ActionButton } from "../action-button";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 
-/** 设置表单的「帮助与反馈」页：先是「帮助」，然后是可复现问题的报告和各个反馈渠道。 */
+/** 设置表单的「帮助与反馈」页：先是「帮助」，然后是可复现问题的报告和各个反馈渠道。HarmonyOS 手机在宿主能直接提交反馈时换成新设计的应用内表单，「帮助」和各渠道放在提交按钮下面。 */
 export function FeedbackSettingsPage() {
   const {
     client,
@@ -36,6 +40,10 @@ export function FeedbackSettingsPage() {
     macosPlatform,
     pageEntry,
     selectPage,
+    settingsPlatform,
+    currentAppVersion,
+    host,
+    draft,
   } = useSettingsForm();
   // 与在「维护与诊断」上绘制「诊断日志」组的宿主相同；在其他宿主上，这个链接会打开一个没有该组的页面。
   const diagnosticLogsOffered =
@@ -47,13 +55,52 @@ export function FeedbackSettingsPage() {
     openExternalUrl,
     issuesUrl: platformIssuesUrl,
   });
+  const channels = (
+    <GroupList title="反馈与交流">
+      <FeedbackChannels
+        issuesUrl={platformIssuesUrl}
+        feedbackCopied={feedbackCopied}
+        onOpenIssues={externalActions.onOpenIssues}
+        onCopyGroup={copyFeedbackGroup}
+        onOpenTelegram={externalActions.onOpenTelegram}
+        cardClassName={doc.feedbackCard}
+        iconClassName={doc.feedbackIcon}
+        bodyClassName={doc.feedbackBody}
+        titleClassName={doc.feedbackTitle}
+      />
+    </GroupList>
+  );
+  const help = (
+    <SubPageEntries
+      title="帮助"
+      pages={[{ id: "help", description: "安装、切换输入法与常见问题" }]}
+    />
+  );
+  // 只有手机使用应用内表单；2in1 和其他所有宿主保留下面的 GitHub 报告，它不需要背后有服务。
+  if (settingsPlatform === "harmony" && client.feedback) {
+    return (
+      <SettingsPageFieldset disabled={busy} hidden={page !== "feedback"} ariaLabel="帮助与反馈">
+        <FeedbackSubmissionForm
+          feedback={client.feedback}
+          diagnostics={() =>
+            feedbackDiagnostics({
+              appVersion: currentAppVersion,
+              edition: host?.edition?.id,
+              host,
+              preferences: draft,
+              setup: client.home?.setup?.read(),
+            })
+          }
+        />
+        {help}
+        {channels}
+      </SettingsPageFieldset>
+    );
+  }
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "feedback"} ariaLabel="帮助与反馈">
       <PageIntro>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</PageIntro>
-      <SubPageEntries
-        title="帮助"
-        pages={[{ id: "help", description: "安装、切换输入法与常见问题" }]}
-      />
+      {help}
       <GroupList title="提交可复现的问题">
         <SettingsRowStack role="group" aria-label="问题报告">
           <SettingsGroupNote>报告只在你点击按钮时生成，不会读取或上传输入历史。</SettingsGroupNote>
@@ -94,19 +141,7 @@ export function FeedbackSettingsPage() {
           )}
         </SettingsRowStack>
       </GroupList>
-      <GroupList title="反馈与交流">
-        <FeedbackChannels
-          issuesUrl={platformIssuesUrl}
-          feedbackCopied={feedbackCopied}
-          onOpenIssues={externalActions.onOpenIssues}
-          onCopyGroup={copyFeedbackGroup}
-          onOpenTelegram={externalActions.onOpenTelegram}
-          cardClassName={doc.feedbackCard}
-          iconClassName={doc.feedbackIcon}
-          bodyClassName={doc.feedbackBody}
-          titleClassName={doc.feedbackTitle}
-        />
-      </GroupList>
+      {channels}
     </SettingsPageFieldset>
   );
 }

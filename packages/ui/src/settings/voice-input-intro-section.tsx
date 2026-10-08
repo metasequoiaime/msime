@@ -18,6 +18,31 @@ export interface VoiceInputIntroSectionProps {
   onOpenVoice?: () => void;
 }
 
+/** 本地识别做什么，无论宿主有没有模型管理器。 */
+export function localVoiceIntro(localVoiceModelsAvailable: boolean): string {
+  return localVoiceModelsAvailable
+    ? "录音和识别都在这台设备上完成，音频不会离开本机，也不需要任何 API Key。在下方下载一个模型并点击“使用”即可生效；下载只会连接 GitHub 或你配置的镜像。你的用户词库会作为热词提高专有名词的识别率。可选的文本润色仍会调用你配置的云服务。"
+    : "录音和识别都在这台机器上完成，音频不会离开本机，也不需要任何 API Key。需要一个已安装模型目录（包含 msime-model.json）的绝对路径，在下方填写；模型越大越准也越慢，首次识别要等模型载入。可选的文本润色仍会调用你配置的云服务。";
+}
+
+/** 平台自带的识别器做什么。 */
+export const systemVoiceIntro =
+  "在目标应用中启用水杉输入法，使用键盘内的语音入口录音。不需要识别 API Key；首次使用需授予麦克风和语音识别权限。服务可用性及是否联网由系统决定，可选文本润色仍使用你配置的云服务。";
+
+/** 鸿蒙键盘如何借助云服务或 CoreSpeechKit 录音和识别。 */
+export const harmonyVoiceIntro =
+  "豆包配置有效时，键盘直接采集 16 kHz 麦克风音频并进行实时识别；选择系统识别时由 HarmonyOS CoreSpeechKit 处理。识别结果会回到键盘，确认后才插入当前输入框。";
+
+/** 鸿蒙手机在「识别服务」组下作为脚注显示的介绍，而不是单独成组；选择方式与 {@link VoiceInputIntroSection} 选它的组相同。 */
+export function harmonyPhoneVoiceFooter({
+  localVoice,
+  localVoiceModelsAvailable,
+  systemVoice,
+}: Pick<VoiceInputIntroSectionProps, "localVoice" | "localVoiceModelsAvailable" | "systemVoice">) {
+  if (localVoice) return localVoiceIntro(localVoiceModelsAvailable);
+  return systemVoice ? systemVoiceIntro : harmonyVoiceIntro;
+}
+
 /** Platform-specific voice entry guidance: the first group of the 语音输入 page. */
 export function VoiceInputIntroSection({
   localVoice,
@@ -35,21 +60,14 @@ export function VoiceInputIntroSection({
   if (localVoice) {
     return (
       <GroupList title="本地识别">
-        <SettingsGroupNote>
-          {localVoiceModelsAvailable
-            ? "录音和识别都在这台设备上完成，音频不会离开本机，也不需要任何 API Key。在下方下载一个模型并点击“使用”即可生效；下载只会连接 GitHub 或你配置的镜像。你的用户词库会作为热词提高专有名词的识别率。可选的文本润色仍会调用你配置的云服务。"
-            : "录音和识别都在这台机器上完成，音频不会离开本机，也不需要任何 API Key。需要一个已安装模型目录（包含 msime-model.json）的绝对路径，在下方填写；模型越大越准也越慢，首次识别要等模型载入。可选的文本润色仍会调用你配置的云服务。"}
-        </SettingsGroupNote>
+        <SettingsGroupNote>{localVoiceIntro(localVoiceModelsAvailable)}</SettingsGroupNote>
       </GroupList>
     );
   }
   if (systemVoice) {
     return (
       <GroupList title={`${systemVoiceHostName} 系统语音`}>
-        <SettingsGroupNote>
-          在目标应用中启用水杉输入法，使用键盘内的语音入口录音。不需要识别 API
-          Key；首次使用需授予麦克风和语音识别权限。服务可用性及是否联网由系统决定，可选文本润色仍使用你配置的云服务。
-        </SettingsGroupNote>
+        <SettingsGroupNote>{systemVoiceIntro}</SettingsGroupNote>
       </GroupList>
     );
   }
@@ -86,10 +104,7 @@ export function VoiceInputIntroSection({
   if (harmony) {
     return (
       <GroupList title="HarmonyOS 输入法语音">
-        <SettingsGroupNote>
-          豆包配置有效时，键盘直接采集 16 kHz 麦克风音频并进行实时识别；选择系统识别时由 HarmonyOS
-          CoreSpeechKit 处理。识别结果会回到键盘，确认后才插入当前输入框。
-        </SettingsGroupNote>
+        <SettingsGroupNote>{harmonyVoiceIntro}</SettingsGroupNote>
       </GroupList>
     );
   }

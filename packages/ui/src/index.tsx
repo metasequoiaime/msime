@@ -1,5 +1,9 @@
 import { useConfirm } from "./core/confirm";
 import { NavItem } from "./core/platform-controls";
+import { ToastProvider } from "./core/toast";
+import { appThemeStyle, seasonAttr } from "./core/app-theme-style";
+import type { AppThemeClient, FeedbackClient, HostChromeClient } from "./core/host-contracts";
+import { SetupWarningStrip } from "./keyboard/setup-status-card";
 import { mobilePageTitle } from "./settings/mobile-tab-helpers";
 import { desktopDownloadUrl, fallbackAppVersion } from "./settings/app-resources";
 import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
@@ -8,6 +12,7 @@ import { useSettingsContentScrollReset } from "./settings/use-settings-content-s
 import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings/settings-page-header";
 import {
+  mobilePrimaryPageIds,
   mobileTabForPage,
   requestedPage,
   type MobilePrimaryPageId,
@@ -27,7 +32,7 @@ import { settingsThemePreferences } from "./settings/settings-theme-preferences"
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import type { ResourcePackClient } from "./settings/resource-packs";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   type DictionaryEntry,
   type LocalDictionaryFormat,
@@ -70,7 +75,11 @@ export {
 } from "./settings/platform-copy";
 import { schemeTitle } from "./settings/label-helpers";
 export { schemeTitle } from "./settings/label-helpers";
-import { useSettingsTheme } from "./settings/use-settings-theme";
+import {
+  useHarmonySystemBars,
+  useResolvedAppTheme,
+  useSettingsTheme,
+} from "./settings/use-settings-theme";
 export { useSettingsTheme } from "./settings/use-settings-theme";
 export { updateCandidateColor, updateCustomKeyboard } from "./settings/theme-selection-updates";
 import { useTouchKeyboardGeometryDrag } from "./settings/use-touch-keyboard-geometry-drag";
@@ -455,6 +464,9 @@ import { CommunityPluginsPage, type CommunityPluginClient } from "./community/co
 import * as communityStyle from "./community/community-style";
 import { CommunityPage } from "./community/community-page";
 export { useConfirm, type ConfirmRequest } from "./core/confirm";
+export type * from "./core/host-contracts";
+export { resolveSettingsTheme } from "./settings/theme-helpers";
+export { ToastProvider, useToast } from "./core/toast";
 export {
   decodeDictionaryBytes,
   readDictionaryFile,
@@ -2212,6 +2224,12 @@ export interface SettingsClient {
    * than one not stated at all.
    */
   dictionaryManifest?: () => Promise<DictionaryManifest>;
+  /** HarmonyOS 设置所用的季节应用主题（水杉四季和四个固定季节）。其他平台没有这一项，保持平台自己的 token 颜色。 */
+  appTheme?: AppThemeClient;
+  /** 给系统状态栏和导航栏着色以匹配页面；只有掌管自己窗口系统栏的宿主（HarmonyOS 手机）才提供。 */
+  chrome?: HostChromeClient;
+  /** 向服务发送应用内反馈报告；只通过 GitHub issue 途径反馈的宿主没有这一项。 */
+  feedback?: FeedbackClient;
 }
 
 export interface PreferencesRecovery {
@@ -2318,6 +2336,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   } = settingsPageEnvironment(client);
   // Which of the redesign's eight settings looks the root takes; see `theme/platform-tokens.ts`.
   const settingsPlatform = useSettingsPlatform(host);
+  // HarmonyOS 2-in-1 是桌面窗口：侧栏从 输入 开始，启动时也打开 输入，所以即使宿主仍然提供 `home`（设置引导警示条会读取它），手机的 设置 根页面也不是它的页面。
+  const hasHomePage = Boolean(client.home) && settingsPlatform !== "hm2";
   const {
     nativeVoicePlatform,
     showModeScope,
@@ -2430,7 +2450,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       : undefined;
   const [page, setPage] = useState<SettingsPageId>(() =>
     requestedPage(
-      initialPage ?? restoredMobilePage ?? (client.home ? "home" : undefined),
+      initialPage ?? restoredMobilePage ?? (hasHomePage ? "home" : undefined),
       pages,
       "input",
     ),
@@ -2742,7 +2762,17 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const floatingToolbar = floatingToolbarPreferences(draft);
   const { themeMode, settingsTheme, globalTheme, customColors, customTouchKeyboardSkin } =
     settingsThemePreferences(draft);
-  useSettingsTheme(themeMode, settingsTheme);
+  const dark = useSettingsTheme(themeMode, settingsTheme);
+  // 两种 HarmonyOS 外观都用用户的应用主题（水杉四季或某个固定季节）着色；每种外观取哪些 token 由 `appThemeStyle` 决定。
+  const resolvedAppTheme = useResolvedAppTheme(
+    harmonyPlatform || settingsPlatform === "hm2" ? client.appTheme : undefined,
+    dark,
+  );
+  useHarmonySystemBars(
+    settingsPlatform === "harmony" ? client.chrome : undefined,
+    resolvedAppTheme,
+    dark,
+  );
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
   const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
   const keyboardPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.screen_keyboard_theme);
@@ -2789,7 +2819,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const { availablePages, sidebarGroups, mobilePrimaryPages, mobileSecondaryGroups } =
     settingsPageProjections({
       mobilePlatform,
-      hasHomePage: Boolean(client.home),
+      hasHomePage,
       hasTypingStatistics: Boolean(client.typingStatistics),
       hasVocabularyReview: Boolean(client.vocabularyReview),
       hasAccount: Boolean(client.account || client.appIcon),
@@ -2822,12 +2852,14 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       setPage,
       mobileLastPageByTab,
       route,
-      hasHomePage: Boolean(client.home),
+      hasHomePage,
       setCommunityDestination,
       setAccountLoginReturnPage,
       accountLoginReturnPage,
     });
-  const untitledOnPhone: readonly SettingsPageId[] = ["home", "typing-statistics", "account"];
+  // HarmonyOS 手机设计稿给每个页面都加大标题（包括 设置、社区、统计、我的）；其他触屏宿主有三个标签页一打开就是已经表明自身名称的内容。
+  const untitledOnPhone: readonly SettingsPageId[] =
+    settingsPlatform === "harmony" ? [] : ["home", "typing-statistics", "account"];
   // 设计稿里从一个页面内部打开另一个页面的行，例如「AI 辅助」上的「AI 对话」。
   const pageEntry = (id: SettingsPageId) => availablePages.find((item) => item.id === id);
   const { openCommunity, openLocalDesigns } = useSettingsDestinationActions({
@@ -2852,6 +2884,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     windowsPlatform,
     macosPlatform,
     settingsPlatform,
+    dark,
+    resolvedAppTheme,
     nativeVoicePlatform,
     host,
     showModeScope,
@@ -3109,6 +3143,11 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   };
 }
 
+/** 设计稿的 toast 只属于 HarmonyOS 外观。其他平台的 `useToast` 保持它在 provider 之外时的空操作，不会多出第二个常驻的状态区域。 */
+function ShellToasts({ enabled, children }: { enabled: boolean; children: ReactNode }) {
+  return enabled ? <ToastProvider>{children}</ToastProvider> : children;
+}
+
 /** What `SettingsPage` computes for its shell and page components. */
 export type SettingsPageModel = ReturnType<typeof useSettingsPageModel>;
 
@@ -3133,7 +3172,10 @@ export function SettingsPage(props: SettingsPageProps) {
     mobilePlatform,
     macosPlatform,
     settingsPlatform,
+    dark,
+    resolvedAppTheme,
     draft,
+    setDraft,
     busy,
     setError,
     error,
@@ -3174,7 +3216,25 @@ export function SettingsPage(props: SettingsPageProps) {
     initialCommunityCategory,
     initialCommunityScope,
     initialCommunityMine,
+    currentAppVersion,
   } = model;
+  // 任一种 HarmonyOS 外观（手机或 2-in-1）：两者都用应用主题着色，并带有设计稿的 toast。
+  const harmonyLook = settingsPlatform === "harmony" || settingsPlatform === "hm2";
+  // HarmonyOS 手机外观：推入标签页的每个页面都带返回按钮并会滑入，另外三个标签页使用更紧凑的标签页列表。
+  const harmonyPhone = settingsPlatform === "harmony" && mobilePlatform;
+  const tabRootPage = mobilePrimaryPageIds.includes(page as MobilePrimaryPageId);
+  const pushedPage = harmonyPhone && !tabRootPage;
+  const pageColumnRef = useRef<HTMLDivElement>(null);
+  const launchPage = useRef(page);
+  // 从一个推入页面再推入的页面（反馈 到 帮助）会保留内容列的动画类，所以要重启动画，而不是让它停在已结束的状态。用重启动画而不是按页面给内容列设 key，能让表单页面像在其他宿主上一样保持挂载、保留状态。
+  useLayoutEffect(() => {
+    const column = pageColumnRef.current;
+    if (!pushedPage || !column || typeof column.getAnimations !== "function") return;
+    for (const animation of column.getAnimations()) {
+      animation.cancel();
+      animation.play();
+    }
+  }, [page, pushedPage]);
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
   const statusActions = createSettingsStatusActions({
@@ -3223,6 +3283,16 @@ export function SettingsPage(props: SettingsPageProps) {
   // 子页面（「AI 辅助」下的「AI 对话」、「词库」下的「背单词」、「帮助与反馈」下的「帮助」）在返回时写出父页面的名字。
   const parentPage =
     navigationPage !== page ? availablePages.find((item) => item.id === navigationPage) : undefined;
+  // HarmonyOS 手机和边缘滑动一样，沿导航推入的 WebView 历史返回。设置打开时所在的页面身后没有设置的历史条目（最多只有宿主自己的，比如引导页的），所以从那里按钮改为向上，以替换当前条目的方式去到上级页面或所在标签页的根页面：如果推入新条目，刚离开的页面会留在上级页面后面，系统返回手势会回到它。此后上级页面占据最底部的条目，所以它自己的返回按钮也同样向上。
+  const goBack = () => {
+    if (page !== launchPage.current) {
+      window.history.back();
+      return;
+    }
+    const up = parentPage?.id ?? mobileTabForPage(page);
+    launchPage.current = up;
+    selectPage(up, true);
+  };
   // A phone collapses the large title into a compact bar on the 设置 tab's pages, the way the design does; the other tabs and the untitled pages have no large title to collapse.
   const collapsingTitle =
     mobilePlatform && mobileActiveTab === "home" && !untitledOnPhone.includes(page);
@@ -3277,389 +3347,452 @@ export function SettingsPage(props: SettingsPageProps) {
       data-settings-shell=""
       // The platform's accent and the `--p-*` tokens the platform primitives read hang off this attribute.
       data-platform={settingsPlatform}
+      // HarmonyOS 应用主题以内联方式在同一个元素上为 token 表重新着色，优先级高于 `[data-platform]` 规则；没有解析出主题时这里为空，沿用 token 表自己的颜色。
+      style={harmonyLook ? appThemeStyle(resolvedAppTheme, dark, settingsPlatform) : undefined}
+      data-season={seasonAttr(resolvedAppTheme)}
       // Marks the phone navigation. It no longer carries a palette: the `[data-platform]` rules in styles.css cover the phone hosts too.
       data-mobile={mobilePlatform ? "" : undefined}
       onPointerDownCapture={onWindowPointerDownCapture}
     >
-      {confirmation}
-      {titlebarShown && (
-        <WindowTitlebar
-          linux={linuxShell}
-          logo={logo}
-          pageTitle={pageTitle}
-          search={searchInTitlebar ? navSearchField : undefined}
-          maximized={windowMaximized}
-          windowControl={client.windowControl}
-          dragHandlers={windowDragHandlers}
-          keepPointer={keepPointer}
-        />
-      )}
-      <div className={settings.body} data-settings-body="">
-        {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so assistive technology and keyboard focus still reach the navigation first, and the bottom padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
-        {mobilePlatform && (
-          <MobileSettingsTabs
-            tabs={mobilePrimaryPages}
-            activeTab={mobileActiveTab}
-            onSelect={selectMobileTab}
+      <ShellToasts enabled={harmonyLook}>
+        {confirmation}
+        {titlebarShown && (
+          <WindowTitlebar
+            linux={linuxShell}
+            logo={logo}
+            pageTitle={pageTitle}
+            search={searchInTitlebar ? navSearchField : undefined}
+            maximized={windowMaximized}
+            windowControl={client.windowControl}
+            dragHandlers={windowDragHandlers}
+            keepPointer={keepPointer}
           />
         )}
-        <nav
-          className={`${settings.sidebar} ${ipadSidebarShown ? "" : "ipad:hidden"}`}
-          aria-label="设置分类"
-        >
-          {macShell && (
-            <div className={settings.macosDragRow} data-window-drag="" {...windowDragHandlers} />
+        <div className={settings.body} data-settings-body="">
+          {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so assistive technology and keyboard focus still reach the navigation first, and the bottom padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
+          {mobilePlatform && (
+            <MobileSettingsTabs
+              tabs={mobilePrimaryPages}
+              activeTab={mobileActiveTab}
+              onSelect={selectMobileTab}
+              platform={settingsPlatform}
+            />
           )}
-          {ipadShell && <h2 className={settings.sidebarTitle}>设置</h2>}
-          {/* 品牌（图标加名称）放在侧栏顶部、搜索框之上，只在没有自绘标题栏的桌面窗口出现：macOS 排在红绿灯那一行下面，并和那一行一样可以拖动窗口；HarmonyOS 2in1 与没有窗口命令的桌面窗口直接起头。Windows 和 Linux 的标题栏已经写着品牌，手机和 iPad 的界面由系统和标签栏承担，都不再画一份。图标是装饰，名称就是文字本身。 */}
-          {sidebarBrandShown && (
+          <nav
+            className={`${settings.sidebar} ${ipadSidebarShown ? "" : "ipad:hidden"}`}
+            aria-label="设置分类"
+          >
+            {macShell && (
+              <div className={settings.macosDragRow} data-window-drag="" {...windowDragHandlers} />
+            )}
+            {ipadShell && <h2 className={settings.sidebarTitle}>设置</h2>}
+            {/* 品牌（图标加名称）放在侧栏顶部、搜索框之上，只在没有自绘标题栏的桌面窗口出现：macOS 排在红绿灯那一行下面，并和那一行一样可以拖动窗口；HarmonyOS 2in1 与没有窗口命令的桌面窗口直接起头。Windows 和 Linux 的标题栏已经写着品牌，手机和 iPad 的界面由系统和标签栏承担，都不再画一份。图标是装饰，名称就是文字本身。 */}
+            {sidebarBrandShown && (
+              <div
+                className={settings.sidebarHeader}
+                data-sidebar-brand=""
+                data-window-drag={macShell ? "" : undefined}
+                {...(macShell ? windowDragHandlers : {})}
+              >
+                <img src={logo} alt="" draggable={false} />
+                <span>水杉输入法</span>
+              </div>
+            )}
+            {searchInSidebar && <label className={settings.sidebarSearch}>{navSearchField}</label>}
+            {shownSidebarGroups.map((group, index) => (
+              <div
+                key={group.pages[0].id}
+                className={settings.sidebarSection(index === 0)}
+                data-sidebar-section=""
+                role={group.title ? "group" : undefined}
+                aria-label={group.title}
+              >
+                {group.title && (
+                  <div className={settings.sidebarGroupTitle} aria-hidden="true">
+                    {group.title}
+                  </div>
+                )}
+                {group.pages.map((item) => (
+                  <NavItem
+                    key={item.id}
+                    label={item.title}
+                    icon={<img className={settings.sidebarGlyph} src={item.icon} alt="" />}
+                    selected={navigationPage === item.id}
+                    controls="settings-content"
+                    onSelect={() => selectPage(item.id)}
+                  />
+                ))}
+              </div>
+            ))}
+            {shownSidebarGroups.length === 0 && (
+              <p className={settings.sidebarEmpty} role="status">
+                没有匹配的设置
+              </p>
+            )}
+            <p className={settings.previewLabel}>客户端预览版</p>
+          </nav>
+          <main
+            ref={settingsContentRef}
+            id="settings-content"
+            className={`${settings.content} ${ipadSidebarShown ? "" : "ipad:col-span-2"}`}
+            aria-labelledby="page-title"
+            onScroll={
+              collapsingTitle
+                ? (event) => setTitleCollapsedOn(event.currentTarget.scrollTop > 28 ? page : null)
+                : undefined
+            }
+          >
+            {collapsingTitle && (
+              // The large title's compact stand-in once it scrolls away. Decorative: the `h1` below still names the page.
+              <div
+                className={settings.collapsedTitle(titleCollapsedOn === page)}
+                aria-hidden="true"
+              >
+                {pageTitle}
+              </div>
+            )}
+            {macShell && (
+              <header className={settings.macosToolbar} data-window-drag="" {...windowDragHandlers}>
+                <h1 id="page-title">{pageTitle}</h1>
+              </header>
+            )}
             <div
-              className={settings.sidebarHeader}
-              data-sidebar-brand=""
-              data-window-drag={macShell ? "" : undefined}
-              {...(macShell ? windowDragHandlers : {})}
+              ref={pageColumnRef}
+              className={`${settings.contentColumn} ${pushedPage ? "animate-ms-push-in motion-reduce:animate-none" : ""}`}
+              // 社区、统计 和 我的 使用更紧凑的标签页列表，样式表依据这个属性区分。
+              data-tab-page={harmonyPhone && tabRootPage && page !== "home" ? "" : undefined}
             >
-              <img src={logo} alt="" draggable={false} />
-              <span>水杉输入法</span>
-            </div>
-          )}
-          {searchInSidebar && <label className={settings.sidebarSearch}>{navSearchField}</label>}
-          {shownSidebarGroups.map((group, index) => (
-            <div
-              key={group.pages[0].id}
-              className={settings.sidebarSection(index === 0)}
-              data-sidebar-section=""
-              role={group.title ? "group" : undefined}
-              aria-label={group.title}
-            >
-              {group.title && (
-                <div className={settings.sidebarGroupTitle} aria-hidden="true">
-                  {group.title}
-                </div>
-              )}
-              {group.pages.map((item) => (
-                <NavItem
-                  key={item.id}
-                  label={item.title}
-                  icon={<img className={settings.sidebarGlyph} src={item.icon} alt="" />}
-                  selected={navigationPage === item.id}
-                  controls="settings-content"
-                  onSelect={() => selectPage(item.id)}
-                />
-              ))}
-            </div>
-          ))}
-          {shownSidebarGroups.length === 0 && (
-            <p className={settings.sidebarEmpty} role="status">
-              没有匹配的设置
-            </p>
-          )}
-          <p className={settings.previewLabel}>客户端预览版</p>
-        </nav>
-        <main
-          ref={settingsContentRef}
-          id="settings-content"
-          className={`${settings.content} ${ipadSidebarShown ? "" : "ipad:col-span-2"}`}
-          aria-labelledby="page-title"
-          onScroll={
-            collapsingTitle
-              ? (event) => setTitleCollapsedOn(event.currentTarget.scrollTop > 28 ? page : null)
-              : undefined
-          }
-        >
-          {collapsingTitle && (
-            // The large title's compact stand-in once it scrolls away. Decorative: the `h1` below still names the page.
-            <div className={settings.collapsedTitle(titleCollapsedOn === page)} aria-hidden="true">
-              {pageTitle}
-            </div>
-          )}
-          {macShell && (
-            <header className={settings.macosToolbar} data-window-drag="" {...windowDragHandlers}>
-              <h1 id="page-title">{pageTitle}</h1>
-            </header>
-          )}
-          <div className={settings.contentColumn}>
-            {/* Three of the four tabs open on something that already names them — a headline, a
+              {/* Three of the four tabs open on something that already names them — a headline, a
                 profile card, a row of figures — and the source prints no page title over any of
                 them. 社区 is the one that does. Hidden rather than dropped: it labels `main`. */}
-            {parentPage && (
-              <button
-                type="button"
-                className={settings.backLink}
-                // Named for where it goes, so it is not a second button called just 反馈 next to the sidebar's.
-                aria-label={`返回${parentPage.title}`}
-                onClick={() => selectPage(parentPage.id)}
-              >
-                <span aria-hidden="true">‹ </span>
-                {parentPage.title}
-              </button>
-            )}
-            {!macShell && (
-              <SettingsPageHeader
-                title={pageTitle}
-                hiddenOnPhone={mobilePlatform && untitledOnPhone.includes(page)}
-              />
-            )}
-            <SettingsPageStatus
-              error={error}
-              notice={notice}
-              busy={busy}
-              recoveredBackup={recoveredBackup}
-              canRecover={Boolean(client.recoverPreferences)}
-              onRecover={statusActions.onRecover}
-              openPreferencesDirectory={client.openPreferencesDirectory}
-              macos={macosPlatform}
-              onError={setError}
-              draft={draft}
-              inputSourceStartup={inputSourceStartup}
-              onOpenSettings={statusActions.onOpenSettings}
-              onDismiss={statusActions.onDismiss}
-            />
-            {client.notices && (
-              <NoticeBanner client={client.notices} openExternalUrl={openExternalUrl} />
-            )}
-            {client.home && draft && page === "home" && (
-              <HomePage
-                preferences={draft}
-                actions={client.home}
-                onOpenPage={onOpenPage}
-                onOpenChat={onOpenChat}
-                touchLayout={mobilePlatform}
-                ios={iosPlatform}
-              />
-            )}
-            {page === "more" && (
-              <MoreSettingsPage
-                groups={mobileSecondaryGroups.map((group) => ({
-                  title: group.title,
-                  pages: group.pages.map((item) => ({
-                    id: item.id,
-                    title: item.title,
-                    icon: item.icon,
-                  })),
-                }))}
-                onOpenPage={onOpenPage}
-              />
-            )}
-            {(client.account || client.appIcon) && page === "account" && (
-              <AccountPage
-                client={client.account}
-                appIcon={client.appIcon}
-                platform={
-                  androidPlatform
-                    ? "android"
-                    : iosPlatform
-                      ? "ios"
-                      : harmonyPlatform
-                        ? "harmony"
-                        : undefined
-                }
-                mobile={mobilePlatform}
-                onCancelLogin={accountLoginReturnPage ? finishAccountLogin : undefined}
-                onLoginComplete={accountLoginReturnPage ? finishAccountLogin : undefined}
-                onOpenLocalDesigns={client.customTouchKeyboardSkins ? openLocalDesigns : undefined}
-                onOpenCommunity={
-                  client.communitySkins && client.communityResources ? openCommunity : undefined
-                }
-                onOpenCloudDictionary={
-                  client.openCloudDictionary
-                    ? () => {
-                        void client.openCloudDictionary!().catch(() =>
-                          setError("无法打开云词库，请重试。"),
-                        );
-                      }
-                    : undefined
-                }
-                // macOS opens the cloud clipboard only from the IME menu, which supplies the input session it pastes into.
-                onOpenCloudClipboard={
-                  client.openCloudClipboard && !macosPlatform
-                    ? () => {
-                        void client.openCloudClipboard!().catch(() =>
-                          setError("无法打开云剪贴板，请重试。"),
-                        );
-                      }
-                    : undefined
-                }
-                onOpenAbout={mobilePlatform ? () => selectPage("about") : undefined}
-                onOpenFeedback={
-                  mobilePlatform && availablePages.some((item) => item.id === "feedback")
-                    ? () => selectPage("feedback")
-                    : undefined
-                }
-                onOpenDesktopDownload={
-                  mobilePlatform && client.openExternalUrl
-                    ? () => {
-                        void openExternalUrl(desktopDownloadUrl);
-                      }
-                    : undefined
-                }
-                onReplayOnboarding={mobilePlatform ? onReplayOnboarding : undefined}
-              />
-            )}
-            {client.chat && page === "chat" && (
-              <ChatPage
-                client={client.chat}
-                autoFocus={mobilePlatform}
-                touch={mobilePlatform}
-                onLogin={openAccountLogin}
-              />
-            )}
-            {page === "community" && (
-              <CommunityPage
-                destinationKey={communityDestination}
-                skins={client.communitySkins}
-                resources={client.communityResources}
-                theme={keyboardPreviewTheme}
-                initialMine={initialCommunityMine}
-                initialCategory={initialCommunityCategory}
-                initialScope={initialCommunityScope}
-                localDictionary={client.dictionary}
-                localSkinLibrary={client.customSkinLibrary}
-                mobile={mobilePlatform}
-                onLogin={openAccountLogin}
-              />
-            )}
-            {client.typingStatistics && page === "typing-statistics" && (
-              <TypingStatisticsPage
-                client={client.typingStatistics}
-                mobile={mobilePlatform}
-                platform={client.host?.platform}
-                openSystemSettings={client.openSystemKeyboardSettings}
-              />
-            )}
-            {client.vocabularyReview && page === "vocabulary" && (
-              <VocabularyReviewPage
-                client={client.vocabularyReview}
-                mobile={mobilePlatform}
-                openPanel={client.openVocabulary}
-              />
-            )}
-            {page === "skin" && client.communityCandidateSkins && (
-              <div className={communityStyle.categoryTabsPair} role="tablist" aria-label="皮肤来源">
+              {parentPage && !harmonyPhone && (
                 <button
                   type="button"
-                  role="tab"
-                  aria-selected={skinView === "mine"}
-                  onClick={() => setSkinView("mine")}
+                  className={settings.backLink}
+                  // Named for where it goes, so it is not a second button called just 反馈 next to the sidebar's.
+                  aria-label={`返回${parentPage.title}`}
+                  onClick={() => selectPage(parentPage.id)}
                 >
-                  我的皮肤
+                  <span aria-hidden="true">‹ </span>
+                  {parentPage.title}
                 </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={skinView === "community"}
-                  onClick={() => setSkinView("community")}
-                >
-                  社区皮肤
-                </button>
-              </div>
-            )}
-            {skinCommunityShown && (
-              <div className="mt-4">
-                <CommunityPage
-                  candidateSkins={client.communityCandidateSkins}
-                  localSkins={client.scanSkinCatalog}
-                  openSkinDirectory={client.openSkinDirectory}
-                  readSkinImage={client.readSkinImage}
-                  onOpenSkinPage={() => setSkinView("mine")}
-                  theme={keyboardPreviewTheme}
-                  onLogin={openAccountLogin}
+              )}
+              {!macShell && (
+                <SettingsPageHeader
+                  title={pageTitle}
+                  hiddenOnPhone={mobilePlatform && untitledOnPhone.includes(page)}
+                  onBack={pushedPage ? goBack : undefined}
+                  home={page === "home"}
                 />
-              </div>
-            )}
-            {page === "plugins" && client.communityPlugins && (
-              <div className={communityStyle.categoryTabsPair} role="tablist" aria-label="插件来源">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={pluginView === "mine"}
-                  onClick={() => setPluginView("mine")}
-                >
-                  我的插件
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={pluginView === "community"}
-                  onClick={() => setPluginView("community")}
-                >
-                  社区插件
-                </button>
-              </div>
-            )}
-            {client.communityPlugins && pluginCommunityShown && (
-              <div className="mt-4">
-                <CommunityPluginsPage
-                  client={client.communityPlugins}
-                  localPlugins={client.plugins?.catalog}
-                  onLogin={openAccountLogin}
+              )}
+              {/* 2-in-1 的根页面上没有设置引导卡片，所以输入法还需要添加或设为默认时，由 输入 和 关于 提示。 */}
+              {settingsPlatform === "hm2" &&
+                client.home &&
+                (page === "input" || page === "about") && (
+                  <SetupWarningStrip actions={client.home} />
+                )}
+              <SettingsPageStatus
+                error={error}
+                notice={notice}
+                busy={busy}
+                recoveredBackup={recoveredBackup}
+                canRecover={Boolean(client.recoverPreferences)}
+                onRecover={statusActions.onRecover}
+                openPreferencesDirectory={client.openPreferencesDirectory}
+                macos={macosPlatform}
+                onError={setError}
+                draft={draft}
+                inputSourceStartup={inputSourceStartup}
+                onOpenSettings={statusActions.onOpenSettings}
+                onDismiss={statusActions.onDismiss}
+              />
+              {client.notices && (
+                <NoticeBanner client={client.notices} openExternalUrl={openExternalUrl} />
+              )}
+              {client.home && draft && page === "home" && (
+                <HomePage
+                  preferences={draft}
+                  actions={client.home}
+                  onOpenPage={onOpenPage}
+                  onOpenChat={onOpenChat}
+                  touchLayout={mobilePlatform}
+                  ios={iosPlatform}
+                  rootPages={mobileSecondaryGroups
+                    .flatMap((group) => group.pages)
+                    .map((item) => ({ id: item.id, title: item.title }))}
                 />
-              </div>
-            )}
-            {draft && isSettingsFormPage(page) && (
-              <SettingsFormFrame showReload={false} busy={busy}>
-                <SettingsFormContext.Provider value={{ ...model, draft }}>
-                  <SkinSettingsPage hidden={skinCommunityShown} />
-                  <AppearanceSettingsPage />
-                  <FloatingToolbarSettingsPage />
-                  <InputSettingsPage />
-                  <ExpressionSettingsPage />
-                  <AiSettingsPage />
-                  <ShortcutSettingsPage />
-                  <DictionarySettingsPage />
-                  <ScreenKeyboardSettingsPage />
-                  <VoiceSettingsPage />
-                  <HandwritingSettingsPage />
-                  <ToolsSettingsPage />
-                  <PluginsSettingsPage hidden={pluginCommunityShown} />
-                  <DeveloperSettingsPage />
-                  <FeedbackSettingsPage />
-                  <HelpSettingsPage
-                    busy={busy}
-                    hidden={page !== "help"}
-                    macos={macosPlatform}
-                    mobile={mobilePlatform}
-                    ios={iosPlatform}
-                    android={androidPlatform}
-                    platformHelpIntro={model.platformHelpIntro}
-                    platformQuickStart={model.platformQuickStart}
-                    platformNetworkDescription={model.platformNetworkDescription}
-                    onOpenDocumentation={externalActions.onOpenDocumentation}
-                    onOpenSystemKeyboardSettings={externalActions.onOpenSystemKeyboardSettings}
-                  />
-                  <AboutSettingsPage />
-                </SettingsFormContext.Provider>
-                <SettingsFormFooter
-                  draft={draft}
-                  busy={busy}
-                  saveState={saveState}
-                  saveError={saveError}
-                  showRestoreDefaults={
-                    Boolean(client.loadDefaultPreferences) &&
-                    canRestoreDefaultsOnPage(page) &&
-                    !skinCommunityShown &&
-                    !pluginCommunityShown
+              )}
+              {page === "more" && (
+                <MoreSettingsPage
+                  groups={mobileSecondaryGroups.map((group) => ({
+                    title: group.title,
+                    pages: group.pages.map((item) => ({
+                      id: item.id,
+                      title: item.title,
+                      icon: item.icon,
+                    })),
+                  }))}
+                  onOpenPage={onOpenPage}
+                />
+              )}
+              {(client.account || client.appIcon) && page === "account" && (
+                <AccountPage
+                  client={client.account}
+                  appIcon={client.appIcon}
+                  platform={
+                    androidPlatform
+                      ? "android"
+                      : iosPlatform
+                        ? "ios"
+                        : harmonyPlatform
+                          ? "harmony"
+                          : undefined
                   }
-                  onRestoreDefaults={onRestoreDefaults}
-                  onRetry={() => void retrySave()}
-                  // Settings save themselves, so reading them again is only a way out of a failure: a save or load that failed, or an error the page is showing.
-                  onReload={
-                    canReloadSettingsPage(page) && (saveState === "failed" || loadFailed || !!error)
-                      ? () => void reloadSettings()
+                  mobile={mobilePlatform}
+                  onCancelLogin={accountLoginReturnPage ? finishAccountLogin : undefined}
+                  onLoginComplete={accountLoginReturnPage ? finishAccountLogin : undefined}
+                  onOpenLocalDesigns={
+                    client.customTouchKeyboardSkins ? openLocalDesigns : undefined
+                  }
+                  onOpenCommunity={
+                    client.communitySkins && client.communityResources ? openCommunity : undefined
+                  }
+                  onOpenCloudDictionary={
+                    client.openCloudDictionary
+                      ? () => {
+                          void client.openCloudDictionary!().catch(() =>
+                            setError("无法打开云词库，请重试。"),
+                          );
+                        }
                       : undefined
                   }
+                  // macOS opens the cloud clipboard only from the IME menu, which supplies the input session it pastes into.
+                  onOpenCloudClipboard={
+                    client.openCloudClipboard && !macosPlatform
+                      ? () => {
+                          void client.openCloudClipboard!().catch(() =>
+                            setError("无法打开云剪贴板，请重试。"),
+                          );
+                        }
+                      : undefined
+                  }
+                  onOpenAbout={mobilePlatform ? () => selectPage("about") : undefined}
+                  onOpenFeedback={
+                    mobilePlatform && availablePages.some((item) => item.id === "feedback")
+                      ? () => selectPage("feedback")
+                      : undefined
+                  }
+                  onOpenDesktopDownload={
+                    mobilePlatform && client.openExternalUrl
+                      ? () => {
+                          void openExternalUrl(desktopDownloadUrl);
+                        }
+                      : undefined
+                  }
+                  onReplayOnboarding={mobilePlatform ? onReplayOnboarding : undefined}
+                  preferences={draft}
+                  onOpenPage={selectPage}
+                  appTheme={client.appTheme}
+                  onOpenUrl={
+                    client.openExternalUrl
+                      ? (url: string) => {
+                          void openExternalUrl(url);
+                        }
+                      : undefined
+                  }
+                  copyText={client.copyText}
+                  desktopDownloadUrl={desktopDownloadUrl}
+                  appVersion={currentAppVersion}
                 />
-              </SettingsFormFrame>
-            )}
-            {/* With the form on screen 重新读取 sits in its action row once loading or saving failed; without it (a page with no form, or settings that failed to load) this is the only way back. */}
-            {canReloadSettingsPage(page) && !(draft && isSettingsFormPage(page)) && (
-              <button className="secondary" disabled={busy} onClick={() => void reloadSettings()}>
-                重新读取
-              </button>
-            )}
-          </div>
-        </main>
-      </div>
+              )}
+              {client.chat && page === "chat" && (
+                <ChatPage
+                  client={client.chat}
+                  autoFocus={mobilePlatform}
+                  touch={mobilePlatform}
+                  onLogin={openAccountLogin}
+                />
+              )}
+              {page === "community" && (
+                <CommunityPage
+                  destinationKey={communityDestination}
+                  skins={client.communitySkins}
+                  resources={client.communityResources}
+                  theme={keyboardPreviewTheme}
+                  initialMine={initialCommunityMine}
+                  initialCategory={initialCommunityCategory}
+                  initialScope={initialCommunityScope}
+                  localDictionary={client.dictionary}
+                  localSkinLibrary={client.customSkinLibrary}
+                  mobile={mobilePlatform}
+                  onLogin={openAccountLogin}
+                  preferences={draft}
+                  // 从皮肤库应用的皮肤和其他偏好修改一样：先进入草稿，再由表单的自动保存写入。
+                  onApplyPreferences={setDraft}
+                  onSkinApplied={(id: string) => {
+                    void client.typingStatistics?.recordSkin?.(id);
+                  }}
+                  look={harmonyPlatform && mobilePlatform ? "harmony" : undefined}
+                />
+              )}
+              {client.typingStatistics && page === "typing-statistics" && (
+                <TypingStatisticsPage
+                  client={client.typingStatistics}
+                  mobile={mobilePlatform}
+                  platform={client.host?.platform}
+                  openSystemSettings={client.openSystemKeyboardSettings}
+                  look={
+                    settingsPlatform === "harmony"
+                      ? "harmony"
+                      : settingsPlatform === "hm2"
+                        ? "hm2"
+                        : undefined
+                  }
+                />
+              )}
+              {client.vocabularyReview && page === "vocabulary" && (
+                <VocabularyReviewPage
+                  client={client.vocabularyReview}
+                  mobile={mobilePlatform}
+                  openPanel={client.openVocabulary}
+                />
+              )}
+              {page === "skin" && client.communityCandidateSkins && (
+                <div
+                  className={communityStyle.categoryTabsPair}
+                  role="tablist"
+                  aria-label="皮肤来源"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={skinView === "mine"}
+                    onClick={() => setSkinView("mine")}
+                  >
+                    我的皮肤
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={skinView === "community"}
+                    onClick={() => setSkinView("community")}
+                  >
+                    社区皮肤
+                  </button>
+                </div>
+              )}
+              {skinCommunityShown && (
+                <div className="mt-4">
+                  <CommunityPage
+                    candidateSkins={client.communityCandidateSkins}
+                    localSkins={client.scanSkinCatalog}
+                    openSkinDirectory={client.openSkinDirectory}
+                    readSkinImage={client.readSkinImage}
+                    onOpenSkinPage={() => setSkinView("mine")}
+                    theme={keyboardPreviewTheme}
+                    onLogin={openAccountLogin}
+                  />
+                </div>
+              )}
+              {page === "plugins" && client.communityPlugins && (
+                <div
+                  className={communityStyle.categoryTabsPair}
+                  role="tablist"
+                  aria-label="插件来源"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={pluginView === "mine"}
+                    onClick={() => setPluginView("mine")}
+                  >
+                    我的插件
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={pluginView === "community"}
+                    onClick={() => setPluginView("community")}
+                  >
+                    社区插件
+                  </button>
+                </div>
+              )}
+              {client.communityPlugins && pluginCommunityShown && (
+                <div className="mt-4">
+                  <CommunityPluginsPage
+                    client={client.communityPlugins}
+                    localPlugins={client.plugins?.catalog}
+                    onLogin={openAccountLogin}
+                  />
+                </div>
+              )}
+              {draft && isSettingsFormPage(page) && (
+                <SettingsFormFrame showReload={false} busy={busy}>
+                  <SettingsFormContext.Provider value={{ ...model, draft }}>
+                    <SkinSettingsPage hidden={skinCommunityShown} />
+                    <AppearanceSettingsPage />
+                    <FloatingToolbarSettingsPage />
+                    <InputSettingsPage />
+                    <ExpressionSettingsPage />
+                    <AiSettingsPage />
+                    <ShortcutSettingsPage />
+                    <DictionarySettingsPage />
+                    <ScreenKeyboardSettingsPage />
+                    <VoiceSettingsPage />
+                    <HandwritingSettingsPage />
+                    <ToolsSettingsPage />
+                    <PluginsSettingsPage hidden={pluginCommunityShown} />
+                    <DeveloperSettingsPage />
+                    <FeedbackSettingsPage />
+                    <HelpSettingsPage
+                      busy={busy}
+                      hidden={page !== "help"}
+                      macos={macosPlatform}
+                      mobile={mobilePlatform}
+                      ios={iosPlatform}
+                      android={androidPlatform}
+                      platformHelpIntro={model.platformHelpIntro}
+                      platformQuickStart={model.platformQuickStart}
+                      platformNetworkDescription={model.platformNetworkDescription}
+                      onOpenDocumentation={externalActions.onOpenDocumentation}
+                      onOpenSystemKeyboardSettings={externalActions.onOpenSystemKeyboardSettings}
+                    />
+                    <AboutSettingsPage />
+                  </SettingsFormContext.Provider>
+                  <SettingsFormFooter
+                    draft={draft}
+                    busy={busy}
+                    saveState={saveState}
+                    saveError={saveError}
+                    showRestoreDefaults={
+                      Boolean(client.loadDefaultPreferences) &&
+                      canRestoreDefaultsOnPage(page) &&
+                      !skinCommunityShown &&
+                      !pluginCommunityShown
+                    }
+                    onRestoreDefaults={onRestoreDefaults}
+                    onRetry={() => void retrySave()}
+                    // Settings save themselves, so reading them again is only a way out of a failure: a save or load that failed, or an error the page is showing.
+                    onReload={
+                      canReloadSettingsPage(page) &&
+                      (saveState === "failed" || loadFailed || !!error)
+                        ? () => void reloadSettings()
+                        : undefined
+                    }
+                  />
+                </SettingsFormFrame>
+              )}
+              {/* With the form on screen 重新读取 sits in its action row once loading or saving failed; without it (a page with no form, or settings that failed to load) this is the only way back. */}
+              {canReloadSettingsPage(page) && !(draft && isSettingsFormPage(page)) && (
+                <button className="secondary" disabled={busy} onClick={() => void reloadSettings()}>
+                  重新读取
+                </button>
+              )}
+            </div>
+          </main>
+        </div>
+      </ShellToasts>
     </div>
   );
 }

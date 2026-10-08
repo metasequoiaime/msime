@@ -1,6 +1,6 @@
 import { SettingsGroupNote } from "../settings-group-note";
 import { Fragment } from "react";
-import { GroupList, Row } from "../../core/platform-controls";
+import { GroupList, MoreOptions } from "../../core/platform-controls";
 import { SelectRow } from "../select-row";
 import { SwitchRow } from "../switch-row";
 import { pluginPreferences, type PluginPreferences } from "../plugin-preferences";
@@ -86,6 +86,8 @@ export interface HelpcodeSettingsPageProps {
   customSchemas?: readonly CustomHelpcodeSchema[];
   /** 已安装的辅助码表插件；选中后替换该方案的辅助码方案。没有插件目录的宿主为空。 */
   packs?: readonly HelpcodePackOption[];
+  /** HarmonyOS 手机的紧凑形式，类似 Android 的 `TypingPage`：分组只显示这一族（当前方案所用的那一族）的 辅助码方案，两族的其他控件都移进 更多选项 折叠区。 */
+  activeFamily?: HelpcodeKey;
   onChange: (patch: HelpcodeSettings) => void;
 }
 
@@ -104,6 +106,11 @@ export function HelpcodeSettingsPage({
 
 export type HelpcodeSettingsGroupProps = Omit<HelpcodeSettingsPageProps, "disabled" | "hidden">;
 
+const families = [
+  ["quanpin_helpcode", "全拼"],
+  ["shuangpin_helpcode", "双拼"],
+] as const;
+
 /** 桌面和触屏宿主共用的「辅助码」组，放在输入页的进阶区（旧的 `helpcode` 路由会打开输入页）。 */
 export function HelpcodeSettingsGroup({
   value: draft,
@@ -111,6 +118,7 @@ export function HelpcodeSettingsGroup({
   showShiftEntry,
   customSchemas = [],
   packs = [],
+  activeFamily,
   onChange,
 }: HelpcodeSettingsGroupProps) {
   const plugins = pluginPreferences(draft);
@@ -121,93 +129,131 @@ export function HelpcodeSettingsGroup({
       customSchemaLabel(schema),
     ]),
   ];
+  const currentOf = (key: HelpcodeKey) =>
+    ({
+      ...defaultHelpcode[key],
+      ...draft[key],
+    }) as Required<HelpcodePreferences>;
+
+  const enabledRow = (key: HelpcodeKey, label: string) => {
+    const current = currentOf(key);
+    return (
+      <SwitchRow
+        title={`${label}辅助码`}
+        checked={current.enabled}
+        onChange={(enabled) => onChange({ [key]: { ...current, enabled } })}
+      />
+    );
+  };
+
+  // `title` 是这一行显示的文字；下拉框始终以自己所属的族命名，所以只写着 辅助码方案 的紧凑行仍能告诉屏幕阅读器（或测试）它设置的是哪一族。
+  const schemaRow = (key: HelpcodeKey, label: string, title: string, description?: string) => {
+    const current = currentOf(key);
+    const packKey = packKeys[key];
+    const selectedPack = plugins[packKey];
+    const packOptions = packs
+      .map((pack): readonly [string, string] => [
+        `${PACK_PREFIX}${pack.id}`,
+        `${pack.name}（插件）`,
+      ])
+      .concat(
+        selectedPack && !packs.some((pack) => pack.id === selectedPack)
+          ? [[`${PACK_PREFIX}${selectedPack}`, `${selectedPack}（插件，未找到）`] as const]
+          : [],
+      );
+    return (
+      <SelectRow
+        title={title}
+        description={description}
+        aria-label={title === `${label}辅助码方案` ? undefined : `${label}辅助码方案`}
+        disabled={!current.enabled}
+        value={selectedPack ? `${PACK_PREFIX}${selectedPack}` : current.schema}
+        onChange={(event) => {
+          const value = event.target.value;
+          if (value.startsWith(PACK_PREFIX)) {
+            onChange({
+              plugins: { ...plugins, [packKey]: value.slice(PACK_PREFIX.length) },
+            });
+            return;
+          }
+          // 选内置或自定义方案时不再使用辅助码表插件。
+          onChange({
+            [key]: { ...current, schema: value as HelpcodeSchema },
+            ...(selectedPack ? { plugins: { ...plugins, [packKey]: "" } } : {}),
+          });
+        }}
+      >
+        {schemaOptions
+          // 资源目录被更换或在设置启动期间暂时不可用时，仍保留之前选中的码表，让它继续显示在列表中。
+          .concat(
+            current.schema.startsWith("custom/") &&
+              !schemaOptions.some(([schema]) => schema === current.schema)
+              ? [[current.schema, current.schema] as const]
+              : [],
+          )
+          .map(([schema, name]): readonly [string, string] => [schema, name])
+          .concat(packOptions)
+          .map(([schema, name]) => (
+            <option key={schema} value={schema}>
+              {name}
+            </option>
+          ))}
+      </SelectRow>
+    );
+  };
+
+  const displayRow = (key: HelpcodeKey, label: string) => {
+    const current = currentOf(key);
+    // Named after its own scheme, the way the reference window names these: both rows are on the page at once, so one shared wording left two switches with the same accessible name and nothing to tell a screen reader -- or a test -- which one it had.
+    const display = mobile ? `在候选栏中显示${label}辅助码` : `在候选窗口中显示${label}辅助码`;
+    return (
+      <SwitchRow
+        title={display}
+        checked={current.show_in_candidate_window}
+        onChange={(show_in_candidate_window) =>
+          onChange({ [key]: { ...current, show_in_candidate_window } })
+        }
+      />
+    );
+  };
+
+  const shiftNote = showShiftEntry && (
+    <SettingsGroupNote>
+      全拼或双拼组字时，按 Shift
+      再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语、韩语、粤拼、注音、笔画、越南语、藏文和快捷模式不使用辅助码。
+    </SettingsGroupNote>
+  );
+
+  if (activeFamily) {
+    const activeLabel = activeFamily === "shuangpin_helpcode" ? "双拼" : "全拼";
+    return (
+      <GroupList title="辅助码">
+        {schemaRow(activeFamily, activeLabel, "辅助码方案", activeLabel)}
+        <MoreOptions>
+          {shiftNote}
+          {families.map(([key, label]) => (
+            <Fragment key={key}>
+              {enabledRow(key, label)}
+              {key !== activeFamily && schemaRow(key, label, `${label}辅助码方案`)}
+              {displayRow(key, label)}
+            </Fragment>
+          ))}
+        </MoreOptions>
+      </GroupList>
+    );
+  }
 
   return (
     <GroupList title="辅助码">
-      {showShiftEntry && (
-        <SettingsGroupNote>
-          全拼或双拼组字时，按 Shift
-          再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语、韩语、粤拼、注音、笔画、越南语、藏文和快捷模式不使用辅助码。
-        </SettingsGroupNote>
-      )}
+      {shiftNote}
       {/* 全拼在前，和输入方案选择器「全拼、双拼」的顺序一致。 */}
-      {(
-        [
-          ["quanpin_helpcode", "全拼"],
-          ["shuangpin_helpcode", "双拼"],
-        ] as const
-      ).map(([key, label]) => {
-        const current = {
-          ...defaultHelpcode[key],
-          ...draft[key],
-        } as Required<HelpcodePreferences>;
-        // Named after its own scheme, the way the reference window names these: both rows are on the page at once, so one shared wording left two switches with the same accessible name and nothing to tell a screen reader -- or a test -- which one it had.
-        const display = mobile ? `在候选栏中显示${label}辅助码` : `在候选窗口中显示${label}辅助码`;
-        const packKey = packKeys[key];
-        const selectedPack = plugins[packKey];
-        const packOptions = packs
-          .map((pack): readonly [string, string] => [
-            `${PACK_PREFIX}${pack.id}`,
-            `${pack.name}（插件）`,
-          ])
-          .concat(
-            selectedPack && !packs.some((pack) => pack.id === selectedPack)
-              ? [[`${PACK_PREFIX}${selectedPack}`, `${selectedPack}（插件，未找到）`] as const]
-              : [],
-          );
-        return (
-          <Fragment key={key}>
-            <SwitchRow
-              title={`${label}辅助码`}
-              checked={current.enabled}
-              onChange={(enabled) => onChange({ [key]: { ...current, enabled } })}
-            />
-            <SelectRow
-              title={`${label}辅助码方案`}
-              disabled={!current.enabled}
-              value={selectedPack ? `${PACK_PREFIX}${selectedPack}` : current.schema}
-              onChange={(event) => {
-                const value = event.target.value;
-                if (value.startsWith(PACK_PREFIX)) {
-                  onChange({
-                    plugins: { ...plugins, [packKey]: value.slice(PACK_PREFIX.length) },
-                  });
-                  return;
-                }
-                // 选内置或自定义方案时不再使用辅助码表插件。
-                onChange({
-                  [key]: { ...current, schema: value as HelpcodeSchema },
-                  ...(selectedPack ? { plugins: { ...plugins, [packKey]: "" } } : {}),
-                });
-              }}
-            >
-              {schemaOptions
-                // Keep a previously selected table visible if the resource directory was
-                // changed or is temporarily unavailable during settings startup.
-                .concat(
-                  current.schema.startsWith("custom/") &&
-                    !schemaOptions.some(([schema]) => schema === current.schema)
-                    ? [[current.schema, current.schema] as const]
-                    : [],
-                )
-                .map(([schema, name]): readonly [string, string] => [schema, name])
-                .concat(packOptions)
-                .map(([schema, name]) => (
-                  <option key={schema} value={schema}>
-                    {name}
-                  </option>
-                ))}
-            </SelectRow>
-            <SwitchRow
-              title={display}
-              checked={current.show_in_candidate_window}
-              onChange={(show_in_candidate_window) =>
-                onChange({ [key]: { ...current, show_in_candidate_window } })
-              }
-            />
-          </Fragment>
-        );
-      })}
+      {families.map(([key, label]) => (
+        <Fragment key={key}>
+          {enabledRow(key, label)}
+          {schemaRow(key, label, `${label}辅助码方案`)}
+          {displayRow(key, label)}
+        </Fragment>
+      ))}
     </GroupList>
   );
 }

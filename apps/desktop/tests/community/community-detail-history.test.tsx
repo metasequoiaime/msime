@@ -55,9 +55,7 @@ test("ignores matching routes and desktop history", () => {
 test("uses the current detail and close action after rerender", () => {
   const oldClose = vi.fn();
   const currentClose = vi.fn();
-  const { rerender } = render(
-    <Probe mobile kind="skin" selectedId="skin-1" onClose={oldClose} />,
-  );
+  const { rerender } = render(<Probe mobile kind="skin" selectedId="skin-1" onClose={oldClose} />);
   rerender(<Probe mobile kind="reply" selectedId="reply-2" onClose={currentClose} />);
 
   window.dispatchEvent(

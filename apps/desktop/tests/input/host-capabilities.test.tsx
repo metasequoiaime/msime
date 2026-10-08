@@ -519,7 +519,8 @@ test("the English completion switch follows the capability, and iOS keeps its ow
       }}
     />,
   );
-  expect(await screen.findByLabelText("英文建议")).toBeTruthy();
+  // HarmonyOS 手机的 表达 页按设计稿把同一个开关叫作 英文联想。
+  expect(await screen.findByLabelText("英文联想")).toBeTruthy();
   cleanup();
   render(
     <SettingsPage
@@ -644,7 +645,8 @@ test("a host whose skin folder is unreachable is offered an import, not a folder
     openSkinDirectory: async () => undefined,
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "主题" }));
+  // 触屏宿主把这个页面叫作 皮肤。
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
   expect(screen.getByRole("button", { name: "导入皮肤" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "打开目录" })).toBeNull();
 });

@@ -1,17 +1,37 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import type { Preferences } from "../index";
 import { ActionButton } from "../core/action-button";
+import { ActionSheet } from "../core/action-sheet";
 import { errorCode } from "../core/error-code";
-import { GroupList, Row } from "../core/platform-controls";
+import { FluentIcon, type FluentIconName } from "../core/fluent-icons";
+import type { AppThemeClient } from "../core/host-contracts";
+import { GroupList, NavGroup, NavRow, Row } from "../core/platform-controls";
+import { useToast } from "../core/toast";
+import { privacyUrl } from "../settings/app-resources";
+import type { SettingsPageId } from "../settings/settings-page-registry";
+import { themeEntry } from "../theme/global-theme";
 import * as doc from "../settings/document-style";
 import * as account from "./account-style";
 import { AccountAvatar } from "./account-avatar";
-import { isValidAccountName, normalizeAccountName, preferredAccountName } from "./account-labels";
+import {
+  accountProviderName,
+  isValidAccountName,
+  normalizeAccountName,
+  preferredAccountName,
+} from "./account-labels";
 import { accountMessage, isAccountCancellation } from "./account-errors";
 import { AccountConfirmation } from "./account-confirmation";
 import { AccountNicknameField } from "./account-nickname-field";
 import { AccountInputField } from "./account-input-field";
 import { AccountStatusMessages } from "./account-status-messages";
-import { AccountIdentityDetails } from "./account-identity-details";
+import {
+  AccountIdentityDetails,
+  AccountIdentityRows,
+  ProfileGroup,
+} from "./account-identity-details";
+import { AppThemeRow } from "./app-theme-row";
+import { BottomSheet, LoginSheet } from "./login-sheet";
+import { MeSubpageHeader, MobileDownloadPage, otherPlatformCount } from "./mobile-download-page";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { StatusMessage } from "../core/status-message";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
@@ -113,6 +133,22 @@ export type AccountCommunityDestination =
 
 type Channel = "email" | "phone";
 type Confirmation = "logout-all" | "delete" | null;
+
+/** 触屏宿主在「我的」里推入的页面；鸿蒙手机还会推入「其他平台下载」。它们记在历史条目的 `accountSubpage` 里，所以系统返回手势能关掉它们。 */
+type AccountSubpage = "profile" | "download";
+
+function accountSubpageOf(state: unknown): AccountSubpage | null {
+  const value =
+    state && typeof state === "object"
+      ? (state as { accountSubpage?: unknown }).accountSubpage
+      : null;
+  return value === "profile" || value === "download" ? value : null;
+}
+
+/** toast 读起来是一句短句，不带行内状态行末尾的句号。 */
+function toastText(message: string): string {
+  return message.replace(/。$/, "");
+}
 
 function MobileAccountProfilePage({
   client,
@@ -285,6 +321,206 @@ function MobileAccountProfilePage({
   );
 }
 
+type ProfileConfirmation = "logout" | "logout-all" | "delete";
+
+/**
+ * 鸿蒙手机上的「个人资料」，从「我的」卡片推入：头像、名字、邮箱和账号登录用的提供方，然后是「账号」和「登录方式」两组，会话操作是居中的红色行。「昵称」打开一个面板，校验与其他地方相同；「水杉 ID」点按即复制自身。结果按设计用 toast 报告；失败则作为错误留在页面上。
+ *
+ * 没有头像角标，也没有数据分组：这个宿主不能上传头像，也不能导出数据。
+ */
+function HarmonyProfilePage({
+  client,
+  user,
+  profile,
+  onBack,
+  onSignedOut,
+  onProfileUpdated,
+}: {
+  client: AccountClient;
+  user: AccountUser;
+  profile: AccountProfile | null;
+  onBack: () => void;
+  /** 会话结束后调用一次，参数是说明结束方式的 toast。 */
+  onSignedOut: (message: string) => void;
+  onProfileUpdated: (profile: AccountProfile) => void;
+}) {
+  const [name, setName] = useState(user.displayName);
+  const [renaming, setRenaming] = useState(false);
+  const [error, setError] = useState("");
+  const [confirmation, setConfirmation] = useState<ProfileConfirmation | null>(null);
+  const showToast = useToast();
+  const { busy, mounted, clientGeneration, perform } = useAccountAction(
+    client,
+    setError,
+    (message) => {
+      if (message) showToast(toastText(message));
+    },
+  );
+  const normalizedName = normalizeAccountName(name);
+  const validName = isValidAccountName(name);
+  const shownName = preferredAccountName(user);
+  const provider = profile?.providers[0];
+
+  const rename = () =>
+    void perform(async () => {
+      const generation = clientGeneration.current;
+      if (!validName) throw { code: "account_invalid" };
+      const updated = await client.rename(normalizedName);
+      if (!mounted.current || generation !== clientGeneration.current) return;
+      onProfileUpdated(updated);
+      setName(updated.user.displayName);
+      setRenaming(false);
+      showToast("昵称已更新");
+    });
+  const signOut = (all: boolean) =>
+    void perform(async () => {
+      const generation = clientGeneration.current;
+      await client.logout(all);
+      if (!mounted.current || generation !== clientGeneration.current) return;
+      onSignedOut(all ? "已退出所有设备" : "已退出登录");
+    });
+  const deleteAccount = () =>
+    void perform(async () => {
+      const generation = clientGeneration.current;
+      await client.deleteAccount();
+      if (!mounted.current || generation !== clientGeneration.current) return;
+      onSignedOut("账号已注销");
+    });
+  const confirmAction = () => {
+    const action = confirmation;
+    setConfirmation(null);
+    if (action === "logout") signOut(false);
+    else if (action === "logout-all") signOut(true);
+    else if (action === "delete") deleteAccount();
+  };
+  const copyId = () =>
+    copyAccountIdToClipboard({
+      id: user.id,
+      isMounted: () => mounted.current,
+      setCopied: (copied) => {
+        if (copied) showToast("已复制");
+      },
+      setError,
+    });
+
+  return (
+    <div className={account.subpage}>
+      <MeSubpageHeader title="个人资料" onBack={onBack} backDisabled={busy} />
+      <AccountStatusMessages error={error} />
+      <div className={account.profileHero}>
+        <AccountAvatar user={user} load={client.avatar} size="hero" />
+        <h3 className={account.profileHeroName}>{shownName}</h3>
+        {user.email && <span className={account.profileHeroEmail}>{user.email}</span>}
+        {provider && (
+          <span className={account.profileHeroPill}>通过 {accountProviderName(provider)} 登录</span>
+        )}
+      </div>
+      <AccountIdentityRows
+        user={user}
+        name={shownName}
+        providers={profile?.providers ?? null}
+        disabled={busy}
+        onRename={() => {
+          setName(user.displayName);
+          setRenaming(true);
+        }}
+        onCopyId={copyId}
+      />
+      <ProfileGroup>
+        <button
+          type="button"
+          className={account.profileDangerRow}
+          disabled={busy}
+          onClick={() => setConfirmation("logout")}
+        >
+          退出登录
+        </button>
+        <button
+          type="button"
+          className={account.profileDangerRow}
+          disabled={busy}
+          onClick={() => setConfirmation("logout-all")}
+        >
+          退出所有设备
+        </button>
+      </ProfileGroup>
+      <ProfileGroup>
+        <button
+          type="button"
+          className={account.profileDangerRow}
+          disabled={busy}
+          onClick={() => setConfirmation("delete")}
+        >
+          注销账号
+        </button>
+      </ProfileGroup>
+      {confirmation && (
+        <div className={account.profileConfirmation}>
+          <AccountConfirmation
+            action={confirmation}
+            busy={busy}
+            onConfirm={confirmAction}
+            onCancel={() => setConfirmation(null)}
+          />
+        </div>
+      )}
+      {renaming && (
+        <BottomSheet
+          title="昵称"
+          subtitle="昵称会显示在社区作品中，已发布的作品也会同步更新。"
+          closeDisabled={busy}
+          onClose={() => setRenaming(false)}
+        >
+          <div className={account.sheetField}>
+            <AccountInputField
+              label={<span className="sr-only">社区昵称</span>}
+              ariaLabel="编辑社区昵称"
+              className={account.sheetInput}
+              maxLength={64}
+              value={name}
+              disabled={busy}
+              data-sheet-autofocus=""
+              onChange={setName}
+            />
+            <p
+              className={!validName && normalizedName ? account.sheetHintError : account.sheetHint}
+            >
+              {normalizedName
+                ? validName
+                  ? `${[...normalizedName].length}/64`
+                  : "昵称最多 64 个字符，请勿使用换行或控制字符。"
+                : "取一个喜欢的名字，让大家记住你。"}
+            </p>
+          </div>
+          <button
+            type="button"
+            className={account.sheetPrimary}
+            disabled={busy || !validName || normalizedName === user.displayName}
+            onClick={rename}
+          >
+            保存
+          </button>
+        </BottomSheet>
+      )}
+    </div>
+  );
+}
+
+/** 鸿蒙手机「我的」页上的一组：可选的 14px 标题，下面是一张装着若干 `NavRow` 的无边框卡片。 */
+function MeGroup({ title, children }: { title?: string; children: ReactNode }) {
+  const titleId = useId();
+  return (
+    <section className={account.meGroup} aria-labelledby={title ? titleId : undefined}>
+      {title && (
+        <h3 id={titleId} className={account.meGroupTitle}>
+          {title}
+        </h3>
+      )}
+      <NavGroup>{children}</NavGroup>
+    </section>
+  );
+}
+
 const appIconOptions = [
   { id: "classic", title: "原版", detail: "经典黑白，简洁如初", color: "#252525" },
   { id: "forest", title: "杉林", detail: "杉叶青绿，沉静自然", color: "#2f6b4f" },
@@ -409,15 +645,31 @@ function AppIconSettingsCard({
   );
 }
 
-function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; userId: string }) {
+/**
+ * 上传本机设置、应用云端设置。除鸿蒙手机外都是一张带按钮和行内状态的卡片；鸿蒙手机上改由 `rows` 画设计里的「同步」组：每个操作一行，确认用操作面板（action sheet），结果用 toast。
+ */
+function SettingsSyncCard({
+  client,
+  userId,
+  rows = false,
+}: {
+  client: SettingsSyncClient;
+  userId: string;
+  rows?: boolean;
+}) {
   const [schema, setSchema] = useState<AccountPreferenceSchema | null>(null);
   const [cloud, setCloud] = useState<AccountPreferences | null>(null);
   const [message, setMessage] = useState("");
   const [confirmation, setConfirmation] = useState<"upload" | "apply" | null>(null);
+  const showToast = useToast();
+  const report = (text: string) => {
+    setMessage(text);
+    if (rows && text) showToast(toastText(text));
+  };
   const { busy, mounted, clientGeneration, perform } = useAccountAction(
     client,
-    setMessage,
-    setMessage,
+    report,
+    report,
     userId,
   );
 
@@ -448,9 +700,9 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
     );
   }, [client, userId]);
 
-  const runConfirmed = () => {
-    if (!cloud || !schema || !confirmation || busy) return;
-    const operation = confirmation;
+  // 操作面板先关闭自己再报告所选项，所以由它交回打开时对应的那个操作。
+  const runConfirmed = (operation = confirmation) => {
+    if (!cloud || !schema || !operation || busy) return;
     setConfirmation(null);
     void perform(async () => {
       const current = clientGeneration.current;
@@ -462,7 +714,7 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
         await client.apply(userId, cloud);
         if (!mounted.current || clientGeneration.current !== current) return;
       }
-      setMessage(
+      report(
         operation === "upload"
           ? "本机设置已上传。"
           : "已应用云端设置。请重新打开键盘使部分设置生效。",
@@ -471,6 +723,42 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
   };
 
   const hasCloudSettings = Boolean(cloud && Object.keys(cloud.settings).length > 0);
+  if (rows)
+    return (
+      <MeGroup title="同步">
+        <NavRow
+          variant="me"
+          icon={<FluentIcon name="arrow_upload" size={18} />}
+          title="上传本机设置"
+          disabled={busy || !cloud || !schema}
+          onClick={() => setConfirmation("upload")}
+        />
+        <NavRow
+          variant="me"
+          icon={<FluentIcon name="arrow_sync_circle" size={18} />}
+          title="下载并应用云端设置"
+          disabled={busy || !cloud || !schema || !hasCloudSettings}
+          onClick={() => setConfirmation("apply")}
+        />
+        <ActionSheet
+          open={confirmation !== null}
+          title={confirmation === "upload" ? "上传本机设置" : "下载并应用云端设置"}
+          subtitle={
+            confirmation === "upload"
+              ? "将更新云端对应设置，并保留其他平台专属设置。版本冲突时不会自动覆盖。"
+              : "将替换本机对应设置，不会下载词库或开启数据上传。"
+          }
+          options={[
+            {
+              value: confirmation ?? "upload",
+              label: confirmation === "upload" ? "确认上传" : "确认应用",
+            },
+          ]}
+          onSelect={() => runConfirmed(confirmation)}
+          onClose={() => setConfirmation(null)}
+        />
+      </MeGroup>
+    );
   return (
     <section className={`${account.section} ${account.stack}`}>
       <h2 className={account.heading}>设置同步</h2>
@@ -594,6 +882,7 @@ export function AccountPage({
   onOpenFeedback,
   onOpenDesktopDownload,
   onReplayOnboarding,
+  ...meProps
 }: {
   client?: AccountClient;
   appIcon?: AppIconClient;
@@ -612,7 +901,7 @@ export function AccountPage({
   onOpenFeedback?: () => void;
   onOpenDesktopDownload?: () => void;
   onReplayOnboarding?: () => void;
-}) {
+} & HarmonyMeProps) {
   const resolvedAppIcon = appIcon ?? client?.appIcon;
   if (!client) {
     return (
@@ -648,9 +937,27 @@ export function AccountPage({
       onOpenFeedback={onOpenFeedback}
       onOpenDesktopDownload={onOpenDesktopDownload}
       onReplayOnboarding={onReplayOnboarding}
+      {...meProps}
     />
   );
 }
+
+/** 只有鸿蒙手机的「我的」才画的内容：各行上的值和它们背后的去处。其他宿主忽略这些。 */
+type HarmonyMeProps = {
+  /** 已保存的偏好，用于「我的皮肤」行的值。 */
+  preferences?: Preferences;
+  /** 打开一个设置页，用于「我的皮肤」和「我的词库」。 */
+  onOpenPage?: (id: SettingsPageId) => void;
+  /** 应用主题，用于「应用主题」行及其面板。 */
+  appTheme?: AppThemeClient;
+  /** 在系统浏览器里打开网页：隐私政策、下载页。 */
+  onOpenUrl?: (url: string) => void;
+  copyText?: (text: string) => Promise<void>;
+  /** 所有平台共用的那一个下载页，由「其他平台下载」打开。 */
+  desktopDownloadUrl?: string;
+  /** 「关于」行显示的版本号，与「关于」页读到的一致。 */
+  appVersion?: string;
+};
 
 function AccountDetailsPage({
   client,
@@ -668,7 +975,14 @@ function AccountDetailsPage({
   onOpenFeedback,
   onOpenDesktopDownload,
   onReplayOnboarding,
-}: {
+  preferences,
+  onOpenPage,
+  appTheme,
+  onOpenUrl,
+  copyText,
+  desktopDownloadUrl,
+  appVersion,
+}: HarmonyMeProps & {
   client: AccountClient;
   appIcon?: AppIconClient;
   platform?: "android" | "ios" | "harmony";
@@ -688,6 +1002,9 @@ function AccountDetailsPage({
 }) {
   const mobile =
     mobileOverride ?? (platform === "android" || platform === "ios" || platform === "harmony");
+  // 鸿蒙手机画重新设计的「我的」；它的 2-in-1 保留桌面页，其他触屏宿主保留各自原来的页面。
+  const harmony = mobile && platform === "harmony";
+  const showToast = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -704,7 +1021,8 @@ function AccountDetailsPage({
   const [name, setName] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
   const [editingProfile, setEditingProfile] = useState(false);
-  const [mobileProfilePage, setMobileProfilePage] = useState(false);
+  const [mobileSubpage, setMobileSubpage] = useState<AccountSubpage | null>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
   const [copiedAccountId, setCopiedAccountId] = useState(false);
   const [googleWaiting, setGoogleWaiting] = useState(false);
   const googleWaitingRef = useRef(false);
@@ -730,13 +1048,20 @@ function AccountDetailsPage({
 
   useEffect(() => {
     if (!mobile || typeof window === "undefined") return;
-    setMobileProfilePage(window.history.state?.accountSubpage === "profile");
+    setMobileSubpage(accountSubpageOf(window.history.state));
   }, [mobile]);
   useMobilePopState(mobile, (event) => {
-    setMobileProfilePage(
-      event.state?.msimeSettings === true && event.state.accountSubpage === "profile",
-    );
+    setMobileSubpage(event.state?.msimeSettings === true ? accountSubpageOf(event.state) : null);
   });
+
+  const openSubpage = (subpage: AccountSubpage) => {
+    pushMobileSettingsState({ page: "account", accountSubpage: subpage });
+    setMobileSubpage(subpage);
+  };
+  const closeSubpage = () => {
+    if (typeof window !== "undefined") window.history.back();
+    else setMobileSubpage(null);
+  };
 
   const applyProfile = (value: AccountProfile) => {
     setProfile(value);
@@ -929,18 +1254,44 @@ function AccountDetailsPage({
       </div>
     );
 
-  if (mobileProfilePage && user)
+  if (harmony && mobileSubpage === "profile" && user)
+    return (
+      <HarmonyProfilePage
+        client={client}
+        user={user}
+        profile={profile}
+        onBack={closeSubpage}
+        onSignedOut={(message) => {
+          setMobileSubpage(null);
+          setUser(null);
+          setProfile(null);
+          setName("");
+          showToast(message);
+          if (typeof window !== "undefined") window.history.back();
+        }}
+        onProfileUpdated={applyProfile}
+      />
+    );
+
+  if (harmony && mobileSubpage === "download" && desktopDownloadUrl)
+    return (
+      <MobileDownloadPage
+        url={desktopDownloadUrl}
+        onBack={closeSubpage}
+        onOpenUrl={onOpenUrl}
+        copyText={copyText}
+      />
+    );
+
+  if (mobileSubpage === "profile" && user)
     return (
       <MobileAccountProfilePage
         client={client}
         user={user}
         profile={profile}
-        onBack={() => {
-          if (typeof window !== "undefined") window.history.back();
-          else setMobileProfilePage(false);
-        }}
+        onBack={closeSubpage}
         onSignedOut={() => {
-          setMobileProfilePage(false);
+          setMobileSubpage(null);
           setUser(null);
           setProfile(null);
           setName("");
@@ -999,6 +1350,247 @@ function AccountDetailsPage({
       onLoginComplete?.();
     });
 
+  if (harmony) {
+    // 别的页面请求了登录（`onCancelLogin` 是回去的路），所以面板直接打开；关掉它就回到那里。
+    const loginShown = !user && (loginOpen || Boolean(onCancelLogin));
+    const closeLogin = () => {
+      setLoginOpen(false);
+      onCancelLogin?.();
+    };
+    const signedIn = (nextUser: AccountUser) => {
+      const generation = clientGeneration.current;
+      setUser(nextUser);
+      setName(nextUser.displayName);
+      setLoginOpen(false);
+      showToast("已登录");
+      void perform(() => loadProfile(generation));
+      onLoginComplete?.();
+    };
+    const selected = themeEntry(preferences?.global_theme).id;
+    const skinValue = preferences
+      ? selected === "custom"
+        ? "我的皮肤"
+        : themeEntry(selected).title
+      : undefined;
+    const contentRows = Boolean(
+      onOpenPage || (user && (onOpenCloudDictionary || onOpenCloudClipboard)),
+    );
+    const communityRows = Boolean(
+      onOpenLocalDesigns || (user && (openPublishedSkins || onOpenCommunity)),
+    );
+    const downloadPage = Boolean(desktopDownloadUrl && (onOpenUrl || copyText));
+    const openDownload = downloadPage ? () => openSubpage("download") : onOpenDesktopDownload;
+    const icon = (name: FluentIconName) => <FluentIcon name={name} size={18} />;
+    return (
+      <div className={account.mePage}>
+        <AccountStatusMessages
+          error={error}
+          notice={notice}
+          noticeClassName={`notice ${account.status}`}
+        />
+        <button
+          type="button"
+          className={account.meCard}
+          disabled={busy}
+          aria-label={user ? "编辑个人资料" : "未登录，点按登录"}
+          onClick={() => (user ? openSubpage("profile") : setLoginOpen(true))}
+        >
+          {user ? (
+            <AccountAvatar user={user} load={client.avatar} size="card" />
+          ) : (
+            <span className={account.meCardAnonymous} aria-hidden="true">
+              ?
+            </span>
+          )}
+          <span className={account.meCardText}>
+            <span className={account.meCardName}>
+              {user ? preferredAccountName(user) : "未登录"}
+            </span>
+            <span className={account.meCardSubtitle}>
+              {user ? (user.email ?? "水杉账号已登录") : "登录后同步词库、皮肤和设置"}
+            </span>
+          </span>
+          <FluentIcon name="chevron_right" size={20} className={account.meCardChevron} />
+        </button>
+        {appIcon && <AppIconSettingsCard client={appIcon} />}
+        {contentRows && (
+          <MeGroup title="我的内容">
+            {onOpenPage && (
+              <NavRow
+                variant="me"
+                icon={icon("color")}
+                title="我的皮肤"
+                value={skinValue}
+                disabled={busy}
+                onClick={() => onOpenPage("skin")}
+              />
+            )}
+            {onOpenPage && (
+              <NavRow
+                variant="me"
+                icon={icon("book")}
+                title="我的词库"
+                disabled={busy}
+                onClick={() => onOpenPage("dictionary")}
+              />
+            )}
+            {user && onOpenCloudDictionary && (
+              <NavRow
+                variant="me"
+                icon={icon("cloud")}
+                title="云词库"
+                disabled={busy}
+                onClick={onOpenCloudDictionary}
+              />
+            )}
+            {user && onOpenCloudClipboard && (
+              <NavRow
+                variant="me"
+                icon={icon("clipboard")}
+                title="云剪贴板"
+                disabled={busy}
+                onClick={onOpenCloudClipboard}
+              />
+            )}
+          </MeGroup>
+        )}
+        {communityRows && (
+          <MeGroup title="社区作品">
+            {onOpenLocalDesigns && (
+              <NavRow
+                variant="me"
+                icon={icon("pen")}
+                title="我的设计"
+                disabled={busy}
+                onClick={onOpenLocalDesigns}
+              />
+            )}
+            {user && openPublishedSkins && (
+              <NavRow
+                variant="me"
+                icon={icon("people_community")}
+                title="我发布的皮肤"
+                disabled={busy}
+                onClick={openPublishedSkins}
+              />
+            )}
+            {user && onOpenCommunity && (
+              <>
+                <NavRow
+                  variant="me"
+                  icon={icon("book")}
+                  title="我发布的词库"
+                  disabled={busy}
+                  onClick={() => onOpenCommunity("published-dictionary")}
+                />
+                <NavRow
+                  variant="me"
+                  icon={icon("text_quote")}
+                  title="我发布的回复模板"
+                  disabled={busy}
+                  onClick={() => onOpenCommunity("published-reply")}
+                />
+                <NavRow
+                  variant="me"
+                  icon={icon("star")}
+                  title="收藏的词库"
+                  disabled={busy}
+                  onClick={() => onOpenCommunity("saved-dictionary")}
+                />
+                <NavRow
+                  variant="me"
+                  icon={icon("heart")}
+                  title="收藏的回复模板"
+                  disabled={busy}
+                  onClick={() => onOpenCommunity("saved-reply")}
+                />
+              </>
+            )}
+          </MeGroup>
+        )}
+        {user && client.settingsSync && (
+          <SettingsSyncCard client={client.settingsSync} userId={user.id} rows />
+        )}
+        {(appTheme || onOpenUrl) && (
+          <MeGroup title="通用">
+            {appTheme && <AppThemeRow client={appTheme} disabled={busy} />}
+            {onOpenUrl && (
+              <NavRow
+                variant="me"
+                icon={icon("shield_lock")}
+                title="隐私"
+                value="本地优先"
+                disabled={busy}
+                onClick={() => onOpenUrl(privacyUrl)}
+              />
+            )}
+          </MeGroup>
+        )}
+        {(openDownload || onOpenFeedback || onOpenAbout || onReplayOnboarding) && (
+          <MeGroup>
+            {openDownload && (
+              <NavRow
+                variant="me"
+                icon={icon("arrow_download")}
+                title="其他平台下载"
+                value={downloadPage ? `${otherPlatformCount} 个平台` : undefined}
+                disabled={busy}
+                onClick={openDownload}
+              />
+            )}
+            {onOpenFeedback && (
+              <NavRow
+                variant="me"
+                icon={icon("person_feedback")}
+                title="帮助与反馈"
+                disabled={busy}
+                onClick={onOpenFeedback}
+              />
+            )}
+            {onOpenAbout && (
+              <NavRow
+                variant="me"
+                icon={icon("info")}
+                title="关于"
+                value={appVersion}
+                disabled={busy}
+                onClick={onOpenAbout}
+              />
+            )}
+            {onReplayOnboarding && (
+              <NavRow
+                variant="me"
+                icon={icon("keyboard")}
+                title="新手引导"
+                disabled={busy}
+                onClick={onReplayOnboarding}
+              />
+            )}
+          </MeGroup>
+        )}
+        <p className={account.meFooter}>
+          皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；账号登录不会自动上传本地设计或输入记录。
+        </p>
+        {loginShown && (
+          <LoginSheet
+            client={client}
+            providers={providers}
+            onProvidersChange={setProviders}
+            onSignedIn={signedIn}
+            onClearedExpired={() => {
+              setUser(null);
+              setProfile(null);
+              setName("");
+              showToast("已清除失效登录状态");
+            }}
+            onClose={closeLogin}
+            onOpenUrl={onOpenUrl}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className={account.page}>
       {!user && onCancelLogin && (
@@ -1028,8 +1620,7 @@ function AccountDetailsPage({
           aria-label="编辑个人资料"
           onClick={() => {
             if (mobile && typeof window !== "undefined") {
-              pushMobileSettingsState({ page: "account", accountSubpage: "profile" });
-              setMobileProfilePage(true);
+              openSubpage("profile");
             } else {
               setName(user.displayName);
               setEditingProfile(true);

@@ -1,3 +1,4 @@
+import { MoreOptions } from "../core/platform-controls";
 import { SelectRow } from "./select-row";
 import { SwitchRow } from "./switch-row";
 
@@ -21,8 +22,16 @@ type PunctuationSwitch =
   | "smart_punctuation_direct_letter"
   | "paired_punctuation";
 
-const switches: readonly [PunctuationSwitch, string, string][] = [
-  ["smart_punctuation", "智能标点", "中文标点模式下，字母或数字后的 , . : 自动使用英文标点"],
+type PunctuationSwitchCopy = readonly [PunctuationSwitch, string, string];
+
+const smartPunctuation: PunctuationSwitchCopy = [
+  "smart_punctuation",
+  "智能标点",
+  "中文标点模式下，字母或数字后的 , . : 自动使用英文标点",
+];
+
+/** 「智能标点」的细分选项，紧接在它之后列出。 */
+const smartPunctuationRefinements: readonly PunctuationSwitchCopy[] = [
   [
     "smart_punctuation_repeat",
     "重复标点转中文",
@@ -35,7 +44,18 @@ const switches: readonly [PunctuationSwitch, string, string][] = [
   ],
   ["smart_punctuation_direct_digit", "数字后直出", "数字后输入逗号、句点或冒号时保留 ASCII 标点"],
   ["smart_punctuation_direct_letter", "字母后直出", "字母后输入逗号、句点或冒号时保留 ASCII 标点"],
-  ["paired_punctuation", "成对标点自动补全", "输入左侧符号时自动补全右侧符号，并将光标置于中间"],
+];
+
+const pairedPunctuation: PunctuationSwitchCopy = [
+  "paired_punctuation",
+  "成对标点自动补全",
+  "输入左侧符号时自动补全右侧符号，并将光标置于中间",
+];
+
+const switches: readonly PunctuationSwitchCopy[] = [
+  smartPunctuation,
+  ...smartPunctuationRefinements,
+  pairedPunctuation,
 ];
 
 export interface PunctuationSectionProps {
@@ -76,30 +96,109 @@ export function PunctuationSection({
       />
       {showCharacterWidth && <CharacterWidthRow preferences={preferences} onChange={onChange} />}
       {switches.map(([key, label, description]) => (
-        <SwitchRow
+        <PunctuationSwitchRow
           key={key}
+          preference={key}
           title={label}
           description={description}
-          checked={preferences[key] ?? key === "paired_punctuation"}
-          onChange={(checked) => onChange({ [key]: checked })}
+          preferences={preferences}
+          onChange={onChange}
         />
       ))}
-      <SelectRow
-        title="固定标点"
-        description="切换中英文时的标点形态，三者互斥"
-        value={preferences.punctuation_lock ?? "follow"}
-        onChange={(event) =>
-          onChange({
-            punctuation_lock: event.target.value as NonNullable<
-              PunctuationPreferences["punctuation_lock"]
-            >,
-          })
-        }
-      >
-        <option value="follow">跟随中英文状态</option>
-        <option value="chinese">始终使用中文标点</option>
-        <option value="english">始终使用英文标点</option>
-      </SelectRow>
+      <PunctuationLockRow preferences={preferences} onChange={onChange} />
+    </>
+  );
+}
+
+/** 某个标点开关的存储值；偏好不存在时只有「成对标点」是开启的。 */
+function punctuationSwitchChecked(preferences: PunctuationPreferences, key: PunctuationSwitch) {
+  return preferences[key] ?? key === "paired_punctuation";
+}
+
+function PunctuationSwitchRow({
+  preference,
+  title,
+  description,
+  preferences,
+  onChange,
+}: {
+  preference: PunctuationSwitch;
+  title: string;
+  description?: string;
+} & Pick<PunctuationSectionProps, "preferences" | "onChange">) {
+  return (
+    <SwitchRow
+      title={title}
+      description={description}
+      checked={punctuationSwitchChecked(preferences, preference)}
+      onChange={(checked) => onChange({ [preference]: checked })}
+    />
+  );
+}
+
+function PunctuationLockRow({
+  preferences,
+  onChange,
+}: Pick<PunctuationSectionProps, "preferences" | "onChange">) {
+  return (
+    <SelectRow
+      title="固定标点"
+      description="切换中英文时的标点形态，三者互斥"
+      value={preferences.punctuation_lock ?? "follow"}
+      onChange={(event) =>
+        onChange({
+          punctuation_lock: event.target.value as NonNullable<
+            PunctuationPreferences["punctuation_lock"]
+          >,
+        })
+      }
+    >
+      <option value="follow">跟随中英文状态</option>
+      <option value="chinese">始终使用中文标点</option>
+      <option value="english">始终使用英文标点</option>
+    </SelectRow>
+  );
+}
+
+/** HarmonyOS 手机「表达」页的「标点」分组，遵循设计稿和 Android 的 `ExpressionPage`：「使用英文标点」（显示为 `chinese_punctuation` 的反值）、「自动补全成对标点」和「智能标点」，智能标点的细分选项和「固定标点」收在「更多选项」下，不丢失任何生效中的设置。 */
+export function PhonePunctuationSection({
+  preferences,
+  onChange,
+}: Pick<PunctuationSectionProps, "preferences" | "onChange">) {
+  const [smartKey, smartTitle, smartDescription] = smartPunctuation;
+  return (
+    <>
+      <SwitchRow
+        title="使用英文标点"
+        checked={!preferences.chinese_punctuation}
+        onChange={(checked) => onChange({ chinese_punctuation: !checked })}
+      />
+      <PunctuationSwitchRow
+        preference="paired_punctuation"
+        title="自动补全成对标点"
+        preferences={preferences}
+        onChange={onChange}
+      />
+      <PunctuationSwitchRow
+        preference={smartKey}
+        title={smartTitle}
+        description={smartDescription}
+        preferences={preferences}
+        onChange={onChange}
+      />
+      <MoreOptions>
+        {smartPunctuationRefinements.map(([key, label, description]) => (
+          <PunctuationSwitchRow
+            key={key}
+            preference={key}
+            title={label}
+            description={description}
+            preferences={preferences}
+            onChange={onChange}
+          />
+        ))}
+        <PunctuationLockRow preferences={preferences} onChange={onChange} />
+      </MoreOptions>
     </>
   );
 }

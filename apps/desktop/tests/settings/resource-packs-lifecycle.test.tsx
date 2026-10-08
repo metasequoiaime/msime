@@ -13,7 +13,10 @@ afterEach(cleanup);
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
   return { promise, resolve, reject };
 }
 
@@ -37,7 +40,8 @@ function service() {
 }
 
 test("旧 client 的下载结束不能释放新 client 的下载登记", async () => {
-  const old = service(), next = service();
+  const old = service(),
+    next = service();
   const { result, rerender } = renderHook(({ client }) => useResourcePacks(client), {
     initialProps: { client: old.client },
   });
@@ -55,7 +59,8 @@ test("旧 client 的下载结束不能释放新 client 的下载登记", async (
 });
 
 test("同一 client 复用后不能采纳上一代迟到的列表", async () => {
-  const old = service(), next = service();
+  const old = service(),
+    next = service();
   const list = deferred<ResourcePackStatus[]>();
   old.client.list.mockImplementationOnce(() => list.promise);
   const { result, rerender } = renderHook(({ client }) => useResourcePacks(client), {
@@ -70,7 +75,8 @@ test("同一 client 复用后不能采纳上一代迟到的列表", async () => 
 });
 
 test("同一 client 复用后不能采纳上一代迟到的进度和下载失败", async () => {
-  const old = service(), next = service();
+  const old = service(),
+    next = service();
   const { result, rerender } = renderHook(({ client }) => useResourcePacks(client), {
     initialProps: { client: old.client },
   });

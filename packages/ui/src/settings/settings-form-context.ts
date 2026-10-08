@@ -13,3 +13,8 @@ export function useSettingsForm(): SettingsFormModel {
   if (!model) throw new Error("A settings page was rendered outside SettingsPage's form.");
   return model;
 }
+
+/** 调用方位于 `SettingsPage` 的表单内时返回表单模型，否则为 null；供那些也会在表单外绘制的基础组件（测试、引导流程、独立预览）使用，只在有表单时才适配。 */
+export function useOptionalSettingsForm(): SettingsFormModel | null {
+  return useContext(SettingsFormContext);
+}

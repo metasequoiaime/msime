@@ -106,9 +106,6 @@ export function validModelMirror(mirror: string): boolean {
     return false;
   }
   return (
-    url.protocol === "https:" &&
-    url.hostname !== "" &&
-    url.username === "" &&
-    url.password === ""
+    url.protocol === "https:" && url.hostname !== "" && url.username === "" && url.password === ""
   );
 }
