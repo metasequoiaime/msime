@@ -193,13 +193,10 @@ impl ProviderRegistry {
                     .as_mut()
                     .map_or_else(Vec::new, |wubi| wubi.query(request));
             }
-            SchemeType::JapaneseRomaji => {
-                return self
-                    .japanese
-                    .as_mut()
-                    .map_or_else(Vec::new, |japanese| japanese.query(request));
+            SchemeType::JapaneseRomaji => return self.japanese_candidates(request),
+            SchemeType::Korean if request.korean_hanja => {
+                return self.korean_hanja_candidates(request)
             }
-            SchemeType::Korean if request.korean_hanja => return hanja::candidates(request),
             SchemeType::Cantonese => return self.cantonese_candidates(request),
             SchemeType::Stroke => return self.stroke_candidates(request),
             // 越南文和藏文在组字里直接拼出文字，没有候选；注音的列表来自它的编辑器。
@@ -426,31 +423,90 @@ impl ProviderRegistry {
         }
     }
 
+    /// 将日文候选直接写入会话行缓冲，避免查询结果再复制一次。
+    pub(super) fn query_japanese_into(
+        &mut self,
+        request: &QueryRequest,
+        destination: &mut Vec<WordItem>,
+    ) {
+        if let Some(japanese) = &mut self.japanese {
+            japanese.query_into(request, destination);
+        } else {
+            destination.clear();
+        }
+    }
+
+    pub(super) fn query_korean_hanja_into(
+        &mut self,
+        request: &QueryRequest,
+        destination: &mut Vec<WordItem>,
+    ) {
+        hanja::query_into(request, destination);
+    }
+
+    fn korean_hanja_candidates(&mut self, request: &QueryRequest) -> Vec<WordItem> {
+        hanja::candidates(request)
+    }
+
+    fn japanese_candidates(&mut self, request: &QueryRequest) -> Vec<WordItem> {
+        let mut destination = Vec::new();
+        self.query_japanese_into(request, &mut destination);
+        destination
+    }
+
     /// `msime-stroke.db` 对请求笔画的单字候选，顺序同 `StrokeScheme::candidates`。每行以键入的笔画为 `pinyin`、以该字的完整笔画码为 `canonical_pinyin`；笔画不学习，这两个键只用于显示，从不写回任何词典。读失败时不给候选，与粤拼一样。
     fn stroke_candidates(&self, request: &QueryRequest) -> Vec<WordItem> {
+        let mut destination = Vec::new();
+        self.query_stroke_into(request, &mut destination);
+        destination
+    }
+
+    pub(super) fn query_stroke_into(
+        &self,
+        request: &QueryRequest,
+        destination: &mut Vec<WordItem>,
+    ) {
         let Some(dictionary) = &self.stroke else {
-            return Vec::new();
+            destination.clear();
+            return;
         };
         let mut scheme = StrokeScheme::new();
         scheme.set_raw_input(&request.raw_input);
         let Ok(candidates) = scheme.candidates(dictionary) else {
-            return Vec::new();
+            destination.clear();
+            return;
         };
         let input = scheme.input();
-        candidates
-            .into_iter()
-            .map(|candidate| {
+        let common = candidates.len().min(destination.len());
+        for (target, candidate) in destination.iter_mut().take(common).zip(candidates.iter()) {
+            target.pinyin.clear();
+            target.pinyin.push_str(input);
+            target.canonical_pinyin.clone_from(&candidate.key);
+            target.word.clone_from(&candidate.text);
+            target.weight = candidate.weight;
+            target.source = CandidateSource::Database;
+            target.scheme = SchemeType::Stroke;
+            target.fixed_position = 0;
+            target.fuzzy = false;
+            target.corrected_from.clear();
+            target.sentence_association = false;
+            target.sentence_words.clear();
+        }
+        if destination.len() > candidates.len() {
+            destination.truncate(candidates.len());
+        } else {
+            destination.extend(candidates[common..].iter().map(|candidate| {
                 let mut item = WordItem::new(
                     input,
-                    candidate.text,
+                    &candidate.text,
                     candidate.weight,
                     CandidateSource::Database,
-                    candidate.key,
+                    &candidate.key,
                 );
                 item.scheme = SchemeType::Stroke;
                 item
-            })
-            .collect()
+            }));
+        }
     }
 }
 

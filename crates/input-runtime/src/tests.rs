@@ -862,6 +862,8 @@ impl InputEngine for Fixture {
             nine_key: self.nine_key,
             nine_key_spellings: self.nine_key_spellings.clone(),
             nine_key_reading: String::new(),
+            nine_key_single_character: false,
+            nine_key_strokes: String::new(),
             candidate_codes: self.codes.clone(),
             candidate_annotations: self
                 .words
@@ -1642,6 +1644,8 @@ impl InputEngine for PhraseEngine {
             nine_key: false,
             nine_key_spellings: Vec::new(),
             nine_key_reading: String::new(),
+            nine_key_single_character: false,
+            nine_key_strokes: String::new(),
             candidate_codes: Vec::new(),
             candidate_annotations: vec![String::new(); self.words.len()],
             candidate_sources: vec![0; self.words.len()],
@@ -3626,6 +3630,8 @@ impl InputEngine for DigitCommitsEngine {
             nine_key: false,
             nine_key_spellings: Vec::new(),
             nine_key_reading: String::new(),
+            nine_key_single_character: false,
+            nine_key_strokes: String::new(),
             candidate_codes: vec![self.reading.clone(); count],
             candidate_annotations: vec![String::new(); count],
             candidate_sources: vec![0; count],
@@ -4283,6 +4289,8 @@ impl InputEngine for WubiMixedEngine {
             nine_key: false,
             nine_key_spellings: Vec::new(),
             nine_key_reading: String::new(),
+            nine_key_single_character: false,
+            nine_key_strokes: String::new(),
             candidate_codes: ["dyn", "dynn", "dun"]
                 .into_iter()
                 .take(count)
@@ -5058,6 +5066,8 @@ impl InputEngine for SpellingMarksEngine {
             nine_key: false,
             nine_key_spellings: Vec::new(),
             nine_key_reading: String::new(),
+            nine_key_single_character: false,
+            nine_key_strokes: String::new(),
             candidate_codes: Vec::new(),
             candidate_annotations: Vec::new(),
             candidate_sources: Vec::new(),

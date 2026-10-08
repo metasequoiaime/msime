@@ -201,8 +201,9 @@ struct CustomSkinEditorView: View {
         Button("试一下振动") {
           if hapticsEnabled {
             let strength = KeyboardHapticStrength(rawValue: hapticStrength) ?? .medium
-            feedback = UIImpactFeedbackGenerator(style: strength.style)
-            feedback?.prepare(); feedback?.impactOccurred(intensity: strength.intensity)
+            let generator = UIImpactFeedbackGenerator(style: strength.style)
+            feedback = generator
+            generator.prepare(); strength.impact(generator)
           }
         }.disabled(!hapticsEnabled)
       }

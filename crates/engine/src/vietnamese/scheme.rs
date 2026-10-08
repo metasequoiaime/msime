@@ -88,16 +88,25 @@ impl VietnameseScheme {
 
     /// The text the word commits as: the transformed keystrokes, or the keystrokes themselves once Esc locked them.
     pub fn preedit(&self) -> String {
+        let mut display = String::new();
+        self.preedit_into(&mut display);
+        display
+    }
+
+    pub fn preedit_into(&self, display: &mut String) {
+        display.clear();
         if self.raw_locked {
-            return self.raw.clone();
+            display.push_str(&self.raw);
+            return;
         }
         let lower = self.transform(&self.raw.to_lowercase());
         let cased = self.transform(&self.raw);
         // vi 0.8.0 places tones wrongly on uppercase input, so the letters come from the lowercase run and only the case per position from the cased one. When the two runs disagree on length the positions cannot be matched, and the cased run is the only one that kept the case.
         if lower.chars().count() != cased.chars().count() {
-            return cased;
+            display.push_str(&cased);
+            return;
         }
-        let mut display = String::with_capacity(lower.len());
+        display.reserve(lower.len());
         for (letter, case) in lower.chars().zip(cased.chars()) {
             if case.is_uppercase() {
                 display.extend(letter.to_uppercase());
@@ -105,23 +114,31 @@ impl VietnameseScheme {
                 display.push(letter);
             }
         }
-        display
     }
 
     /// The keystrokes as the raw input (case kept in `raw_input_with_cases`, so host editing and scratch schemes rebuild the same word) and the display as the segmentation. Valid while a word is composing; no provider answers it.
     pub fn build_request(&self) -> QueryRequest {
-        let display = self.preedit();
-        QueryRequest {
-            scheme: SchemeType::Vietnamese,
-            raw_input: self.raw.to_ascii_lowercase(),
-            raw_input_with_cases: self.raw.clone(),
-            normalized_input: self.raw.to_ascii_lowercase(),
-            raw_segmentation: self.raw.clone(),
-            normalized_segmentation: display.clone(),
-            segmentation: display,
-            valid: self.is_composing(),
-            ..QueryRequest::default()
-        }
+        let mut request = QueryRequest::default();
+        self.build_request_into(&mut request);
+        request
+    }
+
+    pub fn build_request_into(&self, request: &mut QueryRequest) {
+        request.scheme = SchemeType::Vietnamese;
+        request.raw_input.clear();
+        request.raw_input.extend(
+            self.raw
+                .bytes()
+                .map(|byte| char::from(byte.to_ascii_lowercase())),
+        );
+        request.raw_input_with_cases.clone_from(&self.raw);
+        request.normalized_input.clone_from(&request.raw_input);
+        request.raw_segmentation.clone_from(&self.raw);
+        self.preedit_into(&mut request.normalized_segmentation);
+        request
+            .segmentation
+            .clone_from(&request.normalized_segmentation);
+        request.valid = self.is_composing();
     }
 
     /// Keeps the keys `handle_key` would take, preferring the cased spelling when the host sent one; the raw lock is dropped because the keys changed.

@@ -897,11 +897,23 @@ pub fn remove(root: &Path, kind: PluginKind, id: &str) -> Result<(), PluginError
     };
     if !metadata.is_dir() {
         // Never a pack, so there is nothing to follow: a link or a stray file goes as itself.
-        fs::remove_file(&target)?;
+        crate::storage::remove_private_file(&target)?;
         return Ok(());
     }
     // Renamed aside first, so a deletion interrupted halfway never leaves a directory that still looks like the pack. The leading dot keeps it out of `scan`, and the next import sweeps it.
     let aside = directory.join(format!(".old-{id}-{}", uuid::Uuid::new_v4().simple()));
+    #[cfg(unix)]
+    {
+        let directory_handle = crate::storage::open_private_directory(&directory)?;
+        rustix::fs::renameat(
+            &directory_handle,
+            std::ffi::OsStr::new(id),
+            &directory_handle,
+            aside.file_name().expect("generated aside name"),
+        )
+        .map_err(std::io::Error::from)?;
+    }
+    #[cfg(not(unix))]
     fs::rename(&target, &aside)?;
     fs::remove_dir_all(&aside)?;
     Ok(())

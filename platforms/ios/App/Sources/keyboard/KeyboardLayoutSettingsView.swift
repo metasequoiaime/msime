@@ -11,11 +11,15 @@ struct KeyboardLayoutSettingsView: View {
   @State private var tabletSplit = KeyboardLayoutPreference.tabletSplit
   @State private var glideTyping = KeyboardLayoutPreference.glideTyping
   @State private var tabOpensCandidates = true
+  @State private var numberKeypadOrder = KeyboardLayoutPreference.numberKeypadOrder
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
   @State private var dragAxis: Axis?
   @State private var saveFailed = false
+  @Environment(\.scenePhase) private var scenePhase
 
   private enum Axis { case vertical, horizontal }
+  /// 一次保存只写用户刚动的那一项，见 `save(_:)`。
+  private enum Field { case height, keySpacing, rowSpacing, voice }
   private static let spacingDragScale: Double = 18
 
   var body: some View {
@@ -26,6 +30,10 @@ struct KeyboardLayoutSettingsView: View {
     .tint(MetasequoiaTheme.accent)
     .navigationTitle("键盘").navigationBarTitleDisplayMode(.inline)
     .onAppear { readPreferences() }
+    // 这一页停在后台时，用户可能在键盘里改了高度或间距；回到前台重新读一遍文档，页面上才不会留着旧值。
+    .onChange(of: scenePhase) { phase in
+      if phase == .active { readPreferences() }
+    }
   }
 
   private var preview: some View {
@@ -56,7 +64,7 @@ struct KeyboardLayoutSettingsView: View {
       .accessibilityValue(KeyboardGeometry.formattedHeightAdjustment(height))
       .accessibilityAdjustableAction { direction in
         height = KeyboardGeometry.clamped(height + (direction == .increment ? 2 : -2), -12, 48)
-        save()
+        save(.height)
       }
   }
 
@@ -77,7 +85,7 @@ struct KeyboardLayoutSettingsView: View {
       }
       .onEnded { _ in
         dragBase = nil
-        save()
+        save(.height)
       }
   }
 
@@ -97,9 +105,14 @@ struct KeyboardLayoutSettingsView: View {
         }
       }
       .onEnded { _ in
+        let axis = dragAxis
         dragBase = nil
         dragAxis = nil
-        save()
+        switch axis {
+        case .vertical: save(.rowSpacing)
+        case .horizontal: save(.keySpacing)
+        case nil: break
+        }
       }
   }
 
@@ -111,15 +124,15 @@ struct KeyboardLayoutSettingsView: View {
     Form {
       Section {
         spacingRow("键盘高度", value: $height, range: -12...48, identifier: "appKeyboardHeightSlider",
-                   format: KeyboardGeometry.formattedHeightAdjustment)
+                   field: .height, format: KeyboardGeometry.formattedHeightAdjustment)
       } header: {
         Text("键盘高度")
       } footer: {
         Text(saveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : "在系统键盘高度的基础上增减，按键会跟着变高。上面的预览实时跟着走；已经打开的键盘要重新唤出才生效。")
       }
       Section {
-        spacingRow("按键间距", value: $keySpacing, range: 3...6, identifier: "appKeySpacingSlider")
-        spacingRow("行间距", value: $rowSpacing, range: 4...10, identifier: "appRowSpacingSlider")
+        spacingRow("按键间距", value: $keySpacing, range: 3...6, identifier: "appKeySpacingSlider", field: .keySpacing)
+        spacingRow("行间距", value: $rowSpacing, range: 4...10, identifier: "appRowSpacingSlider", field: .rowSpacing)
       } header: {
         Text("按键间距")
       } footer: {
@@ -128,11 +141,25 @@ struct KeyboardLayoutSettingsView: View {
       Section {
         Toggle("顶部语音入口", isOn: $voice)
           .accessibilityIdentifier("appVoiceShortcutSwitch")
-          .onChange(of: voice) { _ in save() }
+          .onChange(of: voice) { _ in save(.voice) }
       } header: {
         Text("快捷入口")
       } footer: {
         Text("语音入口用于打开已识别的语音结果。识别服务在「设置 → 语音输入」里配置，工具栏上的其他按钮在「设置 → 键盘工具栏」里。")
+      }
+      Section {
+        Picker("数字键盘顺序", selection: Binding(
+          get: { numberKeypadOrder },
+          set: { saveNumberKeypadOrder($0) })) {
+          ForEach(KeyboardLayoutPreference.NumberKeypadOrder.allCases, id: \.self) { order in
+            Text(order.title).tag(order)
+          }
+        }
+        .accessibilityIdentifier("appNumberKeypadOrderPicker")
+      } header: {
+        Text("数字键盘")
+      } footer: {
+        Text("九键切到数字时的排列。电话顺序 1 2 3 在最上面；计算器顺序 7 8 9 在最上面、1 2 3 在最下面，和计算器、小键盘一样。字母键的排列不变。")
       }
       Section {
         Toggle(isOn: $glideTyping) {
@@ -182,10 +209,24 @@ struct KeyboardLayoutSettingsView: View {
   }
 
   /// The drags and sliders only move the preview while they run; the settled value is saved here, into the shared document the keyboard reloads. A save the document refuses puts the page back to what is stored.
-  private func save() {
-    saveFailed = !KeyboardLayoutPreference.saveGeometry(
-      keySpacing: keySpacing, rowSpacing: rowSpacing, heightAdjustment: height, voiceShortcut: voice)
+  ///
+  /// 只写动过的那一项：页面上其余的值可能已经过时（键盘里刚调过高度，这一页还停在后台），一起写回去就会把键盘里的调整盖掉。
+  private func save(_ field: Field) {
+    let saved = switch field {
+    case .height: KeyboardLayoutPreference.saveGeometry(heightAdjustment: height)
+    case .keySpacing: KeyboardLayoutPreference.saveGeometry(keySpacing: keySpacing)
+    case .rowSpacing: KeyboardLayoutPreference.saveGeometry(rowSpacing: rowSpacing)
+    case .voice: KeyboardLayoutPreference.saveGeometry(voiceShortcut: voice)
+    }
+    saveFailed = !saved
     if saveFailed { readPreferences() }
+  }
+
+  private func saveNumberKeypadOrder(_ order: KeyboardLayoutPreference.NumberKeypadOrder) {
+    saveFailed = !KeyboardLayoutPreference.saveNumberKeypadOrder(order)
+    numberKeypadOrder = saveFailed
+      ? KeyboardLayoutPreference.NumberKeypadOrder.shared(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
+      : order
   }
 
   private func saveTab(_ enabled: Bool) {
@@ -207,16 +248,14 @@ struct KeyboardLayoutSettingsView: View {
     // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
-    if let spacing = KeyboardLayoutPreference.sharedKeySpacing(preferences["touch_key_spacing_tenths"]) {
-      keySpacing = spacing
-    }
-    if let spacing = KeyboardLayoutPreference.sharedRowSpacing(preferences["touch_row_spacing_tenths"]) {
-      rowSpacing = spacing
-    }
-    if let adjustment = KeyboardLayoutPreference.sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
-      height = adjustment
-    }
-    voice = preferences["touch_voice_shortcut"] as? Bool ?? voice
+    // 文档是权威：先抄进 App Group，再从 App Group 读回页面，两边才是同一个值。
+    KeyboardLayoutPreference.mirrorGeometry(preferences)
+    keySpacing = KeyboardLayoutPreference.keySpacing
+    rowSpacing = KeyboardLayoutPreference.rowSpacing
+    height = KeyboardLayoutPreference.heightAdjustment
+    voice = KeyboardLayoutPreference.voiceShortcutEnabled
+    numberKeypadOrder = KeyboardLayoutPreference.NumberKeypadOrder.shared(in: preferences)
+    KeyboardLayoutPreference.numberKeypadOrder = numberKeypadOrder
   }
 
   private func spacingRow(
@@ -224,6 +263,7 @@ struct KeyboardLayoutSettingsView: View {
     value: Binding<Double>,
     range: ClosedRange<Double>,
     identifier: String,
+    field: Field,
     format: @escaping (Double) -> String = { String(format: "%.1f", $0) }
   ) -> some View {
     VStack(alignment: .leading, spacing: 4) {
@@ -235,7 +275,7 @@ struct KeyboardLayoutSettingsView: View {
       }
       // Written once the thumb is let go: the slider reports every frame, and each write takes the shared document's lock.
       Slider(value: value, in: range) { editing in
-        if !editing { save() }
+        if !editing { save(field) }
       }.accessibilityIdentifier(identifier).accessibilityLabel(title)
     }
   }

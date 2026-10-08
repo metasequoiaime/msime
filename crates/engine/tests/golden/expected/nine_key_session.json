@@ -111,7 +111,11 @@
     "dedicated_english": false,
     "shuangpin_profile": "",
     "nine_key_spellings": [
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 3,
     "candidates": [
@@ -184,7 +188,11 @@
     "nine_key_spellings": [
      "ni",
      "mi",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 5,
     "candidates": [
@@ -293,9 +301,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -313,6 +325,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -359,9 +380,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -379,6 +404,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -425,9 +459,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -445,6 +483,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -477,6 +524,28 @@
     "caret": 2,
     "dedicated_english": false,
     "shuangpin_profile": "",
+    "nine_key_spellings": [
+     "ni",
+     "mi",
+     "mian",
+     "miao",
+     "mie",
+     "min",
+     "ming",
+     "miu",
+     "nian",
+     "niang",
+     "niao",
+     "nie",
+     "nin",
+     "ning",
+     "niu",
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
+    ],
     "candidate_count": 1,
     "candidates": [
      {
@@ -515,7 +584,9 @@
      "han",
      "hang",
      "ga",
-     "ha"
+     "ha",
+     "G",
+     "H"
     ],
     "candidate_count": 2,
     "candidates": [
@@ -582,7 +653,11 @@
     "nine_key_spellings": [
      "ni",
      "mi",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 5,
     "candidates": [
@@ -665,7 +740,9 @@
      "han",
      "hang",
      "ga",
-     "ha"
+     "ha",
+     "G",
+     "H"
     ],
     "candidate_count": 2,
     "candidates": [
@@ -706,6 +783,18 @@
     "caret": 5,
     "dedicated_english": false,
     "shuangpin_profile": "",
+    "nine_key_spellings": [
+     "hao",
+     "gan",
+     "gang",
+     "gao",
+     "han",
+     "hang",
+     "ga",
+     "ha",
+     "G",
+     "H"
+    ],
     "candidate_count": 2,
     "candidates": [
      {
@@ -814,9 +903,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -834,6 +927,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -911,7 +1013,11 @@
      "nv",
      "nve",
      "o",
-     "ou"
+     "ou",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 2,
     "candidates": [
@@ -995,7 +1101,11 @@
     "nine_key_spellings": [
      "ni",
      "mi",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 5,
     "candidates": [
@@ -1105,9 +1215,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -1125,6 +1239,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -1192,9 +1315,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -1212,6 +1339,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -1278,9 +1414,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -1298,6 +1438,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -1480,6 +1629,13 @@
     "caret": 32,
     "dedicated_english": false,
     "shuangpin_profile": "",
+    "nine_key_spellings": [
+     "P",
+     "Q",
+     "R",
+     "S",
+     "7"
+    ],
     "candidate_count": 0,
     "candidates": []
    }
@@ -1501,6 +1657,13 @@
     "caret": 32,
     "dedicated_english": false,
     "shuangpin_profile": "",
+    "nine_key_spellings": [
+     "P",
+     "Q",
+     "R",
+     "S",
+     "7"
+    ],
     "candidate_count": 0,
     "candidates": []
    }

@@ -267,6 +267,35 @@ impl PinyinDatabase {
         result
     }
 
+    /// 按简拼查词：`codes` 是同样长度的简拼（每个音节的首字母，`mt`、`cflm`），一个字母一个音节，词条的 `jp` 等于其中任何一个就算。按首字母分表，每张表一条 `jp IN (...)` 语句（`jp` 有索引），合起来按权重从高到低取前 `limit` 行；同一个词按不同的码出现时只留第一行。九宫格用它把每个数字当成一个音节的声母来查（#5640）。
+    pub fn query_jianpin_codes(&self, codes: &[String], limit: usize) -> Vec<DictRow> {
+        if self.connection.is_none() || codes.is_empty() || limit == 0 {
+            return Vec::new();
+        }
+        let mut codes_by_table: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+        for code in codes {
+            let Some(&first) = code.as_bytes().first() else {
+                continue;
+            };
+            let Some(table) = quanpin_table(code.len(), first) else {
+                continue;
+            };
+            let table_codes = codes_by_table.entry(table).or_default();
+            if !table_codes.contains(&code.as_str()) {
+                table_codes.push(code.as_str());
+            }
+        }
+        let mut rows = Vec::with_capacity(limit.min(128));
+        for (table, table_codes) in &codes_by_table {
+            let sql = jianpin_batch_sql(table, table_codes.len(), sql_limit(limit));
+            rows.extend(self.rows(&sql, params_from_iter(table_codes), query_capacity(limit)));
+        }
+        rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
+        deduplicate_by_value(&mut rows);
+        rows.truncate(limit);
+        rows
+    }
+
     /// The lattice's span lookup: each syllable canonicalised with `canonical_lattice_syllable`, then an exact-key lookup only, so `gun'qi` never borrows `gun'qiu`'s rows (QQ:1398-1418).
     pub fn query_lattice_span(&self, span: &[String], span_limit: usize) -> Vec<DictRow> {
         let normalized: Vec<String> = span
@@ -522,6 +551,29 @@ fn batch_sql(table: &str, key_count: usize, limit: i64) -> String {
     sql.push_str(table);
     sql.push_str("\" WHERE \"key\" IN (");
     for index in 0..key_count {
+        if index > 0 {
+            sql.push(',');
+        }
+        sql.push('?');
+    }
+    sql.push_str(") ORDER BY \"weight\" DESC LIMIT ");
+    push_limit(&mut sql, limit);
+    sql
+}
+
+/// `batch_sql` 的简拼版：`jp IN (...)`。
+fn jianpin_batch_sql(table: &str, code_count: usize, limit: i64) -> String {
+    let mut sql = String::with_capacity(
+        table
+            .len()
+            .saturating_add(code_count.saturating_mul(2))
+            .saturating_add(96)
+            .saturating_add(limit_len(limit)),
+    );
+    sql.push_str(SELECT_ROWS);
+    sql.push_str(table);
+    sql.push_str("\" WHERE \"jp\" IN (");
+    for index in 0..code_count {
         if index > 0 {
             sql.push(',');
         }
@@ -954,6 +1006,37 @@ mod tests {
         assert!(query(&[], usize::MAX).is_empty());
         // Duplicate shipped rows are tolerated.
         assert_eq!(values(&query(&["zha", "ba"], usize::MAX)), ["扎吧"]);
+    }
+
+    #[test]
+    fn jianpin_batch_sql_lists_one_placeholder_per_code() {
+        assert_eq!(
+            jianpin_batch_sql("tbl_2_m", 3, 64),
+            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_m\" WHERE \"jp\" IN (?,?,?) ORDER BY \"weight\" DESC LIMIT 64"
+        );
+    }
+
+    /// 九宫格简拼（#5640）：同样长度的一组简拼按首字母分表查，合起来按权重排、按词去重；没有的表（i、u、v 开头）当作没有行。
+    #[test]
+    fn jianpin_codes_merge_their_tables_by_weight() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = cascade_fixture(directory.path());
+        let codes = strings(&["nh", "sj", "ih", "mh", "nh"]);
+        assert_eq!(
+            values(&database.query_jianpin_codes(&codes, 10)),
+            ["你好", "时间", "拟好", "世界", "男孩"]
+        );
+        assert_eq!(
+            values(&database.query_jianpin_codes(&codes, 2)),
+            ["你好", "时间"]
+        );
+        // 简拼只比整码：nh 不会带出 n 开头的单字或三音节的词。
+        assert_eq!(
+            values(&database.query_jianpin_codes(&strings(&["n"]), 10)),
+            ["你", "您", "那"]
+        );
+        assert!(database.query_jianpin_codes(&codes, 0).is_empty());
+        assert!(database.query_jianpin_codes(&[], 10).is_empty());
     }
 
     #[test]

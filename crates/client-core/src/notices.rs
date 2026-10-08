@@ -10,6 +10,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::File;
+#[cfg(not(unix))]
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -229,16 +230,10 @@ impl NoticeStore {
 
     fn read(&self) -> NoticeCache {
         let path = self.directory.join(NOTICES_FILE);
-        if !self.directory.is_absolute() || crate::storage::reject_symlink(&path).is_err() {
+        if !self.directory.is_absolute() {
             return NoticeCache::default();
         }
-        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
-            return NoticeCache::default();
-        };
-        if !metadata.file_type().is_file() {
-            return NoticeCache::default();
-        }
-        let mut cache: NoticeCache = crate::storage::open_private_file(&path)
+        let mut cache: NoticeCache = crate::storage::open_private_file_in(&path)
             .ok()
             .and_then(|file| crate::bounded_io::read_bounded(file, MAX_CACHE_BYTES).ok())
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
@@ -256,12 +251,25 @@ impl NoticeStore {
             return Err(NoticeError::Storage);
         }
         let bytes = serde_json::to_vec(cache).map_err(|_| NoticeError::Storage)?;
-        let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
-        temporary.write_all(&bytes)?;
-        temporary
-            .persist(self.directory.join(NOTICES_FILE))
-            .map_err(|_| NoticeError::Storage)?;
-        Ok(())
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(&self.directory)?;
+            crate::storage::write_private_file_at(
+                &directory,
+                std::ffi::OsStr::new(NOTICES_FILE),
+                &bytes,
+            )?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
+            temporary.write_all(&bytes)?;
+            temporary
+                .persist(self.directory.join(NOTICES_FILE))
+                .map_err(|_| NoticeError::Storage)?;
+            Ok(())
+        }
     }
 }
 

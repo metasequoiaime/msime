@@ -66,9 +66,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -86,6 +90,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 50,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -142,7 +155,7 @@
        "mi",
        "米",
        "upsert",
-       600,
+       550,
        "",
        0
       ]
@@ -215,9 +228,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "米",
@@ -225,7 +242,7 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
       "answers_key": true
      },
      {
@@ -235,6 +252,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 100,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -283,9 +309,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -293,7 +323,7 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
       "answers_key": true
      },
      {
@@ -302,7 +332,16 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -351,9 +390,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -361,7 +404,7 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
       "answers_key": true
      },
      {
@@ -370,7 +413,16 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -417,9 +469,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -427,7 +483,7 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
       "answers_key": true
      },
      {
@@ -436,7 +492,16 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -483,9 +548,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -493,7 +562,7 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
       "answers_key": true
      },
      {
@@ -502,7 +571,16 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -549,9 +627,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -559,7 +641,7 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
       "answers_key": true
      },
      {
@@ -568,7 +650,16 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -615,9 +706,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -625,7 +720,7 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
       "answers_key": true
      },
      {
@@ -634,7 +729,16 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -683,9 +787,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "米",
@@ -693,7 +801,7 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
       "fixed_position": 1,
       "answers_key": true
      },
@@ -703,7 +811,16 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -753,7 +870,7 @@
        "mi",
        "米",
        "upsert",
-       600,
+       550,
        "",
        0
       ],
@@ -762,7 +879,7 @@
        "ni",
        "你",
        "upsert",
-       1100,
+       1500,
        "",
        0
       ]
@@ -835,9 +952,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "米",
@@ -845,7 +966,7 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
       "fixed_position": 1,
       "answers_key": true
      },
@@ -855,7 +976,16 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -888,6 +1018,28 @@
     "caret": 2,
     "dedicated_english": false,
     "shuangpin_profile": "",
+    "nine_key_spellings": [
+     "mi",
+     "mian",
+     "miao",
+     "mie",
+     "min",
+     "ming",
+     "miu",
+     "ni",
+     "nian",
+     "niang",
+     "niao",
+     "nie",
+     "nin",
+     "ning",
+     "niu",
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
+    ],
     "candidate_count": 1,
     "candidates": [
      {
@@ -896,7 +1048,7 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
       "answers_key": true
      }
     ]
@@ -954,9 +1106,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "米",
@@ -964,7 +1120,7 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
       "fixed_position": 1,
       "answers_key": true
      },
@@ -974,7 +1130,16 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -1023,9 +1188,13 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "你",
@@ -1033,7 +1202,7 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
       "answers_key": true
      },
      {
@@ -1042,7 +1211,16 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
+      "answers_key": true
+     },
+     {
+      "word": "你好",
+      "pinyin": "64",
+      "canonical_pinyin": "ni'hao",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1000,
       "answers_key": true
      },
      {
@@ -1096,7 +1274,11 @@
     "nine_key_spellings": [
      "ni",
      "mi",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 5,
     "candidates": [
@@ -1115,7 +1297,7 @@
       "canonical_pinyin": "mi'hao",
       "source": 8,
       "scheme": "quanpin",
-      "weight": -16628,
+      "weight": -16715,
       "sentence_association": true,
       "sentence_words": [
        "米",
@@ -1129,7 +1311,7 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
       "answers_key": false
      },
      {
@@ -1138,7 +1320,7 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
       "answers_key": false
      },
      {
@@ -1174,7 +1356,11 @@
     "nine_key_spellings": [
      "ni",
      "mi",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 5,
     "candidates": [
@@ -1184,7 +1370,7 @@
       "canonical_pinyin": "ni'hao",
       "source": 8,
       "scheme": "quanpin",
-      "weight": -16022,
+      "weight": -15712,
       "sentence_association": true,
       "sentence_words": [
        "你",
@@ -1198,7 +1384,7 @@
       "canonical_pinyin": "mi'hao",
       "source": 8,
       "scheme": "quanpin",
-      "weight": -16628,
+      "weight": -16715,
       "sentence_association": true,
       "sentence_words": [
        "米",
@@ -1212,7 +1398,7 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
       "answers_key": false
      },
      {
@@ -1221,7 +1407,7 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
       "answers_key": false
      },
      {
@@ -1255,7 +1441,7 @@
        "mi",
        "米",
        "upsert",
-       600,
+       550,
        "",
        0
       ],
@@ -1264,7 +1450,7 @@
        "ni",
        "你",
        "upsert",
-       1100,
+       1500,
        "",
        0
       ],
@@ -1333,7 +1519,11 @@
     "nine_key_spellings": [
      "ni",
      "mi",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 5,
     "candidates": [
@@ -1343,7 +1533,7 @@
       "canonical_pinyin": "ni'hao",
       "source": 8,
       "scheme": "quanpin",
-      "weight": -16022,
+      "weight": -15712,
       "sentence_association": true,
       "sentence_words": [
        "你",
@@ -1357,7 +1547,7 @@
       "canonical_pinyin": "mi'hao",
       "source": 8,
       "scheme": "quanpin",
-      "weight": -16628,
+      "weight": -16715,
       "sentence_association": true,
       "sentence_words": [
        "米",
@@ -1371,7 +1561,7 @@
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 1100,
+      "weight": 1500,
       "answers_key": false
      },
      {
@@ -1380,7 +1570,7 @@
       "canonical_pinyin": "mi",
       "source": 0,
       "scheme": "quanpin",
-      "weight": 600,
+      "weight": 550,
       "answers_key": false
      },
      {

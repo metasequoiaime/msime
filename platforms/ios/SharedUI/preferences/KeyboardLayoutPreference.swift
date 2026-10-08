@@ -46,16 +46,71 @@ enum KeyboardLayoutPreference {
     }
   }
   /// Save the geometry where the keyboard reads it. The keyboard copies the shared document's `touch_*` fields over the App Group every time it appears, so a value written only to the App Group lasted until then. The App Group is written after the document, and only when the document took the change.
+  ///
+  /// 只写传了值的那几项，其余保持文档里的样子。设置页原先每次都把四项一起写：键盘里调过高度之后，设置页上停留的还是旧高度，这时动一下任何别的控件，旧高度就被写回文档，键盘下次出现又变回设置页的值。
   @discardableResult
-  static func saveGeometry(keySpacing: Double, rowSpacing: Double, heightAdjustment: Double,
-                           voiceShortcut: Bool, stateRoot: URL? = nil) -> Bool {
+  static func saveGeometry(keySpacing: Double? = nil, rowSpacing: Double? = nil, heightAdjustment: Double? = nil,
+                           voiceShortcut: Bool? = nil, stateRoot: URL? = nil) -> Bool {
     guard let mapping = MetasequoiaInputSessionBridge.geometryMapping(
       keySpacing: keySpacing, rowSpacing: rowSpacing, heightAdjustment: heightAdjustment, voiceEnabled: voiceShortcut),
       MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, mapping) else { return false }
-    self.keySpacing = keySpacing
-    self.rowSpacing = rowSpacing
-    self.heightAdjustment = heightAdjustment
-    voiceShortcutEnabled = voiceShortcut
+    if let keySpacing { self.keySpacing = keySpacing }
+    if let rowSpacing { self.rowSpacing = rowSpacing }
+    if let heightAdjustment { self.heightAdjustment = heightAdjustment }
+    if let voiceShortcut { voiceShortcutEnabled = voiceShortcut }
+    return true
+  }
+
+  /// 把共享文档里的键距、行距、高度和语音入口抄进 App Group，文档里没有的项不动。键盘每次出现、设置页每次回到前台都按文档对齐，两边读到的才是同一个值。
+  static func mirrorGeometry(_ preferences: [String: Any]) {
+    if let spacing = sharedKeySpacing(preferences["touch_key_spacing_tenths"]) { keySpacing = spacing }
+    if let spacing = sharedRowSpacing(preferences["touch_row_spacing_tenths"]) { rowSpacing = spacing }
+    if let adjustment = sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
+      heightAdjustment = adjustment
+    }
+    if let voice = preferences["touch_voice_shortcut"] as? Bool { voiceShortcutEnabled = voice }
+  }
+
+  /// 「数字键盘顺序」：九键数字层 1 2 3 在上（电话）还是 7 8 9 在上（计算器）。共享文档里是 `touch_number_keypad_order`，键盘从 App Group 镜像读。
+  enum NumberKeypadOrder: String, CaseIterable {
+    case phone, calculator
+
+    static let documentKey = "touch_number_keypad_order"
+
+    var title: String {
+      switch self {
+      case .phone: "电话（123 在上）"
+      case .calculator: "计算器（789 在上）"
+      }
+    }
+
+    /// 文档里缺这一项或是认不得的值时按电话顺序。
+    static func shared(in preferences: [String: Any]?) -> NumberKeypadOrder {
+      (preferences?[documentKey] as? String).flatMap(NumberKeypadOrder.init(rawValue:)) ?? .phone
+    }
+
+    /// 3×3 网格里第 `row` 行第 `column` 列（都从 0 起）的数字键显示并输入的数字。电话顺序第一行是 1 2 3；计算器顺序上下颠倒，第一行是 7 8 9，列不变。
+    func digit(row: Int, column: Int) -> Int {
+      switch self {
+      case .phone: row * 3 + column + 1
+      case .calculator: (2 - row) * 3 + column + 1
+      }
+    }
+  }
+
+  static let numberKeypadOrderKey = "keyboard.numberKeypad.order"
+  static var numberKeypadOrder: NumberKeypadOrder {
+    get { defaults.string(forKey: numberKeypadOrderKey).flatMap(NumberKeypadOrder.init(rawValue:)) ?? .phone }
+    set { defaults.set(newValue.rawValue, forKey: numberKeypadOrderKey) }
+  }
+
+  /// 把数字键盘顺序写进共享文档，只改这一项；文档接受了才更新 App Group 镜像。
+  @discardableResult
+  static func saveNumberKeypadOrder(_ order: NumberKeypadOrder, stateRoot: URL? = nil) -> Bool {
+    guard MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, { document in
+      document[NumberKeypadOrder.documentKey] = order.rawValue
+    }) else { return false }
+    numberKeypadOrder = order
     return true
   }
 

@@ -71,6 +71,18 @@ public final class SyncApi {
         this.streams = new HttpStreams();
     }
 
+    /** Every token lookup belongs to the same account binding, including a 401 retry. */
+    public SyncApi(Context context, long bindingGeneration) {
+        Context application = context.getApplicationContext();
+        this.account = rejected -> {
+            if (SyncSwitch.bindingGeneration(application) != bindingGeneration) return "";
+            String token = new BackendAccount(application).currentAccessToken(rejected);
+            return SyncSwitch.bindingGeneration(application) == bindingGeneration ? token : "";
+        };
+        this.cloud = new CloudApi(application, this.account);
+        this.streams = new HttpStreams();
+    }
+
     public SyncApi(CloudApi cloud, CloudApi.Tokens account, Streams streams) {
         this.cloud = cloud;
         this.account = account;

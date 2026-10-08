@@ -212,6 +212,13 @@ final class ImeFunctionPanel {
                 }, null),
                 FunctionPanelView.State.NONE, CloudClipboardPanelPolicy.panelAvailable(
                     s.clipboardHistoryEnabled, s.imePanels.cloudClipboardAllowed()));
+            case TEXT_EDIT -> add(entries, states, enabled,
+                icon(item, KeyboardIconPaths.Icon.TEXT_EDIT, () -> {
+                    s.closeMoreTools();
+                    s.imeTextEditPanel.show();
+                    s.render();
+                }, null),
+                FunctionPanelView.State.NONE, s.connection != null);
         }
     }
 

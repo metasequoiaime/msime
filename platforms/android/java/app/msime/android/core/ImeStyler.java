@@ -445,6 +445,8 @@ final class ImeStyler {
             applySkinBackground(s.aiPolishContainer);
         if (s.replyKeyboard != null)
             applySkinBackground(s.replyKeyboard);
+        if (s.textEditPanel != null)
+            applySkinBackground(s.textEditPanel);
         if (s.handwritingCanvas != null) s.handwritingCanvas.applySkin(s.handwritingSkin);
         applySkinToView(s.keyboardRoot);
         // The keyboard-wide pass already styled these subtrees; re-walk the two that carry their
@@ -457,6 +459,7 @@ final class ImeStyler {
         // 回复面板的分段控件、源文字卡片和操作列不按角色上色，上面那一遍把它们清成了无底色，这里补回来。
         s.imePanels.styleReplyKeyboard();
         s.imeLayoutRows.applySidebarRail();
+        s.imeNineKeyPanel.applySkin();
         if (s.preedit != null) {
             // Idle, this is the brand badge the shared design draws as an outlined pill; composing, it is the reading itself, set in the strip's typeface and its secondary colour above the candidates.
             s.preedit.setTextColor(s.brandPillVisible

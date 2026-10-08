@@ -1,5 +1,6 @@
 use super::*;
 use crate::community::resource::{CommunityResourceContent, SharedPhrase};
+use std::fs;
 use std::process::Command;
 
 fn fresh() -> (tempfile::TempDir, CommonPhrasesStore) {

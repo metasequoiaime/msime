@@ -192,6 +192,24 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 顺带修掉换行估宽里的一处：原来按 `candidate.length` 算列数，那是 UTF-16 单元数，一个 emoji 会被当成两列。现在按码点数。
 
+## 全拼九键的三栏展开面板
+
+候选条末尾的 ∨ 此前在手机和平板上打不开任何东西：surface 改成单值（#2503）之后，它只取了完整候选列表，却没有切到展开面板。现在它打开面板，再点一次收起；面板开着时每次 `onChanged` 都重取候选，不再是打开那一刻的一份拷贝。
+
+全拼九键组字时面板画成三栏，占满键区（`nineKeyExpandedFace`，判断在 `NineKeyPanelPolicy.threeColumn`）：左栏是引擎给的 `nine_key_spellings`（完整拼音、下一个数字键上的大写字母、未锁定时的数字本身，读屏分别说「选择拼音」「选择字母」「输入数字」），可切成横竖撇点折五个笔画键；中栏是可滚动的全部候选；右栏是返回、⌫、重输、拼音/笔画、全部/单字。选拼音、⌫、改筛选都不关面板；选中候选、点返回或组字结束才收起。筛选把候选滤空时面板仍开着，好让用户撤掉那一笔。
+
+筛选走 `msime_client_set_nine_key_filter`（NAPI `setNineKeyFilter`），状态以引擎的 `nine_key_single_character`、`nine_key_strokes` 为准，界面不另存。笔画模式下 ⌫ 先撤一笔，没有笔画才是普通退格；切回拼音或关闭面板时清掉筛选。读音行画 `nine_key_reading`（`ning'bai`），引擎算不出读音时仍画数字。其他布局保持原来的整块面板。
+
+## 键盘里调的高度被设置页的值盖回去
+
+`changePreferences` 存好文档、记下版本号，却不更新缓存的偏好，`preferences()` 一直返回准备会话时的那份。视图存完立刻读回旧高度：拖动弹回原位，± 不累加，拖间距时把旧高度一起写回，面板尺寸也按旧值算；下次聚焦时版本号已经一致，不会重建，旧值就留到进程重启。现在存完按存下的整份文档重算外观（`refreshPreparedPreferences`），`selectGlobalTheme` 原来自己补的那一步也并进去了。设置页的改动仍按版本号在下次聚焦时重建会话。
+
+## 九键数字层的计算器顺序与「跟随系统」振动
+
+共享偏好 `touch_number_keypad_order` 为 `calculator` 时，九键数字层排成 7 8 9 在上、1 2 3 在下（`NineKeyLayout.digits(order)`），字母层不变；账号同步键是 `platform.harmony.number_keypad_order`。
+
+振动三档以前只差时长（10/20/35 ms）、强度固定，摸不出差别。现在每档用一个预置效果加拉开的强度（`KeyboardFeedback.plan`：轻 `haptic.effect.soft` 35、中 `haptic.effect.sharp` 70、强 `haptic.effect.hard` 100），设备不支持该效果（`isSupportEffectSync`，结果按效果缓存）时退回 8/20/40 ms。新增「跟随系统」（`system`）：用 `usage: 'touch'` 和 `haptic.clock.timer`、不带强度，振不振、多强由系统的触感反馈设置决定。按键反馈文件每次聚焦都重读，设置页改了档位不必等输入法重启。这些强度是按 SDK 6.1.1（API 24）的类型声明写的，还没在真机上逐档摸过。
+
 ## 候选词的译文此前只能看，不能用
 
 候选下方那行释义在这台宿主上一直是只读的：macOS 用 Option／Control 加数字把译文交出去，触摸键盘没有修饰键可用，来源因此把它挂在候选的长按上（`TheCandidateMenuOffersToInsertTheGlossItself`）。鸿蒙这边长按候选给的是词条管理——优先显示、固定到第几位、取消固定、删除词条——没有任何一处能把看得见的译文打出去。
@@ -356,7 +374,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 在 API 21 的 `Mate 70 Pro` arm64 模拟器（DevEco 自带镜像，`hdc` 连 `127.0.0.1:5555`）上完成了一次装机运行，实测到的东西比之前所有交叉构建加起来都多。
 
-**先是构建根本过不去。** `hvigorw assembleHap` 报 13 个 ArkTS 错误，分布在三个 `.ets` 文件里，全部来自最近合并的几片。`tsc` 全过、单测全绿、设置包构建成功、`verify-local.sh --quick` 通过——没有任何一道门禁编译过 ArkTS，所以 `develop` 处在打不出 HAP 的状态而没人知道。ArkTS 是 TypeScript 的一个严格子集：不认 `unknown` 和 `any`、对象字面量必须对应已声明的类或接口、不支持索引访问类型。`scripts/test-harmony-arkts-subset.py` 现在在 `--quick` 里查前两条（纯语法、零误报）；第三条依赖类型信息——ArkTS 接受 `JSON.stringify({ ok: false, error: x })` 却拒绝里面再嵌一层字面量的同一个调用——纯文本判断要么漏要么误报两百条，两种都试过了，所以那一条明写为只有真编译器能抓。
+**先是构建根本过不去。** `hvigorw assembleHap` 报 13 个 ArkTS 错误，分布在三个 `.ets` 文件里，全部来自最近合并的几片。`tsc` 全过、单测全绿、设置包构建成功、`verify-local.sh --quick` 通过——没有任何一道门禁编译过 ArkTS，所以 `develop` 处在打不出 HAP 的状态而没人知道。ArkTS 是 TypeScript 的一个严格子集：不认 `unknown` 和 `any`、对象字面量必须对应已声明的类或接口、不支持索引访问类型。`scripts/test-harmony-arkts-subset.py` 现在在 `--quick` 里查前两条（纯语法、零误报）；第三条依赖类型信息——ArkTS 接受 `JSON.stringify({ ok: false, error: x })` 却拒绝里面再嵌一层字面量的同一个调用——纯文本判断要么漏要么误报两百条，两种都试过了，所以那一条明写为只有真编译器能抓。后来又发生了一次：四个 PR 留下 10 个 ArkTS 错误，分布在五个 `.ets` 文件里，同样没有门禁发现。其中 7 个落在三条能从文本读出来的规则上，脚本据此加了三条只认窄写法、对编译器接受的代码零误报的检查：以展开开头的对象字面量（arkts-no-spread）、在 catch 块里原样重新抛出没有类型的 catch 变量（arkts-limited-throw，要写成 `throw error as Error`）、函数参数或返回值上的对象字面量类型（arkts-no-obj-literals-as-types）；另外 3 个是漏掉的 import 和无类型对象字面量，仍然只有真编译器能抓。
 
 装机后确认的：
 

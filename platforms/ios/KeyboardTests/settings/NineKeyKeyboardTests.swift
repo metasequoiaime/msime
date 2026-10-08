@@ -15,7 +15,7 @@ final class NineKeyKeyboardTests: XCTestCase {
   private var savedKeyboardPreferences: [String: Any] = [:]
   private let preferenceKeys = [KeyboardLayoutPreference.keySpacingKey,
     KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.heightAdjustmentKey,
-    KeyboardLayoutPreference.voiceShortcutKey]
+    KeyboardLayoutPreference.voiceShortcutKey, KeyboardLayoutPreference.numberKeypadOrderKey]
   override func tearDown() {
     for key in preferenceKeys {
       if let value = savedKeyboardPreferences[key] { KeyboardLayoutPreference.defaults.set(value, forKey: key) }
@@ -410,6 +410,31 @@ final class NineKeyKeyboardTests: XCTestCase {
       if let last { XCTAssertFalse(last === current) }
       last = current
     }
+  }
+
+  /// 三档之间要拉得开：原先中、强两档的力度都是 1.0，单次轻敲分不出来。「跟随系统」不套力度，存了认不得的值按「中」。
+  func testHapticStrengthLevelsAreDistinctAndSystemKeepsTheDefaultImpact() {
+    XCTAssertEqual(KeyboardHapticStrength.allCases.map(\.title), ["跟随系统", "轻", "中", "强"])
+    XCTAssertNil(KeyboardHapticStrength.system.intensity)
+    let levels: [KeyboardHapticStrength] = [.light, .medium, .strong]
+    XCTAssertEqual(levels.map(\.style), [.light, .medium, .heavy])
+    let intensities = levels.compactMap(\.intensity)
+    XCTAssertEqual(intensities.count, 3)
+    for (lower, higher) in zip(intensities, intensities.dropFirst()) {
+      XCTAssertGreaterThan(higher - lower, 0.15)
+    }
+    let defaults = KeyboardFeedbackPreference.defaults
+    let previous = defaults.object(forKey: KeyboardFeedbackPreference.strengthKey)
+    defer {
+      if let previous { defaults.set(previous, forKey: KeyboardFeedbackPreference.strengthKey) }
+      else { defaults.removeObject(forKey: KeyboardFeedbackPreference.strengthKey) }
+    }
+    defaults.set("thunderous", forKey: KeyboardFeedbackPreference.strengthKey)
+    XCTAssertEqual(KeyboardFeedbackPreference.hapticStrength, .medium)
+    defaults.removeObject(forKey: KeyboardFeedbackPreference.strengthKey)
+    XCTAssertEqual(KeyboardFeedbackPreference.hapticStrength, .medium)
+    defaults.set("system", forKey: KeyboardFeedbackPreference.strengthKey)
+    XCTAssertEqual(KeyboardFeedbackPreference.hapticStrength, .system)
   }
 
   func testCandidateManagementMenuUsesEngineSupportedLayouts() throws {
@@ -1294,8 +1319,10 @@ final class NineKeyKeyboardTests: XCTestCase {
       let chips = descendants(panel).compactMap { $0.accessibilityIdentifier }
         .filter { $0.hasPrefix("panelCandidate-") }
       XCTAssertGreaterThan(chips.count, CandidatePageSizePreference.defaultSize)
+      // 全拼九键的展开面板由右栏的「返回」收起，其他方案是标题行的收起按钮。
+      let closeIdentifier = scheme == .nineKey ? "candidatePanelBack" : "closeCandidatePanel"
       let close = try XCTUnwrap(
-        descendants(panel).first { $0.accessibilityIdentifier == "closeCandidatePanel" } as? UIButton)
+        descendants(panel).first { $0.accessibilityIdentifier == closeIdentifier } as? UIButton)
       close.sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
       XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidatePanel" })
@@ -2076,6 +2103,269 @@ final class NineKeyKeyboardTests: XCTestCase {
         add(attachment)
       }
     }
+  }
+
+  // MARK: - 九键展开面板
+
+  /// 打开一个全拼九键键盘并打出 `digits`。
+  private func nineKeyController(typing digits: String) throws -> KeyboardViewController {
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey]
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    for digit in digits {
+      try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered)
+    }
+    return controller
+  }
+
+  private func candidatePanel(in controller: KeyboardViewController) -> UIView? {
+    descendants(controller.view).first { $0.accessibilityIdentifier == "candidatePanel" }
+  }
+
+  private func panelCandidates(in controller: KeyboardViewController) -> [String] {
+    descendants(controller.view).compactMap { $0 as? UIButton }
+      .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("panelCandidate-") }
+      .compactMap { chip in chip.configuration?.attributedTitle.map { String($0.characters) } }
+      .map { $0.split(separator: "\n").first.map(String.init) ?? $0 }
+  }
+
+  /// 面板左栏里看得见的拼音：按钮本身和它的上层都没有隐藏（切到笔画时隐藏的是整个拼音列）。
+  private func visibleSpellings(in controller: KeyboardViewController) -> [String] {
+    descendants(controller.view).compactMap { $0 as? UIButton }
+      .filter { button in
+        guard (button.accessibilityIdentifier ?? "").hasPrefix("candidatePanelSpelling_") else { return false }
+        return sequence(first: button as UIView, next: \.superview).allSatisfy { !$0.isHidden }
+      }
+      .compactMap { $0.configuration?.title }
+  }
+
+  private func preedit(in controller: KeyboardViewController) throws -> String {
+    try XCTUnwrap(button("preeditButton", in: controller).configuration?.title)
+  }
+
+  /// 全拼九键的展开面板是三栏、只盖住键区；在面板里选拼音、退格都不收起面板，而是按新的一代候选重建。
+  func testNineKeyExpandedPanelStaysOpenWhileSpellingsAreChosen() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previousScheme
+    }
+    let controller = try nineKeyController(typing: "6464224")
+    // 读音行显示拼音读音，不是数字。
+    let typed = try preedit(in: controller)
+    XCTAssertFalse(typed.contains("6464"), typed)
+
+    try button("expandCandidates", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let panel = try XCTUnwrap(candidatePanel(in: controller))
+    let strip = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "candidateStrip" })
+    XCTAssertGreaterThanOrEqual(panel.frame.minY, strip.convert(strip.bounds, to: controller.view).maxY,
+                                "the panel covers the keys, not the candidate strip")
+    for identifier in ["candidatePanelBack", "candidatePanelDelete", "candidatePanelClear",
+                       "candidatePanelSingleToggle"] {
+      XCTAssertNoThrow(try button(identifier, in: controller))
+    }
+    // 面板底色透明，被它盖住的键藏起来，候选栏不藏。
+    let key = try button("nineKey6", in: controller)
+    XCTAssertTrue(sequence(first: key as UIView, next: \.superview).contains { $0.alpha == 0 })
+    XCTAssertFalse(sequence(first: strip, next: \.superview).contains { $0.alpha == 0 })
+    XCTAssertEqual(try button("expandCandidates", in: controller).accessibilityLabel, "收起全部候选")
+    XCTAssertFalse(panelCandidates(in: controller).isEmpty)
+    let spellings = visibleSpellings(in: controller)
+    XCTAssertTrue(spellings.contains("ning"), "\(spellings)")
+    // 拼音之后是下一个数字键上的大写字母，最后是数字本身，无障碍名称分得清三者。
+    let letter = try button("candidatePanelSpelling_M", in: controller)
+    XCTAssertEqual(letter.accessibilityLabel, "选择字母 M")
+    XCTAssertEqual(try button("candidatePanelSpelling_6", in: controller).accessibilityLabel, "输入数字 6")
+    XCTAssertEqual(try button("candidatePanelSpelling_ning", in: controller).accessibilityLabel, "选择拼音 ning")
+    XCTAssertEqual(try button("nineKeySpelling_M", in: controller).accessibilityLabel, "选择字母 M")
+
+    try button("candidatePanelSpelling_ning", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(candidatePanel(in: controller) === panel, "choosing a spelling keeps the panel open")
+    let locked = try preedit(in: controller)
+    XCTAssertTrue(locked.hasPrefix("ning'"), locked)
+    XCTAssertTrue(visibleSpellings(in: controller).contains("bai"), "\(visibleSpellings(in: controller))")
+
+    try button("candidatePanelSpelling_bai", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(candidatePanel(in: controller) === panel)
+    XCTAssertEqual(try preedit(in: controller), "ning'bai")
+    // 数字都锁定之后，列表是最后一次锁定的选项，选另一项就换掉它。
+    XCTAssertTrue(visibleSpellings(in: controller).contains("cai"), "\(visibleSpellings(in: controller))")
+
+    // 全部锁定时退格先撤销最后一次锁定，面板不关。
+    try button("candidatePanelDelete", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(candidatePanel(in: controller) === panel, "backspace keeps the panel open")
+    let undone = try preedit(in: controller)
+    XCTAssertTrue(undone.hasPrefix("ning'"), undone)
+    XCTAssertTrue(visibleSpellings(in: controller).contains("bai"), "\(visibleSpellings(in: controller))")
+    XCTAssertTrue(visibleSpellings(in: controller).contains("cai"), "\(visibleSpellings(in: controller))")
+
+    // 再退格删一个数字，组字还在，面板也还在。
+    try button("candidatePanelDelete", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(candidatePanel(in: controller) === panel)
+    XCTAssertFalse(panelCandidates(in: controller).isEmpty)
+
+    let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
+      controller.view.layer.render(in: context.cgContext)
+    }
+    let attachment = XCTAttachment(image: image)
+    attachment.name = "Nine-key expanded panel"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+
+    try button("candidatePanelBack", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertNil(candidatePanel(in: controller))
+    XCTAssertFalse(try preedit(in: controller).isEmpty, "返回 only closes the panel")
+    XCTAssertFalse(sequence(first: key as UIView, next: \.superview).contains { $0.alpha == 0 })
+    XCTAssertEqual(try button("expandCandidates", in: controller).accessibilityLabel, "展开全部候选")
+  }
+
+  /// 「单字」只留单字，「笔画」按首字笔顺筛；收起面板时两项都清掉。
+  func testNineKeyExpandedPanelFiltersBySingleCharacterAndStrokes() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previousScheme
+    }
+    let controller = try nineKeyController(typing: "6464")
+    try button("expandCandidates", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let all = panelCandidates(in: controller)
+    XCTAssertTrue(all.contains { $0.count > 1 }, "\(all)")
+
+    let single = try button("candidatePanelSingleToggle", in: controller)
+    XCTAssertEqual(single.configuration?.title, "单字")
+    single.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let singles = panelCandidates(in: controller)
+    XCTAssertFalse(singles.isEmpty)
+    XCTAssertTrue(singles.allSatisfy { $0.count == 1 }, "\(singles)")
+    XCTAssertEqual(single.configuration?.title, "全部")
+
+    let strokeToggle = try button("candidatePanelStrokeToggle", in: controller)
+    try XCTSkipIf(strokeToggle.isHidden, "this bundle carries no stroke dictionary")
+    strokeToggle.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(strokeToggle.configuration?.title, "拼音")
+    XCTAssertTrue(visibleSpellings(in: controller).isEmpty, "the left column shows strokes now")
+    let prefix = try XCTUnwrap(descendants(controller.view).first {
+      $0.accessibilityIdentifier == "candidatePanelStrokePrefix"
+    } as? UILabel)
+    XCTAssertEqual(prefix.text, "笔画")
+    // 宁（宀）起笔是点，拧（扌）起笔是横。
+    XCTAssertTrue(singles.contains("宁") && singles.contains("拧"), "\(singles)")
+    try button("candidatePanelStroke_n", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(prefix.text, "丶")
+    let dotted = panelCandidates(in: controller)
+    XCTAssertTrue(dotted.contains("宁"), "\(dotted)")
+    XCTAssertFalse(dotted.contains("拧"), "\(dotted)")
+    XCTAssertTrue(dotted.allSatisfy { $0.count == 1 }, "the single-character filter is kept")
+
+    // 笔画模式下退格先删笔画，数字不动（读音跟着首选变，ning 和 ming 都有可能，所以看下面回到拼音后的拼音栏）。
+    try button("candidatePanelDelete", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(prefix.text, "笔画")
+    XCTAssertTrue(panelCandidates(in: controller).contains("拧"))
+
+    // 回到拼音时笔画清掉，单字保留；收起面板时都清掉。
+    try button("candidatePanelStroke_h", in: controller).sendActions(for: .primaryActionTriggered)
+    strokeToggle.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(panelCandidates(in: controller).contains("宁"))
+    XCTAssertTrue(visibleSpellings(in: controller).contains("ning"), "\(visibleSpellings(in: controller))")
+    XCTAssertTrue(panelCandidates(in: controller).allSatisfy { $0.count == 1 })
+    try button("candidatePanelBack", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("expandCandidates", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try button("candidatePanelSingleToggle", in: controller).configuration?.title, "单字")
+    XCTAssertTrue(panelCandidates(in: controller).contains { $0.count > 1 })
+  }
+
+  /// 「重输」清掉组字，面板随组字一起收起。
+  func testNineKeyExpandedPanelClearEndsTheComposition() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previousScheme
+    }
+    let controller = try nineKeyController(typing: "64426")
+    try button("expandCandidates", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertNotNil(candidatePanel(in: controller))
+    try button("candidatePanelClear", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertNil(candidatePanel(in: controller))
+    XCTAssertTrue(descendants(controller.view).allSatisfy {
+      $0.accessibilityIdentifier?.hasPrefix("candidate-") != true || $0.isHidden
+    })
+  }
+
+  /// 其他方案展开的仍是盖住整个键盘、带标题行的面板。
+  func testQuanpinKeepsTheFullCandidatePanel() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.layoutIfNeeded()
+    for letter in ["Y", "I"] {
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(letter)" } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    try button("expandCandidates", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let panel = try XCTUnwrap(candidatePanel(in: controller))
+    XCTAssertEqual(panel.frame.minY, 0)
+    XCTAssertNoThrow(try button("closeCandidatePanel", in: controller))
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidatePanelBack" })
+  }
+
+  // MARK: - 数字键盘顺序
+
+  func testNumberKeypadOrderMapsGridPositions() {
+    let phone = KeyboardLayoutPreference.NumberKeypadOrder.phone
+    let calculator = KeyboardLayoutPreference.NumberKeypadOrder.calculator
+    XCTAssertEqual((0..<3).flatMap { row in (0..<3).map { phone.digit(row: row, column: $0) } },
+                   [1, 2, 3, 4, 5, 6, 7, 8, 9])
+    XCTAssertEqual((0..<3).flatMap { row in (0..<3).map { calculator.digit(row: row, column: $0) } },
+                   [7, 8, 9, 4, 5, 6, 1, 2, 3])
+    XCTAssertEqual(KeyboardLayoutPreference.NumberKeypadOrder.shared(in: nil), .phone)
+    XCTAssertEqual(KeyboardLayoutPreference.NumberKeypadOrder.shared(in: ["touch_number_keypad_order": "abacus"]), .phone)
+    XCTAssertEqual(KeyboardLayoutPreference.NumberKeypadOrder.shared(in: ["touch_number_keypad_order": "calculator"]),
+                   .calculator)
+  }
+
+  /// 计算器顺序只改数字层：7 8 9 在上、1 2 3 在下；字母层仍是 1-2-3。
+  func testCalculatorOrderReordersOnlyTheNineKeyDigitLayer() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .nineKey
+    KeyboardLayoutPreference.numberKeypadOrder = .calculator
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+
+    XCTAssertEqual(try button("nineKey1", in: controller).configuration?.title, "分词")
+    XCTAssertEqual(try button("nineKey7", in: controller).configuration?.title, "PQRS")
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let faces = try (1...9).map { try XCTUnwrap(button("nineKey\($0)", in: controller).configuration?.title) }
+    XCTAssertEqual(faces, ["7", "8", "9", "4", "5", "6", "1", "2", "3"])
+    XCTAssertEqual(try button("nineKey1", in: controller).accessibilityLabel, "数字 7")
+    XCTAssertEqual(try button("nineKey9", in: controller).accessibilityLabel, "数字 3")
+    let top = try button("nineKey1", in: controller)
+    let bottom = try button("nineKey7", in: controller)
+    XCTAssertLessThan(top.convert(top.bounds, to: controller.view).minY,
+                      bottom.convert(bottom.bounds, to: controller.view).minY)
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try button("nineKey7", in: controller).configuration?.title, "PQRS")
+    XCTAssertEqual(try button("nineKey7", in: controller).accessibilityLabel, "7 PQRS")
   }
 
 }

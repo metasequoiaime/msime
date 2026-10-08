@@ -9,7 +9,8 @@ if [[ ! -x "$tsc" ]]; then
   echo "TypeScript compiler not found at $tsc; run pnpm install at the repository root" >&2
   exit 1
 fi
-if ! rg -q 'StagedResources\.removeDirectory\(this\.cacheRoot\)' \
+# grep rather than rg: the HarmonyOS CI job installs no ripgrep, and a missing rg made this guard report a regression that was not there.
+if ! grep -qF 'StagedResources.removeDirectory(this.cacheRoot)' \
     "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeySoundPlayer.ets"; then
   echo "key sound reloads must remove the rendered cache tree, not only the empty root" >&2
   exit 1

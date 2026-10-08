@@ -1,9 +1,9 @@
+use std::ffi::OsStr;
 #[cfg(unix)]
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
-#[cfg(unix)]
 use std::path::PathBuf;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -92,6 +92,33 @@ pub(crate) fn open_private_file_at(directory: &File, name: &OsStr) -> io::Result
     Ok(file)
 }
 
+/// 非 Unix 平台上的「目录句柄」：没有 openat 这组调用，只记下已确认是真实目录（不是符号链接）的路径，`open_private_file_at` 再在它下面按名字打开。和 Unix 版的接口一致，调用方不必分平台。
+#[cfg(not(unix))]
+pub(crate) struct PrivateDirectory(PathBuf);
+
+#[cfg(not(unix))]
+pub(crate) fn open_private_directory(parent: &Path) -> io::Result<PrivateDirectory> {
+    if !fs::symlink_metadata(parent)?.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private directory is not a real directory",
+        ));
+    }
+    Ok(PrivateDirectory(parent.to_path_buf()))
+}
+
+#[cfg(not(unix))]
+pub(crate) fn open_private_file_at(directory: &PrivateDirectory, name: &OsStr) -> io::Result<File> {
+    let path = directory.0.join(name);
+    if !fs::symlink_metadata(&path)?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private input is not a regular file",
+        ));
+    }
+    open_private_file(&path)
+}
+
 #[cfg(unix)]
 pub(crate) fn write_private_file_at(
     directory: &File,
@@ -137,6 +164,23 @@ pub(crate) fn reject_symlink(path: &Path) -> io::Result<()> {
 /// 打开私有文档时复用文件锁模块的无跟随实现。
 pub(crate) fn open_private_file(path: &Path) -> io::Result<File> {
     crate::file_lock::open_private_file(path)
+}
+
+/// 打开私有目录中的普通文件；Unix 绑定父目录句柄，其他平台沿用私有文件打开策略。
+pub(crate) fn open_private_file_in(path: &Path) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let name = path.file_name().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "private file has no name")
+        })?;
+        let directory = open_private_directory(parent)?;
+        open_private_file_at(&directory, name)
+    }
+    #[cfg(not(unix))]
+    {
+        open_private_file(path)
+    }
 }
 
 /// Remove a private file relative to an opened parent directory, so a

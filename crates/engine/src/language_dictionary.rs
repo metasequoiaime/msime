@@ -201,6 +201,18 @@ impl LanguageDictionary {
         Ok(())
     }
 
+    /// 键以 `prefix` 开头的全部词条的文字，不分先后、可能重复。九宫格的笔画筛选用它取「笔顺以这几笔开头的字」：键按前缀落在一段连续区间里，只扫这一段。
+    pub fn texts_with_key_prefix(&self, prefix: &str) -> Result<Vec<String>> {
+        let Some(upper) = completion_upper_bound(prefix) else {
+            return Ok(Vec::new());
+        };
+        let mut statement = self
+            .connection
+            .prepare_cached("SELECT text FROM entries WHERE key >= ?1 AND key < ?2")?;
+        let rows = statement.query_map((prefix, upper), |row| row.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// The entries whose key matches `pattern`, where `wildcard` stands for any one character other than a space and every other character for itself. With `completions` the pattern only has to match the start of the key, as in `lookup_completions`, and the rest of the key may not hold a syllable boundary; without it the key must match the whole pattern. Each comes with its key, heaviest first and by text within a weight, at most `limit`. The literal characters before the first wildcard bound the scan to their key range, so only a leading wildcard reads the whole table.
     pub fn lookup_pattern(
         &self,

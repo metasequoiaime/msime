@@ -62,6 +62,7 @@ public final class CloudSync {
     private static final String KEY_PROMPTED_AT = "prompted_at";
     private static final String KEY_ERROR = "error";
     private static final String KEY_SKINS_TRIMMED = "skins_trimmed";
+    private static final String KEY_STATUS_BINDING = "binding_generation";
     private static final String QUEUE_PATH = "bootstrap/state/dictionary-snapshots";
     private static final String WORK_PATH = "bootstrap/state/cloud-sync";
 
@@ -83,6 +84,7 @@ public final class CloudSync {
     /** 「我的」页同步行副标题用的一行状态：最近一次失败的原因、皮肤库被裁剪的提示，或云端常用语本机收不下的提示；都没有时为空串。 */
     public static String statusLine(Context context) {
         SharedPreferences status = status(context);
+        if (status.getLong(KEY_STATUS_BINDING, -1L) != SyncSwitch.bindingGeneration(context)) return "";
         String error = status.getString(KEY_ERROR, "");
         if (!error.isEmpty()) return error;
         if (status.getBoolean(KEY_SKINS_TRIMMED, false)) return "自定义皮肤太多，只同步了最近的设计";
@@ -111,19 +113,25 @@ public final class CloudSync {
     private static void run(Context context, WeakReference<Activity> owner, SyncMergePolicy.Choice choice,
             boolean force) {
         if (!eligible(context)) return;
+        String accountId = SyncSwitch.accountId(context);
+        long bindingGeneration = SyncSwitch.bindingGeneration(context);
         boolean anyDirty = false;
         for (String section : SyncSwitch.SECTIONS) anyDirty |= SyncSwitch.dirty(context, section);
         long now = System.currentTimeMillis();
         SharedPreferences status = status(context);
-        if (!force && choice == null && !SyncMergePolicy.due(now, status.getLong(KEY_LAST_ATTEMPT, 0L), anyDirty)) {
+        boolean sameBinding = status.getLong(KEY_STATUS_BINDING, -1L) == bindingGeneration;
+        if (!force && choice == null && !SyncMergePolicy.due(now,
+                sameBinding ? status.getLong(KEY_LAST_ATTEMPT, 0L) : 0L, anyDirty)) {
             return;
         }
-        status.edit().putLong(KEY_LAST_ATTEMPT, now).apply();
-        Session session = new Session(context, new SyncApi(context), choice);
+        status.edit().putLong(KEY_LAST_ATTEMPT, now).putLong(KEY_STATUS_BINDING, bindingGeneration).apply();
+        Session session = new Session(context, new SyncApi(context, bindingGeneration), choice,
+            accountId, bindingGeneration);
         String failure;
         try {
             if (!session.probe()) {
-                long promptedAt = status.getLong(KEY_PROMPTED_AT, 0L);
+                long promptedAt = sameBinding ? status.getLong(KEY_PROMPTED_AT, 0L) : 0L;
+                if (!session.current()) return;
                 if (force || promptedAt <= 0 || now < promptedAt || now - promptedAt >= SyncMergePolicy.THROTTLE_MILLIS) {
                     status.edit().putLong(KEY_PROMPTED_AT, now).apply();
                     askFirstRun(owner);
@@ -136,15 +144,18 @@ public final class CloudSync {
             failure = message(error);
         }
         // 跑的过程中退出登录或换了账号：结果作废，不写进度。
-        if (!eligible(context)) return;
-        SharedPreferences.Editor editor = status.edit().putBoolean(KEY_SKINS_TRIMMED, session.skinsTrimmed);
-        if (failure.isEmpty()) {
-            SyncSwitch.setLastSyncedAt(context, System.currentTimeMillis());
-            editor.remove(KEY_ERROR);
-        } else {
-            editor.putString(KEY_ERROR, failure);
+        synchronized (SyncSwitch.bindingLock()) {
+            if (!session.current()) return;
+            SharedPreferences.Editor editor = status.edit().putLong(KEY_STATUS_BINDING, bindingGeneration)
+                .putBoolean(KEY_SKINS_TRIMMED, session.skinsTrimmed);
+            if (failure.isEmpty()) {
+                SyncSwitch.setLastSyncedAtIfCurrent(context, System.currentTimeMillis(), bindingGeneration);
+                editor.remove(KEY_ERROR);
+            } else {
+                editor.putString(KEY_ERROR, failure);
+            }
+            editor.apply();
         }
-        editor.apply();
     }
 
     /** 首次同步而云端已有数据：问用户「合并」还是「使用云端」；取消就什么也不做，过一阵回到前台再问。 */
@@ -200,17 +211,27 @@ public final class CloudSync {
         private final SyncApi api;
         private final SyncMergePolicy.Choice choice;
         private final String directory;
+        private final String accountId;
+        private final long bindingGeneration;
         private JSONObject schema;
         private SyncApi.Preferences preferences;
         private SyncApi.Phrases phrases;
         private SyncApi.DictionaryProbe dictionary;
         boolean skinsTrimmed;
 
-        Session(Context context, SyncApi api, SyncMergePolicy.Choice choice) {
+        Session(Context context, SyncApi api, SyncMergePolicy.Choice choice,
+                String accountId, long bindingGeneration) {
             this.context = context;
             this.api = api;
             this.choice = choice;
             this.directory = HostStore.directory(context);
+            this.accountId = accountId;
+            this.bindingGeneration = bindingGeneration;
+        }
+
+        boolean current() {
+            return eligible(context) && accountId.equals(SyncSwitch.accountId(context))
+                && bindingGeneration == SyncSwitch.bindingGeneration(context);
         }
 
         private boolean first(String section) {
@@ -219,10 +240,12 @@ public final class CloudSync {
 
         /** 读云端状态；返回 false 表示有分类第一次同步而云端已有数据，需要先问用户。 */
         boolean probe() throws CloudApi.Failure {
+            if (!current()) return false;
             schema = api.preferencesSchema();
             preferences = api.preferences();
             phrases = api.phrases();
             dictionary = api.dictionaryChangedSince(first(SyncSwitch.DICTIONARY) ? 0L : cursorRevision(SyncSwitch.DICTIONARY));
+            if (!current()) return false;
             if (choice != null) return true;
             boolean needs = first(SyncSwitch.SETTINGS) && !preferences.settings().isEmpty()
                 || first(SyncSwitch.PHRASES) && !phrases.phrases().isEmpty()
@@ -282,6 +305,7 @@ public final class CloudSync {
         // ---- 设置与皮肤库 ----
 
         private void settings() throws CloudApi.Failure, IOException, JSONException {
+            if (!current()) return;
             // 先记下改动代数再读本机：上传期间用户又改了设置，代数会变大，标记留着，下一轮再传。
             long settingsGeneration = SyncSwitch.generation(context, SyncSwitch.SETTINGS);
             long skinsGeneration = SyncSwitch.generation(context, SyncSwitch.SKINS);
@@ -294,15 +318,22 @@ public final class CloudSync {
             for (int attempt = 0; ; attempt++) {
                 if (mode == SyncMergePolicy.Mode.NONE) break;
                 if (mode == SyncMergePolicy.Mode.DOWNLOAD) {
-                    apply(cloud);
+                    synchronized (SyncSwitch.bindingLock()) {
+                        if (!current()) return;
+                        apply(cloud);
+                    }
                     result = cloud;
                     break;
                 }
                 // 合并时先把云端皮肤库并进本机（按 id 和更新时间），否则本机的库会整份盖掉云端的设计。
                 if (mode == SyncMergePolicy.Mode.MERGE && cloud.settings().get(SyncMergePolicy.SKINS_KEY) instanceof String library) {
-                    CustomSkinLibrary.importDesigns(Paths.get(directory), library);
+                    synchronized (SyncSwitch.bindingLock()) {
+                        if (!current()) return;
+                        CustomSkinLibrary.importDesigns(Paths.get(directory), library);
+                    }
                 }
                 Map<String, Object> merged = exportMerged(cloud);
+                if (!current()) return;
                 try {
                     result = api.putPreferences(cloud.revision(), merged);
                 } catch (CloudApi.Failure failure) {
@@ -313,13 +344,17 @@ public final class CloudSync {
                     continue;
                 }
                 // 合并结果里可能有云端独有的键，应用回本机；与本机相同的部分 client-core 不会重写。
-                apply(result);
+                synchronized (SyncSwitch.bindingLock()) {
+                    if (!current()) return;
+                    apply(result);
+                }
                 break;
             }
-            SyncSwitch.setCursor(context, SyncSwitch.SETTINGS, Long.toString(result.revision()));
-            SyncSwitch.setCursor(context, SyncSwitch.SKINS, Long.toString(result.revision()));
-            SyncSwitch.clearDirtyIf(context, SyncSwitch.SETTINGS, settingsGeneration);
-            SyncSwitch.clearDirtyIf(context, SyncSwitch.SKINS, skinsGeneration);
+            if (!current()) return;
+            SyncSwitch.setCursorIfCurrent(context, SyncSwitch.SETTINGS, Long.toString(result.revision()), bindingGeneration);
+            SyncSwitch.setCursorIfCurrent(context, SyncSwitch.SKINS, Long.toString(result.revision()), bindingGeneration);
+            SyncSwitch.clearDirtyIfCurrent(context, SyncSwitch.SETTINGS, settingsGeneration, bindingGeneration);
+            SyncSwitch.clearDirtyIfCurrent(context, SyncSwitch.SKINS, skinsGeneration, bindingGeneration);
         }
 
         /** 本机设置叠加到云端文档上的整份结果；皮肤库按剩下的字节预算从最近的设计装起。 */
@@ -359,6 +394,7 @@ public final class CloudSync {
         // ---- 常用语 ----
 
         private void phrases() throws CloudApi.Failure {
+            if (!current()) return;
             long generation = SyncSwitch.generation(context, SyncSwitch.PHRASES);
             Map<String, String> local = ownPhrases();
             SyncApi.Phrases cloud = phrases;
@@ -378,6 +414,7 @@ public final class CloudSync {
                     : SyncMergePolicy.uploadPhrases(asPhrases(local, cloud.phrases()), cloud.phrases(),
                         SyncSwitch.unheldPhrases(context));
                 try {
+                    if (!current()) return;
                     SyncApi.Phrases saved = api.putPhrases(cloud.revision(), upload);
                     revision = saved.revision();
                     target = saved.phrases();
@@ -391,14 +428,18 @@ public final class CloudSync {
             }
             int ownWrites = 0;
             if (target != null) {
-                adoptStarters(target);
-                PhraseApply applied = applyPhrases(local, target);
-                ownWrites = applied.writes();
-                SyncSwitch.setUnheldPhrases(context, applied.unheld());
+                synchronized (SyncSwitch.bindingLock()) {
+                    if (!current()) return;
+                    adoptStarters(target);
+                    PhraseApply applied = applyPhrases(local, target);
+                    ownWrites = applied.writes();
+                    SyncSwitch.setUnheldPhrasesIfCurrent(context, applied.unheld(), bindingGeneration);
+                }
             }
-            SyncSwitch.setCursor(context, SyncSwitch.PHRASES, Long.toString(revision));
+            if (!current()) return;
+            SyncSwitch.setCursorIfCurrent(context, SyncSwitch.PHRASES, Long.toString(revision), bindingGeneration);
             // 本机写入也会经 CommonPhrasesStore 把代数加一，每次成功写入一次；只在代数恰好是「读快照前 + 自己的写入」时清标记，期间用户的改动留到下一轮上传。
-            SyncSwitch.clearDirtyIf(context, SyncSwitch.PHRASES, generation + ownWrites);
+            SyncSwitch.clearDirtyIfCurrent(context, SyncSwitch.PHRASES, generation + ownWrites, bindingGeneration);
         }
 
         /**
@@ -476,6 +517,7 @@ public final class CloudSync {
         // ---- 个人词库 ----
 
         private void dictionary() throws CloudApi.Failure, IOException, JSONException, DictionarySnapshotQueue.Failure {
+            if (!current()) return;
             boolean firstRun = first(SyncSwitch.DICTIONARY);
             boolean dirty = SyncSwitch.dirty(context, SyncSwitch.DICTIONARY);
             SyncMergePolicy.Mode mode;
@@ -497,10 +539,11 @@ public final class CloudSync {
                 try {
                     exportSnapshot(file);
                     try {
+                        if (!current()) return;
                         long revision = api.uploadSnapshot(file, dictionary.revision());
-                        SyncSwitch.setCursor(context, SyncSwitch.DICTIONARY, Long.toString(revision));
+                        SyncSwitch.setCursorIfCurrent(context, SyncSwitch.DICTIONARY, Long.toString(revision), bindingGeneration);
                         // 导出之后又有词库改动时代数已经变大，标记留着，下一轮再整份上传。
-                        SyncSwitch.clearDirtyIf(context, SyncSwitch.DICTIONARY, generation);
+                        SyncSwitch.clearDirtyIfCurrent(context, SyncSwitch.DICTIONARY, generation, bindingGeneration);
                         return;
                     } catch (CloudApi.Failure failure) {
                         if (!SyncApi.conflict(failure)) throw failure;
@@ -512,24 +555,33 @@ public final class CloudSync {
                 }
             }
             if (mode == SyncMergePolicy.Mode.NONE) {
-                if (firstRun) SyncSwitch.setCursor(context, SyncSwitch.DICTIONARY, Long.toString(dictionary.revision()));
+                if (firstRun) SyncSwitch.setCursorIfCurrent(context, SyncSwitch.DICTIONARY,
+                    Long.toString(dictionary.revision()), bindingGeneration);
                 return;
             }
             Path file = work.resolve("download.ndjson");
             try {
                 long revision = api.downloadSnapshot(file);
                 if (mode == SyncMergePolicy.Mode.DOWNLOAD) {
-                    enqueueSnapshot(file, revision);
+                    synchronized (SyncSwitch.bindingLock()) {
+                        if (!current()) return;
+                        enqueueSnapshot(file, revision, accountId);
+                    }
                     // The queue checks expectedLocalVersion again when it activates. A
                     // dictionary edit can therefore happen after this download and make the
                     // request conflict instead of overwriting that edit. Keep the dirty mark so
                     // the next round uploads the local version after that conflict; clearing it
                     // here would lose the only signal that the local edit needs syncing.
                 } else {
-                    importWords(SyncApi.snapshotWords(file));
-                    SyncSwitch.markDirty(context, SyncSwitch.DICTIONARY);
+                    List<SyncMergePolicy.Word> words = SyncApi.snapshotWords(file);
+                    synchronized (SyncSwitch.bindingLock()) {
+                        if (!current()) return;
+                        importWords(words);
+                        SyncSwitch.markDirtyIfCurrent(context, SyncSwitch.DICTIONARY, bindingGeneration);
+                    }
                 }
-                SyncSwitch.setCursor(context, SyncSwitch.DICTIONARY, Long.toString(revision));
+                if (!current()) return;
+                SyncSwitch.setCursorIfCurrent(context, SyncSwitch.DICTIONARY, Long.toString(revision), bindingGeneration);
             } finally {
                 Files.deleteIfExists(file);
             }
@@ -565,12 +617,14 @@ public final class CloudSync {
         }
 
         /** 下载的快照交给现有的激活队列，键盘下次没有会话时整份激活。 */
-        private void enqueueSnapshot(Path file, long revision) throws IOException, DictionarySnapshotQueue.Failure {
-            enqueueDictionarySnapshot(context, file, SyncSwitch.accountId(context), revision);
+        private void enqueueSnapshot(Path file, long revision, String accountId)
+                throws IOException, DictionarySnapshotQueue.Failure {
+            enqueueDictionarySnapshot(context, file, accountId, revision);
         }
 
         /** 「合并」：把云端的词经个人词库队列导入本机，键盘下次开会话时应用。 */
         private void importWords(List<SyncMergePolicy.Word> words) throws IOException, JSONException {
+            if (!current()) return;
             int skipped = queueWords(context, words, "cloud-merge-");
             if (skipped > 0) Log.w(TAG, skipped + " cloud words skipped during merge");
         }

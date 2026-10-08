@@ -58,20 +58,44 @@ pub fn gloss(syllable: &str, hanja: &str) -> &'static str {
 
 /// The candidate rows of an open Hanja list: the composing syllable's Hanja in table order. Each row carries the key letters as its code, as Japanese rows carry their romaji, so choosing one completes the composition; it is a `Database` row rather than `Generated`, which the runtime reads as a whole-sentence reading, and it is never learned (the session commits Korean rows without learning).
 pub fn candidates(request: &QueryRequest) -> Vec<WordItem> {
-    let readings = readings(&request.normalized_segmentation);
     let mut candidates = Vec::with_capacity(reading_count(&request.normalized_segmentation));
-    for (hanja, _) in readings {
-        let mut item = WordItem::new(
-            request.raw_input_with_cases.clone(),
-            hanja,
-            0,
-            CandidateSource::Database,
-            "",
-        );
-        item.scheme = SchemeType::Korean;
-        candidates.push(item);
-    }
+    query_into(request, &mut candidates);
     candidates
+}
+
+/// 将 Hanja 候选写入已有行缓冲，避免韩文列表每次刷新都重新分配候选字符串。
+pub fn query_into(request: &QueryRequest, destination: &mut Vec<WordItem>) {
+    let readings = readings(&request.normalized_segmentation);
+    let mut used = 0;
+    for (hanja, _) in readings {
+        if let Some(item) = destination.get_mut(used) {
+            item.pinyin.clear();
+            item.pinyin.push_str(&request.raw_input_with_cases);
+            item.canonical_pinyin.clear();
+            item.word.clear();
+            item.word.push_str(hanja);
+            item.weight = 0;
+            item.source = CandidateSource::Database;
+            item.scheme = SchemeType::Korean;
+            item.fixed_position = 0;
+            item.fuzzy = false;
+            item.corrected_from.clear();
+            item.sentence_association = false;
+            item.sentence_words.clear();
+        } else {
+            let mut item = WordItem::new(
+                &request.raw_input_with_cases,
+                hanja,
+                0,
+                CandidateSource::Database,
+                "",
+            );
+            item.scheme = SchemeType::Korean;
+            destination.push(item);
+        }
+        used += 1;
+    }
+    destination.truncate(used);
 }
 
 #[cfg(test)]
@@ -166,5 +190,23 @@ mod tests {
             assert_eq!(row.source, CandidateSource::Database);
             assert_eq!(row.scheme, SchemeType::Korean);
         }
+    }
+
+    #[test]
+    fn query_into_reuses_existing_candidate_rows() {
+        let request = QueryRequest {
+            scheme: SchemeType::Korean,
+            raw_input: "gks".into(),
+            raw_input_with_cases: "gks".into(),
+            normalized_segmentation: "한".into(),
+            valid: true,
+            korean_hanja: true,
+            ..QueryRequest::default()
+        };
+        let mut destination = candidates(&request);
+        let word_pointer = destination[0].word.as_ptr();
+        query_into(&request, &mut destination);
+        assert_eq!(destination, candidates(&request));
+        assert_eq!(destination[0].word.as_ptr(), word_pointer);
     }
 }

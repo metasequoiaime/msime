@@ -41,7 +41,7 @@ impl Session {
     pub fn new(options: SessionOptions) -> Result<Session> {
         options.paths.validate()?;
         let input = InputSession::new(&options)?;
-        let nine_key = NineKeySession::new(
+        let mut nine_key = NineKeySession::new(
             &options.paths,
             options.learning,
             options.frequency,
@@ -49,6 +49,7 @@ impl Session {
             options.english,
             options.enabled_schemes.contains(SchemeType::Quanpin),
         );
+        nine_key.set_stroke_dictionary(options.stroke_dictionary.clone());
         Ok(Session {
             input,
             nine_key,
@@ -109,6 +110,14 @@ impl Session {
         }
         let result = self.nine_key.choose_spelling(index);
         self.after_nine_key(result)
+    }
+
+    /// 九宫格组字时按单字、按笔画筛选候选（`NineKeySession::set_filter`）；没有九宫格组字时不处理。
+    pub fn set_nine_key_filter(&mut self, single_character: bool, strokes: &str) -> KeyResult {
+        if !self.nine_key.active() {
+            return KeyResult::unhandled();
+        }
+        self.nine_key.set_filter(single_character, strokes)
     }
 
     pub fn command(&mut self, command: Command) -> KeyResult {
@@ -370,6 +379,8 @@ impl Session {
             caret_position: input.caret_position(),
             nine_key_spellings: input.zhuyin_spellings(),
             nine_key_reading: String::new(),
+            nine_key_single_character: false,
+            nine_key_strokes: String::new(),
             answered_by_pinyin_fallback: input.answered_by_pinyin_fallback(),
             wubi_unique_four_code: input.wubi_unique_four_code(),
             shuangpin_profile: input.profile.name().to_owned(),
