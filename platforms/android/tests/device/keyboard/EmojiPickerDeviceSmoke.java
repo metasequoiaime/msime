@@ -34,8 +34,16 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         tap(description("表情分类 笑脸"));
         await(description("表情分类 笑脸").and(AccessibilityNodeInfo::isSelected));
         stage = "bounded first emoji page";
-        await(emojiCountAtLeast(64));
         AccessibilityNodeInfo grid = await(description("表情网格；每行八个"));
+        // 首页按 PAGE_SIZE（64）向目录要一批，再去掉这台设备字体画不出来的（`hasGlyph`），所以只能断言它是一批、不是整个分类：模拟器的字体缺几个新表情，笑脸首页是 55 个。
+        try {
+            await(emojiCount(value -> value > 0 && value <= 64));
+        } catch (AssertionError error) {
+            grid.refresh();
+            throw new AssertionError("Emoji grid state was " + grid.getStateDescription());
+        }
+        grid.refresh();
+        int firstPage = emojiCountOf(grid);
         if (!grid.isScrollable()) throw new AssertionError("Emoji grid was not scrollable");
 
         stage = "emoji page advance";
@@ -44,7 +52,7 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
             grid.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
             SystemClock.sleep(150);
         }
-        await(emojiCountAbove(64));
+        await(emojiCountAbove(firstPage));
 
         stage = "emoji insertion";
         tap(description("按键 表情 😀"));
@@ -101,9 +109,9 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
     }
 
     private void rebindInputMethod() throws Exception {
-        shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
-        shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
-        shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
+        shell("ime disable app.msime.android/.MSIMEInputService");
+        shell("ime enable app.msime.android/.MSIMEInputService");
+        shell("ime set app.msime.android/.MSIMEInputService");
         SystemClock.sleep(1000);
     }
 
@@ -112,27 +120,25 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
             && equalsText(value, node.getContentDescription());
     }
 
-    private Predicate<AccessibilityNodeInfo> emojiCountAtLeast(int minimum) {
-        return emojiCount(value -> value >= minimum);
-    }
-
     private Predicate<AccessibilityNodeInfo> emojiCountAbove(int minimum) {
         return emojiCount(value -> value > minimum);
     }
 
     private Predicate<AccessibilityNodeInfo> emojiCount(
             java.util.function.IntPredicate accepted) {
-        return node -> {
-            if (!equalsText("app.msime.android", node.getPackageName())
-                    || node.getStateDescription() == null) return false;
-            String text = node.getStateDescription().toString();
-            // 网格的状态描述形如「笑脸 · 116 个表情」，数量是「 个表情」前的最后一个词。
-            int separator = text.indexOf(" 个表情");
-            if (separator <= 0) return false;
-            String count = text.substring(text.lastIndexOf(' ', separator - 1) + 1, separator);
-            try { return accepted.test(Integer.parseInt(count)); }
-            catch (NumberFormatException ignored) { return false; }
-        };
+        return node -> equalsText("app.msime.android", node.getPackageName())
+            && emojiCountOf(node) >= 0 && accepted.test(emojiCountOf(node));
+    }
+
+    /** 网格的状态描述形如「笑脸 · 116 个表情」，数量是「 个表情」前的最后一个词；读不出来时是 -1。 */
+    private static int emojiCountOf(AccessibilityNodeInfo node) {
+        if (node.getStateDescription() == null) return -1;
+        String text = node.getStateDescription().toString();
+        int separator = text.indexOf(" 个表情");
+        if (separator <= 0) return -1;
+        String count = text.substring(text.lastIndexOf(' ', separator - 1) + 1, separator);
+        try { return Integer.parseInt(count); }
+        catch (NumberFormatException ignored) { return -1; }
     }
 
     private void shell(String command) throws Exception {

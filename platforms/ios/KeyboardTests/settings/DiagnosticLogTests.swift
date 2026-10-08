@@ -125,7 +125,7 @@ final class DiagnosticLogTests: XCTestCase {
   func testWriteRejectsLeafHardLink() throws {
     let outside = state.appendingPathComponent("outside-hardlink.log")
     try Data("outside\n".utf8).write(to: outside)
-    try FileManager.default.createHardLink(atPath: file.path, toFileAtPath: outside.path)
+    try FileManager.default.linkItem(atPath: outside.path, toPath: file.path)
 
     log.configure(directory: state.path, enabled: true)
     log.write("must_not_modify_hardlink")

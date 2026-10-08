@@ -111,6 +111,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeLetterRows imeLetterRows;
     ImeGlideTyping imeGlideTyping;
     ImeBottomRow imeBottomRow;
+    ImeBottomBar imeBottomBar;
     ImeLayoutRows imeLayoutRows;
     ImeStyler imeStyler;
     ImeFrame imeFrame;
@@ -1237,6 +1238,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeLetterRows = new ImeLetterRows(this);
         imeGlideTyping = new ImeGlideTyping(this);
         imeBottomRow = new ImeBottomRow(this);
+        imeBottomBar = new ImeBottomBar(this);
         imeLayoutRows = new ImeLayoutRows(this);
         imeStyler = new ImeStyler(this);
         imeFrame = new ImeFrame(this);
@@ -6505,19 +6507,16 @@ public final class MSIMEInputService extends InputMethodService {
         });
         imeStyler.applyKeyboardSurfaceGeometry();
         LinearLayout keyboard = KeyboardGeometry.column(this);
-        // 停靠时键盘列按系统栏留出内边距（导航栏那一截画键盘底色）；浮动时面板悬在应用上面，不留，系统栏的四边只用来限制面板能拖到哪里。
+        // 停靠时键盘列按系统栏留出内边距（导航栏那一截画键盘底色），手势导航下再垫一条底栏（ImeBottomBar）；浮动时面板悬在应用上面，不留，系统栏的四边只用来限制面板能拖到哪里。
         keyboard.setOnApplyWindowInsetsListener((target, insets) -> {
-            systemBarInsets.set(WindowLayout.systemBars(insets));
-            if (floatingDrawn()) {
-                ViewPolicy.setPadding(target, 0, 0, 0, 0);
-                positionFloatingKeyboard();
-            } else {
-                ViewPolicy.setPadding(target, systemBarInsets.left, systemBarInsets.top,
-                    systemBarInsets.right, systemBarInsets.bottom);
-            }
+            imeBottomBar.readInsets(insets);
+            systemBarInsets.set(imeBottomBar.insets());
+            imeBottomBar.apply((LinearLayout) target);
+            if (floatingDrawn()) positionFloatingKeyboard();
             return insets;
         });
         keyboardSurface.addView(keyboard, KeyboardGeometry.frameMatchParentParams());
+        imeBottomBar.build(surface);
         japaneseFlickPreview = new JapaneseFlickPreview(this);
         keyboardSurface.addView(japaneseFlickPreview, KeyboardGeometry.frameMatchParentParams());
         quickDeleteOverlay = new QuickDeleteOverlay(this);
@@ -7336,9 +7335,13 @@ public final class MSIMEInputService extends InputMethodService {
     void render() {
         // 浮动开关或外接键盘的候选条模式变了：先把窗口换成对应的布局，下面判断分离式键盘、单手模式时用的是新状态。
         applyFloatingLayout(false);
+        // 底栏随本地设置、浮动、外接键盘的候选条模式和旋转出现或消失。
+        imeBottomBar.apply(imeFrame.keyboard);
         // 旋转、设置变化或布局切换让分离式键盘该画与否变了，而键行还是按旧状态建的：先按新状态重建，下面的底行排布也会跟着换。
         // 设置页改了九键左侧符号栏的符号：同样按新的符号表重建。
-        if (imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()) imeLetterRows.rebuildKeyRows();
+        // 中文标点开关在 123 / #+= 层上切换了（工具面板、设置页、Ctrl + .）：这一层的标点按新状态重画。
+        if (imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()
+                || imeLetterRows.layerPunctuationStale()) imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();
         updateShuangpinKeyHints();
         updateQuickPunctuation();
