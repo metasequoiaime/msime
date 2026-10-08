@@ -280,14 +280,20 @@ impl WordbookLibrary {
         // The index first this time, so a crash between the two leaves an orphan file rather than
         // a row pointing at a deleted book.
         self.write_atomically(&self.index_path(), &serde_json::to_vec(&index)?)?;
-        match rustix::fs::unlinkat(
+        // Unix 经目录句柄删除；其他平台没有 unlinkat，按路径删除。
+        #[cfg(unix)]
+        let removed = rustix::fs::unlinkat(
             &directory,
             std::ffi::OsStr::new(&format!("{id}.json")),
             rustix::fs::AtFlags::empty(),
-        ) {
+        )
+        .map_err(std::io::Error::from);
+        #[cfg(not(unix))]
+        let removed = std::fs::remove_file(self.book_path(id));
+        match removed {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(std::io::Error::from(error).into()),
+            Err(error) => Err(error.into()),
         }
     }
 }
