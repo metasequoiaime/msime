@@ -73,9 +73,9 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
             publish(preferences, preferenceSnapshot.toString().getBytes(StandardCharsets.UTF_8));
             Files.deleteIfExists(statistics.toPath());
             shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
-            shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
-            shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
-            shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
+            shell("ime disable app.msime.android/.MSIMEInputService");
+            shell("ime enable app.msime.android/.MSIMEInputService");
+            shell("ime set app.msime.android/.MSIMEInputService");
             SystemClock.sleep(1000);
 
             stage = "IME aggregate write";

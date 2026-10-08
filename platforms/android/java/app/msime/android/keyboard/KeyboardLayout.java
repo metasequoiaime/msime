@@ -139,19 +139,31 @@ public final class KeyboardLayout {
      * @param chinese 中文模式用全角符号与中文标点，英文模式用 ASCII 版，底行返回键为「ABC」
      */
     public static List<List<LayerKey>> numberLayer(boolean chinese) {
-        return layer(NUMBER_DIGITS, chinese ? CHINESE_NUMBER_SYMBOLS : ENGLISH_NUMBER_SYMBOLS,
+        return numberLayer(chinese, chinese);
+    }
+
+    /** `chinese` 决定左下返回键是「拼音」还是「ABC」；`chinesePunctuation` 决定标点和符号用全角中文还是半角英文，跟「中文标点」开关走。两者分开：中文模式下关掉中文标点时，这一层要上屏半角标点。 */
+    public static List<List<LayerKey>> numberLayer(boolean chinese, boolean chinesePunctuation) {
+        return layer(NUMBER_DIGITS,
+            chinesePunctuation ? CHINESE_NUMBER_SYMBOLS : ENGLISH_NUMBER_SYMBOLS,
             new LayerKey("#+=", "更多符号", LayerKeyKind.LAYER_TOGGLE, LAYER_EDGE_WEIGHT),
-            chinese, new LayerKey("😀", "表情", LayerKeyKind.EMOJI, LAYER_EMOJI_WEIGHT));
+            chinese, chinesePunctuation,
+            new LayerKey("😀", "表情", LayerKeyKind.EMOJI, LAYER_EMOJI_WEIGHT));
     }
 
     /**
      * 新设计的 #+= 层：[ ] { } # % ^ * + = / _ \ | ~ 《 》 € & · … / `123` + 五个标点 + ⌫ / 拼音（或 ABC）| 符号 | 空格 | ↵。左下原表情位是打开符号面板的「符号」键。
      */
     public static List<List<LayerKey>> moreSymbolLayer(boolean chinese) {
+        return moreSymbolLayer(chinese, chinese);
+    }
+
+    /** 参数的含义同 {@link #numberLayer(boolean, boolean)}。 */
+    public static List<List<LayerKey>> moreSymbolLayer(boolean chinese, boolean chinesePunctuation) {
         return layer(MORE_SYMBOLS_FIRST,
-            chinese ? CHINESE_MORE_SYMBOLS_SECOND : ENGLISH_MORE_SYMBOLS_SECOND,
+            chinesePunctuation ? CHINESE_MORE_SYMBOLS_SECOND : ENGLISH_MORE_SYMBOLS_SECOND,
             new LayerKey("123", "切换到数字和符号", LayerKeyKind.LAYER_TOGGLE, LAYER_EDGE_WEIGHT),
-            chinese, new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL,
+            chinese, chinesePunctuation, new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL,
                 LAYER_EMOJI_WEIGHT));
     }
 
@@ -161,8 +173,8 @@ public final class KeyboardLayout {
     }
 
     private static List<List<LayerKey>> layer(List<String> first, List<String> second,
-            LayerKey toggle, boolean chinese, LayerKey panelKey) {
-        List<String> punctuation = chinese ? CHINESE_PUNCTUATION : ENGLISH_PUNCTUATION;
+            LayerKey toggle, boolean chinese, boolean chinesePunctuation, LayerKey panelKey) {
+        List<String> punctuation = chinesePunctuation ? CHINESE_PUNCTUATION : ENGLISH_PUNCTUATION;
         List<LayerKey> third = new java.util.ArrayList<>(punctuation.size() + 2);
         third.add(toggle);
         for (String key : punctuation)

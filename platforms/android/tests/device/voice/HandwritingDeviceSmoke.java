@@ -30,9 +30,9 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
         stage = "handwriting preview wake";
         shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
         stage = "handwriting IME rebind";
-        shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
-        shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
-        shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
+        shell("ime disable app.msime.android/.MSIMEInputService");
+        shell("ime enable app.msime.android/.MSIMEInputService");
+        shell("ime set app.msime.android/.MSIMEInputService");
         SystemClock.sleep(1000);
         stage = "handwriting editor launch";
         Intent intent = new Intent(getTargetContext(), EditorActivity.class);
