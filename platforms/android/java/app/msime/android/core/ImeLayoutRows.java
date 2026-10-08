@@ -116,6 +116,8 @@ final class ImeLayoutRows {
 
         LinearLayout tools = KeyboardGeometry.column(s);
         Button delete = s.keyId(s.backspaceKey(s::deleteFromHandwriting), "Backspace");
+        // 和其他布局的删除键一样按住加速连删、上滑快速删除（#5585）；有墨迹时每次删一笔。
+        s.imeLetterRows.bindBackspaceRepeat(delete, s::deleteFromHandwriting);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(tools, delete);
         Button rewrite = s.keyboardKey("重写", "清空手写", () -> {
