@@ -570,6 +570,13 @@ if rg -q 'void manageClipboardItem|new PopupMenu\(this, anchor\)' \
   echo "Android clipboard entries must not be managed through a PopupMenu (#5653)" >&2
   exit 1
 fi
+# 分词界面的词片要放在它自己的滚动区里，「取消」「插入」那一行留在滚动区外、贴着面板底边；操作行跟着词片一起滚时，长文字滚到末尾它就不见了（#5645）。
+if ! rg -A 30 'void renderClipboardSegmentation\(\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg -q 'new ScrollView\('; then
+  echo "Android clipboard segmentation must scroll its word pieces separately from the pinned action bar (#5645)" >&2
+  exit 1
+fi
 if ! rg -q 'ClipboardCapturePolicy\.captures' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android clipboard capture must skip a clip it already handled (ClipboardCapturePolicy)" >&2

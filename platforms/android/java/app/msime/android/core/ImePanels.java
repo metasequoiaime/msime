@@ -1394,36 +1394,18 @@ final class ImePanels {
     }
 
     /**
-     * 分词界面：顶行是「取消 · 已选几个 · 全选 · 插入」，下面是按行折排的词片，点一下选中、再点取消。插入时按原文顺序拼接选中的词片（{@link ClipboardSegmentation#join}），上屏并关闭面板；原来那条历史不变。
+     * 分词界面：上面是按行折排的词片，点一下选中、再点取消；底部固定一行「取消 · 已选几个 · 全选 · 插入」。插入时按原文顺序拼接选中的词片（{@link ClipboardSegmentation#join}），上屏并关闭面板；原来那条历史不变。
+     *
+     * <p>词片放在面板里自己的滚动区，操作行在滚动区外、贴着面板底边：原先操作行是面板的第一行，跟着词片一起滚，长文字滚到末尾去「去尾」时「插入」「取消」已经滚出屏幕（#5645）。外层的剪贴板滚动视图开着 fillViewport，会把面板撑到正好一屏高；滚动区的高度基数给 1 px 而不是 0：外层第一次按不限高度测量时，高度为 0 的加权子视图会按全部词片的高度报上去，面板就比一屏高，操作行又被推到屏幕外。给了固定基数，面板先报一个很小的高度，外层再按一屏高精确测量，剩下的高度全部分给滚动区。面板于是不比一屏高，外层滚不动、也不拦截触摸，滑动交给词片的滚动区。
      */
     private void renderClipboardSegmentation() {
-        LinearLayout header = KeyboardGeometry.row(s);
-        ViewPolicy.setCenteredVertically(header);
-        clipboardAction(header, "取消", () -> {
-            endClipboardSegmentation();
-            renderClipboardHistory();
-        }).setContentDescription("取消分词，回到剪贴板历史");
-        clipboardSegmentStatus = ViewPolicy.textLabel(s, "", 13);
-        KeyboardGeometry.setKeyTextSize(clipboardSegmentStatus, 13);
-        ViewPolicy.setMaxLinesEllipsized(clipboardSegmentStatus, 1);
-        KeyboardGeometry.setHorizontalPaddingDp(clipboardSegmentStatus, s, 6);
-        header.addView(clipboardSegmentStatus, KeyboardGeometry.weightedZeroParams(1));
-        clipboardSegmentSelectAll = clipboardAction(header, "全选", () -> {
-            boolean select = !allSegmentsSelected();
-            for (int index = 0; index < clipboardSegmentSelected.length; index++)
-                clipboardSegmentSelected[index] = select;
-            renderClipboardHistory();
-        });
-        clipboardSegmentConfirm = clipboardAction(header, "插入", () -> {
-            String text = ClipboardSegmentation.join(clipboardSegments, clipboardSegmentSelected);
-            endClipboardSegmentation();
-            s.insertClipboardText(text);
-        });
-        clipboardSegmentConfirm.setContentDescription("插入选中的词");
-        s.clipboardPanel.addView(header, KeyboardGeometry.matchWidthHeightPx(s.pixels(32)));
         java.util.List<TextView> notes = new java.util.ArrayList<>(1);
+        LinearLayout content = KeyboardGeometry.column(s);
         if (clipboardSegmentsTruncated) {
-            notes.add(clipboardNote("这条记录很长，只对开头 " + ClipboardSegmentation.MAX_CHARS + " 个字分词"));
+            TextView note = centeredNote("这条记录很长，只对开头 " + ClipboardSegmentation.MAX_CHARS + " 个字分词", 13);
+            KeyboardGeometry.setSymmetricPaddingDp(note, s, 12, 20);
+            content.addView(note, KeyboardGeometry.matchWidthWrapParams());
+            notes.add(note);
         }
         WrapRowLayout words = new WrapRowLayout(s, s.pixels(6), s.pixels(6));
         words.setContentDescription("分词结果，点按选择要插入的词");
@@ -1432,9 +1414,39 @@ final class ImePanels {
             if (segment.separator()) continue;
             words.addView(clipboardSegmentButton(segment.text(), index));
         }
-        LinearLayout.LayoutParams params = KeyboardGeometry.matchWidthWrapParams();
-        params.topMargin = s.pixels(6);
-        s.clipboardPanel.addView(words, params);
+        content.addView(words, KeyboardGeometry.matchWidthWrapParams());
+        ScrollView wordScroll = new ScrollView(s);
+        wordScroll.addView(content, KeyboardGeometry.scrollMatchWidthWrapParams());
+        LinearLayout.LayoutParams scrollParams = KeyboardGeometry.linearParamsPx(
+            LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        scrollParams.weight = 1;
+        s.clipboardPanel.addView(wordScroll, scrollParams);
+        LinearLayout bar = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(bar);
+        clipboardAction(bar, "取消", () -> {
+            endClipboardSegmentation();
+            renderClipboardHistory();
+        }).setContentDescription("取消分词，回到剪贴板历史");
+        clipboardSegmentStatus = ViewPolicy.textLabel(s, "", 13);
+        KeyboardGeometry.setKeyTextSize(clipboardSegmentStatus, 13);
+        ViewPolicy.setMaxLinesEllipsized(clipboardSegmentStatus, 1);
+        KeyboardGeometry.setHorizontalPaddingDp(clipboardSegmentStatus, s, 6);
+        bar.addView(clipboardSegmentStatus, KeyboardGeometry.weightedZeroParams(1));
+        clipboardSegmentSelectAll = clipboardAction(bar, "全选", () -> {
+            boolean select = !allSegmentsSelected();
+            for (int index = 0; index < clipboardSegmentSelected.length; index++)
+                clipboardSegmentSelected[index] = select;
+            renderClipboardHistory();
+        });
+        clipboardSegmentConfirm = clipboardAction(bar, "插入", () -> {
+            String text = ClipboardSegmentation.join(clipboardSegments, clipboardSegmentSelected);
+            endClipboardSegmentation();
+            s.insertClipboardText(text);
+        });
+        clipboardSegmentConfirm.setContentDescription("插入选中的词");
+        LinearLayout.LayoutParams barParams = KeyboardGeometry.matchWidthHeightPx(s.pixels(32));
+        barParams.topMargin = s.pixels(6);
+        s.clipboardPanel.addView(bar, barParams);
         s.imeStyler.applySkin();
         for (TextView note : notes) ViewPolicy.setTextColor(note, ImeStyler.fade(s.skin.keyForeground(), .6));
         refreshClipboardSegmentControls();
@@ -1456,7 +1468,7 @@ final class ImePanels {
             if (clipboardSegmentSelected == null) return;
             clipboardSegmentSelected[index] = !clipboardSegmentSelected[index];
             setSegmentSelected(button, clipboardSegmentSelected[index]);
-            // 只重画这一片和顶行，不重排整个面板，长文字滚到中间时位置不跳。
+            // 只重画这一片和底部的操作行，不重排整个面板，长文字滚到中间时位置不跳。
             s.imeStyler.styleButton(button, KeyboardKeyRole.KEY, s.skin);
             refreshClipboardSegmentControls();
         });
