@@ -227,7 +227,8 @@ final class ImeKeyFeedback {
                     JSONObject value = JsonPolicy.strictTrue(root.opt("ok"))
                         ? root.optJSONObject("value") : null;
                     JSONObject files = value == null ? null : value.optJSONObject("sounds");
-                    if (value != null && "keys".equals(value.optString("mode")) && files != null) {
+                    if (value != null && "keys".equals(JsonPolicy.strictString(value.opt("mode")))
+                            && files != null) {
                         SoundPool pool = new SoundPool.Builder().setMaxStreams(4)
                             .setAudioAttributes(new AudioAttributes.Builder()
                                 .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
