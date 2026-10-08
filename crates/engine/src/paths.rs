@@ -103,10 +103,27 @@ pub(crate) fn open_file_no_follow(path: &Path) -> io::Result<File> {
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
     let file = options.open(path)?;
-    if !file.metadata()?.is_file() {
+    let metadata = file.metadata()?;
+    let single_link = {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            metadata.nlink() == 1
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            metadata.number_of_links() == 1
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            true
+        }
+    };
+    if !metadata.is_file() || !single_link {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "engine asset is not a regular file",
+            "engine asset is not a single-link regular file",
         ));
     }
     Ok(file)
@@ -198,6 +215,20 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
 
         assert!(open_file_no_follow(root.path()).is_err());
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn opening_an_asset_rejects_a_hard_link() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("asset.bin");
+        std::fs::write(&target, b"synthetic engine asset").unwrap();
+        let linked = root.path().join("asset.bin");
+        std::fs::hard_link(&target, &linked).unwrap();
+
+        assert!(open_file_no_follow(&linked).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"synthetic engine asset");
     }
 
     #[test]
