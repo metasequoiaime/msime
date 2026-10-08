@@ -55,22 +55,92 @@ pub fn import(source: &Path, root: &Path) -> Result<String, &'static str> {
     Ok(name)
 }
 
+#[allow(clippy::needless_return)]
 fn remove_leftover(path: &Path) -> Result<(), &'static str> {
-    let metadata = match std::fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(_) => return Err("storage"),
-    };
-    if metadata.is_dir() {
-        std::fs::remove_dir_all(path).map_err(|_| "storage")?;
-    } else {
-        std::fs::remove_file(path).map_err(|_| "storage")?;
+    #[cfg(unix)]
+    {
+        let parent = path.parent().ok_or("storage")?;
+        let name = path.file_name().ok_or("storage")?;
+        let directory = crate::storage::open_private_directory(parent).map_err(|_| "storage")?;
+        return match crate::storage::remove_private_tree_at(&directory, name) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err("storage"),
+        };
+    }
+    #[cfg(not(unix))]
+    {
+        let metadata = match std::fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(_) => return Err("storage"),
+        };
+        if metadata.is_dir() {
+            std::fs::remove_dir_all(path).map_err(|_| "storage")?;
+        } else {
+            std::fs::remove_file(path).map_err(|_| "storage")?;
+        }
+        Ok(())
+    }
+}
+
+/// Swap a fully written `staging` directory in as `target`, replacing any existing `target` whole. The previous directory is first moved aside to `backup` and restored if the swap fails, so a failure never leaves a half-replaced skin; `staging` is removed on failure and `backup` after success. Every error is `storage`.
+#[allow(clippy::needless_return)]
+pub(crate) fn replace_directory(
+    staging: &Path,
+    target: &Path,
+    backup: &Path,
+) -> Result<(), &'static str> {
+    #[cfg(unix)]
+    return replace_directory_unix(staging, target, backup);
+    #[cfg(not(unix))]
+    {
+        replace_directory_by_path(staging, target, backup)
+    }
+}
+
+#[cfg(unix)]
+fn replace_directory_unix(
+    staging: &Path,
+    target: &Path,
+    backup: &Path,
+) -> Result<(), &'static str> {
+    let parent = staging.parent().ok_or("storage")?;
+    if target.parent() != Some(parent) || backup.parent() != Some(parent) {
+        return Err("storage");
+    }
+    let directory = crate::storage::open_private_directory(parent).map_err(|_| "storage")?;
+    let staging_name = staging.file_name().ok_or("storage")?;
+    let target_name = target.file_name().ok_or("storage")?;
+    let backup_name = backup.file_name().ok_or("storage")?;
+    let had_previous = rustix::fs::statat(
+        &directory,
+        target_name,
+        rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
+    )
+    .is_ok();
+    if had_previous
+        && rustix::fs::renameat(&directory, target_name, &directory, backup_name).is_err()
+    {
+        let _ = crate::storage::remove_private_tree_at(&directory, staging_name);
+        return Err("storage");
+    }
+    if let Err(error) = rustix::fs::renameat(&directory, staging_name, &directory, target_name) {
+        if had_previous {
+            let _ = rustix::fs::renameat(&directory, backup_name, &directory, target_name);
+        }
+        let _ = crate::storage::remove_private_tree_at(&directory, staging_name);
+        let _ = error;
+        return Err("storage");
+    }
+    if had_previous {
+        let _ = crate::storage::remove_private_tree_at(&directory, backup_name);
     }
     Ok(())
 }
 
-/// Swap a fully written `staging` directory in as `target`, replacing any existing `target` whole. The previous directory is first moved aside to `backup` and restored if the swap fails, so a failure never leaves a half-replaced skin; `staging` is removed on failure and `backup` after success. Every error is `storage`.
-pub(crate) fn replace_directory(
+#[cfg(not(unix))]
+fn replace_directory_by_path(
     staging: &Path,
     target: &Path,
     backup: &Path,
@@ -362,5 +432,48 @@ mod tests {
         std::os::unix::fs::symlink("/etc", source.join("escape")).unwrap();
         import(&source, &root).unwrap();
         assert!(std::fs::symlink_metadata(root.join("sakura").join("escape")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacement_refuses_a_root_replaced_by_a_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let state = tempfile::tempdir().unwrap();
+        let root = state.path().join("skins");
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir(&root).unwrap();
+        let staging = root.join(".import-sakura");
+        let target = root.join("sakura");
+        let backup = root.join(".replaced-sakura");
+        std::fs::create_dir(&staging).unwrap();
+        std::fs::write(staging.join("skin.toml"), b"synthetic").unwrap();
+        let moved = state.path().join("skins-moved");
+        std::fs::rename(&root, &moved).unwrap();
+        symlink(outside.path(), &root).unwrap();
+
+        assert_eq!(
+            replace_directory(&staging, &target, &backup),
+            Err("storage")
+        );
+        assert!(moved.join(".import-sakura/skin.toml").exists());
+        assert!(!outside.path().join("sakura").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn leftover_cleanup_rejects_a_symlinked_parent() {
+        use std::os::unix::fs::symlink;
+
+        let state = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let linked = state.path().join("linked");
+        let victim = outside.path().join("staging");
+        std::fs::create_dir(&victim).unwrap();
+        std::fs::write(victim.join("keep.bin"), b"synthetic outside data").unwrap();
+        symlink(outside.path(), &linked).unwrap();
+
+        assert_eq!(remove_leftover(&linked.join("staging")), Err("storage"));
+        assert!(victim.join("keep.bin").exists());
     }
 }
