@@ -61,6 +61,16 @@ pub fn credential_origin(endpoint: &str) -> Option<String> {
     Some(format!("{}://{host}:{port}", url.scheme()))
 }
 
+/// 发往 AI 接口的 HTTP 客户端的公共设置，`url` 必须已经通过 [`validate`]。不跟随重定向，免得 Token 被转发到别的主机；https 地址只走 https；http 地址（只会是本机或局域网）直连、不经过系统或环境变量里配置的代理，否则代理会收到明文的 Token，而代理本身可能在公网上。
+pub fn blocking_client_builder(url: &Url) -> reqwest::blocking::ClientBuilder {
+    let builder = reqwest::blocking::Client::builder().redirect(reqwest::redirect::Policy::none());
+    if url.scheme() == "https" {
+        builder.https_only(true)
+    } else {
+        builder.no_proxy()
+    }
+}
+
 /// 主机是否属于本机或局域网，见模块说明。`host` 是 `Url::host_str` 的结果：IPv4 已规范成点分十进制，IPv6 带方括号。IP 字面量按地址段判断，域名只认 `localhost` 和 `.local`。
 pub fn is_local_network_host(host: &str) -> bool {
     if let Some(address) = host

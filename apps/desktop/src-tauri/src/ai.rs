@@ -65,10 +65,8 @@ pub(crate) fn ai_models_url(endpoint: &Url) -> Url {
 pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<String>, CommandError> {
     let endpoint = validate_ai_endpoint(endpoint)?;
     validate_ai_token(token)?;
-    let client = reqwest::blocking::Client::builder()
-        // The configured endpoint receives the user's bearer token. A redirect could replay it
-        // to a different origin, so this test request must stop at the first response.
-        .redirect(reqwest::redirect::Policy::none())
+    // 不跟随重定向（Token 不会被转发到别的主机）；局域网的 http 接口直连、不走代理。
+    let client = msime_client_core::ai::endpoint::blocking_client_builder(&endpoint)
         .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(15))
         .build()
@@ -148,10 +146,8 @@ pub(crate) fn ai_test_request(
             {"role": "user", "content": text}
         ]
     });
-    let client = reqwest::blocking::Client::builder()
-        // The configured endpoint receives the user's bearer token. A redirect could replay it
-        // to a different origin, so this test request must stop at the first response.
-        .redirect(reqwest::redirect::Policy::none())
+    // 不跟随重定向（Token 不会被转发到别的主机）；局域网的 http 接口直连、不走代理。
+    let client = msime_client_core::ai::endpoint::blocking_client_builder(&endpoint)
         .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(15))
         .build()

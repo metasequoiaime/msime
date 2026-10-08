@@ -117,10 +117,8 @@ pub fn fetch_models(endpoint: &str, token: &str) -> Result<Vec<String>, Error> {
     let anthropic = base_url
         .host_str()
         .is_some_and(|host| host.eq_ignore_ascii_case("api.anthropic.com"));
-    // 局域网的 http 接口已经由 `valid_endpoint` 放行；https 地址仍然只走 https。不跟随重定向，请求不会被转到别的主机。
-    let client = reqwest::blocking::Client::builder()
-        .https_only(base_url.scheme() == "https")
-        .redirect(reqwest::redirect::Policy::none())
+    // 不跟随重定向；https 地址只走 https，局域网的 http 接口直连、不走代理。
+    let client = msime_client_core::ai::endpoint::blocking_client_builder(&base_url)
         .connect_timeout(Duration::from_secs(30))
         .timeout(Duration::from_secs(30))
         .build()
@@ -239,9 +237,7 @@ pub fn polish(
         ],
         "stream": false
     });
-    let client = reqwest::blocking::Client::builder()
-        .https_only(endpoint.scheme() == "https")
-        .redirect(reqwest::redirect::Policy::none())
+    let client = msime_client_core::ai::endpoint::blocking_client_builder(&endpoint)
         .connect_timeout(Duration::from_secs(30))
         .timeout(Duration::from_secs(60))
         .build()
