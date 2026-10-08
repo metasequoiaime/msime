@@ -9,7 +9,8 @@
  * schema. An absent field is an older document rather than a choice, so it takes the default rather
  * than the safest-looking value.
  */
-import { VoiceInputConfiguration } from './VoiceInputConfiguration';
+import { HttpAsrConfigurationPolicy } from "./HttpAsrConfigurationPolicy";
+import { VoiceInputConfiguration } from "./VoiceInputConfiguration";
 
 export class VoiceRecordingBehaviourPolicy {
   static playsStartTone(voice: VoiceInputConfiguration): boolean {
@@ -29,6 +30,13 @@ export class VoiceRecordingBehaviourPolicy {
    */
   static showsInterimResults(voice: VoiceInputConfiguration): boolean {
     return voice.stream_inline_preedit === true;
+  }
+
+  /**
+   * 服务商是否在用户还在说话时就返回文字，正是这一点让停顿能自行结束录音。兼容 OpenAI 的上传式服务商只在录音停止后才应答，因此需要显式的停止控件；端侧模型、豆包流式和系统识别器都是流式的，与 Android 键盘内的 `LOCAL` 和 `STREAMING` 引擎一致。
+   */
+  static streamsPartialResults(voice: VoiceInputConfiguration): boolean {
+    return !HttpAsrConfigurationPolicy.supported(voice.asr_provider);
   }
 
   /** Off unless asked for: taking the audio session away from whatever is playing is intrusive. */

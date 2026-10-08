@@ -23,7 +23,23 @@ export type MobileKeyboardFeedback = {
   tabletSplitKeyboard?: boolean;
   /** 滑行输入：在 26 键字母上连续滑动输入全拼，默认关。只有键盘实现了它的宿主才给出这个字段；HarmonyOS 存在键盘自己的 `key-feedback.json`，属于设备而不进共享偏好。 */
   glideTyping?: boolean;
+  /** 仅鸿蒙，与 `glideTyping` 一样存放在键盘自己的 `key-feedback.json` 里：手写板在最后一笔后等待多久再识别，200–1500 ms，步长 100。宿主键盘没有此设置时缺省。 */
+  handwritingDelayMs?: number;
+  /** 仅鸿蒙：手写笔迹颜色，取皮肤的按键文字颜色或固定的黑、白、蓝。 */
+  handwritingStrokeColor?: HandwritingStrokeColor;
+  /** 仅鸿蒙：手写笔迹宽度，1–8。 */
+  handwritingStrokeWidth?: number;
+  /** 按键弹出预览：按下字母键时在其上方放大显示的字符，默认开启。只有键盘实现了它的宿主才发送此字段；鸿蒙存放在键盘自己的 `key-feedback.json` 里。 */
+  keyPopup?: boolean;
+  /** 滑动输入符号：在字母键上滑动输入其角落的符号，默认开启；长按则不论开关如何都输入该符号。与 `keyPopup` 同时存在。 */
+  swipeSymbols?: boolean;
+  /** 该滑动的方向，默认向下。 */
+  swipeSymbolsDirection?: SwipeSymbolsDirection;
 };
+
+export type SwipeSymbolsDirection = "down" | "up";
+
+export type HandwritingStrokeColor = "follow_skin" | "black" | "white" | "blue";
 
 export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
@@ -84,6 +100,15 @@ export function MobileKeyboardFeedbackSection({
             disabled={busy}
             checked={value.hapticsEnabled}
             onChange={(checked) => onChange({ ...value, hapticsEnabled: checked })}
+          />
+        )}
+        {value.keyPopup !== undefined && (
+          <SwitchRow
+            title="按键弹出预览"
+            description="按下时在键上方显示放大的字符"
+            disabled={busy}
+            checked={value.keyPopup}
+            onChange={(checked) => onChange({ ...value, keyPopup: checked })}
           />
         )}
         {value.hapticsAvailable !== false && value.hapticsEnabled && (

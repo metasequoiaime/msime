@@ -264,7 +264,7 @@ public final class TypingPage extends DetailPage {
             checked -> save(values -> values.put(translations.key(), checked)));
         InputFeatureToggle gloss = InputFeatureToggle.CANDIDATE_ENGLISH_GLOSS;
         boolean glossOn = preferences.optBoolean(gloss.key(), gloss.enabledByDefault());
-        String targetLanguage = preferences.optString("translation_target_language", "en");
+        String targetLanguage = InputViewValuePolicy.textOr(preferences, "translation_target_language", "en");
         translation.toggle("离线英文释义", "给候选词标注离线释义；英语释义随应用自带，其他目标语言要下载离线释义词典",
             glossOn, checked -> save(values -> values.put(gloss.key(), checked),
                 () -> { if (checked) ensureGlosses(targetLanguage, state); }));
@@ -345,10 +345,7 @@ public final class TypingPage extends DetailPage {
      */
     private static KeyboardScheme applied(JSONObject preferences, AppEdition edition, String dictionaries,
             Set<String> packs) {
-        KeyboardScheme fromScheme = KeyboardScheme.fromPreferences(
-            preferences.optString("scheme", edition.defaultScheme()),
-            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"),
-            InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
+        KeyboardScheme fromScheme = SchemePreferences.storedScheme(preferences, edition);
         JSONObject schemes = preferences.optJSONObject("touch_keyboard_schemes");
         String selected = schemes == null || schemes.isNull("selected") ? null : schemes.optString("selected", null);
         List<KeyboardScheme> visible = KeyboardScheme.installedOf(List.of(KeyboardScheme.values()), dictionaries, packs, edition);

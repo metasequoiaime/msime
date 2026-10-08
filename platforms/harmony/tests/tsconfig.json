@@ -8,5 +8,5 @@
     "rootDir": "..",
     "outDir": "../../../target/harmony-tests"
   },
-    "include": ["ohos.d.ts", "keyboard-logic.test.ts", "../entry/src/main/ets/keyboard/**/*.ts", "../entry/src/main/ets/account/**/*.ts", "../entry/src/main/ets/telemetry/**/*.ts", "../entry/src/main/ets/notices/**/*.ts"]
+    "include": ["ohos.d.ts", "*.test.ts", "../entry/src/main/ets/keyboard/**/*.ts", "../entry/src/main/ets/account/**/*.ts", "../entry/src/main/ets/telemetry/**/*.ts", "../entry/src/main/ets/notices/**/*.ts"]
 }

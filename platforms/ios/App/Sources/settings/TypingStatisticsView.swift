@@ -1,102 +1,45 @@
 import SwiftUI
 
-private typealias StatisticsSlice = StatisticsChart.Slice
-
-/// 每一类配一个图标。名字是查出来的意思,不是装饰:九键是九宫格,双拼是两个键,五笔是笔画,手写是笔,语音是波形。
-private enum StatisticsSymbol {
-  static func source(_ source: TypingSource) -> String {
-    switch source {
-    case .quanpin: return "keyboard"
-    case .nineKey: return "square.grid.3x3"
-    case .shuangpin, .ziranma, .microsoft, .shoudao: return "square.on.square"
-    case .wubi: return "scribble"
-    case .japanese: return "character.bubble"
-    case .korean: return "character.bubble.fill"
-    case .cantonese: return "character.book.closed"
-    case .zhuyin: return "character.phonetic"
-    case .vietnamese: return "textformat.abc.dottedunderline"
-    case .tibetan: return "character"
-    case .stroke: return "pencil.line"
-    case .handwriting: return "hand.draw"
-    case .english: return "abc"
-    case .local: return "clock.arrow.circlepath"
-    case .ai: return "sparkles"
-    case .reply: return "bubble.left.and.bubble.right"
-    case .voice: return "waveform"
-    case .unknown: return "questionmark.circle"
-    }
-  }
-  static func kind(_ kind: TypingCharacterKind) -> String {
-    switch kind {
-    case .han: return "character.textbox"
-    case .latin: return "textformat.abc"
-    case .otherLetter: return "globe"
-    case .number: return "number"
-    case .punctuation: return "quote.opening"
-    case .emoji: return "face.smiling"
-    case .symbol: return "asterisk"
-    case .unknown: return "questionmark.circle"
-    }
-  }
-}
-
+/// 统计标签页：概览 / 习惯 / 按键 / 成就，以卡片排在季节页面上。每个数字都来自共享存储的 `summary` 操作，规则在 Rust 里；页面只负责排版，Rust 没给出数字的地方显示 '—'。统计文档本身仍要读，用于开关、保留期、热力图的按键计数和按日明细表。
+///
+/// 统计只保留聚合计数，所以设计稿里的常用词和最常打错两张卡片没有做：它们需要用户打过的词本身。
 struct TypingStatisticsView: View {
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var statistics = TypingStatistics()
+  /// 统计文档是否至少读到过一次，这样关闭提示说的是存储里的开关，而不是空的默认值。
+  @State private var loaded = false
+  @State private var summary: TypingSummary?
+  /// 交给 `summary` 的用户自造词数量；键盘的词库快照给不出可靠数字时为 nil。
+  @State private var userWords: Int?
   @State private var errorMessage = ""
   @State private var confirmsReset = false
-  @State private var tab = Tab.trend
-  @State private var selectedDay: Date?
-  /// 占比条和图标的进场动画放过了没有。换标签时先归零再置起,这一块就重放一遍。
-  @State private var revealed = false
+  @State private var tab = Tab.overview
+  /// 读者选过之后按键热力图所用的键盘布局；nil 表示跟随当前输入方案。
+  @State private var nineKeyChoice: Bool?
+  @State private var showsDailyDetail = false
+  @State private var showsAbout = false
+  @State private var availability = TypingStatisticsStore.Availability.neverWritten
+  /// 至少有一次读取结果（不论成败）已经回到页面；在此之前 availability 与 summary 还是初始值，不能据此提示存储不可用或读不到。之后的重新读取不再清掉它，页面保留上一次的内容。
+  @State private var settled = false
+  /// 正在进行的存储操作。每次更新都等前一次完成，所以重新读取永远不会抢在先发起的写入前面落地。
+  @State private var pending: Task<Void, Never>?
+  private let store = TypingStatisticsStore()
 
-  /// 三块内容轮流占这一屏,不再一路往下滚。
-  private enum Tab: String, CaseIterable {
-    case trend, rhythm, kind, mode, scheme, keys
-    /// 标签只给两个字 —— 六格分段控件上放「语言模式」「输入方案」会挤成一行小字;全名在下面的分组标题里。
+  private enum Tab: CaseIterable {
+    case overview, habits, keys, achievements
+
     var title: String {
       switch self {
-      case .trend: return "趋势"
-      case .rhythm: return "节奏"
-      case .kind: return "类型"
-      case .mode: return "模式"
-      case .scheme: return "方案"
+      case .overview: return "概览"
+      case .habits: return "习惯"
       case .keys: return "按键"
+      case .achievements: return "成就"
       }
     }
   }
 
-  /// 趋势最多画多少天；这是图表的宽度上限，不是保留期限，更早的每日明细仍在存储里。
-  ///
-  /// 原来固定三十天:一个月看不出「这个月比上个月多」,而数据本来就攒着一年。有多少画多少 —— 没有记录时退回三十天,免得开一屏空白的年历。
-  private static let trendDayLimit = 366
-  private static let trendDayFloor = 30
-  /// 实际要画的天数:从最早那条记录到今天,上限一年。
-  private var trendDays: Int {
-    guard let earliest = statistics.days.keys.min(),
-          let date = Self.dayKeyFormatter.date(from: earliest)
-    else { return Self.trendDayFloor }
-    let start = Calendar.current.startOfDay(for: date)
-    let span = Calendar.current.dateComponents([.day], from: start, to: Calendar.current.startOfDay(for: Date())).day ?? 0
-    return min(Self.trendDayLimit, max(Self.trendDayFloor, span + 1))
-  }
-  private static let dayKeyFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.calendar = Calendar(identifier: .gregorian)
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.dateFormat = "yyyy-MM-dd"
-    return formatter
-  }()
-  private let store = TypingStatisticsStore()
-  /// 扇区颜色:品牌绿的一条明度梯度,不是八个互不相干的色相。
-  ///
-  /// 原先是 `.teal .blue .indigo .orange .pink .purple .brown .gray`。图表确实需要相邻扇区能分开,但八种色相除了"彼此不同"之外什么都没说,而且这一页因此和应用其余部分不是一套配色。梯度按同一顺序排进图例,所以哪一档对应哪一项仍然读得出来。
-  private let colors: [Color] = MetasequoiaTheme.chartRamp(11)
-  @State private var availability = TypingStatisticsStore.Availability.neverWritten
-  // The old copy asked for Full Access unconditionally, so it said the same thing whether the
-  // setting was the problem or not and carried no information. Each case here is a different
-  // answer to "why is this empty", and a run that is working says nothing at all.
+  // 旧文案无条件要求开启完全访问，不管问题是不是出在这个设置上都说同一句话，等于没有信息。这里每种情况都是对「为什么是空的」的不同回答，正常运行时则什么都不说。
   private var storageAdvice: String? {
     switch availability {
     case .containerUnavailable:
@@ -111,325 +54,372 @@ struct TypingStatisticsView: View {
         + "若此前清空过统计，这是正常的；否则请附上这条信息反馈。"
     }
   }
-  private var dates: [Date] {
-    (0..<trendDays).reversed().compactMap {
-      Calendar.current.date(byAdding: .day, value: -$0, to: Calendar.current.startOfDay(for: Date()))
-    }
+
+  /// 最近七个本地日，今天排最后：按键热力图的时间窗口，和按键小卡片一致。
+  private var weekDates: [Date] {
+    let today = Calendar.current.startOfDay(for: Date())
+    return (0..<7).reversed().compactMap { Calendar.current.date(byAdding: .day, value: -$0, to: today) }
   }
-  /// 点了某一天就只看那一天,否则看累计。
-  private var scopeDates: [Date]? { selectedDay.map { [$0] } }
-  private var breakdown: TypingBreakdown { statistics.breakdown(on: scopeDates) }
-  private var keyHeatmap: TypingKeyHeatmap { TypingKeyHeatmap(counts: statistics.keyCounts(on: scopeDates)) }
-  private var scopeTotal: Int { scopeDates?.reduce(0) { $0 + statistics.count(on: $1) } ?? statistics.total }
-  private var scopeTitle: String {
-    if let selectedDay { return selectedDay.formatted(.dateTime.month().day()) }
-    return "累计输入"
-  }
-  private var characterSlices: [StatisticsSlice] {
-    TypingCharacterKind.allCases.enumerated().map { index, kind in
-      StatisticsSlice(id: kind.rawValue, title: kind.title, count: breakdown.characters[kind.rawValue] ?? 0,
-                      color: colors[index % colors.count], symbol: StatisticsSymbol.kind(kind))
-    }
-  }
-  private var sourceSlices: [StatisticsSlice] {
-    TypingSource.allCases.enumerated().map { index, source in
-      StatisticsSlice(id: source.rawValue, title: source.title, count: breakdown.sources[source.rawValue] ?? 0,
-                      color: colors[index % colors.count], symbol: StatisticsSymbol.source(source))
-    }
-  }
-  private var languageSlices: [StatisticsSlice] {
-    let sources = breakdown.sources
-    return [
-      StatisticsSlice(id: "chinese", title: "中文模式", count: ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi", "cantonese", "zhuyin", "stroke"].reduce(0) { $0 + (sources[$1] ?? 0) }, color: colors[0], symbol: "character.textbox"),
-      StatisticsSlice(id: "japanese", title: "日语模式", count: sources["japanese"] ?? 0, color: colors[1], symbol: "character.bubble"),
-      StatisticsSlice(id: "korean", title: "韩语模式", count: sources["korean"] ?? 0, color: colors[2], symbol: "character.bubble.fill"),
-      StatisticsSlice(id: "vietnamese", title: "越南语模式", count: sources["vietnamese"] ?? 0, color: colors[3], symbol: "textformat.abc.dottedunderline"),
-      StatisticsSlice(id: "tibetan", title: "藏文模式", count: sources["tibetan"] ?? 0, color: colors[4], symbol: "character"),
-      StatisticsSlice(id: "english", title: "英文模式", count: sources["english"] ?? 0, color: colors[5], symbol: "abc"),
-      StatisticsSlice(id: "local", title: "本地输入", count: sources["local"] ?? 0, color: colors[6], symbol: "clock.arrow.circlepath"),
-      StatisticsSlice(id: "ai", title: "AI 润色", count: sources["ai"] ?? 0, color: colors[7], symbol: "sparkles"),
-      StatisticsSlice(id: "reply", title: "高情商回复", count: sources["reply"] ?? 0, color: colors[8], symbol: "bubble.left.and.bubble.right"),
-      StatisticsSlice(id: "voice", title: "语音输入", count: sources["voice"] ?? 0, color: colors[9], symbol: "waveform"),
-      StatisticsSlice(id: "unknown", title: "历史未分类", count: sources["unknown"] ?? 0, color: colors[10], symbol: "questionmark.circle"),
-    ]
+
+  private var keyHeatmap: TypingKeyHeatmap { TypingKeyHeatmap(counts: statistics.keyCounts(on: weekDates)) }
+
+  /// 热力图默认显示的键盘布局：键盘当前方案是九键时用九键。
+  private var showsNineKey: Bool {
+    nineKeyChoice ?? [.nineKey, .japaneseNineKey].contains(InputSchemePreference.scheme)
   }
 
   var body: some View {
-    Form {
-      Section {
-        Picker("统计内容", selection: $tab) {
-          ForEach(Tab.allCases, id: \.self) { Text($0.title).tag($0) }
-        }.pickerStyle(.segmented).accessibilityIdentifier("statisticsTab")
-          .onChange(of: tab) { _ in replayReveal() }
-        HStack {
-          metric("今日输入", count: statistics.count(on: Date()), identifier: "typingToday")
-          Spacer()
-          metric(scopeTitle, count: scopeTotal, identifier: "typingTotal")
-        }.padding(.vertical, 8)
-      }
-      switch tab {
-      case .trend:
-        Section {
-          trendChart
-          if selectedDay != nil {
-            Button("返回累计") { selectedDay = nil }
-          }
-          NavigationLink {
-            TypingDailyDetailView(statistics: statistics)
-          } label: {
-            Label("按日明细", systemImage: "tablecells")
-          }.accessibilityIdentifier("typingDailyDetails")
-        } header: { Text(trendDays >= 360 ? "每日趋势 · 近一年" : "每日趋势 · 近 \(trendDays) 天") }
-          footer: { Text("折线画到最早那条记录，最多一年。方块每天一格、一列一周，铺满一屏后可以左右拖，没有记录的日子是最浅的一档；点一个方块只看那一天的分类与占比。") }
-      case .rhythm:
-        rhythmSections
-      case .kind:
-        Section {
-          distribution(characterSlices, chart: .pie)
-        } header: { Text("字符类型") }
-      case .mode:
-        Section {
-          distribution(languageSlices, chart: .donut)
-        } header: { Text("语言模式") }
-          footer: { Text("按提交时使用的键盘模式统计，不推测文本语言；粤拼、大千注音和笔画计入中文模式，中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。") }
-      case .scheme:
-        Section {
-          distribution(sourceSlices, chart: .rank)
-        } header: { Text("输入方案") }
-          footer: { Text("拼音方案统计其上屏字符数，拼写时的按键另计在“按键”页。来源无法归类的字数计入历史未分类。") }
-      case .keys:
-        keySections
-      }
-      // 开关、刷新和清空挪到了右上角的菜单:这一页是给人看数的,三个管理项挂在每一屏下面,每换一个标签都要再滚过它们一次。说明留在原处 —— 它解释的是屏幕上这些数字怎么来的。
-      Section {
-      } footer: {
-        Text("字数只统计水杉键盘提交的字符，含标点及表情，不含空格和换行。组合表情计为一个字符，删除文字不扣减。按键热力图另计每个键的按下次数，拼音拼写、删除和功能键都算，密码框里的按键不计；按键热力图只保存每个键每天被按下的次数，不保存按键顺序和输入内容。所有统计仅在本机保存计数，不保存输入内容。每日明细默认永久保留，可在右上角菜单里缩短为 30 至 365 天，超期的每日记录随即删除，并同时从累计总数和分类中扣除；要全部删除请用“清空统计”。")
-      }
-      if let advice = storageAdvice {
-        Section("统计没有数据") {
-          Text(advice)
-          Button("前往系统设置") {
-            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-            UIApplication.shared.open(url)
+    ScrollView {
+      VStack(alignment: .leading, spacing: 22) {
+        DesignSegmentedControl(items: Tab.allCases.map { ($0.title, $0) }, selection: $tab, style: .rounded,
+                               identifierPrefix: "statisticsTab")
+        notices
+        if let summary {
+          switch tab {
+          case .overview: overview(summary.overview)
+          case .habits: habits(summary.habits)
+          case .keys: keys(summary)
+          case .achievements:
+            StatisticsAchievementsView(achievements: summary.achievements, unlockedCount: summary.unlockedCount,
+                                       userWordsKnown: userWords != nil)
           }
         }
+        footer
       }
-      if !errorMessage.isEmpty { Section { Text(errorMessage).foregroundStyle(.secondary) } }
+      .padding(.horizontal, 16)
+      .padding(.top, 4)
+      .padding(.bottom, 24)
+      .frame(maxWidth: horizontalSizeClass == .regular ? 760 : .infinity)
+      .frame(maxWidth: .infinity)
     }
+    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
     .navigationTitle("统计").navigationBarTitleDisplayMode(.large)
     .toolbar {
-      ToolbarItem(placement: .navigationBarTrailing) {
-        Menu {
-          Button {
-            update { try store.setEnabled(!statistics.enabled) }
-          } label: {
-            // 菜单里的开关用对勾表示开着 —— Toggle 放进 Menu 在 iOS 15 上画不出来。
-            if statistics.enabled { Label("记录打字统计", systemImage: "checkmark") }
-            else { Text("记录打字统计") }
-          }
-          .accessibilityIdentifier("typingStatisticsEnabled")
-          Picker(selection: Binding(get: { statistics.retentionDays ?? 0 }, set: { days in
-            update { try store.setRetention(days == 0 ? nil : days) }
-          })) {
-            Text("永久保留").tag(0)
-            ForEach(TypingStatistics.retentionChoices, id: \.self) { Text("保留最近 \($0) 天").tag($0) }
-          } label: {
-            Label("每日记录", systemImage: "calendar.badge.clock")
-          }
-          .pickerStyle(.menu)
-          .accessibilityIdentifier("typingStatisticsRetention")
-          Button("刷新统计") { reload() }
-          Button("清空统计", role: .destructive) { confirmsReset = true }
-            .accessibilityIdentifier("resetTypingStatistics")
-        } label: {
-          Image(systemName: "ellipsis.circle")
-        }
-        .accessibilityLabel("统计选项")
-        .accessibilityIdentifier("statisticsMenu")
-      }
+      ToolbarItem(placement: .navigationBarTrailing) { menu }
     }
-    .onAppear { reload(); replayReveal() }
-    .onChange(of: scenePhase) { if $0 == .active { reload() } }
+    .navigationDestination(isPresented: $showsDailyDetail) { TypingDailyDetailView(statistics: statistics) }
+    .sheet(isPresented: $showsAbout) { about }
+    .onAppear { reload() }
+    .onChange(of: scenePhase) { _, phase in if phase == .active { reload() } }
     .alert("清空所有打字统计？", isPresented: $confirmsReset) {
       Button("取消", role: .cancel) {}
-      Button("清空", role: .destructive) { update { try store.reset() }; selectedDay = nil }
-    } message: { Text("累计字数、分类、按键次数和每日记录将被删除，无法恢复。") }
+      Button("清空", role: .destructive) { update { try $0.reset() } }
+    } message: { Text("累计字数、分类、按键次数、每日记录和已解锁的成就将被删除，无法恢复。") }
   }
 
-  private var trendChart: some View {
-    let days = dates.map { StatisticsChart.Day(date: $0, count: statistics.count(on: $0)) }
+  // MARK: - 菜单、提示与页脚
 
-    let maximum = days.map(\.count).max() ?? 0
-    return VStack(alignment: .leading, spacing: 14) {
-      Text("最高 \(maximum) 字符 / 天").font(.caption).foregroundStyle(.secondary)
-      StatisticsTrendChart(days: days, selected: selectedDay,
-                           accent: MetasequoiaTheme.accent, progress: revealed ? 1 : 0)
-        .animation(.easeOut(duration: 0.7), value: revealed)
-      // 折线看走势,热力图看「哪天在打字」—— 同一份数据的两个问题,一条线回答不了第二个。
-      Text("每天一格，一列一周").font(.caption).foregroundStyle(.secondary)
-      StatisticsHeatmap(count: { statistics.count(on: $0) }, selected: selectedDay,
-                        accent: MetasequoiaTheme.accent) { date in
-        selectedDay = selectedDay == date ? nil : date
+  // 开关、保留期、刷新和重置放在菜单里：这个页面是用来看数字的，管理项放在页面上会出现在每个分段下面。
+  private var menu: some View {
+    Menu {
+      Button {
+        let enabled = !statistics.enabled
+        update { try $0.setEnabled(enabled) }
+      } label: {
+        // iOS 15 上 Menu 里的 Toggle 画不出来，所以用对勾表示开关已打开。
+        if statistics.enabled { Label("记录打字统计", systemImage: "checkmark") }
+        else { Text("记录打字统计") }
       }
-    }.padding(.vertical, 8).accessibilityElement(children: .contain).accessibilityIdentifier("statisticsTrend")
+      .accessibilityIdentifier("typingStatisticsEnabled")
+      Picker(selection: Binding(get: { statistics.retentionDays ?? 0 }, set: { days in
+        update { try $0.setRetention(days == 0 ? nil : days) }
+      })) {
+        Text("永久保留").tag(0)
+        ForEach(TypingStatistics.retentionChoices, id: \.self) { Text("保留最近 \($0) 天").tag($0) }
+      } label: {
+        Label("每日记录", systemImage: "calendar.badge.clock")
+      }
+      .pickerStyle(.menu)
+      .accessibilityIdentifier("typingStatisticsRetention")
+      Button { showsDailyDetail = true } label: { Label("按日明细", systemImage: "tablecells") }
+        .accessibilityIdentifier("typingDailyDetailsMenu")
+      Button { showsAbout = true } label: { Label("关于统计", systemImage: "info.circle") }
+        .accessibilityIdentifier("typingStatisticsAbout")
+      Button("刷新统计") { reload() }
+      Button("清空统计", role: .destructive) { confirmsReset = true }
+        .accessibilityIdentifier("resetTypingStatistics")
+    } label: {
+      Image(systemName: "ellipsis.circle")
+    }
+    .accessibilityLabel("统计选项")
+    .accessibilityIdentifier("statisticsMenu")
   }
 
-  /// 按键:键盘热力图、按得最多的五个键,以及键盘上画不出位置的键。和其他标签一样跟着选中的那一天走。
-  @ViewBuilder private var keySections: some View {
+  /// 页面可能为空或过时的原因：统计已关闭（默认）、键盘从未写到存储，或读取失败。
+  @ViewBuilder private var notices: some View {
+    if !settled {
+      HStack(spacing: 8) {
+        ProgressView()
+        Text("正在读取统计…").font(.system(size: 14)).foregroundStyle(MetasequoiaTheme.sub)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .statisticsCard()
+    }
+    if loaded && !statistics.enabled {
+      notice("记录已关闭", text: "已有的计数保留在本机，新的输入不再计入。统计默认关闭，打开后键盘只记录字数和按键次数，不记录输入内容。") {
+        Button("开启记录") { update { try $0.setEnabled(true) } }
+          .font(.system(size: 15, weight: .semibold))
+          .foregroundStyle(MetasequoiaTheme.accent)
+          .accessibilityIdentifier("typingStatisticsEnableNotice")
+      }
+    }
+    if settled, let advice = storageAdvice {
+      notice("统计没有数据", text: advice) {
+        Button("前往系统设置") {
+          guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+          UIApplication.shared.open(url)
+        }
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(MetasequoiaTheme.accent)
+      }
+    }
+    if !errorMessage.isEmpty {
+      notice(nil, text: errorMessage) { EmptyView() }
+    } else if settled && summary == nil {
+      notice(nil, text: "统计暂时读不到，可以在右上角菜单里刷新。") { EmptyView() }
+    }
+  }
+
+  private func notice<Action: View>(_ title: String?, text: String, @ViewBuilder action: () -> Action) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if let title { Text(title).font(.system(size: 15, weight: .semibold)) }
+      Text(text).font(.system(size: 14)).foregroundStyle(MetasequoiaTheme.sub).fixedSize(horizontal: false, vertical: true)
+      action()
+    }
+    .statisticsCard()
+    .accessibilityElement(children: .contain)
+  }
+
+  private var footer: some View {
+    HStack(spacing: 4) {
+      Image(systemName: "lock").font(.system(size: 13))
+      Text("统计只保存在本机，不包含输入内容").font(.system(size: 12))
+    }
+    .foregroundStyle(MetasequoiaTheme.sub)
+    .frame(maxWidth: .infinity)
+    .accessibilityElement(children: .combine)
+    .accessibilityIdentifier("statisticsPrivacyFooter")
+  }
+
+  /// 原先放在页面底部的说明：每个数字怎么统计、保留了什么。
+  private var about: some View {
+    NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 14) {
+          ForEach(Self.aboutParagraphs, id: \.self) { paragraph in
+            Text(paragraph).font(.system(size: 15)).fixedSize(horizontal: false, vertical: true)
+          }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+      .navigationTitle("关于统计").navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) { Button("完成") { showsAbout = false } }
+      }
+    }
+    .presentationDetents([.medium, .large])
+  }
+
+  private static let aboutParagraphs = [
+    "字数只统计水杉键盘提交的字符，含标点及表情，不含空格和换行。组合表情计为一个字符，删除文字不扣减。",
+    "平均速度按连续打字的时间计算，两次上屏间隔超过 10 秒算休息、不计入；只统计汉字与各种文字的字母，数字、标点和表情不参与。首选命中在选词满 50 次后显示。",
+    "按键热力图另计每个键的按下次数，拼音拼写、删除和功能键都算，密码框里的按键不计；只保存每个键每天被按下的次数，不保存按键顺序和输入内容。",
+    "成就由统计数据推算，清空统计时一并清除。",
+    "所有统计仅在本机保存计数，不保存输入内容。每日明细默认永久保留，可在右上角菜单里缩短为 30 至 365 天，超期的每日记录随即删除，并同时从累计总数和分类中扣除；要全部删除请用“清空统计”。",
+  ]
+
+  // MARK: - 概览
+
+  private func overview(_ overview: TypingSummary.Overview) -> some View {
+    VStack(alignment: .leading, spacing: 22) {
+      VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("近 7 天共输入").font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(TypingSummaryText.grouped(overview.weekTotal))
+              .font(.system(size: 40, weight: .bold)).monospacedDigit().tracking(-0.8)
+              .lineLimit(1).minimumScaleFactor(0.6)
+              .accessibilityIdentifier("typingWeekTotal")
+            Text("字").font(.system(size: 15)).foregroundStyle(MetasequoiaTheme.sub)
+          }
+          if let delta = TypingSummaryText.weekDelta(overview.weekTotal, overview.previousWeekTotal) {
+            Text(delta).font(.system(size: 13, weight: .semibold)).foregroundStyle(MetasequoiaTheme.accent)
+          }
+        }
+        .accessibilityElement(children: .combine)
+        StatisticsWeekBars(days: overview.last7)
+      }
+      .statisticsCard(top: 18, horizontal: 16, bottom: 14)
+      let speedNote = TypingSummaryText.speedDelta(overview.averageSpeed, overview.previousAverageSpeed)
+      StatisticsTileGrid {
+        StatisticsTile(label: "平均速度", value: TypingSummaryText.whole(overview.averageSpeed), unit: "字/分",
+                       note: speedNote ?? "近 7 天的活跃时间里", identifier: "typingAverageSpeed")
+        StatisticsTile(label: "首选命中", value: TypingSummaryText.percent(overview.firstCandidateRate), unit: "%",
+                       note: overview.firstCandidateRate == nil ? "选词满 50 次后显示" : "第一个候选就是你要的",
+                       identifier: "typingFirstCandidate")
+        StatisticsTile(label: "少按键", value: TypingSummaryText.percent(overview.keystrokesSavedRate), unit: "%",
+                       note: "联想和整句帮你省下", identifier: "typingKeystrokesSaved")
+        StatisticsTile(label: "连续使用", value: "\(overview.currentStreak)", unit: "天",
+                       note: "最长 \(overview.longestStreak) 天", identifier: "typingStreak")
+      }
+    }
+  }
+
+  // MARK: - 习惯
+
+  private func habits(_ habits: TypingSummary.Habits) -> some View {
+    let peak = TypingSummaryText.peakLabel(habits.peakWindow)
+    return VStack(alignment: .leading, spacing: 22) {
+      StatisticsSection("近 12 周", note: "活跃 \(habits.activeDays) 天") {
+        StatisticsWeeksHeatmap(days: habits.weeks12).statisticsCard(top: 14, horizontal: 14, bottom: 12)
+      }
+      StatisticsSection("活跃时段", note: peak.map { "最常在 \($0)" }) {
+        StatisticsHourBars(hours: habits.hours24, peak: habits.peakWindow, peakLabel: peak).statisticsCard(top: 14, horizontal: 14, bottom: 12)
+      }
+      StatisticsSection("输入构成", note: nil) {
+        let composition = TypingSummaryText.composition(habits.breakdown.characters)
+        Group {
+          if composition.allSatisfy({ $0.count == 0 }) {
+            Text("还没有记录").font(.system(size: 14)).foregroundStyle(MetasequoiaTheme.sub)
+          } else {
+            StatisticsCompositionBar(shares: composition)
+          }
+        }
+        .statisticsCard()
+      }
+      NavigationLink {
+        TypingDailyDetailView(statistics: statistics)
+      } label: {
+        DesignNavRowLabel(title: "按日明细", symbol: "tablecells")
+      }
+      .buttonStyle(PressFillButtonStyle())
+      .background(MetasequoiaTheme.surface)
+      .clipShape(RoundedRectangle(cornerRadius: MetasequoiaTheme.tabCardRadius, style: .continuous))
+      .accessibilityIdentifier("typingDailyDetails")
+    }
+  }
+
+  // MARK: - 按键
+
+  private func keys(_ summary: TypingSummary) -> some View {
+    let keys = summary.keys
     let heatmap = keyHeatmap
-    Section {
-      StatisticsKeyboardHeatmap(heatmap: heatmap, accent: MetasequoiaTheme.accent)
-        .padding(.vertical, 8)
-      if heatmap.total == 0 {
-        Text("暂无按键记录").font(.subheadline).foregroundStyle(.secondary)
-      }
-    } header: { Text(selectedDay == nil ? "按键热力 · 累计" : "按键热力 · \(scopeTitle)") }
-      footer: { Text("每个键按下一次计一次，按住删除键连删也只算一次。只保存每个键每天被按下的次数，不保存按键顺序和输入内容。") }
-    if heatmap.total > 0 {
-      Section {
-        keyRows(heatmap.top())
-      } header: { Text("最常按的键") }
-    }
-    if !heatmap.others.isEmpty {
-      Section {
-        keyRows(heatmap.others)
-      } header: { Text("其他键") }
-        footer: { Text("数字、标点、符号键等键盘图上没有位置的键。符号按产生它的英文键盘按键计，例如“！”计入 1 键。") }
-    }
-  }
-
-  private func keyRows(_ keys: [TypingKeyHeatmap.Key]) -> some View {
-    ForEach(keys, id: \.id) { key in
-      HStack {
-        Text(key.label)
-        Spacer()
-        Text("\(key.count.formatted()) 次").monospacedDigit().foregroundStyle(.secondary)
-      }
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel(TypingKeyHeatmap.accessibilityLabel(key.id, count: key.count))
-    }
-  }
-
-  private var activity: TypingActivity { statistics.activity(todayKey: TypingStatistics.dayKey(Date())) }
-
-  /// 输入节奏:速度、活跃时长、连续天数和今日时段,和共享统计页的「输入节奏」同一套算法。手机上两列,iPad 的宽窗口一行放下四格。
-  @ViewBuilder private var rhythmSections: some View {
-    let activity = activity
-    Section {
-      LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading),
-                               count: horizontalSizeClass == .regular ? 4 : 2), spacing: 18) {
-        rhythmMetric("今日速度", value: "\(Int(activity.todaySpeed.rounded()))", unit: "字 / 分钟", identifier: "typingTodaySpeed")
-        rhythmMetric("平均速度", value: "\(Int(activity.averageSpeed.rounded()))", unit: "字 / 分钟", identifier: "typingAverageSpeed")
-        rhythmMetric("今日活跃", value: TypingActivity.formatActiveTime(activity.todayActiveMs), unit: "连续打字的时间", identifier: "typingTodayActive")
-        rhythmMetric("连续天数", value: "\(activity.currentStreak)", unit: "最长 \(activity.longestStreak) 天", identifier: "typingStreak")
-      }.padding(.vertical, 8)
-      VStack(alignment: .leading, spacing: 4) {
-        Text("日均 \(Int(activity.averagePerDay.rounded())) 字符 · \(activity.recordedDays) 天有记录")
-        if let best = activity.bestDay {
-          Text("最多 \(dayLabel(best))，\(activity.bestDayCharacters) 字符")
+    let nineKey = showsNineKey
+    let perKeyNote = TypingSummaryText.perKeyDelta(keys.perCharacterKeys, keys.previousPerCharacterKeys)
+    let methods = TypingSummaryText.methods(summary.habits.breakdown.sources)
+    return VStack(alignment: .leading, spacing: 22) {
+      StatisticsSection("按键热力图", trailing: {
+        StatisticsLayoutSwitch(nineKey: Binding(get: { nineKey }, set: { nineKeyChoice = $0 }))
+      }) {
+        VStack(alignment: .leading, spacing: 10) {
+          StatisticsKeyboardHeatmap(heatmap: heatmap, nineKey: nineKey)
+            .statisticsCard(top: 10, horizontal: 4, bottom: 10)
+          let others = heatmap.others(nineKey: nineKey)
+          if !others.isEmpty {
+            DisclosureGroup {
+              VStack(spacing: 0) {
+                ForEach(others, id: \.id) { key in
+                  HStack {
+                    Text(key.label).font(.system(size: 15))
+                    Spacer()
+                    Text("\(key.count.formatted()) 次").font(.system(size: 15)).monospacedDigit().foregroundStyle(MetasequoiaTheme.sub)
+                  }
+                  .frame(minHeight: 36)
+                  .accessibilityElement(children: .ignore)
+                  .accessibilityLabel(TypingKeyHeatmap.accessibilityLabel(key.id, count: key.count))
+                }
+                Text("数字、标点、符号键等键盘图上没有位置的键。符号按产生它的英文键盘按键计，例如“！”计入 1 键。")
+                  .font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.sub)
+                  .fixedSize(horizontal: false, vertical: true)
+                  .padding(.top, 6)
+              }
+              .padding(.top, 6)
+            } label: {
+              Text("其他键").font(.system(size: 15)).foregroundStyle(.primary)
+            }
+            .tint(MetasequoiaTheme.sub)
+            .statisticsCard(top: 12, horizontal: 16, bottom: 12)
+            .accessibilityIdentifier("statisticsOtherKeys")
+          }
         }
-        if let fastest = activity.fastestDay {
-          Text("最快 \(dayLabel(fastest))，\(Int(activity.fastestSpeed.rounded())) 字 / 分钟")
+      }
+      StatisticsTileGrid {
+        StatisticsTile(label: "每字按键", value: TypingSummaryText.decimal(keys.perCharacterKeys), unit: "次",
+                       note: perKeyNote ?? "近 7 天平均", noteAccent: true, identifier: "typingKeysPerCharacter")
+        StatisticsTile(label: "退格占比", value: TypingSummaryText.percentTenths(keys.backspaceRate), unit: "%",
+                       note: "近 7 天全部按键里", noteAccent: true, identifier: "typingBackspaceRate")
+        StatisticsTile(label: "联想上屏", value: TypingSummaryText.percent(keys.predictionRate), unit: "%",
+                       note: "不用打完就上屏的词", identifier: "typingPredictionRate")
+        StatisticsTile(label: "单次最长", value: keys.longestRun.map { "\($0.characters)" } ?? "—", unit: "字",
+                       note: keys.longestRun.map { "\(TypingSummaryText.monthDay($0.day)) · 不停顿" } ?? "还没有记录",
+                       identifier: "typingLongestRun")
+      }
+      StatisticsSection("选词位置", note: nil) {
+        Group {
+          // 寥寥几次选词算出的比例没有意义；Rust 要到 50 次选词才给出首选率，候选位置分布也等到同样的门槛。
+          if let positions = keys.positions, summary.overview.firstCandidateRate != nil {
+            StatisticsPositionBars(positions: positions)
+          } else {
+            Text("选词满 50 次后显示").font(.system(size: 14)).foregroundStyle(MetasequoiaTheme.sub)
+          }
         }
-      }.font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("typingRhythmSummary")
-    } header: { Text("输入节奏") }
-      footer: {
-        Text(activity.hasActivity
-          ? "速度按连续打字的时间计算，两次上屏间隔超过 10 秒算休息、不计入；只统计汉字与各种文字的字母，数字、标点和表情不参与。"
-          : "还没有测量到活跃时长。这项从本次更新后开始记录，之前的输入只有字数。")
+        .statisticsCard(top: 10, horizontal: 16, bottom: 10)
       }
-    if let hours = activity.todayHours {
-      Section {
-        StatisticsHourlyChart(hours: hours, accent: MetasequoiaTheme.accent, progress: revealed ? 1 : 0)
-          .animation(.easeOut(duration: 0.6), value: revealed)
-          .padding(.vertical, 8)
-      } header: { Text("今日时段") }
+      if !methods.isEmpty {
+        StatisticsSection("输入方式", note: nil) {
+          StatisticsMethodDonut(shares: methods).statisticsCard()
+        }
+      }
     }
   }
 
-  private func rhythmMetric(_ title: String, value: String, unit: String, identifier: String) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(title).font(.subheadline).foregroundStyle(.secondary)
-      Text(value).font(.system(size: 26, weight: .semibold, design: .rounded))
-        .foregroundStyle(MetasequoiaTheme.accent).lineLimit(1).minimumScaleFactor(0.6)
-        .accessibilityIdentifier(identifier)
-      Text(unit).font(.caption).foregroundStyle(.secondary)
+  // MARK: - 加载
+
+  private func reload() { update { _ in } }
+
+  /// 先执行 `operation`，再读取统计、词库快照和汇总，全部在主线程之外进行：每次存储调用都要拿统计文件锁，键盘落盘时会持有这把锁，而且 `summary` 会写入新解锁的徽章。结果按更新发起的顺序回到 main actor 上赋值。
+  private func update(_ operation: @escaping @Sendable (TypingStatisticsStore) throws -> Void) {
+    let store = store
+    let previous = pending
+    pending = Task {
+      await previous?.value
+      let result = await Task.detached(priority: .userInitiated) { Self.load(store, after: operation) }.value
+      availability = result.availability
+      if let loadedStatistics = result.statistics {
+        statistics = loadedStatistics
+        loaded = true
+        userWords = result.userWords
+      }
+      if let loadedSummary = result.summary { summary = loadedSummary }
+      errorMessage = result.error ?? ""
+      settled = true
     }
   }
 
-  /// `9月21日`,和趋势轴的标签一样。
-  private func dayLabel(_ key: String) -> String {
-    guard let date = Self.dayKeyFormatter.date(from: key) else { return key }
-    return date.formatted(.dateTime.month().day())
+  /// 一次更新读到的内容。产出某个字段的步骤没有执行或失败时，该字段保持 nil，页面继续显示原来的内容。
+  private struct LoadResult {
+    var availability: TypingStatisticsStore.Availability
+    var statistics: TypingStatistics?
+    var userWords: Int?
+    var summary: TypingSummary?
+    var error: String?
   }
 
-  /// 一块分布 = 一张图 + 一份图例。图形按这一块回答的问题选,图例给准确数字。
-  private func distribution(_ slices: [StatisticsSlice], chart: DistributionChart) -> some View {
-    let total = slices.reduce(0) { $0 + $1.count }
-    let visible = slices.filter { $0.count > 0 || $0.id != "unknown" }
-    return VStack(spacing: 14) {
-      switch chart {
-      case .pie:
-        StatisticsPieChart(slices: slices, progress: revealed ? 1 : 0)
-      case .donut:
-        StatisticsDonutChart(slices: slices, total: total, progress: revealed ? 1 : 0)
-      case .rank:
-        StatisticsRankChart(slices: slices, progress: revealed ? 1 : 0)
-      }
-      if total == 0, chart != .rank {
-        Text("暂无输入记录").font(.subheadline).foregroundStyle(.secondary)
-      }
-      ForEach(Array(visible.enumerated()), id: \.element.id) { index, slice in
-        HStack(spacing: 10) {
-          Image(systemName: slice.symbol)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(slice.color)
-            .frame(width: 28, height: 28)
-            .background(slice.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
-            .scaleEffect(revealed ? 1 : 0.6)
-            .opacity(revealed ? 1 : 0)
-            .animation(.spring(response: 0.42, dampingFraction: 0.72).delay(Double(index) * 0.03), value: revealed)
-          Text(slice.title).font(.subheadline)
-          Spacer()
-          Text("\(slice.count)").monospacedDigit()
-          Text(total == 0 ? "—" : "\(Double(slice.count) / Double(total) * 100, specifier: "%.1f")%")
-            .font(.caption).foregroundStyle(.secondary).monospacedDigit().frame(width: 54, alignment: .trailing)
-        }.accessibilityElement(children: .combine)
-      }
-    }.padding(.vertical, 8)
-    .animation(.easeOut(duration: 0.6), value: revealed)
-  }
-
-  /// 这一块用哪种图。
-  private enum DistributionChart { case pie, donut, rank }
-
-  private func metric(_ title: String, count: Int, identifier: String) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(title).font(.subheadline).foregroundStyle(.secondary)
-      Text(count.formatted()).font(.system(size: 36, weight: .bold)).monospacedDigit()
-        .foregroundStyle(MetasequoiaTheme.accent).lineLimit(1).minimumScaleFactor(0.6)
-        .accessibilityIdentifier(identifier)
-      Text("字符").font(.caption).foregroundStyle(.secondary)
-    }
-  }
-  /// 动画从头放一遍。SwiftUI 只在值真的变了的时候动,所以要先落回起点。
-  private func replayReveal() {
-    revealed = false
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { revealed = true }
-  }
-
-  private func reload() { update {} }
-  private func update(_ operation: () throws -> Void) {
-    availability = store.availability()
+  private nonisolated static func load(_ store: TypingStatisticsStore,
+                                       after operation: (TypingStatisticsStore) throws -> Void) -> LoadResult {
+    var result = LoadResult(availability: store.availability())
     do {
-      try operation()
-      statistics = try store.load()
-      errorMessage = ""
+      try operation(store)
+      result.statistics = try store.load()
+      result.userWords = (try? PersonalDictionaryStore.forSettingsPages().read()).flatMap(TypingSummary.userWords(from:))
+      result.summary = try store.summary(userWords: result.userWords)
     } catch {
-      // A locked device is one reason among several, and naming only that one sent a reader
-      // looking in the wrong place. Carry what actually failed.
-      errorMessage = "无法读取或保存统计：\(error.localizedDescription)"
+      // 设备锁定只是几种原因之一，只点出这一种会把读者引到错误的地方去找。这里带上实际失败的原因。
+      result.error = "无法读取或保存统计：\(error.localizedDescription)"
     }
+    return result
   }
 }
 
@@ -471,7 +461,7 @@ struct TypingDailyDetailView: View {
   }
 
   private var footer: some View {
-    Text("最近 \(Self.dayLimit) 个有记录的日子，新的在上。“其他”含其他文字、表情和符号。速度只按汉字与字母计算，和“节奏”页同一口径。导出的 CSV 含全部保留的日子。")
+    Text("最近 \(Self.dayLimit) 个有记录的日子，新的在上。“其他”含其他文字、表情和符号。速度只按汉字与字母计算，和概览里的平均速度同一口径。导出的 CSV 含全部保留的日子。")
   }
 
   private var table: some View {

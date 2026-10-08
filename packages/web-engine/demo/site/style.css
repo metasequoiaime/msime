@@ -519,6 +519,20 @@ h1 {
 
 .segmented button:disabled, .switch input:disabled + span { cursor: progress; opacity: .55; }
 
+.select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--panel-2);
+  color: var(--body);
+  font: 600 13px/1.4 var(--font);
+  cursor: pointer;
+}
+
+.select:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 1px; }
+.select:disabled { cursor: not-allowed; opacity: .55; }
+
 .switch {
   display: flex;
   align-items: center;

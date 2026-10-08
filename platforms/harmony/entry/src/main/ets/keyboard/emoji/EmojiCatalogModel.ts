@@ -19,7 +19,16 @@ export const MAX_GROUP_CODE_UNITS: number = 128;
 export interface EmojiCategory {
   readonly group: string;
   readonly title: string;
+  /** 手机面板底行为该分类显示的字形，即 Android 的 `EmojiCatalogModel.Category.icon`。 */
+  readonly icon: string;
 }
+
+/** 最近使用标签的字形，即 Android 的 `EmojiCatalogModel.RECENTS`。 */
+export const EMOJI_RECENTS_ICON: string = "\u{1F558}";
+/** 手机网格的最小行高，即设计稿的 40px 单元格；也是 Android `renderEmojiGrid` 的下限。 */
+export const EMOJI_MIN_CELL_VP: number = 40;
+/** 手机网格一次显示的行数；Android 按面板放下三行来设定行高。 */
+export const EMOJI_VISIBLE_ROWS: number = 3;
 
 export interface EmojiItem {
   readonly text: string;
@@ -98,21 +107,35 @@ export function normalizeSymbolGroups(values: unknown): EmojiSymbolGroup[] {
 }
 
 // Unicode group order; the database row sort order interleaves Symbols and Flags.
+// 图标取自 Android；两边都有的分类，Android 与共享 UI 的 `emoji-catalog.ts` 保持一致，这样十个标签能放进一行。
 const CATEGORIES: EmojiCategory[] = [
-  { group: "Smileys and emotion", title: "笑脸" },
-  { group: "People and body", title: "人物" },
-  { group: "Animals and nature", title: "动物" },
-  { group: "Food and drink", title: "食物" },
-  { group: "Travel and places", title: "旅行" },
-  { group: "Activities", title: "活动" },
-  { group: "Objects", title: "物品" },
-  { group: "Symbols", title: "符号" },
-  { group: "Flags", title: "旗帜" },
+  { group: "Smileys and emotion", title: "笑脸", icon: "\u{1F600}" },
+  { group: "People and body", title: "人物", icon: "\u{1F44B}" },
+  { group: "Animals and nature", title: "动物", icon: "\u{1F43E}" },
+  { group: "Food and drink", title: "食物", icon: "\u{1F34E}" },
+  { group: "Travel and places", title: "旅行", icon: "\u{1F697}" },
+  { group: "Activities", title: "活动", icon: "\u26BD" },
+  { group: "Objects", title: "物品", icon: "\u{1F4A1}" },
+  { group: "Symbols", title: "符号", icon: "\u{1F523}" },
+  { group: "Flags", title: "旗帜", icon: "\u{1F3F3}\uFE0F" },
 ];
 
 export class EmojiCatalogModel {
   static categories(): EmojiCategory[] {
     return CATEGORIES;
+  }
+
+  /**
+   * 手机网格单行的高度，由网格的可用高度和行间距算出：三行填满网格，与 Android `renderEmojiGrid` 的布局相同，且每行都不低于设计稿的 40。
+   */
+  static cellHeightVp(gridHeightVp: number, rowGapVp: number): number {
+    if (!Number.isFinite(gridHeightVp) || !Number.isFinite(rowGapVp)) {
+      return EMOJI_MIN_CELL_VP;
+    }
+    const rows: number = Math.floor(
+      (gridHeightVp - Math.max(0, rowGapVp) * (EMOJI_VISIBLE_ROWS - 1)) / EMOJI_VISIBLE_ROWS,
+    );
+    return Math.max(EMOJI_MIN_CELL_VP, rows);
   }
 
   static item(text: string, annotation: string, group: string): EmojiItem {

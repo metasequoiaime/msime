@@ -222,7 +222,8 @@ export function useResourcePacks(
       return;
     }
     const status = resourcePackStatus({ statuses: statusesRef.current }, id);
-    if (!status || status.state === "installed" || running.current.has(runningKey(generation, id))) return;
+    if (!status || status.state === "installed" || running.current.has(runningKey(generation, id)))
+      return;
     install(id);
   };
 
@@ -241,7 +242,12 @@ export function useResourcePacks(
       .cancel(id)
       .then((stopped) => {
         // 宿主那边已经没有安装在跑（例如启动时的自动补齐中途失败），清掉残留的进度。
-        if (!stopped && current(expected, generation) && !running.current.has(runningKey(generation, id))) clearProgress(id);
+        if (
+          !stopped &&
+          current(expected, generation) &&
+          !running.current.has(runningKey(generation, id))
+        )
+          clearProgress(id);
       })
       .catch(() => undefined);
   };

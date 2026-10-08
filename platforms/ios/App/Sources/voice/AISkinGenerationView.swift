@@ -50,9 +50,7 @@ struct AISkinGenerationView: View {
     }
     .onDisappear { request?.cancel() }
     .sheet(item: $publishing) { item in CommunityPublishView(onPublished: { publishing = nil }, selectedSkinID: item.id) }
-    .sheet(isPresented: $login) { NavigationView { AccountSettingsView().toolbar {
-      ToolbarItem(placement:.cancellationAction) { Button("完成") { login = false } }
-    } } }
+    .sheet(isPresented: $login) { AccountLoginSheet() }
   }
   private var mysteryCards: some View {
     HStack(spacing: 12) {

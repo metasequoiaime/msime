@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`insert_mixed_rows` 用 11 项栈上借用表记录位掩码接受的额外候选，检查已有候选时直接扫描，避免按候选列表长度扩容哈希表；三组小列表先移出首项插入优先槽，再直接扩展剩余项，去掉 `tails` 容器。保持各组首次去重、优先槽顺序和尾部顺序。
+`insert_mixed_rows`（九宫格的 `insert_expressive_rows` 也走它）用栈上借用表记录位掩码接受的额外候选，检查已有候选时直接扫描，避免按候选列表长度扩容哈希表，去掉 `tails` 容器。借用表的容量 `MIXED_DEDUP_CAPACITY` 是英文 5 行加 emoji、颜文字各 `MIXED_FETCH_LIMIT` 行，最初是 11 项（三组 5、3、3 行），emoji、颜文字改为按关键词紧跟描绘的词之后取回的行变多，现为 101 项，见 [2026-10-08-expressive-rows-follow-their-word.md](../feature/2026-10-08-expressive-rows-follow-their-word.md)。保持各组首次去重的顺序。
 
 ## Alternatives considered
 
@@ -22,4 +22,4 @@ Status: implemented
 
 ## Consequences
 
-栈上借用表的 11 项上限必须与三组生产查询上限一致；每组仍受现有 64 位掩码上限约束，超出生产上限的私有调用不属于契约。直接 `remove(0)` 只处理最多 5、3、3 行的小列表，移动代价有界。
+栈上借用表的容量必须与三组生产查询上限一致（`MIXED_DEDUP_CAPACITY` 由 `MIXED_ENGLISH_LIMIT` 和 `MIXED_FETCH_LIMIT` 算出）；每组仍受 64 位掩码上限约束，所以 `MIXED_FETCH_LIMIT` 不能超过 64，超出生产上限的私有调用不属于契约。emoji 有关键词时，定位还要为候选词的有序索引分配一次，分配预算测试按这一次计。

@@ -48,7 +48,8 @@ export function useSettingsNavigation({
   const availablePagesRef = useRef(availablePages);
   availablePagesRef.current = availablePages;
 
-  const selectPage = (next: SettingsPageId) => {
+  /** 打开 `next`。在移动端它是一条新的 WebView 历史记录，因此系统返回手势可以返回；`replace` 则用它替换当前记录，用于从背后没有设置记录的页面向上返回。 */
+  const selectPage = (next: SettingsPageId, replace = false) => {
     if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
     if (next === page) return;
     if (mobilePlatform) mobileLastPageByTab.current[mobileTabForPage(next)] = next;
@@ -61,7 +62,8 @@ export function useSettingsNavigation({
         page: next,
       } as Record<string, unknown>;
       delete state.panel;
-      window.history.pushState(state, "");
+      if (replace) window.history.replaceState(state, "");
+      else window.history.pushState(state, "");
     }
     if (next === "community") setCommunityDestination("all");
   };

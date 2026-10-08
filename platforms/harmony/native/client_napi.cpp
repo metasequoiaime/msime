@@ -247,6 +247,8 @@ static napi_value invalid(napi_env env, const char *message) {
 TEXT_ENTRY(LoadPreferences, msime_client_load_preferences)
 TEXT_ENTRY(SkinCatalog, msime_client_skin_catalog)
 TEXT_ENTRY(ResolveTheme, msime_client_resolve_theme)
+// 按宿主本地月份和深色模式给出应用主题的颜色；它是纯函数，所以设置页和键盘都在主线程上解析。
+TEXT_ENTRY(ResolveAppTheme, msime_client_resolve_app_theme)
 TEXT_ENTRY(DictionaryManifest, msime_client_dictionary_manifest)
 TEXT_ENTRY(SkinResource, msime_client_skin_resource)
 TEXT_ENTRY(SkinToolbarStylesheet, msime_client_skin_toolbar_stylesheet)
@@ -536,10 +538,20 @@ static napi_value VocabularyReview(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_vocabulary_review, "MSIME vocabulary review");
 }
 
+// 「统计」标签页的概览要读取整份统计文档、推导每个时间窗口，并在键盘进程同样会获取的文件锁下写入新达成的徽章，所以设置应用把它放到 ArkTS 线程之外运行，就像 Android 放在 worker 上运行一样。键盘的记录量小，继续使用同步的 `typingStatistics`。
+static napi_value TypingStatisticsAsync(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_typing_statistics, "MSIME typing statistics");
+}
+
 // Picked skins are checked against the manifest and copied with a bounded tree budget. Run that
 // validation and replacement off the ArkTS thread so a large folder cannot freeze settings.
 static napi_value SkinImport(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_skin_import, "MSIME skin import");
+}
+
+// 键盘的常用语存放在一个文件里，设置进程和键盘进程都会在锁下重写它，装上短语包后文档可达数 MB，所以每个操作都在 ArkTS 线程之外运行。
+static napi_value CommonPhrases(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_common_phrases, "MSIME common phrases");
 }
 
 // A pack import extracts or copies up to a music pack's size and validates it before swapping it into place, which the header says belongs on a worker thread, so it runs as async work and answers through a promise. The small catalog, remove and name-list calls stay on the synchronous `plugins` entry.
@@ -923,6 +935,7 @@ FLAG_ENTRY(Focus, msime_client_focus)
 FLAG_ENTRY(SetNineKeyMode, msime_client_set_nine_key_mode)
 FLAG_ENTRY(SetEnglishMode, msime_client_set_english_mode)
 FLAG_ENTRY(SetCharacterWidth, msime_client_set_character_width)
+FLAG_ENTRY(SetPrivateSession, msime_client_set_private_session)
 
 // Candidate identity is the generation plus the index, so a stale page cannot act on a fresh one.
 #define CANDIDATE_ENTRY(name, call, message)                                                        \
@@ -1199,6 +1212,11 @@ static napi_value ThemeCatalog(napi_env env, napi_callback_info) {
     return response(env, msime_client_theme_catalog());
 }
 
+// 应用主题选择器同样不接受参数：五个 id、标题、季节和两套配色都来自共享目录，其中「四季」画成「秋杉」，不随时间变化。
+static napi_value AppThemeCatalog(napi_env env, napi_callback_info) {
+    return response(env, msime_client_app_theme_catalog());
+}
+
 static napi_value HostCapabilities(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     std::string platform;
@@ -1395,6 +1413,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("skinCatalog", SkinCatalog),
         ENTRY("themeCatalog", ThemeCatalog),
         ENTRY("resolveTheme", ResolveTheme),
+        ENTRY("appThemeCatalog", AppThemeCatalog),
+        ENTRY("resolveAppTheme", ResolveAppTheme),
         ENTRY("dictionaryManifest", DictionaryManifest),
         ENTRY("skinResource", SkinResource),
         ENTRY("skinToolbarStylesheet", SkinToolbarStylesheet),
@@ -1409,6 +1429,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("updatePreferences", UpdatePreferences),
         ENTRY("typingStatistics", TypingStatistics),
         ENTRY("typingStatisticsEnabled", TypingStatisticsEnabled),
+        ENTRY("typingStatisticsAsync", TypingStatisticsAsync),
         ENTRY("vocabularyReview", VocabularyReview),
         ENTRY("mobileClipboardHistory", MobileClipboardHistory),
         ENTRY("emojiCatalog", EmojiCatalog),
@@ -1429,6 +1450,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("musicPack", MusicPack),
         ENTRY("plugins", Plugins),
         ENTRY("pluginsAsync", PluginsAsync),
+        ENTRY("commonPhrases", CommonPhrases),
         ENTRY("ensureAnonymousAccount", EnsureAnonymousAccount),
         ENTRY("telemetryBegin", TelemetryBegin),
         ENTRY("telemetryEnd", TelemetryEnd),
@@ -1459,6 +1481,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("setNineKeyMode", SetNineKeyMode),
         ENTRY("setEnglishMode", SetEnglishMode),
         ENTRY("setCharacterWidth", SetCharacterWidth),
+        ENTRY("setPrivateSession", SetPrivateSession),
         ENTRY("character", Character),
         ENTRY("glide", Glide),
         ENTRY("punctuationWithContext", PunctuationWithContext),

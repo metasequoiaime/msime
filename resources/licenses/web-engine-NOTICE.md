@@ -11,6 +11,8 @@
 | `sentence-model.safetensors.gz` | 整句重排模型（逐字节未改，gzip 压缩） |
 | `NOTICE.md` | 本文件 |
 
+npm 包 `@msime/web-engine` 除上面这些文件外，还在 `assets/` 下带六张 gzip 压缩的辅助码表 `helpcode-<方案>.txt.gz`（见下文「辅助码表」）；它们不在 release 里，也不在 `web-engine-manifest.json` 里。
+
 本说明不是法律意见，也不是对再分发授权完整性的评估；各项条款以上游原文为准。
 
 ## 引擎
@@ -52,9 +54,15 @@
 
 `sentence-model.safetensors` 来自 [metasequoiaime/chinese-ime-lm](https://github.com/metasequoiaime/chinese-ime-lm) 的 `model-v1` release，权重为 Apache-2.0。训练语料为 [C4 的中文部分](https://huggingface.co/datasets/allenai/c4)（ODC-BY）和 [LCCC](https://github.com/thu-coai/CDial-GPT)（MIT），两者都要求署名随衍生成果传播：Trained on the Chinese portion of C4 (ODC-BY) and LCCC (MIT)。这条署名也写在权重文件自身的 safetensors `__metadata__` 头里；release 里的 `.gz` 解压后与原文件逐字节相同，元数据头完整保留。
 
+## 辅助码表
+
+npm 包的 `assets/helpcode-<方案>.txt.gz` 是仓库 `resources/helpcodes/` 里六张辅助码表逐字节未改的 gzip 压缩，方案名与文件的对应见 `crates/engine/src/assets.rs` 的 `HELPCODES`：`lantian`（蓝天小雨点，`helpcode.txt`）、`ziranma`（自然码，`zrm_helpcode_big_unique.txt`）、`shouyou2_0`（首右 2.0）、`shouyouplus`（首右 plus）、`xiaohe`（小鹤形码）、`jiajia`（加加）。只有页面打开辅助码时 SDK 才下载其中一张。
+
+这些表复现的是各家已发表的输入方案，权利归各方案作者；**它们都没有拿到明确的再分发授权，本项目的 GPL-3.0 不覆盖这些表的内容。** 其中 `jiajia` 的一部分条目来自商业软件拼音加加安装包内的数据表，性质与其余五张不同。来源和分发限制的原文是下文「仓库内的许可证全文」里的 `resources/helpcodes/ENGINE-NOTICE.md` 和 `resources/helpcodes/NOTICE.md`，与各平台安装包随表附带的两份说明相同。部署到公开站点前请确认这些表在目标渠道的分发是否可接受；不能接受时，用 `npx @msime/web-engine copy <目录> --no-helpcode` 不复制它们，SDK 的辅助码随之不可用，其余功能不受影响。
+
 ## 不包含的数据
 
-网页引擎不分发 `msime-bigram.bin`、`msime-trigram.bin`（中文维基百科统计的 n-gram 表，CC-BY-SA 4.0）、`msime-others.db`、`msime-english.db` 和辅助码表，因此不承担这些数据的署名与相同方式共享义务。
+网页引擎不分发 `msime-bigram.bin`、`msime-trigram.bin`（中文维基百科统计的 n-gram 表，CC-BY-SA 4.0）、`msime-others.db` 和 `msime-english.db`，因此不承担这些数据的署名与相同方式共享义务。
 
 ## 仓库内的许可证全文
 
@@ -1060,6 +1068,74 @@ Okinawa dictionary is licensed as follows
 Public Domain Dataです。使用・変更・配布に関しては一切の制限をつけません。
 商品などに組み込むことも自由に行なってください。すでにいくつかの辞書には沖縄辞書が採用されています。
 勝手ながら、沖縄辞書に寄贈された辞書も in the Public Domain' 扱いとさせていただきます。
+````
+
+### `resources/helpcodes/ENGINE-NOTICE.md`
+
+辅助码表 helpcode-lantian、helpcode-ziranma、helpcode-shouyou2_0、helpcode-shouyouplus、helpcode-xiaohe（只在 npm 包里）的来源与权利说明
+
+````text
+# 来源与授权说明
+
+本仓库**不对外提供统一的开源许可**。`helpcodes/` 下的辅助码表复现的是各家已发表的输入方案，权利归各方案作者，本项目只是整理成统一格式供引擎读取。给整个仓库挂一份 LICENSE 等于替方案作者重新授权，因此这里改为逐项说明来源。
+
+## 辅助码表
+
+| 文件 | 方案 | 来源与权利归属 |
+| --- | --- | --- |
+| `helpcode.txt` | `lantian` | 蓝天小雨点辅助码，权利归方案作者 |
+| `zrm_helpcode_big_unique.txt` | `ziranma` | 自然码辅助码，整理自 [copperay/ZRM_Aux-code](https://github.com/copperay/ZRM_Aux-code)（上游**未声明许可**） |
+| `shouyou2_0_helpcode.txt` | `shouyou2_0` | 首右 2.0 辅助码，权利归方案作者 |
+| `shouyouplus_helpcode.txt` | `shouyouplus` | 首右 plus 辅助码，权利归方案作者 |
+| `xiaohe_helpcode.txt` | `xiaohe` | 小鹤形码，权利归小鹤方案作者 |
+
+## 下游影响
+
+这些文件被 [MSIME-Linux](https://github.com/metasequoiaime/MSIME-Linux) 的 DEB／RPM 包安装到 `share/metasequoiaime/helpcodes/` 下，也被 Windows 与 Apple 前端使用。前端本身以 GPL-3.0 分发，但该许可**不覆盖**这些辅助码表的内容。
+
+## 待解决
+
+上表中没有任何一项拿到了明确的再分发授权。需要逐个与方案作者确认，或改为在运行时由用户自行导入而不随包分发。在澄清之前，请不要假定这些数据可以自由再分发。
+
+## 本项目自建部分
+
+`scripts/` 下的整理脚本由本项目编写，依据 GPL-3.0 提供，与组织内其他仓库一致。
+````
+
+### `resources/helpcodes/NOTICE.md`
+
+辅助码表 helpcode-jiajia（只在 npm 包里）的来源、权利与分发限制
+
+````text
+# 辅助码表：来源、权利与分发限制
+
+这个目录放的是本仓库携带的全部六套辅助码表，由 `crates/engine/src/assets.rs` 的 `HELPCODES` 登记。
+
+另外五套（蓝天小雨点、自然码、首右 2.0、首右 Plus、小鹤）原先随 Engine 归档而来，来源说明原样保存在同目录 `ENGINE-NOTICE.md`。
+
+## `jiajia_helpcode.txt`
+
+| 项 | 值 |
+| --- | --- |
+| 方案标识 | `jiajia`（加加辅助码，拼音加加） |
+| 来源仓库 | [metasequoiaime/MSIME-Windows](https://github.com/metasequoiaime/MSIME-Windows) |
+| 来源路径 | `engine/helpcode/helpcodes/jiajia_helpcode.txt` |
+| 来源提交 | `566ff8b8320e7f56256544b2b1f0da8c8e7f037e`（2026-09-20，`feat(engine): 新增加加辅助码（拼音加加），第六套辅助码方案`） |
+| 内容摘要 | `sha256:6538d744547b590630e93160198ac16bf76112a51ec78b4dbae505b914761879`，7968 行 |
+
+### 这张表是怎么来的
+
+规则是「按笔顺拆出前两个部件、各取读音首字母」。本表按拼音加加输入法 5.x 安装包内的辅助码表 `fzm.bin` 对齐：该表覆盖 GB2312 全部 6763 字并含部分扩展字（基本区共 7259 字有码，其中 6576 字为两码）；本表 7968 字中有 6487 字从该表取到两码，其中 6349 字与本表逐字一致，其余 138 字保留本表规则（独体/部首字取「本字声母 + 起笔」，其中 13 个成字部件按俗称读音取音），未采用加加对这些字给出的另一套拆法（笔画码或不同部件拆分）；不在该表覆盖内的 800 字按同一规则由公开拆字数据重建。`fzm.bin` 内是加加双拼键位（`zh=v`/`ch=u`/`sh=i`），对照时已换算为声母 z/c/s。
+
+部件拆分数据来自 [rime-radical-pinyin](https://github.com/mirtlecn/rime-radical-pinyin)（GPL-3.0，上游含 chaizi/CC-BY-3.0、CHISE/GPL-2+、yi-bai/ids/MIT），笔顺数据来自 cnchar（MIT）。
+
+### 分发限制
+
+**拼音加加是商业软件，本表是格式转换与整理，不是加加官方码表。** 本表的一部分条目直接来自该商业软件安装包内的数据表（`fzm.bin`）。
+
+来源仓库的 `engine/helpcode/NOTICE.md` 对全部六张表写明：没有任何一项拿到了明确的再分发授权，需要逐个与方案作者确认，或改为在运行时由用户自行导入而不随包分发；并指出 `jiajia` 一行与其余各表性质不同（其余各表只是复现已发表的输入方案），若后续要做权利澄清应优先处理这一项。
+
+**在澄清之前，不要假定这些数据可以自由再分发。** 本仓库以 GPL-3.0 分发，该许可**不覆盖**这张表的内容。打包发布前应确认这一项在目标渠道的分发是否可接受；如果不可接受，从 `crates/engine/src/assets.rs` 的 `HELPCODES` 去掉 `jiajia` 那一行，并让该渠道的资源打包不再带上这张表——设置页会随之少一个选项，其余五套不受影响。
 ````
 
 <!-- web-engine-notice:repo:end -->

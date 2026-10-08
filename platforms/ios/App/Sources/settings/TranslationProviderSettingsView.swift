@@ -31,40 +31,48 @@ struct TranslationProviderSettingsView: View {
       } footer: {
         Text("选择自己的翻译服务后，键盘把这一页的中文候选直接发给该服务，不经过水杉账号；凭据只保存在本设备的共享设置里。所选服务的凭据不完整时，键盘不会联网翻译，也不会改用其他服务。")
       }
+      .designRow()
       switch provider {
       case .off:
         Section {
           Text("键盘不会把候选词发给任何在线服务；英文释义仍来自离线词库。").foregroundStyle(.secondary)
         }
+        .designRow()
       case .account:
         Section {
           Text("候选词会发送到水杉服务器（api.msime.app）翻译，首次使用会自动创建匿名账号。").foregroundStyle(.secondary)
         }
+        .designRow()
       case .niutrans:
-        Section("小牛翻译") {
+        Section {
           TextField("APPID", text: $niutransAppID).credentialField()
           SecureField("API Key", text: $niutransKey).credentialField()
+        } header: {
+          SettingsGroupHeader(title: "小牛翻译")
         }
+        .designRow()
       case .tencent:
         Section {
           TextField("SecretId", text: $tencentID).credentialField()
           SecureField("SecretKey", text: $tencentKey).credentialField()
           TextField("地域", text: $tencentRegion).credentialField()
         } header: {
-          Text("腾讯云机器翻译")
+          SettingsGroupHeader(title: "腾讯云机器翻译")
         } footer: {
           Text("地域留空时使用 \(TranslationProviderPreference.defaultTencentRegion)。建议为输入法单独创建只授权机器翻译的子账号密钥。")
         }
+        .designRow()
       case .custom:
         Section {
           TextField("https://example.com/translate", text: $customEndpoint).credentialField()
             .keyboardType(.URL)
           SecureField("API Key（可选）", text: $customKey).credentialField()
         } header: {
-          Text("自定义接口")
+          SettingsGroupHeader(title: "自定义接口")
         } footer: {
           Text("兼容 DeepLX 的 POST 接口。iOS 只允许 HTTPS 地址，HTTP 地址保存后不会被调用。")
         }
+        .designRow()
       }
       Section {
         if credentialsIncomplete {
@@ -81,7 +89,9 @@ struct TranslationProviderSettingsView: View {
       } footer: {
         SettingsAutosaveStatus(autosave: autosave)
       }
+      .designRow()
     }
+    .designPage()
     .navigationTitle("翻译服务")
     .navigationBarTitleDisplayMode(.inline)
     .onAppear(perform: load)

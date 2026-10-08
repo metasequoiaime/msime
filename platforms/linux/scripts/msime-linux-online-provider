@@ -8,6 +8,7 @@ import functools
 import hashlib
 import hmac
 import http.client
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -89,6 +90,16 @@ class ConnectBoundedHTTPSHandler(urllib.request.HTTPSHandler):
                             req, context=self._context)
 
 
+def request_opener(url, connect_timeout=None):
+    handlers = [NoRedirect()]
+    if connect_timeout is not None:
+        handlers.append(ConnectBoundedHTTPSHandler(connect_timeout))
+    # 本脚本只把明文 http 发给本机或局域网（AI 接口见 ai_endpoint_check，自定义翻译只认回环），这类请求直连、不走环境变量里的代理，否则带 Token 的请求会明文经过代理。https 照旧按环境变量用代理。
+    if urllib.parse.urlsplit(url).scheme == "http":
+        handlers.append(urllib.request.ProxyHandler({}))
+    return urllib.request.build_opener(*handlers)
+
+
 def fetch_direct(url, timeout, body=None, token=None, extra_headers=None, connect_timeout=None):
     headers = {"Content-Type": "application/json", "User-Agent": "MSIME-Client"}
     if token:
@@ -96,10 +107,7 @@ def fetch_direct(url, timeout, body=None, token=None, extra_headers=None, connec
     headers.update(extra_headers or {})
     payload = body if isinstance(body, bytes) else None if body is None else json.dumps(body).encode()
     request = urllib.request.Request(url, data=payload, headers=headers)
-    handlers = [NoRedirect()]
-    if connect_timeout is not None:
-        handlers.append(ConnectBoundedHTTPSHandler(connect_timeout))
-    with urllib.request.build_opener(*handlers).open(request, timeout=timeout) as response:
+    with request_opener(url, connect_timeout).open(request, timeout=timeout) as response:
         payload = response.read(65537)
     if len(payload) > 65536:
         raise ValueError("response too large")
@@ -568,6 +576,51 @@ def custom_translation(config, text, source, target, timeout):
         if gloss:
             return gloss
     return None
+
+
+# AI 辅助接口地址的传输策略，与 crates/client-core/src/ai/endpoint.rs 一致：https 不限主机；http 只能指向本机或局域网，公网主机必须走 https，API Token 不能明文经过互联网。不做 DNS 解析，除 localhost 和 .local 以外的域名一律按公网处理。用例在 shared/contracts/ai-endpoint/cases.json，tests/provider/ai_service_contract.py 逐条核对。
+AI_LOCAL_NETWORKS = tuple(ipaddress.ip_network(network) for network in (
+    "127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+    "100.64.0.0/10", "169.254.0.0/16", "::1/128", "fe80::/10", "fc00::/7"))
+
+
+def ai_endpoint_host_is_local(host, bracketed):
+    """`host` 是 urlsplit 给出的主机名（已小写，IPv6 不带方括号）。IP 字面量按地址段判断，只认规范写法；其余按域名处理。"""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        if bracketed:
+            return False
+        return host == "localhost" or (
+            host.endswith(".local") and len(host) > len(".local") and not host[:-len(".local")].endswith("."))
+    return any(address in network for network in AI_LOCAL_NETWORKS)
+
+
+def ai_endpoint_check(endpoint):
+    """返回 "allowed"、"cleartext_public" 或 "invalid"，含义同 cases.json 的 result。"""
+    if (not isinstance(endpoint, str) or not endpoint or len(endpoint.encode("utf-8")) > 2048 or
+            any(ord(character) < 32 or 127 <= ord(character) <= 159 for character in endpoint) or
+            "#" in endpoint or "\\" in endpoint):
+        return "invalid"
+    try:
+        url = urllib.parse.urlsplit(endpoint)
+        # 读 port 同时拒绝格式不对或超过 65535 的端口。
+        _ = url.port
+    except ValueError:
+        return "invalid"
+    rest = endpoint.split("://", 1)
+    if (url.scheme not in ("http", "https") or len(rest) != 2 or not rest[1] or rest[1].startswith("/") or
+            not url.hostname or url.username is not None or url.password is not None or "%" in url.hostname):
+        return "invalid"
+    bracketed = url.netloc.rsplit("@", 1)[-1].startswith("[")
+    if bracketed:
+        try:
+            ipaddress.IPv6Address(url.hostname)
+        except ValueError:
+            return "invalid"
+    if url.scheme == "https" or ai_endpoint_host_is_local(url.hostname, bracketed):
+        return "allowed"
+    return "cleartext_public"
 
 
 def secure_custom_endpoint(endpoint):
@@ -1071,8 +1124,8 @@ def load_ai_config(path):
         entry["token"] = token
         if token.startswith(("<", "FAKESECRET_")) or any(ord(c) < 33 or ord(c) > 126 for c in token):
             raise ValueError("invalid AI credential")
-        url = urllib.parse.urlsplit(entry["endpoint"])
-        if url.scheme != "https" or not url.hostname or url.username or url.password or url.fragment:
+        # 本机和局域网的接口（如 LM Studio）可以用 http，其余只认 https；请求不跟随重定向，局域网的 http 请求不会被转到公网主机。
+        if ai_endpoint_check(entry["endpoint"]) != "allowed":
             raise ValueError("invalid AI endpoint")
     return config
 

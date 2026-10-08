@@ -35,6 +35,7 @@ struct VocabularyReviewSettingsView: View {
       } footer: {
         Text("复习只在这里进行，不会改变打字时的候选或组词。进度保存在本机，不会上传。")
       }
+      .designRow()
 
       Section {
         Picker("词书", selection: wordbookBinding) {
@@ -56,10 +57,11 @@ struct VocabularyReviewSettingsView: View {
             .accessibilityIdentifier("vocabularyRemoveButton")
         }
       } header: {
-        Text("词书")
+        SettingsGroupHeader(title: "词书")
       } footer: {
         Text("每行一个词，用逗号或制表符分隔：单词,音标,释义 或 单词,释义。释义里有逗号时用英文引号括起来。")
       }
+      .designRow()
 
       Section {
         if status.needsWordbook {
@@ -85,6 +87,7 @@ struct VocabularyReviewSettingsView: View {
       } footer: {
         Text("答「不认识」的词会在本次复习里再次出现；答「认识」的词按间隔安排到以后的某一天。")
       }
+      .designRow()
 
       Section {
         Button("清空复习进度", role: .destructive) { confirmsReset = true }
@@ -92,7 +95,9 @@ struct VocabularyReviewSettingsView: View {
       } footer: {
         if !message.isEmpty { Text(message).foregroundStyle(.red) }
       }
+      .designRow()
     }
+    .designPage()
     .navigationTitle("背单词")
     .navigationBarTitleDisplayMode(.inline)
     .task { if !loaded { reload() } }

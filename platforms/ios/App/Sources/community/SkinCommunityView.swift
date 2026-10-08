@@ -15,35 +15,75 @@ struct SkinCommunityView: View {
   @State private var showPublish = false
   @State private var showAccount = false
   @State private var requestID = UUID()
+  /// 本地皮肤库（12 个槽位），每次画廊显示时重新读取，这样在详情页领取的皮肤在卡片上会显示 使用。
+  @State private var library: [SavedKeyboardSkin] = []
+  /// 正在下载 获取 的 id。
+  @State private var taking: Set<String> = []
+  // 两个键都只用来重绘胶囊按钮：主题决定键盘上是否显示自定义设计，设计决定显示哪一个。
+  @AppStorage(GlobalThemePreference.key, store: KeyboardFeedbackPreference.defaults) private var globalTheme = GlobalThemeCatalog.systemId
+  @AppStorage(CustomKeyboardSkinStore.key, store: KeyboardFeedbackPreference.defaults) private var storedDesign: Data?
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   private let api = SkinCommunityAPI.shared
 
+  /// 键盘当前绘制的设计；键盘绘制内置主题时为 nil。
+  private var activeDesign: CustomKeyboardSkin? {
+    guard globalTheme == GlobalThemeCatalog.customId, storedDesign != nil else { return nil }
+    return CustomKeyboardSkinStore.stored
+  }
+
   private var gallery: some View {
-    ScrollView {
+    let regular = horizontalSizeClass == .regular
+    let columns = Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: regular ? 3 : 2)
+    let active = activeDesign
+    return ScrollView {
       VStack(alignment: .leading, spacing: 16) {
         CommunitySearchField(text: $search, placeholder: "搜索皮肤设计") { run { try await load() } }
-        VStack(alignment: .leading, spacing: 4) {
-          Text(onlyMine ? "你的公开设计" : "换个心情，从键盘开始").font(.system(size: 20, weight: .bold))
-          Text("发现创作者的配色与巧思，找到你的那一款")
-            .font(.caption).foregroundStyle(.secondary)
-        }.padding(.vertical, 2)
         categoryChips
         if visibleSkins.isEmpty && !busy {
           Text(onlyMine ? (more ? "当前页没有你的作品，继续加载查看更多。" : "还没有已发布的作品，分享你的第一款设计吧。")
                : (category == nil ? "暂时没有皮肤，发布你的第一款设计吧。" : "这个分类下暂时没有皮肤。"))
-            .foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 40)
+            .foregroundStyle(MetasequoiaTheme.sub).frame(maxWidth: .infinity).padding(.vertical, 40)
         }
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 14) {
+        LazyVGrid(columns: columns, spacing: 12) {
           ForEach(visibleSkins) { skin in
-            NavigationLink { CommunitySkinDetail(initial: skin) } label: {
-              CommunitySkinCard(skin: skin)
-            }.buttonStyle(.plain).accessibilityIdentifier("communitySkinCard-\(skin.id)")
+            CommunitySkinCard(skin: skin, state: state(of: skin, active: active)) { pill(skin) }
           }
         }
         if more { Button("加载更多") { run { try await load(append: true) } }.disabled(busy).frame(maxWidth: .infinity) }
         if busy { ProgressView().frame(maxWidth: .infinity) }
-      }.padding(16)
+      }.communityPageContent(regular: regular)
     }
-    .background(Color(uiColor: .systemGroupedBackground))
+    .background(MetasequoiaTheme.canvas)
+    .onAppear { library = CustomSkinLibrary.designs }
+  }
+
+  private func state(of skin: CommunitySkin, active: CustomKeyboardSkin?) -> CommunitySkinCard.PillState {
+    if taking.contains(skin.id) { return .taking }
+    guard let saved = CommunitySkinInstall.saved(skin, in: library) else { return .available }
+    return saved.design == active ? .inUse : .taken
+  }
+
+  /// 获取 把皮肤下载到本地皮肤库；使用 把皮肤库里的副本放到键盘上；使用中 不做任何事。
+  private func pill(_ skin: CommunitySkin) {
+    if let saved = CommunitySkinInstall.saved(skin, in: library) {
+      guard saved.design != activeDesign else { return }
+      if CommunitySkinInstall.apply(saved.design) {
+        TypingStatisticsExtras.recordSkin(saved.id.uuidString)
+        ToastCenter.shared.show("已换上「\(skin.name)」")
+      }
+      else { message = "没能换上「\(skin.name)」，请稍后重试。" }
+      return
+    }
+    guard !taking.contains(skin.id) else { return }
+    taking.insert(skin.id)
+    Task { @MainActor in
+      defer { taking.remove(skin.id) }
+      do {
+        _ = try await CommunitySkinInstall.take(skin)
+        library = CustomSkinLibrary.designs
+        ToastCenter.shared.show("已获取「\(skin.name)」，点「使用」换上")
+      } catch { message = error.localizedDescription }
+    }
   }
   /// 横向滚动的分类筛选，「全部」在最前。切换后从第一页重新读取；加载中禁用，避免切换被 `run` 的忙碌保护吞掉。
   private var categoryChips: some View {
@@ -129,28 +169,108 @@ struct SkinCommunityView: View {
 }
 
 private struct CommunitySkinCard: View {
+  /// 胶囊按钮提供的操作，对应 Android 的 `CommunityAdapter.Action`：皮肤还不在本地皮肤库时为 获取，下载期间为 获取中，下载完成后为 使用，键盘正在绘制它时为 使用中。
+  enum PillState {
+    case available, taking, taken, inUse
+    var title: String {
+      switch self {
+      case .available: "获取"
+      case .taking: "获取中"
+      case .taken: "使用"
+      case .inUse: "使用中"
+      }
+    }
+  }
   let skin: CommunitySkin
-  var body: some View {
-    VStack(alignment: .leading, spacing: 9) {
-      CommunityDesignPreview(design: skin.design)
-      HStack(spacing: 4) {
-        Text(skin.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-        Spacer(minLength: 0)
-        if let category = skin.category { CommunitySkinCategoryTag(category: category) }
-      }
-      HStack(spacing: 4) {
-        CommunityAuthorLabel(name: skin.owned ? "我的作品" : skin.author)
-        if skin.removed { CommunityRemovedBadge() }
-      }
-      HStack(spacing: 3) {
-        Label("\(skin.downloads)", systemImage: "arrow.down.to.line")
-        Spacer(minLength: 2)
-        Label(skin.rating_count == 0 ? "暂无评分" : String(format: "%.1f", skin.rating_average), systemImage: "star")
-      }.font(.system(size: 10)).foregroundStyle(.secondary)
-    }.padding(10).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous))
-      .overlay(RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous).strokeBorder(Color.primary.opacity(0.035), lineWidth: 1))
+  let state: PillState
+  let action: () -> Void
+
+  private var pillLabel: some View {
+    CommunityPillLabel(title: state.title, offersAction: state != .inUse).opacity(state == .taking ? 0.6 : 1)
   }
 
+  var body: some View {
+    let shape = RoundedRectangle(cornerRadius: MetasequoiaTheme.tabCardRadius, style: .continuous)
+    NavigationLink { CommunitySkinDetail(initial: skin) } label: {
+      VStack(spacing: 0) {
+        CommunityDesignPreview(design: skin.design, style: .card)
+          .padding([.top, .horizontal], 8)
+        HStack(alignment: .center, spacing: 8) {
+          VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+              Text(skin.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
+              if skin.removed { CommunityRemovedBadge() }
+            }
+            Text(skin.owned ? "我的作品" : skin.author).font(.system(size: 11)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
+            Text(CommunityListingText.uses(skin.downloads)).font(.system(size: 11)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
+          }
+          Spacer(minLength: 0)
+          // 在行内占住胶囊按钮的位置；胶囊本身从链接外部覆盖绘制在上面，这样它对点击和 VoiceOver 来说仍是独立的按钮。
+          pillLabel.hidden().accessibilityHidden(true)
+            .anchorPreference(key: CommunityPillBoundsKey.self, value: .bounds) { $0 }
+        }
+        .padding(EdgeInsets(top: 10, leading: 10, bottom: 12, trailing: 10))
+      }
+      .frame(maxWidth: .infinity)
+      .background(MetasequoiaTheme.surface, in: shape)
+      .contentShape(shape)
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier("communitySkinCard-\(skin.id)")
+    .overlayPreferenceValue(CommunityPillBoundsKey.self) { anchor in
+      GeometryReader { proxy in
+        if let anchor {
+          let rect = proxy[anchor]
+          pill.frame(width: rect.width, height: rect.height).position(x: rect.midX, y: rect.midY)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder private var pill: some View {
+    if state == .inUse {
+      pillLabel.accessibilityLabel("使用中，\(skin.name)")
+    } else {
+      Button(action: action) { pillLabel }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(state.title)，\(skin.name)")
+        .accessibilityIdentifier("communitySkinAction-\(skin.id)")
+    }
+  }
+}
+
+private struct CommunityPillBoundsKey: PreferenceKey {
+  static let defaultValue: Anchor<CGRect>? = nil
+  static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = value ?? nextValue() }
+}
+
+/// 把社区皮肤领取到本地皮肤库、把皮肤库副本放到键盘上，由画廊的胶囊按钮和详情页共用。
+enum CommunitySkinInstall {
+  /// 社区皮肤在皮肤库里的副本：它占用以皮肤自身 id 命名的槽位。
+  static func saved(_ skin: CommunitySkin, in library: [SavedKeyboardSkin]) -> SavedKeyboardSkin? {
+    guard let id = UUID(uuidString: skin.id) else { return nil }
+    return library.first { $0.id == id }
+  }
+
+  /// 下载设计（会计入下载次数）并保存到皮肤库，替换同一皮肤之前的副本。皮肤库已满时抛出 本地皮肤已满 提示，而不是丢弃设计。
+  @MainActor static func take(_ skin: CommunitySkin) async throws -> CustomKeyboardSkin {
+    let design = try await SkinCommunityAPI.shared.download(skin.id)
+    var library = CustomSkinLibrary.designs
+    let id = UUID(uuidString: skin.id) ?? UUID()
+    if let index = library.firstIndex(where: { $0.id == id }) { library[index].design = design }
+    else {
+      guard library.count < 12 else { throw CommunityFailure(message: "本地皮肤已满，请在「我的设计」删除一款后重试。") }
+      library.append(SavedKeyboardSkin(id: id, name: skin.name, design: design))
+    }
+    guard CustomSkinLibrary.save(library) else { throw CommunityFailure(message: "无法保存皮肤，请检查设备存储。") }
+    return design
+  }
+
+  /// 按编辑器 使用 的方式把设计放到键盘上：先写 App Group 副本，再选中共享文档里的自定义主题。文档拒绝这次修改时返回 false。
+  static func apply(_ design: CustomKeyboardSkin) -> Bool {
+    CustomKeyboardSkinStore.save(design)
+    return GlobalThemePreference.apply(design)
+  }
 }
 
 private struct CommunitySkinCategoryTag: View {
@@ -189,15 +309,7 @@ struct CommunitySkinDetail: View {
         Text("\(skin.downloads) 人下载 · \(skin.rating_average, specifier: "%.1f") 分 · \(skin.rating_count) 人评分")
           .font(.subheadline).foregroundStyle(.secondary)
         Button { run {
-          let design = try await SkinCommunityAPI.shared.download(skin.id)
-          var library = CustomSkinLibrary.designs
-          let id = UUID(uuidString: skin.id) ?? UUID()
-          if let index = library.firstIndex(where: { $0.id == id }) { library[index].design = design }
-          else {
-            guard library.count < 12 else { throw CommunityFailure(message: "本地皮肤已满，请在「我的设计」删除一款后重试。") }
-            library.append(SavedKeyboardSkin(id: id, name: skin.name, design: design))
-          }
-          guard CustomSkinLibrary.save(library) else { throw CommunityFailure(message: "无法保存皮肤，请检查设备存储。") }
+          let design = try await CommunitySkinInstall.take(skin)
           trial = try KeyboardSkinTrialStore().begin(name: skin.name, design: design)
           updated = try? await SkinCommunityAPI.shared.detail(skin.id)
         } } label: { Label("下载并试用", systemImage: "arrow.down.circle.fill").frame(maxWidth: .infinity) }
@@ -332,10 +444,22 @@ struct CommunityPublishView: View {
 
 // A value-based preview must not change the user's active custom skin while browsing.
 struct CommunityDesignPreview: View {
+  /// `.detail` 是带候选行的大预览，用于详情页、发布表单和编辑器的模板。`.card` 是画廊卡片上设计稿的 MiniKb：空闲工具栏、小写按键和完整的底行，按 390 x 292 绘制后缩放适配。
+  enum Style { case detail, card }
   let design: CustomKeyboardSkin
   var nineKey = false
+  var style: Style = .detail
   private func color(_ rgb: UInt32) -> Color { Color(uiColor: CustomKeyboardSkin.color(rgb)) }
-  var body: some View { KeyboardPreviewCanvas { keyboard }.accessibilityHidden(true) }
+  var body: some View {
+    switch style {
+    case .detail:
+      KeyboardPreviewCanvas { keyboard }.accessibilityHidden(true)
+    case .card:
+      KeyboardPreviewCanvas(referenceHeight: Self.cardHeight) { miniKeyboard }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityHidden(true)
+    }
+  }
   private var keyboard: some View {
     VStack(spacing: 6) {
       HStack { Text("你好"); Text("你号"); Spacer(); Text(nineKey ? "九键" : "全拼") }.font(.caption).foregroundStyle(color(design.accent)).frame(height: 32)
@@ -363,5 +487,113 @@ struct CommunityDesignPreview: View {
     Text(text).font(.system(size: 14, weight: .medium, design: design.monospaced ? .monospaced : .default))
       .foregroundStyle(color(text == "↵" ? CustomKeyboardSkin.readableText(on: design.actionBackground) : design.keyForeground)).frame(maxWidth: .infinity, maxHeight: .infinity)
       .background { SkinKeySurface(design: design, action: text == "↵") }
+  }
+
+  // ---- 卡片样式（设计稿的 MiniKb） ----
+
+  private static let cardWidth: CGFloat = 390
+  private static let cardHeight: CGFloat = 292
+  /// 按键横跨整张卡片，两侧各留 3pt。
+  private static let rowWidth: CGFloat = cardWidth - 6
+  private static let keyGap: CGFloat = 6
+  private static let digitHints: [Character: String] = ["q": "1", "w": "2", "e": "3", "r": "4", "t": "5", "y": "6", "u": "7", "i": "8", "o": "9", "p": "0"]
+
+  private struct MiniKey {
+    enum Role { case letter, function, space, action }
+    var text: String?
+    var symbol: String?
+    var weight: CGFloat = 1
+    var role: Role = .letter
+    var hint: String?
+  }
+
+  private var fontDesign: Font.Design { design.monospaced ? .monospaced : .default }
+  private var foreground: Color { color(design.keyForeground) }
+  /// 按键提示和空格键标签，与键盘对设计使用的 `secondary` 一致：按键颜色的 60%。
+  private var secondary: Color { foreground.opacity(0.6) }
+
+  private var miniKeyboard: some View {
+    VStack(spacing: 8) {
+      miniToolbar.frame(height: 50)
+      VStack(spacing: 11) {
+        miniRow(Array("qwertyuiop").map { MiniKey(text: String($0), hint: Self.digitHints[$0]) }, width: Self.rowWidth)
+        miniRow(Array("asdfghjkl").map { MiniKey(text: String($0)) }, width: Self.rowWidth * 0.9)
+        miniRow([MiniKey(symbol: "shift", weight: 1.4, role: .function)]
+                + Array("zxcvbnm").map { MiniKey(text: String($0)) }
+                + [MiniKey(symbol: "delete.left", weight: 1.4, role: .function)], width: Self.rowWidth)
+        miniRow([MiniKey(text: "123", weight: 1.25, role: .function), MiniKey(text: "中", weight: 1.05, role: .function),
+                 MiniKey(text: "，"), MiniKey(text: "全拼", symbol: "mic", weight: 4, role: .space),
+                 MiniKey(text: "。"), MiniKey(symbol: "return", weight: 1.9, role: .action)], width: Self.rowWidth)
+      }
+      Capsule().fill(foreground.opacity(0.85)).frame(width: 134, height: 5).frame(maxHeight: .infinity)
+    }
+    .padding(.horizontal, 3)
+    .frame(width: Self.cardWidth, height: Self.cardHeight)
+    .background { KeyboardSkinBackdrop(skin: .designed(design)) }
+  }
+
+  /// 用皮肤配色绘制的空闲工具栏：品牌圆片、五个默认工具和收起箭头，各占等宽的一列。
+  private var miniToolbar: some View {
+    HStack(spacing: 0) {
+      brandDisc.frame(maxWidth: .infinity)
+      ForEach(["face.smiling", "bubble.left", "doc.on.clipboard", "paintpalette", "keyboard"], id: \.self) { symbol in
+        Image(systemName: symbol).font(.system(size: 19)).frame(maxWidth: .infinity)
+      }
+      Image(systemName: "chevron.down").font(.system(size: 17, weight: .medium)).frame(maxWidth: .infinity)
+    }
+    .foregroundStyle(foreground)
+  }
+
+  /// 由设计的强调色绘制的键盘品牌圆片：圆片为 mix(accent 14%, 按键颜色)，标志的边框为 mix(accent 82%, #000)，再加上白色描边。
+  private var brandDisc: some View {
+    let accent = CustomKeyboardSkin.color(design.accent)
+    let disc = AppThemePalette.mix(accent, 14, CustomKeyboardSkin.color(design.keyBackground))
+    let frame = AppThemePalette.mix(accent, 82, .black)
+    let markSize: CGFloat = 16
+    let scale = MSIMELogo.scale(for: CGRect(x: 0, y: 0, width: markSize, height: markSize))
+    return ZStack {
+      Circle().fill(Color(uiColor: disc))
+      ZStack {
+        MSIMELogoFrame().fill(Color(uiColor: frame))
+        MSIMELogoStroke().stroke(.white, style: StrokeStyle(lineWidth: MSIMELogo.strokeWidth * scale, lineCap: .round, lineJoin: .round))
+      }
+      .frame(width: markSize, height: markSize)
+    }
+    .frame(width: 26, height: 26)
+  }
+
+  /// 一行按键，宽度按各自权重分配，与 MiniKb 的弹性行一致。
+  private func miniRow(_ keys: [MiniKey], width: CGFloat) -> some View {
+    let unit = (width - Self.keyGap * CGFloat(keys.count - 1)) / keys.reduce(0) { $0 + $1.weight }
+    return HStack(spacing: Self.keyGap) {
+      ForEach(keys.indices, id: \.self) { index in
+        miniKey(keys[index]).frame(width: unit * keys[index].weight)
+      }
+    }
+    .frame(height: 43)
+  }
+
+  private func miniKey(_ key: MiniKey) -> some View {
+    let action = key.role == .action
+    let tint = action ? color(CustomKeyboardSkin.readableText(on: design.actionBackground)) : key.role == .space ? secondary : foreground
+    return ZStack(alignment: .topTrailing) {
+      SkinKeySurface(design: design, action: action)
+      HStack(spacing: 4) {
+        if let symbol = key.symbol {
+          Image(systemName: symbol).font(.system(size: key.role == .space ? 16 : 19))
+        }
+        if let text = key.text {
+          Text(text).font(.system(size: key.role == .letter ? 22 : key.role == .space ? 13 : 15,
+                                  weight: key.role == .function ? .medium : .regular, design: fontDesign))
+        }
+      }
+      .lineLimit(1)
+      .foregroundStyle(tint)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      if let hint = key.hint {
+        Text(hint).font(.system(size: 10, design: fontDesign)).foregroundStyle(secondary)
+          .padding(.top, 3).padding(.trailing, 5)
+      }
+    }
   }
 }

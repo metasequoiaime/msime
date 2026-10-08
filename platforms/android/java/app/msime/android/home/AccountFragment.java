@@ -22,6 +22,7 @@ import app.msime.android.R;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
 import app.msime.android.ViewPolicy;
+import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -201,11 +202,12 @@ public final class AccountFragment extends HomeTabFragment {
     /** 当前全局主题在共享目录里的名字；读不到时不显示。 */
     @Nullable private static String skinName(@Nullable JSONObject preferences) {
         if (preferences == null) return null;
-        String id = preferences.optString("global_theme", "system");
+        String id = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONArray themes = HostStore.themeCatalog();
         for (int index = 0; index < themes.length(); index++) {
             JSONObject entry = themes.optJSONObject(index);
-            if (entry != null && id.equals(entry.optString("id", ""))) return entry.optString("title", id);
+            if (entry != null && id.equals(InputViewValuePolicy.textOr(entry, "id", "")))
+                return InputViewValuePolicy.textOr(entry, "title", id);
         }
         return "custom".equals(id) ? "自定义" : null;
     }

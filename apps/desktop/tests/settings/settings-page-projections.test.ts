@@ -165,3 +165,34 @@ test("drops the 手写输入 page from an edition without handwriting", () => {
     ids: ["screen-keyboard", "voice"],
   });
 });
+
+// 触屏宿主按设计的叫法命名页面；桌面侧栏保留注册表里的标题。
+test("renames pages to the design's touch titles on mobile only", () => {
+  const title = (projection: ReturnType<typeof project>, id: string) =>
+    projection.availablePages.find((page) => page.id === id)?.title;
+  const mobile = project({ mobilePlatform: true });
+  const desktop = project();
+  for (const [id, touch, registry] of [
+    ["home", "设置", "首页"],
+    ["skin", "皮肤", "主题"],
+    ["expression", "表达", "标点与翻译"],
+    ["developer", "开发者选项", "维护与诊断"],
+    ["typing-statistics", "统计", "打字统计"],
+    ["feedback", "反馈", "帮助与反馈"],
+  ] as const) {
+    expect(title(mobile, id)).toBe(touch);
+    expect(title(desktop, id)).toBe(registry);
+  }
+  // 「设置」根页的行也用同样的名字。
+  const rows = mobile.mobileSecondaryGroups.flatMap((group) => group.pages);
+  expect(rows.find((page) => page.id === "expression")?.title).toBe("表达");
+  expect(rows.find((page) => page.id === "developer")?.title).toBe("开发者选项");
+});
+
+// 鸿蒙 2-in-1 外壳投影时不含首页，所以它的侧栏从「输入」开始。
+test("a host without the home page starts its sidebar at 输入", () => {
+  const sidebar = project({ hasHomePage: false }).sidebarGroups;
+  expect(sidebar[0].title).toBe("打字");
+  expect(sidebar[0].pages[0].id).toBe("input");
+  expect(sidebar.flatMap((group) => group.pages.map((page) => page.id))).not.toContain("home");
+});

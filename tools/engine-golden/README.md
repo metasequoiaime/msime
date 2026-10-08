@@ -107,3 +107,5 @@ Four reference ctests fail against this build because an overlay changed what th
 - `personal_dictionary` -> `personal_dictionary_entries`: `{English, hello, different}` is accepted (apply_engine_english_display.py).
 
 One later product change is recorded the same way: since #5640 the nine-key grid also reads every digit as one syllable's initial, so `64` adds 你好 (n'h) after the syllable rows in `nine_key_*` and `personal_context_public_session`, and the frequency adjustments those scenarios record are computed over the longer list.
+
+Since #5667 / #5907 the mixed emoji and kaomoji rows no longer take the priority slot after the leading row: a row whose catalog keywords (`emoji.keywords`, `kaomoji_catalog.keywords`) include a candidate's word follows the first such candidate, and the rest go to the end of the list, emoji before kaomoji, at most three of each. The `mixed_expressive_*` fixtures have no catalog tables, so every row there goes to the end; their expected lists were reordered accordingly (weights and everything else unchanged). English rows keep the reference's priority slot.

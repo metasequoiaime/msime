@@ -4,6 +4,7 @@ import {
   candidatePreeditFontSize,
 } from "../candidate/candidate-font-size";
 import { SelectRow } from "./select-row";
+import { SliderRow } from "./slider-row";
 
 export interface CandidateSizingPreferences {
   candidate_font_size?: number;
@@ -55,5 +56,34 @@ export function CandidateSizingSection({
         </SelectRow>
       )}
     </>
+  );
+}
+
+/** HarmonyOS 手机候选字号滑块提供的范围，即设计稿的 14–24 px；存储的偏好可以是 12 到 32 之间的任意字号。 */
+export const candidateFontSizeSlider = { min: 14, max: 24, step: 1 } as const;
+
+export interface CandidateFontSizeSliderRowProps {
+  preferences: Pick<CandidateSizingPreferences, "candidate_font_size">;
+  onChange: (patch: Pick<CandidateSizingPreferences, "candidate_font_size">) => void;
+}
+
+/** 「候选字号」滑块，HarmonyOS 手机「候选栏」页「候选栏」组的一行。超出滑块范围的存储字号显示在最近的一端，只有用户拖动滑块后才写回，所以打开页面不会改写偏好。 */
+export function CandidateFontSizeSliderRow({
+  preferences,
+  onChange,
+}: CandidateFontSizeSliderRowProps) {
+  const size = Math.min(
+    Math.max(candidateFontSize(preferences.candidate_font_size), candidateFontSizeSlider.min),
+    candidateFontSizeSlider.max,
+  );
+  return (
+    <SliderRow
+      title="候选字号"
+      {...candidateFontSizeSlider}
+      value={size}
+      valueText={`${size}px`}
+      displayValue={`${size}px`}
+      onChange={(candidate_font_size) => onChange({ candidate_font_size })}
+    />
   );
 }

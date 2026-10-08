@@ -124,14 +124,16 @@ fn jongseong_index(consonant: char) -> Option<u32> {
         .map(|index| index as u32 + 1)
 }
 
-/// One syllable of the fold. `jung` and `jong` hold up to two components each, so a compound can be split again; every component remembers the key index it came from.
+/// 合成中的一个音节：元音和尾辅音各最多两个分量，固定槽保留复合字母的拆分信息，尾辅音还记录其按键索引。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Syllable {
     /// Key index of the syllable's first jamo.
     start: usize,
     cho: Option<char>,
-    jung: Vec<u8>,
-    jong: Vec<(char, usize)>,
+    jung: [u8; 2],
+    jung_len: usize,
+    jong: [(char, usize); 2],
+    jong_len: usize,
 }
 
 impl Syllable {
@@ -143,11 +145,37 @@ impl Syllable {
     }
 
     fn is_empty(&self) -> bool {
-        self.cho.is_none() && self.jung.is_empty()
+        self.cho.is_none() && self.jung_len == 0
+    }
+
+    fn jung(&self) -> &[u8] {
+        &self.jung[..self.jung_len]
+    }
+
+    fn push_jung(&mut self, vowel: u8) {
+        assert!(self.jung_len < self.jung.len());
+        self.jung[self.jung_len] = vowel;
+        self.jung_len += 1;
+    }
+
+    fn jong(&self) -> &[(char, usize)] {
+        &self.jong[..self.jong_len]
+    }
+
+    fn push_jong(&mut self, consonant: (char, usize)) {
+        assert!(self.jong_len < self.jong.len());
+        self.jong[self.jong_len] = consonant;
+        self.jong_len += 1;
+    }
+
+    fn pop_jong(&mut self) -> Option<(char, usize)> {
+        let last = self.jong_len.checked_sub(1)?;
+        self.jong_len = last;
+        Some(self.jong[last])
     }
 
     fn vowel(&self) -> Option<u8> {
-        match self.jung.as_slice() {
+        match self.jung() {
             [] => None,
             [single] => Some(*single),
             [first, second] => compound_vowel(*first, *second),
@@ -156,7 +184,7 @@ impl Syllable {
     }
 
     fn final_consonant(&self) -> Option<char> {
-        match self.jong.as_slice() {
+        match self.jong() {
             [] => None,
             [(single, _)] => Some(*single),
             [(first, _), (second, _)] => compound_final(*first, *second),
@@ -198,14 +226,14 @@ fn fold(keys: &[u8]) -> Vec<Syllable> {
         match jamo {
             Jamo::Consonant(consonant) => {
                 let takes_final = current.cho.is_some()
-                    && !current.jung.is_empty()
-                    && match current.jong.as_slice() {
+                    && current.jung_len != 0
+                    && match current.jong() {
                         [] => jongseong_index(consonant).is_some(),
                         [(first, _)] => compound_final(*first, consonant).is_some(),
                         _ => false,
                     };
                 if takes_final {
-                    current.jong.push((consonant, index));
+                    current.push_jong((consonant, index));
                 } else if current.is_empty() {
                     current.start = index;
                     current.cho = Some(consonant);
@@ -218,29 +246,28 @@ fn fold(keys: &[u8]) -> Vec<Syllable> {
                 }
             }
             Jamo::Vowel(vowel) => {
-                if let Some((moved, moved_at)) = current.jong.pop() {
-                    // A vowel after a final takes the final's last consonant as its initial: 간+ㅏ → 가나, 닭+ㅏ → 달가.
+                if let Some((moved, moved_at)) = current.pop_jong() {
+                    // 尾辅音后接元音时，将最后一个辅音移作下一音节的首辅音：간+ㅏ → 가나，닭+ㅏ → 달가。
                     syllables.push(std::mem::replace(
                         &mut current,
                         Syllable::starting_at(moved_at),
                     ));
                     current.cho = Some(moved);
-                    current.jung.push(vowel);
-                } else if current.jung.is_empty() {
+                    current.push_jung(vowel);
+                } else if current.jung_len == 0 {
                     if current.is_empty() {
                         current.start = index;
                     }
-                    current.jung.push(vowel);
-                } else if current.jung.len() == 1
-                    && compound_vowel(current.jung[0], vowel).is_some()
+                    current.push_jung(vowel);
+                } else if current.jung_len == 1 && compound_vowel(current.jung[0], vowel).is_some()
                 {
-                    current.jung.push(vowel);
+                    current.push_jung(vowel);
                 } else {
                     syllables.push(std::mem::replace(
                         &mut current,
                         Syllable::starting_at(index),
                     ));
-                    current.jung.push(vowel);
+                    current.push_jung(vowel);
                 }
             }
         }
@@ -288,6 +315,29 @@ mod tests {
     fn fold_reserves_one_slot_per_key() {
         let syllables = fold(b"rkrk");
         assert_eq!(syllables.capacity(), 4);
+    }
+
+    #[test]
+    fn folding_syllables_only_allocates_the_result_vector() {
+        for (keys, expected) in [
+            ("rkrk", "가가"),
+            ("rhkd", "광"),
+            ("ekfr", "닭"),
+            ("ekfrk", "달가"),
+            ("rksk", "가나"),
+            ("dkssudgktpdy", "안녕하세요"),
+            ("rr", "ㄱㄱ"),
+            ("kk", "ㅏㅏ"),
+        ] {
+            let (syllables, allocations) =
+                crate::ime::personal_rerank::allocations::count(|| fold(keys.as_bytes()));
+            let mut text = String::new();
+            for syllable in syllables {
+                syllable.render(&mut text);
+            }
+            assert_eq!(text, expected, "{keys}");
+            assert_eq!(allocations, 1, "{keys}");
+        }
     }
 
     #[test]

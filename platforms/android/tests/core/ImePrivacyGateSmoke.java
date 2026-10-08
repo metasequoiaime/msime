@@ -89,6 +89,24 @@ public final class ImePrivacyGateSmoke {
         check(kept.length + 8 <= 24 && keptText.endsWith("{\"c\":3}\n") && !keptText.contains("{\"a\""),
             "over the cap the oldest whole lines go");
         check(ImeDebugOverlay.EventLog.MAX_BYTES == 1024 * 1024, "each log is bounded at 1 MiB");
+
+        // 超限滚动也不能把固定 staging 路径的硬链接写到诊断目录之外。
+        java.nio.file.Path logRoot = java.nio.file.Files.createTempDirectory("msime-event-log-");
+        java.nio.file.Path external = java.nio.file.Files.createTempFile("msime-event-log-outside-", ".jsonl");
+        byte[] sentinel = "outside-sentinel".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        java.nio.file.Files.write(external, sentinel);
+        java.nio.file.Files.write(logRoot.resolve(ImeDebugOverlay.EventLog.EVENTS_FILE),
+            new byte[ImeDebugOverlay.EventLog.MAX_BYTES]);
+        java.nio.file.Files.createLink(logRoot.resolve("." + ImeDebugOverlay.EventLog.EVENTS_FILE + ".staging"), external);
+        ImeDebugOverlay.EventLog log = new ImeDebugOverlay.EventLog(logRoot.toFile());
+        Method append = ImeDebugOverlay.EventLog.class.getDeclaredMethod(
+            "append", String.class, byte[].class);
+        append.setAccessible(true);
+        append.invoke(log, ImeDebugOverlay.EventLog.EVENTS_FILE,
+            "synthetic\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        check(java.util.Arrays.equals(sentinel, java.nio.file.Files.readAllBytes(external)),
+            "diagnostic log staging does not modify a hard-linked file");
+        log.shutdown();
         System.out.println("Android IME privacy gate passed");
     }
 

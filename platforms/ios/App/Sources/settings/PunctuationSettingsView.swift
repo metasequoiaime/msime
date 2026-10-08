@@ -23,6 +23,7 @@ struct PunctuationSettingsView: View {
       } footer: {
         Text("中文标点模式下，字母或数字后的 , . : 自动使用英文标点。")
       }
+      .designRow()
       Section {
         Toggle(isOn: stored("smart_punctuation_repeat", $repeatToChinese)) {
           labelled("重复标点转中文", "输出英文标点后，2 秒内再次输入同一标点时替换为中文标点")
@@ -40,11 +41,13 @@ struct PunctuationSettingsView: View {
         Text("以上规则在智能标点开启时生效。")
       }
       .disabled(!smart)
+      .designRow()
       Section {
         Toggle(isOn: stored("paired_punctuation", $paired)) {
           labelled("成对标点自动补全", "输入左侧括号或引号时同时补上右侧")
         }.accessibilityIdentifier("pairedPunctuation")
       }
+      .designRow()
       Section {
         Toggle(isOn: Binding(get: { width == CharacterWidthPreference.fullwidth },
                              set: { stored(CharacterWidthPreference.key, $width).wrappedValue =
@@ -52,8 +55,9 @@ struct PunctuationSettingsView: View {
           labelled("全角输入", "将英文字符和空格提交为全角形式")
         }.accessibilityIdentifier("characterWidth")
       } footer: {
-        Text("键盘下次出现时生效；键盘「更多」里的全角开关只临时切换当前键盘。")
+        Text("键盘下次出现时生效；键盘功能菜单里的「全角」开关只临时切换当前键盘。")
       }
+      .designRow()
       Section {
         Picker("固定标点", selection: stored("punctuation_lock", $lock)) {
           Text("跟随中英文状态").tag("follow")
@@ -64,7 +68,9 @@ struct PunctuationSettingsView: View {
       } footer: {
         Text(saveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : "切换中英文时的标点形态。")
       }
+      .designRow()
     }
+    .designPage()
     .navigationTitle("标点").navigationBarTitleDisplayMode(.inline)
     .onAppear(perform: reload)
     .onChange(of: scenePhase) { phase in

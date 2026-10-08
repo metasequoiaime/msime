@@ -70,8 +70,11 @@ struct KeyboardAIView: View {
   }
 
   private var destination: String {
-    guard let url = try? configuration.validatedURL(), let host = url.host else { return configuration.endpoint }
-    return "https://" + host + (url.port.map { ":\($0)" } ?? "")
+    // 显示真实的协议：局域网里的 http 接口不能被写成 https，用户要看得出这次请求不加密。
+    guard let url = try? configuration.validatedURL(allowsLocalHTTP: true),
+          let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+          let scheme = components.scheme?.lowercased(), let host = components.host else { return configuration.endpoint }
+    return scheme + "://" + host.lowercased() + (components.port.map { ":\($0)" } ?? "")
   }
 
   private func showError(_ message: String) {

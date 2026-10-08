@@ -13,57 +13,121 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertEqual(KeyboardFormFactor.resolve(idiom: .phone, horizontalSizeClass: .compact), .phone)
   }
 
-  /// 手机高度保持原值;平板竖屏按设计稿的 54pt 键高定(见 testDesignKeyHeights),横屏更高,与系统键盘一致。
-  func testHeights() {
-    XCTAssertEqual(KeyboardFormFactor.phone.baseHeight(landscape: false, handwriting: false), 260)
-    XCTAssertEqual(KeyboardFormFactor.phone.baseHeight(landscape: false, handwriting: true), 260)
-    XCTAssertEqual(KeyboardFormFactor.phone.baseHeight(landscape: true, handwriting: false), 216)
-    XCTAssertEqual(KeyboardFormFactor.phone.baseHeight(landscape: true, handwriting: true), 240)
-    let portrait = KeyboardFormFactor.tablet.baseHeight(landscape: false, handwriting: false)
-    let landscape = KeyboardFormFactor.tablet.baseHeight(landscape: true, handwriting: false)
-    XCTAssertGreaterThan(portrait, 260)
-    XCTAssertGreaterThan(landscape, portrait)
-    // 数字行是整整一排键，平板加一排的高度而不是压扁字母；手机不带数字行。
-    XCTAssertGreaterThan(KeyboardFormFactor.tablet.baseHeight(landscape: false, handwriting: false, numberRow: true), portrait + 40)
-    XCTAssertGreaterThan(KeyboardFormFactor.tablet.baseHeight(landscape: true, handwriting: false, numberRow: true), landscape + 40)
+  /// 键盘高度按设计稿的方式由各部分累加：上内边距 6、下内边距 4，顶栏，顶栏下方的间隙（手机 11，iPad 9），以及各排键和排间距。
+  func testHeightsAreBuiltFromTheDesignMetrics() {
+    let phone = KeyboardFormFactor.phone, tablet = KeyboardFormFactor.tablet
+    XCTAssertEqual(phone.padding, NSDirectionalEdgeInsets(top: 6, leading: 3, bottom: 4, trailing: 3))
+    XCTAssertEqual(tablet.padding, NSDirectionalEdgeInsets(top: 6, leading: 8, bottom: 4, trailing: 8))
+    XCTAssertEqual(phone.topRowGap, 11)
+    XCTAssertEqual(tablet.topRowGap, 9)
+    XCTAssertEqual(phone.keyHeight(landscape: false, handwriting: false), 42)
+    XCTAssertEqual(phone.keyHeight(landscape: false, handwriting: true), 42)
+    XCTAssertEqual(phone.keyHeight(landscape: true, handwriting: false), 34)
+    XCTAssertEqual(phone.keyHeight(landscape: true, handwriting: true), 40)
+    XCTAssertEqual(tablet.keyHeight(landscape: false, handwriting: false), 54)
+    XCTAssertGreaterThan(tablet.keyHeight(landscape: true, handwriting: false), 54)
+    // 设计稿的手机键盘：6 + 50 + 11 + 4 × 42 + 3 × 7 + 4。
+    XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: false, handwriting: false), 260)
+    XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: false, handwriting: false, numberRow: true), 260,
+                   "a phone has no digit row")
+    // 更宽的排间距加在键盘总高上，而不是从键高里扣。
+    XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 10, landscape: false, handwriting: false), 269)
+    // 数字行是整整一排键，平板加一排的高度而不是压扁字母。
+    let portrait = tablet.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: false, handwriting: false)
+    // 6 + 50 + 9 + 4 × 54 + 3 × 7 + 4，再加数字行这第五排 54pt 键及其 7pt 间距。
+    XCTAssertEqual(portrait, 306)
+    XCTAssertEqual(tablet.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: false, handwriting: false, numberRow: true), 367)
+    XCTAssertGreaterThan(tablet.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: true, handwriting: false), portrait)
+    // 「显示方式」为隐藏、顶栏收起时，它下面的间隔也一起去掉：6 + 4 × 42 + 3 × 7 + 4，与键区实际占的高度相同，按键不会被多出的 11pt 拉高。
+    XCTAssertEqual(phone.keyboardHeight(topRow: 0, rowSpacing: 7, landscape: false, handwriting: false), 199)
+    XCTAssertEqual(tablet.keyboardHeight(topRow: 0, rowSpacing: 7, landscape: false, handwriting: false), 247)
     XCTAssertTrue(KeyboardFormFactor.tablet.canShowFullKeys)
     XCTAssertFalse(KeyboardFormFactor.phone.canShowFullKeys)
   }
 
-  /// The drawn key heights at the default row spacing. The iPad keys are the design's 54pt (dc.html L1559 `keyH`), with or without the digit row. The phone keeps its 260pt keyboard, which leaves its keys above the 44pt touch target the layout tests hold them to, rather than the design's 42pt.
+  /// 默认排间距下画出的布局：设计稿的手机 42pt 键和 iPad 54pt 键（dc.html `keyH`），带或不带 iPad 数字行，四周的内边距，以及顶栏下方的间隙。
   @MainActor
   func testDesignKeyHeights() throws {
+    enableAllInputSchemes()
     let defaults = KeyboardLayoutPreference.defaults
     let keys = [KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.tabletFullKeysKey]
     let stored = keys.map { defaults.object(forKey: $0) }
-    defer { for (key, value) in zip(keys, stored) { defaults.set(value, forKey: key) } }
+    let previousScheme = InputSchemePreference.scheme
+    defer {
+      for (key, value) in zip(keys, stored) { defaults.set(value, forKey: key) }
+      InputSchemePreference.scheme = previousScheme
+    }
     keys.forEach { defaults.removeObject(forKey: $0) }
     KeyboardLayoutPreference.rowSpacing = 7
+    // 字母布局，也就是带 iPad 数字行的那种。
+    InputSchemePreference.scheme = .quanpin
 
-    func letterHeight(tablet: Bool, width: CGFloat, height: CGFloat) throws -> CGFloat {
+    func layout(tablet: Bool, width: CGFloat) throws -> (key: CGRect, strip: CGRect, space: CGRect, height: CGFloat) {
       let controller = KeyboardViewController()
       if tablet {
         controller.traitOverrides.userInterfaceIdiom = .pad
         controller.traitOverrides.horizontalSizeClass = .regular
       }
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: height + KeyboardViewController.stripExtraHeight)
+      let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: height)
       controller.view.layoutIfNeeded()
-      return try key("letterDeleteKey", in: controller).bounds.height
+      // iPad 键盘的 ⌫ 位于第一排末尾（`TabletLetterLayout`）。
+      let delete = try key(tablet ? "tabletDeleteKey" : "letterDeleteKey", in: controller)
+      let strip = try view("candidateStrip", in: controller)
+      let space = try key("spaceKey", in: controller)
+      return (delete.convert(delete.bounds, to: controller.view), strip.convert(strip.bounds, to: controller.view),
+              space.convert(space.bounds, to: controller.view), height)
     }
-    let phone = try letterHeight(tablet: false, width: 393, height: KeyboardFormFactor.phone.baseHeight(landscape: false, handwriting: false))
-    XCTAssertGreaterThanOrEqual(phone, 44)
-    let withRow = try letterHeight(tablet: true, width: 820, height: KeyboardFormFactor.tablet.baseHeight(landscape: false, handwriting: false, numberRow: true))
-    XCTAssertEqual(withRow, 54, accuracy: 0.5)
+    let phone = try layout(tablet: false, width: 393)
+    XCTAssertEqual(phone.height, KeyboardViewController.defaultKeyboardHeight)
+    XCTAssertEqual(phone.key.height, 42, accuracy: 0.5)
+    XCTAssertEqual(phone.space.height, 42, accuracy: 0.5)
+    XCTAssertEqual(phone.strip.minY, 6, accuracy: 0.5)
+    XCTAssertEqual(phone.strip.minX, 3, accuracy: 0.5)
+    XCTAssertEqual(phone.strip.maxX, 393 - 3, accuracy: 0.5)
+    XCTAssertEqual(phone.space.maxY, phone.height - 4, accuracy: 0.5)
+    let withRow = try layout(tablet: true, width: 820)
+    XCTAssertEqual(withRow.key.height, 54, accuracy: 0.5)
+    XCTAssertEqual(withRow.strip.minX, 8, accuracy: 0.5)
     KeyboardLayoutPreference.tabletFullKeys = false
-    let plain = try letterHeight(tablet: true, width: 820, height: KeyboardFormFactor.tablet.baseHeight(landscape: false, handwriting: false))
-    XCTAssertEqual(plain, 54, accuracy: 0.5)
+    let plain = try layout(tablet: true, width: 820)
+    XCTAssertEqual(plain.key.height, 54, accuracy: 0.5)
+    XCTAssertEqual(withRow.height - plain.height, 61, accuracy: 0.5, "the digit row adds a 54pt row and its 7pt gap")
+  }
+
+  /// 不论操作行上方显示哪几排，第一排键都位于顶栏下方设计稿规定的间隙处。
+  @MainActor
+  func testTheKeysStartTheDesignGapUnderTheTopRow() throws {
+    enableAllInputSchemes()
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    for scheme in [ChineseInputScheme.quanpin, .nineKey] {
+      InputSchemePreference.scheme = scheme
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.view.layoutIfNeeded()
+      let strip = try view("candidateStrip", in: controller)
+      let first = scheme == .nineKey
+        ? try key("nineKey1", in: controller)
+        : try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" })
+      XCTAssertEqual(first.convert(first.bounds, to: controller.view).minY - strip.convert(strip.bounds, to: controller.view).maxY,
+                     KeyboardFormFactor.phone.topRowGap, accuracy: 0.5, "\(scheme)")
+    }
   }
 
   /// iPad 全尺寸键盘有数字行和 Tab 键，可以在设置里关掉；手机（以及 iPad 的窄键盘）始终没有。
   func testTabletCarriesTheDigitRowAndTabUnlessTurnedOff() throws {
+    enableAllInputSchemes()
     let stored = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.tabletFullKeysKey)
-    defer { KeyboardLayoutPreference.defaults.set(stored, forKey: KeyboardLayoutPreference.tabletFullKeysKey) }
+    let previousScheme = InputSchemePreference.scheme
+    defer {
+      KeyboardLayoutPreference.defaults.set(stored, forKey: KeyboardLayoutPreference.tabletFullKeysKey)
+      InputSchemePreference.scheme = previousScheme
+    }
+    // 数字行属于字母布局；别的测试留下的九键方案没有数字行。
+    InputSchemePreference.scheme = .quanpin
     KeyboardLayoutPreference.defaults.removeObject(forKey: KeyboardLayoutPreference.tabletFullKeysKey)
     XCTAssertTrue(KeyboardLayoutPreference.tabletFullKeys, "on by default")
 
@@ -91,6 +155,101 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertTrue(try key("tabKey", in: plain).isHidden)
     let withoutRow = try XCTUnwrap(plain.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
     XCTAssertGreaterThan(withRow, withoutRow)
+  }
+
+  /// iPad 的 26 键沿用设计稿的 pad 排布（`TabletLetterLayout`）：第一排以 1.3 宽的 ⌫ 结尾，第二排缩进 2.5% 开始、以 1.75 宽的 return 结尾，第三排在 z–m 和 ，。两端各有一个 1.4 宽的 ⇧，底排是 123 1.5 | 中 1.2 | space 6.4 | 123 1.5 | ⌄ 1.2，没有自己的 return 和 ，。手机保持原有排布。
+  @MainActor
+  func testTabletLettersFollowTheIPadRows() throws {
+    enableAllInputSchemes()
+    let stored = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.tabletFullKeysKey)
+    let previousScheme = InputSchemePreference.scheme
+    defer {
+      KeyboardLayoutPreference.defaults.set(stored, forKey: KeyboardLayoutPreference.tabletFullKeysKey)
+      InputSchemePreference.scheme = previousScheme
+    }
+    InputSchemePreference.scheme = .quanpin
+    KeyboardLayoutPreference.defaults.removeObject(forKey: KeyboardLayoutPreference.tabletFullKeysKey)
+    let tablet = tabletController()
+    func letterKey(_ letter: String) throws -> UIButton {
+      try XCTUnwrap(descendants(tablet.view).first { $0.accessibilityLabel == "字母 \(letter)" } as? UIButton, letter)
+    }
+    let q = try letterKey("Q"), p = try letterKey("P"), a = try letterKey("A"), l = try letterKey("L"), z = try letterKey("Z")
+    let shot = XCTAttachment(image: UIGraphicsImageRenderer(bounds: tablet.view.bounds).image { tablet.view.layer.render(in: $0.cgContext) })
+    shot.name = "iPad 26-key keyboard"
+    shot.lifetime = .keepAlways
+    add(shot)
+
+    let delete = try key("tabletDeleteKey", in: tablet)
+    XCTAssertFalse(delete.isHidden)
+    XCTAssertTrue(try key("letterDeleteKey", in: tablet).isHidden)
+    XCTAssertEqual(delete.superview, p.superview)
+    XCTAssertGreaterThan(frame(delete, in: tablet).minX, frame(p, in: tablet).maxX)
+    XCTAssertEqual(delete.bounds.width, q.bounds.width * TabletLetterLayout.deleteWeight, accuracy: 0.5)
+
+    let enter = try key("tabletReturnKey", in: tablet)
+    XCTAssertFalse(enter.isHidden)
+    XCTAssertTrue(try key("returnKey", in: tablet).isHidden, "the bottom row has no return")
+    XCTAssertEqual(enter.superview, l.superview)
+    XCTAssertGreaterThan(frame(enter, in: tablet).minX, frame(l, in: tablet).maxX)
+    XCTAssertEqual(enter.bounds.width, a.bounds.width * TabletLetterLayout.returnWeight, accuracy: 0.5)
+    XCTAssertEqual(enter.accessibilityLabel, try key("returnKey", in: tablet).accessibilityLabel, "both returns draw the same face")
+    let keysWidth = tablet.view.bounds.width - 2 * KeyboardFormFactor.tablet.padding.leading
+    let rowStart = try XCTUnwrap(a.superview).convert(CGPoint.zero, to: tablet.view).x
+    XCTAssertEqual(frame(a, in: tablet).minX - rowStart, keysWidth * TabletLetterLayout.middleRowLeadingInset, accuracy: 0.5)
+
+    let leftShift = try key("shiftButton", in: tablet)
+    let rightShift = try key("rightShiftButton", in: tablet)
+    XCTAssertFalse(rightShift.isHidden)
+    XCTAssertEqual(rightShift.superview, z.superview)
+    XCTAssertGreaterThan(frame(rightShift, in: tablet).minX, try frame(key("letterRowPeriodKey", in: tablet), in: tablet).maxX)
+    for shift in [leftShift, rightShift] {
+      XCTAssertEqual(shift.bounds.width, z.bounds.width * TabletLetterLayout.shiftWeight, accuracy: 0.5)
+    }
+
+    let toggle = try key("layoutToggleButton", in: tablet)
+    let language = try key("bottomLanguageKey", in: tablet)
+    let space = try key("spaceKey", in: tablet)
+    let layer = try key("tabletLayerKey", in: tablet)
+    let dismiss = try key("dismissKeyboardKey", in: tablet)
+    for bottomKey in [toggle, language, space, layer, dismiss] { XCTAssertFalse(bottomKey.isHidden, bottomKey.accessibilityIdentifier ?? "") }
+    XCTAssertTrue(try key("quickPunctuationKey", in: tablet).isHidden)
+    XCTAssertTrue(try key("bottomPeriodKey", in: tablet).isHidden)
+    XCTAssertEqual(layer.configuration?.title, "123")
+    XCTAssertEqual(dismiss.configuration?.title, TabletLetterLayout.dismissFace)
+    let unit = space.bounds.width / TabletLetterLayout.spaceWeight
+    XCTAssertEqual(toggle.bounds.width, unit * TabletLetterLayout.layerWeight, accuracy: 0.5)
+    XCTAssertEqual(language.bounds.width, unit * TabletLetterLayout.languageWeight, accuracy: 0.5)
+    XCTAssertEqual(layer.bounds.width, unit * TabletLetterLayout.layerWeight, accuracy: 0.5)
+    XCTAssertEqual(dismiss.bounds.width, unit * TabletLetterLayout.dismissWeight, accuracy: 0.5)
+    XCTAssertGreaterThan(frame(layer, in: tablet).minX, frame(space, in: tablet).maxX)
+    XCTAssertGreaterThan(frame(dismiss, in: tablet).minX, frame(layer, in: tablet).maxX)
+
+    // 任一 ⇧ 都会切换大小写，两个 ⇧ 都显示当前状态。
+    rightShift.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(leftShift.accessibilityValue, rightShift.accessibilityValue)
+    XCTAssertEqual(leftShift.configuration?.image, rightShift.configuration?.image)
+
+    // 第二个 123 打开符号层，符号层的底排会带回 return。
+    layer.sendActions(for: .primaryActionTriggered)
+    tablet.view.layoutIfNeeded()
+    XCTAssertTrue(layer.isHidden)
+    XCTAssertTrue(dismiss.isHidden)
+    XCTAssertFalse(try key("returnKey", in: tablet).isHidden)
+    XCTAssertTrue(KeyboardViewController.usesTabletBottomRow(formFactor: .tablet, letterRows: true))
+    XCTAssertFalse(KeyboardViewController.usesTabletBottomRow(formFactor: .tablet, letterRows: false))
+    XCTAssertFalse(KeyboardViewController.usesTabletBottomRow(formFactor: .phone, letterRows: true))
+
+    let phone = KeyboardViewController()
+    phone.loadViewIfNeeded()
+    phone.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    phone.view.layoutIfNeeded()
+    for identifier in ["tabletDeleteKey", "tabletReturnKey", "rightShiftButton", "tabletLayerKey", "dismissKeyboardKey"] {
+      XCTAssertTrue(try key(identifier, in: phone).isHidden, identifier)
+    }
+    for identifier in ["letterDeleteKey", "returnKey"] {
+      XCTAssertFalse(try key(identifier, in: phone).isHidden, identifier)
+    }
+    XCTAssertEqual(try key("shiftButton", in: phone).bounds.width, 44, accuracy: 0.5)
   }
 
   /// Tab 在组字时对应桌面端的 `navigation.tab` 翻页，默认开。
@@ -203,7 +362,7 @@ final class KeyboardFormFactorTests: XCTestCase {
 
       KeyboardLayoutPreference.tabletSplit = true
       let split = splitTestController()
-      let rowWidth = split.view.bounds.width - 10
+      let rowWidth = split.view.bounds.width - 2 * KeyboardFormFactor.tablet.padding.leading
       let gap = rowWidth * KeyboardSplitLayout.gapRatio
       XCTAssertEqual(visibleGaps(in: split).count, 5, "number row, three letter rows and the bottom row")
       for (left, right) in [("t", "y"), ("g", "h"), ("b", "n")] {
@@ -270,7 +429,7 @@ final class KeyboardFormFactorTests: XCTestCase {
     try withSplitPreferences(scheme: .microsoft) {
       KeyboardLayoutPreference.tabletSplit = true
       let controller = splitTestController()
-      let gap = (controller.view.bounds.width - 10) * KeyboardSplitLayout.gapRatio
+      let gap = (controller.view.bounds.width - 2 * KeyboardFormFactor.tablet.padding.leading) * KeyboardSplitLayout.gapRatio
       XCTAssertFalse(try key("splitSpaceKey", in: controller).isHidden)
       // 微软双拼的 `;` 归右半，g | h 的位置不变。
       let semicolon = try key("microsoftFinalKey", in: controller)
@@ -344,8 +503,8 @@ final class KeyboardFormFactorTests: XCTestCase {
     controller.traitOverrides.verticalSizeClass = landscape ? .compact : .regular
     controller.loadViewIfNeeded()
     let width: CGFloat = idiom == .phone ? 852 : (landscape ? 1194 : 834)
-    let height = KeyboardFormFactor.tablet.baseHeight(landscape: true, handwriting: false, numberRow: true)
-    controller.view.frame = CGRect(x: 0, y: 0, width: width, height: height + KeyboardViewController.stripExtraHeight)
+    let height = KeyboardViewController.keyboardHeight(.tablet, landscape: true, numberRow: true)
+    controller.view.frame = CGRect(x: 0, y: 0, width: width, height: height)
     controller.view.layoutIfNeeded()
     return controller
   }

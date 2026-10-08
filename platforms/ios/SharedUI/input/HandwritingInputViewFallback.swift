@@ -20,8 +20,11 @@ final class HandwritingCanvas: UIView {
     strokes[strokes.index(before: strokes.endIndex)].append(point); onChange?(); setNeedsDisplay()
   }
   override func draw(_ rect: CGRect) {
-    UIColor.secondarySystemBackground.setFill(); UIRectFill(rect)
-    UIColor.label.setStroke();
+    let skin = KeyboardTheme.current
+    if let context = UIGraphicsGetCurrentContext() {
+      HandwritingCanvasCard.draw(HandwritingCanvasCard.cardRect(in: bounds, skin: skin), in: context, skin: skin, traits: traitCollection)
+    }
+    skin.keyForeground.setStroke()
     for stroke in strokes where stroke.count > 1 {
       let path = UIBezierPath(); path.move(to: stroke[0]);
       for point in stroke.dropFirst() { path.addLine(to: point) }
@@ -45,20 +48,23 @@ final class HandwritingInputView: UIView {
   var onResults: (([String]) -> Void)?
   var canDownload: () -> Bool = { false }
   var onInsert: ((String) -> Void)?
-  var onDelete: (() -> Void)?
   private(set) var results: [String] = []
   var hasInk: Bool { canvas.hasInk }
 
   override init(frame: CGRect) {
     super.init(frame: frame)
     accessibilityIdentifier = "handwritingInput"
+    // 卡片以圆角画在画布内部，所以卡片外的四角保持透明。
+    canvas.isOpaque = false
+    canvas.backgroundColor = .clear
+    canvas.contentMode = .redraw
     addSubview(canvas); canvas.translatesAutoresizingMaskIntoConstraints = false
     status.text = Self.unavailableMessage
     status.font = .systemFont(ofSize: 13)
     status.textAlignment = .center
     status.numberOfLines = 2
     status.accessibilityIdentifier = "handwritingStatus"
-    status.textColor = KeyboardTheme.current.keyForeground
+    status.textColor = KeyboardTheme.current.secondary
     addSubview(status); status.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([
       canvas.leadingAnchor.constraint(equalTo: leadingAnchor), canvas.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -66,8 +72,8 @@ final class HandwritingInputView: UIView {
       heightAnchor.constraint(greaterThanOrEqualToConstant: 120),
       status.centerXAnchor.constraint(equalTo: centerXAnchor),
       status.centerYAnchor.constraint(equalTo: centerYAnchor),
-      status.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 12),
-      status.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+      status.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: HandwritingCanvasCard.guideInset),
+      status.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -HandwritingCanvasCard.guideInset),
     ])
     canvas.acceptsInk = true
   }

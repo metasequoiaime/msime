@@ -214,7 +214,7 @@ struct HostSession {
     english_mode: bool,
     page_size_override: Option<u8>,
     nine_key_override: Option<bool>,
-    /// 宿主经 `msime_client_set_private_session` 标出的隐私会话（Android 的隐私模式和不允许学习的输入框）：不记选词位置和上屏效率。与用户自己关掉的「学习」无关。
+    /// 宿主经 `msime_client_set_private_session` 标出的隐私会话（Android 的隐私模式和不允许学习的输入框，鸿蒙和 iOS 的隐私模式）：不记选词位置和上屏效率。与用户自己关掉的「学习」无关。
     statistics_private: bool,
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
     ai_credential: Option<String>,
@@ -336,14 +336,14 @@ impl HostSession {
                 snapshot.preferences.cloud_candidates
             })
     }
-    /// Android 会话是否不记统计：只看宿主经 `msime_client_set_private_session` 标出的隐私会话。用户在设置里关掉学习不算，统计开着就照常计数。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。
+    /// Android、鸿蒙与 iOS 会话是否不记统计：只看宿主经 `msime_client_set_private_session` 标出的隐私会话。用户在设置里关掉学习不算，统计开着就照常计数。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。
     fn private_session(&self) -> bool {
         PRIVATE_SESSIONS_SKIP_STATISTICS && self.statistics_private
     }
 
     /// Count a committing selection in memory, and hand the batch to the store once it is `SELECTION_BATCH` long.
     fn count_selection(&mut self, position: usize) {
-        // Android 的隐私模式与不学习输入框不统计选词位置。
+        // Android 的隐私模式与不学习输入框、鸿蒙和 iOS 的隐私模式不统计选词位置。
         if self.private_session() {
             return;
         }
@@ -2031,8 +2031,13 @@ fn selected_position(action: &Action) -> Option<usize> {
 /// 上屏效率（少按键、联想、整句）只在 Android 上计：只有 Android 的统计页显示它，其他宿主不为它多查读音。测试里也打开，好覆盖计法。
 const COUNTS_COMMIT_EFFICIENCY: bool = cfg!(any(target_os = "android", test));
 
-/// Android 宿主在隐私模式和不学习的输入框里经 `msime_client_set_private_session` 标出隐私会话；这时选词位置和上屏效率都不计。其他宿主不变。
-const PRIVATE_SESSIONS_SKIP_STATISTICS: bool = cfg!(any(target_os = "android", test));
+/// Android 宿主在隐私模式和不学习的输入框里、鸿蒙和 iOS 宿主在隐私模式里经 `msime_client_set_private_session` 标出隐私会话；这时选词位置和上屏效率都不计（鸿蒙和 iOS 本来就不计上屏效率）。其他宿主不变。
+const PRIVATE_SESSIONS_SKIP_STATISTICS: bool = cfg!(any(
+    target_os = "android",
+    target_env = "ohos",
+    target_os = "ios",
+    test
+));
 
 /// 一个会话在两次写统计之间最多记下多少次上屏。正常情况下 `SELECTION_BATCH` 次选词就会写一次，这只是兜底。
 const EFFICIENCY_BATCH_LIMIT: usize = 256;

@@ -509,15 +509,82 @@ fn write_zip(
     config: &Option<Value>,
 ) -> Result<u64, DiagnosticsError> {
     let parent = destination.parent().ok_or(DiagnosticsError::Invalid)?;
-    let temporary = tempfile::NamedTempFile::new_in(parent).map_err(DiagnosticsError::Write)?;
-    let mut writer = zip::ZipWriter::new(temporary);
+    #[cfg(unix)]
+    {
+        let directory =
+            crate::storage::open_private_directory(parent).map_err(DiagnosticsError::Write)?;
+        let name = destination.file_name().ok_or(DiagnosticsError::Invalid)?;
+        let (_, bytes) = crate::storage::write_private_file_at_with(&directory, name, |file| {
+            write_zip_contents(file, counts, crash, performance, input, config)
+                .map(|file| (file, ()))
+        })
+        .map_err(DiagnosticsError::Write)?;
+        Ok(bytes)
+    }
+    #[cfg(not(unix))]
+    {
+        let temporary = tempfile::NamedTempFile::new_in(parent).map_err(DiagnosticsError::Write)?;
+        let mut writer = zip::ZipWriter::new(temporary);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        let mut entry = |name: &str, bytes: &[u8]| -> Result<(), DiagnosticsError> {
+            writer
+                .start_file(name, options)
+                .map_err(|error| DiagnosticsError::Write(std::io::Error::other(error)))?;
+            writer.write_all(bytes).map_err(DiagnosticsError::Write)
+        };
+        let manifest = serde_json::json!({
+            "format": "msime-diagnostics",
+            "version": 1,
+            "counts": counts,
+        });
+        entry("manifest.json", manifest.to_string().as_bytes())?;
+        if let Some(section) = crash {
+            entry("crash_logs.ndjson", &ndjson(&section.records))?;
+        }
+        if let Some(section) = performance {
+            entry("performance_logs.ndjson", &ndjson(&section.records))?;
+        }
+        if let Some(section) = input {
+            entry("input_events.ndjson", &ndjson(&section.records))?;
+        }
+        if let Some(config) = config {
+            let text = serde_json::to_vec_pretty(config)
+                .map_err(|error| DiagnosticsError::Write(std::io::Error::other(error)))?;
+            entry("config_snapshot.json", &text)?;
+        }
+        let temporary = writer
+            .finish()
+            .map_err(|error| DiagnosticsError::Write(std::io::Error::other(error)))?;
+        temporary
+            .as_file()
+            .sync_all()
+            .map_err(DiagnosticsError::Write)?;
+        let file = temporary
+            .persist(destination)
+            .map_err(|error| DiagnosticsError::Write(error.error))?;
+        let bytes = file.metadata().map_err(DiagnosticsError::Write)?.len();
+        Ok(bytes)
+    }
+}
+
+#[cfg(unix)]
+fn write_zip_contents(
+    file: std::fs::File,
+    counts: &DiagnosticCounts,
+    crash: &Option<Section>,
+    performance: &Option<Section>,
+    input: &Option<Section>,
+    config: &Option<Value>,
+) -> Result<std::fs::File, std::io::Error> {
+    let mut writer = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
-    let mut entry = |name: &str, bytes: &[u8]| -> Result<(), DiagnosticsError> {
+    let mut entry = |name: &str, bytes: &[u8]| -> Result<(), std::io::Error> {
         writer
             .start_file(name, options)
-            .map_err(|error| DiagnosticsError::Write(std::io::Error::other(error)))?;
-        writer.write_all(bytes).map_err(DiagnosticsError::Write)
+            .map_err(std::io::Error::other)?;
+        writer.write_all(bytes)
     };
     let manifest = serde_json::json!({
         "format": "msime-diagnostics",
@@ -535,22 +602,10 @@ fn write_zip(
         entry("input_events.ndjson", &ndjson(&section.records))?;
     }
     if let Some(config) = config {
-        let text = serde_json::to_vec_pretty(config)
-            .map_err(|error| DiagnosticsError::Write(std::io::Error::other(error)))?;
+        let text = serde_json::to_vec_pretty(config).map_err(std::io::Error::other)?;
         entry("config_snapshot.json", &text)?;
     }
-    let temporary = writer
-        .finish()
-        .map_err(|error| DiagnosticsError::Write(std::io::Error::other(error)))?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(DiagnosticsError::Write)?;
-    let file = temporary
-        .persist(destination)
-        .map_err(|error| DiagnosticsError::Write(error.error))?;
-    let bytes = file.metadata().map_err(DiagnosticsError::Write)?.len();
-    Ok(bytes)
+    writer.finish().map_err(std::io::Error::other)
 }
 
 #[cfg(test)]

@@ -22,6 +22,15 @@ def main() -> int:
     if "Files.readAllBytes" in region:
         print(f"{SOURCE}: 仍使用无界 Files.readAllBytes", file=sys.stderr)
         return 1
+    write_region = source.split("    private void rememberSkinHint", 1)[1].split(
+        "    /**", 1
+    )[0]
+    if 'SKIN_HINT_FILE + ".pending"' in write_region:
+        print(f"{SOURCE}: 仍复用固定的皮肤提示临时文件", file=sys.stderr)
+        return 1
+    if "Files.createTempFile" not in write_region or "LinkOption.NOFOLLOW_LINKS" not in write_region:
+        print(f"{SOURCE}: 皮肤提示写入没有使用唯一临时文件和 NOFOLLOW_LINKS", file=sys.stderr)
+        return 1
     print("Android skin hint reads use the shared bounded body policy")
     return 0
 

@@ -1,9 +1,10 @@
 import { errorCode } from "../core/error-code";
+import { aiEndpointOrigin } from "./ai-endpoint-policy";
 
 export function providerCredentialErrorMessage(error: unknown): string {
   switch (errorCode(error)) {
     case "provider_credentials_invalid_endpoint":
-      return "接口地址必须是完整的 HTTPS 地址，且不能包含用户名、密码或 # 片段。";
+      return "接口地址必须是完整的 https:// 地址，或本机、局域网的 http:// 地址，且不能包含用户名、密码或 # 片段。";
     case "provider_credentials_invalid_model":
       return "请先填写模型。";
     case "provider_credentials_invalid_provider":
@@ -26,17 +27,9 @@ export function providerCredentialErrorMessage(error: unknown): string {
   }
 }
 
+/** 保存 AI Token 用的来源键；规则见 `ai-endpoint-policy.ts`，https 不限主机，http 只认本机和局域网。 */
 export function aiCredentialOrigin(endpoint: string): string | null {
-  if (!endpoint || endpoint.length > 2048 || /[\u0000-\u001f\u007f]/.test(endpoint)) return null;
-  try {
-    const url = new URL(endpoint.trim());
-    if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.hash) {
-      return null;
-    }
-    return `https://${url.hostname.toLowerCase()}:${url.port || "443"}`;
-  } catch {
-    return null;
-  }
+  return aiEndpointOrigin(endpoint);
 }
 
 export function tencentSecretConfigured(value: string): boolean {

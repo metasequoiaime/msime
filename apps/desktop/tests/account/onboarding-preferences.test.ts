@@ -65,6 +65,49 @@ describe("completeOnboardingPreferences", () => {
     });
   });
 
+  test("the 双拼 card selects Xiaohe shuangpin on the 26-key keyboard", () => {
+    const preferences = completeOnboardingPreferences(snapshot, "xiaohe", {});
+
+    expect(preferences).toMatchObject({
+      scheme: "shuangpin",
+      last_chinese_scheme: "shuangpin",
+      shuangpin_profile: "xiaohe",
+      touch_keyboard_layout: "twenty_six_key",
+      touch_keyboard_schemes: { enabled: ["quanpin", "nine_key", "xiaohe"], selected: "xiaohe" },
+    });
+  });
+
+  test("the 双拼 card keeps a shuangpin layout already in use", () => {
+    const preferences = completeOnboardingPreferences(
+      {
+        ...snapshot,
+        preferences: {
+          ...snapshot.preferences,
+          scheme: "shuangpin",
+          shuangpin_profile: "ziranma",
+          touch_keyboard_schemes: { enabled: ["ziranma"], selected: "ziranma" },
+        },
+      },
+      "xiaohe",
+      {},
+    );
+
+    expect(preferences).toMatchObject({
+      scheme: "shuangpin",
+      shuangpin_profile: "ziranma",
+      touch_keyboard_schemes: { enabled: ["ziranma"], selected: "ziranma" },
+    });
+  });
+
+  test("leaving before choosing a keyboard keeps the scheme and still saves the gloss", () => {
+    const preferences = completeOnboardingPreferences(snapshot, "quanpin", {
+      candidateEnglishGloss: false,
+      keepScheme: true,
+    });
+
+    expect(preferences).toEqual({ ...snapshot.preferences, candidate_english_gloss: false });
+  });
+
   test("the wubi edition's keyboard selects the Wubi scheme", () => {
     const preferences = completeOnboardingPreferences(
       {

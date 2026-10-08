@@ -165,6 +165,16 @@ fn read_private_file(file: std::fs::File) -> Result<Vec<u8>, AccountError> {
     )
 }
 
+/// 会话文件不允许带的权限位。鸿蒙的 `@ohos.file.fs` 没有 chmod，宿主 ArkTS 代码轮换匿名会话后重写的文件按应用 umask 带属组读写位；应用沙箱里属组只有本应用，目录也已由 `prepare_directory` 收紧为 0700，所以鸿蒙上只拒绝其他用户位，其他平台仍要求文件只有属主可读写。
+#[cfg(any(unix, test))]
+fn forbidden_session_mode_bits(ohos: bool) -> u32 {
+    if ohos {
+        0o007
+    } else {
+        0o077
+    }
+}
+
 #[cfg(unix)]
 fn validate_opened_private_json_file(
     file: &std::fs::File,
@@ -175,7 +185,7 @@ fn validate_opened_private_json_file(
     let metadata = file.metadata().map_err(|_| AccountError::Storage)?;
     let directory_metadata = directory.metadata().map_err(|_| AccountError::Storage)?;
     if !metadata.is_file()
-        || metadata.mode() & 0o077 != 0
+        || metadata.mode() & forbidden_session_mode_bits(cfg!(target_env = "ohos")) != 0
         || metadata.uid() != directory_metadata.uid()
     {
         return Err(AccountError::Storage);
@@ -218,7 +228,11 @@ fn read_private_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, Acco
         .map_err(|_| AccountError::Storage)
 }
 
-/// Stages `bytes` beside the target and renames it into place. `NamedTempFile` is created owner-only on Unix; on Windows and HarmonyOS the directory is already private to the user or the app. With `no_clobber`, returns `false` instead of replacing a file another process published first.
+/// Stages `bytes` beside the target and publishes it into place. Unix binds
+/// both the temporary file and publication to an opened directory handle; on
+/// Windows and HarmonyOS the directory is already private to the user or the
+/// app. With `no_clobber`, returns `false` instead of replacing a file another
+/// process published first.
 fn write_private(
     directory: &Path,
     name: &str,
@@ -226,29 +240,55 @@ fn write_private(
     no_clobber: bool,
 ) -> Result<bool, AccountError> {
     prepare_directory(directory)?;
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(directory).map_err(|_| AccountError::Storage)?;
-    temporary
-        .write_all(bytes)
-        .and_then(|()| temporary.as_file().sync_all())
-        .map_err(|_| AccountError::Storage)?;
-    let path = directory.join(name);
-    if no_clobber {
-        return match temporary.persist_noclobber(&path) {
-            Ok(_) => Ok(true),
-            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-            Err(_) => Err(AccountError::Storage),
-        };
+    #[cfg(unix)]
+    {
+        let directory_handle =
+            crate::storage::open_private_directory(directory).map_err(|_| AccountError::Storage)?;
+        let name = std::ffi::OsStr::new(name);
+        if no_clobber {
+            crate::storage::write_private_file_at_noclobber(&directory_handle, name, bytes)
+                .map_err(|_| AccountError::Storage)
+        } else {
+            crate::storage::write_private_file_at(&directory_handle, name, bytes)
+                .map(|_| true)
+                .map_err(|_| AccountError::Storage)
+        }
     }
-    temporary
-        .persist(&path)
-        .map(|_| true)
-        .map_err(|_| AccountError::Storage)
+    #[cfg(not(unix))]
+    {
+        let mut temporary =
+            tempfile::NamedTempFile::new_in(directory).map_err(|_| AccountError::Storage)?;
+        temporary
+            .write_all(bytes)
+            .and_then(|()| temporary.as_file().sync_all())
+            .map_err(|_| AccountError::Storage)?;
+        let path = directory.join(name);
+        if no_clobber {
+            return match temporary.persist_noclobber(&path) {
+                Ok(_) => Ok(true),
+                Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+                Err(_) => Err(AccountError::Storage),
+            };
+        }
+        temporary
+            .persist(&path)
+            .map(|_| true)
+            .map_err(|_| AccountError::Storage)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_files_reject_other_users_everywhere_and_group_bits_off_harmony() {
+        assert_eq!(0o660 & forbidden_session_mode_bits(true), 0);
+        assert_ne!(0o660 & forbidden_session_mode_bits(false), 0);
+        assert_ne!(0o604 & forbidden_session_mode_bits(true), 0);
+        assert_ne!(0o604 & forbidden_session_mode_bits(false), 0);
+        assert_eq!(0o600 & forbidden_session_mode_bits(false), 0);
+    }
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[derive(Clone, Default)]

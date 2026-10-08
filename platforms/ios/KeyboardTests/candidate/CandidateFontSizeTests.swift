@@ -24,9 +24,31 @@ final class CandidateFontSizeTests: XCTestCase {
       CandidateFontPreference.font(.body, scale: 1).pointSize,
       UIFont.preferredFont(forTextStyle: .body).pointSize)
     XCTAssertEqual(
-      KeyboardViewController.stripExtraHeight(glossLines: 1),
-      KeyboardViewController.compositionRowHeight + KeyboardViewController.glossHeight(lines: 1),
-      "the default sizes leave the keyboard height where it was")
+      KeyboardViewController.topRowHeight(glossLines: 1),
+      KeyboardViewController.readingRowHeight + 38 + KeyboardViewController.glossHeight(lines: 1),
+      "the default sizes stack the reading line, the candidate line and its gloss line")
+    XCTAssertEqual(KeyboardViewController.preeditFont(scale: 1).pointSize, 12, "the design's 12pt spelling")
+  }
+
+  /// 顶栏是工具栏和候选共用的一行：不低于设计稿的 50pt，并且不论显示什么，都和输入中布局需要的一样高。
+  func testTheTopRowIsNeverShorterThanTheDesignRow() {
+    XCTAssertEqual(KeyboardViewController.topRowMinimumHeight, 50)
+    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 0), 52)
+    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 2), 52 + 2 * KeyboardViewController.glossLineHeight)
+    XCTAssertGreaterThanOrEqual(
+      KeyboardViewController.topRowHeight(glossLines: 0, candidateScale: 12.0 / 18.0, preeditScale: 12.0 / 15.0), 50)
+  }
+
+  /// 候选条的词块使用设计稿的 18pt 候选字号，像桌面候选窗一样按同步的「候选字号」缩放，并使用所选的字体链。
+  func testStripChipsDrawAtEighteenPointsTimesTheSize() {
+    XCTAssertEqual(KeyboardViewController.candidateChipFontSize, 18)
+    XCTAssertEqual(KeyboardViewController.candidateChipFont(scale: 1, families: []).pointSize, 18)
+    XCTAssertEqual(KeyboardViewController.candidateChipFont(scale: 24.0 / 18.0, families: []).pointSize, 24)
+    XCTAssertEqual(KeyboardViewController.candidateChipFont(scale: 12.0 / 18.0, families: []).pointSize, 12)
+    let chained = KeyboardViewController.candidateChipFont(scale: 1, families: ["Georgia", "PingFang SC"])
+    XCTAssertEqual(chained.familyName, "Georgia")
+    XCTAssertEqual(chained.pointSize, 18)
+    XCTAssertEqual(KeyboardViewController.candidateGlossFontSize, 10)
   }
 
   /// The chain runs Latin face, family, fallbacks, drops what the device lacks and repeats, and is empty for a document synced from Windows, which leaves the system font.
@@ -66,17 +88,17 @@ final class CandidateFontSizeTests: XCTestCase {
   }
 
   func testLargerTextGrowsTheStripButSmallerTextKeepsTheTouchTarget() {
-    let base = KeyboardViewController.candidateStripHeight(glossLines: 0)
-    let larger = KeyboardViewController.candidateStripHeight(
+    let base = KeyboardViewController.topRowHeight(glossLines: 0)
+    let larger = KeyboardViewController.topRowHeight(
       glossLines: 0, candidateScale: 24.0 / 18.0, preeditScale: 20.0 / 15.0)
-    let smaller = KeyboardViewController.candidateStripHeight(
+    let smaller = KeyboardViewController.topRowHeight(
       glossLines: 0, candidateScale: 12.0 / 18.0, preeditScale: 12.0 / 15.0)
     XCTAssertGreaterThan(larger, base)
     XCTAssertEqual(smaller, base)
     XCTAssertEqual(
-      KeyboardViewController.stripExtraHeight(glossLines: 0, candidateScale: 24.0 / 18.0, preeditScale: 20.0 / 15.0)
-        - KeyboardViewController.stripExtraHeight(glossLines: 0),
-      larger - base, "the keyboard grows by what the strip grew instead of taking it out of the keys")
+      KeyboardFormFactor.phone.keyboardHeight(topRow: larger, rowSpacing: 7, landscape: false, handwriting: false)
+        - KeyboardFormFactor.phone.keyboardHeight(topRow: base, rowSpacing: 7, landscape: false, handwriting: false),
+      larger - base, "the keyboard grows by what the top row grew instead of taking it out of the keys")
   }
 
   func testTheExpandedPanelDrawsCandidatesAtTheChosenSize() throws {

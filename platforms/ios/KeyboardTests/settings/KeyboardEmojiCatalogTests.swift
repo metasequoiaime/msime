@@ -400,6 +400,32 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     XCTAssertTrue(typed.allSatisfy { $0 == "x" || $0 == "xi" }, "only typed queries reach the catalog: \(typed)")
   }
 
+  /// 按键区里的面板在手机横屏只有约 168pt 高：搜索时字母键盘让出高度，结果条仍放得下一整行（颜文字行高 44pt）。竖屏默认高度下字母键盘保持设计稿的 106pt。
+  func testKeyAreaSearchKeepsAFullRowOfResultsInALandscapeKeyArea() throws {
+    let cases: [(height: CGFloat, padHeight: CGFloat?)] = [(168, nil), (201, 3 * 32 + 2 * 5)]
+    for (height, padHeight) in cases {
+      let picker = KeyboardEmojiPickerView(
+        resources: "/fixture",
+        loader: { requested, _ in
+          KeyboardEmojiCatalog.Page(items: [.init(text: "😀", annotation: "fixture", group: requested.group)], nextOffset: 1, complete: true)
+        },
+        showsHeader: false, onInsert: { _ in }, onDelete: {}, onClose: {})
+      picker.frame = CGRect(x: 0, y: 0, width: 844, height: height)
+      picker.layoutIfNeeded()
+      try button("emojiSearchButton", in: picker).sendActions(for: .primaryActionTriggered)
+      // 不在窗口里的视图换了约束不会自己排版，要先标记再排。
+      picker.setNeedsLayout()
+      picker.layoutIfNeeded()
+      let grid = try XCTUnwrap(descendants(picker).first { $0.accessibilityIdentifier == "emojiGrid" })
+      let pad = try XCTUnwrap(descendants(picker).first { $0.accessibilityIdentifier == "emojiSearchPad" })
+      XCTAssertFalse(pad.isHidden)
+      XCTAssertGreaterThanOrEqual(grid.bounds.height, 44 - 0.5, "height \(height)")
+      XCTAssertLessThanOrEqual(grid.frame.maxY, pad.frame.minY + 0.5, "height \(height)")
+      XCTAssertGreaterThan(pad.bounds.height, 0, "height \(height)")
+      if let padHeight { XCTAssertEqual(pad.bounds.height, padHeight, accuracy: 0.5, "the pad keeps its design height when it fits") }
+    }
+  }
+
   func testSearchCanLookThroughTheKaomojiCatalog() throws {
     let search = try XCTUnwrap(KeyboardEmojiCatalog.search("Kiss", kaomoji: true))
     XCTAssertTrue(search.isKaomoji)
@@ -590,16 +616,22 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 300)
     controller.view.layoutIfNeeded()
 
-    try button("emojiShortcut", in: controller.view).sendActions(for: .primaryActionTriggered)
-    XCTAssertTrue(descendants(controller.view).contains {
-      $0.accessibilityIdentifier == "keyboardEmojiPicker"
-    })
-    try button("closeEmojiPicker", in: controller.view).sendActions(for: .primaryActionTriggered)
+    let hasPicker = { self.descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardEmojiPicker" } }
+    let emoji = try XCTUnwrap(try button("emojiShortcut", in: controller.view) as? KeyboardToolbarButton)
+    emoji.sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(hasPicker())
+    XCTAssertTrue(emoji.isActive, "the toolbar icon of the open panel is highlighted")
+    // 面板自己没有返回按钮：再点同一个工具栏图标就关闭它。
+    emoji.sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(hasPicker())
+    XCTAssertFalse(emoji.isActive)
+
+    // 表情也是功能菜单里的一格；点它会用表情选择器替换菜单。
     try button("moreShortcut", in: controller.view).sendActions(for: .primaryActionTriggered)
-    try button("moreCard-表情", in: controller.view).sendActions(for: .primaryActionTriggered)
-    XCTAssertTrue(descendants(controller.view).contains {
-      $0.accessibilityIdentifier == "keyboardEmojiPicker"
-    })
+    let tile = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-表情" } as? UIControl)
+    tile.sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(hasPicker())
+    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardMorePicker" })
   }
 
   private func descendants(_ root: UIView) -> [UIView] {

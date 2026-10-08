@@ -26,7 +26,8 @@ import {
   validLocalPreferenceDocument,
 } from './AccountPreferencePlan';
 import {
-  ACCOUNT_ORIGIN, FileSessionStore, HarmonyAccountTransport, responseContentLength, responseContentType
+  ACCOUNT_ORIGIN, AnonymousSessionStore, FileSessionStore, HarmonyAccountTransport, responseContentLength,
+  responseContentType
 } from './HarmonyAccountTransport';
 import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
 
@@ -321,7 +322,9 @@ export class HarmonyAccountCloudBridge {
       // The store reports an unavailable session if the sandbox cannot be prepared.
     }
     this.transport = new HarmonyTransport();
-    this.bridge = new AccountCloudBridge(this.transport, new FileSessionStore(directory));
+    // 匿名会话就是 EntryAbility 在同一目录下注册的那个；无人登录时反馈回退到它，与 Android 一致。
+    this.bridge = new AccountCloudBridge(this.transport, new FileSessionStore(directory),
+      new AnonymousSessionStore(directory));
   }
 
   async request(action: string): Promise<string> {
@@ -623,14 +626,13 @@ export class HarmonyAccountCloudBridge {
     // The feedback file is written after the document, and its failure is reported rather than
     // rolled back: the settings that did land are correct, and a second attempt is harmless.
     if (applied.feedback !== null) {
+      // 滑行输入和手写设置与账号共用文件但不随账号同步，所以保留这台设备上的值：账号不携带的字段都由已存储的设置填充。
       const written = KeyboardSession.saveFeedbackIn(stateRoot,
         KeyboardFeedbackBridge.fromShared({
           soundEnabled: applied.feedback.soundEnabled,
           hapticsEnabled: applied.feedback.hapticsEnabled,
-          hapticStrength: applied.feedback.hapticStrength,
-          // 滑行输入 shares the file but not the account, so the switch on this device is kept.
-          glideTyping: KeyboardSession.feedbackIn(stateRoot).glideTyping
-        }));
+          hapticStrength: applied.feedback.hapticStrength
+        }, KeyboardSession.feedbackIn(stateRoot)));
       if (!written) return this.failure('account_storage');
     }
     return this.success({});

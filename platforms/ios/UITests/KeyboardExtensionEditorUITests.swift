@@ -60,8 +60,9 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     if !tapRow("键盘") {
       guard tapRow("通用"), tapRow("键盘") else { return }
     }
-    // The pane and the list inside it carry the same title on some layouts.
-    _ = tapRow("键盘", scrolling: false)
+    // 有些布局里面板和其中的列表标题相同。iOS 27 上列表行读作「键盘、<数量>」，按标签匹配不到，改用它的标识符 `KEYBOARDS`。
+    let ring = settings.cells["KEYBOARDS"].firstMatch
+    if ring.waitForExistence(timeout: 5) { ring.tap() } else { _ = tapRow("键盘", scrolling: false) }
     // Already added: the keyboard list names it.
     if settings.staticTexts["水杉输入法"].waitForExistence(timeout: 3) { return }
 
@@ -84,8 +85,10 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       entry.tap()
       let fullAccess = settings.switches["允许完全访问"].firstMatch
       if fullAccess.waitForExistence(timeout: 5), fullAccess.value as? String == "0" {
-        fullAccess.tap()
-        settings.buttons["允许"].firstMatch.tap()
+        // iOS 27 上开关占满整行，点中心会落在标签上而不会切换，所以点行尾的开关圆钮。
+        fullAccess.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+        let allow = settings.alerts.buttons["允许"].firstMatch
+        if allow.waitForExistence(timeout: 5) { allow.tap() }
       }
     }
   }
@@ -115,10 +118,11 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     let ours = app.keys["字母 N"]
     if ours.waitForExistence(timeout: 6) { return field }
 
-    // One lap of the ring. `Next keyboard` is the globe's own accessibility identifier.
-    let globe = app.buttons["Next keyboard"]
+    // 沿键盘列表轮转一圈。地球键没有标识符，只有随系统语言变化的标签：英文是 `Next keyboard`，中文是「下一个键盘」。
+    let globe = app.buttons.matching(NSPredicate(format: "label IN %@", ["Next keyboard", "下一个键盘"])).firstMatch
     if globe.waitForExistence(timeout: 6) {
-      for _ in 0..<6 {
+      // 全新的 iOS 27 模拟器默认启用十四个键盘，其中几个显示名相同，所以轮转次数要覆盖整圈，而不是只点寥寥几次。
+      for _ in 0..<20 {
         globe.tap()
         if ours.waitForExistence(timeout: 3) { return field }
       }

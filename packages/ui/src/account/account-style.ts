@@ -45,14 +45,20 @@ export const hero = "flex items-center gap-4";
 /** The edit dialog's avatar, which opens the file dialog: round like the avatar it holds, with a focus ring and no button chrome. */
 export const avatarButton =
   "m-0 cursor-pointer rounded-full border-0 bg-transparent p-0 not-disabled:hover:opacity-85 disabled:cursor-default focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
-export const avatar = (size: "small" | "medium" | "large") =>
-  `grid place-items-center rounded-full bg-accent-strong font-[650] text-white ${
-    size === "large"
-      ? "size-21 flex-[0_0_84px] text-[32px]"
-      : size === "medium"
-        ? "size-[58px] flex-[0_0_58px] text-2xl"
-        : "size-[46px] flex-[0_0_46px] text-[19px]"
-  }`;
+export type AvatarSize = "small" | "medium" | "large" | "card" | "hero";
+/** `card`（56px）和 `hero`（84px）用于 HarmonyOS 手机的 我的 卡片和 个人资料 页头：底色就是强调色本身，文字用它对应的前景色，这样季节的深色强调色上首字母仍然清晰可读。 */
+export const avatar = (size: AvatarSize) =>
+  size === "card"
+    ? "grid size-14 flex-[0_0_56px] place-items-center rounded-full text-[22px] font-bold [background:var(--accent-color)] [color:var(--p-on-accent)]"
+    : size === "hero"
+      ? "grid size-21 flex-[0_0_84px] place-items-center rounded-full text-[34px] font-bold [background:var(--accent-color)] [color:var(--p-on-accent)]"
+      : `grid place-items-center rounded-full bg-accent-strong font-[650] text-white ${
+          size === "large"
+            ? "size-21 flex-[0_0_84px] text-[32px]"
+            : size === "medium"
+              ? "size-[58px] flex-[0_0_58px] text-2xl"
+              : "size-[46px] flex-[0_0_46px] text-[19px]"
+        }`;
 export const profileCard =
   "w-full cursor-pointer border-0 text-left disabled:cursor-default disabled:opacity-100";
 export const profileChevron = "ml-auto text-2xl leading-none [color:var(--p-sub)]";
@@ -111,3 +117,116 @@ export const iconCopy =
   "flex min-w-0 flex-col gap-[3px] [&>strong]:text-[13px] [&>strong]:font-semibold [&>small]:min-h-[30px] [&>small]:text-[11px] [&>small]:leading-[1.4] [&>small]:text-muted";
 export const iconState = (selected: boolean) =>
   `text-[11px] ${selected ? "font-semibold text-accent" : "text-muted"}`;
+
+// ---- HarmonyOS 手机上的 我的 ----
+
+/** 标签页的纵向堆叠：外壳在它上方画 30px 的 我的 标题，卡片与各分组之间间隔 18px。 */
+export const mePage = "flex flex-col gap-[18px]";
+/** 个人资料卡片：未登录时点击登录，已登录时打开 个人资料。 */
+export const meCard =
+  "m-0 flex w-full min-w-0 cursor-pointer items-center gap-3.5 rounded-[20px] border-0 bg-[var(--p-group-bg)] p-4 text-left [font-family:inherit] [color:var(--p-text)] active:bg-[var(--p-press)] disabled:cursor-default";
+/** 未登录卡片的头像：分段控件灰底上的一个问号。 */
+export const meCardAnonymous =
+  "grid size-14 flex-[0_0_56px] place-items-center rounded-full bg-[var(--p-seg-bg)] text-[22px] font-bold [color:var(--p-sub)]";
+export const meCardText = "flex min-w-0 flex-1 flex-col gap-[3px]";
+export const meCardName = "truncate text-[18px] font-bold";
+export const meCardSubtitle = "truncate text-[13px] [color:var(--p-sub)]";
+export const meCardChevron = "shrink-0 opacity-55 [color:var(--p-sub)]";
+export const meGroup = "flex min-w-0 flex-col gap-[7px]";
+export const meGroupTitle = "m-0 px-1 text-[14px] font-medium [color:var(--p-sub)]";
+export const meFooter = "m-0 px-4 text-center text-xs leading-relaxed [color:var(--p-sub)]";
+
+// ---- 我的 的子页面（个人资料、其他平台下载） ----
+
+/**
+ * 在 我的 里推入的页面自带 44px 的页头（'‹ 我的' 和居中的标题），所以页面显示期间，外壳在它上方的 我的 大标题会移出布局。大标题仍留在无障碍树中，为 `main` 命名。外壳用 `data-tab-page` 标记标签页的内容列，并把自己的页头作为直接子元素放在里面。
+ */
+export const subpage = "flex flex-col gap-5 [[data-tab-page]:has(&)>header]:sr-only";
+export const subpageHeader = "relative flex h-11 items-center";
+export const subpageBack =
+  "relative z-[1] m-0 -ml-1.5 flex h-11 cursor-pointer items-center gap-1 border-0 bg-transparent px-1.5 text-[17px] [font-family:inherit] [color:var(--p-accent-text)] active:opacity-60 disabled:cursor-default disabled:opacity-50";
+export const subpageTitle =
+  "pointer-events-none absolute inset-x-[88px] m-0 truncate text-center text-[17px] font-semibold [color:var(--p-text)]";
+
+// ---- 个人资料 ----
+
+export const profileHero = "flex flex-col items-center gap-2 pt-2 pb-0.5 text-center";
+export const profileHeroName =
+  "m-0 max-w-full truncate text-[22px] font-bold [color:var(--p-text)]";
+export const profileHeroEmail = "max-w-full truncate text-[14px] [color:var(--p-sub)]";
+export const profileHeroPill =
+  "rounded-full bg-[var(--accent-soft)] px-2.5 py-[3px] text-xs [color:var(--p-accent-text)]";
+export const profileGroup = "flex min-w-0 flex-col gap-1.5";
+export const profileGroupTitle = "m-0 px-4 text-[13px] font-normal [color:var(--p-sub)]";
+export const profileGroupFooter = "m-0 px-4 text-xs leading-relaxed [color:var(--p-sub)]";
+export const profileRows =
+  "overflow-hidden rounded-[20px] bg-[var(--p-group-bg)] [&>*+*]:[box-shadow:inset_0_1px_0_var(--p-hair)]";
+export const profileRow =
+  "m-0 flex min-h-[50px] w-full min-w-0 items-center gap-3 border-0 bg-transparent px-4 text-left [font-family:inherit] [color:var(--p-text)]";
+export const profileRowButton =
+  "cursor-pointer active:bg-[var(--p-press)] disabled:cursor-default disabled:opacity-50";
+export const profileRowLabel = "shrink-0 text-[16px]";
+export const profileRowValue =
+  "min-w-0 flex-1 truncate text-right text-[15px] [color:var(--p-sub)]";
+export const profileRowChevron = "shrink-0 opacity-55 [color:var(--p-sub)]";
+/** 设计稿里的破坏性操作：一整行居中的红色文字。 */
+export const profileDangerRow =
+  "m-0 flex min-h-[50px] w-full cursor-pointer items-center justify-center border-0 bg-transparent px-4 text-[16px] [font-family:inherit] [color:#FF3B30] active:bg-[var(--p-press)] disabled:cursor-default disabled:opacity-50";
+export const profileConfirmation = "[&>div]:m-0";
+
+// ---- 底部弹窗（登录水杉、昵称） ----
+
+export const sheetScrim =
+  "fixed inset-0 z-50 animate-ms-fade-in bg-[rgba(0,0,0,0.35)] motion-reduce:animate-none";
+export const sheet =
+  "fixed inset-x-0 bottom-0 z-50 flex max-h-[92vh] flex-col gap-3 overflow-y-auto overscroll-contain rounded-t-[20px] bg-[var(--p-bg)] px-5 pt-2 pb-[calc(34px+env(safe-area-inset-bottom))] [font-family:var(--p-font,inherit)] [color:var(--p-text)] animate-ms-sheet-up motion-reduce:animate-none";
+export const sheetGrabber = "mx-auto h-[5px] w-9 shrink-0 rounded-full bg-[var(--p-hair)]";
+export const sheetHeader = "flex items-start gap-3 pt-2";
+export const sheetHeading = "flex min-w-0 flex-1 flex-col gap-1.5";
+export const sheetTitle = "m-0 text-[22px] font-bold [color:var(--p-text)]";
+export const sheetSubtitle = "m-0 text-[14px] leading-snug [color:var(--p-sub)]";
+export const sheetClose =
+  "m-0 flex size-[30px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-[var(--p-seg-bg)] p-0 [color:var(--p-text)] active:opacity-70 disabled:cursor-default disabled:opacity-50";
+export const sheetBody = "flex flex-col gap-3";
+/** 登录选项：用强调色浅色填充的 50px 色调按钮。 */
+export const sheetChoice =
+  "m-0 h-[50px] w-full cursor-pointer rounded-xl border-0 bg-[var(--accent-soft)] px-4 text-[17px] font-semibold [font-family:inherit] [color:var(--p-accent-text)] active:opacity-80 disabled:cursor-default disabled:opacity-60 aria-pressed:shadow-[inset_0_0_0_1.5px_var(--accent-color)]";
+/** 这一步的主操作：可以执行时用强调色，在那之前是分段控件的灰底配灰色文字。 */
+export const sheetPrimary =
+  "m-0 h-[50px] w-full cursor-pointer rounded-xl border-0 px-4 text-[17px] font-semibold [font-family:inherit] bg-[var(--accent-color)] [color:var(--p-on-accent)] active:opacity-80 disabled:cursor-default disabled:bg-[var(--p-seg-bg)] disabled:[color:var(--p-sub)]";
+export const sheetInput =
+  "h-[50px] w-full rounded-xl border border-[var(--p-hair)] bg-[var(--p-group-bg)] px-3.5 text-[17px] [font-family:inherit] [color:var(--p-text)] outline-none placeholder:[color:var(--p-sub)] focus:border-[var(--accent-color)] disabled:opacity-60";
+export const sheetField = "flex flex-col gap-1.5";
+export const sheetHint = "m-0 text-[13px] leading-snug [color:var(--p-sub)]";
+export const sheetHintError = "m-0 text-[13px] leading-snug text-danger";
+export const sheetFooter = "m-0 text-center text-xs [color:var(--p-sub)]";
+export const sheetFooterLink =
+  "m-0 cursor-pointer border-0 bg-transparent p-0 text-xs [font-family:inherit] [color:var(--p-sub)] underline-offset-2 active:underline";
+export const sheetQuiet = "flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5";
+
+// ---- 其他平台下载 ----
+
+export const downloadHero =
+  "flex min-w-0 items-center gap-3.5 rounded-[20px] bg-[var(--accent-soft)] p-4 [color:var(--p-text)]";
+export const downloadHeroTile =
+  "flex size-11 flex-none items-center justify-center rounded-xl [background:var(--accent-color)] [color:var(--p-on-accent)]";
+export const downloadHeroText = "flex min-w-0 flex-1 flex-col gap-0.5";
+export const downloadHeroTitle = "text-[15px] font-semibold";
+export const downloadHeroUrl = "truncate text-[13px] [color:var(--p-sub)]";
+export const downloadPill =
+  "m-0 shrink-0 cursor-pointer whitespace-nowrap rounded-full border-0 px-3.5 py-1.5 text-[13px] font-semibold [font-family:inherit] [background:var(--accent-color)] [color:var(--p-on-accent)] active:opacity-80";
+export const downloadRows = "overflow-hidden rounded-[20px] bg-[var(--p-group-bg)]";
+export const downloadRow =
+  "m-0 flex w-full min-w-0 items-center gap-3 border-x-0 border-t border-b-0 border-solid border-[var(--p-hair)] bg-transparent px-3.5 py-3 text-left [font-family:inherit] [color:var(--p-text)] first:border-t-0";
+export const downloadRowButton = "cursor-pointer active:bg-[var(--p-press)]";
+export const downloadTile =
+  "flex size-9 flex-none items-center justify-center rounded-[9px] bg-[var(--p-seg-bg)] [color:var(--p-text)]";
+export const downloadRowText = "flex min-w-0 flex-1 flex-col gap-0.5";
+export const downloadRowName = "text-[15px] font-semibold";
+export const downloadRowMeta = "text-xs [color:var(--p-sub)]";
+export const downloadRowPill = (current: boolean) =>
+  `shrink-0 whitespace-nowrap rounded-full px-3 py-[5px] text-[13px] font-semibold ${
+    current
+      ? "bg-[var(--p-seg-bg)] [color:var(--p-sub)]"
+      : "bg-[var(--accent-soft)] [color:var(--p-accent-text)]"
+  }`;

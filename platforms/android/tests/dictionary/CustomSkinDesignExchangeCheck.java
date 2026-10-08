@@ -24,6 +24,17 @@ public final class CustomSkinDesignExchangeCheck {
 
         Path root = Files.createTempDirectory("msime-skin-exchange-");
         Path preferences = root.resolve("preferences");
+        Path hardlinkPreferences = root.resolve("hardlink-preferences");
+        Path customSkins = hardlinkPreferences.resolve("CustomSkins");
+        Files.createDirectories(customSkins);
+        Path outside = Files.createTempFile("msime-skin-hardlink-", ".json");
+        byte[] protectedBytes = "outside-sentinel".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        Files.write(outside, protectedBytes);
+        Files.createLink(customSkins.resolve("library.json.pending"), outside);
+        check(CustomSkinLibrary.add(hardlinkPreferences, "hardlink", "硬链接", design, 50),
+            "hard-linked pending path does not block a fresh temporary write");
+        check(java.util.Arrays.equals(protectedBytes, Files.readAllBytes(outside)),
+            "hard-linked pending path does not modify the linked file");
         check(CustomSkinLibrary.add(preferences, "a", "晨雾", design, 100), "add a");
         check(CustomSkinLibrary.add(preferences, "b", "夜航", design.put("accent", 0x00FF00), 200),
             "add b");

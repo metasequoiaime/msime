@@ -16,5 +16,7 @@ test("expression page uses the grouped input language options component", () => 
   expect(page).toContain("grouped");
   expect(page).not.toContain("<MixedInputSection");
   expect(page).not.toContain("<CandidateEnglishGlossSection");
-  expect(page).not.toContain("<EnglishSuggestionsSection");
+  // 唯一直接的英文联想行是 HarmonyOS 手机「智能」分组里的「英文联想」；其他所有宿主都通过分组组件得到它。
+  expect(page.match(/<EnglishSuggestionsSection/g)).toHaveLength(1);
+  expect(page).toContain('title="英文联想"');
 });

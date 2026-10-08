@@ -525,7 +525,7 @@ test("Android English suggestions default on and persist independently", async (
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
   const toggle = screen.getByRole("switch", { name: "英文建议" }) as HTMLInputElement;
   expect(toggle.checked).toBe(true);
   expect(screen.getByText(/英文 26 键直接输入时/)).toBeDefined();
@@ -580,7 +580,7 @@ test("iOS exposes the shared offline candidate gloss setting", async () => {
   await waitFor(() =>
     expect(openExternalUrl).toHaveBeenCalledWith("https://developers.google.com/ml-kit/terms"),
   );
-  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  fireEvent.click(screen.getByRole("button", { name: "表达" }));
   const toggle = screen.getByRole("switch", { name: "显示英文释义" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   fireEvent.click(toggle);
@@ -626,7 +626,7 @@ test("mobile input settings expose the keyboard AI entry", async () => {
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
   expect(screen.getByText(/点键盘工具栏上的回复/)).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "配置键盘 AI" }));
   expect(await screen.findByText("启用 AI 辅助")).toBeDefined();
@@ -1432,7 +1432,7 @@ test("Android candidate translations persist an optional second language", async
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
   const secondary = screen.getByRole("combobox", {
     name: "候选词翻译第二种语言",
   }) as HTMLSelectElement;
@@ -1508,7 +1508,7 @@ test("mobile translation languages stay editable for offline English glosses", a
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
   const primary = screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement;
   const secondary = screen.getByRole("combobox", {
     name: "候选词翻译第二种语言",
@@ -1537,7 +1537,7 @@ test("mobile preserves legacy Russian gloss values without leaking them to new p
     host: testHost({ platform: "ios" }),
   };
   const first = render(<SettingsPage client={client} />);
-  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
   expect(
     (screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement)
       .selectedOptions[0].textContent,
@@ -1548,7 +1548,7 @@ test("mobile preserves legacy Russian gloss values without leaking them to new p
   ).toContain("已保存");
   first.unmount();
   render(<SettingsPage client={{ ...client, load: async () => initial }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
   expect(
     [
       ...(screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement)
@@ -3398,18 +3398,18 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
   expect(within(primary).getByRole("button", { name: "统计" })).toBeTruthy();
   // The source names this tab 我的, which is also the page's own title; the bar said 账号 against it.
   expect(within(primary).getByRole("button", { name: "我的" })).toBeTruthy();
-  // The bar holds those four and nothing else. Every other page is a row on the 全部设置 page, one
-  // level down inside the 设置 tab.
-  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
-  const rows = [...screen.getByRole("region", { name: "全部设置" }).querySelectorAll("button")];
-  const secondaryLabels = rows.map((row) => row.querySelector("strong")?.textContent ?? "");
+  // 标签栏只有这四项。其余页面都是「设置」标签根页上的一行。
+  const home = screen.getByRole("region", { name: "首页" });
+  const secondaryLabels = [...home.querySelectorAll("[data-row-title]")].map(
+    (row) => row.textContent ?? "",
+  );
   expect(secondaryLabels).toContain("输入");
   expect(secondaryLabels).toContain("剪贴板");
   expect(secondaryLabels).not.toContain("辅助码");
   // A touch host calls the shortcut page 外接键盘快捷键, and this one routes no hardware chords.
   expect(secondaryLabels).not.toContain("外接键盘快捷键");
   expect(secondaryLabels).not.toContain("悬浮工具栏");
-  fireEvent.click(rows[secondaryLabels.indexOf("输入")]);
+  fireEvent.click(within(home).getByRole("button", { name: "输入" }));
   expect(screen.getByRole("heading", { name: "输入" })).toBeTruthy();
 });
 
@@ -3839,7 +3839,8 @@ test("a mobile host without the candidate palette switch shows neither the switc
       }}
     />,
   );
-  expect(await screen.findByRole("group", { name: "主题" }, { timeout: 3000 })).toBeTruthy();
+  // 触屏外壳把该页标题设为「皮肤」，页面自身也这样命名。
+  expect(await screen.findByRole("group", { name: "皮肤" }, { timeout: 3000 })).toBeTruthy();
   expect(screen.queryByLabelText("候选栏使用主题配色")).toBeNull();
   expect(screen.queryByText(/候选栏正在使用键盘皮肤的颜色/)).toBeNull();
 });
@@ -3859,9 +3860,9 @@ test("mobile settings pages follow the WebView back stack", async () => {
       />,
     );
     await settingsFormReady();
-    fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
-    const rows = [...screen.getByRole("region", { name: "全部设置" }).querySelectorAll("button")];
-    fireEvent.click(rows.find((row) => row.querySelector("strong")?.textContent === "输入")!);
+    fireEvent.click(
+      within(screen.getByRole("region", { name: "首页" })).getByRole("button", { name: "输入" }),
+    );
     expect(window.history.state).toEqual(
       expect.objectContaining({ msimeSettings: true, page: "input" }),
     );
@@ -5621,7 +5622,7 @@ test("Android help and about pages use mobile instructions and project links", a
   render(<SettingsPage client={client} />);
   await settingsReady();
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   expect(await screen.findByText(/Android 平台的中文输入法/)).toBeDefined();
   expect(screen.getByText(/语言和输入法/)).toBeDefined();
@@ -5641,7 +5642,7 @@ test("Android help and about pages use mobile instructions and project links", a
   fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
   fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
   await waitFor(() =>
     expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/issues"),
@@ -5672,7 +5673,9 @@ test("the privacy link opens msime.app/privacy/ on every platform", async () => 
     );
     await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: "关于" }));
-    fireEvent.click(await screen.findByRole("button", { name: "隐私政策" }));
+    // HarmonyOS 关于页把链接放在「隐私政策」行的「查看」按钮上。
+    const privacy = platform === "harmony" ? "查看隐私政策" : "隐私政策";
+    fireEvent.click(await screen.findByRole("button", { name: privacy }));
     await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith(url));
     expect(openExternalUrl).toHaveBeenCalledTimes(1);
     cleanup();
@@ -5696,14 +5699,14 @@ test("iOS help opens keyboard settings and feedback builds a visible report", as
     />,
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
   // 帮助 is an entry on the 反馈 page, which is only drawn once the settings have loaded.
   fireEvent.click(await screen.findByRole("button", { name: "帮助" }));
   expect(await screen.findByText("允许完全访问")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "打开系统键盘设置" }));
   await waitFor(() => expect(openSystemKeyboardSettings).toHaveBeenCalledOnce());
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
   fireEvent.change(screen.getByRole("combobox", { name: "反馈类型" }), {
     target: { value: "候选词不对" },
   });
@@ -5809,7 +5812,7 @@ test("macOS and iOS help pages use their native host instructions", async () => 
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
   // 帮助 is an entry on the 反馈 page, which is only drawn once the settings have loaded.
   fireEvent.click(await screen.findByRole("button", { name: "帮助" }));
   expect(await screen.findByText(/iOS 平台的中文输入法/)).toBeDefined();

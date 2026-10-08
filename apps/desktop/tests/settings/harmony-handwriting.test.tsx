@@ -36,22 +36,21 @@ function renderSettings(platform: string, host: Record<string, unknown> = {}) {
   );
 }
 
-// Reached through the 键盘 tab's 全部设置 page, which is where the phone bar's `更多设置` dropdown
-// went — the bar is the source's four tabs and nothing else.
+// 手机从触屏首页的根页行进入它；2in1 从侧边栏进入。
 async function handwritingPage(mobile = true) {
   await settingsFormReady();
   const { fireEvent } = await import("@testing-library/react");
-  const list = mobile
-    ? (fireEvent.click(screen.getByRole("button", { name: /全部设置/ })),
-      screen.getByRole("region", { name: "全部设置" }))
-    : screen.getByRole("navigation", { name: "设置分类" });
-  const row = mobile
-    ? [...list.querySelectorAll("button")].find(
-        (item) => item.querySelector("strong")?.textContent === "手写输入",
-      )
-    : [...list.querySelectorAll("button")].find((item) => item.textContent?.trim() === "手写输入");
-  if (!row) throw new Error("no row for 手写输入");
-  fireEvent.click(row);
+  if (mobile) {
+    const home = screen.getByRole("region", { name: "首页" });
+    fireEvent.click(within(home).getByRole("button", { name: "手写输入" }));
+  } else {
+    const list = screen.getByRole("navigation", { name: "设置分类" });
+    const row = [...list.querySelectorAll("button")].find(
+      (item) => item.textContent?.trim() === "手写输入",
+    );
+    if (!row) throw new Error("no row for 手写输入");
+    fireEvent.click(row);
+  }
   return screen.getByRole("group", { name: "手写输入" });
 }
 

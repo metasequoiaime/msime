@@ -58,24 +58,6 @@
       "answers_key": true
      },
      {
-      "word": "😀",
-      "pinyin": "ni",
-      "canonical_pinyin": "",
-      "source": 6,
-      "scheme": "quanpin",
-      "weight": 2,
-      "answers_key": true
-     },
-     {
-      "word": "(^_^)",
-      "pinyin": "ni",
-      "canonical_pinyin": "",
-      "source": 7,
-      "scheme": "quanpin",
-      "weight": 2,
-      "answers_key": true
-     },
-     {
       "word": "倪",
       "pinyin": "ni",
       "canonical_pinyin": "ni",
@@ -94,12 +76,30 @@
       "answers_key": true
      },
      {
+      "word": "😀",
+      "pinyin": "ni",
+      "canonical_pinyin": "",
+      "source": 6,
+      "scheme": "quanpin",
+      "weight": 2,
+      "answers_key": true
+     },
+     {
       "word": "😁",
       "pinyin": "ni",
       "canonical_pinyin": "",
       "source": 6,
       "scheme": "quanpin",
       "weight": 1,
+      "answers_key": true
+     },
+     {
+      "word": "(^_^)",
+      "pinyin": "ni",
+      "canonical_pinyin": "",
+      "source": 7,
+      "scheme": "quanpin",
+      "weight": 2,
       "answers_key": true
      },
      {
@@ -245,24 +245,6 @@
       "answers_key": true
      },
      {
-      "word": "😀",
-      "pinyin": "ni",
-      "canonical_pinyin": "",
-      "source": 6,
-      "scheme": "quanpin",
-      "weight": 2,
-      "answers_key": true
-     },
-     {
-      "word": "(^_^)",
-      "pinyin": "ni",
-      "canonical_pinyin": "",
-      "source": 7,
-      "scheme": "quanpin",
-      "weight": 2,
-      "answers_key": true
-     },
-     {
       "word": "你",
       "pinyin": "ni",
       "canonical_pinyin": "ni",
@@ -281,12 +263,30 @@
       "answers_key": true
      },
      {
+      "word": "😀",
+      "pinyin": "ni",
+      "canonical_pinyin": "",
+      "source": 6,
+      "scheme": "quanpin",
+      "weight": 2,
+      "answers_key": true
+     },
+     {
       "word": "😁",
       "pinyin": "ni",
       "canonical_pinyin": "",
       "source": 6,
       "scheme": "quanpin",
       "weight": 1,
+      "answers_key": true
+     },
+     {
+      "word": "(^_^)",
+      "pinyin": "ni",
+      "canonical_pinyin": "",
+      "source": 7,
+      "scheme": "quanpin",
+      "weight": 2,
       "answers_key": true
      },
      {

@@ -40,12 +40,13 @@ struct CloudDictionaryFilesView: View {
         SettingsActionRow(title: "选择 UTF-8 文本文件", detail: rowFormatHint,
                           symbol: "doc.text.fill") { choosingSnapshot = false; choosing = true }
       } header: {
-        Text("导入到 \(kind.title)")
+        SettingsGroupHeader(title: "导入到 \(kind.title)")
       } footer: {
         Text(format == .hans
              ? "汉字格式由服务器调用输入引擎注音，请导入后检查多音字读音；默认权重为 100000。每次最多 500 条，包含 JSON 转义后的请求不超过 64 KiB。选择文件只在本机预览；确认上传后才写入云端，重复或无效词条会让整批导入失败，原有云端词条保持不变。"
              : "每次最多 500 条，包含 JSON 转义后的请求不超过 64 KiB。选择文件只在本机预览；确认上传后才写入云端，重复或无效词条会让整批导入失败，原有云端词条保持不变。")
       }
+      .designRow()
       if let text {
         Section {
           SettingsFactRow(title: fileName, detail: "\(lines.count) 行 · \(text.utf8.count) 字节",
@@ -53,22 +54,24 @@ struct CloudDictionaryFilesView: View {
           ForEach(Array(lines.prefix(12).enumerated()), id: \.offset) { _, line in Text(line).font(.caption).lineLimit(3) }
           SettingsActionRow(title: "确认上传到云端", symbol: "icloud.and.arrow.up.fill") { confirming = true }
         } header: {
-          Text("导入预览")
+          SettingsGroupHeader(title: "导入预览")
         } footer: {
           if lines.count > 12 { Text("仅显示前 12 行。") }
         }
+        .designRow()
       }
       Section {
         SettingsActionRow(title: "导出文件", detail: "按上面选的格式导出这一类",
                           symbol: "square.and.arrow.up.fill",
                           enabled: format != .hans) { run { try await export() } }
       } header: {
-        Text("导出云端个人词条")
+        SettingsGroupHeader(title: "导出云端个人词条")
       } footer: {
         Text(format == .windows
           ? "按 Windows 规则导出：拼音仅多字词，其他类型仅用户添加的词条。文件通过系统分享面板保存到你选择的位置。"
           : "导出所选类型的全部云端个人词条，包括搜索结果之外的词条；文件通过系统分享面板保存到你选择的位置。")
       }
+      .designRow()
       Section {
         SettingsActionRow(title: "导出完整快照", detail: "四类词库加排序记录，打包成一个文件",
                           symbol: "archivebox.fill") { run { try await exportSnapshot() } }
@@ -87,13 +90,15 @@ struct CloudDictionaryFilesView: View {
           }
         }
       } header: {
-        Text("完整云词库备份")
+        SettingsGroupHeader(title: "完整云词库备份")
       } footer: {
         Text(preparedSnapshot == nil
              ? "包含全部四类词库以及删除、调频和固定位置记录。导出不会改变本机词库。"
              : "恢复只写云端，本机词库需另行下载更新。")
       }
+      .designRow()
     }
+    .designPage()
     .settingsStatus(busy: busy, busyTitle: "正在传输…", message: message)
     .disabled(busy)
     .navigationTitle("词库文件")

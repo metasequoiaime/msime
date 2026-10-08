@@ -12,6 +12,8 @@ export interface DoubaoOptionsSectionProps {
   onEnablePuncChange: (enabled: boolean) => void;
   onEnableDdcChange: (enabled: boolean) => void;
   onBoostingTableIdChange: (value: string) => void;
+  /** 是否绘制「标点预测」。HarmonyOS 手机在它的「识别」组里以「自动添加标点」显示同一个开关，所以这里不再重复。 */
+  punctuation?: boolean;
 }
 
 /** 豆包识别的几个开关和热词表，不带组；语音页把它们接在「识别服务配置」组里豆包的设置后面。 */
@@ -25,6 +27,7 @@ export function DoubaoOptionsRows({
   onEnablePuncChange,
   onEnableDdcChange,
   onBoostingTableIdChange,
+  punctuation = true,
 }: DoubaoOptionsSectionProps) {
   return (
     <>
@@ -37,12 +40,14 @@ export function DoubaoOptionsRows({
         checked={enableItn}
         onChange={onEnableItnChange}
       />
-      <SwitchRow
-        title="标点预测"
-        aria-label="标点预测"
-        checked={enablePunc}
-        onChange={onEnablePuncChange}
-      />
+      {punctuation && (
+        <SwitchRow
+          title="标点预测"
+          aria-label="标点预测"
+          checked={enablePunc}
+          onChange={onEnablePuncChange}
+        />
+      )}
       <SwitchRow
         title="语义顺滑"
         aria-label="语义顺滑"

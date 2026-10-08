@@ -3,6 +3,8 @@ import Foundation
 /// One bounded HTTPS request for a cloud or AI candidate provider.
 struct OnlineCandidateRequest: Sendable {
   var urlRequest: URLRequest
+  /// 只有 AI 候选可以走本机或局域网的 http（`AIEndpointPolicy`）；云候选和翻译始终只走 https。
+  var allowsLocalHTTP = false
   /// How long the connection may sit idle, connecting included.
   var connectTimeout: TimeInterval
   /// How long the whole exchange may take.
@@ -16,24 +18,27 @@ protocol OnlineCandidateTransport: Sendable {
   func fetch(_ request: OnlineCandidateRequest) async -> Data?
 }
 
-/// HTTPS only, no redirects, no cookies or cache, and nothing kept between requests.
+/// HTTPS only (AI candidates may also use HTTP on the local network), no redirects, no cookies or cache, and nothing kept between requests.
 struct URLSessionOnlineCandidateTransport: OnlineCandidateTransport {
-  static func validURL(_ url: URL?) -> Bool {
-    guard let url, url.scheme == "https",
+  static func validURL(_ url: URL?, allowsLocalHTTP: Bool = false) -> Bool {
+    guard let url else { return false }
+    if allowsLocalHTTP { return AIEndpointPolicy.validatedURL(url.absoluteString) != nil }
+    guard url.scheme == "https",
           let host = url.host, !host.isEmpty,
           url.user == nil, url.password == nil, url.fragment == nil else { return false }
     return true
   }
 
   func fetch(_ request: OnlineCandidateRequest) async -> Data? {
-    guard Self.validURL(request.urlRequest.url) else { return nil }
+    guard Self.validURL(request.urlRequest.url, allowsLocalHTTP: request.allowsLocalHTTP) else { return nil }
     let configuration = URLSessionConfiguration.ephemeral
     configuration.timeoutIntervalForRequest = request.connectTimeout
     configuration.timeoutIntervalForResource = request.timeout
     configuration.waitsForConnectivity = false
     configuration.urlCache = nil
     configuration.httpCookieStorage = nil
-    let session = URLSession(configuration: configuration, delegate: RedirectRefusal(), delegateQueue: nil)
+    let session = URLSession(configuration: AIEndpointPolicy.sessionConfiguration(configuration, for: request.urlRequest.url),
+                             delegate: RedirectRefusal(), delegateQueue: nil)
     defer { session.invalidateAndCancel() }
     do {
       let (bytes, response) = try await session.bytes(for: request.urlRequest)

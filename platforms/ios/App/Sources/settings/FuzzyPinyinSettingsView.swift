@@ -12,15 +12,20 @@ struct FuzzyPinyinSettingsView: View {
     ("其他韵母", [("ian-iang", "ian ↔ iang"), ("uan-uang", "uan ↔ uang")]),
   ]
 
+  /// 把总开关设为 `enabled` 后的 `settings`。从未初始化的文档第一次启用时选中全部规则，与共享设置页的做法一致；之后再切换则保留用户选的规则。输入页的模糊音开关也用这个。
+  @MainActor static func toggled(_ settings: FuzzyPinyinPreference.Settings, enabled: Bool) -> FuzzyPinyinPreference.Settings {
+    var next = settings
+    next.enabled = enabled
+    if enabled && !next.seeded {
+      next.rules = Set(FuzzyPinyinPreference.ruleIDs)
+      next.seeded = true
+    }
+    return next
+  }
+
   private var enabled: Binding<Bool> {
     Binding(get: { settings.enabled }, set: { value in
-      var next = settings
-      next.enabled = value
-      if value && !next.seeded {
-        next.rules = Set(FuzzyPinyinPreference.ruleIDs)
-        next.seeded = true
-      }
-      save(next)
+      save(Self.toggled(settings, enabled: value))
     })
   }
 

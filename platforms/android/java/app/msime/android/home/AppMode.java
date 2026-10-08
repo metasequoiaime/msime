@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDelegate;
 import app.msime.android.R;
+import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONObject;
 
 /**
@@ -55,7 +56,7 @@ final class AppMode {
 
     /** The stored mode, with anything unrecognised read as `system`, the way the keyboard reads it. */
     static String of(JSONObject preferences) {
-        String mode = preferences.optString("theme", SYSTEM);
+        String mode = InputViewValuePolicy.textOr(preferences, "theme", SYSTEM);
         return LIGHT.equals(mode) || DARK.equals(mode) ? mode : SYSTEM;
     }
 

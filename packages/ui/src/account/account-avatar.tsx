@@ -43,7 +43,7 @@ export function AccountAvatar({
   /** The name whose first character stands in for a missing avatar; the edit dialog passes the name being typed. */
   name?: string;
   load?: () => Promise<string | null>;
-  size: "small" | "medium" | "large";
+  size: account.AvatarSize;
 }) {
   const url = user.avatarUrl;
   const [image, setImage] = useState<{ url: string; src: string } | null>(null);

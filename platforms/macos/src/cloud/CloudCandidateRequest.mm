@@ -1,6 +1,7 @@
 #import "CloudCandidateRequest.h"
 
 #include "msime_client.h"
+#import "../core/AIEndpointPolicy.h"
 
 static BOOL MSIMEIsAllowedDescriptorURL(NSURL *url) {
     if ([url.scheme isEqual:@"https"]) return YES;
@@ -131,8 +132,8 @@ static BOOL MSIMEIsAllowedDescriptorURL(NSURL *url) {
     NSString *address = descriptor[@"url"];
     NSURL *url = [NSURL URLWithString:address];
     NSDictionary *headers = descriptor[@"headers"];
-    if ([address lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 2048 || !MSIMEIsAllowedDescriptorURL(url) ||
-        !url.host.length || url.user || url.password || url.fragment || ![headers isKindOfClass:NSDictionary.class] ||
+    // AI 描述符按 AIEndpointPolicy.h 检查：https 不限主机，http 只能指向本机或局域网（如 LM Studio）；翻译描述符仍用上面只放行回环地址的规则。
+    if (MSIMEAIEndpointCheck(address, nil) != MSIMEAIEndpointProblemNone || !url.host.length || ![headers isKindOfClass:NSDictionary.class] ||
         headers.count != 2 || ![headers[@"Content-Type"] isEqual:@"application/json"] ||
         ![headers[@"Authorization"] isKindOfClass:NSString.class] || ![headers[@"Authorization"] hasPrefix:@"Bearer "]) return self;
     for (NSString *name in headers) {
@@ -163,6 +164,8 @@ static BOOL MSIMEIsAllowedDescriptorURL(NSURL *url) {
     _configuration.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
     _configuration.timeoutIntervalForRequest = _timeout;
     _configuration.timeoutIntervalForResource = _timeout;
+    // 明文 http 只会发往本机或局域网（AI 见 AIEndpointPolicy.h，翻译只放行回环地址），要直连：走系统代理的话，Token 会明文交给代理，代理还可能在公网上。空字典表示不用任何代理；https 仍按系统设置。
+    if ([_translationRequest.URL.scheme.lowercaseString isEqualToString:@"http"]) _configuration.connectionProxyDictionary = @{};
     _body = [NSMutableData data];
     _session = [NSURLSession sessionWithConfiguration:_configuration delegate:self delegateQueue:NSOperationQueue.mainQueue];
     _task = _translationRequest ? [_session dataTaskWithRequest:_translationRequest] : [_session dataTaskWithURL:_url];

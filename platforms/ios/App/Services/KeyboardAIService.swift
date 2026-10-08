@@ -13,7 +13,8 @@ enum KeyboardAIService {
       kSecAttrService as String: "app.msime.ios.keyboard-ai"
     ]
     if let url {
-      result[kSecAttrAccount as String] = "https://\(url.host?.lowercased() ?? ""):\(url.port ?? 443)"
+      // 来源键与设置页、Tauri 插件一致：`scheme://host:port`，局域网的 http 接口按 `http://host:port` 存。
+      result[kSecAttrAccount as String] = AIEndpointPolicy.origin(of: url) ?? ""
     }
     return result
   }
@@ -24,7 +25,7 @@ enum KeyboardAIService {
   }
 
   static func publish(_ configuration: CustomServiceConfiguration, token: String) throws {
-    let url = try configuration.validatedURL()
+    let url = try configuration.validatedURL(allowsLocalHTTP: true)
     let data = try JSONEncoder().encode(configuration)
     let lookup = query(url: url)
     let attributes = [kSecValueData as String: Data(token.utf8)]
@@ -39,7 +40,7 @@ enum KeyboardAIService {
   }
 
   static func token(for configuration: CustomServiceConfiguration) throws -> String {
-    var lookup = query(url: try configuration.validatedURL())
+    var lookup = query(url: try configuration.validatedURL(allowsLocalHTTP: true))
     lookup[kSecReturnData as String] = true
     var result: CFTypeRef?
     let status = SecItemCopyMatching(lookup as CFDictionary, &result)

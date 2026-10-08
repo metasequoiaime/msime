@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use msime_engine::host::{HelpcodeKeymap, SharedKeymap};
 use msime_engine::ordering::{
     rerank_pick, rotate_to_front, runner_up_order, OrderRow, Reranker, SentenceModel,
 };
@@ -46,6 +47,10 @@ pub enum Scheme {
     Quanpin,
     Xiaohe,
     Ziranma,
+    /// 手到双拼。
+    Shoudao,
+    /// 微软双拼：`;` 是韵母 ing，只能作一个音节的第二键。
+    Microsoft,
     Wubi86,
     /// 日语罗马字：字母拼成假名，候选是整句转换、词和平假名、片假名，`-` 是长音 ー。模型是 `JAPANESE_DICTIONARY_PATH` 的 `msime-japanese.dat`，没有时只有假名候选。
     Japanese,
@@ -54,12 +59,14 @@ pub enum Scheme {
 }
 
 impl Scheme {
-    /// `"quanpin"`、`"xiaohe"`、`"ziranma"`、`"wubi86"`、`"japanese"`、`"korean"`；其他名字返回 None。
+    /// `"quanpin"`、`"xiaohe"`、`"ziranma"`、`"shoudao"`、`"microsoft"`、`"wubi86"`、`"japanese"`、`"korean"`；其他名字返回 None。
     pub fn parse(name: &str) -> Option<Scheme> {
         match name {
             "quanpin" => Some(Scheme::Quanpin),
             "xiaohe" => Some(Scheme::Xiaohe),
             "ziranma" => Some(Scheme::Ziranma),
+            "shoudao" => Some(Scheme::Shoudao),
+            "microsoft" => Some(Scheme::Microsoft),
             "wubi86" => Some(Scheme::Wubi86),
             "japanese" => Some(Scheme::Japanese),
             "korean" => Some(Scheme::Korean),
@@ -70,7 +77,9 @@ impl Scheme {
     fn scheme_type(self) -> SchemeType {
         match self {
             Scheme::Quanpin => SchemeType::Quanpin,
-            Scheme::Xiaohe | Scheme::Ziranma => SchemeType::Shuangpin,
+            Scheme::Xiaohe | Scheme::Ziranma | Scheme::Shoudao | Scheme::Microsoft => {
+                SchemeType::Shuangpin
+            }
             Scheme::Wubi86 => SchemeType::Wubi,
             Scheme::Japanese => SchemeType::JapaneseRomaji,
             Scheme::Korean => SchemeType::Korean,
@@ -80,6 +89,8 @@ impl Scheme {
     fn shuangpin_profile(self) -> ShuangpinProfileKind {
         match self {
             Scheme::Ziranma => ShuangpinProfileKind::Ziranma,
+            Scheme::Shoudao => ShuangpinProfileKind::Shoudao,
+            Scheme::Microsoft => ShuangpinProfileKind::Microsoft,
             Scheme::Quanpin
             | Scheme::Xiaohe
             | Scheme::Wubi86
@@ -98,6 +109,18 @@ impl Scheme {
 
     fn is_korean(self) -> bool {
         self == Scheme::Korean
+    }
+
+    /// 全拼和四种双拼：共用拼音库，也是辅助码起作用的方案。
+    fn is_pinyin(self) -> bool {
+        matches!(
+            self,
+            Scheme::Quanpin
+                | Scheme::Xiaohe
+                | Scheme::Ziranma
+                | Scheme::Shoudao
+                | Scheme::Microsoft
+        )
     }
 
     /// 句子模型只给拼音方案重排：五笔不重排（D16），日语的整句转换有自己的模型，韩文没有候选可排。
@@ -212,6 +235,8 @@ pub enum Out {
 pub struct Row {
     pub text: String,
     pub code: String,
+    /// 引擎给这个候选标的辅助码提示，如 `(aB)`（`SessionSnapshot::candidate_annotations`）；没开辅助码时为空串。
+    pub hint: String,
 }
 
 /// 一次调用结束时的完整状态，JS 侧照着它画候选条。
@@ -399,6 +424,29 @@ impl WebHost {
         self.backspace_deletes = deletes;
     }
 
+    /// 打开或关闭辅助码。`table` 是辅助码表文件的字节（`resources/helpcodes/` 里的格式），None 关闭；默认关闭，和测出 40.9% 的评测配置一致（D15）。辅助码只对全拼和双拼起作用：全拼在音节后打大写字母，双拼在完整音节后打第三键（单码，调整顺序）或两个含大写的键（双码，筛选），规则都在引擎里。正在组的字按新设置重新查询；`reset` 重建的会话保持这个设置。表超过 1 MiB 时报错，原来的设置不变。
+    pub fn set_helpcode(&mut self, table: Option<&[u8]>) -> Result<(), String> {
+        match table {
+            Some(bytes) => {
+                let keymap: SharedKeymap = Arc::new(
+                    HelpcodeKeymap::from_table_bytes(bytes)
+                        .ok_or_else(|| "helpcode table is larger than 1 MiB".to_owned())?,
+                );
+                self.session.set_helpcode_table(keymap.clone());
+                self.session.set_helpcode_enabled(true);
+                self.options.helpcode_table = Some(keymap);
+                self.options.helpcode = true;
+            }
+            None => {
+                self.session.set_helpcode_enabled(false);
+                self.options.helpcode_table = None;
+                self.options.helpcode = false;
+            }
+        }
+        self.invalidate();
+        Ok(())
+    }
+
     /// 取消组字、清空上下文，并重建 Session（标点交替状态随之归零），新回合从开引号开始
     pub fn reset(&mut self) -> Frame {
         self.begin();
@@ -455,6 +503,11 @@ impl WebHost {
                 self.letter(byte);
             }
             Key::ShiftLetter(byte) => {
+                // 辅助码开着时，组字中的大写字母是辅助码，交给引擎。
+                if self.helpcode_on() && !self.english && self.composing() {
+                    self.helpcode_letter(byte);
+                    return;
+                }
                 if self.composing() {
                     self.commit_plain();
                 }
@@ -601,6 +654,24 @@ impl WebHost {
         }
     }
 
+    /// 组字中的大写字母，辅助码开着时：全拼末尾的大写字母、双拼完整音节后含大写的两键都是辅助码（`Session::character` 里的 `active_helpcode`）。引擎不收时退回辅助码关着时的做法：上屏原码，再打出这个字母。
+    fn helpcode_letter(&mut self, byte: u8) {
+        let result = self.session.character(byte, false);
+        if result.commit.is_some() {
+            self.apply(result, -1);
+        } else if result.handled {
+            self.invalidate();
+            self.composing_hint = Some(true);
+        } else {
+            self.commit_plain();
+            self.type_text(char::from(byte).to_string());
+        }
+    }
+
+    fn helpcode_on(&self) -> bool {
+        self.options.helpcode && self.scheme.is_pinyin()
+    }
+
     fn digit(&mut self, byte: u8) {
         if self.scheme.is_korean() {
             // 数字结束音节，再打出数字本身（韩文没有候选可选）。
@@ -644,12 +715,17 @@ impl WebHost {
             return;
         }
         let composing = self.composing();
-        // 全拼里光标不在开头时，撇号是音节分隔符，日语组字中的撇号是拼写的一部分（`n'a` 是 んあ）；引擎不收时按标点处理（`Runtime::dispatch` 里未处理的字符落到 `punctuation`）。
-        if byte == b'\''
-            && (self.scheme == Scheme::Quanpin || self.scheme.is_japanese())
-            && composing
-            && self.ensure_snapshot().caret_position > 0
-        {
+        // 全拼里光标不在开头时，撇号是音节分隔符，日语组字中的撇号是拼写的一部分（`n'a` 是 んあ）；微软双拼组字中的 `;` 是韵母 ing（引擎只在音节的第二键收它）。引擎不收时按标点处理（`Runtime::dispatch` 里未处理的字符落到 `punctuation`）。
+        let spells = composing
+            && match byte {
+                b'\'' => {
+                    (self.scheme == Scheme::Quanpin || self.scheme.is_japanese())
+                        && self.ensure_snapshot().caret_position > 0
+                }
+                b';' => self.scheme == Scheme::Microsoft,
+                _ => false,
+            };
+        if spells {
             let result = self.session.character(byte, false);
             if result.handled || result.commit.is_some() {
                 self.apply(result, -1);
@@ -866,6 +942,7 @@ impl WebHost {
     fn order(&mut self, keep_highlight: bool) {
         let started = Instant::now();
         let use_model = self.model_on();
+        let hints = self.helpcode_on();
         let snapshot = self.snapshot.get_or_insert_with(|| self.session.snapshot());
         let scheme = snapshot.scheme as u8;
         let rows: Vec<OrderRow<'_>> = snapshot
@@ -917,6 +994,16 @@ impl WebHost {
                         String::new()
                     } else {
                         item.pinyin.clone()
+                    },
+                    // 辅助码关着时引擎的注释位只会是纠错提示，网页不开纠错，所以只在辅助码开着时取它。
+                    hint: if hints {
+                        snapshot
+                            .candidate_annotations
+                            .get(index)
+                            .cloned()
+                            .unwrap_or_default()
+                    } else {
+                        String::new()
                     },
                 }
             })
@@ -1114,7 +1201,7 @@ fn session_options(scheme: Scheme, paths: RuntimePaths) -> SessionOptions {
         mixed_pinyin: false,
         profile: WubiProfileKind::Wubi86,
     };
-    // 学习、个人上文（它会起一个在 wasm 上 panic 的落盘线程）、辅助码、所有本地模式（日期时间模式在 wasm 上读本地时间会 panic）、混输英文、模糊音和纠错都关掉，和测出 40.9% 的评测配置一致（D15）。
+    // 学习、个人上文（它会起一个在 wasm 上 panic 的落盘线程）、辅助码、所有本地模式（日期时间模式在 wasm 上读本地时间会 panic）、混输英文、模糊音和纠错都关掉，和测出 40.9% 的评测配置一致（D15）。辅助码只是默认关掉，页面可以用 `WebHost::set_helpcode` 打开。
     options.learning = false;
     options.personal_context = false;
     options.helpcode = false;
@@ -1221,11 +1308,33 @@ mod tests {
         assert_eq!(Scheme::parse("quanpin"), Some(Scheme::Quanpin));
         assert_eq!(Scheme::parse("xiaohe"), Some(Scheme::Xiaohe));
         assert_eq!(Scheme::parse("ziranma"), Some(Scheme::Ziranma));
+        assert_eq!(Scheme::parse("shoudao"), Some(Scheme::Shoudao));
+        assert_eq!(Scheme::parse("microsoft"), Some(Scheme::Microsoft));
         assert_eq!(Scheme::parse("wubi86"), Some(Scheme::Wubi86));
         assert_eq!(Scheme::parse("japanese"), Some(Scheme::Japanese));
         assert_eq!(Scheme::parse("korean"), Some(Scheme::Korean));
         assert_eq!(Scheme::parse("wubi98"), None);
+        assert_eq!(Scheme::parse("shuangpin"), None);
         assert_eq!(Scheme::parse(""), None);
+    }
+
+    /// 四种双拼都是引擎的双拼方案，各用自己的键位表；只有它们和全拼开辅助码。
+    #[test]
+    fn shuangpin_schemes_pick_their_profiles() {
+        for (scheme, profile) in [
+            (Scheme::Xiaohe, ShuangpinProfileKind::Xiaohe),
+            (Scheme::Ziranma, ShuangpinProfileKind::Ziranma),
+            (Scheme::Shoudao, ShuangpinProfileKind::Shoudao),
+            (Scheme::Microsoft, ShuangpinProfileKind::Microsoft),
+        ] {
+            assert_eq!(scheme.scheme_type(), SchemeType::Shuangpin, "{scheme:?}");
+            assert_eq!(scheme.shuangpin_profile(), profile, "{scheme:?}");
+            assert!(scheme.is_pinyin() && scheme.uses_model(), "{scheme:?}");
+        }
+        assert!(Scheme::Quanpin.is_pinyin());
+        for scheme in [Scheme::Wubi86, Scheme::Japanese, Scheme::Korean] {
+            assert!(!scheme.is_pinyin(), "{scheme:?}");
+        }
     }
 
     #[test]

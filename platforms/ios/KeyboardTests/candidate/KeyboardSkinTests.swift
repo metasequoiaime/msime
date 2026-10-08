@@ -18,10 +18,128 @@ final class KeyboardSkinTests: XCTestCase {
     }
   }
 
+  /// 只有经典兜底（没有可取季节的应用主题）把背景交给系统底板；跟随系统的季节配色和设计都画自己的背景。
   func testOnlyNativeTokensLeaveTheBackgroundToTheSystemBackdrop() throws {
-    XCTAssertTrue(KeyboardTheme.system.drawsNativeBackground)
+    XCTAssertEqual(KeyboardTheme.system.drawsNativeBackground, !SeasonKeyboardTokens.isAvailable)
+    XCTAssertEqual(KeyboardTheme.system.palette == nil, !SeasonKeyboardTokens.isAvailable)
     let design = try XCTUnwrap(CustomKeyboardSkin.templates.first?.1)
     XCTAssertFalse(KeyboardTheme.designed(design).drawsNativeBackground)
+    XCTAssertNil(KeyboardTheme.designed(design).palette)
+  }
+
+  /// 为测试选中应用主题 `id`，结束后恢复原先存储的选择。
+  private func selectAppTheme(_ id: String) {
+    let defaults = UserDefaults(suiteName: MSIMEAppEdition.appGroupIdentifier)
+    let previous = defaults?.object(forKey: AppThemePalette.storageKey)
+    addTeardownBlock {
+      if let previous { defaults?.set(previous, forKey: AppThemePalette.storageKey) } else { defaults?.removeObject(forKey: AppThemePalette.storageKey) }
+      KeyboardTheme.refreshSeason()
+    }
+    AppThemePalette.select(id)
+  }
+
+  /// 秋杉下的跟随系统画出设计稿的秋季键盘（ios-kb-1）：面板、字母键和功能键由季节色混合而成，文字为黑或白，提示色为设计稿的 `kbSub`，回车键填季节强调色。
+  func testFollowSystemDrawsTheSeasonPalette() throws {
+    selectAppTheme("qiushan")
+    let lightSeason = try XCTUnwrap(AppThemePalette.resolved(dark: false))
+    let darkSeason = try XCTUnwrap(AppThemePalette.resolved(dark: true))
+    XCTAssertEqual(lightSeason.season, "autumn")
+    let skin = KeyboardTheme.resolve(GlobalThemeCatalog.systemId, document: [:])
+    XCTAssertEqual(skin.palette, SeasonKeyboardTokens.palette)
+    XCTAssertFalse(skin.drawsNativeBackground)
+    XCTAssertEqual(skin, KeyboardTheme.resolve(GlobalThemeCatalog.systemId, document: [:]))
+
+    let light = UITraitCollection(userInterfaceStyle: .light), dark = UITraitCollection(userInterfaceStyle: .dark)
+    func hex(_ color: UIColor, _ traits: UITraitCollection) -> UInt32 { packed(color.resolvedColor(with: traits)) }
+    XCTAssertEqual(hex(skin.background, light), 0xEED7C7)
+    // 绿色通道算出来是 249.5；设计稿表格和 Android（`AppThemePaletteSmoke`）都写成 F9。
+    XCTAssertEqual(hex(skin.keyBackground, light), 0xFDF9F6)
+    XCTAssertEqual(hex(skin.functionKeyBackground, light), 0xE6C6B2)
+    XCTAssertEqual(hex(skin.accent, light), 0xB5562B)
+    XCTAssertEqual(hex(skin.actionBackground, light), 0xB5562B)
+    XCTAssertEqual(hex(skin.actionForeground, light), 0xFFFFFF)
+    XCTAssertEqual(hex(skin.keyForeground, light), 0x000000)
+    XCTAssertEqual(hex(skin.secondary, light), 0x5A6B5D)
+
+    XCTAssertEqual(skin.background.resolvedColor(with: dark), AppThemePalette.mix(darkSeason.accent, 10, CustomKeyboardSkin.color(0x161716)))
+    XCTAssertEqual(skin.keyBackground.resolvedColor(with: dark), AppThemePalette.mix(darkSeason.accent, 10, CustomKeyboardSkin.color(0x3A3C3A)))
+    XCTAssertEqual(skin.functionKeyBackground.resolvedColor(with: dark), AppThemePalette.mix(darkSeason.accent, 14, CustomKeyboardSkin.color(0x262826)))
+    XCTAssertEqual(skin.accent.resolvedColor(with: dark), darkSeason.accent)
+    XCTAssertEqual(skin.actionForeground.resolvedColor(with: dark), darkSeason.onAccent)
+    XCTAssertEqual(hex(skin.keyForeground, dark), 0xFFFFFF)
+    XCTAssertEqual(hex(skin.secondary, dark), 0x93A596)
+
+    XCTAssertEqual(skin.accentSoft.resolvedColor(with: light).cgColor.alpha, 0x22 / 255, accuracy: 0.001)
+    XCTAssertEqual(skin.accentSoft.resolvedColor(with: dark).cgColor.alpha, 0x40 / 255, accuracy: 0.001)
+    XCTAssertEqual(hex(skin.toolbarActiveBackground, light), 0xB5562B)
+
+    // Logo 跟随应用主题而不是皮肤：换成具名主题时圆盘和标志不变。
+    for theme in [skin, KeyboardTheme.resolve("night", document: [:])] {
+      XCTAssertEqual(theme.logoCircle.resolvedColor(with: light), AppThemePalette.mix(lightSeason.accent, 14, lightSeason.card))
+      XCTAssertEqual(theme.logoCircle.resolvedColor(with: dark), AppThemePalette.mix(darkSeason.accent, 22, darkSeason.card))
+      XCTAssertEqual(theme.logoMark.resolvedColor(with: light), AppThemePalette.mix(lightSeason.accent, 82, .black))
+      XCTAssertEqual(theme.logoMark.resolvedColor(with: dark), AppThemePalette.mix(darkSeason.accent, 82, .black))
+    }
+  }
+
+  /// 季节刷新后会传到键盘已持有的主题上：配色每次解析时都会读取应用主题。
+  func testRefreshedSeasonReachesTheHeldTheme() throws {
+    selectAppTheme("qiushan")
+    let skin = KeyboardTheme.resolve(GlobalThemeCatalog.systemId, document: [:])
+    let light = UITraitCollection(userInterfaceStyle: .light)
+    XCTAssertEqual(packed(skin.background.resolvedColor(with: light)), 0xEED7C7)
+    AppThemePalette.select("dongxue")
+    let winter = try XCTUnwrap(AppThemePalette.resolved(dark: false))
+    XCTAssertEqual(winter.season, "winter")
+    XCTAssertEqual(skin.background.resolvedColor(with: light), AppThemePalette.mix(winter.accent, 12, winter.background))
+    XCTAssertEqual(skin.accent.resolvedColor(with: light), winter.accent)
+  }
+
+  /// `kbHair`（ios-kb-31）：浅色键盘上是黑色 .12；深色键盘、任一模式下的深色表面内置主题，以及背景为深色的设计上是白色 .14。
+  func testHairlineFollowsTheDrawnSurface() throws {
+    let light = UITraitCollection(userInterfaceStyle: .light), dark = UITraitCollection(userInterfaceStyle: .dark)
+    func rgba(_ color: UIColor) -> [CGFloat] {
+      var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+      color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+      return [red, green, blue, (alpha * 100).rounded() / 100]
+    }
+    let lightHair: [CGFloat] = [0, 0, 0, 0.12], darkHair: [CGFloat] = [1, 1, 1, 0.14]
+    XCTAssertEqual(rgba(KeyboardTheme.system.hairline.resolvedColor(with: light)), lightHair)
+    XCTAssertEqual(rgba(KeyboardTheme.system.hairline.resolvedColor(with: dark)), darkHair)
+    for id in ["shuishan", "night", "ink"] where GlobalThemeCatalog.contains(id) {
+      XCTAssertEqual(rgba(KeyboardTheme.resolve(id, document: [:]).hairline.resolvedColor(with: light)), darkHair, id)
+    }
+    if GlobalThemeCatalog.contains("paper") {
+      let paper = KeyboardTheme.resolve("paper", document: [:])
+      let traits = paper.appearance == .dark ? dark : light
+      XCTAssertEqual(rgba(paper.hairline.resolvedColor(with: traits)), paper.appearance == .dark ? darkHair : lightHair)
+    }
+    var design = CustomKeyboardSkin()
+    design.background = 0x132536
+    XCTAssertEqual(rgba(KeyboardTheme.designed(design).hairline.resolvedColor(with: light)), darkHair)
+    design.background = 0xF4F1EA
+    XCTAssertEqual(rgba(KeyboardTheme.designed(design).hairline.resolvedColor(with: dark)), lightHair)
+  }
+
+  /// 按键底边（ios-kb-30）：浅色为 `rgba(38,62,44,.3)`，深色为 `rgba(0,0,0,.55)`，正下方偏移一个点、不模糊；设计保留它自己的阴影。
+  func testKeyShadowUsesTheDesignEdge() {
+    let light = UITraitCollection(userInterfaceStyle: .light), dark = UITraitCollection(userInterfaceStyle: .dark)
+    XCTAssertEqual(packed(NativeKeyboardTokens.keyShadowColor.resolvedColor(with: light)), 0x263E2C)
+    XCTAssertEqual(packed(NativeKeyboardTokens.keyShadowColor.resolvedColor(with: dark)), 0x000000)
+    XCTAssertEqual(NativeKeyboardTokens.keyShadowOpacity.light, 0.3)
+    XCTAssertEqual(NativeKeyboardTokens.keyShadowOpacity.dark, 0.55)
+    for id in GlobalThemeCatalog.ids where id != GlobalThemeCatalog.customId {
+      let skin = KeyboardTheme.resolve(id, document: [:])
+      XCTAssertEqual(packed(skin.keyShadowColor.resolvedColor(with: light)), 0x263E2C, id)
+      XCTAssertEqual(skin.keyShadowColor.resolvedColor(with: light).cgColor.alpha, 0.3, accuracy: 0.001, id)
+      XCTAssertEqual(skin.keyShadowColor.resolvedColor(with: dark).cgColor.alpha, 0.55, accuracy: 0.001, id)
+      XCTAssertEqual(skin.shadowColor.resolvedColor(with: dark), skin.keyShadowColor.resolvedColor(with: dark), id)
+      XCTAssertEqual(skin.shadowOffset, 1, id)
+      XCTAssertEqual(skin.shadowRadius, 0, id)
+    }
+    var design = CustomKeyboardSkin()
+    design.shadow = 0.2
+    XCTAssertEqual(KeyboardTheme.designed(design).keyShadowColor.cgColor.alpha, 0.2, accuracy: 0.001)
   }
 
   func testSharedPreferencesDesignUsesRustCamelCaseAndSwiftDataEncoding() throws {
@@ -239,7 +357,7 @@ final class KeyboardSkinTests: XCTestCase {
     preserveSharedTheme()
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
     func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
     let design = CustomKeyboardSkin.templates[1].1
     for id in GlobalThemeCatalog.ids {
@@ -262,9 +380,9 @@ final class KeyboardSkinTests: XCTestCase {
       XCTAssertEqual(key.configuration?.background.cornerRadius, skin.cornerRadius, id)
       XCTAssertEqual(key.configuration?.background.strokeWidth, skin.borderWidth, id)
       XCTAssertEqual(key.layer.shadowOpacity, skin.hasShadow ? 1 : 0, id)
-      // At rest return is a function key; it only takes the accent while it commits a composition (dc.html L2217).
+      // 回车键无论空闲还是组字中都用主题的操作色（dc.html `retBg`）。
       XCTAssertEqual(key.configuration?.background.backgroundColor?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)),
-        skin.functionKeyBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)), id)
+        skin.actionBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)), id)
       let shift = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "shiftButton" } as? UIButton)
       XCTAssertEqual(shift.configuration?.background.backgroundColor?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)),
         skin.functionKeyBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)), id)
@@ -272,7 +390,7 @@ final class KeyboardSkinTests: XCTestCase {
   }
 
   @MainActor
-  func testReturnTakesTheAccentOnlyWhileComposing() throws {
+  func testReturnKeepsTheAccentWhetherOrNotComposing() throws {
     preserveSharedTheme()
     let scheme = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = scheme }
@@ -280,7 +398,7 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertTrue(GlobalThemePreference.save("paper"))
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
     controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
@@ -290,7 +408,7 @@ final class KeyboardSkinTests: XCTestCase {
     let light = UITraitCollection(userInterfaceStyle: .light)
     let skin = KeyboardTheme.current
     func fill() throws -> UIColor? { try button("returnKey").configuration?.background.backgroundColor?.resolvedColor(with: light) }
-    XCTAssertEqual(try fill(), skin.functionKeyBackground.resolvedColor(with: light))
+    XCTAssertEqual(try fill(), skin.actionBackground.resolvedColor(with: light))
     for character in "nihao" {
       let key = try XCTUnwrap(descendants(controller.view).first {
         $0.accessibilityLabel == "字母 \(String(character).uppercased())"
@@ -302,19 +420,50 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertEqual(try fill(), skin.actionBackground.resolvedColor(with: light))
     XCTAssertEqual(try button("returnKey").configuration?.baseForegroundColor?.resolvedColor(with: light),
       skin.actionForeground.resolvedColor(with: light))
-    // The first candidate is the selected one: the accent, no chip.
+    // 首个候选是选中的那个：强调色放在键色的底片上；其余候选直接落在键盘上。
     let first = try button("candidate-1")
     XCTAssertEqual(first.configuration?.baseForegroundColor?.resolvedColor(with: light), skin.accent.resolvedColor(with: light))
-    XCTAssertEqual(first.configuration?.background.backgroundColor?.cgColor.alpha ?? 0, 0)
+    XCTAssertEqual(first.configuration?.background.backgroundColor?.resolvedColor(with: light),
+      skin.keyBackground.resolvedColor(with: light))
     XCTAssertEqual(first.configuration?.background.strokeWidth, 0)
+    XCTAssertEqual(try button("candidate-2").configuration?.background.backgroundColor?.cgColor.alpha ?? 0, 0)
     XCTAssertEqual(first.layer.shadowOpacity, 0)
     XCTAssertEqual(try button("candidate-2").configuration?.baseForegroundColor?.resolvedColor(with: light),
       skin.keyForeground.resolvedColor(with: light))
-    // Committing ends the composition and hands return back to the function fill and the field's own label.
+    // 上屏结束组字，回车键交回输入框自己的标签；填充色仍是操作色。
     try button("returnKey").sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertNotEqual(try button("returnKey").accessibilityLabel, "确认")
-    XCTAssertEqual(try fill(), skin.functionKeyBackground.resolvedColor(with: light))
+    XCTAssertEqual(try fill(), skin.actionBackground.resolvedColor(with: light))
+  }
+
+  /// 设计稿（dc.html `mobCands`）里拼写和展开箭头都不带边框。iOS 27 给每个按钮配置默认一条透明的 1pt 描边，换肤重新着色时不能把它变成强调色描边。
+  @MainActor
+  func testSpellingAndExpandChevronDrawNoOutline() throws {
+    preserveSharedTheme()
+    let scheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = scheme }
+    InputSchemePreference.scheme = .quanpin
+    XCTAssertTrue(GlobalThemePreference.save("paper"))
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
+    for character in "nihao" {
+      let key = try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityLabel == "字母 \(String(character).uppercased())"
+      } as? UIButton)
+      key.sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+    for id in ["preeditButton", "expandCandidates"] {
+      let button = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == id } as? UIButton, id)
+      let background = try XCTUnwrap(button.configuration?.background, id)
+      let drawn = background.strokeWidth > 0 && (background.strokeColor?.cgColor.alpha ?? 0) > 0
+      XCTAssertFalse(drawn, "\(id) draws an outline")
+    }
   }
 
   /// Hints, glosses and markers on the keyboard palette take the theme's `secondary`, in the strip and in the expanded panel alike, so they match the 候选栏 preview (THEME_CONTRACT: hints and numbers = `secondary`).
@@ -350,7 +499,7 @@ final class KeyboardSkinTests: XCTestCase {
 
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
       controller.viewWillAppear(false)
       controller.view.layoutIfNeeded()
       let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 G" } as? UIButton, id)
@@ -399,7 +548,7 @@ final class KeyboardSkinTests: XCTestCase {
       XCTAssertTrue(GlobalThemePreference.apply(design), name)
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
       controller.view.layoutIfNeeded()
       func visible(_ view: UIView) -> Bool {
         if view.isHidden { return false }
@@ -437,24 +586,52 @@ final class KeyboardSkinTests: XCTestCase {
     }
   }
 
-  /// A switched-on tile is drawn from the platform tokens in every theme (dc.html `tileOn`: `k.accentSoft` / `k.accentText`), the same on every host; only a keyboard design tints it with its own accent.
-  func testSwitchedOnTileUsesThePlatformAccentInEveryTheme() {
-    // The built-in themes carry their own accent (ink's is white); those are the ones a theme-derived fill used to tint.
+  /// 打开的磁贴（文字、图标和角标用 `toggleForeground`，不铺底色）、激活的工具栏底块和回车键都用当前主题自己的强调色（ios-kb-31），高亮不再在所有皮肤下都是绿色：凡是有配色的主题，工具栏底块的 `accentSoft` 都是强调色在浅色下取 `22`、深色下取 `40` 的透明度，键盘设计则用它自己的强调色着色。
+  func testSwitchedOnTileUsesTheActiveThemeAccent() {
     XCTAssertTrue(GlobalThemeCatalog.ids.contains { KeyboardTheme.resolve($0, document: [:]).palette != nil })
     for id in GlobalThemeCatalog.ids {
       let skin = KeyboardTheme.resolve(id, document: [:])
       guard skin.design == nil else { continue }
+      // 候选条的配色按相等比较，所以着色不能每次读取都生成新的颜色。
+      if skin.appearance != nil || skin.palette == nil || skin.palette == SeasonKeyboardTokens.palette {
+        XCTAssertEqual(skin.accentSoft, skin.accentSoft, id)
+      }
       for style in [UIUserInterfaceStyle.light, .dark] {
         let traits = UITraitCollection(userInterfaceStyle: style)
-        XCTAssertEqual(skin.toggleBackground.resolvedColor(with: traits), NativeKeyboardTokens.accentSoft.resolvedColor(with: traits), "\(id) \(style.rawValue)")
-        XCTAssertEqual(skin.toggleForeground.resolvedColor(with: traits), NativeKeyboardTokens.accent.resolvedColor(with: traits), "\(id) \(style.rawValue)")
+        let accent = skin.accent.resolvedColor(with: traits)
+        XCTAssertEqual(skin.toolbarActiveBackground.resolvedColor(with: traits), skin.accentSoft.resolvedColor(with: traits), "\(id) \(style.rawValue)")
+        XCTAssertEqual(skin.toggleForeground.resolvedColor(with: traits), accent, "\(id) \(style.rawValue)")
+        XCTAssertEqual(skin.actionBackground.resolvedColor(with: traits), accent, "\(id) \(style.rawValue)")
+        guard let palette = skin.palette else {
+          // 经典兜底保留原生的 token。
+          XCTAssertEqual(skin.accentSoft.resolvedColor(with: traits), NativeKeyboardTokens.accentSoft.resolvedColor(with: traits), "\(id) \(style.rawValue)")
+          continue
+        }
+        XCTAssertEqual(accent, palette.accent.resolvedColor(with: traits), "\(id) \(style.rawValue)")
+        let drawsDark = (skin.appearance ?? style) == .dark
+        XCTAssertEqual(skin.accentSoft.resolvedColor(with: traits), accent.withAlphaComponent(drawsDark ? 0x40 / 255 : 0x22 / 255), "\(id) \(style.rawValue)")
+        XCTAssertEqual(skin.actionForeground.resolvedColor(with: traits), palette.onAccent.resolvedColor(with: traits), "\(id) \(style.rawValue)")
       }
     }
     var design = CustomKeyboardSkin()
     design.accent = 0xD4BBFF
     let designed = KeyboardTheme.designed(design)
     XCTAssertEqual(packed(designed.toggleForeground), 0xD4BBFF)
-    XCTAssertEqual(packed(designed.toggleBackground), 0xD4BBFF)
+    XCTAssertEqual(packed(designed.toolbarActiveBackground), 0xD4BBFF)
+  }
+
+  /// 功能菜单的图块确实按 `toggleForeground` 画开启状态，按 `keyForeground` 画关闭状态，上面那条语义颜色的测试才守得住图块本身。
+  @MainActor func testFunctionTileDrawsItsOnStateInToggleForeground() throws {
+    var design = CustomKeyboardSkin()
+    design.accent = 0xD4BBFF
+    let skin = KeyboardTheme.designed(design)
+    for selected in [true, false] {
+      let tile = KeyboardFunctionTileView(
+        tool: KeyboardTool(id: "fullwidth", title: "全角", face: .glyph("全"), isToggle: true, selected: selected) {}, skin: skin)
+      let title = try XCTUnwrap(tile.subviews.compactMap { $0 as? UILabel }.first { $0.text == "全角" })
+      let expected = selected ? skin.toggleForeground : skin.keyForeground
+      XCTAssertEqual(title.textColor.resolvedColor(with: tile.traitCollection), expected.resolvedColor(with: tile.traitCollection), "selected: \(selected)")
+    }
   }
 
   private func packed(_ color: UIColor) -> UInt32 {

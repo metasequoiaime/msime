@@ -123,13 +123,19 @@ final class ImeDebugOverlay {
                     return;
                 }
                 byte[] kept = trimmed(read(file), line.length, MAX_BYTES);
-                java.nio.file.Path staging = new File(directory, "." + name + ".staging").toPath();
                 byte[] next = new byte[kept.length + line.length];
                 System.arraycopy(kept, 0, next, 0, kept.length);
                 System.arraycopy(line, 0, next, kept.length, line.length);
-                Files.write(staging, next, StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
-                Files.move(staging, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                java.nio.file.Path staging = Files.createTempFile(directory.toPath(),
+                    "." + name + ".", ".staging");
+                try {
+                    Files.write(staging, next, StandardOpenOption.TRUNCATE_EXISTING,
+                        StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
+                    Files.move(staging, file, StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+                } finally {
+                    Files.deleteIfExists(staging);
+                }
             } catch (IOException | RuntimeException ignored) {
                 // 诊断记录写不进去时放弃这一行，不影响键盘。
             }

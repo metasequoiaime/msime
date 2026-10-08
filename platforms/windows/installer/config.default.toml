@@ -44,9 +44,9 @@ cn_en_mixed_input = true
 cn_en_mixed_input_min_chars = 5
 # 在竖排候选窗口中显示中英文互译（每项最多两个简短释义）
 candidate_translations = true
-# 中文输入状态下显示 emoji 前缀候选（第三个候选项，随云候选/AI 联想顺移）
+# 中文输入状态下显示 emoji 前缀候选（紧跟它描绘的那个词，对不上候选词的排在末尾）
 emoji_mixed_input = true
-# 中文输入状态下显示颜文字前缀候选（排在 emoji 之后）
+# 中文输入状态下显示颜文字前缀候选（紧跟它描绘的那个词、排在同一个词的 emoji 之后，对不上的排在末尾）
 kaomoji_mixed_input = false
 # 云候选：把正在输入的拼写发给 Google input-tools，新装默认关闭，安装器「联网功能」页勾选后打开
 cloud_candidates = false

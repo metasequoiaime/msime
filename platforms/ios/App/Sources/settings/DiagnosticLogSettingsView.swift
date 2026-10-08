@@ -28,27 +28,38 @@ struct DiagnosticLogSettingsView: View {
           ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
           : "只记录事件名称，不记录按键、输入的文字、候选、账号或服务响应。日志保存在本机，超过 1 MB 时保留一份旧日志。键盘需要开启“完全访问”才能写入；下次弹出键盘时生效。")
       }
+      .designRow()
       Section {
         LabeledContent("大小", value: ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
         if let file, size > 0 {
           ShareLink(item: file) { Label("分享日志", systemImage: "square.and.arrow.up") }
             .accessibilityIdentifier("diagnosticLogShare")
           if sizeClass != .regular {
-            NavigationLink("查看日志") { logText.navigationTitle("诊断日志").navigationBarTitleDisplayMode(.inline) }
+            NavigationLink("查看日志") {
+              logText.background(MetasequoiaTheme.canvas.ignoresSafeArea())
+                .navigationTitle("诊断日志").navigationBarTitleDisplayMode(.inline)
+            }
               .accessibilityIdentifier("diagnosticLogView")
           }
           SettingsActionRow(title: "清空日志", symbol: "trash.fill", destructive: true) { confirmsClear = true }
             .accessibilityIdentifier("diagnosticLogClear")
         }
       } header: {
-        Text("日志")
+        SettingsGroupHeader(title: "日志")
       } footer: {
         Text("反馈键盘问题时，可以把日志分享给我们。")
       }
+      .designRow()
       if sizeClass == .regular, size > 0 {
-        Section("最近记录") { logText.frame(minHeight: 240) }
+        Section {
+          logText.frame(minHeight: 240)
+        } header: {
+          SettingsGroupHeader(title: "最近记录")
+        }
+        .designRow()
       }
     }
+    .designPage()
     .navigationTitle("诊断日志").navigationBarTitleDisplayMode(.inline)
     .confirmationDialog("清空诊断日志？", isPresented: $confirmsClear, titleVisibility: .visible) {
       Button("清空", role: .destructive, action: clear)

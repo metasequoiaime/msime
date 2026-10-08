@@ -12,7 +12,8 @@ export interface TranslationServiceSelectorSectionProps {
   onChange: (provider: TranslationProvider) => void;
 }
 
-function TranslationServiceOptions({ showAccountProvider }: { showAccountProvider: boolean }) {
+/** 翻译服务的选项。写成返回 Fragment 的普通函数而不是组件，鸿蒙手机的 `SelectRow` 才能从中读出面板选项。 */
+function translationServiceOptions(showAccountProvider: boolean) {
   return (
     <>
       <option value="none">关闭</option>
@@ -43,7 +44,7 @@ export function TranslationServiceSelectorSection({
         value={provider}
         onChange={(event) => onChange(event.target.value as TranslationProvider)}
       >
-        <TranslationServiceOptions showAccountProvider={showAccountProvider} />
+        {translationServiceOptions(showAccountProvider)}
       </SelectRow>
     </SettingsRowStack>
   ) : (
@@ -55,7 +56,7 @@ export function TranslationServiceSelectorSection({
         value={provider}
         onChange={(value) => onChange(value as TranslationProvider)}
       >
-        <TranslationServiceOptions showAccountProvider={showAccountProvider} />
+        {translationServiceOptions(showAccountProvider)}
       </SelectSettingField>
     </div>
   );

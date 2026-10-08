@@ -1,3 +1,4 @@
+import { AiEndpointPolicy } from "./AiEndpointPolicy";
 import { TextPolicy } from "../TextPolicy";
 
 /** One model row returned by an OpenAI-compatible or Anthropic catalog. */
@@ -19,7 +20,8 @@ export interface AiCatalogPage {
 export class AiModelCatalogPolicy {
   static modelsUrl(endpoint: string): string | null {
     const trimmed: string = endpoint.trim();
-    if (!TextPolicy.validAuthority(trimmed, ["https://"])) {
+    // https 不限主机，http 只能指向本机或局域网，见 AiEndpointPolicy。
+    if (!AiEndpointPolicy.allowed(trimmed)) {
       return null;
     }
     const queryIndex: number = trimmed.indexOf("?");

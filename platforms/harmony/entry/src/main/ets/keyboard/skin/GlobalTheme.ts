@@ -111,29 +111,31 @@ interface CatalogValue {
   themes?: Object[];
 }
 
-// ---- Harmony native tokens (the design's harmony entry, 全平台 UI.dc.html L1579-1588) ----
+// ---- Harmony 原生令牌（设计稿 `tok()` 中的 harmony 条目，`全平台 UI.dc.html` L2526-2529：`kbBg`、`keyBg`、`keySpec`、`kbSub`） ----
 
+// 尚未解析出季节种子时键盘回退使用的基础配色。有种子时，`system` 改用 `AppThemePalette` 的公式绘制。
 const NATIVE_KEYBOARD_LIGHT: KeyboardThemePalette = {
-  background: "#E3E5E8",
-  key: "#FFFFFF",
-  function_key: "#C9CDD3",
+  background: "#D9E2D6",
+  key: "#FCFDFA",
+  function_key: "#B8C8B5",
   text: "#182431",
-  secondary: "#99182431",
+  secondary: "#5A6B5D",
   accent: "#2C7A4B",
   on_accent: "#FFFFFF",
 };
 
+// `on_accent` 是 #5FBF84 与黑色按 25% 混合（`AppThemePalette.onAccent`，即共享层的深色规则），因为 #5FBF84 上的白字对比度只有约 2.3:1。
 const NATIVE_KEYBOARD_DARK: KeyboardThemePalette = {
-  background: "#1A1A1A",
-  key: "#3A3A3A",
-  function_key: "#2A2A2A",
+  background: "#121814",
+  key: "#303A32",
+  function_key: "#212923",
   text: "#E5E5E5",
-  secondary: "#99FFFFFF",
+  secondary: "#93A596",
   accent: "#5FBF84",
-  on_accent: "#000000",
+  on_accent: "#183021",
 };
 
-// The 2in1 candidate window (the design's hm2 entry): a white or #262626 card, a hairline border, and the accent wash for the selected row rather than a bar.
+// 2in1 候选窗（设计稿中的 hm2 条目）：白色或 #262626 的卡片、细线边框，选中行用强调色淡底而不是色条。淡底即设计稿中季节的 `accent + '22'` / `accent + '40'`，套用在平台强调色上。
 const NATIVE_CANDIDATE_LIGHT: CandidateColors = {
   surface: "#FFFFFF",
   border: "#0F000000",
@@ -141,7 +143,7 @@ const NATIVE_CANDIDATE_LIGHT: CandidateColors = {
   number: "#99182431",
   secondary: "#99182431",
   accent: "#2C7A4B",
-  selected: "#1F2C7A4B",
+  selected: "#222C7A4B",
   selectedText: "#2C7A4B",
   selectedNumber: "#99182431",
   hover: "#0D000000",
@@ -155,7 +157,7 @@ const NATIVE_CANDIDATE_DARK: CandidateColors = {
   number: "#99FFFFFF",
   secondary: "#99FFFFFF",
   accent: "#5FBF84",
-  selected: "#425FBF84",
+  selected: "#405FBF84",
   selectedText: "#5FBF84",
   selectedNumber: "#99FFFFFF",
   hover: "#14FFFFFF",
@@ -183,9 +185,9 @@ export class GlobalTheme {
     return dark ? "#5FBF84" : "#2C7A4B";
   }
 
-  /** The platform accent as a tint (12% light, 26% dark): the fill of a function tile or the logo button while it is on. */
+  /** 平台强调色的淡色（浅色下 alpha 0x22，约 13%；深色下 0x40，25%，即设计稿的 `accent + '22'` / `accent + '40'`）：未解析出季节种子时，功能块或 logo 按钮开启状态的填充色。 */
   static accentSoft(dark: boolean): string {
-    return dark ? "#425FBF84" : "#1F2C7A4B";
+    return dark ? "#405FBF84" : "#222C7A4B";
   }
 
   /** The ArkUI keyboard tokens `system`, and any theme without a keyboard palette, draw. */

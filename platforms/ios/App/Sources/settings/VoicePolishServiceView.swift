@@ -31,8 +31,9 @@ struct VoicePolishServiceView: View {
           SettingsAutosaveStatus(autosave: autosave)
         }
       }
+      .designRow()
       if draft.separate {
-        Section("服务") {
+        Section {
           Picker("服务商", selection: Binding(get: { draft.provider }, set: { draft.select($0) })) {
             ForEach(AIProviderPreset.allCases, id: \.self) { Text($0.title).tag($0) }
           }
@@ -52,7 +53,10 @@ struct VoicePolishServiceView: View {
           SecureField("API Key（留空则保留已保存的）", text: $token)
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .accessibilityIdentifier("voicePolishToken")
+        } header: {
+          SettingsGroupHeader(title: "服务")
         }
+        .designRow()
         Section {
           Button { test() } label: {
             HStack {
@@ -66,8 +70,10 @@ struct VoicePolishServiceView: View {
         } footer: {
           if !status.isEmpty { Text(status).accessibilityIdentifier("voicePolishStatus") }
         }
+        .designRow()
       }
     }
+    .designPage()
     .navigationTitle("润色服务")
     .onChange(of: draft) { old, new in
       guard new != savedDraft || autosave.hasPending else { return }
@@ -82,7 +88,7 @@ struct VoicePolishServiceView: View {
   /// Saves the page as it stands. A separate service is written only once its address and model are complete, so a half-typed address never replaces a working one; the key is saved with it and stays in the field, a blank one keeping the key already saved.
   private func commit(now: Bool) {
     if draft.separate {
-      do { _ = try draft.configuration.validatedURL() } catch {
+      do { _ = try draft.configuration.validatedURL(allowsLocalHTTP: true) } catch {
         autosave.reject(error.localizedDescription)
         return
       }
@@ -100,7 +106,7 @@ struct VoicePolishServiceView: View {
   private func test() {
     let configuration = draft.configuration
     do {
-      let url = try configuration.validatedURL()
+      let url = try configuration.validatedURL(allowsLocalHTTP: true)
       let entered = token.trimmingCharacters(in: .whitespacesAndNewlines)
       let key = try entered.isEmpty ? ServiceTokenStore.read(scope: ServiceTokenStore.polishScope, url: url) : entered
       guard !key.isEmpty else { status = "请先填写 API Key，或使用已保存的密钥。"; return }

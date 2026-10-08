@@ -244,6 +244,15 @@ final class OnlineCandidateTests: XCTestCase {
     var plain = descriptor
     plain["url"] = "http://example.invalid/v1/chat/completions"
     XCTAssertNil(OnlineCandidateProvider.aiRequest(plain))
+    // 局域网里的本地模型服务（如 LM Studio）可以用 http，传输层也要放行它。
+    var local = descriptor
+    local["url"] = "http://192.168.1.20:1234/v1/chat/completions"
+    let localRequest = OnlineCandidateProvider.aiRequest(local)
+    XCTAssertEqual(localRequest?.urlRequest.url?.absoluteString, "http://192.168.1.20:1234/v1/chat/completions")
+    XCTAssertEqual(localRequest?.allowsLocalHTTP, true)
+    XCTAssertTrue(URLSessionOnlineCandidateTransport.validURL(localRequest?.urlRequest.url, allowsLocalHTTP: true))
+    XCTAssertFalse(URLSessionOnlineCandidateTransport.validURL(localRequest?.urlRequest.url))
+    XCTAssertFalse(URLSessionOnlineCandidateTransport.validURL(URL(string: "http://8.8.8.8/v1"), allowsLocalHTTP: true))
     var get = descriptor
     get["method"] = "GET"
     XCTAssertNil(OnlineCandidateProvider.aiRequest(get))

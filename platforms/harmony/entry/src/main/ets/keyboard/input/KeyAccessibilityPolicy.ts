@@ -44,11 +44,6 @@ export class KeyAccessibilityPolicy {
     return "切换中英文";
   }
 
-  /** The language switch where it draws the mode rather than a key face, as the strip pill and the tool tile do: the action first, then the mode it is in, because "已开启" would not say which of the two languages is on. */
-  static languageState(english: boolean): string {
-    return `${KeyAccessibilityPolicy.language()}，当前${english ? "英文" : "中文"}`;
-  }
-
   /** The layout toggle, in whichever direction it is pointing. */
   static layoutToggle(showingSymbols: boolean): string {
     return showingSymbols ? "切换到所选输入方案" : "切换到数字和符号";
@@ -65,11 +60,6 @@ export class KeyAccessibilityPolicy {
 
   static scheme(): string {
     return "选择输入方案";
-  }
-
-  /** The tool that opens the global theme picker. */
-  static theme(): string {
-    return "选择主题";
   }
 
   static tools(): string {
@@ -90,22 +80,41 @@ export class KeyAccessibilityPolicy {
     return "生成高情商回复";
   }
 
-  static geometry(): string {
-    return "键盘大小与间距";
-  }
-
   static dismiss(): string {
     return "收起键盘";
   }
 
-  /** The strip's punctuation pill and the panel's tile, which switch between Chinese and ASCII punctuation. */
-  static punctuationWidth(): string {
-    return "切换中英文标点";
+  // 工具栏的各个工具，读作它打开的面板；面板自己的名字是最清楚的说法。
+  static phrase(): string {
+    return "常用语";
   }
 
-  /** The punctuation pill, which draws the mode in force, read with it. */
-  static punctuationState(chinese: boolean): string {
-    return `${KeyAccessibilityPolicy.punctuationWidth()}，当前${chinese ? "中文标点" : "英文标点"}`;
+  static clipboard(): string {
+    return "剪贴板";
+  }
+
+  static skin(): string {
+    return "皮肤";
+  }
+
+  /** 工具栏最后一个按钮，用于收起键盘。 */
+  static collapse(): string {
+    return KeyAccessibilityPolicy.dismiss();
+  }
+
+  /** 候选栏的展开箭头和网格的「返回」，读作下一次点按会做的事。 */
+  static expandCandidates(open: boolean): string {
+    return open ? "收起候选" : "展开候选";
+  }
+
+  /** 底行的句号键。 */
+  static period(): string {
+    return "句号";
+  }
+
+  /** 选择器在条目名称之后朗读的内容：是否为正在使用的那一项。其余条目为空，只读出名称。 */
+  static current(selected: boolean): string {
+    return selected ? "当前使用" : "";
   }
 
   /** The 漢 button over a composing Korean syllable, read as what the next tap does: list the syllable's Hanja, or close the open list. */
@@ -118,18 +127,7 @@ export class KeyAccessibilityPolicy {
     return listOpen ? "关闭候选列表" : "选字";
   }
 
-  /** The candidate translation switch, named as the panel's 译 tile titles it; the strip's 译 pill reads the same name. */
-  static translations(): string {
-    return "显示译文";
-  }
-
-  /** What a screen reader says for a tool tile: its name, and for a switch whether it is on. */
-  static tile(title: string, label: string | undefined, on: boolean, toggles: boolean): string {
-    const name: string = label ?? title;
-    return toggles ? `${name}，${on ? "已开启" : "已关闭"}` : name;
-  }
-
-  /** The strip's gear and the panel's tile, which open the settings application. */
+  /** 功能面板的「设置」磁贴，用于打开设置应用。 */
   static settings(): string {
     return "打开设置";
   }

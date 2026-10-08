@@ -7,6 +7,8 @@ import {
   settingsPlatforms,
   type PlatformTokens,
 } from "../../../../packages/ui/src/theme/platform-tokens";
+import { appThemeStyle, seasonAttr } from "../../../../packages/ui/src/core/app-theme-style";
+import type { ResolvedAppTheme } from "../../../../packages/ui/src/core/host-contracts";
 
 /** Every leaf path of a token object, so a platform that forgets a key or nests one differently shows up by name. */
 function keyPaths(value: object, prefix = ""): string[] {
@@ -132,4 +134,100 @@ test("the host and viewport choose the settings platform", () => {
   expect(settingsPlatformOf({ platform: "harmony" }, narrow)).toBe("harmony");
   expect(settingsPlatformOf({ platform: "harmony", mobile_settings: false }, wide)).toBe("hm2");
   expect(settingsPlatformOf(undefined, narrow)).toBe("win");
+});
+
+test("only the HarmonyOS phone draws its own press fill and the inset half-pixel row hairline", () => {
+  for (const platform of settingsPlatforms) {
+    for (const appearance of ["light", "dark"] as const) {
+      const tokens = platformTokens[platform][appearance];
+      if (platform === "harmony") continue;
+      expect(tokens.press, `${platform} ${appearance}`).toBe(tokens.hover);
+      expect(tokens.group.dividerWidth, `${platform} ${appearance}`).toBe("1px");
+      expect(tokens.group.dividerInset, `${platform} ${appearance}`).toBe("0");
+      expect(tokens.group.controlGap, `${platform} ${appearance}`).toBe("12px");
+    }
+  }
+  expect(platformTokens.harmony.light.press).toBe("rgba(0,0,0,.07)");
+  expect(platformTokens.harmony.dark.press).toBe("rgba(255,255,255,.1)");
+  expect(platformTokens.harmony.light.group.dividerWidth).toBe(".5px");
+  expect(platformTokens.harmony.light.group.dividerInset).toBe("16px");
+  expect(platformTokens.harmony.light.group.controlGap).toBe("14px");
+  // 手机上 select 的值使用设计稿子页面行的 16px；2-in-1 保留其 14px 的胶囊。
+  expect(platformTokens.harmony.light.select.size).toBe("16px");
+  expect(platformTokens.hm2.light.select.size).toBe("14px");
+  // 2-in-1 的深色按钮采用强调色，而不是原型遗留的蓝色。
+  expect(platformTokens.hm2.dark.button.fg).toBe(platformTokens.hm2.dark.accent);
+});
+
+const autumnDark: ResolvedAppTheme = {
+  id: "siji",
+  season: "autumn",
+  accent: "#F0975F",
+  accent_soft: "#F0975F40",
+  on_accent: "#3C2618",
+  background: "#21150F",
+  card: "#2E1E15",
+  hair: "#2A2F2A",
+};
+
+const autumnLight: ResolvedAppTheme = {
+  id: "qiushan",
+  season: "autumn",
+  accent: "#B5562B",
+  accent_soft: "#B5562B22",
+  on_accent: "#FFFFFF",
+  background: "#F6E9DC",
+  card: "#FFFBF6",
+  hair: "#B5562B33",
+};
+
+test("an app theme recolours the HarmonyOS phone's accent, page, cards and light hairlines", () => {
+  const light = appThemeStyle(autumnLight, false, "harmony") as Record<string, string>;
+  expect(light).toMatchObject({
+    "--accent-color": "#B5562B",
+    "--accent-strong": "#B5562B",
+    "--accent-soft": "#B5562B22",
+    "--p-accent-text": "#B5562B",
+    "--p-on-accent": "#FFFFFF",
+    "--p-sw-on": "#B5562B",
+    "--p-btn-fg": "#B5562B",
+    "--p-seg-on-fg": "#B5562B",
+    "--p-bg": "#F6E9DC",
+    "--p-chrome": "#F6E9DC",
+    "--p-group-bg": "#FFFBF6",
+    "--p-hair": "#B5562B33",
+    "--p-row-divider": "#B5562B33",
+  });
+  const dark = appThemeStyle(autumnDark, true, "harmony") as Record<string, string>;
+  expect(dark["--p-on-accent"]).toBe("#3C2618");
+  expect(dark["--p-group-bg"]).toBe("#2E1E15");
+  // 深色细线沿用令牌表的值。
+  expect(dark).not.toHaveProperty("--p-hair");
+  expect(dark).not.toHaveProperty("--p-row-divider");
+  // 它设置的每个名称都是平台层已定义的，所以是覆盖而不是新增。
+  const defined = Object.keys(platformCssVariables(platformTokens.harmony.dark));
+  expect(Object.keys(dark).filter((name) => !defined.includes(name))).toEqual([]);
+});
+
+test("the 2-in-1 takes only the theme's accent and keeps its own surfaces", () => {
+  const style = appThemeStyle(autumnLight, false, "hm2") as Record<string, string>;
+  expect(style["--accent-color"]).toBe("#B5562B");
+  expect(style["--p-on-accent"]).toBe("#FFFFFF");
+  for (const name of ["--p-bg", "--p-chrome", "--p-group-bg", "--p-hair", "--p-row-divider"]) {
+    expect(style).not.toHaveProperty(name);
+  }
+});
+
+test("without a resolved theme the platform layer is left alone", () => {
+  expect(appThemeStyle(null, true, "harmony")).toEqual({});
+  expect(seasonAttr(null)).toBeUndefined();
+  expect(seasonAttr(autumnDark)).toBe("autumn");
+});
+
+test("white text on an accent fill follows the accent's on-colour on HarmonyOS", () => {
+  expect(styles).toMatch(
+    /:is\(\[data-platform="harmony"\], \[data-platform="hm2"\]\)\s+:is\(\.bg-accent-strong, \.bg-accent\)\.text-white \{\s*color: var\(--p-on-accent\);/,
+  );
+  // 欢迎流程的品牌绿不再覆盖同一元素上的 HarmonyOS 强调色。
+  expect(styles).toContain('[data-onboarding-shell][data-mobile]:not([data-platform="harmony"]) {');
 });

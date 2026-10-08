@@ -291,6 +291,12 @@ enum InputSchemePreference {
     if let selected = selectedScheme(in: document) { scheme = selected }
   }
 
+  /// 「重置所有设置」恢复出默认文档后抄进镜像。默认文档通常不记选中的入口（client-core 的 `TouchKeyboardSchemePreferences::for_edition` 只在第一个启用的入口是手写时才写 `selected`），这时 Rust 用按 `ALL` 顺序第一个启用的入口；而 `mirror` 会原样保留镜像里旧的选择（比如仍在默认启用列表里的五笔），App 和键盘就继续用它，所以这里把镜像改成默认的那一个。`enabledSchemes` 刚从文档抄过来，按 `allCases` 排序，与 `ALL` 相同。
+  static func mirrorRestoredDefaults(_ document: [String: Any]) {
+    mirror(document)
+    if selectedScheme(in: document) == nil { scheme = enabledSchemes[0] }
+  }
+
   static func mirror(_ selection: Selection) {
     enabledSchemes = selection.enabled
     scheme = selection.scheme

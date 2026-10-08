@@ -94,16 +94,14 @@ final class HandwritingTests: XCTestCase {
     XCTAssertTrue(panel.results.isEmpty)
     XCTAssertTrue(panel.canvas.strokes.isEmpty)
   }
-  func testEveryPointOnThePanelAcceptsInkExceptTheToolKeys() throws {
+  /// 面板只有书写卡片本身；它的 ⌫ 和「重写」是旁边的键盘按键，所以面板上每一点都会落墨。
+  func testEveryPointOnThePanelAcceptsInk() throws {
     let panel = HandwritingInputView(frame: CGRect(x: 0, y: 0, width: 320, height: 200))
     panel.layoutIfNeeded()
     for point in [CGPoint(x: 20, y: 10), CGPoint(x: 120, y: 100), CGPoint(x: 40, y: 190),
-                  CGPoint(x: 160, y: 4)] {
+                  CGPoint(x: 160, y: 4), CGPoint(x: 310, y: 190)] {
       XCTAssertTrue(panel.hitTest(point, with: nil) === panel.canvas)
     }
-    let undo = try XCTUnwrap(nodes(panel).first { $0.accessibilityIdentifier == "handwritingUndo" })
-    let onUndo = undo.convert(CGPoint(x: undo.bounds.midX, y: undo.bounds.midY), to: panel)
-    XCTAssertTrue(panel.hitTest(onUndo, with: nil) === undo)
   }
   #endif
 
@@ -117,20 +115,21 @@ final class HandwritingTests: XCTestCase {
     let controller = KeyboardViewController(); controller.loadViewIfNeeded()
     for width in [320.0, 414.0] {
       let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
-      XCTAssertEqual(height.constant, 260 + KeyboardViewController.stripExtraHeight)
+      XCTAssertEqual(height.constant, KeyboardViewController.defaultKeyboardHeight)
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: height.constant); controller.view.layoutIfNeeded()
       let panel = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" } as? HandwritingInputView)
       XCTAssertFalse(panel.isHidden)
-      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, 140)
+      // 书写区是操作行上方设计稿三排 42pt 键的高度，减去面板自身的内边距。
+      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, 130)
       XCTAssertGreaterThan(panel.canvas.bounds.width, 200)
       let shot = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { controller.view.layer.render(in: $0.cgContext) }); shot.name = "Handwriting keyboard \(Int(width))"; shot.lifetime = .keepAlways; add(shot)
     }
     let language = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "bottomLanguageKey" } as? UIButton)
     language.sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.stripExtraHeight)
+    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, KeyboardViewController.defaultKeyboardHeight)
     XCTAssertTrue(try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" }).isHidden)
     language.sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.stripExtraHeight)
+    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, KeyboardViewController.defaultKeyboardHeight)
     XCTAssertFalse(try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" }).isHidden)
   }
   func testHandwritingHeightTracksOrientationAndSymbolMode() throws {
@@ -150,9 +149,9 @@ final class HandwritingTests: XCTestCase {
     let enter = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "returnKey" })
     // Annotated rather than inferred: three tuples of four components, where one is an enum written with a leading dot and two are overloaded `+` on CGFloat, give the solver enough freedom that it gives up with "unable to type-check this expression in reasonable time". Naming the type leaves it nothing to solve.
     let layouts: [(UIUserInterfaceSizeClass, CGFloat, CGFloat, CGFloat)] = [
-      (.regular, 414.0, 260.0 + KeyboardViewController.stripExtraHeight, 260.0 + KeyboardViewController.stripExtraHeight),
-      (.compact, 812.0, 240.0 + KeyboardViewController.stripExtraHeight, 216.0 + KeyboardViewController.stripExtraHeight),
-      (.regular, 320.0, 260.0 + KeyboardViewController.stripExtraHeight, 260.0 + KeyboardViewController.stripExtraHeight),
+      (.regular, 414.0, KeyboardViewController.defaultKeyboardHeight, KeyboardViewController.defaultKeyboardHeight),
+      (.compact, 812.0, KeyboardViewController.keyboardHeight(landscape: true, handwriting: true), KeyboardViewController.keyboardHeight(landscape: true)),
+      (.regular, 320.0, KeyboardViewController.defaultKeyboardHeight, KeyboardViewController.defaultKeyboardHeight),
     ]
     for (verticalSize, width, writingHeight, typingHeight) in layouts {
       parent.setOverrideTraitCollection(UITraitCollection(verticalSizeClass: verticalSize), forChild: controller)
@@ -161,7 +160,7 @@ final class HandwritingTests: XCTestCase {
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: writingHeight)
       controller.view.layoutIfNeeded()
       XCTAssertEqual(enter.bounds.height, 44, accuracy: 0.5)
-      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, verticalSize == .compact ? 90 : 140)
+      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, verticalSize == .compact ? 90 : 130)
       toggle.sendActions(for: .primaryActionTriggered)
       XCTAssertTrue(panel.isHidden)
       XCTAssertEqual(height.constant, typingHeight)
@@ -173,6 +172,79 @@ final class HandwritingTests: XCTestCase {
     }
   }
   private func nodes(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(nodes) }
+
+  private func handwritingController(width: CGFloat) throws -> KeyboardViewController {
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
+    InputSchemePreference.scheme = .handwriting
+    XCTAssertEqual(InputSchemePreference.scheme, .handwriting)
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.layoutIfNeeded()
+    return controller
+  }
+
+  private func control(_ identifier: String, in controller: KeyboardViewController) throws -> UIButton {
+    try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == identifier } as? UIButton, identifier)
+  }
+
+  private func frame(_ view: UIView, in controller: KeyboardViewController) -> CGRect {
+    view.convert(view.bounds, to: controller.view)
+  }
+
+  /// 手写键盘沿用 Android 的 rebuildHandwritingRows：左侧竖排 ，。？！，中间是书写卡片，右侧竖排 ⌫ 和「重写」，宽度按 Android 的 .7 / 3 / .8 比例分配；下方是 Android 的 designEntries 给手写用的手机 26 键底排（123 | 中 | ， | 手写 | 。 | return）。
+  func testThePadHasAndroidsColumnsAndThePhoneBottomRow() throws {
+    let previous = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer { InputSchemePreference.enabledSchemes = enabled; InputSchemePreference.scheme = previous }
+    let controller = try handwritingController(width: 390)
+    let panel = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" } as? HandwritingInputView)
+    XCTAssertFalse(panel.isHidden)
+    let card = frame(panel, in: controller)
+    let marks = try KeyboardViewController.handwritingPunctuation.map { try control("handwritingPunctuation\($0)", in: controller) }
+    XCTAssertEqual(marks.map { $0.configuration?.title }, ["，", "。", "？", "！"])
+    for mark in marks {
+      XCTAssertLessThan(frame(mark, in: controller).maxX, card.minX)
+      XCTAssertEqual(mark.bounds.width, card.width * 0.7 / 3, accuracy: 0.5)
+    }
+    // 四个标点从上到下平分卡片的高度。
+    XCTAssertEqual(frame(marks[0], in: controller).minY, card.minY, accuracy: 0.5)
+    XCTAssertEqual(frame(marks[3], in: controller).maxY, card.maxY, accuracy: 0.5)
+    let delete = try control("handwritingDelete", in: controller)
+    let rewrite = try control("handwritingRewrite", in: controller)
+    XCTAssertEqual(rewrite.configuration?.title, "重写")
+    for tool in [delete, rewrite] {
+      XCTAssertGreaterThan(frame(tool, in: controller).minX, card.maxX)
+      XCTAssertEqual(tool.bounds.width, card.width * 0.8 / 3, accuracy: 0.5)
+    }
+    XCTAssertLessThan(frame(delete, in: controller).maxY, frame(rewrite, in: controller).minY)
+    XCTAssertTrue(KeyboardViewController.usesPhoneBottomRow(formFactor: .phone, nineKeyFrame: false, handwriting: true, kana: false))
+    XCTAssertTrue(KeyboardViewController.usesPhoneBottomRow(formFactor: .tablet, nineKeyFrame: false, handwriting: true, kana: false))
+    let comma = try control("quickPunctuationKey", in: controller)
+    let period = try control("bottomPeriodKey", in: controller)
+    let space = try control("spaceKey", in: controller)
+    let enter = try control("returnKey", in: controller)
+    for key in [comma, period, space, enter] { XCTAssertFalse(key.isHidden, key.accessibilityIdentifier ?? "") }
+    XCTAssertLessThan(frame(comma, in: controller).maxX, frame(space, in: controller).minX)
+    XCTAssertLessThan(frame(space, in: controller).maxX, frame(period, in: controller).minX)
+    XCTAssertEqual(space.configuration?.title, "手写")
+    XCTAssertNotNil(space.configuration?.image, "the space bar keeps its mic")
+  }
+
+  /// 有笔迹时 ⌫ 撤回最后一笔，与 Android 的 deleteFromHandwriting 一致；「重写」清空卡片。
+  func testDeleteTakesBackAStrokeAndRewriteClears() throws {
+    let previous = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer { InputSchemePreference.enabledSchemes = enabled; InputSchemePreference.scheme = previous }
+    let controller = try handwritingController(width: 390)
+    let panel = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" } as? HandwritingInputView)
+    panel.canvas.setTestStrokes([[CGPoint(x: 10, y: 10), CGPoint(x: 40, y: 40)], [CGPoint(x: 20, y: 60), CGPoint(x: 80, y: 60)],
+                                 [CGPoint(x: 50, y: 10), CGPoint(x: 50, y: 90)]])
+    try control("handwritingDelete", in: controller).sendActions(for: .touchUpInside)
+    XCTAssertEqual(panel.canvas.strokes.count, 2)
+    try control("handwritingRewrite", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(panel.hasInk)
+  }
 
   /// The simulator build says it cannot recognise, rather than just doing nothing.
   ///

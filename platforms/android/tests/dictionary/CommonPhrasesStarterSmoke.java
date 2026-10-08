@@ -54,8 +54,20 @@ public final class CommonPhrasesStarterSmoke {
             check(!adopted.contains("马上到") && adopted.size() == starters.size() - 1, "adopting removes only that text");
             check(CommonPhrasesStore.editStarters(marker, false, current -> current).equals(adopted),
                 "the adoption is persisted");
+
+            // 数据文件即使是目录外文件的硬链接，更新也只替换目录内的名字。
+            File external = new File(directory, "outside-sentinel");
+            byte[] sentinel = "synthetic-sentinel".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            Files.write(external.toPath(), sentinel);
+            Files.delete(marker.toPath());
+            Files.createLink(marker.toPath(), external.toPath());
+            CommonPhrasesStore.editStarters(marker, true, current -> Set.of("synthetic-phrase"));
+            check(java.util.Arrays.equals(sentinel, Files.readAllBytes(external.toPath())),
+                "a hard-linked marker does not modify its other name");
+            Files.delete(external.toPath());
         } finally {
             Files.deleteIfExists(marker.toPath());
+            Files.deleteIfExists(new File(directory, CommonPhrasesStore.STARTER_MARKER + ".lock").toPath());
             Files.deleteIfExists(directory.toPath());
         }
         System.out.println("Android common phrase starters passed");

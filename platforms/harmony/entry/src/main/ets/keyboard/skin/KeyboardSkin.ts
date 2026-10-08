@@ -1,8 +1,11 @@
 /**
  * Rendering values for the touch keyboard, drawn from the shared global theme.
  *
- * A skin is built one of two ways. A theme's keyboard palette (or, where the theme has none, the Harmony native tokens) gives a flat keyboard in that theme's colours. The user's custom keyboard design gives everything the editor can set, photo, gradient, key shape and material included, because this host draws the full design rather than the flattened palette. Every colour is derived here rather than in the drawing code, so the same values reach the keyboard, the preview and the picker card.
+ * 皮肤有两种构建方式。主题的键盘配色（主题没有键盘配色时，用季节配色或 Harmony 原生 token）给出该主题颜色的扁平键盘。用户的自定义键盘设计给出编辑器能设置的一切，照片、渐变、键形和材质都包括在内，因为本宿主绘制完整设计，而不是扁平化后的配色。所有颜色都在这里推导，而不在绘制代码里，这样键盘、预览和选择卡片拿到的是同一组值。
+ *
+ * 已解析出应用主题的季节种子时，设计稿中用到平台强调色的地方都改用它：回车键、`system` 和自定义设计的开启态图块，以及 logo。没有种子时，这些都回落到 Harmony 基础 token。
  */
+import { AppThemePalette, AppThemeSeed } from "./AppThemePalette";
 import { CustomKeyboardSkin } from "./CustomKeyboardSkin";
 import { GlobalTheme, KeyboardThemePalette } from "./GlobalTheme";
 import { KeyboardGeometry } from "../KeyboardGeometry";
@@ -14,12 +17,26 @@ function clampChannel(value: number): number {
 /** Produces #AARRGGBB: the alpha byte is prefixed to the #RRGGBB part of a colour, replacing any alpha it had. */
 function alpha(colour: string, value: number): string {
   return (
-    "#" + clampChannel(value).toString(16).toUpperCase().padStart(2, "0") + colour.substring(colour.length - 6)
+    "#" +
+    clampChannel(value).toString(16).toUpperCase().padStart(2, "0") +
+    colour.substring(colour.length - 6)
   );
 }
 
 /** The design's key radius, which a theme keyboard draws whatever its colours. */
 const THEME_KEY_RADIUS: number = 8;
+
+/** 键盘细线（设计稿的 `kbHair`）：分隔线和未选中的分页圆点。 */
+const HAIR_LIGHT: string = "#1F000000";
+const HAIR_DARK: string = "#24FFFFFF";
+/** 无论明暗模式键盘都是深色的命名主题，它们的细线用深底上的浅色那一种。 */
+const DARK_SURFACE_THEMES: string[] = ["shuishan", "night", "ink"];
+/** 没有季节时 logo 圆盘混入的卡片底色：设计稿的 Harmony `groupBg`。 */
+const BASE_CARD_LIGHT: string = "#FFFFFF";
+const BASE_CARD_DARK: string = "#1F1F1F";
+/** 命名主题的开启态底色：按设计稿 tonal container 的比例取它自己的强调色。 */
+const NAMED_TOGGLE_ALPHA_LIGHT: number = 0.13;
+const NAMED_TOGGLE_ALPHA_DARK: number = 0.25;
 
 export class KeyboardSkin {
   /** The global theme id this skin draws: `system`, a built-in id, or `custom`. */
@@ -39,12 +56,20 @@ export class KeyboardSkin {
   readonly accent: string;
   /** Text on anything filled with `accent`. */
   readonly onAccent: string;
-  /** The return key, which keeps the platform accent with white text whatever the theme. */
+  /** 回车键：已解析出种子时用季节强调色及其配套文字色；否则用平台强调色，文字色按共享的 on-accent 规则（浅色模式为白色，深色模式为强调色混入 25% 黑色），与主题无关。 */
   readonly actionBackground: string;
   readonly actionForeground: string;
-  /** A switched-on tile, the logo button while its panel is open: the platform accent tint with the accent itself for the glyph, whatever the theme. */
+  /**
+   * 开启态图块，例如面板打开时的 logo 按钮。`system` 和自定义设计用季节强调色的底色（没有种子时用平台强调色的），图形用强调色本身。命名主题用自己的强调色，浅色 13%、深色 25%，图形用其强调色，与 Android 的 `toolbarActiveBackground` 一致，而不用设计稿写死的绿色底，那种绿色和夜青、墨都不搭。
+   */
   readonly toggleBackground: string;
   readonly toggleForeground: string;
+  /** 键盘里的分隔线和未选中的分页圆点（设计稿的 `kbHair`）。 */
+  readonly hair: string;
+  /** logo 标志的填充色（设计稿的 `logoBg`）：季节或平台强调色混入 82% 黑色。 */
+  readonly logoBg: string;
+  /** logo 标志背后的圆盘（设计稿的 `logoCirc`）：把该强调色按 14% / 22% 混入季节卡片或基础卡片底色。 */
+  readonly logoCirc: string;
   readonly cornerRadius: number;
   readonly borderWidth: number;
   readonly borderColor: string;
@@ -66,7 +91,7 @@ export class KeyboardSkin {
   private readonly designKey: string;
 
   /**
-   * A theme skin passes design as null and takes the flat defaults; the custom design passes the user's design and takes everything from it. One constructor rather than two so no field can be set on one path and forgotten on the other.
+   * 主题皮肤把 `design` 传为 null，取扁平默认值；自定义设计传入用户的设计，所有值都取自它。只用一个构造函数而不是两个，就不会有字段在一条路径上设置了、在另一条上漏掉。`named` 标记按自身配色绘制的内置主题，其开启态底色是它自己的强调色；`seed` 是已解析的应用主题，或 `null`。
    */
   private constructor(
     id: string,
@@ -74,6 +99,8 @@ export class KeyboardSkin {
     dark: boolean,
     palette: KeyboardThemePalette,
     design: CustomKeyboardSkin | null,
+    named: boolean,
+    seed: AppThemeSeed | null,
   ) {
     this.id = id;
     this.title = title;
@@ -87,10 +114,32 @@ export class KeyboardSkin {
     this.secondary = palette.secondary;
     this.accent = palette.accent;
     this.onAccent = palette.on_accent;
-    this.actionBackground = GlobalTheme.accent(dark);
-    this.actionForeground = "#FFFFFF";
-    this.toggleBackground = GlobalTheme.accentSoft(dark);
-    this.toggleForeground = GlobalTheme.accent(dark);
+    const platformAccent: string = seed === null ? GlobalTheme.accent(dark) : seed.accent;
+    this.actionBackground = platformAccent;
+    this.actionForeground =
+      seed === null ? AppThemePalette.onAccent(platformAccent, dark) : seed.on_accent;
+    if (named) {
+      this.toggleBackground = alpha(
+        palette.accent,
+        dark ? NAMED_TOGGLE_ALPHA_DARK : NAMED_TOGGLE_ALPHA_LIGHT,
+      );
+      this.toggleForeground = palette.accent;
+    } else {
+      this.toggleBackground = seed === null ? GlobalTheme.accentSoft(dark) : seed.accent_soft;
+      this.toggleForeground = platformAccent;
+    }
+    this.hair = dark || DARK_SURFACE_THEMES.includes(id) ? HAIR_DARK : HAIR_LIGHT;
+    this.logoBg = AppThemePalette.logoBackground(platformAccent);
+    this.logoCirc = AppThemePalette.logoDisc(
+      platformAccent,
+      seed === null ? (dark ? BASE_CARD_DARK : BASE_CARD_LIGHT) : seed.card,
+      dark,
+    );
+    // 同一个 id 下季节会改变回车键和各处底色，所以季节也是身份的一部分。
+    const seedKey: string =
+      seed === null
+        ? ""
+        : [seed.accent, seed.accent_soft, seed.on_accent, seed.background, seed.card].join(",");
     this.shadowRadius = 2;
     this.shadowOffset = 1;
     if (design === null) {
@@ -111,8 +160,15 @@ export class KeyboardSkin {
       this.photoShade = 0.25;
       this.photoPosition = 0.5;
       // A theme's colours can change under the same id (a custom theme over a new base), so they are part of the identity.
-      this.designKey = [palette.background, palette.key, palette.function_key, palette.text,
-        palette.secondary, palette.accent].join(",");
+      this.designKey =
+        [
+          palette.background,
+          palette.key,
+          palette.function_key,
+          palette.text,
+          palette.secondary,
+          palette.accent,
+        ].join(",") + (seedKey.length === 0 ? "" : ";" + seedKey);
     } else {
       this.cornerRadius = design.cornerRadius();
       this.borderWidth = design.borderWidth();
@@ -130,22 +186,39 @@ export class KeyboardSkin {
       this.photoSource = design.photoSource();
       this.photoShade = design.photoShade();
       this.photoPosition = design.photoPosition();
-      this.designKey = design.key();
+      this.designKey = design.key() + (seedKey.length === 0 ? "" : ";" + seedKey);
     }
   }
 
   /**
-   * A theme's keyboard. A `null` palette is what `system`, and a custom theme over `system` without a design, resolve to: the Harmony native tokens in the given mode.
+   * 主题的键盘。`system`，以及没有设计、基于 `system` 的自定义主题，都解析为 `null` 配色：给了种子时用季节配色（`AppThemePalette.keyboard`），否则用给定模式下的 Harmony 原生 token。非 null 配色是命名主题，颜色和开启态底色都是它自己的；此时种子只重新着色回车键和 logo。
+   *
+   * `seed` 是与 `dark` 同一模式下已解析的应用主题，尚未解析时为 `null`。
    */
-  static fromTheme(id: string, title: string, palette: KeyboardThemePalette | null,
-                   dark: boolean): KeyboardSkin {
-    return new KeyboardSkin(id, title, dark, palette ?? GlobalTheme.nativeKeyboard(dark), null);
+  static fromTheme(
+    id: string,
+    title: string,
+    palette: KeyboardThemePalette | null,
+    dark: boolean,
+    seed: AppThemeSeed | null = null,
+  ): KeyboardSkin {
+    if (palette !== null) {
+      return new KeyboardSkin(id, title, dark, palette, null, true, seed);
+    }
+    const base: KeyboardThemePalette =
+      seed === null ? GlobalTheme.nativeKeyboard(dark) : AppThemePalette.keyboard(seed, dark);
+    return new KeyboardSkin(id, title, dark, base, null, false, seed);
   }
 
   /**
    * The user's custom keyboard design, drawn in full. Its colours are flattened the way the shared `custom_keyboard` flattens them, so the function keys take the design's action colour and hints its text at 60%.
    */
-  static fromDesign(title: string, design: CustomKeyboardSkin, dark: boolean): KeyboardSkin {
+  static fromDesign(
+    title: string,
+    design: CustomKeyboardSkin,
+    dark: boolean,
+    seed: AppThemeSeed | null = null,
+  ): KeyboardSkin {
     const palette: KeyboardThemePalette = {
       background: design.background(),
       key: design.keyBackground(),
@@ -155,7 +228,15 @@ export class KeyboardSkin {
       accent: design.accent(),
       on_accent: design.accentForeground(),
     };
-    const skin: KeyboardSkin = new KeyboardSkin("custom", title, dark, palette, design);
+    const skin: KeyboardSkin = new KeyboardSkin(
+      "custom",
+      title,
+      dark,
+      palette,
+      design,
+      false,
+      seed,
+    );
     return skin;
   }
 
@@ -179,11 +260,9 @@ export class KeyboardSkin {
   }
 
   /**
-   * A translucent key background, for the surfaces that sit over the keyboard rather than among the
-   * keys: the candidate strip and the nine-key sidebar.
+   * 半透明的按键背景，用于叠在键盘之上、而不是与按键并列的表面：候选条和九键侧栏。
    *
-   * The alpha belongs to the colour, not to the view. Setting opacity on the container fades
-   * everything inside it too, which turned the strip's icons and its scheme pill into smudges.
+   * 透明度属于颜色而不属于视图。在容器上设置 opacity 会连带淡化其中所有内容，曾把候选条的图标和方案胶囊淡成一团模糊。
    */
   translucentKeyBackground(value: number): string {
     return alpha(this.keyBackground, value);

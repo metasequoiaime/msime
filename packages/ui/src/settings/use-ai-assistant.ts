@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
 import { aiCredentialOrigin } from "./credential-utils";
+import { aiEndpointHint } from "./ai-endpoint-policy";
 import { aiPolishTestPrompt } from "./ai-assistant-defaults";
 import { useAsyncGeneration } from "./use-async-generation";
 import type { AiAssistantClient, AiAssistantPreferences } from "../index";
@@ -110,7 +111,7 @@ export function useAiAssistant({
   const fetchModels = async () => {
     if (!client) return;
     if (!origin) {
-      setModelsStatus("请先填写完整的 HTTPS 接口地址。");
+      setModelsStatus(aiEndpointHint(ai.endpoint));
       return;
     }
     if (!providerCredentialAvailable && !token.trim()) {
@@ -147,12 +148,12 @@ export function useAiAssistant({
       setTestStatus("请先输入待润色文字。");
       return;
     }
-    if (!origin || (!providerCredentialAvailable && !token.trim())) {
-      setTestStatus(
-        providerCredentialAvailable
-          ? "请先填写有效的 HTTPS 接口地址。"
-          : "请先填写有效的 HTTPS 接口地址和 API Token。",
-      );
+    if (!origin) {
+      setTestStatus(aiEndpointHint(ai.endpoint));
+      return;
+    }
+    if (!providerCredentialAvailable && !token.trim()) {
+      setTestStatus("请先填写 API Token。");
       return;
     }
     if (testActionBusy.current || testBusy) return;

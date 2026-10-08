@@ -680,6 +680,18 @@ if ! sed -n '/private void startEngineSession(String optionsText, String livePre
   echo "Android toolbar must not start each editor from the factory-default preference copy" >&2
   exit 1
 fi
+# 候选条的配色和字号同理（#5933）：副本是出厂的薄荷设计，按它重算会让每个新输入框的候选条先铺一层薄荷底、字号回到出厂的 18/15，实时偏好到了才换回来。只有实时偏好重算候选条外观，冷启动的第一帧按皮肤片段算，片段里要记着候选条用到的字段；按片段着色之前要先读本地设置，否则应用主题种子按默认值缓存。
+if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^    }$/p' "$account_service" \
+    | rg -q '^\s*if \(live\) applyCandidateAppearance\(preferences\);' \
+  || ! sed -n '/JSONObject hint = readSkinHint();/,/^        }$/p' "$account_service" \
+    | rg -q 'applyCandidateAppearance\(hint\);' \
+  || ! sed -n '/super\.onCreate();/,/JSONObject hint = readSkinHint();/p' "$account_service" \
+    | rg -q 'refreshLocalSettings\(\);' \
+  || ! rg -q '"candidate_theme", "candidate_font_family"' "$account_service" \
+  || ! rg -q 'private boolean candidateHorizontal = true;' "$account_service"; then
+  echo "Android candidate strip must not start each editor from the factory-default preference copy" >&2
+  exit 1
+fi
 # 长按「中/英」弹出系统输入法选择框（#5615）。这个键在没有会话的输入框里也必须保持可用：禁用的按钮收不到长按，而密码框正是最需要换到密码管理器键盘的地方。没有会话时把键画淡，点按在反馈和计数之前就忽略。
 if ! rg -q 'bindInputMethodPicker\(languageButton\)' "$account_service" \
   || ! rg -q 'manager\.showInputMethodPicker\(\)' "$account_service" \

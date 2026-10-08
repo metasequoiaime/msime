@@ -915,6 +915,15 @@ pub fn remove(root: &Path, kind: PluginKind, id: &str) -> Result<(), PluginError
     }
     #[cfg(not(unix))]
     fs::rename(&target, &aside)?;
+    #[cfg(unix)]
+    {
+        let directory_handle = crate::storage::open_private_directory(&directory)?;
+        crate::storage::remove_private_tree_at(
+            &directory_handle,
+            aside.file_name().expect("generated aside name"),
+        )?;
+    }
+    #[cfg(not(unix))]
     fs::remove_dir_all(&aside)?;
     Ok(())
 }

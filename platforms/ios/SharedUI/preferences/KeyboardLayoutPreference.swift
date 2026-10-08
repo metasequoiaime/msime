@@ -10,6 +10,9 @@ enum KeyboardLayoutPreference {
   static let tabletFullKeysKey = "keyboard.tablet.fullKeys"
   static let tabletSplitKey = "keyboard.tablet.split"
   static let glideTypingKey = "keyboard.gesture.glide"
+  static let spaceVoiceKey = "keyboard.gesture.spaceVoice"
+  static let swipeSymbolsKey = "keyboard.gesture.swipeSymbols"
+  static let oneHandedKey = "keyboard.oneHanded"
   static var keySpacing: Double {
     get { spacing(key: keySpacingKey, fallback: 6, range: 3...6) }
     set { defaults.set(min(6, max(3, newValue)), forKey: keySpacingKey) }
@@ -148,6 +151,21 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: glideTypingKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: glideTypingKey) }
   }
+  /// 「长按空格语音输入」：在空格键上按住 450 ms 打开语音面板。默认开，与 Android 的 `platform.android.space_voice` 相同；只存在本机 App Group，不进共享文档，也不随设置同步。「语音输入」页的启动方式由它和 `touch_voice_shortcut` 一起派生。
+  static var spaceVoice: Bool {
+    get { defaults.object(forKey: spaceVoiceKey) as? Bool ?? true }
+    set { defaults.set(newValue, forKey: spaceVoiceKey) }
+  }
+  /// 「滑动输入符号」：在字母键上下滑输入右上角的角标符号。默认开，与 Android 的 `platform.android.swipe_down_symbols` 相同；关掉后长按字母键仍能输入角标，与 Android 一致。只存在本机 App Group，不随设置同步。
+  static var swipeSymbols: Bool {
+    get { defaults.object(forKey: swipeSymbolsKey) as? Bool ?? true }
+    set { defaults.set(newValue, forKey: swipeSymbolsKey) }
+  }
+  /// 「单手模式」：手机键盘的按键收窄到 85% 并靠向一侧，另一侧是「换到另一侧」和「退出单手」组成的一列。默认关闭；它只存在本设备的 App Group 里，不进共享文档，iOS 的设置同步也不携带它；Android 的 `platform.android.one_handed` 会同步。无法识别的存储值按关闭处理。
+  static var oneHanded: KeyboardOneHandedMode {
+    get { defaults.string(forKey: oneHandedKey).flatMap(KeyboardOneHandedMode.init(rawValue:)) ?? .off }
+    set { defaults.set(newValue.rawValue, forKey: oneHandedKey) }
+  }
   static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing) }
 
   /// Values from the canonical document are integer tenths/points. Reject booleans and fractions before clamping so malformed synced data cannot silently become a valid geometry setting.
@@ -177,6 +195,16 @@ enum KeyboardLayoutPreference {
           let integer = Int(number.stringValue),
           NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
     return integer
+  }
+}
+
+/// 「单手模式」的取值，与 Android 的 `platform.android.one_handed` 存法相同：`off`，或按键靠向的一侧 `left` / `right`。
+enum KeyboardOneHandedMode: String, CaseIterable {
+  case off, left, right
+
+  /// 「单手模式」图块和侧边列下一次要写入的值，与 Android 的 `toggleOneHanded` 一致：单击在关闭和右侧之间切换；换边（长按图块，或点侧边列的「换到另一侧」）在左右之间切换，从关闭状态换边则在左侧打开。
+  func toggled(swapSide: Bool) -> KeyboardOneHandedMode {
+    swapSide ? (self == .left ? .right : .left) : (self == .off ? .right : .off)
   }
 }
 
@@ -219,12 +247,42 @@ enum FullWidthInputPolicy {
   }
 }
 
+/// 以百分比表示的「键盘高度」：存储的点数调整量除以默认高度下按键区的高度。键盘的内联调节条和应用的「键盘」页都在这里换算，所以同一个存储值在两处显示为同一个百分比；设置本身仍以点为单位（`touch_keyboard_height_adjustment`）。
+enum KeyboardHeightPercent {
+  /// `touch_keyboard_height_adjustment` 经过校验的取值范围，单位为点。
+  static let adjustmentRange: ClosedRange<CGFloat> = -12...48
+
+  /// 设计稿中竖屏的按键高度（`dc.html` 的 `keyH`）：手机按键 42pt，iPad 按键 54pt。键盘高度由它累加而来（`KeyboardFormFactor.keyboardHeight`），所以 100% 画出的正好是这样的按键。
+  static func portraitKeyHeight(tablet: Bool) -> CGFloat { tablet ? 54 : 42 }
+
+  /// 默认高度下的按键区：`rows` 行高为 `keyHeight` 的按键，加上行与行之间的间距。手机竖屏、默认行距 7pt 时为 189pt。
+  static func keyBlockHeight(keyHeight: CGFloat, rows: Int, rowSpacing: CGFloat) -> CGFloat {
+    max(1, CGFloat(rows) * keyHeight + CGFloat(max(rows - 1, 0)) * rowSpacing)
+  }
+
+  /// 手机键盘或全宽 iPad 键盘的竖屏按键区，后者的数字行多出第五行。
+  static func portraitKeyBlockHeight(tablet: Bool, numberRow: Bool, rowSpacing: CGFloat) -> CGFloat {
+    keyBlockHeight(keyHeight: portraitKeyHeight(tablet: tablet), rows: tablet && numberRow ? 5 : 4, rowSpacing: rowSpacing)
+  }
+
+  /// 把以点为单位的存储调整量换算成它在 `keyBlock` 上画出的百分比。
+  static func percent(adjustment: CGFloat, keyBlock: CGFloat) -> Int {
+    Int((100 * (keyBlock + adjustment) / keyBlock).rounded())
+  }
+
+  /// 把百分比换回以整点为单位的存储调整量，限制在 `adjustmentRange` 内。
+  static func adjustment(percent: Int, keyBlock: CGFloat) -> CGFloat {
+    min(adjustmentRange.upperBound, max(adjustmentRange.lowerBound, (CGFloat(percent) / 100 * keyBlock - keyBlock).rounded()))
+  }
+}
+
 struct KeyboardGeometry: Equatable {
   let keySpacing: Double
   let rowSpacing: Double
   var sidebarRatio: Double { 0.14 }
-  var letterInsetRatio: Double { 0 }
-  var centeredLetters: Bool { false }
+  /// 手机的中间字母行在两侧各缩进按键区的这一比例，约半个键宽，让九个键像设计稿那样居中排在上一行十个键的下方。
+  var letterInsetRatio: Double { 0.05 }
+  var centeredLetters: Bool { true }
   var showsBottomLanguage: Bool { true }
   var showsFullKeyboardSymbols: Bool { false }
 

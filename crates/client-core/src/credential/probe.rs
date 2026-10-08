@@ -21,12 +21,12 @@ pub trait ProbeTransport {
     fn post(&self, endpoint: &str, token: &str, body: &Value) -> Option<u16>;
 }
 
-pub struct HttpsProbeTransport;
-impl ProbeTransport for HttpsProbeTransport {
+/// 客户端按 `ai::endpoint` 的公共设置建立：不跟随重定向，https 地址只走 https，局域网的 http 地址直连、不走代理。
+pub struct ChatProbeTransport;
+impl ProbeTransport for ChatProbeTransport {
     fn post(&self, endpoint: &str, token: &str, body: &Value) -> Option<u16> {
-        let client = reqwest::blocking::Client::builder()
-            .https_only(true)
-            .redirect(reqwest::redirect::Policy::none())
+        let url = crate::ai::endpoint::validate(endpoint).ok()?;
+        let client = crate::ai::endpoint::blocking_client_builder(&url)
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(15))
             .build()
@@ -56,7 +56,18 @@ pub fn test_chat(service: &str, config: &Value, transport: &impl ProbeTransport)
     if !crate::credential::usable_token(token) {
         return result(false, "请先填写有效的 API Key。");
     }
-    if !crate::credential::valid_https_endpoint_and_model(endpoint, model) {
+    // AI 辅助的接口地址按 `ai::endpoint` 检查，本机和局域网的 http 也可以；语音润色仍只收 https。
+    if service == "ai.assistant" {
+        if !crate::ai::endpoint::is_allowed(endpoint)
+            || model.is_empty()
+            || !crate::text::is_bounded_text(model, 256)
+        {
+            return result(
+                false,
+                "请填写有效的接口地址（https://，或本机、局域网的 http://）和模型名。",
+            );
+        }
+    } else if !crate::credential::valid_https_endpoint_and_model(endpoint, model) {
         return result(false, "请填写有效的 HTTPS 接口地址和模型名。");
     }
     // Same minimal chat request as the pinned Windows reference implementation.
@@ -140,6 +151,27 @@ mod tests {
         }
         assert!(!test_chat("voice.asr", &config("openai"), &fake).ok);
         assert!(fake.bodies.borrow().is_empty());
+    }
+    #[test]
+    fn credential_chat_accepts_local_network_http_only_for_ai_assistant() {
+        struct Recording(RefCell<Vec<String>>);
+        impl ProbeTransport for Recording {
+            fn post(&self, endpoint: &str, _: &str, _: &Value) -> Option<u16> {
+                self.0.borrow_mut().push(endpoint.into());
+                Some(200)
+            }
+        }
+        let transport = Recording(RefCell::default());
+        let mut request = config("openai");
+        request["endpoint"] = json!("http://192.168.1.20:1234/v1/chat/completions");
+        assert!(test_chat("ai.assistant", &request, &transport).ok);
+        assert!(!test_chat("voice.polish", &request, &transport).ok);
+        request["endpoint"] = json!("http://8.8.8.8/v1/chat/completions");
+        assert!(!test_chat("ai.assistant", &request, &transport).ok);
+        assert_eq!(
+            *transport.0.borrow(),
+            ["http://192.168.1.20:1234/v1/chat/completions"]
+        );
     }
     #[test]
     fn credential_chat_returns_only_bounded_public_status() {

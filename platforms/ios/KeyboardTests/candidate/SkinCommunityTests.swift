@@ -95,6 +95,40 @@ private final class CommunityFixtureProtocol: URLProtocol, @unchecked Sendable {
   override func stopLoading() {}
 }
 
+/// 记录下载请求的方法、路径和 Authorization 头；登录接口给出匿名会话的令牌，下载接口返回一份合成皮肤。
+private final class AnonymousDownloadProtocol: URLProtocol, @unchecked Sendable {
+  static let anonymousToken = String(repeating: "c", count: 64)
+  private static let lock = NSLock()
+  private static var recorded: [(method: String, path: String, authorization: String?)] = []
+  static var requests: [(method: String, path: String, authorization: String?)] { lock.lock(); defer { lock.unlock() }; return recorded }
+  static func reset() { lock.lock(); defer { lock.unlock() }; recorded = [] }
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let path = request.url!.path
+    Self.lock.lock()
+    Self.recorded.append((request.httpMethod ?? "", path, request.value(forHTTPHeaderField: "Authorization")))
+    Self.lock.unlock()
+    let body: String
+    let status: Int
+    if path == "/v1/auth/login" {
+      body = "{\"access_token\":\"\(Self.anonymousToken)\",\"refresh_token\":\"\(String(repeating: "d", count: 64))\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"anonymous-user\",\"display_name\":\"匿名\",\"created_at\":\"2026-09-08T00:00:00Z\"}}"
+      status = 200
+    } else if path.hasPrefix("/v1/community/skins/") && path.hasSuffix("/download") {
+      body = #"{"design":{"background":15266027,"keyBackground":16777215,"keyForeground":1516829,"accent":1596487,"actionBackground":1596487,"cornerRadius":8,"borderWidth":0,"shadow":0,"pattern":0,"monospaced":false}}"#
+      status = 200
+    } else {
+      body = #"{"error":{"code":"not_found"}}"#
+      status = 404
+    }
+    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 final class SkinCommunityTests: XCTestCase {
   func testCommunityWireFormatAndErrors() async throws {
     let configuration = URLSessionConfiguration.ephemeral
@@ -169,6 +203,27 @@ final class SkinCommunityTests: XCTestCase {
     XCTAssertEqual(RetryReportProtocol.reportAttempts, 2)
     XCTAssertEqual(try memory.load()?.tokens.access_token,
                    String(repeating: "b", count: 64))
+  }
+  /// 没有登录账号时，下载与 Android 的「获取」一样用设备的匿名身份记一次下载，而不是要求先用 Apple 登录。
+  func testSignedOutDownloadUsesAnonymousAccount() async throws {
+    AnonymousDownloadProtocol.reset()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [AnonymousDownloadProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let anonymous = communitySession(client, CommunityMemoryCredentials())
+    try await anonymous.signIn(challenge: "fixture", credential: "synthetic")
+    let api = SkinCommunityAPI(client: client, account: communitySession(client, CommunityMemoryCredentials()), anonymous: anonymous)
+    let signedIn = try await api.signedIn()
+    XCTAssertFalse(signedIn)
+
+    let id = "b7654321-4321-4321-4321-cba987654321"
+    let design = try await api.download(id)
+    XCTAssertEqual(design.background, 15266027)
+    let downloads = AnonymousDownloadProtocol.requests.filter { $0.path.hasSuffix("/download") }
+    XCTAssertEqual(downloads.count, 1)
+    XCTAssertEqual(downloads.first?.method, "POST")
+    XCTAssertEqual(downloads.first?.path, "/v1/community/skins/\(id)/download")
+    XCTAssertEqual(downloads.first?.authorization, "Bearer \(AnonymousDownloadProtocol.anonymousToken)")
   }
   @MainActor func testCommunityPreviewDoesNotChangeActiveDesign() throws {
     let previous = CustomKeyboardSkinStore.current

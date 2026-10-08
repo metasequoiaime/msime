@@ -11,7 +11,7 @@ struct ProviderIcon: View {
       if let symbol = Self.symbols[id] {
         Image(systemName: symbol)
           .font(.system(size: size * 0.45, weight: .medium))
-          .foregroundStyle(Color(uiColor: MetasequoiaTheme.forestUIColor))
+          .foregroundStyle(MetasequoiaTheme.accent)
       } else {
         Image(id == "everyAPI" ? "EveryAPI" : "Provider-\(id)")
           .resizable().scaledToFit().padding(id == "everyAPI" ? 0 : size * 0.16)
@@ -58,7 +58,7 @@ struct ProviderPickerView: View {
               Spacer(minLength: 8)
               if selected == option.id {
                 Image(systemName: "checkmark.circle.fill")
-                  .foregroundStyle(Color(uiColor: MetasequoiaTheme.forestUIColor))
+                  .foregroundStyle(MetasequoiaTheme.accent)
               }
             }.contentShape(Rectangle()).padding(.vertical, 5)
           }
@@ -72,6 +72,6 @@ struct ProviderPickerView: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
     }.navigationViewStyle(.stack)
-      .tint(Color(uiColor: MetasequoiaTheme.forestUIColor))
+      .tint(MetasequoiaTheme.accent)
   }
 }

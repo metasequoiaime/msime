@@ -13,7 +13,9 @@ test("expression page uses the shared translation settings composition", () => {
   );
   expect(page).toContain("<TranslationSettingsContent");
   expect(page).not.toContain("<CandidateTranslationSettingsSection");
-  expect(page).not.toContain("<TranslationProviderSettingsSection");
+  // 唯一的直接使用方是鸿蒙手机页面，它用同一套共享绑定把所选服务的行收在「更多选项」下。
+  expect(page.match(/<TranslationProviderSettingsSection/g)).toHaveLength(1);
+  expect(page).toContain("<TranslationProviderSettingsSection {...providers} grouped={false} />");
   expect(page).not.toContain("<NiuTransSettingsSection");
   expect(page).not.toContain("<TencentTranslationSettingsSection");
   expect(page).not.toContain("<CustomTranslationSettingsSection");

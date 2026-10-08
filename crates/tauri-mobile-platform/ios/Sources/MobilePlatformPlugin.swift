@@ -537,16 +537,12 @@ private final class IOSKeyboardAIStore {
     return query
   }
 
+  /// 钥匙串里 Token 的来源键，与键盘扩展的 `KeyboardAIService` 一致：https 不限主机，http 只认本机和局域网。
   private func origin(for endpoint: String) throws -> String {
-    guard endpoint.utf8.count <= 2_048,
-          !endpoint.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
-          let url = URL(string: endpoint.trimmingCharacters(in: .whitespacesAndNewlines)),
-          url.scheme?.lowercased() == "https",
-          let host = url.host, !host.isEmpty,
-          url.user == nil, url.password == nil, url.fragment == nil else {
+    guard let origin = AIEndpointPolicy.origin(endpoint.trimmingCharacters(in: .whitespacesAndNewlines)) else {
       throw NSError(domain: "keyboard_ai", code: 1)
     }
-    return "https://\(host.lowercased()):\(url.port ?? 443)"
+    return origin
   }
 
   private func bounded(_ value: String, maximum: Int, allowEmpty: Bool = true) -> Bool {

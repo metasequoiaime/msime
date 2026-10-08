@@ -19,7 +19,7 @@ final class KeystrokeLatencyTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(
-      x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight)
     controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     return controller

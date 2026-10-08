@@ -100,7 +100,7 @@ final class KoreanDubeolsikTests: XCTestCase {
     XCTAssertEqual(InputSchemePreference.scheme, .korean)
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
     controller.view.layoutIfNeeded()
 
     XCTAssertEqual(try button("bottomLanguageKey", in: controller).configuration?.title, "한")
@@ -125,8 +125,11 @@ final class KoreanDubeolsikTests: XCTestCase {
     XCTAssertEqual(q.configuration?.title, "ㅂ")
     try key(labelled: "字母 ㅏ", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "빠")
-    // Return commits the syllable and still does the field's own action, so it keeps the field's name.
-    XCTAssertEqual(try button("returnKey", in: controller).configuration?.title, "换行")
+    // 回车提交音节后仍会执行输入框自己的动作，所以保持输入框原本的外观：普通输入框的回车符号，读作「换行」，而不是「确认」。
+    let returnKey = try button("returnKey", in: controller)
+    XCTAssertNil(returnKey.configuration?.title)
+    XCTAssertNotNil(returnKey.configuration?.image)
+    XCTAssertEqual(returnKey.accessibilityLabel, "换行")
     XCTAssertNil(nodes(controller.view).first { $0.accessibilityIdentifier == "candidate-1" && !$0.isHidden })
 
     let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image {
@@ -148,7 +151,7 @@ final class KoreanDubeolsikTests: XCTestCase {
     InputSchemePreference.scheme = .korean
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
     controller.view.layoutIfNeeded()
 
     let punctuation = try button("quickPunctuationKey", in: controller)
@@ -159,8 +162,11 @@ final class KoreanDubeolsikTests: XCTestCase {
     XCTAssertFalse(try button("characterSetShortcut", in: controller).isEnabled)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
-    XCTAssertNotNil(nodes(controller.view).first { $0.accessibilityLabel == "符号 ;" })
+    // 韩文使用 ASCII 标点，所以它的 123 层就是英文的那一层，返回键显示 ABC。
+    let shown = { (view: UIView) in sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden } }
+    XCTAssertNotNil(nodes(controller.view).first { $0.accessibilityLabel == "符号 ;" && shown($0) })
     XCTAssertNil(nodes(controller.view).first { $0.accessibilityLabel == "符号 ；" })
+    XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
   }
 
   /// 漢 shows only while a syllable composes, lists its Hanja with their 훈음 on the strip, and turns Return into choosing one; with the list closed Korean is unchanged.
@@ -170,7 +176,7 @@ final class KoreanDubeolsikTests: XCTestCase {
     InputSchemePreference.scheme = .korean
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
     controller.view.layoutIfNeeded()
     func visibleChip(_ number: Int) -> UIButton? {
       nodes(controller.view).first { $0.accessibilityIdentifier == "candidate-\(number)" && !$0.isHidden } as? UIButton
@@ -277,7 +283,7 @@ final class KoreanDubeolsikTests: XCTestCase {
       CandidateGlossPreference.enabled = glosses
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
       controller.view.layoutIfNeeded()
       for jamo in ["ㅎ", "ㅏ", "ㄴ"] {
         try key(labelled: "字母 \(jamo)", in: controller).sendActions(for: .primaryActionTriggered)

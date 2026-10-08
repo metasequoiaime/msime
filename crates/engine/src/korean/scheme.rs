@@ -37,7 +37,8 @@ impl KoreanScheme {
                 let (finished, open) = split_finished(&self.raw);
                 if !finished.is_empty() {
                     self.committed.push_str(&finished);
-                    self.raw = open.to_owned();
+                    let open_start = self.raw.len() - open.len();
+                    self.raw.drain(..open_start);
                 }
             }
             SchemeKey::Letter(_)
@@ -88,9 +89,10 @@ impl KoreanScheme {
         } else {
             raw_with_cases
         };
-        let mut filtered = String::with_capacity(source.len());
-        filtered.extend(source.chars().filter(char::is_ascii_alphabetic));
-        self.raw = filtered;
+        self.raw.clear();
+        self.raw.reserve(source.len());
+        self.raw
+            .extend(source.chars().filter(char::is_ascii_alphabetic));
         self.committed.clear();
         self.hanja = false;
     }
@@ -157,6 +159,39 @@ mod tests {
         assert_eq!(scheme.build_request().raw_input_with_cases, "rk");
         let (scheme, _) = typed("dkssud");
         assert_eq!(scheme.build_request().raw_input_with_cases, "sud");
+    }
+
+    #[test]
+    fn set_raw_input_reuses_existing_storage() {
+        let mut scheme = KoreanScheme::new();
+        scheme.set_raw_input("abcdefghijklmnopqrstuvwxyz", "");
+        let capacity = scheme.raw.capacity();
+
+        scheme.set_raw_input("rk", "");
+
+        assert_eq!(scheme.build_request().raw_input_with_cases, "rk");
+        assert!(scheme.raw.capacity() >= capacity);
+    }
+
+    #[test]
+    fn moving_a_final_reuses_the_open_key_storage() {
+        let mut scheme = KoreanScheme::new();
+        scheme.set_raw_input("abcdefghijklmnop", "");
+        scheme.reset();
+        scheme.committed.reserve(16);
+        for key in b"rks" {
+            scheme.handle_key(SchemeKey::Letter(*key));
+        }
+        let pointer = scheme.raw.as_ptr();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            scheme.handle_key(SchemeKey::Letter(b'k'));
+        });
+
+        assert_eq!(allocations, 2);
+        assert_eq!(scheme.raw.as_ptr(), pointer);
+        assert_eq!(scheme.preedit(), "나");
+        assert_eq!(scheme.take_committed(), "가");
     }
 
     #[test]

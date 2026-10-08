@@ -18,6 +18,14 @@ final class VoiceRecorder: ObservableObject {
   private var engine: AVAudioEngine?
   private var live: AsyncStream<Data>.Continuation?
   private var capture: LiveCapture?
+  /// 上一段录音的时长（毫秒），直到它被计入 动口不动手 或录音被丢弃。
+  private var untakenMilliseconds: Int?
+
+  /// 上一段录音的时长，只取一次：再次识别同一段录音（重试、重新识别录音）返回 nil，所以它只在第一次转成文字时计入 动口不动手。
+  func takeRecordedMilliseconds() -> Int? {
+    defer { untakenMilliseconds = nil }
+    return untakenMilliseconds
+  }
 
   func start(quietensOthers: Bool) async throws {
     guard try await prepare(quietensOthers: quietensOthers) else { return }
@@ -162,10 +170,13 @@ final class VoiceRecorder: ObservableObject {
     if let file {
       audio = try? BoundedFileReader.read(from: file, maximumBytes: Self.maximumAudioBytes)
       try? FileManager.default.removeItem(at: file)
+      untakenMilliseconds = pcmAudio.map { Self.milliseconds(pcm16Bytes: $0.count) }
     }
     file = nil
     if let capture {
-      audio = CustomServiceClient.silentWAV(capture.finish())
+      let pcm = capture.finish()
+      audio = CustomServiceClient.silentWAV(pcm)
+      untakenMilliseconds = Self.milliseconds(pcm16Bytes: pcm.count)
       self.capture = nil
     }
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -174,7 +185,11 @@ final class VoiceRecorder: ObservableObject {
   func discard() {
     stop()
     audio = nil
+    untakenMilliseconds = nil
   }
+
+  /// 两条录音路径都采集 16 kHz 单声道 PCM16：每毫秒 32 字节。
+  nonisolated static func milliseconds(pcm16Bytes: Int) -> Int { max(0, pcm16Bytes) / 32 }
 }
 
 /// The PCM a live recording has captured, written from the audio thread and read once when it stops.

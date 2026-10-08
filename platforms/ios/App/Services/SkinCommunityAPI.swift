@@ -152,8 +152,11 @@ actor SkinCommunityAPI {
   private static let includeCategory = URLQueryItem(name: "include", value: "category")
   private let client: BackendAccountClient
   private let account: BackendAccountSession
-  init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared) {
-    self.client = client; self.account = account
+  /// 没有登录账号时举报和下载所用的设备匿名身份，默认是应用与键盘扩展共用的那一个；测试传入只在内存里的会话。
+  private let anonymous: BackendAccountSession
+  init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared,
+       anonymous: BackendAccountSession = BackendAnonymousAccount.session) {
+    self.client = client; self.account = account; self.anonymous = anonymous
   }
   func currentUser() async throws -> CommunityUser? { try await account.user() }
   func signedIn() async throws -> Bool { try await account.user() != nil }
@@ -326,7 +329,29 @@ actor SkinCommunityAPI {
     guard CommunityResponseValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let result: Result = try await request("/v1/community/skins/\(id)/download", method: "POST", body: Data("{}".utf8), authenticated: true)
+    let path = "/v1/community/skins/\(id)/download", body = Data("{}".utf8)
+    let result: Result
+    // 读会话抛出的与请求同一种错误，要在同一处转换成社区的提示，原因见 `request`。
+    let hasAccount: Bool
+    do { hasAccount = try await account.user() != nil } catch let error as BackendAccountClient.Failure { throw Self.failure(error) }
+    if hasAccount {
+      result = try await request(path, method: "POST", body: body, authenticated: true)
+    } else {
+      // 没有登录账号时与举报相同，用设备的匿名身份领取并记一次下载，与 Android 的「获取」（`CommunityCatalog.recordDownload`）一致；评分仍要登录。
+      let data: Data
+      do {
+        if (try? await anonymous.accessToken()) == nil {
+          _ = try await BackendAnonymousAccount.ensureSignedIn(session: anonymous, client: client)
+        }
+        let token = try await anonymous.accessToken()
+        do { data = try await client.request("POST", path, token: token, body: body) }
+        catch let error as BackendAccountClient.Failure where error.status == 401 {
+          data = try await client.request("POST", path, token: try await anonymous.accessToken(retrying: token), body: body)
+        }
+      } catch let error as BackendAccountClient.Failure { throw Self.failure(error) }
+      try Task.checkCancellation()
+      result = try JSONDecoder().decode(Result.self, from: data)
+    }
     guard result.design == result.design.normalized else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
@@ -445,7 +470,6 @@ actor SkinCommunityAPI {
         }
         return
       }
-      let anonymous = BackendAnonymousAccount.session
       if (try? await anonymous.accessToken()) == nil {
         _ = try await BackendAnonymousAccount.ensureSignedIn(session: anonymous, client: client)
       }

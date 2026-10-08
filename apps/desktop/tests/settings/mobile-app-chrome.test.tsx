@@ -2,8 +2,8 @@
 import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { SettingsPage, type Snapshot } from "@msime/ui";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { SettingsPage, type ResolvedAppTheme, type Snapshot } from "@msime/ui";
 import css from "../../../../packages/ui/src/styles.css?raw";
 
 afterEach(() => {
@@ -66,13 +66,12 @@ test("Harmony settings follow the actual phone or 2-in-1 form factor", async () 
   renderSettings("harmony", { mobile_settings: false });
   await settingsFormReady();
   expect(screen.queryByRole("navigation", { name: "主要功能" })).toBeNull();
-  expect(screen.getByRole("navigation", { name: "设置分类" })).toBeTruthy();
-  const preview = document.querySelector(".screen-keyboard-artwork");
-  const keys = Array.from(preview!.querySelectorAll("[data-keyboard-key]")).map((key) =>
-    key.getAttribute("data-keyboard-key"),
-  );
-  expect(keys).toContain("Caps Lock");
-  expect(keys).toContain("Tab");
+  const sidebar = screen.getByRole("navigation", { name: "设置分类" });
+  // 2-in-1 是没有手机根页面的桌面窗口：侧栏从 输入 开始，也在 输入 打开。
+  expect(within(sidebar).queryByRole("button", { name: "首页" })).toBeNull();
+  expect(within(sidebar).queryByRole("button", { name: "设置" })).toBeNull();
+  expect(sidebar.querySelector("button")?.textContent).toBe("输入");
+  expect(screen.getByRole("heading", { level: 1, name: "输入" })).toBeTruthy();
 });
 
 test("Harmony capability chrome stays split between phone and 2-in-1", async () => {
@@ -99,7 +98,8 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
       "在系统设置中启用并选择水杉输入法，再使用实体键盘、候选窗口和悬浮工具栏输入。默认是全拼输入法。",
     ),
   ).toBeTruthy();
-  expect(screen.getByText("为 HarmonyOS 2-in-1 桌面输入体验打造的开放中文输入法。")).toBeTruthy();
+  // HarmonyOS 关于页的头图在版本行里写明设备形态，而不是放标语。
+  expect(screen.getByText(/^版本 .* · HarmonyOS 2in1$/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "悬浮工具栏" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(screen.getByRole("group", { name: "输入模式切换快捷键" })).toBeTruthy();
@@ -128,18 +128,19 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
       "在系统设置中启用并选择水杉输入法，再从输入法键盘使用语音和触屏输入。默认是全拼输入法。",
     ),
   ).toBeTruthy();
-  expect(screen.getByText("为 HarmonyOS 触屏输入体验打造的开放中文输入法。")).toBeTruthy();
+  expect(screen.getByText(/^版本 .* · HarmonyOS$/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
   fireEvent.click(
     within(screen.getByRole("navigation", { name: "主要功能" })).getByRole("button", {
       name: "设置",
     }),
   );
-  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
-  const phoneSettings = screen.getByRole("region", { name: "全部设置" });
+  const phoneSettings = screen.getByRole("region", { name: "首页" });
   expect(within(phoneSettings).queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
   expect(within(phoneSettings).queryByRole("button", { name: "快捷键" })).toBeNull();
-  fireEvent.click(within(phoneSettings).getByRole("button", { name: "标点与翻译" }));
+  expect(within(phoneSettings).queryByRole("button", { name: "外接键盘快捷键" })).toBeNull();
+  // 手机把候选翻译放在 输入 页的 翻译 分组里。
+  fireEvent.click(within(phoneSettings).getByRole("button", { name: "输入" }));
   expect(screen.getByRole("combobox", { name: "候选词翻译第二种语言" })).toBeTruthy();
 });
 
@@ -156,14 +157,14 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
       name: "设置",
     }),
   );
-  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
   fireEvent.click(
-    within(screen.getByRole("region", { name: "全部设置" })).getByRole("button", {
+    within(screen.getByRole("region", { name: "首页" })).getByRole("button", {
       name: "候选栏",
     }),
   );
-  expect(screen.getByRole("region", { name: "候选栏预览" })).toBeTruthy();
-  expect(screen.getByRole("combobox", { name: "字号" })).toBeTruthy();
+  // 手机的 候选栏 页没有预览，用滑块调整候选大小。
+  expect(screen.queryByRole("region", { name: "候选栏预览" })).toBeNull();
+  expect(screen.getByRole("slider", { name: "候选字号" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "预编辑字号" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "候选栏预编辑" })).toBeTruthy();
   expect(screen.queryByText("候选窗口预览")).toBeNull();
@@ -235,21 +236,14 @@ test("a desktop host keeps its window titlebar", async () => {
   expect(screen.getByRole("banner", { name: "窗口控制" })).toBeTruthy();
 });
 
-// The home card previews the keyboard the user will actually see. A phone has no number row, no Tab
-// and no Win key, so the desktop artwork misdescribes every touch host.
-test("a phone previews the touch keyboard, not the desktop one", async () => {
+// 手机的 设置 根页面是设计稿里的搜索框、状态卡片和各行；它不画键盘卡片，所以带数字行、Tab 和 Win 键的桌面键盘图永远不会在那里冒充触屏键盘。
+test("a phone root draws no desktop keyboard artwork", async () => {
   renderSettings("android");
   await settingsFormReady();
 
-  const preview = document.querySelector(".screen-keyboard-artwork");
-  expect(preview).toBeTruthy();
-  const keys = Array.from(preview!.querySelectorAll("[data-keyboard-key]")).map((key) =>
-    key.getAttribute("data-keyboard-key"),
-  );
-  expect(keys).toContain("⇧");
-  expect(keys).toContain("空格");
-  expect(keys).not.toContain("Caps Lock");
-  expect(keys).not.toContain("Win");
+  expect(
+    screen.getByRole("region", { name: "首页" }).querySelector(".screen-keyboard-artwork"),
+  ).toBeNull();
 });
 
 test("the desktop home card keeps the full keyboard", async () => {
@@ -268,7 +262,8 @@ test("the phone home surface hides its duplicate page heading", async () => {
   renderSettings("android");
   await settingsFormReady();
 
-  const heading = screen.getByRole("heading", { name: "首页" });
+  // 触屏宿主把根页面叫作 设置，也就是它所在的标签页。
+  const heading = screen.getByRole("heading", { name: "设置" });
   expect(heading.parentElement?.className).toContain("max-phone:sr-only");
 
   cleanup();
@@ -452,13 +447,11 @@ test("a phone is not offered the desktop's modifier-chord voice shortcuts", asyn
   for (const platform of ["harmony", "ios"]) {
     renderSettings(platform);
     await settingsFormReady();
-    fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
-    const list = screen.getByRole("region", { name: "全部设置" });
-    const row = [...list.querySelectorAll("button")].find(
-      (item) => item.querySelector("strong")?.textContent === "语音输入",
+    fireEvent.click(
+      within(screen.getByRole("region", { name: "首页" })).getByRole("button", {
+        name: "语音输入",
+      }),
     );
-    if (!row) throw new Error(`no 语音输入 row on ${platform}`);
-    fireEvent.click(row);
     expect(screen.queryByText("语音快捷键")).toBeNull();
     expect(screen.queryByText("语音输入弹出条主题")).toBeNull();
     cleanup();
@@ -475,13 +468,9 @@ test("a phone is not offered the desktop's modifier-chord voice shortcuts", asyn
 test("a phone that routes an attached keyboard's voice chords offers their switches", async () => {
   renderSettings("harmony", { mobile_settings: true, panel_windows: false, voice_hotkeys: true });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
-  const list = screen.getByRole("region", { name: "全部设置" });
-  const row = [...list.querySelectorAll("button")].find(
-    (item) => item.querySelector("strong")?.textContent === "语音输入",
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "首页" })).getByRole("button", { name: "语音输入" }),
   );
-  if (!row) throw new Error("no 语音输入 row on harmony");
-  fireEvent.click(row);
   expect(screen.getByText("语音快捷键")).toBeTruthy();
   expect(screen.getByText(/连接实体键盘后/)).toBeTruthy();
   expect(screen.queryByText("语音输入弹出条主题")).toBeNull();
@@ -548,4 +537,309 @@ test("the sidebar brand heads desktop sidebars and stays off phone layouts", asy
     expect(document.querySelector("[data-sidebar-brand]"), platform).toBeNull();
     cleanup();
   }
+});
+
+// ---- HarmonyOS 手机外壳 ----
+
+const autumnLight: ResolvedAppTheme = {
+  id: "siji",
+  season: "autumn",
+  accent: "#B5562B",
+  accent_soft: "#B5562B22",
+  on_accent: "#FFFFFF",
+  background: "#F6E9DC",
+  card: "#FFFBF6",
+  hair: "#B5562B33",
+};
+const autumnDark: ResolvedAppTheme = {
+  ...autumnLight,
+  accent: "#F0975F",
+  accent_soft: "#F0975F40",
+  on_accent: "#3C2618",
+  background: "#21150F",
+  card: "#2E1E15",
+  hair: "#FFFFFF1A",
+};
+
+/** 宿主的应用主题，季节可以在页面显示期间改变，就像月份更替或在 我的 里做出选择时那样。 */
+function appThemeClient() {
+  let theme = autumnLight;
+  const listeners = new Set<() => void>();
+  const client = {
+    load: () => "siji" as const,
+    save: () => true,
+    catalog: () => [],
+    resolve: vi.fn((dark: boolean) => (dark ? autumnDark : theme)),
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const change = (next: ResolvedAppTheme) => {
+    theme = next;
+    for (const listener of listeners) listener();
+  };
+  return { client, change };
+}
+
+const typingStatistics = {
+  load: vi.fn().mockResolvedValue({
+    availability: "neverWritten",
+    statistics: { enabled: false, total: 0, days: {}, detail: {} },
+  }),
+  setEnabled: vi.fn(),
+  reset: vi.fn(),
+};
+
+const shell = () => document.querySelector<HTMLElement>("[data-settings-shell]")!;
+
+// 设计稿给每个 HarmonyOS 手机页面都加标题，标签页根页面也不例外；其他触屏宿主的 统计 和 我的 不加标题，它们的内容已经表明了自己是什么页面。
+test("a HarmonyOS phone titles the 设置, 统计 and 我的 roots", async () => {
+  renderSettings("harmony", {}, undefined, { typingStatistics, account: {} });
+  await settingsFormReady();
+  const root = screen.getByRole("heading", { level: 1, name: "设置" });
+  expect(root.parentElement?.className).not.toContain("max-phone:sr-only");
+
+  const bar = screen.getByRole("navigation", { name: "主要功能" });
+  fireEvent.click(within(bar).getByRole("button", { name: "统计" }));
+  const statistics = await screen.findByRole("heading", { level: 1, name: "统计" });
+  expect(statistics.parentElement?.className).not.toContain("max-phone:sr-only");
+  cleanup();
+
+  renderSettings("android", {}, "typing-statistics", { typingStatistics });
+  const untitled = await screen.findByRole("heading", { level: 1, name: "统计" });
+  expect(untitled.parentElement?.className).toContain("max-phone:sr-only");
+});
+
+// 设计稿把手机页面叫作 皮肤、表达、开发者选项 和 反馈，桌面侧栏则叫 主题、标点与翻译、维护与诊断 和 帮助与反馈。
+test("a touch host uses the design's page names", async () => {
+  renderSettings("harmony", {}, "expression");
+  await settingsFormReady();
+  expect(screen.getByRole("heading", { level: 1, name: "表达" })).toBeTruthy();
+  const sidebar = screen.getByRole("navigation", { name: "设置分类" });
+  for (const name of ["皮肤", "表达", "反馈"]) {
+    expect(within(sidebar).getByRole("button", { name })).toBeTruthy();
+  }
+  for (const name of ["主题", "标点与翻译", "帮助与反馈", "首页"]) {
+    expect(within(sidebar).queryByRole("button", { name })).toBeNull();
+  }
+});
+
+// 推入标签页的页面在标题前放设计稿里的圆形返回按钮，取代回到上级页面的文字链接；标签页根页面没有这个按钮。它和边缘滑动一样沿 WebView 历史返回。
+test("a HarmonyOS phone page pushed onto a tab has a back button", async () => {
+  renderSettings("harmony");
+  await settingsFormReady();
+  expect(screen.queryByRole("button", { name: "返回" })).toBeNull();
+
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "首页" })).getByRole("button", { name: "输入" }),
+  );
+  const header = screen.getByRole("heading", { level: 1, name: "输入" }).parentElement!;
+  const back = within(header).getByRole("button", { name: "返回" });
+  expect(back.querySelector("svg")?.getAttribute("width")).toBe("22");
+  fireEvent.click(back);
+  expect(await screen.findByRole("heading", { level: 1, name: "设置" })).toBeTruthy();
+  cleanup();
+  window.history.replaceState({}, "");
+
+  // 帮助 是 反馈 的子页面：返回按钮取代了「‹ 反馈」链接。
+  renderSettings("harmony", {}, "help");
+  await settingsFormReady();
+  expect(screen.queryByRole("button", { name: "返回反馈" })).toBeNull();
+  expect(screen.getByRole("button", { name: "返回" })).toBeTruthy();
+  cleanup();
+
+  renderSettings("android", {}, "help");
+  await settingsFormReady();
+  expect(screen.getByRole("button", { name: "返回反馈" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "返回" })).toBeNull();
+});
+
+// 设置打开时所在的页面（启动时的深链接）在 WebView 历史里身后没有设置页面，所以它的返回按钮向上回到所在标签页的根页面，而不是退到宿主放在那里的任何内容。
+test("the back button of the page the settings opened on goes up to its tab's root", async () => {
+  const back = vi.spyOn(window.history, "back");
+  renderSettings("harmony", {}, "dictionary");
+  await settingsFormReady();
+  const push = vi.spyOn(window.history, "pushState");
+  fireEvent.click(screen.getByRole("button", { name: "返回" }));
+  expect(back).not.toHaveBeenCalled();
+  expect(screen.getByRole("heading", { level: 1, name: "设置" })).toBeTruthy();
+  // 根页面替换深链接页面的历史条目，而不是叠在它上面，这样在 设置 上做系统返回手势会直接离开，不会重新打开 词库。
+  expect(push).not.toHaveBeenCalled();
+  expect(window.history.state).toEqual(expect.objectContaining({ page: "home" }));
+  push.mockRestore();
+
+  // 从那里推入的页面沿历史返回。
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "首页" })).getByRole("button", { name: "输入" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "返回" }));
+  expect(back).toHaveBeenCalledTimes(1);
+});
+
+// 推入标签页的页面会滑入，标签页根页面不会。社区、统计 和 我的 带有标记，让样式表画出更紧凑的标签页列表。
+test("a HarmonyOS phone pushes pages in and marks the tab pages", async () => {
+  renderSettings("harmony", {}, undefined, { typingStatistics, account: {} });
+  await settingsFormReady();
+  const columnOf = () =>
+    [...document.getElementById("settings-content")!.children].find((node) =>
+      node.className.includes("max-w-[900px]"),
+    )!;
+  expect(columnOf().className).not.toContain("animate-ms-push-in");
+  expect(columnOf().hasAttribute("data-tab-page")).toBe(false);
+
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "首页" })).getByRole("button", { name: "输入" }),
+  );
+  expect(columnOf().className).toContain("animate-ms-push-in");
+  expect(columnOf().className).toContain("motion-reduce:animate-none");
+  expect(columnOf().hasAttribute("data-tab-page")).toBe(false);
+
+  fireEvent.click(
+    within(screen.getByRole("navigation", { name: "主要功能" })).getByRole("button", {
+      name: "统计",
+    }),
+  );
+  await screen.findByRole("heading", { level: 1, name: "统计" });
+  expect(columnOf().hasAttribute("data-tab-page")).toBe(true);
+  expect(columnOf().className).not.toContain("animate-ms-push-in");
+  cleanup();
+
+  renderSettings("android", {}, "input");
+  await settingsFormReady();
+  expect(columnOf().className).not.toContain("animate-ms-push-in");
+});
+
+// 应用主题为 HarmonyOS 手机重新着色：强调色系以及该季节的页面、卡片和细线颜色以内联方式写在带 `data-platform` 的元素上，并跟随外观和宿主的主题变化。
+test("a HarmonyOS phone takes the season's colours from the host app theme", async () => {
+  // jsdom 没有 `matchMedia`，设置会把这种情况当成深色系统；这次渲染打桩成浅色。
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: (query: string) => ({
+      matches: query === "(prefers-color-scheme: light)",
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+    }),
+  });
+  try {
+    const { client: appTheme, change } = appThemeClient();
+    const setSystemBars = vi.fn();
+    renderSettings("harmony", {}, undefined, { appTheme, chrome: { setSystemBars } });
+    await settingsFormReady();
+
+    const root = shell();
+    expect(root.getAttribute("data-platform")).toBe("harmony");
+    expect(root.getAttribute("data-season")).toBe("autumn");
+    expect(appTheme.resolve).toHaveBeenLastCalledWith(false);
+    expect(root.style.getPropertyValue("--accent-color")).toBe(autumnLight.accent);
+    expect(root.style.getPropertyValue("--p-bg")).toBe(autumnLight.background);
+    expect(root.style.getPropertyValue("--p-group-bg")).toBe(autumnLight.card);
+    expect(root.style.getPropertyValue("--p-hair")).toBe(autumnLight.hair);
+    // 状态栏取页面背景色，导航栏取标签栏的固定颜色。
+    expect(setSystemBars).toHaveBeenLastCalledWith({
+      background: autumnLight.background,
+      navigationBar: "#F1F3F5",
+      dark: false,
+    });
+
+    act(() => change({ ...autumnLight, season: "winter", background: "#EEF2F6" }));
+    expect(root.getAttribute("data-season")).toBe("winter");
+    expect(root.style.getPropertyValue("--p-bg")).toBe("#EEF2F6");
+    expect(setSystemBars).toHaveBeenLastCalledWith({
+      background: "#EEF2F6",
+      navigationBar: "#F1F3F5",
+      dark: false,
+    });
+  } finally {
+    Reflect.deleteProperty(window, "matchMedia");
+  }
+  cleanup();
+
+  // 深色外观下季节解析为深色，系统栏请求浅色内容。
+  const { client: appTheme } = appThemeClient();
+  const setSystemBars = vi.fn();
+  renderSettings("harmony", {}, undefined, { appTheme, chrome: { setSystemBars } });
+  await settingsFormReady();
+  expect(appTheme.resolve).toHaveBeenLastCalledWith(true);
+  expect(shell().style.getPropertyValue("--p-bg")).toBe(autumnDark.background);
+  expect(setSystemBars).toHaveBeenLastCalledWith({
+    background: autumnDark.background,
+    navigationBar: "#141414",
+    dark: true,
+  });
+});
+
+// 2-in-1 只取强调色系，保留自己的中性表面色；它没有手机系统栏。其他平台忽略应用主题。
+test("the 2-in-1 takes the season's accent only and other hosts none of it", async () => {
+  const { client: appTheme } = appThemeClient();
+  const setSystemBars = vi.fn();
+  renderSettings("harmony", { mobile_settings: false }, undefined, {
+    appTheme,
+    chrome: { setSystemBars },
+  });
+  await settingsFormReady();
+  expect(shell().getAttribute("data-platform")).toBe("hm2");
+  expect(shell().style.getPropertyValue("--accent-color")).not.toBe("");
+  expect(shell().style.getPropertyValue("--p-bg")).toBe("");
+  expect(setSystemBars).not.toHaveBeenCalled();
+  cleanup();
+
+  renderSettings("android", {}, undefined, { appTheme, chrome: { setSystemBars } });
+  await settingsFormReady();
+  expect(shell().getAttribute("style")).toBeNull();
+  expect(shell().hasAttribute("data-season")).toBe(false);
+  expect(setSystemBars).not.toHaveBeenCalled();
+});
+
+// 没有应用主题时，手机仍然给系统栏着色，用的是 token 表自己的页面背景色。
+test("a HarmonyOS phone without an app theme colours its bars in the default background", async () => {
+  const setSystemBars = vi.fn();
+  renderSettings("harmony", {}, undefined, { chrome: { setSystemBars } });
+  await settingsFormReady();
+  // jsdom 没有 `matchMedia`，设置会把这种情况当成深色系统。
+  expect(setSystemBars).toHaveBeenLastCalledWith({
+    background: "#000000",
+    navigationBar: "#141414",
+    dark: true,
+  });
+  expect(shell().hasAttribute("data-season")).toBe(false);
+});
+
+// 外壳为每个页面承载设计稿的 toast：一个始终挂载在带主题的根元素内的 polite live region。
+test("the settings shell carries the toast live region", async () => {
+  renderSettings("harmony");
+  await settingsFormReady();
+  const region = [...shell().children].find(
+    (node) => node.getAttribute("role") === "status" && node.getAttribute("aria-live") === "polite",
+  );
+  expect(region).toBeTruthy();
+});
+
+// 2-in-1 没有设置引导卡片，所以 输入 和 关于 会说明还缺什么；其他页面和手机不会。
+test("the 2-in-1 warns on 输入 and 关于 while the input method is not set up", async () => {
+  const setup = {
+    read: () => ({ enabled: false, current: false }),
+    subscribe: () => () => {},
+  };
+  const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
+  renderSettings("harmony", { mobile_settings: false }, undefined, {
+    home: { setup, openSystemKeyboardSettings },
+  });
+  await settingsFormReady();
+  expect(screen.getByText("水杉输入法尚未在「系统 → 输入法」中添加")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "去添加" }));
+  expect(openSystemKeyboardSettings).toHaveBeenCalledTimes(1);
+
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(screen.getByText("水杉输入法尚未在「系统 → 输入法」中添加")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  expect(screen.queryByText("水杉输入法尚未在「系统 → 输入法」中添加")).toBeNull();
+  cleanup();
+
+  renderSettings("harmony", {}, "input", { home: { setup, openSystemKeyboardSettings } });
+  await settingsFormReady();
+  expect(screen.queryByText("水杉输入法尚未在「系统 → 输入法」中添加")).toBeNull();
 });

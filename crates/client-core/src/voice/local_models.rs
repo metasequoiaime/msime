@@ -314,17 +314,40 @@ pub fn remove(root: &Path, id: &str) -> Result<(), LocalModelError> {
     let _lock = acquire_model_lock(root)?;
     let target = root.join(&model.id);
     remove_leftovers(root, &model.id);
+    #[cfg(not(unix))]
     let target_is_dir = match fs::symlink_metadata(&target) {
         Ok(metadata) => metadata.is_dir(),
         Err(_) => return Ok(()),
     };
+    #[cfg(unix)]
+    if fs::symlink_metadata(&target).is_err() {
+        return Ok(());
+    }
     // Renamed aside first so a deletion interrupted halfway never leaves a directory that still carries its manifest.
     let aside = root.join(format!(".old-{}-{}", model.id, unique_suffix()));
-    fs::rename(&target, &aside)?;
-    if target_is_dir {
-        fs::remove_dir_all(&aside)?;
-    } else {
-        fs::remove_file(&aside)?;
+    #[cfg(unix)]
+    {
+        let root_directory = crate::storage::open_private_directory(root)?;
+        rustix::fs::renameat(
+            &root_directory,
+            std::ffi::OsStr::new(&model.id),
+            &root_directory,
+            aside.file_name().expect("generated aside name"),
+        )
+        .map_err(io::Error::from)?;
+        crate::storage::remove_private_tree_at(
+            &root_directory,
+            aside.file_name().expect("generated aside name"),
+        )?;
+    }
+    #[cfg(not(unix))]
+    {
+        fs::rename(&target, &aside)?;
+        if target_is_dir {
+            fs::remove_dir_all(&aside)?;
+        } else {
+            fs::remove_file(&aside)?;
+        }
     }
     Ok(())
 }

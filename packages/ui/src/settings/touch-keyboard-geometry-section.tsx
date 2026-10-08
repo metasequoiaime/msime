@@ -1,9 +1,11 @@
+import type { ReactNode } from "react";
 import { SettingsGroupNote } from "./settings-group-note";
-import { Checks, GroupList, type SegmentedOption } from "../core/platform-controls";
+import { Checks, GroupList, Row, Select, type SegmentedOption } from "../core/platform-controls";
 import { SliderRow } from "./slider-row";
 import { SwitchRow } from "./switch-row";
 import { ActionRow } from "./action-row";
 import { SettingsGroupBlock } from "./settings-group-block";
+import type { SwipeSymbolsDirection } from "./mobile-keyboard-feedback-section";
 import { SegmentedRow } from "./segmented-row";
 
 export type TouchToolbarPreferences = {
@@ -56,6 +58,9 @@ export interface TouchKeyboardGeometrySectionProps {
   tabletSplitKeyboard?: boolean;
   /** 宿主的键盘实现了滑行输入时给出当前开关；没有时不画这个开关。 */
   glideTyping?: boolean;
+  /** 「滑动输入符号」开关及其方向，在宿主键盘实现了它们时传入；不传则两行都不绘制。 */
+  swipeSymbols?: boolean;
+  swipeSymbolsDirection?: SwipeSymbolsDirection;
   /** 宿主有触屏九宫格数字层时给出它的排列；没有时不画这一行。 */
   numberKeypadOrder?: "phone" | "calculator";
   /** 键盘本机设置正在保存时为 true，「数字行与 Tab 键」「横屏分离式键盘」和「滑行输入」都暂不可点。 */
@@ -68,8 +73,14 @@ export interface TouchKeyboardGeometrySectionProps {
   onTabletFullKeysChange: (enabled: boolean) => void;
   onTabletSplitKeyboardChange: (enabled: boolean) => void;
   onGlideTypingChange: (enabled: boolean) => void;
+  onSwipeSymbolsChange?: (enabled: boolean) => void;
+  onSwipeSymbolsDirectionChange?: (direction: SwipeSymbolsDirection) => void;
   onNumberKeypadOrderChange?: (value: "phone" | "calculator") => void;
   onReset: () => void;
+  /** HarmonyOS 手机：放在尺寸组开头的行，此时该组按手机设计稿命名为「布局」。 */
+  layoutRows?: ReactNode;
+  /** HarmonyOS 手机：键盘预览，紧接尺寸组之后绘制，而不是像其他地方那样画在它上方。 */
+  preview?: ReactNode;
 }
 
 const NUMBER_KEYPAD_ORDERS: readonly SegmentedOption<"phone" | "calculator">[] = [
@@ -89,6 +100,8 @@ export function TouchKeyboardGeometrySection({
   tabletFullKeys,
   tabletSplitKeyboard,
   glideTyping,
+  swipeSymbols,
+  swipeSymbolsDirection = "down",
   numberKeypadOrder,
   tabletFullKeysBusy,
   onHeightAdjustmentChange,
@@ -99,17 +112,36 @@ export function TouchKeyboardGeometrySection({
   onTabletFullKeysChange,
   onTabletSplitKeyboardChange,
   onGlideTypingChange,
+  onSwipeSymbolsChange,
+  onSwipeSymbolsDirectionChange,
   onNumberKeypadOrderChange,
   onReset,
+  layoutRows,
+  preview,
 }: TouchKeyboardGeometrySectionProps) {
   const toolbarValues = { ...defaultTouchToolbar, ...toolbar };
   const showVoiceShortcut = voiceShortcutKind !== "hidden";
+  const numberKeypadRow = numberKeypadOrder !== undefined && (
+    <SegmentedRow
+      title="数字键盘顺序"
+      description="九宫格切到数字时的排列：电话把 1 2 3 放在最上面，计算器把 7 8 9 放在最上面。"
+      options={NUMBER_KEYPAD_ORDERS}
+      value={numberKeypadOrder}
+      onChange={(value) => onNumberKeypadOrderChange?.(value)}
+    />
+  );
+  // HarmonyOS 手机的尺寸组本身就叫「布局」，数字键盘顺序跟 Android 一样紧跟在「中文键盘」之后，不再另起一个同名分组。
+  const numberKeypadInLayoutRows = Boolean(layoutRows) && numberKeypadRow;
 
   return (
     <>
-      <GroupList title="尺寸">
+      <GroupList title={layoutRows ? "布局" : "尺寸"}>
+        {layoutRows}
+        {numberKeypadInLayoutRows}
         <SettingsGroupNote>
-          只改变触屏键位的外观，不改变输入方案；也可以直接在上方预览上左右拖动调节键距、上下拖动调节行距。
+          {layoutRows
+            ? `高度和间距只改变触屏键位的外观；也可以直接在${preview ? "下方" : "上方"}预览上左右拖动调节键距、上下拖动调节行距。`
+            : `只改变触屏键位的外观，不改变输入方案；也可以直接在${preview ? "下方" : "上方"}预览上左右拖动调节键距、上下拖动调节行距。`}
         </SettingsGroupNote>
         <SliderRow
           title="键盘高度"
@@ -149,6 +181,7 @@ export function TouchKeyboardGeometrySection({
           label="恢复默认"
         />
       </GroupList>
+      {preview}
       {(showVoiceShortcut || toolbarComponents) && (
         <GroupList title="工具栏">
           {showVoiceShortcut && (
@@ -187,17 +220,9 @@ export function TouchKeyboardGeometrySection({
       )}
       {(tabletFullKeys !== undefined ||
         tabletSplitKeyboard !== undefined ||
-        numberKeypadOrder !== undefined) && (
+        (numberKeypadOrder !== undefined && !layoutRows)) && (
         <GroupList title="布局">
-          {numberKeypadOrder !== undefined && (
-            <SegmentedRow
-              title="数字键盘顺序"
-              description="九宫格切到数字时的排列：电话把 1 2 3 放在最上面，计算器把 7 8 9 放在最上面。"
-              options={NUMBER_KEYPAD_ORDERS}
-              value={numberKeypadOrder}
-              onChange={(value) => onNumberKeypadOrderChange?.(value)}
-            />
-          )}
+          {!layoutRows && numberKeypadRow}
           {tabletFullKeys !== undefined && (
             <SwitchRow
               title="数字行与 Tab 键"
@@ -218,15 +243,40 @@ export function TouchKeyboardGeometrySection({
           )}
         </GroupList>
       )}
-      {glideTyping !== undefined && (
+      {(glideTyping !== undefined || swipeSymbols !== undefined) && (
         <GroupList title="手势">
-          <SwitchRow
-            title="滑行输入"
-            description="在字母键上连续滑动输入拼音，停留可确认经过的键；只在全拼 26 键的字母面生效。"
-            disabled={tabletFullKeysBusy}
-            checked={glideTyping}
-            onChange={onGlideTypingChange}
-          />
+          {swipeSymbols !== undefined && (
+            <>
+              <SwitchRow
+                title="滑动输入符号"
+                description="在字母键上滑动，输入角标符号；长按字母键始终可以输入"
+                disabled={tabletFullKeysBusy}
+                checked={swipeSymbols}
+                onChange={(enabled) => onSwipeSymbolsChange?.(enabled)}
+              />
+              <Row title="滑动方向">
+                <Select
+                  disabled={tabletFullKeysBusy || !swipeSymbols}
+                  value={swipeSymbolsDirection}
+                  onChange={(event) =>
+                    onSwipeSymbolsDirectionChange?.(event.target.value as SwipeSymbolsDirection)
+                  }
+                >
+                  <option value="down">下滑</option>
+                  <option value="up">上滑</option>
+                </Select>
+              </Row>
+            </>
+          )}
+          {glideTyping !== undefined && (
+            <SwitchRow
+              title="滑行输入"
+              description="在字母键上连续滑动输入拼音，停留可确认经过的键；只在全拼 26 键的字母面生效。"
+              disabled={tabletFullKeysBusy}
+              checked={glideTyping}
+              onChange={onGlideTypingChange}
+            />
+          )}
         </GroupList>
       )}
     </>

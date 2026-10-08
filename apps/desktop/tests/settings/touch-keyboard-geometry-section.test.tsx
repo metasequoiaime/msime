@@ -33,6 +33,8 @@ const baseProps = {
   tabletFullKeys: true,
   tabletSplitKeyboard: false,
   glideTyping: false,
+  swipeSymbols: true,
+  swipeSymbolsDirection: "down" as const,
   tabletFullKeysBusy: false,
   onHeightAdjustmentChange: vi.fn(),
   onKeySpacingChange: vi.fn(),
@@ -42,6 +44,8 @@ const baseProps = {
   onTabletFullKeysChange: vi.fn(),
   onTabletSplitKeyboardChange: vi.fn(),
   onGlideTypingChange: vi.fn(),
+  onSwipeSymbolsChange: vi.fn(),
+  onSwipeSymbolsDirectionChange: vi.fn(),
   onReset: vi.fn(),
 };
 
@@ -64,6 +68,8 @@ test("forwards geometry, toolbar, feedback, and reset actions", () => {
   fireEvent.click(screen.getByLabelText("数字行与 Tab 键"));
   fireEvent.click(screen.getByLabelText("横屏分离式键盘"));
   fireEvent.click(screen.getByLabelText("滑行输入"));
+  fireEvent.click(screen.getByLabelText("滑动输入符号"));
+  fireEvent.change(screen.getByLabelText("滑动方向"), { target: { value: "up" } });
   fireEvent.click(screen.getByRole("button", { name: "恢复屏幕键盘默认设置" }));
 
   expect(baseProps.onHeightAdjustmentChange).toHaveBeenCalledWith(12);
@@ -74,6 +80,8 @@ test("forwards geometry, toolbar, feedback, and reset actions", () => {
   expect(baseProps.onTabletFullKeysChange).toHaveBeenCalledWith(false);
   expect(baseProps.onTabletSplitKeyboardChange).toHaveBeenCalledWith(true);
   expect(baseProps.onGlideTypingChange).toHaveBeenCalledWith(true);
+  expect(baseProps.onSwipeSymbolsChange).toHaveBeenCalledWith(false);
+  expect(baseProps.onSwipeSymbolsDirectionChange).toHaveBeenCalledWith("up");
   expect(baseProps.onReset).toHaveBeenCalledOnce();
 });
 
@@ -85,6 +93,7 @@ test("hides host-specific options when unavailable", () => {
       tabletFullKeys={undefined}
       tabletSplitKeyboard={undefined}
       glideTyping={undefined}
+      swipeSymbols={undefined}
     />,
   );
 
@@ -93,7 +102,26 @@ test("hides host-specific options when unavailable", () => {
   expect(screen.queryByLabelText("横屏分离式键盘")).toBeNull();
   expect(screen.queryByText("布局")).toBeNull();
   expect(screen.queryByLabelText("滑行输入")).toBeNull();
+  expect(screen.queryByLabelText("滑动输入符号")).toBeNull();
+  expect(screen.queryByLabelText("滑动方向")).toBeNull();
   expect(screen.queryByText("手势")).toBeNull();
+});
+
+test("greys out the swipe direction while swiping for symbols is off", () => {
+  const { rerender } = render(<TouchKeyboardGeometrySection {...baseProps} />);
+  expect((screen.getByLabelText("滑动方向") as HTMLSelectElement).disabled).toBe(false);
+
+  rerender(<TouchKeyboardGeometrySection {...baseProps} swipeSymbols={false} />);
+  expect((screen.getByLabelText("滑动输入符号") as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByLabelText("滑动方向") as HTMLSelectElement).disabled).toBe(true);
+});
+
+test("draws the gestures group for the swipe alone", () => {
+  render(<TouchKeyboardGeometrySection {...baseProps} glideTyping={undefined} />);
+
+  expect(screen.getByText("手势")).toBeTruthy();
+  expect(screen.queryByLabelText("滑行输入")).toBeNull();
+  expect(screen.getByLabelText("滑动输入符号")).toBeTruthy();
 });
 
 // 两个 iPad 开关各自按宿主是否给出决定显示与否。
@@ -135,6 +163,8 @@ test("disables the tablet switch while saving", () => {
   expect((screen.getByLabelText("数字行与 Tab 键") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("横屏分离式键盘") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("滑行输入") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByLabelText("滑动输入符号") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByLabelText("滑动方向") as HTMLSelectElement).disabled).toBe(true);
 });
 
 test("offers the number keypad order only where the host has a nine-key digit layer", () => {
@@ -155,4 +185,29 @@ test("offers the number keypad order only where the host has a nine-key digit la
   expect(screen.getByRole("radio", { name: "电话" })).toHaveProperty("checked", true);
   fireEvent.click(screen.getByRole("radio", { name: "计算器" }));
   expect(onNumberKeypadOrderChange).toHaveBeenCalledWith("calculator");
+});
+
+test("puts the number keypad order after 中文键盘 when the size group is already 布局", () => {
+  render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
+      numberKeypadOrder="calculator"
+      onNumberKeypadOrderChange={vi.fn()}
+      layoutRows={<div>中文键盘</div>}
+    />,
+  );
+  // HarmonyOS 手机的尺寸组就叫「布局」，不再另起一个同名分组。
+  expect(screen.getAllByText("布局")).toHaveLength(1);
+  const layoutRow = screen.getByText("中文键盘");
+  const orderRow = screen.getByText("数字键盘顺序");
+  expect(
+    layoutRow.compareDocumentPosition(orderRow) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    orderRow.compareDocumentPosition(screen.getByText("键盘高度")) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(screen.getByRole("radio", { name: "计算器" })).toHaveProperty("checked", true);
 });

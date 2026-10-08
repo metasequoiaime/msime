@@ -36,7 +36,7 @@ import org.json.JSONObject;
  *
  * <p>The design's Android flow: a progress bar rather than a counter, an accent glyph, a kicker, a large regular-weight title and a body line, then the step's own content. The left button reads 跳过 on the first step and 上一步 after it; a horizontal swipe moves between steps too.
  *
- * <p>这几页上的每个控件都改真实的设置。方案卡片经 {@link SchemePreferences#withScheme} 写入，与设置页的方案选择是同一套映射；「显示译文」开关就是键盘读的离线英文释义偏好。首次安装时偏好要等词库准备完成才读得到，点下的选择先由 {@link OnboardingChoices} 记下并立即显示，偏好可读后自动写入，用户不必等准备完成，离开引导也不会丢。The last step's 登录 opens {@link LoginSheet} (Apple / Google / 邮箱，按后端接受的方式), shown only when sign-in is offered; after a successful sign-in, after the sheet was closed without signing in, or when sign-in is not offered at all, it reads 开始使用. 设计没有「稍后再说」（与「跳过」重复，P12），所以这里也没有。
+ * <p>这几页上的每个控件都改真实的设置。方案卡片经 {@link SchemePreferences#withScheme} 写入，与设置页的方案选择是同一套映射；「显示译文」开关就是键盘读的离线英文释义偏好。首次安装时偏好要等词库准备完成才读得到，点下的选择先由 {@link OnboardingChoices} 记下并立即显示，偏好可读后自动写入，用户不必等准备完成，离开引导也不会丢。The last step's 登录 opens {@link LoginSheet} (Apple / Google / 邮箱，按后端接受的方式), shown only when sign-in is offered; 稍后再说 sits beside it and leaves the flow without signing in, as on iOS and in the design's Android footer (`ob.andLeft`): 跳过 shows only on the first step, so without it the last step had no way out but opening the sheet and closing it again. After a successful sign-in, after the sheet was closed without signing in, or when sign-in is not offered at all, the main button reads 开始使用 and 稍后再说 goes away.
  */
 public final class OnboardingActivity extends AppCompatActivity {
     /** 引导自己的 SharedPreferences：「已看过」和 {@link OnboardingChoices} 记下的待保存选择都在这里。 */
@@ -79,7 +79,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     /** Whether the last step can offer sign-in; null until the off-thread check answers, which reads as not offered. */
     @Nullable private SignIn.State account;
     private boolean signingIn;
-    /** 在最后一步打开过登录面板又没登录就关掉了：主按钮改为「开始使用」，不再反复弹出面板（设计去掉了「稍后再说」，P12）。 */
+    /** 在最后一步打开过登录面板又没登录就关掉了：主按钮改为「开始使用」，不再反复弹出面板，「稍后再说」随之收起。 */
     private boolean declined;
     private OnBackPressedCallback back;
     private GestureDetector swipe;
@@ -102,6 +102,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         if (state != null) page = KeyboardGeometry.bounded(state.getInt(STATE_PAGE, 0), 0, pages - 1);
         ViewPolicy.bindClick(findViewById(R.id.onboarding_skip), this::finishFlow);
         ViewPolicy.bindClick(findViewById(R.id.onboarding_previous), () -> go(page - 1));
+        ViewPolicy.bindClick(findViewById(R.id.onboarding_later), this::finishFlow);
         ViewPolicy.bindClick(findViewById(R.id.onboarding_next), () -> {
             if (page < pages - 1) go(page + 1);
             else if (account == SignIn.State.OFFERED && !declined) signIn();
@@ -178,6 +179,9 @@ public final class OnboardingActivity extends AppCompatActivity {
         next.setText(page < pages - 1 ? R.string.onboarding_next
             : offer ? R.string.onboarding_sign_in : R.string.onboarding_done);
         ViewPolicy.setEnabled(next, !signingIn);
+        View later = findViewById(R.id.onboarding_later);
+        ViewPolicy.setVisible(later, offer);
+        ViewPolicy.setEnabled(later, !signingIn);
         back.setEnabled(page > 0);
 
         LinearLayout column = findViewById(R.id.onboarding_page);

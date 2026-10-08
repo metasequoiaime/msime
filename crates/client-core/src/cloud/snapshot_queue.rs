@@ -348,6 +348,14 @@ impl DictionarySnapshotQueue {
         }
         crate::storage::reject_symlink(source).map_err(|_| SnapshotQueueError::Invalid)?;
         let root = self.root()?;
+        #[cfg(unix)]
+        let mut incoming = {
+            let directory = crate::storage::open_private_directory(&root)
+                .map_err(|_| SnapshotQueueError::Unavailable)?;
+            crate::storage::PrivateStagedFile::new(&directory)
+                .map_err(|_| SnapshotQueueError::Unavailable)?
+        };
+        #[cfg(not(unix))]
         let mut incoming =
             tempfile::NamedTempFile::new_in(&root).map_err(|_| SnapshotQueueError::Unavailable)?;
         let mut input = crate::storage::open_private_file_in(source)
@@ -369,6 +377,12 @@ impl DictionarySnapshotQueue {
                 return Err(SnapshotQueueError::Invalid);
             }
             hash.update(&buffer[..count]);
+            #[cfg(unix)]
+            incoming
+                .file_mut()
+                .write_all(&buffer[..count])
+                .map_err(|_| SnapshotQueueError::Unavailable)?;
+            #[cfg(not(unix))]
             incoming
                 .write_all(&buffer[..count])
                 .map_err(|_| SnapshotQueueError::Unavailable)?;
@@ -376,6 +390,12 @@ impl DictionarySnapshotQueue {
         if total == 0 || hex::encode(hash.finalize()) != file_sha256 {
             return Err(SnapshotQueueError::Invalid);
         }
+        #[cfg(unix)]
+        incoming
+            .file_mut()
+            .sync_all()
+            .map_err(|_| SnapshotQueueError::Unavailable)?;
+        #[cfg(not(unix))]
         incoming
             .as_file()
             .sync_all()
@@ -396,6 +416,27 @@ impl DictionarySnapshotQueue {
             if state.local_version.as_deref() != Some(expected_local_version) {
                 return Err(SnapshotQueueError::Conflict);
             }
+            #[cfg(unix)]
+            {
+                let directory = crate::storage::open_private_directory(locked_root)
+                    .map_err(|_| SnapshotQueueError::Unavailable)?;
+                use std::os::unix::fs::MetadataExt;
+                let staged = incoming
+                    .directory()
+                    .metadata()
+                    .map_err(|_| SnapshotQueueError::Unavailable)?;
+                let locked = directory
+                    .metadata()
+                    .map_err(|_| SnapshotQueueError::Unavailable)?;
+                if staged.dev() != locked.dev() || staged.ino() != locked.ino() {
+                    return Err(SnapshotQueueError::Conflict);
+                }
+                let name = destination.file_name().ok_or(SnapshotQueueError::Invalid)?;
+                incoming
+                    .persist(name)
+                    .map_err(|_| SnapshotQueueError::Unavailable)?;
+            }
+            #[cfg(not(unix))]
             incoming
                 .persist(&destination)
                 .map_err(|_| SnapshotQueueError::Unavailable)?;

@@ -114,6 +114,21 @@ impl CantoneseScheme {
                 .sum::<usize>()
                 .saturating_add(reading.syllables.len().saturating_sub(1)),
         );
+        self.editing_text_into(&reading, &mut text);
+        text
+    }
+
+    fn editing_text_into(&self, reading: &Segmentation, text: &mut String) {
+        let capacity = reading
+            .syllables
+            .iter()
+            .map(|syllable| syllable.end - syllable.start)
+            .sum::<usize>()
+            .saturating_add(reading.syllables.len().saturating_sub(1));
+        text.clear();
+        if text.capacity() < capacity {
+            text.reserve(capacity - text.capacity());
+        }
         for (index, syllable) in reading.syllables.iter().enumerate() {
             if index > 0 {
                 text.push(' ');
@@ -129,23 +144,33 @@ impl CantoneseScheme {
         } else if self.input.ends_with('\'') {
             text.push('\'');
         }
-        text
     }
 
     /// The request the session refreshes with. `raw_input` is the typed letters and boundaries, which the provider reads again through the same inventory; `segmentation` is the dictionary key of the reading and `normalized_segmentation` the text the composition shows.
     pub fn build_request(&self) -> QueryRequest {
+        let mut request = QueryRequest::default();
+        self.build_request_into(&mut request);
+        request
+    }
+
+    pub fn build_request_into(&self, request: &mut QueryRequest) {
         let reading = self.segmentation();
-        QueryRequest {
-            scheme: SchemeType::Cantonese,
-            raw_input: self.input.clone(),
-            raw_input_with_cases: self.input.clone(),
-            normalized_input: self.input.replace('\'', ""),
-            raw_segmentation: self.input.clone(),
-            normalized_segmentation: self.editing_text(),
-            segmentation: reading.key(&self.input, reading.syllables.len()),
-            valid: !self.input.is_empty(),
-            ..QueryRequest::default()
-        }
+        request.scheme = SchemeType::Cantonese;
+        request.raw_input.clone_from(&self.input);
+        request.raw_input_with_cases.clone_from(&self.input);
+        request.normalized_input.clear();
+        request.normalized_input.reserve(self.input.len());
+        request
+            .normalized_input
+            .extend(self.input.chars().filter(|&character| character != '\''));
+        request.raw_segmentation.clone_from(&self.input);
+        self.editing_text_into(&reading, &mut request.normalized_segmentation);
+        reading.key_into(
+            &self.input,
+            reading.syllables.len(),
+            &mut request.segmentation,
+        );
+        request.valid = !self.input.is_empty();
     }
 
     /// The letters and boundaries as typed, which is what Enter commits; the spaced form the composition shows is `editing_text`.
@@ -710,6 +735,35 @@ mod tests {
         scheme.set_raw_input(&source);
         assert_eq!(scheme.input.len(), source.len());
         assert_eq!(scheme.input.capacity(), source.len());
+    }
+
+    #[test]
+    fn build_request_reuses_request_strings() {
+        let mut scheme = typed("nei'hou");
+        let mut request = scheme.build_request();
+        let pointers = [
+            request.raw_input.as_ptr(),
+            request.raw_input_with_cases.as_ptr(),
+            request.normalized_input.as_ptr(),
+            request.raw_segmentation.as_ptr(),
+            request.normalized_segmentation.as_ptr(),
+            request.segmentation.as_ptr(),
+        ];
+
+        scheme.handle_key(SchemeKey::Requery);
+        scheme.build_request_into(&mut request);
+
+        assert_eq!(
+            [
+                request.raw_input.as_ptr(),
+                request.raw_input_with_cases.as_ptr(),
+                request.normalized_input.as_ptr(),
+                request.raw_segmentation.as_ptr(),
+                request.normalized_segmentation.as_ptr(),
+                request.segmentation.as_ptr(),
+            ],
+            pointers
+        );
     }
 
     #[test]

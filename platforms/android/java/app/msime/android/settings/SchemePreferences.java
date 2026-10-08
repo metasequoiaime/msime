@@ -17,6 +17,14 @@ import org.json.JSONObject;
 public final class SchemePreferences {
     private SchemePreferences() {}
 
+    /** Resolve the keyboard scheme from one preference snapshot using the shared fallback contract. */
+    public static KeyboardScheme storedScheme(JSONObject preferences, AppEdition edition) {
+        String scheme = InputViewValuePolicy.textOr(preferences, "scheme", edition.defaultScheme());
+        String profile = InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe");
+        String touchLayout = InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key");
+        return KeyboardScheme.fromPreferences(scheme, profile, touchLayout, edition);
+    }
+
     /**
      * 切到 `scheme` 时要写的偏好键和值，按写入顺序：`scheme`、`last_chinese_scheme`、`shuangpin_profile`、`touch_keyboard_layout`，`wubiProfile` 不为 null 时再加上规范化后的 `wubi_profile`。
      *
@@ -60,7 +68,7 @@ public final class SchemePreferences {
         if (preferences == null) return null;
         AppEdition edition = AppEdition.current();
         Map<String, String> changes = schemeValues(scheme,
-            preferences.optString("last_chinese_scheme", edition.defaultScheme()),
+            InputViewValuePolicy.textOr(preferences, "last_chinese_scheme", edition.defaultScheme()),
             InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"), wubiProfile, edition);
         try {
             JSONObject pending = new JSONObject(snapshot.toString());

@@ -187,7 +187,7 @@ private struct LocalSpeechModelRow: View {
         Spacer()
         if manager.isSelected(model) {
           Label("使用中", systemImage: "checkmark.circle.fill").labelStyle(.titleAndIcon)
-            .font(.caption.weight(.semibold)).foregroundStyle(Color(uiColor: MetasequoiaTheme.forestUIColor))
+            .font(.caption.weight(.semibold)).foregroundStyle(MetasequoiaTheme.accent)
             .accessibilityIdentifier("localModelInUse_\(model.id)")
         }
       }

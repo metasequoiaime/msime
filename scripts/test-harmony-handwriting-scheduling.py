@@ -7,11 +7,14 @@ from pathlib import Path
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     view = (root / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets").read_text()
+    feedback = (root / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardFeedback.ts").read_text()
     start = view.index("  private handwritingTouch(")
     touch = view[start : view.index("  private cancelHandwritingTimer()", start)]
     required = {
         "touches remain writable during OCR": "this.handwritingBusy" not in touch,
-        "source debounce is retained": "HANDWRITING_RECOGNITION_DELAY_MS: number = 550" in view
+        # 防抖时长现在取用户设置的「识别等待时间」，由 `KeyboardFeedback` 限制在 200-1500 ms（默认 600），不再是源码里固定的 550。
+        "source debounce is retained": "KeyboardFeedback.handwritingDelay(" in view
+        and "HANDWRITING_DELAY_MIN_MS: number = 200" in feedback
         and "this.scheduleHandwritingRecognition()" in touch,
         "lift point respects the cap":
             "this.handwritingCurrent.length < HANDWRITING_MAX_POINTS" in touch,

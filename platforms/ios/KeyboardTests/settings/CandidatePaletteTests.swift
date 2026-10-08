@@ -37,7 +37,7 @@ final class CandidatePaletteTests: XCTestCase {
     XCTAssertTrue(CandidatePalette.isDark(candidateTheme: nil, appMode: nil, systemDark: true))
   }
 
-  /// A built-in theme draws the design's candidate override (`candBg = panel`, `candSelBg = accent + '24'`); `system` and a theme id the catalog does not list draw the keyboard's native tokens.
+  /// 内置主题画设计稿的候选覆盖色（`candBg = panel`、`candSelBg = accent + '24'`）；`system` 和目录里没有的主题 id 画键盘的跟随系统调色板。
   func testBuiltInThemesAndTheSystemStrip() throws {
     let paper = try builtIn("paper")
     XCTAssertEqual(hex(paper.surface), "#F7F5F0")
@@ -48,9 +48,10 @@ final class CandidatePaletteTests: XCTestCase {
     XCTAssertEqual(hex(try builtIn("night").surface), "#16262F")
 
     let native = CandidatePalette.resolve(["global_theme": "system"], systemDark: false)
-    XCTAssertEqual(native.surface, NativeKeyboardTokens.background)
-    XCTAssertEqual(native.accent, NativeKeyboardTokens.accent)
-    XCTAssertEqual(native.selected, NativeKeyboardTokens.accentSoft)
+    // `system` 画跟随系统的键盘调色板：应用主题能解析时用季节配色，否则用原生令牌。
+    XCTAssertEqual(native.surface, KeyboardTheme.system.background)
+    XCTAssertEqual(native.accent, KeyboardTheme.system.accent)
+    XCTAssertEqual(native.selected, KeyboardTheme.system.accentSoft)
     XCTAssertEqual(CandidatePalette.resolve(["global_theme": "ocean"], systemDark: false), native)
   }
 

@@ -35,7 +35,7 @@ export const PARTS = Object.freeze({
   number: "number",
   /** 候选文字。 */
   text: "text",
-  /** 候选后的编码提示（helpcode 选项打开时）。 */
+  /** 候选后的辅助码提示（帧里有时），或编码提示（helpcode 选项打开时）。 */
   code: "code",
   /** 皮肤的装饰图。 */
   decoration: "decoration",
@@ -394,7 +394,7 @@ function setImage(img, url) {
 }
 
 /**
- * 创建一个候选栏。skin 是内置皮肤 id、皮肤对象或 undefined（默认皮肤），见 skin.js 的 resolveSkin；layout 为 "horizontal" 或 "vertical"；dark 为 "auto"（跟随 prefers-color-scheme）、true 或 false；点击第 i 个候选时调用 onPick(i)；helpcode 为 true 时在候选后显示编码。皮肤 id 未知时抛 TypeError。
+ * 创建一个候选栏。skin 是内置皮肤 id、皮肤对象或 undefined（默认皮肤），见 skin.js 的 resolveSkin；layout 为 "horizontal" 或 "vertical"；dark 为 "auto"（跟随 prefers-color-scheme）、true 或 false；点击第 i 个候选时调用 onPick(i)；helpcode 为 true 时在候选后显示编码；帧里有辅助码提示（page[i].hint）时总是显示提示。皮肤 id 未知时抛 TypeError。
  */
 export function createCandidateBar({ skin, layout = "horizontal", dark = "auto", onPick, container = document.body, helpcode = false } = {}) {
   const doc = container.ownerDocument ?? document;
@@ -523,9 +523,11 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
       const content = element(doc, "span", "cand-content", PARTS.text);
       content.textContent = String(item?.text ?? "");
       text.append(num, content);
-      if (helpcode && item?.code) {
+      // 引擎给的辅助码提示（打开辅助码时才有，自带括号）优先；没有时 helpcode 选项打开才显示编码。
+      const note = item?.hint ? String(item.hint) : helpcode && item?.code ? `(${item.code})` : "";
+      if (note) {
         const code = element(doc, "span", "cand-helpcode", PARTS.code);
-        code.textContent = `(${item.code})`;
+        code.textContent = note;
         content.append(code);
       }
       cand.append(text);
