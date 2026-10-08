@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY = ROOT.parents[1]
@@ -134,6 +135,24 @@ class AiServiceContract(unittest.TestCase):
         with self.assertRaises(ValueError):
             online.ai_models(query, self.server)
         self.assertEqual(self.requests, [])
+
+    def test_a_local_http_service_is_reached_without_the_environment_proxy(self):
+        def proxies(url):
+            # 空的 ProxyHandler 没有任何 *_open 方法，不会进 opener，但它挡住了 build_opener 默认按环境变量加的那一个；所以这里合并 opener 里所有代理表来看。
+            merged = {}
+            for handler in online.request_opener(url).handlers:
+                if isinstance(handler, online.urllib.request.ProxyHandler):
+                    merged.update(handler.proxies)
+            return merged
+
+        environment = {"http_proxy": "http://proxy.example.invalid:3128",
+                       "https_proxy": "http://proxy.example.invalid:3128"}
+        with unittest.mock.patch.dict(online.os.environ, environment):
+            # 带 Token 的局域网 http 请求直连，不能明文经过代理。
+            self.assertEqual(proxies("http://192.168.1.20:1234/v1/models"), {})
+            # https 照旧使用环境变量里的代理。
+            self.assertEqual(proxies("https://service.example.invalid/v1/models")["https"],
+                             "http://proxy.example.invalid:3128")
 
     def test_polish_sends_the_page_text_under_the_private_credential(self):
         self.respond({"choices": [{"message": {"content": "  polished  "}}]})

@@ -90,6 +90,16 @@ class ConnectBoundedHTTPSHandler(urllib.request.HTTPSHandler):
                             req, context=self._context)
 
 
+def request_opener(url, connect_timeout=None):
+    handlers = [NoRedirect()]
+    if connect_timeout is not None:
+        handlers.append(ConnectBoundedHTTPSHandler(connect_timeout))
+    # 本脚本只把明文 http 发给本机或局域网（AI 接口见 ai_endpoint_check，自定义翻译只认回环），这类请求直连、不走环境变量里的代理，否则带 Token 的请求会明文经过代理。https 照旧按环境变量用代理。
+    if urllib.parse.urlsplit(url).scheme == "http":
+        handlers.append(urllib.request.ProxyHandler({}))
+    return urllib.request.build_opener(*handlers)
+
+
 def fetch_direct(url, timeout, body=None, token=None, extra_headers=None, connect_timeout=None):
     headers = {"Content-Type": "application/json", "User-Agent": "MSIME-Client"}
     if token:
@@ -97,10 +107,7 @@ def fetch_direct(url, timeout, body=None, token=None, extra_headers=None, connec
     headers.update(extra_headers or {})
     payload = body if isinstance(body, bytes) else None if body is None else json.dumps(body).encode()
     request = urllib.request.Request(url, data=payload, headers=headers)
-    handlers = [NoRedirect()]
-    if connect_timeout is not None:
-        handlers.append(ConnectBoundedHTTPSHandler(connect_timeout))
-    with urllib.request.build_opener(*handlers).open(request, timeout=timeout) as response:
+    with request_opener(url, connect_timeout).open(request, timeout=timeout) as response:
         payload = response.read(65537)
     if len(payload) > 65536:
         raise ValueError("response too large")
