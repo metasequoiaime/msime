@@ -973,8 +973,8 @@ fn microsoft_semicolon_is_the_ing_final() {
 
 // ---- 辅助码 ----
 
-/// 合成的辅助码表，格式同 `resources/helpcodes/`：你=aa、呢=bb、尼=cc，权重最低的尼因此能被辅助码 c 提到前面。
-const HELPCODE_TABLE: &[u8] = "\u{feff}# 合成数据\n你=aa\n呢=bb\n尼=cc\n".as_bytes();
+/// 合成的辅助码表，格式同 `resources/helpcodes/`：你=aa、呢=bb、尼=cd，权重最低的尼因此能被辅助码 c 提到前面，cd 筛出它。
+const HELPCODE_TABLE: &[u8] = "\u{feff}# 合成数据\n你=aa\n呢=bb\n尼=cd\n".as_bytes();
 
 fn with_helpcode(scheme: Scheme) -> Fixture {
     let mut fixture = open(scheme, false);
@@ -1002,15 +1002,15 @@ fn quanpin_capitals_are_helpcodes_when_enabled() {
     let frame = type_text(&mut fixture.host, "ni");
     assert_eq!(texts(&frame.page), vec!["你", "呢", "尼"]);
     // 全拼的提示全大写。
-    assert_eq!(frame.page[2].hint, "(CC)");
+    assert_eq!(frame.page[2].hint, "(CD)");
     // 单个大写字母按首码调整顺序。
     let frame = type_text(&mut fixture.host, "C");
     assert!(frame.composing);
     assert!(frame.out.is_empty());
     assert_eq!(frame.page[0].text, "尼");
     fixture.host.keys(&[Key::Escape]);
-    // 两个大写字母按完整的两码筛选。
-    let frame = type_text(&mut fixture.host, "niCC");
+    // 末尾两个大写字母按完整的两码筛选。
+    let frame = type_text(&mut fixture.host, "niCD");
     assert_eq!(texts(&frame.page), vec!["尼"]);
     assert_eq!(type_text(&mut fixture.host, " ").out, vec![commit("尼", 0)]);
 
@@ -1032,14 +1032,14 @@ fn shuangpin_third_key_is_a_helpcode_when_enabled() {
         let mut fixture = with_helpcode(scheme);
         let frame = type_text(&mut fixture.host, "ni");
         // 双拼的提示只把第二码大写。
-        assert_eq!(frame.page[2].hint, "(cC)", "{scheme:?}");
+        assert_eq!(frame.page[2].hint, "(cD)", "{scheme:?}");
         // 完整音节后的第三键是单码辅助码，调整顺序。
         let frame = type_text(&mut fixture.host, "c");
         assert_eq!(frame.page[0].text, "尼", "{scheme:?}");
         assert_eq!(frame.preedit, "nic", "{scheme:?}");
         fixture.host.keys(&[Key::Escape]);
-        // 第三、四键含大写时是双码辅助码，筛选。
-        let frame = type_text(&mut fixture.host, "niCC");
+        // 第四键按着 Shift 时，第三、四键是双码辅助码，筛选。
+        let frame = type_text(&mut fixture.host, "nicD");
         assert_eq!(texts(&frame.page), vec!["尼"], "{scheme:?}");
     }
 }
