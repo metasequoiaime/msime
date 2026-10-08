@@ -660,7 +660,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyPairedPunctuation(preferences == null || preferences.optBoolean("paired_punctuation", true));
         wordCharacterBinding = wordCharacterBindingFrom(preferences);
         candidatePreeditStyle = CandidatePreeditStylePolicy.style(preferences == null ? null
-            : preferences.optString("candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
+            : InputViewValuePolicy.textOr(preferences, "candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
         candidateNavigation = candidateNavigationFrom(
             preferences == null ? null : preferences.optJSONObject("navigation"));
         JSONObject keybindings = preferences == null ? null : preferences.optJSONObject("keybindings");
@@ -2078,7 +2078,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextPairedPunctuation = preferences.optBoolean("paired_punctuation", true);
         String nextWordCharacterBinding = wordCharacterBindingFrom(preferences);
         String nextCandidatePreeditStyle = CandidatePreeditStylePolicy.style(
-            preferences.optString("candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
+            InputViewValuePolicy.textOr(preferences, "candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
         CandidateNavigationPolicy.Bindings nextCandidateNavigation =
             candidateNavigationFrom(preferences.optJSONObject("navigation"));
         boolean nextLanguageCtrl = nextKeybindings != null
