@@ -28,7 +28,7 @@ pub const MIXED_ENGLISH_LIMIT: usize = 5;
 pub const MODE_ENGLISH_LIMIT: usize = 1_000;
 const MIXED_DEDUP_CAPACITY: usize = MIXED_ENGLISH_LIMIT + MIXED_RESULT_LIMIT * 2;
 
-fn lowercase_prefix(raw: &str) -> Cow<'_, str> {
+pub(crate) fn lowercase_prefix(raw: &str) -> Cow<'_, str> {
     if raw.bytes().all(|byte| byte.is_ascii_lowercase()) {
         Cow::Borrowed(raw)
     } else {
