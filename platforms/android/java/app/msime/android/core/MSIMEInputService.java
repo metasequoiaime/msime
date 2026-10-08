@@ -1801,7 +1801,8 @@ public final class MSIMEInputService extends InputMethodService {
                 JSONObject tokens = ai.optJSONObject("tokens");
                 String token = tokens == null ? "" : tokens.optString(origin, "");
                 String prompt = ai.optString(
-                    AiPolishConfiguration.promptSlotKey(ai.optString("prompt_id", "")), "");
+                    AiPolishConfiguration.promptSlotKey(
+                        InputViewValuePolicy.textOr(ai, "prompt_id", "")), "");
                 if (TextPolicy.trimmed(prompt).isEmpty()) prompt = AiPolishConfiguration.DEFAULT_PROMPT;
                 next = new AiPolishConfiguration(endpoint,
                     InputViewValuePolicy.textOr(ai, "model", ""), prompt, token);

@@ -53,7 +53,8 @@ public final class AiSettingsPage extends DetailPage {
         String origin = originOf(endpoint);
         JSONObject tokens = ai.optJSONObject("tokens");
         boolean hasToken = tokens != null && !origin.isEmpty() && !tokens.optString(origin, "").isEmpty();
-        String promptKey = AiPolishConfiguration.promptSlotKey(ai.optString("prompt_id", ""));
+        String promptKey = AiPolishConfiguration.promptSlotKey(
+            InputViewValuePolicy.textOr(ai, "prompt_id", ""));
         String prompt = ai.optString(promptKey, "");
 
         GroupCard service = GroupCard.add(target, "服务");
