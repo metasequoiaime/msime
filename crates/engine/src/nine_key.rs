@@ -51,6 +51,8 @@ const ENGLISH_CANDIDATE_CAPACITY: usize = ENGLISH_PREFIX_BUDGET * ENGLISH_LIMIT;
 const INITIALS_CODE_LIMIT: usize = 1024;
 /// 简拼一次最多取的行数，按权重从高到低。
 const INITIALS_ROW_LIMIT: usize = 64;
+/// 没打切分时，同样覆盖的词典行里最前面留给音节行（最常用的单字）的位置数；其后的音节行和简拼行按权重归并，见 `interleave_initials`。
+const SYLLABLE_ROWS_BEFORE_INITIALS: usize = 3;
 /// 选中整句时最多存多少个音节，与全拼键盘的 `session::learning::MAX_LEARNED_SENTENCE_SYLLABLES` 相同（`session/tests.rs` 核对两者一致）：更长的整句只用于这一次上屏。
 pub(crate) const MAX_LEARNED_SENTENCE_SYLLABLES: usize = 7;
 
@@ -360,11 +362,6 @@ impl NineKeySession {
     }
 
     pub fn select(&mut self, index: usize) -> KeyResult {
-        self.select_learning(index, true)
-    }
-
-    /// `learn_words` 为假时（`finish` 一次替用户选完所有段）只调词频，不把这次的选择存成用户词：那些段是首选连起来的，不是用户挑的。
-    fn select_learning(&mut self, index: usize, learn_words: bool) -> KeyResult {
         let Some(selected) = self.candidates.get(index).cloned() else {
             return KeyResult::unhandled();
         };
@@ -379,7 +376,7 @@ impl NineKeySession {
             None
         };
         self.consume(selected.pinyin.len());
-        if learn_words && self.learning {
+        if self.learning {
             let learned = self.learn_selection(&selected);
             diagnostic = diagnostic.or(learned);
         } else {
@@ -442,7 +439,7 @@ impl NineKeySession {
         self.phrase_storable = true;
     }
 
-    /// Out of range commits the digits.
+    /// Out of range commits the digits. 与全拼键盘的 `finish_composition` 相同，余下各段逐个按 `select` 选首选，造词也一样：用户先选掉的段和替他选的余下各段连成一个词存起来（选了「我滴」再打标点，存的是「我滴个天呐」），首选是整句行时存整句。
     pub fn finish(&mut self, first_index: usize) -> KeyResult {
         if !self.active() {
             return KeyResult::unhandled();
@@ -458,7 +455,7 @@ impl NineKeySession {
                 commit.push_str(&self.digits);
                 break;
             }
-            let result = self.select_learning(index, false);
+            let result = self.select(index);
             if diagnostic.is_none() {
                 diagnostic = result.diagnostic;
             }
@@ -1194,7 +1191,7 @@ type RankKey = (Reverse<usize>, bool, bool, bool, bool, Reverse<i64>);
 
 /// More digits covered first. Synthesised rows (whole-sentence Generated, Fallback) score on a different scale from dictionary weights, so within one coverage bucket dictionary rows lead; then exact before fuzzy, then weight.
 /// With `prefer_exact` (the user typed a split), a row the typed digits spell to its end then leads one that has to be completed past them: over `94'26` 西安 (xi'an) comes before 自从 (zi'cong), however common the longer word. Without a split the digits do not say where a syllable ends, so `3` keeps 的 (de) ahead of the rarer 额 (e) by weight.
-/// 简拼行（`is_initials_row`）在同样覆盖的词典行里的位置由 `initials_lead` 决定：用户在每个数字之间都打了切分时排在前面，否则排在音节行之后、整句行之前。
+/// 简拼行（`is_initials_row`）在同样覆盖的词典行里的位置由 `initials_lead` 决定：用户在每个数字之间都打了切分时排在前面，否则先排在音节行之后、整句行之前，去重后再由 `interleave_initials` 按权重插进音节行里。
 fn rank_key(item: &WordItem, prefer_exact: bool, initials_lead: bool) -> RankKey {
     let completion = prefer_exact
         && item
@@ -1343,7 +1340,61 @@ fn push_ranked(
 fn rank_candidates(candidates: &mut Vec<WordItem>, prefer_exact: bool, initials_lead: bool) {
     candidates.sort_by_key(|item| rank_key(item, prefer_exact, initials_lead));
     retain_unique_words(candidates);
+    if !initials_lead {
+        interleave_initials(candidates);
+    }
     candidates.truncate(CANDIDATE_LIMIT);
+}
+
+/// 没打切分时，`rank_key` 把简拼行排在同样覆盖的全部音节行之后。两位数字的音节行常有几百行（`68` 的 mu、nu、nv、ou 在出货词库里有两百多个单字），截到 `CANDIDATE_LIMIT` 时简拼行会整个被截掉，明天、今天就再也出不来（#5640）。所以在截断前，每段同样覆盖的词典行里先留下最前面 `SYLLABLE_ROWS_BEFORE_INITIALS` 个音节行，其后的音节行和简拼行按权重归并：常用词排在生僻单字前面，常用单字仍排在少见的词前面。两边各自的先后不变，权重相同时音节行在前。只重排去重之后的列表，保留哪一行不受影响，`push_ranked` 的跳过规则照样成立。
+fn interleave_initials(candidates: &mut Vec<WordItem>) {
+    let mut start = 0;
+    while start < candidates.len() {
+        let coverage = candidates[start].pinyin.len();
+        let generated = candidates[start].source.is_generated_or_fallback();
+        let end = start
+            + candidates[start..]
+                .iter()
+                .take_while(|item| {
+                    item.pinyin.len() == coverage
+                        && item.source.is_generated_or_fallback() == generated
+                })
+                .count();
+        if !generated {
+            // 这一段里音节行在前、简拼行在后（`rank_key` 的顺序）。
+            let middle = start
+                + candidates[start..end]
+                    .iter()
+                    .take_while(|item| !is_initials_row(item))
+                    .count();
+            let kept = start + SYLLABLE_ROWS_BEFORE_INITIALS;
+            if kept < middle && middle < end {
+                let mut syllables: Vec<WordItem> = candidates.drain(kept..end).collect();
+                let initials = syllables.split_off(middle - kept);
+                let mut syllables = syllables.into_iter().peekable();
+                let mut initials = initials.into_iter().peekable();
+                let mut merged = Vec::with_capacity(end - kept);
+                loop {
+                    let take_initial = match (syllables.peek(), initials.peek()) {
+                        (Some(syllable), Some(initial)) => initial.weight > syllable.weight,
+                        (None, Some(_)) => true,
+                        (_, None) => false,
+                    };
+                    let next = if take_initial {
+                        initials.next()
+                    } else {
+                        syllables.next()
+                    };
+                    match next {
+                        Some(item) => merged.push(item),
+                        None => break,
+                    }
+                }
+                candidates.splice(kept..kept, merged);
+            }
+        }
+        start = end;
+    }
 }
 
 fn retain_unique_words(candidates: &mut Vec<WordItem>) {
@@ -3222,6 +3273,40 @@ mod tests {
         assert!(!words(&session).iter().any(|word| word == "每天"));
     }
 
+    /// #5640：两位数字的音节行比候选上限还多时（出货词库里 `68` 有两百多个单字），不打切分的简拼行也不能被截掉：前三个音节行之后，其余音节行和简拼行按权重归并。
+    #[test]
+    fn initials_rows_survive_more_syllable_rows_than_the_limit() {
+        let mut main = INITIALS_FIXTURE.to_owned();
+        for index in 0..CANDIDATE_LIMIT + 72 {
+            let weight = 2000 - 10 * index as i64;
+            main.push_str(&format!(
+                "INSERT INTO tbl_1_m VALUES('mu','m','木{index}',{weight});"
+            ));
+        }
+        let fixture = fixture_with(&main);
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut session, "68");
+        let listed = words(&session);
+        assert_eq!(listed.len(), CANDIDATE_LIMIT);
+        // 权重最高的三个单字留在最前；木3 的权重 1970 比每天高，仍在每天前面。
+        assert_eq!(listed[..5], ["木0", "木1", "木2", "木3", "木4"]);
+        let position = |word: &str| {
+            listed
+                .iter()
+                .position(|candidate| candidate == word)
+                .unwrap_or_else(|| panic!("{word} was cut from {listed:?}"))
+        };
+        // 每天 900、明天 800 排在权重比它们低的单字之前；权重相同时音节行在前。
+        assert_eq!(position("每天"), position("木110") + 1);
+        assert_eq!(position("明天"), position("木120") + 1);
+        assert_eq!(session.snapshot().nine_key_reading, "mu");
+        session.command(Command::Cancel);
+
+        // 打了切分时简拼行照旧排第一。
+        type_keys(&mut session, "6'8");
+        assert_eq!(words(&session)[..3], ["每天", "明天", "那天"]);
+    }
+
     /// #5640：九宫格里分段选出来的词和选中的整句会存成用户词，下次打简拼就能出来。
     #[test]
     fn learned_phrases_come_back_by_their_initials() {
@@ -3248,7 +3333,7 @@ mod tests {
         assert!(words(&later).iter().any(|word| word == "我滴个天呐"));
     }
 
-    /// 不学习、取消、或由 finish 一次替用户选完时都不造词；选中词库里本来就有的整词也不重复写。
+    /// 不学习或取消时不造词；选中词库里本来就有的整词也不重复写。
     #[test]
     fn only_chosen_pieces_become_words() {
         let fixture = fixture_with(INITIALS_FIXTURE);
@@ -3269,13 +3354,27 @@ mod tests {
         session.command(Command::Cancel);
         type_digits(&mut session, "843");
         session.command(Command::Cancel);
-        type_digits(&mut session, "963443842662");
-        assert!(session.finish(0).commit.is_some());
         type_digits(&mut session, "93486");
         assert!(
             !words(&session).iter().any(|word| word == "我滴个天呐"),
-            "a cancelled or finished composition stored a phrase"
+            "a cancelled composition stored a phrase"
         );
+    }
+
+    /// 与全拼键盘的 `finish_composition` 相同：先选掉一段再打标点（`finish`），用户选的段和替他选的余下部分连成一个词存起来。
+    #[test]
+    fn finishing_stores_the_chosen_pieces_with_the_rest() {
+        let fixture = fixture_with(INITIALS_FIXTURE);
+        let mut session = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut session, "963443842662");
+        session.select(index_of(&session, "我滴"));
+        assert_eq!(words(&session)[0], "个天呐");
+        let rest = session.finish(0);
+        assert_eq!(rest.commit.as_deref(), Some("个天呐"));
+        assert_eq!(rest.diagnostic, None);
+        assert!(!session.active());
+        type_keys(&mut session, "9'3'4'8'6");
+        assert_eq!(words(&session)[0], "我滴个天呐");
     }
 
     /// 会话不允许全拼时九宫格只拼英文：没有音节、没有拼音行，拼音词库也不打开。
