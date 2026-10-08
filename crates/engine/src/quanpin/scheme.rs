@@ -76,12 +76,14 @@ impl QuanpinScheme {
 
     /// Host editing replaces the composition; `raw_with_cases` wins when non-empty.
     pub fn set_raw_input(&mut self, raw: &str, raw_with_cases: &str) {
-        self.raw = if raw_with_cases.is_empty() {
+        let source = if raw_with_cases.is_empty() {
             raw
         } else {
             raw_with_cases
-        }
-        .to_string();
+        };
+        self.raw.clear();
+        self.raw.reserve(source.len());
+        self.raw.push_str(source);
     }
 
     /// Fill a request's segmentation fields from its raw input with the given cut (QS:82-139): active helpcodes stripped, cases re-applied, trailing `'` and helpcode letters re-appended.
@@ -185,6 +187,18 @@ mod tests {
         assert_eq!(scheme.preedit(), "NiHao");
         scheme.set_raw_input("nihao", "");
         assert_eq!(scheme.preedit(), "nihao");
+    }
+
+    #[test]
+    fn host_raw_input_reuses_existing_storage() {
+        let mut scheme = QuanpinScheme::new();
+        scheme.set_raw_input("abcdefghijklmnopqrstuvwxyz", "");
+        let capacity = scheme.raw.capacity();
+
+        scheme.set_raw_input("ni", "");
+
+        assert_eq!(scheme.preedit(), "ni");
+        assert!(scheme.raw.capacity() >= capacity);
     }
 
     #[test]
