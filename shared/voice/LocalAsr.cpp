@@ -61,12 +61,16 @@ std::string read_windows_regular_file(const fs::path &path, size_t max_bytes) {
     ~CloseOnExit() { CloseHandle(handle); }
   } close_on_exit{handle};
   FILE_ATTRIBUTE_TAG_INFO attributes{};
+  FILE_STANDARD_INFO standard{};
   if (GetFileType(handle) != FILE_TYPE_DISK ||
       !GetFileInformationByHandleEx(handle, FileAttributeTagInfo, &attributes,
                                      sizeof(attributes)) ||
+      !GetFileInformationByHandleEx(handle, FileStandardInfo, &standard,
+                                     sizeof(standard)) ||
       (attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 ||
       ((attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 &&
-       IsReparseTagNameSurrogate(attributes.ReparseTag)))
+       IsReparseTagNameSurrogate(attributes.ReparseTag)) ||
+      standard.NumberOfLinks != 1)
     throw VoiceError("Not an installed local speech model");
   LARGE_INTEGER size{};
   if (!GetFileSizeEx(handle, &size) || size.QuadPart < 0 ||
@@ -100,7 +104,8 @@ nlohmann::json read_manifest(const fs::path &directory) {
     ~CloseOnExit() { ::close(descriptor); }
   } close_on_exit{descriptor};
   struct stat metadata {};
-  if (::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode))
+  if (::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode) ||
+      metadata.st_nlink != 1)
     throw VoiceError("Not an installed local speech model");
   std::array<char, 8192> buffer{};
   std::string payload;
@@ -406,7 +411,10 @@ struct ModelDescription {
       throw VoiceError("Local model manifest names no " + key + " file");
     const auto path = directory / fs::u8path(found->second);
     std::error_code error;
-    if (!fs::exists(path, error) || !model_path_inside(directory, path))
+    const auto status = fs::symlink_status(path, error);
+    if (error || !fs::is_regular_file(status) ||
+        fs::hard_link_count(path, error) != 1 || error ||
+        !model_path_inside(directory, path))
       throw VoiceError("Local model is missing " + found->second);
     return fs::canonical(path, error).u8string();
   }
@@ -490,7 +498,9 @@ std::set<std::string> read_token_set(const std::string &tokens_path) {
     ~CloseOnExit() { ::close(descriptor); }
   } close_on_exit{descriptor};
   struct stat metadata {};
-  if (::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode)) return tokens;
+  if (::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode) ||
+      metadata.st_nlink != 1)
+    return tokens;
   std::array<char, 8192> buffer{};
   std::string line;
   std::size_t total = 0;
@@ -968,6 +978,8 @@ bool is_local_model_dir(std::string_view path) {
     return false;
   const auto manifest_status = fs::symlink_status(manifest, error);
   if (error || !fs::is_regular_file(manifest_status))
+    return false;
+  if (fs::hard_link_count(manifest, error) != 1 || error)
     return false;
   return fs::file_size(manifest, error) <= kMaxManifestBytes && !error;
 }

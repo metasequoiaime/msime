@@ -20,7 +20,7 @@ def main() -> int:
         regions.append((name, source[start : source.index(end, start)]))
     missing = []
     for name, region in regions:
-        for token in ("O_NOFOLLOW", "O_NONBLOCK", "fstat", "S_ISREG"):
+        for token in ("O_NOFOLLOW", "O_NONBLOCK", "fstat", "S_ISREG", "st_nlink"):
             if token not in region:
                 missing.append(f"{name}: {token}")
         if "std::ifstream" in region:
@@ -30,9 +30,15 @@ def main() -> int:
         "FILE_FLAG_OPEN_REPARSE_POINT",
         "GetFileInformationByHandleEx",
         "FILE_TYPE_DISK",
+        "NumberOfLinks",
     ):
         if token not in source:
             missing.append(f"windows reader: {token}")
+    model_file = source[source.index("std::string file(const std::string &key)") :]
+    model_file = model_file[: model_file.index("std::string optional_file")]
+    for token in ("symlink_status", "is_regular_file", "hard_link_count"):
+        if token not in model_file:
+            missing.append(f"model file boundary: {token}")
     if missing:
         print(f"{SOURCE}: reader contract missing {', '.join(missing)}", file=sys.stderr)
         return 1

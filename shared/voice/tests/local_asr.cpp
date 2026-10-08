@@ -105,6 +105,12 @@ int main() {
     assert(!is_local_model_dir((root / "model").u8string()));
     fs::remove(root / "model" / std::string(local_model_manifest));
 
+    // 模型清单属于私有安装状态，硬链接可能让识别器通过模型目录读取无关 inode。
+    fs::create_hard_link(external_manifest,
+                         root / "model" / std::string(local_model_manifest));
+    assert(!is_local_model_dir((root / "model").u8string()));
+    fs::remove(root / "model" / std::string(local_model_manifest));
+
     // A replaced manifest must not block the recognizer on a FIFO.
     const auto manifest_fifo = root / "model" / std::string(local_model_manifest);
     assert(::mkfifo(manifest_fifo.c_str(), 0600) == 0);
