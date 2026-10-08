@@ -2483,7 +2483,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void scheduleCandidateTranslations() {
         if (!candidateTranslationAccount || session == 0 || view == null
                 || candidateTranslationStore == null
-                || !"none".equals(view.optString("local_mode", "none"))) return;
+                || !"none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none"))) return;
         if (InputViewValuePolicy.scheme(view, -1) == 3 || !schemeShowsGlosses(InputViewValuePolicy.scheme(view, -1))) return;
         JSONArray entries = view.optJSONArray("candidates");
         long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
@@ -4815,7 +4815,7 @@ public final class MSIMEInputService extends InputMethodService {
     boolean voiceInsertionReady() {
         return session != 0 && connection != null && view != null
             && InputViewValuePolicy.editingText(view).isEmpty()
-            && view.optString("local_mode", "none").equals("none");
+            && InputViewValuePolicy.textOr(view, "local_mode", "none").equals("none");
     }
 
     boolean aiPolishReady() { return voiceInsertionReady(); }
@@ -5551,7 +5551,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean candidateManagementEnabled() {
-        if (view == null || !view.optString("local_mode", "none").equals("none")) return false;
+        if (view == null || !InputViewValuePolicy.textOr(view, "local_mode", "none").equals("none")) return false;
         int scheme = InputViewValuePolicy.scheme(view, 0);
         // 粤拼、注音、越南语、藏文和笔画的候选不属于拼音用户词库，不能固定、删除或调整顺序。
         return scheme != 2 && scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
@@ -5641,7 +5641,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean candidateGlossInsertionEnabled() {
-        if (view == null || !"none".equals(view.optString("local_mode", "none"))) return false;
+        if (view == null || !"none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none"))) return false;
         int scheme = InputViewValuePolicy.scheme(view, 0);
         return scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && schemeShowsGlosses(scheme);
@@ -7320,7 +7320,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (exitLocalModeButton != null) {
             boolean localModeActive = view != null
-                && !"none".equals(view.optString("local_mode", "none"));
+                && !"none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none"));
             ViewPolicy.setVisible(exitLocalModeButton, localModeActive);
             ViewPolicy.setEnabled(exitLocalModeButton, localModeActive && session != 0);
             exitLocalModeButton.setContentDescription("退出本地模式");
