@@ -68,7 +68,7 @@ public final class SymbolPanelView extends LinearLayout {
         addView(title, KeyboardGeometry.matchWidthWrapParams());
 
         LinearLayout body = KeyboardGeometry.row(context);
-        categories.setGravity(Gravity.TOP);
+        ViewPolicy.setGravity(categories, Gravity.TOP);
         // 空白网格的根因：body 是横排 LinearLayout，权重只分宽度；这里和网格原先写的高度 0 是字面上的 0 像素，分类列和网格都被测成零高，面板中间于是什么都没有（面板本身又没底色，透出底下的字母键）。高度要铺满 body。
         // 分类列放进可滚动的容器、每类固定 40 dp：键盘区扣掉标题和底栏只剩百来 dp，五类按权重平分时每类二十来 dp，按钮默认的 48 dp 最小高度和内边距把字挤没了，只剩选中那块底色。
         ScrollView categoryScroll = new ScrollView(context);

@@ -95,7 +95,7 @@ pub fn list_custom_helpcode_schemas(resources: &Path) -> Vec<CustomHelpcodeSchem
 
 fn read_display_names(path: &Path) -> (String, String) {
     const MAX_HELPCODE_BYTES: u64 = 1024 * 1024;
-    let Ok(file) = std::fs::File::open(path) else {
+    let Ok(file) = crate::storage::open_private_file(path) else {
         return (String::new(), String::new());
     };
     let Ok(bytes) = crate::bounded_io::read_bounded(file, MAX_HELPCODE_BYTES) else {

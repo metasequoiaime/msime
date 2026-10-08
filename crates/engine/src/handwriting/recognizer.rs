@@ -2,7 +2,6 @@
 //!
 //! The reference constructed a recognizer, and so re-mapped the model, on every call. Here recent model paths are mapped and parsed once while they stay in a bounded cache: host-api classifies each character cell of a written line separately, and re-parsing the labels for every cell is wasted work. The mapping is read-only, as zinnia's was, so the weights stay clean, file-backed pages the system can evict; it is sound because the model is a packaged file installed by replacement and never edited in place while the host runs. A failed load is not remembered, so a model installed later is picked up.
 
-use std::fs::File;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -65,7 +64,8 @@ fn load(path: &Path) -> Result<Arc<Model>> {
     if let Some(model) = models.get(path) {
         return Ok(Arc::clone(model));
     }
-    let file = File::open(path).map_err(|_| EngineError::failed(CANNOT_OPEN))?;
+    let file =
+        crate::paths::open_file_no_follow(path).map_err(|_| EngineError::failed(CANNOT_OPEN))?;
     // SAFETY: a mapping is only sound while nothing changes the file underneath it. The model is a packaged, read-only file installed by replacement and never written in place (module doc), so the mapped inode keeps its bytes for as long as the map lives.
     let bytes = unsafe { Mmap::map(&file) }.map_err(|_| EngineError::failed(CANNOT_OPEN))?;
     let model = Arc::new(Model::parse(bytes).map_err(|_| EngineError::failed(CANNOT_OPEN))?);

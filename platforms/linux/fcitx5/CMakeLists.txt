@@ -144,6 +144,10 @@ endif()
 if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.22)
   target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_XKB_STATE_MASK)
 endif()
+# classicui 从 5.1.18 起单独按磅设置候选序号的字号，候选字体要写成磅序号才与候选一样大；更早的版本照写像素（见 CandidateFontUnit）。
+if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.18)
+  target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_LABEL_POINTS)
+endif()
 # Usage reporting, through the same wrapper as the IBus host and with the same version: the parent project's MSIME_LINUX_VERSION, or platforms/linux/version.txt when this directory is configured on its own. Only the addon reports; the native test builds the engine without it.
 if(NOT MSIME_LINUX_VERSION)
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../version.txt")
@@ -216,6 +220,9 @@ if(BUILD_TESTING)
   if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.22)
     target_compile_definitions(fcitx5-native-test PRIVATE MSIME_FCITX5_XKB_STATE_MASK)
   endif()
+  if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.18)
+    target_compile_definitions(fcitx5-native-test PRIVATE MSIME_FCITX5_LABEL_POINTS)
+  endif()
   # The first-run case in tests/native.cpp needs a system options file that does not exist and a guide program it can stub, so neither may point at the installed locations.
   target_compile_definitions(fcitx5-native-test PRIVATE
     MSIME_SYSTEM_OPTIONS="${CMAKE_CURRENT_BINARY_DIR}/first-run-absent/runtime-options.json"
@@ -229,6 +236,12 @@ if(BUILD_TESTING)
   target_link_libraries(linux-candidate-fcitx-logo-test PRIVATE PkgConfig::CAIRO nlohmann_json::nlohmann_json)
   add_test(NAME linux-candidate-fcitx-logo
     COMMAND linux-candidate-fcitx-logo-test "${CMAKE_CURRENT_SOURCE_DIR}/../data/icons/hicolor")
+  # A skin's decoration resampled to its declared width with cairo, so the classic UI draws it whole in the band above the card.
+  add_executable(linux-candidate-fcitx-overlay-scale-test ../tests/candidate/candidate_fcitx_overlay_scale.cpp)
+  target_compile_features(linux-candidate-fcitx-overlay-scale-test PRIVATE cxx_std_20)
+  target_compile_options(linux-candidate-fcitx-overlay-scale-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_link_libraries(linux-candidate-fcitx-overlay-scale-test PRIVATE PkgConfig::CAIRO nlohmann_json::nlohmann_json)
+  add_test(NAME linux-candidate-fcitx-overlay-scale COMMAND linux-candidate-fcitx-overlay-scale-test)
   set(MSIME_FCITX5_TEST_RESOURCES "" CACHE PATH "Verified resources directory for the native Fcitx5 test")
   if(MSIME_FCITX5_TEST_RESOURCES)
     add_test(NAME fcitx5-native-context

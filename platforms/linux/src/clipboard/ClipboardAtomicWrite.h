@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <sys/stat.h>
 #include <vector>
 
 #include "../core/SafePath.h"
@@ -62,8 +63,13 @@ inline std::optional<std::string> read_clipboard_file(const std::filesystem::pat
                                                       std::size_t max_bytes) {
   const auto directory = file.has_parent_path() ? file.parent_path() : std::filesystem::path(".");
   if (!clipboard_directory_is_safe(directory)) return std::nullopt;
-  const int descriptor = ::open(file.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  const int descriptor = ::open(file.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
   if (descriptor < 0) return std::nullopt;
+  struct stat metadata {};
+  if (::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode)) {
+    ::close(descriptor);
+    return std::nullopt;
+  }
   std::string content;
   std::array<char, 8192> buffer{};
   bool ok = true;

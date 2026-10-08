@@ -134,11 +134,21 @@ fn copy_tree(
         if kind.is_dir() {
             copy_tree(&entry.path(), &target, depth + 1, budget)?;
         } else if kind.is_file() {
+            // Keep the type and bytes tied to the same no-follow handle. A picked
+            // folder can be changed while it is being imported; `fs::copy` would
+            // otherwise follow a file that was replaced by a symlink after the
+            // `file_type` check.
+            let mut input = crate::storage::open_private_file(&entry.path())?;
+            let length = input.metadata()?.len();
             budget.bytes = budget
                 .bytes
-                .checked_sub(entry.metadata()?.len())
+                .checked_sub(length)
                 .ok_or_else(|| std::io::Error::other("skin folder too large"))?;
-            std::fs::copy(entry.path(), target)?;
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(target)?;
+            std::io::copy(&mut input, &mut output)?;
         }
     }
     Ok(())

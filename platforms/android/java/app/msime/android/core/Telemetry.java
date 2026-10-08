@@ -1,6 +1,7 @@
 package app.msime.android.core;
 
 import app.msime.android.TextPolicy;
+import app.msime.android.JsonPolicy;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.util.Log;
@@ -290,7 +291,7 @@ public final class Telemetry {
     private static JSONObject call(Call call) {
         try {
             JSONObject root = new JSONObject(call.run());
-            if (Boolean.TRUE.equals(root.opt("ok"))) {
+            if (JsonPolicy.strictTrue(root.opt("ok"))) {
                 JSONObject value = root.optJSONObject("value");
                 return value == null ? new JSONObject() : value;
             }
@@ -303,6 +304,6 @@ public final class Telemetry {
 
     /** Reporter status and consent are typed JSON booleans; reject org.json string coercion. */
     static boolean booleanValue(Object value, boolean fallback) {
-        return value instanceof Boolean ? (Boolean) value : fallback;
+        return JsonPolicy.strictBoolean(value, fallback);
     }
 }

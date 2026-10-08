@@ -186,7 +186,7 @@ pub fn load(state_dir: &Path, request: &LogRequest) -> Result<LogView, String> {
 
 /// The last `READ_LIMIT` bytes of `path` as text, from the first whole line; `None` when there is no such file.
 fn read_tail(path: &Path) -> Result<Option<String>, String> {
-    let mut file = match std::fs::File::open(path) {
+    let mut file = match crate::bounded::open_private(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("cannot open the diagnostic log".into()),
@@ -391,5 +391,24 @@ mod tests {
             read_tail(&directory.path().join("absent.log")).unwrap(),
             None
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_diagnostic_log_is_not_read() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("diagnostic.log");
+        std::fs::write(&target, "2026-09-25 10:00:00 [p1] synthetic\n").unwrap();
+        let log = directory.path().join("diagnostic.log");
+        symlink(&target, &log).unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut preferences = store.load().unwrap().preferences;
+        preferences.diagnostic_log.server = true;
+        store.save(0, preferences).unwrap();
+
+        assert!(load(directory.path(), &LogRequest::default()).is_err());
     }
 }

@@ -804,9 +804,11 @@ impl DictionaryCollectionsStore {
         if !metadata.file_type().is_file() || metadata.len() > maximum {
             return Err(DictionaryCollectionsError::Corrupt);
         }
-        let bytes = crate::bounded_io::read_bounded_file(File::open(path)?, maximum, || {
-            DictionaryCollectionsError::Corrupt
-        })?;
+        let bytes = crate::bounded_io::read_bounded_file(
+            crate::storage::open_private_file(path)?,
+            maximum,
+            || DictionaryCollectionsError::Corrupt,
+        )?;
         serde_json::from_slice(&bytes)
             .map(Some)
             .map_err(|_| DictionaryCollectionsError::Corrupt)

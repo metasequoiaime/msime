@@ -205,7 +205,6 @@ public final class FunctionPanelView extends LinearLayout {
         }
 
         @Override protected void onDraw(Canvas canvas) {
-            float density = KeyboardGeometry.density(getContext());
             boolean on = state == State.ON;
             int color = on ? panel.accent : panel.foreground;
             if (isPressed()) color = ColorPolicy.withAlpha(color,
@@ -213,22 +212,22 @@ public final class FunctionPanelView extends LinearLayout {
             configureLabelPaint(on);
             Paint.FontMetrics label = textPaint.getFontMetrics();
             float labelHeight = label.descent - label.ascent;
-            float area = ICON_AREA_DP * density;
-            float total = area + LABEL_GAP_DP * density + labelHeight;
+            float area = KeyboardGeometry.floatPixels(getContext(), ICON_AREA_DP);
+            float total = area + KeyboardGeometry.floatPixels(getContext(), LABEL_GAP_DP) + labelHeight;
             float top = BoundsPolicy.nonNegative((getHeight() - total) / 2f);
             float centerX = getWidth() / 2f;
             float iconCenterY = top + area / 2f;
             float iconRight;
             float iconBottom;
             if (entry.glyph != null) {
-                float box = GLYPH_BOX_DP * density;
+                float box = KeyboardGeometry.floatPixels(getContext(), GLYPH_BOX_DP);
                 rect.set(centerX - box / 2f, iconCenterY - box / 2f, centerX + box / 2f,
                     iconCenterY + box / 2f);
                 boxPaint.setColor(color);
-                boxPaint.setStrokeWidth(GLYPH_STROKE_DP * density);
-                float inset = GLYPH_STROKE_DP * density / 2f;
+                boxPaint.setStrokeWidth(KeyboardGeometry.floatPixels(getContext(), GLYPH_STROKE_DP));
+                float inset = KeyboardGeometry.floatPixels(getContext(), GLYPH_STROKE_DP) / 2f;
                 rect.inset(inset, inset);
-                float radius = GLYPH_RADIUS_DP * density;
+                float radius = KeyboardGeometry.floatPixels(getContext(), GLYPH_RADIUS_DP);
                 canvas.drawRoundRect(rect, radius, radius, boxPaint);
                 Paint glyph = textPaint;
                 glyph.setTextSize(KeyboardGeometry.keySp(getContext(), GLYPH_SP));
@@ -241,7 +240,7 @@ public final class FunctionPanelView extends LinearLayout {
                 iconBottom = iconCenterY + box / 2f;
                 configureLabelPaint(on);
             } else {
-                float size = ICON_DP * density;
+                float size = KeyboardGeometry.floatPixels(getContext(), ICON_DP);
                 if (entry.icon != null) {
                     KeyboardIconPaths.draw(canvas, iconPaint, entry.icon, centerX - size / 2f,
                         iconCenterY - size / 2f, size, color);
@@ -249,22 +248,24 @@ public final class FunctionPanelView extends LinearLayout {
                 iconRight = centerX + size / 2f;
                 iconBottom = iconCenterY + size / 2f;
             }
-            if (on) drawBadge(canvas, density, iconRight, iconBottom);
+            if (on) drawBadge(canvas, iconRight, iconBottom);
             textPaint.setColor(color);
-            float baseline = top + area + LABEL_GAP_DP * density - label.ascent;
+            float baseline = top + area
+                + KeyboardGeometry.floatPixels(getContext(), LABEL_GAP_DP) - label.ascent;
             canvas.drawText(fit(entry.label, getWidth()), centerX, baseline, textPaint);
         }
 
-        private void drawBadge(Canvas canvas, float density, float iconRight, float iconBottom) {
-            float badge = BADGE_DP * density;
+        private void drawBadge(Canvas canvas, float iconRight, float iconBottom) {
+            float badge = KeyboardGeometry.floatPixels(getContext(), BADGE_DP);
             float cx = iconRight;
             float cy = iconBottom;
             badgePaint.setStyle(Paint.Style.FILL);
             badgePaint.setColor(panel.panelBackground);
-            canvas.drawCircle(cx, cy, badge / 2f + BADGE_RING_DP * density, badgePaint);
+            canvas.drawCircle(cx, cy, badge / 2f
+                + KeyboardGeometry.floatPixels(getContext(), BADGE_RING_DP), badgePaint);
             badgePaint.setColor(panel.accent);
             canvas.drawCircle(cx, cy, badge / 2f, badgePaint);
-            float check = BADGE_CHECK_DP * density;
+            float check = KeyboardGeometry.floatPixels(getContext(), BADGE_CHECK_DP);
             KeyboardIconPaths.draw(canvas, iconPaint, KeyboardIconPaths.Icon.CHECK,
                 cx - check / 2f, cy - check / 2f, check, panel.panelBackground);
         }

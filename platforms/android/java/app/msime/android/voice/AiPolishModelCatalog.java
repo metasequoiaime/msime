@@ -24,11 +24,11 @@ public final class AiPolishModelCatalog {
     private AiPolishModelCatalog() {}
 
     static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     public static List<String> fetch(String endpoint, String token) throws AiPolishClient.Failure {
@@ -59,19 +59,18 @@ public final class AiPolishModelCatalog {
                 JSONObject model = data.optJSONObject(index);
                 if (model == null) continue;
                 if (model.has("active")) {
-                    Boolean active = strictBoolean(model.opt("active"));
+                    Boolean active = JsonPolicy.strictBoolean(model.opt("active"));
                     if (active == null || !active) continue;
                 }
-                String rawId = strictString(model.opt("id"));
+                String rawId = JsonPolicy.strictString(model.opt("id"));
                 if (rawId == null) continue;
                 String id = TextPolicy.trimmed(rawId);
                 if (id.isEmpty() || id.length() > MAX_MODEL_ID_LENGTH) continue;
                 JSONArray endpointTypes = model.optJSONArray("supported_endpoint_types");
                 if (endpointTypes != null && endpointTypes.length() > 0) {
-                    boolean supported = Boolean.TRUE.equals(
-                        strictBoolean(model.opt("chat_completions_bridge")));
+                    boolean supported = JsonPolicy.strictTrue(model.opt("chat_completions_bridge"));
                     for (int item = 0; item < endpointTypes.length(); item++) {
-                        String type = strictString(endpointTypes.opt(item));
+                        String type = JsonPolicy.strictString(endpointTypes.opt(item));
                         if ("openai".equals(type)) supported = true;
                     }
                     if (!supported) continue;
@@ -82,14 +81,14 @@ public final class AiPolishModelCatalog {
             }
             Object rawHasMore = document.opt("has_more");
             Boolean hasMore = rawHasMore == null || rawHasMore == JSONObject.NULL
-                ? Boolean.FALSE : strictBoolean(rawHasMore);
+                ? Boolean.FALSE : JsonPolicy.strictBoolean(rawHasMore);
             if (hasMore == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             if (!hasMore) {
                 if (models.isEmpty()) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
                 return new ArrayList<>(models);
             }
             if (!anthropic) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
-            String rawNext = strictString(document.opt("last_id"));
+            String rawNext = JsonPolicy.strictString(document.opt("last_id"));
             if (rawNext == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             String next = TextPolicy.trimmed(rawNext);
             if (next.isEmpty() || !cursors.add(next))

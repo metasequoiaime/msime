@@ -78,7 +78,7 @@ final class ImeToolbar {
             return true;
         });
         LinearLayout preeditFrame = KeyboardGeometry.row(s);
-        preeditFrame.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        ViewPolicy.setStartCenteredVertically(preeditFrame);
         preeditFrame.addView(s.preedit, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateHeader.addView(preeditFrame, KeyboardGeometry.weightedWrapParams(1));
@@ -156,7 +156,7 @@ final class ImeToolbar {
     }
 
     private void bindToolbarAction(Button button, Runnable action) {
-        button.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(button, () -> {
             s.imeKeyFeedback.playFeedback(button);
             action.run();
         });
@@ -251,7 +251,7 @@ final class ImeToolbar {
             s.inlineHeightBar.setColors(foregroundColor, hintColor,
                 returnBackgroundColor, returnForegroundColor);
         if (s.preedit != null) {
-            s.preedit.setTextColor(hintColor);
+            ViewPolicy.setTextColor(s.preedit, hintColor);
             KeyboardGeometry.setKeyTextSize(s.preedit, 12);
             ViewPolicy.clearBackground(s.preedit);
             ViewPolicy.clearPadding(s.preedit);

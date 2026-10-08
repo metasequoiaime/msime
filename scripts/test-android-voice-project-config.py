@@ -289,7 +289,7 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn("showRecordingControls();", activity[provider:provider + 400])
         # Done ends the recording and keeps the result; Cancel is the one that discards.
         self.assertIn("stopRecognition();", activity)
-        self.assertIn("cancel.setOnClickListener(ignored -> cancelRecognition());", activity)
+        self.assertIn("ViewPolicy.bindClick(cancel, this::cancelRecognition);", activity)
 
     def test_configured_provider_can_start_without_platform_recognizer(self):
         service = (

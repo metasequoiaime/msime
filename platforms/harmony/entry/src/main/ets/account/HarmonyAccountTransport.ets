@@ -5,7 +5,7 @@ import {
   AccountSessionStore, AccountTransport, AccountTransportResponse, parseResponseContentLength
 } from './AccountCloudBridge';
 import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
-import { sessionFitsStorage } from './AccountSessionPolicy';
+import { sessionFitsStorage, sessionWriteComplete } from './AccountSessionPolicy';
 
 /**
  * The account session file and the HTTPS transport, shared by the settings application and the keyboard extension.
@@ -41,6 +41,12 @@ export class FileSessionStore implements AccountSessionStore {
     }
     const lock: fs.File = fs.openSync(this.lockFile, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE);
     try {
+      const pathStat: fs.Stat = fs.lstatSync(this.lockFile);
+      const opened: fs.Stat = fs.statSync(lock.fd);
+      if (pathStat.isSymbolicLink() || !pathStat.isFile()
+        || !opened.isFile() || opened.ino !== pathStat.ino) {
+        throw new Error('account_storage');
+      }
       await lock.lock(true);
       try {
         return await body();
@@ -53,13 +59,22 @@ export class FileSessionStore implements AccountSessionStore {
   }
 
   load(): string | null {
+    let handle: fs.File | null = null;
     try {
       if (!this.safeDirectory()) return null;
-      const stat: fs.Stat = fs.lstatSync(this.file);
-      if (stat.isSymbolicLink() || !stat.isFile() || stat.size > MAX_SESSION_BYTES) return null;
-      return fs.readTextSync(this.file);
+      const expected: fs.Stat = fs.lstatSync(this.file);
+      if (expected.isSymbolicLink() || !expected.isFile() || expected.size > MAX_SESSION_BYTES) return null;
+      handle = fs.openSync(this.file, fs.OpenMode.READ_ONLY);
+      const stat: fs.Stat = fs.statSync(handle.fd);
+      if (!stat.isFile() || stat.size > MAX_SESSION_BYTES || stat.ino !== expected.ino) return null;
+      const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
+      const count: number = fs.readSync(handle.fd, buffer);
+      if (count !== stat.size) return null;
+      return util.TextDecoder.create('utf-8').decode(new Uint8Array(buffer, 0, count));
     } catch {
       return null;
+    } finally {
+      if (handle !== null) fs.closeSync(handle);
     }
   }
 
@@ -72,7 +87,8 @@ export class FileSessionStore implements AccountSessionStore {
     try {
       const handle = fs.openSync(staging, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
       try {
-        fs.writeSync(handle.fd, value);
+        const written: number = fs.writeSync(handle.fd, value);
+        if (!sessionWriteComplete(value, written)) throw new Error('account_storage');
       } finally {
         fs.closeSync(handle);
       }

@@ -7,7 +7,16 @@
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
+use std::os::unix::io::{FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(unix)]
+static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// The key the entry is stored under in `mcpServers`.
 ///
@@ -70,6 +79,15 @@ pub struct McpClientStatus {
     pub configured: bool,
     /// 已写入条目带的权限参数，按固定顺序；未连接时为空。
     pub flags: Vec<McpFlag>,
+    /// 已连接，但条目的命令是 Nix store 里的另一个路径（以前写进去的某一版），升级或垃圾回收后会失效；再写一次就换成 `command`，权限照旧。
+    pub stale: bool,
+}
+
+/// 文件里已有的 `msime` 条目是这里写的：它带的权限参数，以及命令要不要换成这次的。
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ExistingEntry {
+    flags: Vec<McpFlag>,
+    stale: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -105,6 +123,36 @@ pub fn server_command(executable: &Path) -> Option<PathBuf> {
         .map(|directory| directory.join(format!("msime-mcp{}", std::env::consts::EXE_SUFFIX)))
 }
 
+/// Nix 的 store。这里的路径带着版本哈希，升级后不再是当前版本，垃圾回收后文件也没了，所以不写进助手配置。`/nix` 是指向别处的符号链接（Fedora Silverblue 这类根目录只读的系统）或用了自定义 `storeDir` 时，设置窗口的真实路径不以它开头，仍写 store 路径，与没做这层处理时相同。
+const NIX_STORE: &str = "/nix/store";
+
+/// 写进助手配置的 `msime-mcp`：`server_command` 在 Nix store 里时换成 PATH 上 Nix profile 的链接（比如 `/run/current-system/sw/bin/msime-mcp`），它随每次切换指向当前版本。
+fn assistant_command(
+    executable: &Path,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<PathBuf> {
+    server_command(executable).map(|command| stable_command_in(command, Path::new(NIX_STORE), env))
+}
+
+/// `command` 在 `store` 下时，返回 PATH 上第一个自己不在 `store` 下、解析后就是 `command` 这个文件的同名链接；没有时（比如只用 `nix run` 起了设置窗口）原样返回。只认同一个文件：用户级 profile（`~/.nix-profile/bin`、`/etc/profiles/per-user/<用户>/bin`）在 PATH 上排在系统的前面，里面可能是另装的旧版本，选了它助手就跑旧版本。
+fn stable_command_in(
+    command: PathBuf,
+    store: &Path,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> PathBuf {
+    if !command.starts_with(store) {
+        return command;
+    }
+    let (Some(name), Some(path)) = (command.file_name(), env("PATH")) else {
+        return command;
+    };
+    std::env::split_paths(&path)
+        .filter(|directory| !directory.starts_with(store))
+        .map(|directory| directory.join(name))
+        .find(|candidate| same_program(candidate, &command))
+        .unwrap_or(command)
+}
+
 /// The entry an assistant runs: the server and the runtime options, and no flags.
 pub fn server_entry(command: &Path, options: &Path) -> Value {
     json!({
@@ -136,26 +184,40 @@ fn split_entry_args(args: &[Value]) -> (Vec<McpFlag>, Vec<Value>) {
 }
 
 /// `existing` 是 `base` 加上若干权限参数时，返回这些参数（去重、按固定顺序）；命令、运行时选项或其它参数不同的条目不是这里写的，返回 `None`。命令指向的是同一个程序时（比如 Homebrew 放上 PATH 的 `msime-mcp`、手动链接的 `~/.local/bin/msime`，都是指向安装包里 `msime-mcp` 的符号链接），算作同一个命令。
-pub fn entry_flags(existing: &Value, base: &Value) -> Option<Vec<McpFlag>> {
+///
+/// 命令是 `store`（Nix store）里同名程序的条目也算作这里写的，不论是哪一版、文件还在不在，并标为 `stale`：它只能是以前的设置窗口写进去的，升级或垃圾回收后会失效，再写一次时换成 `base` 的命令，权限照旧。
+fn existing_entry(existing: &Value, base: &Value, store: &Path) -> Option<ExistingEntry> {
     let args = existing.get("args")?.as_array()?;
     let (flags, rest) = split_entry_args(args);
     let mut stripped = existing.as_object()?.clone();
     stripped.insert("args".to_owned(), Value::Array(rest));
-    if let (Some(Value::String(command)), Some(expected)) = (
-        stripped.get("command"),
+    let (stale, same) = match (
+        stripped
+            .get("command")
+            .and_then(Value::as_str)
+            .map(Path::new),
         base.get("command").and_then(Value::as_str),
     ) {
-        if command != expected && same_program(command, expected) {
-            stripped.insert("command".to_owned(), Value::String(expected.to_owned()));
+        (Some(command), Some(expected)) if command != Path::new(expected) => {
+            let stale = command.starts_with(store)
+                && command.file_name() == Path::new(expected).file_name();
+            (stale, stale || same_program(command, Path::new(expected)))
         }
+        _ => (false, false),
+    };
+    if same {
+        stripped.insert("command".to_owned(), base["command"].clone());
     }
-    (Value::Object(stripped) == *base).then(|| canonical(&flags))
+    (Value::Object(stripped) == *base).then(|| ExistingEntry {
+        flags: canonical(&flags),
+        stale,
+    })
 }
 
 /// 两个绝对路径解析掉符号链接后是不是同一个文件。相对路径（比如只写了 `msime-mcp`、靠 PATH 找）不去猜：按当前目录解析可能碰巧对上一个不相干的文件。
-fn same_program(command: &str, expected: &str) -> bool {
-    let resolve = |path: &str| {
-        Some(Path::new(path))
+fn same_program(command: &Path, expected: &Path) -> bool {
+    let resolve = |path: &Path| {
+        Some(path)
             .filter(|path| path.is_absolute())
             .and_then(|path| std::fs::canonicalize(path).ok())
     };
@@ -164,7 +226,7 @@ fn same_program(command: &str, expected: &str) -> bool {
 
 /// `options` 这份运行时选项所属版本登记用的键（`Edition::mcp_server_name`）：full 的文档没有 `edition` 键，得到 [`SERVER_NAME`]。文档读不了或记录了不认识的版本时同样用 [`SERVER_NAME`]：这里只决定条目的名字，文档本身有没有问题由 `msime-mcp` 启动后去报告。
 pub fn server_name(options: &Path) -> String {
-    std::fs::File::open(options)
+    crate::bounded_file::open_private(options)
         .ok()
         .and_then(|file| crate::bounded_file::read(file, CONFIG_READ_LIMIT).ok())
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
@@ -225,18 +287,21 @@ pub fn status(
     options: Option<&Path>,
     env: impl Fn(&str) -> Option<std::ffi::OsString>,
 ) -> Result<McpServerStatus, &'static str> {
-    let command = server_command(executable).ok_or("storage")?;
+    let command = assistant_command(executable, &env).ok_or("storage")?;
     let entry = options.map(|options| (server_name(options), server_entry(&command, options)));
-    let clients = client_paths(env)
+    let clients = client_paths(&env)
         .into_iter()
         .map(|(id, path)| {
-            let flags = entry
+            let existing = entry
                 .as_ref()
-                .and_then(|(name, entry)| configured_flags(&path, name, entry));
+                .and_then(|(name, entry)| configured_entry(&path, name, entry));
+            let configured = existing.is_some();
+            let ExistingEntry { flags, stale } = existing.unwrap_or_default();
             McpClientStatus {
                 id,
-                configured: flags.is_some(),
-                flags: flags.unwrap_or_default(),
+                configured,
+                flags,
+                stale,
                 path: path.to_string_lossy().into_owned(),
             }
         })
@@ -262,10 +327,10 @@ pub fn install_client(
     env: impl Fn(&str) -> Option<std::ffi::OsString>,
 ) -> Result<InstallOutcome, &'static str> {
     let options = options.ok_or("mcp_options_missing")?;
-    let command = server_command(executable)
+    let command = assistant_command(executable, &env)
         .filter(|command| command.is_file())
         .ok_or("mcp_server_missing")?;
-    let (_, path) = client_paths(env)
+    let (_, path) = client_paths(&env)
         .into_iter()
         .find(|(id, _)| *id == client)
         .ok_or("mcp_client_missing")?;
@@ -280,11 +345,15 @@ pub fn install_client(
 
 /// The configuration as it is, or an empty object when there is no file yet.
 fn read_config(path: &Path) -> Result<Map<String, Value>, &'static str> {
-    let file = match std::fs::File::open(path) {
+    let file = match crate::bounded_file::open_private(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Map::new()),
         Err(_) => return Err("storage"),
     };
+    parse_config(file)
+}
+
+fn parse_config(file: std::fs::File) -> Result<Map<String, Value>, &'static str> {
     let bytes = crate::bounded_file::read(file, CONFIG_READ_LIMIT).map_err(|error| {
         if error.kind() == std::io::ErrorKind::InvalidData {
             "mcp_config_invalid"
@@ -302,15 +371,142 @@ fn read_config(path: &Path) -> Result<Map<String, Value>, &'static str> {
     }
 }
 
-/// 文件里 `name`（full 是 `msime`）条目是 `base` 加上若干权限参数时，返回这些参数；没有条目、条目不是这里写的、或文件读不了时返回 `None`。
-pub fn configured_flags(path: &Path, name: &str, base: &Value) -> Option<Vec<McpFlag>> {
+#[cfg(unix)]
+fn open_directory(path: &Path) -> std::io::Result<OwnedFd> {
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path contains NUL"))?;
+    let fd = unsafe {
+        libc::open(
+            path.as_ptr(),
+            libc::O_RDONLY
+                | libc::O_DIRECTORY
+                | libc::O_NOFOLLOW
+                | libc::O_CLOEXEC
+                | libc::O_NONBLOCK,
+        )
+    };
+    if fd < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+}
+
+#[cfg(unix)]
+fn open_config_at(
+    directory: &OwnedFd,
+    name: &std::ffi::OsStr,
+) -> std::io::Result<Option<std::fs::File>> {
+    let name = std::ffi::CString::new(name.as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path contains NUL"))?;
+    let fd = unsafe {
+        libc::openat(
+            std::os::fd::AsRawFd::as_raw_fd(directory),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+        )
+    };
+    if fd < 0 {
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::NotFound {
+            Ok(None)
+        } else {
+            Err(error)
+        }
+    } else {
+        Ok(Some(unsafe { std::fs::File::from_raw_fd(fd) }))
+    }
+}
+
+#[cfg(unix)]
+fn read_config_at(
+    directory: &OwnedFd,
+    name: &std::ffi::OsStr,
+) -> Result<(Map<String, Value>, Option<std::fs::Permissions>), &'static str> {
+    let Some(file) = open_config_at(directory, name).map_err(|_| "storage")? else {
+        return Ok((Map::new(), None));
+    };
+    let metadata = file.metadata().map_err(|_| "storage")?;
+    if !metadata.is_file() {
+        return Err("storage");
+    }
+    let permissions = metadata.permissions();
+    Ok((parse_config(file)?, Some(permissions)))
+}
+
+#[cfg(unix)]
+fn write_config_at(
+    directory: &OwnedFd,
+    name: &std::ffi::OsStr,
+    text: &[u8],
+    permissions: Option<std::fs::Permissions>,
+) -> Result<(), &'static str> {
+    let mut temporary = std::ffi::OsString::from(".msime-mcp-");
+    temporary.push(std::process::id().to_string());
+    temporary.push("-");
+    temporary.push(
+        TEMPORARY_COUNTER
+            .fetch_add(1, Ordering::Relaxed)
+            .to_string(),
+    );
+    let temporary = std::ffi::CString::new(temporary.as_bytes()).map_err(|_| "storage")?;
+    let target = std::ffi::CString::new(name.as_bytes()).map_err(|_| "storage")?;
+    let fd = unsafe {
+        libc::openat(
+            std::os::fd::AsRawFd::as_raw_fd(directory),
+            temporary.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC,
+            0o600,
+        )
+    };
+    if fd < 0 {
+        return Err("storage");
+    }
+    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+    let result = (|| {
+        file.write_all(text).map_err(|_| "storage")?;
+        if let Some(permissions) = permissions {
+            file.set_permissions(permissions).map_err(|_| "storage")?;
+        }
+        file.sync_all().map_err(|_| "storage")?;
+        let result = unsafe {
+            libc::renameat(
+                std::os::fd::AsRawFd::as_raw_fd(directory),
+                temporary.as_ptr(),
+                std::os::fd::AsRawFd::as_raw_fd(directory),
+                target.as_ptr(),
+            )
+        };
+        if result < 0 {
+            return Err("storage");
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        unsafe {
+            libc::unlinkat(
+                std::os::fd::AsRawFd::as_raw_fd(directory),
+                temporary.as_ptr(),
+                0,
+            );
+        }
+    }
+    result
+}
+
+/// 文件里 `name`（full 是 `msime`）条目是 `base` 加上若干权限参数时，返回这些参数和它要不要换命令（见 `existing_entry`）；没有条目、条目不是这里写的、或文件读不了时返回 `None`。
+fn configured_entry(path: &Path, name: &str, base: &Value) -> Option<ExistingEntry> {
     let document = read_config(path).ok()?;
-    entry_flags(document.get("mcpServers")?.get(name)?, base)
+    existing_entry(
+        document.get("mcpServers")?.get(name)?,
+        base,
+        Path::new(NIX_STORE),
+    )
 }
 
 /// 把 `base`（`args` 末尾加上 `flags`）写到 `path` 文件的 `mcpServers.<name>` 下（full 是 `mcpServers.msime`），保留其它所有内容；多个版本各写各的键，互不覆盖。
 ///
-/// 所在目录必须已经存在：它由助手自己创建，不存在说明没装这个助手，替用户建出来只会留下一个不存在的应用的目录。已有条目就是 `base` 只差权限参数时直接改成这次的参数（`Updated`）；其它不同的 `msime` 条目只在 `replace` 时替换，否则以 `mcp_entry_exists` 失败，让设置页先问。符号链接（比如放在 dotfiles 仓库里的配置）会写穿到目标文件，而不是被替换掉。
+/// 所在目录必须已经存在：它由助手自己创建，不存在说明没装这个助手，替用户建出来只会留下一个不存在的应用的目录。已有条目就是 `base` 只差权限参数时直接改成这次的参数（`Updated`），命令是 Nix store 里以前那一版的（`stale`）时同时换成 `base` 的命令；其它不同的 `msime` 条目只在 `replace` 时替换，否则以 `mcp_entry_exists` 失败，让设置页先问。符号链接（比如放在 dotfiles 仓库里的配置）会写穿到目标文件，而不是被替换掉。
 pub fn install(
     path: &Path,
     name: &str,
@@ -318,8 +514,18 @@ pub fn install(
     flags: &[McpFlag],
     replace: bool,
 ) -> Result<InstallOutcome, &'static str> {
+    install_in(path, name, base, flags, replace, Path::new(NIX_STORE))
+}
+
+fn install_in(
+    path: &Path,
+    name: &str,
+    base: &Value,
+    flags: &[McpFlag],
+    replace: bool,
+    store: &Path,
+) -> Result<InstallOutcome, &'static str> {
     let flags = canonical(flags);
-    let mut entry = entry_with_flags(base, &flags);
     let target = match std::fs::canonicalize(path) {
         Ok(resolved) => resolved,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => path.to_owned(),
@@ -329,7 +535,60 @@ pub fn install(
     if !directory.is_dir() {
         return Err("mcp_client_missing");
     }
-    let mut document = read_config(&target)?;
+    #[cfg(unix)]
+    {
+        let opened = open_directory(directory).map_err(|_| "storage")?;
+        let file_name = target.file_name().ok_or("storage")?;
+        install_in_open_directory(&opened, file_name, name, base, &flags, replace, store)
+    }
+    #[cfg(not(unix))]
+    {
+        let document = read_config(&target)?;
+        let permissions = std::fs::metadata(&target)
+            .ok()
+            .map(|metadata| metadata.permissions());
+        let (text, outcome) = updated_document(document, name, base, &flags, replace, store)?;
+        let Some(text) = text else { return Ok(outcome) };
+        let mut file = tempfile::NamedTempFile::new_in(directory).map_err(|_| "storage")?;
+        file.write_all(text.as_bytes()).map_err(|_| "storage")?;
+        if let Some(permissions) = permissions {
+            file.as_file()
+                .set_permissions(permissions)
+                .map_err(|_| "storage")?;
+        }
+        file.as_file().sync_all().map_err(|_| "storage")?;
+        file.persist(&target).map_err(|_| "storage")?;
+        Ok(outcome)
+    }
+}
+
+#[cfg(unix)]
+fn install_in_open_directory(
+    directory: &OwnedFd,
+    file_name: &std::ffi::OsStr,
+    name: &str,
+    base: &Value,
+    flags: &[McpFlag],
+    replace: bool,
+    store: &Path,
+) -> Result<InstallOutcome, &'static str> {
+    let (document, permissions) = read_config_at(directory, file_name)?;
+    let (text, outcome) = updated_document(document, name, base, flags, replace, store)?;
+    if let Some(text) = text {
+        write_config_at(directory, file_name, text.as_bytes(), permissions)?;
+    }
+    Ok(outcome)
+}
+
+fn updated_document(
+    mut document: Map<String, Value>,
+    name: &str,
+    base: &Value,
+    flags: &[McpFlag],
+    replace: bool,
+    store: &Path,
+) -> Result<(Option<String>, InstallOutcome), &'static str> {
+    let mut entry = entry_with_flags(base, flags);
     let servers = document
         .entry("mcpServers")
         .or_insert_with(|| Value::Object(Map::new()))
@@ -337,11 +596,13 @@ pub fn install(
         .ok_or("mcp_config_invalid")?;
     let outcome = match servers.get(name) {
         None => InstallOutcome::Added,
-        Some(existing) => match entry_flags(existing, base) {
-            Some(current) if current == flags => return Ok(InstallOutcome::Unchanged),
-            Some(_) => {
-                // 只改权限参数，命令保留用户写的那个：它可能是指向同一个程序的符号链接，是用户自己选的入口。
-                if let Some(command) = existing.get("command") {
+        Some(existing) => match existing_entry(existing, base, store) {
+            Some(current) if !current.stale && current.flags == flags => {
+                return Ok((None, InstallOutcome::Unchanged));
+            }
+            Some(current) => {
+                // 只改权限参数，命令保留用户写的那个：它可能是指向同一个程序的符号链接，是用户自己选的入口。store 里以前那一版的路径换成这次的命令。
+                if let Some(command) = existing.get("command").filter(|_| !current.stale) {
                     entry["command"] = command.clone();
                 }
                 InstallOutcome::Updated
@@ -353,22 +614,52 @@ pub fn install(
     servers.insert(name.to_owned(), entry);
     let mut text = serde_json::to_string_pretty(&Value::Object(document)).map_err(|_| "storage")?;
     text.push('\n');
-    let mut file = tempfile::NamedTempFile::new_in(directory).map_err(|_| "storage")?;
-    file.write_all(text.as_bytes()).map_err(|_| "storage")?;
-    // The temporary file is private to the user; keep the permissions the file had instead.
-    if let Ok(metadata) = std::fs::metadata(&target) {
-        file.as_file()
-            .set_permissions(metadata.permissions())
-            .map_err(|_| "storage")?;
-    }
-    file.as_file().sync_all().map_err(|_| "storage")?;
-    file.persist(&target).map_err(|_| "storage")?;
-    Ok(outcome)
+    Ok((Some(text), outcome))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn install_stays_in_open_directory_after_its_path_is_replaced() {
+        use std::ffi::OsStr;
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let original = root.path().join("original");
+        let moved = root.path().join("moved");
+        let outside = root.path().join("outside");
+        std::fs::create_dir(&original).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let outside_config = outside.join("mcp.json");
+        std::fs::write(&outside_config, b"{\"synthetic\":true}").unwrap();
+        let directory = open_directory(&original).unwrap();
+
+        std::fs::rename(&original, &moved).unwrap();
+        symlink(&outside, &original).unwrap();
+        assert_eq!(
+            install_in_open_directory(
+                &directory,
+                OsStr::new("mcp.json"),
+                SERVER_NAME,
+                &entry(),
+                &[],
+                false,
+                Path::new(NIX_STORE),
+            ),
+            Ok(InstallOutcome::Added)
+        );
+        assert_eq!(
+            std::fs::read(&outside_config).unwrap(),
+            b"{\"synthetic\":true}"
+        );
+        assert_eq!(
+            configured_flags(&moved.join("mcp.json"), SERVER_NAME, &entry()),
+            Some(vec![])
+        );
+    }
 
     #[test]
     fn canonical_flags_reserve_every_known_slot() {
@@ -378,6 +669,10 @@ mod tests {
             canonical_capacity(McpFlag::ALL.len() + 10),
             McpFlag::ALL.len()
         );
+    }
+
+    fn configured_flags(path: &Path, name: &str, base: &Value) -> Option<Vec<McpFlag>> {
+        configured_entry(path, name, base).map(|existing| existing.flags)
     }
 
     fn entry() -> Value {
@@ -772,6 +1067,121 @@ mod tests {
             std::fs::metadata(&real).unwrap().permissions().mode() & 0o777,
             0o644
         );
+    }
+
+    /// Nix 装的设置窗口旁边的 `msime-mcp` 在 store 里；条目改用 PATH 上的 profile 链接，升级后仍指向当前版本。
+    #[cfg(unix)]
+    #[test]
+    fn a_server_in_the_nix_store_is_registered_through_the_profile_link() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = |path: &[&str]| {
+            let directory = path
+                .iter()
+                .fold(root.path().to_owned(), |at, part| at.join(part));
+            std::fs::create_dir_all(&directory).unwrap();
+            directory
+        };
+        let path_env = |directories: &[&PathBuf]| {
+            let path = std::env::join_paths(directories).unwrap();
+            move |name: &str| (name == "PATH").then(|| path.clone())
+        };
+        let store = directory(&["store"]);
+        let server = directory(&["store", "hash-msime-fcitx5", "bin"]).join("msime-mcp");
+        std::fs::write(&server, b"").unwrap();
+        // PATH 上依次是：store 里另一个包的 bin、用户 profile 里另装的旧版本、不是 Nix 装的副本、空目录、系统 profile 的链接。
+        let other_package = directory(&["store", "hash-other", "bin"]);
+        std::os::unix::fs::symlink(&server, other_package.join("msime-mcp")).unwrap();
+        let old = directory(&["store", "hash-msime-mcp-old", "bin"]).join("msime-mcp");
+        std::fs::write(&old, b"").unwrap();
+        let user_profile = directory(&["user-profile-bin"]);
+        std::os::unix::fs::symlink(&old, user_profile.join("msime-mcp")).unwrap();
+        let system = directory(&["usr-bin"]);
+        let packaged = system.join("msime-mcp");
+        std::fs::write(&packaged, b"").unwrap();
+        let empty = directory(&["empty"]);
+        let profile = directory(&["profile-bin"]);
+        let link = profile.join("msime-mcp");
+        std::os::unix::fs::symlink(&server, &link).unwrap();
+        let env = path_env(&[&other_package, &user_profile, &system, &empty, &profile]);
+        assert_eq!(stable_command_in(server.clone(), &store, &env), link);
+
+        // 没有指向这个文件的链接时仍用 store 里的路径，即使有别的版本的链接。
+        assert_eq!(
+            stable_command_in(
+                server.clone(),
+                &store,
+                path_env(&[&user_profile, &system, &empty])
+            ),
+            server
+        );
+        assert_eq!(
+            stable_command_in(server.clone(), &store, |_: &str| None),
+            server
+        );
+        // 不在 store 里的安装（deb、rpm、Homebrew）原样使用，即使 PATH 上有 profile 链接。
+        assert_eq!(stable_command_in(packaged.clone(), &store, &env), packaged);
+    }
+
+    /// 以前写进配置的 store 路径，不论哪一版、文件还在不在，都算这里写的但已过期：设置页显示已连接并提示更新，更新时换成这次的命令，权限照旧，不用确认替换。
+    #[test]
+    fn a_store_path_entry_is_stale_and_updated_to_the_profile_link() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("mcp.json");
+        let store = Path::new("/store");
+        let options = Path::new("/state/runtime-options.json");
+        let base = server_entry(Path::new("/profile/bin/msime-mcp"), options);
+        let existing = |command: &str, flags: &[McpFlag]| {
+            entry_with_flags(&server_entry(Path::new(command), options), flags)
+        };
+        let found = |entry: &Value, base: &Value| {
+            existing_entry(entry, base, store).map(|found| (found.flags, found.stale))
+        };
+        let write = || {
+            install_in(
+                &config,
+                SERVER_NAME,
+                &base,
+                &[McpFlag::AllowWrite],
+                false,
+                store,
+            )
+        };
+        let old = existing("/store/hash-old/bin/msime-mcp", &[McpFlag::AllowWrite]);
+        assert_eq!(found(&old, &base), Some((vec![McpFlag::AllowWrite], true)));
+        std::fs::write(
+            &config,
+            serde_json::to_vec(&json!({ "mcpServers": { "msime": old } })).unwrap(),
+        )
+        .unwrap();
+        // 权限没变也要写：命令得换掉。
+        assert_eq!(write(), Ok(InstallOutcome::Updated));
+        let written: Value = serde_json::from_slice(&std::fs::read(&config).unwrap()).unwrap();
+        let written = &written["mcpServers"]["msime"];
+        assert_eq!(*written, entry_with_flags(&base, &[McpFlag::AllowWrite]));
+        assert_eq!(
+            found(written, &base),
+            Some((vec![McpFlag::AllowWrite], false))
+        );
+        assert_eq!(write(), Ok(InstallOutcome::Unchanged));
+
+        // 找不到 profile 链接、这次也写 store 路径时，原样相同的不算过期，别的版本仍算。
+        let current = server_entry(Path::new("/store/hash-new/bin/msime-mcp"), options);
+        assert_eq!(found(&current, &current), Some((vec![], false)));
+        assert_eq!(
+            found(&old, &current),
+            Some((vec![McpFlag::AllowWrite], true))
+        );
+        // store 里别的程序、运行时选项不同、或不在 store 里又不是同一个程序的，都不是这里写的。
+        for other in [
+            existing("/store/hash-old/bin/other-mcp", &[]),
+            server_entry(
+                Path::new("/store/hash-old/bin/msime-mcp"),
+                Path::new("/elsewhere/runtime-options.json"),
+            ),
+            existing("/usr/bin/msime-mcp", &[]),
+        ] {
+            assert_eq!(found(&other, &base), None);
+        }
     }
 
     #[test]

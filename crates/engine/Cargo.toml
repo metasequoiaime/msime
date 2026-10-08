@@ -15,6 +15,7 @@ chinese-number = { version = "0.8", default-features = false, features = ["std",
 ewts = "0.1.3"
 exmex = "0.21"
 hex = "0.4"
+libc.workspace = true
 lru = "0.18"
 lunar-lite = "0.1"
 memmap2 = "0.9"

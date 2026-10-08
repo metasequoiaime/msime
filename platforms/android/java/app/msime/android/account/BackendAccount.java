@@ -176,7 +176,7 @@ public final class BackendAccount {
 
     /** Provider availability is a typed server flag; reject org.json scalar coercion. */
     static boolean providerEnabled(Object value) {
-        return value instanceof Boolean && (Boolean) value;
+        return JsonPolicy.strictTrue(value);
     }
 
     /** Start a sign-in and get the nonce the provider's SDK has to echo. */
@@ -740,8 +740,7 @@ public final class BackendAccount {
 
     public ClipboardPage clipboard(String search) throws Exception {
         String token = accessToken();
-        if (token.isEmpty() || search == null || search.length() > 1024 || TextPolicy.hasControl(search)
-                || !TextPolicy.validUnicode(search))
+        if (token.isEmpty() || !validClipboardSearch(search))
             throw new IllegalStateException("invalid clipboard request");
         String encoded = java.net.URLEncoder.encode(search, StandardCharsets.UTF_8.name()).replace("+", "%20");
         JSONObject response = authorizedRequest("GET", "/v1/users/me/clipboard?q=" + encoded, null, token);
@@ -759,6 +758,12 @@ public final class BackendAccount {
             items.add(new ClipboardItem(id, text, updated));
         }
         return new ClipboardPage(requiredBooleanField(response.opt("enabled")), List.copyOf(items));
+    }
+
+    /** Whether a clipboard search fits client-core's 1024-byte text contract. */
+    static boolean validClipboardSearch(String search) {
+        return search != null && TextPolicy.utf8Length(search) <= 1024
+            && !TextPolicy.hasControl(search) && TextPolicy.validUnicode(search);
     }
 
     static boolean requiredBooleanField(Object value) {

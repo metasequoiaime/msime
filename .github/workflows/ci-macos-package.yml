@@ -111,15 +111,15 @@ jobs:
           du -sk "$staged"
       - name: Check the packaging contract
         run: python3 scripts/test-macos-package-resources.py
-      # 与 App 运行时同一个安装器、同一组 URL 和 SHA-256：三个资源包都要能装上，发布出去的 App 才能补齐它们。
-      - name: Install every on-demand resource pack
-        run: cargo run --quiet --locked -p msime-client-core --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check"
+      # 与 App 运行时同一个安装器、同一组 URL 和 SHA-256：macOS 会下载的四个资源包都要能装上，发布出去的 App 才能补齐它们。离线释义和语音运行库只给 Android 按需下载，不在这里装。
+      - name: Install every macOS on-demand resource pack
+        run: cargo run --quiet --locked -p msime-client-core --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check" japanese language-dictionaries handwriting settled-model
 
   package:
     name: Unsigned universal package
     needs: [changes, layout]
     if: ${{ needs.changes.outputs.package == 'true' && github.event.pull_request.draft != true }}
-    runs-on: macos-15
+    runs-on: depot-macos-15
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -195,7 +195,11 @@ struct WeightPlan {
     staircase: Vec<(usize, i64)>,
 }
 
-fn plan_weights(weights: &[i64], owns_entry_key: &[bool], target: usize) -> WeightPlan {
+fn plan_weights(
+    weights: &[i64],
+    owns_entry_key: impl Fn(usize) -> bool,
+    target: usize,
+) -> WeightPlan {
     let top_near_limit = target == 0 && weights[0] > i64::MAX - REBALANCE_GAP;
     let upper = if target == 0 {
         if top_near_limit {
@@ -257,10 +261,7 @@ fn plan_weights(weights: &[i64], owns_entry_key: &[bool], target: usize) -> Weig
     }
     if need_rebalance {
         // The staircase below only demotes rows whose own key is the entry key; a row belonging to another key keeps the weight it already has. The selection's weight is built on the assumption that index `target` was demoted by that loop, so a staircase with a hole in it writes the selection underneath a row that never moved and a tie turns into last place. The staircase also compacts the whole window up against `upper`, which would lift rows from the bottom of the window over a foreign row it is not allowed to touch. When the window is not all ours, promote the selected row on its own the way the low-weight cluster above does.
-        if !owns_entry_key[target..rebalance_end]
-            .iter()
-            .all(|owned| *owned)
-        {
+        if !(target..rebalance_end).all(&owns_entry_key) {
             promote_selection_alone(&mut new_weight, &mut need_rebalance);
         }
     }
@@ -278,13 +279,8 @@ fn plan_weights(weights: &[i64], owns_entry_key: &[bool], target: usize) -> Weig
                 .min(MANAGED_WEIGHT_CEILING);
         }
         // Absolute indices: the first demoted row lands one gap under `upper`.
-        for (index, owned) in owns_entry_key
-            .iter()
-            .enumerate()
-            .take(rebalance_end)
-            .skip(target)
-        {
-            if *owned {
+        for index in target..rebalance_end {
+            if owns_entry_key(index) {
                 staircase.push((index, base.saturating_sub(gap(index))));
             }
         }
@@ -322,16 +318,14 @@ pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
         .filter(|item| item.source.is_dictionary())
         .collect();
     database_candidates.sort_by_key(|item| std::cmp::Reverse(item.weight));
-    let owns_entry_key: Vec<bool> = database_candidates
-        .iter()
-        .map(|item| {
-            if request.kind.is_wubi() {
-                item.pinyin == request.entry_key
-            } else {
-                candidate_dictionary_key(item, request.context_key) == request.entry_key
-            }
-        })
-        .collect();
+    let owns_entry_key = |index: usize| {
+        let item = database_candidates[index];
+        if request.kind.is_wubi() {
+            item.pinyin == request.entry_key
+        } else {
+            candidate_dictionary_key(item, request.context_key) == request.entry_key
+        }
+    };
     // By word only, whatever key the row was read under.
     let rank = database_candidates
         .iter()
@@ -347,7 +341,7 @@ pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
     let mut main = open_dictionary_for_writing(request.main_db)?;
     let main_transaction = main.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let weights: Vec<i64> = database_candidates.iter().map(|item| item.weight).collect();
-    let plan = plan_weights(&weights, &owns_entry_key, target);
+    let plan = plan_weights(&weights, owns_entry_key, target);
     for (index, weight) in plan.staircase {
         update_ranked_weight(
             &main_transaction,
@@ -803,7 +797,7 @@ mod tests {
     }
 
     fn plan(weights: &[i64], owned: &[bool], target: usize) -> WeightPlan {
-        plan_weights(weights, owned, target)
+        plan_weights(weights, |index| owned[index], target)
     }
 
     #[test]

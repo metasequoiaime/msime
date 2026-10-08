@@ -134,8 +134,8 @@ only() {
 resources="$(cargo run --quiet --locked -p msime-client-core --example install_resources -- "$work/desktop-resources" | tail -n 1)"
 
 # ---- On-demand resource packs ----
-# 编译之前先用 App 运行时的同一个安装器、同一组 URL 和 SHA-256 把三个资源包装一遍，失败就在这里停下：资源包不在包里，发布出去的 App 只能靠这些地址补齐，地址失效或内容漂移的发布包不该出去。不接管道，安装器的退出码就是这一步的结果。
-cargo run --quiet --locked -p msime-client-core --example install_resource_pack -- "$work/pack-check" >/dev/null
+# 编译之前先用 App 运行时的同一个安装器、同一组 URL 和 SHA-256 把 macOS 会下载的四个资源包（日文词典、语言词库、手写模型、桌面神经联想模型）装一遍，失败就在这里停下：资源包不在包里，发布出去的 App 只能靠这些地址补齐，地址失效或内容漂移的发布包不该出去。离线释义和语音运行库只给 Android 按需下载，不在这里装。不接管道，安装器的退出码就是这一步的结果。
+cargo run --quiet --locked -p msime-client-core --example install_resource_pack -- "$work/pack-check" japanese language-dictionaries handwriting settled-model >/dev/null
 
 # ---- Input method bundle ----
 # The minimum system version goes to the C/C++ compilers and to CMake separately, never as MACOSX_DEPLOYMENT_TARGET: rustc applies that to host proc-macro dylibs too, which then fail to load (README.md, 构建与本地测试).

@@ -68,17 +68,28 @@ final class MacDictionaryModel: ObservableObject {
         defer { self.panel = nil }
         guard !self.closed, response == .OK, let url = selected.url else { return }
         do {
-          let scoped = url.startAccessingSecurityScopedResource()
-          defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-          let input = try FileHandle(forReadingFrom: url)
-          defer { try? input.close() }
-          let data = try input.read(upToCount: 65537) ?? Data()
-          guard data.count <= 65536, let text = String(data: data, encoding: .utf8), !text.isEmpty, !text.contains("\0") else { throw BackendAccountClient.Failure(status: 400) }
+          let text = try await Task.detached(priority: .userInitiated) {
+            try Self.readImportText(from: url)
+          }.value
+          guard !self.closed else { return }
           self.importText = text; self.message = nil
-        } catch { self.message = "文件需为不超过 64 KiB 的 UTF-8 文本。" }
+        } catch { if !self.closed { self.message = "文件需为不超过 64 KiB 的 UTF-8 文本。" } }
       }
     }
   }
+
+  private struct InvalidImportFile: LocalizedError, Sendable {}
+
+  nonisolated private static func readImportText(from url: URL) throws -> String {
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    let data = try MacSecureFileReader.readData(from: url, maximumBytes: 65536)
+    guard data.count <= 65536, let text = String(data: data, encoding: .utf8), !text.isEmpty, !text.contains("\0") else {
+      throw InvalidImportFile()
+    }
+    return text
+  }
+
   func uploadImport() {
     guard let text = importText else { return }
     let format = format

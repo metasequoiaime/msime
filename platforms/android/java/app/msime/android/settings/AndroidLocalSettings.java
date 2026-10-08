@@ -59,6 +59,8 @@ public final class AndroidLocalSettings {
     // ---- 只在本机的键 ----
     public static final String INCOGNITO = "platform.android.incognito";
     public static final String VOICE_CONTRIBUTE_AUDIO = "platform.android.voice_contribute_audio";
+    /** 「滑行输入」（{@link GlideTypingPolicy}），默认关。服务端的同步字段表还没有这个键，所以先只在本机。 */
+    public static final String GLIDE_TYPING = "platform.android.glide_typing";
     /** 设计范围的键盘高度调整（dp，-46..55，即 75%..130%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
     public static final String KEYBOARD_HEIGHT_ADJUSTMENT = "platform.android.keyboard_height_adjustment";
     public static final String DEVELOPER_DEBUG_OVERLAY = "platform.android.developer.debug_overlay";
@@ -121,7 +123,7 @@ public final class AndroidLocalSettings {
         }
     }
 
-    private static final Map<String, Spec> SPECS = new LinkedHashMap<>(28);
+    private static final Map<String, Spec> SPECS = new LinkedHashMap<>(29);
 
     static {
         choice(APP_THEME, "siji", true, "siji", "chunya", "xiayin", "qiushan", "dongxue");
@@ -145,6 +147,7 @@ public final class AndroidLocalSettings {
 
         bool(INCOGNITO, false, false);
         bool(VOICE_CONTRIBUTE_AUDIO, false, false);
+        bool(GLIDE_TYPING, false, false);
         integer(KEYBOARD_HEIGHT_ADJUSTMENT, 0, false, HEIGHT_ADJUSTMENT_MIN, HEIGHT_ADJUSTMENT_MAX, 1);
         bool(DEVELOPER_DEBUG_OVERLAY, false, false);
         choice(DEVELOPER_LOG_LEVEL, "warn", false, "error", "warn", "info", "debug");

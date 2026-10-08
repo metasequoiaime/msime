@@ -119,7 +119,7 @@ pub(crate) fn sentence_model(
         Arc::clone(cache.get_or_insert(path.clone(), || Arc::new(OnceLock::new())))
     };
     slot.get_or_init(|| {
-        std::fs::File::open(&path)
+        crate::bounded_file::open_private(&path)
             .ok()
             .and_then(|file| crate::bounded_file::read(file, MAX_SENTENCE_MODEL_BYTES).ok())
             .and_then(|bytes| match SentenceModel::load(&bytes) {
@@ -212,6 +212,7 @@ pub mod input;
 pub mod lifecycle;
 pub mod mcp;
 pub mod moderation;
+pub mod pack_downloads;
 pub mod plugins;
 pub mod providers;
 pub mod reporting;
@@ -227,6 +228,7 @@ pub use host::*;
 pub use input::*;
 pub use lifecycle::*;
 pub use mcp::*;
+pub use pack_downloads::*;
 pub use plugins::*;
 pub use providers::*;
 pub use session::*;

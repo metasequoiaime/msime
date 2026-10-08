@@ -78,8 +78,8 @@ pub(crate) fn resolve_with_resources(
         }
         refresh_options(&options_path, resources_directory);
     }
-    let file =
-        std::fs::File::open(&options_path).map_err(|_| "Cannot read prepared HostOptions JSON")?;
+    let file = crate::shared::atomic_file::open_private(&options_path)
+        .map_err(|_| "Cannot read prepared HostOptions JSON")?;
     let bytes = read_options_bytes(file)?;
     let document: Value =
         serde_json::from_slice(&bytes).map_err(|_| "Cannot parse prepared HostOptions JSON")?;

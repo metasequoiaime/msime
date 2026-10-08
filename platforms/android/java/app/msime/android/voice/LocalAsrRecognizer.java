@@ -6,7 +6,10 @@ import android.content.res.Configuration;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,7 +26,7 @@ import org.json.JSONObject;
 /**
  * On-device recognition with an installed sherpa-onnx model: the audio never leaves the device.
  *
- * <p>The recognizer is the shared one every desktop host uses (`shared/voice/LocalAsr`), compiled into this host's JNI library; the runtime is the pinned sherpa-onnx `.aar`'s native libraries, packaged beside it. This class owns the microphone and the two threads between it and that recognizer: capture reads the microphone into a queue so a slow decode never drops audio, and the calling worker loads the model, decodes, reports partial text and finishes.
+ * <p>The recognizer is the shared one every desktop host uses (`shared/voice/LocalAsr`), compiled into this host's JNI library; the runtime is the pinned sherpa-onnx `.aar`'s native libraries, packaged beside it or, where the package leaves them out, taken from the downloaded voice-runtime resource pack. This class owns the microphone and the two threads between it and that recognizer: capture reads the microphone into a queue so a slow decode never drops audio, and the calling worker loads the model, decodes, reports partial text and finishes.
  *
  * <p>Hotwords come from the user's own pinyin dictionary through the shared host API. A model that biases natively gets them at session start; one whose manifest says `"hotwords": "pinyin"` gets the final transcript corrected by the shared pinyin matcher instead.
  */
@@ -46,16 +49,31 @@ public final class LocalAsrRecognizer {
     public static final class Refused extends Exception {
         private static final long serialVersionUID = 1L;
         private final Failure failure;
+        private final boolean runtimeMissing;
 
         Refused(Failure failure) {
+            this(failure, false);
+        }
+
+        private Refused(Failure failure, boolean runtimeMissing) {
             super(failure.name());
             this.failure = failure;
+            this.runtimeMissing = runtimeMissing;
         }
 
         public Failure failure() {
             return failure;
         }
+
+        /** {@link Failure#RUNTIME} 的一种：安装包不带语音运行库，voice-runtime 资源包也还没下载。调用方提示用户去设置里下载，而不是报组件损坏。 */
+        public boolean runtimeMissing() {
+            return runtimeMissing;
+        }
     }
+
+    private static final Object RUNTIME_LOCK = new Object();
+    private static final String ONNXRUNTIME_LIBRARY = "libonnxruntime.so";
+    private static final String SHERPA_LIBRARY = "libsherpa-onnx-c-api.so";
 
     private final AtomicBoolean stopped = new AtomicBoolean();
     private final AtomicBoolean cancelled = new AtomicBoolean();
@@ -130,7 +148,7 @@ public final class LocalAsrRecognizer {
         if (hotwordMode == null) throw new Refused(Failure.MODEL);
         JSONArray hotwords = supplied(hotwordTexts, hotwordPinyin);
         if (hotwords.length() == 0) hotwords = hotwords(hostOptions);
-        if (!NativeClient.localSpeechAvailable()) throw new Refused(Failure.RUNTIME);
+        requireRuntime(trustedRoot);
         BlockingQueue<short[]> audio = new LinkedBlockingQueue<>();
         AtomicBoolean captureFailed = new AtomicBoolean();
         AudioRecord recorder = openRecorder();
@@ -168,6 +186,38 @@ public final class LocalAsrRecognizer {
             releaseLater(LocalAsrPolicy.IDLE_RELEASE_MILLIS,
                 LocalAsrPolicy.IDLE_RELEASE_MILLIS + 5_000);
         }
+    }
+
+    /**
+     * 载入 sherpa-onnx 运行库，载入不了时报 {@link Failure#RUNTIME}。
+     *
+     * <p>安装包带着运行库时按名字就能载入。不带时（full 版改为按需下载）从 {@code files} 下已安装的 voice-runtime 资源包按绝对路径载入：libsherpa-onnx-c-api.so 按 soname 依赖 libonnxruntime.so 又没有 RUNPATH，链接器只认同一命名空间里已经载入的那份，所以先 {@link System#load} 它，再把 sherpa 的路径交给共享识别器。资源包没装时报 {@link Refused#runtimeMissing()}。这里只读不装：输入法进程从不下载资源包。载入成功后整个进程一直用这一份。
+     */
+    private static void requireRuntime(Path files) throws Refused {
+        synchronized (RUNTIME_LOCK) {
+            if (NativeClient.localSpeechAvailable()) return;
+            File directory = files == null ? null
+                : ResourcePacks.directory(files.toFile(), ResourcePacks.VOICE_RUNTIME);
+            if (directory == null) throw new Refused(Failure.RUNTIME, true);
+            File onnxruntime = new File(directory, ONNXRUNTIME_LIBRARY);
+            File sherpa = new File(directory, SHERPA_LIBRARY);
+            if (!readOnlyLibrary(onnxruntime) || !readOnlyLibrary(sherpa)) throw new Refused(Failure.RUNTIME);
+            try {
+                System.load(onnxruntime.getAbsolutePath());
+            } catch (UnsatisfiedLinkError error) {
+                throw new Refused(Failure.RUNTIME);
+            }
+            NativeClient.localSpeechRuntime(sherpa.getAbsolutePath());
+            if (!NativeClient.localSpeechAvailable()) throw new Refused(Failure.RUNTIME);
+        }
+    }
+
+    /** 普通文件（不是符号链接），并且在载入前是只读的。Android 14 起要求动态载入的代码文件只读；共享层发布资源包时已经设成只读，这里仍可写就先改成只读，改不了就不载入。 */
+    private static boolean readOnlyLibrary(File file) {
+        Path path = file.toPath();
+        if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) return false;
+        if (Files.isWritable(path) && !file.setReadOnly()) return false;
+        return !Files.isWritable(path);
     }
 
     private String decode(long session, Thread capture, BlockingQueue<short[]> audio,
@@ -295,7 +345,7 @@ public final class LocalAsrRecognizer {
                 .put("options", new JSONObject(hostOptions))
                 .put("limit", LocalAsrPolicy.HOTWORD_LIMIT);
             JSONObject response = new JSONObject(NativeClient.voiceHotwords(request.toString()));
-            if (!Boolean.TRUE.equals(LocalAsrPolicy.strictBoolean(response.opt("ok")))) {
+            if (!JsonPolicy.strictTrue(response.opt("ok"))) {
                 return new JSONArray();
             }
             JSONObject value = response.optJSONObject("value");
@@ -338,7 +388,7 @@ public final class LocalAsrRecognizer {
         try {
             JSONObject request = new JSONObject().put("text", text).put("hotwords", hotwords);
             JSONObject response = new JSONObject(NativeClient.voiceHotwordCorrect(request.toString()));
-            JSONObject value = Boolean.TRUE.equals(LocalAsrPolicy.strictBoolean(response.opt("ok")))
+            JSONObject value = JsonPolicy.strictTrue(response.opt("ok"))
                 ? response.optJSONObject("value") : null;
             if (value == null || value.isNull("text")) return text;
             String corrected = LocalAsrPolicy.transcript(value.opt("text"));

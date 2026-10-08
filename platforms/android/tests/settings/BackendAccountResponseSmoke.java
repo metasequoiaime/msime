@@ -153,6 +153,13 @@ public final class BackendAccountResponseSmoke {
             "a".repeat(64), "safe", "2026-10-04\uD800")),
             "clipboard metadata rejects malformed Unicode");
 
+        check(BackendAccount.validClipboardSearch("a".repeat(1024)),
+            "clipboard search accepts the shared byte limit");
+        check(BackendAccount.validClipboardSearch("你".repeat(341)),
+            "clipboard search counts UTF-8 bytes at the boundary");
+        check(!BackendAccount.validClipboardSearch("你".repeat(342)),
+            "clipboard search rejects text above the shared UTF-8 byte limit");
+
         System.out.println("Android account response bounds and fields passed");
     }
 

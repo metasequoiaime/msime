@@ -10,6 +10,7 @@ import android.view.View;
 import androidx.annotation.Nullable;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.KeyboardSkin;
+import app.msime.android.ViewPolicy;
 
 /**
  * 一款皮肤的缩略：底色、几枚键帽，和那一枚强调键。
@@ -33,7 +34,7 @@ public final class SkinSwatchView extends View {
     /** Show one design, or nothing at all when the entry carries none. */
     public void setSkin(@Nullable KeyboardSkin value) {
         skin = value;
-        setVisibility(value == null ? GONE : VISIBLE);
+        ViewPolicy.setVisible(this, value != null);
         invalidate();
     }
 

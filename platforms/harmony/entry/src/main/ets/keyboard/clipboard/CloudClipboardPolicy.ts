@@ -121,6 +121,16 @@ export class CloudClipboardPolicy {
     );
   }
 
+  /** Whether a completed send still belongs to the currently active send request. */
+  static sendCurrent(expectedGeneration: number, actualGeneration: number): boolean {
+    return (
+      Number.isSafeInteger(expectedGeneration) &&
+      Number.isSafeInteger(actualGeneration) &&
+      expectedGeneration >= 0 &&
+      expectedGeneration === actualGeneration
+    );
+  }
+
   /**
    * Reads the account bridge's reply to `{operation:"clipboard", clipboard_operation:"list"}`.
    *

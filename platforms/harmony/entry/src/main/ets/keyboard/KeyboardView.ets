@@ -58,6 +58,7 @@ import {
 } from './input/KeyboardLayoutDragPolicy';
 import { NineKeyLayout, NineKey } from './input/NineKeyLayout';
 import { SpaceCursorMovement } from './input/SpaceCursorMovement';
+import { GlideArming, GlideKeyRect, GlidePoint, GlideTypingPolicy } from './input/GlideTypingPolicy';
 import {
   EmojiCatalogModel, EmojiCategory, EmojiItem, EMOJI_PAGE_SIZE
 } from './emoji/EmojiCatalogModel';
@@ -196,6 +197,8 @@ const BACKSPACE_REPEAT_MILLIS: number = 60;
 // like it should cost.
 const CURSOR_STEP_VP: number = 12;
 const KEY_HINT_FONT_SIZE: number = 10;
+// The glide trail's stroke, about as wide as a fingertip's line reads without hiding the key faces under it.
+const GLIDE_TRAIL_WIDTH_VP: number = 4;
 /** `.cursor { width: 1.5px }` in the source's candidate stylesheets. */
 const PREEDIT_CARET_WIDTH_VP: number = 1.5;
 // The idle strip: a 34vp logo button with a 22vp mark, 13px pills, and trailing icons at 20 in 34vp targets.
@@ -388,6 +391,8 @@ struct KeyboardView {
   private clipListScroller: Scroller = new Scroller();
   /** Bumped by every cloud fetch and every drop, so only the newest answer is applied. */
   private cloudRequest: number = 0;
+  /** Bumped when a cloud send is cancelled or its target/context changes, so late answers are dropped. */
+  private cloudSendRequest: number = 0;
   /** The editor the cloud listing on screen was fetched for. */
   private cloudEditor: number = -1;
   // Every item of a panel with its keywords, read once per panel the first time it is searched.
@@ -506,6 +511,27 @@ struct KeyboardView {
   private geometryBaseRowSpacing: number = 0;
   private geometryBaseHeight: number = 0;
   private geometryAxis: KeyboardLayoutDragAxis = KeyboardLayoutDragAxis.UNDECIDED;
+  /** Glide typing (滑行输入): the letter keys a..z in window coordinates, as their area callbacks last reported them; null until a key has been laid out. */
+  private glideKeys: (GlideKeyRect | null)[] = GlideTypingPolicy.emptyKeys();
+  /** The finger being watched for a glide, from its touch-down on a letter key until it lifts; -1 while none is. */
+  private glideFinger: number = -1;
+  private glideDownKey: number = -1;
+  private glideDownX: number = 0;
+  /** When the watched finger went down, by Date.now(); every sample's time is measured from it. */
+  private glideDownMillis: number = 0;
+  /** Every sample of the watched finger since touch-down, in window coordinates. */
+  private glidePoints: GlidePoint[] = [];
+  /**
+   * Set when a touch becomes a glide and cleared only by the next touch-down on the letter rows. A letter tapped in between is not typed: the key the stroke started on, whichever order ArkUI delivers its click and the lift in, and any other finger's key while the stroke ran.
+   */
+  private glideSwallowsTap: boolean = false;
+  /** A glide is under way: its trail is drawn over the keys, and other fingers are ignored until it lifts. */
+  @State glideActive: boolean = false;
+  /** The keyboard's top-left in window coordinates, which the trail canvas is drawn from. */
+  private glideOriginX: number = 0;
+  private glideOriginY: number = 0;
+  private glideContext: CanvasRenderingContext2D =
+    new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
   aboutToAppear(): void {
     this.english = KeyboardSession.shared.isEnglish();
@@ -728,6 +754,7 @@ struct KeyboardView {
       this.diagnosticTimer = -1;
     }
     this.cursorDrag.cancel();
+    this.glideReset();
     this.handwritingRecognition.changed();
     this.voiceRecognizer.shutdown();
     KeyboardSession.shared.voiceCancel();
@@ -964,6 +991,10 @@ struct KeyboardView {
   }
 
   private tapLetter(letter: string): void {
+    if (this.glideSwallowsTap) {
+      // The stroke already typed what it meant; see glideSwallowsTap.
+      return;
+    }
     // The key by its position, so Dubeolsik jamo and a shifted capital count on the same key as the plain letter.
     KeyboardSession.shared.recordKey(KeyIdPolicy.character(letter));
     if (this.koreanFace()) {
@@ -1004,6 +1035,222 @@ struct KeyboardView {
       this.letterCase.reset();
       this.caseMode = this.letterCase.mode();
     }
+  }
+
+  /** Whether a touch on the letter keys may become a glide right now; see GlideTypingPolicy.armed. */
+  private glideArmed(): boolean {
+    const arming: GlideArming = {
+      enabled: this.feedback.glideTyping,
+      lettersLayer: this.qwertyLettersShowing(),
+      engineScheme: this.engineScheme,
+      english: this.english,
+      localMode: this.localMode,
+      composes: KeyboardSession.shared.composes()
+    };
+    return GlideTypingPolicy.armed(arming);
+  }
+
+  /** Whether typingFace() is drawing the letters layer of the standard 26-key keyboard, with nothing over it: every branch it takes before that one, and every face that relabels those keys. */
+  private qwertyLettersShowing(): boolean {
+    return this.surface === SURFACE_NONE && !this.symbols && !this.japanese
+      && !KeyboardScheme.usesHandwritingFace(this.scheme, this.english, this.symbols, this.localMode)
+      && !KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode)
+      && !this.zhuyinFace() && !this.strokeFace() && !this.koreanFace()
+      && !this.vietnameseFace() && !this.tibetanFace();
+  }
+
+  /** A letter key was laid out; anything else drawn by flexibleKey is not a glide key. */
+  private recordGlideKey(letter: string | undefined, area: Area): void {
+    if (letter === undefined) {
+      return;
+    }
+    const index: number = GlideTypingPolicy.letterIndex(letter);
+    if (index < 0) {
+      return;
+    }
+    const rect: GlideKeyRect = {
+      left: Number(area.globalPosition.x ?? 0),
+      top: Number(area.globalPosition.y ?? 0),
+      width: Number(area.width),
+      height: Number(area.height)
+    };
+    this.glideKeys[index] = rect;
+  }
+
+  /** The letter key under a window point, reaching into the half gaps around it as its touch region does. */
+  private glideKeyAt(x: number, y: number): number {
+    return GlideTypingPolicy.keyAt(this.glideKeys, x, y, this.keySpacing() / 2, this.rowSpacing() / 2);
+  }
+
+  /** The touch that changed in this event with the given finger id, or null when this event is about another finger. */
+  private changedTouch(event: TouchEvent, finger: number): TouchObject | null {
+    for (const touch of event.changedTouches) {
+      if (touch.id === finger) {
+        return touch;
+      }
+    }
+    return null;
+  }
+
+  /** Whether the finger is still among those on the screen. */
+  private touching(event: TouchEvent, finger: number): boolean {
+    for (const touch of event.touches) {
+      if (touch.id === finger) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Every touch on the three letter rows passes through here, whichever key it lands on: watch a touch that went down on a letter, start a glide once it is over another letter far enough sideways, and send the stroke when it lifts.
+   */
+  private glideTouch(event: TouchEvent): void {
+    if (event.type === TouchType.Down) {
+      this.glideDown(event);
+    } else if (event.type === TouchType.Move) {
+      this.glideMove(event);
+    } else if (event.type === TouchType.Up) {
+      this.glideUp(event);
+    } else if (event.type === TouchType.Cancel) {
+      // Whatever took the touch away, a stroke the user did not finish is not sent.
+      this.glideReset();
+    }
+  }
+
+  private glideDown(event: TouchEvent): void {
+    if (event.changedTouches.length === 0) {
+      return;
+    }
+    const touch: TouchObject = event.changedTouches[0];
+    if (this.glideActive && this.touching(event, this.glideFinger)) {
+      // Another finger while the glide runs is ignored until the glide lifts.
+      return;
+    }
+    if (this.glideFinger >= 0 && touch.id !== this.glideFinger && this.touching(event, this.glideFinger)) {
+      // A second finger before the stroke became a glide: this is two-thumb typing, so the first touch stays a tap.
+      this.glideReset();
+      return;
+    }
+    // A fresh touch: whatever the last glide swallowed, this one is the user's next key.
+    this.glideReset();
+    this.glideSwallowsTap = false;
+    if (event.touches.length > 1 || !this.glideArmed()) {
+      return;
+    }
+    const key: number = this.glideKeyAt(touch.windowX, touch.windowY);
+    if (key < 0) {
+      return;
+    }
+    this.glideFinger = touch.id;
+    this.glideDownKey = key;
+    this.glideDownX = touch.windowX;
+    this.glideDownMillis = Date.now();
+    this.addGlidePoint(touch.windowX, touch.windowY, 0);
+  }
+
+  private glideMove(event: TouchEvent): void {
+    if (this.glideFinger < 0) {
+      return;
+    }
+    if (!this.glideActive && event.touches.length > 1) {
+      this.glideReset();
+      return;
+    }
+    let current: TouchObject | null = this.changedTouch(event, this.glideFinger);
+    if (current === null) {
+      for (const touch of event.touches) {
+        if (touch.id === this.glideFinger) {
+          current = touch;
+        }
+      }
+    }
+    if (current === null) {
+      return;
+    }
+    // The samples the system coalesced into this one event, so a quick stroke keeps the corners it turned between frames.
+    const now: number = Date.now() - this.glideDownMillis;
+    const previous: number = this.glidePoints.length > 0 ? this.glidePoints[this.glidePoints.length - 1].t : 0;
+    const coalesced: HistoricalPoint[] = event.getHistoricalPoints()
+      .filter((historical: HistoricalPoint): boolean => historical.touchObject.id === this.glideFinger);
+    for (let index: number = 0; index < coalesced.length; index++) {
+      this.addGlidePoint(coalesced[index].touchObject.windowX, coalesced[index].touchObject.windowY,
+        GlideTypingPolicy.coalescedMillis(previous, now, index, coalesced.length));
+    }
+    this.addGlidePoint(current.windowX, current.windowY, Math.max(previous, now));
+    if (!this.glideActive && GlideTypingPolicy.starts(this.glideDownKey,
+      this.glideKeyAt(current.windowX, current.windowY), this.glideDownX, current.windowX,
+      GlideTypingPolicy.keyWidth(this.glideKeys))) {
+      this.glideActive = true;
+      this.glideSwallowsTap = true;
+    }
+    if (this.glideActive) {
+      this.drawGlideTrail();
+    }
+  }
+
+  private glideUp(event: TouchEvent): void {
+    if (this.glideFinger < 0) {
+      return;
+    }
+    const touch: TouchObject | null = this.changedTouch(event, this.glideFinger);
+    if (touch === null) {
+      // Some other finger lifted.
+      return;
+    }
+    if (!this.glideActive) {
+      // A tap, which the key's own click types.
+      this.glideReset();
+      return;
+    }
+    this.addGlidePoint(touch.windowX, touch.windowY, Date.now() - this.glideDownMillis);
+    const request: string | null = GlideTypingPolicy.request(this.glideKeys, this.glidePoints);
+    this.glideReset();
+    if (request !== null) {
+      // A stroke the Engine declines (handled false) is dropped: its keys are never typed in its place.
+      KeyboardSession.shared.glide(request);
+    }
+  }
+
+  /** One sample of the watched finger, `millis` after it went down. */
+  private addGlidePoint(x: number, y: number, millis: number): void {
+    if (this.glidePoints.length >= GlideTypingPolicy.BUFFER_POINTS) {
+      this.glidePoints = GlideTypingPolicy.downsample(this.glidePoints, GlideTypingPolicy.BUFFER_POINTS / 2);
+    }
+    const point: GlidePoint = { x: x, y: y, t: millis };
+    this.glidePoints.push(point);
+  }
+
+  /** Forget the watched touch and take the trail down; glideSwallowsTap is left for the next touch-down to clear. */
+  private glideReset(): void {
+    this.glideFinger = -1;
+    this.glideDownKey = -1;
+    this.glidePoints = [];
+    this.glideActive = false;
+  }
+
+  /** The stroke so far as one smooth line in the accent colour: quadratic segments through the midpoints of the samples, so the corners between them do not show. */
+  private drawGlideTrail(): void {
+    const context: CanvasRenderingContext2D = this.glideContext;
+    context.clearRect(0, 0, context.width, context.height);
+    const points: GlidePoint[] = this.glidePoints;
+    if (points.length < 2) {
+      return;
+    }
+    const left: number = this.glideOriginX;
+    const top: number = this.glideOriginY;
+    context.strokeStyle = this.skin.accent;
+    context.lineWidth = GLIDE_TRAIL_WIDTH_VP;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.beginPath();
+    context.moveTo(points[0].x - left, points[0].y - top);
+    for (let index: number = 1; index < points.length - 1; index++) {
+      context.quadraticCurveTo(points[index].x - left, points[index].y - top,
+        (points[index].x + points[index + 1].x) / 2 - left, (points[index].y + points[index + 1].y) / 2 - top);
+    }
+    context.lineTo(points[points.length - 1].x - left, points[points.length - 1].y - top);
+    context.stroke();
   }
 
   @Builder
@@ -1049,6 +1296,7 @@ struct KeyboardView {
     .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
       offsetX: 0, offsetY: this.skin.shadowOffset })
     .responseRegion(this.keyHitRegion())
+    .onAreaChange((_old: Area, now: Area): void => this.recordGlideKey($$.letter, now))
     .onClick($$.action)
   }
 
@@ -3288,6 +3536,7 @@ struct KeyboardView {
    * This and the refresh button are the only times the keyboard asks: there is no polling, nothing is uploaded on copy, and a signed-out keyboard answers from the session file without a request.
    */
   private openCloudClipboard(): void {
+    this.invalidateCloudSend();
     this.clipSendTarget = '';
     this.cloudVisible = KeyboardSession.shared.cloudClipboardVisible();
     this.cloudEditor = KeyboardSession.shared.cloudClipboardEditor();
@@ -3326,6 +3575,7 @@ struct KeyboardView {
   /** Forgets the listing on screen and any answer still on its way. */
   private dropCloudClipboard(): void {
     this.cloudRequest++;
+    this.invalidateCloudSend();
     this.cloudClips = [];
     this.cloudStateKnown = false;
     this.cloudLoading = false;
@@ -3359,6 +3609,7 @@ struct KeyboardView {
     if (tab === this.clipboardTab) {
       return;
     }
+    this.invalidateCloudSend();
     this.clipboardTab = tab;
     this.clipSendTarget = '';
     this.confirmingClear = false;
@@ -3401,7 +3652,14 @@ struct KeyboardView {
     if (!this.cloudVisible) {
       return;
     }
+    this.invalidateCloudSend();
     this.clipSendTarget = text;
+  }
+
+  /** Cancels the visible send state without trying to cancel the request already on the wire. */
+  private invalidateCloudSend(): void {
+    this.cloudSendRequest++;
+    this.cloudSending = false;
   }
 
   /** Why the offered entry cannot be sent right now, or null when it can. */
@@ -3422,8 +3680,12 @@ struct KeyboardView {
     if (this.cloudSending || text.length === 0 || this.cloudSendBlock() !== null) {
       return;
     }
+    const request: number = ++this.cloudSendRequest;
     this.cloudSending = true;
     KeyboardSession.shared.sendToCloudClipboard(text).then((outcome: CloudClipboardSendOutcome): void => {
+      if (!CloudClipboardPolicy.sendCurrent(request, this.cloudSendRequest)) {
+        return;
+      }
       this.cloudSending = false;
       if (this.clipSendTarget === text) {
         this.clipSendTarget = '';
@@ -5294,7 +5556,7 @@ struct KeyboardView {
                   glyph: '', icon: $r('app.media.tool_sound'), title: '按键音', on: this.feedback.sound,
                   toggles: true, enabled: true, action: () => this.setFeedback({
                     sound: !this.feedback.sound, haptics: this.feedback.haptics,
-                    strength: this.feedback.strength
+                    strength: this.feedback.strength, glideTyping: this.feedback.glideTyping
                   })
                 });
               }
@@ -5303,7 +5565,7 @@ struct KeyboardView {
                   glyph: '', icon: $r('app.media.tool_vibration'), title: '按键振动',
                   on: this.feedback.haptics, toggles: true, enabled: true, action: () => this.setFeedback({
                     sound: this.feedback.sound, haptics: !this.feedback.haptics,
-                    strength: this.feedback.strength
+                    strength: this.feedback.strength, glideTyping: this.feedback.glideTyping
                   })
                 });
               }
@@ -5313,7 +5575,8 @@ struct KeyboardView {
                   glyph: KeyboardFeedback.title(this.feedback.strength), icon: null, title: '振动强度',
                   on: false, toggles: false, enabled: this.feedback.haptics, action: () => this.setFeedback({
                     sound: this.feedback.sound, haptics: this.feedback.haptics,
-                    strength: KeyboardFeedback.nextStrength(this.feedback.strength)
+                    strength: KeyboardFeedback.nextStrength(this.feedback.strength),
+                    glideTyping: this.feedback.glideTyping
                   })
                 });
               }
@@ -5589,6 +5852,7 @@ struct KeyboardView {
               .opacity(0.55)
               .padding({ left: 12 })
               .onClick(() => {
+                this.invalidateCloudSend();
                 this.clipSendTarget = '';
               })
           }
@@ -6088,6 +6352,14 @@ struct KeyboardView {
         this.settings.candidateDecorationImage !== null, this.settings.candidateDecorationTopVp,
         KeyboardMetrics.ROOT_VERTICAL_PADDING_VP) })
       this.keyboard()
+      if (this.glideActive) {
+        // The glide trail, over the keys and blind to touches: the finger drawing it is already bound to the row it went down in.
+        Canvas(this.glideContext)
+          .width('100%')
+          .height('100%')
+          .hitTestBehavior(HitTestMode.None)
+          .onReady(() => this.drawGlideTrail())
+      }
       if (this.punctuation || this.brackets || this.managing >= 0
         || this.expandedGloss >= 0) {
         Column() {
@@ -6106,6 +6378,10 @@ struct KeyboardView {
       }
     }
     .width('100%')
+    .onAreaChange((_old: Area, now: Area): void => {
+      this.glideOriginX = Number(now.globalPosition.x ?? 0);
+      this.glideOriginY = Number(now.globalPosition.y ?? 0);
+    })
   }
 
   @Builder
@@ -6203,6 +6479,8 @@ struct KeyboardView {
         }
         .width('100%')
         .height(this.rowHeight(0))
+        // The rows rather than the keys watch for a glide: a touch keeps reporting to the row it went down in wherever the finger goes, and the keys themselves stay plain taps.
+        .onTouch((event: TouchEvent): void => this.glideTouch(event))
 
         Row({ space: this.keySpacing() }) {
           ForEach(this.symbols ? SYMBOL_ROWS[1] : LETTER_ROWS[1], (key: string) => {
@@ -6215,6 +6493,7 @@ struct KeyboardView {
         }
         .width('100%')
         .height(this.rowHeight(1))
+        .onTouch((event: TouchEvent): void => this.glideTouch(event))
 
         Row({ space: this.keySpacing() }) {
           if (!this.symbols) {
@@ -6241,6 +6520,7 @@ struct KeyboardView {
         }
         .width('100%')
         .height(this.rowHeight(2))
+        .onTouch((event: TouchEvent): void => this.glideTouch(event))
 
         this.actionRow()
       }

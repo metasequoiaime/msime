@@ -157,6 +157,12 @@ import {
 } from "../entry/src/main/ets/keyboard/KeyboardFeedbackBridge";
 import { HapticStrength, KeyboardFeedback } from "../entry/src/main/ets/keyboard/KeyboardFeedback";
 import {
+  GlideArming,
+  GlideKeyRect,
+  GlidePoint,
+  GlideTypingPolicy,
+} from "../entry/src/main/ets/keyboard/input/GlideTypingPolicy";
+import {
   EnglishCompletions,
   EnglishReplacement,
   EnglishSuggestionPolicy,
@@ -288,7 +294,12 @@ import {
   KeyPressFlush,
 } from "../entry/src/main/ets/keyboard/KeyIdPolicy";
 import { OnlineCandidatePolicy } from "../entry/src/main/ets/keyboard/candidate/OnlineCandidatePolicy";
-import { MAX_SESSION_BYTES, sessionFitsStorage } from "../entry/src/main/ets/account/AccountSessionPolicy";
+import { utf8WriteComplete } from "../entry/src/main/ets/keyboard/Utf8";
+import {
+  MAX_SESSION_BYTES,
+  sessionFitsStorage,
+  sessionWriteComplete,
+} from "../entry/src/main/ets/account/AccountSessionPolicy";
 import {
   TranslationPolicy,
   TranslationQuery,
@@ -506,6 +517,11 @@ group("maps Harmony commits to shared typing-statistics sources", () => {
       TypingStatisticsPolicy.hour(new Date(2026, 8, 19, 23, 59)) === 23,
     "hour buckets use the same local calendar as the day beside them",
   );
+  check(
+    TypingStatisticsPolicy.isCurrentGeneration(7, 7) &&
+      !TypingStatisticsPolicy.isCurrentGeneration(6, 7),
+    "a statistics read only applies to the editor that requested it",
+  );
 });
 
 group("names keys with the shared key heatmap ids and nothing else", () => {
@@ -722,6 +738,13 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
       !OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 8, 7),
     "a stale online failure cannot clear a newer request",
   );
+  check(
+    OnlineCandidatePolicy.hasActiveWork(signature, false, 0) &&
+      OnlineCandidatePolicy.hasActiveWork("", true, 0) &&
+      OnlineCandidatePolicy.hasActiveWork("", false, 1) &&
+      !OnlineCandidatePolicy.hasActiveWork("", false, 0),
+    "a vanished online query invalidates queued or in-flight work",
+  );
   const response = JSON.stringify({
     choices: [
       {
@@ -783,6 +806,21 @@ group("bounds persisted account sessions by UTF-8 bytes", () => {
   check(sessionFitsStorage("a".repeat(MAX_SESSION_BYTES)), "ASCII session at the byte limit fits");
   check(!sessionFitsStorage("你".repeat(Math.floor(MAX_SESSION_BYTES / 3) + 1)),
     "multibyte session above the byte limit is refused");
+  check(sessionWriteComplete("synthetic", 9),
+    "a complete ASCII session write is accepted");
+  check(!sessionWriteComplete("synthetic", 8),
+    "a short ASCII session write is refused");
+  check(sessionWriteComplete("你", 3),
+    "a complete multibyte session write uses UTF-8 bytes");
+  check(!sessionWriteComplete("你", 2),
+    "a short multibyte session write is refused");
+});
+
+group("private text writes require every UTF-8 byte", () => {
+  check(utf8WriteComplete("synthetic", 9), "a complete private text write is accepted");
+  check(!utf8WriteComplete("synthetic", 8), "a short private text write is refused");
+  check(utf8WriteComplete("你", 3), "a multibyte private text write uses UTF-8 bytes");
+  check(!utf8WriteComplete("你", 2), "a short multibyte private text write is refused");
 });
 
 group("AI 候选逐条跳过无效结构，保留相邻的有效候选", () => {
@@ -837,6 +875,28 @@ group("keeps translation provider policy bounded and credential-free in signatur
     !TranslationPolicy.signature(query).includes("secret"),
     "provider signatures never contain credentials",
   );
+  const rotated = {
+    ...query,
+    niutrans: { enabled: true, app_id: "account", apikey: "rotated" },
+  };
+  check(
+    TranslationPolicy.signature(query) !== TranslationPolicy.signature(rotated),
+    "rotating a provider credential invalidates the in-flight translation",
+  );
+  check(
+    TranslationPolicy.cacheKey(query, "en", {
+      text: "你好",
+      key: "你好",
+      source_language: "zh",
+      target_language: "en",
+    }) !== TranslationPolicy.cacheKey(rotated, "en", {
+      text: "你好",
+      key: "你好",
+      source_language: "zh",
+      target_language: "en",
+    }),
+    "rotating a provider credential does not reuse its translation cache",
+  );
   check(
     TranslationPolicy.cacheKey(query, "en", {
       text: "你好",
@@ -856,6 +916,19 @@ group("keeps translation provider policy bounded and credential-free in signatur
       !TranslationPolicy.shouldReleaseAfterFailure(signature, signature, 3, 4, 7, 7) &&
       !TranslationPolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 8, 7),
     "a stale translation failure cannot clear a newer request",
+  );
+  check(
+    TranslationPolicy.hasActiveWork(signature, false, 0) &&
+      TranslationPolicy.hasActiveWork("", true, 0) &&
+      TranslationPolicy.hasActiveWork("", false, 1) &&
+      !TranslationPolicy.hasActiveWork("", false, 0),
+    "a vanished translation query invalidates queued or in-flight work",
+  );
+  check(
+    !TranslationPolicy.shouldResetCache(4095) &&
+      TranslationPolicy.shouldResetCache(4096) &&
+      TranslationPolicy.shouldResetCache(5000),
+    "translation caches reset at their bounded capacity",
   );
   check(
     TranslationPolicy.shouldReleaseAfterProviderFailure("tencent", false, true),
@@ -5425,6 +5498,7 @@ group("the settings page and the keyboard agree on what the loudest haptic is ca
     sound: true,
     haptics: true,
     strength: HapticStrength.HEAVY,
+    glideTyping: false,
   });
   check(heavy.hapticStrength === "strong", "the keyboard\u0027s heavy reaches the page as strong");
   check(
@@ -5452,6 +5526,7 @@ group("the settings page and the keyboard agree on what the loudest haptic is ca
       sound: false,
       haptics: false,
       strength: HapticStrength.LIGHT,
+      glideTyping: false,
     }).hapticStrength === "light",
     "the other two names are the same on both sides",
   );
@@ -5483,6 +5558,252 @@ group("an unfamiliar feedback value falls back by field rather than wholesale", 
       KeyboardFeedbackBridge.previewDuration("medium"),
     "and an unknown one previews the default rather than nothing",
   );
+});
+
+group("滑行输入 is a device switch in the feedback file, off unless turned on", () => {
+  check(KeyboardFeedback.DEFAULTS.glideTyping === false, "a keyboard that never saw the switch does not glide");
+  check(
+    KeyboardFeedback.parse(JSON.stringify({ sound: true, haptics: false, strength: "light" })).glideTyping === false,
+    "a file written before the switch existed reads as off",
+  );
+  const on = KeyboardFeedback.parse(
+    JSON.stringify({ sound: false, haptics: false, strength: "medium", glideTyping: true }),
+  );
+  check(on.glideTyping === true, "a stored on reads back as on");
+  check(
+    KeyboardFeedback.parse(KeyboardFeedback.serialize(on)).glideTyping === true,
+    "and survives being written again",
+  );
+  check(
+    KeyboardFeedback.parse(
+      JSON.stringify({ sound: true, haptics: true, strength: "light", glideTyping: "yes" }),
+    ).glideTyping === false && KeyboardFeedback.parse(
+      JSON.stringify({ sound: true, haptics: true, strength: "light", glideTyping: "yes" }),
+    ).sound === true,
+    "a value that is not a boolean falls back on its own, keeping the fields beside it",
+  );
+  check(KeyboardFeedbackBridge.toShared(on).glideTyping === true, "the page is shown the switch as stored");
+  check(
+    KeyboardFeedbackBridge.fromShared({
+      soundEnabled: false,
+      hapticsEnabled: false,
+      hapticStrength: "medium",
+      glideTyping: true,
+    }).glideTyping === true,
+    "and what the page saves reaches the keyboard",
+  );
+  check(
+    KeyboardFeedbackBridge.fromShared({
+      soundEnabled: true,
+      hapticsEnabled: false,
+      hapticStrength: "medium",
+    }).glideTyping === false,
+    "a record without the switch, as the account sync builds one, reads as off; the sync passes the stored value itself",
+  );
+});
+
+/** The 26 letter keys of a QWERTY face in window coordinates: 30 x 40 keys, 4 apart, the second row indented half a key, the third a key and a half, all of it 100 down and 10 in. */
+function glideKeyboard(): (GlideKeyRect | null)[] {
+  const keys: (GlideKeyRect | null)[] = GlideTypingPolicy.emptyKeys();
+  const rows: [string, number][] = [["qwertyuiop", 0], ["asdfghjkl", 0.5], ["zxcvbnm", 1.5]];
+  rows.forEach(([letters, indent], row) => {
+    for (let column = 0; column < letters.length; column++) {
+      keys[GlideTypingPolicy.letterIndex(letters[column])] = {
+        left: 10 + (column + indent) * 34,
+        top: 100 + row * 48,
+        width: 30,
+        height: 40,
+      };
+    }
+  });
+  return keys;
+}
+
+function glideCentre(keys: (GlideKeyRect | null)[], letter: string): GlidePoint {
+  const key = keys[GlideTypingPolicy.letterIndex(letter)] as GlideKeyRect;
+  return { x: key.left + key.width / 2, y: key.top + key.height / 2, t: 0 };
+}
+
+group("glide typing is armed only on the quanpin letters of the 26-key face", () => {
+  const armed: GlideArming = {
+    enabled: true,
+    lettersLayer: true,
+    engineScheme: GlideTypingPolicy.QUANPIN_SCHEME,
+    english: false,
+    localMode: "none",
+    composes: true,
+  };
+  check(GlideTypingPolicy.armed(armed), "the setting on, quanpin letters on screen");
+  check(!GlideTypingPolicy.armed({ ...armed, enabled: false }), "off by the setting");
+  check(
+    !GlideTypingPolicy.armed({ ...armed, lettersLayer: false }),
+    "not over nine-key, handwriting, stroke, Korean or Zhuyin keys, the symbol layer or a surface",
+  );
+  check(!GlideTypingPolicy.armed({ ...armed, engineScheme: 1 }), "not in any scheme but quanpin");
+  check(!GlideTypingPolicy.armed({ ...armed, english: true }), "not in dedicated English");
+  check(!GlideTypingPolicy.armed({ ...armed, localMode: "v" }), "not while a local mode has the keys");
+  check(!GlideTypingPolicy.armed({ ...armed, composes: false }), "not in an editor the Engine does not compose for");
+});
+
+group("a touch becomes a glide over another letter, far enough sideways", () => {
+  const keys = glideKeyboard();
+  const n = glideCentre(keys, "n");
+  const m = glideCentre(keys, "m");
+  check(GlideTypingPolicy.letterIndex("a") === 0 && GlideTypingPolicy.letterIndex("z") === 25, "letters index a..z");
+  check(GlideTypingPolicy.letterIndex(";") === -1, "the semicolon key is no glide key");
+  check(GlideTypingPolicy.keyAt(keys, n.x, n.y, 2, 4) === GlideTypingPolicy.letterIndex("n"), "a centre finds its key");
+  check(
+    GlideTypingPolicy.keyAt(keys, n.x + 16, n.y, 2, 4) === GlideTypingPolicy.letterIndex("n"),
+    "the half gap beside a key still belongs to it",
+  );
+  check(
+    GlideTypingPolicy.keyAt(keys, n.x + 18, n.y, 2, 4) === GlideTypingPolicy.letterIndex("m"),
+    "past the middle of the gap the neighbour has it",
+  );
+  check(GlideTypingPolicy.keyAt(keys, 0, 0, 2, 4) === -1, "nothing above the keys");
+  check(GlideTypingPolicy.keyAt(GlideTypingPolicy.emptyKeys(), n.x, n.y, 2, 4) === -1, "nor before any key was measured");
+  const width = GlideTypingPolicy.keyWidth(keys);
+  check(width === 30, "one letter key is 30 wide");
+  const nIndex = GlideTypingPolicy.letterIndex("n");
+  check(
+    !GlideTypingPolicy.starts(nIndex, nIndex, n.x, n.x + 12, width),
+    "still on the key it went down on is a tap",
+  );
+  check(
+    GlideTypingPolicy.starts(nIndex, GlideTypingPolicy.letterIndex("m"), n.x, m.x, width),
+    "over the next key, a key's travel away, it is a glide",
+  );
+  check(
+    !GlideTypingPolicy.starts(nIndex, GlideTypingPolicy.letterIndex("m"), n.x, n.x + 11, width),
+    "under 0.4 of a key sideways it is not, even over another key",
+  );
+  check(
+    GlideTypingPolicy.starts(nIndex, GlideTypingPolicy.letterIndex("m"), n.x, n.x + 12, width),
+    "at 0.4 of a key it is",
+  );
+  check(
+    !GlideTypingPolicy.starts(nIndex, GlideTypingPolicy.letterIndex("j"), n.x, n.x + 2, width),
+    "straight up into the row above is a vertical swipe, not a glide, whichever key the finger reaches",
+  );
+  check(!GlideTypingPolicy.starts(-1, nIndex, 0, n.x, width), "a touch that did not go down on a letter never glides");
+  check(!GlideTypingPolicy.starts(nIndex, -1, n.x, n.x + 60, width), "nor does one over no letter");
+});
+
+group("the bottom row's wider keys do not set the glide key size", () => {
+  const keys = glideKeyboard();
+  for (const letter of "zxcvbnm") {
+    const key = keys[GlideTypingPolicy.letterIndex(letter)] as GlideKeyRect;
+    keys[GlideTypingPolicy.letterIndex(letter)] = { ...key, width: 36 };
+  }
+  check(GlideTypingPolicy.keyWidth(keys) === 30, "the median letter is the one the upper rows share");
+  check(GlideTypingPolicy.keyHeight(keys) === 40, "and so is its height");
+  check(GlideTypingPolicy.keyWidth(GlideTypingPolicy.emptyKeys()) === 0, "no measured key is no size");
+});
+
+group("a long stroke is thinned evenly, keeping its ends", () => {
+  const points: GlidePoint[] = [];
+  for (let index = 0; index < 5000; index++) {
+    points.push({ x: index, y: index * 2, t: index });
+  }
+  const thinned = GlideTypingPolicy.downsample(points, GlideTypingPolicy.MAX_POINTS);
+  check(thinned.length === GlideTypingPolicy.MAX_POINTS, "to exactly the limit");
+  check(thinned[0].x === 0 && thinned[thinned.length - 1].x === 4999, "first and last kept");
+  let increasing = true;
+  let largestGap = 0;
+  for (let index = 1; index < thinned.length; index++) {
+    increasing = increasing && thinned[index].x > thinned[index - 1].x;
+    largestGap = Math.max(largestGap, thinned[index].x - thinned[index - 1].x);
+  }
+  check(increasing, "in order, with no sample twice");
+  check(largestGap <= 6, "evenly spaced rather than truncated");
+  const short = points.slice(0, 10);
+  const copy = GlideTypingPolicy.downsample(short, GlideTypingPolicy.MAX_POINTS);
+  check(copy.length === 10 && copy !== short, "a short stroke is kept whole, as a copy");
+});
+
+group("coalesced samples are timed between the previous sample and the event", () => {
+  check(GlideTypingPolicy.coalescedMillis(100, 130, 0, 2) === 110, "the first of two a third of the way");
+  check(GlideTypingPolicy.coalescedMillis(100, 130, 1, 2) === 120, "the second two thirds");
+  check(GlideTypingPolicy.coalescedMillis(100, 90, 0, 1) === 100, "never before the sample it follows");
+});
+
+group("a finished stroke becomes the request msime_client_glide reads", () => {
+  const keys = glideKeyboard();
+  const stroke: GlidePoint[] = [];
+  const word = "nihao";
+  let time = 0;
+  for (let index = 0; index + 1 < word.length; index++) {
+    const from = glideCentre(keys, word[index]);
+    const to = glideCentre(keys, word[index + 1]);
+    for (let step = 0; step < 10; step++) {
+      stroke.push({ x: from.x + ((to.x - from.x) * step) / 10, y: from.y + ((to.y - from.y) * step) / 10, t: time });
+      time += 8.4;
+    }
+  }
+  const last = glideCentre(keys, "o");
+  stroke.push({ x: last.x, y: last.y, t: time });
+  const body = GlideTypingPolicy.request(keys, stroke);
+  check(body !== null, "a measured keyboard and a stroke make a request");
+  const request = JSON.parse(body as string) as {
+    keys: number[][];
+    key_width: number;
+    key_height: number;
+    points: number[][];
+  };
+  check(
+    Object.keys(request).sort().join(",") === "key_height,key_width,keys,points",
+    "with exactly the keys the C ABI accepts, which refuses unknown ones",
+  );
+  check(request.keys.length === 26, "the centres of all 26 letters");
+  check(
+    request.keys[0][0] === 15 + 0.5 * 34 && request.keys[0][1] === 48 + 20,
+    "a..z in order, measured from the letter keys' own top-left",
+  );
+  check(request.keys[GlideTypingPolicy.letterIndex("q")][0] === 15, "q, the top-left key, is half a key in");
+  check(request.key_width === 30 && request.key_height === 40, "one letter key's size");
+  check(request.points.length === stroke.length, "every sample of a short stroke");
+  check(request.points.every((point) => point.length === 3), "each as x, y and milliseconds");
+  check(
+    request.points[0][0] === stroke[0].x - 10 && request.points[0][1] === stroke[0].y - 100,
+    "in the same space as the keys",
+  );
+  check(
+    request.points.every((point, index) => Number.isInteger(point[2]) && (index === 0 || point[2] >= request.points[index - 1][2])),
+    "times whole milliseconds that never go backwards",
+  );
+
+  check(GlideTypingPolicy.request(GlideTypingPolicy.emptyKeys(), stroke) === null, "no request before the keys are measured");
+  const missing = glideKeyboard();
+  missing[GlideTypingPolicy.letterIndex("q")] = null;
+  check(GlideTypingPolicy.request(missing, stroke) === null, "nor with one letter unmeasured");
+  check(GlideTypingPolicy.request(keys, stroke.slice(0, 1)) === null, "a single sample is not a stroke");
+  check(
+    GlideTypingPolicy.request(keys, [stroke[0], { x: Number.NaN, y: 0, t: 1 }]) === null,
+    "a sample that is not a number is not sent",
+  );
+  const flat = glideKeyboard();
+  flat[0] = { ...(flat[0] as GlideKeyRect), width: 0 };
+  check(GlideTypingPolicy.request(flat, stroke) === null, "nor a key with no size");
+
+  // The worst case the view can hand over: a stroke thinned only to the view's buffer, at coordinates far from the origin and times running backwards.
+  const long: GlidePoint[] = [];
+  for (let index = 0; index < GlideTypingPolicy.BUFFER_POINTS; index++) {
+    long.push({ x: 9999.987 - index, y: 8888.123 + index / 7, t: 600000 - index });
+  }
+  const capped = GlideTypingPolicy.request(keys, long) as string;
+  const parsed = JSON.parse(capped) as { points: number[][] };
+  check(parsed.points.length === GlideTypingPolicy.MAX_POINTS, "a long stroke is capped at 1024 points");
+  check(
+    parsed.points[0][0] === Math.round((9999.987 - 10) * 10) / 10
+      && parsed.points[parsed.points.length - 1][0]
+        === Math.round((9999.987 - (GlideTypingPolicy.BUFFER_POINTS - 1) - 10) * 10) / 10,
+    "keeping where it began and where it lifted",
+  );
+  check(
+    parsed.points.every((point, index) => index === 0 || point[2] >= parsed.points[index - 1][2]),
+    "with its times made non-decreasing",
+  );
+  check(capped.length <= GlideTypingPolicy.MAX_REQUEST_BYTES, `within the request's byte limit (${capped.length})`);
 });
 
 group("an oversized feedback document is refused before parsing", () => {
@@ -7502,6 +7823,23 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
   new AccountCloudBridge({ request: async () => ({ status: 200, body: "{}" }) }, oversizedStore);
   check(oversizedCleared, "an oversized saved session is cleared before JSON parsing");
 
+  let oversizedNameCleared = false;
+  const oversizedNameStore: AccountSessionStore = {
+    load: () => JSON.stringify({
+      access_token: "a".repeat(64),
+      refresh_token: "b".repeat(64),
+      token_type: "Bearer",
+      expires_at: Date.now() + 600_000,
+      user: { id: "synthetic-user", display_name: "你".repeat(65), created_at: "2026-01-01" },
+    }),
+    save: () => {},
+    clear: () => {
+      oversizedNameCleared = true;
+    },
+  };
+  new AccountCloudBridge({ request: async () => ({ status: 200, body: "{}" }) }, oversizedNameStore);
+  check(oversizedNameCleared, "a saved nickname over 64 Unicode scalars is cleared");
+
   let stored: string | null = null;
   const store: AccountSessionStore = {
     load: () => stored,
@@ -8645,6 +8983,9 @@ group("cloud clipboard items stay out of password fields and stale editors", () 
     !CloudClipboardPolicy.current(Number.NaN, Number.NaN),
     "a non-integer generation is refused",
   );
+  check(CloudClipboardPolicy.sendCurrent(4, 4), "the active send result is current");
+  check(!CloudClipboardPolicy.sendCurrent(4, 5), "a cancelled send result is dropped");
+  check(!CloudClipboardPolicy.sendCurrent(-1, -1), "an invalid send generation is dropped");
 });
 
 group("sending to the cloud clipboard needs a signed-in account with the clipboard on", () => {
@@ -8769,6 +9110,199 @@ group("the account bridge sends multi-line clipboard text the shared client acce
     .then((reply) => {
       check(JSON.parse(reply).error === "account_invalid", "a C1 control is refused locally");
     });
+});
+
+group("the account bridge accepts the shared clipboard search bound", () => {
+  let stored: string | null = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600_000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const paths: string[] = [];
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (_method, path) => {
+        paths.push(path);
+        return { status: 200, body: '{"enabled":true,"items":[]}' };
+      },
+    },
+    {
+      load: () => stored,
+      save: (value) => {
+        stored = value;
+      },
+      clear: () => {
+        stored = null;
+      },
+    },
+  );
+  const accepted = "你".repeat(341) + "a";
+  void bridge
+    .handle(JSON.stringify({ operation: "clipboard", clipboard_operation: "list", search: accepted }))
+    .then((reply) => {
+      check(JSON.parse(reply).ok === true, "a 1,024-byte UTF-8 clipboard search is accepted");
+      check(paths.length === 1, "the accepted search reaches the account service");
+      return bridge.handle(
+        JSON.stringify({
+          operation: "clipboard",
+          clipboard_operation: "list",
+          search: "你".repeat(342),
+        }),
+      );
+    })
+    .then((reply) => {
+      check(JSON.parse(reply).error === "account_invalid", "a search over 1,024 UTF-8 bytes is refused");
+      check(paths.length === 1, "the oversized search never reaches the account service");
+    });
+});
+
+group("dictionary candidate requests use the shared query contract", () => {
+  let stored: string | null = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600_000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const paths: string[] = [];
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (_method, path) => {
+        paths.push(path);
+        return { status: 200, body: '{"revision":0,"candidates":[]}' };
+      },
+    },
+    {
+      load: () => stored,
+      save: (value) => {
+        stored = value;
+      },
+      clear: () => {
+        stored = null;
+      },
+    },
+  );
+  const valid = {
+    operation: "dictionary",
+    dictionary_operation: "candidates",
+    text: "ni",
+    kind: "pinyin",
+    scheme: "pinyin",
+    profile: "xiaohe",
+    limit: 10,
+  };
+  void bridge.handle(JSON.stringify(valid)).then((reply) => {
+    check(JSON.parse(reply).ok === true, "a valid candidate query reaches the account service");
+    check(paths.length === 1, "the valid candidate query uses one request");
+    return bridge.handle(JSON.stringify({ ...valid, text: "你".repeat(86) }));
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "a candidate query over 256 UTF-8 bytes is refused");
+    check(paths.length === 1, "an oversized candidate query never reaches transport");
+    return bridge.handle(JSON.stringify({ ...valid, kind: "unknown" }));
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "an unknown candidate kind is refused");
+    check(paths.length === 1, "an invalid candidate kind never reaches transport");
+    return bridge.handle(JSON.stringify({
+      ...valid,
+      dictionary_operation: "rank",
+      code: "ni",
+      word: "你",
+      revision: 0,
+      mode: "unknown",
+      linear_step: 1,
+      trigger_count: 1,
+      force_top: false,
+    }));
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "an unknown ranking mode is refused");
+    check(paths.length === 1, "an invalid ranking request never reaches transport");
+    return bridge.handle(JSON.stringify({
+      ...valid,
+      kind: "quick",
+      dictionary_operation: "rank",
+      code: "ab",
+      word: "字",
+      revision: 0,
+      mode: "pin",
+      linear_step: 1,
+      trigger_count: 1,
+      force_top: false,
+    }));
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "quick phrases cannot be ranked");
+    check(paths.length === 1, "a quick ranking request never reaches transport");
+    return bridge.handle(JSON.stringify({
+      ...valid,
+      kind: "quick",
+      dictionary_operation: "remove_candidate",
+      code: "ab",
+      word: "字",
+      revision: 0,
+    }));
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "quick phrases cannot be removed as candidates");
+    check(paths.length === 1, "a quick candidate removal never reaches transport");
+  });
+});
+
+group("dictionary writes follow per-kind code and quick phrase bounds", () => {
+  const paths: string[] = [];
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (_method, path) => {
+        paths.push(path);
+        return { status: 200, body: "{}" };
+      },
+    },
+    {
+      load: () => JSON.stringify({
+        access_token: "a".repeat(64),
+        refresh_token: "b".repeat(64),
+        token_type: "Bearer",
+        expires_at: Date.now() + 600000,
+        user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+      }),
+      save: () => {},
+      clear: () => {},
+    },
+  );
+  const write = (fields: Record<string, unknown>): Promise<string> => bridge.handle(JSON.stringify({
+    operation: "dictionary", dictionary_operation: "add", kind: "quick",
+    code: "ab", word: "字", weight: 0, ...fields,
+  }));
+  void (async () => {
+    const invalid = [
+      { kind: "pinyin", code: "Ni" },
+      { kind: "wubi", code: "abcde" },
+      { kind: "wubi98", code: "a1" },
+      { kind: "quick", code: "a1" },
+      { kind: "quick", code: "a".repeat(33) },
+      { kind: "quick", word: "字".repeat(200) },
+      { kind: "english", code: "hello1" },
+      { kind: "english", code: "a".repeat(65) },
+    ];
+    for (const fields of invalid) {
+      check(JSON.parse(await write(fields)).error === "account_invalid", "invalid dictionary code or word is rejected");
+    }
+    check(paths.length === 0, "invalid dictionary writes never reach transport");
+    check(JSON.parse(await write({ kind: "quick", word: "字".repeat(199) })).ok === true,
+      "the maximum quick phrase is accepted");
+    check(paths.length === 1, "a valid dictionary write reaches transport");
+
+    const edit = (fields: Record<string, unknown>): Promise<string> => bridge.handle(JSON.stringify({
+      operation: "dictionary", dictionary_operation: "edit_catalog", kind: "quick",
+      code: "a1", word: "字", revision: 0, replacement: null, ...fields,
+    }));
+    check(JSON.parse(await edit({ code: "A1" })).error === "account_invalid",
+      "catalog identities reject invalid codes");
+    check(JSON.parse(await edit({ replacement: { code: "a1", word: "字", weight: 0 } })).error === "account_invalid",
+      "new quick phrase replacements reject digits");
+    check(paths.length === 1, "invalid catalog edits never reach transport");
+    check(JSON.parse(await edit({})).ok === true, "stored quick phrase identities may contain digits");
+    check(paths.length === 2, "valid catalog edits reach transport");
+  })();
 });
 
 group("profile updates preserve the session and cannot outlive logout", () => {
@@ -10575,6 +11109,42 @@ group("the account assistant answers with a model list and one reply", () => {
     });
 });
 
+group("account chat refuses blank and control-bearing content", () => {
+  const session = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600_000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  let calls = 0;
+  let content = "第一行\n第二行";
+  const bridge = new AccountCloudBridge({
+    request: async () => {
+      calls++;
+      return { status: 200, body: JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }) };
+    },
+  }, { load: () => session, save: () => {}, clear: () => {} });
+  const ask = (message: string) => bridge.handle(JSON.stringify({
+    operation: "chat", chat_operation: "complete", model: "synthetic-model",
+    messages: [{ role: "user", content: message }],
+  }));
+  void ask("\n\t ").then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "blank chat messages are refused");
+    return ask("safe\u0000hidden");
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "messages with NUL are refused");
+    check(calls === 0, "invalid messages do not reach transport");
+    return ask("第一行\n第二行");
+  }).then((reply) => {
+    check(JSON.parse(reply).ok === true, "ordinary paragraphs remain accepted");
+    content = "unsafe\u007fcontent";
+    return ask("valid request");
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_unavailable", "control-bearing replies are refused");
+  });
+});
+
 group("a device's own buttons are not a keyboard", () => {
   // Every phone enumerates a keyboard source for volume and power. Only the type separates them,
   // which is the whole reason this decision is not `sources.includes("keyboard")`.
@@ -11751,6 +12321,9 @@ group("AI model catalogs keep each provider's protocol and path", () => {
   );
   check(TextPolicy.validMultiline("line\nfeed", 32, true), "allows prompt line breaks");
   check(!TextPolicy.validMultiline("bad\u0001", 32, true), "rejects other control characters");
+  check(!TextPolicy.validMultiline("bad\u007f", 32, true), "rejects C1 control characters");
+  check(!TextPolicy.validMultiline("bad\ud800", 32, true), "rejects unpaired UTF-16 surrogates");
+  check(TextPolicy.hasControl("bad\ud800"), "all control checks reject unpaired surrogates");
   check(
     TextPolicy.validSecureAuthority("https://remote.example/api", true),
     "accepts remote HTTPS endpoints",
@@ -14170,6 +14743,10 @@ group("background music follows the desktop player's rules", () => {
     "a track plays only within the pack bound",
   );
   check(
+    MusicPolicy.metadataResultApplies(5, 5) && !MusicPolicy.metadataResultApplies(4, 5),
+    "stale music metadata cannot repopulate a newer pack cache",
+  );
+  check(
     !MusicPolicy.trackAllowed(null, 900) && !MusicPolicy.trackAllowed(0, 900),
     "a track whose length is unknown is not played",
   );
@@ -15459,6 +16036,8 @@ group("notices are shown from client-core's answer and their links leave the app
     }),
   );
   check(items.length === 2 && items[0].id === "n2", "valid notices keep their order, newest first");
+  check(NoticePolicy.requestCurrent(3, 3), "the latest notice request is current");
+  check(!NoticePolicy.requestCurrent(3, 4), "a late notice response is dropped");
   check(NoticePolicy.items('{"ok":false,"error":"x"}').length === 0, "a refusal shows nothing");
   check(NoticePolicy.items("garbage").length === 0, "and so does an unreadable answer");
   check(

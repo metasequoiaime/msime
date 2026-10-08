@@ -5,7 +5,6 @@
 #include <unistd.h>
 
 #include <filesystem>
-#include <fstream>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
@@ -26,14 +25,27 @@ inline std::optional<nlohmann::json> read_panel_restore(const std::filesystem::p
   std::error_code error;
   const auto status = std::filesystem::symlink_status(file, error);
   if (error || !std::filesystem::is_regular_file(status)) return std::nullopt;
-  const auto size = std::filesystem::file_size(file, error);
-  if (error || size > kPanelRestoreMaxBytes) return std::nullopt;
-  std::ifstream in(file, std::ios::binary);
-  if (!in) return std::nullopt;
-  std::string bytes(static_cast<std::size_t>(size), '\0');
-  if (!bytes.empty() &&
-      !in.read(bytes.data(), static_cast<std::streamsize>(bytes.size())))
+  const int descriptor = ::open(file.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+  if (descriptor < 0) return std::nullopt;
+  struct CloseOnExit {
+    int descriptor;
+    ~CloseOnExit() { ::close(descriptor); }
+  } close_on_exit{descriptor};
+  struct stat metadata {};
+  if (::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode) || metadata.st_size < 0 ||
+      static_cast<std::uintmax_t>(metadata.st_size) > kPanelRestoreMaxBytes)
     return std::nullopt;
+  std::string bytes(static_cast<std::size_t>(metadata.st_size), '\0');
+  std::size_t offset = 0;
+  while (offset < bytes.size()) {
+    const ssize_t count = ::read(descriptor, bytes.data() + offset, bytes.size() - offset);
+    if (count > 0) {
+      offset += static_cast<std::size_t>(count);
+      continue;
+    }
+    if (count < 0 && errno == EINTR) continue;
+    return std::nullopt;
+  }
   auto parsed = nlohmann::json::parse(bytes, nullptr, false);
   return parsed.is_object() ? std::optional<nlohmann::json>(std::move(parsed)) : std::nullopt;
 }

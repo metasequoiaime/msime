@@ -12,6 +12,9 @@ use super::{LatticeLookup, TypoEdgeSource};
 use crate::pinyin::syllables::has_only_complete_pinyin_segments;
 use crate::types::{CandidateSource, WordItem};
 
+// 短句子合并直接扫描已有行，避免默认小批次为临时哈希表分配堆内存。
+const SMALL_SENTENCE_MERGE: usize = 64;
+
 /// Decode `syllables` and insert the sentence rows (Generated, and the NeuralKeyboard pick when the keyboard reranker is given) as one block at `whole_sentence_insert_position`. Nothing for fewer than two syllables or an incomplete one. With `typo_source` and three or more syllables, also returns the typo sentence for the caller to place; the source receives the literal best path and returns the planned typo edges.
 #[allow(clippy::too_many_arguments)]
 pub fn merge_lattice_candidates(
@@ -46,23 +49,30 @@ pub fn merge_lattice_candidates(
         _ => None,
     };
 
+    if rerankers.is_empty() && options.emit > 0 {
+        paths.truncate(options.emit);
+    }
     // Keep duplicate keys borrowed from the live candidates and paths; sentence rows clone their text only when built.
-    let mut already: HashSet<&str> =
-        HashSet::with_capacity(candidates.len().saturating_add(paths.len()));
-    already.extend(candidates.iter().map(|item| item.word.as_str()));
+    let dedup_size = candidates.len().saturating_add(paths.len());
+    let mut already =
+        (dedup_size > SMALL_SENTENCE_MERGE).then(|| HashSet::with_capacity(dedup_size));
+    if let Some(already) = already.as_mut() {
+        already.extend(candidates.iter().map(|item| item.word.as_str()));
+    }
     let block = if rerankers.is_empty() {
         // Searching several paths and showing fewer is the point of `emit`: the alternatives exist so the trigram has something to reorder, not so the page fills with near-duplicate sentences.
-        if options.emit > 0 {
-            paths.truncate(options.emit);
+        if let Some(already) = already.as_mut() {
+            let mut block = Vec::with_capacity(paths.len());
+            block.extend(
+                paths
+                    .iter()
+                    .filter(|path| already.insert(path.sentence.as_str()))
+                    .map(|path| sentence_row(typed_pinyin, path, CandidateSource::Generated)),
+            );
+            block
+        } else {
+            generated_block_linear(candidates, &paths, typed_pinyin)
         }
-        let mut block = Vec::with_capacity(paths.len());
-        block.extend(
-            paths
-                .iter()
-                .filter(|path| already.insert(path.sentence.as_str()))
-                .map(|path| sentence_row(typed_pinyin, path, CandidateSource::Generated)),
-        );
-        block
     } else {
         let mut keyboard = None;
         for reranker in rerankers
@@ -74,13 +84,17 @@ pub fn merge_lattice_candidates(
                 keyboard = Some(reranked);
             }
         }
-        reranked_block(
-            &paths,
-            keyboard.as_deref(),
-            options,
-            typed_pinyin,
-            &mut already,
-        )
+        if let Some(already) = already.as_mut() {
+            reranked_block(&paths, keyboard.as_deref(), options, typed_pinyin, already)
+        } else {
+            reranked_block_linear(
+                candidates,
+                &paths,
+                keyboard.as_deref(),
+                options,
+                typed_pinyin,
+            )
+        }
     };
     if !block.is_empty() {
         let at = whole_sentence_insert_position(candidates, syllables);
@@ -100,6 +114,82 @@ fn sentence_row(typed_pinyin: &str, path: &SentencePath, source: CandidateSource
     item.sentence_association = true;
     item.sentence_words = path.words.clone();
     item
+}
+
+fn sentence_seen_linear(candidates: &[WordItem], block: &[WordItem], sentence: &str) -> bool {
+    candidates
+        .iter()
+        .chain(block)
+        .any(|item| item.word == sentence)
+}
+
+fn generated_block_linear(
+    candidates: &[WordItem],
+    paths: &[SentencePath],
+    typed_pinyin: &str,
+) -> Vec<WordItem> {
+    let mut block = Vec::with_capacity(paths.len());
+    for path in paths {
+        if sentence_seen_linear(candidates, &block, &path.sentence) {
+            continue;
+        }
+        block.push(sentence_row(typed_pinyin, path, CandidateSource::Generated));
+    }
+    block
+}
+
+fn take_linear_sentence(
+    candidates: &[WordItem],
+    block: &[WordItem],
+    ranked: &[SentencePath],
+    source: CandidateSource,
+    options: &LatticeOptions<'_>,
+    typed_pinyin: &str,
+) -> Option<WordItem> {
+    for path in ranked {
+        if !sentence_seen_linear(candidates, block, &path.sentence) {
+            return Some(sentence_row(typed_pinyin, path, source));
+        }
+        if !options.show_next_on_duplicate {
+            return None;
+        }
+    }
+    None
+}
+
+fn reranked_block_linear(
+    candidates: &[WordItem],
+    paths: &[SentencePath],
+    keyboard: Option<&[SentencePath]>,
+    options: &LatticeOptions<'_>,
+    typed_pinyin: &str,
+) -> Vec<WordItem> {
+    let mut block = Vec::with_capacity(2);
+    if options.include_lattice_best {
+        if let Some(row) = take_linear_sentence(
+            candidates,
+            &block,
+            paths,
+            CandidateSource::Generated,
+            options,
+            typed_pinyin,
+        ) {
+            block.push(row);
+        }
+    }
+    if let Some(keyboard) = keyboard {
+        if let Some(row) = take_linear_sentence(
+            candidates,
+            &block,
+            keyboard,
+            CandidateSource::NeuralKeyboard,
+            options,
+            typed_pinyin,
+        ) {
+            block.push(row);
+        }
+    }
+    block
 }
 
 /// One row per source when the keyboard reranker ran (overlays.md §1.6.2 rules 2-8): the unreranked best as Generated when `include_lattice_best`, then the keyboard model's first path not already listed. The reference's desktop row is gone: the desktop model runs only as the input runtime's settled reranker. The rows carry their words like every sentence row; selecting one stores the sentence as a user phrase (`CandidateSource::is_sentence_learning`), while the personal context chain, which reads Generated and Fallback rows only, starts afresh after it as in the reference.
@@ -366,6 +456,18 @@ mod tests {
         assert_eq!(candidates[1].word, "你好");
         assert_eq!(candidates[1].source, CandidateSource::CloudSuggestion);
         assert_eq!(candidates.len(), 2);
+    }
+
+    #[test]
+    fn linear_sentence_dedup_scans_existing_rows_without_allocation() {
+        let candidates = vec![dictionary_row("nihao", "你好", 1, "ni'hao")];
+        let block = vec![dictionary_row("nihao", "拟好", 1, "ni'hao")];
+        let (found, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            sentence_seen_linear(&candidates, &block, "拟好")
+        });
+
+        assert!(found);
+        assert_eq!(allocations, 0);
     }
 
     #[test]

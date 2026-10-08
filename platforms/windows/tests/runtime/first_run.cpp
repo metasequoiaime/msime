@@ -1,4 +1,5 @@
 #include "FirstRun.h"
+#include <windows.h>
 #include <chrono>
 #include <fstream>
 #include <iostream>
@@ -84,6 +85,27 @@ int main() {
         std::string(4097, ' ') + R"({"cloud_candidates": true})");
     if (msime::windows::parse_installer_cloud_choice(oversized_stream))
       throw std::runtime_error("An oversized installer stream was accepted");
+    const auto outside = root / "installer-choice-outside";
+    fs::create_directory(outside);
+    std::ofstream(outside / msime::windows::kInstallerChoicesFile)
+        << R"({"cloud_candidates": true})";
+    const auto linked_leaf = state / msime::windows::kInstallerChoicesFile;
+    if (CreateSymbolicLinkW(linked_leaf.c_str(),
+                            (outside / msime::windows::kInstallerChoicesFile).c_str(), 0)) {
+      if (msime::windows::take_installer_cloud_choice(state))
+        throw std::runtime_error("A linked installer choice was read");
+      fs::remove(linked_leaf);
+    }
+    const auto linked_directory = state / "linked-installer-directory";
+    if (CreateSymbolicLinkW(linked_directory.c_str(), outside.c_str(),
+                            SYMBOLIC_LINK_FLAG_DIRECTORY)) {
+      if (msime::windows::take_installer_cloud_choice(linked_directory))
+        throw std::runtime_error("A linked installer directory was read");
+      if (!fs::exists(outside / msime::windows::kInstallerChoicesFile))
+        throw std::runtime_error("A linked installer choice was removed outside state");
+      fs::remove(linked_directory);
+    }
+    fs::remove_all(outside);
     fs::remove_all(root);
     std::cout << "Production first-run policy passed\n";
     return 0;

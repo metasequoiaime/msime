@@ -116,16 +116,13 @@ struct CloudDictionaryFilesView: View {
       text = nil; message = nil
       do {
         let url = try result.get()
-        let access = url.startAccessingSecurityScopedResource()
-        defer { if access { url.stopAccessingSecurityScopedResource() } }
-        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size <= 65536 else { throw BackendAccountClient.Failure(status: 400) }
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        let data = try handle.read(upToCount: 65537) ?? Data()
-        guard data.count <= 65536, let content = String(data: data, encoding: .utf8), !content.contains("\0") else { throw BackendAccountClient.Failure(status: 400) }
-        text = content; fileName = url.lastPathComponent
-      } catch { message = "无法读取文件，请确认是大小不超过 64 KiB 的 UTF-8 文本。" }
+        run {
+          let content = try await Task.detached(priority: .userInitiated) {
+            try Self.readTextFile(from: url)
+          }.value
+          text = content; fileName = url.lastPathComponent
+        }
+      } catch { message = error.localizedDescription }
     }
     .alert("上传词库文件？", isPresented: $confirming) {
       Button("取消", role: .cancel) { }
@@ -161,6 +158,16 @@ struct CloudDictionaryFilesView: View {
         .onDisappear { try? FileManager.default.removeItem(at: item.url.deletingLastPathComponent()) }
     }
   }
+  private struct InvalidTextFile: LocalizedError, Sendable {
+    var errorDescription: String? { "无法读取文件，请确认是大小不超过 64 KiB 的 UTF-8 文本。" }
+  }
+
+  private static func readTextFile(from url: URL) throws -> String {
+    let content = try PersonalDictionaryImport.readText(from: url)
+    guard content.utf8.count <= 65536, !content.contains("\0") else { throw InvalidTextFile() }
+    return content
+  }
+
   @MainActor private func exportSnapshot() async throws {
     let token = try await authorize()
     let snapshot = try await client.dictionarySnapshot(token: token)

@@ -100,12 +100,12 @@ public final class GroupCard {
         LinearLayout.LayoutParams params = Ui.rowGapParams(context);
         row.view.addView(control, params);
         row.toggle = control;
-        row.view.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(row.view, () -> {
             control.toggle();
             onChange.accept(control.isChecked());
         });
         ViewPolicy.setInteractive(row.view, true);
-        row.view.setBackground(Ui.ripple(context));
+        ViewPolicy.setBackground(row.view, Ui.ripple(context));
         row.view.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
                 super.onInitializeAccessibilityNodeInfo(host, info);
@@ -249,10 +249,10 @@ public final class GroupCard {
         }
 
         private void setAction(@Nullable Runnable action) {
-            view.setBackground(action == null ? null : Ui.ripple(view.getContext()));
+            ViewPolicy.setBackground(view, action == null ? null : Ui.ripple(view.getContext()));
             ViewPolicy.setInteractive(view, action != null);
-            view.setOnClickListener(action == null ? null : ignored -> action.run());
-            Ui.setEnabledLook(view, action != null);
+            ViewPolicy.bindOptionalClick(view, action);
+            ViewPolicy.setEnabledWithAlpha(view, action != null, 0.38f);
         }
 
         /** 整行。 */
@@ -285,14 +285,14 @@ public final class GroupCard {
 
         /** 禁用的行仍然显示，只是变淡且不响应。 */
         public void setEnabled(boolean enabled) {
-            Ui.setEnabledLook(view, enabled);
-            if (toggle != null) toggle.setEnabled(enabled);
-            if (slider != null) slider.setEnabled(enabled);
-            if (button != null) button.setEnabled(enabled);
+            ViewPolicy.setEnabledWithAlpha(view, enabled, 0.38f);
+            if (toggle != null) ViewPolicy.setEnabled(toggle, enabled);
+            if (slider != null) ViewPolicy.setEnabled(slider, enabled);
+            if (button != null) ViewPolicy.setEnabled(button, enabled);
         }
 
         public void setVisible(boolean visible) {
-            view.setVisibility(visible ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(view, visible);
         }
     }
 }

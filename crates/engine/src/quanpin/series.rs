@@ -23,6 +23,7 @@ pub const MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS: usize = 4;
 /// Continuations are only taken up to three syllables longer: past that the rows' weights have dropped to a few dozen and the seats are better left to prefix characters (QD:23-25).
 pub const LONGER_PHRASE_EXTRA_SYLLABLES: usize = 3;
 pub const LONGER_PHRASE_LIMIT: usize = 12;
+const SMALL_UNIQUE_ROWS: usize = 64;
 
 /// How one raw input is read (QD:110-215).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -178,10 +179,10 @@ pub fn mark_autocorrect_candidates(
     // A row comes from a corrected reading exactly when its letters equal some correction cut's letters while those differ from the typed letters. Comparing letters alone would also sweep up prefix rows the user spelled correctly (keneng -> ke, single-letter jianpin expansions); both rules together keep those unmarked.
     let cuts =
         || std::iter::once(primary_segmentation).chain(corrected_cuts.iter().map(String::as_str));
-    let raw_letters = fold_reading(raw);
     if cuts().all(|cut| cut.is_empty() || folded_reading_equal(cut, raw)) {
         return;
     }
+    let mut raw_letters = None;
     for item in candidates
         .iter_mut()
         .filter(|item| item.corrected_from.is_empty())
@@ -192,7 +193,8 @@ pub fn mark_autocorrect_candidates(
                 && !folded_reading_equal(cut, raw)
                 && folded_reading_equal(cut, &item.pinyin)
         }) {
-            item.corrected_from = raw_letters.clone();
+            let folded = raw_letters.get_or_insert_with(|| fold_reading(raw));
+            item.corrected_from = folded.clone();
         }
     }
 }
@@ -238,37 +240,82 @@ pub fn merge_alternative_segmentations(
 
 /// Deduplicate rows that are already sorted by weight while keeping the merged vector's allocation.
 fn retain_unique_sorted_rows(rows: &mut Vec<WordItem>) {
+    // 候选页规模内直接扫描已保留的词，避免为一次合并建立临时哈希表和布尔数组。
+    if rows.len() <= SMALL_UNIQUE_ROWS {
+        let mut write = 0;
+        for read in 0..rows.len() {
+            if rows[..write]
+                .iter()
+                .any(|item| item.word == rows[read].word)
+            {
+                continue;
+            }
+            if write != read {
+                rows.swap(write, read);
+            }
+            write += 1;
+        }
+        rows.truncate(write);
+        return;
+    }
     // Borrow words while calculating each first occurrence, then retain in place after releasing the set.
     let mut seen = HashSet::with_capacity(rows.len());
-    let unique = rows
+    let duplicates = rows
         .iter()
-        .map(|item| seen.insert(item.word.as_str()))
+        .enumerate()
+        .filter_map(|(index, item)| (!seen.insert(item.word.as_str())).then_some(index))
         .collect::<Vec<_>>();
     drop(seen);
-    let mut index = 0;
-    rows.retain(|_| {
-        let keep = unique[index];
-        index += 1;
-        keep
-    });
+    let mut duplicates = duplicates.into_iter().peekable();
+    let mut write = 0;
+    for read in 0..rows.len() {
+        if duplicates.peek() == Some(&read) {
+            duplicates.next();
+            continue;
+        }
+        if write != read {
+            rows.swap(write, read);
+        }
+        write += 1;
+    }
+    rows.truncate(write);
 }
 
 /// Append the rows whose word is not already present (QD:993-1004). A row repeated inside `rows` is kept once, as the reference's scan over the growing list does.
 pub fn append_unique_words(result: &mut Vec<WordItem>, rows: Vec<WordItem>) {
+    if rows.is_empty() {
+        return;
+    }
+    if result.len().saturating_add(rows.len()) <= SMALL_UNIQUE_ROWS {
+        // 候选总量很小时边追加边扫描结果，避免建立临时哈希表和保留标记数组。
+        result.reserve(rows.len());
+        for item in rows {
+            if result.iter().any(|existing| existing.word == item.word) {
+                continue;
+            }
+            result.push(item);
+        }
+        return;
+    }
     // Borrow words while checking duplicates, then release the borrows before moving rows into the result.
     let mut seen = HashSet::with_capacity(result.len().saturating_add(rows.len()));
     seen.extend(result.iter().map(|item| item.word.as_str()));
-    let unique = rows
+    let duplicates = rows
         .iter()
-        .map(|item| seen.insert(item.word.as_str()))
+        .enumerate()
+        .filter_map(|(index, item)| (!seen.insert(item.word.as_str())).then_some(index))
         .collect::<Vec<_>>();
     drop(seen);
     result.reserve(rows.len());
-    result.extend(
-        rows.into_iter()
-            .zip(unique)
-            .filter_map(|(item, unique)| unique.then_some(item)),
-    );
+    let mut duplicates = duplicates.into_iter().peekable();
+    result.extend(rows.into_iter().enumerate().filter_map(|(index, item)| {
+        if duplicates.peek() == Some(&index) {
+            duplicates.next();
+            None
+        } else {
+            Some(item)
+        }
+    }));
 }
 
 #[cfg(test)]
@@ -379,6 +426,18 @@ mod tests {
     }
 
     #[test]
+    fn marking_without_a_matching_candidate_does_not_allocate_folded_input() {
+        let mut items = vec![row("ke'neng", "可能", 100)];
+        let cuts = ["ke'neng".to_string()];
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            mark_autocorrect_candidates(&mut items, "keneng", "ke'neng", &cuts);
+        });
+
+        assert_eq!(allocations, 0);
+        assert!(items[0].corrected_from.is_empty());
+    }
+
+    #[test]
     fn marking_exits_when_every_cut_spells_the_typed_letters() {
         let mut items = vec![row("ke'neng", "可能", 100), row("ke", "可", 10)];
         mark_autocorrect_candidates(&mut items, "keneng", "ke'neng", &[]);
@@ -436,6 +495,20 @@ mod tests {
 
         assert_eq!(rows.as_ptr(), pointer);
         assert_eq!(words(&rows), ["甲", "乙"]);
+    }
+
+    #[test]
+    fn alternative_dedup_uses_no_heap_state_for_small_merges() {
+        let mut rows = (0..36)
+            .map(|index| row("xian", &format!("词{}", index % 18), 100 - index))
+            .collect::<Vec<_>>();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            retain_unique_sorted_rows(&mut rows);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(rows.len(), 18);
     }
 
     #[test]
@@ -507,5 +580,33 @@ mod tests {
 
         assert_eq!(result.len(), 11);
         assert_eq!(result.capacity(), 11);
+    }
+
+    #[test]
+    fn append_unique_words_uses_no_temporary_heap_state_for_small_merges() {
+        let mut result = Vec::with_capacity(37);
+        result.push(row("a", "已有", 1));
+        let rows: Vec<WordItem> = (0..36)
+            .map(|index| row("a", &format!("词{}", index % 18), index))
+            .collect();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            append_unique_words(&mut result, rows);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(result.len(), 19);
+    }
+
+    #[test]
+    fn append_unique_words_leaves_the_result_unchanged_for_empty_rows() {
+        let mut result = Vec::with_capacity(4);
+        result.push(row("a", "啊", 1));
+        let capacity = result.capacity();
+
+        append_unique_words(&mut result, Vec::new());
+
+        assert_eq!(words(&result), ["啊"]);
+        assert_eq!(result.capacity(), capacity);
     }
 }

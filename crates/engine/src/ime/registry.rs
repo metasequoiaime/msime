@@ -2,6 +2,7 @@
 //!
 //! The registry answers queries and lookups only. The reference also routed `create_word` / `update_weight_by_pinyin_and_word` / `delete_by_pinyin_and_word` through it; here the session writes pins, removals and frequency learning into user_dictionary itself, choosing the dictionary kind from the selected row's scheme (overlays.md §3.3), and phrases through its own canonical-pinyin `QuanpinEngine`, so a second writer path would only diverge from it.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -220,17 +221,28 @@ impl ProviderRegistry {
         }
     }
 
+    /// 全拼词典里每个键最好那一行的权重，供滑行输入使用；会话没有全拼 provider 时为空。
+    pub fn quanpin_best_weights(&self, keys: &[String]) -> HashMap<String, i64> {
+        self.quanpin
+            .as_ref()
+            .map_or_else(HashMap::new, |quanpin| quanpin.best_weights(keys))
+    }
+
     /// 为候选展示查询完整五笔编码；反查结果与候选一一对应，查不到时保留空字符串。没有构造五笔 provider 的会话（方案集合里没有五笔）一律是空字符串。
-    pub fn reverse_wubi_codes(&mut self, candidates: &[WordItem]) -> Vec<String> {
-        candidates
-            .iter()
-            .map(|candidate| {
-                self.wubi
-                    .as_mut()
-                    .and_then(|wubi| wubi.reverse_code(&candidate.word))
-                    .unwrap_or_default()
-            })
-            .collect()
+    pub fn reverse_wubi_codes(&mut self, candidates: &[WordItem], destination: &mut Vec<String>) {
+        if destination.len() > candidates.len() {
+            destination.truncate(candidates.len());
+        }
+        destination.resize_with(candidates.len(), String::new);
+        for (code, candidate) in destination.iter_mut().zip(candidates) {
+            if self
+                .wubi
+                .as_mut()
+                .is_none_or(|wubi| !wubi.reverse_code_into(&candidate.word, code))
+            {
+                code.clear();
+            }
+        }
     }
 
     /// Either pinyin scheme resets both pinyin engines (pinyin_candidate_provider.cpp:44-48).
@@ -287,6 +299,19 @@ impl ProviderRegistry {
             | SchemeType::Vietnamese
             | SchemeType::Tibetan
             | SchemeType::Stroke => false,
+        }
+    }
+
+    /// Remove one online provider's rows from every provider cache.
+    pub fn clear_online_candidates(&mut self, source: CandidateSource) {
+        if let Some(quanpin) = &mut self.quanpin {
+            quanpin.clear_online_candidates(source);
+        }
+        if let Some(shuangpin) = &mut self.shuangpin {
+            shuangpin.clear_online_candidates(source);
+        }
+        if let Some(japanese) = &mut self.japanese {
+            japanese.clear_online_candidates(source);
         }
     }
 

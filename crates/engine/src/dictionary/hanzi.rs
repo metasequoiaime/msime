@@ -56,9 +56,12 @@ fn open(path: &Path) -> Option<Connection> {
     if path.as_os_str().is_empty() {
         return None;
     }
+    let path = crate::paths::sqlite_path_no_follow(path).ok()?;
     let connection = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_NOFOLLOW
+            | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
     )
     .ok()?;
     // bridge.cpp:749-753 set no busy timeout, so SQLite's default of none applied: a locked dictionary answers empty at once rather than stalling each word of a validation batch for rusqlite's default 5 s.

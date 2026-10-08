@@ -28,12 +28,19 @@ final class DiagnosticLog: @unchecked Sendable {
   static func readTail(from url: URL, maximumBytes: Int) throws -> TailRead {
     guard maximumBytes > 0 else { throw TailReadFailure.invalidLimit }
     guard !rejectsSymlinkAncestors(url) else { throw TailReadFailure.tooLarge }
-    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-    let fileSize = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+    guard descriptor >= 0 else {
+      throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    defer { try? handle.close() }
+    var fileStatus = stat()
+    guard fstat(descriptor, &fileStatus) == 0 else {
+      throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    let fileSize = fileStatus.st_size
     guard fileSize >= 0, fileSize <= Int64(Int.max) else { throw TailReadFailure.tooLarge }
 
-    let handle = try FileHandle(forReadingFrom: url)
-    defer { try? handle.close() }
     let offset = max(Int64(0), fileSize - Int64(maximumBytes))
     try handle.seek(toOffset: UInt64(offset))
     let data = try handle.read(upToCount: maximumBytes) ?? Data()

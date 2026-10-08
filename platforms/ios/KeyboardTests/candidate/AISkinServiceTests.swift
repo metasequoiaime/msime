@@ -45,6 +45,21 @@ final class AISkinServiceTests: XCTestCase {
       XCTAssertThrowsError(try AISkinService.parse(text))
     }
   }
+  func testArtworkPromptUsesFortyToOneHundredUnicodeScalars() throws {
+    for length in [39, 101] {
+      let text = try response { $0[0]["artworkPrompt"] = String(repeating: "景", count: length) }
+      XCTAssertThrowsError(try AISkinService.parse(text), "Accepted \(length) Unicode scalars")
+    }
+    for length in [40, 100] {
+      let text = try response { $0[0]["artworkPrompt"] = String(repeating: "景", count: length) }
+      XCTAssertEqual(try AISkinService.parse(text)[0].artworkPrompt?.unicodeScalars.count, length)
+    }
+    let composed = String(repeating: "e\u{301}", count: 20)
+    XCTAssertEqual(composed.count, 20)
+    XCTAssertEqual(composed.unicodeScalars.count, 40)
+    let text = try response { $0[0]["artworkPrompt"] = composed }
+    XCTAssertEqual(try AISkinService.parse(text)[0].artworkPrompt, composed)
+  }
   @MainActor
   func testKeyStylesSurviveSavingAndRenderDistinctSurfaces() throws {
     var images = Set<Data>()

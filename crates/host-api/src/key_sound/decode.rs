@@ -7,7 +7,6 @@ use kira::sound::streaming::Decoder;
 use kira::Frame;
 use msime_client_core::plugins::{music_pack, sound_pack};
 use std::convert::Infallible;
-use std::fs::File;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -41,7 +40,7 @@ struct Source {
 }
 
 fn open(path: &Path, maximum_bytes: u64) -> Result<Source, String> {
-    let file = File::open(path).map_err(|error| error.to_string())?;
+    let file = crate::bounded_file::open_private(path).map_err(|error| error.to_string())?;
     let metadata = file.metadata().map_err(|error| error.to_string())?;
     if !metadata.is_file() || metadata.len() > maximum_bytes {
         return Err("not a regular file of the allowed size".into());

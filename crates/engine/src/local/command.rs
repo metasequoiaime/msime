@@ -16,6 +16,8 @@ pub const TABLE_LIMIT: usize = 256;
 pub const TRIGGER_LIMIT: usize = 32;
 /// The Windows candidate pipe's text field (`CandidateTextMaxLength` in `shared/contracts/ipc_protocol_limits.h`, the same bound as a quick phrase): a template, and the text it expands to, longer than this could not be delivered.
 pub const TEXT_UTF16_LIMIT: usize = 199;
+// 短命令表直接扫描此前的触发词，避免为常见小表创建哈希状态。
+const SMALL_COMMAND_TABLE: usize = 64;
 
 const DEFAULT_DATE_FORMAT: &str = "%Y-%m-%d";
 const DEFAULT_TIME_FORMAT: &str = "%H:%M";
@@ -49,12 +51,25 @@ pub fn translation_source(
     {
         return None;
     }
-    let text = rest
-        .split('\'')
-        .filter(|word| !word.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
+    let text = join_translation_words(rest);
     (!text.is_empty()).then_some((trigger, text))
+}
+
+fn join_translation_words(rest: &str) -> String {
+    let mut text = String::with_capacity(rest.len());
+    let mut separator = false;
+    for byte in rest.bytes() {
+        if byte == b'\'' {
+            separator = !text.is_empty();
+        } else {
+            if separator {
+                text.push(' ');
+                separator = false;
+            }
+            text.push(char::from(byte));
+        }
+    }
+    text
 }
 
 /// Whether a translate command is being typed, so `'` separates its words rather than ending the mode.
@@ -68,13 +83,27 @@ pub fn takes_word_separator(code: &str) -> bool {
 /// The rows that are usable of a host table: valid triggers and templates, the first command of a trigger, at most `TABLE_LIMIT`.
 pub fn usable_command_table(table: &[CommandTableEntry]) -> Vec<CommandTableEntry> {
     let mut usable: Vec<CommandTableEntry> = Vec::with_capacity(TABLE_LIMIT.min(table.len()));
+    if table.len() <= SMALL_COMMAND_TABLE {
+        for (index, entry) in table.iter().enumerate() {
+            if usable.len() == TABLE_LIMIT {
+                break;
+            }
+            if valid_trigger(&entry.trigger)
+                && trigger_is_new(table, index, &entry.trigger)
+                && fits(&entry.template)
+                && template_valid(&entry.template)
+            {
+                usable.push(entry.clone());
+            }
+        }
+        return usable;
+    }
     let mut triggers = HashSet::with_capacity(TABLE_LIMIT.min(table.len()));
     for entry in table {
         if usable.len() == TABLE_LIMIT {
             break;
         }
-        let trigger_valid = (1..=TRIGGER_LIMIT).contains(&entry.trigger.len())
-            && entry.trigger.bytes().all(|byte| byte.is_ascii_lowercase());
+        let trigger_valid = valid_trigger(&entry.trigger);
         if trigger_valid
             && triggers.insert(entry.trigger.as_str())
             && fits(&entry.template)
@@ -86,6 +115,17 @@ pub fn usable_command_table(table: &[CommandTableEntry]) -> Vec<CommandTableEntr
     usable
 }
 
+fn valid_trigger(trigger: &str) -> bool {
+    (1..=TRIGGER_LIMIT).contains(&trigger.len())
+        && trigger.bytes().all(|byte| byte.is_ascii_lowercase())
+}
+
+fn trigger_is_new(table: &[CommandTableEntry], index: usize, trigger: &str) -> bool {
+    table[..index]
+        .iter()
+        .all(|entry| !valid_trigger(&entry.trigger) || entry.trigger != trigger)
+}
+
 /// Generated rows for the letters after `/`, weight `count - index`, at most `RESULT_LIMIT`: commands whose trigger is the input, then commands it begins; table commands before built-in ones. `pinyin` holds the trigger. `table` must have gone through `usable_command_table`.
 pub fn query_command(
     code: &str,
@@ -93,12 +133,20 @@ pub fn query_command(
     table: &[CommandTableEntry],
 ) -> Vec<WordItem> {
     let clock = clock(now);
-    let mut rows: Vec<(String, String)> = Vec::with_capacity(RESULT_LIMIT);
+    let mut rows: [Option<(String, String)>; RESULT_LIMIT] = std::array::from_fn(|_| None);
+    let mut row_count = 0;
     let mut push = |trigger: &str, text: String| {
         // The command page is capped at 18 rows. Scanning it avoids cloning every text into a
         // second owned deduplication set on each keystroke.
-        if fits(&text) && !rows.iter().any(|(_, existing)| existing == &text) {
-            rows.push((trigger.to_owned(), text));
+        if row_count < RESULT_LIMIT
+            && fits(&text)
+            && !rows[..row_count]
+                .iter()
+                .flatten()
+                .any(|(_, existing)| existing == &text)
+        {
+            rows[row_count] = Some((trigger.to_owned(), text));
+            row_count += 1;
         }
     };
     if let Some((trigger, text)) = translation_source(code, table) {
@@ -128,15 +176,15 @@ pub fn query_command(
             }
         }
     }
-    let count = rows.len().min(RESULT_LIMIT);
     rows.into_iter()
-        .take(count)
+        .take(row_count)
+        .flatten()
         .enumerate()
         .map(|(index, (trigger, text))| {
             WordItem::new(
                 trigger,
                 text,
-                (count - index) as i64,
+                (row_count - index) as i64,
                 CandidateSource::Generated,
                 "",
             )
@@ -238,6 +286,14 @@ mod tests {
 
     fn words(rows: &[WordItem]) -> Vec<&str> {
         rows.iter().map(|row| row.word.as_str()).collect()
+    }
+
+    #[test]
+    fn an_unknown_command_does_not_allocate_a_row_buffer() {
+        let (rows, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| query_command("zzzz", &now(), &[]));
+        assert!(rows.is_empty());
+        assert_eq!(allocations, 0);
     }
 
     #[test]
@@ -358,6 +414,32 @@ mod tests {
     }
 
     #[test]
+    fn short_command_table_trigger_scan_uses_no_temporary_heap_state() {
+        let table = vec![
+            entry("a", "无效模板", "{clipboard}"),
+            entry("b", "乙", "二"),
+            entry("c", "丙", "三"),
+        ];
+        let (is_new, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| trigger_is_new(&table, 2, "c"));
+        assert!(is_new);
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn short_command_table_trigger_scan_keeps_invalid_templates_seen() {
+        let table = [
+            entry("dup", "无效模板", "{clipboard}"),
+            entry("dup", "有效", "二"),
+        ];
+        assert!(!trigger_is_new(&table, 1, "dup"));
+        assert_eq!(
+            usable_command_table(&table),
+            Vec::<CommandTableEntry>::new()
+        );
+    }
+
+    #[test]
     fn a_command_needing_an_unreadable_clock_is_not_shown() {
         let table =
             usable_command_table(&[entry("d", "日期", "{date}"), entry("t", "文本", "文本")]);
@@ -418,5 +500,10 @@ mod tests {
         assert!(query_command("", &now(), &[])
             .iter()
             .all(|row| !TRANSLATE_TRIGGERS.contains(&row.pinyin.as_str())));
+    }
+
+    #[test]
+    fn translation_words_join_without_empty_segments() {
+        assert_eq!(join_translation_words("'hello''world'"), "hello world");
     }
 }

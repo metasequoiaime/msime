@@ -80,7 +80,7 @@ public final class OnlineCandidatePolicy {
 
     /** Provider JSON fields that are text must not be accepted through org.json coercion. */
     public static String strictText(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
 

@@ -39,7 +39,7 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
         borderColor = Color.parseColor(skin.borderColor());
     }
 
-    private float dp(double value) { return (float) value * density; }
+    private float dp(double value) { return KeyboardGeometry.floatPixels(value, density); }
 
     private Path path(RectF rect) {
         if (shapeValid && shapeBounds.equals(rect)) return shapePath;

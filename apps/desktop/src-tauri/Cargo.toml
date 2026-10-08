@@ -36,6 +36,8 @@ time = { workspace = true, features = ["local-offset"] }
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 uuid.workspace = true
 msime-tauri-mobile-platform = { path = "../../../crates/tauri-mobile-platform" }
+# The shared locator reader uses rustix's no-follow open on every Unix target, including mobile.
+rustix = { workspace = true, features = ["fs"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 msime-ios-native-ffi = { path = "../../../crates/ios-native-ffi" }

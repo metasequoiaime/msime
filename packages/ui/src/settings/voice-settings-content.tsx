@@ -27,6 +27,7 @@ import { VoiceRecordingBehaviorSettingsSection } from "./voice-recording-behavio
 import { VoiceCredentialControl } from "./voice-credential-control";
 import {
   asrProviderCredentialTestConfig,
+  asrProviderCredentialTestDisabled,
   polishProviderCredentialTestConfig,
   polishServiceCredentialTestConfig,
   polishServiceCredentialTestDisabled,
@@ -154,6 +155,7 @@ export function VoiceSettingsContent({
           "voice.asr",
           "测试语音识别配置",
           asrProviderCredentialTestConfig(voiceInput, doubaoAuthMode),
+          asrProviderCredentialTestDisabled(voiceInput),
         )
       : null;
   const polishProviderCredentialTest =

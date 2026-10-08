@@ -491,7 +491,7 @@ const TOO_LARGE: &str = "the runtime options would be too large for the input me
 /// Replace the preferences in the runtime-options document, the way `sync_runtime_options` in the desktop app does. Everything else in the document, the skin catalog included, is kept as it is.
 fn publish_to_runtime_options(path: &Path, preferences: &Preferences) -> Result<(), String> {
     use std::io::Write;
-    let file = std::fs::File::open(path).map_err(|_| "cannot read the runtime options")?;
+    let file = crate::bounded::open_private(path).map_err(|_| "cannot read the runtime options")?;
     let bytes = crate::bounded::read(file, LINUX_RUNTIME_OPTIONS_LIMIT as u64).map_err(
         |error| match error {
             crate::bounded::ReadError::TooLarge => TOO_LARGE,
@@ -845,5 +845,21 @@ mod tests {
             "cannot read the runtime options"
         );
         assert_eq!(load(directory.path(), Edition::full()).unwrap(), before);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn publishing_rejects_a_symlinked_runtime_document() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("runtime-options.json");
+        std::fs::write(&target, br#"{"api_version":1}"#).unwrap();
+        let linked = directory.path().join("runtime-options.json");
+        symlink(&target, &linked).unwrap();
+
+        assert!(publish_to_runtime_options(&linked, &Preferences::default()).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), br#"{"api_version":1}"#);
     }
 }

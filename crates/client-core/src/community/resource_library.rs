@@ -90,10 +90,11 @@ impl CommunityResourceLibraryStore {
         if !metadata.file_type().is_file() || metadata.len() > MAXIMUM_BYTES {
             return Err(CommunityResourceLibraryError::Invalid);
         }
-        let bytes =
-            crate::bounded_io::read_bounded_file(File::open(&self.file)?, MAXIMUM_BYTES, || {
-                CommunityResourceLibraryError::Invalid
-            })?;
+        let bytes = crate::bounded_io::read_bounded_file(
+            crate::storage::open_private_file(&self.file)?,
+            MAXIMUM_BYTES,
+            || CommunityResourceLibraryError::Invalid,
+        )?;
         let items: Vec<CommunityResource> = from_slice(&bytes)?;
         if items.len() > MAXIMUM_ITEMS || items.iter().any(|item| !is_valid_reply(item)) {
             return Err(CommunityResourceLibraryError::Invalid);
@@ -253,5 +254,24 @@ mod tests {
             Err(CommunityResourceLibraryError::Io(_))
         ));
         assert!(!outside.path().join("missing").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_library_file() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_file = outside.path().join("CommunityLibrary.json");
+        std::fs::write(&outside_file, serde_json::to_vec(&[reply()]).unwrap()).unwrap();
+        let file = root.path().join("CommunityLibrary.json");
+        symlink(&outside_file, &file).unwrap();
+
+        let store = CommunityResourceLibraryStore::new(&file);
+        assert!(matches!(
+            store.load(),
+            Err(CommunityResourceLibraryError::Invalid) | Err(CommunityResourceLibraryError::Io(_))
+        ));
     }
 }

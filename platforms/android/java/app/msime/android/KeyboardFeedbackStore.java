@@ -109,7 +109,7 @@ public final class KeyboardFeedbackStore {
 
     /** Persisted flags are typed JSON booleans; do not accept org.json's string coercion. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     static boolean booleanValue(Object value, boolean fallback) {

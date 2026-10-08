@@ -7369,7 +7369,10 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
     s.ai_context.clear();
   }
   if (s.applied_preferences_snapshot.is_object()) {
-    for (const auto *key : {"custom_translation", "niutrans", "tencent_tmt"}) {
+    for (const auto *key : {"candidate_translations", "candidate_english_gloss",
+                            "translation_target_language",
+                            "translation_secondary_language", "translation_account",
+                            "custom_translation", "niutrans", "tencent_tmt"}) {
       if (s.applied_preferences_snapshot.value(key, Json(nullptr)) ==
           preferences.value(key, Json(nullptr)))
         continue;

@@ -217,7 +217,7 @@ fn copy_folder(source: &Path, staging: &Path) -> Result<(), PluginError> {
         if !kind.is_file() {
             return Err(PluginError::Invalid(format!("{name} 不是普通文件")));
         }
-        let input = File::open(entry.path())?;
+        let input = crate::storage::open_private_file(&entry.path())?;
         let size = input.metadata()?.len();
         budget.take(size)?;
         write_member(staging, &name, input, size)?;
@@ -226,7 +226,7 @@ fn copy_folder(source: &Path, staging: &Path) -> Result<(), PluginError> {
 }
 
 fn extract(source: &Path, staging: &Path) -> Result<(), PluginError> {
-    let file = File::open(source)?;
+    let file = crate::storage::open_private_file(source)?;
     if file.metadata()?.len() > MAX_ARCHIVE_BYTES {
         return Err(PluginError::Archive("压缩包太大".into()));
     }

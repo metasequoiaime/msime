@@ -58,6 +58,23 @@ fn activation_receipt_rejects_a_symlinked_receipt() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn snapshot_file_open_does_not_follow_a_leaf_symlink() {
+    use std::fs;
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside_file = outside.path().join("snapshot.ndjson");
+    fs::write(&outside_file, b"synthetic snapshot").unwrap();
+    let linked = root.path().join("snapshot.ndjson");
+    symlink(&outside_file, &linked).unwrap();
+
+    assert!(super::open_snapshot_file(&linked).is_err());
+    assert_eq!(fs::read(outside_file).unwrap(), b"synthetic snapshot");
+}
+
 #[test]
 fn queue_state_can_be_polled_while_an_engine_session_holds_shared_access() {
     use msime_client_core::dictionary::access::DictionaryAccess;
@@ -740,7 +757,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
 #[test]
 fn snapshot_preparation_accepts_resources_shipped_without_the_on_demand_pair() {
     use super::*;
-    use msime_client_core::resources::MACOS_ON_DEMAND_ARTIFACTS;
+    use msime_client_core::resources::ON_DEMAND_JAPANESE_ARTIFACTS;
     use std::fs;
 
     let root = tempfile::tempdir().unwrap();
@@ -778,5 +795,5 @@ fn snapshot_preparation_accepts_resources_shipped_without_the_on_demand_pair() {
         )
     };
     assert!(rejected(&[]));
-    assert!(!rejected(&MACOS_ON_DEMAND_ARTIFACTS));
+    assert!(!rejected(&ON_DEMAND_JAPANESE_ARTIFACTS));
 }

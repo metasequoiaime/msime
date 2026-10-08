@@ -199,7 +199,7 @@ fn call_arguments(arguments: config::Arguments) -> Result<serde_json::Map<String
     let text = match arguments {
         config::Arguments::Inline(text) => text,
         config::Arguments::File(path) => {
-            let file = std::fs::File::open(&path).map_err(|error| {
+            let file = msime_client_core::file_lock::open_private_file(&path).map_err(|error| {
                 format!("cannot read the arguments from {}: {error}", path.display())
             })?;
             let bytes =
@@ -248,6 +248,22 @@ mod tests {
         let value = format!(r#"{{"text":"{}"}}"#, "x".repeat(9 * 1024 * 1024));
         file.write_all(value.as_bytes()).unwrap();
         let result = call_arguments(config::Arguments::File(path));
+        assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn argument_files_do_not_follow_a_symlinked_leaf() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("arguments.json");
+        std::fs::write(&target, br#"{"text":"synthetic"}"#).unwrap();
+        let link = directory.path().join("arguments.json");
+        symlink(&target, &link).unwrap();
+
+        let result = call_arguments(config::Arguments::File(link));
         assert!(result.is_err());
     }
 }

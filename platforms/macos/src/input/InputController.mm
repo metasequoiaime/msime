@@ -222,6 +222,11 @@ static NSString *MSIMEAICacheKey(NSDictionary *online) {
     NSDictionary *identity = @{ @"provider": [config[@"provider"] isKindOfClass:NSString.class] ? config[@"provider"] : @"",
         @"endpoint": [config[@"endpoint"] isKindOfClass:NSString.class] ? config[@"endpoint"] : @"",
         @"model": [config[@"model"] isKindOfClass:NSString.class] ? config[@"model"] : @"",
+        @"candidate_limit": [config[@"candidate_limit"] isKindOfClass:NSNumber.class] ? config[@"candidate_limit"] : @3,
+        @"prompt_id": [config[@"prompt_id"] isKindOfClass:NSString.class] ? config[@"prompt_id"] : @"",
+        @"prompt_custom_1": [config[@"prompt_custom_1"] isKindOfClass:NSString.class] ? config[@"prompt_custom_1"] : @"",
+        @"prompt_custom_2": [config[@"prompt_custom_2"] isKindOfClass:NSString.class] ? config[@"prompt_custom_2"] : @"",
+        @"prompt_custom_3": [config[@"prompt_custom_3"] isKindOfClass:NSString.class] ? config[@"prompt_custom_3"] : @"",
         @"pinyin_segments": segments };
     NSData *data = [NSJSONSerialization dataWithJSONObject:identity options:0 error:nil];
     return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
@@ -3534,6 +3539,8 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     NSString *scheme = _appearance.inputScheme;
     NSString *target =
         MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, MSIMEInputSourceIsEnabled);
+    // A mode whose scheme cannot run here (粤, 注 or 笔 without its dictionary) leaves the scheme alone. Adopting it only made the Engine fall back to the Chinese scheme used before it, so the menu bar said 粤 while the keys typed that scheme - shuangpin, for one user who had never picked Cantonese. The mode can be selectable without the dictionary: on macOS 27.0.1 the system turned 粤 on by itself after --register-input-source enabled the bundle, and it came back each time the user removed it.
+    if (target && !MSIMEInputSchemeAvailable(target, [self inputSchemeHostOptions])) target = nil;
     if (target && ![target isEqualToString:scheme]) {
         // The composition was typed under the old scheme and a scheme switch discards it, so commit it first, as the scheme menu does. A Korean syllable is text the user already wrote.
         if (_session && _activeClient && [_view[@"editing_text"] length]) {

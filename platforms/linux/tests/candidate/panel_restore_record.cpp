@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <fstream>
+#include <sys/stat.h>
 
 namespace {
 nlohmann::json read(const std::filesystem::path &file) {
@@ -84,6 +85,11 @@ int main() {
   std::ofstream(outside) << R"({"fcitx5":{"Font":{"prior":"attacker","written":"msime"}}})";
   std::filesystem::remove(file);
   std::filesystem::create_symlink(outside, file);
+  assert(!read_panel_restore(file));
+  std::filesystem::remove(file);
+
+  // A planted FIFO must be rejected without blocking the settings writer.
+  assert(::mkfifo(file.c_str(), 0600) == 0);
   assert(!read_panel_restore(file));
   std::filesystem::remove(file);
 

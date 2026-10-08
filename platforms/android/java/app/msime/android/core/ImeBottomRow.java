@@ -52,7 +52,7 @@ final class ImeBottomRow {
             // 组词时 SVC 把 text 设成「确认」（日语「確定」），这时按文字画；其他动作文字一律画 ↵。
             key.setTextFaces(java.util.Set.of("确认", "確定"));
             KeyboardGeometry.setKeyTextSize(key, 15);
-            key.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            ViewPolicy.setTypefaceStyle(key, android.graphics.Typeface.BOLD);
             key.setKeyboardRole(KeyboardKeyRole.RETURN);
             s.imeStyler.styleButton(key, KeyboardKeyRole.RETURN, s.skin);
             s.enterButton = key;
@@ -62,7 +62,7 @@ final class ImeBottomRow {
     private <T extends Button> T forwardFace(Button original, T face, String keyId) {
         face.setText(original.getText());
         face.setContentDescription(original.getContentDescription());
-        face.setOnClickListener(ignored -> original.performClick());
+        ViewPolicy.bindClick(face, original::performClick);
         s.keyId(face, keyId);
         s.imeKeyFeedback.stageFace(original, face);
         return face;
@@ -341,7 +341,7 @@ final class ImeBottomRow {
             : KeyboardActionRow.designEntries(layout, globe);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
-        s.actionRow.setVisibility(entries.isEmpty() ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());
         if (signature.equals(s.actionRowSignature)) {
             if (!ownBottom) s.updateQuickPunctuation();
             return;
@@ -368,7 +368,7 @@ final class ImeBottomRow {
                 KeyboardGeometry.setKeyTextSize(key, 22);
             else if (role == KeyboardKeyRole.ACCENT)
                 KeyboardGeometry.setKeyTextSize(key, 15);
-            key.setVisibility(View.VISIBLE);
+            ViewPolicy.show(key);
             s.actionRow.addView(key, KeyboardGeometry.weightedMatchParentParams(entry.weight()));
         }
         // The quick punctuation key hides itself when the scheme has no punctuation to offer, and

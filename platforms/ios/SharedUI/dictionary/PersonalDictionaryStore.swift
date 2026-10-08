@@ -420,7 +420,10 @@ final class PersonalDictionaryStore: @unchecked Sendable {
       guard state.exportResult?.request.id == result.request.id,
             state.exportResult?.error == nil else { throw StoreError.conflict }
       let file = directory.appendingPathComponent("export.txt")
-      let folder = FileManager.default.temporaryDirectory.appendingPathComponent("PersonalExport", isDirectory: true)
+      // Keep each request's share copy in its own directory. A later export must not
+      // invalidate a URL that a share sheet is still holding from an earlier one.
+      let folder = FileManager.default.temporaryDirectory
+        .appendingPathComponent("PersonalExport-\(result.request.id.uuidString)", isDirectory: true)
       try? FileManager.default.removeItem(at: folder)
       try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
       let copy = folder.appendingPathComponent(result.request.fileName)

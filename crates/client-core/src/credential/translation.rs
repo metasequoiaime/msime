@@ -89,20 +89,7 @@ fn request(service: &str, config: &Value, milliseconds: u64) -> Option<Request> 
         }
         "translation.custom" => {
             let endpoint = get("endpoint");
-            let url = reqwest::Url::parse(endpoint).ok()?;
-            if !crate::text::is_bounded_text(endpoint, 2048)
-                || !matches!(url.scheme(), "http" | "https")
-                || !endpoint.split_once("://").is_some_and(|(_, authority)| {
-                    authority
-                        .as_bytes()
-                        .first()
-                        .is_some_and(|byte| *byte != b'/')
-                })
-                || url.host_str().is_none_or(str::is_empty)
-                || !url.username().is_empty()
-                || url.password().is_some()
-                || url.fragment().is_some()
-            {
+            if !translation::is_secure_endpoint(endpoint) {
                 return None;
             }
             let key = get("api_key");
@@ -270,6 +257,18 @@ mod tests {
         invalid["endpoint"] = json!("https:///translate");
         assert!(request("translation.custom", &invalid, 0).is_none());
     }
+
+    #[test]
+    fn custom_translation_rejects_remote_http_before_sending_credentials() {
+        let mut invalid = config();
+        invalid["endpoint"] = json!("http://translate.example/api");
+        invalid["api_key"] = json!("synthetic-api-key");
+        assert!(request("translation.custom", &invalid, 0).is_none());
+
+        invalid["endpoint"] = json!("http://127.0.0.1:8080/api");
+        assert!(request("translation.custom", &invalid, 0).is_some());
+    }
+
     #[test]
     fn translation_probe_validates_before_transport() {
         struct Never;

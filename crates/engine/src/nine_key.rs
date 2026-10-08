@@ -25,6 +25,10 @@ use crate::user_dictionary::removal;
 pub const PATH_LIMIT: usize = 48;
 pub const DIGIT_LIMIT: usize = 32;
 pub const CANDIDATE_LIMIT: usize = 128;
+// 少量查询键直接扫描已有切分路径，避免刷新时为临时哈希表分配堆内存。
+const SMALL_QUERY_KEY_BATCH: usize = 64;
+// 少量九宫格候选直接扫描已保留词，避免排序后为一次去重分配哈希表。
+const SMALL_CANDIDATE_DEDUP: usize = 64;
 
 /// The digit printed beside each of `a..=z` (NK:37).
 const KEYPAD: &[u8; 26] = b"22233344455566677778889999";
@@ -35,6 +39,7 @@ const DIGIT_LETTERS: [&str; 10] = [
 /// T9 expansion multiplies by three or four per digit, so only the leading digits become letter prefixes and the dictionary's own prefix search carries the rest (NK:189).
 const ENGLISH_PREFIX_BUDGET: usize = 64;
 const ENGLISH_LIMIT: usize = 5;
+const ENGLISH_CANDIDATE_CAPACITY: usize = ENGLISH_PREFIX_BUDGET * ENGLISH_LIMIT;
 
 type Path = Vec<String>;
 
@@ -367,24 +372,26 @@ impl NineKeySession {
             alternatives
         };
 
-        let locked_key = self.locked.join("'");
+        let mut locked_key = String::new();
+        append_path_key(&mut locked_key, "", &self.locked);
         let mut dictionary = self
             .dictionary
             .get_or_insert_with(|| QuanpinDictionary::new(&self.paths))
             .row_cache_batch();
-        let mut queried = HashSet::with_capacity(alternatives.len());
+        let mut queried = (alternatives.len() > SMALL_QUERY_KEY_BATCH)
+            .then(|| HashSet::with_capacity(alternatives.len()));
         let mut candidates = Vec::with_capacity(CANDIDATE_LIMIT);
+        let mut key = String::with_capacity(locked_key.len() + self.digits.len() * 4 + 1);
         // 各条切分的前缀组彼此大量重复，一次刷新会推入上万行，见 `push_ranked`。
         let mut leading: HashMap<String, RankKey> = HashMap::with_capacity(CANDIDATE_LIMIT);
         // Only a split the user typed says where a syllable ends; without one, `3` must keep 的 (a completion of d) ahead of the rarer 额 (e).
         let prefer_exact = !self.splits.is_empty();
-        for path in alternatives {
-            let mut full = self.locked.clone();
-            full.extend(path);
-            let key = full.join("'");
-            if key.is_empty() || !is_unseen_query_key(&queried, &key) {
+        for (index, path) in alternatives.iter().enumerate() {
+            append_path_key(&mut key, &locked_key, path);
+            if key.is_empty() || !query_key_is_new(&alternatives, index, &key, queried.as_ref()) {
                 continue;
             }
+            let full_len = self.locked.len() + path.len();
             for mut candidate in dictionary.query(&key, &key, 0, self.fuzzy) {
                 let canonical = if candidate.canonical_pinyin.is_empty() {
                     candidate.pinyin.clone()
@@ -392,7 +399,7 @@ impl NineKeySession {
                     candidate.canonical_pinyin.clone()
                 };
                 // A row with more syllables than the path is a completion past the typed digits.
-                if canonical.matches('\'').count() >= full.len() {
+                if canonical.matches('\'').count() >= full_len {
                     continue;
                 }
                 let matched = if candidate.fuzzy {
@@ -413,7 +420,9 @@ impl NineKeySession {
                 candidate.canonical_pinyin = canonical;
                 push_ranked(&mut candidates, &mut leading, candidate, prefer_exact);
             }
-            queried.insert(key);
+            if let Some(seen) = queried.as_mut() {
+                seen.insert(key.clone());
+            }
         }
         drop(dictionary);
         rank_candidates(&mut candidates, prefer_exact);
@@ -525,23 +534,13 @@ impl NineKeySession {
                 // The database lookup key is the lowercase spelling in `pinyin`; `word` is the
                 // display form and may intentionally contain punctuation or spaces (for example
                 // the custom entry `dont` displayed as `don't`).
-                if !digits_for_word(&word.pinyin).starts_with(&digits) {
+                if !word_matches_digits(&word.pinyin, &digits) {
                     continue;
                 }
                 words.push(word);
             }
         }
-        let mut seen_words = HashSet::with_capacity(words.len());
-        let unique = words
-            .iter()
-            .map(|word| seen_words.insert(word.word.as_str()))
-            .collect::<Vec<_>>();
-        drop(seen_words);
-        words = words
-            .into_iter()
-            .zip(unique)
-            .filter_map(|(word, unique)| unique.then_some(word))
-            .collect();
+        deduplicate_english_words(&mut words);
         rank_english(&mut words, digits.len());
         words
     }
@@ -634,6 +633,17 @@ fn remaining_digits(digits: &str, locked_length: usize) -> &str {
     &digits[locked_length..]
 }
 
+fn append_path_key(output: &mut String, prefix: &str, path: &[String]) {
+    output.clear();
+    output.push_str(prefix);
+    for (index, part) in path.iter().enumerate() {
+        if !prefix.is_empty() || index != 0 {
+            output.push('\'');
+        }
+        output.push_str(part);
+    }
+}
+
 /// A row read under the locked syllables must spell them, or be a whole-syllable prefix of them.
 fn agrees_with_locked(matched: &str, locked_key: &str) -> bool {
     if locked_key.is_empty() || matched == locked_key {
@@ -653,8 +663,18 @@ fn has_candidate_word(candidates: &[WordItem], word: &str) -> bool {
     candidates.iter().any(|candidate| candidate.word == word)
 }
 
-fn is_unseen_query_key(queried: &HashSet<String>, key: &str) -> bool {
-    !queried.contains(key)
+fn query_key_is_new(
+    alternatives: &[Path],
+    index: usize,
+    key: &str,
+    queried: Option<&HashSet<String>>,
+) -> bool {
+    match queried {
+        Some(queried) => !queried.contains(key),
+        None => !alternatives[..index]
+            .iter()
+            .any(|alternative| alternative == &alternatives[index]),
+    }
 }
 
 /// `rank_candidates` 的排序键，小的在前。
@@ -677,6 +697,44 @@ fn rank_key(item: &WordItem, prefer_exact: bool) -> RankKey {
         item.fuzzy,
         Reverse(item.weight),
     )
+}
+
+/// 英文九键前缀展开最多产生 320 行；用栈上借用表和索引表去重，释放借用后再原地压缩。
+fn deduplicate_english_words(words: &mut Vec<WordItem>) {
+    assert!(words.len() <= ENGLISH_CANDIDATE_CAPACITY);
+    let mut duplicates = [0usize; ENGLISH_CANDIDATE_CAPACITY];
+    let mut duplicate_len = 0;
+    {
+        let mut seen: [Option<&str>; ENGLISH_CANDIDATE_CAPACITY] =
+            [None; ENGLISH_CANDIDATE_CAPACITY];
+        let mut seen_len = 0;
+        for (index, word) in words.iter().enumerate() {
+            if seen[..seen_len]
+                .iter()
+                .flatten()
+                .any(|existing| *existing == word.word.as_str())
+            {
+                duplicates[duplicate_len] = index;
+                duplicate_len += 1;
+            } else {
+                seen[seen_len] = Some(word.word.as_str());
+                seen_len += 1;
+            }
+        }
+    }
+    let mut next_duplicate = 0;
+    let mut write = 0;
+    for read in 0..words.len() {
+        if next_duplicate < duplicate_len && duplicates[next_duplicate] == read {
+            next_duplicate += 1;
+            continue;
+        }
+        if write != read {
+            words.swap(write, read);
+        }
+        write += 1;
+    }
+    words.truncate(write);
 }
 
 /// 推入一行，除非同一个词已有一行排得不比它靠后。`leading` 记着每个词目前排得最靠前的那一行的排序键。被跳过的行在稳定排序后必然落在那一行之后（键更大，或键相同而推入更晚），会被 `retain_unique_words` 删掉；它也不会让别的行多删或少删，因为它能挡住的行那一行同样挡得住。所以跳过与全部推入再 `rank_candidates`，结果完全相同。前提是两边用同一个 `prefer_exact`。
@@ -705,18 +763,43 @@ fn rank_candidates(candidates: &mut Vec<WordItem>, prefer_exact: bool) {
 }
 
 fn retain_unique_words(candidates: &mut Vec<WordItem>) {
+    if candidates.len() <= SMALL_CANDIDATE_DEDUP {
+        let mut write = 0;
+        for read in 0..candidates.len() {
+            if candidates[..write]
+                .iter()
+                .any(|existing| existing.word == candidates[read].word)
+            {
+                continue;
+            }
+            if write != read {
+                candidates.swap(write, read);
+            }
+            write += 1;
+        }
+        candidates.truncate(write);
+        return;
+    }
     let mut seen = HashSet::with_capacity(candidates.len());
-    let keep: Vec<bool> = candidates
+    let duplicates = candidates
         .iter()
-        .map(|item| seen.insert(item.word.as_str()))
-        .collect();
+        .enumerate()
+        .filter_map(|(index, item)| (!seen.insert(item.word.as_str())).then_some(index))
+        .collect::<Vec<_>>();
     drop(seen);
-    let mut index = 0;
-    candidates.retain(|_| {
-        let keep_item = keep[index];
-        index += 1;
-        keep_item
-    });
+    let mut duplicates = duplicates.into_iter().peekable();
+    let mut write = 0;
+    for read in 0..candidates.len() {
+        if duplicates.peek() == Some(&read) {
+            duplicates.next();
+            continue;
+        }
+        if write != read {
+            candidates.swap(write, read);
+        }
+        write += 1;
+    }
+    candidates.truncate(write);
 }
 
 /// A word spelling the typed code exactly leads, but only when people type it: 64426 is 你好 and `ogham` is the only five-letter word those keys spell, so a zero-weight exact word gets no privilege. Then weight, then shorter (NK:199-220).
@@ -741,12 +824,30 @@ fn encode(pinyin: &str) -> String {
 }
 
 /// The digit code of an English word, ignoring case; a word with any non-letter has none.
+#[cfg(test)]
 fn digits_for_word(word: &str) -> String {
     let lowered = word.to_ascii_lowercase();
     if !lowered.bytes().all(|byte| byte.is_ascii_lowercase()) {
         return String::new();
     }
     encode(&lowered)
+}
+
+fn word_matches_digits(word: &str, digits: &str) -> bool {
+    let mut matched = 0;
+    for byte in word.bytes() {
+        let letter = byte.to_ascii_lowercase();
+        if !letter.is_ascii_lowercase() {
+            return false;
+        }
+        if let Some(&digit) = digits.as_bytes().get(matched) {
+            if KEYPAD[usize::from(letter - b'a')] != digit {
+                return false;
+            }
+            matched += 1;
+        }
+    }
+    matched == digits.len()
 }
 
 fn letters_for_digit(digit: u8) -> &'static str {
@@ -921,6 +1022,11 @@ mod tests {
         assert_eq!(digits_for_word("ogham"), "64426");
         assert_eq!(digits_for_word("don't"), "");
         assert_eq!(digits_for_word("café"), "");
+        assert!(word_matches_digits("OK", "65"));
+        assert!(word_matches_digits("ogham", "64426"));
+        assert!(!word_matches_digits("ogham", "64427"));
+        assert!(!word_matches_digits("don't", "3668"));
+        assert!(!word_matches_digits("ogham", "644260"));
     }
 
     #[test]
@@ -970,6 +1076,17 @@ mod tests {
     }
 
     #[test]
+    fn query_key_scan_uses_no_temporary_heap_state() {
+        let alternatives = vec![vec!["ni".to_owned(), "hao".to_owned()]];
+        let (found, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            query_key_is_new(&alternatives, 0, "ni'hao", None)
+        });
+
+        assert!(found);
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
     fn spellings_sort_by_digits_covered_within_the_limit() {
         let table = SpellingTable::new(&[
             "ga", "gan", "gang", "gao", "ha", "han", "hang", "hao", "ni", "a", "ai",
@@ -992,6 +1109,21 @@ mod tests {
     #[test]
     fn refresh_tail_is_borrowed_from_digits() {
         assert_eq!(remaining_digits("64426", 2), "426");
+    }
+
+    #[test]
+    fn path_key_builder_reuses_existing_string_storage() {
+        let path = vec!["hao".to_owned(), "ma".to_owned()];
+        let mut key = String::with_capacity(32);
+        append_path_key(&mut key, "ni", &path);
+        assert_eq!(key, "ni'hao'ma");
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            append_path_key(&mut key, "ni", &path);
+        });
+
+        assert_eq!(key, "ni'hao'ma");
+        assert_eq!(allocations, 0);
     }
 
     #[test]
@@ -1019,11 +1151,65 @@ mod tests {
     }
 
     #[test]
-    fn query_key_lookup_borrows_before_inserting() {
+    fn short_unique_word_retain_avoids_temporary_heap_state() {
+        let mut candidates = vec![
+            item("你", "644", 10, CandidateSource::Database),
+            item("你", "64", 1, CandidateSource::Generated),
+            item("泥", "64", 2, CandidateSource::Database),
+        ];
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            retain_unique_words(&mut candidates);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|candidate| candidate.word.as_str())
+                .collect::<Vec<_>>(),
+            ["你", "泥"]
+        );
+    }
+
+    #[test]
+    fn query_key_lookup_deduplicates_paths_and_hashed_keys() {
+        let alternatives = vec![
+            vec!["ni".to_owned(), "hao".to_owned()],
+            vec!["ni".to_owned(), "hao".to_owned()],
+        ];
+        assert!(query_key_is_new(&alternatives, 0, "ni'hao", None));
+        assert!(!query_key_is_new(&alternatives, 1, "ni'hao", None));
+
         let mut queried = HashSet::new();
-        assert!(is_unseen_query_key(&queried, "ni'hao"));
+        assert!(query_key_is_new(&alternatives, 0, "ni'hao", Some(&queried)));
         queried.insert("ni'hao".to_owned());
-        assert!(!is_unseen_query_key(&queried, "ni'hao"));
+        assert!(!query_key_is_new(
+            &alternatives,
+            1,
+            "ni'hao",
+            Some(&queried)
+        ));
+    }
+
+    #[test]
+    fn query_key_dedup_switches_to_hashing_after_small_batch_boundary() {
+        let alternatives = (0..=SMALL_QUERY_KEY_BATCH)
+            .map(|index| vec![format!("syllable-{}", index % 32)])
+            .collect::<Vec<_>>();
+        let mut queried = (alternatives.len() > SMALL_QUERY_KEY_BATCH)
+            .then(|| HashSet::with_capacity(alternatives.len()));
+        let mut unique = 0;
+        for (index, path) in alternatives.iter().enumerate() {
+            let key = path[0].as_str();
+            if query_key_is_new(&alternatives, index, key, queried.as_ref()) {
+                unique += 1;
+                if let Some(seen) = queried.as_mut() {
+                    seen.insert(key.to_owned());
+                }
+            }
+        }
+        assert_eq!(unique, 32);
+        assert!(queried.is_some());
     }
 
     #[test]
@@ -1159,6 +1345,25 @@ mod tests {
         let mut many: Vec<_> = (0..8).map(|n| english(&format!("w{n}"), n)).collect();
         rank_english(&mut many, 2);
         assert_eq!(many.len(), ENGLISH_LIMIT);
+    }
+
+    #[test]
+    fn english_dedup_keeps_the_first_row_for_each_display_word() {
+        let mut words = vec![
+            item("one", "one", 100, CandidateSource::EnglishDictionary),
+            item("two", "two", 90, CandidateSource::EnglishDictionary),
+            item("one", "one", 80, CandidateSource::EnglishDictionary),
+        ];
+
+        deduplicate_english_words(&mut words);
+
+        assert_eq!(
+            words
+                .iter()
+                .map(|word| (word.word.as_str(), word.weight))
+                .collect::<Vec<_>>(),
+            [("one", 100), ("two", 90)]
+        );
     }
 
     #[test]

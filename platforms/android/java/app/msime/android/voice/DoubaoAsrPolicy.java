@@ -36,11 +36,11 @@ public final class DoubaoAsrPolicy {
 
     /** The provider envelope carries its nested result as a JSON string; reject coercion. */
     static String strictPayload(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     static boolean validEndpoint(String endpoint) {

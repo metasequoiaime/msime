@@ -115,4 +115,16 @@ final class BackendSnapshotTests: XCTestCase {
     prepared = nil
     XCTAssertFalse(FileManager.default.fileExists(atPath: copy.deletingLastPathComponent().path))
   }
+
+  func testPreparedCopyRejectsASymlinkedSource() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+    let target = root.appendingPathComponent("target.ndjson")
+    try framed([header]).write(to: target)
+    let source = root.appendingPathComponent("selected.ndjson")
+    try FileManager.default.createSymbolicLink(at: source, withDestinationURL: target)
+
+    XCTAssertThrowsError(try BackendPreparedSnapshot(copying: source))
+  }
 }

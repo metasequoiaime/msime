@@ -99,9 +99,9 @@ public final class OnboardingActivity extends AppCompatActivity {
         progress.setIndicatorColor(Ui.accent(this));
         progress.setTrackColor(Ui.accentSoft(this));
         if (state != null) page = KeyboardGeometry.bounded(state.getInt(STATE_PAGE, 0), 0, pages - 1);
-        findViewById(R.id.onboarding_skip).setOnClickListener(ignored -> finishFlow());
-        findViewById(R.id.onboarding_previous).setOnClickListener(ignored -> go(page - 1));
-        findViewById(R.id.onboarding_next).setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(findViewById(R.id.onboarding_skip), this::finishFlow);
+        ViewPolicy.bindClick(findViewById(R.id.onboarding_previous), () -> go(page - 1));
+        ViewPolicy.bindClick(findViewById(R.id.onboarding_next), () -> {
             if (page < pages - 1) go(page + 1);
             else if (account == SignIn.State.OFFERED && !declined) signIn();
             else finishFlow();
@@ -170,8 +170,8 @@ public final class OnboardingActivity extends AppCompatActivity {
     private void render(boolean animate) {
         ((LinearProgressIndicator) findViewById(R.id.onboarding_progress))
             .setProgressCompat(page + 1, animate);
-        findViewById(R.id.onboarding_skip).setVisibility(page == 0 ? View.VISIBLE : View.GONE);
-        findViewById(R.id.onboarding_previous).setVisibility(page == 0 ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisible(findViewById(R.id.onboarding_skip), page == 0);
+        ViewPolicy.setVisible(findViewById(R.id.onboarding_previous), page != 0);
         boolean offer = page == pages - 1 && account == SignIn.State.OFFERED && !declined;
         MaterialButton next = findViewById(R.id.onboarding_next);
         next.setText(page < pages - 1 ? R.string.onboarding_next
@@ -272,7 +272,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         // A still of the candidate strip, drawn from the design's sample: what the switch below changes, before anyone has to open a text field to see it.
         LinearLayout strip = Ui.row(this);
         Ui.setSymmetricPaddingDp(strip, this, 10, 12);
-        strip.setBackground(Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 20)));
+        ViewPolicy.setBackground(strip, Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 20)));
         strip.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         String[][] samples = {{"候选", "candidate"}, {"后选", "choice"}, {"侯选", "option"}, {"候", "wait"}};
         for (int index = 0; index < samples.length; index++) {
@@ -290,7 +290,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         LinearLayout row = Ui.row(this);
         ViewPolicy.setCenteredVertically(row);
         Ui.setSymmetricPaddingDp(row, this, 14, 12);
-        row.setBackground(Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
+        ViewPolicy.setBackground(row, Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
         TextView label = Ui.label(this, "显示译文", 16, Ui.text(this));
         row.addView(label, Ui.weightWrap(1f));
         MaterialSwitch toggle = new MaterialSwitch(this);
@@ -300,7 +300,7 @@ public final class OnboardingActivity extends AppCompatActivity {
             if (checked != on) chooseGloss(checked);
         });
         row.addView(toggle);
-        row.setOnClickListener(ignored -> toggle.toggle());
+        ViewPolicy.bindClick(row, toggle::toggle);
         column.addView(row, Ui.matchWidth(this, 12));
 
         if (note != null) {
@@ -451,12 +451,12 @@ public final class OnboardingActivity extends AppCompatActivity {
         column.addView(kick, Ui.matchWidth(this, 14 + 6));
 
         TextView heading = Ui.label(this, title, 32, Ui.text(this));
-        heading.setLineSpacing(0, 1.1f);
+        ViewPolicy.setLineSpacing(heading, 0, 1.1f);
         heading.setAccessibilityHeading(true);
         column.addView(heading, Ui.matchWidth(this, 14));
 
         TextView line = Ui.label(this, body, 16, Ui.subText(this));
-        line.setLineSpacing(0, 1.35f);
+        ViewPolicy.setLineSpacing(line, 0, 1.35f);
         column.addView(line, Ui.matchWidth(this, 14));
     }
 
@@ -471,7 +471,7 @@ public final class OnboardingActivity extends AppCompatActivity {
             Runnable fix, boolean divider) {
         if (divider) {
             View line = new View(this);
-            line.setBackgroundColor(Ui.hairline(this));
+            ViewPolicy.setBackgroundColor(line, Ui.hairline(this));
             card.addView(line, Ui.matchWidthHeightPx(
                 BoundsPolicy.bounded(Ui.dp(this, 1) / 2, 1, Integer.MAX_VALUE)));
         }
@@ -484,7 +484,7 @@ public final class OnboardingActivity extends AppCompatActivity {
             done ? Ui.onAccent(this) : 0xFFFFFFFF);
         ViewPolicy.setCentered(mark);
         // 字形画在固定 dp 的圆里，跟圆一起按 dp 定大小；按 sp 时系统字体一调大，对勾就被圆的边界切掉。
-        mark.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 13);
+        ViewPolicy.setTextSizeDp(mark, 13);
         Ui.applyStatusMark(mark, this, done);
         row.addView(mark, Ui.squareParams(this, 24));
 
@@ -501,7 +501,7 @@ public final class OnboardingActivity extends AppCompatActivity {
             android.util.TypedValue ripple = new android.util.TypedValue();
             getTheme().resolveAttribute(android.R.attr.selectableItemBackground, ripple, true);
             button.setBackgroundResource(ripple.resourceId);
-            button.setOnClickListener(ignored -> fix.run());
+            ViewPolicy.bindClick(button, fix);
             row.addView(button, Ui.wrapHeight(this, 40));
         }
         card.addView(row);
@@ -515,7 +515,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         GradientDrawable face = selected
             ? Ui.outlined(Ui.card(this), Ui.dp(this, 20), Ui.dp(this, 2), Ui.accent(this))
             : Ui.rounded(Ui.card(this), Ui.dp(this, 20));
-        card.setBackground(face);
+        ViewPolicy.setBackground(card, face);
 
         LinearLayout text = Ui.column(this);
         TextView heading = Ui.label(this, option.label(), 16, Ui.text(this));
@@ -531,7 +531,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         GradientDrawable dot = Ui.circleOutlined(selected ? Ui.page(this) : 0,
             selected ? Ui.dp(this, 6) : Ui.atLeastOnePx(this, 1.5f),
             selected ? Ui.accent(this) : Ui.subText(this));
-        radio.setBackground(dot);
+        ViewPolicy.setBackground(radio, dot);
         LinearLayout.LayoutParams radioParams = Ui.squareParams(this, 22);
         radioParams.setMarginStart(Ui.dp(this, 12));
         card.addView(radio, radioParams);
@@ -539,8 +539,8 @@ public final class OnboardingActivity extends AppCompatActivity {
         card.setContentDescription(option.label() + "，" + option.detail()
             + (selected ? "，已选择" : "，未选择"));
         // 偏好还读不到时也能点：选择先记下，偏好可读后再写（OnboardingChoices）。
-        card.setOnClickListener(selected ? null : ignored -> chooseScheme(option.scheme()));
-        card.setClickable(true);
+        ViewPolicy.bindOptionalClick(card, selected ? null : () -> chooseScheme(option.scheme()));
+        ViewPolicy.setClickable(card, true);
         column.addView(card, Ui.matchWidth(this, top));
     }
 
@@ -548,10 +548,10 @@ public final class OnboardingActivity extends AppCompatActivity {
         LinearLayout row = Ui.row(this);
         ViewPolicy.setCenteredVertically(row);
         Ui.setSymmetricPaddingDp(row, this, 14, 12);
-        row.setBackground(Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
+        ViewPolicy.setBackground(row, Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
         ImageView badge = Ui.decorativeIcon(this, icon, Ui.accent(this));
         Ui.setSymmetricPaddingDp(badge, this, 7, 7);
-        badge.setBackground(Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 9)));
+        ViewPolicy.setBackground(badge, Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 9)));
         Ui.hideFromAccessibility(badge);
         row.addView(badge, Ui.squareParams(this, 32));
         TextView text = Ui.label(this, label, 15, Ui.text(this));

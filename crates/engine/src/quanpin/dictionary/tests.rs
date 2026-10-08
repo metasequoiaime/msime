@@ -2,7 +2,6 @@
 
 use rusqlite::params;
 use std::borrow::Cow;
-use std::collections::HashSet;
 
 use super::*;
 use crate::quanpin::fixture::Fixture;
@@ -43,9 +42,44 @@ fn resolution_cache_key_hash_matches_borrowed_parts() {
 
 #[test]
 fn primary_segmentation_is_checked_without_owning_a_key_copy() {
-    let seen = HashSet::new();
-    assert!(is_duplicate_segmentation("ni'hao", &seen, "ni'hao"));
-    assert!(!is_duplicate_segmentation("ni'hao", &seen, "ni'he"));
+    let mut seen: [Option<String>; ALTERNATIVE_SEGMENTATION_SEEN_CAPACITY] =
+        std::array::from_fn(|_| None);
+    let mut seen_length = 0;
+    assert!(!remember_segmentation_key(
+        &mut seen,
+        &mut seen_length,
+        "ni'hao",
+        "ni'hao".to_owned()
+    ));
+    assert!(remember_segmentation_key(
+        &mut seen,
+        &mut seen_length,
+        "ni'hao",
+        "ni'he".to_owned()
+    ));
+}
+
+#[test]
+fn alternative_segmentation_key_state_uses_no_temporary_heap_allocation() {
+    let keys = ["ni'hao", "ni'he", "ni'hao", "ni'men"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let mut seen: [Option<String>; ALTERNATIVE_SEGMENTATION_SEEN_CAPACITY] =
+        std::array::from_fn(|_| None);
+    let mut seen_length = 0;
+    let mut unique = 0;
+    let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        for key in keys {
+            if remember_segmentation_key(&mut seen, &mut seen_length, "", key) {
+                unique += 1;
+            }
+        }
+    });
+
+    assert_eq!(allocations, 0);
+    assert_eq!(unique, 3);
+    assert_eq!(seen_length, 3);
 }
 
 #[test]
@@ -985,6 +1019,29 @@ fn query_rows_reserve_the_incoming_batch() {
 
     assert_eq!(result.len(), 11);
     assert_eq!(result.capacity(), 11);
+}
+
+#[test]
+fn query_rows_move_into_an_empty_result_buffer() {
+    let rows: Vec<WordItem> = (0..10)
+        .map(|index| {
+            WordItem::new(
+                "a",
+                format!("词{index}"),
+                index,
+                CandidateSource::Database,
+                "a",
+            )
+        })
+        .collect();
+    let pointer = rows.as_ptr();
+    let capacity = rows.capacity();
+    let mut result = Vec::new();
+
+    QuanpinDictionary::append_query_rows(&mut result, rows);
+
+    assert_eq!(result.as_ptr(), pointer);
+    assert_eq!(result.capacity(), capacity);
 }
 
 /// test_fuzzy_pinyin.cpp:265-270: two hundred warm fuzzy queries stay well inside the reference's five-second budget.

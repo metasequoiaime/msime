@@ -15,6 +15,8 @@ private func msimeClientFocus(_ session: UInt64, _ focused: Bool) -> UnsafeMutab
 private func msimeClientStringFree(_ value: UnsafeMutablePointer<CChar>?)
 @_silgen_name("msime_client_character")
 private func msimeClientCharacter(_ session: UInt64, _ value: MSIMEByte, _ shift: Bool) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_glide")
+private func msimeClientGlide(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_punctuation")
 private func msimeClientPunctuation(_ session: UInt64, _ value: MSIMEByte) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_punctuation_with_context")
@@ -584,6 +586,14 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   func handleCharacter(_ character: String, shifted: Bool = false) -> MetasequoiaInputSnapshot {
     dispatch { pointer(for: character, shift: shifted) }
+  }
+
+  /// 滑行输入：抬手时把一笔滑行的请求（`GlideTyping.request`）交给 Engine，回应与 `handleCharacter` 的一样。方案不是全拼、处于本地模式或这一笔解不出音节时 Engine 不处理（`isHandled` 为 false），宿主丢掉这一笔。
+  func glide(_ request: Data) -> MetasequoiaInputSnapshot {
+    guard !request.isEmpty, request.count <= 65_536 else { return diagnostic("滑行输入无效") }
+    return request.withUnsafeBytes { bytes in
+      dispatch { msimeClientGlide(handle, bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(request.count)) }
+    }
   }
 
   func handleCandidateKey(_ character: String) -> MetasequoiaInputSnapshot {

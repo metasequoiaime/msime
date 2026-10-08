@@ -252,7 +252,7 @@ public final class DictionaryCollectionsStore {
                 bytes = nextBytes;
                 Object rawHasMore = value.opt("has_more");
                 if (rawHasMore == null || rawHasMore == JSONObject.NULL) break;
-                Boolean hasMore = strictBoolean(rawHasMore);
+                Boolean hasMore = JsonPolicy.strictBoolean(rawHasMore);
                 if (hasMore == null) return Result.failed(failureMessage(""));
                 if (!hasMore) break;
                 offset += EXPORT_PAGE;
@@ -417,15 +417,15 @@ public final class DictionaryCollectionsStore {
                 JSONObject item = raw.optJSONObject(index);
                 if (item == null) continue;
                 JSONObject source = item.optJSONObject("source");
-                String id = strictString(item.opt("id"));
-                String name = strictString(item.opt("name"));
-                String kind = strictString(item.opt("kind"));
-                Boolean enabled = strictBoolean(item.opt("enabled"));
+                String id = JsonPolicy.strictString(item.opt("id"));
+                String name = JsonPolicy.strictString(item.opt("name"));
+                String kind = JsonPolicy.strictString(item.opt("kind"));
+                Boolean enabled = JsonPolicy.strictBoolean(item.opt("enabled"));
                 Integer entryCount = nonNegativeInteger(item.opt("entry_count"));
                 Integer pending = nonNegativeInteger(item.opt("pending"));
-                String type = source == null ? "user" : strictString(source.opt("type"));
+                String type = source == null ? "user" : JsonPolicy.strictString(source.opt("type"));
                 String resource = source == null || !source.has("resource_id")
-                    ? "" : strictString(source.opt("resource_id"));
+                    ? "" : JsonPolicy.strictString(source.opt("resource_id"));
                 if (id == null || name == null || kind == null || enabled == null
                         || entryCount == null || pending == null || type == null
                         || resource == null) continue;
@@ -437,14 +437,14 @@ public final class DictionaryCollectionsStore {
         List<String> formats = new ArrayList<>(rawFormats == null ? 0 : rawFormats.length());
         if (rawFormats != null) {
             for (int index = 0; index < rawFormats.length(); index++) {
-                String format = strictString(rawFormats.opt(index));
+                String format = JsonPolicy.strictString(rawFormats.opt(index));
                 if (format != null && !format.isEmpty()) formats.add(format);
             }
         }
         JSONObject report = value.optJSONObject("import");
         ImportReport importReport = report == null ? null : new ImportReport(
             nonNegativeInteger(report.opt("imported"), 0), nonNegativeInteger(report.opt("duplicates"), 0),
-            nonNegativeInteger(report.opt("failed"), 0), Boolean.TRUE.equals(strictBoolean(report.opt("truncated"))));
+            nonNegativeInteger(report.opt("failed"), 0), JsonPolicy.strictTrue(report.opt("truncated")));
         return new View(Collections.unmodifiableList(collections), Collections.unmodifiableList(formats), importReport);
     }
 
@@ -456,16 +456,16 @@ public final class DictionaryCollectionsStore {
             for (int index = 0; index < raw.length(); index++) {
                 JSONObject item = raw.optJSONObject(index);
                 if (item == null) continue;
-                String kind = strictString(item.opt("kind"));
-                String key = strictString(item.opt("key"));
-                String word = strictString(item.opt("value"));
+                String kind = JsonPolicy.strictString(item.opt("kind"));
+                String key = JsonPolicy.strictString(item.opt("key"));
+                String word = JsonPolicy.strictString(item.opt("value"));
                 Long weight = strictLong(item.opt("weight"));
-                String source = strictString(item.opt("source"));
+                String source = JsonPolicy.strictString(item.opt("source"));
                 if (kind == null || key == null || word == null || weight == null || source == null) continue;
                 words.add(new Word(kind, key, word, weight, source));
             }
         }
-        return new WordPage(Collections.unmodifiableList(words), Boolean.TRUE.equals(strictBoolean(value.opt("has_more"))));
+        return new WordPage(Collections.unmodifiableList(words), JsonPolicy.strictTrue(value.opt("has_more")));
     }
 
     private static Result<View> collections(Context context, JSONObject action, boolean changesWords) {
@@ -523,7 +523,7 @@ public final class DictionaryCollectionsStore {
         if (response == null) return null;
         try {
             JSONObject root = new JSONObject(response);
-            return Boolean.TRUE.equals(strictBoolean(root.opt("ok")))
+            return JsonPolicy.strictTrue(root.opt("ok"))
                 ? root.optJSONObject("value") : null;
         } catch (JSONException error) {
             return null;
@@ -532,11 +532,11 @@ public final class DictionaryCollectionsStore {
 
     /** JSON response flags must remain booleans; org.json otherwise coerces strings. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     public static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     /** Export pages are text from the native response; do not let org.json coerce malformed values. */
@@ -545,11 +545,7 @@ public final class DictionaryCollectionsStore {
     }
 
     public static Integer strictInteger(Object value) {
-        if (value instanceof Integer integer) return integer;
-        if (value instanceof Long longValue
-                && longValue >= Integer.MIN_VALUE && longValue <= Integer.MAX_VALUE)
-            return longValue.intValue();
-        return null;
+        return JsonPolicy.strictInteger(value);
     }
 
     /** 词库计数必须是非负 JSON 整数；非法值按调用方的缺省值处理。 */
@@ -564,9 +560,7 @@ public final class DictionaryCollectionsStore {
     }
 
     public static Long strictLong(Object value) {
-        if (value instanceof Integer integer) return integer.longValue();
-        if (value instanceof Long longValue) return longValue;
-        return null;
+        return JsonPolicy.strictLong(value);
     }
 
     private static String errorOf(String response) {

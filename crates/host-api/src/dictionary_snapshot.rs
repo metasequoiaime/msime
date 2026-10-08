@@ -21,7 +21,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     ffi::{c_char, c_void},
-    io::{BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, Write},
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -282,6 +282,10 @@ fn reject_symlinked_snapshot_path(path: &Path) -> Result<(), &'static str> {
     msime_path_trust::reject_symlinked_components(path).map_err(|_| "snapshot file unavailable")
 }
 
+fn open_snapshot_file(path: &Path) -> io::Result<std::fs::File> {
+    crate::bounded_file::open_private(path)
+}
+
 /// Validate the complete NDJSON envelope before a host calls the expensive Engine staging path.
 /// Header/footer order, exact body checksum, category order and record bounds are all part of the
 /// cloud format. Engine records receive their deeper scheme-specific validation during prepare.
@@ -292,7 +296,7 @@ pub(crate) fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static
     {
         return Err("invalid snapshot file");
     }
-    let file = std::fs::File::open(path).map_err(|_| "snapshot file unavailable")?;
+    let file = open_snapshot_file(path).map_err(|_| "snapshot file unavailable")?;
     let mut reader = BufReader::with_capacity(MAX_SNAPSHOT_LINE_BYTES, file);
     let mut line = Vec::with_capacity(MAX_SNAPSHOT_LINE_BYTES);
     let mut body_digest = Sha256::new();
@@ -665,7 +669,7 @@ fn version(options: &EngineOptions) -> Result<String, &'static str> {
 fn activation_receipt(options: &EngineOptions) -> Result<Option<String>, &'static str> {
     let path = Path::new(&options.user_data).join(ACTIVATION_RECEIPT_NAME);
     reject_symlinked_snapshot_path(&path).map_err(|_| "snapshot activation receipt unavailable")?;
-    let file = match std::fs::File::open(&path) {
+    let file = match open_snapshot_file(&path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("snapshot activation receipt unavailable"),
@@ -1054,7 +1058,7 @@ struct SnapshotFileRecords {
 impl SnapshotFileRecords {
     fn open(path: &Path) -> Result<Self, &'static str> {
         reject_symlinked_snapshot_path(path)?;
-        let file = std::fs::File::open(path).map_err(|_| "snapshot file unavailable")?;
+        let file = open_snapshot_file(path).map_err(|_| "snapshot file unavailable")?;
         Ok(Self {
             reader: BufReader::with_capacity(MAX_SNAPSHOT_LINE_BYTES, file),
             line: Vec::with_capacity(MAX_SNAPSHOT_LINE_BYTES),

@@ -81,6 +81,22 @@ final class InputHabitPreferenceTests: XCTestCase {
     XCTAssertEqual(settings.secondaryLanguage, -1, "an unknown second language shows as none, as the keyboard mirrors it")
   }
 
+  func testTranslationDisplayChangesAreDetected() {
+    let before = InputHabitPreference.mirrored
+    XCTAssertFalse(InputHabitPreference.translationDisplaySettingsChanged(before, before))
+    var after = before
+    after.onlineTranslations.toggle()
+    XCTAssertTrue(InputHabitPreference.translationDisplaySettingsChanged(before, after))
+
+    after = before
+    after.primaryLanguage = before.primaryLanguage == 0 ? 1 : 0
+    XCTAssertTrue(InputHabitPreference.translationDisplaySettingsChanged(before, after))
+
+    after = before
+    after.secondaryLanguage = before.secondaryLanguage == -1 ? 1 : -1
+    XCTAssertTrue(InputHabitPreference.translationDisplaySettingsChanged(before, after))
+  }
+
   func testFractionalAndBooleanCountsKeepTheFallback() {
     let fallback = InputHabitSettings(learning: true, frequencyMode: .halve, triggerCount: 3, linearStep: 4,
                                       glossEnabled: true, onlineTranslations: true, primaryLanguage: 1, secondaryLanguage: 2)

@@ -342,6 +342,16 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 以上由 `tests/run.sh` 的逻辑测试和 `hvigorw assembleHap` 的 ArkTS 编译覆盖，尚未在设备或模拟器上验证。
 
+## 滑行输入
+
+在 26 键字母上一笔滑过要拼的键，抬手后由 Engine 的 `msime_client_glide` 解出最可能的全拼字母并像逐键敲入一样进入组合（与已有字母之间以 `'` 隔开）。宿主只判断一次触摸是不是滑行、记下手指经过的点；解码、纠偏和「停留确认」都在 Engine 里。NAPI 只是转发：`client.glide(handle, request)`，回复与 `character` 同形，`KeyboardSession.glide` 按字母键的回复应用；`handled` 为 false 时整笔丢弃，不改敲它经过的键。
+
+开关是设置页「屏幕键盘 › 手势 › 滑行输入」，默认关。它和按键音、振动一样属于设备而不属于账号，存在键盘自己的 `key-feedback.json`（`FeedbackSettings.glideTyping`），经共享 DTO `MobileKeyboardFeedback.glideTyping` 读写；共享偏好没有这个键，所以不随账号同步，账号同步重写该文件时保留本机的值。只在以下条件同时成立时启用：开关打开、显示的是标准 26 键的字母面（不是韩文、注音、笔画、九键、手写、符号层或盖在键上的面板）、Engine 视图的方案是全拼（`scheme == 0`）、不在英文模式、`local_mode` 为 `none`、当前编辑框经 Engine 组字。
+
+判定与请求在 `input/GlideTypingPolicy.ts`：手指在某个字母键上按下，移到另一个字母键上、且水平位移不少于 0.4 个键宽时才算滑行（同一个键上的竖向滑动不受影响）；滑行开始前第二根手指落下则这次触摸不再判定滑行。三排字母行而不是各个键监听触摸，因为一次触摸始终向按下时所在的行报告；键的矩形来自各字母键的 `onAreaChange`（窗口坐标），手指位置用 `windowX/windowY`，连同 `getHistoricalPoints` 合并的采样一起记下。滑行开始后起始键不再输入（字母键的点击被吞掉，直到下一次按下），其他手指的字母键同样不输入；键盘上方画一条跟随手指的强调色平滑轨迹（`hitTestBehavior(None)` 的 Canvas），抬手或取消即清除。抬手时把 a..z 的键中心、一个字母键的尺寸和全部采样（`[x, y, 毫秒]`，以字母区左上角为原点，超过 1024 个时均匀抽稀并保留首尾）组成请求；取消时什么都不发。整笔只给一次按键振动。
+
+以上由 `tests/run.sh` 的逻辑测试和 `hvigorw assembleHap` 的 ArkTS 编译覆盖，尚未在设备或模拟器上验证。
+
 ## 2026-09-21：首次在模拟器上跑起来
 
 在 API 21 的 `Mate 70 Pro` arm64 模拟器（DevEco 自带镜像，`hdc` 连 `127.0.0.1:5555`）上完成了一次装机运行，实测到的东西比之前所有交叉构建加起来都多。

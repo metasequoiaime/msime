@@ -19,6 +19,22 @@ fn command_manifest(id: &str, version: &str) -> String {
     format!("schema_version = 1\nkind = 'command_table'\nid = '{id}'\nname = '签名'\nversion = '{version}'\nlicense = 'CC0-1.0'\ndescription = '常用签名'\n{ROWS}")
 }
 
+#[cfg(unix)]
+#[test]
+fn community_archive_writing_rejects_a_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("outside.zip");
+    fs::write(&target, b"keep").unwrap();
+    let path = directory.path().join("pack.zip");
+    symlink(&target, &path).unwrap();
+
+    assert!(write_private_archive(&path, b"replacement").is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"keep");
+}
+
 /// An installed command table under `root`, with a notice file and a hidden file a file manager left behind.
 fn installed_commands(root: &Path, id: &str, version: &str) -> PathBuf {
     let pack = kind_directory(root, PluginKind::CommandTable).join(id);

@@ -334,6 +334,19 @@ def main() -> int:
         assert "无法读取候选面板设置的恢复记录" in result.stderr, result.stderr
         assert harness.record.exists() and not harness.theme.exists()
 
+        # A replaced restore record must not redirect the read to another file
+        # and apply settings from that file.
+        harness.world()
+        outside = Path(name) / "outside-record.json"
+        outside.write_text(json.dumps(RECORD))
+        harness.record.unlink()
+        harness.record.symlink_to(outside)
+        result = harness.unregister()
+        assert "无法读取候选面板设置的恢复记录" in result.stderr, result.stderr
+        assert harness.record.is_symlink() and outside.read_text() == json.dumps(RECORD)
+        assert harness.state()["panel"]["user"]["custom-font"] == "Noto Sans SC 18px"
+        harness.record.unlink()
+
         # XDG_STATE_HOME, XDG_CONFIG_HOME and XDG_DATA_HOME are honoured when absolute, as the hosts resolve them.
         harness.world()
         state, config, data = (Path(name) / part for part in ("xdg-state", "xdg-config", "xdg-data"))

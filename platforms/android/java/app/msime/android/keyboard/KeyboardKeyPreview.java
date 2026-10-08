@@ -38,7 +38,7 @@ public final class KeyboardKeyPreview extends View {
         ViewPolicy.setNonInteractive(this);
         text.setTextAlign(Paint.Align.CENTER);
         outline.setStyle(Paint.Style.STROKE);
-        setVisibility(GONE);
+        ViewPolicy.hide(this);
     }
 
     /** 气泡宽度：键宽的 138%，权重大于 1.2 的键 150%。 */
@@ -88,7 +88,7 @@ public final class KeyboardKeyPreview extends View {
         setTranslationX(bubbleLeft(keyLeft, keyWidth, width, parentWidth) - margin);
         setTranslationY(bubbleTop(keyTop, height,
             KeyboardGeometry.floatPixels(getContext(), OVERLAP_DP)) - margin);
-        setVisibility(VISIBLE);
+        ViewPolicy.show(this);
         invalidate();
     }
 
@@ -103,7 +103,7 @@ public final class KeyboardKeyPreview extends View {
     public String label() { return label; }
 
     public void hide() {
-        setVisibility(GONE);
+        ViewPolicy.hide(this);
     }
 
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {

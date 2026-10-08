@@ -20,6 +20,8 @@ export type MobileKeyboardFeedback = {
   tabletFullKeys?: boolean;
   /** 仅 iPad：横屏分离式键盘，存在 App Group 的 `keyboard.tablet.split`，默认关。手机上没有这个字段。 */
   tabletSplitKeyboard?: boolean;
+  /** 滑行输入：在 26 键字母上连续滑动输入全拼，默认关。只有键盘实现了它的宿主才给出这个字段；HarmonyOS 存在键盘自己的 `key-feedback.json`，属于设备而不进共享偏好。 */
+  glideTyping?: boolean;
 };
 
 export type MobileKeyboardFeedbackClient = {

@@ -2,6 +2,9 @@ import Foundation
 import CoreFoundation
 import CryptoKit
 import SQLite3
+#if canImport(Darwin)
+import Darwin
+#endif
 
 /// Validates framing, fields, cross-record consistency and checksum. Engine
 /// staging must still succeed before any local dictionary activation.
@@ -332,7 +335,7 @@ final class BackendPreparedSnapshot: @unchecked Sendable {
       attributes[.protectionKey] = FileProtectionType.completeUntilFirstUserAuthentication
       #endif
       guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: attributes) else { throw SnapshotFailure(status: 0) }
-      let input = try FileHandle(forReadingFrom: source)
+      let input = try openSnapshotSource(source)
       defer { try? input.close() }
       let output = try FileHandle(forWritingTo: url)
       defer { try? output.close() }
@@ -425,3 +428,18 @@ final class BackendSnapshotRecordStream {
 }
 
 struct SnapshotFailure: Error { let status: Int }
+
+private func openSnapshotSource(_ source: URL) throws -> FileHandle {
+  #if canImport(Darwin)
+  let descriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+  guard descriptor >= 0 else { throw SnapshotFailure(status: 0) }
+  var metadata = stat()
+  guard fstat(descriptor, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else {
+    close(descriptor)
+    throw SnapshotFailure(status: 0)
+  }
+  return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+  #else
+  return try FileHandle(forReadingFrom: source)
+  #endif
+}

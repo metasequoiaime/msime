@@ -54,6 +54,17 @@ public final class CandidateTranslationPolicySmoke {
                 "a linked dictionary is not an offline target");
             check(CandidateTranslationPolicy.offlineTargets(List.of("ja"), "").isEmpty(),
                 "no resources means no offline targets");
+            // 随包没有的语言从 state_root 下已下载的 offline-glosses 资源包里找；随包的那份仍然算数。
+            Path state = root.resolve("state");
+            Path pack = Files.createDirectories(state.resolve("resource-packs/offline-glosses"));
+            Files.write(pack.resolve("zh-de.db"), new byte[] {0});
+            check(CandidateTranslationPolicy.offlineTargets(List.of("ja", "de", "es"), resources.toString(),
+                    state.toString()).equals(List.of("ja", "de")),
+                "a downloaded pack adds its languages after the packaged ones");
+            check(CandidateTranslationPolicy.offlineTargets(List.of("de"), resources.toString()).isEmpty(),
+                "without a state root the downloaded pack is not consulted");
+            check(CandidateTranslationPolicy.offlineTargets(List.of("de"), resources.toString(), "state").isEmpty(),
+                "a relative state root is ignored");
         } finally {
             try (var paths = Files.walk(root)) {
                 paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> path.toFile().delete());
@@ -105,6 +116,15 @@ public final class CandidateTranslationPolicySmoke {
             "the user's own NiuTrans service wins over the account");
         check(!CandidateTranslationPolicy.accountSelected(true, true, false, true),
             "the user's own custom service wins over the account");
+        check(CandidateTranslationPolicy.displayInvalidated(true, false, true, true,
+                true, true, List.of("en"), List.of("en")),
+            "turning off offline glosses clears the displayed rows");
+        check(CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
+                true, true, List.of("en"), List.of("ja")),
+            "changing translation targets clears the displayed rows");
+        check(!CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
+                true, true, List.of("en"), List.of("en")),
+            "unrelated preference refresh keeps the displayed rows");
         System.out.println("Android candidate translation language policy passed");
     }
 

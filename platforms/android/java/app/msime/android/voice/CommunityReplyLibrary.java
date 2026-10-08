@@ -84,7 +84,7 @@ public final class CommunityReplyLibrary {
         SafePaths.rejectSymlinkComponents(path);
     }
 
-    private static String string(Object value) { return value instanceof String text ? text : null; }
+    private static String string(Object value) { return JsonPolicy.strictString(value); }
 
     private static final class Parser {
         private static final int MAXIMUM_DEPTH = 24;

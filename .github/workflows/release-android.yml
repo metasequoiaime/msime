@@ -19,15 +19,19 @@ jobs:
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
-  # 每个版本（shared/contracts/editions.json 里有 Android 段的 id，也是 gradle-app 的 flavor 名）各打一个 APK，applicationId 各不相同，可以同时装在一台设备上。full 的 applicationId 和 APK 名（msime-client.apk）与引入版本之前相同。
+  # 每个版本（shared/contracts/editions.json 里有 Android 段的 id，也是 gradle-app 的 flavor 名）各打一个 APK，applicationId 各不相同，可以同时装在一台设备上。full 的 applicationId 与引入版本之前相同，已安装的应用照常原地升级；APK 名是 msime-android.apk（各版本是 msime-android-<id>.apk）。
   release:
     needs: source
-    runs-on: ubuntu-24.04
+    # Depot 的基础规格 depot-ubuntu-24.04 只有 2 vCPU，比 GitHub 给公开仓库的 Linux runner 还小，所以打包选 4 vCPU 的规格。
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 45
     strategy:
       fail-fast: true
       matrix:
         edition: [full, wubi, pinyin, japanese, vietnamese, tibetan]
+    # full 和拼音版打瘦包（build-apk.sh 的 MSIME_ANDROID_OMIT_ON_DEMAND）：日文词典、粤拼注音笔画语言词库、非英文离线释义和本地语音运行库都不进 APK，由应用在用户需要时作为资源包下载。日文版的主词库就是日文词典，其余版本没有这些附加资源，照旧按自己的资源锁打包。
+    env:
+      MSIME_ANDROID_OMIT_ON_DEMAND: "${{ (matrix.edition == 'full' || matrix.edition == 'pinyin') && '1' || '0' }}"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
@@ -39,13 +43,29 @@ jobs:
           case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
       # build-apk.sh takes the directory install_resources verified and unpacked, not the repository's
       # resources/ directory -- that one holds the lock files install_resources reads.
-      # build-apk.sh packs target/offline-glosses when it is there.
+      # build-apk.sh packs target/offline-glosses when it is there. full 和拼音版的瘦包改为按需下载离线释义，只有其余版本还要取；粤拼、注音和笔画词库原先只有 full 随包，现在也按需下载，没有版本再需要它们，所以不再取。
       - name: Fetch the locked offline candidate glosses
+        if: env.MSIME_ANDROID_OMIT_ON_DEMAND != '1'
         run: python3 scripts/fetch_offline_glosses.py
-      # build-apk.sh packs the language dictionaries the edition needs from target/language-dictionaries (Cantonese, Zhuyin and Stroke, with their licences, for full; none for the other editions); a release must carry every one of them that resources/language-dictionaries.lock.json pins, so it fails rather than packing fewer.
-      - name: Fetch the locked language dictionaries
-        run: python3 scripts/fetch_language_dictionaries.py
+      # 瘦包不带的资源包只能靠锁文件里的地址补齐：发布之前用 App 运行时的同一个安装器、同一组 URL 和 SHA-256 把这个版本会下载的资源包装一遍，地址失效或内容漂移就停在这里。拼音版不提供粤拼、注音和笔画，不用语言词库。
+      - name: Install the on-demand resource packs the slim APK downloads
+        if: env.MSIME_ANDROID_OMIT_ON_DEMAND == '1'
+        run: |
+          set -euo pipefail
+          packs=(japanese offline-glosses voice-runtime)
+          if [ "${{ matrix.edition }}" = full ]; then packs+=(language-dictionaries); fi
+          cargo run --quiet -p msime-client-core --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check" "${packs[@]}" >/dev/null
       # build-native.sh 需要固定提交的 vcpkg（只用来装 nlohmann-json）和 arm64 的 Android Rust target（build-apk.sh 默认只打 arm64-v8a）；runner 上都没有。bootstrap-vcpkg.sh 放在 platforms/windows 下但不限平台，装到 build-native.sh 默认读取的 target/tooling/vcpkg。
+      # build-native.sh 只认固定的 NDK 28.2.13676358。此前一直靠 ubuntu-24.04 镜像碰巧预装它，镜像 20261002 起不再带这个版本，Android 0.2.1 第一次发布就因此失败。缺了就用 runner 自带的 sdkmanager 装上，装完再核对一次版本。
+      - name: Install the pinned Android NDK
+        run: |
+          set -euo pipefail
+          ndk="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
+          if ! grep -qs '28.2.13676358' "$ndk/source.properties"; then
+            # sdkmanager 退出后 yes 再写会收到 SIGPIPE（退出码 141），在 pipefail 下让整步失败；它的退出码不算数，装没装上由下一行的版本核对判断。
+            { yes || true; } | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.2.13676358' >/dev/null
+          fi
+          grep -q '28.2.13676358' "$ndk/source.properties"
       - name: Prepare pinned vcpkg and Rust targets
         run: |
           set -euo pipefail
@@ -56,7 +76,6 @@ jobs:
         env:
           MSIME_ANDROID_VERSION: "${{ steps.version.outputs.value }}"
           MSIME_EDITION: "${{ matrix.edition }}"
-          MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1"
           RELEASE_KEYSTORE_BASE64: "${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}"
           MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD: "${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}"
         run: |
@@ -68,7 +87,7 @@ jobs:
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
           bash platforms/android/build-apk.sh "$resource_dir"
-          # 按版本取 APK 名（full 是 msime-client，五笔版是 msime-client-wubi），放进 dist/ 交给汇总发布的那一步。
+          # 按版本取 APK 名（full 是 msime-android，五笔版是 msime-android-wubi），放进 dist/ 交给汇总发布的那一步。
           apk_name="$(python3 platforms/android/scripts/edition_android.py field --edition "$MSIME_EDITION" apk_name)"
           mkdir -p dist
           cp "target/android/$apk_name.apk" dist/
@@ -103,10 +122,12 @@ jobs:
             apk_name="$(python3 platforms/android/scripts/edition_android.py field --edition "$edition" apk_name)"
             [[ -f "dist/$apk_name.apk" ]] || { echo "dist/$apk_name.apk for edition $edition is missing" >&2; exit 1; }
           done
+          # 应用内更新（UpdateApi）会下载与 APK 同名的 <apk>.sha256，缺了就拒绝更新，所以每个 APK 都附一行 sha256sum 输出；在 dist 里面算，行里写的才是不带路径的文件名。
+          (cd dist && for apk in *.apk; do sha256sum "$apk" > "$apk.sha256"; done)
           tag="android-v${RELEASE}"
           [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
           # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
           stable='^android-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'android-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform android --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Android ${RELEASE}" release-notes.md dist/*.apk
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Android ${RELEASE}" release-notes.md dist/*.apk dist/*.apk.sha256

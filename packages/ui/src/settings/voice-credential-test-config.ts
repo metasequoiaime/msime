@@ -1,10 +1,14 @@
 import type { VoiceInputPreferences } from "../index";
+import { utf8ByteLength } from "../core/text";
 import type { DoubaoAuthMode } from "./doubao-auth-mode-section";
 import {
   ASR_PROVIDER_DEFAULTS,
   POLISH_PROVIDER_DEFAULTS,
   providerSettingValue,
 } from "../voice/voice-providers";
+
+// 与偏好设置保存校验和 runtime options（`voice.rs` 的 `voice_provider_options`）的模型路径上限一致：超过上限的路径不发，由 provider 报模型不可用。
+const MAX_MODEL_PATH_BYTES = 4096;
 
 function serviceCredentialTestConfig(
   provider: string | undefined,
@@ -26,6 +30,7 @@ export function asrProviderCredentialTestConfig(
   voiceInput: VoiceInputPreferences,
   doubaoAuthMode: DoubaoAuthMode,
 ): Record<string, unknown> {
+  const modelPath = voiceInput.asr_provider === "local" ? voiceInput.asr_model_path : undefined;
   return {
     asr_provider: voiceInput.asr_provider ?? "doubao",
     asr_model: voiceInput.asr_model ?? "",
@@ -34,7 +39,16 @@ export function asrProviderCredentialTestConfig(
     doubao_enable_itn: voiceInput.doubao_enable_itn !== false,
     doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
     doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
+    // 本地识别没有凭据可测，provider 校验的是这个模型目录；不带上它，测试必然报模型不可用。
+    ...(modelPath && utf8ByteLength(modelPath) <= MAX_MODEL_PATH_BYTES
+      ? { asr_model_path: modelPath }
+      : {}),
   };
+}
+
+/** Linux 语音识别测试是否无从测起：选了本地识别却还没有选模型。 */
+export function asrProviderCredentialTestDisabled(voiceInput: VoiceInputPreferences): boolean {
+  return voiceInput.asr_provider === "local" && !voiceInput.asr_model_path;
 }
 
 /** Configuration sent directly to a remote ASR service for a synthetic-silence check. */

@@ -242,13 +242,9 @@ impl AiSuggestionResponse {
         if self.candidates.len() > limit as usize {
             return Err(AiError::InvalidLimit);
         }
-        if self
-            .candidates
-            .iter()
-            .any(|candidate| {
-                candidate.text.is_empty() || !crate::text::is_bounded_text(&candidate.text, 4096)
-            })
-        {
+        if self.candidates.iter().any(|candidate| {
+            candidate.text.is_empty() || !crate::text::is_bounded_text(&candidate.text, 4096)
+        }) {
             return Err(AiError::InvalidCandidate);
         }
         Ok(())

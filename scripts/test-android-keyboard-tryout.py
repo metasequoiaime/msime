@@ -19,7 +19,7 @@ class KeyboardTryoutSourceContract(unittest.TestCase):
             re.S,
         )
         self.assertIsNotNone(watcher, "could not locate the tryout draft watcher")
-        enabled = re.search(r"sendAi\.setEnabled\((.*?)\);", watcher.group("body"))
+        enabled = re.search(r"ViewPolicy\.setEnabled\(sendAi,\s*(.*?)\);", watcher.group("body"))
         self.assertIsNotNone(enabled, "could not locate the draft action state")
         expression = enabled.group(1).replace("models.isEmpty()", "models_empty")
         expression = expression.replace("text.length()", "text_length")
@@ -56,7 +56,7 @@ class KeyboardTryoutSourceContract(unittest.TestCase):
         )
         self.assertIsNotNone(success, "could not locate the model-load success callback")
         body = success.group("body")
-        self.assertRegex(body, r"send\.setEnabled\([^;]*field\.length\(\)\s*>\s*0")
+        self.assertRegex(body, r"ViewPolicy\.setEnabled\(send,[^;]*field\.length\(\)\s*>\s*0")
         self.assertRegex(body, r"flushPendingSend\(send\)")
 
 

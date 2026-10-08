@@ -654,7 +654,8 @@ pub fn derive_glosses(
     reverse_excluded: &HashSet<String>,
 ) -> Result<Glosses> {
     let candidates = english_candidates(english)?;
-    let bytes = std::fs::read(ecdict).with_context(|| format!("reading {}", ecdict.display()))?;
+    let bytes = crate::sources::read_private(ecdict)
+        .with_context(|| format!("reading {}", ecdict.display()))?;
     let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
     let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
     let headers = reader.headers()?.clone();

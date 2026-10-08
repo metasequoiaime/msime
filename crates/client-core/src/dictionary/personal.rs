@@ -7,7 +7,7 @@
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -633,7 +633,7 @@ fn read_file(file: &Path) -> Result<PersonalDictionaryState, PersonalDictionaryE
     if !metadata.file_type().is_file() {
         return Err(PersonalDictionaryError::InvalidState);
     }
-    let file_handle = File::open(file)?;
+    let file_handle = crate::storage::open_private_file(file)?;
     let bytes = crate::bounded_io::read_bounded_file(file_handle, MAX_STATE_BYTES as u64, || {
         PersonalDictionaryError::InvalidState
     })?;

@@ -7,6 +7,47 @@ use std::cell::{Cell, RefCell};
 use std::fs;
 use std::path::PathBuf;
 
+#[cfg(unix)]
+#[test]
+fn sync_state_fifo_is_rejected_without_blocking() {
+    use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join(STATE_FILE);
+    assert!(std::process::Command::new("mkfifo")
+        .arg(&path)
+        .status()
+        .unwrap()
+        .success());
+
+    let (done, ready) = mpsc::channel();
+    let worker_path = path.clone();
+    let worker = std::thread::spawn(move || {
+        let file = open_state_file(&worker_path);
+        done.send(file.is_none()).unwrap();
+    });
+    let rejected = match ready.recv_timeout(Duration::from_millis(100)) {
+        Ok(rejected) => rejected,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            let _writer = std::fs::OpenOptions::new()
+                .write(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&path)
+                .unwrap();
+            ready.recv_timeout(Duration::from_secs(1)).unwrap()
+        }
+        Err(error) => panic!("state reader failed to report: {error}"),
+    };
+    worker.join().unwrap();
+    assert!(
+        rejected,
+        "FIFO state file must be rejected without blocking"
+    );
+    assert!(fs::symlink_metadata(&path).unwrap().file_type().is_fifo());
+}
+
 fn manifest(id: &str, name: &str, head: &str, tail: &str) -> String {
     format!("schema_version = 1\nid = '{id}'\nname = '{name}'\ndescription = '{name}的说明'\nversion = '1.0'\nbase = 'paper'\npreview = 'preview.png'\n{head}[supports]\nlayouts = ['vertical', 'horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n{tail}")
 }

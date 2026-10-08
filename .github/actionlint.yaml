@@ -1,0 +1,11 @@
+# Depot 托管的 GitHub Actions runner 标签（https://depot.dev/docs/github-actions/runner-types），actionlint 默认只认 GitHub 自己的标签。
+self-hosted-runner:
+  labels:
+    - depot-ubuntu-24.04
+    - depot-ubuntu-24.04-4
+    - depot-ubuntu-24.04-8
+    - depot-ubuntu-24.04-16
+    - depot-ubuntu-24.04-arm-8
+    - depot-windows-2025-8
+    - depot-macos-15
+    - depot-macos-26

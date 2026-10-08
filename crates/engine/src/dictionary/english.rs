@@ -2,7 +2,6 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -175,19 +174,12 @@ impl EnglishDictionary {
 
 /// Create or migrate `english_words` to the composite-key, weighted shape, create the gloss tables, `user_version = 3` (english_dictionary.cpp:242-315). The golden harness calls this for fixtures without an `msime-english.db`.
 pub fn ensure_english_schema(path: &Path) -> Result<()> {
-    if let Ok(metadata) = std::fs::symlink_metadata(path) {
-        if !metadata.file_type().is_file() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "English dictionary path is not a regular file",
-            )
-            .into());
-        }
-    }
+    let path = crate::paths::sqlite_path_no_follow(path)?;
     let mut connection = Connection::open_with_flags(
-        path,
+        &path,
         OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_NOFOLLOW
             | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     let mut has_table = false;
@@ -238,9 +230,12 @@ pub fn upsert_gloss(path: &Path, chinese_to_english: bool, key: &str, gloss: &st
 
 fn write_gloss(path: &Path, chinese_to_english: bool, key: &str, gloss: &str) -> Result<()> {
     ensure_english_schema(path)?;
+    let path = crate::paths::sqlite_path_no_follow(path)?;
     let connection = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_NOFOLLOW
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     connection.busy_timeout(GLOSS_BUSY_TIMEOUT)?;
     let sql = if chinese_to_english {
@@ -262,7 +257,7 @@ pub fn load_custom_translations(path: &Path) -> CustomTranslations {
     if !metadata.file_type().is_file() {
         return translations;
     }
-    let Ok(file) = File::open(path) else {
+    let Ok(file) = crate::paths::open_file_no_follow(path) else {
         return translations;
     };
     let Ok(size) = file.metadata().map(|metadata| metadata.len()) else {
@@ -327,9 +322,12 @@ fn open_read_only(path: &Path) -> Option<Connection> {
     if path.as_os_str().is_empty() {
         return None;
     }
+    let path = crate::paths::sqlite_path_no_follow(path).ok()?;
     let connection = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_NOFOLLOW
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .ok()?;
     connection.busy_timeout(READ_BUSY_TIMEOUT).ok()?;
@@ -662,6 +660,22 @@ mod tests {
             assert_eq!(count, 1, "{table}");
         }
         assert!(EnglishDictionary::open(&path, None, None).ready());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn schema_setup_rejects_a_symlinked_database() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let external = outside.path().join("external.db");
+        Connection::open(&external).unwrap();
+        let linked = directory.path().join("msime-english.db");
+        symlink(&external, &linked).unwrap();
+
+        assert!(ensure_english_schema(&linked).is_err());
+        assert_eq!(user_version(&external), 0);
     }
 
     #[test]

@@ -540,7 +540,8 @@ impl BackendAccountClient {
         if !metadata.file_type().is_file() {
             return Err(AccountError::Invalid);
         }
-        let file = std::fs::File::open(snapshot).map_err(|_| AccountError::Invalid)?;
+        let file =
+            crate::storage::open_private_file(snapshot).map_err(|_| AccountError::Invalid)?;
         let bytes = file.metadata().map_err(|_| AccountError::Invalid)?.len();
         if bytes == 0 || bytes > MAX_DICTIONARY_SNAPSHOT_BYTES as u64 {
             return Err(AccountError::Invalid);

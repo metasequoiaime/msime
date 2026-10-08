@@ -11,7 +11,7 @@ use super::{BackendError, Outcome};
 use crate::format;
 use crate::ime::registry::wubi_database;
 use crate::pinyin::segment::split_segments;
-use crate::types::SchemeType;
+use crate::types::{SchemeType, WubiProfileKind};
 use crate::{assets, RuntimePaths};
 
 const DEFAULT_PAGE: i64 = 50;
@@ -110,7 +110,7 @@ fn prefix_upper_bound(prefix: &str) -> Option<String> {
     Some(upper)
 }
 
-/// One page of a dictionary's entries for `text`, best first. `kind`: `pinyin` (the entries whose key is the input's normalised segmentation; `scheme: shuangpin` reads shuangpin input), `wubi` and `quick` (entries whose code starts with `text`), or `english` (words starting with `text`, an exact match first). With `exact`, only the entry whose code is `text` and whose word is `word`. `normalized` echoes the code that was looked up.
+/// 某个词库里 `text` 对应的一页词条，好的在前。`kind`：`pinyin`（键等于输入规范化切分的词条；`scheme: shuangpin` 按双拼读输入）、`wubi`（86 版五笔）、`wubi98`（98 版五笔）和 `quick`（编码以 `text` 开头的词条），或 `english`（以 `text` 开头的单词，完全匹配的排第一）。带 `exact` 时只取编码为 `text`、词为 `word` 的那一条。`normalized` 回显实际查找的编码。
 pub(super) fn dictionary(request: &Request, roots: Roots) -> Outcome {
     let kind = request.string("kind")?;
     let mut text = request.string("text")?.to_owned();
@@ -140,18 +140,20 @@ pub(super) fn dictionary(request: &Request, roots: Roots) -> Outcome {
             order = "weight DESC,value";
             path = paths.dictionary(assets::MAIN_DICTIONARY);
         }
-        "wubi" | "quick" => {
-            table = if kind == "wubi" {
-                "wubi86"
-            } else {
-                "quick_parases"
-            }
-            .to_owned();
+        "wubi" | "wubi98" | "quick" => {
+            let wubi = match kind {
+                "wubi" => Some(WubiProfileKind::Wubi86),
+                "wubi98" => Some(WubiProfileKind::Wubi98),
+                _ => None,
+            };
+            table = wubi
+                .map_or("quick_parases", WubiProfileKind::table)
+                .to_owned();
             (key, word) = ("key", "value");
             condition = "key LIKE ?1 || '%'";
             order = "weight DESC,key,value";
-            // The separately shipped wubi tables are merged into a replayed generation's main dictionary; outside one they are read where they ship.
-            path = if kind == "wubi" {
+            // 单独发布的五笔码表在回放出的代次里并入主词库，代次之外就读它发布时所在的文件。
+            path = if wubi.is_some() {
                 wubi_database(&paths)
             } else {
                 paths.dictionary(assets::MAIN_DICTIONARY)

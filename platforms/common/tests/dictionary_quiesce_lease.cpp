@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <sys/stat.h>
 #include <unistd.h>
 
 // The lease every desktop input host reads: built by both the Linux and the macOS test suites.
@@ -60,6 +61,10 @@ int main() {
   }
   assert(!dictionary_quiesced(root.string(), 1000000));
   std::filesystem::remove(root / ".msime-dictionary-quiesce.4242");
+  // A planted FIFO must be rejected without blocking the input host's timer.
+  assert(::mkfifo((root / ".msime-dictionary-quiesce").c_str(), 0600) == 0);
+  assert(!dictionary_quiesced(root.string(), 1000000));
+  std::filesystem::remove(root / ".msime-dictionary-quiesce");
   // A host raising the lease itself leaves exactly the lease behind, live for the bound, with its owner line after the expiry, and lowering it clears it.
   using msime::dictionary_lease::lower_dictionary_quiesce_lease;
   using msime::dictionary_lease::raise_dictionary_quiesce_lease;
@@ -73,10 +78,11 @@ int main() {
   assert(dictionary_quiesced(root.string(), 1000000));
   assert(dictionary_quiesced(root.string(), 1029999));
   assert(!dictionary_quiesced(root.string(), 1030000));
-  assert(std::distance(std::filesystem::directory_iterator(root), std::filesystem::directory_iterator()) == 1);
+  assert(std::distance(std::filesystem::directory_iterator(root), std::filesystem::directory_iterator()) == 2);
   lower_dictionary_quiesce_lease(root.string(), written);
   assert(!dictionary_quiesced(root.string(), 1000000));
-  assert(std::filesystem::is_empty(root));
+  assert(std::filesystem::exists(root / ".msime-dictionary-quiesce.lock"));
+  assert(std::distance(std::filesystem::directory_iterator(root), std::filesystem::directory_iterator()) == 1);
   // Two raises in one process are told apart.
   std::string second;
   assert(raise_dictionary_quiesce_lease(root.string(), written, 1000000));

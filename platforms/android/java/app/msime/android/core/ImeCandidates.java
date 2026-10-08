@@ -68,15 +68,15 @@ final class ImeCandidates {
             },
             chip(selectedBackground, 9), pressed, focused, hovered,
             chip(android.graphics.Color.TRANSPARENT, 9));
-        button.setBackground(states);
-        button.setTextColor(ColorPolicy.stateList(
+        ViewPolicy.setBackground(button, states);
+        ViewPolicy.setTextColor(button, ColorPolicy.stateList(
             new int[][] {{android.R.attr.state_selected}, {}},
             new int[] {selectedText, keyForeground}));
         applyCandidateTypeface(button);
         ViewPolicy.setMinimumWidth(button, s.pixels(30));
         ViewPolicy.clearMinimumHeight(button);
         KeyboardGeometry.setHorizontalPaddingDp(button, s, 11);
-        button.setLineSpacing(0, 1.0f);
+        ViewPolicy.setLineSpacing(button, 0, 1.0f);
         ViewPolicy.clearFontPadding(button);
         ViewPolicy.clearElevation(button);
     }
@@ -97,8 +97,8 @@ final class ImeCandidates {
                 {android.R.attr.state_selected}, {android.R.attr.state_pressed}, new int[0]
             },
             chip(accentSoft, 8), chip(s.candidateAppearance.hover(), 8), chip(keyBackground, 8));
-        button.setBackground(states);
-        button.setTextColor(ColorPolicy.stateList(
+        ViewPolicy.setBackground(button, states);
+        ViewPolicy.setTextColor(button, ColorPolicy.stateList(
             new int[][] {{android.R.attr.state_selected}, {}},
             new int[] {accentText, keyForeground}));
         applyCandidateTypeface(button);
@@ -157,7 +157,7 @@ final class ImeCandidates {
         // HorizontalScrollView cancels the child on a drag, so the button keeps immediate tap
         // feedback without changing the existing scroll-versus-select boundary.
         Button button = candidateButton();
-        button.setOnClickListener(ignored -> s.selectVisibleCandidate(button, slot));
+        ViewPolicy.bindClick(button, () -> s.selectVisibleCandidate(button, slot));
         button.setOnLongClickListener(ignored -> {
             JSONObject current = s.visibleCandidate(slot);
             JSONObject id = current == null ? null : current.optJSONObject("id");
@@ -194,9 +194,9 @@ final class ImeCandidates {
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(highlighted ? "已选中" : "未选中");
         if (id == null || index < 0) {
-            button.setEnabled(false);
+            ViewPolicy.setEnabled(button, false);
         } else {
-            button.setOnClickListener(ignored -> {
+            ViewPolicy.bindClick(button, () -> {
                 s.imeKeyFeedback.playFeedback(button);
                 if (s.session == 0
                         || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE)
@@ -224,7 +224,7 @@ final class ImeCandidates {
         ViewPolicy.setTextSizeLabel(button, label, sizeSp);
         KeyboardGeometry.setKeyTextSize(button, sizeSp);
         button.setContentDescription(description);
-        button.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(button, () -> {
             s.imeKeyFeedback.playFeedback(button);
             action.run();
         });

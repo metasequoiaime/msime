@@ -13,7 +13,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use msime_engine::language_dictionary;
-use rusqlite::{Connection, OpenFlags};
 
 use crate::sources::{sha256_file, Sources};
 use crate::sqlite;
@@ -290,8 +289,8 @@ pub struct Counts {
 pub fn verify(path: &Path, floors: Floors, expected: &[Expected]) -> Result<Counts> {
     let dictionary = language_dictionary::open_read_only(path)
         .map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
-    let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .with_context(|| format!("opening {}", path.display()))?;
+    let connection =
+        sqlite::open_read_only(path).with_context(|| format!("opening {}", path.display()))?;
     let count = |sql: &str| -> Result<usize> {
         let count: i64 = connection.query_row(sql, [], |row| row.get(0))?;
         Ok(usize::try_from(count)?)

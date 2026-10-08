@@ -20,6 +20,7 @@ clap = { version = "4", features = ["derive"] }
 csv = "1"
 hex = "0.4"
 html-escape = "0.2"
+libc.workspace = true
 # Insertion-ordered maps: the Python pipeline iterates dicts in insertion order, and the n-gram tie-break and the emoji extras depend on it.
 indexmap = { version = "2", features = ["serde"] }
 # The quanpin table naming contract, shared with the runtime.

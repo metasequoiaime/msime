@@ -3,6 +3,7 @@
 pub mod active_helpcode;
 pub mod autocorrect;
 pub mod fuzzy;
+pub mod glide;
 pub mod graph;
 pub mod jianpin;
 pub mod normalize;

@@ -31,25 +31,27 @@ export const dictionaryManifest: (resources: string) => string;
 export const skinResource: (request: string) => string;
 /** JSON stylesheet request; returns a nullable stylesheet in the structured response. */
 export const skinToolbarStylesheet: (request: string) => string;
+/** `{source,directory}` validates and atomically imports a picked skin folder off the UI thread. */
+export const skinImport: (request: string) => Promise<string>;
 /**
  * `{directory}` reads the named custom touch-keyboard designs; adding `{action}` applies one change
  * first. Both answer with the whole library. Takes the library's file lock, so call it off the UI
  * thread when the design carries a photo.
  */
-export const customSkinLibrary: (request: string) => string;
+export const customSkinLibrary: (request: string) => Promise<string>;
 /**
  * `{directory,id,name,design}` starts a skin trial and imports the design, answering `{skin,trial}`.
  * One call rather than two: the trial remembers the skin being replaced, so a failed import has to
  * end it. Writes preferences and two locked files, so call it off the UI thread.
  */
-export const communitySkinInstall: (request: string) => string;
+export const communitySkinInstall: (request: string) => Promise<string>;
 /** `{directory,action:{operation:"finish",id,keep}}` or `{operation:"restore_pending"}`. */
 export const keyboardSkinTrial: (request: string) => string;
 /**
  * `{file,action:{operation:"load"|"save_reply"|"remove",...}}` over the reply templates the user
  * kept. Every operation answers with the whole library; the keyboard process rereads the same file.
  */
-export const communityResourceLibrary: (request: string) => string;
+export const communityResourceLibrary: (request: string) => Promise<string>;
 /**
  * The decisions in AI skin generation, for a host that performs the requests itself.
  *
@@ -117,7 +119,7 @@ export const keySoundRenderNotes: (
 ) => Promise<string[]>;
 /** The statistics master switch under an absolute state directory: 1 on, 0 off or never written, -1 for an invalid directory or unreadable document. */
 export const typingStatisticsEnabled: (directory: string) => number;
-export const vocabularyReview: (request: string) => string;
+export const vocabularyReview: (request: string) => Promise<string>;
 /** Locked mobile history operations; every mutation answers with the latest complete entry list. */
 export const mobileClipboardHistory: (request: string) => string;
 export const emojiCatalog: (query: string, resources: string) => string;
@@ -176,6 +178,10 @@ export const setEnglishMode: (handle: number, enabled: boolean) => string;
 export const setCharacterWidth: (handle: number, fullwidth: boolean) => string;
 
 export const character: (handle: number, ascii: number, shift: boolean) => string;
+/**
+ * `msime_client_glide`: one glide stroke (滑行输入) across the letter keys, `request` being `{"keys":[[x,y] x 26],"key_width":w,"key_height":h,"points":[[x,y,ms], 2..1024]}` (at most 65536 bytes, unknown keys refused). Answers like `character`; `handled` false means the stroke was not typed (not quanpin, a local mode, dedicated English, nine-key digits composing, or nothing decoded) and its keys must not be typed either.
+ */
+export const glide: (handle: number, request: string) => string;
 export const punctuationWithContext: (handle: number, ascii: number, preceding: number) => string;
 export const balancePairedPunctuationAfterAutoClose: (handle: number, opening: number) => string;
 export const command: (handle: number, command: number) => string;
@@ -228,7 +234,7 @@ export const voiceLocalModelInstall: (
   progress?: (document: string) => void,
 ) => Promise<string>;
 export const voiceLocalModelCancel: (request: string) => string;
-export const voiceLocalModelRemove: (request: string) => string;
+export const voiceLocalModelRemove: (request: string) => Promise<string>;
 
 export interface DoubaoFrameResult {
   last: boolean;

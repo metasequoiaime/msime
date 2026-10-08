@@ -72,7 +72,7 @@ public final class SkinJobsApi {
             }
             try {
                 JSONObject root = new JSONObject(response == null ? "" : response);
-                JSONArray plans = Boolean.TRUE.equals(strictBoolean(root.opt("ok")))
+                JSONArray plans = JsonPolicy.strictTrue(root.opt("ok"))
                     ? root.optJSONArray("value") : null;
                 if (plans == null) throw invalid("ai_skin_response");
                 return plans;
@@ -85,7 +85,7 @@ public final class SkinJobsApi {
             try {
                 JSONObject root = new JSONObject(NativeClient.aiSkinPlan(new JSONObject()
                     .put("operation", "artwork").put("artwork", artwork).toString()));
-                return Boolean.TRUE.equals(strictBoolean(root.opt("ok")));
+                return JsonPolicy.strictTrue(root.opt("ok"));
             } catch (JSONException | RuntimeException error) {
                 return false;
             }
@@ -236,7 +236,7 @@ public final class SkinJobsApi {
 
     /** 发 client-core 拼好的聊天请求，返回助手回答的正文。 */
     public String chat(JSONObject composed) throws CloudApi.Failure {
-        String path = composed.optString("path", "");
+        String path = JsonPolicy.strictString(composed.opt("path"));
         JSONObject body = composed.optJSONObject("body");
         if (!"/v1/chat/completions".equals(path) || body == null) throw invalid("ai_skin_invalid");
         JSONObject result = api.json("POST", path, body, CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
@@ -372,13 +372,13 @@ public final class SkinJobsApi {
 
     /** Native planner responses must keep status flags as JSON booleans. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     private static JSONObject value(String response) throws CloudApi.Failure {
         try {
             JSONObject root = new JSONObject(response == null ? "" : response);
-            JSONObject value = Boolean.TRUE.equals(strictBoolean(root.opt("ok")))
+            JSONObject value = JsonPolicy.strictTrue(root.opt("ok"))
                 ? root.optJSONObject("value") : null;
             if (value == null) throw invalid("ai_skin_invalid");
             return value;

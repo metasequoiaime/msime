@@ -40,9 +40,9 @@
 #include "WatchdogPolicy.h"
 #include "Telemetry.h"
 #include "TelemetryConsent.h"
+#include "RevisionFence.h"
 #include "WindowsServer.h"
 #include "ipc_negotiation.h"
-#include <fstream>
 #include <windows.h>
 #include <iostream>
 #include <map>
@@ -214,15 +214,10 @@ std::filesystem::path edition_telemetry_directory() {
   return shared.parent_path() / MSIME_EDITION_USER_DATA_DIRECTORY;
 }
 std::string read_document(const std::filesystem::path &path) {
-  std::ifstream input(path, std::ios::binary);
-  if (!input)
+  const auto document = msime::windows::read_private_file(path, kMaxConfigBytes);
+  if (!document)
     throw std::runtime_error("Configuration unavailable");
-  std::string document(kMaxConfigBytes + 1, '\0');
-  input.read(document.data(), static_cast<std::streamsize>(document.size()));
-  if (input.bad() || input.gcount() > static_cast<std::streamsize>(kMaxConfigBytes))
-    throw std::runtime_error("Configuration read failed");
-  document.resize(static_cast<size_t>(input.gcount()));
-  return document;
+  return *document;
 }
 void write_document_atomic(const std::filesystem::path &path, const std::string &document) {
   if (document.size() > kMaxConfigBytes)
@@ -235,9 +230,13 @@ void write_document_atomic(const std::filesystem::path &path, const std::string 
     throw std::runtime_error("Configuration temporary file unavailable");
   const std::filesystem::path temporary(temporary_name);
   HANDLE handle = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr,
-                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (handle == INVALID_HANDLE_VALUE) {
-    std::filesystem::remove(temporary);
+                              OPEN_EXISTING,
+                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+                              nullptr);
+  if (handle == INVALID_HANDLE_VALUE || !msime::windows::handle_is_trusted_file(handle)) {
+    if (handle != INVALID_HANDLE_VALUE)
+      CloseHandle(handle);
+    (void)msime::windows::remove_private_file(temporary);
     throw std::runtime_error("Configuration temporary file unavailable");
   }
   DWORD written = 0;
@@ -249,12 +248,12 @@ void write_document_atomic(const std::filesystem::path &path, const std::string 
                         FlushFileBuffers(handle);
   CloseHandle(handle);
   if (!complete) {
-    std::filesystem::remove(temporary);
+    (void)msime::windows::remove_private_file(temporary);
     throw std::runtime_error("Configuration write failed");
   }
   if (!MoveFileExW(temporary.c_str(), path.c_str(),
                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-    std::filesystem::remove(temporary);
+    (void)msime::windows::remove_private_file(temporary);
     throw std::runtime_error("Configuration replace failed");
   }
 }
@@ -828,8 +827,9 @@ int wmain(int argc, wchar_t **argv) {
                               language_dictionaries));
     auto tray_preferences_mutex = std::make_shared<std::mutex>();
     // Set on every publication and on each focus session, so a TIP that
-    // registers later is not left holding compiled defaults.
-    auto tsf_config_dirty = std::make_shared<std::atomic<bool>>(true);
+    // registers later is not left holding compiled defaults. A revision is
+    // used instead of a bool so an older send cannot clear a newer update.
+    auto tsf_config_revision = std::make_shared<msime::windows::RevisionFence>();
     // The toolbar resolves light/dark from its own preference, independently
     // of the candidate card: toolbar_theme is honoured on macOS and in the
     // settings preview but was ignored by the Windows surface, which simply
@@ -912,7 +912,7 @@ int wmain(int argc, wchar_t **argv) {
          toolbar_enabled, follow_cursor, effect_intensity, voice_theme, candidate_fonts, candidate_style,
          toolbar_theme, menu_theme, mode_scope_global, tsf_config, candidate_layout,
          tsf_config_mutex, tray_preferences, tray_preferences_mutex,
-         tsf_config_dirty, candidate_theme, toolbar_settings,
+         tsf_config_revision, candidate_theme, toolbar_settings,
          language_dictionaries](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
@@ -964,7 +964,7 @@ int wmain(int argc, wchar_t **argv) {
             const bool dedicated_english = tsf_config->dedicated_english;
             *tsf_config = tsf_local_config(preferences, language_dictionaries);
             tsf_config->dedicated_english = dedicated_english;
-            tsf_config_dirty->store(true, std::memory_order_release);
+            tsf_config_revision->mark_changed();
           }
           {
             auto menu = tray_menu_preferences(preferences, language_dictionaries);
@@ -1450,7 +1450,7 @@ int wmain(int argc, wchar_t **argv) {
             .value("default_ime_mode", std::string("chinese")) != "english";
     mode_authority.seeded = true;
     std::atomic<bool> caps_lock{(GetKeyState(VK_CAPITAL) & 1) != 0};
-    std::atomic<bool> caps_lock_dirty{true};
+    msime::windows::RevisionFence caps_lock_revision;
     // Starts true: the Server is launched by the TIP, so the IME is active by
     // the time this runs, and waiting for the first edge would hide the toolbar
     // until the user switched focus once.
@@ -1618,7 +1618,7 @@ int wmain(int argc, wchar_t **argv) {
       // The Server owns the indicator; publish and let the loop deliver it, so
       // the hook callback never touches the transport.
       caps_lock.store(caps, std::memory_order_release);
-      caps_lock_dirty.store(true, std::memory_order_release);
+      caps_lock_revision.mark_changed();
     });
     if (!maintenance.installed())
       notice("Maintenance shortcuts unavailable; continuing without them");
@@ -1633,6 +1633,8 @@ int wmain(int argc, wchar_t **argv) {
               << " Server running; candidate selection and mode controls enabled.\n";
     // 工具栏失败不结束 Server：它只是方便切换模式的附件，Server 记一条诊断、去掉工具栏继续服务输入。曾经它也在这个条件里，某台 Windows 11 上工具栏一失败 Server 就在启动后约 100 ms 退出，日志却只写了一句正常停止。
     bool toolbar_failure_reported = false;
+    uint64_t tsf_config_applied_revision = 0;
+    uint64_t caps_lock_applied_revision = 0;
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() && !pages.failed() &&
            !mode_clicks.failed() &&
@@ -1747,7 +1749,8 @@ int wmain(int argc, wchar_t **argv) {
       // predicate dead outside its unit test.
       // Push the TSF-local settings whenever they changed, so turning smart
       // punctuation off takes effect on the text being typed now.
-      if (tsf_config_dirty->load(std::memory_order_acquire)) {
+      const auto current_tsf_config_revision = tsf_config_revision->snapshot();
+      if (current_tsf_config_revision != tsf_config_applied_revision) {
         if (const auto view = server.mode_view()) {
           msime::windows::TsfLocalConfig pending;
           {
@@ -1755,7 +1758,8 @@ int wmain(int argc, wchar_t **argv) {
             pending = *tsf_config;
           }
           if (server.send_tsf_config(pending))
-            tsf_config_dirty->store(false, std::memory_order_release);
+            if (tsf_config_revision->is_current(current_tsf_config_revision))
+              tsf_config_applied_revision = current_tsf_config_revision;
         }
       }
       // One CN/EN state follows the user between applications when the scope
@@ -1794,16 +1798,19 @@ int wmain(int argc, wchar_t **argv) {
           // The TIP's V-mode key rule follows the focused session's English mode (Ctrl+Shift+E, the toolbar exit, a focus change): the next pass pushes the trigger frame again.
           if (tsf_config->dedicated_english != language.dedicated_english) {
             tsf_config->dedicated_english = language.dedicated_english;
-            tsf_config_dirty->store(true, std::memory_order_release);
+            tsf_config_revision->mark_changed();
           }
         }
         toolbar.set_language_state(language);
       }
-      if (caps_lock_dirty.load(std::memory_order_acquire)) {
-        if (const auto view = server.mode_view())
-          if (server.send_caps_lock(view->lease,
-                                    caps_lock.load(std::memory_order_acquire)))
-            caps_lock_dirty.store(false, std::memory_order_release);
+      const auto current_caps_lock_revision = caps_lock_revision.snapshot();
+      if (current_caps_lock_revision != caps_lock_applied_revision) {
+        if (const auto view = server.mode_view()) {
+          const bool enabled = caps_lock.load(std::memory_order_acquire);
+          if (server.send_caps_lock(view->lease, enabled) &&
+              caps_lock_revision.is_current(current_caps_lock_revision))
+            caps_lock_applied_revision = current_caps_lock_revision;
+        }
       }
       const bool fullscreen = foreground_is_fullscreen(GetForegroundWindow());
       // The DLL's activation edges, not the mode view: a temporary focus

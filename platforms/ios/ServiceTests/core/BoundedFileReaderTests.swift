@@ -2,6 +2,18 @@ import Foundation
 import XCTest
 
 final class BoundedFileReaderTests: XCTestCase {
+  func testRejectsLeafSymlink() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let outside = root.appendingPathComponent("outside")
+    let linked = root.appendingPathComponent("linked")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try Data("synthetic bounded file".utf8).write(to: outside)
+    try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: outside)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    XCTAssertThrowsError(try BoundedFileReader.read(from: linked, maximumBytes: 1_024))
+  }
+
   func testRejectsAFileThatGrowsPastTheConfiguredLimit() throws {
     let file = FileManager.default.temporaryDirectory
       .appendingPathComponent(UUID().uuidString)

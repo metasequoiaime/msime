@@ -18,7 +18,7 @@ import java.util.List;
 public enum InputFeatureToggle {
     LEARNING(Group.DICTIONARY, "learning", true, "记忆新词",
         "把你选过的词排到前面；只在本机学习"),
-    CLOUD_CANDIDATES(Group.DICTIONARY, "cloud_candidates", true, "云候选",
+    CLOUD_CANDIDATES(Group.DICTIONARY, "cloud_candidates", false, "云候选",
         "向服务端请求长句与新词，需要联网"),
     ENGLISH_SUGGESTIONS(Group.DICTIONARY, "english_suggestions", true, "英文联想",
         "英文模式下补全单词"),
@@ -39,7 +39,7 @@ public enum InputFeatureToggle {
     CANDIDATE_TRANSLATION_ACCOUNT(Group.PRIVACY, "translation_account", false, "用水杉账号翻译候选",
         "把当前页的中文候选词发送到 api.msime.app 翻译，首次使用会创建匿名账号；不开启则不联网翻译"),
     CANDIDATE_ENGLISH_GLOSS(Group.PRIVACY, "candidate_english_gloss", false, "候选英文释义",
-        "用打包的离线词典给候选词标注释义"),
+        "用本机的离线词典给候选词标注释义；英语以外的目标语言要先下载离线释义词典"),
     USAGE_REPORTING(Group.PRIVACY, "usage_reporting", true, "匿名使用统计",
         "向 api.msime.app 发送当天是否使用、键盘会话是否正常结束和崩溃摘要，附应用版本与随机安装编号；不含输入内容和账号。关闭后立即停止并清空待发数据");
 

@@ -50,11 +50,11 @@ public final class ClipboardHistoryPolicy {
 
     /** Shared-store text fields must keep their JSON type; org.json otherwise coerces values. */
     public static String strictString(Object raw) {
-        return raw instanceof String ? (String) raw : null;
+        return JsonPolicy.strictString(raw);
     }
 
     public static Boolean strictBoolean(Object raw) {
-        return raw instanceof Boolean ? (Boolean) raw : null;
+        return JsonPolicy.strictBoolean(raw);
     }
 
     /** The shared store's `reason` turned into the refusal this host words. */

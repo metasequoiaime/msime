@@ -32,6 +32,7 @@ const baseProps = {
   toolbar,
   tabletFullKeys: true,
   tabletSplitKeyboard: false,
+  glideTyping: false,
   tabletFullKeysBusy: false,
   onHeightAdjustmentChange: vi.fn(),
   onKeySpacingChange: vi.fn(),
@@ -40,6 +41,7 @@ const baseProps = {
   onToolbarChange: vi.fn(),
   onTabletFullKeysChange: vi.fn(),
   onTabletSplitKeyboardChange: vi.fn(),
+  onGlideTypingChange: vi.fn(),
   onReset: vi.fn(),
 };
 
@@ -61,6 +63,7 @@ test("forwards geometry, toolbar, feedback, and reset actions", () => {
   fireEvent.click(screen.getByLabelText("工具栏：表情"));
   fireEvent.click(screen.getByLabelText("数字行与 Tab 键"));
   fireEvent.click(screen.getByLabelText("横屏分离式键盘"));
+  fireEvent.click(screen.getByLabelText("滑行输入"));
   fireEvent.click(screen.getByRole("button", { name: "恢复屏幕键盘默认设置" }));
 
   expect(baseProps.onHeightAdjustmentChange).toHaveBeenCalledWith(12);
@@ -70,6 +73,7 @@ test("forwards geometry, toolbar, feedback, and reset actions", () => {
   expect(baseProps.onToolbarChange).toHaveBeenCalledWith({ ...toolbar, emoji: false });
   expect(baseProps.onTabletFullKeysChange).toHaveBeenCalledWith(false);
   expect(baseProps.onTabletSplitKeyboardChange).toHaveBeenCalledWith(true);
+  expect(baseProps.onGlideTypingChange).toHaveBeenCalledWith(true);
   expect(baseProps.onReset).toHaveBeenCalledOnce();
 });
 
@@ -80,6 +84,7 @@ test("hides host-specific options when unavailable", () => {
       toolbarComponents={false}
       tabletFullKeys={undefined}
       tabletSplitKeyboard={undefined}
+      glideTyping={undefined}
     />,
   );
 
@@ -87,6 +92,8 @@ test("hides host-specific options when unavailable", () => {
   expect(screen.queryByLabelText("数字行与 Tab 键")).toBeNull();
   expect(screen.queryByLabelText("横屏分离式键盘")).toBeNull();
   expect(screen.queryByText("布局")).toBeNull();
+  expect(screen.queryByLabelText("滑行输入")).toBeNull();
+  expect(screen.queryByText("手势")).toBeNull();
 });
 
 // 两个 iPad 开关各自按宿主是否给出决定显示与否。
@@ -127,4 +134,5 @@ test("disables the tablet switch while saving", () => {
 
   expect((screen.getByLabelText("数字行与 Tab 键") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("横屏分离式键盘") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByLabelText("滑行输入") as HTMLInputElement).disabled).toBe(true);
 });

@@ -116,10 +116,11 @@ impl WordbookLibrary {
         if !metadata.file_type().is_file() {
             return Err(WordbookLibraryError::InvalidWordbook);
         }
-        let bytes =
-            crate::bounded_io::read_bounded_file(File::open(path)?, MAX_INDEX_BYTES, || {
-                WordbookLibraryError::InvalidWordbook
-            })?;
+        let bytes = crate::bounded_io::read_bounded_file(
+            crate::storage::open_private_file(&path)?,
+            MAX_INDEX_BYTES,
+            || WordbookLibraryError::InvalidWordbook,
+        )?;
         let index: LibraryIndex = serde_json::from_slice(&bytes)?;
         if index.books.len() > MAX_BOOKS
             || !index.books.iter().all(|book| {
@@ -175,10 +176,11 @@ impl WordbookLibrary {
         if !metadata.file_type().is_file() {
             return Err(WordbookLibraryError::InvalidWordbook);
         }
-        let bytes =
-            crate::bounded_io::read_bounded_file(File::open(path)?, MAX_BOOK_BYTES, || {
-                WordbookLibraryError::InvalidWordbook
-            })?;
+        let bytes = crate::bounded_io::read_bounded_file(
+            crate::storage::open_private_file(&path)?,
+            MAX_BOOK_BYTES,
+            || WordbookLibraryError::InvalidWordbook,
+        )?;
         let book: Wordbook = serde_json::from_slice(&bytes)?;
         // A book that does not validate is reported, never silently skipped: the user imported it
         // and would otherwise see it vanish from the picker with no explanation.

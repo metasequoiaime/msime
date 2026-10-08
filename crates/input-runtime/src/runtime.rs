@@ -4,7 +4,7 @@
 use super::*;
 pub(crate) use msime_engine::ordering::apply_order;
 use msime_engine::ordering::{
-    ensure_engine_order, rerank_pick, rotate_to_front, runner_up_order, OrderRow,
+    ensure_engine_order, rerank_pick, rotate_to_front, runner_up_order, ParallelOrderRows,
 };
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
 #[cfg(test)]
@@ -39,6 +39,11 @@ pub enum Action {
     FixCandidatePosition(CandidateId, u8),
     ClearCandidatePosition(CandidateId),
     ChooseNineKeySpelling(NineKeySpellingId),
+    /// 滑过字母键的一笔，用宿主自己的坐标。
+    Glide {
+        keyboard: Box<GlideKeyboard>,
+        points: Vec<GlidePoint>,
+    },
     SelectHighlighted,
     Finish,
     NextPage,
@@ -157,20 +162,13 @@ pub(crate) fn move_to_back<T>(items: &mut [T], moved: &[bool]) {
 }
 
 /// 排序决策读取的候选行，借用快照里的并行数组。调用方先确认各数组等长。
-fn order_rows(snapshot: &EngineSnapshot) -> Vec<OrderRow<'_>> {
-    snapshot
-        .candidates
-        .iter()
-        .zip(&snapshot.candidate_sources)
-        .zip(&snapshot.candidate_answers_key)
-        .zip(&snapshot.candidate_corrected)
-        .map(|(((text, &source), &answers_key), &corrected)| OrderRow {
-            text,
-            source,
-            answers_key,
-            corrected,
-        })
-        .collect()
+fn order_rows(snapshot: &EngineSnapshot) -> ParallelOrderRows<'_> {
+    ParallelOrderRows::new(
+        &snapshot.candidates,
+        &snapshot.candidate_sources,
+        &snapshot.candidate_answers_key,
+        &snapshot.candidate_corrected,
+    )
 }
 
 impl Runtime<Session> {
@@ -379,6 +377,20 @@ impl Runtime<Session> {
             session_id,
         };
         self.apply_online_candidates_snapshot(query, candidates, source, cloud_candidates, limit)
+    }
+
+    /// Remove cached and visible rows for one online provider.
+    pub fn clear_online_candidates(&mut self, source: u8) -> Result<(), RuntimeError> {
+        if source > 1 {
+            return Err(RuntimeError::Engine(
+                "invalid online candidate source".into(),
+            ));
+        }
+        self.engine
+            .clear_online_candidates(source)
+            .map_err(|error| RuntimeError::Engine(error.to_string()))?;
+        self.advance()?;
+        self.refresh()
     }
 
     fn apply_online_candidates_snapshot(
@@ -1304,30 +1316,60 @@ impl<E: InputEngine> Runtime<E> {
         //
         // The Engine never puts English first while a Chinese candidate exists, whatever its weight or pin, except for a word the user fixed at position 1 (`apply_candidate_positions`). An English candidate at index zero with locals present is that word. It keeps the first seat and the leading English seat is not filled a second time.
         let is_local = |source: u8| !matches!(source, CLOUD | AI | ENGLISH | EMOJI | KAOMOJI);
-        let mut local = Vec::with_capacity(count);
-        let mut cloud = Vec::with_capacity(count);
-        let mut ai = Vec::with_capacity(count);
-        let mut english = Vec::with_capacity(count);
-        let mut emoji = Vec::with_capacity(count);
-        let mut kaomoji = Vec::with_capacity(count);
-        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
-            match *source {
-                CLOUD => cloud.push(index),
-                AI => ai.push(index),
-                ENGLISH => english.push(index),
-                EMOJI => emoji.push(index),
-                KAOMOJI => kaomoji.push(index),
-                _ if is_local(*source) => local.push(index),
-                _ => {}
-            }
-        }
-        let first_english = english.first().copied();
-        let local_count = local.len();
+        let first_source = |source: u8| {
+            snapshot
+                .candidate_sources
+                .iter()
+                .position(|candidate_source| *candidate_source == source)
+        };
+        let local_count = snapshot
+            .candidate_sources
+            .iter()
+            .filter(|source| is_local(**source))
+            .count();
+        let first_english = first_source(ENGLISH);
         let promoted_english = first_english == Some(0) && local_count != 0;
-        let has_cloud = !cloud.is_empty();
-        let first_emoji = emoji.first().copied();
-        let first_kaomoji = kaomoji.first().copied();
+        let has_cloud = snapshot.candidate_sources.contains(&CLOUD);
+        let first_emoji = first_source(EMOJI);
+        let first_kaomoji = first_source(KAOMOJI);
         let mut order = Vec::with_capacity(count);
+        let append_group =
+            |order: &mut Vec<usize>, source: u8, skip: usize, limit: Option<usize>| {
+                let end = limit.map_or(usize::MAX, |count| skip.saturating_add(count));
+                let mut matched = 0;
+                for (index, candidate_source) in snapshot.candidate_sources.iter().enumerate() {
+                    if *candidate_source != source {
+                        continue;
+                    }
+                    if matched < skip {
+                        matched += 1;
+                        continue;
+                    }
+                    if matched >= end {
+                        break;
+                    }
+                    order.push(index);
+                    matched += 1;
+                }
+            };
+        let append_local = |order: &mut Vec<usize>, skip: usize, limit: Option<usize>| {
+            let end = limit.map_or(usize::MAX, |count| skip.saturating_add(count));
+            let mut matched = 0;
+            for (index, candidate_source) in snapshot.candidate_sources.iter().enumerate() {
+                if !is_local(*candidate_source) {
+                    continue;
+                }
+                if matched < skip {
+                    matched += 1;
+                    continue;
+                }
+                if matched >= end {
+                    break;
+                }
+                order.push(index);
+                matched += 1;
+            }
+        };
         if promoted_english {
             order.push(0);
         }
@@ -1336,10 +1378,10 @@ impl<E: InputEngine> Runtime<E> {
         let single_kana = scheme_type(snapshot.scheme) == Some(SchemeType::JapaneseRomaji)
             && matches!((reading.next(), reading.next()), (Some(kana), None) if ('\u{3041}'..='\u{3096}').contains(&kana));
         let local_prefix = if single_kana { 2 } else { 1 };
-        order.extend(local.iter().copied().take(local_prefix));
+        append_local(&mut order, 0, Some(local_prefix));
         if has_cloud {
-            order.extend(cloud.iter().copied());
-            order.extend(ai.iter().copied());
+            append_group(&mut order, CLOUD, 0, None);
+            append_group(&mut order, AI, 0, None);
         }
         if !promoted_english {
             if let Some(index) = first_english {
@@ -1347,7 +1389,7 @@ impl<E: InputEngine> Runtime<E> {
             }
         }
         if !has_cloud {
-            order.extend(ai.iter().copied());
+            append_group(&mut order, AI, 0, None);
         }
         if let Some(index) = first_emoji {
             order.push(index);
@@ -1355,10 +1397,10 @@ impl<E: InputEngine> Runtime<E> {
         if let Some(index) = first_kaomoji {
             order.push(index);
         }
-        order.extend(local.iter().copied().skip(local_prefix));
-        order.extend(english.iter().copied().skip(1));
-        order.extend(emoji.iter().copied().skip(1));
-        order.extend(kaomoji.iter().copied().skip(1));
+        append_local(&mut order, local_prefix, None);
+        append_group(&mut order, ENGLISH, 1, None);
+        append_group(&mut order, EMOJI, 1, None);
+        append_group(&mut order, KAOMOJI, 1, None);
         // An English candidate the user fixed to a seat goes back to that seat after the seating, so a cloud or AI reply does not push it behind the online candidates (reference: server/src/ipc/candidate_selection_policy.h, the fixed-English pass at the end of NormalizeMixedCandidateOrder). Seats are 1-based and 0 means unfixed; a seat past the end clamps to the end, as the reference's `insert_at` does.
         let mut fixed_english = Vec::with_capacity(count);
         order.retain(|index| {
@@ -1877,6 +1919,10 @@ impl<E: InputEngine> Runtime<E> {
                 .engine
                 .clear_candidate_position(self.engine_index(id.index)),
             Action::ChooseNineKeySpelling(id) => self.engine.choose_nine_key_spelling(id.index),
+            Action::Glide {
+                ref keyboard,
+                ref points,
+            } => self.engine.glide(keyboard, points),
             // A scheme that spells with Space lists it among its spelling symbols (Zhuyin's first tone, or opening its list with no syllable pending), and then the Space command is that key rather than a pick of the highlighted row.
             Action::SelectHighlighted
                 if self.cached.spelling_symbols.as_bytes().contains(&b' ') =>

@@ -55,16 +55,18 @@ class AiCandidateCache(unittest.TestCase):
             request, Path("/private/synthetic.json"), self.state.cache,
             self.state.lock)
 
-    def test_success_is_reused_across_generation_context_and_prompt(self):
+    def test_prompt_settings_partition_cache_but_context_does_not(self):
         rows = [{"text": "你好", "source": 1}]
+        changed_prompt = query(prompt="changed")
+        changed_prompt["generation"] = 9
         with mock.patch.object(provider, "load_ai_config",
                                return_value=self.config), \
                 mock.patch.object(provider, "ai", return_value=rows) as ai:
             self.assertEqual(self.configured(query()), rows)
             self.assertEqual(
-                self.configured(query(generation=9, context="private context",
-                                      prompt="changed")), rows)
-        self.assertEqual(ai.call_count, 1)
+                self.configured(query(generation=9, context="private context")), rows)
+            self.assertEqual(self.configured(changed_prompt), rows)
+        self.assertEqual(ai.call_count, 2)
 
     def test_provider_identity_and_segments_partition_cache(self):
         rows = [{"text": "你好", "source": 1}]
@@ -78,6 +80,21 @@ class AiCandidateCache(unittest.TestCase):
             self.configured(changed_model)
             self.configured(changed_segments)
         self.assertEqual(ai.call_count, 3)
+
+    def test_candidate_limit_partitions_cache(self):
+        rows = [
+            {"text": "你好", "source": 1},
+            {"text": "您好", "source": 1},
+            {"text": "你号", "source": 1},
+        ]
+        changed_limit = query()
+        changed_limit["ai_assistant"]["candidate_limit"] = 5
+        with mock.patch.object(provider, "load_ai_config",
+                               return_value=self.config), \
+                mock.patch.object(provider, "ai", return_value=rows) as ai:
+            self.assertEqual(self.configured(query()), rows)
+            self.assertEqual(self.configured(changed_limit), rows)
+        self.assertEqual(ai.call_count, 2)
 
     def test_empty_result_is_not_cached(self):
         with mock.patch.object(provider, "load_ai_config",

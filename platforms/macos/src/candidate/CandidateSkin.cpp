@@ -2,14 +2,17 @@
 #include "CandidateSkin.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
-#include <fstream>
+#include <fcntl.h>
 #include <sstream>
+#include <sys/stat.h>
 #include <system_error>
 #include <unordered_map>
 #include <utility>
+#include <unistd.h>
 
 namespace msime::mac
 {
@@ -423,12 +426,29 @@ void ApplyToolbarStylesheet(const std::filesystem::path &skinsRoot, const SkinPa
     std::error_code ec;
     if (!IsContained(skinsRoot / package.id, stylesheet) || !std::filesystem::is_regular_file(stylesheet, ec) || ec)
         return;
-    std::ifstream stream(stylesheet);
-    if (!stream) return;
+    const int descriptor = ::open(stylesheet.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (descriptor < 0) return;
+    struct CloseOnExit {
+        int descriptor;
+        ~CloseOnExit() { ::close(descriptor); }
+    } close_on_exit{descriptor};
+    struct stat metadata {};
+    if (::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode)) return;
     std::string stylesheetBytes(kMaxToolbarStylesheetBytes + 1, '\0');
-    stream.read(stylesheetBytes.data(), static_cast<std::streamsize>(stylesheetBytes.size()));
-    if (stream.bad() || stream.gcount() > static_cast<std::streamsize>(kMaxToolbarStylesheetBytes)) return;
-    stylesheetBytes.resize(static_cast<std::size_t>(stream.gcount()));
+    std::size_t length = 0;
+    while (length < stylesheetBytes.size()) {
+        const ssize_t count = ::read(descriptor, stylesheetBytes.data() + length,
+                                     stylesheetBytes.size() - length);
+        if (count > 0) {
+            length += static_cast<std::size_t>(count);
+            continue;
+        }
+        if (count < 0 && errno == EINTR) continue;
+        if (count < 0) return;
+        break;
+    }
+    if (length > kMaxToolbarStylesheetBytes) return;
+    stylesheetBytes.resize(length);
     const std::string css = StripCssComments(std::move(stylesheetBytes));
     std::unordered_map<std::string, std::string> variables;
     std::size_t cursor = 0;

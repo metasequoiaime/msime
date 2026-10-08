@@ -43,7 +43,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
     private record Entry(@Nullable CommunityCatalog.Item item, String header) {}
 
     private final ArrayList<Entry> entries = new ArrayList<>(CommunityRequest.PAGE_SIZE);
-    private final Map<String, Action> actions = new HashMap<>();
+    private final Map<String, Action> actions = new HashMap<>(CommunityRequest.PAGE_SIZE);
     private final Consumer<CommunityCatalog.Item> onOpen;
     private final Consumer<CommunityCatalog.Item> onAction;
     private boolean nineKey;
@@ -199,12 +199,12 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         if (holder.preview != null) {
             holder.preview.setCornerRadiusDp(5f);
             holder.preview.setKeyboard(skin, nineKey);
-            holder.preview.setVisibility(skin == null ? View.GONE : View.VISIBLE);
+            ViewPolicy.setVisible(holder.preview, skin != null);
         }
-        if (holder.badge != null) holder.badge.setVisibility(skin == null ? View.VISIBLE : View.GONE);
+        if (holder.badge != null) ViewPolicy.setVisible(holder.badge, skin == null);
         if (holder.category != null) {
             holder.category.setText(item.category() == null ? "" : item.category().label());
-            holder.category.setVisibility(item.category() == null ? View.GONE : View.VISIBLE);
+            ViewPolicy.setVisible(holder.category, item.category() != null);
         }
         String author = author(item);
         String uses = CommunityRequest.usesLabel(item.downloads());
@@ -218,8 +218,8 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
     private void bindRow(Holder holder, CommunityCatalog.Item item, int position) {
         boolean first = position == 0 || entries.get(position - 1).item() == null;
         boolean last = position == entries.size() - 1 || entries.get(position + 1).item() == null;
-        if (holder.divider != null) holder.divider.setVisibility(first ? View.GONE : View.VISIBLE);
-        holder.itemView.setBackground(group(holder.itemView, first, last));
+        if (holder.divider != null) ViewPolicy.setVisible(holder.divider, !first);
+        ViewPolicy.setBackground(holder.itemView, group(holder.itemView, first, last));
         String subtitle = subtitle(item);
         if (holder.author != null) {
             holder.author.setText(subtitle);
@@ -228,8 +228,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         boolean reply = item.kind() == CommunityRequest.Kind.REPLY;
         if (holder.description != null) {
             holder.description.setText(item.description());
-            holder.description.setVisibility(reply && !item.description().isEmpty()
-                ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(holder.description, reply && !item.description().isEmpty());
         }
         holder.itemView.setContentDescription(item.name() + "，"
             + (subtitle.isEmpty() ? "" : subtitle + "，") + "点按查看详情");
@@ -251,7 +250,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         String label = label(item, action);
         if (label.isEmpty()) {
             ViewPolicy.hide(pill);
-            pill.setOnClickListener(null);
+            ViewPolicy.bindOptionalClick(pill, null);
             return;
         }
         ViewPolicy.show(pill);
@@ -260,13 +259,13 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         // 「已添加」是终态：没有底色、正文色、不响应；皮肤拿到之后的「使用」仍是可点的 tonal 按钮。
         boolean enabled = action == Action.AVAILABLE || (skin && action == Action.DONE);
         boolean filled = action != Action.DONE || skin;
-        pill.setBackground(filled ? Ui.pillRipple(context, Ui.accentSoft(context)) : null);
+        ViewPolicy.setBackground(pill, filled ? Ui.pillRipple(context, Ui.accentSoft(context)) : null);
         ViewPolicy.setTextColor(pill, filled ? Ui.accent(context) : Ui.text(context));
         ViewPolicy.setEnabled(pill, enabled);
         ViewPolicy.setInteractive(pill, enabled);
         ViewPolicy.setActiveAlpha(pill, action != Action.BUSY, 0.6f);
         if (enabled) ViewPolicy.bindClick(pill, () -> onAction.accept(item));
-        else pill.setOnClickListener(null);
+        else ViewPolicy.bindOptionalClick(pill, null);
         pill.setAccessibilityDelegate(KeyboardSheets.buttonDelegate(label + "，" + item.name()));
     }
 

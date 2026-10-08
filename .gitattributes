@@ -1,2 +1,6 @@
 # 插件解析器的共享 fixture 要逐字节保留（CRLF、BOM、行尾空格和非法字节都是用例的一部分），不做换行转换，也不做空白检查。
 crates/client-core/tests/fixtures/plugin-packs/** -text -whitespace
+
+# 决策笔记的归档封印对原始字节做 SHA-256，格式门禁又要求 Status 行逐字匹配；行尾跨平台必须是
+# LF，否则 Windows 的 autocrlf 检出成 CRLF 后，归档必然失败、封印哈希因机器而异。
+.agents/notes/** text eol=lf
