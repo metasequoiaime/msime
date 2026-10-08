@@ -3247,7 +3247,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** A Stroke composition whose glyphs the editor holds as its composing region (apply marks View.reading for Stroke). */
     private boolean strokeCompositionMarked() {
-        return view != null && !view.optString("editing_text", "").isEmpty()
+        return view != null && !InputViewValuePolicy.editingText(view).isEmpty()
             && StrokeInputPolicy.active(InputViewValuePolicy.scheme(view, -1), dedicatedEnglish)
             && !InputViewValuePolicy.booleanValue(view, "nine_key", false);
     }
@@ -3535,7 +3535,7 @@ public final class MSIMEInputService extends InputMethodService {
      * 回车键是否只确认组字。韩语音节由回车上屏，按键随后照常执行自己的动作，所以那里保留编辑器动作，除非音节的汉字列表打开：这时回车只选汉字。越南语单词也一样：回车写出单词再执行编辑器动作。藏文不同：Engine 吞掉组字时的回车（handled），只上屏藏文、不加音节点，所以组字时回车键显示「确认」。
      */
     boolean returnKeyConfirms() {
-        return view != null && !view.optString("editing_text", "").isEmpty()
+        return view != null && !InputViewValuePolicy.editingText(view).isEmpty()
             && (!letterCompositionActive() || koreanHanjaListOpen() || tibetanSchemeActive());
     }
 
@@ -3978,7 +3978,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean hasEngineComposition() {
-        return view != null && !view.optString("editing_text", "").isEmpty();
+        return view != null && !InputViewValuePolicy.editingText(view).isEmpty();
     }
 
     int pixels(int value) {
