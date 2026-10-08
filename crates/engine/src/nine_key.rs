@@ -14,7 +14,7 @@ use crate::error::EngineError;
 use crate::ime::queries::{insert_expressive_rows, MIXED_EXPRESSIVE_MINIMUM_INPUT};
 use crate::language_dictionary::{self, LanguageDictionary};
 use crate::lattice::decode::PHRASE_LENGTH_BONUS;
-use crate::local::emoji::{query_emoji_readings, query_kaomoji_readings, MIXED_RESULT_LIMIT};
+use crate::local::emoji::{query_emoji_readings, query_kaomoji_readings, ExpressiveRow};
 use crate::paths::RuntimePaths;
 use crate::pinyin::segment::{cut_one_piece_min_segments, split_segments};
 use crate::pinyin::syllables::intact_pinyin_list;
@@ -844,7 +844,7 @@ impl NineKeySession {
             candidates.retain(|item| passes_filter(&item.word, self.single_character, strokes));
         }
         rank_candidates(&mut candidates, prefer_exact, initials_lead);
-        // emoji、颜文字按拼音查，读法的先后要参照排好的拼音候选，所以在插入英文行之前查；单字、笔画筛选针对的是汉字，筛选时不混入。
+        // emoji、颜文字按拼音查，读法的先后要参照排好的拼音候选，所以在插入英文行之前查；插入在英文行之后，它们也可以接在英文词后面。单字、笔画筛选针对的是汉字，筛选时不混入。
         let (emoji, kaomoji) = if filtering {
             (Vec::new(), Vec::new())
         } else {
@@ -859,8 +859,6 @@ impl NineKeySession {
         } else {
             self.english_candidates(unanswered)
         };
-        let english_leads =
-            !candidates.is_empty() && english.first().is_some_and(|first| first.weight > 0);
         if !english.is_empty() {
             // Second place is ahead of every pinyin reading but the first, which is worth it for a word the user is plainly spelling and not for one the frequency table has never seen; a zero-weight word still belongs in the list, at its end (NK:311-318).
             let first = english.remove(0);
@@ -872,7 +870,7 @@ impl NineKeySession {
             candidates.insert(slot, first);
             candidates.extend(english);
         }
-        let mut candidates = insert_expressive_rows(candidates, emoji, kaomoji, english_leads);
+        let mut candidates = insert_expressive_rows(candidates, emoji, kaomoji);
         positions::apply_fixed_positions(
             &self.paths.user(assets::USER_JOURNAL),
             &self.ranking_context(),
@@ -917,7 +915,7 @@ impl NineKeySession {
         alternatives: &[Path],
         remaining: usize,
         candidates: &[WordItem],
-    ) -> (Vec<WordItem>, Vec<WordItem>) {
+    ) -> (Vec<ExpressiveRow>, Vec<ExpressiveRow>) {
         let enabled = self.expressive.emoji_candidates || self.expressive.kaomoji_candidates;
         if !enabled || self.digits.len() < MIXED_EXPRESSIVE_MINIMUM_INPUT {
             return (Vec::new(), Vec::new());
@@ -938,18 +936,18 @@ impl NineKeySession {
         let others = self.paths.resource(assets::OTHER_DICTIONARY);
         // 与 26 键相同，资源打不开或查询失败时只是没有这些行，不报诊断。
         let mut emoji = if self.expressive.emoji_candidates {
-            query_emoji_readings(&readings, &others, MIXED_RESULT_LIMIT, &accept).candidates
+            query_emoji_readings(&readings, &others, &accept)
         } else {
             Vec::new()
         };
         let mut kaomoji = if self.expressive.kaomoji_candidates {
-            query_kaomoji_readings(&readings, &others, MIXED_RESULT_LIMIT, &accept).candidates
+            query_kaomoji_readings(&readings, &others, &accept)
         } else {
             Vec::new()
         };
         // 选中后吃掉全部数字，与覆盖整串数字的拼音候选一样结束组字。
         for row in emoji.iter_mut().chain(kaomoji.iter_mut()) {
-            row.pinyin.clone_from(&self.digits);
+            row.item.pinyin.clone_from(&self.digits);
         }
         (emoji, kaomoji)
     }
@@ -3554,11 +3552,11 @@ mod tests {
 
     // ---- emoji、颜文字混排（#5848） ----
 
-    /// 每个音节都有单字，再加上 美国、警告、香蕉 这几个词，让 `634486`、`5464426`、`94264` 都有覆盖整串数字的拼音候选。
-    const EXPRESSIVE_MAIN_FIXTURE: &str = "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_m VALUES('mei','m','美',300);CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('nei','n','内',200);CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_g VALUES('guo','g','国',300),('gao','g','高',200);CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_m VALUES('mei''guo','mg','美国',1000);CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_j VALUES('jing','j','警',100);CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_j VALUES('jing''gao','jg','警告',900);CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_x VALUES('xian','x','先',300),('xiang','x','香',200),('xi','x','西',250);CREATE TABLE tbl_2_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_x VALUES('xiang''jiao','xj','香蕉',800);";
+    /// 每个音节都有单字，再加上 美国、警告、香蕉 这几个词，让 `634486`、`5464426`、`94264` 都有覆盖整串数字的拼音候选；`54` 是 #5667 截图里的 里 李 鸡 几。
+    const EXPRESSIVE_MAIN_FIXTURE: &str = "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_m VALUES('mei','m','美',300);CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('nei','n','内',200);CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_g VALUES('guo','g','国',300),('gao','g','高',200);CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_m VALUES('mei''guo','mg','美国',1000);CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_j VALUES('jing','j','警',100),('ji','j','鸡',300),('ji','j','几',200);CREATE TABLE tbl_1_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_l VALUES('li','l','里',500),('li','l','李',400);CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_j VALUES('jing''gao','jg','警告',900);CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_x VALUES('xian','x','先',300),('xiang','x','香',200),('xi','x','西',250);CREATE TABLE tbl_2_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_x VALUES('xiang''jiao','xj','香蕉',800);";
 
-    /// 结构与随包 `msime-others.db` 相同的两张表，🇺🇲、🇺🇸、⚠️、🍌 的编码和次序与随包数据相同。`警告` 也写成一个 emoji，`meihuo` 也指向 🇺🇸，用来验证与拼音候选重复的、跨读法重复的都只出现一次。
-    const EXPRESSIVE_OTHERS_FIXTURE: &str = "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);INSERT INTO emoji_pinyin VALUES('meiguo','🇺🇸',1893),('meihuo','🇺🇸',1893),('meiguobentuwaixiaodaoyu','🇺🇲',1891),('jinggao','警告',1),('jinggao','⚠️',1433),('xiangjiao','🍌',725),('laugh','😀',10);CREATE TABLE kaomoji(pinyin TEXT,jianpin TEXT,kaomoji TEXT,sort_order INTEGER);INSERT INTO kaomoji VALUES('meiguo','mg','(•̀ᴗ•́)و',10),('jinggao','jg','(ﾟДﾟ≡ﾟдﾟ)!?',20);";
+    /// 结构与随包 `msime-others.db` 相同的编码表和目录表，🇺🇲、🇺🇸、⚠️、🍌、🐔 的编码、次序和关键词取自随包数据。`警告` 也写成一个 emoji，`meihuo` 也指向 🇺🇸，用来验证与拼音候选重复的、跨读法重复的都只出现一次。
+    const EXPRESSIVE_OTHERS_FIXTURE: &str = "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);INSERT INTO emoji_pinyin VALUES('meiguo','🇺🇸',1893),('meihuo','🇺🇸',1893),('meiguobentuwaixiaodaoyu','🇺🇲',1891),('jinggao','警告',1),('jinggao','⚠️',1433),('xiangjiao','🍌',725),('ji','🐔',626),('jitou','🐔',626),('laugh','😀',10),('mei','🌸',2000);CREATE TABLE emoji(emoji TEXT PRIMARY KEY,keywords TEXT);INSERT INTO emoji VALUES('🇺🇸','美国 美利坚 美利坚合众国 星条旗 flag: united states'),('🇺🇲','美国本土外小岛屿 flag: u.s. outlying islands'),('⚠️','警告 注意 危险 预警 warning'),('🍌','香蕉 banana'),('🐔','鸡 鸡头 chicken'),('😀','笑脸 laugh'),('🌸','樱花 梅花 Mei');CREATE TABLE kaomoji(pinyin TEXT,jianpin TEXT,kaomoji TEXT,sort_order INTEGER);INSERT INTO kaomoji VALUES('meiguo','mg','(•̀ᴗ•́)و',10),('jinggao','jg','(ﾟДﾟ≡ﾟдﾟ)!?',20);CREATE TABLE kaomoji_catalog(kaomoji TEXT PRIMARY KEY,keywords TEXT);INSERT INTO kaomoji_catalog VALUES('(•̀ᴗ•́)و','mei guo'),('(ﾟДﾟ≡ﾟдﾟ)!?','jing gao 警告');";
 
     const BOTH_EXPRESSIVE: MixedExpressiveOptions = MixedExpressiveOptions {
         emoji_candidates: true,
@@ -3594,25 +3592,28 @@ mod tests {
     }
 
     #[test]
-    fn digits_mix_in_emoji_and_kaomoji_after_the_leading_row() {
+    fn digits_put_emoji_and_kaomoji_after_the_words_they_depict() {
         let fixture = expressive_fixture();
         let mut session =
             open_expressive(&fixture, EnglishInputOptions::default(), BOTH_EXPRESSIVE);
 
-        // 与 26 键相同：首选之后依次是 emoji、颜文字的第一行，其余接在列表末尾。目录里 🇺🇲 排在 🇺🇸 前面，26 键打 meiguo 也是这样；mei'guo 和 mei'huo 两种读法都查到 🇺🇸，只出现一次。
+        // #5667：美国 后面紧跟 🇺🇸。🇺🇲 只是编码以 meiguo 开头，画的不是 美国，与接不上任何词的颜文字一起排在末尾（#5907）；mei'guo 和 mei'huo 两种读法都查到 🇺🇸，只出现一次。
         type_digits(&mut session, "634486");
         let view = session.snapshot();
         let listed = words(&session);
-        assert_eq!(listed[..3], ["美国", "🇺🇲", "(•̀ᴗ•́)و"]);
+        assert_eq!(listed[..2], ["美国", "🇺🇸"]);
         assert_eq!(view.candidate_sources[1], CandidateSource::Emoji);
-        assert_eq!(view.candidate_sources[2], CandidateSource::Kaomoji);
-        assert_eq!(listed.last().map(String::as_str), Some("🇺🇸"));
+        assert_eq!(listed[listed.len() - 2..], ["🇺🇲", "(•̀ᴗ•́)و"]);
+        assert_eq!(
+            view.candidate_sources[listed.len() - 1],
+            CandidateSource::Kaomoji
+        );
         assert_eq!(listed.iter().filter(|word| *word == "🇺🇸").count(), 1);
-        assert!(view.candidate_answers_key[1] && view.candidate_answers_key[2]);
+        assert!(view.candidate_answers_key[1]);
         assert_eq!(view.candidates[1].pinyin, "634486");
         session.command(Command::Cancel);
 
-        // emoji 里的「警告」与拼音候选重复，不再出现。
+        // #5667 的截图：警告 ⚠️，颜文字的关键词也有 警告，接在 emoji 后面；emoji 里的「警告」与拼音候选重复，不再出现。
         type_digits(&mut session, "5464426");
         assert_eq!(words(&session)[..3], ["警告", "⚠️", "(ﾟДﾟ≡ﾟдﾟ)!?"]);
         assert_eq!(
@@ -3622,6 +3623,11 @@ mod tests {
                 .count(),
             1
         );
+        session.command(Command::Cancel);
+
+        // #5667 的截图：54 是 里 李 鸡 🐔 几。🐔 的编码就是 ji，在 ji 开头的两百多行里按目录顺序靠后，靠编码完全相同的行先取才取得到。
+        type_digits(&mut session, "54");
+        assert_eq!(words(&session)[..4], ["里", "李", "鸡", "🐔"]);
         session.command(Command::Cancel);
 
         // 只开 emoji：颜文字不出现。
@@ -3634,7 +3640,8 @@ mod tests {
             },
         );
         type_digits(&mut emoji_only, "634486");
-        assert_eq!(words(&emoji_only)[..2], ["美国", "🇺🇲"]);
+        assert_eq!(words(&emoji_only)[..2], ["美国", "🇺🇸"]);
+        assert_eq!(words(&emoji_only).last().map(String::as_str), Some("🇺🇲"));
         assert!(!sources(&emoji_only).contains(&CandidateSource::Kaomoji));
     }
 
@@ -3644,14 +3651,16 @@ mod tests {
         Connection::open(fixture.paths.dictionary(assets::ENGLISH_DICTIONARY))
             .unwrap()
             .execute(
-                "INSERT INTO english_words(word, display, weight) VALUES ('meh', 'meh', 700)",
+                "INSERT INTO english_words(word, display, weight) VALUES ('mei', 'Mei', 700)",
                 [],
             )
             .unwrap();
         let mut session = open_expressive(&fixture, mixed(), BOTH_EXPRESSIVE);
-        // 26 键的次序是首选、英文、emoji、颜文字；九宫格的英文首行有权重时同样占首选之后的位置，emoji、颜文字排在它后面。
+        // 九宫格的英文首行有权重时占首选之后的位置；关键词里有这个英文词的 emoji 接在它后面，接不上的排在末尾。
         type_digits(&mut session, "634");
-        assert_eq!(words(&session)[..4], ["美", "meh", "🇺🇲", "(•̀ᴗ•́)و"]);
+        let listed = words(&session);
+        assert_eq!(listed[..3], ["美", "Mei", "🌸"]);
+        assert_eq!(listed[listed.len() - 3..], ["🇺🇲", "🇺🇸", "(•̀ᴗ•́)و"]);
     }
 
     #[test]

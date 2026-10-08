@@ -49,21 +49,21 @@
       "answers_key": true
      },
      {
-      "word": "Ni",
-      "pinyin": "ni",
-      "canonical_pinyin": "",
-      "source": 6,
-      "scheme": "quanpin",
-      "weight": 3,
-      "answers_key": true
-     },
-     {
       "word": "倪",
       "pinyin": "ni",
       "canonical_pinyin": "ni",
       "source": 0,
       "scheme": "quanpin",
       "weight": 100,
+      "answers_key": true
+     },
+     {
+      "word": "Ni",
+      "pinyin": "ni",
+      "canonical_pinyin": "",
+      "source": 6,
+      "scheme": "quanpin",
+      "weight": 3,
       "answers_key": true
      },
      {
