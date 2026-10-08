@@ -87,6 +87,23 @@ public final class NineKeySidebarPolicy {
     }
 
     /**
+     * 当前键面的左栏符号：拼音九键的数字键面用数字那张表（#5590），字母键面和笔画键盘用字母那张。
+     *
+     * @param digits 是不是拼音九键的数字键面
+     * @param letterStored 本地设置里字母键面的符号表文本
+     * @param digitStored 本地设置里数字键面的符号表文本
+     */
+    public static List<String> sidebarSymbols(boolean digits, String letterStored, String digitStored) {
+        return digits ? digitSymbols(digitStored) : letterSymbols(letterStored);
+    }
+
+    /** 右列最下面那个键上屏的文字：字母键面是 {@link NineKeyLayout#punctuation} 的最后一个（！），数字键面是字面的小数点 `.`，不按中文标点换成「。」（#5590）。 */
+    public static String rightColumnBottom(boolean digits) {
+        List<String> punctuation = NineKeyLayout.punctuation();
+        return digits ? "." : punctuation.get(punctuation.size() - 1);
+    }
+
+    /**
      * 符号栏里每个符号占的高度（像素）：一屏放 {@link #VISIBLE_ROWS} 个，符号少于这么多时均分整栏，不留空白；放这么多会让每个低于 `minRowHeight` 时少放几个。
      *
      * @param railHeight 符号栏的可见高度

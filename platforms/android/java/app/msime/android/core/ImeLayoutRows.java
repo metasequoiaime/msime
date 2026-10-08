@@ -286,9 +286,8 @@ final class ImeLayoutRows {
 
     /** 本地设置里的左侧符号（不合规时是默认的那张表）：字母键面一张，拼音九键的数字键面另一张。 */
     java.util.List<String> sidebarSymbols(boolean digits) {
-        return digits
-            ? NineKeySidebarPolicy.digitSymbols(s.localSettings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS))
-            : NineKeySidebarPolicy.letterSymbols(s.localSettings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS));
+        return NineKeySidebarPolicy.sidebarSymbols(digits, s.localSettings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS),
+            s.localSettings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
     }
 
     /** 屏幕上有九键或笔画的符号栏，而它的符号和设置里的已经不同：设置页改了符号表之后，下一次渲染重建键行。 */
@@ -334,7 +333,6 @@ final class ImeLayoutRows {
 
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         // 左列是可以上下滚动的符号栏，字母键面默认 ，。？、：；……～@，！ 仍放在右列最下面，和 3×3 网格逐行对齐；数字键面默认是 + - * / = 等算式符号，！ 挪到它们后面，右列最下面换成小数点（#5590）。两张表都可在设置里自定义。
-        java.util.List<String> symbols = NineKeyLayout.punctuation();
         FrameLayout sidebar = symbolSidebar(digits);
         if (s.nineKeySpellingScroll != null) {
             // 拼音选择条只在创建键盘视图时建一次，每次重建九键都会换一个新的侧栏；偏好变化触发第二次重建时它还挂在上一个侧栏上，不先摘下来，addView 会抛 IllegalStateException 让键盘进程崩溃。
@@ -404,9 +402,9 @@ final class ImeLayoutRows {
         if (split instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, split);
         // 数字键面右列最下面是小数点：打的是数字，字面上屏 `.`，不按中文标点换成「。」。
-        String last = symbols.get(symbols.size() - 1);
+        String last = NineKeySidebarPolicy.rightColumnBottom(digits);
         Button lastKey = digits
-            ? s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period")
+            ? s.keyId(s.keyboardKey(last, "小数点", () -> commitNineKeyLiteral(last)), "Period")
             : s.keyId(s.keyboardKey(last, "符号 " + last, () -> commitNineKeyLiteral(last)), "SoftPunctuation");
         if (lastKey instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, lastKey);
