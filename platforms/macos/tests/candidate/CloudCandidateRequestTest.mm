@@ -12,6 +12,16 @@ static NSData *TencentPayload;
 static NSString *TencentAuthorization;
 static BOOL RedirectMode = NO;
 static NSMutableArray<NSString *> *LoadedURLs;
+// 只截住请求、什么也不回：用来检查会话配置，而不让请求真的发出去或触发别的用例的断言。
+@interface SilentProtocol : NSURLProtocol
+@end
+@implementation SilentProtocol
++ (BOOL)canInitWithRequest:(NSURLRequest *)request { (void)request; return YES; }
++ (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request { return request; }
+- (void)startLoading {}
+- (void)stopLoading {}
+@end
+
 @interface SyntheticCloudProtocol : NSURLProtocol
 @end
 @implementation SyntheticCloudProtocol
@@ -137,6 +147,35 @@ static void TestAIRejectsPlainHTTP() {
         configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration
         completion:^(NSData *body) { assert(!body); }];
     assert([[(NSURLRequest *)[request valueForKey:@"translationRequest"] URL].host isEqual:@"localhost"]);
+    // 局域网里的本地模型服务（如另一台电脑上的 LM Studio）可以用 http；公网 IP 仍然不行。
+    mutableDescriptor[@"url"] = @"http://192.168.1.20:1234/v1/chat/completions";
+    request = [[MSIMECloudCandidateRequest alloc]
+        initWithAITranslationDescriptor:mutableDescriptor
+        configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration
+        completion:^(NSData *body) { assert(!body); }];
+    assert([[(NSURLRequest *)[request valueForKey:@"translationRequest"] URL].host isEqual:@"192.168.1.20"]);
+    // 明文请求直连，不经过系统代理；https 请求仍按系统设置。
+    NSURLSessionConfiguration *synthetic = NSURLSessionConfiguration.ephemeralSessionConfiguration;
+    synthetic.protocolClasses = @[SilentProtocol.class];
+    request = [[MSIMECloudCandidateRequest alloc] initWithAITranslationDescriptor:mutableDescriptor configuration:synthetic
+        completion:^(NSData *body) { (void)body; }];
+    [request start];
+    assert([[(NSURLSession *)[request valueForKey:@"session"] configuration].connectionProxyDictionary isEqual:@{}]);
+    [request cancel];
+    mutableDescriptor[@"url"] = @"https://synthetic.invalid/v1/chat/completions";
+    request = [[MSIMECloudCandidateRequest alloc] initWithAITranslationDescriptor:mutableDescriptor configuration:synthetic
+        completion:^(NSData *body) { (void)body; }];
+    [request start];
+    assert(![(NSURLSession *)[request valueForKey:@"session"] configuration].connectionProxyDictionary);
+    [request cancel];
+    for (NSString *refused in @[@"http://8.8.8.8/v1/chat/completions", @"http://010.0.0.1/v1/chat/completions", @"https://synthetic.invalid/v1#"]) {
+        mutableDescriptor[@"url"] = refused;
+        request = [[MSIMECloudCandidateRequest alloc]
+            initWithAITranslationDescriptor:mutableDescriptor
+            configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration
+            completion:^(NSData *body) { assert(!body); }];
+        assert(![request valueForKey:@"translationRequest"]);
+    }
 }
 
 static void TestTencentTransport() {

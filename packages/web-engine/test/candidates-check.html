@@ -122,6 +122,16 @@
         equal(getComputedStyle(parts(host).first).backgroundColor, rgb("#E8E8E8"), "system selected fill");
         equal(getComputedStyle(parts(host).first.querySelector(".cand-content")).color, rgb("#1A1A1A"), "system selected text");
 
+        // 辅助码提示：帧里有 hint 就显示它（自带括号）；helpcode 选项只管没有提示的行要不要显示编码。
+        const hinted = frame({ composing: true, preedit: "ni", caret: 2, page: [{ text: "你", code: "ni", hint: "(AA)" }, { text: "呢", code: "ne", hint: "" }] });
+        const notes = (target) => parts(target).cands.map((cand) => cand.querySelector(".cand-helpcode")?.textContent ?? "").join("|");
+        bar.render(hinted, { left: 20, top: 20, bottom: 40 });
+        equal(notes(host), "(AA)|", "hints show without the helpcode option");
+        const coded = createCandidateBar({ helpcode: true });
+        coded.render(hinted, { left: 20, top: 20, bottom: 40 });
+        equal(notes(coded.element), "(AA)|(ne)", "the helpcode option fills rows without a hint with their code");
+        coded.destroy();
+
         bar.destroy();
         check(!host.isConnected, "destroy() removes the host");
         bar.render(composingFrame("ni", ["你"]), null);

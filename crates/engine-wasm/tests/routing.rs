@@ -367,7 +367,13 @@ fn quotes_alternate_and_follow_backspace_and_reset() {
 
 #[test]
 fn shuangpin_profiles_decode_their_own_finals() {
-    for (scheme, keys) in [(Scheme::Xiaohe, "nihc"), (Scheme::Ziranma, "nihk")] {
+    // 你好在四种双拼里分别是 ni hc、ni hk、ni hd（手到的 ao 在 d）、ni hk（微软的 ao 在 k），见引擎的 shuangpin/profile.rs。
+    for (scheme, keys) in [
+        (Scheme::Xiaohe, "nihc"),
+        (Scheme::Ziranma, "nihk"),
+        (Scheme::Shoudao, "nihd"),
+        (Scheme::Microsoft, "nihk"),
+    ] {
         let mut fixture = open(scheme, false);
         let frame = type_text(&mut fixture.host, keys);
         assert_eq!(frame.page[0].text, "你好", "{scheme:?}");
@@ -917,4 +923,154 @@ fn japanese_reads_a_preloaded_model_without_a_file() {
     let frame = type_text(&mut host, "nihongo ");
     assert_eq!(frame.out, vec![commit("日本語", 0)]);
     msime_engine::unload_japanese_dictionary(&path);
+}
+
+// ---- 手到、微软双拼 ----
+
+#[test]
+fn shoudao_reads_its_own_keys() {
+    // 手到的 d 是 ao，小鹤的 d 是 ai：同一串键在小鹤里是 ni hai，不是你好。
+    let mut fixture = open(Scheme::Shoudao, false);
+    assert_eq!(type_text(&mut fixture.host, "nihd").preedit, "nihd");
+    assert_eq!(
+        type_text(&mut fixture.host, " ").out,
+        vec![commit("你好", 0)]
+    );
+    let mut xiaohe = open(Scheme::Xiaohe, false);
+    assert_ne!(
+        texts(&type_text(&mut xiaohe.host, "nihd").page).first(),
+        Some(&"你好")
+    );
+}
+
+#[test]
+fn microsoft_semicolon_is_the_ing_final() {
+    let mut fixture = open(Scheme::Microsoft, false);
+    let frame = type_text(&mut fixture.host, "b;");
+    assert!(frame.composing);
+    assert!(frame.out.is_empty());
+    assert_eq!(frame.page[0].text, "冰");
+    assert_eq!(type_text(&mut fixture.host, " ").out, vec![commit("冰", 0)]);
+    // `;` 只能作音节的第二键：完整音节后它结束组字，打出中文分号。
+    assert_eq!(
+        type_text(&mut fixture.host, "ni;").out,
+        vec![commit("你", 0), commit("；", -1)]
+    );
+    // 空闲时也只是标点。
+    assert_eq!(
+        type_text(&mut fixture.host, ";").out,
+        vec![commit("；", -1)]
+    );
+    // 小鹤的 ing 在 k，`;` 不是拼写。
+    let mut xiaohe = open(Scheme::Xiaohe, false);
+    assert_eq!(type_text(&mut xiaohe.host, "bk").page[0].text, "冰");
+    xiaohe.host.keys(&[Key::Escape]);
+    assert_eq!(
+        type_text(&mut xiaohe.host, "ni;").out,
+        vec![commit("你", 0), commit("；", -1)]
+    );
+}
+
+// ---- 辅助码 ----
+
+/// 合成的辅助码表，格式同 `resources/helpcodes/`：你=aa、呢=bb、尼=cd，权重最低的尼因此能被辅助码 c 提到前面，cd 筛出它。
+const HELPCODE_TABLE: &[u8] = "\u{feff}# 合成数据\n你=aa\n呢=bb\n尼=cd\n".as_bytes();
+
+fn with_helpcode(scheme: Scheme) -> Fixture {
+    let mut fixture = open(scheme, false);
+    fixture
+        .host
+        .set_helpcode(Some(HELPCODE_TABLE))
+        .expect("helpcode table");
+    fixture
+}
+
+#[test]
+fn helpcode_is_off_by_default() {
+    let mut fixture = quanpin();
+    let frame = type_text(&mut fixture.host, "ni");
+    assert_eq!(texts(&frame.page), vec!["你", "呢", "尼"]);
+    assert!(frame.page.iter().all(|row| row.hint.is_empty()));
+    let mut xiaohe = open(Scheme::Xiaohe, false);
+    // 没有辅助码时 nic 是 ni 加下一个音节的声母 c，首位仍是权重最高的你。
+    assert_eq!(type_text(&mut xiaohe.host, "nic").page[0].text, "你");
+}
+
+#[test]
+fn quanpin_capitals_are_helpcodes_when_enabled() {
+    let mut fixture = with_helpcode(Scheme::Quanpin);
+    let frame = type_text(&mut fixture.host, "ni");
+    assert_eq!(texts(&frame.page), vec!["你", "呢", "尼"]);
+    // 全拼的提示全大写。
+    assert_eq!(frame.page[2].hint, "(CD)");
+    // 单个大写字母按首码调整顺序。
+    let frame = type_text(&mut fixture.host, "C");
+    assert!(frame.composing);
+    assert!(frame.out.is_empty());
+    assert_eq!(frame.page[0].text, "尼");
+    fixture.host.keys(&[Key::Escape]);
+    // 末尾两个大写字母按完整的两码筛选。
+    let frame = type_text(&mut fixture.host, "niCD");
+    assert_eq!(texts(&frame.page), vec!["尼"]);
+    assert_eq!(type_text(&mut fixture.host, " ").out, vec![commit("尼", 0)]);
+
+    // 关掉之后大写字母回到原来的做法：上屏原码，再打出字母。
+    fixture.host.set_helpcode(None).unwrap();
+    let frame = type_text(&mut fixture.host, "niC");
+    assert_eq!(frame.out, vec![commit("ni", -1), Out::Type("C".to_owned())]);
+    assert!(!frame.composing);
+}
+
+#[test]
+fn shuangpin_third_key_is_a_helpcode_when_enabled() {
+    for scheme in [
+        Scheme::Xiaohe,
+        Scheme::Ziranma,
+        Scheme::Shoudao,
+        Scheme::Microsoft,
+    ] {
+        let mut fixture = with_helpcode(scheme);
+        let frame = type_text(&mut fixture.host, "ni");
+        // 双拼的提示只把第二码大写。
+        assert_eq!(frame.page[2].hint, "(cD)", "{scheme:?}");
+        // 完整音节后的第三键是单码辅助码，调整顺序。
+        let frame = type_text(&mut fixture.host, "c");
+        assert_eq!(frame.page[0].text, "尼", "{scheme:?}");
+        assert_eq!(frame.preedit, "nic", "{scheme:?}");
+        fixture.host.keys(&[Key::Escape]);
+        // 第四键按着 Shift 时，第三、四键是双码辅助码，筛选。
+        let frame = type_text(&mut fixture.host, "nicD");
+        assert_eq!(texts(&frame.page), vec!["尼"], "{scheme:?}");
+    }
+}
+
+#[test]
+fn helpcode_survives_reset_and_can_be_turned_off_mid_composition() {
+    let mut fixture = with_helpcode(Scheme::Xiaohe);
+    fixture.host.reset();
+    assert_eq!(type_text(&mut fixture.host, "nic").page[0].text, "尼");
+    // 组字中关掉：同一串键按普通双拼重新查询。
+    fixture.host.set_helpcode(None).unwrap();
+    let frame = fixture.host.keys(&[]);
+    assert!(frame.composing);
+    assert_eq!(frame.page[0].text, "你");
+    assert!(frame.page.iter().all(|row| row.hint.is_empty()));
+}
+
+#[test]
+fn an_oversized_helpcode_table_is_refused() {
+    let mut fixture = with_helpcode(Scheme::Quanpin);
+    let oversized = vec![b'x'; 1024 * 1024 + 1];
+    assert!(fixture.host.set_helpcode(Some(&oversized)).is_err());
+    // 原来的表还在用。
+    assert_eq!(type_text(&mut fixture.host, "niC").page[0].text, "尼");
+}
+
+#[test]
+fn helpcode_does_nothing_for_wubi() {
+    let mut fixture = open(Scheme::Wubi86, false);
+    fixture.host.set_helpcode(Some(HELPCODE_TABLE)).unwrap();
+    let frame = type_text(&mut fixture.host, "ggll");
+    assert_eq!(texts(&frame.page), vec!["五一", "一五"]);
+    assert!(frame.page.iter().all(|row| row.hint.is_empty()));
 }

@@ -674,17 +674,12 @@ public final class MSIMEInputService extends InputMethodService {
         hardwareLanguageCtrl = keybindings != null
             && keybindings.optBoolean("switch_language_ctrl", false);
         defaultImeMode = preferences != null
-            && "english".equals(preferences.optString("default_ime_mode", "chinese"))
+            && "english".equals(InputViewValuePolicy.textOr(preferences, "default_ime_mode", "chinese"))
             ? "english" : "chinese";
         imeModeScope = preferences != null
-            && "global".equals(preferences.optString("ime_mode_scope", "app"))
+            && "global".equals(InputViewValuePolicy.textOr(preferences, "ime_mode_scope", "app"))
             ? "global" : "app";
-        KeyboardScheme engineScheme = KeyboardScheme.fromPreferences(
-            preferences == null ? edition.defaultScheme()
-                : preferences.optString("scheme", edition.defaultScheme()),
-            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"),
-            preferences == null ? "twenty_six_key"
-                : InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
+        KeyboardScheme engineScheme = SchemePreferences.storedScheme(preferences, edition);
         SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
         alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
         enabledSchemes = schemeConfiguration.enabled();
@@ -765,8 +760,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (preferences == null || configuration.selected() == engineScheme) return;
         KeyboardScheme.PreferenceMapping mapping = KeyboardScheme.mappingForRuntimeSelection(
             engineScheme, configuration.selected(),
-            preferences.optString("last_chinese_scheme",
-                preferences.optString("scheme", edition.defaultScheme())),
+            InputViewValuePolicy.textOr(preferences, "last_chinese_scheme",
+                InputViewValuePolicy.textOr(preferences, "scheme", edition.defaultScheme())),
             InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"), edition);
         preferences.put("scheme", mapping.scheme());
         preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
@@ -1892,7 +1887,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private java.util.List<String> translationTargetsFrom(JSONObject preferences) {
         String primary = preferences == null ? "en"
-            : preferences.optString("translation_target_language", "en");
+            : InputViewValuePolicy.textOr(preferences, "translation_target_language", "en");
         String secondary = "";
         if (preferences != null) {
             Object value = preferences.opt("translation_secondary_language");
@@ -2084,13 +2079,10 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextLanguageCtrl = nextKeybindings != null
             && nextKeybindings.optBoolean("switch_language_ctrl", false);
         String nextDefaultImeMode = "english".equals(
-            preferences.optString("default_ime_mode", "chinese")) ? "english" : "chinese";
+            InputViewValuePolicy.textOr(preferences, "default_ime_mode", "chinese")) ? "english" : "chinese";
         String nextImeModeScope = "global".equals(
-            preferences.optString("ime_mode_scope", "app")) ? "global" : "app";
-        KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
-            preferences.optString("scheme", edition.defaultScheme()),
-            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"),
-            InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
+            InputViewValuePolicy.textOr(preferences, "ime_mode_scope", "app")) ? "global" : "app";
+        KeyboardScheme nextScheme = SchemePreferences.storedScheme(preferences, edition);
         SchemeConfiguration nextSchemeConfiguration = schemeConfiguration(preferences, nextScheme);
         JSONObject sessionSnapshot = new JSONObject(accepted.toString());
         // Keep the accepted disk snapshot intact while enforcing editor privacy in this session.
@@ -5341,7 +5333,7 @@ public final class MSIMEInputService extends InputMethodService {
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             JSONObject preferences = pending.getJSONObject("preferences");
             String currentScheme = preferences.optString("scheme", edition.defaultScheme());
-            String lastChinese = preferences.optString("last_chinese_scheme", currentScheme);
+            String lastChinese = InputViewValuePolicy.textOr(preferences, "last_chinese_scheme", currentScheme);
             KeyboardScheme.PreferenceMapping mapping = scheme.mapping(lastChinese,
                 InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"), edition);
             preferences.put("scheme", mapping.scheme());

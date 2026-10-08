@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 构建网页内置输入法用的引擎包：msime-engine-wasm 编译成 wasm，经 wasm-bindgen 和 wasm-opt 处理，再加上裁剪后的词库、整句模型、NOTICE、清单和校验和，全部写到 target/web-engine/dist/；再把 packages/web-engine 的 SDK 和这些文件组装成 npm 包 target/web-engine/npm/msime-web-engine-<版本>.tgz。
+# 构建网页内置输入法用的引擎包：msime-engine-wasm 编译成 wasm，经 wasm-bindgen 和 wasm-opt 处理，再加上裁剪后的词库、整句模型、NOTICE、清单和校验和，全部写到 target/web-engine/dist/；再把 packages/web-engine 的 SDK、这些文件和 gzip 过的辅助码表组装成 npm 包 target/web-engine/npm/msime-web-engine-<版本>.tgz。
 #
 # TapTapGo 按 web-engine-manifest.json 里每个文件的 sha256 和大小钉住 release（data/msime/web-engine.lock.json），所以同一提交、同一输入构建出来的文件必须逐字节相同：gzip 用 -n 去掉文件名和时间戳，词库由 `msime-dict-build web` 确定性地生成。
 #
@@ -242,13 +242,28 @@ for file in "$dist"/*; do
   esac
 done
 jq --arg version "$version" '.version = $version' "$sdk/package.json" > "$npm_pkg/package.json"
+# 辅助码表（全拼和双拼的辅助码，SDK 只在打开辅助码时下载）只进 npm 包，不进 dist：dist 的清单和校验和是 TapTapGo 钉住、release 逐个上传的那一套，release-web-engine.yml 也按角色核对清单，而辅助码只有 SDK 用得到。方案名和文件与引擎的 `assets::HELPCODES`（crates/engine/src/assets.rs）一一对应，tests/helpcodes.rs 核对这一点；和词库一样 gzip -9n，结果可复现。辅助码表的来源和分发限制写在 NOTICE 里。
+helpcodes_jsonl="$npm_dir/helpcodes.jsonl"
+: > "$helpcodes_jsonl"
+for entry in lantian:helpcodes/helpcode.txt ziranma:helpcodes/zrm_helpcode_big_unique.txt shouyou2_0:helpcodes/shouyou2_0_helpcode.txt \
+  shouyouplus:helpcodes/shouyouplus_helpcode.txt xiaohe:helpcodes/xiaohe_helpcode.txt jiajia:helpcodes/jiajia_helpcode.txt; do
+  schema="${entry%%:*}"
+  table="resources/${entry#*:}"
+  [ -f "$table" ] || die "$table is missing"
+  name="helpcode-$schema.txt.gz"
+  gzip -9n -c "$table" > "$npm_pkg/assets/$name"
+  jq -cn --arg schema "$schema" --arg name "$name" --argjson size "$(size_of "$npm_pkg/assets/$name")" --argjson raw "$(size_of "$table")" \
+    '{key: $schema, value: {name: $name, size: $size, rawSize: $raw}}' >> "$helpcodes_jsonl"
+done
 {
-  echo "// 由 scripts/build-web-engine.sh 从 web-engine-manifest.json 生成，不要手改。"
+  echo "// 由 scripts/build-web-engine.sh 从 web-engine-manifest.json 和辅助码表生成，不要手改。"
   jq -r '"export const version = \(.version | tojson);",
     "export const sourceCommit = \(.source_commit | tojson);",
     "export const files = \([.artifacts[] | select(.role != "glue" and .role != "notice") | {key: .role, value: {name, size, rawSize: .raw_size}}] | from_entries | tojson);"' \
     "$dist/web-engine-manifest.json"
+  jq -rs '"export const helpcodes = \(from_entries | tojson);"' "$helpcodes_jsonl"
 } > "$npm_pkg/assets.js"
+rm -f "$helpcodes_jsonl"
 npm pack --silent --pack-destination "$npm_dir" "$npm_pkg" > /dev/null
 npm_tgz="$npm_dir/msime-web-engine-$version.tgz"
 [ -f "$npm_tgz" ] || die "npm pack did not produce $npm_tgz"
@@ -257,5 +272,8 @@ echo "$npm_tgz: $(size_of "$npm_tgz") bytes"
 step "done"
 jq -r '.artifacts[] | "\(.name)\t\(.size)\t\(.raw_size)\t\(.sha256)"' "$dist/web-engine-manifest.json" |
   awk -F '\t' '{ printf "  %-32s %10d B  (raw %10d B)  %s\n", $1, $2, $3, $4 }'
+for file in "$npm_pkg"/assets/helpcode-*.txt.gz; do
+  printf '  %-32s %10d B  (npm package only)\n' "$(basename "$file")" "$(size_of "$file")"
+done
 echo "web engine $version ($short_commit) written to $dist"
 echo "npm package @msime/web-engine $version written to $npm_tgz"

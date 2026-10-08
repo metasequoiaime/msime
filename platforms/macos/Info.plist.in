@@ -18,6 +18,9 @@
      than returning denied - so a missing string here does not disable dictation, it takes the whole input
      method down mid-sentence. Every TCC API the host calls needs its key; info-plist-usage keeps them paired. -->
 <key>NSSpeechRecognitionUsageDescription</key><string>选择 macOS 系统识别时，把录音交给系统语音识别，用于转写您说出的文字。</string>
+<!-- AI 联想可以连本机或局域网里的 http 模型服务（如 LM Studio），哪些地址能用由 src/core/AIEndpointPolicy.h 判断，公网仍然只走 https。macOS 15 起连局域网设备要经过「本地网络」授权，系统按这句话询问；连本机回环地址不会询问。ATS 本来就不拦 IP 地址、无点主机名和 .local，NSAllowsLocalNetworking 把这一点写明，免得以后加 ATS 配置时把它关掉；它不放开任何公网域名。 -->
+<key>NSLocalNetworkUsageDescription</key><string>仅在您把 AI 联想的接口地址设成局域网里的服务（例如另一台电脑上的 LM Studio）时，用来连接那台设备。</string>
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 <key>LSBackgroundOnly</key><true/>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <!-- macOS 27 上 imklaunchagent 拒绝不是 `<CFBundleIdentifier>_Connection` 形式的连接名（"unrecognized 'InputMethodConnectionName' value"），之后再也不按需拉起输入法：在别的途径启动进程之前，它的模式在输入菜单里一直是灰的。input_method_main.mm 使用从这里读到的名字，info-plist-names 检查它的形式。 -->

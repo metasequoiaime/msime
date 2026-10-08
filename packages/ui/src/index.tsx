@@ -2235,6 +2235,11 @@ export {
   providerCredentialErrorMessage,
   tencentSecretConfigured,
 } from "./settings/credential-utils";
+export {
+  aiEndpointHint,
+  aiEndpointProblem,
+  type AiEndpointProblem,
+} from "./settings/ai-endpoint-policy";
 
 type SettingsPageProps = {
   client: SettingsClient;

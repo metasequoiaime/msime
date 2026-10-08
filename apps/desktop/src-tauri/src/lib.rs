@@ -1474,29 +1474,9 @@ fn ios_keyboard_ai_preferences(
     }
     .to_owned();
     let endpoint = preferences.endpoint.trim();
-    let token = reqwest::Url::parse(endpoint)
-        .ok()
-        .and_then(|url| {
-            let explicit_authority = endpoint.split_once("://").is_some_and(|(_, authority)| {
-                authority
-                    .as_bytes()
-                    .first()
-                    .is_some_and(|byte| *byte != b'/')
-            });
-            if url.scheme() != "https"
-                || !explicit_authority
-                || url.host_str().is_none_or(str::is_empty)
-                || !url.username().is_empty()
-                || url.password().is_some()
-                || url.fragment().is_some()
-            {
-                return None;
-            }
-            let origin = format!(
-                "https://{}:{}",
-                url.host_str()?.to_ascii_lowercase(),
-                url.port().unwrap_or(443)
-            );
+    // 来源键与设置页一致：https 不限主机，http 只认本机或局域网（`ai::endpoint`）。
+    let token = msime_client_core::ai::endpoint::credential_origin(endpoint)
+        .and_then(|origin| {
             preferences
                 .tokens
                 .get(&preferences.provider)
@@ -1708,7 +1688,7 @@ async fn test_api_credential(
             msime_client_core::credential::probe::test_chat(
                 &service,
                 &config,
-                &msime_client_core::credential::probe::HttpsProbeTransport,
+                &msime_client_core::credential::probe::ChatProbeTransport,
             )
         })
         .await
@@ -1727,7 +1707,7 @@ async fn test_api_credential(
             let result = msime_client_core::credential::probe::test_chat(
                 &service,
                 &config,
-                &msime_client_core::credential::probe::HttpsProbeTransport,
+                &msime_client_core::credential::probe::ChatProbeTransport,
             );
             msime_input_runtime::CredentialTestResult {
                 ok: result.ok,

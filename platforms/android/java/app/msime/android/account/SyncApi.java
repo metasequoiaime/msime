@@ -75,9 +75,11 @@ public final class SyncApi {
     public SyncApi(Context context, long bindingGeneration) {
         Context application = context.getApplicationContext();
         this.account = rejected -> {
-            if (SyncSwitch.bindingGeneration(application) != bindingGeneration) return "";
-            String token = new BackendAccount(application).currentAccessToken(rejected);
-            return SyncSwitch.bindingGeneration(application) == bindingGeneration ? token : "";
+            synchronized (SyncSwitch.bindingLock()) {
+                if (SyncSwitch.bindingGeneration(application) != bindingGeneration) return "";
+                String token = new BackendAccount(application).currentAccessToken(rejected);
+                return SyncSwitch.bindingGeneration(application) == bindingGeneration ? token : "";
+            }
         };
         this.cloud = new CloudApi(application, this.account);
         this.streams = new HttpStreams();

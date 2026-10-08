@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 允许明文 http，只为一件事：AI 辅助的接口地址可以指向本机或局域网里的模型服务（如 LM Studio 的 http://192.168.1.20:1234/v1）。targetSdk 28 起系统默认拒绝明文，而 network-security-config 只能按域名放行，写不出 192.168.0.0/16、10.0.0.0/8 这样的地址段，所以只能在这里整体放开。真正的边界在应用层：AI 的每条请求路径都先过 AiEndpointPolicy，http 只放行回环、私有地址、100.64.0.0/10、链路本地、IPv6 唯一本地地址和 .local；其他网络路径（云候选、账号、同步、社区、更新、语音识别、翻译）各自只接受 https，或者连的是写死的 https 地址并强转 HttpsURLConnection。这里不改信任锚，系统证书仍是默认的唯一信任来源。 -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 生成 resources/licenses/web-engine-NOTICE.md 里两段由脚本维护的内容，网页引擎（msime-engine-wasm）的 release 把这份文件改名为 NOTICE.md 一起发布。
 #
-# - `repo` 段：仓库里随 wasm 分发的许可证全文，逐字复制自 LICENSE 和 resources/licenses/（GPL-3.0、libhangul 汉字表、行政区划数据、Zinnia、日语模型的 Mozc 与 IPAdic 条款）。
+# - `repo` 段：仓库里随 wasm 分发的许可证全文，逐字复制自 LICENSE 和 resources/licenses/（GPL-3.0、libhangul 汉字表、行政区划数据、Zinnia、日语模型的 Mozc 与 IPAdic 条款），以及 npm 包所带辅助码表的来源说明（resources/helpcodes/ 的两份 NOTICE）。
 # - `crates` 段：链接进 wasm 的每个 crate、它声明的许可证表达式，以及它随包附带的许可证文件全文（内容相同的文件只收一份）。crate 集合来自 `cargo tree -p msime-engine-wasm --target wasm32-unknown-unknown -e normal,no-proc-macro`：过程宏及其依赖只在编译期运行，不进 wasm，所以不列；本 workspace 的成员是本项目自己的 GPL-3.0 代码，许可证全文在 `repo` 段。
 #
 # 做法和 platforms/linux/collect-notices.py、Windows 的 Collect-Notices.ps1 相同：许可证文件原样复制，没有附带许可证文件的 crate 单独列出它声明的表达式，缺口看得见而不是被悄悄丢掉。两段以外的手写内容不动。
@@ -58,7 +58,9 @@ repo_section="$work/repo.md"
     "resources/licenses/Administrative-divisions-of-China-WTFPL.txt|WTFPL：中国行政区划数据（crates/engine/src/local/places.tsv）" \
     "resources/licenses/Zinnia-LICENSE.txt|BSD-3-Clause：Zinnia（手写识别模块的 Rust 移植）" \
     "resources/licenses/mozc-BSD-3-Clause.txt|BSD-3-Clause：Mozc（日语模型 msime-japanese.dat 的来源，词库 release 的 msime-mozc_LICENSE.txt）" \
-    "resources/licenses/mozc-dictionary_oss-README.txt|IPAdic、ICOT 与冲绳词典的条款（日语模型 msime-japanese.dat，词库 release 的 msime-mozc_dictionary_oss_README.txt）"; do
+    "resources/licenses/mozc-dictionary_oss-README.txt|IPAdic、ICOT 与冲绳词典的条款（日语模型 msime-japanese.dat，词库 release 的 msime-mozc_dictionary_oss_README.txt）" \
+    "resources/helpcodes/ENGINE-NOTICE.md|辅助码表 helpcode-lantian、helpcode-ziranma、helpcode-shouyou2_0、helpcode-shouyouplus、helpcode-xiaohe（只在 npm 包里）的来源与权利说明" \
+    "resources/helpcodes/NOTICE.md|辅助码表 helpcode-jiajia（只在 npm 包里）的来源、权利与分发限制"; do
     path="${entry%%|*}"
     title="${entry#*|}"
     [ -f "$path" ] || { echo "web-engine-notice: $path is missing" >&2; exit 1; }

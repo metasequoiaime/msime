@@ -4,6 +4,8 @@ use thiserror::Error;
 
 use crate::preferences::AI_PROVIDERS;
 
+pub mod endpoint;
+
 #[derive(Debug, Clone, Error, Eq, PartialEq)]
 pub enum AiError {
     #[error("segmented pinyin is empty or too large")]
@@ -72,30 +74,8 @@ pub fn chat_completion_body(
 
 /// Resolve local provider credentials into a native HTTP descriptor. Contains a
 /// bearer token and private input: never log or persist this descriptor.
-/// The key the settings page stores an AI token under: `https://host:port`.
 ///
-/// Mirrors `aiCredentialOrigin` in the shared UI, including its refusals, so a
-/// token stored by the page is found here and an endpoint the page would not
-/// have keyed is not matched by accident.
-fn credential_origin(endpoint: &str) -> Option<String> {
-    let endpoint = endpoint.trim();
-    if endpoint.is_empty() || !crate::text::is_bounded_text(endpoint, 2048) {
-        return None;
-    }
-    let url = reqwest::Url::parse(endpoint).ok()?;
-    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
-        return None;
-    }
-    if url.fragment().is_some() {
-        return None;
-    }
-    let host = url.host_str()?.to_ascii_lowercase();
-    if host.is_empty() {
-        return None;
-    }
-    Some(format!("https://{host}:{}", url.port().unwrap_or(443)))
-}
-
+/// 接口地址按 [`endpoint::validate`] 检查：https 不限主机，http 只能指向本机或局域网。
 pub fn chat_completion_http_request(
     config: &crate::preferences::AiAssistantPreferences,
     request: &AiSuggestionRequest,
@@ -104,10 +84,7 @@ pub fn chat_completion_http_request(
         return Ok(None);
     }
     let endpoint = &config.endpoint;
-    reqwest::Url::parse(endpoint).map_err(|_| AiError::InvalidConfiguration)?;
-    if !crate::translation::is_secure_endpoint(endpoint)
-        || request.candidate_limit != config.candidate_limit
-    {
+    if endpoint::validate(endpoint).is_err() || request.candidate_limit != config.candidate_limit {
         return Err(AiError::InvalidConfiguration);
     }
     // Two key spaces reach this map and they never intersected. The reference
@@ -117,7 +94,7 @@ pub fn chat_completion_http_request(
     // user who pasted a key got InvalidConfiguration and no request was ever
     // sent. Android reads the origin key, which is why it kept working and why
     // re-keying the page would break it instead. Accept either.
-    let origin = credential_origin(&config.endpoint);
+    let origin = endpoint::credential_origin(&config.endpoint);
     let usable = |token: &&String| {
         let token = token.trim();
         !token.is_empty()
@@ -495,22 +472,22 @@ mod tests {
             Err(AiError::InvalidConfiguration)
         ));
 
-        // The origin key is derived the same way the page derives it: the
-        // default HTTPS port is spelled out, and the host is lowercased.
+        // 来源键的推导与设置页一致，逐条用例见 `endpoint` 模块读取的 shared/contracts/ai-endpoint/cases.json。
+        // 局域网的 http 接口按 `http://host:port` 存 Token，这里要能找到它。
+        let mut local = origin_only.clone();
+        local.tokens.clear();
+        local.endpoint = "http://192.168.1.20:1234/v1/chat/completions".into();
+        local
+            .tokens
+            .insert("http://192.168.1.20:1234".into(), "synthetic-local".into());
         assert_eq!(
-            credential_origin("https://API.DeepSeek.com/chat/completions").as_deref(),
-            Some("https://api.deepseek.com:443")
+            descriptor(&local)["headers"]["Authorization"],
+            "Bearer synthetic-local"
         );
         assert_eq!(
-            credential_origin("https://host.example:8443/v1").as_deref(),
-            Some("https://host.example:8443")
+            descriptor(&local)["url"],
+            "http://192.168.1.20:1234/v1/chat/completions"
         );
-        // Anything the page would refuse to key is refused here too.
-        assert!(credential_origin("http://api.deepseek.com/x").is_none());
-        assert!(credential_origin("https://user:pw@api.deepseek.com/x").is_none());
-        assert!(credential_origin("https://api.deepseek.com/x#frag").is_none());
-        assert!(credential_origin("").is_none());
-        assert!(credential_origin("not a url").is_none());
         assert_eq!(value["body"]["messages"][0]["content"], "second prompt");
         assert_eq!(value["timeout_ms"], 8000);
         assert_eq!(value["connect_timeout_ms"], 2500);
@@ -544,6 +521,10 @@ mod tests {
         assert!(chat_completion_http_request(&config, &request).is_err());
         config.endpoint = "http://[::1]:8080/chat".into();
         assert!(chat_completion_http_request(&config, &request).is_ok());
+        config.endpoint = "http://10.0.0.8:1234/v1/chat/completions".into();
+        assert!(chat_completion_http_request(&config, &request).is_ok());
+        config.endpoint = "http://8.8.8.8/v1/chat/completions".into();
+        assert!(chat_completion_http_request(&config, &request).is_err());
         config.token = "bad\r\nheader".into();
         assert!(chat_completion_http_request(&config, &request).is_err());
         config.enabled = false;

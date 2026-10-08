@@ -1,6 +1,7 @@
 #import "AISettingsWindow.h"
 #import "MSIMEClientSession.h"
 #import "AISettingsSnapshot.h"
+#import "AIEndpointPolicy.h"
 
 static BOOL MSIMEAIStrictRevision(id value, uint64_t *result) {
     if (![value isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || CFNumberIsFloatType((__bridge CFNumberRef)value)) return NO;
@@ -10,16 +11,6 @@ static BOOL MSIMEAIStrictRevision(id value, uint64_t *result) {
     if ([number compare:@(revision)] != NSOrderedSame) return NO;
     if (result) *result = revision;
     return YES;
-}
-
-static BOOL SafeAIEndpoint(NSString *value) {
-    NSURLComponents *url = [NSURLComponents componentsWithString:value ?: @""];
-    if (!url.host.length || url.user != nil || url.password != nil || url.fragment != nil) return NO;
-    if ([url.scheme.lowercaseString isEqualToString:@"https"]) return YES;
-    if (![url.scheme.lowercaseString isEqualToString:@"http"]) return NO;
-    // 与共享请求层一致，明文 HTTP 只允许本机回环服务。
-    NSString *host = url.host.lowercaseString;
-    return [@[@"localhost", @"127.0.0.1", @"[::1]", @"::1"] containsObject:host];
 }
 
 /// Saves `edits` (a subset of the AI keys) over `snapshot`; when another writer saved first, they are merged onto its revision and written once more so its other changes survive.
@@ -81,7 +72,12 @@ static NSDictionary *SaveAIEdits(NSString *directory, NSDictionary *snapshot, NS
     NSMutableDictionary *edits = [NSMutableDictionary dictionary]; for (NSString *key in form) if (![form[key] isEqual:_committed[key]]) edits[key] = form[key];
     if (!edits.count) return;
     NSInteger limit = [form[@"candidate_limit"] integerValue]; if (limit < 1 || limit > 10) { _status.stringValue = @"候选数量必须为 1～10；修改尚未保存。"; return; }
-    if ([form[@"enabled"] boolValue] && !SafeAIEndpoint(form[@"endpoint"])) { _status.stringValue = @"启用 AI 时请输入有效的 HTTPS 接口地址（本机回环地址可用 HTTP）；修改尚未保存。"; return; }
+    // 规则见 AIEndpointPolicy.h：https 不限主机，http 只能指向本机或局域网；公网 http 要说清楚为什么不行。
+    if ([form[@"enabled"] boolValue]) {
+        MSIMEAIEndpointProblem problem = MSIMEAIEndpointCheck(form[@"endpoint"], nil);
+        if (problem == MSIMEAIEndpointProblemCleartextPublicHost) { _status.stringValue = [MSIMEAIEndpointCleartextMessage stringByAppendingString:@"修改尚未保存。"]; return; }
+        if (problem != MSIMEAIEndpointProblemNone) { _status.stringValue = @"启用 AI 时请输入有效的接口地址（https，或本机、局域网的 http）；修改尚未保存。"; return; }
+    }
     NSDictionary *saved = SaveAIEdits(_directory, _snapshot, edits);
     if (saved) { _snapshot = saved; _committed = form; _status.stringValue = @"已保存。"; if (_saved) _saved(saved[@"preferences"]); }
     else _status.stringValue = @"保存失败，修改尚未写入；再次修改或关闭窗口时会重试。";

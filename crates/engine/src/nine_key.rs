@@ -11,10 +11,12 @@ use crate::assets;
 use crate::diagnostics;
 use crate::dictionary::english::EnglishDictionary;
 use crate::error::EngineError;
+use crate::ime::queries::{insert_expressive_rows, MIXED_EXPRESSIVE_MINIMUM_INPUT};
 use crate::language_dictionary::{self, LanguageDictionary};
 use crate::lattice::decode::PHRASE_LENGTH_BONUS;
+use crate::local::emoji::{query_emoji_readings, query_kaomoji_readings, ExpressiveRow};
 use crate::paths::RuntimePaths;
-use crate::pinyin::segment::split_segments;
+use crate::pinyin::segment::{cut_one_piece_min_segments, split_segments};
 use crate::pinyin::syllables::intact_pinyin_list;
 use crate::quanpin::QuanpinDictionary;
 use crate::session::SessionSnapshot;
@@ -23,7 +25,7 @@ use crate::text::{count_utf8_chars, is_han_phrase};
 use crate::types::{
     CandidateSource, Command, EnglishInputOptions, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult, LocalInputMode,
-    PersonalDictionaryKind, SchemeType, WordItem,
+    MixedExpressiveOptions, PersonalDictionaryKind, SchemeType, WordItem,
 };
 use crate::user_dictionary::positions;
 use crate::user_dictionary::ranking::{self, RankingRequest};
@@ -53,6 +55,8 @@ const INITIALS_CODE_LIMIT: usize = 1024;
 const INITIALS_ROW_LIMIT: usize = 64;
 /// 没打切分时，同样覆盖的词典行里最前面留给音节行（最常用的单字）的位置数；其后的音节行和简拼行按权重归并，见 `interleave_initials`。
 const SYLLABLE_ROWS_BEFORE_INITIALS: usize = 3;
+/// 混入 emoji、颜文字时最多按几种读法查。一串数字能拼出几十种读法，每种读法要各查一次 emoji 和颜文字；按候选列表排好先后之后只查前面这几种，最可能的读法总在里面。
+const EXPRESSIVE_READING_LIMIT: usize = 8;
 /// 选中整句时最多存多少个音节，与全拼键盘的 `session::learning::MAX_LEARNED_SENTENCE_SYLLABLES` 相同（`session/tests.rs` 核对两者一致）：更长的整句只用于这一次上屏。
 pub(crate) const MAX_LEARNED_SENTENCE_SYLLABLES: usize = 7;
 
@@ -64,6 +68,8 @@ pub struct NineKeySession {
     frequency: FrequencyAdjustmentOptions,
     fuzzy: FuzzyPinyinOptions,
     english_options: EnglishInputOptions,
+    /// 候选里混入 emoji、颜文字（共享偏好 `mixed_input.emoji` / `mixed_input.kaomoji`），默认都关。
+    expressive: MixedExpressiveOptions,
     digits: String,
     locked: Vec<String>,
     /// 用户用 `'` 切开音节的数字位置，升序，都在已锁定的部分之后。和锁定的拼写不同，切分只定下一个音节在哪里结束，两边数字的各种读法都还保留：`94'26` 可以是 xi'an，也可以是 yi'an，但不会是 xian。
@@ -156,6 +162,7 @@ impl NineKeySession {
             frequency,
             fuzzy,
             english_options: english,
+            expressive: MixedExpressiveOptions::default(),
             digits: String::new(),
             locked: Vec::new(),
             splits: Vec::new(),
@@ -188,6 +195,11 @@ impl NineKeySession {
             self.stroke = None;
         }
         self.stroke_dictionary = path;
+    }
+
+    /// 和 26 键共用的 emoji、颜文字混排开关；与英文选项一样只在建会话时设置。
+    pub fn set_mixed_expressive(&mut self, options: MixedExpressiveOptions) {
+        self.expressive = options;
     }
 
     /// Holds digits.
@@ -839,6 +851,12 @@ impl NineKeySession {
             candidates.retain(|item| passes_filter(&item.word, self.single_character, strokes));
         }
         rank_candidates(&mut candidates, prefer_exact, initials_lead);
+        // emoji、颜文字按拼音查，读法的先后要参照排好的拼音候选，所以在插入英文行之前查；插入在英文行之后，它们也可以接在英文词后面。单字、笔画筛选针对的是汉字，筛选时不混入。
+        let (emoji, kaomoji) = if filtering {
+            (Vec::new(), Vec::new())
+        } else {
+            self.expressive_candidates(&alternatives, remaining.len(), &candidates)
+        };
 
         // 没有任何拼音读法时（77 拼不出音节），列表本来是空的，混输开关和最短前缀保护的「拼音列表的可读性」无从谈起；这时照样给英文九键词，否则 QQ 这类词只能切到全键盘去打。
         let unanswered = candidates.is_empty();
@@ -859,6 +877,7 @@ impl NineKeySession {
             candidates.insert(slot, first);
             candidates.extend(english);
         }
+        let mut candidates = insert_expressive_rows(candidates, emoji, kaomoji);
         positions::apply_fixed_positions(
             &self.paths.user(assets::USER_JOURNAL),
             &self.ranking_context(),
@@ -893,6 +912,87 @@ impl NineKeySession {
             let choices = self.key_choices(remaining);
             self.spellings.extend(choices);
         }
+    }
+
+    /// 按数字串可能的读法查要混入的 emoji 和颜文字，开关都关、数字不足 `MIXED_EXPRESSIVE_MINIMUM_INPUT` 个时不查。
+    ///
+    /// 读法是锁定的拼写加上一条拼满其余数字的切分路径（`alternatives` 已经按切分和左列选的首字母筛过），只保留各个字母；只拼了开头一个音节、供部分选择用的路径不算，它对应的不是整串数字。读法按支持它的拼音候选在列表里的位置排先后（候选的全拼以这个读法开头），没有候选支持的按路径原来的先后排在后面，只查前 `EXPRESSIVE_READING_LIMIT` 种。命中的编码还要能在已确定的音节边界（锁定拼写的结尾、用户打的切分）处切成完整音节，见 `splits_into_syllables_at`。
+    fn expressive_candidates(
+        &self,
+        alternatives: &[Path],
+        remaining: usize,
+        candidates: &[WordItem],
+    ) -> (Vec<ExpressiveRow>, Vec<ExpressiveRow>) {
+        let enabled = self.expressive.emoji_candidates || self.expressive.kaomoji_candidates;
+        if !enabled || self.digits.len() < MIXED_EXPRESSIVE_MINIMUM_INPUT {
+            return (Vec::new(), Vec::new());
+        }
+        let readings = self.expressive_readings(alternatives, remaining, candidates);
+        let mut boundaries: Vec<usize> = self
+            .locked
+            .iter()
+            .scan(0, |end, spelling| {
+                *end += spelling.len();
+                Some(*end)
+            })
+            .chain(self.splits.iter().copied())
+            .collect();
+        boundaries.sort_unstable();
+        boundaries.dedup();
+        let accept = |key: &str| splits_into_syllables_at(key, &boundaries);
+        let others = self.paths.resource(assets::OTHER_DICTIONARY);
+        // 与 26 键相同，资源打不开或查询失败时只是没有这些行，不报诊断。
+        let mut emoji = if self.expressive.emoji_candidates {
+            query_emoji_readings(&readings, &others, &accept)
+        } else {
+            Vec::new()
+        };
+        let mut kaomoji = if self.expressive.kaomoji_candidates {
+            query_kaomoji_readings(&readings, &others, &accept)
+        } else {
+            Vec::new()
+        };
+        // 选中后吃掉全部数字，与覆盖整串数字的拼音候选一样结束组字。
+        for row in emoji.iter_mut().chain(kaomoji.iter_mut()) {
+            row.item.pinyin.clone_from(&self.digits);
+        }
+        (emoji, kaomoji)
+    }
+
+    /// 见 `expressive_candidates`。
+    fn expressive_readings(
+        &self,
+        alternatives: &[Path],
+        remaining: usize,
+        candidates: &[WordItem],
+    ) -> Vec<String> {
+        let locked = self.locked.concat();
+        let mut readings: Vec<String> = Vec::new();
+        for path in alternatives {
+            if path.iter().map(String::len).sum::<usize>() != remaining {
+                continue;
+            }
+            let mut reading = String::with_capacity(self.digits.len());
+            reading.push_str(&locked);
+            path.iter().for_each(|piece| reading.push_str(piece));
+            if !readings.contains(&reading) {
+                readings.push(reading);
+            }
+        }
+        let support = |reading: &String| {
+            candidates
+                .iter()
+                .position(|item| {
+                    !item.fuzzy
+                        && item.pinyin.len() == self.digits.len()
+                        && letters_start_with(&item.canonical_pinyin, reading)
+                })
+                .unwrap_or(usize::MAX)
+        };
+        // 稳定排序：同样的支持位置保留路径原来的先后。
+        readings.sort_by_cached_key(support);
+        readings.truncate(EXPRESSIVE_READING_LIMIT);
+        readings
     }
 
     /// 左列末尾的按键选项：下一个数字键上能起头一个音节的字母（大写，和同形的音节 `o`、`a`、`e` 区分开），再是这个数字本身。数字只在没有锁定时给：前面锁定的音节还没上屏。
@@ -1167,6 +1267,29 @@ fn agrees_with_locked(matched: &str, locked_key: &str) -> bool {
         .strip_prefix(matched)
         .is_some_and(|rest| rest.starts_with('\''));
     under || over
+}
+
+/// 去掉 `'` 之后，`pinyin` 的字母以 `reading` 开头。
+fn letters_start_with(pinyin: &str, reading: &str) -> bool {
+    let mut letters = pinyin.bytes().filter(|&byte| byte != b'\'');
+    reading.bytes().all(|byte| letters.next() == Some(byte))
+}
+
+/// emoji、颜文字的编码（全拼连写，没有 `'`）能不能让 `boundaries`（字母位置，升序）都落在音节之间：各边界之间、以及最后一个边界之后的部分都能切成完整音节。最后一个边界正好在编码末尾时，后面什么都没有也算。没有边界时都算，与 26 键按前缀匹配相同。
+///
+/// 编码本身不记音节在哪里分开，`xiangjiao` 也能切成 xi'ang'jiao，所以锁定 xi 之后它仍然算；这里排除的是怎么切都对不上的编码，比如锁定 xian 之后的 `xiangjiao`（剩下的 gjiao 切不成音节）。
+fn splits_into_syllables_at(key: &str, boundaries: &[usize]) -> bool {
+    let mut start = 0;
+    for &end in boundaries.iter().chain(std::iter::once(&key.len())) {
+        let Some(piece) = key.get(start..end) else {
+            return false;
+        };
+        if !piece.is_empty() && cut_one_piece_min_segments(piece, true).is_empty() {
+            return false;
+        }
+        start = end;
+    }
+    true
 }
 
 /// 候选能否通过筛选：`single_character` 只留单字，`strokes` 是笔顺以所选几笔开头的字，比较候选的第一个字。
@@ -3460,5 +3583,280 @@ mod tests {
         type_digits(&mut pinyin, "64");
         assert!(words(&pinyin).contains(&"你".to_owned()));
         assert!(pinyin.dictionary.is_some());
+    }
+
+    // ---- emoji、颜文字混排（#5848） ----
+
+    /// 每个音节都有单字，再加上 美国、警告、香蕉 这几个词，让 `634486`、`5464426`、`94264` 都有覆盖整串数字的拼音候选；`54` 是 #5667 截图里的 里 李 鸡 几。
+    const EXPRESSIVE_MAIN_FIXTURE: &str = "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_m VALUES('mei','m','美',300);CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('nei','n','内',200);CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_g VALUES('guo','g','国',300),('gao','g','高',200);CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_m VALUES('mei''guo','mg','美国',1000);CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_j VALUES('jing','j','警',100),('ji','j','鸡',300),('ji','j','几',200);CREATE TABLE tbl_1_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_l VALUES('li','l','里',500),('li','l','李',400);CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_j VALUES('jing''gao','jg','警告',900);CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_x VALUES('xian','x','先',300),('xiang','x','香',200),('xi','x','西',250);CREATE TABLE tbl_2_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_x VALUES('xiang''jiao','xj','香蕉',800);";
+
+    /// 结构与随包 `msime-others.db` 相同的编码表和目录表，🇺🇲、🇺🇸、⚠️、🍌、🐔 的编码、次序和关键词取自随包数据。`警告` 也写成一个 emoji，`meihuo` 也指向 🇺🇸，用来验证与拼音候选重复的、跨读法重复的都只出现一次。
+    const EXPRESSIVE_OTHERS_FIXTURE: &str = "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);INSERT INTO emoji_pinyin VALUES('meiguo','🇺🇸',1893),('meihuo','🇺🇸',1893),('meiguobentuwaixiaodaoyu','🇺🇲',1891),('jinggao','警告',1),('jinggao','⚠️',1433),('xiangjiao','🍌',725),('ji','🐔',626),('jitou','🐔',626),('laugh','😀',10),('mei','🌸',2000);CREATE TABLE emoji(emoji TEXT PRIMARY KEY,keywords TEXT);INSERT INTO emoji VALUES('🇺🇸','美国 美利坚 美利坚合众国 星条旗 flag: united states'),('🇺🇲','美国本土外小岛屿 flag: u.s. outlying islands'),('⚠️','警告 注意 危险 预警 warning'),('🍌','香蕉 banana'),('🐔','鸡 鸡头 chicken'),('😀','笑脸 laugh'),('🌸','樱花 梅花 Mei');CREATE TABLE kaomoji(pinyin TEXT,jianpin TEXT,kaomoji TEXT,sort_order INTEGER);INSERT INTO kaomoji VALUES('meiguo','mg','(•̀ᴗ•́)و',10),('jinggao','jg','(ﾟДﾟ≡ﾟдﾟ)!?',20);CREATE TABLE kaomoji_catalog(kaomoji TEXT PRIMARY KEY,keywords TEXT);INSERT INTO kaomoji_catalog VALUES('(•̀ᴗ•́)و','mei guo'),('(ﾟДﾟ≡ﾟдﾟ)!?','jing gao 警告');";
+
+    const BOTH_EXPRESSIVE: MixedExpressiveOptions = MixedExpressiveOptions {
+        emoji_candidates: true,
+        kaomoji_candidates: true,
+    };
+
+    fn expressive_fixture() -> Fixture {
+        let fixture = fixture_with(EXPRESSIVE_MAIN_FIXTURE);
+        Connection::open(fixture.paths.resource(assets::OTHER_DICTIONARY))
+            .and_then(|db| db.execute_batch(EXPRESSIVE_OTHERS_FIXTURE))
+            .expect("others fixture");
+        fixture
+    }
+
+    fn open_expressive(
+        fixture: &Fixture,
+        english: EnglishInputOptions,
+        expressive: MixedExpressiveOptions,
+    ) -> NineKeySession {
+        let mut session = open(&fixture.paths, true, english);
+        session.set_mixed_expressive(expressive);
+        session
+    }
+
+    fn sources(session: &NineKeySession) -> Vec<CandidateSource> {
+        session.snapshot().candidate_sources
+    }
+
+    fn has_expressive_rows(session: &NineKeySession) -> bool {
+        sources(session)
+            .iter()
+            .any(|source| matches!(source, CandidateSource::Emoji | CandidateSource::Kaomoji))
+    }
+
+    #[test]
+    fn digits_put_emoji_and_kaomoji_after_the_words_they_depict() {
+        let fixture = expressive_fixture();
+        let mut session =
+            open_expressive(&fixture, EnglishInputOptions::default(), BOTH_EXPRESSIVE);
+
+        // #5667：美国 后面紧跟 🇺🇸。🇺🇲 只是编码以 meiguo 开头，画的不是 美国，与接不上任何词的颜文字一起排在末尾（#5907）；mei'guo 和 mei'huo 两种读法都查到 🇺🇸，只出现一次。
+        type_digits(&mut session, "634486");
+        let view = session.snapshot();
+        let listed = words(&session);
+        assert_eq!(listed[..2], ["美国", "🇺🇸"]);
+        assert_eq!(view.candidate_sources[1], CandidateSource::Emoji);
+        assert_eq!(listed[listed.len() - 2..], ["🇺🇲", "(•̀ᴗ•́)و"]);
+        assert_eq!(
+            view.candidate_sources[listed.len() - 1],
+            CandidateSource::Kaomoji
+        );
+        assert_eq!(listed.iter().filter(|word| *word == "🇺🇸").count(), 1);
+        assert!(view.candidate_answers_key[1]);
+        assert_eq!(view.candidates[1].pinyin, "634486");
+        session.command(Command::Cancel);
+
+        // #5667 的截图：警告 ⚠️，颜文字的关键词也有 警告，接在 emoji 后面；emoji 里的「警告」与拼音候选重复，不再出现。
+        type_digits(&mut session, "5464426");
+        assert_eq!(words(&session)[..3], ["警告", "⚠️", "(ﾟДﾟ≡ﾟдﾟ)!?"]);
+        assert_eq!(
+            words(&session)
+                .iter()
+                .filter(|word| *word == "警告")
+                .count(),
+            1
+        );
+        session.command(Command::Cancel);
+
+        // #5667 的截图：54 是 里 李 鸡 🐔 几。🐔 的编码就是 ji，在 ji 开头的两百多行里按目录顺序靠后，靠编码完全相同的行先取才取得到。
+        type_digits(&mut session, "54");
+        assert_eq!(words(&session)[..4], ["里", "李", "鸡", "🐔"]);
+        session.command(Command::Cancel);
+
+        // 只开 emoji：颜文字不出现。
+        let mut emoji_only = open_expressive(
+            &fixture,
+            EnglishInputOptions::default(),
+            MixedExpressiveOptions {
+                emoji_candidates: true,
+                kaomoji_candidates: false,
+            },
+        );
+        type_digits(&mut emoji_only, "634486");
+        assert_eq!(words(&emoji_only)[..2], ["美国", "🇺🇸"]);
+        assert_eq!(words(&emoji_only).last().map(String::as_str), Some("🇺🇲"));
+        assert!(!sources(&emoji_only).contains(&CandidateSource::Kaomoji));
+    }
+
+    #[test]
+    fn expressive_rows_follow_a_leading_english_word() {
+        let fixture = expressive_fixture();
+        Connection::open(fixture.paths.dictionary(assets::ENGLISH_DICTIONARY))
+            .unwrap()
+            .execute(
+                "INSERT INTO english_words(word, display, weight) VALUES ('mei', 'Mei', 700)",
+                [],
+            )
+            .unwrap();
+        let mut session = open_expressive(&fixture, mixed(), BOTH_EXPRESSIVE);
+        // 九宫格的英文首行有权重时占首选之后的位置；关键词里有这个英文词的 emoji 接在它后面，接不上的排在末尾。
+        type_digits(&mut session, "634");
+        let listed = words(&session);
+        assert_eq!(listed[..3], ["美", "Mei", "🌸"]);
+        assert_eq!(listed[listed.len() - 3..], ["🇺🇲", "🇺🇸", "(•̀ᴗ•́)و"]);
+    }
+
+    #[test]
+    fn both_switches_off_leave_the_list_unchanged() {
+        let fixture = expressive_fixture();
+        for digits in ["634486", "5464426", "94264", "63", "6"] {
+            let mut off = open_expressive(&fixture, mixed(), MixedExpressiveOptions::default());
+            let mut on = open_expressive(&fixture, mixed(), BOTH_EXPRESSIVE);
+            type_digits(&mut off, digits);
+            type_digits(&mut on, digits);
+            assert!(!has_expressive_rows(&off), "{digits}");
+            // 开关打开时去掉混入的行，剩下的与关闭时逐项相同：混排只插行，不动别的候选。
+            let mut without_expressive = on.snapshot().candidates;
+            without_expressive.retain(|item| {
+                !matches!(
+                    item.source,
+                    CandidateSource::Emoji | CandidateSource::Kaomoji
+                )
+            });
+            assert_eq!(without_expressive, off.snapshot().candidates, "{digits}");
+        }
+    }
+
+    #[test]
+    fn expressive_rows_need_two_digits_and_pinyin() {
+        let fixture = expressive_fixture();
+        let mut session =
+            open_expressive(&fixture, EnglishInputOptions::default(), BOTH_EXPRESSIVE);
+        // 一个数字的读法 m 已经是 meiguo 的前缀，但与 26 键一样不足两个时不匹配。
+        type_digits(&mut session, "6");
+        assert!(!has_expressive_rows(&session));
+        type_digits(&mut session, "3");
+        assert!(words(&session).contains(&"🇺🇸".to_owned()));
+        session.command(Command::Cancel);
+
+        // 九键纯英文模式只拼英文词。
+        session.set_english_only(true);
+        type_digits(&mut session, "634486");
+        assert!(!has_expressive_rows(&session));
+        session.set_english_only(false);
+        session.command(Command::Cancel);
+
+        // 单字、笔画筛选针对的是汉字。
+        type_digits(&mut session, "634486");
+        assert!(session.set_filter(true, "").handled);
+        assert!(!has_expressive_rows(&session));
+        session.command(Command::Cancel);
+
+        // 会话不允许全拼时九宫格只拼英文。
+        let mut english_grid = NineKeySession::new(
+            &fixture.paths,
+            false,
+            FrequencyAdjustmentOptions::default(),
+            FuzzyPinyinOptions::default(),
+            mixed(),
+            false,
+        );
+        english_grid.set_mixed_expressive(BOTH_EXPRESSIVE);
+        type_digits(&mut english_grid, "634486");
+        assert!(!has_expressive_rows(&english_grid));
+    }
+
+    #[test]
+    fn expressive_rows_follow_chosen_syllables_and_splits() {
+        let fixture = expressive_fixture();
+        let mut session =
+            open_expressive(&fixture, EnglishInputOptions::default(), BOTH_EXPRESSIVE);
+
+        // 在拼音选择条上选定 nei：只剩 nei 开头的读法，🇺🇸 只对应 mei'guo，不再出现。
+        type_digits(&mut session, "634486");
+        let nei = spelling_index(&session, "nei");
+        assert!(session.choose_spelling(nei).handled);
+        assert!(!words(&session).contains(&"🇺🇸".to_owned()));
+        session.command(Command::Cancel);
+        type_digits(&mut session, "634486");
+        let mei = spelling_index(&session, "mei");
+        assert!(session.choose_spelling(mei).handled);
+        assert!(words(&session).contains(&"🇺🇸".to_owned()));
+        session.command(Command::Cancel);
+
+        // 94264 可以是 xiang，🍌（xiangjiao）出现。
+        type_digits(&mut session, "94264");
+        assert!(words(&session).contains(&"🍌".to_owned()));
+        session.command(Command::Cancel);
+        // 先选定 xian 再打 4：字母同样是 xiang，但 xian 之后的 gjiao 切不成音节，🍌 不出现。
+        type_digits(&mut session, "9426");
+        let xian = spelling_index(&session, "xian");
+        assert!(session.choose_spelling(xian).handled);
+        type_digits(&mut session, "4");
+        assert!(!words(&session).contains(&"🍌".to_owned()));
+        session.command(Command::Cancel);
+        // 用「分词」键在 xian 后面切开也一样。
+        type_keys(&mut session, "9426'4");
+        assert!(!words(&session).contains(&"🍌".to_owned()));
+    }
+
+    #[test]
+    fn choosing_an_expressive_row_commits_it_and_ends_the_composition() {
+        let fixture = expressive_fixture();
+        let mut session =
+            open_expressive(&fixture, EnglishInputOptions::default(), BOTH_EXPRESSIVE);
+        type_digits(&mut session, "634486");
+        let chosen = session.select(index_of(&session, "🇺🇸"));
+        assert_eq!(chosen.commit.as_deref(), Some("🇺🇸"));
+        assert_eq!(chosen.diagnostic, None);
+        assert!(!session.active());
+        // 不是词库行：不能置顶、删除或固定位置，也不会被学成拼音词。
+        type_digits(&mut session, "634486");
+        let index = index_of(&session, "🇺🇸");
+        assert!(!session.pin(index).handled);
+        assert!(!session.remove(index).handled);
+        assert!(!session.set_position(index, 2).handled);
+        assert_eq!(
+            sources(&session)
+                .iter()
+                .zip(words(&session))
+                .filter(|(_, word)| word == "🇺🇸")
+                .map(|(source, _)| *source)
+                .collect::<Vec<_>>(),
+            [CandidateSource::Emoji]
+        );
+    }
+
+    #[test]
+    fn expressive_readings_are_capped_and_led_by_the_candidates() {
+        let fixture = expressive_fixture();
+        let mut session =
+            open_expressive(&fixture, EnglishInputOptions::default(), BOTH_EXPRESSIVE);
+        type_digits(&mut session, "94264");
+        let table = spelling_table();
+        let mut every: Vec<String> = table
+            .paths("94264")
+            .into_iter()
+            .map(|path| path.concat())
+            .collect();
+        every.sort();
+        every.dedup();
+        assert!(every.len() > EXPRESSIVE_READING_LIMIT, "{every:?}");
+
+        let readings = session.expressive_readings(&table.paths("94264"), 5, &session.candidates);
+        assert_eq!(readings.len(), EXPRESSIVE_READING_LIMIT);
+        // 排在最前的拼音候选 香（xiang）支持的读法查在最前。
+        assert_eq!(session.candidates[0].word, "香");
+        assert_eq!(readings[0], "xiang");
+        // 只拼了开头一个音节的路径不算读法。
+        assert!(readings.iter().all(|reading| reading.len() == 5));
+    }
+
+    #[test]
+    fn expressive_keys_must_split_at_the_fixed_boundaries() {
+        assert!(splits_into_syllables_at("xiangjiao", &[]));
+        assert!(splits_into_syllables_at("meiguo", &[3]));
+        assert!(splits_into_syllables_at("meiguo", &[6]));
+        assert!(splits_into_syllables_at("meiguobentuwaixiaodaoyu", &[3, 6]));
+        // 编码不记音节边界，xi'ang'jiao 也是一种切法。
+        assert!(splits_into_syllables_at("xiangjiao", &[2]));
+        assert!(!splits_into_syllables_at("xiangjiao", &[4]));
+        assert!(!splits_into_syllables_at("meiguo", &[2]));
+        assert!(!splits_into_syllables_at("laugh", &[2]));
+        assert!(!splits_into_syllables_at("mei", &[4]));
+        assert!(letters_start_with("mei'guo", "meig"));
+        assert!(!letters_start_with("mei", "meig"));
     }
 }

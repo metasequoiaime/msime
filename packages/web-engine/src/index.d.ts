@@ -1,9 +1,15 @@
 // @msime/web-engine 的类型。帧的字段与 crates/engine-wasm/src/bindings.rs 的 frame_to_js 一一对应。
 
-/** japanese 是日语罗马字：下载 wasm 和日语模型（约 5 MB），组字区显示假名，候选是整句转换、词和平假名、片假名，`-` 是长音 ー，标点是 、。「」。korean 是韩文两套式（두벌식）：只下载 wasm，音节在组字区拼好后自动上屏，没有候选。 */
-export type MsimeScheme = "quanpin" | "xiaohe" | "ziranma" | "wubi86" | "japanese" | "korean";
+/** xiaohe、ziranma、shoudao、microsoft 是小鹤、自然码、手到和微软双拼，和全拼共用拼音库；微软双拼的 `;` 是韵母 ing。japanese 是日语罗马字：下载 wasm 和日语模型（约 5 MB），组字区显示假名，候选是整句转换、词和平假名、片假名，`-` 是长音 ー，标点是 、。「」。korean 是韩文两套式（두벌식）：只下载 wasm，音节在组字区拼好后自动上屏，没有候选。 */
+export type MsimeScheme = "quanpin" | "xiaohe" | "ziranma" | "shoudao" | "microsoft" | "wubi86" | "japanese" | "korean";
 
 export declare const SCHEMES: readonly MsimeScheme[];
+
+/** 辅助码方案：lantian 蓝天小雨点、ziranma 自然码、shouyou2_0 首右 2.0、shouyouplus 首右 plus、xiaohe 小鹤形码、jiajia 加加。任何一种都能配全拼和任何一种双拼。 */
+export type MsimeHelpcode = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe" | "jiajia";
+
+/** SDK 带的辅助码方案，顺序同引擎的 `assets::HELPCODES`。 */
+export declare const HELPCODES: readonly MsimeHelpcode[];
 /** 这个包的版本，也是其中 wasm 和词库的 web-engine 版本。 */
 export declare const version: string;
 
@@ -22,6 +28,8 @@ export interface MsimeRow {
   text: string;
   /** 候选的编码。 */
   code: string;
+  /** 辅助码提示，如 `(aB)`：单字是它的两码，词是首字和末字的首码；全拼全大写，双拼只大写第二码。没开辅助码或表里没有这个字时为空串。 */
+  hint: string;
 }
 
 export interface MsimeFrame {
@@ -65,6 +73,8 @@ export interface MsimeAssets {
   model: MsimeAssetRef | null;
   /** 日语模型 msime-japanese.dat，只有日语用；其他方案省略或为 null。 */
   japanese?: MsimeAssetRef | null;
+  /** 各辅助码方案的表（`helpcode-<方案>.txt.gz`），只在打开辅助码时下载其中一张；缺了某个方案时，打开它会以 unsupported 失败。 */
+  helpcodes?: Partial<Record<MsimeHelpcode, MsimeAssetRef>>;
 }
 
 export type MsimeLoadPhase = "fetch" | "compile" | "import" | "session";
@@ -88,6 +98,8 @@ export interface MsimeEngineOptions {
   model?: boolean;
   /** 已下载模型时是否启用它，默认 true，之后可用 setModelEnabled 切换。 */
   modelEnabled?: boolean;
+  /** 辅助码方案，默认 null（关闭）。只对全拼和双拼起作用，其他方案忽略它；打开时随引擎一起下载这张表（几十 KB），之后可用 setHelpcode 切换。 */
+  helpcode?: MsimeHelpcode | null;
   /** 自定义 Worker（例如 CSP 不允许 blob: 时自己托管 worker.js），或者返回 Worker 的函数。 */
   worker?: Worker | (() => Worker);
   /** 下载进度，单位是传输字节。 */
@@ -100,14 +112,18 @@ export interface MsimeEngine {
   readonly build: string;
   readonly memoryBytes: number;
   readonly timings: Record<MsimeLoadPhase, number> | undefined;
+  /** 当前的辅助码方案，关闭时为 null。 */
+  readonly helpcode: MsimeHelpcode | null;
   /** 发送一个或一批打包按键（keyFromEvent 的结果，null 会被忽略），返回处理完后的帧。 */
   keys(keys: number | null | ReadonlyArray<number | null>): Promise<MsimeFrame>;
   /** 鼠标点选当前页第 slot 个候选。 */
   pick(slot: number): Promise<MsimeFrame>;
   /** 取消组字、清空上下文。 */
   reset(): Promise<MsimeFrame>;
-  /** 在 quanpin、xiaohe、ziranma 之间切换；和 wubi86、japanese、korean 互换需要新建引擎。 */
+  /** 在 quanpin 和四种双拼之间切换，辅助码设置保留；和 wubi86、japanese、korean 互换需要新建引擎。 */
   setScheme(scheme: MsimeScheme): Promise<void>;
+  /** 打开（传方案名）或关闭（null）辅助码，不用重建引擎；第一次用到的表这时下载。正在组的字按新设置重新查询，下一帧可见。五笔、日语和韩文引擎上什么也不做。下载失败时 reject（code 为 network），引擎照常可用、设置不变。 */
+  setHelpcode(helpcode: MsimeHelpcode | null): Promise<void>;
   setModelEnabled(enabled: boolean): void;
   /** 页面空闲时的退格是否真的删字；页面拒绝删除时传 false，引擎的上下文就不会跟着弹出。 */
   setBackspaceDeletes(deletes: boolean): void;
@@ -275,7 +291,7 @@ export declare const PARTS: Readonly<{
   number: "number";
   /** 候选文字。 */
   text: "text";
-  /** 编码提示。 */
+  /** 候选后的辅助码提示或编码提示。 */
   code: "code";
   /** 皮肤的装饰图。 */
   decoration: "decoration";
@@ -294,7 +310,7 @@ export interface CandidateBarOptions {
   onPick?: (index: number) => void;
   /** 宿主元素放在哪里，默认 document.body。 */
   container?: Element;
-  /** 在候选后显示编码，默认 false。 */
+  /** 在候选后显示编码（`page[i].code`），默认 false。帧里有辅助码提示（`page[i].hint`）时，不论这个选项都显示提示。 */
   helpcode?: boolean;
 }
 

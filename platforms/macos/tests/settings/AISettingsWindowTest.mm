@@ -1,5 +1,6 @@
 #import "../../src/core/AISettingsWindow.h"
 #import "MSIMEClientSession.h"
+#import "../../src/core/AIEndpointPolicy.h"
 #include <cassert>
 
 @interface MSIMEAISettingsWindow (TestActions)
@@ -43,6 +44,9 @@ int main() {
         for (NSString *invalid in @[@"http://remote.invalid/v1", @"http://localhost.example/v1", @"http://192.0.2.1/v1", @"http://[2001:db8::1]/v1", @"http://user:synthetic@localhost/v1", @"http://@:localhost/v1", @"http://localhost/v1#fragment"]) {
             endpoint.stringValue = invalid; [window commit:enabled]; assert(saves == 1);
         }
+        // 公网 http 被拒绝时说明原因，而不是只说地址无效。
+        endpoint.stringValue = @"http://remote.invalid/v1"; [window commit:enabled];
+        assert([[(NSTextField *)[window valueForKey:@"status"] stringValue] hasPrefix:MSIMEAIEndpointCleartextMessage]);
         // Another writer saved in between: the edit is merged onto its revision and keeps its change.
         stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         NSMutableDictionary *other = [stored mutableCopy], *otherPreferences = [stored[@"preferences"] mutableCopy];
@@ -66,7 +70,7 @@ int main() {
         // 本机服务仍可使用 HTTP；写入后重读，确认并未只更新窗口。
         [window showWindow:nil];
         NSUInteger expectedSaves = saves;
-        for (NSString *local in @[@"http://localhost:8080/v1", @"http://127.0.0.1:8080/v1", @"http://[::1]:8080/v1"]) {
+        for (NSString *local in @[@"http://localhost:8080/v1", @"http://127.0.0.1:8080/v1", @"http://[::1]:8080/v1", @"http://192.168.1.20:1234/v1", @"http://studio.local:1234/v1"]) {
             endpoint.stringValue = local; [window controlTextDidEndEditing:endEditing]; assert(saves == ++expectedSaves);
             stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
             assert([stored[@"preferences"][@"ai_assistant"][@"endpoint"] isEqual:local]);

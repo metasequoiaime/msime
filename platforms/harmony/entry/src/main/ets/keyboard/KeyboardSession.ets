@@ -105,6 +105,7 @@ import {
 } from './input/AiPolishPolicy';
 import { VoiceRecognitionPolicy } from './input/VoiceRecognitionPolicy';
 import { HarmonyVoicePolisher } from './input/HarmonyVoicePolisher';
+import { AiEndpointPolicy } from './settings/AiEndpointPolicy';
 import { SmartPunctuationSpacePolicy, SmartPunctuationSpaceSnapshot, SpaceConvertDecision }
   from './input/SmartPunctuationSpacePolicy';
 import { SmartPunctuationContext } from './input/SmartPunctuationContext';
@@ -4038,6 +4039,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`AI query unavailable: ${describeError(error)}`);
       return false;
     }
+    // 描述符由 client-core 按同一规则生成，这里在发出前再拦一次：http 只能发往本机或局域网，Token 不明文经过互联网。
+    if (typeof descriptor.url !== 'string' || !AiEndpointPolicy.allowed(descriptor.url)) return false;
     const request = http.createHttp();
     installNoRedirectGuard(request);
     this.onlineRequests.add(request);

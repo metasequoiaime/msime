@@ -20,6 +20,11 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionAttributes</key>
@@ -38,5 +43,7 @@
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).KeyboardViewController</string>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>仅在你把 AI 辅助的接口地址设成局域网里的服务（例如电脑上的 LM Studio）时，用来连接这台设备。</string>
 </dict>
 </plist>

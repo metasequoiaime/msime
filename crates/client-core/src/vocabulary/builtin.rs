@@ -82,7 +82,7 @@ pub fn load(resources: &Path) -> Result<Vec<Wordbook>, BuiltinWordbookError> {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(error.into()),
         }
-        let file = crate::storage::open_private_file(&path)?;
+        let file = crate::storage::open_private_file_in(&path)?;
         let bytes = crate::bounded_io::read_bounded_file(file, MAX_BOOK_BYTES, || {
             BuiltinWordbookError::InvalidWordbook
         })?;

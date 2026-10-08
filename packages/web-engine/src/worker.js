@@ -1,4 +1,4 @@
-// 引擎所在的 Worker：编译 wasm，同时下载并解压词库和整句模型，把词库导入引擎的内存文件系统，然后按到达顺序回答主线程的按键、点选和重置请求，每个请求回一帧。放在 Worker 里，一次慢的重排也卡不住页面。
+// 引擎所在的 Worker：编译 wasm，同时下载并解压词库和整句模型，把词库导入引擎的内存文件系统，然后按到达顺序回答主线程的按键、点选和重置请求，每个请求回一帧。辅助码表在打开辅助码时才下载，解压后交给引擎。放在 Worker 里，一次慢的重排也卡不住页面。
 //
 // 与 TapTapGo 的 apps/web/src/features/msime/msime.worker.ts 同源；这里不依赖任何框架，消息协议见 index.d.ts 的 ToWorker / FromWorker。
 import init, { WebEngine, build_info, import_database, import_japanese_dictionary, last_panic } from "./msime_engine.js";
@@ -104,6 +104,9 @@ export function createWorkerHandler(post, close) {
   let pageSize = 9;
   let modelEnabled = true;
   let backspaceDeletes = true;
+  // 当前辅助码表解压后的字节，关着时为 null；换方案重建引擎时再交给新引擎。下载过的表按方案名留着，来回切换不再下载。
+  let helpcode = null;
+  const helpcodeTables = new Map();
   let memory = null;
   let dead = false;
 
@@ -111,6 +114,7 @@ export function createWorkerHandler(post, close) {
     const e = new WebEngine(scheme, pageSize, model);
     if (!modelEnabled) e.set_model_enabled(false);
     if (!backspaceDeletes) e.set_backspace_deletes(false);
+    if (helpcode) e.set_helpcode(helpcode);
     return e;
   };
 
@@ -147,7 +151,8 @@ export function createWorkerHandler(post, close) {
       return;
     }
     const timings = { fetch: 0, compile: 0, import: 0, session: 0 };
-    const total = assets.wasm.size + (assets.db?.size ?? 0) + (assets.model?.size ?? 0) + (assets.japanese?.size ?? 0);
+    const helpcodeAsset = msg.helpcode?.asset ?? null;
+    const total = assets.wasm.size + (assets.db?.size ?? 0) + (assets.model?.size ?? 0) + (assets.japanese?.size ?? 0) + (helpcodeAsset?.size ?? 0);
     let loaded = 0;
     let lastPost = 0;
     const count = (n) => {
@@ -173,13 +178,14 @@ export function createWorkerHandler(post, close) {
     const data = inPhase(
       "fetch",
       (async () => {
-        const [db, m, japanese] = await Promise.all([
+        const [db, m, japanese, table] = await Promise.all([
           assets.db ? gunzip(assets.db, abort.signal, count) : Promise.resolve(null),
           assets.model ? gunzip(assets.model, abort.signal, count) : Promise.resolve(null),
           assets.japanese ? gunzip(assets.japanese, abort.signal, count) : Promise.resolve(null),
+          helpcodeAsset ? gunzip(helpcodeAsset, abort.signal, count) : Promise.resolve(null),
         ]);
         timings.fetch = performance.now() - t0;
-        return { db, model: m, japanese };
+        return { db, model: m, japanese, helpcode: table };
       })(),
     );
     let files;
@@ -201,6 +207,10 @@ export function createWorkerHandler(post, close) {
       phase = "session";
       const t2 = performance.now();
       model = files.model;
+      if (files.helpcode) {
+        helpcode = files.helpcode;
+        helpcodeTables.set(msg.helpcode.schema, helpcode);
+      }
       engine = newEngine(scheme);
       timings.session = performance.now() - t2;
     } catch (e) {
@@ -244,6 +254,35 @@ export function createWorkerHandler(post, close) {
       case "reset":
         answer(msg.seq, (e) => e.reset());
         return;
+      case "helpcode": {
+        // 关掉，或者换成另一张表：先下载（失败只让这个请求 reject，引擎照常可用），再交给引擎。之后的按键在队列里等它。
+        if (engine === null) return;
+        let table = null;
+        if (msg.asset) {
+          table = helpcodeTables.get(msg.schema) ?? null;
+          if (table === null) {
+            try {
+              table = await gunzip(msg.asset, undefined, () => {});
+            } catch (e) {
+              post({ type: "rejected", seq: msg.seq, code: codeOf(e, "fetch"), message: messageOf(e) });
+              return;
+            }
+            helpcodeTables.set(msg.schema, table);
+          }
+        }
+        if (engine === null) return;
+        try {
+          engine.set_helpcode(table ?? undefined);
+        } catch (e) {
+          // trap 之后引擎没了；引擎拒收这张表（超过 1 MiB）时原来的设置不变，只让这个请求失败。
+          if (e instanceof WebAssembly.RuntimeError) runtimeFailure(e);
+          else post({ type: "rejected", seq: msg.seq, code: "engine", message: messageOf(e) });
+          return;
+        }
+        helpcode = table;
+        post({ type: "frame", seq: msg.seq, frame: null, ms: 0 });
+        return;
+      }
       case "model":
         modelEnabled = msg.enabled;
         engine?.set_model_enabled(msg.enabled);
