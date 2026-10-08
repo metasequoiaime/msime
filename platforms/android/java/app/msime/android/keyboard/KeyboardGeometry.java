@@ -45,15 +45,19 @@ public final class KeyboardGeometry {
     /** 新设计的键距 5 dp、行距 8 dp。 */
     public static final int DESIGN_KEY_GAP_DP = 5;
     public static final int DESIGN_ROW_GAP_DP = 8;
-    /** 键盘高度百分比的范围与默认值（内联高度条 75%–130%）。 */
+    /** 键盘高度百分比的范围与默认值（内联高度条与设置页滑块 75%–160%）。上限原是 130%，竖屏手机上整块键盘只到屏幕的四成多，单手握持时拇指够不舒服（#5564），放宽到 160%，竖屏手机能调到屏幕一半以上；超出 130% 的部分另受窗口高度约束，见 {@link #windowHeightAdjustment}。 */
     public static final int MIN_HEIGHT_PERCENT = 75;
-    public static final int MAX_HEIGHT_PERCENT = 130;
+    public static final int MAX_HEIGHT_PERCENT = 160;
     public static final int DEFAULT_HEIGHT_PERCENT = 100;
-    /** 百分比换算的基准：四行标准键高 4 × 46 dp，与 Rust `TOUCH_KEYBOARD_HEIGHT_BASE_DP` 相同。 */
+    /** 百分比换算的基准：四行标准键高 4 × 46 dp。 */
     public static final int HEIGHT_PERCENT_BASE_DP = 184;
-    /** 触屏键盘高度调整在新设计下的范围（dp）：75%–130% 换算为 −46…55，与 Rust `TOUCH_KEYBOARD_HEIGHT_ADJUSTMENT_RANGE` 相同。 */
+    /** 触屏键盘高度调整在新设计下的范围（dp）：75%–160% 换算为 −46…110。存在 Android 本地设置里，共享偏好的 `touch_keyboard_height_adjustment` 仍是 −12…48。 */
     public static final int MIN_DESIGN_HEIGHT_ADJUSTMENT_DP = -46;
-    public static final int MAX_DESIGN_HEIGHT_ADJUSTMENT_DP = 55;
+    public static final int MAX_DESIGN_HEIGHT_ADJUSTMENT_DP = 110;
+    /** 放宽前的上限（130% 对应的 55 dp）：不超过它的调整量在任何窗口里都照画，与放宽前相同。 */
+    public static final int LEGACY_MAX_DESIGN_HEIGHT_ADJUSTMENT_DP = 55;
+    /** 超出 {@link #LEGACY_MAX_DESIGN_HEIGHT_ADJUSTMENT_DP} 的调整量最多占窗口高度的这个百分比：竖屏手机（约 800 dp 高）能用满 160%，横屏手机（约 400 dp 高）止于 130%，不会把工具栏顶出窗口。 */
+    public static final int WINDOW_HEIGHT_ADJUSTMENT_PERCENT = 14;
 
     private KeyboardGeometry() { }
 
@@ -88,14 +92,14 @@ public final class KeyboardGeometry {
         return BoundsPolicy.nonNegative(view.getHeight() - view.getPaddingTop() - view.getPaddingBottom());
     }
 
-    /** 键盘高度百分比对应的高度调整 dp：`round(184 × (p − 100) / 100)`，范围外先钳到 75–130，与 Rust `height_percent_to_adjustment` 同式（向远离零的方向取整）。 */
+    /** 键盘高度百分比对应的高度调整 dp：`round(184 × (p − 100) / 100)`，范围外先钳到 75–160（向远离零的方向取整）。 */
     public static int heightPercentToAdjustment(int percent) {
         int clamped = bounded(percent, MIN_HEIGHT_PERCENT, MAX_HEIGHT_PERCENT);
         int scaled = HEIGHT_PERCENT_BASE_DP * (clamped - DEFAULT_HEIGHT_PERCENT);
         return (scaled + Integer.signum(scaled) * 50) / 100;
     }
 
-    /** 高度调整 dp 对应的百分比：`round(100 + adjustment × 100 / 184)`，与 Rust `height_adjustment_to_percent` 同式；调整先钳到 −46…55。 */
+    /** 高度调整 dp 对应的百分比：`round(100 + adjustment × 100 / 184)`；调整先钳到 −46…110。 */
     public static int heightAdjustmentToPercent(int adjustment) {
         int clamped = designHeightAdjustment(adjustment);
         int scaled = clamped * 100;
@@ -103,10 +107,26 @@ public final class KeyboardGeometry {
             + (scaled + Integer.signum(scaled) * HEIGHT_PERCENT_BASE_DP / 2) / HEIGHT_PERCENT_BASE_DP;
     }
 
-    /** 新设计下的高度调整：缺省（{@link Integer#MIN_VALUE}）为 0，其余钳到 −46…55。 */
+    /** 新设计下的高度调整：缺省（{@link Integer#MIN_VALUE}）为 0，其余钳到 −46…110。 */
     public static int designHeightAdjustment(int value) {
         if (value == Integer.MIN_VALUE) return DEFAULT_HEIGHT_ADJUSTMENT_DP;
         return bounded(value, MIN_DESIGN_HEIGHT_ADJUSTMENT_DP, MAX_DESIGN_HEIGHT_ADJUSTMENT_DP);
+    }
+
+    /**
+     * 当前窗口里实际画出的高度调整：不超过 55 dp（130%）的照画；更高的部分最多到窗口高度的 {@link #WINDOW_HEIGHT_ADJUSTMENT_PERCENT}%，但不低于 55 dp。
+     *
+     * <p>存着的设置不变，旋转回竖屏或换到更高的窗口时自动恢复；窗口高度未知（0 或负数）时只画到 55 dp。
+     *
+     * @param adjustment 设置里的调整量（dp）
+     * @param windowHeightDp 键盘所在窗口的可用高度（`Configuration.screenHeightDp`）
+     */
+    public static int windowHeightAdjustment(int adjustment, int windowHeightDp) {
+        int value = designHeightAdjustment(adjustment);
+        if (value <= LEGACY_MAX_DESIGN_HEIGHT_ADJUSTMENT_DP) return value;
+        int windowLimit = windowHeightDp <= 0 ? 0
+            : (int) ((long) windowHeightDp * WINDOW_HEIGHT_ADJUSTMENT_PERCENT / 100);
+        return Math.min(value, Math.max(LEGACY_MAX_DESIGN_HEIGHT_ADJUSTMENT_DP, windowLimit));
     }
 
     /** 某个高度百分比下的键高：`round(46 × p / 100)`。 */
@@ -177,11 +197,15 @@ public final class KeyboardGeometry {
         return Double.isFinite(value) ? value : fallback;
     }
 
-    /** Divide the total adjustment across rows without losing a density-independent pixel. */
+    /**
+     * Divide the total adjustment across rows without losing a density-independent pixel.
+     *
+     * <p>调整量按新设计的范围（−46…110）钳制。这里曾用共享偏好的 −12…48 钳制，设置里 126%–130% 与 75%–93% 画出来都一样高，滑块的两端是死区。
+     */
     public static int adjustedRowHeight(int baseHeight, int adjustment, int rowCount, int rowIndex) {
         if (baseHeight <= 0 || rowCount <= 0 || rowIndex < 0 || rowIndex >= rowCount)
             throw new IllegalArgumentException("Invalid keyboard height geometry");
-        int total = baseHeight * rowCount + heightAdjustment(adjustment);
+        int total = baseHeight * rowCount + designHeightAdjustment(adjustment);
         return total / rowCount + (rowIndex < total % rowCount ? 1 : 0);
     }
 

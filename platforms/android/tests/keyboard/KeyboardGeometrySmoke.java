@@ -5,6 +5,7 @@ import app.msime.android.KeyboardLayout;
 
 public final class KeyboardGeometrySmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
+    static void check(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
 
     public static void main(String[] args) {
         // 与 crates/client-core 的 default_touch_key_spacing_tenths / default_touch_row_spacing_tenths 同值。
@@ -16,18 +17,34 @@ public final class KeyboardGeometrySmoke {
         check(KeyboardGeometry.DESIGN_PADDING_TOP_DP == 8
             && KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP == 6
             && KeyboardGeometry.DESIGN_PADDING_BOTTOM_DP == 6);
-        // 百分比换算与 Rust height_percent_to_adjustment 同式：12 档逐一钉住，往返不变。
-        int[] percents = {75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130};
-        int[] adjustments = {-46, -37, -28, -18, -9, 0, 9, 18, 28, 37, 46, 55};
+        // 百分比换算 round(184 × (p − 100) / 100)：逐档钉住，往返不变。
+        int[] percents = {75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 140, 150, 160};
+        int[] adjustments = {-46, -37, -28, -18, -9, 0, 9, 18, 28, 37, 46, 55, 74, 92, 110};
         for (int index = 0; index < percents.length; index++) {
             check(KeyboardGeometry.heightPercentToAdjustment(percents[index]) == adjustments[index]);
             check(KeyboardGeometry.heightAdjustmentToPercent(adjustments[index]) == percents[index]);
         }
         check(KeyboardGeometry.heightPercentToAdjustment(60) == -46);
-        check(KeyboardGeometry.heightPercentToAdjustment(200) == 55);
+        check(KeyboardGeometry.heightPercentToAdjustment(200) == 110);
         check(KeyboardGeometry.designHeightAdjustment(Integer.MIN_VALUE) == 0);
         check(KeyboardGeometry.designHeightAdjustment(-60) == -46);
-        check(KeyboardGeometry.designHeightAdjustment(60) == 55);
+        check(KeyboardGeometry.designHeightAdjustment(60) == 60);
+        check(KeyboardGeometry.designHeightAdjustment(200) == 110);
+        // #5564：130% 以内照画；更高的部分最多占窗口高度的 14%，但不低于 130% 的 55 dp。
+        check(KeyboardGeometry.windowHeightAdjustment(55, 360) == 55);
+        check(KeyboardGeometry.windowHeightAdjustment(-46, 360) == -46);
+        check(KeyboardGeometry.windowHeightAdjustment(Integer.MIN_VALUE, 800) == 0);
+        check(KeyboardGeometry.windowHeightAdjustment(110, 792) == 110, "portrait phone reaches 160%");
+        check(KeyboardGeometry.windowHeightAdjustment(110, 700) == 98, "shorter window caps the extra height");
+        check(KeyboardGeometry.windowHeightAdjustment(110, 360) == 55, "landscape phone stops at 130%");
+        check(KeyboardGeometry.windowHeightAdjustment(110, 0) == 55, "unknown window stops at 130%");
+        check(KeyboardGeometry.windowHeightAdjustment(500, 5000) == 110, "never beyond the design range");
+        // 行高按新设计的范围钳制：-46 与 110 都要画出来，不再被共享偏好的 -12..48 截住。
+        check(KeyboardGeometry.adjustedRowHeight(56, 110, 3, 0) == 93
+            && KeyboardGeometry.adjustedRowHeight(56, 110, 3, 1) == 93
+            && KeyboardGeometry.adjustedRowHeight(56, 110, 3, 2) == 92);
+        check(KeyboardGeometry.adjustedRowHeight(56, -46, 3, 0) == 41);
+        check(KeyboardGeometry.adjustedRowHeight(168, 55, 1, 0) == 223);
         check(KeyboardGeometry.designKeyHeight(100) == 46 && KeyboardGeometry.designKeyHeight(127) == 58);
         check(KeyboardGeometry.displayPercent(127).equals("127%"));
         check(KeyboardGeometry.keySpacing(29) == 30);

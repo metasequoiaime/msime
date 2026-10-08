@@ -42,6 +42,15 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 - 与单手模式互斥：分离式键盘画着时单手模式不生效，侧栏不显示；存着的 `platform.android.one_handed` 不改，回到竖屏或换到不分离的布局时原来的单手模式自动回来。功能面板里的「单手模式」磁贴这时显示为不可用。
 - 键高、键盘高度设置、键距和行距都不变。旋转、换布局或开关变化后，下一次渲染发现键行与应画状态不一致时重建键行（`ImeLetterRows.splitStale`），不动 Engine session 和当前组合。
 
+### 浮动键盘
+
+浮动键盘（#5621）让整套键盘表面缩成一块圆角面板悬在应用上面，应用不再被顶起或压缩，键盘把输入框挡住时把面板拖开即可。开关是本地设置 `platform.android.floating_keyboard`（布尔，默认关，只在本机），入口有三处：功能面板第 3 页的「浮动键盘」磁贴、设置「键盘」页「布局」里的开关，以及工具栏按钮——按钮默认不显示，在设置「键盘工具栏」里打开「浮动键盘」（`platform.android.toolbar_floating`，同样只在本机；同步的工具栏开关表在 Rust 的 `ANDROID_LOCAL_SETTINGS` 里，这一项还没加进去）。规则集中在无 Android 依赖的 `FloatingKeyboardPolicy`，`FloatingKeyboardPolicySmoke` 逐条验证：
+
+- 面板宽度是当前窗口的 80%，夹在 240–480 dp 之间且不超过窗口；高度与停靠时相同（键盘高度设置照样生效），顶部多一条 22 dp 的拖动条，按住横条拖动，右端的「停靠」键回到停靠在底部的完整键盘。
+- 位置按可移动范围（系统栏之间的区域减去面板大小）里的千分比存在 `platform.android.floating_keyboard_x` / `_y`，默认水平居中、贴底；松手时写入。旋转、分屏或面板变高后换算回像素，面板总在窗口里。拖动只改面板的平移，不重新布局。
+- 实现与 LatinIME 的做法相同：浮动时输入法窗口、系统的 `inputArea` 和键盘根视图都铺满屏幕，根视图透明；`onComputeInsets` 把内容区和可见区都设成从窗口底边算起（应用不让出高度），可触摸区域只有面板（`TOUCHABLE_INSETS_REGION`），面板外的触摸落到应用上。停靠时把窗口和 `inputArea` 恢复成第一次浮动前的高度，`setInputView` 与 `updateFullscreenMode` 之后重新套一遍。
+- 浮动时单手模式和横屏分离式键盘不生效（存着的值不变，停靠后自动回来），功能面板的「单手模式」磁贴显示为不可用；外接键盘的候选条模式里不浮动，候选条停在底部，浮动磁贴与按钮显示为不可用。
+
 `check-host.sh` 在装有固定 NDK 28.2.13676358 的机器上额外用 `aarch64-linux-android28-clang++` 以 `-Wall -Werror` 对 `native/client_jni.cpp` 做目标平台编译：Java 里声明 `native` 的方法在没有 C++ 实现时照样能编过，而这是 Java 声明与共享 FFI 签名唯一必须一致的地方；完整原生构建需要 vcpkg、Rust Android 目标和固定的语音运行时，这一步都不需要。没有固定 NDK 的机器会跳过并明确说明。`verify-native.sh` 的导出清单同时覆盖 online query、云 URL、AI 请求描述符和两个在线候选写回入口。
 
 宿主 Java 以 API 35 的 `android.jar` 编译，而 manifest 声明 minSdk 28，因此比真实 APK 构建宽松；`Files.readString`/`writeString` 属于 API 34，本宿主不使用，`check-host.sh` 对这两个方法有定向检查，其余 API 级别问题仍由 Gradle lint 覆盖。`scripts/verify-local.sh` 另有 `compile: android target` 阶段，在固定 NDK、Rust `aarch64-linux-android` 目标与 vcpkg 依赖前缀齐备时检查 `msime-desktop` 的 Android 分支；宿主的 `cargo check --workspace` 只覆盖宿主目标。
@@ -51,6 +60,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 `MSIMEInputService` 提供实际 InputMethodService 源码、系统 manifest 和输入法元数据；最小 Android 28，编译目标 35。软键盘、硬件 ASCII 键、候选点击和翻页调用同一 JNI；Engine 提交与剩余编辑串通过 `EditorBridge` 按顺序映射到 InputConnection。宿主不实现输入算法或分页规则。密码、非文本和无建议字段直接输入，不创建 Engine；IME_FLAG_NO_PERSONALIZED_LEARNING 关闭当前会话学习。宿主不记录输入；联网只发生在 [PRIVACY.md](../../PRIVACY.md) 列出的场景（云联想与 AI、账号与同步、匿名使用统计、更新检查、按需下载资源包与模型等），各自的触发条件、目的地和开关以那里为准。
 
 外接硬件键盘的退格、左右方向、Home、End 和 Forward Delete 通过 `HardwareKeyPolicy` 映射到共享 Engine 的 0/4/5/6/7/8 命令；组字或候选状态由 Engine 处理，空闲时返回给编辑器。Ctrl/Alt/Meta 组合键仍交给系统快捷键，不把宿主命令抢走。这样 Android 的物理键盘不会复制一套编辑状态机，也不会把前删错误地当成普通退格。
+
+用实体键盘打字时键盘收起成候选条（#5584，`HardwareKeyboardModePolicy`）：一次来自非虚拟、字母型键盘设备的按下就进入这个模式，键行、功能行和单手侧栏整行收起，只留顶部一行——空闲时是工具栏，组词时是候选条，候选前面标上数字行选词用的 1–9（`number_row_selection` 关着或英文直输时不标）。工具栏最右的收起键在这时朝上，点它回到完整的软键盘，下一次实体键盘打字时再收起（系统「显示虚拟键盘」关着时，挪光标、换输入框也不会把它收回去，直到键盘拔掉或重新接上）；配置报告键盘拔掉或合上（`Configuration.keyboard` / `hardKeyboardHidden` 从有到无）时也退出。打开工具栏面板、展开候选、调整键盘高度或手写时键盘临时展开，关上后回到候选条。只凭配置报告接着键盘不会收起：有的平板常驻报告 QWERTY，打开系统「使用实体键盘时显示虚拟键盘」的用户也明确要软键盘。反过来，那个系统开关关着时系统不显示输入法窗口，组词的候选就无处可看，所以 `onEvaluateInputViewShown` 对走引擎的输入框照样允许显示窗口，但直接进入候选条模式；窗口被系统收着时，实体键盘打出组词后用 `requestShowSelf` 把候选条叫出来。密码、数字这类不走引擎的输入框照系统的意思。
 
 共享 `number_row_selection` 开启时，硬件键盘数字行 1–9 选择当前候选页对应槽位；选择仍携带 Engine 返回的 session、generation 和候选 index，候选过期或当前没有该槽位时按键交回编辑器。英文、密码和直接输入不抢数字键，关闭偏好也立即恢复系统行为。
 
@@ -72,7 +83,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 移动端智能标点消费共享 `smart_punctuation`、`chinese_punctuation` 和 `punctuation_lock`：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母/数字会保留 ASCII，锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。Android 每次只从 `InputConnection` 读取光标前最多两个 UTF-16 单元并向共享策略传一个 Unicode 标量，不保存或记录编辑器文字；缺失或异常上下文安全回退到 Engine 标点。
 
-共享偏好 `paired_punctuation`（设置「表达 › 标点」里的「自动补全成对标点」，默认开）打开时，Engine 上屏以（、【、《、〈、“、‘ 结尾，宿主就补上后半个并把光标留在中间；每按一次引号键都开一对新的（Engine 交替出的后引号改回前引号），没有组字时再按 `)`、`]`、`>`、`"`、`'` 会跨过光标右边自己补上的那个后半个而不是再写一个，删除、用户移动光标或换输入框后不再跨过。补的是书名号时经 `msime_client_balance_paired_punctuation_after_auto_close` 告诉 Engine 这一层已闭合。符号面板不经过 Engine：轻点中文和英文括号、书名号、中文引号的前半个时成对上屏，长按只上屏这半个；之后在面板里轻点同一个后半个会跨过已补好的那个，而不是再写一个；ASCII 的 `"` 和 `'` 不成对。标点键的补全和跨过规则与 iOS 宿主相同（HarmonyOS 只有补全、没有跨过），集中在无 Android 依赖的 `PairedPunctuationPolicy`，由 `PairedPunctuationPolicySmoke` 验证。
+共享偏好 `paired_punctuation`（设置「表达 › 标点」里的「自动补全成对标点」，默认开）打开时，Engine 上屏以（、【、《、〈、“、‘ 结尾，宿主就补上后半个并把光标留在中间；每按一次引号键都开一对新的（Engine 交替出的后引号改回前引号），没有组字时再按 `)`、`]`、`>`、`"`、`'` 会跨过光标右边自己补上的那个后半个而不是再写一个，删除、用户移动光标或换输入框后不再跨过。补的是书名号时经 `msime_client_balance_paired_punctuation_after_auto_close` 告诉 Engine 这一层已闭合。符号面板不经过 Engine：轻点中文和英文括号、书名号、中文引号的前半个时成对上屏，长按只上屏这半个；之后在面板里轻点同一个后半个会跨过已补好的那个，而不是再写一个；ASCII 的 `"`、`'` 和 `<` 不成对（`<` 绝大多数时候是小于号）。标点键的补全和跨过规则与 iOS 宿主相同（HarmonyOS 只有补全、没有跨过），集中在无 Android 依赖的 `PairedPunctuationPolicy`，由 `PairedPunctuationPolicySmoke` 验证。
 
 重复标点和标点后空格也由共享 Host API 决定：Android 只在当前编辑器会话内保存带 `editor_generation` 的有界 snapshot，按下下一个标点或空格时重新读取光标前标量并消费 `replace_with` / `space_ascii`；焦点、会话或编辑器变化会清空 snapshot，过期或上下文不一致时不改写文本。重复时间窗口、候选数量、组字状态和开关均不在 Android 重实现。
 
@@ -94,11 +105,13 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 无障碍增减键盘高度每一步都会保存：拖动在松手时 commit，而无障碍调整没有松手这一刻，只预览会被下一次偏好应用覆盖回原值。
 
+功能面板「键盘高度」与设置页的「键盘高度」滑块按 75%–160% 调整（100% 的键区是四行 46 dp，共 184 dp），值以 dp 调整量（−46…110）存在本地设置 `platform.android.keyboard_height_adjustment`，不进共享偏好（共享的 `touch_keyboard_height_adjustment` 仍是 −12…48，只在本地没写过时沿用）。130%（55 dp）以内在任何窗口里照画；更高的部分最多占当前窗口高度（`Configuration.screenHeightDp`）的 14%，竖屏手机能用满 160%，键盘到屏幕一半以上，横屏手机止于 130%，旋转回来自动恢复，存着的值不变（`KeyboardGeometry.windowHeightAdjustment`）。内联高度条的说明在百分比后面显示键盘此刻实际画出来的像素高度，拖动时随布局刷新。123 / #+= 层自带的底栏与功能行一样固定 46 dp，不分摊高度调整。
+
 键盘工具栏的“设置”面板以远端默认分支固定来源 `MSIME-Apple@3d300cdc62fe0d09565b30bd3e4165571fb91562` 复刻透明实时调整层：键盘保持可见，键盘区域左右拖动按 Apple 的主轴锁定规则调整按键间距，上下拖动调整行间距，顶部工具条拖动把手调整高度；Android 额外保留顶部语音入口开关。高度在平台默认键区基础上支持 -12–+48 dp，并以整数写入共享 `touch_keyboard_height_adjustment`；26 键三行均分增量，九键整体增减，手写把增量用于书写与工具区。间距支持 3.0–6.0 dp 和 4.0–10.0 dp，并以 0.1 dp 精度写入共享 `touch_key_spacing_tenths` / `touch_row_spacing_tenths`。拖动时直接更新已有 View 的高度或 margin，不重建按键树、Engine 或丢失当前组词与手写笔迹；松手、无障碍增减及切换语音入口后通过共享 revision CAS 保存，冲突或写入失败会恢复最近一次已接受快照。
 
 剪贴板历史的拒绝理由按 Apple `ClipboardHistoryStore.Failure` 分开命名：空白文本、单条超过 10,000 字或 40,000 字节、以及 50 条全部固定各有自己的提示，最后一条明确要求先取消固定或删除一条；Android 没有 iOS 的粘贴授权提示，空白文案相应去掉该从句。全部固定是独立的 `ClipboardHistory.FullException`，与读不出或写不回历史文件的普通 `IllegalStateException` 分开，避免把用户指向错误的动作。面板状态行同时说明点按插入以及在「管理」中固定或删除。理由分类与文案由无 Android 依赖的 `ClipboardHistoryPolicy` 提供并在 JVM 回归中验证。
 
-语音结果按 Android 平台能力适配：独立 Activity 调起用户设备上的系统语音识别服务，录音由该服务持有，MSIME 只接收有界文本。主应用进程与独立 `:ime` 进程通过应用私有目录中的非阻塞文件锁交接最新一条结果；结果最多 10,000 个 Unicode 码点、10 分钟有效，并在插入前一次性 claim，避免两个键盘实例重复插入。键盘“更多”工具页提供与 Apple 同级的语音结果入口，结果面板内提供 Android 平台的系统语音识别入口；共享 `touch_voice_shortcut` 开启后，候选栏显示直达语音结果按钮。存在 Engine 组合或本地模式时拒绝打开结果，确认插入前还会比对 InputConnection 身份、选择位置 generation 及光标前后/选中文本快照；真实上下文仅短暂保存在内存，不写日志或交接文件。
+语音结果按 Android 平台能力适配：键盘可见且已有麦克风权限时，系统语音识别服务（SpeechRecognizer）、本地模型和豆包流式都直接在键区里聆听（`ImeVoiceEntry`），键区换成带麦克风圆盘、脉冲环和音量光圈的聆听面板，识别完直接上屏；输入位置在聆听期间变了才存进语音结果。系统识别服务的失败按错误码给出具体原因并带上错误码，识别服务自身故障（网络、服务端、服务起不来等）和空结果时再提示可在设置里改用本地模型或豆包；还没开始聆听就被拒（`ERROR_CLIENT`、`ERROR_INSUFFICIENT_PERMISSIONS`、`ERROR_SERVER_DISCONNECTED`）时转交识别窗口再试一次。还没有麦克风权限、配置了上传式服务商，或者设置应用的语音面板发起时，用独立 Activity 录音或调起系统语音识别服务，窗口里显示「正在录音」和「完成」「取消」，录音由该服务持有，MSIME 只接收有界文本。两份清单都声明了对 `android.speech.RecognitionService` 的包可见性。主应用进程与独立 `:ime` 进程通过应用私有目录中的非阻塞文件锁交接最新一条结果；结果最多 10,000 个 Unicode 码点、10 分钟有效，并在插入前一次性 claim，避免两个键盘实例重复插入。键盘“更多”工具页提供与 Apple 同级的语音结果入口，结果面板内提供 Android 平台的系统语音识别入口；共享 `touch_voice_shortcut` 开启后，候选栏显示直达语音结果按钮。存在 Engine 组合或本地模式时拒绝打开结果，确认插入前还会比对 InputConnection 身份、选择位置 generation 及光标前后/选中文本快照；真实上下文仅短暂保存在内存，不写日志或交接文件。
 
 本地语音识别（共享设置里 provider 为 `local`、`asr_model_path` 指向共享安装器写好的模型目录）在同一个语音 Activity 里用 sherpa-onnx 在本机识别，音频不离开设备：共享层只在路径为绝对路径时下发 `modelPath`，宿主再确认目录里有 `msime-model.json` 才开始。识别复用 `shared/voice/LocalAsr` 与桌面同一套清单、热词和 VAD 逻辑，经 JNI 编进 `libmsime_android.so`；运行时 `libsherpa-onnx-c-api.so` 与 `libonnxruntime.so` 由 `build-native.sh` 通过 `scripts/fetch_voice_runtime.py` 按 `resources/voice-runtime.lock.json` 下载校验后只从 .aar 中取出，不进版本库，并与其它原生库同样检查 16KB 对齐和依赖白名单。瘦包（`MSIME_ANDROID_OMIT_ON_DEMAND=1`）构建时 `build-apk.sh` 给 `build-native.sh` 传 `--omit-voice-runtime`，这两个库不进 jniLibs，`verify-native.sh` 只要求三个宿主库，两个运行库在时照样检查、且必须成对；应用在用户打开「离线识别」而还没有这两个库时下载资源包 `voice-runtime`（语音页的运行库那一行也能点「下载」「重试」）：取同一个固定的 .aar，只取出 arm64 的这两个库，按 `resources/voice-runtime-android.lock.json` 的长度和 SHA-256 校验后以只读权限发布到 `files/bootstrap/state/resource-packs/voice-runtime/`，再把路径交给 LocalAsr 加载。录音、模型加载与解码都在后台线程，边说边把部分结果显示在录音窗口；热词来自用户词库，经共享 `msime_client_voice_hotwords` 读取，清单声明 `pinyin` 模式的模型在识别后再经 `msime_client_voice_hotword_correct` 按拼音纠正。模型闲置 2 分钟后释放，系统回收内存时立即释放。模型缺失或损坏、运行时无法加载时直接提示错误，不会退回系统语音识别服务。
 

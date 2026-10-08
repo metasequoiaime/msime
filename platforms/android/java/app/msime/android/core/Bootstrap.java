@@ -48,7 +48,7 @@ public final class Bootstrap {
             JSONObject result = new JSONObject(NativeClient.prepareHost(request.toString()));
             if (!JsonPolicy.strictTrue(result.opt("ok"))) {
                 throw new IllegalStateException("Shared resource verification/preparation failed: "
-                    + result.optString("error"));
+                    + JsonPolicy.strictStringOrEmpty(result.opt("error")));
             }
             AtomicFile destination = new AtomicFile(configuration);
             FileOutputStream output = null;
@@ -382,7 +382,7 @@ public final class Bootstrap {
     private static String refreshHost(File configuration) throws Exception {
         JSONObject result = new JSONObject(NativeClient.refreshHost(configuration.getAbsolutePath()));
         if (JsonPolicy.strictTrue(result.opt("ok"))) return null;
-        String error = result.optString("error");
+        String error = JsonPolicy.strictStringOrEmpty(result.opt("error"));
         android.util.Log.w("MSIMEBootstrap", "Runtime options refresh failed: "
             + (error.startsWith("dictionary_outdated") ? "dictionary_outdated" : "error"));
         return error;
@@ -393,8 +393,8 @@ public final class Bootstrap {
         try (InputStream input = Files.newInputStream(configuration.toPath(), LinkOption.NOFOLLOW_LINKS)) {
             byte[] bytes = HttpBodyPolicy.readBounded(input, 1024 * 1024);
             if (bytes == null) return null;
-            String resources = new JSONObject(new String(bytes, StandardCharsets.UTF_8))
-                .optString("resources", "");
+            String resources = JsonPolicy.strictStringOrEmpty(
+                new JSONObject(new String(bytes, StandardCharsets.UTF_8)).opt("resources"));
             return resources.isEmpty() ? null : resources;
         }
     }

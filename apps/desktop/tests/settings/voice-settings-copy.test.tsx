@@ -194,7 +194,7 @@ test("Android uses the system recognizer and hides desktop voice controls", asyn
   expect(screen.getByText("Android 系统语音")).toBeTruthy();
   expect(
     screen.getByText(
-      "从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。",
+      "从键盘的语音入口调用设备上的系统语音识别服务，在键盘里聆听，识别结果直接插入当前输入框。",
     ),
   ).toBeTruthy();
   expect(screen.getByLabelText("识别语言")).toBeTruthy();

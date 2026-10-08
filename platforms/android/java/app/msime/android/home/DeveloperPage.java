@@ -11,6 +11,7 @@ import androidx.core.content.FileProvider;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.CloudApi;
 import app.msime.android.DiagnosticsApi;
+import app.msime.android.McpUploadSwitchPolicy;
 import app.msime.android.NativeClient;
 import app.msime.android.JsonPolicy;
 import app.msime.android.NumberPolicy;
@@ -83,7 +84,8 @@ public final class DeveloperPage extends DetailPage {
             if (loaded[1] instanceof AndroidLocalSettings.Snapshot settings) local = settings;
             render();
         });
-        HostTask.run(this, context -> {
+        // 读云端状态是一次 HTTP 请求，走网络线程；放在共享存储的串行线程上时，网络慢的那几十秒里开关的保存都排在它后面。
+        HostTask.runNetwork(this, context -> {
             try {
                 return new DiagnosticsApi(new CloudApi(context)).state();
             } catch (CloudApi.Failure failure) {
@@ -116,16 +118,19 @@ public final class DeveloperPage extends DetailPage {
         } else {
             mcpSubtitle = "把下方选定的日志打包上传一次到水杉云，开发者在自己电脑上读取这份快照，手机无需保持在线，不会读取你输入的文字";
         }
-        GroupCard.Row mcpRow = mcp.toggle("上传日志供开发者通过 MCP 读取", mcpSubtitle, uploaded != null && !confirming,
+        GroupCard.Row mcpRow = mcp.toggle("上传日志供开发者通过 MCP 读取", mcpSubtitle,
+            McpUploadSwitchPolicy.checked(uploaded != null, confirming),
             on -> {
-                if (on) {
-                    confirming = true;
-                    render();
-                } else if (confirming) {
-                    confirming = false;
-                    render();
-                } else {
-                    confirmDelete();
+                switch (McpUploadSwitchPolicy.onToggle(on, confirming)) {
+                    case START_CONFIRM -> {
+                        confirming = true;
+                        render();
+                    }
+                    case CANCEL_CONFIRM -> {
+                        confirming = false;
+                        render();
+                    }
+                    case DELETE -> confirmDelete();
                 }
             });
         mcpRow.setEnabled(!busy && snapshot != null);

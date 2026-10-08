@@ -922,6 +922,11 @@ add_test(NAME candidate-panel COMMAND candidate-panel-test)
 add_executable(translation-senses-agreement-test tests/candidate/TranslationSensesAgreementTest.cpp)
 target_compile_options(translation-senses-agreement-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME translation-senses-agreement COMMAND translation-senses-agreement-test)
+# The readings drawn after gloss lines: language per line, romaji from the system tokenizer, and the drawn string.
+add_executable(candidate-pronunciation-test tests/candidate/CandidatePronunciationTest.mm)
+target_compile_options(candidate-pronunciation-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(candidate-pronunciation-test PRIVATE "-framework Foundation")
+add_test(NAME candidate-pronunciation COMMAND candidate-pronunciation-test)
 # The Windows candidate_item_layout rule, ported: text, 辅助码 and glosses wider than their column wrap inside it and rows take their own heights.
 add_executable(candidate-item-layout-test tests/candidate/CandidateItemLayoutTest.cpp)
 target_compile_options(candidate-item-layout-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)

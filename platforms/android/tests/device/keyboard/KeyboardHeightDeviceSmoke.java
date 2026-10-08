@@ -36,7 +36,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         JSONObject snapshot = new JSONObject().put("format_version", 1).put("revision", revision + 1)
             .put("preferences", new JSONObject(options.getJSONObject("preferences").toString())
                 .put("touch_keyboard_height_adjustment", 0));
-        // 设计范围的键盘高度（75%..130%）存在 Android 本地设置里，不在共享偏好里。
+        // 设计范围的键盘高度（75%..160%）存在 Android 本地设置里，不在共享偏好里。
         File localSettings = new File(new File(new File(root, "bootstrap"), "state"), LOCAL_SETTINGS_FILE);
         byte[] originalLocal = localSettings.exists() ? Files.readAllBytes(localSettings.toPath()) : null;
         JSONObject localBaseline = new JSONObject().put("version", 1).put("settings", new JSONObject());
@@ -132,7 +132,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         return bounds.height();
     }
 
-    /** The inline height bar: described 键盘布局调整, with a 75–130 percent range and five-percent scroll steps. */
+    /** The inline height bar: described 键盘布局调整, with a 75–160 percent range and five-percent scroll steps. */
     private java.util.function.Predicate<AccessibilityNodeInfo> heightSlider() {
         return description("键盘布局调整").and(node -> node.getRangeInfo() != null);
     }

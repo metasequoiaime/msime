@@ -447,6 +447,69 @@ test("offline candidate gloss is host-enabled, defaults off and persists", async
   expect(screen.queryByRole("switch", { name: "显示英文释义" })).toBeNull();
 });
 
+test("candidate pronunciation is host-enabled, defaults off, persists and needs a gloss", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  const enabled = render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save,
+        candidateEnglishGloss: true,
+        candidatePronunciation: true,
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  const toggle = screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  expect(screen.getByText(/英文释义给音标，日文释义给罗马音/)).toBeDefined();
+  fireEvent.click(toggle);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    candidate_pronunciation: true,
+  });
+  enabled.unmount();
+
+  // With every gloss source off there is nothing to read, so the switch is disabled but keeps its value.
+  const glossless = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      candidate_translations: false,
+      candidate_english_gloss: false,
+    },
+  };
+  const disabled = render(
+    <SettingsPage
+      client={{
+        load: async () => glossless,
+        save: vi.fn(),
+        candidateEnglishGloss: true,
+        candidatePronunciation: true,
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  expect((screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement).disabled).toBe(
+    true,
+  );
+  disabled.unmount();
+
+  render(
+    <SettingsPage
+      client={{ load: async () => initial, save: vi.fn(), candidateEnglishGloss: true }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  expect(screen.queryByRole("switch", { name: "显示读音" })).toBeNull();
+});
+
 test("Android English suggestions default on and persist independently", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,

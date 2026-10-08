@@ -579,6 +579,27 @@ if ! rg -q 'VoiceConfiguration\.read' \
   echo "Android keyboard voice must read the shared provider resolution" >&2
   exit 1
 fi
+# SpeechRecognizer 绑定的是 RecognitionService；Android 11 起只声明 RECOGNIZE_SPEECH 的话，识别服务与识别界面分属两个包的设备上会判为没有系统识别服务。原生宿主与 Tauri 壳共用同一个识别窗口，两份清单都要声明。
+for manifest in \
+    "$repo_root/platforms/android/AndroidManifest.xml" \
+    "$repo_root/apps/desktop/src-tauri/gen/android/app/src/main/AndroidManifest.xml"; do
+  if ! rg -q '<action android:name="android\.speech\.RecognitionService" />' "$manifest"; then
+    echo "Android manifests must query android.speech.RecognitionService for SpeechRecognizer: $manifest" >&2
+    exit 1
+  fi
+done
+# 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，没开始聆听就被拒时转交识别窗口，系统识别服务不被 1.5 s 停顿截断，说完后收回音量光圈。
+voice_entry="$repo_root/platforms/android/java/app/msime/android/core/ImeVoiceEntry.java"
+if ! rg -qF 'fail(PlatformSpeechPolicy.message(error))' "$voice_activity" \
+  || ! rg -qF 'fail(PlatformSpeechPolicy.emptyResult())' "$voice_activity" \
+  || ! rg -qF 'PlatformSpeechPolicy.message(error)' "$voice_entry" \
+  || ! rg -qF 'PlatformSpeechPolicy.emptyResult()' "$voice_entry" \
+  || ! rg -qF 's.launchVoiceActivity();' "$voice_entry" \
+  || ! rg -qF 'if (platform != null) return;' "$voice_entry" \
+  || ! rg -qF 'listening.resetLevel();' "$voice_entry"; then
+  echo "Android platform speech callbacks must keep coded errors, the activity hand-off, the uncut pause and the level reset" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI signature have to agree, and nothing else in this script reads it: a method declared native in Java compiles whether or not the C++ side exists. Compiling it for the real target catches that without the full native build, which needs vcpkg, the Rust Android targets and the pinned speech runtime. A machine without the pinned NDK skips it and says so.
 ndk=${MSIME_ANDROID_NDK:-${android_sdk}/ndk/28.2.13676358}
 case $(uname -s) in
@@ -654,6 +675,11 @@ for source in \
     exit 1
   fi
 done
+# 词库页的大标题行只放标题：右侧那排胶囊会在窄屏上把「词库」挤成「词…」（#5682），导入、导出和刷新放在内容里的管理卡片中。
+if rg -n 'headerActions\(\)' "$repo_root/platforms/android/java/app/msime/android/home/LexiconPage.java"; then
+  echo "Android lexicon page must keep its actions in the manage card, not beside the large title" >&2
+  exit 1
+fi
 #
 # Match the launcher activities by their path *inside the repository*. The absolute pattern this
 # started as, `*/home/*`, also matches every source on a GitHub runner, where the checkout itself
@@ -695,9 +721,9 @@ while IFS= read -r source; do
   class=$(basename "$source" .java)
   smoke_classes+=("${package:+$package.}$class")
 done < <(find "$repo_root/platforms/android/tests" -name "*.java" -print | LC_ALL=C sort)
-# 下限就是当前发现的冒烟数（161）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
-if [[ ${#smoke_classes[@]} -lt 161 ]]; then
-  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 161" >&2
+# 下限就是当前发现的冒烟数（165）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
+if [[ ${#smoke_classes[@]} -lt 165 ]]; then
+  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 165" >&2
   exit 1
 fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
