@@ -101,6 +101,7 @@ public final class MSIMEInputService extends InputMethodService {
     // 键盘的构建、渲染与扩展点（见各类说明）；onCreate 里创建。
     ImeToolbar imeToolbar;
     ImeCandidates imeCandidates;
+    ImeNineKeyPanel imeNineKeyPanel;
     ImeFunctionPanel imeFunctionPanel;
     ImePanels imePanels;
     ImeLetterRows imeLetterRows;
@@ -113,6 +114,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeVoiceEntry imeVoiceEntry;
     ImeKeyFeedback imeKeyFeedback;
     ImeDebugOverlay imeDebugOverlay;
+    ImeCalculator imeCalculator;
     long session;
     InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -129,13 +131,20 @@ public final class MSIMEInputService extends InputMethodService {
     LinearLayout expandedCandidates;
     ScrollView expandedCandidateScroll;
     TextView preedit;
+    /** 点读音行移组字光标用的那一份读音（#5613）：画出来的读音（不含已选的词和光标符）、它对应的 `editing_text`、光标符画在读音的哪个下标前（没画是 -1）、前面已选的词有多长、引擎光标现在在哪。读音行不可点时 `preeditCaretEditing` 为 null。 */
+    private String preeditCaretEditing;
+    private String preeditCaretSpelling = "";
+    private int preeditCaretMark = -1;
+    private int preeditCaretPrefix;
+    private int preeditCaretPosition;
     TextView candidatePage;
     KeyboardBrandMark candidateBrandMark;
     Button exitLocalModeButton;
     /** 漢 in the candidate header: converts the composing Korean syllable to Hanja, or closes its list. */
     Button hanjaButton;
     LinearLayout nineKeySpellings;
-    HorizontalScrollView nineKeySpellingScroll;
+    /** 拼音选择条的滚动容器：拼音九键侧栏里是纵向的 ScrollView，注音 9 键候选行上是横向的 HorizontalScrollView，由 ImeLayoutRows.attachSpellings 按位置换。 */
+    FrameLayout nineKeySpellingScroll;
     final java.util.List<Button> nineKeySpellingButtons = new java.util.ArrayList<>();
     java.util.List<Integer> nineKeySpellingIndices = java.util.List.of();
     long nineKeySpellingGeneration = -1;
@@ -218,6 +227,8 @@ public final class MSIMEInputService extends InputMethodService {
     int touchRowSpacingTenths = KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS;
     int touchKeyboardHeightAdjustment = KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_DP;
     private boolean touchVoiceShortcutEnabled;
+    /** 九键数字键面用计算器顺序（7 8 9 在上），来自共享偏好 `touch_number_keypad_order`。 */
+    boolean numberKeypadCalculator;
     private boolean voiceInputEnabled = true;
     private String voiceLanguage = "zh-CN";
     KeyboardSkin skin = KeyboardSkin.system(false);
@@ -732,6 +743,11 @@ public final class MSIMEInputService extends InputMethodService {
         preferences.put("touch_keyboard_layout", mapping.touchKeyboardLayout());
     }
 
+    /** 解开共享层的响应信封，给服务之外的键盘部件用（如九键展开面板重新取完整候选）。 */
+    JSONObject nativeValue(String response) throws JSONException {
+        return value(response);
+    }
+
     private JSONObject value(String response) throws JSONException {
         JSONObject envelope = new JSONObject(response);
         if (!JsonPolicy.strictTrue(envelope.opt("ok")))
@@ -1002,15 +1018,25 @@ public final class MSIMEInputService extends InputMethodService {
         return deleted;
     }
 
-    /** 按码位删光标前一个字符，同样记下预期；删掉的是一个还是两个 UTF-16 单元由追踪器按回声确定。 */
+    /** 删除键：编辑器里有选区时删掉选区，否则按码位删光标前一个字符并记下预期；删掉的是一个还是两个 UTF-16 单元由追踪器按回声确定。 */
     void deleteCodePointBeforeCursor() {
         pairedPunctuationStack.clear();
+        if (deleteSelection()) return;
         if (connection.deleteSurroundingTextInCodePoints(1, 0)) {
             selectionEcho.deleteCodePointBefore();
             selectionEcho.expect();
         } else {
             selectionEcho.invalidate();
         }
+    }
+
+    /** `deleteSurroundingText` 只删选区以外的字：选中文字后按删除，选区在开头时毫无反应，在中间时删掉的是选区前一个字。有选区就用空串替换它，和系统键盘一致；返回是否有选区，有选区时不再删光标前的字。 */
+    private boolean deleteSelection() {
+        CharSequence selected = connection.getSelectedText(0);
+        if (selected == null || selected.length() == 0) return false;
+        selectionEcho.invalidate();
+        connection.commitText("", 1);
+        return true;
     }
 
     /** 编辑器动作可能改文字也可能不改，选区预期先作废。 */
@@ -1177,6 +1203,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 拆出去的构建与渲染类持有本服务；在 onCreate 里创建，构造期间不把 this 交出去。
         imeToolbar = new ImeToolbar(this);
         imeCandidates = new ImeCandidates(this);
+        imeNineKeyPanel = new ImeNineKeyPanel(this);
         imeFunctionPanel = new ImeFunctionPanel(this);
         imePanels = new ImePanels(this);
         imeLetterRows = new ImeLetterRows(this);
@@ -1189,6 +1216,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeVoiceEntry = new ImeVoiceEntry(this);
         imeKeyFeedback = new ImeKeyFeedback(this);
         imeDebugOverlay = new ImeDebugOverlay(this);
+        imeCalculator = new ImeCalculator(this);
         // 必须在 super.onCreate() 之前：InputMethodService 在那里按这个主题建输入法窗口，之后再设会抛异常。按名字查是因为 core/ 要能脱离 Gradle 生成的 R 编译（check-host.sh 的 JVM 冒烟）；res/values/themes.xml 说明了这个主题为什么存在。
         // 五笔、拼音等版本的 applicationId 带后缀，资源表的包名仍是命名空间，两个都试。
         int theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", getPackageName());
@@ -1248,6 +1276,7 @@ public final class MSIMEInputService extends InputMethodService {
         engineStartGeneration++;
         cloudClipboardGeneration++;
         imeBottomRow.resetSpaceCursor();
+        imeCalculator.clear();
         // 也覆盖 onFinishInputView(true)：那条路径不经过 finishInputViewPresentation。
         imeVoiceEntry.cancel();
         stop(true);
@@ -1262,8 +1291,8 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onFinishInputView(boolean finishingInput) {
         flushKeyPresses();
         cancelInputViewRefresh();
-        // 键盘收起时还在调整高度就当作取消：没点「完成」的预览不保存。
-        finishInlineHeight(false);
+        // 键盘收起时还在调整高度就照「完成」保存：用户拖到满意的高度后直接收起键盘或切到别的应用，是把这个高度留下来的意思，原来当作取消，下次弹出就回到设置页里的旧值。只有明确点「取消」才放弃预览。
+        finishInlineHeight(true);
         if (!finishingInput) finishInputViewPresentation();
         super.onFinishInputView(finishingInput);
     }
@@ -1635,6 +1664,12 @@ public final class MSIMEInputService extends InputMethodService {
         touchKeyboardHeightAdjustment = heightAdjustmentFrom(preferences);
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
+        numberKeypadCalculator = numberKeypadCalculatorFrom(preferences);
+    }
+
+    private static boolean numberKeypadCalculatorFrom(JSONObject preferences) {
+        return preferences != null && NineKeyLayout.calculatorOrder(preferences.optString(
+            NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER));
     }
 
     /** 日语九键侧列的 ☺：顶部工具栏有表情按钮时两处入口重复，不放；工具栏关掉表情或整条隐藏时才放回来。 */
@@ -1852,7 +1887,8 @@ public final class MSIMEInputService extends InputMethodService {
     private String touchGeometryKey() {
         return touchKeySpacingTenths + ":" + touchRowSpacingTenths + ":"
             + touchKeyboardHeightAdjustment + ":"
-            + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage;
+            + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
+            + numberKeypadCalculator;
     }
 
     private void reloadPreferences(String response) {
@@ -1931,8 +1967,11 @@ public final class MSIMEInputService extends InputMethodService {
             KeyboardGeometry.strictInt(preferences, "touch_key_spacing_tenths", -1));
         int nextRowSpacing = KeyboardGeometry.rowSpacing(
             KeyboardGeometry.strictInt(preferences, "touch_row_spacing_tenths", -1));
-        int nextHeightAdjustment = heightAdjustmentFrom(preferences);
+        int savedHeightAdjustment = heightAdjustmentFrom(preferences);
+        // 键盘里正在调高度时，同步或设置页写来的新快照不能把预览覆盖回去（那样点「完成」时高度已经和保存值相同，什么也不会存下）；新的保存值记为「取消」时要回到的高度。
+        int nextHeightAdjustment = inlineHeightActive ? touchKeyboardHeightAdjustment : savedHeightAdjustment;
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
+        boolean nextNumberKeypadCalculator = numberKeypadCalculatorFrom(preferences);
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
         boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
         String nextVoiceLanguage = nextVoice == null ? "zh-CN"
@@ -2004,7 +2043,12 @@ public final class MSIMEInputService extends InputMethodService {
         touchKeySpacingTenths = nextKeySpacing;
         touchRowSpacingTenths = nextRowSpacing;
         touchKeyboardHeightAdjustment = nextHeightAdjustment;
+        if (inlineHeightActive) inlineHeightOriginal = savedHeightAdjustment;
         touchVoiceShortcutEnabled = nextVoiceShortcut;
+        // 只有九键数字键面画的是这个顺序；正画着它时要重建键行。
+        boolean numberKeypadRebuild = numberKeypadCalculator != nextNumberKeypadCalculator
+            && keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+        numberKeypadCalculator = nextNumberKeypadCalculator;
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
         applyAiPreferences(preferences);
@@ -2097,7 +2141,7 @@ public final class MSIMEInputService extends InputMethodService {
         // A Shift latched on the Korean keycaps means a double consonant, so it must not outlive the surface it was set on.
         if (rebuildLayout || !KeyboardLayout.carriesLetterCase(displayedTouchLayout(view)))
             letterCase.reset();
-        if (rebuildLayout) imeLetterRows.rebuildKeyRows();
+        if (rebuildLayout || numberKeypadRebuild) imeLetterRows.rebuildKeyRows();
         else if (geometryChanged) imeStyler.applyKeyboardGeometry();
         renderLayoutSettingsState();
         if (voiceResultScroll != null && voiceResultScroll.getVisibility() == View.VISIBLE)
@@ -2780,19 +2824,29 @@ public final class MSIMEInputService extends InputMethodService {
             candidateOfflineTargets());
     }
 
-    private void updateCandidateViewportHeight() {
+    void updateCandidateViewportHeight() {
         if (candidateLine == null) return;
         // 42 dp 的候选行容下候选字、一行释义和选中 chip 的留白；第二行起每行再加高一些。
         int reserved = CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows());
         int extraRows = BoundsPolicy.nonNegative(reserved - 1);
         int line = ImeToolbar.CANDIDATE_LINE_DP + extraRows * ImeToolbar.EXTRA_GLOSS_ROW_DP;
         setFixedHeight(candidateLine, pixels(line));
-        // 空闲时的工具栏和组词时的读音行 + 候选行占同一个位置，两者同高，打字时键盘才不会变高。空闲时读音行若在显示常驻的模式标签（直接输入、准备中），它已经占了那 14 dp，工具栏只取候选行的高度，总高不变。
+        // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加高，见 ReadingRowPolicy。
+        int readingRow = readingRowHeight();
+        if (candidateHeader != null) setFixedHeight(candidateHeader, readingRow);
+        // 空闲时的工具栏和组词时的读音行 + 候选行占同一个位置，两者同高，打字时键盘才不会变高。空闲时读音行若在显示常驻的模式标签（直接输入、准备中），它已经占了读音行那一截，工具栏只取候选行的高度，总高不变。
         boolean idleHeader = candidateHeader != null
             && candidateHeader.getVisibility() == View.VISIBLE;
         if (shortcutScroll != null)
-            setFixedHeight(shortcutScroll,
-                pixels((idleHeader ? 0 : ImeToolbar.READING_ROW_DP) + line));
+            setFixedHeight(shortcutScroll, (idleHeader ? 0 : readingRow) + pixels(line));
+    }
+
+    private int readingRowHeight() {
+        int design = pixels(ImeToolbar.READING_ROW_DP);
+        if (preedit == null) return design;
+        Paint.FontMetricsInt metrics = preedit.getPaint().getFontMetricsInt();
+        return ReadingRowPolicy.heightPx(design, metrics.ascent, metrics.descent,
+            preedit.getPaddingTop() + preedit.getPaddingBottom());
     }
 
     private static void setFixedHeight(View view, int height) {
@@ -2839,6 +2893,30 @@ public final class MSIMEInputService extends InputMethodService {
         if (session == 0) return false;
         try { return apply(NativeClient.command(session, code)); }
         catch (JSONException | LinkageError error) { fail(); return true; }
+    }
+
+    /** 全拼九键组字时的候选筛选（只留单字、首字笔顺前缀），响应照常经 apply 重画。 */
+    void setNineKeyFilter(boolean singleCharacter, String strokes) {
+        if (session == 0) return;
+        try { apply(NativeClient.setNineKeyFilter(session, singleCharacter, strokes)); }
+        catch (JSONException | LinkageError error) { fail(); }
+    }
+
+    /**
+     * 点在读音行 {@code offset} 处（`TextView.getOffsetForPosition` 的结果）：把组字光标移到点中的字母前，之后的退格、打字都作用在那里（#5613）。引擎只有逐格左右移和移到两头的命令，连发若干次；光标移动不改组字，只把最后一次的结果交给 apply 去画。
+     */
+    void movePreeditCaret(int offset) {
+        String editing = preeditCaretEditing;
+        if (session == 0 || editing == null) return;
+        int target = CompositionCaretPolicy.tapTarget(preeditCaretPrefix, preeditCaretSpelling,
+            editing, preeditCaretMark, offset);
+        int[] moves = CompositionCaretPolicy.moves(preeditCaretPosition, target, editing.length());
+        if (moves.length == 0) return;
+        try {
+            String response = null;
+            for (int step = 0; step < moves[1]; step++) response = NativeClient.command(session, moves[0]);
+            apply(response);
+        } catch (JSONException | LinkageError error) { fail(); }
     }
 
     void type(char key) {
@@ -3718,6 +3796,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         updateAutomaticCapitalization();
         if (directEnglishActive()) refreshEnglishSuggestions();
+        // 数字键面上打完算式（或光标挪到算式后面）时，工具栏给出计算结果。
+        imeCalculator.refresh();
     }
 
     Button button(LinearLayout row, String label, Runnable action) {
@@ -4987,64 +5067,74 @@ public final class MSIMEInputService extends InputMethodService {
                 || session == 0 || preferencesSnapshot == null
                 || preferencesDirectory.isEmpty()) return;
         JSONObject acceptedPreferences = preferencesSnapshot.optJSONObject("preferences");
-        if (!reset && acceptedPreferences != null
-                && KeyboardGeometry.keySpacing(KeyboardGeometry.strictInt(
-                    acceptedPreferences, "touch_key_spacing_tenths", -1)) == touchKeySpacingTenths
-                && KeyboardGeometry.rowSpacing(KeyboardGeometry.strictInt(
-                    acceptedPreferences, "touch_row_spacing_tenths", -1)) == touchRowSpacingTenths
-                && heightAdjustmentFrom(acceptedPreferences) == touchKeyboardHeightAdjustment
-                && acceptedPreferences.optBoolean("touch_voice_shortcut", false)
-                    == touchVoiceShortcutEnabled) return;
+        // 高度在本地设置里，间距和语音入口在共享文档里，各自只在变了时写：只调高度时不去碰共享文档，免得一次无谓的 revision 冲突让保存失败。
+        boolean sharedChanged = reset || acceptedPreferences == null
+            || KeyboardGeometry.keySpacing(KeyboardGeometry.strictInt(
+                acceptedPreferences, "touch_key_spacing_tenths", -1)) != touchKeySpacingTenths
+            || KeyboardGeometry.rowSpacing(KeyboardGeometry.strictInt(
+                acceptedPreferences, "touch_row_spacing_tenths", -1)) != touchRowSpacingTenths
+            || acceptedPreferences.optBoolean("touch_voice_shortcut", false)
+                != touchVoiceShortcutEnabled;
+        boolean heightChanged = reset || acceptedPreferences == null
+            || heightAdjustmentFrom(acceptedPreferences) != touchKeyboardHeightAdjustment;
+        if (!sharedChanged && !heightChanged) return;
         final long targetSession = session;
         final String targetDirectory = preferencesDirectory;
-        final JSONObject pending;
-        final long expectedRevision;
-        try {
-            pending = new JSONObject(preferencesSnapshot.toString());
-            expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
-            if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
-            JSONObject preferences = pending.getJSONObject("preferences");
-            if (reset) {
-                preferences.remove("touch_key_spacing_tenths");
-                preferences.remove("touch_row_spacing_tenths");
-                preferences.remove("touch_keyboard_height_adjustment");
-                preferences.remove("touch_voice_shortcut");
-            } else {
-                preferences.put("touch_key_spacing_tenths", touchKeySpacingTenths);
-                preferences.put("touch_row_spacing_tenths", touchRowSpacingTenths);
-                preferences.put("touch_voice_shortcut", touchVoiceShortcutEnabled);
+        JSONObject pending = null;
+        long expectedRevision = -1;
+        if (sharedChanged) {
+            try {
+                pending = new JSONObject(preferencesSnapshot.toString());
+                expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
+                if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
+                JSONObject preferences = pending.getJSONObject("preferences");
+                if (reset) {
+                    preferences.remove("touch_key_spacing_tenths");
+                    preferences.remove("touch_row_spacing_tenths");
+                    preferences.remove("touch_keyboard_height_adjustment");
+                    preferences.remove("touch_voice_shortcut");
+                } else {
+                    preferences.put("touch_key_spacing_tenths", touchKeySpacingTenths);
+                    preferences.put("touch_row_spacing_tenths", touchRowSpacingTenths);
+                    preferences.put("touch_voice_shortcut", touchVoiceShortcutEnabled);
+                }
+            } catch (JSONException error) {
+                if (reset && preferencesSnapshot != null) {
+                    applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
+                    imeStyler.applyKeyboardGeometry();
+                }
+                preferencesNotice = reset ? " · 恢复默认失败，保留原设置" : " · 键盘设置保存失败，保留原设置";
+                render();
+                return;
             }
-        } catch (JSONException error) {
-            if (reset && preferencesSnapshot != null) {
-                applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
-                imeStyler.applyKeyboardGeometry();
-            }
-            preferencesNotice = reset ? " · 恢复默认失败，保留原设置" : " · 键盘设置保存失败，保留原设置";
-            render();
-            return;
         }
         touchGeometrySaving = true;
         preferencesNotice = " · 正在保存键盘设置";
         final long operation = ++preferenceSaveGeneration;
         // 高度是设计范围（75%..160%），共享偏好放不下，写进本地设置；恢复默认时删掉本地值。
         final Integer height = reset ? null : touchKeyboardHeightAdjustment;
+        final java.nio.file.Path localSettingsFile = AndroidLocalSettings.file(this);
+        final JSONObject sharedDocument = pending;
+        final long sharedRevision = expectedRevision;
+        KeyboardHeightSave.HeightWriter writeHeight = heightChanged ? () -> {
+            java.util.Map<String, Object> edits = new java.util.HashMap<>(1);
+            edits.put(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, height);
+            AndroidLocalSettings.update(localSettingsFile, edits);
+        } : null;
+        java.util.function.Supplier<String> writeShared = sharedDocument == null ? null : () -> {
+            try {
+                return NativeClient.savePreferences(targetDirectory, sharedRevision,
+                    sharedDocument.toString());
+            } catch (Exception | LinkageError error) {
+                return null;
+            }
+        };
         renderLayoutSettingsState();
         render();
         Runnable save = () -> {
-            String response;
-            try {
-                response = NativeClient.savePreferences(targetDirectory, expectedRevision,
-                    pending.toString());
-                // 本地高度只在偏好写入成功后再写：CAS 冲突时界面回到原高度，磁盘上也不能留下新高度。
-                if (response != null && JsonPolicy.strictTrue(new JSONObject(response).opt("ok"))) {
-                    AndroidLocalSettings.put(this, AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, height);
-                }
-            } catch (Exception | LinkageError error) {
-                response = null;
-            }
-            final String savedResponse = response;
+            KeyboardHeightSave.Result result = KeyboardHeightSave.run(writeHeight, writeShared);
             main.post(() -> finishTouchGeometrySave(operation, targetSession, targetDirectory,
-                reset, savedResponse));
+                reset, result));
         };
         try {
             preferencesWorker.execute(save);
@@ -5063,11 +5153,26 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void finishTouchGeometrySave(long operation, long targetSession,
-                                         String targetDirectory, boolean reset, String response) {
+                                         String targetDirectory, boolean reset,
+                                         KeyboardHeightSave.Result result) {
         if (operation != preferenceSaveGeneration || session != targetSession
                 || !targetDirectory.equals(preferencesDirectory)) return;
         touchGeometrySaving = false;
+        // 后台已经先写了本地高度，不论共享文档写没写成都先读回来：下面按快照重算布局时，高度取的是刚写下的值，而不是内存里那份旧的本地设置。
+        refreshLocalSettings();
+        if (!result.heightSaved())
+            Toast.makeText(this, "键盘高度未能保存", Toast.LENGTH_SHORT).show();
+        if (!result.sharedAttempted()) {
+            if (preferencesSnapshot != null)
+                applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
+            imeStyler.applyKeyboardGeometry();
+            preferencesNotice = result.heightSaved() ? " · 键盘设置已保存" : " · 键盘高度保存失败，已恢复原设置";
+            renderLayoutSettingsState();
+            render();
+            return;
+        }
         try {
+            String response = result.sharedResponse();
             if (response == null) throw new JSONException("Preferences save unavailable");
             JSONObject saved = value(response);
             long savedRevision = PreferencesRevisionPolicy.read(saved.opt("revision"), -1);
@@ -5075,17 +5180,15 @@ public final class MSIMEInputService extends InputMethodService {
             if (preferencesSnapshot != null
                     && PreferencesRevisionPolicy.read(preferencesSnapshot.opt("revision"), -1)
                         > savedRevision) {
-                refreshLocalSettings();
                 applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
                 imeStyler.applyKeyboardGeometry();
                 preferencesNotice = "";
             } else {
-                // The worker just wrote the height; reload it so heightAdjustmentFrom reads the new value, not the stale in-memory snapshot.
-                refreshLocalSettings();
                 applyPreferencesSnapshot(saved);
                 preferencesNotice = reset ? " · 键盘设置已恢复默认" : " · 键盘设置已保存";
             }
         } catch (JSONException | LinkageError error) {
+            // 间距和语音入口回到已接受的快照；高度已在上面从本地设置读回，保留用户刚调好的值。
             if (preferencesSnapshot != null)
                 applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
             imeStyler.applyKeyboardGeometry();
@@ -5329,12 +5432,9 @@ public final class MSIMEInputService extends InputMethodService {
         imeFunctionPanel.renderMoreTools();
     }
 
+    /** 功能面板磁贴上的强度：轻、中、强、系统（跟随系统）。 */
     String hapticStrengthTitle() {
-        return switch (hapticStrength) {
-            case LIGHT -> "轻";
-            case MEDIUM -> "中";
-            case STRONG -> "强";
-        };
+        return hapticStrength.shortTitle();
     }
 
     void cycleHapticStrength() {
@@ -5728,10 +5828,14 @@ public final class MSIMEInputService extends InputMethodService {
             if (expandedCandidateScroll != null)
                 ViewPolicy.hide(expandedCandidateScroll);
         }
+        if (imeNineKeyPanel != null) imeNineKeyPanel.dismiss();
     }
 
     void openCandidatePanel() {
-        if (session == 0 || view == null || strictCandidatePage(view, "page_count") <= 1) return;
+        // 全拼九键的三栏面板只要在组字就能打开：左栏选拼音、右栏筛选在只有一页候选时同样有用。
+        boolean nineKeyPanel = imeNineKeyPanel.eligible();
+        if (session == 0 || view == null
+                || (!nineKeyPanel && strictCandidatePage(view, "page_count") <= 1)) return;
         try {
             JSONObject snapshot = value(NativeClient.allCandidates(session));
             if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) != session
@@ -5739,7 +5843,8 @@ public final class MSIMEInputService extends InputMethodService {
                 return;
             JSONArray entries = snapshot.optJSONArray("candidates");
             JSONArray visible = view.optJSONArray("candidates");
-            if (entries == null || visible == null || entries.length() <= visible.length()) return;
+            if (!nineKeyPanel && (entries == null || visible == null
+                    || entries.length() <= visible.length())) return;
             candidatePanelSnapshot = snapshot;
             candidatePanelOpen = true;
             imeCandidates.renderExpandedCandidates();
@@ -6293,6 +6398,7 @@ public final class MSIMEInputService extends InputMethodService {
                 ? KeyboardLayout.Layer.SYMBOLS : KeyboardLayout.Layer.LETTERS;
             imeLetterRows.rebuildKeyRows();
             render();
+            imeCalculator.refresh();
         });
         layerButton.setContentDescription("切换到数字和符号");
         keyId(layerButton, "SoftLayer");
@@ -6357,6 +6463,7 @@ public final class MSIMEInputService extends InputMethodService {
             KeyboardGeometry.scrollMatchParentParams());
         ViewPolicy.hide(expandedCandidateScroll);
         keyboardSurface.addView(expandedCandidateScroll, KeyboardGeometry.frameMatchParentParams());
+        keyboardSurface.addView(imeNineKeyPanel.build(), KeyboardGeometry.frameMatchParentParams());
         clipboardPanel = KeyboardGeometry.column(this);
         ViewPolicy.setSymmetricPadding(clipboardPanel, 24, 16);
         ViewPolicy.setBackgroundColor(clipboardPanel, Color.parseColor(skin.background()));
@@ -6530,8 +6637,9 @@ public final class MSIMEInputService extends InputMethodService {
     private void alignOverlaysBelowTopRow(View region) {
         View parent = (View) region.getParent();
         int top = (parent == null ? 0 : parent.getTop()) + region.getBottom();
-        for (View overlay : new View[] {moreToolsScroll, expandedCandidateScroll, phraseScroll,
-                emojiPanel, symbolPanel, clipboardScroll, skinScroll, schemeScroll, aiPolishContainer}) {
+        for (View overlay : new View[] {moreToolsScroll, expandedCandidateScroll, imeNineKeyPanel.root(),
+                phraseScroll, emojiPanel, symbolPanel, clipboardScroll, skinScroll, schemeScroll,
+                aiPolishContainer}) {
             if (overlay == null) continue;
             if (!(overlay.getLayoutParams() instanceof FrameLayout.LayoutParams params)
                     || params.topMargin == top) continue;
@@ -6981,11 +7089,13 @@ public final class MSIMEInputService extends InputMethodService {
         // 浮动开关或外接键盘的候选条模式变了：先把窗口换成对应的布局，下面判断分离式键盘、单手模式时用的是新状态。
         applyFloatingLayout(false);
         // 旋转、设置变化或布局切换让分离式键盘该画与否变了，而键行还是按旧状态建的：先按新状态重建，下面的底行排布也会跟着换。
-        if (imeLetterRows.splitStale()) imeLetterRows.rebuildKeyRows();
+        // 设置页改了九键左侧符号栏的符号：同样按新的符号表重建。
+        if (imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()) imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();
         updateShuangpinKeyHints();
         updateQuickPunctuation();
         imeLayoutRows.updateStrokeWildcardKey();
+        imeCalculator.syncVisibility();
         imeLayoutRows.updateNineKeySymbolKey();
         String currentEditingText = view == null ? "" : view.optString("editing_text", "");
         if (!japaneseSchemeActive() || currentEditingText.isEmpty()) {
@@ -7047,9 +7157,9 @@ public final class MSIMEInputService extends InputMethodService {
                 nineKeyPreedit = view.optString("nine_key_reading", "");
                 if (nineKeyPreedit.isEmpty()) nineKeyPreedit = view.optString("preedit", "");
             }
-            String localModeTitle = "none".equals(localModeKey)
-                ? (!nineKeyPreedit.isEmpty() ? nineKeyPreedit : reading.isEmpty() ? editingText : reading)
-                : editingText;
+            String spelling = !nineKeyPreedit.isEmpty() ? nineKeyPreedit
+                : reading.isEmpty() ? editingText : reading;
+            String localModeTitle = "none".equals(localModeKey) ? spelling : editingText;
             // A mode's own name is a label saying which mode is running, not composed input, so it
             // survives 「不显示」; anything the mode is spelling beyond its trigger does not.
             boolean localModeName = false;
@@ -7067,13 +7177,33 @@ public final class MSIMEInputService extends InputMethodService {
             // 新设计去掉了空闲时的品牌药丸：空闲时读音行整行隐藏，品牌标在工具栏最左。
             brandPillVisible = false;
             String phrasePrefix = view == null ? "" : view.optString("phrase_prefix", "");
+            // 组字光标（#5613）：点读音行把光标移到点中的字母前；光标被移离末尾时画进读音行（「不显示」也画，下一个键就作用在那里）。读音对不上按键时退回画原始按键。
+            boolean caretEditable = !idleTitle && view != null && CompositionCaretPolicy.editable(
+                InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText);
+            int caret = caretEditable
+                ? InputViewValuePolicy.integer(view, "caret_position", editingText.length())
+                : editingText.length();
+            String caretSpelling = spelling;
+            int caretMark = caretEditable ? CompositionCaretPolicy.markIndex(spelling, editingText, caret) : -1;
+            if (caretEditable && caret < editingText.length() && caretMark < 0) {
+                caretSpelling = editingText;
+                caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caret);
+            }
+            boolean spellingDrawn = caretMark >= 0 || spelling.equals(localModeTitle);
+            preeditCaretEditing = caretEditable && spellingDrawn ? editingText : null;
+            preeditCaretSpelling = caretSpelling;
+            preeditCaretMark = caretMark;
+            preeditCaretPrefix = phrasePrefix.length();
+            preeditCaretPosition = caret;
             String displayText = idleTitle
                 ? (dedicatedEnglish ? "英文输入" : productName)
-                : PhrasePreeditPolicy.title(phrasePrefix, localModeTitle,
-                                            !"none".equals(localModeKey));
+                : PhrasePreeditPolicy.title(phrasePrefix, caretMark >= 0
+                    ? CompositionCaretPolicy.withMark(caretSpelling, caretMark) : localModeTitle,
+                    !"none".equals(localModeKey));
             preedit.setText(displayText);
             preedit.setContentDescription(offersLocalModes ? "长按打开本地输入模式" : displayText);
             preedit.setLongClickable(offersLocalModes);
+            preedit.setClickable(preeditCaretEditing != null);
             ViewPolicy.setFocusable(preedit, offersLocalModes);
         }
         if (exitLocalModeButton != null) {
@@ -7291,9 +7421,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (layoutSettingsButton != null)
             ViewPolicy.setEnabled(layoutSettingsButton, session != 0 && preferencesSnapshot != null
                 && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving);
-        imeLayoutRows.renderNineKeySpellings();
-        if (hasDiagnostic && nineKeySpellingScroll != null)
-            ViewPolicy.hide(nineKeySpellingScroll);
+        imeLayoutRows.renderNineKeySpellings(hasDiagnostic);
         scheduleCandidateGlosses();
         scheduleCandidateTranslations();
         scheduleOnlineProviders();
@@ -7348,8 +7476,8 @@ public final class MSIMEInputService extends InputMethodService {
                         : LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
             }
-            if (!hasDiagnostic && strictCandidatePage(view, "page_count") > 1
-                    && expandCandidates != null)
+            if (!hasDiagnostic && expandCandidates != null
+                    && (strictCandidatePage(view, "page_count") > 1 || imeNineKeyPanel.eligible()))
                 ViewPolicy.show(expandCandidates);
         }
         int visibleSlots = entries == null ? 0 : entries.length();

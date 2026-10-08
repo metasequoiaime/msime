@@ -91,6 +91,9 @@ printf '%s\n' "$result"
 result=$("$adb" -s "$serial" shell am instrument -w app.msime.android.test/app.msime.android.test.NineKeyEnglishDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Nine-key English acceptance failed" >&2; exit 1; }
+result=$("$adb" -s "$serial" shell am instrument -w app.msime.android.test/app.msime.android.test.NineKeyPanelDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Nine-key panel acceptance failed" >&2; exit 1; }
 result=$("$adb" -s "$serial" shell am instrument -w app.msime.android.test/app.msime.android.test.ChineseHelpcodeDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Chinese helpcode acceptance failed" >&2; exit 1; }

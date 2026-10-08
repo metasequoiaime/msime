@@ -7,7 +7,8 @@ import { ActionButton } from "./action-button";
 export type MobileKeyboardFeedback = {
   soundEnabled: boolean;
   hapticsEnabled: boolean;
-  hapticStrength: "light" | "medium" | "strong";
+  /** `system` 跟随系统的触感反馈设置。 */
+  hapticStrength: "light" | "medium" | "strong" | "system";
   /** iOS keeps this Apple keyboard preference in the native App Group store. */
   englishSuggestions?: boolean;
   /** iOS draws the candidate strip in the keyboard skin unless this App Group switch hands it to the shared candidate skin and colours. */
@@ -101,6 +102,7 @@ export function MobileKeyboardFeedbackSection({
               <option value="light">轻</option>
               <option value="medium">中</option>
               <option value="strong">强</option>
+              <option value="system">跟随系统</option>
             </Select>
           </Row>
         )}

@@ -965,6 +965,21 @@ CANDIDATE_ENTRY(RemoveCandidate, msime_client_remove_candidate, "Invalid candida
 CANDIDATE_ENTRY(ChooseNineKeySpelling, msime_client_choose_nine_key_spelling,
                 "Invalid nine-key spelling index")
 
+// 九宫格候选筛选。笔画前缀以 ASCII 字符串传入，长度和字节是否都是 hspnz 由 C ABI 校验，这里只转发。
+static napi_value SetNineKeyFilter(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    bool single_character = false;
+    std::string strokes;
+    if (!arguments(env, info, 3, argv) || !argumentHandle(env, argv[0], handle)
+            || !argumentFlag(env, argv[1], single_character)
+            || !argumentText(env, argv[2], strokes)) {
+        return invalid(env, "Expected a session handle, a boolean and a stroke string");
+    }
+    return response(env, msime_client_set_nine_key_filter(handle, single_character,
+        reinterpret_cast<const uint8_t *>(strokes.data()), strokes.size()));
+}
+
 static napi_value SavePreferences(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     std::string directory;
@@ -1459,6 +1474,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("clearCandidatePosition", ClearCandidatePosition),
         ENTRY("removeCandidate", RemoveCandidate),
         ENTRY("chooseNineKeySpelling", ChooseNineKeySpelling),
+        ENTRY("setNineKeyFilter", SetNineKeyFilter),
         ENTRY("view", View),
         ENTRY("allCandidates", AllCandidates),
         ENTRY("translationQuery", TranslationQuery),

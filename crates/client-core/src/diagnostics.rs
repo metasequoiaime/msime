@@ -169,13 +169,7 @@ pub fn build_bundle(
     let crash = request
         .include
         .crash_logs
-        .then(|| {
-            read_section(
-                request.sources.crash_logs.as_deref(),
-                MAX_CRASH_LOGS,
-                crash_record,
-            )
-        })
+        .then(|| read_crash_logs(request.sources.crash_logs.as_deref()))
         .transpose()?;
     let performance = request
         .include
@@ -247,6 +241,82 @@ pub fn build_bundle(
             })
         }
     }
+}
+
+/// 崩溃记录的来源有两种：遥测的崩溃目录（[`crate::telemetry::CRASH_DIRECTORY`]，里面每个 `*.crash` 文件是一条记录，Android 宿主传的就是它），或者每行一条 `{at, message, stack}` 的文件。来源是目录时按目录读，其余照常按行读。
+fn read_crash_logs(source: Option<&str>) -> Result<Section, DiagnosticsError> {
+    if let Some(source) = source {
+        let path = Path::new(source);
+        if std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_dir()) {
+            return read_crash_directory(path);
+        }
+    }
+    read_section(source, MAX_CRASH_LOGS, crash_record)
+}
+
+/// 读崩溃目录里的 `*.crash` 记录，按修改时间保留最近的 [`MAX_CRASH_LOGS`] 条。记录的格式与遥测写的相同：第一行是异常摘要，其余是栈帧；`at` 取文件的修改时间。只读普通文件，符号链接和子目录跳过；读不出或清洗后为空的记录计入丢弃，不让整个诊断包失败。
+fn read_crash_directory(directory: &Path) -> Result<Section, DiagnosticsError> {
+    let mut section = Section {
+        records: Vec::new(),
+        count: SectionCount::default(),
+    };
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(directory).map_err(DiagnosticsError::Source)? {
+        let entry = entry.map_err(DiagnosticsError::Source)?;
+        let path = entry.path();
+        let is_record = entry.file_type().is_ok_and(|kind| kind.is_file())
+            && path.extension().and_then(|value| value.to_str())
+                == Some(crate::telemetry::CRASH_EXTENSION);
+        if !is_record {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        files.push((modified, path));
+    }
+    files.sort();
+    if files.len() > MAX_CRASH_LOGS {
+        let excess = files.len() - MAX_CRASH_LOGS;
+        section.count.truncated = excess;
+        files.drain(..excess);
+    }
+    for (modified, path) in files {
+        match crash_file_record(&path, modified) {
+            Some(record) => section.records.push(record),
+            None => section.count.dropped += 1,
+        }
+    }
+    section.count.kept = section.records.len();
+    Ok(section)
+}
+
+/// 一个 `*.crash` 文件换成与 [`crash_record`] 相同的记录。
+fn crash_file_record(path: &Path, modified: std::time::SystemTime) -> Option<Value> {
+    let file = crate::storage::open_private_file(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(crate::telemetry::MAX_CRASH_RECORD_BYTES)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let (message, stack) = text.split_once('\n').unwrap_or((&text, ""));
+    let message = if message.trim().is_empty() {
+        "unknown crash"
+    } else {
+        message
+    };
+    let at = time::OffsetDateTime::from(modified);
+    let at = format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        at.year(),
+        u8::from(at.month()),
+        at.day(),
+        at.hour(),
+        at.minute(),
+        at.second()
+    );
+    sanitized_crash(&at, message, stack)
 }
 
 /// 读一个来源文件的最后 [`MAX_SOURCE_BYTES`] 字节，逐行交给 `accept` 校验，保留最近的 `limit` 行。
@@ -386,6 +456,11 @@ pub fn crash_record(line: &[u8]) -> Option<Value> {
     {
         return None;
     }
+    sanitized_crash(at, message, stack)
+}
+
+/// 崩溃记录清洗后的样子：`message` 只留异常类型，`stack` 里栈帧原样保留、说明行只留异常类型，路径都只留文件名。
+fn sanitized_crash(at: &str, message: &str, stack: &str) -> Option<Value> {
     let message = crate::telemetry::clean_message(exception_type(message.lines().next()?));
     let stack: Vec<String> = stack
         .lines()

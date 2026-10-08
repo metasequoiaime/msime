@@ -1,9 +1,10 @@
 import { SettingsGroupNote } from "./settings-group-note";
-import { Checks, GroupList } from "../core/platform-controls";
+import { Checks, GroupList, type SegmentedOption } from "../core/platform-controls";
 import { SliderRow } from "./slider-row";
 import { SwitchRow } from "./switch-row";
 import { ActionRow } from "./action-row";
 import { SettingsGroupBlock } from "./settings-group-block";
+import { SegmentedRow } from "./segmented-row";
 
 export type TouchToolbarPreferences = {
   layout: boolean;
@@ -55,6 +56,8 @@ export interface TouchKeyboardGeometrySectionProps {
   tabletSplitKeyboard?: boolean;
   /** 宿主的键盘实现了滑行输入时给出当前开关；没有时不画这个开关。 */
   glideTyping?: boolean;
+  /** 宿主有触屏九宫格数字层时给出它的排列；没有时不画这一行。 */
+  numberKeypadOrder?: "phone" | "calculator";
   /** 键盘本机设置正在保存时为 true，「数字行与 Tab 键」「横屏分离式键盘」和「滑行输入」都暂不可点。 */
   tabletFullKeysBusy: boolean;
   onHeightAdjustmentChange: (value: number) => void;
@@ -65,8 +68,14 @@ export interface TouchKeyboardGeometrySectionProps {
   onTabletFullKeysChange: (enabled: boolean) => void;
   onTabletSplitKeyboardChange: (enabled: boolean) => void;
   onGlideTypingChange: (enabled: boolean) => void;
+  onNumberKeypadOrderChange?: (value: "phone" | "calculator") => void;
   onReset: () => void;
 }
+
+const NUMBER_KEYPAD_ORDERS: readonly SegmentedOption<"phone" | "calculator">[] = [
+  { value: "phone", label: "电话" },
+  { value: "calculator", label: "计算器" },
+];
 
 /** 「屏幕键盘」页共用的触屏键盘控件，即预览之后的各组：「尺寸」（高度、间距和重置）、「工具栏」，宿主有 iPad 数字行和 Tab 键或横屏分离式键盘时的「布局」，以及宿主有滑行输入时的「手势」。 */
 export function TouchKeyboardGeometrySection({
@@ -80,6 +89,7 @@ export function TouchKeyboardGeometrySection({
   tabletFullKeys,
   tabletSplitKeyboard,
   glideTyping,
+  numberKeypadOrder,
   tabletFullKeysBusy,
   onHeightAdjustmentChange,
   onKeySpacingChange,
@@ -89,6 +99,7 @@ export function TouchKeyboardGeometrySection({
   onTabletFullKeysChange,
   onTabletSplitKeyboardChange,
   onGlideTypingChange,
+  onNumberKeypadOrderChange,
   onReset,
 }: TouchKeyboardGeometrySectionProps) {
   const toolbarValues = { ...defaultTouchToolbar, ...toolbar };
@@ -174,8 +185,19 @@ export function TouchKeyboardGeometrySection({
           )}
         </GroupList>
       )}
-      {(tabletFullKeys !== undefined || tabletSplitKeyboard !== undefined) && (
+      {(tabletFullKeys !== undefined ||
+        tabletSplitKeyboard !== undefined ||
+        numberKeypadOrder !== undefined) && (
         <GroupList title="布局">
+          {numberKeypadOrder !== undefined && (
+            <SegmentedRow
+              title="数字键盘顺序"
+              description="九宫格切到数字时的排列：电话把 1 2 3 放在最上面，计算器把 7 8 9 放在最上面。"
+              options={NUMBER_KEYPAD_ORDERS}
+              value={numberKeypadOrder}
+              onChange={(value) => onNumberKeypadOrderChange?.(value)}
+            />
+          )}
           {tabletFullKeys !== undefined && (
             <SwitchRow
               title="数字行与 Tab 键"

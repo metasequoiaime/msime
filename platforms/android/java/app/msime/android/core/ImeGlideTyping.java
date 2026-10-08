@@ -91,8 +91,10 @@ final class ImeGlideTyping implements KeyboardKeyArea.GlideTracker {
             && s.displayedTouchLayout(s.view) == KeyboardLayout.STANDARD_TOUCH_LAYOUT;
         if (!standardLetters) return;
         int measured = measureKeys(area);
+        String localMode = JsonPolicy.strictStringOrEmpty(s.view.opt("local_mode"));
+        if (localMode.isEmpty()) localMode = "none";
         if (!GlideTypingPolicy.armed(true, true, InputViewValuePolicy.scheme(s.view, -1),
-                s.dedicatedEnglish, s.view.optString("local_mode", "none"), measured)) return;
+                s.dedicatedEnglish, localMode, measured)) return;
         float x = event.getX(0);
         float y = event.getY(0);
         char letter = letterAt(x, y);

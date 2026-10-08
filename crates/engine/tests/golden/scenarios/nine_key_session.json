@@ -1,7 +1,7 @@
 {
  "name": "nine_key_session",
  "source": "tests/src/test_nine_key_session.cpp:44-68; cases :75-160",
- "note": "Reference ctest nine_key_session fails against this build (test_nine_key_session.cpp:91-107): overlay apply_engine_lattice_reading.py runs lattice decoding at 2+ syllables, so 64426 yields a Generated 米好 covering all digits ahead of the 2-digit dictionary rows. The overlay behaviour is the product intent and is what is recorded.",
+ "note": "Reference ctest nine_key_session fails against this build (test_nine_key_session.cpp:91-107): overlay apply_engine_lattice_reading.py runs lattice decoding at 2+ syllables, so 64426 yields a Generated 米好 covering all digits ahead of the 2-digit dictionary rows. The overlay behaviour is the product intent and is what is recorded. Since #5640 the grid also reads every digit as one syllable's initial (jianpin), so `64` adds 你好 (n'h) after the syllable rows; that row is part of the ranked list frequency adjustment reads, so the adjusted weights differ from the reference's.",
  "covers": [
   "nine key"
  ],

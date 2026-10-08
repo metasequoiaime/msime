@@ -1727,6 +1727,8 @@ export type Preferences = {
   touch_row_spacing_tenths?: number;
   touch_keyboard_height_adjustment?: number;
   touch_voice_shortcut?: boolean;
+  /** 九宫格数字层的排列：电话（1 2 3 在上）或计算器（7 8 9 在上）。 */
+  touch_number_keypad_order?: "phone" | "calculator";
   touch_toolbar?: Partial<TouchToolbarPreferences>;
   default_ime_mode?: "chinese" | "english";
   ime_mode_scope?: "app" | "global";

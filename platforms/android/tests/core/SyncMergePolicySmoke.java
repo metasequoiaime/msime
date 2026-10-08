@@ -108,6 +108,7 @@ public final class SyncMergePolicySmoke {
 
         // 词库合并的分批与种类换算。
         check("quickPhrase".equals(SyncMergePolicy.personalKind("quick_phrase")), "quick phrase kind");
+        check("quickPhrase".equals(SyncMergePolicy.personalKind("quick")), "snapshot quick phrase kind");
         check("wubi98".equals(SyncMergePolicy.personalKind("wubi98")), "wubi98 kind");
         check(SyncMergePolicy.personalKind("cangjie") == null, "unknown kind");
         List<SyncMergePolicy.Word> words = new ArrayList<>();
