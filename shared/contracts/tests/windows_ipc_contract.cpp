@@ -73,8 +73,10 @@ int main()
     const auto gameReply = FanyImeProtocol::Reply(gameHello, gameNewServer);
     CHECK(FanyImeProtocol::AcceptReply(gameReply, 21));
     CHECK(FanyImeProtocol::ReplyCapabilities(gameReply) == gameCapabilities);
-    CHECK((FanyImeProtocol::Negotiate(hello, gameCapabilities).capabilities & FanyImeProtocol::GameHostCandidate) ==
-          0); // old client/new server
+    // 旧 TSF 配新 Server：先确认仍能连上，否则被拒时 capabilities 本来就是 0，后一条测不出东西。
+    const auto gameOldClient = FanyImeProtocol::Negotiate(hello, gameCapabilities);
+    CHECK(gameOldClient.accepted);
+    CHECK((gameOldClient.capabilities & FanyImeProtocol::GameHostCandidate) == 0);
 
     hello.wch += 1;
     result = FanyImeProtocol::Negotiate(hello);

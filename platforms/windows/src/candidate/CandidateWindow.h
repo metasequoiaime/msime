@@ -110,6 +110,8 @@ private:
   void reposition();
   // 策略隐藏一个可见快照（INVALID_Y 又没有兜底、独占全屏、锁存）时照样发渲染回执，否则每个选词键都要白等渲染回执超时。同一个 render_serial 只发一次。
   void policy_hide(const CandidatePresentation &value);
+  // 解除反应式锁存并关掉进程句柄；cause 非空时记一条解除。
+  void release_latch(const char *cause);
   // 记下第一次失败并隐藏；error 由 catch 现场先取，免得隐藏窗口时被改写。
   void fail(ComponentFailureSite site);
   void invalidate_geometry();
@@ -231,10 +233,12 @@ private:
     uint64_t since;
   };
   std::optional<LatchWatch> latch_watch_;
-  // 每个客户端连接只盯第一次弹出；锁存因窗口化解除后重新允许盯一次。
-  std::optional<PipeTicket> latch_armed_;
-  // 被锁存的客户端；抑制作用在它的整个进程上。该进程的前台在锁存后重新进入过非窗口化、之后又变成窗口化，或同一个客户端重新连上（换了登记代次），就解除。
+  // 已经盯过第一次弹出的客户端连接，每个连接只盯一次；只记一个的话，在两个游戏之间来回切换会反复重新盯梢。锁存因窗口化解除后，该进程的连接重新允许盯一次。
+  std::vector<PipeTicket> latch_armed_;
+  // 被锁存的客户端；抑制作用在它的整个进程上。该进程的前台在锁存后重新进入过非窗口化、之后又变成窗口化，同一个客户端重新连上（换了登记代次），或进程退出，就解除。
   std::optional<PipeTicket> latched_;
+  // 被锁存进程的 SYNCHRONIZE 句柄，用来发现它已经退出；打不开时为空。
+  HANDLE latched_process_ = nullptr;
   // 锁存之后是否见过该进程的前台重新进入非窗口化，见 set_foreground。
   bool latched_seen_fullscreen_ = false;
   bool display_changed_ = false;

@@ -495,6 +495,10 @@ void dead_clients() {
   reclaimed.client.close();
   Pair late;
   require(reverse(late, 1, id + 2) == RegistryStatus::Ready);
+  // client_id 的高 32 位不是管道对端的 pid：报 IdentityRejected 而不是笼统的 Rejected，Server 才能把这次拒绝记进诊断日志。
+  Pair impostor;
+  require(reverse(impostor, 1, id ^ (uint64_t{1} << 32)) ==
+          RegistryStatus::IdentityRejected);
 }
 template <typename Predicate> void eventually(Predicate predicate) {
   const auto until = GetTickCount64() + 2000;

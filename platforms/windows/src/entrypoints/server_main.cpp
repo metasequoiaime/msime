@@ -48,6 +48,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 #include <cstdlib>
 #include <exception>
 #include <thread>
@@ -950,7 +951,21 @@ int wmain(int argc, wchar_t **argv) {
                    : (FanyImeProtocol::RequiredCapabilities |
                       FanyImeProtocol::GameHostCandidate);
     // 管道对端身份对不上时记下 pid 和错误码，用来区分「DLL 加载了但 Server 拒了连接」和「DLL 根本没加载」，比如反作弊剥掉了 Server 打开游戏进程所需的权限。
-    options.pipes.identity_rejected = [&notice](DWORD pid, DWORD error) {
+    // 在握手线程上运行，而 notice 会写盘：反作弊持续拒绝时 TSF 每次重连都会走到这里，所以同一个 pid 一分钟只记一条，免得拖慢排队中的握手。
+    auto identity_rejected_logged =
+        std::make_shared<std::pair<std::mutex, std::unordered_map<DWORD, uint64_t>>>();
+    options.pipes.identity_rejected = [&notice, identity_rejected_logged](DWORD pid, DWORD error) {
+      const uint64_t now = GetTickCount64();
+      {
+        std::lock_guard<std::mutex> lock(identity_rejected_logged->first);
+        auto &logged = identity_rejected_logged->second;
+        const auto found = logged.find(pid);
+        if (found != logged.end() && now - found->second < 60000)
+          return;
+        if (logged.size() >= 64)
+          logged.clear();
+        logged[pid] = now;
+      }
       notice("Pipe identity rejected: pid=" + std::to_string(pid) +
              " error=" + std::to_string(error));
     };
