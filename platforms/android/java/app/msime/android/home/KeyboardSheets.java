@@ -184,8 +184,7 @@ final class KeyboardSheets {
         row.addView(texts(context, title, subtitle, Ui.text(context)),
             Ui.weightWrap(1f));
         if (value != null && !value.isEmpty()) {
-            TextView state = Ui.styledLabel(context, value, Ui.TEXT_ROW_TITLE, 400, valueColor);
-            ViewPolicy.setSingleLine(state);
+            TextView state = Ui.trailingValue(context, value, Ui.TEXT_ROW_TITLE, valueColor);
             LinearLayout.LayoutParams params = Ui.rowGapParams(context);
             row.addView(state, params);
         }
@@ -345,9 +344,7 @@ final class KeyboardSheets {
         row.addView(texts, Ui.weightWrap(1f));
 
         if (value != null && value.length() > 0) {
-            TextView trailing = Ui.styledLabel(context, value, Ui.TEXT_ROW_SUBTITLE, 400,
-                Ui.subText(context));
-        ViewPolicy.setSingleLine(trailing);
+            TextView trailing = Ui.trailingValue(context, value, Ui.TEXT_ROW_SUBTITLE, Ui.subText(context));
             LinearLayout.LayoutParams valueParams = Ui.rowGapParams(context);
             row.addView(trailing, valueParams);
         }
