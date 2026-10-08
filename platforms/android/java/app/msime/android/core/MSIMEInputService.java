@@ -6546,6 +6546,8 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.hide(nineKeySpellingScroll);
         candidates = KeyboardGeometry.row(this);
         horizontalCandidateScroll = new HorizontalScrollView(this);
+        // 和九键拼音行一样不要滚动条：候选条只有一行高，默认滚动条贴在底边，浅色皮肤上是一条细灰线（#5933 录屏里看得到）。
+        horizontalCandidateScroll.setHorizontalScrollBarEnabled(false);
         horizontalCandidateScroll.addView(candidates);
         verticalCandidates = KeyboardGeometry.column(this);
         verticalCandidateScroll = new ScrollView(this);
