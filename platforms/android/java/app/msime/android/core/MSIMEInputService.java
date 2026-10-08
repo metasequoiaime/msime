@@ -2237,7 +2237,7 @@ public final class MSIMEInputService extends InputMethodService {
         String composing = KoreanInputPolicy.composing(
             InputSchemeTraits.drawsReading(nextViewScheme) && !nextDedicatedEnglish,
             next.optString("phrase_prefix", ""), next.getString("editing_text"),
-            next.optString("reading", ""));
+            InputViewValuePolicy.textOr(next, "reading", ""));
         // 九键的 editing_text 是按下的数字键（64426），写进输入框对用户没有意义；和 iOS 默认一样不在输入框里标记组词，组词只显示在键盘自己的预编辑栏上（选过的音节显示为拼音，如 ni'426）。注音 9 键例外：上面已经按大千的规则标记 reading（转换结果加未完成的数字），照常留在输入框里。
         if (ZhuyinInputPolicy.hidesNineKeyComposing(InputViewValuePolicy.booleanValue(
                 next, "nine_key", false),
@@ -3842,7 +3842,7 @@ public final class MSIMEInputService extends InputMethodService {
             // Don't apply an empty composition over the editor's newly moved selection.
             // 韩语音节已经是最终的韩文并内联标记，下面结束组字区域后它留在文档里，所以算作已输入。注音转换、越南语单词和藏文音节同样是已书写的文字（`commits_on_blur`）；藏文记的是 `editing_text` 里转换后的藏文。
             if (koreanSchemeActive() || zhuyinSchemeActive())
-                recordTypingStatistics(view.optString("reading", ""), typingSource());
+                recordTypingStatistics(InputViewValuePolicy.textOr(view, "reading", ""), typingSource());
             else if (letterCaseSchemeActive())
                 recordTypingStatistics(InputViewValuePolicy.editingText(view), typingSource());
             boolean keepsComposition = !koreanSchemeActive() && writtenCompositionActive();
@@ -7384,7 +7384,7 @@ public final class MSIMEInputService extends InputMethodService {
             String editingText = view == null ? "" : InputViewValuePolicy.editingText(view);
             boolean offersLocalModes = idle && supportsLocalTools();
             String localModeKey = view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none");
-            String reading = view == null ? "" : view.optString("reading", "");
+                    String reading = InputViewValuePolicy.textOr(view, "reading", "");
             // 九键的 editing_text 只是按下的数字。读音行显示引擎给的首选读法拼音（94'26 显示 xi'an），首行是英文词时退回 preedit（带拆分分界和选过的拼音，如 ni'426）。
             String nineKeyPreedit = "";
             if (view != null && "none".equals(localModeKey)
