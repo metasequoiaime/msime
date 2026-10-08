@@ -494,7 +494,7 @@ public final class CommunityCatalog {
             JSONObject root = new JSONObject(
                 TextPolicy.utf8(body));
             JSONObject error = root.optJSONObject("error");
-            return error == null ? "" : error.optString("code", "");
+            return error == null ? "" : JsonPolicy.strictStringOrEmpty(error.opt("code"));
         } catch (Exception error) {
             return "";
         }
