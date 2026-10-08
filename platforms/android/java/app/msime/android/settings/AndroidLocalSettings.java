@@ -63,6 +63,13 @@ public final class AndroidLocalSettings {
     public static final String GLIDE_TYPING = "platform.android.glide_typing";
     /** 设计范围的键盘高度调整（dp，-46..110，即 75%..160%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
     public static final String KEYBOARD_HEIGHT_ADJUSTMENT = "platform.android.keyboard_height_adjustment";
+    /** 浮动键盘（{@link FloatingKeyboardPolicy}），默认关。位置与屏幕尺寸相关，开关与位置都只在本机，不随账号同步。 */
+    public static final String FLOATING_KEYBOARD = "platform.android.floating_keyboard";
+    /** 浮动键盘在可移动范围里的水平 / 竖直位置，千分比（0 最左 / 最上，1000 最右 / 最下）。 */
+    public static final String FLOATING_KEYBOARD_X = "platform.android.floating_keyboard_x";
+    public static final String FLOATING_KEYBOARD_Y = "platform.android.floating_keyboard_y";
+    /** 工具栏上的「浮动键盘」按钮，默认不显示；同步的工具栏开关表在 Rust 的 `ANDROID_LOCAL_SETTINGS` 里，这一项先只在本机。 */
+    public static final String TOOLBAR_FLOATING = "platform.android.toolbar_floating";
     public static final String DEVELOPER_DEBUG_OVERLAY = "platform.android.developer.debug_overlay";
     public static final String DEVELOPER_LOG_LEVEL = "platform.android.developer.log_level";
     /** 「记录输入日志」：只记时间和事件种类，不记按键内容、文本和候选。 */
@@ -124,7 +131,7 @@ public final class AndroidLocalSettings {
         }
     }
 
-    private static final Map<String, Spec> SPECS = new LinkedHashMap<>(29);
+    private static final Map<String, Spec> SPECS = new LinkedHashMap<>(33);
 
     static {
         choice(APP_THEME, "siji", true, "siji", "chunya", "xiayin", "qiushan", "dongxue");
@@ -150,6 +157,12 @@ public final class AndroidLocalSettings {
         bool(VOICE_CONTRIBUTE_AUDIO, false, false);
         bool(GLIDE_TYPING, false, false);
         integer(KEYBOARD_HEIGHT_ADJUSTMENT, 0, false, HEIGHT_ADJUSTMENT_MIN, HEIGHT_ADJUSTMENT_MAX, 1);
+        bool(FLOATING_KEYBOARD, false, false);
+        integer(FLOATING_KEYBOARD_X, FloatingKeyboardPolicy.DEFAULT_X_FRACTION, false, 0,
+            FloatingKeyboardPolicy.MAX_FRACTION, 1);
+        integer(FLOATING_KEYBOARD_Y, FloatingKeyboardPolicy.DEFAULT_Y_FRACTION, false, 0,
+            FloatingKeyboardPolicy.MAX_FRACTION, 1);
+        bool(TOOLBAR_FLOATING, false, false);
         bool(DEVELOPER_DEBUG_OVERLAY, false, false);
         choice(DEVELOPER_LOG_LEVEL, "warn", false, "error", "warn", "info", "debug");
         bool(DEVELOPER_INPUT_LOG, false, false);

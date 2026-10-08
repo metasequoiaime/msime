@@ -12,7 +12,7 @@ public final class FunctionPanelModelSmoke {
             "page one");
         check(labels(1).equals(List.of("按键音", "振动", "单手模式", "隐私模式", "反馈", "关于",
             "AI 回复与润色", "本地输入")), "page two");
-        check(labels(2).equals(List.of("语音结果", "振动强度", "表情", "剪贴板历史")), "page three");
+        check(labels(2).equals(List.of("语音结果", "振动强度", "表情", "剪贴板历史", "浮动键盘")), "page three");
         check(FunctionPanelModel.page(3).isEmpty() && FunctionPanelModel.page(-1).isEmpty(),
             "out-of-range pages are empty");
         check(FunctionPanelModel.item(Id.TRADITIONAL).description().equals("繁体输出"),
@@ -25,7 +25,9 @@ public final class FunctionPanelModelSmoke {
         List<Id> toggles = new ArrayList<>();
         for (Item item : FunctionPanelModel.toggles()) toggles.add(item.id());
         check(toggles.equals(List.of(Id.FULL_WIDTH, Id.CHINESE_PUNCTUATION, Id.FUZZY_PINYIN,
-            Id.TRADITIONAL, Id.KEY_SOUND, Id.VIBRATION, Id.ONE_HAND, Id.PRIVACY)), "toggle set");
+            Id.TRADITIONAL, Id.KEY_SOUND, Id.VIBRATION, Id.ONE_HAND, Id.PRIVACY, Id.FLOATING)), "toggle set");
+        check(FunctionPanelModel.item(Id.FLOATING).toggle()
+            && FunctionPanelModel.pageOf(Id.FLOATING) == 2, "floating keyboard is a page-three switch (#5621)");
         HashSet<Id> seen = new HashSet<>();
         for (Item item : FunctionPanelModel.items()) check(seen.add(item.id()), "unique ids");
         check(seen.size() == Id.values().length, "every id is placed");

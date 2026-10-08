@@ -27,8 +27,10 @@ public final class KeyboardShortcutIconPolicySmoke {
             "skin glyph mapping");
         check(KeyboardShortcutIconPolicy.forLabel("收起") == Icon.DISMISS,
             "dismiss glyph mapping");
+        check(KeyboardShortcutIconPolicy.forLabel("浮动键盘") == Icon.FLOATING,
+            "floating keyboard glyph mapping");
         for (Icon icon : new Icon[] {Icon.EMOJI, Icon.PHRASE, Icon.CLIPBOARD, Icon.SKIN,
-                Icon.SCHEME, Icon.DISMISS}) {
+                Icon.SCHEME, Icon.FLOATING, Icon.DISMISS}) {
             check(KeyboardShortcutIconPolicy.materialGlyph(icon), "material toolbar glyph " + icon);
         }
         check(!KeyboardShortcutIconPolicy.materialGlyph(Icon.BOOKMARK), "bookmark keeps stroke glyph");

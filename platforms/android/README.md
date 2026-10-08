@@ -42,6 +42,15 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 - 与单手模式互斥：分离式键盘画着时单手模式不生效，侧栏不显示；存着的 `platform.android.one_handed` 不改，回到竖屏或换到不分离的布局时原来的单手模式自动回来。功能面板里的「单手模式」磁贴这时显示为不可用。
 - 键高、键盘高度设置、键距和行距都不变。旋转、换布局或开关变化后，下一次渲染发现键行与应画状态不一致时重建键行（`ImeLetterRows.splitStale`），不动 Engine session 和当前组合。
 
+### 浮动键盘
+
+浮动键盘（#5621）让整套键盘表面缩成一块圆角面板悬在应用上面，应用不再被顶起或压缩，键盘把输入框挡住时把面板拖开即可。开关是本地设置 `platform.android.floating_keyboard`（布尔，默认关，只在本机），入口有三处：功能面板第 3 页的「浮动键盘」磁贴、设置「键盘」页「布局」里的开关，以及工具栏按钮——按钮默认不显示，在设置「键盘工具栏」里打开「浮动键盘」（`platform.android.toolbar_floating`，同样只在本机；同步的工具栏开关表在 Rust 的 `ANDROID_LOCAL_SETTINGS` 里，这一项还没加进去）。规则集中在无 Android 依赖的 `FloatingKeyboardPolicy`，`FloatingKeyboardPolicySmoke` 逐条验证：
+
+- 面板宽度是当前窗口的 80%，夹在 240–480 dp 之间且不超过窗口；高度与停靠时相同（键盘高度设置照样生效），顶部多一条 22 dp 的拖动条，按住横条拖动，右端的「停靠」键回到停靠在底部的完整键盘。
+- 位置按可移动范围（系统栏之间的区域减去面板大小）里的千分比存在 `platform.android.floating_keyboard_x` / `_y`，默认水平居中、贴底；松手时写入。旋转、分屏或面板变高后换算回像素，面板总在窗口里。拖动只改面板的平移，不重新布局。
+- 实现与 LatinIME 的做法相同：浮动时输入法窗口、系统的 `inputArea` 和键盘根视图都铺满屏幕，根视图透明；`onComputeInsets` 把内容区和可见区都设成从窗口底边算起（应用不让出高度），可触摸区域只有面板（`TOUCHABLE_INSETS_REGION`），面板外的触摸落到应用上。停靠时把窗口和 `inputArea` 恢复成第一次浮动前的高度，`setInputView` 与 `updateFullscreenMode` 之后重新套一遍。
+- 浮动时单手模式和横屏分离式键盘不生效（存着的值不变，停靠后自动回来），功能面板的「单手模式」磁贴显示为不可用；外接键盘的候选条模式里不浮动，候选条停在底部，浮动磁贴与按钮显示为不可用。
+
 `check-host.sh` 在装有固定 NDK 28.2.13676358 的机器上额外用 `aarch64-linux-android28-clang++` 以 `-Wall -Werror` 对 `native/client_jni.cpp` 做目标平台编译：Java 里声明 `native` 的方法在没有 C++ 实现时照样能编过，而这是 Java 声明与共享 FFI 签名唯一必须一致的地方；完整原生构建需要 vcpkg、Rust Android 目标和固定的语音运行时，这一步都不需要。没有固定 NDK 的机器会跳过并明确说明。`verify-native.sh` 的导出清单同时覆盖 online query、云 URL、AI 请求描述符和两个在线候选写回入口。
 
 宿主 Java 以 API 35 的 `android.jar` 编译，而 manifest 声明 minSdk 28，因此比真实 APK 构建宽松；`Files.readString`/`writeString` 属于 API 34，本宿主不使用，`check-host.sh` 对这两个方法有定向检查，其余 API 级别问题仍由 Gradle lint 覆盖。`scripts/verify-local.sh` 另有 `compile: android target` 阶段，在固定 NDK、Rust `aarch64-linux-android` 目标与 vcpkg 依赖前缀齐备时检查 `msime-desktop` 的 Android 分支；宿主的 `cargo check --workspace` 只覆盖宿主目标。

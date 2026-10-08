@@ -158,8 +158,8 @@ final class ImeFunctionPanel {
                 icon(item, KeyboardIconPaths.Icon.ONE_HAND, () -> s.toggleOneHanded(false),
                     () -> s.toggleOneHanded(true)),
                 toggle(!"off".equals(s.oneHandedMode)),
-                // 分离式键盘画着的时候单手模式不生效，磁贴显示为不可用，免得点了没有反应。
-                ready && !s.panelPreferenceSaving && !s.splitKeyboardDrawn());
+                // 分离式键盘画着或键盘浮动的时候单手模式不生效，磁贴显示为不可用，免得点了没有反应。
+                ready && !s.panelPreferenceSaving && !s.splitKeyboardDrawn() && !s.floatingDrawn());
             case PRIVACY -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.INCOGNITO, s::toggleIncognito, null),
                 toggle(s.incognitoEnabled), ready && !s.panelPreferenceSaving);
@@ -199,6 +199,11 @@ final class ImeFunctionPanel {
                     s.render();
                 }, null),
                 FunctionPanelView.State.NONE, s.session != 0 && !s.emojiResources.isEmpty());
+            case FLOATING -> add(entries, states, enabled,
+                icon(item, KeyboardIconPaths.Icon.FLOATING, s::toggleFloatingKeyboard, null),
+                toggle(s.floatingKeyboard),
+                // 外接键盘的候选条模式里浮动不生效。
+                !s.panelPreferenceSaving && !s.hardwareKeyboardMode);
             case CLIPBOARD -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.CLIPBOARD_HISTORY, () -> {
                     s.closeMoreTools();
