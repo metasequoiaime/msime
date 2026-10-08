@@ -7,6 +7,7 @@ import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.AiEndpointPolicy;
 import app.msime.android.AiPolishConfiguration;
+import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -47,7 +48,7 @@ public final class AiSettingsPage extends DetailPage {
         JSONObject ai = preferences.optJSONObject("ai_assistant");
         if (ai == null) ai = new JSONObject();
         boolean enabled = ai.optBoolean("enabled", false);
-        String endpoint = ai.optString("endpoint", "");
+        String endpoint = InputViewValuePolicy.textOr(ai, "endpoint", "");
         String model = ai.optString("model", "");
         String origin = originOf(endpoint);
         JSONObject tokens = ai.optJSONObject("tokens");
@@ -104,7 +105,7 @@ public final class AiSettingsPage extends DetailPage {
         dialog.addField("留空表示不需要凭据", "", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         dialog.setValidator(values -> true);
         dialog.setPrimary("保存", values -> saveAi(next -> {
-            String endpointOrigin = originOf(next.optString("endpoint", ""));
+            String endpointOrigin = originOf(InputViewValuePolicy.textOr(next, "endpoint", ""));
             // 键盘在对话框打开期间改了端点时不写：凭据只属于确认时所见的那个来源。
             if (!origin.equals(endpointOrigin)) throw new JSONException("endpoint changed");
             JSONObject tokens = KeyboardSheets.child(next, "tokens");
@@ -135,7 +136,8 @@ public final class AiSettingsPage extends DetailPage {
         KeyboardSheets.save(this, preferences -> {
             JSONObject ai = KeyboardSheets.child(preferences, "ai_assistant");
             edit.apply(ai);
-            if (ai.optBoolean("enabled", false) && !validEndpoint(ai.optString("endpoint", "")))
+            if (ai.optBoolean("enabled", false)
+                    && !validEndpoint(InputViewValuePolicy.textOr(ai, "endpoint", "")))
                 throw new JSONException("endpoint is not allowed");
         }, this::reload, this::reload);
     }

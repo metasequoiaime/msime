@@ -1796,7 +1796,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject ai = preferences == null ? null : preferences.optJSONObject("ai_assistant");
         if (ai != null && ai.optBoolean("enabled", false)) {
             try {
-                String endpoint = ai.optString("endpoint", "");
+                String endpoint = InputViewValuePolicy.textOr(ai, "endpoint", "");
                 String origin = AiPolishConfiguration.credentialOrigin(endpoint);
                 JSONObject tokens = ai.optJSONObject("tokens");
                 String token = tokens == null ? "" : tokens.optString(origin, "");
