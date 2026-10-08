@@ -279,10 +279,14 @@ impl LanguageDictionary {
                     .map(|entry| vec![(key, entry)])
                     .unwrap_or_default());
             }
-            return Ok(entries
-                .into_iter()
-                .map(|entry| (key.clone(), entry))
-                .collect());
+            let mut entries = entries.into_iter();
+            let first = entries.next().expect("多结果查询至少有一条结果");
+            let mut result = Vec::with_capacity(entries.len() + 1);
+            result.push((key, first));
+            for entry in entries {
+                result.push((result[0].0.clone(), entry));
+            }
+            return Ok(result);
         }
         let mut result = Vec::new();
         if rest.is_empty() {
@@ -767,6 +771,37 @@ mod tests {
         assert_eq!(
             allocations, 5,
             "单结果查询不应为键再分配副本：{allocations}"
+        );
+    }
+
+    #[test]
+    fn multiple_reading_results_clone_the_query_key_only_after_the_first_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msime-zhuyin.db");
+        build(&path, &FORMAT_VERSION.to_string());
+        let connection = Connection::open(&path).unwrap();
+        for (text, weight) in [("你", 1000), ("妳", 900), ("尼", 800)] {
+            connection
+                .execute(
+                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                    ("ㄋㄧˇ", text, weight),
+                )
+                .unwrap();
+        }
+        drop(connection);
+
+        let dictionary = open_read_only(&path).unwrap();
+        let reading = readings(&["ㄋㄧˇ"]);
+        // 预热语句缓存，统计只覆盖候选查询本身。
+        let expected = dictionary.lookup_readings(&[&reading], 10).unwrap();
+        let (actual, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            dictionary.lookup_readings(&[&reading], 10).unwrap()
+        });
+
+        assert_eq!(actual, expected);
+        assert_eq!(
+            allocations, 9,
+            "多结果查询的第一行应直接取得原键：{allocations}"
         );
     }
 
