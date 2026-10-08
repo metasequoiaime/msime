@@ -50,9 +50,13 @@ pub fn open_read_only(path: &Path) -> Result<LanguageDictionary> {
     let unavailable =
         |_: rusqlite::Error| EngineError::failed(diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE);
     // A shipped resource like the offline glosses (host/glosses.rs), not user data: no symlink policy on the parent path and no busy wait, since nothing writes the file.
+    let path = crate::paths::sqlite_path_no_follow_allow_parent_symlinks(path)
+        .map_err(|_| EngineError::failed(diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE))?;
     let connection = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_NOFOLLOW
+            | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
     )
     .map_err(unavailable)?;
     connection
@@ -207,11 +211,7 @@ impl LanguageDictionary {
             return Ok(Vec::new());
         };
         if positions.iter().all(|readings| readings.len() == 1) {
-            let key = positions
-                .iter()
-                .map(|readings| readings[0].as_str())
-                .collect::<Vec<_>>()
-                .join(" ");
+            let key = join_single_readings(positions);
             return Ok(self
                 .lookup(&key, limit)?
                 .into_iter()
@@ -267,6 +267,22 @@ impl LanguageDictionary {
         result.truncate(limit);
         Ok(result)
     }
+}
+
+fn join_single_readings(positions: &[&[String]]) -> String {
+    let capacity = positions
+        .iter()
+        .map(|readings| readings[0].len())
+        .sum::<usize>()
+        .saturating_add(positions.len().saturating_sub(1));
+    let mut key = String::with_capacity(capacity);
+    for (index, readings) in positions.iter().enumerate() {
+        if index != 0 {
+            key.push(' ');
+        }
+        key.push_str(&readings[0]);
+    }
+    key
 }
 
 /// `positions` 各位置的 GLOB，位置之间用空格。只有一个读音的位置按字面匹配；多个读音且字数相同时，逐个字符下标写出该下标上出现过的字符组成的字符类；字数不同、或字符类里会混进 GLOB 自己的 `]` `^` `-` 时退成任意字符，交给 `key_matches` 精确校验。
@@ -657,6 +673,13 @@ mod tests {
         assert_eq!(rows(&[&ni], 1), ["ㄋㄧˇ:你:1000"]);
         assert!(rows(&[], 10).is_empty());
         assert!(rows(&[&hao, &ni_li], 10).is_empty());
+    }
+
+    #[test]
+    fn joins_single_readings_in_order() {
+        let ni = readings(&["ㄋㄧˇ"]);
+        let hao = readings(&["ㄏㄠˇ"]);
+        assert_eq!(join_single_readings(&[&ni, &hao]), "ㄋㄧˇ ㄏㄠˇ");
     }
 
     #[test]

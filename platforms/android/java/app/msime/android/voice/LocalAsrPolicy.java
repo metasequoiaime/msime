@@ -113,7 +113,7 @@ public final class LocalAsrPolicy {
 
     /** The native correction response carries text; reject non-string bridge values. */
     static String strictText(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     /** Native ASR text must be plain, well-formed Unicode before it reaches the editor. */
@@ -127,7 +127,7 @@ public final class LocalAsrPolicy {
 
     /** Native bridge response flags must remain JSON booleans; reject coercible strings. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     /**

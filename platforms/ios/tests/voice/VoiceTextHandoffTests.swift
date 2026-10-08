@@ -67,6 +67,18 @@ final class VoiceTextHandoffTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: outside), Data("keep".utf8))
   }
 
+  func testBoundedReaderRejectsLeafSymlink() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-voice-reader-test-(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let outside = root.appendingPathComponent("outside.json")
+    let linked = root.appendingPathComponent("linked.json")
+    try Data("synthetic handoff".utf8).write(to: outside)
+    try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: outside)
+
+    XCTAssertThrowsError(try VoiceTextHandoffStore.readBounded(linked))
+  }
+
   func testInvalidSavePreservesPendingTextAndMalformedStateIsNotConsumed() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

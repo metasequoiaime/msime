@@ -24,6 +24,13 @@ int main() {
         NSURL *missing = [root URLByAppendingPathComponent:@"missing.txt"];
         error = nil;
         assert(MSIMEReadFileUpTo(missing, 65536, &error) == nil && error != nil);
+
+        NSURL *target = [root URLByAppendingPathComponent:@"target.txt"];
+        assert([@"synthetic target" writeToURL:target atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+        NSURL *linked = [root URLByAppendingPathComponent:@"linked.txt"];
+        assert([files createSymbolicLinkAtURL:linked withDestinationURL:target error:nil]);
+        error = nil;
+        assert(MSIMEReadFileUpTo(linked, 65536, &error) == nil && error != nil);
         [files removeItemAtURL:root error:nil];
     }
     return 0;

@@ -28,6 +28,8 @@ export interface TranslationQuery {
   generation: number;
   target_language: string;
   target_languages?: string[];
+  provider?: string;
+  translation_account?: boolean;
   candidates: TranslationCandidate[];
   custom_translation?: TranslationProviderConfig | null;
   tencent_tmt?: TencentTranslationConfig | null;
@@ -59,6 +61,7 @@ export class TranslationPolicy {
   static readonly MAX_QUERY_BYTES: number = 64 * 1024;
   static readonly MAX_RESPONSE_BYTES: number = 1024 * 1024;
   static readonly MAX_TRANSLATION_BYTES: number = 4096;
+  static readonly MAX_CACHE_ENTRIES: number = 4096;
   static readonly NEGATIVE_CACHE_MS: number = 8 * 60 * 1000;
 
   static targets(query: TranslationQuery): string[] {
@@ -108,7 +111,7 @@ export class TranslationPolicy {
     return "";
   }
 
-  /** Signature excludes credentials while still invalidating work on account/provider changes. */
+  /** 签名不携带凭据原文，但凭据轮换仍必须让旧请求失效。 */
   static signature(query: TranslationQuery): string {
     const custom: TranslationProviderConfig | null = query.custom_translation ?? null;
     const niutrans: NiuTransTranslationConfig | null = query.niutrans ?? null;
@@ -119,10 +122,25 @@ export class TranslationPolicy {
       candidates: query.candidates.map((candidate: TranslationCandidate): string => candidate.text),
       english_gloss: query.english_gloss,
       provider: TranslationPolicy.provider(query),
+      translation_account: query.translation_account === true,
       endpoint: custom?.endpoint ?? "",
       app_id: niutrans?.app_id ?? "",
       region: tencent?.region ?? "",
+      custom_credential: TranslationPolicy.credentialFingerprint(custom?.api_key ?? ""),
+      niutrans_credential: TranslationPolicy.credentialFingerprint(niutrans?.apikey ?? ""),
+      tencent_id: TranslationPolicy.credentialFingerprint(tencent?.secret_id ?? ""),
+      tencent_credential: TranslationPolicy.credentialFingerprint(tencent?.secret_key ?? ""),
     });
+  }
+
+  /** 为失效签名和缓存作用域生成不含凭据原文的稳定指纹。 */
+  static credentialFingerprint(value: string): string {
+    let hash: number = 2166136261;
+    for (let index = 0; index < value.length; index++) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `${value.length}:${hash >>> 0}`;
   }
 
   /** 判断失败请求是否仍可释放当前签名，让同一候选页在下一次刷新时重试。 */
@@ -133,6 +151,20 @@ export class TranslationPolicy {
       && requestSignature.length > 0 && requestSignature === currentSignature;
   }
 
+  /** A replaced or vanished query must invalidate any timer or request for the old candidate page. */
+  static hasActiveWork(
+    signature: string,
+    timerActive: boolean,
+    requestCount: number,
+  ): boolean {
+    return signature.length > 0 || timerActive || requestCount > 0;
+  }
+
+  /** 缓存达到容量时清空，避免长时间输入让键盘进程无限保留候选词。 */
+  static shouldResetCache(size: number): boolean {
+    return size >= TranslationPolicy.MAX_CACHE_ENTRIES;
+  }
+
   /** 在线 provider 未完成时，即使离线词典有可应用条目，也必须允许相同候选页重试。 */
   static shouldReleaseAfterProviderFailure(provider: string, providerComplete: boolean,
     hasEntries: boolean): boolean {
@@ -141,8 +173,19 @@ export class TranslationPolicy {
 
   static providerScope(query: TranslationQuery): string {
     const provider: string = TranslationPolicy.provider(query);
-    if (provider === "custom") return `custom:${query.custom_translation?.endpoint ?? ""}`;
-    if (provider === "niutrans") return `niutrans:${query.niutrans?.app_id ?? ""}`;
+    if (provider === "custom") {
+      return `custom:${query.custom_translation?.endpoint ?? ""}:${TranslationPolicy.credentialFingerprint(
+        query.custom_translation?.api_key ?? "")}`;
+    }
+    if (provider === "niutrans") {
+      return `niutrans:${query.niutrans?.app_id ?? ""}:${TranslationPolicy.credentialFingerprint(
+        query.niutrans?.apikey ?? "")}`;
+    }
+    if (provider === "tencent") {
+      return `tencent:${query.tencent_tmt?.region ?? ""}:${TranslationPolicy.credentialFingerprint(
+        query.tencent_tmt?.secret_id ?? "")}:${TranslationPolicy.credentialFingerprint(
+        query.tencent_tmt?.secret_key ?? "")}`;
+    }
     return provider;
   }
 

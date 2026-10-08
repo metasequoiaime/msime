@@ -9,9 +9,10 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_request_code as shared_account_request_code, account_status as shared_account_status,
     call_session, cleanup_stale_snapshot_previews, clear_snapshot_previews,
     clear_snapshot_previews_after, cloud_dictionary_account_request, prepare_snapshot_directory,
-    replace_pending_snapshot, snapshot_command_error, snapshot_response_without_account,
-    snapshot_text_within_limit, take_pending_snapshot, valid_mobile_haptic_strength,
-    validate_pending_snapshot, PendingSnapshot, SnapshotMetadata,
+    read_snapshot_file, remove_snapshot_file, replace_pending_snapshot, snapshot_command_error,
+    snapshot_response_without_account, snapshot_text_within_limit, take_pending_snapshot,
+    valid_mobile_haptic_strength, validate_pending_snapshot, write_snapshot_file, PendingSnapshot,
+    SnapshotMetadata,
 };
 use crate::platform::mobile::mobile_community::MobileCommunityState;
 use crate::shared::account_dto::{
@@ -39,7 +40,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs::{self, File};
+use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -337,7 +338,8 @@ fn inspect_snapshot_record(
 
 fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountError> {
     const MAX_BYTES: u64 = 512 * 1024 * 1024;
-    let file = File::open(path).map_err(|_| AccountError::Unavailable)?;
+    let file =
+        crate::shared::atomic_file::open_private(path).map_err(|_| AccountError::Unavailable)?;
     let mut reader = BufReader::with_capacity(65_536, file);
     let mut line = Vec::with_capacity(65_536);
     let mut total_bytes = 0u64;
@@ -551,7 +553,7 @@ async fn dictionary_snapshot_preview(
         match result {
             Ok(metadata) => Ok((profile.user.id, path, metadata)),
             Err(error) => {
-                let _ = fs::remove_file(&path);
+                let _ = remove_snapshot_file(&path);
                 Err(error)
             }
         }
@@ -569,7 +571,7 @@ async fn dictionary_snapshot_preview(
         },
     )?;
     for path in old {
-        let _ = fs::remove_file(path);
+        let _ = remove_snapshot_file(&path);
     }
     Ok(serde_json::json!({
         "previewToken": token,
@@ -607,7 +609,7 @@ async fn dictionary_snapshot_enqueue(
                 .run_mobile_plugin::<Value>("enqueueSnapshot", request)
                 .map_err(|_| AccountError::Unavailable)
         })();
-        let _ = fs::remove_file(path);
+        let _ = remove_snapshot_file(&path);
         result
     })
     .await
@@ -629,14 +631,14 @@ async fn dictionary_snapshot_export(
             .dictionary_snapshot_to_file(&path)
             .and_then(|_| inspect_snapshot(&path))
             .and_then(|metadata| {
-                let text = fs::read_to_string(&path).map_err(|_| AccountError::Unavailable)?;
+                let text = read_snapshot_file(&path).map_err(|_| AccountError::Unavailable)?;
                 Ok(serde_json::json!({
                     "text": text,
                     "filename": "msime-dictionary-snapshot.ndjson",
                     "snapshot": metadata,
                 }))
             });
-        let _ = fs::remove_file(&path);
+        let _ = remove_snapshot_file(&path);
         result
     })
     .await
@@ -659,7 +661,7 @@ async fn dictionary_snapshot_restore_preview(
     tauri::async_runtime::spawn_blocking(move || {
         prepare_snapshot_directory(&directory).map_err(|_| AccountError::Unavailable)?;
         let path = directory.join(format!("restore-{token}.ndjson"));
-        let result = fs::write(&path, text.as_bytes())
+        let result = write_snapshot_file(&path, text.as_bytes())
             .map_err(|_| AccountError::Unavailable)
             .and_then(|_| inspect_snapshot(&path))
             .and_then(|metadata| {
@@ -672,7 +674,7 @@ async fn dictionary_snapshot_restore_preview(
                         })
                     })
             });
-        let _ = fs::remove_file(&path);
+        let _ = remove_snapshot_file(&path);
         result
     })
     .await
@@ -697,7 +699,7 @@ async fn dictionary_snapshot_restore(
     tauri::async_runtime::spawn_blocking(move || {
         prepare_snapshot_directory(&directory).map_err(|_| AccountError::Unavailable)?;
         let path = directory.join(format!("restore-{token}.ndjson"));
-        let result = fs::write(&path, text.as_bytes())
+        let result = write_snapshot_file(&path, text.as_bytes())
             .map_err(|_| AccountError::Unavailable)
             .and_then(|_| inspect_snapshot(&path))
             .and_then(|metadata| {
@@ -713,7 +715,7 @@ async fn dictionary_snapshot_restore(
                         }))
                     })
             });
-        let _ = fs::remove_file(&path);
+        let _ = remove_snapshot_file(&path);
         result
     })
     .await

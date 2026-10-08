@@ -1,18 +1,7 @@
 # 水杉输入法
 
-[![Core CI](https://github.com/metasequoiaime/msime/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/metasequoiaime/msime/actions/workflows/ci.yml)
-[![iOS CI](https://github.com/metasequoiaime/msime/actions/workflows/ci-ios.yml/badge.svg?branch=develop)](https://github.com/metasequoiaime/msime/actions/workflows/ci-ios.yml)
-[![macOS CI](https://github.com/metasequoiaime/msime/actions/workflows/ci-macos.yml/badge.svg?branch=develop)](https://github.com/metasequoiaime/msime/actions/workflows/ci-macos.yml)
-[![Android Release](https://github.com/metasequoiaime/msime/actions/workflows/release-android.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-android.yml)
-[![iOS Release](https://github.com/metasequoiaime/msime/actions/workflows/release-ios.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-ios.yml)
-[![macOS Release](https://github.com/metasequoiaime/msime/actions/workflows/release-macos.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-macos.yml)
-[![Linux Release](https://github.com/metasequoiaime/msime/actions/workflows/release-linux.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-linux.yml)
-[![Windows Release](https://github.com/metasequoiaime/msime/actions/workflows/release-windows.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-windows.yml)
-[![HarmonyOS Release](https://github.com/metasequoiaime/msime/actions/workflows/release-harmony.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-harmony.yml)
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/metasequoiaime/msime?style=flat)](https://github.com/metasequoiaime/msime/stargazers)
-[![GitHub contributors](https://img.shields.io/github/contributors/metasequoiaime/msime?style=flat)](https://github.com/metasequoiaime/msime/graphs/contributors)
-[![Built with Depot](https://depot.dev/badges/built-with-depot.svg)](https://depot.dev/?utm_source=metasequoiaime)
+<a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
 水杉输入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 与 HarmonyOS 的多平台中文输入法。六个平台各有自己的原生输入法宿主，都接入同一套共享输入运行时和同一份 React 设置界面；React 管理界面通过 Tauri 调用普通 Rust 业务库；输入算法由 msime-engine 提供。
 
@@ -51,9 +40,18 @@
 
 ## CI 与发布
 
-`develop` 上的基础检查由 `Core CI` 负责，实际执行的是 actionlint 的 workflow 校验和依赖审查；仓库的文本契约是 `scripts/` 下的那批 `test-*.py`，由 `scripts/run-checks.sh` 按文件名自动发现并执行，`Core CI` 的 contracts job 在 Linux 上跑它，`scripts/verify-local.sh` 在本地跑同一份脚本；缺少所需工具或参考仓库的检查在 CI 上打印 skipped 并通过。iOS 与 macOS 的编译与测试由各自的原生宿主 workflow 负责。Android、Linux、HarmonyOS 与 Windows 由 Native Platform CI 在对应平台或共享层有改动时运行，未改动时明确跳过；这一层覆盖宿主契约、JVM 冒烟、容器构建和交叉编译。设备级的输入验收由各平台 README 记录的设备套件和手动步骤承担，不由 CI 代替。
+`develop` 上的基础检查由 `Core CI` 负责，实际执行的是 actionlint 的 workflow 校验和依赖审查；仓库的文本契约是 `scripts/` 下的那批 `test-*.py`，由 `scripts/run-checks.sh` 按文件名自动发现并执行，`Core CI` 的 contracts job 在 Linux 上跑它，`scripts/verify-local.sh` 在本地跑同一份脚本；缺少所需工具或参考仓库的检查在 CI 上打印 skipped 并通过。iOS 与 macOS 的编译与测试由各自的原生宿主 workflow 负责。Android、Linux、HarmonyOS 与 Windows 由 Native Platform CI 在对应平台或共享层有改动时运行，未改动时明确跳过；这一层覆盖宿主契约、JVM 冒烟、容器构建和交叉编译。设备级的输入验收由各平台 README 记录的设备套件和手动步骤承担，不由 CI 代替。各 workflow 的运行状态见 [GitHub Actions](https://github.com/metasequoiaime/msime/actions)；develop 合并频繁，排队中的运行常被后来的推送取消，看结果时以最近一次跑完且未取消的运行为准。
 
-六个平台的发布完全独立：每个平台有自己的手动 release workflow、版本文件、并发组、构建产物和 GitHub Release tag。版本文件分别位于 `platforms/android/version.txt`、`platforms/ios/version.txt`、`platforms/macos/version.txt`、`platforms/linux/version.txt`、`platforms/windows/version.txt` 和 `platforms/harmony/version.txt`；tag 使用 `android-vX.Y.Z`、`ios-vX.Y.Z`、`macos-vX.Y.Z`、`linux-vX.Y.Z`、`windows-vX.Y.Z` 和 `harmony-vX.Y.Z`。发布 workflow 只创建 GitHub Release，不自动上传应用商店或使用签名凭据。
+六个平台的发布完全独立：每个平台有自己的手动 release workflow、版本文件、并发组、构建产物和 GitHub Release tag。发布 workflow 只创建 GitHub Release，不自动上传应用商店或使用签名凭据。
+
+| 平台 | 发布 workflow | 版本文件 | tag |
+| --- | --- | --- | --- |
+| Android | [![Android Release](https://github.com/metasequoiaime/msime/actions/workflows/release-android.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-android.yml) | `platforms/android/version.txt` | `android-vX.Y.Z` |
+| iOS | [![iOS Release](https://github.com/metasequoiaime/msime/actions/workflows/release-ios.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-ios.yml) | `platforms/ios/version.txt` | `ios-vX.Y.Z` |
+| macOS | [![macOS Release](https://github.com/metasequoiaime/msime/actions/workflows/release-macos.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-macos.yml) | `platforms/macos/version.txt` | `macos-vX.Y.Z` |
+| Linux | [![Linux Release](https://github.com/metasequoiaime/msime/actions/workflows/release-linux.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-linux.yml) | `platforms/linux/version.txt` | `linux-vX.Y.Z` |
+| Windows | [![Windows Release](https://github.com/metasequoiaime/msime/actions/workflows/release-windows.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-windows.yml) | `platforms/windows/version.txt` | `windows-vX.Y.Z` |
+| HarmonyOS | [![HarmonyOS Release](https://github.com/metasequoiaime/msime/actions/workflows/release-harmony.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-harmony.yml) | `platforms/harmony/version.txt` | `harmony-vX.Y.Z` |
 
 ## 开发
 
@@ -122,6 +120,8 @@ python3 scripts/fetch_neural_model.py --out target/neural-model
 ```
 
 下载只接受 HTTPS，先写入临时文件，再逐个核对锁定的长度和 SHA-256 后改名发布；已有摘要匹配的文件会跳过。发布的安装包都不带桌面模型，用户打开「桌面神经联想」时由设置应用按需下载（资源包 `settled-model`）；本地构建和发行版打包仍可以随包带上它，这时资源打包优先接受历史的 `target/settled-model` 目录，缺失时自动使用这个 `target/neural-model` 目录里的桌面模型，随包的那份优先于下载的。键盘模型仍由 `desktop-dictionary.lock.json` 的词库资源安装器校验并复制进 EngineResources，两个锁都保留作来源记录。
+
+粤拼、注音和笔画的语言词库由 `resources/language-dictionaries.lock.json` 单独固定，三套词库连同各自的许可证文本是同一个资源包 `language-dictionaries`。macOS 发布包和 Android 的 full、拼音版发布 APK 只内置打中文所需的核心词库：日文词典那一组（`msime-japanese.dat` 与两份 Mozc 许可文本）和语言词库都不随包，用户选日文、粤拼、注音或笔画方案时（Android 是在「添加语言」里添加这些语言时；拼音版不提供粤拼、注音和笔画，只会为临时日语下载日文词典）才按锁文件下载到偏好目录的 `resource-packs/`，下载的文件与随包文件一样按锁定的长度和 SHA-256 校验。Android 的这两个版本还把非英文离线释义（`resources/offline-glosses.lock.json`，打开离线释义时下载）和本地语音运行库（`resources/voice-runtime-android.lock.json`，打开「离线识别」时下载）留给按需下载，启动时不自动下载任何资源包；从内置这些文件的旧版升级时，已解压在本机的文件校验通过后直接转成资源包。Windows、Linux、iOS、HarmonyOS、Android 的其他版本和 Tauri 开发合包照旧随包。下载地址、镜像与隐私说明见 [PRIVACY.md](PRIVACY.md#资源与更新下载)。
 
 macOS 原生 IMK bundle 的构建、隔离状态目录与安装见 [macOS 宿主](platforms/macos/README.md)。`platforms/macos/scripts/install.sh` 用 Developer ID 重签并原子替换到 `~/Library/Input Methods`，失败回滚；`platforms/macos/scripts/check_input_source.swift` 核查输入源注册结果。
 

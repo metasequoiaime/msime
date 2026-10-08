@@ -222,4 +222,16 @@ final class DictionarySnapshotQueueTests: XCTestCase {
       XCTAssertEqual(try queue.read().request?.status, .failed)
     }
   }
+
+  func testEnqueueRejectsASymlinkedSource() throws {
+    try fixture { queue, file, hash, _ in
+      let target = file.deletingLastPathComponent().appendingPathComponent("target.ndjson")
+      try Data("synthetic opaque handoff file".utf8).write(to: target)
+      try FileManager.default.removeItem(at: file)
+      try FileManager.default.createSymbolicLink(at: file, withDestinationURL: target)
+
+      XCTAssertThrowsError(try enqueue(queue, file, hash))
+      XCTAssertNil(try queue.read().request)
+    }
+  }
 }

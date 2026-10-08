@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <sys/stat.h>
 
 int main() {
   using namespace msime::linux_host;
@@ -52,6 +53,11 @@ int main() {
     assert(std::string(std::istreambuf_iterator<char>(in), {}) == document);
   }
   assert(!std::filesystem::exists(std::filesystem::path(file.string() + ".new")));
+  std::filesystem::remove(file);
+  assert(::mkfifo(file.c_str(), 0600) == 0);
+  assert(write_candidate_panel_status(file, document));
+  std::filesystem::remove(file);
+  assert(write_candidate_panel_status(file, document));
   {
     const auto outside = root / "outside-status.json";
     std::ofstream(outside) << "keep";

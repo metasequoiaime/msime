@@ -90,14 +90,25 @@ inline bool write_candidate_panel_status(const std::filesystem::path &file, cons
       (info.st_mode & 022) != 0)
     return false;
   {
-    std::ifstream current(file, std::ios::binary);
-    if (current) {
-      std::string existing(document.size() + 1, '\0');
-      current.read(existing.data(), static_cast<std::streamsize>(existing.size()));
-      const auto count = current.gcount();
-      if (count == static_cast<std::streamsize>(document.size()) &&
-          existing.compare(0, document.size(), document) == 0)
-        return true;
+    const int descriptor = ::open(file.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (descriptor >= 0) {
+      struct CloseOnExit {
+        int descriptor;
+        ~CloseOnExit() { ::close(descriptor); }
+      } close_on_exit{descriptor};
+      struct stat metadata {};
+      if (::fstat(descriptor, &metadata) == 0 && S_ISREG(metadata.st_mode)) {
+        std::string existing(document.size() + 1, '\0');
+        ssize_t count = 0;
+        for (;;) {
+          count = ::read(descriptor, existing.data(), existing.size());
+          if (count < 0 && errno == EINTR) continue;
+          break;
+        }
+        if (count >= 0 && count == static_cast<ssize_t>(document.size()) &&
+            existing.compare(0, document.size(), document) == 0)
+          return true;
+      }
     }
   }
   return write_candidate_file_atomically(file, document);

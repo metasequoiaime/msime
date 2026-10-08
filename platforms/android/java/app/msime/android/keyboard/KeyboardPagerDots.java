@@ -52,7 +52,7 @@ public final class KeyboardPagerDots extends View {
         active = KeyboardGeometry.bounded(active, 0, BoundsPolicy.nonNegative(count - 1));
         previous = active;
         progress = 1f;
-        setVisibility(count > 1 ? VISIBLE : GONE);
+        ViewPolicy.setVisible(this, count > 1);
         requestLayout();
         invalidate();
     }

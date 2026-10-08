@@ -256,7 +256,7 @@ final class ImeLayoutRows {
     static String pinyinOf(String text, String resources) {
         try {
             JSONObject root = new JSONObject(NativeClient.dictionaryHansEntries(text, resources));
-            JSONObject value = Boolean.TRUE.equals(root.opt("ok"))
+            JSONObject value = JsonPolicy.strictTrue(root.opt("ok"))
                 ? root.optJSONObject("value") : null;
             JSONArray entries = value == null ? null : value.optJSONArray("entries");
             JSONObject entry = entries == null || entries.length() == 0 ? null : entries.optJSONObject(0);
@@ -354,6 +354,17 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
+        if (digits) {
+            // 数字键面的 3×3 只有 1–9，右列下面两格换成小数点和 0（与 iOS、HarmonyOS 的九键右列一致），否则这一面打不出 0。这一面的点按都直接上屏、不进组字，拆分在这里没有作用；小数点按字面上屏，不随中文标点模式变成「。」。
+            Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
+            Button zero = s.keyId(s.keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")), "Nine0");
+            for (Button key : java.util.List.of(period, zero)) {
+                if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+                addNineKey(actions, key);
+            }
+            container.addView(actions, KeyboardGeometry.weightedMatchParentParams(0.8f));
+            return;
+        }
         // 拆分：组字时把 ' 送给引擎，在已打的数字末尾定一个音节分界，只定在哪里断、不定是哪个拼音：94 拆分 26 仍可以是 xi'an（西安）或 yi'an，但不再是 xian（先）。读音栏显示成 94'26；⌫ 先删分界再删数字。原来锁定拼音列第一项的做法会把 94 定成首选的 yi，打不出西安。没在组字时引擎不处理，什么也不发生。原来的「重输」改为长按 ⌫：组字时长按删除键丢掉整串拼音（bindBackspaceRepeat）。
         Button split = s.keyboardKey("拆分", "拆分音节", () -> {
             if (s.view != null && !s.view.optString("editing_text", "").isEmpty()) s.character('\'', false);
@@ -555,7 +566,8 @@ final class ImeLayoutRows {
         s.nineKeySpellings.removeAllViews();
         s.nineKeySpellingButtons.clear();
         s.nineKeySpellingScroll.setFillViewport(candidateRow);
-        s.nineKeySpellings.setGravity(candidateRow ? Gravity.CENTER_VERTICAL : Gravity.NO_GRAVITY);
+        ViewPolicy.setGravity(s.nineKeySpellings,
+            candidateRow ? Gravity.CENTER_VERTICAL : Gravity.NO_GRAVITY);
         if (s.nineKeySpellings.getLayoutParams() != null) {
             s.nineKeySpellings.getLayoutParams().height = candidateRow
                 ? android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -594,7 +606,7 @@ final class ImeLayoutRows {
 
     void updateStrokeWildcardKey() {
         if (s.strokeWildcardKey == null) return;
-        s.strokeWildcardKey.setEnabled(
+        ViewPolicy.setEnabled(s.strokeWildcardKey,
             StrokeKeyboardLayout.sends(StrokeKeyboardLayout.WILDCARD, s.hasEngineComposition()));
     }
 
@@ -872,9 +884,10 @@ final class ImeLayoutRows {
     Button japaneseKey(JapaneseNineKeyLayout.Key key) {
         String description = key.kana().stream().filter(label -> !label.isEmpty())
             .collect(java.util.stream.Collectors.joining("、"));
-        Button button = s.keyboardKey(japaneseKeyLabel(key), description,
+        String label = japaneseKeyLabel(key);
+        Button button = s.keyboardKey(label, description,
             () -> tapJapaneseKey(key));
-        twoLineFace(button, japaneseKeyLabel(key));
+        twoLineFace(button, label);
         button.setContentDescription("轻点输入" + key.kana().get(0)
             + "，连续轻点依次切换；左、上、右、下滑动选择其他假名");
         bindJapaneseFlick(button, key);
@@ -918,7 +931,7 @@ final class ImeLayoutRows {
     }
 
     private void bindFeedbackAction(Button button, Runnable action) {
-        button.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(button, () -> {
             s.imeKeyFeedback.playFeedback(button);
             action.run();
         });

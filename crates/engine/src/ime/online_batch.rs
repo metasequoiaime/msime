@@ -7,6 +7,7 @@ use crate::types::{CandidateSource, WordItem};
 pub const AI_QUOTA: usize = 10;
 pub const CLOUD_QUOTA: usize = 1;
 pub const MAX_ONLINE_WORD_BYTES: usize = 4_096;
+const EXISTING_WORD_LINEAR_SCAN_LIMIT: usize = 64;
 
 /// Validate a provider batch without constructing rows that a caller may immediately discard.
 pub(crate) fn validate_online_candidate_batch(words: &[String], source: CandidateSource) -> bool {
@@ -18,17 +19,10 @@ pub(crate) fn validate_online_candidate_batch(words: &[String], source: Candidat
     if words.is_empty() {
         return false;
     }
-    let mut seen = HashSet::with_capacity(words.len().min(quota));
-    for word in words {
-        if !is_acceptable_online_word(word) {
-            return false;
-        }
-        if seen.len() == quota && !seen.contains(word.as_str()) {
-            return false;
-        }
-        seen.insert(word.as_str());
+    if words.iter().any(|word| !is_acceptable_online_word(word)) {
+        return false;
     }
-    true
+    unique_online_words(words, quota).is_some()
 }
 
 /// Validate, deduplicate, enforce the quota, drop the source's previous rows and insert at 1 (cloud) or 2 (AI), skipping words already listed; after a cloud insert the AI rows move as a block to index 2. False leaves `list` untouched.
@@ -46,36 +40,24 @@ pub fn replace_online_candidate_batch(
     if words.is_empty() {
         return false;
     }
-    let mut seen = HashSet::with_capacity(words.len().min(quota));
-    let mut unique = Vec::with_capacity(words.len().min(quota));
-    for word in words {
-        if !is_acceptable_online_word(word) {
-            return false;
-        }
-        if seen.insert(word.as_str()) {
-            unique.push(word.as_str());
-        }
-    }
-    // Providers repeat candidates, so the quota counts distinct words: a repeat must neither reject a valid batch nor use up a seat (online_candidate_batch.h:32-33).
-    if unique.len() > quota {
+    if words.iter().any(|word| !is_acceptable_online_word(word)) {
         return false;
     }
+    // 在线候选的协议配额最多为 10 个，固定数组可避免每批次的临时堆分配。
+    let Some((mut unique, unique_count)) = unique_online_words(words, quota) else {
+        return false;
+    };
+    // Providers repeat candidates, so the quota counts distinct words: a repeat must neither reject a valid batch nor use up a seat (online_candidate_batch.h:32-33).
 
     list.retain(|item| item.source != source);
-    let existing: HashSet<&str> = list.iter().map(|item| item.word.as_str()).collect();
-    let new_words: Vec<&str> = unique
-        .iter()
-        .filter(|word| !existing.contains(**word))
-        .copied()
-        .collect();
-    drop(existing);
-    list.reserve(new_words.len());
+    let new_count = mark_existing_online_words(list, &mut unique, unique_count);
+    list.reserve(new_count);
     let index = list.len().min(if source == CandidateSource::AiSuggestion {
         2
     } else {
         1
     });
-    for (offset, word) in new_words.into_iter().enumerate() {
+    for (offset, word) in unique.into_iter().flatten().enumerate() {
         list.insert(index + offset, WordItem::new(key, word, 1, source, ""));
     }
     if source == CandidateSource::CloudSuggestion {
@@ -87,6 +69,59 @@ pub fn replace_online_candidate_batch(
         list.splice(at..at, ai);
     }
     true
+}
+
+fn unique_online_words(
+    words: &[String],
+    quota: usize,
+) -> Option<([Option<&str>; AI_QUOTA], usize)> {
+    let mut unique = [None; AI_QUOTA];
+    let mut count = 0;
+    for word in words {
+        if unique[..count]
+            .iter()
+            .flatten()
+            .any(|candidate| *candidate == word.as_str())
+        {
+            continue;
+        }
+        if count == quota {
+            return None;
+        }
+        unique[count] = Some(word.as_str());
+        count += 1;
+    }
+    Some((unique, count))
+}
+
+fn mark_existing_online_words(
+    list: &[WordItem],
+    unique: &mut [Option<&str>; AI_QUOTA],
+    unique_count: usize,
+) -> usize {
+    let mut new_count = 0;
+    if list.len() <= EXISTING_WORD_LINEAR_SCAN_LIMIT {
+        for word in unique.iter_mut().take(unique_count) {
+            if list
+                .iter()
+                .any(|item| item.word == *word.as_ref().expect("unique online word is present"))
+            {
+                *word = None;
+            } else {
+                new_count += 1;
+            }
+        }
+        return new_count;
+    }
+    let existing: HashSet<&str> = list.iter().map(|item| item.word.as_str()).collect();
+    for word in unique.iter_mut().take(unique_count) {
+        if existing.contains(word.as_ref().expect("unique online word is present")) {
+            *word = None;
+        } else {
+            new_count += 1;
+        }
+    }
+    new_count
 }
 
 /// Non-empty, at most 4096 bytes, no C0 control byte and no DEL.
@@ -120,6 +155,57 @@ mod tests {
             row("尼", CandidateSource::Database),
             row("泥", CandidateSource::Database),
         ]
+    }
+
+    #[test]
+    fn unique_online_words_keep_order_without_heap_tracking() {
+        let input = words(&["甲", "乙", "甲", "丙"]);
+        let (unique, count) = unique_online_words(&input, 3).unwrap();
+        assert_eq!(count, 3);
+        assert_eq!(unique[..count], [Some("甲"), Some("乙"), Some("丙")]);
+        assert!(unique_online_words(&words(&["甲", "乙", "丙", "丁"]), 3).is_none());
+    }
+
+    #[test]
+    fn existing_words_use_a_zero_allocation_scan_for_short_lists() {
+        let list = dictionary_list();
+        let mut unique = [
+            Some("你"),
+            Some("智"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ];
+        let ((new_count, unique), allocations) =
+            crate::ime::personal_rerank::allocations::count(|| {
+                (mark_existing_online_words(&list, &mut unique, 2), unique)
+            });
+        assert_eq!(new_count, 1);
+        assert_eq!(allocations, 0);
+        assert_eq!(unique[..2], [None, Some("智")]);
+
+        let large_list: Vec<WordItem> = (0..=EXISTING_WORD_LINEAR_SCAN_LIMIT)
+            .map(|index| row(&format!("已有{index}"), CandidateSource::Database))
+            .collect();
+        let mut unique = [
+            Some("已有0"),
+            Some("新"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ];
+        assert_eq!(mark_existing_online_words(&large_list, &mut unique, 2), 1);
+        assert_eq!(unique[..2], [None, Some("新")]);
     }
 
     #[test]

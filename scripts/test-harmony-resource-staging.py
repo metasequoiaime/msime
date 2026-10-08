@@ -18,6 +18,8 @@ def main() -> int:
         "fs.lstatSync(child).isDirectory()",
         "stat.isSymbolicLink()",
         "StagedResources.removeDirectory(destination)",
+        "util.generateRandomUUID(false)",
+        "fs.renameSync(staging, marker)",
     ]
     missing = [item for item in required if item not in staged and item not in settings]
     if missing or "fs.rmdirSync(destination)" in staged or "fs.rmdirSync(destination)" in settings:

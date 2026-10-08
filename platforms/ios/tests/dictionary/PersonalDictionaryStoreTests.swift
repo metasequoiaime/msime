@@ -210,6 +210,20 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertThrowsError(try PersonalDictionaryImport.read(from: file))
   }
 
+  func testCoordinatedFileImportRejectsASymlinkedSource() throws {
+    #if canImport(Darwin)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-dictionary-import-link-test-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+    let target = root.appendingPathComponent("target.json")
+    try PersonalDictionaryImport.example.encoded().write(to: target)
+    let selected = root.appendingPathComponent("selected.json")
+    try FileManager.default.createSymbolicLink(at: selected, withDestinationURL: target)
+
+    XCTAssertThrowsError(try PersonalDictionaryImport.read(from: selected))
+    #endif
+  }
+
   func testMalformedStateIsPreservedAndReadDoesNotCreateFiles() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

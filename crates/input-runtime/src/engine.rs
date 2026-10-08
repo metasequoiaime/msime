@@ -57,6 +57,12 @@ pub trait InputEngine {
             "Engine cache reset is unsupported".into(),
         ))
     }
+    /// Remove cached rows for one online provider (host source 0 = cloud, 1 = AI).
+    fn clear_online_candidates(&mut self, _source: u8) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Engine(
+            "Online candidate clearing is unsupported".into(),
+        ))
+    }
     fn set_paired_punctuation_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Ok(())
     }
@@ -104,6 +110,19 @@ pub trait InputEngine {
         Err(RuntimeError::Engine(
             "Nine-key spelling selection is unsupported".into(),
         ))
+    }
+    /// 滑行的一笔；没有滑行输入的引擎不处理。
+    fn glide(
+        &mut self,
+        _keyboard: &GlideKeyboard,
+        _points: &[GlidePoint],
+    ) -> Result<EngineResult, RuntimeError> {
+        Ok(EngineResult {
+            handled: false,
+            has_commit: false,
+            commit: String::new(),
+            diagnostic: String::new(),
+        })
     }
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError>;
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
@@ -224,6 +243,10 @@ impl InputEngine for Session {
         Session::reset_cache(self);
         Ok(())
     }
+    fn clear_online_candidates(&mut self, source: u8) -> Result<(), RuntimeError> {
+        Session::clear_online_candidates(self, source)
+            .map_err(|error| RuntimeError::Engine(error.to_string()))
+    }
     fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         Session::set_paired_punctuation_enabled(self, enabled)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
@@ -268,6 +291,13 @@ impl InputEngine for Session {
     fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::choose_nine_key_spelling(self, index)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn glide(
+        &mut self,
+        keyboard: &GlideKeyboard,
+        points: &[GlidePoint],
+    ) -> Result<EngineResult, RuntimeError> {
+        Session::glide(self, keyboard, points).map_err(|e| RuntimeError::Engine(e.to_string()))
     }
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
         Session::punctuation(self, value).map_err(|error| RuntimeError::Engine(error.to_string()))

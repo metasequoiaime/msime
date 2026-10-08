@@ -50,13 +50,13 @@ def main() -> int:
         "stream completion wait": "request.on('dataEnd'" in account and "await ended;" in account,
         "user-visible snapshot export": "DocumentViewPicker(this.context).save(options)"
         in export_snapshot
-        and "fs.copyFileSync(this.snapshotFile, destination)" in export_snapshot,
+        and "await fs.copyFile(this.snapshotFile, destination)" in export_snapshot,
         "UUID preview token": "util.generateRandomUUID(false)" in account,
         "file identity replay guard": "inspected.fileSha256 !== this.snapshotMetadata.fileSha256"
         in account,
         "native restore picker": "DocumentViewPicker(this.context).select(options)" in account
         and "snapshot_restore_preview" in account,
-        "private restore copy": "fs.copyFileSync(source, this.restoreFile)" in account,
+        "private restore copy": "await fs.copyFile(sourceFile.fd, this.restoreFile)" in account,
         "native restore upload": "restoreSnapshotAuthenticated(file, revision, sha256)" in account
         and "snapshot_restore_native" in account,
         "restore cleanup": "this.clearRestorePreview();" in account,

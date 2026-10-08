@@ -106,7 +106,7 @@ public final class CommunityRequest {
     public static final int MAX_PHRASES = 200;
     /** 每条短语最多 2000 个 UTF-16 单元，与服务端的限制一致。 */
     public static final int MAX_PHRASE_UNITS = 2000;
-    /** 分组名最多 32 个 UTF-16 单元。 */
+    /** 分组名最多 32 个 Unicode 字符，与 client-core 的社区资源契约一致。 */
     public static final int MAX_PHRASE_GROUP_UNITS = 32;
 
     /** 短语包的条数是否在 1–200 之间。 */
@@ -120,9 +120,9 @@ public final class CommunityRequest {
         return !CommunityTextPolicy.hasDisallowedControl(text, true);
     }
 
-    /** 分组名：可以为空，最多 32 个 UTF-16 单元，不含任何控制字符。 */
+    /** 分组名：可以为空，最多 32 个 Unicode 字符，不含任何控制字符。 */
     public static boolean validPhraseGroup(String group) {
-        return group != null && group.length() <= MAX_PHRASE_GROUP_UNITS
+        return TextPolicy.withinCodePoints(group, MAX_PHRASE_GROUP_UNITS)
             && !CommunityTextPolicy.hasDisallowedControl(group, false);
     }
 

@@ -87,6 +87,20 @@ final class VocabularyReviewTests: XCTestCase {
     }
   }
 
+  func testWordbookImportRejectsASymlinkedSource() throws {
+    #if canImport(Darwin)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-vocabulary-import-link-test-\(UUID().uuidString)")
+    addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+    let target = root.appendingPathComponent("target.txt")
+    try Data(list.utf8).write(to: target)
+    let selected = root.appendingPathComponent("selected.txt")
+    try FileManager.default.createSymbolicLink(at: selected, withDestinationURL: target)
+
+    XCTAssertThrowsError(try VocabularyReviewStore.readWordbookData(from: selected))
+    #endif
+  }
+
   func testNeedsWordbookSeparatesNoSelectionFromAFinishedDay() {
     var status = VocabularyReviewStatus()
     XCTAssertTrue(status.needsWordbook, "no selection asks for a book")

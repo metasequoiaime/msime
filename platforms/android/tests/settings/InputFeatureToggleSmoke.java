@@ -34,8 +34,9 @@ public final class InputFeatureToggleSmoke {
         check(enabledByDefault("learning"), "learning is on by default");
         // 自动纠错 is the two nested `quanpin` corrections, each with its own row in the sheet, not one top-level switch; scripts/test-android-preference-keys.py checks every key the sheets write against the shared schema.
         check(!hasToggle("autocorrect"), "there is no all-types autocorrect switch");
-        check(enabledByDefault("cloud_candidates") && enabledByDefault("candidate_translations"),
-            "the two network-backed candidate features are on by default");
+        // 云候选 sends the composing spelling off the device, so new installs leave it off (preferences.rs `cloud_candidates: false`); candidate translations stay on because they only go online through the opt-in translation_account below.
+        check(!enabledByDefault("cloud_candidates"), "cloud candidates are off by default");
+        check(enabledByDefault("candidate_translations"), "candidate translations are on by default");
         check(enabledByDefault("english_suggestions") && enabledByDefault("chinese_punctuation"),
             "suggestions and Chinese punctuation are on by default");
         check(enabledByDefault("smart_punctuation") && enabledByDefault("paired_punctuation"),

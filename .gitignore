@@ -41,20 +41,21 @@ tasks/
 .gitnexus
 .vscode/
 .idea/
-# Skills are the exception the comment above asks for: they describe how to build
-# and launch this project, not how one contributor's machine is set up, and they
-# are worth no less than the prose in AGENTS.md. Everything else under .claude/
-# stays out — settings.local.json and the scheduler lock are per-machine state.
+# Skills are the exception the comment above asks for: they describe how to build and launch this project, not how one contributor's machine is set up, and they are worth no less than the prose in AGENTS.md. Everything else under .claude/ stays out — settings.local.json and the scheduler lock are per-machine state.
 #
-# The contents are excluded rather than the directory: git will not re-include a
-# path whose parent directory is itself excluded, so `.claude/` plus a negation
-# silently keeps ignoring the skills.
+# Each skill lives in .agents/skills/, which Codex and other agents read; .claude/skills/ only holds a relative symlink per skill, because Claude Code looks nowhere else. A new skill goes into .agents/skills/ and gets its link here.
+#
+# The contents are excluded rather than the directory: git will not re-include a path whose parent directory is itself excluded, so `.claude/` plus a negation silently keeps ignoring the skills.
 .claude/*
 !.claude/skills/
 
 # Local audit and artifact reports must never enter a source release.
 .tmp-*
 *.report.html
+
+# 决策看板由 pnpm run init-board / bundle-board 随时从 .agents/notes 重新生成，不进版本库。
+/board.html
+/demo.html
 
 # Nothing reads vendor/ any more: the input engine is crates/engine. Checkouts made before that still hold the fetched C++ Engine tree (or a link to one) there, so it stays ignored rather than showing up as thousands of untracked files a broad `git add` would commit. Delete the directory by hand.
 /vendor/

@@ -28,7 +28,7 @@ public final class DictionarySnapshotWorker {
                     .toString();
                 JSONObject prepared = new JSONObject(NativeClient.snapshotPrepare(
                     prepareRequest, queue.filePath(request.id()).toString()));
-                if (!Boolean.TRUE.equals(strictBoolean(prepared.opt("ok")))) {
+                if (!JsonPolicy.strictTrue(prepared.opt("ok"))) {
                     queue.fail(request.id(), lease);
                     return;
                 }
@@ -40,7 +40,7 @@ public final class DictionarySnapshotWorker {
                 boolean applied = queue.complete(request.id(), lease, current, false, () -> {
                     JSONObject activated = new JSONObject(NativeClient.snapshotActivate(
                         preparedHandle, request.expectedLocalVersion()));
-                    if (!Boolean.TRUE.equals(strictBoolean(activated.opt("ok"))))
+                    if (!JsonPolicy.strictTrue(activated.opt("ok")))
                         throw new IllegalStateException("snapshot activation rejected");
                     return version(options);
                 });
@@ -65,10 +65,11 @@ public final class DictionarySnapshotWorker {
 
     private static String version(String options) throws Exception {
         JSONObject result = new JSONObject(NativeClient.snapshotVersion(options));
-        if (!Boolean.TRUE.equals(strictBoolean(result.opt("ok"))))
+        if (!JsonPolicy.strictTrue(result.opt("ok")))
             throw new IllegalStateException("snapshot version unavailable");
         JSONObject value = result.getJSONObject("value");
-        String digest = value.getString("version");
+        String digest = JsonPolicy.strictString(value.opt("version"));
+        if (digest == null) throw new IllegalStateException("snapshot version missing");
         Object rawGeneration = value.opt("generation");
         String generation = rawGeneration == null || rawGeneration == JSONObject.NULL
             ? "legacy" : strictString(rawGeneration);
@@ -81,11 +82,11 @@ public final class DictionarySnapshotWorker {
 
     /** Snapshot bridge status flags must remain JSON booleans; reject scalar coercion. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     /** Snapshot identity fields must remain JSON strings; org.json otherwise coerces scalars. */
     static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 }

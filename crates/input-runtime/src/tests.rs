@@ -621,7 +621,10 @@ fn voice_provider_rejects_control_characters_in_transcripts() {
             None,
         )
         .is_none());
-    assert!(updates.is_empty(), "control-bearing transcript reached callbacks");
+    assert!(
+        updates.is_empty(),
+        "control-bearing transcript reached callbacks"
+    );
     server.join().unwrap();
 }
 
@@ -641,8 +644,7 @@ fn emoji_provider_rejects_control_characters_in_items() {
         .unwrap();
         std::io::Write::write_all(
             &mut stream,
-            r#"{"items":[{"text":"😀","annotation":"bad\u0000annotation"}]}"#
-                .as_bytes(),
+            r#"{"items":[{"text":"😀","annotation":"bad\u0000annotation"}]}"#.as_bytes(),
         )
         .unwrap();
         std::io::Write::write_all(&mut stream, b"\n").unwrap();
@@ -692,7 +694,10 @@ fn voice_provider_rejects_final_events_without_success_envelope() {
             None,
         )
         .is_none());
-    assert!(updates.is_empty(), "missing ok reached transcript callbacks");
+    assert!(
+        updates.is_empty(),
+        "missing ok reached transcript callbacks"
+    );
     server.join().unwrap();
 }
 

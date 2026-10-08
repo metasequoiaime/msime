@@ -2,22 +2,12 @@ name: Native Platform CI
 
 # Native-host gates for the four platforms that do not use the Apple runners.
 # Release workflows remain separate; this workflow only builds and tests.
+#
+# No paths-ignore on purpose: "Android host" is a required check on main and develop, and a workflow skipped by path filtering never reports it, so a documentation-only pull request would sit in "Expected" forever (the trap ci-docs.yml describes). Every job already starts unconditionally and the changes job routes a documentation-only change to each job's "platform unchanged" step, which takes seconds.
 on:
   push:
     branches: [develop, main]
-    paths-ignore:
-      - CHANGELOG.md
-      - PRIVACY.md
-      - README.en.md
-      - README.md
-      - docs/**
   pull_request:
-    paths-ignore:
-      - CHANGELOG.md
-      - PRIVACY.md
-      - README.en.md
-      - README.md
-      - docs/**
   workflow_dispatch:
   merge_group:
 
@@ -31,7 +21,7 @@ permissions:
 jobs:
   changes:
     name: Decide platform scope
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     outputs:
       android: ${{ steps.decide.outputs.android }}
@@ -95,7 +85,7 @@ jobs:
   android:
     needs: changes
     name: Android host
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -106,6 +96,25 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes ripgrep
+      # check-host.sh 在装有固定 NDK 时才把 client_jni.cpp 编译到 Android 目标上，核对 Java 的 native 声明和共享 FFI 签名一致；缺 NDK 时这一步会跳过。ubuntu-24.04 镜像 20261002 起不再预装 28.2.13676358，这里缓存并按需安装，免得这项检查悄悄失效。
+      - name: Restore the pinned Android NDK
+        if: ${{ needs.changes.outputs.android == 'true' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /usr/local/lib/android/sdk/ndk/28.2.13676358
+          key: android-ndk-28.2.13676358-${{ runner.os }}
+      - name: Install the pinned Android NDK
+        if: ${{ needs.changes.outputs.android == 'true' }}
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          set -euo pipefail
+          ndk="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
+          if ! grep -qs '28.2.13676358' "$ndk/source.properties"; then
+            # sdkmanager 退出后 yes 再写会收到 SIGPIPE（退出码 141），在 pipefail 下让整步失败；它的退出码不算数，装没装上由下一行的版本核对判断。
+            { yes || true; } | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.2.13676358' >/dev/null
+          fi
+          grep -q '28.2.13676358' "$ndk/source.properties"
       - name: Check Android host contracts and JVM smoke tests
         if: ${{ needs.changes.outputs.android == 'true' }}
         env:
@@ -133,7 +142,7 @@ jobs:
   linux:
     needs: changes
     name: Linux native host
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-8
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -150,7 +159,7 @@ jobs:
   linux-desktop:
     needs: changes
     name: Linux settings app
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-8
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -180,7 +189,7 @@ jobs:
   harmonyos:
     needs: changes
     name: HarmonyOS host
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -210,7 +219,7 @@ jobs:
   windows:
     needs: changes
     name: Windows GNU cross build
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-16
     # Ubuntu 24.04's MinGW headers predate d2d1_3.h, which msimeui includes for ID2D1DeviceContext5 and SVG rendering, so the build runs in the Debian release platforms/windows/cross/Dockerfile is based on. The steps below mirror that Dockerfile.
     container: debian:trixie-slim
     timeout-minutes: 90
@@ -287,7 +296,7 @@ jobs:
   web-engine:
     needs: changes
     name: Web engine (wasm)
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

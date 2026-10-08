@@ -4,9 +4,9 @@ use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use super::candidates::clone_candidate_rows;
 use super::chain::CommitChain;
 use super::clock::Clock;
-use super::editing::temporary_japanese_preedit;
 use super::online::OnlineRequestGuard;
 use super::options::SessionOptions;
 use crate::assets;
@@ -1262,6 +1262,12 @@ impl InputSession {
         self.prefix_query_input.clear();
     }
 
+    pub fn clear_online_candidates(&mut self, source: CandidateSource) {
+        self.engine.clear_online_candidates(source);
+        self.online_requests.invalidate();
+        self.update_mixed_candidates();
+    }
+
     /// input_session_composition.cpp:379-385. While a caret prefix is decoded the prefix list is the one on screen, so it is the one widened; the reference's caret-prefix overlay widened only the hidden whole-input list and reported growth the host could not see.
     pub(super) fn expand_initial_candidates(&mut self) -> bool {
         self.refresh_prefix_candidates();
@@ -1569,8 +1575,10 @@ impl InputSession {
 
     /// The `R` preedit and rows follow the Japanese engine after every edit.
     pub(super) fn refresh_temporary_japanese(&mut self) {
-        self.local_preedit = temporary_japanese_preedit(self.engine.preedit());
-        self.local_candidates = self.engine.candidates().to_vec();
+        self.local_preedit.clear();
+        self.local_preedit.push('R');
+        self.local_preedit.push_str(self.engine.preedit());
+        clone_candidate_rows(self.engine.candidates(), &mut self.local_candidates);
         self.add_local_fallback_candidate();
     }
 

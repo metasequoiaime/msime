@@ -58,7 +58,7 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         View card = view.findViewById(R.id.keyboard_status_card);
-        card.setBackground(Ui.rounded(Ui.card(requireContext()),
+        ViewPolicy.setBackground(card, Ui.rounded(Ui.card(requireContext()),
             Ui.dp(requireContext(), Ui.NAV_GROUP_RADIUS)));
 
         MaterialButton trial = view.findViewById(R.id.keyboard_try);
@@ -90,7 +90,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                     ViewPolicy.show(bar);
                     bar.animate().alpha(1f).setDuration(Ui.APP_BAR_FADE_MILLIS).start();
                 } else {
-                    bar.setVisibility(View.INVISIBLE);
+                    ViewPolicy.setInvisible(bar);
                     bar.setAlpha(0f);
                 }
             });
@@ -112,14 +112,14 @@ public final class KeyboardFragment extends HomeTabFragment {
         // Preparation is silent while it works out and while it is done; it only takes the screen
         // when the keyboard cannot reach the Engine, which is the one case the user has to know.
         TextView preparation = view.findViewById(R.id.keyboard_preparation);
-        preparation.setBackground(Ui.rounded(Ui.page(requireContext()), Ui.dp(requireContext(), 12)));
+        ViewPolicy.setBackground(preparation, Ui.rounded(Ui.page(requireContext()), Ui.dp(requireContext(), 12)));
         ViewPolicy.bindClick(preparation, () -> FirstRunPreparation.retry(requireContext()));
         preparationListener = status -> {
             if (!isAdded()) return;
             switch (status) {
                 case RUNNING -> {
                     preparation.setText(R.string.preparation_running);
-                    preparation.setClickable(false);
+                    ViewPolicy.setClickable(preparation, false);
                     ViewPolicy.show(preparation);
                 }
                 case FAILED -> {
@@ -127,7 +127,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                     // 原因直接写在提示里：出问题的多是别人手里的手机，没法让用户连电脑看 logcat。
                     if (reason.isEmpty()) preparation.setText(R.string.preparation_failed);
                     else preparation.setText(getString(R.string.preparation_failed_reason, reason));
-                    preparation.setClickable(true);
+                    ViewPolicy.setClickable(preparation, true);
                     ViewPolicy.show(preparation);
                 }
                 default -> {
@@ -273,12 +273,12 @@ public final class KeyboardFragment extends HomeTabFragment {
         String query = TextPolicy.lowercase(
             ((SearchPill) view.findViewById(R.id.keyboard_search)).query());
         boolean active = !query.isEmpty();
-        view.findViewById(R.id.keyboard_notices).setVisibility(active ? View.GONE : View.VISIBLE);
-        view.findViewById(R.id.keyboard_status_card).setVisibility(active ? View.GONE : View.VISIBLE);
-        view.findViewById(R.id.keyboard_rows).setVisibility(active ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_notices), !active);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_status_card), !active);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_rows), !active);
         LinearLayout results = view.findViewById(R.id.keyboard_search_results);
         results.removeAllViews();
-        results.setVisibility(active ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(results, active);
         int shown = 0;
         if (active) {
             HomeNavGroup group = null;
@@ -301,8 +301,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                 shown++;
             }
         }
-        view.findViewById(R.id.keyboard_search_empty)
-            .setVisibility(active && shown == 0 ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_search_empty), active && shown == 0);
     }
 
     /** 搜索结果的副标题：命中的关键词；只命中标题时用这一行原来的值。 */
@@ -343,9 +342,9 @@ public final class KeyboardFragment extends HomeTabFragment {
         TextView mark = view.findViewById(markId);
         Ui.applyStatusMark(mark, requireContext(), done);
         TextView button = view.findViewById(actionId);
-        button.setVisibility(done ? View.GONE : View.VISIBLE);
-        button.setOnClickListener(done ? null : ignored -> action.run());
-        button.setTextColor(ColorStateList.valueOf(Ui.accent(requireContext())));
+        ViewPolicy.setVisible(button, !done);
+        ViewPolicy.bindOptionalClick(button, done ? null : action);
+        ViewPolicy.setTextColor(button, ColorStateList.valueOf(Ui.accent(requireContext())));
         view.findViewById(rowId).setContentDescription(
             getString(label) + (done ? "，已完成" : "，未完成"));
     }

@@ -4,6 +4,7 @@ import android.content.Context;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URI;
 import java.net.URL;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -11,6 +12,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -37,6 +39,26 @@ public final class DeviceDataApi {
     public static final String RECENT_LOGIN_REQUIRED = "recent_login_required";
     /** 云端数据里可以单独删除的分类，顺序即确认框里的顺序。 */
     public static final List<String> DELETABLE_SECTIONS = List.of("preferences", "dictionary", "phrases", "clipboard");
+
+    /** Only fetch avatar URLs from the backend's upload bucket or Google's image host. */
+    public static boolean avatarUrlAllowed(String value) {
+        if (value == null) return false;
+        try {
+            URI url = URI.create(value);
+            if (!"https".equalsIgnoreCase(url.getScheme())
+                    || url.getUserInfo() != null || url.getPort() != -1 || url.getFragment() != null) {
+                return false;
+            }
+            String host = url.getHost();
+            if (host == null) return false;
+            host = host.toLowerCase(Locale.ROOT);
+            return host.equals("media.msime.app")
+                || host.equals("googleusercontent.com")
+                || host.endsWith(".googleusercontent.com");
+        } catch (IllegalArgumentException malformed) {
+            return false;
+        }
+    }
 
     /** 这个操作要求最近登录过的会话；重新登录后再试。 */
     public static final class RecentLoginRequired extends Exception {
@@ -347,7 +369,7 @@ public final class DeviceDataApi {
 
     private static String string(JSONObject object, String key) {
         Object value = object.opt(key);
-        return value instanceof String text ? text : "";
+        return JsonPolicy.strictStringOrEmpty(value);
     }
 
     /** Data summary counters are JSON integers; reject coercion and negative values. */

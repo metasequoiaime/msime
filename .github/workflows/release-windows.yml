@@ -32,7 +32,7 @@ jobs:
   # The Rust half of the client (host DLLs, MCP server, Tauri panel shell) does not depend on the edition, so it is built once per architecture here, in parallel, rather than six times over in every edition's job, where it was most of the build time.
   rust:
     needs: source
-    runs-on: windows-2025
+    runs-on: depot-windows-2025-8
     timeout-minutes: 60
     strategy:
       fail-fast: true
@@ -73,7 +73,7 @@ jobs:
   # 每个版本（shared/contracts/editions.json 里有 Windows 段的 id）各打一个安装包，可以同时安装，也可以和 msime-windows 同时安装。full 的安装包名、AppId、目录和注册表键也是自己的，不再是 msime-windows 的那一组。
   release:
     needs: [source, rust]
-    runs-on: windows-2025
+    runs-on: depot-windows-2025-8
     timeout-minutes: 150
     strategy:
       fail-fast: true

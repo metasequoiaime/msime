@@ -13,8 +13,8 @@ import java.util.Map;
 public final class UpdateApiSmoke {
     public static void main(String[] arguments) throws Exception {
         // 资产名与 edition_android.py 的 apk_name 一致。
-        check("msime-client".equals(UpdateApi.apkAssetName("full")), "full asset name");
-        check("msime-client-wubi".equals(UpdateApi.apkAssetName("wubi")), "edition asset name");
+        check("msime-android".equals(UpdateApi.apkAssetName("full")), "full asset name");
+        check("msime-android-wubi".equals(UpdateApi.apkAssetName("wubi")), "edition asset name");
         rejects(() -> UpdateApi.apkAssetName("../x"), "edition ids are validated");
 
         // 只允许 https 与白名单主机。
@@ -45,12 +45,12 @@ public final class UpdateApiSmoke {
         check(UpdateApi.Channel.fromId("nonsense") == UpdateApi.Channel.STABLE, "unknown channel is stable");
 
         UpdateApi.Update update = UpdateApi.update(releases.get(0), "full");
-        check(update.apkUrl().equals("https://github.com/metasequoiaime/msime/releases/download/android-v1.1.0/msime-client.apk"), "apk url");
+        check(update.apkUrl().equals("https://github.com/metasequoiaime/msime/releases/download/android-v1.1.0/msime-android.apk"), "apk url");
         check(update.checksumUrl().equals(update.apkUrl() + ".sha256"), "checksum url");
         check(UpdateApi.update(new UpdateApi.Release("../../x", "9", false), "full") == null, "tags are validated");
 
         String digest = "ab".repeat(32);
-        check(digest.equals(UpdateApi.parseChecksum(digest.toUpperCase(Locale.ROOT) + "  msime-client.apk\n")), "sha256sum format");
+        check(digest.equals(UpdateApi.parseChecksum(digest.toUpperCase(Locale.ROOT) + "  msime-android.apk\n")), "sha256sum format");
         check(UpdateApi.parseChecksum("not-a-digest") == null, "malformed checksum");
         java.lang.reflect.Method strictString = UpdateApi.class.getDeclaredMethod("strictString", Object.class);
         strictString.setAccessible(true);
@@ -71,12 +71,29 @@ public final class UpdateApiSmoke {
             return exchange;
         });
         routes.put(update.checksumUrl(), new UpdateApi.Exchange(302, "https://release-assets.githubusercontent.com/sum", -1, null));
-        routes.put("https://release-assets.githubusercontent.com/sum", body(good + "  msime-client.apk\n"));
+        routes.put("https://release-assets.githubusercontent.com/sum", body(good + "  msime-android.apk\n"));
         routes.put(update.apkUrl(), new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk)));
         File cache = Files.createTempDirectory("update-smoke").toFile();
         File downloaded = api.download(update, cache, null);
-        check(downloaded.isFile() && downloaded.getName().equals("msime-client.apk"), "verified file kept");
+        check(downloaded.isFile() && downloaded.getName().equals("msime-android.apk"), "verified file kept");
         check(downloaded.getParentFile().getName().equals("updates"), "stored under cache/updates");
+
+        // Cancelling from the progress callback must remove the partial APK.
+        File cancelledCache = Files.createTempDirectory("update-smoke-cancelled").toFile();
+        UpdateApi cancelApi = new UpdateApi(url -> {
+            if (url.equals(update.checksumUrl())) return body(good + "  msime-android.apk\n");
+            if (url.equals(update.apkUrl())) return new UpdateApi.Exchange(200, null, apk.length,
+                new ByteArrayInputStream(apk));
+            return new UpdateApi.Exchange(404, null, 0, new ByteArrayInputStream(new byte[0]));
+        });
+        try {
+            cancelApi.download(update, cancelledCache, (done, total) -> {
+                throw new java.util.concurrent.CancellationException("synthetic cancellation");
+            });
+            throw new AssertionError("a cancelled update must stop");
+        } catch (java.util.concurrent.CancellationException expected) { }
+        check(!new File(cancelledCache, "updates/msime-android.apk.part").exists(),
+            "a cancelled download leaves no partial APK");
 
         // A partial-file symlink created after stale cleanup must not receive the APK.
         File symlinkCache = Files.createTempDirectory("update-smoke-symlink").toFile();
@@ -85,9 +102,9 @@ public final class UpdateApiSmoke {
         File external = new File(symlinkCache, "outside.apk");
         Files.writeString(external.toPath(), "sentinel");
         UpdateApi symlinkApi = new UpdateApi(url -> {
-            if (url.equals(update.checksumUrl())) return body(good + "  msime-client.apk\n");
+            if (url.equals(update.checksumUrl())) return body(good + "  msime-android.apk\n");
             if (url.equals(update.apkUrl())) {
-                Files.createSymbolicLink(new File(symlinkDirectory, "msime-client.apk.part").toPath(),
+                Files.createSymbolicLink(new File(symlinkDirectory, "msime-android.apk.part").toPath(),
                     symlinkDirectory.toPath().relativize(external.toPath()));
                 return new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk));
             }
@@ -100,7 +117,7 @@ public final class UpdateApiSmoke {
         }
         check("sentinel".equals(Files.readString(external.toPath())),
             "update download must not follow a partial-file symlink");
-        File symlinkTarget = new File(symlinkDirectory, "msime-client.apk");
+        File symlinkTarget = new File(symlinkDirectory, "msime-android.apk");
         check(!Files.isSymbolicLink(symlinkTarget.toPath()), "update target must not be a symlink");
 
         // The updates directory itself must not redirect writes outside the cache.
@@ -119,7 +136,7 @@ public final class UpdateApiSmoke {
         // 关于页和每日任务同时下载：排队进行，后一次直接用前一次已经核对过的文件，不互删 .part、也不再下一遍。
         java.util.concurrent.atomic.AtomicInteger apkFetches = new java.util.concurrent.atomic.AtomicInteger();
         UpdateApi racing = new UpdateApi(url -> {
-            if (url.equals(update.checksumUrl())) return body(good + "  msime-client.apk\n");
+            if (url.equals(update.checksumUrl())) return body(good + "  msime-android.apk\n");
             if (url.equals(update.apkUrl())) {
                 apkFetches.incrementAndGet();
                 return new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk));
@@ -136,15 +153,15 @@ public final class UpdateApiSmoke {
         check(one.equals(two) && one.isFile(), "concurrent downloads end with the same verified file");
         check(good.equals(UpdateApi.sha256Hex(one)), "the shared file is intact");
         check(apkFetches.get() == 1, "the second download reuses the verified file");
-        check(!new File(raceCache, "updates/msime-client.apk.part").exists(), "no partial file is left behind");
+        check(!new File(raceCache, "updates/msime-android.apk.part").exists(), "no partial file is left behind");
 
-        routes.put("https://release-assets.githubusercontent.com/sum", body("cd".repeat(32) + "  msime-client.apk\n"));
+        routes.put("https://release-assets.githubusercontent.com/sum", body("cd".repeat(32) + "  msime-android.apk\n"));
         routes.put(update.apkUrl(), new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk)));
         try {
             api.download(update, cache, null);
             throw new AssertionError("a checksum mismatch must fail");
         } catch (UpdateApi.Failure expected) {
-            check(!new File(cache, "updates/msime-client.apk.part").exists(), "a failed download leaves nothing behind");
+            check(!new File(cache, "updates/msime-android.apk.part").exists(), "a failed download leaves nothing behind");
         }
 
         routes.put(update.checksumUrl(), new UpdateApi.Exchange(302, "https://evil.example/sum", -1, null));

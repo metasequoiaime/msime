@@ -151,7 +151,9 @@ impl AccountSessionStorage for FileAccountSessionStorage {
             }
         }
         // The file can be replaced after symlink_metadata returns. Read through a bounded handle so the size check cannot turn into an unbounded allocation.
-        let bytes = read_session_file(File::open(&path).map_err(|_| AccountError::Storage)?)?;
+        let bytes = read_session_file(
+            crate::storage::open_private_file(&path).map_err(|_| AccountError::Storage)?,
+        )?;
         decode(&bytes).map(Some)
     }
 

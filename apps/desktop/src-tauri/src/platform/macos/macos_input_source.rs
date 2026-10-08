@@ -8,7 +8,7 @@
 
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -27,6 +27,7 @@ const INITIAL_COMMAND_OUTPUT_CAPACITY: usize = 8 * 1024;
 const MAX_INFO_PLIST_BYTES: u64 = 1024 * 1024;
 const MAX_LAUNCH_SERVICES_DUMP_BYTES: usize = 8 * 1024 * 1024;
 const MAX_INPUT_SOURCE_PREFERENCES_BYTES: usize = 1024 * 1024;
+const MAX_PLUTIL_VERSION_BYTES: usize = 1024;
 /// The system-wide input method directory. Nothing this product shipped installed there, but a copy placed by hand competes with the user's; removing it needs an administrator, so it is only reported.
 const SYSTEM_INPUT_METHODS: &str = "/Library/Input Methods";
 
@@ -50,6 +51,10 @@ fn bounded_command_output(command: &mut Command, maximum: usize) -> Option<Vec<u
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
+    bounded_child_output(&mut child, maximum)
+}
+
+fn bounded_child_output(child: &mut std::process::Child, maximum: usize) -> Option<Vec<u8>> {
     let stdout = child.stdout.take()?;
     let mut bytes = Vec::with_capacity(maximum.min(INITIAL_COMMAND_OUTPUT_CAPACITY));
     let read = stdout
@@ -100,7 +105,7 @@ fn validate_bundle(source: &Path) -> Result<(), InstallError> {
         return Err(InstallError::InvalidBundle);
     }
     let plist = crate::shared::bounded_body::read_bounded(
-        fs::File::open(info).map_err(|_| InstallError::InvalidBundle)?,
+        crate::shared::atomic_file::open_private(&info).map_err(|_| InstallError::InvalidBundle)?,
         MAX_INFO_PLIST_BYTES as usize,
     )
     .map_err(|_| InstallError::InvalidBundle)?;
@@ -138,6 +143,14 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<(), InstallError> {
 }
 
 fn copy_tree_within(root: &Path, source: &Path, destination: &Path) -> Result<(), InstallError> {
+    if let Some(parent) = source.parent() {
+        crate::shared::atomic_file::check_directory_ancestors(parent)
+            .map_err(|_| InstallError::Io)?;
+    }
+    if let Some(parent) = destination.parent() {
+        crate::shared::atomic_file::check_directory_ancestors(parent)
+            .map_err(|_| InstallError::Io)?;
+    }
     let metadata = fs::symlink_metadata(source).map_err(|_| InstallError::Io)?;
     if metadata.file_type().is_symlink() {
         let target = fs::read_link(source).map_err(|_| InstallError::Io)?;
@@ -158,8 +171,21 @@ fn copy_tree_within(root: &Path, source: &Path, destination: &Path) -> Result<()
     if !metadata.is_file() {
         return Err(InstallError::InvalidBundle);
     }
-    fs::copy(source, destination).map_err(|_| InstallError::Io)?;
-    fs::set_permissions(destination, metadata.permissions()).map_err(|_| InstallError::Io)
+    let mut input =
+        crate::shared::atomic_file::open_private(source).map_err(|_| InstallError::Io)?;
+    if !input.metadata().map_err(|_| InstallError::Io)?.is_file() {
+        return Err(InstallError::InvalidBundle);
+    }
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+        .map_err(|_| InstallError::Io)?;
+    io::copy(&mut input, &mut output).map_err(|_| InstallError::Io)?;
+    output
+        .set_permissions(metadata.permissions())
+        .map_err(|_| InstallError::Io)?;
+    output.sync_all().map_err(|_| InstallError::Io)
 }
 
 fn remove_staging(path: &Path) -> Result<(), InstallError> {
@@ -252,7 +278,7 @@ fn carries_product_identifier(bundle: &Path) -> bool {
     if is_symlink(&info).unwrap_or(true) {
         return false;
     }
-    let Ok(file) = fs::File::open(&info) else {
+    let Ok(file) = crate::shared::atomic_file::open_private(&info) else {
         return false;
     };
     let Ok(plist) = crate::shared::bounded_body::read_bounded(file, MAX_INFO_PLIST_BYTES as usize)
@@ -491,17 +517,7 @@ fn refresh_system_input_source_lists() {
     ) {
         let cache = PathBuf::from(String::from_utf8_lossy(&output).trim())
             .join(KEYBOARD_SETTINGS_EXTENSION_ID);
-        if cache.is_absolute() {
-            for entry in fs::read_dir(&cache).into_iter().flatten().flatten() {
-                if entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(INPUT_SOURCE_CACHE_PREFIX)
-                {
-                    let _ = fs::remove_file(entry.path());
-                }
-            }
-        }
+        clear_input_source_cache(&cache);
     }
     pkill(
         Some("-KILL"),
@@ -523,6 +539,61 @@ fn literal_process_pattern(path: &Path) -> String {
         pattern.push(character);
     }
     pattern
+}
+
+fn clear_input_source_cache(cache: &Path) {
+    if !cache.is_absolute() || crate::shared::atomic_file::check_directory_ancestors(cache).is_err()
+    {
+        return;
+    }
+    let Ok(metadata) = fs::symlink_metadata(cache) else {
+        return;
+    };
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return;
+    }
+    #[cfg(unix)]
+    {
+        let Ok(descriptor) = crate::shared::atomic_file::open_private_directory(cache) else {
+            return;
+        };
+        let Ok(mut directory) = rustix::fs::Dir::new(descriptor) else {
+            return;
+        };
+        clear_input_source_cache_directory(&mut directory);
+    }
+    #[cfg(not(unix))]
+    {
+        for entry in fs::read_dir(cache).into_iter().flatten().flatten() {
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(INPUT_SOURCE_CACHE_PREFIX)
+            {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+fn clear_input_source_cache_directory(directory: &mut rustix::fs::Dir) {
+    while let Some(entry) = directory.read() {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        if !entry
+            .file_name()
+            .to_bytes()
+            .starts_with(INPUT_SOURCE_CACHE_PREFIX.as_bytes())
+        {
+            continue;
+        }
+        let Ok(descriptor) = directory.fd() else {
+            continue;
+        };
+        let _ = rustix::fs::unlinkat(descriptor, entry.file_name(), rustix::fs::AtFlags::empty());
+    }
 }
 
 /// Stop every running copy of the input method, as `scripts/install.sh` does after it replaces the bundle.
@@ -610,23 +681,30 @@ impl Ord for BundleVersion {
 }
 
 fn plist_string(info: &Path, key: &str) -> Option<String> {
-    let output = std::process::Command::new("/usr/bin/plutil")
-        .args(["-extract", key, "raw", "-o", "-"])
-        .arg(info)
-        .output()
-        .ok()?;
-    if !output.status.success() {
+    let file = crate::shared::atomic_file::open_private(info).ok()?;
+    let plist =
+        crate::shared::bounded_body::read_bounded(file, MAX_INFO_PLIST_BYTES as usize).ok()?;
+    let mut command = Command::new("/usr/bin/plutil");
+    command
+        .args(["-extract", key, "raw", "-o", "-", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut child = command.spawn().ok()?;
+    let mut stdin = child.stdin.take()?;
+    if stdin.write_all(&plist).is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
         return None;
     }
-    String::from_utf8(output.stdout).ok()
+    drop(stdin);
+    let output = bounded_child_output(&mut child, MAX_PLUTIL_VERSION_BYTES)?;
+    String::from_utf8(output).ok()
 }
 
 /// Read a bundle's version through `plutil`, which accepts both XML and binary property lists. Missing or non-numeric values give `None`.
 pub(crate) fn bundle_version(bundle: &Path) -> Option<BundleVersion> {
     let info = bundle.join("Contents/Info.plist");
-    if !info.is_file() {
-        return None;
-    }
     let short = plist_string(&info, "CFBundleShortVersionString")?;
     let build = plist_string(&info, "CFBundleVersion")?;
     BundleVersion::parse(&short, &build)
@@ -863,11 +941,7 @@ fn preference_list_json(domain: &str, key: &str) -> Option<Vec<u8>> {
         .spawn()
         .ok()?;
     plutil.stdin.take()?.write_all(&exported).ok()?;
-    let output = plutil.wait_with_output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    Some(output.stdout)
+    bounded_child_output(&mut plutil, MAX_INPUT_SOURCE_PREFERENCES_BYTES)
 }
 
 #[cfg(test)]
@@ -895,6 +969,75 @@ mod tests {
         let mut command = Command::new("/bin/sh");
         command.args(["-c", "printf 12345"]);
         assert!(bounded_command_output(&mut command, 4).is_none());
+    }
+
+    #[test]
+    fn bounded_child_output_rejects_oversized_stdout_after_stdin() {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "cat >/dev/null; printf 12345"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"synthetic-input")
+            .unwrap();
+        assert!(bounded_child_output(&mut child, 4).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn input_source_cache_cleanup_refuses_a_symlinked_directory() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempdir().unwrap();
+        let cached = outside.path().join("com.apple.IntlDataCache.le.synthetic");
+        fs::write(&cached, b"synthetic-cache").unwrap();
+        let root = tempdir().unwrap();
+        let linked = root.path().join("Keyboard-Settings");
+        symlink(outside.path(), &linked).unwrap();
+
+        clear_input_source_cache(&linked);
+
+        assert_eq!(fs::read(&cached).unwrap(), b"synthetic-cache");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn input_source_cache_cleanup_stays_with_an_open_directory_after_replacement() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().unwrap();
+        let cache = root.path().join("Keyboard-Settings");
+        fs::create_dir(&cache).unwrap();
+        let cached = cache.join("com.apple.IntlDataCache.le.synthetic");
+        fs::write(&cached, b"synthetic-cache").unwrap();
+        let outside = tempdir().unwrap();
+        let outside_cached = outside.path().join("com.apple.IntlDataCache.le.outside");
+        fs::write(&outside_cached, b"synthetic-outside").unwrap();
+
+        let descriptor = rustix::fs::open(
+            &cache,
+            rustix::fs::OFlags::RDONLY
+                | rustix::fs::OFlags::DIRECTORY
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::empty(),
+        )
+        .unwrap();
+        let mut directory = rustix::fs::Dir::new(descriptor).unwrap();
+        let moved = root.path().join("moved");
+        fs::rename(&cache, &moved).unwrap();
+        symlink(outside.path(), &cache).unwrap();
+
+        clear_input_source_cache_directory(&mut directory);
+
+        assert!(!moved.join("com.apple.IntlDataCache.le.synthetic").exists());
+        assert_eq!(fs::read(&outside_cached).unwrap(), b"synthetic-outside");
     }
 
     #[cfg(target_os = "macos")]
@@ -1030,6 +1173,14 @@ mod tests {
         .unwrap();
         assert_eq!(bundle_version(&bundle), None);
         assert_eq!(bundle_version(&root.path().join("missing.app")), None);
+
+        let linked_root = tempdir().unwrap();
+        let linked = versioned_fixture(linked_root.path(), "0.50.0", "7289", b"x");
+        let outside = linked_root.path().join("outside.plist");
+        fs::copy(linked.join("Contents/Info.plist"), &outside).unwrap();
+        fs::remove_file(linked.join("Contents/Info.plist")).unwrap();
+        std::os::unix::fs::symlink(&outside, linked.join("Contents/Info.plist")).unwrap();
+        assert_eq!(bundle_version(&linked), None);
     }
 
     // `bundle_version` reads the plist through `/usr/bin/plutil`, which exists only on macOS. The
@@ -1315,6 +1466,23 @@ mod tests {
             validate_bundle(&source),
             Err(InstallError::InvalidBundle)
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_symlinked_file_destination_without_writing_through_it() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().unwrap();
+        let source = root.path().join("source");
+        fs::write(&source, b"synthetic-source").unwrap();
+        let outside = root.path().join("outside");
+        fs::write(&outside, b"synthetic-outside").unwrap();
+        let destination = root.path().join("destination");
+        symlink(&outside, &destination).unwrap();
+
+        assert!(copy_tree_within(root.path(), &source, &destination).is_err());
+        assert_eq!(fs::read(&outside).unwrap(), b"synthetic-outside");
     }
 
     #[cfg(unix)]

@@ -338,8 +338,8 @@ public final class CommunityCatalog {
     /** 一个条目，读不出或不合规时为 null。 */
     private static Item item(CommunityRequest.Kind kind, JSONObject value) {
         boolean skin = kind == CommunityRequest.Kind.SKIN;
-        String id = strictString(value.opt("id"));
-        String name = strictString(value.opt("name"));
+        String id = JsonPolicy.strictString(value.opt("id"));
+        String name = JsonPolicy.strictString(value.opt("name"));
         if (id == null || name == null) return null;
         name = TextPolicy.trimmed(name);
         JSONObject payload = skin ? value.optJSONObject("design") : value.optJSONObject("content");
@@ -355,9 +355,9 @@ public final class CommunityCatalog {
             category = CommunityRequest.Category.parse(raw == JSONObject.NULL ? null : raw);
             if (category == null) return null;
         }
-        String description = value.has("description") ? strictString(value.opt("description")) : "";
-        String author = value.has("author") ? strictString(value.opt("author")) : "";
-        Boolean owned = value.has("owned") ? strictBoolean(value.opt("owned")) : Boolean.FALSE;
+        String description = value.has("description") ? JsonPolicy.strictString(value.opt("description")) : "";
+        String author = value.has("author") ? JsonPolicy.strictString(value.opt("author")) : "";
+        Boolean owned = value.has("owned") ? JsonPolicy.strictBoolean(value.opt("owned")) : Boolean.FALSE;
         if (description == null || author == null || owned == null) return null;
         Item item = new Item(id, kind, name, TextPolicy.trimmed(description), TextPolicy.trimmed(author), saves, ratings,
             average, payload, category, owned, downloads, value);
@@ -371,9 +371,9 @@ public final class CommunityCatalog {
         for (int index = 0; index < phrases.length(); index++) {
             JSONObject phrase = phrases.optJSONObject(index);
             if (phrase == null) return false;
-            String text = strictString(phrase.opt("text"));
+            String text = JsonPolicy.strictString(phrase.opt("text"));
             Object rawGroup = phrase.opt("group");
-            String group = rawGroup == null || rawGroup == JSONObject.NULL ? "" : strictString(rawGroup);
+            String group = rawGroup == null || rawGroup == JSONObject.NULL ? "" : JsonPolicy.strictString(rawGroup);
             if (!CommunityRequest.validPhraseText(text) || !CommunityRequest.validPhraseGroup(group)) return false;
         }
         return true;
@@ -381,21 +381,21 @@ public final class CommunityCatalog {
 
     /** org.json's optString/optBoolean coerce numbers and booleans; community responses are a typed contract. */
     static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     /** Pagination controls must be JSON booleans; malformed values mean there is no next page. */
     static boolean pageHasMore(Object value) {
-        return Boolean.TRUE.equals(strictBoolean(value));
+        return JsonPolicy.strictTrue(value);
     }
 
     /** A successful HTTP status is not enough: the backend must confirm that it recorded the report. */
     static boolean confirmedReport(Object value) {
-        return Boolean.TRUE.equals(value);
+        return JsonPolicy.strictTrue(value);
     }
 
     /** Keep the report endpoint safe even when a caller bypasses catalogue parsing. */

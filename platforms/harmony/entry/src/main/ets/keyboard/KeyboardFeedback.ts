@@ -17,6 +17,8 @@ export interface FeedbackSettings {
   readonly sound: boolean;
   readonly haptics: boolean;
   readonly strength: HapticStrength;
+  /** 滑行输入, which is stored here because it too belongs to the device rather than the account: the shared preferences have no key for it. Off unless the user turns it on. */
+  readonly glideTyping: boolean;
 }
 
 const STRENGTHS: HapticStrength[] = [
@@ -41,7 +43,7 @@ export class KeyboardFeedback {
   static readonly MAX_BYTES: number = 4096;
 
   static readonly DEFAULTS: FeedbackSettings = {
-    sound: false, haptics: false, strength: HapticStrength.MEDIUM
+    sound: false, haptics: false, strength: HapticStrength.MEDIUM, glideTyping: false
   };
 
   static title(strength: HapticStrength): string {
@@ -73,7 +75,8 @@ export class KeyboardFeedback {
       return {
         sound: typeof raw.sound === 'boolean' ? raw.sound : KeyboardFeedback.DEFAULTS.sound,
         haptics: typeof raw.haptics === 'boolean' ? raw.haptics : KeyboardFeedback.DEFAULTS.haptics,
-        strength: STRENGTHS.includes(raw.strength) ? raw.strength : KeyboardFeedback.DEFAULTS.strength
+        strength: STRENGTHS.includes(raw.strength) ? raw.strength : KeyboardFeedback.DEFAULTS.strength,
+        glideTyping: typeof raw.glideTyping === 'boolean' ? raw.glideTyping : KeyboardFeedback.DEFAULTS.glideTyping
       };
     } catch (error) {
       return KeyboardFeedback.DEFAULTS;

@@ -21,7 +21,7 @@ fn secure_lock_file_options(path: &Path) -> io::Result<OpenOptions> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
     }
     #[cfg(windows)]
     {
@@ -34,7 +34,7 @@ fn secure_lock_file_options(path: &Path) -> io::Result<OpenOptions> {
 
 pub(crate) fn open_lock_file(path: impl AsRef<Path>) -> io::Result<File> {
     let path = path.as_ref();
-    secure_lock_file_options(path)?.open(path)
+    ensure_regular(secure_lock_file_options(path)?.open(path)?)
 }
 
 /// Open a lock file with owner-only permissions on Unix hosts.
@@ -46,7 +46,44 @@ pub fn open_private_lock_file(path: impl AsRef<Path>) -> io::Result<File> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    options.open(path)
+    ensure_regular(options.open(path)?)
+}
+
+fn ensure_regular(file: File) -> io::Result<File> {
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "lock file is not a regular file",
+        ));
+    }
+    Ok(file)
+}
+
+/// 以只读方式打开文件，并拒绝跟随最后一级符号链接。
+pub fn open_private_file(path: impl AsRef<Path>) -> io::Result<File> {
+    let path = path.as_ref();
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // A user-controlled FIFO must not block the host thread while it is opened.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private input is not a regular file",
+        ));
+    }
+    Ok(file)
 }
 
 pub(crate) fn try_shared(file: &File) -> io::Result<bool> {
@@ -130,6 +167,17 @@ pub fn exclusive(file: &File) -> io::Result<()> {
     }
 }
 
+pub(crate) fn unlock(file: &File) -> io::Result<()> {
+    #[cfg(not(target_os = "android"))]
+    {
+        file.unlock()
+    }
+    #[cfg(target_os = "android")]
+    {
+        rustix::fs::flock(file, rustix::fs::FlockOperation::Unlock).map_err(Into::into)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,6 +218,29 @@ mod tests {
             std::fs::read(&target).unwrap(),
             b"synthetic-private-lock-target"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_fifo_lock_leaf() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.lock");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+
+        assert!(open_lock_file(&path).is_err());
+        assert!(open_private_lock_file(&path).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_directory_as_a_private_file() {
+        let root = tempfile::tempdir().unwrap();
+
+        assert!(open_private_file(root.path()).is_err());
     }
 
     #[test]

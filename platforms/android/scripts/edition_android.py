@@ -3,7 +3,7 @@
 
 多个版本可以同时装在一台 Android 设备上，彼此完全隔离：每个版本有自己的 applicationId（也就是包名、私有数据目录和输入法服务的组件包名）、自己的 ContentProvider authority（清单里写成 `${applicationId}.<名字>`）和自己的 APK 文件名。版本在 `platforms/android/gradle-app` 里是同名的 productFlavor，Gradle 直接读版本表；这里只服务不跑 Gradle 的那几步：选资源锁、选语言词库、给产出的 APK 命名。
 
-full 是现有产品本身：applicationId 仍是 `app.msime.android`，APK 仍叫 `msime-client.apk`，资源锁仍是 `resources/desktop-dictionary.lock.json`（`scripts/test-editions.py` 检查）。
+full 是现有产品本身：applicationId 仍是 `app.msime.android`，APK 叫 `msime-android.apk`，资源锁仍是 `resources/desktop-dictionary.lock.json`（`scripts/test-editions.py` 检查）。
 
 用法：
 

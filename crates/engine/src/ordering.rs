@@ -96,15 +96,94 @@ pub struct OrderRow<'a> {
     pub corrected: bool,
 }
 
+/// 排序决策读取的候选行来源。连续的 `OrderRow` 数组和快照里的并行数组都可以实现它。
+pub trait OrderRowSource<'a> {
+    fn len(&self) -> usize;
+    fn get(&self, index: usize) -> OrderRow<'a>;
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl<'a> OrderRowSource<'a> for [OrderRow<'a>] {
+    fn len(&self) -> usize {
+        <[OrderRow<'a>]>::len(self)
+    }
+
+    fn get(&self, index: usize) -> OrderRow<'a> {
+        self[index]
+    }
+}
+
+impl<'a> OrderRowSource<'a> for Vec<OrderRow<'a>> {
+    fn len(&self) -> usize {
+        self.as_slice().len()
+    }
+
+    fn get(&self, index: usize) -> OrderRow<'a> {
+        self[index]
+    }
+}
+
+impl<'a, const N: usize> OrderRowSource<'a> for [OrderRow<'a>; N] {
+    fn len(&self) -> usize {
+        N
+    }
+
+    fn get(&self, index: usize) -> OrderRow<'a> {
+        self[index]
+    }
+}
+
+/// 借用快照里的并行候选数组，避免排序前复制一份行数组。
+pub struct ParallelOrderRows<'a> {
+    texts: &'a [String],
+    sources: &'a [u8],
+    answers_key: &'a [bool],
+    corrected: &'a [bool],
+}
+
+impl<'a> ParallelOrderRows<'a> {
+    pub fn new(
+        texts: &'a [String],
+        sources: &'a [u8],
+        answers_key: &'a [bool],
+        corrected: &'a [bool],
+    ) -> Self {
+        Self {
+            texts,
+            sources,
+            answers_key,
+            corrected,
+        }
+    }
+}
+
+impl<'a> OrderRowSource<'a> for ParallelOrderRows<'a> {
+    fn len(&self) -> usize {
+        self.texts.len()
+    }
+
+    fn get(&self, index: usize) -> OrderRow<'a> {
+        OrderRow {
+            text: &self.texts[index],
+            source: self.sources[index],
+            answers_key: self.answers_key[index],
+            corrected: self.corrected[index],
+        }
+    }
+}
+
 /// rerank() 的决策部分：返回应当移到首位的行下标；None 表示不动。
 ///
 /// `scheme` 是 `SchemeType` 序号；不允许重排的方案（韩文汉字表）返回 None，五笔且 `!answered_by_pinyin_fallback` 时返回 None，行数 < 2 时返回 None。`Reranker::best_where` 是 `&mut self`，因此这里取 `&mut`。
-pub fn rerank_pick(
+pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     reranker: &mut Reranker,
     context: &str,
     scheme: u8,
     answered_by_pinyin_fallback: bool,
-    rows: &[OrderRow<'_>],
+    rows: &R,
 ) -> Option<usize> {
     // A Korean Hanja list is a table in frequency order for one syllable, not Chinese text the language model can read.
     if !reorders_candidates(scheme) {
@@ -118,7 +197,7 @@ pub fn rerank_pick(
         return None;
     }
     let mut texts = Vec::with_capacity(rows.len());
-    texts.extend(rows.iter().map(|row| row.text));
+    texts.extend((0..rows.len()).map(|index| rows.get(index).text));
     // A dictionary hit earns the model's deference because it carries corpus frequency for the
     // key the user typed. That premise fails the moment the engine offers a correction of that
     // key: the frequency then belongs to the letters that arrived rather than to the word they
@@ -127,20 +206,20 @@ pub fn rerank_pick(
     //
     // With correction off, or with nothing corrected, this is exactly the previous behaviour,
     // which is what the 2052-case dictionary measurement was taken on.
-    let corrected_key = rows.iter().any(|row| row.corrected);
-    let answers_key =
-        |row: &OrderRow<'_>| row.answers_key && !CATALOG_SOURCES.contains(&row.source);
+    let corrected_key = (0..rows.len()).any(|index| rows.get(index).corrected);
+    let answers_key = |row: OrderRow<'a>| row.answers_key && !CATALOG_SOURCES.contains(&row.source);
     // Only candidates that answer the key are scored, so they are the ones the window has to leave room for.
-    let longest = rows
-        .iter()
-        .filter(|row| answers_key(row))
+    let longest = (0..rows.len())
+        .map(|index| rows.get(index))
+        .filter(|row| answers_key(*row))
         .map(|row| row.text.chars().count())
         .max()
         .unwrap_or(0);
     let context = rerank_context(context, reranker.model().context_length(), longest);
     reranker.best_where(context, &texts, |index| CandidateFacts {
-        answers_key: answers_key(&rows[index]),
-        trusted_dictionary_hit: DICTIONARY_SOURCES.contains(&rows[index].source) && !corrected_key,
+        answers_key: answers_key(rows.get(index)),
+        trusted_dictionary_hit: DICTIONARY_SOURCES.contains(&rows.get(index).source)
+            && !corrected_key,
     })
 }
 
@@ -155,7 +234,10 @@ pub fn rerank_pick(
 /// They are moved rather than removed. Deleting them threw away the model's later choices, so a reading the model ranked fourth was unreachable even when it was right.
 ///
 /// Only lattice readings are touched. An earlier version of this keyed on "any source that is not a dictionary", which is wrong twice over: a source number says which code produced a candidate, not that two candidates are spellings of one answer, and most of the other sources are plural by design — English words, emoji, kaomoji, quick phrases and AI suggestions all arrive as lists, and that version silently dropped all but one of each.
-pub fn runner_up_order(scheme: u8, rows: &[OrderRow<'_>]) -> Option<Vec<usize>> {
+pub fn runner_up_order<'a, R: OrderRowSource<'a> + ?Sized>(
+    scheme: u8,
+    rows: &R,
+) -> Option<Vec<usize>> {
     // The lattice runs from two syllables (a single syllable is never decoded), so a shorter candidate reached the list some other way and is not a reading of the same sentence. Japanese kana are the case that proves it: あ and ア are both Generated and both one character. Two rather than three because two-syllable keys are where the lattice's runner-up readings otherwise fill the first page ahead of dictionary words: on quanpin-words-v1 this moves two-syllable top5 from 0.883 to 0.924 with top1 unchanged.
     const SENTENCE_SYLLABLES: usize = 2;
     // From this many characters a reading is a sentence rather than a word, and the page keeps `SENTENCE_READINGS` of them.
@@ -170,8 +252,8 @@ pub fn runner_up_order(scheme: u8, rows: &[OrderRow<'_>]) -> Option<Vec<usize>> 
     if count < 2 {
         return None;
     }
-    let width = rows
-        .iter()
+    let width = (0..rows.len())
+        .map(|index| rows.get(index))
         .find(|row| row.source == LATTICE_SOURCE)
         .map(|row| row.text.chars().count())?;
     if width < SENTENCE_SYLLABLES {
@@ -182,28 +264,84 @@ pub fn runner_up_order(scheme: u8, rows: &[OrderRow<'_>]) -> Option<Vec<usize>> 
     } else {
         1
     };
-    // Every lattice reading of the full key, in list order. The first stays where it is, the next `keep - 1` are seated right behind it, and the rest go to the back in their existing order.
-    let readings: Vec<usize> = (0..count)
-        .filter(|&index| {
-            rows[index].source == LATTICE_SOURCE && rows[index].text.chars().count() == width
-        })
-        .collect();
-    let (kept, demoted) = readings.split_at(keep.min(readings.len()));
-    let mut is_reading = vec![false; count];
-    for &index in &readings {
-        is_reading[index] = true;
-    }
-    let mut order = Vec::with_capacity(count);
-    for (index, _) in rows.iter().enumerate() {
-        if index != kept[0] && is_reading[index] {
+    // Every lattice reading of the full key, in list order. The first stays where it is, the next `keep - 1` are seated right behind it, and the rest go to the back in their existing order. `keep` is at most three, so rescanning the rows costs less than allocating separate reading and membership arrays.
+    let is_reading = |index: usize| {
+        let row = rows.get(index);
+        row.source == LATTICE_SOURCE && row.text.chars().count() == width
+    };
+    // 先只扫描输出顺序，常见的整句候选已经连续时直接返回，避免为最终排列分配缓冲。
+    let mut output = 0;
+    let mut identity = true;
+    let mut reading_seen = 0;
+    for index in 0..count {
+        if !is_reading(index) {
+            identity &= output == index;
+            output += 1;
             continue;
         }
-        order.push(index);
-        if index == kept[0] {
-            order.extend_from_slice(&kept[1..]);
+        if reading_seen == 0 {
+            identity &= output == index;
+            output += 1;
+            let mut kept = 1;
+            for next in index + 1..count {
+                if is_reading(next) {
+                    if kept == keep {
+                        break;
+                    }
+                    identity &= output == next;
+                    output += 1;
+                    kept += 1;
+                }
+            }
+        }
+        reading_seen += 1;
+    }
+    reading_seen = 0;
+    for index in 0..count {
+        if is_reading(index) {
+            if reading_seen >= keep {
+                identity &= output == index;
+                output += 1;
+            }
+            reading_seen += 1;
         }
     }
-    order.extend_from_slice(demoted);
+    debug_assert_eq!(output, count);
+    if identity {
+        return None;
+    }
+
+    let mut order = Vec::with_capacity(count);
+    let mut reading_seen = 0;
+    for index in 0..count {
+        if !is_reading(index) {
+            order.push(index);
+            continue;
+        }
+        if reading_seen == 0 {
+            order.push(index);
+            let mut kept = 1;
+            for next in index + 1..count {
+                if is_reading(next) {
+                    if kept == keep {
+                        break;
+                    }
+                    order.push(next);
+                    kept += 1;
+                }
+            }
+        }
+        reading_seen += 1;
+    }
+    reading_seen = 0;
+    for index in 0..count {
+        if is_reading(index) {
+            if reading_seen >= keep {
+                order.push(index);
+            }
+            reading_seen += 1;
+        }
+    }
     debug_assert_eq!(order.len(), count);
     if order.iter().enumerate().all(|(seat, index)| seat == *index) {
         return None;
@@ -274,6 +412,15 @@ mod tests {
     /// Only `CandidateSource::Generated` names alternative readings of one key. Every other source
     /// is plural by design — English words, emoji, kaomoji, quick phrases, AI suggestions — and an
     /// earlier version of this rule kept one of each and dropped the rest.
+    #[test]
+    fn one_lattice_row_needs_no_temporary_order_allocations() {
+        let rows = [row("你好", LATTICE_SOURCE), row("你", 0)];
+        let (order, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| runner_up_order(0, &rows));
+        assert_eq!(order, None);
+        assert_eq!(allocations, 0);
+    }
+
     #[test]
     fn only_the_lattice_source_is_treated_as_alternative_readings() {
         assert_eq!(LATTICE_SOURCE, 8);

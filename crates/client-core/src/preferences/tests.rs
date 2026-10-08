@@ -1856,12 +1856,20 @@ fn touch_keyboard_layout_defaults_and_roundtrips_without_rewriting_legacy_files(
 fn touch_keyboard_scheme_visibility_matches_apple_order_and_fallback_contract() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    let legacy = serde_json::to_vec(&PreferencesSnapshot::default()).unwrap();
+    // 以前的版本在列表等于默认值时不写 `touch_keyboard_schemes`。
+    let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    document["preferences"]
+        .as_object_mut()
+        .unwrap()
+        .remove("touch_keyboard_schemes");
+    let legacy = serde_json::to_vec(&document).unwrap();
     fs::write(store.path(), &legacy).unwrap();
     let loaded = store.load().unwrap();
     assert_eq!(
         loaded.preferences.touch_keyboard_schemes.enabled,
-        TouchKeyboardScheme::DEFAULT_ENABLED.into_iter().collect()
+        TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED
+            .into_iter()
+            .collect()
     );
     assert_eq!(loaded.preferences.touch_keyboard_schemes.selected, None);
     assert_eq!(fs::read(store.path()).unwrap(), legacy);
@@ -1940,10 +1948,10 @@ fn retired_thoughtful_reply_touch_scheme_is_migrated_on_read() {
             vec![TouchKeyboardScheme::Quanpin],
             Some(TouchKeyboardScheme::Quanpin),
         ),
-        // 没有存列表时用缺省列表，选中退回全拼 26 键。
+        // 没有存列表时用以前的版本的缺省列表（这样的文档只可能是它们写的），选中退回全拼 26 键。
         (
             serde_json::json!({"selected": "thoughtful_reply"}),
-            TouchKeyboardScheme::DEFAULT_ENABLED.to_vec(),
+            TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED.to_vec(),
             Some(TouchKeyboardScheme::Quanpin),
         ),
     ] {
@@ -1981,10 +1989,29 @@ fn retired_thoughtful_reply_touch_scheme_is_migrated_on_read() {
 
 #[test]
 fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
+    // 默认只启用中文方案：日文（9 键和 26 键）和韩文与后面追加的几个方案一样由用户自己打开。
     assert_eq!(
-        TouchKeyboardScheme::ALL[..11],
-        TouchKeyboardScheme::DEFAULT_ENABLED
+        TouchKeyboardScheme::DEFAULT_ENABLED,
+        [
+            TouchKeyboardScheme::Quanpin,
+            TouchKeyboardScheme::NineKey,
+            TouchKeyboardScheme::Xiaohe,
+            TouchKeyboardScheme::Ziranma,
+            TouchKeyboardScheme::Microsoft,
+            TouchKeyboardScheme::Shoudao,
+            TouchKeyboardScheme::Wubi,
+            TouchKeyboardScheme::Handwriting,
+        ]
     );
+    for scheme in [
+        TouchKeyboardScheme::JapaneseNineKey,
+        TouchKeyboardScheme::Japanese,
+        TouchKeyboardScheme::Korean,
+    ] {
+        assert!(!TouchKeyboardSchemePreferences::default()
+            .enabled
+            .contains(&scheme));
+    }
     assert_eq!(
         TouchKeyboardScheme::ALL[11..],
         [
@@ -2046,6 +2073,182 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
         serde_json::json!({"enabled": ["quanpin", "zhuyin"], "selected": "zhuyin"})
     );
     assert_eq!(store.load().unwrap(), saved);
+}
+
+/// 以前的版本写的文档在列表等于默认值时没有 `touch_keyboard_schemes`：升级后仍按以前的默认列表读，日文和韩文键盘不会消失；下一次保存把这份列表显式写进文件。
+#[test]
+fn upgrade_without_a_stored_touch_scheme_list_keeps_the_previous_default() {
+    let legacy: std::collections::BTreeSet<_> = TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED
+        .into_iter()
+        .collect();
+    for scheme in [
+        TouchKeyboardScheme::JapaneseNineKey,
+        TouchKeyboardScheme::Japanese,
+        TouchKeyboardScheme::Korean,
+    ] {
+        assert!(legacy.contains(&scheme));
+        assert!(!TouchKeyboardScheme::DEFAULT_ENABLED.contains(&scheme));
+    }
+    assert!(TouchKeyboardScheme::DEFAULT_ENABLED
+        .iter()
+        .all(|scheme| legacy.contains(scheme)));
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    // 用户存过别的设置、没动过键盘列表的旧文档：整个对象缺席，或者只有 `selected`。
+    for stored in [None, Some(serde_json::json!({"selected": "korean"}))] {
+        let mut document = serde_json::to_value(PreferencesSnapshot {
+            revision: 3,
+            preferences: Preferences {
+                candidate_page_size: 7,
+                ..Preferences::default()
+            },
+            ..PreferencesSnapshot::default()
+        })
+        .unwrap();
+        let preferences = document["preferences"].as_object_mut().unwrap();
+        match &stored {
+            None => {
+                preferences.remove("touch_keyboard_schemes");
+            }
+            Some(value) => {
+                preferences.insert("touch_keyboard_schemes".into(), value.clone());
+            }
+        }
+        fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.preferences.touch_keyboard_schemes.enabled, legacy);
+        assert_eq!(
+            loaded.preferences.touch_keyboard_schemes.selected,
+            stored.as_ref().map(|_| TouchKeyboardScheme::Korean)
+        );
+        // 状态目录已经有文件，准备宿主时不改写它。
+        assert_eq!(store.write_first_document().unwrap(), loaded);
+
+        let mut changed = loaded.preferences.clone();
+        changed.candidate_page_size = 6;
+        store.save(loaded.revision, changed).unwrap();
+        let written: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+        let enabled: Vec<TouchKeyboardScheme> = serde_json::from_value(
+            written["preferences"]["touch_keyboard_schemes"]["enabled"].clone(),
+        )
+        .unwrap();
+        assert_eq!(enabled, TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED);
+        assert_eq!(
+            store
+                .load()
+                .unwrap()
+                .preferences
+                .touch_keyboard_schemes
+                .enabled,
+            legacy
+        );
+    }
+
+    // 修复一份损坏、又没有列表的旧文档：其余设置照常保留，列表仍按以前的默认值。
+    let mut damaged = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let preferences = damaged["preferences"].as_object_mut().unwrap();
+    preferences.remove("touch_keyboard_schemes");
+    preferences.insert("candidate_page_size".into(), 7.into());
+    preferences.insert("future_setting".into(), true.into());
+    fs::write(store.path(), serde_json::to_vec(&damaged).unwrap()).unwrap();
+    let RecoveryOutcome::Recovered { snapshot, .. } = store.recover().unwrap() else {
+        panic!("a document with an unknown field is recovered");
+    };
+    assert_eq!(snapshot.preferences.candidate_page_size, 7);
+    assert_eq!(snapshot.preferences.touch_keyboard_schemes.enabled, legacy);
+}
+
+/// 以前的版本准备过状态目录（建了 `user/dictionaries`）、用户却从没存过偏好：没有偏好文件也按以前的默认列表，准备宿主时把它写成第一份文件。新装还没有这个目录，得到只有中文的默认列表，写下文件后再建目录也不会被当成升级。
+#[test]
+fn first_document_tells_a_fresh_install_from_an_upgrade() {
+    let legacy: std::collections::BTreeSet<_> = TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED
+        .into_iter()
+        .collect();
+    let chinese: std::collections::BTreeSet<_> =
+        TouchKeyboardScheme::DEFAULT_ENABLED.into_iter().collect();
+    let written_list = |store: &PreferencesStore| -> Vec<TouchKeyboardScheme> {
+        let document: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+        serde_json::from_value(document["preferences"]["touch_keyboard_schemes"]["enabled"].clone())
+            .unwrap()
+    };
+
+    // 新装。
+    let fresh = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(fresh.path());
+    let missing = store.load().unwrap();
+    assert_eq!(missing.revision, 0);
+    assert_eq!(missing.preferences, Preferences::default());
+    assert_eq!(missing.preferences.touch_keyboard_schemes.enabled, chinese);
+    let first = store.write_first_document().unwrap();
+    assert_eq!(first.revision, 1);
+    assert_eq!(first.preferences, Preferences::default());
+    // 等于默认值也显式写出列表，否则读回来会被当成以前的版本的文档。
+    assert_eq!(written_list(&store), TouchKeyboardScheme::DEFAULT_ENABLED);
+    fs::create_dir_all(fresh.path().join("user").join("dictionaries")).unwrap();
+    assert_eq!(store.load().unwrap(), first);
+    assert_eq!(store.write_first_document().unwrap(), first);
+
+    // 从以前的版本升级，从没存过偏好。
+    let upgraded = tempfile::tempdir().unwrap();
+    fs::create_dir_all(upgraded.path().join("user").join("dictionaries")).unwrap();
+    let store = PreferencesStore::new(upgraded.path());
+    let missing = store.load().unwrap();
+    assert_eq!(missing.revision, 0);
+    assert_eq!(missing.preferences.touch_keyboard_schemes.enabled, legacy);
+    assert_eq!(missing.preferences.touch_keyboard_schemes.selected, None);
+    // 只有触屏方案不同，其余都是默认值。
+    assert_eq!(
+        Preferences {
+            touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
+            ..missing.preferences.clone()
+        },
+        Preferences::default()
+    );
+    let first = store.write_first_document().unwrap();
+    assert_eq!(first.revision, 1);
+    assert_eq!(first.preferences, missing.preferences);
+    assert_eq!(
+        written_list(&store),
+        TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED
+    );
+    assert_eq!(store.load().unwrap(), first);
+
+    // 指向别处的 `user/dictionaries` 不算准备过。
+    let elsewhere = tempfile::tempdir().unwrap();
+    let linked = tempfile::tempdir().unwrap();
+    fs::create_dir_all(linked.path().join("user")).unwrap();
+    std::os::unix::fs::symlink(
+        elsewhere.path(),
+        linked.path().join("user").join("dictionaries"),
+    )
+    .unwrap();
+    assert_eq!(
+        PreferencesStore::new(linked.path())
+            .load()
+            .unwrap()
+            .preferences
+            .touch_keyboard_schemes
+            .enabled,
+        chinese
+    );
+
+    // 不是 full 的版本升级时同样按以前的默认列表，只是收窄到本版本提供的入口：拼音版的日文和韩文入口本来就没有。
+    let pinyin = crate::edition::Edition::by_id("pinyin").unwrap();
+    let edition_dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(edition_dir.path().join("user").join("dictionaries")).unwrap();
+    let store = PreferencesStore::for_edition(edition_dir.path(), pinyin);
+    assert_eq!(
+        store.load().unwrap().preferences.touch_keyboard_schemes,
+        TouchKeyboardSchemePreferences::legacy_for_edition(pinyin)
+    );
+    assert_eq!(
+        TouchKeyboardSchemePreferences::legacy_for_edition(crate::edition::Edition::full()).enabled,
+        legacy
+    );
 }
 
 #[test]
@@ -3953,6 +4156,7 @@ const NOT_CREDENTIALS: &[&str] = &[
     "touch_key_spacing_tenths",
     "touch_keyboard_height_adjustment",
     "touch_keyboard_layout",
+    "touch_keyboard_schemes",
     "voice_input.hotkey_ctrl_f9",
     "voice_input.hotkey_ctrl_win",
     "voice_input.hotkey_hold_space_lock",

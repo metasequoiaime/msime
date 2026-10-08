@@ -2,14 +2,13 @@
 //!
 //! The journal is the engine's own (`user_dictionary_operations`, `fixed_candidate_positions`, `candidate_selection_state`), unchanged since the C++ engine, so the rows the server stored through the old bridge replay as they always did.
 
-use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 
-use super::common::{candidates, scheme, shuangpin_profile, Roots};
+use super::common::{candidates, scheme, shuangpin_profile, wubi_profile, Roots};
 use super::input::registry;
 use super::request::{member, Request};
 use super::{route, validation, BackendError, Outcome};
@@ -17,7 +16,7 @@ use crate::assets;
 use crate::local::jianpin::jianpin_ranking_context;
 use crate::pinyin::segment::{cut_pinyin_by_mode, join_segments, CutMode};
 use crate::types::{CandidateSource, FrequencyAdjustmentMode, SchemeType, WordItem};
-use crate::user_dictionary::journal::{ensure_user_database, is_user_inserted};
+use crate::user_dictionary::journal::{ensure_user_database, is_user_inserted, open_database};
 use crate::user_dictionary::positions::apply_fixed_positions;
 use crate::user_dictionary::ranking::{
     adjust_candidate_ranking, adjust_english_candidate_ranking, RankingRequest,
@@ -38,8 +37,8 @@ const UPSERT_ENTRY: &str = "INSERT INTO user_dictionary_operations(dictionary,ke
 const INSERT_POSITION: &str = "INSERT INTO fixed_candidate_positions(context_key,entry_key,value,position) VALUES(?1,?2,?3,?4)";
 const INSERT_SELECTION: &str = "INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count) VALUES(?1,?2,?3,?4)";
 
-/// The kinds a stored entry can have; the server's database admits only these.
-const STORED_KINDS: [&str; 4] = ["pinyin", "wubi", "english", "quick"];
+/// 服务端存储的词条可能的种类，与服务端数据库 `user_dictionary_entries.kind` 的约束一致。
+const STORED_KINDS: [&str; 5] = ["pinyin", "wubi", "wubi98", "english", "quick"];
 
 fn require_roots(roots: Roots) -> Result<(), BackendError> {
     let absolute = |path: &Path| !path.as_os_str().is_empty() && path.is_absolute();
@@ -53,7 +52,8 @@ fn require_roots(roots: Roots) -> Result<(), BackendError> {
 fn snapshot_lines(
     scratch: &Path,
 ) -> Result<impl Iterator<Item = Result<Value, BackendError>>, BackendError> {
-    let file = File::open(scratch.join(SNAPSHOT)).map_err(|_| BackendError::EngineFailure)?;
+    let file = crate::paths::open_file_no_follow(&scratch.join(SNAPSHOT))
+        .map_err(|_| BackendError::EngineFailure)?;
     Ok(BufReader::new(file).lines().map(|line| {
         let line = line.map_err(|_| BackendError::EngineFailure)?;
         if line.len() > MAXIMUM_LINE_BYTES {
@@ -72,7 +72,7 @@ struct Snapshot {
 
 /// Write the snapshot into `journal` in one transaction. `{"previous": E}` is a tombstone for E, `{"replacement": E}` its final state; `fixed` and `selection` lines are the user's positions and counters.
 fn write_snapshot(journal: &Path, scratch: &Path) -> Result<Snapshot, BackendError> {
-    let mut connection = Connection::open_with_flags(journal, OpenFlags::SQLITE_OPEN_READ_WRITE)
+    let mut connection = open_database(journal, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
         .map_err(|_| BackendError::EngineFailure)?;
     let transaction = connection
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -228,6 +228,7 @@ pub(super) fn personal(request: &Request, roots: Roots) -> Outcome {
     let text = nested.text();
     let scheme = scheme(&nested)?;
     let profile = shuangpin_profile(&nested)?;
+    let wubi = wubi_profile(&nested)?;
     let mut ranking_context = String::new();
     let context = match operation.as_str() {
         "english" => format!("english:{text}"),
@@ -282,7 +283,7 @@ pub(super) fn personal(request: &Request, roots: Roots) -> Outcome {
         let kind = if operation == "english" {
             PersonalDictionaryKind::English
         } else if scheme == SchemeType::Wubi {
-            PersonalDictionaryKind::Wubi
+            wubi.dictionary_kind()
         } else {
             PersonalDictionaryKind::Pinyin
         };
@@ -312,7 +313,7 @@ pub(super) fn personal(request: &Request, roots: Roots) -> Outcome {
     let include_missing =
         operation == "candidates" && scheme != SchemeType::Wubi && text.len() == 1;
     if include_missing {
-        let providers = registry(projected, profile)?;
+        let providers = registry(projected, profile, wubi)?;
         let mut find = |key: &str, word: &str| providers.find_candidate(scheme, key, word);
         apply_fixed_positions(&journal, &context, &mut items, true, Some(&mut find), false);
     } else {
@@ -413,7 +414,7 @@ fn apply_action(
     }
     .map_err(|_| BackendError::InvalidRequest)?;
 
-    let connection = Connection::open_with_flags(journal, OpenFlags::SQLITE_OPEN_READ_ONLY)
+    let connection = open_database(journal, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|_| BackendError::EngineFailure)?;
     let count = connection
         .query_row(

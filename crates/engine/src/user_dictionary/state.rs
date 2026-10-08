@@ -89,12 +89,34 @@ fn read_state(file: &Path, emit: &mut dyn FnMut(&DictionaryStateRecord) -> bool)
     let mut connection = open_database(file, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     connection.execute_batch("PRAGMA query_only=ON")?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Deferred)?;
+    let mut records = 0usize;
     {
         let mut rows = transaction.prepare(
-            "SELECT dictionary,key,value,weight,display,operation,user_inserted FROM user_dictionary_operations ORDER BY dictionary,key,value",
+            "SELECT dictionary,key,value,weight,display,operation,user_inserted,
+                    length(CAST(dictionary AS BLOB)),length(CAST(key AS BLOB)),
+                    length(CAST(value AS BLOB)),length(CAST(display AS BLOB)),
+                    length(CAST(operation AS BLOB))
+             FROM user_dictionary_operations ORDER BY dictionary,key,value",
         )?;
         let mut cursor = rows.query([])?;
         while let Some(row) = cursor.next()? {
+            require(records < DEFAULT_MAXIMUM_RECORDS)?;
+            require(
+                row.get::<_, Option<i64>>(7)?
+                    .is_some_and(|length| (0..=32).contains(&length))
+                    && row
+                        .get::<_, Option<i64>>(8)?
+                        .is_some_and(|length| (0..=MAX_KEY_BYTES as i64).contains(&length))
+                    && row
+                        .get::<_, Option<i64>>(9)?
+                        .is_some_and(|length| (0..=MAX_VALUE_BYTES as i64).contains(&length))
+                    && row
+                        .get::<_, Option<i64>>(10)?
+                        .is_some_and(|length| (0..=MAX_VALUE_BYTES as i64).contains(&length))
+                    && row
+                        .get::<_, Option<i64>>(11)?
+                        .is_some_and(|length| (0..=16).contains(&length)),
+            )?;
             let kind = PersonalDictionaryKind::from_journal_name(&row.get::<_, String>(0)?)
                 .ok_or_else(invalid_state)?;
             // `sqlite3_column_int64` reads NULL as 0; legacy journals built without NOT NULL can hold one.
@@ -108,16 +130,34 @@ fn read_state(file: &Path, emit: &mut dyn FnMut(&DictionaryStateRecord) -> bool)
                 user_inserted: row.get::<_, Option<i64>>(6)?.unwrap_or(0) != 0,
             };
             require(emit(&record))?;
+            records += 1;
         }
     }
     for fixed in [true, false] {
         let mut rows = transaction.prepare(if fixed {
-            "SELECT context_key,entry_key,value,position FROM fixed_candidate_positions ORDER BY context_key,entry_key,value"
+            "SELECT context_key,entry_key,value,position,
+                    length(CAST(context_key AS BLOB)),length(CAST(entry_key AS BLOB)),
+                    length(CAST(value AS BLOB))
+             FROM fixed_candidate_positions ORDER BY context_key,entry_key,value"
         } else {
-            "SELECT context_key,entry_key,value,selection_count FROM candidate_selection_state ORDER BY context_key,entry_key,value"
+            "SELECT context_key,entry_key,value,selection_count,
+                    length(CAST(context_key AS BLOB)),length(CAST(entry_key AS BLOB)),
+                    length(CAST(value AS BLOB))
+             FROM candidate_selection_state ORDER BY context_key,entry_key,value"
         })?;
         let mut cursor = rows.query([])?;
         while let Some(row) = cursor.next()? {
+            require(records < DEFAULT_MAXIMUM_RECORDS)?;
+            require(
+                row.get::<_, Option<i64>>(4)?
+                    .is_some_and(|length| (0..=MAX_KEY_BYTES as i64).contains(&length))
+                    && row
+                        .get::<_, Option<i64>>(5)?
+                        .is_some_and(|length| (0..=MAX_KEY_BYTES as i64).contains(&length))
+                    && row
+                        .get::<_, Option<i64>>(6)?
+                        .is_some_and(|length| (0..=MAX_VALUE_BYTES as i64).contains(&length)),
+            )?;
             let context: String = row.get(0)?;
             let key: String = row.get(1)?;
             let value: String = row.get(2)?;
@@ -138,6 +178,7 @@ fn read_state(file: &Path, emit: &mut dyn FnMut(&DictionaryStateRecord) -> bool)
                 }
             };
             require(emit(&record))?;
+            records += 1;
         }
     }
     transaction.commit()?;
@@ -573,6 +614,29 @@ mod tests {
             fs::write(&journal, &original).unwrap();
         }
         assert!(dictionary_state_revision(&paths).is_ok());
+    }
+
+    #[test]
+    fn oversized_state_text_is_rejected_before_export() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = paths(root.path());
+        let journal = paths.user(assets::USER_JOURNAL);
+        sql(
+            &journal,
+            "CREATE TABLE user_dictionary_operations(dictionary TEXT,key TEXT,value TEXT,weight INTEGER,display TEXT,operation TEXT,user_inserted INTEGER);
+             CREATE TABLE fixed_candidate_positions(context_key TEXT,entry_key TEXT,value TEXT,position INTEGER);
+             CREATE TABLE candidate_selection_state(context_key TEXT,entry_key TEXT,value TEXT,selection_count INTEGER);",
+        );
+        let huge = "x".repeat(MAX_KEY_BYTES + 1);
+        Connection::open(&journal)
+            .unwrap()
+            .execute(
+                "INSERT INTO user_dictionary_operations VALUES('pinyin',?1,'你',1,'','upsert',1)",
+                [&huge],
+            )
+            .unwrap();
+
+        assert!(dictionary_state_revision(&paths).is_err());
     }
 
     fn resources(root: &Path) -> PathBuf {

@@ -65,7 +65,7 @@ impl ClipboardHistoryStore {
             crate::storage::reject_symlink(parent)?;
         }
         crate::storage::reject_symlink(&self.path)?;
-        match fs::File::open(&self.path) {
+        match crate::storage::open_private_file(&self.path) {
             Ok(file) => {
                 let bytes = crate::bounded_io::read_bounded_file(file, MAX_HISTORY_BYTES, || {
                     std::io::Error::new(
@@ -174,8 +174,13 @@ impl ClipboardHistoryStore {
     }
 
     pub fn clear(&mut self) -> std::io::Result<()> {
+        self.clear_with(|| {})
+    }
+
+    fn clear_with(&mut self, before_remove: impl FnOnce()) -> std::io::Result<()> {
         let _lock = self.lock_writer()?;
-        match fs::remove_file(&self.path) {
+        before_remove();
+        match crate::storage::remove_private_file(&self.path) {
             Ok(()) => {
                 self.entries.clear();
                 Ok(())
@@ -655,6 +660,33 @@ mod tests {
             std::io::ErrorKind::InvalidInput
         );
         assert!(store.push("synthetic rejected".into()).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clear_does_not_follow_a_parent_replaced_after_locking() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let live = root.path().join("user-data");
+        fs::create_dir(&live).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_path = outside.path().join("history.json");
+        fs::write(&outside_path, br#"["synthetic outside"]"#).unwrap();
+
+        let path = live.join("history.json");
+        let mut store = ClipboardHistoryStore::open(&path);
+        let moved = root.path().join("moved");
+        assert!(store
+            .clear_with(|| {
+                fs::rename(&live, &moved).unwrap();
+                symlink(outside.path(), &live).unwrap();
+            })
+            .is_err());
+        assert_eq!(
+            fs::read(&outside_path).unwrap(),
+            br#"["synthetic outside"]"#
+        );
     }
 
     #[test]

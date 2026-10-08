@@ -60,11 +60,31 @@ inline std::wstring candidate_skin_file(const nlohmann::json &value,
   const auto relative = value.get<std::string>();
   if (relative.empty() || relative.size() > 256)
     return {};
-  auto path = root / std::filesystem::u8path(id) / std::filesystem::u8path(relative);
-  std::error_code error;
-  if (!std::filesystem::is_regular_file(path, error))
+  const auto package_root = root / std::filesystem::u8path(id);
+  const auto path = package_root / std::filesystem::u8path(relative);
+  const auto normalized = path.lexically_normal();
+  const auto relative_path = normalized.lexically_relative(package_root);
+  if (normalized != path || relative_path.empty() || relative_path.is_absolute() ||
+      std::any_of(relative_path.begin(), relative_path.end(), [](const auto &component) {
+        return component == std::filesystem::path("..") ||
+               component == std::filesystem::path(".");
+      }))
     return {};
-  return path.wstring();
+  for (auto current = normalized; current != package_root;
+       current = current.parent_path()) {
+    std::error_code status_error;
+    const auto status = std::filesystem::symlink_status(current, status_error);
+    if (status_error || status.type() == std::filesystem::file_type::symlink)
+      return {};
+  }
+  std::error_code package_error;
+  const auto package_status = std::filesystem::symlink_status(package_root, package_error);
+  if (package_error || package_status.type() == std::filesystem::file_type::symlink)
+    return {};
+  std::error_code error;
+  if (!std::filesystem::is_regular_file(normalized, error))
+    return {};
+  return normalized.wstring();
 }
 // A DIP radius in the manifest's 0-32 range, or none.
 inline std::optional<float> candidate_skin_radius(const nlohmann::json &object,

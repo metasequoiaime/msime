@@ -209,7 +209,10 @@ struct CommunityResourceDetail: View {
           Button("添加到高情商回复键盘") { run {
             try await SkinCommunityAPI.shared.saveResource(item.id, saved: true)
             let latest = try await SkinCommunityAPI.shared.resource(item.id)
-            try CommunityLibrary.save(latest); updated = latest
+            try await Task.detached(priority: .userInitiated) {
+              try CommunityLibrary.save(latest)
+            }.value
+            updated = latest
             message = "已添加。在高情商回复键盘点击「模板」即可选择；只有点击生成时才会发送文字。"
           }}.buttonStyle(.borderedProminent).disabled(busy)
         }
@@ -218,7 +221,13 @@ struct CommunityResourceDetail: View {
           updated = try await SkinCommunityAPI.shared.resource(item.id)
         }}.disabled(busy)
         if item.kind == .reply {
-          Button("从本机高情商回复键盘移除") { run { try CommunityLibrary.remove(item.id); message = "已从本机移除，社区收藏保留。" } }.disabled(busy)
+          Button("从本机高情商回复键盘移除") { run {
+            let id = item.id
+            try await Task.detached(priority: .userInitiated) {
+              try CommunityLibrary.remove(id)
+            }.value
+            message = "已从本机移除，社区收藏保留。"
+          }}.disabled(busy)
         }
         if !item.owned {
           HStack {

@@ -300,6 +300,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
       PersonalExportText(text: "new\t新\t1\n", complete: true)
     })
     XCTAssertEqual(try host.read().exportResult?.request, newer)
+    XCTAssertEqual(try String(contentsOf: copy, encoding: .utf8), "q0\t短语0\t100\nq1\t短语1\t100\n")
     XCTAssertThrowsError(try host.exportCopy(for: result))
 
     // A failed export leaves no stale file behind and says why.

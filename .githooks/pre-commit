@@ -52,8 +52,9 @@ fi
 # The same check for the frontend, on staged files only and for the same reason.
 # Oxfmt is fast enough for a commit hook - the whole tree checks in well under a
 # second - so the cost here is the handful of files actually being committed.
+# .agents/** 是 vendored 的编码代理 skill 树（skills-lock.json 锁定），格式归它的上游项目管，不归本仓库的 oxfmt 管。
 staged_ts="$(git diff --cached --name-only --diff-filter=ACM -- '*.ts' '*.tsx' '*.css' \
-  ':!packages/ui/src/upstream/**' ':!apps/desktop/src-tauri/gen/**')"
+  ':!packages/ui/src/upstream/**' ':!apps/desktop/src-tauri/gen/**' ':!.agents/**')"
 if [ -n "$staged_ts" ] && [ -x node_modules/.bin/vp ]; then
   existing=""
   for file in $staged_ts; do

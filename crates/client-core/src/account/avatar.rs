@@ -109,7 +109,7 @@ pub fn read_account_avatar_upload(path: &Path) -> Result<AccountAvatarImage, Acc
     if metadata.len() == 0 || metadata.len() > MAX_ACCOUNT_AVATAR_UPLOAD_BYTES {
         return Err(AccountError::Invalid);
     }
-    let file = std::fs::File::open(path).map_err(|_| AccountError::Invalid)?;
+    let file = crate::storage::open_private_file(path).map_err(|_| AccountError::Invalid)?;
     let bytes = crate::bounded_io::read_bounded(file, MAX_ACCOUNT_AVATAR_UPLOAD_BYTES)
         .map_err(|_| AccountError::Invalid)?;
     match sniff_avatar(&bytes) {

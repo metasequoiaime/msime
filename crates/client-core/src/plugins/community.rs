@@ -62,6 +62,25 @@ const CHECKSUM: &str = "plugin_community_checksum";
 const MISMATCH: &str = "plugin_community_mismatch";
 const STORAGE: &str = "storage";
 
+fn write_private_archive(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
 /// One published pack as the gallery lists it. It never carries the archive.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -586,7 +605,7 @@ pub fn pack(root: &Path, kind: PluginKind, id: &str) -> Result<PackedPlugin, Plu
         .tempdir()
         .map_err(|_| PluginFailure::code(STORAGE))?;
     let path = staging.path().join(ARCHIVE_FILE);
-    fs::write(&path, &archive).map_err(|_| PluginFailure::code(STORAGE))?;
+    write_private_archive(&path, &archive).map_err(|_| PluginFailure::code(STORAGE))?;
     let checked = validate(&path)?;
     if checked.kind() != kind || checked.id != summary.id || checked.version != summary.version {
         return Err(PluginFailure::code(MISMATCH));
@@ -691,7 +710,7 @@ pub fn install(
         .tempdir()
         .map_err(|_| PluginFailure::code(STORAGE))?;
     let path = staging.path().join(ARCHIVE_FILE);
-    fs::write(&path, &archive).map_err(|_| PluginFailure::code(STORAGE))?;
+    write_private_archive(&path, &archive).map_err(|_| PluginFailure::code(STORAGE))?;
     let checked = validate(&path)?;
     if checked.kind() != download.kind
         || checked.id != download.plugin_id

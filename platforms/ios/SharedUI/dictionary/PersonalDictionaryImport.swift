@@ -1,5 +1,8 @@
 import Foundation
 import CoreFoundation
+#if canImport(Darwin)
+import Darwin
+#endif
 
 // A versioned envelope for user-entered records. Linguistic validation and normalization
 // remain in the public Engine API; this is only the file transport used by the host UI.
@@ -124,7 +127,7 @@ struct PersonalDictionaryImport: Codable, Sendable {
     // Create and use this coordinator on the worker thread, never on the UI thread.
     NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readableURL in
       result = Result {
-        let handle = try FileHandle(forReadingFrom: readableURL)
+        let handle = try openReadableFile(readableURL)
         defer { try? handle.close() }
         var data = Data()
         while data.count <= maximumBytes {
@@ -139,6 +142,21 @@ struct PersonalDictionaryImport: Codable, Sendable {
     if let coordinationError { throw coordinationError }
     guard let result else { throw ImportError(message: "无法读取所选文件，请重新选择。") }
     return try result.get()
+  }
+
+  private static func openReadableFile(_ url: URL) throws -> FileHandle {
+    #if canImport(Darwin)
+    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+    guard descriptor >= 0 else { throw ImportError(message: "无法读取所选文件，请重新选择。") }
+    var metadata = stat()
+    guard fstat(descriptor, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else {
+      close(descriptor)
+      throw ImportError(message: "无法读取所选文件，请重新选择。")
+    }
+    return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    #else
+    return try FileHandle(forReadingFrom: url)
+    #endif
   }
 
   static let example = Self(entries: [

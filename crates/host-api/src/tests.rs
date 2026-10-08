@@ -1313,6 +1313,82 @@ fn handwriting_layout_is_exposed_only_after_pending_composition_finishes() {
     read(msime_client_destroy(handle));
 }
 
+/// `word` 在各移动宿主所画 26 键布局上的滑行请求，单位是像素、键为 80 x 120：每八像素、8 毫秒一个点。
+fn glide_request(word: &str) -> String {
+    let rows: [(&[u8], f32); 3] = [(b"qwertyuiop", 0.0), (b"asdfghjkl", 0.5), (b"zxcvbnm", 1.5)];
+    let mut keys = [[0.0f32; 2]; 26];
+    for (row, (letters, indent)) in rows.iter().enumerate() {
+        for (column, &letter) in letters.iter().enumerate() {
+            keys[usize::from(letter - b'a')] = [
+                (column as f32 + indent + 0.5) * 80.0,
+                (row as f32 + 0.5) * 120.0,
+            ];
+        }
+    }
+    let mut points = Vec::new();
+    for pair in word.as_bytes().windows(2) {
+        let [ax, ay] = keys[usize::from(pair[0] - b'a')];
+        let [bx, by] = keys[usize::from(pair[1] - b'a')];
+        let steps = (((bx - ax).powi(2) + (by - ay).powi(2)).sqrt() / 8.0)
+            .ceil()
+            .max(1.0);
+        for step in 0..steps as usize {
+            let t = step as f32 / steps;
+            points.push([
+                ax + (bx - ax) * t,
+                ay + (by - ay) * t,
+                points.len() as f32 * 8.0,
+            ]);
+        }
+    }
+    let [x, y] = keys[usize::from(word.as_bytes()[word.len() - 1] - b'a')];
+    points.push([x, y, points.len() as f32 * 8.0]);
+    json!({"keys": keys, "key_width": 80.0, "key_height": 120.0, "points": points}).to_string()
+}
+
+#[test]
+fn a_glide_stroke_composes_through_the_host_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_with_pinyin_fixture(dir.path(), chinese_preferences());
+    read(msime_client_focus(handle, true));
+    let request = glide_request("nihao");
+    let glided = read(unsafe { msime_client_glide(handle, request.as_ptr(), request.len()) });
+    assert_eq!(glided["ok"], true, "{glided}");
+    assert_eq!(glided["value"]["handled"], true);
+    assert_eq!(glided["value"]["view"]["editing_text"], "nihao");
+    assert_eq!(glided["value"]["view"]["candidates"][0]["text"], "本地");
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn a_malformed_glide_request_fails_without_touching_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_with_pinyin_fixture(dir.path(), chinese_preferences());
+    read(msime_client_focus(handle, true));
+    let valid: Value = serde_json::from_str(&glide_request("nihao")).unwrap();
+    let mut short = valid.clone();
+    short["keys"].as_array_mut().unwrap().pop();
+    let mut flat = valid.clone();
+    flat["key_width"] = json!(0.0);
+    let mut lonely = valid.clone();
+    lonely["points"] = json!([[1.0, 2.0]]);
+    let mut odd = valid.clone();
+    odd["points"][1] = json!([1.0]);
+    let mut extra = valid;
+    extra["pressure"] = json!(1);
+    for request in [short, flat, lonely, odd, extra] {
+        let request = request.to_string();
+        let failed = read(unsafe { msime_client_glide(handle, request.as_ptr(), request.len()) });
+        assert_eq!(failed["ok"], false, "{request}");
+    }
+    assert_eq!(
+        read(unsafe { msime_client_glide(handle, std::ptr::null(), 4) })["ok"],
+        false
+    );
+    assert_eq!(read(msime_client_view(handle))["value"]["editing_text"], "");
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn nine_key_mode_and_spelling_identity_cross_the_host_boundary() {
     let dir = tempfile::tempdir().unwrap();
@@ -4282,6 +4358,98 @@ fn candidate_gloss_request_reads_the_offline_dictionary_for_its_target_language(
     }
 }
 
+/// Android 不再随包带离线释义：资源目录旁没有时，用状态目录下已下载的 `offline-glosses` 资源包。翻译查询列出这些语言并带上 `state_root`，宿主把它交回释义请求；随包的那份仍然优先，那时查询和以前一样不带 `state_root`。
+#[test]
+fn offline_glosses_are_found_in_the_downloaded_pack() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state");
+    let pack = publish_resource_pack(&state, ResourcePack::OfflineGlosses, &[]);
+    offline_gloss_fixture(&pack.join("zh-fr.db"), "fr");
+    let resources = dir.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    assert_eq!(
+        crate::offline_glosses_file(&resources, Some(&state), "fr"),
+        Some(pack.join("zh-fr.db"))
+    );
+    assert_eq!(crate::offline_glosses_file(&resources, None, "fr"), None);
+    assert_eq!(
+        crate::offline_glosses_file(&resources, Some(&state), "ja"),
+        None
+    );
+    assert_eq!(
+        crate::offline_glosses_file(&resources, Some(&state), "../fr"),
+        None
+    );
+
+    let mut preferences = Preferences {
+        candidate_translations: false,
+        candidate_english_gloss: true,
+        translation_target_language: msime_client_core::preferences::TranslationTargetLanguage::Fr,
+        ..Preferences::default()
+    };
+    preferences.tencent_tmt.enabled = false;
+    let path = |name: &str| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences_directory": state, "preferences": preferences }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    for byte in b"U4e2d" {
+        read(msime_client_character(
+            handle,
+            *byte,
+            byte.is_ascii_uppercase(),
+        ));
+    }
+    let query = read(msime_client_translation_query(handle));
+    assert_eq!(query["value"]["offline_gloss_languages"], json!(["fr"]));
+    assert_eq!(query["value"]["state_root"], json!(state.to_str().unwrap()));
+
+    let resources_bytes = resources.to_str().unwrap().as_bytes().to_vec();
+    let call = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        read(unsafe {
+            msime_client_candidate_gloss_request(
+                request.as_ptr(),
+                request.len(),
+                resources_bytes.as_ptr(),
+                resources_bytes.len(),
+            )
+        })
+    };
+    let candidates = json!([{"text":"你好","source":0}]);
+    assert_eq!(
+        call(
+            json!({"generation":1,"target_language":"fr","state_root":query["value"]["state_root"],"candidates":candidates})
+        )["value"],
+        json!({"generation":1,"translations":[{"text":"你好","translation":"bonjour, salut"}]})
+    );
+    // 不带 state_root 的宿主照旧只看资源目录旁边。
+    assert_eq!(
+        call(json!({"generation":2,"target_language":"fr","candidates":candidates}))["value"],
+        json!({"generation":2,"translations":[]})
+    );
+    assert_eq!(
+        call(
+            json!({"generation":3,"target_language":"fr","state_root":"state","candidates":candidates})
+        )["error"],
+        "state root must be absolute"
+    );
+
+    // 随包的那份优先，查询不再带 state_root。
+    offline_gloss_fixture(&dir.path().join("offline-glosses/zh-fr.db"), "fr");
+    preferences.candidate_page_size = 6;
+    update(handle, 1, &preferences);
+    let bundled = read(msime_client_translation_query(handle));
+    assert_eq!(bundled["value"]["offline_gloss_languages"], json!(["fr"]));
+    assert!(bundled["value"].get("state_root").is_none());
+    read(msime_client_destroy(handle));
+}
+
 /// Linux keeps the Tencent secret in the provider's own file, so the query's credential fields cannot say which service the user picked. The explicit choice has to survive to the socket even when that service is unusable, or the provider falls back to Tencent.
 #[cfg(unix)]
 #[test]
@@ -5542,6 +5710,45 @@ fn direct_cloud_callbacks_follow_a_pending_enable() {
         .unwrap()
         .iter()
         .any(|candidate| candidate["text"] == "云候选"));
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn clearing_online_source_removes_its_rows_without_empty_batch_protocol() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        cloud_candidates: true,
+        ..chinese_preferences()
+    };
+    preferences.ai_assistant.enabled = true;
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let query = read(msime_client_online_query(handle))["value"].to_string();
+    let apply = |source: u8, text: &str| {
+        let candidates = serde_json::to_vec(&json!([text])).unwrap();
+        read(unsafe {
+            msime_client_apply_online_candidates(
+                handle,
+                query.as_ptr(),
+                query.len(),
+                candidates.as_ptr(),
+                candidates.len(),
+                source,
+            )
+        })
+    };
+    let cloud = apply(0, "云候选");
+    assert_eq!(cloud["value"]["applied"], true, "{cloud}");
+    assert_eq!(apply(1, "AI候选")["value"]["applied"], true);
+    let cleared = read(msime_client_clear_online_candidates(handle, 0));
+    assert_eq!(cleared["value"]["applied"], true);
+    let candidates = cleared["value"]["view"]["candidates"].as_array().unwrap();
+    assert!(!candidates.iter().any(|item| item["text"] == "云候选"));
+    assert!(candidates.iter().any(|item| item["text"] == "AI候选"));
     read(msime_client_destroy(handle));
 }
 
@@ -7320,7 +7527,7 @@ fn the_fallback_scheme_is_the_edition_default() {
     );
 }
 
-/// full 准备出的文档没有 `edition` 键，也不替用户写偏好文件，与引入版本之前相同；五笔版的文档记下版本，第一次准备时把五笔版的默认偏好（五笔、混拼打开）写成第一份偏好文件，之后不再覆盖用户的修改。
+/// full 准备出的文档没有 `edition` 键，与引入版本之前相同；每个版本第一次准备时都把此刻读到的偏好写成第一份偏好文件（full 是默认偏好，五笔版是五笔、混拼打开），之后不再覆盖用户的修改。
 #[test]
 fn prepared_options_record_only_a_non_full_edition_and_seed_its_first_preferences() {
     let root = tempfile::tempdir().unwrap();
@@ -7338,7 +7545,9 @@ fn prepared_options_record_only_a_non_full_edition_and_seed_its_first_preference
     let full = prepare(&full_state, Edition::full());
     assert!(full.get("edition").is_none(), "{full}");
     assert_eq!(full["preferences"], json!(Preferences::default()));
-    assert!(!full_state.join("preferences.json").exists());
+    let stored = PreferencesStore::new(&full_state).load().unwrap();
+    assert_eq!(stored.revision, 1);
+    assert_eq!(stored.preferences, Preferences::default());
     assert!(!full_state.join(Edition::STATE_RECORD_FILE).exists());
     assert!(HostOptions::from_document(full.clone()).is_some());
 
@@ -7368,6 +7577,67 @@ fn prepared_options_record_only_a_non_full_edition_and_seed_its_first_preference
     assert_eq!(
         PreferencesStore::new(&wubi_state).load().unwrap().revision,
         2
+    );
+}
+
+/// 新装第一次准备时触屏键盘只有中文方案，这个结论写进第一份偏好文件，再次准备也不变；以前的版本准备过、用户却从没存过偏好的状态目录（有用户词库代次、没有偏好文件），准备时按以前的默认列表写下第一份文件，日文和韩文键盘升级后仍在。
+#[test]
+fn preparing_tells_a_fresh_install_from_an_upgrade_without_preferences() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    let specification = synthetic_desktop_lock(&resources);
+    let prepare = |state: &Path| -> Value {
+        serde_json::from_str(
+            &prepare_shipped_host_configuration(
+                &resources,
+                state,
+                &specification,
+                &[],
+                Edition::full(),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    };
+    let chinese = json!(TouchKeyboardScheme::DEFAULT_ENABLED);
+    let legacy = json!(TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED);
+
+    let fresh = root.path().join("fresh");
+    let prepared = prepare(&fresh);
+    assert_eq!(
+        prepared["preferences"]["touch_keyboard_schemes"]["enabled"],
+        chinese
+    );
+    assert!(fresh.join("user").join("dictionaries").is_dir());
+    let again = prepare(&fresh);
+    assert_eq!(
+        again["preferences"]["touch_keyboard_schemes"]["enabled"],
+        chinese
+    );
+    assert_eq!(PreferencesStore::new(&fresh).load().unwrap().revision, 1);
+
+    // 以前的版本准备过、从没写过偏好文件的状态目录。
+    let upgraded = root.path().join("upgraded");
+    prepare(&upgraded);
+    std::fs::remove_file(upgraded.join("preferences.json")).unwrap();
+    let prepared = prepare(&upgraded);
+    assert_eq!(
+        prepared["preferences"]["touch_keyboard_schemes"]["enabled"],
+        legacy
+    );
+    let stored = PreferencesStore::new(&upgraded).load().unwrap();
+    assert_eq!(stored.revision, 1);
+    assert_eq!(
+        stored.preferences.touch_keyboard_schemes.enabled,
+        TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED
+            .into_iter()
+            .collect()
+    );
+    let document: Value =
+        serde_json::from_slice(&std::fs::read(upgraded.join("preferences.json")).unwrap()).unwrap();
+    assert_eq!(
+        document["preferences"]["touch_keyboard_schemes"]["enabled"],
+        legacy
     );
 }
 
@@ -10932,6 +11202,40 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
 }
 
 #[test]
+fn a_relative_recorded_language_dictionary_directory_is_ignored() {
+    let relative_root = tempfile::Builder::new()
+        .prefix("synthetic-language-dictionaries-")
+        .tempdir_in(".")
+        .unwrap();
+    let relative = std::path::Path::new(".").join(relative_root.path().file_name().unwrap());
+    for name in ["msime-cantonese.db", "msime-zhuyin.db", "msime-stroke.db"] {
+        std::fs::write(relative.join(name), b"synthetic dictionary").unwrap();
+    }
+    assert!(!relative.is_absolute());
+    assert_eq!(
+        LanguageDictionaries::resolve(None, Some(&relative)),
+        LanguageDictionaries::default()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_recorded_language_dictionary_directory_is_ignored() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    for name in ["msime-cantonese.db", "msime-zhuyin.db", "msime-stroke.db"] {
+        std::fs::write(outside.path().join(name), b"synthetic dictionary").unwrap();
+    }
+    let linked = root.path().join("language-dictionaries");
+    msime_path_trust::untrusted_symlink(outside.path(), &linked).unwrap();
+
+    assert_eq!(
+        LanguageDictionaries::resolve(None, Some(&linked)),
+        LanguageDictionaries::default()
+    );
+}
+
+#[test]
 fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
@@ -10986,7 +11290,7 @@ fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
 
 #[test]
 fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
-    use msime_client_core::resources::MACOS_ON_DEMAND_ARTIFACTS;
+    use msime_client_core::resources::ON_DEMAND_JAPANESE_ARTIFACTS;
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
     let specification = synthetic_desktop_lock(&resources);
@@ -10998,7 +11302,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
         &resources,
         &specification,
         &fresh_state("full-macos"),
-        &MACOS_ON_DEMAND_ARTIFACTS,
+        &ON_DEMAND_JAPANESE_ARTIFACTS,
     )
     .unwrap();
 
@@ -11008,7 +11312,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
         &resources,
         &specification,
         &fresh_state("no-license"),
-        &MACOS_ON_DEMAND_ARTIFACTS,
+        &ON_DEMAND_JAPANESE_ARTIFACTS,
     )
     .is_err());
 
@@ -11018,7 +11322,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
         &resources,
         &specification,
         &fresh_state("half"),
-        &MACOS_ON_DEMAND_ARTIFACTS,
+        &ON_DEMAND_JAPANESE_ARTIFACTS,
     )
     .is_err());
 
@@ -11029,7 +11333,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
         &resources,
         &specification,
         &fresh_state("slim-macos"),
-        &MACOS_ON_DEMAND_ARTIFACTS,
+        &ON_DEMAND_JAPANESE_ARTIFACTS,
     )
     .unwrap();
 
@@ -11040,7 +11344,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
             &resources,
             &state,
             &specification,
-            &MACOS_ON_DEMAND_ARTIFACTS,
+            &ON_DEMAND_JAPANESE_ARTIFACTS,
             Edition::full(),
         )
         .unwrap(),
@@ -11054,37 +11358,110 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
     assert!(dictionaries.join("msime-pinyin.db").is_file());
 }
 
-/// 平台默认的按需清单：macOS 接受不含日文词典的发布包，其余平台仍要求完整的锁文件。
+/// 各目标的按需清单：macOS 和 Android 接受不含日文词典的发布包，Linux 和 Windows 仍要求完整的锁文件；本平台用的 `ON_DEMAND_ARTIFACTS` 就是本平台那一份。
 #[test]
 fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
+    use msime_client_core::resources::{on_demand_artifacts, ON_DEMAND_JAPANESE_ARTIFACTS};
+    assert_eq!(
+        ON_DEMAND_ARTIFACTS,
+        on_demand_artifacts(std::env::consts::OS)
+    );
+    for (target, slim_prepares) in [
+        ("macos", true),
+        ("android", true),
+        ("linux", false),
+        ("windows", false),
+    ] {
+        let on_demand = on_demand_artifacts(target);
+        if slim_prepares {
+            assert_eq!(on_demand, ON_DEMAND_JAPANESE_ARTIFACTS, "{target}");
+        } else {
+            assert!(on_demand.is_empty(), "{target}");
+        }
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        let specification = synthetic_desktop_lock(&resources);
+        for name in ON_DEMAND_JAPANESE_ARTIFACTS {
+            std::fs::remove_file(resources.join(name)).unwrap();
+        }
+        let prepared = prepare_shipped_host_configuration(
+            &resources,
+            &root.path().join("state"),
+            &specification,
+            on_demand,
+            Edition::full(),
+        );
+        if slim_prepares {
+            prepared.unwrap();
+        } else {
+            let error = prepared.unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<msime_client_core::resources::ResourceError>(),
+                    Some(msime_client_core::resources::ResourceError::ExistingGeneration(_))
+                ),
+                "{target}: {error}"
+            );
+        }
+    }
+}
+
+/// 升级到不带日文词典的发布包后，校验标记描述的是完整清单，不能再当作这次（子集）已经校验过：要重新哈希一遍剩下的文件，而不是凭旧标记放行。这里把拼音词库换成同样长度、同样修改时间的另一份字节，只有真正重新哈希才发现得了。
+#[test]
+fn the_verified_marker_is_invalidated_when_the_shipped_set_shrinks() {
+    use msime_client_core::resources::{on_demand_artifacts, VerifiedMarker};
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
     let specification = synthetic_desktop_lock(&resources);
-    std::fs::remove_file(resources.join("msime-japanese.dat")).unwrap();
-    std::fs::remove_file(resources.join("msime-mozc_dictionary_oss_README.txt")).unwrap();
-    std::fs::remove_file(resources.join("msime-mozc_LICENSE.txt")).unwrap();
-    let prepared = prepare_shipped_host_configuration(
-        &resources,
-        &root.path().join("state"),
-        &specification,
-        ON_DEMAND_ARTIFACTS,
-        Edition::full(),
+    let state = root.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let on_demand = on_demand_artifacts("android");
+
+    verify_resources_once(&resources, &specification, &state, on_demand).unwrap();
+    let marker = state.join("verified-resources.json");
+    assert_eq!(
+        VerifiedMarker::read(&marker).unwrap().generation,
+        specification.generation().unwrap()
     );
-    #[cfg(target_os = "macos")]
-    {
-        prepared.unwrap();
+    // 完整目录再启动一次走标记，不重新哈希。
+    verify_resources_once(&resources, &specification, &state, on_demand).unwrap();
+
+    let pinyin = resources.join("msime-pinyin.db");
+    let modified = std::fs::metadata(&pinyin).unwrap().modified().unwrap();
+    let mut replaced = std::fs::read(&pinyin).unwrap();
+    let last = replaced.len() - 1;
+    replaced[last] ^= 0xff;
+    std::fs::write(&pinyin, &replaced).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&pinyin)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    for name in on_demand {
+        std::fs::remove_file(resources.join(name)).unwrap();
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let error = prepared.unwrap_err();
-        assert!(
-            matches!(
-                error.downcast_ref::<msime_client_core::resources::ResourceError>(),
-                Some(msime_client_core::resources::ResourceError::ExistingGeneration(_))
-            ),
-            "{error}"
-        );
-    }
+
+    let error = verify_resources_once(&resources, &specification, &state, on_demand)
+        .expect_err("a shrunken set must be re-hashed, not accepted from the old marker");
+    assert!(
+        matches!(
+            error.downcast_ref::<msime_client_core::resources::ResourceError>(),
+            Some(msime_client_core::resources::ResourceError::Integrity)
+        ),
+        "{error}"
+    );
+
+    // 字节复原后按子集校验通过，标记改记子集的清单。
+    replaced[last] ^= 0xff;
+    std::fs::write(&pinyin, &replaced).unwrap();
+    verify_resources_once(&resources, &specification, &state, on_demand).unwrap();
+    let shipped = specification.as_shipped_in(&resources, on_demand);
+    assert_eq!(shipped.artifacts.len(), 2);
+    assert_eq!(
+        VerifiedMarker::read(&marker).unwrap().generation,
+        shipped.generation().unwrap()
+    );
 }
 
 /// 落定重排模型随包的优先；随包的不在（包括旧 HostOptions 记着、但升级时已删掉的路径）才用下载的资源包。
@@ -11147,6 +11524,40 @@ fn a_bundled_settled_model_wins_over_the_downloaded_pack() {
         Some(resources.join("sentence-model-desktop.safetensors"))
     );
     assert_eq!(super::packaged_settled_model(&json!({})), None);
+}
+
+#[test]
+fn a_relative_recorded_settled_model_is_ignored() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    let downloaded = publish_resource_pack(
+        &state,
+        ResourcePack::SettledModel,
+        &["sentence-model-desktop.safetensors"],
+    )
+    .join("sentence-model-desktop.safetensors");
+
+    // HostOptions promises an absolute path. A relative path must not be resolved
+    // against whichever directory happened to launch the input method.
+    let relative_root = tempfile::Builder::new()
+        .prefix("synthetic-settled-model-")
+        .tempdir_in(".")
+        .unwrap();
+    let relative = std::path::Path::new(".")
+        .join(relative_root.path().file_name().unwrap())
+        .join("synthetic-model.safetensors");
+    std::fs::write(&relative, b"synthetic model").unwrap();
+    assert!(!relative.is_absolute());
+    assert_eq!(
+        super::settled_model_file(
+            resources.to_str().unwrap(),
+            Some(relative.to_str().unwrap()),
+            Some(&state)
+        ),
+        Some(downloaded)
+    );
 }
 
 /// 会话打开后才下载好的落定重排模型，在下一次聚焦时被看见，在后台线程加载，加载完后由输入空闲时的 `apply_pending` 换上，不重建 Engine。

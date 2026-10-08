@@ -1,12 +1,99 @@
 //! SQLite housekeeping shared by the database stages.
 
 use std::path::Path;
+use std::{fs::OpenOptions, io};
 
 use anyhow::{bail, Result};
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 
 pub fn open(path: &Path) -> Result<Connection> {
-    Ok(Connection::open(path)?)
+    let path = no_follow_path(path)?;
+    create_database_file(&path)?;
+    Ok(Connection::open_with_flags(
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+    )?)
+}
+
+fn create_database_file(path: &Path) -> io::Result<()> {
+    if let Ok(metadata) = std::fs::symlink_metadata(path) {
+        if metadata.file_type().is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "database path is a symbolic link",
+            ));
+        }
+    }
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    match options.open(path) {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+pub fn open_read_only(path: &Path) -> Result<Connection> {
+    let path = no_follow_path(path)?;
+    check_regular_file(&path)?;
+    Ok(Connection::open_with_flags(
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?)
+}
+
+fn check_regular_file(path: &Path) -> io::Result<()> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "database input is not a regular file",
+        ));
+    }
+    Ok(())
+}
+
+fn no_follow_path(path: &Path) -> io::Result<std::path::PathBuf> {
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "database path has no parent")
+    })?;
+    let name = path.file_name().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "database path has no filename")
+    })?;
+    let resolved = std::fs::canonicalize(parent)?.join(name);
+    if let Ok(metadata) = std::fs::symlink_metadata(&resolved) {
+        if metadata.file_type().is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "database path is a symbolic link",
+            ));
+        }
+    }
+    Ok(resolved)
 }
 
 pub fn integrity_check(connection: &Connection) -> Result<()> {
@@ -44,6 +131,62 @@ pub fn freeze(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn sqlite_opens_reject_symlinked_leaves() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let real = directory.path().join("real.db");
+        open(&real).unwrap();
+        let linked = directory.path().join("linked.db");
+        symlink(&real, &linked).unwrap();
+
+        assert!(open(&linked).is_err());
+        assert!(open_read_only(&linked).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sqlite_read_only_rejects_a_fifo_without_blocking() {
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("input.db");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+
+        let (done, result) = mpsc::channel();
+        let worker_path = path.clone();
+        let worker = std::thread::spawn(move || {
+            done.send(open_read_only(&worker_path).is_err()).unwrap();
+        });
+        let rejected_without_release = match result.recv_timeout(Duration::from_millis(100)) {
+            Ok(rejected) => rejected,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let writer = std::fs::OpenOptions::new()
+                    .write(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(&path)
+                    .unwrap();
+                drop(writer);
+                result.recv_timeout(Duration::from_secs(1)).unwrap();
+                false
+            }
+            Err(error) => panic!("SQLite reader failed to report: {error}"),
+        };
+        worker.join().unwrap();
+        assert!(
+            rejected_without_release,
+            "FIFO SQLite input must be rejected without blocking"
+        );
+    }
 
     #[test]
     fn analyze_leaves_only_stat1() {

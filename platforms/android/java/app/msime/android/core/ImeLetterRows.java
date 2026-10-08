@@ -76,7 +76,7 @@ final class ImeLetterRows {
         KeyboardIconKey key = new KeyboardIconKey(s, kind);
         key.setText(text);
         key.setContentDescription(description);
-        key.setOnClickListener(ignored -> original.performClick());
+        ViewPolicy.bindClick(key, original::performClick);
         s.keyId(key, keyId);
         s.imeKeyFeedback.stageFace(original, key);
         return key;

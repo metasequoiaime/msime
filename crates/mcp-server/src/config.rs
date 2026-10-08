@@ -387,7 +387,7 @@ fn default_options_path(env: &impl Fn(&str) -> Option<OsString>) -> Option<PathB
 impl Config {
     /// The runtime-options document as it is now.
     pub fn read_options(&self) -> Result<Value, String> {
-        let file = std::fs::File::open(&self.options)
+        let file = crate::bounded::open_private(&self.options)
             .map_err(|_| "cannot open the runtime options; is the input method set up?")?;
         let bytes =
             crate::bounded::read(file, OPTIONS_READ_LIMIT).map_err(|error| match error {
@@ -849,5 +849,26 @@ mod tests {
 
         std::fs::write(&options, br#"{"api_version":1,"edition":"klingon"}"#).unwrap();
         assert!(config.edition(&config.read_options().unwrap()).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_options_rejects_a_symlinked_runtime_document() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("runtime-options.json");
+        std::fs::write(&target, br#"{"api_version":1}"#).unwrap();
+        let linked = directory.path().join("runtime-options.json");
+        symlink(&target, &linked).unwrap();
+        let config = Config {
+            options: linked,
+            state_dir: None,
+            allow_write: false,
+            allow_dictionary_read: false,
+        };
+
+        assert!(config.read_options().is_err());
     }
 }

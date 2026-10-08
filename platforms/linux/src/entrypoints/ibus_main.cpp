@@ -2,6 +2,7 @@
 #include "../core/FirstRunGuidance.h"
 #include "../core/LinuxEdition.h"
 #include "../core/RuntimeOptionsRefresh.h"
+#include "../core/RuntimeOptionsFile.h"
 #include "../system/SystemTheme.h"
 #include <array>
 #include <fstream>
@@ -21,15 +22,12 @@ struct OptionsWatch {
   std::string last_document;
 };
 void reload_options(OptionsWatch &watch) {
-  std::ifstream file(watch.path);
-  if (!file)
+  std::string document;
+  try {
+    document = msime::linux_host::read_runtime_options(watch.path);
+  } catch (...) {
     return;
-  std::array<char, 16385> buffer;
-  file.read(buffer.data(), buffer.size());
-  if (file.bad() || file.gcount() == 0 ||
-      static_cast<std::size_t>(file.gcount()) >= buffer.size())
-    return;
-  const std::string document(buffer.data(), static_cast<size_t>(file.gcount()));
+  }
   if (document == watch.last_document)
     return;
   // Avoid reparsing identical content, including an invalid intermediate save.
@@ -115,15 +113,7 @@ int main(int argc, char **argv) {
   }
   std::string preferences_directory;
   try {
-    std::ifstream file(options_path);
-    if (!file)
-      throw std::runtime_error("Missing configuration");
-    std::array<char, 16385> buffer;
-    file.read(buffer.data(), buffer.size());
-    if (file.bad() || file.gcount() == 0 ||
-        static_cast<std::size_t>(file.gcount()) >= buffer.size())
-      throw std::runtime_error("Cannot read configuration");
-    std::string options(buffer.data(), static_cast<size_t>(file.gcount()));
+    std::string options = msime::linux_host::read_runtime_options(options_path);
     msime_ibus_configure(options);
     if (const auto parsed = nlohmann::json::parse(options, nullptr, false); parsed.is_object())
       preferences_directory = parsed.value("preferences_directory", std::string{});

@@ -57,7 +57,7 @@ public final class InlineHeightBar extends LinearLayout {
         cancel = textButton(context, "取消");
         reset = textButton(context, "重置");
         done = textButton(context, "完成");
-        done.setTypeface(Typeface.DEFAULT_BOLD);
+        ViewPolicy.setTypefaceStyle(done, Typeface.BOLD);
         KeyboardGeometry.setKeyTextSize(done, 14);
         handle = new Handle(context, this);
         int pill = KeyboardGeometry.pixels(context, 32);
@@ -67,9 +67,9 @@ public final class InlineHeightBar extends LinearLayout {
         resetParams.rightMargin = KeyboardGeometry.pixels(context, 4);
         addView(reset, resetParams);
         addView(done, KeyboardGeometry.linearParamsPx(LayoutParams.WRAP_CONTENT, pill));
-        cancel.setOnClickListener(view -> { if (listener != null) listener.onCancel(); });
-        done.setOnClickListener(view -> { if (listener != null) listener.onDone(); });
-        reset.setOnClickListener(view -> {
+        ViewPolicy.bindClick(cancel, () -> { if (listener != null) listener.onCancel(); });
+        ViewPolicy.bindClick(done, () -> { if (listener != null) listener.onDone(); });
+        ViewPolicy.bindClick(reset, () -> {
             updatePercent(DEFAULT_PERCENT, true);
             if (listener != null) listener.onReset();
         });

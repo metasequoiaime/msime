@@ -4,6 +4,12 @@ import {
   type LocalDictionaryFormat,
   type LocalDictionaryKind,
 } from "./dictionary-file";
+import { utf8ByteLength } from "../core/text";
+
+/** Keep the complete export within the size a settings bridge can hold at once. */
+export const MAX_DICTIONARY_EXPORT_BYTES = 32 * 1024 * 1024;
+
+const PERSONAL_EXPORT_HEADER = "# 类别\t编码\t词条\t权重\n";
 
 const personalDictionaryExportKinds: readonly [LocalDictionaryKind, string][] = [
   ["pinyin", "拼音"],
@@ -26,8 +32,12 @@ export function personalDictionaryExportPayload(entries: DictionaryEntry[]): {
       .filter((entry) => entry.kind === kind)
       .map((entry) => `${label}\t${entry.key}\t${entry.value}\t${entry.weight}`),
   );
+  const body = `${PERSONAL_EXPORT_HEADER}${rows.length ? `${rows.join("\n")}\n` : ""}`;
+  if (utf8ByteLength(body) > MAX_DICTIONARY_EXPORT_BYTES) {
+    throw new Error("dictionary_export_limit");
+  }
   return {
-    body: `# 类别\t编码\t词条\t权重\n${rows.length ? `${rows.join("\n")}\n` : ""}`,
+    body,
     rows: rows.length,
   };
 }
@@ -41,14 +51,21 @@ export async function loadAllPersonalDictionaryEntries(dictionary: {
   ) => Promise<{ entries: DictionaryEntry[]; has_more: boolean }>;
 }): Promise<DictionaryEntry[]> {
   const entries: DictionaryEntry[] = [];
-  for (const [kind] of personalDictionaryExportKinds) {
+  let bytes = utf8ByteLength(PERSONAL_EXPORT_HEADER);
+  for (const [kind, label] of personalDictionaryExportKinds) {
     let offset = 0;
     let hasMore = true;
     while (hasMore && offset <= 1_000_000) {
       const page = await dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, "");
-      entries.push(
-        ...page.entries.filter((entry) => entry.kind === kind && entry.source !== "bundled"),
-      );
+      for (const entry of page.entries) {
+        if (entry.kind !== kind || entry.source === "bundled") continue;
+        const row = `${label}\t${entry.key}\t${entry.value}\t${entry.weight}`;
+        bytes += utf8ByteLength(row) + 1;
+        if (bytes > MAX_DICTIONARY_EXPORT_BYTES) {
+          throw new Error("dictionary_export_limit");
+        }
+        entries.push(entry);
+      }
       if (!page.entries.length) {
         hasMore = false;
         break;
@@ -100,5 +117,9 @@ export function dictionaryExportPayload(
         })
       : lines;
   if (!kept.length) return { body: "", rows: 0 };
-  return { body: "\ufeff" + kept.join("\n") + "\n", rows: kept.length };
+  const body = "\ufeff" + kept.join("\n") + "\n";
+  if (utf8ByteLength(body) > MAX_DICTIONARY_EXPORT_BYTES) {
+    throw new Error("dictionary_export_limit");
+  }
+  return { body, rows: kept.length };
 }

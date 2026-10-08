@@ -258,7 +258,7 @@ final class KeyboardSheets {
             ViewPolicy.setSingleLine(button);
             Ui.setButtonPadding(button, context);
             Ui.setTextMinHeightDp(button, context, Ui.COMPACT_BUTTON_MIN_HEIGHT);
-            button.setEnabled(false);
+            ViewPolicy.setEnabled(button, false);
         }
         button.setAccessibilityDelegate(buttonDelegate(label + "，" + title));
         LinearLayout.LayoutParams params = Ui.rowGapParams(context);
@@ -289,7 +289,7 @@ final class KeyboardSheets {
     static TextView badge(Context context, String text) {
         TextView badge = Ui.styledLabel(context, text, 15, 600, Ui.accent(context));
         ViewPolicy.setCentered(badge);
-        badge.setBackground(Ui.rounded(Ui.accentSoft(context), Ui.dp(context, 8)));
+        ViewPolicy.setBackground(badge, Ui.rounded(Ui.accentSoft(context), Ui.dp(context, 8)));
             Ui.hideFromAccessibility(badge);
         LinearLayout.LayoutParams params = Ui.squareParams(context, 32);
         params.setMarginEnd(Ui.dp(context, Ui.ROW_GAP));

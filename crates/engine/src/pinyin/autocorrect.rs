@@ -250,6 +250,7 @@ fn correction_index() -> &'static HashMap<&'static str, Vec<CorrectionTarget>> {
 }
 
 const NO_PREDECESSOR: usize = usize::MAX;
+const SMALL_FINALIZE_BEAM: usize = 36;
 
 /// One propagated cut hypothesis, ranked by (edge_count, weight, arrival): fewest corrections, then summed correction weight, then generation order (positions ascending, pieces longest first, table order).
 #[derive(Debug, Clone, Copy)]
@@ -294,6 +295,24 @@ impl Search {
             (hypothesis.edge_count, hypothesis.weight, hypothesis.arrival)
         });
         // The same syllables reached over different raw spans: keep the best-ranked one.
+        if list.len() <= SMALL_FINALIZE_BEAM {
+            let mut write = 0;
+            for read in 0..list.len() {
+                if list[..write]
+                    .iter()
+                    .any(|hypothesis| hypothesis.sequence == list[read].sequence)
+                {
+                    continue;
+                }
+                if write != read {
+                    list.swap(write, read);
+                }
+                write += 1;
+            }
+            list.truncate(write);
+            list.truncate(self.k);
+            return;
+        }
         let mut seen = HashSet::with_capacity(list.len());
         list.retain(|hypothesis| seen.insert(hypothesis.sequence));
         list.truncate(self.k);
@@ -538,6 +557,30 @@ mod tests {
         assert_eq!(search.best.len(), 5);
         assert!(search.best.iter().all(|slot| slot.capacity() >= 3));
         assert!(search.sequences.capacity() >= 12);
+    }
+
+    #[test]
+    fn finalize_uses_bounded_dedup_state_for_position_beams() {
+        let mut search = Search::new(1, 9);
+        search.best[1] = (0..36)
+            .map(|index| Hypothesis {
+                edge_count: index % 3,
+                prev_index: 0,
+                arrival: index,
+                weight: index as i32,
+                raw_length: 1,
+                syllable: "shi",
+                corrected: true,
+                sequence: index % 18,
+            })
+            .collect();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            search.finalize(1);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(search.best[1].len(), 9);
     }
 
     fn reading(cut: &AutocorrectCut) -> String {

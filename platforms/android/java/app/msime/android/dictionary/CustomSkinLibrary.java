@@ -73,8 +73,8 @@ public final class CustomSkinLibrary {
         for (int index = 0; index < values.length() && result.size() < MAX_DESIGNS; index++) {
             JSONObject item = values.optJSONObject(index);
             if (item == null) continue;
-            String id = strictString(item.opt("id"));
-            String name = strictString(item.opt("name"));
+            String id = JsonPolicy.strictString(item.opt("id"));
+            String name = JsonPolicy.strictString(item.opt("name"));
             JSONObject design = item.optJSONObject("design");
             if (id == null || name == null) continue;
             name = TextPolicy.trimmed(name);
@@ -182,7 +182,7 @@ public final class CustomSkinLibrary {
 
     /** org.json's optString coerces numbers and booleans; persisted library fields are strings. */
     static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     // ---- 设计参数的导出与导入（云同步与分享用；不含照片） ----
@@ -255,8 +255,8 @@ public final class CustomSkinLibrary {
         for (int index = 0; index < values.length(); index++) {
             JSONObject value = values.optJSONObject(index);
             if (value == null) continue;
-            String id = strictString(value.opt("id"));
-            String name = strictString(value.opt("name"));
+            String id = JsonPolicy.strictString(value.opt("id"));
+            String name = JsonPolicy.strictString(value.opt("name"));
             JSONObject design = value.optJSONObject("design");
             if (id == null || id.isEmpty() || name == null || design == null) continue;
             name = TextPolicy.trimmed(name);

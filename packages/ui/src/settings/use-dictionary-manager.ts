@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
 import { randomRequestId } from "../core/random-id";
+import { utf8ByteLength } from "../core/text";
 import {
   DICTIONARY_PAGE_SIZE,
   dictionaryPageStatus,
@@ -11,6 +12,7 @@ import {
 } from "../dictionary/dictionary-file";
 import { describeImportResult } from "../dictionary/dictionary-messages";
 import {
+  MAX_DICTIONARY_EXPORT_BYTES,
   dictionaryExportName,
   dictionaryExportPayload,
   personalDictionaryExportName,
@@ -300,6 +302,9 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   ): Promise<string | null | undefined> {
     const isCurrent = () => mounted.current && generation === clientGeneration.current;
     if (!isCurrent()) return undefined;
+    if (utf8ByteLength(body) > MAX_DICTIONARY_EXPORT_BYTES) {
+      throw new Error("dictionary_export_limit");
+    }
     const saveExport = client.saveExport;
     if (saveExport) {
       let path: string | null;
@@ -356,6 +361,9 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
               1000,
             );
             text += page.text;
+            if (utf8ByteLength(text) > MAX_DICTIONARY_EXPORT_BYTES) {
+              throw new Error("dictionary_export_limit");
+            }
             const count = page.text ? page.text.trimEnd().split("\n").length : 0;
             offset += count;
             hasMore = page.has_more && count > 0;

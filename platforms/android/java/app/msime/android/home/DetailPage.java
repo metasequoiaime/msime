@@ -62,7 +62,7 @@ public abstract class DetailPage extends HomeTabFragment {
         largeTitle = view.findViewById(R.id.ms_detail_title);
         barTitle = view.findViewById(R.id.ms_detail_bar_title);
         bar = view.findViewById(R.id.ms_detail_bar);
-        bar.setBackgroundColor(Ui.page(requireContext()));
+        ViewPolicy.setBackgroundColor(bar, Ui.page(requireContext()));
         bar.getBackground().setAlpha(0);
         collapsed = false;
         setTitle(title());

@@ -23,12 +23,26 @@ nlohmann::json response(char *raw) {
     throw std::runtime_error("Shared host operation failed");
   return document.at("value");
 }
+
+bool translation_preferences_changed(const nlohmann::json &before,
+                                     const nlohmann::json &after) {
+  for (const auto *key : {"candidate_translations", "candidate_english_gloss",
+                          "translation_target_language",
+                          "translation_secondary_language", "translation_account",
+                          "custom_translation", "niutrans", "tencent_tmt"}) {
+    if (before.value(key, nlohmann::json(nullptr)) !=
+        after.value(key, nlohmann::json(nullptr)))
+      return true;
+  }
+  return false;
+}
 } // namespace
 ServerSession::ServerSession(uint64_t client_id, const std::string &options)
     : client_(client_id) {
   if (!client_ || options.size() > 16384 || msime_client_abi_version() != 3)
     throw std::invalid_argument("Invalid Windows session configuration");
   const auto document = nlohmann::json::parse(options);
+  preferences_ = document.value("preferences", nlohmann::json::object());
   traditional_output_ = document.value("preferences", nlohmann::json::object())
                             .value("traditional_chinese_output", false);
   auto created = response(msime_client_create(
@@ -468,12 +482,40 @@ ServerSession::apply_translations(uint64_t epoch, uint64_t generation,
 nlohmann::json ServerSession::update_preferences(uint64_t epoch,
                                                  const std::string &snapshot) {
   check_active(epoch);
+  const auto document = nlohmann::json::parse(snapshot);
+  const auto next_preferences = document.at("preferences");
+  const bool cloud_changed = preferences_.value("cloud_candidates", true) !=
+                             next_preferences.value("cloud_candidates", true);
+  const auto previous_ai = preferences_.value("ai_assistant", nlohmann::json::object());
+  const auto next_ai = next_preferences.value("ai_assistant", nlohmann::json::object());
+  const bool ai_changed = previous_ai != next_ai;
+  const bool translation_changed =
+      translation_preferences_changed(preferences_, next_preferences);
   auto result = response(msime_client_update_preferences(
       session_, reinterpret_cast<const uint8_t *>(snapshot.data()),
       snapshot.size()));
-  const auto document = nlohmann::json::parse(snapshot);
-  traditional_output_ = document.at("preferences").value(
+  preferences_ = next_preferences;
+  const auto clear_online = [&](uint8_t source) {
+    auto cleared = response(msime_client_clear_online_candidates(session_, source));
+    if (cleared.contains("view") && cleared.at("view").is_object())
+      result["view"] = std::move(cleared.at("view"));
+  };
+  if (cloud_changed)
+    clear_online(0);
+  if (ai_changed)
+    clear_online(1);
+  traditional_output_ = next_preferences.value(
       "traditional_chinese_output", false);
+  if (translation_changed && result.contains("view") &&
+      result.at("view").is_object() &&
+      result.at("view").at("generation").is_number_unsigned()) {
+    const auto empty = std::string("[]");
+    auto cleared = response(msime_client_apply_translations(
+        session_, result.at("view").at("generation").get<uint64_t>(),
+        reinterpret_cast<const uint8_t *>(empty.data()), empty.size()));
+    if (cleared.contains("view") && cleared.at("view").is_object())
+      result["view"] = std::move(cleared.at("view"));
+  }
   // With nothing switched on the library starts no player, so it has not kept the earlier "active". Say it again, so music switched on while this client holds the focus starts now rather than at the next focus change.
   if (music_active_)
     (void)msime_client_music_set_active(session_, true);

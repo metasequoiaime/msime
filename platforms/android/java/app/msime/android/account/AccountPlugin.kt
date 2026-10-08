@@ -20,7 +20,7 @@ import app.tauri.plugin.Plugin
 import java.io.File
 import java.nio.file.Path
 import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 @InvokeArg
 class SaveAccountSessionArgs {
@@ -82,7 +82,7 @@ class AiTestArgs {
 class AccountPlugin(activity: Activity) : Plugin(activity) {
     private val hostActivity = activity
     private val storage = AndroidAccountSessionStorage(activity)
-    private val bootstrapWorker: ExecutorService = Executors.newSingleThreadExecutor()
+    private val bootstrapWorker: ExecutorService = AccountTaskExecutor.create()
 
     override fun onDestroy() {
         bootstrapWorker.shutdownNow()
@@ -397,6 +397,8 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
                     invoke.reject("bootstrap", "bootstrap")
                 }
             }
+        } catch (_: RejectedExecutionException) {
+            invoke.reject("bootstrap_busy", "bootstrap")
         } catch (_: Exception) {
             invoke.reject("bootstrap", "bootstrap")
         }
@@ -420,6 +422,8 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
                     invoke.reject("ai_models_unavailable", "ai_models_failed")
                 }
             }
+        } catch (_: RejectedExecutionException) {
+            invoke.reject("ai_models_busy", "ai_models_failed")
         } catch (_: Exception) {
             invoke.reject("ai_models_invalid", "ai_models_failed")
         }
@@ -449,6 +453,8 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
                     invoke.reject("ai_test_unavailable", "ai_test_failed")
                 }
             }
+        } catch (_: RejectedExecutionException) {
+            invoke.reject("ai_test_busy", "ai_test_failed")
         } catch (_: Exception) {
             invoke.reject("ai_test_invalid", "ai_test_failed")
         }

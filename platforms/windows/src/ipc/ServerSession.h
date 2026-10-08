@@ -128,6 +128,7 @@ private:
   bool active_ = false;
   bool input_enabled_ = true;
   bool traditional_output_ = false;
+  nlohmann::json preferences_ = nlohmann::json::object();
   bool music_active_ = false;
   TypingEffectSettings typing_effect_settings_{};
   void refresh_typing_effect_settings();

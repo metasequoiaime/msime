@@ -9,6 +9,7 @@ use super::journal::{
     MISSING_ROW, UNSTORABLE_ENTRY,
 };
 use super::ngram_store::{delete_personal_ngram_word, flush_journal, forget_journal_rows};
+use super::replay::attach;
 use crate::dictionary::english::ensure_english_schema;
 use crate::error::{EngineError, Result};
 use crate::types::PersonalDictionaryKind;
@@ -19,13 +20,10 @@ const MAX_LEARNED_ENGLISH_WORD_LENGTH: usize = 64;
 /// The dictionary connection with the journal attached as `candidate_journal`, the journal's schema already applied by `ensure_user_database`.
 fn open_with_journal(dictionary: &Path, user_db: &Path) -> Result<Connection> {
     let connection = open_dictionary_for_writing(dictionary)?;
-    let journal = user_db
-        .to_str()
-        .ok_or_else(|| EngineError::invalid(UNSTORABLE_ENTRY))?;
-    connection.execute(
-        &format!("ATTACH DATABASE ?1 AS {JOURNAL_ALIAS}"),
-        params![journal],
-    )?;
+    if user_db.to_str().is_none() {
+        return Err(EngineError::invalid(UNSTORABLE_ENTRY));
+    }
+    attach(&connection, user_db, JOURNAL_ALIAS)?;
     Ok(connection)
 }
 

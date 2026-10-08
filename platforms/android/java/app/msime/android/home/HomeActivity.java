@@ -102,9 +102,9 @@ public final class HomeActivity extends AppCompatActivity {
         View intro = findViewById(R.id.home_intro);
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.home_root), (view, windowInsets) -> {
             Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
-            content.setPadding(bars.left, bars.top, bars.right, 0);
-            tabs.setPadding(bars.left, 0, bars.right, bars.bottom);
-            intro.setPadding(0, 0, 0, bars.bottom);
+            ViewPolicy.setPadding(content, bars.left, bars.top, bars.right, 0);
+            ViewPolicy.setPadding(tabs, bars.left, 0, bars.right, bars.bottom);
+            ViewPolicy.setPadding(intro, 0, 0, 0, bars.bottom);
             return windowInsets;
         });
         ViewPolicy.bindClick(intro, this::dismissIntro);
@@ -251,7 +251,7 @@ public final class HomeActivity extends AppCompatActivity {
         onboardingAfterIntro = leadsToOnboarding;
         intro.animate().cancel();
         intro.setAlpha(1f);
-        intro.setClickable(true);
+        ViewPolicy.setClickable(intro, true);
         ViewPolicy.show(intro);
         barsOnDark(true);
 
@@ -330,12 +330,12 @@ public final class HomeActivity extends AppCompatActivity {
         if (intro.getVisibility() != View.VISIBLE || !intro.isClickable()) return;
         intro.removeCallbacks(dismissIntro);
         // Not clickable while it fades, so a second tap during the fade does not start onboarding twice.
-        intro.setClickable(false);
+        ViewPolicy.setClickable(intro, false);
         boolean onboarding = onboardingAfterIntro;
         onboardingAfterIntro = false;
         intro.animate().alpha(0f).setDuration(INTRO_FADE_MILLIS).withEndAction(() -> {
             ViewPolicy.hide(intro);
-            intro.setClickable(true);
+            ViewPolicy.setClickable(intro, true);
             stopBreath();
         }).start();
         barsOnDark(false);

@@ -74,7 +74,7 @@ impl LocalModelInstalls {
     }
 
     /// Whether any install or removal is running. A poisoned lock counts as busy, so a caller that would interrupt the work leaves it alone.
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(target_os = "linux")]
     pub(crate) fn any_running(&self) -> bool {
         self.0
             .lock()

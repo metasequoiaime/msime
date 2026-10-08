@@ -128,6 +128,8 @@ interface VoiceCaptureDeviceReply {
 
 const BRIDGE_NAME: string = 'msimeHarmony';
 const PLATFORM: string = 'harmony';
+/** The settings page and native save bridge hold one complete export in memory. */
+const MAX_DICTIONARY_EXPORT_BYTES: number = 32 * 1024 * 1024;
 
 /** `{directory, platform, channel}` for `client.notices`; `{directory, id}` for `client.noticeDismiss`. */
 interface NoticesRequest {
@@ -489,6 +491,8 @@ struct Settings {
   private noticeAttached: boolean = false;
   // The notice whose body the card's web view holds, so a refresh that changes nothing does not reload it.
   private noticeShown: string = '';
+  /** Bumped for every notice fetch and when the page disappears, so late answers cannot repaint it. */
+  private noticeRequest: number = 0;
 
   aboutToAppear(): void {
     this.bridge.attach(this.context);
@@ -507,10 +511,12 @@ struct Settings {
    * Fetches the notices when the window opens or comes back to the front, never on a timer: client-core answers from its copy for a minute after a fetch, which is as often as the service wants to be asked.
    */
   private loadNotices(): void {
+    const generation: number = ++this.noticeRequest;
     const request: NoticesRequest = {
       directory: `${this.context.filesDir}/state/notices`, platform: PLATFORM, channel: 'app'
     };
     client.notices(JSON.stringify(request)).then((reply: string): void => {
+      if (!NoticePolicy.requestCurrent(generation, this.noticeRequest)) return;
       this.notices = NoticePolicy.items(reply);
       this.renderNotice();
     }).catch((error: Error): void => {
@@ -613,6 +619,7 @@ struct Settings {
   }
 
   aboutToDisappear(): void {
+    this.noticeRequest++;
     // The ability outlives this page, so a handler left behind would hold a bridge whose webview
     // has gone.
     EntryAbility.onActivated = undefined;
@@ -637,8 +644,8 @@ struct Settings {
             this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
               ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
                 'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
-                'customSkinLibrary', 'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
-                'typingStatistics', 'vocabularyReview', 'openExternalUrl', 'copyText',
+                'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
+                'typingStatistics', 'openExternalUrl', 'copyText',
                 'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                 'keyboardFeedback', 'onboardingStatus',
                 'showInputMethodPicker', 'importSkinFolder', 'startRequest', 'plugins'],
@@ -803,7 +810,6 @@ class SettingsBridge {
       KeyboardLog.error('skin folder name refused');
       return JSON.stringify({ ok: false, error: '皮肤文件夹名不可用' } as TextReply);
     }
-    const destination: string = `${this.stateDirectory}/skins/${name}`;
     try {
       const skinsDirectory: string = `${this.stateDirectory}/skins`;
       if (!this.safeDirectory(this.stateDirectory)) {
@@ -813,12 +819,13 @@ class SettingsBridge {
       if (!this.safeDirectory(skinsDirectory)) {
         return JSON.stringify({ ok: false, error: '导入失败' });
       }
-      if (fs.accessSync(destination)) {
-        // Replacing rather than merging: a half-overwritten skin is a skin whose stylesheet and
-        // assets come from two different versions, which the catalog would list and then draw wrong.
-        StagedResources.removeDirectory(destination);
+      const reply: string = await client.skinImport(JSON.stringify({
+        source: picked[0], directory: skinsDirectory
+      }));
+      const parsed: Record<string, Object> = JSON.parse(reply) as Record<string, Object>;
+      if (parsed['ok'] !== true) {
+        return JSON.stringify({ ok: false, error: '导入失败' } as TextReply);
       }
-      fs.copyDirSync(picked[0], skinsDirectory, 1);
     } catch (error) {
       KeyboardLog.error(`skin import failed: ${describeError(error)}`);
       return JSON.stringify({ ok: false, error: '导入失败' } as TextReply);
@@ -871,6 +878,10 @@ class SettingsBridge {
         KeyboardLog.error(`community skin request failed: ${describeError(error)}`);
         deliver(JSON.stringify({ ok: false, error: 'community_unavailable' }));
       });
+    } else if (kind === 'custom_skin_library') {
+      this.customSkinLibrary(payload).then(deliver).catch(failed);
+    } else if (kind === 'vocabulary_review') {
+      this.vocabularyReview(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary_snapshot') {
       this.cloudDictionarySnapshot(payload).then(deliver).catch(failed);
     } else if (kind === 'ai_models') {
@@ -917,6 +928,9 @@ class SettingsBridge {
     if (name === null || typeof request.contents !== 'string' || this.context === undefined) {
       return JSON.stringify({ ok: false, error: 'export_invalid' });
     }
+    if (utf8Length(request.contents) > MAX_DICTIONARY_EXPORT_BYTES) {
+      return JSON.stringify({ ok: false, error: 'export_too_large' });
+    }
     const directory: string = `${this.stateDirectory}/dictionary-exports`;
     const staging: string = `${directory}/${util.generateRandomUUID(false)}.txt`;
     let destination: string = '';
@@ -930,7 +944,7 @@ class SettingsBridge {
       }
       const file: fs.File = fs.openSync(staging, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
       try {
-        fs.writeSync(file.fd, request.contents);
+        await fs.write(file.fd, request.contents);
       } finally {
         fs.closeSync(file);
       }
@@ -941,7 +955,7 @@ class SettingsBridge {
         return JSON.stringify({ ok: true, value: null, error: '' });
       }
       destination = selected[0];
-      fs.copyFileSync(staging, destination);
+      await fs.copyFile(staging, destination);
       KeyboardLog.info('export saved');
       // The picker answers with a provider URI, which means nothing to the user; the file's own name is what they will look for.
       return JSON.stringify({ ok: true, value: SkinImportPolicy.pickedName(destination) ?? name, error: '' });
@@ -988,7 +1002,8 @@ class SettingsBridge {
     }
     if (action.operation === 'remove') {
       const request: LocalVoiceModelRequest = { root: root, id: id };
-      return LocalVoiceModelPolicy.rewrite(client.voiceLocalModelRemove(JSON.stringify(request)));
+      return LocalVoiceModelPolicy.rewrite(
+        await client.voiceLocalModelRemove(JSON.stringify(request)));
     }
     if (!fs.accessSync(root)) {
       fs.mkdirSync(root, true);
@@ -1107,8 +1122,16 @@ class SettingsBridge {
         }
       } else {
         source = `${staging}/${PluginImportPolicy.ARCHIVE_NAME}`;
+        const pathStat: fs.Stat = fs.lstatSync(picked[0]);
+        if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
+          return JSON.stringify({ ok: false, error: 'plugin_invalid', detail: '压缩包不是普通文件' });
+        }
         const file: fs.File = fs.openSync(picked[0], fs.OpenMode.READ_ONLY);
         try {
+          const opened: fs.Stat = fs.statSync(file.fd);
+          if (!opened.isFile() || opened.ino !== pathStat.ino) {
+            return JSON.stringify({ ok: false, error: 'plugin_invalid', detail: '压缩包文件发生变化' });
+          }
           const refusal: PluginImportRefusal | null = PluginImportPolicy.archive(fs.statSync(file.fd).size);
           if (refusal !== null) {
             return JSON.stringify(refusal);
@@ -1157,7 +1180,20 @@ class SettingsBridge {
     }
     fs.mkdirSync(destination);
     for (const name of scan.files) {
-      await fs.copyFile(`${picked}/${name}`, `${destination}/${name}`);
+      const sourcePath: string = `${picked}/${name}`;
+      const destinationPath: string = `${destination}/${name}`;
+      const file: fs.File = fs.openSync(sourcePath, fs.OpenMode.READ_ONLY);
+      try {
+        const pathStat: fs.Stat = fs.lstatSync(sourcePath);
+        const opened: fs.Stat = fs.statSync(file.fd);
+        if (pathStat.isSymbolicLink() || !pathStat.isFile()
+          || !opened.isFile() || opened.ino !== pathStat.ino) {
+          return { ok: false, error: 'plugin_invalid', detail: `${name} 文件发生变化` };
+        }
+        await fs.copyFile(file.fd, destinationPath);
+      } finally {
+        fs.closeSync(file);
+      }
     }
     return null;
   }
@@ -1243,7 +1279,7 @@ class SettingsBridge {
     }
     const file: string = `${this.context.filesDir}/CommunityLibrary.json`;
     if (action.resource_operation === 'store_reply') {
-      return client.communityResourceLibrary(`{"file":${JSON.stringify(file)},`
+      return await client.communityResourceLibrary(`{"file":${JSON.stringify(file)},`
         + `"action":{"operation":"save_reply","item":${JSON.stringify(action.item ?? null)}}}`);
     }
     if (action.resource_operation === 'remove_reply') {
@@ -1251,7 +1287,7 @@ class SettingsBridge {
         file: file,
         action: { operation: 'remove', id: action.id ?? '' } as ResourceLibraryRemove
       };
-      return client.communityResourceLibrary(JSON.stringify(remove));
+      return await client.communityResourceLibrary(JSON.stringify(remove));
     }
     return this.accountBridge.request(actionDocument);
   }
@@ -1311,7 +1347,7 @@ class SettingsBridge {
     } catch {
       return JSON.stringify({ ok: false, error: 'community_unavailable' });
     }
-    const installed: string = client.communitySkinInstall(JSON.stringify({
+    const installed: string = await client.communitySkinInstall(JSON.stringify({
       directory: this.stateDirectory, id: action.id, name: action.name, design: design
     }));
     // The install wrote the preference document, so the page's copy is now the old one. Same
@@ -1342,11 +1378,11 @@ class SettingsBridge {
    * The state directory comes from the host, not from the page: where the library lives is not
    * something a WebView should be able to name.
    */
-  customSkinLibrary(action: string): string {
+  private async customSkinLibrary(action: string): Promise<string> {
     const request: string = action.length === 0
       ? JSON.stringify({ directory: this.stateDirectory })
       : `{"directory":${JSON.stringify(this.stateDirectory)},"action":${action}}`;
-    return client.customSkinLibrary(request);
+    return await client.customSkinLibrary(request);
   }
 
   /**
@@ -1564,15 +1600,13 @@ class SettingsBridge {
   /**
    * 背单词: forward one action to the shared review session.
    *
-   * Synchronous, like `typingStatistics` beside it, because a bridge method must not return a
-   * Promise — the async channel never settles on this WebView, which is recorded twice in this
-   * file. An imported word list is a few hundred kilobytes, which the shared entry point reads in
-   * one call; the ceiling here is the envelope, not the file.
+   * The numbered bridge keeps the potentially multi-megabyte import and its file work off the
+   * ArkTS thread. The day is resolved here because this process knows the device's timezone.
    *
    * The day is resolved here rather than in the page. This process is the one that knows the
    * device's timezone, and the shared layer never derives a day from one.
    */
-  vocabularyReview(actionDocument: string): string {
+  private async vocabularyReview(actionDocument: string): Promise<string> {
     if (actionDocument.length === 0 || actionDocument.length > 8 * 1024 * 1024) {
       return JSON.stringify({ ok: false, error: 'invalid vocabulary review request' });
     }
@@ -1593,7 +1627,7 @@ class SettingsBridge {
       if (SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType).wordbookPacks) {
         request.plugins = `${this.stateDirectory}/plugins`;
       }
-      return client.vocabularyReview(JSON.stringify(request));
+      return await client.vocabularyReview(JSON.stringify(request));
     } catch (error) {
       KeyboardLog.error(`vocabulary review failed: ${describeError(error)}`);
       return JSON.stringify({ ok: false, error: 'vocabulary review failed' });

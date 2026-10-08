@@ -710,6 +710,38 @@ fn a_linked_kind_directory_cannot_load_a_pack_outside_the_plugins_root() {
     assert!(pack.join(MANIFEST_FILE).is_file());
 }
 
+#[cfg(unix)]
+#[test]
+fn a_linked_plugins_root_is_not_scanned() {
+    let state = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    installed_sound(outside.path(), SOUND);
+    msime_path_trust::untrusted_symlink(outside.path(), &root).unwrap();
+
+    assert_eq!(scan(&root, None), PluginCatalog::default());
+    let catalog = scan(&root, Some(&builtin_root()));
+    assert!(catalog.issues.is_empty(), "{:?}", catalog.issues);
+    assert_eq!(
+        catalog.packages.len(),
+        BUILTIN_SOUND_PACKS.len() + BUILTIN_MUSIC_PACKS.len()
+    );
+    assert!(catalog.packages.iter().all(|package| package.builtin));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_builtin_root_is_not_scanned() {
+    let state = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    sound_pack(outside.path(), SOUND);
+    let linked = state.path().join("builtin-sounds");
+    msime_path_trust::untrusted_symlink(outside.path(), &linked).unwrap();
+
+    let catalog = scan(state.path(), Some(&linked));
+    assert_eq!(catalog, PluginCatalog::default());
+}
+
 #[test]
 fn built_in_ids_are_reserved_and_resolved_only_from_the_bundle() {
     let root = tempdir().unwrap();

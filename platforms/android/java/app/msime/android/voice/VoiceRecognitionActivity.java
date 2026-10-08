@@ -379,27 +379,27 @@ public final class VoiceRecognitionActivity extends Activity {
     private void showRecordingControls() {
         LinearLayout root = KeyboardGeometry.column(this);
         int pad = KeyboardGeometry.pixels(this, 20);
-        root.setPadding(pad, pad, pad, pad);
+        ViewPolicy.setPadding(root, pad, pad, pad, pad);
         TextView title = ViewPolicy.textLabel(this, "正在录音", 18);
         recordingTitle = title;
         root.addView(title);
         TextView hint = ViewPolicy.textLabel(this,
             "说完后点「完成」开始转写；「取消」会丢弃这次录音。", 14);
         recordingHint = hint;
-        hint.setPadding(0, pad / 2, 0, pad);
+        ViewPolicy.setPadding(hint, 0, pad / 2, 0, pad);
         root.addView(hint);
         LinearLayout actions = KeyboardGeometry.row(this);
-        actions.setGravity(Gravity.END);
+        ViewPolicy.setGravity(actions, Gravity.END);
         Button cancel = ViewPolicy.newPressButton(this);
         cancel.setText("取消");
         cancel.setContentDescription("取消录音并丢弃结果");
-        cancel.setOnClickListener(ignored -> cancelRecognition());
+        ViewPolicy.bindClick(cancel, this::cancelRecognition);
         actions.addView(cancel);
         Button done = ViewPolicy.newPressButton(this);
         done.setText("完成");
         done.setContentDescription("结束录音并开始转写");
-        done.setOnClickListener(ignored -> {
-            done.setEnabled(false);
+        ViewPolicy.bindClick(done, () -> {
+            ViewPolicy.setEnabled(done, false);
             title.setText("正在转写");
             // Local recognition has already shown the text as it was spoken; keep it on screen while the last words are decoded rather than replacing it with a status line.
             if (local == null) hint.setText("正在把录音交给识别服务，请稍候。");
@@ -444,7 +444,9 @@ public final class VoiceRecognitionActivity extends Activity {
                     case PERMISSION -> "语音识别需要麦克风权限";
                     case UNAVAILABLE -> "麦克风被其他应用占用";
                     case MODEL -> "本地语音模型未安装或已损坏，请在设置中重新下载";
-                    case RUNTIME -> "本地语音识别组件无法加载";
+                    case RUNTIME -> refused.runtimeMissing()
+                        ? "本地语音识别组件尚未下载，请在设置中下载后再试"
+                        : "本地语音识别组件无法加载";
                     case EMPTY -> "没有听到内容";
                     case CANCELLED -> null;
                 };

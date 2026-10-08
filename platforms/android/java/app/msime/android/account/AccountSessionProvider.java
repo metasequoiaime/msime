@@ -89,7 +89,7 @@ public final class AccountSessionProvider extends ContentProvider {
     }
 
     static String legacyAccessToken(Object value) {
-        return value instanceof String ? (String) value : "";
+        return JsonPolicy.strictStringOrEmpty(value);
     }
 
     /** The combined package's session as its Rust client saved it, or null when there is none; never refreshed here. */

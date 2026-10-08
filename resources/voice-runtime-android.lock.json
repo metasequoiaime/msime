@@ -1,0 +1,18 @@
+{
+  "source_commit": "11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf",
+  "archive_platform": "android",
+  "artifacts": [
+    {
+      "name": "libonnxruntime.so",
+      "member": "jni/arm64-v8a/libonnxruntime.so",
+      "sha256": "33847ad43bffe204699fd4a27f7f3603452a8cdaf2f9a44983a0bc31ffcf2da1",
+      "size": 22249560
+    },
+    {
+      "name": "libsherpa-onnx-c-api.so",
+      "member": "jni/arm64-v8a/libsherpa-onnx-c-api.so",
+      "sha256": "c85e2382e2ca12b0513826be926eaccfea896b4cbf568182e287671ba526f80d",
+      "size": 4465168
+    }
+  ]
+}

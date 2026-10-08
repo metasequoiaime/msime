@@ -203,6 +203,30 @@ test("complete personal dictionary reports an empty export without rows", () => 
   });
 });
 
+test("refuses a personal export larger than the bridge bound", () => {
+  const entries = Array.from({ length: 9_000 }, (_, index) => ({
+    kind: "quick_phrase" as const,
+    key: `phrase-${index}`,
+    value: "词".repeat(4_096),
+    weight: 1,
+  }));
+  expect(() => personalDictionaryExportPayload(entries)).toThrow("dictionary_export_limit");
+});
+
+test("stops reading the complete export when its rows exceed the bridge bound", async () => {
+  const entries = Array.from({ length: 9_000 }, (_, index) => ({
+    kind: "pinyin" as const,
+    key: `ni'hao-${index}`,
+    value: "词".repeat(4_096),
+    weight: 1,
+  }));
+  const list = vi.fn().mockResolvedValueOnce({ entries, has_more: false });
+  await expect(loadAllPersonalDictionaryEntries({ list })).rejects.toThrow(
+    "dictionary_export_limit",
+  );
+  expect(list).toHaveBeenCalledTimes(1);
+});
+
 test("dictionary editor hints follow the selected kind", () => {
   expect(dictionaryKindKeyHint("pinyin")).toContain("ni'hao");
   expect(dictionaryKindKeyHint("wubi")).toBe("1–4 个字母");

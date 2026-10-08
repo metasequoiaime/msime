@@ -402,7 +402,7 @@ fn build_english_supplement(arguments: &EnglishSupplement) -> Result<()> {
         ),
         counts: english::parse_google_counts(&read(english_supplement::COUNTS)?),
     };
-    let archive = std::fs::read(sources.pinned(english_supplement::ARCHIVE)?)?;
+    let archive = crate::sources::read_private(&sources.pinned(english_supplement::ARCHIVE)?)?;
     let package = english_supplement::read_package(&archive)?;
     let supplement = english_supplement::build(&package, &filters)?;
     let pinned = |path: &str| {
@@ -500,7 +500,7 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
     };
     let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
     let wubi98_path = sources.pinned(wubi86_supplement::WUBI98)?;
-    let wubi98 = msime::decode_utf16le(&std::fs::read(&wubi98_path)?)
+    let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
         .with_context(|| format!("decoding {}", wubi98_path.display()))?;
     let (jidian, wubi98_fcitx, base) = (
         read(wubi86_supplement::JIDIAN)?,
@@ -580,7 +580,7 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
     };
     let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
     let wubi98_path = sources.pinned(wubi98_supplement::WUBI98)?;
-    let wubi98 = msime::decode_utf16le(&std::fs::read(&wubi98_path)?)
+    let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
         .with_context(|| format!("decoding {}", wubi98_path.display()))?;
     let (wubi98_fcitx, jidian, base) = (
         read(wubi98_supplement::WUBI98_FCITX)?,
@@ -829,8 +829,7 @@ struct CheckWords {
 
 fn open_read_only(path: Option<&Path>) -> Result<Option<rusqlite::Connection>> {
     path.map(|path| {
-        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .with_context(|| format!("opening {}", path.display()))
+        sqlite::open_read_only(path).with_context(|| format!("opening {}", path.display()))
     })
     .transpose()
 }
@@ -1034,7 +1033,9 @@ impl Build {
                 let scowl_added = english::merge_words(&mut base, self.scowl_words()?);
                 // SCOWL's spelling dictionary decides which casing of a word leads (see english::leading_display).
                 let attested = english_supplement::letter_forms(&english_supplement::read_package(
-                    &std::fs::read(self.sources.pinned(english_supplement::ARCHIVE)?)?,
+                    &crate::sources::read_private(
+                        &self.sources.pinned(english_supplement::ARCHIVE)?,
+                    )?,
                 )?);
                 let counts = english::parse_google_counts(&text::read(
                     &self

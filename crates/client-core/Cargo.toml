@@ -48,8 +48,6 @@ msime-path-trust = { path = "../path-trust", features = ["test-support"] }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
-
-[target.'cfg(target_os = "android")'.dependencies]
 rustix = { workspace = true, features = ["fs"] }
 
 [lints]

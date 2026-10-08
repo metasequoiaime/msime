@@ -2810,6 +2810,7 @@ dependencies = [
  "hex",
  "html-escape",
  "indexmap 2.14.2",
+ "libc",
  "msime-engine",
  "pinyin",
  "regex",
@@ -2831,6 +2832,7 @@ dependencies = [
  "ewts",
  "exmex",
  "hex",
+ "libc",
  "lru",
  "lunar-lite",
  "memmap2",
@@ -2867,6 +2869,7 @@ dependencies = [
  "cpal",
  "hex",
  "kira",
+ "libc",
  "lru",
  "msime-client-core",
  "msime-engine",
@@ -2931,6 +2934,7 @@ version = "0.1.0"
 name = "msime-mcp-server"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "msime-client-core",
  "msime-host-api",
  "msime-host-windows",

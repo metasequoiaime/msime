@@ -11,6 +11,8 @@ use crate::diagnostics;
 use crate::error::{EngineError, Result};
 
 pub const MAXIMUM_PAGE: usize = 4_096;
+// 常见目录页很短时直接扫描已保留文本，避免每页创建临时哈希表。
+const SMALL_CATALOG_DEDUP: usize = 64;
 
 const KAOMOJI_CATEGORY: &str = "kaomoji";
 const SYMBOLS_CATEGORY: &str = "symbols";
@@ -138,23 +140,51 @@ pub fn read_emoji_catalog_slice(
         }
     }
     if deduplicate {
-        // Check duplicate values through borrowed slices, then retain in place after releasing the set.
-        let mut seen = HashSet::with_capacity(result.items.len());
-        let unique = result
-            .items
-            .iter()
-            .map(|item| seen.insert(item.text.as_str()))
-            .collect::<Vec<_>>();
-        drop(seen);
-        let mut index = 0;
-        result.items.retain(|_| {
-            let keep = unique[index];
-            index += 1;
-            keep
-        });
+        deduplicate_catalog_items(&mut result.items);
     }
     result.complete = result.next_offset - offset < limit;
     Ok(result)
+}
+
+fn deduplicate_catalog_items(items: &mut Vec<EmojiCatalogItem>) {
+    if items.len() <= SMALL_CATALOG_DEDUP {
+        let mut write = 0;
+        for read in 0..items.len() {
+            if items[..write]
+                .iter()
+                .any(|existing| existing.text == items[read].text)
+            {
+                continue;
+            }
+            if write != read {
+                items.swap(write, read);
+            }
+            write += 1;
+        }
+        items.truncate(write);
+        return;
+    }
+    // 借用文本计算重复项，释放集合后再原地压缩，避免移动时仍持有借用。
+    let mut seen = HashSet::with_capacity(items.len());
+    let duplicates = items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| (!seen.insert(item.text.as_str())).then_some(index))
+        .collect::<Vec<_>>();
+    drop(seen);
+    let mut duplicates = duplicates.into_iter().peekable();
+    let mut write = 0;
+    for read in 0..items.len() {
+        if duplicates.peek() == Some(&read) {
+            duplicates.next();
+            continue;
+        }
+        if write != read {
+            items.swap(write, read);
+        }
+        write += 1;
+    }
+    items.truncate(write);
 }
 
 fn search_pattern(search: &str) -> String {
@@ -267,6 +297,39 @@ mod tests {
 
     fn texts(slice: &EmojiCatalogSlice) -> Vec<&str> {
         slice.items.iter().map(|item| item.text.as_str()).collect()
+    }
+
+    #[test]
+    fn short_catalog_dedup_avoids_temporary_heap_state() {
+        let mut items = vec![
+            EmojiCatalogItem {
+                text: "😀".into(),
+                annotation: "笑脸".into(),
+                group: "表情".into(),
+            },
+            EmojiCatalogItem {
+                text: "😀".into(),
+                annotation: "重复".into(),
+                group: "表情".into(),
+            },
+            EmojiCatalogItem {
+                text: "😄".into(),
+                annotation: "大笑".into(),
+                group: "表情".into(),
+            },
+        ];
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            deduplicate_catalog_items(&mut items);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item.text.as_str())
+                .collect::<Vec<_>>(),
+            ["😀", "😄"]
+        );
     }
 
     #[test]

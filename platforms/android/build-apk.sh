@@ -5,7 +5,7 @@ repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
 resource_dir=${1:?usage: [MSIME_EDITION=<id>] build-apk.sh <verified-resource-directory>}
 resource_dir=$(cd "$resource_dir" && pwd)
-# MSIME_EDITION=<id> 选产品版本（版本表 shared/contracts/editions.json 里有 Android 段的 id，也是 gradle-app 的 flavor 名），缺省是 full。每个版本是一个独立的包：本版本的 applicationId、资源锁里列的词库、本版本要的语言词库，APK 也按版本命名。full 的 applicationId、资源和 APK 名（target/android/msime-client.apk）与引入版本之前相同。
+# MSIME_EDITION=<id> 选产品版本（版本表 shared/contracts/editions.json 里有 Android 段的 id，也是 gradle-app 的 flavor 名），缺省是 full。每个版本是一个独立的包：本版本的 applicationId、资源锁里列的词库、本版本要的语言词库，APK 也按版本命名。full 的 applicationId 和资源与引入版本之前相同，APK 名是 target/android/msime-android.apk。
 edition=${MSIME_EDITION:-full}
 edition_tool="$repo_root/platforms/android/scripts/edition_android.py"
 apk_name=$(python3 "$edition_tool" field --edition "$edition" apk_name)
@@ -13,13 +13,33 @@ edition_lock=$(python3 "$edition_tool" field --edition "$edition" resource_lock)
 edition_languages=$(python3 "$edition_tool" field --edition "$edition" language_dictionaries)
 edition_offline_glosses=$(python3 "$edition_tool" field --edition "$edition" features.offline_glosses)
 flavor="$(tr '[:lower:]' '[:upper:]' <<< "${edition:0:1}")${edition:1}"
+# MSIME_ANDROID_OMIT_ON_DEMAND=1 打发布用的瘦包，对照 macOS 的 MSIME_MACOS_OMIT_ON_DEMAND：日文词典那一组（词典与两份 Mozc 许可文本，resources.rs 的 ON_DEMAND_JAPANESE_ARTIFACTS）、粤拼注音笔画语言词库、非英文离线释义和本地语音运行库都不进包，由应用在用户添加日语或这些语言、打开离线释义、打开离线识别时作为资源包下载到 files/bootstrap/state/resource-packs/。只对 full 和 pinyin 生效：它们的日文只是附加功能；日文版的主词库就是 msime-japanese.dat，不能省。默认不省略，开发构建照旧全带。
+omit_on_demand=${MSIME_ANDROID_OMIT_ON_DEMAND:-0}
+verify_flags=()
+native_flags=()
+if [ "$omit_on_demand" = 1 ]; then
+  case "$edition" in
+    full|pinyin) ;;
+    *) echo "MSIME_ANDROID_OMIT_ON_DEMAND=1 applies to the full and pinyin editions only, not $edition" >&2; exit 1 ;;
+  esac
+  if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ]; then
+    echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 contradicts MSIME_ANDROID_OMIT_ON_DEMAND=1, which leaves the language dictionaries to download on demand" >&2
+    exit 1
+  fi
+  verify_flags=(--omit-on-demand)
+  native_flags=(--omit-voice-runtime)
+elif [ "$omit_on_demand" != 0 ]; then
+  echo "MSIME_ANDROID_OMIT_ON_DEMAND must be 0 or 1" >&2
+  exit 1
+fi
 android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
 tools_dir="$android_sdk/build-tools/35.0.0"
 # The Gradle host module compiles against API 36. Check the same platform here so a
 # partially installed SDK fails before Gradle starts resolving dependencies.
 android_jar="$android_sdk/platforms/android-36/android.jar"
 [[ -f "$android_jar" && -x "$tools_dir/d8" ]] || { echo "Android API 36 platform and build-tools 35 required" >&2; exit 1; }
-artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$resource_dir")
+# 带 --omit-on-demand 时完整的源目录照样整体校验，输出的只是去掉日文词典那一组后的文件名。
+artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${verify_flags[@]+"${verify_flags[@]}"} "$resource_dir")
 # 默认只构建 arm64-v8a：这个包面向的手机都是 arm64，多带一份 x86_64 原生库会让 APK 大约翻倍。MSIME_ANDROID_ABIS（空格或逗号分隔，例如 "arm64-v8a x86_64"）可以为 x86_64 模拟器加上 x86_64；Gradle 的 abiFilters 经 -PmsimeAbis 收到同一份列表，第三方库（ML Kit）也按它过滤。
 read -r -a abis <<< "$(tr ',' ' ' <<< "${MSIME_ANDROID_ABIS:-arm64-v8a}")"
 [ "${#abis[@]}" -gt 0 ] || { echo "MSIME_ANDROID_ABIS names no ABI" >&2; exit 1; }
@@ -29,7 +49,12 @@ for abi in "${abis[@]}"; do
     *) echo "MSIME_ANDROID_ABIS: unsupported ABI $abi (supported: arm64-v8a, x86_64)" >&2; exit 1 ;;
   esac
 done
-for abi in "${abis[@]}"; do bash platforms/android/build-native.sh "$abi"; done
+# 瘦包只能是 arm64-v8a 单 ABI：资源包 voice-runtime 只取 .aar 里 arm64-v8a 的两个库（resources/voice-runtime-android.lock.json），x86_64 上下载下来也加载不了，离线识别永远失败。
+if [ "$omit_on_demand" = 1 ] && [ "${abis[*]}" != arm64-v8a ]; then
+  echo "MSIME_ANDROID_OMIT_ON_DEMAND=1 builds arm64-v8a only (the voice-runtime pack carries arm64-v8a libraries), not MSIME_ANDROID_ABIS=${abis[*]}" >&2
+  exit 1
+fi
+for abi in "${abis[@]}"; do bash platforms/android/build-native.sh "$abi" ${native_flags[@]+"${native_flags[@]}"}; done
 abi_list=$(IFS=,; echo "${abis[*]}")
 
 # The host is a Gradle build now: it uses AndroidX and Material, and those ship as AARs whose
@@ -40,15 +65,25 @@ assets="$repo_root/target/android/host-assets"
 rm -rf "$assets"
 mkdir -p "$assets/dictionary"
 # APK 里的资源锁一律叫 desktop-dictionary.lock.json（Bootstrap 按这个名字读），内容是本版本的锁：full 就是 resources/desktop-dictionary.lock.json 本身，其他版本是 scripts/editions.py 生成的 resources/editions/<id>.lock.json。暂存的词库恰好是锁里列的文件，再按本版本的锁校验一遍。
-cp "$edition_lock" "$assets/desktop-dictionary.lock.json"
 edition_flags=()
 if [ "$edition" != full ]; then
   edition_artifacts=$(python3 -c 'import json, sys; print("\n".join(artifact["name"] for artifact in json.load(open(sys.argv[1]))["artifacts"]))' "$edition_lock")
   artifacts=$(grep -Fx -f <(printf '%s\n' "$edition_artifacts") <<< "$artifacts")
   edition_flags=(--edition "$edition")
 fi
+# Bootstrap 只按这份锁解包，锁里列了而 APK 里没有对应 asset 会直接失败，所以省略日文词典时随包的锁是本版本的锁去掉没暂存的条目，其余字段原样保留。host-api 仍按编译进二进制的完整锁校验，日文那一组整体缺席时放行，用户词库的代次不变。
+if [ "$omit_on_demand" = 1 ]; then
+  python3 -c 'import json, sys
+lock = json.load(open(sys.argv[1]))
+shipped = set(sys.stdin.read().split())
+lock["artifacts"] = [artifact for artifact in lock["artifacts"] if artifact["name"] in shipped]
+if {artifact["name"] for artifact in lock["artifacts"]} != shipped: sys.exit("the staged artifacts are not a subset of " + sys.argv[1])
+with open(sys.argv[2], "w") as output: json.dump(lock, output, indent=2); output.write("\n")' "$edition_lock" "$assets/desktop-dictionary.lock.json" <<< "$artifacts"
+else
+  cp "$edition_lock" "$assets/desktop-dictionary.lock.json"
+fi
 while IFS= read -r artifact; do cp "$resource_dir/$artifact" "$assets/dictionary/"; done <<< "$artifacts"
-cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${edition_flags[@]+"${edition_flags[@]}"} "$assets/dictionary" >/dev/null
+cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${verify_flags[@]+"${verify_flags[@]}"} ${edition_flags[@]+"${edition_flags[@]}"} "$assets/dictionary" >/dev/null
 mkdir -p "$assets/native-notices"
 cp -R target/android/notices/. "$assets/native-notices/"
 cp LICENSE "$assets/client-LICENSE.txt"
@@ -74,6 +109,8 @@ rm -rf "$assets/offline-glosses"
 # 它们按中文候选查释义，不提供中文方案的版本（版本表 features.offline_glosses 为 false：日文、越南文和藏文版）不带。
 if [ "$edition_offline_glosses" != true ]; then
   echo "edition $edition offers no Chinese scheme; offline glosses are not packaged"
+elif [ "$omit_on_demand" = 1 ]; then
+  echo "MSIME_ANDROID_OMIT_ON_DEMAND=1: offline glosses are downloaded on demand (resource pack offline-glosses), not packaged"
 elif compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offline-glosses-NOTICE.txt" ]; then
   mkdir -p "$assets/offline-glosses"
   cp "$glosses_source"/zh-*.db "$glosses_source/offline-glosses-NOTICE.txt" "$assets/offline-glosses/"
@@ -91,6 +128,7 @@ staged_languages=()
 for pair in $language_pairs; do
   database=${pair%%:*}
   license=${pair#*:}
+  [ "$omit_on_demand" != 1 ] || continue
   grep -qxF "$database" <<< "$edition_languages" || continue
   [ -f "$languages_source/$database" ] || continue
   if [ ! -f "$languages_source/$license" ]; then
@@ -101,7 +139,9 @@ for pair in $language_pairs; do
   cp "$languages_source/$database" "$languages_source/$license" "$assets/language-dictionaries/"
   staged_languages+=("$database")
 done
-if [ "${#staged_languages[@]}" -gt 0 ]; then
+if [ "$omit_on_demand" = 1 ]; then
+  echo "MSIME_ANDROID_OMIT_ON_DEMAND=1: language dictionaries are downloaded on demand (resource pack language-dictionaries), not packaged"
+elif [ "${#staged_languages[@]}" -gt 0 ]; then
   echo "language dictionaries packaged (${staged_languages[*]}) from $languages_source"
 elif [ -z "$edition_languages" ]; then
   echo "edition $edition packs no language dictionaries"
@@ -134,21 +174,12 @@ ANDROID_HOME="$android_sdk" "$tauri_gradlew" --project-dir "$gradle_dir" --conso
 
 unsigned="$gradle_dir/app/build/outputs/apk/$edition/release/app-$edition-release-unsigned.apk"
 [[ -f "$unsigned" ]] || { echo "Expected host APK not produced" >&2; exit 1; }
-# 正式包用发布密钥签名：release-android.yml 从仓库 secrets 解出 PKCS12 文件，把路径和口令放进这两个环境变量。发布密钥一旦用于发版就不能更换，否则已安装的用户无法覆盖升级；没有设置时退回所有 worktree 共用的开发密钥。
-if [[ -n "${MSIME_ANDROID_RELEASE_KEYSTORE:-}" ]]; then
-  [[ -f "$MSIME_ANDROID_RELEASE_KEYSTORE" && -n "${MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD:-}" ]] || { echo "MSIME_ANDROID_RELEASE_KEYSTORE needs an existing file and MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD" >&2; exit 1; }
-  signing=(--ks "$MSIME_ANDROID_RELEASE_KEYSTORE" --ks-key-alias msime-release
-    --ks-pass env:MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD --key-pass env:MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD)
-  signed_with="release key"
-else
-  keystore=$(bash "$repo_root/platforms/android/scripts/dev-keystore.sh")
-  signing=(--ks "$keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android)
-  signed_with="development key"
-fi
+# 签名密钥的选择（发布、beta、本地构建都用同一把发布密钥）见 scripts/signing.sh。
+source "$repo_root/platforms/android/scripts/signing.sh"
 output="$repo_root/target/android/$apk_name.apk"
 aligned="$repo_root/target/android/$apk_name-aligned.apk"
 "$tools_dir/zipalign" -P 16 4 "$unsigned" "$aligned"
-"$tools_dir/apksigner" sign "${signing[@]}" --out "$output" "$aligned"
+"$tools_dir/apksigner" sign "${android_signing[@]}" --out "$output" "$aligned"
 "$tools_dir/apksigner" verify --verbose --print-certs "$output"
 "$tools_dir/zipalign" -c -P 16 4 "$output"
 # The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than the lock pins for this edition).
@@ -171,5 +202,23 @@ if [ "$edition_offline_glosses" != true ] && grep -q '^assets/offline-glosses/' 
   echo "$output carries offline glosses, but edition $edition offers no Chinese scheme" >&2
   exit 1
 fi
+# 省略按需资源的瘦包里不能混进任何一样该下载的东西：日文词典那一组、语言词库、非英文离线释义和两个语音运行库。
+if [ "$omit_on_demand" = 1 ]; then
+  for pattern in '(^|/)msime-japanese\.dat$' '^assets/dictionary/msime-mozc_' '^assets/language-dictionaries/' '^assets/offline-glosses/' '^lib/[^/]+/libonnxruntime\.so$' '^lib/[^/]+/libsherpa-onnx-c-api\.so$'; do
+    if grep -Eq "$pattern" <<< "$apk_entries"; then
+      echo "$output carries $(grep -E -m 1 "$pattern" <<< "$apk_entries"), which MSIME_ANDROID_OMIT_ON_DEMAND=1 leaves to download on demand" >&2
+      exit 1
+    fi
+  done
+  # 体积上限挡的是整组资源或运行库悄悄回到包里（日文词典约 20 MB、语音运行库约 27 MB）。瘦包只有 arm64-v8a 单 ABI（见上面的 ABI 检查），默认上限按它定，MSIME_ANDROID_MAX_APK_BYTES 可改。
+  max_apk_bytes=${MSIME_ANDROID_MAX_APK_BYTES:-130000000}
+  [[ "$max_apk_bytes" =~ ^[0-9]+$ ]] || { echo "MSIME_ANDROID_MAX_APK_BYTES must be a byte count" >&2; exit 1; }
+  apk_bytes=$(wc -c < "$output" | tr -d '[:space:]')
+  if [ "$apk_bytes" -gt "$max_apk_bytes" ]; then
+    echo "$output is $apk_bytes bytes, above the $max_apk_bytes-byte ceiling for a package without on-demand resources" >&2
+    exit 1
+  fi
+  echo "APK size $apk_bytes bytes, within the $max_apk_bytes-byte ceiling"
+fi
 rm -f "$aligned"
-echo "APK for edition $edition built and signed with the $signed_with: $output; not installed or device-verified"
+echo "APK for edition $edition built and signed with the $android_signed_with: $output; not installed or device-verified"

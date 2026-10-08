@@ -1,6 +1,7 @@
 //! Linux host integration.
 
 use std::ffi::OsStr;
+use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
@@ -36,10 +37,30 @@ pub(crate) fn apply_edition_to_config(config: &mut tauri::Config) {
     }
 }
 
+/// Open a trusted parent directory and verify that its path still names the
+/// directory held by the descriptor.
+pub(crate) fn open_private_directory(parent: &Path) -> io::Result<std::os::fd::OwnedFd> {
+    crate::shared::atomic_file::open_private_directory(parent)
+}
+
+pub(crate) fn open_private_at(parent: &Path, name: &OsStr) -> io::Result<File> {
+    let directory = open_private_directory(parent)?;
+    open_private_fd(&directory, name)
+}
+
+pub(crate) fn open_private_fd(directory: &std::os::fd::OwnedFd, name: &OsStr) -> io::Result<File> {
+    crate::shared::atomic_file::open_private_fd(directory, name)
+}
+
 /// Read at most `max_bytes + 1` bytes so callers can distinguish an accepted
 /// file from one that crossed its bound after its metadata was inspected.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn read_bounded_file(path: &Path, max_bytes: u64) -> io::Result<Vec<u8>> {
-    let file = std::fs::File::open(path)?;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "private input has no name"))?;
+    let file = open_private_at(parent, name)?;
     let initial_size = file.metadata()?.len().min(max_bytes.saturating_add(1));
     let mut bytes = Vec::with_capacity(usize::try_from(initial_size).unwrap_or(0));
     file.take(max_bytes.saturating_add(1))
@@ -67,4 +88,48 @@ pub(crate) fn config_home(xdg: Option<&OsStr>, home: Option<&OsStr>) -> Option<P
                 .filter(|path| path.is_absolute())
                 .map(|path| path.join(".config"))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{open_private_at, read_bounded_file};
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_reads_reject_a_symlinked_leaf() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.json");
+        std::fs::write(&target, b"synthetic-private-data").unwrap();
+        let linked = root.path().join("provider.json");
+        symlink(&target, &linked).unwrap();
+
+        assert!(read_bounded_file(&linked, 1024).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-private-data");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_open_rejects_a_replaced_parent() {
+        use std::ffi::OsStr;
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let original = root.path().join("original");
+        let outside = root.path().join("outside");
+        std::fs::create_dir(&original).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("provider.json"), b"synthetic-private-data").unwrap();
+        let moved = root.path().join("moved");
+        std::fs::rename(&original, &moved).unwrap();
+        symlink(&outside, &original).unwrap();
+
+        assert!(open_private_at(&original, OsStr::new("provider.json")).is_err());
+        assert_eq!(
+            std::fs::read(outside.join("provider.json")).unwrap(),
+            b"synthetic-private-data"
+        );
+    }
 }

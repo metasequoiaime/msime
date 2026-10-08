@@ -129,7 +129,7 @@ public final class CloudClipboardPage extends DetailPage {
             else render();
         });
         retention.addView(segments);
-        Ui.setEnabledLook(retention, current != null && current.enabled());
+        ViewPolicy.setEnabledWithAlpha(retention, current != null && current.enabled(), 0.38f);
         settings.addView(retention);
 
         if (current == null) return;

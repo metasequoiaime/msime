@@ -1,7 +1,7 @@
 //! `EngineOptions` and its mapping onto `SessionOptions` (api-contract §2, bridge.cpp:306-407, 698-734).
 
-use std::fs::File;
-use std::io::{self, Read};
+use std::fs::OpenOptions;
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 use crate::assets;
@@ -20,6 +20,31 @@ use crate::user_dictionary::generation::prepare_runtime_paths_for;
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
 
 const MAX_TRANSLATION_SIDECAR_BYTES: u64 = 1024 * 1024;
+
+pub(crate) fn write_private_file_no_follow(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let mut file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "translation sidecar is not a regular file",
+        ));
+    }
+    file.write_all(bytes)?;
+    file.sync_all()
+}
 
 /// Every field is listed at every construction site; there is deliberately no `Default`.
 #[derive(Debug, Clone, PartialEq)]
@@ -294,7 +319,7 @@ pub fn prepare_translation_sidecar(options: &EngineOptions) -> Result<()> {
     {
         return Err(EngineError::failed(diagnostics::TRANSLATION_SIDECAR_FAILED));
     }
-    let source_file = File::open(&source)
+    let source_file = crate::paths::open_file_no_follow(&source)
         .map_err(|_| EngineError::failed(diagnostics::TRANSLATION_SIDECAR_FAILED))?;
     let source_size = source_file
         .metadata()
@@ -320,7 +345,7 @@ pub fn prepare_translation_sidecar(options: &EngineOptions) -> Result<()> {
                 "translation sidecar parent is not a real directory",
             ));
         }
-        std::fs::write(&target, &contents).map(|()| contents.len() as u64)
+        write_private_file_no_follow(&target, &contents).map(|()| contents.len() as u64)
     });
     copied
         .map(|_| ())

@@ -251,7 +251,9 @@ fn open_state_file(path: &Path) -> Option<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        // A replaced state file may be a FIFO; opening it on a sync path must
+        // never wait for an unrelated writer.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
     }
     #[cfg(windows)]
     {
@@ -259,7 +261,8 @@ fn open_state_file(path: &Path) -> Option<File> {
         const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    options.open(path).ok()
+    let file = options.open(path).ok()?;
+    file.metadata().ok()?.is_file().then_some(file)
 }
 
 /// Write the state by rename, so a reader never sees half of it.

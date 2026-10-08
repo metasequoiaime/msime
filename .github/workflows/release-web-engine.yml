@@ -162,7 +162,7 @@ jobs:
           (cd "$dist" && sha256sum -c SHA256SUMS.txt)
           jq -r '"Built by scripts/build-web-engine.sh from metasequoiaime/msime \(.source_commit) (pinyin dictionary keeps \(.keep_multi) multi-character words).\n\nInputs: msime-pinyin.db, msime-wubi.db and sentence-model.safetensors as pinned in resources/desktop-dictionary.lock.json at that commit. Licences: NOTICE.md. Checksums: SHA256SUMS.txt; web-engine-manifest.json lists every file with its sha256 and size for data/msime/web-engine.lock.json in TapTapGo.\n\nPublished assets are never replaced or deleted, because TapTapGo pins them by sha256."' "$dist/web-engine-manifest.json" > notes.md
           tag="web-engine-v${VERSION}"
-          RELEASE_LATEST=false bash scripts/publish-release.sh "$tag" "$SOURCE_SHA" "Web engine ${VERSION}" notes.md "$dist"/msime_engine_bg.wasm "$dist"/msime_engine.js "$dist"/msime-pinyin.db.gz "$dist"/msime-wubi86.db.gz "$dist"/sentence-model.safetensors.gz "$dist"/NOTICE.md "$dist"/web-engine-manifest.json "$dist"/SHA256SUMS.txt "npm/msime-web-engine-${VERSION}.tgz"
+          RELEASE_LATEST=false bash scripts/publish-release.sh "$tag" "$SOURCE_SHA" "Web engine ${VERSION}" notes.md "$dist"/msime_engine_bg.wasm "$dist"/msime_engine.js "$dist"/msime-pinyin.db.gz "$dist"/msime-wubi86.db.gz "$dist"/msime-japanese.dat.gz "$dist"/sentence-model.safetensors.gz "$dist"/NOTICE.md "$dist"/web-engine-manifest.json "$dist"/SHA256SUMS.txt "npm/msime-web-engine-${VERSION}.tgz"
   # 6. 把附到 release 上的同一个 tgz 发布为 npm 包 @msime/web-engine。发布逻辑在 publish-web-engine-npm.yml：npm 失败时单独触发它补发这个版本，不用重跑这里，也不会再动已经发布的 release；npm 上已有的版本不能替换，同一版本重新发布时 npm 保留最初那次的包。预发布版本打 next 标签，不会成为 npm install 的默认版本。
   npm:
     needs: [build, publish]

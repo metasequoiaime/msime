@@ -3,6 +3,13 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
 abi=${1:-arm64-v8a}
+# 第二个参数 --omit-voice-runtime 由 build-apk.sh 在 MSIME_ANDROID_OMIT_ON_DEMAND=1 时传入：本地语音运行库（libsherpa-onnx-c-api.so 与 libonnxruntime.so）不进 jniLibs，由应用在用户打开离线识别时作为资源包 voice-runtime 下载（固定在 resources/voice-runtime-android.lock.json）。不带这个参数时照旧取出这两个库，build-client-apk.sh 的 Tauri 合包靠的就是这条默认路径。
+include_voice_runtime=1
+case "${2:-}" in
+  '') ;;
+  --omit-voice-runtime) include_voice_runtime=0 ;;
+  *) echo "usage: build-native.sh [arm64-v8a|x86_64] [--omit-voice-runtime]" >&2; exit 1 ;;
+esac
 case "$abi" in
   arm64-v8a) rust_target=aarch64-linux-android; compiler_target=aarch64-linux-android; triplet=arm64-msime-android; cargo_linker=CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER ;;
   x86_64) rust_target=x86_64-linux-android; compiler_target=x86_64-linux-android; triplet=x64-msime-android; cargo_linker=CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER ;;
@@ -39,9 +46,15 @@ mkdir -p "$output"
 cp "$repo_root/target/android-cargo/$rust_target/release/libmsime_host_api.so" "$output/"
 cp "$toolchain/sysroot/usr/lib/$compiler_target/libc++_shared.so" "$output/"
 # On-device speech recognition: the sherpa-onnx C API and ONNX Runtime come prebuilt from the pinned release in resources/voice-runtime.lock.json (fetched and hash-checked, never committed). Only the two native libraries are taken from the .aar; LocalAsr loads the C API with dlopen, so a missing runtime disables local recognition instead of the keyboard.
-python3 scripts/fetch_voice_runtime.py --platform android --out "$repo_root/target/voice-runtime/android"
-voice_aar=$(ls "$repo_root"/target/voice-runtime/android/sherpa-onnx-*.aar)
-unzip -o -j -q "$voice_aar" "jni/$abi/libsherpa-onnx-c-api.so" "jni/$abi/libonnxruntime.so" -d "$output"
+if [ "$include_voice_runtime" = 1 ]; then
+  python3 scripts/fetch_voice_runtime.py --platform android --out "$repo_root/target/voice-runtime/android"
+  voice_aar=$(ls "$repo_root"/target/voice-runtime/android/sherpa-onnx-*.aar)
+  unzip -o -j -q "$voice_aar" "jni/$abi/libsherpa-onnx-c-api.so" "jni/$abi/libonnxruntime.so" -d "$output"
+else
+  # jniLibs 目录跨构建保留，上一次不省略时取出的两个库要删掉，否则 Gradle 会把它们照样打进 APK。
+  rm -f "$output/libsherpa-onnx-c-api.so" "$output/libonnxruntime.so"
+  echo "speech runtime omitted from $output; the app downloads it as the voice-runtime resource pack"
+fi
 "$compiler++" -std=c++17 -shared -fPIC -Wall -Wextra -Werror \
   -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,-soname,libmsime_android.so \
   platforms/android/native/client_jni.cpp shared/voice/LocalAsr.cpp \
@@ -55,6 +68,7 @@ for copyright_file in "$deps/$triplet"/share/*/copyright; do
   cp "$copyright_file" "$notices/$package.txt"
 done
 cp "$toolchain/NOTICE" "$notices/ndk-toolchain.txt"
+# 省略语音运行库时这三份声明照样随包：下载的资源包是同一份上游库，加载它的仍是这个应用。
 cp shared/voice/third_party/sherpa-onnx/LICENSE "$notices/sherpa-onnx.txt"
 cp platforms/linux/data/licenses/onnxruntime-MIT.txt "$notices/onnxruntime.txt"
 cp platforms/linux/data/licenses/onnxruntime-ThirdPartyNotices.txt "$notices/onnxruntime-third-party.txt"

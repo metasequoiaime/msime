@@ -48,7 +48,7 @@ const config = `{
   }
 }`;
 
-function status(configured = false, flags: McpFlag[] = []): McpServerStatus {
+function status(configured = false, flags: McpFlag[] = [], stale = false): McpServerStatus {
   return {
     command: "/opt/msime/msime-mcp",
     installed: true,
@@ -60,8 +60,15 @@ function status(configured = false, flags: McpFlag[] = []): McpServerStatus {
         path: "/home/someone/Library/Application Support/Claude/claude_desktop_config.json",
         configured,
         flags: configured ? flags : [],
+        stale: configured && stale,
       },
-      { id: "cursor", path: "/home/someone/.cursor/mcp.json", configured: false, flags: [] },
+      {
+        id: "cursor",
+        path: "/home/someone/.cursor/mcp.json",
+        configured: false,
+        flags: [],
+        stale: false,
+      },
     ],
   };
 }
@@ -330,6 +337,41 @@ test("a configured client's switches show its entry, and a change offers to upda
     ).toBe(true),
   );
   expect(checked("允许读取词库")).toBe(true);
+});
+
+test("an entry an earlier Nix version wrote is offered as an update that keeps its permissions", async () => {
+  let current = status(true, ["--allow-write"], true);
+  const installMcpClient = vi.fn(
+    async (_client: string, _replace: boolean, flags: readonly McpFlag[]) => {
+      current = status(true, [...flags]);
+      return "updated" as const;
+    },
+  );
+  await openDeveloper({ mcpServerStatus: async () => current, installMcpClient });
+  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const checked = (name: string) =>
+    (within(group).getByRole("switch", { name }) as HTMLInputElement).checked;
+
+  fireEvent.click(within(group).getByRole("radio", { name: "Claude Desktop" }));
+  expect(group.textContent).toContain("（已连接）");
+  expect(group.textContent).toContain("指向 Nix store");
+  // 开关是条目原来的权限，不是记住的默认值。
+  expect(checked("允许修改设置")).toBe(true);
+  expect(checked("允许读取词库")).toBe(false);
+
+  fireEvent.click(within(group).getByRole("button", { name: "更新 Claude Desktop" }));
+  fireEvent.click(await screen.findByRole("button", { name: "允许并写入" }));
+  await within(group).findByText("已更新 Claude Desktop 的配置。重新启动 Claude Desktop 后生效。");
+  // 不用确认替换，权限照旧。
+  expect(installMcpClient).toHaveBeenCalledOnce();
+  expect(installMcpClient).toHaveBeenCalledWith("claude_desktop", false, ["--allow-write"]);
+  await waitFor(() =>
+    expect(
+      (within(group).getByRole("button", { name: "写入 Claude Desktop" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true),
+  );
+  expect(group.textContent).not.toContain("指向 Nix store");
 });
 
 test("ignores a same-tick duplicate MCP install", async () => {

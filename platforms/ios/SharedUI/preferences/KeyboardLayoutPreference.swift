@@ -9,6 +9,7 @@ enum KeyboardLayoutPreference {
   static let heightAdjustmentKey = "keyboard.height.adjustment"
   static let tabletFullKeysKey = "keyboard.tablet.fullKeys"
   static let tabletSplitKey = "keyboard.tablet.split"
+  static let glideTypingKey = "keyboard.gesture.glide"
   static var keySpacing: Double {
     get { spacing(key: keySpacingKey, fallback: 6, range: 3...6) }
     set { defaults.set(min(6, max(3, newValue)), forKey: keySpacingKey) }
@@ -86,6 +87,11 @@ enum KeyboardLayoutPreference {
   static var tabletSplit: Bool {
     get { defaults.object(forKey: tabletSplitKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: tabletSplitKey) }
+  }
+  /// 「滑行输入」：在全拼 26 键的字母键上连续滑动输入拼音（#5347），由 Engine 把一笔滑行解码成拼音字母。默认关；只存在本机 App Group，不进共享文档，也不随设置同步。
+  static var glideTyping: Bool {
+    get { defaults.object(forKey: glideTypingKey) as? Bool ?? false }
+    set { defaults.set(newValue, forKey: glideTypingKey) }
   }
   static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing) }
 

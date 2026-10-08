@@ -84,7 +84,7 @@ public final class FeedbackPage extends DetailPage {
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
             | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         ViewPolicy.setTopStart(input);
-        input.setMinLines(4);
+        ViewPolicy.setMinLines(input, 4);
         ViewPolicy.clearBackground(input);
         input.setHintTextColor(Ui.subText(context));
         Ui.setSymmetricPaddingDp(input, requireContext(), 16, 14);
@@ -190,8 +190,9 @@ public final class FeedbackPage extends DetailPage {
         ViewPolicy.setTextColor(submit, ready ? Ui.onAccent(context) : Ui.subText(context));
         int fill = ready ? Ui.accent(context)
             : Ui.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
-        submit.setBackground(Ui.rippleOn(context, fill, Ui.dp(requireContext(), Ui.GROUP_RADIUS)));
-        if (addShot != null) Ui.setEnabledLook(addShot, screenshots.size() < FeedbackApi.MAX_SCREENSHOTS && !sending);
+        ViewPolicy.setBackground(submit, Ui.rippleOn(context, fill, Ui.dp(requireContext(), Ui.GROUP_RADIUS)));
+        if (addShot != null) ViewPolicy.setEnabledWithAlpha(addShot,
+            screenshots.size() < FeedbackApi.MAX_SCREENSHOTS && !sending, 0.38f);
     }
 
     private void renderThumbnails() {
@@ -199,7 +200,7 @@ public final class FeedbackPage extends DetailPage {
         if (strip == null) return;
         Context context = strip.getContext();
         strip.removeAllViews();
-        ((View) strip.getParent()).setVisibility(screenshots.isEmpty() ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisible((View) strip.getParent(), !screenshots.isEmpty());
         for (int index = 0; index < screenshots.size(); index++) {
             byte[] bytes = screenshots.get(index);
             int position = index;
@@ -209,7 +210,7 @@ public final class FeedbackPage extends DetailPage {
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inSampleSize = 4;
             image.setImageBitmap(BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options));
-            image.setBackground(Ui.rounded(Ui.rowBackground(context), Ui.dp(requireContext(), 10)));
+            ViewPolicy.setBackground(image, Ui.rounded(Ui.rowBackground(context), Ui.dp(requireContext(), 10)));
             image.setClipToOutline(true);
             image.setContentDescription("截图 " + (index + 1));
             frame.addView(image, Ui.squareFrameParams(requireContext(), Ui.THUMBNAIL_SIZE));
@@ -217,10 +218,10 @@ public final class FeedbackPage extends DetailPage {
             remove.setImageResource(R.drawable.ms_w4_me2_close);
             Ui.setImageTint(remove,
                 Ui.color(context, com.google.android.material.R.attr.colorOnSurfaceInverse));
-            remove.setBackground(Ui.pill(Ui.color(context, com.google.android.material.R.attr.colorSurfaceInverse)));
+            ViewPolicy.setBackground(remove, Ui.pill(Ui.color(context, com.google.android.material.R.attr.colorSurfaceInverse)));
             Ui.setSymmetricPaddingDp(remove, requireContext(), 3, 3);
             remove.setContentDescription("移除截图 " + (index + 1));
-            remove.setOnClickListener(ignored -> {
+            ViewPolicy.bindClick(remove, () -> {
                 if (sending) return;
                 screenshots.remove(position);
                 renderThumbnails();

@@ -12,6 +12,7 @@ use crate::types::{QueryRequest, SchemeKey, SchemeType};
 pub const SPAN_LIMIT: usize = 200;
 /// Entries read for a reading whose last syllable is still a prefix.
 pub const COMPLETION_LIMIT: usize = 50;
+const SMALL_CANDIDATE_DEDUP: usize = 64;
 
 /// One candidate row, with what selecting it consumes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,18 +214,7 @@ impl CantoneseScheme {
                 );
             }
         }
-        let mut seen = HashSet::with_capacity(candidates.len());
-        let unique = candidates
-            .iter()
-            .map(|candidate| seen.insert((candidate.text.as_str(), candidate.syllables)))
-            .collect::<Vec<_>>();
-        drop(seen);
-        let mut index = 0;
-        candidates.retain(|_| {
-            let keep = unique[index];
-            index += 1;
-            keep
-        });
+        deduplicate_candidates(&mut candidates);
         Ok(candidates)
     }
 
@@ -235,6 +225,48 @@ impl CantoneseScheme {
         self.input.drain(..boundaries);
         !self.input.is_empty()
     }
+}
+
+fn deduplicate_candidates(candidates: &mut Vec<CantoneseCandidate>) {
+    if candidates.len() <= SMALL_CANDIDATE_DEDUP {
+        let mut write = 0;
+        for read in 0..candidates.len() {
+            if candidates[..write].iter().any(|existing| {
+                existing.text == candidates[read].text
+                    && existing.syllables == candidates[read].syllables
+            }) {
+                continue;
+            }
+            if write != read {
+                candidates.swap(write, read);
+            }
+            write += 1;
+        }
+        candidates.truncate(write);
+        return;
+    }
+    let mut seen = HashSet::with_capacity(candidates.len());
+    let duplicates = candidates
+        .iter()
+        .enumerate()
+        .filter_map(|(index, candidate)| {
+            (!seen.insert((candidate.text.as_str(), candidate.syllables))).then_some(index)
+        })
+        .collect::<Vec<_>>();
+    drop(seen);
+    let mut duplicates = duplicates.into_iter().peekable();
+    let mut write = 0;
+    for read in 0..candidates.len() {
+        if duplicates.peek() == Some(&read) {
+            duplicates.next();
+            continue;
+        }
+        if write != read {
+            candidates.swap(write, read);
+        }
+        write += 1;
+    }
+    candidates.truncate(write);
 }
 
 #[cfg(test)]
@@ -336,6 +368,45 @@ mod tests {
             .iter()
             .map(|candidate| format!("{}/{}", candidate.text, candidate.syllables))
             .collect()
+    }
+
+    fn candidate(text: &str, syllables: usize) -> CantoneseCandidate {
+        CantoneseCandidate {
+            text: text.to_owned(),
+            weight: 1,
+            key: "nei".to_owned(),
+            syllables,
+            end: 3,
+        }
+    }
+
+    #[test]
+    fn short_candidate_dedup_keeps_first_rows_without_temporary_heap_state() {
+        let mut candidates = vec![
+            candidate("你", 1),
+            candidate("妳", 1),
+            candidate("你", 1),
+            candidate("你", 2),
+        ];
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            deduplicate_candidates(&mut candidates);
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|candidate| (candidate.text.as_str(), candidate.syllables))
+                .collect::<Vec<_>>(),
+            [("你", 1), ("妳", 1), ("你", 2)]
+        );
+
+        let mut large = (0..=SMALL_CANDIDATE_DEDUP)
+            .map(|index| candidate(&format!("字{index}"), 1))
+            .collect::<Vec<_>>();
+        large.push(candidate("字0", 1));
+        deduplicate_candidates(&mut large);
+        assert_eq!(large.len(), SMALL_CANDIDATE_DEDUP + 1);
+        assert_eq!(large[0].text, "字0");
     }
 
     #[test]

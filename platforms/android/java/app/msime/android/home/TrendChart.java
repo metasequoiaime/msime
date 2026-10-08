@@ -11,6 +11,7 @@ import app.msime.android.BoundsPolicy;
 import app.msime.android.R;
 import app.msime.android.ListPolicy;
 import app.msime.android.TypingStatisticsSummary.DayCount;
+import app.msime.android.ViewPolicy;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
@@ -40,7 +41,7 @@ public final class TrendChart extends View {
     public TrendChart(Context context, @Nullable AttributeSet attributes) {
         super(context, attributes);
         label.setTextAlign(Paint.Align.CENTER);
-        label.setTextSize(Ui.sp(context, LABEL_SIZE));
+        ViewPolicy.setTextSizeSp(label, context, LABEL_SIZE);
     }
 
     /** 换一组 7 天；最后一项是今天。 */

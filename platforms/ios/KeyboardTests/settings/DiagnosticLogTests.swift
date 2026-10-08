@@ -101,6 +101,15 @@ final class DiagnosticLogTests: XCTestCase {
     XCTAssertEqual(result.data, expectedTail)
   }
 
+  func testReadTailRejectsLeafSymlink() throws {
+    let outside = state.appendingPathComponent("outside.log")
+    let linked = state.appendingPathComponent(DiagnosticLog.fileName)
+    try Data("synthetic diagnostic log".utf8).write(to: outside)
+    try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: outside)
+
+    XCTAssertThrowsError(try DiagnosticLog.readTail(from: linked, maximumBytes: 32 * 1024))
+  }
+
   /// The App's switch writes `diagnostic_log.server` and leaves the Windows-only field as stored.
   func testSwitchKeepsTheWindowsField() throws {
     _ = MetasequoiaInputSessionBridge(stateRoot: state)

@@ -299,8 +299,7 @@ final class LoginSheet {
             if (child instanceof ViewGroup nested && !child.isClickable()) {
                 setEnabled(nested, enabled);
             } else {
-                child.setEnabled(enabled);
-                ViewPolicy.setActiveAlpha(child, enabled, 0.6f);
+                ViewPolicy.setEnabledWithAlpha(child, enabled, 0.6f);
             }
         }
     }
@@ -317,7 +316,7 @@ final class LoginSheet {
             : Ui.outlined(fill, Ui.dp(activity, 12), Ui.atLeastOnePx(activity, 1), stroke);
         GradientDrawable mask = Ui.rounded(Color.WHITE, Ui.dp(activity, 12));
         int pressed = Ui.withAlpha(fill == Color.BLACK ? Color.WHITE : Ui.text(activity), 0.12f);
-        button.setBackground(new RippleDrawable(android.content.res.ColorStateList.valueOf(pressed), face, mask));
+        ViewPolicy.setBackground(button, new RippleDrawable(android.content.res.ColorStateList.valueOf(pressed), face, mask));
         if (icon != null) {
             ImageView glyph = Ui.decorativeIcon(activity, icon);
             LinearLayout.LayoutParams params = Ui.squareParams(activity, 20);
@@ -336,12 +335,12 @@ final class LoginSheet {
         EditText field = Ui.styledInput(activity, 16, 400, Ui.text(activity));
         field.setHint(hint);
         field.setInputType(inputType);
-        field.setSingleLine(true);
+        ViewPolicy.setSingleLine(field);
         field.setFilters(new InputFilter[] {new InputFilter.LengthFilter(maxLength)});
         field.setHintTextColor(Ui.subText(activity));
         GradientDrawable face = Ui.outlined(Ui.rowBackground(activity), Ui.dp(activity, 12),
             Ui.atLeastOnePx(activity, 1), Ui.hairline(activity));
-        field.setBackground(face);
+        ViewPolicy.setBackground(field, face);
         Ui.setHorizontalPaddingDp(field, activity, 14);
         Ui.setTextMinHeightDp(field, activity, 50);
         ViewPolicy.setCenteredVertically(field);

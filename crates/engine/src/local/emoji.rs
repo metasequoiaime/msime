@@ -36,6 +36,31 @@ const KAOMOJI: Catalog = Catalog {
     query_failed: diagnostics::KAOMOJI_QUERY_FAILED,
 };
 
+struct QueryPrefixes<'a> {
+    lower: &'a str,
+    normalized: Option<String>,
+}
+
+impl<'a> QueryPrefixes<'a> {
+    fn new(lower: &'a str, scheme: SchemeType, profile: &ShuangpinProfile) -> Self {
+        let normalized = if scheme == SchemeType::Shuangpin {
+            let quanpin = normalize_input(lower, profile);
+            (!quanpin.is_empty() && quanpin != lower).then_some(quanpin)
+        } else {
+            None
+        };
+        Self { lower, normalized }
+    }
+
+    fn len(&self) -> usize {
+        1 + usize::from(self.normalized.is_some())
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.lower).chain(self.normalized.iter().map(String::as_str))
+    }
+}
+
 pub fn query_emoji(
     code: &str,
     scheme: SchemeType,
@@ -73,17 +98,17 @@ fn query(
         return LocalQueryResult::default();
     }
     let lower = code.to_ascii_lowercase();
-    let mut prefixes = vec![lower.clone()];
-    if scheme == SchemeType::Shuangpin {
-        let quanpin = normalize_input(&lower, profile);
-        if !quanpin.is_empty() && quanpin != lower {
-            prefixes.push(quanpin);
-        }
-    }
+    let prefixes = QueryPrefixes::new(&lower, scheme, profile);
     let Some(database) = open_local_database(others_db) else {
         return LocalQueryResult::failure(catalog.unavailable);
     };
-    let entries = match read(&lock(&database), catalog.sql, &prefixes, limit) {
+    let entries = match read(
+        &lock(&database),
+        catalog.sql,
+        prefixes.iter(),
+        prefixes.len(),
+        limit,
+    ) {
         Ok(entries) => entries,
         // Reported without SQLite's text, which could name the path or the typed code (emoji_query.cpp:98-127).
         Err(_) => return LocalQueryResult::failure(catalog.query_failed),
@@ -110,14 +135,18 @@ fn query(
 }
 
 /// Every prefix's rows, the first occurrence of a text kept, then stably ordered by `sort_order` so the raw and normalised shuangpin matches interleave in catalog order.
-fn read(
+fn read<'a, I>(
     connection: &Connection,
     sql: &str,
-    prefixes: &[String],
+    prefixes: I,
+    prefix_count: usize,
     limit: usize,
-) -> rusqlite::Result<Vec<(String, i64)>> {
+) -> rusqlite::Result<Vec<(String, i64)>>
+where
+    I: IntoIterator<Item = &'a str>,
+{
     let mut statement = connection.prepare_cached(sql)?;
-    let capacity = limit.saturating_mul(prefixes.len());
+    let capacity = limit.saturating_mul(prefix_count);
     let mut entries = Vec::with_capacity(capacity);
     for prefix in prefixes {
         let upper_bound = prefix_upper_bound(prefix);
@@ -208,6 +237,14 @@ mod tests {
         let entries = vec![("😀".to_owned(), 1)];
         assert!(contains_text(&entries, "😀"));
         assert!(!contains_text(&entries, "😄"));
+    }
+
+    #[test]
+    fn quanpin_prefixes_borrow_the_lowercase_input_without_allocating() {
+        let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            QueryPrefixes::new("ni", SchemeType::Quanpin, &QUANPIN_ONLY)
+        });
+        assert_eq!(allocations, 0);
     }
 
     #[test]

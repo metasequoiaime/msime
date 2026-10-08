@@ -1110,48 +1110,49 @@ Public Domain Dataです。使用・変更・配布に関しては一切の制�
 | `jiff-tzdb-platform` | 0.1.3 | Unlicense OR MIT | L01、L02、L03 |
 | `js-sys` | 0.3.105 | MIT OR Apache-2.0 | L04、L08 |
 | `lazy_static` | 1.5.0 | MIT OR Apache-2.0 | L04、L35 |
+| `libc` | 0.2.189 | MIT OR Apache-2.0 | L33、L36 |
 | `log` | 0.4.34 | MIT OR Apache-2.0 | L04、L05 |
-| `lru` | 0.18.5 | MIT | L36 |
-| `lunar-lite` | 0.1.0 | MIT | L37 |
+| `lru` | 0.18.5 | MIT | L37 |
+| `lunar-lite` | 0.1.0 | MIT | L38 |
 | `memchr` | 2.8.3 | Unlicense OR MIT | L01、L02、L03 |
-| `memmap2` | 0.9.11 | MIT OR Apache-2.0 | L38、L39 |
+| `memmap2` | 0.9.11 | MIT OR Apache-2.0 | L39、L40 |
 | `msime-engine` | 0.1.0 | GPL-3.0-only | 本项目，见上文 `LICENSE` |
 | `msime-engine-wasm` | 0.1.0 | GPL-3.0-only | 本项目，见上文 `LICENSE` |
 | `msime-path-trust` | 0.1.0 | GPL-3.0-only | 本项目，见上文 `LICENSE` |
-| `nom` | 8.0.0 | MIT | L40 |
+| `nom` | 8.0.0 | MIT | L41 |
 | `num-bigint` | 0.4.8 | MIT OR Apache-2.0 | L04、L05 |
-| `num-conv` | 0.2.2 | MIT OR Apache-2.0 | L41、L42 |
+| `num-conv` | 0.2.2 | MIT OR Apache-2.0 | L42、L43 |
 | `num-integer` | 0.1.47 | MIT OR Apache-2.0 | L04、L05 |
 | `num-rational` | 0.4.2 | MIT OR Apache-2.0 | L04、L05 |
 | `num-traits` | 0.2.19 | MIT OR Apache-2.0 | L04、L05 |
 | `once_cell` | 1.21.4 | MIT OR Apache-2.0 | L04、L34 |
-| `phf` | 0.11.3 | MIT | L43 |
-| `phf_shared` | 0.11.3 | MIT | L43 |
-| `pin-project-lite` | 0.2.17 | Apache-2.0 OR MIT | L41、L34 |
-| `powerfmt` | 0.2.0 | MIT OR Apache-2.0 | L44、L45 |
+| `phf` | 0.11.3 | MIT | L44 |
+| `phf_shared` | 0.11.3 | MIT | L44 |
+| `pin-project-lite` | 0.2.17 | Apache-2.0 OR MIT | L42、L34 |
+| `powerfmt` | 0.2.0 | MIT OR Apache-2.0 | L45、L46 |
 | `regex` | 1.13.1 | MIT OR Apache-2.0 | L04、L05 |
 | `regex-automata` | 0.4.18 | MIT OR Apache-2.0 | L04、L05 |
 | `regex-syntax` | 0.8.11 | MIT OR Apache-2.0 | L04、L05 |
-| `rink-core` | 0.9.0 | MPL-2.0 | L46 |
+| `rink-core` | 0.9.0 | MPL-2.0 | L47 |
 | `rsqlite-vfs` | 0.1.1 | MIT | 未附带 |
-| `rusqlite` | 0.40.2 | MIT | L47 |
+| `rusqlite` | 0.40.2 | MIT | L48 |
 | `serde` | 1.0.229 | MIT OR Apache-2.0 | L33、L34 |
 | `serde_core` | 1.0.229 | MIT OR Apache-2.0 | L33、L34 |
 | `serde_json` | 1.0.151 | MIT OR Apache-2.0 | L33、L34 |
-| `sha2` | 0.11.0 | MIT OR Apache-2.0 | L06、L48 |
-| `siphasher` | 1.0.3 | MIT/Apache-2.0 | L49 |
-| `slab` | 0.4.12 | MIT | L50 |
-| `smallvec` | 1.16.0 | MIT OR Apache-2.0 | L04、L51 |
-| `sqlite-wasm-rs` | 0.5.5 | MIT | L52 |
-| `strsim` | 0.10.0 | MIT | L53 |
+| `sha2` | 0.11.0 | MIT OR Apache-2.0 | L06、L49 |
+| `siphasher` | 1.0.3 | MIT/Apache-2.0 | L50 |
+| `slab` | 0.4.12 | MIT | L51 |
+| `smallvec` | 1.16.0 | MIT OR Apache-2.0 | L04、L52 |
+| `sqlite-wasm-rs` | 0.5.5 | MIT | L53 |
+| `strsim` | 0.10.0 | MIT | L54 |
 | `thiserror` | 2.0.21 | MIT OR Apache-2.0 | L33、L34 |
-| `time` | 0.3.55 | MIT OR Apache-2.0 | L41、L54 |
-| `time-core` | 0.1.9 | MIT OR Apache-2.0 | L41、L54 |
-| `typenum` | 1.20.1 | MIT OR Apache-2.0 | L55、L56、L57 |
-| `unicode-ident` | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | L33、L34、L58 |
-| `unicode-segmentation` | 1.13.3 | MIT OR Apache-2.0 | L59、L04、L60 |
-| `vi` | 0.8.0 | 见 license-file | L61 |
-| `wana_kana` | 5.0.0 | MIT | L62 |
+| `time` | 0.3.55 | MIT OR Apache-2.0 | L42、L55 |
+| `time-core` | 0.1.9 | MIT OR Apache-2.0 | L42、L55 |
+| `typenum` | 1.20.1 | MIT OR Apache-2.0 | L56、L57、L58 |
+| `unicode-ident` | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | L33、L34、L59 |
+| `unicode-segmentation` | 1.13.3 | MIT OR Apache-2.0 | L60、L04、L61 |
+| `vi` | 0.8.0 | 见 license-file | L62 |
+| `wana_kana` | 5.0.0 | MIT | L63 |
 | `wasm-bindgen` | 0.2.128 | MIT OR Apache-2.0 | L04、L08 |
 | `wasm-bindgen-shared` | 0.2.128 | MIT OR Apache-2.0 | L04、L08 |
 | `zmij` | 1.0.23 | MIT | L34 |
@@ -3555,7 +3556,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### L33（LICENSE-APACHE）
 
-用于：`itoa` 1.0.18、`serde` 1.0.229、`serde_core` 1.0.229、`serde_json` 1.0.151、`thiserror` 2.0.21、`unicode-ident` 1.0.24
+用于：`itoa` 1.0.18、`libc` 0.2.189、`serde` 1.0.229、`serde_core` 1.0.229、`serde_json` 1.0.151、`thiserror` 2.0.21、`unicode-ident` 1.0.24
 
 ````text
                               Apache License
@@ -3798,7 +3799,39 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ````
 
-### L36（LICENSE）
+### L36（LICENSE-MIT）
+
+用于：`libc` 0.2.189
+
+````text
+Copyright (c) The Rust Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+````
+
+### L37（LICENSE）
 
 用于：`lru` 0.18.5
 
@@ -3826,7 +3859,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### L37（LICENSE）
+### L38（LICENSE）
 
 用于：`lunar-lite` 0.1.0
 
@@ -3854,7 +3887,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### L38（LICENSE-APACHE）
+### L39（LICENSE-APACHE）
 
 用于：`memmap2` 0.9.11
 
@@ -4062,7 +4095,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ````
 
-### L39（LICENSE-MIT）
+### L40（LICENSE-MIT）
 
 用于：`memmap2` 0.9.11
 
@@ -4095,7 +4128,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ````
 
-### L40（LICENSE）
+### L41（LICENSE）
 
 用于：`nom` 8.0.0
 
@@ -4122,7 +4155,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### L41（LICENSE-Apache）
+### L42（LICENSE-Apache）
 
 用于：`num-conv` 0.2.2、`pin-project-lite` 0.2.17、`time` 0.3.55、`time-core` 0.1.9
 
@@ -4306,7 +4339,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
    END OF TERMS AND CONDITIONS
 ````
 
-### L42（LICENSE-MIT）
+### L43（LICENSE-MIT）
 
 用于：`num-conv` 0.2.2
 
@@ -4332,7 +4365,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### L43（LICENSE）
+### L44（LICENSE）
 
 用于：`phf` 0.11.3、`phf_shared` 0.11.3
 
@@ -4359,7 +4392,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### L44（LICENSE-Apache）
+### L45（LICENSE-Apache）
 
 用于：`powerfmt` 0.2.0
 
@@ -4568,7 +4601,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
    limitations under the License.
 ````
 
-### L45（LICENSE-MIT）
+### L46（LICENSE-MIT）
 
 用于：`powerfmt` 0.2.0
 
@@ -4594,7 +4627,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### L46（MPL-2.0.txt）
+### L47（MPL-2.0.txt）
 
 用于：`rink-core` 0.9.0
 
@@ -4974,7 +5007,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
   defined by the Mozilla Public License, v. 2.0.
 ````
 
-### L47（LICENSE）
+### L48（LICENSE）
 
 用于：`rusqlite` 0.40.2
 
@@ -5000,7 +5033,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### L48（LICENSE-MIT）
+### L49（LICENSE-MIT）
 
 用于：`sha2` 0.11.0
 
@@ -5035,7 +5068,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ````
 
-### L49（COPYING）
+### L50（COPYING）
 
 用于：`siphasher` 1.0.3
 
@@ -5049,7 +5082,7 @@ http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
 option.
 ````
 
-### L50（LICENSE）
+### L51（LICENSE）
 
 用于：`slab` 0.4.12
 
@@ -5081,7 +5114,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ````
 
-### L51（LICENSE-MIT）
+### L52（LICENSE-MIT）
 
 用于：`smallvec` 1.16.0
 
@@ -5113,7 +5146,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ````
 
-### L52（LICENSE）
+### L53（LICENSE）
 
 用于：`sqlite-wasm-rs` 0.5.5
 
@@ -5141,7 +5174,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### L53（LICENSE）
+### L54（LICENSE）
 
 用于：`strsim` 0.10.0
 
@@ -5171,7 +5204,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### L54（LICENSE-MIT）
+### L55（LICENSE-MIT）
 
 用于：`time` 0.3.55、`time-core` 0.1.9
 
@@ -5197,7 +5230,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### L55（LICENSE）
+### L56（LICENSE）
 
 用于：`typenum` 1.20.1
 
@@ -5205,7 +5238,7 @@ SOFTWARE.
 MIT OR Apache-2.0
 ````
 
-### L56（LICENSE-APACHE）
+### L57（LICENSE-APACHE）
 
 用于：`typenum` 1.20.1
 
@@ -5413,7 +5446,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ````
 
-### L57（LICENSE-MIT）
+### L58（LICENSE-MIT）
 
 用于：`typenum` 1.20.1
 
@@ -5441,7 +5474,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### L58（LICENSE-UNICODE）
+### L59（LICENSE-UNICODE）
 
 用于：`unicode-ident` 1.0.24
 
@@ -5487,7 +5520,7 @@ dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 ````
 
-### L59（COPYRIGHT）
+### L60（COPYRIGHT）
 
 用于：`unicode-segmentation` 1.13.3
 
@@ -5501,7 +5534,7 @@ notice may not be copied, modified, or distributed except
 according to those terms.
 ````
 
-### L60（LICENSE-MIT）
+### L61（LICENSE-MIT）
 
 用于：`unicode-segmentation` 1.13.3
 
@@ -5533,7 +5566,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ````
 
-### L61（LICENSE）
+### L62（LICENSE）
 
 用于：`vi` 0.8.0
 
@@ -5547,7 +5580,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### L62（LICENSE）
+### L63（LICENSE）
 
 用于：`wana_kana` 5.0.0
 

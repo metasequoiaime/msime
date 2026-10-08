@@ -7,13 +7,18 @@
 //! On Windows every input session lives in the one Server process, which releases them when asked over its auxiliary pipe instead (see [`server`]). The Server does not track who asked, so one writer's resume can hand the sessions back while another is still working; that writer's next request then finds the dictionaries busy, asks again and is retried like the first.
 
 use std::ffi::OsStr;
-use std::fs::{File, OpenOptions};
+#[cfg(not(unix))]
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const LEASE_NAME: &str = ".msime-dictionary-quiesce";
+/// A persistent advisory lock that serializes lease publishers and removers.
+/// The lease path itself is replaced atomically, but checking its owner and
+/// removing it are otherwise a check-then-remove race across writers.
+pub const LEASE_LOCK_NAME: &str = ".msime-dictionary-quiesce.lock";
 const LEASE_DURATION: Duration = Duration::from_secs(30);
 /// Long enough for the IBus host's one-second timer to come round twice.
 pub const RETRY_BUDGET: Duration = Duration::from_millis(2500);
@@ -29,16 +34,109 @@ fn reject_symlinked_path_ancestors(path: &Path) -> std::io::Result<()> {
     msime_path_trust::reject_symlinked_components(path)
 }
 
+#[cfg(any(not(unix), test))]
 fn read_lease(path: &Path) -> Option<String> {
-    reject_symlinked_path_ancestors(path).ok()?;
-    let bytes = crate::bounded_io::read_bounded_file_with(
-        File::open(path).ok()?,
-        MAX_LEASE_BYTES,
-        || (),
-        |_| (),
-    )
-    .ok()?;
-    String::from_utf8(bytes).ok()
+    #[cfg(unix)]
+    {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let directory = open_lease_directory(parent).ok()?;
+        read_lease_at(&directory, path.file_name()?).ok()
+    }
+    #[cfg(not(unix))]
+    {
+        reject_symlinked_path_ancestors(path).ok()?;
+        let bytes = crate::bounded_io::read_bounded_file_with(
+            crate::storage::open_private_file(path).ok()?,
+            MAX_LEASE_BYTES,
+            || (),
+            |_| (),
+        )
+        .ok()?;
+        String::from_utf8(bytes).ok()
+    }
+}
+
+#[cfg(unix)]
+fn open_lease_directory(path: &Path) -> std::io::Result<std::fs::File> {
+    reject_symlinked_path_ancestors(path)?;
+    let fd = rustix::fs::open(
+        path,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )?;
+    // `rustix::fs::open` returns an owned descriptor; transfer that ownership
+    // to `File` so all later *at operations stay on this inode.
+    Ok(std::fs::File::from(fd))
+}
+
+#[cfg(unix)]
+fn read_lease_at(directory: &std::fs::File, name: &OsStr) -> std::io::Result<String> {
+    let fd = rustix::fs::openat(
+        directory,
+        name,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC
+            | rustix::fs::OFlags::NONBLOCK,
+        rustix::fs::Mode::empty(),
+    )?;
+    let file = std::fs::File::from(fd);
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "lease is not a regular file",
+        ));
+    }
+    let bytes = crate::bounded_io::read_bounded_file_with(file, MAX_LEASE_BYTES, || (), |_| ())
+        .map_err(|()| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "lease exceeds its bound")
+        })?;
+    String::from_utf8(bytes)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+}
+
+#[cfg(unix)]
+fn open_lease_lock_at(directory: &std::fs::File) -> std::io::Result<std::fs::File> {
+    // APFS can briefly report ENOENT to a second openat while another thread
+    // creates this coordination file. Keep the retry bounded; a real missing
+    // parent or an invalid lock still fails promptly.
+    let mut attempts = 0;
+    let fd = loop {
+        match rustix::fs::openat(
+            directory,
+            LEASE_LOCK_NAME,
+            rustix::fs::OFlags::RDWR
+                | rustix::fs::OFlags::CREATE
+                | rustix::fs::OFlags::NOFOLLOW
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::from_raw_mode(0o600),
+        ) {
+            Ok(fd) => break fd,
+            Err(error) if error == rustix::io::Errno::NOENT && attempts < 10 => {
+                attempts += 1;
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            Err(error) => return Err(error.into()),
+        }
+    };
+    let file = std::fs::File::from(fd);
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "lease lock is not a regular file",
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(any(not(unix), test))]
+fn open_lease_lock(path: &Path) -> std::io::Result<std::fs::File> {
+    let lock = path.with_file_name(LEASE_LOCK_NAME);
+    crate::file_lock::open_private_lock_file(lock)
 }
 
 #[cfg(windows)]
@@ -50,6 +148,10 @@ use Lease as Release;
 /// The lease as one writer holds it: where it is and what this writer last put there.
 pub struct Lease {
     path: PathBuf,
+    #[cfg(unix)]
+    directory: std::fs::File,
+    #[cfg(unix)]
+    lock: std::fs::File,
     /// The process and a number no other lease in it has, so two leases in one process are told apart too.
     owner: String,
     /// The number in `owner`, which also names this lease's staged file, so two leases in one process never stage over each other.
@@ -61,8 +163,16 @@ impl Lease {
     pub fn acquire(user_data: &Path) -> std::io::Result<Self> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+        #[cfg(unix)]
+        let directory = open_lease_directory(user_data)?;
+        #[cfg(unix)]
+        let lock = open_lease_lock_at(&directory)?;
         let mut lease = Self {
             path: user_data.join(LEASE_NAME),
+            #[cfg(unix)]
+            directory,
+            #[cfg(unix)]
+            lock,
             owner: format!("{} {serial}", std::process::id()),
             serial,
             written: String::new(),
@@ -73,55 +183,125 @@ impl Lease {
 
     /// Write the lease with an expiry `LEASE_DURATION` from now, replacing any earlier one in a single rename so a host never reads a partial file.
     pub fn publish(&mut self) -> std::io::Result<()> {
+        #[cfg(unix)]
+        let lock = self.lock.try_clone()?;
+        #[cfg(not(unix))]
+        let lock = open_lease_lock(&self.path)?;
+        crate::file_lock::exclusive(&lock)?;
+        let result = self.publish_locked();
+        #[cfg(unix)]
+        let unlock = crate::file_lock::unlock(&lock);
+        #[cfg(not(unix))]
+        let unlock = Ok(());
+        match (result, unlock) {
+            (Err(error), _) => Err(error),
+            (Ok(()), Err(error)) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
+        }
+    }
+
+    fn publish_locked(&mut self) -> std::io::Result<()> {
         let expiry = SystemTime::now()
             .checked_add(LEASE_DURATION)
             .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
             .ok_or_else(|| std::io::Error::other("clock before the epoch"))?
             .as_millis();
-        let staged = self.path.with_file_name(format!(
-            "{LEASE_NAME}.{}-{}",
-            std::process::id(),
-            self.serial
-        ));
+        let staged_name = format!("{LEASE_NAME}.{}-{}", std::process::id(), self.serial);
+        let staged = self.path.with_file_name(&staged_name);
         reject_symlinked_path_ancestors(&self.path)?;
         reject_symlinked_path_ancestors(&staged)?;
         // The owner line tells this lease from one another writer put up; the expiry alone could coincide.
         let contents = format!("{expiry}\n{}\n", self.owner);
-        let mut file = OpenOptions::new();
-        file.write(true).create_new(true);
+        #[cfg(not(unix))]
+        let mut file = {
+            let mut file = OpenOptions::new();
+            file.write(true).create_new(true);
+            file
+        };
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            file.mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-        }
+        let mut output = {
+            let fd = rustix::fs::openat(
+                &self.directory,
+                &staged_name,
+                rustix::fs::OFlags::WRONLY
+                    | rustix::fs::OFlags::CREATE
+                    | rustix::fs::OFlags::EXCL
+                    | rustix::fs::OFlags::NOFOLLOW
+                    | rustix::fs::OFlags::CLOEXEC
+                    | rustix::fs::OFlags::NONBLOCK,
+                rustix::fs::Mode::from_raw_mode(0o600),
+            )?;
+            std::fs::File::from(fd)
+        };
+        #[cfg(not(unix))]
         let mut output = file.open(&staged)?;
         if let Err(error) = output
             .write_all(contents.as_bytes())
             .and_then(|()| output.sync_all())
         {
+            #[cfg(unix)]
+            let _ =
+                rustix::fs::unlinkat(&self.directory, &staged_name, rustix::fs::AtFlags::empty());
+            #[cfg(not(unix))]
             let _ = std::fs::remove_file(&staged);
             return Err(error);
         }
-        if let Err(error) = std::fs::rename(&staged, &self.path) {
+        #[cfg(unix)]
+        let rename: std::io::Result<()> =
+            rustix::fs::renameat(&self.directory, &staged_name, &self.directory, LEASE_NAME)
+                .map_err(Into::into);
+        #[cfg(not(unix))]
+        let rename = std::fs::rename(&staged, &self.path);
+        if let Err(error) = rename {
+            #[cfg(unix)]
+            let _ =
+                rustix::fs::unlinkat(&self.directory, &staged_name, rustix::fs::AtFlags::empty());
+            #[cfg(not(unix))]
             let _ = std::fs::remove_file(&staged);
             return Err(error);
         }
         self.written = contents;
         Ok(())
     }
-}
 
-impl Drop for Lease {
-    /// Remove the lease only while it is still the one this writer last wrote. When another writer has replaced it since, that writer's work is still running under it, and removing it would let the hosts reopen their sessions in the middle of it. The read and the removal are not one step, so a replacement landing between them is still removed; the other writer puts it back on its next request.
-    fn drop(&mut self) {
-        if read_lease(&self.path).is_some_and(|current| current == self.written) {
+    fn remove_if_current_locked(&self) {
+        #[cfg(unix)]
+        let current = read_lease_at(&self.directory, OsStr::new(LEASE_NAME)).ok();
+        #[cfg(not(unix))]
+        let current = read_lease(&self.path);
+        if current.is_some_and(|current| current == self.written) {
+            #[cfg(unix)]
+            let _ = rustix::fs::unlinkat(&self.directory, LEASE_NAME, rustix::fs::AtFlags::empty());
+            #[cfg(not(unix))]
             let _ = std::fs::remove_file(&self.path);
         }
     }
 }
 
-/// The lease itself, or one still being staged under `<lease>.<pid>-<n>` (by these writers and by the macOS input method). Copying either along with the user directory would keep input off in the copy until it expired. Only the Linux data-directory move copies the user directory.
+impl Drop for Lease {
+    /// Remove the lease only while it is still the one this writer last wrote.
+    /// The persistent lock makes the owner check and removal one operation with
+    /// respect to every cooperating writer.
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if crate::file_lock::exclusive(&self.lock).is_ok() {
+            self.remove_if_current_locked();
+            let _ = crate::file_lock::unlock(&self.lock);
+        }
+        #[cfg(not(unix))]
+        if let Ok(lock) = open_lease_lock(&self.path) {
+            if crate::file_lock::exclusive(&lock).is_ok() {
+                self.remove_if_current_locked();
+            }
+        }
+    }
+}
+
+/// The lease itself, one still being staged under `<lease>.<pid>-<n>` (by
+/// these writers and by the macOS input method), or the persistent coordination
+/// lock. Copying any of them along with the user directory would carry stale
+/// maintenance state into the copy. Only the Linux data-directory move copies
+/// the user directory.
 pub fn is_lease_file(name: &OsStr) -> bool {
     name.to_str().is_some_and(|name| {
         name.strip_prefix(LEASE_NAME)
@@ -309,6 +489,33 @@ mod tests {
     }
 
     #[test]
+    fn lease_owner_removal_is_serialized_with_a_new_publisher() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = Lease::acquire(directory.path()).unwrap();
+        let lock = open_lease_lock(&first.path).unwrap();
+        crate::file_lock::exclusive(&lock).unwrap();
+
+        let (started, ready) = std::sync::mpsc::channel();
+        let path = directory.path().to_owned();
+        let publisher = std::thread::spawn(move || {
+            started.send(()).unwrap();
+            Lease::acquire(&path).unwrap()
+        });
+        ready.recv().unwrap();
+
+        // The publisher cannot replace the lease until the owner check and
+        // removal below have completed under the same advisory lock.
+        first.remove_if_current_locked();
+        drop(lock);
+        let second = publisher.join().unwrap();
+        assert_eq!(read_lease(&second.path), Some(second.written.clone()));
+
+        drop(first);
+        drop(second);
+        assert!(!directory.path().join(LEASE_NAME).exists());
+    }
+
+    #[test]
     fn an_oversized_lease_is_ignored_without_reading_it_unboundedly() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(LEASE_NAME);
@@ -324,8 +531,16 @@ mod tests {
             .path()
             .join(format!("{LEASE_NAME}.{}-{serial}", std::process::id()));
         std::fs::write(&staged, b"keep").unwrap();
+        #[cfg(unix)]
+        let directory_handle = open_lease_directory(directory.path()).unwrap();
+        #[cfg(unix)]
+        let lock_handle = open_lease_lock_at(&directory_handle).unwrap();
         let mut lease = Lease {
             path: directory.path().join(LEASE_NAME),
+            #[cfg(unix)]
+            directory: directory_handle,
+            #[cfg(unix)]
+            lock: lock_handle,
             owner: format!("{} {serial}", std::process::id()),
             serial,
             written: String::new(),
@@ -368,6 +583,44 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn publishing_after_user_directory_replacement_stays_on_the_original_inode() {
+        let root = tempfile::tempdir().unwrap();
+        let user_data = root.path().join("user-data");
+        std::fs::create_dir(&user_data).unwrap();
+        let moved = root.path().join("moved-user-data");
+        let mut lease = Lease::acquire(&user_data).unwrap();
+
+        std::fs::rename(&user_data, &moved).unwrap();
+        std::fs::create_dir(&user_data).unwrap();
+        lease.publish().unwrap();
+
+        assert!(moved.join(LEASE_NAME).exists());
+        assert!(!user_data.join(LEASE_NAME).exists());
+        drop(lease);
+        assert!(!moved.join(LEASE_NAME).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dropping_after_user_directory_replacement_does_not_remove_the_replacement_lease() {
+        let root = tempfile::tempdir().unwrap();
+        let user_data = root.path().join("user-data");
+        std::fs::create_dir(&user_data).unwrap();
+        let moved = root.path().join("moved-user-data");
+        let lease = Lease::acquire(&user_data).unwrap();
+        let written = lease.written.clone();
+
+        std::fs::rename(&user_data, &moved).unwrap();
+        std::fs::create_dir(&user_data).unwrap();
+        std::fs::write(user_data.join(LEASE_NAME), written).unwrap();
+        drop(lease);
+
+        assert!(!moved.join(LEASE_NAME).exists());
+        assert!(user_data.join(LEASE_NAME).exists());
+    }
+
     #[test]
     fn leases_in_one_process_publish_side_by_side() {
         let directory = tempfile::tempdir().unwrap();
@@ -391,9 +644,9 @@ mod tests {
         // Whichever wrote last owns the lease, and no staged file is left behind.
         let current = std::fs::read_to_string(path.join(LEASE_NAME)).unwrap();
         assert!(leases.iter().any(|lease| lease.written == current));
-        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 1);
+        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 2);
         drop(leases);
-        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 1);
     }
 
     #[test]
@@ -440,7 +693,7 @@ mod tests {
         assert_eq!(result, Ok("imported"));
         assert_eq!(calls.get(), 3);
         assert!(!directory.path().join(LEASE_NAME).exists());
-        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 
     #[test]
@@ -481,7 +734,7 @@ mod tests {
         drop(hosts);
         assert_eq!(announced.get(), 1);
         assert!(!directory.path().join(LEASE_NAME).exists());
-        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 
     #[test]
@@ -595,6 +848,7 @@ mod tests {
         assert!(is_lease_file(OsStr::new(
             ".msime-dictionary-quiesce.4242-0"
         )));
+        assert!(is_lease_file(OsStr::new(".msime-dictionary-quiesce.lock")));
         assert!(!is_lease_file(OsStr::new(".msime-dictionary-quiesced")));
         assert!(!is_lease_file(OsStr::new(".msime-dictionary-access.lock")));
         assert!(!is_lease_file(OsStr::new("msime_user.db")));

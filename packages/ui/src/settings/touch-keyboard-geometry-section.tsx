@@ -53,7 +53,9 @@ export interface TouchKeyboardGeometrySectionProps {
   tabletFullKeys?: boolean;
   /** 仅 iPad 宿主给出：横屏分离式键盘。没有时不画这个开关。 */
   tabletSplitKeyboard?: boolean;
-  /** iPad 布局开关正在保存时为 true，「数字行与 Tab 键」和「横屏分离式键盘」都暂不可点。 */
+  /** 宿主的键盘实现了滑行输入时给出当前开关；没有时不画这个开关。 */
+  glideTyping?: boolean;
+  /** 键盘本机设置正在保存时为 true，「数字行与 Tab 键」「横屏分离式键盘」和「滑行输入」都暂不可点。 */
   tabletFullKeysBusy: boolean;
   onHeightAdjustmentChange: (value: number) => void;
   onKeySpacingChange: (value: number) => void;
@@ -62,10 +64,11 @@ export interface TouchKeyboardGeometrySectionProps {
   onToolbarChange: (value: TouchToolbarPreferences) => void;
   onTabletFullKeysChange: (enabled: boolean) => void;
   onTabletSplitKeyboardChange: (enabled: boolean) => void;
+  onGlideTypingChange: (enabled: boolean) => void;
   onReset: () => void;
 }
 
-/** 「屏幕键盘」页共用的触屏键盘控件，即预览之后的各组：「尺寸」（高度、间距和重置）、「工具栏」，以及宿主有 iPad 数字行和 Tab 键或横屏分离式键盘时的「布局」。 */
+/** 「屏幕键盘」页共用的触屏键盘控件，即预览之后的各组：「尺寸」（高度、间距和重置）、「工具栏」，宿主有 iPad 数字行和 Tab 键或横屏分离式键盘时的「布局」，以及宿主有滑行输入时的「手势」。 */
 export function TouchKeyboardGeometrySection({
   heightAdjustment,
   keySpacingTenths,
@@ -76,6 +79,7 @@ export function TouchKeyboardGeometrySection({
   toolbar,
   tabletFullKeys,
   tabletSplitKeyboard,
+  glideTyping,
   tabletFullKeysBusy,
   onHeightAdjustmentChange,
   onKeySpacingChange,
@@ -84,6 +88,7 @@ export function TouchKeyboardGeometrySection({
   onToolbarChange,
   onTabletFullKeysChange,
   onTabletSplitKeyboardChange,
+  onGlideTypingChange,
   onReset,
 }: TouchKeyboardGeometrySectionProps) {
   const toolbarValues = { ...defaultTouchToolbar, ...toolbar };
@@ -189,6 +194,17 @@ export function TouchKeyboardGeometrySection({
               onChange={onTabletSplitKeyboardChange}
             />
           )}
+        </GroupList>
+      )}
+      {glideTyping !== undefined && (
+        <GroupList title="手势">
+          <SwitchRow
+            title="滑行输入"
+            description="在字母键上连续滑动输入拼音，停留可确认经过的键；只在全拼 26 键的字母面生效。"
+            disabled={tabletFullKeysBusy}
+            checked={glideTyping}
+            onChange={onGlideTypingChange}
+          />
         </GroupList>
       )}
     </>
