@@ -1,5 +1,7 @@
 //! `CandidateQueries` (core-session.md §7.2, §10; schemes-lang.md §4.5): local mode dispatch and the mixed English / emoji / kaomoji insertion into pinyin lists.
 
+use std::borrow::Cow;
+
 use crate::assets;
 use crate::dictionary::english::EnglishDictionary;
 use crate::local::command::{
@@ -25,6 +27,14 @@ use crate::types::{
 pub const MIXED_ENGLISH_LIMIT: usize = 5;
 pub const MODE_ENGLISH_LIMIT: usize = 1_000;
 const MIXED_DEDUP_CAPACITY: usize = MIXED_ENGLISH_LIMIT + MIXED_RESULT_LIMIT * 2;
+
+fn lowercase_prefix(raw: &str) -> Cow<'_, str> {
+    if raw.bytes().all(|byte| byte.is_ascii_lowercase()) {
+        Cow::Borrowed(raw)
+    } else {
+        Cow::Owned(raw.to_ascii_lowercase())
+    }
+}
 
 pub struct CandidateQueries {
     paths: RuntimePaths,
@@ -168,7 +178,7 @@ impl CandidateQueries {
         }
         let completions = self
             .english_dictionary()
-            .query_prefix(&raw.to_ascii_lowercase(), MODE_ENGLISH_LIMIT);
+            .query_prefix(&lowercase_prefix(raw), MODE_ENGLISH_LIMIT);
         let mut candidates = Vec::with_capacity(completions.len().saturating_add(1));
         candidates.push(WordItem::new("", raw, 0, CandidateSource::Generated, ""));
         candidates.extend(
@@ -326,6 +336,14 @@ mod tests {
     use rusqlite::Connection;
 
     use super::*;
+
+    #[test]
+    fn lowercase_prefix_is_borrowed_without_allocating() {
+        let (prefix, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| lowercase_prefix("hello"));
+        assert_eq!(prefix, "hello");
+        assert_eq!(allocations, 0);
+    }
 
     fn row(word: &str, source: CandidateSource) -> WordItem {
         WordItem::new("ni", word, 1, source, "")
