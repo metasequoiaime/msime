@@ -42,8 +42,19 @@ int main() {
   assert(visible.candidates.size() == 2 &&
          !visible.candidates[0].actions_available &&
          visible.candidates[1].actions_available && !visible.traditional_output);
+  assert(!visible.game_host);
+  // 游戏会话的标记来自包元数据，不改变可见性和坐标。
+  packet.modifiers_down = PipeMetadata::GameHost;
+  const auto game = candidate_presentation(lease, reply, packet);
+  assert(game.game_host && game.visible && game.x == 12 && game.y == 34);
   packet.modifiers_down = FanyImePipeFlags::UiLess;
   const auto hidden = candidate_presentation(lease, reply, packet);
   assert(!hidden.visible && hidden.preedit.empty());
   assert(hidden.preedit_caret == std::string::npos);
+  assert(!hidden.game_host);
+  // UiLess 仍然由宿主自己画，带上 GameHost 也照样隐藏。
+  packet.modifiers_down = FanyImePipeFlags::UiLess | PipeMetadata::GameHost;
+  const auto hidden_game = candidate_presentation(lease, reply, packet);
+  assert(!hidden_game.visible && hidden_game.preedit.empty() &&
+         hidden_game.game_host);
 }
