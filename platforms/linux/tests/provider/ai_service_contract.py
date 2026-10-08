@@ -105,6 +105,36 @@ class AiServiceContract(unittest.TestCase):
         # Nothing left the process for any of them.
         self.assertEqual(self.requests, [])
 
+    def test_endpoint_policy_matches_the_shared_cases(self):
+        # 与 crates/client-core/src/ai/endpoint.rs 跑同一组用例；这里不派生来源键，只核对 result。
+        contract = json.loads((REPOSITORY / "shared/contracts/ai-endpoint/cases.json").read_text())
+        self.assertGreater(len(contract["cases"]), 40)
+        for case in contract["cases"]:
+            with self.subTest(endpoint=case["endpoint"]):
+                self.assertEqual(online.ai_endpoint_check(case["endpoint"]), case["result"])
+        # 非常规写法的 IPv4 不当作局域网地址。
+        for endpoint in ("http://010.0.0.1/v1", "http://0x7f000001/v1", "http://10.1/v1"):
+            self.assertNotEqual(online.ai_endpoint_check(endpoint), "allowed", endpoint)
+
+    def test_a_local_http_service_is_reached_and_a_public_one_is_not(self):
+        path = Path(self.server.ai_config_path)
+        local = {**PRIVATE, "endpoint": "http://192.168.1.20:1234/v1/chat/completions"}
+        path.write_text(json.dumps(local))
+        self.respond({"data": [{"id": "local-model"}]})
+        query = {"provider": "synthetic", "endpoint": local["endpoint"]}
+        self.assertEqual(online.ai_models(query, self.server), {"models": ["local-model"]})
+        self.assertEqual(self.requests[0]["url"], "http://192.168.1.20:1234/v1/models")
+        self.assertEqual(self.requests[0]["token"], "synthetic-token")
+
+        self.requests.clear()
+        public = {**PRIVATE, "endpoint": "http://service.example.invalid/v1/chat/completions"}
+        path.write_text(json.dumps(public))
+        query = {"provider": "synthetic", "endpoint": public["endpoint"]}
+        # 公网的 http 接口连配置都读不进来，Token 不会离开本机。
+        with self.assertRaises(ValueError):
+            online.ai_models(query, self.server)
+        self.assertEqual(self.requests, [])
+
     def test_polish_sends_the_page_text_under_the_private_credential(self):
         self.respond({"choices": [{"message": {"content": "  polished  "}}]})
         result = online.ai_polish_test(
