@@ -318,22 +318,24 @@ impl InputSession {
             wubi_native: selected_scheme == SchemeType::Wubi,
             ..SelectionTransition::default()
         };
-        let request = self.engine.request().clone();
         if self.is_japanese() {
-            transition.full_pure_pinyin = request.raw_input;
-            transition.current_segmentation = request.segmentation;
-            transition.current_segmentation_with_cases = request.raw_input_with_cases;
+            let request = self.engine.request();
+            transition.full_pure_pinyin = request.raw_input.clone();
+            transition.current_segmentation = request.segmentation.clone();
+            transition.current_segmentation_with_cases = request.raw_input_with_cases.clone();
             return transition;
         }
         if transition.wubi_native {
+            let request = self.engine.request();
             transition.full_pure_pinyin = request.normalized_input.clone();
-            transition.current_segmentation = request.normalized_input;
-            transition.current_segmentation_with_cases = request.raw_input;
+            transition.current_segmentation = request.normalized_input.clone();
+            transition.current_segmentation_with_cases = request.raw_input.clone();
             return transition;
         }
         transition.continues_composition =
             !self.selection_completes_composition(pinyin, word, selected_scheme);
         if self.is_shuangpin() {
+            let request = self.engine.request().clone();
             let base = resolve_shuangpin_composition_base(&request, self.shuangpin_profile());
             let word_length = count_han_chars(word) * 2;
             let total = base.effective_raw_input.len();
@@ -376,13 +378,20 @@ impl InputSession {
         }
 
         // Quanpin, and the quanpin rows of a wubi composition, which shorten the wubi code the same way.
-        transition.full_pure_pinyin = request.normalized_input.clone();
         let selected = remove_delimiters(pinyin);
-        let raw_without_helpcodes =
-            strip_active_helpcodes(&request.raw_input, &request.raw_input_with_cases);
-        let cased_without_helpcodes =
-            strip_active_helpcodes_with_cases(&request.raw_input, &request.raw_input_with_cases);
         if transition.continues_composition {
+            let (full_pure_pinyin, raw_without_helpcodes, cased_without_helpcodes) = {
+                let request = self.engine.request();
+                (
+                    request.normalized_input.clone(),
+                    strip_active_helpcodes(&request.raw_input, &request.raw_input_with_cases),
+                    strip_active_helpcodes_with_cases(
+                        &request.raw_input,
+                        &request.raw_input_with_cases,
+                    ),
+                )
+            };
+            transition.full_pure_pinyin = full_pure_pinyin;
             let consumed =
                 raw_length_for_effective_prefix(&cased_without_helpcodes, selected.len());
             let rest = remove_consumed_leading_separators(&raw_without_helpcodes[consumed..]);
@@ -399,6 +408,8 @@ impl InputSession {
             transition.current_segmentation_with_cases = self.pinyin_segmentation_with_cases();
             return transition;
         }
+        let request = self.engine.request();
+        transition.full_pure_pinyin = request.normalized_input.clone();
         transition.current_segmentation = if request.normalized_segmentation.is_empty() {
             request.segmentation.clone()
         } else {

@@ -6,6 +6,35 @@ use super::*;
 
 #[cfg(unix)]
 #[test]
+fn stale_sweep_does_not_follow_a_replaced_directory() {
+    use std::os::unix::fs::symlink;
+    use std::time::{Duration, SystemTime};
+
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("preferences");
+    std::fs::create_dir(&directory).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let abandoned = outside.path().join(".tmpOutside");
+    std::fs::write(&abandoned, b"synthetic outside").unwrap();
+    let old = SystemTime::now() - Duration::from_secs(48 * 60 * 60);
+    std::fs::File::options()
+        .write(true)
+        .open(&abandoned)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(old))
+        .unwrap();
+
+    let moved = root.path().join("moved");
+    std::fs::rename(&directory, &moved).unwrap();
+    symlink(outside.path(), &directory).unwrap();
+
+    sweep_stale_temporaries(&directory);
+
+    assert!(abandoned.exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn preference_store_rejects_a_symlinked_directory_without_writing_through_it() {
     let target = tempfile::tempdir().unwrap();
     let parent = tempfile::tempdir().unwrap();
