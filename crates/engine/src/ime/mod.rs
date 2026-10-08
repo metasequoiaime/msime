@@ -589,7 +589,11 @@ impl ImeSession {
 
     /// ime_session.cpp:299-369.
     fn refresh_candidates(&mut self) {
-        let request = self.prepare_request(&self.scheme);
+        let mut request = std::mem::take(&mut self.state.request);
+        self.scheme.build_request_into(&mut request);
+        self.apply_request_options(&mut request);
+        self.apply_autocorrect_suppression(&mut request);
+        apply_shuangpin_helpcode_segmentation(&mut request, profile(self.profile));
         reuse_request_preedit(&request, &mut self.state.preedit);
         if !request.valid {
             // An emptied composition is an invalid request, and Backspace never goes through `reset`: the next code must be answered by the wubi table again.
@@ -614,6 +618,23 @@ impl ImeSession {
                 let mut candidates = std::mem::take(&mut self.state.candidates);
                 self.registry
                     .query_cantonese_into(&request, &mut candidates);
+                Decoded {
+                    candidates,
+                    wubi_table_answered: false,
+                }
+            }
+            None if request.scheme == SchemeType::JapaneseRomaji => {
+                let mut candidates = std::mem::take(&mut self.state.candidates);
+                self.registry.query_japanese_into(&request, &mut candidates);
+                Decoded {
+                    candidates,
+                    wubi_table_answered: false,
+                }
+            }
+            None if request.scheme == SchemeType::Korean && request.korean_hanja => {
+                let mut candidates = std::mem::take(&mut self.state.candidates);
+                self.registry
+                    .query_korean_hanja_into(&request, &mut candidates);
                 Decoded {
                     candidates,
                     wubi_table_answered: false,

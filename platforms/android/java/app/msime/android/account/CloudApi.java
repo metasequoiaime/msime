@@ -134,6 +134,14 @@ public final class CloudApi {
         this.anonymous = rejected -> new BackendAnonymousAccount(application).accessToken(rejected);
     }
 
+    /** Account-bound transport for a sync run; the token supplier fences sign-out and re-login. */
+    public CloudApi(Context context, Tokens account) {
+        Context application = context.getApplicationContext();
+        this.transport = CloudApi::httpExchange;
+        this.account = account;
+        this.anonymous = rejected -> new BackendAnonymousAccount(application).accessToken(rejected);
+    }
+
     public CloudApi(Transport transport, Tokens account, Tokens anonymous) {
         this.transport = transport;
         this.account = account;

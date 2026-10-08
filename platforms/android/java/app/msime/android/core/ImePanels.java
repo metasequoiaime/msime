@@ -1,5 +1,6 @@
 package app.msime.android;
 
+import app.msime.android.core.InputViewValuePolicy;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -41,8 +42,8 @@ final class ImePanels {
 
     void showLocalInputMenu() {
         if (s.preedit == null || !s.supportsLocalTools() || s.view == null
-                || !s.view.optString("editing_text", "").isEmpty()
-                || !"none".equals(s.view.optString("local_mode", "none"))) return;
+                || !InputViewValuePolicy.editingText(s.view).isEmpty()
+                || !"none".equals(JsonPolicy.strictStringOrEmpty(s.view.opt("local_mode")))) return;
         PopupMenu popup = new PopupMenu(s, s.preedit);
         for (LocalInputMode mode : s.localInputModes()) {
             MenuItem item = popup.getMenu().add(mode.title());

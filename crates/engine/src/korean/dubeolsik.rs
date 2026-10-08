@@ -254,10 +254,21 @@ fn fold(keys: &[u8]) -> Vec<Syllable> {
 /// The Hangul text `keys` spell.
 pub fn compose(keys: &str) -> String {
     let mut output = String::with_capacity(keys.len().saturating_mul(3));
-    for syllable in fold(keys.as_bytes()) {
-        syllable.render(&mut output);
-    }
+    compose_into(keys, &mut output);
     output
+}
+
+/// 将合成的韩文写入已有字符串，保留宿主会话的容量。
+pub fn compose_into(keys: &str, output: &mut String) {
+    output.clear();
+    output.reserve(
+        keys.len()
+            .saturating_mul(3)
+            .saturating_sub(output.capacity()),
+    );
+    for syllable in fold(keys.as_bytes()) {
+        syllable.render(output);
+    }
 }
 
 /// Split `keys` into the text of every finished syllable and the key letters of the last, still open one. Only the last syllable can still change, so everything before it is final.

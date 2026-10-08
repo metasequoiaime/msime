@@ -27,9 +27,13 @@ public final class SyncSwitch {
     static final String KEY_LOGIN_KIND = "login_kind";
     static final String KEY_LAST_SYNCED_AT = "last_synced_at";
     static final String KEY_PHRASES_UNHELD = "phrases_unheld";
+    private static final String KEY_BINDING_GENERATION = "binding_generation";
 
     /** 待上传标记的读改写都在这把锁里：provider 的 binder 线程与 CloudSync 的工作线程同在主进程里并发调用。 */
     private static final Object DIRTY_LOCK = new Object();
+
+    /** Shared lock for sync-owned local writes that must exclude account rebinding. */
+    public static Object bindingLock() { return DIRTY_LOCK; }
 
     private SyncSwitch() {}
 
@@ -72,7 +76,7 @@ public final class SyncSwitch {
 
     /** 打开或关闭同步；关闭时保留游标，便于重新打开后增量继续。没有真实账号时不能打开。 */
     public static void setEnabled(Context context, boolean enabled) {
-        if (enabled && !validLoginKind(loginKind(context))) {
+        if (enabled && (!validLoginKind(loginKind(context)) || accountId(context).isEmpty())) {
             throw new IllegalStateException("sync needs a signed-in account");
         }
         store(context).edit().putBoolean(KEY_ENABLED, enabled).apply();
@@ -87,6 +91,13 @@ public final class SyncSwitch {
         return store(context).getString(KEY_LOGIN_KIND, "");
     }
 
+    /** Monotonic identity generation used to fence in-flight work across sign-out and re-login. */
+    public static long bindingGeneration(Context context) {
+        synchronized (DIRTY_LOCK) {
+            return store(context).getLong(KEY_BINDING_GENERATION, 0L);
+        }
+    }
+
     /**
      * 记下这次登录的账号与方式。账号与已记录的不同（包括原来没有记录）时先 {@link #clear}，所以换账号后开关总是关闭、游标从头开始。
      *
@@ -95,8 +106,19 @@ public final class SyncSwitch {
     public static void bindAccount(Context context, String accountId, String loginKind) {
         if (!validLoginKind(loginKind)) throw new IllegalArgumentException("unknown login kind");
         String id = accountId == null ? "" : accountId;
-        if (id.isEmpty() || !id.equals(accountId(context))) clear(context);
-        store(context).edit().putString(KEY_ACCOUNT_ID, id).putString(KEY_LOGIN_KIND, loginKind).commit();
+        if (id.isEmpty()) {
+            // A successful token exchange without a user id is not a usable sync binding.
+            // Keep sync disabled until ProfilePage can bind the real account id.
+            clear(context);
+            return;
+        }
+        if (!id.equals(accountId(context))) clear(context);
+        synchronized (DIRTY_LOCK) {
+            SharedPreferences values = store(context);
+            long generation = values.getLong(KEY_BINDING_GENERATION, 0L);
+            values.edit().putString(KEY_ACCOUNT_ID, id).putString(KEY_LOGIN_KIND, loginKind)
+                .putLong(KEY_BINDING_GENERATION, generation + 1L).commit();
+        }
     }
 
     public static String cursor(Context context, String section) {
@@ -107,6 +129,18 @@ public final class SyncSwitch {
         store(context).edit().putString(cursorKey(section), cursor == null ? "" : cursor).apply();
     }
 
+    /** Writes a cursor only while the account binding that started the work is still current. */
+    public static boolean setCursorIfCurrent(Context context, String section, String cursor,
+            long expectedBindingGeneration) {
+        String key = cursorKey(section);
+        synchronized (DIRTY_LOCK) {
+            SharedPreferences values = store(context);
+            if (values.getLong(KEY_BINDING_GENERATION, 0L) != expectedBindingGeneration) return false;
+            values.edit().putString(key, cursor == null ? "" : cursor).apply();
+            return true;
+        }
+    }
+
     public static boolean dirty(Context context, String section) {
         return dirty(store(context), section);
     }
@@ -114,6 +148,19 @@ public final class SyncSwitch {
     /** 标记一个分类本机有改动（代数加一）；同步关闭时不记，打开同步时本来就会整份比对。 */
     public static void markDirty(Context context, String section) {
         markDirty(store(context), section);
+    }
+
+    /** Marks a section dirty only for the binding that owns the current sync run. */
+    public static boolean markDirtyIfCurrent(Context context, String section,
+            long expectedBindingGeneration) {
+        String key = generationKey(section);
+        synchronized (DIRTY_LOCK) {
+            SharedPreferences values = store(context);
+            if (values.getLong(KEY_BINDING_GENERATION, 0L) != expectedBindingGeneration
+                    || !values.getBoolean(KEY_ENABLED, false)) return false;
+            values.edit().putLong(key, values.getLong(key, 0L) + 1L).apply();
+            return true;
+        }
     }
 
     /**
@@ -130,6 +177,20 @@ public final class SyncSwitch {
      */
     public static boolean clearDirtyIf(Context context, String section, long expected) {
         return clearDirtyIf(store(context), section, expected);
+    }
+
+    /** Clears a dirty mark only while both the local generation and account binding are unchanged. */
+    public static boolean clearDirtyIfCurrent(Context context, String section, long expected,
+            long expectedBindingGeneration) {
+        String key = generationKey(section);
+        String clean = cleanKey(section);
+        synchronized (DIRTY_LOCK) {
+            SharedPreferences values = store(context);
+            if (values.getLong(KEY_BINDING_GENERATION, 0L) != expectedBindingGeneration
+                    || values.getLong(key, 0L) != expected) return false;
+            values.edit().putLong(clean, expected).apply();
+            return true;
+        }
     }
 
     /** 无条件清掉待上传标记；只给确实要丢弃本机改动的路径用（例如整份用云端替换）。 */
@@ -192,6 +253,20 @@ public final class SyncSwitch {
         editor.apply();
     }
 
+    /** Updates held phrase metadata only for the binding that owns the current sync run. */
+    public static boolean setUnheldPhrasesIfCurrent(Context context, Set<String> texts,
+            long expectedBindingGeneration) {
+        synchronized (DIRTY_LOCK) {
+            SharedPreferences values = store(context);
+            if (values.getLong(KEY_BINDING_GENERATION, 0L) != expectedBindingGeneration) return false;
+            SharedPreferences.Editor editor = values.edit();
+            if (texts == null || texts.isEmpty()) editor.remove(KEY_PHRASES_UNHELD);
+            else editor.putStringSet(KEY_PHRASES_UNHELD, new HashSet<>(texts));
+            editor.apply();
+            return true;
+        }
+    }
+
     /** 上次成功同步的 Unix 毫秒时间，从未同步过为 0。 */
     public static long lastSyncedAt(Context context) {
         return store(context).getLong(KEY_LAST_SYNCED_AT, 0L);
@@ -201,10 +276,23 @@ public final class SyncSwitch {
         store(context).edit().putLong(KEY_LAST_SYNCED_AT, BoundsPolicy.nonNegative(unixMillis)).apply();
     }
 
+    /** Writes the last-sync timestamp only for the binding that performed the sync. */
+    public static boolean setLastSyncedAtIfCurrent(Context context, long unixMillis,
+            long expectedBindingGeneration) {
+        synchronized (DIRTY_LOCK) {
+            SharedPreferences values = store(context);
+            if (values.getLong(KEY_BINDING_GENERATION, 0L) != expectedBindingGeneration) return false;
+            values.edit().putLong(KEY_LAST_SYNCED_AT, BoundsPolicy.nonNegative(unixMillis)).apply();
+            return true;
+        }
+    }
+
     /** 退出登录与换账号时调用：关闭开关，清空账号、游标、标记与同步时间。同步写盘，返回时已经生效。 */
     public static void clear(Context context) {
         synchronized (DIRTY_LOCK) {
-            store(context).edit().clear().commit();
+            SharedPreferences values = store(context);
+            long generation = values.getLong(KEY_BINDING_GENERATION, 0L);
+            values.edit().clear().putLong(KEY_BINDING_GENERATION, generation + 1L).commit();
         }
     }
 }

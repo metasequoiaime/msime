@@ -16,6 +16,8 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NineKeyLayout;
+import app.msime.android.NineKeySidebarPolicy;
+import app.msime.android.NineKeySwipePolicy;
 import app.msime.android.SchemePreferences;
 import app.msime.android.SwipeHintPolicy;
 import app.msime.android.SyncSignals;
@@ -24,7 +26,7 @@ import app.msime.android.ViewPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键、9 键数字键盘顺序、键盘高度、按键间距、行间距、横屏分离式键盘、浮动键盘）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键、九键字母与数字键盘的左侧符号、9 键数字键盘顺序、键盘高度、按键间距、行间距、横屏分离式键盘、浮动键盘）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）和子页「AI 润色与回复」。
  *
  * <p>键盘与本页读同一批存储：按键间距、行间距、数字键盘顺序和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_number_keypad_order`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
@@ -90,6 +92,22 @@ public final class KeyboardOptionsPage extends DetailPage {
             : pair == null ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘";
         layout.nav("中文键盘", note, nineKey ? "9 键" : "26 键",
             pairOffered ? () -> pickLayout(current, pair, nineKey) : null);
+        // 左侧符号栏只属于拼音九键和笔画键盘；本版本两者都没有（例如五笔版）时不列这两行。
+        boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
+        if (quanpinNineKey || KeyboardScheme.STROKE.offeredBy(edition)) {
+            java.util.List<String> sidebar = NineKeySidebarPolicy.letterSymbols(
+                settings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS));
+            layout.nav("九键左侧符号", "拼音九键和笔画键盘左侧可上下滑动的符号栏",
+                NineKeySidebarPolicy.summary(sidebar, 4),
+                () -> editSidebarSymbols("九键左侧符号", AndroidLocalSettings.NINE_KEY_SYMBOLS, sidebar));
+        }
+        if (quanpinNineKey) {
+            java.util.List<String> digitSidebar = NineKeySidebarPolicy.digitSymbols(
+                settings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
+            layout.nav("九键数字键盘左侧符号", "拼音九键按 123 切到数字键盘后左侧的符号栏",
+                NineKeySidebarPolicy.summary(digitSidebar, 4),
+                () -> editSidebarSymbols("九键数字键盘左侧符号", AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS, digitSidebar));
+        }
         boolean calculator = NineKeyLayout.calculatorOrder(
             preferences.optString(NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER));
         layout.nav("数字键盘顺序", "9 键切到数字时的排列", numberKeypadLabel(calculator),
@@ -134,6 +152,13 @@ public final class KeyboardOptionsPage extends DetailPage {
         GroupCard.Row directionRow = gestures.nav("滑动方向", null,
             swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection));
         directionRow.setEnabled(swipeSymbols);
+        // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。
+        if (quanpinNineKey) {
+            String nineKeySwipe = settings.choice(AndroidLocalSettings.NINE_KEY_SWIPE);
+            GroupCard.Row[] nineKeySwipeRow = new GroupCard.Row[1];
+            nineKeySwipeRow[0] = gestures.nav("九键滑动输入数字", "拼音九键上沿选定方向滑动输入键上的数字，往反方向滑动弹出数字和字母",
+                nineKeySwipeLabel(nineKeySwipe), () -> pickNineKeySwipe(nineKeySwipe, nineKeySwipeRow[0]));
+        }
         gestures.toggle("滑行输入", "在 26 键上连续滑过拼音的字母，抬手出词；在键上稍作停留可确认经过的键",
             settings.bool(AndroidLocalSettings.GLIDE_TYPING),
             checked -> saveLocal(AndroidLocalSettings.GLIDE_TYPING, checked));
@@ -233,6 +258,19 @@ public final class KeyboardOptionsPage extends DetailPage {
         });
     }
 
+    /** 编辑左侧符号栏的符号：用空格分开，留空恢复默认；不合规（单个符号太长、太多）时确认键不可点。 */
+    private void editSidebarSymbols(String title, String key, java.util.List<String> current) {
+        InputDialog dialog = new InputDialog(requireContext(), title,
+            "符号之间用空格分开，最多 " + NineKeySidebarPolicy.MAX_SYMBOLS + " 个，每个不超过 "
+                + NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS + " 个字符；留空恢复默认");
+        dialog.addField("例如 ， 。 ？ 、", NineKeySidebarPolicy.format(current), 0);
+        dialog.setValidator(values -> values.get(0).isEmpty() || NineKeySidebarPolicy.parse(values.get(0)) != null);
+        // 存好后重画本页：这一行的摘要和下次打开时预填的符号表都来自重画时读到的设置。
+        dialog.setPrimary("保存", values -> KeyboardSheets.saveLocal(this, key,
+            values.get(0).isEmpty() ? null : NineKeySidebarPolicy.normalize(values.get(0)), this::reload, this::reload));
+        dialog.show();
+    }
+
     private void pickAnimation(String selected, GroupCard.Row row) {
         OptionSheet sheet = new OptionSheet(requireContext(), "按键动画", null);
         for (int index = 0; index < ANIMATIONS.length; index++) {
@@ -253,6 +291,28 @@ public final class KeyboardOptionsPage extends DetailPage {
                 () -> saveLocal(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, value));
         }
         sheet.show();
+    }
+
+    private void pickNineKeySwipe(String selected, GroupCard.Row row) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "九键滑动输入数字", null);
+        for (String value : new String[] {NineKeySwipePolicy.OFF, SwipeHintPolicy.UP, SwipeHintPolicy.DOWN}) {
+            String label = nineKeySwipeOption(value);
+            sheet.option(label, value.equals(selected), () -> {
+                row.setValue(nineKeySwipeLabel(value));
+                // 存好后重画，下次打开选项单时勾选的是新值。
+                KeyboardSheets.saveLocal(this, AndroidLocalSettings.NINE_KEY_SWIPE, value, this::reload, this::reload);
+            });
+        }
+        sheet.show();
+    }
+
+    private static String nineKeySwipeLabel(String value) {
+        return SwipeHintPolicy.UP.equals(value) ? "上滑" : SwipeHintPolicy.DOWN.equals(value) ? "下滑" : "关闭";
+    }
+
+    private static String nineKeySwipeOption(String value) {
+        return SwipeHintPolicy.UP.equals(value) ? "上滑输入数字，下滑弹出字母"
+            : SwipeHintPolicy.DOWN.equals(value) ? "下滑输入数字，上滑弹出字母" : "关闭";
     }
 
     /** 九键数字键面的排列写进共享偏好 `touch_number_keypad_order`，与其他平台和云同步共用。 */

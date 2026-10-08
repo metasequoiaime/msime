@@ -202,7 +202,9 @@ final class ImeLetterRows {
 
     /** 第二行此刻是否带着微软双拼的第十个键（`;`）；与 SVC 每次渲染时设置那个键可见性的判断相同。 */
     private boolean microsoftTenKeys() {
-        String localMode = s.view == null ? "none" : s.view.optString("local_mode", "none");
+        String localMode = s.view == null ? "none"
+            : JsonPolicy.strictStringOrEmpty(s.view.opt("local_mode"));
+        if (localMode.isEmpty()) localMode = "none";
         return s.microsoftFinalKey != null && MicrosoftShuangpinKeyPolicy.visible(
             s.dedicatedEnglish, s.selectedScheme, localMode);
     }
@@ -459,7 +461,7 @@ final class ImeLetterRows {
         // 越南语字母和藏文的威利转写字母按敲下的大小写写入，所以键面像英文键一样显示大小写，而不是中文键盘的大写键面。
         boolean chineseMode = !s.dedicatedEnglish && !s.letterCaseSchemeActive();
         boolean localMode = s.view != null
-            && !"none".equals(s.view.optString("local_mode", "none"));
+            && !"none".equals(JsonPolicy.strictStringOrEmpty(s.view.opt("local_mode")));
         boolean shifted = s.letterCase.usesUppercase();
         boolean koreanKeycaps = s.keyboardLayer == KeyboardLayout.Layer.LETTERS
             && s.displayedTouchLayout(s.view) == KeyboardLayout.KOREAN_LAYOUT;

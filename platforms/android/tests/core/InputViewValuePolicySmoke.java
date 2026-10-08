@@ -21,6 +21,12 @@ public final class InputViewValuePolicySmoke {
             "string booleans are rejected");
         check(InputViewValuePolicy.booleanValue(Boolean.TRUE, false),
             "JSON booleans are accepted");
+        check("kana".equals(InputViewValuePolicy.text("kana")),
+            "JSON text is preserved");
+        check(InputViewValuePolicy.text(42).isEmpty(),
+            "numeric text is not converted to text");
+        check(InputViewValuePolicy.text(null).isEmpty(),
+            "missing text is empty");
         System.out.println("Android input view fields passed");
     }
 }

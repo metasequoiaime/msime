@@ -37,4 +37,18 @@ public final class InputViewValuePolicy {
     public static boolean booleanValue(Object raw, boolean fallback) {
         return JsonPolicy.strictBoolean(raw, fallback);
     }
+
+    /** Read a JSON string field without converting numbers, booleans, or JSON null to text. */
+    public static String text(JSONObject object, String key) {
+        return text(object == null ? null : object.opt(key));
+    }
+
+    public static String text(Object raw) {
+        return JsonPolicy.strictStringOrEmpty(raw);
+    }
+
+    /** Read the input view's editing text using the shared strict text policy. */
+    public static String editingText(JSONObject view) {
+        return text(view, "editing_text");
+    }
 }
