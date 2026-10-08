@@ -143,9 +143,20 @@ fn segment_with(input: &str, inventory: &Inventory, allow_prefix: bool) -> Vec<S
     found
 }
 
+/// 首选分段只需第一条路径，避免收集其余达到上限的路径。
+fn first_segmentation(
+    input: &str,
+    inventory: &Inventory,
+    allow_prefix: bool,
+) -> Option<Segmentation> {
+    let mut dead = vec![false; input.len() + 1];
+    let mut path = Vec::with_capacity(input.len());
+    walk_first(input, inventory, allow_prefix, 0, &mut path, &mut dead)
+}
+
 /// The reading the scheme shows and looks up: the first full segmentation, or when none covers every letter, the preferred reading of the longest leading run of complete syllables, which leaves the letters after it unread.
 pub fn best(input: &str, inventory: &Inventory) -> Segmentation {
-    if let Some(full) = segment(input, inventory).into_iter().next() {
+    if let Some(full) = first_segmentation(input, inventory, true) {
         return full;
     }
     // Every position a run of complete syllables from the start can end at.
@@ -240,6 +251,58 @@ fn walk(
         dead[position] = true;
     }
     any
+}
+
+/// 按首选顺序扩展 `path`，直到找到第一条完整读法。
+fn walk_first(
+    input: &str,
+    inventory: &Inventory,
+    allow_prefix: bool,
+    mut position: usize,
+    path: &mut Vec<Syllable>,
+    dead: &mut [bool],
+) -> Option<Segmentation> {
+    while input.as_bytes().get(position) == Some(&b'\'') {
+        position += 1;
+    }
+    if position == input.len() {
+        return Some(Segmentation {
+            syllables: path.clone(),
+        });
+    }
+    if dead[position] {
+        return None;
+    }
+    let chunk_end = chunk_end(input, position);
+    let max_end = chunk_end.min(position + inventory.longest);
+    let has_prefix =
+        allow_prefix && chunk_end == input.len() && inventory.is_prefix(&input[position..]);
+    for end in (position + 1..=max_end).rev() {
+        if inventory.contains(&input[position..end]) {
+            path.push(Syllable {
+                start: position,
+                end,
+                complete: true,
+            });
+            if let Some(found) = walk_first(input, inventory, allow_prefix, end, path, dead) {
+                return Some(found);
+            }
+            path.pop();
+        }
+        if has_prefix && end == input.len() {
+            path.push(Syllable {
+                start: position,
+                end,
+                complete: false,
+            });
+            if let Some(found) = walk_first(input, inventory, allow_prefix, end, path, dead) {
+                return Some(found);
+            }
+            path.pop();
+        }
+    }
+    dead[position] = true;
+    None
 }
 
 #[cfg(test)]
@@ -380,6 +443,16 @@ pub(crate) mod tests {
         assert!(!readable);
         assert!(found.is_empty());
         assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn best_full_reading_does_not_collect_unused_alternatives() {
+        let inventory = inventory();
+        let (reading, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| best("neihou", &inventory));
+
+        assert_eq!(read("neihou", &reading), ["nei", "hou"]);
+        assert!(allocations <= 3, "best reading allocations: {allocations}");
     }
 
     #[test]
