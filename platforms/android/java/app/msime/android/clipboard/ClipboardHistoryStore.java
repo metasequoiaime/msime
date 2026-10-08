@@ -101,7 +101,7 @@ public final class ClipboardHistoryStore {
                 .put("action", action);
             JSONObject response = new JSONObject(
                 NativeClient.mobileClipboardHistory(payload.toString()));
-            if (!Boolean.TRUE.equals(ClipboardHistoryPolicy.strictBoolean(response.opt("ok")))) {
+            if (!JsonPolicy.strictTrue(response.opt("ok"))) {
                 // Name the operation and carry the shared entry's own reason. Without them a
                 // refusal reaches the log as one indistinguishable sentence, which is how an
                 // Android-only file-locking failure read as "the clipboard is broken somehow"
