@@ -2,8 +2,10 @@ package app.msime.android.home;
 
 import android.content.ContentResolver;
 import android.content.Context;
+import android.database.Cursor;
 import android.net.Uri;
 import android.provider.DocumentsContract;
+import android.provider.OpenableColumns;
 import android.util.Log;
 import androidx.annotation.Nullable;
 import app.msime.android.AndroidLocalSettings;
@@ -79,6 +81,7 @@ final class LocalBackup {
         if (directory.isEmpty()) return "还没有完成首次准备，暂时没有可以备份的数据。";
         Path dictionary = null;
         Path archive = null;
+        boolean written = false;
         try {
             Path work = workDirectory(context);
             dictionary = work.resolve("export-dictionary.ndjson");
@@ -124,12 +127,13 @@ final class LocalBackup {
             ContentResolver resolver = context.getContentResolver();
             try (OutputStream output = resolver.openOutputStream(uri, "wt")) {
                 if (output == null) throw new FileNotFoundException("backup destination unavailable");
+                written = true;
                 Files.copy(archive, output);
             }
             return "已导出备份：" + phrases.size() + " 条常用语、" + (words == null ? 0 : words) + " 个词，以及全部设置。";
         } catch (IOException | JSONException | RuntimeException error) {
             Log.w(TAG, "backup export failed", error);
-            discardDocument(context, uri);
+            discardDocument(context, uri, written);
             return "没有导出成功，请稍后重试。键盘正在整理词库时会暂时导不出来。";
         } finally {
             deleteQuietly(dictionary);
@@ -155,12 +159,26 @@ final class LocalBackup {
         zip.closeEntry();
     }
 
-    /** 导出失败时删掉选择器建好的空文件，不在用户的目录里留一个打不开的包；删不掉（提供方不支持）就算了。 */
-    private static void discardDocument(Context context, Uri uri) {
+    /**
+     * 导出失败时删掉选择器建好的空文件或写了一半的包，不在用户的目录里留一个打不开的包；删不掉（提供方不支持）就算了。
+     *
+     * <p>还没开始写（`written` 为假）时只删空文件：用户在选择器里可以点一个已有的文件确认覆盖，这时拿到的是那个文件本身，在打包阶段失败（例如键盘正在整理词库）就删掉它，等于把用户原来的备份删了。大小读不出来时同样不删，最坏是留下一个空文件。
+     */
+    private static void discardDocument(Context context, Uri uri, boolean written) {
+        if (!written && !emptyDocument(context, uri)) return;
         try {
             DocumentsContract.deleteDocument(context.getContentResolver(), uri);
         } catch (FileNotFoundException | RuntimeException ignored) {
             // 有的文档提供方不支持删除；留下的是空文件，不影响别的数据。
+        }
+    }
+
+    /** 选择器给的文档确定是 0 字节时返回 true；读不出大小时返回 false。 */
+    private static boolean emptyDocument(Context context, Uri uri) {
+        try (Cursor cursor = context.getContentResolver().query(uri, new String[] {OpenableColumns.SIZE}, null, null, null)) {
+            return cursor != null && cursor.moveToFirst() && !cursor.isNull(0) && cursor.getLong(0) == 0;
+        } catch (RuntimeException unreadable) {
+            return false;
         }
     }
 
