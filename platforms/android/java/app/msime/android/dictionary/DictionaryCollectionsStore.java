@@ -417,15 +417,15 @@ public final class DictionaryCollectionsStore {
                 JSONObject item = raw.optJSONObject(index);
                 if (item == null) continue;
                 JSONObject source = item.optJSONObject("source");
-                String id = strictString(item.opt("id"));
-                String name = strictString(item.opt("name"));
-                String kind = strictString(item.opt("kind"));
+                String id = JsonPolicy.strictString(item.opt("id"));
+                String name = JsonPolicy.strictString(item.opt("name"));
+                String kind = JsonPolicy.strictString(item.opt("kind"));
                 Boolean enabled = JsonPolicy.strictBoolean(item.opt("enabled"));
                 Integer entryCount = nonNegativeInteger(item.opt("entry_count"));
                 Integer pending = nonNegativeInteger(item.opt("pending"));
-                String type = source == null ? "user" : strictString(source.opt("type"));
+                String type = source == null ? "user" : JsonPolicy.strictString(source.opt("type"));
                 String resource = source == null || !source.has("resource_id")
-                    ? "" : strictString(source.opt("resource_id"));
+                    ? "" : JsonPolicy.strictString(source.opt("resource_id"));
                 if (id == null || name == null || kind == null || enabled == null
                         || entryCount == null || pending == null || type == null
                         || resource == null) continue;
@@ -437,7 +437,7 @@ public final class DictionaryCollectionsStore {
         List<String> formats = new ArrayList<>(rawFormats == null ? 0 : rawFormats.length());
         if (rawFormats != null) {
             for (int index = 0; index < rawFormats.length(); index++) {
-                String format = strictString(rawFormats.opt(index));
+                String format = JsonPolicy.strictString(rawFormats.opt(index));
                 if (format != null && !format.isEmpty()) formats.add(format);
             }
         }
@@ -456,11 +456,11 @@ public final class DictionaryCollectionsStore {
             for (int index = 0; index < raw.length(); index++) {
                 JSONObject item = raw.optJSONObject(index);
                 if (item == null) continue;
-                String kind = strictString(item.opt("kind"));
-                String key = strictString(item.opt("key"));
-                String word = strictString(item.opt("value"));
+                String kind = JsonPolicy.strictString(item.opt("kind"));
+                String key = JsonPolicy.strictString(item.opt("key"));
+                String word = JsonPolicy.strictString(item.opt("value"));
                 Long weight = strictLong(item.opt("weight"));
-                String source = strictString(item.opt("source"));
+                String source = JsonPolicy.strictString(item.opt("source"));
                 if (kind == null || key == null || word == null || weight == null || source == null) continue;
                 words.add(new Word(kind, key, word, weight, source));
             }
