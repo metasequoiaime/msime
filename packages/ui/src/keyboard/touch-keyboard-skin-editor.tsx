@@ -38,7 +38,9 @@ import {
 import * as skin from "./touch-skin-style";
 import * as doc from "../settings/document-style";
 import * as community from "../community/community-style";
+import * as settings from "../settings/settings-style";
 import { ActionButton } from "../core/action-button";
+import { FluentIcon } from "../core/fluent-icons";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 import { useMountedRef } from "../settings/use-mounted-ref";
 
@@ -46,16 +48,28 @@ type Category = "背景" | "按键" | "文本" | "设计" | "我的";
 type NameEditor = { operation: "create" } | { operation: "rename"; id: string };
 type Confirmation = { operation: "update" | "delete"; item: SavedTouchKeyboardSkin };
 
-function AiSkinGeneration({
+// 全屏呈现以页面自身的背景覆盖整个设置界面，并避开系统栏。
+const fullScreenSurface =
+  "fixed inset-0 z-40 overflow-y-auto bg-[var(--p-bg)] pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] text-[var(--p-text)] [font-family:var(--p-font)]";
+const fullScreenColumn = "mx-auto flex w-full max-w-[760px] flex-col gap-3.5 px-4 pt-1 pb-6";
+
+/**
+ * AI 皮肤抽卡：每次抽三款皮肤，每款都可以使用、保存到「我的皮肤」或发布。编辑器以对话框形式在页面上打开它。`fullScreen` 则把它呈现为独立视图，标题前带返回按钮，手机皮肤网格里的 AI 磁贴就是这样打开它的。`useLabel` 是把方案交给 `onUse` 的那个按钮的名称。
+ */
+export function AiSkinGeneration({
   client,
   library,
   communitySkins,
+  fullScreen = false,
+  useLabel = "使用并继续编辑",
   onUse,
   onClose,
 }: {
   client: AiSkinClient;
   library: CustomSkinLibraryClient;
   communitySkins?: CommunitySkinClient;
+  fullScreen?: boolean;
+  useLabel?: string;
   onUse: (design: TouchKeyboardSkinDesign) => void;
   onClose: () => void;
 }) {
@@ -203,26 +217,42 @@ function AiSkinGeneration({
   };
 
   return (
-    <div className={community.backdrop}>
+    <div className={fullScreen ? fullScreenSurface : community.backdrop}>
       <section
-        className={`${community.dialog} ${doc.generation}`}
+        className={fullScreen ? fullScreenColumn : `${community.dialog} ${doc.generation}`}
         role="dialog"
         aria-modal="true"
         aria-label="AI 皮肤抽卡"
       >
-        <div className={community.dialogHeading}>
-          <div>
-            <h2>AI 皮肤抽卡</h2>
-            <p>一次抽出三张原创皮肤，遇到喜欢的就留下。</p>
+        {fullScreen ? (
+          <>
+            <header className={settings.pageHeader}>
+              <ActionButton
+                action={onClose}
+                className={settings.pageBackButton}
+                disabled={busy}
+                ariaLabel="返回"
+                label={<FluentIcon name="arrow_left" size={22} />}
+              />
+              <h2 className={settings.pageTitle}>AI 皮肤抽卡</h2>
+            </header>
+            <p className={doc.generationNote}>一次抽出三张原创皮肤，遇到喜欢的就留下。</p>
+          </>
+        ) : (
+          <div className={community.dialogHeading}>
+            <div>
+              <h2>AI 皮肤抽卡</h2>
+              <p>一次抽出三张原创皮肤，遇到喜欢的就留下。</p>
+            </div>
+            <ActionButton
+              action={onClose}
+              className={community.dialogClose}
+              disabled={busy}
+              ariaLabel="关闭 AI 皮肤抽卡"
+              label="×"
+            />
           </div>
-          <ActionButton
-            action={onClose}
-            className={community.dialogClose}
-            disabled={busy}
-            ariaLabel="关闭 AI 皮肤抽卡"
-            label="×"
-          />
-        </div>
+        )}
         {proposals.length === 0 && (
           <div className={doc.mysteryCards} aria-hidden="true">
             {["leaf", "moon", "sparkles"].map((icon, index) => (
@@ -268,7 +298,7 @@ function AiSkinGeneration({
                       onClose();
                     }}
                     className="primary"
-                    label="使用并继续编辑"
+                    label={useLabel}
                   />
                   <ActionButton
                     action={async () => {

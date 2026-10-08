@@ -12,6 +12,7 @@ import app.msime.android.SyncSwitch;
 import app.msime.android.TypingStatisticsDocument;
 import app.msime.android.TypingStatisticsModel;
 import app.msime.android.policy.HostOptionsPolicy;
+import app.msime.android.core.InputViewValuePolicy;
 import java.io.File;
 import java.time.LocalDate;
 import org.json.JSONArray;
@@ -127,9 +128,9 @@ public final class HostStore {
      */
     public static KeyboardSkin keyboardSkin(JSONObject preferences, boolean systemDark) {
         boolean dark = KeyboardSkin.resolveDark(
-            preferences.optString("screen_keyboard_theme", "follow"),
-            preferences.optString("theme", "system"), systemDark);
-        String globalTheme = preferences.optString("global_theme", "system");
+            InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
+            InputViewValuePolicy.textOr(preferences, "theme", "system"), systemDark);
+        String globalTheme = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONObject customTheme = preferences.optJSONObject("custom_theme");
         JSONObject theme = value(call(() -> NativeClient.resolveTheme(
             KeyboardSkin.themeRequest(globalTheme, customTheme, dark))));
@@ -147,11 +148,11 @@ public final class HostStore {
      */
     public static KeyboardSkin keyboardSkin(JSONObject preferences, boolean systemDark,
             AppThemePalette.Seed seed) {
-        if (!"system".equals(preferences.optString("global_theme", "system")))
+        if (!"system".equals(InputViewValuePolicy.textOr(preferences, "global_theme", "system")))
             return keyboardSkin(preferences, systemDark);
         boolean dark = KeyboardSkin.resolveDark(
-            preferences.optString("screen_keyboard_theme", "follow"),
-            preferences.optString("theme", "system"), systemDark);
+            InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
+            InputViewValuePolicy.textOr(preferences, "theme", "system"), systemDark);
         return KeyboardSkin.system(dark, seed);
     }
 

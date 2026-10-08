@@ -23,9 +23,10 @@ const initial: Snapshot = {
   },
 };
 
-function mount() {
+function mount(initialPage?: string, platform = "harmony") {
   render(
     <SettingsPage
+      initialPage={initialPage}
       client={{
         load: async () => initial,
         save: vi.fn(),
@@ -37,7 +38,7 @@ function mount() {
         communitySkins: {
           list: vi.fn().mockResolvedValue({ skins: [], has_more: false }),
         } as never,
-        host: testHost({ platform: "harmony" }),
+        host: testHost({ platform }),
       }}
     />,
   );
@@ -45,6 +46,13 @@ function mount() {
 
 /** The four the design shows, in its own words: 设置 / 社区 / 统计 / 我的. */
 const tabs = ["设置", "社区", "统计", "我的"];
+
+/** 「设置」根页，把每个没有自己标签页的页面列成一行。 */
+const root = () => screen.getByRole("region", { name: "首页" });
+const rootRowTitles = () =>
+  [...root().querySelectorAll("[data-row-title]")].map((row) => row.textContent ?? "");
+const openRootRow = (title: string) =>
+  fireEvent.click(within(root()).getByRole("button", { name: title }));
 
 // The bar used to hold five cells, and the fifth was a `<select>` of thirteen page names — a form
 // control sitting where a tab belongs, and the only way into most of the app. The source's bar is
@@ -56,37 +64,46 @@ test("the phone tab bar is the source's four tabs, each an icon over a word", as
   const bar = screen.getByRole("navigation", { name: "主要功能" });
   const buttons = [...bar.querySelectorAll("button")];
   expect(buttons.map((button) => button.textContent)).toEqual(tabs);
-  // The glyph is a mask over the text colour rather than an `<img>`, so it takes the accent when selected; it stays out of the accessible name.
   const icons = buttons.map((button) => button.querySelector<HTMLElement>("[data-tab-icon]"));
   expect(icons.every((icon) => icon?.getAttribute("aria-hidden") === "true")).toBe(true);
-  expect(icons.every((icon) => icon!.style.getPropertyValue("--tab-icon").startsWith("url("))).toBe(
-    true,
-  );
-  // The icons have to differ from one another, or the bar reads as four of the same thing.
-  const sources = icons.map((icon) => icon!.getAttribute("data-tab-icon"));
-  expect(new Set(sources).size).toBe(tabs.length);
+  // 鸿蒙画设计里的 Fluent 图标，是 24px 的 `currentColor` SVG，所以选中时取强调色。
+  expect(icons.map((icon) => icon!.getAttribute("data-tab-icon"))).toEqual([
+    "settings",
+    "people_community",
+    "data_bar_vertical",
+    "person",
+  ]);
+  for (const icon of icons) {
+    const svg = icon!.querySelector("svg")!;
+    expect(svg.getAttribute("width")).toBe("24");
+    expect(svg.getAttribute("fill")).toBe("currentColor");
+  }
   expect(bar.querySelector("select")).toBeNull();
 });
 
-// The reason the `<select>` existed. Dropping it without giving those pages another door would have
-// left most of the app unreachable on a phone, so this is the condition that has to hold instead:
-// whatever the sidebar can reach, a phone can reach too, through a tab or through the 设置 tab's own
-// list. Asserted against the sidebar rather than a written-out list of names so that a page added
-// later is covered without anyone remembering to come back here.
+// 其他触屏宿主保留各自的蒙版页面图标。
+test("a touch host other than HarmonyOS keeps the masked tab icons", async () => {
+  mount(undefined, "android");
+  await settingsFormReady();
+
+  const bar = screen.getByRole("navigation", { name: "主要功能" });
+  const icons = [...bar.querySelectorAll<HTMLElement>("[data-tab-icon]")];
+  expect(icons).toHaveLength(4);
+  expect(icons.every((icon) => icon.style.getPropertyValue("--tab-icon").startsWith("url("))).toBe(
+    true,
+  );
+  // The icons have to differ from one another, or the bar reads as four of the same thing.
+  expect(new Set(icons.map((icon) => icon.getAttribute("data-tab-icon"))).size).toBe(4);
+  expect(bar.querySelector("svg")).toBeNull();
+});
+
+// 这正是当初有 `<select>` 的原因。拿掉它却不给那些页面另开入口，手机上大部分应用就进不去了，所以改为必须满足这个条件：侧栏能到的地方，手机也能到，通过标签页、「设置」根页自己的行，或「我的」。断言对照的是侧栏而不是手写的页面名列表，这样以后新增的页面也会被覆盖，不用有人记得回来改这里。
 test("every page the sidebar reaches is reachable on a phone", async () => {
   mount();
   await settingsFormReady();
 
   const sidebar = screen.getByRole("navigation", { name: "设置分类" });
-  const reachable = new Set(tabs);
-  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
-  const list = screen.getByRole("region", { name: "全部设置" });
-  for (const button of list.querySelectorAll("button")) {
-    // The row is a title, a note and a chevron, so the title is the part to compare.
-    reachable.add(button.querySelector("strong")?.textContent ?? "");
-  }
-  // The tabs carry the source's shorter words; the sidebar carries the page's own title.
-  for (const title of ["首页", "打字统计"]) reachable.add(title);
+  const reachable = new Set([...tabs, ...rootRowTitles()]);
 
   const stranded = [...sidebar.querySelectorAll("button")]
     .map((button) => button.textContent ?? "")
@@ -94,13 +111,11 @@ test("every page the sidebar reaches is reachable on a phone", async () => {
   expect(stranded).toEqual([]);
 });
 
-// 「全部设置」按导航分组列出页面，每组上方是组名；在标签栏或「我的」里已有入口的组整组不列。
+// 「全部设置」已不在根页上，但深链接或旧的历史条目仍能打开它：它按导航分组标题分组列出页面，并去掉那些页面已在标签栏或「我的」里有入口的分组。
 test("the 全部设置 list is grouped under the navigation group titles", async () => {
-  mount();
-  await settingsFormReady();
+  mount("more");
 
-  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
-  const list = screen.getByRole("region", { name: "全部设置" });
+  const list = await screen.findByRole("region", { name: "全部设置" });
   const groups = within(list)
     .getAllByRole("group")
     .map((group) => ({
@@ -125,17 +140,29 @@ test("the 设置 tab stays lit on the pages reached from it", async () => {
   const home = within(bar).getByRole("button", { name: "设置" });
   expect(home.getAttribute("aria-current")).toBe("page");
 
-  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
-  const list = screen.getByRole("region", { name: "全部设置" });
-  const row = [...list.querySelectorAll("button")].find(
-    (item) => item.querySelector("strong")?.textContent === "输入",
-  )!;
-  fireEvent.click(row);
+  openRootRow("输入");
 
   expect(within(bar).getByRole("button", { name: "设置" }).getAttribute("aria-current")).toBe(
     "page",
   );
   expect(within(bar).getByRole("button", { name: "我的" }).getAttribute("aria-current")).toBeNull();
+});
+
+// 「关于」「反馈」「帮助」从「我的」打开，所以留在「我的」的栈上：它的标签保持高亮，从其他标签回到「我的」时回到这些页面。
+test("the pages opened from 我的 belong to the 我的 tab", async () => {
+  mount("about");
+  await settingsFormReady();
+
+  const bar = screen.getByRole("navigation", { name: "主要功能" });
+  expect(within(bar).getByRole("button", { name: "我的" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
+  expect(within(bar).getByRole("button", { name: "设置" }).getAttribute("aria-current")).toBeNull();
+
+  fireEvent.click(within(bar).getByRole("button", { name: "设置" }));
+  expect(screen.getByRole("heading", { level: 1, name: "设置" })).toBeTruthy();
+  fireEvent.click(within(bar).getByRole("button", { name: "我的" }));
+  expect(screen.getByRole("heading", { level: 1, name: "关于" })).toBeTruthy();
 });
 
 // The source keeps one navigation stack per bottom tab. A flat shared route used to forget the
@@ -144,13 +171,7 @@ test("each phone tab remembers where the user left it", async () => {
   mount();
   await settingsFormReady();
 
-  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
-  const list = screen.getByRole("region", { name: "全部设置" });
-  fireEvent.click(
-    [...list.querySelectorAll("button")].find(
-      (item) => item.querySelector("strong")?.textContent === "输入",
-    )!,
-  );
+  openRootRow("输入");
   expect(screen.getByRole("heading", { name: "输入" })).toBeTruthy();
 
   const bar = screen.getByRole("navigation", { name: "主要功能" });

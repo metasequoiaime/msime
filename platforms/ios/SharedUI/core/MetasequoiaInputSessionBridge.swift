@@ -61,6 +61,8 @@ private func msimeClientSetChinesePunctuation(_ session: UInt64, _ enabled: Bool
 private func msimeClientSetAICredential(_ session: UInt64, _ token: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_character_width")
 private func msimeClientSetCharacterWidth(_ session: UInt64, _ fullwidth: Bool) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_set_private_session")
+private func msimeClientSetPrivateSession(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_update_preferences")
 private func msimeClientUpdatePreferences(_ session: UInt64, _ snapshot: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_load_preferences")
@@ -257,6 +259,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var chinesePunctuation: Bool?
   /// Kept only in memory so a recreated focused session gets it back; it never reaches the shared document.
   private var aiCredential: String?
+  /// 隐私会话标记和九键一样是会话状态，选项里不带，重建的会话要再告诉一次。
+  private var privateSession = false
 
   init(resources: URL? = nil, stateRoot: URL? = nil) {
     options = [:]
@@ -599,6 +603,37 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     updateAndPersist { preferences in
       preferences["traditional_chinese_output"] = enabled
     }
+  }
+
+  /// 键盘功能菜单里的模糊音：在运行中的会话和共享文档里切换 `fuzzy_pinyin.enabled`，保留设置 app 选好的规则。如果文档里一条规则都没选，或者从未初始化过，打开时会启用全部规则，这样开关总会改变 Engine 接受的输入。
+  ///
+  /// 新对象只构建一次，能读到文档时以文档为基础，同一个对象同时交给两处：开关关闭时会话自己那份会丢掉规则列表（`setFuzzyPinyinRules` 传给它的是空集），基于它构建就会把全部规则重新打开，盖掉用户的选择。没有完全访问权限时文档写入会失败，改动只留在运行中的会话里。
+  @MainActor
+  @discardableResult
+  func setFuzzyPinyinEnabled(_ enabled: Bool) -> Bool {
+    let document = stateRoot.flatMap(Self.storedPreferences) ?? sharedPreferences
+    let stored = document?[FuzzyPinyinPreference.documentKey] as? [String: Any] ?? [:]
+    var rules = (stored["rules"] as? [String] ?? []).filter(FuzzyPinyinPreference.ruleIDs.contains)
+    var fuzzy = stored
+    // `PreferencesStore` 在从未初始化的文档第一次启用时会选中全部规则；这里照做，会话那份才与存储写入的内容一致。
+    if enabled && (rules.isEmpty || stored["seeded"] as? Bool != true) {
+      rules = FuzzyPinyinPreference.ruleIDs
+      fuzzy["seeded"] = true
+    }
+    fuzzy["enabled"] = enabled
+    fuzzy["rules"] = rules
+    let object = fuzzy
+    guard updateAndPersist({ $0[FuzzyPinyinPreference.documentKey] = object }) else { return false }
+    // 会话现在已经在用这些规则；记下来，免得键盘下一轮学习时又把这些位交给它一遍。
+    appliedFuzzyPinyinRules = FuzzyPinyinPreference.settings(in: sharedPreferences)?.bits ?? 0
+    return true
+  }
+
+  /// `stateRoot` 里按原样存储的共享文档，不经过会话。
+  private static func storedPreferences(stateRoot: String) -> [String: Any]? {
+    let directory = Data(stateRoot.utf8)
+    guard !directory.isEmpty, directory.count <= 16_384 else { return nil }
+    return (try? callDirectory(msimeClientLoadPreferences, directory))?["preferences"] as? [String: Any]
   }
 
   func handleCharacter(_ character: String, shifted: Bool = false) -> MetasequoiaInputSnapshot {
@@ -988,6 +1023,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     self.fullwidth = fullwidth
     return dispatch { msimeClientSetCharacterWidth(handle, fullwidth) }
   }
+  /// 把隐私模式告诉运行时（与 Android 的 `markPrivateSession` 相同）：隐私会话不记选词位置和上屏效率。学习本身仍由偏好里的 `learning` 决定。返回运行时是否接受。
+  @discardableResult func setPrivateSession(_ enabled: Bool) -> Bool {
+    privateSession = enabled
+    guard handle != 0 else { return false }
+    return (try? Self.decode(msimeClientSetPrivateSession(handle, enabled))) != nil
+  }
   /// Chinese or ASCII marks for this session, on top of the document's `chinese_punctuation`; `punctuation_lock` still wins.
   @discardableResult func setChinesePunctuation(_ enabled: Bool) -> MetasequoiaInputSnapshot {
     chinesePunctuation = enabled
@@ -1131,6 +1172,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     if fullwidth { _ = dispatch { msimeClientSetCharacterWidth(handle, true) } }
     if let chinesePunctuation { _ = dispatch { msimeClientSetChinesePunctuation(handle, chinesePunctuation) } }
     if aiCredential != nil { _ = applyAICredential() }
+    if privateSession { _ = try? Self.decode(msimeClientSetPrivateSession(handle, true)) }
   }
 
   func localDictionaryStateVersion() throws -> String {

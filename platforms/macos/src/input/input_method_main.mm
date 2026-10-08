@@ -94,14 +94,14 @@ int main(int argc, const char *argv[]) {
         if (![connectionName isKindOfClass:NSString.class] || connectionName.length == 0) return 1;
         __attribute__((objc_precise_lifetime)) IMKServer *server = [[IMKServer alloc] initWithName:connectionName bundleIdentifier:NSBundle.mainBundle.bundleIdentifier];
         if (!server) return 1;
-        // Turn on, once each, the input modes this version added and the install that brought it did not register. The opt-in modes are only recorded, and turned off once if the system turned them on.
+        // 把本版本新增、而带来它的那次安装没有登记的输入模式各启用一次。按需模式只记录，已启用的也不关掉。
         NSString *const offeredModesKey = @"MSIMEOfferedInputModes";
         NSArray *offeredModes = [NSUserDefaults.standardUserDefaults arrayForKey:offeredModesKey];
         NSArray<NSString *> *offered = MSIMEEnableNewInputModes(NSBundle.mainBundle.bundleIdentifier, offeredModes,
             TISCreateInputSourceList,
             [](TISInputSourceRef source, CFStringRef key) -> void * {
                 return (void *)TISGetInputSourceProperty(source, key);
-            }, TISEnableInputSource, TISDisableInputSource);
+            }, TISEnableInputSource);
         if (![offered isEqualToArray:offeredModes]) [NSUserDefaults.standardUserDefaults setObject:offered forKey:offeredModesKey];
         __attribute__((objc_precise_lifetime)) MSIMEInputSourceMonitor *sourceMonitor =
             [[MSIMEInputSourceMonitor alloc] initWithCenter:NSDistributedNotificationCenter.defaultCenter

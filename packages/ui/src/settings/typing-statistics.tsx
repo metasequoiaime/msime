@@ -24,7 +24,10 @@ import {
 } from "./typing-speed";
 import { useMountedRef } from "./use-mounted-ref";
 import { useAsyncGeneration } from "./use-async-generation";
+import { MobileStatistics, statisticsCardClass, type StatisticsLook } from "./mobile-statistics";
+import type { TypingSummary } from "./typing-summary";
 export type { TypingBreakdown } from "./typing-speed";
+export type { TypingSummary } from "./typing-summary";
 import {
   dayLabel,
   currentStreak,
@@ -74,6 +77,8 @@ const menuItem =
 // loaded -- and the loading branch was the one that got left behind when the class it used was
 // replaced.
 const page = "flex flex-col gap-3.5 max-phone:gap-2.5";
+// HarmonyOS 外观下的纵向排列：分段控件、各卡片组和隐私说明之间按设计间隔 22px。
+const summaryPage = "flex flex-col gap-[22px] text-[color:var(--p-text)]";
 const rankChart = "mt-4 mb-[18px] flex flex-col gap-[11px]";
 // The first column has to hold the longest label without the row's ellipsis cutting it. The count and share columns are fixed rather than auto because every row is its own grid: sized to their own content, a seven-digit count beside a two-digit one would start each track at a different x.
 const rankRow =
@@ -192,6 +197,12 @@ export interface TypingStatisticsClient {
   /** Absent where a file manager is not reachable - iOS and Android render no button rather than a dead one. */
   openDirectory?(): Promise<void>;
   reset(): Promise<TypingStatisticsStatus>;
+  /**
+   * 共用存储为今天算出的各项数据（概览、习惯、按键、成就）。`userWords` 是用户加进词库的词数，用于「造词者」徽章；不传时存储按零计。不绘制基于摘要的「统计」标签页的宿主不提供它。
+   */
+  summary?(userWords?: number): Promise<TypingSummary>;
+  /** 记录用户试过键盘皮肤 `id`，计入「换装达人」徽章。 */
+  recordSkin?(id: string): Promise<void>;
 }
 
 /** Days the desktop trend bars cover. */
@@ -1313,12 +1324,15 @@ export function TypingStatisticsPage({
   mobile = false,
   platform,
   openSystemSettings,
+  look,
 }: {
   client: TypingStatisticsClient;
   mobile?: boolean;
   platform?: string;
   /** iOS only: opens this app's page in Settings, from which Full Access is reachable. */
   openSystemSettings?: () => Promise<void>;
+  /** HarmonyOS 手机或 2in1 外观。客户端能应答 `summary` 时，页面是基于摘要的「概览 / 习惯 / 按键 / 成就」标签页，而不是趋势图和分布图。 */
+  look?: StatisticsLook;
 }) {
   const { confirm, confirmation } = useConfirm();
   const [status, setStatus] = useState<TypingStatisticsStatus>();
@@ -1333,6 +1347,15 @@ export function TypingStatisticsPage({
   const requestStartedAtRef = useRef(0);
   const lastRequestAtRef = useRef(0);
   const statusSignatureRef = useRef("");
+  const [summary, setSummary] = useState<TypingSummary>();
+  const [summaryFailed, setSummaryFailed] = useState(false);
+  const summaryRequestRef = useRef<Promise<TypingSummary> | null>(null);
+  const summarySignatureRef = useRef("");
+  // 当前显示的摘要所对应的本地日期：页面开着过了午夜，即使没有新统计也会重新请求，因为摘要里的每个时间窗都截止到今天。
+  const summaryDayRef = useRef("");
+  // 摘要请求进行中统计又发生变化时置位，让它完成后再请求一次。
+  const summaryDirtyRef = useRef(true);
+  const summaryLook = look && client.summary ? look : undefined;
   const mounted = useMountedRef();
   const clientGeneration = useAsyncGeneration(client);
   const mobileTrendDays = useMemo(
@@ -1353,9 +1376,55 @@ export function TypingStatisticsPage({
     requestRef.current = null;
     requestStartedAtRef.current = 0;
     lastRequestAtRef.current = 0;
+    summaryRequestRef.current = null;
+    summaryDayRef.current = "";
+    summaryDirtyRef.current = true;
     setBusy(false);
     setError("");
   }, [client]);
+
+  /**
+   * 读取统计后请求摘要：统计有变化（`changed`）时总是请求，否则只在上次应答属于更早的日期或失败时请求。摘要是刷新中开销大的那一半，所以没发现新数据的 5 秒轮询不重新计算它。
+   */
+  function refreshSummary(changed: boolean) {
+    if (changed) summaryDirtyRef.current = true;
+    const summarize = client.summary;
+    if (!look || !summarize || !mounted.current || summaryRequestRef.current) return;
+    const today = recentDays(1)[0].key;
+    if (!summaryDirtyRef.current && summaryDayRef.current === today) return;
+    summaryDirtyRef.current = false;
+    const generation = clientGeneration.current;
+    const request = summarize.call(client);
+    summaryRequestRef.current = request;
+    const current = () =>
+      mounted.current &&
+      clientGeneration.current === generation &&
+      summaryRequestRef.current === request;
+    void request
+      .then(
+        (next) => {
+          if (!current()) return;
+          summaryDayRef.current = today;
+          setSummaryFailed(false);
+          const signature = JSON.stringify(next);
+          if (signature !== summarySignatureRef.current) {
+            summarySignatureRef.current = signature;
+            setSummary(next);
+          }
+        },
+        () => {
+          if (!current()) return;
+          // 清掉日期，下一次轮询就会重试。
+          summaryDayRef.current = "";
+          setSummaryFailed(true);
+        },
+      )
+      .finally(() => {
+        if (summaryRequestRef.current !== request) return;
+        summaryRequestRef.current = null;
+        if (summaryDirtyRef.current) refreshSummary(false);
+      });
+  }
 
   async function update(operation: () => Promise<TypingStatisticsStatus>, overview = false) {
     if (!mounted.current || requestRef.current) return;
@@ -1376,6 +1445,7 @@ export function TypingStatisticsPage({
         return;
       statusSignatureRef.current = JSON.stringify(next);
       setStatus(next);
+      refreshSummary(true);
     } catch {
       if (
         mounted.current &&
@@ -1411,10 +1481,12 @@ export function TypingStatisticsPage({
         .then((next) => {
           if (clientGeneration.current !== generation || requestRef.current !== request) return;
           const signature = JSON.stringify(next);
-          if (signature !== statusSignatureRef.current) {
+          const changed = signature !== statusSignatureRef.current;
+          if (changed) {
             statusSignatureRef.current = signature;
             setStatus(next);
           }
+          refreshSummary(changed);
         })
         .catch(() => {
           if (clientGeneration.current === generation && requestRef.current === request)
@@ -1436,7 +1508,7 @@ export function TypingStatisticsPage({
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [client, clientGeneration]);
+  }, [client, clientGeneration, look]);
 
   if (!status)
     return (
@@ -1583,7 +1655,9 @@ export function TypingStatisticsPage({
   const resetStatistics = async () => {
     const confirmed = await confirm({
       title: "清空打字统计",
-      message: "累计字数、分类、每日记录和按键次数都会被删除，无法恢复。",
+      message: summaryLook
+        ? "累计字数、分类、每日记录、按键次数和已解锁的成就都会被删除，无法恢复。"
+        : "累计字数、分类、每日记录和按键次数都会被删除，无法恢复。",
       confirmLabel: "清空",
       danger: true,
     });
@@ -1591,48 +1665,119 @@ export function TypingStatisticsPage({
     setSelectedDay(null);
     await update(client.reset);
   };
+  // 手机的溢出菜单。HarmonyOS 外观的图表下方没有设置区，所以保留期选项和开关、刷新、重置一起移到这里。
+  const optionsMenu = (rowClassName: string, retention: boolean) => (
+    <div className={`${rowClassName} flex min-h-0 justify-end`}>
+      <details className="relative z-[3]">
+        <summary className={menuSummary} aria-label="统计选项">
+          ⋯
+        </summary>
+        <div className={menuPopover} role="menu" aria-label="统计选项">
+          <label className={menuItem}>
+            <span>记录打字统计</span>
+            <input
+              aria-label="记录打字统计"
+              className="toggle"
+              type="checkbox"
+              checked={statistics.enabled}
+              disabled={busy}
+              onChange={(event) => void update(() => client.setEnabled(event.target.checked))}
+            />
+          </label>
+          {retention && client.setRetention && (
+            <label className={menuItem}>
+              <span>自动清理</span>
+              <select
+                aria-label="自动清理"
+                className="max-w-[140px] rounded-[6px] border border-edge bg-transparent px-1.5 py-1 text-xs text-body"
+                value={statistics.retention ?? "forever"}
+                disabled={busy}
+                onChange={(event) => {
+                  const setRetention = client.setRetention;
+                  if (!setRetention) return;
+                  const chosen = event.target.value as StatisticsRetention;
+                  void update(() => setRetention(chosen));
+                }}
+              >
+                {retentionChoices.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <ActionButton
+            action={() => void update(() => client.load(), true)}
+            ariaBusy={busy}
+            className=""
+            disabled={busy}
+            label={busy ? "处理中…" : "刷新统计"}
+            role="menuitem"
+          />
+          <ActionButton
+            action={() => void resetStatistics()}
+            className={`${menuItem} text-danger`}
+            disabled={busy}
+            label="清空统计"
+            role="menuitem"
+          />
+        </div>
+      </details>
+    </div>
+  );
+
+  if (summaryLook) {
+    const card = statisticsCardClass(summaryLook);
+    return (
+      <div className={summaryPage}>
+        {confirmation}
+        {error && <ErrorAlert>{error}</ErrorAlert>}
+        {optionsMenu("-mb-3.5", true)}
+        {!statistics.enabled && (
+          <section
+            className={`${card} flex flex-col items-start gap-2 p-4`}
+            aria-labelledby="statistics-disabled-title"
+          >
+            <h2 id="statistics-disabled-title" className="m-0 text-[15px] font-semibold">
+              输入统计已关闭
+            </h2>
+            <p className="m-0 text-[13px] leading-relaxed text-[color:var(--p-sub)]">
+              已有的计数保留在本机，新的输入不再计入。开启后这里会显示输入字数、速度、时段分布、按键热力图与成就。
+            </p>
+            <ActionButton
+              action={() => void update(() => client.setEnabled(true))}
+              ariaBusy={busy}
+              className="secondary m-0"
+              disabled={busy}
+              label={busy ? "处理中…" : "启用输入统计"}
+            />
+          </section>
+        )}
+        {availabilityMessage && (
+          <section className={`${card} flex flex-col items-start gap-2 p-4`}>
+            <h2 className="m-0 text-[15px] font-semibold">统计没有数据</h2>
+            <p className="m-0 text-[13px] leading-relaxed text-[color:var(--p-sub)]">
+              {availabilityMessage}
+            </p>
+          </section>
+        )}
+        {summary ? (
+          <MobileStatistics look={summaryLook} summary={summary} dailyKeys={statistics.dailyKeys} />
+        ) : summaryFailed ? (
+          <ErrorAlert>统计暂时读不到，可以在右上角菜单里刷新。</ErrorAlert>
+        ) : (
+          <StatusMessage role="status">正在读取打字统计…</StatusMessage>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className={page}>
       {confirmation}
       {error && <ErrorAlert>{error}</ErrorAlert>}
-      {mobile && (
-        <div className="-mb-1 flex min-h-0 justify-end">
-          <details className="relative z-[3]">
-            <summary className={menuSummary} aria-label="统计选项">
-              ⋯
-            </summary>
-            <div className={menuPopover} role="menu" aria-label="统计选项">
-              <label className={menuItem}>
-                <span>记录打字统计</span>
-                <input
-                  aria-label="记录打字统计"
-                  className="toggle"
-                  type="checkbox"
-                  checked={statistics.enabled}
-                  disabled={busy}
-                  onChange={(event) => void update(() => client.setEnabled(event.target.checked))}
-                />
-              </label>
-              <ActionButton
-                action={() => void update(() => client.load(), true)}
-                ariaBusy={busy}
-                className=""
-                disabled={busy}
-                label={busy ? "处理中…" : "刷新统计"}
-                role="menuitem"
-              />
-              <ActionButton
-                action={() => void resetStatistics()}
-                className={`${menuItem} text-danger`}
-                disabled={busy}
-                label="清空统计"
-                role="menuitem"
-              />
-            </div>
-          </details>
-        </div>
-      )}
+      {mobile && optionsMenu("-mb-1", false)}
       {!statistics.enabled && (
         <section className="section m-0" aria-labelledby="statistics-disabled-title">
           <h2 id="statistics-disabled-title" className={heading}>

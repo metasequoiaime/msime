@@ -5,6 +5,8 @@ import { PanelShortcutsSection } from "./panel-shortcuts-section";
 import { ShortcutsIntroSection } from "./shortcuts-intro-section";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
+import { defaultKeybindings, defaultNumberRowSelection } from "./keybinding-defaults";
+import { useToast } from "../core/toast";
 
 export interface ShortcutsSettingsSectionProps {
   disabled: boolean;
@@ -28,7 +30,7 @@ export interface ShortcutsSettingsSectionProps {
   harmony: boolean;
 }
 
-/** 桌面和触屏宿主共用的快捷键页：输入模式切换、候选操作速查、面板快捷键。中英文切换提示在输入页，重启与重新注册输入法在「维护与诊断」页。 */
+/** 桌面和触屏宿主共用的快捷键页：输入模式切换、候选操作速查、面板快捷键。中英文切换提示在输入页，重启与重新注册输入法在「维护与诊断」页。HarmonyOS 手机上是「外接键盘快捷键」：没有页首说明，「通用」「候选」两组加一个可展开的「按键速查」，候选组末尾可以一键恢复默认快捷键。 */
 export function ShortcutsSettingsSection({
   disabled,
   hidden,
@@ -49,9 +51,16 @@ export function ShortcutsSettingsSection({
   showPanelShortcuts,
   harmony,
 }: ShortcutsSettingsSectionProps) {
+  const showToast = useToast();
+  const harmonyPhone = harmony && mobile;
+  const restoreDefaults = () => {
+    onKeybindingsChange(defaultKeybindings);
+    onNumberRowSelectionChange(defaultNumberRowSelection);
+    showToast("已恢复默认快捷键");
+  };
   return (
     <SettingsPageFieldset disabled={disabled} hidden={hidden} ariaLabel="快捷键">
-      <ShortcutsIntroSection mobile={mobile} />
+      {!harmonyPhone && <ShortcutsIntroSection mobile={mobile} />}
       <InputModeShortcutsSection
         keybindings={keybindings}
         onChange={onKeybindingsChange}
@@ -61,6 +70,7 @@ export function ShortcutsSettingsSection({
         showFullwidthChord={showFullwidthChord}
         fullwidthChord={fullwidthChord}
         windows={windows}
+        harmonyPhone={harmonyPhone}
       />
       <CandidateShortcutsSection
         navigation={navigation}
@@ -69,6 +79,8 @@ export function ShortcutsSettingsSection({
         showNumberRowSelection={showNumberRowSelection}
         mobile={mobile}
         onNumberRowSelectionChange={onNumberRowSelectionChange}
+        harmonyPhone={harmonyPhone}
+        onRestoreDefaults={harmonyPhone ? restoreDefaults : undefined}
       />
       <PanelShortcutsSection visible={showPanelShortcuts} macos={macos} harmony={harmony} />
     </SettingsPageFieldset>

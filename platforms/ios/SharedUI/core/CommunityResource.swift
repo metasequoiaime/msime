@@ -43,6 +43,8 @@ struct CommunityResource: Codable, Identifiable, Sendable {
   var my_rating: Int
   /// "approved", "pending" or "removed" on the user's own works when the request asked for fields=moderation.
   var moderation: String? = nil
+  /// 作品最后修改的时间（RFC 3339），用于社区列表行上的本周更新标注。资源 API 不保证返回这个字段，缺失时解码为 nil，标注也就不显示，与 Android 一致。
+  var updated_at: String? = nil
   /// Post-moderation: only a removal is shown to the author, never a pending state or a reason.
   var removed: Bool { owned && moderation == "removed" }
 }
@@ -181,5 +183,22 @@ enum CommunityLibrary {
       CharacterSet.controlCharacters.contains(scalar)
         && !(multiline && (scalar == "\n" || scalar == "\t"))
     }
+  }
+}
+
+/// 本机排队导入过的社区词库 id，社区列表和词库页的「已添加」胶囊据此显示，与 Android 按本机命名词库的 `resourceId` 判断一致。iOS 的个人词库不记词条来自哪份社区词库，所以在排队导入成功时另记一笔；服务器上的收藏（`saved`）只表示关注更新，不代表本机装过。只有设置 App 读写它，所以存在 App 自己的 defaults 里。
+enum CommunityDictionaryImports {
+  static let key = "community.dictionary.imported"
+  /// 只留最近的这么多条，社区词库再多也不会让这份记录无限长大。
+  static let limit = 500
+
+  static func ids(in defaults: UserDefaults = .standard) -> Set<String> {
+    Set(defaults.stringArray(forKey: key) ?? [])
+  }
+
+  static func record(_ id: String, in defaults: UserDefaults = .standard) {
+    var stored = (defaults.stringArray(forKey: key) ?? []).filter { $0 != id }
+    stored.append(id)
+    defaults.set(Array(stored.suffix(limit)), forKey: key)
   }
 }

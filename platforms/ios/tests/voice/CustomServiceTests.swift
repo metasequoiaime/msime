@@ -182,15 +182,15 @@ extension CustomServiceTests {
     session.protocolClasses = [CatalogFixtureProtocol.self]
     var config = CustomServiceConfiguration.loadPreset(.everyAPI)
     config.model = ""
-    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: config).absoluteString, "https://api.everyapi.ai/v1/models")
+    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: config, kind: .ai).absoluteString, "https://api.everyapi.ai/v1/models")
     let models = try await ModelCatalogClient.fetch(configuration: config, kind: .ai, token: "fixture", sessionConfiguration: session)
     XCTAssertEqual(models, ["chat-model", "response-model"])
     let voice = CustomServiceConfiguration.loadVoicePreset(.everyAPI)
-    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: voice).absoluteString, "https://api.everyapi.ai/v1/models")
+    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: voice, kind: .voice).absoluteString, "https://api.everyapi.ai/v1/models")
     let voiceModels = try await ModelCatalogClient.fetch(configuration: voice, kind: .voice, token: "fixture", sessionConfiguration: session)
     XCTAssertEqual(voiceModels, ["speech-model"])
     let gemini = CustomServiceConfiguration.loadPreset(.gemini)
-    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: gemini).absoluteString,
+    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: gemini, kind: .ai).absoluteString,
       "https://generativelanguage.googleapis.com/v1beta/openai/models")
   }
 

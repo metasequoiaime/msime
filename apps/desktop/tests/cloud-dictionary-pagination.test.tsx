@@ -22,9 +22,7 @@ test("cloud dictionary pagination shares page state and navigation actions", () 
 
   const onPrevious = vi.fn();
   const onNext = vi.fn();
-  render(
-    <Pagination offset={100} hasMore onPrevious={onPrevious} onNext={onNext} />,
-  );
+  render(<Pagination offset={100} hasMore onPrevious={onPrevious} onNext={onNext} />);
 
   expect(screen.getByText("第 2 页")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "上一页" }));

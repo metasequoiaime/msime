@@ -12,7 +12,9 @@ def main() -> int:
         / "platforms/harmony/entry/src/main/ets/keyboard/candidate/ExpandedCandidateLayout.ts"
     ).read_text()
     start = view.index("  expandedFace()")
-    expanded = view[start : view.index("  @Builder\n  geometryFace()", start)]
+    # 格子在 expandedGrid() 里画，整块面板和全拼九键三栏面板的中栏共用，所以一直看到它的末尾。
+    grid = view.index("  expandedGrid()", start)
+    expanded = view[start : view.index("\n  @Builder\n", grid)]
     required = {
         "shared measured width": "ExpandedCandidateLayout.width" in view
         and ".width(this.expandedCandidateWidth(index))" in expanded,

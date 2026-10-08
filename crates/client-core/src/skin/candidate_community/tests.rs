@@ -497,6 +497,26 @@ fn add_license_refuses_a_symlinked_staging_file_without_writing_through_it() {
 
 #[cfg(unix)]
 #[test]
+fn replacing_manifest_does_not_follow_a_replaced_package_directory() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let linked = root.path().join("sakura");
+    symlink(outside.path(), &linked).unwrap();
+
+    assert!(replace_manifest(
+        &linked.join(".skin.toml.license"),
+        &linked.join("skin.toml"),
+        b"synthetic-manifest",
+    )
+    .is_err());
+    assert!(!outside.path().join("skin.toml").exists());
+    assert!(!outside.path().join(".skin.toml.license").exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn pack_refuses_a_symlinked_image() {
     let root = tempfile::tempdir().unwrap();
     let skin = standard_skin(root.path(), "sakura");

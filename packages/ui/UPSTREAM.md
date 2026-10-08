@@ -10,6 +10,10 @@ Source: https://github.com/metasequoiaime/MSIME-Windows at remote default branch
 
 Rules adapted from the upstream settings styles — `styles/sidebar.css`, `styles/components/sections.css` and `components/forms.css`, the module sheets `styles/modules/input.css`, `skin.css`, `candidate/style-h.css`, `candidate/style-v.css`, `titlebar.css`, `floating-toolbar.css` and `appearance.css` — live in `src/styles.css`, scoped to React-owned selectors. Declaration bodies are kept as upstream wrote them; only the selectors are rewritten. All of these sources are GPL-3.0.
 
+## Fluent UI System Icons
+
+`src/core/fluent-icons.tsx` carries path data from Microsoft's Fluent UI System Icons (https://github.com/microsoft/fluentui-system-icons), the 20px Regular variants, as static strings: the icons the HarmonyOS redesign draws on settings rows, the phone tab bar and the 我的 tab. The paths are unchanged copies of the ones in the redesign's icon map, which took them from that repository; no npm package is involved. License: MIT, Copyright (c) 2020 Microsoft Corporation.
+
 ## Layout and shared behaviour
 
 The React layout adapts the sidebar, cards, and helpcode rows to the shared preferences client. Native checkbox/select semantics and focus indicators are retained deliberately: the page keeps platform `<select>` elements rather than reimplementing upstream's custom dropdown, so keyboard, screen-reader and forced-colors behaviour comes from the platform. Explicit save/reload and cross-page drafts use the shared revision protocol. Titlebar window controls are driven by the host-injected `windowControl` action, and maximize/restore icons follow the injected host state subscription. The palette follows the saved `theme` and `settings_theme` preferences, defaulting to upstream's dark appearance when both are left at `system`/`follow`.

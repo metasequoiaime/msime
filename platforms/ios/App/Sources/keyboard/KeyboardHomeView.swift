@@ -1,13 +1,13 @@
 import SwiftUI
 import UIKit
 
-/// The 设置 tab on a phone: the keyboard status card, then the settings pages in the grouped list of the mobile design. The rows come from SettingsPage, which the iPad sidebar reads as well.
+/// 手机上的 设置 标签页：搜索框、键盘状态卡片，然后是按移动端设计稿分组卡片排列的各设置页。各行来自 SettingsPage，iPad 侧边栏也读同一份。
 struct SettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
+  @EnvironmentObject private var router: SettingsRouter
   @State private var scheme = InputSchemePreference.scheme
   @State private var skin = KeyboardTheme.current
-  /// The candidate font size the keyboard draws (dc.html NAV_VAL: 候选栏 shows it as "18px").
-  @State private var candidateSize = CandidateFontPreference.defaultCandidateSize
+  @State private var values: [SettingsPage: String] = [:]
   @State private var query = ""
   /// The notices not yet dismissed, newest first; the newest is shown.
   @State private var notices: [AppNotice] = []
@@ -19,43 +19,37 @@ struct SettingsView: View {
 
   var body: some View {
     let groups = SettingsPage.matching(query)
-    List {
-      if query.isEmpty {
-        if let notice = notices.first {
-          Section {
+    ScrollView {
+      VStack(spacing: 20) {
+        SettingsSearchPill(query: $query)
+        if query.isEmpty {
+          if let notice = notices.first {
             NoticeBanner(notice: notice) {
               notices.removeFirst()
               Task.detached(priority: .utility) { AppNotices.dismiss(notice.id) }
             }
           }
+          KeyboardStatusCard(scheme: scheme, tryout: .push)
         }
-        Section {
-          KeyboardStatusCard(scheme: scheme)
-          NavigationLink(destination: KeyboardTryoutView(focusOnAppear: true)) {
-            SettingsNavLabel(title: "试用键盘", symbol: "text.cursor")
-          }.accessibilityIdentifier("keyboardTryoutLink")
-        }
-      }
-      ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-        Section {
-          ForEach(group) { page in
-            NavigationLink(destination: page.destination) {
-              SettingsNavLabel(title: page.title, symbol: page.symbol, value: value(for: page))
+        ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+          DesignCard(radius: MetasequoiaTheme.cardRadius) {
+            ForEach(group) { page in
+              SettingsCardRow(page: page, value: value(for: page), isLast: page == group.last)
             }
-            .accessibilityIdentifier(page.linkIdentifier)
-            .accessibilityValue(value(for: page) ?? "")
           }
         }
       }
+      .padding(.horizontal, 16)
+      .padding(.bottom, 20)
     }
-    .listStyle(.insetGrouped)
-    .environment(\.defaultMinListRowHeight, 52)
+    .scrollDismissesKeyboard(.interactively)
+    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
     .overlay {
       if groups.isEmpty { ContentUnavailableView.search(text: query) }
     }
     .navigationTitle("设置")
     .navigationBarTitleDisplayMode(.large)
-    .searchable(text: $query, prompt: "搜索设置")
+    .navigationDestination(item: $router.settingsPage) { $0.destination }
     .onAppear { refresh() }
     .onChange(of: scenePhase) { if $0 == .active { refresh(); Task { await loadNotices() } } }
     .task { await loadNotices() }
@@ -63,12 +57,7 @@ struct SettingsView: View {
   }
 
   private func value(for page: SettingsPage) -> String? {
-    switch page {
-    case .skin: return skinName
-    case .input: return scheme.title
-    case .candidate: return "\(candidateSize)px"
-    default: return nil
-    }
+    page == .skin ? skinName : values[page]
   }
 
   @MainActor private func loadNotices() async {
@@ -80,6 +69,31 @@ struct SettingsView: View {
     InputSchemePreference.mirror(preferences)
     scheme = InputSchemePreference.scheme
     skin = KeyboardTheme.reload(preferences)
-    candidateSize = CandidateFontPreference.candidateSize(in: preferences, tablet: UIDevice.current.userInterfaceIdiom == .pad)
+    values = Self.rowValues(scheme: scheme, preferences: preferences)
+  }
+
+  /// 根级各行尾部显示的值，从共享文档（键盘的唯一事实来源）读取，读不到时回退到 App Group 镜像。词库 显示学习开关，与 Android 的 记忆新词 一样，因为没有查询词条数的 ABI；开发者选项 不显示值。
+  private static func rowValues(scheme: ChineseInputScheme, preferences: [String: Any]?) -> [SettingsPage: String] {
+    // `punctuation_lock` 不是跟随时会在键盘里覆盖 `chinese_punctuation`，与 表达 页的显示一致。
+    let chinesePunctuation: Bool
+    switch preferences?["punctuation_lock"] as? String {
+    case "chinese": chinesePunctuation = true
+    case "english": chinesePunctuation = false
+    default: chinesePunctuation = preferences?["chinese_punctuation"] as? Bool ?? true
+    }
+    let learning = InputHabitPreference.settings(in: preferences).learning
+    let keys = scheme == .nineKey || scheme == .japaneseNineKey ? "9 键" : "26 键"
+    let height = KeyboardLayoutPreference.sharedHeightAdjustment(preferences?["touch_keyboard_height_adjustment"])
+      ?? KeyboardLayoutPreference.heightAdjustment
+    let language = VoicePolishSettings(preferences).language
+    return [
+      .input: scheme.shortLabel,
+      .ai: chinesePunctuation ? "中文标点" : "英文标点",
+      .dictionary: learning ? "学习常用词 已开" : "学习常用词 已关",
+      .layout: keys + (height == 0 ? " · 标准高度" : " · 已调高度"),
+      .voice: VoicePolishSettings.languages.first { $0.id == language }?.title ?? "",
+      .handwriting: InputSchemePreference.enabledSchemes.contains(.handwriting) ? "已开启" : "未开启",
+      .toolbar: TouchToolbarLocalPreference.hidden ? "隐藏" : "输入时显示",
+    ]
   }
 }

@@ -15,6 +15,7 @@ import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.ViewPolicy;
+import app.msime.android.core.InputViewValuePolicy;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
@@ -58,17 +59,17 @@ public final class SkinsPage extends DetailPage {
     @Nullable private static Model read(Context context, boolean systemDark, String season) {
         JSONObject preferences = KeyboardSheets.preferences(context);
         if (preferences == null) return null;
-        String current = preferences.optString("global_theme", "system");
+        String current = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONArray catalog = HostStore.themeCatalog();
         List<Card> themes = new ArrayList<>(catalog.length());
         try {
             for (int index = 0; index < catalog.length(); index++) {
                 JSONObject entry = catalog.optJSONObject(index);
                 if (entry == null) continue;
-                String id = entry.optString("id", "");
+                String id = InputViewValuePolicy.textOr(entry, "id", "");
                 // 「自定义」由下面的我的设计代替：它画的就是当前选中的那个设计。
                 if (id.isEmpty() || "custom".equals(id)) continue;
-                String title = entry.optString("title", id);
+                String title = InputViewValuePolicy.textOr(entry, "title", id);
                 if (entry.optBoolean("seasonal", false)) title = title + " · " + season;
                 JSONObject probe = new JSONObject(preferences.toString()).put("global_theme", id);
                 KeyboardSkin skin = HostStore.keyboardSkin(probe, systemDark, HostStore.seed(context));

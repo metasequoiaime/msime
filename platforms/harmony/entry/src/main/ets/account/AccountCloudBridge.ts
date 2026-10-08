@@ -111,6 +111,28 @@ const CHAT_ROLES = ["user", "assistant", "system"];
 
 /** The gallery's own bounds, matching `client-core`'s community skin service. */
 const MAX_COMMUNITY_SEARCH = 128;
+
+// 应用内反馈（`POST /v1/feedback`），长度上限和字段名沿用 Android 的 `FeedbackApi`，服务端与之共用。
+const FEEDBACK_PATH = "/v1/feedback";
+const FEEDBACK_TYPES: readonly string[] = ["bug", "suggestion", "dictionary"];
+/** 字符数（按码点），与服务端的计数方式一致。 */
+const MAX_FEEDBACK_TEXT = 500;
+const MAX_FEEDBACK_VERSION_BYTES = 64;
+const MAX_FEEDBACK_DIAGNOSTICS = 16;
+const MAX_FEEDBACK_DIAGNOSTIC_INPUT_BYTES = 1024;
+const MAX_FEEDBACK_DIAGNOSTIC_VALUE_BYTES = 256;
+/** 服务端保留的诊断字段；其他字段在发送前丢弃。 */
+const FEEDBACK_DIAGNOSTIC_KEYS: readonly string[] = [
+  "device",
+  "os",
+  "app_version",
+  "edition",
+  "scheme",
+  "keyboard_layout",
+  "skin",
+  "ime_enabled",
+  "ime_default",
+];
 export const MAX_DICTIONARY_EXPORT_BYTES = 384 * 1024 * 1024;
 export const MAX_SNAPSHOT_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 
@@ -150,10 +172,13 @@ function validCommunityText(
   if (typeof value !== "string") return false;
   const characters = [...value];
   if (characters.length < minimum || characters.length > maximum) return false;
-  return TextPolicy.validUnicode(value) && !characters.some((character) => {
-    if (multiline && (character === "\n" || character === "\t")) return false;
-    return TextPolicy.hasControl(character);
-  });
+  return (
+    TextPolicy.validUnicode(value) &&
+    !characters.some((character) => {
+      if (multiline && (character === "\n" || character === "\t")) return false;
+      return TextPolicy.hasControl(character);
+    })
+  );
 }
 
 function validCommunityKind(value: unknown): value is string {
@@ -613,7 +638,8 @@ export function accountReplyValue<T>(reply: unknown): T | null {
   if (reply === null || typeof reply !== "object" || Array.isArray(reply)) return null;
   const value: unknown = (reply as { value?: unknown }).value;
   return strictAccountOk((reply as { ok?: unknown }).ok) && value !== undefined && value !== null
-    ? value as T : null;
+    ? (value as T)
+    : null;
 }
 
 function validString(value: unknown, maximum: number, allowEmpty = false): value is string {
@@ -641,16 +667,78 @@ function boundedUtf8(value: unknown, maximumBytes: number): value is string {
 
 /** Chat paragraphs allow tabs and line breaks, but not other Unicode controls. */
 function validChatText(value: unknown, maximumBytes: number): value is string {
-  if (typeof value !== "string" || value.trim().length === 0 ||
-      !boundedUtf8(value, maximumBytes) || !TextPolicy.validUnicode(value)) return false;
-  return ![...value].some((character) =>
-    character !== "\t" && character !== "\n" && character !== "\r" &&
-    TextPolicy.hasControl(character));
+  if (
+    typeof value !== "string" ||
+    value.trim().length === 0 ||
+    !boundedUtf8(value, maximumBytes) ||
+    !TextPolicy.validUnicode(value)
+  )
+    return false;
+  return ![...value].some(
+    (character) =>
+      character !== "\t" &&
+      character !== "\n" &&
+      character !== "\r" &&
+      TextPolicy.hasControl(character),
+  );
+}
+
+/** 反馈正文：去掉首尾空白后不能为空，最多 500 个字符，除换行和制表符外不含控制字符。 */
+function validFeedbackText(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    Array.from(value).length <= MAX_FEEDBACK_TEXT &&
+    TextPolicy.validMultiline(value, MAX_FEEDBACK_TEXT * 4, true)
+  );
+}
+
+/** 把 `value` 截到 UTF-8 编码最多 `maximumBytes` 字节，不拆开字符。 */
+function clipUtf8(value: string, maximumBytes: number): string {
+  let clipped = "";
+  let bytes = 0;
+  for (const character of Array.from(value)) {
+    const size = utf8Length(character);
+    if (bytes + size > maximumBytes) break;
+    clipped += character;
+    bytes += size;
+  }
+  return clipped;
+}
+
+/**
+ * 反馈可附带的诊断信息：`null`（用户没打开「附带诊断信息」），或最多 16 个字符串字段的对象。结果只保留服务端接受的字段，控制字符换成空格，去掉首尾空白，截到 256 字节，并丢弃空值；值不属于这两种形状时返回 `undefined`。
+ */
+function feedbackDiagnostics(value: unknown): Record<string, string> | null | undefined {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const keys: string[] = Object.keys(raw);
+  if (keys.length > MAX_FEEDBACK_DIAGNOSTICS) return undefined;
+  if (
+    keys.some(
+      (key: string): boolean =>
+        !boundedUtf8(raw[key], MAX_FEEDBACK_DIAGNOSTIC_INPUT_BYTES) ||
+        !TextPolicy.validUnicode(raw[key] as string),
+    )
+  )
+    return undefined;
+  const clean: Record<string, string> = {};
+  for (const key of FEEDBACK_DIAGNOSTIC_KEYS) {
+    if (!keys.includes(key)) continue;
+    const spaced: string = Array.from(raw[key] as string)
+      .map((character: string): string => (TextPolicy.hasControl(character) ? " " : character))
+      .join("");
+    const trimmed: string = clipUtf8(spaced.trim(), MAX_FEEDBACK_DIAGNOSTIC_VALUE_BYTES).trim();
+    if (trimmed.length > 0) clean[key] = trimmed;
+  }
+  return clean;
 }
 
 function validCandidateKind(value: unknown): value is string {
-  return typeof value === "string" &&
-    ["pinyin", "jianpin", "wubi", "wubi98", "quick", "english"].includes(value);
+  return (
+    typeof value === "string" &&
+    ["pinyin", "jianpin", "wubi", "wubi98", "quick", "english"].includes(value)
+  );
 }
 
 function validCandidateScheme(value: unknown): value is string {
@@ -662,8 +750,13 @@ function validCandidateProfile(value: unknown): value is string {
 }
 
 function validCandidateRankingMode(value: unknown): value is string {
-  return value === "disabled" || value === "pin" || value === "halve" ||
-    value === "linear" || value === "promote";
+  return (
+    value === "disabled" ||
+    value === "pin" ||
+    value === "halve" ||
+    value === "linear" ||
+    value === "promote"
+  );
 }
 
 /** The account API uses dictionary-specific syntax for codes, not arbitrary text. */
@@ -690,9 +783,11 @@ function validDictionaryValue(
     return codeText.length <= 4 && /^[a-z]+$/.test(codeText);
   }
   if (kind === "quick") {
-    return codeText.length <= 32 &&
+    return (
+      codeText.length <= 32 &&
       (newValue ? /^[a-z]+$/.test(codeText) : /^[a-z0-9]+$/.test(codeText)) &&
-      wordText.length <= MAX_QUICK_PHRASE_UTF16;
+      wordText.length <= MAX_QUICK_PHRASE_UTF16
+    );
   }
   if (kind === "english") {
     return codeText.length <= 64 && /^[A-Za-z'-]+$/.test(codeText);
@@ -713,8 +808,11 @@ function validDictionaryIdentity(kind: string, code: unknown, word: unknown): bo
 }
 
 function validCandidateValue(kind: string, code: unknown, word: unknown): boolean {
-  return validString(code, 256) && validString(word, 1024) &&
-    (kind !== "quick" || (word as string).length <= MAX_QUICK_PHRASE_UTF16);
+  return (
+    validString(code, 256) &&
+    validString(word, 1024) &&
+    (kind !== "quick" || (word as string).length <= MAX_QUICK_PHRASE_UTF16)
+  );
 }
 
 function parseBody(body: string): Action | null {
@@ -825,10 +923,20 @@ export class AccountCloudBridge {
   private session: Session | null = null;
   private generation = 0;
   private refreshing: Promise<CredentialReply> | null = null;
+  private readonly anonymousStore: AccountSessionStore | undefined;
+  private anonymous: AccountCloudBridge | null = null;
 
-  constructor(transport: AccountTransport, store: AccountSessionStore) {
+  /**
+   * `anonymousStore` 是设备的匿名账号，供无人登录时可以用它发出的请求使用（应用内反馈，对应 Android 的 `ACCOUNT_OR_ANONYMOUS`）。没有匿名账号的宿主不传它，这些请求就需要已登录的账号。
+   */
+  constructor(
+    transport: AccountTransport,
+    store: AccountSessionStore,
+    anonymousStore?: AccountSessionStore,
+  ) {
     this.transport = transport;
     this.store = store;
+    this.anonymousStore = anonymousStore;
     const saved = store.load();
     if (saved !== null && utf8Length(saved) <= MAX_SESSION_BYTES) {
       try {
@@ -878,6 +986,8 @@ export class AccountCloudBridge {
           return await this.community(action);
         case "community_resource":
           return await this.communityResource(action);
+        case "feedback":
+          return await this.feedback(action);
         default:
           return error("account_invalid");
       }
@@ -1219,6 +1329,38 @@ export class AccountCloudBridge {
   }
 
   /**
+   * 发送一条应用内反馈：`{type, text, app_version, edition, diagnostics}`，其中 `type` 取 `bug`、`suggestion` 或 `dictionary`，`text` 最多 500 个字符，`diagnostics` 为 null 或字符串字段的映射。请求体与 Android 的 `FeedbackApi` 载荷一致（`platform` 填本宿主的），服务端的应答不往上传：页面只需知道反馈已被接受。
+   *
+   * 有账号会话时附带它，无人登录时附带设备的匿名账号，与 Android 的 `FeedbackApi` 一致。只有两者都没有的设备（匿名注册还没成功）会以 `account_unauthorized` 拒绝，页面随之提供其他反馈渠道。
+   */
+  private async feedback(action: Action): Promise<string> {
+    const diagnostics = feedbackDiagnostics(action.diagnostics);
+    if (
+      typeof action.type !== "string" ||
+      !FEEDBACK_TYPES.includes(action.type) ||
+      !validFeedbackText(action.text) ||
+      !validString(action.app_version, MAX_FEEDBACK_VERSION_BYTES, true) ||
+      !validString(action.edition, MAX_FEEDBACK_VERSION_BYTES, true) ||
+      diagnostics === undefined
+    ) {
+      return error("account_invalid");
+    }
+    const body: Record<string, unknown> = {
+      type: action.type,
+      text: action.text.trim(),
+      app_version: action.app_version,
+      edition: action.edition,
+      platform: "harmony",
+    };
+    if (diagnostics !== null && Object.keys(diagnostics).length > 0) body.diagnostics = diagnostics;
+    const sender: AccountCloudBridge = this.accountOrAnonymous();
+    const result: AuthorizedReply = await sender.authorizedResponse("POST", FEEDBACK_PATH, body);
+    if (result.response === undefined) return error(result.error ?? "account_unavailable");
+    const status: number = result.response.status;
+    return status >= 200 && status < 300 ? success({}) : error(mapStatus(status));
+  }
+
+  /**
    * The account-backed assistant, which is a different service from the user-configured one.
    *
    * The credential is the account session the host already holds, so the page never sees a token:
@@ -1322,10 +1464,7 @@ export class AccountCloudBridge {
     }
     const role = (reply as Action).role;
     const content = (reply as Action).content;
-    if (
-      role !== "assistant" ||
-      !validChatText(content, MAX_CHAT_RESPONSE_BYTES)
-    ) {
+    if (role !== "assistant" || !validChatText(content, MAX_CHAT_RESPONSE_BYTES)) {
       return error("account_unavailable");
     }
     return success({ content });
@@ -2077,6 +2216,19 @@ export class AccountCloudBridge {
     this.session = next;
     this.store.save(JSON.stringify(next));
     return { token: next.access_token };
+  }
+
+  /**
+   * 接受任一种账号的请求所使用的会话属于哪个 bridge：有人登录时用本 bridge，否则匿名账号有会话时用匿名账号的，再否则仍用本 bridge，由它以 `account_unauthorized` 拒绝。
+   *
+   * 在匿名 bridge 拿到会话之前，每次都从它的 store 重新读取，因为首次启动时原生注册与设置页并行进行，可能在本 bridge 创建之后才完成。
+   */
+  private accountOrAnonymous(): AccountCloudBridge {
+    if (this.session !== null || this.anonymousStore === undefined) return this;
+    if (this.anonymous === null || this.anonymous.session === null) {
+      this.anonymous = new AccountCloudBridge(this.transport, this.anonymousStore);
+    }
+    return this.anonymous.session === null ? this : this.anonymous;
   }
 
   /** Sends once with current credentials and retries one rejected token after rotation. */

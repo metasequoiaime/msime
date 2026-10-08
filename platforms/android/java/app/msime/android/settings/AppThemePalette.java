@@ -256,10 +256,11 @@ public final class AppThemePalette {
          */
         public static Seed fromResolved(JSONObject light, JSONObject dark) {
             if (light == null || dark == null) return null;
-            String id = light.optString("id", "");
-            String season = light.optString("season", "");
+            String id = JsonPolicy.strictStringOrEmpty(light.opt("id"));
+            String season = JsonPolicy.strictStringOrEmpty(light.opt("season"));
             if (id.isEmpty() || season.isEmpty()) return null;
-            if (!id.equals(dark.optString("id", "")) || !season.equals(dark.optString("season", ""))) return null;
+            if (!id.equals(JsonPolicy.strictStringOrEmpty(dark.opt("id")))
+                    || !season.equals(JsonPolicy.strictStringOrEmpty(dark.opt("season")))) return null;
             Mode lightMode = Mode.fromResolved(light);
             Mode darkMode = Mode.fromResolved(dark);
             if (lightMode == null || darkMode == null) return null;

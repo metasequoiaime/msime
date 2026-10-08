@@ -679,6 +679,19 @@ fn a_mixed_list_holds_both_producers_wubi_first() {
     assert!(!snapshot.wubi_unique_four_code);
 }
 
+#[test]
+fn wubi_mixed_refresh_reuses_pinyin_request_buffer() {
+    let fixture = Fixture::new(WUBI_ROUTING_FIXTURE);
+    let mut session = wubi_mixed(&fixture);
+    let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.input.engine.handle_key(SchemeKey::Requery);
+    });
+    assert!(
+        allocations <= 53,
+        "mixed Wubi refresh should reuse the pinyin request buffer: {allocations} allocations"
+    );
+}
+
 /// The reported case: in mixed Wubi `jixu` is the wubi code of 曳光弹 and the pinyin of 继续. The fourth key must leave both on offer; without pinyin rows the same code still commits its one wubi row.
 #[test]
 fn a_four_letter_code_that_is_also_pinyin_stays_open_in_mixed_wubi() {
@@ -3632,6 +3645,39 @@ fn cantonese_candidate_refresh_reuses_row_storage() {
 }
 
 #[test]
+fn cantonese_refresh_reuses_request_strings() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese_dictionary(fixture.path());
+    });
+    type_text(&mut session, "neihou");
+    let request = session.input.engine.request();
+    let pointers = [
+        request.raw_input.as_ptr(),
+        request.raw_input_with_cases.as_ptr(),
+        request.normalized_input.as_ptr(),
+        request.raw_segmentation.as_ptr(),
+        request.normalized_segmentation.as_ptr(),
+        request.segmentation.as_ptr(),
+    ];
+    // 大写字母被粤拼忽略，但仍会走一次查询刷新。
+    session.input.engine.handle_key(SchemeKey::Letter(b'A'));
+    let request = session.input.engine.request();
+    assert_eq!(
+        [
+            request.raw_input.as_ptr(),
+            request.raw_input_with_cases.as_ptr(),
+            request.normalized_input.as_ptr(),
+            request.raw_segmentation.as_ptr(),
+            request.normalized_segmentation.as_ptr(),
+            request.segmentation.as_ptr(),
+        ],
+        pointers
+    );
+}
+
+#[test]
 fn cantonese_key_refresh_reuses_query_rows() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {
@@ -3711,6 +3757,45 @@ fn shuangpin_refresh_reuses_request_strings() {
     ];
     session.input.engine.handle_key(SchemeKey::Requery);
     let request = session.input.engine.request();
+    assert_eq!(
+        [
+            request.raw_input.as_ptr(),
+            request.raw_input_with_cases.as_ptr(),
+            request.normalized_input.as_ptr(),
+            request.raw_segmentation.as_ptr(),
+            request.normalized_segmentation.as_ptr(),
+            request.segmentation.as_ptr(),
+        ],
+        pointers
+    );
+}
+
+#[test]
+fn shuangpin_double_helpcode_refresh_reuses_request_strings() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.helpcode = true;
+    });
+    type_text(&mut session, "nihcAB");
+    let request = session.input.engine.request();
+    assert_eq!(request.raw_segmentation, "ni'hc'AB");
+    assert_eq!(request.normalized_segmentation, "ni'hao'AB");
+    let pointers = [
+        request.raw_input.as_ptr(),
+        request.raw_input_with_cases.as_ptr(),
+        request.normalized_input.as_ptr(),
+        request.raw_segmentation.as_ptr(),
+        request.normalized_segmentation.as_ptr(),
+        request.segmentation.as_ptr(),
+    ];
+
+    session.input.engine.handle_key(SchemeKey::Requery);
+
+    let request = session.input.engine.request();
+    assert_eq!(request.raw_segmentation, "ni'hc'AB");
+    assert_eq!(request.normalized_segmentation, "ni'hao'AB");
+    assert_eq!(request.segmentation, "ni'hao'AB");
     assert_eq!(
         [
             request.raw_input.as_ptr(),
@@ -4232,6 +4317,35 @@ fn zhuyin_candidate_refresh_reuses_row_storage() {
     assert!(
         allocations <= 6,
         "requery should not recreate Zhuyin candidate rows: {allocations} allocations"
+    );
+}
+
+#[test]
+fn zhuyin_refresh_reuses_request_strings() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = zhuyin_session(&fixture);
+    type_text(&mut session, "su3cl3");
+    let request = session.input.engine.request();
+    let pointers = [
+        request.raw_input.as_ptr(),
+        request.raw_input_with_cases.as_ptr(),
+        request.normalized_input.as_ptr(),
+        request.raw_segmentation.as_ptr(),
+        request.normalized_segmentation.as_ptr(),
+        request.segmentation.as_ptr(),
+    ];
+    session.input.engine.handle_key(SchemeKey::Requery);
+    let request = session.input.engine.request();
+    assert_eq!(
+        [
+            request.raw_input.as_ptr(),
+            request.raw_input_with_cases.as_ptr(),
+            request.normalized_input.as_ptr(),
+            request.raw_segmentation.as_ptr(),
+            request.normalized_segmentation.as_ptr(),
+            request.segmentation.as_ptr(),
+        ],
+        pointers
     );
 }
 
@@ -5051,4 +5165,89 @@ fn nine_key_sentence_learning_shares_the_syllable_cap() {
         crate::nine_key::MAX_LEARNED_SENTENCE_SYLLABLES,
         super::learning::MAX_LEARNED_SENTENCE_SYLLABLES
     );
+}
+
+/// #5848、#5667、#5907：`SessionOptions::expressive` 同样交给九宫格；26 键和九宫格的 emoji、颜文字都紧跟它描绘的那个词，接不上任何词的排在末尾。
+#[test]
+fn nine_key_mixes_emoji_and_kaomoji_like_the_full_keyboard() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_m VALUES('mei','m','美',300);\
+CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_g VALUES('guo','g','国',300),('gao','g','高',200);\
+CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_m VALUES('mei''guo','mg','美国',1000);\
+CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_j VALUES('ji','j','鸡',300),('ji','j','几',200),('jing','j','警',100);\
+CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_j VALUES('jing''gao','jg','警告',900);\
+CREATE TABLE tbl_1_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_l VALUES('li','l','里',500),('li','l','梨',100);",
+    );
+    Connection::open(fixture.path().join(assets::OTHER_DICTIONARY))
+        .and_then(|connection| {
+            connection.execute_batch(
+                "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);\
+INSERT INTO emoji_pinyin VALUES('meiguo','🇺🇸',1893),('meiguobentuwaixiaodaoyu','🇺🇲',1891),('jinggao','⚠️',1433),('ji','🐔',626),('jiqiren','🤖',100),('li','🍐',730),('liwu','🎁',50);\
+CREATE TABLE emoji(emoji TEXT PRIMARY KEY,keywords TEXT);\
+INSERT INTO emoji VALUES('🇺🇸','美国 美利坚 星条旗'),('🇺🇲','美国本土外小岛屿 flag: u.s. outlying islands'),('⚠️','警告 注意 危险'),('🐔','鸡 鸡头 chicken'),('🤖','机器人 robot'),('🍐','梨 梨子 pear'),('🎁','礼物 gift');\
+CREATE TABLE kaomoji(pinyin TEXT,jianpin TEXT,kaomoji TEXT,sort_order INTEGER);\
+INSERT INTO kaomoji VALUES('meiguo','mg','(•̀ᴗ•́)و',10),('jinggao','jg','(ﾟДﾟ≡ﾟдﾟ)!?',20);\
+CREATE TABLE kaomoji_catalog(kaomoji TEXT PRIMARY KEY,keywords TEXT);\
+INSERT INTO kaomoji_catalog VALUES('(•̀ᴗ•́)و','mei guo'),('(ﾟДﾟ≡ﾟдﾟ)!?','jing gao 警告');",
+            )
+        })
+        .expect("fixture msime-others.db");
+    let position = |session: &Session, word: &str| {
+        words(session)
+            .iter()
+            .position(|candidate| candidate == word)
+            .unwrap_or_else(|| panic!("missing {word} in {:?}", words(session)))
+    };
+    // 每一项：26 键的输入、九宫格的数字、词、紧跟它的 emoji。
+    let cases = [
+        ("meiguo", "634486", "美国", "🇺🇸"),
+        ("jinggao", "5464426", "警告", "⚠️"),
+        ("ji", "54", "鸡", "🐔"),
+        ("li", "54", "梨", "🍐"),
+    ];
+    let mut session = fixture.session_with(|options| {
+        options.expressive.emoji_candidates = true;
+        options.expressive.kaomoji_candidates = true;
+    });
+    for nine_key in [false, true] {
+        session.set_nine_key_enabled(nine_key);
+        for (letters, digits, word, emoji) in cases {
+            type_text(&mut session, if nine_key { digits } else { letters });
+            let at = position(&session, word);
+            assert!(at > 0 || word == words(&session)[0]);
+            assert_eq!(position(&session, emoji), at + 1, "{nine_key} {word}");
+            assert_eq!(
+                session.snapshot().candidates[at + 1].source,
+                CandidateSource::Emoji
+            );
+            session.command(Command::Cancel);
+        }
+        // 🇺🇲 画的不是 美国，排在末尾，后面只有接不上的颜文字；警告 的颜文字接在 ⚠️ 后面。
+        type_text(&mut session, if nine_key { "634486" } else { "meiguo" });
+        let listed = words(&session);
+        assert_eq!(listed[listed.len() - 2..], ["🇺🇲", "(•̀ᴗ•́)و"], "{nine_key}");
+        session.command(Command::Cancel);
+        type_text(&mut session, if nine_key { "5464426" } else { "jinggao" });
+        assert_eq!(
+            words(&session)[..3],
+            ["警告", "⚠️", "(ﾟДﾟ≡ﾟдﾟ)!?"],
+            "{nine_key}"
+        );
+        session.command(Command::Cancel);
+    }
+
+    // 默认两个开关都关：九宫格不混入。
+    let mut off = fixture.session();
+    off.set_nine_key_enabled(true);
+    type_text(&mut off, "634486");
+    assert!(!off.snapshot().candidates.iter().any(|item| matches!(
+        item.source,
+        CandidateSource::Emoji | CandidateSource::Kaomoji
+    )));
 }

@@ -72,6 +72,15 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
+        <!-- The last step's way out without signing in, paired with 登录 on the trailing edge as in the design's Android footer. The style's negative start margin is for the leading edge, so it is reset here. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/onboarding_later"
+            style="@style/Widget.MSIME.OnboardingText"
+            android:layout_marginStart="0dp"
+            android:layout_marginEnd="8dp"
+            android:text="@string/onboarding_later"
+            android:visibility="gone" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/onboarding_next"
             android:layout_width="wrap_content"

@@ -231,3 +231,109 @@ export function keyboardHeatmapModel(
 export function keyHeatLevel(count: number, maximum: number): number {
   return count <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((count / maximum) * 4)));
 }
+
+/** 统计概览的按键热力图画哪种屏幕键盘。 */
+export type PhoneHeatmapLayout = "full" | "nine";
+
+const phoneKey = (label: string, code: string, weight = 1): PreviewKey => ({ label, weight, code });
+const phoneLetters = (text: string) => [...text].map((letter) => phoneKey(letter, `Key${letter}`));
+
+/**
+ * 统计概览画的手机键盘，按 Android 的 `KeyHeatmapView` 布局：26 键键盘每行十个单位、按键居中，以及带两侧列的九宫格。每个键带着键盘记录的 id，计数因此落在按下的那个键帽上；`Nine1` 按鸿蒙九宫格的印字读作「分词」。
+ */
+export const phoneHeatmapRows: Record<PhoneHeatmapLayout, PreviewKey[][]> = {
+  full: [
+    phoneLetters("QWERTYUIOP"),
+    phoneLetters("ASDFGHJKL"),
+    [phoneKey("⇧", "ShiftLeft", 1.5), ...phoneLetters("ZXCVBNM"), phoneKey("⌫", "Backspace", 1.5)],
+    [
+      phoneKey("123", "SoftLayer", 1.25),
+      phoneKey("中", "SoftLanguage"),
+      phoneKey("，", "Comma"),
+      phoneKey("空格", "Space", 4.25),
+      phoneKey("。", "Period"),
+      phoneKey("↵", "Enter", 1.5),
+    ],
+  ],
+  nine: [
+    [
+      phoneKey("，", "Comma"),
+      phoneKey("分词", "Nine1", 1.4),
+      phoneKey("ABC", "Nine2", 1.4),
+      phoneKey("DEF", "Nine3", 1.4),
+      phoneKey("⌫", "Backspace"),
+    ],
+    [
+      phoneKey("。", "Period"),
+      phoneKey("GHI", "Nine4", 1.4),
+      phoneKey("JKL", "Nine5", 1.4),
+      phoneKey("MNO", "Nine6", 1.4),
+      phoneKey("符", "SoftSymbol"),
+    ],
+    [
+      phoneKey("标点", "SoftPunctuation"),
+      phoneKey("PQRS", "Nine7", 1.4),
+      phoneKey("TUV", "Nine8", 1.4),
+      phoneKey("WXYZ", "Nine9", 1.4),
+      phoneKey("0", "Nine0"),
+    ],
+    [
+      phoneKey("123", "SoftLayer"),
+      phoneKey("中", "SoftLanguage"),
+      phoneKey("空格", "Space", 2.8),
+      phoneKey("↵", "Enter", 1.4),
+    ],
+  ],
+};
+
+/** 九宫格按键是否比字母键按得更多，据此选择热力图打开时的布局。 */
+export function prefersNineKey(counts: Record<string, number>): boolean {
+  let letters = 0;
+  let cells = 0;
+  for (const [code, count] of Object.entries(counts)) {
+    if (code.startsWith("Key")) letters += count;
+    if (code.startsWith("Nine")) cells += count;
+  }
+  return cells > letters;
+}
+
+/**
+ * 统计概览热力图上一个计数的深浅档（0–4），相对于所画的最大计数：没有为 0 档，其余按峰值的四等分落档。即 Android 的 `HeatmapView.level`，打字少的人也能看出哪些天或哪些键突出。
+ */
+export function summaryHeatLevel(count: number, peak: number): number {
+  if (count <= 0 || peak <= 0) return 0;
+  const ratio = count / peak;
+  if (ratio > 0.75) return 4;
+  if (ratio > 0.5) return 3;
+  if (ratio > 0.25) return 2;
+  return 1;
+}
+
+/** `layout` 所画按键中的最大计数，即深浅档参照的峰值。 */
+export function phoneHeatmapPeak(
+  counts: Record<string, number>,
+  layout: PhoneHeatmapLayout,
+): number {
+  let peak = 0;
+  for (const row of phoneHeatmapRows[layout])
+    for (const key of row) if (key.code) peak = Math.max(peak, counts[key.code] ?? 0);
+  return peak;
+}
+
+/**
+ * `layout` 中按得最多的拼写键：26 键键盘上是一个字母，九宫格上是一个带字母的格（2–9）。一个都没按过时为 null。
+ */
+export function phoneHeatmapLeader(
+  counts: Record<string, number>,
+  layout: PhoneHeatmapLayout,
+): { label: string; count: number } | null {
+  let best: { label: string; count: number } | null = null;
+  for (const row of phoneHeatmapRows[layout])
+    for (const key of row) {
+      const code = key.code ?? "";
+      const spelling = layout === "nine" ? /^Nine[2-9]$/.test(code) : /^Key[A-Z]$/.test(code);
+      const count = counts[code] ?? 0;
+      if (spelling && count > (best?.count ?? 0)) best = { label: key.label, count };
+    }
+  return best;
+}

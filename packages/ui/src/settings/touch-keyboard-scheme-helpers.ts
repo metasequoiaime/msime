@@ -324,3 +324,85 @@ export function selectHomeTouchKeyboardScheme(
   const next = selectTouchKeyboardScheme(preferences, scheme, handwritingScheme);
   return { ...next, touch_keyboard_schemes: { enabled, selected: scheme } };
 }
+
+// ---- 语言与方案（HarmonyOS 手机） ----
+
+export type TouchKeyboardLanguageId =
+  | "mandarin"
+  | "cantonese"
+  | "japanese"
+  | "korean"
+  | "vietnamese"
+  | "tibetan";
+
+/** 「语言与方案」卡片中的一种语言：徽标、名称，以及按面板顺序排列的触摸方案。 */
+export interface TouchKeyboardLanguage {
+  id: TouchKeyboardLanguageId;
+  badge: string;
+  title: string;
+  schemes: readonly TouchKeyboardScheme[];
+}
+
+/** 按语言分组的触摸方案，移植自 Android `TypingPage` 的 `Language` 枚举。英文没有自己的触摸方案（它是每种键盘的一种模式），所以这里不算一种语言。 */
+export const touchKeyboardLanguages: readonly TouchKeyboardLanguage[] = [
+  {
+    id: "mandarin",
+    badge: "汉",
+    title: "普通话",
+    schemes: [
+      "quanpin",
+      "nine_key",
+      "xiaohe",
+      "ziranma",
+      "microsoft",
+      "shoudao",
+      "wubi",
+      "zhuyin",
+      "zhuyin_nine_key",
+      "stroke",
+      "handwriting",
+    ],
+  },
+  { id: "cantonese", badge: "粤", title: "粤语", schemes: ["cantonese"] },
+  { id: "japanese", badge: "あ", title: "日语", schemes: ["japanese", "japanese_nine_key"] },
+  { id: "korean", badge: "한", title: "韩语", schemes: ["korean"] },
+  { id: "vietnamese", badge: "Vi", title: "越南语", schemes: ["vietnamese"] },
+  { id: "tibetan", badge: "བོད", title: "藏语", schemes: ["tibetan"] },
+];
+
+/** 本宿主和本版本提供的该语言方案（`available` 是设置页显示的已过滤方案列表），按该语言自身的顺序排列。 */
+export function offeredLanguageSchemes(
+  language: TouchKeyboardLanguage,
+  available: readonly TouchKeyboardScheme[],
+): TouchKeyboardScheme[] {
+  return language.schemes.filter((scheme) => available.includes(scheme));
+}
+
+/** 语言行显示的方案：选中的方案属于该语言时就是它，否则是该语言按已启用列表顺序的第一个已启用方案；该语言提供的方案都未启用时为 null。 */
+export function shownLanguageScheme(
+  language: TouchKeyboardLanguage,
+  selected: TouchKeyboardScheme,
+  enabled: readonly TouchKeyboardScheme[],
+  available: readonly TouchKeyboardScheme[],
+): TouchKeyboardScheme | null {
+  const offered = offeredLanguageSchemes(language, available);
+  if (offered.includes(selected) && enabled.includes(selected)) return selected;
+  return enabled.find((scheme) => offered.includes(scheme)) ?? null;
+}
+
+/** 移除某种语言时键盘退回的方案：按选择器顺序，另一种语言中第一个已启用且已提供的方案；移除后会没有任何方案启用时为 null。普通话永远不会被移除。 */
+export function languageRemovalFallback(
+  language: TouchKeyboardLanguage,
+  enabled: readonly TouchKeyboardScheme[],
+  available: readonly TouchKeyboardScheme[],
+): TouchKeyboardScheme | null {
+  if (language.id === "mandarin") return null;
+  return (
+    allTouchKeyboardSchemes.find(
+      (scheme) =>
+        !language.schemes.includes(scheme) &&
+        enabled.includes(scheme) &&
+        available.includes(scheme),
+    ) ?? null
+  );
+}

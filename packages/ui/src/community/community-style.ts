@@ -40,7 +40,7 @@ export const headingNote = "mt-[5px] mb-0 [font-size:var(--p-sub-fs)] [color:var
  * past the right edge with nothing to scroll it into view.
  */
 export const headingActions =
-  "flex shrink-0 grow-0 basis-auto flex-col items-end gap-2 max-tight:flex-row max-tight:flex-wrap max-tight:items-center max-tight:justify-start [&>button]:m-0 [&>button]:whitespace-nowrap [&>.primary]:rounded-lg [&>.primary]:border [&>.primary]:border-accent-soft-border [&>.primary]:bg-accent-strong [&>.primary]:px-3 [&>.primary]:py-[7px] [&>.primary]:text-white";
+  "flex shrink-0 grow-0 basis-auto flex-col items-end gap-2 max-tight:flex-row max-tight:flex-wrap max-tight:items-center max-tight:justify-start [&>button]:m-0 [&>button]:whitespace-nowrap [&>.primary]:rounded-lg [&>.primary]:border [&>.primary]:border-accent-soft-border [&>.primary]:bg-accent-strong [&>.primary]:px-3 [&>.primary]:py-[7px] [&>.primary]:text-white harmony:[&>.primary]:[color:var(--p-on-accent)] hm2:[&>.primary]:[color:var(--p-on-accent)]";
 /**
  * A scope switch that stays put. Two buttons fit a phone, and the skin gallery has exactly two -- the
  * stylesheet hid these below 560px for every page, which left that gallery with no way to reach 我的作品
@@ -141,3 +141,71 @@ export const categoryTabsPair =
   "grid grid-cols-2 gap-[3px] rounded-[9px] bg-subtle p-[3px] [&>button]:min-h-[34px] [&>button]:rounded-[7px] [&>button]:border-0 [&>button]:bg-transparent [&>button]:text-secondary [&>button[aria-selected=true]]:bg-raised [&>button[aria-selected=true]]:text-body [&>button[aria-selected=true]]:shadow-card";
 /** The kind filter above the plugin gallery. */
 export const kindFilter = "flex flex-wrap gap-1.5 [&>button]:m-0 [&>button]:whitespace-nowrap";
+
+/*
+ * HarmonyOS 手机的「社区」标签页（`look="harmony"`）。设计稿绘制的图库不带桌面端外框：胶囊分段控件、胶囊搜索框、可横向滚动的标签行、无边框的 20px 卡片，以及不打开条目就能直接操作的 tonal 胶囊。下面每个类都只用于这种外观，其他宿主沿用上面那套图库样式，保持不变。
+ */
+
+/** 标签页的纵向堆叠：分段控件、搜索框、标签行和列表之间各隔 16px。 */
+export const harmonyPage = "flex min-w-0 flex-col gap-4";
+/** 「皮肤 | 词库 | 短语」三段控件：通栏胶囊轨道，选中项上浮起一个胶囊。 */
+export const harmonySegments =
+  "grid grid-cols-3 gap-0.5 rounded-full bg-[var(--p-seg-bg)] p-0.5 [&>button]:m-0 [&>button]:rounded-full [&>button]:border-0 [&>button]:bg-transparent [&>button]:py-1.5 [&>button]:text-[13px] [&>button]:[color:var(--p-sub)] [&>button[aria-selected=true]]:bg-[var(--p-seg-on)] [&>button[aria-selected=true]]:[color:var(--accent-color)] [&>button[aria-selected=true]]:shadow-[var(--p-seg-on-shadow)]";
+/** 单个胶囊搜索框，按 Enter 提交；设计稿没有单独的「搜索」按钮。 */
+export const harmonySearch =
+  "box-border h-10 w-full min-w-0 rounded-full border-0 bg-[var(--p-seg-bg)] px-4 font-[inherit] text-[14px] [color:var(--p-text)] outline-none placeholder:[color:var(--p-sub)] focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--accent-color)]";
+/** 搜索框下方的标签行。它横向滚动而不换行，手机上所有标签都保持在一行。 */
+export const harmonyChips =
+  "flex min-w-0 items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+export const harmonyChip =
+  "m-0 shrink-0 rounded-full border-0 bg-[var(--p-seg-bg)] px-3 py-1.5 text-[13px] whitespace-nowrap [color:var(--p-sub)] aria-pressed:bg-accent-soft aria-pressed:font-semibold aria-pressed:[color:var(--accent-color)]";
+/** 标签行末尾的范围与发布入口：纯强调色文字，比标签更低调。 */
+export const harmonyChipAction =
+  "m-0 shrink-0 rounded-full border-0 bg-transparent px-2 py-1.5 text-[13px] whitespace-nowrap [color:var(--accent-color)] aria-pressed:font-semibold";
+export const harmonyChipDivider = "h-4 w-px shrink-0 bg-[var(--p-hair)]";
+/** 列表下方的「加载更多」，做成低调的文字按钮。 */
+export const harmonyMore =
+  "m-0 self-center rounded-full border-0 bg-transparent px-4 py-2 text-[13px] [color:var(--accent-color)]";
+export const harmonyNotice = "m-0 py-6 text-center text-[13px] [color:var(--p-sub)]";
+
+export const harmonyGrid = "grid grid-cols-2 gap-3";
+/** 皮肤卡片：在分组底色上无边框、无阴影。点整张卡片打开详情；卡片底部的胶囊直接执行操作，不打开详情。 */
+export const harmonySkinCard =
+  "flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-[20px] bg-[var(--p-group-bg)] text-left [color:var(--p-text)]";
+/** 预览距卡片顶部和两侧各 8px，自身上方两角为圆角，让键盘看起来像卡片里的一块屏幕。它绘制手机缩略图（`ScreenKeyboardPreview thumbnail`），即设计稿中工具栏加四行按键的键盘。 */
+export const harmonySkinStage = "block px-2 pt-2";
+export const harmonySkinStageClip =
+  "block overflow-hidden rounded-t-lg bg-[var(--skin-preview-stage-bg)]";
+export const harmonySkinFooter = "flex min-w-0 items-center gap-2 px-2.5 pt-2.5 pb-3";
+/** 卡片底部的文字列。它是卡片上可获得焦点的控件，键盘或读屏器可以借它像点击卡片那样打开详情。 */
+export const harmonySkinText =
+  "m-0 flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 border-0 bg-transparent p-0 text-left font-[inherit] [color:inherit]";
+export const harmonySkinName = "truncate text-[14px] font-semibold [color:var(--p-text)]";
+export const harmonySkinMeta = "truncate text-[11px] [color:var(--p-sub)]";
+/** 皮肤的「获取 / 使用 / 使用中」胶囊；颜色来自 `harmonyPillTonal` 或 `harmonyPillDone`。 */
+export const harmonySkinPill =
+  "m-0 shrink-0 rounded-full border-0 px-3 py-1 text-[12px] font-semibold whitespace-nowrap";
+/** 仍有操作可做的胶囊（获取、使用、添加）；操作进行中时变暗。 */
+export const harmonyPillTonal = "bg-accent-soft [color:var(--accent-color)] disabled:opacity-60";
+/** 没有操作可做后胶囊停留的状态：皮肤上是「使用中」，词库或回复模板上是「已添加」。它处于禁用状态，但不变暗。 */
+export const harmonyPillDone = "bg-[var(--p-seg-bg)] [color:var(--p-sub)] disabled:opacity-100";
+
+/** 词库和回复模板列表：一张由多行组成的分组卡片。 */
+export const harmonyList =
+  "flex min-w-0 flex-col overflow-hidden rounded-[20px] bg-[var(--p-group-bg)]";
+export const harmonyRow =
+  "flex min-w-0 cursor-pointer items-center gap-3 border-t border-[var(--p-hair)] px-3.5 py-3 first:border-t-0";
+/** 行首徽标：tonal 底色方块上显示名称的首字。 */
+export const harmonyRowTile =
+  "grid size-10 shrink-0 place-items-center rounded-[10px] bg-accent-soft text-[16px] font-bold [color:var(--accent-color)]";
+export const harmonyRowText =
+  "m-0 flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 border-0 bg-transparent p-0 text-left font-[inherit] [color:inherit]";
+export const harmonyRowName = "truncate text-[15px] font-semibold [color:var(--p-text)]";
+export const harmonyRowMeta = "text-[12px] [color:var(--p-sub)]";
+export const harmonyRowDescription = "truncate text-[12px] [color:var(--p-sub)]";
+/** 行的「添加 / 已添加」胶囊；颜色来自 `harmonyPillTonal` 或 `harmonyPillDone`。 */
+export const harmonyRowPill =
+  "m-0 shrink-0 rounded-full border-0 px-3.5 py-[5px] text-[13px] font-semibold whitespace-nowrap";
+/** 「短语」分段里回复模板上方的分节标题。Android 用 14px 顶部内边距把它和上方的短语包隔开；本宿主没有短语包，它直接位于标签行之下，堆叠间距已经留出了这段空间。 */
+export const harmonySectionTitle =
+  "m-0 px-5 pb-2 text-[14px] font-medium [color:var(--accent-color)]";

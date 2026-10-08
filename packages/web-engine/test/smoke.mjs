@@ -1,4 +1,4 @@
-// 对组装好的 npm 包（scripts/build-web-engine.sh 写出的 target/web-engine/npm/package）做端到端冒烟：用 Node 的 HTTP 服务器提供 wasm 和 gzip 过的词库，经 createMsimeEngine、worker.js 的消息处理、加载代码和 wasm 打 nihao + 空格，断言上屏；再验证不带词库的韩文、带最小日语模型的日语、CLI 的 copy、方案切换、点选、404 和缺词库时的错误。
+// 对组装好的 npm 包（scripts/build-web-engine.sh 写出的 target/web-engine/npm/package）做端到端冒烟：用 Node 的 HTTP 服务器提供 wasm 和 gzip 过的词库，经 createMsimeEngine、worker.js 的消息处理、加载代码和 wasm 打 nihao + 空格，断言上屏；再验证手到和微软双拼、用包里真实辅助码表的辅助码开关、不带词库的韩文、带最小日语模型的日语、CLI 的 copy、方案切换、点选、404 和缺词库时的错误。
 //
 // Node 没有浏览器的 Worker，这里用一个同进程的替身：把消息结构化克隆后交给 worker.js 导出的 createWorkerHandler，回复同样克隆后作为 message 事件派发。真正的 Worker 加载路径由浏览器测试覆盖。
 //
@@ -6,12 +6,12 @@
 // 词库通常是 `cargo run -p msime-engine-wasm --example make_fixture -- target/web-engine/fixture/msime.db` 写出的最小夹具。
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const args = process.argv.slice(2);
@@ -66,8 +66,15 @@ const rawJapanese = japaneseModel([
 ]);
 const gzJapanese = gzipSync(rawJapanese);
 
+// 包里的辅助码表（assets.js 的 helpcodes 记着名字和大小），经 /pkg/<文件名> 原样提供。
+const { helpcodes: helpcodeFiles } = await import(pathToFileURL(join(pkgDir, "assets.js")).href);
+
 const server = createServer((req, res) => {
-  if (req.url === "/msime-japanese.dat.gz") {
+  const packaged = req.url.startsWith("/pkg/helpcode-") ? join(pkgDir, "assets", req.url.slice("/pkg/".length)) : null;
+  if (packaged && existsSync(packaged)) {
+    res.writeHead(200, { "Content-Type": "application/gzip" });
+    res.end(readFileSync(packaged));
+  } else if (req.url === "/msime-japanese.dat.gz") {
     res.writeHead(200, { "Content-Type": "application/gzip" });
     res.end(gzJapanese);
   } else if (req.url === "/msime_engine_bg.wasm") {
@@ -155,6 +162,84 @@ try {
   await assert.rejects(engine.keys(letters("a")), (e) => e.code === "disposed");
   assert.equal(errors, 0);
 
+  // 3a. 手到、微软双拼和辅助码。包里每个辅助码方案都有一张表，解压后和 assets.js 记的大小一致；行为用包里真实的小鹤形码表：尼的两码打在 ni 后面（第三键小写、第四键按 Shift），筛出码相同的字。
+  assert.deepEqual(Object.keys(helpcodeFiles), [...sdk.HELPCODES]);
+  const helpcodeAssets = Object.fromEntries(
+    Object.entries(helpcodeFiles).map(([schema, file]) => {
+      const raw = gunzipSync(readFileSync(join(pkgDir, "assets", file.name)));
+      assert.equal(raw.length, file.rawSize, `${file.name} size`);
+      return [schema, { url: `${origin}/pkg/${file.name}`, size: file.size, rawSize: file.rawSize }];
+    }),
+  );
+  const xiaoheCodes = new Map(
+    gunzipSync(readFileSync(join(pkgDir, "assets", helpcodeFiles.xiaohe.name)))
+      .toString("utf8")
+      .split("\n")
+      .map((line) => line.trim().split("="))
+      .filter((pair) => pair.length === 2),
+  );
+  const ni = xiaoheCodes.get("尼")?.slice(0, 2);
+  assert.match(ni ?? "", /^[a-z]{2}$/, "the xiaohe table has a two-letter code for 尼");
+  const sameCode = ["你", "呢", "尼"].filter((c) => xiaoheCodes.get(c)?.slice(0, 2) === ni);
+  const helpcodeKeys = [...letters(`ni${ni[0]}`), packKey(KeyKind.ShiftLetter, ni.toUpperCase().charCodeAt(1))];
+  const shuangpin = await sdk.createMsimeEngine({
+    worker: () => new InProcessWorker(),
+    scheme: "shoudao",
+    helpcode: "xiaohe",
+    assets: { ...assets(), helpcodes: helpcodeAssets },
+  });
+  assert.equal(shuangpin.scheme, "shoudao");
+  assert.equal(shuangpin.helpcode, "xiaohe");
+  // 手到的 ao 在 d。
+  assert.equal((await shuangpin.keys(letters("nihd"))).page[0]?.text, "你好");
+  assert.deepEqual((await shuangpin.keys(packKey(KeyKind.Space))).out, [{ t: "commit", text: "你好", seat: 0 }]);
+  const hinted = await shuangpin.keys(letters("ni"));
+  const niRow = hinted.page.find((row) => row.text === "尼");
+  assert.equal(niRow?.hint, `(${ni[0]}${ni[1].toUpperCase()})`, JSON.stringify(hinted.page));
+  await shuangpin.keys(packKey(KeyKind.Escape));
+  const filtered = await shuangpin.keys(helpcodeKeys);
+  assert.deepEqual(filtered.page.map((row) => row.text), sameCode, JSON.stringify(filtered.page));
+  await shuangpin.keys(packKey(KeyKind.Escape));
+  // 换到微软双拼保留辅助码；微软的 `;` 是 ing。
+  await shuangpin.setScheme("microsoft");
+  assert.equal(shuangpin.helpcode, "xiaohe");
+  assert.equal((await shuangpin.keys([...letters("b"), packKey(KeyKind.Punct, ";".charCodeAt(0))])).page[0]?.text, "冰");
+  await shuangpin.keys(packKey(KeyKind.Escape));
+  assert.deepEqual((await shuangpin.keys(helpcodeKeys)).page.map((row) => row.text), sameCode);
+  await shuangpin.keys(packKey(KeyKind.Escape));
+  // 关掉：提示消失，第三键回到下一个音节的声母。
+  await shuangpin.setHelpcode(null);
+  assert.equal(shuangpin.helpcode, null);
+  assert.ok((await shuangpin.keys(letters("ni"))).page.every((row) => row.hint === ""));
+  await shuangpin.keys(packKey(KeyKind.Escape));
+  // 换一张表；未知的方案、缺表和下载失败都只让这次调用 reject，引擎照常可用，设置不变。
+  await shuangpin.setHelpcode("lantian");
+  assert.equal(shuangpin.helpcode, "lantian");
+  await assert.rejects(shuangpin.setHelpcode("nope"), (e) => e.code === "engine");
+  shuangpin.dispose();
+  const partial = await sdk.createMsimeEngine({
+    worker: () => new InProcessWorker(),
+    scheme: "quanpin",
+    assets: { ...assets(), helpcodes: { xiaohe: helpcodeAssets.xiaohe, lantian: { ...helpcodeAssets.lantian, url: `${origin}/missing.txt.gz` } } },
+  });
+  assert.equal(partial.helpcode, null);
+  await assert.rejects(partial.setHelpcode("jiajia"), (e) => e.code === "unsupported");
+  await assert.rejects(partial.setHelpcode("lantian"), (e) => e.code === "network" && /HTTP 404/.test(e.message));
+  assert.equal(partial.helpcode, null);
+  // 全拼的辅助码是音节后的大写字母。
+  await partial.setHelpcode("xiaohe");
+  const quanpinFiltered = await partial.keys([...letters("ni"), ...[...ni.toUpperCase()].map((c) => packKey(KeyKind.ShiftLetter, c.charCodeAt(0)))]);
+  assert.deepEqual(quanpinFiltered.page.map((row) => row.text), sameCode);
+  partial.dispose();
+  // 五笔没有辅助码：选项被忽略，不下载表。
+  const wubi = await sdk.createMsimeEngine({ worker: () => new InProcessWorker(), scheme: "wubi86", helpcode: "xiaohe", assets: { ...assets(), helpcodes: helpcodeAssets } });
+  assert.equal(wubi.helpcode, null);
+  await wubi.setHelpcode("lantian");
+  assert.equal(wubi.helpcode, null);
+  wubi.dispose();
+  await assert.rejects(sdk.createMsimeEngine({ worker: () => new InProcessWorker(), helpcode: "nope", assets: assets() }), /unknown helpcode/);
+  console.log(`smoke: shoudao nihd -> 你好, microsoft b; -> 冰, helpcode xiaohe ni${ni[0]}${ni[1].toUpperCase()} -> ${sameCode.join("")}`);
+
   // 3b. 韩文只下载 wasm：不导入词库也能拼音节，Shift 打双辅音，空格先上屏音节再打出自己。
   const korean = await sdk.createMsimeEngine({
     worker: () => new InProcessWorker(),
@@ -213,6 +298,11 @@ try {
     assert.ok(existsSync(join(out, f)), `copy did not write ${f}`);
   }
   assert.ok(!existsSync(join(out, "assets/sentence-model.safetensors.gz")), "--no-model still copied the model");
+  for (const file of Object.values(helpcodeFiles)) assert.ok(existsSync(join(out, "assets", file.name)), `copy did not write ${file.name}`);
+  const bare = join(tmp, "site/bare");
+  execFileSync(process.execPath, [join(pkgDir, "bin/msime-web-engine.mjs"), "copy", bare, "--no-helpcode"], { stdio: "pipe" });
+  assert.deepEqual(readdirSync(join(bare, "assets")).filter((name) => name.startsWith("helpcode-")), [], "--no-helpcode still copied helpcode tables");
+  assert.match(execFileSync(process.execPath, [join(pkgDir, "bin/msime-web-engine.mjs"), "info"], { encoding: "utf8" }), /helpcode-jiajia\.txt\.gz/);
   const copied = await import(pathToFileURL(join(out, "index.js")).href);
   assert.equal(copied.version, sdk.version);
   // 皮肤表是构建时生成进包里的：复制出的目录也能解析每个内置皮肤。

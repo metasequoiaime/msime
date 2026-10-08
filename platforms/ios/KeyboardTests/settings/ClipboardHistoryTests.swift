@@ -146,6 +146,28 @@ final class ClipboardHistoryTests: XCTestCase {
     XCTAssertTrue(closed)
   }
 
+  /// 按键区里的紧凑面板在手机横屏只有约 168pt 高：搜索时字母键盘让出高度，结果表仍放得下一张单行卡片。
+  @MainActor func testCompactSearchKeepsARowOfResultsInALandscapeKeyArea() throws {
+    let store = try temporaryStore()
+    try store.add("验证码 804512")
+    let panel = KeyboardClipboardView(hasFullAccess: true, store: store, showsHeader: false, onInsert: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 844, height: 168)
+    panel.layoutIfNeeded()
+    panel.beginSearch()
+    panel.layoutIfNeeded()
+    let table = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "clipboardHistoryList" })
+    let pad = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "clipboardSearchPad" })
+    XCTAssertFalse(pad.isHidden)
+    XCTAssertGreaterThanOrEqual(table.bounds.height, 44 - 0.5)
+    XCTAssertLessThanOrEqual(table.frame.maxY, pad.frame.minY + 0.5)
+    XCTAssertGreaterThan(pad.bounds.height, 0)
+    // 退出搜索后不再要求结果表的最小高度，字母键盘收起，结果表回到面板底部。
+    panel.endSearch()
+    panel.layoutIfNeeded()
+    XCTAssertTrue(pad.isHidden)
+    XCTAssertEqual(table.frame.maxY, panel.bounds.maxY, accuracy: 0.5)
+  }
+
   private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
 
   private func view(_ identifier: String, in root: UIView) throws -> UIControl {

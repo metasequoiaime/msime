@@ -40,247 +40,405 @@ struct KeyboardSettingsView: View {
   }
 }
 
+/// 输入页：语言与方案、中文选项、辅助码、候选翻译和其余输入开关，对应 Android 的 `TypingPage`。
+///
+/// 除了五笔的几个开关和「沿用上次的中英文」由键盘从 App Group 读取，这里其余各项都以共享偏好文档为准。每个控件都写这份文档，页面每次写完都重新读回，免得显示一个键盘其实没有的设置。
 struct InputSettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
-  @AppStorage(KeyboardFeedbackPreference.soundKey, store: KeyboardFeedbackPreference.defaults)
-  private var soundEnabled = true
-  @AppStorage(KeyboardFeedbackPreference.hapticsKey, store: KeyboardFeedbackPreference.defaults)
-  private var hapticsEnabled = false
-  @AppStorage(KeyboardFeedbackPreference.strengthKey, store: KeyboardFeedbackPreference.defaults)
-  private var hapticStrength = KeyboardHapticStrength.medium.rawValue
   @AppStorage(WubiMixedPinyinPreference.enabledKey, store: WubiMixedPinyinPreference.defaults)
   private var wubiMixedPinyin = MSIMEAppEdition.wubiMixedPinyinDefault
   @AppStorage(WubiCodeHintPreference.enabledKey, store: WubiCodeHintPreference.defaults)
   private var wubiCodeHint = true
-  @State private var previewFeedback: UIImpactFeedbackGenerator?
+  /// 最近一次读到的共享文档；拼音纠错和辅助码两行直接读它。
+  @State private var document: [String: Any]?
   @State private var inputScheme = InputSchemePreference.scheme
   @State private var enabledSchemes = InputSchemePreference.enabledSchemes
-  @State private var usesTraditionalOutput = ChineseOutputPreference.usesTraditional
-  @State private var startsInEnglish = false
-  @State private var defaultModeSaveFailed = false
-  @State private var schemeSaveFailed = false
-  @State private var outputSaveFailed = false
   @State private var wubiProfile = WubiProfilePreference.profile
-  @State private var wubiProfileSaveFailed = false
+  @State private var usesTraditionalOutput = ChineseOutputPreference.usesTraditional
+  @State private var fuzzy = FuzzyPinyinPreference.Settings.pristine
+  @State private var habits = InputHabitPreference.mirrored
+  @State private var startsInEnglish = false
   @State private var remembersImeMode = false
-  @State private var sentenceLevel = SentenceAssociationPreference.Level.standard
-  @State private var sentenceSaveFailed = false
-  /// The shared document as last read, for the candidate preview at the top (dc.html: 输入 leads with the same card as 主题 and 候选栏).
-  @State private var document: [String: Any]?
-  @Environment(\.colorScheme) private var colorScheme
+  @State private var addingLanguage = false
+  @State private var failedGroup: PageGroup?
 
-  var body: some View {
-    Form {
-        Section {
-          CandidatePreviewCard(theme: KeyboardTheme.resolve(document: document), document: document,
-                               systemDark: colorScheme == .dark)
-        }
-        .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets())
-        Section {
-          // 只列本版本提供的入口；full 列出全部方案。
-          ForEach(ChineseInputScheme.allCases.filter(\.isOfferedByEdition), id: \.self) { scheme in
-            HStack {
-              Button {
-                schemeSaveFailed = !InputSchemePreference.select(scheme)
-                reloadPreferences()
-              } label: {
-                HStack {
-                  Text(scheme.title).foregroundStyle(.primary)
-                  Spacer()
-                  if inputScheme == scheme {
-                    Image(systemName: "checkmark")
-                      .foregroundStyle(MetasequoiaTheme.accent)
-                      .accessibilityHidden(true)
-                  }
-                }
-              }
-              .buttonStyle(.plain)
-              .accessibilityIdentifier("inputScheme_\(scheme.rawValue)")
-              .accessibilityValue(inputScheme == scheme ? "已选择" : "未选择")
-              .accessibilityAddTraits(inputScheme == scheme ? [.isSelected] : [])
-              .disabled(!enabledSchemes.contains(scheme))
-              Toggle(scheme.title, isOn: Binding(get: { enabledSchemes.contains(scheme) }, set: { enabled in
-                schemeSaveFailed = !InputSchemePreference.setEnabled(scheme, enabled)
-                reloadPreferences()
-              }))
-              .labelsHidden()
-              .disabled(enabledSchemes.count == 1 && enabledSchemes.contains(scheme))
-              .accessibilityIdentifier("enabledInputScheme_\(scheme.rawValue)")
-            }
+  private enum PageGroup { case languages, chinese, helpcode, translation, more }
 
-          }
-        } header: {
-          Text("输入方案")
-        } footer: {
-          Text(schemeSaveFailed
-            ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
-            : "开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。粤拼、大千注音和笔画读取随安装包附带的语言词库，没有词库时键盘不会显示对应方案；越南语和藏文切换回来时仍是原来的中文方案；藏文按威利转写（EWTS）输入，空格加音节点、斜杠加垂符。左右滑动空格可移动光标；滑动前会先完成当前输入。")
-        }
-
-        Section("高情商回复") {
-          Text("复制对方的话，点键盘工具栏上的回复按钮打开高情商回复面板，点“粘贴”后选择九宫格里的回复风格。支持帮你回、帮润色和换一句，点选回复插入聊天输入框。")
-            .font(.footnote).foregroundStyle(.secondary)
-          NavigationLink(destination: ServiceSettingsView(kind: .ai)) {
-            Label("配置键盘 AI", systemImage: "sparkles")
-          }
-        }
-
-        if enabledSchemes.contains(.wubi) {
-          Section("五笔") {
-            Picker("码表", selection: Binding(get: { wubiProfile }, set: { profile in
-              wubiProfile = profile
-              wubiProfileSaveFailed = !WubiProfilePreference.save(profile)
-              reloadPreferences()
-            })) {
-              ForEach(WubiProfilePreference.profiles, id: \.self) { Text(WubiProfilePreference.title($0)).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("wubiProfilePicker")
-            Text(wubiProfileSaveFailed
-              ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
-              : "86 版与 98 版的字根和编码不同，各用各的词库；个人词条和调频记录也分开保存，切换版本不会互相影响。")
-              .font(.footnote).foregroundStyle(.secondary)
-            Toggle("编码打不出时用拼音候选", isOn: $wubiMixedPinyin)
-              .accessibilityIdentifier("wubiMixedPinyin")
-            Text("五笔词库答不上当前编码时，用同一串字母查全拼。词库答得上的编码不受影响。")
-              .font(.footnote).foregroundStyle(.secondary)
-            Toggle("候选显示剩余编码", isOn: $wubiCodeHint)
-              .accessibilityIdentifier("wubiCodeHint")
-            Text("在候选后标出还要输入的字母；完整码、拼音回退和本地输入候选不标注。")
-              .font(.footnote).foregroundStyle(.secondary)
-          }
-        }
-
-        Section {
-          NavigationLink(destination: FuzzyPinyinSettingsView()) {
-            Label("模糊音", systemImage: "waveform.path")
-          }.accessibilityIdentifier("fuzzyPinyinSettingsLink")
-          NavigationLink(destination: PunctuationSettingsView()) {
-            Label("标点", systemImage: "textformat.abc.dottedunderline")
-          }.accessibilityIdentifier("punctuationSettingsLink")
-          NavigationLink(destination: HelpcodeSettingsView()) {
-            Label("辅助码", systemImage: "character.magnify")
-          }.accessibilityIdentifier("helpcodeSettingsLink")
-          NavigationLink(destination: LocalModeSettingsView()) {
-            Label("快捷模式", systemImage: "textformat.123")
-          }.accessibilityIdentifier("localModeSettingsLink")
-          NavigationLink(destination: ClipboardHistorySettingsView()) {
-            Label("剪贴板历史", systemImage: "doc.on.clipboard")
-          }.accessibilityIdentifier("clipboardHistorySettingsLink")
-        }
-
-        Section {
-          Picker("打开键盘时", selection: Binding(get: { startsInEnglish }, set: { english in
-            startsInEnglish = english
-            defaultModeSaveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
-              $0["default_ime_mode"] = english ? "english" : "chinese"
-            }
-            if defaultModeSaveFailed { reloadPreferences() }
-          })) {
-            Text("中文").tag(false)
-            Text("英文").tag(true)
-          }
-          .pickerStyle(.segmented)
-          .accessibilityIdentifier("defaultImeModePicker")
-          Toggle("沿用上次的中英文", isOn: Binding(get: { remembersImeMode }, set: { enabled in
-            remembersImeMode = enabled
-            ImeModeMemoryPreference.setEnabled(enabled)
-          }))
-          .accessibilityIdentifier("remembersImeModeToggle")
-        } header: {
-          Text("默认中英文")
-        } footer: {
-          Text(defaultModeSaveFailed
-            ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
-            : remembersImeMode
-              ? "新打开的键盘沿用你上次按中/英键选的模式，还没切换过时从上面的默认开始。网址、邮箱等输入框临时切到的英文不算。iOS 不告诉键盘正在哪个应用里输入，所以只能记住一个模式，不能像桌面端那样按应用记住。"
-              : "新打开的键盘从这里开始，与桌面端同步。按中/英键切换后，这次打开的键盘保持你的选择。iOS 不告诉键盘正在哪个应用里输入，所以不像桌面端那样按应用记住中英文。")
-        }
-
-        Section {
-          Picker("输出字形", selection: $usesTraditionalOutput) {
-            Text("简体").tag(false)
-            Text("繁体").tag(true)
-          }
-          .pickerStyle(.segmented)
-          .accessibilityIdentifier("chineseOutputPicker")
-          .onChange(of: usesTraditionalOutput) { value in
-            guard value != ChineseOutputPreference.usesTraditional else { return }
-            outputSaveFailed = !ChineseOutputPreference.save(value)
-            if outputSaveFailed { reloadPreferences() }
-          }
-        } header: {
-          Text("简繁体")
-        } footer: {
-          Text(outputSaveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : "应用于候选词和输入的文字。")
-        }
-
-        Section {
-          Picker("整句联想", selection: Binding(get: { sentenceLevel }, set: { level in
-            guard level != sentenceLevel else { return }
-            sentenceLevel = level
-            sentenceSaveFailed = !SentenceAssociationPreference.save(level)
-            if sentenceSaveFailed { reloadPreferences() }
-          })) {
-            ForEach(SentenceAssociationPreference.Level.allCases) { level in
-              Text(level.title).tag(level)
-            }
-          }
-          .pickerStyle(.segmented)
-          .accessibilityIdentifier("sentenceAssociationPicker")
-        } header: {
-          Text("整句联想")
-        } footer: {
-          Text(sentenceSaveFailed
-            ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
-            : "「增强」再用整句模型给候选排序，更准确，但更耗电，打字很快时可能跟不上。")
-        }
-
-        Section {
-          Toggle("按键音", isOn: $soundEnabled)
-            .accessibilityIdentifier("keyboardSoundToggle")
-          if KeyboardFeedbackPreference.hapticsAvailable {
-            Toggle("按键振动", isOn: $hapticsEnabled)
-              .accessibilityIdentifier("keyboardHapticsToggle")
-              .onChange(of: hapticsEnabled) { enabled in if enabled { previewHaptics() } }
-          }
-          if KeyboardFeedbackPreference.hapticsAvailable && hapticsEnabled {
-            Picker("振动强度", selection: $hapticStrength) {
-              ForEach(KeyboardHapticStrength.allCases, id: \.rawValue) { strength in
-                Text(strength.title).tag(strength.rawValue)
-              }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("keyboardHapticStrengthPicker")
-            .onChange(of: hapticStrength) { _ in previewHaptics() }
-            Button("试一下振动", action: previewHaptics)
-              .accessibilityIdentifier("previewKeyboardHaptics")
-          }
-        } header: {
-          Text("按键反馈")
-        } footer: {
-          Text(KeyboardFeedbackPreference.hapticsAvailable
-            ? "按键音受系统静音设置控制；振动效果取决于设备与系统支持。"
-            : "按键音受系统静音设置控制。")
-        }
-
-    }
-    .navigationTitle("输入")
-    .navigationBarTitleDisplayMode(.inline)
-      .onAppear(perform: reloadPreferences)
-      .onChange(of: scenePhase) { phase in
-        if phase == .active { reloadPreferences() }
-      }
+  /// 语言选项面板里的一个选项。
+  private enum LanguageChoice: Hashable {
+    case scheme(ChineseInputScheme)
+    case wubi(String)
+    case remove
   }
 
-  private func previewHaptics() {
-    guard hapticsEnabled else { return }
-    let strength = KeyboardHapticStrength(rawValue: hapticStrength) ?? .medium
-    let generator = UIImpactFeedbackGenerator(style: strength.style)
-    previewFeedback = generator
-    strength.impact(generator)
-    generator.prepare()
+  private static let saveFailure = "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
+
+  /// 页面可以提供的方案：本版本的全部条目，键盘扩展没带粤拼、注音、笔画的词库时去掉这几项，因为键盘那边也会把它们藏起来。
+  private static let availableSchemes = ChineseInputScheme.allCases.filter(\.isOfferedByEdition)
+    .filter { !$0.needsLanguageDictionary || InputLanguage.installedDictionarySchemes.contains($0) }
+
+  var body: some View {
+    ScrollView {
+      VStack(spacing: 28) {
+        DesignGroup(title: "语言与方案", footer: footer(.languages)) { languageCard }
+        chineseGroup
+        helpcodeGroup
+        translationGroup
+        moreGroup
+      }
+      .padding(.horizontal, 16)
+      .padding(.top, 16)
+      .padding(.bottom, 32)
+    }
+    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .navigationTitle("输入")
+    .navigationBarTitleDisplayMode(.inline)
+    .onAppear(perform: reloadPreferences)
+    .onChange(of: scenePhase) { _, phase in
+      if phase == .active { reloadPreferences() }
+    }
+  }
+
+  private func footer(_ group: PageGroup) -> String? {
+    failedGroup == group ? Self.saveFailure : nil
+  }
+
+  // MARK: - 语言与方案
+
+  private func available(_ language: InputLanguage) -> [ChineseInputScheme] {
+    language.schemes.filter(Self.availableSchemes.contains)
+  }
+
+  /// 有一行的语言：本版本有普通话就一定列出，其他语言要启用了其中某个方案才列出。
+  private var shownLanguages: [InputLanguage] {
+    InputLanguage.allCases.filter { language in
+      let schemes = available(language)
+      return !schemes.isEmpty && (!language.isRemovable || schemes.contains(where: enabledSchemes.contains))
+    }
+  }
+
+  /// 添加语言列出的语言：本页提供、但一个方案都没启用的那些。
+  private var addableLanguages: [InputLanguage] {
+    InputLanguage.allCases.filter { language in
+      let schemes = available(language)
+      return language.isRemovable && !schemes.isEmpty && !schemes.contains(where: enabledSchemes.contains)
+    }
+  }
+
+  /// 语言行上显示的方案：键盘当前方案属于该语言时就是它，否则是该语言第一个已启用的方案。
+  private func shownScheme(_ language: InputLanguage) -> ChineseInputScheme? {
+    let schemes = available(language)
+    if schemes.contains(inputScheme) && enabledSchemes.contains(inputScheme) { return inputScheme }
+    return schemes.first(where: enabledSchemes.contains)
+  }
+
+  @ViewBuilder private var languageCard: some View {
+    let languages = shownLanguages
+    let addable = addableLanguages
+    ForEach(Array(languages.enumerated()), id: \.element) { index, language in
+      if index > 0 { DesignDivider(leading: 58) }
+      let shown = shownScheme(language)
+      InputLanguageRow(language: language, value: shown?.shortLabel, options: options(for: language),
+                       selected: selectedChoice(in: language)) { choose($0, in: language) }
+    }
+    if addingLanguage {
+      ForEach(addable) { language in
+        DesignDivider(leading: 0)
+        AddableLanguageRow(language: language) { add(language) }
+      }
+    }
+    if !addable.isEmpty {
+      DesignDivider(leading: 0)
+      Button {
+        withAnimation(.easeInOut(duration: 0.2)) { addingLanguage.toggle() }
+      } label: {
+        HStack(spacing: 12) {
+          Image(systemName: "plus").font(.system(size: 20, weight: .regular))
+            .frame(width: 30, height: 30).accessibilityHidden(true)
+          Text(addingLanguage ? "完成" : "添加语言").font(.system(size: 17))
+          Spacer(minLength: 0)
+        }
+        .foregroundStyle(MetasequoiaTheme.accent)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(PressFillButtonStyle())
+      .accessibilityIdentifier("addInputLanguageButton")
+    }
+  }
+
+  private func selectedChoice(in language: InputLanguage) -> LanguageChoice? {
+    guard language.schemes.contains(inputScheme), enabledSchemes.contains(inputScheme) else { return nil }
+    return inputScheme == .wubi ? .wubi(wubiProfile) : .scheme(inputScheme)
+  }
+
+  /// 语言的选项面板：按顺序列出它的方案，双拼和五笔各开一层二级面板，不是仅剩的最后一个语言时再加一项移除。每个方案选项保留 `inputScheme_<rawValue>` 这个 id。
+  private func options(for language: InputLanguage) -> [DesignOption<LanguageChoice>] {
+    let schemes = available(language)
+    let shuangpin = schemes.filter { $0.shuangpinProfile != nil }
+    var options: [DesignOption<LanguageChoice>] = []
+    for scheme in schemes {
+      if scheme.shuangpinProfile != nil {
+        guard scheme == shuangpin.first else { continue }
+        if shuangpin.count == 1 {
+          options.append(schemeOption(scheme, title: scheme.shortLabel))
+        } else {
+          options.append(DesignOption(title: "双拼", value: .scheme(scheme), identifier: "inputSchemeGroup_shuangpin",
+                                      children: shuangpin.map { schemeOption($0, title: optionTitle($0)) }))
+        }
+      } else if scheme == .wubi {
+        options.append(DesignOption(title: "五笔", value: .scheme(.wubi), identifier: "inputSchemeGroup_wubi",
+                                    children: WubiProfilePreference.profiles.map { profile in
+          DesignOption(title: profile == "wubi98" ? "五笔 98" : "五笔 86", value: .wubi(profile),
+                       identifier: "inputScheme_wubi_\(profile)")
+        }))
+      } else {
+        options.append(schemeOption(scheme, title: optionTitle(scheme)))
+      }
+    }
+    if language.isRemovable && canRemove(language) {
+      options.append(DesignOption(title: "移除\(language.name)", value: .remove, isDestructive: true,
+                                  identifier: "removeInputLanguage_\(language.rawValue)"))
+    }
+    return options
+  }
+
+  private func schemeOption(_ scheme: ChineseInputScheme, title: String) -> DesignOption<LanguageChoice> {
+    DesignOption(title: title, value: .scheme(scheme), identifier: "inputScheme_\(scheme.rawValue)")
+  }
+
+  /// 方案在所属语言面板里的名字，面板标题已经是语言名。
+  private func optionTitle(_ scheme: ChineseInputScheme) -> String {
+    switch scheme {
+    case .shuangpin: "小鹤"
+    case .ziranma: "自然码"
+    case .microsoft: "微软"
+    case .shoudao: "首道"
+    case .zhuyin: "注音"
+    case .cantonese: "粤拼"
+    case .japanese: "26 键"
+    case .japaneseNineKey: "9 键"
+    default: scheme.title
+    }
+  }
+
+  /// 移除该语言后，是否还剩下键盘能运行的已启用方案。
+  private func canRemove(_ language: InputLanguage) -> Bool {
+    enabledSchemes.contains { !language.schemes.contains($0) && Self.availableSchemes.contains($0) }
+  }
+
+  private func choose(_ choice: LanguageChoice, in language: InputLanguage) {
+    switch choice {
+    case .scheme(let scheme):
+      // 方案尚未启用时，`select` 在同一次写入里顺带启用它。
+      record(InputSchemePreference.select(scheme), .languages)
+    case .wubi(let profile):
+      record(WubiProfilePreference.save(profile) && InputSchemePreference.select(.wubi), .languages)
+    case .remove:
+      remove(language)
+    }
+    reloadPreferences()
+  }
+
+  /// 停用该语言的全部方案。键盘正用着其中之一时切到全拼 26 键，全拼没启用就切到剩下的第一个方案。如果停用后一个能运行的方案都不剩，就什么都不写。
+  private func remove(_ language: InputLanguage) {
+    var refused = false
+    let written = InputSchemePreference.update { selection in
+      let remaining = selection.enabled.filter { !language.schemes.contains($0) }
+      let runnable = remaining.filter(Self.availableSchemes.contains)
+      guard let fallback = runnable.contains(.quanpin) ? ChineseInputScheme.quanpin : runnable.first else {
+        refused = true
+        return
+      }
+      selection.enabled = remaining
+      if language.schemes.contains(selection.scheme) { selection.scheme = fallback }
+    }
+    if refused {
+      ToastCenter.shared.show("至少要保留一种输入语言")
+    } else {
+      record(written != nil, .languages)
+    }
+  }
+
+  /// 启用该语言的第一个方案，但不把键盘切过去。
+  private func add(_ language: InputLanguage) {
+    guard let first = available(language).first else { return }
+    let saved = InputSchemePreference.setEnabled(first, true)
+    record(saved, .languages)
+    if saved { ToastCenter.shared.show("已添加\(language.name)") }
+    reloadPreferences()
+  }
+
+  // MARK: - 中文
+
+  /// `quanpin` 的两项自动纠错都开着时拼音纠错才算开；两项默认都开。
+  private var autocorrect: Bool {
+    let quanpin = document?["quanpin"] as? [String: Any]
+    return (quanpin?["autocorrect_transposition"] as? Bool ?? true) && (quanpin?["autocorrect_neighbor"] as? Bool ?? true)
+  }
+
+  private var chineseGroup: some View {
+    DesignGroup(title: "中文", footer: footer(.chinese)) {
+      DesignSelectRow(title: "中文字符集", options: [DesignOption(title: "简体", value: false), DesignOption(title: "繁体", value: true)],
+                      selection: Binding(get: { usesTraditionalOutput }, set: { traditional in
+                        guard traditional != usesTraditionalOutput else { return }
+                        usesTraditionalOutput = traditional
+                        record(ChineseOutputPreference.save(traditional), .chinese)
+                        reloadPreferences()
+                      }),
+                      sheetTitle: "中文字符集", identifier: "chineseOutputPicker")
+      DesignDivider()
+      DesignToggleRow(title: "拼音纠错", subtitle: "纠正相邻键误触和字母顺序颠倒",
+                      isOn: Binding(get: { autocorrect }, set: saveAutocorrect))
+        .accessibilityIdentifier("pinyinAutocorrectToggle")
+      DesignDivider()
+      DesignToggleRow(title: "模糊音", subtitle: "如 z/zh、an/ang 不分", isOn: Binding(get: { fuzzy.enabled }, set: { enabled in
+        let next = FuzzyPinyinSettingsView.toggled(fuzzy, enabled: enabled)
+        let saved = FuzzyPinyinPreference.save(next)
+        if saved { fuzzy = next }
+        record(saved, .chinese)
+        reloadPreferences()
+      }))
+      .accessibilityIdentifier("fuzzyPinyinToggle")
+      if fuzzy.enabled {
+        DesignDivider()
+        navRow("模糊音规则", identifier: "fuzzyPinyinSettingsLink") { FuzzyPinyinSettingsView() }
+      }
+    }
+  }
+
+  /// 把两项自动纠错开关写进现有的 `quanpin` 对象，保留其中其他内容，与 Android `TypingPage.saveAutocorrect` 的做法一致。
+  private func saveAutocorrect(_ enabled: Bool) {
+    record(MetasequoiaInputSessionBridge.updateSharedPreferences {
+      var quanpin = $0["quanpin"] as? [String: Any] ?? [:]
+      quanpin["autocorrect_transposition"] = enabled
+      quanpin["autocorrect_neighbor"] = enabled
+      $0["quanpin"] = quanpin
+    }, .chinese)
+    reloadPreferences()
+  }
+
+  // MARK: - 辅助码
+
+  private var helpcodeGroup: some View {
+    let family = HelpcodeSettingsView.family(of: inputScheme)
+    let schema = HelpcodeSettingsView.schema(of: family, in: document)
+    var options = HelpcodeSettingsView.schemas.map { DesignOption(title: $0.1, value: $0.0) }
+    // 引擎认识但这份列表里没有的用户码表，仍按它的 id 显示。
+    if !options.contains(where: { $0.value == schema }) { options.append(DesignOption(title: schema, value: schema)) }
+    return DesignGroup(title: "辅助码", footer: footer(.helpcode)) {
+      DesignSelectRow(title: "辅助码方案", subtitle: family.label, options: options,
+                      selection: Binding(get: { schema }, set: { value in
+                        guard value != schema else { return }
+                        record(MetasequoiaInputSessionBridge.updateSharedPreferences {
+                          HelpcodeSettingsView.merge("schema", value, into: family, document: &$0)
+                        }, .helpcode)
+                        reloadPreferences()
+                      }),
+                      sheetTitle: "辅助码方案", sheetMessage: family.label, identifier: "helpcodeSchemaPicker")
+      DesignDivider()
+      navRow("更多辅助码设置", identifier: "helpcodeSettingsLink") { HelpcodeSettingsView() }
+    }
+  }
+
+  // MARK: - 翻译
+
+  private var translationGroup: some View {
+    let languages = CandidateTranslationPreference.languages
+    let primary = CandidateTranslationPreference.language(at: habits.primaryLanguage)
+    let glossOn = habits.glossEnabled
+    return DesignGroup(title: "翻译", footer: footer(.translation)) {
+      // 键盘只在有释义时才显示翻译，所以离线英文释义打开之前，翻译各行不可用。
+      DesignToggleRow(title: "候选词翻译",
+                      subtitle: glossOn ? "在候选词下方显示\(primary.title)释义" : "打开离线英文释义后可用",
+                      isOn: habit(\.onlineTranslations))
+        .disabled(!glossOn).opacity(glossOn ? 1 : 0.5)
+        .accessibilityIdentifier("candidateTranslationOnline")
+      DesignDivider()
+      DesignToggleRow(title: "离线英文释义", subtitle: "用随键盘打包的离线词库，不联网", isOn: habit(\.glossEnabled))
+        .accessibilityIdentifier("candidateGlossToggle")
+      DesignDivider()
+      DesignSelectRow(title: "翻译目标语言",
+                      options: languages.indices.map { DesignOption(title: languages[$0].title, value: $0) },
+                      selection: habit(\.primaryLanguage), sheetTitle: "翻译目标语言",
+                      identifier: "candidateTranslationPrimaryPicker")
+        .disabled(!glossOn).opacity(glossOn ? 1 : 0.5)
+      DesignDivider()
+      DesignSelectRow(title: "第二种语言",
+                      options: [DesignOption(title: "不显示", value: -1)]
+                        + languages.indices.filter { $0 != habits.primaryLanguage }
+                          .map { DesignOption(title: languages[$0].title, value: $0) },
+                      selection: habit(\.secondaryLanguage), sheetTitle: "第二种语言",
+                      identifier: "candidateTranslationSecondaryPicker")
+        .disabled(!glossOn).opacity(glossOn ? 1 : 0.5)
+      DesignDivider()
+      navRow("翻译服务", subtitle: "联网翻译需要在这里选择服务", identifier: "translationProviderLink") {
+        TranslationProviderSettingsView()
+      }
+    }
+  }
+
+  /// 保存一个输入习惯字段的绑定；保存失败就重新读取，让控件显示实际存下的值。
+  private func habit<Value>(_ field: WritableKeyPath<InputHabitSettings, Value>) -> Binding<Value> {
+    Binding(get: { habits[keyPath: field] }, set: { value in
+      let saved = InputHabitPreference.update { $0[keyPath: field] = value }
+      if let saved { habits = saved }
+      record(saved != nil, .translation)
+    })
+  }
+
+  // MARK: - 更多
+
+  private var moreGroup: some View {
+    DesignGroup(title: "更多", footer: footer(.more)) {
+      if enabledSchemes.contains(.wubi) {
+        DesignToggleRow(title: "编码打不出时用拼音候选", subtitle: "五笔词库答不上时用同一串字母查全拼", isOn: $wubiMixedPinyin)
+          .accessibilityIdentifier("wubiMixedPinyin")
+        DesignDivider()
+        DesignToggleRow(title: "候选显示剩余编码", subtitle: "在候选后标出还要输入的字母", isOn: $wubiCodeHint)
+          .accessibilityIdentifier("wubiCodeHint")
+        DesignDivider()
+      }
+      DesignSelectRow(title: "默认中英文", subtitle: "新打开的键盘从这里开始",
+                      options: [DesignOption(title: "中文", value: false), DesignOption(title: "英文", value: true)],
+                      selection: Binding(get: { startsInEnglish }, set: { english in
+                        guard english != startsInEnglish else { return }
+                        startsInEnglish = english
+                        record(MetasequoiaInputSessionBridge.updateSharedPreferences {
+                          $0["default_ime_mode"] = english ? "english" : "chinese"
+                        }, .more)
+                        reloadPreferences()
+                      }),
+                      sheetTitle: "默认中英文", identifier: "defaultImeModePicker")
+      DesignDivider()
+      DesignToggleRow(title: "沿用上次的中英文", subtitle: "新打开的键盘沿用上次按中/英键选的模式",
+                      isOn: Binding(get: { remembersImeMode }, set: { enabled in
+                        remembersImeMode = enabled
+                        ImeModeMemoryPreference.setEnabled(enabled)
+                      }))
+        .accessibilityIdentifier("remembersImeModeToggle")
+      DesignDivider()
+      navRow("快捷模式", identifier: "localModeSettingsLink") { LocalModeSettingsView() }
+      DesignDivider()
+      navRow("剪贴板历史", identifier: "clipboardHistorySettingsLink") { ClipboardHistorySettingsView() }
+    }
+  }
+
+  private func navRow<Destination: View>(_ title: String, subtitle: String? = nil, identifier: String,
+                                         @ViewBuilder destination: () -> Destination) -> some View {
+    NavigationLink(destination: destination()) {
+      DesignNavRowLabel(title: title, subtitle: subtitle)
+    }
+    .buttonStyle(PressFillButtonStyle())
+    .accessibilityIdentifier(identifier)
+  }
+
+  // MARK: - 状态
+
+  /// 写入被拒后在 `group` 下面显示保存失败的提示，写入成功后清掉。
+  private func record(_ saved: Bool, _ group: PageGroup) {
+    failedGroup = saved ? nil : group
   }
 
   private func reloadPreferences() {
@@ -292,9 +450,81 @@ struct InputSettingsView: View {
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     if let document { WubiProfilePreference.mirror(document) }
     wubiProfile = WubiProfilePreference.profile
+    fuzzy = FuzzyPinyinPreference.settings(in: document) ?? .pristine
+    habits = InputHabitPreference.settings(in: document)
     startsInEnglish = document?["default_ime_mode"] as? String == "english"
     remembersImeMode = ImeModeMemoryPreference.isEnabled()
-    sentenceLevel = SentenceAssociationPreference.level(in: document)
+    if addableLanguages.isEmpty { addingLanguage = false }
+  }
+}
+
+/// 语言与方案卡片里的一行：语言图块、语言名、它所用的输入方案和一个箭头。点一下打开该语言的选项面板。
+private struct InputLanguageRow<Choice: Hashable>: View {
+  let language: InputLanguage
+  let value: String?
+  let options: [DesignOption<Choice>]
+  let selected: Choice?
+  let onSelect: (Choice) -> Void
+  @State private var presented = false
+
+  var body: some View {
+    Button { presented = true } label: {
+      HStack(spacing: 12) {
+        Text(language.tile)
+          .font(.system(size: 15, weight: .semibold))
+          .lineLimit(1).minimumScaleFactor(0.5)
+          .foregroundStyle(MetasequoiaTheme.accent)
+          .frame(width: 30, height: 30)
+          .background(MetasequoiaTheme.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+          .accessibilityHidden(true)
+        Text(language.name).font(.system(size: 17)).foregroundStyle(.primary)
+        Spacer(minLength: 8)
+        if let value {
+          Text(value).font(.system(size: 15)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
+        }
+        Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(MetasequoiaTheme.sub.opacity(0.55))
+          .accessibilityHidden(true)
+      }
+      .padding(.horizontal, 16)
+      .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(PressFillButtonStyle())
+    .accessibilityLabel(language.name)
+    .accessibilityValue(value ?? "")
+    .accessibilityIdentifier("inputLanguage_\(language.rawValue)")
+    .designOptionSheet(isPresented: $presented, title: language.name, message: "选择输入方案", options: options,
+                       selected: selected, onSelect: onSelect)
+  }
+}
+
+/// 添加语言里可添加的一个语言：描边图块、次要色的语言名和强调色的「添加」。点整行即可添加。
+private struct AddableLanguageRow: View {
+  let language: InputLanguage
+  let add: () -> Void
+
+  var body: some View {
+    Button(action: add) {
+      HStack(spacing: 12) {
+        Text(language.tile)
+          .font(.system(size: 15, weight: .semibold))
+          .lineLimit(1).minimumScaleFactor(0.5)
+          .foregroundStyle(MetasequoiaTheme.sub)
+          .frame(width: 30, height: 30)
+          .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(MetasequoiaTheme.hair, lineWidth: 1.5))
+          .accessibilityHidden(true)
+        Text(language.name).font(.system(size: 17)).foregroundStyle(MetasequoiaTheme.sub)
+        Spacer(minLength: 8)
+        Text("添加").font(.system(size: 15)).foregroundStyle(MetasequoiaTheme.accent)
+      }
+      .padding(.horizontal, 16)
+      .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(PressFillButtonStyle())
+    .accessibilityLabel("添加\(language.name)")
+    .accessibilityIdentifier("addInputLanguage_\(language.rawValue)")
   }
 }
 

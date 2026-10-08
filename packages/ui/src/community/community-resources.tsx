@@ -3,7 +3,15 @@ import { useAsyncActionRunner } from "../core/use-async-action";
 import { randomUuid } from "../core/random-id";
 import { formatZhNumber } from "../core/format-number";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
-import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
+import {
+  CommunityHarmonyLoadMore,
+  CommunityHarmonySearch,
+  CommunitySkinsPage,
+  type CommunitySkinClient,
+} from "./community-skins";
+import { useToast } from "../core/toast";
+import { boundedGraphemes } from "../core/text";
+import type { Preferences } from "../index";
 import {
   appendUniqueById,
   communityRating,
@@ -118,6 +126,57 @@ export interface CommunityResourceClient {
     reason: CommunityReportReason,
     detail: string,
   ): Promise<void>;
+}
+
+/** 宿主能否把词条导入本机词库。 */
+function importsLocally(
+  dictionary: CommunityLocalDictionaryClient | undefined,
+): dictionary is Required<CommunityLocalDictionaryClient> {
+  return Boolean(dictionary?.import);
+}
+
+/**
+ * 把共享词库的词条导入本机词库，每种词条类型发一次请求，返回实际应用的词条数。详情页的「导入这版词库到本机」和 HarmonyOS 行上的「添加」都走这里。
+ */
+async function importCommunityDictionary(
+  dictionary: Required<CommunityLocalDictionaryClient>,
+  entries: readonly CommunitySharedWord[],
+): Promise<number> {
+  const groups = new Map<CommunitySharedWord["kind"], CommunitySharedWord[]>();
+  for (const entry of entries) {
+    const group = groups.get(entry.kind) ?? [];
+    group.push(entry);
+    groups.set(entry.kind, group);
+  }
+  let applied = 0;
+  for (const [entryKind, group] of groups) {
+    const kind = entryKind === "quick" ? "quick_phrase" : entryKind;
+    const text = group.map((entry) => `${entry.word}\t${entry.code}\t${entry.weight}`).join("\n");
+    const result = await dictionary.import(
+      kind,
+      "standard",
+      text,
+      `community-local-${Date.now()}-${entryKind}`,
+    );
+    applied += result.applied;
+  }
+  return applied;
+}
+
+/**
+ * HarmonyOS 手机上行下方的元信息行，对应 Android 的 `CommunityRequest.resourceSubtitle`：「@作者 · 4,812 条」。只写条目本身带有的信息：没有作者时不写作者，只有带了词条的词库才写条数，用户自己已下架的作品写「已下架」。设计稿中的「本周更新」需要更新时间，而本客户端的资源不带这个字段，所以从不写出。
+ */
+export function communityResourceSubtitle(item: CommunityResource): string {
+  const entries = item.content.entries;
+  return [
+    item.author ? `@${item.author}` : "",
+    item.kind === "dictionary" && entries && entries.length > 0
+      ? `${formatZhNumber(entries.length)} 条`
+      : "",
+    item.owned && item.moderation === "removed" ? "已下架" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function ResourceCard({ item, open }: { item: CommunityResource; open: () => void }) {
@@ -392,27 +451,8 @@ function ResourceDetail({
     });
   const applyLocal = () =>
     void run(async (generation) => {
-      if (!localDictionary?.import) return;
-      const groups = new Map<CommunitySharedWord["kind"], CommunitySharedWord[]>();
-      for (const entry of item.content.entries ?? []) {
-        const group = groups.get(entry.kind) ?? [];
-        group.push(entry);
-        groups.set(entry.kind, group);
-      }
-      let applied = 0;
-      for (const [entryKind, entries] of groups) {
-        const kind = entryKind === "quick" ? "quick_phrase" : entryKind;
-        const text = entries
-          .map((entry) => `${entry.word}\t${entry.code}\t${entry.weight}`)
-          .join("\n");
-        const result = await localDictionary.import(
-          kind,
-          "standard",
-          text,
-          `community-local-${Date.now()}-${entryKind}`,
-        );
-        applied += result.applied;
-      }
+      if (!importsLocally(localDictionary)) return;
+      const applied = await importCommunityDictionary(localDictionary, item.content.entries ?? []);
       if (!mounted.current || generation !== clientGeneration.current) return;
       setNotice(`已导入本机词库，应用 ${applied} 个词条。`);
     });
@@ -577,18 +617,77 @@ function ResourceDetail({
   );
 }
 
+/** 行上的胶囊按钮提供什么：添加该条目、添加进行中，或因本次会话已添加而不提供。 */
+type CommunityResourcePillState = "add" | "adding" | "added";
+
+const resourcePillLabels: Record<CommunityResourcePillState, string> = {
+  add: "添加",
+  adding: "添加中",
+  added: "已添加",
+};
+
+/** HarmonyOS 手机上的一行词库或回复模板：色调底块上的首字、名称、元信息行和一个「添加」胶囊按钮。点按胶囊以外的任何地方都会打开详情。 */
+function CommunityHarmonyResourceRow({
+  item,
+  pill,
+  open,
+  add,
+}: {
+  item: CommunityResource;
+  pill: CommunityResourcePillState;
+  open: () => void;
+  add: () => void;
+}) {
+  const subtitle = communityResourceSubtitle(item);
+  return (
+    // 整行是打开详情的指针目标；行内文字是可聚焦的按钮，为键盘和读屏用户做同样的事，该按钮的点击会像轻点一样传到整行。
+    <div className={style.harmonyRow} onClick={open}>
+      <span className={style.harmonyRowTile} aria-hidden="true">
+        {boundedGraphemes(item.name.trim(), 1) || "?"}
+      </span>
+      <button
+        type="button"
+        className={style.harmonyRowText}
+        aria-label={`查看${resourceKindTitle(item.kind)} ${item.name}`}
+      >
+        <span className={style.harmonyRowName}>{item.name}</span>
+        {subtitle && <span className={style.harmonyRowMeta}>{subtitle}</span>}
+        {item.kind === "reply" && item.description && (
+          <span className={style.harmonyRowDescription}>{item.description}</span>
+        )}
+      </button>
+      <button
+        type="button"
+        className={`${style.harmonyRowPill} ${pill === "added" ? style.harmonyPillDone : style.harmonyPillTonal}`}
+        aria-label={`${resourcePillLabels[pill]}${resourceKindTitle(item.kind)} ${item.name}`}
+        disabled={pill !== "add"}
+        onClick={(event) => {
+          // 胶囊按钮作用于本行的条目，不打开其详情。
+          event.stopPropagation();
+          add();
+        }}
+      >
+        {resourcePillLabels[pill]}
+      </button>
+    </div>
+  );
+}
+
 export function CommunityResourcesPage({
   client,
   kind,
   initialScope = "",
   localDictionary,
   mobile = false,
+  look,
 }: {
   client: CommunityResourceClient;
   kind: CommunityResourceKind;
   initialScope?: CommunityResourceScope;
   localDictionary?: CommunityLocalDictionaryClient;
   mobile?: boolean;
+  /** HarmonyOS 手机的「社区」页：胶囊搜索框、范围筛选 chip，以及一张由多行组成、每行带「添加」胶囊按钮的分组卡片。其他宿主不设置。 */
+  look?: "harmony";
 }) {
   const [scope, setScope] = useState<CommunityResourceScope>(initialScope);
   const [search, setSearch] = useState("");
@@ -648,6 +747,48 @@ export function CommunityResourcesPage({
     selectedId: selected?.id ?? null,
     onClose: () => setSelected(null),
   });
+  const toast = useToast();
+  // 本次会话已添加和正在添加的条目，按 id 记录。没有宿主会报告哪些共享词库或回复模板已在设备上，所以每行初始都是「添加」；再次添加只会导入相同的词条或保留同一个模板，不产生任何变化。
+  const [added, setAdded] = useState<ReadonlySet<string>>(() => new Set());
+  const [adding, setAdding] = useState<ReadonlySet<string>>(() => new Set());
+  const addingNow = useRef(new Set<string>());
+  /** 「添加」：与详情页主按钮同一路径，之后弹出 toast。宿主能本地导入时，词库进入本机词库，不能时进入云词库；回复模板保存给「高情商回复」键盘使用。 */
+  const add = async (item: CommunityResource) => {
+    if (addingNow.current.has(item.id)) return;
+    addingNow.current.add(item.id);
+    setAdding((current) => new Set(current).add(item.id));
+    try {
+      if (item.kind === "dictionary") {
+        // 列表里的副本可能比服务器将导入的版本旧，所以词条取自重新获取的详情，与详情页的做法相同。
+        const latest = await client.detail(item.id);
+        if (importsLocally(localDictionary)) {
+          const applied = await importCommunityDictionary(
+            localDictionary,
+            latest.content.entries ?? [],
+          );
+          toast(`已添加「${item.name}」，本机词库应用 ${applied} 个词条`);
+        } else {
+          const result = await client.apply(latest.id, latest.revision);
+          toast(`已添加「${item.name}」，云端词库新增或更新 ${result.imported} 个词条`);
+        }
+      } else {
+        await client.save(item.id, true);
+        const latest = await client.detail(item.id);
+        await client.storeReply(latest);
+        toast(`已添加「${item.name}」到高情商回复键盘`);
+      }
+      setAdded((current) => new Set(current).add(item.id));
+    } catch (failure) {
+      toast(resourceMessage(failure));
+    } finally {
+      addingNow.current.delete(item.id);
+      setAdding((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  };
   if (selected)
     return (
       <ResourceDetail
@@ -657,6 +798,87 @@ export function CommunityResourcesPage({
         localDictionary={localDictionary}
       />
     );
+  if (look === "harmony") {
+    const scopes: { scope: CommunityResourceScope; label: string }[] = [
+      { scope: "", label: "全部" },
+      { scope: "saved", label: "收藏" },
+      { scope: "mine", label: "我的作品" },
+    ];
+    return (
+      <div className={style.harmonyPage}>
+        <CommunityHarmonySearch
+          label={`搜索${resourceKindTitle(kind)}`}
+          value={search}
+          onChange={setSearch}
+          onSubmit={() => void load(false, search)}
+        />
+        <div className={style.harmonyChips}>
+          <div className="contents" role="group" aria-label={`${resourceKindTitle(kind)}范围`}>
+            {scopes.map((option) => (
+              <button
+                key={option.scope || "all"}
+                type="button"
+                className={style.harmonyChip}
+                aria-pressed={scope === option.scope}
+                onClick={() => setScope(option.scope)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <span className={style.harmonyChipDivider} aria-hidden="true" />
+          <button
+            type="button"
+            className={style.harmonyChipAction}
+            onClick={() => setEditing(true)}
+          >
+            发布作品
+          </button>
+        </div>
+        <CommunityGalleryFeedback
+          error={error}
+          empty={
+            !busy && items.length === 0 ? (
+              <p className={style.harmonyNotice}>这里还没有{resourceKindTitle(kind)}作品。</p>
+            ) : undefined
+          }
+        />
+        {items.length > 0 && (
+          <div className="flex min-w-0 flex-col">
+            {kind === "reply" && <h3 className={style.harmonySectionTitle}>AI 回复模板</h3>}
+            <div className={style.harmonyList}>
+              {items.map((item) => (
+                <CommunityHarmonyResourceRow
+                  key={item.id}
+                  item={item}
+                  pill={adding.has(item.id) ? "adding" : added.has(item.id) ? "added" : "add"}
+                  open={() => openDetail(item)}
+                  add={() => void add(item)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+        <CommunityHarmonyLoadMore
+          hasMore={more}
+          busy={busy}
+          loadingText="正在读取社区…"
+          onLoadMore={() => void load(true)}
+        />
+        {editing && (
+          <ResourceEditor
+            client={client}
+            kind={kind}
+            close={() => setEditing(false)}
+            onPublished={async () => {
+              setEditing(false);
+              await load();
+            }}
+          />
+        )}
+      </div>
+    );
+  }
   return (
     <CommunityPageShell>
       <CommunitySearchForm
@@ -733,6 +955,10 @@ export function CommunityHomePage({
   localSkinLibrary,
   mobile = false,
   onLogin,
+  look,
+  preferences,
+  onApplyPreferences,
+  onSkinApplied,
 }: {
   skins: CommunitySkinClient;
   resources: CommunityResourceClient;
@@ -742,44 +968,46 @@ export function CommunityHomePage({
   initialScope?: CommunityResourceScope;
   localDictionary?: CommunityLocalDictionaryClient;
   /**
-   * The saved designs the skin gallery publishes from.
+   * 皮肤画廊用于发布的已保存设计。
    *
-   * It was absent here, and this page is what a host with both skins and resources renders, so on
-   * exactly those hosts — HarmonyOS and Android — 发布我的设计 was never drawn and the publish flow
-   * had no entry point at all. The desktop path renders CommunitySkinsPage directly and was fine.
+   * 这里原先缺了它，而同时有皮肤和资源的宿主渲染的正是这个页面，所以恰恰在这些宿主上（HarmonyOS 和 Android）「发布我的设计」从未绘制，发布流程根本没有入口。桌面端路径直接渲染 `CommunitySkinsPage`，没有问题。
    */
   localSkinLibrary?: CustomSkinLibraryClient;
   mobile?: boolean;
   onLogin?: () => void;
+  /** HarmonyOS 手机的「社区」页：在重新设计的画廊上方放一个「皮肤 | 词库 | 短语」胶囊切换控件。其他宿主不设置。 */
+  look?: "harmony";
+  /** 转交给皮肤画廊，用于「使用」和「使用中」。 */
+  preferences?: Preferences;
+  onApplyPreferences?: (next: Preferences) => void | Promise<void>;
+  onSkinApplied?: (id: string) => void;
 }) {
   const [category, setCategory] = useState<"skin" | CommunityResourceKind>(initialCategory);
-  return (
-    <CommunityPageShell>
-      <div className={style.categoryTabs} role="tablist" aria-label="社区分类">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={category === "skin"}
-          onClick={() => setCategory("skin")}
-        >
-          皮肤
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={category === "dictionary"}
-          onClick={() => setCategory("dictionary")}
-        >
-          词库
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={category === "reply"}
-          onClick={() => setCategory("reply")}
-        >
-          回复模板
-        </button>
+  const harmony = look === "harmony";
+  // 设计稿把第三段命名为「短语」。本宿主没有接入短语包，所以在 HarmonyOS 上这一段放的是回复模板，使用它们自己的分区标题。
+  const tabs: { category: "skin" | CommunityResourceKind; label: string }[] = [
+    { category: "skin", label: "皮肤" },
+    { category: "dictionary", label: "词库" },
+    { category: "reply", label: harmony ? "短语" : "回复模板" },
+  ];
+  const body = (
+    <>
+      <div
+        className={harmony ? style.harmonySegments : style.categoryTabs}
+        role="tablist"
+        aria-label="社区分类"
+      >
+        {tabs.map((tab) => (
+          <button
+            key={tab.category}
+            type="button"
+            role="tab"
+            aria-selected={category === tab.category}
+            onClick={() => setCategory(tab.category)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
       {category === "skin" ? (
         <CommunitySkinsPage
@@ -789,6 +1017,10 @@ export function CommunityHomePage({
           localSkinLibrary={localSkinLibrary}
           mobile={mobile}
           onLogin={onLogin}
+          look={look}
+          preferences={preferences}
+          onApplyPreferences={onApplyPreferences}
+          onSkinApplied={onSkinApplied}
         />
       ) : (
         <CommunityResourcesPage
@@ -797,8 +1029,14 @@ export function CommunityHomePage({
           initialScope={initialScope}
           localDictionary={localDictionary}
           mobile={mobile}
+          look={look}
         />
       )}
-    </CommunityPageShell>
+    </>
+  );
+  return harmony ? (
+    <div className={style.harmonyPage}>{body}</div>
+  ) : (
+    <CommunityPageShell>{body}</CommunityPageShell>
   );
 }

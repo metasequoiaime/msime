@@ -1,17 +1,23 @@
-import { KeyboardGeometry } from './KeyboardGeometry';
+import { KeyboardGeometry } from "./KeyboardGeometry";
 
 /**
- * The touch keyboard's measurements, taken from the iOS extension in
- * platforms/ios/KeyboardExtension/Sources/KeyboardViewController.swift so the two keyboards are laid
- * out the same way.
+ * 键盘的尺寸。触屏框架遵循设计稿的鸿蒙键盘（`全平台 UI.dc.html`，`kbPad: '8px 4px 6px'`、`kbGap: '10px'`、50px 的工具栏或候选栏、44px 的按键间隔 6px）；按键尺寸最初取自 iOS 扩展 `platforms/ios/KeyboardExtension/Sources/KeyboardViewController.swift`，让两个键盘的布局一致。
  *
- * They live here rather than in the view because the extension ability has to size the panel before
- * the view exists, and a panel that disagrees with its content either clips the bottom row or leaves
- * a band of empty space under it.
+ * 它们放在这里而不是视图里，因为扩展 ability 要在视图存在之前确定面板尺寸，而与内容不一致的面板要么裁掉底行，要么在其下留出一条空白。
  */
 export class KeyboardMetrics {
+  /** 2in1（桌面）框架。触屏键盘使用下面的 `TOUCH_*` 内边距。 */
   static readonly ROOT_HORIZONTAL_PADDING_VP: number = 5;
   static readonly ROOT_VERTICAL_PADDING_VP: number = 7;
+  /** 触屏键盘根节点的内边距：条带上方 8，两侧 4，底行下方 6。 */
+  static readonly TOUCH_ROOT_TOP_PADDING_VP: number = 8;
+  static readonly TOUCH_ROOT_HORIZONTAL_PADDING_VP: number = 4;
+  static readonly TOUCH_ROOT_BOTTOM_PADDING_VP: number = 6;
+  /** 触屏时按键上方的条带：空闲时是工具栏，输入中是候选栏，高度固定相同，切换时不会挪动任何按键。 */
+  static readonly STRIP_HEIGHT_VP: number = 50;
+  /** 触屏时条带与第一行按键之间的固定间距。 */
+  static readonly STRIP_GAP_VP: number = 10;
+  /** 按键行之间的默认间距，可由 `touch_row_spacing_tenths` 偏好覆盖。设计稿画的是 10；取 7 是为了与其他平台的默认值一致。 */
   static readonly ROW_SPACING_VP: number = 7;
   static readonly KEY_SPACING_VP: number = 6;
   static readonly KEY_CORNER_VP: number = 8;
@@ -36,13 +42,15 @@ export class KeyboardMetrics {
   /** The 2in1 candidate card and each candidate's fill inside it, the HarmonyOS PC window's 16 and 10. */
   static readonly CANDIDATE_CARD_CORNER_VP: number = 16;
   static readonly CANDIDATE_ITEM_CORNER_VP: number = 10;
+  /** 2in1 候选卡片各边的内边距，即设计稿 hm2 的 `padding: 8`。 */
+  static readonly CANDIDATE_CARD_PADDING_VP: number = 8;
 
   /**
    * Everything the view stacks vertically, including the gaps between the pieces.
    *
-   * The two spacings and the height adjustment come from the user's settings, clamped by
-   * KeyboardGeometry. They are passed in rather than read here so this stays a pure calculation the
-   * ability and the view can both do and agree on.
+   * 行间距和高度调整来自用户设置，由 `KeyboardGeometry` 限定范围。它们作为参数传入而不是在这里读取，让这里保持为纯计算，ability 和视图都能算并得出一致结果。
+   *
+   * 触屏（`compact` 为 false）时框架固定：顶部内边距、50vp 条带、10vp 间距、按键行及其间的行间距、底部内边距。条带在自身高度内容纳候选及其释义，所以字号和释义行不会改变面板。`compact` 是 2in1 键盘和表情界面，它们保留一直以来的叠放组合行、候选行和释义预留。
    */
   static totalHeightVp(
     rowSpacingTenths: number = KeyboardMetrics.ROW_SPACING_VP * 10,
@@ -52,22 +60,38 @@ export class KeyboardMetrics {
     preeditFontSize: number = KeyboardMetrics.CANDIDATE_PREEDIT_FONT_SIZE,
     compact: boolean = false,
   ): number {
+    const keys: number =
+      KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS + heightAdjustmentVp;
+    if (!compact) {
+      return (
+        KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP +
+        KeyboardMetrics.STRIP_HEIGHT_VP +
+        KeyboardMetrics.STRIP_GAP_VP +
+        keys +
+        KeyboardMetrics.touchRowGapsVp(rowSpacingTenths) +
+        KeyboardMetrics.TOUCH_ROOT_BOTTOM_PADDING_VP
+      );
+    }
+    // 条带就是 2in1 候选卡片，卡片在各边内侧留出 `CANDIDATE_CARD_PADDING_VP`，与 `candidateHeightVp` 的计算一致。
     const strip: number =
       KeyboardMetrics.compositionRowHeightVp(preeditFontSize) +
       KeyboardMetrics.candidateRowHeightVp(candidateFontSize, compact) +
-      KeyboardMetrics.glossHeightVp(glossRows, candidateFontSize);
-    const keys: number =
-      KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS + heightAdjustmentVp;
+      KeyboardMetrics.glossHeightVp(glossRows, candidateFontSize) +
+      KeyboardMetrics.CANDIDATE_CARD_PADDING_VP * 2;
     // One gap between the strip and the first key row, and one between each pair of key rows.
     const gaps: number = (rowSpacingTenths / 10) * KeyboardMetrics.KEY_ROWS;
     return strip + keys + gaps + KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2;
   }
 
+  /** 触屏键盘按键行之间的间隙：比行数少一，因为条带有自己的固定间距。 */
+  static touchRowGapsVp(rowSpacingTenths: number): number {
+    return (rowSpacingTenths / 10) * (KeyboardMetrics.KEY_ROWS - 1);
+  }
+
   /**
    * How wide a candidate window is, where the panel is not the width of the screen.
    *
-   * Fallback width before the first Engine view arrives. The host replaces it with the bounded
-   * CandidateWidthPolicy estimate once candidates are available.
+   * 第一个 Engine 视图到达前的后备宽度。候选可用后，宿主会用有界的 `CandidateWidthPolicy` 估算值替换它。
    */
   static readonly CANDIDATE_WINDOW_WIDTH_VP: number = 420;
   /** Clear of the caret's own line, so the window sits under the text rather than on it. */
@@ -76,8 +100,7 @@ export class KeyboardMetrics {
   /**
    * The strip on its own, which is the whole panel where the machine has its own keys.
    *
-   * No key rows and therefore none of the gaps between them: what is left is the composition line,
-   * the candidate line and the padding that frames them.
+   * 没有按键行，因此也没有行间距：剩下的是组合行、候选行、卡片自身的内边距和框住卡片的内边距。
    */
   static candidateHeightVp(
     layout: string = "horizontal",
@@ -88,7 +111,8 @@ export class KeyboardMetrics {
     candidateFontSize: number = KeyboardMetrics.CANDIDATE_FONT_SIZE,
     preeditFontSize: number = KeyboardMetrics.CANDIDATE_PREEDIT_FONT_SIZE,
   ): number {
-    const rows: number = layout === "vertical" ? KeyboardMetrics.visibleCandidateRows(candidateCount) : 1;
+    const rows: number =
+      layout === "vertical" ? KeyboardMetrics.visibleCandidateRows(candidateCount) : 1;
     const decoration: number =
       Number.isFinite(decorationTopVp) && decorationTopVp > 0 ? Math.min(512, decorationTopVp) : 0;
     return (
@@ -96,6 +120,7 @@ export class KeyboardMetrics {
       (showPreedit ? KeyboardMetrics.compositionRowHeightVp(preeditFontSize) : 0) +
       KeyboardMetrics.candidateRowHeightVp(candidateFontSize, true) * rows +
       (layout === "vertical" ? 0 : KeyboardMetrics.glossHeightVp(glossRows, candidateFontSize)) +
+      KeyboardMetrics.CANDIDATE_CARD_PADDING_VP * 2 +
       KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2
     );
   }

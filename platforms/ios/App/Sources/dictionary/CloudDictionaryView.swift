@@ -25,6 +25,7 @@ struct CloudDictionaryView: View {
         .labelsHidden()
         .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
       }
+      .designRow()
 
       Section {
         if let page {
@@ -46,14 +47,14 @@ struct CloudDictionaryView: View {
             .buttonStyle(.plain)
             .swipeActions(edge: .trailing) {
               Button("删除", role: .destructive) { deleting = entry }
-              Button("下载") { downloading = entry }.tint(.accentColor)
+              Button("下载") { downloading = entry }.tint(MetasequoiaTheme.accent)
             }
           }
         } else if !busy {
           Text("还没有读取云端词条").foregroundStyle(.secondary)
         }
       } header: {
-        Text("云端个人词条")
+        SettingsGroupHeader(title: "云端个人词条")
       } footer: {
         if let page, !page.entries.isEmpty {
           Text("点一条编辑，左滑下载到本机或删除。第 \(page.offset / 100 + 1) 页。")
@@ -61,6 +62,7 @@ struct CloudDictionaryView: View {
           Text("仅管理当前账号的云端个人词条。上传需主动保存；下载需确认后交给本机键盘处理，不会自动上传本机学习记录。")
         }
       }
+      .designRow()
 
       if let page, page.offset > 0 || page.has_more {
         Section {
@@ -75,10 +77,11 @@ struct CloudDictionaryView: View {
           }
           .disabled(!page.has_more)
         }
+        .designRow()
       }
 
       if let userID {
-        Section("管理") {
+        Section {
           NavigationLink(destination: CloudCandidatesView(kind: kind,
             authorize: { try await authorizedToken(matching: userID) })) {
             CloudDictionaryRowLabel(
@@ -103,7 +106,10 @@ struct CloudDictionaryView: View {
               title: "导入与导出", detail: "用文件搬运词条",
               symbol: "doc.badge.arrow.up.fill")
           }
+        } header: {
+          SettingsGroupHeader(title: "管理")
         }
+        .designRow()
       }
 
       Section {
@@ -113,10 +119,12 @@ struct CloudDictionaryView: View {
             symbol: "iphone")
         }
       }
+      .designRow()
 
-      if busy { ProgressView("正在处理…") }
-      if let message { Section { Text(message).foregroundStyle(.secondary) } }
+      if busy { ProgressView("正在处理…").designRow() }
+      if let message { Section { Text(message).foregroundStyle(.secondary) }.designRow() }
     }
+    .designPage()
     .searchable(text: $search, prompt: "搜索云端词条或编码")
     .onSubmit(of: .search) { run { try await load(offset: 0) } }
     .navigationTitle("云词库")
@@ -195,9 +203,9 @@ private struct CloudDictionaryRowLabel: View {
   var body: some View {
     HStack(spacing: 12) {
       Image(systemName: symbol)
-        .foregroundStyle(.white)
+        .foregroundStyle(MetasequoiaTheme.onAccent)
         .frame(width: 30, height: 30)
-        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .background(MetasequoiaTheme.accent, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
       VStack(alignment: .leading, spacing: 2) {
         Text(title).foregroundStyle(.primary)
         Text(detail).font(.caption).foregroundStyle(.secondary)

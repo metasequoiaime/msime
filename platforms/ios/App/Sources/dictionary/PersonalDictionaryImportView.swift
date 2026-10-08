@@ -47,6 +47,7 @@ struct PersonalDictionaryImportView: View {
           .accessibilityIdentifier("personalDictionaryImportSource")
           .onChange(of: source) { _ in clearPreview() }
         }
+        .designRow()
         if source == .json {
           Section {
             Button("选择 JSON 文件") { choosing = true }.disabled(loading)
@@ -58,6 +59,7 @@ struct PersonalDictionaryImportView: View {
           } footer: {
             Text("支持拼音、五笔、英文和快捷短语，每次最多 128 条、文件不超过 1 MB。请按示例填写；不支持其他输入法的专有词库文件。")
           }
+          .designRow()
         } else if source == .file {
           Section {
             Picker("词库类型", selection: $fileKind) {
@@ -75,6 +77,7 @@ struct PersonalDictionaryImportView: View {
           } footer: {
             Text("与电脑版设置页导入的是同一种文件：每行一条，用 Tab 分隔词、编码和可选的权重。标准格式词在前，Windows 格式编码在前；两列放反时会按文件本身的顺序读取。Rime 格式读取 userdb 导出或 dict.yaml 的词条部分。无法导入的行会被跳过并在预览里说明，每次最多导入 128 条，文件不超过 1 MB，需要 UTF-8 编码。")
           }
+          .designRow()
         } else {
           Section {
             TextEditor(text: $hansText)
@@ -88,8 +91,9 @@ struct PersonalDictionaryImportView: View {
           } footer: {
             Text("每行一个词语，只含汉字；以 # 开头的行会被跳过。拼音由本机词典自动标注，多音字可能需要在导入后逐条修改。每次最多 128 个词语，导入为拼音词条。")
           }
+          .designRow()
         }
-        if loading { Section { ProgressView("正在读取并校验词库…") } }
+        if loading { Section { ProgressView("正在读取并校验词库…") }.designRow() }
         if let preview {
           Section {
             Text(fileName).font(.headline)
@@ -106,20 +110,26 @@ struct PersonalDictionaryImportView: View {
               if count > 0 { LabeledContentCompat(title: kind.title, value: "\(count) 条") }
             }
           }
-          Section("词条预览") {
+          .designRow()
+          Section {
             ForEach(preview.entries) { word in
               VStack(alignment: .leading, spacing: 4) {
                 Text(word.value).lineLimit(3)
                 Text("\(word.kind.title) · \(word.key)").font(.caption).foregroundStyle(.secondary)
               }
             }
+          } header: {
+            SettingsGroupHeader(title: "词条预览")
           }
+          .designRow()
         }
         Section {
           Text("确认后加入本机同步队列，打开水杉键盘后逐条生效。同步失败的词条可单独重试；相同类型、编码和内容的已有词条将更新权重。文件内容不会上传。")
             .font(.footnote).foregroundStyle(.secondary)
         }
+        .designRow()
       }
+      .designPage()
       .navigationTitle("导入个人词库")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {

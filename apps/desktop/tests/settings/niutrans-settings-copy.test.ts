@@ -13,5 +13,7 @@ test("expression page uses the shared translation settings composition", () => {
   );
   expect(page).toContain("<TranslationSettingsContent");
   expect(page).not.toContain("<NiuTransSection");
-  expect(page).not.toContain("<TranslationProviderSettingsSection");
+  // 唯一的直接使用方是 HarmonyOS 手机页，它用同一套共用绑定把所选服务的各行收进「更多选项」。
+  expect(page.match(/<TranslationProviderSettingsSection/g)).toHaveLength(1);
+  expect(page).toContain("<TranslationProviderSettingsSection {...providers} grouped={false} />");
 });

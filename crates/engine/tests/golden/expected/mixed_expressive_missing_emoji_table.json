@@ -58,15 +58,6 @@
       "answers_key": true
      },
      {
-      "word": "😀",
-      "pinyin": "ni",
-      "canonical_pinyin": "",
-      "source": 7,
-      "scheme": "quanpin",
-      "weight": 3,
-      "answers_key": true
-     },
-     {
       "word": "倪",
       "pinyin": "ni",
       "canonical_pinyin": "ni",
@@ -82,6 +73,15 @@
       "source": 4,
       "scheme": "quanpin",
       "weight": 200,
+      "answers_key": true
+     },
+     {
+      "word": "😀",
+      "pinyin": "ni",
+      "canonical_pinyin": "",
+      "source": 7,
+      "scheme": "quanpin",
+      "weight": 3,
       "answers_key": true
      },
      {

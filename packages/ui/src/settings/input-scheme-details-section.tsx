@@ -18,7 +18,8 @@ export type InputSchemeDetailsScheme = InputScheme;
 export type ShuangpinProfile = "xiaohe" | "ziranma" | "shoudao" | "microsoft";
 export type WubiProfile = "wubi86" | "wubi98";
 
-function ShuangpinProfileOptions() {
+/** 双拼方案的选项。这里和下面的五笔方案都写成返回 Fragment 的普通函数，鸿蒙手机的 `SelectRow` 才能从中读出面板选项。 */
+function shuangpinProfileOptions() {
   return (
     <>
       <option value="xiaohe">小鹤双拼</option>
@@ -29,7 +30,7 @@ function ShuangpinProfileOptions() {
   );
 }
 
-function WubiProfileOptions() {
+function wubiProfileOptions() {
   return (
     <>
       <option value="wubi86">86 五笔</option>
@@ -105,7 +106,7 @@ export function InputSchemeDetailsSection({
         value={shuangpinProfile}
         onChange={(event) => onShuangpinProfileChange(event.target.value as ShuangpinProfile)}
       >
-        <ShuangpinProfileOptions />
+        {shuangpinProfileOptions()}
       </SelectRow>
       {macosShuangpinKeymap !== undefined && (
         <SwitchRow
@@ -123,7 +124,7 @@ export function InputSchemeDetailsSection({
         value={wubiProfile}
         onChange={(event) => onWubiProfileChange?.(event.target.value as WubiProfile)}
       >
-        <WubiProfileOptions />
+        {wubiProfileOptions()}
       </SelectRow>
       {/* 日语、韩语各只有一个方案，选择器改不了任何东西，只在对应方案下作为说明出现。 */}
       <SegmentedRow

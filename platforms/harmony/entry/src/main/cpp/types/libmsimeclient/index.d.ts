@@ -25,6 +25,14 @@ export const themeCatalog: () => string;
  * `{global_theme,custom_theme?,dark,layout,skins_directory}` in; `{id,source,appearance,candidate,keyboard,candidate_skin}` out. `skins_directory` reads the applied package from disk, so resolve on a theme, appearance or package change and never while drawing.
  */
 export const resolveTheme: (request: string) => string;
+/**
+ * 应用主题选择器：按选择器顺序（`siji`、`chunya`、`xiayin`、`qiushan`、`dongxue`）返回 `{app_themes:[{id,title,season,seasonal,light,dark}],default:"siji"}`。`light` 和 `dark` 是 `{accent,accent_soft,on_accent,background,card,hair}`；`siji` 的 `season` 为 null、`seasonal` 为 true，并绘制为秋杉，因此目录不随时钟变化。
+ */
+export const appThemeCatalog: () => string;
+/**
+ * 输入 `{app_theme,month?,dark}`，其中 `month` 是宿主的本地日历月份（1-12，仅 `siji` 使用；省略时取 UTC 月份）；输出 `{id,season,accent,accent_soft,on_accent,background,card,hair}`，`season` 为实际绘制的季节。纯函数，可以在主线程上运行。
+ */
+export const resolveAppTheme: (request: string) => string;
 /** Staged engine resources in; `{profile,sourceCommit}` from the packaged dictionary manifest out. */
 export const dictionaryManifest: (resources: string) => string;
 /** JSON resource request; returns a structured response containing contentType and byte values. */
@@ -70,6 +78,8 @@ export const dictionary: (request: string) => string;
 export const updatePreferences: (handle: number, snapshot: string) => string;
 /** `{directory,action}`; a `record` action answers `{recorded,milestone}`, where milestone is the commit count just passed while achievements are switched on, else null. */
 export const typingStatistics: (request: string) => string;
+/** 与 `typingStatistics` 相同的请求和应答，在工作线程上执行；设置应用以这种方式发送 `summary` 和 `record_skin`。 */
+export const typingStatisticsAsync: (request: string) => Promise<string>;
 /**
  * `{state_root,sound_packs,pack}` in, all paths absolute; the validated files of that sound pack out: `{id,name,license,builtin,mode,sounds:{default,space,enter,backspace,commit,achievement},sequence:{sample,semitones,advance}|null,max_sample_millis,melody_idle_reset_millis}` with absolute paths. Reads the pack from disk: not for the key path.
  */
@@ -86,6 +96,10 @@ export const plugins: (request: string) => string;
  * `plugins` on a worker thread, for an `import`, which extracts or copies up to a music pack's size and validates it before swapping it into place. Resolves with the same answer `plugins` returns; rejects only when the worker produced no answer.
  */
 export const pluginsAsync: (request: string) => Promise<string>;
+/**
+ * 在工作线程上处理键盘的常用语（不带编码）：`{directory,action:{operation:"load"|"add"{text}|"remove"{id}|"replace"{id,text}|"move"{id,index}|"install_pack"{resource}|"remove_pack"{id}}}`，其中 `directory` 是偏好目录的绝对路径。每个操作都以 `{ok,value}` resolve，value 是整个文档 `{phrases:[{id,text,pack}],packs:[{id,name,revision}],skipped?}`；或以 `{ok:false,error}` resolve，error 是某个 `common_phrases_*` 错误码；只有工作线程没有给出应答时才 reject。设置进程和键盘进程在锁下共享该文件。
+ */
+export const commonPhrases: (request: string) => Promise<string>;
 /**
  * Registers the device's anonymous MSIME account under `directory` (an absolute path; `anonymous-account.json` and `anonymous-session.json`) unless a session is already there, on a worker thread. Resolves with `{ok,value}` or `{ok:false,error}`; rejects only when the worker produced no answer.
  */
@@ -176,6 +190,8 @@ export const setNineKeyMode: (handle: number, enabled: boolean) => string;
 export const setEnglishMode: (handle: number, enabled: boolean) => string;
 /** Whether ASCII is committed as its fullwidth twin, which Ctrl+Shift+F toggles. */
 export const setCharacterWidth: (handle: number, fullwidth: boolean) => string;
+/** `msime_client_set_private_session`：把会话标记为私密（隐私模式），`host-api` 因此不再为它统计候选位置。学习本身仍跟随会话的 `learning` 偏好。应答 `{ok, value: enabled}`。 */
+export const setPrivateSession: (handle: number, enabled: boolean) => string;
 
 export const character: (handle: number, ascii: number, shift: boolean) => string;
 /**

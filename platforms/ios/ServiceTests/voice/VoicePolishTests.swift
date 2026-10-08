@@ -36,7 +36,7 @@ final class VoicePolishTests: XCTestCase {
     XCTAssertTrue(settings.polishEnabled)
     XCTAssertEqual(settings.promptID, "zh2en")
     XCTAssertEqual(settings.customPrompts, ["", "", "三"])
-    XCTAssertEqual(settings.language, "en-us")
+    XCTAssertEqual(settings.language, "en")
     XCTAssertFalse(settings.soundEnabled)
     XCTAssertTrue(settings.startSound)
     XCTAssertFalse(settings.endSound)
@@ -79,10 +79,27 @@ final class VoicePolishTests: XCTestCase {
     XCTAssertEqual(settings.transcriptionLanguage(for: .openAI), "zh")
     XCTAssertNil(settings.transcriptionLanguage(for: .siliconFlow))
     XCTAssertNil(settings.transcriptionLanguage(for: .doubao))
-    settings.language = "en-us"
+    settings.language = "en"
     XCTAssertEqual(settings.transcriptionLanguage(for: .groq), "en")
     settings.language = "auto"
     XCTAssertNil(settings.transcriptionLanguage(for: .openAI))
+  }
+
+  func testLanguageIdsRoundTripAsAndroidWritesThem() {
+    let legacy = VoicePolishSettings(["voice_input": ["language": "en-us"]])
+    XCTAssertEqual(legacy.language, "en")
+    var document: [String: Any] = [:]
+    legacy.write(into: &document)
+    XCTAssertEqual((document["voice_input"] as? [String: Any])?["language"] as? String, "en")
+
+    let cantonese = VoicePolishSettings(["voice_input": ["language": "yue"]])
+    XCTAssertEqual(cantonese.language, "yue")
+    XCTAssertEqual(cantonese.transcriptionLanguage(for: .openAI), "yue")
+
+    let auto = VoicePolishSettings(["voice_input": ["language": "auto"]])
+    XCTAssertEqual(auto.language, "auto")
+    XCTAssertNil(auto.transcriptionLanguage(for: .groq))
+    XCTAssertEqual(VoicePolishSettings.languages.map(\.id), ["zh-cn", "yue", "en", "auto"])
   }
 
   func testTranscriptionBodyCarriesTheLanguageOnlyWhenGiven() throws {

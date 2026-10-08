@@ -43,6 +43,43 @@ export const updateResult =
   "[padding:var(--p-row-pad)] [color:var(--p-sub)] [&>p]:mt-0 [&>p]:mb-2 [&>p]:text-xs [&_code]:inline-block [&_code]:max-w-full [&_code]:break-anywhere";
 export const updateWarning = "text-danger!";
 
+// ---- HarmonyOS 的「关于」和「反馈」页 ----
+
+/** 「关于」页首卡片的主体：标志圆、文字列、更新胶囊；在窄屏手机上胶囊换行到文字下方。 */
+export const appHero = "flex flex-wrap items-center gap-4 p-[18px]";
+/** 设计里的 `logoCirc`：强调色混入卡片底色，浅色模式 14%，深色模式 22%。 */
+export const appHeroCircle =
+  "flex size-20 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--accent-color)_22%,var(--p-group-bg))] light-theme:bg-[color-mix(in_srgb,var(--accent-color)_14%,var(--p-group-bg))]";
+export const appHeroText = "flex min-w-[160px] flex-1 flex-col gap-[3px]";
+export const appHeroTitle = "text-[18px] font-bold [color:var(--p-text)]";
+export const appHeroVersion = "text-[13px] [color:var(--p-sub)]";
+export const appHeroCopyright = "text-[12px] [color:var(--p-sub)]";
+export const appHeroStatus = "m-0 text-[12px] [color:var(--p-sub)]";
+/** 检查更新胶囊：强调色底配强调色上的前景文字；检查发现当前已是最新版本后改为无底色的强调色文字。检查期间保持完整颜色，此时禁用只是为了防止重复点击。 */
+export const updatePill = (latest: boolean) =>
+  `shrink-0 cursor-pointer rounded-[20px] border-0 px-4 py-[7px] text-[13px] whitespace-nowrap [font-family:inherit] disabled:cursor-default disabled:opacity-100 ${
+    latest
+      ? "bg-transparent [color:var(--p-accent-text)]"
+      : "bg-[var(--accent-color)] [color:var(--p-on-accent)]"
+  }`;
+/** 行尾的文字按钮（查看），与其他改版后的行一样使用平台的按钮 token 绘制。 */
+export const rowButton =
+  "shrink-0 cursor-pointer rounded-[var(--p-r-ctl)] px-3.5 py-[5px] text-[13px] whitespace-nowrap [background:var(--p-btn-bg)] [border:var(--p-btn-border)] [color:var(--p-btn-fg)] [font-family:inherit] active:opacity-60 disabled:cursor-default disabled:opacity-50";
+
+/** 「描述」卡片：用分组的底色和圆角包住一个无边框的 textarea。 */
+export const feedbackTextCard = "overflow-hidden rounded-[20px] bg-[var(--p-group-bg)]";
+export const feedbackTextarea =
+  "block min-h-[150px] w-full resize-none border-0 bg-transparent px-4 py-3.5 text-[17px] leading-normal outline-none [color:var(--p-text)] [font-family:inherit] placeholder:[color:var(--p-sub)]";
+export const feedbackCounter = "px-4 text-[12px] [color:var(--p-sub)]";
+/** 通栏提交按钮：有内容可发送时为强调色，否则为浅底灰字。灰色状态就是禁用状态，所以保持完全不透明，不套用全局的禁用淡化。 */
+export const feedbackSubmit = (ready: boolean) =>
+  `mt-3.5 flex h-[50px] w-full items-center justify-center rounded-[14px] border-0 text-[17px] font-semibold [font-family:inherit] disabled:cursor-default disabled:opacity-100 ${
+    ready
+      ? "cursor-pointer bg-[var(--accent-color)] [color:var(--p-on-accent)] active:opacity-80"
+      : "bg-[rgba(255,255,255,0.08)] [color:var(--p-sub)] light-theme:bg-[rgba(0,0,0,0.06)]"
+  }`;
+export const feedbackError = "m-0 px-4 pt-2 text-[13px] text-danger";
+
 /** Icon, body, action. The icon column narrows on a phone, where 42px of gutter is a lot to give up. */
 export const feedbackCard =
   "grid min-h-[var(--p-row-h)] grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3.5 [padding:var(--p-row-pad)] max-phone:grid-cols-[36px_minmax(0,1fr)] [&>.secondary]:mt-0 [&>.secondary]:whitespace-nowrap [&>.secondary]:max-phone:col-start-2 [&>.secondary]:max-phone:justify-self-start";

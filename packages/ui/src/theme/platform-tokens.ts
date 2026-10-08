@@ -53,6 +53,8 @@ export interface PlatformTokens {
   chrome: string;
   hair: string;
   hover: string;
+  /** 按下的行或面板选项下的填充色；鸿蒙手机自己画，其他平台都沿用悬停色。 */
+  press: string;
   controlRadius: string;
   switch: {
     width: string;
@@ -97,6 +99,12 @@ export interface PlatformTokens {
     rowSize: string;
     subSize: string;
     divider: boolean;
+    /** 行间细线的粗细。 */
+    dividerWidth: string;
+    /** 细线距行首边缘的距离；0 表示贯穿整行。 */
+    dividerInset: string;
+    /** 行内文字与末尾控件之间的间距。 */
+    controlGap: string;
     rowIcon: boolean;
   };
   select: { bg: string; fg: string; border: string; pad: string; size: string; chevron: string };
@@ -119,6 +127,9 @@ export interface PlatformTokens {
 }
 
 const brand = { light: "#2C7A4B", dark: "#5FBF84" } as const;
+
+/** 没有解析出应用主题时各外观使用的品牌绿，供宿主需要纯十六进制颜色、无法通过 `--accent-color` 取色的场合（鸿蒙系统栏）。 */
+export const brandAccent = brand;
 
 function rgba(hex: string, alpha: number): string {
   const value = Number.parseInt(hex.slice(1, 7), 16);
@@ -170,6 +181,7 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
       chrome: S("#F3F3F3", "#202020"),
       hair: border,
       hover,
+      press: hover,
       controlRadius: "4px",
       switch: {
         width: "40px",
@@ -210,6 +222,9 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
         rowSize: "14px",
         subSize: "12px",
         divider: false,
+        dividerWidth: "1px",
+        dividerInset: "0",
+        controlGap: "12px",
         rowIcon: true,
       },
       select: {
@@ -248,6 +263,7 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
       chrome: S("#F6F6F6", "#2A2A2A"),
       hair: S("rgba(0,0,0,.09)", "rgba(255,255,255,.1)"),
       hover,
+      press: hover,
       controlRadius: "6px",
       switch: {
         width: "38px",
@@ -288,6 +304,9 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
         rowSize: "14px",
         subSize: "12px",
         divider: true,
+        dividerWidth: "1px",
+        dividerInset: "0",
+        controlGap: "12px",
         rowIcon: false,
       },
       select: {
@@ -333,6 +352,7 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
       chrome: S("#EBEBEB", "#303030"),
       hair: S("rgba(0,0,0,.1)", "rgba(0,0,0,.36)"),
       hover,
+      press: hover,
       controlRadius: "6px",
       switch: {
         width: "48px",
@@ -373,6 +393,9 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
         rowSize: "15px",
         subSize: "13px",
         divider: true,
+        dividerWidth: "1px",
+        dividerInset: "0",
+        controlGap: "12px",
         rowIcon: false,
       },
       select: {
@@ -415,6 +438,7 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
       chrome: S("#F2F2F7", "#000000"),
       hair: S("rgba(60,60,67,.22)", "rgba(84,84,88,.6)"),
       hover,
+      press: hover,
       controlRadius: "999px",
       switch: {
         width: "63px",
@@ -461,6 +485,9 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
         rowSize: "17px",
         subSize: "13px",
         divider: true,
+        dividerWidth: "1px",
+        dividerInset: "0",
+        controlGap: "12px",
         rowIcon: false,
       },
       select: {
@@ -502,6 +529,7 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
       chrome: S("#F7FBF3", "#111411"),
       hair: S("#DDE5DB", "#2A2F2A"),
       hover: S("rgba(0,0,0,.05)", "rgba(255,255,255,.06)"),
+      press: S("rgba(0,0,0,.05)", "rgba(255,255,255,.06)"),
       controlRadius: "20px",
       switch: {
         width: "52px",
@@ -542,6 +570,9 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
         rowSize: "16px",
         subSize: "14px",
         divider: false,
+        dividerWidth: "1px",
+        dividerInset: "0",
+        controlGap: "12px",
         rowIcon: false,
       },
       select: {
@@ -586,6 +617,7 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
     chrome: S("#F1F3F5", "#000000"),
     hair: S("rgba(0,0,0,.06)", "rgba(255,255,255,.1)"),
     hover,
+    press: S("rgba(0,0,0,.07)", "rgba(255,255,255,.1)"),
     controlRadius: "20px",
     switch: {
       width: "36px",
@@ -626,9 +658,12 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
       rowSize: "16px",
       subSize: "14px",
       divider: true,
+      dividerWidth: ".5px",
+      dividerInset: "16px",
+      controlGap: "14px",
       rowIcon: false,
     },
-    select: { bg: "transparent", fg: sub, border: "none", pad: "0", size: "14px", chevron: "›" },
+    select: { bg: "transparent", fg: sub, border: "none", pad: "0", size: "16px", chevron: "›" },
     button: {
       bg: S("rgba(0,0,0,.05)", "rgba(255,255,255,.1)"),
       fg: accents.accent,
@@ -645,12 +680,17 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
     ...harmony,
     bg: S("#FFFFFF", "#121212"),
     chrome: S("#F1F3F5", "#1A1A1A"),
+    // 按下填充和内嵌的半像素细线是手机的触屏样式；2-in-1 保留桌面样式。
+    press: hover,
     group: {
       ...harmony.group,
       rowHeight: "52px",
       rowPad: "8px 16px",
       rowSize: "15px",
       subSize: "12px",
+      dividerWidth: "1px",
+      dividerInset: "0",
+      controlGap: "12px",
     },
     groupTitle: { ...harmony.groupTitle, pad: "0 12px" },
     select: {
@@ -663,7 +703,7 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
     },
     button: {
       bg: S("rgba(0,0,0,.05)", "rgba(255,255,255,.1)"),
-      fg: S(accents.accent, "#8FB6FF"),
+      fg: accents.accent,
       border: "none",
     },
     pageTitle: { size: "22px", weight: "700" },
@@ -710,6 +750,7 @@ export function platformCssVariables(tokens: PlatformTokens): Record<string, str
     "--p-chrome": tokens.chrome,
     "--p-hair": tokens.hair,
     "--p-hover": tokens.hover,
+    "--p-press": tokens.press,
     "--p-r-ctl": tokens.controlRadius,
     "--p-sw-w": sw.width,
     "--p-sw-h": sw.height,
@@ -748,6 +789,9 @@ export function platformCssVariables(tokens: PlatformTokens): Record<string, str
     "--p-row-fs": group.rowSize,
     "--p-sub-fs": group.subSize,
     "--p-row-divider": group.divider ? tokens.hair : "transparent",
+    "--p-row-divider-w": group.dividerWidth,
+    "--p-row-divider-inset": group.dividerInset,
+    "--p-row-ctl-gap": group.controlGap,
     "--p-row-icon": group.rowIcon ? "flex" : "none",
     "--p-sel-bg": select.bg,
     "--p-sel-fg": select.fg,

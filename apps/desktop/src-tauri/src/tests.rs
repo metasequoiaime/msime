@@ -148,12 +148,15 @@ fn ai_endpoint_validation_accepts_http_api_urls_and_rejects_unsafe_urls() {
     for endpoint in [
         "https://api.example.test/v1/chat/completions",
         "http://127.0.0.1:8080/v1/chat/completions?tenant=fixture",
+        "http://192.168.1.20:1234/v1/chat/completions",
+        "http://studio.local:1234/v1",
     ] {
         assert!(crate::ai::validate_ai_endpoint(endpoint).is_ok());
     }
     for endpoint in [
         "file:///tmp/models",
         "http://api.example.test/v1/chat/completions",
+        "http://8.8.8.8/v1/chat/completions",
         "https:///v1/chat/completions",
         "https://user:password@example.test/v1/chat/completions",
         "https://example.test/v1/chat/completions#fragment",

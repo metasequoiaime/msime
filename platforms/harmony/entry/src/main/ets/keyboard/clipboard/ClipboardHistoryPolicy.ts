@@ -210,4 +210,55 @@ export class ClipboardHistoryPolicy {
       utf8Length(text) <= MAX_BYTES
     );
   }
+
+  /**
+   * 「刚刚 / N 分钟前 / N 小时前 / N 天前」，移植自 Android 的 `ImePanels.relativeTime`：早于 2001 年的时间戳按秒解读，缺失时间戳时什么都不显示，时钟回拨时显示为刚刚。
+   */
+  static relativeTime(timestamp: number, now: number): string {
+    if (!Number.isFinite(timestamp) || timestamp <= 0 || !Number.isFinite(now)) {
+      return "";
+    }
+    const millis: number = timestamp < 100000000000 ? timestamp * 1000 : timestamp;
+    const minutes: number = Math.floor(Math.max(0, now - millis) / 60000);
+    if (minutes < 1) {
+      return "刚刚";
+    }
+    if (minutes < 60) {
+      return `${minutes} 分钟前`;
+    }
+    if (minutes < 60 * 24) {
+      return `${Math.floor(minutes / 60)} 小时前`;
+    }
+    return `${Math.floor(minutes / (60 * 24))} 天前`;
+  }
+
+  /** 云端条目的 ISO-8601 更新时间转成相对时间；解析不了的不显示，与 Android 一致。 */
+  static relativeIsoTime(iso: string, now: number): string {
+    if (iso === "") {
+      return "";
+    }
+    const parsed: number = Date.parse(iso);
+    return Number.isNaN(parsed) ? "" : ClipboardHistoryPolicy.relativeTime(parsed, now);
+  }
+
+  /** 本地剪贴板卡片下方的一行：固定时先写「已固定」，再写「本机」和保存于多久之前，对应 Android 卡片的元信息。 */
+  static localMeta(pinned: boolean, at: number, now: number): string {
+    return ClipboardHistoryPolicy.joinMeta([
+      pinned ? "已固定" : "",
+      "本机",
+      ClipboardHistoryPolicy.relativeTime(at, now),
+    ]);
+  }
+
+  /** 云端剪贴板卡片下方的一行：「云端」和条目多久之前有改动。 */
+  static cloudMeta(updatedAt: string, now: number): string {
+    return ClipboardHistoryPolicy.joinMeta([
+      "云端",
+      ClipboardHistoryPolicy.relativeIsoTime(updatedAt, now),
+    ]);
+  }
+
+  private static joinMeta(parts: string[]): string {
+    return parts.filter((part: string): boolean => part !== "").join(" · ");
+  }
 }

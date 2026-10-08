@@ -314,14 +314,9 @@ fn valid_secret(value: &str) -> bool {
         && !value.starts_with("FAKESECRET_")
 }
 
+/// 规则在 client-core 的 `ai::endpoint`：https 不限主机，http 只能指向本机或局域网。provider 脚本读这份文件时按同一规则再查一次。
 fn valid_endpoint(value: &str) -> bool {
-    Url::parse(value).is_ok_and(|url| {
-        url.scheme() == "https"
-            && url.host_str().is_some_and(|host| !host.is_empty())
-            && url.username().is_empty()
-            && url.password().is_none()
-            && url.fragment().is_none()
-    })
+    msime_client_core::ai::endpoint::is_allowed(value)
 }
 
 type AiEntries = BTreeMap<String, Map<String, Value>>;
@@ -1204,6 +1199,30 @@ mod tests {
             Err(CredentialError::InvalidProvider)
         );
         assert!(!root.join(AI_FILE).exists());
+    }
+
+    #[test]
+    fn accepts_cleartext_only_for_local_network_endpoints() {
+        let temp = directory();
+        let root = temp.path();
+        assert_eq!(
+            save_ai_in(root, "openai", "http://8.8.8.8/v1", "m", Some("sk")),
+            Err(CredentialError::InvalidEndpoint)
+        );
+        assert!(!root.join(AI_FILE).exists());
+        save_ai_in(
+            root,
+            "openai",
+            "http://192.168.1.20:1234/v1/chat/completions",
+            "m",
+            Some("sk"),
+        )
+        .unwrap();
+        let document = read(&root.join(AI_FILE));
+        assert_eq!(
+            document["profiles"]["openai"]["endpoint"],
+            "http://192.168.1.20:1234/v1/chat/completions"
+        );
     }
 
     #[test]

@@ -155,18 +155,22 @@ public final class CustomSkinLibrary {
         if (document.length > MAX_LIBRARY_BYTES) return false;
         Path directory = root.resolve("CustomSkins");
         ensureSafeDirectory(directory);
-        Path pending = directory.resolve("library.json.pending");
-        if (Files.exists(pending, LinkOption.NOFOLLOW_LINKS)
-                && !Files.isRegularFile(pending, LinkOption.NOFOLLOW_LINKS))
-            throw new IOException("Invalid custom skin pending file");
         Path target = directory.resolve("library.json");
         if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)
                 && !Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS))
             throw new IOException("Invalid custom skin library");
-        Files.write(pending, document);
-        Files.move(pending, target,
-            StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        return true;
+        // 固定的 pending 路径可以被同 UID 的另一个进程预先换成硬链接；普通文件检查无法
+        // 区分这种链接，写入会截断目录外的 inode。每次使用新名字，不复用攻击者预先放置的目标。
+        Path pending = Files.createTempFile(directory, "library-", ".pending");
+        try {
+            Files.write(pending, document, StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
+            Files.move(pending, target,
+                StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            return true;
+        } finally {
+            Files.deleteIfExists(pending);
+        }
     }
 
     private static Path checkedRoot(Path preferencesDirectory) throws IOException {

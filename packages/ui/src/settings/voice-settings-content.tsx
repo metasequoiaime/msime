@@ -10,8 +10,11 @@ import type {
   VoiceCredentialKind,
 } from "../index";
 import { isVoicePolishEnabled } from "./voice-input-defaults";
-import { isAsrServiceProvider } from "../voice/voice-providers";
+import { asrProviderUpdate, isAsrServiceProvider } from "../voice/voice-providers";
 import { VoiceInputBasicsSection } from "./voice-input-basics-section";
+import { MobileVoiceLanguageRow, VoiceInputServiceRows } from "./voice-input-core-section";
+import { harmonyPhoneVoiceFooter } from "./voice-input-intro-section";
+import { SwitchRow } from "./switch-row";
 import { VoiceLocalModelSettingsSection } from "./voice-local-model-settings-section";
 import { VoiceAsrProviderSettingsSection } from "./voice-asr-provider-settings-section";
 import { VoiceRecognitionResultSection } from "./voice-recognition-result-section";
@@ -34,8 +37,14 @@ import {
 } from "./voice-credential-test-config";
 import type { ProviderPresetControlFactory } from "./provider-preset-control";
 import type { useProviderCredentials } from "./use-provider-credentials";
-import { GroupList } from "../core/platform-controls";
+import { GroupList, MoreOptions } from "../core/platform-controls";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
+
+/** 分组及其下方的说明，二者间距与分组标题到其各行的间距相同。 */
+const groupWithFooter = "flex min-w-0 flex-col gap-[var(--p-g-title-gap)]";
+/** HarmonyOS 手机上分组下方的 13px 脚注，与分组标题对齐。 */
+const groupFooter =
+  "m-0 [padding:var(--p-g-title-pad)] text-[13px] leading-[18px] [color:var(--p-sub)]";
 
 export interface VoiceSettingsContentProps {
   disabled: boolean;
@@ -294,6 +303,93 @@ export function VoiceSettingsContent({
     localVoice ||
     asrCredentialVisible ||
     Boolean(asrCredentialTest);
+  const polish = showVoiceProviderSettings && (
+    <VoicePolishSettingsSection
+      voiceInput={voiceInput}
+      linux={linuxPlatform}
+      providerPresetControls={providerPresetControls}
+      updateVoice={updateVoice}
+      linuxCredentials={credentialControl("polish")}
+    >
+      {polishProviderCredentialTest}
+      {polishServiceCredentialTest}
+    </VoicePolishSettingsSection>
+  );
+  const asrServiceTest = (
+    <VoiceAsrServiceTestSection
+      available={windowsPlatform || macosPlatform || harmonyPlatform}
+      voiceInput={voiceInput}
+      doubaoAuthMode={doubaoAuthMode}
+      credentialTestControl={credentialTestControl}
+    />
+  );
+  if (harmonyPlatform && mobilePlatform) {
+    const punctuationSupported = voiceInput.asr_provider === "doubao";
+    // HarmonyOS 手机与 Android 的 `VoicePage` 一样遵循设计稿：「识别」组放语言和标点，随后「识别服务」组放总开关、服务及其运行所需的条件，原先位于页首的介绍改作该组的脚注。设计稿中的「离线识别」「启动方式」「隐私」在 HarmonyOS 上没有对应功能（没有离线回退，没有上传管线，键盘工具栏也不再有可供 `touch_voice_shortcut` 显示的语音按钮），因此不绘制。
+    return (
+      <SettingsPageFieldset disabled={disabled} hidden={hidden} ariaLabel="语音输入">
+        <GroupList title="识别">
+          <MobileVoiceLanguageRow
+            language={voiceInput.language}
+            systemVoice={systemVoice}
+            onLanguageChange={(language) => updateVoice({ language })}
+          />
+          <SwitchRow
+            title="自动添加标点"
+            description={
+              punctuationSupported ? undefined : "当前识别服务不支持，仅豆包语音识别可以自动加标点"
+            }
+            disabled={!punctuationSupported}
+            checked={voiceInput.doubao_enable_punc !== false}
+            onChange={(doubao_enable_punc) => updateVoice({ doubao_enable_punc })}
+          />
+        </GroupList>
+        <div className={groupWithFooter}>
+          <GroupList title="识别服务">
+            <VoiceInputServiceRows
+              enabled={voiceInput.enabled}
+              provider={String(voiceInput.asr_provider)}
+              showProviderSettings={showVoiceProviderSettings}
+              macos={false}
+              harmony
+              android={false}
+              localVoiceAvailable={localVoiceAvailable}
+              nativeVoicePlatform={nativeVoicePlatform}
+              harmonyUnsupportedAsr={harmonyUnsupportedAsr}
+              onEnabledChange={(enabled) => updateVoice({ enabled })}
+              onProviderChange={(provider) =>
+                updateVoice({
+                  ...asrProviderUpdate(provider, voiceInput),
+                  // CoreSpeechKit 只识别普通话，且语言是作为它的 locale 传入的，所以选择它时固定为 `zh-CN`，而不是传入一个它会拒绝的语言。
+                  ...(provider === "system" ? { language: "zh-CN" } : {}),
+                })
+              }
+            />
+            {asrProviderSettings}
+            {doubaoOptionsVisible && (
+              <MoreOptions>
+                <DoubaoOptionsRows {...doubaoOptionsProps} punctuation={false} />
+              </MoreOptions>
+            )}
+            {localModelSettings}
+            {asrServiceTest}
+          </GroupList>
+          <p className={groupFooter}>
+            {harmonyPhoneVoiceFooter({
+              localVoice,
+              localVoiceModelsAvailable: Boolean(client.localVoiceModels),
+              systemVoice,
+            })}
+          </p>
+        </div>
+        {hotkeys}
+        {recordingBehavior}
+        {recognitionResult}
+        {polish}
+        {captureDevices}
+      </SettingsPageFieldset>
+    );
+  }
   // 设置窗口的语音页：先选服务并把它配好（识别服务配置的末尾是检查按钮），再是快捷键、录音时的行为和识别结果怎么用，润色是可选的另一项服务，录音设备很少要改，放在最后。
   const content = (
     <>
@@ -305,29 +401,13 @@ export function VoiceSettingsContent({
           {doubaoOptionsVisible && <DoubaoOptionsRows {...doubaoOptionsProps} />}
           {localModelSettings}
           {asrCredentialTest && <SettingsGroupBlock>{asrCredentialTest}</SettingsGroupBlock>}
-          <VoiceAsrServiceTestSection
-            available={windowsPlatform || macosPlatform || harmonyPlatform}
-            voiceInput={voiceInput}
-            doubaoAuthMode={doubaoAuthMode}
-            credentialTestControl={credentialTestControl}
-          />
+          {asrServiceTest}
         </GroupList>
       )}
       {hotkeys}
       {recordingBehavior}
       {recognitionResult}
-      {showVoiceProviderSettings && (
-        <VoicePolishSettingsSection
-          voiceInput={voiceInput}
-          linux={linuxPlatform}
-          providerPresetControls={providerPresetControls}
-          updateVoice={updateVoice}
-          linuxCredentials={credentialControl("polish")}
-        >
-          {polishProviderCredentialTest}
-          {polishServiceCredentialTest}
-        </VoicePolishSettingsSection>
-      )}
+      {polish}
       {captureDevices}
     </>
   );

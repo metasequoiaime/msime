@@ -60,8 +60,9 @@ async function openPage(
     />,
   );
   await settingsFormReady();
-  // 「AI 辅助」从「标点与翻译」页内部进入。
-  if (page === "AI 辅助") fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  // AI 辅助 从 标点与翻译 页面内部进入，触屏宿主把那个页面叫作 表达。
+  const expression = ["android", "ios", "harmony"].includes(platform) ? "表达" : "标点与翻译";
+  if (page === "AI 辅助") fireEvent.click(screen.getByRole("button", { name: expression }));
   fireEvent.click(screen.getByRole("button", { name: page }));
 }
 

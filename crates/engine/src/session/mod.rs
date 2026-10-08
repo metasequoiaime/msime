@@ -51,6 +51,7 @@ impl Session {
             options.single_character_only,
         );
         nine_key.set_stroke_dictionary(options.stroke_dictionary.clone());
+        nine_key.set_mixed_expressive(options.expressive);
         Ok(Session {
             input,
             nine_key,

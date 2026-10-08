@@ -55,3 +55,23 @@ export function donutSegments(slices: readonly ChartSlice[]): DonutSegment[] {
     return { color: visible[index].color, d };
   });
 }
+
+/** 混合到页面卡片颜色上的强调色，即设计稿的 `aM(percent)`：统计摘要的各级色调都由它得出，因而跟随季节强调色。 */
+export function accentMix(percent: number, base = "var(--p-group-bg)"): string {
+  return `color-mix(in srgb, var(--accent-color) ${percent}%, ${base})`;
+}
+
+/**
+ * `slices` 的 `conic-gradient` 环形图填充：从 12 点钟方向起按顺序顺时针排列，每块是与其计数成比例的硬边扇区。集合为空时是一整块 `empty` 扇区。
+ */
+export function conicGradient(slices: readonly ChartSlice[], empty: string): string {
+  const total = slices.reduce((sum, slice) => sum + Math.max(0, slice.count), 0);
+  if (total <= 0) return `conic-gradient(${empty} 0 100%)`;
+  let cursor = 0;
+  const stops = slices.map((slice, index) => {
+    const start = cursor;
+    cursor = index === slices.length - 1 ? 100 : cursor + (Math.max(0, slice.count) / total) * 100;
+    return `${slice.color} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`;
+  });
+  return `conic-gradient(${stops.join(", ")})`;
+}

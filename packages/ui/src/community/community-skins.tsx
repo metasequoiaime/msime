@@ -16,7 +16,7 @@ import { StatusMessage } from "../core/status-message";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
-import { CommunitySearchForm } from "./community-search-form";
+import { CommunitySearchForm, type CommunitySearchFormProps } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import {
   CommunityReportSection,
@@ -36,7 +36,13 @@ import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
+import { CommunityLoadMoreButton } from "./community-gallery-controls";
 import { ActionButton } from "../core/action-button";
+import { useToast } from "../core/toast";
+import { deepEqual } from "../core/deep-equal";
+import { boundedGraphemes } from "../core/text";
+import { updateCustomKeyboard } from "../settings/theme-selection-updates";
+import type { Preferences } from "../index";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import { useCommunityDetailHistory } from "./use-community-detail-history";
@@ -44,6 +50,7 @@ import { communityPublishFields } from "./community-publish-validation";
 import {
   CommunitySkinCategoryFilter,
   CommunitySkinCategorySelect,
+  communitySkinCategories,
   communitySkinCategoryLabel,
   communitySkinCategoryLabels,
   useCommunitySkinCategoryFilter,
@@ -308,6 +315,144 @@ function CommunitySkinCard({
   );
 }
 
+/** HarmonyOS 手机的搜索：一个胶囊输入框，按 Enter 提交，没有单独的搜索按钮。 */
+export function CommunityHarmonySearch({
+  label,
+  value,
+  onChange,
+  onSubmit,
+}: CommunitySearchFormProps) {
+  return (
+    <form
+      className="m-0 min-w-0"
+      role="search"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <input
+        className={style.harmonySearch}
+        aria-label={label}
+        placeholder={label}
+        enterKeyHint="search"
+        value={value}
+        onChange={(event) => onChange(boundedGraphemes(event.target.value, 128))}
+      />
+    </form>
+  );
+}
+
+/** HarmonyOS 手机的「加载更多」：列表下方一个低调的文字按钮，下一页加载期间显示加载中的提示行。 */
+export function CommunityHarmonyLoadMore({
+  hasMore,
+  busy,
+  loadingText,
+  onLoadMore,
+}: {
+  hasMore: boolean;
+  busy: boolean;
+  loadingText: string;
+  onLoadMore: () => void;
+}) {
+  if (!hasMore && !busy) return null;
+  return (
+    <>
+      {hasMore && (
+        <CommunityLoadMoreButton
+          className={style.harmonyMore}
+          disabled={busy}
+          onClick={onLoadMore}
+        />
+      )}
+      {busy && (
+        <StatusMessage role="status" className={style.harmonyNotice}>
+          {loadingText}
+        </StatusMessage>
+      )}
+    </>
+  );
+}
+
+/** 皮肤库条目按 id 与社区列表项对应，而 id 是 UUID，大小写都可能出现。 */
+function skinKey(id: string): string {
+  return id.toLowerCase();
+}
+
+/** 皮肤卡片上胶囊按钮提供的操作：把设计收进皮肤库，把库里已有的设计用到键盘上，或者因为已在使用而不提供操作。 */
+type CommunitySkinPillState = "get" | "getting" | "use" | "using" | "in-use";
+
+const skinPillLabels: Record<CommunitySkinPillState, string> = {
+  get: "获取",
+  getting: "获取中",
+  use: "使用",
+  using: "使用",
+  "in-use": "使用中",
+};
+
+/** HarmonyOS 手机上的皮肤卡片：预览图、名称、作者和使用次数，以及一个「获取 / 使用 / 使用中」胶囊按钮。点胶囊以外的任何位置打开详情，评分、举报和试用仍在详情里。 */
+function CommunityHarmonySkinCard({
+  skin,
+  theme,
+  pill,
+  open,
+  act,
+}: {
+  skin: CommunitySkin;
+  theme: "light" | "dark";
+  pill: CommunitySkinPillState;
+  open: () => void;
+  act: () => void;
+}) {
+  const author = [
+    communitySkinCategoryLabel(skin.category),
+    skin.owned ? "我的作品" : skin.author,
+    skin.owned && skin.moderation === "removed" ? "已下架" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const settled = pill === "in-use";
+  return (
+    // 卡片本身是打开详情的指针目标；底部文字是可获得焦点的按钮，为键盘和读屏用户做同样的事，它的点击和轻点一样传到卡片上。
+    <div className={style.harmonySkinCard} onClick={open}>
+      <span className={style.harmonySkinStage}>
+        <span className={style.harmonySkinStageClip}>
+          <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={skin.design} thumbnail />
+        </span>
+      </span>
+      <div className={style.harmonySkinFooter}>
+        <button
+          type="button"
+          className={style.harmonySkinText}
+          aria-label={`查看皮肤 ${skin.name}`}
+        >
+          <span className={style.harmonySkinName}>{skin.name}</span>
+          {author && <span className={style.harmonySkinMeta}>{author}</span>}
+          <CommunityCardMetrics
+            look="harmony"
+            downloads={skin.downloads}
+            ratingCount={skin.rating_count}
+            ratingAverage={skin.rating_average}
+          />
+        </button>
+        <button
+          type="button"
+          className={`${style.harmonySkinPill} ${settled ? style.harmonyPillDone : style.harmonyPillTonal}`}
+          aria-label={`${skinPillLabels[pill]}皮肤 ${skin.name}`}
+          disabled={pill !== "get" && pill !== "use"}
+          onClick={(event) => {
+            // 胶囊按钮直接作用于卡片的皮肤，不打开详情。
+            event.stopPropagation();
+            act();
+          }}
+        >
+          {skinPillLabels[pill]}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function CommunitySkinsPage({
   client,
   theme,
@@ -315,6 +460,10 @@ export function CommunitySkinsPage({
   initialMine = false,
   mobile = false,
   onLogin,
+  look,
+  preferences,
+  onApplyPreferences,
+  onSkinApplied,
 }: {
   client: CommunitySkinClient;
   theme: "light" | "dark";
@@ -323,6 +472,14 @@ export function CommunitySkinsPage({
   mobile?: boolean;
   /** Where the account page is, for a publish that failed only because nobody is signed in. */
   onLogin?: () => void;
+  /** HarmonyOS 手机的「社区」标签页：胶囊搜索框、一行筛选标签、带「获取 / 使用」胶囊按钮的双列卡片。其他宿主不设置它，保持原来的社区列表。 */
+  look?: "harmony";
+  /** 正在编辑的偏好，用来判断库里的某个设计是否正用在键盘上（使用中）。 */
+  preferences?: Preferences;
+  /** 应用一项偏好修改；「使用」和在皮肤页选设计一样经由它生效。 */
+  onApplyPreferences?: (next: Preferences) => void | Promise<void>;
+  /** 「使用」刚把某个皮肤用到键盘上时，以该皮肤的社区 id 调用。 */
+  onSkinApplied?: (id: string) => void;
 }) {
   const categoryFilter = useCommunitySkinCategoryFilter();
   const categoryRequest = categoryFilter.request;
@@ -386,6 +543,46 @@ export function CommunitySkinsPage({
       if (pending) void client.finishTrial(pending.id, false).catch(() => undefined);
     };
   }, [client]);
+
+  const harmony = look === "harmony";
+  const toast = useToast();
+  // 按小写 id 索引的自定义皮肤库。「获取」保存的皮肤以其社区 id 归档，卡片据此改为提供「使用」。
+  const [library, setLibrary] = useState<ReadonlyMap<string, SavedTouchKeyboardSkin>>(
+    () => new Map(),
+  );
+  const [pending, setPending] = useState<ReadonlyMap<string, "getting" | "using">>(() => new Map());
+  // 同步读取，这样第一次点击尚未渲染时再点一次胶囊按钮不会有任何效果。
+  const acting = useRef(new Set<string>());
+  // 每次「获取」完成都加一，这样更早开始的皮肤库读取不会丢掉它刚加入的设计。
+  const libraryGeneration = useRef(0);
+  const takingTrials = useRef(new Map<string, CommunitySkinTrial>());
+  useEffect(() => {
+    const trials = takingTrials.current;
+    return () => {
+      for (const unfinished of trials.values()) {
+        void client.finishTrial(unfinished.id, false).catch(() => undefined);
+      }
+      trials.clear();
+    };
+  }, [client]);
+  // 网格重新显示时就重新读取：详情里的「下载并试用」也会把设计收进皮肤库。
+  const browsing = selected === null;
+  useEffect(() => {
+    if (!harmony || !browsing || !localSkinLibrary) return;
+    let current = true;
+    const generation = libraryGeneration.current;
+    void localSkinLibrary.load().then(
+      (items) => {
+        if (!current || generation !== libraryGeneration.current) return;
+        setLibrary(new Map(items.map((item) => [skinKey(item.id), item])));
+      },
+      // 皮肤库读不出来时所有卡片都停在「获取」，与 Android 一致；再次获取同一设计会按同一 id 重新归档，不会多出一份。
+      () => undefined,
+    );
+    return () => {
+      current = false;
+    };
+  }, [harmony, browsing, localSkinLibrary]);
 
   const closeDetail = async (fromHistory = false) => {
     if (actionBusy) return;
@@ -480,7 +677,74 @@ export function CommunitySkinsPage({
   const publishDone = async () => {
     setPublishOpen(false);
     setActionNotice("已发布到社区。");
+    if (harmony) toast("已发布到社区。");
     await requestList(activeSearch, false);
+  };
+
+  const pillState = (skin: CommunitySkin): CommunitySkinPillState => {
+    const key = skinKey(skin.id);
+    const busy = pending.get(key);
+    if (busy) return busy;
+    const saved = library.get(key);
+    if (!saved) return "get";
+    return preferences?.global_theme === "custom" &&
+      deepEqual(preferences.custom_theme?.keyboard, saved.design)
+      ? "in-use"
+      : "use";
+  };
+
+  const setPendingState = (key: string, state: "getting" | "using" | null) =>
+    setPending((current) => {
+      const next = new Map(current);
+      if (state) next.set(key, state);
+      else next.delete(key);
+      return next;
+    });
+
+  /**
+   * 获取：把设计保存进自定义皮肤库，不改变键盘，与 Android 的胶囊按钮一致。
+   *
+   * 宿主只有一个下载操作，而它做的不止这些：取回设计、用它开始试用，并以社区 id 导入皮肤库，这样服务器会计入这次下载，之后「使用」也能按这个 id 找到设计。结束试用但不保留时会换回之前的皮肤，皮肤库条目保持不动。没能结束的试用留在 `takingTrials` 里，下面的清理逻辑会在页面离开时重试。
+   */
+  const take = async (skin: CommunitySkin) => {
+    const key = skinKey(skin.id);
+    if (acting.current.has(key)) return;
+    acting.current.add(key);
+    setPendingState(key, "getting");
+    try {
+      const result = await client.download(skin.id, skin.name);
+      takingTrials.current.set(key, result.trial);
+      await client.finishTrial(result.trial.id, false);
+      takingTrials.current.delete(key);
+      libraryGeneration.current += 1;
+      setLibrary((current) => new Map(current).set(skinKey(result.skin.id), result.skin));
+      toast(`已获取「${skin.name}」，点「使用」换上`);
+    } catch (failure) {
+      // `communitySkinMessage` 会写明皮肤库最多十二个设计的上限，这是用户能自己处理的失败。
+      toast(communitySkinMessage(failure));
+    } finally {
+      acting.current.delete(key);
+      setPendingState(key, null);
+    }
+  };
+
+  /** 使用：把库里的副本用到键盘上，与在皮肤页选择已保存的设计一样，经由同一项偏好修改。 */
+  const apply = async (skin: CommunitySkin) => {
+    const key = skinKey(skin.id);
+    const saved = library.get(key);
+    if (!saved || !preferences || !onApplyPreferences || acting.current.has(key)) return;
+    acting.current.add(key);
+    setPendingState(key, "using");
+    try {
+      await onApplyPreferences(updateCustomKeyboard(preferences, saved.design));
+      onSkinApplied?.(skin.id);
+      toast(`已换上「${skin.name}」`);
+    } catch {
+      toast("切换失败，保留当前皮肤");
+    } finally {
+      acting.current.delete(key);
+      setPendingState(key, null);
+    }
   };
 
   if (selected)
@@ -567,6 +831,116 @@ export function CommunitySkinsPage({
       </CommunityDetailFrame>
     );
 
+  const publishDialog = publishOpen && localSkinLibrary && (
+    <CommunitySkinPublishDialog
+      client={client}
+      library={localSkinLibrary}
+      onClose={() => setPublishOpen(false)}
+      onPublished={publishDone}
+      onLogin={communityPublishLoginAction(() => setPublishOpen(false), onLogin)}
+    />
+  );
+
+  if (harmony) {
+    const shown = skins.filter((skin) => !mineOnly || skin.owned);
+    return (
+      <div className={style.harmonyPage}>
+        <CommunityHarmonySearch
+          label="搜索皮肤设计"
+          value={search}
+          onChange={setSearch}
+          onSubmit={() => void requestList(search, false)}
+        />
+        {/* 设计去掉了桌面版的标题。分类标签在一行内滚动，范围切换和「发布」以纯文字留在这一行末尾，仍可点到。 */}
+        <div className={style.harmonyChips}>
+          <div className="contents" role="group" aria-label="键盘皮肤分类">
+            <button
+              type="button"
+              className={style.harmonyChip}
+              aria-pressed={categoryFilter.category === null}
+              onClick={() => void changeCategory(null)}
+            >
+              全部
+            </button>
+            {communitySkinCategories.map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={style.harmonyChip}
+                aria-pressed={categoryFilter.category === item}
+                onClick={() => void changeCategory(item)}
+              >
+                {communitySkinCategoryLabels[item]}
+              </button>
+            ))}
+          </div>
+          <span className={style.harmonyChipDivider} aria-hidden="true" />
+          <button
+            type="button"
+            className={style.harmonyChipAction}
+            aria-pressed={mineOnly}
+            onClick={() => {
+              const nextMineOnly = !mineOnly;
+              setMineOnly(nextMineOnly);
+              void requestList(activeSearch, false, nextMineOnly);
+            }}
+          >
+            我的作品
+          </button>
+          {localSkinLibrary && (
+            <button
+              type="button"
+              className={style.harmonyChipAction}
+              onClick={() => setPublishOpen(true)}
+            >
+              发布设计
+            </button>
+          )}
+        </div>
+        <CommunityGalleryFeedback
+          error={error}
+          signInRequired={signInRequired}
+          onLogin={onLogin}
+          empty={
+            !listBusy && shown.length === 0 ? (
+              <p className={style.harmonyNotice}>
+                {mineOnly
+                  ? hasMore
+                    ? "当前页没有你的作品，请继续加载查看更多。"
+                    : "还没有已发布的皮肤。"
+                  : "暂时没有匹配的皮肤。"}
+              </p>
+            ) : undefined
+          }
+        />
+        {shown.length > 0 && (
+          <div className={style.harmonyGrid}>
+            {shown.map((skin) => {
+              const pill = pillState(skin);
+              return (
+                <CommunityHarmonySkinCard
+                  key={skin.id}
+                  skin={skin}
+                  theme={theme}
+                  pill={pill}
+                  open={() => open(skin)}
+                  act={() => void (pill === "use" ? apply(skin) : take(skin))}
+                />
+              );
+            })}
+          </div>
+        )}
+        <CommunityHarmonyLoadMore
+          hasMore={hasMore}
+          busy={listBusy}
+          loadingText="正在读取社区皮肤…"
+          onLoadMore={() => void requestList(activeSearch, true)}
+        />
+        {publishDialog}
+      </div>
+    );
+  }
+
   return (
     <CommunityPageShell>
       <CommunitySearchForm
@@ -631,15 +1005,7 @@ export function CommunitySkinsPage({
         loadingText="正在读取社区皮肤…"
         onLoadMore={() => void requestList(activeSearch, true)}
       />
-      {publishOpen && localSkinLibrary && (
-        <CommunitySkinPublishDialog
-          client={client}
-          library={localSkinLibrary}
-          onClose={() => setPublishOpen(false)}
-          onPublished={publishDone}
-          onLogin={communityPublishLoginAction(() => setPublishOpen(false), onLogin)}
-        />
-      )}
+      {publishDialog}
     </CommunityPageShell>
   );
 }

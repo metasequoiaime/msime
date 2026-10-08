@@ -115,10 +115,10 @@ public final class ExpressionPage extends DetailPage {
             checked -> save(edit -> edit.put(english.key(), checked)));
         // 候选里带 emoji / 颜文字（#5667）：Engine 早就会按拼音从随包的 msime-others.db 找匹配的 emoji 和颜文字插进候选（共享偏好 mixed_input.emoji / kaomoji），Android 只是没有开关，默认又是关的。
         JSONObject mixed = values.optJSONObject("mixed_input");
-        intelligence.toggle("候选带 emoji", "26 键全拼、双拼输入时在候选里加入匹配的 emoji，例如 meiguo 出现 🇺🇸",
+        intelligence.toggle("候选带 emoji", "全拼（26 键或 9 键）、双拼输入时在候选里加入匹配的 emoji，紧跟在它描绘的词后面，例如「美国」后面是 🇺🇸",
             mixed != null && mixed.optBoolean("emoji", false),
             checked -> save(edit -> mixedInput(edit).put("emoji", checked)));
-        intelligence.toggle("候选带颜文字", "26 键全拼、双拼输入时在候选里加入匹配的颜文字，排在 emoji 之后",
+        intelligence.toggle("候选带颜文字", "全拼（26 键或 9 键）、双拼输入时在候选里加入匹配的颜文字，排在同一个词的 emoji 之后",
             mixed != null && mixed.optBoolean("kaomoji", false),
             checked -> save(edit -> mixedInput(edit).put("kaomoji", checked)));
 

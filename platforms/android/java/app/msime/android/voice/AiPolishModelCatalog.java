@@ -2,6 +2,7 @@ package app.msime.android;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLEncoder;
@@ -10,7 +11,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
-import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -100,9 +100,12 @@ public final class AiPolishModelCatalog {
 
     private static JSONObject get(URI uri, String token, boolean anthropic)
             throws AiPolishClient.Failure {
-        HttpsURLConnection connection = null;
+        HttpURLConnection connection = null;
         try {
-            connection = (HttpsURLConnection) uri.toURL().openConnection();
+            // 局域网的模型服务可以是 http（见 AiEndpointPolicy），所以这里不再限定 HttpsURLConnection，http 连接绕过代理直连；目录地址和接口地址同协议同主机，发出前再按同一规则查一次。
+            if (!AiEndpointPolicy.allowed(uri.toString()))
+                throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
+            connection = (HttpURLConnection) AiEndpointPolicy.open(uri.toURL());
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(30_000);

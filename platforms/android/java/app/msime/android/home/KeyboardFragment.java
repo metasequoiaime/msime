@@ -23,6 +23,7 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
+import app.msime.android.SchemePreferences;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import app.msime.android.core.InputViewValuePolicy;
@@ -229,11 +230,8 @@ public final class KeyboardFragment extends HomeTabFragment {
             // The page's own night mode stands in for the system's, as the keyboard's does: with `theme` on 跟随系统 the host follows the system, and with it forced the resolver never asks.
             KeyboardSkin resolved = HostStore.keyboardSkin(preferences, AppMode.dark(requireContext()),
                 HostStore.seed(requireContext()));
-            String layout = InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key");
             AppEdition edition = AppEdition.current();
-            KeyboardScheme selected = KeyboardScheme.fromPreferences(
-                preferences.optString("scheme", edition.defaultScheme()),
-                InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"), layout, edition);
+            KeyboardScheme selected = SchemePreferences.storedScheme(preferences, edition);
             skin = resolved.title();
             scheme = selected.title(InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
         }
@@ -372,7 +370,7 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     private static String voiceLanguage(JSONObject preferences) {
         JSONObject voice = preferences.optJSONObject("voice_input");
-        String language = TextPolicy.lowercase(voice == null ? "" : voice.optString("language", ""));
+        String language = TextPolicy.lowercase(InputViewValuePolicy.textOr(voice, "language", ""));
         if (language.isEmpty() || language.startsWith("zh") || language.startsWith("cmn")) return "普通话";
         if (language.startsWith("yue")) return "粤语";
         if (language.startsWith("en")) return "英语";

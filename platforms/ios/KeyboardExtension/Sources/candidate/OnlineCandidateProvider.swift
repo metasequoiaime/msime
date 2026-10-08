@@ -143,11 +143,9 @@ final class OnlineCandidateProvider {
                                   maxBytes: maxCloudResponseBytes)
   }
 
-  /// The POST the session's descriptor describes, or nil when it is not an HTTPS POST with a JSON body.
+  /// The POST the session's descriptor describes, or nil when it is not a POST with a JSON body to an address `AIEndpointPolicy` accepts (HTTPS, or HTTP on the local network).
   static func aiRequest(_ descriptor: [String: Any]) -> OnlineCandidateRequest? {
-    guard let text = descriptor["url"] as? String, let url = URL(string: text), url.scheme == "https",
-          let host = url.host, !host.isEmpty,
-          url.user == nil, url.password == nil, url.fragment == nil,
+    guard let text = descriptor["url"] as? String, let url = AIEndpointPolicy.validatedURL(text),
           (descriptor["method"] as? String ?? "POST") == "POST",
           let body = descriptor["body"], JSONSerialization.isValidJSONObject(body),
           let payload = try? JSONSerialization.data(withJSONObject: body) else { return nil }
@@ -167,6 +165,7 @@ final class OnlineCandidateProvider {
     guard let connectTimeout = seconds(descriptor["connect_timeout_ms"], fallback: 2500),
           let requestTimeout = seconds(descriptor["timeout_ms"], fallback: 8000) else { return nil }
     return OnlineCandidateRequest(urlRequest: request,
+                                  allowsLocalHTTP: true,
                                   connectTimeout: connectTimeout,
                                   timeout: requestTimeout,
                                   maxBytes: max(1, maxBytes))

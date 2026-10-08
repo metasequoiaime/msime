@@ -25,6 +25,7 @@ struct ClipboardHistorySettingsView: View {
       } footer: {
         Text("键盘工具面板里的“剪贴板历史”保存的内容也在这里。记录只保存在本机，最多 50 条，固定的不会被新记录挤掉。")
       }
+      .designRow()
 
       Section {
         ForEach(visible) { item in
@@ -56,11 +57,13 @@ struct ClipboardHistorySettingsView: View {
             .accessibilityIdentifier("clipboardHistoryClear")
         }
       } header: {
-        Text(query.isEmpty ? "\(items.count)/\(ClipboardHistoryStore.limit) 条" : "\(visible.count) 条匹配")
+        SettingsGroupHeader(title: query.isEmpty ? "\(items.count)/\(ClipboardHistoryStore.limit) 条" : "\(visible.count) 条匹配")
       } footer: {
         if let message { Text(message) } else { Text(sizeClass == .regular ? "点一条复制到系统剪贴板，右键或长按可固定、删除。" : "点一条复制到系统剪贴板，右滑固定，左滑删除。") }
       }
+      .designRow()
     }
+    .designPage()
     .searchable(text: $query, prompt: "搜索剪贴板")
     .navigationTitle("剪贴板历史").navigationBarTitleDisplayMode(.inline)
     .confirmationDialog("清空全部剪贴板历史？", isPresented: $confirmsClear, titleVisibility: .visible) {

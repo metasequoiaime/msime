@@ -75,6 +75,9 @@ pub struct ImeSession {
     sentence_association: SentenceAssociationOptions,
     rescoring_context: String,
     typo_profile: Arc<PersonalTypoProfile>,
+    /// 五笔混输拼音回退使用的方案和请求缓冲，逐键刷新时复用。
+    mixed_pinyin_scheme: QuanpinScheme,
+    mixed_pinyin_request: QueryRequest,
 }
 
 impl ImeSession {
@@ -126,6 +129,8 @@ impl ImeSession {
             sentence_association: SentenceAssociationOptions::default(),
             rescoring_context: String::new(),
             typo_profile: PersonalTypoProfile::shared(&paths.user(assets::USER_JOURNAL)),
+            mixed_pinyin_scheme: QuanpinScheme::new(),
+            mixed_pinyin_request: QueryRequest::default(),
         };
         session.bind_wubi_scheme();
         Ok(session)
@@ -735,18 +740,21 @@ impl ImeSession {
             };
         }
 
-        let mut pinyin = QuanpinScheme::new();
-        pinyin.set_raw_input(&request.raw_input, &request.raw_input_with_cases);
-        let mut mixed = pinyin.build_request();
+        self.mixed_pinyin_scheme
+            .set_raw_input(&request.raw_input, &request.raw_input_with_cases);
+        let mut mixed = std::mem::take(&mut self.mixed_pinyin_request);
+        self.mixed_pinyin_scheme.build_request_into(&mut mixed);
         self.apply_request_options(&mut mixed);
         self.apply_autocorrect_suppression(&mut mixed);
         if !mixed.valid {
+            self.mixed_pinyin_request = mixed;
             return Decoded {
                 candidates,
                 wubi_table_answered,
             };
         }
         let pinyin_rows = self.registry.query(&mixed);
+        self.mixed_pinyin_request = mixed;
         Decoded {
             candidates: merge_pinyin_fallback(candidates, pinyin_rows),
             wubi_table_answered,
@@ -920,23 +928,25 @@ fn apply_shuangpin_helpcode_segmentation(request: &mut QueryRequest, profile: &S
     let effective_with_cases = remove_manual_delimiters(&request.raw_input_with_cases);
     let help_codes = &effective_with_cases[effective_with_cases.len() - HELPCODE_LENGTH..];
 
-    request.raw_segmentation = append_help_codes(
-        apply_segmentation_cases(&base_segmentation, &base_raw_with_cases),
-        help_codes,
-    );
-    request.normalized_segmentation = append_help_codes(
-        to_quanpin_segmentation(&base_segmentation, profile),
-        help_codes,
-    );
+    request
+        .raw_segmentation
+        .clone_from(&apply_segmentation_cases(
+            &base_segmentation,
+            &base_raw_with_cases,
+        ));
+    append_help_codes(&mut request.raw_segmentation, help_codes);
+    request
+        .normalized_segmentation
+        .clone_from(&to_quanpin_segmentation(&base_segmentation, profile));
+    append_help_codes(&mut request.normalized_segmentation, help_codes);
     request
         .segmentation
         .clone_from(&request.normalized_segmentation);
 }
 
-fn append_help_codes(mut segmentation: String, help_codes: &str) -> String {
+fn append_help_codes(segmentation: &mut String, help_codes: &str) {
     segmentation.push('\'');
     segmentation.push_str(help_codes);
-    segmentation
 }
 
 #[cfg(test)]
@@ -1102,9 +1112,11 @@ mod tests {
     fn appending_help_codes_extends_the_existing_segmentation() {
         let mut segmentation = String::with_capacity("ni'hao'ab".len());
         segmentation.push_str("ni'hao");
-        let result = append_help_codes(segmentation, "ab");
-        assert_eq!(result, "ni'hao'ab");
-        assert_eq!(result.capacity(), result.len());
+        let pointer = segmentation.as_ptr();
+        append_help_codes(&mut segmentation, "ab");
+        assert_eq!(segmentation, "ni'hao'ab");
+        assert_eq!(segmentation.capacity(), segmentation.len());
+        assert_eq!(segmentation.as_ptr(), pointer);
     }
 
     #[test]

@@ -182,6 +182,26 @@ fn the_configuration_snapshot_is_redacted_inside_the_zip() {
     assert!(config.contains(crate::preferences::REDACTED));
 }
 
+#[cfg(unix)]
+#[test]
+fn diagnostic_zip_rejects_a_symlinked_destination_parent() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let linked = root.path().join("linked");
+    symlink(outside.path(), &linked).unwrap();
+    let destination = linked.join("diagnostics.zip");
+    let mut request = request(root.path(), DiagnosticInclude::default());
+    request.destination = Some(destination.to_string_lossy().into_owned());
+
+    assert!(matches!(
+        build_bundle(&request),
+        Err(DiagnosticsError::Write(_))
+    ));
+    assert!(!outside.path().join("diagnostics.zip").exists());
+}
+
 #[test]
 fn relative_paths_are_refused() {
     let mut request = request(Path::new("relative"), DiagnosticInclude::default());

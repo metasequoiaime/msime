@@ -1,13 +1,12 @@
 package app.msime.android;
 
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.Objects;
 
 /** Immutable, display-safe AI text-polish configuration. Secrets are never exposed by toString(). */
 public final class AiPolishConfiguration {
-    /** Maximum UTF-8 byte length accepted for a custom HTTPS endpoint. */
-    public static final int MAX_ENDPOINT_LENGTH = 2048;
+    /** 自定义接口地址能接受的最大 UTF-8 字节数，规则见 {@link AiEndpointPolicy}。 */
+    public static final int MAX_ENDPOINT_LENGTH = AiEndpointPolicy.MAX_ENDPOINT_BYTES;
     public static final int MAXIMUM_TEXT_CODE_POINTS = 10_000;
     public static final int MAXIMUM_RESPONSE_BYTES = 1024 * 1024;
     public static final String DEFAULT_PROMPT = "请润色以下文字，保持原意，只返回修改后的文字。";
@@ -32,10 +31,12 @@ public final class AiPolishConfiguration {
     String token() { return token; }
     public String credentialOrigin() { return credentialOrigin; }
 
+    /** 给用户看的目标地址：真实的协议和主机，默认端口不写。 */
     public String destination() {
+        String scheme = TextPolicy.lowercase(endpoint.getScheme());
         int port = endpoint.getPort();
-        return "https://" + TextPolicy.lowercase(endpoint.getHost())
-            + (port == -1 || port == 443 ? "" : ":" + port);
+        boolean defaultPort = port == -1 || port == ("https".equals(scheme) ? 443 : 80);
+        return scheme + "://" + TextPolicy.lowercase(endpoint.getHost()) + (defaultPort ? "" : ":" + port);
     }
 
     public AiPolishConfiguration withPrompt(String replacement) {
@@ -57,27 +58,20 @@ public final class AiPolishConfiguration {
         return TextPolicy.withinCodePoints(text, MAXIMUM_TEXT_CODE_POINTS);
     }
 
+    /** https 不限主机，http 只能指向本机或局域网；规则在 {@link AiEndpointPolicy}。 */
     private static URI validatedEndpoint(String value) {
-        if (value == null || value.isEmpty() || TextPolicy.utf8Length(value) > MAX_ENDPOINT_LENGTH
-                || TextPolicy.hasControl(value)) {
-            throw new IllegalArgumentException("AI 接口地址无效");
-        }
-        try {
-            URI uri = new URI(TextPolicy.trimmed(value));
-            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
-                    || uri.getHost().isEmpty() || uri.getUserInfo() != null
-                    || uri.getFragment() != null || uri.getPort() < -1 || uri.getPort() > 65535) {
-                throw new IllegalArgumentException("AI 接口必须是完整的 HTTPS 地址");
-            }
-            return uri;
-        } catch (URISyntaxException error) {
-            throw new IllegalArgumentException("AI 接口地址无效", error);
+        switch (AiEndpointPolicy.check(value)) {
+            case ALLOWED:
+                return AiEndpointPolicy.uri(value);
+            case CLEARTEXT_PUBLIC:
+                throw new IllegalArgumentException(AiEndpointPolicy.CLEARTEXT_REASON);
+            default:
+                throw new IllegalArgumentException("AI 接口地址无效");
         }
     }
 
     private static String credentialOrigin(URI uri) {
-        return "https://" + TextPolicy.lowercase(uri.getHost()) + ":"
-            + (uri.getPort() == -1 ? 443 : uri.getPort());
+        return AiEndpointPolicy.origin(uri);
     }
 
     private static String bounded(String value, int maximum, String message) {

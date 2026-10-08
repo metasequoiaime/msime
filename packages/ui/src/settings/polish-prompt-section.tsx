@@ -3,7 +3,7 @@ import { SelectRow } from "./select-row";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
-import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
+import { customPromptSlotOptions } from "./custom-prompt-slot-options";
 import {
   POLISH_CUSTOM_IDS,
   POLISH_PRESET_IDS,
@@ -50,7 +50,7 @@ export function PolishPromptSection({
             {POLISH_PRESET_NAMES[id]}
           </option>
         ))}
-        <CustomPromptSlotOptions />
+        {customPromptSlotOptions()}
       </SelectRow>
       <SettingsManagerBlock>
         {customSlot ? (

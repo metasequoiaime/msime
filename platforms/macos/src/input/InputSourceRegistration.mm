@@ -122,14 +122,13 @@ OSStatus MSIMERegisterAndEnableInputSources(NSURL *bundleURL, NSString *bundleId
 NSArray<NSString *> *MSIMEEnableNewInputModes(NSString *bundleIdentifier, NSArray<NSString *> *offered,
                                               MSIMEInputSourceLister lister,
                                               MSIMEInputSourcePropertyGetter propertyGetter,
-                                              MSIMEInputSourceEnabler enabler,
-                                              MSIMEInputSourceEnabler disabler) {
+                                              MSIMEInputSourceEnabler enabler) {
     // 没有记录说明这是第一次留记录的启动。full 在开始记录之前的每次安装都登记并启用过中、英、日、韩，它们算作已经提供过，用户移除过的就保持移除；之后新增的模式才是没重新登记的更新漏掉的。其他版本从一开始就留记录，没有这样的历史，第一次启动把本版本的模式各启用一次。
     NSArray<NSString *> *legacy = MSIMEEditionIsFull() ? @[
         MSIMEChineseInputModeID, MSIMEEnglishInputModeID, MSIMEJapaneseInputModeID, MSIMEKoreanInputModeID
     ] : @[];
     NSMutableOrderedSet<NSString *> *record = [NSMutableOrderedSet orderedSetWithArray:offered ?: legacy];
-    if (!bundleIdentifier.length || !lister || !propertyGetter || !enabler || !disabler) return record.array;
+    if (!bundleIdentifier.length || !lister || !propertyGetter || !enabler) return record.array;
     NSDictionary *filter = @{(__bridge NSString *)kTISPropertyBundleID: bundleIdentifier,
                              (__bridge NSString *)kTISPropertyInputSourceIsEnableCapable: @YES};
     CFArrayRef sources = lister((__bridge CFDictionaryRef)filter, true);
@@ -143,9 +142,8 @@ NSArray<NSString *> *MSIMEEnableNewInputModes(NSString *bundleIdentifier, NSArra
         if (![identifier hasPrefix:modePrefix] || [record containsObject:identifier]) continue;
         void *enabled = propertyGetter(source, kTISPropertyInputSourceIsEnabled);
         const BOOL alreadyEnabled = enabled && CFGetTypeID(enabled) == CFBooleanGetTypeID() && CFBooleanGetValue((CFBooleanRef)enabled);
-        // An opt-in mode is recorded without being enabled, so no later launch enables it either. One the system enabled by itself, ignoring its tsInputModeDefaultStateKey, is turned off this once; it is recorded whatever that returns, because the next launch could no longer tell the system's doing from the user picking the scheme.
+        // 按需模式只记录、不启用，之后的启动也不会启用它。已经启用的同样只记录，不关掉：进程启用不了输入法本身，用户第一次加入输入法只能经系统设置的「添加」对话框，所以第一次启动时看到的已启用按需模式，多半就是用户刚加的那个（「简体中文」下排第一的正是「笔」），也正是此刻要切换过去的模式。在 macOS 15.7.9 上实测，这时关掉它会让系统丢掉这次切换、退回原来的输入源，用户看到的是从菜单里选了水杉却没有反应。
         if (MSIMEIsOptInInputModeID(identifier)) {
-            if (alreadyEnabled) disabler(source);
             [record addObject:identifier];
             continue;
         }

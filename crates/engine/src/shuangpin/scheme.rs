@@ -102,12 +102,14 @@ impl ShuangpinScheme {
     }
 
     pub fn set_raw_input(&mut self, raw: &str, raw_with_cases: &str) {
-        self.raw = if raw_with_cases.is_empty() {
+        let source = if raw_with_cases.is_empty() {
             raw
         } else {
             raw_with_cases
-        }
-        .to_string();
+        };
+        self.raw.clear();
+        self.raw.reserve(source.len());
+        self.raw.push_str(source);
     }
 }
 
@@ -177,6 +179,36 @@ mod tests {
         assert_eq!(typed.preedit(), "NiHc");
         typed.set_raw_input("nihc", "");
         assert_eq!(typed.preedit(), "nihc");
+    }
+
+    #[test]
+    fn set_raw_input_reuses_existing_storage() {
+        for kind in [
+            ShuangpinProfileKind::Xiaohe,
+            ShuangpinProfileKind::Ziranma,
+            ShuangpinProfileKind::Shoudao,
+            ShuangpinProfileKind::Microsoft,
+        ] {
+            let mut typed = scheme(kind);
+            typed.set_raw_input("ni'hcAB", "Ni'HcAB");
+            let pointer = typed.raw.as_ptr();
+            let capacity = typed.raw.capacity();
+
+            let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                typed.set_raw_input("nihc", "NiHc");
+                typed.set_raw_input("ni", "");
+                typed.set_raw_input("", "");
+            });
+
+            assert_eq!(allocations, 0, "{kind:?}");
+            assert_eq!(typed.raw.as_ptr(), pointer, "{kind:?}");
+            assert_eq!(typed.raw.capacity(), capacity, "{kind:?}");
+            assert!(typed.raw.is_empty());
+            typed.set_raw_input("nihc", "NiHc");
+            assert_eq!(typed.preedit(), "NiHc");
+            typed.set_raw_input("ni", "");
+            assert_eq!(typed.preedit(), "ni");
+        }
     }
 
     #[test]

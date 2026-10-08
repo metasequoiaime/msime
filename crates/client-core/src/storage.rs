@@ -3,6 +3,8 @@ use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::path::PathBuf;
 #[cfg(unix)]
@@ -125,14 +127,7 @@ pub(crate) fn write_private_file_at(
     name: &OsStr,
     contents: &[u8],
 ) -> io::Result<()> {
-    let mut temporary_name = OsString::from(".msime-private-");
-    temporary_name.push(std::process::id().to_string());
-    temporary_name.push("-");
-    temporary_name.push(
-        PRIVATE_FILE_COUNTER
-            .fetch_add(1, Ordering::Relaxed)
-            .to_string(),
-    );
+    let temporary_name = private_temporary_name();
     let descriptor = rustix::fs::openat(
         directory,
         &temporary_name,
@@ -154,6 +149,175 @@ pub(crate) fn write_private_file_at(
         return Err(error.into());
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn private_temporary_name() -> OsString {
+    let mut temporary_name = OsString::from(".msime-private-");
+    temporary_name.push(std::process::id().to_string());
+    temporary_name.push("-");
+    temporary_name.push(
+        PRIVATE_FILE_COUNTER
+            .fetch_add(1, Ordering::Relaxed)
+            .to_string(),
+    );
+    temporary_name
+}
+
+/// Publish a private file without replacing an existing destination.
+///
+/// Unix has no portable `renameat` no-replace operation across all supported
+/// targets. A hard link from the unique temporary file is atomic and fails
+/// with `AlreadyExists` when another process published first; removing the
+/// temporary name then leaves the linked file at the destination.
+#[cfg(unix)]
+pub(crate) fn write_private_file_at_noclobber(
+    directory: &File,
+    name: &OsStr,
+    contents: &[u8],
+) -> io::Result<bool> {
+    let temporary_name = private_temporary_name();
+    let descriptor = rustix::fs::openat(
+        directory,
+        &temporary_name,
+        rustix::fs::OFlags::WRONLY
+            | rustix::fs::OFlags::CREATE
+            | rustix::fs::OFlags::EXCL
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::from_raw_mode(0o600),
+    )?;
+    let mut file: File = descriptor.into();
+    let result = file.write_all(contents).and_then(|()| file.sync_all());
+    drop(file);
+    if let Err(error) = result {
+        let _ = rustix::fs::unlinkat(directory, &temporary_name, rustix::fs::AtFlags::empty());
+        return Err(error);
+    }
+    match rustix::fs::linkat(
+        directory,
+        &temporary_name,
+        directory,
+        name,
+        rustix::fs::AtFlags::empty(),
+    ) {
+        Ok(()) => {
+            rustix::fs::unlinkat(directory, &temporary_name, rustix::fs::AtFlags::empty())?;
+            Ok(true)
+        }
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            let _ = rustix::fs::unlinkat(directory, &temporary_name, rustix::fs::AtFlags::empty());
+            Ok(false)
+        }
+        Err(error) => {
+            let _ = rustix::fs::unlinkat(directory, &temporary_name, rustix::fs::AtFlags::empty());
+            Err(error.into())
+        }
+    }
+}
+
+/// Stream a private file into a directory-bound temporary file and publish it
+/// with an atomic rename. The callback returns the finished file so callers
+/// can use writers, such as a zip encoder, that consume their output handle.
+#[cfg(unix)]
+pub(crate) fn write_private_file_at_with<T, F>(
+    directory: &File,
+    name: &OsStr,
+    writer: F,
+) -> io::Result<(T, u64)>
+where
+    F: FnOnce(File) -> io::Result<(File, T)>,
+{
+    let temporary_name = private_temporary_name();
+    let descriptor = rustix::fs::openat(
+        directory,
+        &temporary_name,
+        rustix::fs::OFlags::WRONLY
+            | rustix::fs::OFlags::CREATE
+            | rustix::fs::OFlags::EXCL
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::from_raw_mode(0o600),
+    )?;
+    let file: File = descriptor.into();
+    let (file, value) = match writer(file) {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = rustix::fs::unlinkat(directory, &temporary_name, rustix::fs::AtFlags::empty());
+            return Err(error);
+        }
+    };
+    let bytes = match file
+        .metadata()
+        .and_then(|metadata| file.sync_all().map(|()| metadata.len()))
+    {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            drop(file);
+            let _ = rustix::fs::unlinkat(directory, &temporary_name, rustix::fs::AtFlags::empty());
+            return Err(error);
+        }
+    };
+    drop(file);
+    if let Err(error) = rustix::fs::renameat(directory, &temporary_name, directory, name) {
+        let _ = rustix::fs::unlinkat(directory, &temporary_name, rustix::fs::AtFlags::empty());
+        return Err(error.into());
+    }
+    Ok((value, bytes))
+}
+
+/// A private temporary file whose creation, publication and cleanup all use
+/// the same opened directory. This lets large files be streamed before a
+/// caller takes its state lock.
+#[cfg(unix)]
+pub(crate) struct PrivateStagedFile {
+    directory: File,
+    name: OsString,
+    file: Option<File>,
+}
+
+#[cfg(unix)]
+impl PrivateStagedFile {
+    pub(crate) fn new(directory: &File) -> io::Result<Self> {
+        let directory = directory.try_clone()?;
+        let name = private_temporary_name();
+        let descriptor = rustix::fs::openat(
+            &directory,
+            &name,
+            rustix::fs::OFlags::WRONLY
+                | rustix::fs::OFlags::CREATE
+                | rustix::fs::OFlags::EXCL
+                | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::from_raw_mode(0o600),
+        )?;
+        Ok(Self {
+            directory,
+            name,
+            file: Some(descriptor.into()),
+        })
+    }
+
+    pub(crate) fn file_mut(&mut self) -> &mut File {
+        self.file.as_mut().expect("staged file was published")
+    }
+
+    pub(crate) fn directory(&self) -> &File {
+        &self.directory
+    }
+
+    pub(crate) fn persist(mut self, name: &OsStr) -> io::Result<()> {
+        self.file
+            .take()
+            .expect("staged file was published")
+            .sync_all()?;
+        rustix::fs::renameat(&self.directory, &self.name, &self.directory, name)?;
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+impl Drop for PrivateStagedFile {
+    fn drop(&mut self) {
+        let _ = rustix::fs::unlinkat(&self.directory, &self.name, rustix::fs::AtFlags::empty());
+    }
 }
 
 /// 在存储操作跟随已有的符号链接之前先拒绝它。每个应用的存储都会经过的系统链接，以 `msime-path-trust` 列出的为准。
@@ -200,6 +364,46 @@ pub(crate) fn remove_private_file(path: &Path) -> io::Result<()> {
     {
         std::fs::remove_file(path)
     }
+}
+
+/// Remove a file or directory tree relative to an opened parent directory.
+/// Directory traversal never reconstructs a path, and leaf symlinks are
+/// unlinked rather than followed.
+#[cfg(unix)]
+pub(crate) fn remove_private_tree_at(directory: &File, name: &OsStr) -> io::Result<()> {
+    let child = match rustix::fs::openat(
+        directory,
+        name,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC
+            | rustix::fs::OFlags::NONBLOCK,
+        rustix::fs::Mode::empty(),
+    ) {
+        Ok(child) => child,
+        Err(error) if error == rustix::io::Errno::NOTDIR => {
+            return rustix::fs::unlinkat(directory, name, rustix::fs::AtFlags::empty())
+                .map_err(Into::into)
+        }
+        Err(error) if error == rustix::io::Errno::LOOP => {
+            return rustix::fs::unlinkat(directory, name, rustix::fs::AtFlags::empty())
+                .map_err(Into::into)
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let child: File = child.into();
+    let entries = rustix::fs::Dir::read_from(&child)?;
+    for entry in entries {
+        let entry = entry?;
+        let entry_name = entry.file_name();
+        if entry_name.to_bytes() == b"." || entry_name.to_bytes() == b".." {
+            continue;
+        }
+        let entry_name = std::ffi::OsStr::from_bytes(entry_name.to_bytes());
+        remove_private_tree_at(&child, entry_name)?;
+    }
+    rustix::fs::unlinkat(directory, name, rustix::fs::AtFlags::REMOVEDIR).map_err(Into::into)
 }
 
 /// Open a private resumable file for reading and writing without following a
@@ -343,6 +547,95 @@ mod tests {
             b"synthetic-session"
         );
         assert!(!outside.join("session.json").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_file_no_clobber_preserves_first_publication() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = open_private_directory(root.path()).unwrap();
+        let name = OsStr::new("anonymous-account.json");
+
+        assert!(write_private_file_at_noclobber(&directory, name, b"first").unwrap());
+        assert!(!write_private_file_at_noclobber(&directory, name, b"second").unwrap());
+        assert_eq!(fs::read(root.path().join(name)).unwrap(), b"first");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_file_no_clobber_stays_in_open_directory_after_replacement() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let original = root.path().join("original");
+        let outside = root.path().join("outside");
+        fs::create_dir(&original).unwrap();
+        fs::create_dir(&outside).unwrap();
+        let directory = open_private_directory(&original).unwrap();
+        let moved = root.path().join("moved");
+        fs::rename(&original, &moved).unwrap();
+        symlink(&outside, &original).unwrap();
+
+        assert!(write_private_file_at_noclobber(
+            &directory,
+            OsStr::new("anonymous-account.json"),
+            b"synthetic-identity"
+        )
+        .unwrap());
+        assert_eq!(
+            fs::read(moved.join("anonymous-account.json")).unwrap(),
+            b"synthetic-identity"
+        );
+        assert!(!outside.join("anonymous-account.json").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staged_private_file_publishes_in_its_original_directory() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let original = root.path().join("original");
+        let outside = root.path().join("outside");
+        fs::create_dir(&original).unwrap();
+        fs::create_dir(&outside).unwrap();
+        let directory = open_private_directory(&original).unwrap();
+        let mut staged = PrivateStagedFile::new(&directory).unwrap();
+        staged.file_mut().write_all(b"synthetic-snapshot").unwrap();
+        staged.file_mut().sync_all().unwrap();
+
+        let moved = root.path().join("moved");
+        fs::rename(&original, &moved).unwrap();
+        symlink(&outside, &original).unwrap();
+        staged.persist(OsStr::new("snapshot.ndjson")).unwrap();
+
+        assert_eq!(
+            fs::read(moved.join("snapshot.ndjson")).unwrap(),
+            b"synthetic-snapshot"
+        );
+        assert!(!outside.join("snapshot.ndjson").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_tree_remove_stays_in_an_open_directory() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let original = root.path().join("original");
+        let outside = root.path().join("outside");
+        fs::create_dir(&original).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::create_dir(original.join("nested")).unwrap();
+        fs::write(original.join("nested/file"), b"synthetic").unwrap();
+        let directory = open_private_directory(&original).unwrap();
+        let moved = root.path().join("moved");
+        fs::rename(&original, &moved).unwrap();
+        symlink(&outside, &original).unwrap();
+
+        remove_private_tree_at(&directory, OsStr::new("nested")).unwrap();
+        assert!(!moved.join("nested").exists());
+        assert!(outside.exists());
     }
 
     #[cfg(unix)]

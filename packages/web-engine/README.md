@@ -1,6 +1,6 @@
 # @msime/web-engine
 
-水杉输入法的网页引擎。全拼、小鹤双拼、自然码双拼、五笔 86、日语罗马字和韩文两套式都运行在浏览器的 Web Worker 里（Rust 编译成 WebAssembly），不需要服务器，可以部署到 GitHub Pages、Vercel、Cloudflare Pages / Workers 这类任意静态托管上。
+水杉输入法的网页引擎。全拼、小鹤双拼、自然码双拼、手到双拼、微软双拼、五笔 86、日语罗马字和韩文两套式都运行在浏览器的 Web Worker 里，全拼和双拼还可以打开辅助码（Rust 编译成 WebAssembly），不需要服务器，可以部署到 GitHub Pages、Vercel、Cloudflare Pages / Workers 这类任意静态托管上。
 
 ```js
 import { createMsimeEngine, attachInput } from "@msime/web-engine";
@@ -18,9 +18,10 @@ attachInput(document.querySelector("textarea"), engine);
 | `assets/msime-wubi86.db.gz` | 约 3.6 MB | 五笔 86 词库 |
 | `assets/msime-japanese.dat.gz` | 约 5.3 MB | 日语模型（Mozc 词典裁剪版），只用于日语 |
 | `assets/sentence-model.safetensors.gz` | 约 4 MB | 整句模型，只用于拼音，可以不下载 |
+| `assets/helpcode-<方案>.txt.gz` | 每张 26–82 KB，六张共约 290 KB | 辅助码表，只在全拼或双拼打开辅助码时下载用到的那一张（见下文「辅助码」） |
 | `assets/NOTICE.md` | | 第三方许可声明，部署时请一并发布 |
 
-每个页面只下载用到的方案：全拼约 16 MB，不要整句模型约 12 MB，五笔约 8 MB，日语约 9 MB，韩文只要引擎约 4 MB。浏览器会按 HTTP 缓存规则缓存这些文件。
+每个页面只下载用到的方案：全拼约 16 MB，不要整句模型约 12 MB，五笔约 8 MB，日语约 9 MB，韩文只要引擎约 4 MB；打开辅助码再多几十 KB。浏览器会按 HTTP 缓存规则缓存这些文件。
 
 ## 接入方式
 
@@ -31,6 +32,7 @@ attachInput(document.querySelector("textarea"), engine);
 ```sh
 npx @msime/web-engine copy public/msime          # 或 site/msime、dist/msime，看你的发布目录
 npx @msime/web-engine copy public/msime --no-wubi --no-model   # 只要全拼和双拼，且不要整句模型
+npx @msime/web-engine copy public/msime --no-helpcode          # 不带辅助码表
 ```
 
 ```html
@@ -99,9 +101,10 @@ const engine = await createMsimeEngine({ scheme: "quanpin", assetBase: "/msime/a
 
 下载并初始化引擎，完成后返回 `MsimeEngine`。选项：
 
-- `scheme`：`"quanpin"`（默认）、`"xiaohe"`、`"ziranma"`、`"wubi86"`、`"japanese"`、`"korean"`。`japanese` 是日语罗马字：组字区显示假名，候选是整句转换、词和平假名、片假名；空格选高亮的候选，回车上屏假名，`-` 是长音 ー，`,` `.` `[` `]` 打出 、。「」。`korean` 是韩文两套式（두벌식）：Shift 打双辅音和 ㅒ ㅖ，音节在组字区拼好、下一个键开始新音节时自动上屏；空格、数字和半角标点先上屏音节再打出自己；没有候选，也不下载词库和模型。
+- `scheme`：`"quanpin"`（默认）、`"xiaohe"`、`"ziranma"`、`"shoudao"`、`"microsoft"`、`"wubi86"`、`"japanese"`、`"korean"`。`xiaohe`、`ziranma`、`shoudao`、`microsoft` 是小鹤、自然码、手到和微软双拼，每个字两键，和全拼共用拼音库；微软双拼的 `;` 是韵母 ing（`b;` 是 bing），只能作音节的第二键，别处仍是分号。`japanese` 是日语罗马字：组字区显示假名，候选是整句转换、词和平假名、片假名；空格选高亮的候选，回车上屏假名，`-` 是长音 ー，`,` `.` `[` `]` 打出 、。「」。`korean` 是韩文两套式（두벌식）：Shift 打双辅音和 ㅒ ㅖ，音节在组字区拼好、下一个键开始新音节时自动上屏；空格、数字和半角标点先上屏音节再打出自己；没有候选，也不下载词库和模型。
 - `assetBase`：资源目录的 URL，相对地址按页面解析。
 - `model`：拼音方案是否下载整句模型，默认 `true`。
+- `helpcode`：辅助码方案（`HELPCODES` 里的一个名字），默认 `null`，即关闭。只对全拼和双拼起作用，其他方案忽略它、也不下载表。
 - `pageSize`：每页候选数，默认 9。
 - `onProgress(loaded, total)`：下载进度。
 - `worker`：自定义 Worker，例如 CSP 不允许 `blob:` 时自己托管 `worker.js`。
@@ -113,7 +116,8 @@ const engine = await createMsimeEngine({ scheme: "quanpin", assetBase: "/msime/a
 - `keys(key | key[])`：发送打包按键，返回处理后的帧 `MsimeFrame`。
 - `pick(slot)`：点选当前页第 `slot` 个候选。
 - `reset()`：取消组字、清空上下文。
-- `setScheme(scheme)`：在全拼和两种双拼之间切换，不重新下载。和五笔、日语、韩文互换需要 `dispose()` 后新建一个引擎。
+- `setScheme(scheme)`：在全拼和四种双拼之间切换，不重新下载，辅助码设置保留。和五笔、日语、韩文互换需要 `dispose()` 后新建一个引擎。
+- `setHelpcode(helpcode)`：打开（传方案名）或关闭（传 `null`）辅助码，不用重建引擎；第一次用到的表这时下载。下载失败时 reject（`code: "network"`），引擎照常可用、设置不变；五笔、日语、韩文引擎上什么也不做。`helpcode` 属性是当前的方案，关闭时为 `null`。
 - `setModelEnabled(enabled)`、`setBackspaceDeletes(deletes)`。
 - `onError(fn)`：运行期错误（引擎 panic）。之后所有请求都会 reject，需要新建引擎。
 - `dispose()`：结束 Worker，释放内存。wasm 内存不会自动缩小，不用的时候请调用它。
@@ -134,6 +138,35 @@ attachInput(textarea, engine, { skin: "wechat", layout: "vertical", dark: "auto"
 ```
 
 换皮肤时调用返回的函数解除绑定，再以新的选项重新 `attachInput`，引擎不用重建。解除绑定时正在组的字会被放弃（同 `engine.reset()`），还没回来的帧不再写进文本框，也不再回调 `onFrame`。
+
+## 辅助码
+
+辅助码用字形补充读音，在同音字多的时候直接点名要哪个字。默认关闭，网页引擎的评测基线也是关着测的。打开后，全拼和双拼按引擎的规则读辅助码，和桌面端一样：
+
+- 全拼：音节打完后按住 Shift 打辅助码。一个大写字母（`niC`）把首码相同的字提到前面；末尾两个大写字母（`niCD`）只留两码都对得上的字。
+- 双拼：完整音节后的第三键（`ni` + `c`）是单码，把首码相同的字提到前面；第三键再加按着 Shift 的第四键（`ni` + `c` + `D`）是双码，只留两码都对得上的字。打开辅助码后，第三键不再当下一个音节的声母。
+- 词按首字和末字的首码匹配。
+
+帧里每个候选的 `hint` 是它的辅助码提示，例如 `(cD)`：单字是它的两码，词是首字和末字的首码；全拼全大写，双拼只大写第二码。关闭辅助码时为空串。默认候选栏有提示就显示在候选后（`::part(code)`）。
+
+内置六套辅助码表，`HELPCODES` 导出它们的名字。任何一套都能配全拼和任何一种双拼，通常按习惯配对：
+
+| 名字 | 方案 | 常见搭配 |
+| --- | --- | --- |
+| `lantian` | 蓝天小雨点 | 不限双拼 |
+| `ziranma` | 自然码辅助码 | 自然码双拼 |
+| `shouyou2_0` | 首右 2.0 | 不限双拼 |
+| `shouyouplus` | 首右 plus | 不限双拼 |
+| `xiaohe` | 小鹤形码 | 小鹤双拼 |
+| `jiajia` | 加加辅助码 | 拼音加加的双拼（网页引擎没有这套键位，可配其他双拼） |
+
+```js
+const engine = await createMsimeEngine({ scheme: "xiaohe", helpcode: "xiaohe" });
+await engine.setHelpcode(null);       // 关闭
+await engine.setHelpcode("lantian");  // 换一套，首次下载这张表
+```
+
+这些表复现的是各家已发表的辅助码方案，没有拿到明确的再分发授权，GPL-3.0 不覆盖它们，`jiajia` 还有一部分条目来自商业软件拼音加加的数据表；来源和限制见 `assets/NOTICE.md` 的「辅助码表」。部署到公开站点前请确认可以分发；不能分发时用 `copy --no-helpcode` 不复制它们，打开辅助码会以 `network` 失败，其余功能不受影响。
 
 ## 候选框皮肤
 
@@ -215,7 +248,7 @@ bar.setSkin("ink"); bar.setLayout("vertical"); bar.setDark(true);
 bar.hide(); bar.destroy();
 ```
 
-`container` 是宿主元素放在哪里，默认 `document.body`；`helpcode: true` 时在候选后显示编码（帧里的 `page[i].code`），默认关闭，`attachInput` 不打开它。
+`container` 是宿主元素放在哪里，默认 `document.body`；`helpcode: true` 时在候选后显示编码（帧里的 `page[i].code`），默认关闭，`attachInput` 不打开它。帧里有辅助码提示（`page[i].hint`，只在引擎打开辅助码时有）时，不论这个选项都显示提示。
 
 点候选不会让输入框失焦。浏览器不支持可构造样式表（Safari 16.4 以前）时抛 `Error`。
 
@@ -236,7 +269,7 @@ msime-candidates::part(candidates) { font-size: 18px; }
 msime-candidates::part(highlight) { font-weight: 600; }
 ```
 
-可用的 part：`candidates`（整个候选栏）、`card`（候选框）、`preedit`（拼音或编码行）、`caret`、`paging`（翻页标记）、`candidate`（每个候选）、`highlight`（高亮的候选，同时带 `candidate`）、`number`、`text`、`code`（编码提示，只在 `createCandidateBar({ helpcode: true })` 时出现）、`decoration`、`background`。Shadow DOM 里的类名不是公开接口。
+可用的 part：`candidates`（整个候选栏）、`card`（候选框）、`preedit`（拼音或编码行）、`caret`、`paging`（翻页标记）、`candidate`（每个候选）、`highlight`（高亮的候选，同时带 `candidate`）、`number`、`text`、`code`（辅助码提示，或 `createCandidateBar({ helpcode: true })` 时的编码提示）、`decoration`、`background`。Shadow DOM 里的类名不是公开接口。
 
 从 0.1.x 升级：旧版候选栏画在页面 DOM 里，用 CSS 类 `msime-candidates`、`msime-preedit`、`msime-candidate`、`msime-highlight` 改样式；这些类现在匹配不到任何元素，页面上针对它们写的样式不再生效，请分别改成 `msime-candidates::part(candidates)`、`msime-candidates::part(preedit)`、`msime-candidates::part(candidate)`、`msime-candidates::part(highlight)`。
 

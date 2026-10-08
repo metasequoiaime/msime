@@ -1,11 +1,23 @@
-import { useId } from "react";
+import { useId, useState, type KeyboardEvent } from "react";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
 import { groupTitle } from "../core/platform-controls-style";
 import { keyboardThemeId, themeEntry } from "../theme/global-theme";
 import { useCandidatePreviewTheme } from "../candidate/candidate-preview-theme";
 import { ActionButton } from "../core/action-button";
+import { FluentIcon } from "../core/fluent-icons";
+import { NavGroup, NavRow } from "../core/platform-controls";
+import type { ImeSetupClient } from "../core/host-contracts";
 import type { Preferences } from "../index";
 import { touchKeyboardSchemeTitle } from "../settings/touch-keyboard-scheme-helpers";
+import { SetupStatusCard } from "./setup-status-card";
+import { TryKeyboardSheet } from "./try-keyboard-sheet";
+import {
+  RootSettingsList,
+  RootSettingsRowView,
+  rootSettingsGroups,
+  skinTitle as rootSkinTitle,
+  type RootPage,
+} from "./root-settings-list";
 
 // Every tappable surface on this page is the same card: full width, a hairline that strengthens on
 // hover, and the shared press animation. Named here rather than repeated at each of the five call
@@ -42,34 +54,8 @@ const quickNote =
  * reachable from inside one of them. They land here, at the foot of the 键盘 tab, the same way the
  * source keeps them inside its own 键盘 tab rather than growing the bar.
  */
-// The icon block on a shortcut tile.
-//
-// The Apple app draws all six in the one brand green, and the Android port followed it — see the
-// note in platforms/android/res/values/colors.xml, which calls the six pastels out by name. Desktop
-// keeps them, because there the colour is how a tile is told apart at a glance in a wider grid.
-// The glyph goes with them: a text symbol falls back to the host's emoji font, which is where the
-// plastic gear on the 系统设置 tile came from.
-function QuickIcon({
-  touch,
-  desktopClass,
-  glyph,
-  icon,
-}: {
-  touch: boolean;
-  desktopClass: string;
-  glyph: string;
-  icon: string;
-}) {
-  if (touch) {
-    // Masked rather than drawn: these files carry their own pale blue, and the source's tiles are
-    // one brand green. A mask takes the shape and leaves the colour to us.
-    const mask = `url("${icon}") center / contain no-repeat`;
-    return (
-      <span className={`${quickIcon} bg-accent-soft`} aria-hidden="true">
-        <span className="block size-[19px] bg-accent" style={{ mask, WebkitMask: mask }} />
-      </span>
-    );
-  }
+// 快捷方式格子上的图标块。桌面端保留六种浅色，因为在更宽的网格里，颜色是一眼区分格子的方式；触屏首页已经没有格子，它的页面是「设置」根页的行。
+function QuickIcon({ desktopClass, glyph }: { desktopClass: string; glyph: string }) {
   return (
     <span className={`${quickIcon} ${desktopClass}`} aria-hidden="true">
       {glyph}
@@ -77,32 +63,14 @@ function QuickIcon({
   );
 }
 
-/** The same masked glyph as a tile carries, at the size a row uses. */
-function RowIcon({
-  touch,
-  glyph,
-  icon,
-  chip = false,
-}: {
-  touch: boolean;
-  glyph: string;
-  icon: string;
-  chip?: boolean;
-}) {
+/** 桌面端行卡片打头的图标，尺寸与格子的图标块相同。 */
+function RowIcon({ glyph, chip = false }: { glyph: string; chip?: boolean }) {
   const shell = chip
     ? "grid size-[34px] shrink-0 grow-0 basis-[34px] place-items-center rounded-[10px] bg-accent-soft"
     : "grid size-[34px] shrink-0 grow-0 basis-[34px] place-items-center";
-  if (!touch) {
-    return (
-      <span className={`${shell} text-[18px] text-accent`} aria-hidden="true">
-        {glyph}
-      </span>
-    );
-  }
-  const mask = `url("${icon}") center / contain no-repeat`;
   return (
-    <span className={shell} aria-hidden="true">
-      <span className="block size-[19px] bg-accent" style={{ mask, WebkitMask: mask }} />
+    <span className={`${shell} text-[18px] text-accent`} aria-hidden="true">
+      {glyph}
     </span>
   );
 }
@@ -125,6 +93,8 @@ export interface HomePageActions {
   openClipboardPanel?: () => Promise<void>;
   openSystemKeyboardSettings?: () => Promise<void>;
   showInputMethodPicker?: () => Promise<void>;
+  /** 本输入法是否已启用、是否为当前输入法，供触屏首页的状态卡片使用；没有它的宿主照常显示卡片并提供两个步骤。 */
+  setup?: ImeSetupClient;
 }
 
 export function HomePage({
@@ -134,6 +104,7 @@ export function HomePage({
   onOpenChat,
   touchLayout = false,
   ios = false,
+  rootPages,
 }: {
   preferences: Preferences;
   actions?: HomePageActions;
@@ -142,12 +113,158 @@ export function HomePage({
   touchLayout?: boolean;
   /** iOS opens the keyboard extension's settings, where 完全访问 lives; Android and HarmonyOS open the system input method settings. */
   ios?: boolean;
+  /** 触屏首页以分组行列出的页面，标题与手机上显示的一致；桌面首页忽略它。 */
+  rootPages?: readonly RootPage[];
+}) {
+  if (touchLayout)
+    return (
+      <TouchHomePage
+        preferences={preferences}
+        actions={actions}
+        onOpenPage={onOpenPage}
+        rootPages={rootPages}
+      />
+    );
+  return (
+    <DesktopHomePage
+      preferences={preferences}
+      actions={actions}
+      onOpenPage={onOpenPage}
+      onOpenChat={onOpenChat}
+      ios={ios}
+    />
+  );
+}
+
+const searchPill =
+  "flex h-10 shrink-0 cursor-text items-center gap-2 rounded-full bg-[rgba(255,255,255,0.1)] px-3.5 [color:var(--p-sub)] light-theme:bg-[rgba(0,0,0,0.05)]";
+const searchField =
+  "m-0 h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-[16px] [color:var(--p-text)] [font-family:inherit] outline-none placeholder:[color:var(--p-sub)] [&::-webkit-search-cancel-button]:hidden";
+
+/**
+ * 触屏首页，即「设置」根页（大标题由外壳绘制）：一个搜索胶囊、设置状态卡片，以及分组行形式的各页面。有查询时隐藏卡片和分组，列出标题或当前值包含查询的行，与 Android 的「设置」页一样；Escape 清空查询。
+ *
+ * 「试用键盘」在宿主有对应窗口时打开宿主的键盘，否则打开页面内的试用面板；宿主打开窗口失败时也回退到这里。
+ */
+function TouchHomePage({
+  preferences,
+  actions,
+  onOpenPage,
+  rootPages,
+}: {
+  preferences: Preferences;
+  actions?: HomePageActions;
+  onOpenPage: (page: string) => void;
+  rootPages?: readonly RootPage[];
+}) {
+  const [query, setQuery] = useState("");
+  const [trying, setTrying] = useState(false);
+  const groups = rootPages ? rootSettingsGroups(rootPages, preferences) : [];
+  const needle = query.trim().toLowerCase();
+  const matches = needle
+    ? groups
+        .flat()
+        .filter(
+          (row) =>
+            row.title.toLowerCase().includes(needle) ||
+            Boolean(row.value?.toLowerCase().includes(needle)),
+        )
+    : [];
+
+  const tryKeyboard = () => {
+    const openKeyboard = actions?.openKeyboard;
+    if (!openKeyboard) {
+      setTrying(true);
+      return;
+    }
+    void openKeyboard().catch(() => setTrying(true));
+  };
+  const searchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Escape" || !query) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setQuery("");
+  };
+
+  return (
+    <section className="flex flex-col gap-5" aria-label="首页">
+      <label className={searchPill}>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          aria-hidden="true"
+          className="shrink-0"
+        >
+          <circle cx="7" cy="7" r="5" />
+          <path d="m11 11 3.5 3.5" />
+        </svg>
+        <input
+          type="search"
+          className={searchField}
+          placeholder="搜索"
+          aria-label="搜索设置"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={searchKeyDown}
+        />
+      </label>
+      {needle ? (
+        matches.length > 0 ? (
+          <NavGroup>
+            {matches.map((row) => (
+              <RootSettingsRowView key={row.id} row={row} onOpenPage={onOpenPage} />
+            ))}
+          </NavGroup>
+        ) : (
+          <p className="m-0 px-1 text-[14px] [color:var(--p-sub)]" role="status">
+            没有匹配的设置
+          </p>
+        )
+      ) : (
+        <>
+          <SetupStatusCard actions={actions} preferences={preferences} onTry={tryKeyboard} />
+          {rootPages ? (
+            <RootSettingsList groups={groups} onOpenPage={onOpenPage} />
+          ) : (
+            // 外壳没有说明自己有哪些页面时，这些页面仍能通过「全部设置」列表到达。
+            <NavGroup>
+              <NavRow
+                icon={<FluentIcon name="settings" size={20} />}
+                title="全部设置"
+                onClick={() => onOpenPage("more")}
+              />
+            </NavGroup>
+          )}
+        </>
+      )}
+      {trying && <TryKeyboardSheet actions={actions} onClose={() => setTrying(false)} />}
+    </section>
+  );
+}
+
+function DesktopHomePage({
+  preferences,
+  actions,
+  onOpenPage,
+  onOpenChat,
+  ios,
+}: {
+  preferences: Preferences;
+  actions?: HomePageActions;
+  onOpenPage: (page: string) => void;
+  onOpenChat?: () => void;
+  ios: boolean;
 }) {
   const theme = useCandidatePreviewTheme(preferences.theme, preferences.screen_keyboard_theme);
   const selected = themeEntry(preferences.global_theme).id;
   const skin = keyboardThemeId(selected, preferences.custom_theme);
   const customDesign = preferences.custom_theme?.keyboard ?? undefined;
-  const skinTitle = selected === "custom" ? "我的皮肤" : themeEntry(selected).title;
+  const skinTitle = rootSkinTitle(preferences);
   const invokeAction = (action?: () => Promise<void>) => {
     if (action) void action();
   };
@@ -177,16 +294,12 @@ export function HomePage({
           </h2>
           <p className="mt-1.5 mb-0 text-muted">从一次顺手的表达开始</p>
         </div>
-        {/* The source's home page opens on the sentence and carries no brand mark — the app is
-            already the thing you are looking at. Kept on desktop, where the header is a window
-            chrome rather than the top of a phone screen. */}
-        {!touchLayout && (
-          <img
-            className="size-12 opacity-80"
-            src={new URL("../assets/msime.svg", import.meta.url).href}
-            alt=""
-          />
-        )}
+        {/* 桌面端把品牌标志保留在句子旁，那里的标题栏是窗口装饰，而不是手机屏幕的顶部。 */}
+        <img
+          className="size-12 opacity-80"
+          src={new URL("../assets/msime.svg", import.meta.url).href}
+          alt=""
+        />
       </header>
       <button type="button" className={`${card} flex flex-col gap-3 p-4`} onClick={openKeyboard}>
         <div className="flex items-center justify-between gap-3">
@@ -204,66 +317,35 @@ export function HomePage({
           theme={theme}
           skin={skin}
           customDesign={customDesign}
-          layout={touchLayout ? "touch" : "desktop"}
+          layout="desktop"
         />
-        <span
-          className={
-            touchLayout
-              ? "flex w-full items-center justify-center gap-2 rounded-[14px] bg-accent px-4 py-3 text-[15px] font-semibold text-white"
-              : "flex items-center justify-between text-[13px] font-semibold text-accent"
-          }
-        >
+        <span className="flex items-center justify-between text-[13px] font-semibold text-accent">
           ⌨ 试用键盘 <span aria-hidden="true">→</span>
         </span>
       </button>
       <div className="grid grid-cols-3 gap-2.5 max-tight:gap-[7px]">
         <button type="button" className={quickTile} onClick={() => onOpenPage("skin")}>
-          <QuickIcon
-            touch={touchLayout}
-            desktopClass="bg-[rgb(219_111_159/15%)] text-[#db6f9f]"
-            glyph="◈"
-            icon={new URL("../assets/skin.svg", import.meta.url).href}
-          />
+          <QuickIcon desktopClass="bg-[rgb(219_111_159/15%)] text-[#db6f9f]" glyph="◈" />
           <strong className={quickTitle}>主题</strong>
           <small className={quickNote}>{skinTitle}</small>
         </button>
         <button type="button" className={quickTile} onClick={() => onOpenPage("input")}>
-          <QuickIcon
-            touch={touchLayout}
-            desktopClass="bg-[rgb(25_167_141/15%)] text-[#19a78d]"
-            glyph="⌨"
-            icon={new URL("../assets/input.svg", import.meta.url).href}
-          />
+          <QuickIcon desktopClass="bg-[rgb(25_167_141/15%)] text-[#19a78d]" glyph="⌨" />
           <strong className={quickTitle}>输入方案</strong>
           <small className={quickNote}>{touchKeyboardSchemeTitle(preferences)}</small>
         </button>
         <button type="button" className={quickTile} onClick={() => onOpenPage("screen-keyboard")}>
-          <QuickIcon
-            touch={touchLayout}
-            desktopClass="bg-[rgb(119_114_223/15%)] text-[#7772df]"
-            glyph="⌗"
-            icon={new URL("../assets/screen-keyboard.svg", import.meta.url).href}
-          />
+          <QuickIcon desktopClass="bg-[rgb(119_114_223/15%)] text-[#7772df]" glyph="⌗" />
           <strong className={quickTitle}>按键</strong>
           <small className={quickNote}>间距与语音</small>
         </button>
         <button type="button" className={quickTile} onClick={() => onOpenPage("dictionary")}>
-          <QuickIcon
-            touch={touchLayout}
-            desktopClass="bg-[rgb(152_112_90/15%)] text-[#98705a]"
-            glyph="▤"
-            icon={new URL("../assets/dictionary.svg", import.meta.url).href}
-          />
+          <QuickIcon desktopClass="bg-[rgb(152_112_90/15%)] text-[#98705a]" glyph="▤" />
           <strong className={quickTitle}>词库</strong>
           <small className={quickNote}>个人词与同步</small>
         </button>
         <button type="button" className={quickTile} onClick={() => onOpenPage("ai")}>
-          <QuickIcon
-            touch={touchLayout}
-            desktopClass="bg-[rgb(229_155_67/15%)] text-[#e59b43]"
-            glyph="✦"
-            icon={new URL("../assets/ai.svg", import.meta.url).href}
-          />
+          <QuickIcon desktopClass="bg-[rgb(229_155_67/15%)] text-[#e59b43]" glyph="✦" />
           <strong className={quickTitle}>AI</strong>
           <small className={quickNote}>回复与润色</small>
         </button>
@@ -276,12 +358,7 @@ export function HomePage({
               : onOpenPage("screen-keyboard")
           }
         >
-          <QuickIcon
-            touch={touchLayout}
-            desktopClass="bg-[rgb(130_136_146/15%)] text-[#747b86]"
-            glyph="⚙"
-            icon={new URL("../assets/utilities.svg", import.meta.url).href}
-          />
+          <QuickIcon desktopClass="bg-[rgb(130_136_146/15%)] text-[#747b86]" glyph="⚙" />
           <strong className={quickTitle}>系统设置</strong>
           <small className={quickNote}>{ios ? "启用与完全访问" : "启用与设为默认"}</small>
         </button>
@@ -303,12 +380,7 @@ export function HomePage({
       </button>
       {onOpenChat && (
         <button type="button" className={rowCard} onClick={onOpenChat}>
-          <RowIcon
-            touch={touchLayout}
-            glyph="◌"
-            icon={new URL("../assets/help.svg", import.meta.url).href}
-            chip
-          />
+          <RowIcon glyph="◌" chip />
           <span className={rowBody}>
             <strong className={cardTitle}>边聊天，边试键盘</strong>
             <small className={cardNote}>在共享账号中选择 EveryAPI 模型开始对话</small>
@@ -319,11 +391,7 @@ export function HomePage({
         </button>
       )}
       <button type="button" className={rowCard} onClick={() => onOpenPage("more")}>
-        <RowIcon
-          touch={touchLayout}
-          glyph="⚙"
-          icon={new URL("../assets/utilities.svg", import.meta.url).href}
-        />
+        <RowIcon glyph="⚙" />
         <span className={rowBody}>
           <strong className={cardTitle}>全部设置</strong>
           <small className={cardNote}>打字、外观、语音与词库</small>

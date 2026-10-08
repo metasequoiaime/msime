@@ -20,23 +20,24 @@ private final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
 }
 
 struct CustomServiceConfiguration: Codable, Sendable, Equatable {
-  private static let maximumEndpointBytes = 2_048
   private static let maximumModelBytes = 256
   var provider: AIProviderPreset = .custom
   var endpoint = ""
   var model = ""
   var prompt = "请润色以下文字，保持原意，只返回修改后的文字。"
 
-  func validatedURL() throws -> URL {
+  /// 键盘扩展里只有 AI 这一种服务，按 `AIEndpointPolicy` 放行本机和局域网的 http 地址；参数只为与 App 里同名方法的签名一致，`KeyboardAIService` 和 `KeyboardAIView` 两边共用。
+  func validatedURL(allowsLocalHTTP: Bool = true) throws -> URL {
     let trimmedEndpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard trimmedEndpoint.utf8.count <= Self.maximumEndpointBytes,
-          !trimmedEndpoint.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
-          let url = URL(string: trimmedEndpoint),
-          url.scheme?.lowercased() == "https", let host = url.host, !host.isEmpty,
-          url.user == nil, url.password == nil, url.fragment == nil,
+    let problem = AIEndpointPolicy.problem(trimmedEndpoint)
+    if allowsLocalHTTP && problem == .cleartextPublicHost {
+      throw ServiceFailure(message: AIEndpointPolicy.cleartextMessage)
+    }
+    guard problem == nil, let url = AIEndpointPolicy.validatedURL(trimmedEndpoint),
+          allowsLocalHTTP || url.scheme?.lowercased() == "https",
           !trimmedModel.isEmpty, trimmedModel.utf8.count <= Self.maximumModelBytes else {
-      throw ServiceFailure(message: "请填写完整的 HTTPS 接口地址和模型名称。")
+      throw ServiceFailure(message: "请填写完整的接口地址（https，或本机、局域网的 http）和模型名称。")
     }
     return url
   }
@@ -49,7 +50,7 @@ enum CustomServiceClient {
                       text: String, token: String,
                       sessionConfiguration: URLSessionConfiguration = .ephemeral) async throws -> String {
     guard kind == .ai else { throw ServiceFailure(message: "键盘扩展不支持此服务类型。") }
-    var request = URLRequest(url: try configuration.validatedURL())
+    var request = URLRequest(url: try configuration.validatedURL(allowsLocalHTTP: true))
     request.httpMethod = "POST"
     request.timeoutInterval = 30
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -59,7 +60,8 @@ enum CustomServiceClient {
       "messages": [["role": "user", "content": configuration.prompt + "\n" + text]],
       "stream": false
     ])
-    let session = URLSession(configuration: sessionConfiguration, delegate: NoRedirects(), delegateQueue: nil)
+    let session = URLSession(configuration: AIEndpointPolicy.sessionConfiguration(sessionConfiguration, for: request.url),
+                             delegate: NoRedirects(), delegateQueue: nil)
     defer { session.invalidateAndCancel() }
     let (bytes, response) = try await session.bytes(for: request)
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {

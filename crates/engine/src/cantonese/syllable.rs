@@ -91,6 +91,23 @@ impl Segmentation {
         key
     }
 
+    pub fn key_into(&self, input: &str, count: usize, key: &mut String) {
+        let syllables = self.syllables.iter().take(count);
+        let capacity = syllables
+            .clone()
+            .map(|syllable| syllable.end - syllable.start)
+            .sum::<usize>()
+            .saturating_add(self.syllables.len().min(count).saturating_sub(1));
+        key.clear();
+        key.reserve(capacity);
+        for (index, syllable) in self.syllables.iter().take(count).enumerate() {
+            if index > 0 {
+                key.push(' ');
+            }
+            key.push_str(&input[syllable.start..syllable.end]);
+        }
+    }
+
     /// Where the letters this segmentation reads end; zero when it reads none.
     pub fn end(&self) -> usize {
         self.syllables.last().map_or(0, |syllable| syllable.end)

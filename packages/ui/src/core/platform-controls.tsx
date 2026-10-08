@@ -5,6 +5,7 @@
  */
 import {
   createContext,
+  isValidElement,
   useContext,
   useEffect,
   useId,
@@ -13,8 +14,11 @@ import {
   type ChangeEvent,
   type CSSProperties,
   type ReactNode,
+  type Ref,
   type SelectHTMLAttributes,
 } from "react";
+import { ActionSheet, type SheetOption } from "./action-sheet";
+import { FluentIcon } from "./fluent-icons";
 import * as style from "./platform-controls-style";
 
 type RowLabels = { labelId: string; descriptionId?: string };
@@ -229,7 +233,7 @@ export function Select({
   "aria-labelledby": ariaLabelledBy,
   "aria-describedby": ariaDescribedBy,
   ...props
-}: SelectHTMLAttributes<HTMLSelectElement>) {
+}: SelectHTMLAttributes<HTMLSelectElement> & { ref?: Ref<HTMLSelectElement> }) {
   const labels = useRowLabels({
     "aria-label": ariaLabel,
     "aria-labelledby": ariaLabelledBy,
@@ -310,9 +314,11 @@ export type CheckItem<T extends string> = {
 function Check<T extends string>({
   item,
   onChange,
+  className,
 }: {
   item: CheckItem<T>;
   onChange: (value: T, checked: boolean) => void;
+  className: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const mixed = item.checked === "mixed";
@@ -320,7 +326,7 @@ function Check<T extends string>({
     if (input.current) input.current.indeterminate = mixed;
   }, [mixed]);
   return (
-    <label className={style.check}>
+    <label className={className}>
       <input
         ref={input}
         type="checkbox"
@@ -334,19 +340,29 @@ function Check<T extends string>({
   );
 }
 
-/** A labelled group of checkboxes. */
+/** 一组带标签的复选框。`layout="grid"` 把它们排成两列短标签，这是 HarmonyOS 手机上按键对列表的样式。 */
 export function Checks<T extends string>({
   legend,
   description,
   items,
   onChange,
+  layout = "list",
 }: {
   legend: ReactNode;
   description?: ReactNode;
   items: readonly CheckItem<T>[];
   onChange: (value: T, checked: boolean) => void;
+  layout?: "list" | "grid";
 }) {
   const descriptionId = useId();
+  const checks = items.map((item) => (
+    <Check
+      key={item.value}
+      item={item}
+      onChange={onChange}
+      className={layout === "grid" ? style.checkGridItem : style.check}
+    />
+  ));
   return (
     <fieldset className={style.checks} aria-describedby={description ? descriptionId : undefined}>
       {/* The legend names the setting the way a row title does, so it carries the same `data-row-title` mark. */}
@@ -358,9 +374,7 @@ export function Checks<T extends string>({
           {description}
         </span>
       )}
-      {items.map((item) => (
-        <Check key={item.value} item={item} onChange={onChange} />
-      ))}
+      {layout === "grid" ? <div className={style.checksGrid}>{checks}</div> : checks}
     </fieldset>
   );
 }
@@ -396,4 +410,180 @@ export function NavItem({
       <span className={style.navLabel}>{label}</span>
     </button>
   );
+}
+
+/** HarmonyOS 手机的导航列表：所有行放在一张无边框的 20px 圆角卡片里，使用页面的分组颜色，设置根页和我的标签页都这样绘制。 */
+export function NavGroup({ children }: { children: ReactNode }) {
+  return <div className={`${style.navGroup} ${style.navGroupRows}`}>{children}</div>;
+}
+
+/**
+ * `NavGroup` 中的一行。`root` 变体是设置根页的样式（52px 高，文字颜色的 20px 图标，17px 标题）；`me` 是我的标签页的样式（48px 高，强调色的 18px 图标，16px 标题，下方可选描述）。两者末尾都是当前值和一个 chevron，按下时变暗，并从标签起始处绘制一条内缩的分隔线。
+ *
+ * 这一行是调用 `onClick` 的按钮。带 `trailing` 时它容纳一个自己的控件（例如开关），因此改为普通行，没有 chevron，该控件由行的标题和描述来命名和描述，与 `Row` 命名其控件的方式相同。
+ */
+export function NavRow({
+  icon,
+  title,
+  description,
+  value,
+  trailing,
+  onClick,
+  disabled,
+  variant = "root",
+}: {
+  icon?: ReactNode;
+  title: string;
+  description?: string;
+  value?: string;
+  trailing?: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  variant?: "root" | "me";
+}) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const valueId = useId();
+  const describedBy =
+    [value ? valueId : "", description ? descriptionId : ""].filter(Boolean).join(" ") || undefined;
+  const body = (
+    <>
+      {icon && (
+        <span className={style.navRowIcon[variant]} aria-hidden="true">
+          {icon}
+        </span>
+      )}
+      <span className={style.navRowBody[variant]} data-nav-rule="">
+        <span className={style.navRowText}>
+          <span id={titleId} className={style.navRowTitle[variant]} data-row-title="">
+            {title}
+          </span>
+          {description && (
+            <span id={descriptionId} className={style.navRowDescription}>
+              {description}
+            </span>
+          )}
+        </span>
+        {value && (
+          <span id={valueId} className={style.navRowValue[variant]}>
+            {value}
+          </span>
+        )}
+        {trailing ? (
+          <RowLabelsContext.Provider
+            value={{ labelId: titleId, descriptionId: description ? descriptionId : undefined }}
+          >
+            <span className={style.navRowTrailing}>{trailing}</span>
+          </RowLabelsContext.Provider>
+        ) : (
+          <FluentIcon name="chevron_right" size={20} className={style.navRowChevron} />
+        )}
+      </span>
+    </>
+  );
+  if (trailing)
+    return (
+      <div className={style.navRow} aria-disabled={disabled || undefined}>
+        {body}
+      </div>
+    );
+  return (
+    <button
+      type="button"
+      className={`${style.navRow} ${style.navRowButton}`}
+      aria-labelledby={titleId}
+      aria-describedby={describedBy}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {body}
+    </button>
+  );
+}
+
+/**
+ * HarmonyOS 手机上选择或分段行的形式：整行是一个按钮，点击打开以行标题为标题、包含相同选项的 `ActionSheet`，并在小 chevron 前以灰色显示当前选择。原控件仍留在页面中，视觉隐藏且 inert，作为写入和读取选择的元素；`control` 接收它。
+ */
+export function PickerRow({
+  title,
+  description,
+  hidden,
+  disabled,
+  valueLabel,
+  options,
+  onSelect,
+  control,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  hidden?: boolean;
+  disabled?: boolean;
+  /** 显示在末端的当前选择。 */
+  valueLabel: string;
+  options: readonly SheetOption[];
+  onSelect: (value: string) => void;
+  /** 原生控件，以给定的标题 id 作为标签。 */
+  control: (titleId: string) => ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const titleId = useId();
+  const sheetTitle = textOf(title);
+  return (
+    <div className="min-w-0" hidden={hidden}>
+      {/* 按内容（标题、描述、当前值）命名，而不是用 `aria-labelledby`：标题已经是隐藏控件的标签，同一个标签命名两个控件会让标签查找指向哪个控件变得含糊。 */}
+      <button
+        type="button"
+        className={style.pickerRow}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+      >
+        <span className={style.rowText}>
+          <span id={titleId} className={style.rowTitle} data-row-title="">
+            {title}
+          </span>
+          {description && <span className={style.rowDescription}>{description}</span>}
+        </span>
+        <span className={style.pickerValue}>
+          <span className={style.pickerValueText}>{valueLabel}</span>
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className="shrink-0"
+          >
+            <path d="m9 6 6 6-6 6" />
+          </svg>
+        </span>
+      </button>
+      {/* inert 让隐藏控件不受触摸、焦点和辅助技术的访问，用户遇到的唯一控件就是行按钮；它仍然保存值并接收变更。 */}
+      <span className="sr-only" inert>
+        {control(titleId)}
+      </span>
+      <ActionSheet
+        open={open}
+        title={sheetTitle}
+        options={options}
+        onSelect={onSelect}
+        onClose={() => setOpen(false)}
+      />
+    </div>
+  );
+}
+
+/** 节点会显示的文本，用于由行的标记构建面板标题或选项标签。 */
+export function textOf(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number" || typeof node === "bigint")
+    return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) return textOf(node.props.children);
+  return "";
 }

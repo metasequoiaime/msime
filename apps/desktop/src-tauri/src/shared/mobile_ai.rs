@@ -44,27 +44,13 @@ struct ModelEntry {
     active: Option<bool>,
 }
 
+/// 规则在 client-core 的 `ai::endpoint`：https 不限主机，http 只能指向本机或局域网。
 fn valid_endpoint(endpoint: &str) -> Result<reqwest::Url, Error> {
     let value = endpoint.trim();
     if value.is_empty() || !is_bounded_text_with_options(value, MAX_ENDPOINT_LENGTH, false) {
         return Err(Error::Invalid);
     }
-    let url = reqwest::Url::parse(value).map_err(|_| Error::Invalid)?;
-    if url.scheme() != "https"
-        || !value.split_once("://").is_some_and(|(_, authority)| {
-            authority
-                .as_bytes()
-                .first()
-                .is_some_and(|byte| *byte != b'/')
-        })
-        || url.host_str().is_none_or(str::is_empty)
-        || url.username() != ""
-        || url.password().is_some()
-        || url.fragment().is_some()
-    {
-        return Err(Error::Invalid);
-    }
-    Ok(url)
+    msime_client_core::ai::endpoint::validate(value).map_err(|_| Error::Invalid)
 }
 
 fn valid_token(token: &str) -> Result<String, Error> {
@@ -131,9 +117,8 @@ pub fn fetch_models(endpoint: &str, token: &str) -> Result<Vec<String>, Error> {
     let anthropic = base_url
         .host_str()
         .is_some_and(|host| host.eq_ignore_ascii_case("api.anthropic.com"));
-    let client = reqwest::blocking::Client::builder()
-        .https_only(true)
-        .redirect(reqwest::redirect::Policy::none())
+    // 不跟随重定向；https 地址只走 https，局域网的 http 接口直连、不走代理。
+    let client = msime_client_core::ai::endpoint::blocking_client_builder(&base_url)
         .connect_timeout(Duration::from_secs(30))
         .timeout(Duration::from_secs(30))
         .build()
@@ -252,9 +237,7 @@ pub fn polish(
         ],
         "stream": false
     });
-    let client = reqwest::blocking::Client::builder()
-        .https_only(true)
-        .redirect(reqwest::redirect::Policy::none())
+    let client = msime_client_core::ai::endpoint::blocking_client_builder(&endpoint)
         .connect_timeout(Duration::from_secs(30))
         .timeout(Duration::from_secs(60))
         .build()
@@ -290,6 +273,12 @@ mod tests {
             models_url("https://fixture.invalid/v1/").unwrap().as_str(),
             "https://fixture.invalid/v1/models"
         );
+        assert_eq!(
+            models_url("http://localhost:1234/v1/chat/completions")
+                .unwrap()
+                .as_str(),
+            "http://localhost:1234/v1/models"
+        );
     }
 
     #[test]
@@ -297,6 +286,9 @@ mod tests {
         assert!(valid_endpoint("https://fixture.invalid/api").is_ok());
         assert!(valid_endpoint("https:///api").is_err());
         assert!(valid_endpoint("http://fixture.invalid/api").is_err());
+        // 局域网里的本地模型服务（如 LM Studio）可以用 http，公网 IP 不行。
+        assert!(valid_endpoint(" http://192.168.1.20:1234/v1/chat/completions ").is_ok());
+        assert!(valid_endpoint("http://8.8.8.8/v1/chat/completions").is_err());
         assert!(valid_endpoint("https://user:pass@fixture.invalid/api").is_err());
         assert!(valid_text("合成文本", 10_000, true));
         assert!(!valid_text("\u{0000}", 10_000, true));

@@ -463,29 +463,57 @@ impl BackendAccountClient {
         {
             return Err(AccountError::Unavailable);
         }
-        let mut temporary = tempfile::Builder::new()
-            .prefix("msime-snapshot-")
-            .tempfile_in(parent)
-            .map_err(|_| AccountError::Unavailable)?;
-        let bytes = std::io::copy(
-            &mut response
-                .by_ref()
-                .take((MAX_DICTIONARY_SNAPSHOT_BYTES + 1) as u64),
-            temporary.as_file_mut(),
-        )
-        .map_err(|_| AccountError::Unavailable)?;
-        if bytes == 0 || bytes > MAX_DICTIONARY_SNAPSHOT_BYTES as u64 {
-            return Err(AccountError::Unavailable);
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(parent)
+                .map_err(|_| AccountError::Unavailable)?;
+            let name = destination.file_name().ok_or(AccountError::Invalid)?;
+            let (_, bytes) =
+                crate::storage::write_private_file_at_with(&directory, name, |mut file| {
+                    let bytes = std::io::copy(
+                        &mut response
+                            .by_ref()
+                            .take((MAX_DICTIONARY_SNAPSHOT_BYTES + 1) as u64),
+                        &mut file,
+                    )?;
+                    if bytes == 0 || bytes > MAX_DICTIONARY_SNAPSHOT_BYTES as u64 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "dictionary snapshot size is invalid",
+                        ));
+                    }
+                    file.flush()?;
+                    Ok((file, bytes))
+                })
+                .map_err(|_| AccountError::Unavailable)?;
+            Ok(bytes)
         }
-        temporary
-            .as_file_mut()
-            .flush()
-            .and_then(|_| temporary.as_file().sync_all())
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::Builder::new()
+                .prefix("msime-snapshot-")
+                .tempfile_in(parent)
+                .map_err(|_| AccountError::Unavailable)?;
+            let bytes = std::io::copy(
+                &mut response
+                    .by_ref()
+                    .take((MAX_DICTIONARY_SNAPSHOT_BYTES + 1) as u64),
+                temporary.as_file_mut(),
+            )
             .map_err(|_| AccountError::Unavailable)?;
-        temporary
-            .persist(destination)
-            .map_err(|_| AccountError::Unavailable)?;
-        Ok(bytes)
+            if bytes == 0 || bytes > MAX_DICTIONARY_SNAPSHOT_BYTES as u64 {
+                return Err(AccountError::Unavailable);
+            }
+            temporary
+                .as_file_mut()
+                .flush()
+                .and_then(|_| temporary.as_file().sync_all())
+                .map_err(|_| AccountError::Unavailable)?;
+            temporary
+                .persist(destination)
+                .map_err(|_| AccountError::Unavailable)?;
+            Ok(bytes)
+        }
     }
 
     pub fn restore_dictionary_snapshot(

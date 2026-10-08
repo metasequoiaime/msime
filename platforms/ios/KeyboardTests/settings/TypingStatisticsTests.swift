@@ -388,6 +388,32 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertTrue(try store.load().dailyKeys.isEmpty)
   }
 
+  /// 动口不动手和换装达人读取存储层的语音时长和试过的皮肤，这两项现在由应用和键盘写入。
+  func testVoiceTimeAndSkinsReachTheirBadges() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = TypingStatisticsStore(directory: directory)
+    XCTAssertEqual(try store.recordVoice(milliseconds: 1_000, day: "2026-10-08"), 0, "nothing is kept while statistics are off")
+    XCTAssertFalse(try store.recordSkin(id: "paper"))
+    try store.setEnabled(true)
+    XCTAssertEqual(try store.recordVoice(milliseconds: 0, day: "2026-10-08"), 0, "an empty recording is not sent")
+    XCTAssertEqual(try store.recordVoice(milliseconds: 90_000, day: "2026-10-08"), 90_000)
+    XCTAssertEqual(try store.recordVoice(milliseconds: 3_600_000, day: "2026-10-08"),
+                   TypingStatisticsStore.maximumVoiceMilliseconds, "one input is clamped to the store's limit, as on Android")
+    XCTAssertTrue(try store.recordSkin(id: "paper"))
+    XCTAssertFalse(try store.recordSkin(id: "paper"), "a skin counts once")
+    XCTAssertTrue(try store.recordSkin(id: GlobalThemeCatalog.customId))
+    XCTAssertTrue(try store.recordSkin(id: UUID().uuidString))
+    XCTAssertThrowsError(try store.recordSkin(id: "../paper"))
+    var utc = Calendar(identifier: .gregorian)
+    utc.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+    let day = try XCTUnwrap(TypingStatistics.parseDayKey("2026-10-08"))
+    let badges = try store.summary(day: day, userWords: nil, calendar: utc).achievements
+    XCTAssertEqual(badges.first { $0.id == "voice_1h" }?.current, 11)
+    XCTAssertEqual(badges.first { $0.id == "skins_5" }?.current, 3)
+  }
+
   func testRecordCountRejectsMalformedNativeNumbers() {
     XCTAssertEqual(TypingStatisticsStore.strictRecordedCount(NSNumber(value: 3), maximum: 5), 3)
     XCTAssertNil(TypingStatisticsStore.strictRecordedCount(NSNumber(value: true), maximum: 5))
@@ -423,8 +449,10 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertFalse(TypingKeyHeatmap(counts: statistics.keyCounts(on: [day], calendar: calendar)).showsNineKey)
     // Ties keep id order, so Backspace comes before KeyB.
     XCTAssertEqual(heatmap.top().map(\.id), ["KeyA", "Backspace", "KeyB", "Comma", "Nine5"])
-    XCTAssertEqual(heatmap.others.map(\.id), ["Comma", "SoftSymbol", "Digit1"])
-    XCTAssertEqual(heatmap.others.map(\.label), [",", "符", "1"])
+    // 页面一次只画一块键盘，其他键按当前那块列出：26 键热力图下列出九键格子，九键热力图下列出字母。
+    XCTAssertEqual(heatmap.others(nineKey: false).map(\.id), ["Comma", "Nine5", "SoftSymbol", "Digit1"])
+    XCTAssertEqual(heatmap.others(nineKey: false).map(\.label), [",", "九键 5", "符", "1"])
+    XCTAssertEqual(heatmap.others(nineKey: true).map(\.id), ["KeyA", "KeyB", "Comma", "SoftSymbol", "Digit1"])
     XCTAssertEqual(TypingKeyHeatmap.accessibilityLabel("KeyA", count: 123), "A，123 次")
     // Pinyin and kana presses share the nine-key ids, so a cell names both.
     XCTAssertEqual(TypingKeyHeatmap.nineKeySubtitle("Nine2"), "ABC か")

@@ -3,6 +3,7 @@ package app.msime.android;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Iterator;
 import java.util.concurrent.Executors;
@@ -14,7 +15,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * Bounded HTTPS transport for the optional cloud and AI candidate providers.
+ * Bounded transport for the optional cloud and AI candidate providers. 云候选只走 https；AI 候选走 https，或 AiEndpointPolicy 放行的本机、局域网 http。
  *
  * <p>Both requests are built by the shared host: the cloud URL comes from `cloud_request_url` and
  * the AI descriptor from `ai_request_for_query`, so credentials stay inside the session and this
@@ -69,14 +70,13 @@ public final class OnlineCandidateTransport {
 
     /** POST the descriptor the session built. Returns null when the provider is unusable. */
     public static String ai(JSONObject descriptor) {
-        HttpsURLConnection connection = null;
+        HttpURLConnection connection = null;
         try {
             String rawUrl = JsonPolicy.strictString(descriptor.opt("url"));
-            if (rawUrl == null) return null;
-            URL target = new URL(rawUrl);
-            if (!OnlineCandidatePolicy.validURL(target)) return null;
+            if (!OnlineCandidatePolicy.validAiURL(rawUrl)) return null;
+            URL target = AiEndpointPolicy.uri(rawUrl).toURL();
             byte[] payload = TextPolicy.utf8Bytes(descriptor.getJSONObject("body").toString());
-            connection = (HttpsURLConnection) target.openConnection();
+            connection = (HttpURLConnection) AiEndpointPolicy.open(target);
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(KeyboardGeometry.bounded(

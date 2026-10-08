@@ -10,6 +10,16 @@ enum KeyboardAppLauncher {
   static let settingsURL = URL(string: "\(MSIMEAppEdition.urlScheme)://settings")!
   /// 语音录音页。iOS 键盘扩展拿不到麦克风,录音只能在应用里做,识别结果再经语音交接回到键盘。
   static let voiceURL = URL(string: "\(MSIMEAppEdition.urlScheme)://voice")!
+  /// 功能菜单里的「词库」：打开应用的词库页。
+  static let dictionaryURL = URL(string: "\(MSIMEAppEdition.urlScheme)://settings/dictionary")!
+  /// 功能菜单里的「设置」和方案选择里的「添加语言」：打开应用的「输入」页。
+  static let inputSettingsURL = URL(string: "\(MSIMEAppEdition.urlScheme)://settings/input")!
+  /// 常用语面板里的「添加常用语」：打开应用的常用语页，iOS 上只能在那里添加常用语。
+  static let phrasesURL = URL(string: "\(MSIMEAppEdition.urlScheme)://settings/phrases")!
+  /// 功能菜单里的「反馈」：打开「我的」下的「帮助与反馈」。
+  static let feedbackURL = URL(string: "\(MSIMEAppEdition.urlScheme)://feedback")!
+  /// 功能菜单里的「关于」：打开「我的」下的关于页。
+  static let aboutURL = URL(string: "\(MSIMEAppEdition.urlScheme)://about")!
 
   /// 返回值是「找到了能打开的对象」,不是「应用已经到前台」—— 后者由系统决定,扩展这边看不到结果。
   @discardableResult

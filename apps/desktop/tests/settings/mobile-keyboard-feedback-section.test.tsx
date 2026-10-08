@@ -67,6 +67,35 @@ test("updates sound, haptics, and strength", () => {
   expect(screen.getByRole("option", { name: "跟随系统" })).toBeTruthy();
 });
 
+test("shows 按键弹出预览 only where the host's keyboard reports it", () => {
+  const onChange = vi.fn();
+  const { rerender } = render(
+    <MobileKeyboardFeedbackSection
+      value={value}
+      busy={false}
+      ios={false}
+      canPreview
+      onChange={onChange}
+      onPreview={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole("switch", { name: "按键弹出预览" })).toBeNull();
+
+  const withPopup: MobileKeyboardFeedback = { ...value, keyPopup: true };
+  rerender(
+    <MobileKeyboardFeedbackSection
+      value={withPopup}
+      busy={false}
+      ios={false}
+      canPreview
+      onChange={onChange}
+      onPreview={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole("switch", { name: "按键弹出预览" }));
+  expect(onChange).toHaveBeenLastCalledWith({ ...withPopup, keyPopup: false });
+});
+
 test("offers preview and iOS English suggestions", () => {
   const onChange = vi.fn();
   const onPreview = vi.fn();

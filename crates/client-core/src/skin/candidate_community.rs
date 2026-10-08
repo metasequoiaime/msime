@@ -1139,6 +1139,7 @@ pub fn pack_as(
 ///
 /// A decorated package without its own decoration image is refused: the catalog draws its preview in the decoration band, so a preview added to it would change how the skin looks.
 pub fn add_preview(root: &Path, id: &str, bytes: &[u8]) -> Result<String, &'static str> {
+    let _writes = super::folder_import::lock_skin_root();
     let summary = catalog::load_package(root, id).map_err(|_| PACKAGE)?;
     if SERVER_BUILTIN_IDS.contains(&id) || summary.preview.is_some() {
         return Err(PACKAGE);
@@ -1161,6 +1162,9 @@ pub fn add_preview(root: &Path, id: &str, bytes: &[u8]) -> Result<String, &'stat
     }
     check_image(content_type, bytes)?;
     let directory = root.join(id);
+    #[cfg(unix)]
+    let directory_handle =
+        crate::storage::open_private_directory(&directory).map_err(|_| STORAGE)?;
     let manifest_path = directory.join(MANIFEST_FILE);
     let input = crate::storage::open_private_file_in(&manifest_path).map_err(|_| PACKAGE)?;
     let original = crate::bounded_io::read_bounded_file_with(
@@ -1194,13 +1198,35 @@ pub fn add_preview(root: &Path, id: &str, bytes: &[u8]) -> Result<String, &'stat
     if manifest.len() > MAX_MANIFEST_BYTES {
         return Err(TOO_LARGE);
     }
+    #[cfg(not(unix))]
     let image_path = directory.join(&name);
+    #[cfg(unix)]
+    let mut image: fs::File = rustix::fs::openat(
+        &directory_handle,
+        name.as_str(),
+        rustix::fs::OFlags::WRONLY
+            | rustix::fs::OFlags::CREATE
+            | rustix::fs::OFlags::EXCL
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::from_raw_mode(0o600),
+    )
+    .map_err(|_| STORAGE)?
+    .into();
+    #[cfg(not(unix))]
     let mut image = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&image_path)
         .map_err(|_| STORAGE)?;
     let undo_image = || {
+        #[cfg(unix)]
+        let _ = rustix::fs::unlinkat(
+            &directory_handle,
+            name.as_str(),
+            rustix::fs::AtFlags::empty(),
+        );
+        #[cfg(not(unix))]
         let _ = fs::remove_file(&image_path);
     };
     if image
@@ -1230,6 +1256,7 @@ pub fn add_preview(root: &Path, id: &str, bytes: &[u8]) -> Result<String, &'stat
 ///
 /// A license the manifest declares some other way (an inline table, dotted keys, an empty `assets`) is refused rather than rewritten: the page then points the author at the file, as it did before.
 pub fn add_license(root: &Path, id: &str, assets: &str) -> Result<(), &'static str> {
+    let _writes = super::folder_import::lock_skin_root();
     let assets = assets.trim();
     if assets.is_empty() || !crate::text::is_bounded_text(assets, 120) {
         return Err(PACKAGE);
@@ -1395,11 +1422,53 @@ fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// Write through a newly created sidecar, then replace the directory entry. Neither the
 /// staging name nor a manifest replaced during rollback may redirect these bytes elsewhere.
 fn replace_manifest(staged: &Path, manifest_path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let result = write_new(staged, bytes).and_then(|()| fs::rename(staged, manifest_path));
-    if result.is_err() {
-        let _ = fs::remove_file(staged);
+    #[cfg(unix)]
+    {
+        let parent = staged
+            .parent()
+            .ok_or_else(|| std::io::Error::other("missing staging directory"))?;
+        if manifest_path.parent() != Some(parent) {
+            return Err(std::io::Error::other(
+                "manifest and staging directories differ",
+            ));
+        }
+        let directory = crate::storage::open_private_directory(parent)?;
+        let staged_name = staged
+            .file_name()
+            .ok_or_else(|| std::io::Error::other("missing staging name"))?;
+        let manifest_name = manifest_path
+            .file_name()
+            .ok_or_else(|| std::io::Error::other("missing manifest name"))?;
+        let result = (|| {
+            let descriptor = rustix::fs::openat(
+                &directory,
+                staged_name,
+                rustix::fs::OFlags::WRONLY
+                    | rustix::fs::OFlags::CREATE
+                    | rustix::fs::OFlags::EXCL
+                    | rustix::fs::OFlags::NOFOLLOW
+                    | rustix::fs::OFlags::CLOEXEC,
+                rustix::fs::Mode::from_raw_mode(0o600),
+            )?;
+            let mut file: fs::File = descriptor.into();
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            rustix::fs::renameat(&directory, staged_name, &directory, manifest_name)?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = rustix::fs::unlinkat(&directory, staged_name, rustix::fs::AtFlags::empty());
+        }
+        result
     }
-    result
+    #[cfg(not(unix))]
+    {
+        let result = write_new(staged, bytes).and_then(|()| fs::rename(staged, manifest_path));
+        if result.is_err() {
+            let _ = fs::remove_file(staged);
+        }
+        result
+    }
 }
 
 fn remove_leftover(path: &Path) -> Result<(), &'static str> {

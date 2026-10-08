@@ -8,9 +8,11 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.OpenOption;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -73,6 +75,8 @@ public final class CommonPhrasesStore {
      * <p>示例只属于这台设备：云同步读本机列表时跳过这些正文（{@link #untouchedStarters}），所以它们既不会被上传，也不会在合并时被带到用户已经删掉它们的别的设备上。用户自己添加或改成某条示例的正文、或者云端本来就有这条正文时，它就被认领（{@link #adoptStarters}），从此和其他常用语一样同步。
      */
     static final String STARTER_MARKER = "CommonPhrases.seeded";
+    /** 示例标记的锁与数据分开；数据文件会原子替换，不能拿它本身做跨进程锁。 */
+    private static final String STARTER_LOCK_SUFFIX = ".lock";
     /** 标记文件的读取上限；八条示例远用不到，超过就当作文件已坏、按没有记录处理。 */
     private static final int MAX_STARTER_RECORD_BYTES = 64 * 1024;
     /** 标记文件的读改写在本进程内排队；跨进程（设置主进程与 `:ime`）靠文件锁。文件锁属于整个 JVM，同一进程的另一个线程已持有时会抛 OverlappingFileLockException 而不是等待，所以两把都要。 */
@@ -177,21 +181,20 @@ public final class CommonPhrasesStore {
      * 在锁里读出标记文件记录的示例正文，交给 `edit` 改，有变化时整份写回；返回改后的集合。文件不存在且 `create` 为假时什么也不做，返回空集合（没有放过示例）。
      */
     static Set<String> editStarters(File marker, boolean create, UnaryOperator<Set<String>> edit) throws IOException {
-        List<OpenOption> options = new ArrayList<>(List.of(StandardOpenOption.READ, StandardOpenOption.WRITE,
-            LinkOption.NOFOLLOW_LINKS));
-        if (create) options.add(StandardOpenOption.CREATE);
+        java.nio.file.Path markerPath = marker.toPath();
+        java.nio.file.Path lockPath = markerPath.resolveSibling(
+            markerPath.getFileName() + STARTER_LOCK_SUFFIX);
+        List<OpenOption> options = List.of(StandardOpenOption.READ, StandardOpenOption.WRITE,
+            StandardOpenOption.CREATE, LinkOption.NOFOLLOW_LINKS);
         synchronized (STARTER_LOCK) {
-            if (!create && !marker.exists()) return Set.of();
-            try (FileChannel channel = FileChannel.open(marker.toPath(), options.toArray(new OpenOption[0]))) {
+            if (!create && !Files.exists(markerPath, LinkOption.NOFOLLOW_LINKS)) return Set.of();
+            try (FileChannel channel = FileChannel.open(lockPath, options.toArray(new OpenOption[0]))) {
                 FileLock lock = channel.lock();
                 try {
-                    Set<String> current = decodeStarters(readAll(channel));
+                    Set<String> current = decodeStarters(readMarker(markerPath));
                     Set<String> next = Collections.unmodifiableSet(new LinkedHashSet<>(edit.apply(current)));
                     if (!next.equals(current)) {
-                        channel.truncate(0);
-                        ByteBuffer bytes = ByteBuffer.wrap(encodeStarters(next));
-                        while (bytes.hasRemaining()) channel.write(bytes, bytes.position());
-                        channel.force(false);
+                        writeMarker(markerPath, encodeStarters(next));
                     }
                     return next;
                 } finally {
@@ -203,15 +206,41 @@ public final class CommonPhrasesStore {
         }
     }
 
-    private static byte[] readAll(FileChannel channel) throws IOException {
-        long size = channel.size();
-        if (size > MAX_STARTER_RECORD_BYTES) return new byte[0];
-        ByteBuffer buffer = ByteBuffer.allocate((int) size);
-        while (buffer.hasRemaining()) {
-            // 返回 -1 说明文件在读的过程中变短（锁只拦得住守规矩的写入方），就用已经读到的部分。
-            if (channel.read(buffer, buffer.position()) < 0) break;
+    /** 锁住 sibling 后再按路径读，拒绝符号链接；写入使用唯一临时文件，避免硬链接污染目录外文件。 */
+    private static byte[] readMarker(java.nio.file.Path marker) throws IOException {
+        if (!Files.exists(marker, LinkOption.NOFOLLOW_LINKS)) return new byte[0];
+        try (FileChannel channel = FileChannel.open(marker, StandardOpenOption.READ,
+                LinkOption.NOFOLLOW_LINKS)) {
+            long size = channel.size();
+            if (size > MAX_STARTER_RECORD_BYTES) return new byte[0];
+            ByteBuffer buffer = ByteBuffer.allocate((int) size);
+            while (buffer.hasRemaining()) {
+                if (channel.read(buffer, buffer.position()) < 0) break;
+            }
+            return java.util.Arrays.copyOf(buffer.array(), buffer.position());
         }
-        return java.util.Arrays.copyOf(buffer.array(), buffer.position());
+    }
+
+    private static void writeMarker(java.nio.file.Path marker, byte[] bytes) throws IOException {
+        java.nio.file.Path parent = marker.getParent();
+        if (parent == null) throw new IOException("starter marker directory unavailable");
+        java.nio.file.Path temporary = Files.createTempFile(parent,
+            marker.getFileName().toString() + ".", ".tmp");
+        try {
+            try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE,
+                    LinkOption.NOFOLLOW_LINKS)) {
+                ByteBuffer buffer = ByteBuffer.wrap(bytes);
+                while (buffer.hasRemaining()) {
+                    if (channel.write(buffer, buffer.position()) <= 0)
+                        throw new IOException("starter marker write made no progress");
+                }
+                channel.force(false);
+            }
+            Files.move(temporary, marker, StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     /** 标记文件的格式：UTF-8，一行一条正文；空行忽略。旧版本写下的空标记解出来是空集合。 */

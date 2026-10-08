@@ -17,7 +17,7 @@ const A_ROWS: [&str; 30] = [
 ];
 
 /// 拼音行：表名、key、简拼、字、权重。
-const PINYIN_ROWS: [(&str, &str, &str, &str, i64); 15] = [
+const PINYIN_ROWS: [(&str, &str, &str, &str, i64); 16] = [
     ("tbl_2_n", "ni'hao", "nh", "你好", 332_885),
     ("tbl_2_n", "ni'hao", "nh", "拟好", 3_685),
     ("tbl_1_n", "ni", "n", "你", 9_000_000),
@@ -33,6 +33,8 @@ const PINYIN_ROWS: [(&str, &str, &str, &str, i64); 15] = [
     ("tbl_1_x", "xi", "x", "系", 2_000_000),
     ("tbl_1_a", "an", "a", "按", 2_500_000),
     ("tbl_1_a", "an", "a", "暗", 1_500_000),
+    // 韵母 ing：微软双拼打 `b;`，小鹤打 `bk`。
+    ("tbl_1_b", "bing", "b", "冰", 2_000_000),
 ];
 
 /// 五笔 86 行：`wqvb` 只有一行（四码唯一，自动上屏）；`ggll` 有两行（满四码后第五个字母顶字）。码表里没有任何以 `x` 开头的码，`xyxy` 是空码。

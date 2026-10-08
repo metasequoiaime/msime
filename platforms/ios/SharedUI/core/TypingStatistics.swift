@@ -48,7 +48,7 @@ enum TypingCharacterKind: String, CaseIterable {
   }
 }
 
-struct TypingBreakdown: Decodable {
+struct TypingBreakdown: Decodable, Equatable {
   var characters: [String: Int] = [:]
   var sources: [String: Int] = [:]
   init() {}
@@ -345,6 +345,8 @@ enum TypingKeyID {
   static let backspace = "Backspace"
   static let tab = "Tab"
   static let shift = "ShiftLeft"
+  /// iPad 键盘的第二个 ⇧，在第三排字母键的最右端。
+  static let shiftRight = "ShiftRight"
   static let punctuation = "SoftPunctuation"
   /// The bottom-row quick punctuation key, which sits where a hardware comma does whichever mark it types.
   static let quickPunctuation = "Comma"
@@ -355,7 +357,7 @@ enum TypingKeyID {
   static let emoji = "SoftEmoji"
   static let voice = "SoftVoice"
 
-  /// A cell of the nine-key grid, by the digit printed on it. Cell 1 is the pinyin separator.
+  /// 九键格里的一格，按格上印的数字编号。1 号格是 @#，点开符号面板；0 是最下一排的那个键。
   static func nineKey(_ digit: Int) -> String? {
     (0...9).contains(digit) ? "Nine\(digit)" : nil
   }
@@ -473,11 +475,17 @@ struct TypingKeyHeatmap: Equatable {
   static let nineKeyRows: [[String]] = [
     ["Nine1", "Nine2", "Nine3"], ["Nine4", "Nine5", "Nine6"], ["Nine7", "Nine8", "Nine9"], ["Nine0"],
   ]
-  private static let drawn = Set((keyboardRows + nineKeyRows).flatMap { $0 })
+  /// 按键盘实际排布的九键键盘：左侧是纵贯整个格区的标点侧栏，中间是 3×3 的格子，右侧从上到下叠着删除、句号和 0。最下一排与 26 键相同。
+  static let nineKeySidebar = TypingKeyID.punctuation
+  static let nineKeyGrid: [[String]] = [["Nine1", "Nine2", "Nine3"], ["Nine4", "Nine5", "Nine6"], ["Nine7", "Nine8", "Nine9"]]
+  static let nineKeyControls: [String] = [TypingKeyID.backspace, "Period", "Nine0"]
+  /// 两块键盘各自画出的键：26 键是 `keyboardRows`；九键是标点侧栏、3×3 格子、右侧控制键和与 26 键相同的最下一排。
+  private static let letterDrawn = Set(keyboardRows.joined())
+  private static let nineKeyDrawn = Set([nineKeySidebar] + nineKeyGrid.joined() + nineKeyControls + (keyboardRows.last ?? []))
 
-  /// What a nine-key cell carries on the two grids that share its id: the pinyin letters (1 is the syllable separator, 0 has none) and the head of the kana row `TypingKeyID.japaneseKana` puts there, あ through ら on 1 to 9 and わ on 0.
+  /// 共用同一 id 的两套格子上，一个九键格各自承载的内容：拼音字母（1 是 @#，0 没有字母），以及 `TypingKeyID.japaneseKana` 放在这里的假名行首字，1 到 9 是あ到ら，0 是わ。
   static let nineKeyFaces: [String: (pinyin: String, kana: String)] = [
-    "Nine1": ("分词", "あ"), "Nine2": ("ABC", "か"), "Nine3": ("DEF", "さ"),
+    "Nine1": ("@#", "あ"), "Nine2": ("ABC", "か"), "Nine3": ("DEF", "さ"),
     "Nine4": ("GHI", "た"), "Nine5": ("JKL", "な"), "Nine6": ("MNO", "は"),
     "Nine7": ("PQRS", "ま"), "Nine8": ("TUV", "や"), "Nine9": ("WXYZ", "ら"),
     "Nine0": ("", "わ"),
@@ -507,8 +515,38 @@ struct TypingKeyHeatmap: Equatable {
     return maximum == 0 ? 0 : Double(count(id)) / Double(maximum)
   }
 
-  /// Pressed keys with no place on either drawing, most pressed first.
-  var others: [Key] { ranked.filter { !Self.drawn.contains($0.id) } }
+  /// 某个键在窗口内全部按键次数中的占比，单位为百分比，分母也算上没画在任何键盘上的键；一次都没按过时为 0。
+  func percent(_ id: String) -> Double {
+    let total = total
+    return total == 0 ? 0 : Double(count(id)) * 100 / Double(total)
+  }
+
+  /// 设计稿按键位占全部按键次数的比例分出的五级热度：26 键键盘上是 ≥7%、≥4.5%、≥2% 和超过 0.5%；九键键盘上一格承载三到四个字母，所以是 ≥12%、≥9%、≥5% 和只要按过。
+  static func heatLevel(percent: Double, nineKey: Bool) -> Int {
+    let thresholds: [Double] = nineKey ? [12, 9, 5] : [7, 4.5, 2]
+    if percent >= thresholds[0] { return 4 }
+    if percent >= thresholds[1] { return 3 }
+    if percent >= thresholds[2] { return 2 }
+    return percent > (nineKey ? 0 : 0.5) ? 1 : 0
+  }
+
+  /// 某个键盘上按得最多的字母键：26 键键盘取 A 到 Z，九键键盘取带字母的 2 到 9 号格；一个都没按过时为 nil。并列时按键盘顺序取前者。
+  func busiestLetterKey(nineKey: Bool) -> String? {
+    let candidates = nineKey ? (2...9).map { "Nine\($0)" } : "QWERTYUIOPASDFGHJKLZXCVBNM".map { "Key\($0)" }
+    var best: String?
+    var most = 0
+    for id in candidates where count(id) > most {
+      best = id
+      most = count(id)
+    }
+    return best
+  }
+
+  /// 当前显示的那块键盘上没有位置的已按键，按次数从多到少排列。页面一次只画一块键盘，所以 26 键热力图下也列出 。 键、九键侧栏标点和九键格子。
+  func others(nineKey: Bool) -> [Key] {
+    let drawn = nineKey ? Self.nineKeyDrawn : Self.letterDrawn
+    return ranked.filter { !drawn.contains($0.id) }
+  }
 
   /// The most pressed keys; ties keep the id order so the list does not shuffle between loads.
   func top(_ limit: Int = 5) -> [Key] { Array(ranked.prefix(limit)) }
@@ -535,6 +573,320 @@ extension TypingStatistics {
       for (key, count) in dailyKeys[day] ?? [:] { result[key, default: 0] += count }
     }
     return result
+  }
+}
+
+/// 存储层 `summary` 操作的返回：统计页画的概览、习惯、按键和成就。镜像 `crates/client-core/src/typing_statistics/metrics.rs` 里的 `TypingSummary`，所有数字都在那边算好，这边只解码和格式化。Rust 留空的字段（样本太少、没有活跃时长、还没有记录）在这里保持 nil，页面上显示 '—' 而不是 0。
+struct TypingSummary: Decodable, Equatable {
+  struct DayCount: Decodable, Equatable {
+    var day: String
+    var count: Int
+  }
+
+  struct Overview: Decodable, Equatable {
+    var weekTotal: Int
+    var previousWeekTotal: Int
+    /// 最近七个本地日，从旧到新；最后一个是今天。
+    var last7: [DayCount]
+    /// 最近七天里每活跃分钟输入的可读字符数；这几天没测到活跃时长时为 nil。
+    var averageSpeed: Double?
+    var previousAverageSpeed: Double?
+    /// 选词时选中首选的比例，0 到 1；不足 50 次选词时为 nil。
+    var firstCandidateRate: Double?
+    /// 比全拼少按多少键，0 到 1；还没有全拼按键数时为 nil。
+    var keystrokesSavedRate: Double?
+    var currentStreak: Int
+    var longestStreak: Int
+
+    private enum CodingKeys: String, CodingKey {
+      case weekTotal = "week_total", previousWeekTotal = "previous_week_total", last7
+      case averageSpeed = "average_speed", previousAverageSpeed = "previous_average_speed"
+      case firstCandidateRate = "first_candidate_rate", keystrokesSavedRate = "keystrokes_saved_rate"
+      case currentStreak = "current_streak", longestStreak = "longest_streak"
+    }
+  }
+
+  /// 最忙的连续两小时，`[start, end)`；`end` 可以跨过午夜。
+  struct PeakWindow: Decodable, Equatable {
+    var start: Int
+    var end: Int
+
+    /// `hour` 是否落在这个时段内，跨午夜的部分也算。
+    func contains(_ hour: Int) -> Bool {
+      let hours = TypingActivity.hours
+      let start = ((start % hours) + hours) % hours
+      let end = ((end % hours) + hours) % hours
+      if start == end { return hour == start }
+      return start < end ? hour >= start && hour < end : hour >= start || hour < end
+    }
+  }
+
+  struct Habits: Decodable, Equatable {
+    /// 最近 84 个本地日，从旧到新，所以今天落在最后一列的最底部。
+    var weeks12: [DayCount]
+    /// 最近七天按本地小时累加的字符数，共 24 个桶。
+    var hours24: [Int]
+    var usualHours: [Double]?
+    var peakWindow: PeakWindow?
+    /// 最近 12 周里有输入的天数。
+    var activeDays: Int
+    /// 所有保留天数里的字符种类和来源，未归类的余量记在 `unknown` 下。
+    var breakdown: TypingBreakdown
+
+    private enum CodingKeys: String, CodingKey {
+      case weeks12, hours24, usualHours = "usual_hours", peakWindow = "peak_window", activeDays = "active_days", breakdown
+    }
+  }
+
+  /// 不停顿连续输入的最长一段及其开始的日期。只有记录连续段的宿主才会有，所以 iOS 上为 nil。
+  struct Run: Decodable, Equatable {
+    var characters: Int
+    var day: String
+  }
+
+  struct Keys: Decodable, Equatable {
+    /// 最近七天每个字符的拼写按键数；没有字符或按键数时为 nil。
+    var perCharacterKeys: Double?
+    var previousPerCharacterKeys: Double?
+    /// 最近七天退格键占全部按键的比例，0 到 1。
+    var backspaceRate: Double?
+    /// 上屏内容中来自联想的比例，0 到 1。
+    var predictionRate: Double?
+    var longestRun: Run?
+    /// 首选、第二、第三候选以及之后所有位置各自的占比，各为 0 到 1；还没有选词时为 nil。
+    var positions: [Double]?
+
+    private enum CodingKeys: String, CodingKey {
+      case perCharacterKeys = "per_character_keys", previousPerCharacterKeys = "previous_per_character_keys"
+      case backspaceRate = "backspace_rate", predictionRate = "prediction_rate", longestRun = "longest_run", positions
+    }
+  }
+
+  /// 一枚徽章。何时解锁由 Rust 决定，并在 `summary` 内记下解锁日期；这里不计算任何解锁。
+  struct Achievement: Decodable, Equatable, Identifiable {
+    var id: String
+    /// 奖章上的文字。
+    var glyph: String
+    var title: String
+    var description: String
+    /// `volume`、`streak`、`skill` 或 `fun`，决定奖章的配色。
+    var group: String
+    var unlockedDay: String?
+    /// 以 `target` 的单位计的进度；可以超过 `target`。
+    var current: Int
+    var target: Int
+
+    var isUnlocked: Bool { unlockedDay != nil }
+
+    /// 0 到 1 的进度；解锁后恒为 1。
+    var progress: Double {
+      if isUnlocked { return 1 }
+      guard target > 0 else { return 0 }
+      return SharedNumber.clamped(Double(current) / Double(target), to: 0...1)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+      case id, glyph, title, description, group, unlockedDay = "unlocked_day", current, target
+    }
+  }
+
+  var overview: Overview
+  var habits: Habits
+  var keys: Keys
+  var achievements: [Achievement]
+
+  var unlockedCount: Int { achievements.filter(\.isUnlocked).count }
+
+  /// 进度需要用户自造词数的那枚徽章，而应用只能从键盘上一次的词库快照里读到这个数。
+  static let userWordsAchievement = "words_50"
+
+  /// 造词者徽章用的用户自造拼音词数，读自键盘上一次的词库快照：应用自己从不打开 Engine 词库。快照恰好是整个列表完整的第一页时是精确值；页面词数已够、后面还有更多页时，是一个已经达到徽章要求的下限；其余情况一律为 nil，免得把快照担保不了的数交给 summary。
+  static func userWords(from state: PersonalDictionaryState) -> Int? {
+    guard state.snapshotDate != nil, state.pageKind == nil, state.pageQuery.isEmpty, state.pageOffset == 0 else { return nil }
+    let words = state.entries.filter { $0.kind == .pinyin && !$0.isBundled }.count
+    if !state.hasMore { return words }
+    return words >= 50 ? words : nil
+  }
+}
+
+/// 统计页的文案规则，移植自 Android 的 `TypingStatisticsSummary`，让两个平台对每个数字的措辞一致。
+enum TypingSummaryText {
+  /// 占比图里的一段：标题和数量。
+  struct Share: Equatable {
+    var title: String
+    var count: Int
+  }
+
+  /// 千位分隔符：`12,846`。
+  static func grouped(_ value: Int) -> String {
+    groupedFormatter.string(from: NSNumber(value: value)) ?? String(value)
+  }
+
+  /// 总数大字下方的周环比一行；上周没有记录可比时为 nil。
+  static func weekDelta(_ current: Int, _ previous: Int) -> String? {
+    guard previous > 0 else { return nil }
+    let percent = javaRound(Double(current - previous) * 100 / Double(previous))
+    if percent == 0 { return "和上周持平" }
+    return percent > 0 ? "比上周多 \(percent)%" : "比上周少 \(-percent)%"
+  }
+
+  /// 整数，nil 时为 '—'。
+  static func whole(_ value: Double?) -> String {
+    value.map { String(javaRound($0)) } ?? "—"
+  }
+
+  /// 把 0–1 的比率写成整数百分比的数字部分，nil 时为 '—'。
+  static func percent(_ rate: Double?) -> String {
+    rate.map { String(javaRound($0 * 100)) } ?? "—"
+  }
+
+  /// 把 0–1 的比率写成保留一位小数的百分比数字（`7.4`），nil 时为 '—'。
+  static func percentTenths(_ rate: Double?) -> String {
+    rate.map { tenths($0 * 100) } ?? "—"
+  }
+
+  /// 保留一位小数（`2.3`），不带末尾的 `.0`，nil 时为 '—'。
+  static func decimal(_ value: Double?) -> String {
+    value.map(tenths) ?? "—"
+  }
+
+  /// 平均速度与上周对比；任一边没有数字时为 nil。
+  static func speedDelta(_ current: Double?, _ previous: Double?) -> String? {
+    guard let current, let previous else { return nil }
+    let difference = javaRound(current) - javaRound(previous)
+    if difference == 0 { return "和上周一样快" }
+    return difference > 0 ? "比上周快 \(difference) 字" : "比上周慢 \(-difference) 字"
+  }
+
+  /// 每字按键数与上周对比；任一边没有数字时为 nil。
+  static func perKeyDelta(_ current: Double?, _ previous: Double?) -> String? {
+    guard let current, let previous else { return nil }
+    let difference = javaRound(current * 10) - javaRound(previous * 10)
+    if difference == 0 { return "和上周持平" }
+    let amount = tenths(Double(abs(difference)) / 10)
+    return difference < 0 ? "比上周少 \(amount) 次" : "比上周多 \(amount) 次"
+  }
+
+  /// 把高峰时段写成 `晚上 9–11 点`；没有高峰时段时为 nil。
+  static func peakLabel(_ window: TypingSummary.PeakWindow?) -> String? {
+    guard let window else { return nil }
+    let hours = TypingActivity.hours
+    let start = ((window.start % hours) + hours) % hours
+    let end = ((window.end % hours) + hours) % hours
+    return "\(period(start)) \(clock(start))–\(clock(end)) 点"
+  }
+
+  /// 把 `2026-09-28` 写成 `9 月 28 日`；其他输入原样返回。
+  static func monthDay(_ day: String) -> String {
+    let parts = day.split(separator: "-")
+    guard day.count == 10, parts.count == 3, let month = Int(parts[1]), let date = Int(parts[2]) else { return day }
+    return "\(month) 月 \(date) 日"
+  }
+
+  /// 徽章下方的一行：已解锁时是它的说明；未解锁时，差距能用单位说清就写还差多少，否则仍是说明。`progressKnown` 为 false 表示 summary 拿不到这枚徽章的计数，此时不声称还差多少。
+  static func caption(_ badge: TypingSummary.Achievement, progressKnown: Bool = true) -> String {
+    if badge.isUnlocked || !progressKnown { return badge.description }
+    let missing = max(0, badge.target - badge.current)
+    guard let unit = unit(badge.id), missing > 0 else { return badge.description }
+    if unit == "字" { return "还差 \(characters(missing))" }
+    return "还差 \(missing) \(unit)"
+  }
+
+  /// 点击后的提示：已解锁时是 `已解锁「名」· 说明`，否则是 `「名」· 还差 …`。
+  static func toast(_ badge: TypingSummary.Achievement, progressKnown: Bool = true) -> String {
+    badge.isUnlocked
+      ? "已解锁「\(badge.title)」· \(badge.description)"
+      : "「\(badge.title)」· \(caption(badge, progressKnown: progressKnown))"
+  }
+
+  /// 进度环里的百分比，向下取整，免得差一点完成时显示 100%。
+  static func progressLabel(_ badge: TypingSummary.Achievement) -> String {
+    "\(Int((badge.progress * 100).rounded(.down)))%"
+  }
+
+  /// 输入构成按设计稿分成四部分，顺序固定，让每部分保持自己的颜色：汉字（han）、英文（拉丁及其他文字的字母）、符号（数字、标点和符号）、表情（emoji）。旧记录里未归类的余量不属于任何一部分，不计入。
+  static func composition(_ characters: [String: Int]) -> [Share] {
+    func value(_ kind: TypingCharacterKind) -> Int { max(0, characters[kind.rawValue] ?? 0) }
+    return [
+      Share(title: "汉字", count: value(.han)),
+      Share(title: "英文", count: value(.latin) + value(.otherLetter)),
+      Share(title: "符号", count: value(.number) + value(.punctuation) + value(.symbol)),
+      Share(title: "表情", count: value(.emoji)),
+    ]
+  }
+
+  /// 输入方式：26 键、9 键、语音和手写，只列有输入的部分。除九键外的所有键盘方案都在 26 个字母键上输入；AI 润色、回复和未归类的输入不算输入方式，不计入。
+  static func methods(_ sources: [String: Int]) -> [Share] {
+    let excluded = Set([TypingSource.nineKey, .voice, .handwriting, .unknown, .ai, .reply].map(\.rawValue))
+    let full = sources.filter { !excluded.contains($0.key) }.values.reduce(0) { $0 + max(0, $1) }
+    func value(_ source: TypingSource) -> Int { max(0, sources[source.rawValue] ?? 0) }
+    return [
+      Share(title: "26 键", count: full),
+      Share(title: "9 键", count: value(.nineKey)),
+      Share(title: "语音", count: value(.voice)),
+      Share(title: "手写", count: value(.handwriting)),
+    ].filter { $0.count > 0 }
+  }
+
+  /// `count / total` 的整数百分比；总数为 0 时为 0。
+  static func share(_ count: Int, of total: Int) -> Int {
+    total <= 0 ? 0 : javaRound(Double(count) * 100 / Double(total))
+  }
+
+  /// Java 的 `Math.round`：0.5 向上进位，让同一个数字的取整方式与 Android 一致。
+  static func javaRound(_ value: Double) -> Int {
+    guard value.isFinite else { return 0 }
+    return Int((value + 0.5).rounded(.down))
+  }
+
+  private static let groupedFormatter: NumberFormatter = {
+    let formatter = NumberFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.numberStyle = .decimal
+    formatter.groupingSeparator = ","
+    formatter.usesGroupingSeparator = true
+    return formatter
+  }()
+
+  private static func tenths(_ value: Double) -> String {
+    let rounded = javaRound(value * 10)
+    if rounded % 10 == 0 { return String(rounded / 10) }
+    return String(format: "%.1f", Double(rounded) / 10)
+  }
+
+  /// 徽章差距的计量单位；速度、准确率和早起的小时没有单位。
+  private static func unit(_ id: String) -> String? {
+    switch id {
+    case "chars_10k", "chars_100k", "chars_1m", "night_owl", "shuangpin_10k", "handwriting_500": return "字"
+    case "streak_7", "streak_30", "streak_100": return "天"
+    case "sentence_1000": return "次"
+    case "voice_1h": return "分钟"
+    case "words_50": return "个词"
+    case "skins_5": return "款皮肤"
+    default: return nil
+    }
+  }
+
+  /// 字符数，一万及以上写成 `51.7 万字`。
+  private static func characters(_ count: Int) -> String {
+    count >= 10_000 ? "\(tenths(Double(count) / 10_000)) 万字" : "\(count) 字"
+  }
+
+  private static func period(_ hour: Int) -> String {
+    switch hour {
+    case ..<5: return "凌晨"
+    case ..<8: return "早上"
+    case ..<11: return "上午"
+    case ..<13: return "中午"
+    case ..<18: return "下午"
+    case ..<19: return "傍晚"
+    default: return "晚上"
+    }
+  }
+
+  private static func clock(_ hour: Int) -> Int {
+    if hour == 0 { return 12 }
+    return hour > 12 ? hour - 12 : hour
   }
 }
 
@@ -618,6 +970,14 @@ struct TypingStatisticsStore {
     return try JSONDecoder().decode(TypingStatistics.self, from: JSONSerialization.data(withJSONObject: value))
   }
 
+  /// 本地日 `day` 的统计页派生数字。`userWords` 是造词者徽章用的用户自造词数，未知时为 nil，存储层按 0 处理。统计开启时，存储层会记下本次调用新发现解锁的徽章。
+  func summary(day: Date = Date(), userWords: Int?, calendar: Calendar = .current) throws -> TypingSummary {
+    var action: [String: Any] = ["operation": "summary", "day": TypingStatistics.dayKey(day, calendar: calendar)]
+    if let userWords { action["user_words"] = max(0, userWords) }
+    let value = try call(action)
+    return try JSONDecoder().decode(TypingSummary.self, from: JSONSerialization.data(withJSONObject: value))
+  }
+
   // Why the numbers are empty, answered without going through the write path that may be the thing
   // at fault. The app can always reach the group container; the keyboard extension is the side that
   // can be denied, so an unreachable directory or an absent file each mean something different.
@@ -692,6 +1052,30 @@ struct TypingStatisticsStore {
     return recorded
   }
 
+  /// 存储层接受的单次语音输入最长时长（`MAX_VOICE_MS_PER_CALL`）；Android 也同样截断到这个值。
+  static let maximumVoiceMilliseconds = 600_000
+
+  /// 为动口不动手徽章给 `day` 加一次时长为 `milliseconds` 的语音输入。时长为 0 不算语音输入，不发送；超过存储层上限的截断处理，与 Android 相同。返回存储层实际记下的毫秒数：统计关闭时为 0。
+  @discardableResult
+  func recordVoice(milliseconds: Int, day: String) throws -> Int {
+    guard milliseconds > 0 else { return 0 }
+    let value = try call(["operation": "record_voice", "day": day,
+                          "milliseconds": min(milliseconds, Self.maximumVoiceMilliseconds)])
+    guard let recorded = Self.strictRecordedCount((value as? [String: Any])?["recorded"],
+                                                  maximum: Self.maximumVoiceMilliseconds) else {
+      throw TypingStatisticsError.invalidResponse
+    }
+    return recorded
+  }
+
+  /// 为换装达人徽章记下用过皮肤 `id`：内置主题 id、`custom` 或已保存设计的 UUID。返回它对存储层是否是新的；已经计过或统计关闭时为 false。
+  @discardableResult
+  func recordSkin(id: String) throws -> Bool {
+    let value = try call(["operation": "record_skin", "id": id])
+    guard let recorded = (value as? [String: Any])?["recorded"] as? Bool else { throw TypingStatisticsError.invalidResponse }
+    return recorded
+  }
+
   /// Native JSON must return a non-negative integral count that cannot exceed the submitted batch.
   static func strictRecordedCount(_ value: Any?, maximum: Int) -> Int? {
     guard let number = value as? NSNumber,
@@ -717,5 +1101,26 @@ struct TypingStatisticsStore {
       throw TypingStatisticsError.invalidResponse
     }
     return enabled
+  }
+}
+
+/// 打字之外推动徽章的两项记录：识别出的语音输入时长（动口不动手）和换上的皮肤（换装达人）。与 Android 一样尽力而为：在一个串行队列上离开主线程写入，失败只进诊断日志，从不妨碍换皮肤或语音结果。是否记录（隐私模式）由调用方决定，Android 也是如此。
+enum TypingStatisticsExtras {
+  private static let queue = DispatchQueue(label: "app.msime.ios.typing-statistics.extras", qos: .utility)
+
+  /// 换上了一款皮肤：内置主题记它的 id，已保存或社区的设计记它的 UUID，从键盘面板换上的任何设计则记为 `custom`。
+  static func recordSkin(_ id: String) {
+    queue.async {
+      do { try TypingStatisticsStore().recordSkin(id: id) } catch { DiagnosticLog.shared.write("statistics_skin_failed") }
+    }
+  }
+
+  /// 识别出一段时长为 `milliseconds` 的语音输入，计在 `date` 所在的本地日。
+  static func recordVoice(milliseconds: Int, at date: Date = Date()) {
+    guard milliseconds > 0 else { return }
+    let day = TypingStatistics.dayKey(date)
+    queue.async {
+      do { try TypingStatisticsStore().recordVoice(milliseconds: milliseconds, day: day) } catch { DiagnosticLog.shared.write("statistics_voice_failed") }
+    }
   }
 }

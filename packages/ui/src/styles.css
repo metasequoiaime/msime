@@ -38,6 +38,13 @@
 @source "../../../apps/desktop/src/**/*.{ts,tsx}";
 @source "../../../apps/harmony/src/**/*.{ts,tsx}";
 
+/* 进度环的填充量，注册后 `ms-ring-fill` 才能对它插值：未注册的自定义属性在关键帧之间只会跳变。 */
+@property --bp {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+
 /* `inline` matters here. The palette is switched at runtime by `html[data-theme]`, so the utilities
  * have to resolve to the custom property rather than to whatever value it happened to hold at build
  * time -- a copied value would freeze every Tailwind-styled element in dark mode. The names stay
@@ -105,6 +112,159 @@
   --animate-splash-name: splash-rise 0.5s 1.1s both;
   --animate-splash-tagline: splash-rise 0.5s 1.35s both;
   --animate-splash-hint: splash-rise 0.5s 1.6s both;
+  /* HarmonyOS 启动页（dc.html `msCircIn`、`msRipple`、`msLogoIn`、`msLoad`）：圆盘落下，一圈白环从它向外扩散两次，标志在其上旋转入场同时描出线条，底部一条细进度条在启动页停留期间填满。 */
+  --animate-splash-circ-in: splash-circ-in 0.65s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  /* 不设 fill mode：圆环在动画前后都停在自身的 `opacity: 0`，只在扩散时可见。 */
+  --animate-splash-ripple: splash-ripple 1.2s ease-out 1.45s 2;
+  --animate-splash-logo-in: splash-logo-in 0.6s cubic-bezier(0.2, 0.8, 0.3, 1) 0.25s both;
+  /* 这里标志线条的描绘比其他手机的启动页更晚也更快，在旋转入场即将落定时才开始。 */
+  --animate-splash-logo-draw: splash-draw 0.8s cubic-bezier(0.65, 0, 0.35, 1) 0.65s both;
+  --animate-splash-load: splash-load 2.4s ease-out both;
+  /* 改版的动效（dc.html `msBadgeIn` … `msPushIn`）：成就徽章上浮入场，奖牌点按时弹出并晃动、一道高光扫过，进度环和进度条填充，底部面板上滑，toast 或遮罩淡入，压入的页面从尾侧滑入。需要错开时间的调用处自己加 `animation-delay`；每一个都像启动页一样配上 `motion-reduce:animate-none`。 */
+  --animate-ms-badge-in: ms-badge-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-ms-medal-pop: ms-medal-pop 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-ms-shine: ms-shine 3.6s ease-in-out infinite;
+  --animate-ms-ring-fill: ms-ring-fill 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-ms-bar-fill: ms-bar-fill 1s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-ms-wiggle: ms-wiggle 0.6s ease both;
+  --animate-ms-sheet-up: ms-sheet-up 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-ms-fade-in: ms-fade-in 0.2s ease both;
+  --animate-ms-push-in: ms-push-in 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
+  @keyframes splash-circ-in {
+    0% {
+      transform: scale(0.4);
+      opacity: 0;
+    }
+    60% {
+      transform: scale(1.06);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+  /* 设计用圆盘的 box-shadow 做波纹；改用一个单独的圆环 span 向外缩放，表现同样的动效，又不必每帧重绘圆盘自身的投影。 */
+  @keyframes splash-ripple {
+    from {
+      transform: scale(1);
+      opacity: 0.5;
+    }
+    to {
+      transform: scale(1.2);
+      opacity: 0;
+    }
+  }
+  @keyframes splash-logo-in {
+    0% {
+      transform: scale(0.5) rotate(-12deg);
+      opacity: 0;
+    }
+    70% {
+      transform: scale(1.08) rotate(2deg);
+      opacity: 1;
+    }
+    100% {
+      transform: none;
+    }
+  }
+  @keyframes splash-load {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+  @keyframes ms-badge-in {
+    0% {
+      opacity: 0;
+      transform: translateY(10px) scale(0.86);
+    }
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes ms-medal-pop {
+    0% {
+      transform: rotate(45deg) scale(0.3);
+    }
+    60% {
+      transform: rotate(45deg) scale(1.12);
+    }
+    80% {
+      transform: rotate(45deg) scale(0.96);
+    }
+    100% {
+      transform: rotate(45deg) scale(1);
+    }
+  }
+  @keyframes ms-shine {
+    0%,
+    62% {
+      transform: translateX(-120%) rotate(25deg);
+    }
+    82%,
+    100% {
+      transform: translateX(220%) rotate(25deg);
+    }
+  }
+  /* 对下面注册的 `--bp` 做动画，读取它的 conic-gradient 圆环便会从空开始扫满。 */
+  @keyframes ms-ring-fill {
+    from {
+      --bp: 0%;
+    }
+  }
+  @keyframes ms-bar-fill {
+    from {
+      width: 0;
+    }
+  }
+  @keyframes ms-wiggle {
+    0%,
+    100% {
+      transform: rotate(45deg) scale(1);
+    }
+    20% {
+      transform: rotate(30deg) scale(1.15);
+    }
+    40% {
+      transform: rotate(58deg) scale(1.1);
+    }
+    60% {
+      transform: rotate(38deg) scale(1.05);
+    }
+    80% {
+      transform: rotate(50deg);
+    }
+  }
+  @keyframes ms-sheet-up {
+    from {
+      transform: translateY(110%);
+    }
+    to {
+      transform: none;
+    }
+  }
+  @keyframes ms-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes ms-push-in {
+    from {
+      transform: translateX(24px);
+      opacity: 0.3;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
 
   @keyframes bar-reveal {
     from {
@@ -1485,15 +1645,15 @@
    * Dark is the default because the page is dark with no `data-theme` at all; the light rule only lists what differs. Both set the variables on the platform root itself, so they beat the palette the root would otherwise inherit from <html>.
    */
 
-  /* The welcome flow is shared by the phone hosts and has no platform of its own, so it takes the brand green directly. */
-  [data-onboarding-shell][data-mobile] {
+  /* 欢迎流程由各手机宿主共用，没有自己的平台，因此直接使用品牌绿。HarmonyOS 例外：它的流程跟随平台强调色和用户的应用主题，由同一元素上的 `[data-platform="harmony"]` 规则和内联季节颜色设置。 */
+  [data-onboarding-shell][data-mobile]:not([data-platform="harmony"]) {
     --accent-color: #5fbf84;
     --accent-strong: #2c7a4b;
     --accent-soft: rgba(95, 191, 132, 0.22);
     --accent-soft-border: rgba(95, 191, 132, 0.25);
   }
 
-  html[data-theme="light"] [data-onboarding-shell][data-mobile] {
+  html[data-theme="light"] [data-onboarding-shell][data-mobile]:not([data-platform="harmony"]) {
     --accent-color: #2c7a4b;
     --accent-soft: rgba(44, 122, 75, 0.12);
     --accent-soft-border: rgba(44, 122, 75, 0.22);
@@ -1515,6 +1675,7 @@
     --p-chrome: #202020;
     --p-hair: rgba(255, 255, 255, 0.08);
     --p-hover: rgba(255, 255, 255, 0.07);
+    --p-press: rgba(255, 255, 255, 0.07);
     --p-r-ctl: 4px;
     --p-sw-w: 40px;
     --p-sw-h: 20px;
@@ -1553,6 +1714,9 @@
     --p-row-fs: 14px;
     --p-sub-fs: 12px;
     --p-row-divider: transparent;
+    --p-row-divider-w: 1px;
+    --p-row-divider-inset: 0;
+    --p-row-ctl-gap: 12px;
     --p-row-icon: flex;
     --p-sel-bg: rgba(255, 255, 255, 0.06);
     --p-sel-fg: #ffffff;
@@ -1597,6 +1761,7 @@
     --p-chrome: #f3f3f3;
     --p-hair: rgba(0, 0, 0, 0.08);
     --p-hover: rgba(0, 0, 0, 0.045);
+    --p-press: rgba(0, 0, 0, 0.045);
     --p-sw-on: #005fb8;
     --p-sw-off-ring: inset 0 0 0 1px rgba(0, 0, 0, 0.6);
     --p-sw-knob-on: #ffffff;
@@ -1634,6 +1799,7 @@
     --p-chrome: #2a2a2a;
     --p-hair: rgba(255, 255, 255, 0.1);
     --p-hover: rgba(255, 255, 255, 0.1);
+    --p-press: rgba(255, 255, 255, 0.1);
     --p-r-ctl: 6px;
     --p-sw-w: 38px;
     --p-sw-h: 22px;
@@ -1672,6 +1838,9 @@
     --p-row-fs: 14px;
     --p-sub-fs: 12px;
     --p-row-divider: rgba(255, 255, 255, 0.1);
+    --p-row-divider-w: 1px;
+    --p-row-divider-inset: 0;
+    --p-row-ctl-gap: 12px;
     --p-row-icon: none;
     --p-sel-bg: transparent;
     --p-sel-fg: #f5f5f7;
@@ -1714,6 +1883,7 @@
     --p-chrome: #f6f6f6;
     --p-hair: rgba(0, 0, 0, 0.09);
     --p-hover: rgba(0, 0, 0, 0.06);
+    --p-press: rgba(0, 0, 0, 0.06);
     --p-sw-on: #2c7a4b;
     --p-sw-off: rgba(0, 0, 0, 0.09);
     --p-sw-off-ring: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
@@ -1747,6 +1917,7 @@
     --p-chrome: #303030;
     --p-hair: rgba(0, 0, 0, 0.36);
     --p-hover: rgba(255, 255, 255, 0.08);
+    --p-press: rgba(255, 255, 255, 0.08);
     --p-r-ctl: 6px;
     --p-sw-w: 48px;
     --p-sw-h: 26px;
@@ -1785,6 +1956,9 @@
     --p-row-fs: 15px;
     --p-sub-fs: 13px;
     --p-row-divider: rgba(0, 0, 0, 0.36);
+    --p-row-divider-w: 1px;
+    --p-row-divider-inset: 0;
+    --p-row-ctl-gap: 12px;
     --p-row-icon: none;
     --p-sel-bg: rgba(255, 255, 255, 0.1);
     --p-sel-fg: #ffffff;
@@ -1826,6 +2000,7 @@
     --p-chrome: #ebebeb;
     --p-hair: rgba(0, 0, 0, 0.1);
     --p-hover: rgba(0, 0, 0, 0.06);
+    --p-press: rgba(0, 0, 0, 0.06);
     --p-sw-off: rgba(0, 0, 0, 0.15);
     --p-seg-bg: rgba(0, 0, 0, 0.08);
     --p-seg-on: #ffffff;
@@ -1857,6 +2032,7 @@
     --p-chrome: #1a1a1a;
     --p-hair: rgba(255, 255, 255, 0.1);
     --p-hover: rgba(255, 255, 255, 0.08);
+    --p-press: rgba(255, 255, 255, 0.08);
     --p-r-ctl: 20px;
     --p-sw-w: 36px;
     --p-sw-h: 20px;
@@ -1895,6 +2071,9 @@
     --p-row-fs: 15px;
     --p-sub-fs: 12px;
     --p-row-divider: rgba(255, 255, 255, 0.1);
+    --p-row-divider-w: 1px;
+    --p-row-divider-inset: 0;
+    --p-row-ctl-gap: 12px;
     --p-row-icon: none;
     --p-sel-bg: rgba(255, 255, 255, 0.1);
     --p-sel-fg: #e5e5e5;
@@ -1903,7 +2082,7 @@
     --p-sel-pad: 6px 12px;
     --p-sel-fs: 14px;
     --p-btn-bg: rgba(255, 255, 255, 0.1);
-    --p-btn-fg: #8fb6ff;
+    --p-btn-fg: #5fbf84;
     --p-btn-border: none;
     --p-title-fs: 22px;
     --p-title-w: 700;
@@ -1938,6 +2117,7 @@
     --p-chrome: #f1f3f5;
     --p-hair: rgba(0, 0, 0, 0.06);
     --p-hover: rgba(0, 0, 0, 0.05);
+    --p-press: rgba(0, 0, 0, 0.05);
     --p-sw-on: #2c7a4b;
     --p-sw-off: rgba(0, 0, 0, 0.1);
     --p-seg-bg: rgba(0, 0, 0, 0.05);
@@ -1969,6 +2149,7 @@
     --p-chrome: #000000;
     --p-hair: rgba(255, 255, 255, 0.1);
     --p-hover: rgba(255, 255, 255, 0.08);
+    --p-press: rgba(255, 255, 255, 0.1);
     --p-r-ctl: 20px;
     --p-sw-w: 36px;
     --p-sw-h: 20px;
@@ -2007,13 +2188,16 @@
     --p-row-fs: 16px;
     --p-sub-fs: 14px;
     --p-row-divider: rgba(255, 255, 255, 0.1);
+    --p-row-divider-w: 0.5px;
+    --p-row-divider-inset: 16px;
+    --p-row-ctl-gap: 14px;
     --p-row-icon: none;
     --p-sel-bg: transparent;
     --p-sel-fg: rgba(255, 255, 255, 0.6);
     --p-sel-border: none;
     --p-sel-sizing: content;
     --p-sel-pad: 0;
-    --p-sel-fs: 14px;
+    --p-sel-fs: 16px;
     --p-btn-bg: rgba(255, 255, 255, 0.1);
     --p-btn-fg: #5fbf84;
     --p-btn-border: none;
@@ -2050,6 +2234,7 @@
     --p-chrome: #f1f3f5;
     --p-hair: rgba(0, 0, 0, 0.06);
     --p-hover: rgba(0, 0, 0, 0.05);
+    --p-press: rgba(0, 0, 0, 0.07);
     --p-sw-on: #2c7a4b;
     --p-sw-off: rgba(0, 0, 0, 0.1);
     --p-seg-bg: rgba(0, 0, 0, 0.05);
@@ -2063,6 +2248,14 @@
     --p-btn-fg: #2c7a4b;
     --p-slider-track: rgba(120, 120, 128, 0.2);
     --p-nav-selected-bg: rgba(0, 0, 0, 0.05);
+  }
+
+  /* HarmonyOS 手机的标签页（社区、统计、我的；外壳用 `data-tab-page` 标记）列表比设置子页面更紧凑：行高 48px、左右边距 14px，分组标题缩进 4px、距分组 7px。 */
+  [data-platform="harmony"] [data-tab-page] {
+    --p-row-h: 48px;
+    --p-row-pad: 8px 14px;
+    --p-g-title-pad: 0 4px;
+    --p-g-title-gap: 7px;
   }
 
   [data-platform="android"] {
@@ -2080,6 +2273,7 @@
     --p-chrome: #111411;
     --p-hair: #2a2f2a;
     --p-hover: rgba(255, 255, 255, 0.06);
+    --p-press: rgba(255, 255, 255, 0.06);
     --p-r-ctl: 20px;
     --p-sw-w: 52px;
     --p-sw-h: 32px;
@@ -2118,6 +2312,9 @@
     --p-row-fs: 16px;
     --p-sub-fs: 14px;
     --p-row-divider: transparent;
+    --p-row-divider-w: 1px;
+    --p-row-divider-inset: 0;
+    --p-row-ctl-gap: 12px;
     --p-row-icon: none;
     --p-sel-bg: transparent;
     --p-sel-fg: #c0c9bf;
@@ -2161,6 +2358,7 @@
     --p-chrome: #f7fbf3;
     --p-hair: #dde5db;
     --p-hover: rgba(0, 0, 0, 0.05);
+    --p-press: rgba(0, 0, 0, 0.05);
     --p-sw-on: #2c7a4b;
     --p-sw-off: #dfe4db;
     --p-sw-off-ring: inset 0 0 0 2px #717970;
@@ -2194,6 +2392,7 @@
     --p-chrome: #000000;
     --p-hair: rgba(84, 84, 88, 0.6);
     --p-hover: rgba(255, 255, 255, 0.08);
+    --p-press: rgba(255, 255, 255, 0.08);
     --p-r-ctl: 999px;
     --p-sw-w: 63px;
     --p-sw-h: 28px;
@@ -2232,6 +2431,9 @@
     --p-row-fs: 17px;
     --p-sub-fs: 13px;
     --p-row-divider: rgba(84, 84, 88, 0.6);
+    --p-row-divider-w: 1px;
+    --p-row-divider-inset: 0;
+    --p-row-ctl-gap: 12px;
     --p-row-icon: none;
     --p-sel-bg: transparent;
     --p-sel-fg: #8e8e93;
@@ -2275,6 +2477,7 @@
     --p-chrome: #f2f2f7;
     --p-hair: rgba(60, 60, 67, 0.22);
     --p-hover: rgba(0, 0, 0, 0.05);
+    --p-press: rgba(0, 0, 0, 0.05);
     --p-sw-off: #e9e9ea;
     --p-seg-bg: rgba(118, 118, 128, 0.12);
     --p-seg-on: #ffffff;
@@ -2304,6 +2507,7 @@
     --p-chrome: #000000;
     --p-hair: rgba(84, 84, 88, 0.6);
     --p-hover: rgba(255, 255, 255, 0.08);
+    --p-press: rgba(255, 255, 255, 0.08);
     --p-r-ctl: 999px;
     --p-sw-w: 63px;
     --p-sw-h: 28px;
@@ -2342,6 +2546,9 @@
     --p-row-fs: 17px;
     --p-sub-fs: 13px;
     --p-row-divider: rgba(84, 84, 88, 0.6);
+    --p-row-divider-w: 1px;
+    --p-row-divider-inset: 0;
+    --p-row-ctl-gap: 12px;
     --p-row-icon: none;
     --p-sel-bg: transparent;
     --p-sel-fg: #8e8e93;
@@ -2385,6 +2592,7 @@
     --p-chrome: #f2f2f7;
     --p-hair: rgba(60, 60, 67, 0.22);
     --p-hover: rgba(0, 0, 0, 0.05);
+    --p-press: rgba(0, 0, 0, 0.05);
     --p-sw-off: #e9e9ea;
     --p-seg-bg: rgba(118, 118, 128, 0.12);
     --p-seg-on: #ffffff;
@@ -2478,5 +2686,24 @@
     font-size: 12px;
     font-weight: 400;
     line-height: 1.6;
+  }
+}
+
+/*
+ * HarmonyOS 对共用 utility 的覆盖。它们放在 utilities 层，因为被调整的 utility 就在这一层，base 层的规则无论特异性多高都会输给它们。
+ */
+@layer utilities {
+  /* 季节主题的深色强调色是浅色，因此共用页面放在强调色底上的白字（主按钮、选中的标签和聊天气泡下的 `--accent-strong`；生词复习按钮下的普通强调色）改用强调色自己的前景色。没有季节主题时前景色就是白色，没有变化。 */
+  :is([data-platform="harmony"], [data-platform="hm2"])
+    :is(.bg-accent-strong, .bg-accent).text-white {
+    color: var(--p-on-accent);
+  }
+
+  /* 在 HarmonyOS 手机的标签页上，旧的 `section` 卡片变成改版里无边框的 20px 分组。 */
+  [data-platform="harmony"] [data-tab-page] .section {
+    border: 0;
+    border-radius: 20px;
+    background: var(--p-group-bg);
+    box-shadow: none;
   }
 }

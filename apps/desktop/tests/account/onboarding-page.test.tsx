@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { WelcomeFlowPage, type OnboardingActions } from "@msime/ui";
+import {
+  WelcomeFlowPage,
+  type ImeSetupClient,
+  type ImeSetupState,
+  type OnboardingActions,
+} from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -101,22 +106,282 @@ test("prepares resources once, before the first system action", async () => {
   expect(actions.prepareResources).toHaveBeenCalledOnce();
 });
 
-test("adapts setup copy and actions for HarmonyOS", async () => {
+test("a HarmonyOS phone draws the design's step header and keeps the instructions without a setup client", async () => {
   const actions = makeActions({ platform: "harmony" });
   render(<WelcomeFlowPage actions={actions} onComplete={vi.fn().mockResolvedValue(undefined)} />);
 
-  expect(screen.getByText(/HarmonyOS 中启用并选择水杉输入法/)).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "把水杉加进键盘" })).toBeTruthy();
+  expect(screen.getByText("第一步 · 约 30 秒")).toBeTruthy();
+  expect(
+    screen.getByText("在系统设置里启用水杉，并设为默认输入法，之后在任何应用里都能直接用。"),
+  ).toBeTruthy();
+  // 计数在顶部，圆点在步骤下方；没有 logo 页头，也没有「上一步」。
+  expect(screen.getByText("1 / 4")).toBeTruthy();
+  expect(screen.getByRole("img", { name: "第 1 步，共 4 步" })).toBeTruthy();
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  expect(screen.queryByRole("button", { name: "上一步" })).toBeNull();
   expect(screen.getByText("前往 HarmonyOS 的系统输入法设置。")).toBeTruthy();
   expect(screen.getByText(/系统设置页面由 HarmonyOS 管理/)).toBeTruthy();
+  expect(screen.queryByText(/MSIME Preview/)).toBeNull();
   expect(screen.queryByText(/Android/)).toBeNull();
-  // Only Android draws the linear bar; the other phones keep the page dots.
-  expect(screen.queryByRole("progressbar")).toBeNull();
-  expect(screen.getByRole("img", { name: "第 1 步，共 4 步" })).toBeTruthy();
+  const shell = screen.getByRole("main", { name: "首次设置" });
+  expect(shell.getAttribute("data-platform")).toBe("harmony");
+  expect(shell.hasAttribute("data-season")).toBe(false);
 
   fireEvent.click(screen.getByRole("button", { name: "打开系统设置" }));
   await waitFor(() => expect(actions.openSystemKeyboardSettings).toHaveBeenCalledOnce());
   fireEvent.click(screen.getByRole("button", { name: "选择输入法" }));
   await waitFor(() => expect(actions.showInputMethodPicker).toHaveBeenCalledOnce());
+});
+
+function fakeSetup(initial: ImeSetupState | null) {
+  let listener: ((state: ImeSetupState) => void) | undefined;
+  const client: ImeSetupClient = {
+    read: () => initial,
+    subscribe: (next) => {
+      listener = next;
+      return () => {
+        listener = undefined;
+      };
+    },
+  };
+  return { client, emit: (state: ImeSetupState) => act(() => listener?.(state)) };
+}
+
+test("the HarmonyOS setup step shows the host's two checks and the step each still needs", async () => {
+  const setup = fakeSetup({ enabled: false, current: false });
+  const actions = makeActions({ platform: "harmony" });
+  render(
+    <WelcomeFlowPage
+      actions={actions}
+      setup={setup.client}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+    />,
+  );
+
+  expect(screen.getByText("已在系统中启用")).toBeTruthy();
+  expect(screen.getByText("设为默认输入法")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "打开系统设置" })).toBeNull();
+  // 尚未启用：系统选择器不会列出它，所以「设为默认」还会打开系统列表。
+  fireEvent.click(screen.getByRole("button", { name: "设为默认" }));
+  await waitFor(() => expect(actions.openSystemKeyboardSettings).toHaveBeenCalledOnce());
+  expect(actions.prepareResources).toHaveBeenCalledOnce();
+
+  // 从系统设置返回后，宿主报告输入法已启用。
+  setup.emit({ enabled: true, current: false });
+  expect(screen.queryByRole("button", { name: "去开启" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "设为默认" }));
+  await waitFor(() => expect(actions.showInputMethodPicker).toHaveBeenCalledOnce());
+
+  setup.emit({ enabled: true, current: true });
+  expect(screen.queryByRole("button", { name: "设为默认" })).toBeNull();
+  expect(screen.getAllByText("，已完成")).toHaveLength(2);
+});
+
+test("a HarmonyOS check the host has not answered offers no step", () => {
+  const setup = fakeSetup(null);
+  render(
+    <WelcomeFlowPage
+      actions={makeActions({ platform: "harmony" })}
+      setup={setup.client}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+    />,
+  );
+
+  expect(screen.getByText("已在系统中启用")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "去开启" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "设为默认" })).toBeNull();
+});
+
+test("the HarmonyOS phone walks the design's steps and 跳过 keeps the keyboard chosen", async () => {
+  const onSkip = vi.fn().mockResolvedValue(undefined);
+  render(
+    <WelcomeFlowPage
+      actions={makeActions({ platform: "harmony" })}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+      onSkip={onSkip}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "选一套输入方案" });
+  expect(screen.getByText("第二步 · 随时可以改")).toBeTruthy();
+  expect(
+    screen.getByText("全拼、9 键、双拼和五笔用的是同一套引擎，词库和自造词通用。"),
+  ).toBeTruthy();
+  expect(screen.getByRole("radio", { name: /全拼 26 键/ }).getAttribute("aria-checked")).toBe(
+    "true",
+  );
+  expect(screen.getByRole("radio", { name: /全拼 9 键/ })).toBeTruthy();
+  expect(screen.getByRole("radio", { name: /五笔.*默认 86 版/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole("radio", { name: /双拼.*默认小鹤/ }));
+  expect(screen.getByRole("radio", { name: /双拼/ }).getAttribute("aria-checked")).toBe("true");
+
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "候选下方就是译文" });
+  expect(screen.getByText("候选")).toBeTruthy();
+  expect(screen.queryByText("candidate")).toBeNull();
+  fireEvent.click(screen.getByRole("switch", { name: "显示英文释义" }));
+  expect(screen.getByText("candidate")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "登录后多端同步" });
+  expect(screen.getByText("最后一步")).toBeTruthy();
+  for (const perk of ["词库", "皮肤与主题", "云剪贴板"])
+    expect(screen.getByText(perk)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "登录" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "稍后再说" })).toBeTruthy();
+  // 最后一步的顶部同样保留「跳过」，离开时带上途中已选的内容。
+  fireEvent.click(screen.getByRole("button", { name: "跳过" }));
+
+  await waitFor(() =>
+    expect(onSkip).toHaveBeenCalledWith("xiaohe", {
+      candidateEnglishGloss: true,
+      openAccount: false,
+    }),
+  );
+});
+
+test("跳过 before choosing a keyboard asks the host to keep the saved scheme", async () => {
+  const onSkip = vi.fn().mockResolvedValue(undefined);
+  render(
+    <WelcomeFlowPage
+      actions={makeActions({ platform: "harmony" })}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+      onSkip={onSkip}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "跳过" }));
+
+  await waitFor(() =>
+    expect(onSkip).toHaveBeenCalledWith("quanpin", {
+      candidateEnglishGloss: undefined,
+      openAccount: false,
+      keepScheme: true,
+    }),
+  );
+});
+
+test("signed in, the HarmonyOS last step finishes with 开始使用 and offers no 稍后再说", async () => {
+  const onComplete = vi.fn().mockResolvedValue(undefined);
+  render(
+    <WelcomeFlowPage
+      actions={makeActions({ platform: "harmony" })}
+      onComplete={onComplete}
+      signedIn
+    />,
+  );
+
+  for (const heading of ["选一套输入方案", "候选下方就是译文", "登录后多端同步"]) {
+    fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await screen.findByRole("heading", { name: heading });
+  }
+  expect(screen.queryByRole("button", { name: "稍后再说" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "登录" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "开始使用" }));
+
+  await waitFor(() =>
+    expect(onComplete).toHaveBeenCalledWith("quanpin", {
+      candidateEnglishGloss: undefined,
+      openAccount: false,
+    }),
+  );
+});
+
+test("HarmonyOS offers only the keyboards the version and the host have", async () => {
+  render(
+    <WelcomeFlowPage
+      actions={makeActions({ platform: "harmony" })}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+      edition={{
+        id: "pinyin",
+        input_schemes: ["quanpin", "shuangpin", "wubi"],
+        default_scheme: "quanpin",
+        temporary_japanese: true,
+        neural_keyboard: true,
+        offline_glosses: true,
+        handwriting: true,
+        wubi_mixed_pinyin_default: false,
+      }}
+      inputSchemes={["quanpin", "wubi"]}
+      wubiProfile="wubi98"
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "选一套输入方案" });
+  expect(screen.queryByRole("radio", { name: /双拼/ })).toBeNull();
+  expect(screen.getByRole("radio", { name: /五笔.*当前 98 版/ })).toBeTruthy();
+  expect(screen.getByText("全拼、9 键和五笔用的是同一套引擎，词库和自造词通用。")).toBeTruthy();
+});
+
+test("the HarmonyOS phone turns pages with a horizontal swipe and steps back through the history", async () => {
+  const onComplete = vi.fn().mockResolvedValue(undefined);
+  render(
+    <WelcomeFlowPage actions={makeActions({ platform: "harmony" })} onComplete={onComplete} />,
+  );
+  const shell = screen.getByRole("main", { name: "首次设置" });
+  const swipe = (dx: number, dy = 0) => {
+    fireEvent.pointerDown(shell, { clientX: 200, clientY: 300 });
+    fireEvent.pointerUp(shell, { clientX: 200 + dx, clientY: 300 + dy });
+  };
+
+  // 滑动太短，或纵向位移大于横向，都不算翻页。
+  swipe(-40);
+  swipe(-60, 50);
+  expect(screen.getByRole("heading", { name: "把水杉加进键盘" })).toBeTruthy();
+  // 第一步之前没有别的步骤。
+  swipe(80);
+  expect(screen.getByRole("heading", { name: "把水杉加进键盘" })).toBeTruthy();
+
+  swipe(-80);
+  await screen.findByRole("heading", { name: "选一套输入方案" });
+  swipe(-80);
+  await screen.findByRole("heading", { name: "候选下方就是译文" });
+  // 系统返回手势让 WebView 后退一条记录，也就是一步。
+  act(() => window.history.back());
+  await screen.findByRole("heading", { name: "选一套输入方案" });
+  swipe(80);
+  await screen.findByRole("heading", { name: "把水杉加进键盘" });
+
+  for (const heading of ["选一套输入方案", "候选下方就是译文", "登录后多端同步"]) {
+    swipe(-80);
+    await screen.findByRole("heading", { name: heading });
+  }
+  // 最后一步不能再往后滑。
+  swipe(-80);
+  expect(screen.getByRole("heading", { name: "登录后多端同步" })).toBeTruthy();
+  const depth = window.history.length;
+  fireEvent.click(screen.getByRole("button", { name: "稍后再说" }));
+  // 流程在交接前把自己的记录从栈中移除，让之后的页面拿到干净的历史。
+  await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+  expect(window.history.state?.msimeOnboarding).toBeUndefined();
+  expect(window.history.length).toBe(depth);
+});
+
+test("a HarmonyOS phone takes the app theme's season on its root", () => {
+  render(
+    <WelcomeFlowPage
+      actions={makeActions({ platform: "harmony" })}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+      appTheme={{
+        id: "qiushan",
+        season: "autumn",
+        accent: "#B5562B",
+        accent_soft: "#B5562B22",
+        on_accent: "#FFFFFF",
+        background: "#F6E9DC",
+        card: "#FFFBF6",
+        hair: "#E8D6C4",
+      }}
+    />,
+  );
+
+  const shell = screen.getByRole("main", { name: "首次设置" });
+  expect(shell.getAttribute("data-season")).toBe("autumn");
+  expect(shell.style.getPropertyValue("--accent-color")).toBe("#B5562B");
+  expect(shell.style.getPropertyValue("--p-group-bg")).toBe("#FFFBF6");
 });
 
 test("adapts the setup step for iOS keyboard settings", () => {
@@ -156,7 +421,9 @@ test("a HarmonyOS 2-in-1 takes the desktop sheet and never opens on the splash",
   );
 
   expect(screen.queryByRole("button", { name: "跳过开屏" })).toBeNull();
-  expect(screen.getByRole("heading", { name: "把水杉加进键盘" })).toBeTruthy();
+  // 桌面端措辞：输入法在系统自己的设置里设定。
+  expect(screen.getByRole("heading", { name: "设为系统输入法" })).toBeTruthy();
+  expect(screen.getByText("在 设置 → 系统 → 输入法 里启用水杉，并设为默认输入法。")).toBeTruthy();
   const shell = screen.getByRole("main", { name: "首次设置" });
   expect(shell.getAttribute("data-platform")).toBe("hm2");
   expect(shell.hasAttribute("data-mobile")).toBe(false);
@@ -164,7 +431,43 @@ test("a HarmonyOS 2-in-1 takes the desktop sheet and never opens on the splash",
   expect(screen.queryByRole("progressbar")).toBeNull();
 });
 
-test("a HarmonyOS phone keeps the splash", () => {
+test("the HarmonyOS 2-in-1 has no 9 键 and keeps 跳过 in its bar on every step", async () => {
+  const onSkip = vi.fn().mockResolvedValue(undefined);
+  const setup = fakeSetup({ enabled: false, current: false });
+  render(
+    <WelcomeFlowPage
+      actions={makeActions({ platform: "harmony", mobileSettings: false })}
+      setup={setup.client}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+      onSkip={onSkip}
+    />,
+  );
+
+  expect(screen.getByText("已在「系统 → 输入法」中启用")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "选一套输入方案" });
+  expect(screen.queryByRole("radio", { name: /9 键/ })).toBeNull();
+  expect(screen.getByText("全拼、双拼和五笔用的是同一套引擎，词库和自造词通用。")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "上一步" }));
+  await screen.findByRole("heading", { name: "设为系统输入法" });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "选一套输入方案" });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "候选下方就是译文" });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "登录后多端同步" });
+  fireEvent.click(screen.getByRole("button", { name: "跳过" }));
+
+  // 直接走过方案这一步，即接受它预选的键盘。
+  await waitFor(() =>
+    expect(onSkip).toHaveBeenCalledWith("quanpin", {
+      candidateEnglishGloss: undefined,
+      openAccount: false,
+    }),
+  );
+});
+
+test("a HarmonyOS phone keeps the splash, which says nothing about tapping", () => {
   render(
     <WelcomeFlowPage
       actions={makeActions({ platform: "harmony", mobileSettings: true })}
@@ -174,6 +477,60 @@ test("a HarmonyOS phone keeps the splash", () => {
   );
 
   expect(screen.getByRole("button", { name: "跳过开屏" })).toBeTruthy();
+  expect(screen.queryByText("轻点跳过")).toBeNull();
+  expect(screen.getByText("METASEQUOIA IME")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "跳过开屏" }));
+  expect(screen.getByRole("heading", { name: "把水杉加进键盘" })).toBeTruthy();
+});
+
+// 设置页挂载后由它为 HarmonyOS 系统栏着色；在那之前由引导流程着色，这样启动画面覆盖状态栏，各步骤上方的系统栏与该步骤页面同色。
+test("a HarmonyOS phone colours the system bars to the splash and then to the steps' page", () => {
+  const setSystemBars = vi.fn();
+  const autumn = {
+    id: "siji",
+    season: "autumn",
+    accent: "#B5562B",
+    accent_soft: "#F3E1D6",
+    on_accent: "#FFFFFF",
+    background: "#F6E9DC",
+    card: "#FFFBF6",
+    hair: "#EADBCB",
+  } as const;
+  render(
+    <WelcomeFlowPage
+      actions={makeActions({ platform: "harmony", mobileSettings: true })}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+      appTheme={autumn}
+      chrome={{ setSystemBars }}
+      splash
+    />,
+  );
+
+  // 启动画面底色是季节强调色以 20% 叠在 `#0A0B0A` 上，内容为浅色。
+  expect(setSystemBars).toHaveBeenLastCalledWith({
+    background: "#2c1a11",
+    navigationBar: "#2c1a11",
+    dark: true,
+  });
+  fireEvent.click(screen.getByRole("button", { name: "跳过开屏" }));
+  expect(setSystemBars).toHaveBeenLastCalledWith({
+    background: autumn.background,
+    navigationBar: autumn.background,
+    dark: false,
+  });
+  cleanup();
+
+  // 2in1 没有需要着色的手机系统栏。
+  const desktopBars = vi.fn();
+  render(
+    <WelcomeFlowPage
+      actions={makeActions({ platform: "harmony", mobileSettings: false })}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+      appTheme={autumn}
+      chrome={{ setSystemBars: desktopBars }}
+    />,
+  );
+  expect(desktopBars).not.toHaveBeenCalled();
 });
 
 async function walkToLastStep() {

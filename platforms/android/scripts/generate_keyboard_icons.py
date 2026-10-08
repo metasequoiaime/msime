@@ -5,7 +5,9 @@ The IME cannot reach `R`, so the keyboard's icons are shipped as Java `Path` con
 
 Every command is converted to absolute `moveTo` / `lineTo` / `cubicTo` / `close`; elliptical arcs become cubic Béziers here, so the Java side needs nothing beyond `android.graphics.Path`.
 
-Usage: `generate_keyboard_icons.py` rewrites the Java file; `generate_keyboard_icons.py --check` exits non-zero when the committed file differs from what this script would write.
+The same tables also generate the iOS keyboard extension's `KeyboardIcon` enum (`KeyboardIconPaths.swift`, UIKit `UIBezierPath`). iOS draws the toolbar as outline strokes rather than Android's filled Material glyphs, so those five live in `IOS_ICONS`, which only the Swift output reads; `SWIFT_CASES` maps each Swift case onto a key of either table.
+
+Usage: `generate_keyboard_icons.py` rewrites the Java file; `generate_keyboard_icons.py --swift` rewrites the Swift file; `generate_keyboard_icons.py --check` exits non-zero when either committed file differs from what this script would write.
 """
 from __future__ import annotations
 
@@ -17,6 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "java/app/msime/android/keyboard/KeyboardIconPaths.java"
+SWIFT_OUTPUT = ROOT.parent / "ios/KeyboardExtension/Sources/keyboard/KeyboardIconPaths.swift"
 
 FILL = "FILL"
 STROKE = "STROKE"
@@ -88,6 +91,63 @@ ICONS: list[tuple[str, str, float, str, str]] = [
      "M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M14 13h6a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2z"),
     ("TEXT_EDIT", STROKE, 1.7, "Lucide-style text-cursor-input (文本编辑)",
      "M5 4h1a3 3 0 0 1 3 3a3 3 0 0 1 3-3h1M13 20h-1a3 3 0 0 1-3-3a3 3 0 0 1-3 3H5M5 16H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h1M13 8h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-7M9 7v10"),
+]
+
+# 仅 iOS 的图标：key -> (样式, 以 viewBox 单位计的描边宽度, 来源, 路径数据)。用 dict 而不是 `ICONS` 那样的行，让解析本脚本中 `ICONS` 行的 Android 冒烟测试永远看不到它们。
+IOS_ICONS: dict[str, tuple[str, float, str, str]] = {
+    # 6.2 iOS 设计稿所画的工具栏（`tbIcons`）：描边线宽 1.7，圆头圆角。
+    "IOS_TOOLBAR_EMOJI": (STROKE, 1.7, "design iOS toolbar 表情 (tbIcons)",
+                          "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8.5 14s1.3 1.8 3.5 1.8 3.5-1.8 3.5-1.8M9 9.5h.01M15 9.5h.01"),
+    "IOS_TOOLBAR_PHRASE": (STROKE, 1.7, "design iOS toolbar 常用语 (tbIcons)",
+                           "M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 1-2zM8.5 9h7M8.5 12.5h4.5"),
+    "IOS_TOOLBAR_CLIPBOARD": (STROKE, 1.7, "design iOS toolbar 剪贴板 (tbIcons)",
+                              "M15 4.5h2a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h2M9.5 3h5a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.5.5h-5a.5.5 0 0 1-.5-.5v-2a.5.5 0 0 1 .5-.5zM9 11.5h6M9 15.5h4"),
+    "IOS_TOOLBAR_SKIN": (STROKE, 1.7, "design iOS toolbar 皮肤 (tbIcons)",
+                         "M12 3a9 9 0 0 0 0 18c1.1 0 1.7-.8 1.7-1.8 0-.5-.2-.9-.5-1.3a1.8 1.8 0 0 1 1.3-3H17a4 4 0 0 0 4-4C21 6.4 17 3 12 3zM7.5 11.5h.01M9.5 7.5h.01M14.5 7.5h.01M17 11h.01"),
+    "IOS_TOOLBAR_SCHEME": (STROKE, 1.7, "design iOS toolbar 输入方式 (tbIcons)",
+                           "M4.5 5.5h15a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2zM6.5 9.5h.01M9.5 9.5h.01M12.5 9.5h.01M15.5 9.5h.01M17.5 12.5h.01M6.5 12.5h.01M8.5 15h7"),
+    # 同一网格里的 Lucide 风格补充图标。
+    "IOS_PLUS": (STROKE, 1.7, "Lucide-style plus (添加语言)", "M12 5v14M5 12h14"),
+    "IOS_SWAP_SIDE_RIGHT": (STROKE, 1.8, "Lucide-style chevron-right (单手换到右侧)", "M9 18l6-6-6-6"),
+}
+
+# Swift `KeyboardIcon` 的 case，按声明顺序：(case 名, `ICONS` 或 `IOS_ICONS` 中的 key)。共用 key 的 case 共用其几何形状。
+SWIFT_CASES: list[tuple[str, str]] = [
+    ("toolbarEmoji", "IOS_TOOLBAR_EMOJI"),
+    ("toolbarPhrase", "IOS_TOOLBAR_PHRASE"),
+    ("toolbarClipboard", "IOS_TOOLBAR_CLIPBOARD"),
+    ("toolbarSkin", "IOS_TOOLBAR_SKIN"),
+    ("toolbarScheme", "IOS_TOOLBAR_SCHEME"),
+    ("collapse", "TOOLBAR_DISMISS"),
+    ("candidateExpand", "CHEVRON"),
+    ("shift", "SHIFT"),
+    ("capsLock", "CAPS_LOCK"),
+    ("backspace", "BACKSPACE"),
+    ("returnKey", "RETURN"),
+    ("mic", "MIC"),
+    ("emoji", "KEY_EMOJI"),
+    ("handwriting", "HANDWRITING"),
+    ("lexicon", "LEXICON"),
+    ("keyboardHeight", "KEYBOARD_HEIGHT"),
+    ("settings", "SETTINGS"),
+    ("keySound", "KEY_SOUND"),
+    ("vibration", "VIBRATION"),
+    ("oneHand", "ONE_HAND"),
+    ("incognito", "INCOGNITO"),
+    ("feedback", "FEEDBACK"),
+    ("about", "ABOUT"),
+    ("check", "CHECK"),
+    ("aiAssist", "AI_ASSIST"),
+    ("localInput", "LOCAL_INPUT"),
+    ("voiceResult", "VOICE_RESULT"),
+    ("vibrationStrength", "VIBRATION_STRENGTH"),
+    ("clipboardHistory", "CLIPBOARD_HISTORY"),
+    # 设计稿没有单独的布局图标；用「输入方式」的键盘轮廓代替。
+    ("keyboardLayout", "IOS_TOOLBAR_SCHEME"),
+    ("plus", "IOS_PLUS"),
+    ("oneHandSwapLeft", "SWAP_SIDE"),
+    ("oneHandSwapRight", "IOS_SWAP_SIDE_RIGHT"),
+    ("oneHandExit", "EXIT_ONE_HAND"),
 ]
 
 TOKEN = re.compile(r"[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
@@ -399,20 +459,166 @@ def method_name(enum_name: str) -> str:
     return "append" + "".join(part.capitalize() for part in enum_name.lower().split("_"))
 
 
+def swift_icon(key: str) -> tuple[str, float, str, str]:
+    """`SWIFT_CASES` 中某个 key 的 (样式, 描边宽度, 来源, 路径数据)，先在 `IOS_ICONS` 里查，再查 `ICONS`。"""
+    if key in IOS_ICONS:
+        return IOS_ICONS[key]
+    for name, style, width, source, data in ICONS:
+        if name == key:
+            return style, width, source, data
+    raise KeyError(f"SWIFT_CASES refers to unknown icon {key}")
+
+
+def swift_number(value: float) -> str:
+    return number(value)[:-1]
+
+
+def swift_point(x: float, y: float) -> str:
+    return f"CGPoint(x: {swift_number(x)}, y: {swift_number(y)})"
+
+
+def swift_body(ops: list[tuple]) -> list[str]:
+    lines = []
+    for op in ops:
+        kind = op[0]
+        if kind == "M":
+            lines.append(f"p.move(to: {swift_point(op[1], op[2])})")
+        elif kind == "L":
+            lines.append(f"p.addLine(to: {swift_point(op[1], op[2])})")
+        elif kind == "C":
+            lines.append(f"p.addCurve(to: {swift_point(op[5], op[6])}, "
+                         f"controlPoint1: {swift_point(op[1], op[2])}, "
+                         f"controlPoint2: {swift_point(op[3], op[4])})")
+        else:
+            lines.append("p.close()")
+    return lines
+
+
+def swift_case_list(cases: list[str]) -> str:
+    return ", ".join(f".{case}" for case in cases)
+
+
+def render_swift() -> str:
+    case_names = [case for case, _key in SWIFT_CASES]
+    if len(set(case_names)) != len(case_names):
+        raise ValueError("SWIFT_CASES lists a case twice")
+    icons = {case: swift_icon(key) for case, key in SWIFT_CASES}
+    out: list[str] = []
+    out.append("// 由 platforms/android/scripts/generate_keyboard_icons.py --swift 生成，不要手工编辑；改图标请改脚本里的 ICONS / IOS_ICONS / SWIFT_CASES 表再重新运行。")
+    out.append("// 来源：设计令牌 §6.2（iOS 工具栏描边图标）、§6.3（按键描边图标）、§6.4（功能面板描边图标），viewBox 0 0 24 24；设计未给图标的几项是同网格的 Lucide 风格补充。椭圆弧已在脚本里转成三次贝塞尔。")
+    out.append("import UIKit")
+    out.append("")
+    out.append("/// 键盘绘制的全部矢量图标，路径数据取自设计稿的 24 单位网格。")
+    out.append("///")
+    out.append("/// 图标要么填充，要么以 `lineWidth`（viewBox 单位）描边，端点与拐角均为圆形。")
+    out.append("enum KeyboardIcon: String, CaseIterable {")
+    first_case_for_key: dict[str, str] = {}
+    for case, key in SWIFT_CASES:
+        owner = first_case_for_key.setdefault(key, case)
+        shared = "" if owner == case else f"；与 `{owner}` 同一轮廓"
+        out.append(f"  /// {icons[case][2]}{shared}")
+        out.append(f"  case {case}")
+    out.append("")
+    out.append("  /// 图标坐标空间的边长（SVG viewBox 0 0 24 24）。")
+    out.append("  static let viewBox: CGFloat = 24")
+    out.append("")
+    out.append("  /// 描边宽度，单位为 viewBox；填充图标为 0。")
+    out.append("  var lineWidth: CGFloat {")
+    out.append("    switch self {")
+    widths: dict[str, list[str]] = {}
+    for case in case_names:
+        style, width, _source, _data = icons[case]
+        widths.setdefault(swift_number(width if style == STROKE else 0), []).append(case)
+    for width, cases in widths.items():
+        out.append(f"    case {swift_case_list(cases)}: return {width}")
+    out.append("    }")
+    out.append("  }")
+    out.append("")
+    out.append("  /// 填充图形为真，以 `lineWidth` 描边的轮廓为假。")
+    out.append("  var isFilled: Bool {")
+    filled = [case for case in case_names if icons[case][0] == FILL]
+    if filled:
+        out.append("    switch self {")
+        out.append(f"    case {swift_case_list(filled)}: return true")
+        out.append("    default: return false")
+        out.append("    }")
+    else:
+        out.append("    false")
+    out.append("  }")
+    out.append("")
+    out.append("  /// 把图标等比缩放进 `rect` 并居中。每次调用都新建一条路径，调用方可以随意修改。")
+    out.append("  func path(in rect: CGRect) -> UIBezierPath {")
+    out.append("    let p = UIBezierPath()")
+    out.append("    append(to: p)")
+    out.append("    let scale = min(rect.width, rect.height) / Self.viewBox")
+    out.append("    let side = Self.viewBox * scale")
+    out.append("    p.apply(")
+    out.append("      CGAffineTransform(translationX: rect.midX - side / 2, y: rect.midY - side / 2)")
+    out.append("        .scaledBy(x: scale, y: scale))")
+    out.append("    return p")
+    out.append("  }")
+    out.append("")
+    out.append("  /// 把图标画进边长 `pointSize` 的正方形：填充，或以 `lineWidth`（viewBox 单位，为 nil 时用图标自身宽度）圆端圆角描边。")
+    out.append("  ///")
+    out.append("  /// `color` 为 nil 时得到模板图像，跟随显示它的视图的 tint；否则保持 `color`。")
+    out.append("  func image(pointSize: CGFloat, color: UIColor? = nil, lineWidth: CGFloat? = nil) -> UIImage {")
+    out.append("    let bounds = CGRect(x: 0, y: 0, width: pointSize, height: pointSize)")
+    out.append("    let rendered = UIGraphicsImageRenderer(bounds: bounds).image { _ in")
+    out.append("      let p = path(in: bounds)")
+    out.append("      (color ?? .black).set()")
+    out.append("      if isFilled {")
+    out.append("        p.fill()")
+    out.append("      } else {")
+    out.append("        p.lineWidth = (lineWidth ?? self.lineWidth) * pointSize / Self.viewBox")
+    out.append("        p.lineCapStyle = .round")
+    out.append("        p.lineJoinStyle = .round")
+    out.append("        p.stroke()")
+    out.append("      }")
+    out.append("    }")
+    out.append("    return rendered.withRenderingMode(color == nil ? .alwaysTemplate : .alwaysOriginal)")
+    out.append("  }")
+    out.append("")
+    out.append("  /// 把图标在 viewBox 坐标下的轮廓追加到 `p`。")
+    out.append("  private func append(to p: UIBezierPath) {")
+    out.append("    switch self {")
+    for case, key in SWIFT_CASES:
+        out.append(f"    case .{case}: Self.{method_name(key)}(p)")
+    out.append("    }")
+    out.append("  }")
+    emitted: set[str] = set()
+    for _case, key in SWIFT_CASES:
+        if key in emitted:
+            continue
+        emitted.add(key)
+        out.append("")
+        out.append(f"  private static func {method_name(key)}(_ p: UIBezierPath) {{")
+        for line in swift_body(to_operations(swift_icon(key)[3])):
+            out.append(f"    {line}")
+        out.append("  }")
+    out.append("}")
+    return "\n".join(out) + "\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--check", action="store_true",
-                        help="fail when the committed Java file differs from the generated one")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--swift", action="store_true",
+                      help="write the iOS Swift file instead of the Java file")
+    mode.add_argument("--check", action="store_true",
+                      help="fail when the committed Java or Swift file differs from the generated one")
     arguments = parser.parse_args()
-    generated = render()
+    outputs = [(OUTPUT, render, ""), (SWIFT_OUTPUT, render_swift, " --swift")]
     if arguments.check:
-        current = OUTPUT.read_text(encoding="utf-8") if OUTPUT.exists() else ""
-        if current != generated:
-            print(f"{OUTPUT.relative_to(ROOT.parents[1])} is stale; run "
-                  "platforms/android/scripts/generate_keyboard_icons.py", file=sys.stderr)
-            return 1
-        return 0
-    OUTPUT.write_text(generated, encoding="utf-8")
+        stale = 0
+        for path, generate, flag in outputs:
+            current = path.read_text(encoding="utf-8") if path.exists() else ""
+            if current != generate():
+                print(f"{path.relative_to(ROOT.parents[1])} is stale; run "
+                      f"platforms/android/scripts/generate_keyboard_icons.py{flag}", file=sys.stderr)
+                stale = 1
+        return stale
+    path, generate, _flag = outputs[1] if arguments.swift else outputs[0]
+    path.write_text(generate(), encoding="utf-8")
     return 0
 
 
