@@ -1109,6 +1109,7 @@ final class ImePanels {
             s.clipboardTab, s.clipboardHistoryEnabled, cloudAllowed);
         clipboardClearPending = false;
         clipboardActionText = null;
+        endClipboardSegmentation();
         // 补读一次：键盘进程没在运行时复制的内容，监听收不到。
         s.captureClipboard(ClipboardCapturePolicy.Trigger.PANEL_OPENED, false);
         renderClipboardHistory();
@@ -1132,6 +1133,7 @@ final class ImePanels {
         s.clipboardTab = tab;
         clipboardClearPending = false;
         clipboardActionText = null;
+        endClipboardSegmentation();
         renderClipboardHistory();
     }
 
@@ -1236,6 +1238,10 @@ final class ImePanels {
         boolean cloudAllowed = cloudClipboardAllowed();
         if (!cloudAllowed) s.clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
         boolean cloud = s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD;
+        if (!cloud && clipboardSegments != null) {
+            renderClipboardSegmentation();
+            return;
+        }
         java.util.List<TextView> notes = new java.util.ArrayList<>(1);
         // 顶部一行小号操作：本机 / 云端分段（云端可用时）、刷新或清空；返回由工具栏的「返回键盘」负责。
         LinearLayout header = KeyboardGeometry.row(s);
@@ -1324,6 +1330,7 @@ final class ImePanels {
             clipboardActionText = null;
             s.removeClipboardItem(item);
         });
+        clipboardItemAction(row, "分词", () -> startClipboardSegmentation(item.text()));
         // Offered wherever the cloud half is, so the action is discoverable; it only runs once this panel's fetch said the account is signed in with the cloud clipboard on.
         if (cloudAllowed) {
             Button upload = clipboardItemAction(row, CloudClipboardPanelPolicy.UPLOAD_ACTION, () -> {
@@ -1341,6 +1348,128 @@ final class ImePanels {
         LinearLayout.LayoutParams params = KeyboardGeometry.matchWidthHeightPx(s.pixels(38));
         params.topMargin = s.pixels(4);
         s.clipboardPanel.addView(row, params);
+    }
+
+    /** 正在分词的那一条切出的片段；没有在分词时为 null。 */
+    private java.util.List<ClipboardSegmentation.Segment> clipboardSegments;
+    /** 与 {@link #clipboardSegments} 一一对应的选中状态。 */
+    private boolean[] clipboardSegmentSelected;
+    private boolean clipboardSegmentsTruncated;
+    private TextView clipboardSegmentStatus;
+    private Button clipboardSegmentSelectAll;
+    private Button clipboardSegmentConfirm;
+
+    /** 长按菜单里的「分词」：把这一条切成词片，面板换成点选界面（#5645）。 */
+    private void startClipboardSegmentation(String text) {
+        clipboardActionText = null;
+        clipboardClearPending = false;
+        clipboardSegments = ClipboardSegmentation.segment(text,
+            java.text.BreakIterator.getWordInstance(java.util.Locale.CHINESE));
+        clipboardSegmentSelected = new boolean[clipboardSegments.size()];
+        clipboardSegmentsTruncated = ClipboardSegmentation.truncated(text);
+        renderClipboardHistory();
+        if (s.clipboardScroll != null) s.clipboardScroll.scrollTo(0, 0);
+    }
+
+    private void endClipboardSegmentation() {
+        clipboardSegments = null;
+        clipboardSegmentSelected = null;
+        clipboardSegmentsTruncated = false;
+        clipboardSegmentStatus = null;
+        clipboardSegmentSelectAll = null;
+        clipboardSegmentConfirm = null;
+    }
+
+    /**
+     * 分词界面：顶行是「取消 · 已选几个 · 全选 · 插入」，下面是按行折排的词片，点一下选中、再点取消。插入时按原文顺序拼接选中的词片（{@link ClipboardSegmentation#join}），上屏并关闭面板；原来那条历史不变。
+     */
+    private void renderClipboardSegmentation() {
+        LinearLayout header = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(header);
+        clipboardAction(header, "取消", () -> {
+            endClipboardSegmentation();
+            renderClipboardHistory();
+        }).setContentDescription("取消分词，回到剪贴板历史");
+        clipboardSegmentStatus = ViewPolicy.textLabel(s, "", 13);
+        KeyboardGeometry.setKeyTextSize(clipboardSegmentStatus, 13);
+        ViewPolicy.setMaxLinesEllipsized(clipboardSegmentStatus, 1);
+        KeyboardGeometry.setHorizontalPaddingDp(clipboardSegmentStatus, s, 6);
+        header.addView(clipboardSegmentStatus, KeyboardGeometry.weightedZeroParams(1));
+        clipboardSegmentSelectAll = clipboardAction(header, "全选", () -> {
+            boolean select = !allSegmentsSelected();
+            for (int index = 0; index < clipboardSegmentSelected.length; index++)
+                clipboardSegmentSelected[index] = select;
+            renderClipboardHistory();
+        });
+        clipboardSegmentConfirm = clipboardAction(header, "插入", () -> {
+            String text = ClipboardSegmentation.join(clipboardSegments, clipboardSegmentSelected);
+            endClipboardSegmentation();
+            s.insertClipboardText(text);
+        });
+        clipboardSegmentConfirm.setContentDescription("插入选中的词");
+        s.clipboardPanel.addView(header, KeyboardGeometry.matchWidthHeightPx(s.pixels(32)));
+        java.util.List<TextView> notes = new java.util.ArrayList<>(1);
+        if (clipboardSegmentsTruncated) {
+            notes.add(clipboardNote("这条记录很长，只对开头 " + ClipboardSegmentation.MAX_CHARS + " 个字分词"));
+        }
+        WrapRowLayout words = new WrapRowLayout(s, s.pixels(6), s.pixels(6));
+        words.setContentDescription("分词结果，点按选择要插入的词");
+        for (int index = 0; index < clipboardSegments.size(); index++) {
+            ClipboardSegmentation.Segment segment = clipboardSegments.get(index);
+            if (segment.separator()) continue;
+            words.addView(clipboardSegmentButton(segment.text(), index));
+        }
+        LinearLayout.LayoutParams params = KeyboardGeometry.matchWidthWrapParams();
+        params.topMargin = s.pixels(6);
+        s.clipboardPanel.addView(words, params);
+        s.imeStyler.applySkin();
+        for (TextView note : notes) ViewPolicy.setTextColor(note, ImeStyler.fade(s.skin.keyForeground(), .6));
+        refreshClipboardSegmentControls();
+    }
+
+    private Button clipboardSegmentButton(String text, int index) {
+        KeyboardPressButton button = ViewPolicy.newPressButton(s);
+        button.setKeyboardRole(KeyboardKeyRole.KEY);
+        ViewPolicy.setAllCapsFalse(button);
+        button.setText(text);
+        ViewPolicy.setTextSizeSp(button, 15);
+        KeyboardGeometry.setSymmetricPaddingDp(button, s, 10, 6);
+        ViewPolicy.clearMinimumSize(button);
+        ViewPolicy.clearStateListAnimator(button);
+        // 不能直接用词片文字做描述：换肤遍历按描述前缀「候选 」「按键 」识别候选和按键。
+        button.setContentDescription("词片 " + text);
+        setSegmentSelected(button, clipboardSegmentSelected[index]);
+        bindFeedbackAction(button, () -> {
+            if (clipboardSegmentSelected == null) return;
+            clipboardSegmentSelected[index] = !clipboardSegmentSelected[index];
+            setSegmentSelected(button, clipboardSegmentSelected[index]);
+            // 只重画这一片和顶行，不重排整个面板，长文字滚到中间时位置不跳。
+            s.imeStyler.styleButton(button, KeyboardKeyRole.KEY, s.skin);
+            refreshClipboardSegmentControls();
+        });
+        return button;
+    }
+
+    private static void setSegmentSelected(Button button, boolean selected) {
+        ViewPolicy.setSelected(button, selected);
+        if (Build.VERSION.SDK_INT >= 30) button.setStateDescription(selected ? "已选中" : "未选中");
+    }
+
+    private boolean allSegmentsSelected() {
+        for (int index = 0; index < clipboardSegments.size(); index++)
+            if (!clipboardSegments.get(index).separator() && !clipboardSegmentSelected[index]) return false;
+        return true;
+    }
+
+    private void refreshClipboardSegmentControls() {
+        if (clipboardSegments == null || clipboardSegmentStatus == null) return;
+        int chosen = 0;
+        for (int index = 0; index < clipboardSegments.size(); index++)
+            if (!clipboardSegments.get(index).separator() && clipboardSegmentSelected[index]) chosen++;
+        clipboardSegmentStatus.setText(chosen == 0 ? "点选要插入的词" : "已选 " + chosen + " 个");
+        boolean all = chosen > 0 && allSegmentsSelected();
+        clipboardSegmentSelectAll.setText(all ? "全不选" : "全选");
+        ViewPolicy.setEnabledWithAlpha(clipboardSegmentConfirm, chosen > 0, .45f);
     }
 
     /** 操作行里的一个按钮：键帽样式，宽度按字数分，长的「发到云剪贴板」不会被挤成省略号。 */
