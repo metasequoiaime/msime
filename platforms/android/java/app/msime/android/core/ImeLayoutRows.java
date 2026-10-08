@@ -848,7 +848,7 @@ final class ImeLayoutRows {
         if (toggleKey == null || s.connection == null || s.view == null) return false;
         if (withinWindow && android.os.SystemClock.uptimeMillis() - toggleAt
                 > JapaneseNineKeyLayout.TOGGLE_WINDOW_MS) return false;
-        String editing = s.view.optString("editing_text", "");
+        String editing = JsonPolicy.strictStringOrEmpty(s.view.opt("editing_text"));
         if (toggleLiteral.isEmpty()) return editing.equals(toggleEditing);
         CharSequence before = s.connection.getTextBeforeCursor(toggleLiteral.length(), 0);
         return editing.isEmpty() && before != null && toggleLiteral.contentEquals(before);
@@ -858,7 +858,7 @@ final class ImeLayoutRows {
         toggleKey = key;
         toggleDirection = direction;
         toggleAt = android.os.SystemClock.uptimeMillis();
-        toggleEditing = s.view == null ? "" : s.view.optString("editing_text", "");
+        toggleEditing = s.view == null ? "" : JsonPolicy.strictStringOrEmpty(s.view.opt("editing_text"));
         toggleLiteral = "";
         if (key.strokes().get(direction).isEmpty() && s.connection != null) {
             CharSequence before = s.connection.getTextBeforeCursor(1, 0);
