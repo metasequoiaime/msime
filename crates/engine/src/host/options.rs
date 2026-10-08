@@ -21,9 +21,27 @@ use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as Vietn
 
 const MAX_TRANSLATION_SIDECAR_BYTES: u64 = 1024 * 1024;
 
+fn has_single_link(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        metadata.nlink() == 1
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        metadata.number_of_links() == 1
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = metadata;
+        true
+    }
+}
+
 pub(crate) fn write_private_file_no_follow(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -36,12 +54,14 @@ pub(crate) fn write_private_file_no_follow(path: &Path, bytes: &[u8]) -> io::Res
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
     let mut file = options.open(path)?;
-    if !file.metadata()?.is_file() {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || !has_single_link(&metadata) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "translation sidecar is not a regular file",
+            "translation sidecar is not a single-link regular file",
         ));
     }
+    file.set_len(0)?;
     file.write_all(bytes)?;
     file.sync_all()
 }

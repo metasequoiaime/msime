@@ -51,6 +51,16 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 - 实现与 LatinIME 的做法相同：浮动时输入法窗口、系统的 `inputArea` 和键盘根视图都铺满屏幕，根视图透明；`onComputeInsets` 把内容区和可见区都设成从窗口底边算起（应用不让出高度），可触摸区域只有面板（`TOUCHABLE_INSETS_REGION`），面板外的触摸落到应用上。停靠时把窗口和 `inputArea` 恢复成第一次浮动前的高度，`setInputView` 与 `updateFullscreenMode` 之后重新套一遍。
 - 浮动时单手模式和横屏分离式键盘不生效（存着的值不变，停靠后自动回来），功能面板的「单手模式」磁贴显示为不可用；外接键盘的候选条模式里不浮动，候选条停在底部，浮动磁贴与按钮显示为不可用。
 
+### 键盘底栏
+
+全面屏手势导航下，键盘最下一行离屏幕底边只有手势条那一截（常见 16–24 dp，隐藏手势条时是 0），按底行容易碰到系统上滑回桌面的手势区。键盘底栏在键区下面垫一条 40 dp 的栏：左边地球图标弹出系统的输入法选择框，右边打开或关上剪贴板面板，中间左右滑动移动光标（先结束组字，每 12 dp 一格，与空格键拖动同一套步长，但不受「空格滑动移动光标」开关影响）。开关是设置「键盘」页「布局」里的「键盘底栏」（本地设置 `platform.android.bottom_bar`，布尔，默认开，只在本机）。规则集中在无 Android 依赖的 `KeyboardBottomBarPolicy`，`KeyboardBottomBarPolicySmoke` 逐条验证：
+
+- 只在导航栏低于 32 dp 时画。三键导航的导航栏有 48 dp，不画。
+- 系统自己画了输入法的收起和切换按钮时不画。Android 13 起原生系统把它们画在输入法窗口底部 24 dp 的手势条两端（`NavigationBarFrame`，挂在输入法窗口的 decor 下），高度与国产系统的手势条相同，所以按 decor 里有没有可见的这一条判断。Android 12 的系统导航栏自己显示这两个按钮，高到 48 dp。
+- 导航栏高度取键盘视图收到的 inset 与输入法窗口 `WindowMetrics` 的较大值：Android 14 及以前输入法窗口停在导航栏上方，视图收到的底部 inset 是 0，只看它会把三键导航误判成手势导航。Android 11 及以前不画底栏。
+- 浮动键盘、外接键盘的候选条模式（键区收起时）和手机横屏不画。
+- 底栏叠在键盘外框底部（`ImeBottomBar`），键盘列的底部内边距 = 底栏下面让出的距离 + 40 dp。让出的距离是导航栏落在窗口里的那截，加上系统手势区高出导航栏的部分，中间的横向拖动因此不会从系统手势区里起手。覆盖面板按这段内边距让出底边，剪贴板、表情等面板开着时底栏仍可点。
+
 `check-host.sh` 在装有固定 NDK 28.2.13676358 的机器上额外用 `aarch64-linux-android28-clang++` 以 `-Wall -Werror` 对 `native/client_jni.cpp` 做目标平台编译：Java 里声明 `native` 的方法在没有 C++ 实现时照样能编过，而这是 Java 声明与共享 FFI 签名唯一必须一致的地方；完整原生构建需要 vcpkg、Rust Android 目标和固定的语音运行时，这一步都不需要。没有固定 NDK 的机器会跳过并明确说明。`verify-native.sh` 的导出清单同时覆盖 online query、云 URL、AI 请求描述符和两个在线候选写回入口。
 
 宿主 Java 以 API 35 的 `android.jar` 编译，而 manifest 声明 minSdk 28，因此比真实 APK 构建宽松；`Files.readString`/`writeString` 属于 API 34，本宿主不使用，`check-host.sh` 对这两个方法有定向检查，其余 API 级别问题仍由 Gradle lint 覆盖。`scripts/verify-local.sh` 另有 `compile: android target` 阶段，在固定 NDK、Rust `aarch64-linux-android` 目标与 vcpkg 依赖前缀齐备时检查 `msime-desktop` 的 Android 分支；宿主的 `cargo check --workspace` 只覆盖宿主目标。

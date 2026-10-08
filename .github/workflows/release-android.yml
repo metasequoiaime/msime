@@ -99,8 +99,14 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.value }}
       release: ${{ steps.version.outputs.release }}
+  # 发布前在模拟器上装同一个提交打出的包跑一遍（API 28 和 35），不过就不发。0.3.0 编译、lint 全绿，装到设备上却准备不了词库。这里用开发密钥另打 x86_64 包，不接触发版密钥。
+  device:
+    needs: source
+    uses: ./.github/workflows/android-device.yml
+    with:
+      ref: ${{ needs.source.outputs.sha }}
   publish:
-    needs: [source, release]
+    needs: [source, release, device]
     # The build takes the dispatched commit, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
     if: inputs.publish
     runs-on: ubuntu-24.04

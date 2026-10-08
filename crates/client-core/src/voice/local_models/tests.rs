@@ -140,6 +140,23 @@ fn staging_cleanup_does_not_follow_a_replaced_root() {
 
 #[cfg(unix)]
 #[test]
+fn leftover_file_cleanup_rejects_a_symlinked_parent() {
+    use std::os::unix::fs::symlink;
+
+    let state = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let linked = state.path().join("linked");
+    let victim = outside.path().join("partial.bin");
+    fs::write(&victim, b"synthetic outside data").unwrap();
+    symlink(outside.path(), &linked).unwrap();
+
+    remove_leftover(&linked.join("partial.bin"));
+
+    assert!(victim.exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn staging_file_creation_rejects_a_symlink() {
     use std::os::unix::fs::symlink;
 

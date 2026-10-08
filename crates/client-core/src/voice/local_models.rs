@@ -607,7 +607,7 @@ fn move_file_noclobber_at(
 ) -> io::Result<bool> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
-        return match rustix::fs::renameat_with(
+        match rustix::fs::renameat_with(
             source_directory,
             name,
             destination_directory,
@@ -617,7 +617,7 @@ fn move_file_noclobber_at(
             Ok(()) => Ok(true),
             Err(rustix::io::Errno::EXIST) => Ok(false),
             Err(error) => Err(error.into()),
-        };
+        }
     }
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
@@ -638,6 +638,21 @@ fn move_file_noclobber_at(
     }
 }
 
+#[cfg(unix)]
+fn remove_leftover(path: &Path) {
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    let Some(name) = path.file_name() else {
+        return;
+    };
+    let Ok(directory) = crate::storage::open_private_directory(parent) else {
+        return;
+    };
+    let _ = crate::storage::remove_private_tree_at(&directory, name);
+}
+
+#[cfg(not(unix))]
 fn remove_leftover(path: &Path) {
     let Ok(metadata) = fs::symlink_metadata(path) else {
         return;
