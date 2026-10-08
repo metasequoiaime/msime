@@ -1501,7 +1501,13 @@ final class ImePanels {
             },
             new SymbolPanelView.Listener() {
                 @Override public void insert(String text, boolean wholePair, boolean remember) {
-                    if (s.connection == null || !s.commitText(text, TypingSource.LOCAL)) return;
+                    if (s.connection == null) return;
+                    // 轻点的正是前面自动补上、还在光标右边的那个后半个时跨过它，不再写一个；长按照字面上屏。
+                    if (wholePair && s.stepOverPairedSymbol(text)) {
+                        if (remember) recordSymbolRecent(text);
+                        return;
+                    }
+                    if (!s.commitText(text, TypingSource.LOCAL)) return;
                     // 符号面板不经过 Engine，成对补全由宿主按同一个共享开关决定，后半个放在光标右边。
                     String closing = wholePair && s.pairedPunctuation
                         ? PairedPunctuationPolicy.symbolClosing(text) : null;

@@ -11,7 +11,7 @@ Status: implemented
 - 键盘标点键（中文标点经 Engine 的那条路）沿用 iOS 宿主的规则，放在无 Android 依赖的 `PairedPunctuationPolicy`：Engine 的上屏以（、【、《、〈、“、‘ 结尾时补对应的后半个；开关打开时把 Engine 交替出来的后引号改回前引号，每次按引号键都开一对新的；补的是书名号时调 `msime_client_balance_paired_punctuation_after_auto_close`（新增 JNI `balancePairedPunctuationAfterAutoCloseRaw`），否则下一次 `<` 会被当成嵌套的〈。
 - 后半个用 `InputConnection.commitText(closing, 0)` 写：第二个参数不大于 0 时按新文字的开头算，光标就停在后半个前面。选区预期按 `SelectionEchoTracker.commit(0)` 记，迟到的回声不会被当成光标移动。
 - 补上的后半个记进 `PairedPunctuationPolicy.Stack`（与 iOS 的 `PairedPunctuationStack` 相同：最多 16 层，按输入框区分）。没有组字时再按 `)`、`]`、`>`、`"`、`'`，光标后正好是记录里最里层那个后半个，就跨过它而不是再写一个；跨过的做法是在一次批量编辑里删掉光标后的那个字再原样上屏。读不出光标后的文字时放弃记录、照常输入，因为删的可能不是那个后半个。删除、用户移动光标（`onUpdateSelection` 里不是自己写入的回声）、换输入框、关掉开关都清空记录。
-- 符号面板不经过 Engine，由宿主按同一个开关决定：轻点 `PairedPunctuationPolicy.symbolClosing` 列出的前半个（中文括号、书名号、〈「『〔〖、全角 ＜｛［、中文引号“‘、ASCII 的 ( [ { <）时整对上屏、光标在中间；长按只上屏这半个，读屏描述里写明「长按只输入这半个」。符号面板补上的后半个同样进记录，之后在键盘上按 `)` 可以跨过。
+- 符号面板不经过 Engine，由宿主按同一个开关决定：轻点 `PairedPunctuationPolicy.symbolClosing` 列出的前半个（中文括号、书名号、〈「『〔〖、全角 ＜｛［、中文引号“‘、ASCII 的 ( [ { <）时整对上屏、光标在中间；长按只上屏这半个，读屏描述里写明「长按只输入这半个」。符号面板补上的后半个同样进记录，之后在键盘上按 `)` 可以跨过。面板里前后半个挨着摆，在面板里轻点和最里层记录完全相同的后半个（`Stack.stepOverSymbol`）也跨过，否则点「补出「|」、打字后再点」会得到「内容」」；轻点的是别的后半个时记录作废、照字面上屏，点的不是后半个时记录不动，长按后半个总是照字面上屏。
 - 英文模式和英文标点下键盘上的 ASCII 括号不补，与其他宿主一致（它们只补 Engine 给出的中文前半个）。
 
 ## Alternatives considered

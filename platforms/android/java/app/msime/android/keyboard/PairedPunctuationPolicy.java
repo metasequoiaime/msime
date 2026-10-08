@@ -107,5 +107,22 @@ public final class PairedPunctuationPolicy {
             entries.remove(entries.size() - 1);
             return top.closing();
         }
+
+        /**
+         * 在符号面板里轻点 `symbol` 时是否跨过最里层那个后半个；是的话把它弹出并返回它，否则返回 null。
+         *
+         * <p>面板里前半个和后半个挨着摆，点了（ 补成（|）之后再到面板里点 ），应当和按 ) 键一样跨过去，不然会多出一个）。只认和最里层那个后半个完全相同的符号；点了别的后半个说明记录已经对不上，作废；点的不是后半个（在一对里面继续输入）不动记录。`following` 的含义同 {@link #stepOver}。
+         */
+        public String stepOverSymbol(String symbol, long editor, CharSequence following) {
+            if (symbol == null || entries.isEmpty() || !SYMBOL_PAIRS.containsValue(symbol)) return null;
+            Entry top = entries.get(entries.size() - 1);
+            if (!top.closing().equals(symbol) || top.editor() != editor || editor == 0
+                    || (following != null && !following.toString().startsWith(symbol))) {
+                clear();
+                return null;
+            }
+            entries.remove(entries.size() - 1);
+            return top.closing();
+        }
     }
 }

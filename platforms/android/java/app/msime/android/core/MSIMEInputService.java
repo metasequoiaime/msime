@@ -2859,6 +2859,22 @@ public final class MSIMEInputService extends InputMethodService {
         return pairedPunctuationStack.stepOver(ascii, currentDocumentIdentifier, following);
     }
 
+    /** 符号面板里轻点后半个 `symbol` 时，跨过光标右边补好的同一个后半个而不是再写一个；跨过了返回 true。规则同键盘的 {@link #pairedClosingAhead}。 */
+    boolean stepOverPairedSymbol(String symbol) {
+        if (!pairedPunctuation || connection == null || pairedPunctuationStack.isEmpty()
+                || symbol == null || hasEngineComposition()) return false;
+        CharSequence following = textAfterCursor(symbol.length());
+        if (following == null) {
+            pairedPunctuationStack.clear();
+            return false;
+        }
+        String closing = pairedPunctuationStack.stepOverSymbol(symbol, currentDocumentIdentifier, following);
+        if (closing == null) return false;
+        clearSmartPunctuationSnapshots();
+        stepOverClosingMark(closing);
+        return true;
+    }
+
     /** 打开成对补全时，把 Engine 这次上屏末尾的后引号改回前引号，见 {@link PairedPunctuationPolicy#reopenQuote}。 */
     private String reopenPairedQuote(String response, int ascii) throws JSONException {
         if (!pairedPunctuation || (ascii != '"' && ascii != '\'')) return response;

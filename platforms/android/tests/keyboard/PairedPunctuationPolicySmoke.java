@@ -6,6 +6,7 @@ public final class PairedPunctuationPolicySmoke {
         quoteReopening();
         symbolPanelPairs();
         stepOver();
+        symbolStepOver();
         System.out.println("PairedPunctuationPolicySmoke: PASS");
     }
 
@@ -77,6 +78,37 @@ public final class PairedPunctuationPolicySmoke {
         int popped = 0;
         while (stack.stepOver(')', 1, "）") != null) popped++;
         check(popped == PairedPunctuationPolicy.Stack.LIMIT, "depth is capped at " + PairedPunctuationPolicy.Stack.LIMIT);
+    }
+
+    private static void symbolStepOver() {
+        PairedPunctuationPolicy.Stack stack = new PairedPunctuationPolicy.Stack();
+        check(stack.stepOverSymbol("」", 1, "」") == null, "nothing to step over");
+        // 面板里点「补成「|」，打字后再点」：跨过去，不再多一个。
+        stack.push("」", 1);
+        check("」".equals(stack.stepOverSymbol("」", 1, "」")) && stack.isEmpty(), "tapping 」 steps over the auto-closed 」");
+        // 键盘补上的后半个，到面板里点同一个后半个也跨过。
+        stack.push("）", 1);
+        check("）".equals(stack.stepOverSymbol("）", 1, "）")), "tapping ） steps over the keyboard's ）");
+
+        // 在一对里面点不是后半个的符号，记录不动。
+        stack.push("》", 1);
+        stack.push("』", 1);
+        check(stack.stepOverSymbol("，", 1, "』》") == null && !stack.isEmpty(), "a non-closing symbol keeps the record");
+        check(stack.stepOverSymbol("「", 1, "』》") == null && !stack.isEmpty(), "an opening symbol keeps the record");
+        check("』".equals(stack.stepOverSymbol("』", 1, "』》")), "inner pair first");
+        check("》".equals(stack.stepOverSymbol("》", 1, "》")), "then the outer pair");
+
+        // 对不上的后半个、ASCII 和全角不同、后半个已不在、换了输入框：放弃记录，照字面上屏。
+        stack.push("）", 1);
+        check(stack.stepOverSymbol(")", 1, "）") == null && stack.isEmpty(), "ASCII ) does not step over （）");
+        stack.push("」", 1);
+        check(stack.stepOverSymbol("』", 1, "」") == null && stack.isEmpty(), "a different closing symbol");
+        stack.push("」", 1);
+        check(stack.stepOverSymbol("」", 1, "x") == null && stack.isEmpty(), "closing half gone");
+        stack.push("」", 1);
+        check(stack.stepOverSymbol("」", 2, "」") == null && stack.isEmpty(), "another editor");
+        stack.push("」", 1);
+        check(stack.stepOverSymbol(null, 1, "」") == null && !stack.isEmpty(), "no symbol");
     }
 
     private static void check(boolean condition, String message) {
