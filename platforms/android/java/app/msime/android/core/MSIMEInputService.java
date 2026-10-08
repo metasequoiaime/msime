@@ -370,6 +370,10 @@ public final class MSIMEInputService extends InputMethodService {
     /** Mirrors the runtime's Chinese/English punctuation state; the card and the chord move it. */
     boolean chinesePunctuation = true;
     private boolean chinesePunctuationPreference = true;
+    /** 共享偏好 `paired_punctuation`（设置里的「自动补全成对标点」）：输入前括号、前引号时补上后半个，光标停在中间。 */
+    boolean pairedPunctuation = true;
+    /** 补上的后半个还在光标右边的那些对，见 {@link PairedPunctuationPolicy.Stack}。 */
+    private final PairedPunctuationPolicy.Stack pairedPunctuationStack = new PairedPunctuationPolicy.Stack();
     boolean traditionalChineseOutput;
     int editorInputType;
     private long currentDocumentIdentifier;
@@ -508,7 +512,8 @@ public final class MSIMEInputService extends InputMethodService {
     private final ExecutorService typingStatisticsWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(32),
         new ThreadPoolExecutor.AbortPolicy());
-    private final ExecutorService emojiWorker = Executors.newSingleThreadExecutor();
+    /** 表情目录和符号面板里的颜文字、符号目录都在这条线程上读。 */
+    final ExecutorService emojiWorker = Executors.newSingleThreadExecutor();
     // 只在 `emojiWorker` 线程上使用；`hasGlyph` 会走系统字体回退链，能判断当前设备能否画出某个表情。
     private final Paint emojiGlyphPaint = new Paint();
     final ExecutorService cloudClipboardWorker = Executors.newSingleThreadExecutor();
@@ -587,6 +592,7 @@ public final class MSIMEInputService extends InputMethodService {
         chinesePunctuationPreference = preferences == null
             || preferences.optBoolean("chinese_punctuation", true);
         if (session == 0) chinesePunctuation = chinesePunctuationPreference;
+        applyPairedPunctuation(preferences == null || preferences.optBoolean("paired_punctuation", true));
         wordCharacterBinding = wordCharacterBindingFrom(preferences);
         candidatePreeditStyle = CandidatePreeditStylePolicy.style(preferences == null ? null
             : preferences.optString("candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
@@ -955,6 +961,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 删光标前 `length` 个 UTF-16 单元，并记下删完后的选区预期，免得这次删除迟到的回报把紧接着开始的新组字取消掉。有选区或组字区时删的位置由编辑器决定，追踪器会自己作废预期。 */
     private boolean deleteBeforeCursor(int length) {
+        pairedPunctuationStack.clear();
         boolean deleted = connection.deleteSurroundingText(length, 0);
         if (deleted) {
             selectionEcho.deleteBefore(length);
@@ -967,6 +974,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 按码位删光标前一个字符，同样记下预期；删掉的是一个还是两个 UTF-16 单元由追踪器按回声确定。 */
     void deleteCodePointBeforeCursor() {
+        pairedPunctuationStack.clear();
         if (connection.deleteSurroundingTextInCodePoints(1, 0)) {
             selectionEcho.deleteCodePointBefore();
             selectionEcho.expect();
@@ -982,6 +990,56 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean commitText(String text) { return commitText(text, typingSource()); }
+
+    private void applyPairedPunctuation(boolean enabled) {
+        pairedPunctuation = enabled;
+        if (!enabled) pairedPunctuationStack.clear();
+    }
+
+    /**
+     * 补上一对的后半个：写在光标右边，光标留在两半之间。`commitText` 的第二个参数不大于 0 时按新文字的开头算，0 就是停在它前面；写成「整对一起上屏再左移一格」做不到，因为大于 0 的值从末尾减一算起，左移一个字符要的正是 0。
+     */
+    boolean commitClosingMark(String closing, TypingSource source) {
+        if (connection == null || closing == null || closing.isEmpty()) return false;
+        boolean committed;
+        try { committed = connection.commitText(closing, 0); }
+        catch (RuntimeException error) {
+            selectionEcho.invalidate();
+            return false;
+        }
+        if (!committed) {
+            selectionEcho.invalidate();
+            return false;
+        }
+        selectionEcho.commit(0);
+        selectionEcho.expect();
+        recordTypingStatistics(closing, source);
+        pairedPunctuationStack.push(closing, currentDocumentIdentifier);
+        return true;
+    }
+
+    /** 光标右边紧跟着的 `length` 个 UTF-16 单元；读不出来时为 null。 */
+    private CharSequence textAfterCursor(int length) {
+        if (connection == null) return null;
+        try { return connection.getTextAfterCursor(length, 0); }
+        catch (RuntimeException ignored) { return null; }
+    }
+
+    /** 跨过光标右边已经补好的后半个：在一次批量编辑里删掉它再原样上屏，文字不变，光标到了它后面。不算一次输入，不记打字统计。 */
+    private void stepOverClosingMark(String closing) {
+        connection.beginBatchEdit();
+        try {
+            boolean moved = connection.deleteSurroundingText(0, closing.length())
+                && connection.commitText(closing, 1);
+            if (moved) selectionEcho.commit(closing.length());
+            else selectionEcho.invalidate();
+        } catch (RuntimeException error) {
+            selectionEcho.invalidate();
+        } finally {
+            connection.endBatchEdit();
+        }
+        selectionEcho.expect();
+    }
 
     private void cancelInputViewRefresh() {
         if (inputViewRefreshTask != null) main.removeCallbacks(inputViewRefreshTask);
@@ -1013,6 +1071,7 @@ public final class MSIMEInputService extends InputMethodService {
         ensureCandidateTranslationStore();
         editorContextRevision++;
         clearSmartPunctuationSnapshots();
+        pairedPunctuationStack.clear();
         bridge = new EditorBridge();
         if (inputModeStore == null) {
             inputModeStore = InputModeStore.from(
@@ -1528,7 +1587,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** 会话是否不学习：输入框不许个性化学习，或者隐私模式开着。 */
-    private boolean learningSuppressed() {
+    boolean learningSuppressed() {
         return !allowLearning || incognitoEnabled;
     }
 
@@ -1810,6 +1869,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextFullWidthPreference = CharacterWidthPolicy.preferenceIsFullWidth(
             preferences.optString(CharacterWidthPolicy.PREFERENCE_KEY, "halfwidth"));
         boolean nextChinesePunctuation = preferences.optBoolean("chinese_punctuation", true);
+        boolean nextPairedPunctuation = preferences.optBoolean("paired_punctuation", true);
         String nextWordCharacterBinding = wordCharacterBindingFrom(preferences);
         String nextCandidatePreeditStyle = CandidatePreeditStylePolicy.style(
             preferences.optString("candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
@@ -1884,6 +1944,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean punctuationChanged =
             CharacterWidthPolicy.overridesToggle(chinesePunctuationPreference, nextChinesePunctuation);
         chinesePunctuationPreference = nextChinesePunctuation;
+        applyPairedPunctuation(nextPairedPunctuation);
         wordCharacterBinding = nextWordCharacterBinding;
         candidatePreeditStyle = nextCandidatePreeditStyle;
         candidateNavigation = nextCandidateNavigation;
@@ -2761,12 +2822,85 @@ public final class MSIMEInputService extends InputMethodService {
                 smartRepeatSnapshot = null;
                 return commitText(replacement);
             }
-            String response = NativeClient.punctuationWithContext(session, ascii, preceding);
+            // 键盘自己补上的后半个已经在光标右边，再按它的键就跨过去而不是再写一个。只在没有组字时：组字中按下的键是拿这个标点结束组字。
+            if (pairedPunctuation && connection != null && !hasEngineComposition()) {
+                String closing = pairedClosingAhead(ascii);
+                if (closing != null) {
+                    clearSmartPunctuationSnapshots();
+                    stepOverClosingMark(closing);
+                    return true;
+                }
+            }
+            String response = reopenPairedQuote(
+                NativeClient.punctuationWithContext(session, ascii, preceding), ascii);
             boolean handled = apply(response);
-            armSmartPunctuation(ascii, response, false);
+            PairedPunctuationPolicy.Completion completion = pairedCompletion(response);
+            if (completion != null && commitClosingMark(completion.closing(), typingSource())) {
+                // 补的是书名号时告诉 Engine 这一层已经闭合，否则下一次 < 会被当成嵌套的〈。
+                if (completion.opening() == '<') balanceBookTitleAfterAutoClose();
+            } else {
+                completion = null;
+            }
+            armSmartPunctuation(ascii, response, completion != null);
             return handled;
         }
         catch (JSONException | LinkageError error) { fail(); return true; }
+    }
+
+    /** 按下 `ascii` 是否该跨过光标右边那个补好的后半个；是的话返回它，并从记录里弹出。 */
+    private String pairedClosingAhead(int ascii) {
+        if (pairedPunctuationStack.isEmpty()) return null;
+        // 跨过是删掉光标后的字再写回去，读不出光标后的文字时不能确定删的就是那个后半个，宁可放弃这份记录照常输入。
+        CharSequence following = textAfterCursor(1);
+        if (following == null) {
+            pairedPunctuationStack.clear();
+            return null;
+        }
+        return pairedPunctuationStack.stepOver(ascii, currentDocumentIdentifier, following);
+    }
+
+    /** 符号面板里轻点后半个 `symbol` 时，跨过光标右边补好的同一个后半个而不是再写一个；跨过了返回 true。规则同键盘的 {@link #pairedClosingAhead}。 */
+    boolean stepOverPairedSymbol(String symbol) {
+        if (!pairedPunctuation || connection == null || pairedPunctuationStack.isEmpty()
+                || symbol == null || hasEngineComposition()) return false;
+        CharSequence following = textAfterCursor(symbol.length());
+        if (following == null) {
+            pairedPunctuationStack.clear();
+            return false;
+        }
+        String closing = pairedPunctuationStack.stepOverSymbol(symbol, currentDocumentIdentifier, following);
+        if (closing == null) return false;
+        clearSmartPunctuationSnapshots();
+        stepOverClosingMark(closing);
+        return true;
+    }
+
+    /** 打开成对补全时，把 Engine 这次上屏末尾的后引号改回前引号，见 {@link PairedPunctuationPolicy#reopenQuote}。 */
+    private String reopenPairedQuote(String response, int ascii) throws JSONException {
+        if (!pairedPunctuation || (ascii != '"' && ascii != '\'')) return response;
+        JSONObject envelope = new JSONObject(response);
+        JSONObject result = envelope.optJSONObject("value");
+        if (result == null || result.isNull("commit")) return response;
+        String commit = result.optString("commit", "");
+        String reopened = PairedPunctuationPolicy.reopenQuote(commit, ascii, true);
+        if (reopened.equals(commit)) return response;
+        result.put("commit", reopened);
+        return envelope.toString();
+    }
+
+    private PairedPunctuationPolicy.Completion pairedCompletion(String response) throws JSONException {
+        if (!pairedPunctuation || connection == null) return null;
+        JSONObject result = value(response);
+        return result.isNull("commit") ? null
+            : PairedPunctuationPolicy.completion(result.optString("commit", ""), true);
+    }
+
+    private void balanceBookTitleAfterAutoClose() {
+        try {
+            value(NativeClient.balancePairedPunctuationAfterAutoClose(session, '<'));
+        } catch (JSONException | RuntimeException | LinkageError ignored) {
+            // 平衡失败只影响下一次 < 是《还是〈，不影响已经上屏的文字。
+        }
     }
 
     private void clearSmartPunctuationSnapshots() {
@@ -3448,6 +3582,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         // 迟到的回报可能只是输入法自己上一次写入的回声（例如上屏之后用户已经按下了下一个键），那不是光标移动，不能把新开始的组字取消掉；对不上任何预期的才按原来的规则处理。
         boolean ownEcho = selectionEcho.acknowledge(newStart, newEnd, composingStart, composingEnd);
+        // 用户自己移了光标（或应用改了文字），之前补上的后半个不再是「下一个要跨过的」。
+        if (!ownEcho && selectionChanged) pairedPunctuationStack.clear();
         if (!ownEcho && session != 0 && view != null && !view.optString("editing_text").isEmpty()
                 && (newStart != composingEnd || newEnd != composingEnd)) {
             // Don't apply an empty composition over the editor's newly moved selection.
@@ -4477,8 +4613,15 @@ public final class MSIMEInputService extends InputMethodService {
             Toast.makeText(this, "请先在共享设置中启用语音输入", Toast.LENGTH_SHORT).show();
             return;
         }
+        // 语音结果面板盖在键区上面；从面板里的「开始语音识别」进来时先收起它，键区里的聆听面板才看得见。只在面板开着时收：正在聆听时再按语音键是结束录音，这时清掉记下的输入位置会让结果无法直接上屏。
+        if (shown(voiceResultScroll)) closeVoiceResult();
         // 键盘内识别（扩展点）接手时不再打开识别窗口。
         if (imeVoiceEntry.startInKeyboard(keyRows)) return;
+        launchVoiceActivity();
+    }
+
+    /** 打开语音识别窗口：上传式服务商、需要申请麦克风权限，或者系统识别服务在键盘里没能开始聆听时用它。 */
+    void launchVoiceActivity() {
         String requestId = "ime-" + Long.toUnsignedString(SystemClock.uptimeMillis());
         // The configuration the settings app resolves, read through the same shared entry. This
         // keyboard's voice button used to launch the platform recogniser unconditionally, so a

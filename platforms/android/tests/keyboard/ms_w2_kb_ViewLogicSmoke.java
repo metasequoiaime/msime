@@ -85,6 +85,8 @@ public final class ms_w2_kb_ViewLogicSmoke {
         check(VoiceListeningView.ORB_DP == 72f, "listening orb is 72dp");
         check(VoiceListeningView.pulseSpread(0.5f, 18f) == 9f && VoiceListeningView.pulseSpread(2f, 18f) == 18f, "pulse spread");
         check(VoiceListeningView.pulseAlpha(0f) == 90 && VoiceListeningView.pulseAlpha(1f) == 0, "pulse fades out");
+        check(VoiceListeningView.levelSpread(0f, 12f) == 0f && VoiceListeningView.levelSpread(0.5f, 12f) == 6f
+            && VoiceListeningView.levelSpread(3f, 12f) == 12f, "volume ring follows the level and stays bounded");
         check(SpaceKeyFace.LABEL_SP == 13f, "space label is 13sp");
         check(SpaceKeyFace.contentWidth(22f, 4f, 30f) == 56f && SpaceKeyFace.contentWidth(22f, 4f, 0f) == 22f, "space face width");
         check(CandidateChevronButton.WIDTH_DP == 41f && CandidateChevronButton.DIVIDER_HEIGHT_DP == 22f, "chevron is a 1x22 divider plus 40dp button");

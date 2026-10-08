@@ -59,17 +59,7 @@ fn read_lease(path: &Path) -> Option<String> {
 #[cfg(unix)]
 fn open_lease_directory(path: &Path) -> std::io::Result<std::fs::File> {
     reject_symlinked_path_ancestors(path)?;
-    let fd = rustix::fs::open(
-        path,
-        rustix::fs::OFlags::RDONLY
-            | rustix::fs::OFlags::DIRECTORY
-            | rustix::fs::OFlags::NOFOLLOW
-            | rustix::fs::OFlags::CLOEXEC,
-        rustix::fs::Mode::empty(),
-    )?;
-    // `rustix::fs::open` returns an owned descriptor; transfer that ownership
-    // to `File` so all later *at operations stay on this inode.
-    Ok(std::fs::File::from(fd))
+    crate::storage::open_private_directory(path)
 }
 
 #[cfg(unix)]

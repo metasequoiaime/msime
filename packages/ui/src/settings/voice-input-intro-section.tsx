@@ -58,8 +58,8 @@ export function VoiceInputIntroSection({
       <GroupList title={showVoiceProviderSettings ? "Android 语音输入" : "Android 系统语音"}>
         <SettingsGroupNote>
           {showVoiceProviderSettings
-            ? "键盘工具栏的“语音”入口按这里配置的服务商录音并转写；没有配置可用的服务商时回退到设备自带的系统语音识别，不需要任何 API Key。识别结果会回到键盘，确认后才插入当前输入框。"
-            : "从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。"}
+            ? "键盘的语音入口按这里配置的服务商录音并转写；没有配置可用的服务商时回退到设备自带的系统语音识别，不需要任何 API Key。本地模型、豆包和系统语音识别在键盘里聆听，识别结果直接插入当前输入框；上传式服务商的结果会回到键盘，确认后才插入。"
+            : "从键盘的语音入口调用设备上的系统语音识别服务，在键盘里聆听，识别结果直接插入当前输入框。"}
         </SettingsGroupNote>
       </GroupList>
     );

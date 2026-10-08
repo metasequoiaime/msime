@@ -284,6 +284,8 @@ public final class VoiceRecognitionActivity extends Activity {
             return;
         }
         if (recognizer != null) return;
+        showRecordingControls();
+        recordingHint.setText("说完后稍停即可自动识别；点「完成」立即结束，「取消」会丢弃这次录音。");
         recognizer = SpeechRecognizer.createSpeechRecognizer(this);
         recognizer.setRecognitionListener(new RecognitionListener() {
             @Override public void onReadyForSpeech(Bundle params) { }
@@ -293,7 +295,8 @@ public final class VoiceRecognitionActivity extends Activity {
             @Override public void onEndOfSpeech() { }
             @Override public void onError(int error) {
                 if (!finished) {
-                    if (!stopping) fail("语音识别未返回结果");
+                    // 带上错误码：同一句「未返回结果」分不出网络、权限、没听到声音还是服务不可用（#5553）。
+                    if (!stopping) fail(PlatformSpeechPolicy.message(error));
                     finishRequest();
                 }
             }
@@ -307,13 +310,15 @@ public final class VoiceRecognitionActivity extends Activity {
                     deliver(values.get(0));
                     return;
                 }
+                // 服务报了成功却没有文字：和键盘里一样说清楚，不再悄无声息地关掉窗口（#5553）。
+                if (!stopping) fail(PlatformSpeechPolicy.emptyResult());
                 finishRequest();
             }
             @Override public void onPartialResults(Bundle partialResults) { }
             @Override public void onEvent(int eventType, Bundle params) { }
         });
-        recognizer.startListening(recognitionIntent(
-            getIntent().getStringExtra(EXTRA_LANGUAGE)));
+        recognizer.startListening(recognitionIntent(getPackageName(),
+            getIntent().getStringExtra(EXTRA_LANGUAGE), false));
     }
 
     /**
@@ -366,11 +371,7 @@ public final class VoiceRecognitionActivity extends Activity {
     /**
      * A window that says it is recording, and a way to end the recording and keep the result.
      *
-     * <p>This activity draws nothing at all: it is a dialog theme that never sets a content view,
-     * so all three paths put a blank box on screen. The platform recogniser gets away with it
-     * because it stops itself when the speaker stops; a provider or the streaming socket records
-     * until a sixty-second cap. Without this the only way out was Back, which cancels and throws
-     * the transcript away — there was no way to say "I am done, transcribe it".
+     * <p>这个 Activity 是对话框主题，自己从不设置内容视图，没有这里的话每条路径都只在屏幕上放一个空白框。服务商上传和豆包流式会一直录到六十秒上限，没有这两个按钮时唯一的出路是返回键，而返回会取消并丢掉转写结果，没法表达「我说完了，开始转写」。系统识别服务在说话人停顿时会自己结束，但什么都不画的话，麦克风开着时屏幕上只有对话框的灰色蒙层，看不出有任何东西在听（#5553），所以它也用同一个窗口。
      *
      * <p>Built in code rather than as a layout, which is how this host builds its keyboard: the
      * two buttons are the whole surface, and a resource file for them would be one more place for
@@ -543,7 +544,7 @@ public final class VoiceRecognitionActivity extends Activity {
     }
 
     private void fail(String message) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
     }
 
     /** Polish on a worker, then save and finish on the thread that owns this window. */
@@ -593,13 +594,18 @@ public final class VoiceRecognitionActivity extends Activity {
         }
     }
 
-    private static Intent recognitionIntent(String language) {
+    /**
+     * 交给系统识别服务的请求，识别窗口和键盘里的聆听共用。带上调用方包名：有的识别服务按它区分调用方，缺了会直接拒绝。`partialResults` 只在键盘里打开，聆听面板边听边显示识别出的文字。
+     */
+    static Intent recognitionIntent(String callingPackage, String language, boolean partialResults) {
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
             RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, safeLanguage(language));
         intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
         intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "水杉语音输入");
+        if (callingPackage != null) intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, callingPackage);
+        if (partialResults) intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
         return intent;
     }
 

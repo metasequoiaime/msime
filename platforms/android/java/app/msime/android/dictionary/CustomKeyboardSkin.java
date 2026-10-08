@@ -55,9 +55,9 @@ public final class CustomKeyboardSkin {
         value.shadow = KeyboardGeometry.bounded(doubleValue(object.opt("shadow"), 0), 0, .4, 0);
         value.pattern = patternValue(object.opt("pattern"));
         value.monospaced = booleanValue(object.opt("monospaced"), false);
-        value.keyShape = oneOf(object.optString("keyShape", "rounded"),
+        value.keyShape = oneOf(JsonPolicy.strictStringOrEmpty(object.opt("keyShape")),
             "rounded", "capsule", "ticket", "pebble");
-        value.keyMaterial = oneOf(object.optString("keyMaterial", "flat"),
+        value.keyMaterial = oneOf(JsonPolicy.strictStringOrEmpty(object.opt("keyMaterial")),
             "flat", "raised", "glass", "paper");
         value.keyOpacity = KeyboardGeometry.bounded(doubleValue(object.opt("keyOpacity"), 1), .25, 1, 1);
         if (object.has("gradientEnd") && !object.isNull("gradientEnd"))
@@ -68,7 +68,7 @@ public final class CustomKeyboardSkin {
             value.customBorderColor = color(object, "customBorderColor", value.accent);
         value.photoShade = KeyboardGeometry.bounded(doubleValue(object.opt("photoShade"), .25), 0, .8, .25);
         value.photoPosition = KeyboardGeometry.bounded(doubleValue(object.opt("photoPosition"), .5), 0, 1, .5);
-        value.photo = photo(object.optString("photo", ""));
+        value.photo = photo(JsonPolicy.strictStringOrEmpty(object.opt("photo")));
         value.soundPack = soundPackValue(object.opt("soundPack"));
         value.pressAnimation = pressAnimationValue(object.opt("pressAnimation"));
         return value;
