@@ -682,7 +682,7 @@ public final class MSIMEInputService extends InputMethodService {
         KeyboardScheme engineScheme = KeyboardScheme.fromPreferences(
             preferences == null ? edition.defaultScheme()
                 : preferences.optString("scheme", edition.defaultScheme()),
-            preferences == null ? "xiaohe" : preferences.optString("shuangpin_profile", "xiaohe"),
+            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"),
             preferences == null ? "twenty_six_key"
                 : InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
         SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
@@ -767,7 +767,7 @@ public final class MSIMEInputService extends InputMethodService {
             engineScheme, configuration.selected(),
             preferences.optString("last_chinese_scheme",
                 preferences.optString("scheme", edition.defaultScheme())),
-            preferences.optString("shuangpin_profile", "xiaohe"), edition);
+            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"), edition);
         preferences.put("scheme", mapping.scheme());
         preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
         preferences.put("shuangpin_profile", mapping.shuangpinProfile());
@@ -2089,7 +2089,7 @@ public final class MSIMEInputService extends InputMethodService {
             preferences.optString("ime_mode_scope", "app")) ? "global" : "app";
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", edition.defaultScheme()),
-            preferences.optString("shuangpin_profile", "xiaohe"),
+            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"),
             InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
         SchemeConfiguration nextSchemeConfiguration = schemeConfiguration(preferences, nextScheme);
         JSONObject sessionSnapshot = new JSONObject(accepted.toString());
@@ -3458,7 +3458,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void updateShuangpinKeyHints() {
         int scheme = view == null ? -1 : InputViewValuePolicy.scheme(view, -1);
-        String profile = view == null ? "" : view.optString("shuangpin_profile", "");
+        String profile = InputViewValuePolicy.textOr(view, "shuangpin_profile", "");
         String localMode = view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none");
         boolean chineseMode = !dedicatedEnglish && !letterCaseSchemeActive();
         boolean local = view != null && !"none".equals(localMode);
@@ -5343,7 +5343,7 @@ public final class MSIMEInputService extends InputMethodService {
             String currentScheme = preferences.optString("scheme", edition.defaultScheme());
             String lastChinese = preferences.optString("last_chinese_scheme", currentScheme);
             KeyboardScheme.PreferenceMapping mapping = scheme.mapping(lastChinese,
-                preferences.optString("shuangpin_profile", "xiaohe"), edition);
+                InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"), edition);
             preferences.put("scheme", mapping.scheme());
             preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
             preferences.put("shuangpin_profile", mapping.shuangpinProfile());

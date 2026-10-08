@@ -233,7 +233,7 @@ public final class KeyboardFragment extends HomeTabFragment {
             AppEdition edition = AppEdition.current();
             KeyboardScheme selected = KeyboardScheme.fromPreferences(
                 preferences.optString("scheme", edition.defaultScheme()),
-                preferences.optString("shuangpin_profile", "xiaohe"), layout, edition);
+                InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"), layout, edition);
             skin = resolved.title();
             scheme = selected.title(InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
         }

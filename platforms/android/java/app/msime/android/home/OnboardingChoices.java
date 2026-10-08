@@ -88,7 +88,7 @@ final class OnboardingChoices {
     static KeyboardScheme storedScheme(JSONObject preferences, AppEdition edition) {
         return KeyboardScheme.fromPreferences(
             preferences.optString("scheme", edition.defaultScheme()),
-            preferences.optString("shuangpin_profile", "xiaohe"),
+            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"),
             InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
     }
 
