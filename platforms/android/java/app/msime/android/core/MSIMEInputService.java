@@ -1788,7 +1788,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyVoicePreferences(JSONObject preferences) {
         JSONObject voice = preferences == null ? null : preferences.optJSONObject("voice_input");
         voiceInputEnabled = voice == null || voice.optBoolean("enabled", true);
-        voiceLanguage = voice == null ? "zh-CN" : voice.optString("language", "zh-CN");
+        voiceLanguage = InputViewValuePolicy.textOr(voice, "language", "zh-CN");
     }
 
     private void applyAiPreferences(JSONObject preferences) {
@@ -2037,7 +2037,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
         boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
         String nextVoiceLanguage = nextVoice == null ? "zh-CN"
-            : nextVoice.optString("language", "zh-CN");
+            : InputViewValuePolicy.textOr(nextVoice, "language", "zh-CN");
         boolean nextClipboard = preferences.optBoolean("clipboard_history", false);
         boolean nextCloudCandidates = preferences.optBoolean("cloud_candidates", true);
         JSONObject nextAiAssistant = preferences.optJSONObject("ai_assistant");

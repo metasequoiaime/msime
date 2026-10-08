@@ -370,7 +370,7 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     private static String voiceLanguage(JSONObject preferences) {
         JSONObject voice = preferences.optJSONObject("voice_input");
-        String language = TextPolicy.lowercase(voice == null ? "" : voice.optString("language", ""));
+        String language = TextPolicy.lowercase(InputViewValuePolicy.textOr(voice, "language", ""));
         if (language.isEmpty() || language.startsWith("zh") || language.startsWith("cmn")) return "普通话";
         if (language.startsWith("yue")) return "粤语";
         if (language.startsWith("en")) return "英语";

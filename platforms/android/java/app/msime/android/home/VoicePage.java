@@ -10,6 +10,7 @@ import app.msime.android.NativeClient;
 import app.msime.android.ResourcePackService;
 import app.msime.android.ResourcePacks;
 import app.msime.android.VoiceConfiguration;
+import app.msime.android.core.InputViewValuePolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import org.json.JSONObject;
 
@@ -106,7 +107,7 @@ public final class VoicePage extends DetailPage {
         if (voice == null) voice = new JSONObject();
 
         GroupCard recognition = GroupCard.add(target, "识别");
-        String language = voice.optString("language", "");
+        String language = InputViewValuePolicy.textOr(voice, "language", "");
         GroupCard.Row[] languageRow = new GroupCard.Row[1];
         languageRow[0] = recognition.nav("识别语言", null, languageLabel(language),
             () -> pickLanguage(language, languageRow[0]));
