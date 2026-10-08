@@ -289,6 +289,34 @@ public final class DictionaryCollectionsStore {
         }
     }
 
+    /** 一次 {@link #queueUnownedWords} 最多送的词数，与 client-core 的 `MAX_QUEUED_WORDS` 一致。 */
+    public static final int MAX_QUEUED_WORDS = 20_000;
+
+    /**
+     * 把一批不属于任何命名词库的词（`kind` 已是个人词库写法，见 {@link SyncMergePolicy#batches}）排进集合的待发送队列（client-core `queue_words`），返回排进去的词数；不合规的词被跳过、不计数。个人词库队列同时只收 128 个未完成的请求，待发送队列先收下全部的词，再由键盘空闲时的同步和词库页一批批送进去。本地备份恢复个人词库时用；调用方负责标记同步改动。
+     */
+    public static Result<Integer> queueUnownedWords(Context context, List<SyncMergePolicy.Word> words) {
+        if (words.size() > MAX_QUEUED_WORDS) throw new IllegalArgumentException("too many words in one call");
+        String options = hostOptions(context);
+        if (options.isEmpty()) return Result.failed(failureMessage("unavailable"));
+        final String response;
+        try {
+            JSONArray entries = new JSONArray();
+            for (SyncMergePolicy.Word word : words) {
+                entries.put(new JSONObject().put("kind", word.kind()).put("key", word.key())
+                    .put("value", word.value()).put("weight", word.weight()));
+            }
+            response = NativeClient.dictionaryCollections(new JSONObject().put("options", new JSONObject(options))
+                .put("action", action("queue_words").put("entries", entries)).toString());
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            return Result.failed(failureMessage(""));
+        }
+        JSONObject value = value(response);
+        if (value == null) return Result.failed(failureMessage(errorOf(response)));
+        Integer queued = nonNegativeInteger(value.opt("queued"));
+        return Result.of(queued == null ? 0 : queued);
+    }
+
     /** 集合名能否使用，与 client-core 一致：1–32 个字，首尾没有空白，不含控制字符和换行。 */
     public static boolean validName(String name) {
         if (name == null || name.isEmpty() || !name.equals(TextPolicy.stripped(name))) return false;

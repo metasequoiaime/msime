@@ -41,7 +41,7 @@ public final class BackupPage extends DetailPage {
         GroupCard restore = GroupCard.add(column, "恢复");
         restoreRow = restore.button("从备份恢复", "设置按备份改写；皮肤、常用语和词合并进来，本机已有的不会删除",
             "选择文件", this::startRestore);
-        restore.footer("备份里没有账号、AI 与翻译服务的凭据、剪贴板历史和诊断日志；自定义皮肤只有设计参数，不含照片。恢复的词在下次打开键盘时写入词库。");
+        restore.footer("备份里没有账号、AI 与翻译服务的凭据、剪贴板历史和诊断日志，也没有候选排序的学习调整、输入统计和命名词库的分组（词库里的词随个人词库一起恢复）；自定义皮肤只有设计参数，不含照片。恢复的词在键盘空闲时陆续写入词库。");
         refresh();
     }
 

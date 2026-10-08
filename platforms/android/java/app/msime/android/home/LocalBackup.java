@@ -51,7 +51,7 @@ import org.json.JSONObject;
 /**
  * 本地备份与恢复（#5659）：把设置、Android 本地设置、自定义皮肤、常用语和个人词库打成一个 zip，存到用户在系统文件选择器里选的位置；换手机或降级时再从这个文件恢复。全程只在本机，不经过云端，也不需要登录。包的格式见 {@link LocalBackupPolicy}。
  *
- * <p>内容与云同步相同，复用同一套导出和应用：设置文档走 client-core 的 `msime_client_account_settings_export`/`_apply`（凭据与诊断日志永远不在里面），个人词库走 `export_snapshot` 和个人词库导入队列（{@link CloudSync#exportDictionarySnapshot}、{@link CloudSync#queueWords}）。恢复是合并而不是覆盖：设置按备份里的值改写，皮肤按 id 和更新时间合并，常用语只加本机还没有的，词经导入队列在键盘下次打开时写入，本机已有的词不会被删掉。
+ * <p>内容与云同步相同，复用同一套导出和应用：设置文档走 client-core 的 `msime_client_account_settings_export`/`_apply`（凭据与诊断日志永远不在里面），个人词库走 `export_snapshot`（{@link CloudSync#exportDictionarySnapshot}）。恢复是合并而不是覆盖：设置按备份里的值改写，皮肤按 id 和更新时间合并，常用语只加本机还没有的，词经命名词库的待发送队列在键盘空闲时陆续写入，本机已有的词不会被删掉。
  *
  * <p>所有方法都会读写文件、调用原生库，只能在工作线程上调。
  */
@@ -298,7 +298,7 @@ final class LocalBackup {
         }
     }
 
-    /** 逐条加回常用语；本机已经有的跳过。返回新加的条数。 */
+    /** 逐条加回常用语；本机已经有的跳过。返回新加的条数。本机已有的同一段正文若是本机预置、还没被认领的示例（新手机打开过常用语就会放进去），把它认领成用户的常用语：在旧手机上它是用户自己的，不认领的话云同步会一直跳过它。 */
     private static int restorePhrases(Context context, ZipFile zip, List<String> failed) {
         try {
             JSONObject document = jsonEntry(zip, LocalBackupPolicy.PHRASES, LocalBackupPolicy.MAX_PHRASES_BYTES);
@@ -307,6 +307,7 @@ final class LocalBackup {
             String duplicate = CommonPhrasesStore.failureMessage("common_phrases_duplicate");
             int added = 0;
             int unheld = 0;
+            List<String> present = new ArrayList<>();
             for (int index = 0; index < phrases.length(); index++) {
                 if (!(phrases.opt(index) instanceof String text) || !CommonPhrasesStore.validText(text)) {
                     unheld++;
@@ -314,7 +315,16 @@ final class LocalBackup {
                 }
                 CommonPhrasesStore.Result result = CommonPhrasesStore.add(context, text);
                 if (result.ok()) added++;
-                else if (!duplicate.equals(result.failure())) unheld++;
+                else if (duplicate.equals(result.failure())) present.add(text);
+                else unheld++;
+            }
+            if (!present.isEmpty()) {
+                try {
+                    CommonPhrasesStore.adoptStarters(context, present);
+                } catch (IOException error) {
+                    // 正文都已经在本机了，认领失败最坏是这几条暂时不参与同步，和 CommonPhrasesStore.add 的处理相同。
+                    Log.w(TAG, "starter record was not updated", error);
+                }
             }
             if (unheld > 0) failed.add(unheld + " 条常用语");
             return added;
@@ -326,7 +336,7 @@ final class LocalBackup {
     }
 
     /**
-     * 个人词库：解出快照。本机用户词库还是空的（新手机、重装）时把整份快照交给激活队列，原样恢复，与云同步第一次同步而本机没有词时的做法相同；本机已经有词时经个人词库导入队列合并，已有的词不删。导入队列同时只收 128 批、每批 128 个词，键盘处理完之前装不下的词计入跳过。返回 {恢复的词数, 跳过的词数}。
+     * 个人词库：解出快照。本机用户词库还是空的（新手机、重装）时把整份快照交给激活队列，原样恢复，与云同步第一次同步而本机没有词时的做法相同。本机已经有词时（或激活队列用不了时）合并，已有的词不删：词先全部记进命名词库的待发送队列（{@link DictionaryCollectionsStore#queueUnownedWords}），再在键盘空闲时一批批送进个人词库队列。个人词库队列同时只收 128 个未完成的请求，所以不能直接把几千个词塞进去（那样第 129 个以后的词全会被拒）。返回 {恢复的词数, 跳过的词数}。
      */
     private static int[] restoreDictionary(Context context, ZipFile zip, Path file, List<String> failed) {
         try {
@@ -347,10 +357,24 @@ final class LocalBackup {
                     Log.i(TAG, "snapshot activation unavailable, merging instead", unavailable);
                 }
             }
-            int skipped = CloudSync.queueWords(context, words, "local-restore-");
-            int queued = words.size() - skipped;
+            int queued = 0;
+            String failure = null;
+            for (List<SyncMergePolicy.Word> batch : SyncMergePolicy.batches(words, DictionaryCollectionsStore.MAX_QUEUED_WORDS)) {
+                DictionaryCollectionsStore.Result<Integer> result = DictionaryCollectionsStore.queueUnownedWords(context, batch);
+                if (!result.ok()) {
+                    failure = result.failure();
+                    break;
+                }
+                queued += result.value();
+            }
             if (queued > 0) SyncSignals.markDirty(context, SyncSwitch.DICTIONARY);
-            return new int[] {queued, skipped};
+            if (failure != null) {
+                // 已经排进去的词照样写入；没排进去的那部分如实报告，再恢复一次时已排的词不会重复。
+                Log.w(TAG, "dictionary restore stopped: " + failure);
+                failed.add(queued > 0 ? "其余的个人词库" : "个人词库");
+                return new int[] {queued, 0};
+            }
+            return new int[] {queued, words.size() - queued};
         } catch (IOException | JSONException | RuntimeException error) {
             Log.w(TAG, "dictionary restore failed", error);
             failed.add("个人词库");

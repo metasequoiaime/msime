@@ -100,7 +100,7 @@ public final class LocalBackupPolicy {
         return null;
     }
 
-    /** 恢复的结果。`words` 是排进个人词库队列的词数，键盘下次打开时写入；`failed` 是没能恢复的部分的名字，按发生顺序。 */
+    /** 恢复的结果。`words` 是交给键盘写入的词数（整份快照激活，或排进待发送队列后分批写入）；`failed` 是没能恢复的部分的名字，按发生顺序。 */
     public record Restored(boolean settings, int skins, int phrases, int words, int skippedWords,
             java.util.List<String> failed) {}
 
@@ -117,7 +117,7 @@ public final class LocalBackupPolicy {
             if (!parts.isEmpty()) text.append("已恢复").append(String.join("、", parts));
             if (restored.words() > 0) {
                 if (text.length() > 0) text.append("；");
-                text.append(restored.words()).append(" 个词会在下次打开键盘时写入词库");
+                text.append(restored.words()).append(" 个词会在键盘空闲时陆续写入词库");
             }
         }
         if (restored.skippedWords() > 0) text.append("；").append(restored.skippedWords()).append(" 个词无法导入，已跳过");

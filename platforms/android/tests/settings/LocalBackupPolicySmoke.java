@@ -50,11 +50,11 @@ public final class LocalBackupPolicySmoke {
         check(LocalBackupPolicy.fieldTypes(many) == null, "more fields than client-core accepts");
 
         equal(LocalBackupPolicy.summary(new Restored(true, 2, 5, 120, 0, List.of())),
-            "已恢复设置、2 个自定义皮肤、5 条常用语；120 个词会在下次打开键盘时写入词库。", "full restore");
+            "已恢复设置、2 个自定义皮肤、5 条常用语；120 个词会在键盘空闲时陆续写入词库。", "full restore");
         equal(LocalBackupPolicy.summary(new Restored(false, 0, 0, 0, 0, List.of())),
             "备份里没有需要恢复的新内容。", "nothing new");
         equal(LocalBackupPolicy.summary(new Restored(true, 0, 0, 10, 2, List.of("常用语"))),
-            "已恢复设置；10 个词会在下次打开键盘时写入词库；2 个词无法导入，已跳过；常用语没有恢复，请重试。",
+            "已恢复设置；10 个词会在键盘空闲时陆续写入词库；2 个词无法导入，已跳过；常用语没有恢复，请重试。",
             "partial restore names what failed");
         System.out.println("Android local backup policy passed");
     }
