@@ -268,7 +268,7 @@ fn unicode_and_romaji_need_no_resources() {
         json!({"candidates": []})
     );
     assert_eq!(
-        run(json!({"operation": "romaji", "text": "konnichiha"}), empty),
+        run(json!({"operation": "romaji", "text": "konnnichiha"}), empty),
         json!({"text": "こんにちは", "pending": "", "complete": true})
     );
     assert_eq!(

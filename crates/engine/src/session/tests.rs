@@ -803,8 +803,8 @@ fn moving_the_caret_does_not_build_the_preedit_twice() {
         crate::ime::personal_rerank::allocations::count(|| session.command(Command::MoveLeft));
 
     assert!(result.handled);
-    assert!(
-        allocations <= 79,
+    assert_eq!(
+        allocations, 77,
         "caret movement should reuse the editing text length: {allocations} allocations"
     );
 }

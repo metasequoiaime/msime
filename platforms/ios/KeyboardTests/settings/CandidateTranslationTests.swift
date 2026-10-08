@@ -348,8 +348,9 @@ final class CandidateTranslationTests: XCTestCase {
     let bare = try XCTUnwrap(keyboardHeight())
     CandidateGlossPreference.enabled = true
     let glossed = try XCTUnwrap(keyboardHeight())
-    XCTAssertEqual(glossed - bare, KeyboardViewController.glossLineHeight, accuracy: 0.5,
-                   "the gloss row was taken off the keys instead of added to the keyboard")
+    XCTAssertEqual(glossed - bare,
+                   KeyboardViewController.topRowHeight(glossLines: 1) - KeyboardViewController.topRowHeight(glossLines: 0),
+                   accuracy: 0.5, "the gloss row was taken off the keys instead of added to the keyboard")
   }
 
   /// The gloss sits on its own line under the candidate rather than beside it, and a candidate

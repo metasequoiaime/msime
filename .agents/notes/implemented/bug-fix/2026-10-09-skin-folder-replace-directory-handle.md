@@ -4,11 +4,11 @@ Status: implemented
 
 ## Problem
 
-文件夹导入和社区候选皮肤安装共用目录替换入口。入口在路径上检查目标、改名备份、发布 staging 和回滚；根目录在调用间隙被替换时，路径操作可能跟随符号链接访问外部目录。
+文件夹导入、社区候选皮肤安装、皮肤同步和插件导入共用目录替换入口。入口在路径上检查目标、改名备份、发布 staging 和回滚；根目录在调用间隙被替换时，路径操作可能跟随符号链接访问外部目录。
 
 ## Decision
 
-Unix 实现要求 staging、目标和备份位于同一父目录，并先以不跟随符号链接方式打开父目录句柄；目标改名、staging 发布、失败回滚和备份清理全部使用该句柄。根目录被替换为符号链接时操作失败，不会写入或删除外部路径。非 Unix 保留原有流程。
+Unix 实现要求目标和备份位于同一父目录（备份是目标原地改名得来的），staging 可以在另一个目录：插件导入在 `plugins/.staging-*` 暂存、装到 `plugins/<kind>/<id>`。两个父目录各以不跟随符号链接的方式打开一个句柄；目标改名、失败回滚和备份清理用目标父目录的句柄，staging 发布用跨句柄的 `renameat`，失败时的 staging 清理用它自己父目录的句柄。最初要求三者同一父目录，插件导入、社区皮肤安装和皮肤同步因此全部失败（20 条测试）。根目录被替换为符号链接时操作失败，不会写入或删除外部路径。非 Unix 保留原有流程。
 
 ## Alternatives considered
 
@@ -21,4 +21,4 @@ Unix 实现要求 staging、目标和备份位于同一父目录，并先以不�
 
 ## Verification
 
-`cargo test -p msime-client-core --lib skin::folder_import::tests:: --locked --quiet`：13 passed；新增根目录替换回归测试。`cargo fmt --all`、`cargo clippy -p msime-client-core --lib --locked -- -D warnings` 和 `git diff --check` 通过。
+`cargo test -p msime-client-core --lib skin::folder_import::tests:: --locked --quiet`：13 passed；新增根目录替换回归测试。放开 staging 父目录后，macOS 和 Linux（非 root）上 client-core 1102 条全部通过。`cargo fmt --all`、`cargo clippy -p msime-client-core --lib --locked -- -D warnings` 和 `git diff --check` 通过。

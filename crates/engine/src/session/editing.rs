@@ -66,8 +66,7 @@ impl InputSession {
 
     /// input_session_editing.cpp:123-159.
     pub(super) fn edit_at_caret(&mut self, command: Command) -> KeyResult {
-        let mut text = self.editing_text();
-        let text_len = text.len();
+        let text_len = self.editing_text_len();
         let mut caret = self.caret.unwrap_or(text_len).min(text_len);
         // 本地模式的前缀字母是模式标记，不是可编辑的内容；网址模式没有前缀字母，整段都能编辑。
         let begin = usize::from(!matches!(
@@ -76,21 +75,23 @@ impl InputSession {
         ));
         match command {
             Command::MoveLeft => caret = caret.saturating_sub(1).max(begin),
-            Command::MoveRight => caret = (caret + 1).min(text.len()),
+            Command::MoveRight => caret = (caret + 1).min(text_len),
             Command::MoveHome => caret = begin,
-            Command::MoveEnd => caret = text.len(),
+            Command::MoveEnd => caret = text_len,
             Command::Backspace => {
                 if caret <= begin {
                     return KeyResult::handled();
                 }
+                let mut text = self.editing_text();
                 caret -= 1;
                 let removed = text.remove(caret);
                 return self.delete_editing_character(text, caret, removed);
             }
             Command::DeleteForward => {
-                if caret == text.len() {
+                if caret == text_len {
                     return KeyResult::handled();
                 }
+                let mut text = self.editing_text();
                 let removed = text.remove(caret);
                 return self.delete_editing_character(text, caret, removed);
             }

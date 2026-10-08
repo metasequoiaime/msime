@@ -7,7 +7,11 @@
 use crate::preferences::PreferencesStore;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+#[cfg(unix)]
+use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use thiserror::Error;
 
@@ -255,6 +259,57 @@ fn read_crash_logs(source: Option<&str>) -> Result<Section, DiagnosticsError> {
 }
 
 /// 读崩溃目录里的 `*.crash` 记录，按修改时间保留最近的 [`MAX_CRASH_LOGS`] 条。记录的格式与遥测写的相同：第一行是异常摘要，其余是栈帧；`at` 取文件的修改时间。只读普通文件，符号链接和子目录跳过；读不出或清洗后为空的记录计入丢弃，不让整个诊断包失败。
+#[cfg(unix)]
+fn read_crash_directory(directory: &Path) -> Result<Section, DiagnosticsError> {
+    let directory =
+        crate::storage::open_private_directory(directory).map_err(DiagnosticsError::Source)?;
+    let entries = rustix::fs::Dir::read_from(&directory)
+        .map_err(|error| DiagnosticsError::Source(error.into()))?;
+    let mut files = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| DiagnosticsError::Source(error.into()))?;
+        let name = entry.file_name();
+        if !entry.file_type().is_file()
+            || !name
+                .to_bytes()
+                .ends_with(format!(".{}", crate::telemetry::CRASH_EXTENSION).as_bytes())
+        {
+            continue;
+        }
+        let name = OsStr::from_bytes(name.to_bytes());
+        let file = match crate::storage::open_private_file_at(&directory, name) {
+            Ok(file) => file,
+            Err(_) => continue,
+        };
+        let modified = file
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        files.push((modified, file));
+    }
+    files.sort_by_key(|left| left.0);
+    let truncated = files.len().saturating_sub(MAX_CRASH_LOGS);
+    if truncated > 0 {
+        files.drain(..truncated);
+    }
+    let mut section = Section {
+        records: Vec::new(),
+        count: SectionCount {
+            truncated,
+            ..SectionCount::default()
+        },
+    };
+    for (modified, file) in files {
+        match crash_file_record_file(file, modified) {
+            Some(record) => section.records.push(record),
+            None => section.count.dropped += 1,
+        }
+    }
+    section.count.kept = section.records.len();
+    Ok(section)
+}
+
+#[cfg(not(unix))]
 fn read_crash_directory(directory: &Path) -> Result<Section, DiagnosticsError> {
     let mut section = Section {
         records: Vec::new(),
@@ -293,8 +348,13 @@ fn read_crash_directory(directory: &Path) -> Result<Section, DiagnosticsError> {
 }
 
 /// 一个 `*.crash` 文件换成与 [`crash_record`] 相同的记录。
+#[cfg(not(unix))]
 fn crash_file_record(path: &Path, modified: std::time::SystemTime) -> Option<Value> {
     let file = crate::storage::open_private_file_in(path).ok()?;
+    crash_file_record_file(file, modified)
+}
+
+fn crash_file_record_file(file: std::fs::File, modified: std::time::SystemTime) -> Option<Value> {
     let mut bytes = Vec::new();
     file.take(crate::telemetry::MAX_CRASH_RECORD_BYTES)
         .read_to_end(&mut bytes)
