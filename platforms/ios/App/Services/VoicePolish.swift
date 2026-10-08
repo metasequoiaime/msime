@@ -13,8 +13,9 @@ struct VoicePolishSettings: Equatable {
     ("cleanup", "精炼整理"), ("faithful", "忠实校对"), ("zh2en", "中翻英"), ("casual", "口语整理"),
     ("custom_1", "自定义一"), ("custom_2", "自定义二"), ("custom_3", "自定义三"),
   ]
+  /// Android 用于 `voice_input.language` 的 id；`auto` 让识别器自行区分普通话和英语。
   static let languages: [(id: String, title: String)] = [
-    ("zh-cn", "中文（简体）"), ("en-us", "English"), ("auto", "自动识别"),
+    ("zh-cn", "普通话"), ("yue", "粤语"), ("en", "英语"), ("auto", "普通话 + 英语"),
   ]
   static let customSlots = ["custom_1", "custom_2", "custom_3"]
   static let maximumPromptBytes = 8_192
@@ -41,7 +42,9 @@ struct VoicePolishSettings: Equatable {
     let id = voice["polish_prompt_id"] as? String ?? ""
     promptID = Self.presets.contains { $0.id == id } ? id : "cleanup"
     customPrompts = Self.customSlots.map { voice["polish_prompt_\($0)"] as? String ?? "" }
-    let language = (voice["language"] as? String ?? "").lowercased()
+    // 早期 iOS 版本写入的是 `en-us`；Android 和本页现在都用 `en`。
+    let stored = (voice["language"] as? String ?? "").lowercased()
+    let language = stored == "en-us" ? "en" : stored
     self.language = Self.languages.contains { $0.id == language } ? language : "zh-cn"
     soundEnabled = voice["sound_enabled"] as? Bool ?? true
     startSound = voice["start_sound"] as? Bool ?? true

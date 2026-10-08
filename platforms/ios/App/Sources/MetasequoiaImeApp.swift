@@ -3,8 +3,13 @@ import SwiftUI
 @main
 struct MetasequoiaImeApp: App {
   @StateObject private var onboardingNavigation = AppNavigation()
+  // 各标签页的导航和深链接路由放在这里，在以 `paletteVersion` 为 key 的内容之外，这样在「我的」里选择应用主题只会重绘颜色，不会把用户甩回「设置」标签页。
+  @StateObject private var tabNavigation = AppNavigation()
+  @StateObject private var router = SettingsRouter()
   @Environment(\.scenePhase) private var scenePhase
   @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+  /// 作为内容的 key，使季节或所选应用主题变化时所有动态颜色都重新解析；UIKit 只在 trait 变化时才重新解析动态颜色提供者。
+  @State private var paletteVersion = AppThemePalette.version
 
   init() {
     // The device's anonymous MSIME account is registered on first launch, before the keyboard needs it. The identity and session live in the app group, so the keyboard reuses them. A saved signed-in or anonymous session, even an expired one, skips the request rather than refreshing it on every launch; a failure is retried on the next launch.
@@ -38,6 +43,7 @@ struct MetasequoiaImeApp: App {
     }
     #endif
     _hasCompletedOnboarding = AppStorage(wrappedValue: false, "hasCompletedOnboarding")
+    Self.applyChrome()
   }
 
   var body: some Scene {
@@ -65,18 +71,54 @@ struct MetasequoiaImeApp: App {
     }
     .onChange(of: scenePhase) { phase in
       guard phase == .active else { return }
+      // 「水杉四季」跟随月份，所以启动或从后台返回时会重新解析季节；季节变化时发出 `AppThemePalette.didChange`。
+      AppThemePalette.refresh()
       applyAppearance()
       // Sends what the keyboard queued, which it cannot send itself without Full Access.
       Task.detached(priority: .utility) { UsageReporting.flush() }
     }
   }
 
-  /// 设置界面主题 (see AppAppearancePreference) on every window. A window override rather than `preferredColorScheme`, so going back to 跟随系统 hands the style back to the device reliably and sheets follow too.
+  /// 在每个窗口上应用「设置界面主题」（见 `AppAppearancePreference`）。用窗口级覆盖而不是 `preferredColorScheme`，这样切回「跟随系统」时能可靠地把样式交还给设备，sheet 也会跟着变。窗口的 tint 是季节强调色，所以 SwiftUI tint 管不到的 alert、菜单和系统选择器也跟随应用主题。
   private func applyAppearance() {
     let style = AppAppearancePreference.style(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
     for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
-      for window in scene.windows { window.overrideUserInterfaceStyle = style }
+      for window in scene.windows {
+        window.overrideUserInterfaceStyle = style
+        window.tintColor = MetasequoiaTheme.accentUIColor
+      }
     }
+  }
+
+  /// iOS 26 之前的经典导航栏和标签栏使用季节页面色：内容滚到栏下方后是盖在页面上的半透明栏加季节分隔线，静止时是透明栏，让大标题直接落在页面上；标签栏是不带顶部线的实色栏。iOS 26 及以后保留系统的 Liquid Glass，它本身已经符合设计稿。appearance 代理只作用于之后创建的栏，所以配色变化后要重建内容（`paletteVersion`）。
+  private static func applyChrome() {
+    guard #unavailable(iOS 26) else { return }
+    let titleAttributes: [NSAttributedString.Key: Any] = [
+      .font: UIFont.systemFont(ofSize: 17, weight: .semibold),
+      .foregroundColor: UIColor.label,
+    ]
+    let bar = UINavigationBarAppearance()
+    bar.configureWithDefaultBackground()
+    bar.backgroundEffect = UIBlurEffect(style: .systemThinMaterial)
+    bar.backgroundColor = UIColor { MetasequoiaTheme.canvasUIColor.resolvedColor(with: $0).withAlphaComponent(0.82) }
+    bar.shadowColor = MetasequoiaTheme.hairUIColor
+    bar.titleTextAttributes = titleAttributes
+    let edge = UINavigationBarAppearance()
+    edge.configureWithTransparentBackground()
+    edge.titleTextAttributes = titleAttributes
+    let navigationBar = UINavigationBar.appearance()
+    navigationBar.standardAppearance = bar
+    navigationBar.compactAppearance = bar
+    navigationBar.scrollEdgeAppearance = edge
+    navigationBar.compactScrollEdgeAppearance = edge
+
+    let tabs = UITabBarAppearance()
+    tabs.configureWithOpaqueBackground()
+    tabs.backgroundColor = MetasequoiaTheme.canvasUIColor
+    tabs.shadowColor = .clear
+    let tabBar = UITabBar.appearance()
+    tabBar.standardAppearance = tabs
+    tabBar.scrollEdgeAppearance = tabs
   }
 
   #if DEBUG && targetEnvironment(simulator)
@@ -94,11 +136,18 @@ struct MetasequoiaImeApp: App {
   #endif
 
   private var applicationContent: some View {
-    FirstRunContainer(hasCompletedOnboarding: $hasCompletedOnboarding)
+    FirstRunContainer(hasCompletedOnboarding: $hasCompletedOnboarding, navigation: tabNavigation, router: router)
       .environmentObject(onboardingNavigation)
       .toggleStyle(GreenSwitchToggleStyle())
+      .id(paletteVersion)
+      .overlay(alignment: .bottom) { ToastOverlay() }
       .onAppear(perform: applyAppearance)
     .onReceive(NotificationCenter.default.publisher(for: AppAppearancePreference.didChange)) { _ in applyAppearance() }
+    .onReceive(NotificationCenter.default.publisher(for: AppThemePalette.didChange)) { _ in
+      Self.applyChrome()
+      applyAppearance()
+      paletteVersion = AppThemePalette.version
+    }
   }
 }
 
@@ -122,6 +171,8 @@ private struct KeyboardVoicePreviewFixture: View {
 /// The splash and the onboarding sit in front of the tabs until onboarding is done. A phone shows the onboarding full screen; an iPad at regular width shows the tabs with the onboarding as a modal card over them, as the design does.
 private struct FirstRunContainer: View {
   @Binding var hasCompletedOnboarding: Bool
+  let navigation: AppNavigation
+  let router: SettingsRouter
   @State private var showsSplash = true
   @Environment(\.horizontalSizeClass) private var widthClass
 
@@ -132,7 +183,7 @@ private struct FirstRunContainer: View {
       SplashView { showsSplash = false }
     } else if hasCompletedOnboarding || isTablet {
       // Hidden before the overlay is attached, so only the tabs leave the accessibility tree and the card stays in it.
-      MainTabView()
+      MainTabView(navigation: navigation, router: router)
         .accessibilityHidden(!hasCompletedOnboarding)
         .overlay {
           if !hasCompletedOnboarding { OnboardingModalCard { hasCompletedOnboarding = true } }
@@ -144,26 +195,28 @@ private struct FirstRunContainer: View {
 }
 
 private struct MainTabView: View {
-  @StateObject private var navigation = AppNavigation()
+  @ObservedObject var navigation: AppNavigation
+  @ObservedObject var router: SettingsRouter
   @Environment(\.horizontalSizeClass) private var widthClass
   var body: some View {
     // On iOS 26 and later the system draws this as the floating glass pill; earlier releases keep the classic bar.
-    TabView(selection: $navigation.tab) {
-      settingsTab
+    TabView(selection: Binding(get: { navigation.tab }, set: { navigation.select($0, router: router) })) {
+      settingsTab.id(navigation.settingsRoot)
         .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(AppNavigation.Tab.settings)
       NavigationStack { CommunityHomeView() }.id(navigation.communityRoot)
-        .tabItem { Label("社区", systemImage: "person.2.fill") }.tag(AppNavigation.Tab.community)
+        .tabItem { Label("社区", systemImage: "person.3.fill") }.tag(AppNavigation.Tab.community)
       NavigationStack { TypingStatisticsView() }
         .tabItem { Label("统计", systemImage: "chart.bar.fill") }.tag(AppNavigation.Tab.statistics)
       NavigationStack { AccountSettingsView() }
-        .tabItem { Label("我的", systemImage: "person.crop.circle.fill") }.tag(AppNavigation.Tab.account)
+        .tabItem { Label("我的", systemImage: "person.fill") }.tag(AppNavigation.Tab.account)
     }
     .environmentObject(navigation)
+    .environmentObject(router)
     .tint(MetasequoiaTheme.accent)
-    // 键盘的「应用设置」发来的本版本 URL scheme（`MSIMEAppEdition.urlScheme`，full 是 msime://）。不加这一条应用照样会被拉起来,但会停在上次离开的那个标签页 —— 用户是从键盘的设置面板点过来的,落点应该是设置。
+    // 键盘发来的本版本 URL scheme（`MSIMEAppEdition.urlScheme`，full 是 msime://）：settings[/页面]、feedback、about、voice。不加这一条应用照样会被拉起来,但会停在上次离开的那个标签页 —— 用户是从键盘面板点过来的,落点应该是对应的页面；认不出的链接落在设置。
     .onOpenURL { url in
       guard url.scheme == MSIMEAppEdition.urlScheme else { return }
-      navigation.tab = .settings
+      navigation.tab = router.handle(url) ?? .settings
       if url.host == "voice" { navigation.recordsVoice = true }
     }
     .sheet(isPresented: $navigation.recordsVoice) {

@@ -4,7 +4,6 @@ struct SavedSkinPublishFlow: View {
   let skinID: UUID
   @State private var signedIn = false
   @State private var loading = true
-  @StateObject private var account = AppleAccountModel()
   @Environment(\.dismiss) private var dismiss
   var body: some View {
     Group {
@@ -12,9 +11,7 @@ struct SavedSkinPublishFlow: View {
       else if signedIn { CommunityPublishView(onPublished: {}, selectedSkinID: skinID) }
       else {
         NavigationView {
-          Form { AppleAccountSection(account: account) }
-            .appleAccountPresentation(account)
-            .onChange(of: account.signedIn) { if $0 { signedIn = true } }
+          Form { AppleAccountSection(signedIn: $signedIn) }
             .navigationTitle("登录后发布").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
         }.navigationViewStyle(.stack)

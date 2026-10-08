@@ -62,7 +62,7 @@ final class KeyGapRoutingTests: XCTestCase {
     InputSchemePreference.scheme = scheme
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
     controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     return controller
@@ -180,8 +180,7 @@ final class KeyGapRoutingTests: XCTestCase {
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(
       x: 0, y: 0, width: 1194,
-      height: KeyboardFormFactor.tablet.baseHeight(landscape: true, handwriting: false, numberRow: true)
-        + KeyboardViewController.stripExtraHeight)
+      height: KeyboardViewController.keyboardHeight(.tablet, landscape: true, numberRow: true))
     controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
 

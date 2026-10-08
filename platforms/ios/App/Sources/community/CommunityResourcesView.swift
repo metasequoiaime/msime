@@ -9,6 +9,7 @@ struct CommunityHomeView: View {
   @State private var account = false
   @State private var refresh = UUID()
   @State private var didPublish = false
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   var body: some View {
     Group {
       if category == 0 { SkinCommunityView(embedded: true) }
@@ -17,18 +18,17 @@ struct CommunityHomeView: View {
     .id(refresh)
     // An inset rather than a row above the list, so the list stays the page's scroll view and the large title still folds into the bar as it scrolls.
     .safeAreaInset(edge: .top, spacing: 0) {
-      HStack(spacing: 0) {
-        categoryButton(0, title: "皮肤")
-        categoryButton(1, title: "词库")
-        categoryButton(2, title: "回复模板")
-      }
-      .padding(2)
-      .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
-      .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 8)
-      // Kept inside its own frame: a colour background reaches into the safe area by default, and here it would paint over the large title.
-      .background(Color(uiColor: .systemGroupedBackground), ignoresSafeAreaEdges: [])
+      // 设计稿的第三段是「短语」，但 iOS 上短语包还没有可安装的地方，所以这一段仍是「回复模板」。
+      DesignSegmentedControl(items: [("皮肤", 0), ("词库", 1), ("回复模板", 2)], selection: $navigation.communityCategory,
+                             identifierPrefix: "communityCategory")
+        .frame(maxWidth: horizontalSizeClass == .regular ? CommunityLayout.regularMaxWidth : .infinity)
+        .frame(maxWidth: .infinity)
+        // 这里的 12 加上页面 4pt 的顶部内边距，构成设计稿里到内容的 16pt 间距。
+        .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 12)
+        // 限制在自己的 frame 内：颜色背景默认会延伸进安全区，在这里会盖住大标题。
+        .background(MetasequoiaTheme.canvas, ignoresSafeAreaEdges: [])
     }
-    .background(Color(uiColor: .systemGroupedBackground))
+    .background(MetasequoiaTheme.canvas)
     .navigationTitle("社区")
     .navigationBarTitleDisplayMode(.large)
     .toolbar {
@@ -49,21 +49,6 @@ struct CommunityHomeView: View {
         if let pending, (try? await SkinCommunityAPI.shared.signedIn()) == true { publishing = pending }
       }
     }) { AccountLoginSheet() }
-  }
-  /// One segment of the design's capsule switch. Buttons rather than a segmented Picker: each keeps its own identifier and selected trait, which a Picker's segments do not carry.
-  private func categoryButton(_ value: Int, title: String) -> some View {
-    Button { navigation.communityCategory = value } label: {
-      Text(title).font(.system(size: 13, weight: category == value ? .semibold : .regular))
-        .frame(maxWidth: .infinity).frame(height: 30)
-        .foregroundStyle(category == value ? Color.primary : Color.secondary)
-        .background {
-          if category == value {
-            Capsule().fill(Color(uiColor: .systemBackground)).shadow(color: .black.opacity(0.08), radius: 2, y: 1)
-          }
-        }
-        .contentShape(Capsule())
-    }.buttonStyle(.plain).accessibilityIdentifier("communityCategory-\(value)")
-      .accessibilityAddTraits(category == value ? [.isSelected] : [])
   }
   private func publish(_ kind: Int) {
     #if DEBUG && targetEnvironment(simulator)
@@ -86,37 +71,40 @@ struct CommunityResourcesView: View {
   @State private var publishing = false
   @State private var signedIn = false
   @State private var showAccount = false
+  /// 「添加」正在进行中的 id，对应的胶囊按钮因此显示「添加中」，并忽略再次点按。
+  @State private var adding: Set<String> = []
+  /// 本机已经装上的作品 id：排队导入过的社区词库，或已复制进回复键盘模板库的回复模板。胶囊按钮据此显示「已添加」，与 Android 的 `taken()` 一致；服务器上的收藏只决定详情页的收藏按钮。
+  @State private var installed: Set<String> = []
+  /// 等待导入确认的词库：导入会改动个人词库，所以绝不在单次点按时直接发生。
+  @State private var confirmingImport: CommunityResource?
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   /// The community home already owns the publish button; only the account-scoped list needs one.
   private var offersPublishing: Bool { !initialScope.isEmpty && initialScope != "saved" }
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
         CommunitySearchField(text: $search, placeholder: "搜索\(kind.title)") { Task { await load() } }
-        VStack(alignment: .leading, spacing: 4) {
-          Text(scope.isEmpty ? (kind == .dictionary ? "好词，随手可得" : "找到舒服的表达") : (scope == "saved" ? "你的灵感收藏" : "你的公开作品"))
-            .font(.system(size: 20, weight: .bold))
-          Text(kind == .dictionary ? "把常用词带进键盘，让输入更顺手" : "收藏喜欢的语气，给每次回应一点灵感")
-            .font(.caption).foregroundStyle(.secondary)
-        }.padding(.vertical, 2)
         if items.isEmpty && !busy {
           VStack(spacing: 12) {
             Image(systemName: kind.icon).font(.largeTitle).foregroundStyle(MetasequoiaTheme.accent)
             Text(scope == "" ? "期待第一份\(kind == .dictionary ? "词库" : "回复模板")" : "这里还没有作品")
             Text(scope == "saved" ? "去社区逛逛，收藏喜欢的作品。" : "点右上角 + 发布你的第一份作品。")
-              .font(.caption).foregroundStyle(.secondary)
+              .font(.caption).foregroundStyle(MetasequoiaTheme.sub)
           }.frame(maxWidth: .infinity).padding(.vertical, 35)
         }
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 14) {
-          ForEach(items) { item in
-            NavigationLink { CommunityResourceDetail(initial: item) } label: {
-              CommunityResourceCard(item: item)
-            }.buttonStyle(.plain).accessibilityIdentifier("communityResource-\(item.id)")
+        if !items.isEmpty {
+          DesignCard(radius: MetasequoiaTheme.tabCardRadius) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+              if index > 0 { DesignDivider(leading: 0) }
+              row(item)
+            }
           }
         }
         if busy { ProgressView().frame(maxWidth: .infinity) }
-        if more { Button("加载更多") { Task { await load(append: true) } }.disabled(busy) }
-      }.padding(16)
+        if more { Button("加载更多") { Task { await load(append: true) } }.disabled(busy).frame(maxWidth: .infinity) }
+      }.communityPageContent(regular: horizontalSizeClass == .regular)
     }
+    .background(MetasequoiaTheme.canvas)
     .navigationTitle(initialScope.isEmpty ? "社区" : "\(initialScope == "saved" ? "收藏的" : "我发布的")\(kind.title)")
     // Without a scope this is the 社区 tab's own list, which carries the tab's large title.
     .navigationBarTitleDisplayMode(initialScope.isEmpty ? .large : .inline)
@@ -144,11 +132,107 @@ struct CommunityResourcesView: View {
       signedIn = (try? await SkinCommunityAPI.shared.signedIn()) ?? false
       await load()
     }
-    .refreshable { await load() }
+    .refreshable { await refreshInstalled(); await load() }
+    // 每次回到列表都重读：详情页里导入词库、添加或移除回复模板后，返回时胶囊按钮跟着变。
+    .onAppear { Task { await refreshInstalled() } }
+    .confirmationDialog("导入这版词库到本机？", isPresented: Binding(get: { confirmingImport != nil }, set: { if !$0 { confirmingImport = nil } }),
+                        titleVisibility: .visible, presenting: confirmingImport) { item in
+      Button("导入 \(item.content.entries?.count ?? 0) 条词条") { add(item) }
+    } message: { _ in
+      Text("词条会添加到本机个人词库，开启完全访问后在键盘空闲时处理。")
+    }
     .alert("社区", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
       Button("好", role: .cancel) {}
     } message: { Text(message ?? "") }
   }
+
+  /// 分组卡片里的一行：字形图块、名称和元信息打开详情页；旁边的胶囊按钮不离开列表就能添加该作品。胶囊按钮放在链接外面，这样两者在点按和 VoiceOver 中各自是独立的按钮。
+  private func row(_ item: CommunityResource) -> some View {
+    HStack(spacing: 12) {
+      NavigationLink { CommunityResourceDetail(initial: item) } label: {
+        HStack(spacing: 12) {
+          CommunityGlyphTile(name: item.name)
+          VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+              Text(item.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
+              if item.removed { CommunityRemovedBadge() }
+            }
+            let meta = CommunityListingText.resourceMeta(item)
+            if !meta.isEmpty { Text(meta).font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1) }
+            // 回复模板没有条目数，所以描述里写明它是什么，与 Android 一致。
+            if item.kind == .reply && !item.description.isEmpty {
+              Text(item.description).font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
+            }
+          }
+          Spacer(minLength: 0)
+        }
+        .padding(.vertical, 12).padding(.leading, 14)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain).accessibilityIdentifier("communityResource-\(item.id)")
+      pill(item).padding(.trailing, 14)
+    }
+  }
+
+  @ViewBuilder private func pill(_ item: CommunityResource) -> some View {
+    let pending = adding.contains(item.id)
+    if installed.contains(item.id) {
+      CommunityPillLabel(title: "已添加", offersAction: false, size: .row)
+        .accessibilityLabel("已添加，\(item.name)")
+    } else {
+      Button {
+        if item.kind == .dictionary { confirmingImport = item } else { add(item) }
+      } label: {
+        CommunityPillLabel(title: pending ? "添加中" : "添加", size: .row).opacity(pending ? 0.6 : 1)
+      }
+      .buttonStyle(.plain).disabled(pending)
+      .accessibilityLabel("\(pending ? "添加中" : "添加")，\(item.name)")
+      .accessibilityIdentifier("communityResourceAdd-\(item.id)")
+    }
+  }
+
+  /// 列表上的添加。词库先把确认时统计的那个版本排队导入个人词库，再只在已登录时收藏它（与词库页的添加一致），所以未登录也能添加，导入失败也不会留下收藏；回复模板先收藏，再把最新版本复制进回复键盘的模板库。
+  private func add(_ item: CommunityResource) {
+    guard !adding.contains(item.id) else { return }
+    adding.insert(item.id)
+    Task { @MainActor in
+      defer { adding.remove(item.id) }
+      do {
+        var latest = item
+        if item.kind == .dictionary {
+          // 用确认时统计的那个版本，就像详情页导入的是它所显示的版本。
+          try PersonalDictionaryStore().enqueueImport((item.content.entries ?? []).map { try $0.localWord() })
+          CommunityDictionaryImports.record(item.id)
+          installed.insert(item.id)
+          // 收藏只是为了出现在「收藏」里并跟进更新，需要登录。
+          if try await SkinCommunityAPI.shared.signedIn() {
+            try await SkinCommunityAPI.shared.saveResource(item.id, saved: true)
+            latest = try await SkinCommunityAPI.shared.resource(item.id)
+          }
+        } else {
+          try await SkinCommunityAPI.shared.saveResource(item.id, saved: true)
+          latest = try await SkinCommunityAPI.shared.resource(item.id)
+          let saved = latest
+          try await Task.detached(priority: .userInitiated) {
+            try CommunityLibrary.save(saved)
+          }.value
+          installed.insert(latest.id)
+        }
+        if let index = items.firstIndex(where: { $0.id == latest.id }) { items[index] = latest }
+        ToastCenter.shared.show("已添加「\(latest.name)」")
+      } catch { message = error.localizedDescription }
+    }
+  }
+
+  /// 重读本机已经装上的作品。回复模板库正被别处写入而读不到时保留上一次的结果。
+  @MainActor private func refreshInstalled() async {
+    if kind == .dictionary {
+      installed = CommunityDictionaryImports.ids()
+    } else if let library = try? await Task.detached(priority: .userInitiated, operation: { try CommunityLibrary.read() }).value {
+      installed = Set(library.filter { $0.kind == .reply }.map(\.id))
+    }
+  }
+
   @MainActor private func load(append: Bool = false) async {
     let id = UUID(); requestID = id; busy = true
     defer { if requestID == id { busy = false } }
@@ -255,6 +339,7 @@ struct CommunityResourceDetail: View {
       .confirmationDialog("确认导入预览中的 \(item.content.entries?.count ?? 0) 条词条？", isPresented: $confirmImport, titleVisibility: .visible) {
         Button("确认导入") { let selected = item; run {
           try PersonalDictionaryStore().enqueueImport((selected.content.entries ?? []).map { try $0.localWord() })
+          CommunityDictionaryImports.record(selected.id)
           message = "已加入本机导入队列，打开水杉键盘后处理。可在「查看导入状态」检查每条结果。"
         }}
       }

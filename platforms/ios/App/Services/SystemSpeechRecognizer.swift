@@ -15,11 +15,12 @@ enum SystemSpeechRecognizer {
     return try await legacy(pcm: pcm, locale: locale, partial: partial)
   }
 
-  /// The page's language choice as a locale; 自动识别 follows the device's first preferred language.
+  /// 把页面上的语言选择转成 locale；普通话 + 英语（`auto`）跟随设备的首选语言。
   static func locale(for language: String) -> Locale {
     switch language {
     case "zh-cn": Locale(identifier: "zh-CN")
-    case "en-us": Locale(identifier: "en-US")
+    case "yue": Locale(identifier: "zh-HK")
+    case "en", "en-us": Locale(identifier: "en-US")
     default: Locale(identifier: Locale.preferredLanguages.first ?? "zh-CN")
     }
   }

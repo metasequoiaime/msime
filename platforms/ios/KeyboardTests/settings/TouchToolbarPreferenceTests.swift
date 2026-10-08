@@ -39,4 +39,28 @@ final class TouchToolbarPreferenceTests: XCTestCase {
       MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)?["touch_toolbar"] as? [String: Any])
     XCTAssertEqual(Set(stored.keys), Set(TouchToolbarPreference.options.map(\.name)))
   }
+
+  /// 常用语、输入方式 和 显示方式 属于本设备自己的设置，默认值与 Android 的本地设置一致：两个按钮都打开，输入时显示工具栏。
+  func testTheLocalSwitchesKeepAndroidsDefaults() {
+    let defaults = TouchToolbarLocalPreference.defaults
+    let keys = TouchToolbarLocalPreference.keys
+    let saved = keys.map { defaults.object(forKey: $0) }
+    defer {
+      for (key, value) in zip(keys, saved) {
+        if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+      }
+    }
+    keys.forEach(defaults.removeObject(forKey:))
+    XCTAssertTrue(TouchToolbarLocalPreference.phrases)
+    XCTAssertTrue(TouchToolbarLocalPreference.scheme)
+    XCTAssertFalse(TouchToolbarLocalPreference.hidden)
+    TouchToolbarLocalPreference.hidden = true
+    TouchToolbarLocalPreference.scheme = false
+    XCTAssertEqual(defaults.object(forKey: "keyboard.toolbar.hidden") as? Bool, true)
+    XCTAssertEqual(defaults.object(forKey: "keyboard.toolbar.scheme") as? Bool, false)
+    XCTAssertTrue(TouchToolbarLocalPreference.hidden)
+    XCTAssertFalse(TouchToolbarLocalPreference.scheme)
+    defaults.set("yes", forKey: TouchToolbarLocalPreference.phrasesKey)
+    XCTAssertTrue(TouchToolbarLocalPreference.phrases, "a value that is not a Bool reads as the default")
+  }
 }

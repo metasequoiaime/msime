@@ -15,14 +15,17 @@ struct SettingsSyncView: View {
 
   var body: some View {
     Form {
-      Section("云端") {
+      Section {
         SettingsFactRow(title: "云端版本",
                         detail: cloud.map { "第 \($0.revision) 版" } ?? "尚未读取",
                         symbol: "icloud")
         SettingsActionRow(title: "刷新", detail: "重新读取云端当前版本", symbol: "arrow.clockwise") {
           pending = Task { await load() }
         }
+      } header: {
+        SettingsGroupHeader(title: "云端")
       }
+      .designRow()
       Section {
         SettingsActionRow(title: "上传本机设置", detail: "用这台\(device)的设置覆盖云端",
                           symbol: "icloud.and.arrow.up",
@@ -31,11 +34,13 @@ struct SettingsSyncView: View {
                           symbol: "icloud.and.arrow.down",
                           enabled: cloud?.settings.isEmpty == false) { applying = true }
       } header: {
-        Text("同步")
+        SettingsGroupHeader(title: "同步")
       } footer: {
         Text("同步输入方案、简繁体、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。")
       }
+      .designRow()
     }
+    .designPage()
     .settingsStatus(busy: busy, message: message)
     .disabled(busy)
     .navigationTitle("设置同步")

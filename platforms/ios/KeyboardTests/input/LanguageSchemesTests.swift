@@ -310,7 +310,7 @@ final class LanguageSchemesTests: XCTestCase {
     InputSchemePreference.scheme = .stroke
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
     controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     let all = nodes(controller.view)
@@ -325,6 +325,11 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertFalse(wildcard.isEnabled)
     heng.sendActions(for: .primaryActionTriggered)
     XCTAssertTrue(wildcard.isEnabled, "a stroke opens the composition, so the wildcard can follow")
+    // 右列中间的键是笔画键旁边的「重输」，与 Android 一致：它清掉已输入的笔画。
+    let rewrite = try XCTUnwrap(all.first { $0.accessibilityIdentifier == "nineKeyMiddleKey" } as? UIButton)
+    XCTAssertEqual(rewrite.configuration?.title, "重输")
+    rewrite.sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(wildcard.isEnabled, "nothing is composing after 重输")
   }
 
   // MARK: - Through the bridge

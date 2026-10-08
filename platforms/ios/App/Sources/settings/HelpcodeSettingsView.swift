@@ -5,7 +5,7 @@ import SwiftUI
 /// Like the punctuation page, these live only in the shared preference document, as the `quanpin_helpcode` and `shuangpin_helpcode` objects, so each write merges one field into its object and leaves the rest of the object as stored. The keyboard hands a change to its live session the next time it appears.
 struct HelpcodeSettingsView: View {
   /// The scheme, its shared-document key, and the values the engine ships when the document has none.
-  private struct Scheme: Identifiable {
+  struct Scheme: Identifiable {
     let key: String
     let label: String
     let defaultSchema: String
@@ -13,12 +13,12 @@ struct HelpcodeSettingsView: View {
     var id: String { key }
   }
 
-  private static let schemes = [
-    Scheme(key: "shuangpin_helpcode", label: "双拼", defaultSchema: "lantian", defaultShown: true),
-    Scheme(key: "quanpin_helpcode", label: "全拼", defaultSchema: "ziranma", defaultShown: false),
-  ]
+  static let shuangpin = Scheme(key: "shuangpin_helpcode", label: "双拼", defaultSchema: "lantian", defaultShown: true)
+  static let quanpin = Scheme(key: "quanpin_helpcode", label: "全拼", defaultSchema: "ziranma", defaultShown: false)
+  static let schemes = [shuangpin, quanpin]
 
-  private static let schemas: [(String, String)] = [
+  /// 引擎自带的辅助码表，形式为 (schema id, title)。「输入」页的「辅助码方案」一行列出的是同一批。
+  static let schemas: [(String, String)] = [
     ("lantian", "蓝天小雨点"), ("ziranma", "自然码"), ("shouyou2_0", "首右2.0"),
     ("shouyouplus", "首右plus"), ("xiaohe", "小鹤"), ("jiajia", "加加"),
   ]
@@ -66,13 +66,30 @@ struct HelpcodeSettingsView: View {
   private func stored<Value>(_ object: String, _ field: String, _ state: Binding<[String: Value]>, _ fallback: Value) -> Binding<Value> {
     Binding(get: { state.wrappedValue[object] ?? fallback }, set: { value in
       state.wrappedValue[object] = value
+      let scheme = Self.schemes.first { $0.key == object } ?? Self.quanpin
       saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
-        var nested = $0[object] as? [String: Any] ?? [:]
-        nested[field] = value
-        $0[object] = nested
+        Self.merge(field, value, into: scheme, document: &$0)
       }
       if saveFailed { reload() }
     })
+  }
+
+  /// 触摸方案使用的辅助码对象：双拼 profile 用 `shuangpin_helpcode`，其余都用 `quanpin_helpcode`，与 Android 一致。
+  static func family(of inputScheme: ChineseInputScheme) -> Scheme {
+    inputScheme.shuangpinProfile != nil ? shuangpin : quanpin
+  }
+
+  /// 辅助码对象指定的码表；文档里没有时取该系列的默认码表。
+  static func schema(of scheme: Scheme, in document: [String: Any]?) -> String {
+    (document?[scheme.key] as? [String: Any])?["schema"] as? String ?? scheme.defaultSchema
+  }
+
+  /// 把一个字段合并进共享文档中的辅助码对象，其余字段保持原样。文档要求对象中带 `schema`，所以对象缺失时先用该系列的引擎默认值填好。
+  static func merge(_ field: String, _ value: Any, into scheme: Scheme, document: inout [String: Any]) {
+    var nested = document[scheme.key] as? [String: Any]
+      ?? ["enabled": true, "schema": scheme.defaultSchema, "show_in_candidate_window": scheme.defaultShown]
+    nested[field] = value
+    document[scheme.key] = nested
   }
 
   private func reload() {

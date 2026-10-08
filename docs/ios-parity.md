@@ -23,11 +23,13 @@ macOS 的同类文档是 [macos-parity.md](macos-parity.md)，方法一致：先
 | 中文文案 | 1666 | 抽取来源全部源文件的中文字面量，逐条精确检索 | 测试断言文案、措辞差异、Tauri 页以不同表述覆盖、落在注释里的引号 |
 | 符号 | 584 | ObjC 方法、C/C++ 函数与 Swift 函数名，按原名与 snake_case 改名两种形式检索 | 61 个在被 C ABI 取代的 ObjC 桥接层（`InputSessionAdapter`、`MetasequoiaInputSessionBridge`、`CandidateTranslation`、`MSIMEBackendClient`）；其余是改名或重构等价物 |
 | 可达控件标识 | 254 | 抽取来源全部 `accessibilityIdentifier` 字面量逐个检索 | 2 个：`emojiCategory-` 在目标用连字符，自定义皮肤重置由 Tauri 页覆盖 |
-| 同名文件成员 | 116 对 | 逐对抽取 `func` / `var` / `let` 名做差集 | 16 个文件有差集，逐个核实全是重构等价物：候选注解并成 `KeyboardCandidateAnnotation`、「更多」面板从布尔开关换成显式页枚举、表情目录从内存表换成分页 ABI |
+| 同名文件成员 | 116 对 | 逐对抽取 `func` / `var` / `let` 名做差集 | 16 个文件有差集，逐个核实全是重构等价物：候选注解并成 `KeyboardCandidateAnnotation`、「更多」面板从布尔开关换成显式页枚举（之后又随全平台设计改成按 Android 顺序排的扁平工具列表 `KeyboardTool`，以分页网格显示）、表情目录从内存表换成分页 ABI |
 | 测试断言 | 来源 232 | 来源 `test*` 函数名逐个检索，按名未命中的逐簇对到改名或拆分后的用例 | 目标 `KeyboardTests`/`ServiceTests`/`tests`/`TransportTests` 现有 312 个 `test*`，整体是来源的超集 |
 | 设置面控件文案 | 219 | 抽取来源 `platforms/ios/App` 与 `shared/backend-ui` 全部 `Toggle` / `Picker` / `Button` / `NavigationLink` / `Section` / `TextField` / `Slider` 的中文字面量 | 2 条：`从相册选一张`（Tauri 皮肤编辑器的「选择照片」，webview 的 file input 直接给出共享偏好要的 base64）、`显示释义`（输入设置里叫「显示英文释义」） |
 | 界面测试 | 来源 38 / 目标 39 | 逐个用例对照 | 组织方式不同：来源按屏拆四个文件，目标合在 `platforms/ios/UITests/` 的流程用例里，覆盖面相当 |
 | iOS 偏好同步字段 | 8 | 字段逐个对照 | 全部对上，目标为超集（多出三个调频字段） |
+
+上表是迁移时的基线。之后目标按全平台设计稿改版，加了来源没有的功能，不在上表的比对范围内：App 跟随四季的应用主题（Rust `msime_client_resolve_app_theme`，选择存在 App Group 的 `general.app_theme`，暂不随设置同步（Android 会同步），键盘「跟随系统」皮肤与品牌标也跟着季节换色），以及键盘的功能菜单——品牌键打开的分页网格，取代来源的分组「更多」面板。
 
 ## 存在性比对看不见什么
 
@@ -66,7 +68,7 @@ ML Kit Digital Ink 的 arm64 切片只给 device，所以模拟器这份 `Handwr
 
 ## 断言层修正过的三处
 
-按名对齐来源的用例之后，目标侧有三条断言是检查本身陈旧，不是产品坏了，已按其真实契约改写：
+按名对齐来源的用例之后，目标侧有三条断言是检查本身陈旧，不是产品坏了，已按其真实契约改写。第一条和本节后面关于折线的几段记录的是迁移时的状态：那张「键盘设置」卡和「设置」开关分组已随全平台设计改版，由品牌键打开的分页功能菜单取代，`testBrandOpensCompactToolsAndUpdatesFeedbackState` 也随之删除，现在由 `NineKeyKeyboardTests` 的 `testBrandTogglesTheFunctionMenuInTheKeyArea` 与 `testToolbarIsTheDesignsEqualGridOfTools` 接替，`MorePanelFoldTests` 改为检查分页网格按 Android 的顺序翻得到每一个工具（`testEveryToolIsReachableByPagingInTheDesignsOrder`）。
 
 - `testBrandOpensCompactToolsAndUpdatesFeedbackState` 仍在根页找「键盘设置」卡。那一层是有意删掉的——实现里的注释写明了理由（六张一样的入口卡，要再点一次才知道按键音开没开），而同一个用例后面又直接从根页读 `moreCard-按键振动`，自相矛盾。
 - `testSchemePickerUsesCurrentSkinPalette` 期望选中卡片的填充是 `accent` 的 0.10 透明度，实现是 0.12。0.12 来自来源，是有意对齐的，断言没跟上。
@@ -76,7 +78,7 @@ ML Kit Digital Ink 的 arm64 切片只给 device，所以模拟器这份 `Handwr
 
 来源在 `KeyboardViewController` 里写的理由也是同一件事：八个本地模式和一份设置列表曾经和工具挤在同一个滚动里，最后一项落在 292pt 面板下方 360pt 处，「**没有任何东西说它们在那儿**」，于是模式被移进了二级页。那条理由说的是**有没有那个「说」**，不是折线本身——一个会滚动的面板，只要折线以上有东西说明下面还有，就不是它修的那种毛病。
 
-所以断言改成检查设计真正保证的事，并由 `platforms/ios/KeyboardTests/settings/MorePanelFoldTests.swift` 看着：五张工具入口卡与「设置」分组标题全部在第一屏，五个开关全部落在可滚动内容之内（落在内容之外的卡片是滚不到的）。那个分组标题一旦被挤到折线以下，开关就退化成来源移走的那种无人知晓的列表，用例会红。
+所以当时断言改成检查设计真正保证的事，并由 `platforms/ios/KeyboardTests/settings/MorePanelFoldTests.swift` 看着（改版前）：五张工具入口卡与「设置」分组标题全部在第一屏，五个开关全部落在可滚动内容之内（落在内容之外的卡片是滚不到的）。那个分组标题一旦被挤到折线以下，开关就退化成来源移走的那种无人知晓的列表，用例会红。
 
 ## 范围外顺带补齐的一件
 

@@ -301,3 +301,46 @@ final class KeyboardCloudClipboardTests: XCTestCase {
     return try XCTUnwrap(menu.children.compactMap { $0 as? UIAction }.first { $0.title == "发到云剪贴板" })
   }
 }
+
+/// 「是否记录」的统一判断（`KeyboardPrivacyGate`），对应 Android 的 `ImePrivacyGate`。
+@MainActor
+final class KeyboardPrivacyGateTests: XCTestCase {
+  private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
+
+  /// 隐私模式或凭据输入框里，每一类记录都不允许；两者都不是时都允许。
+  func testEveryRecordIsSuppressedInPrivacyModeAndInACredentialField() {
+    for incognito in [false, true] {
+      for credential in [false, true] {
+        let gate = KeyboardPrivacyGate(incognito: incognito, credentialField: credential)
+        XCTAssertEqual(gate.suppressed, incognito || credential, "\(incognito) \(credential)")
+        for record in KeyboardPrivacyGate.Record.allCases {
+          XCTAssertEqual(gate.allows(record), !(incognito || credential), "\(record) \(incognito) \(credential)")
+        }
+      }
+    }
+  }
+
+  /// 隐私会话与 Android 的 `learningSuppressed` 同口径：只看隐私模式，凭据输入框不算。
+  func testOnlyPrivacyModeMarksThePrivateSession() {
+    XCTAssertTrue(KeyboardPrivacyGate(incognito: true, credentialField: false).privateSession)
+    XCTAssertTrue(KeyboardPrivacyGate(incognito: true, credentialField: true).privateSession)
+    XCTAssertFalse(KeyboardPrivacyGate(incognito: false, credentialField: true).privateSession)
+    XCTAssertFalse(KeyboardPrivacyGate(incognito: false, credentialField: false).privateSession)
+  }
+
+  /// 闸门不许保存时，点「保存当前剪贴板」不写历史，只说明原因，与 Android 的 `captureClipboard(true)` 一样。
+  func testCaptureSavesNothingWhileTheGateSaysNo() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let store = ClipboardHistoryStore(directory: directory)
+    let panel = KeyboardClipboardView(hasFullAccess: true, store: store, capturesHistory: { false },
+                                      onInsert: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 320, height: 260)
+    panel.layoutIfNeeded()
+    let capture = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "captureClipboard" } as? UIButton)
+    XCTAssertEqual(capture.accessibilityLabel, "保存当前剪贴板", "no new-copy prompt for a copy that cannot be saved")
+    capture.sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(try store.load().isEmpty)
+    XCTAssertTrue(descendants(panel).contains { ($0 as? UILabel)?.text == KeyboardClipboardView.privacyMessage })
+  }
+}

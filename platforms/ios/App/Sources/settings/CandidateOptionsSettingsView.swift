@@ -2,9 +2,11 @@ import SwiftUI
 import UIKit
 import CoreFoundation
 
-/// The candidate preview, text size and font, what the strip shows while spelling, 以词定字, cloud candidates, and what gets mixed into the Chinese candidates.
+/// 候选栏：候选字号、字体、每页候选数、拼写时候选栏显示什么，以及中文候选里混入哪些内容（云候选、英文、emoji、颜文字、以词定字）。
 ///
 /// Like the punctuation page, these live only in the shared preference document, nested under `quanpin`, `word_character` and `mixed_input`, so each write merges one field into its object and leaves the rest of the object as stored. Cloud candidates are the exception: an iOS-only switch in the App Group (see CloudCandidatePreference). The keyboard hands a change to its live session the next time it appears. The candidate package, mode and colours are part of the custom theme and live on the 主题 page (CustomThemeCandidateSection).
+///
+/// 设计稿里的候选栏高度和翻页两行没有做：键盘没有候选栏高度设置和翻页按钮，扩展也拿不到可用来翻页的硬件按键。
 struct CandidateOptionsSettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
   @State private var english = true
@@ -26,130 +28,113 @@ struct CandidateOptionsSettingsView: View {
   @State private var preeditStyle = CandidatePreeditStyle.pinyin.rawValue
   @State private var shuangpinRaw = true
   @State private var inlinePreedit = InlinePreeditPreference.style
-  /// The shared document as last read, for the preview card at the top.
-  @State private var document: [String: Any]?
-  @Environment(\.colorScheme) private var colorScheme
   @State private var saveFailed = false
   /// A docked iPad keyboard has room for larger candidates than a phone strip; the keyboard applies the same limits when it draws.
   private let tablet = UIDevice.current.userInterfaceIdiom == .pad
 
   var body: some View {
-    Form {
-      Section {
-        CandidatePreviewCard(theme: KeyboardTheme.resolve(document: document), document: document,
-                             systemDark: colorScheme == .dark, fontSize: candidateSize)
-      }
-      .listRowBackground(Color.clear)
-      .listRowInsets(EdgeInsets())
-      Section {
-        VStack(alignment: .leading, spacing: 6) {
-          LabeledContent("候选字号", value: "\(candidateSize)px")
-          Slider(value: fontSizeSlider, in: sliderRange, step: 1) {
-            Text("候选字号")
-          } minimumValueLabel: {
-            Text("\(CandidateFontPreference.candidateRange(tablet: tablet).lowerBound)").font(.caption)
-          } maximumValueLabel: {
-            Text("\(CandidateFontPreference.candidateRange(tablet: tablet).upperBound)").font(.caption)
-          }
-          .accessibilityValue("\(candidateSize)px")
-          .accessibilityIdentifier("candidateFontSize")
+    ScrollView {
+      VStack(spacing: 28) {
+        DesignGroup(title: "候选栏") {
+          DesignSliderRow(title: "候选字号", value: fontSizeSlider, range: sliderRange, step: 1,
+                          identifier: "candidateFontSize") { "\(Int($0))px" }
         }
-        Stepper(value: storedTop(CandidateFontPreference.preeditKey, $preeditSize),
-                in: CandidateFontPreference.preeditRange(tablet: tablet)) {
-          VStack(alignment: .leading, spacing: 2) {
-            Text("编码字号：\(preeditSize)")
+
+        DesignGroup(title: "字体") {
+          stepperRow("编码字号", value: "\(preeditSize)", binding: storedTop(CandidateFontPreference.preeditKey, $preeditSize),
+                     in: CandidateFontPreference.preeditRange(tablet: tablet), identifier: "candidatePreeditFontSize") {
             Text("shui'shan").font(Font(CandidateFontPreference.font(
               .subheadline, scale: CGFloat(preeditSize) / CGFloat(CandidateFontPreference.defaultPreeditSize))))
+              .foregroundStyle(MetasequoiaTheme.sub)
           }
-        }.accessibilityIdentifier("candidatePreeditFontSize")
-        NavigationLink {
-          CandidateFontFamilyList(title: "中文字体", selection: fontFamily, none: nil) { family in
-            write { $0[CandidateFontPreference.familyKey] = family ?? CandidateFontPreference.defaultFamily }
+          DesignDivider()
+          NavigationLink {
+            CandidateFontFamilyList(title: "中文字体", selection: fontFamily, none: nil) { family in
+              write { $0[CandidateFontPreference.familyKey] = family ?? CandidateFontPreference.defaultFamily }
+            }
+          } label: {
+            DesignNavRowLabel(title: "中文字体", value: familyTitle(fontFamily))
           }
-        } label: {
-          LabeledContent("中文字体", value: familyTitle(fontFamily))
-        }.accessibilityIdentifier("candidateFontFamily")
-        NavigationLink {
-          CandidateFontFamilyList(title: "英文字体", selection: englishFamily, none: "跟随中文字体") { family in
-            write { $0[CandidateFontPreference.englishFamilyKey] = family }
+          .buttonStyle(PressFillButtonStyle())
+          .accessibilityIdentifier("candidateFontFamily")
+          DesignDivider()
+          NavigationLink {
+            CandidateFontFamilyList(title: "英文字体", selection: englishFamily, none: "跟随中文字体") { family in
+              write { $0[CandidateFontPreference.englishFamilyKey] = family }
+            }
+          } label: {
+            DesignNavRowLabel(title: "英文字体", value: englishFamily.map(familyTitle) ?? "跟随中文字体")
           }
-        } label: {
-          LabeledContent("英文字体", value: englishFamily.map(familyTitle) ?? "跟随中文字体")
-        }.accessibilityIdentifier("candidateEnglishFont")
-      } header: {
-        Text("字号与字体")
-      } footer: {
-        Text((tablet
-          ? "默认 18 和 15，与桌面端同步。候选栏会随字号变高；浮动的小键盘按手机的上限显示。"
-          : "默认 18 和 15，与桌面端同步。候选栏会随字号变高；桌面端设得更大时，手机上最多显示到 24 和 20。")
-          + "字体与桌面端同步；此设备没有的字体或缺的字使用系统字体。")
-      }
-      Section {
-        Stepper(value: Binding(get: { CandidatePageSizePreference.clamped(pageSize) }, set: { pageSize = CandidatePageSizePreference.clamped($0) }),
-                in: CandidatePageSizePreference.range) {
-          labelled("每页候选数：\(CandidatePageSizePreference.clamped(pageSize))", "候选栏编号的候选个数，其余的展开候选面板查看")
-        }.accessibilityIdentifier("candidatePageSize")
-      } footer: {
-        Text("默认 9 个，与符号键盘和 iPad 数字行的 1–9 对应；组字时按数字键选对应编号的候选。只在本机生效，不影响电脑上的候选窗口。")
-      }
-      Section {
-        Picker(selection: Binding(get: { inlinePreedit }, set: { inlinePreedit = $0; InlinePreeditPreference.style = $0 })) {
-          ForEach(InlinePreeditPreference.Style.allCases, id: \.self) { Text($0.title).tag($0) }
-        } label: {
-          labelled("行内预编辑", "把正在拼写的编码也写进输入框，像系统键盘那样带下划线显示")
-        }.accessibilityIdentifier("inlinePreedit")
-        Picker("候选栏预编辑", selection: storedTop(CandidatePreeditStyle.key, $preeditStyle)) {
-          ForEach(CandidatePreeditStyle.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
-        }.accessibilityIdentifier("candidatePreeditStyle")
-        Toggle(isOn: storedTop("shuangpin_preedit_uses_raw", $shuangpinRaw)) {
-          labelled("双拼显示原始按键", "关闭后显示按键对应的完整拼音，只对双拼生效")
-        }.accessibilityIdentifier("shuangpinPreeditUsesRaw")
-      } header: {
-        Text("预编辑")
-      } footer: {
-        Text("行内预编辑默认关闭；个别 App 显示输入框里的组字不完整时可以关掉。韩语正在拼的音节、注音正在转换的文字、越南语正在拼的词和藏文正在拼的音节总是写在输入框里，不受这项影响。笔画方案在「原始按键」下也显示笔画（一丨丿丶乛＊），不显示按键字母。候选栏预编辑选「不显示」时，候选栏不再显示正在拼写的编码，把位置留给候选；已选定的半个词和快捷模式的名称仍会显示。")
-      }
-      Section {
-        Toggle(isOn: stored("word_character", "enabled", $wordCharacter)) {
-          labelled("以词定字", "长按两个字以上的候选，可以只上屏它的首字或末字")
-        }.accessibilityIdentifier("wordCharacter")
-      }
-      Section {
-        Toggle(isOn: $cloudCandidates) {
-          labelled("云候选", "输入停顿时向 Google 输入法服务查询候选，排进候选栏")
-        }.accessibilityIdentifier("cloudCandidates")
-      } footer: {
-        Text("默认关闭。开启后，正在输入的编码会发送到 Google 输入法服务；还需要在系统设置中允许键盘完全访问。")
-      }
-      Section {
-        Toggle(isOn: $englishSuggestions) {
-          labelled("英文单词提示", "英文输入时在候选栏提示常用单词，点选补全当前单词")
-        }.accessibilityIdentifier("englishSuggestions")
-      }
-      Section {
-        Toggle(isOn: stored("mixed_input", "english", $english)) {
-          labelled("中英混输", "中文输入时在候选中补充英文单词")
-        }.accessibilityIdentifier("mixedEnglish")
-        Stepper(value: stored("mixed_input", "minimum_prefix", $minimumPrefix), in: 1...8) {
-          labelled("触发字母数：\(minimumPrefix)", "输入的字母达到这个长度后才出现英文候选")
+          .buttonStyle(PressFillButtonStyle())
+          .accessibilityIdentifier("candidateEnglishFont")
         }
-        .disabled(!english)
-        .accessibilityIdentifier("mixedEnglishMinimumPrefix")
+
+        DesignGroup(title: "每页候选数") {
+          stepperRow("每页候选数", value: "\(CandidatePageSizePreference.clamped(pageSize))",
+                     binding: Binding(get: { CandidatePageSizePreference.clamped(pageSize) },
+                                      set: { pageSize = CandidatePageSizePreference.clamped($0) }),
+                     in: CandidatePageSizePreference.range, identifier: "candidatePageSize") {
+            detail("编号的候选个数，其余的展开候选面板查看")
+          }
+        }
+
+        DesignGroup(title: "预编辑") {
+          DesignSelectRow(title: "行内预编辑", subtitle: "把正在拼写的编码也写进输入框",
+                          options: InlinePreeditPreference.Style.allCases.map { DesignOption(title: $0.title, value: $0) },
+                          selection: Binding(get: { inlinePreedit }, set: { inlinePreedit = $0; InlinePreeditPreference.style = $0 }),
+                          sheetTitle: "行内预编辑", identifier: "inlinePreedit")
+          DesignDivider()
+          DesignSelectRow(title: "候选栏预编辑", subtitle: "候选栏上是否显示正在拼写的编码",
+                          options: CandidatePreeditStyle.allCases.map { DesignOption(title: $0.title, value: $0.rawValue) },
+                          selection: storedTop(CandidatePreeditStyle.key, $preeditStyle),
+                          sheetTitle: "候选栏预编辑", identifier: "candidatePreeditStyle")
+          DesignDivider()
+          DesignToggleRow(title: "双拼显示原始按键", subtitle: "关闭后显示按键对应的完整拼音",
+                          isOn: storedTop("shuangpin_preedit_uses_raw", $shuangpinRaw))
+            .accessibilityIdentifier("shuangpinPreeditUsesRaw")
+        }
+
+        DesignGroup(title: "候选内容", footer: saveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : nil) {
+          // 副标题就是隐私说明：只有打开这个开关，输入的编码才会离开设备。
+          DesignToggleRow(title: "云候选", subtitle: "开启后正在输入的编码会发送到 Google 输入法服务获取候选，需允许完全访问",
+                          isOn: $cloudCandidates)
+            .accessibilityIdentifier("cloudCandidates")
+          DesignDivider()
+          DesignToggleRow(title: "英文单词提示", subtitle: "英文输入时提示常用单词，点选补全", isOn: $englishSuggestions)
+            .accessibilityIdentifier("englishSuggestions")
+          DesignDivider()
+          DesignToggleRow(title: "中英混输", subtitle: "中文输入时在候选中补充英文单词",
+                          isOn: stored("mixed_input", "english", $english))
+            .accessibilityIdentifier("mixedEnglish")
+          DesignDivider()
+          stepperRow("触发字母数", value: "\(minimumPrefix)", binding: stored("mixed_input", "minimum_prefix", $minimumPrefix),
+                     in: 1...8, identifier: "mixedEnglishMinimumPrefix") {
+            detail("字母达到这个长度才出现英文候选")
+          }
+          .disabled(!english)
+          .opacity(english ? 1 : 0.45)
+          DesignDivider()
+          DesignToggleRow(title: "emoji 混输", subtitle: "在候选中加入匹配的 emoji，紧跟在它描绘的那个词后面", isOn: stored("mixed_input", "emoji", $emoji))
+            .accessibilityIdentifier("mixedEmoji")
+          DesignDivider()
+          DesignToggleRow(title: "颜文字混输", subtitle: "在候选中加入匹配的颜文字，排在同一个词的 emoji 之后", isOn: stored("mixed_input", "kaomoji", $kaomoji))
+            .accessibilityIdentifier("mixedKaomoji")
+          DesignDivider()
+          DesignToggleRow(title: "以词定字", subtitle: "长按词语候选，只上屏首字或末字",
+                          isOn: stored("word_character", "enabled", $wordCharacter))
+            .accessibilityIdentifier("wordCharacter")
+        }
       }
-      Section {
-        Toggle(isOn: stored("mixed_input", "emoji", $emoji)) {
-          labelled("emoji 混输", "在候选中加入匹配的 emoji，紧跟在它描绘的那个词后面")
-        }.accessibilityIdentifier("mixedEmoji")
-        Toggle(isOn: stored("mixed_input", "kaomoji", $kaomoji)) {
-          labelled("颜文字混输", "在候选中加入匹配的颜文字，排在同一个词的 emoji 之后")
-        }.accessibilityIdentifier("mixedKaomoji")
-      } footer: {
-        if saveFailed { Text("设置没有保存，键盘可能正在写入同一份设置，请再试一次。") }
-      }
+      .padding(.horizontal, 16)
+      .padding(.top, 16)
+      .padding(.bottom, 32)
     }
+    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
     .navigationTitle("候选栏").navigationBarTitleDisplayMode(.inline)
     .onAppear(perform: reload)
-    .onChange(of: scenePhase) { if $0 == .active { reload() } }
+    .onChange(of: scenePhase) { _, phase in
+      if phase == .active { reload() }
+    }
   }
 
   private var sliderRange: ClosedRange<Double> {
@@ -166,11 +151,31 @@ struct CandidateOptionsSettingsView: View {
     })
   }
 
-  private func labelled(_ title: String, _ detail: String) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(title)
-      Text(detail).font(.footnote).foregroundStyle(.secondary)
+  private func detail(_ text: String) -> some View {
+    Text(text).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+  }
+
+  /// 带标题、说明行、当前值和步进器的一行，布局同 DesignKit 的行。
+  private func stepperRow<Value: Strideable, Detail: View>(
+    _ title: String, value: String, binding: Binding<Value>, in range: ClosedRange<Value>, identifier: String,
+    @ViewBuilder detail: () -> Detail
+  ) -> some View {
+    HStack(spacing: 12) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title).font(.system(size: 17)).foregroundStyle(.primary)
+        detail().fixedSize(horizontal: false, vertical: true)
+      }
+      Spacer(minLength: 8)
+      Text(value).font(.system(size: 16)).foregroundStyle(MetasequoiaTheme.sub).monospacedDigit()
+        .accessibilityHidden(true)
+      Stepper(title, value: binding, in: range)
+        .labelsHidden()
+        .accessibilityValue(value)
+        .accessibilityIdentifier(identifier)
     }
+    .padding(.vertical, 8)
+    .padding(.horizontal, 20)
+    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
   }
 
   /// A binding that merges one field into a nested object of the shared document; a refused write puts the stored value back.
@@ -218,7 +223,6 @@ struct CandidateOptionsSettingsView: View {
     englishFamily = (preferences[CandidateFontPreference.englishFamilyKey] as? String).flatMap { $0.isEmpty ? nil : $0 }
     fontFamilies = CandidateFontPreference.families(in: preferences)
     preeditStyle = CandidatePreeditStyle(in: preferences).rawValue
-    document = preferences
     shuangpinRaw = preferences["shuangpin_preedit_uses_raw"] as? Bool ?? true
     wordCharacter = (preferences["word_character"] as? [String: Any])?["enabled"] as? Bool ?? wordCharacter
   }

@@ -37,27 +37,98 @@ enum ThemeColor {
   }
 }
 
-/// UIKit's own keyboard tokens from the design (dc.html L1555-1558), drawn for the `system` theme and wherever a resolved slot is null.
+/// 不透明的 `0xRRGGBB` 颜色。
+private func rgbColor(_ value: UInt32, alpha: CGFloat = 1) -> UIColor {
+  UIColor(red: CGFloat(value >> 16 & 0xff) / 255, green: CGFloat(value >> 8 & 0xff) / 255,
+          blue: CGFloat(value & 0xff) / 255, alpha: alpha)
+}
+
+/// 每种模式各一个 `0xRRGGBB` 颜色。
+private func adaptiveColor(_ light: UInt32, _ dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1) -> UIColor {
+  UIColor { traits in
+    traits.userInterfaceStyle == .dark ? rgbColor(dark, alpha: darkAlpha) : rgbColor(light, alpha: lightAlpha)
+  }
+}
+
+/// 设计稿里 UIKit 自身的键盘配色 token（dc.html L1555-1558）：应用主题无法解析时 `system` 主题画的经典兜底配色（见 `SeasonKeyboardTokens`），也是已解析但槽位为 null 时的回退值。
 enum NativeKeyboardTokens {
-  private static func adaptive(_ light: UInt32, _ dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1) -> UIColor {
+  static let background = adaptiveColor(0xD1D4DB, 0x2B2B2D)
+  static let key = adaptiveColor(0xFFFFFF, 0x6B6B6E)
+  static let functionKey = adaptiveColor(0xABB0BB, 0x464648)
+  static let text = adaptiveColor(0x000000, 0xFFFFFF)
+  static let secondary = adaptiveColor(0x8A8A8E, 0x8E8E93)
+  /// The brand accent: the return key while composing, the selected candidate, switched-on tiles and pills.
+  static let accent = adaptiveColor(0x2C7A4B, 0x5FBF84)
+  static let accentSoft = adaptiveColor(0x2C7A4B, 0x5FBF84, lightAlpha: 0.14, darkAlpha: 0.26)
+  /// 除键盘设计主题外，所有主题里按键的底边：浅色为 `0 1px 0 rgba(38,62,44,.3)`，深色为 `0 1px 0 rgba(0,0,0,.55)`。颜色本身不透明，各模式的透明度由 `keyShadowOpacity` 承载。
+  static let keyShadowColor = adaptiveColor(0x263E2C, 0x000000)
+  static let keyShadowOpacity: (light: Float, dark: Float) = (0.3, 0.55)
+  /// 底边紧贴在按键正下方，不做模糊。
+  static let keyShadowOffset: CGFloat = 1
+  static let keyShadowRadius: CGFloat = 0
+}
+
+/// 应用主题当前季节下的 `system`（跟随系统）键盘（设计 token §1.4，Android `AppThemePalette.keyboard*`）：面板、字母键和功能键由季节强调色与页面色混合而成，文字为黑或白，提示文字用设计稿的 `kbSub`，回车键用强调色填充。
+///
+/// 每种颜色都是动态色，UIKit 解析时才读取 `AppThemePalette.resolved(dark:)`，所以用 `KeyboardTheme.refreshSeason()` 刷新季节后，下一次重绘即可生效，不必重建主题。应用主题无法解析时键盘改画 `NativeKeyboardTokens`（`isAvailable` 为 false），因此各 provider 自己回退到这些 token 的分支只兜住会话中途解析失效的主题库。
+enum SeasonKeyboardTokens {
+  /// 应用主题能否解析；能解析时才用这套配色取代原生 token。
+  static var isAvailable: Bool { AppThemePalette.resolved(dark: false) != nil }
+
+  static let palette = ThemeKeyboardPalette(
+    background: derivedColor(\.background, fallback: NativeKeyboardTokens.background),
+    key: derivedColor(\.key, fallback: NativeKeyboardTokens.key),
+    functionKey: derivedColor(\.functionKey, fallback: NativeKeyboardTokens.functionKey),
+    text: adaptiveColor(0x000000, 0xFFFFFF),
+    secondary: adaptiveColor(0x5A6B5D, 0x93A596),
+    accent: UIColor { traits in
+      AppThemePalette.resolved(dark: traits.userInterfaceStyle == .dark)?.accent
+        ?? NativeKeyboardTokens.accent.resolvedColor(with: traits)
+    },
+    // 浅色强调色上用白色；深色下用 Rust 的 `on_accent`，即 mix(accent 25%, #000)，因为白色压在深色模式偏浅的强调色上对比度不到 2:1。
+    onAccent: UIColor { traits in
+      guard traits.userInterfaceStyle == .dark else { return .white }
+      return AppThemePalette.resolved(dark: true)?.onAccent ?? .black
+    })
+
+  /// 季节强调色，浅色下透明度为 `22`，深色下为 `40`，对应 Rust 的 `accent_soft`。只共享一个实例，这样由这套配色构建出的配色和主题仍然判等。
+  static let accentSoft = UIColor { traits in
+    palette.accent.resolvedColor(with: traits).withAlphaComponent(traits.userInterfaceStyle == .dark ? 0x40 / 255 : 0x22 / 255)
+  }
+
+  /// 一种模式下的三种混合表面色，连同混合时所用的季节一起保存，季节刷新后会重新混合。
+  private struct Surfaces {
+    let season: AppThemePalette.Resolved
+    let background, key, functionKey: UIColor
+  }
+
+  private static let lock = NSLock()
+  /// 下标 0 为浅色，1 为深色。每个按键每次重绘都要解析这些颜色，而 `AppThemePalette.mix` 要格式化字符串，所以每个季节只混合一次。
+  private static var surfaces: [Surfaces?] = [nil, nil]
+
+  private static func derivedColor(_ slot: KeyPath<Surfaces, UIColor>, fallback: UIColor) -> UIColor {
     UIColor { traits in
-      let isDark = traits.userInterfaceStyle == .dark
-      let value = isDark ? dark : light
-      return UIColor(red: CGFloat(value >> 16 & 0xff) / 255, green: CGFloat(value >> 8 & 0xff) / 255,
-                     blue: CGFloat(value & 0xff) / 255, alpha: isDark ? darkAlpha : lightAlpha)
+      mixed(dark: traits.userInterfaceStyle == .dark)?[keyPath: slot] ?? fallback.resolvedColor(with: traits)
     }
   }
 
-  static let background = adaptive(0xD1D4DB, 0x2B2B2D)
-  static let key = adaptive(0xFFFFFF, 0x6B6B6E)
-  static let functionKey = adaptive(0xABB0BB, 0x464648)
-  static let text = adaptive(0x000000, 0xFFFFFF)
-  static let secondary = adaptive(0x8A8A8E, 0x8E8E93)
-  /// The brand accent: the return key while composing, the selected candidate, switched-on tiles and pills.
-  static let accent = adaptive(0x2C7A4B, 0x5FBF84)
-  static let accentSoft = adaptive(0x2C7A4B, 0x5FBF84, lightAlpha: 0.14, darkAlpha: 0.26)
-  /// The key's bottom edge, `0 1px 0 rgba(0,0,0,.3)` light and `.6` dark.
-  static let keyShadowOpacity: (light: Float, dark: Float) = (0.3, 0.6)
+  private static func mixed(dark: Bool) -> Surfaces? {
+    guard let season = AppThemePalette.resolved(dark: dark) else { return nil }
+    let index = dark ? 1 : 0
+    return lock.withLock {
+      if let cached = surfaces[index], cached.season == season { return cached }
+      let accent = season.accent
+      let made = dark
+        ? Surfaces(season: season, background: AppThemePalette.mix(accent, 10, rgbColor(0x161716)),
+                   key: AppThemePalette.mix(accent, 10, rgbColor(0x3A3C3A)),
+                   functionKey: AppThemePalette.mix(accent, 14, rgbColor(0x262826)))
+        : Surfaces(season: season, background: AppThemePalette.mix(accent, 12, season.background),
+                   key: AppThemePalette.mix(season.background, 25, .white),
+                   functionKey: AppThemePalette.mix(accent, 24, season.background))
+      surfaces[index] = made
+      return made
+    }
+  }
 }
 
 /// The touch keyboard slots of a resolved theme (`KeyboardThemePalette`).
@@ -71,6 +142,12 @@ struct ThemeKeyboardPalette: Equatable {
   var accent: UIColor
   /// Text on anything filled with `accent`.
   var onAccent: UIColor
+
+  init(background: UIColor, key: UIColor, functionKey: UIColor, text: UIColor, secondary: UIColor,
+       accent: UIColor, onAccent: UIColor) {
+    (self.background, self.key, self.functionKey, self.text) = (background, key, functionKey, text)
+    (self.secondary, self.accent, self.onAccent) = (secondary, accent, onAccent)
+  }
 
   init?(_ value: Any?) {
     guard let value = value as? [String: Any],

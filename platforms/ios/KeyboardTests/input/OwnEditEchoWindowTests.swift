@@ -60,7 +60,7 @@ final class OwnEditEchoWindowTests: XCTestCase {
     InputSchemePreference.scheme = .quanpin
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
     controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     return controller

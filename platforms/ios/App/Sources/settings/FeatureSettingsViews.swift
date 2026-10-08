@@ -2,123 +2,111 @@ import AudioToolbox
 import SwiftUI
 import UIKit
 
+/// 皮肤：设计稿里键盘缩略图的两列网格（dc.html 主题页），每个目录主题一格，外加 AI 设计皮肤一格，下面是一个短分组，放自定义设计器、社区和外观页。
 struct SkinSettingsView: View {
   @EnvironmentObject private var navigation: AppNavigation
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.colorScheme) private var colorScheme
   @AppStorage(CustomKeyboardSkinStore.key, store: KeyboardFeedbackPreference.defaults)
   private var customSkinData = Data()
   @AppStorage(GlobalThemePreference.key, store: KeyboardFeedbackPreference.defaults)
   private var skin = GlobalThemeCatalog.systemId
-  /// Every theme of the catalog as the shared document configures it, so the custom card shows the custom theme's base and design.
+  /// 目录里的每个主题都按共享文档的配置给出，好让自定义那一格显示自定义主题的基础主题和设计。
   @State private var themeCards: [KeyboardTheme] = GlobalThemeCatalog.ids.map { KeyboardTheme.resolve($0, document: nil) }
   @State private var customBase = GlobalThemeCatalog.systemId
-  @State private var previewsNineKey = InputSchemePreference.scheme == .nineKey
-  @State private var previewsDark = false
   @State private var savedDesigns = CustomSkinLibrary.designs.count
-  @State private var themes: [String: String] = [:]
-  @State private var themeSaveFailed = false
   @State private var skinSaveFailed = false
-  @Environment(\.horizontalSizeClass) private var sizeClass
-  @Environment(\.colorScheme) private var colorScheme
-  /// The shared document as last read, for the candidate preview at the top.
-  @State private var document: [String: Any]?
+
+  private static let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
+  /// 设计稿中的键盘缩略图是 390 × 292。
+  private static let tileAspect: CGFloat = 390 / 292
 
   var body: some View {
-    Form {
-      Section {
-        CandidatePreviewCard(theme: selectedTheme, document: document, systemDark: colorScheme == .dark)
-      }
-      .listRowBackground(Color.clear)
-      .listRowInsets(EdgeInsets())
-      Section {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
-          ForEach(themeCards, id: \.id) { themeCard($0) }
+    ScrollView {
+      VStack(alignment: .leading, spacing: 28) {
+        VStack(alignment: .leading, spacing: 7) {
+          Text("皮肤").font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
+            .padding(.horizontal, 20)
+            .accessibilityAddTraits(.isHeader)
+          LazyVGrid(columns: Self.columns, spacing: 18) {
+            ForEach(themeCards, id: \.id) { themeTile($0) }
+            aiTile
+          }
+          .padding(4)
+          if skinSaveFailed {
+            Text("主题没有保存，键盘可能正在写入同一份设置，请再试一次。")
+              .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.danger)
+              .padding(.horizontal, 20)
+          }
         }
-        .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets())
-      } header: {
-        Text("皮肤")
-      } footer: {
-        Text(skinSaveFailed
-          ? "主题没有保存，键盘可能正在写入同一份设置，请再试一次。"
-          : "主题同时决定键盘和候选栏的配色，与电脑版同步。选择后预览立即更新，下次打开水杉键盘时应用。内置主题有固定的明暗，跟随系统和未设底色的自定义主题随「高级 · 明暗」里的键盘明暗切换。自定义主题当前以「\(GlobalThemeCatalog.title(customBase))」为底。")
+        DesignGroup {
+          NavigationLink(destination: CustomSkinEditorView()) {
+            DesignNavRowLabel(title: "设计我的皮肤",
+                              subtitle: savedDesigns == 0 ? "还没有命名保存的方案" : "本机保存了 \(savedDesigns) 套方案")
+          }
+          .buttonStyle(PressFillButtonStyle())
+          .accessibilityIdentifier("customSkinEditorLink")
+          DesignDivider()
+          Button { navigation.discoverSkins() } label: { DesignNavRowLabel(title: "去社区找皮肤") }
+            .buttonStyle(PressFillButtonStyle())
+            .accessibilityIdentifier("skinCommunityLink")
+          DesignDivider()
+          NavigationLink(destination: SkinAppearanceSettingsView()) {
+            DesignNavRowLabel(title: "明暗与候选颜色")
+          }
+          .buttonStyle(PressFillButtonStyle())
+          .accessibilityIdentifier("skinAppearanceLink")
+        }
       }
-      Section {
-        NavigationLink(destination: CustomSkinEditorView()) {
-          SettingsRowLabel(title: "设计我的皮肤",
-                           detail: savedDesigns == 0 ? "还没有命名保存的方案" : "本机保存了 \(savedDesigns) 套方案",
-                           symbol: "paintbrush.pointed.fill")
-        }.accessibilityIdentifier("customSkinEditorLink")
-        Button { navigation.discoverSkins() } label: { Label("去社区找皮肤", systemImage: "square.grid.2x2") }
-          .accessibilityIdentifier("skinCommunityLink")
-      } header: {
-        Text("自定义主题")
-      }
-      CustomThemeCandidateSection(onThemeChange: reloadThemes)
-      Section("完整键盘预览") {
-        Picker("键盘布局", selection: $previewsNineKey) {
-          Text("26 键").tag(false)
-          Text("9 键").tag(true)
-        }.pickerStyle(.segmented).accessibilityIdentifier("skinPreviewLayout")
-        KeyboardSkinPreview(skin: selectedTheme, nineKey: previewsNineKey)
-          .id(customSkinData)
-          .environment(\.colorScheme, previewScheme)
-          .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
-        Toggle("预览深色外观", isOn: $previewsDark)
-          .accessibilityIdentifier("skinPreviewDark")
-      }
-      appearanceSection
+      .padding(.horizontal, 16)
+      .padding(.top, 16)
+      .padding(.bottom, 32)
     }
-    .navigationTitle("主题")
+    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .navigationTitle("皮肤")
     .navigationBarTitleDisplayMode(.inline)
     .onAppear { savedDesigns = CustomSkinLibrary.designs.count; reloadThemes() }
-    .onChange(of: scenePhase) { if $0 == .active { savedDesigns = CustomSkinLibrary.designs.count; reloadThemes() } }
+    .onChange(of: scenePhase) { _, phase in
+      if phase == .active { savedDesigns = CustomSkinLibrary.designs.count; reloadThemes() }
+    }
   }
 
-  /// One card of the design's theme grid (dc.html L769-783): a 72pt swatch holding a candidate panel, then the name and 使用中 on the selected card, which also carries the accent ring.
-  private func themeCard(_ option: KeyboardTheme) -> some View {
+  /// 一格：主题的键盘缩略图（带空闲状态的工具栏），选中时外圈描强调色，名字在下方。
+  private func themeTile(_ option: KeyboardTheme) -> some View {
     let selected = skin == option.id
-    let swatch = swatchColors(option)
+    let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
     return Button {
       skinSaveFailed = !GlobalThemePreference.save(option.id)
-      if !skinSaveFailed { reloadThemes() }
+      if !skinSaveFailed {
+        // 换装达人：每个换上的主题只计一次，与 Android SkinsPage 记录卡片的方式相同。
+        TypingStatisticsExtras.recordSkin(option.id)
+        reloadThemes()
+      }
     } label: {
-      VStack(alignment: .leading, spacing: 8) {
-        ZStack {
-          if swatch.preview == nil {
-            KeyboardSkinBackdrop(skin: option)
-          } else {
-            Color(uiColor: swatch.background)
+      VStack(spacing: 8) {
+        KeyboardSkinPreview(skin: option, nineKey: false, topStrip: .toolbar([.emoji, .phrases, .clipboard, .skin, .scheme]),
+                            letterHints: true)
+          .id(option.isCustom ? customSkinData : Data())
+          .environment(\.colorScheme, tileScheme(option))
+          .aspectRatio(Self.tileAspect, contentMode: .fit)
+          .clipShape(shape)
+          .overlay {
+            if selected {
+              shape.inset(by: -1).stroke(MetasequoiaTheme.canvas, lineWidth: 2)
+              shape.inset(by: -3).stroke(MetasequoiaTheme.accent, lineWidth: 2)
+            } else {
+              shape.strokeBorder(MetasequoiaTheme.hair, lineWidth: 1)
+            }
           }
-          HStack(spacing: 8) {
-            Text("1 候选").foregroundStyle(Color(uiColor: swatch.accent))
-            Text("2 侯选").foregroundStyle(Color(uiColor: swatch.text))
-          }
-          .font(.system(size: 13)).lineLimit(1).fixedSize()
-          .padding(.vertical, 5).padding(.horizontal, 9)
-          .background(RoundedRectangle(cornerRadius: 4).fill(Color(uiColor: swatch.panel)))
-          .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+        HStack(spacing: 4) {
+          if selected { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)) }
+          Text(option.title).font(.system(size: 15, weight: selected ? .semibold : .regular)).lineLimit(1)
         }
-        .frame(height: 72).frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .environment(\.colorScheme, cardScheme(option))
-        HStack {
-          Text(option.title).foregroundStyle(.primary)
-          Spacer(minLength: 4)
-          if selected { Text("使用中").font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.accent) }
-        }
-        .font(.system(size: 13)).padding(.horizontal, 2)
+        .foregroundStyle(selected ? MetasequoiaTheme.accent : Color.primary)
       }
-      .padding(8)
-      .background(RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous).fill(MetasequoiaTheme.surface))
-      .overlay {
-        if selected {
-          RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous).strokeBorder(MetasequoiaTheme.accent, lineWidth: 2)
-        }
-      }
-      .contentShape(RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous))
+      .contentShape(Rectangle())
     }
-    .buttonStyle(.plain)
+    .buttonStyle(SkinTilePressStyle())
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(option.title)
     .accessibilityHint(description(option))
@@ -127,228 +115,67 @@ struct SkinSettingsView: View {
     .accessibilityValue(selected ? "已选择" : "未选择")
   }
 
-  /// A built-in theme shows the catalog's preview colours; `system` and the custom theme have none, so they show their keyboard colours (and the design's backdrop) in the mode they preview in.
-  private func swatchColors(_ option: KeyboardTheme) -> (preview: GlobalThemeEntry.Preview?, background: UIColor, panel: UIColor, accent: UIColor, text: UIColor) {
-    if !option.isCustom, let preview = GlobalThemeCatalog.entry(option.id)?.preview {
-      return (preview, preview.background, preview.panel, preview.accent, preview.text)
+  /// 最后一格打开 AI 设计器：accentSoft 底上画强调色虚线轮廓，宽高比与缩略图相同。
+  private var aiTile: some View {
+    let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+    return NavigationLink(destination: AISkinDesignView()) {
+      VStack(spacing: 8) {
+        // 一个缩略图宽高比的透明框决定这一格的尺寸；内容居中放在上面。
+        Color.clear
+          .aspectRatio(Self.tileAspect, contentMode: .fit)
+          .frame(maxWidth: .infinity)
+          .background(MetasequoiaTheme.accentSoft, in: shape)
+          .overlay(shape.strokeBorder(MetasequoiaTheme.accent, style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
+          .overlay {
+            VStack(spacing: 8) {
+              Image(systemName: "sparkles").font(.system(size: 26))
+              Text("描述一句话生成").font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(MetasequoiaTheme.accent)
+          }
+        Text("AI 设计皮肤").font(.system(size: 15)).foregroundStyle(MetasequoiaTheme.accent).lineLimit(1)
+      }
+      .contentShape(Rectangle())
     }
-    let traits = UITraitCollection(userInterfaceStyle: cardScheme(option) == .dark ? .dark : .light)
-    return (nil, option.background.resolvedColor(with: traits), option.keyBackground.resolvedColor(with: traits),
-            option.accent.resolvedColor(with: traits), option.keyForeground.resolvedColor(with: traits))
+    .buttonStyle(SkinTilePressStyle())
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("AI 设计皮肤")
+    .accessibilityHint("描述一句话生成皮肤")
+    .accessibilityAddTraits(.isButton)
+    .accessibilityIdentifier("aiSkinDesignTile")
   }
 
-  private func cardScheme(_ option: KeyboardTheme) -> ColorScheme {
+  /// 固定模式的主题按该模式预览；`system` 和没有基础主题的自定义主题跟随应用外观。
+  private func tileScheme(_ option: KeyboardTheme) -> ColorScheme {
     switch option.appearance {
     case .dark: .dark
     case .light: .light
-    default: previewScheme
-    }
-  }
-
-  /// 「键盘明暗」 from the shared document (see KeyboardAppearancePreference). iPad lists the panels beside the keyboard; the phone folds them away, since most people only ever set the keyboard.
-  private var appearanceSection: some View {
-    Section {
-      Picker("颜色模式", selection: theme(AppAppearancePreference.globalKey, fallback: "system")) {
-        ForEach(AppAppearancePreference.globalOptions, id: \.id) { Text($0.title).tag($0.id) }
-      }.accessibilityIdentifier("globalTheme")
-      Picker("设置界面", selection: theme(AppAppearancePreference.settingsKey)) {
-        ForEach(AppAppearancePreference.settingsOptions, id: \.id) { Text($0.title).tag($0.id) }
-      }.accessibilityIdentifier("settingsTheme")
-      Picker("键盘", selection: theme(KeyboardAppearancePreference.keyboardKey)) {
-        ForEach(KeyboardAppearancePreference.options, id: \.id) { Text($0.title).tag($0.id) }
-      }.accessibilityIdentifier("keyboardTheme")
-      if sizeClass == .regular {
-        panelPickers
-      } else {
-        DisclosureGroup("面板明暗") { panelPickers }.accessibilityIdentifier("keyboardPanelThemes")
-      }
-    } header: {
-      Text("高级 · 明暗")
-    } footer: {
-      Text(themeSaveFailed
-        ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
-        : "与电脑版的颜色模式、设置界面、屏幕键盘、手写、表情和语音主题同步。颜色模式是各处选“跟随”时的默认值；设置界面就是这个 App，立即生效。键盘选“跟随系统”时先看颜色模式，再跟随当前 App 的外观；面板选“跟随键盘”时和键盘一致。键盘和面板下次打开水杉键盘时应用。")
-    }
-  }
-
-  private var panelPickers: some View {
-    ForEach(KeyboardAppearancePreference.panels, id: \.key) { panel in
-      Picker(panel.title, selection: theme(panel.key)) {
-        ForEach(KeyboardAppearancePreference.panelOptions, id: \.id) { Text($0.title).tag($0.id) }
-      }.accessibilityIdentifier(panel.key)
-    }
-  }
-
-  private func theme(_ key: String, fallback: String = "follow") -> Binding<String> {
-    Binding(get: { themes[key] ?? fallback }, set: { value in
-      themes[key] = value
-      themeSaveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = value }
-      if themeSaveFailed { reloadThemes() }
-      if key == AppAppearancePreference.globalKey || key == AppAppearancePreference.settingsKey {
-        NotificationCenter.default.post(name: AppAppearancePreference.didChange, object: nil)
-      }
-      // The preview shows what the keyboard will draw, so an explicit keyboard theme turns it to match.
-      if key == KeyboardAppearancePreference.keyboardKey, value != "follow" { previewsDark = value == "dark" }
-    })
-  }
-
-  private var selectedTheme: KeyboardTheme {
-    themeCards.first { $0.id == skin } ?? KeyboardTheme.resolve(skin, document: nil)
-  }
-
-  /// A theme with a fixed mode previews in it; `system` and a custom theme without a base follow the preview toggle.
-  private var previewScheme: ColorScheme {
-    switch selectedTheme.appearance {
-    case .dark: .dark
-    case .light: .light
-    default: previewsDark ? .dark : .light
+    default: colorScheme
     }
   }
 
   private func description(_ theme: KeyboardTheme) -> String {
-    if theme.id == GlobalThemeCatalog.systemId { return "iOS 原生键盘配色，随明暗切换" }
+    if theme.id == GlobalThemeCatalog.systemId { return "跟随系统明暗和应用主题的季节配色" }
     if theme.isCustom {
       let base = GlobalThemeCatalog.title(customBase)
-      return theme.design == nil ? "以「\(base)」为底，外部皮肤和候选颜色在下方「外部皮肤与候选颜色」里调整" : "我的键盘设计，以「\(base)」为底"
+      return theme.design == nil ? "以「\(base)」为底，候选颜色在「明暗与候选颜色」里调整" : "我的键盘设计，以「\(base)」为底"
     }
     return theme.appearance == .dark ? "固定深色，键盘和候选栏同一套配色" : "固定浅色，键盘和候选栏同一套配色"
   }
 
   private func reloadThemes() {
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
-    document = preferences
     themeCards = GlobalThemeCatalog.ids.map { KeyboardTheme.resolve($0, document: preferences) }
     customBase = GlobalThemePreference.base(in: preferences)
-    let keys = [AppAppearancePreference.settingsKey, KeyboardAppearancePreference.keyboardKey] + KeyboardAppearancePreference.panels.map(\.key)
-    themes = keys.reduce(into: [:]) { themes, key in themes[key] = preferences[key] as? String ?? "follow" }
-    themes[AppAppearancePreference.globalKey] = preferences[AppAppearancePreference.globalKey] as? String ?? "system"
   }
 }
 
-/// 输入习惯 is saved into the shared preference document (see InputHabitPreference), which the keyboard reloads the next time it appears; phone and iPad show the same controls.
-struct DictionarySettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
-  @State private var habits = InputHabitPreference.mirrored
-  @State private var saveFailed = false
-  private var manifest: [String: Any] {
-    guard let url = Bundle.main.url(forResource: "msime-dictionary-manifest", withExtension: "json"),
-          let data = try? Data(contentsOf: url),
-          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
-    return object
-  }
-  var body: some View {
-    Form {
-      Section {
-        Toggle("学习常用词", isOn: habit(\.learning))
-          .accessibilityIdentifier("dictionaryLearningToggle")
-        Picker("调频方式", selection: habit(\.frequencyMode)) {
-          ForEach(FrequencyAdjustmentMode.allCases, id: \.self) { mode in
-            Text(mode.title).tag(mode)
-          }
-        }
-        .accessibilityIdentifier("frequencyAdjustmentModePicker")
-        .disabled(!habits.learning)
-        Picker("触发频次", selection: habit(\.triggerCount)) {
-          ForEach(FrequencyAdjustmentPreference.countRange, id: \.self) { Text("\($0)").tag($0) }
-        }
-        .accessibilityIdentifier("frequencyAdjustmentTriggerPicker")
-        .disabled(!habits.learning || habits.frequencyMode == .disabled)
-        Picker("线性调频步长", selection: habit(\.linearStep)) {
-          ForEach(FrequencyAdjustmentPreference.countRange, id: \.self) { Text("\($0)").tag($0) }
-        }
-        .accessibilityIdentifier("frequencyAdjustmentLinearStepPicker")
-        .disabled(!habits.learning || habits.frequencyMode != .linear)
-        Toggle("显示英文释义", isOn: habit(\.glossEnabled))
-          .accessibilityIdentifier("candidateGlossToggle")
-        if habits.glossEnabled {
-          Picker("第一种语言", selection: habit(\.primaryLanguage)) {
-            ForEach(Array(CandidateTranslationPreference.languages.enumerated()), id: \.offset) { index, language in
-              Text(language.title).tag(index)
-            }
-          }.accessibilityIdentifier("candidateTranslationPrimaryPicker")
-          Picker("第二种语言", selection: habit(\.secondaryLanguage)) {
-            Text("不显示").tag(-1)
-            ForEach(Array(CandidateTranslationPreference.languages.enumerated()), id: \.offset) { index, language in
-              Text(language.title).tag(index).disabled(index == habits.primaryLanguage)
-            }
-          }.accessibilityIdentifier("candidateTranslationSecondaryPicker")
-          Toggle("联网补充释义", isOn: habit(\.onlineTranslations))
-            .accessibilityIdentifier("candidateTranslationOnline")
-          NavigationLink(destination: TranslationProviderSettingsView()) {
-            Label("翻译服务", systemImage: "globe")
-          }.accessibilityIdentifier("translationProviderLink")
-          Text("离线词库只有英汉两个方向，其余语言以及词库答不上来的词要联网才有。只有在「翻译服务」里选了服务，键盘才会把当前页的中文候选词发给它，需要允许键盘完全访问。")
-            .font(.footnote).foregroundStyle(.secondary)
-        }
-        if saveFailed {
-          Text("设置没有保存，键盘可能正在写入同一份设置，请再试一次。")
-            .font(.footnote).foregroundStyle(.red)
-        }
-      } header: {
-        Text("输入习惯")
-      } footer: {
-        Text("开启后，引擎按所选调频方式调整候选排序，并学习支持的拼音组词。不调频保留词库原有顺序，只学习新词；一次置顶移到首位；折半移到当前名次与首位之间；线性按固定步数前移；一次置前把前五名前进一位、更靠后的提到第五名。触发频次是同一候选累计选中多少次后才调整一次。英文释义来自随键盘打包的离线词库，不联网。学习记录仅保存在设备上。关闭后停止新增学习，不清除已有记录；正在输入的内容结束后生效。")
-      }
-      Section {
-        NavigationLink(destination: PersonalDictionaryView()) {
-          Label("个人词库", systemImage: "text.badge.plus")
-        }.accessibilityIdentifier("personalDictionaryLink")
-        NavigationLink(destination: VocabularyReviewSettingsView()) {
-          Label("背单词", systemImage: "character.book.closed")
-        }.accessibilityIdentifier("vocabularyReviewSettingsLink")
-      }
-      Section("已安装词库") {
-        Label("内置离线多方案词库", systemImage: "checkmark.circle.fill")
-        Text("支持全拼 26 键、全拼 9 键、小鹤／自然码／微软／首道双拼、86／98 五笔、日语罗马字、韩语两套式、粤拼、大千注音（繁体输出）、越南语 Telex／VNI、藏文威利转写（EWTS）和笔画（横竖撇点折五键加通配）；粤拼、注音和笔画需要安装包里带有对应的语言词库，默认不启用，可在方案设置里打开；提供英文补全、快捷短语、表情及颜文字。")
-          .foregroundStyle(.secondary)
-        HStack {
-          Text("更新方式")
-          Spacer()
-          Text("随 App 更新").foregroundStyle(.secondary)
-        }
-      }
-      Section("词库信息") {
-        if let profile = manifest["profile"] as? String {
-          HStack { Text("规格"); Spacer(); Text(profile).foregroundStyle(.secondary) }
-        }
-        if let source = manifest["source"] as? [String: Any], let commit = source["commit"] as? String {
-          VStack(alignment: .leading, spacing: 6) {
-            Text("词库版本")
-            Text(String(commit.prefix(12))).font(.system(.footnote, design: .monospaced))
-              .foregroundStyle(.secondary)
-          }
-        }
-        Text("词库保存在设备上，日常输入不需要联网。已启用日语整句转换，支持罗马字输入、假名及汉字混合候选。")
-      }
-      Section("候选词管理") {
-        Label("长按候选词", systemImage: "hand.tap")
-        Text("全拼 26 键、九键、双拼和五笔支持长按候选词：优先显示、固定到前五位中的某一位、取消固定或删除词条。删除需要再次确认，单个汉字由引擎保护。")
-          .foregroundStyle(.secondary)
-        Text("日语、韩语、粤拼、注音、越南语、藏文、笔画和本地工具暂不支持候选词管理。第三方词库文件（词在前、编码在前或 Rime 格式）在「个人词库」的「导入个人词库」里导入。")
-          .foregroundStyle(.secondary)
-      }
-    }
-    .navigationTitle("词库")
-    .navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { if $0 == .active { reload() } }
-  }
-
-  private func reload() {
-    habits = InputHabitPreference.settings(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
-  }
-
-  /// A binding that saves one field; a failed save reloads so the control shows what is actually stored.
-  private func habit<Value>(_ field: WritableKeyPath<InputHabitSettings, Value>) -> Binding<Value> {
-    Binding(get: { habits[keyPath: field] }, set: { value in
-      if let saved = InputHabitPreference.update({ $0[keyPath: field] = value }) {
-        habits = saved
-        saveFailed = false
-      } else {
-        saveFailed = true
-        reload()
-      }
-    })
+/// 皮肤格按下时略微缩小，与设计稿的网格一致。
+private struct SkinTilePressStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .scaleEffect(configuration.isPressed ? 0.97 : 1)
+      .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
   }
 }
 
@@ -419,7 +246,7 @@ struct ServiceSettingsView: View {
               }
             }
         } footer: {
-          Text("开启后点击“保存配置”，即可在键盘“更多 → AI 润色”或工具栏的“高情商回复”按钮中使用。需要允许完全访问；每次发送前会预览文字。")
+          Text("开启后点击“保存配置”，即可在键盘功能菜单的“AI 润色”和“高情商回复”中使用。需要允许完全访问；每次发送前会预览文字。")
         }
         if keyboardAIEnabled {
           Section {
@@ -514,7 +341,7 @@ struct ServiceSettingsView: View {
             Button(voiceTransfer == nil ? "发送到键盘" : "更新待插入结果") {
               do {
                 voiceTransfer = try VoiceTextHandoffStore().save(output)
-                status = "已发送到本机键盘。返回目标 App，打开键盘“更多 → 语音结果”，确认后插入。"
+                status = "已发送到本机键盘。返回目标 App，打开键盘功能菜单里的“语音结果”，确认后插入。"
               } catch { status = error.localizedDescription }
             }.accessibilityIdentifier("sendVoiceToKeyboard")
           }
@@ -557,7 +384,7 @@ struct ServiceSettingsView: View {
         }.accessibilityIdentifier("serviceDismissKeyboard")
       }
     }
-    .tint(Color(uiColor: MetasequoiaTheme.forestUIColor))
+    .tint(MetasequoiaTheme.accent)
     .sheet(isPresented: $showsProviders) {
       ProviderPickerView(options: providerOptions, selected: selectedProviderID) { id in
         if kind == .ai, let provider = AIProviderPreset(rawValue: id) { selectProvider(provider) }
@@ -610,14 +437,14 @@ struct ServiceSettingsView: View {
       }
     } footer: {
       Text(configuration.voiceProvider == .local
-        ? "本地模型边说边显示文字；“自动识别”时由模型判断中文、英文、粤语等语言。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
+        ? "本地模型边说边显示文字；“普通话 + 英语”时由模型判断中文、英文、粤语等语言。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
         : configuration.voiceProvider == .system
-        ? "系统语音识别按这里的语言识别；选“自动识别”时使用 iPhone 的首选语言。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
+        ? "系统语音识别按这里的语言识别；选“普通话 + 英语”时使用 iPhone 的首选语言。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
         : configuration.voiceProvider == .doubao
         ? "豆包自动判断语言，不使用这里的选择。边说边识别时录音同步发给豆包，结果随说随显示，停止录音即得到结果；关掉则录完再发送。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
         : configuration.voiceProvider == .siliconFlow
         ? "当前服务自动判断语言，不使用这里的选择。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
-        : "识别语言随录音一起发送；选“自动识别”时由服务判断。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。")
+        : "识别语言随录音一起发送；选“普通话 + 英语”时由服务判断。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。")
     }
   }
 
@@ -834,7 +661,7 @@ struct ServiceSettingsView: View {
           Label("保存配置", systemImage: "checkmark.circle.fill").frame(maxWidth: .infinity)
         }
           .buttonStyle(.borderedProminent)
-          .tint(Color(uiColor: MetasequoiaTheme.forestUIColor))
+          .tint(MetasequoiaTheme.accent)
           .accessibilityIdentifier("saveServiceConfiguration")
         Button("删除此服务的密钥", role: .destructive) {
           do {
@@ -1023,6 +850,7 @@ struct ServiceSettingsView: View {
           generation: generation, doubaoClient: doubaoClient)
         try Task.checkCancellation()
         guard requestID == id else { return }
+        if kind == .voice { recordVoiceDuration(result) }
         try await deliver(result, polish: polish, id: id)
       } catch is CancellationError {
         if requestID == id { status = "已取消" }
@@ -1051,6 +879,17 @@ struct ServiceSettingsView: View {
       output = result
       status = "已完成"
     }
+  }
+
+  /// 动口不动手：一段录音转成文字后，把它的时长计入统计，每段录音只计一次，与 Android 记录已插入语音输入时长的做法相同。隐私模式下这里同样不记。
+  private func recordVoiceDuration(_ result: String) {
+    // 实时识别器可能在用户点停止录音之前就给出结果；调用方随后反正会丢弃这段录音，所以录音在这里结束，时长也就确定了。
+    if recorder.isRecording { recorder.stop() }
+    guard !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+          let milliseconds = recorder.takeRecordedMilliseconds(),
+          KeyboardPrivacyGate(incognito: KeyboardPrivacyPreference.incognito, credentialField: false).allows(.voiceDuration)
+    else { return }
+    TypingStatisticsExtras.recordVoice(milliseconds: milliseconds)
   }
 
   /// Doubao with 边说边识别 on, the only provider that can take audio before the recording ends.
@@ -1087,6 +926,7 @@ struct ServiceSettingsView: View {
         guard requestID == id else { return }
         recognizesLive = false
         liveText = ""
+        recordVoiceDuration(result)
         // The recording has been recognized; keeping it would offer to send it a second time.
         recorder.discard()
         busy = true
@@ -1145,6 +985,7 @@ struct ServiceSettingsView: View {
         guard requestID == id else { return }
         recognizesLive = false
         liveText = ""
+        recordVoiceDuration(result)
         // The recording has been recognized; keeping it would offer to recognize it a second time.
         recorder.discard()
         busy = true

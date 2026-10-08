@@ -170,9 +170,9 @@ struct AppIconSettingsView: View {
       }
       .frame(maxWidth: .infinity)
       .padding(.vertical, 20).padding(.horizontal, 10)
+      // 设计稿里的卡片放在季节卡片色上，没有边框也没有阴影；只有选中的图标带一圈主色描边。
       .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 22))
-      .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(
-        selected ? MetasequoiaTheme.accent : Color.primary.opacity(0.06), lineWidth: selected ? 2 : 1))
+      .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(selected ? MetasequoiaTheme.accent : .clear, lineWidth: 2))
       .contentShape(RoundedRectangle(cornerRadius: 22))
     }
     .buttonStyle(.plain)

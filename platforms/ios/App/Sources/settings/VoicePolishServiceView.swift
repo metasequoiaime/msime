@@ -31,8 +31,9 @@ struct VoicePolishServiceView: View {
           SettingsAutosaveStatus(autosave: autosave)
         }
       }
+      .designRow()
       if draft.separate {
-        Section("服务") {
+        Section {
           Picker("服务商", selection: Binding(get: { draft.provider }, set: { draft.select($0) })) {
             ForEach(AIProviderPreset.allCases, id: \.self) { Text($0.title).tag($0) }
           }
@@ -52,7 +53,10 @@ struct VoicePolishServiceView: View {
           SecureField("API Key（留空则保留已保存的）", text: $token)
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .accessibilityIdentifier("voicePolishToken")
+        } header: {
+          SettingsGroupHeader(title: "服务")
         }
+        .designRow()
         Section {
           Button { test() } label: {
             HStack {
@@ -66,8 +70,10 @@ struct VoicePolishServiceView: View {
         } footer: {
           if !status.isEmpty { Text(status).accessibilityIdentifier("voicePolishStatus") }
         }
+        .designRow()
       }
     }
+    .designPage()
     .navigationTitle("润色服务")
     .onChange(of: draft) { old, new in
       guard new != savedDraft || autosave.hasPending else { return }

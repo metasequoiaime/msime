@@ -45,7 +45,7 @@ targets:
   MSIMEApp:
     type: application
     platform: iOS
-    # 只放 INFOPLIST_KEY_* 表达不了的字典键：一个 URL scheme（键盘扩展里没有 UIApplication,它要打开本应用只能走一个自己注册的 scheme）和 ATS 的局域网例外。
+    # 只放 INFOPLIST_KEY_* 表达不了的字典键：一个 URL scheme（键盘扩展里没有 UIApplication,它要打开本应用只能走一个自己注册的 scheme）、ATS 的局域网例外和界面语言的声明。
     # 其余的键仍由 GENERATE_INFOPLIST_FILE 和下面的 INFOPLIST_KEY_* 合进来。
     info:
       path: App/Resources/Info.plist
@@ -57,6 +57,9 @@ targets:
         # AI 辅助可以连本机或局域网里的 http 模型服务（如 LM Studio），哪些地址能用由 SharedUI/core/AIEndpointPolicy.swift 判断，公网仍然只走 https。iOS 10 起 ATS 本来就不拦 IP 地址、无点主机名和 .local，这里显式写出来，免得以后有人加 ATS 配置时把它关掉；它不放开任何公网域名。
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # 界面只有中文，所以界面里内嵌的系统控件（Sign in with Apple、`ContentUnavailableView.search`、系统弹出面板）也要请求中文；不声明本地化时，不管设备语言是什么，它们都会回落到英文的开发区域。
+        CFBundleDevelopmentRegion: zh-Hans
+        CFBundleLocalizations: [zh-Hans]
     sources:
       - path: App/Sources
       - path: App/Services
@@ -278,6 +281,7 @@ targets:
       - path: App/Sources/dictionary/TauriPersonalDictionaryBridge.swift
       - path: App/Sources/settings/CandidateOptionsSettingsView.swift
       - path: App/Sources/settings/CandidatePreviewCard.swift
+      - path: App/Sources/app/DesignKit.swift
       - path: App/Sources/settings/IOSCloudSettings.swift
       - path: App/Sources/keyboard/KeyboardChatHistoryPolicy.swift
       - path: ../../shared/backend
@@ -333,6 +337,7 @@ targets:
       - path: App/Services/BoundedFileReader.swift
       - path: SharedUI/core/AIEndpointPolicy.swift
       - path: SharedUI/core/AppServicesBridge.swift
+      - path: SharedUI/core/AppThemePalette.swift
       - path: SharedUI/core/MetasequoiaTheme.swift
       - path: SharedUI/core/SharedNumber.swift
       - path: ../../shared/backend

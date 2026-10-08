@@ -69,9 +69,12 @@ struct CustomSkinEditorView: View {
   private func useCustomSkin() {
     documentWrite?.cancel()
     documentWrite = nil
-    if !GlobalThemePreference.apply(design) {
+    guard GlobalThemePreference.apply(design) else {
       message = "没能切换到我的皮肤，请稍后重试。"
+      return
     }
+    // 换装达人：已保存的设计按它的 id 计数，与 Android 我的设计卡片一致；未保存的按 `custom` 计数，与 Android 键盘对任意设计的计数方式一致。
+    TypingStatisticsExtras.recordSkin(saved.first { $0.design == design }?.id.uuidString ?? GlobalThemeCatalog.customId)
   }
   @AppStorage(GlobalThemePreference.key, store: KeyboardFeedbackPreference.defaults)
   private var selected = GlobalThemeCatalog.systemId

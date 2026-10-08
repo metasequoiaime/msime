@@ -85,7 +85,8 @@ final class OnboardingUITests: XCTestCase {
     let rows = app.sliders["appRowSpacingSlider"]
     XCTAssertTrue(keys.waitForExistence(timeout: 5))
     XCTAssertFalse(app.buttons["layoutPreset_msime"].exists)
-    let voice = app.switches["appVoiceShortcutSwitch"]
+    // 语音入口已移到 语音输入 → 启动方式，所以这一页上无论标识符是什么，都没有与它相关的开关。
+    XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "语音入口")).firstMatch.exists)
     func position(_ slider: XCUIElement) throws -> CGFloat {
       let raw = try XCTUnwrap(slider.value as? String)
       let value = try XCTUnwrap(Double(raw.replacingOccurrences(of: "%", with: "")))
@@ -94,9 +95,8 @@ final class OnboardingUITests: XCTestCase {
       let maximum = slider.identifier == "appKeySpacingSlider" ? 6.0 : 10.0
       return CGFloat((value - minimum) / (maximum - minimum))
     }
-    // The sliders sit at the top of the form and the voice switch below the fold, where the lazy form has not built it yet, so each visit handles the sliders first and then scrolls down to the switch.
     let originalKeys = try position(keys), originalRows = try position(rows)
-    // The spacing and the switch live in the app group and outlive the app, so a failure part way through would hand every later test (and the keyboard unit tests sharing the group) this test's values. A teardown block runs even when `continueAfterFailure = false` stops the test, which a `defer` does not promise, so the restore lives there; the normal path below still checks that the values go back.
+    // 间距存在 app group 里，比 app 本身活得久，测试中途失败就会把本测试的值留给之后的每个测试（以及共用这个 group 的键盘单元测试）。即使 `continueAfterFailure = false` 终止了测试，teardown block 也会执行，`defer` 不保证这一点，所以还原放在那里；下面的正常路径仍会检查这些值确实恢复了。
     let restore = SpacingRestore()
     addTeardownBlock { @MainActor in
       guard !restore.done else { return }
@@ -107,20 +107,10 @@ final class OnboardingUITests: XCTestCase {
       guard keys.waitForExistence(timeout: 5) else { return }
       keys.adjust(toNormalizedSliderPosition: originalKeys)
       rows.adjust(toNormalizedSliderPosition: originalRows)
-      if let originalVoice = restore.voice {
-        self.revealBelowKeyboardPreview(voice, in: app)
-        if voice.value as? String != originalVoice { voice.switches.firstMatch.tap() }
-      }
     }
     keys.adjust(toNormalizedSliderPosition: originalKeys > 0.5 ? 0 : 1)
     rows.adjust(toNormalizedSliderPosition: originalRows > 0.5 ? 0 : 1)
     let changedKeys = try position(keys), changedRows = try position(rows)
-    revealBelowKeyboardPreview(voice, in: app)
-    let originalVoice = voice.value as? String
-    restore.voice = originalVoice
-    voice.switches.firstMatch.tap()
-    let changedVoice = voice.value as? String
-    XCTAssertNotEqual(changedVoice, originalVoice)
 
     reachSettingsLink("keyboardLayoutLink", in: app)
     settingsEntry("keyboardLayoutLink", in: app).tap()
@@ -129,16 +119,11 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(try position(rows), changedRows, accuracy: 0.01)
     keys.adjust(toNormalizedSliderPosition: originalKeys)
     rows.adjust(toNormalizedSliderPosition: originalRows)
-    revealBelowKeyboardPreview(voice, in: app)
-    XCTAssertEqual(voice.value as? String, changedVoice)
-    voice.switches.firstMatch.tap()
-    XCTAssertEqual(voice.value as? String, originalVoice)
     restore.done = true
   }
 
-  /// What testKeyboardSpacingSettingsPersist has to put back, shared with its teardown block: the switch's first value is only known once the test has scrolled to it, and `done` skips the relaunch when the test restored everything itself.
+  /// `testKeyboardSpacingSettingsPersist` 是否已经把间距还原，与它的 teardown block 共享，测试通过时就不必再重新启动 app。
   private final class SpacingRestore: @unchecked Sendable {
-    var voice: String?
     var done = false
   }
 
@@ -174,7 +159,10 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["publishAISkin_AI 测试 1"].tap()
     XCTAssertTrue(app.navigationBars["发布皮肤"].waitForExistence(timeout: 5))
     XCTAssertTrue((app.textFields["皮肤名称（最多 32 字）"].value as? String)?.hasPrefix("AI 测试 1") == true)
-    XCTAssertFalse(app.buttons["confirmCommunitySkinPublication"].isEnabled, "Publication requires explicit consent")
+    // 发布按钮位于设计预览下方惰性表单的末尾，要滚动到那里才会存在。
+    let publish = app.buttons["confirmCommunitySkinPublication"]
+    for _ in 0..<6 where !publish.exists { scrollList(up: true, in: app) }
+    XCTAssertFalse(publish.isEnabled, "Publication requires explicit consent")
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "AI 生成皮肤的发布预览"; shot.lifetime = .deleteOnSuccess; add(shot)
     app.buttons["取消"].tap()
@@ -191,7 +179,9 @@ final class OnboardingUITests: XCTestCase {
     let first = app.buttons["communityResource-10000000-0000-4000-8000-000000000001"]
     XCTAssertTrue(first.waitForExistence(timeout: 5))
     let second = app.buttons["communityResource-10000000-0000-4000-8000-000000000002"]
-    XCTAssertEqual(first.frame.minY, second.frame.minY, accuracy: 2)
+    // 词库是叠在同一张卡片里的若干行，每行旁边有自己的 添加 胶囊按钮。
+    XCTAssertLessThanOrEqual(first.frame.maxY, second.frame.minY + 1)
+    XCTAssertTrue(app.buttons["communityResourceAdd-10000000-0000-4000-8000-000000000001"].exists)
     let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Community word packs"; shot.lifetime = .deleteOnSuccess; add(shot)
     first.tap()
     XCTAssertTrue(app.buttons["communityImportLocal"].waitForExistence(timeout: 5))
@@ -239,7 +229,7 @@ final class OnboardingUITests: XCTestCase {
     }
     XCTAssertTrue(app.buttons["desktopDownloadLink"].exists)
     app.buttons["aboutSettingsLink"].tap()
-    XCTAssertTrue(app.navigationBars["关于水杉"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["关于"].waitForExistence(timeout: 5))
   }
 
   @MainActor
@@ -248,17 +238,22 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "--keyboard-chat-ui-fixture"]
     app.launch()
     XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 5))
-    // The status card and the try-out row lead the page, with the first settings group under them.
+    // 搜索胶囊和状态卡片（内含 试用键盘 和两个 去开启 链接）位于页面顶部，第一个设置分组在它们下方。
+    XCTAssertTrue(app.descendants(matching: .any)["settingsSearchField"].exists)
     XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].exists)
+    XCTAssertTrue(app.buttons["openFullAccessSettingsButton"].exists)
     XCTAssertTrue(app.buttons["skinSettingsLink"].exists)
     XCTAssertFalse(app.buttons["keyboardSettingsLink"].exists)
     XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
     let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Keyboard home"; shot.lifetime = .deleteOnSuccess; add(shot)
-    // The rest sit further down a lazy list, so each is scrolled to before it is looked for.
-    for identifier in ["inputSettingsLink", "dictionarySettingsLink", "keyboardLayoutLink", "aiSettingsLink"] {
+    // 其余条目在页面更下方，所以查找前先逐个滚动到它们。
+    for identifier in ["inputSettingsLink", "expressionSettingsLink", "dictionarySettingsLink", "keyboardLayoutLink"] {
       reachSettingsLink(identifier, in: app)
     }
-    settingsEntry("aiSettingsLink", in: app).tap()
+    settingsEntry("expressionSettingsLink", in: app).tap()
+    XCTAssertTrue(app.navigationBars["表达"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.switches["englishPunctuationToggle"].exists)
+    openAISettings(app)
     XCTAssertTrue(app.navigationBars["AI 设置"].waitForExistence(timeout: 5))
     reachSettingsLink("keyboardTryoutLink", in: app)
     settingsEntry("keyboardTryoutLink", in: app).tap()
@@ -319,7 +314,7 @@ final class OnboardingUITests: XCTestCase {
                   "\(identifier) never became reachable: \(visible(app))")
   }
 
-  /// Scroll the current page, without leaving it, until the entry is clear of the bars, then tap it. The 主题 page leads with the candidate preview and the theme grid, so its links and preview controls sit below the fold on a phone.
+  /// 在当前页内滚动（不离开该页），直到条目不再被上下栏遮挡，然后点击它。皮肤 页以键盘缩略图网格开头，所以在手机上 AI 卡片和网格下方的链接都在首屏之外。
   @MainActor
   private func tapRevealed(_ identifier: String, in app: XCUIApplication) {
     XCTAssertTrue(scrollIntoView({ settingsEntry(identifier, in: app) }, in: app),
@@ -390,11 +385,20 @@ final class OnboardingUITests: XCTestCase {
       .joined(separator: " | ")
   }
 
+  /// AI 设置 从 键盘 页的 更多 分组（AI 润色与回复）进入，位于键盘预览和各设置分组下方。
   @MainActor
-  private func openKeyboardSettingsIfNeeded(_ app: XCUIApplication) {
+  private func openAISettings(_ app: XCUIApplication) {
+    reachSettingsLink("keyboardLayoutLink", in: app)
+    settingsEntry("keyboardLayoutLink", in: app).tap()
     let entry = app.buttons["aiSettingsLink"]
-    guard entry.exists else { return }
-    for _ in 0..<4 { if entry.isHittable { break }; app.swipeUp() }
+    XCTAssertTrue(app.sliders["appKeySpacingSlider"].waitForExistence(timeout: 5))
+    for _ in 0..<12 {
+      if clearOfBars(entry, in: app) { break }
+      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.84))
+      start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.5)))
+    }
+    XCTAssertTrue(clearOfBars(entry, in: app), "aiSettingsLink never scrolled into view: \(visible(app))")
+    entry.tap()
   }
 
   @MainActor
@@ -409,11 +413,15 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(app.tabBars.buttons.count, 4)
     app.tabBars.buttons["统计"].tap()
     XCTAssertTrue(app.navigationBars["统计"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.segmentedControls["statisticsTab"].exists)
+    XCTAssertTrue(app.buttons["statisticsTab-0"].exists)
     app.tabBars.buttons["我的"].tap()
     XCTAssertTrue(app.buttons["accountAppIcon"].waitForExistence(timeout: 5))
     app.tabBars.buttons["设置"].tap()
     XCTAssertTrue(app.navigationBars["输入"].exists)
+    // 设置 正在显示时再次点击它会回到根页面，与 Android 的标签栏一致。
+    app.tabBars.buttons["设置"].tap()
+    XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["inputSettingsLink"].exists)
     let attachment = XCTAttachment(screenshot: app.screenshot())
     attachment.name = "Independent bottom tabs"
     attachment.lifetime = .deleteOnSuccess
@@ -436,7 +444,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertFalse(app.navigationBars["皮肤详情"].exists)
     app.buttons["communityCategory-2"].tap()
     app.tabBars.buttons["设置"].tap()
-    XCTAssertTrue(app.navigationBars["主题"].exists)
+    XCTAssertTrue(app.navigationBars["皮肤"].exists)
     tapRevealed("skinCommunityLink", in: app)
     XCTAssertTrue(app.buttons["communitySkinCard-20000000-0000-4000-8000-000000000001"].exists)
     app.tabBars.buttons["设置"].tap()
@@ -463,17 +471,19 @@ final class OnboardingUITests: XCTestCase {
     let login = app.buttons["登录使用 AI"]
     XCTAssertTrue(login.waitForExistence(timeout: 8))
     login.tap()
-    XCTAssertTrue(app.navigationBars["登录水杉"].waitForExistence(timeout: 5))
+    // 登录弹窗没有导航栏：它自己的页头放着 登录水杉 和关闭按钮。
+    XCTAssertTrue(app.descendants(matching: .any)["accountLoginSheet"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["登录水杉"].exists)
     XCTAssertFalse(app.buttons["accountLocalDesigns"].exists)
     XCTAssertFalse(app.buttons["aboutSettingsLink"].exists)
-    app.navigationBars["登录水杉"].buttons["取消"].tap()
+    app.buttons["accountLoginClose"].tap()
     XCTAssertTrue(app.navigationBars["试用键盘"].waitForExistence(timeout: 5))
     app.navigationBars.buttons.firstMatch.tap()
     XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["keyboardTryoutLink"].exists)
   }
 
-  /// 用户点完「获取验证码」要切到邮箱 App 去看验证码。回来时登录弹窗必须还在，填过的邮箱也还在，否则又得重新获取一遍。
+  /// 用户点完「发送验证码」要切到邮箱 App 去看验证码。回来时登录面板必须还在，填过的邮箱也还在，否则又得重新获取一遍。
   @MainActor
   func testCodeLoginKeepsTargetAcrossBackgrounding() throws {
     let app = XCUIApplication()
@@ -482,6 +492,13 @@ final class OnboardingUITests: XCTestCase {
     app.tabBars.buttons["我的"].tap()
     let loginAlert = app.alerts["账号与登录"]
     if loginAlert.waitForExistence(timeout: 5) { loginAlert.buttons["好"].tap() }
+    // 未登录时点资料卡打开登录面板，邮箱表单在面板里原地展开。
+    let card = app.buttons["accountProfileCard"]
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+    guard card.label == "未登录，点按登录" else { throw XCTSkip("模拟器上已有登录会话") }
+    card.tap()
+    let sheet = app.descendants(matching: .any)["accountLoginSheet"]
+    XCTAssertTrue(sheet.waitForExistence(timeout: 5))
     let emailLogin = app.buttons["backendCodeLogin_email"]
     guard emailLogin.waitForExistence(timeout: 10) else { throw XCTSkip("账号服务没有提供邮箱登录") }
     emailLogin.tap()
@@ -494,7 +511,7 @@ final class OnboardingUITests: XCTestCase {
     app.activate()
     XCTAssertTrue(app.wait(for: .runningForeground, timeout: 5))
 
-    XCTAssertTrue(app.navigationBars["邮箱登录"].waitForExistence(timeout: 5))
+    XCTAssertTrue(sheet.waitForExistence(timeout: 5))
     XCTAssertEqual(app.textFields["backendCodeTarget"].value as? String, "tester@example.com")
   }
 
@@ -609,7 +626,23 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.tabBars.buttons["设置"].waitForExistence(timeout: 5))
     XCTAssertFalse(app.buttons["nextOnboardingButton"].exists)
     app.buttons["inputSettingsLink"].tap()
-    XCTAssertEqual(app.buttons["inputScheme_nineKey"].value as? String, "已选择")
+    XCTAssertTrue(openSchemeSheet(.mandarin, in: app))
+    XCTAssertTrue(app.buttons["inputScheme_nineKey"].isSelected)
+    app.buttons["designOptionSheetCancel"].tap()
+  }
+
+  /// 输入 页 语言与方案 卡片里的各语言，以其行标识符的后缀表示。
+  private enum InputLanguageRow: String {
+    case mandarin, japanese
+  }
+
+  /// 在 输入 页打开某个语言的选项弹窗，该语言的每个方案都是一个 `inputScheme_<raw>` 选项；双拼 和 五笔 会再打开第二层弹窗。
+  @MainActor
+  private func openSchemeSheet(_ language: InputLanguageRow, in app: XCUIApplication) -> Bool {
+    let row = app.buttons["inputLanguage_\(language.rawValue)"]
+    guard row.waitForExistence(timeout: 5) else { return false }
+    row.tap()
+    return app.buttons["designOptionSheetCancel"].waitForExistence(timeout: 5)
   }
 
   @MainActor
@@ -675,6 +708,10 @@ final class OnboardingUITests: XCTestCase {
     app.launch()
     reachSettingsLink("voiceSettingsLink", in: app)
     settingsEntry("voiceSettingsLink", in: app).tap()
+    // 语音输入 是简短的设计页；录音和 发送到键盘 仍留在 识别服务 下的服务页上。
+    XCTAssertTrue(app.navigationBars["语音输入"].waitForExistence(timeout: 5))
+    app.buttons["voiceServiceLink"].tap()
+    XCTAssertTrue(app.navigationBars["语音设置"].waitForExistence(timeout: 5))
     XCTAssertFalse(app.staticTexts["等待键盘插入"].exists)
     for _ in 0..<8 {
       if app.buttons["sendVoiceToKeyboard"].isHittable { break }
@@ -723,8 +760,7 @@ final class OnboardingUITests: XCTestCase {
       "-service.ai.endpoint", "https://keyboard-ai-fixture.invalid/v1/chat/completions",
       "-service.ai.model", "fixture"]
     func openAI() {
-      openKeyboardSettingsIfNeeded(app)
-    app.buttons["aiSettingsLink"].tap()
+      openAISettings(app)
       for _ in 0..<6 {
         if app.switches["keyboardAIEnabled"].isHittable { break }
         app.swipeUp()
@@ -787,7 +823,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["1 项等待键盘同步"].waitForExistence(timeout: 5))
     app.terminate()
     app.launch()
-    openKeyboardSettingsIfNeeded(app)
+    reachSettingsLink("dictionarySettingsLink", in: app)
     app.buttons["dictionarySettingsLink"].tap()
     app.buttons["personalDictionaryLink"].tap()
     XCTAssertTrue(app.staticTexts["1 项等待键盘同步"].waitForExistence(timeout: 5))
@@ -1034,20 +1070,20 @@ final class OnboardingUITests: XCTestCase {
   func testHapticStrengthPreviewAndPersistence() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    // 按键反馈从 输入 移到了 键盘 页的 按键反馈 分组，位于键盘预览下方。
     func openFeedback() {
-      app.buttons["inputSettingsLink"].tap()
-      for _ in 0..<5 {
-        if app.switches["keyboardHapticsToggle"].isHittable { break }
-        app.swipeUp()
-      }
+      reachSettingsLink("keyboardLayoutLink", in: app)
+      settingsEntry("keyboardLayoutLink", in: app).tap()
+      XCTAssertTrue(app.sliders["appKeySpacingSlider"].waitForExistence(timeout: 5))
+      revealBelowKeyboardPreview(app.switches["keyboardHapticsToggle"], in: app)
     }
     app.launch()
     openFeedback()
     let toggle = app.switches["keyboardHapticsToggle"]
     let initiallyEnabled = toggle.value as? String == "1"
     if !initiallyEnabled { toggle.switches.firstMatch.tap() }
-    app.swipeUp()
-    let picker = app.segmentedControls["keyboardHapticStrengthPicker"]
+    // 振动强度 是选择行：它的值就是强度，点击会打开选项弹窗。
+    let picker = app.buttons["keyboardHapticStrengthPicker"]
     let appeared = picker.waitForExistence(timeout: 5)
     if !appeared {
       let failure = XCTAttachment(screenshot: app.screenshot())
@@ -1055,19 +1091,27 @@ final class OnboardingUITests: XCTestCase {
       add(failure)
     }
     XCTAssertTrue(appeared)
-    let previous = picker.buttons.allElementsBoundByIndex.first { $0.isSelected }?.label ?? "中"
-    picker.buttons["强"].tap()
+    revealBelowKeyboardPreview(picker, in: app)
+    let previous = picker.value as? String ?? "中"
+    picker.tap()
+    XCTAssertTrue(app.buttons["designOptionSheetCancel"].waitForExistence(timeout: 5))
+    app.buttons["强"].tap()
+    XCTAssertTrue(wait(picker, until: "value == '强'"))
+    revealBelowKeyboardPreview(app.buttons["previewKeyboardHaptics"], in: app)
     app.buttons["previewKeyboardHaptics"].tap()
     app.terminate()
     app.launch()
     openFeedback()
-    app.swipeUp()
-    XCTAssertTrue(picker.buttons["强"].isSelected)
+    revealBelowKeyboardPreview(picker, in: app)
+    XCTAssertEqual(picker.value as? String, "强")
     let attachment = XCTAttachment(screenshot: app.screenshot())
     attachment.name = "Haptic strength settings"
     attachment.lifetime = .deleteOnSuccess
     add(attachment)
-    picker.buttons[previous].tap()
+    picker.tap()
+    XCTAssertTrue(app.buttons["designOptionSheetCancel"].waitForExistence(timeout: 5))
+    app.buttons[previous].tap()
+    XCTAssertTrue(wait(picker, until: "value == '\(previous)'"))
     if !initiallyEnabled { toggle.switches.firstMatch.tap() }
   }
 
@@ -1095,26 +1139,36 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.tabBars.buttons["统计"].tap()
-    // The period switch is gone: each statistic now has its own tab, drawn as the shape its own
-    // question wants rather than four copies of one bar.
-    let tabs = app.segmentedControls["statisticsTab"]
-    XCTAssertTrue(tabs.waitForExistence(timeout: 5))
-    for title in ["类型", "模式", "方案", "趋势"] { tabs.buttons[title].tap() }
-    let day = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "statisticsDay_")).firstMatch
-    XCTAssertTrue(day.waitForExistence(timeout: 3), app.debugDescription)
-    day.tap()
-    XCTAssertTrue(app.buttons["返回累计"].waitForExistence(timeout: 3))
-    app.buttons["返回累计"].tap()
+    // 概览 / 习惯 / 按键 / 成就，每个分段都是设计稿圆角分段控件里的一个按钮。
+    let overview = app.buttons["statisticsTab-0"]
+    XCTAssertTrue(overview.waitForExistence(timeout: 5))
+    XCTAssertTrue(overview.isSelected)
+    for index in 1...3 {
+      let tab = app.buttons["statisticsTab-\(index)"]
+      tab.tap()
+      XCTAssertTrue(wait(tab, until: "isSelected == true"))
+    }
     let top = XCTAttachment(screenshot: app.screenshot())
-    top.name = "统计趋势与字符分布"
+    top.name = "统计成就"
     top.lifetime = .deleteOnSuccess
     add(top)
-    app.swipeUp()
-    app.swipeUp()
+    // 按键分段让热力图在 26 键和九键键盘之间切换。
+    app.buttons["statisticsTab-2"].tap()
+    let nineKey = app.buttons["statisticsKeyLayout-1"]
+    if nineKey.waitForExistence(timeout: 3) {
+      nineKey.tap()
+      XCTAssertTrue(wait(nineKey, until: "isSelected == true"))
+    }
+    // 逐日明细表移到了菜单里的 按日明细 后面。
+    app.buttons["statisticsMenu"].tap()
+    app.buttons["typingDailyDetailsMenu"].tap()
+    XCTAssertTrue(app.navigationBars["按日明细"].waitForExistence(timeout: 5))
     let detail = XCTAttachment(screenshot: app.screenshot())
-    detail.name = "统计语言与输入方案"
+    detail.name = "统计按日明细"
     detail.lifetime = .deleteOnSuccess
     add(detail)
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(app.navigationBars["统计"].waitForExistence(timeout: 5))
   }
 
   @MainActor
@@ -1123,8 +1177,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-service.ai.provider", "custom",
       "-service.ai.endpoint", "https://catalog-no-key.invalid/v1/chat/completions", "-service.ai.model", ""]
     app.launch()
-    openKeyboardSettingsIfNeeded(app)
-    app.buttons["aiSettingsLink"].tap()
+    openAISettings(app)
     let fetch = app.buttons["fetchServiceModels"]
     XCTAssertTrue(fetch.waitForExistence(timeout: 5))
     fetch.tap()
@@ -1132,33 +1185,63 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.textFields["serviceModel"].exists)
   }
 
+  /// 表达 → 常用语 写入的正是键盘 常用语 面板所列的存储：在这里添加的短语会显示在页面上，滑动删除后又会被移除，所以测试结束时存储与开始时一致。
   @MainActor
-  func testSkinShowsFullKeyboardInBothLayoutsAndAppearances() {
+  func testCommonPhrasesCanBeAddedAndRemoved() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    reachSettingsLink("expressionSettingsLink", in: app)
+    settingsEntry("expressionSettingsLink", in: app).tap()
+    XCTAssertTrue(app.navigationBars["表达"].waitForExistence(timeout: 5))
+    tapRevealed("commonPhrasesSettingsLink", in: app)
+    XCTAssertTrue(app.navigationBars["常用语"].waitForExistence(timeout: 5))
+    // 数字不受自动大写和自动纠错影响，所以无论输入框把单词改成什么样，都能凭数字找到这一行。
+    let mark = String(Int.random(in: 10_000_000...99_999_999))
+    let phrase = "phrase \(mark)"
+    let add = app.buttons["addCommonPhrase"]
+    XCTAssertTrue(add.waitForExistence(timeout: 5))
+    add.tap()
+    // 纵向 TextField 在某些系统版本上以 text view 进入无障碍树，在另一些版本上则是 text field。
+    let field = app.descendants(matching: .any).matching(identifier: "commonPhraseText").firstMatch
+    XCTAssertTrue(field.waitForExistence(timeout: 5))
+    field.tap()
+    field.typeText(phrase)
+    app.buttons["saveCommonPhrase"].tap()
+    let row = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", mark)).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 5), visible(app))
+    row.swipeLeft()
+    app.buttons["删除"].firstMatch.tap()
+    let confirm = app.alerts.buttons["删除"]
+    XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+    confirm.tap()
+    XCTAssertTrue(row.waitForNonExistence(timeout: 5))
+  }
+
+  @MainActor
+  func testSkinPageShowsKeyboardTilesAndItsSubpages() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
-    XCTAssertTrue(app.navigationBars["主题"].waitForExistence(timeout: 5))
-    // The full preview sits below the candidate preview, the theme grid and 自定义主题 (dc.html L769-783), so it is scrolled to rather than expected on the first screen.
-    let layout = app.segmentedControls["skinPreviewLayout"]
-    reveal(layout, in: app)
-    layout.buttons["26 键"].tap()
-    let preview = app.otherElements["fullKeyboardSkinPreview"]
-    XCTAssertTrue(preview.exists)
-    XCTAssertTrue(preview.label.contains("26 键"))
+    XCTAssertTrue(app.navigationBars["皮肤"].waitForExistence(timeout: 5))
+    // 每个目录主题都是一张键盘缩略图卡片；完整的 26 / 9 键预览在皮肤编辑器里（`testSkinEditorKeepsFullPreviewBelowMaterialGrid`）。
+    XCTAssertTrue(app.buttons["skin_system"].waitForExistence(timeout: 5))
+    // 本页自己没有 26 / 9 键预览切换，无论用什么标识符：完整预览在皮肤编辑器里。
+    XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR label == %@", "26 键", "9 键")).firstMatch.exists)
     let light = XCTAttachment(screenshot: app.screenshot())
-    light.name = "完整 26 键皮肤预览"
+    light.name = "皮肤网格"
     light.lifetime = .deleteOnSuccess
     add(light)
-    layout.buttons["9 键"].tap()
-    reveal(app.switches["skinPreviewDark"], in: app)
-    app.switches["skinPreviewDark"].coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-    XCTAssertEqual(app.switches["skinPreviewDark"].value as? String, "1")
-    XCTAssertTrue(preview.label.contains("9 键"))
-    let dark = XCTAttachment(screenshot: app.screenshot())
-    dark.name = "完整 9 键深色皮肤预览"
-    dark.lifetime = .deleteOnSuccess
-    add(dark)
+    // 网格以 AI 卡片结尾，点开是一句话设计器。
+    tapRevealed("aiSkinDesignTile", in: app)
+    XCTAssertTrue(app.navigationBars["AI 设计皮肤"].waitForExistence(timeout: 5))
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    // 外观选择器移到了网格下方的独立页面。
+    tapRevealed("skinAppearanceLink", in: app)
+    XCTAssertTrue(app.navigationBars["明暗与候选颜色"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.descendants(matching: .any)["globalTheme"].exists)
+    XCTAssertTrue(app.descendants(matching: .any)["keyboardTheme"].exists)
   }
 
   @MainActor
@@ -1167,8 +1250,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-service.ai.provider", "custom",
                            "-service.ai.endpoint", "", "-service.ai.model", ""]
     app.launch()
-    openKeyboardSettingsIfNeeded(app)
-    app.buttons["aiSettingsLink"].tap()
+    openAISettings(app)
     let token = app.secureTextFields["serviceToken"]
     token.tap()
     token.typeText("provider-switch-fixture")
@@ -1232,13 +1314,17 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
-    app.buttons["inputSettingsLink"].tap()
-    for _ in 0..<5 {
-      if app.buttons["fuzzyPinyinSettingsLink"].isHittable { break }
-      app.swipeUp()
+    // 模糊音 是 输入 页上的一个开关，只有打开时才会出现 模糊音规则 行。
+    let fuzzy = app.switches["fuzzyPinyinToggle"]
+    func openRules() {
+      app.buttons["inputSettingsLink"].tap()
+      reveal(fuzzy, in: app)
+      if fuzzy.value as? String == "0" { fuzzy.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
+      XCTAssertTrue(wait(fuzzy, until: "value == '1'"))
+      tapRevealed("fuzzyPinyinSettingsLink", in: app)
     }
-    app.buttons["fuzzyPinyinSettingsLink"].tap()
-    XCTAssertTrue(app.staticTexts["fuzzyPinyinAvailability"].exists)
+    openRules()
+    XCTAssertTrue(app.staticTexts["fuzzyPinyinAvailability"].waitForExistence(timeout: 5))
     let enabled = app.switches["fuzzyPinyinEnabled"]
     if enabled.value as? String == "0" { enabled.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
     let rule = app.switches["fuzzyPinyinRule_z-zh"]
@@ -1247,12 +1333,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(rule.value as? String, "1")
     app.terminate()
     app.launch()
-    app.buttons["inputSettingsLink"].tap()
-    for _ in 0..<5 {
-      if app.buttons["fuzzyPinyinSettingsLink"].isHittable { break }
-      app.swipeUp()
-    }
-    app.buttons["fuzzyPinyinSettingsLink"].tap()
+    openRules()
     XCTAssertEqual(enabled.value as? String, "1")
     XCTAssertEqual(rule.value as? String, "1")
     rule.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
@@ -1265,12 +1346,14 @@ final class OnboardingUITests: XCTestCase {
       app.swipeUp()
     }
     app.buttons["desktopDownloadLink"].tap()
+    // 同一个页面列出所有平台，每个平台有自己的 获取 胶囊按钮，下方是可复制的下载链接。
+    XCTAssertTrue(app.navigationBars["其他平台下载"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["copyDesktopDownloadLink"].exists)
     for platform in ["macOS", "Windows", "Linux"] {
-      app.segmentedControls["desktopPlatformPicker"].buttons[platform].tap()
-      XCTAssertTrue(app.staticTexts[platform + " 安装指南"].exists)
-      // A SwiftUI Link surfaces as a link, not a button, so asking only for buttons never finds it.
-      XCTAssertTrue(app.descendants(matching: .any)["desktopReleaseLink"].exists)
+      XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", platform)).firstMatch.exists, platform)
     }
+    // SwiftUI 的 `Link` 以链接而不是按钮的形式出现，所以只查找按钮永远找不到它。
+    reveal(app.descendants(matching: .any)["desktopReleaseLink"], in: app)
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "Desktop download guide"
     screenshot.lifetime = .deleteOnSuccess
@@ -1282,8 +1365,8 @@ final class OnboardingUITests: XCTestCase {
       app.swipeUp()
     }
     app.buttons["aboutSettingsLink"].tap()
-    XCTAssertTrue(app.staticTexts["aboutAppVersion"].exists)
-    XCTAssertTrue(app.navigationBars["关于水杉"].exists)
+    XCTAssertTrue(app.staticTexts["aboutAppVersion"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["关于"].exists)
   }
 
   @MainActor
@@ -1294,62 +1377,65 @@ final class OnboardingUITests: XCTestCase {
     // This one ends with handwriting hidden on purpose, which is still a scheme later tests cannot
     // select until the stored set is cleared.
     defer { restoreSchemeVisibility(in: app) }
-    app.buttons["inputSettingsLink"].tap()
-    let enabled = app.switches["enabledInputScheme_handwriting"]
-    for _ in 0..<8 { if enabled.isHittable { break }; app.swipeUp() }
-    XCTAssertTrue(enabled.isHittable)
-    if enabled.value as? String == "0" { enabled.tap() }
-    let scheme = app.buttons["inputScheme_handwriting"]
-    scheme.tap()
-    XCTAssertEqual(scheme.value as? String, "已选择")
+    // 在键盘中显示手写和选用手写，现在都在 手写输入 页上。
+    reachSettingsLink("handwritingSettingsLink", in: app)
+    settingsEntry("handwritingSettingsLink", in: app).tap()
+    let enabled = app.switches["handwritingEnabledToggle"]
+    reveal(enabled, in: app)
+    if enabled.value as? String == "0" { enabled.switches.firstMatch.tap() }
+    XCTAssertTrue(wait(enabled, until: "value == '1'"))
+    let select = app.buttons["handwritingSelectButton"]
+    select.tap()
+    XCTAssertTrue(wait(select, until: "value == '已选择'"))
     app.terminate(); app.launch()
     // The 输入 row on the home page shows the current scheme as its value.
-    let input = app.buttons["inputSettingsLink"]
-    XCTAssertTrue(input.waitForExistence(timeout: 5))
-    XCTAssertEqual(input.value as? String, "手写")
-    input.tap()
-    for _ in 0..<8 { if enabled.isHittable { break }; app.swipeUp() }
-    enabled.tap()
-    XCTAssertFalse(scheme.isEnabled)
+    reachSettingsLink("inputSettingsLink", in: app)
+    XCTAssertEqual(settingsEntry("inputSettingsLink", in: app).value as? String, "手写")
+    reachSettingsLink("handwritingSettingsLink", in: app)
+    settingsEntry("handwritingSettingsLink", in: app).tap()
+    reveal(enabled, in: app)
+    enabled.switches.firstMatch.tap()
+    XCTAssertTrue(wait(enabled, until: "value == '0'"))
+    XCTAssertFalse(select.isEnabled)
   }
 
   @MainActor
-  func testInputSchemeVisibilityPersistsAndFallsBack() {
+  func testInputLanguageRemovalPersistsAndFallsBack() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
-    // Hidden schemes live in the app group and outlive this bundle, and a scheme this test leaves
-    // hidden makes InputSchemePreference downgrade every later assignment of it. Restore visibility
-    // even when an assertion below fails, or the keyboard unit tests inherit a crippled scheme list.
+    // 被移除的语言存在 app group 里，比这个 bundle 活得久，而本测试留下的隐藏方案会让 `InputSchemePreference` 把之后对它的每次指定都降级。即使下面的断言失败也要恢复可见性，否则键盘单元测试会继承一份残缺的方案列表。
     defer { restoreSchemeVisibility(in: app) }
     app.buttons["inputSettingsLink"].tap()
-    let full = app.switches["enabledInputScheme_quanpin"]
-    let nine = app.switches["enabledInputScheme_nineKey"]
-    if full.value as? String == "0" { full.tap() }
-    if nine.value as? String == "0" { nine.tap() }
-    app.buttons["inputScheme_nineKey"].tap()
-    nine.tap()
-    // Toggling visibility rebuilds the scheme list, so wait for the switch to report its new
-    // state instead of reading it while SwiftUI is still applying the change.
-    XCTAssertTrue(wait(nine, until: "value == '0'"))
-    XCTAssertEqual(app.buttons["inputScheme_quanpin"].value as? String, "已选择")
+    let japanese = app.buttons["inputLanguage_japanese"]
+    if !japanese.waitForExistence(timeout: 3) {
+      // 中途停止的运行可能留下 日语 已被移除的状态；添加语言 会把它加回来。
+      app.buttons["addInputLanguageButton"].tap()
+      app.buttons["addInputLanguage_japanese"].tap()
+    }
+    XCTAssertTrue(openSchemeSheet(.japanese, in: app))
+    app.buttons["inputScheme_japanese"].tap()
+    XCTAssertTrue(wait(japanese, until: "value == '日语 26 键'"), japanese.debugDescription)
+    // 移除键盘当前所用的语言会让它回到 全拼。
+    XCTAssertTrue(openSchemeSheet(.japanese, in: app))
+    app.buttons["removeInputLanguage_japanese"].tap()
+    let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: japanese)
+    XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 5), .completed)
+    XCTAssertEqual(app.buttons["inputLanguage_mandarin"].value as? String, "全拼")
     app.terminate()
     app.launch()
     app.buttons["inputSettingsLink"].tap()
-    XCTAssertEqual(nine.value as? String, "0")
-    // The switch reports its stored value before SwiftUI has rebuilt the scheme list below it, so
-    // the button is briefly still enabled after a relaunch.
-    XCTAssertTrue(wait(app.buttons["inputScheme_nineKey"], until: "isEnabled == false"))
+    XCTAssertTrue(app.buttons["inputLanguage_mandarin"].waitForExistence(timeout: 5))
+    XCTAssertFalse(japanese.exists)
     let screenshot = XCTAttachment(screenshot: app.screenshot())
-    screenshot.name = "Input scheme visibility settings"
+    screenshot.name = "Input languages after removal"
     screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
-    nine.tap()
-    // Same two steps as the hide above: the switch commits first and the scheme list is rebuilt
-    // from it, so waiting on the button alone races a rebuild that has not been asked for yet.
-    // Toggling back also follows a screenshot, which leaves the app busy for a moment longer.
-    XCTAssertTrue(wait(nine, until: "value == '1'"))
-    XCTAssertTrue(wait(app.buttons["inputScheme_nineKey"], until: "isEnabled == true", timeout: 15))
+    // 添加语言 会再次列出它，添加后启用该语言，但不会把键盘切换过去。
+    app.buttons["addInputLanguageButton"].tap()
+    app.buttons["addInputLanguage_japanese"].tap()
+    XCTAssertTrue(japanese.waitForExistence(timeout: 5))
+    XCTAssertEqual(app.buttons["inputLanguage_mandarin"].value as? String, "全拼")
   }
 
   @MainActor
@@ -1367,31 +1453,35 @@ final class OnboardingUITests: XCTestCase {
     // Onboarding hands over to the 设置 home page.
     XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 10))
     app.buttons["inputSettingsLink"].tap()
+    // 方案是 普通话 弹窗里的选项；双拼方案有多个时，它们位于 双拼 › 之后。
+    XCTAssertTrue(openSchemeSheet(.mandarin, in: app))
     XCTAssertTrue(app.buttons["inputScheme_quanpin"].exists)
-    XCTAssertTrue(app.buttons["inputScheme_shuangpin"].exists)
+    XCTAssertTrue(app.buttons["inputScheme_shuangpin"].exists || app.buttons["inputSchemeGroup_shuangpin"].exists)
     let nineKey = app.buttons["inputScheme_nineKey"]
     XCTAssertTrue(nineKey.exists)
     nineKey.tap()
-    XCTAssertEqual(nineKey.value as? String, "已选择")
+    XCTAssertTrue(wait(app.buttons["designOptionSheetCancel"], until: "exists == false"))
     app.terminate()
     app.launch()
     XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 5))
     app.buttons["inputSettingsLink"].tap()
-    XCTAssertEqual(app.buttons["inputScheme_nineKey"].value as? String, "已选择")
+    XCTAssertTrue(openSchemeSheet(.mandarin, in: app))
+    XCTAssertTrue(app.buttons["inputScheme_nineKey"].isSelected)
+    app.buttons["designOptionSheetCancel"].tap()
 
-    let outputPicker = app.segmentedControls["chineseOutputPicker"]
-    for _ in 0..<6 {
-      if outputPicker.isHittable { break }
-      app.swipeUp()
-    }
-    XCTAssertTrue(outputPicker.exists)
-    XCTAssertTrue(outputPicker.buttons["简体"].exists)
-    XCTAssertTrue(outputPicker.buttons["繁体"].exists)
+    // 中文字符集 是选择行，它的弹窗提供 简体 和 繁体。
+    let outputPicker = app.buttons["chineseOutputPicker"]
+    reveal(outputPicker, in: app)
+    outputPicker.tap()
+    XCTAssertTrue(app.buttons["designOptionSheetCancel"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["简体"].exists)
+    XCTAssertTrue(app.buttons["繁体"].exists)
+    app.buttons["designOptionSheetCancel"].tap()
 
     app.navigationBars.buttons.element(boundBy: 0).tap()
     for (identifier, title) in [
-      ("skinSettingsLink", "主题"), ("dictionarySettingsLink", "词库"),
-      ("aiSettingsLink", "AI 设置"), ("voiceSettingsLink", "语音设置"),
+      ("skinSettingsLink", "皮肤"), ("expressionSettingsLink", "表达"), ("dictionarySettingsLink", "词库"),
+      ("voiceSettingsLink", "语音输入"),
     ] {
       reachSettingsLink(identifier, in: app)
       let link = settingsEntry(identifier, in: app)
@@ -1402,37 +1492,9 @@ final class OnboardingUITests: XCTestCase {
         app.buttons["skin_night"].tap()
         XCTAssertEqual(app.buttons["skin_night"].value as? String, "已选择")
       }
-      if identifier == "aiSettingsLink" || identifier == "voiceSettingsLink" {
-        XCTAssertTrue(app.textFields["serviceEndpoint"].exists)
-        XCTAssertTrue(app.secureTextFields["serviceToken"].exists)
-        if identifier == "aiSettingsLink" {
-          let endpoint = app.textFields["serviceEndpoint"]
-          endpoint.tap()
-          endpoint.typeText("https://msime-ui-tests.invalid/v1/chat/completions")
-          app.textFields["serviceModel"].tap()
-          app.textFields["serviceModel"].typeText("fixture")
-          app.buttons["serviceDismissKeyboard"].tap()
-          app.secureTextFields["serviceToken"].tap()
-          app.secureTextFields["serviceToken"].typeText("msime-ui-fixture")
-          app.buttons["serviceDismissKeyboard"].tap()
-          app.buttons["saveServiceConfiguration"].tap()
-          for _ in 0..<3 {
-            if app.staticTexts["配置已保存"].exists { break }
-            app.swipeUp()
-          }
-          XCTAssertTrue(app.staticTexts["配置已保存"].waitForExistence(timeout: 5))
-          let deleteKey = app.buttons["删除此服务的密钥"]
-          for _ in 0..<3 {
-            if deleteKey.isHittable { break }
-            app.swipeDown()
-          }
-          deleteKey.tap()
-          for _ in 0..<3 {
-            if app.staticTexts["已删除此服务的密钥"].exists { break }
-            app.swipeUp()
-          }
-          XCTAssertTrue(app.staticTexts["已删除此服务的密钥"].waitForExistence(timeout: 5))
-        }
+      if identifier == "voiceSettingsLink" {
+        XCTAssertTrue(app.buttons["voiceLanguagePicker"].exists)
+        XCTAssertTrue(app.buttons["voiceServiceLink"].exists)
       }
       let attachment = XCTAttachment(screenshot: app.screenshot())
       attachment.name = title
@@ -1440,7 +1502,42 @@ final class OnboardingUITests: XCTestCase {
       add(attachment)
       app.navigationBars.buttons.element(boundBy: 0).tap()
     }
-    // The loop leaves the list scrolled down to 语音输入, and 试用键盘 sits at the top under the status card, so it is scrolled back into view (and clear of the glass bars) in either direction rather than swiped further down.
+    // AI 设置 现在位于 键盘 → 更多 下。
+    openAISettings(app)
+    XCTAssertTrue(app.navigationBars["AI 设置"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.textFields["serviceEndpoint"].exists)
+    XCTAssertTrue(app.secureTextFields["serviceToken"].exists)
+    let endpoint = app.textFields["serviceEndpoint"]
+    endpoint.tap()
+    endpoint.typeText("https://msime-ui-tests.invalid/v1/chat/completions")
+    app.textFields["serviceModel"].tap()
+    app.textFields["serviceModel"].typeText("fixture")
+    app.buttons["serviceDismissKeyboard"].tap()
+    // 模型输入框在密钥框下面，收起键盘后列表还在往回滚，这时点下去会落在移动中的密钥框之外；等键盘收起、列表停稳后再点，没拿到焦点就再点一次。
+    let token = app.secureTextFields["serviceToken"]
+    XCTAssertTrue(app.keyboards.element.waitForNonExistence(timeout: 5))
+    token.tap()
+    if !wait(token, until: "hasKeyboardFocus == true", timeout: 2) { token.tap() }
+    token.typeText("msime-ui-fixture")
+    app.buttons["serviceDismissKeyboard"].tap()
+    app.buttons["saveServiceConfiguration"].tap()
+    for _ in 0..<3 {
+      if app.staticTexts["配置已保存"].exists { break }
+      app.swipeUp()
+    }
+    XCTAssertTrue(app.staticTexts["配置已保存"].waitForExistence(timeout: 5))
+    let deleteKey = app.buttons["删除此服务的密钥"]
+    for _ in 0..<3 {
+      if deleteKey.isHittable { break }
+      app.swipeDown()
+    }
+    deleteKey.tap()
+    for _ in 0..<3 {
+      if app.staticTexts["已删除此服务的密钥"].exists { break }
+      app.swipeUp()
+    }
+    XCTAssertTrue(app.staticTexts["已删除此服务的密钥"].waitForExistence(timeout: 5))
+    // 遍历结束时导航栈停在 AI 页、根页面已向下滚动，而 试用键盘 在顶部的状态卡片里，所以无论哪个方向都要把它滚回视野内（并避开玻璃栏），而不是继续向下滑。
     reachSettingsLink("keyboardTryoutLink", in: app)
     let tryoutLink = settingsEntry("keyboardTryoutLink", in: app)
     let overview = XCTAttachment(screenshot: app.screenshot())
@@ -1473,7 +1570,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(tryoutField.value as? String, "test")
     app.navigationBars.buttons.element(boundBy: 0).tap()
     XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
-    // 去开启 lives in the status card at the top of the lazy list, which the page left scrolled below it, so the row only exists once it is scrolled back into view.
+    // 去开启 在页面顶部的状态卡片里，遍历结束时页面已滚到它下方，所以要把它滚回视野内。
     reachSettingsLink("openKeyboardSettingsButton", in: app)
     XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].exists)
   }

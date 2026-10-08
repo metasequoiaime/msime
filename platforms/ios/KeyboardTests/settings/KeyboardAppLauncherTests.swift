@@ -39,6 +39,36 @@ final class KeyboardAppLauncherTests: XCTestCase {
     XCTAssertEqual(KeyboardAppLauncher.voiceURL.absoluteString, "msime://voice")
   }
 
+  /// 功能菜单的四个目的地使用应用 SettingsRouter 能处理的路由：`settings/<page>`、`feedback` 和 `about`。
+  func testMenuDestinationsUseTheRoutesTheAppHandles() {
+    XCTAssertEqual(KeyboardAppLauncher.dictionaryURL.absoluteString, "msime://settings/dictionary")
+    XCTAssertEqual(KeyboardAppLauncher.inputSettingsURL.absoluteString, "msime://settings/input")
+    XCTAssertEqual(KeyboardAppLauncher.feedbackURL.absoluteString, "msime://feedback")
+    XCTAssertEqual(KeyboardAppLauncher.aboutURL.absoluteString, "msime://about")
+    for url in [KeyboardAppLauncher.dictionaryURL, KeyboardAppLauncher.inputSettingsURL] {
+      XCTAssertEqual(url.host, "settings")
+    }
+    XCTAssertEqual(KeyboardAppLauncher.dictionaryURL.pathComponents.last, "dictionary")
+    XCTAssertEqual(KeyboardAppLauncher.inputSettingsURL.pathComponents.last, "input")
+  }
+
+  /// 常用语面板里的添加常用语打开应用的常用语页（`SettingsPage.phrases`），iOS 上只有那里能添加常用语。
+  func testAddPhraseOpensThePhrasesPage() {
+    XCTAssertEqual(KeyboardAppLauncher.phrasesURL.absoluteString, "msime://settings/phrases")
+    XCTAssertEqual(KeyboardAppLauncher.phrasesURL.host, "settings")
+    XCTAssertEqual(KeyboardAppLauncher.phrasesURL.pathComponents.last, "phrases")
+  }
+
+  /// 每个目的地都经由同一条响应链打开。
+  func testEveryMenuDestinationOpensThroughTheChain() {
+    let application = OpeningResponder()
+    let chain = PlainResponder(next: application)
+    let urls = [KeyboardAppLauncher.dictionaryURL, KeyboardAppLauncher.inputSettingsURL,
+                KeyboardAppLauncher.feedbackURL, KeyboardAppLauncher.aboutURL]
+    for url in urls { XCTAssertTrue(KeyboardAppLauncher.open(url, from: chain)) }
+    XCTAssertEqual(application.opened, urls)
+  }
+
   /// 每个版本各用一个 scheme，装了多个版本时键盘才不会拉起另一个版本的 App；full 仍是 msime。
   func testURLSchemeIsPerEdition() {
     XCTAssertEqual(MSIMEAppEdition.urlScheme(in: [:]), "msime")
