@@ -8,8 +8,8 @@ Status: implemented
 
 ## Decision
 
-- 「最近复制」占工具栏那一行的位置（`ImeToolbar.addRecentClipRow`）：左边是文字预览（空白和换行并成一个空格，最多 40 个字），点按经 `insertClipboardText` 粘贴；右边 × 关闭。同高替换工具栏，出现和消失时键盘不跳。
-- 状态在 `RecentClipboardSuggestion`（不依赖 Android）：复制后显示 60 秒；用过、关掉或开始打字（`render` 里 `!idle`）之后同一条不再出现，复制新的一条才会再出现。条目身份沿用 `ClipboardCapturePolicy.identity`（复制时刻加文字散列）。
+- 「最近复制」占工具栏那一行的位置（`ImeToolbar.addRecentClipRow`）：中间是文字预览（空白和换行并成一个空格，最多 40 个字），点按经 `insertClipboardText` 粘贴；左边是和工具栏同款的剪贴板历史入口，右边是 × 关闭和收起键盘。同高替换工具栏，出现和消失时键盘不跳。第一版这一行只有文字和 ×：复制后的一分钟里要打开剪贴板历史或收起键盘，都得先点 × 把这一条永久关掉，所以把这两个与复制最相关的按钮留在这一行上。
+- 状态在 `RecentClipboardSuggestion`（不依赖 Android）：复制后显示 60 秒；用过、关掉、开始打字（`render` 里 `!idle`）或从剪贴板插入过任何内容（`insertClipboardText`，含面板里的历史和分词）之后同一条不再出现，复制新的一条才会再出现。从面板插入也算，是因为否则在面板里点了刚复制的那一条，面板一关工具栏又换成刚插入的文字。条目身份沿用 `ClipboardCapturePolicy.identity`（复制时刻加文字散列）。
 - 来源有两个：复制监听（`clipboardWatcher`，读不到复制时刻时按现在算），和弹出键盘时的补看（`onStartInputView` 的刷新任务，先只读 `getPrimaryClipDescription()` 的复制时刻，过了 60 秒或读不到时刻就不读内容）。过期由 `main.postDelayed` 安排一次重画。
 - 不显示的情况：本地设置 `platform.android.clipboard_suggestion`（默认开，只在本机）关着；隐私模式、密码类和不许个性化学习的输入框（`ImePrivacyGate`）；系统标为敏感的内容（`EXTRA_IS_SENSITIVE`）；工具栏被设为隐藏、有工具栏面板开着、正在组词。它与剪贴板历史开关无关，也不往历史里写任何东西。
 - 设置入口在「键盘」页的「剪贴板」一节：「工具栏显示最近复制」。
@@ -23,8 +23,8 @@ Status: implemented
 ## Consequences
 
 - **收益**：复制后切回输入框，一次点按就粘贴；工具栏原有按钮不变，过期、用过或关掉后自动回来。
-- **代价**：显示期间工具栏的按钮被替换，要用它们得先关掉或等它过期；工具栏设为隐藏时也不显示。关掉过的那一条只记在内存里，键盘进程被回收后、60 秒内再弹出键盘会再出现一次。
+- **代价**：显示期间工具栏上除剪贴板和收起以外的按钮（品牌菜单、表情、常用语、皮肤、输入方式）被替换，要用它们得先关掉或等它过期；从面板插入一条旧的历史也会让刚复制的那一条不再出现；工具栏设为隐藏时也不显示。关掉过的那一条只记在内存里，键盘进程被回收后、60 秒内再弹出键盘会再出现一次。
 
 ## Verification
 
-`platforms/android/tests/clipboard/RecentClipboardSuggestionSmoke.java` 验证显示窗口、过期、关掉后不再出现、新复制重新出现、预览折叠与截断、本地设置默认值和只在本机；`bash platforms/android/check-host.sh` 编译服务与工具栏代码并运行它。设置页只在 Gradle 构建里编译。真机上的显示与粘贴没有在设备上验证。
+`platforms/android/tests/clipboard/RecentClipboardSuggestionSmoke.java` 验证显示窗口、过期、关掉后不再出现、新复制重新出现、预览折叠与截断、本地设置默认值和只在本机；`bash platforms/android/check-host.sh` 编译服务与工具栏代码并运行它，另有源码守卫要求这一行保留剪贴板入口、`insertClipboardText` 收起这条建议。设置页只在 Gradle 构建里编译。真机上的显示与粘贴没有在设备上验证。

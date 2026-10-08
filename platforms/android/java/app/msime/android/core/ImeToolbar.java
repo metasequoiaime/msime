@@ -23,6 +23,9 @@ final class ImeToolbar {
 
     private final MSIMEInputService s;
     private Button[] shortcutButtons;
+    /** 「最近复制」那一行自己的剪贴板入口和收起键，和工具栏上的同一套配色。 */
+    private Button recentClipHistoryButton;
+    private Button recentClipCollapseButton;
     private String styleCacheKey;
     private int iconColor;
     private int activeIconColor;
@@ -205,13 +208,20 @@ final class ImeToolbar {
     }
 
     /**
-     * 「最近复制」（#5692）：刚复制的文字占工具栏那一行，左边是文字本身（点按粘贴），右边是关闭。和工具栏同高，替换它显示，过了显示窗口、用过、关掉或开始打字后换回工具栏。
+     * 「最近复制」（#5692）：刚复制的文字占工具栏那一行，中间是文字本身（点按粘贴），左边是剪贴板历史入口，右边是关闭和收起键盘。和工具栏同高，替换它显示，过了显示窗口、用过、关掉或开始打字后换回工具栏。
+     *
+     * <p>剪贴板入口和收起键是工具栏上那两个按钮的同款：只放文字和 × 时，复制之后的一分钟里要打开剪贴板历史或收起键盘，都得先点 × 把这一条永久关掉。
      */
     void addRecentClipRow(LinearLayout candidateRegion) {
         LinearLayout row = KeyboardGeometry.row(s);
         ViewPolicy.setCenteredVertically(row);
-        KeyboardGeometry.setPaddingDp(row, s, 6, 4, 2, 4);
+        KeyboardGeometry.setPaddingDp(row, s, 2, 4, 2, 4);
         row.setContentDescription("最近复制");
+        Button history = s.shortcutButton(row, "剪贴板", KeyboardShortcutIconPolicy.Icon.CLIPBOARD,
+            panelToggle(() -> s.clipboardScroll, s.imePanels::showClipboardHistory));
+        history.setContentDescription("剪贴板");
+        history.setLayoutParams(KeyboardGeometry.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
+        recentClipHistoryButton = history;
         KeyboardPressButton paste = ViewPolicy.newPressButton(s);
         paste.setKeyboardRole(KeyboardKeyRole.KEY);
         ViewPolicy.setAllCapsFalse(paste);
@@ -232,6 +242,12 @@ final class ImeToolbar {
         dismiss.setContentDescription("不再显示这条复制的内容");
         bindToolbarAction(dismiss, s::dismissRecentClip);
         row.addView(dismiss, KeyboardGeometry.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
+        // 这一行只在没有工具栏面板开着时显示，收起键在这里只有收起键盘这一个意思。
+        Button collapse = s.shortcutButton(row, "收起", KeyboardShortcutIconPolicy.Icon.DISMISS,
+            () -> s.requestHideSelf(0));
+        collapse.setContentDescription("收起键盘");
+        collapse.setLayoutParams(KeyboardGeometry.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
+        recentClipCollapseButton = collapse;
         ViewPolicy.hide(row);
         s.recentClipRow = row;
         s.recentClipButton = paste;
@@ -283,6 +299,12 @@ final class ImeToolbar {
         }
         if (s.dismissShortcutButton instanceof KeyboardShortcutButton dismiss)
             dismiss.setIconColors(foregroundColor, foregroundColor);
+        if (recentClipHistoryButton instanceof KeyboardShortcutButton history) {
+            history.setActiveFill(activeBackgroundColor);
+            history.setIconColors(iconColor, activeIconColor);
+        }
+        if (recentClipCollapseButton instanceof KeyboardShortcutButton collapse)
+            collapse.setIconColors(foregroundColor, foregroundColor);
         if (s.moreButton instanceof KeyboardBrandButton brand) {
             // 设计的 logoCirc / logoBg 是应用主题的季节色（与开屏、设置页的 logo 同一套），不是从键盘皮肤的强调色混出来的。
             AppThemePalette palette = AppThemePalette.of(s.imeStyler.appThemeSeed(), skin.dark());

@@ -5139,6 +5139,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (connection == null || !ClipboardHistoryPolicy.hasText(text)) return;
         command(2);
         commitText(text);
+        // 用户已经从剪贴板插入过了（面板里的历史、分词或工具栏上的「最近复制」），工具栏不再提供刚复制的那一条：否则关上面板后工具栏又换成刚插入的文字，剪贴板和表情按钮也跟着被替换掉。
+        recentClip.dismiss();
         closeClipboardHistory();
     }
 
