@@ -1500,13 +1500,18 @@ final class ImePanels {
                 return button;
             },
             new SymbolPanelView.Listener() {
-                @Override public void insert(String text, boolean wholePair) {
+                @Override public void insert(String text, boolean wholePair, boolean remember) {
                     if (s.connection == null || !s.commitText(text, TypingSource.LOCAL)) return;
                     // 符号面板不经过 Engine，成对补全由宿主按同一个共享开关决定，后半个放在光标右边。
                     String closing = wholePair && s.pairedPunctuation
                         ? PairedPunctuationPolicy.symbolClosing(text) : null;
                     if (closing != null) s.commitClosingMark(closing, TypingSource.LOCAL);
-                    recordSymbolRecent(text);
+                    if (remember) recordSymbolRecent(text);
+                }
+
+                @Override public void loadCatalog(SymbolPanelModel.Category category, int offset,
+                        SymbolPanelView.CatalogPages pages) {
+                    loadSymbolCatalogPage(category, offset, pages);
                 }
 
                 @Override public void delete() {
@@ -1544,10 +1549,68 @@ final class ImePanels {
 
     /** 隐私模式和不许个性化学习的输入框不记：「常用」会把在那里输入过什么带到别的输入框里。 */
     private void recordSymbolRecent(String symbol) {
-        if (symbolPreferences == null || s.learningSuppressed()) return;
+        if (symbolPreferences == null || s.learningSuppressed() || !SymbolPanelModel.recordable(symbol)) return;
         List<String> recents = SymbolPanelModel.recordRecent(loadSymbolRecents(), symbol);
         symbolPreferences.edit().putString(SYMBOL_RECENTS_KEY, new JSONArray(recents).toString()).apply();
         if (s.symbolPanel != null) s.symbolPanel.setRecents(recents);
+    }
+
+    /** 在表情目录的工作线程上读一页颜文字或符号目录；与表情面板读的是同一个随包 `msime-others.db`，经同一个 `msime_client_emoji_catalog_request`。 */
+    private void loadSymbolCatalogPage(SymbolPanelModel.Category category, int offset,
+            SymbolPanelView.CatalogPages pages) {
+        String resources = s.emojiResources;
+        String query;
+        try {
+            JSONObject request = new JSONObject().put("category", category.catalog())
+                .put("group", category.kaomoji() ? "All" : "")
+                .put("offset", offset).put("limit", SymbolPanelModel.CATALOG_PAGE_SIZE).put("cursor", true);
+            if (!category.parent().isEmpty()) request.put("parent", category.parent());
+            query = request.toString();
+        } catch (JSONException error) {
+            pages.failed();
+            return;
+        }
+        if (resources.isEmpty()) {
+            pages.failed();
+            return;
+        }
+        s.emojiWorker.execute(() -> {
+            SymbolCatalogPage page = null;
+            try {
+                page = decodeSymbolCatalogPage(NativeClient.emojiCatalog(query, resources), offset, category.kaomoji());
+            } catch (JSONException | RuntimeException | LinkageError ignored) {
+                // 读不出目录时面板只说「暂时不可用」，不把资源路径或目录内容写进任何地方。
+            }
+            SymbolCatalogPage result = page;
+            s.main.post(() -> {
+                if (result == null) pages.failed();
+                else pages.loaded(result.items(), result.nextOffset(), result.complete());
+            });
+        });
+    }
+
+    private record SymbolCatalogPage(List<String> items, int nextOffset, boolean complete) {}
+
+    private static SymbolCatalogPage decodeSymbolCatalogPage(String response, int offset, boolean kaomoji)
+            throws JSONException {
+        JSONObject envelope = new JSONObject(response);
+        if (!Boolean.TRUE.equals(envelope.opt("ok"))) throw new JSONException("Symbol catalog unavailable");
+        JSONObject value = envelope.getJSONObject("value");
+        JSONArray entries = value.getJSONArray("items");
+        if (entries.length() > SymbolPanelModel.CATALOG_PAGE_SIZE) throw new JSONException("Symbol catalog page too large");
+        ArrayList<String> items = new ArrayList<>(entries.length());
+        for (int index = 0; index < entries.length(); index++) {
+            Object text = entries.getJSONObject(index).opt("text");
+            if (!(text instanceof String) || !SymbolPanelModel.validCatalogText((String) text, kaomoji))
+                throw new JSONException("Invalid symbol catalog item");
+            items.add((String) text);
+        }
+        long nextOffset = KeyboardGeometry.strictLong(value.opt("next_offset"), -1);
+        Object complete = value.opt("complete");
+        if (!(complete instanceof Boolean)
+                || !SymbolPanelModel.validCatalogCursor(offset, items.size(), nextOffset, (Boolean) complete))
+            throw new JSONException("Invalid symbol catalog cursor");
+        return new SymbolCatalogPage(items, (int) nextOffset, (Boolean) complete);
     }
 
     void buildEmojiPanel() {
