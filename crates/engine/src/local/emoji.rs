@@ -1,4 +1,6 @@
 //! `E` and `M` modes and the mixed emoji / kaomoji rows (emoji_query.cpp:59-140, kaomoji_query.cpp). Shuangpin also queries the code normalised to quanpin.
+//!
+//! 九宫格混排用 `query_emoji_readings` / `query_kaomoji_readings`：数字串没有唯一的拼音，按几种可能的读法依次查。
 
 use std::path::Path;
 
@@ -17,6 +19,8 @@ pub const MIXED_RESULT_LIMIT: usize = 3;
 /// The one difference between the two files of the reference: the table, the source and the diagnostics.
 struct Catalog {
     sql: &'static str,
+    /// 按读法查（九宫格）用的语句：取回文字和命中的两列编码（emoji 只有 `key`，第二列为空），按目录顺序，不带 `LIMIT`，由调用方核对编码后取够为止。
+    reading_sql: &'static str,
     source: CandidateSource,
     unavailable: &'static str,
     query_failed: &'static str,
@@ -24,6 +28,7 @@ struct Catalog {
 
 const EMOJI: Catalog = Catalog {
     sql: "SELECT emoji,sort_order FROM emoji_pinyin WHERE key>=?1 AND key<?2 ORDER BY sort_order LIMIT ?3",
+    reading_sql: "SELECT emoji,key,'' FROM emoji_pinyin WHERE key>=?1 AND key<?2 ORDER BY sort_order",
     source: CandidateSource::Emoji,
     unavailable: diagnostics::EMOJI_UNAVAILABLE,
     query_failed: diagnostics::EMOJI_QUERY_FAILED,
@@ -31,6 +36,7 @@ const EMOJI: Catalog = Catalog {
 
 const KAOMOJI: Catalog = Catalog {
     sql: "SELECT kaomoji,sort_order FROM kaomoji WHERE (pinyin>=?1 AND pinyin<?2) OR (jianpin>=?1 AND jianpin<?2) ORDER BY sort_order LIMIT ?3",
+    reading_sql: "SELECT kaomoji,pinyin,jianpin FROM kaomoji WHERE (pinyin>=?1 AND pinyin<?2) OR (jianpin>=?1 AND jianpin<?2) ORDER BY sort_order",
     source: CandidateSource::Kaomoji,
     unavailable: diagnostics::KAOMOJI_UNAVAILABLE,
     query_failed: diagnostics::KAOMOJI_QUERY_FAILED,
@@ -79,6 +85,101 @@ pub fn query_kaomoji(
     profile: &ShuangpinProfile,
 ) -> LocalQueryResult {
     query(&KAOMOJI, code, scheme, others_db, limit, profile)
+}
+
+/// 九宫格混排：依次按 `readings`（小写全拼，可能性高的在前）查 emoji，见 `query_readings`。
+pub fn query_emoji_readings(
+    readings: &[String],
+    others_db: &Path,
+    limit: usize,
+    accept: &dyn Fn(&str) -> bool,
+) -> LocalQueryResult {
+    query_readings(&EMOJI, readings, others_db, limit, accept)
+}
+
+/// 九宫格混排：依次按 `readings` 查颜文字，见 `query_readings`。
+pub fn query_kaomoji_readings(
+    readings: &[String],
+    others_db: &Path,
+    limit: usize,
+    accept: &dyn Fn(&str) -> bool,
+) -> LocalQueryResult {
+    query_readings(&KAOMOJI, readings, others_db, limit, accept)
+}
+
+/// 每种读法内按目录顺序，命中的编码（emoji 的 `key`，颜文字的 `pinyin` 或 `jianpin`）以这个读法开头、并且通过 `accept`，这一行才算；跨读法按文字去重，取够 `limit` 行就不再查后面的读法。行的 `pinyin` 是命中的读法，权重与 `query` 相同从 `limit` 往下数。只有一种读法、`accept` 全收时，结果与 `query` 按这个读法查的相同。
+fn query_readings(
+    catalog: &Catalog,
+    readings: &[String],
+    others_db: &Path,
+    limit: usize,
+    accept: &dyn Fn(&str) -> bool,
+) -> LocalQueryResult {
+    if readings.is_empty() || limit == 0 {
+        return LocalQueryResult::default();
+    }
+    let Some(database) = open_local_database(others_db) else {
+        return LocalQueryResult::failure(catalog.unavailable);
+    };
+    let entries = match read_readings(
+        &lock(&database),
+        catalog.reading_sql,
+        readings,
+        limit,
+        accept,
+    ) {
+        Ok(entries) => entries,
+        Err(_) => return LocalQueryResult::failure(catalog.query_failed),
+    };
+    let count = entries.len();
+    let candidates = entries
+        .into_iter()
+        .enumerate()
+        .map(|(index, (reading, text))| {
+            WordItem::new(reading, text, (count - index) as i64, catalog.source, "")
+        })
+        .collect();
+    LocalQueryResult {
+        candidates,
+        diagnostic: None,
+    }
+}
+
+fn read_readings<'a>(
+    connection: &Connection,
+    sql: &str,
+    readings: &'a [String],
+    limit: usize,
+    accept: &dyn Fn(&str) -> bool,
+) -> rusqlite::Result<Vec<(&'a str, String)>> {
+    let mut statement = connection.prepare_cached(sql)?;
+    let mut entries: Vec<(&str, String)> = Vec::with_capacity(limit);
+    for reading in readings {
+        let upper_bound = prefix_upper_bound(reading);
+        let mut rows = statement.query(rusqlite::params![reading, upper_bound])?;
+        while let Some(row) = rows.next()? {
+            let Some(text) = row.get::<_, Option<String>>(0)? else {
+                continue;
+            };
+            // `OR` 的另一列可能才是命中的那一列，两列各自核对。
+            let mut matched = false;
+            for column in 1..=2 {
+                let key = row.get::<_, Option<String>>(column)?.unwrap_or_default();
+                if key.starts_with(reading.as_str()) && accept(&key) {
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched || entries.iter().any(|(_, entry)| *entry == text) {
+                continue;
+            }
+            entries.push((reading.as_str(), text));
+            if entries.len() == limit {
+                return Ok(entries);
+            }
+        }
+    }
+    Ok(entries)
 }
 
 fn query(
@@ -339,6 +440,66 @@ mod tests {
         assert!(emoji.candidates.iter().all(|row| row.pinyin == "xnlm"));
         let kaomoji = query_kaomoji("hx", SchemeType::Shuangpin, &path, 10, xiaohe);
         assert_eq!(words(&kaomoji), ["(*/ω＼*)", "(^_^)"]);
+    }
+
+    fn readings(list: &[&str]) -> Vec<String> {
+        list.iter().map(|reading| (*reading).to_owned()).collect()
+    }
+
+    /// 九宫格的读法查询：读法按给定的先后查，读法内按目录顺序；跨读法去重，取够就停；行的 `pinyin` 是命中的读法。
+    #[test]
+    fn reading_rows_follow_the_reading_order_then_the_catalog() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path());
+        let all = |_: &str| true;
+        let emoji = query_emoji_readings(&readings(&["laugh", "xiao"]), &path, 10, &all);
+        assert_eq!(emoji.diagnostic, None);
+        assert_eq!(words(&emoji), ["😀", "😄"]);
+        assert_eq!(emoji.candidates[0].pinyin, "laugh");
+        assert_eq!(emoji.candidates[1].pinyin, "xiao");
+        assert_eq!(emoji.candidates[0].source, CandidateSource::Emoji);
+        assert_eq!(emoji.candidates[0].weight, 2);
+        assert_eq!(emoji.candidates[1].weight, 1);
+        // 只有一种读法、全收时与 `query_emoji` 相同。
+        assert_eq!(
+            query_emoji_readings(&readings(&["xiao"]), &path, 10, &all),
+            query_emoji("xiao", SchemeType::Quanpin, &path, 10, &QUANPIN_ONLY)
+        );
+        // 取够 `limit` 行就不再看后面的读法。
+        let first = query_emoji_readings(&readings(&["xiao", "laugh"]), &path, 1, &all);
+        assert_eq!(words(&first), ["😀"]);
+        assert_eq!(first.candidates[0].pinyin, "xiao");
+        assert_eq!(
+            query_emoji_readings(&[], &path, 10, &all),
+            LocalQueryResult::default()
+        );
+    }
+
+    /// `accept` 核对的是命中的那一列编码；不通过的行跳过，不占名额。
+    #[test]
+    fn reading_rows_are_checked_against_the_matched_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path());
+        let not_xiaolian = |key: &str| key != "xiaolian";
+        let emoji = query_emoji_readings(&readings(&["xiao"]), &path, 1, &not_xiaolian);
+        // `xiaolian` 的两行被拒，`xiao'lian` 的 😄 还在。
+        assert_eq!(words(&emoji), ["😄"]);
+
+        // 颜文字的 `jianpin` 列命中时核对 `jianpin`。
+        let only_jianpin = |key: &str| key == "hx";
+        let kaomoji = query_kaomoji_readings(&readings(&["hx"]), &path, 10, &only_jianpin);
+        assert_eq!(words(&kaomoji), ["(*/ω＼*)", "(^_^)"]);
+        assert_eq!(kaomoji.candidates[0].source, CandidateSource::Kaomoji);
+        let none = |_: &str| false;
+        assert!(query_kaomoji_readings(&readings(&["hx"]), &path, 10, &none)
+            .candidates
+            .is_empty());
+
+        let missing = dir.path().join("private-others-missing.db");
+        assert_eq!(
+            query_emoji_readings(&readings(&["xiao"]), &missing, 10, &none).diagnostic,
+            Some(diagnostics::EMOJI_UNAVAILABLE.to_owned())
+        );
     }
 
     /// test_local_modes.cpp:319-331.

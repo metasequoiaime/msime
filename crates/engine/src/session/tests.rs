@@ -4848,3 +4848,77 @@ fn nine_key_sentence_learning_shares_the_syllable_cap() {
         super::learning::MAX_LEARNED_SENTENCE_SYLLABLES
     );
 }
+
+/// #5848：`SessionOptions::expressive` 同样交给九宫格，九宫格的 emoji、颜文字与 26 键打同一个词时占同样的位置。
+#[test]
+fn nine_key_mixes_emoji_and_kaomoji_like_the_full_keyboard() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_m VALUES('mei','m','美',300);\
+CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_g VALUES('guo','g','国',300);\
+CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_m VALUES('mei''guo','mg','美国',1000);",
+    );
+    Connection::open(fixture.path().join(assets::OTHER_DICTIONARY))
+        .and_then(|connection| {
+            connection.execute_batch(
+                "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);\
+INSERT INTO emoji_pinyin VALUES('meiguo','🇺🇸',1893),('meiguobentuwaixiaodaoyu','🇺🇲',1891);\
+CREATE TABLE kaomoji(pinyin TEXT,jianpin TEXT,kaomoji TEXT,sort_order INTEGER);\
+INSERT INTO kaomoji VALUES('meiguo','mg','(•̀ᴗ•́)و',10);",
+            )
+        })
+        .expect("fixture msime-others.db");
+    let expressive_rows = |session: &Session| -> Vec<(usize, String, CandidateSource)> {
+        session
+            .snapshot()
+            .candidates
+            .into_iter()
+            .enumerate()
+            .filter(|(_, item)| {
+                matches!(
+                    item.source,
+                    CandidateSource::Emoji | CandidateSource::Kaomoji
+                )
+            })
+            .map(|(index, item)| (index, item.word, item.source))
+            .collect()
+    };
+
+    let mut session = fixture.session_with(|options| {
+        options.expressive.emoji_candidates = true;
+        options.expressive.kaomoji_candidates = true;
+    });
+    type_text(&mut session, "meiguo");
+    let full_keyboard = expressive_rows(&session);
+    let full_length = session.snapshot().candidates.len();
+    session.command(Command::Cancel);
+    session.set_nine_key_enabled(true);
+    type_text(&mut session, "634486");
+    let nine_key = expressive_rows(&session);
+    let nine_key_length = session.snapshot().candidates.len();
+    assert_eq!(full_keyboard[..2], nine_key[..2]);
+    assert_eq!(
+        nine_key[..2],
+        [
+            (1, "🇺🇲".to_owned(), CandidateSource::Emoji),
+            (2, "(•̀ᴗ•́)و".to_owned(), CandidateSource::Kaomoji),
+        ]
+    );
+    // 其余的接在列表末尾。
+    assert_eq!(
+        full_keyboard[2],
+        (full_length - 1, "🇺🇸".to_owned(), CandidateSource::Emoji)
+    );
+    assert_eq!(
+        nine_key[2],
+        (nine_key_length - 1, "🇺🇸".to_owned(), CandidateSource::Emoji)
+    );
+
+    // 默认两个开关都关：九宫格不混入。
+    let mut off = fixture.session();
+    off.set_nine_key_enabled(true);
+    type_text(&mut off, "634486");
+    assert!(expressive_rows(&off).is_empty());
+}

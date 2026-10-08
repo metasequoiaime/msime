@@ -27,6 +27,8 @@ use crate::types::{
 pub const MIXED_ENGLISH_LIMIT: usize = 5;
 pub const MODE_ENGLISH_LIMIT: usize = 1_000;
 const MIXED_DEDUP_CAPACITY: usize = MIXED_ENGLISH_LIMIT + MIXED_RESULT_LIMIT * 2;
+/// 混入 emoji 和颜文字所需的最短输入：它们按拼音查，一个字母能匹配的太多。九宫格按数字个数算，同样是 2。
+pub(crate) const MIXED_EXPRESSIVE_MINIMUM_INPUT: usize = 2;
 
 pub(crate) fn lowercase_prefix(raw: &str) -> Cow<'_, str> {
     if raw.bytes().all(|byte| byte.is_ascii_lowercase()) {
@@ -222,15 +224,15 @@ impl CandidateQueries {
         } else {
             Vec::new()
         };
-        // Emoji and kaomoji are keyed by pinyin, so a single letter would match far too much.
         let others_db = self.paths.resource(assets::OTHER_DICTIONARY);
         let shuangpin = profile(self.profile);
-        let emoji_rows = if expressive.emoji_candidates && prefix.len() >= 2 {
+        let long_enough = prefix.len() >= MIXED_EXPRESSIVE_MINIMUM_INPUT;
+        let emoji_rows = if expressive.emoji_candidates && long_enough {
             query_emoji(prefix, scheme, &others_db, MIXED_RESULT_LIMIT, shuangpin).candidates
         } else {
             Vec::new()
         };
-        let kaomoji_rows = if expressive.kaomoji_candidates && prefix.len() >= 2 {
+        let kaomoji_rows = if expressive.kaomoji_candidates && long_enough {
             query_kaomoji(prefix, scheme, &others_db, MIXED_RESULT_LIMIT, shuangpin).candidates
         } else {
             Vec::new()
@@ -241,10 +243,37 @@ impl CandidateQueries {
 
 /// Each extra list is deduplicated by word against the list and the lists before it; the first row of each goes to the priority slot (after the leading row, and after the cloud and AI rows when present), the rest to the end.
 fn insert_mixed_rows(
+    candidates: Vec<WordItem>,
+    english: Vec<WordItem>,
+    emoji: Vec<WordItem>,
+    kaomoji: Vec<WordItem>,
+) -> Vec<WordItem> {
+    insert_extra_rows(candidates, english, emoji, kaomoji, 0)
+}
+
+/// 九宫格的混排：英文行已经按九宫格自己的规则插进了列表，emoji 和颜文字按与 `insert_mixed_rows` 相同的规则去重、定位。`english_leads` 为真表示英文的第一行占了优先位置（首行之后），emoji 和颜文字就排在它后面，与 26 键「英文、emoji、颜文字」相邻的次序一致。
+pub(crate) fn insert_expressive_rows(
+    candidates: Vec<WordItem>,
+    emoji: Vec<WordItem>,
+    kaomoji: Vec<WordItem>,
+    english_leads: bool,
+) -> Vec<WordItem> {
+    insert_extra_rows(
+        candidates,
+        Vec::new(),
+        emoji,
+        kaomoji,
+        usize::from(english_leads),
+    )
+}
+
+/// `taken`：优先位置上已经有几行混入的行，新插入的排在它们后面。
+fn insert_extra_rows(
     mut candidates: Vec<WordItem>,
     mut english: Vec<WordItem>,
     mut emoji: Vec<WordItem>,
     mut kaomoji: Vec<WordItem>,
+    taken: usize,
 ) -> Vec<WordItem> {
     if english.is_empty() && emoji.is_empty() && kaomoji.is_empty() {
         return candidates;
@@ -271,14 +300,14 @@ fn insert_mixed_rows(
             cloud || item.source == CandidateSource::CloudSuggestion,
         )
     });
-    let mut slot = if has_ai {
+    let mut slot = (if has_ai {
         3
     } else if has_cloud {
         2
     } else {
         1
-    }
-    .min(candidates.len());
+    } + taken)
+        .min(candidates.len());
 
     let mut groups = groups;
     for group in &mut groups {
@@ -447,6 +476,45 @@ mod tests {
             Vec::new(),
         );
         assert_eq!(words(&list), vec!["Ni", "😀", "Ninja"]);
+    }
+
+    #[test]
+    fn nine_key_expressive_rows_follow_a_leading_english_row() {
+        let emoji = || {
+            vec![
+                row("😀", CandidateSource::Emoji),
+                row("😁", CandidateSource::Emoji),
+            ]
+        };
+        let kaomoji = || vec![row("(^_^)", CandidateSource::Kaomoji)];
+        let mut with_english = chinese();
+        with_english.insert(1, row("Ni", CandidateSource::EnglishDictionary));
+        // 九宫格自己插好了英文首行：emoji、颜文字排在它后面，与 26 键一起插入时的次序相同。
+        let nine_key = insert_expressive_rows(with_english, emoji(), kaomoji(), true);
+        let together = insert_mixed_rows(
+            chinese(),
+            vec![row("Ni", CandidateSource::EnglishDictionary)],
+            emoji(),
+            kaomoji(),
+        );
+        assert_eq!(words(&nine_key), words(&together));
+        assert_eq!(
+            words(&nine_key),
+            vec!["你", "Ni", "😀", "(^_^)", "倪", "😁"]
+        );
+        // 没有英文首行时与 26 键只有 emoji、颜文字时相同。
+        assert_eq!(
+            insert_expressive_rows(chinese(), emoji(), kaomoji(), false),
+            insert_mixed_rows(chinese(), Vec::new(), emoji(), kaomoji())
+        );
+        // 与列表里已有的行重复的不再出现。
+        let duplicate = insert_expressive_rows(
+            chinese(),
+            vec![row("倪", CandidateSource::Emoji)],
+            Vec::new(),
+            false,
+        );
+        assert_eq!(words(&duplicate), vec!["你", "倪"]);
     }
 
     #[test]
