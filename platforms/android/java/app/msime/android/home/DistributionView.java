@@ -14,6 +14,7 @@ import app.msime.android.ColorPolicy;
 import app.msime.android.ListPolicy;
 import app.msime.android.TypingStatisticsSummary;
 import app.msime.android.TypingStatisticsSummary.Share;
+import app.msime.android.ViewPolicy;
 import java.util.List;
 
 /**
@@ -216,7 +217,7 @@ public final class DistributionView extends View {
     }
 
     private void styleText(int sizeSp, int weight, int colour) {
-        text.setTextSize(Ui.sp(getContext(), sizeSp));
+        ViewPolicy.setTextSizeSp(text, getContext(), sizeSp);
         text.setTypeface(Typeface.create(Typeface.DEFAULT, weight));
         text.setColor(colour);
     }

@@ -19,6 +19,9 @@ def main() -> int:
     if "ByteArrayOutputStream" in region or "in.read(buffer)" in region:
         print(f"{SOURCE}: 仍保留自定义许可读取循环", file=sys.stderr)
         return 1
+    if "NOFOLLOW_LINKS" not in region:
+        print(f"{SOURCE}: 下载资源包许可读取没有拒绝符号链接", file=sys.stderr)
+        return 1
     print("Android about notices use the shared bounded body policy")
     return 0
 

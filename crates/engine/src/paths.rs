@@ -93,7 +93,8 @@ pub(crate) fn open_file_no_follow(path: &Path) -> io::Result<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        // A replaced asset may be a FIFO; opening it on the engine thread must not block.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
     }
     #[cfg(windows)]
     {
@@ -101,7 +102,14 @@ pub(crate) fn open_file_no_follow(path: &Path) -> io::Result<File> {
         const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    options.open(path)
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "engine asset is not a regular file",
+        ));
+    }
+    Ok(file)
 }
 
 /// SQLite's `SQLITE_OPEN_NOFOLLOW` rejects trusted system aliases such as
@@ -182,6 +190,14 @@ mod tests {
 
         assert!(open_file_no_follow(&linked).is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"synthetic engine asset");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opening_an_asset_rejects_a_directory() {
+        let root = tempfile::tempdir().unwrap();
+
+        assert!(open_file_no_follow(root.path()).is_err());
     }
 
     #[test]

@@ -15,6 +15,8 @@ export function dictionaryErrorMessage(
       return "词库文件过大：文件不能超过 32 MB，单行不能超过 60 KB，请拆分后再导入。";
     case "dictionary_read_rejected":
       return "词库拒绝了这次读取，请稍后重试。";
+    case "dictionary_export_limit":
+      return "词库导出文件过大，请分批导出。";
     case "dictionary_bundled_readonly":
       return "内置词条只能调整权重或删除，不能修改编码和词。";
     case "dictionary_pinyin_unavailable":

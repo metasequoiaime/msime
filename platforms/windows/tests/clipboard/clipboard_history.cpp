@@ -45,6 +45,15 @@ int main() {
   REQUIRE(history.remove("second"));
   REQUIRE(history.remove(copied + "\r\r"));
   REQUIRE(history.load().empty());
+
+  // Native callers can hand us a byte string that is not valid UTF-8. It must
+  // be rejected before nlohmann::json serialisation, which otherwise throws
+  // an uncaught exception and takes the Server down.
+  const std::string invalid_utf8("valid\xFF", 6);
+  REQUIRE(msime::windows::normalize_clipboard_text(invalid_utf8).empty());
+  REQUIRE(!history.add(invalid_utf8));
+  REQUIRE(history.load().empty());
+
   // Nothing is left of a capture that is only a terminator, so there is
   // nothing to add or remove.
   REQUIRE(!history.add("\r"));

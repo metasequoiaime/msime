@@ -95,7 +95,7 @@ void persist_locked() {
 
 void clear_state() {
   if (!state_path.empty())
-    DeleteFileW(state_path.c_str());
+    (void)remove_private_file(std::filesystem::path(state_path));
 }
 
 void mute_session(IAudioSessionControl *session) {

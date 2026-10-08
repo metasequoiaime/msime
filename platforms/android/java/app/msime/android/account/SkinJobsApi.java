@@ -72,7 +72,7 @@ public final class SkinJobsApi {
             }
             try {
                 JSONObject root = new JSONObject(response == null ? "" : response);
-                JSONArray plans = Boolean.TRUE.equals(strictBoolean(root.opt("ok")))
+                JSONArray plans = JsonPolicy.strictTrue(root.opt("ok"))
                     ? root.optJSONArray("value") : null;
                 if (plans == null) throw invalid("ai_skin_response");
                 return plans;
@@ -85,7 +85,7 @@ public final class SkinJobsApi {
             try {
                 JSONObject root = new JSONObject(NativeClient.aiSkinPlan(new JSONObject()
                     .put("operation", "artwork").put("artwork", artwork).toString()));
-                return Boolean.TRUE.equals(strictBoolean(root.opt("ok")));
+                return JsonPolicy.strictTrue(root.opt("ok"));
             } catch (JSONException | RuntimeException error) {
                 return false;
             }
@@ -378,7 +378,7 @@ public final class SkinJobsApi {
     private static JSONObject value(String response) throws CloudApi.Failure {
         try {
             JSONObject root = new JSONObject(response == null ? "" : response);
-            JSONObject value = Boolean.TRUE.equals(strictBoolean(root.opt("ok")))
+            JSONObject value = JsonPolicy.strictTrue(root.opt("ok"))
                 ? root.optJSONObject("value") : null;
             if (value == null) throw invalid("ai_skin_invalid");
             return value;

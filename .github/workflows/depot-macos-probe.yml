@@ -1,0 +1,68 @@
+name: Depot macOS probe
+
+# 把 macOS 任务搬到 Depot 之前，先看清 depot-macos-15 和 depot-macos-26 两个镜像里有什么。Depot 的镜像跟随 GitHub 的 macos-15，但可能落后一点，而 ci-ios.yml、codeql.yml、release-ios.yml 都用 DEVELOPER_DIR 钉死了 Xcode_26.3：镜像里没有这个版本，那些 job 一上去就会失败。最后一步专门查这一点，结论写进 job summary。
+#
+# 这是探测而不是门禁：缺 26.3 只报 warning，不让 job 变红，这样它能合进去，Depot 更新镜像后手动触发一次就能复查。只在改到这个文件本身的 PR 上和手动触发时跑，不进分支保护。
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/depot-macos-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Inspect ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [depot-macos-15, depot-macos-26]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    env:
+      PINNED_XCODE: /Applications/Xcode_26.3.app
+    steps:
+      - name: Machine
+        run: |
+          sw_vers
+          uname -m
+          echo "logical cpus: $(sysctl -n hw.logicalcpu)"
+          echo "memory GiB: $(( $(sysctl -n hw.memsize) / 1024 / 1024 / 1024 ))"
+          df -h /
+      - name: Xcode installations
+        run: |
+          ls -1d /Applications/Xcode*.app
+          echo "xcode-select: $(xcode-select -p)"
+          xcodebuild -version
+      - name: Simulator runtimes and SDKs
+        run: |
+          xcrun simctl list runtimes
+          for xcode in /Applications/Xcode_26*.app; do
+            echo "== $xcode"
+            DEVELOPER_DIR="$xcode/Contents/Developer" xcodebuild -showsdks
+          done
+      - name: Toolchain used by the macOS and iOS jobs
+        run: |
+          for tool in brew cargo rustup cmake python3 pod xcodegen swift; do
+            if path="$(command -v "$tool")"; then
+              echo "$tool: $path"
+            else
+              echo "$tool: not installed"
+            fi
+          done
+          rustup show || true
+          cmake --version || true
+          python3 --version
+      - name: Pinned Xcode
+        run: |
+          if [[ -d "$PINNED_XCODE" ]]; then
+            DEVELOPER_DIR="$PINNED_XCODE/Contents/Developer" xcodebuild -version
+            echo "$PINNED_XCODE is present; the pinned macOS and iOS jobs can move to ${{ matrix.runner }}." >> "$GITHUB_STEP_SUMMARY"
+          else
+            newest="$(printf '%s\n' /Applications/Xcode_26*.app | sort -V | tail -1)"
+            echo "::warning::$PINNED_XCODE is missing (newest is $newest); ci-ios.yml, codeql.yml and release-ios.yml pin it through DEVELOPER_DIR"
+            echo "$PINNED_XCODE is missing on ${{ matrix.runner }}; the newest Xcode 26 on the image is $newest. Jobs that pin 26.3 through DEVELOPER_DIR cannot move yet." >> "$GITHUB_STEP_SUMMARY"
+          fi

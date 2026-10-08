@@ -1741,6 +1741,22 @@ fn translation_sidecar_copy_rejects_a_symlinked_target() {
 
 #[cfg(unix)]
 #[test]
+fn translation_sidecar_writer_does_not_follow_a_replaced_target() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let target = dir.path().join("custom_translations.txt");
+    let external = outside.path().join("target.txt");
+    std::fs::write(&external, "keep\n").unwrap();
+    symlink(&external, &target).unwrap();
+
+    assert!(super::options::write_private_file_no_follow(&target, b"overwrite\n").is_err());
+    assert_eq!(std::fs::read_to_string(external).unwrap(), "keep\n");
+}
+
+#[cfg(unix)]
+#[test]
 fn translation_sidecar_copy_rejects_a_symlinked_target_parent() {
     use std::os::unix::fs::symlink;
 

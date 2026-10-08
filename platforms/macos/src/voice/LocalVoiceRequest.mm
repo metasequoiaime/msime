@@ -62,7 +62,7 @@ NSString *CorrectedText(NSString *text, NSArray<NSDictionary *> *hotwords) {
 }
 
 NSData *BoundedModelManifestData(NSString *path) {
-    const int descriptor = open(path.fileSystemRepresentation, O_RDONLY | O_NOFOLLOW);
+    const int descriptor = open(path.fileSystemRepresentation, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
     if (descriptor < 0) return nil;
     struct stat fileStat = {};
     if (fstat(descriptor, &fileStat) != 0 || !S_ISREG(fileStat.st_mode) ||

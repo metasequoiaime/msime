@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
 
@@ -412,6 +413,10 @@ int main() {
   assert(host::write_fcitx_theme(file, unfilled));
   assert(read(file) == unfilled);
   assert(!std::filesystem::exists(file.string() + ".new"));
+  std::filesystem::remove(file);
+  assert(::mkfifo(file.c_str(), 0600) == 0);
+  assert(host::write_fcitx_theme(file, theme));
+  assert(read(file) == theme);
   {
     const auto outside = std::filesystem::path(root) / "outside-theme.conf";
     write(outside, "keep");

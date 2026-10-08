@@ -8,12 +8,12 @@ def main() -> int:
     root = Path(__file__).resolve().parents[1]
     source = (root / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets").read_text()
     required = {
-        "static feedback write closes in finally":
-            "KeyboardSession.feedbackFileIn(stateRoot)" in source
-            and source.count("fs.writeSync(handle.fd, KeyboardFeedback.serialize(settings));") >= 2
-            and source.count("} finally {\n        fs.closeSync(handle);") >= 2,
-        "instance feedback write closes in finally":
-            "fs.closeSync(handle);\n      }\n      this.feedbackSettings = settings;" in source,
+        "private feedback writes use an atomic sibling":
+            "private static writePrivateText(path: string, text: string): boolean" in source
+            and "util.generateRandomUUID(false)" in source
+            and "fs.renameSync(staging, path)" in source,
+        "feedback callers use the atomic writer":
+            source.count("KeyboardSession.writePrivateText(") >= 2,
     }
     problems = [name for name, present in required.items() if not present]
     if problems:

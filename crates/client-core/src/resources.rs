@@ -239,6 +239,7 @@ impl ResourceStore {
         directory: &Path,
         specification: &ResourceSet,
     ) -> Result<(), ResourceError> {
+        crate::storage::reject_symlink(directory)?;
         specification.validate()?;
         let kind = fs::symlink_metadata(directory)?.file_type();
         if !kind.is_dir() {
@@ -386,6 +387,7 @@ impl VerifiedMarker {
         directory: &Path,
         specification: &ResourceSet,
     ) -> Result<Option<Self>, ResourceError> {
+        crate::storage::reject_symlink(directory)?;
         let mut expected = HashSet::with_capacity(specification.artifacts.len());
         expected.extend(
             specification
@@ -770,6 +772,40 @@ mod tests {
             .is_err());
         assert!(!outside.path().join("resources.lock").exists());
         assert!(outside.path().read_dir().unwrap().next().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn verify_rejects_a_symlinked_ancestor() {
+        let parent = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_root = outside.path().join("resources");
+        fs::create_dir(&outside_root).unwrap();
+        fs::write(outside_root.join("msime-pinyin.db"), b"fixture").unwrap();
+        let linked = parent.path().join("linked");
+        std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+        let directory = linked.join("resources");
+        let store = ResourceStore::new(&directory);
+
+        let error = store.verify(&directory, &specification()).unwrap_err();
+
+        assert!(matches!(error, ResourceError::Io(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn marker_description_rejects_a_symlinked_directory() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("msime-pinyin.db"), b"fixture").unwrap();
+        let linked = parent.path().join("resources");
+        symlink(outside.path(), &linked).unwrap();
+
+        let error = VerifiedMarker::describe(&linked, &specification()).unwrap_err();
+
+        assert!(matches!(error, ResourceError::Io(_)));
     }
     #[test]
     fn stages_an_interrupted_install_left_are_swept() {

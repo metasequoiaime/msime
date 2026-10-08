@@ -179,10 +179,10 @@ pub fn mark_autocorrect_candidates(
     // A row comes from a corrected reading exactly when its letters equal some correction cut's letters while those differ from the typed letters. Comparing letters alone would also sweep up prefix rows the user spelled correctly (keneng -> ke, single-letter jianpin expansions); both rules together keep those unmarked.
     let cuts =
         || std::iter::once(primary_segmentation).chain(corrected_cuts.iter().map(String::as_str));
-    let raw_letters = fold_reading(raw);
     if cuts().all(|cut| cut.is_empty() || folded_reading_equal(cut, raw)) {
         return;
     }
+    let mut raw_letters = None;
     for item in candidates
         .iter_mut()
         .filter(|item| item.corrected_from.is_empty())
@@ -193,7 +193,8 @@ pub fn mark_autocorrect_candidates(
                 && !folded_reading_equal(cut, raw)
                 && folded_reading_equal(cut, &item.pinyin)
         }) {
-            item.corrected_from = raw_letters.clone();
+            let folded = raw_letters.get_or_insert_with(|| fold_reading(raw));
+            item.corrected_from = folded.clone();
         }
     }
 }
@@ -422,6 +423,18 @@ mod tests {
         assert_eq!(items[0].corrected_from, "sahng");
         assert!(items[1].corrected_from.is_empty());
         assert!(items[2].corrected_from.is_empty());
+    }
+
+    #[test]
+    fn marking_without_a_matching_candidate_does_not_allocate_folded_input() {
+        let mut items = vec![row("ke'neng", "可能", 100)];
+        let cuts = ["ke'neng".to_string()];
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            mark_autocorrect_candidates(&mut items, "keneng", "ke'neng", &cuts);
+        });
+
+        assert_eq!(allocations, 0);
+        assert!(items[0].corrected_from.is_empty());
     }
 
     #[test]

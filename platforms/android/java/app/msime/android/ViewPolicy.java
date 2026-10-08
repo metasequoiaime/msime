@@ -2,6 +2,7 @@ package app.msime.android;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
@@ -223,6 +224,12 @@ public final class ViewPolicy {
     /** Set a text view's size in scalable pixels. */
     public static void setTextSizeSp(TextView view, float sizeSp) {
         view.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp);
+    }
+
+    /** Set a paint's text size in scalable pixels using the supplied display context. */
+    public static void setTextSizeSp(Paint paint, Context context, float sizeSp) {
+        paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sizeSp,
+            context.getResources().getDisplayMetrics()));
     }
 
     /** Set a text view's size in density-independent pixels. */

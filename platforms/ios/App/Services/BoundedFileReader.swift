@@ -12,9 +12,15 @@ enum BoundedFileReader {
 
   static func read(from url: URL, maximumBytes: Int) throws -> Data {
     guard maximumBytes > 0 else { throw Failure.invalidLimit }
-    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
     guard descriptor >= 0 else {
       throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    var metadata = stat()
+    guard fstat(descriptor, &metadata) == 0, (metadata.st_mode & S_IFMT) == S_IFREG else {
+      let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+      close(descriptor)
+      throw POSIXError(code)
     }
     let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     defer { try? handle.close() }

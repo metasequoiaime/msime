@@ -93,6 +93,14 @@ int main() {
   const auto conf = host::fcitx_candidate_theme_files({}, true, staged).conf;
   assert(offset_y(conf) >= host::FcitxPanelGeometry::shadow_top);
 
+  // A skin resource replaced by a symlink must not redirect the host outside the package.
+  const auto outside = root / "outside.png";
+  write(outside, source);
+  const auto linked = root / "skin" / "linked.png";
+  std::filesystem::create_symlink(outside, linked);
+  assert(!host::stage_fcitx_overlay(theme_dir,
+                                    {linked.string(), 112, 85, host::CandidateSkinAlign::right}));
+
   // Without the scaler, or with no width declared, the image is copied as it is and placed by its own height, as before.
   const auto plain_dir = root / "plain";
   std::filesystem::create_directories(plain_dir);

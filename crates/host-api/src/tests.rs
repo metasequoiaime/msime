@@ -5677,6 +5677,45 @@ fn direct_cloud_callbacks_follow_a_pending_enable() {
 }
 
 #[test]
+fn clearing_online_source_removes_its_rows_without_empty_batch_protocol() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        cloud_candidates: true,
+        ..chinese_preferences()
+    };
+    preferences.ai_assistant.enabled = true;
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let query = read(msime_client_online_query(handle))["value"].to_string();
+    let apply = |source: u8, text: &str| {
+        let candidates = serde_json::to_vec(&json!([text])).unwrap();
+        read(unsafe {
+            msime_client_apply_online_candidates(
+                handle,
+                query.as_ptr(),
+                query.len(),
+                candidates.as_ptr(),
+                candidates.len(),
+                source,
+            )
+        })
+    };
+    let cloud = apply(0, "云候选");
+    assert_eq!(cloud["value"]["applied"], true, "{cloud}");
+    assert_eq!(apply(1, "AI候选")["value"]["applied"], true);
+    let cleared = read(msime_client_clear_online_candidates(handle, 0));
+    assert_eq!(cleared["value"]["applied"], true);
+    let candidates = cleared["value"]["view"]["candidates"].as_array().unwrap();
+    assert!(!candidates.iter().any(|item| item["text"] == "云候选"));
+    assert!(candidates.iter().any(|item| item["text"] == "AI候选"));
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn an_ai_credential_handed_over_in_memory_signs_requests_without_being_stored() {
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = Preferences {
@@ -10795,6 +10834,23 @@ fn a_relative_recorded_language_dictionary_directory_is_ignored() {
     assert!(!relative.is_absolute());
     assert_eq!(
         LanguageDictionaries::resolve(None, Some(&relative)),
+        LanguageDictionaries::default()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_recorded_language_dictionary_directory_is_ignored() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    for name in ["msime-cantonese.db", "msime-zhuyin.db", "msime-stroke.db"] {
+        std::fs::write(outside.path().join(name), b"synthetic dictionary").unwrap();
+    }
+    let linked = root.path().join("language-dictionaries");
+    msime_path_trust::untrusted_symlink(outside.path(), &linked).unwrap();
+
+    assert_eq!(
+        LanguageDictionaries::resolve(None, Some(&linked)),
         LanguageDictionaries::default()
     );
 }

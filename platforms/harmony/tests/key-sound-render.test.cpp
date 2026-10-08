@@ -154,6 +154,20 @@ int main(int argc, char **argv) {
     write(big, std::vector<uint8_t>(kKeySoundMaxSampleBytes + 1, 0));
     check(!renderKeySoundNotes(big, {0}, root, 1500).ok, "a file over the pack's size bound is not read");
 
+    // A validated pack file may be replaced before the native worker opens it;
+    // the renderer must not follow that replacement outside the pack.
+    const std::string outside_sample = root + "/outside-sample.wav";
+    write(outside_sample, wav(44100, 1, 22050));
+    const std::string linked_sample = root + "/linked-sample.wav";
+    std::error_code input_symlink_error;
+    std::filesystem::create_symlink(outside_sample, linked_sample, input_symlink_error);
+    if (input_symlink_error) {
+        check(false, "create input symlink");
+    } else {
+        check(!renderKeySoundNotes(linked_sample, {0}, root, 1500).ok,
+            "input symlinks are refused before decoding");
+    }
+
     check(!renderKeySoundNotes(sample, {25}, root, 1500).ok, "a semitone past two octaves is refused");
     check(!renderKeySoundNotes(sample, {}, root, 1500).ok, "no semitones is refused");
     check(!renderKeySoundNotes(sample, std::vector<int32_t>(kKeySoundMaxNotes + 1, 0), root, 1500).ok,

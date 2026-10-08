@@ -33,6 +33,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.LinkOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -400,7 +401,9 @@ public final class AboutPage extends DetailPage {
             for (File file : files == null ? new File[0] : files) {
                 String upper = file.getName().toUpperCase(java.util.Locale.ROOT);
                 if ((upper.contains("LICENSE") || upper.contains("LICENCE") || upper.contains("NOTICE")
-                        || upper.contains("README")) && file.isFile()) found.add(file.getAbsolutePath());
+                        || upper.contains("README"))
+                        && java.nio.file.Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS))
+                    found.add(file.getAbsolutePath());
             }
         }
         found.sort(String::compareTo);
@@ -440,7 +443,8 @@ public final class AboutPage extends DetailPage {
         network(this, () -> {
             // 绝对路径是已下载资源包里的许可文本，其余是 APK assets 里的。
             try (InputStream in = path.startsWith("/")
-                    ? java.nio.file.Files.newInputStream(new File(path).toPath()) : assets.open(path)) {
+                    ? java.nio.file.Files.newInputStream(new File(path).toPath(), LinkOption.NOFOLLOW_LINKS)
+                    : assets.open(path)) {
                 byte[] bytes = HttpBodyPolicy.readBounded(in, MAX_NOTICE_CHARS * 4);
                 if (bytes == null) return null;
                 String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);

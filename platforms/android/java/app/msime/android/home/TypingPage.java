@@ -9,6 +9,7 @@ import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.NativeClient;
+import app.msime.android.JsonPolicy;
 import app.msime.android.ResourcePackService;
 import app.msime.android.ResourcePacks;
 import app.msime.android.SchemePreferences;
@@ -140,7 +141,7 @@ public final class TypingPage extends DetailPage {
         List<String[]> schemas = new ArrayList<>(HELPCODE_DEFAULTS.length);
         try {
             JSONObject root = new JSONObject(NativeClient.hostCapabilities("android"));
-            JSONObject value = Boolean.TRUE.equals(root.opt("ok"))
+            JSONObject value = JsonPolicy.strictTrue(root.opt("ok"))
                 ? root.optJSONObject("value") : null;
             JSONArray listed = value == null ? null : value.optJSONArray("helpcode_schemas");
             if (listed != null) schemas = new ArrayList<>(listed.length());

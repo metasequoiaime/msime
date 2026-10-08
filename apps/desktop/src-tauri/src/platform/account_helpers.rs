@@ -38,6 +38,11 @@ pub(crate) fn read_snapshot_file(path: &Path) -> std::io::Result<String> {
 }
 
 #[cfg(any(target_os = "ios", target_os = "android", test))]
+pub(crate) fn remove_snapshot_file(path: &Path) -> std::io::Result<()> {
+    crate::shared::atomic_file::remove_private(path)
+}
+
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 pub(crate) fn cleanup_stale_snapshot_previews(directory: &Path) -> std::io::Result<()> {
     for entry in std::fs::read_dir(directory)? {
         let entry = entry?;
@@ -47,7 +52,7 @@ pub(crate) fn cleanup_stale_snapshot_previews(directory: &Path) -> std::io::Resu
             && file_name.starts_with("download-")
             && file_name.ends_with(".ndjson")
         {
-            let _ = std::fs::remove_file(entry.path());
+            let _ = remove_snapshot_file(&entry.path());
         }
     }
     Ok(())
@@ -157,6 +162,23 @@ mod tests {
         assert!(!directory.path().join("download-old.ndjson").exists());
         assert!(directory.path().join("download-in-progress").exists());
         assert!(directory.path().join("export-old.ndjson").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_snapshot_cleanup_never_deletes_through_a_symlinked_directory() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let outside_file = outside.path().join("download-outside.ndjson");
+        std::fs::write(&outside_file, b"synthetic-outside").unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let linked = root.path().join("snapshots");
+        symlink(outside.path(), &linked).unwrap();
+
+        cleanup_stale_snapshot_previews(&linked).unwrap();
+
+        assert_eq!(std::fs::read(&outside_file).unwrap(), b"synthetic-outside");
     }
 
     #[cfg(unix)]

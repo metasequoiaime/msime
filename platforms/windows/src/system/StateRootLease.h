@@ -27,6 +27,30 @@ inline bool handle_is_trusted_file(HANDLE handle) {
          !is_name_surrogate_reparse_point(info.FileAttributes, info.ReparseTag);
 }
 
+// Read a handle that has already been opened with OPEN_REPARSE_POINT. Keeping
+// the read on that handle lets callers tie the bytes to the file entry they
+// checked, instead of reopening a path after the check.
+inline std::optional<std::string> read_trusted_handle(HANDLE handle,
+                                                       std::size_t max_bytes) {
+  if (handle == INVALID_HANDLE_VALUE || !handle_is_trusted_file(handle))
+    return std::nullopt;
+  std::string document;
+  document.reserve(max_bytes + 1);
+  std::array<char, 4096> buffer{};
+  for (;;) {
+    DWORD count = 0;
+    if (!ReadFile(handle, buffer.data(), static_cast<DWORD>(buffer.size()), &count,
+                  nullptr))
+      return std::nullopt;
+    if (count == 0)
+      return document;
+    if (static_cast<std::size_t>(count) > max_bytes ||
+        document.size() > max_bytes - static_cast<std::size_t>(count))
+      return std::nullopt;
+    document.append(buffer.data(), count);
+  }
+}
+
 // 对应 `path_trust::reject_symlinked_components`：任何一级（包括最后一级）是名称代理重解析点就拒绝，不存在的层级放行，由调用方随后创建。
 inline void reject_reparse_ancestors(const std::filesystem::path &root) {
   if (!root.is_absolute())
@@ -76,31 +100,68 @@ inline std::optional<std::string> read_private_file(const std::filesystem::path 
       path.c_str(), GENERIC_READ,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
       OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-  if (handle == INVALID_HANDLE_VALUE || !handle_is_trusted_file(handle)) {
+  if (handle == INVALID_HANDLE_VALUE) {
     if (handle != INVALID_HANDLE_VALUE)
       CloseHandle(handle);
     return std::nullopt;
   }
-  std::string document;
-  document.reserve(max_bytes + 1);
-  std::array<char, 4096> buffer{};
-  for (;;) {
-    DWORD count = 0;
-    if (!ReadFile(handle, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr)) {
-      CloseHandle(handle);
-      return std::nullopt;
-    }
-    if (count == 0)
-      break;
-    if (static_cast<std::size_t>(count) > max_bytes ||
-        document.size() > max_bytes - static_cast<std::size_t>(count)) {
-      CloseHandle(handle);
-      return std::nullopt;
-    }
-    document.append(buffer.data(), count);
-  }
+  const auto document = read_trusted_handle(handle, max_bytes);
   CloseHandle(handle);
   return document;
+}
+
+// Read and remove one private file through the same trusted handle. This is
+// used for one-shot installer hand-offs: closing the reader and then removing
+// by path would let a concurrent writer replace the entry in between.
+inline std::optional<std::string> take_private_file(
+    const std::filesystem::path &path, std::size_t max_bytes) {
+  try {
+    reject_reparse_ancestors(path.parent_path());
+  } catch (...) {
+    return std::nullopt;
+  }
+  HANDLE handle = CreateFileW(
+      path.c_str(), GENERIC_READ | DELETE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+  if (handle == INVALID_HANDLE_VALUE)
+    return std::nullopt;
+  const bool trusted = handle_is_trusted_file(handle);
+  const auto document = trusted ? read_trusted_handle(handle, max_bytes)
+                                : std::nullopt;
+  FILE_DISPOSITION_INFO disposition{TRUE};
+  const bool removed = trusted &&
+      SetFileInformationByHandle(handle, FileDispositionInfo, &disposition,
+                                 sizeof(disposition)) != FALSE;
+  CloseHandle(handle);
+  if (!removed)
+    return std::nullopt;
+  return document;
+}
+
+// Delete a private regular file through the handle that was checked. A path
+// based DeleteFileW after validating the parent would re-resolve that parent
+// if a concurrent writer replaced it with a junction.
+inline bool remove_private_file(const std::filesystem::path &path) {
+  try {
+    reject_reparse_ancestors(path.parent_path());
+  } catch (...) {
+    return false;
+  }
+  HANDLE handle = CreateFileW(
+      path.c_str(), DELETE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+      nullptr);
+  if (handle == INVALID_HANDLE_VALUE)
+    return false;
+  const bool trusted = handle_is_trusted_file(handle);
+  FILE_DISPOSITION_INFO disposition{TRUE};
+  const bool removed = trusted &&
+      SetFileInformationByHandle(handle, FileDispositionInfo, &disposition,
+                                 sizeof(disposition)) != FALSE;
+  CloseHandle(handle);
+  return removed;
 }
 
 // Hold through resource preparation, all sessions and ordered Server shutdown.

@@ -756,6 +756,8 @@ char *msime_client_apply_online_candidates(uint64_t session,
                                           const uint8_t *candidates,
                                           size_t candidates_length,
                                           uint8_t source);
+/* Remove cached and visible rows for one source (source=0 cloud, 1 AI). */
+char *msime_client_clear_online_candidates(uint64_t session, uint8_t source);
 /* Resolve a shared surface route ("settings", "settings:voice", "emoji", ...)
  * so a host launches the shared shell by name. Returns the canonical route and,
  * for panel surfaces, the window label, query and geometry. */

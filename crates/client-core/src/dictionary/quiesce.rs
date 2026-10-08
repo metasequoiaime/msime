@@ -14,6 +14,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const LEASE_NAME: &str = ".msime-dictionary-quiesce";
+/// A persistent advisory lock that serializes lease publishers and removers.
+/// The lease path itself is replaced atomically, but checking its owner and
+/// removing it are otherwise a check-then-remove race across writers.
+const LEASE_LOCK_NAME: &str = ".msime-dictionary-quiesce.lock";
 const LEASE_DURATION: Duration = Duration::from_secs(30);
 /// Long enough for the IBus host's one-second timer to come round twice.
 pub const RETRY_BUDGET: Duration = Duration::from_millis(2500);
@@ -39,6 +43,11 @@ fn read_lease(path: &Path) -> Option<String> {
     )
     .ok()?;
     String::from_utf8(bytes).ok()
+}
+
+fn open_lease_lock(path: &Path) -> std::io::Result<std::fs::File> {
+    let lock = path.with_file_name(LEASE_LOCK_NAME);
+    crate::file_lock::open_private_lock_file(lock)
 }
 
 #[cfg(windows)]
@@ -73,6 +82,12 @@ impl Lease {
 
     /// Write the lease with an expiry `LEASE_DURATION` from now, replacing any earlier one in a single rename so a host never reads a partial file.
     pub fn publish(&mut self) -> std::io::Result<()> {
+        let lock = open_lease_lock(&self.path)?;
+        crate::file_lock::exclusive(&lock)?;
+        self.publish_locked()
+    }
+
+    fn publish_locked(&mut self) -> std::io::Result<()> {
         let expiry = SystemTime::now()
             .checked_add(LEASE_DURATION)
             .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
@@ -110,18 +125,32 @@ impl Lease {
         self.written = contents;
         Ok(())
     }
-}
 
-impl Drop for Lease {
-    /// Remove the lease only while it is still the one this writer last wrote. When another writer has replaced it since, that writer's work is still running under it, and removing it would let the hosts reopen their sessions in the middle of it. The read and the removal are not one step, so a replacement landing between them is still removed; the other writer puts it back on its next request.
-    fn drop(&mut self) {
+    fn remove_if_current_locked(&self) {
         if read_lease(&self.path).is_some_and(|current| current == self.written) {
             let _ = std::fs::remove_file(&self.path);
         }
     }
 }
 
-/// The lease itself, or one still being staged under `<lease>.<pid>-<n>` (by these writers and by the macOS input method). Copying either along with the user directory would keep input off in the copy until it expired. Only the Linux data-directory move copies the user directory.
+impl Drop for Lease {
+    /// Remove the lease only while it is still the one this writer last wrote.
+    /// The persistent lock makes the owner check and removal one operation with
+    /// respect to every cooperating writer.
+    fn drop(&mut self) {
+        if let Ok(lock) = open_lease_lock(&self.path) {
+            if crate::file_lock::exclusive(&lock).is_ok() {
+                self.remove_if_current_locked();
+            }
+        }
+    }
+}
+
+/// The lease itself, one still being staged under `<lease>.<pid>-<n>` (by
+/// these writers and by the macOS input method), or the persistent coordination
+/// lock. Copying any of them along with the user directory would carry stale
+/// maintenance state into the copy. Only the Linux data-directory move copies
+/// the user directory.
 pub fn is_lease_file(name: &OsStr) -> bool {
     name.to_str().is_some_and(|name| {
         name.strip_prefix(LEASE_NAME)
@@ -309,6 +338,33 @@ mod tests {
     }
 
     #[test]
+    fn lease_owner_removal_is_serialized_with_a_new_publisher() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = Lease::acquire(directory.path()).unwrap();
+        let lock = open_lease_lock(&first.path).unwrap();
+        crate::file_lock::exclusive(&lock).unwrap();
+
+        let (started, ready) = std::sync::mpsc::channel();
+        let path = directory.path().to_owned();
+        let publisher = std::thread::spawn(move || {
+            started.send(()).unwrap();
+            Lease::acquire(&path).unwrap()
+        });
+        ready.recv().unwrap();
+
+        // The publisher cannot replace the lease until the owner check and
+        // removal below have completed under the same advisory lock.
+        first.remove_if_current_locked();
+        drop(lock);
+        let second = publisher.join().unwrap();
+        assert_eq!(read_lease(&second.path), Some(second.written.clone()));
+
+        drop(first);
+        drop(second);
+        assert!(!directory.path().join(LEASE_NAME).exists());
+    }
+
+    #[test]
     fn an_oversized_lease_is_ignored_without_reading_it_unboundedly() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(LEASE_NAME);
@@ -391,9 +447,9 @@ mod tests {
         // Whichever wrote last owns the lease, and no staged file is left behind.
         let current = std::fs::read_to_string(path.join(LEASE_NAME)).unwrap();
         assert!(leases.iter().any(|lease| lease.written == current));
-        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 1);
+        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 2);
         drop(leases);
-        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 1);
     }
 
     #[test]
@@ -440,7 +496,7 @@ mod tests {
         assert_eq!(result, Ok("imported"));
         assert_eq!(calls.get(), 3);
         assert!(!directory.path().join(LEASE_NAME).exists());
-        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 
     #[test]
@@ -481,7 +537,7 @@ mod tests {
         drop(hosts);
         assert_eq!(announced.get(), 1);
         assert!(!directory.path().join(LEASE_NAME).exists());
-        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 
     #[test]
@@ -595,6 +651,7 @@ mod tests {
         assert!(is_lease_file(OsStr::new(
             ".msime-dictionary-quiesce.4242-0"
         )));
+        assert!(is_lease_file(OsStr::new(".msime-dictionary-quiesce.lock")));
         assert!(!is_lease_file(OsStr::new(".msime-dictionary-quiesced")));
         assert!(!is_lease_file(OsStr::new(".msime-dictionary-access.lock")));
         assert!(!is_lease_file(OsStr::new("msime_user.db")));

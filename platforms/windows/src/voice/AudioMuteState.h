@@ -13,6 +13,7 @@
 #include <windows.h>
 #else
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -20,8 +21,29 @@ namespace msime::windows {
 
 inline constexpr std::uint64_t kAudioMuteStateMaxBytes = 1024 * 1024;
 
+inline bool audio_mute_parent_is_safe(const std::filesystem::path &path) {
+#ifdef _WIN32
+  for (auto current = path.parent_path(); !current.empty();
+       current = current.parent_path()) {
+    std::error_code error;
+    const auto status = std::filesystem::symlink_status(current, error);
+    if (!error && status.type() == std::filesystem::file_type::symlink)
+      return false;
+    if (error && error != std::errc::no_such_file_or_directory)
+      return false;
+    if (current == current.root_path())
+      break;
+  }
+  return true;
+#else
+  (void)path;
+  return true;
+#endif
+}
+
 inline bool read_audio_mute_state(const std::filesystem::path &path,
                                   std::string &contents) {
+  if (!audio_mute_parent_is_safe(path)) return false;
 #ifdef _WIN32
   HANDLE handle = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                               OPEN_EXISTING,
@@ -48,8 +70,13 @@ inline bool read_audio_mute_state(const std::filesystem::path &path,
   if (!ok) contents.clear();
   return ok;
 #else
-  const int descriptor = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  const int descriptor = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
   if (descriptor < 0) return false;
+  struct stat metadata {};
+  if (::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode)) {
+    ::close(descriptor);
+    return false;
+  }
   contents.clear();
   char buffer[8192];
   bool ok = true;
@@ -72,13 +99,16 @@ inline bool read_audio_mute_state(const std::filesystem::path &path,
 
 inline bool write_audio_mute_state(const std::filesystem::path &path,
                                    std::string_view contents) {
-  if (contents.size() > kAudioMuteStateMaxBytes || path.parent_path().empty())
+  if (contents.size() > kAudioMuteStateMaxBytes || path.parent_path().empty() ||
+      !audio_mute_parent_is_safe(path))
     return false;
 #ifdef _WIN32
   wchar_t temporary_name[MAX_PATH]{};
   if (!GetTempFileNameW(path.parent_path().c_str(), L"msi", 0, temporary_name))
     return false;
-  const auto remove_temporary = [&] { DeleteFileW(temporary_name); };
+  const auto remove_temporary = [&] {
+    (void)remove_private_file(std::filesystem::path(temporary_name));
+  };
   HANDLE handle = CreateFileW(temporary_name, GENERIC_WRITE, 0, nullptr,
                               OPEN_EXISTING,
                               FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,

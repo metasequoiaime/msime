@@ -129,6 +129,10 @@ impl QuanpinEngine {
         )
     }
 
+    pub fn clear_online_candidates(&mut self, source: CandidateSource) {
+        self.dictionary.clear_online_candidates(source);
+    }
+
     pub fn find_candidate(&self, key: &str, value: &str) -> Option<WordItem> {
         self.dictionary.find_candidate(key, value)
     }

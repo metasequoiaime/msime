@@ -56,7 +56,7 @@ def main() -> int:
         in account,
         "native restore picker": "DocumentViewPicker(this.context).select(options)" in account
         and "snapshot_restore_preview" in account,
-        "private restore copy": "await fs.copyFile(source, this.restoreFile)" in account,
+        "private restore copy": "await fs.copyFile(sourceFile.fd, this.restoreFile)" in account,
         "native restore upload": "restoreSnapshotAuthenticated(file, revision, sha256)" in account
         and "snapshot_restore_native" in account,
         "restore cleanup": "this.clearRestorePreview();" in account,

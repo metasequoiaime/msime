@@ -163,16 +163,8 @@ struct CloudDictionaryFilesView: View {
   }
 
   private static func readTextFile(from url: URL) throws -> String {
-    let access = url.startAccessingSecurityScopedResource()
-    defer { if access { url.stopAccessingSecurityScopedResource() } }
-    let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-    guard size <= 65536 else { throw InvalidTextFile() }
-    let handle = try FileHandle(forReadingFrom: url)
-    defer { try? handle.close() }
-    let data = try handle.read(upToCount: 65537) ?? Data()
-    guard data.count <= 65536, let content = String(data: data, encoding: .utf8), !content.contains("\0") else {
-      throw InvalidTextFile()
-    }
+    let content = try PersonalDictionaryImport.readText(from: url)
+    guard content.utf8.count <= 65536, !content.contains("\0") else { throw InvalidTextFile() }
     return content
   }
 

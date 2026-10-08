@@ -20,6 +20,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import app.msime.android.NativeClient;
+import app.msime.android.JsonPolicy;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.KeyPressIds;
@@ -174,7 +175,7 @@ public final class StatisticsFragment extends HomeTabFragment {
                 .put("action", new JSONObject().put("operation", "count").put("kind", "pinyin")
                     .put("user_only", true));
             JSONObject root = new JSONObject(NativeClient.dictionary(request.toString()));
-            if (!Boolean.TRUE.equals(root.opt("ok"))) return null;
+            if (!JsonPolicy.strictTrue(root.opt("ok"))) return null;
             JSONObject value = root.optJSONObject("value");
             if (value == null || !value.has("count")) return null;
             Long count = DictionaryCollectionsStore.strictLong(value.opt("count"));

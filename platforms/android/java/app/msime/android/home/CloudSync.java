@@ -625,7 +625,7 @@ public final class CloudSync {
                 .put("options", new JSONObject(options))
                 .put("action", new JSONObject().put("operation", "import_personal").put("text", file)
                     .put("request_id", "cloud-merge-" + UUID.randomUUID())).toString()));
-            return Boolean.TRUE.equals(response.opt("ok"));
+            return JsonPolicy.strictTrue(response.opt("ok"));
         }
     }
 
@@ -634,7 +634,7 @@ public final class CloudSync {
     /** client-core 的标准响应 `{ok, value, error}`：失败时抛出，信息只进日志。 */
     private static JSONObject nativeValue(String response) throws JSONException {
         JSONObject root = new JSONObject(response == null ? "" : response);
-        if (!Boolean.TRUE.equals(root.opt("ok")))
+        if (!JsonPolicy.strictTrue(root.opt("ok")))
             throw new IllegalStateException(root.optString("error", "native call failed"));
         JSONObject value = root.optJSONObject("value");
         return value == null ? new JSONObject() : value;

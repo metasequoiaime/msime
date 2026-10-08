@@ -269,6 +269,48 @@ pub fn runner_up_order<'a, R: OrderRowSource<'a> + ?Sized>(
         let row = rows.get(index);
         row.source == LATTICE_SOURCE && row.text.chars().count() == width
     };
+    // 先只扫描输出顺序，常见的整句候选已经连续时直接返回，避免为最终排列分配缓冲。
+    let mut output = 0;
+    let mut identity = true;
+    let mut reading_seen = 0;
+    for index in 0..count {
+        if !is_reading(index) {
+            identity &= output == index;
+            output += 1;
+            continue;
+        }
+        if reading_seen == 0 {
+            identity &= output == index;
+            output += 1;
+            let mut kept = 1;
+            for next in index + 1..count {
+                if is_reading(next) {
+                    if kept == keep {
+                        break;
+                    }
+                    identity &= output == next;
+                    output += 1;
+                    kept += 1;
+                }
+            }
+        }
+        reading_seen += 1;
+    }
+    reading_seen = 0;
+    for index in 0..count {
+        if is_reading(index) {
+            if reading_seen >= keep {
+                identity &= output == index;
+                output += 1;
+            }
+            reading_seen += 1;
+        }
+    }
+    debug_assert_eq!(output, count);
+    if identity {
+        return None;
+    }
+
     let mut order = Vec::with_capacity(count);
     let mut reading_seen = 0;
     for index in 0..count {
@@ -370,6 +412,15 @@ mod tests {
     /// Only `CandidateSource::Generated` names alternative readings of one key. Every other source
     /// is plural by design — English words, emoji, kaomoji, quick phrases, AI suggestions — and an
     /// earlier version of this rule kept one of each and dropped the rest.
+    #[test]
+    fn one_lattice_row_needs_no_temporary_order_allocations() {
+        let rows = [row("你好", LATTICE_SOURCE), row("你", 0)];
+        let (order, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| runner_up_order(0, &rows));
+        assert_eq!(order, None);
+        assert_eq!(allocations, 0);
+    }
+
     #[test]
     fn only_the_lattice_source_is_treated_as_alternative_readings() {
         assert_eq!(LATTICE_SOURCE, 8);

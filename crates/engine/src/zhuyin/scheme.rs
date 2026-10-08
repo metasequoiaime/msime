@@ -653,11 +653,28 @@ fn cached_best(
 
 /// `cached_best` 的缓存键。
 fn describe(positions: &[&[String]]) -> String {
-    positions
+    let capacity = positions
         .iter()
-        .map(|readings| readings.join("|"))
-        .collect::<Vec<_>>()
-        .join(" ")
+        .enumerate()
+        .map(|(position, readings)| {
+            readings.iter().map(String::len).sum::<usize>()
+                + readings.len().saturating_sub(1)
+                + usize::from(position > 0)
+        })
+        .sum();
+    let mut description = String::with_capacity(capacity);
+    for (position, readings) in positions.iter().enumerate() {
+        if position > 0 {
+            description.push(' ');
+        }
+        for (reading, value) in readings.iter().enumerate() {
+            if reading > 0 {
+                description.push('|');
+            }
+            description.push_str(value);
+        }
+    }
+    description
 }
 
 fn build_editing_keys(syllables: &[Syllable], pending: &PendingSyllable) -> String {
@@ -821,6 +838,22 @@ mod tests {
         syllables[2].locked = Some(1);
         let positions: Vec<&[String]> = syllables.iter().map(Syllable::allowed).collect();
         assert_eq!(describe(&positions[1..]), "ㄏㄠˇ ㄌㄧˇ");
+    }
+
+    #[test]
+    fn cache_key_description_needs_only_the_output_allocation() {
+        let syllables = [
+            syllable("su3", &["ㄋㄧˇ"]),
+            syllable("lc3", &["ㄏㄠˇ"]),
+            syllable("28c", &["ㄋㄧˇ", "ㄌㄧˇ"]),
+        ];
+        let positions: Vec<&[String]> = syllables.iter().map(Syllable::allowed).collect();
+
+        let (description, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| describe(&positions));
+
+        assert_eq!(description, "ㄋㄧˇ ㄏㄠˇ ㄋㄧˇ|ㄌㄧˇ");
+        assert_eq!(allocations, 1);
     }
 
     #[test]

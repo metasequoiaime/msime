@@ -128,6 +128,8 @@ interface VoiceCaptureDeviceReply {
 
 const BRIDGE_NAME: string = 'msimeHarmony';
 const PLATFORM: string = 'harmony';
+/** The settings page and native save bridge hold one complete export in memory. */
+const MAX_DICTIONARY_EXPORT_BYTES: number = 32 * 1024 * 1024;
 
 /** `{directory, platform, channel}` for `client.notices`; `{directory, id}` for `client.noticeDismiss`. */
 interface NoticesRequest {
@@ -489,6 +491,8 @@ struct Settings {
   private noticeAttached: boolean = false;
   // The notice whose body the card's web view holds, so a refresh that changes nothing does not reload it.
   private noticeShown: string = '';
+  /** Bumped for every notice fetch and when the page disappears, so late answers cannot repaint it. */
+  private noticeRequest: number = 0;
 
   aboutToAppear(): void {
     this.bridge.attach(this.context);
@@ -507,10 +511,12 @@ struct Settings {
    * Fetches the notices when the window opens or comes back to the front, never on a timer: client-core answers from its copy for a minute after a fetch, which is as often as the service wants to be asked.
    */
   private loadNotices(): void {
+    const generation: number = ++this.noticeRequest;
     const request: NoticesRequest = {
       directory: `${this.context.filesDir}/state/notices`, platform: PLATFORM, channel: 'app'
     };
     client.notices(JSON.stringify(request)).then((reply: string): void => {
+      if (!NoticePolicy.requestCurrent(generation, this.noticeRequest)) return;
       this.notices = NoticePolicy.items(reply);
       this.renderNotice();
     }).catch((error: Error): void => {
@@ -613,6 +619,7 @@ struct Settings {
   }
 
   aboutToDisappear(): void {
+    this.noticeRequest++;
     // The ability outlives this page, so a handler left behind would hold a bridge whose webview
     // has gone.
     EntryAbility.onActivated = undefined;
@@ -921,6 +928,9 @@ class SettingsBridge {
     if (name === null || typeof request.contents !== 'string' || this.context === undefined) {
       return JSON.stringify({ ok: false, error: 'export_invalid' });
     }
+    if (utf8Length(request.contents) > MAX_DICTIONARY_EXPORT_BYTES) {
+      return JSON.stringify({ ok: false, error: 'export_too_large' });
+    }
     const directory: string = `${this.stateDirectory}/dictionary-exports`;
     const staging: string = `${directory}/${util.generateRandomUUID(false)}.txt`;
     let destination: string = '';
@@ -1112,8 +1122,16 @@ class SettingsBridge {
         }
       } else {
         source = `${staging}/${PluginImportPolicy.ARCHIVE_NAME}`;
+        const pathStat: fs.Stat = fs.lstatSync(picked[0]);
+        if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
+          return JSON.stringify({ ok: false, error: 'plugin_invalid', detail: '压缩包不是普通文件' });
+        }
         const file: fs.File = fs.openSync(picked[0], fs.OpenMode.READ_ONLY);
         try {
+          const opened: fs.Stat = fs.statSync(file.fd);
+          if (!opened.isFile() || opened.ino !== pathStat.ino) {
+            return JSON.stringify({ ok: false, error: 'plugin_invalid', detail: '压缩包文件发生变化' });
+          }
           const refusal: PluginImportRefusal | null = PluginImportPolicy.archive(fs.statSync(file.fd).size);
           if (refusal !== null) {
             return JSON.stringify(refusal);
@@ -1162,7 +1180,20 @@ class SettingsBridge {
     }
     fs.mkdirSync(destination);
     for (const name of scan.files) {
-      await fs.copyFile(`${picked}/${name}`, `${destination}/${name}`);
+      const sourcePath: string = `${picked}/${name}`;
+      const destinationPath: string = `${destination}/${name}`;
+      const file: fs.File = fs.openSync(sourcePath, fs.OpenMode.READ_ONLY);
+      try {
+        const pathStat: fs.Stat = fs.lstatSync(sourcePath);
+        const opened: fs.Stat = fs.statSync(file.fd);
+        if (pathStat.isSymbolicLink() || !pathStat.isFile()
+          || !opened.isFile() || opened.ino !== pathStat.ino) {
+          return { ok: false, error: 'plugin_invalid', detail: `${name} 文件发生变化` };
+        }
+        await fs.copyFile(file.fd, destinationPath);
+      } finally {
+        fs.closeSync(file);
+      }
     }
     return null;
   }

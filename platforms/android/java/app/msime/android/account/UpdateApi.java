@@ -346,6 +346,11 @@ public final class UpdateApi {
         } catch (Failure failure) {
             deleteQuietly(partial);
             throw failure;
+        } catch (RuntimeException cancelled) {
+            // Progress callbacks are allowed to cancel a page/job download. Do not leave the
+            // half-written APK behind when that callback aborts the worker.
+            deleteQuietly(partial);
+            throw cancelled;
         }
         if (!MessageDigest.isEqual(hex(digest.digest()).getBytes(StandardCharsets.US_ASCII),
                 expected.getBytes(StandardCharsets.US_ASCII))) {

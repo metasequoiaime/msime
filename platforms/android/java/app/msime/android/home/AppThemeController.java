@@ -6,6 +6,7 @@ import androidx.annotation.Nullable;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppThemePalette;
 import app.msime.android.NativeClient;
+import app.msime.android.JsonPolicy;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import org.json.JSONException;
@@ -76,7 +77,7 @@ final class AppThemeController {
     @Nullable private static JSONObject resolve(String theme, int month, boolean dark) {
         try {
             JSONObject root = new JSONObject(NativeClient.resolveAppTheme(theme, month, dark));
-            return Boolean.TRUE.equals(root.opt("ok"))
+            return JsonPolicy.strictTrue(root.opt("ok"))
                 ? root.optJSONObject("value") : null;
         } catch (JSONException | RuntimeException | LinkageError error) {
             return null;

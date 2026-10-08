@@ -17,6 +17,7 @@ use std::time::Duration;
 
 /// The file that marks a directory as an installed model. Kept in step with `local_model_manifest` in `shared/voice/LocalAsr.cpp`.
 pub const MANIFEST_FILE: &str = "msime-model.json";
+const MODEL_LOCK_FILE: &str = ".models.lock";
 
 const CATALOG_JSON: &str = include_str!("../../../../resources/local-asr-models.json");
 
@@ -304,6 +305,13 @@ pub fn install(
 pub fn remove(root: &Path, id: &str) -> Result<(), LocalModelError> {
     let model = find_model(id)?;
     check_root(root)?;
+    if matches!(
+        fs::symlink_metadata(root),
+        Err(error) if error.kind() == io::ErrorKind::NotFound
+    ) {
+        return Ok(());
+    }
+    let _lock = acquire_model_lock(root)?;
     let target = root.join(&model.id);
     remove_leftovers(root, &model.id);
     let target_is_dir = match fs::symlink_metadata(&target) {
@@ -358,6 +366,17 @@ fn check_root(root: &Path) -> Result<(), LocalModelError> {
         }
     }
     Ok(())
+}
+
+/// Serialize every operation that mutates a model root, including operations made by separate
+/// host processes. The lock lives in the root and is deliberately kept after the operation so a
+/// later process cannot create a different inode while an earlier process still owns the lock.
+fn acquire_model_lock(root: &Path) -> Result<File, LocalModelError> {
+    fs::create_dir_all(root)?;
+    check_root(root)?;
+    let lock = crate::file_lock::open_private_lock_file(root.join(MODEL_LOCK_FILE))?;
+    crate::file_lock::exclusive(&lock)?;
+    Ok(lock)
 }
 
 fn ancestor_capacity(root: &Path) -> usize {
@@ -428,7 +447,11 @@ fn restore_interrupted_adoption(staging: &Path) {
     {
         return;
     }
-    let Ok(entries) = fs::read_dir(staging.join("model")) else {
+    let model = staging.join("model");
+    if !fs::symlink_metadata(&model).is_ok_and(|metadata| metadata.file_type().is_dir()) {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(model) else {
         return;
     };
     for entry in entries.flatten() {
@@ -581,7 +604,7 @@ pub(crate) fn install_model(
     if !crate::preferences::valid_model_mirror(mirror) {
         return Err(LocalModelError::InvalidMirror);
     }
-    fs::create_dir_all(root)?;
+    let _lock = acquire_model_lock(root)?;
     remove_leftovers(root, &model.id);
     let staging = Staging(root.join(format!(".staging-{}-{}", model.id, unique_suffix())));
     fs::create_dir(&staging.0)?;
@@ -778,7 +801,7 @@ pub(crate) fn install_files_with(
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
     check_install(root, id, mirrors)?;
-    fs::create_dir_all(root)?;
+    let _lock = acquire_model_lock(root)?;
     remove_leftovers(root, id);
     let staging = Staging(root.join(format!(".staging-{}-{}", id, unique_suffix())));
     fs::create_dir(&staging.0)?;
@@ -910,7 +933,7 @@ pub(crate) fn install_archive_members_with(
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
     check_install(root, id, mirrors)?;
-    fs::create_dir_all(root)?;
+    let _lock = acquire_model_lock(root)?;
     remove_leftovers(root, id);
     let staging = Staging(root.join(format!(".staging-{}-{}", id, unique_suffix())));
     fs::create_dir(&staging.0)?;
@@ -1050,7 +1073,7 @@ pub(crate) fn adopt_files(
     }
     check_root(source)?;
     let record = source.to_str().ok_or(LocalModelError::InvalidRoot)?;
-    fs::create_dir_all(root)?;
+    let _lock = acquire_model_lock(root)?;
     // 先放回上一次被打断的收编移走的文件，再检查来源里有没有这组文件。
     remove_leftovers(root, id);
     let mut names = Vec::with_capacity(files.len());

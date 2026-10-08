@@ -73,8 +73,22 @@ function reply(type: string, id: number, text: string, correct: boolean): void {
 
 const textReaderApi: LocalAsrTextReaderApi = {
   open: (path: string, mode: number): { fd: number } => {
-    const file: fs.File = fs.openSync(path, mode);
-    return { fd: file.fd };
+    const expected: fs.Stat = fs.lstatSync(path);
+    if (expected.isSymbolicLink() || !expected.isFile()) {
+      throw new Error('本地语音模型文本文件不是普通文件');
+    }
+    let file: fs.File | undefined = undefined;
+    try {
+      file = fs.openSync(path, mode);
+      const opened: fs.Stat = fs.statSync(file.fd);
+      if (!opened.isFile() || opened.ino !== expected.ino) {
+        throw new Error('本地语音模型文本文件发生变化');
+      }
+      return { fd: file.fd };
+    } catch (error) {
+      if (file !== undefined) fs.closeSync(file);
+      throw error;
+    }
   },
   read: (fd: number, buffer: ArrayBuffer): number => fs.readSync(fd, buffer),
   close: (file: { fd: number }): void => fs.closeSync(file.fd),

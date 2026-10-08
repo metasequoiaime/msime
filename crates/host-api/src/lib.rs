@@ -821,6 +821,10 @@ pub(crate) struct LanguageDictionaries {
 }
 
 impl LanguageDictionaries {
+    fn trusted_regular_file(path: &Path) -> bool {
+        msime_path_trust::reject_symlinked_components(path).is_ok() && path.is_file()
+    }
+
     /// 每个词库优先用 `state_root` 下已下载的资源包里的那份，没有时用 HostOptions 记录的 `recorded` 目录里的那份（随包内置或旧版本留下的），两处都没有就是缺席。
     pub(crate) fn resolve(state_root: Option<&Path>, recorded: Option<&Path>) -> Self {
         let find = |name: &str| {
@@ -832,7 +836,7 @@ impl LanguageDictionaries {
                     recorded
                         .filter(|directory| directory.is_absolute())
                         .map(|directory| directory.join(name))
-                        .filter(|path| path.is_file())
+                        .filter(|path| Self::trusted_regular_file(path))
                 })
         };
         LanguageDictionaries {
@@ -846,7 +850,7 @@ impl LanguageDictionaries {
     fn in_directory(directory: &std::path::Path) -> Self {
         let present = |name: &str| {
             let path = directory.join(name);
-            path.is_file().then_some(path)
+            Self::trusted_regular_file(&path).then_some(path)
         };
         LanguageDictionaries {
             cantonese: present("msime-cantonese.db"),

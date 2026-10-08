@@ -174,7 +174,12 @@ def options(state: Path) -> dict:
 def leftovers(state: Path) -> list[str]:
     """What an update may leave in the state or user directory besides the options: a staged options copy or the quiesce lease would be a bug."""
     names = [path.name for path in state.iterdir()] + [path.name for path in (state / "user").iterdir()]
-    return sorted(name for name in names if name.startswith((".runtime-options-", ".msime-dictionary-quiesce")))
+    return sorted(
+        name
+        for name in names
+        if name.startswith((".runtime-options-", ".msime-dictionary-quiesce"))
+        and name != ".msime-dictionary-quiesce.lock"
+    )
 
 
 def check_setup(harness: Harness) -> None:

@@ -46,6 +46,23 @@ int main() {
   require(mascot.image == (root / "mascot" / "preview.png").wstring());
   require(mascot.top_dip == 50.0 && mascot.width_dip == 180.0);
 
+#ifndef _WIN32
+  const auto outside = root / "outside.png";
+  std::ofstream(outside) << "external";
+  Json escaped = catalog;
+  escaped["packages"][0]["decorationImage"] = "../outside.png";
+  require(candidate_skin_decoration(escaped, "mascot", root).image.empty());
+
+  std::filesystem::create_symlink(outside, root / "mascot" / "linked.png");
+  Json linked = catalog;
+  linked["packages"][0]["decorationImage"] = "linked.png";
+  require(candidate_skin_decoration(linked, "mascot", root).image.empty());
+
+  std::filesystem::create_symlink(root / "mascot", root / "linked-package");
+  Json linked_package{{"packages", Json::array({package("linked-package", 320.0, 50.0, 180.0)})}};
+  require(candidate_skin_decoration(linked_package, "linked-package", root).image.empty());
+#endif
+
   // Values this card cannot use are refused rather than propagated into the geometry.
   require(candidate_skin_min_width(catalog, "wide") == 0.0);
   require(candidate_skin_decoration(catalog, "wide", root).image.empty());

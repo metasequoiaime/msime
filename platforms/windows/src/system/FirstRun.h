@@ -40,17 +40,9 @@ inline std::optional<bool> take_installer_cloud_choice(const std::filesystem::pa
   }
   std::optional<bool> choice;
   if (safe_parent) {
-    if (const auto document = read_private_file(path, 4096)) {
+    if (const auto document = take_private_file(path, 4096)) {
       std::istringstream input(*document);
       choice = parse_installer_cloud_choice(input);
-    }
-  }
-  if (safe_parent) {
-    try {
-      reject_reparse_ancestors(path.parent_path());
-      std::error_code error;
-      std::filesystem::remove(path, error);
-    } catch (...) {
     }
   }
   return choice;
