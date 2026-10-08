@@ -677,7 +677,7 @@ public final class MSIMEInputService extends InputMethodService {
             && "english".equals(InputViewValuePolicy.textOr(preferences, "default_ime_mode", "chinese"))
             ? "english" : "chinese";
         imeModeScope = preferences != null
-            && "global".equals(preferences.optString("ime_mode_scope", "app"))
+            && "global".equals(InputViewValuePolicy.textOr(preferences, "ime_mode_scope", "app"))
             ? "global" : "app";
         KeyboardScheme engineScheme = KeyboardScheme.fromPreferences(
             preferences == null ? edition.defaultScheme()
@@ -2086,7 +2086,7 @@ public final class MSIMEInputService extends InputMethodService {
         String nextDefaultImeMode = "english".equals(
             InputViewValuePolicy.textOr(preferences, "default_ime_mode", "chinese")) ? "english" : "chinese";
         String nextImeModeScope = "global".equals(
-            preferences.optString("ime_mode_scope", "app")) ? "global" : "app";
+            InputViewValuePolicy.textOr(preferences, "ime_mode_scope", "app")) ? "global" : "app";
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", edition.defaultScheme()),
             InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"),
