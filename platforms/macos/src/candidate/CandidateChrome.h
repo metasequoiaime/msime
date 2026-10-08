@@ -4,8 +4,11 @@
 #import "CandidateTextMetrics.h"
 #include "CandidateItemLayout.h"
 #include "CandidateSkin.h"
+#import "CandidatePronunciation.h"
 // Drawing adapted from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
+// A reading is quieter than the gloss it follows, relative to the gloss colour.
+static const CGFloat MSIMECandidatePronunciationOpacity = 0.72;
 // The translation under or beside a candidate is a fixed 12pt run at every candidate size (design-input-surfaces §2.1), so a large candidate font does not grow a gloss the eye only glances at.
 static const CGFloat MSIMECandidateTranslationPointSize = 12.0;
 // The top row of the card: the reading on the left, then 「1 / 3」 and the two page arrows on the right.
@@ -114,6 +117,8 @@ static inline NSString *MSIMECandidateGlossRun(NSString *reading, NSString *tran
 @property(nonatomic) BOOL candidateHighlighted;
 @property(nonatomic) BOOL candidateFixed;
 @property(nonatomic, copy) NSString *translation;
+// How each gloss line is read, "\n"-joined parallel to translation. Drawn after its line and never part of what a gloss column commits.
+@property(nonatomic, copy) NSString *pronunciation;
 @property(nonatomic, strong) NSFont *translationFont;
 @property(nonatomic, copy) NSColor *translationColor;
 @property(nonatomic) BOOL translationBelow;
@@ -238,7 +243,15 @@ static inline NSString *MSIMECandidateGlossRun(NSString *reading, NSString *tran
     NSString *word = [title substringFromIndex:NSMaxRange(split)];
     NSString *annotation = self.annotation ?: @"";
     NSString *glossReading = self.glossReading ?: @"";
-    NSString *translation = MSIMECandidateGlossRun(glossReading, self.translation);
+    NSMutableArray<NSValue *> *readingRanges = [NSMutableArray array];
+    NSMutableArray<NSNumber *> *glossLineStarts = [NSMutableArray array];
+    // What is measured and drawn; self.translation stays the committable gloss.
+    NSString *glossDisplay = self.translation.length
+        ? MSIMECandidateGlossDisplay(self.translation, self.pronunciation, readingRanges, glossLineStarts)
+        : @"";
+    NSString *translation = MSIMECandidateGlossRun(glossReading, glossDisplay);
+    // The 훈음 lines come first in the run, so every range measured in the gloss moves past them.
+    const NSUInteger glossOffset = glossReading.length && glossDisplay.length ? glossReading.length + 1 : 0;
     const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
     const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
     NSFont *glossFont = self.translationFont ?: [NSFont systemFontOfSize:MSIMECandidateTranslationPointSize * scale];
@@ -287,18 +300,17 @@ static inline NSString *MSIMECandidateGlossRun(NSString *reading, NSString *tran
         NSColor *glossColor = self.translationColor ?: [titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
         NSMutableAttributedString *glossText = [[NSMutableAttributedString alloc] initWithString:translation
             attributes:MSIMECandidateRunAttributes(glossFont, glossColor, run.below)];
+        NSColor *readingColor = [glossColor colorWithAlphaComponent:glossColor.alphaComponent * MSIMECandidatePronunciationOpacity];
+        for (NSValue *range in readingRanges)
+            [glossText addAttribute:NSForegroundColorAttributeName value:readingColor
+                              range:NSMakeRange(glossOffset + range.rangeValue.location, range.rangeValue.length)];
         if (self.armedGlossColumn > 0) {
-            NSArray<NSString *> *parts = [translation componentsSeparatedByString:@"\n"];
-            // The reading's lines come first in the run and are no column of their own.
+            // The underline marks what the column commits: the gloss line, not the reading drawn after it nor the 훈음 lines before it.
+            NSArray<NSString *> *parts = [self.translation componentsSeparatedByString:@"\n"];
             NSUInteger selected = (NSUInteger)(self.armedGlossColumn - 1);
-            if (glossReading.length) selected += [glossReading componentsSeparatedByString:@"\n"].count;
-            if (selected < parts.count && parts[selected].length) {
-                NSUInteger location = 0;
-                for (NSUInteger index = 0; index < selected; ++index)
-                    location += parts[index].length + 1;
+            if (selected < parts.count && selected < glossLineStarts.count && parts[selected].length)
                 [glossText addAttribute:NSUnderlineStyleAttributeName value:@((NSInteger)NSUnderlineStyleSingle)
-                                  range:NSMakeRange(location, parts[selected].length)];
-            }
+                                  range:NSMakeRange(glossOffset + glossLineStarts[selected].unsignedIntegerValue, parts[selected].length)];
         }
         const CGFloat drawnWidth = run.below ? run.width : run.width + 1.0;
         const CGFloat drawn = MIN(run.height, MSIMECandidateWrappedHeight(translation, glossFont, run.width));

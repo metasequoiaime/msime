@@ -13,7 +13,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
-    <queries><intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent></queries>
+    <!-- 系统语音识别：SpeechRecognizer 绑定的是 RecognitionService。Android 11 起包可见性收紧，只声明 RECOGNIZE_SPEECH 时，识别服务和识别界面不在同一个包的设备上会被判为没有识别服务。 -->
+    <queries><intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
     <application android:theme="@style/Theme.MSIME" android:label="@string/app_name" android:icon="@drawable/app_icon_classic" android:allowBackup="false" android:supportsRtl="true">
         <!-- 返回手势走 OnBackPressedDispatcher 的预测式返回，只在宿主的 HomeActivity 上打开；不加在 application 上，因为 :ime 进程里的输入法服务靠 KEYCODE_BACK 收起面板。 -->
         <activity android:name="app.msime.android.home.HomeActivity" android:exported="true" android:enableOnBackInvokedCallback="true">

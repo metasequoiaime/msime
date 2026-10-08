@@ -30,7 +30,7 @@ pub const STATE_FILE: &str = "telemetry-state.json";
 pub const SESSION_FILE: &str = "telemetry-session.json";
 /// Crash records, one `<session id>.crash` file per crashed session.
 pub const CRASH_DIRECTORY: &str = "telemetry-crashes";
-const CRASH_EXTENSION: &str = "crash";
+pub(crate) const CRASH_EXTENSION: &str = "crash";
 const LOCK_FILE: &str = "telemetry.lock";
 
 /// Most events kept for delivery; the oldest are dropped first.
@@ -53,7 +53,7 @@ const EVENTS_PATH: &str = "/v1/telemetry/events";
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_QUEUE_BYTES: u64 = 1 << 20;
 const MAX_SMALL_FILE_BYTES: u64 = 16 * 1024;
-const MAX_CRASH_RECORD_BYTES: u64 = 64 * 1024;
+pub(crate) const MAX_CRASH_RECORD_BYTES: u64 = 64 * 1024;
 /// Crash records turned into events per start; a host that crashes in a loop cannot fill the queue with one start's worth of records.
 const MAX_CRASH_RECORDS_PER_START: usize = 8;
 /// A `Retry-After` beyond this is treated as this, so a malformed header cannot silence reporting for good.

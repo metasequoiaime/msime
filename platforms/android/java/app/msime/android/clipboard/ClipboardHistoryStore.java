@@ -50,10 +50,8 @@ public final class ClipboardHistoryStore {
             throw new IllegalArgumentException("Clipboard has no usable text");
         }
         JSONObject response = request("capture", text, false);
-        if (response != null && Boolean.TRUE.equals(
-                ClipboardHistoryPolicy.strictBoolean(response.opt("captured")))) return null;
-        String reason = response == null || response.isNull("reason")
-            ? "" : response.optString("reason", "");
+        if (response != null && JsonPolicy.strictTrue(response.opt("captured"))) return null;
+        String reason = response == null ? "" : JsonPolicy.strictStringOrEmpty(response.opt("reason"));
         return reason;
     }
 
@@ -101,13 +99,14 @@ public final class ClipboardHistoryStore {
                 .put("action", action);
             JSONObject response = new JSONObject(
                 NativeClient.mobileClipboardHistory(payload.toString()));
-            if (!Boolean.TRUE.equals(ClipboardHistoryPolicy.strictBoolean(response.opt("ok")))) {
+            if (!JsonPolicy.strictTrue(response.opt("ok"))) {
                 // Name the operation and carry the shared entry's own reason. Without them a
                 // refusal reaches the log as one indistinguishable sentence, which is how an
                 // Android-only file-locking failure read as "the clipboard is broken somehow"
                 // for as long as it did.
+                String reason = JsonPolicy.strictString(response.opt("error"));
                 throw new IllegalStateException("Clipboard history " + operation
-                    + " refused: " + response.optString("error", "no reason given"));
+                    + " refused: " + (reason == null ? "no reason given" : reason));
             }
             return response.optJSONObject("value");
         } catch (JSONException | LinkageError error) {

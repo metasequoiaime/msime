@@ -2,7 +2,7 @@
 //!
 //! Engine 只有一个用户词库，这里不改它，只在 client-core 里加一层集合的元数据；词条真正写进用户词库仍然走个人词库的跨进程队列（[`PersonalDictionaryStore`]），键盘在下一次同步时应用。
 //!
-//! 存储在 `<preferences_directory>/DictionaryCollections/` 下：`index.json` 是集合列表，`index.json.lock` 是整个目录的文件锁，每个集合的词条在 `<uuid>.json`（所以停用以后还能重新启用），`outbox.json` 是还没交给个人词库队列的增删。个人词库队列同时最多只接受 128 个未完成的请求，一个两万条的集合要分很多批送进去，所以启用和停用先记进待发送队列，再由 [`DictionaryCollectionsStore::flush`] 在队列有空位时一批批送出；每次修改之后也会顺手送一批。
+//! 存储在 `<preferences_directory>/DictionaryCollections/` 下：`index.json` 是集合列表，`index.json.lock` 是整个目录的文件锁，每个集合的词条在 `<uuid>.json`（所以停用以后还能重新启用），`outbox.json` 是还没交给个人词库队列的增删。个人词库队列同时最多只接受 128 个未完成的请求，一个两万条的集合要分很多批送进去，所以启用和停用先记进待发送队列，再由 [`DictionaryCollectionsStore::flush`] 在队列有空位时一批批送出；每次修改之后也会顺手送一批。不属于任何集合的大批词（Android 本地备份恢复的个人词库）也借这个待发送队列分批送出，见 [`DictionaryCollectionsStore::queue_words`]。
 //!
 //! 待发送队列按词条身份（[`PersonalWord::identity`]）合并：同一个词先排了「加入」又排「删除」（或反过来）时，两者都还没送出，直接互相抵消。停用或删除一个集合时，只删除不属于任何其他已启用集合的词，Engine 自己学来的词不属于任何集合，不会被删掉。内置主词库不是集合，常开、不能停用。
 //!
@@ -46,6 +46,10 @@ const MAX_COLLECTION_BYTES: u64 = 48 * 1024 * 1024;
 const MAX_OUTBOX_BYTES: u64 = 96 * 1024 * 1024;
 const INDEX_FILE: &str = "index.json";
 const OUTBOX_FILE: &str = "outbox.json";
+/// 不属于任何集合的词（[`DictionaryCollectionsStore::queue_words`]）在待发送队列里记的来源。它不在 `index.json` 里，所以不会出现在任何集合的待发送条数里。
+const UNOWNED_WORDS: Uuid = Uuid::from_u128(0x6d73_696d_652d_6261_636b_7570_0000_0001);
+/// 一次 [`DictionaryCollectionsStore::queue_words`] 最多收的词数；更多的词由调用方分几次送。
+pub const MAX_QUEUED_WORDS: usize = 20_000;
 const PREEXISTING_FILE: &str = "preexisting.json";
 
 /// 集合的来源。
@@ -148,6 +152,9 @@ pub struct DictionaryCollectionsView {
     /// 只在 `flush` 时给出：这次送进个人词库队列的条数。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sent: Option<usize>,
+    /// 只在 `queue_words` 时给出：这次排进待发送队列的词数（不合规而跳过的不算）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queued: Option<usize>,
 }
 
 /// 一次操作，形状与 C ABI 的 `action` 相同（`operation` 区分种类）。集合 id 是字符串，内置词库的 `builtin:<kind>` 也能传进来并得到 `builtin_locked`。
@@ -192,6 +199,10 @@ pub enum DictionaryCollectionsAction {
     },
     InstallCommunity {
         resource: Box<CommunityResource>,
+    },
+    /// 不属于任何集合的词，见 [`DictionaryCollectionsStore::queue_words`]。
+    QueueWords {
+        entries: Vec<PersonalWord>,
     },
     Flush,
 }
@@ -311,6 +322,7 @@ impl DictionaryCollectionsStore {
             DictionaryCollectionsAction::InstallCommunity { resource } => {
                 self.install_community(&resource)
             }
+            DictionaryCollectionsAction::QueueWords { entries } => self.queue_words(entries),
             DictionaryCollectionsAction::Flush => self.flush(),
         }
     }
@@ -531,6 +543,27 @@ impl DictionaryCollectionsStore {
             state.metadata_mut(existing.id)?.source = source;
             Ok(())
         })
+    }
+
+    /// 把不属于任何集合的词排进待发送队列，像集合的词一样由 [`Self::flush`] 在个人词库队列有空位时分批送出，返回的视图里 `queued` 是排进去的词数。Android 本地备份恢复个人词库时用：备份里的词可能有几万个，而个人词库队列同时只收 128 个未完成的请求，直接入队的话第 129 个以后的词都会被拒。编码或正文不合规的词跳过并且不计数，不让整批失败；同一个词已经排了「删除」时两者抵消，词留在词库里。
+    pub fn queue_words(&self, words: Vec<PersonalWord>) -> Result<DictionaryCollectionsView> {
+        if words.len() > MAX_QUEUED_WORDS {
+            return Err(DictionaryCollectionsError::Invalid);
+        }
+        let _lock = self.lock()?;
+        let mut state = self.read_state()?;
+        let mut queued = 0;
+        for word in words {
+            if valid_new_word(&word, word.kind).is_err() {
+                continue;
+            }
+            state.outbox.queue(OutboxKind::Add, UNOWNED_WORDS, word);
+            queued += 1;
+        }
+        self.commit(&mut state)?;
+        let mut view = state.view();
+        view.queued = Some(queued);
+        Ok(view)
     }
 
     /// 把待发送队列里的增删在个人词库队列有空位时送进去，返回这次送出的条数。个人词库正忙（键盘持有它的锁）或队列已满时什么也不送，等下次再来。
@@ -1091,6 +1124,7 @@ impl State {
             formats: IMPORT_FORMATS,
             import: None,
             sent: None,
+            queued: None,
         }
     }
 

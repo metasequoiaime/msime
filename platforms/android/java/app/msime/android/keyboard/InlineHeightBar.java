@@ -21,9 +21,9 @@ import android.util.TypedValue;
 import app.msime.android.KeyboardGeometry;
 
 /**
- * 内联的键盘高度调整条，替换工具栏那一行：取消 | 拖动柄「上下拖动调整 · N%」| 重置 | 完成。
+ * 内联的键盘高度调整条，替换工具栏那一行：取消 | 拖动柄「上下拖动调整 · N% · H px」| 重置 | 完成。
  *
- * <p>拖动柄是 44×5、圆角 3 的 kbFg@.35 横条加 12 sp 的说明；上拖变高、下拖变矮，范围 75–130%。「完成」是 32 dp 高的 accent 胶囊（14 sp 粗体，onAccent 字）。整条的描述是「键盘布局调整」，带 75–130 的 RangeInfo 和前后滚动动作（每次 5%），供 TalkBack 调整。颜色由调用方从皮肤传入。
+ * <p>拖动柄是 44×5、圆角 3 的 kbFg@.35 横条加 12 sp 的说明；上拖变高、下拖变矮，范围 75–160%。说明里百分比后面是键盘此刻实际画出来的高度（物理像素，含导航栏那一截），拖动时随布局刷新（#5564 的建议：只看百分比不知道键盘到底多高）；还没量到时只显示百分比。说明比拖动柄宽时整体缩小字号，不截断。「完成」是 32 dp 高的 accent 胶囊（14 sp 粗体，onAccent 字）。整条的描述是「键盘布局调整」，带 75–160 的 RangeInfo 和前后滚动动作（每次 5%），供 TalkBack 调整。颜色由调用方从皮肤传入。
  */
 public final class InlineHeightBar extends LinearLayout {
     /** 高度变化与三个按钮的回调。 */
@@ -34,9 +34,9 @@ public final class InlineHeightBar extends LinearLayout {
         void onDone();
     }
 
-    public static final int MIN_PERCENT = 75;
-    public static final int MAX_PERCENT = 130;
-    public static final int DEFAULT_PERCENT = 100;
+    public static final int MIN_PERCENT = KeyboardGeometry.MIN_HEIGHT_PERCENT;
+    public static final int MAX_PERCENT = KeyboardGeometry.MAX_HEIGHT_PERCENT;
+    public static final int DEFAULT_PERCENT = KeyboardGeometry.DEFAULT_HEIGHT_PERCENT;
     public static final int ACCESSIBILITY_STEP = 5;
     public static final String DESCRIPTION = "键盘布局调整";
 
@@ -47,6 +47,8 @@ public final class InlineHeightBar extends LinearLayout {
     private Listener listener;
     private int percent = DEFAULT_PERCENT;
     private float basePixels;
+    /** 键盘此刻实际画出来的高度（像素）；0 表示还没量到。 */
+    private int heightPixels;
 
     public InlineHeightBar(Context context) {
         super(context);
@@ -87,7 +89,7 @@ public final class InlineHeightBar extends LinearLayout {
         return button;
     }
 
-    /** 把百分比夹进 75–130。 */
+    /** 把百分比夹进 75–160。 */
     public static int clamp(int value) {
         return KeyboardGeometry.bounded(value, MIN_PERCENT, MAX_PERCENT);
     }
@@ -102,9 +104,21 @@ public final class InlineHeightBar extends LinearLayout {
         return clamp(Math.round(startPercent - dy / basePixels * 100f));
     }
 
-    /** 拖动柄下方的说明文字。 */
+    /** 拖动柄下方的说明文字（还没量到键盘高度时）。 */
     public static String label(int percent) {
         return "上下拖动调整 · " + percent + "%";
+    }
+
+    /** 拖动柄下方的说明文字：百分比后面跟键盘实际高度；{@code heightPixels} 不是正数时与 {@link #label(int)} 相同。 */
+    public static String label(int percent, int heightPixels) {
+        if (heightPixels <= 0) return label(percent);
+        return label(percent) + " · " + heightPixels + " px";
+    }
+
+    /** 说明文字宽 {@code textWidth}、可用宽度 {@code available} 时字号的缩放比例：放得下为 1，放不下按比例缩小，可用宽度不是正数时也为 1。 */
+    public static float fitScale(float textWidth, float available) {
+        if (!(textWidth > available) || !(available > 0)) return 1f;
+        return available / textWidth;
     }
 
     public void setListener(Listener value) { listener = value; }
@@ -113,6 +127,14 @@ public final class InlineHeightBar extends LinearLayout {
     public void setBasePixels(float value) { basePixels = value; }
 
     public int percent() { return percent; }
+
+    /** 键盘实际画出来的高度（像素），由键盘外框的布局回调传入；变了才重画。 */
+    public void setHeightPixels(int value) {
+        int next = Math.max(0, value);
+        if (next == heightPixels) return;
+        heightPixels = next;
+        handle.invalidate();
+    }
 
     /** 外部设置当前百分比（不回调）。 */
     public void setPercent(int value) {
@@ -259,9 +281,12 @@ public final class InlineHeightBar extends LinearLayout {
 
         @Override protected void onDraw(Canvas canvas) {
             text.setTextSize(KeyboardGeometry.keySp(getContext(), LABEL_SP));
+            float gap = KeyboardGeometry.floatPixels(getContext(), 6);
+            String caption = label(bar.percent(), bar.heightPixels);
+            float scale = fitScale(text.measureText(caption), getWidth() - 2 * gap);
+            if (scale < 1f) text.setTextSize(text.getTextSize() * scale);
             Paint.FontMetrics metrics = text.getFontMetrics();
             float textHeight = metrics.descent - metrics.ascent;
-            float gap = KeyboardGeometry.floatPixels(getContext(), 6);
             float total = KeyboardGeometry.floatPixels(getContext(), BAR_HEIGHT_DP) + gap + textHeight;
             float top = (getHeight() - total) / 2f;
             float cx = getWidth() / 2f;
@@ -272,7 +297,7 @@ public final class InlineHeightBar extends LinearLayout {
             float radius = KeyboardGeometry.floatPixels(getContext(), BAR_RADIUS_DP);
             canvas.drawRoundRect(rect, radius, radius, paint);
             text.setColor(textColor);
-            canvas.drawText(label(bar.percent()), cx, rect.bottom + gap - metrics.ascent, text);
+            canvas.drawText(caption, cx, rect.bottom + gap - metrics.ascent, text);
         }
     }
 }

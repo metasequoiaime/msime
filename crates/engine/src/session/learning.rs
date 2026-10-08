@@ -46,6 +46,15 @@ fn normalized_syllables(pinyin: &str) -> Vec<String> {
     segments
 }
 
+/// 只需判断句子长度时统计分隔符，避免为每个音节复制字符串。
+fn segment_count(pinyin: &str) -> usize {
+    if pinyin.is_empty() {
+        0
+    } else {
+        pinyin.bytes().filter(|&byte| byte == b'\'').count() + 1
+    }
+}
+
 fn join_words(first: &str, second: &str) -> String {
     let mut word = String::with_capacity(first.len() + second.len());
     word.push_str(first);
@@ -237,8 +246,7 @@ impl InputSession {
                 selected.canonical_pinyin.clone()
             };
         let canonical = normalize_canonical_pinyin_for_word(&selected_canonical, &selected.word);
-        if canonical.is_empty() || split_segments(&canonical).len() > MAX_LEARNED_SENTENCE_SYLLABLES
-        {
+        if canonical.is_empty() || segment_count(&canonical) > MAX_LEARNED_SENTENCE_SYLLABLES {
             return typo_diagnostic;
         }
         if online && !self.online_word_matches_reading(&canonical, &selected.word) {
@@ -474,6 +482,24 @@ mod tests {
     use crate::session::{Clock, Session, SessionOptions};
     use crate::types::{autocorrect_type, SchemeType, ShuangpinProfileKind};
     use crate::user_dictionary::ngram_store::flush_all;
+
+    #[test]
+    fn sentence_segment_count_avoids_temporary_strings() {
+        let (count, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            super::segment_count("yi'er'san'si")
+        });
+
+        assert_eq!(count, 4);
+        assert_eq!(allocations, 0);
+        assert_eq!(super::segment_count(""), 0);
+        assert_eq!(super::segment_count("yi"), 1);
+        for input in ["'", "yi''er'", "'yi"] {
+            assert_eq!(
+                super::segment_count(input),
+                crate::pinyin::segment::split_segments(input).len()
+            );
+        }
+    }
 
     struct Fixture {
         _root: tempfile::TempDir,

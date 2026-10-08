@@ -32,15 +32,21 @@ jobs:
   # The Rust half of the client (host DLLs, MCP server, Tauri panel shell) does not depend on the edition, so it is built once per architecture here, in parallel, rather than six times over in every edition's job, where it was most of the build time.
   rust:
     needs: source
-    runs-on: windows-2025
+    runs-on: depot-windows-2025-8
     timeout-minutes: 60
     strategy:
       fail-fast: true
       matrix:
         arch: [x64, x86, arm64]
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
+      # Depot runners start with SCCACHE_WEBDAV_ENDPOINT pointing at Depot Cache, so with RUSTC_WRAPPER in the job env rustc output is cached across runs without a token. CARGO_INCREMENTAL=0 because sccache does not cache incremental compilation.
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - if: matrix.arch == 'x64'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: {node-version: 24}
@@ -73,7 +79,7 @@ jobs:
   # 每个版本（shared/contracts/editions.json 里有 Windows 段的 id）各打一个安装包，可以同时安装，也可以和 msime-windows 同时安装。full 的安装包名、AppId、目录和注册表键也是自己的，不再是 msime-windows 的那一组。
   release:
     needs: [source, rust]
-    runs-on: windows-2025
+    runs-on: depot-windows-2025-8
     timeout-minutes: 150
     strategy:
       fail-fast: true
@@ -83,9 +89,13 @@ jobs:
       VCPKG_DISABLE_METRICS: '1'
       # Python on Windows otherwise decodes text as the ANSI code page, and the fetch and packaging scripts read UTF-8 sources.
       PYTHONUTF8: '1'
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - id: version
         shell: pwsh
         env: {VERSION: "${{ needs.source.outputs.version }}", RELEASE: "${{ needs.source.outputs.release }}"}

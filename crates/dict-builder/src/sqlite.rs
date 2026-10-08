@@ -78,12 +78,12 @@ fn check_regular_file(path: &Path) -> io::Result<()> {
 }
 
 fn no_follow_path(path: &Path) -> io::Result<std::path::PathBuf> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "database path has no parent"))?;
-    let name = path
-        .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "database path has no filename"))?;
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "database path has no parent")
+    })?;
+    let name = path.file_name().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "database path has no filename")
+    })?;
     let resolved = std::fs::canonicalize(parent)?.join(name);
     if let Ok(metadata) = std::fs::symlink_metadata(&resolved) {
         if metadata.file_type().is_symlink() {

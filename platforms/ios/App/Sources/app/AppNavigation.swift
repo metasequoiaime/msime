@@ -19,15 +19,16 @@ final class AppNavigation: ObservableObject {
 // Authentication is a task sheet, never another copy of the My tab.
 struct AccountLoginSheet: View {
   @Environment(\.dismiss) private var dismiss
-  @State private var signedIn = false
+  @StateObject private var account = AppleAccountModel()
   var body: some View {
     NavigationView {
-      Form { AppleAccountSection(signedIn: $signedIn) }
+      Form { AppleAccountSection(account: account) }
+        .appleAccountPresentation(account)
         .navigationTitle("登录水杉").navigationBarTitleDisplayMode(.inline)
         .toolbar {
           ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
         }
-        .onChange(of: signedIn) { if $0 { dismiss() } }
+        .onChange(of: account.signedIn) { if $0 { dismiss() } }
     }.navigationViewStyle(.stack).tint(MetasequoiaTheme.accent)
   }
 }

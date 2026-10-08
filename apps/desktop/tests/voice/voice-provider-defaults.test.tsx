@@ -70,6 +70,27 @@ test("voice credential test configs share Linux and remote defaults", () => {
   });
 });
 
+test("local ASR credential test names the model directory the provider checks", () => {
+  const modelPath = "/synthetic/voice-models/synthetic-model";
+  const localConfig = (asr_model_path: string) =>
+    asrProviderCredentialTestConfig(
+      { ...voiceInput, asr_provider: "local", asr_model_path },
+      "api_key",
+    );
+  expect(localConfig(modelPath)).toMatchObject({
+    asr_provider: "local",
+    asr_model_path: modelPath,
+  });
+  expect(
+    asrProviderCredentialTestConfig({ ...voiceInput, asr_model_path: modelPath }, "api_key"),
+  ).not.toHaveProperty("asr_model_path");
+  expect(localConfig("")).not.toHaveProperty("asr_model_path");
+  // "模" 占 3 字节：1 + 3×1365 = 4096 字节，正好到上限。
+  const atLimit = `/${"模".repeat(1365)}`;
+  expect(localConfig(atLimit)).toHaveProperty("asr_model_path", atLimit);
+  expect(localConfig(`${atLimit}x`)).not.toHaveProperty("asr_model_path");
+});
+
 test("shared ASR service provider ids cover the credential-backed providers", () => {
   expect(ASR_SERVICE_PROVIDER_IDS).toEqual([
     "openai",
