@@ -50,8 +50,7 @@ public final class ClipboardHistoryStore {
             throw new IllegalArgumentException("Clipboard has no usable text");
         }
         JSONObject response = request("capture", text, false);
-        if (response != null && Boolean.TRUE.equals(
-                ClipboardHistoryPolicy.strictBoolean(response.opt("captured")))) return null;
+        if (response != null && JsonPolicy.strictTrue(response.opt("captured"))) return null;
         String reason = response == null || response.isNull("reason")
             ? "" : response.optString("reason", "");
         return reason;

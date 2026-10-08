@@ -167,6 +167,17 @@ pub fn exclusive(file: &File) -> io::Result<()> {
     }
 }
 
+pub(crate) fn unlock(file: &File) -> io::Result<()> {
+    #[cfg(not(target_os = "android"))]
+    {
+        file.unlock()
+    }
+    #[cfg(target_os = "android")]
+    {
+        rustix::fs::flock(file, rustix::fs::FlockOperation::Unlock).map_err(Into::into)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

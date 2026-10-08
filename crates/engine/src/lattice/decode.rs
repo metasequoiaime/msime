@@ -273,15 +273,14 @@ pub(super) fn build_graph(
     let span_capacity = (0..n)
         .map(|start| n.min(start.saturating_add(max_len)) - start)
         .sum();
-    let mut span_cache: HashMap<String, Vec<LatticeLexeme>> = HashMap::with_capacity(span_capacity);
+    let mut span_cache: HashMap<&[String], Vec<LatticeLexeme>> =
+        HashMap::with_capacity(span_capacity);
     for (start, edges) in graph.iter_mut().enumerate() {
         for end in start + 1..=n.min(start + max_len) {
             let span = &syllables[start..end];
-            let span_key = span.join("'");
-            let rows = span_cache
-                .entry(span_key.clone())
-                .or_insert_with(|| lookup(span));
+            let rows = span_cache.entry(span).or_insert_with(|| lookup(span));
             edges.reserve(rows.len().min(options.span_limit));
+            let mut span_key = None;
             for row in rows.iter().take(options.span_limit) {
                 if row.value.is_empty() {
                     continue;
@@ -290,7 +289,7 @@ pub(super) fn build_graph(
                     end,
                     word: row.value.clone(),
                     key: if row.key.is_empty() {
-                        span_key.clone()
+                        span_key.get_or_insert_with(|| span.join("'")).clone()
                     } else {
                         row.key.clone()
                     },
@@ -852,6 +851,25 @@ pub(super) mod tests {
 
         assert_eq!(allocations, 0);
         assert_eq!(paths.len(), 12);
+    }
+
+    #[test]
+    fn repeated_span_cache_keys_do_not_allocate_joined_strings() {
+        let syllables = vec!["a".to_owned(); 8];
+        let options = LatticeOptions {
+            max_phrase_syllables: 3,
+            ..LatticeOptions::default()
+        };
+        let (graph, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            let mut lookup = |_: &[String]| Vec::new();
+            build_graph(&syllables, &mut lookup, &options)
+        });
+
+        assert!(graph.iter().all(Vec::is_empty));
+        assert!(
+            allocations <= 8,
+            "span cache should avoid joined key allocations: {allocations}"
+        );
     }
 
     #[test]

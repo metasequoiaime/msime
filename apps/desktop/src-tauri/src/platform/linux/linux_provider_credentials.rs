@@ -261,7 +261,7 @@ fn write_private_at(
     .map_err(|_| CredentialError::Storage)?;
     let mut file: std::fs::File = descriptor.into();
     let written = file
-        .write_all(&value)
+        .write_all(value)
         .and_then(|()| file.sync_all())
         .map_err(|_| CredentialError::Storage);
     drop(file);

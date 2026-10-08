@@ -30,7 +30,7 @@ use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 use crate::vietnamese::{
     InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle, VietnameseScheme,
 };
-use crate::zhuyin::scheme::{ZhuyinKey, ZhuyinScheme};
+use crate::zhuyin::scheme::{ListCandidate, ZhuyinKey, ZhuyinScheme};
 
 // 混输拼音回退的短批次直接扫描已有词，避免为一次合并创建临时哈希表。
 const SMALL_PINYIN_FALLBACK: usize = 64;
@@ -165,6 +165,9 @@ impl ImeSession {
     pub fn handle_key(&mut self, key: SchemeKey) {
         if key != SchemeKey::Requery {
             self.scheme.handle_key(key);
+        } else if self.current_scheme_type() == SchemeType::Cantonese {
+            // 粤拼词典只读，候选不受在线词或会话设置影响；重查询保留当前快照即可。
+            return;
         }
         self.refresh_candidates();
     }
@@ -586,8 +589,8 @@ impl ImeSession {
 
     /// ime_session.cpp:299-369.
     fn refresh_candidates(&mut self) {
-        self.state.preedit = self.scheme.preedit();
         let request = self.prepare_request(&self.scheme);
+        reuse_request_preedit(&request, &mut self.state.preedit);
         if !request.valid {
             // An emptied composition is an invalid request, and Backspace never goes through `reset`: the next code must be answered by the wubi table again.
             self.pinyin_tail = false;
@@ -599,10 +602,23 @@ impl ImeSession {
 
         // The Zhuyin list is the editor's own: its rows exist only while the user has it open.
         let decoded = match self.scheme.as_zhuyin() {
-            Some(zhuyin) => Decoded {
-                candidates: zhuyin_rows(zhuyin),
-                wubi_table_answered: false,
-            },
+            Some(zhuyin) => {
+                let mut candidates = std::mem::take(&mut self.state.candidates);
+                reuse_zhuyin_rows(zhuyin.candidates(), &mut candidates);
+                Decoded {
+                    candidates,
+                    wubi_table_answered: false,
+                }
+            }
+            None if request.scheme == SchemeType::Cantonese => {
+                let fresh = self.registry.query(&request);
+                let mut candidates = std::mem::take(&mut self.state.candidates);
+                reuse_word_item_rows(&fresh, &mut candidates);
+                Decoded {
+                    candidates,
+                    wubi_table_answered: false,
+                }
+            }
             None => self.decode(&request),
         };
         // A fifth letter is only allowed once the table has failed the code typed so far.
@@ -617,11 +633,14 @@ impl ImeSession {
 
     /// 宿主只在五笔方案里显示反查编码（含混输拼音的候选），其他方案的每次刷新都不必逐个候选去查五笔表。
     fn refresh_wubi_codes(&mut self) {
-        self.state.wubi_codes = if self.current_scheme_type() == SchemeType::Wubi {
-            self.registry.reverse_wubi_codes(&self.state.candidates)
-        } else {
-            Vec::new()
-        };
+        if self.current_scheme_type() != SchemeType::Wubi {
+            self.state.wubi_codes.clear();
+            return;
+        }
+        let mut codes = std::mem::take(&mut self.state.wubi_codes);
+        self.registry
+            .reverse_wubi_codes(&self.state.candidates, &mut codes);
+        self.state.wubi_codes = codes;
     }
 
     /// The scheme's request with the session's switches, autocorrect suppression and the shuangpin double-helpcode segmentation applied.
@@ -713,18 +732,71 @@ impl ImeSession {
     }
 }
 
+/// 从已构造的请求复用方案显示文本，避免刷新时再次调用 `Scheme::preedit()` 分配同一份字符串。
+fn reuse_request_preedit(request: &QueryRequest, destination: &mut String) {
+    let source = match request.scheme {
+        SchemeType::Quanpin
+        | SchemeType::Shuangpin
+        | SchemeType::Wubi
+        | SchemeType::JapaneseRomaji
+        | SchemeType::Cantonese => &request.raw_input_with_cases,
+        SchemeType::Korean
+        | SchemeType::Zhuyin
+        | SchemeType::Vietnamese
+        | SchemeType::Tibetan
+        | SchemeType::Stroke => &request.normalized_segmentation,
+    };
+    source.clone_into(destination);
+}
+
 /// The open Zhuyin list as session rows, in list order. Each row is keyed by nothing: Zhuyin learns nothing, so no row is ever written back under a reading.
-fn zhuyin_rows(zhuyin: &ZhuyinScheme) -> Vec<WordItem> {
-    zhuyin
-        .candidates()
-        .iter()
-        .map(|candidate| {
-            let mut item =
-                WordItem::new("", candidate.text.clone(), 0, CandidateSource::Database, "");
+fn reuse_zhuyin_rows(source: &[ListCandidate], destination: &mut Vec<WordItem>) {
+    let common = source.len().min(destination.len());
+    for (target, candidate) in destination.iter_mut().take(common).zip(source.iter()) {
+        target.pinyin.clear();
+        target.canonical_pinyin.clear();
+        target.word.clone_from(&candidate.text);
+        target.weight = 0;
+        target.source = CandidateSource::Database;
+        target.scheme = SchemeType::Zhuyin;
+        target.fixed_position = 0;
+        target.fuzzy = false;
+        target.corrected_from.clear();
+        target.sentence_association = false;
+        target.sentence_words.clear();
+    }
+    if destination.len() > source.len() {
+        destination.truncate(source.len());
+    } else {
+        destination.extend(source[common..].iter().map(|candidate| {
+            let mut item = WordItem::new("", &candidate.text, 0, CandidateSource::Database, "");
             item.scheme = SchemeType::Zhuyin;
             item
-        })
-        .collect()
+        }));
+    }
+}
+
+/// 按字段刷新粤拼候选行，保留已有行和字符串的容量。
+fn reuse_word_item_rows(source: &[WordItem], destination: &mut Vec<WordItem>) {
+    let common = source.len().min(destination.len());
+    for (target, item) in destination.iter_mut().take(common).zip(source.iter()) {
+        target.pinyin.clone_from(&item.pinyin);
+        target.canonical_pinyin.clone_from(&item.canonical_pinyin);
+        target.word.clone_from(&item.word);
+        target.weight = item.weight;
+        target.source = item.source;
+        target.scheme = item.scheme;
+        target.fixed_position = item.fixed_position;
+        target.fuzzy = item.fuzzy;
+        target.corrected_from.clone_from(&item.corrected_from);
+        target.sentence_association = item.sentence_association;
+        target.sentence_words.clone_from(&item.sentence_words);
+    }
+    if destination.len() > source.len() {
+        destination.truncate(source.len());
+    } else {
+        destination.extend(source[common..].iter().cloned());
+    }
 }
 
 /// A row for the whole code answers it; the prefix rows the wubi query also returns do not, so they must not suppress the pinyin fallback.
@@ -885,6 +957,32 @@ mod tests {
     }
 
     #[test]
+    fn request_preedit_reuses_existing_storage() {
+        let mut request = QueryRequest {
+            scheme: SchemeType::Quanpin,
+            raw_input_with_cases: "NiHao".to_owned(),
+            normalized_segmentation: "ni'hao".to_owned(),
+            ..QueryRequest::default()
+        };
+        let mut destination = String::with_capacity(request.raw_input_with_cases.len());
+        destination.push_str("old");
+        let pointer = destination.as_ptr();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            reuse_request_preedit(&request, &mut destination);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(destination, "NiHao");
+        assert_eq!(destination.as_ptr(), pointer);
+
+        request.scheme = SchemeType::Korean;
+        request.normalized_segmentation = "你好".to_owned();
+        reuse_request_preedit(&request, &mut destination);
+        assert_eq!(destination, "你好");
+    }
+
+    #[test]
     fn only_a_whole_code_row_answers_the_table() {
         // wubi86 prefix rows: `wq` also returns wqb 爷 and wqbb 父子.
         let rows = [wubi("wq", "你"), wubi("wqb", "爷"), wubi("wqbb", "父子")];
@@ -959,6 +1057,53 @@ mod tests {
             allocations <= 2,
             "large fallback should use one hash pass and the duplicate index: {allocations}"
         );
+    }
+
+    #[test]
+    fn zhuyin_rows_reuse_existing_word_storage() {
+        let source = vec![ListCandidate {
+            text: "你好".to_owned(),
+            start: 0,
+            key: "ㄋㄧˇ ㄏㄠˇ".to_owned(),
+        }];
+        let mut destination = vec![WordItem::new(
+            "old",
+            "旧候选",
+            42,
+            CandidateSource::Generated,
+            "old",
+        )];
+        let word_pointer = destination[0].word.as_ptr();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            reuse_zhuyin_rows(&source, &mut destination);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(destination[0].word, "你好");
+        assert_eq!(destination[0].word.as_ptr(), word_pointer);
+        assert_eq!(destination[0].scheme, SchemeType::Zhuyin);
+    }
+
+    #[test]
+    fn cantonese_rows_reuse_existing_word_storage() {
+        let source = vec![WordItem::new(
+            "nei hou",
+            "你好",
+            42,
+            CandidateSource::Database,
+            "nei hou",
+        )];
+        let mut destination = source.clone();
+        let word_pointer = destination[0].word.as_ptr();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            reuse_word_item_rows(&source, &mut destination);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(destination, source);
+        assert_eq!(destination[0].word.as_ptr(), word_pointer);
     }
 
     #[test]

@@ -354,6 +354,17 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
+        if (digits) {
+            // 数字键面的 3×3 只有 1–9，右列下面两格换成小数点和 0（与 iOS、HarmonyOS 的九键右列一致），否则这一面打不出 0。这一面的点按都直接上屏、不进组字，拆分在这里没有作用；小数点按字面上屏，不随中文标点模式变成「。」。
+            Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
+            Button zero = s.keyId(s.keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")), "Nine0");
+            for (Button key : java.util.List.of(period, zero)) {
+                if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+                addNineKey(actions, key);
+            }
+            container.addView(actions, KeyboardGeometry.weightedMatchParentParams(0.8f));
+            return;
+        }
         // 拆分：组字时把 ' 送给引擎，在已打的数字末尾定一个音节分界，只定在哪里断、不定是哪个拼音：94 拆分 26 仍可以是 xi'an（西安）或 yi'an，但不再是 xian（先）。读音栏显示成 94'26；⌫ 先删分界再删数字。原来锁定拼音列第一项的做法会把 94 定成首选的 yi，打不出西安。没在组字时引擎不处理，什么也不发生。原来的「重输」改为长按 ⌫：组字时长按删除键丢掉整串拼音（bindBackspaceRepeat）。
         Button split = s.keyboardKey("拆分", "拆分音节", () -> {
             if (s.view != null && !s.view.optString("editing_text", "").isEmpty()) s.character('\'', false);
