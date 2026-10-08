@@ -57,7 +57,7 @@ public final class CloudClipboardApi {
             JSONArray values = response.optJSONArray("items");
             Object enabled = response.opt("enabled");
             if (values == null || values.length() > MAX_ITEMS || !(enabled instanceof Boolean)) throw invalid();
-            Integer rawRetention = strictInteger(response.opt("retention_days"));
+            Integer rawRetention = JsonPolicy.strictInteger(response.opt("retention_days"));
             int retention = rawRetention == null ? 0 : rawRetention;
             if (!validRetention(retention)) retention = 0;
             List<Item> items = new ArrayList<>(values.length());

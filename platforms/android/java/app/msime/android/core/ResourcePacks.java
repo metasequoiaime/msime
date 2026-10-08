@@ -182,7 +182,8 @@ public final class ResourcePacks {
 
     private static JSONObject value(String response) throws Failure, JSONException {
         JSONObject envelope = new JSONObject(response);
-        if (!JsonPolicy.strictTrue(envelope.opt("ok"))) throw new Failure(envelope.optString("error"));
+        if (!JsonPolicy.strictTrue(envelope.opt("ok")))
+            throw new Failure(JsonPolicy.strictStringOrEmpty(envelope.opt("error")));
         return envelope;
     }
 }

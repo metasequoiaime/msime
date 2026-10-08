@@ -135,8 +135,7 @@ public final class FeedbackApi {
                 shot.contentType(), shot.bytes()));
         }
         JSONObject response = api.multipart(PATH, parts, CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
-        String id = JsonPolicy.strictString(response.opt("id"));
-        return id == null ? "" : id;
+        return JsonPolicy.strictStringOrEmpty(response.opt("id"));
     }
 
     /** Compatibility entry point retained for the host smoke contract. */

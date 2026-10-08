@@ -62,7 +62,7 @@ public final class AiPolishModelCatalog {
                     Boolean active = JsonPolicy.strictBoolean(model.opt("active"));
                     if (active == null || !active) continue;
                 }
-                String rawId = strictString(model.opt("id"));
+                String rawId = JsonPolicy.strictString(model.opt("id"));
                 if (rawId == null) continue;
                 String id = TextPolicy.trimmed(rawId);
                 if (id.isEmpty() || id.length() > MAX_MODEL_ID_LENGTH) continue;
@@ -70,7 +70,7 @@ public final class AiPolishModelCatalog {
                 if (endpointTypes != null && endpointTypes.length() > 0) {
                     boolean supported = JsonPolicy.strictTrue(model.opt("chat_completions_bridge"));
                     for (int item = 0; item < endpointTypes.length(); item++) {
-                        String type = strictString(endpointTypes.opt(item));
+                        String type = JsonPolicy.strictString(endpointTypes.opt(item));
                         if ("openai".equals(type)) supported = true;
                     }
                     if (!supported) continue;
@@ -88,7 +88,7 @@ public final class AiPolishModelCatalog {
                 return new ArrayList<>(models);
             }
             if (!anthropic) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
-            String rawNext = strictString(document.opt("last_id"));
+            String rawNext = JsonPolicy.strictString(document.opt("last_id"));
             if (rawNext == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             String next = TextPolicy.trimmed(rawNext);
             if (next.isEmpty() || !cursors.add(next))

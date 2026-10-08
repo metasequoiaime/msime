@@ -48,7 +48,7 @@ export function platformCopy({
             ? "在系统设置中启用水杉键盘，再从应用的输入源按钮切换使用。默认是全拼输入法。"
             : "安装输入法后，可以使用 Win + Space 快捷键切换到水杉输入法。默认是全拼输入法。";
   const networkDescription = android
-    ? "语音输入会调用设备上的系统语音识别服务，识别结果回到键盘后需确认才会插入；AI 功能按需配置。日常拼音输入无需联网。"
+    ? "语音输入会调用设备上的系统语音识别服务，在键盘里聆听并直接插入识别结果；AI 功能按需配置。日常拼音输入无需联网。"
     : linux
       ? "日常拼音输入无需联网。云候选默认关闭（首次配置时可以启用，之后也可在设置里改），开启时会把正在输入的拼写发给 Google input-tools 换回一条候选；候选词翻译默认不联网，在翻译服务里选择自己的服务，或选择水杉账号把当前页的中文候选词发送到 api.msime.app 之后才会发请求；语音识别和 AI 功能只在启用并配置好对应服务后联网。这些请求由用户级的 msime-linux-online-provider 和 msime-linux-voice-provider 服务发出，输入法本身不联网。Linux 安装后的用户初始化会自动注册本机匿名水杉账号，网络失败时稍后重试。在 AI、腾讯翻译和语音页面填写的凭据只写入用户配置目录（通常是 ~/.config/msime-client）下仅本人可读的 ai-provider.json、tencent-provider.json 和 voice-provider.json，不进入共享设置；小牛翻译和自定义翻译服务的密钥则保存在共享设置中。普通账号功能只在登录后联网。"
       : macos

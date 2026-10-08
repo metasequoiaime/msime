@@ -1,0 +1,17 @@
+{
+  "source": "https://www.unicode.org/charts/unihan.html",
+  "unicode_version": "17.0.0",
+  "license": "Unicode-3.0",
+  "artifact": {
+    "name": "Unihan-17.0.0.zip",
+    "url": "https://www.unicode.org/Public/17.0.0/ucd/Unihan.zip",
+    "sha256": "f7a48b2b545acfaa77b2d607ae28747404ce02baefee16396c5d2d7a8ef34b5e",
+    "size": 8518517
+  },
+  "license_file": {
+    "path": "resources/licenses/Unicode-License-V3.txt",
+    "retrieved_from": "https://www.unicode.org/license.txt",
+    "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+  },
+  "outputs": ["zh-en.db", "character-glosses-NOTICE.txt"]
+}

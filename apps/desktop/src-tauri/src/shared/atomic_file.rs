@@ -248,6 +248,7 @@ pub(crate) fn open_private_directory(parent: &Path) -> io::Result<OwnedFd> {
 
 /// Check that a path still names the directory held by `directory`.
 #[cfg(all(unix, any(target_os = "ios", target_os = "android", test)))]
+#[allow(clippy::useless_conversion)]
 pub(crate) fn directory_matches(path: &Path, directory: &OwnedFd) -> io::Result<bool> {
     let metadata = std::fs::symlink_metadata(path)?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {

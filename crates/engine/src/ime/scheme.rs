@@ -127,6 +127,7 @@ impl Scheme {
         }
     }
 
+    #[allow(dead_code)]
     pub fn preedit(&self) -> String {
         match self {
             Self::Quanpin(scheme) => scheme.preedit(),
