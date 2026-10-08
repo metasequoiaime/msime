@@ -833,7 +833,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     private TypingSource typingSource() {
         return TypingSource.resolve(selectedScheme, dedicatedEnglish,
-            view == null || view.isNull("local_mode") ? null : view.optString("local_mode", null));
+            view == null || view.isNull("local_mode")
+                ? null : InputViewValuePolicy.textOr(view, "local_mode", null));
     }
 
     private String typingStatisticsDirectory() {
@@ -7351,7 +7352,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         String localMode = "";
         if (view != null) {
-            String modeKey = view.optString("local_mode", "none");
+            String modeKey = InputViewValuePolicy.textOr(view, "local_mode", "none");
             for (LocalInputMode mode : LocalInputMode.values()) {
                 if (mode.preferenceKey().equals(modeKey)) {
                     localMode = " · " + mode.title();
