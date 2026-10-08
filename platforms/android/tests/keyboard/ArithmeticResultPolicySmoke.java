@@ -29,6 +29,11 @@ public final class ArithmeticResultPolicySmoke {
         check("1.5", ".5+1");
         check("100000000000000", "99999999999999+1");
         check("5", "版本 2+3");
+        // 除法之后再乘：中间值的舍入误差不能放大到结果里。
+        check("10000000", "50/3*600000");
+        check("1000000", "1/7*7000000");
+        check("1", "1/3*3");
+        check("33.3333333333", "100/3");
     }
 
     private static void noResult() {

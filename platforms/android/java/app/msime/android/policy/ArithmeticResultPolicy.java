@@ -17,6 +17,8 @@ public final class ArithmeticResultPolicy {
     private static final BigDecimal LIMIT = BigDecimal.TEN.pow(15);
     /** 计算中途的上限：再大的中间值不可能落回 {@link #LIMIT} 以内的有用结果，提前放弃。 */
     private static final BigDecimal INTERMEDIATE_LIMIT = BigDecimal.TEN.pow(30);
+    /** 除法的中间精度（34 位有效数字）：只在最后格式化时舍到 {@link #MAX_FRACTION_DIGITS} 位。用 16 位（DECIMAL64）时 `50/3*600000` 会把除法的舍入误差放大到第 9 位小数，显示成 `10000000.000000002`。 */
+    private static final MathContext DIVISION = MathContext.DECIMAL128;
 
     /** 一个算式的结果。 */
     public record Result(String value, boolean afterEquals) {
@@ -149,7 +151,7 @@ public final class ArithmeticResultPolicy {
                         failed = true;
                         return null;
                     }
-                    value = value.divide(right, MathContext.DECIMAL64);
+                    value = value.divide(right, DIVISION);
                 }
                 if (value.abs().compareTo(INTERMEDIATE_LIMIT) > 0) {
                     failed = true;
