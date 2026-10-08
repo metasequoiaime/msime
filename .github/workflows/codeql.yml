@@ -33,7 +33,8 @@ concurrency:
 jobs:
   analyze:
     name: CodeQL / ${{ matrix.language }}
-    runs-on: ubuntu-24.04
+    # Rust 和 C/C++ 要真的编译，放在 Depot 的 8 vCPU 机器上；Actions 和 Python 不编译，一两分钟就完，留在 GitHub 的 runner 上。
+    runs-on: ${{ (matrix.language == 'rust' || matrix.language == 'c-cpp') && 'depot-ubuntu-24.04-8' || 'ubuntu-24.04' }}
     timeout-minutes: 30
     permissions:
       contents: read
