@@ -3,7 +3,7 @@ package app.msime.android;
 /**
  * 组词时候选栏上方读音行的高度。
  *
- * <p>设计稿里这一行是 14dp，按 12sp 的读音排的；读音实际用的是「候选栏预编辑」字号（默认 16sp，可调到更大），还按系统字体缩放走 sp。行高固定 14dp 时，y、g、p 这类字母的下伸部被行底切掉，y 看起来像 v，g 只剩上半截（#5591）。所以行高取设计高度和读音文字实际高度（字体 ascent 到 descent，再加上下内边距）里大的那个。
+ * <p>设计稿里这一行是 14dp，按系统字体不放大时 12sp 的读音排的。读音的字号是 {@code ImeToolbar.styleTopRow} 定的 12sp，但它按系统字体缩放走（最多放大到 1.15 倍），厂商字体（如 vivo）的 ascent 到 descent 也比默认字体高。行高固定 14dp 时，y、g、p 这类字母的下伸部被行底切掉，y 看起来像 v，g 只剩上半截（#5591）。所以行高取设计高度和读音文字实际高度（字体 ascent 到 descent，再加上下内边距）里大的那个。
  */
 public final class ReadingRowPolicy {
     private ReadingRowPolicy() {}
