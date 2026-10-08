@@ -113,6 +113,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeVoiceEntry imeVoiceEntry;
     ImeKeyFeedback imeKeyFeedback;
     ImeDebugOverlay imeDebugOverlay;
+    ImeTextEditPanel imeTextEditPanel;
     long session;
     InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -309,6 +310,8 @@ public final class MSIMEInputService extends InputMethodService {
     JapaneseFlickPreview japaneseFlickPreview;
     /** 删除键上滑时弹出的「快速删除」框，见 {@link BackspaceSwipePolicy}。 */
     QuickDeleteOverlay quickDeleteOverlay;
+    /** 文本编辑面板（方向键、选择、全选、复制、剪切、粘贴），见 {@link ImeTextEditPanel}。 */
+    LinearLayout textEditPanel;
     LinearLayout shortcutBar;
     HorizontalScrollView shortcutScroll;
     final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>(30);
@@ -1107,6 +1110,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeVoiceEntry = new ImeVoiceEntry(this);
         imeKeyFeedback = new ImeKeyFeedback(this);
         imeDebugOverlay = new ImeDebugOverlay(this);
+        imeTextEditPanel = new ImeTextEditPanel(this);
         // 必须在 super.onCreate() 之前：InputMethodService 在那里按这个主题建输入法窗口，之后再设会抛异常。按名字查是因为 core/ 要能脱离 Gradle 生成的 R 编译（check-host.sh 的 JVM 冒烟）；res/values/themes.xml 说明了这个主题为什么存在。
         // 五笔、拼音等版本的 applicationId 带后缀，资源表的包名仍是命名空间，两个都试。
         int theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", getPackageName());
@@ -6320,6 +6324,8 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.setClickable(phraseScroll, true);
         ViewPolicy.hide(phraseScroll);
         keyboardSurface.addView(phraseScroll, KeyboardGeometry.frameMatchParentParams());
+        textEditPanel = imeTextEditPanel.build();
+        keyboardSurface.addView(textEditPanel, KeyboardGeometry.frameMatchParentParams());
         imePanels.buildEmojiPanel();
         imePanels.buildSymbolPanel();
         renderLayoutSettingsState();
@@ -6333,7 +6339,8 @@ public final class MSIMEInputService extends InputMethodService {
         View parent = (View) region.getParent();
         int top = (parent == null ? 0 : parent.getTop()) + region.getBottom();
         for (View overlay : new View[] {moreToolsScroll, expandedCandidateScroll, phraseScroll,
-                emojiPanel, symbolPanel, clipboardScroll, skinScroll, schemeScroll, aiPolishContainer}) {
+                emojiPanel, symbolPanel, clipboardScroll, skinScroll, schemeScroll, aiPolishContainer,
+                textEditPanel}) {
             if (overlay == null) continue;
             if (!(overlay.getLayoutParams() instanceof FrameLayout.LayoutParams params)
                     || params.topMargin == top) continue;
@@ -6351,7 +6358,8 @@ public final class MSIMEInputService extends InputMethodService {
         return shown(moreToolsScroll) || shown(emojiPanel) || shown(phraseScroll)
             || shown(clipboardScroll) || shown(skinScroll) || shown(schemeScroll)
             || shown(symbolPanel) || shown(aiPolishContainer) || shown(voiceResultScroll)
-            || shown(layoutSettingsScroll) || shown(layoutAdjustView) || replyOpen;
+            || shown(layoutSettingsScroll) || shown(layoutAdjustView) || shown(textEditPanel)
+            || replyOpen;
     }
 
     void closeToolbarPanels() {
@@ -6366,6 +6374,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeVoiceResult();
         closeLayoutSettings();
         closeReplyKeyboard();
+        imeTextEditPanel.close();
     }
 
     void closeCommonPhrases() {

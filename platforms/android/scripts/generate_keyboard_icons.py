@@ -82,6 +82,8 @@ ICONS: list[tuple[str, str, float, str, str]] = [
     ("TOGGLE_NEXT", STROKE, 1.7, "Lucide-style arrow-right (日语九键 结束连点)", "M5 12h14M12 5l7 7-7 7"),
     ("EXIT_ONE_HAND", STROKE, 1.7, "Lucide-style maximize-2 (退出单手)",
      "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"),
+    ("TEXT_EDIT", STROKE, 1.7, "Lucide-style text-cursor-input (文本编辑)",
+     "M5 4h1a3 3 0 0 1 3 3a3 3 0 0 1 3-3h1M13 20h-1a3 3 0 0 1-3-3a3 3 0 0 1-3 3H5M5 16H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h1M13 8h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-7M9 7v10"),
 ]
 
 TOKEN = re.compile(r"[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")

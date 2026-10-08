@@ -78,7 +78,9 @@ public final class KeyboardIconPaths {
         /** Lucide-style arrow-right (日语九键 结束连点) */
         TOGGLE_NEXT(true, 1.7f),
         /** Lucide-style maximize-2 (退出单手) */
-        EXIT_ONE_HAND(true, 1.7f);
+        EXIT_ONE_HAND(true, 1.7f),
+        /** Lucide-style text-cursor-input (文本编辑) */
+        TEXT_EDIT(true, 1.7f);
 
         private final boolean stroked;
         private final float strokeWidth;
@@ -170,6 +172,7 @@ public final class KeyboardIconPaths {
             case CURSOR_LEFT -> appendCursorLeft(p);
             case TOGGLE_NEXT -> appendToggleNext(p);
             case EXIT_ONE_HAND -> appendExitOneHand(p);
+            case TEXT_EDIT -> appendTextEdit(p);
         }
     }
 
@@ -807,5 +810,32 @@ public final class KeyboardIconPaths {
         p.lineTo(14f, 10f);
         p.moveTo(3f, 21f);
         p.lineTo(10f, 14f);
+    }
+
+    private static void appendTextEdit(Path p) {
+        p.moveTo(5f, 4f);
+        p.lineTo(6f, 4f);
+        p.cubicTo(7.6569f, 4f, 9f, 5.3431f, 9f, 7f);
+        p.cubicTo(9f, 5.3431f, 10.3431f, 4f, 12f, 4f);
+        p.lineTo(13f, 4f);
+        p.moveTo(13f, 20f);
+        p.lineTo(12f, 20f);
+        p.cubicTo(10.3431f, 20f, 9f, 18.6569f, 9f, 17f);
+        p.cubicTo(9f, 18.6569f, 7.6569f, 20f, 6f, 20f);
+        p.lineTo(5f, 20f);
+        p.moveTo(5f, 16f);
+        p.lineTo(4f, 16f);
+        p.cubicTo(2.8954f, 16f, 2f, 15.1046f, 2f, 14f);
+        p.lineTo(2f, 10f);
+        p.cubicTo(2f, 8.8954f, 2.8954f, 8f, 4f, 8f);
+        p.lineTo(5f, 8f);
+        p.moveTo(13f, 8f);
+        p.lineTo(20f, 8f);
+        p.cubicTo(21.1046f, 8f, 22f, 8.8954f, 22f, 10f);
+        p.lineTo(22f, 14f);
+        p.cubicTo(22f, 15.1046f, 21.1046f, 16f, 20f, 16f);
+        p.lineTo(13f, 16f);
+        p.moveTo(9f, 7f);
+        p.lineTo(9f, 17f);
     }
 }

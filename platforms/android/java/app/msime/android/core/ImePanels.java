@@ -1476,6 +1476,8 @@ final class ImePanels {
         s.closeVoiceResult();
         s.closeAiPolish();
         s.closeReplyKeyboard();
+        // 文本编辑面板叠在功能面板上面（后加入外框），不先关掉它，功能面板会被盖住。
+        s.imeTextEditPanel.close();
         s.localInputToolsOpen = false;
         s.imeFunctionPanel.renderMoreTools();
         ViewPolicy.show(s.moreToolsScroll);

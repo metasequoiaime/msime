@@ -576,6 +576,12 @@ if ! rg -q 'BackspaceSwipePolicy\.clearsOnRelease\(backspaceSwipePhase\)' "$lett
   echo "Android delete keys must accelerate and offer the quick-delete swipe through the shared policies" >&2
   exit 1
 fi
+# 文本编辑面板（#5625）是工具栏面板的一员：closeToolbarPanels 要关掉它、anyToolbarPanelOpen 要算上它，否则换输入框时它会留在下一个编辑器的键盘上，收起键也不会变成「返回键盘」。
+if ! sed -n '/void closeToolbarPanels()/,/^    }$/p' "$account_service" | rg -q 'imeTextEditPanel\.close\(\)' \
+  || ! sed -n '/boolean anyToolbarPanelOpen()/,/^    }$/p' "$account_service" | rg -q 'shown\(textEditPanel\)'; then
+  echo "Android text edit panel must close and count like the other toolbar panels" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI signature have to agree, and nothing else in this script reads it: a method declared native in Java compiles whether or not the C++ side exists. Compiling it for the real target catches that without the full native build, which needs vcpkg, the Rust Android targets and the pinned speech runtime. A machine without the pinned NDK skips it and says so.
 ndk=${MSIME_ANDROID_NDK:-${android_sdk}/ndk/28.2.13676358}
 case $(uname -s) in
@@ -692,9 +698,9 @@ while IFS= read -r source; do
   class=$(basename "$source" .java)
   smoke_classes+=("${package:+$package.}$class")
 done < <(find "$repo_root/platforms/android/tests" -name "*.java" -print | LC_ALL=C sort)
-# 下限就是当前发现的冒烟数（161）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
-if [[ ${#smoke_classes[@]} -lt 161 ]]; then
-  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 161" >&2
+# 下限就是当前发现的冒烟数（162）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
+if [[ ${#smoke_classes[@]} -lt 162 ]]; then
+  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 162" >&2
   exit 1
 fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
