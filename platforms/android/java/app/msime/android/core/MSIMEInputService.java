@@ -3186,7 +3186,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         if (japaneseSchemeActive() && view != null) {
-            String editingText = view.optString("editing_text", "");
+            String editingText = InputViewValuePolicy.editingText(view);
             JSONArray candidates = view.optJSONArray("candidates");
             int count = candidates == null ? 0 : candidates.length();
             JSONObject first = count > 0 ? candidates.optJSONObject(0) : null;
@@ -7209,7 +7209,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeLayoutRows.updateStrokeWildcardKey();
         imeCalculator.syncVisibility();
         imeLayoutRows.updateNineKeySymbolKey();
-        String currentEditingText = view == null ? "" : view.optString("editing_text", "");
+        String currentEditingText = view == null ? "" : InputViewValuePolicy.editingText(view);
         if (!japaneseSchemeActive() || currentEditingText.isEmpty()) {
             japaneseConversionIndex = null;
             japaneseConversionEditingText = "";
@@ -7251,14 +7251,14 @@ public final class MSIMEInputService extends InputMethodService {
         boolean handwriting = handwritingActive();
         boolean hasHandwritingResults = handwriting && !handwritingResults.isEmpty()
             && handwritingCandidateToken != null;
-        boolean idle = view == null || (view.optString("editing_text", "").isEmpty()
+        boolean idle = view == null || (InputViewValuePolicy.editingText(view).isEmpty()
             && "none".equals(view.optString("local_mode", "none"))
             && (visibleCandidates == null || visibleCandidates.length() == 0)
             && !hasEnglishSuggestions
             && !hasHandwritingResults);
         if (preedit != null) {
             KeyboardGeometry.setKeyTextSize(preedit, candidatePreeditFontSize);
-            String editingText = view == null ? "" : view.optString("editing_text", "");
+            String editingText = view == null ? "" : InputViewValuePolicy.editingText(view);
             boolean offersLocalModes = idle && supportsLocalTools();
             String localModeKey = view == null ? "none" : view.optString("local_mode", "none");
             String reading = view == null ? "" : view.optString("reading", "");
