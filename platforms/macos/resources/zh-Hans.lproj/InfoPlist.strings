@@ -14,3 +14,4 @@
 "app.msime.inputmethod.MetasequoiaIME.Stroke" = "水杉输入法 · 笔";
 "NSMicrophoneUsageDescription" = "仅在开始语音输入时录音，用于识别并输入您说出的文字。";
 "NSSpeechRecognitionUsageDescription" = "选择 macOS 系统识别时，把录音交给系统语音识别，用于转写您说出的文字。";
+"NSLocalNetworkUsageDescription" = "仅在您把 AI 联想的接口地址设成局域网里的服务（例如另一台电脑上的 LM Studio）时，用来连接那台设备。";
