@@ -88,6 +88,21 @@ public final class DiagnosticsApiSmoke {
             } catch (java.io.IOException ioError) {
                 // Private diagnostic archives must have one directory entry.
             }
+
+            Path tooManyEntries = root.resolve("too-many-entries.zip");
+            try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(tooManyEntries))) {
+                for (int index = 0; index < 129; index++) {
+                    output.putNextEntry(new ZipEntry("ignored-" + index + ".txt"));
+                    output.closeEntry();
+                }
+            }
+            try {
+                DiagnosticsApi.readBundle(tooManyEntries.toFile(),
+                    new DiagnosticsApi.Include(false, false, false, false));
+                throw new AssertionError("diagnostics archives must bound entry count");
+            } catch (java.io.IOException bounded) {
+                // A malformed or adversarial archive must stop before unbounded traversal.
+            }
         } finally {
             try (java.util.stream.Stream<Path> paths = Files.walk(root)) {
                 paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {

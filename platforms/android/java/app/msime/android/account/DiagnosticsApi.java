@@ -8,7 +8,9 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -33,6 +35,8 @@ public final class DiagnosticsApi {
     /** 每类事件最多带多少条，超出时保留最新的。 */
     static final int MAX_EVENTS = 8000;
     static final int MAX_CRASH_LOGS = 50;
+    /** 原生诊断包只有少量固定条目；拒绝异常归档的无界条目遍历。 */
+    static final int MAX_ARCHIVE_ENTRIES = 128;
 
     /** 快照在云端保留多久，对应偏好 `developer_options.mcp_upload.retention` 和请求里的 `ttl`。 */
     public enum Retention {
@@ -266,16 +270,20 @@ public final class DiagnosticsApi {
         String config = null;
         try (ZipInputStream stream = new ZipInputStream(
                 Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS), StandardCharsets.UTF_8)) {
+            int archiveEntries = 0;
             for (ZipEntry entry = stream.getNextEntry(); entry != null; entry = stream.getNextEntry()) {
+                if (++archiveEntries > MAX_ARCHIVE_ENTRIES) {
+                    throw new IOException("diagnostics archive has too many entries");
+                }
                 if (entry.isDirectory()) continue;
                 String name = baseName(entry.getName());
                 if (include.configSnapshot() && name.equals("config_snapshot.json")) {
                     config = configSnapshot(entryText(stream));
                 } else if (input != null && (name.equals("input_events.jsonl") || name.equals("input-events.jsonl"))) {
-                    input.addAll(eventLines(entryText(stream), false));
+                    appendEvents(input, eventLines(entryText(stream), false));
                 } else if (perf != null && (name.equals("perf.jsonl") || name.equals("perf_trace.jsonl")
                         || name.equals("performance_logs.jsonl"))) {
-                        perf.addAll(eventLines(entryText(stream), true));
+                        appendEvents(perf, eventLines(entryText(stream), true));
                 } else if (crashes != null && name.endsWith(".crash") && crashes.size() < MAX_CRASH_LOGS) {
                     crashes.add(crashRecord(entryText(stream), entry.getTime()));
                 }
@@ -287,7 +295,7 @@ public final class DiagnosticsApi {
 
     /** 每条 jsonl 都按枚举重建，只取三个数值/枚举字段；坏行和不认识的种类丢弃。 */
     static List<Event> eventLines(String text, boolean durationRequired) {
-        List<Event> events = new ArrayList<>(MAX_EVENTS);
+        Deque<Event> events = new ArrayDeque<>(MAX_EVENTS);
         for (String line : text.split("\n")) {
             String trimmed = TextPolicy.trimmed(line);
             if (trimmed.isEmpty()) continue;
@@ -302,12 +310,26 @@ public final class DiagnosticsApi {
                     ? -1L : strictInteger(rawDuration);
                 if (time == null || duration == null) continue;
                 Event event = Event.of(time, (String) kind, duration);
-                if (event != null) events.add(event);
+                if (event != null) {
+                    if (events.size() == MAX_EVENTS) events.removeFirst();
+                    events.addLast(event);
+                }
             } catch (JSONException malformed) {
                 // 不合规的行丢弃，与 Rust 诊断包和后端的口径一致。
             }
         }
-        return events;
+        return new ArrayList<>(events);
+    }
+
+    private static void appendEvents(List<Event> target, List<Event> additions) {
+        int overflow = target.size() + additions.size() - MAX_EVENTS;
+        if (overflow > 0) target.subList(0, Math.min(overflow, target.size())).clear();
+        int remaining = MAX_EVENTS - target.size();
+        if (additions.size() > remaining) {
+            target.addAll(additions.subList(additions.size() - remaining, additions.size()));
+        } else {
+            target.addAll(additions);
+        }
     }
 
     private static String configSnapshot(String text) {
