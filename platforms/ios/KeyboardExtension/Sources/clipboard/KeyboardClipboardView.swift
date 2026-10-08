@@ -50,7 +50,11 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
   private lazy var tableAbovePad = table.bottomAnchor.constraint(equalTo: letterPad.topAnchor, constant: -4)
   /// 字母键盘的设计高度：优先级低于结果表的最小高度，按键区太矮时（手机横屏约 168pt）由它让出空间，而不是把结果表压成一条缝。
   private lazy var letterPadHeight: NSLayoutConstraint = {
-    let height = letterPad.heightAnchor.constraint(equalToConstant: showsHeader ? 4 * 30 + 3 * 4 : 4 * 26 + 3 * 3)
+    // 四行键、三道行距；行高和行距拆成单独的常量：写成一个长表达式时，CI 上的编译器会在类型推断上超时。
+    let rowHeight: CGFloat = showsHeader ? 30 : 26
+    let rowGap: CGFloat = showsHeader ? 4 : 3
+    let padHeight: CGFloat = 4 * rowHeight + 3 * rowGap
+    let height = letterPad.heightAnchor.constraint(equalToConstant: padHeight)
     height.priority = .defaultHigh
     return height
   }()
