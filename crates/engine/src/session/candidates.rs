@@ -211,16 +211,15 @@ impl InputSession {
         let engine = &self.engine;
         if regular && self.is_wubi() {
             // Each producer's rows are fixed within their own group and under their own context, and the groups keep the wubi-first order.
-            let (mut wubi_items, mut pinyin_items): (Vec<WordItem>, Vec<WordItem>) =
-                items.drain(..).partition(Self::is_wubi_native_candidate);
-            if !wubi_items.is_empty() {
+            let mut pinyin_items = split_wubi_candidates(items);
+            if !items.is_empty() {
                 let context = self.position_context(false, true);
                 let mut finder =
                     |key: &str, word: &str| engine.find_candidate(SchemeType::Wubi, key, word);
                 apply_fixed_positions_with_state(
                     journal,
                     context.as_ref(),
-                    &mut wubi_items,
+                    items,
                     include_missing,
                     Some(&mut finder),
                     keep_dynamic,
@@ -241,7 +240,6 @@ impl InputSession {
                     journal_exists,
                 );
             }
-            items.append(&mut wubi_items);
             items.append(&mut pinyin_items);
         } else if regular {
             let context = self.position_context(false, false);
@@ -501,9 +499,25 @@ impl InputSession {
     }
 }
 
+fn split_wubi_candidates(items: &mut Vec<WordItem>) -> Vec<WordItem> {
+    let mut wubi_count = 0;
+    for index in 0..items.len() {
+        if InputSession::is_wubi_native_candidate(&items[index]) {
+            if index != wubi_count {
+                items[wubi_count..=index].rotate_right(1);
+            }
+            wubi_count += 1;
+        }
+    }
+    items.split_off(wubi_count)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{clone_candidate_rows, english_position_context, plain_position_context};
+    use super::{
+        clone_candidate_rows, english_position_context, plain_position_context,
+        split_wubi_candidates,
+    };
     use crate::types::{CandidateSource, WordItem};
 
     #[test]
@@ -564,5 +578,37 @@ mod tests {
         assert_eq!(destination, larger);
         clone_candidate_rows(&[], &mut destination);
         assert!(destination.is_empty());
+    }
+
+    #[test]
+    fn wubi_partition_does_not_allocate_two_group_buffers() {
+        let mut rows = vec![
+            WordItem::new("aaaa", "甲", 1, CandidateSource::Database, ""),
+            WordItem::new("ni", "你", 2, CandidateSource::Database, ""),
+            WordItem::new("bbbb", "乙", 3, CandidateSource::Database, ""),
+            WordItem::new("hao", "好", 4, CandidateSource::Database, ""),
+        ];
+        rows[0].scheme = crate::types::SchemeType::Wubi;
+        rows[2].scheme = crate::types::SchemeType::Wubi;
+        let (pinyin, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| split_wubi_candidates(&mut rows));
+
+        assert_eq!(
+            rows.iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["甲", "乙"]
+        );
+        assert_eq!(
+            pinyin
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["你", "好"]
+        );
+        assert!(
+            allocations <= 1,
+            "五笔混输分组为临时行缓冲分配了两次：{allocations}"
+        );
     }
 }
