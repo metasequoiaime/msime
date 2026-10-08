@@ -8,7 +8,6 @@ import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.R;
-import app.msime.android.ViewPolicy;
 import app.msime.android.core.Telemetry;
 import java.util.EnumMap;
 import java.util.Map;
@@ -55,7 +54,7 @@ public final class PrivacyPage extends DetailPage {
     private void addToggle(GroupCard group, InputFeatureToggle toggle) {
         GroupCard.Row row = group.toggle(toggle.title(), toggle.description(), toggle.enabledByDefault(),
             value -> save(toggle, value));
-        ViewPolicy.setEnabled(row, false);
+        row.setEnabled(false);
         rows.put(toggle, row);
     }
 
@@ -71,7 +70,7 @@ public final class PrivacyPage extends DetailPage {
             InputFeatureToggle toggle = entry.getKey();
             GroupCard.Row row = entry.getValue();
             // 偏好还没读到时开关保持禁用，避免用户在默认值上切换后被读到的真实值覆盖。
-            ViewPolicy.setEnabled(row, preferences != null);
+            row.setEnabled(preferences != null);
             if (preferences != null) row.setChecked(preferences.optBoolean(toggle.key(), toggle.enabledByDefault()));
         }
     }

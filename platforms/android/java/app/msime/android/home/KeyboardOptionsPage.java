@@ -153,7 +153,7 @@ public final class KeyboardOptionsPage extends DetailPage {
         String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
         GroupCard.Row directionRow = gestures.nav("滑动方向", null,
             swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection));
-        ViewPolicy.setEnabled(directionRow, swipeSymbols);
+        directionRow.setEnabled(swipeSymbols);
         // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。
         if (quanpinNineKey) {
             String nineKeySwipe = settings.choice(AndroidLocalSettings.NINE_KEY_SWIPE);
@@ -179,7 +179,7 @@ public final class KeyboardOptionsPage extends DetailPage {
             String member = button[0];
             GroupCard.Row row = bar.toggle(button[1], null, toolbarButton(toolbar, settings, member),
                 checked -> saveToolbar(member, checked));
-            ViewPolicy.setEnabled(row, !hidden);
+            row.setEnabled(!hidden);
         }
 
         GroupCard clipboard = GroupCard.add(target, "剪贴板");
@@ -189,7 +189,7 @@ public final class KeyboardOptionsPage extends DetailPage {
             "复制文字后一分钟内，键盘顶部显示这段文字，点按即可粘贴；需先在「隐私」里打开剪贴板历史。隐私模式、密码框和系统标为敏感的内容不显示",
             settings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION),
             checked -> saveLocal(AndroidLocalSettings.CLIPBOARD_SUGGESTION, checked));
-        ViewPolicy.setEnabled(recentClipRow, clipboardHistory);
+        recentClipRow.setEnabled(clipboardHistory);
         String columns = settings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS);
         clipboard.nav("排列", "剪贴板面板里一行显示几条记录", clipboardColumnsLabel(columns),
             () -> pickClipboardColumns(columns));

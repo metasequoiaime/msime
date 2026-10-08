@@ -110,7 +110,7 @@ public final class CloudClipboardPage extends DetailPage {
         CloudClipboardApi.Page current = page;
         GroupCard settings = GroupCard.add(target, null).withDividers(Ui.ROW_PADDING_H);
         GroupCard.Row toggle = settings.toggle("云剪贴板", DESCRIPTION, current != null && current.enabled(), this::setEnabled);
-        ViewPolicy.setEnabled(toggle, current != null);
+        toggle.setEnabled(current != null);
 
         LinearLayout retention = Ui.row(context);
         ViewPolicy.setCenteredVertically(retention);

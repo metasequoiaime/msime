@@ -10,7 +10,6 @@ import app.msime.android.NativeClient;
 import app.msime.android.ResourcePackService;
 import app.msime.android.ResourcePacks;
 import app.msime.android.VoiceConfiguration;
-import app.msime.android.ViewPolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import org.json.JSONObject;
@@ -117,7 +116,7 @@ public final class VoicePage extends DetailPage {
         GroupCard.Row punctuationRow = recognition.toggle("自动添加标点",
             state.punctuationSupported() ? null : "当前识别服务不支持，仅豆包语音识别可以自动加标点",
             punctuation, checked -> saveVoice("doubao_enable_punc", checked));
-        ViewPolicy.setEnabled(punctuationRow, state.punctuationSupported());
+        punctuationRow.setEnabled(state.punctuationSupported());
 
         boolean offline = local.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK);
         recognition.toggle("离线识别", "无网络时使用本地模型，准确率略低。需要先安装本地语音模型", offline,
