@@ -357,7 +357,7 @@ public final class CommunityCatalog {
         }
         String description = value.has("description") ? strictString(value.opt("description")) : "";
         String author = value.has("author") ? strictString(value.opt("author")) : "";
-        Boolean owned = value.has("owned") ? strictBoolean(value.opt("owned")) : Boolean.FALSE;
+        Boolean owned = value.has("owned") ? JsonPolicy.strictBoolean(value.opt("owned")) : Boolean.FALSE;
         if (description == null || author == null || owned == null) return null;
         Item item = new Item(id, kind, name, TextPolicy.trimmed(description), TextPolicy.trimmed(author), saves, ratings,
             average, payload, category, owned, downloads, value);
