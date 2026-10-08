@@ -1,5 +1,5 @@
 import { StrictMode } from "react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   SettingsPage,
@@ -24,6 +24,9 @@ import {
   CloudDictionaryApplyPanel,
   CloudCandidatesPanel,
   completeOnboardingPreferences,
+  resolveSettingsTheme,
+  settingsThemePreferences,
+  useSettingsTheme,
   type AccountClient,
   type AccountPreferences,
   type AiSkinClient,
@@ -63,7 +66,19 @@ import type {
   AiAssistantClient,
   ApiCredentialTestResult,
   ApiCredentialTestService,
+  AppThemeCatalogEntry,
+  AppThemeClient,
+  AppThemeId,
+  FeedbackClient,
+  HostChromeClient,
+  ImeSetupClient,
+  ImeSetupState,
   MobileKeyboardFeedback,
+  OnboardingChoices,
+  OnboardingInputScheme,
+  ResolvedAppTheme,
+  SurfaceTheme,
+  ThemeMode,
   VoiceCaptureDevice,
 } from "@msime/ui";
 import "@msime/ui/styles.css";
@@ -133,11 +148,39 @@ interface NativeBridge {
    * The 插件 page's pack store and @ name list: `{operation:"catalog"|"remove"|"load_mentions"|"save_mentions",...}`, answered by `msime_client_plugins` as `{ok,value}` or `{ok:false,error,detail?}`. An import waits for the system picker, so it goes through `startRequest` as `plugin_import` instead.
    */
   plugins(action: string): string;
+  // 下面这些方法随 HarmonyOS 改版加入。旧版 HAP 没有注册它们，所以每个都先用 `typeof` 检查再用，缺哪个，页面就不画它支撑的那块界面，而不是去调用不存在的东西。它们声明为普通成员，这样桥接一致性检查（`scripts/test-harmony-bridge-parity.py`）仍能看到它们，并要求宿主把每一个都注册上。
+  /**
+   * `{"ok":true,"ready":boolean,"value":{"enabled":boolean|null,"current":boolean|null}}`：本键盘是否已在系统中启用、是否为当前输入法。和 `onboardingStatus` 一样是同步调用，宿主第一次读取完成前 `ready` 一直为 false。
+   */
+  setupStatus(): string;
+  /**
+   * 应用主题：`{operation:"load"}` 和 `{operation:"save",id}` 回复 `{ok,value:{id}}`；`{operation:"resolve",dark}` 回复 `msime_client_resolve_app_theme` 对已保存主题在本月的解析结果；`{operation:"catalog"}` 回复 `msime_client_app_theme_catalog` 的结果。
+   */
+  appTheme(request: string): string;
+  /** `{background,navigationBar,dark}`，均为 `#RRGGBB` 颜色：宿主据此把状态栏和导航栏涂成与页面一致。 */
+  setSystemBars(bars: string): void;
+  /** `{"ok":true,"value":boolean}`：欢迎闪屏是否已在本设备上播放过。 */
+  splashSeen(): string;
+  /** 记录闪屏已播放。写在宿主的文件里而不是页面存储里，因为从资源加载的页面不保证留得住页面存储。 */
+  markSplashSeen(): void;
+  /** 从设置重放欢迎流程，宿主在流程显示期间暂缓显示通知卡片。 */
+  onboardingStarted(): void;
+  /** 欢迎流程已结束（走完或跳过），宿主可以重新显示它的通知卡片。 */
+  onboardingFinished(): void;
+  /** `{"ok":true,"value":string|null}`：键盘要求本窗口打开的页面，只交出一次，第二次读取回复 null。 */
+  pendingPage(): string;
 }
 
 declare global {
   // eslint-disable-next-line no-var
   var msimeHarmonyPreferencesChanged: ((reply: string) => void) | undefined;
+  // 宿主把 `{enabled,current}` 值本身作为脚本字面量传进来。
+  // eslint-disable-next-line no-var
+  var msimeHarmonySetupChanged: ((state: unknown) => void) | undefined;
+  // eslint-disable-next-line no-var
+  var msimeHarmonyAppThemeChanged: (() => void) | undefined;
+  // eslint-disable-next-line no-var
+  var msimeHarmonyOpenPage: ((page: string) => void) | undefined;
   // eslint-disable-next-line no-var
   var msimeHarmonyBridgeReply: ((id: number, reply: string) => void) | undefined;
   // eslint-disable-next-line no-var
@@ -207,6 +250,9 @@ interface Reply<T> {
   value: T;
   error: string;
 }
+
+/** 「统计」标签页的汇总，类型沿用共享统计客户端的定义。 */
+type TypingSummary = Awaited<ReturnType<NonNullable<TypingStatisticsClient["summary"]>>>;
 
 /**
  * Rejects the way the desktop host rejects: a plain record carrying a code.
@@ -283,6 +329,248 @@ async function whenOnboardingKnown(native: NativeBridge): Promise<boolean> {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
+
+/** 读取改版新增的某个同步桥接方法返回的 `{ok,value}` 回复；回复是拒绝或根本不是 JSON 时返回 undefined。 */
+function bridgeValue(raw: string): unknown {
+  try {
+    const reply = JSON.parse(raw) as { ok?: unknown; value?: unknown };
+    return reply.ok === true ? reply.value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 宿主报告的一项设置状态：布尔值，或在系统调用没有回答时为 null。其他值都不是本页能画出的状态。 */
+function setupState(value: unknown): ImeSetupState | null {
+  if (typeof value === "string") {
+    try {
+      return setupState(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== "object" || value === null) return null;
+  const { enabled, current } = value as { enabled?: unknown; current?: unknown };
+  const isFact = (candidate: unknown): candidate is boolean | null =>
+    candidate === null || typeof candidate === "boolean";
+  return isFact(enabled) && isFact(current) ? { enabled, current } : null;
+}
+
+/**
+ * 「设置」首页卡片、2in1 警告条和欢迎流程第一步显示的两项设置状态。
+ *
+ * 宿主在窗口打开时、每次回到前台时、系统当前输入法变化时以及输入法选择器回复后读取它们，并在拿到第一次结果以及任一项变化时调用 `msimeHarmonySetupChanged`——在系统界面里完成的步骤就是这样无需重新加载就反映到这里的。在第一次读取完成前就到来的订阅者还会轮询几秒，做法与启动时等待 `onboardingStatus` 相同；读取比轮询还慢时，由宿主推送的第一次结果补上。
+ */
+const setupListeners = new Set<(state: ImeSetupState) => void>();
+
+globalThis.msimeHarmonySetupChanged = (document: unknown) => {
+  const state = setupState(document);
+  if (!state) return;
+  for (const listener of setupListeners) listener(state);
+};
+
+function imeSetupClient(native: NativeBridge): ImeSetupClient | undefined {
+  if (typeof native.setupStatus !== "function") return undefined;
+  const read = (): ImeSetupState | null => {
+    let reply: { ok?: unknown; ready?: unknown; value?: unknown };
+    try {
+      reply = JSON.parse(native.setupStatus()) as typeof reply;
+    } catch {
+      return null;
+    }
+    return reply.ok === true && reply.ready === true ? setupState(reply.value) : null;
+  };
+  let polling = false;
+  const waitUntilReady = () => {
+    if (polling) return;
+    polling = true;
+    const deadline = Date.now() + 5000;
+    const poll = () => {
+      const state = setupListeners.size > 0 ? read() : null;
+      if (state) for (const listener of setupListeners) listener(state);
+      if (state || setupListeners.size === 0 || Date.now() > deadline) {
+        polling = false;
+        return;
+      }
+      setTimeout(poll, 250);
+    };
+    setTimeout(poll, 250);
+  };
+  return {
+    read,
+    subscribe: (listener) => {
+      setupListeners.add(listener);
+      if (read() === null) waitUntilReady();
+      return () => {
+        setupListeners.delete(listener);
+      };
+    },
+  };
+}
+
+/**
+ * 应用主题：随季节变化的水杉四季，或固定为四季中的某一季。
+ *
+ * 颜色由共享的 C ABI 解析，所以本宿主画出的值与 Android 完全相同。每种外观的解析结果会一直保留，直到主题被保存，或宿主表示主题可能已变——窗口每次回到前台时它都会调用 `msimeHarmonyAppThemeChanged`，应用在后台期间跨了月份，页面就是这样得知的。被拒绝的解析结果不保留，下次渲染会重新请求。
+ */
+const appThemeListeners = new Set<() => void>();
+const resolvedAppThemes = new Map<boolean, ResolvedAppTheme>();
+
+function appThemeChanged() {
+  resolvedAppThemes.clear();
+  for (const listener of appThemeListeners) listener();
+}
+
+globalThis.msimeHarmonyAppThemeChanged = appThemeChanged;
+
+function appThemeClient(native: NativeBridge): AppThemeClient | undefined {
+  if (typeof native.appTheme !== "function") return undefined;
+  // 契约用返回值而不是 rejection 表示失败——保存返回 false，解析返回 null——所以这里把拒绝当作没有结果，而不是抛进渲染里。
+  const request = (action: Record<string, unknown>): unknown =>
+    bridgeValue(native.appTheme(JSON.stringify(action)));
+  let catalog: readonly AppThemeCatalogEntry[] | undefined;
+  return {
+    // 文件缺失或无法读取时，宿主的存储回复默认值，而 C ABI 的默认值是水杉四季。
+    load: () => (request({ operation: "load" }) as { id: AppThemeId } | undefined)?.id ?? "siji",
+    save: (id) => {
+      if (request({ operation: "save", id }) === undefined) return false;
+      appThemeChanged();
+      return true;
+    },
+    resolve: (dark) => {
+      const cached = resolvedAppThemes.get(dark);
+      if (cached) return cached;
+      const theme = request({ operation: "resolve", dark }) as ResolvedAppTheme | undefined;
+      if (!theme) return null;
+      resolvedAppThemes.set(dark, theme);
+      return theme;
+    },
+    // 目录是纯计算，从不随时钟变化，所以一次成功读取就够整个页面加载期间使用。它附带的颜色表不保留：选择器通过 `resolve` 来画主题。
+    catalog: () => {
+      if (catalog) return catalog;
+      const value = request({ operation: "catalog" }) as
+        | { app_themes: AppThemeCatalogEntry[] }
+        | undefined;
+      if (!value) return [];
+      catalog = value.app_themes.map(({ id, title, season, seasonal }) => ({
+        id,
+        title,
+        season,
+        seasonal,
+      }));
+      return catalog;
+    },
+    subscribe: (listener) => {
+      appThemeListeners.add(listener);
+      return () => {
+        appThemeListeners.delete(listener);
+      };
+    },
+  };
+}
+
+/** 某种外观下解析出的应用主题，主题或季节变化时重新绘制。 */
+function useResolvedAppTheme(
+  client: AppThemeClient | undefined,
+  dark: boolean,
+): ResolvedAppTheme | null {
+  const [, setRevision] = useState(0);
+  useEffect(() => client?.subscribe(() => setRevision((revision) => revision + 1)), [client]);
+  return client?.resolve(dark) ?? null;
+}
+
+function documentDark(): boolean {
+  return document.documentElement.dataset.theme === "dark";
+}
+
+/** 文档当前是否以深色绘制，以写入其 `data-theme` 的一方为准。 */
+function useDocumentDark(): boolean {
+  const [dark, setDark] = useState(documentDark);
+  useEffect(() => {
+    const update = () => setDark(documentDark());
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    return () => observer.disconnect();
+  }, []);
+  return dark;
+}
+
+type FlowTheme = { themeMode: ThemeMode; settingsTheme: SurfaceTheme };
+
+const SYSTEM_THEME: FlowTheme = { themeMode: "system", settingsTheme: "follow" };
+
+/**
+ * 从第一帧起按系统外观绘制文档，并在系统外观变化时跟随。
+ *
+ * 除此之外只有设置页会写 `data-theme`，而首次启动要等启动屏和欢迎流程结束才会进入设置页——没有 `data-theme` 的文档不管系统是什么外观，都会用深色默认值。返回停止跟随的函数，供知道用户自选外观的页面接管时调用。
+ */
+function followSystemTheme(): () => void {
+  const apply = () => {
+    document.documentElement.dataset.theme = resolveSettingsTheme(
+      SYSTEM_THEME.themeMode,
+      SYSTEM_THEME.settingsTheme,
+    );
+  };
+  apply();
+  if (typeof window.matchMedia !== "function") return () => undefined;
+  const media = window.matchMedia("(prefers-color-scheme: light)");
+  media.addEventListener("change", apply);
+  return () => media.removeEventListener("change", apply);
+}
+
+/**
+ * 用户为这些页面选择的外观，从已保存的文档读取，这样重放欢迎流程时会保留强制的浅色或深色，而不是跳回系统外观。文档无法读取时退回跟随系统，与首次启动相同。
+ */
+function savedFlowTheme(native: NativeBridge): FlowTheme {
+  let snapshot: Snapshot;
+  try {
+    snapshot = unwrap<Snapshot>(native.loadPreferences());
+  } catch {
+    return SYSTEM_THEME;
+  }
+  const { themeMode, settingsTheme } = settingsThemePreferences(snapshot.preferences);
+  return { themeMode, settingsTheme };
+}
+
+/** 欢迎闪屏是否已在本设备上播放过。宿主答不上来时就播放，在有这个标记之前每个宿主都是这么做的。 */
+function splashSeen(native: NativeBridge): boolean {
+  if (typeof native.splashSeen !== "function") return false;
+  return bridgeValue(native.splashSeen()) === true;
+}
+
+/**
+ * 键盘功能面板直接打开的页面：「词库」「反馈」和「关于」。与 `EntryAbility` 从 Want 中接受的列表相同；其他值都不是本页承诺过的链接，而改为打开「输入」（未知页面 id 就会解析到它）比停在原处更让人摸不着头脑。
+ */
+const LINKED_PAGES: readonly string[] = ["dictionary", "feedback", "about"];
+
+function linkedPage(value: unknown): string | undefined {
+  return typeof value === "string" && LINKED_PAGES.includes(value) ? value : undefined;
+}
+
+/** 本页加载完成前键盘请求的页面，宿主会一直保留到它被读取。 */
+function pendingLinkedPage(native: NativeBridge): string | undefined {
+  if (typeof native.pendingPage !== "function") return undefined;
+  return linkedPage(bridgeValue(native.pendingPage()));
+}
+
+/**
+ * 本窗口已打开时键盘请求打开的页面。
+ *
+ * 这个全局对象从本脚本运行起就存在，所以宿主不必保留在那之后发出的请求：启动屏还在时到达的请求会在这里等待，直到设置组件注册监听器后取走。
+ */
+let linkedPageListener: ((page: string) => void) | undefined;
+let queuedLinkedPage: string | undefined;
+
+globalThis.msimeHarmonyOpenPage = (page: string) => {
+  const linked = linkedPage(page);
+  if (!linked) return;
+  if (linkedPageListener) linkedPageListener(linked);
+  else queuedLinkedPage = linked;
+};
 
 function accountClient(native: NativeBridge): AccountClient {
   const request = <T,>(action: Record<string, unknown>): Promise<T> =>
@@ -786,6 +1074,17 @@ function makeClient(
       dictionaryReply<{ applied: boolean }>({ operation: "dismiss_failure", request_id });
     },
   };
+  const userWordCount = (): number | undefined => {
+    try {
+      return dictionaryReply<{ count: number }>({
+        operation: "count",
+        kind: "pinyin",
+        user_only: true,
+      }).count;
+    } catch {
+      return undefined;
+    }
+  };
   const typingStatistics: TypingStatisticsClient = {
     load: async () =>
       unwrap<TypingStatisticsStatus>(
@@ -803,6 +1102,23 @@ function makeClient(
       unwrap<TypingStatisticsStatus>(
         native.typingStatistics(JSON.stringify({ operation: "reset" })),
       ),
+    // 「统计」标签页的派生数据。宿主补上本地日期，并直接回复存储自身的结果，而不是上面四个调用所用的状态包装；它在原生工作线程上运行，因为要在键盘的锁下读取整份文档。页面不知道用户的词数，所以在这里读取，即 Android 为「造词者」徽章发送的仅限用户词的拼音词数；词库无法读取时省略该值，存储随后按零计数。
+    summary: async (userWords?: number) =>
+      unwrap<TypingSummary>(
+        await bridgeRequest(
+          native,
+          "typing_statistics",
+          JSON.stringify({ operation: "summary", user_words: userWords ?? userWordCount() }),
+        ),
+      ),
+    // 应用了一款皮肤，用于「换装达人」徽章。漏计一次应用不值得为此打断应用皮肤，所以不读取回复。
+    recordSkin: async (id: string) => {
+      void bridgeRequest(
+        native,
+        "typing_statistics",
+        JSON.stringify({ operation: "record_skin", id }),
+      ).catch(() => undefined);
+    },
   };
   // Every call answers with the whole status; the native operation runs on a worker and the local
   // day is resolved on the ArkTS side, which is the process that knows the device's timezone.
@@ -813,7 +1129,11 @@ function makeClient(
       ),
     answer: async (word: string, known: boolean) =>
       unwrap<VocabularyReviewStatus>(
-        await bridgeRequest(native, "vocabulary_review", JSON.stringify({ operation: "answer", word, known })),
+        await bridgeRequest(
+          native,
+          "vocabulary_review",
+          JSON.stringify({ operation: "answer", word, known }),
+        ),
       ),
     setSettings: async (settings) =>
       unwrap<VocabularyReviewStatus>(
@@ -830,11 +1150,19 @@ function makeClient(
       ),
     importWordbook: async (name: string, text: string) =>
       unwrap<VocabularyReviewStatus>(
-        await bridgeRequest(native, "vocabulary_review", JSON.stringify({ operation: "import", name, text })),
+        await bridgeRequest(
+          native,
+          "vocabulary_review",
+          JSON.stringify({ operation: "import", name, text }),
+        ),
       ),
     removeWordbook: async (wordbook: string) =>
       unwrap<VocabularyReviewStatus>(
-        await bridgeRequest(native, "vocabulary_review", JSON.stringify({ operation: "remove", wordbook })),
+        await bridgeRequest(
+          native,
+          "vocabulary_review",
+          JSON.stringify({ operation: "remove", wordbook }),
+        ),
       ),
     reset: async () =>
       unwrap<VocabularyReviewStatus>(
@@ -847,6 +1175,33 @@ function makeClient(
     test: (configuration) =>
       bridgeRequest(native, "ai_test", JSON.stringify(configuration)).then(unwrap<string>),
   };
+  // 只读一次：能力记录在应用运行期间不会变化，下面的反馈报告据此写明版本。
+  const host = unwrap<HostCapabilities>(native.hostCapabilities());
+  const setup = imeSetupClient(native);
+  // 状态栏和导航栏属于窗口，只有宿主够得着。
+  const chrome: HostChromeClient | undefined =
+    typeof native.setSystemBars === "function"
+      ? { setSystemBars: (bars) => native.setSystemBars(JSON.stringify(bars)) }
+      : undefined;
+  // 「反馈」经账号桥接提交：有人登录时桥接附上已登录的会话，无人登录时附上设备的匿名账号会话（宿主在原生层持有，与 Android 一致）。只有两者都没有时（例如匿名注册还没成功）提交才会以 `account_unauthorized` 被拒绝，页面会如实提示。
+  const feedback: FeedbackClient = {
+    submit: async (report) => {
+      unwrap<Record<string, never>>(
+        await bridgeRequest(
+          native,
+          "account",
+          JSON.stringify({
+            operation: "feedback",
+            type: report.type,
+            text: report.text,
+            diagnostics: report.diagnostics,
+            app_version: native.appVersion(),
+            edition: host.edition?.id ?? "full",
+          }),
+        ),
+      );
+    },
+  };
   const testApiCredential = async (
     service: ApiCredentialTestService,
     config: Record<string, unknown>,
@@ -858,7 +1213,7 @@ function makeClient(
     // Wrapped like every other reply from the shared ABI. Reading it as the record itself leaves every
     // capability undefined, which the page reads as "this host cannot", and the whole surface silently
     // shrinks to the few controls that have no capability behind them.
-    host: unwrap<HostCapabilities>(native.hostCapabilities()),
+    host,
     load: async () => unwrap<Snapshot>(native.loadPreferences()),
     // The keyboard writes preferences from its toolbar and the two are separate processes, so the
     // host calls this when the settings window comes back to the front and the document has moved.
@@ -956,9 +1311,12 @@ function makeClient(
     // A named design can carry a bounded photo. Both reads and writes use the numbered request
     // channel while the native worker parses and writes the library under its file lock.
     customSkinLibrary: {
-      load: async () => unwrap<SavedTouchKeyboardSkin[]>(await bridgeRequest(native, "custom_skin_library", "")),
+      load: async () =>
+        unwrap<SavedTouchKeyboardSkin[]>(await bridgeRequest(native, "custom_skin_library", "")),
       mutate: async (action) =>
-        unwrap<SavedTouchKeyboardSkin[]>(await bridgeRequest(native, "custom_skin_library", JSON.stringify(action))),
+        unwrap<SavedTouchKeyboardSkin[]>(
+          await bridgeRequest(native, "custom_skin_library", JSON.stringify(action)),
+        ),
     },
     candidateEnglishGloss: true,
     account: accountClient(native),
@@ -983,7 +1341,12 @@ function makeClient(
       showInputMethodPicker: async () => {
         unwrap<boolean>(native.showInputMethodPicker());
       },
+      // 「设置」卡片各项检查背后的两项设置状态，在 2in1 上也是「输入」和「关于」页警告条的依据。2in1 没有首页要画，但仍需要这些操作：警告条调用的是同样两个。
+      setup,
     },
+    appTheme: appThemeClient(native),
+    chrome,
+    feedback,
     communitySkins: communitySkinClient(native),
     communityResources: communityResourceClient(native),
     aiSkins: aiSkinClient(native),
@@ -996,12 +1359,114 @@ function makeClient(
   };
 }
 
+type OnboardingFinish = (
+  scheme: OnboardingInputScheme,
+  choices: OnboardingChoices,
+) => Promise<void>;
+
+/**
+ * 欢迎流程，连同本宿主能告诉它的信息。
+ *
+ * 流程显示期间由它掌管文档主题：平时写 `data-theme` 的设置页没有挂载，而流程应当以用户在其他地方看到的外观打开，而不是样式表的深色默认值。在手机上它还会取应用主题的季节，让第一屏就用上设置页将要使用的颜色。
+ */
+function HarmonyWelcomeFlow({
+  native,
+  client,
+  splash,
+  theme,
+  onComplete,
+  onSkip,
+}: {
+  native: NativeBridge;
+  client: SettingsClient;
+  splash: boolean;
+  theme: FlowTheme;
+  onComplete: OnboardingFinish;
+  onSkip: OnboardingFinish;
+}): ReactNode {
+  useSettingsTheme(theme.themeMode, theme.settingsTheme);
+  const dark = useDocumentDark();
+  // 2-in-1 报告 `mobile_settings` 为 false：流程在那里画成桌面式面板，不显示手机的闪屏，并保留自己的中性背景。
+  const mobileSettings = client.host?.mobile_settings;
+  const appTheme = useResolvedAppTheme(
+    mobileSettings !== false ? client.appTheme : undefined,
+    dark,
+  );
+  // 最后一步只向未登录的人提供「登录」。判断需要一次网络往返，所以流程不等结果就打开，结果到达后再更新；失败按未登录处理，最多只是让这一步多提供一个其实不需要的登录入口。
+  const [signedIn, setSignedIn] = useState<boolean>();
+  useEffect(() => {
+    const account = client.account;
+    if (!account) return;
+    let current = true;
+    account.status().then(
+      (status) => {
+        if (current) setSignedIn(status.user !== null);
+      },
+      () => {
+        if (current) setSignedIn(false);
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [client]);
+  // 「五笔」卡片显示正在使用的码表，这是已保存的偏好，不是流程所选。文档无法读取时卡片保留默认文案；这类失败在保存流程的选择时报告。
+  const [wubiProfile, setWubiProfile] = useState<Preferences["wubi_profile"]>();
+  useEffect(() => {
+    let current = true;
+    client.load().then(
+      (snapshot) => {
+        if (current) setWubiProfile(snapshot.preferences.wubi_profile);
+      },
+      () => undefined,
+    );
+    return () => {
+      current = false;
+    };
+  }, [client]);
+  // 在闪屏开始而不是结束时标记，与 Android 相同，这样闪屏中途被关掉的那次启动不会再播一遍。
+  useEffect(() => {
+    if (splash && typeof native.markSplashSeen === "function") native.markSplashSeen();
+  }, [native, splash]);
+  return (
+    <WelcomeFlowPage
+      actions={{
+        platform: "harmony",
+        mobileSettings,
+        // 资源由键盘启动时就绪，这里没有单独的步骤要执行；流程需要的是这个 promise，而不是实际工作。
+        prepareResources: async () => {},
+        openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
+        showInputMethodPicker: async () => {
+          native.showInputMethodPicker();
+        },
+      }}
+      // 方案步骤只提供本版本和本宿主具备的键盘。
+      edition={client.host?.edition}
+      inputSchemes={client.host?.input_schemes}
+      wubiProfile={wubiProfile}
+      setup={client.home?.setup}
+      signedIn={signedIn}
+      appTheme={appTheme}
+      chrome={client.chrome}
+      onComplete={onComplete}
+      onSkip={onSkip}
+      splash={splash}
+    />
+  );
+}
+
 function HarmonySettings({
   native,
   onboarding,
+  splashUnseen,
+  linkedPage,
 }: {
   native: NativeBridge;
   onboarding: boolean;
+  /** 闪屏尚未在本设备上播放过，取自宿主在启动时的报告。 */
+  splashUnseen: boolean;
+  /** 键盘要求本窗口打开的页面，启动时从宿主读取。 */
+  linkedPage: string | undefined;
 }): ReactNode {
   // Setup is the one thing that has to happen before anything in the settings page can matter, so
   // the flow replaces the page rather than sitting somewhere inside it. Skipping is allowed: a
@@ -1009,8 +1474,12 @@ function HarmonySettings({
   const [bootstrapRequired, setBootstrapRequired] = useState(onboarding);
   // The splash belongs to a first launch; a flow replayed from settings opens on its first step.
   const [replayed, setReplayed] = useState(false);
-  // 登录 at the end of the flow opens the settings on 我的, where signing in lives.
-  const [initialPage, setInitialPage] = useState<string>();
+  // 流程绘制所用的外观：首次启动用系统外观，重放时用用户自己的选择。
+  const [flowTheme, setFlowTheme] = useState<FlowTheme>(SYSTEM_THEME);
+  // 设置打开时所在的页面：键盘链接到的页面，或流程最后「登录」之后的「我的」，登录入口就在那里。
+  const [initialPage, setInitialPage] = useState<string | undefined>(linkedPage);
+  // 设置已打开时键盘请求的页面。新的 nonce 会导航过去并保留草稿；若改为按初始页面重新挂载，草稿就会丢失。
+  const [route, setRoute] = useState<{ page: string; nonce: number }>();
   const [cloudClipboardOpen, setCloudClipboardOpen] = useState(false);
   const [cloudDictionaryOpen, setCloudDictionaryOpen] = useState(false);
   const [cloudDictionaryPage, setCloudDictionaryPage] = useState<CloudDictionaryPage>("main");
@@ -1044,36 +1513,50 @@ function HarmonySettings({
     }),
     [dictionaryClient],
   );
+  // 欢迎流程显示期间，链接的页面等设置打开时再作为初始页；设置已打开时则直接导航过去。在这个监听器存在之前到达的请求现在取走。
+  useEffect(() => {
+    const open = (page: string) => {
+      if (bootstrapRequired) setInitialPage(page);
+      else setRoute({ page, nonce: Date.now() });
+    };
+    linkedPageListener = open;
+    const queued = queuedLinkedPage;
+    queuedLinkedPage = undefined;
+    if (queued) open(queued);
+    return () => {
+      linkedPageListener = undefined;
+    };
+  }, [bootstrapRequired]);
   if (bootstrapRequired) {
-    // A 2-in-1 reports mobile_settings false: the flow draws itself as a desktop sheet there and opens without the phone's splash.
-    const mobileSettings = client.host?.mobile_settings;
+    // 流程中选的方案正是那一步的意义所在；丢掉它会让用户的键盘仍是他们刚刚放弃的布局。写入方式与移动端宿主相同，这样在它们之间同步的配置含义一致。「跳过」也保留它：提前离开引导不等于放弃已在其中做出的选择。
+    const applyChoices = async (scheme: OnboardingInputScheme, choices: OnboardingChoices) => {
+      const snapshot = await client.load();
+      await client.save(
+        snapshot.revision,
+        completeOnboardingPreferences(snapshot, scheme, choices),
+      );
+    };
+    // 流程显示期间宿主会暂缓显示通知卡片；这里让它恢复。
+    const leaveFlow = () => {
+      if (typeof native.onboardingFinished === "function") native.onboardingFinished();
+      setBootstrapRequired(false);
+    };
     return (
-      <WelcomeFlowPage
-        actions={{
-          platform: "harmony",
-          mobileSettings,
-          // Resources are staged by the keyboard when it starts, and there is no separate step to
-          // run here; the flow expects the promise, not work.
-          prepareResources: async () => {},
-          openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
-          showInputMethodPicker: async () => {
-            native.showInputMethodPicker();
-          },
-        }}
+      <HarmonyWelcomeFlow
+        native={native}
+        client={client}
+        splash={client.host?.mobile_settings !== false && !replayed && splashUnseen}
+        theme={flowTheme}
         onComplete={async (scheme, choices) => {
-          // The scheme picked in the flow is the whole point of that step; dropping it would leave
-          // the user with a keyboard laid out the way they had just declined. Written the same way
-          // the mobile hosts write it, so a profile carried between them means the same thing.
-          const snapshot = await client.load();
-          await client.save(
-            snapshot.revision,
-            completeOnboardingPreferences(snapshot, scheme, choices),
-          );
-          setInitialPage(choices.openAccount ? "account" : undefined);
-          setBootstrapRequired(false);
+          await applyChoices(scheme, choices);
+          if (choices.openAccount) setInitialPage("account");
+          leaveFlow();
         }}
-        onSkip={async () => setBootstrapRequired(false)}
-        splash={mobileSettings !== false && !replayed}
+        onSkip={async (scheme, choices) => {
+          // 「跳过」是离开流程的出口，而流程后面的设置页才是报告和恢复无法读取的文档的地方。因此，已做选择写入失败（文档无法读取，或保存时与键盘发生竞争）不会把用户卡在这里：无论如何都离开流程，设置页加载文档时会报告文档无法读取。
+          await applyChoices(scheme, choices).catch(() => undefined);
+          leaveFlow();
+        }}
       />
     );
   }
@@ -1082,8 +1565,14 @@ function HarmonySettings({
       <SettingsPage
         client={client}
         initialPage={initialPage}
+        route={route}
         onReplayOnboarding={() => {
+          setFlowTheme(savedFlowTheme(native));
+          // 重放与首次运行在同一处结束，而不是停在之前链接的页面上。
+          setInitialPage(undefined);
           setReplayed(true);
+          // 重放的流程同样不应被宿主的通知卡片压在下面；离开流程时 leaveFlow 会让它恢复。
+          if (typeof native.onboardingStarted === "function") native.onboardingStarted();
           setBootstrapRequired(true);
         }}
       />
@@ -1110,6 +1599,8 @@ function HarmonySettings({
 const root = document.getElementById("root");
 if (root) {
   const app = createRoot(root);
+  // 启动页是第一帧，所以必须在它渲染前设好主题。它跟随系统，直到知道用户自选外观的欢迎流程或设置页接管文档。
+  const stopFollowingSystemTheme = followSystemTheme();
   // Waiting for the bridge took up to five seconds against a blank white window. Every other host
   // shows the shared startup page while it opens; there was never a reason for this one not to.
   app.render(
@@ -1122,9 +1613,21 @@ if (root) {
       // A refused query answers "no onboarding": someone who has been using the keyboard for weeks
       // should not be sent back to a welcome screen because one system call did not answer.
       const onboarding = await whenOnboardingKnown(native);
+      // 在页面表明欢迎流程不会挡路之前，宿主会暂缓显示通知卡片。页面直接打开设置时（包括等首次读取等太久而放弃之后），不会再有别的地方告诉它。
+      if (!onboarding && typeof native.onboardingFinished === "function")
+        native.onboardingFinished();
+      // 两者都在这里、在 React 之外读取，因为都是一次性的宿主读取：链接的页面只交出一次，而闪屏标记马上就要写入。
+      const linkedPage = pendingLinkedPage(native);
+      const splashUnseen = !splashSeen(native);
+      stopFollowingSystemTheme();
       app.render(
         <StrictMode>
-          <HarmonySettings native={native} onboarding={onboarding} />
+          <HarmonySettings
+            native={native}
+            onboarding={onboarding}
+            splashUnseen={splashUnseen}
+            linkedPage={linkedPage}
+          />
         </StrictMode>,
       );
     })

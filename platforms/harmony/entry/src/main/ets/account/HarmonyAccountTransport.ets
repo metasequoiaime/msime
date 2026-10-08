@@ -5,7 +5,9 @@ import {
   AccountSessionStore, AccountTransport, AccountTransportResponse, parseResponseContentLength
 } from './AccountCloudBridge';
 import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
-import { MAX_SESSION_BYTES, sessionFitsStorage, sessionWriteComplete } from './AccountSessionPolicy';
+import {
+  anonymousSessionForBridge, anonymousSessionForStorage, MAX_SESSION_BYTES, sessionFitsStorage, sessionWriteComplete
+} from './AccountSessionPolicy';
 
 /**
  * The account session file and the HTTPS transport, shared by the settings application and the keyboard extension.
@@ -24,10 +26,11 @@ export class FileSessionStore implements AccountSessionStore {
   private readonly file: string;
   private readonly lockFile: string;
 
-  constructor(directory: string) {
+  /** `name` 是文件名主干：已登录账号为 `account-session`，设备匿名账号为 `anonymous-session`。 */
+  constructor(directory: string, name: string = 'account-session') {
     this.directory = directory;
-    this.file = `${directory}/account-session.json`;
-    this.lockFile = `${directory}/account-session.lock`;
+    this.file = `${directory}/${name}.json`;
+    this.lockFile = `${directory}/${name}.lock`;
   }
 
   /**
@@ -140,6 +143,40 @@ export class FileSessionStore implements AccountSessionStore {
     } catch {
       return false;
     }
+  }
+}
+
+/**
+ * `<state>/anonymous-session.json`：原生客户端首次启动时注册的设备匿名账号（`ensureAnonymousAccount`），作为 `AccountCloudBridge` 的存储。
+ *
+ * Android 上优先带登录账号、否则带匿名账号发送的请求（应用内反馈），在无人登录时使用它。文件保持其他客户端共用的原生格式，读写时转换，因此在这里保存的轮换结果仍是原生客户端能找到的会话；锁归本存储自己所有，因为只有 bridge 会刷新这个会话。
+ */
+export class AnonymousSessionStore implements AccountSessionStore {
+  private readonly file: FileSessionStore;
+
+  constructor(directory: string) {
+    this.file = new FileSessionStore(directory, 'anonymous-session');
+  }
+
+  async exclusive<T>(body: () => Promise<T>): Promise<T> {
+    return await this.file.exclusive<T>(body);
+  }
+
+  load(): string | null {
+    const saved: string | null = this.file.load();
+    return saved === null ? null : anonymousSessionForBridge(saved);
+  }
+
+  save(value: string): void {
+    const saved: string | null = anonymousSessionForStorage(value, Date.now());
+    if (saved === null) {
+      throw new Error('account_storage');
+    }
+    this.file.save(saved);
+  }
+
+  clear(): void {
+    this.file.clear();
   }
 }
 

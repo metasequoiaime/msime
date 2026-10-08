@@ -1,7 +1,5 @@
 /**
- * Touch-keyboard spacing contract, ported from platforms/android/java/app/msime/android/KeyboardGeometry.java.
- * The numbers are the same; only the unit name changes, since HarmonyOS measures in vp where Android
- * measures in dp and both are density-independent.
+ * 触摸键盘的间距约定，移植自 platforms/android/java/app/msime/android/KeyboardGeometry.java。数值相同，只是单位名称不同：HarmonyOS 用 vp，Android 用 dp，两者都与密度无关。
  *
  * Input algorithms stay in the Engine. This is only the geometry the host draws with.
  */
@@ -46,8 +44,7 @@ export class KeyboardGeometry {
   }
 
   /**
-   * null stands for the unset sentinel the Java side spells as Integer.MIN_VALUE; an absent
-   * preference falls back to the default rather than clamping to the minimum.
+   * null 代表 Java 侧写作 Integer.MIN_VALUE 的未设置哨兵值；缺失的偏好回退为默认值，而不是被限制到最小值。
    */
   static heightAdjustment(value: number | null): number {
     if (value === null) {
@@ -57,6 +54,14 @@ export class KeyboardGeometry {
       KeyboardGeometry.MIN_HEIGHT_ADJUSTMENT_VP,
       Math.min(value, KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_VP),
     );
+  }
+
+  /** 高度调整所参照的四行 44vp 按键行：100% 表示不调整。 */
+  static readonly HEIGHT_PERCENT_BASE_VP: number = 176;
+
+  /** 高度条上标注的键盘高度：调整后的按键行占标准 176vp 的整数百分比，因此共享的 -12..48 范围显示为 93..127%。 */
+  static heightPercent(adjustmentVp: number): number {
+    return Math.round(100 + (adjustmentVp * 100) / KeyboardGeometry.HEIGHT_PERCENT_BASE_VP);
   }
 
   /** Divide the total adjustment across rows without losing a density-independent pixel. */
@@ -71,15 +76,6 @@ export class KeyboardGeometry {
     }
     const total: number = baseHeight * rowCount + KeyboardGeometry.heightAdjustment(adjustment);
     return Math.floor(total / rowCount) + (rowIndex < total % rowCount ? 1 : 0);
-  }
-
-  static display(tenths: number): string {
-    return (tenths / 10).toFixed(1);
-  }
-
-  static displayHeight(adjustment: number | null): string {
-    const value: number = KeyboardGeometry.heightAdjustment(adjustment);
-    return (value > 0 ? "+" : "") + value.toString();
   }
 
   static halfGapPixels(tenths: number, density: number): number {

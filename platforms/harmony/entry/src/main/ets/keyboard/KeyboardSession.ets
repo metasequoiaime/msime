@@ -11,6 +11,10 @@ import { KeyPressBatch, KeyPressFlush } from './KeyIdPolicy';
 import { readTypingStatisticsEnabled, writeKeyPresses } from './TypingStatisticsWriter';
 import taskpool from '@ohos.taskpool';
 import { KeyboardSkin } from './skin/KeyboardSkin';
+import { AppThemePalette, AppThemeSeed } from './skin/AppThemePalette';
+import { AppThemeStore } from './skin/AppThemeStore';
+import { CommonPhraseStarters } from './CommonPhraseStarters';
+import { SettingsPageLink } from './SettingsPageLink';
 import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
 import {
   CandidateColors, CustomThemeDocument, GlobalTheme, ResolvedTheme, ResolveThemeRequest, ThemeCatalogEntry
@@ -78,6 +82,7 @@ import { CandidateLogoPolicy } from './candidate/CandidateLogoPolicy';
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
 import { KeyboardMetrics } from './KeyboardMetrics';
 import { NativeReplyPolicy } from './NativeReplyPolicy';
+import { PrivacyGate, PrivacyRecord } from './PrivacyGate';
 import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
@@ -103,7 +108,7 @@ import {
 import {
   AiPolishPolicy, MAX_POLISH_SOURCE_CHARACTERS, PolishReplacement
 } from './input/AiPolishPolicy';
-import { VoiceRecognitionPolicy } from './input/VoiceRecognitionPolicy';
+import { VoiceRecognitionPolicy, VoiceTarget } from './input/VoiceRecognitionPolicy';
 import { HarmonyVoicePolisher } from './input/HarmonyVoicePolisher';
 import { AiEndpointPolicy } from './settings/AiEndpointPolicy';
 import { SmartPunctuationSpacePolicy, SmartPunctuationSpaceSnapshot, SpaceConvertDecision }
@@ -273,6 +278,17 @@ interface TypingStatisticsKeysAction {
 interface TypingStatisticsKeysRequest {
   directory: string;
   action: TypingStatisticsKeysAction;
+}
+
+interface TypingStatisticsVoiceAction {
+  operation: string;
+  day: string;
+  milliseconds: number;
+}
+
+interface TypingStatisticsVoiceRequest {
+  directory: string;
+  action: TypingStatisticsVoiceAction;
 }
 
 interface MobileClipboardAction {
@@ -595,6 +611,13 @@ interface CreateResponse {
   error: string;
 }
 
+/** 一个会话开关，应答其设置后的值，例如 `setPrivateSession`。 */
+interface FlagResponse {
+  ok: boolean;
+  value: boolean;
+  error: string;
+}
+
 interface VoiceGenerationResponse {
   ok: boolean;
   value: number;
@@ -638,6 +661,45 @@ interface CandidateSkinImage {
 
 /** What every path that has no decoration to draw returns, rather than a fresh literal each time. */
 const NO_CANDIDATE_SKIN_IMAGE: CandidateSkinImage = { image: null, aspectRatio: 1 };
+
+/** `msime_client_resolve_app_theme` 的请求：存储的应用主题、本地日历月份（`siji` 跟随它）和模式。 */
+interface ResolveAppThemeRequest {
+  app_theme: string;
+  month: number;
+  dark: boolean;
+}
+
+/** 常驻的键盘自行重新查看应用主题的间隔，这样不必等到焦点变化季节也会更替。与 Android `ImeStyler.refreshAppTheme` 使用的间隔相同。 */
+const APP_THEME_CHECK_INTERVAL_MS: number = 60 * 1000;
+
+/** 一次 `msime_client_common_phrases` 操作；只声明键盘会发出的那两种。 */
+interface CommonPhrasesAction {
+  operation: string;
+  text?: string;
+}
+
+interface CommonPhrasesRequest {
+  directory: string;
+  action: CommonPhrasesAction;
+}
+
+interface CommonPhraseEntry {
+  id?: string;
+  text?: string;
+  pack?: string;
+}
+
+interface CommonPhrasesDocument {
+  phrases?: CommonPhraseEntry[];
+  packs?: Object[];
+}
+
+interface CommonPhrasesReply {
+  ok?: boolean;
+  value?: CommonPhrasesDocument;
+  error?: string;
+}
+
 
 // Enough for the sentence rule to walk back over trailing spaces and closing quotes to the mark that
 // ended the last sentence. A caret further than this from one is in the middle of a sentence by any
@@ -702,6 +764,8 @@ interface SnapshotQueueStateAction {
 // untouched, so naming it here would only invite the two shapes to drift apart.
 interface PreparedPreferences {
   default_ime_mode: string;
+  /** 用户的「学习」开关。隐私模式只在会话自己的副本里把它关掉（`PrivacyGate`）。 */
+  learning?: boolean;
   /** `app` remembers the mode per application; `global` shares one across all of them. */
   ime_mode_scope?: string;
   scheme: string;
@@ -913,7 +977,6 @@ export interface KeyboardPreferences {
   readonly keySpacingTenths: number;
   readonly rowSpacingTenths: number;
   readonly heightAdjustment: number;
-  readonly voiceShortcut: boolean;
   /** `NumberKeypadOrder` 归一后的九键数字层排列。 */
   readonly numberKeypadOrder: string;
 }
@@ -1005,6 +1068,8 @@ const IDLE_DICTIONARY_RETRY_MS: number = 2000;
  */
 export class KeyboardSession implements HardwareKeyTarget {
   static readonly shared: KeyboardSession = new KeyboardSession();
+  /** 一次录音最多计入语音时长的上限，沿用 Android 的界限：识别器一直开着不等于口述了十分钟。 */
+  static readonly MAX_VOICE_RECORD_MS: number = 600000;
 
   private handle: number = 0;
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
@@ -1029,6 +1094,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** The preview text the editor holds now, empty when it holds none. */
   private previewText: string = '';
   private replyContextGeneration: number = 0;
+  private voiceTarget: VoiceTarget | null = null;
   private replyResultEditorGeneration: number = -1;
   private replyResultContextGeneration: number = -1;
   private replyResultTexts: string[] = [];
@@ -1052,6 +1118,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   // Whether the recognizer is running. The view owns it and says so; the shortcuts need to know,
   // because Space and Escape belong to a composition at every other moment.
   private voiceRecording: boolean = false;
+  // 当前录音的开始时间，以及上一次未取消的录音时长：即「统计」页的语音时长，在识别结果进入编辑框时记录（对应 Android 的 `elapsedMillis`）。
+  private voiceRecordingStartedMs: number = 0;
+  private voiceRecordedMs: number = 0;
   private voiceBehaviour: HarmonyVoiceRecordingBehaviour = new HarmonyVoiceRecordingBehaviour();
   // Key, melody, commit and achievement sounds. Configured off on a phone, which keeps its own key feedback.
   private readonly soundPlayer: KeySoundPlayer = new KeySoundPlayer();
@@ -1148,7 +1217,6 @@ export class KeyboardSession implements HardwareKeyTarget {
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
-    voiceShortcut: false,
     numberKeypadOrder: NumberKeypadOrder.PHONE
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
@@ -1206,8 +1274,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** The status-bar panel owns the window; the ArkUI handle only reports its pan gesture. */
   onToolbarDragStart: (() => void) | undefined = undefined;
   onToolbarDrag: ((offsetX: number, offsetY: number) => void) | undefined = undefined;
-  /** The settings application, which only the host can open: it owns the context that starts it. The 2in1 toolbar gear and the phone's 更多设置 card both reach it here. */
-  onOpenSettings: (() => void) | undefined = undefined;
+  /** 设置应用，只有宿主能打开它：启动它所需的 context 归宿主所有。2in1 工具栏的齿轮和手机上的「更多设置」卡片都从这里进入。`page` 是 `SettingsPageLink.PAGES` 之一，用于直接打开对应页面；为 `undefined` 时打开设置首页。 */
+  onOpenSettings: ((page: string | undefined) => void) | undefined = undefined;
   /**
    * A surface the toolbar asked for, which two readers need and for different reasons: the host
    * sizes and shows the window, the view draws what goes in it. Two slots rather than one, the way
@@ -1415,7 +1483,6 @@ export class KeyboardSession implements HardwareKeyTarget {
       rowSpacingTenths: KeyboardGeometry.rowSpacing(preferences.touch_row_spacing_tenths),
       heightAdjustment:
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
-      voiceShortcut: preferences.touch_voice_shortcut,
       numberKeypadOrder: NumberKeypadOrder.normalized(preferences.touch_number_keypad_order)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
@@ -1483,7 +1550,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.resourceDirectory = resources;
     this.stateDirectory = stateRoot;
     this.systemDark = systemDark;
-    this.feedbackSettings = this.feedback();
+    this.refreshFeedback();
+    this.refreshAppTheme(true);
     this.preferencesRevision = this.storedRevision(stateRoot);
     const request: PrepareRequest = KeyboardSession.prepareRequest(resources, stateRoot);
     let options: string;
@@ -1496,6 +1564,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       const requested: PreparedOptions = prepared.value;
       requested.phrase_preedit = true;
+      // 隐私模式下以关闭学习的方式构建会话，与 Android 的 `restartSessionForPrivacy` 相同：只改会话的副本，存储的文档保留用户自己的开关。
+      if (this.feedbackCurrent.incognito) {
+        requested.preferences.learning = false;
+      }
       options = JSON.stringify(requested);
       this.snapshotOptions = requested;
       this.processDictionarySnapshot(requested, stateRoot);
@@ -1572,6 +1644,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       this.handle = created.value.session;
       KeyboardLog.info(`session ${this.handle} created`);
+      this.markPrivateSession(this.feedbackCurrent.incognito);
       this.refreshTypingEffects();
       this.schedulePersonalDictionaryDrain();
       this.scheduleDictionarySnapshotPoll();
@@ -1678,6 +1751,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     const english: boolean = this.englishMode;
     const nineKey: boolean = this.nineKeyMode;
     const revision: number = this.preferencesRevision;
+    const seedLight: AppThemeSeed | null = this.appThemeSeedLight;
+    const seedDark: AppThemeSeed | null = this.appThemeSeedDark;
+    const fullWidth: boolean = this.fullWidth;
     this.stop();
     if (!this.start(this.resourceDirectory, this.stateDirectory, this.systemDark)) {
       KeyboardLog.error(`${reason} left the session unavailable`);
@@ -1694,6 +1770,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     // Any rebuild reads the document afresh, whatever it was for, so the surfaces follow whenever the stored preferences moved underneath it.
     if (this.preferencesRevision !== revision) {
       this.announcePreferencesReloaded();
+    } else if ((!KeyboardSession.sameSeed(seedLight, this.appThemeSeedLight)
+        || !KeyboardSession.sameSeed(seedDark, this.appThemeSeedDark) || this.fullWidth !== fullWidth)
+        && this.onViewPreferencesReloaded !== undefined) {
+      // 偏好文档没变，但重建改变了视图所画的内容：start() 已读入新的应用主题种子，此后 attach 的比较不会再看到变化；全角/半角是会话状态，新会话回到初始值（Android 的 restartSessionForPrivacy 新建的引擎会话也是如此），视图的全角磁贴若不跟着刷新，就会仍显示开启，再点一次反而打开全角。只让视图重绘，ability 不必重读偏好。
+      this.onViewPreferencesReloaded();
     }
   }
 
@@ -1713,8 +1794,6 @@ export class KeyboardSession implements HardwareKeyTarget {
    * The settings page is another process writing the same document. Windows pushes a change to the running server and polls as a fallback (`WM_APPLY_IME_CONFIG`, `TIMER_ID_CONFIG_SYNC`); here the keyboard compares the stored revision each time an editor takes focus, which is the first moment anyone could type with the new settings, and costs one small read rather than a timer. A composition in progress is left alone and the next focus picks the change up.
    */
   reloadChangedPreferences(): void {
-    // 按键反馈不在偏好文档里，没有版本号可比：设置页改了振动档位，只看版本号的话要等输入法进程重启才生效。它是一个很小的文件，每次聚焦重读一遍，组字中也不影响什么。
-    this.reloadFeedback();
     if (this.handle === 0 || this.composing() || this.localMode !== 'none') {
       return;
     }
@@ -1748,14 +1827,90 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.appearance;
   }
 
-  /** The keyboard palette of the global theme in one mode: the custom design when the custom theme carries one, else the resolved palette, else the native tokens. */
+  /**
+   * 全局主题在某一模式下的键盘配色：自定义主题带有自定义设计时用该设计，否则用解析出的配色，再否则用季节配色，最后用原生令牌。
+   *
+   * 该模式下应用主题的季节种子在每种情况下都会带上：它是 `system` 键盘的配色，也是其他键盘回车键、已开启功能块和 logo 的配色（`KeyboardSkin.fromTheme`）。键盘开着超过一分钟时会在这里拿到更替后的季节，因为视图每次重绘皮肤时都会来取。
+   */
   keyboardSkin(dark: boolean): KeyboardSkin {
+    this.refreshAppTheme(false);
+    const seed: AppThemeSeed | null = this.appThemeSeed(dark);
     const title: string = this.themeTitle(this.globalThemeId);
     if (this.globalThemeId === 'custom' && this.customDesign !== null) {
-      return KeyboardSkin.fromDesign(title, this.customDesign, dark);
+      return KeyboardSkin.fromDesign(title, this.customDesign, dark, seed);
     }
     const theme: ResolvedTheme | null = dark ? this.themeDark : this.themeLight;
-    return KeyboardSkin.fromTheme(this.globalThemeId, title, theme === null ? null : theme.keyboard, dark);
+    return KeyboardSkin.fromTheme(this.globalThemeId, title, theme === null ? null : theme.keyboard, dark, seed);
+  }
+
+  /** 某一模式解析出的季节种子；应用主题无法解析时为 `null`。 */
+  private appThemeSeed(dark: boolean): AppThemeSeed | null {
+    return dark ? this.appThemeSeedDark : this.appThemeSeedLight;
+  }
+
+  /**
+   * 重新解析应用主题：取设置应用存放在 `key-feedback.json` 旁边的 id 和本地日历月份，两种模式一次全部解析，这样任一模式下的界面绘制都无需再调用一次，与全局主题的解析方式相同。
+   *
+   * `force` 用于启动和每次编辑框获得焦点；否则最多每分钟运行一次。返回任一模式的种子是否变化，以便调用方判断已绘制的皮肤是否过期。
+   */
+  private refreshAppTheme(force: boolean): boolean {
+    const now: number = Date.now();
+    if (!force && this.appThemeCheckedAt !== 0 && now - this.appThemeCheckedAt < APP_THEME_CHECK_INTERVAL_MS) {
+      return false;
+    }
+    this.appThemeCheckedAt = now;
+    if (this.stateDirectory.length === 0) {
+      return false;
+    }
+    const id: string = this.readAppThemeId();
+    const month: number = new Date().getMonth() + 1;
+    const light: AppThemeSeed | null = KeyboardSession.resolveAppTheme(id, month, false);
+    const dark: AppThemeSeed | null = KeyboardSession.resolveAppTheme(id, month, true);
+    const changed: boolean = !KeyboardSession.sameSeed(light, this.appThemeSeedLight)
+      || !KeyboardSession.sameSeed(dark, this.appThemeSeedDark);
+    this.appThemeSeedLight = light;
+    this.appThemeSeedDark = dark;
+    return changed;
+  }
+
+  /** 存储的应用主题 id。文件缺失或不可读时取默认值，与 `AppThemeStore.parse` 对待任何错误文档的方式一致。 */
+  private readAppThemeId(): string {
+    const path: string = `${this.stateDirectory}/${AppThemeStore.FILE_NAME}`;
+    try {
+      if (!KeyboardSession.safeStateDirectory(this.stateDirectory)) {
+        return AppThemeStore.DEFAULT_ID;
+      }
+      const text: string | null = KeyboardSession.readPrivateText(path, AppThemeStore.MAX_BYTES);
+      return text === null ? AppThemeStore.DEFAULT_ID : AppThemeStore.parse(text);
+    } catch (error) {
+      KeyboardLog.error(`app theme unreadable: ${describeError(error)}`);
+      return AppThemeStore.DEFAULT_ID;
+    }
+  }
+
+  /** 应用主题的某一模式。调用被拒绝，或原生模块不提供该调用时，键盘停留在基础令牌上，而不是让会话失败。 */
+  private static resolveAppTheme(id: string, month: number, dark: boolean): AppThemeSeed | null {
+    const request: ResolveAppThemeRequest = { app_theme: id, month: month, dark: dark };
+    try {
+      const seed: AppThemeSeed | null =
+        AppThemePalette.parseResolved(client.resolveAppTheme(JSON.stringify(request)));
+      if (seed === null) {
+        KeyboardLog.error(`app theme ${id} refused; drawing the base tokens`);
+      }
+      return seed;
+    } catch (error) {
+      KeyboardLog.error(`app theme unavailable: ${describeError(error)}`);
+      return null;
+    }
+  }
+
+  private static sameSeed(first: AppThemeSeed | null, second: AppThemeSeed | null): boolean {
+    if (first === null || second === null) {
+      return first === second;
+    }
+    return first.accent === second.accent && first.accent_soft === second.accent_soft
+      && first.on_accent === second.on_accent && first.background === second.background
+      && first.card === second.card;
   }
 
   /** The skin a keyboard-side surface (voice, emoji, handwriting, menus) wears: its own setting, then the app mode, then whatever the keyboard is in; a theme with a fixed appearance overrides all three. */
@@ -1785,17 +1940,20 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (entry.id === this.globalThemeId) {
         return this.keyboardSkin(GlobalTheme.surfaceDark(entry.appearance, dark));
       }
+      // 每张卡片都带上选中后绘制时所用的季节，因此「跟随系统」卡片显示季节色调，而不是裸的令牌。
       if (entry.id === 'custom') {
         if (this.customDesign !== null) {
-          return KeyboardSkin.fromDesign(entry.title, this.customDesign, dark);
+          return KeyboardSkin.fromDesign(entry.title, this.customDesign, dark, this.appThemeSeed(dark));
         }
         const base: ThemeCatalogEntry | null = GlobalTheme.entry(this.themeCatalog, this.customThemeBase);
-        return base === null ? KeyboardSkin.fromTheme(entry.id, entry.title, null, dark)
-          : KeyboardSkin.fromTheme(entry.id, entry.title, base.keyboard,
-            GlobalTheme.surfaceDark(base.appearance, dark));
+        if (base === null) {
+          return KeyboardSkin.fromTheme(entry.id, entry.title, null, dark, this.appThemeSeed(dark));
+        }
+        const baseDark: boolean = GlobalTheme.surfaceDark(base.appearance, dark);
+        return KeyboardSkin.fromTheme(entry.id, entry.title, base.keyboard, baseDark, this.appThemeSeed(baseDark));
       }
-      return KeyboardSkin.fromTheme(entry.id, entry.title, entry.keyboard,
-        GlobalTheme.surfaceDark(entry.appearance, dark));
+      const entryDark: boolean = GlobalTheme.surfaceDark(entry.appearance, dark);
+      return KeyboardSkin.fromTheme(entry.id, entry.title, entry.keyboard, entryDark, this.appThemeSeed(entryDark));
     });
   }
 
@@ -1874,8 +2032,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         KeyboardLog.error(`preferences not persisted: ${saved.error}`);
         return this.fuzzyPinyin;
       }
-      const applied: PrepareResponse =
-        JSON.parse(client.updatePreferences(this.handle, JSON.stringify(saved.value))) as PrepareResponse;
+      const applied: PrepareResponse = JSON.parse(client.updatePreferences(this.handle,
+        PrivacyGate.sessionPreferences(saved.value, this.sessionPrivate))) as PrepareResponse;
       if (applied.ok !== true) {
         // On disk but not in the session: leaving the revision behind makes the next focus rebuild from the document.
         KeyboardLog.error(`preferences refused: ${applied.error}`);
@@ -2194,7 +2352,8 @@ export class KeyboardSession implements HardwareKeyTarget {
    */
   recordKey(id: string | null): void {
     if (id === null || !this.keyStatisticsEnabled || !this.keyStatisticsEditorKnown
-      || EditorPolicy.excludesKeyStatistics(this.traits) || this.stateDirectory.length === 0) {
+      || EditorPolicy.excludesKeyStatistics(this.traits) || !this.privacyAllows(PrivacyRecord.KEYS)
+      || this.stateDirectory.length === 0) {
       return;
     }
     const due: KeyPressFlush[] = this.keyPresses.add(id, TypingStatisticsPolicy.day(new Date()));
@@ -2692,6 +2851,18 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /** 记下开始聆听时编辑框所处的位置，以便 `voiceTargetMatches` 判断识别结果能否不经确认直接上屏。 */
+  captureVoiceTarget(): void {
+    this.voiceTarget = this.inputClient === undefined ? null
+      : { editor: this.editorGeneration, context: this.replyContextGeneration };
+  }
+
+  /** 编辑框是否仍处在 `captureVoiceTarget` 记录的位置，且没有正在进行的组字。 */
+  voiceTargetMatches(): boolean {
+    return this.inputClient !== undefined && VoiceRecognitionPolicy.insertsDirectly(this.voiceTarget,
+      { editor: this.editorGeneration, context: this.replyContextGeneration }, this.composing());
+  }
+
   /** Accept only the active generation and never log the recognized text. */
   voiceApply(generation: number, text: string): string | null {
     if (this.handle === 0 || generation <= 0 || text.length === 0) {
@@ -2772,6 +2943,13 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.applyView(client.setNineKeyMode(this.handle, this.nineKeyMode));
     }
     this.reloadChangedPreferences();
+    // 按键反馈和手写板设置是另一个文件，设置应用写它时不会推进偏好修订号，所以每次获得焦点都要读取，而不只在构建会话时读取。文件存在却读不到时保留上次的值，一次读取失败不能把隐私模式当成关闭。
+    this.refreshFeedback();
+    this.followPrivacyMode();
+    // 应用主题也一样：月份变了或在设置应用里选了主题，皮肤会立即重绘，而不是最多一分钟后。真正重绘皮肤的是视图的 reload 钩子。
+    if (this.refreshAppTheme(true) && this.onViewPreferencesReloaded !== undefined) {
+      this.onViewPreferencesReloaded();
+    }
   }
 
   detach(): void {
@@ -3668,7 +3846,15 @@ export class KeyboardSession implements HardwareKeyTarget {
   private diagnostic: string = '';
   private fullWidth: boolean = false;
   private bindings: ModeBindings = DEFAULT_MODE_BINDINGS;
-  private feedbackSettings: FeedbackSettings = KeyboardFeedback.DEFAULTS;
+  /** 上次读到的设备本地反馈和手写设置：在启动时、每次编辑框获得焦点时以及键盘保存它们时更新。 */
+  private feedbackCurrent: FeedbackSettings = KeyboardFeedback.DEFAULTS;
+  /** 当前会话是否按隐私模式构建：关闭学习并标记为私密。隐私模式与之不再相符时重建会话。 */
+  private sessionPrivate: boolean = false;
+  // 上次解析出的应用主题季节种子，每种模式一份；为 `null` 时键盘停留在基础令牌上。
+  private appThemeSeedLight: AppThemeSeed | null = null;
+  private appThemeSeedDark: AppThemeSeed | null = null;
+  /** 上次解析应用主题的时间，取 `Date.now()`；0 表示从未解析，因此第一次检查一定会执行。 */
+  private appThemeCheckedAt: number = 0;
   // The global theme as last resolved, one answer per mode; null draws the native tokens.
   private preparedPreferences: PreparedPreferences | undefined = undefined;
   private themeCatalog: ThemeCatalogEntry[] = [];
@@ -4566,18 +4752,94 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
-  /** How keys should feel on this device, which is not something the shared preferences carry. */
-  feedback(): FeedbackSettings {
+  /** 会话持有的设备本地设置（含手写延迟和笔迹），不读磁盘：即上次编辑框获得焦点或启动时读到的值，或此后保存的值。 */
+  feedbackSettings(): FeedbackSettings {
+    return this.feedbackCurrent;
+  }
+
+  /**
+   * 从功能面板开关「隐私模式」：把它和其他设备本地设置存在一起，然后重建会话，使会话的学习状态和私密标记与之一致，与 Android 的 `restartSessionForPrivacy` 相同（运行中的会话不会自行接受学习开关的变化）。返回隐私模式最终是否开启；保存失败时保持原状。
+   */
+  setPrivacyMode(on: boolean): boolean {
+    const current: FeedbackSettings = this.feedbackCurrent;
+    if (current.incognito === on) {
+      return on;
+    }
+    const next: FeedbackSettings = {
+      sound: current.sound,
+      haptics: current.haptics,
+      strength: current.strength,
+      glideTyping: current.glideTyping,
+      handwritingDelayMs: current.handwritingDelayMs,
+      handwritingStrokeColor: current.handwritingStrokeColor,
+      handwritingStrokeWidth: current.handwritingStrokeWidth,
+      keyPopup: current.keyPopup,
+      swipeSymbols: current.swipeSymbols,
+      swipeSymbolsDirection: current.swipeSymbolsDirection,
+      oneHanded: current.oneHanded,
+      incognito: on
+    };
+    if (!this.saveFeedback(next)) {
+      return current.incognito;
+    }
+    this.followPrivacyMode();
+    return on;
+  }
+
+  /**
+   * 隐私模式与会话构建时不再相符时重建会话。先提交正在进行的组字，与 Android 在重启前先完成组字的做法一样，这样已输入的内容不会因重建而丢失；处于本地模式时留待其结束，由下一次获得焦点时补上。
+   */
+  private followPrivacyMode(): void {
+    if (this.handle === 0 || this.sessionPrivate === this.feedbackCurrent.incognito
+      || this.localMode !== 'none') {
+      return;
+    }
+    if (this.composing()) {
+      this.finishComposition();
+    }
+    this.restartIdleSession('privacy mode');
+  }
+
+  /** 为 `host-api` 把新会话标记为私密（或取消标记），`host-api` 随后不再为它统计候选位置。 */
+  private markPrivateSession(enabled: boolean): void {
+    this.sessionPrivate = enabled;
+    if (!enabled) {
+      return;
+    }
+    const reply: FlagResponse = JSON.parse(client.setPrivateSession(this.handle, true)) as FlagResponse;
+    if (reply.ok !== true) {
+      KeyboardLog.error(`private session refused: ${reply.error}`);
+    }
+  }
+
+  /** 当前获得焦点的编辑框此刻是否允许保留这类记录（`PrivacyGate`）。 */
+  private privacyAllows(record: PrivacyRecord): boolean {
+    return PrivacyGate.allows(record, this.feedbackCurrent.incognito, this.traits.password);
+  }
+
+  /** 「保存」此刻能否把系统剪贴板放进历史：不在隐私模式下，也不在密码框里。历史自身的开关是 `clipboardHistoryAllowed`。 */
+  clipboardCaptureAllowed(): boolean {
+    return this.privacyAllows(PrivacyRecord.CLIPBOARD_HISTORY);
+  }
+
+  /** 读取这台设备的按键反馈等本地设置（共享偏好不携带它们）：文件不存在时为默认值；文件存在但这次读不到（例如设置应用正以写后改名替换它）时返回 `null`，由调用方保留上次读到的值（`KeyboardFeedback.fromRead`）。 */
+  private readFeedback(): FeedbackSettings | null {
+    const path: string = this.feedbackFile();
     try {
-      if (KeyboardSession.safePrivateFile(this.feedbackFile(), KeyboardFeedback.MAX_BYTES) === null) {
-        return KeyboardFeedback.DEFAULTS;
-      }
-      const text: string | null = KeyboardSession.readPrivateText(
-        this.feedbackFile(), KeyboardFeedback.MAX_BYTES);
-      return text === null ? KeyboardFeedback.DEFAULTS : KeyboardFeedback.parse(text);
+      const exists: boolean = fs.accessSync(path);
+      return KeyboardFeedback.fromRead(exists,
+        exists ? KeyboardSession.readPrivateText(path, KeyboardFeedback.MAX_BYTES) : null);
     } catch (error) {
       KeyboardLog.error(`key feedback unreadable: ${describeError(error)}`);
-      return KeyboardFeedback.DEFAULTS;
+      return null;
+    }
+  }
+
+  /** 重新读取设备本地设置并存入会话；这次读不到时保留上次的值，一次读取失败不能把隐私模式当成关闭。 */
+  private refreshFeedback(): void {
+    const fresh: FeedbackSettings | null = this.readFeedback();
+    if (fresh !== null) {
+      this.feedbackCurrent = fresh;
     }
   }
 
@@ -4590,20 +4852,12 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (!KeyboardSession.writePrivateText(path, KeyboardFeedback.serialize(settings))) {
         return false;
       }
-      this.feedbackSettings = settings;
+      this.feedbackCurrent = settings;
       return true;
     } catch (error) {
       KeyboardLog.error(`key feedback not saved: ${describeError(error)}`);
       return false;
     }
-  }
-
-  /** 设置页（另一个进程）写的按键反馈，在下一次聚焦时读进来。 */
-  private reloadFeedback(): void {
-    if (this.stateDirectory.length === 0) {
-      return;
-    }
-    this.feedbackSettings = this.feedback();
   }
 
   /**
@@ -4613,7 +4867,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    * fill the log with the same line at typing speed.
    */
   private tapFeedback(): void {
-    const settings: FeedbackSettings = this.feedbackSettings;
+    const settings: FeedbackSettings = this.feedbackCurrent;
     if (!settings.haptics || this.vibratorFailed) {
       return;
     }
@@ -4727,7 +4981,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   captureClipboardHistory(text: string): ClipboardHistoryMutation {
-    if (!this.clipboardHistoryAllowed()) {
+    if (!this.clipboardHistoryAllowed() || !this.clipboardCaptureAllowed()) {
       return { entries: [], failure: ClipboardFailure.INVALID_FILE };
     }
     try {
@@ -4771,10 +5025,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.attributeGeneration;
   }
 
-  /** Whether the focused editor may see cloud clipboard items: never a password field, nor one whose attributes are still unknown. */
+  /** 当前获得焦点的编辑框能否看到云剪贴板条目：密码框永远不能，属性尚未得知的编辑框也不能，隐私模式开启时一概不能。 */
   cloudClipboardVisible(): boolean {
     return this.inputClient !== undefined
-      && CloudClipboardPolicy.editorAllows(this.editorAttributesKnown, this.traits.password);
+      && CloudClipboardPolicy.editorAllows(this.editorAttributesKnown, this.traits.password)
+      && this.privacyAllows(PrivacyRecord.CLOUD_CLIPBOARD);
   }
 
   /**
@@ -4803,6 +5058,10 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Uploads one local history entry the user chose; nothing reaches the cloud clipboard any other way. */
   async sendToCloudClipboard(text: string): Promise<CloudClipboardSendOutcome> {
+    // 面板只在云端那一半可见时提供「发到云剪贴板」；如果隐私模式在提供之后才开启，这里守住这条线。
+    if (!this.cloudClipboardVisible()) {
+      return CloudClipboardSendOutcome.FAILED;
+    }
     return await this.cloudClipboard().add(text);
   }
 
@@ -5106,6 +5365,93 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
+   * 键盘的常用语（不带编码），按用户排定的顺序，供工具栏的常用语面板使用。
+   *
+   * 文件是偏好目录下的 `CommonPhrases.json`，设置应用在锁下共享它，因此每个操作都在原生工作线程上执行。有史以来第一次加载时按 `CommonPhraseStarters` 的规则决定是否添加初始短语：空文档（没有短语也没有短语包）会逐条加入初始短语，无论哪种情况都会写入标记，这样之后的空列表（用户自己清空的）会保持为空。两次首次加载同时发生也不会重复添加，因为共享层会拒绝重复的文本。
+   *
+   * 列表无法读取时 reject，面板会显示为加载错误，而不是空列表。
+   */
+  async commonPhrases(): Promise<string[]> {
+    const directory: string = this.stateDirectory;
+    if (directory.length === 0) {
+      throw new Error('common phrases unavailable: no session directory');
+    }
+    let document: CommonPhrasesDocument =
+      KeyboardSession.commonPhrasesDocument(await KeyboardSession.commonPhrasesCall(directory, { operation: 'load' }));
+    const marker: string = `${directory}/${CommonPhraseStarters.MARKER_FILE_NAME}`;
+    const marked: boolean = fs.accessSync(marker);
+    if (!marked) {
+      const seeded: string[] = [];
+      if (CommonPhraseStarters.seeds(marked, (document.phrases ?? []).length, (document.packs ?? []).length)) {
+        for (const text of CommonPhraseStarters.TEXTS) {
+          const added: CommonPhrasesReply =
+            await KeyboardSession.commonPhrasesCall(directory, { operation: 'add', text: text });
+          if (added.ok === true && added.value !== undefined && added.value !== null) {
+            document = added.value;
+            seeded.push(text);
+          } else {
+            KeyboardLog.error(`common phrase starter not added: ${added.error ?? 'malformed reply'}`);
+          }
+        }
+      }
+      this.writeCommonPhrasesMarker(marker, seeded);
+    }
+    const texts: string[] = [];
+    for (const phrase of document.phrases ?? []) {
+      if (typeof phrase.text === 'string' && phrase.text.length > 0) {
+        texts.push(phrase.text);
+      }
+    }
+    return texts;
+  }
+
+  /** 在原生工作线程上执行一次加锁的常用语操作；工作线程的 reject 原样传出。 */
+  private static async commonPhrasesCall(directory: string, action: CommonPhrasesAction): Promise<CommonPhrasesReply> {
+    const request: CommonPhrasesRequest = { directory: directory, action: action };
+    const raw: string = await client.commonPhrases(JSON.stringify(request));
+    return JSON.parse(raw) as CommonPhrasesReply;
+  }
+
+  /** 一次加载得到的文档，或带有共享层 `common_phrases_*` 错误码的错误。 */
+  private static commonPhrasesDocument(reply: CommonPhrasesReply): CommonPhrasesDocument {
+    if (reply.ok !== true || reply.value === undefined || reply.value === null
+      || typeof reply.value !== 'object' || (reply.value.phrases !== undefined && !Array.isArray(reply.value.phrases))) {
+      throw new Error(`common phrases refused: ${reply.error ?? 'malformed reply'}`);
+    }
+    return reply.value;
+  }
+
+  /** 记录初始短语已决定。写入失败只记日志：下一次加载会再试，而由于列表此时已不为空（除非用户自己清空），通常不会添加任何内容。 */
+  private writeCommonPhrasesMarker(marker: string, seeded: string[]): void {
+    try {
+      if (!KeyboardSession.safeStateDirectory(this.stateDirectory) || KeyboardSession.isSymbolicLink(marker)) {
+        KeyboardLog.error('common phrases marker not written: unsafe state directory');
+        return;
+      }
+      KeyboardSession.writePrivateText(marker, CommonPhraseStarters.marker(seeded));
+    } catch (error) {
+      KeyboardLog.error(`common phrases marker not written: ${describeError(error)}`);
+    }
+  }
+
+  /**
+   * 把一条常用语放进编辑框：先按原样提交正在进行的组字（`MSIME_COMMIT_RAW`，Android 面板在打开时和选取时都会发送它），再把常用语作为当前方案名下的输入文字插入，与 Android 的 `commitText` 完全一致。内容逐字插入，不做全角或繁体转换，因为它是用户自己存的文本。
+   */
+  commitPhrase(text: string): void {
+    if (text.length === 0) {
+      return;
+    }
+    if (this.composing()) {
+      this.commitRaw();
+    }
+    if (this.inputClient === undefined) {
+      return;
+    }
+    this.insertEditorText(text);
+    this.recordTypingStatistics(text, this.typingSource());
+  }
+
+  /**
    * Applies a set of stored preferences together, to the live session and to disk.
    *
    * All of them at once, not one call each. A scheme, its shuangpin profile and its keyboard layout
@@ -5220,8 +5566,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         snapshot.preferences['clipboard_history']);
       snapshot.revision = expected + 1;
       const document: string = JSON.stringify(snapshot);
-      const applied: PrepareResponse =
-        JSON.parse(client.updatePreferences(this.handle, document)) as PrepareResponse;
+      const applied: PrepareResponse = JSON.parse(client.updatePreferences(this.handle,
+        PrivacyGate.sessionPreferences(snapshot, this.sessionPrivate))) as PrepareResponse;
       if (applied.ok !== true) {
         KeyboardLog.error(`preferences refused: ${applied.error}`);
         return false;
@@ -5559,11 +5905,21 @@ export class KeyboardSession implements HardwareKeyTarget {
    *
    * Returns whether the key was claimed, so the caller knows not to hand it on.
    */
-  /** Opens the settings application: dictionary, quick phrases, cloud and voice providers live there rather than on the keyboard. */
-  openSettings(): void {
-    if (this.onOpenSettings !== undefined) {
-      this.onOpenSettings();
+  /**
+   * 打开设置应用：词库、快捷短语、云端和语音服务都在那里，而不在键盘上。
+   *
+   * `page` 用于直接打开某一页（功能面板的「词库」「反馈」「关于」功能块）：`'dictionary'`、`'feedback'` 或 `'about'`。其他值或不传时打开设置首页，这样设置应用不能路由的页面 id 永远不会发给它。
+   */
+  openSettings(page?: string): void {
+    if (this.onOpenSettings === undefined) {
+      return;
     }
+    const requested: string | undefined =
+      page !== undefined && SettingsPageLink.accepts(page) ? page : undefined;
+    if (page !== undefined && requested === undefined) {
+      KeyboardLog.error(`settings page ${page} is not routed; opening the settings root`);
+    }
+    this.onOpenSettings(requested);
   }
 
   routeVoiceHotkey(key: VoiceKey): boolean {
@@ -5596,6 +5952,12 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     if (!changed) {
       return;
+    }
+    if (active) {
+      this.voiceRecordingStartedMs = Date.now();
+      this.voiceRecordedMs = 0;
+    } else {
+      this.voiceRecordedMs = cancelled ? 0 : Math.max(0, Date.now() - this.voiceRecordingStartedMs);
     }
     // Tones and quiet are display-only work around the recording, never in its way: a failure here
     // is logged inside the behaviour and the recording carries on regardless.
@@ -5632,6 +5994,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Whether the editor forbids sounds: a password field, or one whose attributes have not arrived yet, since `traits` still describes the previous field until they do (as music waits for them). */
   private soundsSilencedByEditor(): boolean {
     return !this.editorAttributesKnown || this.traits.password;
+  }
+
+  /** 按键预览气泡能否显示正在按下的键：在密码框上不能，否则会把每个字符展示给任何看着屏幕的人（Android 的 `ImeLetterRows.showKeyPreview`）；在属性尚未到达的编辑框上也不能，理由与按键音等待属性相同。 */
+  keyPreviewAllowed(): boolean {
+    return !this.soundsSilencedByEditor();
   }
 
   /**
@@ -5705,6 +6072,34 @@ export class KeyboardSession implements HardwareKeyTarget {
     const output: string = this.asTraditional(text);
     this.insertEditorText(output);
     this.recordTypingStatistics(output, source);
+  }
+
+  /**
+   * 识别结果进入编辑框：在打字统计里记为语音输入，并在隐私闸门允许时把这次录音的时长计入「统计」页的语音时长一次（`record_voice`，「语音达人」徽章），与 Android 的 `ImeVoiceEntry` 在提交后的做法相同。
+   */
+  insertVoiceResult(text: string): void {
+    if (this.inputClient === undefined || text.length === 0) return;
+    this.insertWithSource(text, 'voice');
+    const milliseconds: number = Math.min(this.voiceRecordedMs, KeyboardSession.MAX_VOICE_RECORD_MS);
+    this.voiceRecordedMs = 0;
+    if (milliseconds <= 0 || this.stateDirectory.length === 0
+      || !this.privacyAllows(PrivacyRecord.VOICE_DURATION)) return;
+    const requestDocument: TypingStatisticsVoiceRequest = {
+      directory: this.stateDirectory,
+      action: { operation: 'record_voice', day: TypingStatisticsPolicy.day(new Date()), milliseconds: milliseconds }
+    };
+    const request: string = JSON.stringify(requestDocument);
+    // 存储会加文件锁，所以要等插入的内容交给编辑框之后再写入。
+    setTimeout((): void => {
+      try {
+        const response: TypingStatisticsRecordResponse = JSON.parse(client.typingStatistics(request)) as TypingStatisticsRecordResponse;
+        if (response.ok !== true) {
+          KeyboardLog.error('voice duration not recorded');
+        }
+      } catch (error) {
+        KeyboardLog.error(`voice duration unavailable: ${describeError(error)}`);
+      }
+    }, 0);
   }
 
   private typingSource(): string {
@@ -5783,7 +6178,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   private recordTypingStatistics(text: string, source: string): void {
-    if (text.length === 0 || this.stateDirectory.length === 0) return;
+    if (text.length === 0 || this.stateDirectory.length === 0
+      || !this.privacyAllows(PrivacyRecord.TYPING)) return;
     // One Date for both fields: a day and an hour read from separate instants either side of
     // midnight would file the commit under one day and the other day's hour.
     const instant: Date = new Date();

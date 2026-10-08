@@ -28,6 +28,18 @@ export interface OnboardingState {
   readonly ownBundle: string;
 }
 
+/**
+ * 单独的两个设置事实：设置页把它们显示为「启用」和「设为默认」两行，任一变化时也会再告诉设置页。
+ *
+ * 系统问不到时各自为 null，这样页面可以显示「未知」，而不是给出一个笃定的错误答案。
+ */
+export interface SetupState {
+  /** 输入法是否在系统设置里开启。基础模式也算开启。 */
+  readonly enabled: boolean | null;
+  /** 这个键盘是否就是当前正在服务输入的那个。 */
+  readonly current: boolean | null;
+}
+
 export class OnboardingStatePolicy {
   /**
    * Whether setup still has a step left in it.
@@ -38,18 +50,41 @@ export class OnboardingStatePolicy {
    * reachable from the welcome flow but not the other way round.
    */
   static required(state: OnboardingState): boolean {
-    if (state.enabled === null) {
+    return OnboardingStatePolicy.requiredFor(OnboardingStatePolicy.setup(state));
+  }
+
+  /**
+   * 把框架的回答归结为页面显示的两个事实。
+   *
+   * 任一名称读不到时比较就没有意义；而且自己的名称读不到时会与包括自己在内的所有键盘都不相等，所以两者都读作未知，而不是「不是当前」。
+   */
+  static setup(state: OnboardingState): SetupState {
+    const enabled: boolean | null =
+      state.enabled === null ? null : state.enabled !== ImeEnabledState.DISABLED;
+    const current: boolean | null =
+      state.currentBundle.length === 0 || state.ownBundle.length === 0
+        ? null
+        : state.currentBundle === state.ownBundle;
+    const setup: SetupState = { enabled: enabled, current: current };
+    return setup;
+  }
+
+  /**
+   * 只凭这两个事实判断设置是否还剩步骤。
+   *
+   * 未启用时，无论当前键盘读成什么都已经决定。否则任一侧未知都打开设置，理由见 `required`。
+   */
+  static requiredFor(setup: SetupState): boolean {
+    if (setup.enabled === null) {
       return false;
     }
-    if (state.enabled === ImeEnabledState.DISABLED) {
+    if (!setup.enabled) {
       return true;
     }
-    // Either name being unreadable makes the comparison meaningless, and an unreadable own name
-    // would otherwise compare unequal to every keyboard including this one.
-    if (state.currentBundle.length === 0 || state.ownBundle.length === 0) {
+    if (setup.current === null) {
       return false;
     }
-    return state.currentBundle !== state.ownBundle;
+    return !setup.current;
   }
 
   /**

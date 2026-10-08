@@ -18,7 +18,7 @@ import { StagedResources } from '../keyboard/StagedResources';
 import { KeyboardScheme } from '../keyboard/KeyboardScheme';
 import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge';
 import { HarmonyAiSkins } from '../account/HarmonyAiSkins';
-import { utf8Length } from '../keyboard/Utf8';
+import { utf8Length, utf8WriteComplete } from '../keyboard/Utf8';
 import { TextPolicy } from '../keyboard/TextPolicy';
 import { TypingStatisticsPolicy } from '../keyboard/TypingStatisticsPolicy';
 import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto';
@@ -33,8 +33,11 @@ import {
   PickedEntryKind, PluginFolderScan, PluginImportPolicy, PluginImportRefusal
 } from '../keyboard/settings/PluginImportPolicy';
 import EntryAbility from '../entryability/EntryAbility';
-import { ImeEnabledState, OnboardingState, OnboardingStatePolicy }
+import { ImeEnabledState, OnboardingState, OnboardingStatePolicy, SetupState }
   from '../keyboard/input/OnboardingStatePolicy';
+import InputMethodSubtype from '@ohos.InputMethodSubtype';
+import window from '@ohos.window';
+import { AppThemeStore } from '../keyboard/skin/AppThemeStore';
 import { FeedbackSettings } from '../keyboard/KeyboardFeedback';
 import { VoiceCaptureDevice } from '../keyboard/input/VoiceCaptureDevicePolicy';
 import { OsVersionPolicy } from '../keyboard/input/OsVersionPolicy';
@@ -98,6 +101,76 @@ interface OnboardingReply {
   error: string;
 }
 
+/** `setupStatus`：两项设置状态，以及是否已经读到。 */
+interface SetupStatusReply {
+  ok: boolean;
+  ready: boolean;
+  value: SetupState;
+}
+
+/** 一次应用主题请求：`load`、带 id 的 `save`、带页面深色标志的 `resolve`，或 `catalog`。 */
+interface AppThemeAction {
+  operation: string;
+  id?: string;
+  dark?: boolean;
+}
+
+interface AppThemeIdValue {
+  id: string;
+}
+
+interface AppThemeReply {
+  ok: boolean;
+  value?: AppThemeIdValue;
+  error?: string;
+}
+
+/** `msime_client_resolve_app_theme` 读取的请求；`month` 是设备本地日历的月份。 */
+interface AppThemeResolveRequest {
+  app_theme: string;
+  month: number;
+  dark: boolean;
+}
+
+/** 页面给系统栏的颜色，以及页面是否为深色（深色时栏内容转为浅色）。 */
+interface SystemBarsRequest {
+  background: string;
+  navigationBar: string;
+  dark: boolean;
+}
+
+interface FlagReply {
+  ok: boolean;
+  value: boolean;
+}
+
+interface PendingPageReply {
+  ok: boolean;
+  value: string | null;
+}
+
+/** 在这里补上日期的 `summary`，即 `msime_client_typing_statistics` 读取的形式。 */
+interface TypingStatisticsSummaryAction {
+  operation: string;
+  day: string;
+  user_words?: number;
+}
+
+interface TypingStatisticsSkinAction {
+  operation: string;
+  id: string;
+}
+
+interface TypingStatisticsSummaryRequest {
+  directory: string;
+  action: TypingStatisticsSummaryAction;
+}
+
+interface TypingStatisticsSkinRequest {
+  directory: string;
+  action: TypingStatisticsSkinAction;
+}
+
 /** The installed family names, or a refusal the page can report rather than an empty list. */
 interface FontFamilyReply {
   ok: boolean;
@@ -128,6 +201,8 @@ interface VoiceCaptureDeviceReply {
 
 const BRIDGE_NAME: string = 'msimeHarmony';
 const PLATFORM: string = 'harmony';
+/** 欢迎开屏是否已播放过的标记，与应用主题文件同在状态目录。 */
+const SPLASH_SEEN_FILE: string = 'welcome-splash.json';
 /** The settings page and native save bridge hold one complete export in memory. */
 const MAX_DICTIONARY_EXPORT_BYTES: number = 32 * 1024 * 1024;
 
@@ -224,6 +299,10 @@ interface TypingStatisticsAction {
   enabled?: boolean;
   retention?: string;
   day?: string;
+  /** `summary`：用户已添加的词数，供词数徽章使用；页面不知道时省略。 */
+  user_words?: number;
+  /** `record_skin`：刚应用的皮肤，供「换装达人」徽章使用。 */
+  id?: string;
 }
 
 /** One 插件 page request; only the operation is read here, the rest travels to `msime_client_plugins` as the page wrote it. */
@@ -491,20 +570,56 @@ struct Settings {
   private noticeAttached: boolean = false;
   // The notice whose body the card's web view holds, so a refresh that changes nothing does not reload it.
   private noticeShown: string = '';
+  // 让通知卡片不出现在欢迎流程上：读到设置状态之前一直压住，读到之后只要流程还在显示就继续压住。设置步骤上方的卡片会把步骤往下挤，与该屏唯一要用户做的事争夺注意力。
+  @State noticeHeld: boolean = true;
+  // 页面上次要求状态栏采用的颜色，即页面自己的背景（应用主题下为当季背景）；页面提出前为空，此时由资源默认值代替。通知卡片背后的列也用这个颜色，让卡片边距露出的是页面，而不是另一种灰色的色带。
+  @State pageBackground: string = '';
   /** Bumped for every notice fetch and when the page disappears, so late answers cannot repaint it. */
   private noticeRequest: number = 0;
 
   aboutToAppear(): void {
     this.bridge.attach(this.context);
     this.bridge.useWebview(this.controller);
+    this.bridge.onNoticeHold = (held: boolean): void => {
+      this.noticeHeld = held;
+    };
+    this.bridge.onPageBackground = (colour: string): void => {
+      this.pageBackground = colour;
+    };
     // Started here rather than on demand: the page reads the answer synchronously, and the reply
     // carries whether it is ready so the page waits instead of acting on a default.
-    this.bridge.prepareOnboarding();
+    this.bridge.refreshSetupState();
+    this.bridge.watchSetup();
     this.loadNotices();
     EntryAbility.onActivated = (): void => {
       this.bridge.refreshPreferencesIfChanged();
       this.loadNotices();
+      // 从系统的输入法界面返回就是设置状态改变的途径，所以在这里重新读取，与 Android 的 `ImeSetup` 在获得焦点时重新检查一样。
+      this.bridge.refreshSetupState();
+      // 每次返回都重新解析而不是靠定时器：水杉四季跟随月份，跨月一直开着的窗口不应保留上个月的颜色。
+      this.bridge.notifyAppThemeChanged();
     };
+    EntryAbility.onOpenPage = (page: string): void => {
+      this.bridge.openPage(page);
+    };
+  }
+
+  /**
+   * 系统返回手势和返回键先走页面自己的历史。
+   *
+   * 页面为每个子页面和引导步骤压入一条历史记录并监听 `popstate`，所以在 web view 里后退就是回到上一屏。只有无处可退时手势才交给系统，即退出应用。
+   */
+  onBackPress(): boolean {
+    try {
+      if (this.controller.accessBackward()) {
+        this.controller.backward();
+        return true;
+      }
+    } catch (error) {
+      // 控制器挂到 web view 之前会抛异常；这一刻的返回手势交给系统。
+      KeyboardLog.error(`settings history unavailable: ${describeError(error)}`);
+    }
+    return false;
   }
 
   /**
@@ -613,8 +728,8 @@ struct Settings {
         .height(96)
     }
     .padding({ left: 16, right: 8, top: 8, bottom: 8 })
-    .margin({ left: 12, right: 12, top: 8, bottom: 4 })
-    .borderRadius(16)
+    .margin({ left: 16, right: 16, top: 8, bottom: 4 })
+    .borderRadius(20)
     .backgroundColor($r('sys.color.ohos_id_color_card_bg'))
   }
 
@@ -623,17 +738,25 @@ struct Settings {
     // The ability outlives this page, so a handler left behind would hold a bridge whose webview
     // has gone.
     EntryAbility.onActivated = undefined;
+    EntryAbility.onOpenPage = undefined;
+    this.bridge.unwatchSetup();
   }
 
   build() {
     Column() {
-      if (this.notices.length > 0) {
+      if (this.notices.length > 0 && !this.noticeHeld) {
         this.noticeCard()
       }
       Web({ src: $rawfile('settings/index.html'), controller: this.controller })
         .javaScriptAccess(true)
         .domStorageAccess(true)
         .fileAccess(true)
+        // 页面按 `prefers-color-scheme` 自己绘制深色主题。`WebDarkMode.Auto` 把系统的模式传给这个媒体查询；强制深色保持关闭，因为反转一个本就有深色配色的页面会把它反转回浅色。
+        .darkMode(WebDarkMode.Auto)
+        .forceDarkAccess(false)
+        .onPageEnd((event: OnPageEndEvent): void => {
+          this.bridge.pageLoaded();
+        })
         // Registered through the controller rather than the attribute: the attribute form takes an
         // async list but never settles the promises it hands the page, which is worse than the bug
         // it was meant to fix — the page hangs on its startup screen instead of quietly receiving
@@ -648,7 +771,9 @@ struct Settings {
                 'typingStatistics', 'openExternalUrl', 'copyText',
                 'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                 'keyboardFeedback', 'onboardingStatus',
-                'showInputMethodPicker', 'importSkinFolder', 'startRequest', 'plugins'],
+                'showInputMethodPicker', 'importSkinFolder', 'startRequest', 'plugins',
+                'setupStatus', 'appTheme', 'setSystemBars', 'splashSeen', 'markSplashSeen',
+                'onboardingStarted', 'onboardingFinished', 'pendingPage'],
               []);
           } catch (error) {
             KeyboardLog.error(`settings bridge not registered: ${describeError(error)}`);
@@ -659,6 +784,8 @@ struct Settings {
     }
     .width('100%')
     .height('100%')
+    // web view 背后的页面自身背景，让页面绘制前的那段时间和它周围的空隙在深色模式下不会闪白；页面告知它绘制的颜色后就用那个颜色。
+    .backgroundColor(this.pageBackground.length > 0 ? this.pageBackground : $r('app.color.settings_page_background'))
   }
 }
 
@@ -675,6 +802,25 @@ class SettingsBridge {
   private observedRevision: number = -1;
   private onboardingRequired: boolean = false;
   private onboardingReady: boolean = false;
+  // 页面告知欢迎流程结束后置位，之后的设置状态读取不再压住通知卡片。
+  private onboardingDone: boolean = false;
+  // 上次读到的两项设置状态；首次读取完成前都为 null。
+  private setup: SetupState = { enabled: null, current: null } as SetupState;
+  // 设置状态读取的计数，让先开始却后返回的读取不能覆盖更新的结果。
+  private setupReads: number = 0;
+  // 上次写进日志的设置状态原因。
+  private setupDescription: string = '';
+  // 设置文档是否已加载完成，让宿主到页面的调用只发给能接收的页面。在此之前页面会在启动时自己读取所需的一切。
+  private pageReady: boolean = false;
+  // 结构体的通知卡片开关：告知欢迎流程显示期间卡片是否应保持不出现在屏幕上。
+  onNoticeHold: ((held: boolean) => void) | undefined = undefined;
+  // 由页面组件设置：告知网页绘制的背景，即页面随系统栏颜色最后一次发来的值。
+  onPageBackground: ((colour: string) => void) | undefined = undefined;
+  // 系统当前键盘改变时重新读取设置状态；在系统键盘对话框里选择键盘就会这样改变，而窗口始终没有离开前台。
+  private imeChanged: (property: inputMethod.InputMethodProperty, subtype: InputMethodSubtype) => void =
+    (property: inputMethod.InputMethodProperty, subtype: InputMethodSubtype): void => {
+      this.refreshSetupState();
+    };
   // Needed to hand the page a document: the bridge is called from the page, but this one call goes
   // the other way.
   private webview: web_webview.WebviewController | undefined = undefined;
@@ -882,6 +1028,8 @@ class SettingsBridge {
       this.customSkinLibrary(payload).then(deliver).catch(failed);
     } else if (kind === 'vocabulary_review') {
       this.vocabularyReview(payload).then(deliver).catch(failed);
+    } else if (kind === 'typing_statistics') {
+      this.typingStatisticsOnWorker(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary_snapshot') {
       this.cloudDictionarySnapshot(payload).then(deliver).catch(failed);
     } else if (kind === 'ai_models') {
@@ -1681,6 +1829,59 @@ class SettingsBridge {
     }
   }
 
+  /**
+   * 存储真正要干活的统计操作 `summary` 和 `record_skin`，经 `startRequest` 到达并在原生工作线程上运行：两者都要取键盘进程同样会取的文件锁，而 `summary` 从整个文档推导每个时间窗口，所以都不能阻塞这个线程（Android 也在工作线程上运行它们）。
+   */
+  private async typingStatisticsOnWorker(actionDocument: string): Promise<string> {
+    if (actionDocument.length === 0 || actionDocument.length > 4096) {
+      return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
+    }
+    let action: TypingStatisticsAction;
+    try {
+      action = JSON.parse(actionDocument) as TypingStatisticsAction;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
+    }
+    if (action.operation === 'summary') {
+      return await this.typingStatisticsSummary(action);
+    }
+    if (action.operation === 'record_skin') {
+      return await this.recordSkinTried(action);
+    }
+    return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
+  }
+
+  /**
+   * 「统计」页的派生数据：概览、习惯、按键和徽章，新达成的徽章由存储记下。
+   *
+   * 回复是存储自己的 `{ok,value}`，而不是 load 回复的状态包装，因为 summary 是计算出来的，不是从页面要显示其时间的文件里读出来的。日期在这里补上，与 `set_retention` 一样，因为这个进程知道设备的时区。
+   */
+  private async typingStatisticsSummary(action: TypingStatisticsAction): Promise<string> {
+    const words: number | undefined = action.user_words;
+    if (words !== undefined && (typeof words !== 'number' || !Number.isSafeInteger(words) || words < 0)) {
+      return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
+    }
+    const summary: TypingStatisticsSummaryAction = {
+      operation: 'summary', day: TypingStatisticsPolicy.day(new Date())
+    };
+    if (words !== undefined) {
+      summary.user_words = words;
+    }
+    const request: TypingStatisticsSummaryRequest = { directory: this.stateDirectory, action: summary };
+    return await client.typingStatisticsAsync(JSON.stringify(request));
+  }
+
+  /** 记下应用了某个皮肤，供「换装达人」徽章使用。皮肤 id 的形式由存储决定；这里只限制大小。 */
+  private async recordSkinTried(action: TypingStatisticsAction): Promise<string> {
+    const id: string = action.id ?? '';
+    if (typeof id !== 'string' || id.length === 0 || id.length > 128) {
+      return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
+    }
+    const skin: TypingStatisticsSkinAction = { operation: 'record_skin', id: id };
+    const request: TypingStatisticsSkinRequest = { directory: this.stateDirectory, action: skin };
+    return await client.typingStatisticsAsync(JSON.stringify(request));
+  }
+
   async aiModels(requestDocument: string): Promise<string> {
     let request: AiModelsRequest;
     try {
@@ -2320,7 +2521,7 @@ class SettingsBridge {
    * Key sound and haptics, which the keyboard stores beside its own state rather than in the shared
    * preferences: how a key feels belongs to the device being typed on, not to the account.
    *
-   * The settings page is a second writer of the same file the keyboard reads. 键盘每次聚焦编辑框时重读它（`KeyboardSession.reloadChangedPreferences`），所以这里的改动在下一次弹出键盘时生效，不必等输入法进程重启。
+   * The settings page is a second writer of the same file the keyboard reads. 键盘每次聚焦编辑框时重读它（`KeyboardSession.refreshFeedback`），所以这里的改动在下一次弹出键盘时生效，不必等输入法进程重启。
    */
   keyboardFeedback(request: string): string {
     let action: KeyboardFeedbackAction;
@@ -2336,8 +2537,9 @@ class SettingsBridge {
         KeyboardSession.feedbackIn(this.stateDirectory)), error: '' } as KeyboardFeedbackReply);
     }
     if (action.operation === 'save') {
-      const settings: FeedbackSettings =
-        KeyboardFeedbackBridge.fromShared(action.settings ?? null);
+      // 页面没有发送的字段（旧页面没有手写设置）保留已存的值，而不是重置。
+      const settings: FeedbackSettings = KeyboardFeedbackBridge.fromShared(action.settings ?? null,
+        KeyboardSession.feedbackIn(this.stateDirectory));
       if (!KeyboardSession.saveFeedbackIn(this.stateDirectory, settings)) {
         return JSON.stringify({ ok: false, value: KeyboardFeedbackBridge.toShared(
           KeyboardSession.feedbackIn(this.stateDirectory)), error: '按键反馈未能保存' } as KeyboardFeedbackReply);
@@ -2436,8 +2638,65 @@ class SettingsBridge {
     } as OnboardingReply);
   }
 
-  /** Computes the answer the page will read. Called before the page is shown. */
-  async prepareOnboarding(): Promise<void> {
+  /**
+   * 「设置」首页卡片和欢迎流程各步骤显示的两项设置状态，与 `onboardingStatus` 来自同一次读取。
+   *
+   * 同样是同步的，理由也相同：首次读取完成前 `ready` 为 false，页面会等待，而不是把某一步画成未完成。
+   */
+  setupStatus(): string {
+    const reply: SetupStatusReply = { ok: true, ready: this.onboardingReady, value: this.setup };
+    return JSON.stringify(reply);
+  }
+
+  /** 页面的欢迎流程已结束（完成或跳过），通知卡片可以回来。 */
+  onboardingFinished(): void {
+    this.onboardingDone = true;
+    this.onNoticeHold?.(false);
+  }
+
+  /** 页面从设置里重放欢迎流程，流程显示期间重新压住通知卡片；流程结束时页面调用 `onboardingFinished` 让卡片回来。`onboardingDone` 保持不变：它只在首次读到设置状态时被读取，而能重放时首次读取早已完成。 */
+  onboardingStarted(): void {
+    this.onNoticeHold?.(true);
+  }
+
+  /** 重新读取设置状态，并把任何失败记进日志；读取本身已经为每次被拒的系统调用记了日志。 */
+  refreshSetupState(): void {
+    this.readSetupState().catch((error: Object): void => {
+      KeyboardLog.error(`setup state not read: ${describeError(error)}`);
+    });
+  }
+
+  /** 开始监听系统当前键盘的变化；设置页面出现时调用一次，页面离开时由 `unwatchSetup` 撤销。 */
+  watchSetup(): void {
+    try {
+      inputMethod.getSetting().on('imeChange', this.imeChanged);
+    } catch (error) {
+      // 激活时的重新读取仍能捕捉到变化，只是更晚：要等窗口下次回到前台。
+      KeyboardLog.error(`input method changes not observable: ${describeError(error)}`);
+    }
+  }
+
+  unwatchSetup(): void {
+    try {
+      inputMethod.getSetting().off('imeChange', this.imeChanged);
+    } catch (error) {
+      KeyboardLog.error(`input method change listener not removed: ${describeError(error)}`);
+    }
+  }
+
+  /** 设置文档已加载，宿主到页面的通知现在有监听方了。 */
+  pageLoaded(): void {
+    this.pageReady = true;
+  }
+
+  /**
+   * 读取本键盘是否已启用、是否为当前键盘，并在任一项变化时告知页面。
+   *
+   * 在窗口打开时、每次回到前台时、系统当前键盘改变时以及键盘选择器返回后运行，因为每个时刻用户都可能刚在系统界面里完成了一步设置。首次结果还决定窗口是否以欢迎流程打开，以及通知卡片是否保持不出现在流程上。
+   */
+  async readSetupState(): Promise<void> {
+    this.setupReads += 1;
+    const read: number = this.setupReads;
     let enabled: ImeEnabledState | null = null;
     try {
       const state: inputMethod.EnabledState =
@@ -2461,12 +2720,46 @@ class SettingsBridge {
     } catch (error) {
       KeyboardLog.error(`own bundle name unavailable: ${describeError(error)}`);
     }
+    if (read !== this.setupReads) {
+      // 这次读取等待系统期间又开始了一次更晚的读取，那次的结果更新。
+      return;
+    }
     const state: OnboardingState = {
       enabled: enabled, currentBundle: current, ownBundle: own
     };
-    KeyboardLog.info(`onboarding: ${OnboardingStatePolicy.describe(state)}`);
+    const description: string = OnboardingStatePolicy.describe(state);
+    if (description !== this.setupDescription) {
+      // 只在变化时记日志，而不是每次激活都记，这样日志反映的是设置状态变化的时刻。
+      KeyboardLog.info(`onboarding: ${description}`);
+      this.setupDescription = description;
+    }
+    const setup: SetupState = OnboardingStatePolicy.setup(state);
+    const changed: boolean = setup.enabled !== this.setup.enabled || setup.current !== this.setup.current;
+    const first: boolean = !this.onboardingReady;
+    this.setup = setup;
     this.onboardingRequired = OnboardingStatePolicy.required(state);
     this.onboardingReady = true;
+    if (first) {
+      this.onNoticeHold?.(this.onboardingRequired && !this.onboardingDone);
+    }
+    // 首次结果也推送，不只是之后的变化：页面会轮询几秒然后停止，比这慢的首次读取否则永远到不了页面。文档加载前 `runPageScript` 会跳过它，由页面在启动时自己读取结果。
+    if (first || changed) {
+      this.runPageScript(
+        `globalThis.msimeHarmonySetupChanged && globalThis.msimeHarmonySetupChanged(${JSON.stringify(setup)})`,
+        'setup change');
+    }
+  }
+
+  /**
+   * 调用页面挂在 `globalThis` 上的某个监听函数。文档加载前跳过：页面在启动时会自己读取同样的状态，而对尚未就绪的页面发起的调用本来也会丢失。
+   */
+  private runPageScript(script: string, what: string): void {
+    if (this.webview === undefined || !this.pageReady) {
+      return;
+    }
+    this.webview.runJavaScript(script).catch((error: Object): void => {
+      KeyboardLog.error(`${what} not delivered: ${describeError(error)}`);
+    });
   }
 
   /**
@@ -2485,10 +2778,228 @@ class SettingsBridge {
    * returned for the same reason.
    */
   showInputMethodPicker(): string {
-    inputMethod.getSetting().showOptionalInputMethods().catch((error: Object): void => {
+    // 选择器是覆盖在本窗口上的对话框，所以窗口可能始终不离开前台，激活时的重新读取不会运行。在选择器返回时以及系统键盘变化事件上重新读取，「设为默认」这一步才能往前推进。
+    inputMethod.getSetting().showOptionalInputMethods().then((shown: boolean): void => {
+      this.refreshSetupState();
+    }).catch((error: Object): void => {
       KeyboardLog.error(`keyboard picker would not open: ${describeError(error)}`);
     });
     return JSON.stringify({ ok: true, value: true, ready: true, error: '' } as OnboardingReply);
+  }
+
+  /**
+   * 应用主题（水杉四季和四个季节），为本宿主自己的页面着色，并给键盘的「跟随系统」皮肤加色调。
+   *
+   * `load` 和 `save` 读写状态目录里的设备本地选择，键盘也读这个文件；`resolve` 把存储的选择转成本月的颜色以及页面的浅色或深色模式；`catalog` 列出可选项。两个原生回复原样返回，页面读到的结构与每个宿主一致。
+   */
+  appTheme(request: string): string {
+    const refused: string = JSON.stringify({ ok: false, error: 'invalid app theme request' } as AppThemeReply);
+    if (request.length === 0 || request.length > 4096) {
+      return refused;
+    }
+    let action: AppThemeAction;
+    try {
+      action = JSON.parse(request) as AppThemeAction;
+    } catch {
+      return refused;
+    }
+    if (action === null || typeof action !== 'object') {
+      return refused;
+    }
+    if (action.operation === 'load') {
+      const value: AppThemeIdValue = { id: this.storedAppTheme() };
+      return JSON.stringify({ ok: true, value: value } as AppThemeReply);
+    }
+    if (action.operation === 'save') {
+      const id: string = action.id ?? '';
+      if (typeof id !== 'string' || !AppThemeStore.isId(id)) {
+        return refused;
+      }
+      if (!this.writeStateFile(AppThemeStore.FILE_NAME, AppThemeStore.serialize(id))) {
+        return JSON.stringify({ ok: false, error: 'app_theme_storage' } as AppThemeReply);
+      }
+      const value: AppThemeIdValue = { id: id };
+      return JSON.stringify({ ok: true, value: value } as AppThemeReply);
+    }
+    if (action.operation === 'resolve') {
+      if (typeof action.dark !== 'boolean') {
+        return refused;
+      }
+      // 月份取设备本地的：水杉四季按用户的日历换季，而不是按 UTC。
+      const resolve: AppThemeResolveRequest = {
+        app_theme: this.storedAppTheme(), month: new Date().getMonth() + 1, dark: action.dark
+      };
+      return client.resolveAppTheme(JSON.stringify(resolve));
+    }
+    if (action.operation === 'catalog') {
+      return client.appThemeCatalog();
+    }
+    return refused;
+  }
+
+  /** 请页面重新解析应用主题，窗口在后台期间可能已经跨月。 */
+  notifyAppThemeChanged(): void {
+    this.runPageScript('globalThis.msimeHarmonyAppThemeChanged && globalThis.msimeHarmonyAppThemeChanged()',
+      'app theme change');
+  }
+
+  /** 存储的应用主题 id；文件缺失或无法读取时为默认值，规则同 `AppThemeStore.parse`。 */
+  private storedAppTheme(): string {
+    return AppThemeStore.parse(this.readStateFile(AppThemeStore.FILE_NAME, AppThemeStore.MAX_BYTES));
+  }
+
+  /**
+   * 给状态栏和导航栏着色以匹配页面，这只有宿主能做到。
+   *
+   * 页面发来背景色以及是否为深色，让栏上的图标和文字在其上保持可读。被拒时记日志，其他方面忽略：系统栏保留系统的颜色，只是外观差异，不是值得报告给页面的失败。
+   */
+  setSystemBars(document: string): void {
+    let bars: SystemBarsRequest;
+    try {
+      bars = JSON.parse(document) as SystemBarsRequest;
+    } catch {
+      KeyboardLog.error('system bar colours refused: unreadable request');
+      return;
+    }
+    const colour: RegExp = /^#[0-9A-Fa-f]{6}$/;
+    if (bars === null || typeof bars !== 'object' || typeof bars.background !== 'string'
+      || typeof bars.navigationBar !== 'string' || typeof bars.dark !== 'boolean'
+      || !colour.test(bars.background) || !colour.test(bars.navigationBar)) {
+      KeyboardLog.error('system bar colours refused: invalid request');
+      return;
+    }
+    this.onPageBackground?.(bars.background);
+    if (this.context === undefined) {
+      return;
+    }
+    const content: string = bars.dark ? '#FFFFFF' : '#000000';
+    const properties: window.SystemBarProperties = {
+      statusBarColor: bars.background,
+      statusBarContentColor: content,
+      navigationBarColor: bars.navigationBar,
+      navigationBarContentColor: content
+    };
+    window.getLastWindow(this.context).then((main: window.Window): Promise<void> =>
+      main.setWindowSystemBarProperties(properties)
+    ).catch((error: Object): void => {
+      KeyboardLog.error(`system bar colours not applied: ${describeError(error)}`);
+    });
+  }
+
+  /** 欢迎开屏是否已在本设备上显示过，让它只播放一次，而不是每次首次运行流程都播放。 */
+  splashSeen(): string {
+    const reply: FlagReply = { ok: true, value: this.readStateFile(SPLASH_SEEN_FILE, 64) !== null };
+    return JSON.stringify(reply);
+  }
+
+  /**
+   * 记下开屏已播放。存放在宿主文件里而不是页面的 `localStorage`，因为从应用资源加载的页面不保证保留它。
+   */
+  markSplashSeen(): void {
+    if (!this.writeStateFile(SPLASH_SEEN_FILE, '{"seen":true}')) {
+      KeyboardLog.error('splash flag not saved');
+    }
+  }
+
+  /** 设置页面加载完成前键盘请求打开的页面，只交出一次：第二次读取返回 null。 */
+  pendingPage(): string {
+    const page: string | null = EntryAbility.pendingPage;
+    EntryAbility.pendingPage = null;
+    const reply: PendingPageReply = { ok: true, value: page };
+    return JSON.stringify(reply);
+  }
+
+  /**
+   * 在本窗口已显示时打开键盘请求的页面。
+   *
+   * 页面还在加载、尚无监听函数时，请求保留为待处理，让页面启动时的读取能找到它，而不是丢失。
+   */
+  openPage(page: string): void {
+    if (this.webview === undefined || !this.pageReady) {
+      EntryAbility.pendingPage = page;
+      return;
+    }
+    const script: string = `globalThis.msimeHarmonyOpenPage ? (globalThis.msimeHarmonyOpenPage(${JSON.stringify(page)}), true) : false`;
+    this.webview.runJavaScript(script).then((result: string): void => {
+      if (result !== 'true') {
+        EntryAbility.pendingPage = page;
+      }
+    }).catch((error: Object): void => {
+      EntryAbility.pendingPage = page;
+      KeyboardLog.error(`linked page not opened: ${describeError(error)}`);
+    });
+  }
+
+  /**
+   * 状态目录里的一个设备本地小文件；缺失、过大或不是普通文件时为 null。占据其位置的链接会被拒绝而不是跟随，与键盘对待它自己在那里的文件一样。
+   *
+   * 打开后在文件描述符上再核对一次类型、大小和 inode，并从这个描述符读取，这样检查和读取之间被换掉的文件不会被读进来，与键盘的 `readPrivateText` 相同。
+   */
+  private readStateFile(name: string, maximumBytes: number): string | null {
+    const path: string = `${this.stateDirectory}/${name}`;
+    let handle: fs.File | null = null;
+    try {
+      if (!this.safeDirectory(this.stateDirectory)) {
+        return null;
+      }
+      const expected: fs.Stat = fs.lstatSync(path);
+      if (expected.isSymbolicLink() || !expected.isFile() || expected.size > maximumBytes) {
+        return null;
+      }
+      handle = fs.openSync(path, fs.OpenMode.READ_ONLY);
+      const stat: fs.Stat = fs.statSync(handle.fd);
+      if (!stat.isFile() || stat.size > maximumBytes || stat.ino !== expected.ino) {
+        return null;
+      }
+      const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
+      const count: number = fs.readSync(handle.fd, buffer);
+      if (count !== stat.size) {
+        return null;
+      }
+      return util.TextDecoder.create('utf-8').decode(new Uint8Array(buffer, 0, count));
+    } catch {
+      // 从未写过的文件是常见情况，不是错误。
+      return null;
+    } finally {
+      if (handle !== null) {
+        fs.closeSync(handle);
+      }
+    }
+  }
+
+  /**
+   * 替换状态目录里的一个设备本地小文件。先写在旁边再重命名覆盖，这样在自己进程里读同一批文件的键盘永远不会看到写了一半的文档。
+   */
+  private writeStateFile(name: string, contents: string): boolean {
+    const path: string = `${this.stateDirectory}/${name}`;
+    const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
+    try {
+      if (!fs.accessSync(this.stateDirectory)) {
+        fs.mkdirSync(this.stateDirectory, true);
+      }
+      if (!this.safeDirectory(this.stateDirectory) || this.symbolicLink(path)) {
+        return false;
+      }
+      const file: fs.File = fs.openSync(staging, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      try {
+        const written: number = fs.writeSync(file.fd, contents);
+        if (!utf8WriteComplete(contents, written)) throw new Error('state_write');
+      } finally {
+        fs.closeSync(file);
+      }
+      fs.renameSync(staging, path);
+      return true;
+    } catch (error) {
+      KeyboardLog.error(`${name} not saved: ${describeError(error)}`);
+      try {
+        if (fs.accessSync(staging)) {
+          fs.unlinkSync(staging);
+        }
+      } catch {
+        // 要紧的是上面的失败；残留的暂存文件用的名字没有任何地方会读。
+      }
+      return false;
+    }
   }
 
 

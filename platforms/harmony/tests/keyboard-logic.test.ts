@@ -23,10 +23,7 @@ import {
 import { CaptureGeneration } from "../entry/src/main/ets/keyboard/input/CaptureGeneration";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import { NativeReplyPolicy } from "../entry/src/main/ets/keyboard/NativeReplyPolicy";
-import {
-  KeyboardLayoutDragAxis,
-  KeyboardLayoutDragPolicy,
-} from "../entry/src/main/ets/keyboard/input/KeyboardLayoutDragPolicy";
+import { KeyboardLayoutDragPolicy } from "../entry/src/main/ets/keyboard/input/KeyboardLayoutDragPolicy";
 import {
   ClipboardHistoryStore,
   ClipboardHistoryItem,
@@ -70,6 +67,22 @@ import {
   NineKeyPanelMode,
   NineKeyPanelPolicy,
 } from "../entry/src/main/ets/keyboard/input/NineKeyPanelPolicy";
+import {
+  LayerCharacterRoute,
+  LayerKey,
+  LayerKeyKind,
+  NumberSymbolLayout,
+} from "../entry/src/main/ets/keyboard/input/NumberSymbolLayout";
+import { LetterHintTable } from "../entry/src/main/ets/keyboard/input/LetterHintTable";
+import {
+  SwipeHintPolicy,
+  SwipeSymbolsDirection,
+} from "../entry/src/main/ets/keyboard/input/SwipeHintPolicy";
+import {
+  HintKeyRect,
+  LetterHintGesture,
+} from "../entry/src/main/ets/keyboard/input/LetterHintGesture";
+import { KeyPreviewLayout } from "../entry/src/main/ets/keyboard/KeyPreviewLayout";
 import {
   JapaneseNineKeyLayout,
   JapaneseKey,
@@ -164,7 +177,12 @@ import {
   KeyboardFeedbackBridge,
   MobileKeyboardFeedback,
 } from "../entry/src/main/ets/keyboard/KeyboardFeedbackBridge";
-import { HapticStrength, KeyboardFeedback } from "../entry/src/main/ets/keyboard/KeyboardFeedback";
+import {
+  HANDWRITING_STROKE_COLORS,
+  HandwritingStrokeColor,
+  HapticStrength,
+  KeyboardFeedback,
+} from "../entry/src/main/ets/keyboard/KeyboardFeedback";
 import {
   GlideArming,
   GlideKeyRect,
@@ -191,6 +209,19 @@ import { EditorPolicy, EditorTraits } from "../entry/src/main/ets/keyboard/input
 import { EditEchoLedger } from "../entry/src/main/ets/keyboard/input/EditEchoLedger";
 import { KeyboardSkin } from "../entry/src/main/ets/keyboard/skin/KeyboardSkin";
 import { GlobalTheme, KeyboardThemePalette } from "../entry/src/main/ets/keyboard/skin/GlobalTheme";
+import { AppThemePalette, AppThemeSeed } from "../entry/src/main/ets/keyboard/skin/AppThemePalette";
+import { AppThemeStore } from "../entry/src/main/ets/keyboard/skin/AppThemeStore";
+import {
+  FunctionPanelItem,
+  FunctionPanelPolicy,
+} from "../entry/src/main/ets/keyboard/FunctionPanelPolicy";
+import { KeyboardIconPaths } from "../entry/src/main/ets/keyboard/KeyboardIconPaths";
+import { OneHandedMode, OneHandedPolicy } from "../entry/src/main/ets/keyboard/OneHandedPolicy";
+import {
+  PreferenceDocument,
+  PrivacyGate,
+  PrivacyRecord,
+} from "../entry/src/main/ets/keyboard/PrivacyGate";
 import { ToolbarSkinPolicy } from "../entry/src/main/ets/keyboard/ToolbarSkinPolicy";
 import {
   CustomKeyboardSkin,
@@ -306,6 +337,8 @@ import { OnlineCandidatePolicy } from "../entry/src/main/ets/keyboard/candidate/
 import { utf8WriteComplete } from "../entry/src/main/ets/keyboard/Utf8";
 import {
   MAX_SESSION_BYTES,
+  anonymousSessionForBridge,
+  anonymousSessionForStorage,
   sessionFitsStorage,
   sessionWriteComplete,
 } from "../entry/src/main/ets/account/AccountSessionPolicy";
@@ -583,6 +616,7 @@ group("names keys with the shared key heatmap ids and nothing else", () => {
   }
 
   const cells: NineKey[] = NineKeyLayout.rows()
+    .concat(NineKeyLayout.touchRows())
     .concat(NineKeyLayout.digits())
     .reduce((all: NineKey[], row: NineKey[]) => all.concat(row), []);
   for (const cell of cells) {
@@ -590,6 +624,10 @@ group("names keys with the shared key heatmap ids and nothing else", () => {
     check(id !== null && knownKeyId(id), `nine-key cell ${cell.label} is counted`);
   }
   check(KeyIdPolicy.nineKey("'") === "Nine1", "the separator cell is the cell printed 1");
+  check(
+    KeyIdPolicy.nineKey("@") === "Nine1",
+    "the touch grid's @# is the cell printed 1, as on Android",
+  );
   check(
     KeyIdPolicy.nineKey("1") === "Nine1" && KeyIdPolicy.nineKey("0") === "Nine0",
     "digit cells are named by their digit",
@@ -843,6 +881,112 @@ group("private text writes require every UTF-8 byte", () => {
   check(!utf8WriteComplete("synthetic", 8), "a short private text write is refused");
   check(utf8WriteComplete("你", 3), "a multibyte private text write uses UTF-8 bytes");
   check(!utf8WriteComplete("你", 2), "a short multibyte private text write is refused");
+});
+
+group("the native anonymous session converts to the bridge's document and back", () => {
+  const user = { id: "anon-1", display_name: "", created_at: "2026-01-01" };
+  const native = JSON.stringify({
+    tokens: {
+      access_token: "a".repeat(64),
+      refresh_token: "b".repeat(64),
+      token_type: "Bearer",
+      expires_in: 3600,
+      user,
+    },
+    expires_at_unix_ms: 1_800_000_000_000,
+  });
+  const flat = anonymousSessionForBridge(native);
+  check(flat !== null, "the native layout is read");
+  const session = JSON.parse(flat as string) as Record<string, unknown>;
+  check(
+    session.access_token === "a".repeat(64) &&
+      session.refresh_token === "b".repeat(64) &&
+      session.token_type === "Bearer" &&
+      session.expires_at === 1_800_000_000_000 &&
+      (session.user as { id: string }).id === "anon-1",
+    "into the flat document the bridge keeps",
+  );
+  const written = anonymousSessionForStorage(flat as string, 1_800_000_000_000 - 120_000);
+  check(written !== null, "a bridge session is written back");
+  const back = JSON.parse(written as string) as {
+    tokens: Record<string, unknown>;
+    expires_at_unix_ms: number;
+  };
+  check(
+    back.expires_at_unix_ms === 1_800_000_000_000 && back.tokens.expires_in === 120,
+    "in the native layout, with what is left of the session as expires_in",
+  );
+  check(
+    anonymousSessionForStorage(flat as string, 1_900_000_000_000) !== null &&
+      JSON.parse(anonymousSessionForStorage(flat as string, 1_900_000_000_000) as string).tokens
+        .expires_in === 1,
+    "an expired session is written with the one second the native reader accepts, not a negative or zero expires_in",
+  );
+  check(anonymousSessionForBridge("not json") === null, "a corrupt file reads as no session");
+  check(
+    anonymousSessionForBridge(JSON.stringify({ tokens: {}, expires_at_unix_ms: 1.5 })) === null,
+    "a fractional expiry reads as no session",
+  );
+  check(anonymousSessionForBridge("[]") === null, "an array reads as no session");
+  check(anonymousSessionForStorage("{}", 0) === null, "a document with no session is not written");
+});
+
+group("in-app feedback falls back to the anonymous account when nobody is signed in", () => {
+  const anonymousSession = (accessToken: string, expiresAt: number): string =>
+    JSON.stringify({
+      access_token: accessToken,
+      refresh_token: "e".repeat(64),
+      token_type: "Bearer",
+      expires_at: expiresAt,
+      user: { id: "anon-1", display_name: "", created_at: "2026-01-01" },
+    });
+  const tokens: (string | undefined)[] = [];
+  const transport: AccountTransport = {
+    request: async (_method, path, token) => {
+      if (path === "/v1/feedback") tokens.push(token);
+      return { status: 201, body: "{}" };
+    },
+  };
+  const empty: AccountSessionStore = { load: () => null, save: () => {}, clear: () => {} };
+  let anonymousSaved: string | null = null;
+  const anonymous: AccountSessionStore = {
+    load: () => anonymousSaved,
+    save: (value) => {
+      anonymousSaved = value;
+    },
+    clear: () => {
+      anonymousSaved = null;
+    },
+  };
+  const report = JSON.stringify({
+    operation: "feedback",
+    type: "bug",
+    text: "候选栏不见了",
+    app_version: "1.0.0",
+    edition: "",
+    diagnostics: null,
+  });
+  void (async () => {
+    const signedOutOnly = new AccountCloudBridge(transport, empty);
+    let result = JSON.parse(await signedOutOnly.handle(report)) as { ok: boolean; error?: string };
+    check(
+      result.error === "account_unauthorized" && tokens.length === 0,
+      "a host with no anonymous account still needs a signed-in one",
+    );
+    const bridge = new AccountCloudBridge(transport, empty, anonymous);
+    result = JSON.parse(await bridge.handle(report)) as { ok: boolean; error?: string };
+    check(
+      result.error === "account_unauthorized" && tokens.length === 0,
+      "before the anonymous account is registered nothing is sent",
+    );
+    // 注册发生在桥接创建之后，与首次启动时相同。
+    anonymousSaved = anonymousSession("c".repeat(64), Date.now() + 3_600_000);
+    result = JSON.parse(await bridge.handle(report)) as { ok: boolean; error?: string };
+    check(
+      result.ok === true && tokens[tokens.length - 1] === "c".repeat(64),
+      "once it is, the report goes out under the anonymous session",
+    );
+  })();
 });
 
 group("AI 候选逐条跳过无效结构，保留相邻的有效候选", () => {
@@ -1504,33 +1648,6 @@ group("a key says what it does, not what it draws", () => {
   check(KeyAccessibilityPolicy.delete() === "删除", "the delete glyph gets a word");
   check(KeyAccessibilityPolicy.language() === "切换中英文", "the language key names the action");
   check(
-    KeyAccessibilityPolicy.languageState(false) === "切换中英文，当前中文" &&
-      KeyAccessibilityPolicy.languageState(true) === "切换中英文，当前英文",
-    "a pill or tile that draws the language says which one is on",
-  );
-  check(
-    KeyAccessibilityPolicy.punctuationState(true) !==
-      KeyAccessibilityPolicy.punctuationState(false),
-    "the punctuation pill says which punctuation is in force",
-  );
-  check(
-    KeyAccessibilityPolicy.tile("中文标点", undefined, true, true) === "中文标点，已开启" &&
-      KeyAccessibilityPolicy.tile("中文标点", undefined, false, true) === "中文标点，已关闭",
-    "a switch tile reads its state",
-  );
-  check(
-    KeyAccessibilityPolicy.tile(KeyAccessibilityPolicy.translations(), undefined, true, true) ===
-      "显示译文，已开启" &&
-      KeyAccessibilityPolicy.tile(KeyAccessibilityPolicy.translations(), undefined, false, true) ===
-        "显示译文，已关闭",
-    "the 译 pill, which draws only a glyph, reads the switch's name and state",
-  );
-  check(
-    KeyAccessibilityPolicy.tile("主题 · 水杉", KeyAccessibilityPolicy.theme(), false, false) ===
-      "选择主题",
-    "a tile with a label reads the label, not the drawn title",
-  );
-  check(
     KeyAccessibilityPolicy.layoutToggle(false) === "切换到数字和符号",
     "the layout toggle names where it goes",
   );
@@ -1552,14 +1669,14 @@ group("every tool in the shortcut bar has a name", () => {
     KeyAccessibilityPolicy.emoji(),
     KeyAccessibilityPolicy.voice(),
     KeyAccessibilityPolicy.reply(),
-    KeyAccessibilityPolicy.theme(),
+    KeyAccessibilityPolicy.phrase(),
+    KeyAccessibilityPolicy.clipboard(),
+    KeyAccessibilityPolicy.skin(),
     KeyAccessibilityPolicy.scheme(),
-    KeyAccessibilityPolicy.geometry(),
     KeyAccessibilityPolicy.dismiss(),
-    KeyAccessibilityPolicy.punctuationWidth(),
     KeyAccessibilityPolicy.settings(),
   ];
-  check(names.length === 10, "all ten possible buttons have names");
+  check(names.length === 10, "all ten toolbar buttons and spoken panel actions have names");
   for (const name of names) {
     check(name.trim().length > 0, "no button is left nameless");
     check(
@@ -1756,11 +1873,6 @@ group("invalid geometry is rejected rather than silently clamped", () => {
 });
 
 group("display strings match the Java formatting", () => {
-  check(KeyboardGeometry.display(60) === "6.0", "tenths render with one decimal");
-  check(KeyboardGeometry.display(35) === "3.5", "tenths render the fraction");
-  check(KeyboardGeometry.displayHeight(5) === "+5", "a positive adjustment carries a sign");
-  check(KeyboardGeometry.displayHeight(-5) === "-5", "a negative adjustment keeps its own sign");
-  check(KeyboardGeometry.displayHeight(0) === "0", "zero carries no sign");
   check(KeyboardGeometry.halfGapPixels(60, 3) === 9, "half gap rounds to whole pixels");
   check(KeyboardGeometry.halfGapPixels(60, 0) === 0, "a non-positive density yields no gap");
   check(KeyboardGeometry.halfGapPixels(60, Number.NaN) === 0, "a non-finite density yields no gap");
@@ -1836,27 +1948,7 @@ group("a key's touch region reaches into half of each gap and no further", () =>
   );
 });
 
-group("layout adjustment follows the first drag axis", () => {
-  check(
-    KeyboardLayoutDragPolicy.axis(20, 5) === KeyboardLayoutDragAxis.KEY_SPACING,
-    "a mostly horizontal drag adjusts key spacing",
-  );
-  check(
-    KeyboardLayoutDragPolicy.axis(5, 20) === KeyboardLayoutDragAxis.ROW_SPACING,
-    "a mostly vertical drag adjusts row spacing",
-  );
-  check(
-    KeyboardLayoutDragPolicy.axis(10, 10) === KeyboardLayoutDragAxis.ROW_SPACING,
-    "a diagonal tie follows the source's vertical preference",
-  );
-  check(
-    KeyboardLayoutDragPolicy.keySpacing(40, 18) === 50,
-    "eighteen vp moves key spacing by one visible point",
-  );
-  check(
-    KeyboardLayoutDragPolicy.rowSpacing(60, -18) === 50,
-    "row spacing uses the same scaled gesture",
-  );
+group("the height bar's drag resizes one vp for one vp", () => {
   check(
     KeyboardLayoutDragPolicy.height(0, -12) === 12,
     "dragging the top edge upward increases keyboard height one-for-one",
@@ -1864,6 +1956,11 @@ group("layout adjustment follows the first drag axis", () => {
   check(
     KeyboardLayoutDragPolicy.height(48, -100) === KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_VP,
     "height remains inside the shared preference bounds",
+  );
+  check(
+    KeyboardLayoutDragPolicy.height(10, 0.4) === 10 &&
+      KeyboardLayoutDragPolicy.height(10, -0.6) === 11,
+    "the total travel is rounded once, so slow drags add up rather than rounding away",
   );
 });
 
@@ -2430,6 +2527,285 @@ group("a long press exposes the literal digit and letters", () => {
   check(
     NineKeyLayout.holdOptions(NineKeyLayout.digits()[0][1]).length === 0,
     "the digit face does not duplicate its own tap",
+  );
+});
+
+group(
+  "the touch grid follows the design: @# first, the separator and the marks in the side columns",
+  () => {
+    const rows: NineKey[][] = NineKeyLayout.touchRows();
+    check(
+      rows.length === 3 && rows.every((row: NineKey[]) => row.length === 3),
+      "still three by three",
+    );
+    check(rows[0][0].label === "@#", "the first cell reads @#");
+    check(NineKeyLayout.opensSymbols(rows[0][0]), "and opens the symbol panel instead of spelling");
+    check(
+      rows.flat().filter((key: NineKey) => NineKeyLayout.opensSymbols(key)).length === 1,
+      "no other cell opens the panel",
+    );
+    check(
+      rows
+        .flat()
+        .slice(1)
+        .map((key: NineKey) => key.input)
+        .join("") === "23456789",
+      "the eight letter cells send 2 through 9 as on the 2in1 grid",
+    );
+    check(
+      NineKeyLayout.rows()[0][0].input === "'" && NineKeyLayout.separator().input === "'",
+      "the 2in1 grid keeps the separator in its first cell, and the touch grid reaches it as separator()",
+    );
+    check(!NineKeyLayout.opensSymbols(NineKeyLayout.separator()), "the separator spells");
+    check(
+      NineKeyLayout.sideMarks().concat([NineKeyLayout.closingMark()]).join("") ===
+        NineKeyLayout.punctuation().join(""),
+      "the left column's , . ? and the right column's ! are the four marks the rail carried",
+    );
+    check(NineKeyLayout.sideMarks().length === rows.length, "one mark beside each grid row");
+  },
+);
+
+group("only a cell that spells a digit prints it in its corner", () => {
+  const rows: NineKey[][] = NineKeyLayout.touchRows();
+  check(NineKeyLayout.digitHint(rows[0][1]) === "2", "ABC prints 2");
+  check(NineKeyLayout.digitHint(rows[2][2]) === "9", "WXYZ prints 9");
+  check(
+    NineKeyLayout.digitHint(rows[0][0]) === "",
+    "@# sends no digit, so prints none (Android leaves it bare)",
+  );
+  check(NineKeyLayout.digitHint(NineKeyLayout.separator()) === "", "the separator prints none");
+  check(
+    NineKeyLayout.digitHint(NineKeyLayout.digits()[0][1]) === "",
+    "a digit cell is its digit already",
+  );
+});
+
+console.log("NumberSymbolLayout");
+
+function texts(row: LayerKey[]): string {
+  return row.map((key: LayerKey) => key.text).join(" ");
+}
+
+function rowWeight(row: LayerKey[]): number {
+  return row.reduce((sum: number, key: LayerKey) => sum + key.weight, 0);
+}
+
+group("the 123 layer carries Android's rows in both languages", () => {
+  const chinese: LayerKey[][] = NumberSymbolLayout.numberLayer(true);
+  check(chinese.length === 4, "four rows, the bottom one its own");
+  check(texts(chinese[0]) === "1 2 3 4 5 6 7 8 9 0", "the digits across the top");
+  check(texts(chinese[1]) === "- / ： ； （ ） ¥ @ “ ”", "the Chinese second row");
+  check(texts(chinese[2]) === "#+= 。 ， 、 ？ ！ ⌫", "#+=, the five Chinese marks and Delete");
+  check(texts(chinese[3]) === "拼音 😀 空格 换行", "拼音 back, emoji, space and Return");
+  const english: LayerKey[][] = NumberSymbolLayout.numberLayer(false);
+  check(texts(english[1]) === "- / : ; ( ) $ @ \" '", "the English second row");
+  check(texts(english[2]) === "#+= . , ? ! … ⌫", "the English marks");
+  check(english[3][0].text === "ABC", "ABC back in English");
+  check(
+    chinese[2][0].kind === LayerKeyKind.LAYER_TOGGLE && chinese[2][6].kind === LayerKeyKind.DELETE,
+    "the third row ends in the toggle and Delete",
+  );
+  check(
+    chinese[3].map((key: LayerKey) => key.kind).join(",") ===
+      [LayerKeyKind.LETTERS, LayerKeyKind.EMOJI, LayerKeyKind.SPACE, LayerKeyKind.RETURN].join(","),
+    "the bottom row's kinds",
+  );
+});
+
+group("the #+= layer swaps the first two rows, its toggle and the emoji key", () => {
+  const chinese: LayerKey[][] = NumberSymbolLayout.moreSymbolLayer(true);
+  check(texts(chinese[0]) === "[ ] { } # % ^ * + =", "brackets and operators across the top");
+  check(texts(chinese[1]) === "_ \\ | ~ 《 》 € & · …", "the Chinese second row");
+  check(
+    texts(NumberSymbolLayout.moreSymbolLayer(false)[1]) === "_ \\ | ~ < > € & · £",
+    "the English second row",
+  );
+  check(
+    chinese[2][0].text === "123" && chinese[2][0].kind === LayerKeyKind.LAYER_TOGGLE,
+    "123 goes back to the digits",
+  );
+  check(
+    chinese[3][1].text === "符号" && chinese[3][1].kind === LayerKeyKind.SYMBOL_PANEL,
+    "the emoji key's place opens the symbol panel",
+  );
+  check(
+    texts(chinese[2].slice(1, 6)) === texts(NumberSymbolLayout.numberLayer(true)[2].slice(1, 6)),
+    "the five marks are the same on both layers",
+  );
+  check(
+    NumberSymbolLayout.rows(true, true)[0][0].text === "[" &&
+      NumberSymbolLayout.rows(false, true)[0][0].text === "1",
+    "rows() picks the layer",
+  );
+});
+
+group("the layers are as wide as the letter faces' rows", () => {
+  for (const layer of [
+    NumberSymbolLayout.numberLayer(true),
+    NumberSymbolLayout.moreSymbolLayer(false),
+  ]) {
+    check(rowWeight(layer[0]) === 10 && rowWeight(layer[1]) === 10, "ten keys of one share each");
+    check(Math.abs(rowWeight(layer[2]) - 7.8) < 1e-9, "1.4 + five marks + 1.4");
+    check(
+      Math.abs(rowWeight(layer[3]) - 10.2) < 1e-9,
+      "the bottom row adds up to the letter faces' 10.2",
+    );
+  }
+});
+
+group("a character key writes what it shows", () => {
+  check(
+    NumberSymbolLayout.route("7", true) === LayerCharacterRoute.SYMBOL_KEY,
+    "a digit keeps the symbol-row path in Chinese",
+  );
+  check(NumberSymbolLayout.route("0", false) === LayerCharacterRoute.SYMBOL_KEY, "and in English");
+  check(
+    NumberSymbolLayout.route("[", true) === LayerCharacterRoute.LITERAL,
+    "a Chinese-layer [ is inserted, not turned into 【 by the Engine",
+  );
+  check(NumberSymbolLayout.route("\\", true) === LayerCharacterRoute.LITERAL, "nor \\ into 、");
+  check(
+    NumberSymbolLayout.route("：", true) === LayerCharacterRoute.LITERAL,
+    "a fullwidth mark is inserted",
+  );
+  check(
+    NumberSymbolLayout.route("[", false) === LayerCharacterRoute.SYMBOL_KEY,
+    "an English-layer ASCII mark keeps the symbol-row path",
+  );
+  check(
+    NumberSymbolLayout.route("…", false) === LayerCharacterRoute.LITERAL &&
+      NumberSymbolLayout.route("£", false) === LayerCharacterRoute.LITERAL,
+    "a mark with no ASCII key is inserted",
+  );
+  for (const layer of [true, false]) {
+    for (const row of NumberSymbolLayout.numberLayer(layer).concat(
+      NumberSymbolLayout.moreSymbolLayer(layer),
+    )) {
+      for (const key of row) {
+        if (key.kind !== LayerKeyKind.CHARACTER) continue;
+        const id: string | null = KeyIdPolicy.character(key.text);
+        check(
+          id === null || KEY_IDS.includes(id),
+          `layer key ${key.text} counts on a known key or none`,
+        );
+      }
+    }
+  }
+});
+
+console.log("Letter key corner hints, swipe and preview");
+
+group("the corner hints are Android's LetterHintTable", () => {
+  const rows: string[] = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
+  const hints: string[] = rows.map((row: string): string =>
+    Array.from(row)
+      .map((letter: string): string => LetterHintTable.hint(letter) ?? "")
+      .join(" "),
+  );
+  check(hints[0] === "1 2 3 4 5 6 7 8 9 0", "the top row hints the digits");
+  check(hints[1] === '@ # ¥ % & * ( ) "', "the middle row the design's symbols");
+  check(hints[2] === "~ … 、 ? ! - /", "the bottom row the rest");
+  check(LetterHintTable.hint("Q") === "1", "a capital reads as its letter");
+  check(
+    LetterHintTable.hint(";") === null &&
+      LetterHintTable.hint("") === null &&
+      LetterHintTable.hint("qq") === null &&
+      LetterHintTable.hint(null) === null,
+    "anything that is not one letter has no hint",
+  );
+});
+
+group("a swipe types the hint only past 14 vp along the chosen direction", () => {
+  check(SwipeHintPolicy.THRESHOLD_VP === 14, "the threshold is Android's");
+  check(
+    !SwipeHintPolicy.swiped(SwipeSymbolsDirection.DOWN, 100, 114),
+    "exactly 14 vp is not yet a swipe",
+  );
+  check(SwipeHintPolicy.swiped(SwipeSymbolsDirection.DOWN, 100, 114.5), "past it is");
+  check(!SwipeHintPolicy.swiped(SwipeSymbolsDirection.DOWN, 100, 80), "going up is no swipe down");
+  check(SwipeHintPolicy.swiped(SwipeSymbolsDirection.UP, 100, 80), "but is a swipe up");
+  check(
+    SwipeHintPolicy.direction("up") === SwipeSymbolsDirection.UP &&
+      SwipeHintPolicy.direction("sideways") === SwipeSymbolsDirection.DOWN &&
+      SwipeHintPolicy.direction(undefined, SwipeSymbolsDirection.UP) === SwipeSymbolsDirection.UP,
+    "an unknown direction falls back",
+  );
+});
+
+group("a letter touch types its hint after a swipe or a hold, and swallows the tap", () => {
+  const key: HintKeyRect = { left: 10, top: 100, width: 36, height: 44 };
+  const gestures: LetterHintGesture = new LetterHintGesture();
+  gestures.down(1, "a", "@", 120, key);
+  check(
+    gestures.move(1, 28, 130, true, SwipeSymbolsDirection.DOWN) === null,
+    "a small move is still a tap",
+  );
+  check(!gestures.swallows("a"), "so the tap still types");
+  check(
+    gestures.move(1, 28, 135, true, SwipeSymbolsDirection.DOWN) === "@",
+    "the move past the threshold fires once",
+  );
+  check(gestures.move(1, 28, 150, true, SwipeSymbolsDirection.DOWN) === null, "and not again");
+  check(gestures.swallows("a"), "the key's own tap is swallowed from then on");
+  check(gestures.hold(1) === null, "a hold after the swipe adds nothing");
+  check(gestures.up(1) === "@", "the lift types the hint");
+  check(!gestures.tracking(1), "and the touch is forgotten");
+  check(gestures.swallows("a"), "the tap arriving after the lift is still swallowed");
+  gestures.down(2, "a", "@", 120, key);
+  check(!gestures.swallows("a"), "until the next touch on the same key");
+  check(gestures.up(2) === null, "a plain tap types nothing of its own here");
+
+  gestures.down(3, "s", "#", 120, key);
+  check(
+    gestures.move(3, 28, 140, false, SwipeSymbolsDirection.DOWN) === null,
+    "with 滑动输入符号 off a swipe does nothing",
+  );
+  check(gestures.hold(3) === "#", "but a hold still types the hint");
+  check(gestures.up(3) === "#", "when the finger lifts");
+
+  gestures.down(4, "d", "¥", 120, key);
+  gestures.move(4, 80, 120, true, SwipeSymbolsDirection.DOWN);
+  check(gestures.hold(4) === null, "a finger that strayed off its key does not hold it");
+  check(gestures.up(4) === null, "and types no hint");
+
+  gestures.down(5, "f", "%", 120, key);
+  gestures.move(5, 28, 140, true, SwipeSymbolsDirection.DOWN);
+  gestures.cancel(5);
+  check(gestures.up(5) === null, "a cancelled touch types nothing");
+
+  gestures.down(6, "g", "&", 120, key);
+  gestures.down(7, "h", "*", 120, key);
+  check(
+    gestures.move(7, 28, 140, true, SwipeSymbolsDirection.DOWN) === "*",
+    "two fingers keep separate touches",
+  );
+  check(gestures.up(6) === null && gestures.up(7) === "*", "each lifting with its own result");
+  check(
+    gestures.rect(6) === null && new LetterHintGesture().rect(1) === null,
+    "a finger that is gone has no key",
+  );
+  gestures.down(8, "j", "(", 120, key);
+  gestures.hold(8);
+  gestures.clear();
+  check(!gestures.tracking(8) && !gestures.swallows("j"), "clear forgets everything");
+});
+
+group("the preview bubble sits over its key, inside the keyboard", () => {
+  check(
+    KeyPreviewLayout.bubbleWidth(100, 1) === 138 && KeyPreviewLayout.bubbleWidth(100, 1.4) === 150,
+    "138% of the key, 150% for a wide one",
+  );
+  const frame = KeyPreviewLayout.frame("a", 100, 70, 36, 1, 400);
+  check(frame.label === "a", "it carries the label");
+  check(Math.abs(frame.left + frame.width / 2 - 118) < 1e-9, "centred on the key");
+  check(frame.top === 70 + 6 - 54, "its bottom 6 vp below the key's top");
+  check(KeyPreviewLayout.frame("q", 2, 70, 36, 1, 400).left === 0, "held in at the left edge");
+  const right = KeyPreviewLayout.frame("p", 362, 70, 36, 1, 400);
+  check(Math.abs(right.left + right.width - 400) < 1e-9, "and at the right edge");
+  check(
+    KeyPreviewLayout.bubbleLeft(0, 36, 500, 400) === 0,
+    "a bubble wider than the keyboard starts at its left",
   );
 });
 
@@ -3476,9 +3852,14 @@ group("candidate and composition rows follow their font sizes", () => {
     "the window grows with the preedit font",
   );
   check(
-    KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, true) <
-      KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15),
-    "a desktop surface strip is compact, a touch strip is not",
+    KeyboardMetrics.totalHeightVp(70, 0, 0, 12, 15, true) <
+      KeyboardMetrics.totalHeightVp(70, 0, 0, 24, 15, true),
+    "a desktop surface strip follows its candidate font",
+  );
+  check(
+    KeyboardMetrics.totalHeightVp(70, 0, 0, 12, 15) ===
+      KeyboardMetrics.totalHeightVp(70, 0, 0, 24, 32),
+    "a touch strip is a fixed 50vp whatever the fonts",
   );
 });
 
@@ -3718,14 +4099,12 @@ group("expanded candidates stay on one line and inside their row", () => {
   const available = 320 - KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP * 2;
   const ordinary = ExpandedCandidateLayout.width(
     "日本",
-    0,
     18,
     KeyboardMetrics.CANDIDATE_PADDING_VP,
     available,
   );
   const long = ExpandedCandidateLayout.width(
     "とてもながいこうほごがここにはいります",
-    6,
     18,
     KeyboardMetrics.CANDIDATE_PADDING_VP,
     available,
@@ -3733,14 +4112,61 @@ group("expanded candidates stay on one line and inside their row", () => {
   check(ordinary < available, "ordinary candidates retain their natural compact width");
   check(long === available, "one long candidate is capped to the whole visible row");
   check(
-    ExpandedCandidateLayout.width("😀", 9, 18, 12, available) <
-      ExpandedCandidateLayout.width("😀😀", 9, 18, 12, available),
+    ExpandedCandidateLayout.width("😀", 18, 12, available) <
+      ExpandedCandidateLayout.width("😀😀", 18, 12, available),
     "width estimation counts code points rather than UTF-16 halves",
+  );
+  check(
+    ExpandedCandidateLayout.width("日本", 17, 8, 0) === 50,
+    "the width is the characters at the font size plus both side paddings, with no index label",
   );
   const assignment = CandidateWrapPolicy.rows(available, 0, [ordinary, long, ordinary]);
   check(
     assignment[0] === 0 && assignment[1] === 1 && assignment[2] === 2,
     "a full-width long candidate owns one row without pushing outside it",
+  );
+
+  // 网格的列：382 vp 宽的一行，间距 6 vp，五列各约 71.6 vp。
+  const column = (382 - 6 * 4) / 5;
+  check(
+    ExpandedCandidateLayout.span(50, column, 6, 5) === 1,
+    "a two-character word takes one column",
+  );
+  check(
+    ExpandedCandidateLayout.span(
+      ExpandedCandidateLayout.width("你今天", 17, 8, 382),
+      column,
+      6,
+      5,
+    ) === 1,
+    "a three-character word still fits one column",
+  );
+  check(
+    ExpandedCandidateLayout.span(
+      ExpandedCandidateLayout.width("你今天晚上吃", 17, 8, 382),
+      column,
+      6,
+      5,
+    ) === 2,
+    "a sentence spans the columns it needs instead of being cut to its first characters",
+  );
+  check(
+    ExpandedCandidateLayout.span(382, column, 6, 5) === 5,
+    "a capped candidate spans the whole row",
+  );
+  check(
+    ExpandedCandidateLayout.span(10000, column, 6, 5) === 5,
+    "never more columns than the row has",
+  );
+  check(
+    ExpandedCandidateLayout.span(50, 0, 6, 5) === 1,
+    "an unmeasured grid falls back to one column",
+  );
+  const spans = [1, 1, 5, 2, 2, 2];
+  const rows = CandidateWrapPolicy.rows(5, 0, spans);
+  check(
+    rows.join(",") === "0,0,1,2,2,3",
+    "spans pack into rows of whole columns, a long candidate starting a row of its own",
   );
 });
 
@@ -5685,6 +6111,7 @@ group("the settings page and the keyboard agree on what the loudest haptic is ca
   // save from the page would store a value KeyboardFeedback.parse falls back from, so the setting
   // would appear to save and the keys would go on feeling the same.
   const heavy: MobileKeyboardFeedback = KeyboardFeedbackBridge.toShared({
+    ...KeyboardFeedback.DEFAULTS,
     sound: true,
     haptics: true,
     strength: HapticStrength.HEAVY,
@@ -5713,6 +6140,7 @@ group("the settings page and the keyboard agree on what the loudest haptic is ca
   );
   check(
     KeyboardFeedbackBridge.toShared({
+      ...KeyboardFeedback.DEFAULTS,
       sound: false,
       haptics: false,
       strength: HapticStrength.LIGHT,
@@ -5781,12 +6209,33 @@ group("the vibration levels feel different and 跟随系统 leaves it to the sys
   );
   check(
     KeyboardFeedbackBridge.toShared({
+      ...KeyboardFeedback.DEFAULTS,
       sound: false,
       haptics: true,
       strength: HapticStrength.SYSTEM,
       glideTyping: false,
     }).hapticStrength === "system",
     "and goes back to the page under the same name",
+  );
+  // 页面保存时把读到的整份记录原样送回：跟随系统和这台设备的其他本地设置都不能在这一来一回里丢掉。
+  const stored = {
+    ...KeyboardFeedback.DEFAULTS,
+    haptics: true,
+    strength: HapticStrength.SYSTEM,
+    glideTyping: true,
+    handwritingDelayMs: 900,
+    handwritingStrokeColor: HandwritingStrokeColor.BLUE,
+    handwritingStrokeWidth: 5,
+    keyPopup: false,
+    swipeSymbols: false,
+    swipeSymbolsDirection: SwipeSymbolsDirection.UP,
+    incognito: true,
+  };
+  check(
+    JSON.stringify(
+      KeyboardFeedbackBridge.fromShared(KeyboardFeedbackBridge.toShared(stored), stored),
+    ) === JSON.stringify(stored),
+    "a page save of 跟随系统 keeps every other device setting it was handed",
   );
   check(
     KeyboardFeedbackBridge.strength("strong") === HapticStrength.HEAVY &&
@@ -5871,6 +6320,285 @@ group("滑行输入 is a device switch in the feedback file, off unless turned o
       hapticStrength: "medium",
     }).glideTyping === false,
     "a record without the switch, as the account sync builds one, reads as off; the sync passes the stored value itself",
+  );
+});
+
+group(
+  "按键弹出预览 and 滑动输入符号 are device switches in the feedback file, on and down as on Android",
+  () => {
+    check(
+      KeyboardFeedback.DEFAULTS.keyPopup === true &&
+        KeyboardFeedback.DEFAULTS.swipeSymbols === true &&
+        KeyboardFeedback.DEFAULTS.swipeSymbolsDirection === SwipeSymbolsDirection.DOWN,
+      "a keyboard that never saw them previews keys and swipes down",
+    );
+    const old = KeyboardFeedback.parse(
+      JSON.stringify({ sound: true, haptics: false, strength: "light" }),
+    );
+    check(
+      old.keyPopup === true && old.swipeSymbols === true && old.swipeSymbolsDirection === "down",
+      "a file written before they existed reads as the defaults",
+    );
+    const stored = KeyboardFeedback.parse(
+      JSON.stringify({
+        sound: false,
+        haptics: false,
+        strength: "medium",
+        keyPopup: false,
+        swipeSymbols: false,
+        swipeSymbolsDirection: "up",
+      }),
+    );
+    check(
+      stored.keyPopup === false &&
+        stored.swipeSymbols === false &&
+        stored.swipeSymbolsDirection === SwipeSymbolsDirection.UP,
+      "stored choices read back",
+    );
+    const again = KeyboardFeedback.parse(KeyboardFeedback.serialize(stored));
+    check(
+      again.keyPopup === false && again.swipeSymbolsDirection === SwipeSymbolsDirection.UP,
+      "and survive being written again",
+    );
+    const wild = KeyboardFeedback.parse(
+      JSON.stringify({
+        sound: true,
+        haptics: false,
+        strength: "medium",
+        keyPopup: "no",
+        swipeSymbols: 0,
+        swipeSymbolsDirection: "left",
+      }),
+    );
+    check(
+      wild.keyPopup === true &&
+        wild.swipeSymbols === true &&
+        wild.swipeSymbolsDirection === "down" &&
+        wild.sound === true,
+      "values that are not theirs fall back one by one",
+    );
+    const shared = KeyboardFeedbackBridge.toShared(stored);
+    check(
+      shared.keyPopup === false &&
+        shared.swipeSymbols === false &&
+        shared.swipeSymbolsDirection === "up",
+      "the page is shown them as stored",
+    );
+    const saved = KeyboardFeedbackBridge.fromShared(
+      {
+        soundEnabled: false,
+        hapticsEnabled: false,
+        hapticStrength: "medium",
+        keyPopup: true,
+        swipeSymbolsDirection: "sideways",
+      },
+      stored,
+    );
+    check(
+      saved.keyPopup === true &&
+        saved.swipeSymbols === false &&
+        saved.swipeSymbolsDirection === SwipeSymbolsDirection.UP,
+      "a save keeps what it does not carry, or carries unreadably, from the stored settings",
+    );
+  },
+);
+
+group(
+  "单手模式 and 隐私模式 are device settings in the feedback file, both off as on Android",
+  () => {
+    check(
+      KeyboardFeedback.DEFAULTS.oneHanded === OneHandedMode.OFF &&
+        KeyboardFeedback.DEFAULTS.incognito === false,
+      "a keyboard that never saw them is two-handed and not private",
+    );
+    const old = KeyboardFeedback.parse(
+      JSON.stringify({ sound: true, haptics: false, strength: "light" }),
+    );
+    check(
+      old.oneHanded === OneHandedMode.OFF && old.incognito === false,
+      "a file written before they existed reads as the defaults",
+    );
+    const stored = KeyboardFeedback.parse(
+      JSON.stringify({
+        sound: false,
+        haptics: false,
+        strength: "medium",
+        oneHanded: "left",
+        incognito: true,
+      }),
+    );
+    check(
+      stored.oneHanded === OneHandedMode.LEFT && stored.incognito === true,
+      "stored choices read back",
+    );
+    const again = KeyboardFeedback.parse(KeyboardFeedback.serialize(stored));
+    check(
+      again.oneHanded === OneHandedMode.LEFT && again.incognito === true,
+      "and survive being written again",
+    );
+    const wild = KeyboardFeedback.parse(
+      JSON.stringify({
+        sound: true,
+        haptics: false,
+        strength: "medium",
+        oneHanded: "middle",
+        incognito: "yes",
+      }),
+    );
+    check(
+      wild.oneHanded === OneHandedMode.OFF && wild.incognito === false && wild.sound === true,
+      "values that are not theirs fall back one by one",
+    );
+    const shared = KeyboardFeedbackBridge.toShared(stored) as unknown as Record<string, unknown>;
+    check(
+      !("oneHanded" in shared) && !("incognito" in shared),
+      "the settings page is not given them: only the keyboard's function panel sets them",
+    );
+    const saved = KeyboardFeedbackBridge.fromShared(
+      { soundEnabled: true, hapticsEnabled: true, hapticStrength: "strong" },
+      stored,
+    );
+    check(
+      saved.oneHanded === OneHandedMode.LEFT && saved.incognito === true && saved.sound === true,
+      "a save from the page or the account sync keeps them from the stored settings, so privacy mode is never turned off behind the user's back",
+    );
+  },
+);
+
+group("键盘读设置文件：文件不存在用默认值，文件存在却没读到则保留上次的值", () => {
+  check(
+    KeyboardFeedback.fromRead(false, null) === KeyboardFeedback.DEFAULTS,
+    "从未保存过设置的设备取默认值",
+  );
+  check(
+    KeyboardFeedback.fromRead(true, null) === null,
+    "设置应用正以写后改名替换文件时这次读不到，返回 null 让会话保留上次的值，隐私模式不会因此被当成关闭",
+  );
+  const read = KeyboardFeedback.fromRead(
+    true,
+    JSON.stringify({ sound: false, haptics: false, strength: "medium", incognito: true }),
+  );
+  check(read !== null && read.incognito === true, "读到的文件照常解析");
+});
+
+console.log("OneHandedPolicy");
+
+group("单手模式 follows Android's toggleOneHanded and gutter", () => {
+  check(OneHandedPolicy.DEFAULT === OneHandedMode.OFF, "off by default");
+  check(
+    OneHandedPolicy.parse("left") === OneHandedMode.LEFT &&
+      OneHandedPolicy.parse("right") === OneHandedMode.RIGHT &&
+      OneHandedPolicy.parse("off") === OneHandedMode.OFF,
+    "the three stored values read back",
+  );
+  check(
+    OneHandedPolicy.parse("Right") === OneHandedMode.OFF &&
+      OneHandedPolicy.parse(null) === OneHandedMode.OFF &&
+      OneHandedPolicy.parse(undefined, OneHandedMode.LEFT) === OneHandedMode.LEFT,
+    "anything else is the fallback",
+  );
+  check(
+    OneHandedPolicy.toggled(OneHandedMode.OFF) === OneHandedMode.RIGHT,
+    "a tap turns it on against the right edge",
+  );
+  check(
+    OneHandedPolicy.toggled(OneHandedMode.LEFT) === OneHandedMode.OFF &&
+      OneHandedPolicy.toggled(OneHandedMode.RIGHT) === OneHandedMode.OFF,
+    "and off from either side",
+  );
+  check(
+    OneHandedPolicy.swapped(OneHandedMode.RIGHT) === OneHandedMode.LEFT &&
+      OneHandedPolicy.swapped(OneHandedMode.LEFT) === OneHandedMode.RIGHT,
+    "a swap moves the keys to the other edge",
+  );
+  check(
+    OneHandedPolicy.swapped(OneHandedMode.OFF) === OneHandedMode.LEFT,
+    "a hold while off turns it on against the left edge, as Android's hold does",
+  );
+  check(
+    OneHandedPolicy.active(OneHandedMode.RIGHT, false) &&
+      OneHandedPolicy.active(OneHandedMode.LEFT, false) &&
+      !OneHandedPolicy.active(OneHandedMode.OFF, false),
+    "the keys narrow only while it is on",
+  );
+  check(
+    !OneHandedPolicy.active(OneHandedMode.RIGHT, true),
+    "and never on a 2in1, which draws no touch keys",
+  );
+  check(
+    OneHandedPolicy.railOnLeft(OneHandedMode.RIGHT) &&
+      !OneHandedPolicy.railOnLeft(OneHandedMode.LEFT),
+    "the rail sits on the side the keys moved away from",
+  );
+  check(
+    OneHandedPolicy.RAIL_PERCENT === 15 &&
+      OneHandedPolicy.BUTTON_VP === 40 &&
+      OneHandedPolicy.BUTTON_GAP_VP === 14 &&
+      OneHandedPolicy.RAIL_GAP_VP === 6,
+    "the rail takes 15% with 40vp buttons 14vp apart, 6vp from the keys",
+  );
+  check(
+    OneHandedPolicy.swapLabel() === "单手键盘换到另一侧" &&
+      OneHandedPolicy.exitLabel() === "退出单手模式",
+    "the buttons are named as Android names them",
+  );
+});
+
+console.log("PrivacyGate");
+
+group("隐私模式 and password fields keep no record, as Android's ImePrivacyGate", () => {
+  check(PrivacyGate.DEFAULT === false, "privacy mode is off by default");
+  check(PrivacyGate.RECORDS.length === 5, "every record this keyboard keeps is listed");
+  check(PrivacyGate.RECORDS.includes(PrivacyRecord.VOICE_DURATION), "voice time is one of them");
+  for (const record of PrivacyGate.RECORDS) {
+    check(PrivacyGate.allows(record, false, false), `${record} is kept in a plain field`);
+    check(!PrivacyGate.allows(record, true, false), `${record} is not kept in privacy mode`);
+    check(!PrivacyGate.allows(record, false, true), `${record} is not kept in a password field`);
+    check(!PrivacyGate.allows(record, true, true), `${record} is not kept in both`);
+  }
+  check(
+    PrivacyGate.suppressed(true, false) &&
+      PrivacyGate.suppressed(false, true) &&
+      !PrivacyGate.suppressed(false, false),
+    "suppressed in either case and only then",
+  );
+  check(
+    !PrivacyGate.allows("input_events" as PrivacyRecord, false, false),
+    "a record the gate does not know is never allowed",
+  );
+  check(
+    PrivacyGate.CLIPBOARD_REFUSED === "隐私模式或当前输入框下不保存剪贴板",
+    "the refused 保存 says why, in Android's words",
+  );
+});
+
+group("隐私模式 turns learning off in the session's copy of the preferences only", () => {
+  const stored: PreferenceDocument = {
+    format_version: 1,
+    revision: 7,
+    preferences: { scheme: "quanpin", learning: true },
+  };
+  check(
+    PrivacyGate.sessionPreferences(stored, false) === JSON.stringify(stored),
+    "outside privacy mode the session gets the stored document as it is",
+  );
+  const session = JSON.parse(PrivacyGate.sessionPreferences(stored, true)) as PreferenceDocument;
+  check(
+    session.preferences["learning"] === false &&
+      session.preferences["scheme"] === "quanpin" &&
+      session.revision === 7 &&
+      session.format_version === 1,
+    "in privacy mode learning is off and everything else, the revision included, is as stored",
+  );
+  check(
+    stored.preferences["learning"] === true,
+    "the stored document itself keeps the user's switch",
+  );
+  const absent: PreferenceDocument = { format_version: 1, revision: 2, preferences: {} };
+  const added = JSON.parse(PrivacyGate.sessionPreferences(absent, true)) as PreferenceDocument;
+  check(
+    added.preferences["learning"] === false,
+    "learning is turned off even where the document left it out",
   );
 });
 
@@ -6430,6 +7158,22 @@ group("the recording tones follow their own switches under one master", () => {
     VoiceRecordingBehaviourPolicy.playsStartTone(legacy) === true,
     "an older document without the fields takes the shared default rather than falling silent",
   );
+});
+
+group("only a streaming provider gets the listening face, whose stop is a pause", () => {
+  const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
+  for (const provider of ["system", "local", "doubao", ""]) {
+    check(
+      VoiceRecordingBehaviourPolicy.streamsPartialResults({ ...base, asr_provider: provider }),
+      `${provider || "the default"} streams words as they are heard`,
+    );
+  }
+  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral"]) {
+    check(
+      !VoiceRecordingBehaviourPolicy.streamsPartialResults({ ...base, asr_provider: provider }),
+      `${provider} answers only after a stop, so it keeps 停止录音`,
+    );
+  }
 });
 
 group("partial recognizer output reaches the panel only when asked for", () => {
@@ -7175,19 +7919,24 @@ group("a theme without a keyboard palette draws the Harmony native tokens", () =
     light.id === "system" && light.title === "跟随系统",
     "the id and title come from the caller",
   );
-  check(light.background === "#E3E5E8", "the native light keyboard background");
+  check(light.background === "#D9E2D6", "the design's light keyboard background");
   check(
-    light.keyBackground === "#FFFFFF" && light.keyForeground === "#182431",
+    light.keyBackground === "#FCFDFA" && light.keyForeground === "#182431",
     "native keys and labels",
   );
-  check(light.functionKeyBackground === "#C9CDD3", "the native function-key grey");
-  check(light.secondary === "#99182431", "hints are the text at 60%, alpha first for ArkUI");
+  check(light.functionKeyBackground === "#B8C8B5", "the design's function-key green-grey");
+  check(light.secondary === "#5A6B5D", "hints are the design's kbSub");
   const dark = KeyboardSkin.fromTheme("system", "跟随系统", null, true);
   check(
-    dark.background === "#1A1A1A" && dark.keyBackground === "#3A3A3A",
+    dark.background === "#121814" && dark.keyBackground === "#303A32",
     "the native dark keyboard",
   );
-  check(dark.functionKeyBackground === "#2A2A2A", "and its function keys");
+  check(dark.functionKeyBackground === "#212923", "and its function keys");
+  check(dark.secondary === "#93A596", "and its hints");
+  check(
+    dark.onAccent === "#183021",
+    "dark on-accent is #5FBF84 mixed 25% with black, the shared rule, for contrast",
+  );
   check(
     light.cornerRadius === 8 && light.keyCornerRadius() === 8,
     "theme keys take the design's 8vp radius",
@@ -7217,8 +7966,8 @@ group("a theme keyboard palette reaches every key colour", () => {
     "the accent and its readable text",
   );
   check(
-    skin.actionBackground === "#5FBF84" && skin.actionForeground === "#FFFFFF",
-    "the return key keeps the platform accent with white text whatever the theme",
+    skin.actionBackground === "#5FBF84" && skin.actionForeground === "#183021",
+    "the return key keeps the platform accent whatever the theme, with the dark on-accent rule's text rather than white",
   );
   check(
     KeyboardSkin.fromTheme("night", "夜色", palette, false).actionBackground === "#2C7A4B",
@@ -7231,15 +7980,15 @@ group("a theme keyboard palette reaches every key colour", () => {
     skin.keySurfaceBackground(true, true) === "#5FBF84",
     "an emphasized key takes the platform accent",
   );
-  check(skin.keyLabelColor(true) === "#FFFFFF", "with white text");
+  check(skin.keyLabelColor(true) === "#183021", "with the dark on-accent text");
   check(skin.keyLabelColor(false, true) === "#F0F0F0", "a special key keeps the palette text");
   check(
-    skin.toggleBackground === "#425FBF84" && skin.toggleForeground === "#5FBF84",
-    "a switched-on tile is the platform accent tint with the accent glyph, not the theme accent",
+    skin.toggleBackground === "#4080C0FF" && skin.toggleForeground === "#80C0FF",
+    "a named theme's switched-on tile is its own accent at 25% in dark mode, not a fixed green",
   );
   check(
-    KeyboardSkin.fromTheme("night", "夜色", palette, false).toggleBackground === "#1F2C7A4B",
-    "and the light tint in light mode",
+    KeyboardSkin.fromTheme("night", "夜色", palette, false).toggleBackground === "#2180C0FF",
+    "and at 13% in light mode",
   );
 });
 
@@ -7328,14 +8077,18 @@ group("the platform accent", () => {
     "accent",
   );
   check(
-    GlobalTheme.accentSoft(false) === "#1F2C7A4B" && GlobalTheme.accentSoft(true) === "#425FBF84",
-    "accentSoft is the accent at 12% light and 26% dark, alpha first",
+    GlobalTheme.accentSoft(false) === "#222C7A4B" && GlobalTheme.accentSoft(true) === "#405FBF84",
+    "accentSoft is the accent with alpha 0x22 light and 0x40 dark, alpha first",
   );
 });
 
 group("unset candidate slots fall back to the native tokens", () => {
   const native = GlobalTheme.candidateColors(null, false);
-  check(native.surface === "#FFFFFF" && native.selected === "#1F2C7A4B", "the native 2in1 card");
+  check(native.surface === "#FFFFFF" && native.selected === "#222C7A4B", "the native 2in1 card");
+  check(
+    GlobalTheme.candidateColors(null, true).selected === "#405FBF84",
+    "and its dark selection wash",
+  );
   check(!native.showSelectedBar, "the native window marks the selection with a wash, not a bar");
   check(GlobalTheme.candidateColors(null, true).surface === "#262626", "and its dark card");
   const palette = GlobalTheme.candidatePalette({
@@ -7452,6 +8205,646 @@ group("resolve answers and the catalog are read defensively", () => {
   check(
     GlobalTheme.parseCatalog(JSON.stringify({ ok: false })).length === 0,
     "a refused catalog is empty",
+  );
+});
+
+console.log("AppThemePalette");
+
+const AUTUMN_LIGHT: AppThemeSeed = {
+  accent: "#B5562B",
+  accent_soft: "#22B5562B",
+  on_accent: "#FFFFFF",
+  background: "#F6E9DC",
+  card: "#FFFBF6",
+};
+const AUTUMN_DARK: AppThemeSeed = {
+  accent: "#F0975F",
+  accent_soft: "#40F0975F",
+  on_accent: "#3C2618",
+  background: "#21150F",
+  card: "#2E1E15",
+};
+
+group("color-mix matches the browser the design tokens were read from", () => {
+  check(AppThemePalette.mix("#123456", 100, "#FFFFFF") === "#123456", "100% is the first colour");
+  check(AppThemePalette.mix("#123456", 0, "#FFFFFF") === "#FFFFFF", "0% is the second");
+  check(
+    AppThemePalette.mix("#F6E9DC", 25, "#FFFFFF") === "#FDF9F6",
+    "a channel landing on 249.5 rounds through Chrome's six significant digits to F9, as Android's palette does",
+  );
+  check(
+    AppThemePalette.mix("#00FFFFFF", 50, "#FFFFFF") === "#80FFFFFF",
+    "alpha is mixed too and comes back first",
+  );
+  assertThrows(
+    () => AppThemePalette.mix("#123456", 101, "#FFFFFF"),
+    /out of range/,
+    "a weight over 100 is refused",
+  );
+  assertThrows(
+    () => AppThemePalette.mix("red", 50, "#FFFFFF"),
+    /Not an ArkUI colour/,
+    "and so is a named colour",
+  );
+});
+
+group("the system keyboard follows the season seed by the design's formulas", () => {
+  // 十月「秋杉」的种子值；期望值就是 Android 的 `AppThemePaletteSmoke` 对同一公式锁定的值。
+  const light = AppThemePalette.keyboard(AUTUMN_LIGHT, false);
+  check(light.background === "#EED7C7", "light bg = mix(accent 12%, season bg)");
+  check(light.key === "#FDF9F6", "light key = mix(season bg 25%, #FFF)");
+  check(light.function_key === "#E6C6B2", "light function = mix(accent 24%, season bg)");
+  check(
+    light.text === "#182431" && light.secondary === "#5A6B5D",
+    "light text and hints are the Harmony tokens",
+  );
+  check(light.accent === "#B5562B" && light.on_accent === "#FFFFFF", "the accent is the season's");
+  const dark = AppThemePalette.keyboard(AUTUMN_DARK, true);
+  check(dark.background === "#2C241D", "dark bg = mix(accent 10%, #161716)");
+  check(dark.key === "#4C453E", "dark key = mix(accent 10%, #3A3C3A)");
+  check(dark.function_key === "#42382E", "dark function = mix(accent 14%, #262826)");
+  check(dark.text === "#E5E5E5" && dark.secondary === "#93A596", "dark text and hints");
+  check(dark.on_accent === "#3C2618", "dark on-accent is the season's mix with black");
+  check(
+    AppThemePalette.onAccent("#F0975F", true) === "#3C2618",
+    "onAccent matches the shared layer's dark on_accent for the same accent",
+  );
+  check(
+    AppThemePalette.onAccent("#5FBF84", true) === "#183021",
+    "and gives the platform accent its dark text",
+  );
+  check(AppThemePalette.onAccent("#B5562B", false) === "#FFFFFF", "light mode is white");
+  check(AppThemePalette.logoBackground("#B5562B") === "#944723", "logoBg = mix(accent 82%, #000)");
+  check(AppThemePalette.logoBackground("#F0975F") === "#C57C4E", "in dark mode too");
+  check(
+    AppThemePalette.logoDisc("#B5562B", "#FFFBF6", false) === "#F5E4DA",
+    "logoCirc = mix(accent 14%, season card) in light mode",
+  );
+  check(
+    AppThemePalette.logoDisc("#F0975F", "#2E1E15", true) === "#593925",
+    "and mix(accent 22%, season card) in dark mode",
+  );
+});
+
+group("a resolved app theme is read once, colours reordered for ArkUI", () => {
+  const seed = AppThemePalette.parseResolved(
+    JSON.stringify({
+      ok: true,
+      value: {
+        id: "qiushan",
+        season: "autumn",
+        accent: "#B5562B",
+        accent_soft: "#B5562B22",
+        on_accent: "#FFFFFF",
+        background: "#F6E9DC",
+        card: "#FFFBF6",
+        hair: "#B5562B33",
+      },
+    }),
+  );
+  check(seed !== null, "a complete reply is a seed");
+  check(seed !== null && seed.accent_soft === "#22B5562B", "the trailing alpha moves to the front");
+  check(
+    seed !== null &&
+      seed.accent === "#B5562B" &&
+      seed.card === "#FFFBF6" &&
+      seed.background === "#F6E9DC",
+    "the other colours cross unchanged",
+  );
+  check(
+    AppThemePalette.parseResolved(
+      JSON.stringify({ ok: false, error: "invalid app theme request" }),
+    ) === null,
+    "a refusal is no seed",
+  );
+  check(
+    AppThemePalette.parseResolved(
+      JSON.stringify({
+        ok: true,
+        value: {
+          accent: "#B5562B",
+          accent_soft: "#B5562B22",
+          on_accent: "#FFFFFF",
+          background: "#F6E9DC",
+        },
+      }),
+    ) === null,
+    "a reply missing a colour is no seed",
+  );
+  check(
+    AppThemePalette.parseResolved(
+      JSON.stringify({
+        ok: true,
+        value: {
+          accent: "orange",
+          accent_soft: "#B5562B22",
+          on_accent: "#FFFFFF",
+          background: "#F6E9DC",
+          card: "#FFFBF6",
+        },
+      }),
+    ) === null,
+    "and so is one with an unreadable colour",
+  );
+});
+
+group("the season seed tints the system keyboard, the return key and the logo", () => {
+  const light = KeyboardSkin.fromTheme("system", "跟随系统", null, false, AUTUMN_LIGHT);
+  check(
+    light.background === "#EED7C7" &&
+      light.keyBackground === "#FDF9F6" &&
+      light.functionKeyBackground === "#E6C6B2",
+    "system draws the season palette",
+  );
+  check(
+    light.actionBackground === "#B5562B" && light.actionForeground === "#FFFFFF",
+    "the return key is the season accent with its on-accent text",
+  );
+  check(
+    light.toggleBackground === "#22B5562B" && light.toggleForeground === "#B5562B",
+    "a switched-on tile is the season accent_soft with the accent glyph",
+  );
+  check(light.logoBg === "#944723" && light.logoCirc === "#F5E4DA", "the logo follows the season");
+  check(light.hair === "#1F000000", "the light hairline");
+  const dark = KeyboardSkin.fromTheme("system", "跟随系统", null, true, AUTUMN_DARK);
+  check(
+    dark.background === "#2C241D" && dark.actionForeground === "#3C2618",
+    "dark season keyboard and return text",
+  );
+  check(dark.logoBg === "#C57C4E" && dark.logoCirc === "#593925", "the dark logo");
+  check(dark.hair === "#24FFFFFF", "the dark hairline");
+  const plain = KeyboardSkin.fromTheme("system", "跟随系统", null, false);
+  check(
+    light.key() !== plain.key() &&
+      light.key() !==
+        KeyboardSkin.fromTheme("system", "跟随系统", null, false, {
+          ...AUTUMN_LIGHT,
+          accent: "#3A6A8A",
+        }).key(),
+    "a new season is a new skin to the cache",
+  );
+  check(
+    plain.background === "#D9E2D6" &&
+      plain.actionBackground === "#2C7A4B" &&
+      plain.actionForeground === "#FFFFFF",
+    "without a seed the base tokens and the platform accent stay",
+  );
+  check(
+    plain.logoBg === "#24643D" && plain.logoCirc === "#E1ECE6",
+    "and the logo is the platform accent over the white card",
+  );
+  const plainDark = KeyboardSkin.fromTheme("system", "跟随系统", null, true);
+  check(
+    plainDark.logoBg === "#4E9D6C" && plainDark.logoCirc === "#2D4235",
+    "over the #1F1F1F card in dark mode",
+  );
+  check(plainDark.toggleBackground === "#405FBF84", "the base dark tint");
+  check(
+    plainDark.actionBackground === "#5FBF84" && plainDark.actionForeground === "#183021",
+    "without a seed the dark return key takes the accent mixed 25% with black, not white at about 2.3:1",
+  );
+  check(
+    plainDark.keyLabelColor(true) === "#183021" &&
+      plainDark.keySurfaceBackground(true) === "#5FBF84",
+    "and the emphasized key draws exactly that pair",
+  );
+});
+
+group(
+  "a named theme keeps its colours and only the return key and the logo follow the season",
+  () => {
+    const palette: KeyboardThemePalette = {
+      background: "#0F1B22",
+      key: "#1D3340",
+      function_key: "#15252E",
+      text: "#E6F1F4",
+      secondary: "#86A6B0",
+      accent: "#4FD1C5",
+      on_accent: "#000000",
+    };
+    const night = KeyboardSkin.fromTheme("night", "夜青", palette, false, AUTUMN_LIGHT);
+    check(night.background === "#0F1B22" && night.keyBackground === "#1D3340", "its own palette");
+    check(night.actionBackground === "#B5562B", "the return key is the season accent");
+    check(
+      night.toggleForeground === "#4FD1C5" && night.toggleBackground === "#214FD1C5",
+      "its switched-on tiles use its own accent at 13%, not a fixed green",
+    );
+    check(
+      night.hair === "#24FFFFFF",
+      "夜青 is dark whatever the mode, so its hairline is the light one",
+    );
+    check(
+      KeyboardSkin.fromTheme("ink", "墨", palette, false).hair === "#24FFFFFF" &&
+        KeyboardSkin.fromTheme("shuishan", "水杉", palette, false).hair === "#24FFFFFF",
+      "as are 墨 and 水杉",
+    );
+    check(
+      KeyboardSkin.fromTheme("paper", "纸白", palette, false).hair === "#1F000000",
+      "a light theme keeps the dark hairline",
+    );
+  },
+);
+
+group("the custom design follows the season accent for the return key and its tiles", () => {
+  const design = CustomKeyboardSkin.from({ accent: 0x80c0ff });
+  const seeded = KeyboardSkin.fromDesign("自定义", design, false, AUTUMN_LIGHT);
+  check(seeded.accent === "#80C0FF", "the design keeps its own accent for candidates");
+  check(
+    seeded.actionBackground === "#B5562B" && seeded.toggleBackground === "#22B5562B",
+    "the return key and the switched-on tiles take the season",
+  );
+  check(
+    KeyboardSkin.fromDesign("自定义", design, false).actionBackground === "#2C7A4B",
+    "and the platform accent without one",
+  );
+  check(
+    seeded.key() !== KeyboardSkin.fromDesign("自定义", design, false).key(),
+    "the seed is part of the design skin's identity",
+  );
+});
+
+console.log("AppThemeStore");
+
+group("the app-theme choice is a small validated document", () => {
+  check(
+    AppThemeStore.FILE_NAME === "app-theme.json",
+    "it has its own file beside key-feedback.json",
+  );
+  check(AppThemeStore.parse(null) === "siji", "no file is 水杉四季");
+  check(AppThemeStore.parse("") === "siji", "nor is an empty one");
+  check(AppThemeStore.parse('{"app_theme":"qiushan"}') === "qiushan", "a stored id reads back");
+  check(
+    AppThemeStore.parse('{"app_theme":"classic"}') === "siji",
+    "an id this build does not know is the default",
+  );
+  check(AppThemeStore.parse('{"app_theme":7}') === "siji", "a non-string is the default");
+  check(AppThemeStore.parse("not json") === "siji", "a malformed file is the default");
+  check(AppThemeStore.parse("null") === "siji", "so is a JSON null");
+  check(
+    AppThemeStore.parse(
+      JSON.stringify({ app_theme: "chunya", padding: "x".repeat(AppThemeStore.MAX_BYTES) }),
+    ) === "siji",
+    "an oversized file is refused before parsing",
+  );
+  for (const id of ["siji", "chunya", "xiayin", "qiushan", "dongxue"]) {
+    check(AppThemeStore.isId(id), `${id} is an app theme`);
+    check(AppThemeStore.parse(AppThemeStore.serialize(id)) === id, `${id} survives a round trip`);
+  }
+  check(!AppThemeStore.isId("Siji") && !AppThemeStore.isId(""), "ids are exact");
+  check(
+    AppThemeStore.serialize("autumn") === '{"app_theme":"siji"}',
+    "an unknown id is never written",
+  );
+});
+
+console.log("FunctionPanelPolicy");
+
+group("the function panel follows the design's order, then the Harmony extras", () => {
+  const labels: string[] = FunctionPanelPolicy.items().map((item: FunctionPanelItem) => item.label);
+  check(
+    labels.join(",") ===
+      "全角,中文标点,模糊音,繁体,手写,词库,键盘高度,设置," +
+        "按键音,振动,单手模式,隐私模式,反馈,关于,候选翻译,符号," +
+        "本地输入,语音输入,高情商回复,AI 润色,振动强度",
+    `the tiles in page order: ${labels.join(",")}`,
+  );
+  check(FunctionPanelPolicy.PAGE_SIZE === 8, "a page is four columns by two rows");
+  check(labels.indexOf("设置") === 7, "设置 closes the first page");
+  check(labels.indexOf("按键音") === 8, "按键音 opens the second");
+  check(
+    labels.indexOf("单手模式") === 10 && labels.indexOf("隐私模式") === 11,
+    "单手模式 and 隐私模式 sit after 振动 on the second page, as in the design and Android's FunctionPanelModel",
+  );
+  const ids = FunctionPanelPolicy.items().map((item: FunctionPanelItem) => item.id);
+  check(new Set(ids).size === ids.length, "every id is unique");
+});
+
+/** 具有此 id 的磁贴，查找方式与视图按 id 查找相同。 */
+function panelItem(id: string): FunctionPanelItem | null {
+  return FunctionPanelPolicy.items().find((item: FunctionPanelItem) => item.id === id) ?? null;
+}
+
+group("each tile draws one glyph or one icon and says what it is", () => {
+  for (const item of FunctionPanelPolicy.items()) {
+    check(
+      (item.glyph === undefined) !== (item.icon === undefined),
+      `${item.label} draws exactly one of a glyph or an icon`,
+    );
+  }
+  const traditional = panelItem(FunctionPanelPolicy.TRADITIONAL);
+  check(
+    traditional !== null &&
+      traditional.glyph === "繁" &&
+      traditional.accessibilityLabel === "繁体输出" &&
+      traditional.toggle,
+    "繁 reads as 繁体输出",
+  );
+  const vibration = panelItem(FunctionPanelPolicy.VIBRATION);
+  check(
+    vibration !== null &&
+      vibration.icon === KeyboardIconPaths.VIBRATION &&
+      vibration.accessibilityLabel === "按键振动",
+    "振动 reads as 按键振动",
+  );
+  const settings = panelItem(FunctionPanelPolicy.SETTINGS);
+  check(
+    settings !== null && settings.accessibilityLabel === "打开设置",
+    "设置 reads as the action it takes",
+  );
+  const reply = panelItem(FunctionPanelPolicy.SMART_REPLY);
+  check(
+    reply !== null && reply.accessibilityLabel === "生成高情商回复",
+    "高情商回复 reads as what it does",
+  );
+  const handwriting = panelItem(FunctionPanelPolicy.HANDWRITING);
+  check(
+    handwriting !== null &&
+      handwriting.toggle &&
+      handwriting.icon === KeyboardIconPaths.HANDWRITING,
+    "手写 is a switch with the pen icon",
+  );
+  const toggles = FunctionPanelPolicy.items()
+    .filter((item: FunctionPanelItem) => item.toggle)
+    .map((item: FunctionPanelItem) => item.label);
+  check(
+    toggles.join(",") === "全角,中文标点,模糊音,繁体,手写,按键音,振动,单手模式,隐私模式,候选翻译",
+    `the switches: ${toggles.join(",")}`,
+  );
+  const oneHand = panelItem(FunctionPanelPolicy.ONE_HAND);
+  check(
+    oneHand !== null &&
+      oneHand.icon === KeyboardIconPaths.ONE_HAND &&
+      oneHand.accessibilityLabel === "单手模式",
+    "单手模式 draws the hand",
+  );
+  const privacy = panelItem(FunctionPanelPolicy.PRIVACY);
+  check(
+    privacy !== null &&
+      privacy.icon === KeyboardIconPaths.INCOGNITO &&
+      privacy.accessibilityLabel === "隐私模式",
+    "隐私模式 draws the shield",
+  );
+  const strength = panelItem(FunctionPanelPolicy.VIBRATION_STRENGTH);
+  check(
+    strength !== null &&
+      FunctionPanelPolicy.label(strength, HapticStrength.HEAVY) === "振动强度 强",
+    "振动强度 carries the current strength",
+  );
+  check(
+    vibration !== null && FunctionPanelPolicy.label(vibration, HapticStrength.HEAVY) === "振动",
+    "the others keep their label",
+  );
+  check(
+    vibration !== null && FunctionPanelPolicy.state(vibration, true, true) === "已开启",
+    "a switch on is 已开启",
+  );
+  check(
+    vibration !== null && FunctionPanelPolicy.state(vibration, false, true) === "已关闭",
+    "off is 已关闭",
+  );
+  check(
+    vibration !== null && FunctionPanelPolicy.state(vibration, true, false) === "不可用",
+    "disabled is 不可用 whatever its value",
+  );
+  check(
+    strength !== null && FunctionPanelPolicy.state(strength, false, true) === "",
+    "an action has no state",
+  );
+});
+
+console.log("KeyboardIconPaths");
+
+group("the icon paths are arc-free absolute commands inside their view box", () => {
+  const icons: string[] = [
+    KeyboardIconPaths.HANDWRITING,
+    KeyboardIconPaths.LEXICON,
+    KeyboardIconPaths.KEYBOARD_HEIGHT,
+    KeyboardIconPaths.SETTINGS,
+    KeyboardIconPaths.KEY_SOUND,
+    KeyboardIconPaths.VIBRATION,
+    KeyboardIconPaths.ONE_HAND,
+    KeyboardIconPaths.INCOGNITO,
+    KeyboardIconPaths.FEEDBACK,
+    KeyboardIconPaths.ABOUT,
+    KeyboardIconPaths.AI_ASSIST,
+    KeyboardIconPaths.LOCAL_INPUT,
+    KeyboardIconPaths.VOICE,
+    KeyboardIconPaths.VIBRATION_STRENGTH,
+    KeyboardIconPaths.PLUS,
+    KeyboardIconPaths.CHECK,
+    KeyboardIconPaths.SHIFT,
+    KeyboardIconPaths.CAPS_LOCK,
+    KeyboardIconPaths.BACKSPACE,
+    KeyboardIconPaths.RETURN,
+    KeyboardIconPaths.MIC,
+    KeyboardIconPaths.COLLAPSE,
+    KeyboardIconPaths.EXPAND,
+    KeyboardIconPaths.SWAP_TO_LEFT,
+    KeyboardIconPaths.SWAP_TO_RIGHT,
+    KeyboardIconPaths.EXIT_ONE_HAND,
+    KeyboardIconPaths.TOOLBAR_EMOJI,
+    KeyboardIconPaths.TOOLBAR_PHRASE,
+    KeyboardIconPaths.TOOLBAR_CLIPBOARD,
+    KeyboardIconPaths.TOOLBAR_SKIN,
+    KeyboardIconPaths.TOOLBAR_SCHEME,
+  ];
+  const coordinates = (path: string): number[] =>
+    (path.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+  for (const path of icons) {
+    check(/^M[\d.\s\-MLCZ]*$/.test(path), `only M, L, C and Z: ${path.substring(0, 24)}`);
+    check(
+      coordinates(path).every((value: number) => value >= 0 && value <= KeyboardIconPaths.VIEW_BOX),
+      `inside the 24 box: ${path.substring(0, 24)}`,
+    );
+  }
+  for (const path of [KeyboardIconPaths.BRAND_FRAME, KeyboardIconPaths.BRAND_STROKE]) {
+    check(/^M[\d.\s\-MLCZ]*$/.test(path), "the brand mark uses the same commands");
+    check(
+      coordinates(path).every(
+        (value: number) =>
+          value >= 0 &&
+          value <=
+            Math.max(KeyboardIconPaths.BRAND_VIEW_WIDTH, KeyboardIconPaths.BRAND_VIEW_HEIGHT),
+      ),
+      "inside the 116 x 132 box",
+    );
+  }
+  check(
+    KeyboardIconPaths.RETURN ===
+      "M19 6L19 11.5C19 12.6046 18.1046 13.5 17 13.5L6 13.5M9.5 10L6 13.5L9.5 17",
+    "the return arrow's arc is a cubic",
+  );
+  check(
+    KeyboardIconPaths.PANEL_STROKE === 1.7 &&
+      KeyboardIconPaths.KEY_STROKE === 1.7 &&
+      KeyboardIconPaths.CHECK_STROKE === 4,
+    "panel and key strokes are 1.7, the check 4",
+  );
+  check(
+    KeyboardIconPaths.TOOLBAR_STROKE === 1.45 && KeyboardIconPaths.TOOLBAR_SIZE_VP === 23,
+    "the Harmony toolbar draws 23vp icons at 1.45",
+  );
+  check(
+    KeyboardIconPaths.CHEVRON_STROKE === 1.8 &&
+      KeyboardIconPaths.COLLAPSE_SIZE_VP === 21 &&
+      KeyboardIconPaths.EXPAND_SIZE_VP === 20,
+    "the chevrons are 1.8 at 21 and 20vp",
+  );
+  check(
+    KeyboardIconPaths.BRAND_STROKE_WIDTH === 9 &&
+      KeyboardIconPaths.BRAND_STROKE_COLOR === "#FFFFFF",
+    "the brand stroke is white at 9",
+  );
+});
+
+console.log("Keyboard height percent");
+
+group("the height bar speaks in percent of the standard key rows", () => {
+  check(KeyboardGeometry.heightPercent(0) === 100, "no adjustment is 100%");
+  check(KeyboardGeometry.heightPercent(-12) === 93, "the shortest is 93%");
+  check(KeyboardGeometry.heightPercent(48) === 127, "the tallest is 127%");
+});
+
+console.log("Handwriting settings");
+
+group("the handwriting pad's settings live in the feedback file, validated", () => {
+  const defaults = KeyboardFeedback.DEFAULTS;
+  check(
+    defaults.handwritingDelayMs === 600 &&
+      defaults.handwritingStrokeColor === HandwritingStrokeColor.FOLLOW_SKIN &&
+      defaults.handwritingStrokeWidth === 3,
+    "600 ms, the skin's ink, 3vp",
+  );
+  check(defaults.haptics === false, "the haptics default is unchanged");
+  const old = KeyboardFeedback.parse(
+    JSON.stringify({ sound: true, haptics: true, strength: "light" }),
+  );
+  check(
+    old.handwritingDelayMs === 600 &&
+      old.handwritingStrokeColor === HandwritingStrokeColor.FOLLOW_SKIN &&
+      old.handwritingStrokeWidth === 3,
+    "a file written before these existed reads the defaults",
+  );
+  const stored = KeyboardFeedback.parse(
+    JSON.stringify({
+      ...defaults,
+      handwritingDelayMs: 900,
+      handwritingStrokeColor: "blue",
+      handwritingStrokeWidth: 5,
+    }),
+  );
+  check(
+    stored.handwritingDelayMs === 900 &&
+      stored.handwritingStrokeColor === HandwritingStrokeColor.BLUE &&
+      stored.handwritingStrokeWidth === 5,
+    "stored values read back",
+  );
+  check(
+    KeyboardFeedback.parse(KeyboardFeedback.serialize(stored)).handwritingStrokeWidth === 5,
+    "and survive being written again",
+  );
+  const wild = KeyboardFeedback.parse(
+    JSON.stringify({
+      ...defaults,
+      sound: true,
+      handwritingDelayMs: 99999,
+      handwritingStrokeColor: "red",
+      handwritingStrokeWidth: 0,
+    }),
+  );
+  check(wild.handwritingDelayMs === 1500, "a delay past the range clamps to 1500");
+  check(
+    wild.handwritingStrokeColor === HandwritingStrokeColor.FOLLOW_SKIN,
+    "an unknown colour is the default",
+  );
+  check(wild.handwritingStrokeWidth === 1, "a width under the range clamps to 1");
+  check(wild.sound === true, "and the fields beside them are kept");
+  check(
+    KeyboardFeedback.handwritingDelay(640) === 600 &&
+      KeyboardFeedback.handwritingDelay(650) === 700,
+    "the delay snaps to 100 ms steps",
+  );
+  check(KeyboardFeedback.handwritingDelay(50) === 200, "and clamps to 200 at the bottom");
+  check(KeyboardFeedback.handwritingDelay(Number.NaN) === 600, "not a number is the default");
+  check(
+    KeyboardFeedback.handwritingStrokeWidth(4.6) === 5 &&
+      KeyboardFeedback.handwritingStrokeWidth(20) === 8,
+    "widths round and clamp to 8",
+  );
+  check(
+    KeyboardFeedback.parse(
+      JSON.stringify({ ...defaults, handwritingDelayMs: "slow", handwritingStrokeWidth: null }),
+    ).handwritingDelayMs === 600,
+    "a non-number falls back on its own",
+  );
+});
+
+group("the ink colours and the page's view of the handwriting settings", () => {
+  check(HANDWRITING_STROKE_COLORS.get(HandwritingStrokeColor.BLACK) === "#000000", "black");
+  check(HANDWRITING_STROKE_COLORS.get(HandwritingStrokeColor.WHITE) === "#FFFFFF", "white");
+  check(HANDWRITING_STROKE_COLORS.get(HandwritingStrokeColor.BLUE) === "#2F6FDB", "blue");
+  check(
+    !HANDWRITING_STROKE_COLORS.has(HandwritingStrokeColor.FOLLOW_SKIN),
+    "following the skin has no fixed colour",
+  );
+  check(
+    KeyboardFeedback.strokeInk(HandwritingStrokeColor.FOLLOW_SKIN, "#182431") === "#182431",
+    "it draws in the key text colour",
+  );
+  check(
+    KeyboardFeedback.strokeInk(HandwritingStrokeColor.BLUE, "#182431") === "#2F6FDB",
+    "a fixed colour ignores the skin",
+  );
+  const settings = {
+    ...KeyboardFeedback.DEFAULTS,
+    handwritingDelayMs: 800,
+    handwritingStrokeColor: HandwritingStrokeColor.WHITE,
+    handwritingStrokeWidth: 6,
+  };
+  const shared = KeyboardFeedbackBridge.toShared(settings);
+  check(
+    shared.handwritingDelayMs === 800 &&
+      shared.handwritingStrokeColor === "white" &&
+      shared.handwritingStrokeWidth === 6,
+    "the page sees the stored values under the shared names",
+  );
+  const back = KeyboardFeedbackBridge.fromShared(shared);
+  check(
+    back.handwritingDelayMs === 800 &&
+      back.handwritingStrokeColor === HandwritingStrokeColor.WHITE &&
+      back.handwritingStrokeWidth === 6,
+    "and what it saves comes back",
+  );
+  const partial = KeyboardFeedbackBridge.fromShared({
+    soundEnabled: true,
+    hapticsEnabled: false,
+    hapticStrength: "medium",
+  });
+  check(
+    partial.handwritingDelayMs === 600 && partial.handwritingStrokeWidth === 3,
+    "a record without them takes the defaults",
+  );
+  const kept = KeyboardFeedbackBridge.fromShared(
+    { soundEnabled: true, hapticsEnabled: false, hapticStrength: "medium" },
+    settings,
+  );
+  check(
+    kept.handwritingDelayMs === 800 &&
+      kept.handwritingStrokeColor === HandwritingStrokeColor.WHITE &&
+      kept.glideTyping === settings.glideTyping,
+    "a writer that passes the stored settings as the fallback keeps what it does not know",
+  );
+  check(kept.sound === true && kept.haptics === false, "while the fields it sent win");
+  check(
+    KeyboardFeedbackBridge.fromShared({
+      soundEnabled: true,
+      hapticsEnabled: true,
+      hapticStrength: "strong",
+      handwritingDelayMs: 1234,
+      handwritingStrokeColor: "purple",
+      handwritingStrokeWidth: 9,
+    }).handwritingDelayMs === 1200,
+    "the page's values are validated like the file's",
   );
 });
 
@@ -7604,27 +8997,59 @@ group("the design key changes whenever the drawing would", () => {
 });
 
 group("the panel is as tall as what the view stacks inside it", () => {
-  const expected =
+  // 设计稿的 Harmony 框架：顶部 8，50vp 的条带，10vp 间距，四行 44vp 及其间三个行间距，底部 6。
+  check(
+    KeyboardMetrics.totalHeightVp() === 8 + 50 + 10 + 44 * 4 + 7 * 3 + 6,
+    "the touch total counts the padding, the strip, its gap, every key row, the gaps between them and the bottom padding",
+  );
+  check(
+    KeyboardMetrics.totalHeightVp() ===
+      KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP +
+        KeyboardMetrics.STRIP_HEIGHT_VP +
+        KeyboardMetrics.STRIP_GAP_VP +
+        KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS +
+        KeyboardMetrics.touchRowGapsVp(KeyboardMetrics.ROW_SPACING_VP * 10) +
+        KeyboardMetrics.TOUCH_ROOT_BOTTOM_PADDING_VP,
+    "and it is built from the constants the view lays itself out with",
+  );
+  check(
+    KeyboardMetrics.touchRowGapsVp(70) === 7 * (KeyboardMetrics.KEY_ROWS - 1),
+    "four touch rows are separated by three gaps; the strip has its own",
+  );
+  check(
+    KeyboardMetrics.TOUCH_ROOT_HORIZONTAL_PADDING_VP === 4 &&
+      KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP === 5 &&
+      KeyboardMetrics.ROOT_VERTICAL_PADDING_VP === 7,
+    "the touch sides are 4vp while the 2in1 frame keeps its own padding",
+  );
+  const compactExpected =
     KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP +
-    KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP +
+    KeyboardMetrics.candidateRowHeightVp(KeyboardMetrics.CANDIDATE_FONT_SIZE, true) +
+    KeyboardMetrics.CANDIDATE_CARD_PADDING_VP * 2 +
     KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS +
     KeyboardMetrics.ROW_SPACING_VP * KeyboardMetrics.KEY_ROWS +
     KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2;
   check(
-    KeyboardMetrics.totalHeightVp() === expected,
-    "the total counts the strip, every key row, the gaps between them and both paddings",
-  );
-  // One gap per key row: one between the strip and the first row, then one before each of the rest.
-  check(
-    KeyboardMetrics.ROW_SPACING_VP * KeyboardMetrics.KEY_ROWS ===
-      KeyboardMetrics.ROW_SPACING_VP * 4,
-    "four rows are separated by four gaps, not three",
+    KeyboardMetrics.totalHeightVp(
+      70,
+      0,
+      0,
+      KeyboardMetrics.CANDIDATE_FONT_SIZE,
+      KeyboardMetrics.CANDIDATE_PREEDIT_FONT_SIZE,
+      true,
+    ) === compactExpected,
+    "a 2in1 surface keeps the stacked strip with one gap per key row",
   );
   check(KeyboardMetrics.totalHeightVp() > 0, "a panel given a height of zero never appears");
   check(
-    KeyboardMetrics.totalHeightVp(70, 0, 1, 18) - KeyboardMetrics.totalHeightVp(70, 0, 0, 18) ===
+    KeyboardMetrics.totalHeightVp(70, 0, 1, 18) === KeyboardMetrics.totalHeightVp(70, 0, 0, 18),
+    "on touch the gloss lives inside the fixed strip and never grows the panel",
+  );
+  check(
+    KeyboardMetrics.totalHeightVp(70, 0, 1, 18, 15, true) -
+      KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, true) ===
       KeyboardMetrics.glossHeightVp(1, 18),
-    "one reserved gloss row grows the panel instead of taking height from the keys",
+    "a 2in1 surface still reserves the asynchronous gloss row",
   );
   check(
     KeyboardMetrics.candidateHeightVp("horizontal", 3, true, 0, 1, 18) -
@@ -7649,8 +9074,14 @@ group("the panel is as tall as what the view stacks inside it", () => {
   );
   check(
     KeyboardMetrics.totalHeightVp(100, 0) - KeyboardMetrics.totalHeightVp(70, 0) ===
+      3 * (KeyboardMetrics.KEY_ROWS - 1),
+    "wider row spacing adds one gap between each pair of touch rows",
+  );
+  check(
+    KeyboardMetrics.totalHeightVp(100, 0, 0, 18, 15, true) -
+      KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, true) ===
       3 * KeyboardMetrics.KEY_ROWS,
-    "wider row spacing adds one gap per key row",
+    "and one per key row on a 2in1 surface, as before",
   );
   check(
     KeyboardMetrics.totalHeightVp(70, -12) < KeyboardMetrics.totalHeightVp(70, 0),

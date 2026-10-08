@@ -20,8 +20,8 @@ export class CandidateWidthPolicy {
   static readonly MAX_WIDTH_VP: number = 720;
   private static readonly LATIN_EM: number = 0.58;
   private static readonly WIDE_EM: number = 1.0;
-  /** The window's own padding and border around its content. */
-  static readonly EXTRA_WIDTH_VP: number = 48;
+  /** 窗口自身围绕内容的内边距和边框，加上卡片两侧各 8vp 的内边距（`KeyboardMetrics.CANDIDATE_CARD_PADDING_VP`）。 */
+  static readonly EXTRA_WIDTH_VP: number = 64;
   /** The right padding the view puts after a desktop ordinal. */
   static readonly ORDINAL_GAP_VP: number = 4;
   /** Room for the bar the view draws in front of the highlighted candidate, kept in every chip so the highlight moving never changes a width. */

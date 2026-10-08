@@ -1,36 +1,8 @@
 import { KeyboardGeometry } from "../KeyboardGeometry";
 
-export enum KeyboardLayoutDragAxis {
-  UNDECIDED = 0,
-  KEY_SPACING = 1,
-  ROW_SPACING = 2,
-}
-
-/** Pure drag arithmetic for the transparent, live keyboard-layout adjustment surface. */
+/** 高度条把手的纯拖动计算，用于调整实时键盘的高度。 */
 export class KeyboardLayoutDragPolicy {
-  // Apple uses eighteen screen points for one spacing point. Harmony stores tenths, so the same
-  // physical gesture advances ten stored units per eighteen density-independent pixels.
-  static readonly SPACING_DRAG_SCALE_VP: number = 18;
-
-  static axis(offsetX: number, offsetY: number): KeyboardLayoutDragAxis {
-    return Math.abs(offsetY) >= Math.abs(offsetX)
-      ? KeyboardLayoutDragAxis.ROW_SPACING
-      : KeyboardLayoutDragAxis.KEY_SPACING;
-  }
-
-  static keySpacing(baseTenths: number, offsetX: number): number {
-    return KeyboardGeometry.keySpacing(
-      Math.round(baseTenths + (offsetX * 10) / KeyboardLayoutDragPolicy.SPACING_DRAG_SCALE_VP),
-    );
-  }
-
-  static rowSpacing(baseTenths: number, offsetY: number): number {
-    return KeyboardGeometry.rowSpacing(
-      Math.round(baseTenths + (offsetY * 10) / KeyboardLayoutDragPolicy.SPACING_DRAG_SCALE_VP),
-    );
-  }
-
-  /** Upward screen movement is negative and therefore makes the keyboard taller. */
+  /** 拖动达到的高度调整：起始调整值减去手指的总垂直位移。屏幕上向上移动为负，因此让键盘变高，1vp 对 1vp，并受共享偏好上下限约束。 */
   static height(baseVp: number, offsetY: number): number {
     return KeyboardGeometry.heightAdjustment(Math.round(baseVp - offsetY));
   }

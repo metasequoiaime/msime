@@ -420,13 +420,19 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       });
   }
 
-  /** The gear opens the application, which is where everything that is not a keystroke lives. */
-  private openSettings(): void {
-    // Named rather than read off the context: an extension context carries no ability info, and the
-    // bundle is this one by construction — the panel and the settings window are the same app.
-    this.context.startAbility({
-      bundleName: BUNDLE_NAME, abilityName: 'EntryAbility'
-    }).catch((error: Object): void => {
+  /**
+   * 齿轮按钮打开应用，按键以外的一切都在应用里。
+   *
+   * `page` 是键盘按名称请求的设置页（功能面板的「词库」「反馈」和「关于」磁贴）；`EntryAbility` 从 want 的 `page` 参数读取它，并打开该页而不是根页面，冷启动和应用已在运行时都是如此。
+   */
+  private openSettings(page: string | undefined): void {
+    // 直接写明名称而不是从 context 读取：扩展的 context 不带 ability 信息，而 bundle 按构造就是本应用——面板和设置窗口属于同一个应用。
+    const want: Want = { bundleName: BUNDLE_NAME, abilityName: 'EntryAbility' };
+    if (page !== undefined) {
+      const parameters: Record<string, Object> = { 'page': page };
+      want.parameters = parameters;
+    }
+    this.context.startAbility(want).catch((error: Object): void => {
       KeyboardLog.error(`settings would not open: ${describeError(error)}`);
     });
   }
@@ -892,8 +898,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     // keyboard may be plugged into this one later.
     this.modeKeys.use(KeyboardSession.shared.modeBindings());
     // Every device, not only the one with a toolbar: a phone reaches the settings application from its tools panel.
-    KeyboardSession.shared.onOpenSettings = (): void => {
-      this.openSettings();
+    KeyboardSession.shared.onOpenSettings = (page: string | undefined): void => {
+      this.openSettings(page);
     };
     KeyboardSession.shared.onPreferencesReloaded = (): void => {
       this.preferencesReloaded();

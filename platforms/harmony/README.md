@@ -124,7 +124,7 @@ Apple 润色的是**选区**：用户选中一段话，点润色，面板给出�
 
 2in1 硬件键盘补齐 Windows 的五个语音快捷键，各自受共享 `voice_input.hotkey_*` 开关控制：右 Alt 长按录音、Ctrl+Win 与 Ctrl+右 Alt 两个长按和弦、录音中按空格锁定（松开长按键不再结束）、Ctrl+F9 开始/停止（也用于结束已锁定的录音），录音中按 Esc 取消。设置页一直显示这五个开关，此前本宿主一个也不消费。空格与 Esc 只在录音时被占用，其余时刻仍归组合输入；长按键的重复按下不算第二次请求。录音状态由绘制识别面板的视图告知会话，识别自行结束（拿到最终结果或 provider 失败）时会清掉长按与锁定，否则下一次按下长按键会被当成一次并不存在的录音的释放。
 
-共享设置中的“顶部语音入口”现在也会驱动 Harmony 触屏键盘：开启后，快捷栏会显示麦克风入口并直接打开系统识别；`voice_input.enabled` 关闭时，顶部入口隐藏，功能面板的语音图块保留在原位但变灰（0.4 不透明度）且不响应点按，保持平台特性与 Windows 的可选语音开关一致，同时不让图块网格因一个开关而重排。
+Harmony 触屏键盘的工具栏没有语音按钮，语音从功能面板的「语音输入」图块进入，所以共享设置中的“顶部语音入口”（`touch_voice_shortcut`）在 Harmony 上没有可控制的东西，设置页在 HarmonyOS 上不画这一行。`voice_input.enabled` 关闭时，语音图块保留在原位但变灰（0.4 不透明度）、不响应点按、读屏报「不可用」，保持平台特性与 Windows 的可选语音开关一致，同时不让图块网格因一个开关而重排。
 
 共享设置中的“语音面板主题”也由 Harmony 消费：`dark`/`light` 覆盖全局主题，`follow` 继承全局主题；语音面板使用全局主题 keyboard 调色板的对应明暗一套。
 
@@ -134,7 +134,7 @@ Apple 润色的是**选区**：用户选中一段话，点润色，面板给出�
 
 共享设置中的“菜单主题”（`menu_theme`）由 2in1 候选右键菜单消费：`dark`/`light` 覆盖全局主题，`follow` 继承；菜单同样从 candidate 调色板派生（surface 底、text 字、accent 动作、border 描边），而不是键盘调色板。触摸键盘上的长按条属于键盘本身，继续用键盘调色板。
 
-全局主题（system / shuishan / light / paper / night / ink / custom）经 ABI 3 的 `msime_client_resolve_theme` 与主题目录接入：键盘按主题的 keyboard 调色板着色（字母键、功能键、secondary 文字各有其色，回车键始终是平台 accent 白字），2in1 候选窗与 STATUS_BAR 工具栏使用 candidate 调色板，主题带固定明暗时所有面都随之固定。`global_theme` 为 `custom` 时，`custom_theme.keyboard` 若带一份设计，键盘读取它的颜色、圆角、边框、透明度和键面字体属性；否则用 `custom_theme.base` 所指主题的 keyboard 调色板。原生主题选择器会展示同一份设计，避免设置页保存了设计但键盘仍绘制默认配色。2in1 候选窗的次要文字（译文、注释、编码提示和序号）一律用调色板自带透明度的 secondary，不再叠加额外的不透明度；组字行末尾显示「当前页 / 总页」与可点的 ‹ ›，组字行关闭时它随之隐藏。输入模式提示（中/英徽章）用主题的 accent 与 on_accent 着色。触摸候选栏空闲时是一条横栏：34vp 标志按钮（功能面板打开时填平台 accentSoft）、中/英、方案、译、标点四个胶囊（译是候选译文开关，开启时字用 accent 色、关闭时用 secondary），以及表情、语音、收起键盘和打开设置；输入时候选不编号、无底色，选中项以 accent 与 600 字重区分。功能面板为每行四格的 52vp 图块，开启态是 accentSoft 底加 accent 字形；前八格按设计排列为拼、译、中/英、全、主题、标点、模糊音、设置，原有的繁体、表情及其余工具跟在后面，滚动可达。译与模糊音写的是设置页同一份 `candidate_translations` 与 `fuzzy_pinyin.enabled`：切换译文后键盘按新值重算释义行并调整高度；模糊音先存盘再交给会话，这样首次开启时由偏好存储补上的全部规则会立即生效，关闭时已选规则原样保留。
+全局主题（system / shuishan / light / paper / night / ink / custom）经 ABI 3 的 `msime_client_resolve_theme` 与主题目录接入：键盘按主题的 keyboard 调色板着色（字母键、功能键、secondary 文字各有其色，回车键始终是平台 accent 白字），2in1 候选窗与 STATUS_BAR 工具栏使用 candidate 调色板，主题带固定明暗时所有面都随之固定。`global_theme` 为 `custom` 时，`custom_theme.keyboard` 若带一份设计，键盘读取它的颜色、圆角、边框、透明度和键面字体属性；否则用 `custom_theme.base` 所指主题的 keyboard 调色板。原生主题选择器会展示同一份设计，避免设置页保存了设计但键盘仍绘制默认配色。2in1 候选窗的次要文字（译文、注释、编码提示和序号）一律用调色板自带透明度的 secondary，不再叠加额外的不透明度；组字行末尾显示「当前页 / 总页」与可点的 ‹ ›，组字行关闭时它随之隐藏。输入模式提示（中/英徽章）用主题的 accent 与 on_accent 着色。触摸候选栏空闲时是一条工具栏：最左是品牌键（水杉标志，打开功能面板，面板打开时高亮），随后是表情、常用语、剪贴板、皮肤、键盘（输入方式选择器）五个工具按钮，最右是收起键盘；中/英、方案、译、标点不再是工具栏上的胶囊，设置也不再是工具栏上的 ⚙，它们都在功能面板里。输入时候选不编号、无底色，选中项以 accent 与 600 字重区分。功能面板每页四列两行，可左右翻页，图块顺序由 `FunctionPanelPolicy.ts` 决定：先是设计稿的十四个图块（全角、中文标点、模糊音、繁体、手写、词库、键盘高度、设置、按键音、振动、单手模式、隐私模式、反馈、关于；隐私模式关掉会话学习并把会话标为私密，打字统计、按键计数、语音时长、剪贴板历史和云剪贴板都不再记录，见 `PrivacyGate.ts`），再是 Harmony 键盘自己的候选翻译、符号、本地输入、语音输入、高情商回复、AI 润色、振动强度，与 Android `FunctionPanelModel.java` 的先例一致。这个顺序与 `guides/harmony.md` 里描述的面板不同，以代码为准。词库、反馈、关于三格直接打开设置应用的对应页面（`openSettings('dictionary' | 'feedback' | 'about')`，经 want 的 `page` 参数交给 `EntryAbility`），输入方式选择器里的「添加语言」也打开词库页。候选翻译与模糊音写的是设置页同一份 `candidate_translations` 与 `fuzzy_pinyin.enabled`：切换译文后键盘按新值重算释义行并调整高度；模糊音先存盘再交给会话，这样首次开启时由偏好存储补上的全部规则会立即生效，关闭时已选规则原样保留。
 
 共享设置中的触摸输入方案启用列表也由 Harmony 消费：输入方案选择器只展示启用的方案，切换当前方案时保留其余启用/禁用状态，不会因为一次选择把用户隐藏的方案重新打开。
 
@@ -257,13 +257,13 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 `touch_keyboard_schemes` 整体进了设置记录：`scheme` 和 `touch_keyboard_layout` 是 Engine 的视角，它们解析出什么与选择器还提不提供它无关。
 
-高情商回复是工具而不是输入方案：`KeyboardScheme.SCHEMES` 和方案选择器里没有它，快捷栏上的 💬（`reply`）在任何方案下都在，点一下打开回复面板（`SURFACE_REPLY`），再点一次或点面板里的「完成」回到原来的键盘。旧文档里存的 `thoughtful_reply` 不是一个已知的方案 id，按未知 id 处理：`enabledFromPreferenceIds` 把它从启用列表里去掉（只剩它时回落到全拼 26 键），`resolveEnabledSelection` 把存着它的选择落到第一个启用项。插入的回复按 `reply` 来源记入打字统计，与当前方案无关。
+高情商回复是工具而不是输入方案：`KeyboardScheme.SCHEMES` 和方案选择器里没有它，功能面板里的「高情商回复」图块（读屏名 `reply`）在任何方案下都在，点一下打开回复面板（`SURFACE_REPLY`），点面板里的「完成」回到原来的键盘。旧文档里存的 `thoughtful_reply` 不是一个已知的方案 id，按未知 id 处理：`enabledFromPreferenceIds` 把它从启用列表里去掉（只剩它时回落到全拼 26 键），`resolveEnabledSelection` 把存着它的选择落到第一个启用项。插入的回复按 `reply` 来源记入打字统计，与当前方案无关。
 
 单测覆盖了来源断言的那两种情形（已应用项不在启用列表、启用列表被清空）和写回的三种判定。
 
 ## 快捷栏的按钮此前对读屏全是哑的
 
-候选行下面那条工具栏原本整条是图标，没有一个挂了 `accessibilityText`；`KeyAccessibilityPolicy` 里当时只有 `tools`、`skin`、`scheme` 三个名字（移植好、没人调用）。现在快捷栏上每个控件都有名字，从左到右：标志 `更多快捷设置`（`tools`，打开功能面板）、中/英胶囊（`languageState`，读「切换中英文，当前中文」）、方案胶囊 `选择输入方案`（`scheme`）、译胶囊（`tile(translations(), …)`，读「显示译文，已开启／已关闭」）、标点胶囊（`punctuationState`，读当前是中文还是英文标点）、`表情与符号`（`emoji`）、`语音输入`（`voice`，仅在开启语音快捷键且语音可用时出现）、`生成高情商回复`（`reply`，任何方案下都在）、`收起键盘`（`dismiss`）、⚙ `打开设置`（`settings`）。`选择主题`（`theme`，原 `skin` 的「切换皮肤」，皮肤并入全局主题后改名）和 `键盘大小与间距`（`geometry`）已不在快捷栏上，而是功能面板里的图块；面板的每个图块都经 `KeyAccessibilityPolicy.tile` 读名字，开关类图块（如「中文标点」）再读出已开启或已关闭。`shortcutIcon`/`shortcutText`/`stripPill` 的 label 参数不是可选的——按键至少还画着一个字符，这些只画图标或一两个字。
+候选行下面那条工具栏原本整条是图标，没有一个挂了 `accessibilityText`。现在工具栏上每个控件都有名字，从左到右：品牌键 `更多快捷设置`（`tools`，打开功能面板）、`表情与符号`（`emoji`）、`常用语`（`phrase`）、`剪贴板`（`clipboard`）、`皮肤`（`skin`）、`选择输入方案`（`scheme`，打开输入方式选择器）、`收起键盘`（`collapse`，与 `dismiss` 同名）。候选栏的展开箭头和展开网格里的返回读 `expandCandidates`（「展开候选」／「收起候选」），底排的句号键读 `period`，选择器里正在使用的一项在名字后再读 `current`（「当前使用」）。功能面板的图块名字和状态来自 `FunctionPanelPolicy`：每格读 `accessibilityLabel`（多数就是标签，「繁体输出」「按键振动」「打开设置」「语音输入」「生成高情商回复」这几格另有更明确的说法），开关类图块再读已开启或已关闭，暂不可用的读「不可用」。品牌键 `BrandTile` 的读屏名参数是必填的——按键至少还画着一个字符，它只画一个标志。
 
 日语的 `小゛゜` 键同时补上：它靠变淡表示"还没有假名可改"，而变淡这件事读屏不会转述，所以停用态的名字直接把原因说出来（`JapaneseVariantPolicy.accessibilityLabel`，同样是移植好没人调用的）。
 
