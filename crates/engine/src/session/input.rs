@@ -1638,9 +1638,10 @@ impl InputSession {
     /// 把网址模式剩下的字母重新作为组字原文。方案装不下全部字母时留在网址模式。
     pub(super) fn restore_composition_from_url(&mut self, letters: String) {
         self.reset_composition();
-        self.pending_sequence = Some(letters.clone());
-        self.pending_sequence_with_cases = Some(letters.clone());
-        self.apply_pending_sequence();
+        // 直接借用剩余文本还原方案，保留原文以检测码长截断。
+        self.engine.replace_active_raw_input(&letters, &letters);
+        self.online_requests.invalidate();
+        self.update_mixed_candidates();
         // 方案装不下全部字母（五笔不开混拼时码长 4，`https:` 删掉 `:` 剩 5 个字母）时留在网址模式，不能悄悄丢掉用户键入的字母。
         if self.raw_with_cases() != letters {
             self.enter_url_mode(letters);

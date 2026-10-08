@@ -4,7 +4,11 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
+#[cfg(any(not(unix), test))]
+use std::fs;
+use std::fs::File;
+#[cfg(any(not(unix), test))]
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -3019,23 +3023,58 @@ impl PreferencesStore {
             now.second()
         );
         let mut attempt = 0u32;
+        #[cfg(unix)]
+        let directory = crate::storage::open_private_directory(&self.directory)?;
         loop {
             let name = if attempt == 0 {
                 stem.clone()
             } else {
                 format!("{stem}-{attempt}")
             };
-            let path = self.directory.join(name);
-            let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(file) => file,
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    attempt += 1;
-                    continue;
-                }
-                Err(error) => return Err(error.into()),
+            #[cfg(unix)]
+            let (path, mut file) = {
+                let descriptor = match rustix::fs::openat(
+                    &directory,
+                    std::ffi::OsStr::new(&name),
+                    rustix::fs::OFlags::WRONLY
+                        | rustix::fs::OFlags::CREATE
+                        | rustix::fs::OFlags::EXCL
+                        | rustix::fs::OFlags::NOFOLLOW
+                        | rustix::fs::OFlags::CLOEXEC
+                        | rustix::fs::OFlags::NONBLOCK,
+                    rustix::fs::Mode::from_raw_mode(0o600),
+                ) {
+                    Ok(descriptor) => descriptor,
+                    Err(error) if error == rustix::io::Errno::EXIST => {
+                        attempt += 1;
+                        continue;
+                    }
+                    Err(error) => return Err(std::io::Error::from(error).into()),
+                };
+                (self.directory.join(&name), File::from(descriptor))
+            };
+            #[cfg(not(unix))]
+            let (path, mut file) = {
+                let path = self.directory.join(&name);
+                let file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+                    Ok(file) => file,
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                        attempt += 1;
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                };
+                (path, file)
             };
             if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
                 drop(file);
+                #[cfg(unix)]
+                let _ = rustix::fs::unlinkat(
+                    &directory,
+                    std::ffi::OsStr::new(&name),
+                    rustix::fs::AtFlags::empty(),
+                );
+                #[cfg(not(unix))]
                 let _ = fs::remove_file(&path);
                 return Err(error.into());
             }
@@ -3149,6 +3188,50 @@ const STALE_TEMPORARY_AGE: std::time::Duration = std::time::Duration::from_secs(
 /// Only files a day old are touched, and the age is what makes this safe rather than the lock: the
 /// statistics document stages its writes into this same directory under a lock of its own, so a
 /// sweep that went by name alone could delete a write that was in flight.
+#[cfg(unix)]
+fn sweep_stale_temporaries(directory: &Path) {
+    let Ok(directory) = crate::storage::open_private_directory(directory) else {
+        return;
+    };
+    let Ok(mut entries) = rustix::fs::Dir::read_from(&directory) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    while let Some(Ok(entry)) = entries.next() {
+        let name = entry.file_name();
+        if !name.to_bytes().starts_with(b".tmp") {
+            continue;
+        }
+        let Ok(fd) = rustix::fs::openat(
+            &directory,
+            name,
+            rustix::fs::OFlags::RDONLY
+                | rustix::fs::OFlags::NOFOLLOW
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::empty(),
+        ) else {
+            continue;
+        };
+        let file: File = fd.into();
+        let Ok(metadata) = file.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let abandoned = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= STALE_TEMPORARY_AGE);
+        if abandoned {
+            let _ = rustix::fs::unlinkat(&directory, name, rustix::fs::AtFlags::empty());
+        }
+    }
+}
+
+#[cfg(not(unix))]
 fn sweep_stale_temporaries(directory: &Path) {
     let Ok(entries) = std::fs::read_dir(directory) else {
         return;

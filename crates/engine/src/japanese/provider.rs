@@ -14,6 +14,8 @@ use crate::types::{CandidateSource, QueryRequest, SchemeType, WordItem};
 pub const DYNAMIC_CACHE_CAPACITY: usize = 128;
 
 const KANA_WEIGHT: i64 = 1_000_000;
+/// 读音完整时平假名所在的最晚位置（从 0 数），首位留给最可能的转换。
+const KANA_SLOT: usize = 1;
 const KATAKANA_WEIGHT: i64 = 999_999;
 const PREFIX_LEMMA_BASE: i64 = 980_000;
 const SENTENCE_BASE: i64 = 900_000;
@@ -87,6 +89,19 @@ impl Rows<'_> {
             KATAKANA_WEIGHT,
             CandidateSource::Generated,
         );
+    }
+
+    /// 把已在列表里的 `word` 挪到不晚于 `slot` 的位置，其余行保持相对顺序。
+    fn promote(&mut self, word: &str, slot: usize) {
+        let Some(index) = self.items[..self.used]
+            .iter()
+            .position(|item| item.word == word)
+        else {
+            return;
+        };
+        if index > slot {
+            self.items[slot..=index].rotate_right(1);
+        }
     }
 
     fn finish_into(mut self, destination: &mut Vec<WordItem>) {
@@ -181,6 +196,10 @@ impl JapaneseProvider {
 
         if !conversion.hiragana.is_empty() && !kana_first {
             rows.push_kana(&conversion.hiragana);
+            // 读音完整时，平假名本身最晚排在第二位。词库里没有这个假名词条时，它原本跟在全部汉字和联想后面：`tyou`/`chou` 的ちょう排在第 23 个，用户以为打不出来；有词条的きょう、にほん本来就在第二位。
+            if conversion.pending.is_empty() {
+                rows.promote(&conversion.hiragana, KANA_SLOT);
+            }
         }
 
         if let Some(dynamic) = self.dynamic.get_ref(&request.raw_input) {
@@ -428,6 +447,37 @@ mod tests {
         // While a letter is still pending, the lemmas it can go on to spell lead.
         let nijy = provider.query(&request("nijy"));
         assert_eq!(nijy[0].word, "二重", "{:?}", words(&nijy));
+    }
+
+    /// 用户反馈 `tyou` 打不出ちょう：词库里只有ちょう的汉字词条、没有假名词条时，平假名原本排在全部转换之后。
+    #[test]
+    fn a_complete_reading_keeps_its_hiragana_on_the_first_page() {
+        let model = test_model::bytes(
+            &[
+                ("ちょう", "超", 0, 0, 100),
+                ("ちょう", "長", 0, 0, 200),
+                ("ちょう", "町", 0, 0, 300),
+                ("ちょう", "朝", 0, 0, 400),
+                ("ちょう", "帳", 0, 0, 500),
+                ("ちょう", "庁", 0, 0, 600),
+            ],
+            1,
+            &[0],
+        );
+        let (_root, mut provider) = provider_with(Some(model));
+        for raw in ["tyou", "chou"] {
+            let rows = provider.query(&request(raw));
+            assert_eq!(words(&rows)[1], "ちょう", "{raw}: {:?}", words(&rows));
+            assert_eq!(rows[0].word, "超", "{raw}: {:?}", words(&rows));
+        }
+        // 还挂着半截字母时不挪：先给它能拼成的词。
+        let pending = provider.query(&request("tyouk"));
+        assert_ne!(
+            words(&pending).get(1),
+            Some(&"ちょう"),
+            "{:?}",
+            words(&pending)
+        );
     }
 
     #[test]

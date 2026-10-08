@@ -129,9 +129,9 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     }
 
     private void rebindInputMethod() throws Exception {
-        shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
-        shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
-        shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
+        shell("ime disable app.msime.android/.MSIMEInputService");
+        shell("ime enable app.msime.android/.MSIMEInputService");
+        shell("ime set app.msime.android/.MSIMEInputService");
         SystemClock.sleep(1000);
     }
 

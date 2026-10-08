@@ -247,7 +247,7 @@ enum FullWidthInputPolicy {
   }
 }
 
-/// 以百分比表示的「键盘高度」：存储的点数调整量除以默认高度下按键区的高度。键盘的内联调节条和应用的「键盘」页都在这里换算，所以同一个存储值在两处显示为同一个百分比；设置本身仍以点为单位（`touch_keyboard_height_adjustment`）。
+/// 以百分比表示的「键盘高度」：存储的点数调整量除以默认高度下按键区的高度。键盘的布局面板和应用的「键盘」页都在这里换算，所以同一个存储值在两处显示为同一个百分比；设置本身仍以点为单位（`touch_keyboard_height_adjustment`）。
 enum KeyboardHeightPercent {
   /// `touch_keyboard_height_adjustment` 经过校验的取值范围，单位为点。
   static let adjustmentRange: ClosedRange<CGFloat> = -12...48

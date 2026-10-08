@@ -23,7 +23,7 @@ const MAX_TRANSLATION_SIDECAR_BYTES: u64 = 1024 * 1024;
 
 pub(crate) fn write_private_file_no_follow(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -36,12 +36,14 @@ pub(crate) fn write_private_file_no_follow(path: &Path, bytes: &[u8]) -> io::Res
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
     let mut file = options.open(path)?;
-    if !file.metadata()?.is_file() {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || !crate::paths::has_single_link(&file)? {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "translation sidecar is not a regular file",
+            "translation sidecar is not a single-link regular file",
         ));
     }
+    file.set_len(0)?;
     file.write_all(bytes)?;
     file.sync_all()
 }

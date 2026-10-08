@@ -141,9 +141,8 @@ dependencies {
     implementation("com.google.mlkit:digital-ink-recognition:19.0.0")
     // Notice bodies on the 设置 tab are simple Markdown. Core only: no HTML plugin, so raw HTML in a notice is never interpreted, and no image loader.
     implementation("io.noties.markwon:core:4.6.2")
-    // Google 登录。Credential Manager 是 Google 现在的官方入口，旧的 GoogleSignInClient 已弃用；
-    // googleid 提供那颗按钮要的 GetGoogleIdOption，play-services-auth 那件是它在设备上的实现。
-    implementation("androidx.credentials:credentials:1.3.0")
-    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    // Google 登录。Credential Manager 是 Google 现在的官方入口，旧的 GoogleSignInClient 已弃用；googleid 提供「通过 Google 登录」按钮用的 GetSignInWithGoogleOption（不是底部弹出一键登录用的 GetGoogleIdOption，见 GoogleSignInFlow），play-services-auth 那件是它在设备上的实现。googleid 1.2.1 依赖 credentials 1.6.0，androidx.credentials 又是一个版本一致的原子组，所以原来写的 1.3.0 实际都解析成 1.6.0；这里直接写解析出来的版本，免得读的人按 1.3.0 去查行为。
+    implementation("androidx.credentials:credentials:1.6.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.2.1")
 }

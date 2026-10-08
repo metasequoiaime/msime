@@ -51,13 +51,23 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 - 实现与 LatinIME 的做法相同：浮动时输入法窗口、系统的 `inputArea` 和键盘根视图都铺满屏幕，根视图透明；`onComputeInsets` 把内容区和可见区都设成从窗口底边算起（应用不让出高度），可触摸区域只有面板（`TOUCHABLE_INSETS_REGION`），面板外的触摸落到应用上。停靠时把窗口和 `inputArea` 恢复成第一次浮动前的高度，`setInputView` 与 `updateFullscreenMode` 之后重新套一遍。
 - 浮动时单手模式和横屏分离式键盘不生效（存着的值不变，停靠后自动回来），功能面板的「单手模式」磁贴显示为不可用；外接键盘的候选条模式里不浮动，候选条停在底部，浮动磁贴与按钮显示为不可用。
 
+### 键盘底栏
+
+全面屏手势导航下，键盘最下一行离屏幕底边只有手势条那一截（常见 16–24 dp，隐藏手势条时是 0），按底行容易碰到系统上滑回桌面的手势区。键盘底栏在键区下面垫一条 40 dp 的栏：左边地球图标弹出系统的输入法选择框，右边打开或关上剪贴板面板，中间左右滑动移动光标（先结束组字，每 12 dp 一格，与空格键拖动同一套步长，但不受「空格滑动移动光标」开关影响）。开关是设置「键盘」页「布局」里的「键盘底栏」（本地设置 `platform.android.bottom_bar`，布尔，默认开，只在本机）。规则集中在无 Android 依赖的 `KeyboardBottomBarPolicy`，`KeyboardBottomBarPolicySmoke` 逐条验证：
+
+- 只在导航栏低于 32 dp 时画。三键导航的导航栏有 48 dp，不画。
+- 系统自己画了输入法的收起和切换按钮时不画。Android 13 起原生系统把它们画在输入法窗口底部 24 dp 的手势条两端（`NavigationBarFrame`，挂在输入法窗口的 decor 下），高度与国产系统的手势条相同，所以按 decor 里有没有可见的这一条判断。Android 12 的系统导航栏自己显示这两个按钮，高到 48 dp。
+- 导航栏高度取键盘视图收到的 inset 与输入法窗口 `WindowMetrics` 的较大值：Android 14 及以前输入法窗口停在导航栏上方，视图收到的底部 inset 是 0，只看它会把三键导航误判成手势导航。Android 11 及以前不画底栏。
+- 浮动键盘、外接键盘的候选条模式（键区收起时）和手机横屏不画。
+- 底栏叠在键盘外框底部（`ImeBottomBar`），键盘列的底部内边距 = 底栏下面让出的距离 + 40 dp。让出的距离是导航栏落在窗口里的那截，加上系统手势区高出导航栏的部分，中间的横向拖动因此不会从系统手势区里起手。覆盖面板按这段内边距让出底边，剪贴板、表情等面板开着时底栏仍可点。
+
 `check-host.sh` 在装有固定 NDK 28.2.13676358 的机器上额外用 `aarch64-linux-android28-clang++` 以 `-Wall -Werror` 对 `native/client_jni.cpp` 做目标平台编译：Java 里声明 `native` 的方法在没有 C++ 实现时照样能编过，而这是 Java 声明与共享 FFI 签名唯一必须一致的地方；完整原生构建需要 vcpkg、Rust Android 目标和固定的语音运行时，这一步都不需要。没有固定 NDK 的机器会跳过并明确说明。`verify-native.sh` 的导出清单同时覆盖 online query、云 URL、AI 请求描述符和两个在线候选写回入口。
 
 宿主 Java 以 API 35 的 `android.jar` 编译，而 manifest 声明 minSdk 28，因此比真实 APK 构建宽松；`Files.readString`/`writeString` 属于 API 34，本宿主不使用，`check-host.sh` 对这两个方法有定向检查，其余 API 级别问题仍由 Gradle lint 覆盖。`scripts/verify-local.sh` 另有 `compile: android target` 阶段，在固定 NDK、Rust `aarch64-linux-android` 目标与 vcpkg 依赖前缀齐备时检查 `msime-desktop` 的 Android 分支；宿主的 `cargo check --workspace` 只覆盖宿主目标。
 
 `NativeClient` 提供 Java/Kotlin 到共享运行时的 JNI 传输。UTF-8 字节数组保留非 BMP 字符，避免 JNI modified UTF-8 损坏候选或资源路径。JNI 负责释放 C API 响应；上层解析 ok/value，负责会话线程和生命周期。
 
-`MSIMEInputService` 提供实际 InputMethodService 源码、系统 manifest 和输入法元数据；最小 Android 28，编译目标 35。软键盘、硬件 ASCII 键、候选点击和翻页调用同一 JNI；Engine 提交与剩余编辑串通过 `EditorBridge` 按顺序映射到 InputConnection。宿主不实现输入算法或分页规则。密码、非文本和无建议字段直接输入，不创建 Engine；IME_FLAG_NO_PERSONALIZED_LEARNING 关闭当前会话学习。宿主不记录输入；联网只发生在 [PRIVACY.md](../../PRIVACY.md) 列出的场景（云联想与 AI、账号与同步、匿名使用统计、更新检查、按需下载资源包与模型等），各自的触发条件、目的地和开关以那里为准。
+`MSIMEInputService` 提供实际 InputMethodService 源码、系统 manifest 和输入法元数据；最小 Android 28，编译目标 35。软键盘、硬件 ASCII 键、候选点击和翻页调用同一 JNI；Engine 提交与剩余编辑串通过 `EditorBridge` 按顺序映射到 InputConnection。宿主不实现输入算法或分页规则。密码和非文本字段直接输入，不创建 Engine；带 `TYPE_TEXT_FLAG_NO_SUGGESTIONS` 的文本框（Chrome 地址栏、关了自动纠错的聊天框和网页输入框）照常组字；IME_FLAG_NO_PERSONALIZED_LEARNING 关闭当前会话学习。宿主不记录输入；联网只发生在 [PRIVACY.md](../../PRIVACY.md) 列出的场景（云联想与 AI、账号与同步、匿名使用统计、更新检查、按需下载资源包与模型等），各自的触发条件、目的地和开关以那里为准。
 
 外接硬件键盘的退格、左右方向、Home、End 和 Forward Delete 通过 `HardwareKeyPolicy` 映射到共享 Engine 的 0/4/5/6/7/8 命令；组字或候选状态由 Engine 处理，空闲时返回给编辑器。Ctrl/Alt/Meta 组合键仍交给系统快捷键，不把宿主命令抢走。这样 Android 的物理键盘不会复制一套编辑状态机，也不会把前删错误地当成普通退格。
 
@@ -81,7 +91,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 功能面板第 3 页的「文本编辑」打开文本编辑面板（#5625，`ImeTextEditPanel`，键与动作在无 Android 依赖的 `TextEditPanelModel`）：和常用语、剪贴板面板一样盖在键区上、顶边对齐工具栏下沿，收起键此时是「返回键盘」。4 × 4 的布局照 Gboard 的编辑面板：左边 ← 和 → 各占三行，中间一列 ↑、选择、↓，下面一行 移到开头、移到结尾、删除，右边一列 全选、复制、剪切、粘贴。打开前先由 Engine 完成组字，之后所有动作直接作用于编辑器：方向键发 DPAD 按键事件，「选择」开着时先按下左 Shift 再发带 Shift 的方向键（EditText 只认文字缓冲里记着的 Shift，WebView 看事件的 meta），延伸选区；开头和结尾是 Ctrl+Home / Ctrl+End，到整篇文档的两端；全选、复制、剪切、粘贴走 `InputConnection.performContextMenuAction`，编辑器不支持粘贴时退回到直接上屏剪贴板里的文字，复制和剪切不退回（那要宿主自己读选中的文字，会绕过密码框禁止复制的规则）；删除发退格键事件，有选区时删选区，按住连发、上滑同样有快速删除。方向键和删除按住连发，节奏与删除键相同。剪切、粘贴和删除之后「选择」自动关闭。`TextEditPanelModelSmoke` 验证 4 × 4 网格的覆盖、按键码、修饰键与菜单动作。
 
-输入模式的默认值和记忆范围也消费共享偏好：`default_ime_mode` 决定没有历史记录时进入中文还是英文，`ime_mode_scope=app` 时按 `EditorInfo.packageName` 记住用户手动切换，`global` 时所有编辑器共享同一个手动选择。包名只作为受限键名保存，不保存编辑器文本；URI、邮箱等字段触发的临时英文覆盖不会写入记忆，离开字段后恢复切换前的模式。包名缺失或格式异常时退回默认模式。
+输入模式的默认值和记忆范围也消费共享偏好：`default_ime_mode` 决定没有历史记录时进入中文还是英文，`ime_mode_scope=app` 时按 `EditorInfo.packageName` 记住用户手动切换，`global` 时所有编辑器共享同一个手动选择。包名只作为受限键名保存，不保存编辑器文本；URI、邮箱和密码字段触发的临时英文覆盖不会写入记忆，离开字段后恢复切换前的模式；只带 `TYPE_TEXT_FLAG_NO_SUGGESTIONS` 的字段不触发这层覆盖，按上面的默认值和记忆进框（#5998）。包名缺失或格式异常时退回默认模式。
 
 英文大小写状态继续对齐 Apple：中文态空组合点按 Shift 会先完成组合并进入英文的单次大写；单次 Shift 输入一个字母后自动回到小写，350 ms 内连续点按两次进入 Caps Lock，再次点按关闭。编辑器自动 Shift 与手动单次 Shift 使用同一三态状态机，但不会覆盖 Caps Lock；按钮以 `⇧` / `⇪`、选中态和“关闭 / 下一字母 / 自动开启 / 开启”的无障碍状态区分。切换符号层保留当前大小写，硬件 Shift 和本地模式触发使用每次事件自己的修饰状态，不污染软键盘状态；英文模式禁用中文本地输入工具。
 

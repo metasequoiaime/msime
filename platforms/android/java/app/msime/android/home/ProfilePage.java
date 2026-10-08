@@ -104,7 +104,9 @@ public final class ProfilePage extends DetailPage {
         String kind = SyncSwitch.validLoginKind(SyncSwitch.loginKind(context)) ? SyncSwitch.loginKind(context)
             : profile.loginKind();
         if (kind.isEmpty()) return;
-        if (profile.id().equals(SyncSwitch.accountId(context)) && kind.equals(SyncSwitch.loginKind(context))) return;
+        String previousAccount = SyncSwitch.accountId(context);
+        if (profile.id().equals(previousAccount) && kind.equals(SyncSwitch.loginKind(context))) return;
+        SignIn.cancelPendingSnapshot(context, previousAccount);
         SyncSwitch.bindAccount(context, profile.id(), kind);
     }
 
@@ -392,7 +394,7 @@ public final class ProfilePage extends DetailPage {
                 if (failure.status == 429) return "今天的导出次数已用完，明天再试";
                 throw failure;
             } finally {
-                if (temporary != null) Files.deleteIfExists(temporary);
+                if (temporary != null) deleteQuietly(temporary.toFile());
             }
             return "";
         }, outcome -> {

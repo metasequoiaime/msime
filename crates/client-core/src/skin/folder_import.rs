@@ -105,11 +105,15 @@ fn replace_directory_unix(
     target: &Path,
     backup: &Path,
 ) -> Result<(), &'static str> {
-    let parent = staging.parent().ok_or("storage")?;
-    if target.parent() != Some(parent) || backup.parent() != Some(parent) {
+    // 备份是目标原地改名得来的，两者必须同一个父目录；暂存目录可以在别处：插件导入在 `plugins/.staging-*` 暂存、装到 `plugins/<kind>/<id>`，社区皮肤也是。c439fbbf4 要求三者同一个父目录，插件导入、社区皮肤安装和皮肤同步因此全部失败。两个父目录各开一个句柄，跨句柄 renameat（同一文件系统内仍是原子的）。
+    let destination = target.parent().ok_or("storage")?;
+    if backup.parent() != Some(destination) {
         return Err("storage");
     }
-    let directory = crate::storage::open_private_directory(parent).map_err(|_| "storage")?;
+    let source = staging.parent().ok_or("storage")?;
+    let directory = crate::storage::open_private_directory(destination).map_err(|_| "storage")?;
+    let staging_directory =
+        crate::storage::open_private_directory(source).map_err(|_| "storage")?;
     let staging_name = staging.file_name().ok_or("storage")?;
     let target_name = target.file_name().ok_or("storage")?;
     let backup_name = backup.file_name().ok_or("storage")?;
@@ -122,15 +126,14 @@ fn replace_directory_unix(
     if had_previous
         && rustix::fs::renameat(&directory, target_name, &directory, backup_name).is_err()
     {
-        let _ = crate::storage::remove_private_tree_at(&directory, staging_name);
+        let _ = crate::storage::remove_private_tree_at(&staging_directory, staging_name);
         return Err("storage");
     }
-    if let Err(error) = rustix::fs::renameat(&directory, staging_name, &directory, target_name) {
+    if rustix::fs::renameat(&staging_directory, staging_name, &directory, target_name).is_err() {
         if had_previous {
             let _ = rustix::fs::renameat(&directory, backup_name, &directory, target_name);
         }
-        let _ = crate::storage::remove_private_tree_at(&directory, staging_name);
-        let _ = error;
+        let _ = crate::storage::remove_private_tree_at(&staging_directory, staging_name);
         return Err("storage");
     }
     if had_previous {

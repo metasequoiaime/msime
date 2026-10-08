@@ -31,9 +31,9 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             // Instrumenting the IME package restarts its process. Rebind the system
             // service before opening the editor; this fixture runs only on the guarded AVD.
-            shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
-            shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
-            shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
+            shell("ime disable app.msime.android/.MSIMEInputService");
+            shell("ime enable app.msime.android/.MSIMEInputService");
+            shell("ime set app.msime.android/.MSIMEInputService");
             SystemClock.sleep(1000);
             shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             stage = "baseline editor focus";
@@ -57,7 +57,12 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));
             stage = "updated punctuation";
             tapSymbol(",");
-            await(field("msime-test-plain").and(node -> equalsText("你好,", node.getText())));
+            try {
+                await(field("msime-test-plain").and(node -> equalsText("你好,", node.getText())));
+            } catch (AssertionError error) {
+                android.view.accessibility.AccessibilityNodeInfo editor = await(field("msime-test-plain"));
+                throw new AssertionError("Editor held " + editor.getText());
+            }
             stage = "updated page size";
             typePhrase();
             awaitAny(candidateAt(2));
@@ -67,8 +72,16 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             await(field("msime-test-plain").and(node -> node.getText() != null && !node.getText().toString().contains("nihao")));
             stage = "malformed preferences preserve working input";
             byte[] broken = "broken".getBytes(StandardCharsets.UTF_8);
-            publish(preferences, broken);
-            await(key("设置读取或应用失败，保留当前设置"));
+            // 空闲时的失败提示不再占候选栏那一行（会把整副键盘顶起又落下），改用 Toast 说出来；Toast 不在输入法窗口里，所以等它发出的无障碍事件。
+            automation.executeAndWaitForEvent(() -> {
+                try {
+                    publish(preferences, broken);
+                } catch (Exception error) {
+                    throw new IllegalStateException(error);
+                }
+            }, event -> event.getEventType()
+                    == android.view.accessibility.AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED
+                && String.valueOf(event.getText()).contains("设置读取或应用失败，保留当前设置"), 15000);
             typePhrase();
             tap(key("空格"));
             await(field("msime-test-plain").and(node -> node.getText() != null && node.getText().toString().endsWith("你好")));
@@ -77,8 +90,17 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             snapshot.put("revision", revision + 3);
             snapshot.getJSONObject("preferences").put("chinese_punctuation", true);
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
-            tapSymbol(",");
-            await(field("msime-test-plain").and(node -> node.getText() != null && node.getText().toString().endsWith("你好，")));
+            // 键盘每秒轮询一次设置文件，写入后立刻点标点可能赶在重新读取之前，插进去的还是旧设置的半角逗号（API 35 模拟器上点完只隔了 0.7 秒）。这时删掉再点，直到新设置生效或超时。
+            long deadline = SystemClock.uptimeMillis() + 15000;
+            while (true) {
+                tapSymbol(",");
+                String held = String.valueOf(await(field("msime-test-plain").and(node -> node.getText() != null
+                    && (node.getText().toString().endsWith("你好，") || node.getText().toString().endsWith("你好,")))).getText());
+                if (held.endsWith("你好，")) break;
+                if (SystemClock.uptimeMillis() >= deadline) throw new AssertionError("Recovered preferences not applied; editor held " + held);
+                tap(key("⌫"));
+                await(field("msime-test-plain").and(node -> node.getText() != null && node.getText().toString().endsWith("你好")));
+            }
         } catch (Exception | AssertionError error) {
             shell("screencap -p /data/local/tmp/msime-preferences-failure.png");
             throw error;

@@ -66,8 +66,7 @@ impl InputSession {
 
     /// input_session_editing.cpp:123-159.
     pub(super) fn edit_at_caret(&mut self, command: Command) -> KeyResult {
-        let mut text = self.editing_text();
-        let text_len = text.len();
+        let text_len = self.editing_text_len();
         let mut caret = self.caret.unwrap_or(text_len).min(text_len);
         // 本地模式的前缀字母是模式标记，不是可编辑的内容；网址模式没有前缀字母，整段都能编辑。
         let begin = usize::from(!matches!(
@@ -76,21 +75,23 @@ impl InputSession {
         ));
         match command {
             Command::MoveLeft => caret = caret.saturating_sub(1).max(begin),
-            Command::MoveRight => caret = (caret + 1).min(text.len()),
+            Command::MoveRight => caret = (caret + 1).min(text_len),
             Command::MoveHome => caret = begin,
-            Command::MoveEnd => caret = text.len(),
+            Command::MoveEnd => caret = text_len,
             Command::Backspace => {
                 if caret <= begin {
                     return KeyResult::handled();
                 }
+                let mut text = self.editing_text();
                 caret -= 1;
                 let removed = text.remove(caret);
                 return self.delete_editing_character(text, caret, removed);
             }
             Command::DeleteForward => {
-                if caret == text.len() {
+                if caret == text_len {
                     return KeyResult::handled();
                 }
+                let mut text = self.editing_text();
                 let removed = text.remove(caret);
                 return self.delete_editing_character(text, caret, removed);
             }
@@ -368,28 +369,35 @@ impl InputSession {
 
 /// Unit boundaries of a quanpin spelling in raw coordinates (input_session_editing.cpp:35-77). The visible preedit is always rebuilt from the raw letters, the autocorrect cut and the alias layer only moving or adding separators, so a separator in the display marks where the next raw unit starts. A display that cannot explain the raw letters yields no boundaries, and the host falls back to editing single characters rather than deleting an arbitrary span.
 pub(super) fn quanpin_raw_boundaries(raw: &str, display: &str) -> Vec<usize> {
-    let raw_letter_offsets: Vec<usize> = raw
-        .bytes()
-        .enumerate()
-        .filter(|(_, byte)| *byte != b'\'')
-        .map(|(at, _)| at)
-        .collect();
-    if raw_letter_offsets.is_empty() {
+    let raw_bytes = raw.as_bytes();
+    let raw_letter_count = raw_bytes.iter().filter(|byte| **byte != b'\'').count();
+    if raw_letter_count == 0 {
         return Vec::new();
     }
-    let mut boundaries = vec![0];
+    let separator_count = display.bytes().filter(|byte| *byte == b'\'').count();
+    let mut boundaries = Vec::with_capacity(separator_count + 2);
+    boundaries.push(0);
+    let mut raw_offset = 0;
     let mut letters_seen = 0;
     for byte in display.bytes() {
         if byte != b'\'' {
             letters_seen += 1;
+            while raw_offset < raw_bytes.len() && raw_bytes[raw_offset] == b'\'' {
+                raw_offset += 1;
+            }
+            raw_offset = raw_offset.saturating_add(1);
             continue;
         }
         // A trailing separator has no next letter and starts no unit.
-        if let Some(offset) = raw_letter_offsets.get(letters_seen) {
-            boundaries.push(*offset);
+        let mut next = raw_offset;
+        while next < raw_bytes.len() && raw_bytes[next] == b'\'' {
+            next += 1;
+        }
+        if next < raw_bytes.len() {
+            boundaries.push(next);
         }
     }
-    if letters_seen != raw_letter_offsets.len() {
+    if letters_seen != raw_letter_count {
         return Vec::new();
     }
     boundaries.push(raw.len());
@@ -406,5 +414,15 @@ mod tests {
     fn a_lone_initial_is_a_complete_unit_but_a_split_syllable_is_not() {
         assert_eq!(quanpin_raw_boundaries("nihaoma", "ni'hao'ma"), [0, 2, 5, 7]);
         assert_eq!(quanpin_raw_boundaries("nhaoma", "n'hao'ma"), [0, 1, 4, 6]);
+    }
+
+    #[test]
+    fn quanpin_boundaries_do_not_allocate_temporary_raw_offsets() {
+        let (boundaries, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            quanpin_raw_boundaries("nihaoma", "ni'hao'ma")
+        });
+
+        assert_eq!(boundaries, [0, 2, 5, 7]);
+        assert_eq!(allocations, 1, "boundary allocations: {allocations}");
     }
 }

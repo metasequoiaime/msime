@@ -364,7 +364,7 @@ impl ProviderRegistry {
             destination.clear();
             return;
         }
-        let Some(dictionary) = &self.cantonese else {
+        let Some(dictionary) = self.cantonese.as_ref() else {
             destination.clear();
             return;
         };
@@ -373,57 +373,35 @@ impl ProviderRegistry {
             return;
         };
         scheme.set_raw_input(&request.raw_input);
-        if scheme
-            .candidates_into(
-                dictionary.dictionary(),
-                &mut self.cantonese_buffer,
-                &mut self.cantonese_candidates,
-            )
-            .is_err()
-        {
-            destination.clear();
-            return;
-        }
-        let input = scheme.input();
-        let common = self.cantonese_candidates.len().min(destination.len());
-        for (target, candidate) in destination
-            .iter_mut()
-            .take(common)
-            .zip(self.cantonese_candidates.iter())
-        {
-            target.pinyin.clear();
-            target.pinyin.push_str(&input[..candidate.end]);
-            target.canonical_pinyin.clear();
-            target.canonical_pinyin.push_str(&candidate.key);
-            target.word.clear();
-            target.word.push_str(&candidate.text);
-            target.weight = candidate.weight;
-            target.source = CandidateSource::Database;
-            target.scheme = SchemeType::Cantonese;
-            target.fixed_position = 0;
-            target.fuzzy = false;
-            target.corrected_from.clear();
-            target.sentence_association = false;
-            target.sentence_words.clear();
-        }
-        if destination.len() > self.cantonese_candidates.len() {
-            destination.truncate(self.cantonese_candidates.len());
-        } else {
-            destination.extend(self.cantonese_candidates[common..].iter().map(|candidate| {
-                let mut item = WordItem::new(
-                    &input[..candidate.end],
-                    &candidate.text,
-                    candidate.weight,
-                    CandidateSource::Database,
-                    &candidate.key,
-                );
-                item.scheme = SchemeType::Cantonese;
-                item
-            }));
-        }
+        fill_cantonese_candidates(
+            dictionary,
+            scheme,
+            &mut self.cantonese_buffer,
+            &mut self.cantonese_candidates,
+            destination,
+        );
     }
 
-    /// 将日文候选直接写入会话行缓冲，避免查询结果再复制一次。
+    /// 将活动粤拼方案直接交给 provider，避免重复过滤和复制已经规范化的输入。
+    pub(super) fn query_cantonese_scheme_into(
+        &mut self,
+        scheme: &CantoneseScheme,
+        destination: &mut Vec<WordItem>,
+    ) {
+        let Some(dictionary) = &self.cantonese else {
+            destination.clear();
+            return;
+        };
+        fill_cantonese_candidates(
+            dictionary,
+            scheme,
+            &mut self.cantonese_buffer,
+            &mut self.cantonese_candidates,
+            destination,
+        );
+    }
+
+    /// 将日文候选直接写入会话持有的行缓冲，避免查询结果再复制一次。
     pub(super) fn query_japanese_into(
         &mut self,
         request: &QueryRequest,
@@ -510,9 +488,113 @@ impl ProviderRegistry {
     }
 }
 
+fn fill_cantonese_candidates(
+    dictionary: &CantoneseDictionary,
+    scheme: &CantoneseScheme,
+    buffer: &mut CantoneseQueryBuffer,
+    source: &mut Vec<CantoneseCandidate>,
+    destination: &mut Vec<WordItem>,
+) {
+    if scheme
+        .candidates_into(dictionary.dictionary(), buffer, source)
+        .is_err()
+    {
+        destination.clear();
+        return;
+    }
+    let input = scheme.input();
+    let common = source.len().min(destination.len());
+    for (target, candidate) in destination.iter_mut().take(common).zip(source.iter()) {
+        target.pinyin.clear();
+        target.pinyin.push_str(&input[..candidate.end]);
+        target.canonical_pinyin.clear();
+        target.canonical_pinyin.push_str(&candidate.key);
+        target.word.clear();
+        target.word.push_str(&candidate.text);
+        target.weight = candidate.weight;
+        target.source = CandidateSource::Database;
+        target.scheme = SchemeType::Cantonese;
+        target.fixed_position = 0;
+        target.fuzzy = false;
+        target.corrected_from.clear();
+        target.sentence_association = false;
+        target.sentence_words.clear();
+    }
+    if destination.len() > source.len() {
+        destination.truncate(source.len());
+    } else {
+        destination.extend(source[common..].iter().map(|candidate| {
+            let mut item = WordItem::new(
+                &input[..candidate.end],
+                &candidate.text,
+                candidate.weight,
+                CandidateSource::Database,
+                &candidate.key,
+            );
+            item.scheme = SchemeType::Cantonese;
+            item
+        }));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn active_cantonese_query_matches_requests_without_copying_input() {
+        use crate::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("msime-cantonese.db");
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection.execute_batch(SCHEMA).unwrap();
+        connection
+            .execute(
+                "INSERT INTO metadata VALUES (?1, ?2)",
+                (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+            )
+            .unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO syllables VALUES ('nei'),('hou'),('hoeng');\
+                 INSERT INTO entries VALUES ('nei hou','你好',900),('nei hou','妳好',40),\
+                 ('nei hoeng','你向',3),('nei','你',5000),('nei','妳',300);",
+            )
+            .unwrap();
+        drop(connection);
+
+        let mut registry = registry(SchemeSet::of(&[SchemeType::Cantonese]));
+        registry.cantonese_path = path;
+        registry.activate(SchemeType::Cantonese).unwrap();
+        let mut scheme = CantoneseScheme::new(registry.cantonese_inventory().unwrap());
+        let mut direct = Vec::new();
+        let mut requested = Vec::new();
+        for raw in ["nei", "neih", "neihou", "nei'hou", "nei'", "neihoux", ""] {
+            scheme.set_raw_input(raw);
+            let request = scheme.build_request();
+            registry.query_cantonese_scheme_into(&scheme, &mut direct);
+            registry.query_cantonese_into(&request, &mut requested);
+            assert_eq!(direct, requested, "输入：{raw}");
+        }
+
+        // 预热字典及候选缓冲；请求路径的备用方案仍需复制一次输入。
+        registry.cantonese_scheme = Some(CantoneseScheme::new(
+            registry.cantonese_inventory().unwrap(),
+        ));
+        scheme.set_raw_input("nei'hou");
+        let request = scheme.build_request();
+        registry.query_cantonese_scheme_into(&scheme, &mut direct);
+        requested.clone_from(&direct);
+        let ((), direct_allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            registry.query_cantonese_scheme_into(&scheme, &mut direct);
+        });
+        let ((), request_allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            registry.query_cantonese_into(&request, &mut requested);
+        });
+        assert_eq!(direct, requested);
+        assert_eq!(request_allocations, direct_allocations + 1);
+    }
 
     fn registry(enabled: SchemeSet) -> ProviderRegistry {
         ProviderRegistry::new(
