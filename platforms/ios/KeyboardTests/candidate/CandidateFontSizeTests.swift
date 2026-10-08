@@ -25,8 +25,8 @@ final class CandidateFontSizeTests: XCTestCase {
       UIFont.preferredFont(forTextStyle: .body).pointSize)
     XCTAssertEqual(
       KeyboardViewController.topRowHeight(glossLines: 1),
-      KeyboardViewController.readingRowHeight + 38 + KeyboardViewController.glossHeight(lines: 1),
-      "the default sizes stack the reading line, the candidate line and its gloss line")
+      KeyboardViewController.readingRowHeight + KeyboardViewController.glossedCandidateRowHeight,
+      "the first gloss line sits inside the 42pt candidate line under the reading line, as on Android")
     XCTAssertEqual(KeyboardViewController.preeditFont(scale: 1).pointSize, 12, "the design's 12pt spelling")
   }
 
@@ -34,7 +34,8 @@ final class CandidateFontSizeTests: XCTestCase {
   func testTheTopRowIsNeverShorterThanTheDesignRow() {
     XCTAssertEqual(KeyboardViewController.topRowMinimumHeight, 50)
     XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 0), 52)
-    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 2), 52 + 2 * KeyboardViewController.glossLineHeight)
+    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 1), 56, "one gloss line costs 4pt, not a 14pt line of its own")
+    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 2), 56 + KeyboardViewController.glossLineHeight)
     XCTAssertGreaterThanOrEqual(
       KeyboardViewController.topRowHeight(glossLines: 0, candidateScale: 12.0 / 18.0, preeditScale: 12.0 / 15.0), 50)
   }
