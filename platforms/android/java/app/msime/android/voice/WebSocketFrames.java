@@ -110,8 +110,7 @@ public final class WebSocketFrames {
             String value = TextPolicy.trimmed(line.substring(separator + 1));
             switch (name) {
                 case "upgrade" -> upgrade = value.equalsIgnoreCase("websocket");
-                case "connection" -> connection = TextPolicy.lowercase(value)
-                    .contains("upgrade");
+                case "connection" -> connection = connection || containsToken(value, "upgrade");
                 case "sec-websocket-accept" -> accepted = value.equals(expected);
                 // An extension this host never offered must not be applied to its frames.
                 case "sec-websocket-extensions" -> {
@@ -121,6 +120,14 @@ public final class WebSocketFrames {
             }
         }
         return upgrade && connection && accepted;
+    }
+
+    /** HTTP list fields match a comma-separated token, not an arbitrary substring. */
+    private static boolean containsToken(String value, String expected) {
+        for (String token : value.split(",")) {
+            if (TextPolicy.lowercase(TextPolicy.trimmed(token)).equals(expected)) return true;
+        }
+        return false;
     }
 
     /**

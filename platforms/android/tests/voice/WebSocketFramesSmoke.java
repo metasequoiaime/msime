@@ -57,6 +57,10 @@ public final class WebSocketFramesSmoke {
             "an accept value for a different key is refused");
         check(!WebSocketFrames.handshakeAccepted(ok.replace("Upgrade: websocket", "Upgrade: h2c"), key),
             "an upgrade to something else is refused");
+        check(!WebSocketFrames.handshakeAccepted(ok.replace("Connection: Upgrade", "Connection: notupgrade"), key),
+            "Connection must contain the Upgrade token, not merely its letters");
+        check(WebSocketFrames.handshakeAccepted(ok.replace("Connection: Upgrade", "Connection: keep-alive, UpGrAdE"), key),
+            "Connection may list the Upgrade token with other options");
         check(!WebSocketFrames.handshakeAccepted(ok.substring(0, ok.length() - 2), key),
             "a truncated header block is not an upgrade");
         check(!WebSocketFrames.handshakeAccepted(ok.replace("HTTP/1.1 101 Switching", "HTTP/1.1 101x Switching"), key),
