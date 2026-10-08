@@ -23,6 +23,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
     private boolean iconColorsSet;
     private int idleIconColor;
     private int activeIconColor;
+    private boolean flipped;
 
     public KeyboardShortcutButton(Context context, KeyboardShortcutIconPolicy.Icon icon) {
         super(context);
@@ -67,6 +68,13 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         iconColorsSet = true;
         idleIconColor = idle;
         activeIconColor = active;
+        invalidate();
+    }
+
+    /** 图标上下翻转：外接键盘的候选条模式里，收起键的 chevron 朝上，表示展开软键盘。 */
+    public void setFlipped(boolean value) {
+        if (flipped == value) return;
+        flipped = value;
         invalidate();
     }
 
@@ -147,8 +155,11 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             ? DISMISS_ICON_DP : MATERIAL_ICON_DP;
         float size = BoundsPolicy.atMost(shorter,
             KeyboardGeometry.floatPixels(getContext(), iconDp));
+        int saved = canvas.save();
+        if (flipped) canvas.rotate(180f, centerX, centerY);
         KeyboardIconPaths.draw(canvas, glyph, path, centerX - size / 2f, centerY - size / 2f,
             size, color);
+        canvas.restoreToCount(saved);
     }
 
     private void drawSettings(Canvas canvas) {

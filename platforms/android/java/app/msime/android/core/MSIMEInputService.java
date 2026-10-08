@@ -348,6 +348,10 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean hardwareCharacterSet = true;
     private boolean hardwareFullWidth = true;
     private boolean numberRowSelection = true;
+    /** 外接键盘的候选条模式（{@link HardwareKeyboardModePolicy}）：实体键盘打字时打开，点候选条上的展开键或键盘拔掉时关闭。 */
+    boolean hardwareKeyboardMode;
+    /** 上一次配置是否报告接着实体键盘，用来认出「拔掉 / 合上」这一下。 */
+    private boolean hardwareKeyboardAttached;
     /** Resolved 以词定字 binding: `disabled`, `brackets` or `minus_equal`. */
     private String wordCharacterBinding = WordCharacterPolicy.DISABLED;
     /** 「候选栏预编辑」: whether the strip draws what is being spelled. */
@@ -1107,6 +1111,7 @@ public final class MSIMEInputService extends InputMethodService {
             theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", "app.msime.android");
         if (theme != 0) setTheme(theme);
         super.onCreate();
+        hardwareKeyboardAttached = hardwareKeyboardAttached(getResources().getConfiguration());
         productName = getApplicationInfo().loadLabel(getPackageManager()).toString();
         // 偏好要等引擎准备好才读到；先按上次换上的皮肤画，免得每次弹出键盘都先闪一两秒内置的淡绿配色。
         JSONObject hint = readSkinHint();
@@ -1204,6 +1209,10 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration);
+        boolean attached = hardwareKeyboardAttached(configuration);
+        hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
+            hardwareKeyboardMode, hardwareKeyboardAttached, attached);
+        hardwareKeyboardAttached = attached;
         JSONObject preferences = preferencesSnapshot == null ? null
             : preferencesSnapshot.optJSONObject("preferences");
         KeyboardSkin next = keyboardSkin(preferences);
@@ -1253,6 +1262,61 @@ public final class MSIMEInputService extends InputMethodService {
         super.onDestroy();
     }
     @Override public boolean onEvaluateFullscreenMode() { return false; }
+
+    /**
+     * 接着实体键盘时系统按「使用实体键盘时显示虚拟键盘」决定显不显示输入法窗口。关着时系统不显示，组词的候选就无处可看：走引擎的输入框照样显示窗口，但只给候选条（#5584）。
+     */
+    @Override public boolean onEvaluateInputViewShown() {
+        boolean systemShows = super.onEvaluateInputViewShown();
+        boolean attached = hardwareKeyboardAttached(getResources().getConfiguration());
+        EditorInfo info = getCurrentInputEditorInfo();
+        boolean engineEditor = info != null && EditorPolicy.useEngine(info.inputType);
+        boolean next = HardwareKeyboardModePolicy.afterSystemDecision(
+            hardwareKeyboardMode, systemShows, attached && engineEditor);
+        if (next != hardwareKeyboardMode) {
+            hardwareKeyboardMode = next;
+            if (keyboardRoot != null) render();
+        }
+        return HardwareKeyboardModePolicy.showInputView(systemShows, attached, engineEditor);
+    }
+
+    private static boolean hardwareKeyboardAttached(Configuration configuration) {
+        return configuration != null
+            && HardwareKeyboardModePolicy.attached(configuration.keyboard, configuration.hardKeyboardHidden);
+    }
+
+    /** 这次按键是否来自实体键盘（{@link HardwareKeyboardModePolicy#physicalTyping}）。 */
+    private static boolean physicalKeyboardEvent(KeyEvent event) {
+        android.view.InputDevice device = event.getDevice();
+        return HardwareKeyboardModePolicy.physicalTyping(device != null,
+            device != null && device.isVirtual(),
+            device != null && device.getKeyboardType() == android.view.InputDevice.KEYBOARD_TYPE_ALPHABETIC);
+    }
+
+    /**
+     * 实体键盘按下一键：进入候选条模式。输入法窗口被系统收着时（接着实体键盘、「显示虚拟键盘」关着），这一键处理完若开始了组词，就把窗口叫出来显示候选条。
+     */
+    private void noteHardwareTyping() {
+        if (!hardwareKeyboardMode) {
+            hardwareKeyboardMode = true;
+            if (keyboardRoot != null) render();
+        }
+        main.post(() -> {
+            if (hardwareKeyboardMode && !isInputViewShown() && hasEngineComposition()) requestShowSelf(0);
+        });
+    }
+
+    /** 键区此刻是否收起成候选条：候选条模式开着，且没有要占用键区高度的面板。 */
+    boolean hardwareKeysCollapsed() {
+        return HardwareKeyboardModePolicy.keysCollapsed(hardwareKeyboardMode,
+            anyToolbarPanelOpen() || candidatePanelOpen || inlineHeightActive || handwritingActive());
+    }
+
+    /** 候选条上的展开键：退出候选条模式，回到完整的软键盘；下一次实体键盘打字时再收起。 */
+    private void expandFromHardwareKeyboardMode() {
+        hardwareKeyboardMode = false;
+        render();
+    }
 
     private void stop(boolean finish) {
         imeLetterRows.cancelBackspaceRepeat();
@@ -3245,6 +3309,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         // Every physical press counts once, whoever ends up handling it; the OS's auto-repeat does not.
         if (event.getRepeatCount() == 0) countKey(KeyPressIds.forKeyCode(keyCode));
+        if (event.getRepeatCount() == 0 && physicalKeyboardEvent(event)) noteHardwareTyping();
         if (keyCode == KeyEvent.KEYCODE_BACK && emojiPickerVisible()) {
             closeEmojiPicker();
             return true;
@@ -5264,7 +5329,7 @@ public final class MSIMEInputService extends InputMethodService {
                                         boolean highlighted) {
         if (annotation.isEmpty() && prefix.isEmpty()) return text;
         String primary = prefix + text;
-        SpannableString label = new SpannableString(primary + "\n" + annotation);
+        SpannableString label = new SpannableString(annotation.isEmpty() ? primary : primary + "\n" + annotation);
         if (!prefix.isEmpty()) {
             label.setSpan(new ForegroundColorSpan(candidateAppearance.number()), 0, prefix.length(),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -5453,7 +5518,10 @@ public final class MSIMEInputService extends InputMethodService {
         // Touch candidates follow Apple's chip surface: the word itself is shown without a
         // numeric prefix. The slot remains available through contentDescription and the shared
         // session/generation/index identity for accessibility and hardware number-row selection.
-        button.setText(candidateLabel("", text, annotation, highlighted));
+        // 实体键盘打字（候选条模式）时例外：候选前面标上数字行选词用的 1–9（#5584）。
+        String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
+            dedicatedEnglish, slot);
+        button.setText(candidateLabel(number, text, annotation, highlighted));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
@@ -6054,7 +6122,9 @@ public final class MSIMEInputService extends InputMethodService {
         // 收起键：面板开着时先回到键盘（描述随之变为「返回键盘」），没有面板时收起整个键盘。
         Button dismissButton = shortcutButton(controls, "收起",
             KeyboardShortcutIconPolicy.Icon.DISMISS, () -> {
-                if (anyToolbarPanelOpen()) {
+                if (hardwareKeysCollapsed()) {
+                    expandFromHardwareKeyboardMode();
+                } else if (anyToolbarPanelOpen()) {
                     closeToolbarPanels();
                     render();
                 } else requestHideSelf(0);
@@ -6660,8 +6730,12 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setVisible(candidateHeader, !heightMode && !hasDiagnostic && (!idle || modeLabel));
             if (idle && !modeLabel) announceIdleNotice(preferencesNotice);
         }
+        boolean keysCollapsed = hardwareKeysCollapsed();
+        imeFrame.setKeysCollapsed(keysCollapsed);
+        // 候选条模式里空闲时工具栏总要显示：展开键在上面，「显示方式：隐藏」时整副键盘会只剩导航栏那一截。
         if (shortcutScroll != null)
-            ViewPolicy.setVisible(shortcutScroll, !heightMode && idle && !hasDiagnostic && !toolbarHidden);
+            ViewPolicy.setVisible(shortcutScroll, !heightMode && idle && !hasDiagnostic
+                && (!toolbarHidden || keysCollapsed));
         if (candidateLine != null)
             ViewPolicy.setVisible(candidateLine, !heightMode && !idle && !hasDiagnostic);
         if (replyKeyboard == null || replyKeyboard.getVisibility() != View.VISIBLE)
@@ -6729,7 +6803,10 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setSelected(clipboardShortcutButton, imePanels.clipboardPanelOpen());
         }
         if (dismissShortcutButton != null) {
-            dismissShortcutButton.setContentDescription(anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
+            dismissShortcutButton.setContentDescription(keysCollapsed ? "显示软键盘"
+                : anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
+            // 候选条模式里收起键朝上，点它展开软键盘。
+            if (dismissShortcutButton instanceof KeyboardShortcutButton dismiss) dismiss.setFlipped(keysCollapsed);
         }
         if (voiceShortcutButton != null) {
             ViewPolicy.hide(voiceShortcutButton);

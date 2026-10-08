@@ -86,6 +86,11 @@ final class ImeFrame {
         return column;
     }
 
+    /** 外接键盘的候选条模式里收起整行键区（{@link HardwareKeyboardModePolicy#keysCollapsed}）；单手侧栏在同一行里，一起收起。 */
+    void setKeysCollapsed(boolean collapsed) {
+        if (row != null) ViewPolicy.setVisible(row, !collapsed);
+    }
+
     /** 按默认布局参数放入键区。 */
     void wrap(ViewGroup keyArea) {
         column().addView(keyArea, KeyboardGeometry.matchWidthWrapParams());
