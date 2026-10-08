@@ -1803,7 +1803,8 @@ public final class MSIMEInputService extends InputMethodService {
                 String prompt = ai.optString(
                     AiPolishConfiguration.promptSlotKey(ai.optString("prompt_id", "")), "");
                 if (TextPolicy.trimmed(prompt).isEmpty()) prompt = AiPolishConfiguration.DEFAULT_PROMPT;
-                next = new AiPolishConfiguration(endpoint, ai.optString("model", ""), prompt, token);
+                next = new AiPolishConfiguration(endpoint,
+                    InputViewValuePolicy.textOr(ai, "model", ""), prompt, token);
             } catch (IllegalArgumentException ignored) {
                 // Invalid settings disable this entry; never log endpoints, models or credentials.
             }

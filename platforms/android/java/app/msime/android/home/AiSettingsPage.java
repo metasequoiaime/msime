@@ -49,7 +49,7 @@ public final class AiSettingsPage extends DetailPage {
         if (ai == null) ai = new JSONObject();
         boolean enabled = ai.optBoolean("enabled", false);
         String endpoint = InputViewValuePolicy.textOr(ai, "endpoint", "");
-        String model = ai.optString("model", "");
+        String model = InputViewValuePolicy.textOr(ai, "model", "");
         String origin = originOf(endpoint);
         JSONObject tokens = ai.optJSONObject("tokens");
         boolean hasToken = tokens != null && !origin.isEmpty() && !tokens.optString(origin, "").isEmpty();
