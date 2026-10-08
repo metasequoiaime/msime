@@ -111,7 +111,7 @@ fn atomic_write_at(
 ) -> io::Result<()> {
     let mut temporary_name = OsString::from(".msime-runtime-options-");
     temporary_name.push(std::process::id().to_string());
-    temporary_name.push('-');
+    temporary_name.push("-");
     temporary_name.push(
         LOCATOR_TEMP_COUNTER
             .fetch_add(1, Ordering::Relaxed)
@@ -129,7 +129,7 @@ fn atomic_write_at(
         ) {
             Ok(descriptor) => break descriptor,
             Err(error) if error == rustix::io::Errno::EXIST => {
-                temporary_name.push('-');
+                temporary_name.push("-");
                 temporary_name.push(
                     LOCATOR_TEMP_COUNTER
                         .fetch_add(1, Ordering::Relaxed)
@@ -142,7 +142,10 @@ fn atomic_write_at(
     let mut file: fs::File = descriptor.into();
     let result = file
         .write_all(contents)
-        .and_then(|()| rustix::fs::fchmod(&file, rustix::fs::Mode::from_raw_mode(mode)))
+        .and_then(|()| {
+            rustix::fs::fchmod(&file, rustix::fs::Mode::from_raw_mode(mode))
+                .map_err(io::Error::from)
+        })
         .and_then(|()| file.sync_all());
     drop(file);
     if let Err(error) = result {
