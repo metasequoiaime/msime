@@ -3207,7 +3207,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (commitFirstHandwritingCandidate()) return;
         // Space on a composing Zhuyin conversion is tone 1 or opens its list, as on a hardware keyboard; the commit command below would end the conversion and drop the pending syllable.
         if (session != 0 && view != null && ZhuyinInputPolicy.spaceIsEngineKey(zhuyinSchemeActive(),
-                view.optString("spelling_symbols", "")) && character(' ', false)) return;
+                InputViewValuePolicy.textOr(view, "spelling_symbols", "")) && character(' ', false)) return;
         JSONObject spaceDecision = smartPunctuationDecision(' ', getTextBeforeCursor());
         if (spaceDecision != null && !spaceDecision.isNull("space_ascii")) {
             int ascii = InputViewValuePolicy.integer(spaceDecision, "space_ascii", 0);
@@ -3677,7 +3677,7 @@ public final class MSIMEInputService extends InputMethodService {
         // A key the Dachen editor claims in its current state (a bopomofo or tone key, Space while a syllable is pending) or one of its Shift marks is Zhuyin input, decided before the number row picks a candidate or a mark pages the list, as on macOS.
         if (session != 0 && view != null && !event.isCtrlPressed() && !event.isAltPressed()
                 && !event.isMetaPressed() && ZhuyinInputPolicy.engineKey(zhuyinSchemeActive(),
-                    event.getUnicodeChar(), view.optString("spelling_symbols", ""))) {
+                    event.getUnicodeChar(), InputViewValuePolicy.textOr(view, "spelling_symbols", ""))) {
             return character(event.getUnicodeChar(), event.isShiftPressed())
                 || super.onKeyDown(keyCode, event);
         }
@@ -3685,7 +3685,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (session != 0 && view != null && !event.isCtrlPressed() && !event.isAltPressed()
                 && !event.isMetaPressed() && NumberRowSelectionPolicy.engineSpells(
                     InputViewValuePolicy.textOr(view, "local_mode", "none"), InputViewValuePolicy.editingText(view),
-                    view.optString("spelling_symbols", ""), event.getUnicodeChar())) {
+                    InputViewValuePolicy.textOr(view, "spelling_symbols", ""), event.getUnicodeChar())) {
             return character(event.getUnicodeChar(), event.isShiftPressed())
                 || super.onKeyDown(keyCode, event);
         }
@@ -3693,7 +3693,7 @@ public final class MSIMEInputService extends InputMethodService {
         int candidateSlot = NumberRowSelectionPolicy.slotForKeyCode(keyCode,
             event.isShiftPressed(), numberRowSelection,
             view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"),
-            view == null ? "" : view.optString("spelling_symbols", ""), event.getUnicodeChar());
+            InputViewValuePolicy.textOr(view, "spelling_symbols", ""), event.getUnicodeChar());
         if (candidateSlot >= 0 && !dedicatedEnglish
                 && !event.isCtrlPressed() && !event.isAltPressed() && !event.isMetaPressed()
                 && view != null
