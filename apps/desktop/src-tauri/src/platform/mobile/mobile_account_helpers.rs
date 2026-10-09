@@ -598,22 +598,3 @@ pub(crate) async fn account_preferences_load(
 ) -> Result<AccountPreferences, crate::CommandError> {
     call_session(state.session(), |session| session.preferences()).await
 }
-
-pub(crate) async fn account_logout(
-    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
-    all: bool,
-) -> Result<(), crate::CommandError> {
-    call_session(state.session(), move |session| session.logout(all)).await
-}
-
-pub(crate) async fn account_delete(
-    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
-) -> Result<(), crate::CommandError> {
-    call_session(state.session(), |session| session.delete_account()).await
-}
-
-pub(crate) async fn account_forget(
-    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
-) -> Result<(), crate::CommandError> {
-    call_session(state.session(), |session| session.forget()).await
-}

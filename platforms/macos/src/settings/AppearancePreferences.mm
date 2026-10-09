@@ -2893,7 +2893,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         // configuring the scheme that is actually in use.
         @[ @(scheme == 1), @[_shuangpinSchemeButton] ],
         @[ @(scheme == 2), @[_wubiSchemeButton] ],
-        // Fuzzy rules and the two quanpin corrections reach the candidates of quanpin, shuangpin and wubi only: Japanese, Korean, Cantonese, Zhuyin and Vietnamese answer false to the Engine's `supports_fuzzy` and `supports_autocorrect`, and Korean's only candidates are the Hanja of the composing syllable, which no spelling rule reaches. refresh_candidates (crates/engine/src/ime/mod.rs) puts all three into the query request whatever the scheme is, and only the quanpin and shuangpin engines read them back out (crates/engine/src/quanpin/engine.rs, crates/engine/src/shuangpin/engine.rs); the Japanese provider never looks. 五笔 keeps them even though its own table ignores them too, because the same method builds a second, quanpin request carrying the same three values when 编码打不出时用拼音候选 is on and the table cannot answer the code — so under 五笔 they decide what that fallback offers.
+        // 模糊音和两项全拼纠错只作用于全拼、双拼和五笔的候选：日语、韩语、粤拼、注音和越南文对 Engine 的 `supports_fuzzy`、`supports_autocorrect` 回答 false，韩语的候选只有当前音节的汉字，任何拼写规则都够不着。refresh_candidates（crates/engine/src/ime/mod.rs）不论方案都把这三项放进查询请求，只有全拼和双拼引擎会读出来（crates/engine/src/quanpin/engine.rs、crates/engine/src/shuangpin/engine.rs），日语 provider 从不看。五笔自己的码表同样不理它们，仍然保留，是因为「五笔拼音混输」打开时同一个方法会对同一串字母再建一个带着这三项的全拼请求，不论五笔码表答不答得上，把全拼候选接在五笔候选之后，所以在五笔下它们决定混输列出哪些拼音候选。
         @[ @(scheme <= 2), @[_fuzzyPinyinToggle, _transpositionToggle, _neighborToggle] ],
         @[ @(self.fuzzyPinyinEnabled && scheme <= 2), _fuzzyPinyinRuleButtons.allValues ],
         // Both places the space conversion is read — InputController.mm, where a space after a
@@ -3269,7 +3269,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _traditionalOutputToggle = MSIMESettingSwitch(self, @selector(traditionalOutputChanged:), @"简繁输入");
     _keymapToggle = MSIMESettingSwitch(self, @selector(keymapChanged:), @"输入时显示双拼键位提示");
     _wubiToggle = MSIMESettingSwitch(self, @selector(wubiChanged:), @"五笔四码唯一候选自动上屏");
-    _wubiMixedPinyinToggle = MSIMESettingSwitch(self, @selector(wubiMixedPinyinChanged:), @"编码打不出时用拼音候选");
+    _wubiMixedPinyinToggle = MSIMESettingSwitch(self, @selector(wubiMixedPinyinChanged:), @"五笔拼音混输");
     _punctuationToggle = MSIMESettingSwitch(self, @selector(punctuationChanged:), @"中文标点");
     _smartPunctuationToggle = MSIMESettingSwitch(self, @selector(smartPunctuationChanged:), @"智能标点");
     _smartPunctuationRepeatToggle = MSIMESettingSwitch(self, @selector(smartPunctuationRepeatChanged:), @"重复标点转中文");
@@ -3463,10 +3463,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _wubiCard = MSIMECardWithViews(@[
         [self settingRow:@"编码方案" control:_wubiProfileLabel aka:@[@"86 五笔", @"98 五笔", @"五笔版本"]],
         [self settingRow:@"四码唯一候选自动上屏" control:_wubiToggle],
-        [self settingRow:@"编码打不出时用拼音候选"
-                  detail:@"五笔词库无法回答当前编码时，用同一串字母查询全拼；词库能回答时不影响。"
+        [self settingRow:@"五笔拼音混输"
+                  detail:@"五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。"
                  control:_wubiMixedPinyinToggle
-                     aka:@[@"五笔拼音混输"]],
+                     aka:@[@"五笔混拼", @"编码打不出时用拼音候选"]],
     ], 0.0);
     _wubiCard.accessibilityLabel = @"五笔选项卡片";
 

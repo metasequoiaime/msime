@@ -123,14 +123,15 @@ jobs:
   macos:
     needs: changes
     # 这个 job 总是启动,重活才按 changes 跳过。放在 job 级的 `if:` 会让矩阵根本不展开:GitHub 上报的是字面量 `macOS 15 ${{ matrix.architecture }}` 这一个 check,而分支保护等的是 `macOS 15 arm64` 和 `macOS 15 x86_64` —— 它们永远不会出现,于是只动 platforms/ios 的 PR 一个都合不进 main,报错只有一句「the base branch policy prohibits the merge」。
+    # check 名字仍叫 macOS 15：分支保护按这个名字等检查，改名要同时改 ruleset。arm64 实际跑在 macOS 26 宿主上，两条腿都用 Xcode 26.3。
     name: macOS 15 ${{ matrix.architecture }}
     strategy:
       fail-fast: false
       matrix:
         # `build` 决定这一条腿是否真的构建：arm64 跟随改动范围，x86_64 另外要求 `full`。
-        # arm64 跑在 Depot 上。Depot 的 macOS 机器全是 Apple Silicon，没有 Intel 镜像，所以 x86_64 留在 GitHub 的 macos-15-intel。
+        # arm64 跑在 Depot 上。Depot 的 macOS 机器全是 Apple Silicon，没有 Intel 镜像，所以 x86_64 留在 GitHub 的 macos-15-intel。depot-macos-15 镜像最高只有 Xcode 26.1.1，钉的 26.3 只在 depot-macos-26 上有，所以 arm64 用 depot-macos-26。
         include:
-          - runner: depot-macos-15
+          - runner: depot-macos-26
             architecture: arm64
             build: ${{ needs.changes.outputs.build }}
           - runner: macos-15-intel
@@ -146,6 +147,8 @@ jobs:
     runs-on: ${{ matrix.build == 'true' && matrix.runner || 'ubuntu-24.04' }}
     timeout-minutes: 60
     env:
+      # 与 release-macos.yml 同一个 Xcode：CI 编的就是发出去的那个构建（同一个编译器、同一个 SDK）。两处要一起改。
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       # 空串让 cargo 不用 wrapper。
       RUSTC_WRAPPER: ${{ (matrix.build == 'true' && startsWith(matrix.runner, 'depot-')) && 'sccache' || '' }}
       CARGO_INCREMENTAL: '0'
@@ -308,9 +311,10 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.full == 'true' }}
     name: Sanitizers
-    runs-on: depot-macos-15
+    runs-on: depot-macos-26
     timeout-minutes: 90
     env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
     steps:

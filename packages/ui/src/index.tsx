@@ -2768,7 +2768,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
   const floatingToolbar = floatingToolbarPreferences(draft);
   const { themeMode, settingsTheme, globalTheme, customColors, customTouchKeyboardSkin } =
-    settingsThemePreferences(draft);
+    settingsThemePreferences(draft, host?.platform);
   const dark = useSettingsTheme(themeMode, settingsTheme);
   // 两种 HarmonyOS 外观都用用户的应用主题（水杉四季或某个固定季节）着色；每种外观取哪些 token 由 `appThemeStyle` 决定。
   const resolvedAppTheme = useResolvedAppTheme(

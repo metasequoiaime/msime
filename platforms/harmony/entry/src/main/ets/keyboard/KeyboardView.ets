@@ -256,7 +256,7 @@ const KEY_PRESSED_SCALE: number = 0.96;
 const KEY_PRESS_MS: number = 60;
 const LETTER_EDGE_SHARE: number = 1.4;
 const SECOND_ROW_INDENT_SHARE: number = 0.5;
-// 设计稿的底行：123 1.25 | 中 1.05 | ， 1 | space 4 | 。 1 | return 1.9。
+// 设计稿的底行：123 1.25 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9。
 const LAYER_SHARE: number = 1.25;
 const LANGUAGE_SHARE: number = 1.05;
 const PUNCTUATION_SHARE: number = 1;
@@ -267,7 +267,7 @@ const SPACE_LABEL_GAP_VP: number = 4;
 // 触屏 123 和 #+= 层（`NumberSymbolLayout`）：数字行 20fp，其下各行 18fp，与 Android 上同样的键尺寸一致。
 const LAYER_FIRST_ROW_FONT_SIZE: number = 20;
 const LAYER_FONT_SIZE: number = 18;
-// 触屏九键键面，按宽度份额分配：三列各占 2 份的字母格两侧各有一列 1.15 份的标点，标点和字母格都是 17fp，字母格字重 500，右上角有 10fp 的数字。底行是 123 1.25 | 中 1.05 | space 4.2 | 0 1.05 | return 1.6。
+// 触屏九键键面，按宽度份额分配：三列各占 2 份的字母格两侧各有一列 1.15 份的标点，标点和字母格都是 17fp，字母格字重 500，右上角有 10fp 的数字。底行是 123 1.25 | space 4.2 | 0 1.05 | 中 1.05 | return 1.6。
 const NINE_KEY_SIDE_SHARE: number = 1.15;
 const NINE_KEY_GRID_SHARE: number = 6;
 const NINE_KEY_FONT_SIZE: number = 17;
@@ -292,6 +292,10 @@ const SKIN_TOP_PADDING_VP: number = 6;
 const SKIN_ROWS_GAP_VP: number = 4;
 const SKIN_MIN_COLUMNS_GAP_VP: number = 6;
 const PANEL_DOTS_ROOM_VP: number = 14;
+// 功能面板和方案选择的磁贴网格：上方 10vp、行间 16vp，每行至少 52vp（设计稿和 Android 的 `FunctionPanelView`）；面板比这高时两行平分多出来的高度，而不是在底下空着一块。
+const TILE_TOP_PADDING_VP: number = 10;
+const TILE_ROWS_GAP_VP: number = 16;
+const TILE_MIN_ROW_VP: number = 52;
 const PANEL_BOTTOM_PADDING_VP: number = 4;
 const PANEL_SIDE_PADDING_VP: number = 4;
 const PANEL_COLUMNS: number = 4;
@@ -4178,7 +4182,7 @@ struct KeyboardView {
   }
 
   /**
-   * 触屏九键键面的底行，按设计稿：123 1.25 | 中 1.05 | space 4.2 | 0 1.05 | return 1.6。标点在网格两侧的列里，所以这里没有逗号和句号，与 Android 一致；旧控制列上的 0 移到这里，即设计稿放它的位置。123 把网格重新标注为数字，在数字层上该键显示「九键」，即 Android 中这个网格的 `KeyboardActionRow.layerTitle`。
+   * 触屏九键键面的底行，按设计稿：123 1.25 | space 4.2 | 0 1.05 | 中 1.05 | return 1.6，中/英键紧挨回车，与字母键面的底行一致。标点在网格两侧的列里，所以这里没有逗号和句号，与 Android 一致；旧控制列上的 0 移到这里，即设计稿放它的位置。123 把网格重新标注为数字，在数字层上该键显示「九键」，即 Android 中这个网格的 `KeyboardActionRow.layerTitle`。
    */
   @Builder
   nineKeyActionRow() {
@@ -4194,6 +4198,16 @@ struct KeyboardView {
         share: LAYER_SHARE,
         action: () => this.toggleSymbolLayer()
       });
+      this.spaceKey(true, NINE_KEY_SPACE_SHARE);
+      this.fixedKey({
+        face: '0',
+        label: '数字 0',
+        size: TOUCH_LETTER_FONT_SIZE,
+        emphasized: false,
+        width: 0,
+        share: NINE_KEY_ZERO_SHARE,
+        action: () => this.typeNineKeyZero()
+      });
       this.fixedKey({
         face: this.languageFace(),
         label: KeyAccessibilityPolicy.language(),
@@ -4207,16 +4221,6 @@ struct KeyboardView {
           KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_LANGUAGE);
           this.toggleTouchLanguage();
         }
-      });
-      this.spaceKey(true, NINE_KEY_SPACE_SHARE);
-      this.fixedKey({
-        face: '0',
-        label: '数字 0',
-        size: TOUCH_LETTER_FONT_SIZE,
-        emphasized: false,
-        width: 0,
-        share: NINE_KEY_ZERO_SHARE,
-        action: () => this.typeNineKeyZero()
       });
       this.designReturnKey(NINE_KEY_RETURN_SHARE);
     }
@@ -4487,7 +4491,7 @@ struct KeyboardView {
   }
 
   /**
-   * 设计稿的底行，按宽度份额分配：123 1.25 | 中 1.05 | ， 1 | space 4 | 。 1 | return 1.9，即 Android 的 `KeyboardActionRow.designEntries`。
+   * 设计稿的底行，按宽度份额分配：123 1.25 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，即 Android 的 `KeyboardActionRow.designEntries`。中/英键放在回车左边，与经典底行的位置一致。
    *
    * 功能键文字 15fp、字重 500。逗号保留长按弹出「常用标点」列表；句号是新加的。回车键始终使用操作色。
    */
@@ -4504,20 +4508,6 @@ struct KeyboardView {
         width: 0,
         share: LAYER_SHARE,
         action: () => this.toggleSymbolLayer()
-      });
-      this.fixedKey({
-        face: this.languageFace(),
-        label: KeyAccessibilityPolicy.language(),
-        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-        fontWeight: FUNCTION_LABEL_WEIGHT,
-        emphasized: false,
-        special: true,
-        width: 0,
-        share: LANGUAGE_SHARE,
-        action: () => {
-          KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_LANGUAGE);
-          this.toggleTouchLanguage();
-        }
       });
       Column() {
         this.fixedKey({
@@ -4545,6 +4535,20 @@ struct KeyboardView {
         width: 0,
         share: PUNCTUATION_SHARE,
         action: () => this.typePeriod()
+      });
+      this.fixedKey({
+        face: this.languageFace(),
+        label: KeyAccessibilityPolicy.language(),
+        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+        fontWeight: FUNCTION_LABEL_WEIGHT,
+        emphasized: false,
+        special: true,
+        width: 0,
+        share: LANGUAGE_SHARE,
+        action: () => {
+          KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_LANGUAGE);
+          this.toggleTouchLanguage();
+        }
       });
       this.designReturnKey(RETURN_SHARE);
     }
@@ -6273,6 +6277,13 @@ struct KeyboardView {
   }
 
   /** 皮肤选择器的行高：两行预览，多于一页时再加圆点，在按键让出的高度内。 */
+  /** 功能面板和方案选择每行的高度：两行填满面板去掉上下留白、行距和圆点后的高度，至少 `TILE_MIN_ROW_VP`。磁贴在行内居中。 */
+  private tileRowHeight(count: number): number {
+    const dots: number = count > FunctionPanelPolicy.PAGE_SIZE ? PANEL_DOTS_ROOM_VP : 0;
+    return Math.max(TILE_MIN_ROW_VP, Math.floor((this.surfaceHeight() - TILE_TOP_PADDING_VP - TILE_ROWS_GAP_VP
+      - dots - PANEL_BOTTOM_PADDING_VP) / 2));
+  }
+
   private skinRowHeight(pageCount: number): number {
     const dots: number = pageCount > 1 ? PANEL_DOTS_ROOM_VP : 0;
     return Math.max(0, Math.floor((this.surfaceHeight() - SKIN_TOP_PADDING_VP - SKIN_ROWS_GAP_VP - dots
@@ -6304,6 +6315,9 @@ struct KeyboardView {
         PagedTiles({
           count: this.schemePickerEntries().length,
           pageSize: FunctionPanelPolicy.PAGE_SIZE,
+          rowHeight: this.tileRowHeight(this.schemePickerEntries().length),
+          rowsGap: TILE_ROWS_GAP_VP,
+          topPadding: TILE_TOP_PADDING_VP,
           accent: this.skin.toggleForeground,
           hair: this.skin.hair,
           tile: (index: number): void => {
@@ -7238,6 +7252,9 @@ struct KeyboardView {
         PagedTiles({
           count: FunctionPanelPolicy.items().length,
           pageSize: FunctionPanelPolicy.PAGE_SIZE,
+          rowHeight: this.tileRowHeight(FunctionPanelPolicy.items().length),
+          rowsGap: TILE_ROWS_GAP_VP,
+          topPadding: TILE_TOP_PADDING_VP,
           resetToken: this.panelResetToken,
           accent: this.skin.toggleForeground,
           hair: this.skin.hair,

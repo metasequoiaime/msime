@@ -1495,12 +1495,18 @@ fn custom_theme_round_trips_every_part() {
         );
     }
 
-    let mut preferences = saved.preferences.clone();
-    preferences.custom_theme.base = crate::skin::theme::GlobalTheme::Custom;
-    assert!(matches!(
-        store.save(saved.revision, preferences),
-        Err(PreferencesError::InvalidCustomThemeBase)
-    ));
+    // `native` 只在部分宿主上提供，不能当自定义主题的底。
+    for base in [
+        crate::skin::theme::GlobalTheme::Custom,
+        crate::skin::theme::GlobalTheme::Native,
+    ] {
+        let mut preferences = saved.preferences.clone();
+        preferences.custom_theme.base = base;
+        assert!(matches!(
+            store.save(saved.revision, preferences),
+            Err(PreferencesError::InvalidCustomThemeBase)
+        ));
+    }
     assert_eq!(store.load().unwrap(), saved);
 }
 

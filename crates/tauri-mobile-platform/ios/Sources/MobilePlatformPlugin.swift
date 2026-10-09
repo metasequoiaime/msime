@@ -615,8 +615,8 @@ private struct IOSKeyboardPreferenceStore {
   ]
   /// 没有存过 `enabledInputSchemes` 的键盘不打开这些方案，所以新增它们不会改变已有的键盘；由用户在设置里打开。
   static let optInSchemes: Set<String> = ["cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"]
-  /// The global theme ids (`GlobalTheme::ALL` in client-core), the only values `globalTheme` may hold.
-  static let themeOrder = ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
+  /// 全局主题 id（client-core 的 `GlobalTheme::ALL`），`globalTheme` 只能是其中之一。
+  static let themeOrder = ["system", "native", "shuishan", "light", "paper", "night", "ink", "custom"]
   /// `system` 是「跟随系统」，见 `previewKeyboardHaptics`。
   static let hapticStrengths = ["system", "light", "medium", "strong"]
 

@@ -103,7 +103,7 @@ final class BackendPreferencesTests: XCTestCase {
     }
     XCTAssertEqual(PreferenceBodyProtocol.requests(), 0)
   }
-  private let themes: Set<String> = ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
+  private let themes: Set<String> = ["system", "native", "shuishan", "light", "paper", "night", "ink", "custom"]
 
   func testUnsupportedCloudValuesFailBeforeAnApplicationPlanExists() throws {
     for settings: [String: BackendPreferenceValue] in [
@@ -148,10 +148,13 @@ final class BackendPreferencesTests: XCTestCase {
     XCTAssertEqual(plan.customThemeBase, "paper")
     XCTAssertEqual(plan.customSkinJSON, "{}")
     XCTAssertEqual(try IOSPreferencePlan(["platform.ios.custom_theme_base": .string("system")], themes: themes).customThemeBase, "system")
+    XCTAssertEqual(try IOSPreferencePlan(["platform.ios.global_theme": .string("native")], themes: themes).globalTheme, "native")
     for settings: [String: BackendPreferenceValue] in [
       ["platform.ios.global_theme": .string("ocean")],
       ["platform.ios.global_theme": .boolean(true)],
       ["platform.ios.custom_theme_base": .string("custom")],
+      // 「原生」能选，但不能当自定义主题的底。
+      ["platform.ios.custom_theme_base": .string("native")],
       ["platform.ios.custom_theme_base": .string("midnight")]
     ] { XCTAssertThrowsError(try IOSPreferencePlan(settings, themes: themes)) }
     let empty = try IOSPreferencePlan([:], themes: themes)

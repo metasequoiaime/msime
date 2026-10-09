@@ -46,7 +46,7 @@
         system: pkgs:
         {
           # 构建本身就跑 ctest（doCheck），所以这里只需要列出包。
-          inherit (self.packages.${system}) msime-host-api msime-fcitx5;
+          inherit (self.packages.${system}) msime-host-api msime-fcitx5 msime-ibus;
           # 不用模块的 NixOS 配置经 overlay 取包，按它构建一次：经 overlay 时 callPackage 能从 pkgs 里取到
           # 这几个包，只查 packages 发现不了参数被它们自动填上的问题。
           msime-fcitx5-overlay = (pkgs.extend self.overlays.default).msime-fcitx5;

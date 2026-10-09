@@ -92,7 +92,7 @@ test("full keeps every scheme, the input modes, helper codes and 临时日语", 
   expect(screen.getByRole("region", { name: "辅助码" })).toBeTruthy();
   expect(screen.getByRole("switch", { name: /^临时日语/ })).toBeTruthy();
   // 全拼时不显示五笔的设置。
-  expect(screen.queryByRole("switch", { name: "编码打不出时用拼音候选" })).toBeNull();
+  expect(screen.queryByRole("switch", { name: "五笔拼音混输" })).toBeNull();
 });
 
 test("the wubi edition offers no other scheme and always shows the Wubi settings", async () => {
@@ -116,7 +116,7 @@ test("the wubi edition offers no other scheme and always shows the Wubi settings
     expect(screen.queryByRole("radio", { name })).toBeNull();
   }
   expect(screen.queryByText(/此平台暂不支持/)).toBeNull();
-  const mixed = screen.getByRole("switch", { name: "编码打不出时用拼音候选" }) as HTMLInputElement;
+  const mixed = screen.getByRole("switch", { name: "五笔拼音混输" }) as HTMLInputElement;
   expect(mixed.checked).toBe(true);
   // 五笔不用辅助码，这一组不显示；模糊音在混拼查全拼时照常起作用。
   expect(screen.queryByRole("region", { name: "辅助码" })).toBeNull();
@@ -129,7 +129,7 @@ test("the wubi edition offers no other scheme and always shows the Wubi settings
 test("the wubi edition keeps a mixed-pinyin choice the user turned off", async () => {
   await openInputPage(wubiHost, { scheme: "wubi", wubi_mixed_pinyin: false });
 
-  const mixed = screen.getByRole("switch", { name: "编码打不出时用拼音候选" }) as HTMLInputElement;
+  const mixed = screen.getByRole("switch", { name: "五笔拼音混输" }) as HTMLInputElement;
   expect(mixed.checked).toBe(false);
 });
 

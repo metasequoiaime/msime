@@ -44,6 +44,8 @@ struct Observation {
   std::vector<PreeditAttribute> preedit_attributes;
   std::string auxiliary;
   gboolean auxiliary_visible = FALSE;
+  // UpdateAuxiliaryText 显示出这一行的次数，测试据此区分一次提示和两次，不必等到超时。
+  int auxiliary_shows = 0;
   // HideLookupTable and HideAuxiliaryText in the order they arrived.
   std::vector<std::string> hides;
   std::vector<std::string> candidates;
@@ -155,6 +157,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   if (std::string(name) == "UpdateAuxiliaryText") {
     seen.auxiliary = ibus_text_get_text(IBUS_TEXT(object));
     g_variant_get_child(parameters, 1, "b", &seen.auxiliary_visible);
+    if (seen.auxiliary_visible)
+      ++seen.auxiliary_shows;
   }
   auto observe_property = [&](auto &&self, IBusProperty *property) -> void {
     const std::string key = ibus_property_get_key(property);
@@ -503,10 +507,16 @@ int main(int argc, char **argv) {
                          std::to_string(call))
                             .c_str());
     };
+#if IBUS_CHECK_VERSION(1, 5, 27)
+    // 全局引擎下没有输入框获得焦点时，IBus 让自己的 "fake" 上下文获得焦点，这时没有可以显示模式的输入框。信号按顺序到达，所以只有 fake 焦点没显示提示时，下面输入框的提示才是第一次。
+    invoke("FocusInId", g_variant_new("(ss)", "/org/freedesktop/IBus/InputContext_1", "fake"));
+    invoke("FocusOut");
+#endif
     invoke("FocusIn");
     // #2589: a new focus shows the current mode the way a switch does, then the hint goes away by itself. The replay IBus sends while it names the client is the same focus and must not show it again.
     require(wait_until([&] { return seen.auxiliary == "中" && seen.auxiliary_visible; }),
             "Focus did not show the input mode");
+    require(seen.auxiliary_shows == 1, "Focusing IBus's fake context showed the input mode");
     require(wait_until([&] { return !seen.auxiliary_visible; }), "Focus mode hint did not hide");
     invoke("FocusIn");
     require(!wait_until([&] { return seen.auxiliary_visible; }) || seen.auxiliary != "中",

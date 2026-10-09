@@ -260,10 +260,10 @@ public final class KeyboardSkinPreview extends View {
         {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
         {"a", "s", "d", "f", "g", "h", "j", "k", "l"},
         {"⇧", "z", "x", "c", "v", "b", "n", "m", "⌫"},
-        {"123", "中", "，", "", "。", "↵"},
+        {"123", "，", "", "。", "中", "↵"},
     };
     private static final float[][] MINI_WEIGHTS = {
-        null, null, {1.4f, 1, 1, 1, 1, 1, 1, 1, 1.4f}, {1.25f, 1.05f, 1, 4, 1, 1.9f},
+        null, null, {1.4f, 1, 1, 1, 1, 1, 1, 1, 1.4f}, {1.25f, 1, 4, 1, 1.05f, 1.9f},
     };
 
     /**

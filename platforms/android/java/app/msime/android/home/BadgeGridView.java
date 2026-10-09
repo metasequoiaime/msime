@@ -214,7 +214,7 @@ public final class BadgeGridView extends View {
     }
 
     private boolean dark() {
-        return Ui.isNight(getContext());
+        return KeyboardGeometry.isNight(getContext());
     }
 
     /** 分组的两种颜色：深色端和浅色端。 */

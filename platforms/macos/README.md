@@ -47,7 +47,7 @@ log show --last 5m --style compact --info --predicate 'subsystem == "app.msime.i
 
 ## 发布包
 
-`.github/workflows/release-macos.yml` 手动触发，在 macos-15（Apple silicon）上运行 `package-release.sh`，产出同时支持 Apple 芯片和 Intel 的 `msime-macos-<版本>-universal.dmg` 与 `SHA256SUMS`（本机打包前先 `rustup target add aarch64-apple-darwin x86_64-apple-darwin`），作为 workflow artifact 上传；`publish` 输入打开时才以 `macos-v<版本>` 发布这两个文件。同一个脚本可在本机跑出同样的包：
+`.github/workflows/release-macos.yml` 手动触发，在 macos-15（Apple silicon）上用 Xcode 26.3（macOS 26 SDK，与 CI 同一个版本）运行 `package-release.sh`，产出同时支持 Apple 芯片和 Intel 的 `msime-macos-<版本>-universal.dmg` 与 `SHA256SUMS`（本机打包前先 `rustup target add aarch64-apple-darwin x86_64-apple-darwin`），作为 workflow artifact 上传；`publish` 输入打开时才以 `macos-v<版本>` 发布这两个文件。同一个脚本可在本机跑出同样的包：
 
 ```sh
 MSIME_SPARKLE_ROOT=/absolute/path/to/Sparkle-2.9.6 platforms/macos/package-release.sh [版本] [输出目录]
