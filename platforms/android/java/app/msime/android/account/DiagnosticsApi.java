@@ -106,8 +106,9 @@ public final class DiagnosticsApi {
     /** 一条崩溃记录；摘要和堆栈按后端上限截断。 */
     public record CrashLog(String at, String message, String stack) {
         public static CrashLog of(String at, String message, String stack) {
-            return new CrashLog(at == null ? "" : at, clipUtf8(message, MAX_MESSAGE_BYTES),
-                clipUtf8(stack, MAX_STACK_BYTES));
+            return new CrashLog(at == null ? "" : at,
+                TextPolicy.clipUtf8(message, MAX_MESSAGE_BYTES),
+                TextPolicy.clipUtf8(stack, MAX_STACK_BYTES));
         }
     }
 
@@ -199,9 +200,9 @@ public final class DiagnosticsApi {
     public static String requestBody(String platform, String appVersion, Sections sections, Retention ttl) {
         StringBuilder out = new StringBuilder(4096);
         out.append("{\"platform\":");
-        quote(out, platform);
+        out.append(JsonPolicy.quote(platform));
         out.append(",\"app_version\":");
-        quote(out, appVersion);
+        out.append(JsonPolicy.quote(appVersion));
         out.append(",\"sections\":{");
         boolean first = true;
         if (sections.crashLogs() != null) {
@@ -211,11 +212,11 @@ public final class DiagnosticsApi {
                 CrashLog log = sections.crashLogs().get(i);
                 if (i > 0) out.append(',');
                 out.append("{\"at\":");
-                quote(out, log.at());
+                out.append(JsonPolicy.quote(log.at()));
                 out.append(",\"message\":");
-                quote(out, log.message());
+                out.append(JsonPolicy.quote(log.message()));
                 out.append(",\"stack\":");
-                quote(out, log.stack());
+                out.append(JsonPolicy.quote(log.stack()));
                 out.append('}');
             }
             out.append(']');
@@ -237,7 +238,7 @@ public final class DiagnosticsApi {
             events(out, sections.inputEvents(), false);
         }
         out.append("},\"ttl\":");
-        quote(out, ttl.wire());
+        out.append(JsonPolicy.quote(ttl.wire()));
         out.append('}');
         return out.toString();
     }
@@ -418,16 +419,6 @@ public final class DiagnosticsApi {
     private static String baseName(String path) {
         int slash = path.lastIndexOf('/');
         return TextPolicy.lowercase(slash < 0 ? path : path.substring(slash + 1));
-    }
-
-    /** 按 UTF-8 字节截断，不切开多字节字符和代理对。 */
-    static String clipUtf8(String value, int maxBytes) {
-        return TextPolicy.clipUtf8(value, maxBytes);
-    }
-
-    /** JSON 字符串转义（RFC 8259）。 */
-    static void quote(StringBuilder out, String value) {
-        out.append(JsonPolicy.quote(value));
     }
 
 }

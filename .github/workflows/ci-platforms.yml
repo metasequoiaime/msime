@@ -149,9 +149,10 @@ jobs:
         if: ${{ needs.changes.outputs.android != 'true' }}
         run: echo 'No Android or shared-platform changes; platform gate skipped.'
   # 上面只证明编译得过；这里在 API 28 和 35 的模拟器上真正运行 client-core 单测和 APK。0.3.0 的三个设备上才出现的问题（词库准备失败、匿名账号写不进、Android 9 启动崩溃）全过了上面那个 job。
+  # 打 APK、起两台模拟器是打包级的验收，不在 PR 上跑：合进 develop 后的 push 跑一次，Release Android 发版前用同一个提交再跑一次（见 .agents/notes/implemented/process/2026-10-09-no-packaging-on-pull-requests.md）。
   android-device:
     needs: changes
-    if: ${{ needs.changes.outputs.android == 'true' }}
+    if: ${{ needs.changes.outputs.android == 'true' && github.event_name != 'pull_request' }}
     uses: ./.github/workflows/android-device.yml
 
   linux:
@@ -306,7 +307,7 @@ jobs:
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
         run: |
-          foreach ($test in 'lifecycle', 'watchdog-task', 'tauri-layout', 'tsf-registration') {
+          foreach ($test in 'lifecycle', 'watchdog-task', 'tauri-layout', 'tsf-registration', 'signpath-payload') {
             Write-Host "== $test"
             & pwsh -NoProfile -File "platforms/windows/installer/tests/$test.ps1"
             if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }
@@ -386,8 +387,9 @@ jobs:
           CC_wasm32_unknown_unknown: clang
           AR_wasm32_unknown_unknown: llvm-ar
         run: cargo clippy --locked -p msime-engine-wasm --target wasm32-unknown-unknown -- -D warnings
+      # PR 上只验证能构建，不出产物。
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ needs.changes.outputs.web == 'true' }}
+        if: ${{ needs.changes.outputs.web == 'true' && github.event_name != 'pull_request' }}
         with:
           name: web-engine-${{ github.sha }}
           path: target/web-engine/dist/

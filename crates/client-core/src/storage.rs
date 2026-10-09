@@ -168,16 +168,29 @@ pub(crate) fn private_directory_metadata(directory: &File) -> io::Result<fs::Met
 
 #[cfg(unix)]
 pub(crate) fn open_private_lock_file_at(directory: &File, name: &OsStr) -> io::Result<File> {
-    let descriptor = rustix::fs::openat(
-        directory,
-        name,
-        rustix::fs::OFlags::RDWR
-            | rustix::fs::OFlags::CREATE
-            | rustix::fs::OFlags::NOFOLLOW
-            | rustix::fs::OFlags::CLOEXEC
-            | rustix::fs::OFlags::NONBLOCK,
-        rustix::fs::Mode::from_raw_mode(0o600),
-    )?;
+    let open = || {
+        rustix::fs::openat(
+            directory,
+            name,
+            rustix::fs::OFlags::RDWR
+                | rustix::fs::OFlags::CREATE
+                | rustix::fs::OFlags::NOFOLLOW
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::from_raw_mode(0o600),
+        )
+    };
+    #[cfg(target_vendor = "apple")]
+    let descriptor = match open() {
+        // 并发首次创建锁文件时，Darwin 的 openat 偶尔返回 ENOENT；目录句柄仍有效，重试同一入口即可。
+        Err(rustix::io::Errno::NOENT) => {
+            std::thread::yield_now();
+            open()?
+        }
+        result => result?,
+    };
+    #[cfg(not(target_vendor = "apple"))]
+    let descriptor = open()?;
     Ok(descriptor.into())
 }
 

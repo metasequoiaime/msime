@@ -96,8 +96,10 @@ pub fn decode_json_frame(frame: &[u8]) -> Option<(bool, i32, Vec<u8>)> {
 }
 
 /// Decode the numeric error code from a Doubao error frame (message type 0xF).
+///
+/// 首字节是协议版本和帧头长度，必须是 v1 的 `0x11`。第三字节只是序列化和压缩方式，不是版本：错误码按原样的大端整数读取，后面的错误消息不解析，所以不限制它。服务端的错误帧消息是不压缩的 UTF-8（第三字节 `0x00`），要求 `0x11` 会把真实的错误码全部丢掉，界面只剩通用的失败提示。
 pub fn decode_error_code(frame: &[u8]) -> Option<i32> {
-    if frame.len() < 12 || (frame[0] & 0x0f) != 1 || (frame[1] >> 4) != 0x0f {
+    if frame.len() < 12 || frame[0] != 0x11 || (frame[1] >> 4) != 0x0f {
         return None;
     }
     let flags = frame[1] & 0x0f;
@@ -166,6 +168,23 @@ mod tests {
         let last = corrupt.len() - 1;
         corrupt[last] ^= 1;
         assert!(decode_json_frame(&corrupt).is_none());
+    }
+
+    #[test]
+    fn error_decoder_rejects_a_different_protocol_version() {
+        let mut error = [0x11, 0xf0, 0x11, 0, 0, 0, 0, 7, 0, 0, 0, 42];
+        assert_eq!(decode_error_code(&error), Some(7));
+        error[0] = 0x21;
+        assert_eq!(decode_error_code(&error), None);
+    }
+
+    #[test]
+    fn error_decoder_reads_the_code_whatever_the_message_encoding() {
+        // 第三字节是错误消息的序列化和压缩方式；服务端发的是不压缩的 UTF-8（0x00）。
+        for encoding in [0x00, 0x10, 0x11] {
+            let error = [0x11, 0xf0, encoding, 0, 0, 0, 0, 7, 0, 0, 0, 42];
+            assert_eq!(decode_error_code(&error), Some(7));
+        }
     }
 
     #[test]

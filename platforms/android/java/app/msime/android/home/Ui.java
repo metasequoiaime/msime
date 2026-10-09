@@ -271,29 +271,9 @@ public final class Ui {
         ViewPolicy.hideFromAccessibility(view);
     }
 
-    /** Return whether the supplied context currently uses the system night configuration. */
-    public static boolean isNight(Context context) {
-        return KeyboardGeometry.isNight(context);
-    }
-
-    /** Return the current display width in physical pixels. */
-    public static int screenWidthPixels(Context context) {
-        return KeyboardGeometry.screenWidthPixels(context);
-    }
-
-    /** Convert a density-independent dimension without rounding, for canvas geometry. */
-    public static float dpFloat(Context context, float value) {
-        return KeyboardGeometry.floatPixels(context, value);
-    }
-
     /** Convert scalable text units to pixels using the context display metrics. */
     public static float sp(Context context, float value) {
         return KeyboardGeometry.sp(context, value);
-    }
-
-    /** Parse a theme or skin colour, returning the supplied fallback for missing or invalid input. */
-    public static int parseColor(String value, int fallback) {
-        return ColorPolicy.parse(value, fallback);
     }
 
     /** Layout parameters for a view that fills the parent width at its measured height. */

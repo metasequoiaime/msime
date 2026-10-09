@@ -101,10 +101,10 @@ public final class KeyboardActionRow {
         return symbols ? "切换到字母键盘" : "切换到数字和符号";
     }
 
-    // ---- 新设计的底行（plan §2.8，N/design-tokens.md §5）：123 1.25 / 中 1.05 / ， 1 / 空格 4 / 。 1 / ↵ 1.9 ----
+    // ---- 新设计的底行（plan §2.8，N/design-tokens.md §5）：123 1.25 / ， 1 / 空格 4 / 。 1 / 中 1.05 / ↵ 1.9 ----
 
-    /** 新设计底行的键，按排列顺序；地球键只在宿主允许切换输入法时插在中/英之后。 */
-    public enum DesignSlot { LAYER, LANGUAGE, GLOBE, COMMA, SPACE, PERIOD, RETURN }
+    /** 新设计底行的键，按排列顺序；地球键只在宿主允许切换输入法时插在 123 之后，中/英紧挨在回车左边。 */
+    public enum DesignSlot { LAYER, GLOBE, COMMA, SPACE, PERIOD, LANGUAGE, RETURN }
 
     /** 新设计底行里的一个键与它的宽度份额。 */
     public record DesignEntry(DesignSlot slot, float weight) {}
@@ -119,7 +119,7 @@ public final class KeyboardActionRow {
     public static final float DESIGN_LETTER_EDGE_WEIGHT = 1.4f;
 
     /**
-     * 新设计的底行。九键与笔画键盘的标点在侧栏、注音 9 键的逗号句号在网格最后一行，底行不再放逗号句号；日文假名网格不带底行。
+     * 新设计的底行：123 |（地球）| ， | 空格 | 。 | 中/英 | 回车。中/英放在回车左边，右手拇指够得着；九键与笔画键盘的标点在侧栏、注音 9 键的逗号句号在网格最后一行，底行不再放逗号句号；日文假名网格不带底行。
      *
      * @param touchLayout {@link KeyboardLayout} 的界面常量
      * @param globe 宿主是否可以切换到下一个输入法（`shouldOfferSwitchingToNextInputMethod()`）
@@ -132,13 +132,13 @@ public final class KeyboardActionRow {
             || touchLayout == KeyboardLayout.STROKE_LAYOUT;
         List<DesignEntry> entries = new ArrayList<>(MAX_ROW_ENTRIES);
         entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_LAYER_WEIGHT));
-        entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_LANGUAGE_WEIGHT));
         if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_GLOBE_WEIGHT));
         if (!sidebarPunctuation)
             entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
         entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_SPACE_WEIGHT));
         if (!sidebarPunctuation)
             entries.add(new DesignEntry(DesignSlot.PERIOD, DESIGN_PUNCTUATION_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_LANGUAGE_WEIGHT));
         entries.add(new DesignEntry(DesignSlot.RETURN, DESIGN_RETURN_WEIGHT));
         return List.copyOf(entries);
     }

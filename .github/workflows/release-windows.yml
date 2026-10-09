@@ -5,8 +5,10 @@ on:
       version: {description: Semantic version (defaults to platforms/windows/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the installer as a windows-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
+      signpath_test: {description: Sign with the SignPath test-signing policy (untrusted test certificate) to exercise the signing jobs; such a run never publishes, required: false, default: false, type: boolean}
 permissions: {contents: write}
-concurrency: {group: release-windows, cancel-in-progress: false}
+# 签名测试不发布，单独一个并发组，不让它排在真正的发布前面。
+concurrency: {group: "release-windows${{ inputs.signpath_test && '-signpath-test' || '' }}", cancel-in-progress: false}
 jobs:
   # Resolves the dispatched commit up front, so every edition, the coexistence check and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
   source:
@@ -25,15 +27,54 @@ jobs:
           $v = if ($env:REQUESTED) {$env:REQUESTED.Trim()} else {(Get-Content platforms/windows/version.txt -Raw).Trim()}; if ($v -notmatch '^\d+\.\d+\.\d+$') {throw 'invalid version'}; "value=$v" >> $env:GITHUB_OUTPUT
           # The release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
           $suffix = switch ($env:GITHUB_REF_NAME) {'main' {''} 'develop' {'-beta'} default {'-alpha'}}; "release=$v$suffix" >> $env:GITHUB_OUTPUT
+      # SignPath 签名由本仓库的变量 WINDOWS_SIGNING_PROVIDER=signpath 打开；它不能建在组织级，否则别的仓库会一起打开。打开时其余配置缺一项就失败，不悄悄退回未签名；不设置时照旧发未签名安装包。只签 main 的正式版和 develop 的 beta：其他分支的 -alpha 是试验构建，不占用签名和审批，照旧不签名。
+      # 输入 signpath_test 不看这个开关，在任何分支上用 test-signing 策略走一遍签名任务：测试证书不受系统信任，策略不需要审批，所以这种运行从不发布（publish 任务被跳过），只用来验证签名链路。签名流程见 docs/code-signing-policy.md。
+      - id: signing
+        env: {PROVIDER: "${{ vars.WINDOWS_SIGNING_PROVIDER }}", TEST: "${{ inputs.signpath_test }}", TOKEN_SET: "${{ secrets.SIGNPATH_TOKEN != '' }}", ORGANIZATION: "${{ vars.SIGNPATH_ORGANIZATION_ID }}", PROJECT: "${{ vars.SIGNPATH_PROJECT_SLUG }}", POLICY: "${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}"}
+        run: |
+          require() {
+            missing=()
+            [[ "$TOKEN_SET" == true ]] || missing+=(secrets.SIGNPATH_TOKEN)
+            [[ -n "$ORGANIZATION" ]] || missing+=(vars.SIGNPATH_ORGANIZATION_ID)
+            [[ -n "$PROJECT" ]] || missing+=(vars.SIGNPATH_PROJECT_SLUG)
+            for name in "$@"; do missing+=("$name"); done
+            if (( ${#missing[@]} )); then echo "::error::SignPath 签名缺少配置：${missing[*]}"; exit 1; fi
+          }
+          if [[ "$TEST" == true ]]; then
+            require
+            echo 'signpath=true' >> "$GITHUB_OUTPUT"
+            echo 'policy=test-signing' >> "$GITHUB_OUTPUT"
+            echo '::notice::signpath_test：用 SignPath test-signing 策略签名，安装包带不受信任的测试证书，本次运行不发布。'
+            exit 0
+          fi
+          case "$PROVIDER" in
+            '')
+              echo 'signpath=false' >> "$GITHUB_OUTPUT"
+              echo '::notice::WINDOWS_SIGNING_PROVIDER 未设置，本次发布未签名的安装包。' ;;
+            signpath)
+              if [[ -n "$POLICY" ]]; then require; else require vars.SIGNPATH_SIGNING_POLICY_SLUG; fi
+              if [[ "$GITHUB_REF_NAME" != main && "$GITHUB_REF_NAME" != develop ]]; then
+                echo 'signpath=false' >> "$GITHUB_OUTPUT"
+                echo "::notice::$GITHUB_REF_NAME 不是 main 或 develop，本次发布未签名的 -alpha 安装包。"
+              else
+                echo 'signpath=true' >> "$GITHUB_OUTPUT"
+                echo "policy=$POLICY" >> "$GITHUB_OUTPUT"
+              fi ;;
+            *)
+              echo "::error::未知的 WINDOWS_SIGNING_PROVIDER：$PROVIDER（只能是 signpath，或者不设置）"; exit 1 ;;
+          esac
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
       version: ${{ steps.version.outputs.value }}
       release: ${{ steps.version.outputs.release }}
+      policy: ${{ steps.signing.outputs.policy }}
+      signpath: ${{ steps.signing.outputs.signpath }}
   # The Rust half of the client (host DLLs, MCP server, Tauri panel shell) does not depend on the edition, so it is built once per architecture here, in parallel, rather than six times over in every edition's job, where it was most of the build time.
   rust:
     needs: source
-    runs-on: depot-windows-2025-8
-    timeout-minutes: 60
+    # SignPath 的开源项目只接受签名请求之前的每个 job 都跑在 GitHub 托管 runner 上，所以签名时 rust、release、package 都换到 windows-2025（4 核，超时放宽）；不签名时留在 Depot 上。
+    runs-on: ${{ needs.source.outputs.signpath == 'true' && 'windows-2025' || 'depot-windows-2025-8' }}
+    timeout-minutes: ${{ needs.source.outputs.signpath == 'true' && 120 || 60 }}
     strategy:
       fail-fast: true
       matrix:
@@ -41,6 +82,8 @@ jobs:
     env:
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
+      # GitHub 托管 runner 没有 Depot Cache，sccache 改用 GitHub Actions 缓存。
+      SCCACHE_GHA_ENABLED: ${{ needs.source.outputs.signpath == 'true' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
@@ -79,7 +122,7 @@ jobs:
   # 每个版本（shared/contracts/editions.json 里有 Windows 段的 id）各打一个安装包，可以同时安装，也可以和 msime-windows 同时安装。full 的安装包名、AppId、目录和注册表键也是自己的，不再是 msime-windows 的那一组。
   release:
     needs: [source, rust]
-    runs-on: depot-windows-2025-8
+    runs-on: ${{ needs.source.outputs.signpath == 'true' && 'windows-2025' || 'depot-windows-2025-8' }}
     timeout-minutes: 150
     strategy:
       fail-fast: true
@@ -91,6 +134,7 @@ jobs:
       PYTHONUTF8: '1'
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
+      SCCACHE_GHA_ENABLED: ${{ needs.source.outputs.signpath == 'true' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
@@ -221,7 +265,7 @@ jobs:
           -Tsf64ReleaseDirectory target/windows-$env:EDITION/x64/bin
           -TsfArm64ReleaseDirectory target/windows-$env:EDITION/arm64/bin
           -DesktopExecutable target/windows-$env:EDITION/x64/bin/msime-client-settings.exe
-      # 安装包不带 PDB（msime_setup.iss），这次构建的符号作为单独的发布资产放在安装包旁边，收集逻辑和布局见 Collect-Symbols.ps1。维护者用 Package-SimplySign.ps1 打出签名安装包时，同一脚本会写出对应的符号包，连同安装包一起替换到发布上。
+      # 安装包不带 PDB（msime_setup.iss），这次构建的符号作为单独的发布资产放在安装包旁边，收集逻辑和布局见 Collect-Symbols.ps1。SignPath 签名不改动 PE 的调试目录，签名前收集的符号照样对得上签名后的二进制。不经 SignPath 签名时，维护者用 Package-SimplySign.ps1 打出签名安装包，同一脚本会写出对应的符号包，连同安装包一起替换到发布上。
       - name: Collect debug symbols
         shell: pwsh
         env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}"}
@@ -229,10 +273,112 @@ jobs:
           $ErrorActionPreference = 'Stop'
           ./platforms/windows/installer/Collect-Symbols.ps1 -Edition $env:EDITION -Version $env:VERSION -OutputDirectory dist-symbols
           Get-ChildItem dist-symbols | Format-Table Name, Length
+      # 单独的产物，名字不匹配下面的 msime-windows-* 模式，所以 coexistence 任务不会下载符号；publish 两个都取。
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-symbols-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
+          path: dist-symbols/
+          if-no-files-found: error
+      # 本项目自己的二进制按版本放进 <edition>/ 目录，由 sign-payload 把六个版本合成一次签名请求，一次发版只需批准两次（这一次和安装包那一次）。认定规则见 SignPath-PackageBinaries.ps1。
+      - name: Stage first-party binaries for SignPath
+        if: needs.source.outputs.signpath == 'true'
+        shell: pwsh
+        env: {EDITION: "${{ matrix.edition }}"}
+        run: ./platforms/windows/installer/SignPath-PackageBinaries.ps1 -Mode Stage -Edition $env:EDITION -Directory (Join-Path $env:RUNNER_TEMP 'signpath-payload')
+      - if: needs.source.outputs.signpath == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-signpath-payload-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
+          path: ${{ runner.temp }}/signpath-payload/
+          if-no-files-found: error
+      # 暂存包交给 package 任务编译安装包：签名要等这个任务结束、六个版本一起提交，所以编译不能留在这里。上传的是 .gitignore 列出的那些暂存内容，加上 msime_setup.iss：Prepare-PackageFiles.ps1 把版本号就地写进了这个受版本控制的文件，package 任务检出的那份还是 0.0.1，不带上它编出的安装包名和版本资源都是 0.0.1。安装包不收 PDB 和 .ilk（msime_setup.iss），符号已经进了上面的符号包，这里不再传。
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-staged-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
+          path: |
+            platforms/windows/installer/server_exe/
+            platforms/windows/installer/tsf_dll/
+            platforms/windows/installer/app_data/
+            platforms/windows/installer/MetasequoiaIME.ico
+            platforms/windows/installer/THIRD_PARTY_NOTICES.txt
+            platforms/windows/installer/LICENSE.txt
+            platforms/windows/installer/msime_setup.iss
+            !platforms/windows/installer/**/*.pdb
+            !platforms/windows/installer/**/*.ilk
+          if-no-files-found: error
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      release: ${{ steps.version.outputs.release }}
+  # 六个版本的本项目二进制合成一次 SignPath 签名请求。SignPath Foundation 的发布签名每个请求都要人工批准，这个任务会一直等到批准或超时。
+  sign-payload:
+    needs: [source, release]
+    if: needs.source.outputs.signpath == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    # SignPath 的 action 用 GITHUB_TOKEN 读取本任务的信息并下载要签的 artifact。
+    permissions: {actions: read, contents: read}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: msime-signpath-payload-windows-*-${{ needs.release.outputs.version }}
+          path: ${{ runner.temp }}/signpath-payload
+          merge-multiple: true
+      - id: unsigned
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-signpath-request-payload-${{ needs.release.outputs.version }}
+          path: ${{ runner.temp }}/signpath-payload/
+          if-no-files-found: error
+      - uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ needs.source.outputs.policy }}
+          artifact-configuration-slug: msime-payload
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 4800
+          output-artifact-directory: ${{ runner.temp }}/signpath-payload-signed
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-signed-payload-windows-${{ needs.release.outputs.version }}
+          path: ${{ runner.temp }}/signpath-payload-signed/
+          if-no-files-found: error
+  # 签名时先把签好的二进制放回暂存包，再编译安装包；不签名时 sign-payload 被跳过，这里直接编译。!failure() 让被跳过的 sign-payload 不连带跳过本任务。
+  package:
+    needs: [source, release, sign-payload]
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ${{ needs.source.outputs.signpath == 'true' && 'windows-2025' || 'depot-windows-2025-8' }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        edition: [full, wubi, pinyin, japanese, vietnamese, tibetan]
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: msime-staged-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
+          path: platforms/windows/installer
+      - if: needs.source.outputs.signpath == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: msime-signed-payload-windows-${{ needs.release.outputs.version }}
+          path: ${{ runner.temp }}/signpath-payload-signed
+      - name: Put the signed binaries back
+        if: needs.source.outputs.signpath == 'true'
+        shell: pwsh
+        env: {EDITION: "${{ matrix.edition }}", POLICY: "${{ needs.source.outputs.policy }}"}
+        # test-signing 的测试证书链不到受信任的根，见脚本里 -TestCertificate 的说明。
+        run: ./platforms/windows/installer/SignPath-PackageBinaries.ps1 -Mode Restore -Edition $env:EDITION -Directory (Join-Path $env:RUNNER_TEMP 'signpath-payload-signed') -TestCertificate:($env:POLICY -eq 'test-signing')
       - name: Compile installer
         shell: pwsh
-        env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}"}
-        # Unsigned: the code-signing certificate is a Certum SimplySign card that only exists on the release machine, so signing stays a local step (installer/Package-SimplySign.ps1). This job produces the installer that step would sign.
+        env: {VERSION: "${{ needs.release.outputs.version }}", EDITION: "${{ matrix.edition }}"}
+        # 安装包本身在 sign-installers 里签名；不签名时它就是发布出去的那一份，维护者可以用 installer/Package-SimplySign.ps1 在本地打出签名版替换。
         run: |
           $ErrorActionPreference = 'Stop'
           $inno = "${env:ProgramFiles(x86)}\Inno Setup 6"
@@ -258,31 +404,79 @@ jobs:
           $hash = (Get-FileHash -LiteralPath "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText((Join-Path $PWD "dist/$name.sha256"), "$hash  $name`n")
           Get-ChildItem dist | Format-Table Name, Length
+      # 签名时这一份还要交给 sign-installers，名字不能匹配下游取安装包用的 msime-windows-* 模式；不签名时它就是最终的安装包。
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: msime-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
+          name: ${{ needs.source.outputs.signpath == 'true' && 'msime-unsigned-installer-windows' || 'msime-windows' }}-${{ matrix.edition }}-${{ needs.release.outputs.version }}
           path: dist/
-          if-no-files-found: error
-      # 单独的产物，名字不匹配下面的 msime-windows-* 模式，所以 coexistence 任务不会下载符号；publish 两个都取。
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: msime-symbols-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
-          path: dist-symbols/
           if-no-files-found: error
       # The runner is a disposable elevated Windows machine, so install the built package on it and uninstall it again before anything is published. The artifact is uploaded first so a failing package can still be inspected.
       - name: Install and uninstall the package
         shell: pwsh
-        env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}"}
+        env: {VERSION: "${{ needs.release.outputs.version }}", EDITION: "${{ matrix.edition }}"}
         run: |
           $base = (python platforms/windows/scripts/edition_windows.py field --edition $env:EDITION installer_base_name).Trim()
           if ($LASTEXITCODE -ne 0) { throw 'edition installer name lookup failed' }
           ./platforms/windows/installer/tests/install-smoke.ps1 -Installer "dist/${base}_v$env:VERSION.exe" -Edition $env:EDITION
-    outputs:
-      version: ${{ steps.version.outputs.value }}
-      release: ${{ steps.version.outputs.release }}
+  # 六个版本的安装包合成一次 SignPath 签名请求，签好后重算 .sha256，作为一个 msime-windows-signed-<版本> 产物交给下游：它匹配 msime-windows-* 模式，coexistence 和 publish 不用区分签没签名。
+  sign-installers:
+    needs: [source, release, package]
+    if: ${{ !cancelled() && !failure() && needs.source.outputs.signpath == 'true' }}
+    runs-on: windows-2025
+    timeout-minutes: 90
+    permissions: {actions: read, contents: read}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: msime-unsigned-installer-windows-*-${{ needs.release.outputs.version }}
+          path: ${{ runner.temp }}/installers
+          merge-multiple: true
+      - id: unsigned
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-signpath-request-installers-${{ needs.release.outputs.version }}
+          path: ${{ runner.temp }}/installers/*.exe
+          if-no-files-found: error
+      - uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ needs.source.outputs.policy }}
+          artifact-configuration-slug: msime-installer
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 4800
+          output-artifact-directory: ${{ runner.temp }}/installers-signed
+      - name: Check the signatures and record the digests
+        shell: pwsh
+        env: {POLICY: "${{ needs.source.outputs.policy }}"}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $unsigned = @(Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'installers') -File -Filter '*.exe')
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          foreach ($installer in $unsigned) {
+            $signed = Join-Path $env:RUNNER_TEMP "installers-signed/$($installer.Name)"
+            if (-not (Test-Path -LiteralPath $signed -PathType Leaf)) { throw "SignPath 没有返回 $($installer.Name)" }
+            $signature = Get-AuthenticodeSignature -LiteralPath $signed
+            # test-signing 的测试证书链不到受信任的根，只要求确实带签名，见 SignPath-PackageBinaries.ps1 的 -TestCertificate。
+            $accepted = $signature.Status -eq 'Valid' -or ($env:POLICY -eq 'test-signing' -and $signature.Status -eq 'UnknownError' -and $null -ne $signature.SignerCertificate)
+            if (-not $accepted) { throw "SignPath 返回的 $($installer.Name) 签名状态是 $($signature.Status)：$($signature.StatusMessage)" }
+            Copy-Item -LiteralPath $signed -Destination dist/
+            $hash = (Get-FileHash -LiteralPath "dist/$($installer.Name)" -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText((Join-Path $PWD "dist/$($installer.Name).sha256"), "$hash  $($installer.Name)`n")
+            Write-Output "$($installer.Name) 已签名：$($signature.SignerCertificate.Subject)"
+          }
+          Get-ChildItem dist | Format-Table Name, Length
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-windows-signed-${{ needs.release.outputs.version }}
+          path: dist/
+          if-no-files-found: error
   # 几个版本的安装包装在同一台机器上：各自的 TIP、COM 注册、HKLM 键、看门狗任务和数据目录同时存在，卸掉一个版本不碰 full；机器上还伪造了一份 msime-windows 的注册表键和数据目录，没有哪个版本接管或删除它。runner 是一次性的管理员环境。
   coexistence:
-    needs: [source, release]
+    needs: [source, release, package, sign-installers]
+    if: ${{ !cancelled() && !failure() }}
     runs-on: windows-2025
     timeout-minutes: 60
     steps:
@@ -305,7 +499,8 @@ jobs:
           ./platforms/windows/installer/tests/coexistence-smoke.ps1 -Installers $installers
   # 同一个安装包装在 Windows on Arm 上：装的是 Arm64X TIP 和 ARM64 宿主，原生 ARM64 进程和模拟的 x64 进程都能经 COM 注册创建 TIP，卸载照样干净。
   arm64:
-    needs: [source, release]
+    needs: [source, release, package, sign-installers]
+    if: ${{ !cancelled() && !failure() }}
     runs-on: windows-11-arm
     timeout-minutes: 60
     strategy:
@@ -315,9 +510,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
+      # 签名时六个安装包在同一个 msime-windows-signed-<版本> 产物里，每个任务取整份、只装自己那个。
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: msime-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
+          name: msime-windows-${{ needs.source.outputs.signpath == 'true' && 'signed' || matrix.edition }}-${{ needs.release.outputs.version }}
           path: dist
       - name: Install and uninstall the package
         shell: pwsh
@@ -335,7 +531,7 @@ jobs:
           ./platforms/windows/installer/tests/install-smoke.ps1 -Installer "dist/${base}_v$env:VERSION.exe" -Edition $env:EDITION -X64PowerShell (Join-Path $pwshX64 'pwsh.exe')
   publish:
     needs: [source, release, coexistence, arm64]
-    if: inputs.publish
+    if: ${{ inputs.publish && !inputs.signpath_test && !cancelled() && !failure() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

@@ -47,7 +47,7 @@ log show --last 5m --style compact --info --predicate 'subsystem == "app.msime.i
 
 ## 发布包
 
-`.github/workflows/release-macos.yml` 手动触发，在 macos-15（Apple silicon）上运行 `package-release.sh`，产出同时支持 Apple 芯片和 Intel 的 `msime-macos-<版本>-universal.dmg` 与 `SHA256SUMS`（本机打包前先 `rustup target add aarch64-apple-darwin x86_64-apple-darwin`），作为 workflow artifact 上传；`publish` 输入打开时才以 `macos-v<版本>` 发布这两个文件。同一个脚本可在本机跑出同样的包：
+`.github/workflows/release-macos.yml` 手动触发，在 macos-15（Apple silicon）上用 Xcode 26.3（macOS 26 SDK，与 CI 同一个版本）运行 `package-release.sh`，产出同时支持 Apple 芯片和 Intel 的 `msime-macos-<版本>-universal.dmg` 与 `SHA256SUMS`（本机打包前先 `rustup target add aarch64-apple-darwin x86_64-apple-darwin`），作为 workflow artifact 上传；`publish` 输入打开时才以 `macos-v<版本>` 发布这两个文件。同一个脚本可在本机跑出同样的包：
 
 ```sh
 MSIME_SPARKLE_ROOT=/absolute/path/to/Sparkle-2.9.6 platforms/macos/package-release.sh [版本] [输出目录]
@@ -72,7 +72,7 @@ DMG 里是设置应用（`MSIME.app`）、指向 `/Applications` 的链接和一
 
 用户词库的代次仍按完整的 `desktop-dictionary.lock.json` 计算，`user/dictionaries/<代次>` 不会因为包里少了日文词典而变化，所以从内置全部资源的旧版本升级上来不会重新准备工作词库。升级后旧配置里记录的资源目录和语言词库目录如果还在，照常作为兜底；Sparkle 换掉整个 bundle 后包里的那份已经不在，设置应用启动时按已保存的方案补下需要的资源包。
 
-`package-release.sh` 在编译之前先用 App 运行时的同一个安装器（`install_resource_pack` 示例）把 macOS 会下载的四个资源包（`japanese`、`language-dictionaries`、`handwriting`、`settled-model`，按 id 列出，不装只给 Android 的离线释义和语音运行库）装进临时目录，地址失效或哈希漂移的发布包不会被打出来。`msime-dictionary/.github/workflows/release-built-dictionaries.yml` 发布的词库 release 是已发布 App 的下载源，不能删除，附件也不能替换。`.github/workflows/ci-macos-package.yml` 在改动碰到打包输入的 PR 上检查核心词库的暂存规则和资源包可下载，并在 Apple 芯片的 runner 上打一个未签名的包；它不是分支保护要求的检查，每周还会定时跑一次。`scripts/test-macos-package-resources.py` 静态核对这几处保持一致。
+`package-release.sh` 在编译之前先用 App 运行时的同一个安装器（`install_resource_pack` 示例）把 macOS 会下载的四个资源包（`japanese`、`language-dictionaries`、`handwriting`、`settled-model`，按 id 列出，不装只给 Android 的离线释义和语音运行库）装进临时目录，地址失效或哈希漂移的发布包不会被打出来。`msime-dictionary/.github/workflows/release-built-dictionaries.yml` 发布的词库 release 是已发布 App 的下载源，不能删除，附件也不能替换。`.github/workflows/ci-macos-package.yml` 在合进 develop、且改动碰到打包输入的推送上检查核心词库的暂存规则和资源包可下载，并在 Apple 芯片的 runner 上打一个未签名的包；它不是分支保护要求的检查，每周还会定时跑一次。`scripts/test-macos-package-resources.py` 静态核对这几处保持一致。
 
 签名与公证取决于仓库 secrets，全部可选。括号里是 workflow 把它们交给 `package-release.sh` 时用的环境变量名，本机打包时直接设置这些变量：
 

@@ -72,15 +72,11 @@ public final class FeedbackApi {
         for (String key : DIAGNOSTIC_KEYS) {
             String value = raw.get(key);
             if (value == null) continue;
-            String trimmed = clip(TextPolicy.trimmed(TextPolicy.replaceControls(value, ' ')), MAX_DIAGNOSTIC_VALUE_BYTES);
+            String trimmed = TextPolicy.clipUtf8(
+                TextPolicy.trimmed(TextPolicy.replaceControls(value, ' ')), MAX_DIAGNOSTIC_VALUE_BYTES);
             if (!trimmed.isEmpty()) clean.put(key, trimmed);
         }
         return clean;
-    }
-
-    /** 按 UTF-8 字节截断，不切开代理对。 */
-    static String clip(String value, int maxBytes) {
-        return TextPolicy.clipUtf8(value, maxBytes);
     }
 
     /** 截图是 PNG 或 JPEG（看文件头，与声明的类型一致）、非空、不超过 1 MiB 时为真。 */
@@ -116,7 +112,7 @@ public final class FeedbackApi {
                 .put("type", type.id())
                 .put("text", TextPolicy.trimmed(text))
                 .put("platform", "android")
-                .put("app_version", clip(appVersion == null ? "" : appVersion, 64))
+                .put("app_version", TextPolicy.clipUtf8(appVersion == null ? "" : appVersion, 64))
                 .put("edition", edition == null ? "" : edition);
             if (diagnostics != null) {
                 Map<String, String> clean = filterDiagnostics(diagnostics);

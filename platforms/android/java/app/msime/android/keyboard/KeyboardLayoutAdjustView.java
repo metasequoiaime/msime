@@ -99,9 +99,9 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
     }
 
     public void updateSkin(KeyboardSkin skin) {
-        int keyBackground = color(skin.keyBackground());
-        int foreground = color(skin.keyForeground());
-        int accent = color(skin.accent());
+        int keyBackground = ColorPolicy.parse(skin.keyBackground(), Color.WHITE);
+        int foreground = ColorPolicy.parse(skin.keyForeground(), Color.WHITE);
+        int accent = ColorPolicy.parse(skin.accent(), Color.WHITE);
         GradientDrawable surface = DrawablePolicy.outlined(keyBackground,
             KeyboardGeometry.pixels(getContext(), 10),
             KeyboardGeometry.atLeastOnePixel(getContext(), 1), accent);
@@ -116,7 +116,8 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
                 // pass puts them, so they take the colour that fill is paired with. `accent` is
                 // that same fill in the shipped skins: 恢复默认 and 完成 were dark green text on a
                 // dark green button, and the bar read as three blank tiles.
-                ViewPolicy.setTextColor(button, color(skin.functionForeground()));
+                ViewPolicy.setTextColor(button,
+                    ColorPolicy.parse(skin.functionForeground(), Color.WHITE));
                 ViewPolicy.setAllCapsFalse(button);
             }
         }
@@ -141,8 +142,10 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
             }
             case MotionEvent.ACTION_MOVE -> {
                 if (trackingHeight) return true;
-                float translationX = dpFromPixels(event.getX() - downX);
-                float translationY = dpFromPixels(event.getY() - downY);
+                float translationX = KeyboardGeometry.fromPixels(
+                    getContext(), event.getX() - downX);
+                float translationY = KeyboardGeometry.fromPixels(
+                    getContext(), event.getY() - downY);
                 axis = KeyboardLayoutAdjustPolicy.chooseAxis(translationX, translationY, axis);
                 if (axis == KeyboardLayoutAdjustPolicy.Axis.HORIZONTAL) {
                     keySpacing = KeyboardLayoutAdjustPolicy.keySpacingFromDrag(
@@ -175,7 +178,8 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
                 return true;
             }
             case MotionEvent.ACTION_MOVE -> {
-                float translationY = dpFromPixels(event.getY() - downY);
+                float translationY = KeyboardGeometry.fromPixels(
+                    getContext(), event.getY() - downY);
                 heightAdjustment = KeyboardLayoutAdjustPolicy.heightFromDrag(baseHeight, translationY);
                 listener.height(heightAdjustment);
                 updateHint("键盘高度 " + KeyboardGeometry.displayHeight(heightAdjustment));
@@ -222,14 +226,6 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
             ? "拖把手改高度；键盘左右拖改键距、上下拖改行距"
             : override);
         hint.setContentDescription(override == null ? "布局调整说明" : override);
-    }
-
-    private float dpFromPixels(float pixels) {
-        return KeyboardGeometry.fromPixels(getContext(), pixels);
-    }
-
-    private static int color(String value) {
-        return ColorPolicy.parse(value, Color.WHITE);
     }
 
     /**

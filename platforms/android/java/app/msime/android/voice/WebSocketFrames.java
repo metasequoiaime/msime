@@ -106,7 +106,7 @@ public final class WebSocketFrames {
         for (String line : response.split("\r\n")) {
             int separator = line.indexOf(':');
             if (separator <= 0) continue;
-            String name = TextPolicy.lowercase(TextPolicy.trimmed(line.substring(0, separator)));
+            String name = TextPolicy.lowercaseTrimmed(line.substring(0, separator));
             String value = TextPolicy.trimmed(line.substring(separator + 1));
             switch (name) {
                 case "upgrade" -> upgrade = value.equalsIgnoreCase("websocket");
@@ -125,7 +125,7 @@ public final class WebSocketFrames {
     /** HTTP list fields match a comma-separated token, not an arbitrary substring. */
     private static boolean containsToken(String value, String expected) {
         for (String token : value.split(",")) {
-            if (TextPolicy.lowercase(TextPolicy.trimmed(token)).equals(expected)) return true;
+            if (TextPolicy.lowercaseTrimmed(token).equals(expected)) return true;
         }
         return false;
     }

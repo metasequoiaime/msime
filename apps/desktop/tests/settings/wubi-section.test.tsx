@@ -17,7 +17,11 @@ test("Wubi section updates the mixed-pinyin preference", () => {
     />,
   );
 
-  fireEvent.click(screen.getByLabelText("编码打不出时用拼音候选"));
+  // 引擎打开混输后每次都查全拼，拼音候选接在五笔候选之后，不只是在五笔码表答不上时才出现，说明要照这个写。
+  expect(
+    screen.getByText("五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。"),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByLabelText("五笔拼音混输"));
   expect(onChange).toHaveBeenCalledWith({ wubi_mixed_pinyin: true });
 });
 
@@ -33,7 +37,7 @@ test("Wubi section renders the enabled defaults and optional macOS control", () 
     />,
   );
 
-  expect((screen.getByLabelText("编码打不出时用拼音候选") as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByLabelText("五笔拼音混输") as HTMLInputElement).checked).toBe(false);
   expect((screen.getByLabelText("候选显示剩余编码") as HTMLInputElement).checked).toBe(true);
   expect((screen.getByLabelText("五笔四码唯一候选自动上屏") as HTMLInputElement).checked).toBe(
     false,

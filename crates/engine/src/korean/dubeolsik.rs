@@ -215,9 +215,8 @@ impl Syllable {
     }
 }
 
-/// The syllables `keys` compose to, each with the key index it starts at. Keys that are not layout letters are skipped.
-fn fold(keys: &[u8]) -> Vec<Syllable> {
-    let mut syllables = Vec::with_capacity(keys.len());
+/// 按原状态转移逐个发出已完成音节，返回最后的开放音节；非布局按键跳过。
+fn fold_with(keys: &[u8], mut finished: impl FnMut(Syllable)) -> Option<Syllable> {
     let mut current = Syllable::starting_at(0);
     for (index, &key) in keys.iter().enumerate() {
         let Some(jamo) = jamo_for_key(key) else {
@@ -238,7 +237,7 @@ fn fold(keys: &[u8]) -> Vec<Syllable> {
                     current.start = index;
                     current.cho = Some(consonant);
                 } else {
-                    syllables.push(std::mem::replace(
+                    finished(std::mem::replace(
                         &mut current,
                         Syllable::starting_at(index),
                     ));
@@ -248,7 +247,7 @@ fn fold(keys: &[u8]) -> Vec<Syllable> {
             Jamo::Vowel(vowel) => {
                 if let Some((moved, moved_at)) = current.pop_jong() {
                     // 尾辅音后接元音时，将最后一个辅音移作下一音节的首辅音：간+ㅏ → 가나，닭+ㅏ → 달가。
-                    syllables.push(std::mem::replace(
+                    finished(std::mem::replace(
                         &mut current,
                         Syllable::starting_at(moved_at),
                     ));
@@ -263,7 +262,7 @@ fn fold(keys: &[u8]) -> Vec<Syllable> {
                 {
                     current.push_jung(vowel);
                 } else {
-                    syllables.push(std::mem::replace(
+                    finished(std::mem::replace(
                         &mut current,
                         Syllable::starting_at(index),
                     ));
@@ -272,10 +271,7 @@ fn fold(keys: &[u8]) -> Vec<Syllable> {
             }
         }
     }
-    if !current.is_empty() {
-        syllables.push(current);
-    }
-    syllables
+    (!current.is_empty()).then_some(current)
 }
 
 /// The Hangul text `keys` spell.
@@ -289,55 +285,32 @@ pub fn compose(keys: &str) -> String {
 pub fn compose_into(keys: &str, output: &mut String) {
     output.clear();
     output.reserve(keys.len().saturating_mul(3));
-    for syllable in fold(keys.as_bytes()) {
-        syllable.render(output);
+    if let Some(last) = fold_with(keys.as_bytes(), |syllable| syllable.render(output)) {
+        last.render(output);
     }
 }
 
-/// Split `keys` into the text of every finished syllable and the key letters of the last, still open one. Only the last syllable can still change, so everything before it is final.
-pub fn split_finished(keys: &str) -> (String, &str) {
-    let syllables = fold(keys.as_bytes());
-    let Some((last, finished)) = syllables.split_last() else {
-        return (String::new(), keys);
-    };
-    let mut text = String::with_capacity(finished.len().saturating_mul(3));
-    for syllable in finished {
-        syllable.render(&mut text);
-    }
-    (text, &keys[last.start..])
+/// 直接追加已完成的音节，保留原提交前缀，并返回仍可编辑的原按键切片。
+pub(crate) fn split_finished_into<'a>(keys: &'a str, output: &mut String) -> &'a str {
+    let mut reserved = false;
+    let last = fold_with(keys.as_bytes(), |syllable| {
+        if !reserved {
+            output.reserve(keys.len().saturating_mul(3));
+            reserved = true;
+        }
+        syllable.render(output);
+    });
+    last.map_or(keys, |syllable| &keys[syllable.start..])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn fold_reserves_one_slot_per_key() {
-        let syllables = fold(b"rkrk");
-        assert_eq!(syllables.capacity(), 4);
-    }
-
-    #[test]
-    fn folding_syllables_only_allocates_the_result_vector() {
-        for (keys, expected) in [
-            ("rkrk", "가가"),
-            ("rhkd", "광"),
-            ("ekfr", "닭"),
-            ("ekfrk", "달가"),
-            ("rksk", "가나"),
-            ("dkssudgktpdy", "안녕하세요"),
-            ("rr", "ㄱㄱ"),
-            ("kk", "ㅏㅏ"),
-        ] {
-            let (syllables, allocations) =
-                crate::ime::personal_rerank::allocations::count(|| fold(keys.as_bytes()));
-            let mut text = String::new();
-            for syllable in syllables {
-                syllable.render(&mut text);
-            }
-            assert_eq!(text, expected, "{keys}");
-            assert_eq!(allocations, 1, "{keys}");
-        }
+    fn split_finished(keys: &str) -> (String, &str) {
+        let mut finished = String::new();
+        let open = split_finished_into(keys, &mut finished);
+        (finished, open)
     }
 
     #[test]
@@ -345,10 +318,11 @@ mod tests {
         let composed = compose("rkrk");
         assert_eq!(composed, "가가");
         assert_eq!(composed.capacity(), 12);
-        let (finished, rest) = split_finished("rkrk");
+        let mut finished = String::new();
+        let rest = split_finished_into("rkrk", &mut finished);
         assert_eq!(finished, "가");
         assert_eq!(rest, "rk");
-        assert_eq!(finished.capacity(), 3);
+        assert!(finished.capacity() >= 12);
     }
 
     #[test]
@@ -357,6 +331,43 @@ mod tests {
         compose_into("rkrk", &mut output);
         assert_eq!(output, "가가");
         assert!(output.capacity() >= 12);
+    }
+
+    #[test]
+    fn compose_into_reuses_output_without_temporary_allocations() {
+        let long_keys = "dkssudgktpdy".repeat(128);
+        let long_text = "안녕하세요".repeat(128);
+        for (keys, expected) in [
+            ("", ""),
+            ("rkrk", "가가"),
+            ("rhkd", "광"),
+            ("ekfrk", "달가"),
+            ("rkqtl", "갑시"),
+            ("rr", "ㄱㄱ"),
+            ("kk", "ㅏㅏ"),
+            ("r1k", "가"),
+            (long_keys.as_str(), long_text.as_str()),
+        ] {
+            let mut output = String::with_capacity(keys.len() * 3 + 16);
+            output.push_str("舊值");
+            let pointer = output.as_ptr();
+            let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                compose_into(keys, &mut output);
+            });
+            assert_eq!(output, expected);
+            assert_eq!(output.as_ptr(), pointer);
+            assert_eq!(allocations, 0, "复用输出不应物化音节向量：{keys}");
+        }
+    }
+
+    #[test]
+    fn compose_only_allocates_the_output_string() {
+        for (keys, expected) in [("rkrk", "가가"), ("ekfrk", "달가"), ("rr", "ㄱㄱ")] {
+            let (output, allocations) =
+                crate::ime::personal_rerank::allocations::count(|| compose(keys));
+            assert_eq!(output, expected);
+            assert_eq!(allocations, 1, "冷合成只应分配返回字符串");
+        }
     }
 
     #[test]
@@ -506,6 +517,43 @@ mod tests {
     }
 
     #[test]
+    fn split_finished_into_preserves_prefix_and_borrows_open_keys() {
+        let long_keys = "dkssudgktpdy".repeat(128);
+        let long_finished = format!("{}안녕하세", "안녕하세요".repeat(127));
+        for (keys, expected, open) in [
+            ("", "", ""),
+            ("123🙂'", "", "123🙂'"),
+            ("rhkd", "", "rhkd"),
+            ("ekfrk", "달", "rk"),
+            ("rkqtl", "갑", "tl"),
+            ("rr", "ㄱ", "r"),
+            ("kk", "ㅏ", "k"),
+            ("🙂r1krk!", "가", "rk!"),
+            (long_keys.as_str(), long_finished.as_str(), "dy"),
+        ] {
+            let mut output = String::with_capacity(keys.len() * 3 + 16);
+            output.push_str("前綴:");
+            let pointer = output.as_ptr();
+            let (rest, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                split_finished_into(keys, &mut output)
+            });
+            assert_eq!(output, format!("前綴:{expected}"));
+            assert_eq!(output.as_ptr(), pointer);
+            assert_eq!(rest, open);
+            assert_eq!(rest.as_ptr(), keys[keys.len() - open.len()..].as_ptr());
+            assert_eq!(allocations, 0);
+        }
+
+        let mut output = String::new();
+        let (rest, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            split_finished_into(&long_keys, &mut output)
+        });
+        assert_eq!(output, long_finished);
+        assert_eq!(rest, "dy");
+        assert_eq!(allocations, 1, "长恢复输入的完成文本只预留一次");
+    }
+
+    #[test]
     fn every_syllable_round_trips_through_the_fold() {
         // Each of the 11172 syllables is typed through its jamo keys and must come back unchanged.
         let key_for_consonant = |jamo: char| -> &'static str {
@@ -560,6 +608,9 @@ mod tests {
             let expected = char::from_u32(code).unwrap().to_string();
             assert_eq!(compose(&keys), expected, "{keys}");
             assert_eq!(split_finished(&keys), (String::new(), keys.as_str()));
+            let mut committed = String::from("前綴:");
+            assert_eq!(split_finished_into(&keys, &mut committed), keys);
+            assert_eq!(committed, "前綴:");
         }
     }
 }

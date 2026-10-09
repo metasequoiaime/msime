@@ -8,7 +8,7 @@
 - 不复制相邻仓库的未提交内容；上游来源以远端实际默认分支和固定提交为准。
 - 日志、测试和提交中不得包含真实输入、凭据或私人资料，测试数据使用合成值。
 - CI 会在 Pull Request 上运行，提交前仍先跑本地 quick 门禁。发布 workflow 一律手动触发，不要在任务没有明确要求发布时去碰它们。
-- **改了文件读写、目录遍历、权限或安卓资源（drawable、主题、布局），合并前在安卓模拟器上跑过再说「验证过」。** macOS 上的单测和 CI 的编译、lint 都碰不到 Android 的限制：应用对 `/data` 只有搜索权限、SELinux 禁止应用建硬链接、Android 9 的 `GradientDrawable` 读不到带主题属性的径向渐变半径。0.3.0 带着这三个问题发出去（词库准备失败、匿名账号写不进、Android 9 一打开就崩溃），编译、lint 和 JVM 测试全绿。本机做法：`bash platforms/android/tests/device/start-emulator.sh 28`（35 同理），`bash platforms/android/tests/device/build-core-test.sh` 编出 client-core 单测后用 `MSIME_ANDROID_TEST_SERIAL=emulator-5566 bash platforms/android/tests/device/run-core-test.sh <程序>` 在设备上整套运行，再用 `smoke.sh emulator-5566 --core` 装包验收（API 35 不带 `--core`）。CI 的 `android-device.yml` 在每个 PR 上跑同样的两步。
+- **改了文件读写、目录遍历、权限或安卓资源（drawable、主题、布局），合并前在安卓模拟器上跑过再说「验证过」。** macOS 上的单测和 CI 的编译、lint 都碰不到 Android 的限制：应用对 `/data` 只有搜索权限、SELinux 禁止应用建硬链接、Android 9 的 `GradientDrawable` 读不到带主题属性的径向渐变半径。0.3.0 带着这三个问题发出去（词库准备失败、匿名账号写不进、Android 9 一打开就崩溃），编译、lint 和 JVM 测试全绿。本机做法：`bash platforms/android/tests/device/start-emulator.sh 28`（35 同理），`bash platforms/android/tests/device/build-core-test.sh` 编出 client-core 单测后用 `MSIME_ANDROID_TEST_SERIAL=emulator-5566 bash platforms/android/tests/device/run-core-test.sh <程序>` 在设备上整套运行，再用 `smoke.sh emulator-5566 --core` 装包验收（API 35 不带 `--core`）。CI 的 `android-device.yml` 在合进 develop 后和发版前跑同样的两步，PR 上不跑，所以 PR 上要靠本机跑过。
 - **不要把 Tauri 生成的工程当成某个平台的产品去启动、调试或验收。** 每个平台的产品本体都是 `platforms/<os>` 下的原生宿主，Tauri/React 只是它承载的公共组件（见 ARCHITECTURE.md）。装机、启动和设备验收一律针对原生宿主；`apps/desktop` 的目录名和 Tauri 生成工程里自带的 bundle id 都不构成例外。
 
 ## 工具链

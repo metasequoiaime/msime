@@ -12,7 +12,7 @@ struct IOSPreferencePlan {
   let strength: String?
   /// `global_theme`, one of `themes`.
   let globalTheme: String?
-  /// `custom_theme.base`: `system` or a built-in theme, never `custom`.
+  /// `custom_theme.base`：`system` 或内置主题，不能是 `custom`，也不能是只在 iOS 提供的 `native`（client-core `GlobalTheme::is_base`）。
   let customThemeBase: String?
   /// `custom_theme.keyboard`, the keyboard design as JSON; absent when the uploading device had none, which leaves the local design alone.
   let customSkinJSON: String?
@@ -63,7 +63,10 @@ struct IOSPreferencePlan {
     globalTheme = try string("platform.ios.global_theme")
     guard globalTheme == nil || themes.contains(globalTheme!) else { throw BackendAccountClient.Failure(status: 400) }
     customThemeBase = try string("platform.ios.custom_theme_base")
-    guard customThemeBase == nil || (themes.contains(customThemeBase!) && customThemeBase != "custom") else { throw BackendAccountClient.Failure(status: 400) }
+    // `themes` 是整份目录，含不能当底的 `custom` 和 `native`；这里先拒掉，免得 apply 先写了别的键，再在共享文档校验 `custom_theme.base` 时失败，留下只应用了一半的设置。
+    guard customThemeBase == nil || (themes.contains(customThemeBase!) && !["custom", "native"].contains(customThemeBase!)) else {
+      throw BackendAccountClient.Failure(status: 400)
+    }
     customSkinJSON = try string("platform.ios.custom_keyboard_skin")
   }
 }

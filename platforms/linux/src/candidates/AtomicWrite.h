@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -46,6 +47,7 @@ inline bool write_candidate_file_atomically(const std::filesystem::path &file,
   std::size_t remaining = content.size();
   while (remaining > 0) {
     const ssize_t written = ::write(descriptor, bytes, remaining);
+    if (written < 0 && errno == EINTR) continue;
     if (written <= 0) {
       ok = false;
       break;

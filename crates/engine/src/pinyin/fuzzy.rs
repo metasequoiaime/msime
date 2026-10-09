@@ -104,6 +104,18 @@ pub fn fuzzy_segmentations(
     let mut paths: Vec<Vec<String>> = vec![Vec::new()];
     for syllable in segments {
         let mut alternatives = fuzzy_syllables(syllable, options);
+        // 单变体不会增加路径数，已有路径满足上限，直接复用当前层容器。
+        if let [alternative] = alternatives.as_mut_slice() {
+            let last_index = paths.len() - 1;
+            for (index, path) in paths.iter_mut().enumerate() {
+                path.push(if index == last_index {
+                    std::mem::take(alternative)
+                } else {
+                    alternative.clone()
+                });
+            }
+            continue;
+        }
         let capacity = limit.min(paths.len().saturating_mul(alternatives.len()));
         let mut next = Vec::with_capacity(capacity);
         // 达到上限即停止整轮展开，与参考实现只退出内层循环的截断结果一致。
@@ -361,6 +373,33 @@ mod tests {
     }
 
     #[test]
+    fn single_variant_steps_reuse_the_current_beam_storage() {
+        let options = rules(fuzzy_rule::ALL);
+        let _ = fuzzy_syllables("guo", options);
+        for (count, budget) in [(0, 0), (32, 69), (1, 4), (4, 10), (8, 19)] {
+            let typed = vec!["guo".to_owned(); count];
+            let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                fuzzy_segmentations(&typed, options, FUZZY_SEGMENTATION_LIMIT)
+            });
+            assert!(paths.is_empty());
+            assert_eq!(allocations, budget, "单变体仍创建下一层路径容器: {count}");
+        }
+
+        let typed = vec!["zan".to_owned(), "guo".to_owned()];
+        for (limit, budget) in [(1, 10), (2, 13), (3, 16), (4, 19), (64, 19)] {
+            let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                fuzzy_segmentations(&typed, options, limit)
+            });
+            let expected = ["zang", "zhan", "zhang"];
+            assert_eq!(paths.len(), (limit - 1).min(expected.len()));
+            for (path, expected) in paths.iter().zip(expected) {
+                assert_eq!(path, &[expected, "guo"]);
+            }
+            assert_eq!(allocations, budget, "多路径单变体仍创建下一层容器: {limit}");
+        }
+    }
+
+    #[test]
     fn moving_beam_variants_preserves_the_reference_product_and_limits() {
         fn reference(
             segments: &[String],
@@ -397,6 +436,9 @@ mod tests {
             vec!["lan", "chuang"],
             vec!["an", "fo", "bian"],
             vec!["zh", "🧪"],
+            vec!["guo", "zan"],
+            vec!["zan", "guo", "bi"],
+            vec!["guo", "zan", "bi"],
         ] {
             let segments: Vec<String> = input.into_iter().map(str::to_owned).collect();
             for mask in [0, fuzzy_rule::Z_ZH, fuzzy_rule::ALL] {

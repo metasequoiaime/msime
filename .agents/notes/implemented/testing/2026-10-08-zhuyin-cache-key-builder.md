@@ -21,3 +21,7 @@ Status: implemented
 ## Consequences
 
 每次注音缓存键查询少 4 次临时堆分配；构造逻辑增加了容量计算和显式分隔符写入，但不改变缓存键格式或转换结果。
+
+## Related decisions
+
+[复用缓存描述缓冲](2026-10-09-zhuyin-cache-description-reuse.md) 保留直接构造与键格式，取代缓存必须为每次查询取得独立键的限制：命中查询复用字符串容量，只在未命中时为映射复制独立键。

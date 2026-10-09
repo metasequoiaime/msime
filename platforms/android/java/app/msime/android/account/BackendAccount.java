@@ -168,15 +168,10 @@ public final class BackendAccount {
 
     public boolean supports(String provider) {
         try {
-            return providerEnabled(providers().opt(provider));
+            return JsonPolicy.strictTrue(providers().opt(provider));
         } catch (Exception | LinkageError error) {
             return false;
         }
-    }
-
-    /** Provider availability is a typed server flag; reject org.json scalar coercion. */
-    static boolean providerEnabled(Object value) {
-        return JsonPolicy.strictTrue(value);
     }
 
     /** Start a sign-in and get the nonce the provider's SDK has to echo. */

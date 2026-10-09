@@ -19,25 +19,48 @@ pub enum CutMode {
 /// 短拼音切分使用栈上的动态规划表；更长输入继续使用堆回退，避免扩大递归调用方的栈帧。
 const SMALL_MIN_CUT_LENGTH: usize = 64;
 
-/// Minimum segment count; among equals the shortest first piece, recursively (QU:354-422). Empty means no cut. Keeps `keneng -> ke'neng` and `fangan -> fan'gan`.
+/// 优先使用最少音节数，同数时递归选择更短的首音节；空结果表示无法切分（QU:354-422）。
 pub fn cut_one_piece_min_segments(pinyin: &str, intact_only: bool) -> Vec<String> {
+    with_minimum_cut(pinyin, intact_only, |best| {
+        let segment_count = best[0].map_or(0, |(_, count)| count);
+        let mut segments = Vec::with_capacity(segment_count);
+        let mut index = 0;
+        while index < pinyin.len() {
+            let Some((end, _)) = best[index] else {
+                return Vec::new();
+            };
+            segments.push(pinyin[index..end].to_owned());
+            index = end;
+        }
+        segments
+    })
+}
+
+// 切分结果与完整性检查共享同一张表，调用方只在需要返回路径时构造字符串。
+fn with_minimum_cut<T>(
+    pinyin: &str,
+    intact_only: bool,
+    operation: impl FnOnce(&[Option<(usize, usize)>]) -> T,
+) -> T {
     if pinyin.len() <= SMALL_MIN_CUT_LENGTH {
         let mut best = [None; SMALL_MIN_CUT_LENGTH + 1];
-        return cut_one_piece_min_segments_with_best(
+        return with_minimum_cut_best(
             pinyin,
             intact_only,
             &mut best[..pinyin.len() + 1],
+            operation,
         );
     }
     let mut best = vec![None; pinyin.len() + 1];
-    cut_one_piece_min_segments_with_best(pinyin, intact_only, &mut best)
+    with_minimum_cut_best(pinyin, intact_only, &mut best, operation)
 }
 
-fn cut_one_piece_min_segments_with_best(
+fn with_minimum_cut_best<T>(
     pinyin: &str,
     intact_only: bool,
     best: &mut [Option<(usize, usize)>],
-) -> Vec<String> {
+    operation: impl FnOnce(&[Option<(usize, usize)>]) -> T,
+) -> T {
     let bytes = pinyin.as_bytes();
     let length = bytes.len();
     let in_set = |piece: &[u8]| {
@@ -75,17 +98,7 @@ fn cut_one_piece_min_segments_with_best(
         }
         best[index] = chosen;
     }
-    let segment_count = best[0].map_or(0, |(_, count)| count);
-    let mut segments = Vec::with_capacity(segment_count);
-    let mut index = 0;
-    while index < length {
-        let Some((end, _)) = best[index] else {
-            return Vec::new();
-        };
-        segments.push(pinyin[index..end].to_owned());
-        index = end;
-    }
-    segments
+    operation(best)
 }
 
 /// QQ:913-944: cut each `'`-part; a failed part is kept raw unless `intact_only`, which fails the whole input.
@@ -174,9 +187,14 @@ fn max_correction_piece_length() -> usize {
 
 #[derive(Debug, Clone)]
 struct RankedPath {
-    segments: Vec<&'static str>,
-    typed_lengths: Vec<usize>,
-    correction_ranks: Vec<usize>,
+    segments: Vec<RankedSegment>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RankedSegment {
+    reading: &'static str,
+    typed_length: usize,
+    correction_rank: usize,
 }
 
 /// QQ:97-200. An empty part has one empty path.
@@ -189,11 +207,10 @@ fn cut_one_piece_with_corrections(pinyin: &str) -> Vec<Vec<&'static str>> {
     let mut paths: Vec<Vec<RankedPath>> = vec![Vec::new(); length + 1];
     paths[length] = vec![RankedPath {
         segments: Vec::new(),
-        typed_lengths: Vec::new(),
-        correction_ranks: Vec::new(),
     }];
     for index in (0..length).rev() {
-        let mut ranked = Vec::with_capacity(CORRECTION_PATH_LIMIT);
+        let mut ranked = Vec::new();
+        let mut minimum = usize::MAX;
         for end in (index + 1..=length.min(index + max_piece)).rev() {
             let Ok(typed) = std::str::from_utf8(&bytes[index..end]) else {
                 continue;
@@ -208,43 +225,66 @@ fn cut_one_piece_with_corrections(pinyin: &str) -> Vec<Vec<&'static str>> {
             } else {
                 continue;
             };
+            let Some(suffix_count) = paths[end].first().map(|path| path.segments.len()) else {
+                continue;
+            };
+            // 后缀表只保留最少音节路径，同一终点生成的候选音节数一致。
+            let count = 1 + suffix_count;
+            if count > minimum {
+                continue;
+            }
+            if count < minimum {
+                ranked.clear();
+                minimum = count;
+            }
             for (rank, &reading) in readings.iter().enumerate() {
                 for suffix in &paths[end] {
+                    // 首条完整后缀路径出现时才预留原有初始容量，不可达位置保持空缓冲。
+                    if ranked.is_empty() {
+                        ranked.reserve_exact(CORRECTION_PATH_LIMIT);
+                    }
                     let mut segments = Vec::with_capacity(1 + suffix.segments.len());
-                    segments.push(reading);
-                    segments.extend_from_slice(&suffix.segments);
-                    let mut typed_lengths = Vec::with_capacity(1 + suffix.typed_lengths.len());
-                    typed_lengths.push(end - index);
-                    typed_lengths.extend_from_slice(&suffix.typed_lengths);
-                    let mut correction_ranks =
-                        Vec::with_capacity(1 + suffix.correction_ranks.len());
-                    correction_ranks.push(rank);
-                    correction_ranks.extend_from_slice(&suffix.correction_ranks);
-                    ranked.push(RankedPath {
-                        segments,
-                        typed_lengths,
-                        correction_ranks,
+                    segments.push(RankedSegment {
+                        reading,
+                        typed_length: end - index,
+                        correction_rank: rank,
                     });
+                    segments.extend_from_slice(&suffix.segments);
+                    ranked.push(RankedPath { segments });
                 }
             }
         }
+        // 音节数已在构建阶段筛选，完整长度序列仍优先于所有别名排名。
         ranked.sort_by(|lhs, rhs| {
             lhs.segments
-                .len()
-                .cmp(&rhs.segments.len())
-                .then_with(|| lhs.typed_lengths.cmp(&rhs.typed_lengths))
-                .then_with(|| lhs.correction_ranks.cmp(&rhs.correction_ranks))
+                .iter()
+                .map(|segment| segment.typed_length)
+                .cmp(rhs.segments.iter().map(|segment| segment.typed_length))
+                .then_with(|| {
+                    lhs.segments
+                        .iter()
+                        .map(|segment| segment.correction_rank)
+                        .cmp(rhs.segments.iter().map(|segment| segment.correction_rank))
+                })
         });
-        ranked.dedup_by(|later, earlier| later.segments == earlier.segments);
-        if let Some(minimum) = ranked.first().map(|path| path.segments.len()) {
-            ranked.retain(|path| path.segments.len() == minimum);
-        }
+        ranked.dedup_by(|later, earlier| {
+            later
+                .segments
+                .iter()
+                .map(|segment| segment.reading)
+                .eq(earlier.segments.iter().map(|segment| segment.reading))
+        });
         ranked.truncate(CORRECTION_PATH_LIMIT);
         paths[index] = ranked;
     }
     std::mem::take(&mut paths[0])
         .into_iter()
-        .map(|path| path.segments)
+        .map(|path| {
+            path.segments
+                .into_iter()
+                .map(|segment| segment.reading)
+                .collect()
+        })
         .collect()
 }
 
@@ -315,12 +355,12 @@ pub fn join_segments(segments: &[String]) -> String {
     segments.join("'")
 }
 
-/// Non-empty and every `'`-part a complete intact cut (QU:424-445).
+/// 输入非空，且每个撇号分段都能完整切分为合法音节（QU:424-445）。
 pub fn is_complete_pinyin_input(pinyin: &str) -> bool {
     !pinyin.is_empty()
         && pinyin
             .split('\'')
-            .all(|part| !part.is_empty() && !cut_one_piece_min_segments(part, true).is_empty())
+            .all(|part| !part.is_empty() && with_minimum_cut(part, true, |best| best[0].is_some()))
 }
 
 /// The first letter of each non-empty segment (QQ:245-256).
@@ -381,6 +421,78 @@ mod tests {
             cut_one_piece_min_segments(&long, true).len(),
             SMALL_MIN_CUT_LENGTH / 2 + 1
         );
+    }
+
+    #[test]
+    fn short_complete_pinyin_checks_need_no_path_allocations() {
+        assert!(intact_piece(b"ni").is_some());
+        for (input, expected) in [
+            ("ni", true),
+            ("nihao", true),
+            ("linian", true),
+            ("jinianri", true),
+            ("xi'an", true),
+            ("nve", true),
+            ("jv", true),
+            ("ni'hao'x", false),
+            ("nihao'", false),
+            ("'ni", false),
+            ("ni''hao", false),
+            ("zhonguo", false),
+            ("sahng", false),
+            ("nih", false),
+            ("ni🧪", false),
+            ("你好", false),
+            ("", false),
+        ] {
+            let (complete, allocations) =
+                crate::ime::personal_rerank::allocations::count(|| is_complete_pinyin_input(input));
+            assert_eq!(complete, expected, "{input}");
+            assert_eq!(allocations, 0, "完整性检查仍创建切分结果: {input}");
+        }
+    }
+
+    #[test]
+    fn complete_pinyin_checks_keep_the_stack_boundary_and_heap_fallback() {
+        assert!(intact_piece(b"ni").is_some());
+        for (input, expected, budget) in [
+            ("ni".repeat(SMALL_MIN_CUT_LENGTH / 2), true, 0),
+            ("ni".repeat(SMALL_MIN_CUT_LENGTH / 2 + 1), true, 1),
+            (
+                format!("{}x", "ni".repeat(SMALL_MIN_CUT_LENGTH / 2)),
+                false,
+                1,
+            ),
+            ("🧪".repeat(SMALL_MIN_CUT_LENGTH / 4 + 1), false, 1),
+            (["ni"; SMALL_MIN_CUT_LENGTH].join("'"), true, 0),
+        ] {
+            let (complete, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                is_complete_pinyin_input(&input)
+            });
+            assert_eq!(complete, expected, "{} 字节", input.len());
+            assert_eq!(
+                allocations,
+                budget,
+                "完整性检查堆回退: {} 字节",
+                input.len()
+            );
+        }
+    }
+
+    #[test]
+    fn completeness_matches_intact_minimum_cuts_for_synthetic_spellings() {
+        for syllable in intact_pinyin_list() {
+            assert!(is_complete_pinyin_input(syllable), "{syllable}");
+            for suffix in [
+                "", "ni", "an", "zhong", "lv", "x", "'", "'ni", "''hao", "?", "🧪",
+            ] {
+                let input = format!("{syllable}{suffix}");
+                let expected = input.split('\'').all(|part| {
+                    !part.is_empty() && !cut_one_piece_min_segments(part, true).is_empty()
+                });
+                assert_eq!(is_complete_pinyin_input(&input), expected, "{input}");
+            }
+        }
     }
 
     #[test]
@@ -497,13 +609,162 @@ mod tests {
     }
 
     #[test]
+    fn longer_correction_paths_do_not_allocate_syllable_buffers() {
+        let _ = cut_pinyin_with_corrections("sahng");
+        for (input, expected, budget) in [
+            ("shuang", "shuang", 10),
+            ("xian", "xian", 8),
+            ("nihao", "ni'hao", 13),
+            ("nihao'nihao", "ni'hao'ni'hao", 30),
+        ] {
+            let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                cut_pinyin_with_corrections(input)
+            });
+            assert_eq!(paths.len(), 1, "{input}");
+            assert_eq!(paths[0].join("'"), expected, "{input}");
+            assert_eq!(allocations, budget, "较长修正路径仍创建缓冲: {input}");
+        }
+    }
+
+    #[test]
+    fn long_correction_input_prunes_longer_paths_at_every_position() {
+        let _ = cut_pinyin_with_corrections("nihao");
+        let repeated = "nihao".repeat(24);
+        let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            cut_pinyin_with_corrections(&repeated)
+        });
+        let expected = (0..24)
+            .flat_map(|_| ["ni".to_owned(), "hao".to_owned()])
+            .collect::<Vec<_>>();
+        assert_eq!(paths, [expected]);
+        assert_eq!(allocations, 243);
+    }
+
+    #[test]
+    fn later_minimum_paths_replace_longer_paths_and_keep_the_ranked_limit() {
+        for (input, expected) in [
+            ("manaio", "ma'niao"),
+            ("fanaio", "fa'niao"),
+            ("manaioweilve", "ma'niao'wei'lve"),
+            ("fanaioyueni", "fa'niao'yue'ni"),
+        ] {
+            assert_eq!(correction_paths(input), [expected], "{input}");
+        }
+        let input = format!("manaio{}", "sahng".repeat(7));
+        let paths = cut_pinyin_with_corrections(&input);
+        assert_eq!(paths.len(), CORRECTION_PATH_LIMIT);
+        for (row, path) in paths.iter().enumerate() {
+            let expected = std::iter::once("ma")
+                .chain(std::iter::once("niao"))
+                .chain((0..7).map(|part| {
+                    if row & (1 << (6 - part)) == 0 {
+                        "shang"
+                    } else {
+                        "sang"
+                    }
+                }))
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            assert_eq!(*path, expected, "排名 {row}");
+        }
+    }
+
+    #[test]
+    fn correction_paths_share_syllable_and_ranking_storage() {
+        let _ = cut_pinyin_with_corrections("sahng");
+        for (input, expected, budget) in [
+            ("nihao", &["ni'hao"][..], 13),
+            (
+                "sahngsahng",
+                &["shang'shang", "shang'sang", "sang'shang", "sang'sang"][..],
+                30,
+            ),
+            (
+                "sahng'sahng",
+                &["shang'shang", "shang'sang", "sang'shang", "sang'sang"][..],
+                37,
+            ),
+            ("sahng'ni", &["shang'ni", "sang'ni"][..], 25),
+            ("sahng'", &["shang", "sang"][..], 21),
+        ] {
+            let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                cut_pinyin_with_corrections(input)
+            });
+            assert_eq!(
+                paths.iter().map(|path| path.join("'")).collect::<Vec<_>>(),
+                expected,
+                "{input}"
+            );
+            assert_eq!(allocations, budget, "修正路径缓冲分配: {input}");
+        }
+    }
+
+    #[test]
+    fn correction_lengths_precede_alias_ranks_across_the_whole_path() {
+        assert_eq!(
+            correction_paths("sahngfangan"),
+            [
+                "shang'fan'gan",
+                "sang'fan'gan",
+                "shang'fang'an",
+                "sang'fang'an"
+            ]
+        );
+        assert_eq!(
+            correction_paths("sahnggonge"),
+            [
+                "shang'gong'ge",
+                "sang'gong'ge",
+                "shang'gong'e",
+                "sang'gong'e"
+            ]
+        );
+    }
+
+    #[test]
     fn correction_without_delimiters_does_not_build_a_product_buffer() {
         let _ = correction_paths("sahng");
         let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
             cut_pinyin_with_corrections("sahng")
         });
         assert_eq!(paths, [vec!["shang".to_owned()], vec!["sang".to_owned()]]);
-        assert_eq!(allocations, 23);
+        assert_eq!(allocations, 12);
+    }
+
+    #[test]
+    fn unreachable_correction_positions_do_not_allocate_ranked_buffers() {
+        let _ = cut_pinyin_with_corrections("sahng");
+        for (input, budget) in [
+            ("x".repeat(128), 2),
+            ("🧪".repeat(32), 2),
+            ("?".to_owned(), 2),
+            ("ni?".to_owned(), 2),
+            ("xxxni".to_owned(), 4),
+        ] {
+            let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                cut_pinyin_with_corrections(&input)
+            });
+            assert!(paths.is_empty());
+            assert_eq!(
+                allocations,
+                budget,
+                "不可达位置仍预留排名缓冲: {} 字节",
+                input.len()
+            );
+        }
+    }
+
+    #[test]
+    fn greedy_fallback_does_not_reserve_unreachable_correction_paths() {
+        let _ = cut_pinyin_by_mode("nihz", CutMode::Correction);
+        let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            cut_pinyin_by_mode("nihz", CutMode::Correction)
+        });
+        assert_eq!(
+            paths,
+            [vec!["ni".to_owned(), "h".to_owned(), "z".to_owned()]]
+        );
+        assert_eq!(allocations, 7);
     }
 
     #[test]

@@ -1,11 +1,11 @@
 import UIKit
 
-/// 触屏键盘如何绘制一个全局主题：使用 client-core 为它解析出的键盘配色；没有解析出配色时（`system`，或既无基础主题也无设计的自定义主题），使用应用主题所在季节的跟随系统配色（`SeasonKeyboardTokens`），应用主题也解析不了时退回 UIKit 自带 token 作为经典兜底；此外还有自定义主题自带的键盘设计。
+/// 触屏键盘如何绘制一个全局主题：使用 client-core 为它解析出的键盘配色；没有解析出配色时（`system`，或既无基础主题也无设计的自定义主题），使用应用主题所在季节的跟随系统配色（`SeasonKeyboardTokens`），应用主题也解析不了时退回 UIKit 自带 token 作为经典兜底；`native`（原生）不跟季节，画系统键盘的 token（`SystemKeyboardTokens`）；此外还有自定义主题自带的键盘设计。
 ///
 /// A design is drawn in full (photo, gradient, pattern, key shape and material); every other theme draws flat keys in the design's native geometry (dc.html L1555-1558).
 struct KeyboardTheme: Equatable {
   let id: String
-  /// 解析出的 `keyboard` 配色；主题没有解析出配色时为季节配色；为 nil 时绘制原生 token。
+  /// 解析出的 `keyboard` 配色；主题没有解析出配色时为季节配色（原生皮肤除外，它不跟季节）；为 nil 时绘制原生 token。
   let palette: ThemeKeyboardPalette?
   /// The fixed mode of the theme's surfaces, nil to follow the keyboard's mode.
   let appearance: UIUserInterfaceStyle?
@@ -16,7 +16,8 @@ struct KeyboardTheme: Equatable {
     self.id = id
     self.appearance = appearance
     self.design = id == GlobalThemeCatalog.customId ? design?.normalized : nil
-    self.palette = palette ?? (self.design == nil && SeasonKeyboardTokens.isAvailable ? SeasonKeyboardTokens.palette : nil)
+    self.palette = palette ?? (self.design == nil && id != GlobalThemeCatalog.nativeId && SeasonKeyboardTokens.isAvailable
+      ? SeasonKeyboardTokens.palette : nil)
   }
 
   /// The custom theme drawn from `design` alone, for previews of a design that is not applied yet.
@@ -70,7 +71,11 @@ struct KeyboardTheme: Equatable {
 
   var title: String { GlobalThemeCatalog.title(id) }
   var isCustom: Bool { id == GlobalThemeCatalog.customId }
-  /// 键盘是否用 UIKit 自带 token 绘制：没有解析出的配色、没有设计，也没有可用于跟随系统季节配色的应用主题，因此只有经典兜底会让背景保持透明。iOS 26 有时会在第三方键盘上方、扩展窗口之外画出一条系统自己的键盘底板，扩展画什么都盖不住它。使用原生 token 的键盘让背景保持透明，同一块底板就能透出来，那一条看上去就成了键盘的一部分。
+  /// 「原生」皮肤：画系统键盘的 token，背景交给系统键盘底板。
+  var isNative: Bool { id == GlobalThemeCatalog.nativeId }
+  /// 原生皮肤在 iOS 26 起画的扁平按键：字母键和功能键同色、没有底边阴影、圆角更大。
+  private var drawsLiquidGlassKeys: Bool { isNative && SystemKeyboardTokens.drawsLiquidGlassKeyboard }
+  /// 键盘是否用系统 token 绘制、把背景交给系统底板：原生皮肤总是如此；其他主题只有经典兜底（没有解析出的配色、没有设计，也没有可用于跟随系统季节配色的应用主题）如此。iOS 26 有时会在第三方键盘上方、扩展窗口之外画出一条系统自己的键盘底板，扩展画什么都盖不住它。使用原生 token 的键盘让背景保持透明，同一块底板就能透出来，那一条看上去就成了键盘的一部分。
   var drawsNativeBackground: Bool { palette == nil && design == nil }
 
   /// 键盘进程可能存活好几天，足够水杉四季换到下一个季节，或者应用换选另一个应用主题。键盘在 `viewWillAppear` 里读取 `current` 之前调用它；季节不在别处缓存，跟随系统配色、`logoCircle` 和 `logoMark` 每次解析时都会读它。
@@ -80,17 +85,17 @@ struct KeyboardTheme: Equatable {
 
   var background: UIColor {
     if let design { return CustomKeyboardSkin.color(design.background) }
-    return palette?.background ?? NativeKeyboardTokens.background
+    return palette?.background ?? (isNative ? SystemKeyboardTokens.background : NativeKeyboardTokens.background)
   }
   /// Letter keys and the space bar (`kb.key`).
   var keyBackground: UIColor {
     if let design { return CustomKeyboardSkin.color(design.keyBackground).withAlphaComponent(CGFloat(design.keyOpacity ?? 1)) }
-    return palette?.key ?? NativeKeyboardTokens.key
+    return palette?.key ?? (isNative ? SystemKeyboardTokens.key : NativeKeyboardTokens.key)
   }
   /// Shift, delete, 123, the symbol and language keys (`kb.spec`).
   var functionKeyBackground: UIColor {
     if design != nil { return keyBackground }
-    return palette?.functionKey ?? NativeKeyboardTokens.functionKey
+    return palette?.functionKey ?? (isNative ? SystemKeyboardTokens.functionKey : NativeKeyboardTokens.functionKey)
   }
   var keyForeground: UIColor {
     if let design { return CustomKeyboardSkin.color(design.keyForeground) }
@@ -103,29 +108,31 @@ struct KeyboardTheme: Equatable {
   /// The selected candidate, hints and toggled marks.
   var accent: UIColor {
     if let design { return CustomKeyboardSkin.color(design.accent) }
-    return palette?.accent ?? NativeKeyboardTokens.accent
+    return palette?.accent ?? (isNative ? SystemKeyboardTokens.accent : NativeKeyboardTokens.accent)
   }
-  /// 强调键（组字时的回车）：主题自己的主色；跟随系统配色时为季节主色；键盘设计时为它的操作色；什么都没解析出来时为经典绿色。
+  /// 强调键（组字时的回车）：主题自己的主色；跟随系统配色时为季节主色；原生皮肤为系统蓝；键盘设计时为它的操作色；什么都没解析出来时为经典绿色。
   var actionBackground: UIColor {
     if let design { return CustomKeyboardSkin.color(design.actionBackground) }
-    return palette?.accent ?? NativeKeyboardTokens.accent
+    return palette?.accent ?? (isNative ? SystemKeyboardTokens.accent : NativeKeyboardTokens.accent)
   }
   /// `actionBackground` 上的文字：配色自己的 `on_accent`，跟随系统配色在浅色下为白色、深色下为 Rust 算出的 mix(accent 25%, #000)。经典兜底在深色主色 `#5FBF84` 上用黑字，因为设计稿的白字在那里对比度只有 2.3:1。
   var actionForeground: UIColor {
     if let design { return CustomKeyboardSkin.color(CustomKeyboardSkin.readableText(on: design.actionBackground)) }
     if let palette { return palette.onAccent }
+    if isNative { return SystemKeyboardTokens.onAccent }
     return UIColor { $0.userInterfaceStyle == .dark ? .black : .white }
   }
   /// 画在 `accent` 填充上的图形，例如语音面板的麦克风：配色自己的 `on_accent`；键盘设计时为其主色上可读的文字色；经典主色上与 `actionForeground` 一样用白或黑。
   var onAccent: UIColor {
     if let design { return CustomKeyboardSkin.color(CustomKeyboardSkin.readableText(on: design.accent)) }
     if let palette { return palette.onAccent }
+    if isNative { return SystemKeyboardTokens.onAccent }
     return UIColor { $0.userInterfaceStyle == .dark ? .black : .white }
   }
   /// 作为浅色调的主题主色：凡是有配色的主题，浅色下透明度 `22`、深色下 `40`（即设计稿的 `accentSoft`，与 Android 的 `KeyboardSkin` 一致）；什么都没解析出来时为经典的 `.14` / `.26` 绿色；键盘设计时为其主色的 20%。它是候选栏 `selected` 槽位的兜底。
   var accentSoft: UIColor {
     if design != nil { return accent.withAlphaComponent(0.2) }
-    guard let palette else { return NativeKeyboardTokens.accentSoft }
+    guard let palette else { return isNative ? SystemKeyboardTokens.accentSoft : NativeKeyboardTokens.accentSoft }
     // 尽量用共享或静态颜色：候选栏配色会做相等比较，而新建的动态颜色永远不等于另一个颜色。
     if palette == SeasonKeyboardTokens.palette { return SeasonKeyboardTokens.accentSoft }
     let soft = { (dark: Bool) in palette.accent.withAlphaComponent(dark ? 0x40 / 255 : 0x22 / 255) }
@@ -148,10 +155,10 @@ struct KeyboardTheme: Equatable {
     return UIColor { traits in alwaysDark || Self.isDark(traits, appearance) ? dark : light }
   }
 
-  /// 工具栏 logo 的圆底：不论皮肤，都取应用主题季节的 mix(accent 14% light / 22% dark, card)；应用主题解析不了时为 `#FFFFFF` / `#1C1C1E` 上的经典绿色。
-  var logoCircle: UIColor { Self.logoCircleColor }
-  /// 圆底里的 logo 图形：应用主题季节的 mix(accent 82%, #000)；应用主题解析不了时为经典绿色。
-  var logoMark: UIColor { Self.logoMarkColor }
+  /// 工具栏 logo 的圆底：除原生皮肤外不论皮肤，都取应用主题季节的 mix(accent 14% light / 22% dark, card)；应用主题解析不了时为 `#FFFFFF` / `#1C1C1E` 上的经典绿色。原生皮肤不跟季节，按同一配方取系统蓝（`SystemKeyboardTokens.logoCircle`）。
+  var logoCircle: UIColor { isNative ? SystemKeyboardTokens.logoCircle : Self.logoCircleColor }
+  /// 圆底里的 logo 图形：应用主题季节的 mix(accent 82%, #000)；应用主题解析不了时为经典绿色；原生皮肤为 mix(系统蓝 82%, #000)。
+  var logoMark: UIColor { isNative ? SystemKeyboardTokens.logoMark : Self.logoMarkColor }
 
   private static let logoCircleColor = MetasequoiaTheme.mixUIColor(14, 22)
   private static let logoMarkColor = UIColor { traits in
@@ -163,9 +170,10 @@ struct KeyboardTheme: Equatable {
     (appearance ?? traits.userInterfaceStyle) == .dark
   }
 
-  /// A design's own radius, else the design's native key radius: 5 on a phone, 7 on an iPad.
+  /// 设计自带的圆角；原生皮肤在 iOS 26 起用系统键盘的圆角（`SystemKeyboardTokens.cornerRadius`）；其余为设计稿的原生按键圆角：手机 5、iPad 7。
   var cornerRadius: CGFloat {
     if let design { return CGFloat(design.cornerRadius) }
+    if drawsLiquidGlassKeys { return SystemKeyboardTokens.cornerRadius }
     return UIDevice.current.userInterfaceIdiom == .pad ? 7 : 5
   }
   var borderWidth: CGFloat { design.map { CGFloat($0.borderWidth) } ?? 0 }
@@ -176,7 +184,7 @@ struct KeyboardTheme: Equatable {
   /// 按键投影，含透明度：优先用设计自带的，否则为按键边缘 `0 1px 0 rgba(38,62,44,.3)`（浅色）和 `rgba(0,0,0,.55)`（深色）（`NativeKeyboardTokens.keyShadowColor`）。绘制类按键单元格的面板会连同 `shadowOffset` 和 `shadowRadius` 一起复用它。
   var keyShadowColor: UIColor {
     if let design { return UIColor.black.withAlphaComponent(CGFloat(design.shadow)) }
-    return Self.nativeKeyShadowColor
+    return isNative ? SystemKeyboardTokens.keyShadowColor : Self.nativeKeyShadowColor
   }
   /// 以按键绘制和皮肤预览读取的名字暴露的 `keyShadowColor`。
   var shadowColor: UIColor { keyShadowColor }
@@ -186,7 +194,8 @@ struct KeyboardTheme: Equatable {
     return NativeKeyboardTokens.keyShadowColor.resolvedColor(with: traits).withAlphaComponent(CGFloat(dark
       ? NativeKeyboardTokens.keyShadowOpacity.dark : NativeKeyboardTokens.keyShadowOpacity.light))
   }
-  var hasShadow: Bool { design.map { $0.shadow > 0 } ?? true }
+  /// 设计按自己的阴影；原生皮肤在 iOS 26 起与系统键盘一样没有底边阴影；其余主题都有。
+  var hasShadow: Bool { design.map { $0.shadow > 0 } ?? !drawsLiquidGlassKeys }
   var shadowRadius: CGFloat { design == nil ? NativeKeyboardTokens.keyShadowRadius : 3 }
   var shadowOffset: CGFloat { design == nil ? NativeKeyboardTokens.keyShadowOffset : 2 }
   var usesMonospacedFont: Bool { design?.monospaced ?? false }
