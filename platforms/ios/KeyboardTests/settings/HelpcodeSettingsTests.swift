@@ -20,7 +20,8 @@ final class HelpcodeSettingsTests: XCTestCase {
   func testEveryOfferedSchemaShipsItsTable() throws {
     let resources = try XCTUnwrap(Bundle.main.url(forResource: "EngineResources", withExtension: nil))
     let tables = ["helpcode.txt", "zrm_helpcode_big_unique.txt", "shouyou2_0_helpcode.txt",
-                  "shouyouplus_helpcode.txt", "xiaohe_helpcode.txt", "jiajia_helpcode.txt"]
+                  "shouyouplus_helpcode.txt", "xiaohe_helpcode.txt", "jiajia_helpcode.txt",
+                  "wubi86_helpcode.txt"]
     for table in tables {
       let path = resources.appendingPathComponent("helpcodes/\(table)").path
       XCTAssertTrue(FileManager.default.fileExists(atPath: path), "\(table) is not bundled")
