@@ -17,7 +17,7 @@ Status: implemented
 
 - 插件标记只在门控开关也开着、且当前方案能打开对应模式时才标「使用中 / 已启用」，否则写明哪一项不满足。`/` 指令和 `@` 模式不随插件自动打开：打开它们会改变 `/`、`@` 在所有应用里打出来的字；指令表详情和 `@` 名单在模式关着时给出说明和就地打开的入口，与短语表看 K 模式的做法一致。界面的 `schemeOpensTableModes` 与 Engine 的 `opens_table_modes` 是同一份方案集合。只闪烁候选栏的设备（Windows、鸿蒙）上特效说明按实际画法写。
 - 宿主侧副本跟上 `opens_table_modes`：Linux `scheme::OpensTableModes`（定义在 `InputSchemeTraits.h`，`SpellingSymbols.h` 用它）；Windows `common/InputSchemeTraits.h` 的 `scheme::OpensTableModes` / `OpensLocalModes`，由 `apply_local_mode_switches` 决定下发给 TSF 的 `command_mode` / `mention_mode` / `expression_mode`。两者都由 `scripts/test-scheme-traits-parity.py` 对照 Engine，不再是手写的方案名比较。
-- Windows 顶字在 Engine 不留组合时给 TSF 消费数 5，TSF 自己的 `min(consumed, buffer.size())` 让四码唯一自动上屏仍按 4 裁。
+- Windows 的 `AutoCommitAndContinue` 消费数按「按键前 Engine 持有的编码长度，Engine 之后不留组合时再加上这个键」算（`wubi_continue_consumed`）：唯一码第四个字母 3+1，顶字后的小写字母 4，被放走的大写字母 4+1。固定写 5 会在 Engine 不留组合的唯一码路径上吞掉用户提前敲进 TSF 缓冲的下一个字母，所以不用常数。
 - Linux 两个宿主只在 `local_mode` 是 `command` 或 `mention` 时跳过两道注释门控：这两个模式里 Engine 填进 `annotation` 的是指令标题或 `@` 地名的省市；其余本地模式的注释仍是辅助码，照旧受开关控制。
 - 辅助码方案菜单（Linux IBus / Fcitx5、macOS 与 Windows 原生设置）在辅助码插件生效时显示插件，从菜单选内置方案即清掉该方案的插件选择，与设置页 `helpcode-page.tsx` 的契约一致；macOS 原生设置把缺 `plugins` 或缺键视为没有选插件，与 Rust 省略空值的写法一致。
 - host-api 提供 `msime_client_set_diagnostic_sink`，声音播放器、插件表和辅助码表的运行期失败经它送出，没注册时仍写 stderr；已注册的出口在被替换后仍可能被进行中的报告调用，所以必须在进程内一直可调用。macOS 在启动时注册，只记冒号前的类别（不记包名、路径和错误原文），日志关着时不记，守住 `diagnostic.log` 已写明的隐私约定。

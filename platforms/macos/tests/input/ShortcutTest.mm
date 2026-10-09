@@ -850,6 +850,64 @@ static void TestIndependentAssistancePreferences() {
     assert(saves == beforeRefresh);
     assert([[prefs helpcodeOptionsForScheme:@"quanpin"] isEqual:options[@"quanpin_helpcode"]]);
     assert([[prefs helpcodeOptionsForScheme:@"shuangpin"] isEqual:options[@"shuangpin_helpcode"]]);
+    // 选了辅助码表插件时，方案下拉框末尾多一项代表插件并选中它；再选这一项什么都不改，选一个方案就不再使用插件并把清空写进共享文档，与共享设置页一致。另一族的插件和其他插件设置原样保留。
+    NSPopUpButton *quanpinSchemas = schemaControls[@"quanpin"];
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals", @"helpcode_pack_shuangpin": @"strokes"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && [[prefs helpcodePackForScheme:@"shuangpin"] isEqual:@"strokes"]);
+    assert(quanpinSchemas.numberOfItems == 7 && [quanpinSchemas.titleOfSelectedItem isEqual:@"radicals（插件）"]);
+    NSUInteger beforePack = saves;
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    assert(saves == beforePack && [[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"]);
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [quanpinSchemas selectItemAtIndex:1];
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    assert(saves > beforePack && ![prefs helpcodePackForScheme:@"quanpin"]);
+    assert(quanpinSchemas.numberOfItems == 6 && quanpinSchemas.indexOfSelectedItem == 1);
+    NSDictionary *cleared = [prefs sharedPreferencesByMerging:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals", @"helpcode_pack_shuangpin": @"strokes", @"sound_pack": @"twinkle"}}];
+    assert(([cleared[@"plugins"] isEqual:@{@"helpcode_pack_quanpin": @"", @"helpcode_pack_shuangpin": @"strokes", @"sound_pack": @"twinkle"}]));
+    assert([cleared[@"quanpin_helpcode"][@"schema"] isEqual:@"ziranma"]);
+    // 保存落盘之前读到的文档仍是旧插件，不能把它带回来；文档写进清空之后，别处再选的插件照常显示。
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == 6);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @""}}];
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == 7);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"", @"helpcode_pack_shuangpin": @""}}];
+    assert(quanpinSchemas.numberOfItems == 6 && [schemaControls[@"shuangpin"] numberOfItems] == 6);
+    // 清空没能写进文档（保存失败）时，共享设置页另选的插件不是那个旧 id：照常显示，之后的保存也不把它写成空串。
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    [quanpinSchemas selectItemAtIndex:1];
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    assert(![prefs helpcodePackForScheme:@"quanpin"]);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"strokes"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"strokes"]);
+    assert(quanpinSchemas.numberOfItems == 7 && [quanpinSchemas.titleOfSelectedItem isEqual:@"strokes（插件）"]);
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @""}}];
+    assert(quanpinSchemas.numberOfItems == 6);
+    // 共享偏好落盘时不写空的辅助码表包（空串的键省略，全为默认的 plugins 整个省略），所以清空写进文档后读回来的是没有 plugins 的文档：它与空串一样了结这次清空，之后在共享设置页再选同一个包照常显示，也不会被下一次保存写回空串。
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    [quanpinSchemas selectItemAtIndex:1];
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    assert(![prefs helpcodePackForScheme:@"quanpin"]);
+    [prefs applySharedAssistancePreferences:@{}];
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == 7);
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    // plugins 还有别的设置、只是没有这个键时同样是空包；共享设置页清掉插件也是这样回来的，下拉框随之去掉插件项。
+    [quanpinSchemas selectItemAtIndex:1];
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"sound_pack": @"twinkle"}}];
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == 7);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"sound_pack": @"twinkle"}}];
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == 6);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @7}}];
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == 6);
     NSButton *neighbor = (id)PreferenceControl(prefs, @selector(neighborChanged:));
     [prefs applySharedAssistancePreferences:@{@"quanpin": @{@"autocorrect_transposition": @YES, @"autocorrect_neighbor": @NO}}];
     assert(autocorrect.state == NSControlStateValueOn && neighbor.state == NSControlStateValueOff);
@@ -3274,6 +3332,66 @@ static void TestSoundsFollowKeysCommitsAndActivation() {
     assert(([nextSession.musicStates isEqual:@[@YES, @NO]]));
     method_setImplementation(base, original);
 
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
+// Opens a real session from its own options and records, for every music claim, whether a session was there to hear it.
+@interface MusicClaimController : MSIMEInputController
+@property(nonatomic, copy) NSDictionary *options;
+@property(nonatomic, strong) NSMutableArray<NSNumber *> *claims;
+@end
+@implementation MusicClaimController
+- (NSDictionary *)runtimeOptions { return self.options; }
+- (BOOL)secureEventInputActive { return NO; }
+- (void)claimBackgroundMusic {
+    if (!self.claims) self.claims = [NSMutableArray array];
+    [self.claims addObject:@([self valueForKey:@"session"] != nil)];
+    [super claimBackgroundMusic];
+}
+@end
+
+// 在英文模式下激活的控制器还没有会话，激活时那次 claimBackgroundMusic 发给的是 nil，播放器从没听到「输入法处于活动状态」。之后切回中文、按键或重新打开会话时建好会话，音乐的归属者要在那时补报一次；不是归属者的控制器、以及已经有会话的再次准备都不报。
+static void TestMusicIsClaimedOnceTheSessionOpens() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSMutableDictionary *options = [@{@"api_version": @1,
+        @"preferences": @{@"scheme": @"quanpin", @"default_ime_mode": @"chinese", @"candidate_page_size": @5,
+                          @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    NSString *suite = [@"msime.music-claim." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.englishMode = YES;
+    auto controllerFor = ^MusicClaimController *(ShortcutClient *client) {
+        MusicClaimController *controller = [MusicClaimController alloc];
+        controller.options = options;
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+        return controller;
+    };
+    MusicClaimController *owner = controllerFor([ShortcutClient new]);
+    MusicClaimController *other = controllerFor([ShortcutClient new]);
+
+    // activateServer: in English mode: the claim finds no session.
+    [owner claimBackgroundMusic];
+    assert(([owner.claims isEqual:@[@NO]]));
+    // The session opens later (back to Chinese, a key, a menu action): the owner claims again, now with a session to tell.
+    [owner prepareSession];
+    assert([owner valueForKey:@"session"]);
+    assert(([owner.claims isEqual:@[@NO, @YES]]));
+    // Preparing a session that is already open claims nothing more.
+    [owner prepareSession];
+    assert(owner.claims.count == 2);
+    // A controller music does not follow opens its session without taking music over.
+    [other prepareSession];
+    assert([other valueForKey:@"session"] && other.claims.count == 0);
+
+    [owner releaseBackgroundMusic];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
 }
@@ -9450,6 +9568,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
         @autoreleasepool { TestStaleClientDeactivation(); }
         @autoreleasepool { TestSoundsFollowKeysCommitsAndActivation(); }
+        @autoreleasepool { TestMusicIsClaimedOnceTheSessionOpens(); }
         @autoreleasepool { TestPreferenceClientGeneration(); }
         @autoreleasepool { TestSavedPreferencesReachTheFocusedController(); }
         @autoreleasepool { TestModeSwitchReachesTheSessionBeforeTheNextKey(); }
