@@ -1690,12 +1690,12 @@ fn comparable_weight(item: &WordItem) -> i64 {
     item.weight - (PHRASE_LENGTH_BONUS * 1000.0 * syllables) as i64
 }
 
-/// 一个数字一个音节、全拼比数字长的词典行：按简拼查出来的行（`68` 的 明天 mei'tian）。只有两个及以上数字时才算，一个数字本来就按首字母补全。
 /// 九键记进个人上下文模型的词：两个字以上的纯汉字词，单字和夹着英文、符号的不记（#6185）。
 fn is_personal_word(word: &str) -> bool {
     count_utf8_chars(word) >= 2 && is_all_han(word)
 }
 
+/// 一个数字一个音节、全拼比数字长的词典行：按简拼查出来的行（`68` 的 明天 mei'tian）。只有两个及以上数字时才算，一个数字本来就按首字母补全。
 fn is_initials_row(item: &WordItem) -> bool {
     let digits = item.pinyin.len();
     digits >= 2
