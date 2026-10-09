@@ -1252,7 +1252,16 @@ final class ImePanels {
             renderClipboardSegmentation();
             return;
         }
-        java.util.List<TextView> notes = new java.util.ArrayList<>(1);
+        java.util.List<TextView> notes = new java.util.ArrayList<>(2);
+        // 本机历史在画顶行之前读一次：顶行的条数和下面的卡片用的是同一份，不读第二次。读不出来时 items 为 null，提示照旧画在下面。
+        java.util.List<ClipboardHistory.Item> items = null;
+        if (!cloud && s.clipboardHistoryEnabled) {
+            try {
+                items = s.clipboardHistory.load();
+            } catch (IllegalStateException error) {
+                items = null;
+            }
+        }
         // 顶部一行小号操作：本机 / 云端分段（云端可用时）、刷新或清空；返回由工具栏的「返回键盘」负责。
         LinearLayout header = KeyboardGeometry.row(s);
         ViewPolicy.setCenteredVertically(header);
@@ -1262,7 +1271,21 @@ final class ImePanels {
             addClipboardTab(header, CloudClipboardPanelPolicy.TAB_LOCAL, CloudClipboardPanelPolicy.Tab.LOCAL);
             addClipboardTab(header, CloudClipboardPanelPolicy.TAB_CLOUD, CloudClipboardPanelPolicy.Tab.CLOUD);
         }
-        if (!confirmingClear) header.addView(new View(s), KeyboardGeometry.weightedZeroParams(1));
+        if (!confirmingClear) {
+            // 分段和「清空」之间原来是一块空白，现在居中写「已存条数/上限」（#5905），不另占地方；没有可数的内容时它是空的，布局和原来一样。
+            Integer count = cloud
+                ? CloudClipboardPanelPolicy.cloudCount(s.cloudClipboardStatus, s.cloudClipboardItems.size())
+                : items == null ? null : items.size();
+            TextView counter = ViewPolicy.centeredText(s,
+                CloudClipboardPanelPolicy.countLabel(s.clipboardTab, count), 12);
+            KeyboardGeometry.setKeyTextSize(counter, 12);
+            ViewPolicy.setMaxLinesEllipsized(counter, 1);
+            String description = CloudClipboardPanelPolicy.countDescription(s.clipboardTab, count);
+            if (description.isEmpty()) ViewPolicy.hideFromAccessibility(counter);
+            else counter.setContentDescription(description);
+            header.addView(counter, KeyboardGeometry.weightedMatchParentParams(1));
+            notes.add(counter);
+        }
         if (cloud) {
             Button refresh = clipboardAction(header, "刷新", this::refreshCloudClipboard);
             ViewPolicy.setEnabled(refresh,
@@ -1297,38 +1320,35 @@ final class ImePanels {
             renderCloudClipboard(notes);
         } else if (!s.clipboardHistoryEnabled) {
             notes.add(clipboardNote("剪贴板历史未开启，可在设置中开启"));
+        } else if (items == null) {
+            notes.add(clipboardNote("历史记录无法读取，请清空后重试"));
         } else {
-            try {
-                java.util.List<ClipboardHistory.Item> items = s.clipboardHistory.load();
-                if (items.isEmpty()) notes.add(clipboardNote("复制的文字会自动出现在这里，点按即可插入\n只保存在本机"));
-                long now = System.currentTimeMillis();
-                int columns = s.clipboardColumns;
-                ClipboardHistory.Item actionItem = null;
-                for (int index = 0; index < items.size(); index++) {
-                    ClipboardHistory.Item item = items.get(index);
-                    String meta = (item.pinned() ? "已置顶 · " : "") + "本机 · " + relativeTime(item.timestamp(), now);
-                    boolean managed = item.text().equals(clipboardActionText);
-                    Button card = clipboardCard(index, items.size(), item.text(), meta, managed,
-                        () -> s.insertClipboardText(item.text()));
-                    card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，长按管理");
-                    card.setOnLongClickListener(ignored -> {
-                        s.imeKeyFeedback.playFeedback(card);
-                        clipboardActionText = item.text();
-                        clipboardClearPending = false;
-                        renderClipboardHistory();
-                        return true;
-                    });
-                    if (managed) actionItem = item;
-                    // 操作行放在这条所在那一行的下面：双列时跨在两条下方，不插进两条中间。
-                    boolean rowEnds = index == items.size() - 1
-                        || ClipboardLayoutPolicy.row(index + 1, columns) != ClipboardLayoutPolicy.row(index, columns);
-                    if (rowEnds && actionItem != null) {
-                        renderClipboardItemActions(actionItem, cloudAllowed);
-                        actionItem = null;
-                    }
+            if (items.isEmpty()) notes.add(clipboardNote("复制的文字会自动出现在这里，点按即可插入\n只保存在本机"));
+            long now = System.currentTimeMillis();
+            int columns = s.clipboardColumns;
+            ClipboardHistory.Item actionItem = null;
+            for (int index = 0; index < items.size(); index++) {
+                ClipboardHistory.Item item = items.get(index);
+                String meta = (item.pinned() ? "已置顶 · " : "") + "本机 · " + relativeTime(item.timestamp(), now);
+                boolean managed = item.text().equals(clipboardActionText);
+                Button card = clipboardCard(index, items.size(), item.text(), meta, managed,
+                    () -> s.insertClipboardText(item.text()));
+                card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，长按管理");
+                card.setOnLongClickListener(ignored -> {
+                    s.imeKeyFeedback.playFeedback(card);
+                    clipboardActionText = item.text();
+                    clipboardClearPending = false;
+                    renderClipboardHistory();
+                    return true;
+                });
+                if (managed) actionItem = item;
+                // 操作行放在这条所在那一行的下面：双列时跨在两条下方，不插进两条中间。
+                boolean rowEnds = index == items.size() - 1
+                    || ClipboardLayoutPolicy.row(index + 1, columns) != ClipboardLayoutPolicy.row(index, columns);
+                if (rowEnds && actionItem != null) {
+                    renderClipboardItemActions(actionItem, cloudAllowed);
+                    actionItem = null;
                 }
-            } catch (IllegalStateException error) {
-                notes.add(clipboardNote("历史记录无法读取，请清空后重试"));
             }
         }
         s.imeStyler.applySkin();
