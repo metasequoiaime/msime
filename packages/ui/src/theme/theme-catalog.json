@@ -4,8 +4,20 @@
     "candidate": null,
     "id": "system",
     "keyboard": null,
+    "platforms": null,
     "preview": null,
     "title": "跟随系统"
+  },
+  {
+    "appearance": null,
+    "candidate": null,
+    "id": "native",
+    "keyboard": null,
+    "platforms": [
+      "ios"
+    ],
+    "preview": null,
+    "title": "原生"
   },
   {
     "appearance": "dark",
@@ -32,6 +44,7 @@
       "secondary": "#9FB5A3",
       "text": "#FFFFFF"
     },
+    "platforms": null,
     "preview": {
       "accent": "#7FE08E",
       "background": "#1E1F1C",
@@ -65,6 +78,7 @@
       "secondary": "#6A6F76",
       "text": "#1A1A1A"
     },
+    "platforms": null,
     "preview": {
       "accent": "#005FB8",
       "background": "#E9E9E9",
@@ -98,6 +112,7 @@
       "secondary": "#6E6A5E",
       "text": "#1A1E1B"
     },
+    "platforms": null,
     "preview": {
       "accent": "#2C7A4B",
       "background": "#E8E4DA",
@@ -131,6 +146,7 @@
       "secondary": "#86A6B0",
       "text": "#E6F1F4"
     },
+    "platforms": null,
     "preview": {
       "accent": "#4FD1C5",
       "background": "#0F1B22",
@@ -164,6 +180,7 @@
       "secondary": "#9A9A9A",
       "text": "#F2F2F2"
     },
+    "platforms": null,
     "preview": {
       "accent": "#FFFFFF",
       "background": "#0B0B0B",
@@ -177,6 +194,7 @@
     "candidate": null,
     "id": "custom",
     "keyboard": null,
+    "platforms": null,
     "preview": null,
     "title": "自定义"
   }

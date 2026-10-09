@@ -36,7 +36,8 @@ public final class ms_w3_kcb_KeyboardFacesSmoke {
         List<KeyboardActionRow.DesignEntry> row = KeyboardActionRow.designEntries(
             KeyboardLayout.STANDARD_TOUCH_LAYOUT, false);
         check(row.size() == 6 && row.get(0).slot() == KeyboardActionRow.DesignSlot.LAYER
-            && row.get(5).slot() == KeyboardActionRow.DesignSlot.RETURN, "123 | 中 | ， | 空格 | 。 | ↵");
+            && row.get(4).slot() == KeyboardActionRow.DesignSlot.LANGUAGE
+            && row.get(5).slot() == KeyboardActionRow.DesignSlot.RETURN, "123 | ， | 空格 | 。 | 中 | ↵");
         List<KeyboardActionRow.DesignEntry> nine = KeyboardActionRow.designEntries(
             KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true);
         check(nine.stream().noneMatch(entry -> entry.slot() == KeyboardActionRow.DesignSlot.COMMA),

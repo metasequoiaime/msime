@@ -521,9 +521,10 @@ struct CommunityDesignPreview: View {
         miniRow([MiniKey(symbol: "shift", weight: 1.4, role: .function)]
                 + Array("zxcvbnm").map { MiniKey(text: String($0)) }
                 + [MiniKey(symbol: "delete.left", weight: 1.4, role: .function)], width: Self.rowWidth)
-        miniRow([MiniKey(text: "123", weight: 1.25, role: .function), MiniKey(text: "中", weight: 1.05, role: .function),
+        miniRow([MiniKey(text: "123", weight: 1.25, role: .function),
                  MiniKey(text: "，"), MiniKey(text: "全拼", symbol: "mic", weight: 4, role: .space),
-                 MiniKey(text: "。"), MiniKey(symbol: "return", weight: 1.9, role: .action)], width: Self.rowWidth)
+                 MiniKey(text: "。"), MiniKey(text: "中", weight: 1.05, role: .function),
+                 MiniKey(symbol: "return", weight: 1.9, role: .action)], width: Self.rowWidth)
       }
       Capsule().fill(foreground.opacity(0.85)).frame(width: 134, height: 5).frame(maxHeight: .infinity)
     }

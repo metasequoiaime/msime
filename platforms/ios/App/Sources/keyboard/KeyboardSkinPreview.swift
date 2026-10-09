@@ -202,14 +202,13 @@ struct KeyboardSkinPreview: View {
     }
   }
 
-  /// 设计稿缩略图的 26 键底行：123 / 中 / ， / 带麦克风和方案名的空格键 / 。 / 回车，宽度比例沿用键盘自身的权重（1.25 / 1.05 / 1 / 4 / 1 / 1.9）。
+  /// 设计稿缩略图的 26 键底行：123 / ， / 带麦克风和方案名的空格键 / 。 / 中 / 回车，宽度比例沿用键盘自身的权重（1.25 / 1 / 4 / 1 / 1.05 / 1.9）。
   private var miniatureBottomRow: some View {
     GeometryReader { proxy in
       let spacing: CGFloat = 5
       let unit = (proxy.size.width - spacing * 5) / 10.2
       HStack(spacing: spacing) {
         key("123", function: true).frame(width: unit * 1.25)
-        key("中", function: true).frame(width: unit * 1.05)
         key("，").frame(width: unit)
         ZStack {
           keySurface()
@@ -221,6 +220,7 @@ struct KeyboardSkinPreview: View {
         }
         .frame(width: unit * 4)
         key("。").frame(width: unit)
+        key("中", function: true).frame(width: unit * 1.05)
         ZStack {
           keySurface(emphasized: true)
           Image(systemName: "return").font(.system(size: 15, weight: .medium))

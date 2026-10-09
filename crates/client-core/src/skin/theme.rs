@@ -1,12 +1,13 @@
 //! The global theme: one id that colours the candidate window, the floating toolbar, the menus and the touch keyboard on every host.
 //!
-//! There are seven ids. `system` leaves every colour to the host's own platform tokens; `shuishan`, `light`, `paper`, `night` and `ink` are the built-in palettes, copied from the design's `THEMES` table; `custom` is whatever the user assembled in `Preferences::custom_theme` (an external candidate skin package, the seven candidate colour pickers, and the keyboard design produced by the editor, the community library or the AI generator).
+//! 共有八个 id。`system`（跟随系统）不带调色板，由宿主自己取色：桌面宿主画平台 token，触屏键盘按应用主题当前季节取色；`native`（原生）同样不带调色板，只画宿主系统自带的键盘 token，不跟季节，目前只有 iOS 提供；`shuishan`、`light`、`paper`、`night` 和 `ink` 是内置调色板，照抄设计稿的 `THEMES` 表；`custom` 是用户在 `Preferences::custom_theme` 里组合出来的主题（外部候选皮肤包、七个候选颜色取色器，以及编辑器、社区皮肤库或 AI 生成的键盘设计）。
 //!
 //! Hosts do not keep their own copy of these palettes. They read the catalog (`catalog`) to draw the picker and call `resolve` for the colours on screen, so a palette is changed here once and every host follows.
 //!
 //! Every colour this module emits is `#RRGGBB` or `#RRGGBBAA` (uppercase, alpha last). A `None` slot means "the host's own platform token for that slot", never "transparent".
 
 use super::catalog::{CandidatePalette, SkinSummary};
+use crate::host_surface::HostPlatform;
 use crate::preferences::{CandidateLayout, CustomTheme, TouchKeyboardSkinDesign};
 use serde::{Deserialize, Serialize};
 
@@ -14,9 +15,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum GlobalTheme {
-    /// Follow the platform: every slot is the host's native token, in the host's current light or dark mode.
+    /// 跟随系统：不带调色板，按宿主当前的明暗绘制。桌面宿主画平台自己的 token；触屏键盘（Android、iOS、鸿蒙）按应用主题当前季节取色，键盘与应用同色。
     #[default]
     System,
+    /// 原生：不带调色板，只画宿主系统自带键盘的 token，不跟季节。只在 [`GlobalTheme::platforms`] 列出的宿主上提供，其他宿主收到它时按 `system` 绘制。
+    Native,
     Shuishan,
     Light,
     Paper,
@@ -27,8 +30,9 @@ pub enum GlobalTheme {
 }
 
 impl GlobalTheme {
-    pub const ALL: [GlobalTheme; 7] = [
+    pub const ALL: [GlobalTheme; 8] = [
         GlobalTheme::System,
+        GlobalTheme::Native,
         GlobalTheme::Shuishan,
         GlobalTheme::Light,
         GlobalTheme::Paper,
@@ -40,6 +44,7 @@ impl GlobalTheme {
     pub fn id(self) -> &'static str {
         match self {
             GlobalTheme::System => "system",
+            GlobalTheme::Native => "native",
             GlobalTheme::Shuishan => "shuishan",
             GlobalTheme::Light => "light",
             GlobalTheme::Paper => "paper",
@@ -54,15 +59,30 @@ impl GlobalTheme {
         Self::ALL.into_iter().find(|theme| theme.id() == id)
     }
 
-    /// Whether a custom theme or a skin package may be drawn over this theme: `system` or a built-in theme, never `custom` itself.
+    /// 自定义主题或皮肤包能否以这个主题为底：`system` 或内置主题。`custom` 自身不行；`native` 也不行，因为它只在部分宿主上提供，而自定义主题的底和皮肤包清单的 `base` 在每个宿主上都要画得出来。
     pub fn is_base(self) -> bool {
-        self != GlobalTheme::Custom
+        !matches!(self, GlobalTheme::Custom | GlobalTheme::Native)
+    }
+
+    /// 提供这个主题的宿主；`None` 表示所有宿主都提供。其他宿主的选择器不列出它，收到它时按 `system` 绘制。
+    pub fn platforms(self) -> Option<&'static [HostPlatform]> {
+        match self {
+            GlobalTheme::Native => Some(&[HostPlatform::Ios]),
+            _ => None,
+        }
+    }
+
+    /// `platform` 的选择器是否列出这个主题。
+    pub fn is_offered_on(self, platform: HostPlatform) -> bool {
+        self.platforms()
+            .is_none_or(|platforms| platforms.contains(&platform))
     }
 
     /// The picker title, in the product's language.
     pub fn title(self) -> &'static str {
         match self {
             GlobalTheme::System => "跟随系统",
+            GlobalTheme::Native => "原生",
             GlobalTheme::Shuishan => "水杉",
             GlobalTheme::Light => "浅色",
             GlobalTheme::Paper => "纸白",
@@ -247,7 +267,9 @@ pub struct ThemePreview {
 pub struct ThemeCatalogEntry {
     pub id: GlobalTheme,
     pub title: &'static str,
-    /// `None` for `system` and `custom`, whose appearance depends on the platform or on what the user assembled.
+    /// 提供这个主题的宿主（见 [`GlobalTheme::platforms`]），`None` 表示所有宿主都提供。
+    pub platforms: Option<&'static [HostPlatform]>,
+    /// `None` for `system`, `native` and `custom`, whose appearance depends on the platform or on what the user assembled.
     pub appearance: Option<ThemeAppearance>,
     pub preview: Option<ThemePreview>,
     pub candidate: Option<CandidateThemePalette>,
@@ -297,7 +319,7 @@ impl BuiltinTheme {
     }
 }
 
-/// Every theme the picker offers, in order. `system` and `custom` carry no palette here: `system` never has one, and `custom` has one only once `resolve` combines it with the user's `custom_theme`.
+/// Every theme, in picker order, including the ones only some hosts offer (each entry says which in `platforms`). `system`, `native` and `custom` carry no palette here: `system` and `native` never have one, and `custom` has one only once `resolve` combines it with the user's `custom_theme`.
 pub fn catalog() -> Vec<ThemeCatalogEntry> {
     GlobalTheme::ALL
         .into_iter()
@@ -306,12 +328,21 @@ pub fn catalog() -> Vec<ThemeCatalogEntry> {
             ThemeCatalogEntry {
                 id,
                 title: id.title(),
+                platforms: id.platforms(),
                 appearance: builtin.map(|theme| theme.appearance),
                 preview: builtin.map(BuiltinTheme::preview),
                 candidate: builtin.map(BuiltinTheme::candidate),
                 keyboard: builtin.map(BuiltinTheme::keyboard),
             }
         })
+        .collect()
+}
+
+/// `platform` 的选择器列出的主题，顺序同 [`catalog`]。
+pub fn catalog_for(platform: HostPlatform) -> Vec<ThemeCatalogEntry> {
+    catalog()
+        .into_iter()
+        .filter(|entry| entry.id.is_offered_on(platform))
         .collect()
 }
 
@@ -444,9 +475,9 @@ pub struct ResolvedTheme {
     pub source: ThemeSource,
     /// `None` means follow the host's current mode.
     pub appearance: Option<ThemeAppearance>,
-    /// `None` for `system`: draw the platform tokens.
+    /// `system` 和 `native` 为 `None`：画平台 token。
     pub candidate: Option<CandidateThemePalette>,
-    /// `None` for `system`: draw the platform keyboard.
+    /// `system` 和 `native` 为 `None`：画平台键盘。
     pub keyboard: Option<KeyboardThemePalette>,
     /// The external package drawn on this surface: the custom theme names it, it was found, and its manifest declares both `layout` and the mode drawn. Hosts draw the package's decoration and minimum width only when this is set.
     pub candidate_skin: Option<String>,
@@ -478,7 +509,8 @@ pub fn resolve(
             candidate_skin: None,
         };
     }
-    if theme == GlobalTheme::System {
+    // `native` 与 `system` 一样不带调色板，两者的区别只在宿主怎么画：`id` 原样带回，宿主据此分辨。
+    if matches!(theme, GlobalTheme::System | GlobalTheme::Native) {
         return ResolvedTheme {
             id: theme,
             source: ThemeSource::System,

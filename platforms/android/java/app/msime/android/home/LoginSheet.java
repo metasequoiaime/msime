@@ -125,7 +125,7 @@ final class LoginSheet {
         root.addView(subtitle, Ui.matchWidth(activity, 2));
 
         options = Ui.column(activity);
-        boolean night = Ui.isNight(activity);
+        boolean night = KeyboardGeometry.isNight(activity);
         if (providers.appleWeb()) {
             // Apple 的规范按钮：浅色下黑底白字，深色下白底黑字；这是 Apple 的品牌色，不随季节主题变。
             int fill = night ? Color.WHITE : Color.BLACK;

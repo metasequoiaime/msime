@@ -213,7 +213,7 @@ impl LanguageDictionary {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// The entries whose key matches `pattern`, where `wildcard` stands for any one character other than a space and every other character for itself. With `completions` the pattern only has to match the start of the key, as in `lookup_completions`, and the rest of the key may not hold a syllable boundary; without it the key must match the whole pattern. Each comes with its key, heaviest first and by text within a weight, at most `limit`. The literal characters before the first wildcard bound the scan to their key range, so only a leading wildcard reads the whole table.
+    /// 匹配 `pattern` 的词条，`wildcard` 匹配任意非空格字符，其他字符按字面匹配。补全只匹配键前缀且余下部分不能有音节边界；精确匹配整个键。按权重降序、文字升序返回至多 `limit` 条。首个通配符前的字面前缀限制扫描范围，只有开头通配符需要整表过滤。
     pub fn lookup_pattern(
         &self,
         pattern: &str,
@@ -224,41 +224,47 @@ impl LanguageDictionary {
         if pattern.is_empty() {
             return Ok(Vec::new());
         }
+        let mut result = query_capacity(limit).map_or_else(Vec::new, Vec::with_capacity);
+        self.lookup_pattern_into(pattern, wildcard, completions, limit, &mut result)?;
+        Ok(result)
+    }
+
+    /// 将通配查询写入已有缓冲，复用键与文字的字符串容量；空模式清空结果。
+    pub fn lookup_pattern_into(
+        &self,
+        pattern: &str,
+        wildcard: char,
+        completions: bool,
+        limit: usize,
+        result: &mut Vec<(String, LanguageEntry)>,
+    ) -> Result<()> {
+        if pattern.is_empty() {
+            result.clear();
+            return Ok(());
+        }
         let glob = glob_pattern(pattern, wildcard, completions);
         let length = i64::try_from(pattern.chars().count()).unwrap_or(i64::MAX);
         let literal = pattern.split(wildcard).next().unwrap_or_default();
-        let requested_limit = limit;
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
-        let read = |row: &rusqlite::Row<'_>| {
-            Ok((
-                row.get(0)?,
-                LanguageEntry {
-                    text: row.get(1)?,
-                    weight: row.get(2)?,
-                },
-            ))
-        };
-        let mut result = query_capacity(requested_limit).map_or_else(Vec::new, Vec::with_capacity);
         // 字面前缀为空（通配符打头）时没有可用的键范围，只能整表按 GLOB 过滤。
         match completion_upper_bound(literal) {
             Some(upper) => {
                 let mut statement = self.connection.prepare_cached(
                     "SELECT key, text, weight FROM entries WHERE key >= ?1 AND key < ?2 AND key GLOB ?3 AND instr(substr(key, ?4 + 1), ' ') = 0 ORDER BY weight DESC, text ASC LIMIT ?5",
                 )?;
-                for row in statement.query_map((literal, upper, glob, length, limit), read)? {
-                    result.push(row?);
-                }
+                read_keyed_rows_into(
+                    &mut statement.query((literal, upper, glob, length, limit))?,
+                    result,
+                )?;
             }
             None => {
                 let mut statement = self.connection.prepare_cached(
                     "SELECT key, text, weight FROM entries WHERE key GLOB ?1 AND instr(substr(key, ?2 + 1), ' ') = 0 ORDER BY weight DESC, text ASC LIMIT ?3",
                 )?;
-                for row in statement.query_map((glob, length, limit), read)? {
-                    result.push(row?);
-                }
+                read_keyed_rows_into(&mut statement.query((glob, length, limit))?, result)?;
             }
         }
-        Ok(result)
+        Ok(())
     }
 
     /// 键按位置逐段取自 `positions[i]`（以单个空格连接）的词条，各带自己的键；按权重从重到轻，再按文字、键排序，至多 `limit` 条。每个位置都只有一个读音时就是 `lookup` 对连接后的键查询，结果与它逐条相同。
@@ -453,6 +459,40 @@ fn glob_pattern(pattern: &str, wildcard: char, completions: bool) -> String {
     glob
 }
 
+fn read_keyed_rows_into(
+    rows: &mut rusqlite::Rows<'_>,
+    result: &mut Vec<(String, LanguageEntry)>,
+) -> rusqlite::Result<()> {
+    let mut length = 0;
+    while let Some(row) = rows.next()? {
+        let key = row.get_ref(0)?.as_str().map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(error))
+        })?;
+        let text = row.get_ref(1)?.as_str().map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(error))
+        })?;
+        let weight = row.get(2)?;
+        if let Some((existing_key, entry)) = result.get_mut(length) {
+            existing_key.clear();
+            existing_key.push_str(key);
+            entry.text.clear();
+            entry.text.push_str(text);
+            entry.weight = weight;
+        } else {
+            result.push((
+                key.to_owned(),
+                LanguageEntry {
+                    text: text.to_owned(),
+                    weight,
+                },
+            ));
+        }
+        length += 1;
+    }
+    result.truncate(length);
+    Ok(())
+}
+
 fn completion_upper_bound(prefix: &str) -> Option<String> {
     let last = prefix.chars().next_back()?;
     let next = char::from_u32(u32::from(last) + 1)?;
@@ -636,6 +676,11 @@ mod tests {
             let rows = dictionary
                 .lookup_pattern(pattern, 'x', completions, limit)
                 .unwrap();
+            let mut reused = Vec::new();
+            dictionary
+                .lookup_pattern_into(pattern, 'x', completions, limit, &mut reused)
+                .unwrap();
+            assert_eq!(reused, rows);
             (
                 rows.capacity(),
                 rows.into_iter()
@@ -665,6 +710,58 @@ mod tests {
         assert!(texts("", true, 10).1.is_empty());
         assert!(texts("xxxxxx", true, 10).1.is_empty());
         assert!(texts("hx", true, 0).1.is_empty());
+    }
+
+    #[test]
+    fn wildcard_query_reuses_row_strings_and_truncates_stale_results() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msime-stroke.db");
+        build(&path, &FORMAT_VERSION.to_string());
+        let dictionary = open_read_only(&path).unwrap();
+        let mut result = Vec::new();
+        for pattern in ["nei xxx", "xxx xxx"] {
+            dictionary
+                .lookup_pattern_into(pattern, 'x', false, 10, &mut result)
+                .unwrap();
+            assert_eq!(result.len(), 3);
+            let expected = result.clone();
+            let pointers = result
+                .iter()
+                .map(|(key, entry)| (key.as_ptr(), entry.text.as_ptr()))
+                .collect::<Vec<_>>();
+            let vector = result.as_ptr();
+            for (key, entry) in &mut result {
+                key.clear();
+                entry.text.clear();
+                entry.weight = -9;
+            }
+            dictionary
+                .lookup_pattern_into(pattern, 'x', false, 10, &mut result)
+                .unwrap();
+            assert_eq!(result, expected);
+            assert_eq!(result.as_ptr(), vector);
+            assert_eq!(
+                result
+                    .iter()
+                    .map(|(key, entry)| (key.as_ptr(), entry.text.as_ptr()))
+                    .collect::<Vec<_>>(),
+                pointers
+            );
+            dictionary
+                .lookup_pattern_into(pattern, 'x', false, 1, &mut result)
+                .unwrap();
+            assert_eq!(result, expected[..1]);
+        }
+        for (pattern, limit) in [("xxx xxx", 0), ("missing", 10), ("", 10)] {
+            dictionary
+                .lookup_pattern_into("nei xxx", 'x', false, 10, &mut result)
+                .unwrap();
+            assert!(!result.is_empty());
+            dictionary
+                .lookup_pattern_into(pattern, 'x', false, limit, &mut result)
+                .unwrap();
+            assert!(result.is_empty());
+        }
     }
 
     fn readings(values: &[&str]) -> Vec<String> {
