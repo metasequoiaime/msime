@@ -287,7 +287,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var actionSplitGap: UIView?
   private var symbolDeleteWidth: NSLayoutConstraint?
   private var standardActionWidths: [NSLayoutConstraint] = []
-  /// 九键外框底行按设计稿的弹性权重，以空格键的 4.2 为基准：123 1.25、中 1.05、地球键 1、0 1.05、回车 1.6。
+  /// 九键外框底行按设计稿的弹性权重，以空格键的 4.2 为基准：123 1.25、地球键 1、0 1.05、中 1.05、回车 1.6。
   private var nineKeyActionWidths: [NSLayoutConstraint] = []
   /// 123 / #+= 层的底行，以空格键的 6 为基准（`SymbolLayerLayout`）。
   private var layerActionWidths: [NSLayoutConstraint] = []
@@ -2559,7 +2559,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 手机 26 键底行上空格键的弹性权重；其他键的权重都相对它来算。
   static let phoneSpaceWeight: CGFloat = 4
-  /// 九键外框底行（123 | 中 | space | 0 | return）上空格键的弹性权重。
+  /// 九键外框底行（123 | space | 0 | 中 | return）上空格键的弹性权重。
   static let nineKeySpaceWeight: CGFloat = 4.2
   /// 123 层表情键上的表情线框图标。
   private static let layerEmojiIconSide: CGFloat = 22
@@ -4597,7 +4597,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updatePreferredKeyboardHeight()
   }
 
-  /// 底行是否为设计稿的手机底行（123 | 中 | ， | space | 。 | return）：手机键盘显示字母或大千符号行时是，任一设备形态上的手写板也是，与 Android 的 designEntries 给手写共用底行一致。九键外框和假名键保留自己的底行，123 / #+= 层自带一行（`ActionRowStyle.symbolLayer`），iPad 的字母也有自己的（`usesTabletBottomRow`）。
+  /// 底行是否为设计稿的手机底行（123 | ， | space | 。 | 中 | return）：手机键盘显示字母或大千符号行时是，任一设备形态上的手写板也是，与 Android 的 designEntries 给手写共用底行一致。九键外框和假名键保留自己的底行，123 / #+= 层自带一行（`ActionRowStyle.symbolLayer`），iPad 的字母也有自己的（`usesTabletBottomRow`）。
   static func usesPhoneBottomRow(formFactor: KeyboardFormFactor, nineKeyFrame: Bool, handwriting: Bool, kana: Bool) -> Bool {
     !nineKeyFrame && !kana && (handwriting || formFactor == .phone)
   }
@@ -4626,9 +4626,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 屏幕上当前界面画哪种底行。
   private enum ActionRowStyle {
-    /// 手机 26 键底行：123 | 中 | ， | space | 。 | return。
+    /// 手机 26 键底行：123 | ， | space | 。 | 中 | return，中/英 紧挨回车左边。
     case phone
-    /// 九键外框：123 | 中 | space | 0 | return。
+    /// 九键外框：123 | space | 0 | 中 | return，中/英 紧挨回车左边。
     case nineKey
     /// 123 / #+= 层：拼音或 ABC | 表情或符号 | space | return。
     case symbolLayer
@@ -4649,9 +4649,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let order: [UIView]
     switch style {
     case .phone:
-      order = [symbols, toggle, language, globe, delete, comma, space, gap, splitSpace, period, enter, emoji, zero, tabletLayer, dismiss]
+      order = [symbols, toggle, globe, delete, comma, space, gap, splitSpace, period, language, enter, emoji, zero, tabletLayer, dismiss]
     case .nineKey:
-      order = [toggle, language, globe, space, gap, splitSpace, zero, enter, symbols, delete, comma, period, emoji, tabletLayer, dismiss]
+      order = [toggle, globe, space, gap, splitSpace, zero, language, enter, symbols, delete, comma, period, emoji, tabletLayer, dismiss]
     case .symbolLayer:
       order = [toggle, emoji, symbols, globe, space, gap, splitSpace, enter, language, delete, comma, period, zero, tabletLayer, dismiss]
     case .tablet:
@@ -6372,6 +6372,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       panel.topAnchor.constraint(equalTo: view.topAnchor),
       panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
+    // 把背景交给系统底板的皮肤（原生皮肤、经典兜底）面板是透明的，与主键盘透出同一块系统底板（iOS 26 起是 Liquid Glass），而不是铺一块量出来的不透明色；面板整块盖住键盘，所以下面的工具栏和按键先藏起来，关面板时再放出来。
+    if KeyboardTheme.current.drawsNativeBackground { keyboardRoot?.alpha = 0 }
     symbolPanel = panel
     UIAccessibility.post(notification: .screenChanged, argument: panel)
   }
@@ -6464,6 +6466,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let panel = symbolPanel {
       panel.removeFromSuperview()
       symbolPanel = nil
+      keyboardRoot?.alpha = 1
       UIAccessibility.post(notification: .screenChanged, argument: nineKeySymbolsButton)
     }
     if let picker = skinPicker {

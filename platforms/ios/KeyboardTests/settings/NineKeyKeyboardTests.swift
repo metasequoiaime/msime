@@ -2537,7 +2537,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  /// 手机 26 键底行，按设计稿相对空格键的 flex 权重排列：123 1.25 | 中 1.05 | ， 1 | space 4 | 。 1 | return 1.9，其中 ，。 经标点路径输入逗号和句号。
+  /// 手机 26 键底行，按设计稿相对空格键的 flex 权重排列：123 1.25 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，中/英 紧挨回车左边，其中 ，。 经标点路径输入逗号和句号。
   func testPhoneBottomRowFollowsTheDesignsWeights() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -2549,8 +2549,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView)
     let visible = row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier)
     let globe = controller.needsInputModeSwitchKey ? ["inputModeSwitchButton"] : []
-    XCTAssertEqual(visible, ["layoutToggleButton", "bottomLanguageKey"] + globe
-                   + ["quickPunctuationKey", "spaceKey", "bottomPeriodKey", "returnKey"])
+    XCTAssertEqual(visible, ["layoutToggleButton"] + globe
+                   + ["quickPunctuationKey", "spaceKey", "bottomPeriodKey", "bottomLanguageKey", "returnKey"])
     let space = try button("spaceKey", in: controller).bounds.width
     let unit = space / KeyboardViewController.phoneSpaceWeight
     XCTAssertEqual(try button("layoutToggleButton", in: controller).bounds.width, unit * 1.25, accuracy: 0.5)
@@ -2585,7 +2585,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
   }
 
-  /// 九键保留自己的底行，即设计稿的 123 1.25 | 中 1.05 | space 4.2 | 0 1.05 | return 1.6，没有 符、， 或 。 键。
+  /// 九键保留自己的底行，即设计稿的 123 1.25 | space 4.2 | 0 1.05 | 中 1.05 | return 1.6，中/英 紧挨回车左边，没有 符、， 或 。 键。
   func testNineKeyKeepsItsOwnBottomRow() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -2597,7 +2597,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView)
     let ids = row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier)
     let globe = controller.needsInputModeSwitchKey ? ["inputModeSwitchButton"] : []
-    XCTAssertEqual(ids, ["layoutToggleButton", "bottomLanguageKey"] + globe + ["spaceKey", "nineKeyZero", "returnKey"])
+    XCTAssertEqual(ids, ["layoutToggleButton"] + globe + ["spaceKey", "nineKeyZero", "bottomLanguageKey", "returnKey"])
     let unit = try button("spaceKey", in: controller).bounds.width / KeyboardViewController.nineKeySpaceWeight
     XCTAssertEqual(try button("layoutToggleButton", in: controller).bounds.width, unit * 1.25, accuracy: 0.5)
     XCTAssertEqual(try button("bottomLanguageKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)

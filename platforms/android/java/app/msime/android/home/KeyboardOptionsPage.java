@@ -11,6 +11,7 @@ import androidx.annotation.Nullable;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppEdition;
 import app.msime.android.ClipboardLayoutPolicy;
+import app.msime.android.ColorPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.KeyboardGeometry;
@@ -214,15 +215,15 @@ public final class KeyboardOptionsPage extends DetailPage {
         LinearLayout plate = Ui.row(context);
         ViewPolicy.setCenteredVertically(plate);
         Ui.setHorizontalPaddingDp(plate, context, 10);
-        ViewPolicy.setBackground(plate, Ui.rounded(Ui.parseColor(skin.background(), Ui.page(context)), Ui.dp(context, 12)));
+        ViewPolicy.setBackground(plate, Ui.rounded(ColorPolicy.parse(skin.background(), Ui.page(context)), Ui.dp(context, 12)));
         ViewPolicy.setImportantForAccessibility(plate,
             View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-        int icon = Ui.parseColor(skin.toolbarIcon(), Ui.subText(context));
+        int icon = ColorPolicy.parse(skin.toolbarIcon(), Ui.subText(context));
         if (settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN)) {
             TextView note = Ui.styledLabel(context, "工具栏已隐藏，只显示候选条", 13, 400, icon);
             plate.addView(note);
         } else {
-            addChip(context, plate, "水杉", Ui.parseColor(skin.accentText(), Ui.accent(context)));
+            addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), Ui.accent(context)));
             for (String[] button : TOOLBAR_BUTTONS) {
                 if (toolbarButton(toolbar, settings, button[0])) addChip(context, plate, button[1], icon);
             }

@@ -251,7 +251,7 @@ fn supported_skin_photo(bytes: &[u8]) -> bool {
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CustomTheme {
-    /// The theme the custom theme is drawn over: `system` (the platform's own tokens) or one of the five built-in themes, never `custom`. It supplies the candidate colours the package and the pickers leave unset and, while there is no keyboard design, the keyboard. An applied package replaces it with the package's own manifest `base`.
+    /// 自定义主题的底：`system` 或五个内置主题之一，不能是 `custom`，也不能是只在部分宿主上提供的 `native`（见 `GlobalTheme::is_base`）。皮肤包和取色器没设的候选颜色由它补上；没有键盘设计时，键盘也画它的。应用了皮肤包时，改用包清单自己的 `base`。
     #[serde(skip_serializing_if = "is_system_theme")]
     pub base: crate::skin::theme::GlobalTheme,
     /// The external candidate skin package (a folder name in the host's skin root) whose colours and decoration the custom theme uses. Never a global theme id.
@@ -272,7 +272,7 @@ fn is_system_theme(theme: &crate::skin::theme::GlobalTheme) -> bool {
 impl CustomTheme {
     /// The same checks `Preferences::validate` applies to `custom_theme`, for hosts that receive a custom theme outside a preferences document.
     pub fn validate(&self) -> Result<(), PreferencesError> {
-        if self.base == crate::skin::theme::GlobalTheme::Custom {
+        if !self.base.is_base() {
             return Err(PreferencesError::InvalidCustomThemeBase);
         }
         if self
@@ -802,7 +802,7 @@ pub struct Preferences {
     /// Show the Wubi code suffix that remains after the typed prefix.
     #[serde(default = "enabled_by_default")]
     pub wubi_code_hint: bool,
-    /// Answer an unmatched Wubi code with candidates from the same Pinyin spelling.
+    /// 五笔拼音混输：五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。
     #[serde(default)]
     pub wubi_mixed_pinyin: bool,
     /// 五笔用 86 还是 98 码表；个人词条和学习记录也按它分开存。

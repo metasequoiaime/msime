@@ -10,7 +10,7 @@ import app.msime.android.KeyboardGeometry;
 import android.widget.LinearLayout;
 
 /**
- * 键盘底行：按 {@link KeyboardActionRow#designEntries} 排布 123 | 中 | ， | 空格 | 。 | ↵（地球键只在系统允许切换输入法时插在中之后），空格键的长按语音与拖动移光标，回车键始终 accent 填充。
+ * 键盘底行：按 {@link KeyboardActionRow#designEntries} 排布 123 | ， | 空格 | 。 | 中 | ↵（地球键只在系统允许切换输入法时插在 123 之后），空格键的长按语音与拖动移光标，回车键始终 accent 填充。
  *
  * <p>空格与回车换成画图标的 {@link SpaceKeyFace} / {@link KeyboardIconKey}：SVC 建的原按钮留作点击的执行者（它带着计数、反馈与动作），新键点一下就让原按钮 performClick，所以 SVC 里的动作不必搬动；节点 text 照旧由 SVC 设置（「空格」、「换行/确认/…」）。
  */

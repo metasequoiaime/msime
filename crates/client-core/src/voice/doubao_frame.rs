@@ -97,7 +97,7 @@ pub fn decode_json_frame(frame: &[u8]) -> Option<(bool, i32, Vec<u8>)> {
 
 /// Decode the numeric error code from a Doubao error frame (message type 0xF).
 pub fn decode_error_code(frame: &[u8]) -> Option<i32> {
-    if frame.len() < 12 || (frame[0] & 0x0f) != 1 || (frame[1] >> 4) != 0x0f {
+    if frame.len() < 12 || frame[0] != 0x11 || (frame[1] >> 4) != 0x0f || frame[2] != 0x11 {
         return None;
     }
     let flags = frame[1] & 0x0f;
@@ -166,6 +166,17 @@ mod tests {
         let last = corrupt.len() - 1;
         corrupt[last] ^= 1;
         assert!(decode_json_frame(&corrupt).is_none());
+    }
+
+    #[test]
+    fn error_decoder_rejects_a_different_protocol_version() {
+        let mut error = [0x11, 0xf0, 0x11, 0, 0, 0, 0, 7, 0, 0, 0, 42];
+        assert_eq!(decode_error_code(&error), Some(7));
+        error[0] = 0x21;
+        assert_eq!(decode_error_code(&error), None);
+        error[0] = 0x11;
+        error[2] = 0x21;
+        assert_eq!(decode_error_code(&error), None);
     }
 
     #[test]

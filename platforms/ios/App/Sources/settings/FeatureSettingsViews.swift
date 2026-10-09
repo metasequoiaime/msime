@@ -156,6 +156,7 @@ struct SkinSettingsView: View {
 
   private func description(_ theme: KeyboardTheme) -> String {
     if theme.id == GlobalThemeCatalog.systemId { return "跟随系统明暗和应用主题的季节配色" }
+    if theme.isNative { return "iOS 自带键盘的样子，跟随系统明暗，不跟季节" }
     if theme.isCustom {
       let base = GlobalThemeCatalog.title(customBase)
       return theme.design == nil ? "以「\(base)」为底，候选颜色在「明暗与候选颜色」里调整" : "我的键盘设计，以「\(base)」为底"

@@ -21,7 +21,7 @@ import {
   customCandidateStyle,
   normalizedColor,
   themeEntry,
-  type GlobalTheme,
+  type BaseGlobalTheme,
   type PackageCandidatePalette,
 } from "../theme/global-theme";
 
@@ -41,7 +41,7 @@ export type ExternalSkin = {
   name: string;
   version: string;
   /** The global theme under the package's own colours; `system` for none. The manifest parser never gives `custom`. */
-  base: Exclude<GlobalTheme, "custom">;
+  base: BaseGlobalTheme;
   author: string | null;
   description: string | null;
   layouts: string[];

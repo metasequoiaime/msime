@@ -20,7 +20,7 @@ import {
   useSkinCatalog,
 } from "../../../../packages/ui/src/skin/external-skins";
 import * as settingsStyle from "../../../../packages/ui/src/settings/settings-style";
-import { themeCatalog } from "../../../../packages/ui/src/theme/global-theme";
+import { offeredThemeCatalog } from "../../../../packages/ui/src/theme/global-theme";
 import {
   SettingsPage,
   type ExternalSkin,
@@ -29,6 +29,9 @@ import {
   type Snapshot,
 } from "@msime/ui";
 import { utilityCss } from "../support/utility-css";
+
+// 这里渲染的设置页不带宿主信息，轮播不列只在 iOS 提供的「原生」。
+const themeCatalog = offeredThemeCatalog(undefined);
 
 const geometryCss = utilityCss("external-skin-decorated");
 import { skinImageUrl, type SkinImage } from "../../../../packages/ui/src/skin/skin-image";
