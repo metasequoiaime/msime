@@ -426,6 +426,7 @@ import {
   PluginFolderScan,
   PluginImportPolicy,
 } from "../entry/src/main/ets/keyboard/settings/PluginImportPolicy";
+import { VocabularyReviewRequest } from "../entry/src/main/ets/keyboard/settings/VocabularyReviewRequest";
 import {
   SmartPunctuationSpacePolicy,
   SpaceConvertDecision,
@@ -17001,6 +17002,47 @@ group("a picked pack is copied for import only within client-core's bounds", () 
   check(
     PluginImportPolicy.ARCHIVE_NAME.endsWith(".zip"),
     "the staged archive keeps the extension client-core goes by, whatever the picked name",
+  );
+});
+
+group("a 背单词 request carries every field msime_client_vocabulary_review requires", () => {
+  const state: string = "/data/storage/el2/base/haps/entry/files/state";
+  const resources: string = "/data/storage/el1/bundle/entry/resources/resfile";
+  const desktop = VocabularyReviewRequest.build(
+    state,
+    resources,
+    "2026-10-09",
+    { operation: "load" },
+    true,
+  );
+  // crates/host-api/src/ffi/host.rs parses this with deny_unknown_fields and no default for these four, so a missing one fails every action before it runs.
+  check(
+    Object.keys(desktop).sort().join(",") === "action,day,directory,plugins,resources",
+    "the 2-in-1 request names the state directory, the resource root, the day, the action and the plugin directory, and nothing else",
+  );
+  check(
+    desktop.directory === state && desktop.resources === resources && desktop.day === "2026-10-09",
+    "each field holds what it was given",
+  );
+  check(desktop.action.operation === "load", "the page's action travels unchanged");
+  check(
+    desktop.plugins === `${state}/plugins`,
+    "wordbook packs are read from the installed pack directory",
+  );
+  const phone = VocabularyReviewRequest.build(
+    state,
+    resources,
+    "2026-10-09",
+    { operation: "load" },
+    false,
+  );
+  check(
+    Object.keys(phone).sort().join(",") === "action,day,directory,resources",
+    "a form factor without wordbook packs leaves the optional plugin directory out but still sends the resource root",
+  );
+  check(
+    JSON.parse(JSON.stringify(phone)).resources === resources,
+    "the resource root survives serialisation",
   );
 });
 

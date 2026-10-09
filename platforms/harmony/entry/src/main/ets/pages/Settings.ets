@@ -32,6 +32,7 @@ import { SkinImportPolicy } from '../keyboard/skin/SkinImportPolicy';
 import {
   PickedEntryKind, PluginFolderScan, PluginImportPolicy, PluginImportRefusal
 } from '../keyboard/settings/PluginImportPolicy';
+import { VocabularyAction, VocabularyReviewRequest } from '../keyboard/settings/VocabularyReviewRequest';
 import EntryAbility from '../entryability/EntryAbility';
 import { ImeEnabledState, OnboardingState, OnboardingStatePolicy, SetupState }
   from '../keyboard/input/OnboardingStatePolicy';
@@ -325,26 +326,6 @@ interface PluginImportCall {
   state_root: string;
   sound_packs: string;
   action: PluginImportAction;
-}
-
-/** 背单词 request, as `msime_client_vocabulary_review` reads it. */
-interface VocabularyRequest {
-  directory: string;
-  day: string;
-  action: VocabularyAction;
-  /** 插件目录：其中的单词本插件列进书目。只在声明了 `wordbook_packs` 的形态（2in1）上传，手机不传。 */
-  plugins?: string;
-}
-
-interface VocabularyAction {
-  operation: string;
-  word?: string;
-  known?: boolean;
-  wordbook?: string;
-  new_per_day?: number;
-  session_limit?: number;
-  name?: string;
-  text?: string;
 }
 
 interface TypingStatisticsDocument {
@@ -1758,6 +1739,9 @@ class SettingsBridge {
     if (actionDocument.length === 0 || actionDocument.length > 8 * 1024 * 1024) {
       return JSON.stringify({ ok: false, error: 'invalid vocabulary review request' });
     }
+    if (this.context === undefined) {
+      return JSON.stringify({ ok: false, error: 'vocabulary review failed' });
+    }
     try {
       const action: VocabularyAction = JSON.parse(actionDocument) as VocabularyAction;
       if (!['load', 'answer', 'set_settings', 'import', 'remove', 'reset'].includes(action.operation)) {
@@ -1766,16 +1750,12 @@ class SettingsBridge {
       const now: Date = new Date();
       const month: string = `${now.getMonth() + 1}`.padStart(2, '0');
       const date: string = `${now.getDate()}`.padStart(2, '0');
-      const request: VocabularyRequest = {
-        directory: this.stateDirectory,
-        day: `${now.getFullYear()}-${month}-${date}`,
-        action: action,
-      };
+      // 资源根目录取 `context.resourceDir`（与桌面端的 `resource_dir` 对应）：`stage-resources.sh` 把随包资源放在它下面的 `engine/`、`sound-packs/` 等同级目录里，随包词书若有也会是同级的 `wordbooks/`；暂存副本 `files/engine` 不复制词书。
       // 与设置页拿到的 `wordbook_packs` 能力同一个来源：没有这项能力的形态不列单词本插件。
-      if (SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType).wordbookPacks) {
-        request.plugins = `${this.stateDirectory}/plugins`;
-      }
-      return await client.vocabularyReview(JSON.stringify(request));
+      const request: string = JSON.stringify(VocabularyReviewRequest.build(this.stateDirectory,
+        this.context.resourceDir, `${now.getFullYear()}-${month}-${date}`, action,
+        SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType).wordbookPacks));
+      return await client.vocabularyReview(request);
     } catch (error) {
       KeyboardLog.error(`vocabulary review failed: ${describeError(error)}`);
       return JSON.stringify({ ok: false, error: 'vocabulary review failed' });
