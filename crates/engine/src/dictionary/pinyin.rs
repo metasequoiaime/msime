@@ -164,16 +164,20 @@ impl PinyinDatabase {
         let prefix = longer_phrase_prefix(segments);
         let upper_bound = key_prefix_upper_bound(&prefix);
         let initial = segments[0].as_bytes()[0];
-        let mut rows = Vec::with_capacity(extra_syllables.saturating_mul(limit));
+        let mut rows = Vec::new();
         for extra in 1..=extra_syllables {
             let Some(table) = quanpin_table(segments.len() + extra, initial) else {
                 continue;
             };
-            rows.extend(self.rows(
+            let page = self.rows(
                 &range_sql(&table, sql_limit(limit)),
                 [prefix.as_str(), upper_bound.as_str()],
                 query_capacity(limit),
-            ));
+            );
+            if !page.is_empty() && rows.capacity() == 0 {
+                rows.reserve_exact(extra_syllables.saturating_mul(limit));
+            }
+            rows.extend(page);
         }
         deduplicate_by_value(&mut rows);
         rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
@@ -191,9 +195,13 @@ impl PinyinDatabase {
             return Vec::new();
         }
         let keys_by_table = exact_segmentations_by_table(segmentations);
-        let mut rows = Vec::with_capacity(segmentations.len().saturating_mul(limit));
+        let mut rows = Vec::new();
         for (table, keys) in &keys_by_table {
-            rows.extend(self.batch_rows(table, keys, limit));
+            let page = self.batch_rows(table, keys, limit);
+            if !page.is_empty() && rows.capacity() == 0 {
+                rows.reserve_exact(segmentations.len().saturating_mul(limit));
+            }
+            rows.extend(page);
         }
         rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
         rows
@@ -1424,3 +1432,7 @@ mod tests {
 #[cfg(test)]
 #[path = "pinyin/empty_page_tests.rs"]
 mod empty_page_tests;
+
+#[cfg(test)]
+#[path = "pinyin/empty_aggregate_tests.rs"]
+mod empty_aggregate_tests;
