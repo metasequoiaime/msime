@@ -29,9 +29,12 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 - (msime::mac::ResolvedSkin)resolvedSkinForDark:(BOOL)dark;
 /// The floating toolbar's palette for one mode: the resolved candidate palette (surface, text, hover, border, selected), with the applied package's toolbar stylesheet over it.
 - (msime::mac::SkinTokens)toolbarSkinForDark:(BOOL)dark;
-@property(nonatomic, readonly) NSImage *decorationImage;
-/// The drawn package's background image, read with the decoration when the theme is resolved; the candidate window draws it only in a mode whose resolved skin has a backgroundPath.
-@property(nonatomic, readonly) NSImage *backgroundImage;
+/// 这种明暗画的那个皮肤包的装饰图，主题解析时读好；这种明暗没有画包或包没有装饰时为 nil。浅色、深色槽位可以是两个包，所以按明暗各取各的。
+- (NSImage *)decorationImageForDark:(BOOL)dark;
+/// 这种明暗画的那个皮肤包的背景图，与装饰图一起读好；候选窗只在这种明暗的解析结果带 backgroundPath 时画它。
+- (NSImage *)backgroundImageForDark:(BOOL)dark;
+/// 主题固定的明暗：浅色、深色两次解析给出同一个固定明暗时才有值（见 msime::mac::FixedThemeMode），候选窗、悬浮工具栏和菜单据此钉住明暗。
+- (std::optional<bool>)fixedThemeMode;
 @property(nonatomic, readonly) NSURL *skinsRoot;
 @property(nonatomic) BOOL vertical;
 @property(nonatomic) BOOL candidateFollowCursor;
@@ -87,13 +90,17 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic, copy) NSString *globalTheme;
 /// `custom_theme.base`: system or a built-in theme id, the palette the custom theme starts from.
 @property(nonatomic, readonly, copy) NSString *customThemeBase;
-/// `custom_theme.candidate_skin`: the external package the custom theme draws, or nil for none.
+/// 浅色槽位 `custom_theme.candidate_skin`：浅色模式画的外部皮肤包，深色槽位空着时深色模式也取它；nil 表示没有。
 @property(nonatomic, readonly, copy) NSString *customCandidateSkin;
-/// Applies an external package: the custom theme, drawing that package, over the base its manifest names.
+/// 深色槽位 `custom_theme.candidate_skin_dark`：深色模式画的外部皮肤包，nil 表示没有。
+@property(nonatomic, readonly, copy) NSString *customCandidateSkinDark;
+/// 应用外部皮肤包：选中自定义主题，按清单 base 的明暗把包放进它的槽位（msime::mac::ApplyCandidateSkin，与设置页的 `applyCandidateSkin` 同一规则），base 写成包的 base。
 - (void)selectExternalSkin:(NSString *)skinId base:(NSString *)base;
-/// 自定义主题不使用外部皮肤: drops the package and keeps the rest of the custom theme.
+/// 取消使用一款外部皮肤：只清放着它的槽位，另一个槽位和自定义主题的其他部分不动。
+- (void)removeCustomCandidateSkin:(NSString *)skinId;
+/// 自定义主题不使用外部皮肤：两个槽位一起清，自定义主题的其他部分不动。
 - (void)clearCustomCandidateSkin;
-/// The custom theme as stored here (base, package and the seven pickers), as the host resolver takes it.
+/// 这里存的自定义主题（底色、两个皮肤槽位和七个取色器），即宿主解析器要的形状。
 - (msime::mac::CustomTheme)customTheme;
 @property(nonatomic) NSUInteger pageSize;
 // Native routing preferences; English passes keys through without preparing Engine.

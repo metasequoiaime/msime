@@ -98,6 +98,8 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     /// The first _themeCardCount cards are the global themes; the rest are external packages.
     NSUInteger _themeCardCount;
     NSButton *_detachSkinButton;
+    /// 浅色、深色模式各用哪款外部皮肤。
+    NSTextField *_slotSummaryLabel;
     BOOL _didScrollToTop;
 }
 
@@ -189,9 +191,10 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     _themeCardCount = _skinIds.count;
 
     NSTextField *externalTitle = Label(@"外部皮肤", 13.0, NSFontWeightSemibold, [NSColor secondaryLabelColor]);
-    NSTextField *externalHelp = Label(@"把包含 skin.toml 的皮肤文件夹复制到下面的目录，然后刷新。", 13.0,
-                                      NSFontWeightRegular, [NSColor secondaryLabelColor]);
-    externalHelp.maximumNumberOfLines = 2;
+    NSTextField *externalHelp =
+        Label(@"把包含 skin.toml 的皮肤文件夹复制到下面的目录，然后刷新。浅色底的皮肤用于浅色模式，深色底的皮肤用于深色模式，跟随系统的皮肤两种模式都用；浅色、深色模式可以各用一款。",
+              13.0, NSFontWeightRegular, [NSColor secondaryLabelColor]);
+    externalHelp.maximumNumberOfLines = 3;
     _directoryLabel = Label(@"", 12.0, NSFontWeightRegular, [NSColor secondaryLabelColor]);
     _directoryLabel.accessibilityLabel = @"外部皮肤目录";
     _directoryLabel.selectable = YES;
@@ -210,8 +213,11 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     NSBox *externalHeader = [[NSBox alloc] initWithFrame:NSZeroRect];
     MSIMEConfigureCard(externalHeader);
     externalHeader.accessibilityLabel = @"外部皮肤卡片";
+    _slotSummaryLabel = Label(@"", 13.0, NSFontWeightRegular, [NSColor labelColor]);
+    _slotSummaryLabel.accessibilityLabel = @"浅色与深色模式使用的外部皮肤";
+    _slotSummaryLabel.maximumNumberOfLines = 2;
     NSStackView *headerStack =
-        [NSStackView stackViewWithViews:@[ externalTitle, externalHelp, _directoryLabel, actions ]];
+        [NSStackView stackViewWithViews:@[ externalTitle, externalHelp, _slotSummaryLabel, _directoryLabel, actions ]];
     headerStack.orientation = NSUserInterfaceLayoutOrientationVertical;
     headerStack.alignment = NSLayoutAttributeLeading;
     headerStack.spacing = 6.0;
@@ -352,13 +358,60 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     sender.state = NSControlStateValueOn;
     if (metasequoia::mac::IsGlobalThemeId(skinId.UTF8String))
     {
-        // The custom card selects the custom theme as it stands, package included (THEME_CONTRACT §5); only 自定义主题不使用外部皮肤 drops the package.
+        // 自定义卡片按现状选中自定义主题，两个槽位里的皮肤包一并保留（THEME_CONTRACT §5）；只有停用外部皮肤卡片或「不使用外部皮肤」才去掉包。
         _preferences.globalTheme = skinId;
+        return;
+    }
+    // 外部皮肤按明暗各占一个槽位，可以同时启用两款：已启用的再点一次就停用，只清放着它的槽位。
+    if ([self externalSkinInUse:skinId])
+    {
+        sender.state = NSControlStateValueOff;
+        [_preferences removeCustomCandidateSkin:skinId];
         return;
     }
     const std::filesystem::path root = _preferences.skinsRoot.fileSystemRepresentation ?: "";
     const auto package = msime::mac::LoadSkinPackage(root, skinId.UTF8String);
     [_preferences selectExternalSkin:skinId base:package ? @(package->base.c_str()) : @"system"];
+}
+
+/// 自定义主题正在用、并且这款包放在浅色或深色槽位里。
+- (BOOL)externalSkinInUse:(NSString *)skinId
+{
+    return [_preferences.globalTheme isEqual:@"custom"] &&
+           ([_preferences.customCandidateSkin isEqual:skinId] || [_preferences.customCandidateSkinDark isEqual:skinId]);
+}
+
+/// 一种明暗用的外部皮肤：深色模式先取深色槽位、空着时取浅色槽位，包只在它 base 的明暗下画（与 msime_client_resolve_theme 的规则相同，不看布局）。没有时为 nil。
+- (NSString *)externalSkinNameForDark:(BOOL)dark
+{
+    NSString *skinId = dark ? (_preferences.customCandidateSkinDark ?: _preferences.customCandidateSkin)
+                            : _preferences.customCandidateSkin;
+    if (skinId == nil) return nil;
+    const std::filesystem::path root = _preferences.skinsRoot.fileSystemRepresentation ?: "";
+    const auto package = msime::mac::LoadSkinPackage(root, skinId.UTF8String);
+    // 目录里已经没有这款包：照样报出它的 id，让用户知道槽位里还放着它。
+    if (!package) return skinId;
+    const msime::mac::SkinSlot slot = msime::mac::SkinSlotOfBase(package->base);
+    if (slot == (dark ? msime::mac::SkinSlot::light : msime::mac::SkinSlot::dark)) return nil;
+    return @(package->name.c_str());
+}
+
+- (void)refreshSlotSummary
+{
+    const BOOL configured = _preferences.customCandidateSkin != nil || _preferences.customCandidateSkinDark != nil;
+    if (![_preferences.globalTheme isEqual:@"custom"] || !configured)
+    {
+        _slotSummaryLabel.stringValue = @"";
+        _slotSummaryLabel.hidden = YES;
+        return;
+    }
+    NSString *(^describe)(NSString *, NSString *) = ^NSString *(NSString *mode, NSString *name) {
+        return name ? [NSString stringWithFormat:@"%@使用「%@」", mode, name]
+                    : [NSString stringWithFormat:@"%@不使用外部皮肤", mode];
+    };
+    _slotSummaryLabel.stringValue = [NSString stringWithFormat:@"%@，%@。", describe(@"浅色模式", [self externalSkinNameForDark:NO]),
+                                                                       describe(@"深色模式", [self externalSkinNameForDark:YES])];
+    _slotSummaryLabel.hidden = NO;
 }
 
 - (void)detachExternalSkin:(id)sender
@@ -420,9 +473,9 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
 - (void)refreshCardChrome
 {
     NSString *active = _preferences.globalTheme;
-    NSString *activePackage = [active isEqual:@"custom"] ? _preferences.customCandidateSkin : nil;
     const std::filesystem::path root = _preferences.skinsRoot.fileSystemRepresentation ?: "";
-    _detachSkinButton.enabled = _preferences.customCandidateSkin != nil;
+    _detachSkinButton.enabled = _preferences.customCandidateSkin != nil || _preferences.customCandidateSkinDark != nil;
+    [self refreshSlotSummary];
     for (NSUInteger index = 0; index < _skinIds.count; ++index)
     {
         BOOL compatible = YES;
@@ -432,7 +485,8 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
             auto package = msime::mac::LoadSkinPackage(root, _skinIds[index].UTF8String);
             compatible = package.has_value() && [self packageIsCompatible:*package];
             _skinCompatibility[index] = @(compatible);
-            selected = [_skinIds[index] isEqualToString:activePackage ?: @""];
+            // 放在浅色或深色槽位里都算启用。
+            selected = [self externalSkinInUse:_skinIds[index]];
         }
         else
         {
@@ -443,7 +497,7 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
         _switches[index].enabled = compatible;
         _themeButtons[index].title = [_previews[index] forcedThemeButtonTitle];
         // A theme with a fixed mode looks the same in both, so there is nothing to preview in the other.
-        _themeButtons[index].hidden = [_previews[index] previewSkin].fixedDark.has_value();
+        _themeButtons[index].hidden = [_previews[index] previewHasFixedMode];
         _titles[index].stringValue = [NSString
             stringWithFormat:@"%@（%@）", _skinNames[index], [_previews[index] previewUsesDark] ? @"Dark" : @"Light"];
         _previews[index].needsDisplay = YES;
