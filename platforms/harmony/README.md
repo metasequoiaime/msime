@@ -494,7 +494,7 @@ ohpm install
 hvigorw assembleHap
 ```
 
-`stage-resources.sh` 还把仓库自带的六套辅助码表（`resources/helpcodes`，不在词库发布里）连同来源声明放进 `resfile/engine/helpcodes/`：Engine 从资源目录下的 `helpcodes/` 读辅助码表，共享校验放行这个真实目录。`StagedResources` 按相对路径列出其中的文件，所以辅助码表跟其他资源一起复制到 `files/engine`，表有变化时同样重新暂存。
+`stage-resources.sh` 还把仓库自带的七套辅助码表（`resources/helpcodes`，不在词库发布里）连同来源声明放进 `resfile/engine/helpcodes/`：Engine 从资源目录下的 `helpcodes/` 读辅助码表，共享校验放行这个真实目录。`StagedResources` 按相对路径列出其中的文件，所以辅助码表跟其他资源一起复制到 `files/engine`，表有变化时同样重新暂存。
 
 引擎编进了取自 libhangul `data/hanja/hanja.txt` 的韩语汉字表，其 BSD-3-Clause 许可第 2 条要求二进制分发附带声明；引擎的粤语与注音方案所用的粤拼、注音音节与词条分别取自 rime-cantonese（CC BY 4.0，要求署名）与 libchewing-data（LGPL-2.1-or-later，要求附许可证全文与源码位置），笔画方案的笔顺取自 rime-stroke（LGPL-3.0，另含 CNS11643 全字库的署名要求），鸿蒙版的这些方案只在词库随包时提供（见上文「粤语、注音与越南语」），但声明随每一份引擎走，各平台共用一份清单，所以 `stage-resources.sh` 把 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`、`rime-cantonese-CC-BY-4.0.txt`、`libchewing-data-LGPL-2.1.txt` 与 `rime-stroke-LGPL-3.0.txt` 暂存到与 `resfile/engine` 相邻的 `resfile/licenses/`，随 HAP 一起分发；放在 `engine` 里会被锁文件校验拒绝。
 
