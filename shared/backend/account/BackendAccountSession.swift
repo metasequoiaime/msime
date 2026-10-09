@@ -268,9 +268,13 @@ struct BackendFileRefreshLock: BackendRefreshLock {
   func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T {
     // No shared directory means no way to keep another process out, and refreshing anyway risks the revocation this lock exists to prevent.
     guard let url else { throw BackendAccountClient.Failure(status: 0) }
-    guard backendDirectoryPathIsSafe(url.deletingLastPathComponent()) else {
+    let directory = url.deletingLastPathComponent()
+    guard backendDirectoryPathIsSafe(directory) else {
       throw BackendAccountClient.Failure(status: 0)
     }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o700])
+    guard backendDirectoryPathIsSafe(directory) else { throw BackendAccountClient.Failure(status: 0) }
     let descriptor = open(url.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw BackendAccountClient.Failure(status: 0) }
     defer { close(descriptor) }
