@@ -36,6 +36,7 @@ import androidx.core.widget.NestedScrollView;
 import app.msime.android.BackendAccount;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.CloudApi;
+import app.msime.android.ColorPolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.ViewPolicy;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
@@ -286,7 +287,7 @@ final class LoginSheet {
 
     private void say(String message) {
         status.setText(message);
-        Ui.setVisibilityForText(status, message);
+        ViewPolicy.setVisibilityForText(status, message);
     }
 
     private void setEnabled(boolean enabled) {
@@ -302,9 +303,9 @@ final class LoginSheet {
         Ui.setMinimumHeightDp(button, activity, 50);
         GradientDrawable face = stroke == 0
             ? Ui.rounded(fill, Ui.dp(activity, 12))
-            : Ui.outlined(fill, Ui.dp(activity, 12), Ui.atLeastOnePx(activity, 1), stroke);
+            : Ui.outlined(fill, Ui.dp(activity, 12), KeyboardGeometry.atLeastOnePixel(activity, 1), stroke);
         GradientDrawable mask = Ui.rounded(Color.WHITE, Ui.dp(activity, 12));
-        int pressed = Ui.withAlpha(fill == Color.BLACK ? Color.WHITE : Ui.text(activity), 0.12f);
+        int pressed = ColorPolicy.withAlpha(fill == Color.BLACK ? Color.WHITE : Ui.text(activity), 0.12f);
         ViewPolicy.setBackground(button, new RippleDrawable(android.content.res.ColorStateList.valueOf(pressed), face, mask));
         if (icon != null) {
             ImageView glyph = Ui.decorativeIcon(activity, icon);
@@ -328,7 +329,7 @@ final class LoginSheet {
         field.setFilters(new InputFilter[] {new InputFilter.LengthFilter(maxLength)});
         field.setHintTextColor(Ui.subText(activity));
         GradientDrawable face = Ui.outlined(Ui.rowBackground(activity), Ui.dp(activity, 12),
-            Ui.atLeastOnePx(activity, 1), Ui.hairline(activity));
+            KeyboardGeometry.atLeastOnePixel(activity, 1), Ui.hairline(activity));
         ViewPolicy.setBackground(field, face);
         Ui.setHorizontalPaddingDp(field, activity, 14);
         Ui.setTextMinHeightDp(field, activity, 50);

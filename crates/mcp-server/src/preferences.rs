@@ -247,6 +247,8 @@ pub struct PreferencesView {
     pub wubi_mixed_pinyin: bool,
     /// In Wubi, show the rest of each candidate's code after the typed keys.
     pub wubi_code_hint: bool,
+    /// 五笔里，完整四码且只有一个候选时在第四键提交。
+    pub wubi_auto_commit_unique: bool,
     /// Whether the input method writes its diagnostic log: focus changes, slow requests, candidate window and dictionary events and failures, never what is typed.
     pub diagnostic_log_server: bool,
     /// Windows only: whether the TIP adds its composition and key-latency records to the diagnostic log.
@@ -283,6 +285,7 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             wubi_profile: preferences.wubi_profile.into(),
             wubi_mixed_pinyin: preferences.wubi_mixed_pinyin,
             wubi_code_hint: preferences.wubi_code_hint,
+            wubi_auto_commit_unique: preferences.wubi_auto_commit_unique,
             diagnostic_log_server: preferences.diagnostic_log.server,
             diagnostic_log_tsf: preferences.diagnostic_log.tsf,
             game_candidate_overlay: preferences.game_compatibility.candidate_overlay,
@@ -326,6 +329,7 @@ pub struct PreferencesChange {
     pub wubi_profile: Option<WubiVersion>,
     pub wubi_mixed_pinyin: Option<bool>,
     pub wubi_code_hint: Option<bool>,
+    pub wubi_auto_commit_unique: Option<bool>,
     /// Turn on to look into a problem the user reports, and off again once it is understood.
     pub diagnostic_log_server: Option<bool>,
     /// Windows only; the other platforms keep it for the Windows settings to find.
@@ -357,6 +361,7 @@ impl PreferencesChange {
             && self.wubi_profile.is_none()
             && self.wubi_mixed_pinyin.is_none()
             && self.wubi_code_hint.is_none()
+            && self.wubi_auto_commit_unique.is_none()
             && self.diagnostic_log_server.is_none()
             && self.diagnostic_log_tsf.is_none()
             && self.game_candidate_overlay.is_none()
@@ -428,6 +433,9 @@ impl PreferencesChange {
         }
         if let Some(value) = self.wubi_code_hint {
             preferences.wubi_code_hint = value;
+        }
+        if let Some(value) = self.wubi_auto_commit_unique {
+            preferences.wubi_auto_commit_unique = value;
         }
         if let Some(value) = self.diagnostic_log_server {
             preferences.diagnostic_log.server = value;
@@ -652,6 +660,7 @@ mod tests {
                 character_width: Some(Width::Fullwidth),
                 traditional_chinese_output: Some(true),
                 wubi_code_hint: Some(false),
+                wubi_auto_commit_unique: Some(false),
                 diagnostic_log_server: Some(true),
                 ..change(before.revision)
             },
@@ -664,6 +673,7 @@ mod tests {
         assert_eq!(updated.character_width, Width::Fullwidth);
         assert!(updated.traditional_chinese_output);
         assert!(!updated.wubi_code_hint);
+        assert!(!updated.wubi_auto_commit_unique);
         assert!(updated.diagnostic_log_server && !updated.diagnostic_log_tsf);
         assert_eq!(updated.revision, before.revision + 1);
 
@@ -683,6 +693,7 @@ mod tests {
         expected.character_width = CharacterWidthPreference::Fullwidth;
         expected.traditional_chinese_output = true;
         expected.wubi_code_hint = false;
+        expected.wubi_auto_commit_unique = false;
         expected.diagnostic_log.server = true;
         expected.fuzzy_pinyin = stored.preferences.fuzzy_pinyin.clone();
         assert_eq!(json!(stored.preferences), json!(expected));

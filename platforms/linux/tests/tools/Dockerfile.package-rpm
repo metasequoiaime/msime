@@ -24,3 +24,6 @@ RUN set -eu; \
   /tmp/rustup-init -y --profile minimal --default-toolchain 1.97.1 --no-modify-path; \
   rm /tmp/rustup-init
 WORKDIR /source
+
+# 仓库工具链要求这两个组件，预装后临时容器不再补装；保留系统包和编译器安装缓存。
+RUN rustup component add rustfmt clippy

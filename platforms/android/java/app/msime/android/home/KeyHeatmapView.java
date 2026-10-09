@@ -9,6 +9,7 @@ import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
 import app.msime.android.BoundsPolicy;
+import app.msime.android.ColorPolicy;
 import app.msime.android.KeyPressIds;
 import app.msime.android.MapPolicy;
 import app.msime.android.R;
@@ -195,7 +196,7 @@ public final class KeyHeatmapView extends View {
                 canvas.drawRoundRect(box, radius, radius, fill);
                 int ink = level >= 3 ? onAccent : text;
                 face.setColor(ink);
-                share.setColor(level >= 3 ? Ui.withAlpha(onAccent, .85f) : sub);
+                share.setColor(level >= 3 ? ColorPolicy.withAlpha(onAccent, .85f) : sub);
                 float centre = x + keyWidth / 2;
                 canvas.drawText(key.face(), centre, top + height / 2 + Ui.dp(context, 1), face);
                 if (total > 0) {

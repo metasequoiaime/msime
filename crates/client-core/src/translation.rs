@@ -252,20 +252,30 @@ pub fn is_supported_endpoint(endpoint: &str) -> bool {
     is_secure_endpoint(endpoint)
 }
 
-/// Whether a DeepLX-compatible reply reports a failure rather than an answer: a body that is not a JSON object, or one whose `code` is not 200. A reply that answers with no translation is still an answer, which `parse_translation_response` cannot tell apart from a failure because it returns `None` for both. Hosts negative-cache answers only, so a rate limit or an outage is asked again instead of hiding the gloss.
+/// 区分 DeepLX 兼容回复中的失败与空回答。无 `code` 的回复必须带结果字段，显式 `error` 优先表示失败；有结果字段但译文为空仍算已回答，供宿主负缓存。
 pub fn translation_response_failed(response: &str) -> bool {
     let Ok(root) = serde_json::from_str::<Value>(response) else {
         return true;
     };
-    if !root.is_object() {
+    let Some(object) = root.as_object() else {
+        return true;
+    };
+    if has_explicit_error(&root) {
         return true;
     }
-    root.get("code")
-        .is_some_and(|code| !(code.as_i64() == Some(200) || code.as_str() == Some("200")))
+    if let Some(code) = object.get("code") {
+        return code.as_i64() != Some(200) && code.as_str() != Some("200");
+    }
+    !["data", "translation", "result", "translations"]
+        .iter()
+        .any(|key| object.contains_key(*key))
 }
 
 pub fn parse_translation_response(response: &str) -> Option<String> {
     let root: Value = serde_json::from_str(response).ok()?;
+    if has_explicit_error(&root) {
+        return None;
+    }
     if let Some(code) = root.get("code") {
         let valid = code.as_i64() == Some(200) || code.as_str() == Some("200");
         if !valid {
@@ -288,6 +298,14 @@ pub fn parse_translation_response(response: &str) -> Option<String> {
         .and_then(Value::as_array)
         .and_then(|items| items.first())
         .and_then(value_as_text)
+}
+
+fn has_explicit_error(root: &Value) -> bool {
+    root.get("error").is_some_and(|error| match error {
+        Value::Null | Value::Bool(false) => false,
+        Value::String(message) => !message.is_empty(),
+        _ => true,
+    })
 }
 
 fn value_as_text(value: &Value) -> Option<String> {
@@ -505,6 +523,27 @@ Signature=fdaffffbe1460ecd8cbc30e296ff6f49cc3b4af10b11e099462cca023fdb2c6c"
         assert!(translation_response_failed(r#"{"code":"500"}"#));
         assert!(translation_response_failed("<html>Bad Gateway</html>"));
         assert!(translation_response_failed(r#"["data"]"#));
+    }
+
+    #[test]
+    fn an_error_envelope_without_a_success_code_is_not_an_empty_answer() {
+        for response in [
+            r#"{"error":"rate limited"}"#,
+            r#"{"error":"rate limited","data":""}"#,
+            r#"{"message":"service unavailable"}"#,
+            "{}",
+        ] {
+            assert!(translation_response_failed(response), "{response}");
+        }
+        assert!(!translation_response_failed(r#"{"data":""}"#));
+        assert!(!translation_response_failed(r#"{"error":null,"data":""}"#));
+    }
+
+    #[test]
+    fn an_error_envelope_does_not_expose_a_partial_translation() {
+        let response = r#"{"error":"rate limited","data":"stale synthetic gloss"}"#;
+        assert!(translation_response_failed(response));
+        assert!(parse_translation_response(response).is_none());
     }
 
     #[test]
