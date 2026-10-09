@@ -84,7 +84,7 @@ public final class DistributionView extends View {
 
     private int track() {
         boolean dark = KeyboardGeometry.isNight(getContext());
-        return dark ? Ui.withAlpha(Color.WHITE, .1f) : Ui.withAlpha(Color.BLACK, .07f);
+        return dark ? ColorPolicy.withAlpha(Color.WHITE, .1f) : ColorPolicy.withAlpha(Color.BLACK, .07f);
     }
 
     @Override protected void onMeasure(int widthSpec, int heightSpec) {

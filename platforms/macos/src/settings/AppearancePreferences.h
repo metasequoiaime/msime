@@ -157,6 +157,7 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 - (void)applySharedAssistancePreferences:(NSDictionary *)preferences;
 - (NSDictionary *)helpcodeOptionsForScheme:(NSString *)scheme;
 @property(nonatomic) BOOL shuangpinKeymap;
+/// 四码唯一候选自动上屏：值随共享偏好 `wubi_auto_commit_unique` 进 Engine，本键只是本机的存储位置；从没设置过时是开。
 @property(nonatomic) BOOL wubiAutoCommitUnique;
 /// Dictation, which is read straight out of NSUserDefaults by the input method and by the voice module rather than through the shared document. The recogniser and the text it produces are the voice form's; these are the preferences around it — whether dictation runs at all, which language it transcribes, whether it plays a cue, whether it mutes what else is playing, and whether the partial transcript appears inline while it listens.
 @property(nonatomic) BOOL voiceInputEnabled;

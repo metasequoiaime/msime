@@ -260,6 +260,8 @@ static NSString *const QuanpinHelpcodeKey = @"MSIMEClientQuanpinHelpcodeEnabled"
 static NSString *const ShuangpinHelpcodeKey = @"MSIMEClientShuangpinHelpcodeEnabled";
 static NSString *const KeymapKey = @"MSIMEClientShuangpinKeymap";
 static NSString *const WubiKey = @"MSIMEClientWubiAutoCommitUnique";
+// 这个开关接进共享偏好之前 macOS 从不兑现它：defaults 里留下的任何 NO（旧缺省、升级前套用云快照写回的）都是历史缺省而不是用户选择。这个标记记下用户在新语义下第一次在原生面板里做出的选择，在那之前 WubiKey 的存量值一律当未设置，缺省为开。
+static NSString *const WubiAutoCommitUniqueAdoptedKey = @"MSIMEClientWubiAutoCommitUniqueAdopted";
 static NSString *const WubiMixedPinyinKey = @"MSIMEClientWubiMixedPinyin";
 static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 static NSString *const ShiftTapShortcutKey = @"MSIMEClientShiftTapShortcut";
@@ -317,6 +319,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         ShuangpinPreeditKey : @"sharedShuangpinPreeditUsesRaw",
         WubiProfileKey : @"sharedWubiProfile",
         WubiMixedPinyinKey : @"sharedWubiMixedPinyin",
+        WubiKey : @"sharedWubiAutoCommitUnique",
         LocalModesKey : @"sharedLocalModes",
         FontKey : @"sharedFontSize",
         FontFamilyKey : @"sharedFontFamily",
@@ -1009,6 +1012,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSString *_sharedWubiProfile;
     NSTextField *_wubiProfileLabel;
     NSNumber *_sharedWubiMixedPinyin;
+    NSNumber *_sharedWubiAutoCommitUnique;
     NSString *_sharedInlinePreeditStyle;
     NSMutableDictionary *_sharedLocalModes;
     NSMutableArray<NSButton *> *_localModeButtons;
@@ -1223,6 +1227,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
     merged[@"wubi_profile"] = self.wubiProfile;
     merged[@"wubi_mixed_pinyin"] = @(self.wubiMixedPinyinEnabled);
+    merged[@"wubi_auto_commit_unique"] = @(self.wubiAutoCommitUnique);
     NSMutableDictionary *qh = [merged[@"quanpin_helpcode"] mutableCopy] ?: [NSMutableDictionary dictionary];
     qh[@"enabled"] = @(self.quanpinHelpcodeEnabled);
     merged[@"quanpin_helpcode"] = qh;
@@ -1400,6 +1405,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _sharedVertical = nil;
     _sharedInputScheme = nil;
     _sharedShuangpinPreeditUsesRaw = nil;
+    // 四码唯一自动上屏在云快照里，所以套用之后要丢掉共享文档缓存，让新的值经 getter 生效。
+    _sharedWubiAutoCommitUnique = nil;
     _sharedChinesePunctuation = nil;
     _sharedSmartPunctuation = nil;
     _sharedSmartPunctuationRepeatToChinese = nil;
@@ -1443,6 +1450,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     for (NSString *mode in MSIMECloudLocalModeKeys()) allLocalModes = allLocalModes && [self localModeEnabled:mode];
     snapshot[@"platform.macos.local_input_modes"] = @(allLocalModes);
     snapshot[@"platform.macos.shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
+    // 这个键只写共享文档、不再写 defaults，所以导出要取宿主真正在用的值，而不是 defaults 里的旧值。
+    snapshot[@"platform.macos.wubi_auto_commit_unique"] = @(self.wubiAutoCommitUnique);
     snapshot[@"platform.macos.chinese_punctuation"] = @(self.chinesePunctuation);
     snapshot[@"platform.macos.traditional_chinese_output"] = @(self.traditionalOutput);
     snapshot[@"platform.macos.candidate_learning"] = @(self.candidateLearningEnabled);
@@ -1797,6 +1806,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id profile = preferences[@"shuangpin_profile"];
     id raw = preferences[@"shuangpin_preedit_uses_raw"];
     id wubiMixedPinyin = preferences[@"wubi_mixed_pinyin"];
+    id wubiAutoCommitUnique = preferences[@"wubi_auto_commit_unique"];
     id wubiProfile = preferences[@"wubi_profile"];
     if (MSIMEEditionOffersScheme(scheme)) _sharedInputScheme = [scheme copy];
     id lastChinese = preferences[@"last_chinese_scheme"];
@@ -1804,6 +1814,11 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
     if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
     if (LocalModeBoolean(wubiMixedPinyin)) _sharedWubiMixedPinyin = wubiMixedPinyin;
+    if (LocalModeBoolean(wubiAutoCommitUnique)) {
+        _sharedWubiAutoCommitUnique = wubiAutoCommitUnique;
+        // 文档里的 false 只可能来自新语义下的选择：升级时把旧的原生 NO 合并进文档之前 getter 已经读作开，而共享设置页（macOS 上的主要入口）只写文档、不写原生标记。这里也认作本机已经采纳新语义，免得下一次套用云快照时把用户关掉的开关又当历史缺省恢复成开。
+        if (![wubiAutoCommitUnique boolValue]) [_defaults setBool:YES forKey:WubiAutoCommitUniqueAdoptedKey];
+    }
     if ([@[@"wubi86", @"wubi98"] containsObject:wubiProfile]) _sharedWubiProfile = [wubiProfile copy];
     id inlinePreedit = preferences[@"tsf_preedit_style"];
     if ([@[@"raw", @"pinyin", @"empty"] containsObject:inlinePreedit]) _sharedInlinePreeditStyle = [inlinePreedit copy];
@@ -1923,7 +1938,12 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (BOOL)smartPunctuationSpaceConvert { return _sharedSmartPunctuationSpaceConvert ? _sharedSmartPunctuationSpaceConvert.boolValue : [_defaults boolForKey:SmartPunctuationSpaceConvertKey]; }
 - (void)setSmartPunctuationSpaceConvert:(BOOL)value { _sharedSmartPunctuationSpaceConvert = nil; [_defaults setBool:value forKey:SmartPunctuationSpaceConvertKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinKeymap { return [_defaults boolForKey:KeymapKey]; }
-- (BOOL)wubiAutoCommitUnique { return [_defaults boolForKey:WubiKey]; }
+// 从没设置过时是开：这个开关接进共享偏好之前，第四键上屏是唯一可能的实际行为，缺省必须是 YES 才不会在升级后改掉手感。共享文档的值最优先；原生 defaults 只有在本机留下过新语义下的选择之后才作数，否则里面存的 NO 是历史缺省，当作未设置。
+- (BOOL)wubiAutoCommitUnique {
+    if (_sharedWubiAutoCommitUnique) return _sharedWubiAutoCommitUnique.boolValue;
+    if (![_defaults boolForKey:WubiAutoCommitUniqueAdoptedKey]) return YES;
+    return [_defaults objectForKey:WubiKey] == nil ? YES : [_defaults boolForKey:WubiKey];
+}
 - (BOOL)floatingToolbarEnabled { return _sharedToolbarEnabled ? _sharedToolbarEnabled.boolValue : ([_defaults objectForKey:FloatingToolbarKey] == nil ? YES : [_defaults boolForKey:FloatingToolbarKey]); }
 - (void)setFloatingToolbarEnabled:(BOOL)value { _sharedToolbarEnabled = nil; [_defaults setBool:value forKey:FloatingToolbarKey]; [self preferencesChanged]; }
 - (void)applySharedToolbarVisibility:(BOOL)enabled { _sharedToolbarEnabled = @(enabled); [self refreshControls]; }
@@ -2008,7 +2028,13 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (ValidToolbarFontSize(font)) _sharedToolbarOptions[@"font_size"] = font;
     [self refreshControls];
 }
-- (void)setWubiAutoCommitUnique:(BOOL)value { [_defaults setBool:value forKey:WubiKey]; [self preferencesChanged]; }
+- (void)setWubiAutoCommitUnique:(BOOL)value {
+    _sharedWubiAutoCommitUnique = nil;
+    [_defaults setBool:value forKey:WubiKey];
+    // 用户在这里做出的选择是新语义下的第一个真实取值；此后再来的 defaults 值（包括云快照写回的）照常作数。
+    [_defaults setBool:YES forKey:WubiAutoCommitUniqueAdoptedKey];
+    [self preferencesChanged];
+}
 - (void)setShuangpinKeymap:(BOOL)value {
     [_defaults setBool:value forKey:KeymapKey];
     [self preferencesChanged];

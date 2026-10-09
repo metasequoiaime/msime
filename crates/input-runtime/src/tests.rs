@@ -1029,6 +1029,51 @@ fn unique_complete_wubi_code_auto_commits_unless_a_phrase_is_being_built() {
     assert_eq!(phrase.view().editing_text, "wqaa");
     assert_eq!(phrase.view().phrase_prefix, "合成前缀");
 }
+
+#[test]
+fn turning_off_wubi_auto_commit_keeps_the_unique_four_code_in_the_candidate_list() {
+    let create = |fixture| {
+        let mut runtime = Runtime::new(fixture, 5).unwrap();
+        runtime.focus(true).unwrap();
+        runtime
+    };
+    let type_all = |runtime: &mut Runtime<Fixture>, keys: &[u8]| {
+        let mut last = None;
+        for value in keys {
+            last = Some(
+                runtime
+                    .dispatch(Action::Character {
+                        value: *value,
+                        shift: false,
+                    })
+                    .unwrap(),
+            );
+        }
+        last.unwrap()
+    };
+    let unique = || Fixture {
+        scheme: 2,
+        words: vec!["合成候选".into()],
+        ..Fixture::default()
+    };
+
+    let mut off = create(unique());
+    off.set_wubi_auto_commit_unique(false);
+    let last = type_all(&mut off, b"wqaa");
+    assert!(last.commit.is_none());
+    assert_eq!(last.view.editing_text, "wqaa");
+    // 词还在候选里，等用户自己选——和关掉之前唯一的差别。
+    assert_eq!(last.view.candidates.len(), 1);
+
+    // 换回开，同一个会话里的下一个四码照旧自动上屏。
+    off.set_wubi_auto_commit_unique(true);
+    off.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(
+        type_all(&mut off, b"wqaa").commit.as_deref(),
+        Some("合成候选")
+    );
+}
+
 #[test]
 fn a_letter_after_a_complete_wubi_code_commits_the_first_candidate_and_starts_the_next() {
     let create = |fixture| {

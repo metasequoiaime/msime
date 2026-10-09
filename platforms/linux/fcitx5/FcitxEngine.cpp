@@ -4021,34 +4021,49 @@ private:
 
 class FcitxSchemeBooleanAction : public fcitx::Action {
 public:
-  enum class Kind { ShuangpinPreedit, WubiCodeHint };
+  enum class Kind { ShuangpinPreedit, WubiCodeHint, WubiAutoCommitUnique };
   FcitxSchemeBooleanAction(fcitx::FactoryFor<FcitxState> *factory, Kind kind)
       : factory_(factory), kind_(kind) { setCheckable(true); }
   std::string shortText(fcitx::InputContext *) const override {
-    return kind_ == Kind::ShuangpinPreedit ? "双拼原始预编辑" : "五笔剩余编码";
+    switch (kind_) {
+      case Kind::ShuangpinPreedit: return "双拼原始预编辑";
+      case Kind::WubiCodeHint: return "五笔剩余编码";
+      case Kind::WubiAutoCommitUnique: return "五笔四码唯一自动上屏";
+    }
+    return {};
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  /// 本项所属的方案，以及它在共享偏好文档里的键；三项都属于某个方案，只有该方案生效时才列出和切换。
+  bool appliesTo(unsigned scheme) const {
+    switch (kind_) {
+      case Kind::ShuangpinPreedit: return scheme == 1;
+      case Kind::WubiCodeHint:
+      case Kind::WubiAutoCommitUnique: return scheme == 2;
+    }
+    return false;
+  }
+  const char *key() const {
+    switch (kind_) {
+      case Kind::ShuangpinPreedit: return "shuangpin_preedit_uses_raw";
+      case Kind::WubiCodeHint: return "wubi_code_hint";
+      case Kind::WubiAutoCommitUnique: return "wubi_auto_commit_unique";
+    }
+    return "";
+  }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
     const auto scheme = msime::linux_host::strict_json_value(state->view_, "scheme", 0u);
-    if (kind_ == Kind::ShuangpinPreedit && scheme != 1) return false;
-    if (kind_ == Kind::WubiCodeHint && scheme != 2) return false;
-    const auto key = kind_ == Kind::ShuangpinPreedit
-        ? "shuangpin_preedit_uses_raw" : "wubi_code_hint";
-    return state->preferences_.value(key, true);
+    if (!appliesTo(scheme)) return false;
+    return state->preferences_.value(key(), true);
   }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     const auto scheme = msime::linux_host::strict_json_value(state->view_, "scheme", 0u);
-    if ((kind_ == Kind::ShuangpinPreedit && scheme != 1) ||
-        (kind_ == Kind::WubiCodeHint && scheme != 2) ||
-        state->restricted() || state->privateInput()) return;
-    const auto key = kind_ == Kind::ShuangpinPreedit
-        ? "shuangpin_preedit_uses_raw" : "wubi_code_hint";
+    if (!appliesTo(scheme) || state->restricted() || state->privateInput()) return;
     try {
-      if (state->toggleTopLevelBoolean(key, true)) update(ic);
+      if (state->toggleTopLevelBoolean(key(), true)) update(ic);
     } catch (...) {
       state->close();
       state->clearPanel();
@@ -5509,6 +5524,7 @@ public:
     number_row_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-number-row", &instance->userInterfaceManager());
     shuangpin_preedit_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-shuangpin-preedit", &instance->userInterfaceManager());
     wubi_code_hint_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-wubi-code-hint", &instance->userInterfaceManager());
+    wubi_auto_commit_unique_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-wubi-auto-commit-unique", &instance->userInterfaceManager());
     helpcode_schema_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-helpcode-schema", &instance->userInterfaceManager());
     maintenance_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-candidate-tools", &instance->userInterfaceManager());
     clipboard_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-clipboard", &instance->userInterfaceManager());
@@ -5661,11 +5677,13 @@ public:
     candidate_group_action_.setMenu(&candidate_group_menu_);
     for (auto *action : std::initializer_list<fcitx::Action *>{
              &candidate_layout_action_, &candidate_page_size_action_, &candidate_theme_action_,
-             &shuangpin_preedit_action_, &wubi_code_hint_action_, &candidate_group_separator_, &learning_action_,
+             &shuangpin_preedit_action_, &wubi_code_hint_action_, &wubi_auto_commit_unique_action_,
+             &candidate_group_separator_, &learning_action_,
              &frequency_action_, &frequency_trigger_action_, &frequency_step_action_}) {
-      // 双拼原始预编辑只在双拼下生效、五笔剩余编码只在五笔下生效，本版本没有那个方案就不列。
+      // 双拼原始预编辑只在双拼下生效、五笔剩余编码和四码唯一自动上屏只在五笔下生效，本版本没有那个方案就不列。
       if (action == &shuangpin_preedit_action_ && !msime::linux_host::edition_offers_scheme("shuangpin")) continue;
-      if (action == &wubi_code_hint_action_ && !msime::linux_host::edition_offers_scheme("wubi")) continue;
+      if ((action == &wubi_code_hint_action_ || action == &wubi_auto_commit_unique_action_) &&
+          !msime::linux_host::edition_offers_scheme("wubi")) continue;
       candidate_group_menu_.addAction(action);
     }
     emoji_action_.setMenu(&emoji_menu_);
@@ -6150,6 +6168,7 @@ public:
   FcitxNumberRowAction number_row_action_{&factory_};
   FcitxSchemeBooleanAction shuangpin_preedit_action_{&factory_, FcitxSchemeBooleanAction::Kind::ShuangpinPreedit};
   FcitxSchemeBooleanAction wubi_code_hint_action_{&factory_, FcitxSchemeBooleanAction::Kind::WubiCodeHint};
+  FcitxSchemeBooleanAction wubi_auto_commit_unique_action_{&factory_, FcitxSchemeBooleanAction::Kind::WubiAutoCommitUnique};
   FcitxHelpcodeSchemaAction helpcode_schema_action_{&factory_};
   fcitx::Menu maintenance_menu_;
   FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};

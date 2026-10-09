@@ -67,7 +67,6 @@
 #import "../cloud/CloudCandidateRequest.h"
 #import "../core/CustomTranslationBatch.h"
 #import "../cloud/TranslationCache.h"
-#include "../core/WubiCommitPolicy.h"
 #include "../core/WubiCodeHintPolicy.h"
 #include "../core/PairedPunctuation.h"
 #include "../core/PairedPunctuation.h"
@@ -5854,13 +5853,6 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     // A punctuation key is the only route that arms the space conversion, as in the reference, whose punctuation handler is the one caller: a candidate picked with Space or a digit never arms, even when its text ends in a mark.
     if (command == UINT32_MAX && event.characters.length == 1 && MSIMEASCIIPunctuation([event.characters characterAtIndex:0]))
         [self noteCommittedChinesePunctuation:transition client:sender];
-    if (command == UINT32_MAX && MSIMEStrictBoolean(transition[@"handled"]) &&
-        ![transition[@"commit"] isKindOfClass:NSString.class] && event.characters.length == 1 &&
-        [event.characters characterAtIndex:0] >= 'a' && [event.characters characterAtIndex:0] <= 'z' &&
-        MSIMEShouldAutoCommitWubi(_appearance.wubiAutoCommitUnique, transition[@"view"])) {
-        NSDictionary *committed = [_session command:MSIME_COMMIT_CANDIDATE error:nil];
-        if (committed) [self apply:committed];
-    }
     if (MSIMEStrictBoolean(transition[@"handled"])) return YES;
     // Match Apple: Engine gets first refusal, then finish any composition before fallback.
     if ([_view[@"editing_text"] length]) {

@@ -256,9 +256,6 @@ const client: SettingsClient = {
   openThirdPartyLicenses: () => invoke("open_third_party_licenses"),
   loadMacosShuangpinKeymap: () => invoke<boolean>("load_macos_shuangpin_keymap"),
   saveMacosShuangpinKeymap: (enabled) => invoke("save_macos_shuangpin_keymap", { enabled }),
-  loadMacosWubiAutoCommitUnique: () => invoke<boolean>("load_macos_wubi_auto_commit_unique"),
-  saveMacosWubiAutoCommitUnique: (enabled) =>
-    invoke("save_macos_wubi_auto_commit_unique", { enabled }),
   copyText: (text) => invoke("copy_text", { text }),
   openScreenKeyboard: () => invoke("open_keyboard_panel"),
   openHandwriting: () => invoke("open_handwriting_panel"),

@@ -2932,6 +2932,9 @@ private:
       bool_row(schemes, 0xE8CB, L"候选显示剩余编码",
                L"在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。",
                L"wubi_code_hint", true);
+      bool_row(schemes, 0xE8CB, L"四码唯一候选自动上屏",
+               L"五笔输入达到四码且只有一个候选时，自动提交该候选。关闭后这个词留在候选列表里，用空格或数字键选它。",
+               L"wubi_auto_commit_unique", true);
     }
 
     auto language = add_group(page, L"中英文");
