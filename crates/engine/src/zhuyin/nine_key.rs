@@ -98,10 +98,13 @@ impl NineKeyIndex {
     /// 数字串 `digits` 以调号 `mark` 结束时的全部合法带调音节；没有这样的音节时为 `None`。
     pub fn readings(&self, digits: &[u8], mark: &str) -> Option<Arc<[String]>> {
         let digits = std::str::from_utf8(digits).ok()?;
-        let mut code = String::with_capacity(digits.len() + mark.len());
-        code.push_str(digits);
-        code.push_str(mark);
-        self.readings.get(&code).cloned()
+        // 索引键由不超过 `MAX_DIGITS` 的数字和至多一个 Unicode 调号组成，超长拼接键必定未命中。
+        let mut buffer = [0; MAX_DIGITS + char::MAX.len_utf8()];
+        let length = digits.len().checked_add(mark.len())?;
+        let code = buffer.get_mut(..length)?;
+        code[..digits.len()].copy_from_slice(digits.as_bytes());
+        code[digits.len()..].copy_from_slice(mark.as_bytes());
+        self.readings.get(std::str::from_utf8(code).ok()?).cloned()
     }
 
     /// `digits` 是否还能拼成某个音节，也就是它是否为某个音节数字串的前缀。
@@ -243,6 +246,45 @@ mod tests {
         assert_eq!(index.readings(b"28", "ˋ"), None);
         assert_eq!(index.readings(b"2", "ˇ"), None);
         assert_eq!(index.group_count(), 7);
+    }
+
+    #[test]
+    fn index_reading_lookups_do_not_allocate_temporary_keys() {
+        let syllables = TONE_MARKS
+            .iter()
+            .map(|mark| format!("ㄓㄨㄤ{mark}"))
+            .collect::<Vec<_>>();
+        let index = NineKeyIndex::new(syllables.clone());
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            for (mark, expected) in TONE_MARKS.iter().zip(&syllables) {
+                let readings = index.readings(b"580", mark).unwrap();
+                assert_eq!(readings.as_ref(), std::slice::from_ref(expected));
+            }
+            assert!(index.readings(b"999", "ˇ").is_none());
+        });
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn index_reading_lookups_preserve_key_part_and_invalid_input_behavior() {
+        let index = NineKeyIndex::new(owned(&["ㄋㄧˇ"]));
+        let expected = index.readings(b"28", "ˇ").unwrap();
+        for (digits, mark) in [
+            (b"2".as_slice(), "8ˇ"),
+            ("28ˇ".as_bytes(), ""),
+            (b"".as_slice(), "28ˇ"),
+        ] {
+            let readings = index.readings(digits, mark).unwrap();
+            assert!(Arc::ptr_eq(&expected, &readings));
+        }
+        for (digits, mark) in [
+            (b"\xff".as_slice(), "ˇ"),
+            (b"28".as_slice(), "測試長調號"),
+            (b"2899999999".as_slice(), "ˇ"),
+            (b"".as_slice(), ""),
+        ] {
+            assert!(index.readings(digits, mark).is_none());
+        }
     }
 
     #[test]
