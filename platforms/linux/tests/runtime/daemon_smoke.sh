@@ -26,6 +26,8 @@ daemon_options=(--single --panel disable --config disable --emoji-extension disa
 ibus_version=$(ibus version 2>/dev/null | sed -n 's/^IBus //p' || true)
 if [[ -n "$ibus_version" && $(printf '%s\n' "$ibus_version" 1.5.20 | sort -V | head -1) != 1.5.20 ]]; then
   # IBus 1.5.20 起 --address 才接受 unix:path=。1.5.19（legacy 包的 Debian 10 基线）只接受 unix:tmpdir=，套接字由 GLib 自选，地址只写进 IBus 的地址文件，所以让守护进程把地址文件写在这个测试自己的目录里，再用 ibus address 读回。
+  # ibus address 先看环境里的 IBUS_ADDRESS，有就直接返回它而不读地址文件；从桌面会话继承来的值会让测试连到用户自己的守护进程上。
+  unset IBUS_ADDRESS
   XDG_CONFIG_HOME="$test_root/config" ibus-daemon "${daemon_options[@]}" --address "unix:tmpdir=$test_root" &
   daemon_pid=$!
   address=
