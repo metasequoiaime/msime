@@ -91,6 +91,50 @@ export type CustomTheme = {
   keyboard?: TouchKeyboardSkinDesign | null;
 };
 
+/** 以 `base` 为底的皮肤包放在哪个槽位：固定明暗的内置主题给出它自己的明暗，`system` 为 `null`，两个槽位都放（`theme::skin_appearance`）。 */
+export function skinSlot(base: GlobalTheme): ThemeAppearance | null {
+  return themeEntry(base).appearance;
+}
+
+/**
+ * 把皮肤包 `id`（清单 `base` 为 `base`）放进它所属的槽位，返回新的 `custom_theme`：深色皮肤写 `candidate_skin_dark`，浅色皮肤写 `candidate_skin`，`system` 底的写两个。`base` 照旧写成包的 base。
+ *
+ * 写深色槽位时，原来放在 `candidate_skin` 里的深色皮肤一并清掉。写浅色槽位时，如果深色槽位还空着，而原来的 `candidate_skin` 不是浅色皮肤（`slotOf` 给出它的槽位，`undefined` 表示不知道，比如包已经不在目录里），就先把它挪到深色槽位：只设过一款深色皮肤的旧文档把它存在 `candidate_skin` 里，深色模式靠回退取到它，直接覆盖会让它悄悄消失。
+ */
+export function applyCandidateSkin(
+  custom: CustomTheme | undefined,
+  id: string,
+  base: BaseGlobalTheme,
+  slotOf: (id: string) => ThemeAppearance | null | undefined,
+): CustomTheme {
+  const slot = skinSlot(base);
+  const next: CustomTheme = { ...custom, base };
+  if (slot !== "light") next.candidate_skin_dark = id;
+  // 旧文档放在 `candidate_skin` 里的深色皮肤被新的深色皮肤取代：浅色模式本来就不画它，留着只会让它看起来还在用。
+  if (slot === "dark" && custom?.candidate_skin && slotOf(custom.candidate_skin) === "dark")
+    next.candidate_skin = null;
+  if (slot !== "dark") {
+    const previous = custom?.candidate_skin || null;
+    if (
+      slot === "light" &&
+      !custom?.candidate_skin_dark &&
+      previous &&
+      slotOf(previous) !== "light"
+    )
+      next.candidate_skin_dark = previous;
+    next.candidate_skin = id;
+  }
+  return next;
+}
+
+/** 取消使用皮肤包 `id`：清掉放着它的槽位，另一个槽位不动。 */
+export function removeCandidateSkin(custom: CustomTheme | undefined, id: string): CustomTheme {
+  const next: CustomTheme = { ...custom };
+  if (next.candidate_skin === id) next.candidate_skin = null;
+  if (next.candidate_skin_dark === id) next.candidate_skin_dark = null;
+  return next;
+}
+
 /** 选着 `current` 时用了取色器，自定义主题画在哪个底上：屏幕上的主题留在下面，已经选着的自定义主题保留自己的底。`native` 不能当底，从它开始自定义时底是 `system`。 */
 export function customThemeBase(
   current: GlobalTheme,
