@@ -1,4 +1,5 @@
 import app.msime.android.ClipboardHistory;
+import app.msime.android.ClipboardHistoryPolicy;
 import app.msime.android.ClipboardSearchPolicy;
 import java.util.List;
 import java.util.Locale;
@@ -69,6 +70,24 @@ public final class ClipboardSearchPolicySmoke {
         } catch (IllegalArgumentException expected) {
             // 页面读不出历史时走自己的失败提示，不该把 null 交到这里。
         }
+
+        // 在应用里复制一条后键盘把它重新记下：共享存储换了时间戳并挪到最前，页面列表里还是旧的。编辑用的键要按现在的时间戳算，否则编辑页找不到它。
+        ClipboardHistory.Item shown = items.get(2);
+        List<ClipboardHistory.Item> recaptured = List.of(
+            items.get(0),
+            new ClipboardHistory.Item("合成会议纪要第二段", 900, false),
+            items.get(1),
+            items.get(3));
+        String stale = ClipboardHistoryPolicy.editKey(shown.timestamp(), shown.text());
+        String current = ClipboardSearchPolicy.currentEditKey(recaptured, shown.text());
+        check(ClipboardHistoryPolicy.editKey(900, "合成会议纪要第二段").equals(current),
+            "the edit key follows the entry's current timestamp");
+        check(!stale.equals(current), "the stale list's key would no longer match");
+        check(ClipboardSearchPolicy.currentEditKey(recaptured, "已经删掉的合成记录") == null,
+            "a removed entry has no key");
+        check(ClipboardSearchPolicy.currentEditKey(recaptured, "合成会议纪要") == null,
+            "the entry is found by its whole text, not a prefix");
+        check(ClipboardSearchPolicy.currentEditKey(null, "合成会议纪要第二段") == null, "an unreadable history has no key");
 
         // 键盘写死的页面名要和 PageId 的枚举名同形；PageId 本身进不了 JVM 编译，两边一致由 check-host.sh 核对。
         check(ClipboardSearchPolicy.SEARCH_PAGE.matches("[A-Z][A-Z0-9_]*"), "the page name is a PageId constant name");

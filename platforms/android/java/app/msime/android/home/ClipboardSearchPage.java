@@ -36,7 +36,7 @@ public final class ClipboardSearchPage extends DetailPage {
     private List<ClipboardHistory.Item> items = List.of();
     /** 查询框里的文字，见 {@link Query}；{@link #onCreate} 里取到。 */
     private Query query;
-    /** 删除还没回来时不再接受操作，免得同一条被删两次或删完又被编辑。 */
+    /** 删除、或编辑前在共享存储里找那一条还没回来时不再接受操作，免得同一条被删两次、删完又被编辑或连开两个编辑页。 */
     private boolean busy;
     @Nullable private GroupCard results;
 
@@ -166,13 +166,23 @@ public final class ClipboardSearchPage extends DetailPage {
         if (fromKeyboard()) leave();
     }
 
-    /** 交给编辑页的和键盘一样是认出这一条的键，不是文字；编辑页保存后弹回这一页，{@link #onBecameVisible} 重读。 */
+    /**
+     * 交给编辑页的和键盘一样是认出这一条的键，不是文字；编辑页保存后弹回这一页，{@link #onBecameVisible} 重读。
+     *
+     * <p>键按共享存储里现在的那一条算（{@link ClipboardSearchPolicy#currentEditKey}），不按列表上显示的：在这一页点按复制之后，键盘会把那一条重新记一遍、换上新的时间戳，列表要等这一页下次显示才重读。读不出或那一条已经不在时退回列表上的键，编辑页自己说读取失败或这一条已经不在了。
+     */
     private void edit(ClipboardHistory.Item item) {
         if (busy) return;
-        Bundle args = new Bundle();
-        args.putString(ClipboardHistoryPolicy.EDIT_ENTRY_ARG,
-            ClipboardHistoryPolicy.editKey(item.timestamp(), item.text()));
-        SettingsNavigator.open(requireContext(), PageId.CLIPBOARD_EDIT, args);
+        busy = true;
+        String text = item.text();
+        String shownKey = ClipboardHistoryPolicy.editKey(item.timestamp(), text);
+        HostTask.run(this, context -> ClipboardSearchPolicy.currentEditKey(
+                new ClipboardHistoryStore(context.getFilesDir()).load(), text), key -> {
+            busy = false;
+            Bundle args = new Bundle();
+            args.putString(ClipboardHistoryPolicy.EDIT_ENTRY_ARG, key == null ? shownKey : key);
+            SettingsNavigator.open(requireContext(), PageId.CLIPBOARD_EDIT, args);
+        });
     }
 
     /** 和面板里的左滑删除一样不再确认；共享存储按文字删，那一条已经不在时什么也不做。 */

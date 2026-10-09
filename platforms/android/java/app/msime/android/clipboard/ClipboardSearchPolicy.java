@@ -31,6 +31,19 @@ public final class ClipboardSearchPolicy {
         return matched;
     }
 
+    /**
+     * 打开编辑页时交给它的键：按文字在刚读到的历史里找那一条，用它现在的时间戳算 {@link ClipboardHistoryPolicy#editKey}；那一条已经不在时为 null。
+     *
+     * <p>页面上的列表可能已经旧了：在应用里点按一条复制之后，键盘的复制监听会把它重新记一遍，共享存储给它换上新的时间戳并挪到最前，而这一页还显示着旧的。按列表里的旧时间戳算键，编辑页会说这一条已经不在了。共享存储按文字认条目（同一段文字只有一条），所以按文字找回现在的那一条。
+     */
+    public static String currentEditKey(List<ClipboardHistory.Item> items, String text) {
+        if (items == null || text == null) return null;
+        for (ClipboardHistory.Item item : items) {
+            if (item.text().equals(text)) return ClipboardHistoryPolicy.editKey(item.timestamp(), item.text());
+        }
+        return null;
+    }
+
     /** 有查询但一条也没筛出来时显示的话，带上用户输入的查询（去掉首尾空白）。 */
     public static String emptyMessage(String raw) {
         return "没有包含“" + query(raw) + "”的记录";
