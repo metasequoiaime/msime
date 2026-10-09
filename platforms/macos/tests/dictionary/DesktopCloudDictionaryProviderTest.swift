@@ -1,6 +1,7 @@
 import Foundation
+import CryptoKit
 
-@MainActor final class SyntheticDictionaryAPI: DesktopCloudDictionaryAPI {
+@MainActor final class SyntheticDictionaryAPI: DesktopCloudDictionaryAPI, DesktopSnapshotAPI {
   var calls = 0
   var failure: Int?
   var lastRevision: Int64 = 0
@@ -11,8 +12,16 @@ import Foundation
   var lastMode: BackendAccountClient.RankingMode?
   var invalidPage = false
   func dictionaryCatalog(_ kind: BackendAccountClient.DictionaryKind, code: String, offset: Int, scheme: String, profile: String, token: String) async throws -> BackendAccountClient.DictionaryCatalog {
-    try tick(); assert(scheme == "shuangpin" && profile == "xiaohe")
+    try tick(); assert((scheme == "shuangpin" && profile == "xiaohe") || (kind == .quick && code.isEmpty && scheme == "pinyin" && profile == "xiaohe"))
     return .init(entries: [.init(kind:kind, code:"he'cheng", word:"合成", weight:100)], offset:invalidPage ? offset + 1 : offset, has_more:offset == 0, revision:0, normalized:"he'cheng")
+  }
+  func dictionarySnapshot(token: String) async throws -> BackendAccountClient.DownloadedSnapshot {
+    assertionFailure("测试不应下载云端快照")
+    throw BackendAccountClient.Failure(status: 500)
+  }
+  func restoreDictionarySnapshot(file: URL, expectedSHA256: String, revision: Int64, token: String) async throws -> BackendAccountClient.SnapshotRestoreResult {
+    assertionFailure("已取消的预览不应恢复云端快照")
+    throw BackendAccountClient.Failure(status: 500)
   }
   func editCatalog(_ entry: BackendAccountClient.CatalogEntry, revision: Int64, replacement: BackendAccountClient.DictionaryValue?, token: String) async throws -> BackendAccountClient.DictionaryChange {
     try tick(); lastCode = entry.code; lastRevision = revision; lastReplacement = replacement
@@ -70,6 +79,7 @@ import Foundation
 @main enum DesktopCloudDictionaryProviderTest {
   @MainActor static func main() async throws {
     let api = SyntheticDictionaryAPI()
+    try await restorationPreviewCancellation(api)
     var provider: BackendCloudDictionaryProvider? = .init(client: api, credentials: { "synthetic-token" })
     try await advanced(provider!, api)
     for kind in ["pinyin", "wubi", "quick", "english"] {
@@ -127,6 +137,30 @@ import Foundation
     let count = api.calls
     do { _ = try await missing.execute(["operation":"add","kind":"pinyin","code":"he","word":"合","weight":1]); assertionFailure("signed-out write") } catch { }
     assert(api.calls == count)
+  }
+
+  @MainActor static func restorationPreviewCancellation(_ api: SyntheticDictionaryAPI) async throws {
+    let source = FileManager.default.temporaryDirectory.appendingPathComponent("msime-synthetic-" + UUID().uuidString + ".ndjson")
+    defer { try? FileManager.default.removeItem(at: source) }
+    let header = #"{"type":"header","format":"msime-dictionary-snapshot","version":1,"revision":0}"#
+    let body = Data((header + "\n").utf8)
+    let digest = SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined()
+    let footer = #"{"type":"footer","records":1,"sha256":"\#(digest)"}"#
+    try (body + Data((footer + "\n").utf8)).write(to: source)
+    let snapshots = BackendDesktopSnapshots(client: api, credentials: { "synthetic-token" }, choose: { _ in source })
+    let result = try await snapshots.execute(["operation":"snapshot_restore_preview"])
+    let token = result["previewToken"] as! String
+    let cancelled = try await snapshots.execute(["operation":"snapshot_restore_cancel"])
+    assert(cancelled["cancelled"] as? Bool == true)
+    do {
+      _ = try await snapshots.execute(["operation":"snapshot_restore_native", "token":token])
+      assertionFailure("已取消的预览仍可恢复")
+    } catch let failure as BackendAccountClient.Failure {
+      assert(failure.status == 400)
+    }
+    let empty = BackendDesktopSnapshots(client: api, credentials: { "synthetic-token" }, choose: { _ in nil })
+    let dismissed = try await empty.execute(["operation":"snapshot_restore_preview"])
+    assert(dismissed["saved"] as? Bool == false)
   }
 
   @MainActor static func advanced(_ provider: BackendCloudDictionaryProvider, _ api: SyntheticDictionaryAPI) async throws {

@@ -18,6 +18,7 @@ pub enum CloudDictionaryRequest {
         token: String,
     },
     SnapshotRestoreCancel,
+    SnapshotChooseRestore,
     SnapshotEnqueue {
         token: String,
     },
@@ -164,6 +165,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
         | CloudDictionaryRequest::SnapshotExport
         | CloudDictionaryRequest::SnapshotStatus
         | CloudDictionaryRequest::SnapshotRestoreCancel
+        | CloudDictionaryRequest::SnapshotChooseRestore
         | CloudDictionaryRequest::SnapshotCancel => Ok(()),
         CloudDictionaryRequest::SnapshotRestorePreview { text } => {
             if valid_snapshot_text(text) {
@@ -439,6 +441,7 @@ mod tests {
         assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotPreview).is_ok());
         assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotStatus).is_ok());
         assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotRestoreCancel).is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotChooseRestore).is_ok());
         assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotCancel).is_ok());
         assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotExport).is_ok());
         assert!(

@@ -477,6 +477,7 @@ pub(crate) async fn cloud_dictionary_account_request(
         | CloudDictionaryRequest::SnapshotRestore { .. }
         | CloudDictionaryRequest::SnapshotRestoreNative { .. }
         | CloudDictionaryRequest::SnapshotRestoreCancel
+        | CloudDictionaryRequest::SnapshotChooseRestore
         | CloudDictionaryRequest::SnapshotEnqueue { .. }
         | CloudDictionaryRequest::SnapshotStatus
         | CloudDictionaryRequest::SnapshotCancel => None,

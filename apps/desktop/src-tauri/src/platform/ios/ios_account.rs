@@ -599,6 +599,9 @@ pub async fn cloud_dictionary_request(
         CloudDictionaryRequest::SnapshotRestoreCancel => Err(crate::CommandError {
             code: "snapshot_unavailable",
         }),
+        CloudDictionaryRequest::SnapshotChooseRestore => Err(crate::CommandError {
+            code: "snapshot_unavailable",
+        }),
         CloudDictionaryRequest::SnapshotEnqueue { token } => {
             dictionary_snapshot_enqueue(state, token).await
         }

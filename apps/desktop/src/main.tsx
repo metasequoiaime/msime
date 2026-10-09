@@ -973,7 +973,7 @@ function DesktopSettings() {
     );
   const cloudDictionary = {
     ...panelClients.cloudDictionary,
-    ...cloudDictionaryCapabilities(settingsClient.host?.platform),
+    ...cloudDictionaryCapabilities(settingsClient.host?.platform, panelClients.cloudDictionary.request),
     ...(isMobileHost(settingsClient.host?.platform)
       ? {
           downloadToLocal: (entry: CloudDictionaryEntry) =>
@@ -1089,7 +1089,7 @@ function DesktopCloudDictionarySurface() {
     };
   }, []);
   if (host === undefined) return <StatusMessage role="status">正在连接云词库…</StatusMessage>;
-  const capabilities = cloudDictionaryCapabilities(host?.platform);
+  const capabilities = cloudDictionaryCapabilities(host?.platform, panelClients.cloudDictionary.request);
   const cloudDictionary = {
     ...panelClients.cloudDictionary,
     ...capabilities,

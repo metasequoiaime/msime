@@ -177,6 +177,7 @@ export type CloudDictionaryAction =
   | { operation: "snapshot_restore"; text: string; expected_sha256: string; revision: number }
   | { operation: "snapshot_restore_native"; token: string }
   | { operation: "snapshot_restore_cancel" }
+  | { operation: "snapshot_choose_restore" }
   | { operation: "snapshot_enqueue"; token: string }
   | { operation: "snapshot_status" }
   | { operation: "snapshot_cancel" }

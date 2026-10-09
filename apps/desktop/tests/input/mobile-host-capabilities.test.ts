@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import {
   cloudDictionaryCapabilities,
   isMobileHost,
@@ -19,4 +19,14 @@ test("cloud dictionary snapshots distinguish mobile queue and macOS native paths
     snapshot: false,
     snapshotNative: false,
   });
+});
+
+test("macOS restores use one native file picker", async () => {
+  const request = vi.fn().mockResolvedValue({ saved: false });
+  const macos = cloudDictionaryCapabilities("macos", request);
+  const android = cloudDictionaryCapabilities("android", request);
+  expect(typeof macos.chooseSnapshotRestore).toBe("function");
+  expect(android.chooseSnapshotRestore).toBeUndefined();
+  await expect(macos.chooseSnapshotRestore?.()).resolves.toEqual({ saved: false });
+  expect(request).toHaveBeenCalledExactlyOnceWith({ operation: "snapshot_choose_restore" });
 });
