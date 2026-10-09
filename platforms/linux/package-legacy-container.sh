@@ -4,8 +4,8 @@
 # 与 package-container.sh 分开，因为基线不同：那边在 bookworm 里构建，Depends 按 bookworm 的库算出（glibc 2.35 起），还带 WebKitGTK 4.1 的设置窗口和 Fcitx5 插件，这三样 buster 都没有。这里的构建镜像是 tests/tools/Dockerfile.legacy，Rust 与 C++ 都在 buster 里编译，所以产物只引用 glibc 2.28 及以下的符号版本。
 #
 # 分两步：
-#   1. 在构建镜像里以 Release 编译 Host API 库和 msime-mcp，收集 Rust 许可证，配置并编译原生宿主（-DMSIME_ENABLE_FCITX5=OFF，IBus 下限 1.5.19，Python 下限 3.7），用 CPack 打出 .deb，再核对包里每个 ELF 文件要求的 glibc 不超过 2.28、Depends 里没有 buster 不提供的东西。
-#   2. 换一个只有系统基础包的 debian:buster 容器，用 apt 安装这个 .deb（依赖由 apt 从 buster 的源解析），确认包内每个 ELF 文件的共享库都能找到，再在装好包的容器里跑第 1 步构建树的 ctest。测试程序链接的库与包相同，只能由包的 Depends 带进来；ctest 用的 CMake 从构建镜像里拷出。
+#   1. 在构建镜像里以 Release 编译 Host API 库和 msime-mcp，收集 Rust 许可证，配置并编译原生宿主（-DMSIME_ENABLE_FCITX5=OFF，IBus 下限 1.5.19，Python 下限 3.7），用 CPack 打出 .deb，再核对包里每个 ELF 文件要求的 glibc、libstdc++ 与 libgcc 符号版本不超过 buster 提供的、Depends 里没有 buster 不提供的东西。最后按 resources/desktop-dictionary.lock.json 取回词库，留给第 2 步的运行时验收。
+#   2. 换一个只有系统基础包的 debian:buster 容器，用 apt 安装这个 .deb（依赖由 apt 从 buster 的源解析），确认包内每个 ELF 文件的共享库和符号版本都能找到，再在装好包的容器里跑第 1 步构建树的 ctest。测试程序链接的库与包相同，只能由包的 Depends 带进来；ctest 用的 CMake 从构建镜像里拷出。之后由 tests/tools/legacy-runtime.sh 做运行时验收：已安装的宿主在 buster 自带的 ibus-daemon 1.5.19 下经合成输入上下文和 GTK 3 文本框打字，随包 Python 脚本的合约测试在 Python 3.7 上运行。
 #
 # Usage: platforms/linux/package-legacy-container.sh [VERSION]
 #   VERSION 缺省取 platforms/linux/version.txt，与 package-container.sh 相同；包名仍是 msime-linux，与发布页的 .deb 是同一个包的不同构建，两者不能同时安装。
@@ -108,24 +108,39 @@ docker run --rm --init --platform "$platform" \
       echo "the legacy package depends on something it must not ship: the settings window or the Fcitx5 addon" >&2
       exit 1
     fi
-    # 包里每个 ELF 文件（含预编译的 sherpa-onnx 和 ONNX Runtime 库）要求的最高 glibc 符号版本不能超过 2.28。
+    # 包里每个 ELF 文件（含预编译的 sherpa-onnx 和 ONNX Runtime 库）要求的符号版本不能超过 buster 提供的：glibc 2.28，以及 GCC 8 的 libstdc++（GLIBCXX、CXXABI）和 libgcc（GCC）。上限从这个 buster 镜像里的库读出，不手写。在这里编译的代码不会超出，会超出的是上游的预编译库。
+    triple=$(gcc -dumpmachine)
+    newest_defined() { readelf -V "$1" | grep -oE "\b$2_[0-9]+(\.[0-9]+)+" | sed "s/^$2_//" | sort -uV | tail -1; }
+    declare -A ceiling=(
+      [GLIBC]=$(newest_defined "/lib/$triple/libc.so.6" GLIBC)
+      [GLIBCXX]=$(newest_defined "$(gcc -print-file-name=libstdc++.so.6)" GLIBCXX)
+      [CXXABI]=$(newest_defined "$(gcc -print-file-name=libstdc++.so.6)" CXXABI)
+      [GCC]=$(newest_defined "/lib/$triple/libgcc_s.so.1" GCC)
+    )
+    [ "${ceiling[GLIBC]}" = 2.28 ] || { echo "the build image provides GLIBC_${ceiling[GLIBC]}, not 2.28" >&2; exit 1; }
+    echo "symbol version ceilings: GLIBC_${ceiling[GLIBC]} GLIBCXX_${ceiling[GLIBCXX]} CXXABI_${ceiling[CXXABI]} GCC_${ceiling[GCC]}"
     contents=$(mktemp -d)
     dpkg-deb -x "$deb" "$contents"
-    newest=2.28
+    too_new=0
     while IFS= read -r path; do
       file "$path" | grep -q ": *ELF" || continue
-      for needed in $(readelf -V "$path" | grep -oE "GLIBC_[0-9]+(\.[0-9]+)+" | sed "s/^GLIBC_//" | sort -uV); do
-        if [ "$(printf "%s\n%s\n" "$needed" 2.28 | sort -V | tail -1)" != 2.28 ]; then
-          echo "${path#"$contents"} needs GLIBC_$needed" >&2
-          newest=$needed
-        fi
+      for prefix in GLIBC GLIBCXX CXXABI GCC; do
+        limit=${ceiling[$prefix]}
+        for needed in $(readelf -V "$path" | grep -oE "\b${prefix}_[0-9]+(\.[0-9]+)+" | sed "s/^${prefix}_//" | sort -uV); do
+          if [ "$(printf "%s\n%s\n" "$needed" "$limit" | sort -V | tail -1)" != "$limit" ]; then
+            echo "${path#"$contents"} needs ${prefix}_$needed, buster provides up to ${prefix}_$limit" >&2
+            too_new=1
+          fi
+        done
       done
     done < <(find "$contents" -type f)
     rm -rf "$contents"
-    [ "$newest" = 2.28 ] || { echo "the legacy package needs a glibc newer than 2.28" >&2; exit 1; }
-    cd /build/dist
-    sha256sum -- *.deb > SHA256SUMS
-    cat SHA256SUMS
+    [ "$too_new" = 0 ] || { echo "the legacy package needs a library newer than buster provides" >&2; exit 1; }
+    (cd /build/dist && sha256sum -- *.deb > SHA256SUMS && cat SHA256SUMS)
+    # 第 2 步运行时验收用的词库。包本身不带词库，用户装好后用 msime-linux-setup --download 取回；用 -DMSIME_ENGINE_RESOURCES 配置会把词库装进包里，所以不走那条路，而是用 Windows 发布工作流取词库的同一个示例按锁下载并校验，放在构建目录的缓存里，重跑时不再下载。
+    resources=$(cargo run --quiet --release --locked -p msime-client-core --example install_resources -- /build/resources-cache | tail -1)
+    case "$resources" in /build/resources-cache/*) ;; *) echo "install_resources printed no resource directory: $resources" >&2; exit 1 ;; esac
+    printf "%s\n" "$resources" > /build/resources-path
   '
 
 # 第 2 步：干净的 buster 容器。基础镜像取自 Dockerfile.legacy 的 FROM，两步用同一个摘要。
@@ -156,7 +171,8 @@ docker run --rm --init --platform "$platform" \
     missing=$(dpkg -L msime-linux | while IFS= read -r path; do
       [ -f "$path" ] && [ ! -L "$path" ] || continue
       head -c 4 "$path" | grep -q "ELF" || continue
-      ldd "$path" 2>&1 | sed -n "s|^\(.*not found\)$|$path: \1|p"
+      # 缺库是「libX => not found」，缺符号版本是「version GLIBCXX_3.4.26 not found (required by …)」（版本名两边是反引号和单引号），两种都算。
+      ldd "$path" 2>&1 | grep -F "not found" | sed "s|^|$path: |" || true
     done)
     [ -z "$missing" ] || { echo "installed files miss shared libraries:" >&2; echo "$missing" >&2; exit 1; }
     msime-mcp --version
@@ -168,5 +184,6 @@ docker run --rm --init --platform "$platform" \
       exit 1
     fi
     /opt/cmake/bin/ctest --test-dir /build/cmake --output-on-failure
+    bash platforms/linux/tests/tools/legacy-runtime.sh "$(cat /build/resources-path)" /build/cmake
     echo "legacy package installed and tested on $(sed -n "s/^PRETTY_NAME=//p" /etc/os-release), $(ldd --version | head -1)"
   '
