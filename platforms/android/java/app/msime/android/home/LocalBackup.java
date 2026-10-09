@@ -12,6 +12,7 @@ import app.msime.android.CustomSkinLibrary;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.DictionarySnapshotQueue;
 import app.msime.android.HttpBodyPolicy;
+import app.msime.android.JsonPolicy;
 import app.msime.android.LocalBackupPolicy;
 import app.msime.android.NativeClient;
 import app.msime.android.R;
@@ -48,9 +49,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 本地备份与恢复（#5659）：把设置、Android 本地设置、自定义皮肤、常用语和个人词库打成一个 zip，存到用户在系统文件选择器里选的位置；换手机或降级时再从这个文件恢复。全程只在本机，不经过云端，也不需要登录。包的格式见 {@link LocalBackupPolicy}。
+ * 本地备份与恢复（#5659）：把设置、Android 本地设置、自定义皮肤、常用语、个人词库和输入记录打成一个 zip，存到用户在系统文件选择器里选的位置；换手机或降级时再从这个文件恢复。全程只在本机，不经过云端，也不需要登录。包的格式见 {@link LocalBackupPolicy}。
  *
- * <p>内容与云同步相同，复用同一套导出和应用：设置文档走 client-core 的 `msime_client_account_settings_export`/`_apply`（凭据与诊断日志永远不在里面），个人词库走 `export_snapshot`（{@link CloudSync#exportDictionarySnapshot}）。恢复是合并而不是覆盖：设置按备份里的值改写，皮肤按 id 和更新时间合并，常用语只加本机还没有的，词经命名词库的待发送队列在键盘空闲时陆续写入，本机已有的词不会被删掉。
+ * <p>内容大体与云同步相同，复用同一套导出和应用：设置文档走 client-core 的 `msime_client_account_settings_export`/`_apply`（凭据与诊断日志永远不在里面），个人词库走 `export_snapshot`（{@link CloudSync#exportDictionarySnapshot}）。只有输入记录（学习调权、删除记录、固定位置和选词计数）是云同步没有的，导出时让 `export_snapshot` 一并写进词库快照。恢复是合并而不是覆盖：设置按备份里的值改写，皮肤按 id 和更新时间合并，常用语只加本机还没有的，词经命名词库的待发送队列在键盘空闲时陆续写入，本机已有的词不会被删掉；输入记录排给键盘在下次建会话前合并，本机已有的保留本机，选词计数取较大的那个。
  *
  * <p>所有方法都会读写文件、调用原生库，只能在工作线程上调。
  */
@@ -61,6 +62,8 @@ final class LocalBackup {
     private static final int COPY_BUFFER = 64 * 1024;
     /** 本地恢复交给词库快照激活队列时的请求来源；云同步的请求用账号 id，退出登录时只取消自己的。 */
     private static final String SNAPSHOT_OWNER = "local-backup";
+    /** 导出页和导出结果里都要说的话：输入记录能看出打字习惯，备份文件没有加密。 */
+    static final String PRIVACY_NOTICE = "备份文件里有你的输入记录，能看出你常打的字词和打字习惯。文件没有加密，请妥善保管，不要发给别人或传到公开的地方。";
 
     private LocalBackup() {}
 
@@ -93,8 +96,9 @@ final class LocalBackup {
             }
             String skins = CustomSkinLibrary.exportDesigns(Paths.get(directory));
             List<String> phrases = ownPhrases(context);
-            JSONObject snapshot = CloudSync.exportDictionarySnapshot(context, dictionary);
+            JSONObject snapshot = CloudSync.exportDictionarySnapshot(context, dictionary, true);
             Integer words = DictionaryCollectionsStore.nonNegativeInteger(snapshot.opt("entries"));
+            Integer learning = DictionaryCollectionsStore.nonNegativeInteger(snapshot.opt("learning"));
             int skinCount = new JSONArray(skins).length();
 
             JSONObject manifest = new JSONObject()
@@ -109,7 +113,8 @@ final class LocalBackup {
                     .put("android_local", local.length())
                     .put("skins", skinCount)
                     .put("phrases", phrases.size())
-                    .put("dictionary_words", words == null ? 0 : words));
+                    .put("dictionary_words", words == null ? 0 : words)
+                    .put("learning", learning == null ? 0 : learning));
             try (ZipOutputStream zip = new ZipOutputStream(new BufferedOutputStream(Files.newOutputStream(archive)))) {
                 putText(zip, LocalBackupPolicy.MANIFEST, manifest.toString());
                 putText(zip, LocalBackupPolicy.SETTINGS, new JSONObject().put("settings", settings).toString());
@@ -129,7 +134,8 @@ final class LocalBackup {
                     return context.getContentResolver().openOutputStream(uri, "wt");
                 }
             });
-            return "已导出备份：" + phrases.size() + " 条常用语、" + (words == null ? 0 : words) + " 个词，以及全部设置。";
+            return "已导出备份：" + phrases.size() + " 条常用语、" + (words == null ? 0 : words) + " 个词、"
+                + (learning == null ? 0 : learning) + " 条输入记录，以及全部设置。\n\n" + PRIVACY_NOTICE;
         } catch (IOException | JSONException | RuntimeException error) {
             Log.w(TAG, "backup export failed", error);
             return "没有导出成功，请稍后重试。若目标位置留下未完成的备份，请手动删除。";
@@ -164,7 +170,7 @@ final class LocalBackup {
 
     /** 确认对话框里显示的备份说明。 */
     record Preview(LocalBackupPolicy.Compatibility compatibility, String app, String appVersion, String createdAt,
-            int phrases, int words) {}
+            int phrases, int words, int learning) {}
 
     /** 把用户选的文件复制进工作目录并读出说明；读不出来时返回 null，并删掉复制的那份。确认后交给 {@link #restore}，取消时交给 {@link #discard}。 */
     @Nullable static Prepared prepare(Context context, Uri uri) {
@@ -182,7 +188,8 @@ final class LocalBackup {
                     manifest == null ? "" : manifest.optString("app_version", ""),
                     manifest == null ? "" : manifest.optString("created_at", ""),
                     contents == null ? 0 : Math.max(0, contents.optInt("phrases", 0)),
-                    contents == null ? 0 : Math.max(0, contents.optInt("dictionary_words", 0)));
+                    contents == null ? 0 : Math.max(0, contents.optInt("dictionary_words", 0)),
+                    contents == null ? 0 : Math.max(0, contents.optInt("learning", 0)));
                 if (compatibility != LocalBackupPolicy.Compatibility.OK) discard(archive);
                 return new Prepared(archive, preview);
             }
@@ -210,7 +217,7 @@ final class LocalBackup {
                 int phrases = restorePhrases(context, zip, failed);
                 int[] words = restoreDictionary(context, zip, dictionary, failed);
                 return LocalBackupPolicy.summary(new LocalBackupPolicy.Restored(settings, skins, phrases, words[0],
-                    words[1], failed));
+                    words[1], words[2], failed));
             }
         } catch (IOException | RuntimeException error) {
             Log.w(TAG, "backup restore failed", error);
@@ -329,27 +336,35 @@ final class LocalBackup {
     }
 
     /**
-     * 个人词库：解出快照。本机用户词库还是空的（新手机、重装）时把整份快照交给激活队列，原样恢复，与云同步第一次同步而本机没有词时的做法相同。本机已经有词时（或激活队列用不了时）合并，已有的词不删：词先全部记进命名词库的待发送队列（{@link DictionaryCollectionsStore#queueUnownedWords}），再在键盘空闲时一批批送进个人词库队列。个人词库队列同时只收 128 个未完成的请求，所以不能直接把几千个词塞进去（那样第 129 个以后的词全会被拒）。返回 {恢复的词数, 跳过的词数}。
+     * 个人词库和输入记录：解出快照。本机既没有用户词、也没有任何输入记录（新手机、重装）时把整份快照交给激活队列，词和输入记录原样恢复，与云同步第一次同步而本机没有词时的做法相同。整份激活会替换本机的全部学习状态，所以本机只要学过一点（哪怕还没有自造词）就不走这条路，改为合并：
+     *
+     * <ul>
+     *   <li>词先全部记进命名词库的待发送队列（{@link DictionaryCollectionsStore#queueUnownedWords}），再在键盘空闲时一批批送进个人词库队列。个人词库队列同时只收 128 个未完成的请求，所以不能直接把几千个词塞进去（那样第 129 个以后的词全会被拒）。
+     *   <li>输入记录交给 `queue_learning_merge` 挑出来存成待合并的文件，键盘下次建会话前同步个人词库时合并（本机已有的保留本机，选词计数取大）。改工作词库要独占维护权，键盘开着时设置页拿不到，所以不在这里直接合并。
+     * </ul>
+     *
+     * 旧版本导出的备份里没有输入记录，只恢复词。返回 {恢复的词数, 跳过的词数, 输入记录条数}。
      */
     private static int[] restoreDictionary(Context context, ZipFile zip, Path file, List<String> failed) {
         try {
             ZipEntry entry = zip.getEntry(LocalBackupPolicy.DICTIONARY);
-            if (entry == null) return new int[] {0, 0};
+            if (entry == null) return new int[] {0, 0, 0};
             try (InputStream input = zip.getInputStream(entry)) {
                 copyBounded(input, file, LocalBackupPolicy.MAX_DICTIONARY_BYTES);
             }
             List<SyncMergePolicy.Word> words = SyncApi.snapshotWords(file);
-            if (words.isEmpty()) return new int[] {0, 0};
-            if (CloudSync.userWordCount(context) == 0) {
+            if (!words.isEmpty() && CloudSync.userWordCount(context) == 0 && localLearningCount(context) == 0) {
                 try {
                     CloudSync.enqueueDictionarySnapshot(context, file, SNAPSHOT_OWNER, 0);
                     SyncSignals.markDirty(context, SyncSwitch.DICTIONARY);
-                    return new int[] {words.size(), 0};
+                    return new int[] {words.size(), 0, manifestLearning(zip)};
                 } catch (IOException | DictionarySnapshotQueue.Failure unavailable) {
-                    // 键盘还没打开过（没有发布本机词库版本）或者已有一份快照在排队：退回导入队列。
+                    // 键盘还没打开过（没有发布本机词库版本）或者已有一份快照在排队：退回合并。
                     Log.i(TAG, "snapshot activation unavailable, merging instead", unavailable);
                 }
             }
+            int learning = queueLearning(context, file, failed);
+            if (words.isEmpty()) return new int[] {0, 0, learning};
             int queued = 0;
             String failure = null;
             for (List<SyncMergePolicy.Word> batch : SyncMergePolicy.batches(words, DictionaryCollectionsStore.MAX_QUEUED_WORDS)) {
@@ -365,13 +380,50 @@ final class LocalBackup {
                 // 已经排进去的词照样写入；没排进去的那部分如实报告，再恢复一次时已排的词不会重复。
                 Log.w(TAG, "dictionary restore stopped: " + failure);
                 failed.add(queued > 0 ? "其余的个人词库" : "个人词库");
-                return new int[] {queued, 0};
+                return new int[] {queued, 0, learning};
             }
-            return new int[] {queued, words.size() - queued};
+            return new int[] {queued, words.size() - queued, learning};
         } catch (IOException | JSONException | RuntimeException error) {
             Log.w(TAG, "dictionary restore failed", error);
             failed.add("个人词库");
-            return new int[] {0, 0};
+            return new int[] {0, 0, 0};
+        }
+    }
+
+    /** 本机日志里输入记录的条数（`learning_count`），不含用户自己的词。 */
+    private static int localLearningCount(Context context) throws IOException, JSONException {
+        JSONObject value = CloudSync.nativeValue(NativeClient.dictionary(new JSONObject()
+            .put("options", new JSONObject(CloudSync.hostOptions(context)))
+            .put("action", new JSONObject().put("operation", "learning_count")).toString()));
+        Integer count = DictionaryCollectionsStore.nonNegativeInteger(value.opt("count"));
+        return count == null ? 0 : count;
+    }
+
+    /** 把快照里的输入记录排给键盘合并（`queue_learning_merge`），返回排进去的条数；快照里没有输入记录时返回 0。失败时在 `failed` 里记下「输入记录」，不影响词的恢复。 */
+    private static int queueLearning(Context context, Path file, List<String> failed) {
+        try {
+            JSONObject value = CloudSync.nativeValue(NativeClient.dictionary(new JSONObject()
+                .put("options", new JSONObject(CloudSync.hostOptions(context)))
+                .put("action", new JSONObject().put("operation", "queue_learning_merge")
+                    .put("source", file.toAbsolutePath().toString())).toString()));
+            if (!JsonPolicy.strictTrue(value.opt("queued"))) return 0;
+            Integer learning = DictionaryCollectionsStore.nonNegativeInteger(value.opt("learning"));
+            return learning == null ? 0 : learning;
+        } catch (IOException | JSONException | RuntimeException error) {
+            Log.w(TAG, "input record restore failed", error);
+            failed.add("输入记录");
+            return 0;
+        }
+    }
+
+    /** manifest 里记的输入记录条数，只用来在整份激活时告诉用户恢复了多少；读不出来时为 0。 */
+    private static int manifestLearning(ZipFile zip) {
+        try {
+            JSONObject manifest = jsonEntry(zip, LocalBackupPolicy.MANIFEST, LocalBackupPolicy.MAX_MANIFEST_BYTES);
+            JSONObject contents = manifest == null ? null : manifest.optJSONObject("contents");
+            return contents == null ? 0 : Math.max(0, contents.optInt("learning", 0));
+        } catch (IOException | JSONException error) {
+            return 0;
         }
     }
 

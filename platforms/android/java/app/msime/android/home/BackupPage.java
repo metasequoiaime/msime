@@ -14,9 +14,9 @@ import java.time.format.DateTimeParseException;
 import java.util.Locale;
 
 /**
- * 备份与恢复（#5659）：把设置、自定义皮肤、常用语和个人词库导出成本机的一个 zip，换手机、重装或降级后再从它恢复。全程只在本机，不经过云端，也不需要登录；文件存到用户在系统文件选择器里选的位置（SAF），不申请存储权限。打包与恢复在 {@link LocalBackup}，包的格式在 {@code LocalBackupPolicy}。
+ * 备份与恢复（#5659）：把设置、自定义皮肤、常用语、个人词库和输入记录导出成本机的一个 zip，换手机、重装或降级后再从它恢复。全程只在本机，不经过云端，也不需要登录；文件存到用户在系统文件选择器里选的位置（SAF），不申请存储权限。输入记录能看出打字习惯，文件又是明文的，所以页面和导出结果都提醒用户妥善保管。打包与恢复在 {@link LocalBackup}，包的格式在 {@code LocalBackupPolicy}。
  *
- * <p>恢复前先读出备份的说明让用户确认；恢复是合并：设置按备份改写，皮肤、常用语和词合并进来，本机已有的不会删除。
+ * <p>恢复前先读出备份的说明让用户确认；恢复是合并：设置按备份改写，皮肤、常用语、词和输入记录合并进来，本机已有的不会删除。
  */
 public final class BackupPage extends DetailPage {
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT);
@@ -32,16 +32,17 @@ public final class BackupPage extends DetailPage {
 
     @Override protected void buildContent(LinearLayout column, Bundle args) {
         GroupCard intro = GroupCard.add(column, null);
-        intro.note("把设置、自定义皮肤、常用语和个人词库（自造词和学到的词）导出成一个文件，存在你选的位置。换手机、重装或降级以后，从这个文件恢复。全程只在本机，不经过云端，也不需要登录。");
+        intro.note("把设置、自定义皮肤、常用语、个人词库（自造词和学到的词）和输入记录（候选顺序的学习调整、固定的位置和选词次数）导出成一个文件，存在你选的位置。换手机、重装或降级以后，从这个文件恢复。全程只在本机，不经过云端，也不需要登录。");
+        intro.note(LocalBackup.PRIVACY_NOTICE);
 
         GroupCard backup = GroupCard.add(column, "备份");
         exportRow = backup.button("导出备份", "文件名带应用名和版本号，降级时容易找到对应的那份", "导出",
             this::startExport);
 
         GroupCard restore = GroupCard.add(column, "恢复");
-        restoreRow = restore.button("从备份恢复", "设置按备份改写；皮肤、常用语和词合并进来，本机已有的不会删除",
+        restoreRow = restore.button("从备份恢复", "设置按备份改写；皮肤、常用语、词和输入记录合并进来，本机已有的不会删除",
             "选择文件", this::startRestore);
-        restore.footer("备份里没有账号、AI 与翻译服务的凭据、剪贴板历史和诊断日志，不带「上传语音以改进识别」的授权和开发者选项，也没有候选排序的学习调整、输入统计和命名词库的分组（词库里的词随个人词库一起恢复）；自定义皮肤只有设计参数，不含照片。恢复的词在键盘空闲时陆续写入词库。");
+        restore.footer("备份里没有账号、AI 与翻译服务的凭据、剪贴板历史和诊断日志，不带「上传语音以改进识别」的授权和开发者选项，也没有输入统计、整句联想学到的上下文、拼写纠错习惯和命名词库的分组（词库里的词随个人词库一起恢复）；自定义皮肤只有设计参数，不含照片。恢复的词在键盘空闲时陆续写入词库；输入记录也在键盘空闲时合并，本机已经学到的保留本机，选词次数取两边较多的那个。输入记录不随云同步上传。");
         refresh();
     }
 
@@ -111,8 +112,11 @@ public final class BackupPage extends DetailPage {
         if (!source.isEmpty()) message.append("来自").append(source).append("，");
         String created = created(preview.createdAt());
         if (!created.isEmpty()) message.append("导出于 ").append(created).append("，");
-        message.append("有 ").append(preview.phrases()).append(" 条常用语、").append(preview.words()).append(" 个词和全部设置。")
-            .append("\n\n恢复后设置按备份改写；皮肤、常用语和词合并进来，本机已有的不会删除。");
+        message.append("有 ").append(preview.phrases()).append(" 条常用语、").append(preview.words()).append(" 个词");
+        // 旧版本导出的备份里没有输入记录，不提它。
+        if (preview.learning() > 0) message.append("、").append(preview.learning()).append(" 条输入记录");
+        message.append("和全部设置。")
+            .append("\n\n恢复后设置按备份改写；皮肤、常用语、词和输入记录合并进来，本机已有的不会删除。");
         boolean[] decided = {false};
         new MaterialAlertDialogBuilder(requireContext())
             .setTitle("从备份恢复")

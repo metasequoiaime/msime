@@ -9,7 +9,7 @@ import java.util.Map;
 /**
  * 本地备份包（#5659）的格式规则：文件名、包里的条目和各自的大小上限、能不能恢复、设置文档的字段类型，以及恢复完给用户看的那句话。读写文件和调用原生库的一半在 {@code home/LocalBackup}，这里不依赖 Android。
  *
- * <p>备份包是一个 zip：`manifest.json` 说明格式与来源版本；`settings.json` 是与云同步相同的设置文档（{@code msime_client_account_settings_export}，不含凭据与诊断日志）；`android-local.json` 是 Android 本地设置文件里显式写过的值；`skins.json` 是自定义键盘皮肤的设计参数；`phrases.json` 是自己添加的常用语；`dictionary.ndjson` 是个人词库，格式与云端词库快照相同。各条目都可以缺，恢复时有哪项恢复哪项。
+ * <p>备份包是一个 zip：`manifest.json` 说明格式与来源版本；`settings.json` 是与云同步相同的设置文档（{@code msime_client_account_settings_export}，不含凭据与诊断日志）；`android-local.json` 是 Android 本地设置文件里显式写过的值；`skins.json` 是自定义键盘皮肤的设计参数；`phrases.json` 是自己添加的常用语；`dictionary.ndjson` 是个人词库，格式与云端词库快照相同，从 #5659 起还带输入记录（学习调权、删除记录、固定位置和选词计数，都是这个快照格式第 1 版本来就有的记录，所以 {@link #VERSION} 不变，旧版本恢复时照样认得）。各条目都可以缺，恢复时有哪项恢复哪项。
  */
 public final class LocalBackupPolicy {
     public static final String FORMAT = "msime-android-backup";
@@ -110,8 +110,8 @@ public final class LocalBackupPolicy {
         return null;
     }
 
-    /** 恢复的结果。`words` 是交给键盘写入的词数（整份快照激活，或排进待发送队列后分批写入）；`failed` 是没能恢复的部分的名字，按发生顺序。 */
-    public record Restored(boolean settings, int skins, int phrases, int words, int skippedWords,
+    /** 恢复的结果。`words` 是交给键盘写入的词数（整份快照激活，或排进待发送队列后分批写入）；`learning` 是交给键盘写入的输入记录条数（随整份快照激活，或在键盘下次建会话前合并）；`failed` 是没能恢复的部分的名字，按发生顺序。 */
+    public record Restored(boolean settings, int skins, int phrases, int words, int skippedWords, int learning,
             java.util.List<String> failed) {}
 
     /** 恢复完给用户看的那句话。 */
@@ -121,13 +121,17 @@ public final class LocalBackupPolicy {
         if (restored.skins() > 0) parts.add(restored.skins() + " 个自定义皮肤");
         if (restored.phrases() > 0) parts.add(restored.phrases() + " 条常用语");
         StringBuilder text = new StringBuilder();
-        if (parts.isEmpty() && restored.words() == 0) {
+        if (parts.isEmpty() && restored.words() == 0 && restored.learning() == 0) {
             text.append("备份里没有需要恢复的新内容");
         } else {
             if (!parts.isEmpty()) text.append("已恢复").append(String.join("、", parts));
             if (restored.words() > 0) {
                 if (text.length() > 0) text.append("；");
                 text.append(restored.words()).append(" 个词会在键盘空闲时陆续写入词库");
+            }
+            if (restored.learning() > 0) {
+                if (text.length() > 0) text.append("；");
+                text.append(restored.learning()).append(" 条输入记录会在键盘空闲时合并，本机已有的保留本机");
             }
         }
         if (restored.skippedWords() > 0) text.append("；").append(restored.skippedWords()).append(" 个词无法导入，已跳过");
