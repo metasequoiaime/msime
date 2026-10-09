@@ -3118,7 +3118,7 @@ private:
     select_row(group, 0xE8D2, label + L"辅助码方案", L"", prefix + L".schema",
                {{L"lantian", L"蓝天小雨点"}, {L"ziranma", L"自然码"},
                 {L"shouyou2_0", L"首右2.0"}, {L"shouyouplus", L"首右plus"},
-                {L"xiaohe", L"小鹤"}, {L"jiajia", L"加加"}},
+                {L"xiaohe", L"小鹤"}, {L"jiajia", L"加加"}, {L"wubi86", L"五笔 86"}},
                L"lantian", false, enabled);
     bool_row(group, 0xE8FD, L"在候选窗口中显示" + label + L"辅助码", L"",
              prefix + L".show_in_candidate_window", false, false, enabled);
