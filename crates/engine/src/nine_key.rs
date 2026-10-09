@@ -487,10 +487,14 @@ impl NineKeySession {
         } else {
             String::new()
         };
+        // 用过的简拼行在九键里的位置只由个人上下文模型里的计数决定（`boost_used_initials`）。这一行会记进模型时不再调全局词频：两边都挪的话一次选词挪两次，全局权重还会连带改掉 26 键里这个词的位置（#6185）。
+        let recorded_initials =
+            self.records_personal_use(selected_source, &selected_word) && is_initials_row(selected);
         let mut diagnostic = if self.learning
             && self.frequency.mode != FrequencyAdjustmentMode::Disabled
             && index != 0
             && selected_fixed_position == 0
+            && !recorded_initials
             && self.editable(index)
         {
             self.adjust_frequency(index, false)
@@ -586,8 +590,7 @@ impl NineKeySession {
             .into_iter()
             .chain(stored.as_deref());
         for word in words {
-            if count_utf8_chars(word) >= 2
-                && is_all_han(word)
+            if is_personal_word(word)
                 && !transitions.iter().any(|transition| transition.word == word)
             {
                 transitions.push(PersonalTransition {
@@ -604,10 +607,17 @@ impl NineKeySession {
         // 候选都来自词库，选得到词时词库一定已经打开。
         let dictionary = self.dictionary.as_ref()?;
         dictionary
-            .personal_store()
-            .record(&transitions)
+            .record_personal_use(&transitions)
             .err()
             .map(|_| diagnostics::PERSONAL_CONTEXT_NOT_PERSISTED.to_string())
+    }
+
+    /// 选中的词库词会不会被 `record_personal_use` 记进个人上下文模型：学习和个人上下文都开着，选的是两个字以上的纯汉字词。
+    fn records_personal_use(&self, selected_source: CandidateSource, selected_word: &str) -> bool {
+        self.learning
+            && self.personal_context
+            && selected_source.is_dictionary()
+            && is_personal_word(selected_word)
     }
 
     fn reset_phrase(&mut self) {
@@ -989,8 +999,9 @@ impl NineKeySession {
             .then(|| initials_codes(remaining, INITIALS_CODE_LIMIT))
             .flatten()
         {
-            // 用户用过的词（个人上下文模型里有计数，26 键选的也算）不能被按权重的截断截掉（#6185）：模型有记录时多扫一些行，用过的先留下。学习关掉时不读个人数据。
-            let personal = self.learning && !dictionary.personal_model_is_empty();
+            // 用户用过的词（个人上下文模型里有计数，26 键选的也算）不能被按权重的截断截掉（#6185）：模型有记录时多扫一些行，用过的先留下。学习或个人上下文关掉时不读个人数据，与 26 键的 `personal_context_applies` 相同。
+            let personal =
+                self.learning && self.personal_context && !dictionary.personal_model().is_empty();
             let mut rows = if personal {
                 dictionary.query_jianpin_codes_per_table(&codes, INITIALS_SCAN_LIMIT)
             } else {
@@ -998,12 +1009,15 @@ impl NineKeySession {
             };
             let mut used = HashMap::new();
             if personal {
+                // 一次查询只取一次读锁，不按行各取一次。
+                let model = dictionary.personal_model();
                 for row in &rows {
-                    let count = dictionary.personal_word_count(&row.word);
+                    let count = model.word_count(&row.word);
                     if count > 0 {
                         used.insert(row.word.clone(), count);
                     }
                 }
+                drop(model);
                 if rows.len() > INITIALS_ROW_LIMIT {
                     // 稳定排序：用过的词在前，两边各自仍按权重。
                     rows.sort_by_key(|row| !used.contains_key(&row.word));
@@ -1629,6 +1643,11 @@ fn comparable_weight(item: &WordItem) -> i64 {
 }
 
 /// 一个数字一个音节、全拼比数字长的词典行：按简拼查出来的行（`68` 的 明天 mei'tian）。只有两个及以上数字时才算，一个数字本来就按首字母补全。
+/// 九键记进个人上下文模型的词：两个字以上的纯汉字词，单字和夹着英文、符号的不记（#6185）。
+fn is_personal_word(word: &str) -> bool {
+    count_utf8_chars(word) >= 2 && is_all_han(word)
+}
+
 fn is_initials_row(item: &WordItem) -> bool {
     let digits = item.pinyin.len();
     digits >= 2
@@ -4247,6 +4266,27 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         assert_eq!(index_of(&session, "隐私"), 3);
     }
 
+    /// 在简拼列表里选中挪上来的用过的词：只记进个人上下文模型，不再另调全局词频，否则一次选词挪两次（还会连带改掉 26 键里它的位置）。提到前五、触发一次：26 键用过一次在第五位，九键再选一次进第四位，和 26 键用两次的位置相同。
+    #[test]
+    fn picking_a_used_initials_word_moves_it_once() {
+        let fixture = crowded_initials_fixture();
+        record_use(&fixture.paths, "隐私");
+        let mut session =
+            open_with_frequency(&fixture.paths, FrequencyAdjustmentMode::Promote, 1, 1);
+        type_keys(&mut session, "9'7");
+        assert_eq!(index_of(&session, "隐私"), 4);
+        let chosen = session.select(4);
+        assert_eq!(chosen.commit.as_deref(), Some("隐私"));
+        assert_eq!(chosen.diagnostic, None);
+        assert_eq!(
+            personal_count(&fixture.paths, "隐私"),
+            2 * PERSONAL_PICK_TIMES
+        );
+        type_keys(&mut session, "9'7");
+        assert_eq!(index_of(&session, "隐私"), 3);
+        assert_eq!(words(&session)[..3], ["压0", "压1", "压2"]);
+    }
+
     /// 出货词库里大量词的权重同是 100：用过的词和前一张首字母表里的几百个同权重的词并列时，也不会因为合起来截断而丢掉（9'9'2'9 的 仔细查找）。
     #[test]
     fn a_used_word_tied_with_a_crowded_table_is_kept() {
@@ -4304,6 +4344,21 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         let mut quiet = open(&fixture.paths, false, EnglishInputOptions::default());
         type_keys(&mut quiet, "9'7");
         assert!(!words(&quiet).iter().any(|word| word == "隐私"));
+    }
+
+    /// 关掉个人上下文时，模型里早先记下的使用也不再读，与 26 键的 `personal_context_applies` 一样：用过的词不再多扫出来，也不挪。
+    #[test]
+    fn earlier_uses_are_ignored_with_personal_context_off() {
+        let fixture = crowded_initials_fixture();
+        record_use(&fixture.paths, "隐私");
+        let mut session = open_with_frequency(&fixture.paths, FrequencyAdjustmentMode::Pin, 1, 1);
+        type_keys(&mut session, "9'7");
+        assert_eq!(index_of(&session, "隐私"), 0);
+        session.command(Command::Cancel);
+
+        session.set_personal_context_enabled(false);
+        type_keys(&mut session, "9'7");
+        assert!(!words(&session).iter().any(|word| word == "隐私"));
     }
 
     /// 没打切分时数字也可能是音节：用过的简拼词挪不过前面留给最常用单字的位置；打了切分才挪到最前。

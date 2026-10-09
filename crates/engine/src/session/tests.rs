@@ -5890,7 +5890,7 @@ fn nine_key_sentence_learning_shares_the_syllable_cap() {
     );
 }
 
-/// #6185：在 26 键上打过的词，九宫格按首字母分词输入时也排到前面；关掉个人上下文的会话不记，也就不挪。
+/// #6185：在 26 键上打过的词，九宫格按首字母分词输入时也排到前面；关掉个人上下文的会话不读模型里早先记下的使用，也就不挪。
 #[test]
 fn words_typed_on_the_full_keyboard_lead_the_nine_key_initials() {
     let mut main = String::from(
@@ -5927,13 +5927,13 @@ INSERT INTO tbl_2_y VALUES('yin''si','ys','隐私',10);",
         session.set_nine_key_enabled(false);
         position
     };
+    let mut session = fixture.session_with(promote);
+    assert_eq!(position_after_typing(&mut session), Some(4));
     let mut quiet = fixture.session_with(|options| {
         promote(options);
         options.personal_context = false;
     });
     assert_eq!(position_after_typing(&mut quiet), None);
-    let mut session = fixture.session_with(promote);
-    assert_eq!(position_after_typing(&mut session), Some(4));
 }
 
 /// 九宫格选一个词记进个人上下文模型的次数与全拼键盘显式选词相同（#6185）。

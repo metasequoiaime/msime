@@ -6,7 +6,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
+use std::sync::{Arc, RwLockReadGuard};
 use std::time::Duration;
 
 use crate::assets::{
@@ -23,6 +23,7 @@ use crate::lattice::neural::{
     shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
 };
 use crate::lattice::ngram::NgramTable;
+use crate::lattice::personal::{PersonalNgram, PersonalTransition};
 use crate::lattice::{SentencePath, TypoEdgeSource};
 use crate::paths::RuntimePaths;
 use crate::pinyin::fuzzy::{fuzzy_segmentations, FUZZY_SEGMENTATION_LIMIT};
@@ -257,19 +258,14 @@ impl QuanpinDictionary {
         initial_items(self.database.query_initial(code, limit))
     }
 
-    /// 个人上下文模型里 `word` 被提交过的计数（`PersonalNgram::word_count`），只读。九键按它把用户用过的简拼词排到前面（#6185）。
-    pub fn personal_word_count(&self, word: &str) -> u32 {
-        self.personal.model().word_count(word)
+    /// 个人上下文模型的只读视图（与同一份用户日志上的输入会话共用）。九键查一次简拼时取一次，按 `PersonalNgram::word_count` 把用户用过的简拼词排到前面（#6185）；拿着它时不要记录新的使用，记录要写锁。
+    pub fn personal_model(&self) -> RwLockReadGuard<'_, PersonalNgram> {
+        self.personal.model()
     }
 
-    /// 个人上下文模型是否还什么都没记。九键据此决定要不要为用过的词多扫简拼行。
-    pub fn personal_model_is_empty(&self) -> bool {
-        self.personal.model().is_empty()
-    }
-
-    /// 这个词库读写的个人上下文存储，与同一份用户日志上的输入会话共用一份。九键在这里记下选过的词，26 键也写进同一份。
-    pub fn personal_store(&self) -> &PersonalNgramStore {
-        &self.personal
+    /// 把选中的词记进个人上下文模型，26 键也写进同一份。九键选词时调用（#6185）；只开放记录这一个写操作，不交出整个存储。
+    pub fn record_personal_use(&self, transitions: &[PersonalTransition]) -> Result<()> {
+        self.personal.record(transitions)
     }
 
     /// 简拼 `codes`（同样长度，一个字母一个音节）对应的词条，按权重从高到低最多 `limit` 行，见 `PinyinDatabase::query_jianpin_codes`。`pinyin` 和 `canonical_pinyin` 都是词条的全拼键，用户自己加的词（学习写进词库的整句、自造词）也在里面。
