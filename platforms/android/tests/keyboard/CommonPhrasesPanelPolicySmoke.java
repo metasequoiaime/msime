@@ -31,6 +31,27 @@ public final class CommonPhrasesPanelPolicySmoke {
         check(!CommonPhrasesStore.validText("x".repeat(CommonPhrasesStore.MAX_PHRASE_UNITS + 1)), "an entry over 1000 units cannot");
         check(!CommonPhrasesStore.validText(" \n\t"), "a blank entry cannot");
         check(!CommonPhrasesStore.validText("synthetic\u0007bell"), "an entry with a control character cannot");
+        // 剪贴板历史允许回车和制表符：回车换成换行后照样能存，制表符原样保留并说清是它的问题，而不是说空白或过长。
+        check("line1\nline2\nline3".equals(CommonPhrasesPanelPolicy.clipboardPhraseText("line1\r\nline2\rline3")),
+            "Windows and old Mac line endings become newlines");
+        check("".equals(CommonPhrasesPanelPolicy.clipboardPhraseText(null)), "a missing entry becomes empty text");
+        check(CommonPhrasesPanelPolicy.clipboardRefusal(CommonPhrasesPanelPolicy.clipboardPhraseText("line1\r\nline2")) == null,
+            "an entry with CRLF line endings can become a phrase");
+        check(CommonPhrasesPanelPolicy.clipboardRefusal("synthetic entry") == null, "an ordinary entry is not refused");
+        String tab = CommonPhrasesPanelPolicy.clipboardRefusal(CommonPhrasesPanelPolicy.clipboardPhraseText("a\tb"));
+        check(tab != null && tab.contains("制表符") && !tab.equals(CommonPhrasesStore.failureMessage("common_phrases_invalid")),
+            "a tab is named as the reason, not emptiness or length");
+        check(CommonPhrasesPanelPolicy.clipboardPhraseText("a\tb").equals("a\tb"), "tabs are not silently rewritten");
+        String bell = CommonPhrasesPanelPolicy.clipboardRefusal("synthetic\u0007bell");
+        check(bell != null && bell.contains("制表符等"), "other control characters get the same reason");
+        String tooLong = CommonPhrasesPanelPolicy.clipboardRefusal("x".repeat(CommonPhrasesStore.MAX_PHRASE_UNITS + 1));
+        check(tooLong != null && tooLong.contains("超过 " + CommonPhrasesStore.MAX_PHRASE_UNITS + " 字"), "an over-long entry names the limit");
+        // 回车换成换行以后长度变短：正好卡在上限的 CRLF 文字换完能存。
+        String crlfAtLimit = "x".repeat(CommonPhrasesStore.MAX_PHRASE_UNITS - 2) + "\r\n";
+        check(CommonPhrasesPanelPolicy.clipboardRefusal(CommonPhrasesPanelPolicy.clipboardPhraseText(crlfAtLimit + "y")) == null,
+            "length is checked after line endings are normalized");
+        String blank = CommonPhrasesPanelPolicy.clipboardRefusal(" \r\n ");
+        check(blank != null && blank.contains("没有文字"), "a blank entry says it has no text");
         System.out.println("Android common phrases panel entry passed");
     }
 }
