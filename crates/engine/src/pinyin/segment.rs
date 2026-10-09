@@ -197,6 +197,7 @@ fn cut_one_piece_with_corrections(pinyin: &str) -> Vec<Vec<&'static str>> {
     }];
     for index in (0..length).rev() {
         let mut ranked = Vec::new();
+        let mut minimum = usize::MAX;
         for end in (index + 1..=length.min(index + max_piece)).rev() {
             let Ok(typed) = std::str::from_utf8(&bytes[index..end]) else {
                 continue;
@@ -211,6 +212,18 @@ fn cut_one_piece_with_corrections(pinyin: &str) -> Vec<Vec<&'static str>> {
             } else {
                 continue;
             };
+            let Some(suffix_count) = paths[end].first().map(|path| path.segments.len()) else {
+                continue;
+            };
+            // 后缀表只保留最少音节路径，同一终点生成的候选音节数一致。
+            let count = 1 + suffix_count;
+            if count > minimum {
+                continue;
+            }
+            if count < minimum {
+                ranked.clear();
+                minimum = count;
+            }
             for (rank, &reading) in readings.iter().enumerate() {
                 for suffix in &paths[end] {
                     // 首条完整后缀路径出现时才预留原有初始容量，不可达位置保持空缓冲。
@@ -228,17 +241,12 @@ fn cut_one_piece_with_corrections(pinyin: &str) -> Vec<Vec<&'static str>> {
                 }
             }
         }
+        // 音节数已在构建阶段筛选，完整长度序列仍优先于所有别名排名。
         ranked.sort_by(|lhs, rhs| {
             lhs.segments
-                .len()
-                .cmp(&rhs.segments.len())
-                // 完整长度序列优先于所有别名排名，不按单个音节交错比较。
-                .then_with(|| {
-                    lhs.segments
-                        .iter()
-                        .map(|segment| segment.typed_length)
-                        .cmp(rhs.segments.iter().map(|segment| segment.typed_length))
-                })
+                .iter()
+                .map(|segment| segment.typed_length)
+                .cmp(rhs.segments.iter().map(|segment| segment.typed_length))
                 .then_with(|| {
                     lhs.segments
                         .iter()
@@ -253,9 +261,6 @@ fn cut_one_piece_with_corrections(pinyin: &str) -> Vec<Vec<&'static str>> {
                 .map(|segment| segment.reading)
                 .eq(earlier.segments.iter().map(|segment| segment.reading))
         });
-        if let Some(minimum) = ranked.first().map(|path| path.segments.len()) {
-            ranked.retain(|path| path.segments.len() == minimum);
-        }
         ranked.truncate(CORRECTION_PATH_LIMIT);
         paths[index] = ranked;
     }
@@ -519,10 +524,71 @@ mod tests {
     }
 
     #[test]
+    fn longer_correction_paths_do_not_allocate_syllable_buffers() {
+        let _ = cut_pinyin_with_corrections("sahng");
+        for (input, expected, budget) in [
+            ("shuang", "shuang", 10),
+            ("xian", "xian", 8),
+            ("nihao", "ni'hao", 13),
+            ("nihao'nihao", "ni'hao'ni'hao", 30),
+        ] {
+            let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                cut_pinyin_with_corrections(input)
+            });
+            assert_eq!(paths.len(), 1, "{input}");
+            assert_eq!(paths[0].join("'"), expected, "{input}");
+            assert_eq!(allocations, budget, "较长修正路径仍创建缓冲: {input}");
+        }
+    }
+
+    #[test]
+    fn long_correction_input_prunes_longer_paths_at_every_position() {
+        let _ = cut_pinyin_with_corrections("nihao");
+        let repeated = "nihao".repeat(24);
+        let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            cut_pinyin_with_corrections(&repeated)
+        });
+        let expected = (0..24)
+            .flat_map(|_| ["ni".to_owned(), "hao".to_owned()])
+            .collect::<Vec<_>>();
+        assert_eq!(paths, [expected]);
+        assert_eq!(allocations, 243);
+    }
+
+    #[test]
+    fn later_minimum_paths_replace_longer_paths_and_keep_the_ranked_limit() {
+        for (input, expected) in [
+            ("manaio", "ma'niao"),
+            ("fanaio", "fa'niao"),
+            ("manaioweilve", "ma'niao'wei'lve"),
+            ("fanaioyueni", "fa'niao'yue'ni"),
+        ] {
+            assert_eq!(correction_paths(input), [expected], "{input}");
+        }
+        let input = format!("manaio{}", "sahng".repeat(7));
+        let paths = cut_pinyin_with_corrections(&input);
+        assert_eq!(paths.len(), CORRECTION_PATH_LIMIT);
+        for (row, path) in paths.iter().enumerate() {
+            let expected = std::iter::once("ma")
+                .chain(std::iter::once("niao"))
+                .chain((0..7).map(|part| {
+                    if row & (1 << (6 - part)) == 0 {
+                        "shang"
+                    } else {
+                        "sang"
+                    }
+                }))
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            assert_eq!(*path, expected, "排名 {row}");
+        }
+    }
+
+    #[test]
     fn correction_paths_share_syllable_and_ranking_storage() {
         let _ = cut_pinyin_with_corrections("sahng");
         for (input, expected, budget) in [
-            ("nihao", &["ni'hao"][..], 15),
+            ("nihao", &["ni'hao"][..], 13),
             (
                 "sahngsahng",
                 &["shang'shang", "shang'sang", "sang'shang", "sang'sang"][..],

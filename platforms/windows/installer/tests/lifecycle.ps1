@@ -13,7 +13,7 @@ function Get-Block([string]$Begin, [string]$End) {
 # ---- processes stopped before files are replaced or removed ----
 # The WinUI 3 settings window, the shared Tauri panel shell and the MCP server are separate processes outside the Server's process tree; all of them live in the server directory and must be stopped before it is replaced.
 $settings = [regex]::Match($script, '#define MySettingsExeName "([^"]+)"').Groups[1].Value
-$shell = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../src/system/ShellSurfaces.h') -Raw
+$shell = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../src/system/ShellSurfaces.h') -Raw -Encoding UTF8
 $shellNames = [regex]::Match($shell, 'shell_executable_names\(const ShellSurfaceRequest &request\)\s*\{\s*if \(request\.panel\.empty\(\)\)\s*return\s*\{L"([^"]+)"')
 if (-not $settings -or -not $shellNames.Success -or $shellNames.Groups[1].Value -ne $settings) {
     throw 'The installer does not name the Tauri executable the Server launches'

@@ -192,6 +192,24 @@ int main(int argc, char **argv) {
             "output replaces a symlink without writing through it");
     }
 
+    const std::string partial = root + "/partial-render";
+    const std::string blocked = partial + "/note-1.wav";
+    std::filesystem::create_directories(blocked);
+    write(blocked + "/keep", {'k', 'e', 'e', 'p'});
+    const KeySoundRender failed = renderKeySoundNotes(sample, {0, 12}, partial, 1500);
+    check(!failed.ok, "a blocked later note refuses the render");
+    check(!std::filesystem::exists(partial + "/note-0.wav"),
+        "a refused render removes previously written notes");
+    check(std::filesystem::exists(blocked + "/keep"),
+        "a refused render preserves the blocking directory");
+
+    const std::string empty_blocked = root + "/empty-blocked-render";
+    std::filesystem::create_directories(empty_blocked + "/note-1.wav");
+    const KeySoundRender failed_empty = renderKeySoundNotes(sample, {0, 12}, empty_blocked, 1500);
+    check(!failed_empty.ok, "an empty directory also blocks a later note");
+    check(std::filesystem::is_directory(empty_blocked + "/note-1.wav"),
+        "a refused render does not remove a pre-existing directory");
+
     std::printf("%d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

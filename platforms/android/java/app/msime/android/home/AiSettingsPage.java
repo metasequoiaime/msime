@@ -60,7 +60,7 @@ public final class AiSettingsPage extends DetailPage {
         GroupCard service = GroupCard.add(target, "服务");
         GroupCard.Row[] enabledRow = new GroupCard.Row[1];
         enabledRow[0] = service.toggle("启用 AI 入口", "在键盘上显示 AI 回复与润色", enabled, checked -> {
-            if (checked && !validEndpoint(endpoint)) {
+            if (checked && !AiEndpointPolicy.allowed(endpoint)) {
                 enabledRow[0].setChecked(false);
                 String reason = endpointProblem(endpoint);
                 MsToast.show(requireContext(), reason != null ? reason : "请先填写一个 https 端点，或本机、局域网的 http 端点");
@@ -95,7 +95,7 @@ public final class AiSettingsPage extends DetailPage {
             String value = values.get(0);
             String reason = value.isEmpty() ? null : endpointProblem(value);
             field.setError(reason);
-            return value.isEmpty() ? !enabled : validEndpoint(value);
+            return value.isEmpty() ? !enabled : AiEndpointPolicy.allowed(value);
         });
         dialog.setPrimary("保存", values -> saveAi(next -> next.put("endpoint", values.get(0))));
         dialog.show();
@@ -138,13 +138,9 @@ public final class AiSettingsPage extends DetailPage {
             JSONObject ai = KeyboardSheets.child(preferences, "ai_assistant");
             edit.apply(ai);
             if (ai.optBoolean("enabled", false)
-                    && !validEndpoint(InputViewValuePolicy.textOr(ai, "endpoint", "")))
+                    && !AiEndpointPolicy.allowed(InputViewValuePolicy.textOr(ai, "endpoint", "")))
                 throw new JSONException("endpoint is not allowed");
         }, this::reload, this::reload);
-    }
-
-    private static boolean validEndpoint(String endpoint) {
-        return AiEndpointPolicy.allowed(endpoint);
     }
 
     /** 公网 http 地址被拒绝的原因；其他情况（包括地址可用或格式不对）为 null。 */
