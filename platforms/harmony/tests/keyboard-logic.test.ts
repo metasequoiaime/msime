@@ -7168,7 +7168,7 @@ group("only a streaming provider gets the listening face, whose stop is a pause"
       `${provider || "the default"} streams words as they are heard`,
     );
   }
-  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral"]) {
+  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral", "bailian"]) {
     check(
       !VoiceRecordingBehaviourPolicy.streamsPartialResults({ ...base, asr_provider: provider }),
       `${provider} answers only after a stop, so it keeps 停止录音`,
@@ -7512,6 +7512,15 @@ group("a batch transcription reply is judged before it is parsed", () => {
   check(
     VoiceResponsePolicy.batchResult(200, JSON.stringify({ text: "" })).failure.length > 0,
     "an empty transcription says so rather than committing nothing",
+  );
+  const chat: VoiceOutcome = VoiceResponsePolicy.batchResult(
+    200,
+    JSON.stringify({ choices: [{ message: { role: "assistant", content: "百炼" } }] }),
+  );
+  check(chat.text === "百炼" && chat.failure === "", "a chat_audio reply is read from its message");
+  check(
+    VoiceResponsePolicy.batchResult(200, JSON.stringify({ choices: [] })).failure.length > 0,
+    "a chat reply without a choice is not a transcript",
   );
   // Judged on the raw body: a provider answering with a megabyte is not one to parse first.
   const huge: string = JSON.stringify({ text: "x".repeat(2 * 1024 * 1024) });
@@ -14467,6 +14476,51 @@ group("AI model catalogs filter capabilities and paginate safely", () => {
   check(
     AiModelCatalogPolicy.append([], { data: [{ id: "first" }, { id: "second" }] }, 1) === false,
     "the aggregate model bound is enforced across pages",
+  );
+});
+
+group("Harmony batch transcription picks the request by its format", () => {
+  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral"]) {
+    check(
+      HttpAsrConfigurationPolicy.requestFormat(provider) === "multipart",
+      `${provider} is a multipart upload`,
+    );
+  }
+  check(
+    HttpAsrConfigurationPolicy.requestFormat("bailian") === "chat_audio",
+    "Bailian is a chat completion with audio input",
+  );
+  check(
+    ["doubao", "local", "system", ""].every(
+      (provider: string) => HttpAsrConfigurationPolicy.requestFormat(provider) === "",
+    ),
+    "streaming, on-device and system recognition are not uploads",
+  );
+  const body = JSON.parse(HttpAsrConfigurationPolicy.chatAudioBody("qwen3-asr-flash", "UklGRg=="));
+  check(
+    body.model === "qwen3-asr-flash" &&
+      body.stream === false &&
+      body.messages.length === 1 &&
+      body.messages[0].role === "user" &&
+      body.messages[0].content[0].type === "input_audio" &&
+      body.messages[0].content[0].input_audio.data === "data:audio/wav;base64,UklGRg==",
+    "the chat body carries the recording as a data URL in one user message",
+  );
+  const bailian: VoiceInputConfiguration = {
+    ...DEFAULT_VOICE_INPUT_CONFIGURATION,
+    asr_provider: "bailian",
+    asr_endpoint: "",
+    asr_model: "",
+    asr_token: "",
+    asr_tokens: { bailian: "synthetic-bailian-key" },
+  };
+  check(
+    HttpAsrConfigurationPolicy.endpoint(bailian) ===
+      "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions" &&
+      HttpAsrConfigurationPolicy.model(bailian) === "qwen3-asr-flash" &&
+      HttpAsrConfigurationPolicy.token(bailian) === "synthetic-bailian-key" &&
+      HttpAsrConfigurationPolicy.valid(bailian),
+    "Bailian resolves to the DashScope compatible endpoint and can record",
   );
 });
 

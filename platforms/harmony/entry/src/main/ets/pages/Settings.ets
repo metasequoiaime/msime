@@ -47,6 +47,7 @@ import {
 import { SettingsFormFactorCapabilities, SettingsFormFactorProjection }
   from '../keyboard/settings/SettingsFormFactorCapabilities';
 import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settings/LocalVoiceModelPolicy';
+import { HTTP_ASR_CHAT_AUDIO, HttpAsrConfigurationPolicy } from '../keyboard/input/HttpAsrConfigurationPolicy';
 import { AiAuthenticationPolicy } from '../keyboard/settings/AiAuthenticationPolicy';
 import { AiEndpointPolicy } from '../keyboard/settings/AiEndpointPolicy';
 import { HarmonyTelemetry } from '../telemetry/Telemetry';
@@ -2320,20 +2321,26 @@ class SettingsBridge {
     const endpoint: string | null = this.validCredentialEndpoint(config.endpoint ?? '', false);
     const token: string = (config.token ?? '').trim();
     const model: string = (config.model ?? '').trim();
-    if (!['openai', 'siliconflow', 'groq', 'everyapi', 'mistral'].includes(provider) || endpoint === null
+    const format: string = HttpAsrConfigurationPolicy.requestFormat(provider);
+    if (format.length === 0 || endpoint === null
       || !this.validCredentialSecret(token, 8192) || model.length === 0
       || utf8Length(model) > 256 || TextPolicy.hasControl(model)) {
       return this.credentialReply(false, '请填写有效的 HTTPS 转写接口地址、API Key 和模型名。');
     }
     const boundary: string = '----MSIMEHarmonyCredentialProbe';
-    const body: ArrayBuffer = this.silentMultipart(boundary, model);
+    // 按请求格式拼一秒静音：chat_audio 是 JSON，其余是 multipart。
+    const chat: boolean = format === HTTP_ASR_CHAT_AUDIO;
+    const body: ArrayBuffer | string = chat
+      ? HttpAsrConfigurationPolicy.chatAudioBody(model,
+        new util.Base64Helper().encodeToStringSync(this.silentWav()))
+      : this.silentMultipart(boundary, model);
     const request = http.createHttp();
     installNoRedirectGuard(request);
     try {
       const response: http.HttpResponse = await request.request(endpoint, {
         method: http.RequestMethod.POST,
         header: { Accept: 'application/json', Authorization: `Bearer ${token}`,
-          'Content-Type': `multipart/form-data; boundary=${boundary}` },
+          'Content-Type': chat ? 'application/json' : `multipart/form-data; boundary=${boundary}` },
         connectTimeout: 5000,
         readTimeout: 15000,
         extraData: body
@@ -2470,6 +2477,19 @@ class SettingsBridge {
 
   private silentMultipart(boundary: string, model: string): ArrayBuffer {
     const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
+    const wav: Uint8Array = this.silentWav();
+    const prefix: Uint8Array = encoder.encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="credential-test.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
+    const modelPart: Uint8Array = encoder.encode(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n--${boundary}--\r\n`);
+    const output: ArrayBuffer = new ArrayBuffer(prefix.length + wav.length + modelPart.length);
+    const bytes: Uint8Array = new Uint8Array(output);
+    bytes.set(prefix, 0);
+    bytes.set(wav, prefix.length);
+    bytes.set(modelPart, prefix.length + wav.length);
+    return output;
+  }
+
+  /** 一秒 16 kHz 单声道 16 位静音 WAV，凭据测试用。 */
+  private silentWav(): Uint8Array {
     const wav: Uint8Array = new Uint8Array(44 + 32000);
     this.writeAscii(wav, 0, 'RIFF');
     this.writeU32(wav, 4, 32036);
@@ -2483,14 +2503,7 @@ class SettingsBridge {
     this.writeU16(wav, 34, 16);
     this.writeAscii(wav, 36, 'data');
     this.writeU32(wav, 40, 32000);
-    const prefix: Uint8Array = encoder.encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="credential-test.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
-    const modelPart: Uint8Array = encoder.encode(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n--${boundary}--\r\n`);
-    const output: ArrayBuffer = new ArrayBuffer(prefix.length + wav.length + modelPart.length);
-    const bytes: Uint8Array = new Uint8Array(output);
-    bytes.set(prefix, 0);
-    bytes.set(wav, prefix.length);
-    bytes.set(modelPart, prefix.length + wav.length);
-    return output;
+    return wav;
   }
 
   private writeAscii(bytes: Uint8Array, offset: number, value: string): void {
