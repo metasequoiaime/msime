@@ -1474,6 +1474,7 @@ fn custom_theme_round_trips_every_part() {
     let custom_theme = CustomTheme {
         base: crate::skin::theme::GlobalTheme::Paper,
         candidate_skin: Some("sakura.v2".into()),
+        candidate_skin_dark: Some("night-sakura".into()),
         candidate_colors: CustomCandidateColors {
             text: Some("#101010".into()),
             number: Some("#202020".into()),

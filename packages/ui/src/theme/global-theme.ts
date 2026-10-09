@@ -82,8 +82,10 @@ export type CustomCandidateColors = {
 export type CustomTheme = {
   /** 自定义主题的底：`system`（默认，平台 token）或内置主题，不能是 `custom` 或 `native`。应用了皮肤包时改用包清单自己的 base。 */
   base?: BaseGlobalTheme;
-  /** The external candidate skin package id; never a global theme id. Unset means "no package". */
+  /** 浅色模式用的候选窗皮肤包 id，也是没设 `candidate_skin_dark` 时深色模式用的那款；不会是全局主题 id。未设表示没有皮肤包。 */
   candidate_skin?: string | null;
+  /** 深色模式用的候选窗皮肤包 id。未设时深色模式也取 `candidate_skin`。 */
+  candidate_skin_dark?: string | null;
   candidate_colors?: CustomCandidateColors;
   /** The keyboard editor design. Unset or `null` means "no design": the custom theme draws its base theme's keyboard. */
   keyboard?: TouchKeyboardSkinDesign | null;
@@ -265,6 +267,30 @@ export function customCandidatePalette(
       typeof packagePalette?.showSelectedBar === "boolean" ? packagePalette.showSelectedBar : null,
   };
   return Object.values(palette).some((value) => value !== null) ? palette : null;
+}
+
+/** `CustomTheme::candidate_skin_for`：`dark` 模式下取哪个槽位的皮肤包。深色模式先取 `candidate_skin_dark`，没设时与浅色模式一样取 `candidate_skin`。 */
+export function candidateSkinFor(custom: CustomTheme | undefined, dark: boolean): string | null {
+  const light = custom?.candidate_skin || null;
+  return dark ? custom?.candidate_skin_dark || light : light;
+}
+
+/** `ThemePackage::draws_in`：以 `base` 为底的皮肤包能否在 `dark` 模式下画。固定明暗的内置主题只画在自己的明暗下，`system` 两种都画。 */
+export function skinDrawsIn(base: GlobalTheme, dark: boolean): boolean {
+  const appearance = themeEntry(base).appearance;
+  return appearance === null || (appearance === "dark") === dark;
+}
+
+/** `resolve()` 给自定义主题选的底：画了皮肤包时是包的 base（`drawnPackageBase`）；设过皮肤、却没有能在 `dark` 下画的包时，`custom.base` 只在属于这种明暗时作底，否则是 `system`；没设皮肤时就是 `custom.base`。 */
+export function customDrawnBase(
+  custom: CustomTheme | undefined,
+  drawnPackageBase: BaseGlobalTheme | null,
+  dark: boolean,
+): BaseGlobalTheme {
+  if (drawnPackageBase !== null) return drawnPackageBase;
+  const base = custom?.base ?? "system";
+  const configured = Boolean(custom?.candidate_skin || custom?.candidate_skin_dark);
+  return !configured || skinDrawsIn(base, dark) ? base : "system";
 }
 
 /** The candidate preview style of a custom theme: `customCandidatePalette` as `--cand-*` properties. */

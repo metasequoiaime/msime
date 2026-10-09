@@ -254,9 +254,12 @@ pub struct CustomTheme {
     /// 自定义主题的底：`system` 或五个内置主题之一，不能是 `custom`，也不能是只在部分宿主上提供的 `native`（见 `GlobalTheme::is_base`）。皮肤包和取色器没设的候选颜色由它补上；没有键盘设计时，键盘也画它的。应用了皮肤包时，改用包清单自己的 `base`。
     #[serde(skip_serializing_if = "is_system_theme")]
     pub base: crate::skin::theme::GlobalTheme,
-    /// The external candidate skin package (a folder name in the host's skin root) whose colours and decoration the custom theme uses. Never a global theme id.
+    /// 浅色模式用的候选窗皮肤包（宿主皮肤目录里的文件夹名），也是没设 `candidate_skin_dark` 时深色模式用的那款。不会是全局主题 ID。皮肤包只在它 `base` 的明暗下绘制，见 `CustomTheme::candidate_skin_for`。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub candidate_skin: Option<String>,
+    /// 深色模式用的候选窗皮肤包。`None` 时深色模式也取 `candidate_skin`，只设过一款皮肤的旧文档因此照旧。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidate_skin_dark: Option<String>,
     /// The candidate colour pickers, drawn over the package's colours.
     #[serde(skip_serializing_if = "CustomCandidateColors::is_empty")]
     pub candidate_colors: CustomCandidateColors,
@@ -315,14 +318,25 @@ impl CustomTheme {
             }
         }
         // 与皮肤目录的文件夹名同一形状，但沿用较宽的 `is_selectable_id`：被 msime-windows 内置外观占用的旧皮肤名仍可保存，只是目录里找不到它。
-        if self
-            .candidate_skin
-            .as_deref()
-            .is_some_and(|skin| !crate::skin::catalog::is_selectable_id(skin))
+        if [&self.candidate_skin, &self.candidate_skin_dark]
+            .into_iter()
+            .flatten()
+            .any(|skin| !crate::skin::catalog::is_selectable_id(skin))
         {
             return Err(PreferencesError::InvalidCandidateSkin);
         }
         Ok(())
+    }
+
+    /// 宿主在 `dark` 模式下要加载的皮肤包：深色模式优先取 `candidate_skin_dark`，没设时与浅色模式一样取 `candidate_skin`。选中的包画不画还要看它的 `base` 是否属于这个模式，由 `theme::resolve` 判断。
+    pub fn candidate_skin_for(&self, dark: bool) -> Option<&str> {
+        if dark {
+            self.candidate_skin_dark
+                .as_deref()
+                .or(self.candidate_skin.as_deref())
+        } else {
+            self.candidate_skin.as_deref()
+        }
     }
 }
 
