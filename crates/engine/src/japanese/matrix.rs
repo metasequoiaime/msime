@@ -210,6 +210,24 @@ mod tests {
     }
 
     #[test]
+    fn unknown_reading_search_does_not_allocate_empty_ranking_heaps() {
+        let dictionary = dictionary(&[("かな", "仮名", 0, 0, 500)], 1, &[0]);
+        let conversion = convert_romaji("kiki");
+        let (actual, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            search_converted(&dictionary, &conversion, 16)
+        });
+        assert_eq!(
+            actual,
+            [JapaneseConversion {
+                text: "きき".to_owned(),
+                cost: 24_000
+            }]
+        );
+        eprintln!("日文未命中双假名矩阵搜索分配：{allocations}");
+        assert!(allocations <= 9, "未命中子读音无需排名堆：{allocations}");
+    }
+
+    #[test]
     fn sentence_search_does_not_copy_temporary_lemma_strings() {
         let dictionary = dictionary(&[("か", "蚊", 0, 0, 500)], 1, &[0]);
         let conversion = convert_romaji("ka");

@@ -136,8 +136,8 @@ fn best_ids(mut ids: Vec<u32>, limit: usize, cost: impl Fn(u32) -> i32) -> Vec<u
     ids
 }
 
-/// Keep only the cheapest IDs while scanning a potentially large reading range. The heap holds
-/// the current worst selected item at its root, so memory is bounded by the requested result page.
+/// 扫描大读音范围时只保留成本最低的 ID；堆顶保存当前最差项，容量受结果限额约束。
+/// 空范围在申请排名存储前返回。
 fn best_ids_from_iter<I>(ids: I, limit: usize, cost: impl Fn(u32) -> i32) -> Vec<u32>
 where
     I: IntoIterator<Item = u32>,
@@ -145,8 +145,12 @@ where
     if limit == 0 {
         return Vec::new();
     }
+    let mut ids = ids.into_iter();
+    let Some(first) = ids.next() else {
+        return Vec::new();
+    };
     let mut best: BinaryHeap<((i32, u32), u32)> = BinaryHeap::with_capacity(limit);
-    for id in ids {
+    for id in std::iter::once(first).chain(ids) {
         let key = (cost(id), id);
         if best.len() < limit {
             best.push((key, id));
@@ -465,10 +469,13 @@ impl JapaneseDictionary {
         if prefix.is_empty() || next_kana.is_empty() || limit == 0 {
             return Vec::new();
         }
-        let mut best: BinaryHeap<((i32, u32), u32)> = BinaryHeap::with_capacity(limit);
+        let mut best: BinaryHeap<((i32, u32), u32)> = BinaryHeap::new();
         let mut consider = |id: u32| {
             let key = (self.cost_of(id), id);
             if best.len() < limit {
+                if best.is_empty() {
+                    best.reserve_exact(limit);
+                }
                 best.push((key, id));
             } else if key < best.peek().expect("non-empty bounded heap").0 {
                 best.pop();
@@ -828,6 +835,103 @@ mod tests {
                 .collect::<Vec<_>>(),
             [1, 2, 3]
         );
+    }
+
+    #[test]
+    fn empty_ranked_lookups_do_not_allocate_heap_storage() {
+        let dictionary = parsed(test_model::bytes(&[("かな", "仮名", 0, 0, 500)], 1, &[0]));
+        for query in ["あ", "か", "かに", "漢", "😀", "ん"] {
+            let (exact, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                dictionary.exact_lemma_views(query, 24)
+            });
+            assert!(exact.is_empty());
+            eprintln!("日文 exact 未命中排名分配：{allocations}");
+            assert_eq!(allocations, 0, "未命中不应分配排名堆");
+        }
+    }
+
+    #[test]
+    fn empty_prefix_lookups_do_not_allocate_heap_storage() {
+        let dictionary = parsed(test_model::bytes(&[("かな", "仮名", 0, 0, 500)], 1, &[0]));
+        for prefix in ["あ", "かに", "漢", "😀", "ん"] {
+            let (views, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                dictionary.prefix_lemma_views(prefix, 24)
+            });
+            assert!(views.is_empty());
+            eprintln!("日文 prefix 未命中排名分配：{allocations}");
+            assert_eq!(allocations, 0, "未命中不应分配排名堆");
+        }
+    }
+
+    #[test]
+    fn empty_continuing_lookups_do_not_allocate_heap_storage() {
+        let dictionary = parsed(test_model::bytes(&[("かな", "仮名", 0, 0, 500)], 1, &[0]));
+        for (prefix, next) in [("か", "に"), ("あ", "な"), ("かな", "")] {
+            let (views, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                dictionary.continuing_lemma_views(prefix, &[next], 24)
+            });
+            assert!(views.is_empty());
+            eprintln!("日文 continuing 未命中分配：{allocations}");
+            assert_eq!(
+                allocations,
+                usize::from(!next.is_empty()),
+                "只应保留非空后缀的查询字符串分配"
+            );
+        }
+    }
+
+    #[test]
+    fn ranked_lookup_skips_zero_limit_and_empty_costs() {
+        let ids = std::iter::from_fn(|| panic!("零限额不应读取候选"));
+        let (result, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            best_ids_from_iter(ids, 0, |_| panic!("零限额不应读取成本"))
+        });
+        assert!(result.is_empty());
+        assert_eq!(allocations, 0);
+        let (result, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            best_ids_from_iter([], 24, |_| panic!("空候选不应读取成本"))
+        });
+        assert!(result.is_empty());
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn ranked_lookup_preserves_first_item_ties_and_replacement() {
+        let costs = [-10, 30, -10, -20, 50, 0];
+        let expected = [3, 0, 2, 5, 1, 4];
+        for limit in [1, 2, 3, 6, 24] {
+            let visited = std::cell::RefCell::new(Vec::new());
+            let ids = [0, 4, 1, 2, 5, 3]
+                .into_iter()
+                .inspect(|id| visited.borrow_mut().push(*id));
+            let result = best_ids_from_iter(ids, limit, |id| costs[id as usize]);
+            assert_eq!(result, expected[..limit.min(expected.len())]);
+            assert_eq!(*visited.borrow(), [0, 4, 1, 2, 5, 3]);
+        }
+        assert_eq!(best_ids_from_iter([0], 24, |_| -10), [0]);
+    }
+
+    #[test]
+    fn continuing_lookup_reserves_after_an_initial_suffix_miss() {
+        let dictionary = parsed(test_model::bytes(
+            &[
+                ("かな", "仮名", 0, 0, 500),
+                ("かに", "蟹", 0, 0, -10),
+                ("かに", "下荷", 0, 0, -10),
+            ],
+            1,
+            &[0],
+        ));
+        for limit in [1, 2, 24] {
+            let (views, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                dictionary.continuing_lemma_views("か", &["ん", "に", "な"], limit)
+            });
+            assert_eq!(
+                views.iter().map(|view| view.token_id).collect::<Vec<_>>(),
+                [1, 2, 0][..limit.min(3)]
+            );
+            assert_eq!(allocations, 5, "三个 suffix 字符串、排名堆及结果向量");
+        }
     }
 
     #[test]
