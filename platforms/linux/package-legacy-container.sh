@@ -119,23 +119,9 @@ docker run --rm --init --platform "$platform" \
     )
     [ "${ceiling[GLIBC]}" = 2.28 ] || { echo "the build image provides GLIBC_${ceiling[GLIBC]}, not 2.28" >&2; exit 1; }
     echo "symbol version ceilings: GLIBC_${ceiling[GLIBC]} GLIBCXX_${ceiling[GLIBCXX]} CXXABI_${ceiling[CXXABI]} GCC_${ceiling[GCC]}"
-    contents=$(mktemp -d)
-    dpkg-deb -x "$deb" "$contents"
-    too_new=0
-    while IFS= read -r path; do
-      file "$path" | grep -q ": *ELF" || continue
-      for prefix in GLIBC GLIBCXX CXXABI GCC; do
-        limit=${ceiling[$prefix]}
-        for needed in $(readelf -V "$path" | grep -oE "\b${prefix}_[0-9]+(\.[0-9]+)+" | sed "s/^${prefix}_//" | sort -uV); do
-          if [ "$(printf "%s\n%s\n" "$needed" "$limit" | sort -V | tail -1)" != "$limit" ]; then
-            echo "${path#"$contents"} needs ${prefix}_$needed, buster provides up to ${prefix}_$limit" >&2
-            too_new=1
-          fi
-        done
-      done
-    done < <(find "$contents" -type f)
-    rm -rf "$contents"
-    [ "$too_new" = 0 ] || { echo "the legacy package needs a library newer than buster provides" >&2; exit 1; }
+    # 逐个 ELF 文件的核对在 tests/tools/check-elf-symbol-versions.sh，发布工作流对上传前改过名的包用同一个脚本再核一次。
+    bash platforms/linux/tests/tools/check-elf-symbol-versions.sh "$deb" \
+      GLIBC="${ceiling[GLIBC]}" GLIBCXX="${ceiling[GLIBCXX]}" CXXABI="${ceiling[CXXABI]}" GCC="${ceiling[GCC]}"
     (cd /build/dist && sha256sum -- *.deb > SHA256SUMS && cat SHA256SUMS)
     # 第 2 步运行时验收用的词库。包本身不带词库，用户装好后用 msime-linux-setup --download 取回；用 -DMSIME_ENGINE_RESOURCES 配置会把词库装进包里，所以不走那条路，而是用 Windows 发布工作流取词库的同一个示例按锁下载并校验，放在构建目录的缓存里，重跑时不再下载。
     resources=$(cargo run --quiet --release --locked -p msime-client-core --example install_resources -- /build/resources-cache | tail -1)
