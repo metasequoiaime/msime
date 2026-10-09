@@ -16,10 +16,13 @@ const GOOGLE_LOGIN_MARGIN: Duration = Duration::from_secs(30);
 
 const GOOGLE_AUTHORIZATION_PREFIX: &str = "https://accounts.google.com/";
 const GOOGLE_CALLBACK_PATH: &str = "/callback";
-const MAX_CALLBACK_REQUEST_BYTES: usize = 8 * 1024;
+/// 一次回环请求头的上限。宿主自己读 socket 时（鸿蒙）也按它截断，超过的连接当作不是回跳。
+pub const GOOGLE_CALLBACK_MAX_REQUEST_BYTES: usize = 8 * 1024;
+const MAX_CALLBACK_REQUEST_BYTES: usize = GOOGLE_CALLBACK_MAX_REQUEST_BYTES;
 const MAX_STATE_BYTES: usize = 512;
 /// Total time one loopback connection may take to send its request head, and to take the reply. It is short because a real browser sends the redirect at once; an idle preconnect or a slow local client must not hold the listener.
-const CALLBACK_IO_TIMEOUT: Duration = Duration::from_secs(2);
+pub const GOOGLE_CALLBACK_IO_TIMEOUT: Duration = Duration::from_secs(2);
+const CALLBACK_IO_TIMEOUT: Duration = GOOGLE_CALLBACK_IO_TIMEOUT;
 /// How often the accept loop and a pending read look at the deadline and the cancel flag.
 const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -31,7 +34,8 @@ pub(super) fn google_callback_window(expires_in: u64, cap: Duration) -> Option<D
     (!window.is_zero()).then_some(window)
 }
 
-pub(super) fn google_loopback_target(port: u16) -> String {
+/// The redirect target for a loopback listener on `port`, in the one shape the backend and [`google_loopback_plan`] accept.
+pub fn google_loopback_target(port: u16) -> String {
     format!("http://127.0.0.1:{port}{GOOGLE_CALLBACK_PATH}")
 }
 
@@ -85,6 +89,44 @@ pub(super) fn google_authorization_state(url: &str, target: &str) -> Result<Stri
     Ok(state)
 }
 
+/// 宿主自己跑回环监听时（鸿蒙由 ArkTS 读写 socket），打开浏览器之前要知道的东西：回跳里应带的 `state`，以及最多等多久。
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct GoogleLoopbackPlan {
+    pub state: String,
+    pub wait: Duration,
+}
+
+/// 校验后端为 `target` 生成的授权链接，并按 challenge 的寿命算出等待时长，与桌面端 [`AccountSession::sign_in_google_with_browser`] 打开浏览器前做的检查相同。`target` 必须是 [`google_loopback_target`] 的形状；链接不合格、不指向这个监听，或 challenge 太短，都返回 [`AccountError::Unavailable`]，宿主不应打开它。
+pub fn google_loopback_plan(
+    authorization_url: &str,
+    target: &str,
+    expires_in: u64,
+) -> Result<GoogleLoopbackPlan, AccountError> {
+    if !valid_google_loopback_target(target) {
+        return Err(AccountError::Unavailable);
+    }
+    let state = google_authorization_state(authorization_url, target)?;
+    let wait = google_callback_window(expires_in, GOOGLE_SIGN_IN_TIMEOUT)
+        .ok_or(AccountError::Unavailable)?;
+    Ok(GoogleLoopbackPlan { state, wait })
+}
+
+/// 一次回环请求的结果，以及要原样写回浏览器的完整 HTTP 回应。
+#[derive(Debug, Eq, PartialEq)]
+pub struct GoogleLoopbackReply {
+    pub outcome: GoogleCallback,
+    pub response: String,
+}
+
+/// 解析一次回环请求的请求头（没读到完整请求头时传 `None`），给出结果和回应。桌面端的监听和鸿蒙的 ArkTS 监听共用它，回跳的判定和浏览器上看到的页面因此只有一份。
+pub fn google_loopback_reply(head: Option<&str>, expected_state: &str) -> GoogleLoopbackReply {
+    let outcome = head.map_or(GoogleCallback::Ignored, |head| {
+        parse_google_callback(head, expected_state)
+    });
+    let response = callback_response(&outcome);
+    GoogleLoopbackReply { outcome, response }
+}
+
 fn single_query_value(url: &Url, name: &str) -> Option<String> {
     let mut values = url
         .query_pairs()
@@ -112,7 +154,7 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 
 /// What one loopback request means for the sign-in.
 #[derive(Debug, Eq, PartialEq)]
-pub(super) enum GoogleCallback {
+pub enum GoogleCallback {
     /// Not the redirect, or not ours (another path such as `/favicon.ico`, or a `state` that does not match). The listener answers it and keeps waiting.
     Ignored,
     /// The redirect carried an authorization code for this sign-in.
@@ -218,10 +260,16 @@ fn answer_callback(
     cancelled: &AtomicBool,
 ) -> GoogleCallback {
     let head = read_request_head(&mut stream, deadline, cancelled);
-    let outcome = head.as_deref().map_or(GoogleCallback::Ignored, |head| {
-        parse_google_callback(head, state)
-    });
-    let (status, page) = match &outcome {
+    let reply = google_loopback_reply(head.as_deref(), state);
+    // The browser page is a courtesy; the outcome stands even if the browser already went away.
+    let _ = stream.write_all(reply.response.as_bytes());
+    let _ = stream.flush();
+    reply.outcome
+}
+
+/// The HTTP response the browser is left on for `outcome`.
+fn callback_response(outcome: &GoogleCallback) -> String {
+    let (status, page) = match outcome {
         // The backend has not exchanged the code yet, so the page cannot claim the sign-in succeeded; the app reports the outcome.
         GoogleCallback::Code(_) => (
             "200 OK",
@@ -262,14 +310,10 @@ fn answer_callback(
     };
     let body = page.render();
     // The page carries its own styles and an inline SVG and nothing else, so the policy allows exactly that: no script, no request off the loopback.
-    let response = format!(
+    format!(
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n{body}",
         body.len()
-    );
-    // The browser page is a courtesy; the outcome stands even if the browser already went away.
-    let _ = stream.write_all(response.as_bytes());
-    let _ = stream.flush();
-    outcome
+    )
 }
 
 /// Reads one request head within [`CALLBACK_IO_TIMEOUT`] in total (never past `deadline`), giving up early when `cancelled` is set. Reads wait in [`ACCEPT_POLL_INTERVAL`] slices so both limits are rechecked while a client trickles bytes.

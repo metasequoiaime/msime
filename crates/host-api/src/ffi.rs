@@ -208,6 +208,7 @@ pub(crate) fn keyboard_reranker(
 
 pub mod android_data;
 pub mod candidates;
+pub mod google;
 pub mod host;
 pub mod input;
 pub mod lifecycle;
