@@ -9683,19 +9683,30 @@ group("account native success envelopes require a value", () => {
 });
 
 group("account and cloud clipboard bridge keeps secrets native", () => {
-  const sessionFor = (id: string): string => JSON.stringify({
-    access_token: "a".repeat(64), refresh_token: "b".repeat(64),
-    token_type: "Bearer", expires_at: Date.now() + 600_000,
-    user: { id, display_name: "Synthetic", created_at: "2026-01-01" },
-  });
-  check(storedSessionUserId(sessionFor("old-account")) === "old-account",
-    "the keyboard sees the saved account owner");
-  check(storedSessionUserId(sessionFor("new-account")) === "new-account",
-    "a fresh read sees the replacement account");
-  check(storedSessionUserId(null) === null && storedSessionUserId("not json") === null,
-    "missing or malformed sessions have no owner");
-  check(storedSessionUserId(JSON.stringify({ user: { id: "forged" } })) === null,
-    "an unvalidated user id cannot own a snapshot");
+  const sessionFor = (id: string): string =>
+    JSON.stringify({
+      access_token: "a".repeat(64),
+      refresh_token: "b".repeat(64),
+      token_type: "Bearer",
+      expires_at: Date.now() + 600_000,
+      user: { id, display_name: "Synthetic", created_at: "2026-01-01" },
+    });
+  check(
+    storedSessionUserId(sessionFor("old-account")) === "old-account",
+    "the keyboard sees the saved account owner",
+  );
+  check(
+    storedSessionUserId(sessionFor("new-account")) === "new-account",
+    "a fresh read sees the replacement account",
+  );
+  check(
+    storedSessionUserId(null) === null && storedSessionUserId("not json") === null,
+    "missing or malformed sessions have no owner",
+  );
+  check(
+    storedSessionUserId(JSON.stringify({ user: { id: "forged" } })) === null,
+    "an unvalidated user id cannot own a snapshot",
+  );
   let oversizedCleared = false;
   const oversizedStore: AccountSessionStore = {
     load: () => "x".repeat(64 * 1024 + 1),
@@ -9889,24 +9900,36 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
 
 group("a rejected account session cancels its snapshot before clearing storage", () => {
   let saved: string | null = JSON.stringify({
-    access_token: "a".repeat(64), refresh_token: "b".repeat(64),
-    token_type: "Bearer", expires_at: Date.now() + 600_000,
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600_000,
     user: { id: "synthetic-owner", display_name: "Synthetic", created_at: "2026-01-01" },
   });
   const events: string[] = [];
   const store: AccountSessionStore & { beforeClear(accountId: string): void } = {
     load: () => saved,
-    save: (value: string) => { saved = value; },
-    beforeClear: (accountId: string) => { events.push(`cancel:${accountId}`); },
-    clear: () => { events.push("clear"); saved = null; },
+    save: (value: string) => {
+      saved = value;
+    },
+    beforeClear: (accountId: string) => {
+      events.push(`cancel:${accountId}`);
+    },
+    clear: () => {
+      events.push("clear");
+      saved = null;
+    },
   };
   const bridge = new AccountCloudBridge(
-    { request: async () => ({ status: 401, body: "{}" }) }, store,
+    { request: async () => ({ status: 401, body: "{}" }) },
+    store,
   );
   void bridge.handle('{"operation":"profile"}').then((reply) => {
     check(JSON.parse(reply).error === "account_unauthorized", "the refused session is rejected");
-    check(JSON.stringify(events) === '["cancel:synthetic-owner","clear"]',
-      "the snapshot owner is cancelled before the session disappears");
+    check(
+      JSON.stringify(events) === '["cancel:synthetic-owner","clear"]',
+      "the snapshot owner is cancelled before the session disappears",
+    );
     check(saved === null, "the refused session is removed");
   });
 });
@@ -11488,6 +11511,7 @@ function fullPreferenceSchema(): AccountPreferenceSchema {
       "platform.harmony.custom_keyboard_skin",
       "platform.harmony.theme",
       "platform.harmony.custom_candidate_skin",
+      "platform.harmony.custom_candidate_skin_dark",
       "platform.harmony.haptic_strength",
       "platform.harmony.number_keypad_order",
     ],
@@ -11532,7 +11556,12 @@ group("the account settings sync maps this host's document, not another's", () =
     chinese_punctuation: false,
     touch_keyboard_layout: "nine_key",
     global_theme: "night",
-    custom_theme: { base: "paper", candidate_skin: "harbour", keyboard: { background: 1 } },
+    custom_theme: {
+      base: "paper",
+      candidate_skin: "harbour",
+      candidate_skin_dark: "dusk",
+      keyboard: { background: 1 },
+    },
     touch_key_spacing_tenths: 40,
   };
   const values = localAccountPreferences(local, syncFeedback);
@@ -11544,6 +11573,10 @@ group("the account settings sync maps this host's document, not another's", () =
   check(
     values["platform.harmony.custom_candidate_skin"] === "harbour",
     "and the custom theme's candidate package",
+  );
+  check(
+    values["platform.harmony.custom_candidate_skin_dark"] === "dusk",
+    "and the dark-mode package beside it",
   );
   // Not platform.android: the two are separate devices with separate keyboards, and sharing the
   // namespace would let a HarmonyOS phone overwrite the skin on the user's Android keyboard.
@@ -11580,6 +11613,7 @@ group("the account settings sync maps this host's document, not another's", () =
     "no design travels as an empty string",
   );
   check(sparse["platform.harmony.custom_candidate_skin"] === "", "and so does no package");
+  check(sparse["platform.harmony.custom_candidate_skin_dark"] === "", "and no dark-mode package");
   const retired = localAccountPreferences({ global_theme: "midnight" }, syncFeedback);
   check(
     retired["platform.harmony.global_theme"] === "system",
@@ -11772,6 +11806,7 @@ group("applying writes only what the schema declares", () => {
       "input.frequency_trigger_count": 5,
       "platform.harmony.global_theme": "paper",
       "platform.harmony.custom_candidate_skin": "harbour",
+      "platform.harmony.custom_candidate_skin_dark": "dusk",
     },
   };
   const applied = applyAccountPreferences(local, cloud, schema, syncFeedback);
@@ -11790,11 +11825,16 @@ group("applying writes only what the schema declares", () => {
     (applied.preferences.custom_theme as Record<string, unknown>).candidate_skin === "harbour",
     "and the package lands inside the custom theme",
   );
+  check(
+    (applied.preferences.custom_theme as Record<string, unknown>).candidate_skin_dark === "dusk",
+    "and so does the dark-mode package",
+  );
   const cleared = applyAccountPreferences(
     {
       custom_theme: {
         base: "ink",
         candidate_skin: "harbour",
+        candidate_skin_dark: "dusk",
         candidate_colors: { text: "#112233" },
       },
     },
@@ -11803,6 +11843,7 @@ group("applying writes only what the schema declares", () => {
       settings: {
         "platform.harmony.custom_theme_base": "system",
         "platform.harmony.custom_candidate_skin": "",
+        "platform.harmony.custom_candidate_skin_dark": "",
         "platform.harmony.custom_keyboard_skin": "",
       },
     },
@@ -11815,8 +11856,22 @@ group("applying writes only what the schema declares", () => {
     "a system base is written by omitting it, as the shared document does",
   );
   check(
-    !("candidate_skin" in clearedTheme) && !("keyboard" in clearedTheme),
-    "empty strings clear the package and the design",
+    !("candidate_skin" in clearedTheme) &&
+      !("candidate_skin_dark" in clearedTheme) &&
+      !("keyboard" in clearedTheme),
+    "empty strings clear both packages and the design",
+  );
+  // 只带浅色槽位的云端文档（上传它的设备还不认识深色槽位）不动本机的深色槽位。
+  const lightOnly = applyAccountPreferences(
+    { custom_theme: { candidate_skin: "harbour", candidate_skin_dark: "dusk" } },
+    { revision: 5, settings: { "platform.harmony.custom_candidate_skin": "sakura" } },
+    schema,
+    syncFeedback,
+  );
+  const lightOnlyTheme = lightOnly.preferences.custom_theme as Record<string, unknown>;
+  check(
+    lightOnlyTheme.candidate_skin === "sakura" && lightOnlyTheme.candidate_skin_dark === "dusk",
+    "a cloud document without the dark slot leaves the local dark slot alone",
   );
   check(
     (clearedTheme.candidate_colors as Record<string, unknown>).text === "#112233",
@@ -11827,6 +11882,8 @@ group("applying writes only what the schema declares", () => {
     ["platform.harmony.custom_theme_base", "custom"],
     ["platform.harmony.custom_candidate_skin", "ink"],
     ["platform.harmony.custom_candidate_skin", "../escape"],
+    ["platform.harmony.custom_candidate_skin_dark", "night"],
+    ["platform.harmony.custom_candidate_skin_dark", "../escape"],
   ]) {
     let refused = false;
     try {

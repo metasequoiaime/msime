@@ -72,7 +72,10 @@ export interface CustomCandidateColors {
 /** The shared `custom_theme` preference. Every member is optional; an absent one takes its shared default. */
 export interface CustomThemeDocument {
   readonly base?: string;
+  /** 浅色模式的候选皮肤包，也是 `candidate_skin_dark` 没设时深色模式用的那款。 */
   readonly candidate_skin?: string;
+  /** 深色模式的候选皮肤包。两个槽位都由 `msime_client_resolve_theme` 按 `dark` 取用，宿主不自己挑。 */
+  readonly candidate_skin_dark?: string;
   readonly candidate_colors?: CustomCandidateColors;
   readonly keyboard?: CustomSkinDocument;
 }
