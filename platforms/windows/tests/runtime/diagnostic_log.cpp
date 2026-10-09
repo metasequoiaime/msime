@@ -1,4 +1,5 @@
 #include "DiagnosticLog.h"
+#include "../core/MaterializedSymlink.h"
 #include <windows.h>
 #include <filesystem>
 #include <fstream>
@@ -71,7 +72,8 @@ int main() {
   std::filesystem::remove_all(linked_root);
   require(std::filesystem::create_directories(outside), "outside directory");
   const auto logs = linked_root / L"logs";
-  if (CreateSymbolicLinkW(logs.c_str(), outside.c_str(), SYMBOLIC_LINK_FLAG_DIRECTORY)) {
+  if (msime::windows::tests::create_materialized_symlink(
+          logs, outside, SYMBOLIC_LINK_FLAG_DIRECTORY)) {
     DiagnosticLog linked_log(logs / L"server.log");
     linked_log.set_enabled(true, false);
     linked_log.server("must not escape");
@@ -86,7 +88,8 @@ int main() {
     std::ofstream sentinel(outside_file, std::ios::binary);
     sentinel << "synthetic outside";
   }
-  if (CreateSymbolicLinkW(leaf.c_str(), outside_file.c_str(), 0)) {
+  if (msime::windows::tests::create_materialized_symlink(
+          leaf, outside_file, 0)) {
     DiagnosticLog linked_leaf(leaf);
     linked_leaf.set_enabled(true, false);
     linked_leaf.server("must not follow leaf");

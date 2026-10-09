@@ -1,6 +1,7 @@
 package app.msime.android.policy;
 
 import app.msime.android.HttpBodyPolicy;
+import app.msime.android.JsonPolicy;
 import app.msime.android.SafePaths;
 import java.io.File;
 import java.io.IOException;
@@ -53,7 +54,7 @@ public final class HostOptionsPolicy {
         String raw = readRuntimeOptions(files);
         if (raw.isEmpty()) return "";
         try {
-            return new JSONObject(raw).optString(key, "");
+            return JsonPolicy.strictStringOrEmpty(new JSONObject(raw).opt(key));
         } catch (JSONException error) {
             return "";
         }

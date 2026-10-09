@@ -217,7 +217,7 @@ impl SchemeType {
         }
     }
 
-    /// Shift+letter opens the local modes other than K (U, T, E, M, J, Y, R, V) while nothing is composed. K and the `/` and `@` keys follow `opens_table_modes` instead.
+    /// Shift+字母打开除 K 以外的本地模式；K、`/` 和 `@` 由 `opens_table_modes` 单独判断。
     pub const fn opens_local_modes(self) -> bool {
         match self {
             Self::Quanpin | Self::Shuangpin => true,
@@ -232,7 +232,7 @@ impl SchemeType {
         }
     }
 
-    /// 没有组字时，Shift+K 打开短语模式，`/` 和 `@` 打开指令和提及模式。这三个模式只查自己的表（短语表、指令表、提及列表），不靠拼音；五笔的编码只用小写字母，用不到大写字母、`/` 和 `@`，所以五笔也打开它们，短语表和指令表插件在五笔下才有入口。
+    /// 没有组字时，Shift+K 打开短语模式，`/` 和 `@` 打开指令和提及模式；五笔也提供这些只查本地表的入口。
     pub const fn opens_table_modes(self) -> bool {
         match self {
             Self::Quanpin | Self::Shuangpin | Self::Wubi => true,
@@ -1281,7 +1281,7 @@ mod tests {
     // Each row lists Quanpin, Shuangpin, Wubi, Japanese and Korean; the values are the behaviour these schemes had before the checks became predicates.
     #[test]
     fn predicates_keep_the_behaviour_of_the_existing_schemes() {
-        let table: [Row; 27] = [
+        let table: [Row; 26] = [
             (
                 "is_chinese",
                 SchemeType::is_chinese,
@@ -1321,11 +1321,6 @@ mod tests {
                 "opens_local_modes",
                 SchemeType::opens_local_modes,
                 [true, true, false, false, false],
-            ),
-            (
-                "opens_table_modes",
-                SchemeType::opens_table_modes,
-                [true, true, true, false, false],
             ),
             (
                 "learns_into_main_dictionary",
@@ -1541,7 +1536,7 @@ mod tests {
             ("widens_full_width", SchemeType::widens_full_width),
             ("draws_reading", SchemeType::draws_reading),
         ];
-        let off: [Named; 21] = [
+        let off: [Named; 20] = [
             (
                 "cancel_keeps_composition",
                 SchemeType::cancel_keeps_composition,
@@ -1555,7 +1550,6 @@ mod tests {
                 SchemeType::allows_english_emoji_mixing,
             ),
             ("opens_local_modes", SchemeType::opens_local_modes),
-            ("opens_table_modes", SchemeType::opens_table_modes),
             (
                 "learns_into_main_dictionary",
                 SchemeType::learns_into_main_dictionary,
@@ -1637,7 +1631,7 @@ mod tests {
             ("locks_caret", SchemeType::locks_caret),
             ("nine_key", SchemeType::nine_key),
         ];
-        let off: [Named; 17] = [
+        let off: [Named; 16] = [
             (
                 "script_conversion_applies",
                 SchemeType::script_conversion_applies,
@@ -1648,7 +1642,6 @@ mod tests {
                 SchemeType::allows_english_emoji_mixing,
             ),
             ("opens_local_modes", SchemeType::opens_local_modes),
-            ("opens_table_modes", SchemeType::opens_table_modes),
             (
                 "learns_into_main_dictionary",
                 SchemeType::learns_into_main_dictionary,
@@ -1697,7 +1690,7 @@ mod tests {
             ("widens_full_width", SchemeType::widens_full_width),
             ("accepts_apostrophe", SchemeType::accepts_apostrophe),
         ];
-        let off: [Named; 21] = [
+        let off: [Named; 20] = [
             (
                 "cancel_keeps_composition",
                 SchemeType::cancel_keeps_composition,
@@ -1711,7 +1704,6 @@ mod tests {
                 SchemeType::allows_english_emoji_mixing,
             ),
             ("opens_local_modes", SchemeType::opens_local_modes),
-            ("opens_table_modes", SchemeType::opens_table_modes),
             (
                 "learns_into_main_dictionary",
                 SchemeType::learns_into_main_dictionary,
@@ -1761,7 +1753,7 @@ mod tests {
             ("locks_caret", SchemeType::locks_caret),
             ("selection_completes", SchemeType::selection_completes),
         ];
-        let off: [Named; 23] = [
+        let off: [Named; 22] = [
             ("is_chinese", SchemeType::is_chinese),
             (
                 "outputs_traditional_natively",
@@ -1782,7 +1774,6 @@ mod tests {
                 SchemeType::allows_english_emoji_mixing,
             ),
             ("opens_local_modes", SchemeType::opens_local_modes),
-            ("opens_table_modes", SchemeType::opens_table_modes),
             (
                 "learns_into_main_dictionary",
                 SchemeType::learns_into_main_dictionary,

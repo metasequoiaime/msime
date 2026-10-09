@@ -87,6 +87,8 @@ pub(crate) use msime_path_trust::is_trusted_system_alias;
 /// Open an Engine asset without following a leaf symlink. Callers still
 /// validate the file format and size through their own loaders; this closes
 /// the check-then-open race between those checks and the read or mapping.
+///
+/// 只读打开，所以多链接文件在所在目录只有 root 或当前用户能写时也放行（`msime_path_trust::multi_link_is_trusted`）：Nix 的 store 去重、ostree 部署会把安装目录里的资源合并成硬链接（#6386）。
 pub(crate) fn open_file_no_follow(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true);
@@ -104,10 +106,12 @@ pub(crate) fn open_file_no_follow(path: &Path) -> io::Result<File> {
     }
     let file = options.open(path)?;
     let metadata = file.metadata()?;
-    if !metadata.is_file() || !has_single_link(&file)? {
+    if !metadata.is_file()
+        || !(has_single_link(&file)? || msime_path_trust::multi_link_is_trusted(&file, path)?)
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "engine asset is not a single-link regular file",
+            "engine asset is not a regular file with a trusted link count",
         ));
     }
     Ok(file)
@@ -164,24 +168,31 @@ fn path_has_single_link(path: &Path, metadata: &std::fs::Metadata) -> io::Result
 /// then canonicalize only the parent so the SQLite flag protects the leaf while
 /// normal platform storage roots continue to work.
 pub(crate) fn sqlite_path_no_follow(path: &Path) -> io::Result<PathBuf> {
-    sqlite_path_no_follow_with_parent_policy(path, true)
+    sqlite_path_no_follow_with_parent_policy(path, true, false)
+}
+
+/// [`sqlite_path_no_follow`] for a database opened with `SQLITE_OPEN_READ_ONLY`. A read never changes the other end of a hard link, so a multi-link file is accepted where its directory only root or the current user can write (`msime_path_trust::multi_link_path_is_trusted`): Nix store dedup and ostree deployments hard-link bundled dictionaries (#6386). A database that is written keeps requiring a single link.
+pub(crate) fn sqlite_read_only_path_no_follow(path: &Path) -> io::Result<PathBuf> {
+    sqlite_path_no_follow_with_parent_policy(path, true, true)
 }
 
 /// Resolve a database's parent directory while protecting only the final path
 /// component with SQLite's `SQLITE_OPEN_NOFOLLOW` flag. This is used by
 /// packaged language dictionaries, whose established contract permits an
-/// application supplied directory alias.
+/// application supplied directory alias. They are opened read-only, so the
+/// link count follows [`sqlite_read_only_path_no_follow`].
 pub(crate) fn sqlite_path_no_follow_allow_parent_symlinks(path: &Path) -> io::Result<PathBuf> {
-    sqlite_path_no_follow_with_parent_policy(path, false)
+    sqlite_path_no_follow_with_parent_policy(path, false, true)
 }
 
 fn sqlite_path_no_follow_with_parent_policy(
     path: &Path,
     reject_parent_symlinks: bool,
+    read_only: bool,
 ) -> io::Result<PathBuf> {
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     {
-        let _ = reject_parent_symlinks;
+        let _ = (reject_parent_symlinks, read_only);
         Ok(path.to_owned())
     }
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -197,10 +208,13 @@ fn sqlite_path_no_follow_with_parent_policy(
         })?;
         let resolved = std::fs::canonicalize(parent)?.join(name);
         if let Ok(metadata) = std::fs::symlink_metadata(&resolved) {
-            if metadata.file_type().is_symlink() || !path_has_single_link(&resolved, &metadata)? {
+            if metadata.file_type().is_symlink()
+                || !(path_has_single_link(&resolved, &metadata)?
+                    || read_only && msime_path_trust::multi_link_path_is_trusted(&resolved)?)
+            {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "database is not a single-link regular file",
+                    "database is not a regular file with a trusted link count",
                 ));
             }
         }
@@ -256,6 +270,24 @@ mod tests {
         assert!(open_file_no_follow(root.path()).is_err());
     }
 
+    /// 让别的用户也能写这个目录：多链接文件在这样的目录里不受信任，可能是别人放进来的。
+    #[cfg(unix)]
+    fn open_to_others(directory: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o777)).unwrap();
+    }
+
+    /// Windows 上多链接文件一律拒绝，无须改目录权限。
+    #[cfg(windows)]
+    fn open_to_others(_: &Path) {}
+
+    /// 只有属主能写这个目录。临时目录的权限取决于 umask，umask 为 002 时它是组可写的。
+    #[cfg(unix)]
+    fn close_to_others(directory: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
     #[cfg(any(unix, windows))]
     #[test]
     fn opening_an_asset_rejects_a_hard_link() {
@@ -265,9 +297,30 @@ mod tests {
         std::fs::write(&target, b"synthetic engine asset").unwrap();
         let linked = root.path().join("asset.bin");
         std::fs::hard_link(&target, &linked).unwrap();
+        open_to_others(root.path());
 
         assert!(open_file_no_follow(&linked).is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"synthetic engine asset");
+    }
+
+    /// Nix 的 store 去重把安装目录里内容相同的文件合并成硬链接（#6386）；目录只有属主能写时照常读。
+    #[cfg(unix)]
+    #[test]
+    fn opening_an_asset_accepts_a_hard_link_in_a_closed_directory() {
+        let root = tempfile::tempdir().unwrap();
+        close_to_others(root.path());
+        let original = root.path().join("handwriting.model");
+        std::fs::write(&original, b"synthetic engine asset").unwrap();
+        let deduplicated = root.path().join("other-package.model");
+        std::fs::hard_link(&original, &deduplicated).unwrap();
+
+        let mut file = open_file_no_follow(&original).unwrap();
+        let mut contents = Vec::new();
+        std::io::Read::read_to_end(&mut file, &mut contents).unwrap();
+        assert_eq!(contents, b"synthetic engine asset");
+        assert!(sqlite_read_only_path_no_follow(&deduplicated).is_ok());
+        // 会写入的数据库仍然只接受单链接：写它会改到链接另一端的文件。
+        assert!(sqlite_path_no_follow(&deduplicated).is_err());
     }
 
     #[test]
@@ -337,6 +390,9 @@ mod tests {
         std::fs::hard_link(&external, &target).unwrap();
 
         assert!(sqlite_path_no_follow(&target).is_err());
+        open_to_others(root.path());
+        assert!(sqlite_read_only_path_no_follow(&target).is_err());
+        assert!(sqlite_path_no_follow_allow_parent_symlinks(&target).is_err());
         assert_eq!(std::fs::read(&external).unwrap(), b"synthetic database");
     }
 }

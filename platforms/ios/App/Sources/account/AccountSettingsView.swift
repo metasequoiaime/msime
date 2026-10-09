@@ -352,6 +352,8 @@ struct AccountSettingsView: View {
     do {
       let identity = try await BackendAccountSession.shared.credentials()
       let page = try await BackendAccountClient().clipboard(token: identity.token)
+      try await BackendAccountSession.shared.requireSession(matchingUserID: identity.userID,
+                                                            matchingSessionID: identity.sessionID)
       try Task.checkCancellation()
       clipboardValue = page.enabled ? "\(page.items.count) 条" : "已关闭"
     } catch {

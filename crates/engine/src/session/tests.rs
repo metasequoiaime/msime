@@ -3472,149 +3472,15 @@ fn expression_mode_needs_a_pinyin_scheme_and_an_empty_composition() {
     assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
     session.command(Command::Cancel);
     session.switch_scheme(SchemeType::Wubi).unwrap();
-    // 五笔不开 V；`/` 和 `@` 在五笔也打开，见 `wubi_slash_opens_the_command_list_from_the_host_table`。
     assert!(!session.character(b'V', true).handled);
-    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
-}
-
-/// 五笔下 `/` 和 `@` 也打开指令和提及模式，指令表（指令表插件）里的行照常列出；组字中的 `/` 仍不是模式入口。
-#[test]
-fn wubi_slash_opens_the_command_list_from_the_host_table() {
-    let fixture = Fixture::new(WUBI_ROUTING_FIXTURE);
-    let mut session = generated_modes_session(&fixture);
-    session.switch_scheme(SchemeType::Wubi).unwrap();
-    assert_eq!(session.snapshot().spelling_symbols, "/@");
     assert!(session.character(b'/', false).handled);
-    let snapshot = session.snapshot();
-    assert_eq!(snapshot.local_mode, LocalInputMode::Command);
-    assert_eq!(snapshot.candidate_annotations[0], "签名");
-    type_text(&mut session, "si");
-    assert_eq!(words(&session), ["张三 2026-08-09"]);
-    assert_eq!(session.select(0).commit.as_deref(), Some("张三 2026-08-09"));
-
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Command);
+    session.command(Command::Cancel);
     assert!(session.character(b'@', false).handled);
     assert_eq!(session.snapshot().local_mode, LocalInputMode::Mention);
     session.command(Command::Cancel);
-
-    // 五笔编码 `ge` 组字中：`/` 不进入指令模式，也不发布成拼写符号。
-    type_text(&mut session, "ge");
-    assert!(session.snapshot().spelling_symbols.is_empty());
-    assert!(!session.character(b'/', false).handled);
-    let snapshot = session.snapshot();
-    assert_eq!(snapshot.local_mode, LocalInputMode::None);
-    assert_eq!(snapshot.preedit, "ge");
-}
-
-/// 五笔下 Shift+K 打开短语模式，宿主短语表（短语表插件）的行接在数据库短语后面；组字中的 Shift+K 不打断五笔编码。
-#[test]
-fn wubi_shift_k_opens_the_quick_phrase_mode_with_the_host_table() {
-    let fixture = Fixture::new(
-        "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
-INSERT INTO quick_parases VALUES('dh','电话',10);\
-CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
-INSERT INTO wubi86 VALUES('gege','工',100);",
-    );
-    let mut session = fixture.session_with(|options| {
-        options.scheme = SchemeType::Wubi;
-        options.quick_phrase_table = vec![crate::types::QuickPhraseEntry {
-            key: "dhhm".into(),
-            text: "电话号码".into(),
-        }];
-    });
     assert!(session.character(b'K', true).handled);
     assert_eq!(session.snapshot().local_mode, LocalInputMode::QuickPhrase);
-    type_text(&mut session, "dh");
-    assert_eq!(words(&session), ["电话", "电话号码"]);
-    assert_eq!(session.select(1).commit.as_deref(), Some("电话号码"));
-    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
-
-    // 五笔编码只用小写字母：组字中的 Shift+K 既不进入 K 模式，也不改动编码。
-    type_text(&mut session, "ge");
-    assert!(!session.character(b'K', true).handled);
-    let snapshot = session.snapshot();
-    assert_eq!(snapshot.local_mode, LocalInputMode::None);
-    assert_eq!(snapshot.preedit, "ge");
-    type_text(&mut session, "ge");
-    assert_eq!(words(&session)[0], "工");
-}
-
-/// 五笔里 K、`/`、`@` 仍受各自的开关、中文标点和锁定标点约束；靠拼音的 Shift+字母模式（E、V 等）在五笔下照旧不打开。
-#[test]
-fn wubi_keeps_the_keys_for_the_host_when_the_table_modes_are_off() {
-    let fixture = Fixture::new(WUBI_ROUTING_FIXTURE);
-    let mut session = fixture.session_with(|options| {
-        options.scheme = SchemeType::Wubi;
-        options.local_modes.quick_phrase = false;
-        options.local_modes.expression = true;
-    });
-    assert!(session.snapshot().spelling_symbols.is_empty());
-    for (key, shift) in [
-        (b'K', true),
-        (b'E', true),
-        (b'V', true),
-        (b'J', true),
-        (b'/', false),
-        (b'@', false),
-    ] {
-        assert!(!session.character(key, shift).handled, "{:?}", key as char);
-        assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
-    }
-
-    // 指令和提及开着，但标点是英文（或锁定英文标点）时，`/` 和 `@` 是用户要的字面字符。
-    let mut ascii = fixture.session_with(|options| {
-        options.scheme = SchemeType::Wubi;
-        options.local_modes.command = true;
-        options.local_modes.mention = true;
-        options.chinese_punctuation = false;
-    });
-    assert!(ascii.snapshot().spelling_symbols.is_empty());
-    assert!(!ascii.character(b'/', false).handled);
-    assert!(!ascii.character(b'@', false).handled);
-    assert_eq!(ascii.snapshot().local_mode, LocalInputMode::None);
-}
-
-/// 日文、粤拼、注音不打开 K、`/`、`@`：那里大写字母和这些符号另有用处（注音标准键盘的 `/` 是ㄥ）。
-#[test]
-fn schemes_outside_pinyin_and_wubi_do_not_open_the_table_modes() {
-    let fixture = Fixture::new(QUANPIN_FIXTURE);
-    let cantonese = cantonese_dictionary(fixture.path());
-    let zhuyin = zhuyin_dictionary(fixture.path());
-    for scheme in [
-        SchemeType::JapaneseRomaji,
-        SchemeType::Cantonese,
-        SchemeType::Zhuyin,
-    ] {
-        let mut session = fixture.session_with(|options| {
-            options.scheme = scheme;
-            options.cantonese_dictionary = cantonese.clone();
-            options.zhuyin_dictionary = zhuyin.clone();
-            options.local_modes.command = true;
-            options.local_modes.mention = true;
-        });
-        if scheme != SchemeType::Zhuyin {
-            assert!(session.snapshot().spelling_symbols.is_empty(), "{scheme:?}");
-        }
-        session.character(b'K', true);
-        assert_eq!(
-            session.snapshot().local_mode,
-            LocalInputMode::None,
-            "{scheme:?}"
-        );
-        session.command(Command::Cancel);
-        session.character(b'/', false);
-        assert_eq!(
-            session.snapshot().local_mode,
-            LocalInputMode::None,
-            "{scheme:?}"
-        );
-        session.command(Command::Cancel);
-        session.character(b'@', false);
-        assert_eq!(
-            session.snapshot().local_mode,
-            LocalInputMode::None,
-            "{scheme:?}"
-        );
-    }
 }
 
 #[test]

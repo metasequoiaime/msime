@@ -29,6 +29,7 @@ issue 下有人提议把包拆成 IBus 和 Fcitx5 两个版本。为此拆开 0.
   - Fcitx5 从 Recommends 去掉：apt 默认安装推荐包，留着它会把 Fcitx5 拉进 IBus 系统。
   - Ubuntu 22.04 只有 Fcitx5 5.0.14，在那里由 IBus 满足这一项（#6305 的约束不变）。
   - 不带 Fcitx5 插件的构建（`MSIME_ENABLE_FCITX5=OFF`）仍只依赖 IBus。
+  - PPA 与 OBS 的源码包不经过 `package-container.sh`，`debian/control` 里的 `${shlibs:Depends}` 原样带着 dpkg-shlibdeps 从插件推出的 `libfcitx5core7` 等库，IBus 系统装它仍会被拉进 Fcitx5 的库。合并后补上：`debian/rules` 在 `dh_shlibdeps` 之后用与 `package-container.sh` 相同的规则从 `debian/msime.substvars` 去掉 `libfcitx5*`，去不掉就让构建失败。
 - **`.rpm`（CPack 与 `rpm/msime.spec`）**
   - 写成 `(ibus >= 1.5.20 or fcitx5 >= 5.0.20)`。
   - 插件链接的 `libFcitx5*` 加进 `__requires_exclude`，这和 `.deb` 去掉 `libfcitx5*` 是同一个道理：插件只由 Fcitx5 加载，那时这些库一定在，自动生成的 Requires 只会把 Fcitx5 拉进 IBus 系统。
@@ -66,3 +67,4 @@ Gentoo 的 ebuild 不变：它没有单独的 libibus 包，`app-i18n/ibus` 连�
   - `fcitx5_contract.py`、`scripts/test-arch-gentoo-packaging.py`、`test-linux-distro-packaging.py`、`test-linux-editions.py` 通过。
   - `release-linux.yml` 的新核对拿五组 Depends 和 Recommends 跑过：新写法通过；0.11.0 和 develop 的旧写法、残留 `libfcitx5*`、Recommends 里有 fcitx5 都被拒绝。
   - 没有实际构建 `.deb`、`.rpm` 或 Arch 包，也没有在 deepin 上安装验证，这要等下一次发布构建和用户回报。
+  - `debian/rules` 的补充只在 bookworm 容器里用替身 `dh_shlibdeps` 写出合成的 substvars 跑过 `override_dh_shlibdeps`：`libfcitx5*` 被去掉、其余不变；去掉替换那一行时构建失败。没有在 Launchpad 或 OBS 上真正构建。

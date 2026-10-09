@@ -58,7 +58,7 @@ impl WeakPositions {
     }
 }
 
-/// Plan up to 96 span keys, look them up through `span_cache` (empty answers cached too), and emit one edge per row.
+/// 按 `TYPO_KEY_BUDGET` 规划跨度键，通过 `span_cache` 查询并缓存空结果，逐行产生纠错边。
 pub fn collect_typo_edges(
     database: &PinyinDatabase,
     span_cache: &mut FifoCache<String, Vec<DictRow>>,
@@ -69,9 +69,12 @@ pub fn collect_typo_edges(
 ) -> Vec<TypoEdge> {
     let planned = plan_keys(profile, segments, literal_best, autocorrect_types);
 
-    let mut misses = Vec::with_capacity(planned.len());
+    let mut misses = Vec::new();
     for entry in &planned {
         if span_cache.get_ref(&entry.key).is_none() {
+            if misses.is_empty() {
+                misses = Vec::with_capacity(planned.len());
+            }
             misses.push(entry.key.clone());
         }
     }
@@ -83,11 +86,14 @@ pub fn collect_typo_edges(
         }
     }
 
-    let mut edges = Vec::with_capacity(planned.len() * TYPO_ROWS_PER_KEY);
+    let mut edges = Vec::new();
     for entry in &planned {
         let Some(found) = span_cache.get_ref(&entry.key) else {
             continue;
         };
+        if edges.is_empty() && !found.is_empty() {
+            edges = Vec::with_capacity(planned.len() * TYPO_ROWS_PER_KEY);
+        }
         edges.extend(found.iter().map(|row| TypoEdge {
             start: entry.start,
             end: entry.end,
@@ -210,6 +216,10 @@ fn typo_span_key(
     }
     key
 }
+
+#[cfg(test)]
+#[path = "typo_edges/lazy_buffer_tests.rs"]
+mod lazy_buffer_tests;
 
 #[cfg(test)]
 mod tests {

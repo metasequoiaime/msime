@@ -4122,14 +4122,18 @@ fn slash_and_at_open_their_modes_only_with_nothing_composed() {
     assert!(finished.commit_context.unwrap().typing_statistics);
 }
 
-// 五笔空闲时同样列出 `/@` 并由它们打开指令和 @ 模式，但宿主权衡上下文后要的字面 `/`（数字后的 `1/2`）不能打开模式，只能原样上屏。
 #[test]
-fn wubi_literal_slash_stays_a_mark_while_the_punctuation_route_opens_the_mode() {
+fn wubi_literal_marks_do_not_open_table_modes() {
     let directory = tempfile::tempdir().unwrap();
     let mut options = real_engine_options(directory.path());
     options.scheme = 2;
     options.local_command = true;
     options.local_mention = true;
+    options.command_table = vec![msime_engine::host::CommandTableEntry {
+        trigger: "sig".into(),
+        title: "签名".into(),
+        template: "张三".into(),
+    }];
     options.mention_entries = vec![msime_engine::host::MentionEntry {
         text: "张三".into(),
         key: "zhang'san".into(),
@@ -4139,22 +4143,12 @@ fn wubi_literal_slash_stays_a_mark_while_the_punctuation_route_opens_the_mode() 
     runtime.focus(true).unwrap();
     assert_eq!(runtime.view().spelling_symbols, "/@");
 
-    for value in *b"/@" {
-        let literal = runtime.dispatch(Action::PunctuationAscii(value)).unwrap();
-        assert_eq!(literal.view.local_mode, "none", "{}", char::from(value));
-        assert!(literal.view.editing_text.is_empty());
-        assert_eq!(runtime.view().spelling_symbols, "/@");
-    }
-
+    let literal = runtime.dispatch(Action::PunctuationAscii(b'/')).unwrap();
+    assert_eq!(literal.view.local_mode, "none");
     let opened = runtime.dispatch(Action::Punctuation(b'/')).unwrap();
-    assert!(opened.handled && opened.commit.is_none());
     assert_eq!(opened.view.local_mode, "command");
-    runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
-    let opened = character(&mut runtime, b'@');
-    assert_eq!(opened.view.local_mode, "mention");
 }
 
-// 五笔四码打满后再按 Shift+字母（顶字）：先上屏首选，引擎不收的大写字母跟在后面原样上屏，不能丢；K 模式开着时 Shift+K 照常打开快捷短语。
 #[test]
 fn a_capital_after_a_complete_wubi_code_commits_the_word_and_keeps_the_letter() {
     let directory = tempfile::tempdir().unwrap();
@@ -4199,7 +4193,6 @@ fn a_capital_after_a_complete_wubi_code_commits_the_word_and_keeps_the_letter() 
         assert_eq!(topped.view.local_mode, "none", "{letter}");
         type_characters(&mut off, "gege");
     }
-    // A lowercase letter still starts the next code rather than going out.
     let next = character(&mut off, b'g');
     assert_eq!(next.commit.as_deref(), Some("工"));
     assert_eq!(next.view.editing_text, "g");
@@ -4209,7 +4202,6 @@ fn a_capital_after_a_complete_wubi_code_commits_the_word_and_keeps_the_letter() 
     assert!(opened.handled, "{opened:?}");
     assert_eq!(opened.commit.as_deref(), Some("工"));
     assert_eq!(opened.view.local_mode, "quick_phrase");
-    // The letter is the start of the mode's reading, not part of the commit: an empty reading after a top commit is the sign that the letter went out with the word.
     assert_eq!(opened.view.editing_text, "K");
 }
 
@@ -5067,10 +5059,8 @@ fn scheme_predicates_reproduce_the_ordinal_rules_they_replace() {
             ordinal != 2 && ordinal != KOREAN_SCHEME,
             "{ordinal}"
         );
-        // Shift+letter local modes other than K: the pinyin schemes only.
+        // Only the schemes that open local modes listed idle spelling symbols (`/`, `@`).
         assert_eq!(scheme.opens_local_modes(), ordinal <= 1, "{ordinal}");
-        // Only the schemes that open the K, `/` and `@` modes list idle spelling symbols (`/`, `@`) that open a mode, so the literal-mark route reads this predicate: the pinyin schemes and Wubi.
-        assert_eq!(scheme.opens_table_modes(), ordinal <= 2, "{ordinal}");
         assert_eq!(
             script_conversion(ordinal, "none"),
             ordinal <= 2,

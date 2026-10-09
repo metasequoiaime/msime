@@ -164,7 +164,7 @@ fn open_read_only(path: &Path) -> Option<Connection> {
     if path.as_os_str().is_empty() {
         return None;
     }
-    let path = crate::paths::sqlite_path_no_follow(path).ok()?;
+    let path = crate::paths::sqlite_read_only_path_no_follow(path).ok()?;
     let connection = Connection::open_with_flags(
         &path,
         OpenFlags::SQLITE_OPEN_READ_ONLY

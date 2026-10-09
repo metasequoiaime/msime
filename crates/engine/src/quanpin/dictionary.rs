@@ -93,6 +93,13 @@ struct CachedFuzzyCandidates {
     candidates: Vec<WordItem>,
 }
 
+#[derive(Clone)]
+struct CachedLatticeSpan {
+    span_limit: usize,
+    span: String,
+    rows: Vec<DictRow>,
+}
+
 /// The reference answered a failed write with `ERROR_CODE` and no message; callers map any failure to their own diagnostic.
 const DICTIONARY_UNAVAILABLE: &str = "Pinyin dictionary is unavailable";
 const ENTRY_REJECTED: &str = "Pinyin does not spell the word one syllable per character";
@@ -145,8 +152,8 @@ pub struct QuanpinDictionary {
     fuzzy_cache: FifoCache<u64, CachedFuzzyCandidates>,
     /// Rows of typo-variant span keys, empty answers included. Dictionary rows only, so it is cleared with the other caches.
     typo_span_cache: FifoCache<String, Vec<DictRow>>,
-    /// 词网格每个跨度的 `query_lattice_span` 结果，空结果也存。键是上限加跨度音节的原样拼写，规范化在查询里做，同一拼写结果相同。
-    lattice_span_cache: FifoCache<String, Vec<DictRow>>,
+    /// 词网格每个跨度的 `query_lattice_span` 结果，空结果也存。哈希只做索引，命中后再核对上限和原样跨度，避免每次命中都拼接键字符串。
+    lattice_span_cache: FifoCache<u64, CachedLatticeSpan>,
     /// 每条切分的 `query_segments_keyed_flat` 结果，键是切分本身；单字母的 `query_initial` 结果也存在这里，键前加 `\u{1}`。
     segment_row_cache: FifoCache<String, Vec<DictRow>>,
     /// 每条切分的 `query_longer_phrases` 结果，键是切分本身。
@@ -1049,24 +1056,63 @@ fn initial_items(rows: Vec<DictRow>) -> Vec<WordItem> {
         .collect()
 }
 
-/// `query_lattice_span` 经过跨度缓存。`span_limit` 一并写进键里，不同上限的结果不会混用。
+/// `query_lattice_span` 经过跨度缓存；哈希碰撞时重新查库，不混用不同跨度或上限的结果。
+/// 跨度来自已切分的音节，每项不含撇号，因此分隔符编码能核对原样音节边界。
 fn cached_lattice_span(
     database: &PinyinDatabase,
-    cache: &mut FifoCache<String, Vec<DictRow>>,
+    cache: &mut FifoCache<u64, CachedLatticeSpan>,
     span: &[String],
     span_limit: usize,
 ) -> Vec<DictRow> {
-    let mut key = span_limit.to_string();
+    let hash = lattice_span_cache_hash(span_limit, span);
+    if let Some(cached) = cache.get_ref(&hash) {
+        if lattice_span_cache_key_matches(cached, span_limit, span) {
+            return cached.rows.clone();
+        }
+    }
+    let rows = database.query_lattice_span(span, span_limit);
+    let mut key = String::with_capacity(span.iter().map(|syllable| syllable.len() + 1).sum());
     for syllable in span {
         key.push('\'');
         key.push_str(syllable);
     }
-    if let Some(rows) = cache.get_ref(&key) {
-        return rows.clone();
-    }
-    let rows = database.query_lattice_span(span, span_limit);
-    cache.insert(key, rows.clone());
+    cache.insert(
+        hash,
+        CachedLatticeSpan {
+            span_limit,
+            span: key,
+            rows: rows.clone(),
+        },
+    );
     rows
+}
+
+fn lattice_span_cache_hash(span_limit: usize, span: &[String]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    span_limit.hash(&mut hasher);
+    span.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn lattice_span_cache_key_matches(
+    cached: &CachedLatticeSpan,
+    span_limit: usize,
+    span: &[String],
+) -> bool {
+    if cached.span_limit != span_limit {
+        return false;
+    }
+    let mut remaining = cached.span.as_str();
+    for syllable in span {
+        let Some(rest) = remaining.strip_prefix('\'') else {
+            return false;
+        };
+        let Some(rest) = rest.strip_prefix(syllable) else {
+            return false;
+        };
+        remaining = rest;
+    }
+    remaining.is_empty()
 }
 
 fn truncate_last_segment(segmentation: &mut String) {
@@ -1268,3 +1314,7 @@ fn first_correction_cut(pinyin: &str) -> Option<Vec<String>> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "dictionary/lattice_span_cache_tests.rs"]
+mod lattice_span_cache_tests;

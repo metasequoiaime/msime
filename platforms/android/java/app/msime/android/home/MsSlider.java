@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardGeometry;
 import android.content.Context;
 import android.graphics.drawable.ClipDrawable;
@@ -34,8 +35,8 @@ public final class MsSlider extends SeekBar {
         int track = Ui.dp(context, Ui.SLIDER_TRACK);
         float radius = track / 2f;
 
-        GradientDrawable rest = Ui.rounded(Ui.accentSoft(context), radius);
-        GradientDrawable done = Ui.rounded(Ui.accent(context), radius);
+        GradientDrawable rest = DrawablePolicy.rounded(Ui.accentSoft(context), radius);
+        GradientDrawable done = DrawablePolicy.rounded(Ui.accent(context), radius);
         Drawable progress = new ClipDrawable(done, Gravity.START, ClipDrawable.HORIZONTAL);
         LayerDrawable layers = new LayerDrawable(new Drawable[] {rest, progress});
         layers.setId(0, android.R.id.background);
@@ -47,15 +48,15 @@ public final class MsSlider extends SeekBar {
         }
         setProgressDrawable(layers);
 
-        GradientDrawable thumb = Ui.rounded(Ui.accent(context), Ui.dp(context, 2));
-        thumb.setSize(Ui.dp(context, Ui.SLIDER_THUMB_WIDTH), Ui.dp(context, Ui.SLIDER_THUMB_HEIGHT));
+        GradientDrawable thumb = DrawablePolicy.rounded(Ui.accent(context), Ui.dp(context, 2),
+            Ui.dp(context, Ui.SLIDER_THUMB_WIDTH), Ui.dp(context, Ui.SLIDER_THUMB_HEIGHT));
         setThumb(thumb);
         setThumbOffset(Ui.dp(context, Ui.SLIDER_THUMB_WIDTH) / 2);
         setSplitTrack(false);
         ViewPolicy.clearBackground(this);
         // 左右留出半个滑块，滑块在两端时不会被裁掉。
         int inset = Ui.dp(context, Ui.SLIDER_THUMB_WIDTH);
-        Ui.setHorizontalPaddingPx(this, inset);
+        ViewPolicy.setHorizontalPadding(this, inset);
         Ui.setMinimumHeightDp(this, context, Ui.SLIDER_TOUCH_HEIGHT);
 
         setOnSeekBarChangeListener(new OnSeekBarChangeListener() {

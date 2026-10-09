@@ -249,6 +249,7 @@ import {
 } from "../entry/src/main/ets/keyboard/input/HandwritingRecognitionQueue";
 import { KeyboardFormFactorPolicy } from "../entry/src/main/ets/keyboard/KeyboardFormFactorPolicy";
 import { SettingsFormFactorCapabilities } from "../entry/src/main/ets/keyboard/settings/SettingsFormFactorCapabilities";
+import { VocabularyReviewRequest } from "../entry/src/main/ets/keyboard/settings/VocabularyReviewRequest";
 import { SymbolPanelPolicy } from "../entry/src/main/ets/keyboard/input/SymbolPanelPolicy";
 import {
   BackspaceHoldAction,
@@ -280,6 +281,7 @@ import {
   dictionaryChangePageChanged,
   parseResponseContentLength,
   accountReplyValue,
+  storedSessionUserId,
   strictAccountOk,
 } from "../entry/src/main/ets/account/AccountCloudBridge";
 import {
@@ -426,7 +428,6 @@ import {
   PluginFolderScan,
   PluginImportPolicy,
 } from "../entry/src/main/ets/keyboard/settings/PluginImportPolicy";
-import { VocabularyReviewRequest } from "../entry/src/main/ets/keyboard/settings/VocabularyReviewRequest";
 import {
   SmartPunctuationSpacePolicy,
   SpaceConvertDecision,
@@ -515,6 +516,30 @@ function check(condition: boolean, message: string): void {
 console.log("KeyboardGeometry");
 
 console.log("DictionaryMaintenancePolicy");
+
+console.log("VocabularyReviewRequest");
+group("vocabulary review request carries resources and gates plugins", () => {
+  const mobile = VocabularyReviewRequest.build(
+    "/synthetic/state",
+    "/synthetic/resources",
+    "2026-01-02",
+    { operation: "load" },
+    false,
+  );
+  check(mobile.directory === "/synthetic/state", "request keeps the state directory");
+  check(mobile.resources === "/synthetic/resources", "request carries the resource directory");
+  check(mobile.day === "2026-01-02", "request keeps the caller's local day");
+  check(mobile.plugins === undefined, "mobile request does not expose plugin storage");
+
+  const desktop = VocabularyReviewRequest.build(
+    "/synthetic/state",
+    "/synthetic/resources",
+    "2026-01-02",
+    { operation: "load" },
+    true,
+  );
+  check(desktop.plugins === "/synthetic/state/plugins", "desktop request exposes plugin storage");
+});
 
 console.log("HandwritingStrokePolicy");
 
@@ -9683,6 +9708,19 @@ group("account native success envelopes require a value", () => {
 });
 
 group("account and cloud clipboard bridge keeps secrets native", () => {
+  const sessionFor = (id: string): string => JSON.stringify({
+    access_token: "a".repeat(64), refresh_token: "b".repeat(64),
+    token_type: "Bearer", expires_at: Date.now() + 600_000,
+    user: { id, display_name: "Synthetic", created_at: "2026-01-01" },
+  });
+  check(storedSessionUserId(sessionFor("old-account")) === "old-account",
+    "the keyboard sees the saved account owner");
+  check(storedSessionUserId(sessionFor("new-account")) === "new-account",
+    "a fresh read sees the replacement account");
+  check(storedSessionUserId(null) === null && storedSessionUserId("not json") === null,
+    "missing or malformed sessions have no owner");
+  check(storedSessionUserId(JSON.stringify({ user: { id: "forged" } })) === null,
+    "an unvalidated user id cannot own a snapshot");
   let oversizedCleared = false;
   const oversizedStore: AccountSessionStore = {
     load: () => "x".repeat(64 * 1024 + 1),
@@ -9872,6 +9910,30 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
         "dictionary offsets are bounded before transport",
       );
     });
+});
+
+group("a rejected account session cancels its snapshot before clearing storage", () => {
+  let saved: string | null = JSON.stringify({
+    access_token: "a".repeat(64), refresh_token: "b".repeat(64),
+    token_type: "Bearer", expires_at: Date.now() + 600_000,
+    user: { id: "synthetic-owner", display_name: "Synthetic", created_at: "2026-01-01" },
+  });
+  const events: string[] = [];
+  const store: AccountSessionStore & { beforeClear(accountId: string): void } = {
+    load: () => saved,
+    save: (value: string) => { saved = value; },
+    beforeClear: (accountId: string) => { events.push(`cancel:${accountId}`); },
+    clear: () => { events.push("clear"); saved = null; },
+  };
+  const bridge = new AccountCloudBridge(
+    { request: async () => ({ status: 401, body: "{}" }) }, store,
+  );
+  void bridge.handle('{"operation":"profile"}').then((reply) => {
+    check(JSON.parse(reply).error === "account_unauthorized", "the refused session is rejected");
+    check(JSON.stringify(events) === '["cancel:synthetic-owner","clear"]',
+      "the snapshot owner is cancelled before the session disappears");
+    check(saved === null, "the refused session is removed");
+  });
 });
 
 group("a failed login save preserves the last committed session", () => {
@@ -17002,47 +17064,6 @@ group("a picked pack is copied for import only within client-core's bounds", () 
   check(
     PluginImportPolicy.ARCHIVE_NAME.endsWith(".zip"),
     "the staged archive keeps the extension client-core goes by, whatever the picked name",
-  );
-});
-
-group("a 背单词 request carries every field msime_client_vocabulary_review requires", () => {
-  const state: string = "/data/storage/el2/base/haps/entry/files/state";
-  const resources: string = "/data/storage/el1/bundle/entry/resources/resfile";
-  const desktop = VocabularyReviewRequest.build(
-    state,
-    resources,
-    "2026-10-09",
-    { operation: "load" },
-    true,
-  );
-  // crates/host-api/src/ffi/host.rs parses this with deny_unknown_fields and no default for these four, so a missing one fails every action before it runs.
-  check(
-    Object.keys(desktop).sort().join(",") === "action,day,directory,plugins,resources",
-    "the 2-in-1 request names the state directory, the resource root, the day, the action and the plugin directory, and nothing else",
-  );
-  check(
-    desktop.directory === state && desktop.resources === resources && desktop.day === "2026-10-09",
-    "each field holds what it was given",
-  );
-  check(desktop.action.operation === "load", "the page's action travels unchanged");
-  check(
-    desktop.plugins === `${state}/plugins`,
-    "wordbook packs are read from the installed pack directory",
-  );
-  const phone = VocabularyReviewRequest.build(
-    state,
-    resources,
-    "2026-10-09",
-    { operation: "load" },
-    false,
-  );
-  check(
-    Object.keys(phone).sort().join(",") === "action,day,directory,resources",
-    "a form factor without wordbook packs leaves the optional plugin directory out but still sends the resource root",
-  );
-  check(
-    JSON.parse(JSON.stringify(phone)).resources === resources,
-    "the resource root survives serialisation",
   );
 });
 

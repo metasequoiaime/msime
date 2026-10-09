@@ -34,6 +34,13 @@ public final class DrawablePolicy {
         return shape;
     }
 
+    /** 创建具有固定像素尺寸的纯色圆角矩形。 */
+    public static GradientDrawable rounded(int color, float radiusPx, int width, int height) {
+        GradientDrawable shape = rounded(color, radiusPx);
+        shape.setSize(width, height);
+        return shape;
+    }
+
     public static GradientDrawable rounded(int color, float[] radii) {
         GradientDrawable shape = new GradientDrawable();
         shape.setShape(GradientDrawable.RECTANGLE);

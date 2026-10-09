@@ -109,6 +109,11 @@ public final class ViewPolicy {
         view.setPadding(horizontal, view.getPaddingTop(), horizontal, view.getPaddingBottom());
     }
 
+    /** 只替换底部内边距，保留其余三边。 */
+    public static void setBottomPadding(View view, int bottom) {
+        setPadding(view, view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(), bottom);
+    }
+
     /** Apply explicit pixel padding on all four sides. */
     public static void setPadding(View view, int left, int top, int right, int bottom) {
         view.setPadding(left, top, right, bottom);
@@ -137,6 +142,13 @@ public final class ViewPolicy {
     public static TextView newTextView(Context context, CharSequence text) {
         TextView view = new TextView(context);
         view.setText(text);
+        return view;
+    }
+
+    /** 创建使用指定纯色背景的视图。 */
+    public static View newColorView(Context context, int color) {
+        View view = new View(context);
+        setBackgroundColor(view, color);
         return view;
     }
 

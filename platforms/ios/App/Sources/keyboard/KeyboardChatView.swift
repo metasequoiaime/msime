@@ -17,6 +17,17 @@ final class KeyboardChatModel: ObservableObject {
   private var request: Task<Void, Never>?
   private let api = BackendAccountClient()
   private var generation = 0
+  private var accountID: String?
+  private var accountSessionID: UUID?
+
+  private func switchAccount(to userID: String?, sessionID: UUID? = nil) {
+    guard accountID != userID || accountSessionID != sessionID else { return }
+    clear()
+    accountID = userID
+    accountSessionID = sessionID
+    models = []
+    selectedModel = ""
+  }
 
   private var isFixture: Bool {
     #if DEBUG && targetEnvironment(simulator)
@@ -28,6 +39,7 @@ final class KeyboardChatModel: ObservableObject {
 
   func loadModels() async {
     if isFixture {
+      switchAccount(to: "fixture-chat-account")
       models = [.init(id: "fixture-chat"), .init(id: "fixture-fast")]
       selectedModel = "fixture-chat"
       return
@@ -36,9 +48,13 @@ final class KeyboardChatModel: ObservableObject {
     loadingModels = true
     defer { loadingModels = false }
     do {
-      guard try await BackendAccountSession.shared.user() != nil else { loginNeeded = true; return }
-      let token = try await BackendAccountSession.shared.accessToken()
-      let catalog = try await api.chatModels(token: token)
+      guard let userID = try await BackendAccountSession.shared.user()?.id else {
+        switchAccount(to: nil); loginNeeded = true; return
+      }
+      let identity = try await BackendAccountSession.shared.credentials(matchingUserID: userID)
+      switchAccount(to: identity.userID, sessionID: identity.sessionID)
+      let catalog = try await api.chatModels(session: .shared, matchingUserID: identity.userID,
+                                              matchingSessionID: identity.sessionID)
       try Task.checkCancellation()
       models = catalog.data
       if !models.contains(where: { $0.id == selectedModel }) { selectedModel = catalog.default_model }
@@ -49,12 +65,14 @@ final class KeyboardChatModel: ObservableObject {
   }
 
   func send(_ text: String) {
-    guard !sending, !selectedModel.isEmpty else { return }
+    guard !sending, !selectedModel.isEmpty, accountID != nil else { return }
     messages.append(Message(role: "user", text: text))
     submit()
   }
   func retry() { guard !sending, messages.last?.role == "user" else { return }; submit() }
   private func submit() {
+    guard let userID = accountID else { loginNeeded = true; return }
+    let sessionID = accountSessionID
     error = nil; sending = true
     generation += 1
     let version = generation, model = selectedModel
@@ -72,13 +90,9 @@ final class KeyboardChatModel: ObservableObject {
           messages.append(Message(role: "assistant", text: "已收到：" + (history.last?.content ?? "")))
           return
         }
-        var token = try await BackendAccountSession.shared.accessToken()
-        let reply: String
-        do { reply = try await api.chat(messages: history, model: model, token: token) }
-        catch let failure as BackendAccountClient.Failure where failure.status == 401 {
-          token = try await BackendAccountSession.shared.accessToken(retrying: token)
-          reply = try await api.chat(messages: history, model: model, token: token)
-        }
+        let reply = try await api.chat(messages: history, model: model,
+                                       session: .shared, matchingUserID: userID,
+                                       matchingSessionID: sessionID)
         try Task.checkCancellation()
         guard generation == version else { return }
         messages.append(Message(role: "assistant", text: reply))

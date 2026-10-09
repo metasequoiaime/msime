@@ -1,4 +1,4 @@
-// windows.h comes first so shellapi.h sees its types; the two macros it defines that collide with WinRT member names are dropped before any WinRT header is read. StateDirectory.h brings shlobj.h, so it is read here too, before the macros are dropped.
+// windows.h comes first so shellapi.h sees its types; the two macros it defines that collide with WinRT member names are dropped before any WinRT header is read.
 #include <windows.h>
 
 #include <shellapi.h>
@@ -114,20 +114,18 @@ std::wstring environment(const wchar_t *name) {
   }
 }
 
-// The Server's state directory, which it sets as MSIME_CLIENT_STATE_DIR when it starts this window. Empty when the window was started some other way, such as from the Start menu; a relative value is ignored by the callers.
 std::filesystem::path injected_state_directory() {
   return std::filesystem::path(environment(L"MSIME_CLIENT_STATE_DIR"));
 }
 
-// Server 准备运行时选项的目录：Server 启动本窗口时是它注入的状态目录，否则与 server_main.cpp 的 default_state 一样由 common/StateDirectory.h 解析（本版本的数据目录环境变量、安装器在 HKLM 记下的 DataDir、%LOCALAPPDATA%\<本版本的状态目录>）。
 std::filesystem::path runtime_options_directory() {
   if (auto injected = injected_state_directory(); injected.is_absolute())
     return injected;
   return msime::windows::resolve_state_directory();
 }
 
-// The preferences_directory of the runtime options the Server prepared in this directory; empty when there is no such file, it cannot be parsed or it names no directory. Whether the value is absolute is left to settings_state_directory.
-std::filesystem::path configured_preferences_directory(std::filesystem::path const &directory) {
+std::filesystem::path configured_preferences_directory(
+    const std::filesystem::path &directory) {
   if (directory.empty())
     return {};
   std::error_code error;
@@ -135,9 +133,11 @@ std::filesystem::path configured_preferences_directory(std::filesystem::path con
   if (!std::filesystem::is_regular_file(file, error))
     return {};
   std::ifstream stream(file, std::ios::binary);
-  const std::string content((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+  const std::string content((std::istreambuf_iterator<char>(stream)),
+                            std::istreambuf_iterator<char>());
   JsonObject options{nullptr};
-  if (!JsonObject::TryParse(text(content), options) || !options.HasKey(L"preferences_directory"))
+  if (!JsonObject::TryParse(text(content), options) ||
+      !options.HasKey(L"preferences_directory"))
     return {};
   const auto value = options.Lookup(L"preferences_directory");
   if (value.ValueType() != JsonValueType::String)
@@ -145,11 +145,10 @@ std::filesystem::path configured_preferences_directory(std::filesystem::path con
   return std::filesystem::path(std::wstring(value.GetString().c_str()));
 }
 
-// 本窗口读写偏好、皮肤和日志的数据目录，与 Server 的状态根相同，顺序见 SettingsStateDirectory.h。开始菜单的快捷方式不带 MSIME_CLIENT_STATE_DIR 启动本窗口，所以这里不能像以前那样回落到 %LOCALAPPDATA%\<本版本的状态目录>：默认安装的 Server 用的是安装器的 DataDir。
 std::filesystem::path state_directory() {
   const auto root = msime::windows::resolve_state_directory();
-  return nav::settings_state_directory(injected_state_directory(), root,
-                                       configured_preferences_directory(root));
+  return msime::settings::settings_state_directory(
+      injected_state_directory(), root, configured_preferences_directory(root));
 }
 
 std::string path_utf8(const std::filesystem::path &path) {
@@ -289,7 +288,7 @@ std::string route_page() {
   return std::string(nav::offered_page_for_route(page.value_or(std::string()), MSIME_EDITION_HANDWRITING != 0));
 }
 
-// The runtime options file the Server hands this window, or the one the Server reads at startup when started from the Start menu (runtime_options_directory, which is not the preferences_directory those options may name). None before the input method is set up.
+// The runtime options file the Server hands this window, or the one the Server reads at startup when started from the Start menu. None before the input method is set up.
 std::optional<std::filesystem::path> runtime_options_file() {
   std::error_code error;
   if (const auto raw = environment(L"MSIME_CLIENT_HOST_OPTIONS"); !raw.empty()) {
@@ -3104,9 +3103,9 @@ private:
     if (quanpin_helpcode || shuangpin_helpcode) {
       auto helpcode = add_group(page, L"辅助码");
       if (quanpin_helpcode)
-        helpcode_rows(helpcode, L"全拼", L"quanpin_helpcode", L"plugins.helpcode_pack_quanpin");
+        helpcode_rows(helpcode, L"全拼", L"quanpin_helpcode");
       if (shuangpin_helpcode)
-        helpcode_rows(helpcode, L"双拼", L"shuangpin_helpcode", L"plugins.helpcode_pack_shuangpin");
+        helpcode_rows(helpcode, L"双拼", L"shuangpin_helpcode");
       shell_row(helpcode, 0xE8A7, L"辅助码插件",
                 L"在水杉输入法应用的「输入 › 辅助码」中选用已安装的辅助码插件", L"打开",
                 nav::shell_links::input);
@@ -3141,37 +3140,16 @@ private:
   }
 
   void helpcode_rows(StackPanel const &group, std::wstring const &label,
-                     std::wstring const &prefix, std::wstring const &pack_key) {
+                     std::wstring const &prefix) {
     const bool enabled = document_.Boolean(prefix + L".enabled", false);
     bool_row(group, 0xE8CB, label + L"辅助码",
              L"再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、粤拼、注音、笔画、日语、韩语、越南语和快捷模式不使用辅助码。",
              prefix + L".enabled", false, true);
-    std::vector<Option> schemas{{L"lantian", L"蓝天小雨点"}, {L"ziranma", L"自然码"},
-                                {L"shouyou2_0", L"首右2.0"}, {L"shouyouplus", L"首右plus"},
-                                {L"xiaohe", L"小鹤"}, {L"jiajia", L"加加"}};
-    // 选中了辅助码表插件（pack_key，即 plugins.helpcode_pack_<方案>）时，输入引擎用插件替换这里的方案（host-api plugin_tables.rs 的 helpcode_pack）。和共享设置的辅助码下拉框（packages/ui/src/settings/pages/helpcode-page.tsx）一样：插件作为当前项列在方案里，选内置方案时同时清掉插件。本窗口不扫描插件目录，读不到插件名，所以只显示插件 id；选用插件仍在共享应用里。
-    const auto pack = document_.String(pack_key, L"");
-    const auto schema_key = prefix + L".schema";
-    auto current = document_.String(schema_key, L"lantian");
-    if (!pack.empty()) {
-      current = L"pack:" + pack;
-      schemas.push_back({current, pack + L"（插件）"});
-    }
-    add_row(group, 0xE8D2, label + L"辅助码方案",
-            pack.empty() ? std::wstring()
-                         : L"正在使用辅助码插件「" + pack + L"」，它替换了内置方案。选择内置方案会停用这个插件。",
-            select_control(label + L"辅助码方案", std::move(schemas), current,
-                           [this, schema_key, pack_key, active = !pack.empty()](std::wstring const &value) {
-                             if (value.starts_with(L"pack:"))
-                               return;
-                             // 清掉插件后重绘，让插件项和上面的说明消失。
-                             change([&](PreferencesDocument &doc) {
-                               doc.SetString(schema_key, value);
-                               if (!doc.String(pack_key, L"").empty())
-                                 doc.SetString(pack_key, L"");
-                             }, active);
-                           },
-                           enabled));
+    select_row(group, 0xE8D2, label + L"辅助码方案", L"", prefix + L".schema",
+               {{L"lantian", L"蓝天小雨点"}, {L"ziranma", L"自然码"},
+                {L"shouyou2_0", L"首右2.0"}, {L"shouyouplus", L"首右plus"},
+                {L"xiaohe", L"小鹤"}, {L"jiajia", L"加加"}},
+               L"lantian", false, enabled);
     bool_row(group, 0xE8FD, L"在候选窗口中显示" + label + L"辅助码", L"",
              prefix + L".show_in_candidate_window", false, false, enabled);
   }

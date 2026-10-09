@@ -14,7 +14,6 @@ import android.widget.LinearLayout;
 import android.widget.ImageView;
 import android.widget.EditText;
 import android.widget.TextView;
-import app.msime.android.BoundsPolicy;
 import app.msime.android.ColorPolicy;
 import app.msime.android.ImageViewPolicy;
 import app.msime.android.KeyboardGeometry;
@@ -33,11 +32,6 @@ import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
  */
 public final class Ui {
     private Ui() {}
-
-    /** Bottom content inset that keeps page content above either system navigation or the IME. */
-    public static int bottomContentInset(int systemBottom, int tabs, int imeBottom, int base) {
-        return BoundsPolicy.atLeast(systemBottom + tabs, imeBottom) + base;
-    }
 
     // ---- 尺寸（dp） ----
 
@@ -199,12 +193,6 @@ public final class Ui {
         ViewPolicy.setPadding(view, horizontal, vertical, horizontal, vertical);
     }
 
-    /** Apply the shared bottom-sheet title-area insets to a view. */
-    public static void setSheetHeaderPadding(View view, Context context) {
-        int horizontal = dp(context, 16);
-        ViewPolicy.setPadding(view, horizontal, 0, horizontal, dp(context, 12));
-    }
-
     /** Apply symmetric padding expressed in density-independent pixels. */
     public static void setSymmetricPaddingDp(View view, Context context,
                                              float horizontalDp, float verticalDp) {
@@ -218,11 +206,6 @@ public final class Ui {
         ViewPolicy.setPadding(view, padding, padding, padding, padding);
     }
 
-    /** Apply equal horizontal padding when the value is already in pixels. */
-    public static void setHorizontalPaddingPx(View view, int horizontal) {
-        ViewPolicy.setPadding(view, horizontal, 0, horizontal, 0);
-    }
-
     /** Apply equal horizontal dp padding with no vertical padding. */
     public static void setHorizontalPaddingDp(View view, Context context, float horizontalDp) {
         int horizontal = dp(context, horizontalDp);
@@ -234,12 +217,6 @@ public final class Ui {
                                     float rightDp, float bottomDp) {
         ViewPolicy.setPadding(view, dp(context, leftDp), dp(context, topDp),
             dp(context, rightDp), dp(context, bottomDp));
-    }
-
-    /** Replace only the bottom padding while preserving the other three sides. */
-    public static void setBottomPadding(View view, int bottomPixels) {
-        ViewPolicy.setPadding(view, view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(),
-            bottomPixels);
     }
 
     /** Exclude a decorative view from the accessibility tree. */
@@ -266,24 +243,12 @@ public final class Ui {
             dp(context, heightDp));
     }
 
-    /** Full-width layout parameters with an already pixel-sized height. */
-    public static LinearLayout.LayoutParams matchWidthHeightPx(int heightPixels) {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, heightPixels);
-    }
-
-    /** Create a view filled with the standard hairline colour for separators. */
-    public static View hairlineView(Context context) {
-        View view = new View(context);
-        ViewPolicy.setBackgroundColor(view, hairline(context));
-        return view;
-    }
-
     /** Create a theme-coloured one-pixel divider in either orientation. */
     public static View divider(Context context, boolean horizontal) {
-        View view = hairlineView(context);
+        View view = ViewPolicy.newColorView(context, hairline(context));
         int thin = KeyboardGeometry.atLeastOnePixel(context, 0.5f);
         view.setLayoutParams(horizontal
-            ? matchWidthHeightPx(thin)
+            ? KeyboardGeometry.matchWidthHeightPx(thin)
             : new LinearLayout.LayoutParams(thin, ViewGroup.LayoutParams.MATCH_PARENT));
         return view;
     }
@@ -331,12 +296,6 @@ public final class Ui {
         return params;
     }
 
-    /** Layout parameters for a view that wraps its width and uses a dp height. */
-    public static LinearLayout.LayoutParams wrapHeight(Context context, float heightDp) {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-            dp(context, heightDp));
-    }
-
     /** Layout parameters for a square child with a size expressed in dp. */
     public static LinearLayout.LayoutParams squareParams(Context context, float sizeDp) {
         int size = dp(context, sizeDp);
@@ -352,33 +311,6 @@ public final class Ui {
     /** Frame layout parameters for a pixel-sized square with explicit gravity. */
     public static FrameLayout.LayoutParams squareFrameParamsPx(int size, int gravity) {
         return new FrameLayout.LayoutParams(size, size, gravity);
-    }
-
-    /** Frame layout parameters for a child that fills width and uses a dp height. */
-    public static FrameLayout.LayoutParams frameMatchWidthHeight(Context context, float heightDp) {
-        return new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            dp(context, heightDp));
-    }
-
-    /** Frame layout parameters for a content-sized child with explicit gravity. */
-    public static FrameLayout.LayoutParams frameWrap(int gravity) {
-        return new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT, gravity);
-    }
-
-    /** Layout parameters for a weighted child with a fixed height in dp. */
-    public static LinearLayout.LayoutParams weightedHeight(Context context, float heightDp, float weight) {
-        return new LinearLayout.LayoutParams(0, dp(context, heightDp), weight);
-    }
-
-    /** Layout parameters for a weighted child that fills the parent's height. */
-    public static LinearLayout.LayoutParams weightedMatchParent(float weight) {
-        return new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weight);
-    }
-
-    /** Layout parameters for a weighted child that fills the parent's width. */
-    public static LinearLayout.LayoutParams weightedWidth(float weight) {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, weight);
     }
 
     /** 读一个颜色主题属性；属性缺失时退回洋红，让漏配的属性在截图里一眼可见，而不是悄悄显示成别的颜色。 */
@@ -434,19 +366,9 @@ public final class Ui {
         return color(context, androidx.appcompat.R.attr.colorError);
     }
 
-    /** Create a filled circular drawable. */
-    public static GradientDrawable circle(@ColorInt int color) {
-        return DrawablePolicy.circle(color);
-    }
-
-    /** 纯色圆角矩形。 */
-    public static GradientDrawable rounded(@ColorInt int color, float radiusPx) {
-        return DrawablePolicy.rounded(color, radiusPx);
-    }
-
     /** 胶囊形状：GradientDrawable 会把过大的圆角夹到短边的一半，所以高度怎么变两端都是半圆。 */
     public static GradientDrawable pill(@ColorInt int color) {
-        return rounded(color, 9999f);
+        return DrawablePolicy.rounded(color, 9999f);
     }
 
     /** 主题的按压反馈（`selectableItemBackground`），行在代码里构造时用它。 */
@@ -464,8 +386,8 @@ public final class Ui {
 
     public static Drawable rippleOn(Context context, @ColorInt int fill, float radiusPx) {
         int pressed = ColorPolicy.withAlpha(text(context), 0.10f);
-        return DrawablePolicy.ripple(pressed, rounded(fill, radiusPx),
-            rounded(Color.WHITE, radiusPx));
+        return DrawablePolicy.ripple(pressed, DrawablePolicy.rounded(fill, radiusPx),
+            DrawablePolicy.rounded(Color.WHITE, radiusPx));
     }
 
     /** Create a text label with the supplied text, size in sp, and colour. */
@@ -484,6 +406,61 @@ public final class Ui {
         view.setText(text);
         style(view, sizeSp, weight, color);
         return view;
+    }
+
+    /** 创建带字重的单行标签。 */
+    public static TextView singleLineLabel(Context context, CharSequence text, int sizeSp, int weight,
+                                           @ColorInt int color) {
+        TextView singleLine = styledLabel(context, text, sizeSp, weight, color);
+        ViewPolicy.setSingleLine(singleLine);
+        return singleLine;
+    }
+
+    /** 创建双轴居中的普通标签。 */
+    public static TextView centeredLabel(Context context, CharSequence text, float sizeSp,
+                                         @ColorInt int color) {
+        TextView centered = label(context, text, sizeSp, color);
+        ViewPolicy.setCentered(centered);
+        return centered;
+    }
+
+    /** 创建带字重且双轴居中的标签。 */
+    public static TextView centeredLabel(Context context, CharSequence text, int sizeSp, int weight,
+                                         @ColorInt int color) {
+        TextView centered = styledLabel(context, text, sizeSp, weight, color);
+        ViewPolicy.setCentered(centered);
+        return centered;
+    }
+
+    /** 创建带字重、双轴居中的单行标签。 */
+    public static TextView centeredSingleLineLabel(Context context, CharSequence text, int sizeSp,
+                                                   int weight, @ColorInt int color) {
+        TextView singleLine = centeredLabel(context, text, sizeSp, weight, color);
+        ViewPolicy.setSingleLine(singleLine);
+        return singleLine;
+    }
+
+    /** 创建带无障碍标题语义的普通标签。 */
+    public static TextView headingLabel(Context context, CharSequence text, float sizeSp,
+                                        @ColorInt int color) {
+        TextView heading = label(context, text, sizeSp, color);
+        heading.setAccessibilityHeading(true);
+        return heading;
+    }
+
+    /** 创建带字重与无障碍标题语义的标签。 */
+    public static TextView headingLabel(Context context, CharSequence text, int sizeSp, int weight,
+                                        @ColorInt int color) {
+        TextView heading = styledLabel(context, text, sizeSp, weight, color);
+        heading.setAccessibilityHeading(true);
+        return heading;
+    }
+
+    /** 创建会由辅助功能礼貌播报变化的空状态文本。 */
+    public static TextView liveStatus(Context context, int sizeSp) {
+        TextView status = styledLabel(context, "", sizeSp, 400, subText(context));
+        ViewPolicy.setPoliteLiveRegion(status);
+        return status;
     }
 
     /**
@@ -515,40 +492,9 @@ public final class Ui {
         return view;
     }
 
-    /** Apply the shared completion or warning mark used by setup checks. */
-    public static void applyStatusMark(TextView mark, Context context, boolean done) {
-        mark.setText(done ? "✓" : "!");
-        ViewPolicy.setTextColor(mark, done ? onAccent(context) : 0xFFFFFFFF);
-        ViewPolicy.setBackground(mark, circle(done ? accent(context) : color(context, app.msime.android.R.attr.msWarn)));
-        ViewPolicy.hideFromAccessibility(mark);
-    }
-
-    /** Create the centered title used by option-style bottom sheets. */
-    public static TextView sheetHeading(Context context, CharSequence text) {
-        TextView heading = new TextView(context);
-        heading.setText(text);
-        ViewPolicy.setCentered(heading);
-        style(heading, TEXT_SHEET_HEADER, 600, subText(context));
-        heading.setAccessibilityHeading(true);
-        return heading;
-    }
-
-    /** Create the centered subtitle used by option-style bottom sheets. */
-    public static TextView sheetSubtitle(Context context, CharSequence text) {
-        TextView subtitle = new TextView(context);
-        subtitle.setText(text);
-        ViewPolicy.setCentered(subtitle);
-        style(subtitle, TEXT_SHEET_HEADER, 400, subText(context));
-        return subtitle;
-    }
-
     /** Create the standard accent-coloured group heading. */
     public static TextView groupHeading(Context context, CharSequence text) {
-        TextView heading = new TextView(context);
-        heading.setText(text);
-        style(heading, TEXT_GROUP_TITLE, 500, accent(context));
-        heading.setAccessibilityHeading(true);
-        return heading;
+        return headingLabel(context, text, TEXT_GROUP_TITLE, 500, accent(context));
     }
 
     /** Create a filled accent pill button; callers add their content description and action. */
@@ -581,11 +527,7 @@ public final class Ui {
                                       @ColorInt int fill, @ColorInt int ink,
                                       float horizontalPaddingDp, float verticalPaddingDp,
                                       float minHeightDp, float minWidthDp, Runnable action) {
-        TextView button = new TextView(context);
-        button.setText(label);
-        ViewPolicy.setCentered(button);
-        ViewPolicy.setSingleLine(button);
-        style(button, Math.round(sizeSp), weight, ink);
+        TextView button = centeredSingleLineLabel(context, label, Math.round(sizeSp), weight, ink);
         ViewPolicy.setBackground(button, pillRipple(context, fill));
         setSymmetricPaddingDp(button, context, horizontalPaddingDp, verticalPaddingDp);
         setTextMinHeightDp(button, context, minHeightDp);
@@ -604,10 +546,7 @@ public final class Ui {
     public static TextView textButton(Context context, CharSequence label, int sizeSp, int weight,
                                       @ColorInt int ink, Drawable background, float minHeightDp,
                                       Runnable action) {
-        TextView button = new TextView(context);
-        button.setText(label);
-        ViewPolicy.setCentered(button);
-        style(button, sizeSp, weight, ink);
+        TextView button = centeredLabel(context, label, sizeSp, weight, ink);
         ViewPolicy.setBackground(button, background);
         setTextMinHeightDp(button, context, minHeightDp);
         bindClick(button, action);
@@ -691,7 +630,8 @@ public final class Ui {
     /** Create a vertically arranged rounded surface for page cards. */
     public static LinearLayout verticalCard(Context context, float radiusDp) {
         LinearLayout card = column(context);
-        ViewPolicy.setBackground(card, rounded(card(context), dp(context, radiusDp)));
+        ViewPolicy.setBackground(card,
+            DrawablePolicy.rounded(card(context), dp(context, radiusDp)));
         return card;
     }
 

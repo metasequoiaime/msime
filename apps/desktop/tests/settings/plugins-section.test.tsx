@@ -273,7 +273,7 @@ test("offers the melody only in melody mode, and the mode only while key sounds 
   ).toBe(true);
 });
 
-test("a melody pack is chosen on its own detail, which turns the melody on with the choice", async () => {
+test("a melody pack is chosen on its own detail, which also enables melody playback", async () => {
   const melodies = fakeClient({
     catalog: vi.fn(async () => ({
       packages: [
@@ -287,7 +287,7 @@ test("a melody pack is chosen on its own detail, which turns the melody on with 
   await openPack("卡农");
   expect(screen.getByText(/按键旋律现在没有打开。设为按键旋律会同时打开按键音/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "设为按键旋律" }));
-  // Choosing a melody plays it: key sounds on, in melody mode.
+  // 选择旋律会打开按键音，并切换到按键旋律。
   expect(onChange).toHaveBeenLastCalledWith({
     ...defaultPluginPreferences,
     key_sound: { ...defaultPluginPreferences.key_sound, enabled: true, mode: "melody" },
@@ -1302,9 +1302,8 @@ test("fills the defaults the document leaves out and forgets removed packs", () 
   // Choosing a pack means using it: the switch that plays it is turned on with the choice, or the pack would be marked as chosen while the input method stays silent.
   expect(withPackSelected(selected, { kind: "sound", id: "piano", mode: "keys" })).toEqual({
     ...selected,
-    key_sound: { ...selected.key_sound, enabled: true, pack: "piano" },
+    key_sound: { ...selected.key_sound, enabled: true, mode: "keys", pack: "piano" },
   });
-  // A key pack chosen while the melody plays switches the mode back to key sounds, where the pack is heard.
   const melodyOn: PluginPreferences = {
     ...selected,
     key_sound: { ...selected.key_sound, enabled: true, mode: "melody" },

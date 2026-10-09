@@ -91,13 +91,13 @@ int main() {
               .has_value(),
           "the translation was not applied");
   auto disabled = nlohmann::json{{"format_version", 1},
-                                 {"revision", 1},
-                                 {"preferences", options["preferences"]}};
+                                 {"revision", 3},
+                                 {"preferences", disable_ai["preferences"]}};
   disabled["preferences"]["candidate_translations"] = false;
   const auto after_disable = session.update_preferences(epoch, disabled.dump());
   require(after_disable.at("view").at("candidates").at(0).value("translation", "") == "",
           "disabling translations clears the displayed gloss");
-  disabled["revision"] = 2;
+  disabled["revision"] = 4;
   disabled["preferences"]["candidate_translations"] = true;
   session.update_preferences(epoch, disabled.dump());
   view = session.view();

@@ -49,6 +49,10 @@ int main(int argc, const char *argv[]) {
                 }, TISEnableInputSource);
             return status == noErr ? 0 : 1;
         }
+        if (MSIMEShouldReportInputSourceRegistration(argc, argv)) {
+            return MSIMEInputSourceRegistryExitCode(
+                MSIMEInputSourceRegistryStateFor(NSBundle.mainBundle.bundleIdentifier, TISCreateInputSourceList));
+        }
         [NSApplication sharedApplication];
         // Host API reports failures it recovers from by itself (a sound, music or helpcode pack that does not load, an audio device that does not open) as one line on stderr, which launchd points at /dev/null for an input method; this sends them to diagnostic.log instead. Before the first session, whose creation reports the helpcode fallback; the sink keeps lines that arrive before the log is configured or while it is off.
         msime_client_set_diagnostic_sink(msime_macos_diagnostic_host_line);

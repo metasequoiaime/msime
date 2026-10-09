@@ -31,6 +31,7 @@ import app.msime.android.HttpBodyPolicy;
 import app.msime.android.TextPolicy;
 import app.msime.android.R;
 import app.msime.android.ResourcePacks;
+import app.msime.android.ThreadPolicy;
 import app.msime.android.UpdateApi;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.io.File;
@@ -58,11 +59,8 @@ public final class AboutPage extends DetailPage {
     private static final String REPOSITORY = "https://github.com/metasequoiaime/msime";
     private static final int MAX_NOTICE_CHARS = 200_000;
     /** 按需开线程：几十兆的更新下载不能让云剪贴板、反馈这些短请求排在它后面。 */
-    private static final ExecutorService NETWORK = Executors.newCachedThreadPool(runnable -> {
-        Thread thread = new Thread(runnable, "msime-home-network");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private static final ExecutorService NETWORK = Executors.newCachedThreadPool(
+        ThreadPolicy.namedDaemonFactory("msime-home-network"));
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     /** 检查更新药丸的几种状态。 */

@@ -85,6 +85,13 @@ public final class SelectionEchoTracker {
         shiftLeft(length, length);
     }
 
+    /**
+     * 发左方向键把光标从刚上屏的 `length` 个 UTF-16 单元后面移到它们前面。一般的方向键落点算不出来（换行、代理对、双向文字），要 {@link #invalidate()}；这里只用于刚写下的一个后半个标点，光标折叠在它后面，左移的落点就是它前面。算错只会对不上回声，退回原来的行为。
+     */
+    public void caretLeft(int length) {
+        shiftLeft(length, length);
+    }
+
     /** `deleteSurroundingTextInCodePoints(1, 0)` 成功：光标左移一个或两个 UTF-16 单元（代理对），哪一个由回声决定。 */
     public void deleteCodePointBefore() {
         shiftLeft(1, 2);

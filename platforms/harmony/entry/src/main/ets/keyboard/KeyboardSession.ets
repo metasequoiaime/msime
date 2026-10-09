@@ -2,6 +2,8 @@ import inputMethodEngine from '@ohos.inputMethodEngine';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
 import client from 'libmsimeclient.so';
+import { FileSessionStore } from '../account/HarmonyAccountTransport';
+import { storedSessionUserId } from '../account/AccountCloudBridge';
 import { utf8Length, utf8WriteComplete } from './Utf8';
 import { TextPolicy } from './TextPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
@@ -732,6 +734,7 @@ interface SnapshotQueueProcessAction {
   directory: string;
   staging_root: string;
   options: Object;
+  account_id: string | null;
 }
 
 interface SnapshotQueueProcessReply {
@@ -3196,9 +3199,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     const staging: string = `${stateRoot}/dictionary-snapshot-staging`;
     try {
       if (!fs.accessSync(staging)) fs.mkdirSync(staging, true);
+      // Read the shared file for each idle pass; this process may outlive a settings-side account switch.
+      const accountId: string | null = storedSessionUserId(new FileSessionStore(stateRoot).load());
       const action: SnapshotQueueProcessAction = {
         operation: 'process', directory: `${stateRoot}/dictionary-snapshots`,
-        staging_root: staging, options: options
+        staging_root: staging, options: options, account_id: accountId
       };
       const reply: SnapshotQueueProcessReply =
         JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueProcessReply;

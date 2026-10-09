@@ -244,9 +244,11 @@ public final class KeyboardSkin {
         Map<String, String> slots = null;
         if (keyboard != null) {
             slots = new HashMap<>(KEYBOARD_SLOTS.length);
-            for (String slot : KEYBOARD_SLOTS) slots.put(slot, text(keyboard, slot));
+            for (String slot : KEYBOARD_SLOTS)
+                slots.put(slot, JsonPolicy.strictString(keyboard.opt(slot)));
         }
-        return resolved(textOr(theme, "id", "system"), title, text(theme, "appearance"),
+        return resolved(JsonPolicy.strictString(theme.opt("id"), "system"), title,
+            JsonPolicy.strictString(theme.opt("appearance")),
             hostDark, slots, customDesign == null ? null : CustomKeyboardSkin.from(customDesign));
     }
 
@@ -298,20 +300,10 @@ public final class KeyboardSkin {
     public static String themeTitle(JSONArray themes, String id) {
         for (int index = 0; index < themes.length(); index++) {
             JSONObject entry = themes.optJSONObject(index);
-            if (entry != null && id.equals(textOr(entry, "id", "")))
-                return textOr(entry, "title", id);
+            if (entry != null && id.equals(JsonPolicy.strictString(entry.opt("id"), "")))
+                return JsonPolicy.strictString(entry.opt("title"), id);
         }
         return id;
-    }
-
-    private static String text(JSONObject object, String key) {
-        if (object.isNull(key)) return null;
-        return object.optString(key, null);
-    }
-
-    private static String textOr(JSONObject object, String key, String fallback) {
-        String value = JsonPolicy.strictString(object == null ? null : object.opt(key));
-        return value == null ? fallback : value;
     }
 
     private KeyboardSkin named(String id, String title) {

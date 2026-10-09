@@ -2751,7 +2751,7 @@ async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionErr
 #[cfg(target_os = "macos")]
 #[derive(Debug, Clone, serde::Serialize)]
 struct InputSourceStartupStatus {
-    /// `installed`, `updated`, `up_to_date`, `not_installed` (a first install, left for the user to start from the install window), `login_required` (installed, but the source list only picks it up after the next login) or `failed`.
+    /// `installed`, `updated`, `up_to_date`, `not_installed` (a first install, left for the user to start from the install window), `login_required` (installed, but the source list only picks it up after the next login; reported by a first install whose registration found nothing, and by a later launch in the same login session that finds the input method missing from the registry, see `input_source_status_now`) or `failed`.
     action: &'static str,
     /// Whether the input source is in the System Settings list at the time of the request (see `input_source_status_now`); absent when that list could not be read.
     enabled: Option<bool>,
@@ -2769,6 +2769,19 @@ struct InputSourceStartupState {
     finished: std::sync::Condvar,
     /// Whether the main window opened as the first-install window and the user has not left it yet.
     first_install_window: std::sync::atomic::AtomicBool,
+    /// 本次运行里已经查明的「输入法在不在本登录会话的输入源注册表里」，见 `input_source_status_now`。一个登录会话里它不会自己变（进了注册表就一直在，新标识符要到下次登录才进），而设置页等用户添加时每 3 秒问一次状态，所以只查一次；`finish` 换了启动结果时清掉。
+    registered: Mutex<RegistryAnswer>,
+    /// 同一时刻只让一个状态请求去拉起输入法查注册表。设置页挂载时的 `refresh()` 和窗口 `focus` 几乎同时发请求，不串行的话两个请求都看到缓存为空、各拉起最多 3 次输入法。单独用一把锁而不是在查询期间一直拿着 `registered`，是为了不让 `finish` 等一次最长十几秒的查询。
+    registry_probe: Mutex<()>,
+}
+
+/// `InputSourceStartupState::registered` 的内容：查明的结论，以及它属于第几个启动结果。
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct RegistryAnswer {
+    /// 每次 `finish` 加一。查询开始前记下它，写回时不一致就丢掉结论：查询期间安装窗口换了启动结果，旧结论不能挂到新结果上。
+    generation: u64,
+    registered: Option<bool>,
 }
 
 #[cfg(target_os = "macos")]
@@ -2778,6 +2791,14 @@ impl InputSourceStartupState {
             .result
             .lock()
             .unwrap_or_else(|poison| poison.into_inner()) = Some(status);
+        {
+            let mut answer = self
+                .registered
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            answer.generation = answer.generation.wrapping_add(1);
+            answer.registered = None;
+        }
         self.finished.notify_all();
     }
 
@@ -2819,7 +2840,7 @@ fn run_input_source_startup(
                 .map(|version| version.label().to_string()),
         },
         Err(macos_input_source::InstallError::SourceUnavailable) => return None,
-        // A failed install or registration has already restored the previous bundle, so the installed version reported is the one still in place; a first install whose registration waits for the next login keeps the new bundle, so that is the one reported.
+        // A failed install or registration has already restored the previous bundle, so the installed version reported is the one still in place; a first install whose registration waits for the next login keeps the new bundle, so that is the one reported. 更新时替换前就查到这次登录的注册表里没有它（首次安装后还没重新登录），同样留下新版本、报 `login_required`。
         Err(error) => InputSourceStartupStatus {
             action: if matches!(error, macos_input_source::InstallError::RegistrationPending) {
                 "login_required"
@@ -2842,15 +2863,48 @@ fn run_input_source_startup(
 }
 
 /// The start-time result with `enabled` and `system_bundles` read at the time of the call rather than when that check ran. The settings page may ask again at any time, so this must stay cheap: it never copies or registers anything, only waits for the one start-time check, reads the input source list and looks for a few paths.
+///
+/// `up_to_date` 而输入法不在输入法列表里时，再用 `registered` 查一次它在不在本登录会话的输入源注册表里，不在就改报 `login_required`：首次安装后同一次登录里重新打开设置应用就是这样，启动检查看到已装版本与内嵌版本相同，只能报 `up_to_date`，而设置页对 `up_to_date` 会叫用户去系统设置添加一个这次登录根本列不出来的输入法。`installed`、`updated` 不查：这次启动刚替换过 bundle，登记后有一段分钟级的注册表空窗（platforms/macos/README.md），这时查不到不说明什么。查明的结果在本次运行里只查一次。
 #[cfg(target_os = "macos")]
 fn input_source_status_now(
     state: &InputSourceStartupState,
     timeout: std::time::Duration,
     enabled: impl FnOnce() -> Option<bool>,
     system_bundles: impl FnOnce() -> Vec<std::path::PathBuf>,
+    registered: impl FnOnce() -> Option<bool>,
 ) -> Option<InputSourceStartupStatus> {
     let mut status = state.wait(timeout)?;
     status.enabled = enabled();
+    if status.action == "up_to_date" && status.enabled == Some(false) {
+        // 后来的请求在这里等前一个查完，再读它存下的结论，不重复拉起输入法。
+        let _probe = state
+            .registry_probe
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let (generation, known) = {
+            let answer = state
+                .registered
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            (answer.generation, answer.registered)
+        };
+        let answer = known.or_else(|| {
+            let answer = registered();
+            if answer.is_some() {
+                let mut stored = state
+                    .registered
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                if stored.generation == generation {
+                    stored.registered = answer;
+                }
+            }
+            answer
+        });
+        if answer == Some(false) {
+            status.action = "login_required";
+        }
+    }
     status.system_bundles = system_bundles()
         .into_iter()
         .map(|path| path.display().to_string())
@@ -2871,6 +2925,7 @@ async fn input_source_startup_status(
             std::time::Duration::from_secs(120),
             macos_input_source::input_source_enabled,
             macos_input_source::system_bundles,
+            macos_input_source::input_source_registered,
         )
     })
     .await
@@ -2898,6 +2953,7 @@ async fn run_first_input_source_install(
             std::time::Duration::ZERO,
             macos_input_source::input_source_enabled,
             macos_input_source::system_bundles,
+            macos_input_source::input_source_registered,
         )
     })
     .await
