@@ -5065,7 +5065,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (property_name.rfind("HelpcodeSchema/", 0) == 0) {
       const auto selected = property_name.substr(std::string("HelpcodeSchema/").size());
       if (selected != "lantian" && selected != "ziranma" && selected != "shouyou2_0" &&
-          selected != "shouyouplus" && selected != "xiaohe" && selected != "jiajia")
+          selected != "shouyouplus" && selected != "xiaohe" && selected != "jiajia" &&
+          selected != "wubi86")
         return;
       const auto active_scheme = effective_scheme(s);
       if (active_scheme != "quanpin" && active_scheme != "shuangpin")

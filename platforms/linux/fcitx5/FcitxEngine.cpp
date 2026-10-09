@@ -722,8 +722,8 @@ public:
       return false;
     // The size follows the list rather than being written twice: jiajia was added as the sixth
     // schema and the count stayed at five, which stopped this addon compiling at all.
-    static constexpr std::array schemas = {"lantian",     "ziranma", "shouyou2_0",
-                                           "shouyouplus", "xiaohe",  "jiajia"};
+    static constexpr std::array schemas = {"lantian", "ziranma", "shouyou2_0", "shouyouplus",
+                                           "xiaohe",  "jiajia",  "wubi86"};
     const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
     const auto current = preferences_.value(section, Json::object()).value(
         "schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
