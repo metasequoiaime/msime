@@ -3,7 +3,6 @@
 //! 九键模式（`set_nine_key`）下不读大千键：数字串按 `nine_key::KEYPAD` 记下符号位置，声调键结束音节，这个位置的读音是数字串加声调对应的全部合法音节；转换在每个位置的读音里一起挑，用户可以经 `choose_spelling` 逐个钉住目标音节的读音。
 
 use std::cmp::Reverse;
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -61,6 +60,19 @@ impl Syllable {
     }
 }
 
+#[derive(Default)]
+struct BestCache {
+    entries: HashMap<String, Option<(String, LanguageEntry)>>,
+    description: String,
+}
+
+impl BestCache {
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.description.clear();
+    }
+}
+
 pub struct ZhuyinScheme {
     dictionary: LanguageDictionary,
     syllables: Vec<Syllable>,
@@ -75,7 +87,7 @@ pub struct ZhuyinScheme {
     /// Text the last key committed, waiting for the session to hand it to the host.
     committed: String,
     /// 组字过程中每段位置描述（各位置允许的读音以 `|` 连接，位置之间用空格）的最重词条及其键。词库只读，所以条目一直有效；九键下每次钉读音都会产生新的描述，缓存在组字结束和每次 auto-shift 时清空。
-    best: HashMap<String, Option<(String, LanguageEntry)>>,
+    best: BestCache,
     /// 注音九键模式：数字键拼音节，`zxcvb` 和空格是声调键。
     nine_key: bool,
     /// 九键模式第一次处理按键时从音节表建出的索引，之后一直保留。
@@ -100,7 +112,7 @@ impl ZhuyinScheme {
             list_open: false,
             list: Vec::new(),
             committed: String::new(),
-            best: HashMap::new(),
+            best: BestCache::default(),
             nine_key: false,
             nine_key_index: None,
             pending_digits: Vec::new(),
@@ -546,12 +558,18 @@ impl ZhuyinScheme {
             positions.len(),
             &self.pins,
             |start, end| {
-                let entry = cached_best(dictionary, best, &positions[start..end])?;
-                Ok(entry
-                    .filter(|(_, entry)| {
-                        clears_ambiguous_word_floor(&ambiguous[start..end], singles, start, entry)
-                    })
-                    .cloned())
+                cached_best(dictionary, best, &positions[start..end], |entry| {
+                    entry
+                        .filter(|(_, entry)| {
+                            clears_ambiguous_word_floor(
+                                &ambiguous[start..end],
+                                singles,
+                                start,
+                                entry,
+                            )
+                        })
+                        .cloned()
+                })
             },
             |index| positions[index][0].clone(),
         )?;
@@ -750,35 +768,42 @@ fn clears_ambiguous_word_floor(
 /// 只取词频时，单位置单读音的缓存键直接借用读音；未命中或需要组合缓存键时复用完整词条的查询路径。
 fn cached_best_weight(
     dictionary: &LanguageDictionary,
-    best: &mut HashMap<String, Option<(String, LanguageEntry)>>,
+    best: &mut BestCache,
     positions: &[&[String]],
 ) -> Result<Option<i64>> {
     if let [[reading]] = positions {
-        if let Some(entry) = best.get(reading.as_str()) {
+        if let Some(entry) = best.entries.get(reading.as_str()) {
             return Ok(entry.as_ref().map(|(_, entry)| entry.weight));
         }
     }
-    Ok(cached_best(dictionary, best, positions)?.map(|(_, entry)| entry.weight))
+    cached_best(dictionary, best, positions, |entry| {
+        entry.map(|(_, entry)| entry.weight)
+    })
 }
 
-/// 借用缓存中 `positions` 的最重词条及其键。缓存键是各位置允许的读音以 `|` 连接、位置之间用空格；大千下每个位置只有一个读音，所以就是词库键本身。
-fn cached_best<'a>(
+/// 在借用期间消费 `positions` 的缓存词条；只在成功插入新键时复制描述，查询缓冲始终保留。
+fn cached_best<T>(
     dictionary: &LanguageDictionary,
-    best: &'a mut HashMap<String, Option<(String, LanguageEntry)>>,
+    best: &mut BestCache,
     positions: &[&[String]],
-) -> Result<Option<&'a (String, LanguageEntry)>> {
-    let description = describe(positions);
-    match best.entry(description) {
-        Entry::Occupied(entry) => Ok(entry.into_mut().as_ref()),
-        Entry::Vacant(entry) => {
-            let candidate = dictionary.lookup_readings(positions, 1)?.into_iter().next();
-            Ok(entry.insert(candidate).as_ref())
-        }
+    consume: impl FnOnce(Option<&(String, LanguageEntry)>) -> T,
+) -> Result<T> {
+    describe(positions, &mut best.description);
+    if let Some(entry) = best.entries.get(best.description.as_str()) {
+        return Ok(consume(entry.as_ref()));
     }
+    let candidate = dictionary.lookup_readings(positions, 1)?.into_iter().next();
+    let description = best.description.clone();
+    Ok(consume(
+        best.entries
+            .entry(description)
+            .or_insert(candidate)
+            .as_ref(),
+    ))
 }
 
-/// `cached_best` 的缓存键。
-fn describe(positions: &[&[String]]) -> String {
+/// `cached_best` 的缓存键：各位置的读音以 `|` 连接，位置之间用空格。
+fn describe(positions: &[&[String]], description: &mut String) {
     let capacity = positions
         .iter()
         .enumerate()
@@ -788,7 +813,8 @@ fn describe(positions: &[&[String]]) -> String {
                 + usize::from(position > 0)
         })
         .sum();
-    let mut description = String::with_capacity(capacity);
+    description.clear();
+    description.reserve(capacity);
     for (position, readings) in positions.iter().enumerate() {
         if position > 0 {
             description.push(' ');
@@ -800,7 +826,6 @@ fn describe(positions: &[&[String]]) -> String {
             description.push_str(value);
         }
     }
-    description
 }
 
 fn build_editing_keys(syllables: &[Syllable], pending: &PendingSyllable) -> String {
@@ -975,11 +1000,15 @@ mod tests {
             syllable("28c", &["ㄋㄧˇ", "ㄌㄧˇ"]),
         ];
         let positions: Vec<&[String]> = syllables.iter().map(Syllable::allowed).collect();
-        assert_eq!(describe(&positions[..2]), "ㄋㄧˇ ㄏㄠˇ");
-        assert_eq!(describe(&positions), "ㄋㄧˇ ㄏㄠˇ ㄋㄧˇ|ㄌㄧˇ");
+        let mut description = String::new();
+        describe(&positions[..2], &mut description);
+        assert_eq!(description, "ㄋㄧˇ ㄏㄠˇ");
+        describe(&positions, &mut description);
+        assert_eq!(description, "ㄋㄧˇ ㄏㄠˇ ㄋㄧˇ|ㄌㄧˇ");
         syllables[2].locked = Some(1);
         let positions: Vec<&[String]> = syllables.iter().map(Syllable::allowed).collect();
-        assert_eq!(describe(&positions[1..]), "ㄏㄠˇ ㄌㄧˇ");
+        describe(&positions[1..], &mut description);
+        assert_eq!(description, "ㄏㄠˇ ㄌㄧˇ");
     }
 
     #[test]
@@ -991,8 +1020,11 @@ mod tests {
         ];
         let positions: Vec<&[String]> = syllables.iter().map(Syllable::allowed).collect();
 
-        let (description, allocations) =
-            crate::ime::personal_rerank::allocations::count(|| describe(&positions));
+        let (description, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            let mut description = String::new();
+            describe(&positions, &mut description);
+            description
+        });
 
         assert_eq!(description, "ㄋㄧˇ ㄏㄠˇ ㄋㄧˇ|ㄌㄧˇ");
         assert_eq!(allocations, 1);
@@ -1361,7 +1393,12 @@ mod tests {
         assert_eq!(scheme.converted_text(), format!("{}你", "你好".repeat(9)));
         assert_eq!(scheme.editing_text(), format!("{}su3", "su3cl3".repeat(9)));
         // The lookup cache keeps no key longer than the syllables that are left.
-        let longest = scheme.best.keys().map(|key| key.split(' ').count()).max();
+        let longest = scheme
+            .best
+            .entries
+            .keys()
+            .map(|key| key.split(' ').count())
+            .max();
         assert_eq!(longest, Some(scheme.syllables.len()));
 
         // A pin to the right of the shifted word moves with its syllables.
@@ -1468,42 +1505,116 @@ mod tests {
     #[test]
     fn cached_best_preserves_rows_misses_and_query_errors() {
         let (dir, scheme) = nine_key_scheme();
-        let mut best = HashMap::new();
+        let mut best = BestCache::default();
         let readings = ["ㄋㄧˇ".to_owned(), "ㄌㄧˇ".to_owned()];
         let missing = ["測試缺失讀音".to_owned()];
         let uncached = ["ㄉㄧˇ".to_owned()];
-        let (key, entry) = cached_best(&scheme.dictionary, &mut best, &[&readings])
+        let check = |entry: Option<&(String, LanguageEntry)>| {
+            let (key, entry) = entry.unwrap();
+            assert_eq!(key, "ㄌㄧˇ");
+            assert_eq!(entry.text, "李");
+            assert_eq!(entry.weight, 1200);
+            (key.as_ptr(), entry.text.as_ptr())
+        };
+        let pointers = cached_best(&scheme.dictionary, &mut best, &[&readings], check).unwrap();
+        assert!(
+            cached_best(&scheme.dictionary, &mut best, &[&missing], |entry| entry
+                .is_none())
             .unwrap()
-            .unwrap();
-        assert_eq!(key, "ㄌㄧˇ");
-        assert_eq!(entry.text, "李");
-        assert_eq!(entry.weight, 1200);
-        assert!(cached_best(&scheme.dictionary, &mut best, &[&missing])
-            .unwrap()
-            .is_none());
-        assert_eq!(best.len(), 2);
+        );
+        assert_eq!(best.entries.len(), 2);
         Connection::open(dir.path().join("msime-zhuyin.db"))
             .unwrap()
             .execute_batch("DROP TABLE entries")
             .unwrap();
 
-        let (_, entry) = cached_best(&scheme.dictionary, &mut best, &[&readings])
+        let cached_pointers =
+            cached_best(&scheme.dictionary, &mut best, &[&readings], check).unwrap();
+        assert_eq!(cached_pointers, pointers);
+        assert!(
+            cached_best(&scheme.dictionary, &mut best, &[&missing], |entry| entry
+                .is_none())
             .unwrap()
-            .unwrap();
-        assert_eq!(entry.text, "李");
-        assert_eq!(entry.weight, 1200);
-        assert!(cached_best(&scheme.dictionary, &mut best, &[&missing])
-            .unwrap()
-            .is_none());
-        assert!(cached_best(&scheme.dictionary, &mut best, &[&uncached]).is_err());
-        assert!(cached_best(&scheme.dictionary, &mut best, &[&uncached]).is_err());
-        assert_eq!(best.len(), 2);
+        );
+        for _ in 0..2 {
+            assert!(
+                cached_best(&scheme.dictionary, &mut best, &[&uncached], |_| {
+                    panic!("词库查询失败不应消费词条")
+                })
+                .is_err()
+            );
+        }
+        assert_eq!(best.entries.len(), 2);
+        let capacity = best.description.capacity();
+        best.clear();
+        assert!(best.entries.is_empty());
+        assert!(best.description.is_empty());
+        assert_eq!(best.description.capacity(), capacity);
+        assert!(cached_best(&scheme.dictionary, &mut best, &[&readings], |_| ()).is_err());
+    }
+
+    #[test]
+    fn warmed_conversion_cache_queries_do_not_allocate_descriptions() {
+        for readings in [
+            vec!["ㄋㄧˇ".to_owned()],
+            vec!["ㄋㄧˇ".to_owned(), "ㄌㄧˇ".to_owned()],
+        ] {
+            let (dir, scheme) = nine_key_scheme();
+            let expected = if readings.len() == 1 {
+                ("ㄋㄧˇ", "你", 1000)
+            } else {
+                ("ㄌㄧˇ", "李", 1200)
+            };
+            let positions = [readings.as_slice(); MAX_SYLLABLES];
+            let mut best = BestCache::default();
+            for _ in 0..2 {
+                for start in 0..positions.len() {
+                    for end in start + 1..=positions.len() {
+                        cached_best(
+                            &scheme.dictionary,
+                            &mut best,
+                            &positions[start..end],
+                            |_| (),
+                        )
+                        .unwrap();
+                    }
+                }
+            }
+            Connection::open(dir.path().join("msime-zhuyin.db"))
+                .unwrap()
+                .execute_batch("DROP TABLE entries")
+                .unwrap();
+
+            let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                for start in 0..positions.len() {
+                    for end in start + 1..=positions.len() {
+                        cached_best(
+                            &scheme.dictionary,
+                            &mut best,
+                            &positions[start..end],
+                            |entry| {
+                                if end == start + 1 {
+                                    let (key, entry) = entry.unwrap();
+                                    assert_eq!(key, expected.0);
+                                    assert_eq!(entry.text, expected.1);
+                                    assert_eq!(entry.weight, expected.2);
+                                } else {
+                                    assert!(entry.is_none());
+                                }
+                            },
+                        )
+                        .unwrap();
+                    }
+                }
+            });
+            assert_eq!(allocations, 0, "热缓存查询不应分配临时描述键");
+        }
     }
 
     #[test]
     fn cached_single_reading_weights_keep_hits_misses_and_errors() {
         let (dir, scheme) = nine_key_scheme();
-        let mut best = HashMap::new();
+        let mut best = BestCache::default();
         let reading = ["ㄌㄧˇ".to_owned()];
         let missing = ["測試缺失讀音".to_owned()];
         assert_eq!(
@@ -1533,7 +1644,7 @@ mod tests {
         let readings = ["ㄌㄧˇ".to_owned(), "ㄋㄧˇ".to_owned()];
         assert!(cached_best_weight(&scheme.dictionary, &mut best, &[&readings]).is_err());
         assert!(cached_best_weight(&scheme.dictionary, &mut best, &[&reading, &reading]).is_err());
-        assert_eq!(best.len(), 2);
+        assert_eq!(best.entries.len(), 2);
     }
 
     #[test]

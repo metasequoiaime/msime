@@ -21,3 +21,7 @@ Status: implemented
 ## Verification
 
 收紧原有热缓存刷新分配预算后，旧实现在九次分配处失败；优化后预算为不超过三次。缓存回归测试覆盖首次查询、命中、缺失结果与重复查询错误。注音单测、引擎全量单测、golden、Clippy、Rustfmt、笔记校验、差异检查和 quick 门禁用于验证本切片。
+
+## Related decisions
+
+[复用缓存描述缓冲](2026-10-09-zhuyin-cache-description-reuse.md) 保留词条借用，把返回借用的内部入口替换为在借用期间消费词条的回调，从而同时复用查询键缓冲并避免预查询带来的第二次哈希查找。
