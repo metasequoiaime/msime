@@ -519,3 +519,15 @@ mod pruning_tests;
 #[cfg(test)]
 #[path = "matrix/pending_tests.rs"]
 mod pending_tests;
+
+#[cfg(test)]
+#[path = "matrix/vector_row_reference.rs"]
+mod vector_row_reference;
+
+#[cfg(test)]
+#[path = "matrix/inline_row_experiment.rs"]
+mod inline_row_experiment;
+
+#[cfg(test)]
+#[path = "matrix/inline_row_tests.rs"]
+mod inline_row_tests;
