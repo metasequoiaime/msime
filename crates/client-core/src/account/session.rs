@@ -932,7 +932,7 @@ fn saved_session(tokens: AccountTokens) -> Result<SavedAccountSession, AccountEr
     })
 }
 
-fn validate_saved_session(session: &SavedAccountSession) -> Result<(), AccountError> {
+pub(super) fn validate_saved_session(session: &SavedAccountSession) -> Result<(), AccountError> {
     validate_tokens(&session.tokens).map_err(|_| AccountError::Storage)?;
     let maximum = unix_ms()?
         .checked_add(MAX_SESSION_SECONDS * 1000)
