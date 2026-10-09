@@ -43,6 +43,7 @@ Status: implemented
 
 ## Verification
 
-- `RBUILD_JOBS=2 rbuild env CMAKE_BUILD_PARALLEL_LEVEL=2 bash platforms/linux/package-legacy-container.sh`（Studio，arm64 原生）：Depends 为 `ibus (>= 1.5.19), python3 (>= 3.7), procps, libasound2 (>= 1.1.0), libc6 (>= 2.28), …`，包内 ELF 文件没有高于 `GLIBC_2.28` 的符号版本；干净的 buster 里 apt 安装成功，`ldd` 无缺失，ctest 70 项通过。
-- `RBUILD_JOBS=2 rbuild bash platforms/linux/build-container.sh`：bookworm 门禁照常通过，确认上面的条件编译和链接改动不影响现有构建。
+- `RBUILD_JOBS=2 rbuild env CMAKE_BUILD_PARALLEL_LEVEL=2 bash platforms/linux/package-legacy-container.sh`（Studio，arm64 原生）：Depends 为 `ibus (>= 1.5.19), python3 (>= 3.7), procps, libasound2 (>= 1.1.0), libc6 (>= 2.28), …`；包内 ELF 文件要求的 glibc 最高是 2.28（`libmsime_host_api.so`、`msime-mcp`），sherpa-onnx 与 ONNX Runtime 库是 2.17；干净的 buster 里 apt 安装成功，`ldd` 无缺失，ctest 70 项全部通过。
+- `RBUILD_JOBS=2 rbuild bash platforms/linux/build-container.sh`：bookworm 门禁 ctest 72 项全部通过，五笔与日文版的配置检查照常；bookworm 的 CMake 检测到 libc 自带 `shm_open`，不链接 librt；bookworm 的 `wayland-client-protocol.h` 定义了 `WL_POINTER_AXIS_VALUE120_SINCE_VERSION`，`axis_value120` 照旧赋值。
+- amd64 只部分验证：`MSIME_LEGACY_ARCH=amd64` 在 Studio（arm64）上经 Rosetta 构建出了镜像（Kitware CMake、rustup-init 的 x86_64 校验和与 GCC 8.3、IBus 1.5.19、Python 3.7.3 都对），x64 的 sherpa-onnx 与 ONNX Runtime 库要求的 glibc 最高 2.17；但模拟下 Rust Release 构建约 70 分钟只编完 337 个 crate 中的 130 个（当时负载 200 到 340），整条构建估计要四五个小时，就停掉了，amd64 的 .deb 没有产出，也没有跑安装和 ctest。
 - 没有在 UOS 20 真机或任何图形会话里选中输入法打字。

@@ -160,7 +160,7 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 - IBus 面板上的输入法菜单与发布页的包相同，中英文、全角、中文标点、简繁、输入方案、双拼方案、辅助码方案和主题都在那里切换。
 - 其余偏好用随包的 `msime` 命令（`msime-mcp` 的命令行形式，见上文「包管理器」）：`msime config` 列出当前偏好，`msime config get <键>` 读取，`msime config set <键>=<值> …` 修改，例如 `msime config set candidate_page_size=7 fuzzy_pinyin=true`，输入法在几秒内热重载。能改的键是 MCP 工具 `update_preferences` 接受的那一组（`crates/mcp-server/src/preferences.rs` 的 `PreferencesChange`），包括输入方案与双拼方案、候选个数、字号、缩放、透明度、圆角与排列、候选跟随光标、数字行选词、模式提示、模糊音、默认中英文、全半角、中文标点、智能标点、繁体输出、五笔方案、五笔混输拼音、五笔编码提示和诊断日志；`msime --help` 列出全部命令。
 
-验证范围：上面的构建、glibc 检查、apt 安装和 ctest 在 Docker 容器里跑过，没有在 UOS 20 真机或任何图形会话里选中输入法打过字。
+验证范围：arm64 的构建、glibc 检查、apt 安装和 ctest 在 Docker 容器里跑过；amd64 只在 arm64 主机上经模拟构建过镜像、核对过预编译语音运行库的 glibc 要求，完整构建在模拟器里太慢，没有跑完；两种架构都没有在 UOS 20 真机或任何图形会话里选中输入法打过字。
 
 ### Nix 与 NixOS
 
