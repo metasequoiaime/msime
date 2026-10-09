@@ -32,7 +32,8 @@ permissions:
 jobs:
   changes:
     name: Decide whether iOS needs building
-    runs-on: ubuntu-24.04
+    # 判定只跑十几秒，却挡在后面所有构建之前。GitHub 托管的 ubuntu-24.04 在多个 PR 同时推送时要排队（2026-10-09 十三个 PR 一起更新，中位 57 秒、p90 176 秒），Depot 的只要 1 秒，和 ci-platforms.yml 的 Decide platform scope 一样放在 Depot 上。
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     outputs:
       build: ${{ steps.decide.outputs.build }}
