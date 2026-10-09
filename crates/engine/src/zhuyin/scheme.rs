@@ -431,8 +431,15 @@ impl ZhuyinScheme {
             }
             return Ok(true);
         }
-        let digits = std::mem::take(&mut self.pending_digits);
-        let Some(readings) = self.nine_key_index()?.readings(&digits, mark) else {
+        let mut digits = std::mem::take(&mut self.pending_digits);
+        let readings = match self.nine_key_index() {
+            Ok(index) => index.readings(&digits, mark),
+            Err(error) => {
+                self.pending_digits = digits;
+                return Err(error);
+            }
+        };
+        let Some(readings) = readings else {
             self.pending_digits = digits;
             return Ok(true);
         };
@@ -441,6 +448,8 @@ impl ZhuyinScheme {
         }
         let mut keys: String = digits.iter().map(|digit| char::from(*digit)).collect();
         keys.push(char::from(byte));
+        digits.clear();
+        self.pending_digits = digits;
         self.syllables.push(Syllable {
             keys,
             readings,
@@ -1637,6 +1646,44 @@ mod tests {
         assert_eq!(scheme.pending_digits.as_ptr(), pointer);
         assert_eq!(scheme.pending_digits, b"29");
         assert_eq!(scheme.reading(), "29");
+    }
+
+    #[test]
+    fn nine_key_completed_syllables_reuse_pending_digit_storage() {
+        let (_dir, mut scheme) = nine_key_scheme();
+        type_keys(&mut scheme, "28");
+        let pointer = scheme.pending_digits.as_ptr();
+        let capacity = scheme.pending_digits.capacity();
+        assert!(scheme.handle_key(ZhuyinKey::Char(b'c')).unwrap());
+        assert!(scheme.pending_digits.is_empty());
+
+        let (claimed, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            scheme.handle_key(ZhuyinKey::Char(b'2')).unwrap()
+        });
+        assert!(claimed);
+        assert_eq!(allocations, 0);
+        assert_eq!(scheme.pending_digits.as_ptr(), pointer);
+        assert_eq!(scheme.pending_digits.capacity(), capacity);
+        assert_eq!(scheme.pending_digits, b"2");
+        assert_eq!(scheme.reading(), "李2");
+    }
+
+    #[test]
+    fn nine_key_tone_index_failure_restores_pending_digits() {
+        let (dir, mut scheme) = nine_key_scheme();
+        scheme.pending_digits.extend_from_slice(b"28");
+        let pointer = scheme.pending_digits.as_ptr();
+        Connection::open(dir.path().join("msime-zhuyin.db"))
+            .unwrap()
+            .execute_batch("DROP TABLE syllables")
+            .unwrap();
+
+        assert!(scheme.handle_key(ZhuyinKey::Char(b'c')).is_err());
+        assert_eq!(scheme.pending_digits, b"28");
+        assert_eq!(scheme.pending_digits.as_ptr(), pointer);
+        assert!(scheme.syllables.is_empty());
+        assert!(scheme.is_composing());
+        assert_eq!(scheme.reading(), "28");
     }
 
     #[test]
