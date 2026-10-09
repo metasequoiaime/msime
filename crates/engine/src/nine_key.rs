@@ -14,6 +14,10 @@ use crate::error::EngineError;
 use crate::ime::queries::{insert_expressive_rows, MIXED_EXPRESSIVE_MINIMUM_INPUT};
 use crate::language_dictionary::{self, LanguageDictionary};
 use crate::lattice::decode::PHRASE_LENGTH_BONUS;
+use crate::lattice::neural::{
+    shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
+};
+use crate::lattice::SentencePath;
 use crate::local::emoji::{query_emoji_readings, query_kaomoji_readings, ExpressiveRow};
 use crate::paths::RuntimePaths;
 use crate::pinyin::segment::{cut_one_piece_min_segments, split_segments};
@@ -21,11 +25,12 @@ use crate::pinyin::syllables::intact_pinyin_list;
 use crate::quanpin::QuanpinDictionary;
 use crate::session::SessionSnapshot;
 use crate::stroke;
-use crate::text::{count_utf8_chars, is_han_phrase};
+use crate::text::{count_utf8_chars, is_han_phrase, last_characters};
 use crate::types::{
     CandidateSource, Command, EnglishInputOptions, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult, LocalInputMode,
-    MixedExpressiveOptions, PersonalDictionaryKind, SchemeType, WordItem,
+    MixedExpressiveOptions, PersonalDictionaryKind, SchemeType, SentenceAssociationOptions,
+    WordItem,
 };
 use crate::user_dictionary::positions;
 use crate::user_dictionary::ranking::{self, RankingRequest};
@@ -70,6 +75,14 @@ pub struct NineKeySession {
     english_options: EnglishInputOptions,
     /// 候选里混入 emoji、颜文字（共享偏好 `mixed_input.emoji` / `mixed_input.kaomoji`），默认都关。
     expressive: MixedExpressiveOptions,
+    /// 句子联想设置（`SessionOptions::sentence_association`），与 26 键相同：`word_lattice` 关掉时不出词网格整句行，`neural_keyboard` 打开时用键盘模型给整句重排（#6059）。
+    sentence_association: SentenceAssociationOptions,
+    /// `SessionOptions::sentence_alternatives`：每条切分交回全部整句读法，而不是只交回最好的一条。
+    sentence_alternatives: bool,
+    /// 键盘模型读的上屏上下文，只留最后 `CONTEXT_CHARACTERS` 个字；`Session::set_rescoring_context` 随时更新。
+    rescoring_context: String,
+    /// 键盘模型，`neural_keyboard` 打开后第一次重排时加载；内层 `None` 是模型读不到。九键不让词库在每条切分里各重排一次，见 `rerank_sentences`。
+    keyboard: Option<Option<NeuralReranker>>,
     digits: String,
     locked: Vec<String>,
     /// 用户用 `'` 切开音节的数字位置，升序，都在已锁定的部分之后。和锁定的拼写不同，切分只定下一个音节在哪里结束，两边数字的各种读法都还保留：`94'26` 可以是 xi'an，也可以是 yi'an，但不会是 xian。
@@ -164,6 +177,10 @@ impl NineKeySession {
             fuzzy,
             english_options: english,
             expressive: MixedExpressiveOptions::default(),
+            sentence_association: SentenceAssociationOptions::default(),
+            sentence_alternatives: false,
+            rescoring_context: String::new(),
+            keyboard: None,
             digits: String::new(),
             locked: Vec::new(),
             splits: Vec::new(),
@@ -201,6 +218,49 @@ impl NineKeySession {
     /// 和 26 键共用的 emoji、颜文字混排开关；与英文选项一样只在建会话时设置。
     pub fn set_mixed_expressive(&mut self, options: MixedExpressiveOptions) {
         self.expressive = options;
+    }
+
+    /// 和 26 键共用的句子联想设置（#6059）。与英文选项一样只在建会话时设置；词库已经打开时同步给它，组字中则按新设置重排候选。
+    pub fn set_sentence_options(
+        &mut self,
+        association: SentenceAssociationOptions,
+        alternatives: bool,
+    ) {
+        if self.sentence_association == association && self.sentence_alternatives == alternatives {
+            return;
+        }
+        self.sentence_association = association;
+        self.sentence_alternatives = alternatives;
+        if !association.neural_keyboard {
+            self.keyboard = None;
+        }
+        let dictionary_association = self.dictionary_association();
+        if let Some(dictionary) = self.dictionary.as_mut() {
+            dictionary.set_sentence_association(dictionary_association);
+            dictionary.set_sentence_alternatives(alternatives);
+        }
+        if self.active() {
+            self.refresh();
+        }
+    }
+
+    /// 键盘模型读的上屏上下文，与 26 键的 `QuanpinDictionary::set_rescoring_context` 一样只记下最后 `CONTEXT_CHARACTERS` 个字，不重排已有的候选。
+    pub fn set_rescoring_context(&mut self, context: &str) {
+        let trimmed = last_characters(context, CONTEXT_CHARACTERS);
+        if self.rescoring_context != trimmed {
+            self.rescoring_context.clear();
+            self.rescoring_context.push_str(trimmed);
+        }
+    }
+
+    /// 交给词库的句子联想设置。键盘模型不在词库里跑（每条切分各跑一次太贵），而由 `rerank_sentences` 跨切分统一跑一次；它要重排的是词网格整句，所以模型打开时即使用户关了词网格，词库也照样解出整句，挑完再去掉。
+    fn dictionary_association(&self) -> SentenceAssociationOptions {
+        let association = self.sentence_association;
+        SentenceAssociationOptions {
+            word_lattice: association.word_lattice || association.neural_keyboard,
+            neural_keyboard: false,
+            show_next_on_duplicate: association.show_next_on_duplicate,
+        }
     }
 
     /// Holds digits.
@@ -477,9 +537,12 @@ impl NineKeySession {
         self.reset_phrase();
         let (pinyin, word) = stored?;
         // 写入前由 `create_word_from_canonical_pinyin` 核对一字一个完整音节（与全拼键盘存词前的检查相同）；读不出的词（夹着英文或符号）被它拒绝，这不是写入失败，不报诊断。
+        let association = self.dictionary_association();
         match self
             .dictionary
-            .get_or_insert_with(|| QuanpinDictionary::new(&self.paths))
+            .get_or_insert_with(|| {
+                open_dictionary(&self.paths, association, self.sentence_alternatives)
+            })
             .create_word_from_canonical_pinyin(&pinyin, &word)
         {
             Ok(()) | Err(EngineError::InvalidArgument(_)) => None,
@@ -762,12 +825,13 @@ impl NineKeySession {
             |piece: &str| initial.is_none_or(|letter| piece.as_bytes().first() == Some(&letter));
         let mut syllables = table.spellings_for(remaining, locked_length, splits.first().copied());
         syllables.retain(|syllable| starts_right(syllable));
+        let association = self.dictionary_association();
         let alternatives = if remaining.is_empty() {
             vec![Vec::new()]
         } else {
-            let dictionary = self
-                .dictionary
-                .get_or_insert_with(|| QuanpinDictionary::new(&self.paths));
+            let dictionary = self.dictionary.get_or_insert_with(|| {
+                open_dictionary(&self.paths, association, self.sentence_alternatives)
+            });
             let prior = self
                 .prior
                 .get_or_insert_with(|| SyllablePrior::from_dictionary(dictionary, table));
@@ -788,7 +852,9 @@ impl NineKeySession {
         append_path_key(&mut locked_key, "", &self.locked);
         let mut dictionary = self
             .dictionary
-            .get_or_insert_with(|| QuanpinDictionary::new(&self.paths))
+            .get_or_insert_with(|| {
+                open_dictionary(&self.paths, association, self.sentence_alternatives)
+            })
             .row_cache_batch();
         let mut queried = (alternatives.len() > SMALL_QUERY_KEY_BATCH)
             .then(|| HashSet::with_capacity(alternatives.len()));
@@ -882,11 +948,13 @@ impl NineKeySession {
             candidates.retain(|item| passes_filter(&item.word, self.single_character, strokes));
         }
         rank_candidates(&mut candidates, prefer_exact, initials_lead);
+        let remaining_length = remaining.len();
+        self.rerank_sentences(&mut candidates);
         // emoji、颜文字按拼音查，读法的先后要参照排好的拼音候选，所以在插入英文行之前查；插入在英文行之后，它们也可以接在英文词后面。单字、笔画筛选针对的是汉字，筛选时不混入。
         let (emoji, kaomoji) = if filtering {
             (Vec::new(), Vec::new())
         } else {
-            self.expressive_candidates(&alternatives, remaining.len(), &candidates)
+            self.expressive_candidates(&alternatives, remaining_length, &candidates)
         };
 
         // 没有任何拼音读法时（77 拼不出音节），列表本来是空的，混输开关和最短前缀保护的「拼音列表的可读性」无从谈起；这时照样给英文九键词，否则 QQ 这类词只能切到全键盘去打。
@@ -943,6 +1011,42 @@ impl NineKeySession {
             let choices = self.key_choices(remaining);
             self.spellings.extend(choices);
         }
+    }
+
+    /// `neural_keyboard` 打开时用键盘模型给整句重排，与 26 键一样多出一行模型挑的整句（`NeuralKeyboard`），排在词网格最好的整句之后（`lattice::merge::reranked_block`）。26 键在词库里对一串音节的几个最好整句重排；九键每次按键有几十条切分，各重排一次太贵，所以这里取各条切分解出的整句里排在最前的 `MAX_RERANK_PATHS` 条（已经按 `comparable_weight` 跨切分比较过，它也是交给模型的词网格分），统一重排一次。
+    fn rerank_sentences(&mut self, candidates: &mut Vec<WordItem>) {
+        if !self.sentence_association.neural_keyboard {
+            return;
+        }
+        let paths = &self.paths;
+        let keyboard = self.keyboard.get_or_insert_with(|| {
+            shared_sentence_model(&paths.resource(assets::NEURAL_MODEL_KEYBOARD))
+                .map(|model| NeuralReranker::new(CandidateSource::NeuralKeyboard, model))
+        });
+        let mut ranked = Vec::new();
+        if let Some(keyboard) = keyboard.as_mut() {
+            let mut sentences: Vec<SentencePath> = candidates
+                .iter()
+                .filter(|item| is_lattice_sentence(item))
+                .take(MAX_RERANK_PATHS)
+                .map(|item| SentencePath {
+                    sentence: item.word.clone(),
+                    key: item.canonical_pinyin.clone(),
+                    log_prob: comparable_weight(item) as f64 / 1000.0,
+                    words: item.sentence_words.clone(),
+                    typo_edges: 0,
+                })
+                .collect();
+            if keyboard.rerank(&mut sentences, &self.rescoring_context) {
+                ranked = sentences.into_iter().map(|path| path.sentence).collect();
+            }
+        }
+        place_keyboard_pick(
+            candidates,
+            &ranked,
+            self.sentence_association.show_next_on_duplicate,
+            self.sentence_association.word_lattice,
+        );
     }
 
     /// 按数字串可能的读法查要混入的 emoji 和颜文字，开关都关、数字不足 `MIXED_EXPRESSIVE_MINIMUM_INPUT` 个时不查。
@@ -1268,6 +1372,54 @@ impl NineKeySession {
             // A failed write keeps the commit and reports this one message (NK:409-414).
             Err(_) => Some(diagnostics::NINE_KEY_FREQUENCY_NOT_PERSISTED.to_string()),
         }
+    }
+}
+
+/// 打开九键用的词库，带上 `NineKeySession::dictionary_association` 给的句子联想设置。
+fn open_dictionary(
+    paths: &RuntimePaths,
+    association: SentenceAssociationOptions,
+    alternatives: bool,
+) -> QuanpinDictionary {
+    let mut dictionary = QuanpinDictionary::new(paths);
+    dictionary.set_sentence_association(association);
+    dictionary.set_sentence_alternatives(alternatives);
+    dictionary
+}
+
+/// 词网格解出的整句行（`lattice::merge::sentence_row` 的 `Generated` 行）。
+fn is_lattice_sentence(item: &WordItem) -> bool {
+    item.source == CandidateSource::Generated && item.sentence_association
+}
+
+/// 把键盘模型重排后的整句顺序 `ranked` 落到候选上，规则同 `lattice::merge::reranked_block`：模型排第一的整句若不是词网格最好的那一行，就把它改成 `NeuralKeyboard` 行，挪到词网格最好的整句后面；它就是那一行时，`show_next_on_duplicate` 打开才接着看模型的下一句，否则不出模型行。`word_lattice` 关着时随后去掉其余的词网格整句行，只留模型那一行。`ranked` 为空（模型没有重排）时只做后一步。
+fn place_keyboard_pick(
+    candidates: &mut Vec<WordItem>,
+    ranked: &[String],
+    show_next_on_duplicate: bool,
+    word_lattice: bool,
+) {
+    if let Some(best) = candidates.iter().position(is_lattice_sentence) {
+        for sentence in ranked {
+            if candidates[best].word != *sentence {
+                // 候选按词去过重，这句只可能是排在 `best` 之后的另一条词网格整句。
+                if let Some(at) = candidates
+                    .iter()
+                    .position(|item| is_lattice_sentence(item) && item.word == *sentence)
+                {
+                    let mut pick = candidates.remove(at);
+                    pick.source = CandidateSource::NeuralKeyboard;
+                    candidates.insert(best + 1, pick);
+                }
+                break;
+            }
+            if !show_next_on_duplicate {
+                break;
+            }
+        }
+    }
+    if !word_lattice {
+        candidates.retain(|item| !is_lattice_sentence(item));
     }
 }
 
@@ -3518,6 +3670,179 @@ mod tests {
         // Switching mid-composition requeries the same digits.
         words_only.set_english_only(true);
         assert_eq!(words(&words_only), ["ogham"]);
+    }
+
+    fn sentence_words(session: &NineKeySession) -> Vec<String> {
+        session
+            .snapshot()
+            .candidates
+            .into_iter()
+            .filter(is_lattice_sentence)
+            .map(|item| item.word)
+            .collect()
+    }
+
+    /// #6059：九键遵守句子联想的词网格开关和整句备选开关，与 26 键一致。
+    #[test]
+    fn sentence_rows_follow_the_sentence_association_options() {
+        let fixture = fixture_with(&format!(
+            "{MAIN_FIXTURE}INSERT INTO tbl_1_h VALUES('hao','h','号',50);"
+        ));
+        let mut session = open(&fixture.paths, false, mixed());
+        type_digits(&mut session, "64426");
+        assert_eq!(sentence_words(&session), ["米好"]);
+
+        session.set_sentence_options(
+            SentenceAssociationOptions {
+                word_lattice: false,
+                ..SentenceAssociationOptions::default()
+            },
+            false,
+        );
+        assert!(sentence_words(&session).is_empty(), "{:?}", words(&session));
+        assert_eq!(words(&session), ["你好", "你", "米", "ogham"]);
+
+        // 每条切分交回全部整句读法：mi'hao 的 米号 和 ni'hao 的 你号 也出来了。
+        session.set_sentence_options(SentenceAssociationOptions::default(), true);
+        let sentences = sentence_words(&session);
+        for sentence in ["米好", "米号", "你号"] {
+            assert!(
+                sentences.iter().any(|word| word == sentence),
+                "{sentences:?}"
+            );
+        }
+        session.command(Command::Cancel);
+
+        // 打开之前就设好的会话，第一次打开词库时就带上设置。
+        let mut fresh = open(&fixture.paths, false, mixed());
+        fresh.set_sentence_options(
+            SentenceAssociationOptions {
+                word_lattice: false,
+                ..SentenceAssociationOptions::default()
+            },
+            false,
+        );
+        type_digits(&mut fresh, "64426");
+        assert!(sentence_words(&fresh).is_empty(), "{:?}", words(&fresh));
+    }
+
+    /// 键盘模型读不到时（测试目录里没有模型文件）没有模型行；词网格开关关着时，为重排解出的整句照样去掉，与 26 键里模型重排失败时一样。
+    #[test]
+    fn a_missing_keyboard_model_leaves_the_lattice_rows_to_their_switch() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, mixed());
+        let neural = |word_lattice| SentenceAssociationOptions {
+            word_lattice,
+            neural_keyboard: true,
+            show_next_on_duplicate: false,
+        };
+        session.set_sentence_options(neural(true), false);
+        type_digits(&mut session, "64426");
+        assert_eq!(sentence_words(&session), ["米好"]);
+        assert!(!session
+            .snapshot()
+            .candidates
+            .iter()
+            .any(|item| item.source == CandidateSource::NeuralKeyboard));
+        session.set_sentence_options(neural(false), false);
+        assert!(sentence_words(&session).is_empty(), "{:?}", words(&session));
+    }
+
+    #[test]
+    fn the_rescoring_context_keeps_the_characters_the_model_reads() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, mixed());
+        let long: String = "甲乙".repeat(CONTEXT_CHARACTERS);
+        session.set_rescoring_context(&long);
+        assert_eq!(
+            session.rescoring_context.chars().count(),
+            CONTEXT_CHARACTERS
+        );
+        assert!(long.ends_with(&session.rescoring_context));
+        session.set_rescoring_context("今天");
+        assert_eq!(session.rescoring_context, "今天");
+    }
+
+    fn sentence(word: &str, weight: i64) -> WordItem {
+        let mut item = item(word, "64426", weight, CandidateSource::Generated);
+        item.sentence_association = true;
+        item
+    }
+
+    fn row_sources(candidates: &[WordItem]) -> Vec<(&str, CandidateSource)> {
+        candidates
+            .iter()
+            .map(|item| (item.word.as_str(), item.source))
+            .collect()
+    }
+
+    /// 模型挑的整句改成 `NeuralKeyboard` 行，紧跟词网格最好的整句，规则同 `lattice::merge::reranked_block`。
+    #[test]
+    fn the_keyboard_pick_follows_the_best_lattice_sentence() {
+        use CandidateSource::{Database, Generated, NeuralKeyboard};
+        let list = || {
+            vec![
+                item("你好", "64426", 1000, Database),
+                sentence("米好", -1000),
+                sentence("你号", -2000),
+                sentence("米号", -3000),
+            ]
+        };
+        let ranked = |sentences: &[&str]| -> Vec<String> {
+            sentences.iter().map(|word| (*word).to_owned()).collect()
+        };
+
+        let mut candidates = list();
+        place_keyboard_pick(
+            &mut candidates,
+            &ranked(&["米号", "米好", "你号"]),
+            false,
+            true,
+        );
+        assert_eq!(
+            row_sources(&candidates),
+            [
+                ("你好", Database),
+                ("米好", Generated),
+                ("米号", NeuralKeyboard),
+                ("你号", Generated)
+            ]
+        );
+
+        // 模型也最看好词网格那一句：默认不出模型行，`show_next_on_duplicate` 时接着取下一句。
+        let mut candidates = list();
+        place_keyboard_pick(
+            &mut candidates,
+            &ranked(&["米好", "你号", "米号"]),
+            false,
+            true,
+        );
+        assert_eq!(row_sources(&candidates), row_sources(&list()));
+        let mut candidates = list();
+        place_keyboard_pick(
+            &mut candidates,
+            &ranked(&["米好", "你号", "米号"]),
+            true,
+            true,
+        );
+        assert_eq!(candidates[2].word, "你号");
+        assert_eq!(candidates[2].source, NeuralKeyboard);
+
+        // 词网格开关关着：只留模型那一行；模型没有重排时一行整句也不留。
+        let mut candidates = list();
+        place_keyboard_pick(
+            &mut candidates,
+            &ranked(&["米号", "米好", "你号"]),
+            false,
+            false,
+        );
+        assert_eq!(
+            row_sources(&candidates),
+            [("你好", Database), ("米号", NeuralKeyboard)]
+        );
+        let mut candidates = list();
+        place_keyboard_pick(&mut candidates, &[], false, false);
+        assert_eq!(row_sources(&candidates), [("你好", Database)]);
     }
 
     /// 77 拼不出任何音节：混输关着也给英文词，不然这串数字一行候选都没有。拼音有读法时混输开关照旧说了算。

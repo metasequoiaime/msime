@@ -5844,6 +5844,43 @@ fn single_character_only_offers_one_character_at_a_time() {
     assert_eq!(words(&session), ["GitHub", "你"]);
 }
 
+/// #6059：`SessionOptions` 的句子联想设置同样交给九宫格，关掉词网格时 26 键和九宫格都不出整句行，打开整句备选时两边都交回全部读法。
+#[test]
+fn nine_key_follows_the_sentence_options_like_the_full_keyboard() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_m VALUES('mi','m','米',100);\
+CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_h VALUES('hao','h','好',100),('hao','h','号',50);",
+    );
+    let sentences = |session: &Session| -> Vec<String> {
+        session
+            .snapshot()
+            .candidates
+            .into_iter()
+            .filter(|item| item.source == CandidateSource::Generated && item.sentence_association)
+            .map(|item| item.word)
+            .collect()
+    };
+    let cases = |session: &mut Session, expected: &[&str]| {
+        for nine_key in [false, true] {
+            session.set_nine_key_enabled(nine_key);
+            type_text(session, if nine_key { "64426" } else { "mihao" });
+            assert_eq!(sentences(session), expected, "nine key: {nine_key}");
+            session.command(Command::Cancel);
+        }
+    };
+    cases(&mut fixture.session(), &["米好"]);
+    cases(
+        &mut fixture.session_with(|options| options.sentence_association.word_lattice = false),
+        &[],
+    );
+    cases(
+        &mut fixture.session_with(|options| options.sentence_alternatives = true),
+        &["米好", "米号"],
+    );
+}
+
 /// 九宫格选中整句时存词的音节上限与全拼键盘相同（#5640）。
 #[test]
 fn nine_key_sentence_learning_shares_the_syllable_cap() {
