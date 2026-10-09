@@ -99,7 +99,7 @@ export function skinSlot(base: GlobalTheme): ThemeAppearance | null {
 /**
  * 把皮肤包 `id`（清单 `base` 为 `base`）放进它所属的槽位，返回新的 `custom_theme`：深色皮肤写 `candidate_skin_dark`，浅色皮肤写 `candidate_skin`，`system` 底的写两个。`base` 照旧写成包的 base。
  *
- * 写深色槽位时，原来放在 `candidate_skin` 里的深色皮肤一并清掉。写浅色槽位时，如果深色槽位还空着，而原来的 `candidate_skin` 不是浅色皮肤（`slotOf` 给出它的槽位，`undefined` 表示不知道，比如包已经不在目录里），就先把它挪到深色槽位：只设过一款深色皮肤的旧文档把它存在 `candidate_skin` 里，深色模式靠回退取到它，直接覆盖会让它悄悄消失。
+ * 写深色槽位时，原来放在 `candidate_skin` 里的深色皮肤一并清掉。写浅色槽位时，如果深色槽位还空着，而原来的 `candidate_skin` 确知是深色或 `system` 底的皮肤（`slotOf` 给出 `"dark"` 或 `null`），就先把它挪到深色槽位；`slotOf` 给出 `undefined`（包不在目录里，槽位不知道）时不挪，直接覆盖，免得把一个本机没有的包塞进深色槽位：只设过一款深色皮肤的旧文档把它存在 `candidate_skin` 里，深色模式靠回退取到它，直接覆盖会让它悄悄消失。
  */
 export function applyCandidateSkin(
   custom: CustomTheme | undefined,
@@ -119,7 +119,7 @@ export function applyCandidateSkin(
       slot === "light" &&
       !custom?.candidate_skin_dark &&
       previous &&
-      slotOf(previous) !== "light"
+      (slotOf(previous) === "dark" || slotOf(previous) === null)
     )
       next.candidate_skin_dark = previous;
     next.candidate_skin = id;

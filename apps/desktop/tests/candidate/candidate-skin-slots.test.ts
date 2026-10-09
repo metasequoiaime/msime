@@ -80,6 +80,15 @@ test("a legacy dark skin is kept when a light skin is applied", () => {
   expect(replaced.candidate_skin_dark).toBeUndefined();
 });
 
+test("an unknown previous skin is overwritten rather than moved", () => {
+  const next = applyCandidateSkin({ candidate_skin: "removed-skin" }, "sakura", "paper", slotOf);
+  expect(next.candidate_skin).toBe("sakura");
+  expect(next.candidate_skin_dark).toBeUndefined();
+  // system 底的旧皮肤确知能在深色模式画，照样挪过去。
+  const moved = applyCandidateSkin({ candidate_skin: "mist" }, "sakura", "paper", slotOf);
+  expect(moved).toMatchObject({ candidate_skin: "sakura", candidate_skin_dark: "mist" });
+});
+
 test("a new dark skin replaces a legacy dark skin in candidate_skin", () => {
   const next = applyCandidateSkin(
     { base: "night", candidate_skin: "starry" },
