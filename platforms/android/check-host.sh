@@ -615,6 +615,21 @@ if ! printf '%s\n' "$edit_body" | rg -q 'forgetCurrentClip\(\);' \
   echo "Android clipboard edit must open the app's CLIPBOARD_EDIT page with the entry's key after forgetting the current clip, never a dialog in the input method (#5971)" >&2
   exit 1
 fi
+# 「搜索」打开应用里可搜索的剪贴板历史页，不在键盘里放查询框（#5973）。打开之前同样把系统剪贴板当前那一条记为已处理，用户可能在那一页删掉或改掉它。页面名必须和 PageId 一致，入口要在面板顶行里。
+search_body=$(rg -A 6 'void openClipboardSearch\(' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
+if ! printf '%s\n' "$search_body" | rg -q 'forgetCurrentClip\(\);' \
+  || ! printf '%s\n' "$search_body" | rg -q 'openHostPage\(ClipboardSearchPolicy\.SEARCH_PAGE\)' \
+  || printf '%s\n' "$search_body" | rg -q 'new (AlertDialog|PopupMenu|EditText)' \
+  || ! rg -q 'public static final String SEARCH_PAGE = "CLIPBOARD_SEARCH";' \
+    "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardSearchPolicy.java" \
+  || ! rg -q '^    CLIPBOARD_SEARCH\("ClipboardSearchPage", ' \
+    "$repo_root/platforms/android/java/app/msime/android/home/PageId.java" \
+  || ! rg -q 'clipboardAction\(header, "搜索", s::openClipboardSearch\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java"; then
+  echo "Android clipboard search must open the app's CLIPBOARD_SEARCH page from the panel header after forgetting the current clip, never a query field in the input method (#5973)" >&2
+  exit 1
+fi
 if rg -q 'void manageClipboardItem|new PopupMenu\(this, anchor\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android clipboard entries must not be managed through a PopupMenu (#5653)" >&2
