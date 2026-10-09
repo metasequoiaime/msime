@@ -13186,7 +13186,7 @@ group("a malformed enumeration is not trusted", () => {
 });
 
 group("setup has two steps and they fail separately", () => {
-  const own = "app.msime.harmony";
+  const own = "app.msime.hmos";
   check(
     OnboardingStatePolicy.required({
       enabled: ImeEnabledState.DISABLED,
@@ -13231,7 +13231,7 @@ group("an unanswerable setup query does not send anyone back to a welcome screen
     OnboardingStatePolicy.required({
       enabled: null,
       currentBundle: "",
-      ownBundle: "app.msime.harmony",
+      ownBundle: "app.msime.hmos",
     }) === false,
     "an unreadable enablement state opens settings",
   );
@@ -13239,7 +13239,7 @@ group("an unanswerable setup query does not send anyone back to a welcome screen
     OnboardingStatePolicy.required({
       enabled: ImeEnabledState.FULL_EXPERIENCE_MODE,
       currentBundle: "",
-      ownBundle: "app.msime.harmony",
+      ownBundle: "app.msime.hmos",
     }) === false,
     "an unreadable current keyboard opens settings",
   );
@@ -13247,7 +13247,7 @@ group("an unanswerable setup query does not send anyone back to a welcome screen
   check(
     OnboardingStatePolicy.required({
       enabled: ImeEnabledState.FULL_EXPERIENCE_MODE,
-      currentBundle: "app.msime.harmony",
+      currentBundle: "app.msime.hmos",
       ownBundle: "",
     }) === false,
     "an unreadable own bundle opens settings",
@@ -13256,7 +13256,7 @@ group("an unanswerable setup query does not send anyone back to a welcome screen
     OnboardingStatePolicy.describe({
       enabled: ImeEnabledState.FULL_EXPERIENCE_MODE,
       currentBundle: "com.example.other",
-      ownBundle: "app.msime.harmony",
+      ownBundle: "app.msime.hmos",
     }) === "enabled but not current, opening welcome flow",
     "the reason the window opened where it did is recorded, not inferred afterwards",
   );

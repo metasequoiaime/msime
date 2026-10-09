@@ -1812,7 +1812,8 @@ class SettingsBridge {
       try {
         if (fs.accessSync(file)) {
           available = true;
-          lastWrittenMs = fs.statSync(file).mtime;
+          // `Stat.mtime` 是秒，页面要毫秒；直接传秒会被当成 1970 年 1 月的某一刻。
+          lastWrittenMs = fs.statSync(file).mtime * 1000;
         }
       } catch {
         available = false;

@@ -2,6 +2,20 @@
 
 ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用、账号、社区、AI、语音、手写、候选与词库都在本目录内。能力对照见 [docs/harmony-parity.md](../../docs/harmony-parity.md)：用什么方法比过 MSIME-Apple、哪些是按平台特性裁剪而不是欠账。
 
+## 输入法扩展的独立沙箱（已知问题，修复待定）
+
+**从 API 12（OpenHarmony 5.0.0.38）起，输入法扩展进程使用独立沙箱，与设置应用（UIAbility）互相看不到对方的 `files/`。** 华为「输入法安全模式介绍」原文：「输入法扩展使用独立沙箱，与应用主入口不可互相访问对方的独立沙箱。」ExtensionAbility 类型表里，「是否有独立 Extension 沙箱」一栏对 `inputMethod` 是「是」。两个进程拿到的路径字符串相同（`/data/storage/el2/base/haps/entry/files`），背后是两个不同的目录。
+
+2026-10-09 在 HarmonyOS 6.0.2(22) 模拟器上实测：设置应用的 `files/state` 里有 `typing-statistics.json`、`account-session.json`、`key-feedback.json`、`CustomSkins`；键盘进程的 `files/state` 里一样都没有，另有它自己的 `preferences.json`、`CommonPhrases.json`、`PersonalDictionary`、`emoji_recents.json`。
+
+所以本文中凡是写「设置应用和键盘两个进程共用 `files/state` 里同一个文件」的地方，在 API 12 及以上的手机上都不成立。可见的后果：
+
+- 设置页的改动（输入方案、按键反馈、自定义皮肤）不会传到键盘，键盘只读它自己那份 `preferences.json`。
+- 键盘看不到设置应用里的登录会话：键盘里的云剪贴板等账号功能按未登录处理。
+- 打字统计：设置页打开统计只改了设置应用那份文件，键盘那份仍是默认的关闭状态，每次上屏计 0 个字。
+
+官方提供的共享方式是「共享沙箱」：两边在签名 profile 和键盘扩展的 `module.json5` `dataGroupIds` 里登记同一个 `data-group-id`，都用 `context.getGroupDir(id)` 读写；基础模式下键盘对共享沙箱只读，完整体验模式下可读写。这个 ID 要在 AppGallery Connect「开放能力管理」里申请「输入法应用内数据共享」，审核通过后重新生成签名 profile（自动签名不支持这项能力）。申请和改造的计划见 `.agents/notes/proposed/architecture/2026-10-09-harmony-ime-shared-sandbox.md`。在此之前，不签名的开发包没有办法让两个进程共享任何文件。
+
 OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享输入算法、组合状态、配置校验和资源准备继续由 Rust Host API 与 Rust Engine（`crates/engine`）提供；`platforms/harmony/native/client_napi.cpp` 只负责 NAPI 注册和 C ABI 转发，不复制候选分页或输入状态机。
 
 繁体输出只在显示与上屏边界转换：候选条与展开候选面板的显示文字、Engine 提交、`insert` 与 `insertWithSource` 经过 `KeyboardSession.asTraditional`，Engine 的候选原文、候选身份（按序号选择）和组合文本保持简体；由 `ChineseOutputPolicy` 决定是否适用（dedicated English、日语方案、临时日语保留原文），转换本身走 NAPI `simplifiedToTraditional` 调共享导出 `msime_client_simplified_to_traditional`，即 OpenCC s2t 词级转换，与 Windows、macOS、Linux、Android、iOS 逐字一致——「头发」出「頭髮」、「发展」出「發展」，ICU `i18n.Transliterator` 的逐字转换分不开这两个「发」。C ABI 拒绝的输入（内嵌 NUL）返回 `null`，保留原文。`scripts/test-harmony-traditional-output.py` 钉住从 C 头文件到调用点的这条接线，并拒绝宿主源码里重新出现 ICU 转写。
@@ -66,9 +80,9 @@ Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平�
 
 `openKeyboard` 故意不提供。Android 为它开一个独立的面板窗口；本宿主的键盘是 InputMethodExtensionAbility，编辑器要它的时候才出现，设置应用没有窗口可开。不提供这个动作时，「设置」首页状态卡片上的「试用键盘」打开共享的子页面「试用键盘」（`packages/ui/src/keyboard/try-keyboard-page.tsx`），那才是这里"让我看看键盘"的诚实版本：按 Android 试用页的聊天样式，一进页面就把焦点交给输入框，系统弹出当前输入法；登录后打的字可以作为 AI 对话发出去，走的是设置页已有的 `chat` 通道。这一页不带底部标签栏，键盘弹起时输入栏直接落在键盘上方。表情和剪贴板两个动作不提供的理由相同：在本宿主上它们是键盘自己键面上的界面，不是窗口。
 
-云剪贴板在键盘里也有一份：剪贴板面板（手机的剪贴板键面、2in1 表情面板的剪贴板页）分「本机」与「云端」两栏。云端只在面板打开和点「刷新」时读取一次，没有轮询，复制时不上传，也不读系统剪贴板；点一条就插入当前编辑器。本机历史长按一条出现「发到云剪贴板」，只有已登录且云剪贴板已开启时可用。密码框里没有「云端」这一栏，读取期间换了编辑器的结果直接丢弃，判断都在 `keyboard/clipboard/CloudClipboardPolicy.ts`。键盘不持有凭据：两个进程同属 `entry` 模块，`files/state/account-session.json` 是同一个文件，键盘每次操作都按它新建一个 `AccountCloudBridge`，所以设置页里的登出、换号对键盘立即生效。设置应用和键盘扩展是两个进程，而服务端每次刷新都轮换刷新令牌，有人出示已用过的刷新令牌就吊销整个会话——两个进程同时刷新，或一个进程拿着另一个已经轮换掉的旧令牌去刷新，都会把用户在所有地方登出。所以每一次刷新都在 `files/state/account-session.lock` 的排他文件锁（`fs.File.lock`）里进行：`AccountCloudBridge` 进锁后先重读会话文件，另一个进程已为同一账号存下更新的会话就直接接过来用，只有磁盘上没有更好的令牌时才刷新；写回前再读一次，会话已被登出或换号就丢弃这次轮换。登录、登出、资料回写和令牌被拒后的清除也走同一把锁，被拒时只清除仍是被拒那份的会话，不会误删刚登录的新会话。拿不到锁就不刷新，报暂时不可用而不是去冒吊销的险。会话文件改为写临时文件再原子改名，读的一方不会读到写了一半的文档并把它当作损坏清掉。
+云剪贴板在键盘里也有一份：剪贴板面板（手机的剪贴板键面、2in1 表情面板的剪贴板页）分「本机」与「云端」两栏。云端只在面板打开和点「刷新」时读取一次，没有轮询，复制时不上传，也不读系统剪贴板；点一条就插入当前编辑器。本机历史长按一条出现「发到云剪贴板」，只有已登录且云剪贴板已开启时可用。密码框里没有「云端」这一栏，读取期间换了编辑器的结果直接丢弃，判断都在 `keyboard/clipboard/CloudClipboardPolicy.ts`。键盘不持有凭据：两个进程同属 `entry` 模块，`files/state/account-session.json` 是同一个文件，键盘每次操作都按它新建一个 `AccountCloudBridge`，所以设置页里的登出、换号对键盘立即生效（API 12 起两个进程的 `files/state` 不是同一个目录，键盘看不到这份会话，见上文「输入法扩展的独立沙箱」）。设置应用和键盘扩展是两个进程，而服务端每次刷新都轮换刷新令牌，有人出示已用过的刷新令牌就吊销整个会话——两个进程同时刷新，或一个进程拿着另一个已经轮换掉的旧令牌去刷新，都会把用户在所有地方登出。所以每一次刷新都在 `files/state/account-session.lock` 的排他文件锁（`fs.File.lock`）里进行：`AccountCloudBridge` 进锁后先重读会话文件，另一个进程已为同一账号存下更新的会话就直接接过来用，只有磁盘上没有更好的令牌时才刷新；写回前再读一次，会话已被登出或换号就丢弃这次轮换。登录、登出、资料回写和令牌被拒后的清除也走同一把锁，被拒时只清除仍是被拒那份的会话，不会误删刚登录的新会话。拿不到锁就不刷新，报暂时不可用而不是去冒吊销的险。会话文件改为写临时文件再原子改名，读的一方不会读到写了一半的文档并把它当作损坏清掉。
 
-使用情况上报、公告与社区审核走 client-core 的共享实现，本宿主只决定何时调用。上报开关是共享偏好 `usage_reporting`（默认开启，设置页关闭后立即清空本地队列）；队列、随机安装 id、每日一次的 `active` 和会话记录都在 `files/state/telemetry`，设置应用和键盘扩展两个进程共用、由 client-core 加锁。一次会话就是一个键盘进程：`KeyboardExtensionAbility` 创建时开始、被正常销毁时结束；设置应用只发送已排队的事件，不再在每次启动时发 `download`。崩溃不装自己的处理器，而是用 HiAppEvent 在下次启动时收系统上报的 `APP_CRASH`（JavaScript 与原生都有），所以崩溃仍按原来的方式结束进程。键盘在开始新会话前等两秒：这期间收到的、属于上一个键盘进程的崩溃写成那次会话的崩溃记录，于是计为 `session_crash`；其余崩溃（设置应用的、或来得太晚的）写成独立记录，只计为 `crash`。原生帧只留文件名加 pc 和符号，信号只留名称和 code，不带地址；`TelemetryPolicy.ts` 里的这些决定由 `tests/run.sh` 覆盖，HiAppEvent 的实际投递时机只能在设备上确认。
+使用情况上报、公告与社区审核走 client-core 的共享实现，本宿主只决定何时调用。上报开关是共享偏好 `usage_reporting`（默认开启，设置页关闭后立即清空本地队列）；队列、随机安装 id、每日一次的 `active` 和会话记录都在 `files/state/telemetry`，设置应用和键盘扩展两个进程共用、由 client-core 加锁（API 12 起两个进程的 `files/state` 不是同一个目录，见上文「输入法扩展的独立沙箱」）。一次会话就是一个键盘进程：`KeyboardExtensionAbility` 创建时开始、被正常销毁时结束；设置应用只发送已排队的事件，不再在每次启动时发 `download`。崩溃不装自己的处理器，而是用 HiAppEvent 在下次启动时收系统上报的 `APP_CRASH`（JavaScript 与原生都有），所以崩溃仍按原来的方式结束进程。键盘在开始新会话前等两秒：这期间收到的、属于上一个键盘进程的崩溃写成那次会话的崩溃记录，于是计为 `session_crash`；其余崩溃（设置应用的、或来得太晚的）写成独立记录，只计为 `crash`。原生帧只留文件名加 pc 和符号，信号只留名称和 code，不带地址；`TelemetryPolicy.ts` 里的这些决定由 `tests/run.sh` 覆盖，HiAppEvent 的实际投递时机只能在设备上确认。
 
 公告在设置窗口打开或回到前台时取（client-core 一分钟内直接用缓存），显示为设置页上方一张可关闭的卡片，关闭按公告 id 记在本地。正文是 client-core 用 pulldown-cmark 渲染、原始 HTML 已转义的 HTML，放进一个禁用脚本、CSP 为 `default-src 'none'` 的小 Web 组件里；点链接一律交给系统浏览器或邮件应用。这里没有用 RichText：它没有拦截链接点击的入口，链接会在卡片里打开，而 Web 组件的 `onLoadIntercept` 可以把它拦下来交出去。
 
@@ -391,7 +405,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 那一轮里社区页显示的是离线预览数据，因为当时没有登录账号；账号、社区与 AI 服务的真实往返需要一个已登录的账号会话，麦克风相关路径需要用户授予 `ohos.permission.MICROPHONE`。个人词库队列的 4/4/1 批处理、回执不重放、Engine 规范化、空闲续排和会话状态恢复由逻辑套件覆盖。
 
-按键音与振动现在也能从设置页调整，而不只是键盘内那张卡片：共享 `mobileKeyboardFeedback` 客户端读写键盘自己的 `key-feedback.json`，两个进程共用同一份文件（这项设置属于当前设备而非账号，所以不进共享偏好）。设置页是第二个写入者，改动在键盘下次启动时生效。强度预览直接振一下。共享 DTO 把最强一档叫 `strong`，键盘自己的枚举叫 `heavy`，两边由 `KeyboardFeedbackBridge` 转换——直接赋值会写入键盘不认识的值，`KeyboardFeedback.parse` 会静默回退，表现为"保存了但手感没变"。
+按键音与振动现在也能从设置页调整，而不只是键盘内那张卡片：共享 `mobileKeyboardFeedback` 客户端读写键盘自己的 `key-feedback.json`，两个进程共用同一份文件（这项设置属于当前设备而非账号，所以不进共享偏好；API 12 起两个进程的 `files/state` 不是同一个目录，这份文件并不共享，见上文「输入法扩展的独立沙箱」）。设置页是第二个写入者，改动在键盘下次启动时生效。强度预览直接振一下。共享 DTO 把最强一档叫 `strong`，键盘自己的枚举叫 `heavy`，两边由 `KeyboardFeedbackBridge` 转换——直接赋值会写入键盘不认识的值，`KeyboardFeedback.parse` 会静默回退，表现为"保存了但手感没变"。
 
 设置页的字体输入现在能列出系统已装字体：`listFontFamilies` 桥接 ArkUI 的 `font.getSystemFontList()`，宿主只过滤掉带控制字符的名字，去重和排序留给共享页面，以免各宿主给出不同顺序的同一份列表。
 
@@ -415,7 +429,7 @@ V、`/`、`@` 三个模式的按键由 Engine 导出的 `spelling_symbols` 决�
 
 ## 产品版本
 
-版本表 `shared/contracts/editions.json` 里每个版本的 HarmonyOS 段（`platforms.harmony`）目前都是 `null`：HarmonyOS 只有 `build-profile.json5` 里的 `default` 一个 product，也就是 full，`bundleName` 是 `app.msime.harmony`，HAP 不签名（`signingConfigs` 为空）。代码已经按版本参数化，full 的行为和产物与引入版本之前相同。
+版本表 `shared/contracts/editions.json` 里每个版本的 HarmonyOS 段（`platforms.harmony`）目前都是 `null`：HarmonyOS 只有 `build-profile.json5` 里的 `default` 一个 product，也就是 full，`bundleName` 是 `app.msime.hmos`，HAP 不签名（`signingConfigs` 为空）。代码已经按版本参数化，full 的行为和产物与引入版本之前相同。
 
 已经就位的部分：
 
@@ -426,7 +440,7 @@ V、`/`、`@` 三个模式的按键由 Engine 导出的 `spelling_symbols` 决�
 
 要发一个版本（以五笔版为例）还差这些，本分支没有做：
 
-1. 版本表：给 wubi、pinyin 填 `platforms.harmony` 段，至少包括 `bundleName`（例如 `app.msime.harmony.wubi`）和 HAP 文件名；同时扩展 `editions.schema.json`、冻结基线 `editions.frozen.json` 和 `scripts/test-editions.py` 的跨版本唯一性检查。不同的 `bundleName` 各有各的沙盒，`files/state`、`files/engine` 和偏好文档自然分开。
+1. 版本表：给 wubi、pinyin 填 `platforms.harmony` 段，至少包括 `bundleName`（例如 `app.msime.hmos.wubi`）和 HAP 文件名；同时扩展 `editions.schema.json`、冻结基线 `editions.frozen.json` 和 `scripts/test-editions.py` 的跨版本唯一性检查。不同的 `bundleName` 各有各的沙盒，`files/state`、`files/engine` 和偏好文档自然分开。
 2. 工程：`build-profile.json5` 为每个版本加一个 product，覆盖 `bundleName`、应用名（水杉五笔、水杉拼音；图标与 full 相同）和输入法扩展在系统列表里显示的名字，并把版本 id、方案和默认方案作为构建参数写进去，再让 `AppEdition.current()` 读出来；`entry` 的 target 用 `applyToProducts` 关联到这些 product。多 product 下 hvigor 的这些参数我没有在本仓验证过。
 3. 设置页：`Settings.ets` 的 `hostCapabilities` 取自 `msime_client_host_capabilities`，这个 C ABI 目前只接受平台名、不按版本收窄方案，共享设置页因此仍会列出 full 的全部方案。需要让它（或 Harmony 一侧）按版本调用 client-core 的 `HostCapabilities::narrow_to_edition`。
 4. 资源：`stage-resources.sh` 目前按 full 的 `resources/desktop-dictionary.lock.json` 暂存，要改成按版本的 `resources/editions/<id>.lock.json`；五笔版不带日文词典，五笔版和拼音版都不带粤拼、注音、笔画词库。
@@ -484,7 +498,7 @@ hvigorw assembleHap
 
 ## 模拟器验证（2026-09-20）
 
-首次在 HarmonyOS 模拟器上跑起来，记录可复现路径与结果。当时的 bundleName 是 `app.msime.client`，下文日志与验证记录里的包名照原样保留；现在的 bundleName 是 `app.msime.harmony`，命令已按它改写。镜像为 DevEco 自带的 HarmonyOS 6.0.1(21) phone，与项目 `compileSdkVersion` 一致：
+首次在 HarmonyOS 模拟器上跑起来，记录可复现路径与结果。当时的 bundleName 是 `app.msime.client`，下文日志与验证记录里的包名照原样保留；之后改成过 `app.msime.harmony`，但 AppGallery Connect 不接受包名里含保留字 `harmony`，所以现在的 bundleName 是 `app.msime.hmos`，命令已按它改写。镜像为 DevEco 自带的 HarmonyOS 6.0.1(21) phone，与项目 `compileSdkVersion` 一致：
 
 ```sh
 emu=/Applications/DevEco-Studio.app/Contents/tools/emulator/Emulator
@@ -494,7 +508,7 @@ export PATH="<command-line-tools>/sdk/default/openharmony/toolchains:$PATH"
 hdc list targets -v                            # 等到 Connected
 hdc file send <hap> /data/local/tmp/msime.hap
 hdc shell bm install -p /data/local/tmp/msime.hap
-hdc shell ime -e app.msime.harmony -f          # 启用输入法
+hdc shell ime -e app.msime.hmos -f             # 启用输入法
 hdc shell hilog -x | grep A00051/MSIME         # 本宿主的日志域
 ```
 

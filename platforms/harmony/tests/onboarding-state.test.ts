@@ -30,7 +30,7 @@ function same(actual: SetupState, enabled: boolean | null, current: boolean | nu
   return actual.enabled === enabled && actual.current === current;
 }
 
-const own = "app.msime.harmony";
+const own = "app.msime.hmos";
 
 console.log("OnboardingStatePolicy setup facts");
 

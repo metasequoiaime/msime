@@ -1,6 +1,6 @@
 {
   "app": {
-    "bundleName": "app.msime.harmony",
+    "bundleName": "app.msime.hmos",
     "vendor": "metasequoiaime",
     "versionCode": 2000,
     "versionName": "0.2.0",
