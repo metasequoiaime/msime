@@ -53,13 +53,50 @@ impl Output {
     }
 }
 
-/// The C++ pruned with an unstable `partial_sort` on cost alone; a stable sort keeps the insertion order among equal costs so ties are deterministic.
-fn keep_best(row: &mut Vec<Node>, limit: usize) {
-    if row.len() <= limit {
-        return;
+/// 行未超限时保留插入顺序，首次超限后按成本稳定维护前八项。
+#[derive(Default)]
+struct Row {
+    nodes: Vec<Node>,
+    ranked: bool,
+}
+
+impl Row {
+    fn new() -> Self {
+        Self {
+            nodes: Vec::with_capacity(MAX_NODES_PER_ROW),
+            ranked: false,
+        }
     }
-    row.sort_by_key(|node| node.cost);
-    row.truncate(limit);
+
+    fn extend(&mut self, prefix: &str, suffix: &str, cost: i64, right_id: u16) {
+        if self.nodes.len() < MAX_NODES_PER_ROW {
+            self.nodes.push(Node {
+                text: join_text(prefix, suffix),
+                cost,
+                right_id,
+            });
+            return;
+        }
+        if !self.ranked {
+            // 第九项即使败选，原批量截断也会把已有八项稳定排序。
+            self.nodes.sort_by_key(|node| node.cost);
+            self.ranked = true;
+        }
+        if cost >= self.nodes.last().expect("full row").cost {
+            return;
+        }
+        self.nodes.pop();
+        // 后到的同分项排在既有项之后，保留原稳定排序的优先级。
+        let index = self.nodes.partition_point(|node| node.cost <= cost);
+        self.nodes.insert(
+            index,
+            Node {
+                text: join_text(prefix, suffix),
+                cost,
+                right_id,
+            },
+        );
+    }
 }
 
 /// `SearchReading(conversion.hiragana, conversion.pending, limit)`: the best sentence, pending-kana completions, the other finals, then longest-prefix lemmas, unique by text.
@@ -96,17 +133,15 @@ pub fn search_converted(
         .chain(std::iter::once(reading.len()))
         .collect();
     let mora_count = boundaries.len() - 1;
-    let mut rows: Vec<Vec<Node>> = (0..=mora_count)
-        .map(|_| Vec::with_capacity(MAX_NODES_PER_ROW))
-        .collect();
-    rows[0].push(Node {
+    let mut rows: Vec<Row> = (0..=mora_count).map(|_| Row::new()).collect();
+    rows[0].nodes.push(Node {
         text: String::new(),
         cost: 0,
         right_id: 0,
     });
 
     for start in 0..mora_count {
-        if rows[start].is_empty() {
+        if rows[start].nodes.is_empty() {
             continue;
         }
         let previous_row = std::mem::take(&mut rows[start]);
@@ -115,35 +150,29 @@ pub fn search_converted(
         for end in start + 1..=max_end {
             let key = &reading[start_byte..boundaries[end]];
             for lemma in dictionary.exact_lemma_views(key, 24) {
-                for previous in &previous_row {
+                for previous in &previous_row.nodes {
                     let cost = previous.cost
                         + i64::from(lemma.word_cost)
                         + i64::from(dictionary.connection_cost(previous.right_id, lemma.left_id));
-                    rows[end].push(Node {
-                        text: join_text(&previous.text, lemma.surface),
-                        cost,
-                        right_id: lemma.right_id,
-                    });
+                    rows[end].extend(&previous.text, lemma.surface, cost, lemma.right_id);
                 }
             }
         }
 
         let kana = &reading[start_byte..boundaries[start + 1]];
-        for previous in &previous_row {
-            rows[start + 1].push(Node {
-                text: join_text(&previous.text, kana),
-                cost: previous.cost + i64::from(UNKNOWN_KANA_COST),
-                right_id: 0,
-            });
+        for previous in &previous_row.nodes {
+            rows[start + 1].extend(
+                &previous.text,
+                kana,
+                previous.cost + i64::from(UNKNOWN_KANA_COST),
+                0,
+            );
         }
 
-        for row in &mut rows[start + 1..=max_end] {
-            keep_best(row, MAX_NODES_PER_ROW);
-        }
         rows[start] = previous_row;
     }
 
-    let mut finals = std::mem::take(&mut rows[mora_count]);
+    let mut finals = std::mem::take(&mut rows[mora_count]).nodes;
     for node in &mut finals {
         node.cost += i64::from(dictionary.connection_cost(node.right_id, 0));
     }
@@ -225,6 +254,33 @@ mod tests {
         );
         eprintln!("日文未命中双假名矩阵搜索分配：{allocations}");
         assert!(allocations <= 9, "未命中子读音无需排名堆：{allocations}");
+    }
+
+    #[test]
+    fn dense_single_mora_search_only_materializes_competitive_nodes() {
+        let surfaces: Vec<_> = (0..24).map(|index| format!("語{index:02}")).collect();
+        let entries: Vec<_> = surfaces
+            .iter()
+            .enumerate()
+            .map(|(index, surface)| ("か", surface.as_str(), 0, 0, index as i32))
+            .collect();
+        let dictionary = dictionary(&entries, 1, &[0]);
+        let conversion = convert_romaji("ka");
+        let (actual, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            search_converted(&dictionary, &conversion, 16)
+        });
+        let expected: Vec<_> = (0..16)
+            .map(|index| JapaneseConversion {
+                text: format!("語{index:02}"),
+                cost: index,
+            })
+            .collect();
+        assert_eq!(actual, expected);
+        eprintln!("日文密集单假名矩阵分配：{allocations}");
+        assert!(
+            allocations <= 33,
+            "败选节点不应拼接字符串或扩容行：{allocations}"
+        );
     }
 
     #[test]
@@ -337,3 +393,6 @@ mod tests {
         assert!(search(&dictionary, "q", 16).is_empty());
     }
 }
+
+#[cfg(test)]
+mod pruning_tests;
