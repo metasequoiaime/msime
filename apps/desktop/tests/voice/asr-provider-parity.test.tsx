@@ -13,7 +13,8 @@ afterEach(() => {
 // EveryAPI and Mistral are the transcription services the Apple client offers and the shared
 // client did not carry. Both speak the same OpenAI-compatible multipart API as the providers
 // already here, so the risk is not the transport: it is a default that points somewhere else.
-const added = ["everyapi", "mistral"] as const;
+// 阿里云百炼（#6017）走 Chat Completions 带音频输入，同样是 HTTPS 整句上传。
+const added = ["everyapi", "mistral", "bailian"] as const;
 
 test("the new providers ship a batch HTTPS endpoint and a model", () => {
   for (const provider of added) {
@@ -80,6 +81,7 @@ test("iOS voice settings list the new services and their preset models", async (
   const values = [...select.options].map((option) => option.value);
   expect(values).toContain("everyapi");
   expect(values).toContain("mistral");
+  expect(values).toContain("bailian");
   expect(select.value).toBe("mistral");
   expect(
     [...(screen.getByLabelText("识别服务预置模型") as HTMLSelectElement).options].map(
