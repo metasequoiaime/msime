@@ -1748,6 +1748,8 @@ export type Preferences = {
   touch_voice_shortcut?: boolean;
   /** 九宫格数字层的排列：电话（1 2 3 在上）或计算器（7 8 9 在上）。 */
   touch_number_keypad_order?: "phone" | "calculator";
+  /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为开。 */
+  touch_shuangpin_key_hints?: boolean;
   touch_toolbar?: Partial<TouchToolbarPreferences>;
   default_ime_mode?: "chinese" | "english";
   ime_mode_scope?: "app" | "global";

@@ -117,6 +117,30 @@ enum KeyboardLayoutPreference {
     return true
   }
 
+  /// 「双拼键位提示」：双拼方案的 26 键在字母键底部画这个键代表的声母和韵母。共享文档里是 `touch_shuangpin_key_hints`，缺省为开；键盘从 App Group 镜像读。
+  static let shuangpinKeyHintsDocumentKey = "touch_shuangpin_key_hints"
+  static let shuangpinKeyHintsKey = "keyboard.shuangpin.keyHints"
+
+  /// 文档里缺这一项或不是布尔值时按开，与 client-core 的默认值一致。
+  static func sharedShuangpinKeyHints(in preferences: [String: Any]?) -> Bool {
+    preferences?[shuangpinKeyHintsDocumentKey] as? Bool ?? true
+  }
+
+  static var shuangpinKeyHints: Bool {
+    get { defaults.object(forKey: shuangpinKeyHintsKey) as? Bool ?? true }
+    set { defaults.set(newValue, forKey: shuangpinKeyHintsKey) }
+  }
+
+  /// 把双拼键位提示开关写进共享文档，只改这一项；文档接受了才更新 App Group 镜像。
+  @discardableResult
+  static func saveShuangpinKeyHints(_ enabled: Bool, stateRoot: URL? = nil) -> Bool {
+    guard MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, { document in
+      document[shuangpinKeyHintsDocumentKey] = enabled
+    }) else { return false }
+    shuangpinKeyHints = enabled
+    return true
+  }
+
   /// `resetToDefaults`, for the shared document as well.
   @discardableResult
   static func resetGeometry(stateRoot: URL? = nil) -> Bool {

@@ -844,6 +844,8 @@ interface PreparedPreferences {
   touch_voice_shortcut: boolean;
   /** 九键数字层的排列：`phone`（1 2 3 在上）或 `calculator`（7 8 9 在上）；旧文档没有这个键，按 `phone`。 */
   touch_number_keypad_order?: string;
+  /** 26 键双拼字母键底部的声母/韵母提示；旧文档没有这个键，按开。 */
+  touch_shuangpin_key_hints?: boolean;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
   clipboard_history: boolean;
   voice_input: VoiceInputConfiguration;
@@ -979,6 +981,8 @@ export interface KeyboardPreferences {
   readonly heightAdjustment: number;
   /** `NumberKeypadOrder` 归一后的九键数字层排列。 */
   readonly numberKeypadOrder: string;
+  /** `touch_shuangpin_key_hints`：关掉时 26 键双拼不画键位提示。 */
+  readonly shuangpinKeyHints: boolean;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1217,7 +1221,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
-    numberKeypadOrder: NumberKeypadOrder.PHONE
+    numberKeypadOrder: NumberKeypadOrder.PHONE,
+    shuangpinKeyHints: true
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1483,7 +1488,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       rowSpacingTenths: KeyboardGeometry.rowSpacing(preferences.touch_row_spacing_tenths),
       heightAdjustment:
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
-      numberKeypadOrder: NumberKeypadOrder.normalized(preferences.touch_number_keypad_order)
+      numberKeypadOrder: NumberKeypadOrder.normalized(preferences.touch_number_keypad_order),
+      shuangpinKeyHints: preferences.touch_shuangpin_key_hints !== false
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(

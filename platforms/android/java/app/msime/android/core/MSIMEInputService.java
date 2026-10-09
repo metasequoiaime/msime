@@ -235,6 +235,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean touchVoiceShortcutEnabled;
     /** 九键数字键面用计算器顺序（7 8 9 在上），来自共享偏好 `touch_number_keypad_order`。 */
     boolean numberKeypadCalculator;
+    /** 26 键双拼的字母键画不画声母/韵母提示，来自共享偏好 `touch_shuangpin_key_hints`，缺省为开。 */
+    private boolean shuangpinKeyHintsEnabled = true;
     private boolean voiceInputEnabled = true;
     private String voiceLanguage = "zh-CN";
     KeyboardSkin skin = KeyboardSkin.system(false);
@@ -712,7 +714,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (localModes == null) localModes = new JSONObject();
         // 候选条的配色和字号与皮肤同理：按副本重算，候选条会先铺一层出厂薄荷底、字号回到出厂的 18/15，实时偏好到了才换回来（#5933）。副本这条路径保留当前外观，也就是上次真正读到的偏好或 onCreate 按皮肤片段算好的那一份。
         if (live) applyCandidateAppearance(preferences);
-        // 键距、行距、语音快捷键和数字键顺序同理：副本里是出厂值，onStartInput 紧接着就按它重建键行，调过键距的用户每换一个输入框，键盘都先按出厂间距排一帧，实时偏好到了才跳回来。副本这条路径保留当前几何，也就是上次真正读到的偏好或 onCreate 按皮肤片段算好的那一份。键高例外：本地设置里有键高时那份是实时的，照旧跟着刷新；没有时 heightAdjustmentFrom 会退回副本里的出厂值，所以要先判断。
+        // 键距、行距、语音快捷键、数字键顺序和双拼键位提示同理：副本里是出厂值，onStartInput 紧接着就按它重建键行，调过键距的用户每换一个输入框，键盘都先按出厂间距排一帧，实时偏好到了才跳回来。副本这条路径保留当前几何，也就是上次真正读到的偏好或 onCreate 按皮肤片段算好的那一份。键高例外：本地设置里有键高时那份是实时的，照旧跟着刷新；没有时 heightAdjustmentFrom 会退回副本里的出厂值，所以要先判断。
         if (live) applyTouchGeometry(preferences);
         else if (localSettings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT))
             adoptSavedHeightAdjustment(heightAdjustmentFrom(preferences));
@@ -1735,6 +1737,7 @@ public final class MSIMEInputService extends InputMethodService {
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
         numberKeypadCalculator = numberKeypadCalculatorFrom(preferences);
+        shuangpinKeyHintsEnabled = shuangpinKeyHintsFrom(preferences);
     }
 
     /** 用上保存的键高。键盘里正在拖动高度时（应用 `restartInput` 同一个输入框时会走到这里，不经过 onFinishInputView）不动预览，只改「取消」要回到的值，与 applyPreferencesSnapshot 一致；否则预览跳回保存值，按「完成」什么也存不下。 */
@@ -1746,6 +1749,11 @@ public final class MSIMEInputService extends InputMethodService {
     private static boolean numberKeypadCalculatorFrom(JSONObject preferences) {
         return preferences != null && NineKeyLayout.calculatorOrder(preferences.optString(
             NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER));
+    }
+
+    /** 没有偏好或旧文档里没有这个键时按开，与 client-core 的默认值一致。 */
+    private static boolean shuangpinKeyHintsFrom(JSONObject preferences) {
+        return preferences == null || preferences.optBoolean(ShuangpinKeyHintPolicy.PREFERENCE_KEY, true);
     }
 
     /** 日语九键侧列的 ☺：顶部工具栏有表情按钮时两处入口重复，不放；工具栏关掉表情或整条隐藏时才放回来。 */
@@ -1981,7 +1989,7 @@ public final class MSIMEInputService extends InputMethodService {
         return touchKeySpacingTenths + ":" + touchRowSpacingTenths + ":"
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
-            + numberKeypadCalculator;
+            + numberKeypadCalculator + ":" + shuangpinKeyHintsEnabled;
     }
 
     private void reloadPreferences(String response) {
@@ -2066,6 +2074,7 @@ public final class MSIMEInputService extends InputMethodService {
         int nextHeightAdjustment = inlineHeightActive ? touchKeyboardHeightAdjustment : savedHeightAdjustment;
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         boolean nextNumberKeypadCalculator = numberKeypadCalculatorFrom(preferences);
+        boolean nextShuangpinKeyHints = shuangpinKeyHintsFrom(preferences);
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
         boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
         String nextVoiceLanguage = nextVoice == null ? "zh-CN"
@@ -2140,6 +2149,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean numberKeypadRebuild = numberKeypadCalculator != nextNumberKeypadCalculator
             && keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         numberKeypadCalculator = nextNumberKeypadCalculator;
+        // 键面提示在 render() 的 updateShuangpinKeyHints 里按它重画；它进了 touchGeometryKey，变了就会触发 render()。
+        shuangpinKeyHintsEnabled = nextShuangpinKeyHints;
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
         applyAiPreferences(preferences);
@@ -3500,7 +3511,7 @@ public final class MSIMEInputService extends InputMethodService {
             ShuangpinHintButton button = shuangpinKeyButtons.get(index);
             String input = shuangpinKeyInputs.get(index);
             String hint = ShuangpinKeyHintPolicy.hint(
-                shuangpinHints, input, dedicatedEnglish, scheme, localMode);
+                shuangpinHints, input, dedicatedEnglish, scheme, localMode, shuangpinKeyHintsEnabled);
             button.setHintText(hint);
             button.setHintColor(Color.parseColor(skin.accent()));
             if (";".equals(input)) continue;
@@ -4080,7 +4091,7 @@ public final class MSIMEInputService extends InputMethodService {
         "candidate_theme", "candidate_font_family", "candidate_english_font", "candidate_fallback_fonts",
         "candidate_font_size", "candidate_preedit_font_size",
         "touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
-        "touch_voice_shortcut", NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY,
+        "touch_voice_shortcut", NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, ShuangpinKeyHintPolicy.PREFERENCE_KEY,
         "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
     /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
     private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";

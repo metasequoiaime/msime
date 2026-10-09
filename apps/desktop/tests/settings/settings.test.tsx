@@ -3643,6 +3643,48 @@ test("the touch toolbar switches appear only on a host that reads them and save 
   });
 });
 
+test("the shuangpin key hint switch appears only on touch hosts and saves into the document", async () => {
+  const desktop = render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }}
+    />,
+  );
+  await screen.findByLabelText("键盘高度", undefined, { timeout: 3000 });
+  expect(screen.queryByRole("switch", { name: "双拼键位提示" })).toBeNull();
+  desktop.unmount();
+
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: testHost({ platform: "android" }),
+      }}
+    />,
+  );
+  const hints = (await screen.findByRole(
+    "switch",
+    { name: "双拼键位提示" },
+    { timeout: 3000 },
+  )) as HTMLInputElement;
+  // 文档里没有这个键时按开，和以前的键盘一样画提示。
+  expect(hints.checked).toBe(true);
+  fireEvent.click(hints);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    touch_shuangpin_key_hints: false,
+  });
+});
+
 test("the theme page runs from the colour mode to the per-surface overrides", async () => {
   render(
     <SettingsPage

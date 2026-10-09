@@ -145,6 +145,8 @@ export function ScreenKeyboardSettingsPage() {
         numberKeypadOrder={
           mobilePlatform ? (draft.touch_number_keypad_order ?? "phone") : undefined
         }
+        // 只有触屏宿主的 26 键双拼画键位提示；缺省为开，与 client-core 的默认值一致。
+        shuangpinKeyHints={mobilePlatform ? (draft.touch_shuangpin_key_hints ?? true) : undefined}
         tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
         onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
           onPreferencesChange({ touch_keyboard_height_adjustment })
@@ -160,6 +162,9 @@ export function ScreenKeyboardSettingsPage() {
         }
         onNumberKeypadOrderChange={(touch_number_keypad_order) =>
           onPreferencesChange({ touch_number_keypad_order })
+        }
+        onShuangpinKeyHintsChange={(touch_shuangpin_key_hints) =>
+          onPreferencesChange({ touch_shuangpin_key_hints })
         }
         onToolbarChange={(touch_toolbar) => onPreferencesChange({ touch_toolbar })}
         onTabletFullKeysChange={(tabletFullKeys) => {

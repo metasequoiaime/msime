@@ -2233,6 +2233,44 @@ final class NineKeyKeyboardTests: XCTestCase {
     _ = bridge.cancel()
   }
 
+  /// 「双拼键位提示」关掉后，双拼 26 键的字母键不画提示：提示行隐藏、字母不再为它让出下边距，读屏也不再读它。
+  func testTheShuangpinKeyHintSwitchDropsTheHintLineAndItsReading() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousHints = KeyboardLayoutPreference.shuangpinKeyHints
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      KeyboardLayoutPreference.shuangpinKeyHints = previousHints
+    }
+    InputSchemePreference.scheme = .shuangpin
+
+    func letterU(hints: Bool) throws -> (button: UIButton, controller: KeyboardViewController) {
+      KeyboardLayoutPreference.shuangpinKeyHints = hints
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.view.layoutIfNeeded()
+      let button = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 U" } as? UIButton)
+      return (button, controller)
+    }
+    // 提示行是直接加在按键上的 9pt 标签，见 `attachHintLabel`。
+    func hintLabel(of button: UIButton) throws -> UILabel {
+      try XCTUnwrap(button.subviews.compactMap { $0 as? UILabel }.first { $0.font.pointSize == 9 })
+    }
+
+    let shown = try letterU(hints: true)
+    let reading = try XCTUnwrap(shown.button.accessibilityValue, "shuangpin labels U by default")
+    XCTAssertFalse(reading.isEmpty)
+    XCTAssertEqual(try hintLabel(of: shown.button).text, reading)
+    XCTAssertFalse(try hintLabel(of: shown.button).isHidden)
+    XCTAssertEqual(shown.button.configuration?.contentInsets.bottom, 11)
+
+    let hidden = try letterU(hints: false)
+    XCTAssertNil(hidden.button.accessibilityValue, "VoiceOver no longer reads the hint")
+    XCTAssertTrue(try hintLabel(of: hidden.button).isHidden)
+    XCTAssertEqual(hidden.button.configuration?.contentInsets.bottom, 0, "the letter drops back to the centre")
+    XCTAssertEqual(hidden.button.accessibilityLabel, "字母 U")
+  }
+
   func testAdditionalShuangpinProfilesAndKeyHints() throws {
     let bridge = MetasequoiaInputSessionBridge()
     for (profile, input) in [("ziranma", "nihk"), ("microsoft", "nihk"), ("shoudao", "nihd"), ("xiaohe", "nihc")] {
