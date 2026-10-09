@@ -15,7 +15,7 @@ try {
         'resources/licenses/libhangul-hanja-BSD-3-Clause.txt', 'resources/licenses/rime-cantonese-CC-BY-4.0.txt',
         'resources/licenses/libchewing-data-LGPL-2.1.txt', 'resources/licenses/rime-stroke-LGPL-3.0.txt',
         'resources/licenses/vi-MIT.txt', 'resources/licenses/ewts-MIT.txt',
-        'platforms/windows/third_party/miniaudio/LICENSE',
+        'platforms/windows/third_party/miniaudio/LICENSE', 'shared/voice/third_party/cppcodec/LICENSE',
         'crates/client-core/data/opencc/LICENSE')
     foreach ($relative in $repositoryNotices) {
         $path = Join-Path $root $relative

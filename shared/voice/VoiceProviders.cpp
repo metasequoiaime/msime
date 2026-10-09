@@ -2,6 +2,7 @@
 #include "LocalAsr.h"
 // Shared implementation; the historical namespace is retained for ABI compatibility.
 
+#include <cppcodec/base64_rfc4648.hpp>
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
@@ -267,33 +268,6 @@ std::string encode_wav(const std::vector<float> &samples) {
   return wav;
 }
 
-// RFC 4648 标准 Base64，带补位。chat_audio 请求要把录音放进数据 URL，这个库没有链接任何提供 Base64 的依赖。
-std::string base64(std::string_view bytes) {
-  static constexpr char alphabet[] =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  std::string out;
-  out.reserve((bytes.size() + 2) / 3 * 4);
-  std::size_t index = 0;
-  for (; index + 2 < bytes.size(); index += 3) {
-    const auto value = (static_cast<unsigned char>(bytes[index]) << 16) |
-                       (static_cast<unsigned char>(bytes[index + 1]) << 8) |
-                       static_cast<unsigned char>(bytes[index + 2]);
-    out.push_back(alphabet[(value >> 18) & 63]);
-    out.push_back(alphabet[(value >> 12) & 63]);
-    out.push_back(alphabet[(value >> 6) & 63]);
-    out.push_back(alphabet[value & 63]);
-  }
-  if (const auto rest = bytes.size() - index; rest > 0) {
-    const auto value = (static_cast<unsigned char>(bytes[index]) << 16) |
-                       (rest == 2 ? static_cast<unsigned char>(bytes[index + 1]) << 8 : 0);
-    out.push_back(alphabet[(value >> 18) & 63]);
-    out.push_back(alphabet[(value >> 12) & 63]);
-    out.push_back(rest == 2 ? alphabet[(value >> 6) & 63] : '=');
-    out.push_back('=');
-  }
-  return out;
-}
-
 // The transcript in an OpenAI-style answer: `text`, then `transcription`, then `result.text`, then `choices[0].message.content` (chat_audio), whichever is a non-empty string first. write_response has already bounded the body to 1 MiB.
 std::string parse_transcription(const std::string &response) {
   nlohmann::json json;
@@ -414,7 +388,9 @@ std::string recognize_cloud_asr(
                           "录音超过阿里云百炼的上传上限（约 3 分半钟），请分段说。");
     const nlohmann::json part = {
         {"type", "input_audio"},
-        {"input_audio", {{"data", "data:audio/wav;base64," + base64(wav)}}}};
+        {"input_audio",
+         {{"data", "data:audio/wav;base64," +
+                       cppcodec::base64_rfc4648::encode<std::string>(wav.data(), wav.size())}}}};
     const nlohmann::json message = {{"role", "user"},
                                     {"content", nlohmann::json::array({part})}};
     chat_payload = nlohmann::json{{"model", model_value},
