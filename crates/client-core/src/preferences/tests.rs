@@ -3341,6 +3341,41 @@ fn smart_punctuation_sub_switches_survive_a_save() {
     }
 }
 
+// 「大写锁定时使用英文标点」默认关：新装和缺这个键的旧文档都按关读入，打开后保存能读回。
+#[test]
+fn caps_lock_ascii_punctuation_defaults_off_and_survives_a_save() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    assert!(!Preferences::default().caps_lock_ascii_punctuation);
+
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    legacy["preferences"]
+        .as_object_mut()
+        .unwrap()
+        .remove("caps_lock_ascii_punctuation")
+        .unwrap();
+    fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert!(
+        !store
+            .load()
+            .unwrap()
+            .preferences
+            .caps_lock_ascii_punctuation
+    );
+
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                caps_lock_ascii_punctuation: true,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    assert!(saved.preferences.caps_lock_ascii_punctuation);
+    assert_eq!(store.load().unwrap(), saved);
+}
+
 // The source ships every smart-punctuation switch disabled, and the running host reads this document rather than the installed template. A fresh Windows or macOS profile must therefore start with the family off, macOS following the desktop product it ports; Linux, Android, iOS and HarmonyOS keep what they have shipped. A stored value is never reinterpreted either way.
 #[test]
 fn smart_punctuation_first_run_follows_the_source_on_desktop_ports() {

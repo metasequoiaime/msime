@@ -492,6 +492,8 @@ char *msime_client_set_english_mode(uint64_t session, bool enabled);
 char *msime_client_set_nine_key_mode(uint64_t session, bool enabled);
 /* 标出隐私会话（隐私模式、不允许学习的输入框）：这个会话的选词位置和上屏效率不记入打字统计。用户在设置里关掉学习不算隐私会话。学习本身仍由偏好里的 learning 决定。Value 是设下的布尔值。 */
 char *msime_client_set_private_session(uint64_t session, bool enabled);
+/* 报告大写锁定状态：偏好 caps_lock_ascii_punctuation 打开时，大写锁定期间没有组字的标点键（经 msime_client_character、msime_client_punctuation 或 msime_client_punctuation_with_context 送来）改走字面 ASCII 路线，和英文模式一样；punctuation_lock 为 chinese 时仍是中文标点。会话状态而非偏好，会话重建后由宿主重新报告。Value 是设下的布尔值。接上这个调用的宿主在 HostCapabilities.caps_lock_punctuation 里声明。 */
+char *msime_client_set_caps_lock(uint64_t session, bool enabled);
 char *msime_client_set_paired_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_punctuation_lock(uint64_t session, uint8_t lock);
 char *msime_client_set_candidate_page_size(uint64_t session, uint8_t size);

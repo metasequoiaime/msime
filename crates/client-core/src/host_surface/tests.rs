@@ -249,6 +249,17 @@ fn capabilities_describe_each_host() {
     assert!(macos.app_logo);
     assert!(!windows.app_logo);
     assert!(!linux.app_logo);
+    // 只有向会话报告大写锁定的宿主提供「大写锁定时使用英文标点」，目前是 macOS。
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).caps_lock_punctuation);
+    }
+    assert!(macos.caps_lock_punctuation);
     // Only the two hosts that can put a badge beside the caret claim it; a touch keyboard says
     // the mode on its own key faces, and Windows/Linux draw nothing of the kind.
     assert!(macos.input_mode_hud);

@@ -90,6 +90,17 @@ pub extern "C" fn msime_client_set_english_mode(handle: u64, enabled: bool) -> *
     })
 }
 
+/// 宿主报告大写锁定状态。偏好 `caps_lock_ascii_punctuation` 打开时，大写锁定期间没有组字的标点按英文标点输出（见 `HostSession::caps_lock_punctuation`）。不是持久化的偏好，换会话后由宿主重新报告。
+#[no_mangle]
+pub extern "C" fn msime_client_set_caps_lock(handle: u64, enabled: bool) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session.caps_lock = enabled;
+            Ok(Value::Bool(enabled))
+        })
+    })
+}
+
 /// 标出隐私会话：隐私模式或不允许学习的输入框。只影响打字统计（选词位置和上屏效率不计），学习仍由偏好里的 `learning` 决定。
 #[no_mangle]
 pub extern "C" fn msime_client_set_private_session(handle: u64, enabled: bool) -> *mut c_char {
@@ -205,27 +216,7 @@ pub extern "C" fn msime_client_punctuation_with_context(
         let session = sessions
             .get(&handle)
             .ok_or_else(|| "unknown session or wrong thread".to_owned())?;
-        let lock = match session.punctuation_lock_override {
-            Some(1) => msime_client_core::preferences::PunctuationLock::Chinese,
-            Some(2) => msime_client_core::preferences::PunctuationLock::English,
-            Some(_) => msime_client_core::preferences::PunctuationLock::Follow,
-            None => session.applied.punctuation_lock,
-        };
-        let route = punctuation_route(PunctuationContext {
-            character: ascii,
-            preceding,
-            host_context_available: session
-                .runtime
-                .punctuation_host_context_available(session.english_mode),
-            has_composition: !session.runtime.is_idle(),
-            chinese_punctuation: session
-                .punctuation_override
-                .unwrap_or(session.applied.chinese_punctuation),
-            smart_punctuation: session.applied.smart_punctuation,
-            direct_digit: session.applied.smart_punctuation_direct_digit,
-            direct_letter: session.applied.smart_punctuation_direct_letter,
-            lock,
-        });
+        let route = punctuation_route(session.punctuation_context(ascii, preceding));
         Ok(match route {
             PunctuationRoute::Engine => Action::Punctuation(ascii),
             PunctuationRoute::Ascii => Action::PunctuationAscii(ascii),

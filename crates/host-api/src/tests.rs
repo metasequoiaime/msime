@@ -4951,6 +4951,80 @@ fn chinese_punctuation_lock_holds_in_english_mode() {
     read(msime_client_destroy(handle));
 }
 
+/// 「大写锁定时使用英文标点」（#6370）：宿主报告大写锁定后，三个标点入口在没有组字时都把键留给宿主按 ASCII 输出；组字中和固定中文标点时照旧，开关关着或大写锁定关掉时也照旧。
+#[test]
+fn caps_lock_sends_idle_punctuation_to_ascii_when_the_switch_is_on() {
+    let left_to_host = |value: Value| {
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["value"]["handled"], false);
+        assert!(value["value"]["commit"].is_null());
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_preferences(
+        dir.path(),
+        Preferences {
+            caps_lock_ascii_punctuation: true,
+            ..chinese_preferences()
+        },
+    );
+    read(msime_client_focus(handle, true));
+    assert_eq!(
+        read(msime_client_character(handle, b',', false))["value"]["commit"],
+        "，"
+    );
+
+    assert_eq!(
+        read(msime_client_set_caps_lock(handle, true))["value"],
+        true
+    );
+    left_to_host(read(msime_client_character(handle, b',', false)));
+    left_to_host(read(msime_client_character(handle, b'?', true)));
+    left_to_host(read(msime_client_punctuation(handle, b';')));
+    left_to_host(read(msime_client_punctuation_with_context(
+        handle,
+        b'.',
+        u32::from('中'),
+    )));
+
+    // 组字中 Engine 照旧决定：候选连同中文标点一起上屏。
+    read(msime_client_character(handle, b'n', false));
+    read(msime_client_character(handle, b'i', false));
+    let composed = read(msime_client_character(handle, b',', false));
+    assert!(composed["value"]["commit"]
+        .as_str()
+        .is_some_and(|value| value.ends_with('，')));
+
+    // 固定中文标点优先于大写锁定。
+    read(msime_client_set_punctuation_lock(handle, 1));
+    assert_eq!(
+        read(msime_client_character(handle, b',', false))["value"]["commit"],
+        "，"
+    );
+    read(msime_client_set_punctuation_lock(handle, 0));
+
+    read(msime_client_set_caps_lock(handle, false));
+    assert_eq!(
+        read(msime_client_character(handle, b',', false))["value"]["commit"],
+        "，"
+    );
+    read(msime_client_destroy(handle));
+
+    // 开关关着（默认）时，大写锁定不改变标点。
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    read(msime_client_set_caps_lock(handle, true));
+    assert_eq!(
+        read(msime_client_character(handle, b',', false))["value"]["commit"],
+        "，"
+    );
+    assert_eq!(
+        read(msime_client_punctuation_with_context(handle, b',', 0))["value"]["commit"],
+        "，"
+    );
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn explicit_punctuation_finishes_unicode_and_rejects_invalid_bytes() {
     for enabled in [true, false] {

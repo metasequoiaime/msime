@@ -1658,6 +1658,8 @@ export interface HostCapabilities {
   music: boolean;
   /** The host draws the typing effects and the combo count `msime_client_typing_effect` answers with. */
   typing_effects: boolean;
+  /** 宿主向会话报告大写锁定状态，「大写锁定时使用英文标点」在这里有效（目前只有 macOS）。 */
+  caps_lock_punctuation?: boolean;
   /** 背单词书目列出单词本插件（`pack-<插件 id>` 词书）。 */
   wordbook_packs: boolean;
   /** 符号面板显示已安装的符号集插件。 */
@@ -1812,6 +1814,7 @@ export type Preferences = {
   smart_punctuation_direct_letter?: boolean;
   paired_punctuation?: boolean;
   punctuation_lock?: "follow" | "chinese" | "english";
+  caps_lock_ascii_punctuation?: boolean;
   traditional_chinese_output?: boolean;
   /** Sound packs, music and command tables; the document leaves it out while every value is the default. */
   plugins?: PluginPreferences;

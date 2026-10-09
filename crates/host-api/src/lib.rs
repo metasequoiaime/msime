@@ -212,6 +212,8 @@ struct HostSession {
     paired_punctuation_override: Option<bool>,
     punctuation_lock_override: Option<u8>,
     english_mode: bool,
+    /// 宿主经 `msime_client_set_caps_lock` 报告的大写锁定状态。不报告的宿主一直是 `false`，`caps_lock_ascii_punctuation` 对它不起作用。
+    caps_lock: bool,
     page_size_override: Option<u8>,
     nine_key_override: Option<bool>,
     /// 宿主经 `msime_client_set_private_session` 标出的隐私会话（Android 的隐私模式和不允许学习的输入框，鸿蒙和 iOS 的隐私模式）：不记选词位置和上屏效率。与用户自己关掉的「学习」无关。
@@ -298,6 +300,53 @@ fn engine_chinese_punctuation(enabled: bool, lock: u8) -> bool {
 
 impl HostSession {
     /// `engine_chinese_punctuation` for the live overrides over the applied preferences.
+    /// 判断一个标点键去向所用的上下文。`msime_client_punctuation_with_context` 和大写锁定改道（[`Self::caps_lock_punctuation`]）用的是同一份。
+    fn punctuation_context(&self, character: u8, preceding: Option<char>) -> PunctuationContext {
+        let lock = match self.punctuation_lock_override {
+            Some(1) => msime_client_core::preferences::PunctuationLock::Chinese,
+            Some(2) => msime_client_core::preferences::PunctuationLock::English,
+            Some(_) => msime_client_core::preferences::PunctuationLock::Follow,
+            None => self.applied.punctuation_lock,
+        };
+        PunctuationContext {
+            character,
+            preceding,
+            host_context_available: self
+                .runtime
+                .punctuation_host_context_available(self.english_mode),
+            has_composition: !self.runtime.is_idle(),
+            chinese_punctuation: self
+                .punctuation_override
+                .unwrap_or(self.applied.chinese_punctuation),
+            smart_punctuation: self.applied.smart_punctuation,
+            direct_digit: self.applied.smart_punctuation_direct_digit,
+            direct_letter: self.applied.smart_punctuation_direct_letter,
+            lock,
+            caps_lock_ascii: self.caps_lock && self.applied.caps_lock_ascii_punctuation,
+        }
+    }
+
+    /// 大写锁定时，把经字符或标点入口送来的标点键改走字面 ASCII 路线（#6370）。宿主大多把标点键当普通字符交给 `msime_client_character`，这条路线上没有标点判断，所以在分发前统一改道，每个报告了大写锁定的宿主都不用再写一份。只看大写锁定这一条：智能标点要读前文，不在这里判断。不改道时原样返回。
+    fn caps_lock_punctuation(&self, action: Action) -> Action {
+        if !(self.caps_lock && self.applied.caps_lock_ascii_punctuation) {
+            return action;
+        }
+        let ascii = match action {
+            Action::Character { value, .. } | Action::Punctuation(value)
+                if value.is_ascii_punctuation() =>
+            {
+                value
+            }
+            _ => return action,
+        };
+        let mut context = self.punctuation_context(ascii, None);
+        context.smart_punctuation = false;
+        match punctuation_route(context) {
+            PunctuationRoute::Ascii => Action::PunctuationAscii(ascii),
+            PunctuationRoute::Engine => action,
+        }
+    }
+
     fn live_engine_chinese_punctuation(&self) -> bool {
         engine_chinese_punctuation(
             self.punctuation_override
@@ -1991,6 +2040,7 @@ fn dispatch(handle: u64, action: Action) -> *mut c_char {
             // relative to is gone afterwards. Every platform host routes candidate selection
             // through here, so counting it here covers all of them without a line of platform
             // code; doing it per host would have meant six chances to forget.
+            let action = session.caps_lock_punctuation(action);
             let position = selected_position(&action);
             let efficiency = position.and_then(|_| session.efficiency_candidate(&action));
             let result = session

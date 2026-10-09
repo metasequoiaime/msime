@@ -917,6 +917,9 @@ pub struct Preferences {
     pub paired_punctuation: bool,
     #[serde(default)]
     pub punctuation_lock: PunctuationLock,
+    /// 大写锁定打开时，中文模式下没有组字时的标点按英文标点输出，和切到英文模式时一样（`punctuation_lock` 为 `chinese` 时仍是中文标点）。只有向会话报告大写锁定状态的宿主（`HostCapabilities::caps_lock_punctuation`）会用到它。默认关，打开前的行为不变。
+    #[serde(default)]
+    pub caps_lock_ascii_punctuation: bool,
     #[serde(default)]
     pub navigation: NavigationPreferences,
     #[serde(default)]
@@ -1955,6 +1958,7 @@ impl Default for Preferences {
             smart_punctuation_direct_letter: smart_punctuation_default(),
             paired_punctuation: true,
             punctuation_lock: PunctuationLock::Follow,
+            caps_lock_ascii_punctuation: false,
             navigation: NavigationPreferences::default(),
             keybindings: KeybindingPreferences::default(),
             word_character: WordCharacterPreferences::default(),

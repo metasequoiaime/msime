@@ -288,6 +288,8 @@ pub struct HostCapabilities {
     pub music: bool,
     /// The host draws the typing effects and the combo count that `msime_client_typing_effect` answers with. Each host flips this only in the change that wires the call, as with the flags above.
     pub typing_effects: bool,
+    /// 宿主经 `msime_client_set_caps_lock` 向会话报告大写锁定状态，所以「大写锁定时使用英文标点」（`caps_lock_ascii_punctuation`）在这里有效。和上面几项一样，每个宿主只在接上这个调用的那次改动里打开它。
+    pub caps_lock_punctuation: bool,
     /// The operating system release, as the machine reports it, for the feedback
     /// page to attach. Not a platform assumption like the flags above -- the host
     /// fills it in after `for_platform`, the way `system_fonts` is filled in --
@@ -624,6 +626,8 @@ impl HostCapabilities {
             music: platform.is_desktop(),
             // macOS draws the sparks, the card flash and the combo badge (TypingEffectPanel.mm), Windows the flash and the badge on its candidate window (CandidateWindow.cpp), both Linux hosts the combo count in the candidate aux line (KeySound.h), and HarmonyOS the flash and the combo badge on its KeyboardView. Linux draws no style, only the count; the settings page hides the style controls there itself (`showTypingEffectStyles`). HarmonyOS still narrows this per form factor in its own settings projection; Android and iOS wire none.
             typing_effects: platform.is_desktop() || platform == HostPlatform::Harmony,
+            // 目前只有 macOS 报告大写锁定（`InputController.mm` 的 `syncCapsLock`）。Windows、Linux 的宿主和带实体键盘的移动端接上同一个调用后在这里加上自己。
+            caps_lock_punctuation: platform == HostPlatform::Macos,
             os_version: None,
             arch: None,
             candidate_panel_limit: None,

@@ -140,6 +140,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     paired_punctuation_override: None,
                     punctuation_lock_override: None,
                     english_mode: false,
+                    caps_lock: false,
                     page_size_override: None,
                     nine_key_override: None,
                     statistics_private: false,
