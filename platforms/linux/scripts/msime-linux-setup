@@ -170,19 +170,29 @@ def fetch(url: str, destination: Path, maximum: int) -> None:
 
 
 def fetch_verified(artifact: dict, destination: Path) -> None:
-    """先国内镜像、再锁里的原地址：一个源下载失败、超出大小或 SHA-256 不符就换下一个，都不行才中止。"""
+    """先国内镜像、再锁里的原地址：一个源下载失败、超出大小或 SHA-256 不符就换下一个，都不行才中止。
+
+    两个源都只是连不上时抛 OSError，交给 fetch_missing 报「下载失败」并指出没动的词库目录，和加镜像之前一样；有一个源给了超限或不符的内容就直接中止。"""
     url = artifact["url"]
     failures = []
+    unreachable_only = True
     for source in (MIRROR_PREFIX + url, url):
         try:
             fetch(source, destination, artifact["size"])
-        except (OSError, SystemExit) as error:
+        except OSError as error:
+            failures.append(f"{source}：{error}")
+            continue
+        except SystemExit as error:
+            unreachable_only = False
             failures.append(f"{source}：{error}")
             continue
         if digest(destination) == artifact["sha256"]:
             return
         destination.unlink(missing_ok=True)
+        unreachable_only = False
         failures.append(f"{source}：SHA-256 不符")
+    if unreachable_only:
+        raise OSError(f"{artifact['name']}\n" + "\n".join(failures))
     raise SystemExit(f"{artifact['name']} 下载或校验失败，已中止；目标目录未改动\n" + "\n".join(failures))
 
 

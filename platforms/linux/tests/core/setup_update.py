@@ -97,7 +97,12 @@ class Harness:
         self.prefix = scratch / "prefix"
         (self.prefix / "bin").mkdir(parents=True)
         self.setup = self.prefix / "bin/msime-linux-setup"
-        self.setup.write_text(SCRIPT.read_text())
+        # The mirror is this server too, so the tests never reach the real one and can withhold or corrupt what it serves.
+        self.mirror_prefix = f"http://127.0.0.1:{port}/mirror/"
+        script = SCRIPT.read_text()
+        production_mirror = 'MIRROR_PREFIX = "https://dl.msime.app/gh/"'
+        assert script.count(production_mirror) == 1, "the setup script's mirror constant moved"
+        self.setup.write_text(script.replace(production_mirror, f'MIRROR_PREFIX = "{self.mirror_prefix}"'))
         self.setup.chmod(0o755)
         prepare = self.prefix / "bin/msime-linux-prepare"
         prepare.write_text(PREPARE_STUB)
@@ -109,6 +114,7 @@ class Harness:
             {"name": name, "size": len(payload), "sha256": sha256(payload), "url": f"http://127.0.0.1:{port}/{name}"}
             for name, payload in self.current.items()
         ]}))
+        self.port = port
         self.log = scratch / "prepare.log"
         self.environment = {
             key: value for key, value in os.environ.items()
@@ -152,6 +158,10 @@ class Harness:
             env=environment, capture_output=True, text=True, timeout=60,
         )
 
+    def mirror(self, name: str) -> str:
+        """The request path the mirror receives for an artifact: its prefix followed by the address in the lock."""
+        return f"/mirror/http://127.0.0.1:{self.port}/{name}"
+
     def prepare_calls(self) -> list:
         return [json.loads(line) for line in self.log.read_text().splitlines()]
 
@@ -189,7 +199,7 @@ def check_setup(harness: Harness) -> None:
     staged = harness.staged(resources)
     result = harness.run("--state", str(state), "--download")
     assert result.returncode == 0, result
-    assert Artifacts.requested == ["/b.db"], Artifacts.requested
+    assert Artifacts.requested == [harness.mirror("b.db")], Artifacts.requested
     # The directory the previous generation reads is never written: it stays exactly as it was, for the sessions still on it and for rollback.
     assert (resources / "b.db").read_bytes() == harness.previous_b
     assert (staged / "b.db").read_bytes() == harness.current["b.db"]
@@ -256,17 +266,32 @@ def check_setup(harness: Harness) -> None:
     resources = Path(options(state)["resources"])
     (resources / "a.db").write_bytes(b"dictionary a, previous release")
     before = (state / "runtime-options.json").read_bytes()
-    served = Artifacts.payloads.pop("/b.db")
+    served = {path: Artifacts.payloads.pop(path) for path in (harness.mirror("b.db"), "/b.db")}
     result = harness.run("--update", "--download", "--state", str(state))
-    Artifacts.payloads["/b.db"] = served
+    Artifacts.payloads.update(served)
     assert result.returncode != 0, result
-    assert "词库目录未改动" in result.stderr, result.stderr
-    assert Artifacts.requested == ["/a.db", "/b.db"], Artifacts.requested
+    # Neither source answering is a network failure: it names the directory the input method keeps reading.
+    assert "下载失败" in result.stderr and f"词库目录未改动：{resources}" in result.stderr, result.stderr
+    assert Artifacts.requested == [harness.mirror("a.db"), harness.mirror("b.db"), "/b.db"], Artifacts.requested
     assert (resources / "a.db").read_bytes() == b"dictionary a, previous release"
     assert (resources / "b.db").read_bytes() == harness.previous_b
     assert sorted(path.name for path in resources.iterdir()) == ["a.db", "b.db"]
     assert harness.prepare_calls() == []
     assert (state / "runtime-options.json").read_bytes() == before
+
+    # A mirror that lacks the file, or serves other bytes of the same size, falls back to the address in the lock.
+    for name, mirrored in (("state-mirror-missing", None), ("state-mirror-corrupt", b"x" * len(harness.current["b.db"]))):
+        state = harness.installed(name)
+        resources = Path(options(state)["resources"])
+        served = Artifacts.payloads.pop(harness.mirror("b.db"))
+        if mirrored is not None:
+            Artifacts.payloads[harness.mirror("b.db")] = mirrored
+        result = harness.run("--update", "--download", "--state", str(state))
+        Artifacts.payloads[harness.mirror("b.db")] = served
+        assert result.returncode == 0, result
+        assert Artifacts.requested == [harness.mirror("b.db"), "/b.db"], Artifacts.requested
+        assert options(state)["resources"] == str(harness.staged(resources)), options(state)
+        assert (harness.staged(resources) / "b.db").read_bytes() == harness.current["b.db"]
 
     # A file the lock no longer names would make the host reject the whole directory. Without --download it is reported; the update stages a directory holding only the lock's entries, so the file stays behind with the previous generation.
     state = harness.installed("state-extra")
@@ -276,7 +301,7 @@ def check_setup(harness: Harness) -> None:
     assert result.returncode == 1 and "retired.db" in result.stderr, result
     result = harness.run("--update", "--download", "--state", str(state))
     assert result.returncode == 0, result
-    assert Artifacts.requested == ["/b.db"], Artifacts.requested
+    assert Artifacts.requested == [harness.mirror("b.db")], Artifacts.requested
     assert sorted(path.name for path in harness.staged(resources).iterdir()) == ["a.db", "b.db"]
     assert (resources / "retired.db").is_file() and (resources / "b.db").read_bytes() == harness.previous_b
 
@@ -384,6 +409,7 @@ def main() -> int:
         with tempfile.TemporaryDirectory() as name:
             harness = Harness(Path(name), server.server_address[1])
             Artifacts.payloads = {f"/{key}": value for key, value in harness.current.items()}
+            Artifacts.payloads.update({harness.mirror(key): value for key, value in harness.current.items()})
             check_setup(harness)
             if len(sys.argv) > 1:
                 check_prepare(Path(sys.argv[1]), harness)

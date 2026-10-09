@@ -102,7 +102,8 @@ def main() -> int:
             assert requested == [], requested
             lock["artifacts"].pop()
             setup.download_artifacts(lock, resources)
-            assert requested == ["https://example.invalid/msime-pinyin.db"], requested
+            # The mirror comes first; the stub's bytes match the lock, so the original address is never asked.
+            assert requested == [setup.MIRROR_PREFIX + "https://example.invalid/msime-pinyin.db"], requested
             assert setup.verify_directory(resources, lock) == []
         finally:
             setup.fetch = original_fetch
