@@ -41,7 +41,8 @@ permissions:
 jobs:
   changes:
     name: Decide whether macOS needs building
-    runs-on: ubuntu-24.04
+    # 判定只跑十几秒，却挡在后面所有构建之前。GitHub 托管的 ubuntu-24.04 在多个 PR 同时推送时要排队（2026-10-09 十三个 PR 一起更新，中位 57 秒、p90 176 秒），Depot 的只要 1 秒，和 ci-platforms.yml 的 Decide platform scope 一样放在 Depot 上。
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     outputs:
       build: ${{ steps.decide.outputs.build }}
@@ -144,7 +145,8 @@ jobs:
     # 而 build=false 时它们只做一次签出:格式检查那一步在本仓库走的是 scripts/format.sh 不存在的分支,
     # 只 echo 一行。公开仓库的 macOS 并发额度本来就只有个位数,iOS CI 还和它抢同一批机器,于是十来个
     # 活跃分支就能把队列堵死,而堵住队列的绝大多数 job 什么也没做。
-    runs-on: ${{ matrix.build == 'true' && matrix.runner || 'ubuntu-24.04' }}
+    # 不构建时这条必需检查只做一次签出就上报，同样放在 Depot 的 ubuntu 上，免得只改别的平台的 PR 在合并前排队等它。
+    runs-on: ${{ matrix.build == 'true' && matrix.runner || 'depot-ubuntu-24.04' }}
     timeout-minutes: 60
     env:
       # 与 release-macos.yml 同一个 Xcode：CI 编的就是发出去的那个构建（同一个编译器、同一个 SDK）。两处要一起改。

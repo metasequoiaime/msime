@@ -42,7 +42,13 @@ docker run --rm --init \
   -e CARGO_TARGET_DIR=/build/cargo \
   "$image_tag" bash -euo pipefail -c '
     cargo build -p msime-host-api --locked
+    # 读取实际生成的目标图，关闭测试时不得再编译 tests/ 下的源码。
+    for configuration in cmake cmake-wubi; do
+      mkdir -p "/build/$configuration/.cmake/api/v1/query"
+      touch "/build/$configuration/.cmake/api/v1/query/codemodel-v2"
+    done
     cmake -S platforms/linux -B /build/cmake -G Ninja \
+      -DBUILD_TESTING=ON \
       -DMSIME_ENABLE_FCITX5=ON \
       -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so
     cmake --build /build/cmake
@@ -54,6 +60,7 @@ docker run --rm --init \
       -DBUILD_TESTING=OFF \
       -DMSIME_ENABLE_FCITX5=ON \
       -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so
+    python3 platforms/linux/tests/core/build_testing.py /build/cmake /build/cmake-wubi
     cmake --build /build/cmake-wubi
     rm -rf /build/stage-full /build/stage-wubi
     DESTDIR=/build/stage-full cmake --install /build/cmake --prefix /usr >/dev/null
