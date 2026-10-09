@@ -46,6 +46,12 @@ public final class UpdateApiSmoke {
         check(UpdateApi.pick(releases, UpdateApi.Channel.STABLE, "1.1.0") == null, "up to date");
         check(UpdateApi.Channel.fromId("nonsense") == UpdateApi.Channel.STABLE, "unknown channel is stable");
 
+        List<UpdateApi.Release> malformedTags = List.of(
+            new UpdateApi.Release("android-v1.1.0", "1.1.0", false),
+            new UpdateApi.Release("android bad tag", "9.0.0", false));
+        check("android-v1.1.0".equals(UpdateApi.pick(malformedTags, UpdateApi.Channel.STABLE, "1.0.0").tag()),
+            "invalid release tags must not hide a usable update");
+
         UpdateApi.Update update = UpdateApi.update(releases.get(0), "full");
         check(update.apkUrl().equals("https://github.com/metasequoiaime/msime/releases/download/android-v1.1.0/msime-android.apk"), "apk url");
         check(update.checksumUrl().equals(update.apkUrl() + ".sha256"), "checksum url");

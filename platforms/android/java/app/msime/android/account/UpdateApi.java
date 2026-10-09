@@ -230,6 +230,11 @@ public final class UpdateApi {
     public static Release pick(List<Release> releases, Channel channel, String currentVersion) {
         Release best = null;
         for (Release release : releases) {
+            // Keep malformed metadata from shadowing a usable release.  update() rejects
+            // these tags when constructing the download URL; filtering them here means a
+            // bad higher version cannot make check() report that no update is available.
+            if (release == null || release.tag() == null || !TAG.matcher(release.tag()).matches()
+                    || release.version() == null || TextPolicy.trimmed(release.version()).isEmpty()) continue;
             if (!channel.accepts(release)) continue;
             if (compareVersions(release.version(), currentVersion) <= 0) continue;
             if (best == null || compareVersions(release.version(), best.version()) > 0) best = release;
