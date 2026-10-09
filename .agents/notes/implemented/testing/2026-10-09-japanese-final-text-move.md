@@ -37,3 +37,5 @@ Status: implemented
 [固定八槽行实验](../../rejected/testing/2026-10-09-japanese-inline-matrix-rows.md) 因 release 未显示稳定收益且出现查询回退被否决；生产 Vec 行及本篇历史验证保持。实验仅保留在 `cfg(test)` 中，不能把减少分配视为查询加速。
 
 [句子结果容器复用](2026-10-09-japanese-sentence-output-buffer.md) 进一步让 provider 保留固定限额的空向量；本篇的末行文本转移继续有效，句子文本消费后仍释放。
+
+[精确词条流式消费](2026-10-09-japanese-exact-lemma-stream.md) 进一步取消 matrix 精确词条的临时视图向量，本篇最终文本拥有与指针转移边界继续有效，历史 11/25 分配保留；当前简单与密集单假名预算为 9/23。

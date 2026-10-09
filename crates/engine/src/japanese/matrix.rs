@@ -189,14 +189,14 @@ fn search_with_output(
         let max_end = mora_count.min(start + MAX_LEMMA_MORA);
         for end in start + 1..=max_end {
             let key = &reading[start_byte..boundaries[end]];
-            for lemma in dictionary.exact_lemma_views(key, 24) {
+            dictionary.for_each_exact_lemma_view(key, 24, |lemma| {
                 for previous in &previous_row.nodes {
                     let cost = previous.cost
                         + i64::from(lemma.word_cost)
                         + i64::from(dictionary.connection_cost(previous.right_id, lemma.left_id));
                     rows[end].extend(&previous.text, lemma.surface, cost, lemma.right_id);
                 }
-            }
+            });
         }
 
         let kana = &reading[start_byte..boundaries[start + 1]];
@@ -239,9 +239,9 @@ fn search_with_output(
                 // 只替换假名后缀，容量覆盖最长后缀，避免循环中扩容。
                 key.truncate(reading.len());
                 key.push_str(kana);
-                for lemma in dictionary.exact_lemma_views(&key, 16) {
+                dictionary.for_each_exact_lemma_view(&key, 16, |lemma| {
                     output.push(lemma.surface, i64::from(lemma.word_cost));
-                }
+                });
             }
         }
         for lemma in dictionary.continuing_lemma_views(reading, pending_kana, 48) {
@@ -257,12 +257,9 @@ fn search_with_output(
         if output.full() {
             break;
         }
-        for lemma in dictionary.exact_lemma_views(&reading[..boundaries[end]], 16) {
+        dictionary.for_each_exact_lemma_view(&reading[..boundaries[end]], 16, |lemma| {
             output.push(lemma.surface, i64::from(lemma.word_cost));
-            if output.full() {
-                break;
-            }
-        }
+        });
     }
     output.items
 }
@@ -429,7 +426,7 @@ mod tests {
         assert_eq!(actual, expected);
         eprintln!("日文密集单假名矩阵分配：{allocations}");
         assert!(
-            allocations <= 25,
+            allocations <= 23,
             "胜选文本应移入输出，败选不应构造文本：{allocations}"
         );
     }
@@ -446,7 +443,7 @@ mod tests {
         assert_eq!(texts(&actual), ["蚊", "か"]);
         eprintln!("日文单假名矩阵搜索分配：{allocations}");
         assert!(
-            allocations <= 11,
+            allocations <= 9,
             "词条应借用，句子文本应移入输出：{allocations}"
         );
     }
@@ -567,3 +564,7 @@ mod inline_row_experiment;
 #[cfg(test)]
 #[path = "matrix/inline_row_tests.rs"]
 mod inline_row_tests;
+
+#[cfg(test)]
+#[path = "matrix/exact_stream_tests.rs"]
+mod exact_stream_tests;

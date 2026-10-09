@@ -336,12 +336,24 @@ impl JapaneseDictionary {
         self.exact_lemmas_with(reading, limit, |id| self.lemma(id))
     }
 
+    #[cfg(test)]
     pub(crate) fn exact_lemma_views(
         &self,
         reading: &str,
         limit: usize,
     ) -> Vec<JapaneseLemmaRef<'_>> {
         self.exact_lemmas_with(reading, limit, |id| self.lemma_ref(id))
+    }
+
+    /// 按原成本顺序同步访问精确词条，视图只借用词库，不收集结果向量。
+    pub(crate) fn for_each_exact_lemma_view<'a>(
+        &'a self,
+        reading: &str,
+        limit: usize,
+        mut visit: impl FnMut(JapaneseLemmaRef<'a>),
+    ) {
+        // 复用原筛选和排序，映射为零大小的 `()` 不申请结果元素存储。
+        self.exact_lemmas_with(reading, limit, |id| visit(self.lemma_ref(id)));
     }
 
     fn exact_lemmas_with<T>(
@@ -1318,3 +1330,7 @@ mod tests {
 
 #[cfg(test)]
 mod continuing_tests;
+
+#[cfg(test)]
+#[path = "decoder/exact_stream_tests.rs"]
+mod exact_stream_tests;

@@ -5,7 +5,7 @@ use super::vector_row_reference::Row;
 use super::*;
 
 // 固定 33a5a3f46 的完整矩阵正文，使用冻结 Vec 行隔离本片存储变化。
-fn vector_reference_search(
+pub(super) fn vector_reference_search(
     dictionary: &JapaneseDictionary,
     conversion: &RomajiConversion,
     limit: usize,

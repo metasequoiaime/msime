@@ -47,3 +47,5 @@ provider 隔离本层循环的对照（两侧均调用当前 matrix，三词条�
 [固定八槽行实验](../../rejected/testing/2026-10-09-japanese-inline-matrix-rows.md) 因 release 未显示稳定收益且出现查询回退被否决；生产 Vec 行及本篇历史验证保持。实验仅保留在 `cfg(test)` 中，不能把减少分配视为查询加速。
 
 冻结 provider 对照现另包含[句子结果容器复用](2026-10-09-japanese-sentence-output-buffer.md) 的分配差值；在合成有词库夹具中，除裸 `-` 外的查询恰好再省一次容器分配，分别统计后求和。历史拼接键计时不归因于此后新增的容器优化。
+
+[精确词条流式消费](2026-10-09-japanese-exact-lemma-stream.md) 进一步减少 matrix 精确视图结果容器。本篇历史计时与 24→16 分配仅反映当时的键复用；当前 pending 键差由冻结 `33a5a3f46` 单缓冲 Vec 查询与 `f37203c77` 逐假名拼接查询隔离，生产分配另外要求不超过单缓冲对照。当前 `benchmark_matrix_pending_reading_keys` 对照固定历史正文，包含精确流式收益，不再能独立归因于键复用。

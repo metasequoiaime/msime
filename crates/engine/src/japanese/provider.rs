@@ -444,9 +444,9 @@ mod tests {
             ["仮名", "かな", "加奈子", "奏で", "カナ"]
         );
         eprintln!("日文完整预测流式查询分配：{allocations}");
-        assert!(
-            allocations <= 13,
-            "预测词条应流式写入，句子结果向量应复用：{allocations}"
+        assert_eq!(
+            allocations, 11,
+            "预测和矩阵精确词条应流式消费，句子结果向量应复用"
         );
     }
 

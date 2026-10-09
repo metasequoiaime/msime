@@ -2,7 +2,7 @@ use super::super::decoder::test_model;
 use super::super::romaji::convert_romaji;
 use super::*;
 
-// 固定 f37203c77 的完整矩阵查询正文，只对照本片查询键变化。
+// 固定 f37203c77 的完整矩阵查询正文；查询键差由冻结的后续 Vec 查询隔离。
 fn reference_current_search(
     dictionary: &JapaneseDictionary,
     conversion: &RomajiConversion,
@@ -155,6 +155,15 @@ fn matrix_pending_key_output_and_allocation_match_current_baseline() {
                     "读音长度 {}，待定 {pending}，限额 {limit}",
                     reading.len()
                 );
+                // 后续精确词条流式消费另省结果容器，键差仍对照固定的单缓冲 Vec 查询。
+                let (_, buffered_allocations) =
+                    crate::ime::personal_rerank::allocations::count(|| {
+                        super::inline_row_tests::vector_reference_search(
+                            &dictionary,
+                            &conversion,
+                            limit,
+                        )
+                    });
                 let suffixes = kana_for_romaji_prefix_view(pending);
                 let saved = if reading.is_empty() || limit == 0 {
                     0
@@ -162,17 +171,18 @@ fn matrix_pending_key_output_and_allocation_match_current_baseline() {
                     suffixes.len().saturating_sub(1)
                 };
                 assert_eq!(
-                    new_allocations + saved,
+                    buffered_allocations + saved,
                     old_allocations,
                     "键分配差值：{pending}"
                 );
+                assert!(new_allocations <= buffered_allocations);
             }
         }
     }
 }
 
 #[test]
-#[ignore = "本地 release 矩阵对照，只比较本片查询键；不设置 CI 时间阈值"]
+#[ignore = "本地 release 与固定历史矩阵对照；包含精确词条流式消费，不设置 CI 时间阈值"]
 fn benchmark_matrix_pending_reading_keys() {
     use std::hint::black_box;
     use std::time::Instant;
