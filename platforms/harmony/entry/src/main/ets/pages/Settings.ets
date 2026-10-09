@@ -833,6 +833,9 @@ class SettingsBridge {
   private accountBridge: HarmonyAccountCloudBridge | undefined = undefined;
   private aiSkins: HarmonyAiSkins | undefined = undefined;
   private cloudDownloadRequest: number = 0;
+  // 「从文件导入」从打开选择器到安装结束的模型 id。复制进缓存的那段时间原生安装还没登记，原生取消找不到它，所以取消先记在 voiceImportsCancelled 里，由导入流程在复制每个文件前和开始安装前检查。
+  private voiceImportsPending: Set<string> = new Set<string>();
+  private voiceImportsCancelled: Set<string> = new Set<string>();
 
   useWebview(controller: web_webview.WebviewController): void {
     this.webview = controller;
@@ -1151,7 +1154,13 @@ class SettingsBridge {
     }
     if (action.operation === 'cancel') {
       const request: LocalVoiceModelRequest = { id: id };
-      return LocalVoiceModelPolicy.rewrite(client.voiceLocalModelCancel(JSON.stringify(request)));
+      const reply: string = LocalVoiceModelPolicy.rewrite(client.voiceLocalModelCancel(JSON.stringify(request)));
+      if (!this.voiceImportsPending.has(id)) {
+        return reply;
+      }
+      // 导入还在复制文件，原生安装没开始：记下取消，复制循环看到后不再安装。
+      this.voiceImportsCancelled.add(id);
+      return JSON.stringify({ ok: true, value: true } as FlagReply);
     }
     if (action.operation === 'remove') {
       const request: LocalVoiceModelRequest = { root: root, id: id };
@@ -1162,7 +1171,14 @@ class SettingsBridge {
       fs.mkdirSync(root, true);
     }
     if (action.operation === 'import') {
-      return this.importVoiceModel(root, id);
+      this.voiceImportsPending.add(id);
+      this.voiceImportsCancelled.delete(id);
+      try {
+        return await this.importVoiceModel(root, id);
+      } finally {
+        this.voiceImportsPending.delete(id);
+        this.voiceImportsCancelled.delete(id);
+      }
     }
     const mirror: string = LocalVoiceModelPolicy.mirror(client.loadPreferences(this.stateDirectory));
     const request: LocalVoiceModelRequest = { root: root, id: id, mirror: mirror };
@@ -1194,6 +1210,9 @@ class SettingsBridge {
     if (picked.length === 0) {
       return JSON.stringify({ ok: true, value: null, error: '' });
     }
+    if (this.voiceImportsCancelled.has(id)) {
+      return LocalVoiceModelPolicy.refusal('local_model_cancelled');
+    }
     const listRequest: LocalVoiceModelRequest = { root: root };
     const sizes: number[] = LocalVoiceModelPolicy.importSizes(
       client.voiceLocalModels(JSON.stringify(listRequest)), id);
@@ -1213,6 +1232,9 @@ class SettingsBridge {
       }
       const files: string[] = [];
       for (const uri of picked) {
+        if (this.voiceImportsCancelled.has(id)) {
+          return LocalVoiceModelPolicy.refusal('local_model_cancelled');
+        }
         const file: fs.File = fs.openSync(uri, fs.OpenMode.READ_ONLY);
         try {
           const opened: fs.Stat = fs.statSync(file.fd);
@@ -1225,6 +1247,9 @@ class SettingsBridge {
         } finally {
           fs.closeSync(file);
         }
+      }
+      if (this.voiceImportsCancelled.has(id)) {
+        return LocalVoiceModelPolicy.refusal('local_model_cancelled');
       }
       const request: LocalVoiceModelRequest = { root: root, id: id, files: files };
       const reply: string = await client.voiceLocalModelInstall(JSON.stringify(request),
