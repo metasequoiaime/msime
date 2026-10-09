@@ -5,7 +5,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+$manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($manifest.source_commit -notmatch '^[a-f0-9]{40}$' -or @($manifest.artifacts).Count -eq 0) {
     throw 'Invalid pinned desktop resource manifest'
 }

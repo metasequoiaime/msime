@@ -487,6 +487,21 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         operation()
     }
 
+    /// 在账户锁内读取当前身份并执行本地操作，供宿主清理失效的账户数据。
+    /// 闭包不得再次调用此会话。
+    pub fn with_current_identity<T, F>(&self, operation: F) -> Result<T, AccountError>
+    where
+        F: FnOnce(Option<(&str, u64)>) -> Result<T, AccountError>,
+    {
+        let mut state = self.lock()?;
+        self.load_locked(&mut state)?;
+        let identity = state
+            .saved
+            .as_ref()
+            .map(|saved| (saved.tokens.user.id.as_str(), state.generation));
+        operation(identity)
+    }
+
     pub fn profile(&self) -> Result<AccountProfile, AccountError> {
         let (user_id, profile, generation) =
             self.authenticated_with_user(|api, token| api.profile(token))?;
@@ -932,7 +947,7 @@ fn saved_session(tokens: AccountTokens) -> Result<SavedAccountSession, AccountEr
     })
 }
 
-fn validate_saved_session(session: &SavedAccountSession) -> Result<(), AccountError> {
+pub(super) fn validate_saved_session(session: &SavedAccountSession) -> Result<(), AccountError> {
     validate_tokens(&session.tokens).map_err(|_| AccountError::Storage)?;
     let maximum = unix_ms()?
         .checked_add(MAX_SESSION_SECONDS * 1000)

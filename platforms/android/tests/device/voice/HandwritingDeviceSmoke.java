@@ -299,6 +299,7 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
         // 与 DeviceSmoke.tap 同理：节点在查到和点击之间可能已被刷新，performAction 返回 false 时点击没有发生，重新查一次再点，三次都不成才算失败。
         for (int attempt = 1; !target.performAction(AccessibilityNodeInfo.ACTION_CLICK); attempt++) {
             if (attempt == 3) throw new AssertionError("Synthetic control action failed");
+            dropStaleNodes();
             SystemClock.sleep(250);
             target = awaitAnyFor(match, 15_000);
         }

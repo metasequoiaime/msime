@@ -11,6 +11,7 @@ import { KeyboardSkin } from './skin/KeyboardSkin';
 import { CandidateColors, GlobalTheme } from './skin/GlobalTheme';
 import { EnglishLetterCaseState, LetterCaseMode } from './input/EnglishLetterCaseState';
 import { LetterKeyFacePolicy } from './input/LetterKeyFacePolicy';
+import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { KeyAccessibilityPolicy } from './input/KeyAccessibilityPolicy';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
 import { CandidateWrapPolicy } from './candidate/CandidateWrapPolicy';
@@ -368,6 +369,16 @@ const EMOJI_PRESSED_SCALE: number = 1.25;
 const EMOJI_PRESS_MS: number = 80;
 const EMOJI_GRID_GAP_VP: number = 2;
 const EMOJI_GROUP_ROW_VP: number = 28;
+// 触屏符号面板（与 Android 的 `SymbolPanelView` 一致）：左边 56vp 宽的分类栏，五类平分整列高度，每类不高于 40vp；右边五列符号键，键高 42vp、键距 6vp，这样三行之外还露出第四行的上沿，一眼看得出能往下滚，滚动条在网格右侧 6vp 的空隙里，不压在键上；底行与表情面板同高，是「返回」「锁定」和 ⌫ 三个键。
+const SYMBOL_COLUMNS: number = 5;
+const SYMBOL_RAIL_VP: number = 56;
+const SYMBOL_TAB_MAX_VP: number = 40;
+const SYMBOL_SCROLLBAR_GUTTER_VP: number = 6;
+const SYMBOL_CELL_VP: number = 42;
+const SYMBOL_GAP_VP: number = 6;
+const SYMBOL_FONT_SIZE: number = 20;
+// 「@gmail.com」这类网址片段放不下 20vp 时缩到这个字号，不折行也不截断。
+const SYMBOL_MIN_FONT_SIZE: number = 8;
 const EMOJI_PANEL: string = 'emoji';
 const KAOMOJI_PANEL: string = 'kaomoji';
 const SYMBOLS_PANEL: string = 'symbols';
@@ -493,6 +504,7 @@ struct KeyboardView {
   @State emojiSelected: number = 0;
   @State emojiResults: string[] = [];
   private emojiGridScroller: Scroller = new Scroller();
+  private symbolGridScroller: Scroller = new Scroller();
   private clipListScroller: Scroller = new Scroller();
   /** Bumped by every cloud fetch and every drop, so only the newest answer is applied. */
   private cloudRequest: number = 0;
@@ -984,11 +996,7 @@ struct KeyboardView {
   }
 
   /**
-   * 拼音键面用大写,切到英文才回小写。Every Chinese keyboard draws its 26 keys in caps, and the case
-   * there is only a typeface: the key still feeds a lowercase letter to the Engine. Shift belongs to
-   * English, where the case decides what actually lands in the document.
-   *
-   * 本地模式除外 —— 那里敲进去的就是字面的小写字母,键面写大写就是在骗人。
+   * 字母键平时画小写，与设计稿、Android 和 iOS 一致；只有下一键真的会输入大写时才画大写（`typesUppercase`）。
    */
   private letterFace(letter: string): string {
     if (this.koreanFace()) {
@@ -998,8 +1006,16 @@ struct KeyboardView {
       // 越南语和藏文（威利转写区分大小写）的字母按 Shift 给出的大小写输入，所以键面显示那个大小写，和英文一样。
       return LetterKeyFacePolicy.face(letter, false, false, this.caseMode !== LetterCaseMode.LOWERCASE);
     }
-    return LetterKeyFacePolicy.face(letter, !this.english, this.localMode !== 'none',
-      this.caseMode !== LetterCaseMode.LOWERCASE);
+    return LetterKeyFacePolicy.face(letter, !this.english, this.localMode !== 'none', this.typesUppercase());
+  }
+
+  /**
+   * Shift 亮着时下一键是否真的输入大写，与 `tapLetter` 的判断一致：英文里是大写字母；中文里只有组字中的辅助码会以大写交给 Engine，没有组字时 Shift 加字母仍是小写拼音，键面画大写就是在骗人。读的都是视图的状态，组字开始或结束时键面跟着重绘。
+   */
+  private typesUppercase(): boolean {
+    const held: boolean = this.caseMode !== LetterCaseMode.LOWERCASE;
+    return held && (this.english
+      || ChineseHelpcodePolicy.entersHelpcode(this.english, held, this.editing, this.engineScheme, this.localMode));
   }
 
   /** The double-pinyin unit a key stands for, printed along its bottom edge while it means one. */
@@ -2002,6 +2018,12 @@ struct KeyboardView {
     this.show(SURFACE_SYMBOLS);
   }
 
+  /** 换分类时网格回到顶部，否则停在上一类滚到的位置，看到的是新分类的中间。 */
+  private selectSymbolCategory(index: number): void {
+    this.symbolCategory = index;
+    this.symbolGridScroller.scrollToIndex(0);
+  }
+
   private selectSymbol(symbol: string): void {
     if (!SymbolPanelPolicy.isValidSymbol(symbol)) {
       return;
@@ -2978,7 +3000,8 @@ struct KeyboardView {
     // accessibility text at all, so every key on this keyboard was silent to a screen reader.
     return LetterKeyFacePolicy.accessibilityLabel(letter,
       !this.english && !this.vietnameseFace() && !this.tibetanFace(),
-      this.localMode !== 'none', this.caseMode !== LetterCaseMode.LOWERCASE);
+      this.localMode !== 'none', this.vietnameseFace() || this.tibetanFace()
+        ? this.caseMode !== LetterCaseMode.LOWERCASE : this.typesUppercase());
   }
 
   /** The shared English/primary/fallback order, as one CSS-style list for a Text modifier. */
@@ -8117,75 +8140,136 @@ struct KeyboardView {
     .backgroundColor(this.emojiSkin.background)
   }
 
-  /** The full categorized symbol keyboard; unlike emoji symbols it returns after one tap by default. */
+  /**
+   * 触屏符号面板，与 Android 的 `SymbolPanelView` 一致：左边竖排分类，右边五列可滚动的符号键，底行是「返回」「锁定」和 ⌫。点一个符号默认上屏后回到键盘；「锁定」打开时留在面板里连续输入，每次打开面板都重新关上。没有 Android 的标题行：这里面板上方一直有工具栏，标题只会再挤掉一行符号。
+   */
   @Builder
   symbolPanelFace() {
-    Column() {
-      Scroll() {
-        Row({ space: KeyboardMetrics.KEY_SPACING_VP }) {
+    Column({ space: EMOJI_BAR_GAP_VP }) {
+      Row({ space: SYMBOL_GAP_VP }) {
+        Column({ space: EMOJI_GRID_GAP_VP }) {
           ForEach(SymbolPanelPolicy.categories(), (category: SymbolPanelCategory, index: number) => {
             Text(category.title)
               .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-              .fontColor(index === this.symbolCategory ? this.skin.accent : this.skin.keyForeground)
-              .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-                right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-              .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
-              .accessibilityText(`${category.title}符号`)
-              .onClick(() => this.symbolCategory = index)
-          }, (category: SymbolPanelCategory) => category.id)
-        }
-      }
-      .scrollable(ScrollDirection.Horizontal)
-      .scrollBar(BarState.Off)
-      .width('100%')
-      .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
-
-      Grid() {
-        ForEach(SymbolPanelPolicy.category(this.symbolCategory).symbols
-          .slice(0, SymbolPanelPolicy.maxSymbolsPerCategory()), (symbol: string) => {
-          GridItem() {
-            Text(symbol)
-              .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE + 2)
-              .fontColor(this.skin.keyForeground)
+              .fontWeight(index === this.symbolCategory ? FUNCTION_LABEL_WEIGHT : 400)
+              .fontColor(index === this.symbolCategory ? this.skin.keyForeground : this.skin.secondary)
               .textAlign(TextAlign.Center)
               .width('100%')
-              .accessibilityText(symbol)
-              .onClick(() => this.selectSymbol(symbol))
-          }
-          .height(46)
-          .backgroundColor(this.skin.keyBackground)
-          .borderRadius(this.skin.cornerRadius)
-        }, (symbol: string, index: number) => `${this.symbolCategory}:${index}:${symbol}`)
+              .layoutWeight(1)
+              .constraintSize({ maxHeight: SYMBOL_TAB_MAX_VP })
+              .borderRadius(EMOJI_TAB_RADIUS_VP)
+              .backgroundColor(index === this.symbolCategory ? this.skin.keyBackground : Color.Transparent)
+              .opacity(index === this.symbolCategory ? 1 : EMOJI_TAB_IDLE_OPACITY)
+              .accessibilityText(index === this.symbolCategory
+                ? `符号分类 ${category.title}，已选中` : `符号分类 ${category.title}`)
+              .onClick(() => this.selectSymbolCategory(index))
+          }, (category: SymbolPanelCategory, index: number) =>
+            `${category.id}:${index === this.symbolCategory}`)
+        }
+        .width(SYMBOL_RAIL_VP)
+        .height('100%')
+
+        Grid(this.symbolGridScroller) {
+          ForEach(SymbolPanelPolicy.category(this.symbolCategory).symbols
+            .slice(0, SymbolPanelPolicy.maxSymbolsPerCategory()), (symbol: string) => {
+            GridItem() {
+              Text(symbol)
+                .fontSize(SYMBOL_FONT_SIZE)
+                .maxFontSize(SYMBOL_FONT_SIZE)
+                .minFontSize(SYMBOL_MIN_FONT_SIZE)
+                .maxLines(1)
+                .fontColor(this.skin.keyLabelColor(false))
+                .fontFamily(this.skin.monospaced ? 'monospace' : undefined)
+                .textAlign(TextAlign.Center)
+                .width('100%')
+                .height('100%')
+                .backgroundColor(this.skin.keySurfaceBackground(false))
+                .linearGradient({ angle: 180,
+                  colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
+                .borderRadius(this.skin.keyCornerRadius())
+                .borderWidth(this.skin.borderWidth)
+                .borderColor(this.skin.borderColor)
+                .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
+                  offsetX: 0, offsetY: this.skin.shadowOffset })
+                .accessibilityText(KeyAccessibilityPolicy.symbol(symbol))
+                .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
+                .animation({ duration: KEY_PRESS_MS })
+                .onClick(() => this.selectSymbol(symbol))
+            }
+            .height(SYMBOL_CELL_VP)
+          }, (symbol: string, index: number) => `${this.symbolCategory}:${index}:${symbol}:${this.faceKey()}`)
+        }
+        .columnsTemplate('1fr '.repeat(SYMBOL_COLUMNS).trim())
+        .columnsGap(SYMBOL_GAP_VP)
+        .rowsGap(SYMBOL_GAP_VP)
+        .scrollBar(BarState.Auto)
+        .edgeEffect(EdgeEffect.Spring)
+        .padding({ right: SYMBOL_SCROLLBAR_GUTTER_VP })
+        .layoutWeight(1)
+        .height('100%')
       }
-      .columnsTemplate('1fr '.repeat(5).trim())
-      .columnsGap(1)
-      .rowsGap(1)
       .width('100%')
       .layoutWeight(1)
 
-      Row() {
+      Row({ space: KeyboardMetrics.KEY_SPACING_VP }) {
         Text('返回')
+          .layoutWeight(1)
+          .height('100%')
+          .textAlign(TextAlign.Center)
           .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-          .fontColor(this.skin.accent)
+          .fontWeight(FUNCTION_LABEL_WEIGHT)
+          .fontColor(this.skin.keyLabelColor(false, true))
+          .backgroundColor(this.skin.keySurfaceBackground(false, true))
+          .borderRadius(this.skin.keyCornerRadius())
           .accessibilityText('返回键盘')
+          .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
+          .animation({ duration: KEY_PRESS_MS })
           .onClick(() => this.show(SURFACE_NONE))
-        Blank()
-        Text(this.symbolLocked ? '连续输入：开' : '连续输入：关')
-          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-          .fontColor(this.symbolLocked ? this.skin.accent : this.skin.keyForeground)
-          .accessibilityText(this.symbolLocked ? '关闭连续输入' : '开启连续输入')
-          .onClick(() => this.symbolLocked = !this.symbolLocked)
-        Blank()
-        Text('删除')
+
+        // 打开时用回车键的强调色，和「已锁定」的文字一起说明点符号不会回到键盘。
+        Text(this.symbolLocked ? '已锁定' : '锁定')
+          .layoutWeight(1)
+          .height('100%')
+          .textAlign(TextAlign.Center)
           .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-          .fontColor(this.skin.keyForeground)
-          .accessibilityText(KeyAccessibilityPolicy.delete())
-          .onClick(() => KeyboardSession.shared.backspace())
+          .fontWeight(FUNCTION_LABEL_WEIGHT)
+          .fontColor(this.skin.keyLabelColor(this.symbolLocked, true))
+          .backgroundColor(this.skin.keySurfaceBackground(this.symbolLocked, true))
+          .borderRadius(this.skin.keyCornerRadius())
+          .accessibilityText(this.symbolLocked ? '已锁定，连续输入符号；点按解除' : '锁定，连续输入符号')
+          .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
+          .animation({ duration: KEY_PRESS_MS })
+          .onClick(() => this.symbolLocked = !this.symbolLocked)
+
+        Column() {
+          KeyboardLineIcon({
+            d: KeyboardIconPaths.BACKSPACE,
+            iconSize: KEY_ICON_VP,
+            stroke: KeyboardIconPaths.KEY_STROKE,
+            color: this.skin.keyLabelColor(false, true)
+          })
+        }
+        .layoutWeight(1)
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .backgroundColor(this.skin.keySurfaceBackground(false, true))
+        .borderRadius(this.skin.keyCornerRadius())
+        .accessibilityText(KeyAccessibilityPolicy.delete())
+        .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
+        .animation({ duration: KEY_PRESS_MS })
+        .onTouch((event: TouchEvent): void => {
+          if (event.type === TouchType.Down) {
+            this.startBackspace();
+          } else if (event.type === TouchType.Up) {
+            this.finishBackspace();
+          } else if (event.type === TouchType.Cancel) {
+            this.cancelBackspace();
+          }
+        })
       }
       .width('100%')
-      .height(this.rowHeight(3))
-      .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-        right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+      .height(EMOJI_BAR_VP)
     }
     .width('100%')
     .height(this.surfaceHeight())
