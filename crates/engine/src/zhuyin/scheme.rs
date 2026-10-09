@@ -3,6 +3,7 @@
 //! 九键模式（`set_nine_key`）下不读大千键：数字串按 `nine_key::KEYPAD` 记下符号位置，声调键结束音节，这个位置的读音是数字串加声调对应的全部合法音节；转换在每个位置的读音里一起挑，用户可以经 `choose_spelling` 逐个钉住目标音节的读音。
 
 use std::cmp::Reverse;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -537,9 +538,11 @@ impl ZhuyinScheme {
             &self.pins,
             |start, end| {
                 let entry = cached_best(dictionary, best, &positions[start..end])?;
-                Ok(entry.filter(|(_, entry)| {
-                    clears_ambiguous_word_floor(&ambiguous[start..end], singles, start, entry)
-                }))
+                Ok(entry
+                    .filter(|(_, entry)| {
+                        clears_ambiguous_word_floor(&ambiguous[start..end], singles, start, entry)
+                    })
+                    .cloned())
             },
             |index| positions[index][0].clone(),
         )?;
@@ -735,19 +738,20 @@ fn clears_ambiguous_word_floor(
     entry.weight.saturating_mul(AMBIGUOUS_WORD_FLOOR) >= weakest
 }
 
-/// `positions` 的最重词条及其键，先查缓存。缓存键是各位置允许的读音以 `|` 连接、位置之间用空格；大千下每个位置只有一个读音，所以就是词库键本身。
-fn cached_best(
+/// 借用缓存中 `positions` 的最重词条及其键。缓存键是各位置允许的读音以 `|` 连接、位置之间用空格；大千下每个位置只有一个读音，所以就是词库键本身。
+fn cached_best<'a>(
     dictionary: &LanguageDictionary,
-    best: &mut HashMap<String, Option<(String, LanguageEntry)>>,
+    best: &'a mut HashMap<String, Option<(String, LanguageEntry)>>,
     positions: &[&[String]],
-) -> Result<Option<(String, LanguageEntry)>> {
+) -> Result<Option<&'a (String, LanguageEntry)>> {
     let description = describe(positions);
-    if let Some(entry) = best.get(&description) {
-        return Ok(entry.clone());
+    match best.entry(description) {
+        Entry::Occupied(entry) => Ok(entry.into_mut().as_ref()),
+        Entry::Vacant(entry) => {
+            let candidate = dictionary.lookup_readings(positions, 1)?.into_iter().next();
+            Ok(entry.insert(candidate).as_ref())
+        }
     }
-    let entry = dictionary.lookup_readings(positions, 1)?.into_iter().next();
-    best.insert(description, entry.clone());
-    Ok(entry)
 }
 
 /// `cached_best` 的缓存键。
@@ -1439,6 +1443,41 @@ mod tests {
     }
 
     #[test]
+    fn cached_best_preserves_rows_misses_and_query_errors() {
+        let (dir, scheme) = nine_key_scheme();
+        let mut best = HashMap::new();
+        let readings = ["ㄋㄧˇ".to_owned(), "ㄌㄧˇ".to_owned()];
+        let missing = ["測試缺失讀音".to_owned()];
+        let uncached = ["ㄉㄧˇ".to_owned()];
+        let (key, entry) = cached_best(&scheme.dictionary, &mut best, &[&readings])
+            .unwrap()
+            .unwrap();
+        assert_eq!(key, "ㄌㄧˇ");
+        assert_eq!(entry.text, "李");
+        assert_eq!(entry.weight, 1200);
+        assert!(cached_best(&scheme.dictionary, &mut best, &[&missing])
+            .unwrap()
+            .is_none());
+        assert_eq!(best.len(), 2);
+        Connection::open(dir.path().join("msime-zhuyin.db"))
+            .unwrap()
+            .execute_batch("DROP TABLE entries")
+            .unwrap();
+
+        let (_, entry) = cached_best(&scheme.dictionary, &mut best, &[&readings])
+            .unwrap()
+            .unwrap();
+        assert_eq!(entry.text, "李");
+        assert_eq!(entry.weight, 1200);
+        assert!(cached_best(&scheme.dictionary, &mut best, &[&missing])
+            .unwrap()
+            .is_none());
+        assert!(cached_best(&scheme.dictionary, &mut best, &[&uncached]).is_err());
+        assert!(cached_best(&scheme.dictionary, &mut best, &[&uncached]).is_err());
+        assert_eq!(best.len(), 2);
+    }
+
+    #[test]
     fn refreshing_short_spelling_choices_does_not_allocate_ranking_state() {
         let (_dir, mut scheme) = nine_key_scheme();
         type_keys(&mut scheme, "28c");
@@ -1450,8 +1489,8 @@ mod tests {
         });
 
         assert!(
-            allocations <= 11,
-            "读音列表重算仍为字符串复制分配了 {allocations} 次"
+            allocations <= 3,
+            "读取三条缓存词频仍分配了 {allocations} 次，预算只允许三个缓存键"
         );
         assert_eq!(spellings(&scheme), ["ㄌㄧˇ", "ㄋㄧˇ", "ㄉㄧˇ"]);
     }
