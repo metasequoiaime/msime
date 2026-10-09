@@ -3,7 +3,7 @@ use super::super::romaji::convert_romaji;
 use super::*;
 use crate::ime::personal_rerank::allocations::{measure, Measurement};
 
-// 冻结 961f0514a 的完整搜索正文，保留已消费行到查询结束，只隔离释放时机。
+// 冻结 0f6bf002a 的完整搜索正文，保留已消费行到查询结束，只隔离释放时机。
 fn retained_reference_search(
     dictionary: &JapaneseDictionary,
     conversion: &RomajiConversion,
@@ -109,9 +109,9 @@ fn retained_reference_search(
                 });
             }
         }
-        for lemma in dictionary.continuing_lemma_views(reading, pending_kana, 48) {
+        dictionary.for_each_continuing_lemma_view(reading, pending_kana, 48, |lemma| {
             output.push(lemma.surface, i64::from(lemma.word_cost));
-        }
+        });
     }
 
     for node in finals {
