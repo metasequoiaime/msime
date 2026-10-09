@@ -120,6 +120,8 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 
 构成这张表所用的部件拆分与笔顺数据另有来源（rime-radical-pinyin，GPL-3.0，上游含 chaizi/CC-BY-3.0、CHISE/GPL-2+、yi-bai/ids/MIT；笔顺来自 cnchar，MIT），逐条同样见 NOTICE.md。另外五套辅助码表原先随 Engine 归档而来，现在同样放在 `resources/helpcodes/`，来源说明是从 Engine 原样带过来的 [`resources/helpcodes/ENGINE-NOTICE.md`](../resources/helpcodes/ENGINE-NOTICE.md)：它们同样没有拿到明确的再分发授权。
 
+第七套五笔 86（`wubi86`）不同：它由本仓库从 msime-dictionary 的 86 五笔码表生成，上游许可明确（极点码表 Apache-2.0，另有 16 个字的码来自并入的 rime-wubi 行，LGPL-3.0，按 GPL-3.0 分发），可以随包分发。来源、生成命令、摘要和 Apache-2.0 全文在 [`resources/helpcodes/NOTICE-wubi86.md`](../resources/helpcodes/NOTICE-wubi86.md)。
+
 ## 自带音效包与插件包（`resources/sound-packs/`、`client-core::plugins`）
 
 内置的九套音效包和两套背景音乐包是本项目自己的作品，随各平台安装包分发，放在资源目录的旁边（资源目录必须与锁文件完全一致）。它们的标识登记在 `client-core::plugins` 的 `BUILTIN_SOUND_PACKS` 与 `BUILTIN_MUSIC_PACKS`，这些标识保留给内置包，用户导入的包不能占用。
