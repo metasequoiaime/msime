@@ -469,6 +469,8 @@ cargo run -p msime-host-api --example prepare_host --locked -- /absolute/verifie
 target/linux-ibus/msime-linux-ibus /absolute/new-state/runtime-options.json
 ```
 
+`BUILD_TESTING` 默认开启，构建原生单测和 `ibus-engine-smoke` 等验收工具。只构建产品时，在 CMake 配置命令中传入 `-DBUILD_TESTING=OFF`，测试目标不再生成；IBus 宿主、Fcitx5 插件和 provider 入口仍构建、安装。`MSIME_LINUX_VOICE=ON` 的 worker 测试也要求开启 `BUILD_TESTING`。容器门禁保留 full 的完整测试构建，五笔版关闭测试，并通过 CMake 实际目标图核对两边的生产目标一致。
+
 准备配置必须在没有会话使用该状态目录时执行。运行入口动态注册独立的 `msime-linux`，不安装系统组件、不修改旧 Linux 产品或自动切换用户输入法；关闭进程即结束本次注册。安装后的 component 通过 `msime-linux-ibus-launcher` 启动，默认读取 `~/.config/msime-client/runtime-options.json`；也可用 `MSIME_IBUS_OPTIONS` 指向已准备好的绝对路径。launcher 按自身目录定位 Engine，支持自定义安装前缀。上面这条命令直接跑构建目录里的二进制，路径指向源码树，面向开发调试；面向发行的包见「生成 Linux 安装包」。宿主监听配置 JSON 的写入和原子替换事件；后续新焦点会话使用新配置，正在组合的会话保持原设置直到结束。
 
 安装产物提供 `msime-linux-prepare`，首次准备状态无需 Cargo 或源码目录：
