@@ -112,6 +112,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) BOOL failCancel;
 @property(nonatomic) NSUInteger focusCalls;
 @property(nonatomic) BOOL chinesePunctuation;
+@property(nonatomic) BOOL capsLock;
+@property(nonatomic) NSUInteger capsLockCalls;
 @property(nonatomic) NSUInteger punctuationCalls;
 @property(nonatomic, copy) NSDictionary *punctuationView;
 @property(nonatomic) BOOL pairedPunctuation;
@@ -167,6 +169,9 @@ static void CheckMenu(NSMenu *menu, id controller) {
 - (NSDictionary *)typingEffectSettingsWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
     (void)error; self.fullwidth = fullwidth; ++self.widthCalls; return nil;
+}
+- (BOOL)setCapsLockEnabled:(BOOL)enabled error:(NSError **)error {
+    (void)error; self.capsLock = enabled; ++self.capsLockCalls; return YES;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error;
@@ -2597,6 +2602,8 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
     NSEvent *capsA = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagCapsLock timestamp:0
                                   windowNumber:0 context:nil characters:@"A" charactersIgnoringModifiers:@"a" isARepeat:NO keyCode:0];
     session.nextTransition = @{@"handled": @YES, @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
+    session.capsLock = NO;
+    const NSUInteger capsLockReports = session.capsLockCalls;
     for (NSNumber *scheme in @[@0, @5, @6, @9, @4, @7, @8]) {
         const int value = scheme.intValue;
         [controller setValue:@{@"focused": @YES, @"scheme": scheme, @"local_mode": @"none", @"editing_text": @"", @"caret_position": @0,
@@ -2609,6 +2616,14 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
         if (value == 4) assert(session.lastASCII == 'a');
         if (value == 7 || value == 8) assert(session.lastASCII == 'A');
     }
+    // 大写锁定一变就报告给会话，只报告变化的那一次：「大写锁定时使用英文标点」由共享层按这个状态决定标点去向（#6370）。
+    assert(session.capsLock && session.capsLockCalls == capsLockReports + 1);
+    [controller setValue:@{@"focused": @YES, @"scheme": @0, @"local_mode": @"none", @"editing_text": @"", @"caret_position": @0,
+                           @"candidates": @[]} forKey:@"view"];
+    NSEvent *lowerA = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+                                   windowNumber:0 context:nil characters:@"a" charactersIgnoringModifiers:@"a" isARepeat:NO keyCode:0];
+    [controller handleEvent:lowerA client:client];
+    assert(!session.capsLock && session.capsLockCalls == capsLockReports + 2);
     session.nextTransition = nil;
 }
 

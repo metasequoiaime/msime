@@ -3082,6 +3082,10 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     view = [_session setPunctuationLock:_appearance.punctuationLock error:nil];
     if (view) [self apply:@{@"view":view}];
 }
+// 把大写锁定状态交给会话：「大写锁定时使用英文标点」（`caps_lock_ascii_punctuation`）由共享层按它决定标点去向，宿主只负责报告。
+- (void)syncCapsLock {
+    if (_session) [_session setCapsLockEnabled:_capsLock error:nil];
+}
 - (void)syncCharacterWidth {
     if (!_session) return;
     NSDictionary *view = [_session setCharacterWidthFull:_appearance.runtimeFullWidthInput error:nil];
@@ -4345,6 +4349,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     // The Chinese/English state is remembered per application and survives a restart, while the menu bar shows whichever mode was selected last; align the two as this client takes focus. That also covers a toggle made while no client could be asked to switch.
     [self syncSystemInputModeForClient:sender];
     _capsLock = ([NSEvent modifierFlags] & NSEventModifierFlagCapsLock) != 0;
+    [self syncCapsLock];
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
@@ -4585,6 +4590,7 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
     if (_session) {
         [self syncPunctuation];
         [self syncCharacterWidth];
+        [self syncCapsLock];
         if (reopened) {
             NSDictionary *view = [_session setDedicatedEnglishEnabled:YES error:nil];
             if (view) _view = view;
@@ -5254,6 +5260,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     const BOOL capsLock = (event.modifierFlags & NSEventModifierFlagCapsLock) != 0;
     if (_capsLock != capsLock) {
         _capsLock = capsLock;
+        [self syncCapsLock];
         [self refreshFloatingToolbarState];
     }
     if (!sender) {

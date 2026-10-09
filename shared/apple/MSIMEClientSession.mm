@@ -77,6 +77,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSNumber *_pairedPunctuationOverride;
     NSNumber *_punctuationLockOverride;
     NSNumber *_characterWidthOverride;
+    BOOL _capsLock;
 }
 - (NSDictionary *)voiceProviderRequest:(NSDictionary *)query socket:(NSString *)socket error:(NSError **)error {
     if (![NSJSONSerialization isValidJSONObject:query] || ![socket isKindOfClass:NSString.class] || !socket.length) { setError(error, @"语音服务请求格式错误"); return nil; }
@@ -128,6 +129,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (restored && _punctuationLockOverride) restored = decode(msime_client_set_punctuation_lock(_handle, _punctuationLockOverride.unsignedCharValue), error) != nil;
     if (restored && _characterWidthOverride) restored = decode(msime_client_set_character_width(_handle, _characterWidthOverride.boolValue), error) != nil;
     if (restored && _dedicatedEnglishEnabled) restored = decode(msime_client_set_english_mode(_handle, true), error) != nil;
+    if (restored && _capsLock) restored = decodeValue(msime_client_set_caps_lock(_handle, true), error) != nil;
     if (restored) return YES;
     // Do not expose a replacement session silently running in the wrong mode.
     msime_client_string_free(msime_client_destroy(_handle));
@@ -612,6 +614,12 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSDictionary *view = decode(msime_client_set_punctuation_lock(_handle, value), error);
     if (view) _punctuationLockOverride = @(value);
     return view;
+}
+- (BOOL)setCapsLockEnabled:(BOOL)enabled error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return NO;
+    if (!decodeValue(msime_client_set_caps_lock(_handle, enabled), error)) return NO;
+    _capsLock = enabled;
+    return YES;
 }
 - (nullable NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
