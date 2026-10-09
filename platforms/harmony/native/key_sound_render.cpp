@@ -123,6 +123,10 @@ KeySoundRender renderKeySoundNotes(const std::string &sample, const std::vector<
     }
 
     KeySoundRender result;
+    const auto rollback = [&](const char *reason) {
+        for (const std::string &file : result.files) std::remove(file.c_str());
+        return refused(reason);
+    };
     for (size_t index = 0; index < semitones.size(); ++index) {
         // Pitching up by a ratio is playing faster: the sample is converted to the output rate divided by that ratio and then labelled with the output rate, which is what a playback rate does.
         const double ratio = std::pow(2.0, static_cast<double>(semitones[index]) / 12.0);
@@ -130,7 +134,7 @@ KeySoundRender renderKeySoundNotes(const std::string &sample, const std::vector<
         ma_decoder_config config = wavConfig(ma_decoder_config_init(ma_format_s16, channels, converted));
         ma_decoder decoder;
         if (ma_decoder_init_memory(bytes.data(), bytes.size(), &config, &decoder) != MA_SUCCESS) {
-            return refused("not a WAV sample");
+            return rollback("not a WAV sample");
         }
         // The declared length at the converted rate, with room for the converter's rounding. One frame more than this is a sample that lied about its length.
         const ma_uint64 limit = (frames * converted + rate - 1) / rate + 64;
@@ -139,13 +143,12 @@ KeySoundRender renderKeySoundNotes(const std::string &sample, const std::vector<
         const ma_result status = ma_decoder_read_pcm_frames(&decoder, pcm.data(), limit + 1, &read);
         ma_decoder_uninit(&decoder);
         if ((status != MA_SUCCESS && status != MA_AT_END) || read == 0) {
-            return refused("sample would not decode");
+            return rollback("sample would not decode");
         }
-        if (read > limit) return refused("sample decoded past its declared length");
+        if (read > limit) return rollback("sample decoded past its declared length");
         const std::string file = directory + "/note-" + std::to_string(index) + ".wav";
         if (!writeNote(file, pcm, channels, read)) {
-            std::remove(file.c_str());
-            return refused("note could not be written");
+            return rollback("note could not be written");
         }
         result.files.push_back(file);
     }
