@@ -614,14 +614,16 @@ async fn dictionary_snapshot_enqueue(
                 .to_owned();
             let request = EnqueueSnapshotRequest {
                 source: path.to_string_lossy().into_owned(),
-                account_id: pending.account_id,
+                account_id: pending.account_id.clone(),
                 cloud_revision: pending.metadata.cloud_revision,
                 expected_local_version: expected,
                 file_sha256: pending.metadata.file_sha256.clone(),
             };
-            platform
-                .run_mobile_plugin::<Value>("enqueueSnapshot", request)
-                .map_err(|_| AccountError::Unavailable)
+            session.with_generation(pending.generation, Some(&pending.account_id), || {
+                platform
+                    .run_mobile_plugin::<Value>("enqueueSnapshot", request)
+                    .map_err(|_| AccountError::Unavailable)
+            })
         })();
         let _ = remove_snapshot_file(&path);
         result

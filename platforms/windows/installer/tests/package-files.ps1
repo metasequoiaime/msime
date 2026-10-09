@@ -444,7 +444,7 @@ try {
         source_commit = ('a' * 40); artifacts = $wubiArtifacts
     } | ConvertTo-Json -Depth 5)
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Edition wubi
-    $declared = Get-Content -LiteralPath (Join-Path $installer 'server_exe/edition.json') -Raw | ConvertFrom-Json
+    $declared = Get-Content -LiteralPath (Join-Path $installer 'server_exe/edition.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($declared.edition -ne 'wubi') { throw 'Edition package declaration missing or wrong' }
     $staged = @(Get-ChildItem -LiteralPath (Join-Path $installer 'server_exe/resources') -File | ForEach-Object Name | Sort-Object)
     if (($staged -join ',') -ne ((@($wubiArtifacts | ForEach-Object { $_.name }) | Sort-Object) -join ',')) {
@@ -481,7 +481,7 @@ try {
     catch { $rejected = $_.Exception.Message -match 'klingon' }
     if (-not $rejected) { throw 'Unknown edition accepted' }
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -ServerReleaseDirectory $serverOutput
-    $declared = Get-Content -LiteralPath (Join-Path $installer 'server_exe/edition.json') -Raw | ConvertFrom-Json
+    $declared = Get-Content -LiteralPath (Join-Path $installer 'server_exe/edition.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($declared.edition -ne 'full') { throw 'Full package declaration missing or wrong' }
     Write-Host 'Full/light package contracts, provenance, exclusions and failure staging and the per-edition packages passed'
 } finally {
