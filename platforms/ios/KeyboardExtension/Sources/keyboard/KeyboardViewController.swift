@@ -3408,7 +3408,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if session.fuzzyPinyinRulesApplied != fuzzyRules {
       _ = session.setFuzzyPinyinRules(fuzzyRules)
     }
-    session.setWubiMixedPinyin(WubiMixedPinyinPreference.isEnabled)
     applyCandidateGlossLayout()
   }
 
@@ -3871,15 +3870,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     if let translationsEnabled = preferences["candidate_translations"] as? Bool {
       CandidateTranslationPreference.onlineEnabled = translationsEnabled
-    }
-    // The shared Tauri document is the source of truth for mobile settings. Keep the two Wubi
-    // switches in the App Group as well because candidate rendering and Engine fallback read
-    // these native preferences from the keyboard process.
-    if let mixedPinyin = preferences["wubi_mixed_pinyin"] as? Bool {
-      WubiMixedPinyinPreference.isEnabled = mixedPinyin
-    }
-    if let codeHint = preferences["wubi_code_hint"] as? Bool {
-      WubiCodeHintPreference.isEnabled = codeHint
     }
     // 五笔版本由会话直接从文档读取；这里只更新方案名和方案卡片角标读的 App Group 镜像。
     WubiProfilePreference.mirror(preferences)
@@ -5424,7 +5414,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func wubiCodeHint(code: String, typed: String) -> String {
     guard inputScheme == .wubi, !isInLocalMode,
-          WubiCodeHintPreference.isEnabled else { return "" }
+          WubiCodeHintPreference.isEnabled(in: session.sharedPreferences) else { return "" }
     return WubiCodeHintPreference.hint(
       code: code, typed: typed,
       answeredByPinyinFallback: visibleCandidatesAnsweredByPinyinFallback)

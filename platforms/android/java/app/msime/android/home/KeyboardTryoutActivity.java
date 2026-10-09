@@ -111,7 +111,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         int accent = Ui.accent(this);
         sendAi.setBackgroundTintList(ColorPolicy.stateList(
             new int[][] {{-android.R.attr.state_enabled}, {}},
-            new int[] {Ui.withAlpha(accent, 0.38f), accent}));
+            new int[] {ColorPolicy.withAlpha(accent, 0.38f), accent}));
 
         // The system picker belongs here rather than on the home page: it is only useful once the
         // user is in front of an editor and finds another keyboard came up.

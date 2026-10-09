@@ -274,6 +274,10 @@ final class SignIn {
         } catch (CloudApi.Failure | RuntimeException error) {
             id = "";
         }
+        String previousAccount = SyncSwitch.accountId(context);
+        if (!previousAccount.isEmpty() && !previousAccount.equals(id)) {
+            cancelPendingSnapshot(context, previousAccount);
+        }
         SyncSwitch.bindAccount(context, id, loginKind);
     }
 

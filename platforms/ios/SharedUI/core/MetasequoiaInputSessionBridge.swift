@@ -371,6 +371,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
     // 整句联想 on the 输入 page: the session attaches or drops the keyboard sentence model once idle, so turning 增强 off stops it in the keyboard that is already open.
     "sentence_association",
+    // 输入页五笔组的混拼与四码唯一自动上屏：都是引擎字段，会话空闲时重建 Engine 应用它，所以要交给活着的会话，而不等键盘扩展被杀掉后重建会话。
+    "wubi_mixed_pinyin",
+    "wubi_auto_commit_unique",
     // Laid over the document by `hostOverrides` from the iOS switch, so a change to that switch reaches the live session too.
     "cloud_candidates",
     // Laid over the document from the iOS page size, like cloud candidates; the session applies it once idle, so an open composition keeps its page.
@@ -389,9 +392,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   var fuzzyPinyinRulesApplied: UInt32? { appliedFuzzyPinyinRules }
 
-  /// The latest canonical PreferencesStore document, exposed as a read-only
-  /// value for native UI settings that still use App Group compatibility keys.
-  /// Callers must remain on the session's owning thread when reading it.
+  /// 最新的规范 PreferencesStore 文档，只读地暴露给键盘自己的读取（五笔剩余编码提示）和原生设置。
+  /// 读取时调用方必须留在会话所属的线程上。
   var sharedPreferences: [String: Any]? {
     options["preferences"] as? [String: Any]
   }
@@ -993,10 +995,6 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
     if applied { appliedFuzzyPinyinRules = rules }
     return applied
-  }
-
-  func setWubiMixedPinyin(_ enabled: Bool) {
-    _ = updatePreferences { $0["wubi_mixed_pinyin"] = enabled }
   }
 
   @discardableResult func setFrequencyAdjustmentMode(_ mode: MetasequoiaFrequencyAdjustmentMode,

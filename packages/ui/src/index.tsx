@@ -1740,6 +1740,8 @@ export type Preferences = {
   /** Width used when desktop hosts commit printable ASCII characters. */
   character_width?: "halfwidth" | "fullwidth";
   wubi_code_hint?: boolean;
+  /** 五笔四码唯一候选自动上屏；缺省为开。 */
+  wubi_auto_commit_unique?: boolean;
   touch_keyboard_layout?: "twenty_six_key" | "nine_key" | "handwriting";
   touch_keyboard_schemes?: TouchKeyboardSchemePreferences;
   touch_key_spacing_tenths?: number;
@@ -2126,9 +2128,6 @@ export interface SettingsClient {
   /** macOS keeps the native shuangpin keymap panel preference outside shared Engine preferences. */
   loadMacosShuangpinKeymap?: () => Promise<boolean>;
   saveMacosShuangpinKeymap?: (enabled: boolean) => Promise<void>;
-  /** macOS keeps Wubi unique-candidate auto-commit in the native input-method defaults domain. */
-  loadMacosWubiAutoCommitUnique?: () => Promise<boolean>;
-  saveMacosWubiAutoCommitUnique?: (enabled: boolean) => Promise<void>;
   copyText?: (text: string) => Promise<void>;
   /** The desktop hosts ship `msime-mcp` beside the settings app and report where it is and the entry an AI assistant runs it with. */
   mcpServerStatus?: () => Promise<McpServerStatus>;
@@ -2440,13 +2439,9 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     inputSourceStartup,
     onDeviceDownloadable,
     setSavedShuangpinKeymap,
-    setSavedWubiAutoCommitUnique,
     setShuangpinKeymap,
-    setWubiAutoCommitUnique,
     shuangpinKeymap: macosShuangpinKeymap,
-    wubiAutoCommitUnique: macosWubiAutoCommitUnique,
     savedShuangpinKeymap: savedMacosShuangpinKeymap,
-    savedWubiAutoCommitUnique: savedMacosWubiAutoCommitUnique,
   } = useMacosSettings({ client, macos: macosPlatform, setError });
   const restoredMobilePage =
     mobilePlatform &&
@@ -2609,10 +2604,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     savedMacosShuangpinKeymap,
     saveMacosShuangpinKeymap: client.saveMacosShuangpinKeymap,
     setSavedMacosShuangpinKeymap: setSavedShuangpinKeymap,
-    macosWubiAutoCommitUnique,
-    savedMacosWubiAutoCommitUnique,
-    saveMacosWubiAutoCommitUnique: client.saveMacosWubiAutoCommitUnique,
-    setSavedMacosWubiAutoCommitUnique: setSavedWubiAutoCommitUnique,
   });
 
   const { restoreDefaults, recoverPreferences } = usePreferenceRecovery({
@@ -2660,9 +2651,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   // Only a failed save leaves changes unsaved for long; 重新读取 then asks before discarding them.
   const dirty =
     (!!draft && !!snapshot && !deepEqual(draft, snapshot.preferences)) ||
-    (macosShuangpinKeymap !== undefined && macosShuangpinKeymap !== savedMacosShuangpinKeymap) ||
-    (macosWubiAutoCommitUnique !== undefined &&
-      macosWubiAutoCommitUnique !== savedMacosWubiAutoCommitUnique);
+    (macosShuangpinKeymap !== undefined && macosShuangpinKeymap !== savedMacosShuangpinKeymap);
   const { ai, storedAiCredential } = aiSettingsPreferences(
     draft?.ai_assistant,
     providerCredentials,
@@ -2989,8 +2978,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     mobileKeyboardFeedbackBusy,
     macosShuangpinKeymap,
     setShuangpinKeymap,
-    macosWubiAutoCommitUnique,
-    setWubiAutoCommitUnique,
     setPhrases,
     phrases,
     phrasePage,

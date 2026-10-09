@@ -423,6 +423,11 @@ pub fn export_android_settings(
         "input.wubi_code_hint",
         preferences.wubi_code_hint,
     );
+    insert_bool(
+        &mut settings,
+        "input.wubi_auto_commit_unique",
+        preferences.wubi_auto_commit_unique,
+    );
     insert_string(
         &mut settings,
         "platform.android.keyboard_layout",
@@ -750,6 +755,9 @@ pub fn apply_android_settings(
     })?;
     applier.set_bool("input.wubi_code_hint", |preferences, value| {
         preferences.wubi_code_hint = value
+    })?;
+    applier.set_bool("input.wubi_auto_commit_unique", |preferences, value| {
+        preferences.wubi_auto_commit_unique = value
     })?;
     applier.set_string("platform.android.keyboard_layout", |preferences, value| {
         preferences.touch_keyboard_layout = match value {
