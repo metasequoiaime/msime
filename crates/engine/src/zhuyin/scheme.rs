@@ -548,9 +548,17 @@ impl ZhuyinScheme {
 
     /// 重算钉读音的目标和它的候选读音。目标是第一个不被任何 pin 覆盖、没有钉住、且有不止一个读音的音节；读音按当前转换用的那个、单字最重词条的权重（从重到轻）、字典序排列。没有目标时为空，大千模式下永远为空。
     fn refresh_spellings(&mut self) -> Result<()> {
-        self.spellings.clear();
+        let result = self.refresh_spelling_choices();
+        if result.is_err() {
+            self.spellings.clear();
+        }
+        result
+    }
+
+    fn refresh_spelling_choices(&mut self) -> Result<()> {
         self.spelling_target = None;
         if !self.nine_key {
+            self.spellings.clear();
             return Ok(());
         }
         let Some(target) = self
@@ -563,6 +571,7 @@ impl ZhuyinScheme {
                     && !self.pins.iter().any(|pin| pin.overlaps(index, index + 1))
             })
         else {
+            self.spellings.clear();
             return Ok(());
         };
         let current = current_spelling(&self.conversion, target);
@@ -584,10 +593,11 @@ impl ZhuyinScheme {
                     .then_with(|| left.1.cmp(&right.1))
                     .then_with(|| readings[left.2].cmp(&readings[right.2]))
             });
-            self.spellings.extend(
+            replace_string_buffer(
+                &mut self.spellings,
                 ranked[..readings.len()]
                     .iter()
-                    .map(|(_, _, index)| readings[*index].clone()),
+                    .map(|(_, _, index)| readings[*index].as_str()),
             );
         } else {
             let mut ranked = Vec::with_capacity(readings.len());
@@ -601,11 +611,34 @@ impl ZhuyinScheme {
                 ranked.push((current != Some(reading.as_str()), Reverse(weight), reading));
             }
             ranked.sort();
-            self.spellings
-                .extend(ranked.into_iter().map(|(_, _, reading)| reading.clone()));
+            replace_string_buffer(
+                &mut self.spellings,
+                ranked.into_iter().map(|(_, _, reading)| reading.as_str()),
+            );
         }
         self.spelling_target = Some(target);
         Ok(())
+    }
+}
+
+fn replace_string_buffer<'a>(
+    destination: &mut Vec<String>,
+    mut source: impl Iterator<Item = &'a str>,
+) {
+    let mut kept = 0;
+    loop {
+        let Some(value) = source.next() else {
+            destination.truncate(kept);
+            return;
+        };
+        if let Some(target) = destination.get_mut(kept) {
+            target.clear();
+            target.push_str(value);
+            kept += 1;
+        } else {
+            destination.extend(std::iter::once(value).chain(source).map(str::to_owned));
+            return;
+        }
     }
 }
 
@@ -1360,16 +1393,66 @@ mod tests {
     }
 
     #[test]
+    fn spelling_refresh_failure_clears_previous_choices() {
+        for count in [3, SMALL_SPELLING_RANK + 1] {
+            let (dir, mut scheme) = nine_key_scheme();
+            type_keys(&mut scheme, "28c");
+            assert!(!scheme.spellings().is_empty());
+            if count > SMALL_SPELLING_RANK {
+                scheme.syllables[0].readings = (0..count)
+                    .map(|index| format!("測試讀音{index:03}"))
+                    .collect::<Vec<_>>()
+                    .into();
+            }
+            scheme.best.clear();
+            Connection::open(dir.path().join("msime-zhuyin.db"))
+                .unwrap()
+                .execute_batch("DROP TABLE entries")
+                .unwrap();
+
+            assert!(scheme.refresh_spellings().is_err());
+            assert!(scheme.spellings().is_empty());
+            assert_eq!(scheme.spelling_target, None);
+        }
+    }
+
+    #[test]
+    fn spelling_refresh_handles_changing_choice_counts() {
+        let (_dir, mut scheme) = nine_key_scheme();
+        type_keys(&mut scheme, "28c");
+        for count in [SMALL_SPELLING_RANK + 1, 2, 4] {
+            let readings = (0..count)
+                .map(|index| format!("測試讀音{index:03}"))
+                .collect::<Vec<_>>();
+            scheme.syllables[0].readings = readings.clone().into();
+            scheme.refresh_spellings().unwrap();
+            assert_eq!(scheme.spellings(), readings);
+            assert_eq!(scheme.spelling_target, Some(0));
+        }
+        scheme.syllables[0].locked = Some(0);
+        scheme.refresh_spellings().unwrap();
+        assert!(scheme.spellings().is_empty());
+        assert_eq!(scheme.spelling_target, None);
+        scheme.syllables[0].locked = None;
+        scheme.refresh_spellings().unwrap();
+        assert_eq!(scheme.spellings(), &*scheme.syllables[0].readings);
+    }
+
+    #[test]
     fn refreshing_short_spelling_choices_does_not_allocate_ranking_state() {
         let (_dir, mut scheme) = nine_key_scheme();
         type_keys(&mut scheme, "28c");
+        assert_eq!(scheme.spellings.len(), 3);
         scheme.spellings.reserve(scheme.syllables[0].readings.len());
 
         let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
             scheme.refresh_spellings().unwrap();
         });
 
-        assert_eq!(allocations, 12);
+        assert!(
+            allocations <= 11,
+            "读音列表重算仍为字符串复制分配了 {allocations} 次"
+        );
         assert_eq!(spellings(&scheme), ["ㄌㄧˇ", "ㄋㄧˇ", "ㄉㄧˇ"]);
     }
 
