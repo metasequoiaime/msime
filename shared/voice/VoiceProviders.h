@@ -22,6 +22,10 @@ std::string transcription_language(std::string_view provider, std::string_view l
 std::string normalize_voice_provider(std::string_view provider);
 std::string default_asr_endpoint(std::string_view provider);
 std::string default_asr_model(std::string_view provider);
+// 云端识别的请求格式，与 client-core 的 `voice::provider::asr_request_format` 相同："multipart"（OpenAI 兼容的 /audio/transcriptions）、"chat_audio"（Chat Completions 带 input_audio，阿里云百炼）、"doubao_websocket"、"local"，不认识的 provider 为空串。recognize_cloud_asr 按它挑请求构造。
+std::string asr_request_format(std::string_view provider);
+// chat_audio 一次最多上传的 WAV 字节数（与 client-core 的 CHAT_AUDIO_MAX_WAV_BYTES 相同）：百炼限制请求里的音频含 Base64 编码不超过 10 MB，16 kHz 单声道 16 位约 218 秒。
+inline constexpr std::size_t chat_audio_max_wav_bytes = 7000000u;
 std::string default_polish_endpoint(std::string_view provider);
 std::string default_polish_model(std::string_view provider);
 // True when the configured provider is Doubao. Deliberately ignores the
@@ -81,6 +85,8 @@ using windows::transcription_language;
 using windows::normalize_voice_provider;
 using windows::default_asr_endpoint;
 using windows::default_asr_model;
+using windows::asr_request_format;
+using windows::chat_audio_max_wav_bytes;
 using windows::default_polish_endpoint;
 using windows::default_polish_model;
 using windows::is_doubao_asr_provider;
