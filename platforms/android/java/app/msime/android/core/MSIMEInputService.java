@@ -4955,8 +4955,8 @@ public final class MSIMEInputService extends InputMethodService {
         closeVoiceResult();
         try {
             VoiceRecognitionActivity.launch(this, requestId, voiceLanguage,
-                configured.providerName(), configured.endpoint(), configured.model(),
-                configured.token(), configured.streaming(), configured.polish(),
+                configured.providerName(), configured.requestFormat(), configured.endpoint(),
+                configured.model(), configured.token(), configured.streaming(), configured.polish(),
                 configured.localModel());
         } catch (RuntimeException error) {
             VoiceRecognitionActivity.clearRequest(requestId);
