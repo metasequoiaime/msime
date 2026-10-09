@@ -85,6 +85,10 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) snapshot_valid: bool,
     pub(crate) character_width: CharacterWidth,
     pub(crate) touch_keyboard_layout: TouchKeyboardLayout,
+    /// 整个候选列表只给出一个词的完整五笔码，是否在第四键提交。
+    ///
+    /// *什么*算这种码由 Engine 判定（[`EngineSnapshot::wubi_unique_four_code`]）；提交它是宿主的事，因为提交要跨过平台自己的组字边界。只有用户要求时才关：关了以后词和其他候选一样留在候选列表里，由空格或数字键选走。
+    pub(crate) wubi_auto_commit_unique: bool,
     /// Whether the host draws a half-composed phrase itself instead of having it committed.
     ///
     /// Picking a candidate that consumes only part of the input leaves the Engine composing the
@@ -466,6 +470,17 @@ impl<E: InputEngine> Runtime<E> {
         self.refresh()
     }
 
+    /// 整个候选列表只回一个词的完整五笔码，是否在第四键提交。
+    ///
+    /// 这是宿主状态而不是 Engine 状态：它决定本 runtime 要不要执行提交，所以组字中途改也安全，不需要重建 Engine。下一键生效，因此已经打进组字的四码不会因为把开关关掉而自己上屏。
+    pub fn set_wubi_auto_commit_unique(&mut self, enabled: bool) {
+        self.wubi_auto_commit_unique = enabled;
+    }
+
+    pub fn wubi_auto_commit_unique(&self) -> bool {
+        self.wubi_auto_commit_unique
+    }
+
     /// Hand the Engine a new `/` command table. An open command list is rebuilt from it, so the view is refreshed.
     pub fn set_command_table(&mut self, table: &[CommandTableEntry]) -> Result<(), RuntimeError> {
         self.advance()?;
@@ -540,6 +555,7 @@ impl<E: InputEngine> Runtime<E> {
             snapshot_valid: true,
             character_width: CharacterWidth::Halfwidth,
             touch_keyboard_layout,
+            wubi_auto_commit_unique: true,
             phrase_preedit: false,
             phrase_prefix: String::new(),
             phrase_selections: Vec::new(),
@@ -1955,10 +1971,7 @@ impl<E: InputEngine> Runtime<E> {
         // says otherwise.
         let needs_commit_context = result.as_ref().is_ok_and(|result| result.has_commit)
             || !self.phrase_prefix.is_empty()
-            || (character_action
-                && self.snapshot_valid
-                && self.cached.wubi_unique_four_code
-                && self.phrase_prefix.is_empty());
+            || self.wubi_should_auto_commit(character_action);
         let commit_context = needs_commit_context.then(|| self.output_context());
         let refresh = self.refresh();
         let mut result = result?;
@@ -1970,11 +1983,7 @@ impl<E: InputEngine> Runtime<E> {
         // the same fourth-key behavior here; platform adapters only decide how that commit crosses
         // their native composition boundary. A held phrase is still being assembled and must stay
         // open, matching the reference's creating-word guard.
-        if character_action
-            && self.snapshot_valid
-            && self.cached.wubi_unique_four_code
-            && self.phrase_prefix.is_empty()
-        {
+        if self.wubi_should_auto_commit(character_action) {
             result = self.engine.select(self.engine_index(0))?;
             if let Err(error) = self.refresh() {
                 result.diagnostic = format!("Candidate refresh failed: {error}");
@@ -2005,6 +2014,15 @@ impl<E: InputEngine> Runtime<E> {
             }
         }
         Ok(transition)
+    }
+
+    /// 本次按键是否以唯一五笔候选被提交收尾。读缓存快照，所以 refresh 前后的两处调用会故意看到不同代。
+    fn wubi_should_auto_commit(&self, character_action: bool) -> bool {
+        self.wubi_auto_commit_unique
+            && character_action
+            && self.snapshot_valid
+            && self.cached.wubi_unique_four_code
+            && self.phrase_prefix.is_empty()
     }
 }
 

@@ -62,9 +62,6 @@ test("does not start a second settings load while reload is in flight", async ()
       macosShuangpinKeymap: undefined,
       savedMacosShuangpinKeymap: undefined,
       setSavedMacosShuangpinKeymap: vi.fn(),
-      macosWubiAutoCommitUnique: undefined,
-      savedMacosWubiAutoCommitUnique: undefined,
-      setSavedMacosWubiAutoCommitUnique: vi.fn(),
     });
   });
 
@@ -122,9 +119,6 @@ test("clears the previous settings while a replacement client is loading", async
       macosShuangpinKeymap: undefined,
       savedMacosShuangpinKeymap: undefined,
       setSavedMacosShuangpinKeymap: vi.fn(),
-      macosWubiAutoCommitUnique: undefined,
-      savedMacosWubiAutoCommitUnique: undefined,
-      setSavedMacosWubiAutoCommitUnique: vi.fn(),
     });
   });
 
@@ -189,9 +183,6 @@ test("does not let a save from the previous client restore stale settings", asyn
       macosShuangpinKeymap: undefined,
       savedMacosShuangpinKeymap: undefined,
       setSavedMacosShuangpinKeymap: vi.fn(),
-      macosWubiAutoCommitUnique: undefined,
-      savedMacosWubiAutoCommitUnique: undefined,
-      setSavedMacosWubiAutoCommitUnique: vi.fn(),
     });
   });
 
@@ -270,9 +261,6 @@ test("does not let a pending save from the previous client block the replacement
       macosShuangpinKeymap: undefined,
       savedMacosShuangpinKeymap: undefined,
       setSavedMacosShuangpinKeymap: vi.fn(),
-      macosWubiAutoCommitUnique: undefined,
-      savedMacosWubiAutoCommitUnique: undefined,
-      setSavedMacosWubiAutoCommitUnique: vi.fn(),
     });
   });
 
@@ -346,9 +334,6 @@ test("retries an autosave that races with another window during unmount", async 
       macosShuangpinKeymap: undefined,
       savedMacosShuangpinKeymap: undefined,
       setSavedMacosShuangpinKeymap: vi.fn(),
-      macosWubiAutoCommitUnique: undefined,
-      savedMacosWubiAutoCommitUnique: undefined,
-      setSavedMacosWubiAutoCommitUnique: vi.fn(),
     });
   });
 

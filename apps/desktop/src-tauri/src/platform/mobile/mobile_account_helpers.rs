@@ -528,14 +528,18 @@ pub(crate) async fn account_request_code(
     .await
 }
 
-pub(crate) async fn account_login(
+pub(crate) async fn account_login<F>(
     state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
     challenge_id: String,
     code: String,
-) -> Result<StatusResponse, crate::CommandError> {
+    cleanup: F,
+) -> Result<StatusResponse, crate::CommandError>
+where
+    F: FnOnce(&str) + Send + 'static,
+{
     call_session(state.session(), move |session| {
         session
-            .sign_in(&challenge_id, &code)
+            .sign_in_with_cleanup(&challenge_id, &code, cleanup)
             .map(|user| StatusResponse {
                 user: Some(user.into()),
             })

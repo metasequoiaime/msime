@@ -160,41 +160,41 @@ test("macOS exposes the non-activating input-mode HUD preference", async () => {
   expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ input_mode_hud: false }));
 });
 
-test("macOS persists Wubi unique-candidate auto-commit outside shared preferences", async () => {
+test("Wubi unique-candidate auto-commit is a shared preference on every host", async () => {
   const wubiInitial = {
     ...initial,
-    preferences: { ...initial.preferences, scheme: "wubi" as const },
+    preferences: {
+      ...initial.preferences,
+      scheme: "wubi" as const,
+      wubi_auto_commit_unique: true,
+    },
   };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...wubiInitial,
     revision: 8,
     preferences,
   }));
-  const loadWubiAutoCommit = vi.fn().mockResolvedValue(false);
-  const saveWubiAutoCommit = vi.fn().mockResolvedValue(undefined);
-  render(
-    <SettingsPage
-      client={{
-        load: async () => wubiInitial,
-        save,
-        host: testHost({ platform: "macos" }),
-        loadMacosWubiAutoCommitUnique: loadWubiAutoCommit,
-        saveMacosWubiAutoCommitUnique: saveWubiAutoCommit,
-      }}
-    />,
-  );
-  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
-  const toggle = (await screen.findByRole("switch", {
-    name: "五笔四码唯一候选自动上屏",
-  })) as HTMLInputElement;
-  expect(toggle.checked).toBe(false);
-  fireEvent.click(toggle);
-  saveSettingsNow();
-  await screen.findByText("已保存");
-  // Only the native preference changed, so the shared document is left alone.
-  expect(save).not.toHaveBeenCalled();
-  expect(loadWubiAutoCommit).toHaveBeenCalled();
-  expect(saveWubiAutoCommit).toHaveBeenCalledWith(true);
+  for (const platform of ["macos", "windows"] as const) {
+    save.mockClear();
+    const mounted = render(
+      <SettingsPage
+        client={{ load: async () => wubiInitial, save, host: testHost({ platform }) }}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+    const toggle = (await screen.findByRole("switch", {
+      name: "五笔四码唯一候选自动上屏",
+    })) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    fireEvent.click(toggle);
+    saveSettingsNow();
+    await screen.findByText("已保存");
+    expect(save).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ wubi_auto_commit_unique: false }),
+    );
+    mounted.unmount();
+  }
 });
 
 test("titlebar sits above the shared sidebar and content body", async () => {

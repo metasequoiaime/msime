@@ -840,6 +840,48 @@ fn logout_cleanup_receives_old_identity_even_when_remote_logout_fails() {
 }
 
 #[test]
+fn switching_accounts_cancels_only_the_previous_snapshot_owner() {
+    let storage = MemoryStorage::default();
+    let mut previous = tokens(b'a', b'b', 900);
+    previous.user.id = "previous-user".into();
+    storage
+        .save(&SavedAccountSession {
+            tokens: previous,
+            expires_at_unix_ms: valid_future_expiry(),
+        })
+        .unwrap();
+    let session = BackendAccountSession::new(FakeApi::new(), storage.clone());
+    let mut cancelled = None;
+    assert_eq!(session.status().unwrap().unwrap().id, "previous-user");
+
+    session
+        .sign_in_with_cleanup("synthetic-challenge", "123456", |account_id| {
+            assert_eq!(
+                storage.load().unwrap().unwrap().tokens.user.id,
+                "fixture-user"
+            );
+            cancelled = Some(account_id.to_owned());
+        })
+        .unwrap();
+
+    assert_eq!(cancelled.as_deref(), Some("previous-user"));
+}
+
+#[test]
+fn signing_in_again_as_same_account_keeps_its_pending_snapshot() {
+    let storage = MemoryStorage::default();
+    installed(&storage, valid_future_expiry());
+    let session = BackendAccountSession::new(FakeApi::new(), storage);
+    let mut cancelled = false;
+
+    session
+        .sign_in_with_cleanup("synthetic-challenge", "123456", |_| cancelled = true)
+        .unwrap();
+
+    assert!(!cancelled);
+}
+
+#[test]
 fn stale_logout_does_not_clear_or_cancel_a_new_login() {
     let storage = MemoryStorage::default();
     installed(&storage, 0);

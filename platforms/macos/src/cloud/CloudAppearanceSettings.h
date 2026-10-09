@@ -60,7 +60,7 @@ static inline NSDictionary *MSIMECloudBooleanPreferences() {
              @"full_width_input": @[@"MSIMEClientFullWidthInput", @NO],
              @"floating_toolbar": @[@"MSIMEClientFloatingToolbarEnabled", @YES],
              @"traditional_chinese_output": @[@"MSIMEClientTraditionalOutput", @NO],
-             @"wubi_auto_commit_unique": @[@"MSIMEClientWubiAutoCommitUnique", @NO],
+             @"wubi_auto_commit_unique": @[@"MSIMEClientWubiAutoCommitUnique", @YES],
              @"candidate_learning": @[@"MSIMEClientCandidateLearning", @YES],
              @"shuangpin_keymap": @[@"MSIMEClientShuangpinKeymap", @NO],
              @"shuangpin_preedit_uses_raw": @[@"MSIMEClientShuangpinPreeditUsesRaw", @YES]};

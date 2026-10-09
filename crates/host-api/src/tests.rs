@@ -903,6 +903,36 @@ fn single_character_only_reaches_engine_after_composition() {
 }
 
 #[test]
+fn wubi_auto_commit_unique_reaches_the_runtime_without_waiting_for_the_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle].runtime.wubi_auto_commit_unique());
+    });
+
+    // 组字进行中也立刻生效：它是宿主状态，不等 Engine 重建。
+    read(msime_client_character(handle, b'a', false));
+    let mut preferences = Preferences {
+        scheme: InputScheme::Wubi,
+        wubi_auto_commit_unique: false,
+        ..Preferences::default()
+    };
+    let queued = update(handle, 1, &preferences);
+    assert_eq!(queued["value"]["deferred"], true);
+    SESSIONS.with(|sessions| {
+        assert!(!sessions.borrow()[&handle].runtime.wubi_auto_commit_unique());
+    });
+
+    preferences.wubi_auto_commit_unique = true;
+    update(handle, 2, &preferences);
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle].runtime.wubi_auto_commit_unique());
+    });
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn wubi_profile_reaches_engine_options() {
     use msime_client_core::preferences::WubiProfile;
     let dir = tempfile::tempdir().unwrap();
