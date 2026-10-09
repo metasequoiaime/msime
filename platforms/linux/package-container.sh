@@ -164,9 +164,15 @@ docker run --rm --init \
       sha256sum -- *.rpm > SHA256SUMS
     else
       # 这个 bookworm 镜像里的 CPack（CMake 3.25）只用 xz 预设 6 压缩 data.tar.xz，也没有 CPACK_DEBIAN_COMPRESSION_LEVEL，所以每个 .deb 都以 -9 重新打包，大约还能再省五分之一。单个压缩线程把内存控制在 xz -9 每线程所需的 674 MiB，单个块的压缩率也最好。重新打包还会把 control.tar.gz 变成 control.tar.xz，release-linux.yml 据此确认这一步执行过。
+      # 同一次重新打包里把 dpkg-shlibdeps 从 Fcitx5 插件推出的 libfcitx5* 从 Depends 里去掉：Fcitx5 只在 Recommends 里（见 cmake/packaging.cmake），否则 Ubuntu 22.04 这类 Fcitx5 低于 5.0.20 的系统仍因这几项装不上，连 IBus 也用不了（#6305）。CPack 没有按文件跳过 dpkg-shlibdeps 的办法，只能在这里改。
       for deb in *.deb; do
         repack=$(mktemp -d)
         dpkg-deb --raw-extract "$deb" "$repack/root"
+        sed -E -i "/^Depends:/s/, libfcitx5[a-z0-9]+( \([^)]*\))?//g" "$repack/root/DEBIAN/control"
+        if grep -E "^Depends:.*fcitx5" "$repack/root/DEBIAN/control"; then
+          echo "$deb: Depends still names Fcitx5 after the rewrite" >&2
+          exit 1
+        fi
         dpkg-deb --root-owner-group --threads-max=1 -Zxz -z9 --build "$repack/root" "$deb" >/dev/null
         rm -rf "$repack"
       done

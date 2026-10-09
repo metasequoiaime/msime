@@ -11,6 +11,8 @@ addon.read(root / "fcitx5/msime.conf")
 assert addon["Addon"]["Name"] == "MSIME"
 assert addon["Addon"]["Type"] == "SharedLibrary"
 assert addon["Addon"]["Library"] == "libmsime-fcitx5"
+# .deb 只推荐 Fcitx5，Ubuntu 22.04 的 5.0.14 也会和插件同时存在；靠这条依赖，旧版 Fcitx5 在检查依赖时就拒绝加载插件，不会去 dlopen 一个链接了新符号的库。
+assert addon["Addon/Dependencies"]["0"] == "core:5.0.20"
 entry = configparser.ConfigParser()
 entry.read(root / "fcitx5/msime-inputmethod.conf")
 assert entry["InputMethod"]["Addon"] == "msime"
@@ -25,6 +27,11 @@ assert cmake.index('option(MSIME_ENABLE_FCITX5') < cmake.index('include(cmake/pa
 packaging = (root / "cmake/packaging.cmake").read_text()
 assert "if(MSIME_ENABLE_FCITX5)" in packaging
 assert "fcitx5 (>= 5.0.20)" in packaging
+# Fcitx5 写进 Depends 会让 Ubuntu 22.04 整包装不上，连 IBus 也用不了（#6305）：手写的 fcitx5 只进 Recommends，dpkg-shlibdeps 从插件推出的 libfcitx5* 由 package-container.sh 重新打包时去掉。
+assert 'string(APPEND CPACK_DEBIAN_PACKAGE_RECOMMENDS ", fcitx5 (>= 5.0.20)")' in packaging
+assert not re.search(r"CPACK_DEBIAN_PACKAGE_DEPENDS[^\n]*fcitx5", packaging)
+package_container = (root / "package-container.sh").read_text()
+assert 'sed -E -i "/^Depends:/s/, libfcitx5' in package_container
 
 cmake_fcitx5 = (root / "fcitx5/CMakeLists.txt").read_text()
 # 徽章浮层用的是 wayland-scanner 生成的 C 代码。这个子工程声明 LANGUAGES CXX，不打开 C

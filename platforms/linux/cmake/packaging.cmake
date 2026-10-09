@@ -36,11 +36,12 @@ set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 # procps provides the pgrep msime-linux-setup uses to see whether the input method is running before it switches dictionaries; a system without it fails every dictionary switch. Debian marks procps important rather than required, so a minimal install can lack it.
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "ibus (>= 1.5.20), python3 (>= 3.9), procps")
-if(MSIME_ENABLE_FCITX5)
-  string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", fcitx5 (>= 5.0.20)")
-endif()
 # Voice runtime: Doubao streaming needs the websockets sync client from 15.0 on, recording needs one of parec, pw-cat or arecord. Recommends rather than Depends, because the voice service starts without them and only the requests that need them fail.
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "python3-websockets (>= 15), pulseaudio-utils | pipewire-bin | alsa-utils")
+# Fcitx5 插件同样只作推荐：IBus 宿主不需要它，而 Ubuntu 22.04 只有 Fcitx5 5.0.14，写进 Depends 会让整个包装不上（#6305）。apt 默认安装推荐包，Fcitx5 够新的系统照旧一起装上；满足不了版本的推荐被 apt 跳过；插件条目声明了 `core:5.0.20` 依赖，旧版 Fcitx5 在依赖检查时就拒绝加载它，不会 dlopen。dpkg-shlibdeps 从插件推出的 libfcitx5* 由 package-container.sh 重新打包时从 Depends 里去掉。
+if(MSIME_ENABLE_FCITX5)
+  string(APPEND CPACK_DEBIAN_PACKAGE_RECOMMENDS ", fcitx5 (>= 5.0.20)")
+endif()
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 get_filename_component(MSIME_HOST_LIBRARY_DIR "${MSIME_HOST_LIBRARY}" DIRECTORY)
 # libsherpa-onnx-c-api.so needs libonnxruntime.so, which ships beside it in the same private directory rather than coming from a Debian package.
