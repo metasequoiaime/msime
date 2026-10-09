@@ -53,12 +53,16 @@ import { HarmonyTelemetry } from '../telemetry/Telemetry';
 import { TelemetryPolicy } from '../telemetry/TelemetryPolicy';
 import { NoticeItem, NoticePolicy } from '../notices/NoticePolicy';
 
-/** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id}` for a removal, `{id}` for a cancel. */
+/** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id, files}` for an import from local files, `{root, id}` for a removal, `{id}` for a cancel. */
 interface LocalVoiceModelRequest {
   root?: string;
   id?: string;
   mirror?: string;
+  files?: string[];
 }
+
+/** 「从文件导入」一次最多让用户选几个文件；目录里的模型最多要两个。 */
+const MAX_VOICE_MODEL_IMPORT_PICKS: number = 8;
 
 /** One key-feedback operation from the page: load, save or preview. */
 interface KeyboardFeedbackAction {
@@ -1156,11 +1160,82 @@ class SettingsBridge {
     if (!fs.accessSync(root)) {
       fs.mkdirSync(root, true);
     }
+    if (action.operation === 'import') {
+      return this.importVoiceModel(root, id);
+    }
     const mirror: string = LocalVoiceModelPolicy.mirror(client.loadPreferences(this.stateDirectory));
     const request: LocalVoiceModelRequest = { root: root, id: id, mirror: mirror };
     const reply: string = await client.voiceLocalModelInstall(JSON.stringify(request),
       (progress: string): void => this.deliverVoiceModelProgress(progress));
     return LocalVoiceModelPolicy.installReply(reply);
+  }
+
+  /**
+   * 「从文件导入」：用系统选择器让用户多选自己下载好的模型文件，不联网安装。
+   *
+   * 选择器给的是原生库打不开的文档 URI，所以先把文件复制进私有缓存目录，用固定的序号作文件名，再把这些路径交给和下载同一个 `msime_client_voice_local_model_install`（带 `files`），由 client-core 按长度和 SHA-256 认文件、校验、解压并发布，和其他宿主完全相同。长度和目录里任何一个需要的文件都对不上的选择不复制。缓存副本不论成败都在安装结束后删掉。用户关掉选择器时回答 null，不算失败。
+   */
+  private async importVoiceModel(root: string, id: string): Promise<string> {
+    const context: common.UIAbilityContext | undefined = this.context;
+    if (context === undefined) {
+      return LocalVoiceModelPolicy.refusal('local_model_failed');
+    }
+    let picked: string[] = [];
+    try {
+      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      options.selectMode = picker.DocumentSelectMode.FILE;
+      options.maxSelectNumber = MAX_VOICE_MODEL_IMPORT_PICKS;
+      picked = await new picker.DocumentViewPicker(context).select(options);
+    } catch (error) {
+      KeyboardLog.error(`voice model picker refused: ${describeError(error)}`);
+      return LocalVoiceModelPolicy.refusal('local_model_failed');
+    }
+    if (picked.length === 0) {
+      return JSON.stringify({ ok: true, value: null, error: '' });
+    }
+    const listRequest: LocalVoiceModelRequest = { root: root };
+    const sizes: number[] = LocalVoiceModelPolicy.importSizes(
+      client.voiceLocalModels(JSON.stringify(listRequest)), id);
+    const importRoot: string = `${context.cacheDir}/voice-model-import`;
+    const staging: string = `${importRoot}/${util.generateRandomUUID(false)}`;
+    try {
+      if (!this.safeDirectory(context.cacheDir)) {
+        return LocalVoiceModelPolicy.refusal('local_model_io');
+      }
+      if (!fs.accessSync(importRoot)) fs.mkdirSync(importRoot, true);
+      if (!this.safeDirectory(importRoot)) {
+        return LocalVoiceModelPolicy.refusal('local_model_io');
+      }
+      fs.mkdirSync(staging, true);
+      if (!this.safeDirectory(staging)) {
+        return LocalVoiceModelPolicy.refusal('local_model_io');
+      }
+      const files: string[] = [];
+      for (const uri of picked) {
+        const file: fs.File = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+        try {
+          const opened: fs.Stat = fs.statSync(file.fd);
+          if (!opened.isFile() || !sizes.includes(opened.size)) {
+            continue;
+          }
+          const copy: string = `${staging}/${files.length}`;
+          await fs.copyFile(file.fd, copy);
+          files.push(copy);
+        } finally {
+          fs.closeSync(file);
+        }
+      }
+      const request: LocalVoiceModelRequest = { root: root, id: id, files: files };
+      const reply: string = await client.voiceLocalModelInstall(JSON.stringify(request),
+        (progress: string): void => this.deliverVoiceModelProgress(progress));
+      return LocalVoiceModelPolicy.installReply(reply);
+    } finally {
+      try {
+        StagedResources.removeDirectory(staging);
+      } catch (error) {
+        KeyboardLog.error(`voice model import staging not removed: ${describeError(error)}`);
+      }
+    }
   }
 
   private deliverVoiceModelProgress(progress: string): void {

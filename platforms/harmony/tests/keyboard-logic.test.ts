@@ -15958,6 +15958,39 @@ group("LocalVoiceModelPolicy", () => {
     "an install names its model",
   );
   check(
+    LocalVoiceModelPolicy.action('{"operation":"import","id":"sense-voice-small"}')?.operation ===
+      "import",
+    "an import names its model",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_import_missing: silero_vad.onnx") ===
+      "local_model_import_missing",
+    "a missing import file keeps its code and drops the file name",
+  );
+  const catalog = JSON.stringify({
+    ok: true,
+    value: {
+      models: [
+        { id: "x-asr-zh-en-streaming", import_files: [{ size: 133895136 }] },
+        { id: "sense-voice-small", import_files: [{ size: 163002883 }, { size: 643854 }, {}] },
+      ],
+    },
+  });
+  check(
+    LocalVoiceModelPolicy.importSizes(catalog, "sense-voice-small").join(",") ===
+      "163002883,643854",
+    "an import copies only files as long as one the model needs",
+  );
+  check(
+    LocalVoiceModelPolicy.importSizes(catalog, "unknown").length === 0 &&
+      LocalVoiceModelPolicy.importSizes("{", "sense-voice-small").length === 0 &&
+      LocalVoiceModelPolicy.importSizes(
+        JSON.stringify({ ok: false, error: "invalid local model root" }),
+        "sense-voice-small",
+      ).length === 0,
+    "an unknown model or an unreadable list copies nothing",
+  );
+  check(
     LocalVoiceModelPolicy.action('{"operation":"remove"}') === null &&
       LocalVoiceModelPolicy.action('{"operation":"format","id":"x"}') === null &&
       LocalVoiceModelPolicy.action("[") === null,
