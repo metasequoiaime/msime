@@ -131,7 +131,8 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * List returns {entries,has_more} and sets source on every entry; edit returns {applied:true}. Errors are redacted.
  * A bundled entry passed back as previous can only be re-weighted (replacement with the same kind, key and value) or deleted (replacement null); anything else fails with "bundled dictionary entry is read-only". Export of pinyin also carries the weights set or learned for bundled words and omits single characters; the other kinds export user words only.
  * 计数（只读）：action:{operation:"count",kind?,user_only?:bool} 返回 {count,kinds:{kind:n},complete}；user_only:true 只数用户自己的词，否则拼音还会数上学到或设过权重的随包词（也就是导出的那些行）。扫描在 1,000,000 行处停下时 complete 为 false。
- * 快照导出：action:{operation:"export_snapshot",destination:绝对路径} 把用户的词写成与 GET /v1/users/me/dictionary/snapshot 相同的 NDJSON msime-dictionary-snapshot v1 文档（header、每个词一条 entry 和一条 overlay、带正文 SHA-256 的 footer；revision 为 1，不含位置和选择），用云端格式自己的校验器检查后返回那份元数据加上 path。不需要账号。
+ * 快照导出：action:{operation:"export_snapshot",destination:绝对路径,include_learning?:bool} 把用户的词写成与 GET /v1/users/me/dictionary/snapshot 相同的 NDJSON msime-dictionary-snapshot v1 文档（header、每个词一条 entry 和一条 overlay、带正文 SHA-256 的 footer；revision 为 1），用云端格式自己的校验器检查后返回那份元数据加上 path。不需要账号。include_learning 缺省为 false，这时不含位置和选择，输出与这个参数加入之前逐字节相同，云同步上传用的就是它；为 true 时（本地备份用）在用户的词之后再写输入记录：学习调权写成 user_inserted:false 的 overlay、删除记录写成 deleted:true 的 overlay、固定位置写成 position、选词计数写成 selection（截到 0..10），格式装不下的行跳过，返回值多出 learning 和 learning_skipped 两个计数。
+ * 输入记录：action:{operation:"learning_count"} 只读，返回 {count}，即本机日志里学习调权、删除记录、固定位置和选词计数的条数（不含用户自己的词）。action:{operation:"queue_learning_merge",source:绝对路径} 校验快照文件 source，把其中的输入记录另存成 <preferences_directory>/pending-learning-merge.ndjson（替换已有的一份），返回 {queued,learning}；没有输入记录时 queued 为 false、什么也不写。这份文件由 msime_client_personal_dictionary_sync 合并。
  * Native host owns/authorizes paths; never accept arbitrary webview paths or log payloads.
  * Run on a worker thread. Edit returns busy until all participating sessions are
  * destroyed, then holds exclusive access; recreate sessions after success.
@@ -165,7 +166,8 @@ char *msime_client_dictionary_import_entries(const uint8_t *request, size_t requ
                                              const uint8_t *resources, size_t resources_length);
 /* Android personal-dictionary queue synchronization. The request contains the
  * same HostOptions object as msime_client_create. The caller must have no
- * Engine session using its user_data/dictionaries paths. */
+ * Engine session using its user_data/dictionaries paths.
+ * 同步队列之前先合并 queue_learning_merge 排下的输入记录：本机已有的词、固定的词和被占用的位置保留本机，选词计数取较大的那个。结果在 learning_merged（{entries,positions,selections,kept,skipped}），失败原因在 learning_error；还有会话开着、拿不到独占访问时保留文件下次再试。 */
 char *msime_client_personal_dictionary_sync(const uint8_t *request, size_t length);
 /* Snapshot lifecycle. Version is a redacted SHA-256 binding the canonical
  * resource/user/cache/dictionary paths and one consistent Engine journal.

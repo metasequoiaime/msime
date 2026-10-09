@@ -457,10 +457,13 @@ pub(crate) fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static
 
 /// 把本机用户词库写成与 `GET /v1/users/me/dictionary/snapshot` 相同的 NDJSON（`msime-dictionary-snapshot` 第 1 版：header、每个词一条 `entry` 和一条同权重的 `overlay`、footer 带正文 SHA-256），写完再用 [`inspect_snapshot`] 按云端格式校验一遍，返回同样的元数据。
 ///
-/// 这是离线导出：不需要登录，修订号固定为 1。位置调整和选词计数是 Engine 内部的学习状态，没有只读接口，不导出。调用方已经持有词库的会话访问权。
+/// 这是离线导出：不需要登录，修订号固定为 1。调用方已经持有词库的会话访问权。
+///
+/// `include_learning` 为真时（本地备份用，云同步不用）在用户的词之后再写输入记录：Engine 日志里的学习调权和删除记录写成 `overlay`（学习调权 `user_inserted:false`，删除记录 `deleted:true`），固定位置写成 `position`，选词计数写成 `selection`，都是这个格式第 1 版本来就有的记录，旧版本恢复时照样认得。快照格式装不下的行（编码或词含换行、制表符，位置不在 1 到 5，总记录数超出上限）跳过并计入 `learning_skipped`，选词计数截到 0 到 10。返回值多出 `learning`（写进去的输入记录条数）和 `learning_skipped`。为假时输出与加这个参数之前逐字节相同。
 pub(crate) fn export_local_snapshot(
     options: &EngineOptions,
     destination: &Path,
+    include_learning: bool,
 ) -> Result<Value, &'static str> {
     use msime_engine::host::DictionaryKind;
     const REVISION: i64 = 1;
@@ -525,6 +528,16 @@ pub(crate) fn export_local_snapshot(
         }
     }
     rows.truncate(100_000);
+    let learning = if include_learning {
+        Some(learning_records(
+            options,
+            REVISION,
+            &updated_at,
+            MAX_SNAPSHOT_RECORDS - 1 - rows.len() * 2,
+        )?)
+    } else {
+        None
+    };
     let mut body = Vec::new();
     let mut push = |line: Value| {
         body.extend_from_slice(line.to_string().as_bytes());
@@ -536,15 +549,7 @@ pub(crate) fn export_local_snapshot(
         "version": 1,
         "revision": REVISION,
     }));
-    let id = |kind: &str, code: &str, word: &str| {
-        let mut digest = Sha256::new();
-        digest.update(kind.as_bytes());
-        digest.update(b"\t");
-        digest.update(code.as_bytes());
-        digest.update(b"\t");
-        digest.update(word.as_bytes());
-        hex::encode(&digest.finalize()[..16])
-    };
+    let id = snapshot_record_id;
     for (kind, code, word, weight) in &rows {
         push(json!({"type": "entry", "data": {
             "id": id(kind, code, word),
@@ -568,7 +573,22 @@ pub(crate) fn export_local_snapshot(
             "user_inserted": true,
         }}));
     }
-    let records = 1 + rows.len() * 2;
+    let mut records = 1 + rows.len() * 2;
+    let learning_counts = learning
+        .as_ref()
+        .map(|learning| (learning.records(), learning.skipped));
+    if let Some(learning) = learning {
+        records += learning.records();
+        // 类别顺序是格式的一部分：overlay 在 position 之前，position 在 selection 之前。
+        for line in learning
+            .overlays
+            .into_iter()
+            .chain(learning.positions)
+            .chain(learning.selections)
+        {
+            push(line);
+        }
+    }
     let checksum = hex::encode(Sha256::digest(&body));
     body.extend_from_slice(
         json!({"type": "footer", "records": records, "sha256": checksum})
@@ -586,7 +606,159 @@ pub(crate) fn export_local_snapshot(
     let mut value = serde_json::to_value(metadata).map_err(|_| "snapshot file unavailable")?;
     value["path"] = json!(destination.to_string_lossy());
     value["skipped"] = json!(skipped);
+    if let Some((learning, learning_skipped)) = learning_counts {
+        value["learning"] = json!(learning);
+        value["learning_skipped"] = json!(learning_skipped);
+    }
     Ok(value)
+}
+
+/// 快照里一个词的 `id`：种类、编码和词用制表符连起来的 SHA-256 前 16 字节。
+fn snapshot_record_id(kind: &str, code: &str, word: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(kind.as_bytes());
+    digest.update(b"\t");
+    digest.update(code.as_bytes());
+    digest.update(b"\t");
+    digest.update(word.as_bytes());
+    hex::encode(&digest.finalize()[..16])
+}
+
+/// [`export_local_snapshot`] 写进快照的输入记录，按类别分开放，写的时候按格式要求的顺序拼起来。
+#[derive(Default)]
+struct LearningRecords {
+    overlays: Vec<Value>,
+    positions: Vec<Value>,
+    selections: Vec<Value>,
+    skipped: usize,
+}
+
+impl LearningRecords {
+    fn records(&self) -> usize {
+        self.overlays.len() + self.positions.len() + self.selections.len()
+    }
+}
+
+/// 读出 Engine 日志里的输入记录（`stream_dictionary_state`），转成快照记录。用户自己的词（`user_inserted` 的 upsert）已经作为 `entry`/`overlay` 写过，这里跳过。最多收 `budget` 条，其余计入 `skipped`。
+fn learning_records(
+    options: &EngineOptions,
+    revision: i64,
+    updated_at: &str,
+    budget: usize,
+) -> Result<LearningRecords, &'static str> {
+    use msime_engine::host::{DictionaryKind, DictionaryStateRecord};
+    // 与 `inspect_snapshot_record` 对编码、词和上下文的要求相同，写出去的记录不会让自检失败。
+    let fits = |text: &str, maximum: usize| {
+        !text.is_empty() && text.len() <= maximum && snapshot_safe(text)
+    };
+    let fits_context = |context: &str, code: &str, word: &str| {
+        fits(context, 512)
+            && fits(code, 512)
+            && fits(word, 2048)
+            && context.len() + code.len() + word.len() <= 2048
+    };
+    let mut learning = LearningRecords::default();
+    msime_engine::host::stream_dictionary_state(options, &mut |record| {
+        if matches!(
+            record,
+            DictionaryStateRecord::Entry {
+                user_inserted: true,
+                deleted: false,
+                ..
+            }
+        ) {
+            return true;
+        }
+        if learning.records() >= budget {
+            learning.skipped += 1;
+            return true;
+        }
+        match record {
+            DictionaryStateRecord::Entry {
+                kind,
+                key,
+                value,
+                weight,
+                deleted,
+                user_inserted,
+                ..
+            } => {
+                let kind = match kind {
+                    DictionaryKind::Pinyin => "pinyin",
+                    DictionaryKind::Wubi => "wubi",
+                    DictionaryKind::Wubi98 => "wubi98",
+                    DictionaryKind::QuickPhrase => "quick",
+                    DictionaryKind::English => "english",
+                    // 快照格式只认上面这几种，Engine 以后加的种类装不下。
+                    _ => {
+                        learning.skipped += 1;
+                        return true;
+                    }
+                };
+                if !fits(key, 512) || !fits(value, 2048) {
+                    learning.skipped += 1;
+                    return true;
+                }
+                // 删除记录的权重没有意义，格式只允许它为 0 到上限；其余的权重至少为 1。
+                let weight = if *deleted {
+                    (*weight).clamp(0, 100_000_000)
+                } else {
+                    (*weight).clamp(1, 100_000_000)
+                };
+                learning
+                    .overlays
+                    .push(json!({"type": "overlay", "deleted": deleted, "data": {
+                        "id": snapshot_record_id(kind, key, value),
+                        "kind": kind,
+                        "code": key,
+                        "word": value,
+                        "weight": weight,
+                        "revision": revision,
+                        "updated_at": updated_at,
+                        "user_inserted": user_inserted,
+                    }}));
+            }
+            DictionaryStateRecord::Position {
+                context,
+                key,
+                value,
+                position,
+            } => {
+                if !fits_context(context, key, value) || !(1..=5).contains(position) {
+                    learning.skipped += 1;
+                    return true;
+                }
+                learning.positions.push(json!({"type": "position", "data": {
+                    "context": context,
+                    "code": key,
+                    "word": value,
+                    "position": position,
+                }}));
+            }
+            DictionaryStateRecord::Selection {
+                context,
+                key,
+                value,
+                count,
+            } => {
+                if !fits_context(context, key, value) {
+                    learning.skipped += 1;
+                    return true;
+                }
+                learning
+                    .selections
+                    .push(json!({"type": "selection", "data": {
+                        "context": context,
+                        "code": key,
+                        "word": value,
+                        "count": (*count).clamp(0, 10),
+                    }}));
+            }
+        }
+        true
+    })
+    .map_err(|_| "dictionary read rejected")?;
+    Ok(learning)
 }
 
 fn publish_snapshot(destination: &Path, bytes: &[u8]) -> Result<(), &'static str> {
@@ -599,6 +771,147 @@ fn snapshot_safe(text: &str) -> bool {
     !text
         .bytes()
         .any(|byte| matches!(byte, 0 | b'\t' | b'\n' | b'\r'))
+}
+
+/// 待合并的输入记录在 `preferences_directory` 下的文件名，见 [`queue_learning_merge`]。
+const PENDING_LEARNING_NAME: &str = "pending-learning-merge.ndjson";
+
+/// 一份快照里的记录是不是输入记录：学习调权（`user_inserted:false` 的 overlay）、删除记录（`deleted:true` 的 overlay）、固定位置和选词计数。用户自己的词（`entry` 和与它配对的 overlay）不是。
+fn is_learning_record(map: &serde_json::Map<String, Value>) -> bool {
+    match map.get("type").and_then(Value::as_str) {
+        Some("position" | "selection") => true,
+        Some("overlay") => {
+            map.get("deleted").and_then(Value::as_bool) == Some(true)
+                || map
+                    .get("data")
+                    .and_then(|data| data.get("user_inserted"))
+                    .and_then(Value::as_bool)
+                    == Some(false)
+        }
+        _ => false,
+    }
+}
+
+/// 把 `source`（本地备份里的词库快照）中的输入记录挑出来，另存成一份只有这些记录的快照，放在 `preferences` 下等键盘合并：Android 上改工作词库要独占维护权，只有键盘没有会话时才拿得到，所以设置页不直接合并，而是由键盘在建会话前同步个人词库时（[`merge_pending_learning`]）合并进去。已有一份待合并的会被替换。
+///
+/// `source` 先按云端格式完整校验；挑出来的文件写完再校验一遍。返回 `{queued, learning}`：快照里没有输入记录（旧版本导出的备份）时 `queued` 为假，什么也不写。
+pub(crate) fn queue_learning_merge(
+    preferences: &Path,
+    source: &Path,
+) -> Result<Value, &'static str> {
+    if !preferences.is_absolute() || !source.is_absolute() {
+        return Err("invalid snapshot path");
+    }
+    let metadata = inspect_snapshot(source)?;
+    let mut records = SnapshotFileRecords::open(source)?;
+    let mut body = Vec::new();
+    body.extend_from_slice(
+        json!({
+            "type": "header",
+            "format": "msime-dictionary-snapshot",
+            "version": 1,
+            "revision": metadata.cloud_revision,
+        })
+        .to_string()
+        .as_bytes(),
+    );
+    body.push(b'\n');
+    let mut learning = 0usize;
+    while records
+        .read_line()
+        .map_err(|_| "snapshot file unavailable")?
+    {
+        let map = parse_strict_object(&records.line).map_err(|_| "invalid snapshot document")?;
+        if is_learning_record(&map) {
+            body.extend_from_slice(&records.line);
+            body.push(b'\n');
+            learning += 1;
+        }
+    }
+    if learning == 0 {
+        return Ok(json!({"queued": false, "learning": 0}));
+    }
+    let checksum = hex::encode(Sha256::digest(&body));
+    body.extend_from_slice(
+        json!({"type": "footer", "records": 1 + learning, "sha256": checksum})
+            .to_string()
+            .as_bytes(),
+    );
+    body.push(b'\n');
+    let pending = preferences.join(PENDING_LEARNING_NAME);
+    msime_client_core::file_lock::replace_private_file(&pending, &body)
+        .map_err(|_| "snapshot file unavailable")?;
+    if let Err(error) = inspect_snapshot(&pending) {
+        let _ = std::fs::remove_file(&pending);
+        return Err(error);
+    }
+    Ok(json!({"queued": true, "learning": learning}))
+}
+
+/// 有待合并的输入记录（[`queue_learning_merge`]）时把它合并进本机的日志和词库：本机已有的保留本机，选词计数取大（`msime_engine::host::merge_dictionary_state`）。没有待合并的文件时返回 `None`。
+///
+/// 要拿独占维护权，拿不到（还有会话开着）时保留文件，下次再试。文件校验不过时删掉它，不会每次都重试；合并本身失败时保留，下次再试。合并成功后删掉文件，删不掉也无妨：再合并一次时本机已有的都保留，结果不变。
+pub(crate) fn merge_pending_learning(
+    options: &EngineOptions,
+    preferences: &Path,
+) -> Option<Result<Value, &'static str>> {
+    let pending = preferences.join(PENDING_LEARNING_NAME);
+    match std::fs::symlink_metadata(&pending) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
+        Err(_) => return Some(Err("snapshot file unavailable")),
+        Ok(_) => {}
+    }
+    Some((|| {
+        let _access = DictionaryAccess::try_maintenance(
+            Path::new(&options.user_data),
+            Path::new(&options.dictionaries),
+        )
+        .map_err(|_| "dictionary access unavailable")?
+        .ok_or("dictionary maintenance busy")?;
+        let metadata = match inspect_snapshot(&pending) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                let _ = std::fs::remove_file(&pending);
+                return Err(error);
+            }
+        };
+        let stream = SnapshotFileRecords::open(&pending)?;
+        let merged = msime_engine::host::merge_dictionary_state(
+            options,
+            metadata.engine_records.max(1),
+            stream,
+        )
+        .map_err(|_| "learning merge rejected")?;
+        let _ = std::fs::remove_file(&pending);
+        Ok(json!({
+            "entries": merged.entries,
+            "positions": merged.positions,
+            "selections": merged.selections,
+            "kept": merged.kept,
+            "skipped": merged.skipped,
+        }))
+    })())
+}
+
+/// 本机日志里输入记录的条数（学习调权、删除记录、固定位置和选词计数，不含用户自己的词），只读。本地备份恢复时用它判断本机是不是还什么都没学过。
+pub(crate) fn learning_count(options: &EngineOptions) -> Result<Value, &'static str> {
+    use msime_engine::host::DictionaryStateRecord;
+    let mut count = 0usize;
+    msime_engine::host::stream_dictionary_state(options, &mut |record| {
+        if !matches!(
+            record,
+            DictionaryStateRecord::Entry {
+                user_inserted: true,
+                deleted: false,
+                ..
+            }
+        ) {
+            count += 1;
+        }
+        true
+    })
+    .map_err(|_| "dictionary read rejected")?;
+    Ok(json!({"count": count}))
 }
 
 fn restore_snapshot_with(
