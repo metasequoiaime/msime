@@ -22,7 +22,7 @@ Status: implemented
 
 ## 同步与兼容
 
-- 按键同步的平台各加一个键：`platform.android.custom_candidate_skin_dark`、`platform.harmony.custom_candidate_skin_dark`、`platform.macos.custom_candidate_skin_dark`，空串表示未设，与浅色槽位的键同样校验。
+- 按键同步的平台各加一个键：`platform.android.custom_candidate_skin_dark`、`platform.harmony.custom_candidate_skin_dark`、`platform.macos.custom_candidate_skin_dark`，空串表示未设，与浅色槽位的键同样校验。客户端只上传账号服务 `/v1/users/me/preferences/schema` 声明过的字段，服务端的字段表在 msime-cloud 的 `internal/account/preferences_fields.json`：Android 的新键随 metasequoiaime/msime-cloud#95 声明；鸿蒙和 macOS 的候选窗皮肤键（包括浅色槽位的）在这次改动之前就不在字段表里，所以这两个平台的皮肤选择目前不跨设备同步，要同步得先在服务端声明。
 - `CustomTheme` 带 `deny_unknown_fields`，早于这个字段的构建会拒读写过 `candidate_skin_dark` 的偏好文档和解析请求。正式发布里输入法和设置应用同包、版本一致；开发机单独换输入法时要一起换设置应用。处理方式与 [`show_app_logo`](2026-10-08-macos-app-logo-toggle.md) 相同。
 - 键盘皮肤试用的持久记录 `TrialRecord` 多一个 `previous_candidate_skin_dark`，带 serde 缺省值，旧记录照常读取。
 
