@@ -50,6 +50,8 @@ public final class KeyboardKeyArea extends LinearLayout {
     private float targetX;
     private float targetY;
     private float targetDistance;
+    /** 选中的键自己坐标里按下的横坐标（挪进键帽之前），`route` 用来判断空隙里的按下是否落在让出的那一段里。 */
+    private float targetRawX;
 
     /** `spacedKey` 判断一个视图是否是由键距设置留出外边距的键，与布局时套外边距的判断一致。 */
     public KeyboardKeyArea(Context context, Predicate<View> spacedKey) {
@@ -120,10 +122,13 @@ public final class KeyboardKeyArea extends LinearLayout {
         targetDistance = Float.MAX_VALUE;
         search(this, x, y);
         View owner = hit ? null : target;
-        if (hit && hitKey != null && hitKey == yieldingKey && yieldsHere()) {
+        // 让出的那一段：键帽左侧几 dp（这时 hit 为真），或者它左侧原本按最近的键归它的那半段空隙。
+        boolean yielded = hit ? hitKey != null && hitKey == yieldingKey && yieldsHere(hitX)
+            : target != null && target == yieldingKey && yieldsHere(targetRawX);
+        if (yielded) {
             owner = yieldReceiver;
             targetX = KeyboardGapPolicy.inside(yieldReceiver.getWidth(), yieldReceiver.getWidth());
-            targetY = KeyboardGapPolicy.inside(hitY, yieldReceiver.getHeight());
+            targetY = KeyboardGapPolicy.inside(hit ? hitY : targetY, yieldReceiver.getHeight());
         }
         hitKey = null;
         target = null;
@@ -136,12 +141,14 @@ public final class KeyboardKeyArea extends LinearLayout {
         routedPointers |= pointerBit(id);
     }
 
-    /** 命中的是让出的键、按下落在它让出的那一段里，而接收的键就在同一行里可见。 */
-    private boolean yieldsHere() {
+    /** 按下（让出的键自己坐标里的 `x`）落在它让出的那一段里，而接收的键就在同一行里可见。 */
+    private boolean yieldsHere(float x) {
+        int leftMargin = yieldingKey.getLayoutParams() instanceof MarginLayoutParams margins
+            ? margins.leftMargin : 0;
         return yieldReceiver != null && yieldReceiver.getVisibility() == VISIBLE
             && yieldReceiver.getParent() == yieldingKey.getParent()
             && yieldReceiver.getWidth() >= 2 && yieldReceiver.getHeight() >= 2
-            && KeyboardGapPolicy.yieldsToLeft(hitX, yieldWidth);
+            && KeyboardGapPolicy.yieldsToLeft(x, leftMargin, yieldWidth);
     }
 
     private static int pointerBit(int id) {
@@ -200,6 +207,7 @@ public final class KeyboardKeyArea extends LinearLayout {
         if (distance < 0 || distance >= targetDistance) return;
         target = key;
         targetDistance = distance;
+        targetRawX = localX;
         targetX = KeyboardGapPolicy.inside(localX, width);
         targetY = KeyboardGapPolicy.inside(localY, height);
     }
