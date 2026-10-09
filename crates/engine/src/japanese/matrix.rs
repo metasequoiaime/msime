@@ -209,7 +209,7 @@ fn search_with_output(
             );
         }
 
-        rows[start] = previous_row;
+        // 此起点已完成全部扩展，后续只访问更晚的行；迭代结束即释放前驱文本。
     }
 
     let mut finals = std::mem::take(&mut rows[mora_count]).nodes;
@@ -568,3 +568,7 @@ mod inline_row_tests;
 #[cfg(test)]
 #[path = "matrix/exact_stream_tests.rs"]
 mod exact_stream_tests;
+
+#[cfg(test)]
+#[path = "matrix/consumed_row_tests.rs"]
+mod consumed_row_tests;

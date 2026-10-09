@@ -41,3 +41,5 @@ Status: implemented
 [固定八槽行实验](../../rejected/testing/2026-10-09-japanese-inline-matrix-rows.md) 因 release 未显示稳定收益且出现查询回退被否决；生产 Vec 行及本篇历史验证保持。实验仅保留在 `cfg(test)` 中，不能把减少分配视为查询加速。
 
 [精确词条流式消费](2026-10-09-japanese-exact-lemma-stream.md) 进一步取消精确命中的临时视图结果向量，本篇排名、Vec 行和节点文本筛选边界继续有效，历史分配与验证数字保持。
+
+[已消费行提前释放](2026-10-10-japanese-consumed-row-release.md) 进一步让起点完成全部跨度与未知回退后释放前驱行，取消无后续读者的历史行恢复。Vec 行布局、原排名、文本拥有和本篇历史验证保留；峰值请求字节下降不等于 RSS 或延迟改善。
