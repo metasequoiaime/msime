@@ -975,6 +975,10 @@ impl LearningDevice {
         )
     }
 
+    fn merge_pending(&self) -> Result<serde_json::Value, String> {
+        self.request(serde_json::json!({"operation": "merge_pending_learning"}))
+    }
+
     fn export(&self, name: &str, action: serde_json::Value) -> std::path::PathBuf {
         let destination = self.root.path().join(name);
         let mut action = action;
@@ -1129,7 +1133,7 @@ fn a_learning_export_leaves_out_what_the_format_cannot_carry() {
 }
 
 #[test]
-fn queued_learning_merges_at_the_next_sync_keeping_local_rows_and_the_larger_count() {
+fn queued_learning_merges_when_idle_keeping_local_rows_and_the_larger_count() {
     let source = LearningDevice::with_learning();
     let backup = source.export(
         "backup.ndjson",
@@ -1169,24 +1173,30 @@ fn queued_learning_merges_at_the_next_sync_keeping_local_rows_and_the_larger_cou
     )
     .unwrap()
     .unwrap();
-    let busy = crate::dictionary::personal_dictionary_sync_json(device.host.to_string().as_bytes())
-        .unwrap();
     assert_eq!(
-        busy["learning_error"], "dictionary maintenance busy",
-        "{busy}"
+        device.merge_pending().unwrap_err(),
+        "dictionary maintenance busy"
     );
     assert!(pending.exists());
     drop(session);
 
+    // 建会话前的个人词库同步不碰它：一份大备份不能拖慢恢复后第一次弹出键盘。
     let synced =
         crate::dictionary::personal_dictionary_sync_json(device.host.to_string().as_bytes())
             .unwrap();
+    assert!(synced.get("learning_merged").is_none(), "{synced}");
+    assert!(pending.exists());
+
     assert_eq!(
-        synced["learning_merged"],
-        serde_json::json!({"entries": 1, "positions": 0, "selections": 0, "kept": 3, "skipped": 0}),
-        "{synced}"
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": true, "entries": 1, "positions": 0, "selections": 0, "kept": 3, "skipped": 0})
     );
     assert!(!pending.exists());
+    assert!(!device
+        .root
+        .path()
+        .join(super::CLAIMED_LEARNING_NAME)
+        .exists());
     assert_eq!(
         device.number("SELECT weight FROM user_dictionary_operations WHERE value='拟好'"),
         Some(50)
@@ -1208,11 +1218,130 @@ fn queued_learning_merges_at_the_next_sync_keeping_local_rows_and_the_larger_cou
         device.number("SELECT selection_count FROM candidate_selection_state WHERE value='你好'"),
         Some(9)
     );
-    let again =
-        crate::dictionary::personal_dictionary_sync_json(device.host.to_string().as_bytes())
-            .unwrap();
-    assert!(again.get("learning_merged").is_none(), "{again}");
-    assert!(again.get("learning_error").is_none(), "{again}");
+    assert_eq!(
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": false})
+    );
+}
+
+/// 合并期间设置页又排了一份：只删认领的那份，新排的留到下一次。
+#[test]
+fn a_queue_made_while_a_claimed_merge_runs_survives_it() {
+    let source = LearningDevice::with_learning();
+    let first = source.export(
+        "first.ndjson",
+        serde_json::json!({"include_learning": true}),
+    );
+    source.sql("INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count) VALUES('ni','ni','泥',3);");
+    let second = source.export(
+        "second.ndjson",
+        serde_json::json!({"include_learning": true}),
+    );
+
+    let device = LearningDevice::new();
+    let pending = device.root.path().join(super::PENDING_LEARNING_NAME);
+    let claimed = device.root.path().join(super::CLAIMED_LEARNING_NAME);
+    let queue = |backup: &std::path::Path| {
+        device
+            .request(serde_json::json!({"operation": "queue_learning_merge", "source": backup}))
+            .unwrap()
+    };
+    queue(&first);
+    // 键盘已经认领了第一份、正在合并时，用户又从另一份备份恢复。
+    std::fs::rename(&pending, &claimed).unwrap();
+    assert_eq!(queue(&second)["learning"], 5);
+
+    assert_eq!(device.merge_pending().unwrap()["selections"], 1);
+    assert!(!claimed.exists());
+    assert!(pending.exists(), "the newer queue must survive");
+    assert_eq!(
+        device.number("SELECT count(*) FROM candidate_selection_state WHERE value='泥'"),
+        Some(0)
+    );
+
+    assert_eq!(device.merge_pending().unwrap()["selections"], 1);
+    assert!(!pending.exists());
+    assert_eq!(
+        device.number("SELECT selection_count FROM candidate_selection_state WHERE value='泥'"),
+        Some(3)
+    );
+}
+
+/// 写库一直出错时保留文件重试，连续三次后放弃；格式不对的文件直接删掉。
+#[test]
+fn a_failing_merge_is_retried_then_abandoned() {
+    let source = LearningDevice::with_learning();
+    let backup = source.export(
+        "backup.ndjson",
+        serde_json::json!({"include_learning": true}),
+    );
+    let device = LearningDevice::new();
+    // 模拟磁盘满一类的写库错误：往拼音表里插行一律失败。
+    rusqlite::Connection::open(device.root.path().join("dictionaries").join("msime-pinyin.db"))
+        .unwrap()
+        .execute_batch("CREATE TRIGGER synthetic_failure BEFORE INSERT ON tbl_2_n BEGIN SELECT RAISE(ABORT,'synthetic write failure'); END;")
+        .unwrap();
+    device
+        .request(serde_json::json!({"operation": "queue_learning_merge", "source": backup}))
+        .unwrap();
+    let claimed = device.root.path().join(super::CLAIMED_LEARNING_NAME);
+    for _ in 0..2 {
+        assert_eq!(
+            device.merge_pending().unwrap_err(),
+            "learning merge rejected"
+        );
+        assert!(claimed.exists());
+    }
+    // 同一事务里的选词计数也没有写进去。
+    assert_eq!(
+        device.number("SELECT count(*) FROM candidate_selection_state"),
+        Some(0)
+    );
+    assert_eq!(
+        device.merge_pending().unwrap_err(),
+        "learning merge abandoned"
+    );
+    assert!(!claimed.exists());
+    assert!(!device
+        .root
+        .path()
+        .join(super::LEARNING_ATTEMPTS_NAME)
+        .exists());
+    assert_eq!(
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": false})
+    );
+
+    std::fs::write(
+        device.root.path().join(super::PENDING_LEARNING_NAME),
+        b"not a snapshot\n",
+    )
+    .unwrap();
+    assert_eq!(
+        device.merge_pending().unwrap_err(),
+        "invalid snapshot document"
+    );
+    assert!(!claimed.exists());
+}
+
+/// 日志整体读不出来（这里是一行不是 UTF-8 的学习调权）时备份照样导出词，告诉宿主输入记录没带上。
+#[test]
+fn a_learning_export_falls_back_to_words_when_the_journal_cannot_be_read() {
+    let device = LearningDevice::with_learning();
+    device.sql(
+        "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES('pinyin','ni''hao',CAST(x'ff' AS TEXT),'upsert',90,'',0);",
+    );
+    let destination = device.root.path().join("learning.ndjson");
+    let exported = device
+        .request(serde_json::json!({"operation": "export_snapshot", "destination": destination, "include_learning": true}))
+        .unwrap();
+    assert_eq!(exported["entries"], 1, "{exported}");
+    assert_eq!(exported["learning"], 0, "{exported}");
+    assert_eq!(
+        exported["learning_error"], "dictionary read rejected",
+        "{exported}"
+    );
+    super::inspect_snapshot(&destination).unwrap();
 }
 
 /// 旧版本导出的备份（快照里只有词）照样能恢复：没有输入记录可排，什么也不写。

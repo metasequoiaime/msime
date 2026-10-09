@@ -459,7 +459,7 @@ pub(crate) fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static
 ///
 /// 这是离线导出：不需要登录，修订号固定为 1。调用方已经持有词库的会话访问权。
 ///
-/// `include_learning` 为真时（本地备份用，云同步不用）在用户的词之后再写输入记录：Engine 日志里的学习调权和删除记录写成 `overlay`（学习调权 `user_inserted:false`，删除记录 `deleted:true`），固定位置写成 `position`，选词计数写成 `selection`，都是这个格式第 1 版本来就有的记录，旧版本恢复时照样认得。快照格式装不下的行（编码或词含换行、制表符，位置不在 1 到 5，总记录数超出上限）跳过并计入 `learning_skipped`，选词计数截到 0 到 10。返回值多出 `learning`（写进去的输入记录条数）和 `learning_skipped`。为假时输出与加这个参数之前逐字节相同。
+/// `include_learning` 为真时（本地备份用，云同步不用）在用户的词之后再写输入记录：Engine 日志里的学习调权和删除记录写成 `overlay`（学习调权 `user_inserted:false`，删除记录 `deleted:true`），固定位置写成 `position`，选词计数写成 `selection`，都是这个格式第 1 版本来就有的记录，旧版本恢复时照样认得。快照格式装不下的行（编码或词含换行、制表符，位置不在 1 到 5，总记录数超出上限）跳过并计入 `learning_skipped`，选词计数截到 0 到 10。返回值多出 `learning`（写进去的输入记录条数）和 `learning_skipped`。日志整体读不出来时只导出词，`learning` 为 0，原因在 `learning_error`。为假时输出与加这个参数之前逐字节相同。
 pub(crate) fn export_local_snapshot(
     options: &EngineOptions,
     destination: &Path,
@@ -528,13 +528,21 @@ pub(crate) fn export_local_snapshot(
         }
     }
     rows.truncate(100_000);
+    // 输入记录读不出来（日志里有不是 UTF-8 的行、未知的词库种类或超长的行，`stream_dictionary_state` 会整体拒绝）时不让整份备份失败：照样导出词，`learning_error` 告诉宿主这份里没有输入记录。
+    let mut learning_error = None;
     let learning = if include_learning {
-        Some(learning_records(
-            options,
-            REVISION,
-            &updated_at,
-            MAX_SNAPSHOT_RECORDS - 1 - rows.len() * 2,
-        )?)
+        Some(
+            learning_records(
+                options,
+                REVISION,
+                &updated_at,
+                MAX_SNAPSHOT_RECORDS - 1 - rows.len() * 2,
+            )
+            .unwrap_or_else(|error| {
+                learning_error = Some(error);
+                LearningRecords::default()
+            }),
+        )
     } else {
         None
     };
@@ -609,6 +617,9 @@ pub(crate) fn export_local_snapshot(
     if let Some((learning, learning_skipped)) = learning_counts {
         value["learning"] = json!(learning);
         value["learning_skipped"] = json!(learning_skipped);
+    }
+    if let Some(error) = learning_error {
+        value["learning_error"] = json!(error);
     }
     Ok(value)
 }
@@ -775,6 +786,12 @@ fn snapshot_safe(text: &str) -> bool {
 
 /// 待合并的输入记录在 `preferences_directory` 下的文件名，见 [`queue_learning_merge`]。
 const PENDING_LEARNING_NAME: &str = "pending-learning-merge.ndjson";
+/// 键盘认领待合并的文件后改成的名字，见 [`merge_pending_learning`]。
+const CLAIMED_LEARNING_NAME: &str = "pending-learning-merge.claimed.ndjson";
+/// 认领的那份已经连续失败了几次，一个十进制数。
+const LEARNING_ATTEMPTS_NAME: &str = "pending-learning-merge.attempts";
+/// 连续失败这么多次就放弃认领的那份。
+const MAX_LEARNING_MERGE_ATTEMPTS: u32 = 3;
 
 /// 一份快照里的记录是不是输入记录：学习调权（`user_inserted:false` 的 overlay）、删除记录（`deleted:true` 的 overlay）、固定位置和选词计数。用户自己的词（`entry` 和与它配对的 overlay）不是。
 fn is_learning_record(map: &serde_json::Map<String, Value>) -> bool {
@@ -792,7 +809,7 @@ fn is_learning_record(map: &serde_json::Map<String, Value>) -> bool {
     }
 }
 
-/// 把 `source`（本地备份里的词库快照）中的输入记录挑出来，另存成一份只有这些记录的快照，放在 `preferences` 下等键盘合并：Android 上改工作词库要独占维护权，只有键盘没有会话时才拿得到，所以设置页不直接合并，而是由键盘在建会话前同步个人词库时（[`merge_pending_learning`]）合并进去。已有一份待合并的会被替换。
+/// 把 `source`（本地备份里的词库快照）中的输入记录挑出来，另存成一份只有这些记录的快照，放在 `preferences` 下等键盘合并：Android 上改工作词库要独占维护权，只有键盘没有会话时才拿得到，所以设置页不直接合并，而是由键盘收起后的空闲处理（[`merge_pending_learning`]）合并进去。还没被认领的一份会被替换。
 ///
 /// `source` 先按云端格式完整校验；挑出来的文件写完再校验一遍。返回 `{queued, learning}`：快照里没有输入记录（旧版本导出的备份）时 `queued` 为假，什么也不写。
 pub(crate) fn queue_learning_merge(
@@ -848,49 +865,87 @@ pub(crate) fn queue_learning_merge(
     Ok(json!({"queued": true, "learning": learning}))
 }
 
-/// 有待合并的输入记录（[`queue_learning_merge`]）时把它合并进本机的日志和词库：本机已有的保留本机，选词计数取大（`msime_engine::host::merge_dictionary_state`）。没有待合并的文件时返回 `None`。
+/// 有待合并的输入记录（[`queue_learning_merge`]）时把它合并进本机的日志和词库：本机已有的保留本机，选词计数取大（`msime_engine::host::merge_dictionary_state`）。没有待合并的文件时返回 `{merged:false}`，合并了返回 `{merged:true, entries, positions, selections, kept, skipped}`。Android 键盘收起、会话销毁后在空闲时调用（与整份快照激活同一时机，排在它之后），不在建会话前的个人词库同步里做，免得一份大备份拖慢恢复后第一次弹出键盘。
 ///
-/// 要拿独占维护权，拿不到（还有会话开着）时保留文件，下次再试。文件校验不过时删掉它，不会每次都重试；合并本身失败时保留，下次再试。合并成功后删掉文件，删不掉也无妨：再合并一次时本机已有的都保留，结果不变。
+/// 先拿独占维护权，拿不到（还有会话开着）时什么也不动，下次再试。拿到后把待合并的文件改名认领（[`CLAIMED_LEARNING_NAME`]），只合并、只删认领的那一份：合并期间设置页又排了一份新的，新的那份写在原来的名字下，不会被这边删掉，下次空闲时再合并。上次没合并完的认领文件还在时先合并它，新排的等下一次。
+///
+/// 文件格式不对（不是合法快照）时直接删掉。别的失败（读文件出错、写库出错）保留文件下次再试，但连续失败 [`MAX_LEARNING_MERGE_ATTEMPTS`] 次后放弃并删掉，报 `learning merge abandoned`，不会每次空闲都把整份合并再跑一遍再回滚。合并成功后删掉文件，删不掉也无妨：再合并一次时本机已有的都保留，结果不变。
 pub(crate) fn merge_pending_learning(
     options: &EngineOptions,
     preferences: &Path,
-) -> Option<Result<Value, &'static str>> {
+) -> Result<Value, &'static str> {
     let pending = preferences.join(PENDING_LEARNING_NAME);
-    match std::fs::symlink_metadata(&pending) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
-        Err(_) => return Some(Err("snapshot file unavailable")),
-        Ok(_) => {}
+    let claimed = preferences.join(CLAIMED_LEARNING_NAME);
+    let attempts = preferences.join(LEARNING_ATTEMPTS_NAME);
+    let present = |path: &Path| match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(_) => Err("snapshot file unavailable"),
+    };
+    if !present(&claimed)? && !present(&pending)? {
+        return Ok(json!({"merged": false}));
     }
-    Some((|| {
-        let _access = DictionaryAccess::try_maintenance(
-            Path::new(&options.user_data),
-            Path::new(&options.dictionaries),
-        )
-        .map_err(|_| "dictionary access unavailable")?
-        .ok_or("dictionary maintenance busy")?;
-        let metadata = match inspect_snapshot(&pending) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                let _ = std::fs::remove_file(&pending);
-                return Err(error);
+    let _access = DictionaryAccess::try_maintenance(
+        Path::new(&options.user_data),
+        Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or("dictionary maintenance busy")?;
+    if !present(&claimed)? {
+        std::fs::rename(&pending, &claimed).map_err(|_| "snapshot file unavailable")?;
+        // 新认领的一份，重试次数从头算。
+        remove_if_present(&attempts)?;
+    }
+    let discard = || {
+        let _ = std::fs::remove_file(&claimed);
+        let _ = std::fs::remove_file(&attempts);
+    };
+    let merged = inspect_snapshot(&claimed).and_then(|metadata| {
+        let stream = SnapshotFileRecords::open(&claimed)?;
+        msime_engine::host::merge_dictionary_state(options, metadata.engine_records.max(1), stream)
+            .map_err(|_| "learning merge rejected")
+    });
+    match merged {
+        Ok(merged) => {
+            discard();
+            Ok(json!({
+                "merged": true,
+                "entries": merged.entries,
+                "positions": merged.positions,
+                "selections": merged.selections,
+                "kept": merged.kept,
+                "skipped": merged.skipped,
+            }))
+        }
+        Err(error @ ("invalid snapshot document" | "invalid snapshot file")) => {
+            discard();
+            Err(error)
+        }
+        Err(error) => {
+            let failures = std::fs::read_to_string(&attempts)
+                .ok()
+                .and_then(|text| text.trim().parse::<u32>().ok())
+                .unwrap_or(0)
+                .saturating_add(1);
+            if failures >= MAX_LEARNING_MERGE_ATTEMPTS {
+                discard();
+                return Err("learning merge abandoned");
             }
-        };
-        let stream = SnapshotFileRecords::open(&pending)?;
-        let merged = msime_engine::host::merge_dictionary_state(
-            options,
-            metadata.engine_records.max(1),
-            stream,
-        )
-        .map_err(|_| "learning merge rejected")?;
-        let _ = std::fs::remove_file(&pending);
-        Ok(json!({
-            "entries": merged.entries,
-            "positions": merged.positions,
-            "selections": merged.selections,
-            "kept": merged.kept,
-            "skipped": merged.skipped,
-        }))
-    })())
+            msime_client_core::file_lock::replace_private_file(
+                &attempts,
+                failures.to_string().as_bytes(),
+            )
+            .map_err(|_| "snapshot file unavailable")?;
+            Err(error)
+        }
+    }
+}
+
+fn remove_if_present(path: &Path) -> Result<(), &'static str> {
+    match std::fs::remove_file(path) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => Err("snapshot file unavailable"),
+        _ => Ok(()),
+    }
 }
 
 /// 本机日志里输入记录的条数（学习调权、删除记录、固定位置和选词计数，不含用户自己的词），只读。本地备份恢复时用它判断本机是不是还什么都没学过。

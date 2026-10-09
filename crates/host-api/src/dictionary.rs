@@ -211,10 +211,12 @@ enum Operation {
     },
     /// 本机输入记录的条数，只读（`dictionary_snapshot::learning_count`）。
     LearningCount,
-    /// 把快照文件 `source` 里的输入记录存成待合并的文件，键盘下次同步个人词库时合并进本机（`dictionary_snapshot::queue_learning_merge`）。要求 `preferences_directory` 是绝对路径。
+    /// 把快照文件 `source` 里的输入记录存成待合并的文件，键盘收起后空闲时合并进本机（`dictionary_snapshot::queue_learning_merge`）。要求 `preferences_directory` 是绝对路径。
     QueueLearningMerge {
         source: String,
     },
+    /// 合并 `QueueLearningMerge` 排下的输入记录（`dictionary_snapshot::merge_pending_learning`），要独占维护权。要求 `preferences_directory` 是绝对路径。
+    MergePendingLearning,
 }
 
 #[derive(Deserialize)]
@@ -538,7 +540,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
         .preferences
         .validate()
         .map_err(|_| "invalid dictionary options".to_owned())?;
-    // 只有 `queue_learning_merge` 用到：待合并的输入记录放在它下面。
+    // 只有 `queue_learning_merge` 和 `merge_pending_learning` 用到：待合并的输入记录放在它下面。
     let preferences_directory = request
         .options
         .preferences_directory
@@ -821,6 +823,12 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             )
             .map_err(str::to_owned)
         }
+        Operation::MergePendingLearning => {
+            let preferences =
+                preferences_directory.ok_or("personal dictionary shared directory unavailable")?;
+            crate::dictionary_snapshot::merge_pending_learning(&options, Path::new(&preferences))
+                .map_err(str::to_owned)
+        }
     }
 }
 
@@ -1066,7 +1074,8 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
         Operation::Count { .. }
         | Operation::ExportSnapshot { .. }
         | Operation::LearningCount
-        | Operation::QueueLearningMerge { .. } => {
+        | Operation::QueueLearningMerge { .. }
+        | Operation::MergePendingLearning => {
             Err("dictionary read operations require msime_client_dictionary".into())
         }
         Operation::DismissFailure { request_id } => {
@@ -1172,8 +1181,6 @@ fn user_entries_page(
 /// only after its Engine session has been destroyed; the shared dictionary lock
 /// then prevents races with any other host.
 ///
-/// 同一时机先合并本地备份恢复时排下的输入记录（`dictionary_snapshot::merge_pending_learning`）：结果在 `learning_merged`，失败的原因在 `learning_error`，两者都不影响个人词库队列的同步。
-///
 /// The request is the bare HostOptions a host passes to `msime_client_create`, as the C header documents and as both the Android and HarmonyOS hosts send it. Parsing it as an `{options, action}` envelope refused every call, which Android swallowed and HarmonyOS answered by rebuilding its session every two seconds.
 pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
     if bytes.len() > DICTIONARY_REQUEST_LIMIT {
@@ -1196,9 +1203,7 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
         .filter(|path| Path::new(path).is_absolute())
         .ok_or("personal dictionary shared directory unavailable")?;
     let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
-    let preferences = Path::new(directory).to_path_buf();
     let options = options.into_engine_options();
-    let learning = crate::dictionary_snapshot::merge_pending_learning(&options, &preferences);
     // Read once per synchronization, and only when a collection addition is pending.
     let mut user_words: Option<std::collections::HashSet<String>> = None;
     store
@@ -1247,17 +1252,11 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
         )
         .map_err(personal_dictionary_error)?;
     let state = store.read().map_err(personal_dictionary_error)?;
-    let mut result = json!({
+    Ok(json!({
         "synchronized": true,
         "pending_count": state.pending_count(),
         "snapshot_error": state.snapshot_error,
-    });
-    match learning {
-        Some(Ok(merged)) => result["learning_merged"] = merged,
-        Some(Err(error)) => result["learning_error"] = json!(error),
-        None => {}
-    }
-    Ok(result)
+    }))
 }
 
 /// The request id prefix `msime_client_core::dictionary::collections` gives what it queues.
