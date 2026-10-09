@@ -923,6 +923,12 @@ pub struct Preferences {
     pub keybindings: KeybindingPreferences,
     #[serde(default)]
     pub word_character: WordCharacterPreferences,
+    /// 用两个专用键直接选当前页的第二、第三个候选。等于默认值（关闭）时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(
+        default,
+        skip_serializing_if = "SecondThirdCandidatePreferences::is_default"
+    )]
+    pub second_third_candidate: SecondThirdCandidatePreferences,
     #[serde(default)]
     pub frequency: FrequencyPreferences,
     #[serde(default)]
@@ -1718,6 +1724,29 @@ impl Default for WordCharacterPreferences {
     }
 }
 
+/// 选第二、第三个候选的那一对键。目前只有分号和单引号一种；留成枚举，是为了以后加左右 Shift 之类的键位时不必改文档格式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SecondThirdCandidateKeys {
+    /// `;` 选第二个候选，`'` 选第三个候选。
+    #[default]
+    SemicolonQuote,
+}
+
+/// 缺哪个字段就取默认值，宿主的设置页只写 `enabled` 也能读。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct SecondThirdCandidatePreferences {
+    pub enabled: bool,
+    pub keys: SecondThirdCandidateKeys,
+}
+
+impl SecondThirdCandidatePreferences {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NavigationPreferences {
@@ -1958,6 +1987,7 @@ impl Default for Preferences {
             navigation: NavigationPreferences::default(),
             keybindings: KeybindingPreferences::default(),
             word_character: WordCharacterPreferences::default(),
+            second_third_candidate: SecondThirdCandidatePreferences::default(),
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),

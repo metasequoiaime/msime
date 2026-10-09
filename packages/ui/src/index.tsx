@@ -1734,6 +1734,8 @@ export type Preferences = {
   fuzzy_pinyin?: FuzzyPinyinPreferences;
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
+  /** 组字时 `;` 选第二个候选、`'` 选第三个。关闭时不写进文档；目前只有 Windows 接入，本页不显示这一项。 */
+  second_third_candidate?: { enabled: boolean; keys: "semicolon_quote" };
   navigation?: NavigationPreferences;
   keybindings?: KeybindingPreferences;
   scheme: InputScheme;
