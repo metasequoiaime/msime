@@ -58,12 +58,14 @@ impl PendingSyllable {
         }
     }
 
-    /// The toned syllable as `msime-zhuyin.db` stores it: the symbols followed by the tone mark (empty for tone 1). `None` while nothing is typed, since a tone alone is not a syllable.
+    /// `msime-zhuyin.db` 中的带调音节：符号后接调号（一声为空）。没有符号时返回 `None`，调号本身不是音节。
     pub fn toned(&self, mark: &str) -> Option<String> {
         if self.is_empty() {
             return None;
         }
-        let mut toned = self.bopomofo();
+        let capacity = self.symbols().map(char::len_utf8).sum::<usize>() + mark.len();
+        let mut toned = String::with_capacity(capacity);
+        toned.extend(self.symbols());
         toned.push_str(mark);
         Some(toned)
     }
@@ -138,5 +140,37 @@ mod tests {
         let mut pending = typed(b"su");
         pending.clear();
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn toned_three_symbol_syllables_allocate_only_the_returned_string() {
+        let pending = typed(b"cj0");
+        for mark in layout::TONE_MARKS {
+            let expected = format!("ㄏㄨㄢ{mark}");
+            let (toned, allocations) =
+                crate::ime::personal_rerank::allocations::count(|| pending.toned(mark));
+            assert_eq!(toned.as_deref(), Some(expected.as_str()));
+            assert_eq!(allocations, 1, "带调音节不应在构造时反复扩容");
+        }
+    }
+
+    #[test]
+    fn toned_capacity_preserves_unicode_slots_long_marks_and_empty_syllables() {
+        let pending = PendingSyllable {
+            initial: Some('a'),
+            medial: Some('字'),
+            rime: Some('😀'),
+        };
+        let mark = "合成長調號ˇ";
+        let (toned, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| pending.toned(mark));
+        assert_eq!(toned.as_deref(), Some("a字😀合成長調號ˇ"));
+        assert_eq!(allocations, 1);
+
+        let (toned, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            PendingSyllable::default().toned(mark)
+        });
+        assert_eq!(toned, None);
+        assert_eq!(allocations, 0);
     }
 }
