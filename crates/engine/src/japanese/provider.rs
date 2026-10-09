@@ -168,9 +168,9 @@ impl JapaneseProvider {
                 );
                 for kana in pending_kana {
                     let prefix = join_reading(&conversion.hiragana, kana);
-                    for lemma in dictionary.prefix_lemmas(&prefix, PENDING_PREFIX_LEMMAS) {
+                    for lemma in dictionary.prefix_lemma_views(&prefix, PENDING_PREFIX_LEMMAS) {
                         rows.push(
-                            &lemma.surface,
+                            lemma.surface,
                             PREFIX_LEMMA_BASE - i64::from(lemma.word_cost),
                             CandidateSource::Database,
                         );
@@ -179,7 +179,8 @@ impl JapaneseProvider {
             } else if conversion.pending.is_empty()
                 && conversion.hiragana.len() >= MIN_PREFIX_READING_BYTES
             {
-                predictions = dictionary.prefix_lemmas(&conversion.hiragana, READING_PREFIX_LEMMAS);
+                predictions =
+                    dictionary.prefix_lemma_views(&conversion.hiragana, READING_PREFIX_LEMMAS);
             }
             rows.reserve(predictions.len() + SENTENCE_LIMIT + 1);
             for sentence in search_converted(&dictionary, conversion, SENTENCE_LIMIT) {
@@ -191,7 +192,7 @@ impl JapaneseProvider {
             }
             for lemma in predictions {
                 rows.push(
-                    &lemma.surface,
+                    lemma.surface,
                     PREFIX_LEMMA_BASE - i64::from(lemma.word_cost),
                     CandidateSource::Database,
                 );
@@ -338,6 +339,23 @@ mod tests {
         assert_eq!(allocations, 0, "已有候选行与转换缓冲应复用");
         assert_eq!(words(&destination), ["か", "カ"]);
         assert_eq!(destination[0].word.as_ptr(), word_pointer);
+    }
+
+    #[test]
+    fn model_backed_provider_does_not_copy_temporary_lemma_strings() {
+        let (_root, mut provider) =
+            provider_with(Some(test_model::bytes(&[("か", "蚊", 0, 0, 500)], 1, &[0])));
+        let request = request("ka");
+        let mut destination = provider.query(&request);
+        provider.query_into(&request, &mut destination);
+        let expected = destination.clone();
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            provider.query_into(&request, &mut destination);
+        });
+        assert_eq!(destination, expected);
+        assert_eq!(words(&destination), ["か", "カ", "蚊"]);
+        eprintln!("日文有词库单假名 provider 热查询分配：{allocations}");
+        assert!(allocations <= 13, "词条文本应从词库借用：{allocations}");
     }
 
     fn assert_provider_reuses_conversion_strings(raw: &str) {

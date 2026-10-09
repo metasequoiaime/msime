@@ -80,8 +80,8 @@ pub fn search_converted(
     let pending_kana = kana_for_romaji_prefix(pending);
     if reading.is_empty() {
         for kana in &pending_kana {
-            for lemma in dictionary.prefix_lemmas(kana, 24) {
-                output.push(&lemma.surface, i64::from(lemma.word_cost));
+            for lemma in dictionary.prefix_lemma_views(kana, 24) {
+                output.push(lemma.surface, i64::from(lemma.word_cost));
                 if output.full() {
                     return output.items;
                 }
@@ -114,13 +114,13 @@ pub fn search_converted(
         let max_end = mora_count.min(start + MAX_LEMMA_MORA);
         for end in start + 1..=max_end {
             let key = &reading[start_byte..boundaries[end]];
-            for lemma in dictionary.exact_lemmas(key, 24) {
+            for lemma in dictionary.exact_lemma_views(key, 24) {
                 for previous in &previous_row {
                     let cost = previous.cost
                         + i64::from(lemma.word_cost)
                         + i64::from(dictionary.connection_cost(previous.right_id, lemma.left_id));
                     rows[end].push(Node {
-                        text: join_text(&previous.text, &lemma.surface),
+                        text: join_text(&previous.text, lemma.surface),
                         cost,
                         right_id: lemma.right_id,
                     });
@@ -154,12 +154,12 @@ pub fn search_converted(
 
     if !pending.is_empty() {
         for kana in &pending_kana {
-            for lemma in dictionary.exact_lemmas(&join_text(reading, kana), 16) {
-                output.push(&lemma.surface, i64::from(lemma.word_cost));
+            for lemma in dictionary.exact_lemma_views(&join_text(reading, kana), 16) {
+                output.push(lemma.surface, i64::from(lemma.word_cost));
             }
         }
-        for lemma in dictionary.prefix_lemmas_continuing(reading, &pending_kana, 48) {
-            output.push(&lemma.surface, i64::from(lemma.word_cost));
+        for lemma in dictionary.continuing_lemma_views(reading, &pending_kana, 48) {
+            output.push(lemma.surface, i64::from(lemma.word_cost));
         }
     }
 
@@ -171,8 +171,8 @@ pub fn search_converted(
         if output.full() {
             break;
         }
-        for lemma in dictionary.exact_lemmas(&reading[..boundaries[end]], 16) {
-            output.push(&lemma.surface, i64::from(lemma.word_cost));
+        for lemma in dictionary.exact_lemma_views(&reading[..boundaries[end]], 16) {
+            output.push(lemma.surface, i64::from(lemma.word_cost));
             if output.full() {
                 break;
             }
@@ -207,6 +207,23 @@ mod tests {
         let text = super::join_text("蚊", "な");
         assert_eq!(text, "蚊な");
         assert_eq!(text.capacity(), text.len());
+    }
+
+    #[test]
+    fn sentence_search_does_not_copy_temporary_lemma_strings() {
+        let dictionary = dictionary(&[("か", "蚊", 0, 0, 500)], 1, &[0]);
+        let conversion = convert_romaji("ka");
+        let expected = search_converted(&dictionary, &conversion, 16);
+        let (actual, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            search_converted(&dictionary, &conversion, 16)
+        });
+        assert_eq!(actual, expected);
+        assert_eq!(texts(&actual), ["蚊", "か"]);
+        eprintln!("日文单假名矩阵搜索分配：{allocations}");
+        assert!(
+            allocations <= 13,
+            "临时词条字符串不应重复拥有：{allocations}"
+        );
     }
 
     fn search(
