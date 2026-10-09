@@ -36,6 +36,8 @@ private struct VoiceRequestHeader: Decodable {
 private struct VoiceTranscriptionArgs: Decodable {
   let requestId: String
   let provider: String
+  /// 请求格式：multipart、chat_audio 或 doubao_websocket，由共享层按 provider 给出；这里只按它挑请求构造。
+  let requestFormat: String
   let endpoint: String
   let model: String
   let token: String
@@ -129,7 +131,7 @@ private final class VoiceTranscriptionTransport: NSObject, URLSessionDataDelegat
     guard !completed else { return }
     guard error == nil, response != nil,
           let document = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-          let text = document["text"] as? String,
+          let text = Self.transcript(document),
           text.count <= 10_000,
           !text.unicodeScalars.contains(where: { $0.value == 0 }) else {
       finish(.failure(VoicePluginFailure(code: "voice_response")))
@@ -143,6 +145,14 @@ private final class VoiceTranscriptionTransport: NSObject, URLSessionDataDelegat
                   newRequest request: URLRequest,
                   completionHandler: @escaping (URLRequest?) -> Void) {
     completionHandler(nil)
+  }
+
+  /// 回答里的文字：multipart 接口放在 `text`，chat_audio 接口放在 `choices[0].message.content`。
+  static func transcript(_ document: [String: Any]) -> String? {
+    if let text = document["text"] as? String { return text }
+    guard let choices = document["choices"] as? [[String: Any]],
+          let message = choices.first?["message"] as? [String: Any] else { return nil }
+    return message["content"] as? String
   }
 }
 
@@ -214,11 +224,12 @@ private final class IOSVoiceTranscriptionService {
           components.user == nil, components.password == nil, components.fragment == nil else {
       return false
     }
-    if ["openai", "siliconflow", "groq", "everyapi", "mistral"].contains(args.provider) {
+    if ["multipart", "chat_audio"].contains(args.requestFormat) {
       return components.scheme?.lowercased() == "https" && !model.isEmpty &&
         args.headers.isEmpty && args.boostingTableId.isEmpty
     }
-    guard args.provider == "doubao", components.scheme?.lowercased() == "wss",
+    guard args.requestFormat == "doubao_websocket", args.provider == "doubao",
+          components.scheme?.lowercased() == "wss",
           model.isEmpty, args.token.isEmpty, (3...4).contains(args.headers.count) else {
       return false
     }
@@ -332,7 +343,7 @@ private final class IOSVoiceTranscriptionService {
       fail(session, code: "voice_recording")
       return
     }
-    if session.args.provider == "doubao" {
+    if session.args.requestFormat == "doubao_websocket" {
       startDoubao(session, audio: audio)
       return
     }
@@ -395,6 +406,9 @@ private final class IOSVoiceTranscriptionService {
   private func transcriptionRequest(_ args: VoiceTranscriptionArgs, audio: Data) -> URLRequest? {
     let endpoint = args.endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let url = URL(string: endpoint) else { return nil }
+    if args.requestFormat == "chat_audio" {
+      return chatAudioRequest(args, url: url, audio: audio)
+    }
     let boundary = "MSIME-\(UUID().uuidString)"
     var body = Data()
     func append(_ value: String) { body.append(Data(value.utf8)) }
@@ -412,6 +426,30 @@ private final class IOSVoiceTranscriptionService {
     request.httpBody = body
     request.setValue("multipart/form-data; boundary=\(boundary)",
       forHTTPHeaderField: "Content-Type")
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    if !args.token.isEmpty {
+      request.setValue("Bearer \(args.token)", forHTTPHeaderField: "Authorization")
+    }
+    return request
+  }
+
+  /// 阿里云百炼的整句识别：Chat Completions 请求，录音作为 `input_audio` 的 Base64 数据 URL。录音最长 60 秒、约 1.9 MB，编码后仍在百炼 10 MB 的上限以内。
+  private func chatAudioRequest(_ args: VoiceTranscriptionArgs, url: URL, audio: Data) -> URLRequest? {
+    let content: [[String: Any]] = [[
+      "type": "input_audio",
+      "input_audio": ["data": "data:audio/wav;base64," + audio.base64EncodedString()],
+    ]]
+    let document: [String: Any] = [
+      "model": args.model.trimmingCharacters(in: .whitespacesAndNewlines),
+      "stream": false,
+      "messages": [["role": "user", "content": content]],
+    ]
+    guard let body = try? JSONSerialization.data(withJSONObject: document) else { return nil }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.timeoutInterval = 60
+    request.httpBody = body
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     if !args.token.isEmpty {
       request.setValue("Bearer \(args.token)", forHTTPHeaderField: "Authorization")

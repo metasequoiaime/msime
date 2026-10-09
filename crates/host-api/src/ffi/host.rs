@@ -246,6 +246,7 @@ pub unsafe extern "C" fn msime_client_mobile_voice_configuration(
         .map(|value| {
             json!({
                 "provider": value.provider,
+                "requestFormat": value.request_format,
                 "endpoint": value.endpoint,
                 "model": value.model,
                 "token": value.token,

@@ -2217,13 +2217,14 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
 }
 
 /// Persisted recognition provider identifiers. Hosts expose only the providers they implement: `system` is the platform speech adapter, not a cloud profile, and `local` is an installed on-device sherpa-onnx model directory named by `asr_model_path`, which needs a host built with the recognizer behind it.
-pub const ASR_PROVIDERS: [&str; 8] = [
+pub const ASR_PROVIDERS: [&str; 9] = [
     "doubao",
     "siliconflow",
     "openai",
     "groq",
     "everyapi",
     "mistral",
+    "bailian",
     "system",
     "local",
 ];

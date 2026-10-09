@@ -179,6 +179,8 @@ fn ai_assistant_without_a_provider_key_loads_with_the_default_provider() {
 
 #[test]
 fn every_reachable_voice_provider_validates_and_others_are_rejected_on_save() {
+    // 阿里云百炼（#6017）走整句识别，id 是 `bailian`。
+    assert!(ASR_PROVIDERS.contains(&"bailian"));
     for provider in ASR_PROVIDERS {
         let preferences = Preferences {
             voice_input: VoiceInputPreferences {

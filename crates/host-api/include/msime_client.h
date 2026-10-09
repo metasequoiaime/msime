@@ -200,7 +200,7 @@ char *msime_client_restore_default_preferences(const uint8_t *directory, size_t 
 /* The transcription provider and optional rewrite this device is configured for, read from an
  * absolute preferences directory. Response value: {provider:{...}|null, polish:{...}|null}; both
  * absent means nothing is configured and the host uses whatever it falls back to. Contains
- * credentials: never log the response; release with msime_client_string_free. */
+ * credentials: never log the response; release with msime_client_string_free. provider.requestFormat 是请求格式："multipart"（OpenAI 兼容的 /audio/transcriptions）、"chat_audio"（Chat Completions 带 input_audio，阿里云百炼）、"doubao_websocket" 或 "local"；宿主按它挑请求构造，不按 provider 名字判断。 */
 char *msime_client_mobile_voice_configuration(const uint8_t *directory, size_t length);
 /* The global theme picker: {themes:[{id,title,appearance,preview,candidate,keyboard},...],default:"system"}. Ids in picker order: system, shuishan, light, paper, night, ink, custom. appearance is "light"|"dark"|null; preview {background,panel,accent,text}, candidate and keyboard are the built-in palettes and are null for system and custom. Keys are snake_case. Hosts keep no copy of the ids, titles or colours. */
 char *msime_client_theme_catalog(void);
