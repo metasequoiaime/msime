@@ -554,22 +554,24 @@ impl ZhuyinScheme {
             }
         }
         let singles = &singles[..count];
-        self.conversion = conversion::convert(
+        self.conversion = conversion::convert_filtered(
             positions.len(),
             &self.pins,
-            |start, end| {
-                cached_best(dictionary, best, &positions[start..end], |entry| {
-                    entry
-                        .filter(|(_, entry)| {
-                            clears_ambiguous_word_floor(
-                                &ambiguous[start..end],
-                                singles,
-                                start,
-                                entry,
-                            )
-                        })
-                        .cloned()
-                })
+            |start, end, can_improve| {
+                cached_best(
+                    dictionary,
+                    best,
+                    &positions[start..end],
+                    |entry| match entry.filter(|(_, entry)| {
+                        clears_ambiguous_word_floor(&ambiguous[start..end], singles, start, entry)
+                    }) {
+                        Some((key, entry)) if can_improve(entry.weight) => {
+                            conversion::Lookup::Found(key.clone(), entry.clone())
+                        }
+                        Some(_) => conversion::Lookup::Rejected,
+                        None => conversion::Lookup::Missing,
+                    },
+                )
             },
             |index| positions[index][0].clone(),
         )?;
@@ -1551,6 +1553,67 @@ mod tests {
         assert!(best.description.is_empty());
         assert_eq!(best.description.capacity(), capacity);
         assert!(cached_best(&scheme.dictionary, &mut best, &[&readings], |_| ()).is_err());
+    }
+
+    #[test]
+    fn rejected_cached_single_rows_do_not_become_fallbacks() {
+        let (_dir, mut scheme) = scheme_with(&[
+            ("ㄋㄧˇ", "甲", 0),
+            ("ㄏㄠˇ", "乙", 0),
+            ("ㄇㄚ", "丙", 0),
+            ("ㄊㄞˊ", "丁", -20),
+            ("ㄏㄠˇ ㄇㄚ", "乙丙", 0),
+            ("ㄇㄚ ㄊㄞˊ", "丙丁", -10),
+        ]);
+        scheme.syllables = ["ㄋㄧˇ", "ㄏㄠˇ", "ㄇㄚ", "ㄊㄞˊ"]
+            .into_iter()
+            .map(|reading| syllable("合成按鍵", &[reading]))
+            .collect();
+
+        scheme.reconvert().unwrap();
+
+        assert_eq!(
+            scheme
+                .conversion
+                .iter()
+                .map(|span| span.text.as_str())
+                .collect::<Vec<_>>(),
+            ["甲", "乙", "丙丁"]
+        );
+        assert_eq!(scheme.conversion[2].key, "ㄇㄚ ㄊㄞˊ");
+    }
+
+    #[test]
+    fn warmed_dense_conversion_only_clones_improving_paths() {
+        let entries = (1..=MAX_SYLLABLES)
+            .map(|len| (vec!["ㄋㄧˇ"; len].join(" "), "合".repeat(len), len as i64))
+            .collect::<Vec<_>>();
+        let rows = entries
+            .iter()
+            .map(|(key, text, weight)| (key.as_str(), text.as_str(), *weight))
+            .collect::<Vec<_>>();
+        let (dir, mut scheme) = scheme_with(&rows);
+        scheme.syllables = (0..MAX_SYLLABLES)
+            .map(|_| syllable("su3", &["ㄋㄧˇ"]))
+            .collect();
+        scheme.reconvert().unwrap();
+        Connection::open(dir.path().join("msime-zhuyin.db"))
+            .unwrap()
+            .execute_batch("DROP TABLE entries")
+            .unwrap();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            scheme.reconvert().unwrap();
+        });
+
+        assert_eq!(scheme.conversion.len(), 1);
+        assert_eq!(scheme.conversion[0].key, entries.last().unwrap().0);
+        assert_eq!(scheme.conversion[0].text, entries.last().unwrap().1);
+        assert_eq!(
+            allocations,
+            MAX_SYLLABLES * 2 + 1,
+            "只应复制首次改善路径的二十组词条字符串，并分配返回向量"
+        );
     }
 
     #[test]

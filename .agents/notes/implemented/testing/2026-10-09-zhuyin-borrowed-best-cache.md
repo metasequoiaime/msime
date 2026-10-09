@@ -25,3 +25,5 @@ Status: implemented
 ## Related decisions
 
 [复用缓存描述缓冲](2026-10-09-zhuyin-cache-description-reuse.md) 保留词条借用，把返回借用的内部入口替换为在借用期间消费词条的回调，从而同时复用查询键缓冲并避免预查询带来的第二次哈希查找。
+
+[筛选改善路径后克隆](2026-10-09-zhuyin-winning-path-clones.md) 保留歧义权重下限与词频借用，在缓存借用期间进一步比较转换路径分数，减少已经通过下限但仍会败选的字符串副本。
