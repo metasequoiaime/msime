@@ -57,6 +57,47 @@ public final class ClipboardHistoryPolicy {
         return Rejection.TOO_LONG;
     }
 
+    /**
+     * 编辑一条历史的结果（#5971）。
+     *
+     * <p>{@link #SAVED} 和 {@link #MERGED} 都算存好了，后者是改成了另一条已有的文字、两条合并成了一条，要说出来，否则用户会以为少了一条。
+     */
+    public enum EditResult { SAVED, MERGED, NOT_FOUND, INVALID }
+
+    /** 共享存储没改时给的 `reason`。 */
+    private static final String REASON_NOT_FOUND = "not_found";
+
+    /** 共享存储拒绝编辑的原因换成结果：旧条目不在了是 {@link EditResult#NOT_FOUND}，其余（`invalid` 或不认识的原因）都按新文字不能保存说，那是用户能改的。 */
+    public static EditResult editRejection(String reason) {
+        return REASON_NOT_FOUND.equals(reason) ? EditResult.NOT_FOUND : EditResult.INVALID;
+    }
+
+    /** 编辑之后对用户说的话。 */
+    public static String editMessage(EditResult result) {
+        if (result == null) throw new IllegalArgumentException("No clipboard edit result");
+        return switch (result) {
+            case SAVED -> "已保存";
+            case MERGED -> "已保存，和已有的相同记录合并成了一条";
+            case NOT_FOUND -> "这条记录已经不在剪贴板历史里了，可能已被删除或清空";
+            case INVALID -> message(Rejection.TOO_LONG);
+        };
+    }
+
+    /** 键盘打开应用里的编辑页时用的页面名（`PageId` 的枚举名）；键盘进程不能引用 `home/` 的类，所以写成字符串。 */
+    public static final String EDIT_PAGE = "CLIPBOARD_EDIT";
+    /** 编辑页参数里那一条的键：值是 {@link #editKey}，不是文字本身。 */
+    public static final String EDIT_ENTRY_ARG = "entry";
+
+    /**
+     * 键盘交给编辑页、用来认出要编辑哪一条的键：时间戳加文字的散列和长度。
+     *
+     * <p>不直接传文字：深链参数的字符串最长 256 个字符（{@link HostDeepLink#MAX_STRING_ARG}），剪贴板记录可以长得多；文字也不该进 Intent。编辑页按这个键在共享存储里找到那一条再显示。宿主的入口是 exported 的，别的应用也能发来这个参数，但它猜不出某一条的键，猜错了编辑页只会说这条已经不在了，保存仍要用户自己点。
+     */
+    public static String editKey(long timestamp, String text) {
+        if (text == null) throw new IllegalArgumentException("No clipboard text");
+        return Math.max(0, timestamp) + ":" + Integer.toHexString(text.hashCode()) + ":" + text.length();
+    }
+
     /** What to tell the user, naming the action that would let the save succeed. */
     public static String message(Rejection rejection) {
         if (rejection == null) throw new IllegalArgumentException("No clipboard rejection");

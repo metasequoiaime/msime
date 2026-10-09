@@ -599,6 +599,22 @@ if ! printf '%s\n' "$swipe_body" | rg -q 'ClipboardSwipePolicy\.claims\(' \
   echo "Android clipboard swipe must claim only through ClipboardSwipePolicy, keep the panel from scrolling and cancel the card's own press (#5962)" >&2
   exit 1
 fi
+# 「编辑」打开应用里的编辑页，不在键盘里弹对话框或放文本框（#5971）。打开之前要把系统剪贴板当前那一条记为已处理，否则改完回来一打开面板，补读又把原文记回来；交给编辑页的是认出这一条的键，不是文字。编辑页的 PageId 名必须和键盘这边写死的页面名一致。
+edit_body=$(rg -A 12 'void editClipboardItem\(' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
+if ! printf '%s\n' "$edit_body" | rg -q 'forgetCurrentClip\(\);' \
+  || ! printf '%s\n' "$edit_body" | rg -q 'ClipboardHistoryPolicy\.editKey\(' \
+  || ! printf '%s\n' "$edit_body" | rg -q 'openHostPage\(ClipboardHistoryPolicy\.EDIT_PAGE, args\)' \
+  || printf '%s\n' "$edit_body" | rg -q 'new (AlertDialog|PopupMenu|EditText)' \
+  || ! rg -q 'public static final String EDIT_PAGE = "CLIPBOARD_EDIT";' \
+    "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryPolicy.java" \
+  || ! rg -q '^    CLIPBOARD_EDIT\("ClipboardEditPage", ' \
+    "$repo_root/platforms/android/java/app/msime/android/home/PageId.java" \
+  || ! rg -A 20 'private void renderClipboardItemActions\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" | rg -q 's\.editClipboardItem\(item\)'; then
+  echo "Android clipboard edit must open the app's CLIPBOARD_EDIT page with the entry's key after forgetting the current clip, never a dialog in the input method (#5971)" >&2
+  exit 1
+fi
 if rg -q 'void manageClipboardItem|new PopupMenu\(this, anchor\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android clipboard entries must not be managed through a PopupMenu (#5653)" >&2

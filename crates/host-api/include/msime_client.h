@@ -355,10 +355,7 @@ char *msime_client_load_clipboard_history(const uint8_t *directory, size_t lengt
 char *msime_client_remove_clipboard_history(const uint8_t *request, size_t length);
 /* JSON {directory,text}; capture under the shared preference/history locks. */
 char *msime_client_capture_clipboard_history(const uint8_t *request, size_t length);
-/* Structured mobile history, independent of the desktop automatic-capture preference.
- * JSON {directory:absolute App Group root,action:{operation:"load"|"clear"}}
- * or action:{operation:"capture"|"remove",text} or
- * action:{operation:"set_pinned",text,pinned}. History lives in directory/MSIME/clipboard_history.json. */
+/* 移动端的结构化剪贴板历史，与桌面的自动记录偏好无关。请求 JSON 为 {directory: App Group 根的绝对路径, action}，action 是 {operation:"load"|"clear"}、{operation:"capture"|"remove",text}、{operation:"set_pinned",text,pinned} 或 {operation:"replace",text,replacement}。replace 按内容找到原条目原地改字，时间戳和固定状态不变；新文字与另一条相同时两条合并，固定状态取两者之或；返回 replaced、merged 和 reason（"not_found"|"invalid"|null）。历史存在 directory/MSIME/clipboard_history.json。 */
 char *msime_client_mobile_clipboard_history(const uint8_t *request, size_t length);
 /* Same validation as load_preferences; ok:true,value:null means lock busy.
  * Does not wait for the writer lock. Disk I/O may still block: use a worker.

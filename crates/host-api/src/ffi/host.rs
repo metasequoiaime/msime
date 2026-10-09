@@ -1457,6 +1457,7 @@ enum MobileClipboardAction {
     Capture { text: String },
     SetPinned { text: String, pinned: bool },
     Remove { text: String },
+    Replace { text: String, replacement: String },
     Clear,
 }
 
@@ -1527,6 +1528,31 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                     .map_err(|_| "mobile clipboard removal failed")?;
                 Ok(json!({
                     "removed": removed,
+                    "entries": history.entries()
+                }))
+            }
+            MobileClipboardAction::Replace { text, replacement } => {
+                if text.is_empty()
+                    || text.len() > msime_client_core::clipboard::MAX_MOBILE_TEXT_BYTES
+                {
+                    return Err("invalid mobile clipboard entry".into());
+                }
+                use msime_client_core::clipboard::ReplaceOutcome;
+                let outcome = history
+                    .replace(&text, replacement)
+                    .map_err(|_| "mobile clipboard replace failed")?;
+                // 改成已存在的文字时两条合并成一条，宿主据 merged 告诉用户；旧条目不在了或新文字不合规时 replaced 为 false，reason 说明是哪一种。
+                let reason = match outcome {
+                    ReplaceOutcome::NotFound => Some("not_found"),
+                    ReplaceOutcome::Invalid => Some("invalid"),
+                    ReplaceOutcome::Replaced
+                    | ReplaceOutcome::Merged
+                    | ReplaceOutcome::Unchanged => None,
+                };
+                Ok(json!({
+                    "replaced": reason.is_none(),
+                    "merged": outcome == ReplaceOutcome::Merged,
+                    "reason": reason,
                     "entries": history.entries()
                 }))
             }

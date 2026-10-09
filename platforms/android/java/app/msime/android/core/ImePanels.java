@@ -1379,7 +1379,7 @@ final class ImePanels {
      * <p>原来是 `PopupMenu`：弹出菜单是可获得焦点的窗口，打开时编辑器的窗口失去焦点，在 Via 这类用系统 WebView 的浏览器里键盘随即被收起（#5653）。画在面板里的按钮不会碰窗口焦点。
      */
     private void renderClipboardItemActions(ClipboardHistory.Item item, boolean cloudAllowed) {
-        // 操作分两行：一行放不下「添加到常用语」「发到云剪贴板」两个长按钮和其余几个短按钮，挤在一行时每个按钮都被截成省略号。阅读顺序仍是 固定、删除、分词、添加到常用语、发到云剪贴板、收起。
+        // 操作分两行：一行放不下「添加到常用语」「发到云剪贴板」两个长按钮和其余几个短按钮，挤在一行时每个按钮都被截成省略号。阅读顺序是 固定、删除、编辑、分词、添加到常用语、发到云剪贴板、收起。
         LinearLayout row = addClipboardItemActionRow();
         clipboardItemAction(row, item.pinned() ? "取消固定" : "固定", () -> {
             clipboardActionText = null;
@@ -1388,6 +1388,11 @@ final class ImePanels {
         clipboardItemAction(row, "删除", () -> {
             clipboardActionText = null;
             s.removeClipboardItem(item);
+        });
+        // 编辑在应用里做（#5971）：键盘里没有可输入的文本框，增删改放在应用里，和常用语（#5673）一样。
+        clipboardItemAction(row, "编辑", () -> {
+            clipboardActionText = null;
+            s.editClipboardItem(item);
         });
         clipboardItemAction(row, "分词", () -> startClipboardSegmentation(item.text()));
         LinearLayout more = addClipboardItemActionRow();

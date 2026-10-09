@@ -3775,6 +3775,94 @@ fn mobile_clipboard_uses_structured_actions() {
 }
 
 #[test]
+fn mobile_clipboard_replace_edits_in_place_and_reports_why_it_did_not() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |action: Value| {
+        let request = serde_json::to_vec(&json!({
+            "directory": directory.path(),
+            "action": action,
+        }))
+        .unwrap();
+        read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
+    };
+    for text in ["synthetic older", "synthetic current"] {
+        assert_eq!(
+            call(json!({"operation": "capture", "text": text}))["value"]["captured"],
+            true
+        );
+    }
+    let older_timestamp =
+        call(json!({"operation": "load"}))["value"]["entries"][1]["timestampMs"].clone();
+
+    // 原地改字：仍排在原来的位置，时间戳不变。
+    let replaced = call(json!({
+        "operation": "replace",
+        "text": "synthetic older",
+        "replacement": "synthetic older, trimmed"
+    }));
+    assert_eq!(replaced["ok"], true);
+    assert_eq!(replaced["value"]["replaced"], true);
+    assert_eq!(replaced["value"]["merged"], false);
+    assert!(replaced["value"]["reason"].is_null());
+    assert_eq!(
+        replaced["value"]["entries"][1]["text"],
+        "synthetic older, trimmed"
+    );
+    assert_eq!(
+        replaced["value"]["entries"][1]["timestampMs"],
+        older_timestamp
+    );
+
+    // 改成另一条已有的文字：两条合并成一条。
+    let merged = call(json!({
+        "operation": "replace",
+        "text": "synthetic older, trimmed",
+        "replacement": "synthetic current"
+    }));
+    assert_eq!(merged["value"]["replaced"], true);
+    assert_eq!(merged["value"]["merged"], true);
+    assert_eq!(
+        merged["value"]["entries"],
+        call(json!({"operation": "load"}))["value"]["entries"]
+    );
+    assert_eq!(merged["value"]["entries"].as_array().unwrap().len(), 1);
+
+    // 旧条目已经不在了、新文字不合规：不改，说明原因。
+    let missing = call(json!({
+        "operation": "replace",
+        "text": "synthetic absent",
+        "replacement": "synthetic replacement"
+    }));
+    assert_eq!(missing["value"]["replaced"], false);
+    assert_eq!(missing["value"]["reason"], "not_found");
+    let invalid = call(json!({
+        "operation": "replace",
+        "text": "synthetic current",
+        "replacement": " \n\t"
+    }));
+    assert_eq!(invalid["value"]["replaced"], false);
+    assert_eq!(invalid["value"]["reason"], "invalid");
+    assert_eq!(
+        call(json!({"operation": "load"}))["value"]["entries"][0]["text"],
+        "synthetic current"
+    );
+
+    // 请求本身不合规的拒收：缺字段、多字段、空的原文。
+    for action in [
+        json!({"operation": "replace", "text": "synthetic current"}),
+        json!({
+            "operation": "replace",
+            "text": "synthetic current",
+            "replacement": "synthetic next",
+            "pinned": true
+        }),
+        json!({"operation": "replace", "text": "", "replacement": "synthetic next"}),
+    ] {
+        assert_eq!(call(action)["ok"], false);
+    }
+}
+
+#[test]
 fn history_removal_is_exact_idempotent_and_respects_disabled_setting() {
     let directory = tempfile::tempdir().unwrap();
     let file = directory.path().join("clipboard_history.json");
