@@ -61,6 +61,8 @@ public enum PageId {
     CLOUD_CLIPBOARD("CloudClipboardPage", "云剪贴板", HostDeepLink.TAB_ACCOUNT,
         "保留时长", "最近", "清空"),
     CLIPBOARD_EDIT("ClipboardEditPage", "编辑剪贴板记录", HostDeepLink.TAB_SETTINGS),
+    CLIPBOARD_SEARCH("ClipboardSearchPage", "剪贴板历史", HostDeepLink.TAB_SETTINGS,
+        "搜索剪贴板", "剪贴板记录", "复制过的文字"),
     PROFILE("ProfilePage", "个人资料", HostDeepLink.TAB_ACCOUNT,
         "账号", "昵称", "水杉 ID", "邮箱", "登录方式", "关联", "云端数据", "导出我的数据", "退出登录", "注销账号"),
     BACKUP("BackupPage", "备份与恢复", HostDeepLink.TAB_ACCOUNT,
