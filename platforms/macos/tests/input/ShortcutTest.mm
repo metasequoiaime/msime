@@ -5378,7 +5378,8 @@ static void TestAiCandidateEngineDelivery() {
     NSError *bridgeError = nil;
     NSDictionary *descriptor = [MSIMEClientSession aiHTTPRequest:@{
         @"config":@{@"enabled":@YES, @"provider":@"deepseek", @"endpoint":@"https://synthetic.invalid/chat", @"model":@"synthetic",
-            @"token":@"synthetic-secret", @"candidate_limit":@3, @"prompt_id":@"custom_2", @"prompt_custom_2":@"synthetic prompt"},
+            @"tokens":@{@"https://synthetic.invalid:443":@"synthetic-secret"}, @"candidate_limit":@3,
+            @"prompt_id":@"custom_2", @"prompt_custom_2":@"synthetic prompt"},
         @"input":@{@"segmented_pinyin":@[@"ni", @"hao"], @"context":@"", @"candidate_limit":@3}} error:&bridgeError];
     assert(descriptor && !bridgeError && [descriptor[@"timeout_ms"] isEqual:@8000]);
     assert([descriptor[@"headers"][@"Authorization"] isEqual:@"Bearer synthetic-secret"]);
@@ -5391,7 +5392,8 @@ static void TestAiCandidateEngineDelivery() {
     NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"learning":@NO,
         @"candidate_page_size":@5, @"chinese_punctuation":@YES, @"default_ime_mode":@"chinese",
         @"ai_assistant":@{@"enabled":@YES, @"provider":@"openai", @"endpoint":@"https://synthetic.invalid/chat",
-            @"model":@"synthetic", @"token":@"synthetic-private", @"candidate_limit":@3}}} mutableCopy];
+            @"model":@"synthetic", @"tokens":@{@"https://synthetic.invalid:443":@"synthetic-private"},
+            @"candidate_limit":@3}}} mutableCopy];
     for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
         NSString *path = [root stringByAppendingPathComponent:name];
         assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
@@ -5405,6 +5407,7 @@ static void TestAiCandidateEngineDelivery() {
     NSDictionary *query = [session onlineQueryWithError:&error];
     assert(!error && [query[@"ai_eligible"] boolValue]);
     assert(!query[@"ai_assistant"][@"token"]); // Copied queries never expose credentials.
+    assert(!query[@"ai_assistant"][@"tokens"]);
     NSDictionary *sessionDescriptor = [session aiRequestForQuery:query error:&error];
     assert(sessionDescriptor && !error &&
         [sessionDescriptor[@"headers"][@"Authorization"] isEqual:@"Bearer synthetic-private"]);
@@ -6116,6 +6119,16 @@ static void TestAiCandidateCacheAcrossGenerations() {
     [controller setValue:@{ @"candidates": @[@{ @"text": @"普通候选", @"source": @0 }] } forKey:@"view"];
     [controller synchronizeAITranslations];
     assert(session.applications == 2 && session.descriptorRequests == 1 && controller.aiBatches.count == 1);
+    NSMutableDictionary *changedContext = [session.query mutableCopy];
+    changedContext[@"generation"] = @([changedContext[@"generation"] unsignedLongLongValue] + 1);
+    changedContext[@"ai_context"] = @"另一个上下文";
+    session.query = changedContext;
+    [controller setValue:@{ @"candidates": @[@{ @"text": @"普通候选", @"source": @0 }] } forKey:@"view"];
+    [controller synchronizeAITranslations];
+    timer = [controller valueForKey:@"aiTimer"];
+    assert(timer && controller.aiBatches.count == 1);
+    [timer fire];
+    assert(controller.aiBatches.count == 2 && session.descriptorRequests == 2);
     [controller cancelAITranslations];
 }
 
