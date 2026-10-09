@@ -26,7 +26,7 @@ Status: implemented
 
 旧实现真实红测试：`k` 暖前缀查询分配 4 次，预算为 0；合成词库 `kak` provider 查询分配 45 次，预算为 37。新实现分别为 0 和 37，provider 完整字段和候选顺序保持。全部固定表前缀的所有 ASCII 大小写组合、合法前缀加非法尾部、Unicode、空与长输入与旧正文逐项对照一致；包含 `sh`、`xtu`、`zya`、`dya` 和 `-`。索引键集合恰好是表中全部非空前缀，切片严格排序去重，输入临时字符串释放后引用仍有效，跨线程调用共用同一存储。
 
-matrix 的 32 seed 完整输出 oracle 保留旧拥有型查询，不同步改为索引。完整引擎 1474 项通过、两个本地计时测试默认忽略；golden 31 项通过。独立设计和最终代码审查无遗留问题。
+matrix 的 32 seed 完整输出 oracle 保留旧拥有型查询，不同步改为索引。完整引擎 1474 项通过、两个本地计时测试默认忽略；golden 31 项通过。独立设计和最终代码审查无遗留问题。Clippy、Rustfmt、差异检查和 349 篇笔记校验通过。`bash scripts/verify-local.sh --quick` 退出 0 并报告 `quick check passed`：共享 Rust、Android 目标与宿主 Java、Linux 共享桌面层、Linux 原生宿主 73 项测试、macOS 原生宿主和 Apple bridge 构建通过；WASM、HarmonyOS ArkTS 和 Windows MinGW 阶段按工具链缺失明确跳过。
 
 本机 release 单独进程：首次索引查询约 196.958 µs、259 次分配；223 个键，HashMap capacity 224，假名指针总长度 401、实际 capacity 1040，值缓冲 16640 bytes。此数不包含 HashMap 桶、控制字节和分配器额外开销，不声称整个索引仅占 16.6 KB。
 
