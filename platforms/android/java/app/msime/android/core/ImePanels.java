@@ -1361,9 +1361,8 @@ final class ImePanels {
      * <p>原来是 `PopupMenu`：弹出菜单是可获得焦点的窗口，打开时编辑器的窗口失去焦点，在 Via 这类用系统 WebView 的浏览器里键盘随即被收起（#5653）。画在面板里的按钮不会碰窗口焦点。
      */
     private void renderClipboardItemActions(ClipboardHistory.Item item, boolean cloudAllowed) {
-        LinearLayout row = KeyboardGeometry.row(s);
-        ViewPolicy.setCenteredVertically(row);
-        row.setContentDescription("剪贴板记录操作");
+        // 操作分两行：一行放不下「添加到常用语」「发到云剪贴板」两个长按钮和其余几个短按钮，挤在一行时每个按钮都被截成省略号。阅读顺序仍是 固定、删除、分词、添加到常用语、发到云剪贴板、收起。
+        LinearLayout row = addClipboardItemActionRow();
         clipboardItemAction(row, item.pinned() ? "取消固定" : "固定", () -> {
             clipboardActionText = null;
             s.setClipboardItemPinned(item);
@@ -1373,9 +1372,15 @@ final class ImePanels {
             s.removeClipboardItem(item);
         });
         clipboardItemAction(row, "分词", () -> startClipboardSegmentation(item.text()));
+        LinearLayout more = addClipboardItemActionRow();
+        clipboardItemAction(more, CommonPhrasesPanelPolicy.ADD_FROM_CLIPBOARD, () -> {
+            clipboardActionText = null;
+            renderClipboardHistory();
+            addClipboardTextToPhrases(item.text());
+        });
         // 只要有云端分段就提供这个操作，让用户发现得了；只有这次打开面板的拉取确认账号已登录且开着云剪贴板时它才真正执行。
         if (cloudAllowed) {
-            Button upload = clipboardItemAction(row, CloudClipboardPanelPolicy.UPLOAD_ACTION, () -> {
+            Button upload = clipboardItemAction(more, CloudClipboardPanelPolicy.UPLOAD_ACTION, () -> {
                 clipboardActionText = null;
                 renderClipboardHistory();
                 uploadClipboardText(item.text());
@@ -1383,13 +1388,48 @@ final class ImePanels {
             ViewPolicy.setEnabledWithAlpha(upload, CloudClipboardPanelPolicy.canUpload(
                 cloudAllowed, s.cloudClipboardStatus, item.text()), .45f);
         }
-        clipboardItemAction(row, "收起", () -> {
+        clipboardItemAction(more, "收起", () -> {
             clipboardActionText = null;
             renderClipboardHistory();
         });
+    }
+
+    /** 操作行里的一行：加在面板里当前位置（紧贴被长按那条的下方），返回给调用方往里放按钮。 */
+    private LinearLayout addClipboardItemActionRow() {
+        LinearLayout row = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(row);
+        row.setContentDescription("剪贴板记录操作");
         LinearLayout.LayoutParams params = KeyboardGeometry.matchWidthHeightPx(s.pixels(38));
         params.topMargin = s.pixels(4);
         s.clipboardPanel.addView(row, params);
+        return row;
+    }
+
+    /**
+     * 长按操作行里的「添加到常用语」（#5909）：把这一条存成无编码常用语，之后在键盘的「常用语」面板里点一下就能上屏。
+     *
+     * <p>经 {@link CommonPhrasesStore#add} 写入，校验、去重、条数上限和标记同步都在那里；常用语读写要等文件锁，放在 `preferencesWorker` 上，结果回到主线程用 `notice` 说出来。剪贴板历史不限 1000 字而常用语限，过长的先在这里拦下并说明。
+     */
+    private void addClipboardTextToPhrases(String text) {
+        if (!CommonPhrasesStore.validText(text)) {
+            s.notice(CommonPhrasesStore.failureMessage("common_phrases_invalid"));
+            return;
+        }
+        try {
+            s.preferencesWorker.execute(() -> {
+                CommonPhrasesStore.Result result;
+                try {
+                    result = CommonPhrasesStore.add(s, text);
+                } catch (RuntimeException | LinkageError error) {
+                    result = null;
+                }
+                String notice = CommonPhrasesPanelPolicy.clipboardAddNotice(
+                    result != null && result.ok(), result == null ? "" : result.failure());
+                s.main.post(() -> s.notice(notice));
+            });
+        } catch (java.util.concurrent.RejectedExecutionException error) {
+            s.notice(CommonPhrasesStore.failureMessage(""));
+        }
     }
 
     /** 正在分词的那一条切出的片段；没有在分词时为 null。 */

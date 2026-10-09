@@ -12,4 +12,17 @@ public final class CommonPhrasesPanelPolicy {
     public static String entryLabel(int phraseCount) {
         return phraseCount <= 0 ? "添加常用语" : "管理常用语";
     }
+
+    /** 剪贴板面板长按操作行里把这一条存成无编码常用语的按钮（#5909）。 */
+    public static final String ADD_FROM_CLIPBOARD = "添加到常用语";
+    /** 存好以后的提示。只说存进了常用语：常用语开着同步时会上传，不能写成「只保存在本机」。 */
+    public static final String ADDED_FROM_CLIPBOARD = "已添加到常用语";
+
+    /**
+     * 「添加到常用语」之后给用户的那句话：成功时是 {@link #ADDED_FROM_CLIPBOARD}；失败时用常用语存储给出的原因（已经有这条、已达上限、过长），没有原因时用常用语的通用失败说法。
+     */
+    public static String clipboardAddNotice(boolean added, String failure) {
+        if (added) return ADDED_FROM_CLIPBOARD;
+        return failure == null || failure.isEmpty() ? CommonPhrasesStore.failureMessage("") : failure;
+    }
 }

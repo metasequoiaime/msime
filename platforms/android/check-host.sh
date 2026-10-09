@@ -580,6 +580,16 @@ if rg -A 30 'void (clearClipboardHistory|renderClipboardHistory|renderClipboardI
   echo "Android clipboard panel must not raise dialogs or popup menus from the input method" >&2
   exit 1
 fi
+# 「添加到常用语」经常用语存储写入（校验、去重、上限和同步标记都在那里），它要等文件锁，必须放在工作线程上，不能在主线程卡住键盘（#5909）。
+if ! rg -A 12 'void addClipboardTextToPhrases\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg -q 'preferencesWorker\.execute' \
+  || ! rg -A 12 'void addClipboardTextToPhrases\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg -q 'CommonPhrasesStore\.add\(s, text\)'; then
+  echo "Android clipboard add-to-phrases must write through CommonPhrasesStore on the preferences worker (#5909)" >&2
+  exit 1
+fi
 if rg -q 'void manageClipboardItem|new PopupMenu\(this, anchor\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android clipboard entries must not be managed through a PopupMenu (#5653)" >&2
