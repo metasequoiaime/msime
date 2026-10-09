@@ -13,6 +13,7 @@ import androidx.lifecycle.ViewModel;
 import androidx.lifecycle.ViewModelProvider;
 import app.msime.android.ClipboardHistory;
 import app.msime.android.ClipboardHistoryPolicy;
+import app.msime.android.ClipboardHistoryRetentionPolicy;
 import app.msime.android.ClipboardHistoryStore;
 import app.msime.android.ClipboardSearchPolicy;
 import app.msime.android.DeviceDataApi;
@@ -20,16 +21,20 @@ import app.msime.android.HostDeepLink;
 import app.msime.android.R;
 import app.msime.android.ViewPolicy;
 import java.util.List;
+import org.json.JSONObject;
 
 /**
  * 可搜索的本机剪贴板历史（#5973）：顶部是搜索框，下面是筛出来的记录。键盘剪贴板面板顶行点「搜索」打开这一页，设置首页也能搜到它。
  *
- * <p>键盘里没有可输入的文本框，查询框放在应用里，和编辑（#5971）、常用语（#5673）一样。读的是键盘写的同一份共享存储（{@link ClipboardHistoryStore}），所以和面板里看到的是同一份历史；只搜本机历史，云剪贴板有自己的页面。筛选规则在 {@link ClipboardSearchPolicy}：不区分大小写的子串匹配，顺序不变（置顶在前），空查询显示全部。
+ * <p>键盘里没有可输入的文本框，查询框放在应用里，和编辑（#5971）、常用语（#5673）一样。读的是键盘写的同一份共享存储（{@link ClipboardHistoryStore}），所以和面板里看到的是同一份历史；共享偏好里的剪贴板历史开关关着时不列出记录（见 {@link #reload}）。只搜本机历史，云剪贴板有自己的页面。筛选规则在 {@link ClipboardSearchPolicy}：不区分大小写的子串匹配，顺序不变（置顶在前），空查询显示全部。
  *
  * <p>一条记录：点按复制回系统剪贴板；行尾「编辑」打开 {@link ClipboardEditPage}，「删除」从共享存储里删掉这一条。从键盘打开时（深链参数带 {@link HostDeepLink#ARG_EXTERNAL}）复制之后回到原来的应用，接着就能粘贴；从应用里打开时留在这一页。
  */
 public final class ClipboardSearchPage extends DetailPage {
-    private enum State { LOADING, READY, FAILED }
+    private enum State { LOADING, READY, OFF, FAILED }
+
+    /** 一次读取的结果：剪贴板历史开关，开着时还有全部条目。 */
+    private record Snapshot(boolean enabled, List<ClipboardHistory.Item> items) {}
 
     private State state = State.LOADING;
     /** 共享存储里的全部条目，顺序就是存储给的顺序；读到之前为空。 */
@@ -90,13 +95,28 @@ public final class ClipboardSearchPage extends DetailPage {
         if (getView() != null && !busy) reload();
     }
 
+    /**
+     * 先看共享偏好里的剪贴板历史开关，开着才列出条目。
+     *
+     * <p>设置里关掉开关只写偏好，清空历史要等键盘下一次实时读到偏好时才做（{@link ClipboardHistoryRetentionPolicy}）；水杉不是当前输入法、或关掉之后还没弹出过键盘时，历史还在存储里。这一页不经键盘也能打开（设置首页搜索、深链），不看开关就会把用户以为已经清掉的记录全列出来。所以开关关着时不列，并按同一条规则在这里清空：这一页读到的就是实时偏好。
+     */
     private void reload() {
-        HostTask.run(this, context -> new ClipboardHistoryStore(context.getFilesDir()).load(), loaded -> {
+        HostTask.run(this, context -> {
+            JSONObject preferences = KeyboardSheets.preferences(context);
+            if (preferences == null) return null;
+            boolean enabled = preferences.optBoolean("clipboard_history", false);
+            ClipboardHistoryStore store = new ClipboardHistoryStore(context.getFilesDir());
+            if (ClipboardHistoryRetentionPolicy.clearsHistory(ClipboardHistoryRetentionPolicy.Source.LIVE, enabled)) {
+                store.clearQuietly();
+                return new Snapshot(false, List.of());
+            }
+            return new Snapshot(true, store.load());
+        }, loaded -> {
             if (loaded == null) {
                 state = State.FAILED;
             } else {
-                items = loaded;
-                state = State.READY;
+                items = loaded.items();
+                state = loaded.enabled() ? State.READY : State.OFF;
             }
             renderResults();
         });
@@ -110,10 +130,11 @@ public final class ClipboardSearchPage extends DetailPage {
         card.card().removeAllViews();
         switch (state) {
             case LOADING -> card.note("正在读取…");
+            case OFF -> card.note("剪贴板历史未开启，可在「隐私」里开启。开启后，用水杉键盘时复制的文字会记在这里。");
             case FAILED -> card.note("剪贴板历史读取失败，请稍后重试");
             case READY -> {
                 if (items.isEmpty()) {
-                    card.note("剪贴板历史里还没有记录。开启剪贴板历史后，用水杉键盘时复制的文字会记在这里。");
+                    card.note("剪贴板历史里还没有记录。用水杉键盘时复制的文字会记在这里。");
                     return;
                 }
                 List<ClipboardHistory.Item> shown = ClipboardSearchPolicy.filter(items, query.text);
