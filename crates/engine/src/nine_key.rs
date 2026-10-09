@@ -63,6 +63,8 @@ const INITIALS_ROW_LIMIT: usize = 64;
 const INITIALS_SCAN_LIMIT: usize = 512;
 /// 九键选中一个词时记进个人上下文模型的次数，与 26 键显式选词的 `session::learning::DICTIONARY_PICK_TIMES` 相同（`session/tests.rs` 核对两者一致）。简拼行按每 `PERSONAL_PICK_TIMES * trigger_count` 个计数算调频的一次触发，见 `boost_used_initials`。
 pub(crate) const PERSONAL_PICK_TIMES: u32 = 2;
+/// `NineKeySession::rerank_sentences` 缓存的重排结果条数。退格回到前一串数字、选词或筛选后刷新时，同一组整句和上下文会再出现；26 键按 series 槽缓存整张重排过的列表，九键只缓存模型给出的顺序，免得每次刷新都再跑一次模型。
+const RERANK_CACHE_ENTRIES: usize = 16;
 /// 没打切分时，同样覆盖的词典行里最前面留给音节行（最常用的单字）的位置数；其后的音节行和简拼行按权重归并，见 `interleave_initials`。
 const SYLLABLE_ROWS_BEFORE_INITIALS: usize = 3;
 /// 混入 emoji、颜文字时最多按几种读法查。一串数字能拼出几十种读法，每种读法要各查一次 emoji 和颜文字；按候选列表排好先后之后只查前面这几种，最可能的读法总在里面。
@@ -88,6 +90,8 @@ pub struct NineKeySession {
     rescoring_context: String,
     /// 键盘模型，`neural_keyboard` 打开后第一次重排时加载；内层 `None` 是模型读不到。九键不让词库在每条切分里各重排一次，见 `rerank_sentences`。
     keyboard: Option<Option<NeuralReranker>>,
+    /// 键盘模型最近几次给出的整句顺序，最新的在后，见 `rerank_sentences`。换掉模型（关掉 `neural_keyboard`）时清空。
+    rerank_cache: Vec<RerankEntry>,
     /// 把选中的词记进 26 键共用的个人上下文模型（`SessionOptions::personal_context`，还要 `learning`），简拼行据此把用户用过的词排到前面（#6185）。
     personal_context: bool,
     digits: String,
@@ -188,6 +192,7 @@ impl NineKeySession {
             sentence_alternatives: false,
             rescoring_context: String::new(),
             keyboard: None,
+            rerank_cache: Vec::new(),
             personal_context: true,
             digits: String::new(),
             locked: Vec::new(),
@@ -241,6 +246,7 @@ impl NineKeySession {
         self.sentence_alternatives = alternatives;
         if !association.neural_keyboard {
             self.keyboard = None;
+            self.rerank_cache.clear();
         }
         let dictionary_association = self.dictionary_association();
         if let Some(dictionary) = self.dictionary.as_mut() {
@@ -1127,20 +1133,45 @@ impl NineKeySession {
         });
         let mut ranked = Vec::new();
         if let Some(keyboard) = keyboard.as_mut() {
-            let mut sentences: Vec<SentencePath> = candidates
+            let scored: Vec<&WordItem> = candidates
                 .iter()
                 .filter(|item| is_lattice_sentence(item))
                 .take(MAX_RERANK_PATHS)
-                .map(|item| SentencePath {
-                    sentence: item.word.clone(),
-                    key: item.canonical_pinyin.clone(),
-                    log_prob: comparable_weight(item) as f64 / 1000.0,
-                    words: item.sentence_words.clone(),
-                    typo_edges: 0,
-                })
                 .collect();
-            if keyboard.rerank(&mut sentences, &self.rescoring_context) {
-                ranked = sentences.into_iter().map(|path| path.sentence).collect();
+            // 模型的顺序只取决于上屏上下文、整句和它们的词网格分，三者都相同时直接用上次的结果。
+            let signature: Vec<(String, i64)> = scored
+                .iter()
+                .map(|item| (item.word.clone(), comparable_weight(item)))
+                .collect();
+            let context = &self.rescoring_context;
+            if let Some(entry) = self
+                .rerank_cache
+                .iter()
+                .find(|entry| entry.context == *context && entry.sentences == signature)
+            {
+                ranked.clone_from(&entry.ranked);
+            } else {
+                let mut sentences: Vec<SentencePath> = scored
+                    .iter()
+                    .map(|item| SentencePath {
+                        sentence: item.word.clone(),
+                        key: item.canonical_pinyin.clone(),
+                        log_prob: comparable_weight(item) as f64 / 1000.0,
+                        words: item.sentence_words.clone(),
+                        typo_edges: 0,
+                    })
+                    .collect();
+                if keyboard.rerank(&mut sentences, context) {
+                    ranked = sentences.into_iter().map(|path| path.sentence).collect();
+                }
+                if self.rerank_cache.len() >= RERANK_CACHE_ENTRIES {
+                    self.rerank_cache.remove(0);
+                }
+                self.rerank_cache.push(RerankEntry {
+                    context: context.clone(),
+                    sentences: signature,
+                    ranked: ranked.clone(),
+                });
             }
         }
         place_keyboard_pick(
@@ -1477,6 +1508,13 @@ impl NineKeySession {
     }
 }
 
+/// 键盘模型的一次重排：上屏上下文、交给模型的整句和词网格分（`comparable_weight`），以及模型给出的顺序（没有重排时为空）。
+struct RerankEntry {
+    context: String,
+    sentences: Vec<(String, i64)>,
+    ranked: Vec<String>,
+}
+
 /// 打开九键用的词库，带上 `NineKeySession::dictionary_association` 给的句子联想设置。
 fn open_dictionary(
     paths: &RuntimePaths,
@@ -1494,29 +1532,39 @@ fn is_lattice_sentence(item: &WordItem) -> bool {
     item.source == CandidateSource::Generated && item.sentence_association
 }
 
-/// 把键盘模型重排后的整句顺序 `ranked` 落到候选上，规则同 `lattice::merge::reranked_block`：模型排第一的整句若不是词网格最好的那一行，就把它改成 `NeuralKeyboard` 行，挪到词网格最好的整句后面；它就是那一行时，`show_next_on_duplicate` 打开才接着看模型的下一句，否则不出模型行。`word_lattice` 关着时随后去掉其余的词网格整句行，只留模型那一行。`ranked` 为空（模型没有重排）时只做后一步。
+/// 把键盘模型重排后的整句顺序 `ranked` 落到候选上，规则同 `lattice::merge::reranked_block`。词网格开关开着时（`include_lattice_best`），模型排第一的整句若不是词网格最好的那一行，就把它改成 `NeuralKeyboard` 行，挪到词网格最好的整句后面；它就是那一行时，`show_next_on_duplicate` 打开才接着看模型的下一句，否则不出模型行。词网格开关关着时词网格最好的整句不显示，模型排第一的整句总是改成 `NeuralKeyboard` 行、占它的位置（与它相同也一样），随后去掉其余的词网格整句行。`ranked` 为空（模型没有重排）时只做去掉整句这一步。
 fn place_keyboard_pick(
     candidates: &mut Vec<WordItem>,
     ranked: &[String],
     show_next_on_duplicate: bool,
     word_lattice: bool,
 ) {
+    let take_pick = |candidates: &mut Vec<WordItem>, sentence: &str, at_position: usize| {
+        // 候选按词去过重，同一句只有一行。
+        if let Some(at) = candidates
+            .iter()
+            .position(|item| is_lattice_sentence(item) && item.word == sentence)
+        {
+            let mut pick = candidates.remove(at);
+            pick.source = CandidateSource::NeuralKeyboard;
+            candidates.insert(at_position, pick);
+        }
+    };
     if let Some(best) = candidates.iter().position(is_lattice_sentence) {
-        for sentence in ranked {
-            if candidates[best].word != *sentence {
-                // 候选按词去过重，这句只可能是排在 `best` 之后的另一条词网格整句。
-                if let Some(at) = candidates
-                    .iter()
-                    .position(|item| is_lattice_sentence(item) && item.word == *sentence)
-                {
-                    let mut pick = candidates.remove(at);
-                    pick.source = CandidateSource::NeuralKeyboard;
-                    candidates.insert(best + 1, pick);
-                }
-                break;
+        if !word_lattice {
+            if let Some(sentence) = ranked.first() {
+                take_pick(candidates, sentence, best);
             }
-            if !show_next_on_duplicate {
-                break;
+        } else {
+            for sentence in ranked {
+                if candidates[best].word != *sentence {
+                    // 这句只可能是排在 `best` 之后的另一条词网格整句。
+                    take_pick(candidates, sentence, best + 1);
+                    break;
+                }
+                if !show_next_on_duplicate {
+                    break;
+                }
             }
         }
     }
@@ -4028,6 +4076,18 @@ mod tests {
         assert_eq!(
             row_sources(&candidates),
             [("你好", Database), ("米号", NeuralKeyboard)]
+        );
+        // 模型也最看好词网格那一句时照样出模型行：词网格那一行不显示，与 `reranked_block` 不带词网格最好的整句时相同。
+        let mut candidates = list();
+        place_keyboard_pick(
+            &mut candidates,
+            &ranked(&["米好", "你号", "米号"]),
+            false,
+            false,
+        );
+        assert_eq!(
+            row_sources(&candidates),
+            [("你好", Database), ("米好", NeuralKeyboard)]
         );
         let mut candidates = list();
         place_keyboard_pick(&mut candidates, &[], false, false);
