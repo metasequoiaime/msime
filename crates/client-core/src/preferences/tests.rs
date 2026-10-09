@@ -2856,6 +2856,10 @@ fn default_ai_assistant_requests_carry_the_builtin_associative_prompt() {
     ai.endpoint = "https://synthetic.invalid/chat".into();
     ai.model = "synthetic-model".into();
     ai.token = "synthetic-token".into();
+    ai.tokens.insert(
+        "https://synthetic.invalid:443".into(),
+        "synthetic-token".into(),
+    );
     let request = crate::ai::AiSuggestionRequest {
         segmented_pinyin: vec!["shu".into(), "ru".into()],
         context: String::new(),
