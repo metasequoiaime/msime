@@ -427,7 +427,7 @@ Fcitx5 的候选表由 classicui 插件按主题绘制，宿主把同一份 Reso
 
 共享设置页的“输入 → 双拼预编辑”在 Linux 上同样可见，对应 `HostCapabilities::shuangpin_preedit`。IBus 与 Fcitx5 都是自己把快照的 `preedit` 写进平台预编辑的，因此这个选择归宿主展示；此前该控件按平台名只给 macOS，Linux 用户只能在双拼方案生效时从原生状态菜单里找到它。
 
-五笔方案提供 IBus 属性“五笔剩余编码”，对应共享 `wubi_code_hint`，默认开启；关闭后候选仍按 Engine 原文显示，但隐藏候选后的剩余五笔编码提示。该设置仅影响展示，不改变候选身份或提交文本；配置共享偏好目录时持久化，未配置时保留在当前会话。
+五笔方案提供 IBus 属性“五笔剩余编码”，对应共享 `wubi_code_hint`，默认开启；关闭后候选仍按 Engine 原文显示，但隐藏候选后的剩余五笔编码提示。该设置仅影响展示，不改变候选身份或提交文本；配置共享偏好目录时持久化，未配置时保留在当前会话。同一菜单还有“五笔四码唯一自动上屏”，对应共享 `wubi_auto_commit_unique`（默认开启），关闭后四码唯一的词停在候选列表里等空格或数字键选择；提交判定在共享 `crates/input-runtime`，两个前端都只是把值写进共享偏好文档。
 
 Windows 的 `clipboard_history` 依赖独立剪贴板监听器和候选历史 UI；IBus Engine API 不提供剪贴板事件。Linux IBus 宿主只读取用户明确配置的历史文件，并通过属性菜单提供最近条目、删除和清空操作，不读取系统剪贴板，也不在输入线程监听剪贴板。Linux 桌面面板的剪贴板同步仍由独立 Tauri 服务承载。独立工具的 `get INDEX` 操作会将已存储条目写到标准输出，`remove-index INDEX` 按历史位置删除单个条目，供桌面服务或 compositor 显式接管粘贴和删除动作；它不会写入或读取系统剪贴板。
 
@@ -523,7 +523,22 @@ Emoji 本地 CLI 的 `msime-linux-emoji --local` 会按显式资源目录、其�
 
 `scripts/verify-local.sh` 的「compile: linux desktop shell」阶段在非 Linux 主机上用 `tests/tools/Dockerfile.desktop-check` 构建的镜像跑 `cargo check -p msime-desktop --locked --all-targets`：与编译门禁同一个固定摘要的 `rust:1.97.1-bookworm`，预装 Tauri 外壳需要的 webkit2gtk、gtk3、libsoup、javascriptcoregtk 和 cpal 需要的 ALSA 开发包，apt 只在 Dockerfile 变化后的第一次运行时执行，`--quick` 和 pre-push 钩子不再每次重装。镜像构建日志留在 `target/linux-desktop-check/image.log`，apt 失败时阶段打印其末尾并 FAIL。
 
-这两个镜像都按 checkout 路径打 tag（`msime-linux-build-gate:<哈希>`、`msime-linux-desktop-check:<哈希>`，哈希取仓库绝对路径的 SHA-1 前 12 位），每个跑过门禁的 worktree 各留一份，单个占 2.4–3.3 GB，worktree 删除后不会自动回收。清理只删这两类 tag，不要 `docker system prune`（会连带别的项目和并发会话在用的镜像）：先 `docker images 'msime-linux-*'` 看有哪些，再 `docker image rm <tag>` 删掉已不存在的 worktree 对应的那些，最后 `docker image prune` 回收失去 tag 的悬空层。当前 checkout 的哈希可用 `printf %s "$PWD" | shasum | cut -c1-12` 在仓库根目录算出；删错了也无妨，下次运行会重建。
+这两个门禁镜像、隔离验收基镜像（`tests/tools/Dockerfile`）和 RPM 打包镜像（`tests/tools/Dockerfile.package-rpm`）同时预装 `rust-toolchain.toml` 要求的 `rustfmt` 和 `clippy`，临时容器启动时不再逐次补装。Fcitx5 和现代 IBus 验收镜像继承验收基镜像，Deb 打包镜像继承原生门禁镜像。组件层放在已有构建层之后，修改组件准备步骤时可复用系统依赖、Wayland 驱动或 RPM 编译器安装缓存。构建或升级相应镜像后，在仓库根目录验证工具链就绪：
+
+```sh
+linux_gate_hash=$(printf %s "$PWD" | shasum | cut -c1-12)
+bash platforms/linux/tests/tools/check-image-toolchain.sh \
+  "msime-linux-build-gate:${linux_gate_hash}" \
+  "msime-linux-desktop-check:${linux_gate_hash}"
+# 验收和 RPM 镜像构建后，用各自按同一 checkout 哈希打出的 tag 检查。
+bash platforms/linux/tests/tools/check-image-toolchain.sh \
+  "msime-linux-test:${linux_gate_hash}" \
+  "msime-linux-package-rpm:${linux_gate_hash}"
+```
+
+检查只读挂载真实仓库，在断网的新容器里执行 `cargo`、`cargo fmt` 和 `cargo clippy` 的版本命令。组件缺失或镜像工具链与仓库声明不匹配时无法临时下载补齐，检查失败。该检查只验证工具链准备；项目构建、真实输入法框架和发行包仍通过各自原有流程验证。
+
+这两个日常门禁镜像都按 checkout 路径打 tag（`msime-linux-build-gate:<哈希>`、`msime-linux-desktop-check:<哈希>`，哈希取仓库绝对路径的 SHA-1 前 12 位），每个跑过门禁的 worktree 各留一份，单个占 2.4–3.3 GB，worktree 删除后不会自动回收。清理只删这两类 tag，不要 `docker system prune`（会连带别的项目和并发会话在用的镜像）：先 `docker images 'msime-linux-*'` 看有哪些，再 `docker image rm <tag>` 删掉已不存在的 worktree 对应的那些，最后 `docker image prune` 回收失去 tag 的悬空层。当前 checkout 的哈希可用 `printf %s "$PWD" | shasum | cut -c1-12` 在仓库根目录算出；删错了也无妨，下次运行会重建。
 
 隔离验收脚本只读挂载源码，输入引擎是仓库里的 Rust crate，不再需要预先准备或借用任何 Engine 树，因此在 worktree 里也能直接跑。它的测试镜像与编译门禁一样按 checkout 路径打 tag，并发的 worktree 不会互相覆盖镜像。随包在线/语音/剪贴板 provider、凭据、豆包鉴权、翻译缓存、录音设备这一整片 Python 测试都在容器内执行。
 

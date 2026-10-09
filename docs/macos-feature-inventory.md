@@ -104,7 +104,7 @@ ref=/path/to/MSIME-apple
 | `MetasequoiaInputModeHUDFrame`、`MetasequoiaIsUsableCaretRect` | `platforms/macos/src/input/InputModeHUDPanel.mm`（后者为 `MSIMEValidCaret`） |
 | `MetasequoiaShuangpinKeymapPanelFrame` | `platforms/macos/src/settings/ShuangpinKeymapPanel.h` |
 | `MetasequoiaFloatingToolbarWidth` | `platforms/macos/src/core/FloatingToolbarPanel.mm` |
-| `ShouldAutoCommitUniqueWubiCandidate` | `platforms/macos/src/core/WubiCommitPolicy.h` 的 `MSIMEShouldAutoCommitWubi` |
+| `ShouldAutoCommitUniqueWubiCandidate` | `platforms/macos/src/core/WubiCommitPolicy.h` 的 `MSIMEShouldAutoCommitWubi`（2026-10-08 删除：判定移进共享 `crates/input-runtime`，开关是共享偏好 `wubi_auto_commit_unique`） |
 | `ActionForSolitaryShift`、`handleSolitaryShiftFlags` | `platforms/macos/src/core/ModifierTap.h`，控制器用 `MSIMEModifierTap` 观察修饰键 |
 | `ClassifyConfiguredControllerKey` | `platforms/macos/src/input/InputControllerPhysicalKeys.h` |
 | `MetasequoiaCandidateKeyOptions`、`MetasequoiaCandidateFollowsCaret` | 共享 `NavigationPreferences` / `candidate_follow_cursor` |

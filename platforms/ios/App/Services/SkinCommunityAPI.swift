@@ -224,7 +224,9 @@ actor SkinCommunityAPI {
     return CommunityChallenge(challenge_id: value.challenge_id, nonce: nonce)
   }
   func login(challenge: String, identityToken: String) async throws {
-    try await account.signIn(challenge: challenge, credential: identityToken)
+    try await account.signIn(challenge: challenge, credential: identityToken, replacingAccount: { accountID in
+      try? DictionarySnapshotQueue().cancel(accountID: accountID)
+    })
   }
   func profile() async throws -> CommunityProfile {
     let result = try await accountRequest { token in try await client.profile(token: token) }

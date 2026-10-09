@@ -18,4 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libfcitx5core-dev libfcitx5utils-dev libfcitx5config-dev libcairo2-dev \
   dbus dbus-bin \
   && rm -rf /var/lib/apt/lists/*
+# 仓库工具链声明要求这两个组件，预装后临时容器不再逐次补装；保留上面的 apt 缓存层。
+RUN rustup component add rustfmt clippy
 WORKDIR /source

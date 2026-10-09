@@ -18,12 +18,12 @@ import android.widget.ImageView;
 import android.widget.EditText;
 import android.widget.TextView;
 import app.msime.android.BoundsPolicy;
+import app.msime.android.ColorPolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import androidx.annotation.AttrRes;
 import androidx.annotation.ColorInt;
-import app.msime.android.ColorPolicy;
 import androidx.annotation.DrawableRes;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
@@ -256,11 +256,6 @@ public final class Ui {
             bottomPixels);
     }
 
-    /** Show a view only when the supplied text is non-null and non-empty. */
-    public static void setVisibilityForText(View view, CharSequence text) {
-        ViewPolicy.setVisibilityForText(view, text);
-    }
-
     /** Apply a single tint to an image view through the platform state-list wrapper. */
     public static void setImageTint(ImageView view, int color) {
         view.setImageTintList(ColorStateList.valueOf(color));
@@ -269,11 +264,6 @@ public final class Ui {
     /** Exclude a decorative view from the accessibility tree. */
     public static void hideFromAccessibility(View view) {
         ViewPolicy.hideFromAccessibility(view);
-    }
-
-    /** Convert scalable text units to pixels using the context display metrics. */
-    public static float sp(Context context, float value) {
-        return KeyboardGeometry.sp(context, value);
     }
 
     /** Layout parameters for a view that fills the parent width at its measured height. */
@@ -300,16 +290,6 @@ public final class Ui {
         return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, heightPixels);
     }
 
-    /** Convert a density-independent size while guaranteeing at least one physical pixel. */
-    public static int atLeastOnePx(Context context, float value) {
-        return KeyboardGeometry.atLeastOnePixel(context, value);
-    }
-
-    /** Return the minimum one-pixel thickness for a 0.5 dp separator. */
-    public static int hairlinePx(Context context) {
-        return KeyboardGeometry.atLeastOnePixel(context, 0.5f);
-    }
-
     /** Create a view filled with the standard hairline colour for separators. */
     public static View hairlineView(Context context) {
         View view = new View(context);
@@ -320,7 +300,7 @@ public final class Ui {
     /** Create a theme-coloured one-pixel divider in either orientation. */
     public static View divider(Context context, boolean horizontal) {
         View view = hairlineView(context);
-        int thin = hairlinePx(context);
+        int thin = KeyboardGeometry.atLeastOnePixel(context, 0.5f);
         view.setLayoutParams(horizontal
             ? matchWidthHeightPx(thin)
             : new LinearLayout.LayoutParams(thin, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -478,11 +458,6 @@ public final class Ui {
         return color(context, androidx.appcompat.R.attr.colorError);
     }
 
-    /** 按 0–1 的不透明度改写颜色的 alpha，乘在原有 alpha 上。 */
-    @ColorInt public static int withAlpha(@ColorInt int color, float alpha) {
-        return ColorPolicy.withAlpha(color, alpha);
-    }
-
     /** Create a filled circular drawable. */
     public static GradientDrawable circle(@ColorInt int color) {
         return DrawablePolicy.circle(color);
@@ -532,7 +507,7 @@ public final class Ui {
     }
 
     public static Drawable rippleOn(Context context, @ColorInt int fill, float radiusPx) {
-        int pressed = withAlpha(text(context), 0.10f);
+        int pressed = ColorPolicy.withAlpha(text(context), 0.10f);
         return new RippleDrawable(ColorStateList.valueOf(pressed), rounded(fill, radiusPx),
             rounded(Color.WHITE, radiusPx));
     }

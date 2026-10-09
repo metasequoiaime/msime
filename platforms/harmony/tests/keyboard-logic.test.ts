@@ -11412,6 +11412,7 @@ function fullPreferenceSchema(): AccountPreferenceSchema {
       "input.smart_punctuation",
       "input.paired_punctuation",
       "input.wubi_code_hint",
+      "input.wubi_auto_commit_unique",
       "platform.harmony.voice_shortcut",
       "platform.harmony.sound_enabled",
       "platform.harmony.haptics_enabled",

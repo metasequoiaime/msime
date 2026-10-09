@@ -127,8 +127,22 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     }
 
     pub fn sign_in(&self, challenge: &str, credential: &str) -> Result<AccountUser, AccountError> {
+        self.sign_in_with_cleanup(challenge, credential, |_| {})
+    }
+
+    /// Saves a new session and cleans up the previous account while the session is held stable.
+    /// `cleanup` is called only when the account id changes and must not call this session again.
+    pub fn sign_in_with_cleanup<F>(
+        &self,
+        challenge: &str,
+        credential: &str,
+        cleanup: F,
+    ) -> Result<AccountUser, AccountError>
+    where
+        F: FnOnce(&str),
+    {
         validate_login(challenge, credential)?;
-        self.sign_in_validated(challenge, credential)
+        self.sign_in_validated(challenge, credential, cleanup)
     }
 
     /// Signs in the device's anonymous account: the subject is presented as the challenge target and the secret answers it. Only `anonymous::ensure_anonymous_account` holds those values.
@@ -138,7 +152,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         secret: &str,
     ) -> Result<AccountUser, AccountError> {
         let challenge = self.request_code("anonymous", subject)?;
-        self.sign_in_validated(&challenge.challenge_id, secret)
+        self.sign_in_validated(&challenge.challenge_id, secret, |_| {})
     }
 
     /// Completes an Apple challenge using the identity token returned by the
@@ -149,8 +163,20 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         challenge: &str,
         credential: &str,
     ) -> Result<AccountUser, AccountError> {
+        self.sign_in_apple_with_cleanup(challenge, credential, |_| {})
+    }
+
+    pub fn sign_in_apple_with_cleanup<F>(
+        &self,
+        challenge: &str,
+        credential: &str,
+        cleanup: F,
+    ) -> Result<AccountUser, AccountError>
+    where
+        F: FnOnce(&str),
+    {
         validate_apple_login(challenge, credential)?;
-        self.sign_in_validated(challenge, credential)
+        self.sign_in_validated(challenge, credential, cleanup)
     }
 
     /// Completes a Google challenge with the authorization code the system browser delivered to the loopback redirect. The backend holds the PKCE verifier and the client secret and performs the exchange; this process only forwards the code.
@@ -160,7 +186,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         credential: &str,
     ) -> Result<AccountUser, AccountError> {
         validate_google_login(challenge, credential)?;
-        self.sign_in_validated(challenge, credential)
+        self.sign_in_validated(challenge, credential, |_| {})
     }
 
     /// Runs the desktop Google sign-in (RFC 8252 loopback redirect): binds a loopback listener, requests a challenge for its redirect URI, hands the backend's authorization URL to `open_browser`, waits for the redirect, and signs in with the returned code. `open_browser` receives a URL already checked to be a Google authorization URL for this listener. The wait lasts at most [`GOOGLE_SIGN_IN_TIMEOUT`] and ends early enough for the code to reach the backend before the challenge expires; [`Self::cancel_google_sign_in`] or starting another Google sign-in ends it with [`AccountError::Cancelled`].
@@ -249,11 +275,15 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.sign_in_google(&challenge.challenge_id, &code)
     }
 
-    fn sign_in_validated(
+    fn sign_in_validated<F>(
         &self,
         challenge: &str,
         credential: &str,
-    ) -> Result<AccountUser, AccountError> {
+        cleanup: F,
+    ) -> Result<AccountUser, AccountError>
+    where
+        F: FnOnce(&str),
+    {
         let version = {
             let mut state = self.lock()?;
             let version = Self::next_generation(&mut state)?;
@@ -269,9 +299,20 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             if state.generation != version {
                 return Err(AccountError::Cancelled);
             }
+            let previous = if self.load_locked(&mut state).is_ok() {
+                state
+                    .saved
+                    .as_ref()
+                    .map(|saved| saved.tokens.user.id.clone())
+            } else {
+                None
+            };
             self.storage.save(&value)?;
             state.saved = Some(value);
             state.loaded = true;
+            if let Some(previous) = previous.as_deref().filter(|id| *id != user.id) {
+                cleanup(previous);
+            }
             Ok(user)
         })
     }

@@ -209,22 +209,41 @@ impl StrokeScheme {
         };
         let row_count = exact_len + buffer.completions.len();
         candidates.reserve(row_count.saturating_sub(candidates.len()));
-        let mut length = 0;
-        if has_wildcard {
-            for (key, entry) in &buffer.exact_pattern {
-                push_candidate(candidates, &mut length, key, entry);
+        // 先按查询顺序去重，保留首次行；不能让高权重补全替代零或负权重精确行。
+        let mut unique: [Option<(&str, &LanguageEntry)>; EXACT_LIMIT + COMPLETION_LIMIT] =
+            [None; EXACT_LIMIT + COMPLETION_LIMIT];
+        debug_assert!(row_count <= unique.len());
+        let mut unique_length = 0;
+        for index in 0..row_count {
+            let (key, entry) = if index >= exact_len {
+                let (key, entry) = &buffer.completions[index - exact_len];
+                (key.as_str(), entry)
+            } else if has_wildcard {
+                let (key, entry) = &buffer.exact_pattern[index];
+                (key.as_str(), entry)
+            } else {
+                (input, &buffer.entries[index])
+            };
+            if unique[..unique_length]
+                .iter()
+                .flatten()
+                .any(|(_, previous)| previous.text == entry.text)
+            {
+                continue;
             }
-        } else {
-            for entry in &buffer.entries {
-                push_candidate(candidates, &mut length, input, entry);
-            }
+            unique[unique_length] = Some((key, entry));
+            unique_length += 1;
         }
-        for (key, entry) in &buffer.completions {
-            push_candidate(candidates, &mut length, key, entry);
+        // 直接按最终稳定顺序覆写，避免排序移动字符串容量后下次热查询又扩容。
+        let mut length = 0;
+        for non_positive in [false, true] {
+            for &(key, entry) in unique[..unique_length].iter().flatten() {
+                if (entry.weight <= 0) == non_positive {
+                    push_candidate(candidates, &mut length, key, entry);
+                }
+            }
         }
         candidates.truncate(length);
-        // 稳定排序：只把没有字频的字移到后面，其余顺序不变。
-        candidates.sort_by_key(|candidate| candidate.weight <= 0);
         Ok(())
     }
 }
@@ -254,10 +273,6 @@ fn push_candidate(
     key: &str,
     entry: &LanguageEntry,
 ) {
-    // 写入之前去重，避免截掉重复候选后，每次热查询又重建这些字符串。
-    if contains_text(&candidates[..*length], &entry.text) {
-        return;
-    }
     if let Some(candidate) = candidates.get_mut(*length) {
         candidate.key.clear();
         candidate.key.push_str(key);

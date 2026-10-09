@@ -537,7 +537,7 @@ public final class OnboardingActivity extends AppCompatActivity {
 
         View radio = new View(this);
         GradientDrawable dot = Ui.circleOutlined(selected ? Ui.page(this) : 0,
-            selected ? Ui.dp(this, 6) : Ui.atLeastOnePx(this, 1.5f),
+            selected ? Ui.dp(this, 6) : KeyboardGeometry.atLeastOnePixel(this, 1.5f),
             selected ? Ui.accent(this) : Ui.subText(this));
         ViewPolicy.setBackground(radio, dot);
         LinearLayout.LayoutParams radioParams = Ui.squareParams(this, 22);

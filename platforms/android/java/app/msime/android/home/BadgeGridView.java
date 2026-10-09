@@ -260,7 +260,7 @@ public final class BadgeGridView extends View {
         int card = Ui.card(context);
         int text = Ui.text(context);
         int sub = Ui.subText(context);
-        int track = dark() ? Ui.withAlpha(Color.WHITE, .1f) : Ui.withAlpha(Color.BLACK, .07f);
+        int track = dark() ? ColorPolicy.withAlpha(Color.WHITE, .1f) : ColorPolicy.withAlpha(Color.BLACK, .07f);
         float radius = Ui.dp(context, 20);
         refreshColours(context);
         for (int index = 0; index < badges.size(); index++) {
