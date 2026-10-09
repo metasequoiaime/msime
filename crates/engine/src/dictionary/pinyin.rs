@@ -221,10 +221,11 @@ impl PinyinDatabase {
         let mut seen =
             (keys.len() > SMALL_QUERY_KEY_BATCH).then(|| HashSet::with_capacity(keys.len()));
         for (index, key) in keys.iter().enumerate() {
+            if !query_key_is_new(keys, index, &mut seen) {
+                continue;
+            }
             let segments = split_segments(key);
-            if !query_key_is_new(keys, index, &mut seen)
-                || !has_only_complete_pinyin_segments(&segments)
-            {
+            if !has_only_complete_pinyin_segments(&segments) {
                 continue;
             }
             let Some(table) = build_table_name(&segments) else {
@@ -1447,3 +1448,7 @@ mod empty_aggregate_tests;
 #[cfg(test)]
 #[path = "pinyin/empty_key_map_tests.rs"]
 mod empty_key_map_tests;
+
+#[cfg(test)]
+#[path = "pinyin/dedup_before_split_tests.rs"]
+mod dedup_before_split_tests;

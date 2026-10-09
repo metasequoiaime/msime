@@ -66,7 +66,22 @@ fn keys(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).into()).collect()
 }
 
+// 当前生产先去重再拆分；旧空表基线仍在每次重复键上创建音节，单独计这部分新增收益。
+fn duplicate_split_allocations(keys: &[String]) -> usize {
+    keys.iter()
+        .enumerate()
+        .filter(|(index, key)| keys[..*index].contains(key))
+        .map(|(_, key)| count(|| split_segments(key)).1)
+        .sum()
+}
+
 fn compare_hot(database: &PinyinDatabase, keys: &[String], limit: usize, saved: usize) {
+    let saved = saved
+        + if database.connection.is_some() && limit > 0 {
+            duplicate_split_allocations(keys)
+        } else {
+            0
+        };
     // 热缓存会替换并释放区间前的键，仅比较次数，不称绝对堆峰值。
     drop(original_query(database, keys, limit));
     drop(database.query_exact_keys_per_key(keys, limit));
@@ -272,7 +287,10 @@ fn cold_missed_batch_returns_no_reserved_hash_table() {
     assert_eq!(old_heap.minimum_bytes, 0);
     assert_eq!(new_heap.minimum_bytes, 0);
     assert_eq!(new_heap.remaining_bytes, 0);
-    assert_eq!(new_heap.allocations + 1, old_heap.allocations);
+    assert_eq!(
+        new_heap.allocations + 1 + duplicate_split_allocations(&batch),
+        old_heap.allocations
+    );
     assert!(new_heap.peak_bytes < old_heap.peak_bytes);
     // 表包含桶和控制字节，直接计量同类型预留，不用容量乘元素大小猜物理布局。
     let (reserved, reserved_heap) =
