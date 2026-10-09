@@ -449,7 +449,7 @@ pub struct DictionaryStateMerge {
     pub skipped: usize,
 }
 
-/// 把 `records`（一份词库状态，通常是本地备份里的快照）合并进本机正在用的日志和词库，而不是像 [`stage_dictionary_state`] 那样另建一代整份替换。全部在一个 IMMEDIATE 事务里完成，任何一条记录不合规或读流失败都整体回滚。
+/// 把 `records`（一份词库状态，通常是本地备份里的快照）合并进本机正在用的日志和词库，而不是像 [`stage_dictionary_state`] 那样另建一代整份替换。全部在一个 IMMEDIATE 事务里完成，任何一条记录不合规、读流失败或写库出错（磁盘满、I/O 失败等）都整体回滚。
 ///
 /// 合并规则是本机优先：学习调权和删除记录只在本机日志里还没有这个词（同一 `dictionary,key,value`）时写入，写法与个人词库编辑相同（先改工作词库，再记日志，`user_inserted` 照记录保留）；固定位置在本机既没有固定这个词、这个位置也没被占用时才写入；选词计数取两边较大的那个。用户自己的词不在这里写，只计数。`main_dictionary` 为假（代次里没有 `msime-pinyin.db`）时只写英文行，其余跳过。
 ///
@@ -523,7 +523,7 @@ pub fn merge_dictionary_state(
                         continue;
                     }
                     let (key_bytes, value_bytes) = (key.as_bytes(), value.as_bytes());
-                    // 编码拼不出表名，或这一代词库里没有那张表，这一行就存不下；SQL 错误只撤销这一条语句，事务照常继续。
+                    // 编码拼不出表名（`Ok(false)`），或这一代词库里没有那张表（准备语句时报 no such table，什么也没执行），这一行就存不下，计入 skipped。别的 SQL 错误（磁盘满、I/O 失败、库损坏、约束）照常上抛，整个合并回滚，调用方留着待合并的文件下次再试，而不是把没写进去的记录当成跳过。
                     let applied = match kind {
                         PersonalDictionaryKind::Pinyin => {
                             apply_pinyin(&transaction, key_bytes, value_bytes, *deleted, *weight)
@@ -555,7 +555,12 @@ pub fn merge_dictionary_state(
                             display.as_bytes(),
                         ),
                     };
-                    if !matches!(applied, Ok(true)) {
+                    let applied = match applied {
+                        Ok(applied) => applied,
+                        Err(error) if missing_table(&error) => false,
+                        Err(error) => return Err(error.into()),
+                    };
+                    if !applied {
                         merge.skipped += 1;
                         continue;
                     }
@@ -611,6 +616,15 @@ pub fn merge_dictionary_state(
     }
     transaction.commit()?;
     Ok(merge)
+}
+
+/// 语句准备时报「没有这张表」：SQLite 对它用通用的 `SQLITE_ERROR`，只能看消息区分。这时语句一条也没执行，跳过这一行不会留下半截修改。
+fn missing_table(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(failure, Some(message))
+            if failure.code == rusqlite::ErrorCode::Unknown && message.starts_with("no such table")
+    )
 }
 
 /// Non-empty unless `allow_empty`, at most `maximum` bytes and free of NUL (DS:82-86); `String` already guarantees UTF-8.
@@ -1467,6 +1481,51 @@ mod tests {
         );
         assert_eq!(dictionary_state_revision(&local).unwrap(), revision);
         assert_eq!(fs::read(&main).unwrap(), dictionary);
+    }
+
+    /// 词库里没有那张表的行跳过，合并照常提交；写库时别的 SQL 错误整体回滚，不当成跳过。
+    #[test]
+    fn a_missing_table_is_skipped_but_a_write_failure_rolls_back() {
+        use PersonalDictionaryKind::*;
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let local = local_state(&resources, &root.path().join("local"));
+        // 测试词库里没有 wubi98 这张表。
+        let merged = merge(
+            &local,
+            vec![
+                entry(Wubi98, "wqvb", "你好", 120, "", false, false),
+                selection("ni", "ni", "你", 4),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            (merged.entries, merged.selections, merged.skipped),
+            (0, 1, 1)
+        );
+
+        // 写词库时出错（这里用触发器模拟，真实情况是磁盘满或 I/O 失败）：前面已经调大的选词计数也一起撤销。
+        sql(
+            &local.dictionary(assets::MAIN_DICTIONARY),
+            "CREATE TRIGGER synthetic_failure BEFORE INSERT ON tbl_2_n BEGIN SELECT RAISE(ABORT,'synthetic write failure'); END;",
+        );
+        let revision = dictionary_state_revision(&local).unwrap();
+        assert!(merge(
+            &local,
+            vec![
+                selection("ni", "ni", "你", 9),
+                entry(Pinyin, "ni'hao", "泥好", 120, "", false, false),
+            ],
+        )
+        .is_err());
+        assert_eq!(dictionary_state_revision(&local).unwrap(), revision);
+        assert_eq!(
+            weight(
+                &local.user(assets::USER_JOURNAL),
+                "SELECT selection_count FROM candidate_selection_state WHERE value='你'"
+            ),
+            Some(4)
+        );
     }
 
     /// 没有中文词库的代次只收英文行，其余计入 skipped，日志不动。
