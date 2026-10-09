@@ -397,7 +397,7 @@ public final class UpdateApi {
             FilePolicy.deleteQuietly(partial);
             throw cancelled;
         }
-        return hex(digest.digest());
+        return DigestPolicy.hex(digest.digest());
     }
 
     /**
@@ -432,7 +432,7 @@ public final class UpdateApi {
         Signature[] now = installed.getApkContentsSigners();
         if (now == null || now.length == 0) return false;
         for (Signature signature : now) {
-            if (!history.contains(hex(sha256().digest(signature.toByteArray())))) return false;
+            if (!history.contains(DigestPolicy.hex(sha256().digest(signature.toByteArray())))) return false;
         }
         return true;
     }
@@ -440,7 +440,8 @@ public final class UpdateApi {
     private static Set<String> fingerprints(Signature[] signatures) {
         Set<String> result = new HashSet<>(signatures == null ? 0 : signatures.length);
         if (signatures == null) return result;
-        for (Signature signature : signatures) result.add(hex(sha256().digest(signature.toByteArray())));
+        for (Signature signature : signatures)
+            result.add(DigestPolicy.hex(sha256().digest(signature.toByteArray())));
         return result;
     }
 
@@ -448,20 +449,11 @@ public final class UpdateApi {
     private static boolean verified(File file, String expected) {
         if (!file.isFile()) return false;
         try {
-            return MessageDigest.isEqual(sha256Hex(file).getBytes(StandardCharsets.US_ASCII),
+            return MessageDigest.isEqual(DigestPolicy.sha256Hex(file).getBytes(StandardCharsets.US_ASCII),
                 expected.getBytes(StandardCharsets.US_ASCII));
         } catch (IOException unreadable) {
             return false;
         }
-    }
-
-    /** 文件的 SHA-256 十六进制。 */
-    public static String sha256Hex(File file) throws IOException {
-        return DigestPolicy.sha256Hex(file);
-    }
-
-    static String hex(byte[] bytes) {
-        return DigestPolicy.hex(bytes);
     }
 
     private static MessageDigest sha256() {

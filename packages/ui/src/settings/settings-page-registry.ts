@@ -89,6 +89,12 @@ export const pages = [
     icon: new URL("../assets/vocabulary.svg", import.meta.url).href,
   },
   { id: "help", title: "帮助", icon: new URL("../assets/help.svg", import.meta.url).href },
+  // 「关于」里「匿名使用统计」开关下面那一行打开：上报发送什么、包含什么。
+  {
+    id: "usage-reporting",
+    title: "发送哪些内容",
+    icon: new URL("../assets/about.svg", import.meta.url).href,
+  },
   // 触屏宿主「设置」根页状态卡片上的「试用键盘」打开的子页面；桌面首页有自己的键盘入口，没有这一页。
   {
     id: "try-keyboard",
@@ -124,5 +130,6 @@ export const subPageParents: Partial<Record<SettingsPageId, SettingsPageId>> = {
   chat: "ai",
   vocabulary: "dictionary",
   help: "feedback",
+  "usage-reporting": "about",
   "try-keyboard": "home",
 };

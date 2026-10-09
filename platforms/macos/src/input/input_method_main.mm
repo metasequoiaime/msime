@@ -47,6 +47,10 @@ int main(int argc, const char *argv[]) {
                 }, TISEnableInputSource);
             return status == noErr ? 0 : 1;
         }
+        if (MSIMEShouldReportInputSourceRegistration(argc, argv)) {
+            return MSIMEInputSourceRegistryExitCode(
+                MSIMEInputSourceRegistryStateFor(NSBundle.mainBundle.bundleIdentifier, TISCreateInputSourceList));
+        }
         [NSApplication sharedApplication];
         // After an app upgrade the options still point at the previous dictionary generation; bring them to the installed one (replaying the user dictionary) before any session, including the standalone preferences window's, reads them.
         // A missing file is the not-yet-configured state, which is not a refresh failure.

@@ -12,6 +12,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CancellationException;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -104,7 +105,7 @@ public final class DeviceDataApi {
     public DeviceDataApi(Context context) {
         Context application = context.getApplicationContext();
         this.cloud = new CloudApi(application);
-        this.account = rejected -> new BackendAccount(application).currentAccessToken(rejected);
+        this.account = CloudApi.accountTokens(application);
         this.downloader = DeviceDataApi::httpDownload;
     }
 
@@ -213,20 +214,22 @@ public final class DeviceDataApi {
     }
 
     /**
-     * 把一次性导出的 zip 流式写进 `out`（每用户每天 3 次，超出时是 429）。令牌被拒时换一枚新的只重试一次，与 CloudApi 相同。
+     * 把一次性导出的 zip 流式写进 `out`（每用户每天 3 次，超出时是 429）。令牌被拒时只在同一登录内重试一次；失败时调用方须丢弃已写入的临时文件。
      *
      * @return 写入的字节数
      */
     public long exportData(OutputStream out) throws CloudApi.Failure {
         String rejected = null;
+        String sessionId = null;
         for (int attempt = 0; ; attempt++) {
-            String token;
-            try {
-                token = account.token(rejected);
-            } catch (Exception unavailable) {
-                throw new CloudApi.Failure(0, "session_unavailable", unavailable.getMessage(), 0);
-            }
+            CloudApi.TokenSnapshot session = accountSnapshot(rejected);
+            if (sessionId != null && !sessionId.equals(session.sessionId())) throw sessionChanged();
+            String token = session.token();
             if (token == null || token.isEmpty()) throw new CloudApi.Failure(401, "signed_out", "not signed in", 0);
+            if (session.sessionId() == null || session.sessionId().isEmpty())
+                throw new CloudApi.Failure(0, "session_unavailable", "account identity unavailable", 0);
+            if (sessionId == null) sessionId = session.sessionId();
+            ensureCurrentLogin(sessionId);
             CountingStream counted = new CountingStream(out);
             Download result;
             try {
@@ -234,6 +237,7 @@ public final class DeviceDataApi {
             } catch (IOException offline) {
                 throw new CloudApi.Failure(0, "network", offline.getMessage(), 0);
             }
+            ensureCurrentLogin(sessionId);
             if (result.status() / 100 == 2) return counted.count;
             if (result.status() == 401 && attempt == 0) {
                 rejected = token;
@@ -242,6 +246,26 @@ public final class DeviceDataApi {
             throw CloudApi.failure(new CloudApi.Exchange(result.status(), "application/json", result.retryAfter(),
                 result.errorBody()));
         }
+    }
+
+    private CloudApi.TokenSnapshot accountSnapshot(String rejected) throws CloudApi.Failure {
+        try {
+            return account.snapshot(rejected);
+        } catch (CloudApi.Failure failure) {
+            throw failure;
+        } catch (CancellationException changed) {
+            throw sessionChanged();
+        } catch (Exception unavailable) {
+            throw new CloudApi.Failure(0, "session_unavailable", unavailable.getMessage(), 0);
+        }
+    }
+
+    private void ensureCurrentLogin(String expectedId) throws CloudApi.Failure {
+        if (!expectedId.equals(accountSnapshot(null).sessionId())) throw sessionChanged();
+    }
+
+    private static CloudApi.Failure sessionChanged() {
+        return new CloudApi.Failure(409, "session_changed", "account session changed", 0);
     }
 
     /** 只删数据、保留账号：删掉 `sections`（{@link #DELETABLE_SECTIONS} 的子集）。要求最近登录。 */

@@ -32,6 +32,8 @@ def main() -> None:
         "return view != null && view.getVisibility() == View.VISIBLE;",
         "public static void setPaddingIfChanged(View view, int left, int top, int right, int bottom)",
         "if (view.getPaddingLeft() == left && view.getPaddingTop() == top",
+        "public static void setBottomPadding(View view, int bottom)",
+        "setPadding(view, view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(), bottom);",
         "public static void setVisibleIfChanged(View view, boolean visible)",
         "if (view.getVisibility() == visibility) return;",
         "public static LinearLayout newRow(Context context)",
@@ -40,6 +42,8 @@ def main() -> None:
         "view.setOrientation(LinearLayout.VERTICAL);",
         "public static LinearLayout.LayoutParams newSquareParamsPx(int size)",
         "return new LinearLayout.LayoutParams(size, size);",
+        "public static View newColorView(Context context, int color)",
+        "setBackgroundColor(view, color);",
     )
     missing = [snippet for snippet in required if snippet not in view_policy]
     if missing:
@@ -74,6 +78,33 @@ def main() -> None:
         raise AssertionError("Ui 按钮没有直接调用共享文本最小宽度策略")
     if "public static void setEnabledLook(" in ui:
         raise AssertionError("Ui 仍保留无调用方的启用状态转发方法")
+    if "public static void setBottomPadding(" in ui:
+        raise AssertionError("Ui 仍保留底部内边距转发方法")
+    for path in HOME.glob("*.java"):
+        if "Ui.setBottomPadding(" in path.read_text(encoding="utf-8"):
+            raise AssertionError(f"{path} 没有直接调用共享底部内边距策略")
+    for name in ("DetailPage.java", "KeyboardFragment.java"):
+        source = (HOME / name).read_text(encoding="utf-8")
+        if "ViewPolicy.setBottomPadding(target, bottom);" not in source:
+            raise AssertionError(f"{name} 没有调用共享底部内边距策略")
+    if "public static View hairlineView(" in ui:
+        raise AssertionError("Ui 仍保留发丝线视图工厂")
+    for path in HOME.glob("*.java"):
+        if "Ui.hairlineView(" in path.read_text(encoding="utf-8"):
+            raise AssertionError(f"{path} 没有直接调用共享着色视图工厂")
+    if "ViewPolicy.newColorView(context, hairline(context));" not in ui:
+        raise AssertionError("Ui 分隔线没有调用共享着色视图工厂")
+    feedback = (HOME / "FeedbackPage.java").read_text(encoding="utf-8")
+    if "ViewPolicy.newColorView(context, Ui.hairline(context));" not in feedback:
+        raise AssertionError("FeedbackPage 没有调用共享着色视图工厂")
+    if "public static void setHorizontalPaddingPx(" in ui:
+        raise AssertionError("Ui 仍保留水平像素内边距转发方法")
+    for path in HOME.glob("*.java"):
+        if "Ui.setHorizontalPaddingPx(" in path.read_text(encoding="utf-8"):
+            raise AssertionError(f"{path} 没有直接调用共享水平内边距策略")
+    slider = (HOME / "MsSlider.java").read_text(encoding="utf-8")
+    if "ViewPolicy.setHorizontalPadding(this, inset);" not in slider:
+        raise AssertionError("MsSlider 没有直接调用共享水平内边距策略")
     if "return ViewPolicy.newRow(context);" not in ui:
         raise AssertionError("Ui 没有调用共享横向容器工厂")
     if "return ViewPolicy.newRow(context);" not in keyboard_geometry:

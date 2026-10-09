@@ -30,8 +30,7 @@ public final class SettingsSheet {
         root.addView(Ui.sheetDragHandle(context));
 
         // M3 headline small：面板标题是标题，不是加粗的标签。
-        TextView heading = Ui.styledLabel(context, title, Ui.TEXT_BAR_TITLE, 400, Ui.text(context));
-        heading.setAccessibilityHeading(true);
+        TextView heading = Ui.headingLabel(context, title, Ui.TEXT_BAR_TITLE, 400, Ui.text(context));
         root.addView(heading);
 
         if (subtitle != null && !subtitle.isEmpty()) {
@@ -71,9 +70,8 @@ public final class SettingsSheet {
 
     /** 一行状态文字，保存成功或失败后由面板改写。 */
     public TextView addStatus() {
-        TextView status = Ui.styledLabel(context, "", 12, 400, Ui.subText(context));
+        TextView status = Ui.liveStatus(context, 12);
         ViewPolicy.setCenteredVertically(status);
-        ViewPolicy.setPoliteLiveRegion(status);
         LinearLayout.LayoutParams params = Ui.matchWidthHeight(context, 20);
         params.topMargin = Ui.dp(context, 10);
         content.addView(status, params);

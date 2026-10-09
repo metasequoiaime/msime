@@ -273,7 +273,7 @@ test("offers the melody only in melody mode, and the mode only while key sounds 
   ).toBe(true);
 });
 
-test("a melody pack is chosen on its own detail, which says where the mode is switched", async () => {
+test("a melody pack is chosen on its own detail, which also enables melody playback", async () => {
   const melodies = fakeClient({
     catalog: vi.fn(async () => ({
       packages: [
@@ -287,9 +287,10 @@ test("a melody pack is chosen on its own detail, which says where the mode is sw
   await openPack("卡农");
   expect(screen.getByText(/把发声方式设为按键旋律后/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "设为按键旋律" }));
-  // The mode is left as it was: choosing a melody does not start playing it.
+  // 选择旋律会打开按键音，并切换到按键旋律。
   expect(onChange).toHaveBeenLastCalledWith({
     ...defaultPluginPreferences,
+    key_sound: { ...defaultPluginPreferences.key_sound, enabled: true, mode: "melody" },
     melody: { pack: "canon" },
   });
 
@@ -463,7 +464,7 @@ test("chooses a music pack on its detail, which starts unselected", async () => 
   fireEvent.click(screen.getByRole("button", { name: "设为当前音乐包" }));
   expect(onChange).toHaveBeenLastCalledWith({
     ...defaultPluginPreferences,
-    music: { ...defaultPluginPreferences.music, pack: "rain" },
+    music: { ...defaultPluginPreferences.music, enabled: true, pack: "rain" },
   });
 
   cleanup();
@@ -1070,18 +1071,26 @@ test("fills the defaults the document leaves out and forgets removed packs", () 
 
   expect(withPackSelected(selected, { kind: "sound", id: "piano", mode: "keys" })).toEqual({
     ...selected,
-    key_sound: { ...selected.key_sound, pack: "piano" },
+    key_sound: { ...selected.key_sound, enabled: true, mode: "keys", pack: "piano" },
   });
+  const melodyOn: PluginPreferences = {
+    ...selected,
+    key_sound: { ...selected.key_sound, enabled: true, mode: "melody" },
+  };
+  expect(
+    withPackSelected(melodyOn, { kind: "sound", id: "piano", mode: "keys" }).key_sound,
+  ).toEqual({ ...selected.key_sound, enabled: true, mode: "keys", pack: "piano" });
   expect(withPackSelected(selected, { kind: "sound", id: "canon", mode: "sequence" })).toEqual({
     ...selected,
+    key_sound: { ...selected.key_sound, enabled: true, mode: "melody" },
     melody: { pack: "canon" },
   });
-  // Choosing music leaves whether it plays as it was.
-  expect(withPackSelected(selected, { kind: "music", id: "sea" }).music).toEqual({
-    enabled: true,
-    pack: "sea",
-    volume: 40,
-  });
+  expect(
+    withPackSelected(
+      { ...selected, music: { ...selected.music, enabled: false } },
+      { kind: "music", id: "sea" },
+    ).music,
+  ).toEqual({ enabled: true, pack: "sea", volume: 40 });
   expect(withPackSelected(selected, { kind: "effect", id: "fire" }).effect_pack).toBe("fire");
   expect(withPackSelected(selected, { kind: "command_table", id: "c" }).command_tables).toEqual([
     "a",

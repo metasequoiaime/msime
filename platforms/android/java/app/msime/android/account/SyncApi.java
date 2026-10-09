@@ -66,18 +66,27 @@ public final class SyncApi {
     public SyncApi(Context context) {
         Context application = context.getApplicationContext();
         this.cloud = new CloudApi(application);
-        this.account = rejected -> new BackendAccount(application).currentAccessToken(rejected);
+        this.account = CloudApi.accountTokens(application);
         this.streams = new HttpStreams();
     }
 
     /** Every token lookup belongs to the same account binding, including a 401 retry. */
     public SyncApi(Context context, long bindingGeneration) {
         Context application = context.getApplicationContext();
-        this.account = rejected -> {
-            synchronized (SyncSwitch.bindingLock()) {
-                if (SyncSwitch.bindingGeneration(application) != bindingGeneration) return "";
-                String token = new BackendAccount(application).currentAccessToken(rejected);
-                return SyncSwitch.bindingGeneration(application) == bindingGeneration ? token : "";
+        this.account = new CloudApi.Tokens() {
+            @Override public String token(String rejected) throws Exception {
+                return snapshot(rejected).token();
+            }
+
+            @Override public CloudApi.TokenSnapshot snapshot(String rejected) throws Exception {
+                synchronized (SyncSwitch.bindingLock()) {
+                    if (SyncSwitch.bindingGeneration(application) != bindingGeneration)
+                        return new CloudApi.TokenSnapshot("", "");
+                    BackendAccount.SessionCredential session = new BackendAccount(application).currentSession(rejected);
+                    if (SyncSwitch.bindingGeneration(application) != bindingGeneration)
+                        return new CloudApi.TokenSnapshot("", "");
+                    return new CloudApi.TokenSnapshot(session.token(), session.sessionId());
+                }
             }
         };
         this.cloud = new CloudApi(application, this.account);
@@ -424,20 +433,21 @@ public final class SyncApi {
     /** 带令牌发一次流式请求，401 时换一枚新令牌重试一次；非 2xx 读成 {@link CloudApi.Failure}。 */
     Exchange streamed(Call call) throws CloudApi.Failure {
         String rejected = null;
+        String sessionId = null;
         for (int attempt = 0; ; attempt++) {
-            String token;
-            try {
-                token = account.token(rejected);
-            } catch (Exception unavailable) {
-                throw new CloudApi.Failure(0, "session_unavailable", unavailable.getMessage(), 0);
-            }
+            CloudApi.TokenSnapshot session = accountSnapshot(rejected);
+            String token = session.token();
             if (token == null || token.isEmpty()) throw new CloudApi.Failure(401, "signed_out", "not signed in", 0);
+            if (attempt == 0) sessionId = session.sessionId();
+            else if (sessionId != null && !sessionId.equals(session.sessionId())) throw sessionChanged();
+            ensureCurrentLogin(sessionId);
             Exchange exchange;
             try {
                 exchange = call.run(token);
             } catch (IOException offline) {
                 throw new CloudApi.Failure(0, "network", offline.getMessage(), 0);
             }
+            ensureCurrentLogin(sessionId);
             if (exchange.status() / 100 == 2) return exchange;
             if (exchange.status() == 401 && attempt == 0) {
                 rejected = token;
@@ -446,6 +456,25 @@ public final class SyncApi {
             throw CloudApi.failure(new CloudApi.Exchange(exchange.status(), "application/json",
                 exchange.retryAfter(), exchange.body()));
         }
+    }
+
+    private CloudApi.TokenSnapshot accountSnapshot(String rejected) throws CloudApi.Failure {
+        try {
+            return account.snapshot(rejected);
+        } catch (java.util.concurrent.CancellationException changed) {
+            throw sessionChanged();
+        } catch (Exception unavailable) {
+            throw new CloudApi.Failure(0, "session_unavailable", unavailable.getMessage(), 0);
+        }
+    }
+
+    private void ensureCurrentLogin(String expectedId) throws CloudApi.Failure {
+        if (expectedId != null && !expectedId.equals(accountSnapshot(null).sessionId()))
+            throw sessionChanged();
+    }
+
+    private static CloudApi.Failure sessionChanged() {
+        return new CloudApi.Failure(409, "session_changed", "account session changed", 0);
     }
 
     private static CloudApi.Failure invalid(String message) {

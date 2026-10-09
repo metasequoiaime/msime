@@ -4122,6 +4122,89 @@ fn slash_and_at_open_their_modes_only_with_nothing_composed() {
     assert!(finished.commit_context.unwrap().typing_statistics);
 }
 
+#[test]
+fn wubi_literal_marks_do_not_open_table_modes() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = real_engine_options(directory.path());
+    options.scheme = 2;
+    options.local_command = true;
+    options.local_mention = true;
+    options.command_table = vec![msime_engine::host::CommandTableEntry {
+        trigger: "sig".into(),
+        title: "签名".into(),
+        template: "张三".into(),
+    }];
+    options.mention_entries = vec![msime_engine::host::MentionEntry {
+        text: "张三".into(),
+        key: "zhang'san".into(),
+    }];
+    let session = msime_engine::host::Session::new(&options).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    assert_eq!(runtime.view().spelling_symbols, "/@");
+
+    let literal = runtime.dispatch(Action::PunctuationAscii(b'/')).unwrap();
+    assert_eq!(literal.view.local_mode, "none");
+    let opened = runtime.dispatch(Action::Punctuation(b'/')).unwrap();
+    assert_eq!(opened.view.local_mode, "command");
+}
+
+#[test]
+fn a_capital_after_a_complete_wubi_code_commits_the_word_and_keeps_the_letter() {
+    let directory = tempfile::tempdir().unwrap();
+    let dictionaries = directory.path().join("dictionaries");
+    std::fs::create_dir_all(&dictionaries).unwrap();
+    rusqlite::Connection::open(dictionaries.join(msime_engine::assets::MAIN_DICTIONARY))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE wubi86(key TEXT, value TEXT, weight INTEGER);\
+             INSERT INTO wubi86 VALUES('gege','工',100),('gege','或',50);",
+        )
+        .unwrap();
+    let wubi = |quick_phrase: bool| {
+        let mut options = real_engine_options(directory.path());
+        options.scheme = 2;
+        options.local_quick_phrase = quick_phrase;
+        let mut runtime =
+            Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 5).unwrap();
+        runtime.focus(true).unwrap();
+        type_characters(&mut runtime, "gege");
+        assert_eq!(runtime.view().editing_text, "gege");
+        assert_eq!(texts(&runtime.view())[..2], ["工", "或"]);
+        runtime
+    };
+
+    let mut off = wubi(false);
+    for value in *b"AK" {
+        let topped = character(&mut off, value);
+        let letter = char::from(value);
+        assert!(topped.handled, "{letter}: {topped:?}");
+        assert_eq!(
+            topped.commit.as_deref(),
+            Some(format!("工{letter}").as_str()),
+            "{letter}"
+        );
+        assert_eq!(
+            topped.commit_context.as_ref().map(|context| context.scheme),
+            Some(2),
+            "{letter}"
+        );
+        assert!(topped.view.editing_text.is_empty(), "{letter}: {topped:?}");
+        assert_eq!(topped.view.local_mode, "none", "{letter}");
+        type_characters(&mut off, "gege");
+    }
+    let next = character(&mut off, b'g');
+    assert_eq!(next.commit.as_deref(), Some("工"));
+    assert_eq!(next.view.editing_text, "g");
+
+    let mut on = wubi(true);
+    let opened = character(&mut on, b'K');
+    assert!(opened.handled, "{opened:?}");
+    assert_eq!(opened.commit.as_deref(), Some("工"));
+    assert_eq!(opened.view.local_mode, "quick_phrase");
+    assert_eq!(opened.view.editing_text, "K");
+}
+
 /// Without a settled model attached, the settle call is inert.
 ///
 /// This is the shape every installation that ships one model is in, and the one where a mistake

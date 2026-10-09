@@ -18,6 +18,7 @@ import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.ListPolicy;
+import app.msime.android.NumberPolicy;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import java.io.IOException;
@@ -128,11 +129,11 @@ public final class LexiconPage extends DetailPage {
 
         GroupCard installed = GroupCard.add(target, "已安装").withDividers(58);
         String builtinCount = current.builtinCount() < 0 ? null
-            : DictionaryCollectionsStore.countLabel(current.builtinCount());
+            : NumberPolicy.groupedCount(current.builtinCount());
         installed.addView(KeyboardSheets.badgeNavRow(context, "汉", "拼音词库", builtinCount, "已启用",
             Ui.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_PINYIN, "拼音词库")));
         for (DictionaryCollectionsStore.Collection collection : current.view().collections()) {
-            String subtitle = DictionaryCollectionsStore.countLabel(collection.entryCount())
+            String subtitle = NumberPolicy.groupedCount(collection.entryCount())
                 + ("community".equals(collection.sourceType()) ? " · 社区" : "");
             installed.addView(KeyboardSheets.badgeNavRow(context, TextPolicy.initial(collection.name(), "词"), collection.name(),
                 subtitle, collection.enabled() ? "已启用" : "已停用",
@@ -192,7 +193,7 @@ public final class LexiconPage extends DetailPage {
         List<String> parts = new ArrayList<>(2);
         if (!item.author().isEmpty()) parts.add("@" + item.author());
         JSONArray words = item.payload() == null ? null : item.payload().optJSONArray("words");
-        if (words != null) parts.add(DictionaryCollectionsStore.countLabel(words.length()));
+        if (words != null) parts.add(NumberPolicy.groupedCount(words.length()));
         if (parts.isEmpty() && !item.description().isEmpty()) parts.add(item.description());
         row.addView(KeyboardSheets.texts(context, item.name(), parts.isEmpty() ? null : String.join(" · ", parts),
                 Ui.text(context)),
@@ -206,10 +207,8 @@ public final class LexiconPage extends DetailPage {
                 Ui.accentSoft(context), Ui.accent(context), Ui.BUTTON_PADDING_H, Ui.BUTTON_PADDING_V,
                 Ui.COMPACT_BUTTON_MIN_HEIGHT, 0, () -> install(item));
         } else {
-            button = Ui.styledLabel(context, added ? "已添加" : "添加中",
+            button = Ui.centeredSingleLineLabel(context, added ? "已添加" : "添加中",
                 Ui.TEXT_BUTTON_SMALL, 500, Ui.subText(context));
-            ViewPolicy.setCentered(button);
-            ViewPolicy.setSingleLine(button);
             ViewPolicy.setBackground(button, Ui.pillRipple(context,
                 added ? Ui.rowBackground(context) : Ui.accentSoft(context)));
             Ui.setButtonPadding(button, context);
@@ -302,7 +301,7 @@ public final class LexiconPage extends DetailPage {
         DictionaryCollectionsStore.ImportReport report = result.value().importReport();
         if (report == null) return "已导入「" + name + "」";
         StringBuilder message = new StringBuilder("已导入「").append(name).append("」，")
-            .append(DictionaryCollectionsStore.countLabel(report.imported()));
+            .append(NumberPolicy.groupedCount(report.imported()));
         if (report.duplicates() > 0) message.append("，跳过重复 ").append(report.duplicates()).append(" 条");
         if (report.failed() > 0) message.append("，").append(report.failed()).append(" 行无法识别");
         if (report.truncated()) message.append("，词库已满");

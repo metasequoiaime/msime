@@ -34,6 +34,8 @@ if(BUILD_TESTING)
   find_package(Python3 COMPONENTS Interpreter REQUIRED)
   add_test(NAME linux-fcitx5-contract
            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/fcitx5_contract.py")
+  add_test(NAME linux-ibus-component-contract
+           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/ibus_component_contract.py")
 endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -640,10 +642,15 @@ elseif(MSIME_ENABLE_PACKAGING AND MSIME_EDITION_HANDWRITING AND MSIME_BUNDLE_HAN
   message(FATAL_ERROR "Packaging requires the handwriting model; fetch it with scripts/fetch_handwriting_model.py, or configure with -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF to leave it to the on-demand download")
 endif()
 # 上面只按锁核对模型的字节；这里用构建出的识别入口真正加载它并识别一笔，各打包路线的 ctest 都会跑到。
+# 识别的是复制到构建目录里的一份，不是模型目录里的原件：Nix 的 store 去重会把原件合并成硬链接，而构建沙箱里 store 的属主显示为 nobody，引擎不会信任那个目录里的多链接文件（#6386）。复制出来的是新的单链接文件。
 if(BUILD_TESTING AND MSIME_HANDWRITING_MODEL_DIR)
+  set(MSIME_HANDWRITING_TEST_MODEL "${CMAKE_CURRENT_BINARY_DIR}/handwriting-test/handwriting-zh_CN.model")
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/handwriting-test")
+  file(COPY_FILE "${MSIME_HANDWRITING_MODEL_DIR}/handwriting-zh_CN.model" "${MSIME_HANDWRITING_TEST_MODEL}"
+       ONLY_IF_DIFFERENT)
   add_test(NAME linux-handwriting-local-model
            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/provider/handwriting_local_model.py"
-                   $<TARGET_FILE:msime-linux-handwriting> "${MSIME_HANDWRITING_MODEL_DIR}/handwriting-zh_CN.model")
+                   $<TARGET_FILE:msime-linux-handwriting> "${MSIME_HANDWRITING_TEST_MODEL}")
 endif()
 if(MSIME_EMOJI_RESOURCES)
   if(NOT IS_DIRECTORY "${MSIME_EMOJI_RESOURCES}")

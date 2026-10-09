@@ -6,6 +6,16 @@ protocol KeyboardCloudClipboardService: Sendable {
   func isSignedIn() async -> Bool
   func page() async throws -> BackendAccountClient.ClipboardPage
   func add(_ text: String) async throws
+  func uploadIfEnabled(_ text: String) async throws -> BackendAccountClient.ClipboardPage?
+}
+
+extension KeyboardCloudClipboardService {
+  func uploadIfEnabled(_ text: String) async throws -> BackendAccountClient.ClipboardPage? {
+    let before = try await page()
+    guard before.enabled else { return nil }
+    try await add(text)
+    return try await page()
+  }
 }
 
 struct BackendKeyboardCloudClipboardService: KeyboardCloudClipboardService {
@@ -19,13 +29,27 @@ struct BackendKeyboardCloudClipboardService: KeyboardCloudClipboardService {
   func add(_ text: String) async throws {
     _ = try await authorized { [client] token in try await client.addClipboard(text, token: token) }
   }
-  /// One retry with a refreshed token when the access token was rejected, as the app's account-backed screens do.
-  private func authorized<T>(_ body: (String) async throws -> T) async throws -> T {
-    let token = try await session.accessToken()
-    do { return try await body(token) }
-    catch let failure as BackendAccountClient.Failure where failure.status == 401 {
-      return try await body(session.accessToken(retrying: token))
+  func uploadIfEnabled(_ text: String) async throws -> BackendAccountClient.ClipboardPage? {
+    let identity = try await session.credentials()
+    func request<T: Sendable>(_ operation: @Sendable (String) async throws -> T) async throws -> T {
+      try await session.authenticated(matchingUserID: identity.userID,
+                                      matchingSessionID: identity.sessionID, operation).value
     }
+    let before = try await request { [client] token in try await client.clipboard(token: token) }
+    guard before.enabled else { return nil }
+    _ = try await request { [client] token in try await client.addClipboard(text, token: token) }
+    return try await request { [client] token in try await client.clipboard(token: token) }
+  }
+  /// 将请求及可能发生的令牌刷新绑定到发起时的登录会话。
+  private func authorized<T: Sendable>(_ body: @Sendable (String) async throws -> T) async throws -> T {
+    let identity = try await session.credentials()
+    let result = try await session.authenticated(matchingUserID: identity.userID,
+                                                 matchingSessionID: identity.sessionID) { token in
+      try await body(token)
+    }.value
+    try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+    try Task.checkCancellation()
+    return result
   }
 }
 
@@ -135,10 +159,8 @@ final class KeyboardCloudClipboard {
       var refreshed: State?
       var notice: String
       do {
-        let before = try await service.page()
-        if before.enabled {
-          try await service.add(text)
-          refreshed = .loaded(try await service.page().items)
+        if let page = try await service.uploadIfEnabled(text) {
+          refreshed = .loaded(page.items)
           notice = "已发到云剪贴板"
         } else {
           refreshed = .disabled

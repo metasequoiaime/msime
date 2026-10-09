@@ -406,13 +406,15 @@ stage="$work/dmg-$edition"
 mkdir -p "$stage"
 ditto "$app" "$stage/$app_name"
 ln -s /Applications "$stage/Applications"
-# Dragging the app is only half the install: the input method appears once the app has been opened and its install window's 立即安装 pressed, and on macOS 27 the user then adds it in System Settings, which the app walks them through. Finder shows the app by its localised name (水杉输入法 for full, apps/desktop/src-tauri/macos/*.lproj/InfoPlist.strings; each edition's own name otherwise), so the instructions call it that rather than by its file name.
+# Dragging the app is only half the install: the input method appears once the app has been opened and its install window's 立即安装 pressed, and on macOS 27 the user then adds it in System Settings, which the app walks them through. On a first install the add dialog only lists the input method after the next login (platforms/macos/README.md), so the instructions say so for a user who goes straight to System Settings. Finder shows the app by its localised name (水杉输入法 for full, apps/desktop/src-tauri/macos/*.lproj/InfoPlist.strings; each edition's own name otherwise), so the instructions call it that rather than by its file name.
 printf '%s\n' \
   "$display_name macOS 安装说明" \
   '' \
   "1. 把「${display_name}」拖到「应用程序」文件夹。" \
   "2. 打开「应用程序」里的「${display_name}」，点「立即安装」把输入法安装到本机，再按设置页的提示在「系统设置」→「键盘」→「文字输入」→「输入法」中添加它。" \
   "3. 添加后在菜单栏的输入法菜单中选「${display_name}」，或按 Control+空格 切换。" \
+  '' \
+  "第一次安装后如果安装窗口提示要重新登录，或在「系统设置」的添加列表里找不到「${display_name}」：macOS 要到下次登录才会列出新装的输入法。请在苹果菜单中选「退出登录」，重新登录后再去添加。以后更新不需要再重新登录。" \
   '' \
   "只把「${display_name}」拖进「应用程序」而不打开它，系统里不会出现这个输入法。" \
   > "$stage/安装说明.txt"

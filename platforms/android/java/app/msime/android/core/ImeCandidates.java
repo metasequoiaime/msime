@@ -26,6 +26,8 @@ final class ImeCandidates {
     private int accentSoft;
     private int accentText;
     private Typeface candidateTypeface;
+    /** 整面展开网格；滚动视图随键盘视图重建时跟着换。 */
+    private ImeCandidateGrid expandedGrid;
 
     ImeCandidates(MSIMEInputService s) {
         this.s = s;
@@ -278,18 +280,11 @@ final class ImeCandidates {
         String reading = InputViewValuePolicy.textOr(s.candidatePanelSnapshot, "reading", "");
         String compositionText = reading.isEmpty()
             ? InputViewValuePolicy.textOr(s.candidatePanelSnapshot, "preedit", "") : reading;
-        // 设计的网格不画标题；组合文本和候选总数留在网格的描述里给读屏。
-        CandidateWrapLayout list = new CandidateWrapLayout(s, s.pixels(6));
-        list.setContentDescription("完整候选列表；" + compositionText + "；" + count + " 个候选");
-        if (entries != null) {
-            for (int index = 0; index < entries.length(); index++) {
-                JSONObject candidate = entries.optJSONObject(index);
-                if (candidate == null) continue;
-                Button button = expandedCandidateButton(candidate);
-                list.addView(button, new android.view.ViewGroup.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, s.pixels(44)));
-            }
-        }
+        // 设计的网格不画标题；组合文本和候选总数留在网格的描述里给读屏。格子分批建，滚到接近底部再追加（#6471）。
+        if (expandedGrid == null || !expandedGrid.drives(s.expandedCandidateScroll))
+            expandedGrid = new ImeCandidateGrid(s, s.expandedCandidateScroll, true);
+        CandidateWrapLayout list = expandedGrid.build(s.candidatePanelSnapshot, entries,
+            "完整候选列表；" + compositionText + "；" + count + " 个候选");
         s.expandedCandidates.addView(list, KeyboardGeometry.weightedWidthParams(1));
         // 底部 返回 + ⌫，各 40 dp 高、功能键底色。
         LinearLayout footer = KeyboardGeometry.row(s);
