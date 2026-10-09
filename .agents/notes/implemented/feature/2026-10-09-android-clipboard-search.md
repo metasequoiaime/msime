@@ -32,4 +32,4 @@ Status: implemented
 
 ## Verification
 
-`platforms/android/tests/clipboard/ClipboardSearchPolicySmoke.java` 覆盖空查询和空白查询显示全部、大小写、中文子串、首尾空白、查询中间的空格、标点、置顶保持在前、无结果文案，以及系统语言是土耳其语时仍按 `Locale.ROOT` 匹配；`bash platforms/android/check-host.sh` 编译键盘代码、跑全部 JVM 冒烟（含 `SettingsSearchIndexSmoke` 对新 `PageId` 项的解析）并检查上面的守卫。`ClipboardSearchPage` 和 `ClipboardEditPage` 只在 Gradle 构建里编译。
+`platforms/android/tests/clipboard/ClipboardSearchPolicySmoke.java` 覆盖空查询和空白查询显示全部、大小写、中文子串、首尾空白、查询中间的空格、标点、置顶保持在前、无结果文案，以及系统语言是土耳其语时仍按 `Locale.ROOT` 匹配；`bash platforms/android/check-host.sh` 编译键盘代码、跑全部 JVM 冒烟（含 `SettingsSearchIndexSmoke` 对新 `PageId` 项的解析）并检查上面的守卫。`ClipboardSearchPage` 和 `ClipboardEditPage` 只在 Gradle 构建里编译（`build-apk.sh` 过了）。在 API 35 的专用模拟器（arm64，无窗口）上走过：开着剪贴板历史复制几条合成文字后，本机分段顶行出现「搜索」；点了打开应用里的「剪贴板历史」页，搜索框自动聚焦、键盘弹出；输入 `ALPHA` 只剩两条含 `Alpha` 的记录（不区分大小写，顺序不变），再输入成 `ALPHAzz` 显示「没有包含“ALPHAzz”的记录」；行尾删除后那一条从列表消失；行尾编辑打开编辑页，改字保存后弹回剪贴板历史页（应用仍在前台），那一条原地显示新文字；点一条后回到原来的编辑器，粘贴出的正是那一条。从设置首页搜索进入、置顶条目的显示、横屏和真机没有验证。
