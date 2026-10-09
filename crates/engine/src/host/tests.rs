@@ -692,6 +692,7 @@ fn helpcode_settings_reach_the_real_engine() {
         "shouyouplus",
         "xiaohe",
         "jiajia",
+        "wubi86",
     ] {
         value.helpcode_schema = schema.into();
         for enabled in [false, true] {
