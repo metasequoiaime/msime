@@ -1,5 +1,5 @@
 use super::super::decoder::test_model;
-use super::super::romaji::convert_romaji;
+use super::super::romaji::{convert_romaji, kana_for_romaji_prefix};
 use super::*;
 
 // 固定基线 dbfdd576e 的批量构造、稳定排序及截断流程，独立对照提前筛选的行为。

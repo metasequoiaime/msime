@@ -7,7 +7,7 @@ use super::decoder::JapaneseDictionary;
 use super::matrix::search_converted;
 use super::romaji::{
     convert_romaji_into, hiragana_to_katakana_into, is_single_kana_conversion,
-    kana_for_romaji_prefix, RomajiConversion,
+    kana_for_romaji_prefix_view, RomajiConversion,
 };
 use crate::cache::FifoCache;
 use crate::types::{CandidateSource, QueryRequest, SchemeType, WordItem};
@@ -158,8 +158,8 @@ impl JapaneseProvider {
             // With letters still pending, the lemmas the letters can go on to spell lead: the sentence search can convert only the finished kana. With the reading complete, the lemmas whose reading only starts with it (predictions) go after the conversions of the reading itself: listed first, the cheapest longer readings fill the page and push the word the reading spells off it (にじ listed 二重, 二条 and 二次創作 ahead of 虹).
             let mut predictions = Vec::new();
             if !conversion.hiragana.is_empty() && !conversion.pending.is_empty() {
-                // `kana_for_romaji_prefix` already limits the kana to spellings that start with the pending letters. Re-deriving romaji from each lemma's reading to check the prefix again would drop correct lemmas: a reading has several valid spellings and `hiragana_to_romaji` picks one, so しし reads `shishi` and fails `sis`.
-                let pending_kana = kana_for_romaji_prefix(&conversion.pending);
+                // 前缀视图已限制为待定字母能拼出的假名。一个读音有多种合法拼法，不能再用反查首选拼法过滤：しし反查为 `shishi`，会被 `sis` 错误排除。
+                let pending_kana = kana_for_romaji_prefix_view(&conversion.pending);
                 rows.reserve(
                     pending_kana
                         .len()
@@ -358,6 +358,29 @@ mod tests {
         assert!(
             allocations <= 11,
             "词条应借用，句子文本应移入矩阵输出：{allocations}"
+        );
+    }
+
+    #[test]
+    fn pending_model_query_reuses_fixed_kana_prefixes() {
+        let (_root, mut provider) = provider_with(Some(test_model::bytes(
+            &[("かか", "仮仮", 0, 0, 500), ("かき", "仮木", 0, 0, 600)],
+            1,
+            &[0],
+        )));
+        let request = request("kak");
+        let mut destination = provider.query(&request);
+        provider.query_into(&request, &mut destination);
+        let expected = destination.clone();
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            provider.query_into(&request, &mut destination);
+        });
+        assert_eq!(destination, expected);
+        assert!(words(&destination).contains(&"仮仮"));
+        eprintln!("日文待定前缀 provider 热查询分配：{allocations}");
+        assert!(
+            allocations <= 37,
+            "固定假名前缀应借用共享结果：{allocations}"
         );
     }
 

@@ -1,7 +1,7 @@
 //! The matrix search the provider uses for sentence conversion (schemes-lang.md §5.6, `japanese_matrix_search.cpp`), modelled on Google Pinyin's MatrixSearch: one row per mora of the converted reading, k-best nodes per row extended by lemmas whose reading covers the next morae, plus a single unknown-kana backoff so every reading has a path.
 
 use super::decoder::JapaneseDictionary;
-use super::romaji::{kana_for_romaji_prefix, RomajiConversion};
+use super::romaji::{kana_for_romaji_prefix_view, RomajiConversion};
 
 pub const MAX_NODES_PER_ROW: usize = 8;
 pub const MAX_LEMMA_MORA: usize = 16;
@@ -122,9 +122,9 @@ pub fn search_converted(
     if limit == 0 {
         return output.items;
     }
-    let pending_kana = kana_for_romaji_prefix(pending);
+    let pending_kana = kana_for_romaji_prefix_view(pending);
     if reading.is_empty() {
-        for kana in &pending_kana {
+        for kana in pending_kana {
             for lemma in dictionary.prefix_lemma_views(kana, 24) {
                 output.push(lemma.surface, i64::from(lemma.word_cost));
                 if output.full() {
@@ -191,12 +191,12 @@ pub fn search_converted(
     }
 
     if !pending.is_empty() {
-        for kana in &pending_kana {
+        for kana in pending_kana {
             for lemma in dictionary.exact_lemma_views(&join_text(reading, kana), 16) {
                 output.push(lemma.surface, i64::from(lemma.word_cost));
             }
         }
-        for lemma in dictionary.continuing_lemma_views(reading, &pending_kana, 48) {
+        for lemma in dictionary.continuing_lemma_views(reading, pending_kana, 48) {
             output.push(lemma.surface, i64::from(lemma.word_cost));
         }
     }
