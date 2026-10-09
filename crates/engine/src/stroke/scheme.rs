@@ -9,7 +9,6 @@ use crate::types::{QueryRequest, SchemeKey, SchemeType};
 pub const EXACT_LIMIT: usize = 200;
 /// 以键入笔画开头、笔画更多的字最多读这么多。
 pub const COMPLETION_LIMIT: usize = 100;
-const CANDIDATE_CAPACITY: usize = EXACT_LIMIT + COMPLETION_LIMIT;
 
 /// 一个候选字和它在 `msime-stroke.db` 里的笔画码。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +23,41 @@ pub struct StrokeCandidate {
 pub struct StrokeScheme {
     /// `hspnz` 与 `x`，至多 `MAX_STROKES` 个。键入时 `x` 不会出现在开头；宿主编辑可能把它留在开头。
     input: String,
+}
+
+/// 会话持有的字典查询行，重复文字也保留，以便下次查询复用它们的字符串。
+#[derive(Default)]
+pub(crate) struct StrokeQueryBuffer {
+    entries: Vec<LanguageEntry>,
+    exact_pattern: Vec<(String, LanguageEntry)>,
+    completions: Vec<(String, LanguageEntry)>,
+}
+
+impl StrokeQueryBuffer {
+    fn query(&mut self, dictionary: &LanguageDictionary, input: &str) -> Result<bool> {
+        let wildcard = char::from(WILDCARD);
+        let has_wildcard = input.contains(wildcard);
+        if has_wildcard {
+            dictionary.lookup_pattern_into(
+                input,
+                wildcard,
+                false,
+                EXACT_LIMIT,
+                &mut self.exact_pattern,
+            )?;
+            dictionary.lookup_pattern_into(
+                input,
+                wildcard,
+                true,
+                COMPLETION_LIMIT,
+                &mut self.completions,
+            )?;
+        } else {
+            dictionary.lookup_into(input, EXACT_LIMIT, &mut self.entries)?;
+            dictionary.lookup_completions_into(input, COMPLETION_LIMIT, &mut self.completions)?;
+        }
+        Ok(has_wildcard)
+    }
 }
 
 impl StrokeScheme {
@@ -129,71 +163,115 @@ impl StrokeScheme {
         if input.is_empty() {
             return Ok(Vec::new());
         }
-        let wildcard = char::from(WILDCARD);
-        let (exact, completions) = if input.contains(wildcard) {
-            (
-                dictionary.lookup_pattern(input, wildcard, false, EXACT_LIMIT)?,
-                dictionary.lookup_pattern(input, wildcard, true, COMPLETION_LIMIT)?,
-            )
-        } else {
-            let keyed = |entry: LanguageEntry| (input.to_owned(), entry);
-            (
-                dictionary
-                    .lookup(input, EXACT_LIMIT)?
-                    .into_iter()
-                    .map(keyed)
-                    .collect(),
-                dictionary.lookup_completions(input, COMPLETION_LIMIT)?,
-            )
+        let has_wildcard = input.contains(char::from(WILDCARD));
+        let mut buffer = StrokeQueryBuffer {
+            entries: Vec::with_capacity(if has_wildcard { 0 } else { EXACT_LIMIT }),
+            exact_pattern: Vec::with_capacity(if has_wildcard { EXACT_LIMIT } else { 0 }),
+            completions: Vec::with_capacity(COMPLETION_LIMIT),
         };
-        let mut entries = exact.into_iter().chain(completions).collect::<Vec<_>>();
-        deduplicate_stroke_entries(&mut entries);
-        let mut candidates = Vec::with_capacity(entries.len());
-        candidates.extend(entries.into_iter().map(|(key, entry)| StrokeCandidate {
-            text: entry.text,
-            weight: entry.weight,
-            key,
-        }));
-        // 稳定排序：只把没有字频的字移到后面，其余顺序不变。
+        buffer.query(dictionary, input)?;
+        let mut candidates = Vec::with_capacity(
+            buffer.entries.len() + buffer.exact_pattern.len() + buffer.completions.len(),
+        );
+        for entry in buffer.entries {
+            push_owned_candidate(&mut candidates, input, entry);
+        }
+        for (key, entry) in buffer.exact_pattern.into_iter().chain(buffer.completions) {
+            push_owned_candidate(&mut candidates, key, entry);
+        }
         candidates.sort_by_key(|candidate| candidate.weight <= 0);
         Ok(candidates)
     }
-}
 
-fn deduplicate_stroke_entries(entries: &mut Vec<(String, LanguageEntry)>) {
-    assert!(entries.len() <= CANDIDATE_CAPACITY);
-    let mut duplicates = [0usize; CANDIDATE_CAPACITY];
-    let mut duplicate_len = 0;
-    {
-        let mut seen: [Option<&str>; CANDIDATE_CAPACITY] = [None; CANDIDATE_CAPACITY];
-        let mut seen_len = 0;
-        for (index, (_, entry)) in entries.iter().enumerate() {
-            if seen[..seen_len]
-                .iter()
-                .flatten()
-                .any(|existing| *existing == entry.text)
-            {
-                duplicates[duplicate_len] = index;
-                duplicate_len += 1;
-            } else {
-                seen[seen_len] = Some(entry.text.as_str());
-                seen_len += 1;
+    /// 复用查询行与候选字符串；查询失败时清空候选，不暴露上次结果。
+    pub(crate) fn candidates_into(
+        &self,
+        dictionary: &LanguageDictionary,
+        buffer: &mut StrokeQueryBuffer,
+        candidates: &mut Vec<StrokeCandidate>,
+    ) -> Result<()> {
+        let input = self.input.as_str();
+        if input.is_empty() {
+            candidates.clear();
+            return Ok(());
+        }
+        let has_wildcard = match buffer.query(dictionary, input) {
+            Ok(has_wildcard) => has_wildcard,
+            Err(error) => {
+                candidates.clear();
+                return Err(error);
+            }
+        };
+        let exact_len = if has_wildcard {
+            buffer.exact_pattern.len()
+        } else {
+            buffer.entries.len()
+        };
+        let row_count = exact_len + buffer.completions.len();
+        candidates.reserve(row_count.saturating_sub(candidates.len()));
+        let mut length = 0;
+        if has_wildcard {
+            for (key, entry) in &buffer.exact_pattern {
+                push_candidate(candidates, &mut length, key, entry);
+            }
+        } else {
+            for entry in &buffer.entries {
+                push_candidate(candidates, &mut length, input, entry);
             }
         }
-    }
-    let mut next_duplicate = 0;
-    let mut write = 0;
-    for read in 0..entries.len() {
-        if next_duplicate < duplicate_len && duplicates[next_duplicate] == read {
-            next_duplicate += 1;
-            continue;
+        for (key, entry) in &buffer.completions {
+            push_candidate(candidates, &mut length, key, entry);
         }
-        if write != read {
-            entries.swap(write, read);
-        }
-        write += 1;
+        candidates.truncate(length);
+        // 稳定排序：只把没有字频的字移到后面，其余顺序不变。
+        candidates.sort_by_key(|candidate| candidate.weight <= 0);
+        Ok(())
     }
-    entries.truncate(write);
+}
+
+fn contains_text(candidates: &[StrokeCandidate], text: &str) -> bool {
+    candidates.iter().any(|candidate| candidate.text == text)
+}
+
+fn push_owned_candidate(
+    candidates: &mut Vec<StrokeCandidate>,
+    key: impl Into<String>,
+    entry: LanguageEntry,
+) {
+    if contains_text(candidates, &entry.text) {
+        return;
+    }
+    candidates.push(StrokeCandidate {
+        key: key.into(),
+        text: entry.text,
+        weight: entry.weight,
+    });
+}
+
+fn push_candidate(
+    candidates: &mut Vec<StrokeCandidate>,
+    length: &mut usize,
+    key: &str,
+    entry: &LanguageEntry,
+) {
+    // 写入之前去重，避免截掉重复候选后，每次热查询又重建这些字符串。
+    if contains_text(&candidates[..*length], &entry.text) {
+        return;
+    }
+    if let Some(candidate) = candidates.get_mut(*length) {
+        candidate.key.clear();
+        candidate.key.push_str(key);
+        candidate.text.clear();
+        candidate.text.push_str(&entry.text);
+        candidate.weight = entry.weight;
+    } else {
+        candidates.push(StrokeCandidate {
+            key: key.to_owned(),
+            text: entry.text.clone(),
+            weight: entry.weight,
+        });
+    }
+    *length += 1;
 }
 
 #[cfg(test)]
@@ -338,26 +416,64 @@ mod tests {
     }
 
     #[test]
-    fn stroke_dedup_keeps_the_first_entry_for_each_text() {
-        let entry = |text: &str| LanguageEntry {
-            text: text.to_owned(),
-            weight: 1,
-        };
-        let mut entries = vec![
-            ("hs".to_owned(), entry("十")),
-            ("hsh".to_owned(), entry("土")),
-            ("hs".to_owned(), entry("十")),
-        ];
-
-        deduplicate_stroke_entries(&mut entries);
-
-        assert_eq!(
-            entries
-                .iter()
-                .map(|(_, entry)| entry.text.as_str())
-                .collect::<Vec<_>>(),
-            ["十", "土"]
-        );
+    fn reused_candidates_keep_first_duplicate_before_stable_frequency_partition() {
+        let fixture = fixture();
+        let connection =
+            rusqlite::Connection::open(fixture._dir.path().join("msime-stroke.db")).unwrap();
+        connection
+            .execute("DELETE FROM entries WHERE key NOT IN ('hs', 'hsh')", [])
+            .unwrap();
+        for (key, text, weight) in [
+            ("hs", "重複零", 0),
+            ("hsh", "重複零", 10000),
+            ("hs", "重複負", -1),
+            ("hsh", "重複負", 9000),
+            ("hsh", "補全零", 0),
+            ("hsh", "補全負", -2),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                    (key, text, weight),
+                )
+                .unwrap();
+        }
+        drop(connection);
+        let mut buffer = StrokeQueryBuffer::default();
+        let mut candidates = Vec::new();
+        for input in ["hs", "hx", "hs"] {
+            let scheme = typed(input);
+            scheme
+                .candidates_into(&fixture.dictionary, &mut buffer, &mut candidates)
+                .unwrap();
+            assert_eq!(
+                candidates
+                    .iter()
+                    .map(|row| (row.text.as_str(), row.key.as_str(), row.weight))
+                    .collect::<Vec<_>>(),
+                [
+                    ("十", "hs", 4500),
+                    ("土", "hsh", 2000),
+                    ("重複零", "hs", 0),
+                    ("重複負", "hs", -1),
+                    ("補全零", "hsh", 0),
+                    ("補全負", "hsh", -2)
+                ]
+            );
+            assert_eq!(candidates, scheme.candidates(&fixture.dictionary).unwrap());
+        }
+        typed("zzzz")
+            .candidates_into(&fixture.dictionary, &mut buffer, &mut candidates)
+            .unwrap();
+        assert!(candidates.is_empty());
+        typed("h")
+            .candidates_into(&fixture.dictionary, &mut buffer, &mut candidates)
+            .unwrap();
+        assert!(!candidates.is_empty());
+        StrokeScheme::new()
+            .candidates_into(&fixture.dictionary, &mut buffer, &mut candidates)
+            .unwrap();
+        assert!(candidates.is_empty());
     }
 
     #[test]

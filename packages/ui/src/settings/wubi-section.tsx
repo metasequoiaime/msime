@@ -25,8 +25,8 @@ export function WubiSection({
   return (
     <>
       <SwitchRow
-        title="编码打不出时用拼音候选"
-        description="五笔词库无法回答当前编码时，用同一串字母查询全拼；词库能回答时不影响。"
+        title="五笔拼音混输"
+        description="五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。"
         checked={preferences.wubi_mixed_pinyin ?? mixedPinyinDefault}
         onChange={(checked) => onChange({ wubi_mixed_pinyin: checked })}
       />

@@ -4,7 +4,7 @@ import * as settings from "../settings-style";
 import { SettingsGroupBlock } from "../settings-group-block";
 import { globalThemeDescription } from "../settings-options";
 import {
-  themeCatalog,
+  offeredThemeCatalog,
   themeEntry,
   customCandidateStyle,
   themeCandidateStyle,
@@ -105,6 +105,8 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
     shown,
   );
   const packages = skins.catalog?.packages ?? [];
+  // 只列本宿主提供的主题：「原生」只在 iOS 上有。
+  const themeCatalog = offeredThemeCatalog(host?.platform);
   // A package is part of the custom theme, so its card is the one in use while the custom theme draws it; the 自定义 card is then the custom theme without a package.
   const skinInUse = globalTheme === "custom" ? (draft.custom_theme?.candidate_skin ?? null) : null;
   const packageInUse = packages.findIndex((skin) => skin.id === skinInUse);
@@ -234,6 +236,7 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
         {phoneGrid ? (
           <>
             <SkinGrid
+              themes={themeCatalog}
               globalTheme={globalTheme}
               customTheme={draft.custom_theme}
               packages={packages}

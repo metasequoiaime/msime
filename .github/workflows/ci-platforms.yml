@@ -307,7 +307,7 @@ jobs:
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
         run: |
-          foreach ($test in 'lifecycle', 'watchdog-task', 'tauri-layout', 'tsf-registration') {
+          foreach ($test in 'lifecycle', 'watchdog-task', 'tauri-layout', 'tsf-registration', 'signpath-payload') {
             Write-Host "== $test"
             & pwsh -NoProfile -File "platforms/windows/installer/tests/$test.ps1"
             if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }

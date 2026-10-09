@@ -1,5 +1,7 @@
 # programs.msime 的虚拟机测试：用户单元经 systemd.packages 注册、socket 随登录前的用户管理器就位，
 # 连接时 systemd 拉起 provider，语音服务的解释器带着豆包要的 websockets；设置窗口在 X 会话里打得开。
+# 另一台机器把 i18n.inputMethod.type 换成 IBus，核对装的是不带 Fcitx5 插件的 msime-ibus、ibus-daemon
+# 列出了水杉的引擎。
 { pkgs, module }:
 pkgs.testers.runNixOSTest {
   name = "msime-module";
@@ -27,9 +29,21 @@ pkgs.testers.runNixOSTest {
     };
   };
 
+  # 换成 IBus 的系统：不起图形会话，ibus-daemon 只要会话总线就能读组件、列出引擎。
+  nodes.ibus = {
+    imports = [ module ];
+    programs.msime.enable = true;
+    i18n.inputMethod.type = "ibus";
+    users.users.alice = {
+      isNormalUser = true;
+      linger = true;
+    };
+  };
+
   testScript = ''
     from datetime import timedelta
 
+    start_all()
     machine.wait_for_unit("user@1000.service")
     for provider in ("online", "voice"):
         machine.wait_for_unit(f"msime-linux-{provider}.socket", "alice")
@@ -70,5 +84,16 @@ pkgs.testers.runNixOSTest {
     machine.wait_until_succeeds("pgrep -u alice -f WebKitWebProcess", timeout=timedelta(minutes=1))
     machine.wait_for_text(r"\.config/msime-client|inputtools\.google\.com", timeout=timedelta(minutes=2))
     machine.screenshot("settings-window")
+
+    # IBus：PATH 上的 ibus-daemon 是模块经 i18n.inputMethod.ibus.engines 合成的 ibus-with-plugins，
+    # 它只从自己的 share/ibus/component 读组件，列出了引擎就说明组件进了这个环境。
+    ibus.wait_for_unit("user@1000.service")
+    session = "XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
+    ibus.succeed(f"su alice -c '{session} ibus-daemon --daemonize'")
+    engines = ibus.wait_until_succeeds(f"su alice -c '{session} ibus list-engine' | grep -w msime-linux")
+    assert "水杉输入法" in engines, engines
+    prefix = ibus.succeed("dirname $(dirname $(readlink -f /run/current-system/sw/bin/msime-linux-setup))").strip()
+    assert "-msime-ibus-" in prefix, prefix
+    ibus.fail(f"test -e {prefix}/lib/fcitx5")
   '';
 }

@@ -68,6 +68,41 @@ enum NativeKeyboardTokens {
   static let keyShadowRadius: CGFloat = 0
 }
 
+/// 「原生」皮肤（`native`）的键盘 token：照 iOS 自带键盘画，不跟季节。背景不画，交给 `KeyboardInputView`（`UIInputView` 的 `.keyboard` 样式）自带的系统键盘底板：iOS 26 起是 Liquid Glass，更早的系统是系统模糊材质；这里的 `background` 只给没有系统底板的预览用。
+///
+/// iOS 26 起的按键取值是在 iOS 27 模拟器上对系统键盘截图量的：浅色下底板 `#E2E3E8`、字母键和功能键同为 `#FFFFFF`，深色下底板 `#222223`、按键同为 `#464646`，没有底边阴影，iPhone 上圆角约 6pt。更早的系统沿用 `NativeKeyboardTokens` 的经典 UIKit 取值，底边阴影换成不带品牌绿的黑色。
+enum SystemKeyboardTokens {
+  /// 是否画 iOS 26 起的系统键盘：底板是 Liquid Glass，按键扁平、同色、无阴影。
+  static var drawsLiquidGlassKeyboard: Bool {
+    if #available(iOS 26.0, *) { return true }
+    return false
+  }
+
+  static let background = drawsLiquidGlassKeyboard ? adaptiveColor(0xE2E3E8, 0x222223) : NativeKeyboardTokens.background
+  static let key = drawsLiquidGlassKeyboard ? adaptiveColor(0xFFFFFF, 0x464646) : NativeKeyboardTokens.key
+  static let functionKey = drawsLiquidGlassKeyboard ? key : NativeKeyboardTokens.functionKey
+  /// iPhone 上量得约 6pt；iPad 没有量过，按经典取值比例（5 比 7）放大。
+  static var cornerRadius: CGFloat { UIDevice.current.userInterfaceIdiom == .pad ? 8 : 6 }
+  /// 回车键和选中候选用的系统蓝：UIKit `systemBlue` 的增强对比度取值（浅色 `#0040DD`、深色 `#409CFF`）。常规的 `#007AFF` 写在浅色键盘底板上对比度不到 2:1，候选文字看不清。
+  static let accent = adaptiveColor(0x0040DD, 0x409CFF)
+  /// 系统蓝上的文字：浅色下白色；深色下的蓝偏亮，白字对比度不到 3:1，与经典兜底一样改用黑字。
+  static let onAccent = adaptiveColor(0xFFFFFF, 0x000000)
+  static let accentSoft = adaptiveColor(0x0040DD, 0x409CFF, lightAlpha: 0.14, darkAlpha: 0.26)
+  /// 工具栏 logo 的圆底：与其他皮肤同一个配方 mix(强调色 14% 浅色 / 22% 深色, 卡片底)，只是强调色换成系统蓝、卡片底取系统的 `#FFFFFF` / `#1C1C1E`，不跟季节。
+  static let logoCircle = UIColor { traits in
+    let dark = traits.userInterfaceStyle == .dark
+    return AppThemePalette.mix(accent.resolvedColor(with: traits), dark ? 22 : 14, rgbColor(dark ? 0x1C1C1E : 0xFFFFFF))
+  }
+  /// 圆底里的 logo 图形：mix(系统蓝 82%, #000)，白色折线描边画在它上面依然清楚。
+  static let logoMark = UIColor { traits in
+    AppThemePalette.mix(accent.resolvedColor(with: traits), 82, .black)
+  }
+  /// iOS 26 之前的按键底边：中性黑色，浅色 .3、深色 .55，与 `NativeKeyboardTokens` 的透明度相同。
+  static let keyShadowColor = UIColor { traits in
+    UIColor.black.withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.55 : 0.3)
+  }
+}
+
 /// 应用主题当前季节下的 `system`（跟随系统）键盘（设计 token §1.4，Android `AppThemePalette.keyboard*`）：面板、字母键和功能键由季节强调色与页面色混合而成，文字为黑或白，提示文字用设计稿的 `kbSub`，回车键用强调色填充。
 ///
 /// 每种颜色都是动态色，UIKit 解析时才读取 `AppThemePalette.resolved(dark:)`，所以用 `KeyboardTheme.refreshSeason()` 刷新季节后，下一次重绘即可生效，不必重建主题。应用主题无法解析时键盘改画 `NativeKeyboardTokens`（`isAvailable` 为 false），因此各 provider 自己回退到这些 token 的分支只兜住会话中途解析失效的主题库。
@@ -201,8 +236,9 @@ struct GlobalThemeEntry: Equatable {
 }
 
 enum GlobalThemeCatalog {
-  /// The two ids with their own rules in THEME_CONTRACT section 5: `system` draws the native tokens and `custom` is layered over a base. Every other id is a built-in theme.
+  /// 有自己规则的三个 id：`system`（跟随系统）画季节配色，`native`（原生）画系统键盘的 token，`custom` 叠在一个底上。其余 id 都是内置主题。
   static let systemId = "system"
+  static let nativeId = "native"
   static let customId = "custom"
 
   static let entries: [GlobalThemeEntry] = {
@@ -224,8 +260,8 @@ enum GlobalThemeCatalog {
   static func entry(_ id: String) -> GlobalThemeEntry? { entries.first { $0.id == id } }
   static func title(_ id: String) -> String { entry(id)?.title ?? id }
   static func contains(_ id: String?) -> Bool { id.map { entry($0) != nil } ?? false }
-  /// What a custom theme may be drawn over: `system` or a built-in theme.
-  static func isBase(_ id: String?) -> Bool { contains(id) && id != customId }
+  /// 自定义主题能画在其上的主题：`system` 或内置主题；`custom` 和只在部分宿主上提供的 `native` 不行（client-core `GlobalTheme::is_base`）。
+  static func isBase(_ id: String?) -> Bool { contains(id) && id != customId && id != nativeId }
 }
 
 /// `msime_client_resolve_theme`'s answer: the palettes a host draws for a theme in one mode.
@@ -284,7 +320,7 @@ struct ResolvedTheme: Equatable {
 
 /// `global_theme` and `custom_theme` in the shared document, with the App Group copy the keyboard reads before the document loads.
 ///
-/// The Tauri plugin writes the App Group `globalTheme` (one of the seven ids) and `customKeyboardSkin.v1` (the design, absent when there is none); the keyboard copies the document over both on every reload. Writers here change the document first and the App Group only when the document took the change.
+/// Tauri 插件写 App Group 的 `globalTheme`（八个主题 id 之一）和 `customKeyboardSkin.v1`（键盘设计，没有时不存在）；键盘每次重新加载都用文档覆盖这两项。这里的写入先改文档，文档接受了改动才改 App Group。
 enum GlobalThemePreference {
   static let key = "globalTheme"
 
@@ -327,7 +363,8 @@ enum GlobalThemePreference {
       var custom = customTheme(in: document)
       let current = theme(in: document)
       if current != GlobalThemeCatalog.customId {
-        if current == GlobalThemeCatalog.systemId { custom.removeValue(forKey: "base") } else { custom["base"] = current }
+        // `native` 不能当底，从它开始自定义时和跟随系统一样不写底。
+        if !GlobalThemeCatalog.isBase(current) || current == GlobalThemeCatalog.systemId { custom.removeValue(forKey: "base") } else { custom["base"] = current }
         custom.removeValue(forKey: "candidate_skin")
       }
       edit(&custom)

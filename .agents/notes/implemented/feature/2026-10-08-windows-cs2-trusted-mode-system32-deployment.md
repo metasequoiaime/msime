@@ -39,6 +39,7 @@ Status: implemented
 - 64 位 TIP 的 `InprocServer32` 指向 `C:\Windows\System32\IME\<install_dir>\msime_v<版本>\MetasequoiaImeTsf.dll`。`install-smoke.ps1`、`coexistence-smoke.ps1` 按这个位置核对注册、宿主 DLL 和卸载后的清理；`tsf-registration.ps1`、`lifecycle.ps1` 在 CI 上核对安装脚本的条目和清理调用。
 - 往系统目录写文件的爆炸半径比 Program Files 大：装错、删错会影响所有加载 TIP 的进程，安全软件也更可能把它当成可疑行为。清理只删 `System32\IME\<install_dir>` 下的 `msime_v*`，不碰别的目录。
 - 只有签了名的发布包才过得了 Trusted Mode。CI 产出的未签名安装包装出来的 TIP 在 CS2 里仍会被拒，这不是部署问题。
+- 经 SignPath 签名的安装包（[CI 经 SignPath 签名](../../implemented/process/2026-10-08-windows-signpath-ci-signing.md)）只签 TIP 和宿主 DLL：SignPath Foundation 不签上游代码，TIP 旁边 vcpkg 构建的 `fmt.dll`、`libcurl.dll`、`zlib1.dll` 保持未签名。按上面的拦截点推断，这一份在 Trusted Mode 下大概率仍被拒；要让它过，TIP 和宿主 DLL 得把这几个依赖静态链接进去，让系统目录里只剩本项目签名的 DLL。用 SimplySign 在本地签的安装包不受影响，它连这几个 DLL 一起签。
 - Trusted Mode 的规则是 Valve 未公开的实现，任何一次游戏更新都可能改变。Valve 自己的文案里还有一条「从 Windows 系统目录加载了外来软件，会话已降级为 allow third party software 模式」（`SFUI_FileVerification_NotTrustedLaunch2`），签了名的系统目录 DLL 到底是静默放行还是放行但降级，调研没能排除。
 - 升级时被占用的旧版本目录要等下一次安装或重启才清掉；卸载后被占用的文件要等重启。
 

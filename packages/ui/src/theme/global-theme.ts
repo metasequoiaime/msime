@@ -4,13 +4,24 @@
  * Every colour is `#RRGGBB` or `#RRGGBBAA` (uppercase, alpha last). A `null` slot means "the host's own platform token", never "transparent".
  */
 import type { CSSProperties } from "react";
+import type { HostPlatform } from "../index";
 import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
 import { candidateTextColor } from "../candidate/candidate-text-color";
 import catalog from "./theme-catalog.json";
 
-/** `Preferences.global_theme`: one id for the candidate window, floating toolbar, menus and touch keyboard. */
-export type GlobalTheme = "system" | "shuishan" | "light" | "paper" | "night" | "ink" | "custom";
-export type BuiltinGlobalTheme = Exclude<GlobalTheme, "system" | "custom">;
+/** `Preferences.global_theme`：候选窗、悬浮工具栏、菜单和触屏键盘共用的一个主题 id。`native`（原生）只在 iOS 提供，见 `offeredThemeCatalog`。 */
+export type GlobalTheme =
+  | "system"
+  | "native"
+  | "shuishan"
+  | "light"
+  | "paper"
+  | "night"
+  | "ink"
+  | "custom";
+export type BuiltinGlobalTheme = Exclude<GlobalTheme, "system" | "native" | "custom">;
+/** 自定义主题能画在其上的主题：`system` 或内置主题，不能是 `custom`，也不能是只在部分宿主上提供的 `native`。 */
+export type BaseGlobalTheme = Exclude<GlobalTheme, "native" | "custom">;
 export type ThemeAppearance = "light" | "dark";
 
 export type CandidateThemePalette = {
@@ -41,10 +52,12 @@ export type KeyboardThemePalette = {
 
 export type ThemePreview = { background: string; panel: string; accent: string; text: string };
 
-/** One picker entry. `system` and `custom` carry no palette. */
+/** 选择器的一项。`system`、`native` 和 `custom` 不带调色板。 */
 export type ThemeCatalogEntry = {
   id: GlobalTheme;
   title: string;
+  /** 提供这个主题的宿主，`null` 表示所有宿主都提供。 */
+  platforms: HostPlatform[] | null;
   appearance: ThemeAppearance | null;
   preview: ThemePreview | null;
   candidate: CandidateThemePalette | null;
@@ -67,8 +80,8 @@ export type CustomCandidateColors = {
 
 /** `Preferences.custom_theme`: what the `custom` theme is made of. It is kept while another theme is selected. */
 export type CustomTheme = {
-  /** The theme the custom theme is drawn over: `system` (the default, platform tokens) or a built-in theme, never `custom`. An applied package's own manifest base replaces it. */
-  base?: Exclude<GlobalTheme, "custom">;
+  /** 自定义主题的底：`system`（默认，平台 token）或内置主题，不能是 `custom` 或 `native`。应用了皮肤包时改用包清单自己的 base。 */
+  base?: BaseGlobalTheme;
   /** The external candidate skin package id; never a global theme id. Unset means "no package". */
   candidate_skin?: string | null;
   candidate_colors?: CustomCandidateColors;
@@ -76,12 +89,13 @@ export type CustomTheme = {
   keyboard?: TouchKeyboardSkinDesign | null;
 };
 
-/** The base a custom theme is drawn over once a picker is used while `current` is selected: the theme on screen stays underneath, and an already selected custom theme keeps its own base. */
+/** 选着 `current` 时用了取色器，自定义主题画在哪个底上：屏幕上的主题留在下面，已经选着的自定义主题保留自己的底。`native` 不能当底，从它开始自定义时底是 `system`。 */
 export function customThemeBase(
   current: GlobalTheme,
   custom: CustomTheme | undefined,
-): Exclude<GlobalTheme, "custom"> {
-  return current === "custom" ? (custom?.base ?? "system") : current;
+): BaseGlobalTheme {
+  if (current === "custom") return custom?.base ?? "system";
+  return current === "native" ? "system" : current;
 }
 
 export type ThemeSource = "system" | "builtin" | "custom";
@@ -112,6 +126,22 @@ export const globalThemeIds: GlobalTheme[] = themeCatalog.map((entry) => entry.i
 
 export function isGlobalTheme(value: unknown): value is GlobalTheme {
   return typeof value === "string" && (globalThemeIds as string[]).includes(value);
+}
+
+/** `platform` 的选择器列出的主题，顺序同 `themeCatalog`。只在部分宿主上提供的主题（`platforms` 不为 `null`）只列在那些宿主上；不知道宿主时一个也不列。 */
+export function offeredThemeCatalog(platform: HostPlatform | undefined): ThemeCatalogEntry[] {
+  return themeCatalog.filter(
+    (entry) =>
+      entry.platforms === null || (platform !== undefined && entry.platforms.includes(platform)),
+  );
+}
+
+/** 宿主实际画的主题：宿主不提供的主题（iOS 以外收到的 `native`）按 `system` 画，选择器也把「跟随系统」标为选中。 */
+export function offeredGlobalTheme(
+  theme: GlobalTheme,
+  platform: HostPlatform | undefined,
+): GlobalTheme {
+  return offeredThemeCatalog(platform).some((entry) => entry.id === theme) ? theme : "system";
 }
 
 /** The catalog entry for an id; unknown ids read as `system`, the theme that is always drawable. */

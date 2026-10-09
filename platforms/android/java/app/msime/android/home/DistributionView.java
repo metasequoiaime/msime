@@ -11,6 +11,7 @@ import android.view.View;
 import androidx.annotation.Nullable;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.ColorPolicy;
+import app.msime.android.KeyboardGeometry;
 import app.msime.android.ListPolicy;
 import app.msime.android.TypingStatisticsSummary;
 import app.msime.android.TypingStatisticsSummary.Share;
@@ -82,7 +83,7 @@ public final class DistributionView extends View {
     }
 
     private int track() {
-        boolean dark = Ui.isNight(getContext());
+        boolean dark = KeyboardGeometry.isNight(getContext());
         return dark ? Ui.withAlpha(Color.WHITE, .1f) : Ui.withAlpha(Color.BLACK, .07f);
     }
 

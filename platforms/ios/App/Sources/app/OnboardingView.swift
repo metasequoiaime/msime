@@ -393,7 +393,7 @@ struct InputSettingsView: View {
   private var moreGroup: some View {
     DesignGroup(title: "更多", footer: footer(.more)) {
       if enabledSchemes.contains(.wubi) {
-        DesignToggleRow(title: "编码打不出时用拼音候选", subtitle: "五笔词库答不上时用同一串字母查全拼", isOn: $wubiMixedPinyin)
+        DesignToggleRow(title: "五笔拼音混输", subtitle: "五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选", isOn: $wubiMixedPinyin)
           .accessibilityIdentifier("wubiMixedPinyin")
         DesignDivider()
         DesignToggleRow(title: "候选显示剩余编码", subtitle: "在候选后标出还要输入的字母", isOn: $wubiCodeHint)

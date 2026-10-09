@@ -19,25 +19,48 @@ pub enum CutMode {
 /// 短拼音切分使用栈上的动态规划表；更长输入继续使用堆回退，避免扩大递归调用方的栈帧。
 const SMALL_MIN_CUT_LENGTH: usize = 64;
 
-/// Minimum segment count; among equals the shortest first piece, recursively (QU:354-422). Empty means no cut. Keeps `keneng -> ke'neng` and `fangan -> fan'gan`.
+/// 优先使用最少音节数，同数时递归选择更短的首音节；空结果表示无法切分（QU:354-422）。
 pub fn cut_one_piece_min_segments(pinyin: &str, intact_only: bool) -> Vec<String> {
+    with_minimum_cut(pinyin, intact_only, |best| {
+        let segment_count = best[0].map_or(0, |(_, count)| count);
+        let mut segments = Vec::with_capacity(segment_count);
+        let mut index = 0;
+        while index < pinyin.len() {
+            let Some((end, _)) = best[index] else {
+                return Vec::new();
+            };
+            segments.push(pinyin[index..end].to_owned());
+            index = end;
+        }
+        segments
+    })
+}
+
+// 切分结果与完整性检查共享同一张表，调用方只在需要返回路径时构造字符串。
+fn with_minimum_cut<T>(
+    pinyin: &str,
+    intact_only: bool,
+    operation: impl FnOnce(&[Option<(usize, usize)>]) -> T,
+) -> T {
     if pinyin.len() <= SMALL_MIN_CUT_LENGTH {
         let mut best = [None; SMALL_MIN_CUT_LENGTH + 1];
-        return cut_one_piece_min_segments_with_best(
+        return with_minimum_cut_best(
             pinyin,
             intact_only,
             &mut best[..pinyin.len() + 1],
+            operation,
         );
     }
     let mut best = vec![None; pinyin.len() + 1];
-    cut_one_piece_min_segments_with_best(pinyin, intact_only, &mut best)
+    with_minimum_cut_best(pinyin, intact_only, &mut best, operation)
 }
 
-fn cut_one_piece_min_segments_with_best(
+fn with_minimum_cut_best<T>(
     pinyin: &str,
     intact_only: bool,
     best: &mut [Option<(usize, usize)>],
-) -> Vec<String> {
+    operation: impl FnOnce(&[Option<(usize, usize)>]) -> T,
+) -> T {
     let bytes = pinyin.as_bytes();
     let length = bytes.len();
     let in_set = |piece: &[u8]| {
@@ -75,17 +98,7 @@ fn cut_one_piece_min_segments_with_best(
         }
         best[index] = chosen;
     }
-    let segment_count = best[0].map_or(0, |(_, count)| count);
-    let mut segments = Vec::with_capacity(segment_count);
-    let mut index = 0;
-    while index < length {
-        let Some((end, _)) = best[index] else {
-            return Vec::new();
-        };
-        segments.push(pinyin[index..end].to_owned());
-        index = end;
-    }
-    segments
+    operation(best)
 }
 
 /// QQ:913-944: cut each `'`-part; a failed part is kept raw unless `intact_only`, which fails the whole input.
@@ -342,12 +355,12 @@ pub fn join_segments(segments: &[String]) -> String {
     segments.join("'")
 }
 
-/// Non-empty and every `'`-part a complete intact cut (QU:424-445).
+/// 输入非空，且每个撇号分段都能完整切分为合法音节（QU:424-445）。
 pub fn is_complete_pinyin_input(pinyin: &str) -> bool {
     !pinyin.is_empty()
         && pinyin
             .split('\'')
-            .all(|part| !part.is_empty() && !cut_one_piece_min_segments(part, true).is_empty())
+            .all(|part| !part.is_empty() && with_minimum_cut(part, true, |best| best[0].is_some()))
 }
 
 /// The first letter of each non-empty segment (QQ:245-256).
@@ -408,6 +421,78 @@ mod tests {
             cut_one_piece_min_segments(&long, true).len(),
             SMALL_MIN_CUT_LENGTH / 2 + 1
         );
+    }
+
+    #[test]
+    fn short_complete_pinyin_checks_need_no_path_allocations() {
+        assert!(intact_piece(b"ni").is_some());
+        for (input, expected) in [
+            ("ni", true),
+            ("nihao", true),
+            ("linian", true),
+            ("jinianri", true),
+            ("xi'an", true),
+            ("nve", true),
+            ("jv", true),
+            ("ni'hao'x", false),
+            ("nihao'", false),
+            ("'ni", false),
+            ("ni''hao", false),
+            ("zhonguo", false),
+            ("sahng", false),
+            ("nih", false),
+            ("ni🧪", false),
+            ("你好", false),
+            ("", false),
+        ] {
+            let (complete, allocations) =
+                crate::ime::personal_rerank::allocations::count(|| is_complete_pinyin_input(input));
+            assert_eq!(complete, expected, "{input}");
+            assert_eq!(allocations, 0, "完整性检查仍创建切分结果: {input}");
+        }
+    }
+
+    #[test]
+    fn complete_pinyin_checks_keep_the_stack_boundary_and_heap_fallback() {
+        assert!(intact_piece(b"ni").is_some());
+        for (input, expected, budget) in [
+            ("ni".repeat(SMALL_MIN_CUT_LENGTH / 2), true, 0),
+            ("ni".repeat(SMALL_MIN_CUT_LENGTH / 2 + 1), true, 1),
+            (
+                format!("{}x", "ni".repeat(SMALL_MIN_CUT_LENGTH / 2)),
+                false,
+                1,
+            ),
+            ("🧪".repeat(SMALL_MIN_CUT_LENGTH / 4 + 1), false, 1),
+            (["ni"; SMALL_MIN_CUT_LENGTH].join("'"), true, 0),
+        ] {
+            let (complete, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                is_complete_pinyin_input(&input)
+            });
+            assert_eq!(complete, expected, "{} 字节", input.len());
+            assert_eq!(
+                allocations,
+                budget,
+                "完整性检查堆回退: {} 字节",
+                input.len()
+            );
+        }
+    }
+
+    #[test]
+    fn completeness_matches_intact_minimum_cuts_for_synthetic_spellings() {
+        for syllable in intact_pinyin_list() {
+            assert!(is_complete_pinyin_input(syllable), "{syllable}");
+            for suffix in [
+                "", "ni", "an", "zhong", "lv", "x", "'", "'ni", "''hao", "?", "🧪",
+            ] {
+                let input = format!("{syllable}{suffix}");
+                let expected = input.split('\'').all(|part| {
+                    !part.is_empty() && !cut_one_piece_min_segments(part, true).is_empty()
+                });
+                assert_eq!(is_complete_pinyin_input(&input), expected, "{input}");
+            }
+        }
     }
 
     #[test]

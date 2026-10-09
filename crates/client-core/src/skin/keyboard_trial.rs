@@ -94,9 +94,13 @@ impl KeyboardSkinTrialStore {
         };
         self.write_record(&lock, &record)?;
         let mut preferences = snapshot.preferences;
-        // Applying a keyboard design from another theme keeps that theme under the candidate window: it becomes the custom theme's base and any package left in the custom theme is dropped. While `custom` is already selected only the keyboard changes.
+        // 从别的主题试用键盘设计时，原来的主题留在候选窗下面：它成为自定义主题的底，自定义主题里留着的皮肤包清掉。`native` 不能当底（见 `GlobalTheme::is_base`），从它试用时底退回 `system`。已经选着 `custom` 时只换键盘。
         if preferences.global_theme != GlobalTheme::Custom {
-            preferences.custom_theme.base = preferences.global_theme;
+            preferences.custom_theme.base = if preferences.global_theme.is_base() {
+                preferences.global_theme
+            } else {
+                GlobalTheme::System
+            };
             preferences.custom_theme.candidate_skin = None;
         }
         preferences.global_theme = GlobalTheme::Custom;
@@ -313,6 +317,27 @@ mod tests {
         assert_eq!(applied.preferences.global_theme, GlobalTheme::Custom);
         assert_eq!(applied.preferences.custom_theme.base, GlobalTheme::Night);
         assert_eq!(applied.preferences.custom_theme.candidate_skin, None);
+        assert_eq!(applied.preferences.custom_theme.keyboard, Some(design));
+
+        let restored = trials.finish(trial.id, false).unwrap();
+        assert_eq!(restored.preferences, original.preferences);
+    }
+
+    #[test]
+    fn a_trial_from_the_native_theme_draws_over_system_and_declining_restores_it() {
+        let (_root, preferences, trials) = stores();
+        let loaded = preferences.load().unwrap();
+        let mut native = loaded.preferences;
+        native.global_theme = GlobalTheme::Native;
+        let original = preferences.save(loaded.revision, native).unwrap();
+        let design = TouchKeyboardSkinDesign {
+            background: 0x1E2D0F,
+            ..TouchKeyboardSkinDesign::default()
+        };
+
+        let (trial, applied) = trials.begin("原生试用", design.clone()).unwrap();
+        assert_eq!(applied.preferences.global_theme, GlobalTheme::Custom);
+        assert_eq!(applied.preferences.custom_theme.base, GlobalTheme::System);
         assert_eq!(applied.preferences.custom_theme.keyboard, Some(design));
 
         let restored = trials.finish(trial.id, false).unwrap();
