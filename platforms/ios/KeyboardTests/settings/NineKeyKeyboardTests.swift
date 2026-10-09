@@ -2410,7 +2410,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     let nine = try button("nineKey6", in: controller)
     XCTAssertFalse(try XCTUnwrap(nine.superview).isHidden)
     try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(descendants(controller.view).filter { $0.accessibilityIdentifier?.hasPrefix("schemeCard-") == true }.count, InputSchemePreference.offeredSchemes.count)
+    // 双拼只列一种（#6450）。
+    let offered = InputSchemePreference.offeredSchemes
+    let extraShuangpin = max(0, offered.filter { $0.shuangpinProfile != nil }.count - 1)
+    XCTAssertEqual(descendants(controller.view).filter { $0.accessibilityIdentifier?.hasPrefix("schemeCard-") == true }.count, offered.count - extraShuangpin)
     // 高亮的 输入方式 图标关闭它自己的选择器。
     try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
     for digit in "64426" {
