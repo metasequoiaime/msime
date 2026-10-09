@@ -1,11 +1,11 @@
-//! Shuangpin key handling (`R/schemes/shuangpin_scheme.cpp`, schemes-lang.md §1.8). Microsoft accepts `;` as a key when the chunk since the last `'` has odd length.
+//! Shuangpin key handling (`R/schemes/shuangpin_scheme.cpp`, schemes-lang.md §1.8). A profile with a final on `;` (Microsoft, or a custom profile laid out that way) accepts `;` as a key when the chunk since the last `'` has odd length.
 
 use super::query::{
     apply_segmentation_cases, effective_input_length, normalize_input, segment_input,
     to_quanpin_segmentation,
 };
 use super::ShuangpinProfile;
-use crate::types::{QueryRequest, SchemeKey, SchemeType, ShuangpinProfileKind};
+use crate::types::{QueryRequest, SchemeKey, SchemeType};
 
 pub struct ShuangpinScheme {
     profile: &'static ShuangpinProfile,
@@ -54,9 +54,9 @@ impl ShuangpinScheme {
         }
     }
 
-    /// Microsoft's `ing` key can only be the second key of a syllable, i.e. follow an odd-length chunk (:12-22).
+    /// 放在 `;` 上的韵母（微软的 ing）只能是一个音节的第二个键，即接在奇数长度的片段之后（:12-22）。
     fn accepts_ing_key(&self) -> bool {
-        if self.profile.kind != ShuangpinProfileKind::Microsoft {
+        if !self.profile.uses_semicolon_key() {
             return false;
         }
         let chunk = self.raw.rsplit('\'').next().unwrap_or_default();
@@ -138,9 +138,10 @@ impl ShuangpinScheme {
 mod tests {
     use super::*;
     use crate::shuangpin::profile::profile;
+    use crate::types::ShuangpinProfileKind;
 
     fn scheme(kind: ShuangpinProfileKind) -> ShuangpinScheme {
-        ShuangpinScheme::new(profile(kind))
+        ShuangpinScheme::new(profile(kind).unwrap())
     }
 
     fn type_text(scheme: &mut ShuangpinScheme, text: &str) {

@@ -16,7 +16,6 @@ use crate::helpcode::SharedKeymap;
 use crate::paths::RuntimePaths;
 use crate::pinyin::autocorrect::autocorrect_suppression_key;
 use crate::quanpin::QuanpinScheme;
-use crate::shuangpin::profile::profile;
 use crate::shuangpin::query::{
     apply_segmentation_cases, detect_active_double_helpcode_length, remove_manual_delimiters,
     segment_input, to_quanpin_segmentation, trim_trailing_letters_preserve_delimiters,
@@ -25,7 +24,7 @@ use crate::shuangpin::ShuangpinProfile;
 use crate::shuangpin::ShuangpinScheme;
 use crate::types::{
     autocorrect_type, CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeKey, SchemeSet,
-    SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, WordItem, WubiInputOptions,
+    SchemeType, SentenceAssociationOptions, WordItem, WubiInputOptions,
 };
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 use crate::vietnamese::{
@@ -62,7 +61,7 @@ pub struct ImeSession {
     state: CompositionState,
     /// 光标前缀查询复用的临时请求存储，避免每次分页重新分配请求字段。
     scratch_request: QueryRequest,
-    profile: ShuangpinProfileKind,
+    profile: &'static ShuangpinProfile,
     vietnamese_method: VietnameseInputMethod,
     vietnamese_style: VietnameseToneStyle,
     wubi_options: WubiInputOptions,
@@ -89,7 +88,7 @@ impl ImeSession {
     pub fn new(
         scheme: SchemeType,
         enabled: SchemeSet,
-        profile: ShuangpinProfileKind,
+        profile: &'static ShuangpinProfile,
         paths: &RuntimePaths,
         cantonese_dictionary: PathBuf,
         zhuyin_dictionary: PathBuf,
@@ -521,7 +520,7 @@ impl ImeSession {
                 QuanpinScheme::build_request_from_raw_into(raw, raw_with_cases, request)
             }
             SchemeType::Shuangpin => ShuangpinScheme::build_request_from_raw_into(
-                profile(self.profile),
+                self.profile,
                 raw,
                 raw_with_cases,
                 request,
@@ -530,7 +529,7 @@ impl ImeSession {
         }
         self.apply_request_options(request);
         self.apply_autocorrect_suppression(request);
-        apply_shuangpin_helpcode_segmentation(request, profile(self.profile));
+        apply_shuangpin_helpcode_segmentation(request, self.profile);
     }
 
     fn raw_request_through_scheme(
@@ -669,7 +668,7 @@ impl ImeSession {
         self.scheme.build_request_into(&mut request);
         self.apply_request_options(&mut request);
         self.apply_autocorrect_suppression(&mut request);
-        apply_shuangpin_helpcode_segmentation(&mut request, profile(self.profile));
+        apply_shuangpin_helpcode_segmentation(&mut request, self.profile);
         reuse_request_preedit(&request, &mut self.state.preedit);
         if !request.valid {
             // An emptied composition is an invalid request, and Backspace never goes through `reset`: the next code must be answered by the wubi table again.
@@ -758,7 +757,7 @@ impl ImeSession {
         let mut request = scheme.build_request();
         self.apply_request_options(&mut request);
         self.apply_autocorrect_suppression(&mut request);
-        apply_shuangpin_helpcode_segmentation(&mut request, profile(self.profile));
+        apply_shuangpin_helpcode_segmentation(&mut request, self.profile);
         request
     }
 

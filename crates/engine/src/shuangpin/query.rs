@@ -224,11 +224,11 @@ mod tests {
     use crate::types::ShuangpinProfileKind;
 
     fn xiaohe() -> &'static ShuangpinProfile {
-        profile(ShuangpinProfileKind::Xiaohe)
+        profile(ShuangpinProfileKind::Xiaohe).unwrap()
     }
 
     fn microsoft() -> &'static ShuangpinProfile {
-        profile(ShuangpinProfileKind::Microsoft)
+        profile(ShuangpinProfileKind::Microsoft).unwrap()
     }
 
     #[test]
