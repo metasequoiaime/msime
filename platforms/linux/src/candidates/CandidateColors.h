@@ -110,7 +110,7 @@ inline std::string candidate_layout_id(const nlohmann::json &preferences) {
   return preferences.value("candidate_layout", std::string{}) == "horizontal" ? "horizontal" : "vertical";
 }
 
-// The msime_client_resolve_theme request for the candidate window: the global theme and the custom theme exactly as stored, the mode candidate_dark_theme settles on, the layout being drawn and, when the custom theme names an installed package, that package's catalogue entry unchanged. The shared layer uses the package only for `custom` and only when its id equals custom_theme.candidate_skin, so it is sent only then. The caller does the FFI call; this header stays free of it so the palette tests need no engine.
+// 候选窗的 msime_client_resolve_theme 请求：原样存储的全局主题和自定义主题、要绘制的明暗 `dark`（候选窗是 candidate_dark_theme 定下的那个，语音浮层和模式角标各按自己的规则）、正在绘制的布局，以及自定义主题在这个明暗下的槽位指名已安装皮肤包时，该包在目录里的原样条目。槽位按 candidate_skin_for 取：深色取 `candidate_skin_dark`，没设时取 `candidate_skin`；浅色取 `candidate_skin`。共享层只在 `custom` 下、且包 id 正是当前模式槽位指名的那个时才用它，所以只在这时发送。FFI 调用由调用方做，这个头文件不碰它，调色板测试因此不需要引擎。
 inline nlohmann::json candidate_theme_request(const nlohmann::json &preferences, bool dark,
                                               const nlohmann::json &catalog) {
   using Json = nlohmann::json;
@@ -121,9 +121,9 @@ inline nlohmann::json candidate_theme_request(const nlohmann::json &preferences,
   const auto custom = preferences.find("custom_theme");
   if (custom == preferences.end() || !custom->is_object()) return request;
   request["custom_theme"] = *custom;
-  const auto skin = custom->find("candidate_skin");
-  if (request["global_theme"] != "custom" || skin == custom->end() || !skin->is_string()) return request;
-  if (const auto *package = candidate_skin_package(catalog, skin->get<std::string>()))
+  const auto skin = candidate_skin_for(*custom, dark);
+  if (request["global_theme"] != "custom" || skin.empty()) return request;
+  if (const auto *package = candidate_skin_package(catalog, skin))
     request["package"] = *package;
   return request;
 }

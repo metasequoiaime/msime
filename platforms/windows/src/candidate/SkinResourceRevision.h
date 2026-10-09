@@ -2,15 +2,21 @@
 #include "CandidateSkinAssets.h"
 #include <map>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace msime::windows {
+// 皮肤根目录下若干个包（自定义主题两个明暗槽位指名的那些）的文件指纹，用来发现包被编辑。所有包的文件按完整路径放进同一份指纹，任一个包的文件增删改都算变化。
 class SkinResourceRevision {
 public:
-  bool changed(const std::filesystem::path &root, const std::string &id) {
+  bool changed(const std::filesystem::path &root,
+               const std::vector<std::string> &ids) {
     using Stamp = std::pair<std::filesystem::file_time_type, uintmax_t>;
     std::map<std::filesystem::path, Stamp> next;
     bool complete = true;
-    if (!root.empty() && valid_candidate_skin_id(id)) {
+    for (const auto &id : ids) {
+      if (root.empty() || !valid_candidate_skin_id(id))
+        continue;
       std::error_code error;
       const auto directory = root / std::filesystem::u8path(id);
       const auto status = std::filesystem::symlink_status(directory, error);
