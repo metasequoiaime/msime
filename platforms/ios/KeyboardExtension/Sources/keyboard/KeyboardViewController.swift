@@ -6403,6 +6403,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardPicker()
     let picker = KeyboardSchemePickerView(
       selected: inputScheme, isChineseMode: isChineseMode, showsHeader: false, formFactor: formFactor,
+      shuangpinProfile: session.sharedPreferences?["shuangpin_profile"] as? String,
       onSelect: { [weak self] scheme in
         guard let self else { return }
         closeKeyboardPicker()

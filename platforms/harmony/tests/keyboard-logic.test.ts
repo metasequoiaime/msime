@@ -2156,6 +2156,53 @@ group("selection prefers the shared choice, then the applied one", () => {
   );
 });
 
+group("输入方式面板里双拼只留用户设置的那一种（#6450）", () => {
+  const all: SchemeDefinition[] = KeyboardScheme.SCHEMES;
+  const only = (kept: SchemeDefinition): SchemeDefinition[] =>
+    all.filter(
+      (value: SchemeDefinition): boolean => value.shuangpinProfile === null || value === kept,
+    );
+  const same = (actual: SchemeDefinition[], expected: SchemeDefinition[]): boolean =>
+    actual.length === expected.length &&
+    actual.every((value: SchemeDefinition, index: number): boolean => value === expected[index]);
+  check(
+    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, undefined), only(KeyboardScheme.XIAOHE)) &&
+      same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, "future"), only(KeyboardScheme.XIAOHE)),
+    "没设置过或值不认识时按小鹤",
+  );
+  check(
+    KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, null).indexOf(KeyboardScheme.HANDWRITING) < 7,
+    "手写回到第一页的八格之内（英文占第三格）",
+  );
+  check(
+    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.WUBI, "microsoft"), only(KeyboardScheme.MICROSOFT)),
+    "设置的是哪一种就留哪一种，位置不变",
+  );
+  check(
+    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.SHOUDAO, "ziranma"), only(KeyboardScheme.SHOUDAO)),
+    "选中的双拼总留在面板里",
+  );
+  const partial: SchemeDefinition[] = [
+    KeyboardScheme.QUANPIN,
+    KeyboardScheme.ZIRANMA,
+    KeyboardScheme.SHOUDAO,
+    KeyboardScheme.HANDWRITING,
+  ];
+  check(
+    same(KeyboardScheme.pickerSchemes(partial, KeyboardScheme.XIAOHE, "xiaohe"), [
+      KeyboardScheme.QUANPIN,
+      KeyboardScheme.ZIRANMA,
+      KeyboardScheme.HANDWRITING,
+    ]),
+    "设置的那一种不在列表里时留列表里第一种双拼",
+  );
+  const none: SchemeDefinition[] = [KeyboardScheme.QUANPIN, KeyboardScheme.WUBI];
+  check(
+    same(KeyboardScheme.pickerSchemes(none, null, "microsoft"), none),
+    "没有双拼的列表原样返回",
+  );
+});
+
 group("高情商回复不再是输入方案，存量的 thoughtful_reply 按未知方案回落", () => {
   // 高情商回复改成快捷栏上的工具，方案列表和选择器里都不再有它；旧文档里存的 `thoughtful_reply` 走与其它未知方案相同的回落。
   check(

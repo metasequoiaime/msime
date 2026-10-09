@@ -14,8 +14,9 @@ final class KeyboardSchemePickerView: UIView {
   private var accent: UIColor { skin.accent }
   private let grid: KeyboardPagedGridView
 
+  /// - Parameter shuangpinProfile: 共享文档里的 `shuangpin_profile`，面板里的双拼只列这一种（见 `InputSchemePreference.pickerSchemes`）；nil 按小鹤。
   init(selected: ChineseInputScheme, isChineseMode: Bool = true, showsHeader: Bool = true,
-       formFactor: KeyboardFormFactor = .phone,
+       formFactor: KeyboardFormFactor = .phone, shuangpinProfile: String? = nil,
        onSelect: @escaping (ChineseInputScheme) -> Void,
        onSelectEnglish: (() -> Void)? = nil,
        onSettings: (() -> Void)? = nil,
@@ -32,8 +33,10 @@ final class KeyboardSchemePickerView: UIView {
     grid.accessibilityIdentifier = "schemePickerScroll"
     grid.apply(skin: skin)
 
-    // 粤拼、注音或笔画缺少对应词库时不列出：否则点它的格子，Engine 跑的会是另一个方案。
-    var tiles: [KeyboardSchemeTileView] = InputSchemePreference.offeredSchemes.map { scheme in
+    // 粤拼、注音或笔画缺少对应词库时不列出：否则点它的格子，Engine 跑的会是另一个方案。双拼只列用户设置的那一种。
+    let schemes = InputSchemePreference.pickerSchemes(
+      InputSchemePreference.offeredSchemes, selected: selected, shuangpinProfile: shuangpinProfile)
+    var tiles: [KeyboardSchemeTileView] = schemes.map { scheme in
       let glyph: String
       let badge: String
       // 瓷砖全部走皮肤的颜色：未选中用按键文字色，选中用强调色。字形本来就两两不同(拼26/拼9/鹤双/自双/微双/S双/五86/あ26/あ9/한26/粤26/注大千/越26/藏26/笔5/写手/EN26)，分辨靠读字，不靠给每一族配一个不跟皮肤走的系统色。

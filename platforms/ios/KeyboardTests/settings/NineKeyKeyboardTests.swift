@@ -1088,6 +1088,29 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  /// 面板里的双拼只列一种（#6450）：选中的双拼优先，其次是文档里的 `shuangpin_profile`，都不在列表里时取列表里第一种双拼；其余方案原样保留，与 Android、鸿蒙相同。
+  func testSchemePickerListsOnlyTheConfiguredShuangpin() {
+    let all = ChineseInputScheme.allCases
+    func only(_ kept: ChineseInputScheme) -> [ChineseInputScheme] { all.filter { $0.shuangpinProfile == nil || $0 == kept } }
+    XCTAssertEqual(InputSchemePreference.pickerSchemes(all, selected: .quanpin, shuangpinProfile: nil), only(.shuangpin))
+    XCTAssertEqual(InputSchemePreference.pickerSchemes(all, selected: .quanpin, shuangpinProfile: "future"), only(.shuangpin))
+    XCTAssertEqual(InputSchemePreference.pickerSchemes(all, selected: .wubi, shuangpinProfile: "microsoft"), only(.microsoft))
+    XCTAssertEqual(InputSchemePreference.pickerSchemes(all, selected: .shoudao, shuangpinProfile: "ziranma"), only(.shoudao))
+    let partial: [ChineseInputScheme] = [.quanpin, .ziranma, .shoudao, .handwriting]
+    XCTAssertEqual(InputSchemePreference.pickerSchemes(partial, selected: .quanpin, shuangpinProfile: "xiaohe"), [.quanpin, .ziranma, .handwriting])
+    XCTAssertEqual(InputSchemePreference.pickerSchemes(partial, selected: .shuangpin, shuangpinProfile: "xiaohe"), [.quanpin, .ziranma, .handwriting])
+    XCTAssertEqual(InputSchemePreference.pickerSchemes([.quanpin, .wubi], selected: nil, shuangpinProfile: "microsoft"), [.quanpin, .wubi])
+
+    // 默认启用的方案下只剩五张方案卡片，键盘里再加英文和「添加语言」共七格，手机一页 4 × 2 放得下，手写不再被挤到第二页。
+    let enabled = InputSchemePreference.enabledSchemes
+    defer { InputSchemePreference.enabledSchemes = enabled }
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey, .shuangpin, .ziranma, .microsoft, .shoudao, .wubi, .handwriting]
+    let picker = KeyboardSchemePickerView(selected: .quanpin, shuangpinProfile: "ziranma", onSelect: { _ in }, onClose: {})
+    let cards = descendants(picker).compactMap(\.accessibilityIdentifier).filter { $0.hasPrefix("schemeCard-") }
+    XCTAssertEqual(Set(cards), ["schemeCard-quanpin", "schemeCard-nineKey", "schemeCard-ziranma", "schemeCard-wubi", "schemeCard-handwriting"])
+    XCTAssertLessThanOrEqual(cards.count + 2, 8)
+  }
+
   func testSchemeCardsSelectAndKeepKeyboardHeight() throws {
     let enabled = InputSchemePreference.enabledSchemes
     defer { InputSchemePreference.enabledSchemes = enabled }
@@ -1098,6 +1121,9 @@ final class NineKeyKeyboardTests: XCTestCase {
     let offered = InputSchemePreference.offeredSchemes
     let withheld = ChineseInputScheme.allCases.filter { !offered.contains($0) }
     XCTAssertTrue(withheld.allSatisfy(\.needsLanguageDictionary), "only a scheme whose dictionary is missing may be left off: \(withheld)")
+    // 双拼只列一种（#6450），由上面的 `testSchemePickerListsOnlyTheConfiguredShuangpin` 检查是哪一种；这里只数张数。
+    let shuangpin = offered.filter { $0.shuangpinProfile != nil }
+    let listed = offered.filter { $0.shuangpinProfile == nil }
     for width in [320.0, 414.0] {
       // 上一轮点全拼卡片时键盘把选择记进了共享文档，新建的键盘按文档行事，所以从 9 键开始要像设置页那样写进文档，只改镜像不够。
       XCTAssertTrue(InputSchemePreference.select(.nineKey))
@@ -1110,7 +1136,11 @@ final class NineKeyKeyboardTests: XCTestCase {
       let picker = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSchemePicker" } as? KeyboardSchemePickerView)
       try assertInKeyArea(picker, of: controller)
       XCTAssertTrue(try XCTUnwrap(try button("schemeButton", in: controller) as? KeyboardToolbarButton).isActive)
-      for scheme in offered {
+      let shownShuangpin = shuangpin.filter { scheme in
+        descendants(controller.view).contains { $0.accessibilityIdentifier == "schemeCard-\(scheme.rawValue)" }
+      }
+      XCTAssertEqual(shownShuangpin.count, shuangpin.isEmpty ? 0 : 1)
+      for scheme in listed + shownShuangpin {
         let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
         XCTAssertGreaterThanOrEqual(card.bounds.width, 60)
         XCTAssertEqual(card.bounds.height, KeyboardSchemeTileView.height, accuracy: 0.5)
@@ -1119,7 +1149,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "schemeCard-\(scheme.rawValue)" }, scheme.rawValue)
       }
       // 每张卡片都在选择器的高度之内，落在其中某一页上。
-      for scheme in offered {
+      for scheme in listed + shownShuangpin {
         let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
         XCTAssertLessThanOrEqual(card.convert(card.bounds, to: picker).maxY, picker.bounds.height + 0.5, scheme.rawValue)
       }
