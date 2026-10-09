@@ -96,11 +96,14 @@ pub(crate) fn local_account_preferences(
         shared.learning,
     );
     settings.extend(frequency_account_preferences(&shared.frequency));
-    insert_string(
-        &mut settings,
-        "platform.ios.global_theme",
-        &native.global_theme,
-    );
+    // 「原生」先不上传，云端保留原来的主题：加入它之前的 iOS 版本只认七个主题 id，同一账号下还没升级的设备收到它会拒绝整份设置文档。
+    if native.global_theme != GlobalTheme::Native.id() {
+        insert_string(
+            &mut settings,
+            "platform.ios.global_theme",
+            &native.global_theme,
+        );
+    }
     insert_string(
         &mut settings,
         "platform.ios.custom_theme_base",
@@ -707,6 +710,15 @@ mod tests {
         ] {
             assert!(settings.contains_key(key), "missing {key}");
         }
+    }
+
+    #[test]
+    fn upload_leaves_the_native_theme_out_for_older_devices() {
+        let mut native = native();
+        native.global_theme = GlobalTheme::Native.id().into();
+        let settings = local_account_preferences(&native, &Preferences::default(), None).unwrap();
+        assert!(!settings.contains_key("platform.ios.global_theme"));
+        assert!(settings.contains_key("platform.ios.custom_theme_base"));
     }
 
     #[test]

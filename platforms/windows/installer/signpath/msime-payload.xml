@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration「msime-payload」。SignPath 从项目设置里读 artifact configuration，不读本仓库：这份是评审过的副本，改动后要原样贴回 SignPath 项目里同名的配置。
+
+  artifact 由 release-windows.yml 的 sign-payload 任务合成：每个版本一个目录，目录下是 SignPath-PackageBinaries.ps1 -Mode Stage 认定的本项目二进制，路径相对 platforms/windows/installer（<edition>/server_exe/*.exe、<edition>/tsf_dll/<arch>/*.dll）。vcpkg、Windows App SDK、ONNX Runtime 和 sherpa-onnx 的二进制不在 artifact 里，SignPath Foundation 不签上游的代码。
+
+  authenticode-sign 不带 description 和 description-url：SignPath Foundation 的订阅类型拒绝这两个属性，它们会覆盖 SignPath 自动生成的水印。
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file-set>
+      <include path="*/server_exe/*.exe" max-matches="unbounded" />
+      <include path="*/tsf_dll/32/*.dll" max-matches="unbounded" />
+      <include path="*/tsf_dll/64/*.dll" max-matches="unbounded" />
+      <include path="*/tsf_dll/arm64/*.dll" max-matches="unbounded" />
+      <for-each>
+        <authenticode-sign />
+      </for-each>
+    </pe-file-set>
+  </zip-file>
+</artifact-configuration>

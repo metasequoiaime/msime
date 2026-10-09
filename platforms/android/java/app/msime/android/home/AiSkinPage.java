@@ -30,6 +30,7 @@ import androidx.lifecycle.ViewModelProvider;
 import app.msime.android.CloudApi;
 import app.msime.android.BitmapPolicy;
 import app.msime.android.BoundsPolicy;
+import app.msime.android.ColorPolicy;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.KeyboardSkin;
@@ -486,7 +487,7 @@ public final class AiSkinPage extends DetailPage {
                 for (String colour : colours) {
                     View dot = new View(context);
                     android.graphics.drawable.GradientDrawable shape = Ui.outlined(
-                        Ui.parseColor(colour, Color.GRAY), 9999f,
+                        ColorPolicy.parse(colour, Color.GRAY), 9999f,
                         Ui.atLeastOnePx(context, 1), Ui.hairline(context));
                     ViewPolicy.setBackground(dot, shape);
                     LinearLayout.LayoutParams params = Ui.squareParams(context, 16);

@@ -229,7 +229,8 @@ test("toolbar scale is hidden while Linux component choices remain available", a
   });
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
-  expect(screen.getByLabelText("在桌面显示悬浮工具栏")).toBeTruthy();
+  expect(screen.getByLabelText("在输入法菜单显示工具栏")).toBeTruthy();
+  expect(screen.queryByLabelText("在桌面显示悬浮工具栏")).toBeNull();
   expect(screen.queryByLabelText("工具栏缩放")).toBeNull();
   expect(screen.queryByLabelText("图标尺寸")).toBeNull();
   expect(screen.getByRole("group", { name: "按钮" })).toBeTruthy();
@@ -239,9 +240,97 @@ test("toolbar scale is hidden while Linux component choices remain available", a
   mount({ host: capabilities({ platform: "macos", floating_toolbar_appearance: true }) });
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  expect(screen.getByLabelText("在桌面显示悬浮工具栏")).toBeTruthy();
   expect(screen.getByLabelText("工具栏缩放")).toBeTruthy();
   expect(screen.getByLabelText("图标尺寸")).toBeTruthy();
 });
+
+test("the Linux toolbar page explains the menu at the top instead of previewing a floating bar", async () => {
+  mount({
+    host: capabilities({
+      platform: "linux",
+      floating_toolbar_appearance: false,
+      floating_toolbar_components: true,
+    }),
+  });
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  const toolbar = screen.getByRole("group", { name: "悬浮工具栏" });
+  // Linux 不画悬浮条，没有预览；说明排在第一组「显示」之前。
+  expect(toolbar.querySelector("[data-toolbar-preview]")).toBeNull();
+  const note = screen.getByText(
+    /^Linux 不显示悬浮工具栏窗口，工具栏以输入法菜单里的「工具栏」子菜单呈现/,
+  );
+  const groups = [...toolbar.querySelectorAll("[data-group-title]")];
+  expect(groups.map((title) => title.textContent)).toEqual(["显示", "按钮"]);
+  expect(note.compareDocumentPosition(groups[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(
+    screen.getByText(
+      "「工具栏」子菜单：IBus 在面板的属性菜单里，Fcitx5 在托盘的状态区菜单里，需要桌面提供托盘",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByText("勾选要显示在「工具栏」子菜单里的按钮")).toBeTruthy();
+  expect(screen.queryByText("颜色与明暗")).toBeNull();
+});
+
+test("the Linux toolbar page says nothing applies under GNOME Shell", async () => {
+  mount({
+    host: capabilities({
+      platform: "linux",
+      floating_toolbar_appearance: false,
+      floating_toolbar_components: true,
+      candidate_panel_limit: "gnome_shell",
+    }),
+  });
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  expect(
+    screen.getByText(
+      "Linux 不显示悬浮工具栏窗口。当前是 GNOME 桌面，IBus 在输入源菜单里只列出输入模式和设置，没有「工具栏」子菜单，这一页的设置在当前桌面不生效。",
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByText(/仍然生效/)).toBeNull();
+  // 开关和按钮组的描述跟页首说明一致，不再指向 GNOME 下不存在的「工具栏」子菜单。
+  expect(
+    screen.getByText("当前 GNOME 桌面的输入源菜单没有「工具栏」子菜单，这个开关在这里不生效"),
+  ).toBeTruthy();
+  expect(screen.getByText("勾选工具栏要列出的按钮，当前 GNOME 桌面不生效")).toBeTruthy();
+  expect(screen.queryByText(/IBus 在面板的属性菜单里/)).toBeNull();
+  expect(screen.queryByText("勾选要显示在「工具栏」子菜单里的按钮")).toBeNull();
+});
+
+test.each(["windows", "macos", "harmony"] as const)(
+  "the %s toolbar page keeps the floating bar preview and wording",
+  async (platform) => {
+    // 鸿蒙按 2in1 形态给能力位（手机形态没有这一页），直接从这一页打开，三家走同一条路径。
+    render(
+      <SettingsPage
+        initialPage="floating-toolbar"
+        client={{
+          load: async () => initial,
+          save: vi.fn(),
+          host: capabilities({
+            platform,
+            mobile_settings: false,
+            panel_windows: true,
+            floating_toolbar: true,
+            floating_toolbar_appearance: true,
+            floating_toolbar_components: true,
+          }),
+        }}
+      />,
+    );
+    await settingsFormReady();
+    const toolbar = screen.getByRole("group", { name: "悬浮工具栏" });
+    expect(toolbar.querySelector("[data-toolbar-preview]")).toBeTruthy();
+    expect(screen.getByLabelText("在桌面显示悬浮工具栏")).toBeTruthy();
+    expect(screen.getByText("快速访问输入法状态与常用功能")).toBeTruthy();
+    expect(screen.getByText("勾选要显示在悬浮工具栏上的按钮")).toBeTruthy();
+    expect(screen.queryByText(/Linux 不显示悬浮工具栏窗口/)).toBeNull();
+    const groups = [...toolbar.querySelectorAll("[data-group-title]")];
+    expect(groups.map((title) => title.textContent)).toEqual(["显示", "按钮", "尺寸"]);
+  },
+);
 
 test("the floating-toolbar settings page is hidden when the host has no toolbar", async () => {
   mount({

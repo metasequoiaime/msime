@@ -78,6 +78,8 @@ final class KeyboardSymbolPanelView: UIView {
   private var loadGeneration: UInt64 = 0
   private var entries: [Entry]
   private let skin = KeyboardTheme.current
+  /// 面板的底和选中分类的底：皮肤的背景；把背景交给系统底板的皮肤（原生皮肤、经典兜底）为透明，与主键盘透出同一块系统底板。这时键盘在打开面板时把下面的按键藏起来（`KeyboardViewController.showSymbolPanel`）。
+  private var surface: UIColor { skin.drawsNativeBackground ? .clear : skin.background }
   private let grid = UIStackView()
   private let scroll = UIScrollView()
   private var categoryButtons: [UIButton] = []
@@ -107,7 +109,7 @@ final class KeyboardSymbolPanelView: UIView {
     entries = recent + Self.categories.map(Entry.fixed) + parents.map { Entry.catalog(parent: $0) }
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardSymbolPanel"
-    backgroundColor = skin.background
+    backgroundColor = surface
 
     let categories = UIStackView()
     categories.axis = .vertical
@@ -233,7 +235,7 @@ final class KeyboardSymbolPanelView: UIView {
     loadGeneration &+= 1
     for (position, button) in categoryButtons.enumerated() {
       let active = position == index
-      button.backgroundColor = active ? skin.background : skin.keyBackground
+      button.backgroundColor = active ? surface : skin.keyBackground
       button.setTitleColor(active ? skin.accent : skin.keyForeground, for: .normal)
       button.accessibilityTraits = active ? [.button, .selected] : [.button]
     }

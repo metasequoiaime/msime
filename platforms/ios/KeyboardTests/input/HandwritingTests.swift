@@ -192,7 +192,7 @@ final class HandwritingTests: XCTestCase {
     view.convert(view.bounds, to: controller.view)
   }
 
-  /// 手写键盘沿用 Android 的 rebuildHandwritingRows：左侧竖排 ，。？！，中间是书写卡片，右侧竖排 ⌫ 和「重写」，宽度按 Android 的 .7 / 3 / .8 比例分配；下方是 Android 的 designEntries 给手写用的手机 26 键底排（123 | 中 | ， | 手写 | 。 | return）。
+  /// 手写键盘沿用 Android 的 rebuildHandwritingRows：左侧竖排 ，。？！，中间是书写卡片，右侧竖排 ⌫ 和「重写」，宽度按 Android 的 .7 / 3 / .8 比例分配；下方是 Android 的 designEntries 给手写用的手机 26 键底排（123 | ， | 手写 | 。 | 中 | return）。
   func testThePadHasAndroidsColumnsAndThePhoneBottomRow() throws {
     let previous = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes
@@ -223,10 +223,13 @@ final class HandwritingTests: XCTestCase {
     let comma = try control("quickPunctuationKey", in: controller)
     let period = try control("bottomPeriodKey", in: controller)
     let space = try control("spaceKey", in: controller)
+    let language = try control("bottomLanguageKey", in: controller)
     let enter = try control("returnKey", in: controller)
-    for key in [comma, period, space, enter] { XCTAssertFalse(key.isHidden, key.accessibilityIdentifier ?? "") }
+    for key in [comma, period, space, language, enter] { XCTAssertFalse(key.isHidden, key.accessibilityIdentifier ?? "") }
     XCTAssertLessThan(frame(comma, in: controller).maxX, frame(space, in: controller).minX)
     XCTAssertLessThan(frame(space, in: controller).maxX, frame(period, in: controller).minX)
+    XCTAssertLessThan(frame(period, in: controller).maxX, frame(language, in: controller).minX)
+    XCTAssertLessThan(frame(language, in: controller).maxX, frame(enter, in: controller).minX)
     XCTAssertEqual(space.configuration?.title, "手写")
     XCTAssertNotNil(space.configuration?.image, "the space bar keeps its mic")
   }

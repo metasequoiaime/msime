@@ -20,6 +20,8 @@ jobs:
     #   MACOS_NOTARY_APPLE_ID, MACOS_NOTARY_TEAM_ID, MACOS_NOTARY_APP_SPECIFIC_PASSWORD  notarization credentials for xcrun notarytool
     #   HOMEBREW_TAP_TOKEN                       a token that can push to metasequoiaime/homebrew-tap, for the cask update after a release
     env:
+      # 钉死 Xcode 26.3（macOS 26 SDK），与 ci-macos.yml、ci-macos-package.yml 和 iOS 的 CI、发布同一个版本；不钉就是镜像默认的 Xcode 16.4，CI 测的就不是发出去的构建。
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       # 一次发布打出的版本（shared/contracts/editions.json 的 id）：每个版本一个 DMG、一个 cask，可以同时安装。full 的 DMG 名、cask 和 bundle id 与引入版本之前相同。
       MACOS_EDITIONS: full,wubi,pinyin,japanese,vietnamese,tibetan
       MACOS_CERTIFICATE_P12_BASE64: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 }}"

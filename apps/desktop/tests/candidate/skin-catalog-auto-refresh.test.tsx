@@ -21,7 +21,10 @@ import {
 } from "@msime/ui";
 import { useSkinCatalog } from "../../../../packages/ui/src/skin/external-skins";
 import { notifySkinCatalogChanged } from "../../../../packages/ui/src/skin/skin-catalog-changes";
-import { themeCatalog } from "../../../../packages/ui/src/theme/global-theme";
+import { offeredThemeCatalog } from "../../../../packages/ui/src/theme/global-theme";
+
+// 这里渲染的设置页不带宿主信息，轮播不列只在 iOS 提供的「原生」。
+const themeCatalog = offeredThemeCatalog(undefined);
 
 const renderSkinPreview = vi.hoisted(() => vi.fn());
 vi.mock("../../../../packages/ui/src/skin/skin-preview-render", () => ({

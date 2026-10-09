@@ -44,3 +44,13 @@ test("choosing a custom keyboard preserves a custom theme base and package state
     keyboard: design,
   });
 });
+
+test("customizing the native theme draws the custom theme over system", () => {
+  const colour = updateCandidateColor(preferences({ global_theme: "native" }), "text", "#123456");
+  expect(colour.custom_theme?.base).toBe("system");
+  const keyboard = updateCustomKeyboard(
+    preferences({ global_theme: "native" }),
+    defaultTouchKeyboardSkinDesign,
+  );
+  expect(keyboard.custom_theme?.base).toBe("system");
+});
