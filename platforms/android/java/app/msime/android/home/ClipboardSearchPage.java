@@ -15,10 +15,10 @@ import app.msime.android.ClipboardHistory;
 import app.msime.android.ClipboardHistoryPolicy;
 import app.msime.android.ClipboardHistoryStore;
 import app.msime.android.ClipboardSearchPolicy;
+import app.msime.android.DeviceDataApi;
 import app.msime.android.HostDeepLink;
 import app.msime.android.R;
 import app.msime.android.ViewPolicy;
-import app.msime.android.account.DeviceDataApi;
 import java.util.List;
 
 /**
