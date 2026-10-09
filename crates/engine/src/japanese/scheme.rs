@@ -1,6 +1,6 @@
 //! Japanese romaji key handling (schemes-lang.md §5.4).
 
-use super::romaji::{convert_romaji, hiragana_to_romaji, next_kana_variant};
+use super::romaji::{convert_romaji, hiragana_to_romaji, next_kana_variant, romaji_reading_into};
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
 
 #[derive(Debug, Clone, Default)]
@@ -60,14 +60,7 @@ impl JapaneseRomajiScheme {
         request.normalized_input.clone_from(&request.raw_input);
         request.raw_input_with_cases.clone_from(&self.raw);
         request.raw_segmentation.clone_from(&self.raw);
-        let conversion = convert_romaji(&request.raw_input);
-        request.normalized_segmentation.clear();
-        request
-            .normalized_segmentation
-            .push_str(&conversion.hiragana);
-        request
-            .normalized_segmentation
-            .push_str(&conversion.pending);
+        romaji_reading_into(&request.raw_input, &mut request.normalized_segmentation);
         request
             .segmentation
             .clone_from(&request.normalized_segmentation);
@@ -189,6 +182,43 @@ mod tests {
         assert_eq!(request.segmentation, "にほんg");
         assert!(request.valid);
         assert!(!JapaneseRomajiScheme::new().build_request().valid);
+    }
+
+    fn assert_warm_request_has_no_temporary_conversion(raw: &str, reading: &str) {
+        let scheme = typed(raw);
+        let mut request = scheme.build_request();
+        assert_eq!(request.normalized_segmentation, reading);
+        let expected = request.clone();
+        let pointer = request.normalized_segmentation.as_ptr();
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            scheme.build_request_into(&mut request);
+        });
+        assert_eq!(request, expected);
+        assert_eq!(request.normalized_segmentation.as_ptr(), pointer);
+        eprintln!("日文请求 {raw} 热构造分配：{allocations}");
+        assert_eq!(allocations, 0, "已有请求缓冲不应构造临时转换字符串");
+    }
+
+    #[test]
+    fn warm_complete_requests_do_not_allocate_conversion_strings() {
+        for (raw, reading) in [
+            ("nihongo", "にほんご"),
+            ("Sinnyou", "しんよう"),
+            ("n'a", "んあ"),
+            ("xtsu", "っ"),
+            ("matcha", "まっちゃ"),
+            ("ko-hi-", "こーひー"),
+            ("", ""),
+        ] {
+            assert_warm_request_has_no_temporary_conversion(raw, reading);
+        }
+    }
+
+    #[test]
+    fn warm_pending_requests_do_not_allocate_conversion_strings() {
+        for (raw, reading) in [("NiHoNg", "にほんg"), ("kak", "かk"), ("k", "k")] {
+            assert_warm_request_has_no_temporary_conversion(raw, reading);
+        }
     }
 
     #[test]

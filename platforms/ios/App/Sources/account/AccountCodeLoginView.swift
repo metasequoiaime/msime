@@ -75,7 +75,9 @@ final class CodeLoginModel: ObservableObject {
 
   func signInWithCode(challenge: String, code: String, channel: CodeLoginChannel) async {
     await perform {
-      try await self.session.signIn(challenge: challenge, credential: code)
+      try await self.session.signIn(challenge: challenge, credential: code, replacingAccount: { accountID in
+        try? DictionarySnapshotQueue().cancel(accountID: accountID)
+      })
       self.user = try await self.session.user()
       if self.user != nil { self.signedInVia = channel.via }
     }
@@ -123,7 +125,9 @@ final class CodeLoginModel: ObservableObject {
         self.message = "Google 登录未返回有效凭据，请重试。"
         return
       }
-      try await self.session.signIn(challenge: challenge.challenge_id, credential: token)
+      try await self.session.signIn(challenge: challenge.challenge_id, credential: token, replacingAccount: { accountID in
+        try? DictionarySnapshotQueue().cancel(accountID: accountID)
+      })
       self.user = try await self.session.user()
       if self.user != nil { self.signedInVia = "Google" }
     }

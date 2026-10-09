@@ -59,7 +59,7 @@ public final class HomeNavGroup {
 
         public void setValue(@Nullable CharSequence text) {
             value.setText(text);
-            Ui.setVisibilityForText(value, text);
+            ViewPolicy.setVisibilityForText(value, text);
         }
 
         public void setVisible(boolean visible) {

@@ -605,6 +605,34 @@ fn wubi_code_hint_defaults_on_and_roundtrips() {
 }
 
 #[test]
+fn wubi_auto_commit_unique_defaults_on_and_roundtrips() {
+    let defaults = Preferences::default();
+    assert!(defaults.wubi_auto_commit_unique);
+
+    // 没有这个键的文档是本次之前写的，读出来仍然是开：那是当时唯一可能的实际行为。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("wubi_auto_commit_unique");
+    assert!(
+        serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .wubi_auto_commit_unique
+    );
+
+    let disabled = Preferences {
+        wubi_auto_commit_unique: false,
+        ..defaults
+    };
+    assert!(
+        !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
+            .unwrap()
+            .wubi_auto_commit_unique
+    );
+}
+
+#[test]
 fn wubi_mixed_pinyin_defaults_off_and_roundtrips() {
     let defaults = Preferences::default();
     assert!(!defaults.wubi_mixed_pinyin);

@@ -46,8 +46,6 @@ export function InputSettingsPage() {
     page,
     macosShuangpinKeymap,
     setShuangpinKeymap,
-    macosWubiAutoCommitUnique,
-    setWubiAutoCommitUnique,
     wordCharacter,
     frequency,
     fuzzyPinyin,
@@ -134,7 +132,6 @@ export function InputSettingsPage() {
             ? macosShuangpinKeymap
             : undefined
         }
-        macosWubiAutoCommitUnique={macosWubiAutoCommitUnique}
         macosInputModes={client.macosInputModes}
         onError={setError}
         onPreferencesChange={onPreferencesChange}
@@ -143,7 +140,6 @@ export function InputSettingsPage() {
           setTouchKeyboardSchemeEnabled(scheme, enabled)
         }
         onMacosShuangpinKeymapChange={setShuangpinKeymap}
-        onMacosWubiAutoCommitUniqueChange={setWubiAutoCommitUnique}
         resourcePacks={resourcePacks}
         languageCard={harmonyPhone}
         onEnableAndSelectTouchKeyboardScheme={selectHomeScheme}
