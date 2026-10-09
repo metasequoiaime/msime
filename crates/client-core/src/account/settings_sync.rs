@@ -31,6 +31,8 @@ const NUMBER_KEYPAD_ORDER: &str = "platform.android.number_keypad_order";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
+/// 深色模式槽位的候选窗口皮肤包（`custom_theme.candidate_skin_dark`），与 [`CUSTOM_CANDIDATE_SKIN`] 同一形状。
+const CUSTOM_CANDIDATE_SKIN_DARK: &str = "platform.android.custom_candidate_skin_dark";
 /// 整个自定义键盘皮肤库（JSON 数组，只含设计参数），值来自宿主的皮肤库而不是共享偏好。
 pub const CUSTOM_KEYBOARD_SKINS: &str = "platform.android.custom_keyboard_skins";
 /// [`CUSTOM_KEYBOARD_SKINS`] 的字节上限，与服务端字段表相同。
@@ -504,7 +506,7 @@ fn insert_new_android_settings(
     }
 }
 
-/// 全局主题、自定义主题的底色、它的键盘设计和外部候选窗口皮肤包。设计是 JSON，包是 id；两者都用空串表示「没有」，这样清除也能同步。
+/// 全局主题、自定义主题的底色、它的键盘设计和浅色、深色两个槽位的外部候选窗口皮肤包。设计是 JSON，包是 id；都用空串表示「没有」，这样清除也能同步。
 fn insert_theme_settings(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     preferences: &Preferences,
@@ -526,6 +528,15 @@ fn insert_theme_settings(
         preferences
             .custom_theme
             .candidate_skin
+            .as_deref()
+            .unwrap_or_default(),
+    );
+    insert_string(
+        settings,
+        CUSTOM_CANDIDATE_SKIN_DARK,
+        preferences
+            .custom_theme
+            .candidate_skin_dark
             .as_deref()
             .unwrap_or_default(),
     );
@@ -792,6 +803,14 @@ pub fn apply_android_settings(
             return None;
         }
         preferences.custom_theme.candidate_skin = (!value.is_empty()).then(|| value.to_owned());
+        Some(())
+    })?;
+    applier.set_string(CUSTOM_CANDIDATE_SKIN_DARK, |preferences, value| {
+        if !value.is_empty() && !crate::skin::catalog::is_selectable_id(value) {
+            return None;
+        }
+        preferences.custom_theme.candidate_skin_dark =
+            (!value.is_empty()).then(|| value.to_owned());
         Some(())
     })?;
     applier.set_string("platform.android.theme", |preferences, value| {
