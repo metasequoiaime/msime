@@ -11,9 +11,9 @@ Status: implemented
 - **码表从 msime-dictionary 生成并提交**：`msime-dict-build wubi86-helpcode --dictionary <checkout> --out resources/helpcodes/wubi86_helpcode.txt`（`crates/dict-builder/src/wubi86_helpcode.rs`）读 `sources/wubi/wubi86-jidian.txt`，每个字取全码（该字单独出现时最长的编码，与 `wubi86-supplement` 共用 `full_codes`）的前两码，写成 `字=前两码`。几个全码的前两码不一致的字跳过（317 个，GB2312 里只有 41 个偏旁部首和麴、麸），扩展 A 区和基本多文种平面以外的字跳过（与 `msime-wubi.db` 的 wubi86 表同一个判断 `outside_basic_cjk`），非汉字跳过。结果 20614 字、145068 字节，低于引擎 1 MiB 的码表上限。表头三行 `#` 记输入的 SHA-256 和规则、不记提交，同一份输入逐字节可复现。
 - **匹配规则不变**：单字比整码，词比首字首码加末字首码，双拼完整音节后第三键调序、第三键加大写第四键筛选。五笔的「词」辅助码因此是首字第一码加末字第一码。
 - **登记一处，各宿主照列**：`crates/engine/src/assets.rs` 的 `HELPCODES` 追加第七项 `("wubi86", "helpcodes/wubi86_helpcode.txt")`；`client-core` 的 `HelpcodeSchema::Wubi86` 序列化为 `"wubi86"`；Android 的 `helpcode_schemas` 列出它。提供辅助码方案选择的宿主都加了这一项，标签一律是「五笔 86」：共享设置页（Windows、Linux、Harmony 和各桌面壳的 Tauri 设置）、macOS 设置窗口与后台同步页、iOS、Android、Windows 原生设置页、Linux 的 IBus 与 Fcitx5 菜单、网页引擎 SDK 与演示页。码表随 macOS、iOS、Android、Harmony、Linux 的暂存或安装脚本进包，Windows 的 `Prepare-PackageFiles.ps1` 按 `*.txt` 自动带上，网页引擎只进 npm 包。`scripts/test-settings-label-parity.py` 用 `OWN_SCHEMES` 放行参考实现没有的 `wubi86`，只要求各处写法一致。
-- **来源声明单列一份**：`resources/helpcodes/NOTICE-wubi86.md` 写来源、上游许可、生成命令、表和输入的 SHA-256，并附 Apache-2.0 全文（上游没有 NOTICE 文件）。各平台随表复制为 `helpcodes/NOTICE-wubi86.md`，macOS 与 Linux 另装为 `msime-helpcode-wubi86-NOTICE.md`，Windows 的 `Collect-Notices.ps1` 收集它，网页引擎的 NOTICE 由 `scripts/web-engine-notice.sh` 收进原文。两份 `THIRD_PARTY_NOTICES.txt` 各加一条。
+- **来源声明单列一份**：`resources/helpcodes/NOTICE-wubi86.md` 写来源、上游许可、生成命令、表和输入的 SHA-256，并附 Apache-2.0 全文（上游没有 NOTICE 文件）。各平台随表复制为 `helpcodes/NOTICE-wubi86.md`，macOS 与 Linux 另装为 `msime-helpcode-wubi86-NOTICE.md`，Windows 的 `Collect-Notices.ps1` 收集它，网页引擎的 NOTICE 由 `scripts/web-engine-notice.sh` 收进原文。两份 `THIRD_PARTY_NOTICES.txt` 各加一条，这两条和 `Collect-Notices.ps1` 的标签都写明有 16 个字来自 rime/rime-wubi、按 GPL-3.0 分发，汇总处与随附的 NOTICE 说法一致。
 - **输入文件不全是极点数据**：msime-dictionary 在 `0ccfa82` 把 rime/rime-wubi（LGPL-3.0）的行并进了 `wubi86-jidian.txt`。与并入前的版本逐字对照，两边都有的字前两码全部相同；本表另有 16 个字只来自并入的行，这 16 行按 GPL-3.0 第 7 条去掉 LGPL 的附加许可后随本项目以 GPL-3.0 分发。NOTICE 写明了这件事和这 16 个码点。
-- **云同步**：只有 macOS 的外观快照同步辅助码方案，用的是 `MSIMECloudHelpcodeSchemas()` 的下标。`wubi86` 追加为下标 6，旧下标不变。服务端字段表（msime-cloud `internal/account/preferences_fields.json`）里 `platform.macos.*_helpcode_schema` 是不带取值范围的 `integer`，`helpcode.*_helpcode_schema` 是不带枚举的 `string`，不会滤掉新值，服务端不用改。客户端这边，快照里超出本机方案目录的下标不再让整份快照无效：校验只要求非负整数，应用时保留本机的选择，其余键照常应用。Android 的设置同步从来不导出辅助码方案（`settings_sync` 的测试锁住了这一点），其他宿主没有这项同步。
+- **云同步**：只有 macOS 的外观快照同步辅助码方案，用的是 `MSIMECloudHelpcodeSchemas()` 的下标。`wubi86` 追加为下标 6，旧下标不变。服务端字段表（msime-cloud `internal/account/preferences_fields.json`）里 `platform.macos.*_helpcode_schema` 是不带取值范围的 `integer`，`helpcode.*_helpcode_schema` 是不带枚举的 `string`，不会滤掉新值，服务端不用改。客户端这边，快照里超出本机方案目录的下标不再让整份快照无效：校验只要求非负整数，应用时保留本机的选择，其余键照常应用。后台同步页下载预览时同样把这样的下标换成本机的值（`MacSettingsModel.helpcodeSchemeTitles` 的长度就是本机方案数），预览里不会出现一个替换后并不生效的数字。Android 的设置同步从来不导出辅助码方案（`settings_sync` 的测试锁住了这一点），其他宿主没有这项同步。
 
 ## Alternatives considered
 
@@ -35,7 +35,7 @@ Status: implemented
 - 引擎：`cargo test -p msime-engine`，`helpcode::tests::the_generated_wubi86_table_loads_whole` 载入仓库里的表，`shuangpin::tests::wubi86_helpcodes_filter_by_the_first_two_letters` 用合成码表经方案名 `wubi86` 载入后筛选单字和词，`host::tests::helpcode_settings_reach_the_real_engine` 用 `wubi86` 建会话。
 - 偏好：`cargo test -p msime-client-core`，`HelpcodeSchema::Wubi86` 存取往返，Android 列出的每个方案都能解析成 `HelpcodeSchema`。
 - 设置页：`apps/desktop` 的 vitest，两个方案下拉框都列出「五笔 86」并能保存。
-- macOS：`tests/settings/CloudAppearanceSettingsTest.mm` 覆盖下标 6 的导出与导入，以及未知下标保留本机选择、其余键照常应用；`tests/input/ShortcutTest.mm` 覆盖设置窗口的七个选项。
+- macOS：`tests/settings/CloudAppearanceSettingsTest.mm` 覆盖下标 6 的导出与导入，以及未知下标保留本机选择、其余键照常应用；`tests/core/BackendAccountTests.swift` 用合成的云端下标 6 和 9 核对下载预览（6 照常进预览，9 换成本机的值）；`tests/input/ShortcutTest.mm` 覆盖设置窗口的七个选项，在 Studio 编译后拉回本机图形会话运行通过。
 - 网页包：`cargo test -p msime-engine-wasm --test helpcodes` 核对打包脚本、SDK 与类型声明；`scripts/web-engine-notice.sh --check`。
 - 标签：`python3 scripts/test-settings-label-parity.py`，四处界面对七套方案的写法一致。
 
