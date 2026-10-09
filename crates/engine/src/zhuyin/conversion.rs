@@ -55,7 +55,15 @@ pub fn convert(
     mut fallback: impl FnMut(usize) -> String,
 ) -> Result<Vec<Span>> {
     // `paths[i]` 是转换前 `i` 个音节的最佳路径及结束它的那一段。
-    let mut paths: Vec<Option<(Score, Option<Span>)>> = vec![None; count + 1];
+    // 组合长度内的路径表放在栈上，超长直接调用仍使用动态缓冲。
+    let mut stack_paths = [const { None }; MAX_SYLLABLES + 1];
+    let mut heap_paths;
+    let paths: &mut [Option<(Score, Option<Span>)>] = if count <= MAX_SYLLABLES {
+        &mut stack_paths[..=count]
+    } else {
+        heap_paths = vec![None; count + 1];
+        &mut heap_paths
+    };
     paths[0] = Some((
         Score {
             length: 0,
@@ -70,7 +78,7 @@ pub fn convert(
         let score = *score;
         let pin = pins.iter().find(|pin| pin.start == start);
         if let Some(pin) = pin {
-            consider_span(&mut paths, score, pin.clone(), 0);
+            consider_span(paths, score, pin.clone(), 0);
         } else {
             for end in start + 1..=count {
                 if pins.iter().any(|pin| pin.overlaps(start, end)) {
@@ -85,7 +93,7 @@ pub fn convert(
                     None => continue,
                 };
                 consider_span(
-                    &mut paths,
+                    paths,
                     score,
                     Span {
                         start,
@@ -176,6 +184,44 @@ mod tests {
             key: key.to_owned(),
             text: text.to_owned(),
         }
+    }
+
+    #[test]
+    fn bounded_conversion_does_not_allocate_path_storage() {
+        let pin = span(0, MAX_SYLLABLES, "合成讀音", "合成文字");
+        let (spans, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            convert(
+                MAX_SYLLABLES,
+                std::slice::from_ref(&pin),
+                |_, _| panic!("完整钉住的组合不应查询词库"),
+                |_| panic!("完整钉住的组合不应生成兜底读音"),
+            )
+            .unwrap()
+        });
+        assert_eq!(allocations, 3, "只应分配返回向量和钉住词条的两个字符串");
+        assert_eq!(spans, [pin]);
+
+        let (spans, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            convert(
+                0,
+                &[],
+                |_, _| panic!("空组合不应查询词库"),
+                |_| panic!("空组合不应生成兜底读音"),
+            )
+            .unwrap()
+        });
+        assert!(spans.is_empty());
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn conversion_accepts_more_than_the_composition_limit() {
+        let syllables = vec!["ㄋㄧˇ"; MAX_SYLLABLES + 1];
+        let spans = run(&syllables, &[], &ENTRIES);
+        assert_eq!(spans.len(), syllables.len());
+        assert!(spans.iter().all(|span| span.text == "你"));
+        assert_eq!((spans[0].start, spans[0].end), (0, 1));
+        assert_eq!(spans.last().unwrap().end, syllables.len());
     }
 
     #[test]
