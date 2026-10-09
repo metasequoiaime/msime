@@ -30,6 +30,7 @@ import app.msime.android.CloudApi;
 import app.msime.android.BitmapPolicy;
 import app.msime.android.FeedbackApi;
 import app.msime.android.FeedbackImagePolicy;
+import app.msime.android.KeyboardGeometry;
 import app.msime.android.R;
 import app.msime.android.ViewPolicy;
 import java.io.IOException;
@@ -95,7 +96,8 @@ public final class FeedbackPage extends DetailPage {
         detail = input;
 
         View rule = Ui.hairlineView(context);
-        LinearLayout.LayoutParams ruleParams = Ui.matchWidthHeightPx(Ui.hairlinePx(context));
+        LinearLayout.LayoutParams ruleParams = Ui.matchWidthHeightPx(
+            KeyboardGeometry.atLeastOnePixel(context, 0.5f));
         ruleParams.setMarginStart(Ui.dp(requireContext(), 16));
         card.addView(rule, ruleParams);
 

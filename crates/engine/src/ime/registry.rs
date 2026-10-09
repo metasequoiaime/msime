@@ -662,6 +662,84 @@ mod tests {
         assert_dense_stroke_query_reuses_rows("x");
     }
 
+    fn assert_stroke_mixed_key_lengths_reuse_ordered_slots(raw: &str) {
+        let (_directory, mut registry) = dense_stroke_registry();
+        let connection = rusqlite::Connection::open(&registry.stroke_path).unwrap();
+        connection
+            .execute("DELETE FROM entries WHERE key = 'hs'", [])
+            .unwrap();
+        for index in 0..100 {
+            let suffix = format!("{index:07b}").replace('0', "h").replace('1', "s");
+            let prefix = if index % 2 == 0 {
+                String::new()
+            } else {
+                "p".repeat(48)
+            };
+            connection
+                .execute(
+                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                    (
+                        format!("h{prefix}{suffix}"),
+                        format!("補{index:03}"),
+                        index + 1000,
+                    ),
+                )
+                .unwrap();
+        }
+        drop(connection);
+        let request = QueryRequest {
+            scheme: SchemeType::Stroke,
+            raw_input: raw.to_owned(),
+            valid: true,
+            ..QueryRequest::default()
+        };
+        let mut destination = Vec::new();
+        registry.query_stroke_into(&request, &mut destination);
+        assert_eq!(destination.len(), 300);
+        assert_eq!(destination[0].word, "字199");
+        assert_eq!(destination[199].word, "補099");
+        assert_eq!(destination.last().unwrap().word, "字000");
+        let expected = destination.clone();
+        let pointer = destination.as_ptr();
+        for _ in 0..3 {
+            let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                registry.query_stroke_into(&request, &mut destination);
+            });
+            assert_eq!(destination, expected);
+            assert_eq!(destination.as_ptr(), pointer);
+            eprintln!("长短键笔画 {raw} 热查询分配：{allocations}");
+            assert!(
+                allocations <= 16,
+                "长短键热查询应复用最终顺序槽位：{allocations}"
+            );
+        }
+        let mut scheme = StrokeScheme::new();
+        scheme.set_raw_input(raw);
+        assert_eq!(
+            scheme
+                .candidates(registry.stroke.as_ref().unwrap())
+                .unwrap(),
+            expected
+                .iter()
+                .map(|row| StrokeCandidate {
+                    text: row.word.clone(),
+                    key: row.canonical_pinyin.clone(),
+                    weight: row.weight,
+                })
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn stroke_exact_mixed_key_lengths_reuse_ordered_slots() {
+        assert_stroke_mixed_key_lengths_reuse_ordered_slots("h");
+    }
+
+    #[test]
+    fn stroke_wildcard_mixed_key_lengths_reuse_ordered_slots() {
+        assert_stroke_mixed_key_lengths_reuse_ordered_slots("x");
+    }
+
     #[test]
     fn dense_stroke_duplicate_completions_reuse_intermediate_rows() {
         let (_directory, mut registry) = dense_stroke_registry();

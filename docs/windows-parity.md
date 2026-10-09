@@ -2089,3 +2089,7 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - **候选窗几何与来源一致。** 最小宽度 160 DIP、单行高 `fontSize × 1.35 + 2`、行间与横排行间 2 DIP、选中条以行左缘为中心（`x - 1.5`，宽 3）、竖排翻转判定以 232 DIP × 缩放为起点；`windows-candidate-card-size` 覆盖，旧头文件下编译不过。
 - **门禁漏洞。** 覆盖率改为完整字段路径并要求页面实际用到（原来 `menu`、`scale`、`font` 这类裸词随处可命中）；`feature-log` 除 CHANGELOG 外还逐条核对锁定对象之前的 `feat:` 提交（原来漏了七十多条，查出 4 个已知差距：普通 Backspace 删空拼音后退选分词、纠错候选的 `*` 标记、ü 别名候选的轻标记、双拼整句候选的排序）；源码清单的同名匹配只认 Windows 与共享代码、非测试目录，被同名遮住或指向不存在来源的表项报为过期；界面动作改用真实实现符号并整词匹配、排除测试与其他平台；`preferences-field-parity` 从 `Preferences` 出发比对所有可达结构体与页面上的类型（含内联对象），13 个扩到 20 个；`installer-prerequisites` 按函数切片检查 HKLM32/64 两个视图，不再被卸载代码里的同名字符串满足；`windows-native-run` 补上 TIP 子目录的 include，并把"仓库里有的头文件找不到"判为失败而不是跳过（多跑了 2 个测试）；`settings-label-parity` 在来源检出存在但解析不出标签时失败而不是跳过。
 - **验证层级。** 候选几何与安装器契约测试在本机 clang 编译运行；`msime-client-core` 本机 cargo test；全部 reference 门禁以固定来源本机运行通过，且每个漏洞都在副本里注入过、旧脚本通过而新脚本失败；安装器由发布流水线在 Windows runner 上编译并跑 `install-smoke.ps1`。未在真实 Windows 编辑器里目测候选窗。
+
+### Windows 五笔设置补上四码唯一自动上屏（2026-10-08）
+
+五笔四码唯一候选自动上屏以前是共享运行时里的无条件行为，只有 macOS 有一个从不起作用的原生开关。现在判定读共享偏好 `wubi_auto_commit_unique`（缺省开），提交仍只在共享 `crates/input-runtime` 一处；关闭后四码唯一命中时词留在候选列表里，等空格或数字键来选择。Windows 原生设置窗口的五笔分组因此新增「四码唯一候选自动上屏」一行（`settings/main.cpp` 的 `bool_row`），与 `wubi_code_hint` 同为 `input.*` 共享键，经现有偏好发布路径下发到 Server 与 host-api。未在 Windows 上实机验证。

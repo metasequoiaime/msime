@@ -372,6 +372,7 @@ export function localAccountPreferences(
     "input.smart_punctuation": flag(member(preferences, "smart_punctuation"), true),
     "input.paired_punctuation": flag(member(preferences, "paired_punctuation"), true),
     "input.wubi_code_hint": flag(member(preferences, "wubi_code_hint"), true),
+    "input.wubi_auto_commit_unique": flag(member(preferences, "wubi_auto_commit_unique"), true),
     "platform.harmony.keyboard_layout": enumerated(
       member(preferences, "touch_keyboard_layout"),
       LAYOUTS,
@@ -582,6 +583,8 @@ export function applyAccountPreferences(
   if (pairedPunctuation !== null) preferences.paired_punctuation = pairedPunctuation;
   const wubiCodeHint = reader.boolean("input.wubi_code_hint");
   if (wubiCodeHint !== null) preferences.wubi_code_hint = wubiCodeHint;
+  const wubiAutoCommitUnique = reader.boolean("input.wubi_auto_commit_unique");
+  if (wubiAutoCommitUnique !== null) preferences.wubi_auto_commit_unique = wubiAutoCommitUnique;
 
   const layout = reader.text("platform.harmony.keyboard_layout");
   if (layout !== null) preferences.touch_keyboard_layout = choose(layout, LAYOUTS);
