@@ -118,7 +118,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             case DISMISS -> drawDismiss(canvas);
             case GLOBE -> drawGlobe(canvas);
             case BOOKMARK -> drawBookmark(canvas);
-            case PHRASE, CLIPBOARD, SCHEME, FLOATING -> { }
+            case PHRASE, CLIPBOARD, SCHEME, FLOATING, TEXT_EDIT -> { }
         }
         canvas.restore();
     }
@@ -149,6 +149,8 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             case SKIN -> KeyboardIconPaths.Icon.TOOLBAR_SKIN;
             case SCHEME -> KeyboardIconPaths.Icon.TOOLBAR_SCHEME;
             case FLOATING -> KeyboardIconPaths.Icon.TOOLBAR_FLOATING;
+            // 和功能面板「文本编辑」磁贴同一个图标，用户在两处认得出是同一个面板。
+            case TEXT_EDIT -> KeyboardIconPaths.Icon.TEXT_EDIT;
             case DISMISS, SETTINGS, REPLY, VOICE, GLOBE, BOOKMARK ->
                 KeyboardIconPaths.Icon.TOOLBAR_DISMISS;
         };

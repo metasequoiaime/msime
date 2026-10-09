@@ -252,6 +252,7 @@ public final class MSIMEInputService extends InputMethodService {
     Button schemeButton;
     /** 工具栏上的「浮动键盘」按钮（本地设置 TOOLBAR_FLOATING，默认不显示）。 */
     Button floatingShortcutButton;
+    Button textEditShortcutButton;
     Button skinButton;
     Button layoutSettingsButton;
     Button scriptShortcutButton;
@@ -295,6 +296,8 @@ public final class MSIMEInputService extends InputMethodService {
     Button recentClipButton;
     private final Runnable recentClipExpiry = this::render;
     boolean toolbarFloating;
+    /** 本地设置 `platform.android.toolbar_text_edit`：工具栏上显示「文本编辑」按钮。 */
+    boolean toolbarTextEdit;
     /** 浮动键盘（本地设置 FLOATING_KEYBOARD，{@link FloatingKeyboardPolicy}）与它在可移动范围里的位置（千分比）。 */
     boolean floatingKeyboard;
     private int floatingX = FloatingKeyboardPolicy.DEFAULT_X_FRACTION;
@@ -1786,6 +1789,7 @@ public final class MSIMEInputService extends InputMethodService {
             localSettings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS));
         clipboardSuggestionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
         toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
+        toolbarTextEdit = localSettings.bool(AndroidLocalSettings.TOOLBAR_TEXT_EDIT);
         floatingKeyboard = localSettings.bool(AndroidLocalSettings.FLOATING_KEYBOARD);
         // 拖动进行中不让重读覆盖手指下的位置；松手后的保存会把它写回文件。
         if (!floatingDragging) {
@@ -7701,6 +7705,12 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setEnabled(floatingShortcutButton, !hardwareKeyboardMode);
             if (Build.VERSION.SDK_INT >= 30)
                 floatingShortcutButton.setStateDescription(floatingKeyboard ? "已开启" : "已关闭");
+        }
+        if (textEditShortcutButton != null) {
+            ViewPolicy.setVisible(textEditShortcutButton, toolbarTextEdit);
+            ViewPolicy.setSelected(textEditShortcutButton, ViewPolicy.isVisible(textEditPanel));
+            // 没有可编辑的输入框时面板打不开（ImeTextEditPanel.show 只给一句提示），按钮灰掉。
+            ViewPolicy.setEnabled(textEditShortcutButton, connection != null);
         }
         if (schemeButton != null) {
             ViewPolicy.setVisible(schemeButton, toolbarScheme);

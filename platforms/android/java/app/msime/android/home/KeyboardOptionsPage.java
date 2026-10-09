@@ -40,6 +40,7 @@ public final class KeyboardOptionsPage extends DetailPage {
     private static final String[][] TOOLBAR_BUTTONS = {
         {"emoji", "表情"}, {AndroidLocalSettings.TOOLBAR_PHRASE, "常用语"}, {"clipboard", "剪贴板"}, {"skin", "皮肤"},
         {AndroidLocalSettings.TOOLBAR_SCHEME, "输入方式"}, {AndroidLocalSettings.TOOLBAR_FLOATING, "浮动键盘"},
+        {AndroidLocalSettings.TOOLBAR_TEXT_EDIT, "文本编辑"},
     };
 
     private record State(JSONObject preferences, AndroidLocalSettings.Snapshot local,
