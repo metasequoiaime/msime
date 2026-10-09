@@ -108,6 +108,11 @@ public final class TextPolicy {
         return (value == null ? "" : value).toLowerCase(Locale.ROOT);
     }
 
+    /** 去掉首尾 ASCII 空白后按稳定的根区域规则转成小写，{@code null} 按空文本处理。 */
+    public static String lowercaseTrimmed(String value) {
+        return lowercase(trimmed(value));
+    }
+
     /** Return uppercase text using the stable root locale, treating null as empty. */
     public static String uppercase(String value) {
         return (value == null ? "" : value).toUpperCase(Locale.ROOT);

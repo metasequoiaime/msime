@@ -232,12 +232,20 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
     return applied
   }
   func cancel(accountID: String) throws {
-    let cancelled = try update { state -> DictionarySnapshotRequest? in
-      guard state.request?.accountID == accountID, state.request?.status.active == true else { return nil }
-      state.request?.status = .cancelled
-      return state.request
+    for attempt in 0..<40 {
+      do {
+        let cancelled = try update { state -> DictionarySnapshotRequest? in
+          guard state.request?.accountID == accountID, state.request?.status.active == true else { return nil }
+          state.request?.status = .cancelled
+          return state.request
+        }
+        if let cancelled { try? FileManager.default.removeItem(at: fileURL(for: cancelled)) }
+        return
+      } catch Failure.busy {
+        if attempt == 39 { throw Failure.busy }
+        usleep(25_000)
+      }
     }
-    if let cancelled { try? FileManager.default.removeItem(at: fileURL(for: cancelled)) }
   }
   func fail(id: UUID) throws {
     let failed = try update { state -> DictionarySnapshotRequest? in
