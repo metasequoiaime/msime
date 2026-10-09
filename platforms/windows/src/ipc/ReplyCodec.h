@@ -95,6 +95,8 @@ struct TsfLocalConfig {
   bool mention_mode = false;
   // The focused client's Engine is in its own English mode, where a capital is composed English and V is a letter rather than the expression mode. Not a preference: the Server follows the focused session and sends the V, "/" and "@" flags off while it holds, so the TIP keeps digits selecting and '-'/'.' paging in an English word that starts with V. It also travels on its own DedicatedEnglishChanged frame, so the TIP gives every letter to the Engine there rather than handing idle non-stroke letters to the application under Stroke.
   bool dedicated_english = false;
+  // 组字时 ';' 和 '\'' 选第二、第三个候选，TIP 据此把这两个键归为数字选词（SecondThirdCandidatePolicy.h）。
+  bool second_third_candidate = false;
 };
 // One frame per setting, in the order the reference pushes them.
 std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config);

@@ -2967,6 +2967,19 @@ private:
                                doc.SetBoolean(L"navigation." + value, false);
                              }, true);
                            }));
+    const bool second_third_enabled = document_.Boolean(L"second_third_candidate.enabled", false);
+    add_row(word, 0xE8C1, L"二三候选",
+            L"开启后，输入时按 ; 选第二个候选，按 ' 选第三个候选。组字中的 ' 不再作为音节分隔符。",
+            select_control(L"二三候选",
+                           {{L"off", L"关闭"}, {L"semicolon_quote", L"; / '"}},
+                           second_third_enabled ? L"semicolon_quote" : L"off",
+                           [this](std::wstring const &value) {
+                             change([&](PreferencesDocument &doc) {
+                               // 两个字段一起写，关闭时也写上键位，偏好里不会留下缺字段的对象。
+                               doc.SetString(L"second_third_candidate.keys", L"semicolon_quote");
+                               doc.SetBoolean(L"second_third_candidate.enabled", value != L"off");
+                             }, false);
+                           }));
 
     const std::array<std::pair<const wchar_t *, const wchar_t *>, 7> paging_keys{{
         {L"minus_equal", L"- / ="},

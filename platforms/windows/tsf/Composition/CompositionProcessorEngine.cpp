@@ -16,6 +16,7 @@
 #include "Ipc.h"
 #include "FanyUtils.h"
 #include "FanyLog.h"
+#include "../../common/SecondThirdCandidatePolicy.h"
 
 //////////////////////////////////////////////////////////////////////
 //
@@ -2074,6 +2075,30 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeedForFreshComposition(UINT uCode
     return FALSE;
 }
 
+bool CCompositionProcessorEngine::IsSecondThirdCandidateKey(UINT uCode, WCHAR wch) const
+{
+    if (!Global::SecondThirdCandidateEnabled.load(std::memory_order_relaxed) ||
+        !msime::windows::second_third_candidate_slot(uCode, wch))
+    {
+        return false;
+    }
+    const DWORD_PTR length = _keystrokeBuffer.GetLength();
+    const std::wstring_view editing(length > 0 && _keystrokeBuffer.Get() ? _keystrokeBuffer.Get() : L"",
+                                    length > 0 && _keystrokeBuffer.Get() ? length : 0);
+    // 与 Server 的 spelled_by_engine 对应：网址模式和 V 模式里 Engine 拼写的符号是输入。
+    const bool spelled =
+        (_urlMode && Global::ClassifyModeKey(Global::UrlSpellingSymbols, uCode, wch) == Global::ExpressionKey::Input) ||
+        (IsExpressionModeComposition() &&
+         Global::ClassifyModeKey(Global::ExpressionSpellingSymbols, uCode, wch) == Global::ExpressionKey::Input);
+    const bool microsoftFinal = wch == L';' && Global::MicrosoftShuangpinEnabled.load(std::memory_order_relaxed) &&
+                                msime::windows::microsoft_shuangpin_final_position(editing, _caretPosition);
+    // Ctrl 和 Alt 组合键到不了这里，Shift 会把两个键变成 ':' 和 '"'，所以按无修饰键判定。
+    return msime::windows::second_third_candidate_selection(
+               true, uCode, wch, 0, !editing.empty(), Global::InputModeScheme.load(std::memory_order_relaxed),
+               Global::DedicatedEnglish.active(GetTickCount64()), spelled || microsoftFinal)
+        .has_value();
+}
+
 //+---------------------------------------------------------------------------
 //
 // CCompositionProcessorEngine::IsVirtualKeyNeed
@@ -2107,6 +2132,17 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
     if (candidateMode == CANDIDATE_ORIGINAL)
     {
         fComposing = FALSE;
+    }
+
+    // 排在音节分隔符前面：打开「二三候选」后，组字中的 '\'' 选第三个候选而不是分隔音节。网址模式和 V 模式拼写的符号、微软双拼的韵母 ing 仍是输入，由 IsSecondThirdCandidateKey 排除。
+    if (pwch && IsSecondThirdCandidateKey(uCode, *pwch))
+    {
+        if (pKeyState)
+        {
+            pKeyState->Category = CATEGORY_CANDIDATE;
+            pKeyState->Function = FUNCTION_SELECT_BY_NUMBER;
+        }
+        return TRUE;
     }
 
     if (IsManualPinyinSeparatorInComposition(pwch ? *pwch : 0, fComposing, candidateMode, _keystrokeBuffer.GetLength()))

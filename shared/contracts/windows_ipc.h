@@ -303,7 +303,9 @@ constexpr std::uint32_t CommitCandidateAndContinue = 27;
 constexpr std::uint32_t LocalModeTriggersChanged = 28;
 // Payload "1" while the focused client's Engine is in its own English mode (Ctrl+Shift+E, the toolbar or tray English), "0" otherwise. The TIP keeps reporting Chinese there, so this is the only way it learns that every letter belongs to the Engine: under Stroke it otherwise hands idle letters other than the five strokes to the application (InputSchemeTraits.h LetterPassesWhileIdle).
 constexpr std::uint32_t DedicatedEnglishChanged = 29;
-constexpr std::uint32_t MaxKnown = DedicatedEnglishChanged;
+// Payload "1" when ';' and '\'' pick the second and third candidate while composing (preferences `second_third_candidate`), "0" otherwise. The TIP classifies the two keys as a number selection only while this is on; the rule both sides apply is platforms/windows/common/SecondThirdCandidatePolicy.h. An older TIP drops the frame and keeps both keys as punctuation.
+constexpr std::uint32_t SecondThirdCandidateChanged = 30;
+constexpr std::uint32_t MaxKnown = SecondThirdCandidateChanged;
 // Source compatibility for the Server's historical spellings.
 constexpr std::uint32_t SwitchToEn = SwitchToEnglish;
 constexpr std::uint32_t SwitchToCn = SwitchToChinese;
