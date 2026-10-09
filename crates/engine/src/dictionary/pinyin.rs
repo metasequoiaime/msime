@@ -213,7 +213,7 @@ impl PinyinDatabase {
         keys: &[String],
         per_key_limit: usize,
     ) -> HashMap<String, Vec<DictRow>> {
-        let mut result: HashMap<String, Vec<DictRow>> = HashMap::with_capacity(keys.len());
+        let mut result: HashMap<String, Vec<DictRow>> = HashMap::new();
         if self.connection.is_none() || keys.is_empty() || per_key_limit == 0 {
             return result;
         }
@@ -237,6 +237,9 @@ impl PinyinDatabase {
                     query_capacity(per_key_limit),
                 );
                 if !rows.is_empty() {
+                    if result.capacity() == 0 {
+                        result.reserve(keys.len());
+                    }
                     result.insert(key.clone(), rows);
                 }
                 continue;
@@ -244,8 +247,12 @@ impl PinyinDatabase {
             keys_by_table.entry(table).or_default().push(key.clone());
         }
         for (table, table_keys) in &keys_by_table {
+            let rows = self.batch_rows(table, table_keys, usize::MAX);
+            if !rows.is_empty() && result.capacity() == 0 {
+                result.reserve(keys.len());
+            }
             // Ordered by weight, so the first rows of each key are its best.
-            for row in self.batch_rows(table, table_keys, usize::MAX) {
+            for row in rows {
                 let slot = result
                     .entry(row.key.clone())
                     .or_insert_with(|| Vec::with_capacity(per_key_limit));
@@ -1436,3 +1443,7 @@ mod empty_page_tests;
 #[cfg(test)]
 #[path = "pinyin/empty_aggregate_tests.rs"]
 mod empty_aggregate_tests;
+
+#[cfg(test)]
+#[path = "pinyin/empty_key_map_tests.rs"]
+mod empty_key_map_tests;

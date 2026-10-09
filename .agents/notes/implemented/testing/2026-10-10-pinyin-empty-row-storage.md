@@ -40,3 +40,5 @@ Status: implemented
 共享底层 helper 在有正容量提示的空页和首行前失败时省去一次行容器分配；命中继续保留原提示预留与提示不足时的自然扩容。每条成功解析的行增加容量分支，尚不保证命中延迟加速。Rust 请求字节计量不包括 SQLite C 内部存储、System 内部暂存或 RSS。reserve_exact 不保证底层物理存储精确大小。上层仍有独立空页容器预留，需要后续各自验证，本片不把一个 helper 的改善当成整个查询管线零分配。
 
 长词续接与精确分段批量查询的上层缓冲由[聚合空页延后预留](../../implemented/testing/2026-10-10-pinyin-empty-aggregate-storage.md)单独处理；简拼入口与混输分支仍有独立预留。本片底层测量不重复计入聚合层收益。
+
+按键分组查询的空结果 `HashMap` 由[结果表延后预留](../../implemented/testing/2026-10-10-pinyin-empty-key-map-storage.md)单独处理；两侧共用已合并的底层查询函数，结果表收益独立计量。
