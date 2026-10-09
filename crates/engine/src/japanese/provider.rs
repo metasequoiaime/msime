@@ -6,7 +6,8 @@ use std::sync::Arc;
 use super::decoder::JapaneseDictionary;
 use super::matrix::search_converted;
 use super::romaji::{
-    convert_romaji, hiragana_to_katakana, is_single_kana_conversion, kana_for_romaji_prefix,
+    convert_romaji_into, hiragana_to_katakana_into, is_single_kana_conversion,
+    kana_for_romaji_prefix, RomajiConversion,
 };
 use crate::cache::FifoCache;
 use crate::types::{CandidateSource, QueryRequest, SchemeType, WordItem};
@@ -37,6 +38,8 @@ pub struct JapaneseProvider {
     /// `None` until the first query, then the shared model or `Some(None)` when it is missing or invalid; a failed load is not retried by this provider, as in the reference.
     dictionary: Option<Option<Arc<JapaneseDictionary>>>,
     dynamic: FifoCache<String, Vec<WordItem>>,
+    conversion: RomajiConversion,
+    katakana: String,
 }
 
 /// 按插入顺序保留唯一词面；`used` 之后是上次查询留下的可复用行。
@@ -82,13 +85,9 @@ impl Rows<'_> {
         self.used += 1;
     }
 
-    fn push_kana(&mut self, hiragana: &str) {
+    fn push_kana(&mut self, hiragana: &str, katakana: &str) {
         self.push(hiragana, KANA_WEIGHT, CandidateSource::Generated);
-        self.push(
-            &hiragana_to_katakana(hiragana),
-            KATAKANA_WEIGHT,
-            CandidateSource::Generated,
-        );
+        self.push(katakana, KATAKANA_WEIGHT, CandidateSource::Generated);
     }
 
     /// 把已在列表里的 `word` 挪到不晚于 `slot` 的位置，其余行保持相对顺序。
@@ -117,6 +116,8 @@ impl JapaneseProvider {
             model: model.to_path_buf(),
             dictionary: None,
             dynamic: FifoCache::new(DYNAMIC_CACHE_CAPACITY),
+            conversion: RomajiConversion::default(),
+            katakana: String::new(),
         }
     }
 
@@ -144,13 +145,16 @@ impl JapaneseProvider {
             rows.finish_into(destination);
             return;
         }
-        let conversion = convert_romaji(&request.raw_input);
-        let kana_first = is_single_kana_conversion(&conversion);
+        convert_romaji_into(&request.raw_input, &mut self.conversion);
+        let dictionary = self.dictionary();
+        let conversion = &self.conversion;
+        hiragana_to_katakana_into(&conversion.hiragana, &mut self.katakana);
+        let kana_first = is_single_kana_conversion(conversion);
         if kana_first {
-            rows.push_kana(&conversion.hiragana);
+            rows.push_kana(&conversion.hiragana, &self.katakana);
         }
 
-        if let Some(dictionary) = self.dictionary() {
+        if let Some(dictionary) = dictionary {
             // With letters still pending, the lemmas the letters can go on to spell lead: the sentence search can convert only the finished kana. With the reading complete, the lemmas whose reading only starts with it (predictions) go after the conversions of the reading itself: listed first, the cheapest longer readings fill the page and push the word the reading spells off it (にじ listed 二重, 二条 and 二次創作 ahead of 虹).
             let mut predictions = Vec::new();
             if !conversion.hiragana.is_empty() && !conversion.pending.is_empty() {
@@ -178,7 +182,7 @@ impl JapaneseProvider {
                 predictions = dictionary.prefix_lemmas(&conversion.hiragana, READING_PREFIX_LEMMAS);
             }
             rows.reserve(predictions.len() + SENTENCE_LIMIT + 1);
-            for sentence in search_converted(&dictionary, &conversion, SENTENCE_LIMIT) {
+            for sentence in search_converted(&dictionary, conversion, SENTENCE_LIMIT) {
                 rows.push(
                     &sentence.text,
                     SENTENCE_BASE - sentence.cost,
@@ -195,7 +199,7 @@ impl JapaneseProvider {
         }
 
         if !conversion.hiragana.is_empty() && !kana_first {
-            rows.push_kana(&conversion.hiragana);
+            rows.push_kana(&conversion.hiragana, &self.katakana);
             // 读音完整时，平假名本身最晚排在第二位。词库里没有这个假名词条时，它原本跟在全部汉字和联想后面：`tyou`/`chou` 的ちょう排在第 23 个，用户以为打不出来；有词条的きょう、にほん本来就在第二位。
             if conversion.pending.is_empty() {
                 rows.promote(&conversion.hiragana, KANA_SLOT);
@@ -330,13 +334,57 @@ mod tests {
             provider.query_into(&request, &mut destination);
         });
 
-        let (_, conversion_allocations) = crate::ime::personal_rerank::allocations::count(|| {
-            let conversion = convert_romaji(&request.raw_input);
-            hiragana_to_katakana(&conversion.hiragana)
-        });
-        assert_eq!(allocations, conversion_allocations);
+        eprintln!("日文单假名 provider 热查询分配：{allocations}");
+        assert_eq!(allocations, 0, "已有候选行与转换缓冲应复用");
         assert_eq!(words(&destination), ["か", "カ"]);
         assert_eq!(destination[0].word.as_ptr(), word_pointer);
+    }
+
+    fn assert_provider_reuses_conversion_strings(raw: &str) {
+        let (_root, mut provider) = provider_with(None);
+        let request = request(raw);
+        let mut destination = provider.query(&request);
+        let expected = destination.clone();
+        let pointer = destination.as_ptr();
+        for row in &mut destination {
+            row.source = CandidateSource::CloudSuggestion;
+            row.fixed_position = 7;
+            row.fuzzy = true;
+            row.corrected_from.push_str("synthetic");
+            row.sentence_association = true;
+            row.sentence_words.push("synthetic".to_owned());
+        }
+        for _ in 0..3 {
+            let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                provider.query_into(&request, &mut destination);
+            });
+            assert_eq!(destination, expected);
+            assert_eq!(destination.as_ptr(), pointer);
+            eprintln!(
+                "日文 provider 合成输入长度 {} 热查询分配：{allocations}",
+                raw.len()
+            );
+            assert_eq!(allocations, 0, "热查询不应重建转换字符串");
+        }
+    }
+
+    #[test]
+    fn complete_provider_queries_reuse_conversion_strings() {
+        for raw in ["nihongo", "Sinnyou", "n'a", "xtsu", "ko-hi-"] {
+            assert_provider_reuses_conversion_strings(raw);
+        }
+    }
+
+    #[test]
+    fn long_provider_queries_reuse_conversion_strings() {
+        assert_provider_reuses_conversion_strings(&"ka".repeat(32));
+    }
+
+    #[test]
+    fn pending_provider_queries_reuse_conversion_strings() {
+        for raw in ["NiHoNg", "kak", "k", "ka漢字", ""] {
+            assert_provider_reuses_conversion_strings(raw);
+        }
     }
 
     #[test]
@@ -349,6 +397,27 @@ mod tests {
         });
         assert_eq!(allocations, 0);
         assert_eq!(words(&destination), ["ー", "-"]);
+    }
+
+    #[test]
+    fn model_load_stays_lazy_and_missing_model_is_not_retried() {
+        let (_root, mut provider) = provider_with(None);
+        let mut invalid = request("ka");
+        invalid.valid = false;
+        assert!(provider.query(&invalid).is_empty());
+        let mut wrong_scheme = request("ka");
+        wrong_scheme.scheme = SchemeType::Quanpin;
+        assert!(provider.query(&wrong_scheme).is_empty());
+        assert_eq!(words(&provider.query(&request("-"))), ["ー", "-"]);
+        assert!(provider.dictionary.is_none());
+        assert_eq!(words(&provider.query(&request("ka"))), ["か", "カ"]);
+        assert!(matches!(provider.dictionary, Some(None)));
+        std::fs::write(&provider.model, test_model::smoke()).expect("write synthetic model");
+        assert_eq!(
+            words(&provider.query(&request("kanji"))),
+            ["かんじ", "カンジ"]
+        );
+        assert!(matches!(provider.dictionary, Some(None)));
     }
 
     #[test]
