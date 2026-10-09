@@ -4792,6 +4792,28 @@ public final class MSIMEInputService extends InputMethodService {
         });
     }
 
+    /**
+     * 长按字母层的 123 直接打开符号面板，不必再经过 #+= 层；记一次「符」键，与点 #+= 层的「符」相同。在符号层里这个键是 ABC / 九键，长按照常当作点按。
+     */
+    void bindSymbolPanelHold(Button button) {
+        button.setOnLongClickListener(ignored -> {
+            if (session == 0 || keyboardLayer != KeyboardLayout.Layer.LETTERS) return false;
+            imeKeyFeedback.playFeedback(button);
+            countKey("SoftSymbol");
+            imePanels.showSymbolPanel();
+            return true;
+        });
+        button.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(
+                    View host, android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                if (keyboardLayer == KeyboardLayout.Layer.LETTERS)
+                    info.addAction(new android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(
+                        android.view.accessibility.AccessibilityNodeInfo.ACTION_LONG_CLICK, "打开符号面板"));
+            }
+        });
+    }
+
     /** Finish the Engine composition before handing the input connection to another IME. */
     void switchToNextInputMethodAfterCommit() {
         if (session != 0) command(2);
@@ -6666,6 +6688,7 @@ public final class MSIMEInputService extends InputMethodService {
         });
         layerButton.setContentDescription("切换到数字和符号");
         keyId(layerButton, "SoftLayer");
+        bindSymbolPanelHold(layerButton);
         symbolPanelButton = keyId(button(controls, "符", imePanels::showSymbolPanel), "SoftSymbol");
         symbolPanelButton.setContentDescription("打开符号面板");
         quickPunctuationButton = keyId(button(controls, ",", this::insertQuickPunctuation), "Comma");

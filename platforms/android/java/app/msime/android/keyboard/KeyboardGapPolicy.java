@@ -20,6 +20,11 @@ public final class KeyboardGapPolicy {
         return (float) Math.sqrt(dx * dx + dy * dy);
     }
 
+    /** 按下落在键帽左侧让给左邻的那一段里（`x` 是键自己的坐标，`yield` 是让出的宽度），见 {@link KeyboardKeyArea#setYield}。 */
+    public static boolean yieldsToLeft(float x, float yield) {
+        return yield > 0 && x >= 0 && x < yield;
+    }
+
     /**
      * 把一个坐标移进键帽内部，离边缘留 1px，保证框架的命中测试（`0 <= v < size`）一定落在键上；移动的距离就是空隙的宽度，所以按下位置几乎不变，空格的拖动光标、日文假名的滑动方向这类按位移计算的手势不受影响。
      */

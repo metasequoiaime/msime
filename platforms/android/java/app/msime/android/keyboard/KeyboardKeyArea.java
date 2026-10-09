@@ -38,6 +38,14 @@ public final class KeyboardKeyArea extends LinearLayout {
     private final Matrix inverse = new Matrix();
     private final float[] point = new float[2];
     private boolean hit;
+    /** 命中的那个键和按下在它自己坐标里的位置，`route` 用来判断是否落在让出的那一段里。 */
+    private View hitKey;
+    private float hitX;
+    private float hitY;
+    /** 把键帽左侧 `yieldWidth` 像素让给 `yieldReceiver` 的键，见 {@link #setYield}。 */
+    private View yieldingKey;
+    private View yieldReceiver;
+    private float yieldWidth;
     private View target;
     private float targetX;
     private float targetY;
@@ -51,6 +59,15 @@ public final class KeyboardKeyArea extends LinearLayout {
 
     public void setGlideTracker(GlideTracker tracker) {
         glideTracker = tracker;
+    }
+
+    /**
+     * 让 `yielding` 把键帽左侧 `widthPx` 像素让给紧挨在它左边的 `receiver`：按下落在那一段里时，像落在空隙里一样挪进 `receiver` 的右边缘。底行的回车用它把与中/英之间拿不准的按下让给中/英（{@link KeyboardActionRow#RETURN_YIELD_DP}）。传 null 取消。
+     */
+    public void setYield(View yielding, View receiver, float widthPx) {
+        yieldingKey = yielding;
+        yieldReceiver = receiver;
+        yieldWidth = yielding == null || receiver == null ? 0f : widthPx;
     }
 
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
@@ -98,10 +115,17 @@ public final class KeyboardKeyArea extends LinearLayout {
         float x = event.getX(index);
         float y = event.getY(index);
         hit = false;
+        hitKey = null;
         target = null;
         targetDistance = Float.MAX_VALUE;
         search(this, x, y);
         View owner = hit ? null : target;
+        if (hit && hitKey != null && hitKey == yieldingKey && yieldsHere()) {
+            owner = yieldReceiver;
+            targetX = KeyboardGapPolicy.inside(yieldReceiver.getWidth(), yieldReceiver.getWidth());
+            targetY = KeyboardGapPolicy.inside(hitY, yieldReceiver.getHeight());
+        }
+        hitKey = null;
         target = null;
         if (owner == null) return;
         point[0] = targetX;
@@ -110,6 +134,14 @@ public final class KeyboardKeyArea extends LinearLayout {
         offsetX[id] = point[0] - x;
         offsetY[id] = point[1] - y;
         routedPointers |= pointerBit(id);
+    }
+
+    /** 命中的是让出的键、按下落在它让出的那一段里，而接收的键就在同一行里可见。 */
+    private boolean yieldsHere() {
+        return yieldReceiver != null && yieldReceiver.getVisibility() == VISIBLE
+            && yieldReceiver.getParent() == yieldingKey.getParent()
+            && yieldReceiver.getWidth() >= 2 && yieldReceiver.getHeight() >= 2
+            && KeyboardGapPolicy.yieldsToLeft(hitX, yieldWidth);
     }
 
     private static int pointerBit(int id) {
@@ -141,6 +173,9 @@ public final class KeyboardKeyArea extends LinearLayout {
             if (spacedKey.test(child)) {
                 if (inside) {
                     hit = true;
+                    hitKey = child;
+                    hitX = localX;
+                    hitY = localY;
                     return;
                 }
                 consider(child, layoutX, layoutY, localX, localY);
