@@ -159,13 +159,17 @@ def fetch(url: str, destination: Path, maximum: int) -> None:
                 except ValueError:
                     pass
             size = 0
-            while block := response.read(CHUNK):
+            while True:
+                block = response.read(CHUNK)
+                if not block:
+                    break
                 size += len(block)
                 if size > maximum:
                     raise SystemExit(f"下载响应超过 {maximum} 字节限制")
                 handle.write(block)
     except BaseException:
-        destination.unlink(missing_ok=True)
+        with contextlib.suppress(FileNotFoundError):
+            destination.unlink()
         raise
 
 
@@ -180,7 +184,8 @@ def fetch_verified(artifact: dict, destination: Path) -> None:
             print(f"国内镜像上的 {artifact['name']} 校验不符，改从原地址下载", file=sys.stderr)
         except (OSError, SystemExit) as error:
             print(f"国内镜像下载 {artifact['name']} 失败（{error}），改从原地址下载", file=sys.stderr)
-        destination.unlink(missing_ok=True)
+        with contextlib.suppress(FileNotFoundError):
+            destination.unlink()
     fetch(url, destination, artifact["size"])
     if digest(destination) != artifact["sha256"]:
         raise SystemExit(f"{artifact['name']} 校验失败，已中止；目标目录未改动")
@@ -402,7 +407,8 @@ def hosts_held_off(user_data: Path):
         # Release the lock before the lease, as the settings window does, so a session reopening on the lease going away can take its shared lock.
         if descriptor >= 0:
             os.close(descriptor)
-        lease.unlink(missing_ok=True)
+        with contextlib.suppress(FileNotFoundError):
+            lease.unlink()
 
 
 def run_refresh(prefix: Path, options_file: Path, document: dict, resources: Path) -> tuple[subprocess.CompletedProcess, bool]:
@@ -426,7 +432,8 @@ def run_refresh(prefix: Path, options_file: Path, document: dict, resources: Pat
             staged.replace(options_file)
         return result, refreshed
     finally:
-        staged.unlink(missing_ok=True)
+        with contextlib.suppress(FileNotFoundError):
+            staged.unlink()
 
 
 def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: bool) -> int:
