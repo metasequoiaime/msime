@@ -1,6 +1,14 @@
 import Foundation
 import CryptoKit
 
+@MainActor final class SyntheticSnapshotTarget: DesktopSnapshotTarget {
+  let version = "synthetic-local-version"
+  func currentVersion() throws -> String { version }
+  func stage(_ snapshot: BackendPreparedSnapshot) async throws -> any DesktopSnapshotActivation {
+    throw BackendAccountClient.Failure(status: 500)
+  }
+}
+
 @MainActor final class SyntheticDictionaryAPI: DesktopCloudDictionaryAPI, DesktopSnapshotAPI {
   var calls = 0
   var failure: Int?
@@ -225,9 +233,10 @@ import CryptoKit
       checks += 1; if checks > 1 { throw CancellationError() }; return "synthetic-token"
     })
     do { _ = try await changed.execute(catalog as NSDictionary); assertionFailure("stale catalog exposed") } catch { }
-    let snapshots = BackendDesktopSnapshots(credentials: { throw CancellationError() })
+    let snapshots = BackendDesktopSnapshots(credentials: { throw CancellationError() }, capture: { SyntheticSnapshotTarget() })
     let status = try await snapshots.execute(["operation":"snapshot_status"])
     assert(status["nativeFiles"] as? Bool == true)
+    assert(status["localVersion"] as? String == "synthetic-local-version")
     let cancelled = try await snapshots.execute(["operation":"snapshot_cancel"])
     assert(cancelled["request"] is NSNull)
   }

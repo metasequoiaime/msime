@@ -108,7 +108,9 @@ extension BackendAccountClient: DesktopSnapshotAPI {}
   }
   func execute(_ request: NSDictionary) async throws -> [String: Any] {
     guard let operation = request["operation"] as? String else { throw BackendAccountClient.Failure(status: 400) }
-    if operation == "snapshot_status" { return ["nativeFiles":true, "request":status as Any? ?? NSNull()] }
+    if operation == "snapshot_status" {
+      return ["nativeFiles":true, "localVersion":try capture().version, "request":status as Any? ?? NSNull()]
+    }
     if operation == "snapshot_cancel" {
       // Keep the handle until the task's defer path observes cancellation and
       // releases its prepared snapshot. A synchronous staging call may still
