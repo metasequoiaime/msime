@@ -528,8 +528,8 @@ impl ZhuyinScheme {
         let mut singles = [0; MAX_SYLLABLES];
         if ambiguous.iter().any(|&ambiguous| ambiguous) {
             for index in 0..positions.len() {
-                singles[index] = cached_best(dictionary, best, &positions[index..=index])?
-                    .map_or(0, |(_, entry)| entry.weight);
+                singles[index] =
+                    cached_best_weight(dictionary, best, &positions[index..=index])?.unwrap_or(0);
             }
         }
         let singles = &singles[..count];
@@ -582,12 +582,12 @@ impl ZhuyinScheme {
         if readings.len() <= SMALL_SPELLING_RANK {
             let mut ranked = [(false, Reverse(0), 0usize); SMALL_SPELLING_RANK];
             for (index, reading) in readings.iter().enumerate() {
-                let weight = cached_best(
+                let weight = cached_best_weight(
                     &self.dictionary,
                     &mut self.best,
                     &[std::slice::from_ref(reading)],
                 )?
-                .map_or(i64::MIN, |(_, entry)| entry.weight);
+                .unwrap_or(i64::MIN);
                 ranked[index] = (current != Some(reading.as_str()), Reverse(weight), index);
             }
             ranked[..readings.len()].sort_by(|left, right| {
@@ -605,12 +605,12 @@ impl ZhuyinScheme {
         } else {
             let mut ranked = Vec::with_capacity(readings.len());
             for reading in readings.iter() {
-                let weight = cached_best(
+                let weight = cached_best_weight(
                     &self.dictionary,
                     &mut self.best,
                     &[std::slice::from_ref(reading)],
                 )?
-                .map_or(i64::MIN, |(_, entry)| entry.weight);
+                .unwrap_or(i64::MIN);
                 ranked.push((current != Some(reading.as_str()), Reverse(weight), reading));
             }
             ranked.sort();
@@ -736,6 +736,20 @@ fn clears_ambiguous_word_floor(
         .min()
         .unwrap_or(0);
     entry.weight.saturating_mul(AMBIGUOUS_WORD_FLOOR) >= weakest
+}
+
+/// 只取词频时，单位置单读音的缓存键直接借用读音；未命中或需要组合缓存键时复用完整词条的查询路径。
+fn cached_best_weight(
+    dictionary: &LanguageDictionary,
+    best: &mut HashMap<String, Option<(String, LanguageEntry)>>,
+    positions: &[&[String]],
+) -> Result<Option<i64>> {
+    if let [[reading]] = positions {
+        if let Some(entry) = best.get(reading.as_str()) {
+            return Ok(entry.as_ref().map(|(_, entry)| entry.weight));
+        }
+    }
+    Ok(cached_best(dictionary, best, positions)?.map(|(_, entry)| entry.weight))
 }
 
 /// 借用缓存中 `positions` 的最重词条及其键。缓存键是各位置允许的读音以 `|` 连接、位置之间用空格；大千下每个位置只有一个读音，所以就是词库键本身。
@@ -1478,6 +1492,42 @@ mod tests {
     }
 
     #[test]
+    fn cached_single_reading_weights_keep_hits_misses_and_errors() {
+        let (dir, scheme) = nine_key_scheme();
+        let mut best = HashMap::new();
+        let reading = ["ㄌㄧˇ".to_owned()];
+        let missing = ["測試缺失讀音".to_owned()];
+        assert_eq!(
+            cached_best_weight(&scheme.dictionary, &mut best, &[&reading]).unwrap(),
+            Some(1200)
+        );
+        assert_eq!(
+            cached_best_weight(&scheme.dictionary, &mut best, &[&missing]).unwrap(),
+            None
+        );
+        Connection::open(dir.path().join("msime-zhuyin.db"))
+            .unwrap()
+            .execute_batch("DROP TABLE entries")
+            .unwrap();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            assert_eq!(
+                cached_best_weight(&scheme.dictionary, &mut best, &[&reading]).unwrap(),
+                Some(1200)
+            );
+            assert_eq!(
+                cached_best_weight(&scheme.dictionary, &mut best, &[&missing]).unwrap(),
+                None
+            );
+        });
+        assert_eq!(allocations, 0);
+        let readings = ["ㄌㄧˇ".to_owned(), "ㄋㄧˇ".to_owned()];
+        assert!(cached_best_weight(&scheme.dictionary, &mut best, &[&readings]).is_err());
+        assert!(cached_best_weight(&scheme.dictionary, &mut best, &[&reading, &reading]).is_err());
+        assert_eq!(best.len(), 2);
+    }
+
+    #[test]
     fn refreshing_short_spelling_choices_does_not_allocate_ranking_state() {
         let (_dir, mut scheme) = nine_key_scheme();
         type_keys(&mut scheme, "28c");
@@ -1488,9 +1538,9 @@ mod tests {
             scheme.refresh_spellings().unwrap();
         });
 
-        assert!(
-            allocations <= 3,
-            "读取三条缓存词频仍分配了 {allocations} 次，预算只允许三个缓存键"
+        assert_eq!(
+            allocations, 0,
+            "读取已有单读音词频仍分配了 {allocations} 次"
         );
         assert_eq!(spellings(&scheme), ["ㄌㄧˇ", "ㄋㄧˇ", "ㄉㄧˇ"]);
     }
