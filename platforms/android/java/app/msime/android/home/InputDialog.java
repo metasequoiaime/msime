@@ -17,6 +17,7 @@ import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDialog;
 import app.msime.android.BoundsPolicy;
+import app.msime.android.KeyboardGeometry;
 import app.msime.android.ListPolicy;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
@@ -90,7 +91,7 @@ public final class InputDialog {
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             window.setLayout(BoundsPolicy.atMost(Ui.dp(context, Ui.DIALOG_WIDTH),
-                Ui.screenWidthPixels(context) - Ui.dp(context, 48)),
+                KeyboardGeometry.screenWidthPixels(context) - Ui.dp(context, 48)),
                 ViewGroup.LayoutParams.WRAP_CONTENT);
             window.setDimAmount(0.35f);
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
