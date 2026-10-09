@@ -112,7 +112,7 @@ export function BottomSheet({
 type Channel = "email" | "phone";
 
 /**
- * HarmonyOS 手机上的「登录水杉」：把页面原先内嵌绘制的邮箱和手机验证码登录放进设计里的底部面板。HarmonyOS 没有原生的 Apple 或 Google 登录流程，因此只列出后端提供的验证码登录方式。页面从未登录的个人资料卡片打开它，其他页面要求登录时也直接打开。
+ * HarmonyOS 手机上的「登录水杉」：把页面原先内嵌绘制的邮箱和手机验证码登录放进设计里的底部面板，再加上宿主提供时的 Google 登录。HarmonyOS 没有 Apple 登录；Google 登录由宿主用系统浏览器加本机回环完成（`googleLogin`），面板只显示等待和取消。页面从未登录的个人资料卡片打开它，其他页面要求登录时也直接打开。
  *
  * 验证码被接受后 `onSignedIn` 收到用户信息；页面随后关闭面板并加载个人资料。修复操作（刷新登录方式、清除失效登录状态）以低调的链接留在底部。
  */
@@ -142,11 +142,24 @@ export function LoginSheet({
   const [expiresAt, setExpiresAt] = useState(0);
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
+  const [googleWaiting, setGoogleWaiting] = useState(false);
+  const googleWaitingRef = useRef(false);
   const { busy, mounted, clientGeneration, perform } = useAccountAction(
     client,
     setError,
     setNotice,
   );
+
+  const cancelGoogle = () => {
+    if (!googleWaitingRef.current || !client.googleCancel) return;
+    // 同一次等待只取消一次：关面板时 onClose 和卸载清理都会走到这里。
+    googleWaitingRef.current = false;
+    // 等着的 googleLogin 会报告结果；取消失败只说明已经没有可取消的了。
+    void client.googleCancel().catch(() => undefined);
+  };
+
+  // 关掉面板或换了客户端时，不留一个还在等浏览器的本机监听。
+  useEffect(() => () => cancelGoogle(), [client]);
 
   useEffect(() => {
     if (!challenge) return;
@@ -192,6 +205,26 @@ export function LoginSheet({
       onSignedIn(result.user);
     });
 
+  const signInWithGoogle = () =>
+    void perform(async () => {
+      const generation = clientGeneration.current;
+      if (!client.googleLogin) throw { code: "account_unavailable" };
+      googleWaitingRef.current = true;
+      setGoogleWaiting(true);
+      let result: { user?: AccountUser | null };
+      try {
+        result = await client.googleLogin();
+      } finally {
+        if (mounted.current && generation === clientGeneration.current) {
+          googleWaitingRef.current = false;
+          setGoogleWaiting(false);
+        }
+      }
+      if (!mounted.current || generation !== clientGeneration.current) return;
+      if (!result.user) throw { code: "account_unavailable" };
+      onSignedIn(result.user);
+    });
+
   const refreshProviders = () =>
     void perform(async () => {
       const generation = clientGeneration.current;
@@ -211,16 +244,37 @@ export function LoginSheet({
   const resendSeconds = Math.max(0, Math.ceil((resendAt - now) / 1000));
   const expired = Boolean(challenge) && expiresAt <= now;
   const targetLabel = channel === "email" ? "邮箱地址" : "手机号（含国家区号）";
+  // 后端可能为没有对应客户端的宿主也开着 Google，所以还要看宿主有没有 googleLogin。
+  const googleAvailable = providers.google === true && Boolean(client.googleLogin);
 
   return (
     <BottomSheet
       title="登录水杉"
       subtitle="在手机、平板和电脑之间同步词库、皮肤和云剪贴板"
-      closeDisabled={busy}
-      onClose={onClose}
+      // 等浏览器时可以关面板，关掉就等于取消；其他操作进行中仍不能关。
+      closeDisabled={busy && !googleWaiting}
+      onClose={() => {
+        cancelGoogle();
+        onClose();
+      }}
     >
       <AccountStatusMessages error={error} notice={notice} />
       <div className={account.sheetBody}>
+        {googleAvailable && (
+          <button
+            type="button"
+            className={account.sheetChoice}
+            disabled={busy}
+            onClick={signInWithGoogle}
+          >
+            {googleWaiting ? "正在等待浏览器完成 Google 登录…" : "使用 Google 登录"}
+          </button>
+        )}
+        {googleWaiting && client.googleCancel && (
+          <button type="button" className={account.link} onClick={cancelGoogle}>
+            取消 Google 登录
+          </button>
+        )}
         {providers.email && (
           <button
             type="button"
@@ -243,10 +297,8 @@ export function LoginSheet({
             使用手机号登录
           </button>
         )}
-        {!providers.email && !providers.phone && (
-          <p className={`${account.sheetHint} text-center`}>
-            当前没有可用的验证码登录方式，请稍后重试。
-          </p>
+        {!providers.email && !providers.phone && !googleAvailable && (
+          <p className={`${account.sheetHint} text-center`}>当前没有可用的登录方式，请稍后重试。</p>
         )}
         {channel && (
           <>

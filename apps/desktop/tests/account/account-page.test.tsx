@@ -1296,6 +1296,72 @@ test("Harmony 我的 shows a signed-out card that opens the code sign-in sheet",
   await waitFor(() => expect(client.profile).toHaveBeenCalled());
 });
 
+test("the Harmony sheet offers Google only when the host can run it", async () => {
+  harmonyMe({
+    client: account({
+      providers: vi.fn().mockResolvedValue({ email: true, phone: false, google: true }),
+    }),
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "未登录，点按登录" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "登录水杉" }));
+  expect(sheet.getByRole("button", { name: "使用邮箱登录" })).not.toBeNull();
+  expect(sheet.queryByRole("button", { name: "使用 Google 登录" })).toBeNull();
+});
+
+test("the Harmony sheet signs in with Google through the host and closes", async () => {
+  const pending = deferred<{ user?: typeof user | null }>();
+  const googleLogin = vi.fn(() => pending.promise);
+  const client = account({
+    providers: vi.fn().mockResolvedValue({ email: true, phone: false, google: true }),
+    googleLogin,
+    googleCancel: vi.fn().mockResolvedValue(undefined),
+  });
+  harmonyMe({ client });
+  fireEvent.click(await screen.findByRole("button", { name: "未登录，点按登录" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "登录水杉" }));
+
+  fireEvent.click(sheet.getByRole("button", { name: "使用 Google 登录" }));
+  expect(googleLogin).toHaveBeenCalledOnce();
+  expect(
+    await sheet.findByRole("button", { name: "正在等待浏览器完成 Google 登录…" }),
+  ).not.toBeNull();
+  expect(sheet.getByRole("button", { name: "取消 Google 登录" })).not.toBeNull();
+
+  await act(async () => pending.resolve({ user }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "登录水杉" })).toBeNull());
+  expect(await screen.findByText("已登录")).not.toBeNull();
+  expect(client.googleCancel).not.toHaveBeenCalled();
+});
+
+test("cancelling or closing the Harmony sheet ends a Google sign-in that is waiting", async () => {
+  const pending = deferred<{ user?: typeof user | null }>();
+  const googleCancel = vi.fn(async () => {
+    pending.resolve({ user: null });
+  });
+  const client = account({
+    providers: vi.fn().mockResolvedValue({ email: true, phone: false, google: true }),
+    googleLogin: vi.fn(() => pending.promise),
+    googleCancel,
+  });
+  harmonyMe({ client });
+  fireEvent.click(await screen.findByRole("button", { name: "未登录，点按登录" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "登录水杉" }));
+  fireEvent.click(sheet.getByRole("button", { name: "使用 Google 登录" }));
+  fireEvent.click(await sheet.findByRole("button", { name: "取消 Google 登录" }));
+  expect(googleCancel).toHaveBeenCalledOnce();
+  expect(await sheet.findByRole("button", { name: "使用 Google 登录" })).not.toBeNull();
+  expect(sheet.queryByRole("button", { name: "取消 Google 登录" })).toBeNull();
+
+  // 等浏览器时关面板，也会结束本机监听。
+  const second = deferred<{ user?: typeof user | null }>();
+  vi.mocked(client.googleLogin!).mockImplementation(() => second.promise);
+  googleCancel.mockImplementation(async () => second.resolve({ user: null }));
+  fireEvent.click(sheet.getByRole("button", { name: "使用 Google 登录" }));
+  await sheet.findByRole("button", { name: "取消 Google 登录" });
+  fireEvent.click(sheet.getByRole("button", { name: "关闭" }));
+  expect(googleCancel).toHaveBeenCalledTimes(2);
+});
+
 test("Harmony 我的 groups its rows with real values and destinations", async () => {
   const calls: string[] = [];
   const record = (name: string) => () => void calls.push(name);
