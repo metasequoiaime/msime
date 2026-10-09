@@ -200,7 +200,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       next.committed_text = output_delta;
     break;
   case ReplyPath::AutoCommitAndContinue: {
-    // Two Wubi commits take this path: the fourth letter of a unique code, which leaves nothing to compose, and a letter typed after a complete code (顶字), which commits the first candidate and leaves that letter composing. The worker frame tells the TIP to consume the four letters of the committed code from its own buffer and keep whatever follows, so the key reply only has to show the composition the Engine now holds.
+    // Two Wubi commits take this path: the fourth letter of a unique code, which leaves nothing to compose, and a letter typed after a complete code (顶字), which commits the first candidate and leaves that letter composing. The worker frame tells the TIP to consume the four letters of the committed code from its own buffer and keep whatever follows, so the key reply only has to show the composition the Engine now holds. When the Engine holds nothing afterwards the TIP must keep nothing either: a capital the Engine does not take after a complete code goes out with the first candidate, so the frame asks for one more letter than the code, and the TIP's own cap (`min(consumed, buffer.size())`) leaves the unique-code commit at its four.
     const auto &context = result.transition.at("commit_context");
     if (delta.empty() || context.is_null() ||
         context.value("scheme", 255u) != 2u) {
@@ -208,7 +208,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       break;
     }
     const auto total = prefix_ + output_delta;
-    next.worker = commit_candidate_and_continue_bytes(4, total);
+    next.worker = commit_candidate_and_continue_bytes(raw.empty() ? 5 : 4, total);
     if (!next.worker) {
       invalid();
       break;

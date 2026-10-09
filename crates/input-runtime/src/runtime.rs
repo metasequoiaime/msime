@@ -1704,7 +1704,7 @@ impl<E: InputEngine> Runtime<E> {
         let spells = self.cached.local_mode != "none"
             || (self.phrase_prefix.is_empty()
                 && scheme_type(self.cached.scheme)
-                    .is_some_and(|scheme| !scheme.opens_local_modes()));
+                    .is_some_and(|scheme| !scheme.opens_table_modes()));
         // 字面标点路由刻意不进入网址模式：组字 `www` 时引擎在 `spelling_symbols` 里列出 `.`，但宿主在这条路由上要的是字面符号，所以这里不收，照常结束组字再接上 `.`（列出但不接受的例外）。
         if spells && self.cached.spelling_symbols.as_bytes().contains(&value) {
             return self.engine.character(value, false);
@@ -1872,11 +1872,24 @@ impl<E: InputEngine> Runtime<E> {
             // A bare `/` or `@` flushes as the literal prefix, as on the punctuation routes; finishing would commit the list's first row.
             Action::Finish if self.bare_mode_prefix() => self.engine.command(Command::CommitRaw),
             Action::Finish => self.engine.finish(self.engine_index(self.highlighted)),
+            // The key that tops the code is never lost: what the Engine commits for it goes out after the word, and a key it lets go (a capital that opens no mode, Shift+K with the K mode off) goes out as the literal letter, as `literal_mark` sends a mark behind a held phrase, since the host has already been told the key was handled.
             Action::Character { value, shift } if wubi_top_commit => self
                 .engine
                 .select(self.engine_index(0))
-                .and_then(|committed| {
-                    self.engine.character(value, shift)?;
+                .and_then(|mut committed| {
+                    let next = self.engine.character(value, shift)?;
+                    let tail = if next.has_commit {
+                        next.commit
+                    } else if !next.handled {
+                        char::from(value).to_string()
+                    } else {
+                        String::new()
+                    };
+                    if !tail.is_empty() {
+                        committed.commit.push_str(&tail);
+                        committed.handled = true;
+                        committed.has_commit = true;
+                    }
                     Ok(committed)
                 }),
             // A symbol that would open a mode behind a held phrase piece ends the phrase as punctuation instead, as on the punctuation route.

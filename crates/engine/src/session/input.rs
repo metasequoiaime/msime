@@ -256,7 +256,8 @@ impl InputSession {
         if self.is_stroke() {
             return self.handle_stroke_character(value);
         }
-        if !self.has_composition() && self.scheme().opens_local_modes() {
+        // 哪些方案能打开哪个模式由两个查找函数按方案判断：K、`/`、`@` 看 `opens_table_modes`（五笔也打开），其余 Shift+字母模式看 `opens_local_modes`。
+        if !self.has_composition() {
             let entry = if shift_only {
                 self.local_mode_for_entry(value)
             } else {
@@ -1065,7 +1066,7 @@ impl InputSession {
         if let Some(keys) = self.url_entry_keys() {
             return keys.to_owned();
         }
-        if self.has_composition() || !self.scheme().opens_local_modes() {
+        if self.has_composition() || !self.scheme().opens_table_modes() {
             return String::new();
         }
         (*b"/@")
@@ -1508,12 +1509,21 @@ impl InputSession {
             b'V' => (LocalInputMode::Expression, options.expression),
             _ => return None,
         };
-        enabled.then_some(mode)
+        // K 只查短语表，五笔也能打开；其余模式按拼音查或只在拼音方案里提供。
+        let scheme_opens = if mode == LocalInputMode::QuickPhrase {
+            self.scheme().opens_table_modes()
+        } else {
+            self.scheme().opens_local_modes()
+        };
+        (enabled && scheme_opens).then_some(mode)
     }
 
-    /// The symbol keys that open a mode with nothing composed. Only while Chinese punctuation is in force: with ASCII punctuation the key is the literal character the user chose.
+    /// The symbol keys that open a mode with nothing composed. Only in a scheme that opens the table modes (`opens_table_modes`) and only while Chinese punctuation is in force: with ASCII punctuation the key is the literal character the user chose.
     fn local_mode_for_symbol(&self, value: u8) -> Option<LocalInputMode> {
-        if !self.chinese_punctuation_enabled || self.punctuation_lock == 2 {
+        if !self.scheme().opens_table_modes()
+            || !self.chinese_punctuation_enabled
+            || self.punctuation_lock == 2
+        {
             return None;
         }
         let options = self.local_mode_options;
