@@ -129,7 +129,7 @@ fn retained_reference_search(
     output.items
 }
 
-fn fixture(dense: bool) -> JapaneseDictionary {
+pub(super) fn fixture(dense: bool) -> JapaneseDictionary {
     let surfaces: Vec<_> = (0..24).map(|index| format!("合成語{index:02}")).collect();
     let mut entries = vec![
         ("か", "仮", 0, 1, -500),

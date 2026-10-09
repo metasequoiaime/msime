@@ -580,3 +580,7 @@ mod consumed_row_tests;
 #[cfg(test)]
 #[path = "matrix/initial_prefix_tests.rs"]
 mod initial_prefix_tests;
+
+#[cfg(test)]
+#[path = "matrix/row_lifetime_tests.rs"]
+mod row_lifetime_tests;
