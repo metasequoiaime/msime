@@ -1154,7 +1154,7 @@ Public Domain Dataです。使用・変更・配布に関しては一切の制�
 | 内容摘要 | `sha256:51b6f9d1c47ffa4dbaf24437d07eaec13e6bfd8ddcfb909c818e57471dfe4162`，20617 行（含表头），145068 字节 |
 | 输入 | [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 的 `sources/wubi/wubi86-jidian.txt`，`sha256:70afd8476e53b0f1b2184ebfafefb62212e8d3d554b12612cbae0336efa9a0e5`；生成时取自提交 `84b5239f98dfb5a4a8df8d92217aabb37cfa8db1`，该文件自 `134c358`（`dict-v2.0.6`）起没有变过 |
 | 输入的上游 | [KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian)（Apache-2.0）；该文件另并入了 [rime/rime-wubi](https://github.com/rime/rime-wubi) 提交 `152a0d3f3efe40cae216d1e3b338242446848d07` 的词条（LGPL-3.0），见 msime-dictionary 的 `NOTICE.md` |
-| 生成器 | `crates/dict-builder/src/wubi86_helpcode.rs`，msime 提交 `2c6e0c443` 起 |
+| 生成器 | `crates/dict-builder/src/wubi86_helpcode.rs`，随 [#6382](https://github.com/metasequoiaime/msime/pull/6382) 加入 |
 | 生成命令 | `cargo run -p msime-dict-builder -- wubi86-helpcode --dictionary <msime-dictionary checkout> --out resources/helpcodes/wubi86_helpcode.txt` |
 
 ### 这张表是怎么来的
