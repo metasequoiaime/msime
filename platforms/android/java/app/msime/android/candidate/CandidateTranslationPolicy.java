@@ -23,9 +23,9 @@ public final class CandidateTranslationPolicy {
     /** Primary always falls back to English; a malformed or duplicate secondary is ignored. */
     public static List<String> targets(String primary, String secondary) {
         ArrayList<String> result = new ArrayList<>(MAX_TARGETS);
-        String first = normalize(primary);
+        String first = TextPolicy.lowercaseTrimmed(primary);
         result.add(SUPPORTED.contains(first) ? first : "en");
-        String second = normalize(secondary);
+        String second = TextPolicy.lowercaseTrimmed(secondary);
         if (SUPPORTED.contains(second) && !result.contains(second)) result.add(second);
         return List.copyOf(result);
     }
@@ -78,7 +78,7 @@ public final class CandidateTranslationPolicy {
         if (targets == null || targets.isEmpty()) return 0;
         int lines = 0;
         for (String target : targets) {
-            String code = normalize(target);
+            String code = TextPolicy.lowercaseTrimmed(target);
             if (online || (offline && ("en".equals(code)
                     || (offlineTargets != null && offlineTargets.contains(code))))) lines++;
         }
@@ -101,7 +101,7 @@ public final class CandidateTranslationPolicy {
             ? null : new File(stateRoot, "resource-packs/offline-glosses");
         ArrayList<String> result = new ArrayList<>(MAX_TARGETS);
         for (String target : targets) {
-            String code = normalize(target);
+            String code = TextPolicy.lowercaseTrimmed(target);
             if (!OFFLINE_GLOSS_LANGUAGES.contains(code)) continue;
             String name = "zh-" + code + ".db";
             if (Files.isRegularFile(new File(parent, "offline-glosses/" + name).toPath(), LinkOption.NOFOLLOW_LINKS)
@@ -146,9 +146,5 @@ public final class CandidateTranslationPolicy {
     public static int reservedGlossRows(int glossLines, boolean hanjaRows) {
         int lines = BoundsPolicy.nonNegative(glossLines);
         return hanjaRows ? BoundsPolicy.bounded(lines, 1, Integer.MAX_VALUE) : lines;
-    }
-
-    private static String normalize(String value) {
-        return TextPolicy.lowercase(TextPolicy.trimmed(value));
     }
 }

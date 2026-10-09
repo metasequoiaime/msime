@@ -1,4 +1,4 @@
-# Linux 原生宿主的 CMake 构建，打开 Fcitx5 插件，可选装入随包词库与设置窗口。IBus engine 等其余
+# Linux 原生宿主的 CMake 构建，默认打开 Fcitx5 插件，可选装入随包词库与设置窗口。IBus engine 等其余
 # 入口照常一起构建和安装：顶层 CMake 把 IBus 列为必需，而且 msime-linux-setup、
 # msime-linux-prepare 是 Fcitx5 首次配置也要用的。
 {
@@ -6,6 +6,7 @@
   root,
   version,
   stdenv,
+  runCommand,
   procps,
   dbus,
   cmake,
@@ -53,18 +54,24 @@
   # msime-linux-settings 与桌面入口，插件菜单里打开设置、手写、语音等面板的项都不起作用。
   # 它嵌着的前端的 npm 依赖的许可证声明取自它的 frontendNotices。
   settingsWindow ? null,
+  # 构建 Fcitx5 插件。只用 IBus 时关掉（default.nix 的 msime-ibus），包里没有插件，也不依赖 fcitx5；
+  # IBus 一侧去不掉：provider 程序都链接 IBus 宿主库。
+  enableFcitx5 ? true,
 }:
 let
   # 安装出去的 provider 脚本用的解释器。豆包流式识别要 websockets 的同步客户端
   # （scripts/msime_voice_doubao.py 按特性检查，不限主版本上限）；其余脚本只用标准库。
   python = python3.withPackages (ps: [ ps.websockets ]);
+  # msime-linux-setup 的包装器追加到 XDG_DATA_DIRS 的 IBus schema 数据目录（其下是 glib-2.0/schemas）。
+  ibusSchemas = glib.getSchemaDataDirPath ibus;
+  glibPath = lib.makeBinPath [ glib ];
   clipboardPath = lib.makeBinPath [
     wl-clipboard
     xclip
   ];
 in
-stdenv.mkDerivation {
-  pname = "msime-fcitx5";
+stdenv.mkDerivation (finalAttrs: {
+  pname = if enableFcitx5 then "msime-fcitx5" else "msime-ibus";
   inherit version;
 
   # 只放 CMake 构建和测试读到的部分：说明文档和 nix 目录本身的改动不触发重编，
@@ -122,7 +129,6 @@ stdenv.mkDerivation {
     python
     bashNonInteractive
     wayland-protocols
-    fcitx5
     ibus
     libxkbcommon
     nlohmann_json
@@ -136,6 +142,7 @@ stdenv.mkDerivation {
     libxfixes
     libxrandr
   ]
+  ++ lib.optional enableFcitx5 fcitx5
   # 设置页发出的 https 请求（tauri.conf.json 的 connect-src）由 WebKit 经 GIO 的 TLS 模块完成。
   ++ lib.optional (settingsWindow != null) glib-networking;
 
@@ -152,7 +159,7 @@ stdenv.mkDerivation {
   '';
 
   cmakeFlags = [
-    (lib.cmakeBool "MSIME_ENABLE_FCITX5" true)
+    (lib.cmakeBool "MSIME_ENABLE_FCITX5" enableFcitx5)
     (lib.cmakeFeature "MSIME_HOST_LIBRARY" "${msime-host-api}/lib/libmsime_host_api.so")
     # NixOS 的 systemd.packages 只从包里的 lib/systemd/user 与 etc/systemd/user 取用户单元，
     # 默认的 share/systemd/user 会被忽略。
@@ -178,7 +185,9 @@ stdenv.mkDerivation {
     (lib.cmakeFeature "MSIME_FRONTEND_NOTICES" settingsWindow.frontendNotices)
   ];
 
-  doCheck = true;
+  # 关掉插件只少了 fcitx5 子目录，其余 ctest 与打开时完全相同，已在 msime-fcitx5 里跑过；msime-ibus 特有
+  # 的安装布局由下面的装后检查核对。
+  doCheck = enableFcitx5;
   # msime-linux-setup 切换词库前用 pgrep 确认宿主进程，setup_update 测试会走到这一步。
   # linux-ibus-startup-telemetry 和带词库时的 ibus-page-number-visibility 要起 dbus-daemon，
   # 与门禁镜像装 dbus 的理由相同。
@@ -195,20 +204,29 @@ stdenv.mkDerivation {
   #
   # wrapGAppsHook3 默认把 bin 下每个可执行文件都包一层，这里只包设置窗口，其余的不用 GTK。包装后真正
   # 的二进制是同目录下的 .msime-linux-desktop-wrapped，它按 current_exe 找前缀，不受影响。
+  #
+  # msime-linux-setup 经 gsettings 把引擎写进 IBus 的输入源列表（org.freedesktop.ibus.general），但 IBus 的
+  # schema 只在 ibus 自己的包装器和 GNOME 会话的 XDG_DATA_DIRS 里，Hyprland 这类会话的 gsettings 找不到它，
+  # 注册就退回手动步骤。追加在后面，会话里已有的 schema 优先；gsettings 与 Fcitx5 注册用的 gdbus 同理，
+  # PATH 上没有时用 glib 的。
   dontWrapGApps = true;
   postFixup = ''
     wrapProgram $out/bin/msime-linux-clipboard-monitor --prefix PATH : ${clipboardPath}
+    wrapProgram $out/bin/msime-linux-setup \
+      --suffix XDG_DATA_DIRS : ${ibusSchemas} \
+      --suffix PATH : ${glibPath}
   ''
   + lib.optionalString (settingsWindow != null) ''
     wrapGApp $out/bin/msime-linux-desktop --prefix PATH : ${clipboardPath}
   '';
 
   # ctest 跑的是构建目录，看不到装出去的插件能不能加载。fixup 之后再核对一次：Fcitx5 按插件的
-  # RUNPATH 找 Host API，它必须落在本包自己的 lib/msime-client 里。语音运行库同理，另外它的依赖都要
+  # RUNPATH 找 Host API，IBus engine 也一样，它必须落在本包自己的 lib/msime-client 里；组件文件的
+  # <exec> 要指向本包里能执行的启动脚本。语音运行库同理，另外它的依赖都要
   # 能单独解析：msime-voice-local 自己已经载入了 libstdc++，只看它能否打开运行库发现不了缺依赖。
   # 设置窗口经 fixup 收缩过 RUNPATH，也核对一遍它的 GTK 与 WebKit 依赖都还解析得到，以及包装器给了
   # TLS 模块：缺了它 GIO 只记一条警告，设置页的 https 请求失败。THIRD_PARTY_NOTICES.txt 指向的
-  # 几份声明也要真的装进来。
+  # 几份声明也要真的装进来。msime-linux-setup 包装后还要能运行、带着 IBus 的 schema。
   doInstallCheck = true;
   installCheckPhase = ''
     runHook preInstallCheck
@@ -218,7 +236,16 @@ stdenv.mkDerivation {
       echo "$2 => $resolved"
       [[ $(realpath -- "$resolved") == "$out/lib/msime-client/$2" ]]
     }
-    resolves $out/lib/fcitx5/libmsime-fcitx5.so libmsime_host_api.so
+    ${lib.optionalString enableFcitx5 ''
+      resolves $out/lib/fcitx5/libmsime-fcitx5.so libmsime_host_api.so
+    ''}
+    resolves $out/bin/msime-linux-ibus libmsime_host_api.so
+    $out/bin/msime-linux-setup --help > /dev/null
+    grep -qF ${ibusSchemas} $out/bin/msime-linux-setup
+    XDG_DATA_DIRS=${ibusSchemas} ${glibPath}/gsettings list-schemas | grep -qx org.freedesktop.ibus.general
+    for component in $out/share/ibus/component/*.xml; do
+      [[ -x $(sed -n 's|.*<exec>&quot;\([^&]*\)&quot;.*|\1|p' "$component") ]]
+    done
     $out/bin/msime-mcp --version
     ${lib.optionalString (rustNotices != null) ''
       [[ -s $out/share/doc/msime-client/rust-crates-NOTICES.txt ]]
@@ -237,8 +264,25 @@ stdenv.mkDerivation {
     runHook postInstallCheck
   '';
 
+  passthru.enableFcitx5 = enableFcitx5;
+  # 交给 i18n.inputMethod.ibus.engines 的 IBus engine：只放组件文件，<exec> 的绝对路径指回本包。为什么
+  # 不能直接给整个包，见 nix/README.md 的 msime-fcitx5 一节。
+  passthru.ibusEngine =
+    runCommand "msime-ibus-engine-${finalAttrs.version}"
+      {
+        meta = {
+          inherit (finalAttrs.meta) description homepage platforms;
+          isIbusEngine = true;
+        };
+      }
+      ''
+        mkdir -p $out/share/ibus/component
+        ln -s ${finalAttrs.finalPackage}/share/ibus/component/*.xml $out/share/ibus/component/
+      '';
+
   meta = {
-    description = "水杉输入法的 Fcitx5 插件与 Linux 原生宿主";
+    description =
+      if enableFcitx5 then "水杉输入法的 Fcitx5 插件与 Linux 原生宿主" else "水杉输入法的 IBus engine 与 Linux 原生宿主";
     homepage = "https://github.com/metasequoiaime/msime";
     license = [
       lib.licenses.gpl3Only
@@ -247,4 +291,4 @@ stdenv.mkDerivation {
     ++ lib.optionals (voiceRuntime != null) voiceRuntime.meta.license;
     platforms = lib.platforms.linux;
   };
-}
+})

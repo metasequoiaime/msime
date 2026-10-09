@@ -108,6 +108,8 @@ let
           null;
     }
   );
+  # 只用 IBus 的同一份构建：不带 Fcitx5 插件，也不依赖 fcitx5。
+  msime-ibus = msime-fcitx5.override { enableFcitx5 = false; };
 in
 {
   packages = {
@@ -119,6 +121,7 @@ in
       msime-handwriting-model
       msime-voice-runtime
       msime-fcitx5
+      msime-ibus
       ;
   };
 

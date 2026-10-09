@@ -493,7 +493,10 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
 
 
 def running(name: str) -> bool:
-    return subprocess.run(["pgrep", "-x", name], capture_output=True).returncode == 0
+    # pgrep -x 比对的是进程名（comm）。经包装脚本启动的程序，进程名是被包装的那个文件：Nix 的 wrapProgram 执行 .ibus-daemon-wrapped，进程名截成 .ibus-daemon-wr，只有 argv[0]（包装脚本以 exec -a 保留的调用路径）还是 ibus-daemon。所以再按命令行的第一个词比对一次。
+    def found(*arguments: str) -> bool:
+        return subprocess.run(["pgrep", *arguments], capture_output=True).returncode == 0
+    return found("-x", name) or found("-f", f"^([^ ]*/)?{re.escape(name)}( |$)")
 
 
 def service_units(state: Path, config: Path) -> list[str]:
