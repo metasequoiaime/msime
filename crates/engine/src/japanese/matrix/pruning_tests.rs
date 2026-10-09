@@ -2,6 +2,28 @@ use super::super::decoder::test_model;
 use super::super::romaji::{convert_romaji, kana_for_romaji_prefix};
 use super::*;
 
+#[test]
+fn pending_exact_completions_share_one_reading_key() {
+    let dictionary = JapaneseDictionary::from_bytes(
+        test_model::bytes(
+            &[("かか", "仮仮", 0, 0, 500), ("かき", "仮木", 0, 0, 600)],
+            1,
+            &[0],
+        )
+        .into_boxed_slice(),
+    )
+    .expect("合成词库");
+    let conversion = convert_romaji("kak");
+    let expected = reference_search(&dictionary, &conversion, 12);
+    let _ = search_converted(&dictionary, &conversion, 12);
+    let (actual, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        search_converted(&dictionary, &conversion, 12)
+    });
+    assert_eq!(actual, expected);
+    eprintln!("日文待定精确补全矩阵分配：{allocations}");
+    assert!(allocations <= 16, "精确补全应复用读音键：{allocations}");
+}
+
 // 固定基线 dbfdd576e 的批量构造、稳定排序及截断流程，独立对照提前筛选的行为。
 fn reference_search(
     dictionary: &JapaneseDictionary,

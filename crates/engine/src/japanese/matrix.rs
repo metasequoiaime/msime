@@ -191,9 +191,25 @@ pub fn search_converted(
     }
 
     if !pending.is_empty() {
-        for kana in pending_kana {
-            for lemma in dictionary.exact_lemma_views(&join_text(reading, kana), 16) {
-                output.push(lemma.surface, i64::from(lemma.word_cost));
+        if let Some(first) = pending_kana.first() {
+            let suffix_capacity = if pending_kana.len() == 1 {
+                first.len()
+            } else {
+                pending_kana
+                    .iter()
+                    .map(|kana| kana.len())
+                    .max()
+                    .unwrap_or(0)
+            };
+            let mut key = String::with_capacity(reading.len() + suffix_capacity);
+            key.push_str(reading);
+            for kana in pending_kana {
+                // 只替换假名后缀，容量覆盖最长后缀，避免循环中扩容。
+                key.truncate(reading.len());
+                key.push_str(kana);
+                for lemma in dictionary.exact_lemma_views(&key, 16) {
+                    output.push(lemma.surface, i64::from(lemma.word_cost));
+                }
             }
         }
         for lemma in dictionary.continuing_lemma_views(reading, pending_kana, 48) {
@@ -499,3 +515,7 @@ mod tests {
 
 #[cfg(test)]
 mod pruning_tests;
+
+#[cfg(test)]
+#[path = "matrix/pending_tests.rs"]
+mod pending_tests;

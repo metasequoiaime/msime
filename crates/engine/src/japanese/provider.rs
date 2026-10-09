@@ -26,6 +26,7 @@ const SENTENCE_LIMIT: usize = 12;
 /// Two kana: a one-kana reading is already answered by the kana rows and the sentence search.
 const MIN_PREFIX_READING_BYTES: usize = 6;
 
+#[cfg(test)]
 fn join_reading(prefix: &str, suffix: &str) -> String {
     let mut reading = String::with_capacity(prefix.len() + suffix.len());
     reading.push_str(prefix);
@@ -166,14 +167,30 @@ impl JapaneseProvider {
                         .saturating_mul(PENDING_PREFIX_LEMMAS)
                         .saturating_add(SENTENCE_LIMIT + 1),
                 );
-                for kana in pending_kana {
-                    let prefix = join_reading(&conversion.hiragana, kana);
-                    for lemma in dictionary.prefix_lemma_views(&prefix, PENDING_PREFIX_LEMMAS) {
-                        rows.push(
-                            lemma.surface,
-                            PREFIX_LEMMA_BASE - i64::from(lemma.word_cost),
-                            CandidateSource::Database,
-                        );
+                if let Some(first) = pending_kana.first() {
+                    let suffix_capacity = if pending_kana.len() == 1 {
+                        first.len()
+                    } else {
+                        pending_kana
+                            .iter()
+                            .map(|kana| kana.len())
+                            .max()
+                            .unwrap_or(0)
+                    };
+                    let mut prefix =
+                        String::with_capacity(conversion.hiragana.len() + suffix_capacity);
+                    prefix.push_str(&conversion.hiragana);
+                    for kana in pending_kana {
+                        // 公共读音始终保留，截断边界是完整 UTF-8 文本的末尾。
+                        prefix.truncate(conversion.hiragana.len());
+                        prefix.push_str(kana);
+                        for lemma in dictionary.prefix_lemma_views(&prefix, PENDING_PREFIX_LEMMAS) {
+                            rows.push(
+                                lemma.surface,
+                                PREFIX_LEMMA_BASE - i64::from(lemma.word_cost),
+                                CandidateSource::Database,
+                            );
+                        }
                     }
                 }
             } else if conversion.pending.is_empty()
@@ -276,6 +293,9 @@ impl JapaneseProvider {
 
 #[cfg(test)]
 mod tests {
+    #[path = "pending_tests.rs"]
+    mod pending_tests;
+
     use super::super::decoder::test_model;
     use super::*;
 
@@ -379,8 +399,8 @@ mod tests {
         assert!(words(&destination).contains(&"仮仮"));
         eprintln!("日文待定前缀 provider 热查询分配：{allocations}");
         assert!(
-            allocations <= 37,
-            "固定假名前缀应借用共享结果：{allocations}"
+            allocations <= 21,
+            "假名前缀与拼接读音键应复用：{allocations}"
         );
     }
 
