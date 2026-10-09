@@ -114,8 +114,11 @@ jobs:
     name: Unsigned universal package
     needs: [changes, layout]
     if: ${{ needs.changes.outputs.package == 'true' }}
-    runs-on: depot-macos-15
+    runs-on: depot-macos-26
     timeout-minutes: 120
+    env:
+      # 与 release-macos.yml 同一个 Xcode，打出来的才是发布那个包。
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {persist-credentials: false}

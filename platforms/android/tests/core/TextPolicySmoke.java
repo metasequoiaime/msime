@@ -15,6 +15,10 @@ public final class TextPolicySmoke {
             "UTF-8 helper must preserve the request bytes");
         check(TextPolicy.utf8Bytes("").length == 0,
             "UTF-8 helper must encode empty text as an empty payload");
+        check(TextPolicy.lowercaseTrimmed("  EN-US\t").equals("en-us"),
+            "lowercase-trimmed text must use the root locale after ASCII trimming");
+        check(TextPolicy.lowercaseTrimmed(null).isEmpty(),
+            "lowercase-trimmed text must treat a missing value as empty");
         System.out.println("Android UTF-8 request encoding passed");
     }
 }

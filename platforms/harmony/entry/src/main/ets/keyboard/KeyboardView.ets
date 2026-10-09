@@ -292,6 +292,10 @@ const SKIN_TOP_PADDING_VP: number = 6;
 const SKIN_ROWS_GAP_VP: number = 4;
 const SKIN_MIN_COLUMNS_GAP_VP: number = 6;
 const PANEL_DOTS_ROOM_VP: number = 14;
+// 功能面板和方案选择的磁贴网格：上方 10vp、行间 16vp，每行至少 52vp（设计稿和 Android 的 `FunctionPanelView`）；面板比这高时两行平分多出来的高度，而不是在底下空着一块。
+const TILE_TOP_PADDING_VP: number = 10;
+const TILE_ROWS_GAP_VP: number = 16;
+const TILE_MIN_ROW_VP: number = 52;
 const PANEL_BOTTOM_PADDING_VP: number = 4;
 const PANEL_SIDE_PADDING_VP: number = 4;
 const PANEL_COLUMNS: number = 4;
@@ -6273,6 +6277,13 @@ struct KeyboardView {
   }
 
   /** 皮肤选择器的行高：两行预览，多于一页时再加圆点，在按键让出的高度内。 */
+  /** 功能面板和方案选择每行的高度：两行填满面板去掉上下留白、行距和圆点后的高度，至少 `TILE_MIN_ROW_VP`。磁贴在行内居中。 */
+  private tileRowHeight(count: number): number {
+    const dots: number = count > FunctionPanelPolicy.PAGE_SIZE ? PANEL_DOTS_ROOM_VP : 0;
+    return Math.max(TILE_MIN_ROW_VP, Math.floor((this.surfaceHeight() - TILE_TOP_PADDING_VP - TILE_ROWS_GAP_VP
+      - dots - PANEL_BOTTOM_PADDING_VP) / 2));
+  }
+
   private skinRowHeight(pageCount: number): number {
     const dots: number = pageCount > 1 ? PANEL_DOTS_ROOM_VP : 0;
     return Math.max(0, Math.floor((this.surfaceHeight() - SKIN_TOP_PADDING_VP - SKIN_ROWS_GAP_VP - dots
@@ -6304,6 +6315,9 @@ struct KeyboardView {
         PagedTiles({
           count: this.schemePickerEntries().length,
           pageSize: FunctionPanelPolicy.PAGE_SIZE,
+          rowHeight: this.tileRowHeight(this.schemePickerEntries().length),
+          rowsGap: TILE_ROWS_GAP_VP,
+          topPadding: TILE_TOP_PADDING_VP,
           accent: this.skin.toggleForeground,
           hair: this.skin.hair,
           tile: (index: number): void => {
@@ -7238,6 +7252,9 @@ struct KeyboardView {
         PagedTiles({
           count: FunctionPanelPolicy.items().length,
           pageSize: FunctionPanelPolicy.PAGE_SIZE,
+          rowHeight: this.tileRowHeight(FunctionPanelPolicy.items().length),
+          rowsGap: TILE_ROWS_GAP_VP,
+          topPadding: TILE_TOP_PADDING_VP,
           resetToken: this.panelResetToken,
           accent: this.skin.toggleForeground,
           hair: this.skin.hair,
