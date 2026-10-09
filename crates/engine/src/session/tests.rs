@@ -2641,6 +2641,23 @@ fn a_date_row_commits_and_leaves_date_time_mode() {
     assert_eq!(snapshot.local_mode, LocalInputMode::None);
     assert!(snapshot.preedit.is_empty());
 
+    // 农历关键词：首行是农历日期，后面是带星期的写法。
+    session.character(b'T', true);
+    type_text(&mut session, "nongli");
+    assert_eq!(
+        words(&session),
+        [
+            "丙午年六月二十七日",
+            "丙午年六月二十七日 星期日",
+            "丙午年六月二十七日 周日"
+        ]
+    );
+    assert_eq!(
+        session.select(1).commit.as_deref(),
+        Some("丙午年六月二十七日 星期日")
+    );
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+
     // The pinned clock reads 14:30:00, as the reference fixture's did.
     session.character(b'T', true);
     type_text(&mut session, "sj");
@@ -3466,11 +3483,17 @@ fn slash_opens_the_command_list_and_letters_filter_it() {
     assert!(snapshot.spelling_symbols.is_empty());
     assert_eq!(
         words(&session),
-        ["张三 2026-08-09", "2026年8月9日", "14:30", "星期日"]
+        [
+            "张三 2026-08-09",
+            "2026年8月9日",
+            "14:30",
+            "星期日",
+            "丙午年六月二十七日"
+        ]
     );
     assert_eq!(
         snapshot.candidate_annotations,
-        ["签名", "日期", "时间", "星期"]
+        ["签名", "日期", "时间", "星期", "农历"]
     );
 
     type_text(&mut session, "si");
@@ -3596,7 +3619,10 @@ fn at_lists_the_mention_list_and_letters_filter_it() {
     session.command(Command::Cancel);
     session.character(b'/', false);
     session.set_command_table(&[]);
-    assert_eq!(words(&session), ["2026年8月9日", "14:30", "星期日"]);
+    assert_eq!(
+        words(&session),
+        ["2026年8月9日", "14:30", "星期日", "丙午年六月二十七日"]
+    );
 }
 
 #[test]

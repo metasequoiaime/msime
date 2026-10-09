@@ -2619,7 +2619,10 @@ fn generated_local_modes_publish_their_spelling_symbols_and_rows() {
         .unwrap();
     session.character(b'/', false).unwrap();
     type_text(&mut session, b"y");
-    assert_eq!(session.snapshot().unwrap().candidates, ["哟"]);
+    // 内置的农历命令 `yinli` 也以 y 开头，排在指令表之后；它的文字随真实时钟变，只核对触发词。
+    let view = session.snapshot().unwrap();
+    assert_eq!(view.candidates[0], "哟");
+    assert_eq!(view.candidate_codes, ["yo", "yinli"]);
 }
 
 /// Enter in the expression, command and mention modes commits what was typed, and unlike the other local modes learns none of it as an English word: arithmetic, a trigger or a mention key is not a word the user spelled.
