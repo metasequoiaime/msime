@@ -39,6 +39,10 @@ assert "onnxruntime|Fcitx5[A-Za-z]+)" in packaging
 package_container = (root / "package-container.sh").read_text()
 assert 'sed -E -i "/^Depends:/s/, libfcitx5' in package_container
 assert 'grep -E "^Depends:.*libfcitx5"' in package_container
+# PPA 与 OBS 的源码包不经过 package-container.sh，由 debian/rules 在 dh_shlibdeps 之后同样去掉 libfcitx5*。
+debian_rules = (root / "packaging/debian/rules").read_text()
+assert "sed -E -i '/^shlibs:Depends=/s/, libfcitx5" in debian_rules
+assert "! grep -E '^shlibs:Depends=.*libfcitx5' debian/msime.substvars" in debian_rules
 
 cmake_fcitx5 = (root / "fcitx5/CMakeLists.txt").read_text()
 # 徽章浮层用的是 wayland-scanner 生成的 C 代码。这个子工程声明 LANGUAGES CXX，不打开 C
