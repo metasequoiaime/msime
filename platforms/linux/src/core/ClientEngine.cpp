@@ -5939,9 +5939,11 @@ void show_input_mode_hint(IBusEngine *engine) {
         if (!notice->alive->load())
           return G_SOURCE_REMOVE;
         auto &s = state(notice->engine);
+        // 提示显示后的 1.2 秒内会话可能已经 close()，view 被置空，这时没有正在输入的内容。对空 Json 调 value() 会抛异常，异常穿过这个 GLib 回调会让宿主终止。
         const bool composing =
-            !s.view.value("editing_text", std::string{}).empty() ||
-            !s.view.value("candidates", Json::array()).empty();
+            s.view.is_object() &&
+            (!s.view.value("editing_text", std::string{}).empty() ||
+             !s.view.value("candidates", Json::array()).empty());
         if (s.mode_hint_id == notice->id && !composing)
           ibus_engine_hide_auxiliary_text(notice->engine);
         return G_SOURCE_REMOVE;
