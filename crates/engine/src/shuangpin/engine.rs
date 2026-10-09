@@ -17,7 +17,9 @@ use crate::helpcode::{
 use crate::paths::RuntimePaths;
 use crate::pinyin::segment::{join_segments, split_segments};
 use crate::quanpin::QuanpinDictionary;
-use crate::types::{CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeType, WordItem};
+use crate::types::{
+    autocorrect_type, CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeType, WordItem,
+};
 
 // 双拼模糊候选的短合并直接扫描已有词，避免临时哈希表和重复索引分配。
 const SMALL_FUZZY_DEDUP: usize = 64;
@@ -129,6 +131,8 @@ impl ShuangpinEngine {
             .set_sentence_association(request.sentence_association);
         self.dictionary
             .set_rescoring_context(&request.rescoring_context);
+        self.dictionary
+            .set_autocorrect_types(request_autocorrect_types(request));
 
         let raw = &request.raw_input;
         if remove_manual_delimiters(raw).is_empty() {
@@ -268,6 +272,21 @@ impl ShuangpinEngine {
             fuzzy_dictionary.reset_cache();
         }
     }
+}
+
+/// 会话只有一个「拼音纠错」开关，按当前方案作用：请求里那两个字段名带 quanpin 是历史原因，双拼也读它们。双拼不加漏键和多键，见 `typo_edges::SHUANGPIN_TYPO_TYPES`。
+fn request_autocorrect_types(request: &QueryRequest) -> u32 {
+    let transposition = if request.enable_quanpin_autocorrect_transposition {
+        autocorrect_type::TRANSPOSITION
+    } else {
+        0
+    };
+    let neighbor = if request.enable_quanpin_autocorrect_neighbor {
+        autocorrect_type::NEIGHBOR
+    } else {
+        0
+    };
+    transposition | neighbor
 }
 
 /// 只需段数时直接统计分隔符，避免为每个模糊候选复制音节字符串。

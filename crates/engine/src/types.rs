@@ -776,6 +776,7 @@ pub struct QueryRequest {
     pub segmentation: String,
     pub enable_shuangpin_helpcode: bool,
     pub enable_quanpin_helpcode: bool,
+    /// 会话的「拼音纠错」开关。名字带 quanpin 是历史原因：双拼也按它决定是否给纠错整句。
     pub enable_quanpin_autocorrect_transposition: bool,
     pub enable_quanpin_autocorrect_neighbor: bool,
     pub fuzzy_pinyin: FuzzyPinyinOptions,

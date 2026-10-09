@@ -738,6 +738,93 @@ fn shuangpin_lists_a_word_once() {
     assert_eq!(words(&session), ["你", "拟"]);
 }
 
+/// #6034：双拼会话读同一个「拼音纠错」开关。合成词库里只有关系是词，小鹤把 guan（gr）的 r 按成邻键 f 就是 gen；自然码把 xi 的 x 按成邻键 c 就是 ci。
+const SHUANGPIN_TYPO_FIXTURE: &str =
+    "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_m VALUES('mei','m','没',1000),('mei','m','美',900);\
+CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_g VALUES('gen','g','跟',1000),('guan','g','关',500);\
+CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_x VALUES('xi','x','系',1000);\
+CREATE TABLE tbl_1_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_c VALUES('ci','c','词',1000);\
+CREATE TABLE tbl_2_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_g VALUES('guan''xi','gx','关系',100000);\
+CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+CREATE TABLE tbl_3_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);";
+
+/// 纠错整句排在字面整句之后，选中它按全部按键上屏；开关关着时不出。
+#[test]
+fn shuangpin_offers_the_typo_sentence_under_the_autocorrect_switch() {
+    let fixture = Fixture::new(SHUANGPIN_TYPO_FIXTURE);
+    let shuangpin = |types: u32| {
+        move |options: &mut SessionOptions| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+            options.autocorrect_types = types;
+        }
+    };
+    let mut session = fixture.session_with(shuangpin(
+        crate::types::autocorrect_type::TRANSPOSITION | crate::types::autocorrect_type::NEIGHBOR,
+    ));
+    type_text(&mut session, "mwgfxi");
+    let snapshot = session.snapshot();
+    let corrected = snapshot
+        .candidates
+        .iter()
+        .position(|item| item.word == "没关系")
+        .unwrap_or_else(|| panic!("{:?}", words(&session)));
+    assert!(corrected > 0, "{:?}", words(&session));
+    assert_eq!(snapshot.candidates[corrected].corrected_from, "mwgfxi");
+    assert_eq!(
+        select_word(&mut session, "没关系").commit.as_deref(),
+        Some("没关系")
+    );
+
+    let mut plain = fixture.session_with(shuangpin(0));
+    type_text(&mut plain, "mwgfxi");
+    assert!(
+        !words(&plain).contains(&"没关系".to_owned()),
+        "{:?}",
+        words(&plain)
+    );
+}
+
+/// 双拼方案在宿主重建会话时切换。重建后的会话按新方案的编码纠错：自然码下 `mzgrci` 纠回没关系，小鹤的误触串 `mwgfxi` 不再纠；切回小鹤后反过来。
+#[test]
+fn a_rebuilt_session_corrects_with_its_new_profile() {
+    let fixture = Fixture::new(SHUANGPIN_TYPO_FIXTURE);
+    let shuangpin = |kind: ShuangpinProfileKind| {
+        move |options: &mut SessionOptions| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = kind;
+            options.autocorrect_types = crate::types::autocorrect_type::TRANSPOSITION
+                | crate::types::autocorrect_type::NEIGHBOR;
+        }
+    };
+    for (kind, own, foreign) in [
+        (ShuangpinProfileKind::Xiaohe, "mwgfxi", "mzgrci"),
+        (ShuangpinProfileKind::Ziranma, "mzgrci", "mwgfxi"),
+        (ShuangpinProfileKind::Xiaohe, "mwgfxi", "mzgrci"),
+    ] {
+        let mut session = fixture.session_with(shuangpin(kind));
+        type_text(&mut session, own);
+        let listed = words(&session);
+        let corrected = listed.iter().position(|word| word == "没关系");
+        assert!(
+            corrected.is_some_and(|index| index > 0),
+            "{kind:?} {own}: {listed:?}"
+        );
+        session.command(Command::Cancel);
+        type_text(&mut session, foreign);
+        assert!(
+            !words(&session).contains(&"没关系".to_owned()),
+            "{kind:?} {foreign}: {:?}",
+            words(&session)
+        );
+    }
+}
+
 // ---- wubi mixed routing (overlays.md §3.3) ----
 
 fn wubi_mixed(fixture: &Fixture) -> Session {

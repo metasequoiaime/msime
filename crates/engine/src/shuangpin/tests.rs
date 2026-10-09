@@ -572,3 +572,163 @@ fn association_switch_resets_the_series_cache() {
     typed.sentence_association = SentenceAssociationOptions::default();
     assert!(!words(&engine.query(&typed, None)).contains(&"甲"));
 }
+
+// ---- typo sentences (#6034) ----
+
+/// 合成词库：没关系三个音节里只有关系是词，字面读法只能拼单字。小鹤 mei/guan/xi 是 mw/gr/xi，自然码是 mz/gr/xi；gen 和 ci 是按错一个邻键后得到的合法音节。
+const TYPO_FIXTURE: &str = "BEGIN;CREATE TABLE tbl_1_m(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_m VALUES('mei','m','没',1000),('mei','m','美',900);CREATE TABLE tbl_1_g(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_g VALUES('gen','g','跟',1000),('guan','g','关',500);CREATE TABLE tbl_1_x(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_x VALUES('xi','x','系',1000);CREATE TABLE tbl_1_c(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_c VALUES('ci','c','词',1000);CREATE TABLE tbl_2_g(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_2_g VALUES('guan''xi','gx','关系',100000);CREATE TABLE tbl_2_m(key TEXT, jp TEXT, value TEXT, weight INTEGER);CREATE TABLE tbl_3_m(key TEXT, jp TEXT, value TEXT, weight INTEGER);COMMIT;";
+
+fn autocorrect_request(typed: &str, enabled: bool) -> QueryRequest {
+    QueryRequest {
+        enable_quanpin_autocorrect_transposition: enabled,
+        enable_quanpin_autocorrect_neighbor: enabled,
+        ..request(typed, false)
+    }
+}
+
+fn typo_row(candidates: &[WordItem]) -> Option<&WordItem> {
+    candidates
+        .iter()
+        .find(|item| item.sentence_association && !item.corrected_from.is_empty())
+}
+
+/// 纠错整句排在字面整句之后，不抢首选，读音记成改正后的全拼。
+fn assert_corrected(candidates: &[WordItem], typed: &str) {
+    let row = typo_row(candidates)
+        .unwrap_or_else(|| panic!("no typo sentence for {typed} in {:?}", words(candidates)));
+    assert_eq!(row.word, "没关系");
+    assert_eq!(row.corrected_from, typed);
+    assert_eq!(row.pinyin, typed);
+    assert_eq!(row.canonical_pinyin, "mei'guan'xi");
+    assert_eq!(row.source, CandidateSource::Generated);
+    let literal = candidates
+        .iter()
+        .position(|item| item.sentence_association && item.corrected_from.is_empty())
+        .unwrap_or_else(|| panic!("no literal sentence in {:?}", words(candidates)));
+    assert!(
+        literal < index_of(candidates, "没关系"),
+        "{:?}",
+        words(candidates)
+    );
+    assert!(candidates[0].corrected_from.is_empty());
+}
+
+/// 小鹤 guan 是 gr，r 按成邻键 f 就成了 gen（gf）。
+#[test]
+fn xiaohe_neighbour_key_typo_is_corrected() {
+    let fixture = Fixture::new(TYPO_FIXTURE);
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let corrected = engine.query(&autocorrect_request("mwgfxi", true), None);
+    assert_corrected(&corrected, "mwgfxi");
+    assert_eq!(corrected[0].word, "没跟系");
+}
+
+/// 自然码 xi 的声母按成邻键 c 就成了 ci。
+#[test]
+fn ziranma_neighbour_key_typo_is_corrected() {
+    let fixture = Fixture::new(TYPO_FIXTURE);
+    let mut engine = fixture.engine(ShuangpinProfileKind::Ziranma);
+    let corrected = engine.query(&autocorrect_request("mzgrci", true), None);
+    assert_corrected(&corrected, "mzgrci");
+}
+
+/// 正确输入的首选和纠错开关无关，也不出纠错行；开关关着、或用户手打了 `'` 时不纠。
+#[test]
+fn correct_input_keeps_its_first_candidate() {
+    let fixture = Fixture::new(TYPO_FIXTURE);
+    for (kind, correct, typo) in [
+        (ShuangpinProfileKind::Xiaohe, "mwgrxi", "mwgfxi"),
+        (ShuangpinProfileKind::Ziranma, "mzgrxi", "mzgrci"),
+    ] {
+        let mut engine = fixture.engine(kind);
+        let on = engine.query(&autocorrect_request(correct, true), None);
+        let mut plain = fixture.engine(kind);
+        let off = plain.query(&autocorrect_request(correct, false), None);
+        assert_eq!(on[0].word, "没关系", "{kind:?} {:?}", words(&on));
+        assert_eq!(words(&on), words(&off), "{kind:?}");
+        assert!(typo_row(&on).is_none(), "{kind:?} {:?}", words(&on));
+
+        let switched_off = engine.query(&autocorrect_request(typo, false), None);
+        assert!(typo_row(&switched_off).is_none(), "{kind:?}");
+        assert!(!words(&switched_off).contains(&"没关系"), "{kind:?}");
+        let delimited = format!("{}'{}", &typo[..2], &typo[2..]);
+        let literal = engine.query(&autocorrect_request(&delimited, true), None);
+        assert!(
+            typo_row(&literal).is_none(),
+            "{kind:?} {:?}",
+            words(&literal)
+        );
+    }
+}
+
+/// 开关来回切换时，缓存里按另一个设置组出的答案不能被读到。
+#[test]
+fn the_switch_is_read_on_every_query() {
+    let fixture = Fixture::new(TYPO_FIXTURE);
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    assert!(typo_row(&engine.query(&autocorrect_request("mwgfxi", true), None)).is_some());
+    assert!(typo_row(&engine.query(&autocorrect_request("mwgfxi", false), None)).is_none());
+    assert!(typo_row(&engine.query(&autocorrect_request("mwgfxi", true), None)).is_some());
+    // 只开其中一项也算开：会话只有一个「拼音纠错」开关。
+    let neighbor_only = QueryRequest {
+        enable_quanpin_autocorrect_transposition: false,
+        ..autocorrect_request("mwgfxi", true)
+    };
+    assert!(typo_row(&engine.query(&neighbor_only, None)).is_some());
+}
+
+/// 变体按各自方案的键位生成：同一串按键在小鹤和自然码里是不同的音节，交替使用两个方案时各自只按自己的编码纠错。
+#[test]
+fn each_profile_corrects_its_own_codes() {
+    let fixture = Fixture::new(TYPO_FIXTURE);
+    let mut xiaohe = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let mut ziranma = fixture.engine(ShuangpinProfileKind::Ziranma);
+    for _ in 0..2 {
+        assert_corrected(
+            &xiaohe.query(&autocorrect_request("mwgfxi", true), None),
+            "mwgfxi",
+        );
+        assert_corrected(
+            &ziranma.query(&autocorrect_request("mzgrci", true), None),
+            "mzgrci",
+        );
+        // 小鹤的 mz 是 mou，自然码的 mw 不是合法编码：换了方案，这两串都不是没关系的误触。
+        let foreign = xiaohe.query(&autocorrect_request("mzgrci", true), None);
+        assert!(
+            !words(&foreign).contains(&"没关系"),
+            "{:?}",
+            words(&foreign)
+        );
+        let foreign = ziranma.query(&autocorrect_request("mwgfxi", true), None);
+        assert!(
+            !words(&foreign).contains(&"没关系"),
+            "{:?}",
+            words(&foreign)
+        );
+    }
+}
+
+/// 手打的 `'` 在辅助码路径上同样关掉纠错：辅助码的基础部分按带 `'` 的原始输入准入和缓存，和不带 `'` 的同一串按键各有各的答案。
+#[test]
+fn a_manual_delimiter_disables_correction_with_a_helpcode() {
+    let fixture = Fixture::new(TYPO_FIXTURE);
+    let codes = keymap(&[("没", "mb"), ("美", "mc"), ("系", "xa")]);
+    let with_helpcode = |typed: &str| QueryRequest {
+        enable_shuangpin_helpcode: true,
+        ..autocorrect_request(typed, true)
+    };
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    // 同一个引擎来回查，任何一种答案都不能从缓存里顶替另一种。
+    for _ in 0..2 {
+        let undelimited = engine.query(&with_helpcode("mwgfxim"), Some(&codes));
+        assert!(
+            typo_row(&undelimited).is_some(),
+            "{:?}",
+            words(&undelimited)
+        );
+        let delimited = engine.query(&with_helpcode("mw'gfxim"), Some(&codes));
+        assert!(typo_row(&delimited).is_none(), "{:?}", words(&delimited));
+        assert!(typo_row(&engine.query(&autocorrect_request("mwgfxi", true), None)).is_some());
+        assert!(typo_row(&engine.query(&autocorrect_request("mw'gfxi", true), None)).is_none());
+    }
+}

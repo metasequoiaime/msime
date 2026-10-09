@@ -26,6 +26,11 @@ pub fn reorders_candidates(scheme: u8) -> bool {
     scheme_type(scheme).is_none_or(SchemeType::holds_phrase_progress)
 }
 
+/// 方案的纠错行能不能被重排器提到首位。双拼的纠错整句按产品取舍一律不抢首选（#6034，引擎把它排在整句块之后），所以重排时它既不参与比较，也不让整张表失去词典命中的豁免；全拼的纠错行本来就允许领先（`typo_lead_margin`），照旧。
+fn corrections_may_lead(scheme: u8) -> bool {
+    scheme_type(scheme) != Some(SchemeType::Shuangpin)
+}
+
 /// Apply a permutation in place. `order` maps each new seat to its old seat.
 ///
 /// The order is built as a permutation of the candidate seats, so each cycle can be rotated with
@@ -207,8 +212,15 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     //
     // With correction off, or with nothing corrected, this is exactly the previous behaviour,
     // which is what the 2052-case dictionary measurement was taken on.
-    let corrected_key = (0..rows.len()).any(|index| rows.get(index).corrected);
-    let answers_key = |row: OrderRow<'a>| row.answers_key && !CATALOG_SOURCES.contains(&row.source);
+    //
+    // 不许领先的纠错行（双拼）只是附带的一个改正：它不算回答了按键，模型不拿它比较，也不因为它的存在撤掉词典命中的豁免，排序和没有纠错时完全一样。
+    let corrections_lead = corrections_may_lead(scheme);
+    let corrected_key = corrections_lead && (0..rows.len()).any(|index| rows.get(index).corrected);
+    let answers_key = |row: OrderRow<'a>| {
+        row.answers_key
+            && !CATALOG_SOURCES.contains(&row.source)
+            && (corrections_lead || !row.corrected)
+    };
     // Only candidates that answer the key are scored, so they are the ones the window has to leave room for.
     let longest = (0..rows.len())
         .map(|index| rows.get(index))
@@ -488,6 +500,15 @@ mod tests {
         }
         // 刷新失败时的占位快照不对应任何方案，照旧允许重排。
         assert!(reorders_candidates(255));
+    }
+
+    #[test]
+    fn only_shuangpin_corrections_stay_behind() {
+        let shuangpin = SchemeType::Shuangpin as u8;
+        assert!(!corrections_may_lead(shuangpin));
+        for ordinal in (0..=u8::MAX).filter(|&ordinal| ordinal != shuangpin) {
+            assert!(corrections_may_lead(ordinal), "{ordinal}");
+        }
     }
 
     #[test]

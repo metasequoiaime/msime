@@ -4,7 +4,7 @@ use crate::cache::FifoCache;
 use crate::dictionary::pinyin::PinyinDatabase;
 use crate::dictionary::DictRow;
 use crate::lattice::{SentencePath, TypoEdge};
-use crate::pinyin::typos::{autocorrect_bit, base_cost, discounted, syllable_typos};
+use crate::pinyin::typos::{autocorrect_bit, base_cost, discounted, syllable_typos, SyllableTypo};
 use crate::text::count_utf8_chars;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
@@ -68,9 +68,36 @@ pub fn collect_typo_edges(
     autocorrect_types: u32,
 ) -> Vec<TypoEdge> {
     let planned = plan_keys(profile, segments, literal_best, autocorrect_types);
+    lookup_planned_edges(database, span_cache, &planned)
+}
 
+/// 全拼和双拼共用的规划与查词。`typos_at(i)` 给出第 i 个音节可能想打的音节（便宜的类型在前），`accepted(i, typo)` 给出用户接受过这条纠错的次数；全拼按音节拼写生成变体，双拼按当前方案的两键编码生成，之后的弱位置优先、跨度、预算、查词和罚分完全相同。
+pub(crate) fn collect_span_typo_edges<'t>(
+    database: &PinyinDatabase,
+    span_cache: &mut FifoCache<String, Vec<DictRow>>,
+    segments: &[String],
+    literal_best: &SentencePath,
+    autocorrect_types: u32,
+    typos_at: impl Fn(usize) -> &'t [SyllableTypo],
+    accepted: impl Fn(usize, &SyllableTypo) -> i32,
+) -> Vec<TypoEdge> {
+    let planned = plan_keys_with(
+        segments,
+        literal_best,
+        autocorrect_types,
+        typos_at,
+        accepted,
+    );
+    lookup_planned_edges(database, span_cache, &planned)
+}
+
+fn lookup_planned_edges(
+    database: &PinyinDatabase,
+    span_cache: &mut FifoCache<String, Vec<DictRow>>,
+    planned: &[PlannedKey],
+) -> Vec<TypoEdge> {
     let mut misses = Vec::with_capacity(planned.len());
-    for entry in &planned {
+    for entry in planned {
         if span_cache.get_ref(&entry.key).is_none() {
             misses.push(entry.key.clone());
         }
@@ -84,7 +111,7 @@ pub fn collect_typo_edges(
     }
 
     let mut edges = Vec::with_capacity(planned.len() * TYPO_ROWS_PER_KEY);
-    for entry in &planned {
+    for entry in planned {
         let Some(found) = span_cache.get_ref(&entry.key) else {
             continue;
         };
@@ -106,6 +133,22 @@ fn plan_keys(
     segments: &[String],
     literal_best: &SentencePath,
     autocorrect_types: u32,
+) -> Vec<PlannedKey> {
+    plan_keys_with(
+        segments,
+        literal_best,
+        autocorrect_types,
+        |position| syllable_typos(&segments[position]),
+        |position, typo| profile.accepted(&segments[position], &typo.syllable),
+    )
+}
+
+fn plan_keys_with<'t>(
+    segments: &[String],
+    literal_best: &SentencePath,
+    autocorrect_types: u32,
+    typos_at: impl Fn(usize) -> &'t [SyllableTypo],
+    accepted: impl Fn(usize, &SyllableTypo) -> i32,
 ) -> Vec<PlannedKey> {
     let n = segments.len();
     // A syllable the best literal path spells as a lone character is where a typo most likely broke a phrase, so those positions are tried first. Word widths follow the character counts of the path's words; a path that does not tile the input marks nothing weak.
@@ -135,14 +178,13 @@ fn plan_keys(
         if planned.len() >= TYPO_KEY_BUDGET {
             break;
         }
-        let typed = &segments[position];
-        let typos = syllable_typos(typed);
+        let typos = typos_at(position);
         variants.clear();
         variants.extend(
             typos
                 .iter()
                 .filter(|typo| autocorrect_types & autocorrect_bit(typo.kind) != 0)
-                .map(|typo| (typo, profile.accepted(typed, &typo.syllable))),
+                .map(|typo| (typo, accepted(position, typo))),
         );
         // Kinds are already cheapest first, so a stable sort on the personal count keeps that as the tie-break.
         variants.sort_by_key(|variant| std::cmp::Reverse(variant.1));

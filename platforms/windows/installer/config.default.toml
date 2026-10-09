@@ -224,7 +224,7 @@ show_qp_helpcode_in_candidate_window = false
 # 全拼
 #
 [quanpin]
-# 全拼自动纠错按类型独立启用。
+# 自动纠错按类型独立启用。名字在 quanpin 下是历史原因：双拼也读这两项，按当前方案作用。
 autocorrect_transposition = true
 autocorrect_neighbor = true
 

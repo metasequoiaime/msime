@@ -4370,6 +4370,14 @@ impl InputEngine for WubiMixedEngine {
 }
 
 fn typed_dyn_with_reranker(scheme: u8, answered_by_pinyin_fallback: bool) -> Vec<String> {
+    typed_dyn_favouring(scheme, answered_by_pinyin_fallback, &['太', '快'])
+}
+
+fn typed_dyn_favouring(
+    scheme: u8,
+    answered_by_pinyin_fallback: bool,
+    favoured: &[char],
+) -> Vec<String> {
     let mut runtime = Runtime::new(
         WubiMixedEngine {
             scheme,
@@ -4379,7 +4387,7 @@ fn typed_dyn_with_reranker(scheme: u8, answered_by_pinyin_fallback: bool) -> Vec
         5,
     )
     .unwrap();
-    let model = favouring_model(&['态', '太', '快', '顿'], &['太', '快']);
+    let model = favouring_model(&['态', '太', '快', '顿'], favoured);
     runtime.set_reranker(Some(Reranker::new(std::sync::Arc::new(model))));
     runtime.focus(true).unwrap();
     for value in *b"dyn" {
@@ -4406,6 +4414,23 @@ fn a_wubi_list_keeps_the_exact_code_hit_first_under_the_reranker() {
     assert_eq!(typed_dyn_with_reranker(0, false), ["太快", "态", "顿"]);
     // A Wubi code only the pinyin fallback answered is pinyin, and is reranked like pinyin.
     assert_eq!(typed_dyn_with_reranker(2, true), ["太快", "态", "顿"]);
+}
+
+/// 双拼的纠错整句不抢首选（#6034）：同一张带纠错行的表在双拼下，纠错行既不会被模型提到首位，也不会让词典命中失去豁免；全拼下两者都会发生。
+#[test]
+fn a_shuangpin_correction_is_never_promoted_and_keeps_the_dictionary_exemption() {
+    let shuangpin = msime_engine::SchemeType::Shuangpin as u8;
+    // 模型偏爱纠错行：全拼允许它领先，双拼不允许。
+    assert_eq!(typed_dyn_favouring(0, false, &['顿']), ["顿", "态", "太快"]);
+    assert_eq!(
+        typed_dyn_favouring(shuangpin, false, &['顿']),
+        ["态", "太快", "顿"]
+    );
+    // 模型偏爱另一条未纠错的行：全拼下纠错行撤掉了态的豁免，双拼下态仍是受信任的词典命中。
+    assert_eq!(
+        typed_dyn_with_reranker(shuangpin, false),
+        ["态", "太快", "顿"]
+    );
 }
 
 fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtime<Fixture> {
