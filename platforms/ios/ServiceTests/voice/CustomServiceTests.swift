@@ -341,7 +341,9 @@ final class CustomServiceTests: XCTestCase {
     let request = try CustomServiceClient.makeRequest(kind: .voice, configuration: configuration, prompt: "",
                                                       text: "", wav: wav, token: "synthetic-token")
     XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
-    XCTAssertEqual(request.httpBody, body)
+    // JSONSerialization 输出字典键的顺序随实例而变，两次编码的字节不一定相同，所以比较解析后的内容。
+    let sent = try XCTUnwrap(request.httpBody)
+    XCTAssertEqual(try JSONSerialization.jsonObject(with: sent) as? NSDictionary, json as NSDictionary)
     let answer = Data("{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"百炼\"}}]}".utf8)
     XCTAssertEqual(try AppServicesBridge.parseResponse(answer, voice: true), "百炼")
   }
