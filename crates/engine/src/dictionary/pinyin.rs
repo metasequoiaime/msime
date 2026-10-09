@@ -433,10 +433,15 @@ impl PinyinDatabase {
         let Ok(mut rows) = statement.query(params) else {
             return Vec::new();
         };
-        let mut result = capacity.map_or_else(Vec::new, Vec::with_capacity);
+        let mut result = Vec::new();
         while let Ok(Some(row)) = rows.next() {
             match dict_row(row) {
-                Ok(item) => result.push(item),
+                Ok(item) => {
+                    if let (Some(capacity), 0) = (capacity, result.capacity()) {
+                        result.reserve_exact(capacity);
+                    }
+                    result.push(item);
+                }
                 Err(_) => break,
             }
         }
@@ -1415,3 +1420,7 @@ mod tests {
         assert!(database.find_weight("ni'hao", "你好").is_some());
     }
 }
+
+#[cfg(test)]
+#[path = "pinyin/empty_page_tests.rs"]
+mod empty_page_tests;
