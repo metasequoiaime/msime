@@ -194,7 +194,7 @@ public final class AccountFragment extends HomeTabFragment {
             online == null || online.clipboard() < 0 ? null : online.clipboard() + " 条",
             () -> SettingsNavigator.open(context, PageId.CLOUD_CLIPBOARD, null));
         // 社区作品的管理界面只在 Tauri 合包里有（P21），保留原来的跳转。
-        if (Ui.tauriAvailable()) {
+        if (ManagementUi.available()) {
             row(group, R.drawable.ic_ms_groups, "社区作品", "发布、收藏皮肤、词库和回复", null, this::openCommunityAccount);
         }
     }
@@ -213,10 +213,7 @@ public final class AccountFragment extends HomeTabFragment {
     }
 
     private void openCommunityAccount() {
-        Intent intent = new Intent();
-        intent.setClassName(requireContext(), "app.msime.android.MainActivity");
-        intent.putExtra("msime_settings_page", "account");
-        startActivity(intent);
+        startActivity(ManagementUi.settingsPage(requireContext(), "account"));
     }
 
     // ---- 同步 ----

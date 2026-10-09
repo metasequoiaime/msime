@@ -16,7 +16,6 @@ import android.graphics.PixelFormat;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.text.InputFilter;
 import android.text.InputType;
@@ -307,7 +306,7 @@ final class LoginSheet {
             : DrawablePolicy.outlined(fill, Ui.dp(activity, 12), KeyboardGeometry.atLeastOnePixel(activity, 1), stroke);
         GradientDrawable mask = Ui.rounded(Color.WHITE, Ui.dp(activity, 12));
         int pressed = ColorPolicy.withAlpha(fill == Color.BLACK ? Color.WHITE : Ui.text(activity), 0.12f);
-        ViewPolicy.setBackground(button, new RippleDrawable(android.content.res.ColorStateList.valueOf(pressed), face, mask));
+        ViewPolicy.setBackground(button, DrawablePolicy.ripple(pressed, face, mask));
         if (icon != null) {
             ImageView glyph = Ui.decorativeIcon(activity, icon);
             LinearLayout.LayoutParams params = Ui.squareParams(activity, 20);

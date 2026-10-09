@@ -4,7 +4,6 @@ import app.msime.android.TextPolicy;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -37,6 +36,7 @@ import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.PhotoDecodePolicy;
+import app.msime.android.ProgressBarPolicy;
 import app.msime.android.SkinJobsApi;
 import app.msime.android.ViewPolicy;
 import java.nio.file.Paths;
@@ -306,7 +306,7 @@ public final class AiSkinPage extends DetailPage {
         LinearLayout overlay = Ui.column(context);
         ViewPolicy.setCentered(overlay);
         ProgressBar spinner = new ProgressBar(context);
-        spinner.setIndeterminateTintList(ColorStateList.valueOf(Ui.accent(context)));
+        ProgressBarPolicy.setIndeterminateTint(spinner, Ui.accent(context));
         overlay.addView(spinner, Ui.squareParams(context, 32));
         TextView designing = Ui.styledLabel(context, "正在设计…", 14, 500, Ui.text(context));
         overlay.addView(designing);

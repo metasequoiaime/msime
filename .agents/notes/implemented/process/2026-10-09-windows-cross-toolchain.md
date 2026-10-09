@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-镜像默认工具链安装为仓库固定版本，显式补齐两个组件，保留原有两个 Windows GNU 目标。系统依赖、MinGW 线程模型和大小写兼容层保持原有缓存；替换浮动编译器安装层，不在旧 stable 上再叠一份固定编译器。
+镜像默认工具链安装为仓库固定版本，显式补齐两个组件，保留原有两个 Windows GNU 目标。系统依赖和 MinGW 线程模型保持原有缓存；头文件大小写兼容由 [单次扫描别名](2026-10-09-windows-header-aliases.md) 约束；替换浮动编译器安装层，不在旧 stable 上再叠一份固定编译器。
 
 `tests/tools/check-cross-image-toolchain.sh` 只读挂载真实仓库，在断网的新 amd64 容器中调用 Cargo、Rustfmt、Clippy，执行与构建脚本相同的 `rustup target add`，并使用两个 MinGW 链接器链接包含标准库和线程调用的合成 Rust 程序。用 objdump 验证 x86/x64 的 PE 格式，产物写入已有 `target/windows-cross/<arch>`。该探针验证工具链准备和真实链接，不运行 Windows 程序，不替代产品构建或系统输入法验收。
 
@@ -30,6 +30,6 @@ Rustup 的 [工具链名称](https://rust-lang.github.io/rustup/concepts/toolcha
 
 修复前实际构建的 amd64 镜像只有 stable（Rust `1.99.0`），两个 Windows GNU 标准库安装在该工具链上，缺少 Rustfmt、Clippy 和仓库固定 `1.97.1`。断网探针首次 Cargo 调用尝试下载固定工具链清单，因 DNS 不可用失败，进程退出 1。修复后的新容器在断网状态下成功执行 Cargo `1.97.1`、Rustfmt `1.9.0-stable`、Clippy `0.1.97` 的版本命令，两个 `rustup target add` 均报告标准库已安装。合成 Rust 程序由真实 MinGW 链接器分别生成 `pei-i386` 和 `pei-x86-64`，objdump 格式检查通过，进程退出 0。
 
-修复后和定向重复构建均复用系统依赖、MinGW 线程选择与头文件兼容层；重复构建的固定工具链及目标标准库安装层均命中缓存。首次原镜像构建的头文件兼容层耗时 `628.7s`，本切片保留该层缓存，未修改其逐文件处理算法；不把首次构建与缓存重建的差异当作工具链修复的耗时百分比。
+修复后和定向重复构建均复用系统依赖、MinGW 线程选择与头文件兼容层；重复构建的固定工具链及目标标准库安装层均命中缓存。工具链切片首次原镜像构建的头文件兼容层耗时 `628.7s`，该切片仅保留原层缓存，别名算法的后续优化由上述独立决定记录；不把首次构建与缓存重建的差异当作工具链修复的耗时百分比。
 
 `bash scripts/verify-local.sh --quick` 通过：当前主机的 102 项 Windows 测试、Rust workspace 和共享 Apple bridge 编译；2 项按主机差异排除、59 项需要 Windows 构建、1 项不是测试。Windows 原生/pipe-only 构建缺少本机 MinGW 或工程配置，x86 语法检查缺少 x64 构建旗标；Android、Wasm、HarmonyOS、Linux 与 macOS 原生阶段按 scope 跳过，workspace 桌面包因 macOS 资源未准备跳过。未构建完整 Windows 产品，未运行 PE、Wine 或系统输入法验收。Shell 语法、笔记和 diff 校验通过。

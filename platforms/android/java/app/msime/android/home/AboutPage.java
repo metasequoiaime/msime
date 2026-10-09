@@ -147,7 +147,7 @@ public final class AboutPage extends DetailPage {
             links.nav("给我们评分", null, null, () -> openLink(context,
                 "market://details?id=" + context.getPackageName()));
         }
-        if (Ui.tauriAvailable()) {
+        if (ManagementUi.available()) {
             links.nav("在管理界面中查看", "更新日志、致谢与更多信息", null, this::openTauriAbout);
         }
 
@@ -480,9 +480,7 @@ public final class AboutPage extends DetailPage {
     // ---- P21：只在 Tauri 合包下有用的入口 ----
 
     private void openTauriAbout() {
-        Intent intent = new Intent();
-        intent.setClassName(requireContext(), "app.msime.android.MainActivity");
-        intent.putExtra("msime_settings_page", "about");
+        Intent intent = ManagementUi.settingsPage(requireContext(), "about");
         try {
             startActivity(intent);
         } catch (RuntimeException unavailable) {

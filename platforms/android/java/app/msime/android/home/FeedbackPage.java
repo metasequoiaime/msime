@@ -30,6 +30,7 @@ import app.msime.android.CloudApi;
 import app.msime.android.BitmapPolicy;
 import app.msime.android.FeedbackApi;
 import app.msime.android.FeedbackImagePolicy;
+import app.msime.android.ImageViewPolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.R;
 import app.msime.android.ViewPolicy;
@@ -221,7 +222,7 @@ public final class FeedbackPage extends DetailPage {
             frame.addView(image, Ui.squareFrameParams(requireContext(), Ui.THUMBNAIL_SIZE));
             ImageView remove = new ImageView(context);
             remove.setImageResource(R.drawable.ms_w4_me2_close);
-            Ui.setImageTint(remove,
+            ImageViewPolicy.setTint(remove,
                 Ui.color(context, com.google.android.material.R.attr.colorOnSurfaceInverse));
             ViewPolicy.setBackground(remove, Ui.pill(Ui.color(context, com.google.android.material.R.attr.colorSurfaceInverse)));
             Ui.setSymmetricPaddingDp(remove, requireContext(), 3, 3);

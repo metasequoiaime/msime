@@ -318,6 +318,14 @@ bash platforms/windows/tests/tools/check-cross-image-toolchain.sh msime-cross:lo
 
 该检查在断网的新 amd64 容器中只读挂载真实仓库，执行 Cargo、Rustfmt、Clippy 版本命令和两个目标的安装命令，再用两个 MinGW 链接器链接包含标准库和线程调用的合成 Rust 程序，检查 x86/x64 的 PE 格式。输出为 `target/windows-cross/i686/toolchain-probe.exe` 和 `target/windows-cross/x86_64/toolchain-probe.exe`。缺失工具链、组件或目标无法下载补齐，应当失败。它只验证工具链准备和链接，不运行 Windows 程序，不替代完整产品构建、Wine 或系统输入法验收；不接入每次 quick，以免增加容器启动开销。
 
+交叉镜像用 `cross/add-header-aliases.py` 一次扫描三个 MinGW include 目录，补齐顶层 ASCII 小写开头的 `.h` 首字母大写相对别名，保留已有条目，不递归处理子目录。Python 已在镜像中，避免 amd64 仿真下逐文件启动多个外部命令。合成文件系统回归由本地/CI 契约门禁自动发现；大小写不敏感主机明确跳过，可在已构建的 Linux 镜像中运行：
+
+```sh
+docker run --rm --platform linux/amd64 --network none \
+  -v "$PWD":/repo:ro -w /repo msime-cross:local \
+  python3 scripts/test-windows-header-aliases.py
+```
+
 ### 本地原生测试目录
 
 完整 x64 构建后运行 `bash platforms/windows/stage-runtime.sh x64`，脚本从同一 MinGW 工具链定位 libstdc++、libgcc、libwinpthread，复制到 target/windows-full/x64，并逐项检查测试 EXE、宿主 DLL 和递归运行时导入的架构。未分类依赖或缺失运行时立即失败，不从网络或任意系统目录猜 DLL；工具链的额外运行时目录可显式通过 MSIME_MINGW_RUNTIME_DIR 提供。该目录用于本地验证，不带完整的许可证与源码交付，不要拿它当发行包——发行走 `installer/Package-SimplySign.ps1`。

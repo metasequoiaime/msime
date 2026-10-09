@@ -8,6 +8,7 @@ import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
 import app.msime.android.InputFeatureToggle;
+import app.msime.android.TextPolicy;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -141,7 +142,7 @@ public final class ExpressionPage extends DetailPage {
         boolean added = installed.contains(item.id());
         boolean busy = installing.contains(item.id());
         String label = added ? "已添加" : busy ? "添加中" : "添加";
-        return KeyboardSheets.pillRow(context, Ui.initial(item.name(), "短"), item.name(),
+        return KeyboardSheets.pillRow(context, TextPolicy.initial(item.name(), "短"), item.name(),
             parts.isEmpty() ? null : String.join(" · ", parts), label, added || busy ? null : () -> install(item));
     }
 

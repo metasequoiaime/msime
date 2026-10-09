@@ -718,6 +718,14 @@ fn ios_keyboard_ai_preferences_resolve_origin_tokens_and_disable_incomplete_draf
     assert!(native.enabled);
     assert_eq!(native.provider, "deepSeek");
     assert_eq!(native.token, "fixture-origin-token");
+    preferences
+        .ai_assistant
+        .tokens
+        .insert("deepseek".into(), "fixture-provider-legacy".into());
+    assert_eq!(
+        super::ios_keyboard_ai_preferences(&preferences.ai_assistant).token,
+        "fixture-origin-token"
+    );
     assert_eq!(
         native.prompt,
         "请润色以下文字，保持原意，只返回修改后的文字。"
@@ -735,6 +743,12 @@ fn ios_keyboard_ai_preferences_resolve_origin_tokens_and_disable_incomplete_draf
         super::ios_keyboard_ai_preferences(&preferences.ai_assistant).prompt,
         "请润色以下文字，保持原意，只返回修改后的文字。"
     );
+
+    preferences
+        .ai_assistant
+        .tokens
+        .remove("https://api.example.invalid:443");
+    assert!(!super::ios_keyboard_ai_preferences(&preferences.ai_assistant).enabled);
 
     preferences.ai_assistant.tokens.clear();
     assert!(!super::ios_keyboard_ai_preferences(&preferences.ai_assistant).enabled);

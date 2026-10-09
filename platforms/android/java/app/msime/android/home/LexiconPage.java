@@ -1,8 +1,6 @@
 package app.msime.android.home;
 
-import app.msime.android.TextPolicy;
 import android.content.Context;
-import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
@@ -136,7 +134,7 @@ public final class LexiconPage extends DetailPage {
         for (DictionaryCollectionsStore.Collection collection : current.view().collections()) {
             String subtitle = DictionaryCollectionsStore.countLabel(collection.entryCount())
                 + ("community".equals(collection.sourceType()) ? " · 社区" : "");
-            installed.addView(KeyboardSheets.badgeNavRow(context, Ui.initial(collection.name(), "词"), collection.name(),
+            installed.addView(KeyboardSheets.badgeNavRow(context, TextPolicy.initial(collection.name(), "词"), collection.name(),
                 subtitle, collection.enabled() ? "已启用" : "已停用",
                 collection.enabled() ? Ui.accent(context) : Ui.subText(context),
                 () -> openDetail(collection.id(), collection.name())));
@@ -168,7 +166,7 @@ public final class LexiconPage extends DetailPage {
         InputFeatureToggle toggle = InputFeatureToggle.LEARNING;
         learning.toggle(toggle.title(), toggle.description(), current.learning(), this::saveLearning);
 
-        if (Ui.tauriAvailable()) {
+        if (ManagementUi.available()) {
             GroupCard more = GroupCard.add(target, "更多");
             more.nav("背单词", "在管理界面里复习收藏的单词", null, this::openVocabularyReview);
             more.nav("云词库", "在管理界面里管理云端词库", null, this::openCloudDictionary);
@@ -190,7 +188,7 @@ public final class LexiconPage extends DetailPage {
     private View discoverRow(CommunityCatalog.Item item, DictionaryCollectionsStore.View view) {
         Context context = requireContext();
         LinearLayout row = KeyboardSheets.baseRow(context);
-        row.addView(KeyboardSheets.badge(context, Ui.initial(item.name(), "词")));
+        row.addView(KeyboardSheets.badge(context, TextPolicy.initial(item.name(), "词")));
         List<String> parts = new ArrayList<>(2);
         if (!item.author().isEmpty()) parts.add("@" + item.author());
         JSONArray words = item.payload() == null ? null : item.payload().optJSONArray("words");
@@ -384,25 +382,19 @@ public final class LexiconPage extends DetailPage {
     // ---- 只在 Tauri 合包里有用的入口（P21），跳转写法与原 KeyboardFragment / AccountFragment 一致 ----
 
     private void openVocabularyReview() {
-        if (!Ui.tauriAvailable()) {
+        if (!ManagementUi.available()) {
             MsToast.show(requireContext(), "背单词需要管理界面合包，请使用 Tauri 合包打开。");
             return;
         }
-        Intent intent = new Intent();
-        intent.setClassName(requireContext(), "app.msime.android.MainActivity");
-        intent.putExtra("msime_settings_page", "vocabulary");
-        startActivity(intent);
+        startActivity(ManagementUi.settingsPage(requireContext(), "vocabulary"));
     }
 
     private void openCloudDictionary() {
-        if (!Ui.tauriAvailable()) {
+        if (!ManagementUi.available()) {
             MsToast.show(requireContext(), "云词库需要管理界面合包，请使用 Tauri 合包打开。您仍可在本机使用词库设置。");
             return;
         }
-        Intent intent = new Intent();
-        intent.setClassName(requireContext(), "app.msime.android.MainActivity");
-        intent.putExtra("msime_mobile_panel", "cloud-dictionary");
-        startActivity(intent);
+        startActivity(ManagementUi.mobilePanel(requireContext(), "cloud-dictionary"));
     }
 
 }

@@ -42,13 +42,16 @@ public final class AccountSessionProvider extends ContentProvider {
         return reply;
     }
 
-    /** 同步开关与改动标记由主进程代 `:ime` 读写；回复里只有开关、登录方式和「已记下」，没有任何令牌。 */
+    /** 同步状态与改动标记由主进程代 `:ime` 读写；回复里只有开关、登录方式、账号 ID 和「已记下」，没有令牌。 */
     private static Bundle sync(Context context, String method, String section) {
         Bundle reply = new Bundle();
         if (context == null) return reply;
         if (AccountSessionRoutingPolicy.METHOD_SYNC_STATE.equals(method)) {
             reply.putBoolean(AccountSessionRoutingPolicy.KEY_SYNC_ENABLED, SyncSwitch.enabled(context));
             reply.putString(AccountSessionRoutingPolicy.KEY_LOGIN_KIND, SyncSwitch.loginKind(context));
+            // Do not acquire bindingLock here: the snapshot worker may hold the queue lock
+            // while calling us, and sign-out holds bindingLock while cancelling that queue.
+            reply.putString(AccountSessionRoutingPolicy.KEY_ACCOUNT_ID, SyncSwitch.accountId(context));
             return reply;
         }
         if (!SyncSwitch.validSection(section)) throw new IllegalArgumentException("unknown sync section");

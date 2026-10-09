@@ -19,6 +19,7 @@ import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.UUID;
+import java.util.function.Supplier;
 /** Cross-process, crash-safe handoff for one cloud dictionary snapshot.
  * Native code owns snapshot decoding, staging, and activation. This class
  * owns only bounded metadata and the downloaded NDJSON file.
@@ -236,24 +237,38 @@ public final class DictionarySnapshotQueue {
         catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
     }
 
-    public Request claim(WorkerLease lease) throws Failure {
+    public Request claim(WorkerLease lease, Supplier<String> currentAccountId) throws Failure {
         checkLease(lease);
-        return locked(() -> {
+        if (currentAccountId == null) throw new Failure(Reason.INVALID);
+        Request result = locked(() -> {
             State state = readUnlocked();
             Request request = state.request();
             if (request == null || !request.status().active()) return null;
+            String owner = currentAccountId.get();
+            if (owner == null) return null;
+            if (!request.accountId().equals(owner)) {
+                Request cancelled = copy(request, Status.CANCELLED);
+                writeState(new State(state.localVersion(), cancelled));
+                return cancelled;
+            }
             Request claimed = copy(request, Status.PREPARING);
             writeState(new State(state.localVersion(), claimed));
             return claimed;
         });
+        if (result != null && result.status() == Status.CANCELLED) {
+            deleteSnapshot(result.id());
+            return null;
+        }
+        return result;
     }
 
     public boolean complete(UUID id, WorkerLease lease, String currentVersion,
-            boolean alreadyApplied, Activation activation) throws Failure {
+            boolean alreadyApplied, Supplier<String> currentAccountId,
+            Activation activation) throws Failure {
         checkLease(lease);
-        if (id == null || !validVersion(currentVersion) || activation == null)
+        if (id == null || !validVersion(currentVersion) || currentAccountId == null || activation == null)
             throw new Failure(Reason.INVALID);
-        boolean applied = locked(() -> {
+        Status result = locked(() -> {
             State state = readUnlocked();
             Request request = state.request();
             if (request == null || !id.equals(request.id())
@@ -261,11 +276,17 @@ public final class DictionarySnapshotQueue {
                 throw new Failure(Reason.CONFLICT);
             if (alreadyApplied) {
                 writeState(new State(currentVersion, copy(request, Status.APPLIED)));
-                return true;
+                return Status.APPLIED;
+            }
+            String owner = currentAccountId.get();
+            if (owner == null) return request.status();
+            if (!request.accountId().equals(owner)) {
+                writeState(new State(state.localVersion(), copy(request, Status.CANCELLED)));
+                return Status.CANCELLED;
             }
             if (!request.expectedLocalVersion().equals(currentVersion)) {
                 writeState(new State(currentVersion, copy(request, Status.CONFLICT)));
-                return false;
+                return Status.CONFLICT;
             }
             final String next;
             try { next = activation.apply(); }
@@ -273,10 +294,10 @@ public final class DictionarySnapshotQueue {
             catch (Exception error) { throw new Failure(Reason.UNAVAILABLE, error); }
             if (!validVersion(next)) throw new Failure(Reason.INVALID);
             writeState(new State(next, copy(request, Status.APPLIED)));
-            return true;
+            return Status.APPLIED;
         });
-        if (applied) deleteSnapshot(id);
-        return applied;
+        if (result == Status.APPLIED || result == Status.CANCELLED) deleteSnapshot(id);
+        return result == Status.APPLIED;
     }
 
     public void fail(UUID id, WorkerLease lease) throws Failure {

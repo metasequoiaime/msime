@@ -7,6 +7,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.TextView;
+import app.msime.android.ContextPolicy;
 import app.msime.android.ViewPolicy;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -22,7 +23,7 @@ public final class MsToast {
     private MsToast() {}
 
     public static void show(Context context, CharSequence text) {
-        Activity activity = Ui.activityOf(context);
+        Activity activity = ContextPolicy.activity(context);
         ViewGroup content = activity == null ? null : activity.findViewById(android.R.id.content);
         if (!(content instanceof FrameLayout frame)) {
             android.widget.Toast.makeText(context.getApplicationContext(), text,

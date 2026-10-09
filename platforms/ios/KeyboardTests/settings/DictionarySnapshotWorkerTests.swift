@@ -4,6 +4,32 @@ import XCTest
 
 @MainActor
 final class DictionarySnapshotWorkerTests: XCTestCase {
+  func testQueuedSnapshotForAnotherAccountIsCancelledBeforePreparation() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    let session = MetasequoiaInputSessionBridge(resources: resources,
+      stateRoot: root.appendingPathComponent("State", isDirectory: true))
+    let version = try session.localDictionaryStateVersion()
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let queue = DictionarySnapshotQueue(directory: root)
+    try queue.publishLocalVersion(version)
+    let source = root.appendingPathComponent("snapshot.ndjson")
+    let contents = Data("synthetic snapshot".utf8)
+    try contents.write(to: source)
+    let digest = SHA256.hash(data: contents).map { String(format: "%02x", $0) }.joined()
+    _ = try queue.enqueue(file: source, accountID: "previous-account", cloudRevision: 1,
+      expectedLocalVersion: version, fileSHA256: digest)
+    let worker = DictionarySnapshotWorker(session: session, queue: queue,
+      currentAccountID: { "replacement-account" })
+
+    worker.tick(idle: true, fullAccess: true)
+
+    XCTAssertEqual(try queue.read().request?.status, .cancelled)
+    XCTAssertEqual(try session.localDictionaryStateVersion(), version)
+    XCTAssertFalse(worker.isPreparing)
+  }
+
   func testQueuedSnapshotRunsThroughBackgroundPreparationAndActualSessionActivation() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
@@ -24,7 +50,8 @@ final class DictionarySnapshotWorkerTests: XCTestCase {
     let preview = try BackendPreparedSnapshot(copying: source)
     let id = try queue.enqueue(file: preview.url, accountID: "synthetic-worker", cloudRevision: 1,
       expectedLocalVersion: originalVersion, fileSHA256: preview.fileSHA256)
-    var worker: DictionarySnapshotWorker? = DictionarySnapshotWorker(session: session!, queue: queue)
+    var worker: DictionarySnapshotWorker? = DictionarySnapshotWorker(session: session!, queue: queue,
+      currentAccountID: { "synthetic-worker" })
     var cleaned = false
     defer {
       if !cleaned {

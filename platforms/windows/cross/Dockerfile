@@ -24,21 +24,12 @@ RUN update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc
  && update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix \
  && update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix \
  && update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
-# Windows filesystems are case-insensitive and so is macOS's by default, so
-# `#include <Windows.h>` resolves there against the toolchain's lowercase
-# windows.h. Linux is case-sensitive and it does not. That is a property of
-# this container rather than a defect in the sources, so the container supplies
-# the missing spellings: an initial-capital alias for every MinGW header that
-# does not already have one.
-RUN for dir in /usr/share/mingw-w64/include /usr/i686-w64-mingw32/include /usr/x86_64-w64-mingw32/include; do \
-      [ -d "$dir" ] || continue; \
-      for header in "$dir"/[a-z]*.h; do \
-        [ -e "$header" ] || continue; \
-        name=$(basename "$header"); \
-        capital=$(printf '%s' "$name" | cut -c1 | tr 'a-z' 'A-Z')$(printf '%s' "$name" | cut -c2-); \
-        [ -e "$dir/$capital" ] || ln -s "$name" "$dir/$capital"; \
-      done; \
-    done
+# Linux 区分大小写，单次扫描为 MinGW 头文件补齐首字母大写的相对链接。
+# 使用已经安装的 Python，避免在 amd64 仿真中为每个文件启动多个外部命令。
+COPY add-header-aliases.py /tmp/msime-add-header-aliases.py
+RUN python3 /tmp/msime-add-header-aliases.py \
+      /usr/share/mingw-w64/include /usr/i686-w64-mingw32/include /usr/x86_64-w64-mingw32/include \
+    && rm /tmp/msime-add-header-aliases.py
 
 # 与仓库声明使用同一固定工具链，避免临时容器另装编译器、组件和目标标准库。
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.97.1 --component rustfmt --component clippy

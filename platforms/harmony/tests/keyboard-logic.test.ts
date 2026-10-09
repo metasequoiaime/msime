@@ -1948,6 +1948,56 @@ group("a key's touch region reaches into half of each gap and no further", () =>
   );
 });
 
+group("the language key takes the ambiguous touches between it and the return key", () => {
+  const languageWidth = 35;
+  const returnWidth = 64;
+  const height = 42;
+  const halfKey = 3;
+  const halfRow = 3.5;
+  const gap = halfKey * 2;
+  const yieldVp = KeyboardGeometry.RETURN_YIELD_VP;
+  check(
+    yieldVp > 0 && yieldVp < returnWidth / 4,
+    "the return key yields a few vp, not a large part of itself",
+  );
+  // 中/英向右伸过整个键距再加让出的那段；回车整体右移同样的量。回车键帽的左边缘在 languageWidth + gap。
+  const language = KeyboardGeometry.hitOffsets(halfKey, halfRow, gap + yieldVp, halfRow);
+  const returnKey = KeyboardGeometry.shiftedHitOffsets(yieldVp, halfRow, halfRow);
+  const returnLeft = languageWidth + gap;
+  let owned = true;
+  for (let x = languageWidth - 2; x < returnLeft + returnWidth / 2; x += 0.25) {
+    const inLanguage = inHitRegion(language, languageWidth, height, x, height / 2);
+    const inReturn = inHitRegion(returnKey, returnWidth, height, x - returnLeft, height / 2);
+    const expectLanguage = x < returnLeft + yieldVp;
+    // 两块区域在分界点上各自包含边界，只在那一个点上同时命中。
+    if (x !== returnLeft + yieldVp && (inLanguage === inReturn || inLanguage !== expectLanguage)) {
+      owned = false;
+    }
+  }
+  check(
+    owned,
+    "every point from the language key to mid-return belongs to one key, split inside the return key",
+  );
+  check(
+    inHitRegion(returnKey, returnWidth, height, returnWidth + yieldVp, height / 2),
+    "the return key's region reaches past its right edge into the keyboard's margin",
+  );
+  check(
+    inHitRegion(returnKey, returnWidth, height, returnWidth / 2, -halfRow) &&
+      inHitRegion(returnKey, returnWidth, height, returnWidth / 2, height + halfRow),
+    "and still reaches half a row gap above and below",
+  );
+  const negative = KeyboardGeometry.shiftedHitOffsets(-4, 0, 0);
+  check(
+    negative.length === 1 && negative[0].x === 0,
+    "a negative shift never moves the key's region to the left",
+  );
+  check(
+    KeyboardGeometry.shiftedHitOffsets(Number.NaN, 0, 0)[0].x === 0,
+    "a non-finite shift is no shift",
+  );
+});
+
 group("the height bar's drag resizes one vp for one vp", () => {
   check(
     KeyboardLayoutDragPolicy.height(0, -12) === 12,

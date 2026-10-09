@@ -40,6 +40,7 @@ docker run --rm --init \
   -v "$build_root":/build \
   -w /source \
   -e CARGO_TARGET_DIR=/build/cargo \
+  -e CARGO_HOME=/build/cargo-home \
   "$image_tag" bash -euo pipefail -c '
     cargo build -p msime-host-api --locked
     # 读取实际生成的目标图，关闭测试时不得再编译 tests/ 下的源码。

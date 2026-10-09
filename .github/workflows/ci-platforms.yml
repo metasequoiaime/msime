@@ -243,7 +243,7 @@ jobs:
     needs: changes
     name: Windows GNU cross build
     runs-on: depot-ubuntu-24.04-16
-    # Ubuntu 24.04's MinGW headers predate d2d1_3.h, which msimeui includes for ID2D1DeviceContext5 and SVG rendering, so the build runs in the Debian release platforms/windows/cross/Dockerfile is based on. The steps below mirror that Dockerfile.
+    # Ubuntu 24.04 的 MinGW 缺少 `msimeui` 使用的 `d2d1_3.h`，因此沿用交叉镜像的 Debian 系统依赖与线程模型，`checkout` 后复用同一别名脚本。
     container: debian:trixie-slim
     timeout-minutes: 90
     steps:
@@ -255,22 +255,17 @@ jobs:
           # The unsuffixed compiler defaults to the win32 thread model, whose C++ library has no std::thread.
           update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
           update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
-          # Windows and macOS resolve `#include <Windows.h>` against the lowercase windows.h; this filesystem is case-sensitive, so supply the initial-capital spellings the sources use.
-          for dir in /usr/share/mingw-w64/include /usr/x86_64-w64-mingw32/include; do
-            [ -d "$dir" ] || continue
-            for header in "$dir"/[a-z]*.h; do
-              [ -e "$header" ] || continue
-              name=$(basename "$header")
-              capital="$(printf '%s' "$name" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$name" | cut -c2-)"
-              [ -e "$dir/$capital" ] || ln -s "$name" "$dir/$capital"
-            done
-          done
           curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       # Checked out after git is installed, so the tree is a real repository rather than an API download.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Prepare MinGW header aliases
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        run: |
+          python3 platforms/windows/cross/add-header-aliases.py \
+            /usr/share/mingw-w64/include /usr/x86_64-w64-mingw32/include
       - name: Build Windows host, TSF DLL and native tests
         if: ${{ needs.changes.outputs.windows == 'true' }}
         run: |

@@ -14,12 +14,14 @@ public final class AccountSessionRoutingPolicy {
     public static final String METHOD_ANONYMOUS_ACCESS_TOKEN = "anonymous_access_token";
     /** `:ime` 进程标记某个同步分类本机有改动；参数是分类名。 */
     public static final String METHOD_SYNC_DIRTY = "sync_dirty";
-    /** `:ime` 进程读同步开关与登录方式；回复里只有这两项，没有任何令牌。 */
+    /** `:ime` 进程读同步开关、登录方式与账号 ID；回复里没有任何令牌。 */
     public static final String METHOD_SYNC_STATE = "sync_state";
     /** `sync_state` 回复中的开关字段。 */
     public static final String KEY_SYNC_ENABLED = "sync_enabled";
     /** `sync_state` 回复中的登录方式字段（google / apple / email，未登录为空）。 */
     public static final String KEY_LOGIN_KIND = "login_kind";
+    /** `sync_state` 回复中的主进程账号 ID；缺失表示暂不可读，空字符串表示未绑定。 */
+    public static final String KEY_ACCOUNT_ID = "account_id";
     /** `sync_dirty` 回复中「标记已记下」的字段。 */
     public static final String KEY_SYNC_MARKED = "sync_marked";
     /** 回复中携带令牌的字段名。 */
