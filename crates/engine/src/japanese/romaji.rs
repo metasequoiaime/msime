@@ -268,37 +268,65 @@ fn is_consonant(byte: u8) -> bool {
     byte.is_ascii_lowercase() && !matches!(byte, b'a' | b'i' | b'u' | b'e' | b'o')
 }
 
-/// :54-131: `n` rules, sokuon, longest table match, the rest pending.
-pub fn convert_romaji(input: &str) -> RomajiConversion {
-    let normalized = if input.bytes().any(|byte| byte.is_ascii_uppercase()) {
+fn normalized_romaji(input: &str) -> Cow<'_, str> {
+    if input.bytes().any(|byte| byte.is_ascii_uppercase()) {
         Cow::Owned(input.to_ascii_lowercase())
     } else {
         Cow::Borrowed(input)
-    };
-    let bytes = normalized.as_bytes();
+    }
+}
+
+/// 按原 `n`、促音与最长表匹配规则转换，剩余输入作为待定尾部。
+pub fn convert_romaji(input: &str) -> RomajiConversion {
+    let normalized = normalized_romaji(input);
     let mut result = RomajiConversion::default();
+    let pending = scan_romaji(&normalized, |kana| result.hiragana.push_str(kana));
+    result.pending = pending.to_owned();
+    result.complete = !result.hiragana.is_empty() && result.pending.is_empty();
+    result
+}
+
+/// 直接写入假名及待定尾部，复用目标容量；规范化的大写副本仅在本次调用中存活。
+pub(crate) fn romaji_reading_into(input: &str, destination: &mut String) {
+    destination.clear();
+    let normalized = normalized_romaji(input);
+    let pending = scan_romaji(&normalized, |kana| destination.push_str(kana));
+    destination.push_str(pending);
+}
+
+/// 只判断是否有假名且没有待定尾部，不物化转换字符串。
+pub(crate) fn is_romaji_complete(input: &str) -> bool {
+    let normalized = normalized_romaji(input);
+    let mut has_kana = false;
+    let pending = scan_romaji(&normalized, |_| has_kana = true);
+    has_kana && pending.is_empty()
+}
+
+/// 逐个发出假名，返回尚未消费的尾部；调用方持有规范化输入的存储。
+fn scan_romaji(normalized: &str, mut emit: impl FnMut(&'static str)) -> &str {
+    let bytes = normalized.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
         if bytes[index] == b'n' {
             match bytes.get(index + 1).copied() {
                 None => {
-                    result.hiragana.push_str(MORAIC_N);
+                    emit(MORAIC_N);
                     index += 1;
                     continue;
                 }
                 Some(b'\'') => {
-                    result.hiragana.push_str(MORAIC_N);
+                    emit(MORAIC_N);
                     index += 2;
                     continue;
                 }
                 Some(b'n') => {
                     // `nn` 一律是一个ん，和微软、Google 日文输入法及 Rime 一致：习惯这些输入法的人每个ん都打 `nn`，`sinnyou` 要得到しんよう而不是しんにょう。代价是んな要打 `nnna`、こんにちは要打 `konnnichiha`，这也是那些输入法的写法。
-                    result.hiragana.push_str(MORAIC_N);
+                    emit(MORAIC_N);
                     index += 2;
                     continue;
                 }
                 Some(next) if next == b'-' || (is_consonant(next) && next != b'y') => {
-                    result.hiragana.push_str(MORAIC_N);
+                    emit(MORAIC_N);
                     index += 1;
                     continue;
                 }
@@ -309,10 +337,10 @@ pub fn convert_romaji(input: &str) -> RomajiConversion {
         let current = bytes[index];
         let doubled_consonant =
             bytes.get(index + 1) == Some(&current) && is_consonant(current) && current != b'n';
-        // Hepburn writes っち as `tchi`, so a t directly before `ch` is a sokuon although the consonants differ.
+        // Hepburn 把っち写成 `tchi`，所以 `ch` 前面的 `t` 也是促音。
         let hepburn_tch = current == b't' && bytes[index + 1..].starts_with(b"ch");
         if doubled_consonant || hepburn_tch {
-            result.hiragana.push_str(SOKUON);
+            emit(SOKUON);
             index += 1;
             continue;
         }
@@ -324,15 +352,13 @@ pub fn convert_romaji(input: &str) -> RomajiConversion {
                 .map(|&kana| (kana, length))
         });
         let Some((kana, length)) = matched else {
-            // Every consumed byte was an ASCII table key, a `n` or a sokuon letter, so `index` is on a character boundary.
-            result.pending = normalized[index..].to_owned();
-            break;
+            // 已消费的字节只可能是 ASCII 表键、`n` 或促音字母，`index` 始终落在字符边界。
+            return &normalized[index..];
         };
-        result.hiragana.push_str(kana);
+        emit(kana);
         index += length;
     }
-    result.complete = !result.hiragana.is_empty() && result.pending.is_empty();
-    result
+    &normalized[index..]
 }
 
 /// Shifts U+3041..=U+3096 by 0x60; everything else, ー included, passes through.
@@ -474,6 +500,86 @@ mod tests {
             allocations <= 3,
             "lowercase conversion allocations: {allocations}"
         );
+    }
+
+    fn assert_streamed_conversion_matches_owned(input: &str) {
+        let expected = convert_romaji(input);
+        let expected_reading = format!("{}{}", expected.hiragana, expected.pending);
+        let mut reading = String::new();
+        romaji_reading_into(input, &mut reading);
+        assert_eq!(reading, expected_reading, "{input}");
+        let pointer = reading.as_ptr();
+        let expected_allocations = usize::from(input.bytes().any(|byte| byte.is_ascii_uppercase()));
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            romaji_reading_into(input, &mut reading);
+        });
+        assert_eq!(reading, expected_reading, "{input}");
+        assert_eq!(reading.as_ptr(), pointer, "{input}");
+        assert_eq!(allocations, expected_allocations, "直接写入：{input}");
+        let (complete, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| is_romaji_complete(input));
+        assert_eq!(complete, expected.complete, "{input}");
+        assert_eq!(allocations, expected_allocations, "完整性扫描：{input}");
+    }
+
+    #[test]
+    fn streamed_conversion_matches_every_table_spelling_and_prefix() {
+        for &(romaji, _) in ROMAJI_TABLE {
+            for end in 0..=romaji.len() {
+                assert_streamed_conversion_matches_owned(&romaji[..end]);
+                assert_streamed_conversion_matches_owned(&romaji[..end].to_ascii_uppercase());
+            }
+        }
+        for input in [
+            "sinnyou",
+            "konnnichiha",
+            "nnna",
+            "n'a",
+            "nn",
+            "n-",
+            "nk",
+            "ny",
+            "kka",
+            "tchi",
+            "matcha",
+            "ka漢字",
+            "ka😀Tail",
+            "漢字",
+            "😀",
+            "KA漢字",
+            "n'漢",
+            "x?",
+            "a[",
+            "\0",
+        ] {
+            assert_streamed_conversion_matches_owned(input);
+        }
+    }
+
+    #[test]
+    fn streamed_reading_reuses_storage_across_shrinking_and_pending_edits() {
+        let long = "ka".repeat(32);
+        let mut reading = String::new();
+        romaji_reading_into(&long, &mut reading);
+        let pointer = reading.as_ptr();
+        for input in [
+            long.as_str(),
+            "nihong",
+            "ka漢",
+            "n'a",
+            "k",
+            "",
+            long.as_str(),
+        ] {
+            let expected = convert_romaji(input);
+            let expected_reading = format!("{}{}", expected.hiragana, expected.pending);
+            let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                romaji_reading_into(input, &mut reading);
+            });
+            assert_eq!(reading, expected_reading, "{input}");
+            assert_eq!(reading.as_ptr(), pointer, "{input}");
+            assert_eq!(allocations, 0, "编辑复用：{input}");
+        }
     }
 
     // test_engine_smoke.cpp:216-269.

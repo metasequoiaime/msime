@@ -248,7 +248,7 @@ msime::linux_host::CandidateTheme candidate_theme(const Json &preferences) {
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, GlobalTheme, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, CharacterWidth, VoiceEnabled };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, GlobalTheme, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, WubiAutoCommitUnique, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, CharacterWidth, VoiceEnabled };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 struct FailedMenuSave {
   MenuPreference preference;
@@ -365,6 +365,7 @@ struct State {
   std::optional<bool> learning_override;
   std::optional<bool> shuangpin_preedit_override;
   std::optional<bool> wubi_code_hint_override;
+  std::optional<bool> wubi_auto_commit_unique_override;
   std::optional<std::string> layout_override, preedit_override, theme_override;
   std::optional<std::string> scheme_override, shuangpin_profile_override;
   // A 主题 menu choice being saved, as theme_choice_change writes it.
@@ -382,6 +383,7 @@ struct State {
   uint8_t frequency_linear_step = 1;
   bool shuangpin_preedit_uses_raw = true;
   bool wubi_code_hint = true;
+  bool wubi_auto_commit_unique = true;
   bool smart_punctuation = true;
   bool smart_punctuation_repeat = true;
   bool smart_punctuation_space_convert = false;
@@ -723,6 +725,8 @@ struct State {
       preferences["shuangpin_preedit_uses_raw"] = *shuangpin_preedit_override;
     if (wubi_code_hint_override)
       preferences["wubi_code_hint"] = *wubi_code_hint_override;
+    if (wubi_auto_commit_unique_override)
+      preferences["wubi_auto_commit_unique"] = *wubi_auto_commit_unique_override;
     const auto active_scheme = preferences.value("scheme", "quanpin");
     if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
       if (helpcode_override) preferences[active_scheme + "_helpcode"]["enabled"] = *helpcode_override;
@@ -858,6 +862,7 @@ struct State {
     shuangpin_preedit_uses_raw = options.at("preferences").value(
         "shuangpin_preedit_uses_raw", true);
     wubi_code_hint = options.at("preferences").value("wubi_code_hint", true);
+    wubi_auto_commit_unique = options.at("preferences").value("wubi_auto_commit_unique", true);
     view = response(
         msime_client_set_chinese_punctuation(session, chinese_punctuation));
     navigation = bindings;
@@ -993,6 +998,8 @@ struct State {
         preferences.value("shuangpin_preedit_uses_raw", true));
     wubi_code_hint = wubi_code_hint_override.value_or(
         preferences.value("wubi_code_hint", true));
+    wubi_auto_commit_unique = wubi_auto_commit_unique_override.value_or(
+        preferences.value("wubi_auto_commit_unique", true));
     const auto voice = preferences.value("voice_input", Json::object());
     // The voice overlay's mode from voice_theme by its own rule, its colours from the theme the candidate window resolves (as the floating toolbar takes them), so the bar matches the panel's theme; a fixed-appearance theme overrides the mode.
     const auto voice_theme = theme_in_mode(
@@ -1090,6 +1097,8 @@ struct State {
       preferences["shuangpin_preedit_uses_raw"] = *shuangpin_preedit_override;
     if (wubi_code_hint_override)
       preferences["wubi_code_hint"] = *wubi_code_hint_override;
+    if (wubi_auto_commit_unique_override)
+      preferences["wubi_auto_commit_unique"] = *wubi_auto_commit_unique_override;
     const auto active_scheme = preferences.value("scheme", "quanpin");
     if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
       if (helpcode_override)
@@ -3207,6 +3216,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.focused && !s.blocked && s.input_enabled && active_scheme == "wubi" &&
           !menu_save_pending,
       msime::linux_host::edition_offers_scheme("wubi"), s.wubi_code_hint ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto wubi_auto_commit_unique_property = ibus_property_new(
+      "WubiAutoCommitUnique", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("五笔四码唯一自动上屏"), "",
+      ibus_text_new_from_static_string("五笔输入达到四码且只有一个候选时自动提交，关闭后用空格或数字键选它"),
+      s.focused && !s.blocked && s.input_enabled && active_scheme == "wubi" &&
+          !menu_save_pending,
+      msime::linux_host::edition_offers_scheme("wubi"),
+      s.wubi_auto_commit_unique ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto theme_property = ibus_property_new(
       "CandidateTheme", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选明暗"), "",
@@ -3347,7 +3364,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, menu_group(
         "Group/Candidate", "候选与词频", "候选窗口、编码显示与词频学习",
         {layout_property, page_size_property, theme_property, preedit_property, shuangpin_preedit_property,
-         wubi_code_hint_property, menu_separator("Group/Candidate/Separator"), learning_property,
+         wubi_code_hint_property, wubi_auto_commit_unique_property,
+         menu_separator("Group/Candidate/Separator"), learning_property,
          frequency_property, frequency_trigger_property, frequency_step_property}));
     ibus_prop_list_append(properties, toolbar);
     ibus_prop_list_append(properties, desktop_tools_property(engine));
@@ -3390,6 +3408,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, shuangpin_preedit_property);
     ibus_engine_update_property(engine, wubi_code_hint_property);
+    ibus_engine_update_property(engine, wubi_auto_commit_unique_property);
     ibus_engine_update_property(engine, learning_property);
     ibus_engine_update_property(engine, frequency_property);
     ibus_engine_update_property(engine, frequency_trigger_property);
@@ -5217,6 +5236,30 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.wubi_code_hint_override = enabled;
       s.wubi_code_hint = enabled;
       render(engine, s.view);
+      publish_mode(engine);
+      return;
+    }
+    if (property_name == "WubiAutoCommitUnique") {
+      const auto active_scheme = effective_scheme(s);
+      if (active_scheme != "wubi" || menu_save_pending)
+        return;
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (enabled == s.wubi_auto_commit_unique)
+        return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::WubiAutoCommitUnique, enabled);
+        return;
+      }
+      // 和上面的双拼原始预编辑一样：这个开关由 runtime 判定，没有偏好目录就不会重读，
+      // 只能重建会话把 override 交给它，否则菜单显示已关、四码唯一仍然自动上屏。
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.wubi_auto_commit_unique_override = enabled;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
       publish_mode(engine);
       return;
     }
@@ -7483,6 +7526,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->shuangpin_preedit_override.reset();
           if (request.preference == MenuPreference::WubiCodeHint)
             self->state->wubi_code_hint_override.reset();
+          if (request.preference == MenuPreference::WubiAutoCommitUnique)
+            self->state->wubi_auto_commit_unique_override.reset();
           if (request.preference == MenuPreference::SmartPunctuation)
             self->state->smart_punctuation_override.reset();
           if (request.preference == MenuPreference::SmartPunctuationRepeat)
@@ -7592,6 +7637,9 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::WubiCodeHint:
             snapshot["preferences"]["wubi_code_hint"] = request.value;
+            break;
+          case MenuPreference::WubiAutoCommitUnique:
+            snapshot["preferences"]["wubi_auto_commit_unique"] = request.value;
             break;
           case MenuPreference::SmartPunctuation:
             snapshot["preferences"]["smart_punctuation"] = request.value;

@@ -90,7 +90,7 @@ public final class PageDots extends View {
         if (count == 0) return;
         Context context = getContext();
         int accent = Ui.accent(context);
-        int rest = Ui.withAlpha(Ui.text(context), 0.12f);
+        int rest = ColorPolicy.withAlpha(Ui.text(context), 0.12f);
         float total = active + (count - 1) * (dot + gap);
         float x = getPaddingLeft() + (getWidth() - getPaddingLeft() - getPaddingRight() - total) / 2f;
         float top = getPaddingTop() + (getHeight() - getPaddingTop() - getPaddingBottom() - dot) / 2f;

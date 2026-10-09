@@ -120,7 +120,7 @@ public final class KeyboardPreview extends View {
     private int withKeyOpacity(int colour) {
         if (skin == null || !skin.designed()) return colour;
         float opacity = (float) KeyboardGeometry.bounded(skin.keyOpacity(), 0, 1);
-        return Ui.withAlpha(colour, opacity);
+        return ColorPolicy.withAlpha(colour, opacity);
     }
 
     private int ink() {

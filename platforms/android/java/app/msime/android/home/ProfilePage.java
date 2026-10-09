@@ -103,13 +103,15 @@ public final class ProfilePage extends DetailPage {
 
     /** 同步状态记着的账号与服务端说的不一致（登录时没读到用户 id，或换了账号）时重新绑定；绑定换账号时会关闭同步并清空游标。 */
     static void bindIfNeeded(Context context, DeviceDataApi.Profile profile) {
-        String kind = SyncSwitch.validLoginKind(SyncSwitch.loginKind(context)) ? SyncSwitch.loginKind(context)
-            : profile.loginKind();
-        if (kind.isEmpty()) return;
-        String previousAccount = SyncSwitch.accountId(context);
-        if (profile.id().equals(previousAccount) && kind.equals(SyncSwitch.loginKind(context))) return;
         synchronized (SyncSwitch.bindingLock()) {
-            SignIn.cancelPendingSnapshot(context, previousAccount);
+            String currentKind = SyncSwitch.loginKind(context);
+            String kind = SyncSwitch.validLoginKind(currentKind) ? currentKind : profile.loginKind();
+            if (kind.isEmpty()) return;
+            String previousAccount = SyncSwitch.accountId(context);
+            if (profile.id().equals(previousAccount) && kind.equals(currentKind)) return;
+            if (!previousAccount.equals(profile.id())) {
+                SignIn.cancelPendingSnapshot(context, previousAccount);
+            }
             SyncSwitch.bindAccount(context, profile.id(), kind);
         }
     }

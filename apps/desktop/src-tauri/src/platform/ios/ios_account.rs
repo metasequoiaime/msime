@@ -210,7 +210,13 @@ pub async fn account_login(
     challenge_id: String,
     code: String,
 ) -> Result<StatusResponse, crate::CommandError> {
-    shared_account_login(state, challenge_id, code).await
+    let session = Arc::clone(&state.session);
+    let previews = Arc::clone(&state.snapshot_previews);
+    let result = shared_account_login(state, challenge_id, code, |account_id| {
+        cancel_queued_snapshot(Some(account_id));
+    })
+    .await;
+    clear_snapshot_previews_after(&session, &previews, result)
 }
 
 #[cfg(target_os = "ios")]
@@ -235,14 +241,18 @@ pub async fn account_apple_login(
         .map_err(|_| crate::CommandError {
             code: "apple_sign_in",
         })?;
-    call_session(state.session(), move |session| {
+    let previews = Arc::clone(&state.snapshot_previews);
+    let result = call_session(state.session(), move |session| {
         session
-            .sign_in_apple(&challenge.challenge_id, &credential)
+            .sign_in_apple_with_cleanup(&challenge.challenge_id, &credential, |account_id| {
+                cancel_queued_snapshot(Some(account_id));
+            })
             .map(|user| StatusResponse {
                 user: Some(user.into()),
             })
     })
-    .await
+    .await;
+    clear_snapshot_previews_after(&state.session, &previews, result)
 }
 
 #[cfg(target_os = "ios")]

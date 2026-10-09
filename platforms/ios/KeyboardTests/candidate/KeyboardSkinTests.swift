@@ -619,17 +619,14 @@ final class KeyboardSkinTests: XCTestCase {
     preserveSharedTheme()
     let scheme = InputSchemePreference.scheme
     let enabledSchemes = InputSchemePreference.enabledSchemes
-    let wubiHint = WubiCodeHintPreference.isEnabled
     let followsDesktop = CandidatePalette.defaults.object(forKey: CandidatePalette.followsDesktopKey)
     defer {
       InputSchemePreference.enabledSchemes = enabledSchemes
       InputSchemePreference.scheme = scheme
-      WubiCodeHintPreference.isEnabled = wubiHint
       CandidatePalette.defaults.set(followsDesktop, forKey: CandidatePalette.followsDesktopKey)
     }
     InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
     InputSchemePreference.scheme = .wubi
-    WubiCodeHintPreference.isEnabled = true
     CandidatePalette.defaults.set(false, forKey: CandidatePalette.followsDesktopKey)
     let light = UITraitCollection(userInterfaceStyle: .light)
     func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }

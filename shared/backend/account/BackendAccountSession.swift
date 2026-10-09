@@ -331,16 +331,23 @@ actor BackendAccountSession {
       loaded = true
     }
   }
-  func signIn(challenge: String, credential: String) async throws {
+  func signIn(challenge: String, credential: String,
+              replacingAccount cleanup: @Sendable (String) -> Void = { _ in }) async throws {
     generation += 1
     refreshing?.cancel(); refreshing = nil
     let version = generation
     let tokens = try await api.login(challenge: challenge, credential: credential, linkToken: nil)
     try Task.checkCancellation()
     try await refreshLock.run {
-      guard await self.generation == version else { throw CancellationError() }
-      try await self.install(tokens)
+      try await self.installReplacingAccount(tokens, version: version, cleanup: cleanup)
     }
+  }
+  private func installReplacingAccount(_ tokens: BackendAccountClient.Tokens,
+                                       version: Int, cleanup: @Sendable (String) -> Void) throws {
+    guard generation == version else { throw CancellationError() }
+    let previous = try? storage.load().map { try BackendSavedSession.validated($0) }
+    try install(tokens)
+    if let accountID = previous?.tokens.user.id, accountID != tokens.user.id { cleanup(accountID) }
   }
   private func install(_ tokens: BackendAccountClient.Tokens) throws {
     let value = try BackendSavedSession.forTokens(tokens)

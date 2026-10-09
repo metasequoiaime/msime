@@ -212,7 +212,7 @@ public final class GroupCard {
 
     private static void setText(TextView view, @Nullable CharSequence text) {
         view.setText(text);
-        Ui.setVisibilityForText(view, text);
+        ViewPolicy.setVisibilityForText(view, text);
     }
 
     /** 一行设置；保留各部件的引用，页面在数据变化后原地改写它们。 */

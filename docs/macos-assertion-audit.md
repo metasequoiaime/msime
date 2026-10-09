@@ -38,7 +38,7 @@ grep -rhoE 'require\([^,]*,\s*"[^"]+"' "$ref"/platforms/macos/tests/*.mm "$ref"/
 
 11 条是组合输出（你 / 你们 / 爷 / 你好 / 日期），由引擎驱动；目标的等价覆盖是 `platforms/macos/tests/input/ShortcutTest.mm` 的 `TestRealSessionComposition()`（#3240），走真引擎 → 真控制器 → 文本客户端。
 
-- `Wubi auto-commit fired before the fourth code.` — `platforms/macos/src/core/WubiCommitPolicy.h` 的 `MSIMEShouldAutoCommitWubi`，控制器直接引用。
+- `Wubi auto-commit fired before the fourth code.` — `platforms/macos/src/core/WubiCommitPolicy.h` 的 `MSIMEShouldAutoCommitWubi`，控制器直接引用。（2026-10-08 起该头文件与分支已删：判定移进共享 `crates/input-runtime` 的 `Runtime::dispatch`，可由共享偏好 `wubi_auto_commit_unique` 关闭；当时那条断言守的是一段因共享路径先上屏而不可达的代码，见 `.agents/notes/implemented/feature/2026-10-08-wubi-auto-commit-unique-preference.md`。）
 - `IMKCandidates does not support moveUp:/pageUp:.` — 这两条是参考在**记录平台限制**，说明它为什么自绘候选窗。目标同样自绘（`platforms/macos/src/candidate/CandidatePanel.mm`），结论已内化，没有要实现的东西。
 
 ## UninstallerTests.mm（12 条）
