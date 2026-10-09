@@ -29,6 +29,7 @@ use std::{
     },
 };
 
+pub(crate) mod habits;
 mod record;
 
 const BUFFER_LIMIT: usize = 65536;
@@ -866,7 +867,7 @@ pub(crate) fn queue_learning_merge(
     Ok(json!({"queued": true, "learning": learning}))
 }
 
-/// 有待合并的输入记录（[`queue_learning_merge`]）时把它合并进本机的日志和词库：本机已有的保留本机，选词计数取大（`msime_engine::host::merge_dictionary_state`）。没有待合并的文件时返回 `{merged:false}`，合并了返回 `{merged:true, entries, positions, selections, kept, skipped}`。Android 键盘收起、会话销毁后在空闲时调用（与整份快照激活同一时机，排在它之后），不在建会话前的个人词库同步里做，免得一份大备份拖慢恢复后第一次弹出键盘。
+/// 有待合并的输入记录（[`queue_learning_merge`]）时把它合并进本机的日志和词库：本机已有的保留本机，选词计数取大（`msime_engine::host::merge_dictionary_state`）；接着用同样的认领方式合并待合并的输入习惯（[`habits::queue_habits_merge`]）。都没有待合并的文件时返回 `{merged:false}`，合并了输入记录返回 `{merged:true, entries, positions, selections, kept, skipped}`；处理过输入习惯时再多一个 `habits` 字段，是 `{merged:true, written, kept, trimmed}`，或失败时的 `{merged:false, error}`。输入记录合并失败时报它的错，输入习惯照样尝试。Android 键盘收起、会话销毁后在空闲时调用（与整份快照激活同一时机，排在它之后），不在建会话前的个人词库同步里做，免得一份大备份拖慢恢复后第一次弹出键盘。
 ///
 /// 先拿独占维护权，拿不到（还有会话开着）时什么也不动，下次再试。拿到后把待合并的文件改名认领（[`CLAIMED_LEARNING_NAME`]），只合并、只删认领的那一份：合并期间设置页又排了一份新的，新的那份写在原来的名字下，不会被这边删掉，下次空闲时再合并。上次没合并完的认领文件还在时先合并它，新排的等下一次。
 ///
@@ -875,9 +876,65 @@ pub(crate) fn merge_pending_learning(
     options: &EngineOptions,
     preferences: &Path,
 ) -> Result<Value, &'static str> {
-    let pending = preferences.join(PENDING_LEARNING_NAME);
-    let claimed = preferences.join(CLAIMED_LEARNING_NAME);
-    let attempts = preferences.join(LEARNING_ATTEMPTS_NAME);
+    let learning = merge_pending(options, preferences, &LEARNING_FILES, |claimed| {
+        let metadata = inspect_snapshot(claimed)?;
+        let stream = SnapshotFileRecords::open(claimed)?;
+        let merged = msime_engine::host::merge_dictionary_state(
+            options,
+            metadata.engine_records.max(1),
+            stream,
+        )
+        .map_err(|_| "learning merge rejected")?;
+        Ok(json!({
+            "merged": true,
+            "entries": merged.entries,
+            "positions": merged.positions,
+            "selections": merged.selections,
+            "kept": merged.kept,
+            "skipped": merged.skipped,
+        }))
+    });
+    let habits = merge_pending(options, preferences, &habits::HABITS_FILES, |claimed| {
+        habits::merge_claimed_habits(options, claimed)
+    });
+    let habits = match habits {
+        Ok(value) if value.get("merged") == Some(&Value::Bool(false)) => return learning,
+        Ok(value) => value,
+        Err(error) => json!({"merged": false, "error": error}),
+    };
+    learning.map(|mut value| {
+        value["habits"] = habits;
+        value
+    })
+}
+
+/// 一类待合并文件的名字：设置页写下的、键盘认领后改成的、记连续失败次数的，以及放弃时报的错和哪些错误说明文件本身不对（直接删掉，不重试）。
+pub(crate) struct PendingFiles {
+    pending: &'static str,
+    claimed: &'static str,
+    attempts: &'static str,
+    abandoned: &'static str,
+    invalid: &'static [&'static str],
+}
+
+const LEARNING_FILES: PendingFiles = PendingFiles {
+    pending: PENDING_LEARNING_NAME,
+    claimed: CLAIMED_LEARNING_NAME,
+    attempts: LEARNING_ATTEMPTS_NAME,
+    abandoned: "learning merge abandoned",
+    invalid: &["invalid snapshot document", "invalid snapshot file"],
+};
+
+/// [`merge_pending_learning`] 的认领与重试：没有文件时返回 `{merged:false}`；有的话拿独占维护权、认领、交给 `merge`，按结果删掉或记下失败次数。
+fn merge_pending(
+    options: &EngineOptions,
+    preferences: &Path,
+    files: &PendingFiles,
+    merge: impl FnOnce(&Path) -> Result<Value, &'static str>,
+) -> Result<Value, &'static str> {
+    let pending = preferences.join(files.pending);
+    let claimed = preferences.join(files.claimed);
+    let attempts = preferences.join(files.attempts);
     let present = |path: &Path| match std::fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
@@ -901,24 +958,12 @@ pub(crate) fn merge_pending_learning(
         let _ = std::fs::remove_file(&claimed);
         let _ = std::fs::remove_file(&attempts);
     };
-    let merged = inspect_snapshot(&claimed).and_then(|metadata| {
-        let stream = SnapshotFileRecords::open(&claimed)?;
-        msime_engine::host::merge_dictionary_state(options, metadata.engine_records.max(1), stream)
-            .map_err(|_| "learning merge rejected")
-    });
-    match merged {
+    match merge(&claimed) {
         Ok(merged) => {
             discard();
-            Ok(json!({
-                "merged": true,
-                "entries": merged.entries,
-                "positions": merged.positions,
-                "selections": merged.selections,
-                "kept": merged.kept,
-                "skipped": merged.skipped,
-            }))
+            Ok(merged)
         }
-        Err(error @ ("invalid snapshot document" | "invalid snapshot file")) => {
+        Err(error) if files.invalid.contains(&error) => {
             discard();
             Err(error)
         }
@@ -930,7 +975,7 @@ pub(crate) fn merge_pending_learning(
                 .saturating_add(1);
             if failures >= MAX_LEARNING_MERGE_ATTEMPTS {
                 discard();
-                return Err("learning merge abandoned");
+                return Err(files.abandoned);
             }
             msime_client_core::file_lock::replace_private_file(
                 &attempts,
@@ -949,7 +994,7 @@ fn remove_if_present(path: &Path) -> Result<(), &'static str> {
     }
 }
 
-/// 本机日志里输入记录的条数（学习调权、删除记录、固定位置和选词计数，不含用户自己的词），只读。本地备份恢复时用它判断本机是不是还什么都没学过。
+/// 本机日志里输入记录的条数（学习调权、删除记录、固定位置和选词计数，不含用户自己的词）`count`，以及输入习惯的行数 `habits`（[`habits`]），只读。本地备份恢复时用它判断本机是不是还什么都没学过。
 pub(crate) fn learning_count(options: &EngineOptions) -> Result<Value, &'static str> {
     use msime_engine::host::DictionaryStateRecord;
     let mut count = 0usize;
@@ -967,7 +1012,9 @@ pub(crate) fn learning_count(options: &EngineOptions) -> Result<Value, &'static 
         true
     })
     .map_err(|_| "dictionary read rejected")?;
-    Ok(json!({"count": count}))
+    // 整份激活会连同输入习惯一起换掉，所以调用方也要知道本机有没有输入习惯；读不出来时为 null，调用方按「不确定」处理。
+    let habits = msime_engine::host::count_learning_habits(options).ok();
+    Ok(json!({"count": count, "habits": habits}))
 }
 
 fn restore_snapshot_with(

@@ -1373,3 +1373,154 @@ fn a_backup_without_learning_queues_nothing() {
         )
         .is_err());
 }
+
+/// 输入习惯（#5659）：导出、校验、排队，键盘空闲时随输入记录一起合并，计数取大、置顶保留本机；计数也让整份激活的判断知道本机学过东西。
+#[test]
+fn learning_habits_export_queue_and_merge_when_idle() {
+    let source = LearningDevice::with_learning();
+    source.sql(
+        "INSERT INTO personal_bigram(previous,word,count) VALUES(char(1),'我',4),('我','想',2);
+         INSERT INTO pick_transitions(previous_key,previous_value,key,value,count,updated_at) VALUES('wo','我','xiang','想',3,100);
+         INSERT INTO pinyin_typo_counts(typed,intended,accepted,updated_at) VALUES('jai','jia',5,100);
+         INSERT INTO pinned_candidates(context_key,value,updated_at) VALUES('ni','你',100),('hao','好',100);",
+    );
+    let file = source.root.path().join("habits.ndjson");
+    let exported = source
+        .request(serde_json::json!({"operation": "export_habits", "destination": file}))
+        .unwrap();
+    assert_eq!(exported["habits"], 6);
+    assert_eq!(exported["skipped"], 0);
+    assert_eq!(
+        source
+            .request(serde_json::json!({"operation": "inspect_habits", "source": file}))
+            .unwrap(),
+        serde_json::json!({"habits": 6})
+    );
+    assert_eq!(
+        source
+            .request(serde_json::json!({"operation": "learning_count"}))
+            .unwrap()["habits"],
+        6
+    );
+
+    let device = LearningDevice::new();
+    assert_eq!(
+        device
+            .request(serde_json::json!({"operation": "learning_count"}))
+            .unwrap(),
+        serde_json::json!({"count": 0, "habits": 0})
+    );
+    device.sql(
+        "CREATE TABLE IF NOT EXISTS personal_bigram(previous TEXT NOT NULL,word TEXT NOT NULL,count INTEGER NOT NULL CHECK(count>0),PRIMARY KEY(previous,word)) WITHOUT ROWID;
+         CREATE TABLE IF NOT EXISTS pinned_candidates(context_key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL DEFAULT(unixepoch()));
+         INSERT INTO personal_bigram(previous,word,count) VALUES('我','想',5);
+         INSERT INTO pinned_candidates(context_key,value,updated_at) VALUES('ni','泥',200);",
+    );
+    assert_eq!(
+        device
+            .request(serde_json::json!({"operation": "queue_habits_merge", "source": file}))
+            .unwrap(),
+        serde_json::json!({"queued": true, "habits": 6})
+    );
+    let pending = device.root.path().join(super::habits::HABITS_FILES.pending);
+    assert!(pending.exists());
+
+    let session = msime_client_core::dictionary::access::DictionaryAccess::try_session(
+        &device.root.path().join("user"),
+        &device.root.path().join("dictionaries"),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": false, "habits": {"merged": false, "error": "dictionary maintenance busy"}})
+    );
+    assert!(pending.exists());
+    drop(session);
+
+    assert_eq!(
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": false, "habits": {"merged": true, "written": 4, "kept": 2, "trimmed": 0}})
+    );
+    assert!(!pending.exists());
+    assert_eq!(
+        device.number("SELECT count FROM personal_bigram WHERE previous='我' AND word='想'"),
+        Some(5)
+    );
+    assert_eq!(
+        device.number("SELECT count FROM personal_bigram WHERE previous=char(1) AND word='我'"),
+        Some(4)
+    );
+    assert_eq!(
+        device
+            .number("SELECT count(*) FROM pinned_candidates WHERE context_key='ni' AND value='泥'"),
+        Some(1)
+    );
+    assert_eq!(
+        device.number("SELECT accepted FROM pinyin_typo_counts WHERE typed='jai'"),
+        Some(5)
+    );
+    assert_eq!(
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": false})
+    );
+}
+
+/// 坏掉的输入习惯文件在排队时就被拒，什么也不写；已经排下却坏了的文件在合并时直接删掉。
+#[test]
+fn a_damaged_habits_file_is_refused_and_a_damaged_queue_is_dropped() {
+    let source = LearningDevice::new();
+    source.sql(
+        "CREATE TABLE IF NOT EXISTS personal_bigram(previous TEXT NOT NULL,word TEXT NOT NULL,count INTEGER NOT NULL CHECK(count>0),PRIMARY KEY(previous,word)) WITHOUT ROWID;
+         INSERT INTO personal_bigram(previous,word,count) VALUES('我','想',2);",
+    );
+    let file = source.root.path().join("habits.ndjson");
+    source
+        .request(serde_json::json!({"operation": "export_habits", "destination": file}))
+        .unwrap();
+    let text = std::fs::read_to_string(&file)
+        .unwrap()
+        .replace("\"count\":2", "\"count\":3");
+    std::fs::write(&file, text).unwrap();
+
+    let device = LearningDevice::new();
+    assert_eq!(
+        device
+            .request(serde_json::json!({"operation": "queue_habits_merge", "source": file}))
+            .unwrap_err(),
+        "invalid habits document"
+    );
+    let pending = device.root.path().join(super::habits::HABITS_FILES.pending);
+    assert!(!pending.exists());
+
+    std::fs::write(&pending, b"not habits\n").unwrap();
+    assert_eq!(
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": false, "habits": {"merged": false, "error": "invalid habits document"}})
+    );
+    assert!(!pending.exists());
+    assert!(!device
+        .root
+        .path()
+        .join(super::habits::HABITS_FILES.claimed)
+        .exists());
+}
+
+/// 恢复前的只读校验：完整的快照返回元数据，截断的报错。
+#[test]
+fn a_snapshot_is_inspected_without_side_effects() {
+    let source = LearningDevice::with_learning();
+    let backup = source.export(
+        "backup.ndjson",
+        serde_json::json!({"include_learning": true}),
+    );
+    let inspected = source
+        .request(serde_json::json!({"operation": "inspect_snapshot", "source": backup}))
+        .unwrap();
+    assert_eq!(inspected["entries"], 1);
+    let bytes = std::fs::read(&backup).unwrap();
+    std::fs::write(&backup, &bytes[..bytes.len() / 2]).unwrap();
+    assert!(source
+        .request(serde_json::json!({"operation": "inspect_snapshot", "source": backup}))
+        .is_err());
+}

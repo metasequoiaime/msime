@@ -215,8 +215,24 @@ enum Operation {
     QueueLearningMerge {
         source: String,
     },
-    /// 合并 `QueueLearningMerge` 排下的输入记录（`dictionary_snapshot::merge_pending_learning`），要独占维护权。要求 `preferences_directory` 是绝对路径。
+    /// 合并 `QueueLearningMerge` 排下的输入记录和 `QueueHabitsMerge` 排下的输入习惯（`dictionary_snapshot::merge_pending_learning`），要独占维护权。要求 `preferences_directory` 是绝对路径。
     MergePendingLearning,
+    /// 只读地完整校验一份词库快照文件 `source`（本地备份恢复前先查一遍），返回它的元数据（`dictionary_snapshot::inspect_snapshot`）。
+    InspectSnapshot {
+        source: String,
+    },
+    /// 把本机的输入习惯（整句联想、选词对、拼写纠错、自动纠错抑制、置顶）写成 `destination`（`dictionary_snapshot::habits::export_learning_habits`），本地备份用。
+    ExportHabits {
+        destination: String,
+    },
+    /// 只读地完整校验一份输入习惯文件 `source`，返回 `{habits}`。
+    InspectHabits {
+        source: String,
+    },
+    /// 把输入习惯文件 `source` 存成待合并的文件，键盘收起后空闲时与输入记录一起合并（`dictionary_snapshot::habits::queue_habits_merge`）。要求 `preferences_directory` 是绝对路径。
+    QueueHabitsMerge {
+        source: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -829,6 +845,46 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             crate::dictionary_snapshot::merge_pending_learning(&options, Path::new(&preferences))
                 .map_err(str::to_owned)
         }
+        Operation::InspectSnapshot { source } => {
+            let source = Path::new(&source);
+            if !source.is_absolute() {
+                return Err("invalid snapshot path".into());
+            }
+            let metadata =
+                crate::dictionary_snapshot::inspect_snapshot(source).map_err(str::to_owned)?;
+            serde_json::to_value(metadata).map_err(|_| "invalid snapshot file".to_owned())
+        }
+        Operation::ExportHabits { destination } => {
+            let _access = DictionaryAccess::try_session(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            crate::dictionary_snapshot::habits::export_learning_habits(
+                &options,
+                Path::new(&destination),
+            )
+            .map_err(str::to_owned)
+        }
+        Operation::InspectHabits { source } => {
+            let source = Path::new(&source);
+            if !source.is_absolute() {
+                return Err("invalid habits path".into());
+            }
+            crate::dictionary_snapshot::habits::inspect_learning_habits(source)
+                .map(|habits| json!({ "habits": habits }))
+                .map_err(str::to_owned)
+        }
+        Operation::QueueHabitsMerge { source } => {
+            let preferences =
+                preferences_directory.ok_or("personal dictionary shared directory unavailable")?;
+            crate::dictionary_snapshot::habits::queue_habits_merge(
+                Path::new(&preferences),
+                Path::new(&source),
+            )
+            .map_err(str::to_owned)
+        }
     }
 }
 
@@ -1075,7 +1131,11 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
         | Operation::ExportSnapshot { .. }
         | Operation::LearningCount
         | Operation::QueueLearningMerge { .. }
-        | Operation::MergePendingLearning => {
+        | Operation::MergePendingLearning
+        | Operation::InspectSnapshot { .. }
+        | Operation::ExportHabits { .. }
+        | Operation::InspectHabits { .. }
+        | Operation::QueueHabitsMerge { .. } => {
             Err("dictionary read operations require msime_client_dictionary".into())
         }
         Operation::DismissFailure { request_id } => {
