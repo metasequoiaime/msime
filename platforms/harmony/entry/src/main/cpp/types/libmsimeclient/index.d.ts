@@ -144,6 +144,8 @@ export const englishCompletions: (request: string, resources: string) => string;
 export const resetCache: (handle: number) => string;
 export const translationGlossSave: (request: string, userData: string) => string;
 export const translationPlan: (request: string) => string;
+/** Google 登录的回环判定（`msime_client_google_loopback`）：operation 为 target、plan 或 reply，请求与返回值见头文件。设置应用自己监听 127.0.0.1、打开浏览器、经系统 HTTPS 栈申请 challenge 和提交授权码。 */
+export const googleLoopback: (request: string) => string;
 export const tencentTranslationHttpRequest: (request: string) => string;
 export const niuTransTranslationHttpRequest: (request: string) => string;
 export const customTranslationHttpRequest: (request: string) => string;

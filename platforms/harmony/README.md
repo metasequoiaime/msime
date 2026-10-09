@@ -174,6 +174,16 @@ Harmony 触屏键盘的工具栏没有语音按钮，语音从功能面板的「
 
 Engine 换成纯 Rust crate 之后（2026-09-30），同一脚本在三个 ABI 上重新跑通，除 NDK 之外不再需要任何准备：以前要手工编译的 `libsqlite3.a` 前缀和 32 位 `armeabi-v7a` 需要的 fmt/spdlog 替身 config 都随 C++ Engine 一起去掉了，`libmsime_host_api.so` 的动态依赖只剩 `libc.so`。这一轮没有重新打 HAP，也没有上设备。
 
+## Google 登录：系统浏览器加本机回环
+
+设置页的「登录水杉」面板在后端开着 Google（`/v1/auth/providers` 返回 `google: true`）时显示「使用 Google 登录」。鸿蒙没有 Google 服务，GoogleSignIn SDK 用不了；Google 也拒绝在应用内的 WebView 里登录。所以走与桌面端同一条流程（RFC 8252）：设置应用在 `127.0.0.1` 的随机动态端口上用 `TCPSocketServer` 监听，经 `/v1/auth/challenges` 申请 Google challenge（`target` 是这个回环地址），用 `openLink` 把后端生成的授权链接交给系统浏览器，Google 跳回本机端口后把授权码经 `/v1/auth/login` 交给后端去换 token。PKCE 和 client secret 都在后端，后端不需要为鸿蒙做任何改动。
+
+哪些判定不在 ArkTS 里写：回跳地址的形状、授权链接能不能打开、等多久、一次回环请求是不是回跳、写回浏览器的页面，都由 C ABI `msime_client_google_loopback`（NAPI `googleLoopback`）给出，它和桌面端 `AccountSession::sign_in_google_with_browser` 用的是 `crates/client-core/src/account/google.rs` 里同一份代码。`account/HarmonyGoogleSignIn.ets` 只做 socket、浏览器和后台保活，请求头的拼接与截断在可测的 `GoogleLoopbackRequestHead.ts`。
+
+用户在浏览器里登录时设置应用在后台，系统可能冻结它，回跳就没人接，所以等待期间申请延迟挂起（`requestSuspendDelay`），结束时撤销。2026-10-08 在 HarmonyOS 6.0.2 模拟器上测过：浏览器停在页面上 120 秒后才回跳，后台的应用照样立即收到；不申请延迟挂起、等 60 秒也能收到，但模拟器的冻结可能比真机宽松，真机上的表现还要验证。最长等待是 challenge 寿命减去 30 秒（目前 270 秒），超时与用户在 Google 页面拒绝一样按取消处理；面板上的「取消 Google 登录」和关闭面板也会结束等待并关掉监听。页面那一侧的请求超时为此放宽到 6 分钟（`GOOGLE_SIGN_IN_TIMEOUT_MS`），默认的 30 秒会在用户还在浏览器里时就报超时。
+
+失败时日志会写明停在哪一步：没有端口、challenge 被拒、授权链接没通过校验、没等到授权码（含超时和取消）、授权码到了后端被拒；`/v1/auth/` 下的请求失败另记 HTTP 状态和后端的错误码，不记正文、令牌或授权码。
+
 ## 应用图标切换：本平台没有这个能力
 
 Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是 `SettingsClient.appIcon`，本宿主不声明它，于是那个控件不出现。这不是还没接，是公开 SDK 里没有对应的 API。

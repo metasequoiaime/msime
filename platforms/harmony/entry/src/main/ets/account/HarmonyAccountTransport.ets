@@ -5,6 +5,7 @@ import {
   AccountSessionStore, AccountTransport, AccountTransportResponse, parseResponseContentLength
 } from './AccountCloudBridge';
 import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
+import { KeyboardLog } from '../keyboard/KeyboardLog';
 import {
   anonymousSessionForBridge, anonymousSessionForStorage, MAX_SESSION_BYTES, sessionFitsStorage, sessionWriteComplete
 } from './AccountSessionPolicy';
@@ -210,6 +211,26 @@ export function responseContentType(headers: Object): string | undefined {
 }
 
 /** JSON requests to the account service through the system HTTPS stack; the settings application adds file transfers on top. */
+/** 后端错误正文 `{"error":{"code":"..."}}` 里的码；不是这个形状、或码不像标识符时为 `-`。 */
+function backendErrorCode(result: string | Object | ArrayBuffer): string {
+  if (typeof result !== 'string' || result.length > 4096) return '-';
+  try {
+    const parsed: BackendError = JSON.parse(result) as BackendError;
+    const code: string | undefined = parsed.error?.code;
+    return typeof code === 'string' && /^[a-z_]{1,64}$/.test(code) ? code : '-';
+  } catch {
+    return '-';
+  }
+}
+
+interface BackendError {
+  error?: BackendErrorBody;
+}
+
+interface BackendErrorBody {
+  code?: string;
+}
+
 export class HarmonyAccountTransport implements AccountTransport {
   private readonly activeRequests: Map<string, Set<http.HttpRequest>> =
     new Map<string, Set<http.HttpRequest>>();
@@ -240,6 +261,10 @@ export class HarmonyAccountTransport implements AccountTransport {
     });
     try {
       const response = await request.request(`${ACCOUNT_ORIGIN}${path}`, options);
+      if (path.startsWith('/v1/auth/') && response.responseCode >= 400) {
+        // 登录失败到页面上只剩一个映射后的 account_* 码，500 和网络错误都成了 account_unavailable。这里留下状态和后端自己的错误码，便于定位；只记形如 invalid_credentials 的码，不记正文、令牌或凭据。
+        KeyboardLog.warn(`account ${method} ${path.split('?')[0]} -> ${response.responseCode} ${backendErrorCode(response.result)}`);
+      }
       return {
         status: response.responseCode,
         body: typeof response.result === 'string' ? response.result : '',

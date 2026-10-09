@@ -807,6 +807,7 @@ PAIR_ENTRY(CandidateGlosses, msime_client_candidate_gloss_request)
 PAIR_ENTRY(EnglishCompletions, msime_client_english_completions_request)
 PAIR_ENTRY(TranslationGlossSave, msime_client_translation_gloss_save)
 TEXT_ENTRY(TranslationPlan, msime_client_custom_translation_plan)
+TEXT_ENTRY(GoogleLoopback, msime_client_google_loopback)
 TEXT_ENTRY(TencentTranslationHttpRequest, msime_client_tencent_translation_http_request)
 TEXT_ENTRY(NiuTransTranslationHttpRequest, msime_client_niutrans_translation_http_request)
 TEXT_ENTRY(CustomTranslationHttpRequest, msime_client_custom_translation_http_request)
@@ -1438,6 +1439,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("resetCache", ResetCache),
         ENTRY("translationGlossSave", TranslationGlossSave),
         ENTRY("translationPlan", TranslationPlan),
+        ENTRY("googleLoopback", GoogleLoopback),
         ENTRY("tencentTranslationHttpRequest", TencentTranslationHttpRequest),
         ENTRY("niuTransTranslationHttpRequest", NiuTransTranslationHttpRequest),
         ENTRY("customTranslationHttpRequest", CustomTranslationHttpRequest),

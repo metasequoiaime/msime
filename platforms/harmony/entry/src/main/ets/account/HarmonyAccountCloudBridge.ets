@@ -12,6 +12,7 @@ import {
 import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { KeyboardFeedbackBridge } from '../keyboard/KeyboardFeedbackBridge';
 import { HarmonyAiSkins } from './HarmonyAiSkins';
+import { HarmonyGoogleSignIn } from './HarmonyGoogleSignIn';
 import {
   AccountPreferences,
   AccountPreferenceSchema,
@@ -312,6 +313,7 @@ export class HarmonyAccountCloudBridge {
   private restoreAccountId: string = '';
   private restoreMetadata: SnapshotMetadata | undefined = undefined;
   private restoreExpectedRevision: number = -1;
+  private readonly google: HarmonyGoogleSignIn;
 
   constructor(context: common.UIAbilityContext) {
     this.context = context;
@@ -325,6 +327,8 @@ export class HarmonyAccountCloudBridge {
     // 匿名会话就是 EntryAbility 在同一目录下注册的那个；无人登录时反馈回退到它，与 Android 一致。
     this.bridge = new AccountCloudBridge(this.transport, new FileSessionStore(directory),
       new AnonymousSessionStore(directory));
+    // 流程里的 request_code 和 google_login 回到 request()，与页面发来的账号操作走同一条路。
+    this.google = new HarmonyGoogleSignIn(context, (action: string): Promise<string> => this.request(action));
   }
 
   async request(action: string): Promise<string> {
@@ -337,8 +341,15 @@ export class HarmonyAccountCloudBridge {
     } catch {
       // The account bridge reports malformed action documents.
     }
-    if (operation === 'logout' || operation === 'delete_account'
-      || operation === 'login' || operation === 'clear_expired') {
+    if (operation === 'google_sign_in') {
+      return this.google.signIn();
+    }
+    if (operation === 'google_cancel') {
+      this.google.cancel();
+      return '{"ok":true,"value":{}}';
+    }
+    if (operation === 'logout' || operation === 'delete_account' || operation === 'login'
+      || operation === 'google_login' || operation === 'clear_expired') {
       this.transport.cancelDownloads();
       this.clearSnapshotPreview();
       this.clearRestorePreview();

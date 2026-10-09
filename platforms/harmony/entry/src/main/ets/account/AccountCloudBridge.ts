@@ -114,6 +114,8 @@ const MAX_COMMUNITY_SEARCH = 128;
 
 // 应用内反馈（`POST /v1/feedback`），长度上限和字段名沿用 Android 的 `FeedbackApi`，服务端与之共用。
 const FEEDBACK_PATH = "/v1/feedback";
+/** Google 回跳地址的形状：只在 127.0.0.1 的非特权端口上，路径固定（client-core `google_loopback_target`）。端口范围的细节由后端和 `msime_client_google_loopback` 再查一次。 */
+const GOOGLE_LOOPBACK_TARGET = /^http:\/\/127\.0\.0\.1:[1-9]\d{3,4}\/callback$/;
 const FEEDBACK_TYPES: readonly string[] = ["bug", "suggestion", "dictionary"];
 /** 字符数（按码点），与服务端的计数方式一致。 */
 const MAX_FEEDBACK_TEXT = 500;
@@ -965,6 +967,8 @@ export class AccountCloudBridge {
           return await this.requestCode(action);
         case "login":
           return await this.login(action);
+        case "google_login":
+          return await this.googleLogin(action);
         case "profile":
           return await this.profile();
         case "rename":
@@ -1169,9 +1173,11 @@ export class AccountCloudBridge {
     const target = action.target;
     if (
       !validString(provider, 16) ||
-      !["email", "phone"].includes(provider) ||
+      !["email", "phone", "google"].includes(provider) ||
       !validString(target, 320) ||
-      target.trim() !== target
+      target.trim() !== target ||
+      // Google 的 target 是设置应用在本机监听的回跳地址（`msime_client_google_loopback` 的 target），不是用户填的。
+      (provider === "google" && !GOOGLE_LOOPBACK_TARGET.test(target))
     )
       return error("account_invalid");
     return this.requestPublic("POST", "/v1/auth/challenges", {
@@ -1188,12 +1194,27 @@ export class AccountCloudBridge {
       !/^\d{6}$/.test(action.credential)
     )
       return error("account_invalid");
+    return this.signIn(action.challenge_id, action.credential);
+  }
+
+  /** 用 Google 回跳带回的授权码登录；后端用 challenge 里保管的 PKCE 和 client secret 去换 token。授权码的规则与 client-core 的 `validate_google_login` 相同：可见 ASCII，最长 2048 字节。 */
+  private async googleLogin(action: Action): Promise<string> {
+    if (
+      !validString(action.challenge_id, 256) ||
+      !validString(action.code, 2048) ||
+      !/^[\x21-\x7e]+$/.test(action.code)
+    )
+      return error("account_invalid");
+    return this.signIn(action.challenge_id, action.code);
+  }
+
+  private async signIn(challengeId: string, credential: string): Promise<string> {
     this.generation++;
     this.refreshing = null;
     const generation = this.generation;
     const response = await this.transport.request("POST", "/v1/auth/login", undefined, {
-      challenge_id: action.challenge_id,
-      credential: action.credential,
+      challenge_id: challengeId,
+      credential,
     });
     if (generation !== this.generation) return error("account_cancelled");
     if (response.status < 200 || response.status >= 300) return error(mapStatus(response.status));

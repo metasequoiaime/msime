@@ -572,6 +572,9 @@ globalThis.msimeHarmonyOpenPage = (page: string) => {
   else queuedLinkedPage = linked;
 };
 
+/** Google 登录等浏览器跳回最多 300 秒（client-core 的 `GOOGLE_SIGN_IN_TIMEOUT`），之后还要用授权码换 token；默认的 30 秒会在用户还在浏览器里时就报超时。取消由页面的「取消」经 google_cancel 完成，不靠这个超时。 */
+const GOOGLE_SIGN_IN_TIMEOUT_MS = 6 * 60 * 1000;
+
 function accountClient(native: NativeBridge): AccountClient {
   const request = <T,>(action: Record<string, unknown>): Promise<T> =>
     bridgeRequest(native, "account", JSON.stringify(action)).then(unwrap<T>);
@@ -602,6 +605,7 @@ function accountClient(native: NativeBridge): AccountClient {
         email: value.providers.email === true,
         phone: value.providers.phone === true,
         apple: value.providers.apple === true,
+        google: value.providers.google === true,
       };
     },
     requestCode: async (provider, target) => {
@@ -617,6 +621,23 @@ function accountClient(native: NativeBridge): AccountClient {
         user: { id: string; display_name: string; created_at: string };
       }>({ operation: "login", challenge_id: challengeId, credential: code });
       return { user: value.user ? user(value.user) : null };
+    },
+    // 宿主在 127.0.0.1 上监听、用系统浏览器打开 Google，等它跳回来再用授权码登录；页面只看到结果。
+    googleLogin: async () => {
+      const value = unwrap<{
+        user: { id: string; display_name: string; created_at: string };
+      }>(
+        await bridgeRequest(
+          native,
+          "account",
+          JSON.stringify({ operation: "google_sign_in" }),
+          GOOGLE_SIGN_IN_TIMEOUT_MS,
+        ),
+      );
+      return { user: value.user ? user(value.user) : null };
+    },
+    googleCancel: async () => {
+      await request({ operation: "google_cancel" });
     },
     profile: async () =>
       profile(
