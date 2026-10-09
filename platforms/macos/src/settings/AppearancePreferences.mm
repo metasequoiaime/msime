@@ -251,7 +251,7 @@ static NSString *const CandidateEnglishGlossKey = @"MSIMEClientCandidateEnglishG
 static NSString *const TranspositionKey = @"MSIMEClientAutocorrectTransposition";
 static NSString *const NeighborKey = @"MSIMEClientAutocorrectNeighbor";
 static NSString *const HelpcodeOptionsKey = @"MSIMEClientHelpcodeOptions";
-static NSArray<NSString *> *HelpcodeSchemas() { return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia"]; }
+static NSArray<NSString *> *HelpcodeSchemas() { return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia", @"wubi86"]; }
 static BOOL ValidHelpcodeOption(NSString *key, id value) {
     return [key isEqual:@"schema"] ? [HelpcodeSchemas() containsObject:value] :
         ([key isEqual:@"show_in_candidate_window"] && LocalModeBoolean(value));
@@ -3420,7 +3420,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
         NSString *name = [scheme isEqual:@"quanpin"] ? @"全拼" : @"双拼";
         NSPopUpButton *schemas = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-        [schemas addItemsWithTitles:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤", @"加加"]];
+        [schemas addItemsWithTitles:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤", @"加加", @"五笔 86"]];
         for (NSUInteger index = 0; index < HelpcodeSchemas().count; ++index)
             [schemas itemAtIndex:index].representedObject = HelpcodeSchemas()[index];
         schemas.identifier = scheme;

@@ -793,8 +793,8 @@ static void TestIndependentAssistancePreferences() {
     for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
         NSPopUpButton *schemas = schemaControls[scheme];
         NSButton *display = displayControls[scheme];
-        NSArray *identifiers = @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia"];
-        assert(([schemas.itemTitles isEqual:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤", @"加加"]]));
+        NSArray *identifiers = @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia", @"wubi86"];
+        assert(([schemas.itemTitles isEqual:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤", @"加加", @"五笔 86"]]));
         for (NSUInteger index = 0; index < identifiers.count; ++index) {
             [schemas selectItemAtIndex:index];
             [NSApp sendAction:schemas.action to:schemas.target from:schemas];

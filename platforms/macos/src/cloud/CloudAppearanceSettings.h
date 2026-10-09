@@ -20,8 +20,9 @@ static inline BOOL MSIMECloudAppearanceCandidatePageSize(id value) {
                                               (NSInteger)msime::mac::kMaximumCandidatePageSize);
 }
 
+// 云端按下标同步辅助码方案，新方案只能追加在末尾，旧下标不能变。
 static inline NSArray<NSString *> *MSIMECloudHelpcodeSchemas() {
-    return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia"];
+    return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia", @"wubi86"];
 }
 
 static inline NSInteger MSIMECloudHelpcodeSchemaIndex(NSUserDefaults *defaults, NSString *scheme) {
@@ -164,13 +165,12 @@ static inline BOOL MSIMEValidateCloudAppearanceForSchemes(NSDictionary *values, 
     if (!MSIMECloudCustomCandidateSkin(values[@"platform.macos.custom_candidate_skin"])) return NO;
     if (!MSIMECloudAppearanceIntegerInRange(values[@"platform.macos.candidate_font_size"], 12, 32) ||
         !MSIMECloudAppearanceCandidatePageSize(values[@"platform.macos.candidate_page_size"])) return NO;
-    // 校验与导出、应用共用方案目录，新增方案时不会漏掉允许的编号。
-    NSMutableArray<NSNumber *> *helpcodeValues = [NSMutableArray array];
-    for (NSUInteger index = 0; index < MSIMECloudHelpcodeSchemas().count; ++index)
-        [helpcodeValues addObject:@(index)];
-    NSDictionary *options = @{@"platform.macos.quanpin_helpcode_schema": helpcodeValues,
-                              @"platform.macos.shuangpin_helpcode_schema": helpcodeValues,
-                              @"platform.macos.candidate_panel_style": @[@0,@1],
+    // 辅助码方案的下标只要求是非负整数：超出本机方案目录的下标是更新的版本追加的方案，应用时保留本机的选择，而不是让整份快照失效。
+    for (NSString *key in @[@"platform.macos.quanpin_helpcode_schema", @"platform.macos.shuangpin_helpcode_schema"]) {
+        if (MSIMECloudKeyOmitted(key, offered)) continue;
+        if (!MSIMECloudAppearanceIntegerInRange(values[key], 0, NSIntegerMax)) return NO;
+    }
+    NSDictionary *options = @{@"platform.macos.candidate_panel_style": @[@0,@1],
                               @"platform.macos.input_scheme": MSIMECloudInputSchemeValues(offered),
                               @"platform.macos.candidate_page_shortcut": @[@0,@1,@2]};
     for (NSString *key in options) {
@@ -208,7 +208,8 @@ static inline BOOL MSIMEApplyCloudAppearanceForSchemes(NSDictionary *values, NSU
     for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
         NSMutableDictionary *options = [helpcode[scheme] isKindOfClass:NSDictionary.class] ? [helpcode[scheme] mutableCopy] : [NSMutableDictionary dictionary];
         NSString *key = [scheme isEqual:@"quanpin"] ? @"platform.macos.quanpin_helpcode_schema" : @"platform.macos.shuangpin_helpcode_schema";
-        if (!values[key]) continue;
+        // 本机不认识的下标（更新的版本追加的方案）保留本机的选择。
+        if (!values[key] || [values[key] unsignedIntegerValue] >= MSIMECloudHelpcodeSchemas().count) continue;
         options[@"schema"] = MSIMECloudHelpcodeSchemas()[[values[key] unsignedIntegerValue]];
         helpcode[scheme] = options;
     }

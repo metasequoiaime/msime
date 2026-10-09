@@ -118,9 +118,21 @@ int main() {
       }
     }
     for (NSString *key in @[@"platform.macos.quanpin_helpcode_schema", @"platform.macos.shuangpin_helpcode_schema"]) {
-      for (id invalid in @[@YES, @(MSIMECloudHelpcodeSchemas().count), @(-1), @1.5, @"1"]) {
+      for (id invalid in @[@YES, @(-1), @1.5, @"1"]) {
         NSMutableDictionary *bad = [saved mutableCopy]; bad[key] = invalid;
         assert(!MSIMEApplyCloudAppearance(bad, defaults));
+        assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
+      }
+      // 更新的版本追加的方案：本机不认识这个下标，这一项保留本机的选择，快照的其余部分照常应用。
+      for (NSNumber *unknown in @[@(MSIMECloudHelpcodeSchemas().count), @(MSIMECloudHelpcodeSchemas().count + 5)]) {
+        NSMutableDictionary *newer = [saved mutableCopy]; newer[key] = unknown;
+        newer[@"platform.macos.candidate_font_size"] = @([saved[@"platform.macos.candidate_font_size"] integerValue] == 20 ? 21 : 20);
+        assert(MSIMEValidateCloudAppearance(newer));
+        assert(MSIMEApplyCloudAppearance(newer, defaults));
+        NSDictionary *after = MSIMECloudAppearanceSnapshot(defaults);
+        assert([after[key] isEqual:saved[key]]);
+        assert([after[@"platform.macos.candidate_font_size"] isEqual:newer[@"platform.macos.candidate_font_size"]]);
+        assert(MSIMEApplyCloudAppearance(saved, defaults));
         assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
       }
     }

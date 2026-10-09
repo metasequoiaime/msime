@@ -175,7 +175,7 @@ struct MacCloudSettingsView: View {
       let names: [String]?
       switch key {
       case "platform.macos.input_scheme": names = ["全拼", "双拼", "五笔"]
-      case "platform.macos.quanpin_helpcode_schema", "platform.macos.shuangpin_helpcode_schema": names = ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加"]
+      case "platform.macos.quanpin_helpcode_schema", "platform.macos.shuangpin_helpcode_schema": names = ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加", "五笔 86"]
       case "platform.macos.candidate_panel_style": names = ["横排", "竖排"]
       // The keys themselves, the way the settings window and the reference's shortcut page write
       // them. This page and that window show one setting, and a reader comparing them should not
