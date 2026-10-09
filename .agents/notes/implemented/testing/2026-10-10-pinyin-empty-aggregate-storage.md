@@ -31,3 +31,5 @@ Status: implemented
 全部页为空时省去一次聚合容器分配，返回零容量；命中仍按原容量提示预留一次。每页增加非空及容量分支，尚不保证命中延迟改善。原乘积容量公式和非空时的大提示风险保持原状；不把此片收益当作所有拼音查询零分配，不宣称 SQLite C 堆或 RSS 收益。[Vec::reserve_exact 官方契约](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.reserve_exact)保证至少所需容量，不保证物理分配精确大小。
 
 按键分组查询的空结果 `HashMap` 由[结果表延后预留](../../implemented/testing/2026-10-10-pinyin-empty-key-map-storage.md)单独处理；两侧共用已合并的底层查询函数，结果表收益独立计量。
+
+固定单跨度通过[直接规范化查询键规划](2026-10-10-pinyin-lattice-span-key-plan.md)绕过临时音节与单项表分组，仍保留本篇非空聚合容量提示和空页零容量；精确切分批次的通用聚合不变。

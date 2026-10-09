@@ -307,13 +307,42 @@ impl PinyinDatabase {
         rows
     }
 
-    /// The lattice's span lookup: each syllable canonicalised with `canonical_lattice_syllable`, then an exact-key lookup only, so `gun'qi` never borrows `gun'qiu`'s rows (QQ:1398-1418).
+    /// 词网格跨度逐音节规范化后只查精确键，`gun'qi` 不会借用 `gun'qiu` 的行（QQ:1398-1418）。
     pub fn query_lattice_span(&self, span: &[String], span_limit: usize) -> Vec<DictRow> {
-        let normalized: Vec<String> = span
+        if self.connection.is_none() || span.is_empty() || span_limit == 0 {
+            return Vec::new();
+        }
+        let normalized = span
             .iter()
-            .map(|syllable| canonical_lattice_syllable(syllable).to_owned())
-            .collect();
-        self.query_exact_segmentations_keyed_flat(&[normalized], span_limit)
+            .map(|syllable| canonical_lattice_syllable(syllable));
+        let intact = intact_pinyin_set();
+        if !normalized.clone().all(|syllable| intact.contains(syllable)) {
+            return Vec::new();
+        }
+        let initial = normalized
+            .clone()
+            .next()
+            .and_then(|first| first.as_bytes().first());
+        let Some(table) = initial.and_then(|first| quanpin_table(span.len(), *first)) else {
+            return Vec::new();
+        };
+        let capacity = normalized.clone().map(str::len).sum::<usize>() + span.len() - 1;
+        let mut key = String::with_capacity(capacity);
+        for (index, syllable) in normalized.enumerate() {
+            if index > 0 {
+                key.push('\'');
+            }
+            key.push_str(syllable);
+        }
+        // 唯一跨度没有分组与去重需求；仍走原批量 SQL 和聚合容量策略。
+        let page = self.batch_rows(&table, &[key.as_str()], span_limit);
+        let mut rows = Vec::new();
+        if !page.is_empty() {
+            rows.reserve_exact(span_limit);
+        }
+        rows.extend(page);
+        rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
+        rows
     }
 
     /// Whether any shipped single-character table holds `han` (QQ:1017-1050).
@@ -1495,3 +1524,7 @@ mod borrowed_key_groups_tests;
 #[cfg(test)]
 #[path = "pinyin/result_key_reuse_tests.rs"]
 mod result_key_reuse_tests;
+
+#[cfg(test)]
+#[path = "pinyin/lattice_span_key_plan_tests.rs"]
+mod lattice_span_key_plan_tests;
