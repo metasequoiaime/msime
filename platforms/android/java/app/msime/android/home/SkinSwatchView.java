@@ -9,6 +9,7 @@ import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
 import app.msime.android.BoundsPolicy;
+import app.msime.android.ColorPolicy;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.ViewPolicy;
 
@@ -48,7 +49,7 @@ public final class SkinSwatchView extends View {
         KeyboardSkin value = skin;
         if (value == null || getWidth() <= 0 || getHeight() <= 0) return;
         float radius = Ui.dpFloat(getContext(), 10);
-        paint.setColor(Ui.parseColor(value.background(), Color.LTGRAY));
+        paint.setColor(ColorPolicy.parse(value.background(), Color.LTGRAY));
         box.set(0, 0, getWidth(), getHeight());
         canvas.drawRoundRect(box, radius, radius, paint);
 
@@ -60,9 +61,10 @@ public final class SkinSwatchView extends View {
         float capRadius = BoundsPolicy.atMost(
             Ui.dpFloat(getContext(), (float) value.cornerRadius()) / 2f,
             cellHeight / 2.5f);
-        int cap = Ui.parseColor(value.keyBackground(), Color.WHITE);
-        int function = Ui.parseColor(value.functionBackground(), cap);
-        int action = Ui.parseColor(value.returnBackground(), Ui.parseColor(value.actionBackground(), Color.DKGRAY));
+        int cap = ColorPolicy.parse(value.keyBackground(), Color.WHITE);
+        int function = ColorPolicy.parse(value.functionBackground(), cap);
+        int action = ColorPolicy.parse(value.returnBackground(),
+            ColorPolicy.parse(value.actionBackground(), Color.DKGRAY));
         for (int row = 0; row < ROWS; row++) {
             float top = pad + row * (cellHeight + gap);
             if (row == ROWS - 1) {

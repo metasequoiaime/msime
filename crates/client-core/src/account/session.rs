@@ -487,6 +487,21 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         operation()
     }
 
+    /// 在账户锁内读取当前身份并执行本地操作，供宿主清理失效的账户数据。
+    /// 闭包不得再次调用此会话。
+    pub fn with_current_identity<T, F>(&self, operation: F) -> Result<T, AccountError>
+    where
+        F: FnOnce(Option<(&str, u64)>) -> Result<T, AccountError>,
+    {
+        let mut state = self.lock()?;
+        self.load_locked(&mut state)?;
+        let identity = state
+            .saved
+            .as_ref()
+            .map(|saved| (saved.tokens.user.id.as_str(), state.generation));
+        operation(identity)
+    }
+
     pub fn profile(&self) -> Result<AccountProfile, AccountError> {
         let (user_id, profile, generation) =
             self.authenticated_with_user(|api, token| api.profile(token))?;
@@ -526,20 +541,38 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     }
 
     pub fn logout(&self, all: bool) -> Result<(), AccountError> {
+        self.logout_with_cleanup(all, |_| {})
+    }
+
+    /// Invalidates the local session and runs a host cleanup before another login can use it.
+    pub fn logout_with_cleanup<F>(&self, all: bool, cleanup: F) -> Result<(), AccountError>
+    where
+        F: FnOnce(Option<&str>),
+    {
+        let (owner, generation) = self.cleanup_ticket()?;
         let token = match self.access_token(None) {
             Ok(token) => token,
             Err(error) => {
-                self.forget()?;
+                self.forget_with_cleanup_at_generation(generation, owner.as_deref(), cleanup)?;
                 return Err(error);
             }
         };
-        self.forget()?;
+        self.forget_with_cleanup_at_generation(generation, owner.as_deref(), cleanup)?;
         self.api.logout(&token, all)
     }
 
     pub fn delete_account(&self) -> Result<(), AccountError> {
-        self.authenticated(|api, token| api.delete_account(token))?;
-        self.forget()
+        self.delete_account_with_cleanup(|_| {})
+    }
+
+    /// Runs host cleanup only after the remote account deletion succeeds.
+    pub fn delete_account_with_cleanup<F>(&self, cleanup: F) -> Result<(), AccountError>
+    where
+        F: FnOnce(Option<&str>),
+    {
+        let (user_id, _, generation) =
+            self.authenticated_with_user(|api, token| api.delete_account(token))?;
+        self.forget_with_cleanup_at_generation(generation, Some(&user_id), cleanup)
     }
 
     pub fn chat_models(&self) -> Result<AccountChatModels, AccountError> {
@@ -846,8 +879,61 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     }
 
     pub fn forget(&self) -> Result<(), AccountError> {
-        {
+        self.forget_with_cleanup(|_| {})
+    }
+
+    /// Invalidates the account and cleans up host state while the old identity is held stable.
+    /// The callback must not call this session again.
+    pub fn forget_with_cleanup<F>(&self, cleanup: F) -> Result<(), AccountError>
+    where
+        F: FnOnce(Option<&str>),
+    {
+        let (owner, generation) = self.cleanup_ticket()?;
+        self.forget_with_cleanup_at_generation(generation, owner.as_deref(), cleanup)
+    }
+
+    fn cleanup_ticket(&self) -> Result<(Option<String>, u64), AccountError> {
+        let mut state = self.lock()?;
+        let owner = if self.load_locked(&mut state).is_ok() {
+            state
+                .saved
+                .as_ref()
+                .map(|saved| saved.tokens.user.id.clone())
+        } else {
+            None
+        };
+        Ok((owner, state.generation))
+    }
+
+    fn forget_with_cleanup_at_generation<F>(
+        &self,
+        generation: u64,
+        expected_user_id: Option<&str>,
+        cleanup: F,
+    ) -> Result<(), AccountError>
+    where
+        F: FnOnce(Option<&str>),
+    {
+        // Match login and refresh lock ordering: storage first, then the session mutex.
+        self.storage.with_refresh_lock(|| {
             let mut state = self.lock()?;
+            if state.generation != generation {
+                return Err(AccountError::Cancelled);
+            }
+            let owner = if self.load_locked(&mut state).is_ok() {
+                state
+                    .saved
+                    .as_ref()
+                    .map(|saved| saved.tokens.user.id.clone())
+            } else {
+                None
+            };
+            if let (Some(expected), Some(current)) = (expected_user_id, owner.as_deref()) {
+                if current != expected {
+                    return Err(AccountError::Cancelled);
+                }
+            }
+            let owner = owner.or_else(|| expected_user_id.map(str::to_owned));
             // No asynchronous operation can be running at the terminal value:
             // next_generation refuses to issue it there. Keep the value stable
             // while still clearing the account state.
@@ -855,9 +941,10 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             state.refresh = None;
             state.saved = None;
             state.loaded = true;
-        }
-        // 必须在刷新锁内清理，避免另一个进程的刷新在退出后写回 token。拿不到锁时保持存储不变；无锁清理会与进行中的刷新竞争并恢复会话。
-        self.storage.with_refresh_lock(|| self.storage.clear())
+            self.storage.clear()?;
+            cleanup(owner.as_deref());
+            Ok(())
+        })
     }
 
     fn update_user(&self, user: AccountUser, generation: u64) -> Result<(), AccountError> {
@@ -932,7 +1019,7 @@ fn saved_session(tokens: AccountTokens) -> Result<SavedAccountSession, AccountEr
     })
 }
 
-fn validate_saved_session(session: &SavedAccountSession) -> Result<(), AccountError> {
+pub(super) fn validate_saved_session(session: &SavedAccountSession) -> Result<(), AccountError> {
     validate_tokens(&session.tokens).map_err(|_| AccountError::Storage)?;
     let maximum = unix_ms()?
         .checked_add(MAX_SESSION_SECONDS * 1000)

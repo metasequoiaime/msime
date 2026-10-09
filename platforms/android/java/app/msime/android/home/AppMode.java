@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDelegate;
+import app.msime.android.KeyboardGeometry;
 import app.msime.android.R;
 import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONObject;
@@ -62,7 +63,7 @@ final class AppMode {
 
     /** Whether this context is drawing dark right now: the system's night mode, or the one `theme` forces. */
     static boolean dark(Context context) {
-        return Ui.isNight(context);
+        return KeyboardGeometry.isNight(context);
     }
 
     private static void apply(String mode) {

@@ -33,6 +33,8 @@ export function globalThemeDescription(entry: ThemeCatalogEntry, candidateOnly =
     return candidateOnly
       ? "候选窗口与键盘使用平台自带配色"
       : "候选窗口、悬浮工具栏与键盘使用平台自带配色";
+  // 只在 iOS 提供，与 iOS 设置页 FeatureSettingsViews.swift 的说明一致。
+  if (entry.id === "native") return "iOS 自带键盘的样子，跟随系统明暗，不跟季节";
   if (entry.id === "custom") return "外部皮肤、候选颜色与自定义键盘";
   const tone = entry.appearance === "dark" ? "深色" : "浅色";
   return candidateOnly ? `${tone}候选窗口与键盘` : `${tone}候选窗口、悬浮工具栏与键盘`;

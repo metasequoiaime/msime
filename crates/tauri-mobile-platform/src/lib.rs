@@ -204,7 +204,7 @@ pub struct IosKeyboardPreferences {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tablet_split_keyboard: Option<bool>,
     pub dictionary_learning: bool,
-    /// The global theme id (`Preferences::global_theme`), kept in the App Group under `globalTheme` so the keyboard extension reads it without the preferences document. Only the seven theme ids are valid.
+    /// 全局主题 id（`Preferences::global_theme`），存在 App Group 的 `globalTheme` 下，键盘扩展不读偏好文档也能拿到。只有八个主题 id 有效。
     pub global_theme: String,
     /// The custom theme's keyboard design (`Preferences::custom_theme.keyboard`) as JSON; `None` when the custom theme has no design and draws its base theme's keyboard. The App Group keeps it under `customKeyboardSkin.v1`.
     pub custom_keyboard_skin: Option<String>,
@@ -404,7 +404,7 @@ impl IosKeyboardPreferences {
             // The ids of msime_client_core::skin::theme::GlobalTheme, which this crate does not depend on; the desktop crate's iOS account tests hold the two lists together.
             && matches!(
                 self.global_theme.as_str(),
-                "system" | "shuishan" | "light" | "paper" | "night" | "ink" | "custom"
+                "system" | "native" | "shuishan" | "light" | "paper" | "night" | "ink" | "custom"
             )
             && self.custom_keyboard_skin.as_ref().is_none_or(|value| {
                 value.len() <= MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES

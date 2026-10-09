@@ -1,7 +1,7 @@
 pub(crate) use crate::platform::account_helpers::{
     account_command_error, account_value, call_session, cleanup_stale_snapshot_previews,
     prepare_snapshot_directory, publish_snapshot_preview, read_snapshot_file, remove_snapshot_file,
-    snapshot_text_within_limit, write_snapshot_file,
+    snapshot_text_within_limit, take_invalid_snapshot_previews, write_snapshot_file,
 };
 pub(crate) use crate::platform::mobile::mobile_account_preferences::valid_mobile_haptic_strength;
 use crate::shared::account_dto::{
@@ -35,6 +35,7 @@ pub(crate) struct SnapshotMetadata {
 #[derive(Clone)]
 pub(crate) struct PendingSnapshot {
     pub(crate) account_id: String,
+    pub(crate) generation: u64,
     pub(crate) path: PathBuf,
     pub(crate) metadata: SnapshotMetadata,
 }
@@ -54,6 +55,7 @@ pub(crate) fn validate_pending_snapshot(
     session: &crate::platform::mobile::MobileSession,
     pending: &PendingSnapshot,
 ) -> Result<(), AccountError> {
+    session.with_generation(pending.generation, Some(&pending.account_id), || Ok(()))?;
     let profile = session.profile()?;
     if profile.user.id != pending.account_id {
         return Err(AccountError::Conflict);
@@ -79,11 +81,21 @@ pub(crate) fn take_pending_snapshot(
 }
 
 pub(crate) fn clear_snapshot_previews_after<T>(
+    session: &std::sync::Arc<crate::platform::mobile::MobileSession>,
     previews: &std::sync::Arc<std::sync::Mutex<HashMap<String, PendingSnapshot>>>,
     result: Result<T, crate::CommandError>,
 ) -> Result<T, crate::CommandError> {
-    if result.is_ok() {
-        clear_snapshot_previews(previews);
+    let stale = take_invalid_snapshot_previews(session, previews, |preview| {
+        (&preview.account_id, preview.generation)
+    });
+    match stale {
+        Ok(stale) => {
+            for preview in stale {
+                let _ = remove_snapshot_file(&preview.path);
+            }
+        }
+        Err(error) if result.is_ok() => return Err(account_command_error(error)),
+        Err(_) => {}
     }
     result
 }
@@ -585,23 +597,4 @@ pub(crate) async fn account_preferences_load(
     state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
 ) -> Result<AccountPreferences, crate::CommandError> {
     call_session(state.session(), |session| session.preferences()).await
-}
-
-pub(crate) async fn account_logout(
-    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
-    all: bool,
-) -> Result<(), crate::CommandError> {
-    call_session(state.session(), move |session| session.logout(all)).await
-}
-
-pub(crate) async fn account_delete(
-    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
-) -> Result<(), crate::CommandError> {
-    call_session(state.session(), |session| session.delete_account()).await
-}
-
-pub(crate) async fn account_forget(
-    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
-) -> Result<(), crate::CommandError> {
-    call_session(state.session(), |session| session.forget()).await
 }

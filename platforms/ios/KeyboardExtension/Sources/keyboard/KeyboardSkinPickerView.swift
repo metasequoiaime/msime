@@ -189,7 +189,7 @@ final class KeyboardSkinTileView: UIButton {
   }
 }
 
-/// 设计稿里的键盘缩略图（MiniKb），用格子所代表的皮肤绘制：空闲状态的工具栏（品牌圆盘、表情、常用语、剪贴板、皮肤、输入方式和收起箭头），小写字母行（中间一行两侧各缩进 5%），用功能键颜色画的 shift 和删除键（`kb.spec`），123 / 中 / ， / 带麦克风和「全拼」的空格 / 。 / 回车这一行，以及 Home 指示条区域。它与 App 里 `KeyboardSkinPreview` 的带工具栏样式一致，所以同一套皮肤在键盘面板里和 App 的「皮肤」页上看起来一样。
+/// 设计稿里的键盘缩略图（MiniKb），用格子所代表的皮肤绘制：空闲状态的工具栏（品牌圆盘、表情、常用语、剪贴板、皮肤、输入方式和收起箭头），小写字母行（中间一行两侧各缩进 5%），用功能键颜色画的 shift 和删除键（`kb.spec`），123 / ， / 带麦克风和「全拼」的空格 / 。 / 中 / 回车这一行，以及 Home 指示条区域。它与 App 里 `KeyboardSkinPreview` 的带工具栏样式一致，所以同一套皮肤在键盘面板里和 App 的「皮肤」页上看起来一样。
 ///
 /// 缩略图在设计稿 390 × 292 的画布上排版，再按格子宽度缩放；格子比这个比例矮时裁掉底部，与设计稿里 `overflow: hidden` 的盒子一样。
 final class KeyboardSkinMiniature: UIView {
@@ -258,10 +258,10 @@ final class KeyboardSkinMiniature: UIView {
     }
     let bottom: [Key] = [
       Key(weight: 1.25, face: .text("123", size: 15, weight: .medium), fill: .function),
-      Key(weight: 1.05, face: .text("中", size: 15, weight: .medium), fill: .function),
       Key.letter("，"),
       Key(weight: 4, face: .space("全拼")),
       Key.letter("。"),
+      Key(weight: 1.05, face: .text("中", size: 15, weight: .medium), fill: .function),
       Key(weight: 1.9, face: .icon(.returnKey, side: 22), fill: .action),
     ]
     return letters.map { (inset: $0.0, keys: $0.1) } + [(inset: 0, keys: bottom)]

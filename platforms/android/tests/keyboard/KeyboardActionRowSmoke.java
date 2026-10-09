@@ -6,21 +6,27 @@ import java.util.List;
 
 public final class KeyboardActionRowSmoke {
     public static void main(String[] args) {
-        // 新设计底行：123 1.25 / 中 1.05 / ， 1 / 空格 4 / 。 1 / ↵ 1.9，地球键条件插入。
+        // 新设计底行：123 1.25 / ， 1 / 空格 4 / 。 1 / 中 1.05 / ↵ 1.9，地球键条件插在 123 之后。
         List<KeyboardActionRow.DesignEntry> design =
             KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false);
         check(design.equals(List.of(
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LAYER, 1.25f),
-                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LANGUAGE, 1.05f),
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.COMMA, 1f),
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.SPACE, 4f),
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.PERIOD, 1f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LANGUAGE, 1.05f),
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.RETURN, 1.9f))),
             "design row order and weights");
         List<KeyboardActionRow.DesignEntry> withGlobe =
             KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true);
-        check(withGlobe.size() == 7 && withGlobe.get(2).slot() == KeyboardActionRow.DesignSlot.GLOBE,
-            "the globe follows 中/英 only when switching is offered");
+        check(withGlobe.size() == 7 && withGlobe.get(1).slot() == KeyboardActionRow.DesignSlot.GLOBE
+                && withGlobe.get(5).slot() == KeyboardActionRow.DesignSlot.LANGUAGE,
+            "the globe follows 123 only when switching is offered, 中/英 stays next to return");
+        List<KeyboardActionRow.DesignEntry> nineKey =
+            KeyboardActionRow.designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true);
+        check(nineKey.get(nineKey.size() - 2).slot() == KeyboardActionRow.DesignSlot.LANGUAGE
+                && nineKey.get(nineKey.size() - 1).slot() == KeyboardActionRow.DesignSlot.RETURN,
+            "中/英 sits right before return on the nine-key row too");
         check(KeyboardActionRow.designEntries(KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT, true).isEmpty(),
             "the kana grid takes no design row either");
         check(KeyboardActionRow.designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, false).stream()

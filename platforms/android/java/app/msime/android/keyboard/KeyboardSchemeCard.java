@@ -139,10 +139,13 @@ public final class KeyboardSchemeCard extends FrameLayout {
         setTitleTypeface(false);
         // 选中与未选中的差别落在底色和这一档透明度上，不落在色相上。
         int face = isSelected ? accent : ColorPolicy.withAlpha(accent, .78f);
-        setBackground(rounded(isSelected ? ColorPolicy.withAlpha(accent, .12f) : Color.TRANSPARENT,
+        setBackground(DrawablePolicy.rounded(
+            isSelected ? ColorPolicy.withAlpha(accent, .12f) : Color.TRANSPARENT,
             KeyboardGeometry.pixels(getContext(), CARD_RADIUS_DP)));
         setFaceTextColor(face);
-        ViewPolicy.setBackground(glyph, outlined(face, KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP), KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP)));
+        ViewPolicy.setBackground(glyph, DrawablePolicy.outlined(
+            KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP),
+            KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP), face));
         // 角标和对勾都压在字形框的边线上，各自带一小块与面板同色的底，把边线断开。
         ViewPolicy.setBackgroundColor(badge, keyBackground);
         ViewPolicy.setBackground(check, checkMark(accent, keyBackground));
@@ -159,7 +162,9 @@ public final class KeyboardSchemeCard extends FrameLayout {
         int face = isSelected ? accent : foreground;
         ViewPolicy.clearBackground(this);
         setFaceTextColor(face);
-        ViewPolicy.setBackground(glyph, outlined(face, KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP), KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP)));
+        ViewPolicy.setBackground(glyph, DrawablePolicy.outlined(
+            KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP),
+            KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP), face));
         ViewPolicy.setBackgroundColor(badge, panelBackground);
         if (isSelected || badge.getText().length() == 0) ViewPolicy.setInvisible(badge);
         else ViewPolicy.show(badge);
@@ -192,14 +197,6 @@ public final class KeyboardSchemeCard extends FrameLayout {
         animate().cancel();
         KeyboardPressFeedback.reset(this);
         super.onDetachedFromWindow();
-    }
-
-    private static android.graphics.drawable.Drawable rounded(int color, int radius) {
-        return DrawablePolicy.rounded(color, radius);
-    }
-
-    private static android.graphics.drawable.Drawable outlined(int color, int radius, int width) {
-        return DrawablePolicy.outlined(radius, width, color);
     }
 
     /** A filled disc carrying a tick, sized for the 12dp corner the master puts it in. */

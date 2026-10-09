@@ -175,6 +175,25 @@ final class DictionarySnapshotQueueTests: XCTestCase {
       XCTAssertEqual(try queue.read().request?.status, .cancelled)
     }
   }
+  func testCancellationWaitsForShortStateLockHandoff() throws {
+    try fixture { queue, file, hash, root in
+      _ = try enqueue(queue, file, hash)
+      let lock = root.appendingPathComponent("DictionarySnapshots/state.lock")
+      let descriptor = open(lock.path, O_RDWR | O_NOFOLLOW)
+      guard descriptor >= 0 else { throw CocoaError(.fileNoSuchFile) }
+      defer { flock(descriptor, LOCK_UN); close(descriptor) }
+      XCTAssertEqual(flock(descriptor, LOCK_EX | LOCK_NB), 0)
+      let release = DispatchWorkItem {
+        usleep(150_000)
+        flock(descriptor, LOCK_UN)
+      }
+      DispatchQueue.global().async(execute: release)
+      defer { release.wait() }
+
+      try queue.cancel(accountID: "synthetic-account")
+      XCTAssertEqual(try queue.read().request?.status, .cancelled)
+    }
+  }
   func testPublishedButUnacknowledgedRequestIsNotReapplied() throws {
     try fixture { queue, file, hash, _ in
       let id = try enqueue(queue, file, hash)

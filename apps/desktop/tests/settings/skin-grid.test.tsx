@@ -5,7 +5,7 @@ import type { ComponentProps } from "react";
 import { SettingsPage, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
 import { SkinGrid } from "../../../../packages/ui/src/settings/skin-grid";
 import type { ExternalSkin } from "../../../../packages/ui/src/skin/external-skins";
-import { themeCatalog } from "../../../../packages/ui/src/theme/global-theme";
+import { offeredThemeCatalog } from "../../../../packages/ui/src/theme/global-theme";
 import { testHost } from "../support/host";
 import { saveSettingsNow, settingsFormReady } from "../support/settings-form";
 
@@ -44,6 +44,8 @@ const sample: ExternalSkin = {
   candidate: { dark: { surface: "#123456" }, light: { surface: "#abcdef" } },
 };
 
+// 网格只画在鸿蒙手机上，所以按鸿蒙提供的主题排。
+const themeCatalog = offeredThemeCatalog("harmony");
 const builtinTitles = themeCatalog.filter((entry) => entry.id !== "custom").map((e) => e.title);
 
 function grid(props: Partial<ComponentProps<typeof SkinGrid>> = {}) {
@@ -51,6 +53,7 @@ function grid(props: Partial<ComponentProps<typeof SkinGrid>> = {}) {
   const onSelectDesign = vi.fn();
   render(
     <SkinGrid
+      themes={themeCatalog}
       globalTheme="system"
       customTheme={undefined}
       packages={[sample]}
@@ -256,6 +259,83 @@ test("the AI tile opens AI 皮肤抽卡 as a full-screen view the back gesture c
   } finally {
     window.history.replaceState(previous, "");
   }
+});
+
+test("the HarmonyOS grid leaves out 原生 and marks 跟随系统 when the document says native", async () => {
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{
+        load: vi.fn().mockResolvedValue({
+          ...initial,
+          preferences: { ...initial.preferences, global_theme: "native" },
+        }),
+        save: vi.fn(),
+        host: testHost({ platform: "harmony" }),
+        ...skinClients(),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  const page = screen.getByRole("group", { name: "皮肤" });
+  expect(within(page).queryByRole("button", { name: "原生" })).toBeNull();
+  expect(within(page).getByRole("button", { name: "跟随系统" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+});
+
+test("only the iOS carousel offers 原生, right after 跟随系统", async () => {
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: testHost({ platform: "ios" }),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  const titles = within(screen.getByRole("region", { name: "主题列表" }))
+    .getAllByRole("article")
+    .map((article) => article.getAttribute("aria-label"));
+  expect(titles.slice(0, 3)).toEqual(["跟随系统", "原生", "水杉"]);
+  // 「原生」卡有自己的说明和系统键盘预览（系统蓝、扁平同色按键），和「跟随系统」卡分得开。
+  const carouselRegion = screen.getByRole("region", { name: "主题列表" });
+  const native = within(carouselRegion).getByRole("article", { name: "原生" });
+  expect(within(native).getByText("iOS 自带键盘的样子，跟随系统明暗，不跟季节")).toBeTruthy();
+  const nativePreview = native.querySelector("svg[data-preview-skin]");
+  expect(nativePreview?.getAttribute("data-preview-skin")).toBe("native");
+  const nativeTheme = nativePreview?.getAttribute("data-preview-theme");
+  expect(nativePreview?.querySelector("rect")?.getAttribute("fill")).toBe(
+    nativeTheme === "dark" ? "#222223" : "#E2E3E8",
+  );
+  const systemPreview = within(carouselRegion)
+    .getByRole("article", { name: "跟随系统" })
+    .querySelector("svg[data-preview-skin]");
+  expect(systemPreview?.querySelector("rect")?.getAttribute("fill")).not.toBe(
+    nativePreview?.querySelector("rect")?.getAttribute("fill"),
+  );
+  cleanup();
+
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{
+        load: vi.fn().mockResolvedValue({
+          ...initial,
+          preferences: { ...initial.preferences, global_theme: "native" },
+        }),
+        save: vi.fn(),
+        host: testHost({ platform: "windows" }),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  const carousel = screen.getByRole("region", { name: "主题列表" });
+  expect(within(carousel).queryByRole("article", { name: "原生" })).toBeNull();
+  const system = within(carousel).getByRole("article", { name: "跟随系统" });
+  expect(within(system).getByRole("switch").getAttribute("aria-checked")).toBe("true");
 });
 
 test("desktop hosts and the HarmonyOS 2-in-1 keep the carousel", async () => {

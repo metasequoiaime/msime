@@ -28,3 +28,12 @@ test("keeps explicit theme preferences", () => {
     customTouchKeyboardSkin: defaultTouchKeyboardSkinDesign,
   });
 });
+
+test("a theme the host does not offer reads as system", () => {
+  expect(settingsThemePreferences({ global_theme: "native" }, "android").globalTheme).toBe(
+    "system",
+  );
+  expect(settingsThemePreferences({ global_theme: "native" }).globalTheme).toBe("system");
+  expect(settingsThemePreferences({ global_theme: "native" }, "ios").globalTheme).toBe("native");
+  expect(settingsThemePreferences({ global_theme: "night" }, "android").globalTheme).toBe("night");
+});

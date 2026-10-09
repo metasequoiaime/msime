@@ -279,14 +279,31 @@ pub unsafe extern "C" fn msime_client_mobile_voice_configuration(
     })
 }
 
-/// The global theme picker: every theme id in picker order with its title and palettes, and the default id.
+/// 本库编译到的宿主平台。主题目录按它列出主题：这个接口不带参数，而每个原生宿主链接的都是为自己的平台编出的库。
+fn theme_catalog_platform() -> HostPlatform {
+    if cfg!(target_os = "ios") {
+        HostPlatform::Ios
+    } else if cfg!(target_os = "android") {
+        HostPlatform::Android
+    } else if cfg!(target_env = "ohos") {
+        HostPlatform::Harmony
+    } else if cfg!(target_os = "macos") {
+        HostPlatform::Macos
+    } else if cfg!(windows) {
+        HostPlatform::Windows
+    } else {
+        HostPlatform::Linux
+    }
+}
+
+/// 全局主题选择器：本平台提供的主题 id，按选择器顺序，带标题和调色板，以及默认 id。
 ///
-/// `system` and `custom` carry no palettes here: `system` is the host's native tokens, and `custom` is only known once resolved against the user's `custom_theme`. Hosts draw the picker from this and keep no copy of the ids, titles or colours.
+/// 只列出本库编译到的平台提供的主题（`theme::catalog_for`）：`native` 只在 iOS 的库里出现，其他宿主的选择器因此不必各自过滤。`system`、`native` 和 `custom` 在这里不带调色板：`system` 和 `native` 由宿主自己取色，`custom` 要按用户的 `custom_theme` 解析后才知道。宿主据此画选择器，不保存 id、标题或颜色的副本。
 #[no_mangle]
 pub extern "C" fn msime_client_theme_catalog() -> *mut c_char {
     response(|| {
         Ok(serde_json::json!({
-            "themes": msime_client_core::skin::theme::catalog(),
+            "themes": msime_client_core::skin::theme::catalog_for(theme_catalog_platform()),
             "default": msime_client_core::skin::theme::GlobalTheme::default(),
         }))
     })
@@ -321,7 +338,7 @@ fn requested_season(
 
 /// Resolve the colours a host draws for a global theme.
 ///
-/// The request carries the two preference fields as the host read them, so this takes no preferences directory and does no preference I/O: `global_theme` (one of the seven ids; any other id, a retired skin id included, fails the request as `invalid theme request`) and `custom_theme` (optional, validated as strictly as the preference itself). `dark` is the host's effective mode for the surface being drawn, and `layout` (`horizontal` or `vertical`) its candidate layout: a package is drawn only in a layout and a mode its manifest declares, so no host keeps a gate of its own. For `custom` with a `custom_theme.candidate_skin`, the host names where that package comes from with at most one of `skins_directory` (an absolute skin root; the package is loaded and validated as `msime_client_skin_package` does; every host that scans the root, which is every host but Linux) or `package` (one entry of the published `candidate_skin_catalog`, which only the Linux hosts read). A `package` that is not such an entry, a `SkinSummary` from `msime_client_skin_catalog` included, fails the call: that is a host bug, and reading it anyway would drop its declared modes and selection bar without a word. A package that is missing from the root, invalid on disk or not the one `candidate_skin` names is left out rather than failing the call: the theme still resolves, over its base.
+/// The request carries the two preference fields as the host read them, so this takes no preferences directory and does no preference I/O: `global_theme`（`GlobalTheme::ALL` 的八个 id 之一，本平台目录里没有的 `native` 也接受，解析结果与 `system` 相同、只是 `id` 为 `native`；其他 id，包括已停用的皮肤 id，都以 `invalid theme request` 失败） and `custom_theme` (optional, validated as strictly as the preference itself). `dark` is the host's effective mode for the surface being drawn, and `layout` (`horizontal` or `vertical`) its candidate layout: a package is drawn only in a layout and a mode its manifest declares, so no host keeps a gate of its own. For `custom` with a `custom_theme.candidate_skin`, the host names where that package comes from with at most one of `skins_directory` (an absolute skin root; the package is loaded and validated as `msime_client_skin_package` does; every host that scans the root, which is every host but Linux) or `package` (one entry of the published `candidate_skin_catalog`, which only the Linux hosts read). A `package` that is not such an entry, a `SkinSummary` from `msime_client_skin_catalog` included, fails the call: that is a host bug, and reading it anyway would drop its declared modes and selection bar without a word. A package that is missing from the root, invalid on disk or not the one `candidate_skin` names is left out rather than failing the call: the theme still resolves, over its base.
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.

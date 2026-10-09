@@ -2236,10 +2236,12 @@ fn theme_catalog_lists_every_theme_in_picker_order() {
         .iter()
         .map(|theme| theme["id"].as_str().unwrap().to_owned())
         .collect();
+    // 测试在桌面平台上编译运行，目录里没有只在 iOS 提供的 `native`。
     assert_eq!(
         ids,
         ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
     );
+    assert_eq!(catalog["value"]["themes"][0]["platforms"], Value::Null);
     let night = &catalog["value"]["themes"][4];
     assert_eq!(night["title"], "夜青");
     assert_eq!(night["appearance"], "dark");

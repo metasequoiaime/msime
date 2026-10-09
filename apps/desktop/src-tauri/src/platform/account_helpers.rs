@@ -29,6 +29,31 @@ where
     })
 }
 
+/// 在账户锁内取走不属于当前代次的预览，避免退出后的清理误删新会话预览。
+#[cfg(any(target_os = "ios", target_os = "android", test))]
+pub(crate) fn take_invalid_snapshot_previews<A, S, V, F>(
+    session: &BackendAccountSession<A, S>,
+    previews: &Mutex<HashMap<String, V>>,
+    identity: F,
+) -> Result<Vec<V>, AccountError>
+where
+    A: AccountApi,
+    S: AccountSessionStorage,
+    F: for<'a> Fn(&'a V) -> (&'a str, u64),
+{
+    session.with_current_identity(|current| {
+        let mut pending = previews.lock().map_err(|_| AccountError::Unavailable)?;
+        let (valid, invalid): (HashMap<_, _>, HashMap<_, _>) = std::mem::take(&mut *pending)
+            .into_iter()
+            .partition(|(_, preview)| {
+                let (account_id, generation) = identity(preview);
+                current == Some((account_id, generation))
+            });
+        *pending = valid;
+        Ok(invalid.into_values().collect())
+    })
+}
+
 /// Create a snapshot scratch directory only when every path component is a real directory.
 /// Snapshot writers pass paths in this directory to native bridges, so following a replaced
 /// temporary-directory symlink would redirect cloud data outside the app's scratch area.
@@ -217,7 +242,7 @@ mod tests {
     use super::{
         cleanup_stale_snapshot_previews, cleanup_stale_snapshot_previews_in_directory,
         prepare_snapshot_directory, publish_snapshot_preview, read_snapshot_file,
-        write_snapshot_file,
+        take_invalid_snapshot_previews, write_snapshot_file,
     };
 
     #[test]
@@ -298,6 +323,24 @@ mod tests {
             previews.lock().unwrap().remove("second-preview"),
             Some(5_u8)
         );
+        let mixed_previews = Mutex::new(HashMap::from([
+            (
+                "current".to_owned(),
+                ("synthetic-user".to_owned(), generation),
+            ),
+            (
+                "invalid".to_owned(),
+                ("synthetic-user".to_owned(), generation + 1),
+            ),
+        ]));
+        assert_eq!(
+            take_invalid_snapshot_previews(&session, &mixed_previews, |preview| {
+                (&preview.0, preview.1)
+            }),
+            Ok(vec![("synthetic-user".to_owned(), generation + 1)])
+        );
+        assert!(mixed_previews.lock().unwrap().contains_key("current"));
+        assert!(!mixed_previews.lock().unwrap().contains_key("invalid"));
         session.forget().unwrap();
 
         assert_eq!(
@@ -312,6 +355,18 @@ mod tests {
             Err(AccountError::Cancelled)
         );
         assert!(previews.lock().unwrap().is_empty());
+
+        let stale_previews = Mutex::new(HashMap::from([(
+            "stale-token".to_owned(),
+            ("synthetic-user".to_owned(), generation),
+        )]));
+        assert_eq!(
+            take_invalid_snapshot_previews(&session, &stale_previews, |preview| {
+                (&preview.0, preview.1)
+            }),
+            Ok(vec![("synthetic-user".to_owned(), generation)])
+        );
+        assert!(stale_previews.lock().unwrap().is_empty());
     }
 
     #[test]
