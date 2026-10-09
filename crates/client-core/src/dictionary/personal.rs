@@ -7,10 +7,8 @@
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs;
+use std::fs::{self, File};
 use std::io;
-#[cfg(not(unix))]
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -257,6 +255,11 @@ impl From<io::Error> for PersonalDictionaryError {
 /// A lock-protected state file shared by host UI and keyboard processes.
 pub struct PersonalDictionaryStore {
     directory: PathBuf,
+}
+
+struct PersonalDictionaryLock {
+    directory: crate::file_lock::PrivateDirectory,
+    _lock: File,
 }
 
 impl PersonalDictionaryStore {
@@ -534,49 +537,62 @@ impl PersonalDictionaryStore {
     where
         F: FnOnce(&mut PersonalDictionaryState) -> Result<(), PersonalDictionaryError>,
     {
+        let guard = self.lock()?;
+        let mut state = self.read_locked(&guard)?;
+        action(&mut state)?;
+        validate_state(&state)?;
+        self.write_locked(&guard, &state)
+    }
+
+    fn lock(&self) -> Result<PersonalDictionaryLock, PersonalDictionaryError> {
         if !crate::storage::create_directory_and_check(&self.directory)? {
             return Err(PersonalDictionaryError::InvalidState);
         }
-        let lock_path = self.directory.join("sync.lock");
-        let lock = file_lock::open_lock_file(lock_path)?;
+        let directory = crate::file_lock::open_private_directory(&self.directory)?;
+        let lock =
+            file_lock::open_private_lock_file_at(&directory, std::ffi::OsStr::new("sync.lock"))?;
         if !file_lock::try_exclusive(&lock)? {
             return Err(PersonalDictionaryError::Busy);
         }
-        let file = self.directory.join("sync.json");
-        let mut state = match fs::symlink_metadata(&file) {
-            Ok(metadata) if metadata.file_type().is_file() => read_file(&file)?,
-            Ok(_) => return Err(PersonalDictionaryError::InvalidState),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                PersonalDictionaryState::default()
-            }
-            Err(error) => return Err(error.into()),
+        let guard = PersonalDictionaryLock {
+            directory,
+            _lock: lock,
         };
-        validate_state(&state)?;
-        action(&mut state)?;
-        validate_state(&state)?;
+        Ok(guard)
+    }
+
+    fn read_locked(
+        &self,
+        guard: &PersonalDictionaryLock,
+    ) -> Result<PersonalDictionaryState, PersonalDictionaryError> {
+        match crate::file_lock::open_private_file_at(
+            &guard.directory,
+            std::ffi::OsStr::new("sync.json"),
+        ) {
+            Ok(file) => read_file_handle(file),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                Ok(PersonalDictionaryState::default())
+            }
+            Err(_) => Err(PersonalDictionaryError::InvalidState),
+        }
+    }
+
+    fn write_locked(
+        &self,
+        guard: &PersonalDictionaryLock,
+        state: &PersonalDictionaryState,
+    ) -> Result<(), PersonalDictionaryError> {
         let bytes =
             serde_json::to_vec(&state).map_err(|_| PersonalDictionaryError::InvalidState)?;
         if bytes.len() > MAX_STATE_BYTES {
             return Err(PersonalDictionaryError::InvalidState);
         }
-        #[cfg(unix)]
-        {
-            let directory = crate::storage::open_private_directory(&self.directory)?;
-            crate::storage::write_private_file_at(
-                &directory,
-                std::ffi::OsStr::new("sync.json"),
-                &bytes,
-            )?;
-            Ok(())
-        }
-        #[cfg(not(unix))]
-        {
-            let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
-            temporary.write_all(&bytes)?;
-            temporary.as_file().sync_all()?;
-            temporary.persist(file).map_err(|error| error.error)?;
-            Ok(())
-        }
+        crate::file_lock::write_private_file_at(
+            &guard.directory,
+            std::ffi::OsStr::new("sync.json"),
+            &bytes,
+        )?;
+        Ok(())
     }
 }
 
@@ -649,6 +665,10 @@ fn read_file(file: &Path) -> Result<PersonalDictionaryState, PersonalDictionaryE
         return Err(PersonalDictionaryError::InvalidState);
     }
     let file_handle = crate::storage::open_private_file_in(file)?;
+    read_file_handle(file_handle)
+}
+
+fn read_file_handle(file_handle: File) -> Result<PersonalDictionaryState, PersonalDictionaryError> {
     let bytes = crate::bounded_io::read_bounded_file(file_handle, MAX_STATE_BYTES as u64, || {
         PersonalDictionaryError::InvalidState
     })?;
@@ -805,6 +825,27 @@ mod tests {
         ));
         assert_eq!(fs::read(root.path().join("sync.json")).unwrap(), original);
         assert_eq!(store.read().unwrap().requests.len(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writes_stay_bound_to_the_locked_directory_after_replacement() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("personal");
+        fs::create_dir(&directory).unwrap();
+        let store = PersonalDictionaryStore::new(&directory);
+        let lock = store.lock().unwrap();
+
+        let moved = root.path().join("personal-moved");
+        fs::rename(&directory, &moved).unwrap();
+        fs::create_dir(&directory).unwrap();
+
+        store
+            .write_locked(&lock, &PersonalDictionaryState::default())
+            .unwrap();
+
+        assert!(moved.join("sync.json").exists());
+        assert!(!directory.join("sync.json").exists());
     }
 
     #[test]

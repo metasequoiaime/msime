@@ -411,6 +411,21 @@ fn longer_phrases_join_the_full_key_group_by_weight() {
 }
 
 #[test]
+fn longer_phrase_cache_hit_does_not_rebuild_the_full_key() {
+    let fixture = phrase_fixture();
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let segments = vec!["ni".to_owned(), "hao".to_owned()];
+    let _ = dictionary.longer_phrase_candidates("ni'hao", &segments);
+    let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        let _ = dictionary.longer_phrase_candidates("ni'hao", &segments);
+    });
+    assert_eq!(
+        allocations, 8,
+        "热缓存长词补全仍重建了切分键: {allocations}"
+    );
+}
+
+#[test]
 fn sentence_rows_follow_the_exact_hits_and_precede_longer_phrases() {
     // quanpin.md §11.1: ping'guo lists 苹果, the sentence block, then 苹果电脑 苹果公司 评过 平果 平锅.
     let fixture = Fixture::new();

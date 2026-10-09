@@ -290,12 +290,21 @@ impl LanguageDictionary {
         }
         let mut result = Vec::new();
         if rest.is_empty() {
+            let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+            let mut statement = self.connection.prepare_cached(
+                "SELECT text, weight FROM entries WHERE key = ?1 ORDER BY weight DESC, text ASC LIMIT ?2",
+            )?;
             for reading in first.iter() {
-                result.extend(
-                    self.lookup(reading, limit)?
-                        .into_iter()
-                        .map(|entry| (reading.clone(), entry)),
-                );
+                let mut rows = statement.query((reading, limit))?;
+                while let Some(row) = rows.next()? {
+                    result.push((
+                        reading.clone(),
+                        LanguageEntry {
+                            text: row.get(0)?,
+                            weight: row.get(1)?,
+                        },
+                    ));
+                }
             }
         } else {
             // 后面各位置拼成一个 GLOB，配合首个读音的键范围只扫以它开头的多音节词；不加 SQL `LIMIT`，因为 GLOB 只是粗筛，精确的校验在 Rust 里做，提前截断可能丢掉正确的行。
@@ -771,6 +780,42 @@ mod tests {
         assert_eq!(
             allocations, 5,
             "单结果查询不应为键再分配副本：{allocations}"
+        );
+    }
+
+    #[test]
+    fn alternative_readings_write_rows_without_temporary_result_vectors() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msime-zhuyin.db");
+        build(&path, &FORMAT_VERSION.to_string());
+        let connection = Connection::open(&path).unwrap();
+        for (key, text, weight) in [
+            ("ㄋㄧˇ", "你", 1000),
+            ("ㄋㄧˇ", "妳", 900),
+            ("ㄌㄧˇ", "李", 800),
+            ("ㄌㄧˇ", "里", 700),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                    (key, text, weight),
+                )
+                .unwrap();
+        }
+        drop(connection);
+
+        let dictionary = open_read_only(&path).unwrap();
+        let readings = readings(&["ㄋㄧˇ", "ㄌㄧˇ"]);
+        // 预热语句缓存，统计只覆盖候选查询本身。
+        let expected = dictionary.lookup_readings(&[&readings], 10).unwrap();
+        let (actual, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            dictionary.lookup_readings(&[&readings], 10).unwrap()
+        });
+
+        assert_eq!(actual, expected);
+        assert!(
+            allocations <= 10,
+            "多个读音查询不应为每个读音建立临时结果向量：{allocations}"
         );
     }
 

@@ -9,7 +9,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import app.msime.android.core.NoticeFieldPolicy;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
@@ -60,9 +59,9 @@ final class NoticeBanner {
             for (int index = 0; items != null && index < items.length(); index++) {
                 JSONObject item = items.optJSONObject(index);
                 if (item == null) continue;
-                String id = NoticeFieldPolicy.strictString(item.opt("id"));
-                String title = NoticeFieldPolicy.strictString(item.opt("title"));
-                String body = NoticeFieldPolicy.strictString(item.opt("body"));
+                String id = JsonPolicy.strictString(item.opt("id"));
+                String title = JsonPolicy.strictString(item.opt("title"));
+                String body = JsonPolicy.strictString(item.opt("body"));
                 if (id == null || title == null || body == null) continue;
                 title = TextPolicy.trimmed(title);
                 if (id.isEmpty() || title.isEmpty()) continue;

@@ -714,7 +714,7 @@ fn run(
     let result = install_model(
         root,
         model,
-        mirror,
+        &[mirror],
         fetcher,
         &mut |event| events.push(event),
         cancel,
@@ -772,6 +772,68 @@ fn memory_estimates_are_read_as_bytes() {
     assert_eq!(memory_bytes("约 1.5 GB"), 1_500_000_000);
     assert_eq!(memory_bytes("300 MB"), 300_000_000);
     assert_eq!(memory_bytes("unknown"), 0);
+}
+
+#[test]
+fn a_mirror_without_the_file_falls_back_to_the_original_address() {
+    let root = tempfile::tempdir().unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    // Only the original addresses are served, as when the mirror has not cached a model and cannot reach it.
+    let fetcher = fetcher_for(&archive, "");
+    let (result, _) = run(
+        root.path(),
+        &model,
+        "https://mirror.example.test/",
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    result.unwrap();
+    assert_eq!(
+        *fetcher.requested.lock().unwrap(),
+        vec![
+            format!("https://mirror.example.test/{ARCHIVE_URL}"),
+            ARCHIVE_URL.to_owned(),
+            format!("https://mirror.example.test/{EXTRA_URL}"),
+            EXTRA_URL.to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn a_mirror_copy_with_the_wrong_digest_is_replaced_from_the_original_address() {
+    let root = tempfile::tempdir().unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let mirror = "https://mirror.example.test/";
+    let mut stale = archive.clone();
+    let last = stale.len() - 1;
+    stale[last] ^= 0xff;
+    let fetcher = MapFetcher::new([
+        (mirrored(mirror, ARCHIVE_URL), stale),
+        (ARCHIVE_URL.to_owned(), archive.clone()),
+        (mirrored(mirror, EXTRA_URL), EXTRA.to_vec()),
+    ]);
+    let (result, _) = run(
+        root.path(),
+        &model,
+        mirror,
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    let installed = result.unwrap();
+    assert_eq!(
+        fs::read(installed.join("encoder.onnx")).unwrap(),
+        b"encoder"
+    );
+    assert_eq!(
+        *fetcher.requested.lock().unwrap(),
+        vec![
+            format!("https://mirror.example.test/{ARCHIVE_URL}"),
+            ARCHIVE_URL.to_owned(),
+            format!("https://mirror.example.test/{EXTRA_URL}"),
+        ]
+    );
 }
 
 #[test]

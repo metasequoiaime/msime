@@ -102,8 +102,41 @@ def main() -> int:
             assert requested == [], requested
             lock["artifacts"].pop()
             setup.download_artifacts(lock, resources)
-            assert requested == ["https://example.invalid/msime-pinyin.db"], requested
+            # The China mirror is asked first, as `<prefix><original URL>`; its copy passed the checksum, so the original is not.
+            assert requested == [setup.MIRROR_PREFIX + "https://example.invalid/msime-pinyin.db"], requested
             assert setup.verify_directory(resources, lock) == []
+
+            # A mirror that fails, or serves bytes that do not match, falls back to the locked address.
+            for mirror_fails in (True, False):
+                (resources / "msime-pinyin.db").unlink()
+                requested.clear()
+
+                def fetch(url: str, destination: Path, maximum: int) -> None:
+                    requested.append(url)
+                    if url.startswith(setup.MIRROR_PREFIX):
+                        if mirror_fails:
+                            raise OSError("mirror unreachable")
+                        destination.write_bytes(b"y")
+                        return
+                    destination.write_bytes(b"x"[:maximum])
+
+                setup.fetch = fetch
+                setup.download_artifacts(lock, resources)
+                assert requested == [setup.MIRROR_PREFIX + "https://example.invalid/msime-pinyin.db", "https://example.invalid/msime-pinyin.db"], requested
+                assert setup.verify_directory(resources, lock) == []
+
+            # An empty MSIME_DOWNLOAD_MIRROR turns the mirror off.
+            (resources / "msime-pinyin.db").unlink()
+            requested.clear()
+
+            def fetch(url: str, destination: Path, maximum: int) -> None:
+                requested.append(url)
+                destination.write_bytes(b"x"[:maximum])
+
+            setup.fetch = fetch
+            setup.MIRROR_PREFIX = ""
+            setup.download_artifacts(lock, resources)
+            assert requested == ["https://example.invalid/msime-pinyin.db"], requested
         finally:
             setup.fetch = original_fetch
 

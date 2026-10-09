@@ -813,11 +813,7 @@ impl NineKeySession {
                 if self.single_character_only && is_han_phrase(&candidate.word) {
                     continue;
                 }
-                let canonical = if candidate.canonical_pinyin.is_empty() {
-                    candidate.pinyin.clone()
-                } else {
-                    candidate.canonical_pinyin.clone()
-                };
+                let canonical = take_candidate_canonical_pinyin(&mut candidate);
                 // A row with more syllables than the path is a completion past the typed digits.
                 if canonical.matches('\'').count() >= full_len {
                     continue;
@@ -846,7 +842,10 @@ impl NineKeySession {
                         continue;
                     }
                 }
-                candidate.pinyin = self.digits[..code.len().min(self.digits.len())].to_string();
+                candidate.pinyin.clear();
+                candidate
+                    .pinyin
+                    .push_str(&self.digits[..code.len().min(self.digits.len())]);
                 candidate.canonical_pinyin = canonical;
                 push_ranked(
                     &mut candidates,
@@ -1446,6 +1445,14 @@ fn initials_codes(digits: &str, limit: usize) -> Option<Vec<String>> {
             .collect();
     }
     Some(codes)
+}
+
+fn take_candidate_canonical_pinyin(candidate: &mut WordItem) -> String {
+    if candidate.canonical_pinyin.is_empty() {
+        candidate.pinyin.clone()
+    } else {
+        std::mem::take(&mut candidate.canonical_pinyin)
+    }
 }
 
 /// 英文九键前缀展开最多产生 320 行；用栈上借用表和索引表去重，释放借用后再原地压缩。
@@ -2574,6 +2581,20 @@ mod tests {
             "split refresh should keep normalized boundaries off the heap: {split_allocations}"
         );
         assert!(split_allocations < plain_allocations);
+    }
+
+    #[test]
+    fn refresh_reuses_candidate_pinyin_storage() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        session.digits = "64".into();
+        session.refresh();
+        let (_, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.refresh());
+        assert!(
+            allocations <= 149,
+            "candidate pinyin normalization allocated {allocations} buffers"
+        );
     }
 
     #[test]

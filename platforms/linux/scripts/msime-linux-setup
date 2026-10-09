@@ -35,6 +35,8 @@ import urllib.request
 from pathlib import Path
 
 CHUNK = 1024 * 1024
+# 国内镜像（阿里云 OSS 香港，见 msime-web README「国内镜像」）：`<前缀><原地址>`，没缓存过的发布资产由 OSS 回源 GitHub。国内直连 GitHub 下载词库常常只有几十 KB/s。MSIME_DOWNLOAD_MIRROR 可以换成别的前缀，设为空串则只用原地址（测试靠它不出网）。
+MIRROR_PREFIX = os.environ.get("MSIME_DOWNLOAD_MIRROR", "https://dl.msime.app/gh/")
 # IBus, Fcitx5 and the host refresh path all reject runtime-options.json above this size.
 RUNTIME_OPTIONS_LIMIT = 16 * 1024
 # The hosts cap the shared panel restore record before parsing it.
@@ -167,6 +169,23 @@ def fetch(url: str, destination: Path, maximum: int) -> None:
         raise
 
 
+def fetch_verified(artifact: dict, destination: Path) -> None:
+    """先国内镜像、再锁里的原地址：镜像下载失败、超出大小或 SHA-256 不符就换原地址。原地址也不行时照旧报错：网络错误交给调用方报「词库目录未改动」，校验不符直接中止。"""
+    url = artifact["url"]
+    if MIRROR_PREFIX:
+        try:
+            fetch(MIRROR_PREFIX + url, destination, artifact["size"])
+            if digest(destination) == artifact["sha256"]:
+                return
+            print(f"国内镜像上的 {artifact['name']} 校验不符，改从原地址下载", file=sys.stderr)
+        except (OSError, SystemExit) as error:
+            print(f"国内镜像下载 {artifact['name']} 失败（{error}），改从原地址下载", file=sys.stderr)
+        destination.unlink(missing_ok=True)
+    fetch(url, destination, artifact["size"])
+    if digest(destination) != artifact["sha256"]:
+        raise SystemExit(f"{artifact['name']} 校验失败，已中止；目标目录未改动")
+
+
 def download_artifacts(lock: dict, directory: Path) -> None:
     """按锁下载并校验，全部通过后才发布到目标目录。校验不过或下载中断即中止，目标目录一个文件都不动，不留半份词库。
 
@@ -188,9 +207,7 @@ def download_artifacts(lock: dict, directory: Path) -> None:
             name = artifact["name"]
             staged = staging / name
             print(f"下载 {name}")
-            fetch(artifact["url"], staged, artifact["size"])
-            if digest(staged) != artifact["sha256"]:
-                raise SystemExit(f"{name} 校验失败，已中止；目标目录未改动")
+            fetch_verified(artifact, staged)
             verified.append((staged, directory / name))
         for staged, target in verified:
             staged.replace(target)

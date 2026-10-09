@@ -335,7 +335,16 @@ pub fn install(
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
     let model = find_model(id)?;
-    install_model(root, model, mirror, &HttpFetcher::new()?, progress, cancel)
+    // 和资源包一样按 `download_prefixes` 换源：先用户的镜像，再本项目的国内镜像，最后原地址。原来只用用户的镜像、填了就不再回 GitHub，没填就直连 GitHub，国内下一个上百 MB 的模型常常要很久。
+    let mirrors = crate::resource_packs::download_prefixes(&[mirror]);
+    install_model(
+        root,
+        model,
+        &mirrors,
+        &HttpFetcher::new()?,
+        progress,
+        cancel,
+    )
 }
 
 /// Delete an installed model. Only catalog ids are accepted, so the id can never name anything outside `root`. Removing a model that is not installed succeeds.
@@ -895,13 +904,16 @@ impl Drop for Staging {
 pub(crate) fn install_model(
     root: &Path,
     model: &CatalogModel,
-    mirror: &str,
+    mirrors: &[&str],
     fetcher: &dyn Fetcher,
     progress: &mut dyn FnMut(InstallProgress),
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
     check_root(root)?;
-    if !crate::preferences::valid_model_mirror(mirror) {
+    if !mirrors
+        .iter()
+        .all(|mirror| crate::preferences::valid_model_mirror(mirror))
+    {
         return Err(LocalModelError::InvalidMirror);
     }
     let _lock = acquire_model_lock(root)?;
@@ -924,14 +936,17 @@ pub(crate) fn install_model(
     let (archive_digest, archive_reader) = {
         let staging_directory = staging_directory.as_ref().expect("unix staging handle");
         let mut last = 0u64;
-        let (digest, _) =
-            crate::storage::write_private_file_at_with(staging_directory, archive_name, |file| {
-                let mut output = BufWriter::new(file);
-                let digest = download(
+        let (digest, _) = crate::storage::write_private_file_at_with(
+            staging_directory,
+            archive_name,
+            |mut file| {
+                let digest = download_from_mirrors(
                     fetcher,
-                    &mirrored(mirror, &model.archive.url),
+                    mirrors,
+                    &model.archive.url,
                     total,
-                    &mut output,
+                    &model.archive.sha256,
+                    &mut file,
                     cancel,
                     &mut |downloaded| {
                         if downloaded == total
@@ -946,21 +961,23 @@ pub(crate) fn install_model(
                         }
                     },
                 )?;
-                let file = output.into_inner().map_err(|error| error.into_error())?;
                 Ok::<(File, String), LocalModelError>((file, digest))
-            })?;
+            },
+        )?;
         let reader = crate::storage::open_private_file_at(staging_directory, archive_name)?;
         (digest, reader)
     };
     #[cfg(not(unix))]
     let digest = {
-        let mut output = BufWriter::new(create_private_file(&archive)?);
+        let mut file = create_private_file(&archive)?;
         let mut last = 0u64;
-        let digest = download(
+        download_from_mirrors(
             fetcher,
-            &mirrored(mirror, &model.archive.url),
+            mirrors,
+            &model.archive.url,
             total,
-            &mut output,
+            &model.archive.sha256,
+            &mut file,
             cancel,
             &mut |downloaded| {
                 // About two hundred updates over the whole download is smooth enough for a bar and cheap to deliver across a C or IPC boundary.
@@ -973,9 +990,7 @@ pub(crate) fn install_model(
                     });
                 }
             },
-        )?;
-        output.flush()?;
-        digest
+        )?
     };
     progress(InstallProgress {
         stage: "verify",
@@ -1043,38 +1058,36 @@ pub(crate) fn install_model(
             (None, Some(url)) => {
                 #[cfg(unix)]
                 if let Some(model_directory) = model_directory.as_ref() {
-                    let expected = extra.sha256.clone();
-                    let size = extra.size;
-                    let url = mirrored(mirror, url);
                     crate::storage::write_private_file_at_with(
                         model_directory,
                         OsStr::new(&name),
-                        |file| {
-                            let mut output = BufWriter::new(file);
-                            let digest =
-                                download(fetcher, &url, size, &mut output, cancel, &mut |_| {})?;
-                            if !digest.eq_ignore_ascii_case(&expected) {
-                                return Err(LocalModelError::ChecksumMismatch(extra.name.clone()));
-                            }
-                            let output = output.into_inner().map_err(|error| error.into_error())?;
-                            Ok::<(File, ()), LocalModelError>((output, ()))
+                        |mut file| {
+                            download_from_mirrors(
+                                fetcher,
+                                mirrors,
+                                url,
+                                extra.size,
+                                &extra.sha256,
+                                &mut file,
+                                cancel,
+                                &mut |_| {},
+                            )?;
+                            Ok::<(File, ()), LocalModelError>((file, ()))
                         },
                     )?;
                     continue;
                 }
-                let mut output = BufWriter::new(create_private_file(&destination)?);
-                let digest = download(
+                let mut file = create_private_file(&destination)?;
+                download_from_mirrors(
                     fetcher,
-                    &mirrored(mirror, url),
+                    mirrors,
+                    url,
                     extra.size,
-                    &mut output,
+                    &extra.sha256,
+                    &mut file,
                     cancel,
                     &mut |_| {},
                 )?;
-                output.flush()?;
-                if !digest.eq_ignore_ascii_case(&extra.sha256) {
-                    return Err(LocalModelError::ChecksumMismatch(extra.name.clone()));
-                }
             }
             (None, None) => return Err(LocalModelError::MissingFile(extra.name.clone())),
         }
@@ -2127,6 +2140,51 @@ fn download(
         return Err(LocalModelError::SizeMismatch(url_file_name(url)));
     }
     Ok(hex::encode(hasher.finalize()))
+}
+
+/// 按顺序从每个源把 `url` 下载进 `file`：先是 `mirrors` 里每个非空前缀加原地址，最后是原地址本身。每换一个源都把文件截断重写；长度或摘要不符、网络和 HTTP 错误都换下一个源，取消和本地读写错误直接返回。返回核对通过的小写十六进制 SHA-256。
+#[allow(clippy::too_many_arguments)]
+fn download_from_mirrors(
+    fetcher: &dyn Fetcher,
+    mirrors: &[&str],
+    url: &str,
+    expected_size: u64,
+    expected_sha256: &str,
+    file: &mut File,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(u64),
+) -> Result<String, LocalModelError> {
+    let mut sources: Vec<String> = mirrors
+        .iter()
+        .filter(|mirror| !mirror.is_empty())
+        .map(|mirror| mirrored(mirror, url))
+        .collect();
+    sources.push(url.to_owned());
+    let mut failure = None;
+    for source in &sources {
+        file.set_len(0)?;
+        file.rewind()?;
+        let mut output = BufWriter::new(&mut *file);
+        let result = download(
+            fetcher,
+            source,
+            expected_size,
+            &mut output,
+            cancel,
+            progress,
+        );
+        output.flush()?;
+        drop(output);
+        match result {
+            Ok(digest) if digest.eq_ignore_ascii_case(expected_sha256) => return Ok(digest),
+            Ok(_) => failure = Some(LocalModelError::ChecksumMismatch(url_file_name(url))),
+            Err(error @ (LocalModelError::Cancelled | LocalModelError::Io(_))) => {
+                return Err(error)
+            }
+            Err(error) => failure = Some(error),
+        }
+    }
+    Err(failure.unwrap_or_else(|| LocalModelError::MissingFile(url_file_name(url))))
 }
 
 fn url_file_name(url: &str) -> String {

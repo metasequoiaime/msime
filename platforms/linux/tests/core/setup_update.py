@@ -115,6 +115,8 @@ class Harness:
             if not key.startswith(("MSIME_", "XDG_")) and "proxy" not in key.lower()
         }
         self.environment.update(
+            # The lock points at the local server below; the China mirror must not be asked for it.
+            MSIME_DOWNLOAD_MIRROR="",
             HOME=str(scratch / "home"),
             XDG_CONFIG_HOME=str(scratch / "config"),
             XDG_DATA_HOME=str(scratch / "data"),

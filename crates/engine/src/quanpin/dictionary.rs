@@ -807,8 +807,7 @@ impl QuanpinDictionary {
         segmentation: &str,
         segments: &[String],
     ) -> Vec<WordItem> {
-        let key = join_segments(segments);
-        let rows = if let Some(rows) = self.longer_row_cache.get_ref(&key) {
+        let rows = if let Some(rows) = self.longer_row_cache.get_ref_by(segmentation) {
             rows.clone()
         } else {
             let rows = self.database.query_longer_phrases(
@@ -816,7 +815,8 @@ impl QuanpinDictionary {
                 LONGER_PHRASE_EXTRA_SYLLABLES,
                 LONGER_PHRASE_LIMIT,
             );
-            self.longer_row_cache.insert(key, rows.clone());
+            self.longer_row_cache
+                .insert(segmentation.to_owned(), rows.clone());
             rows
         };
         rows.into_iter()
