@@ -2091,6 +2091,8 @@ pub enum HelpcodeSchema {
     Shouyouplus,
     Xiaohe,
     Jiajia,
+    /// 五笔 86：每个字取 86 五笔全码的前两码（`resources/helpcodes/wubi86_helpcode.txt`）。
+    Wubi86,
     /// A user table under the resource set's `helpcodes/custom` directory.
     Custom(String),
 }
@@ -2104,6 +2106,7 @@ impl HelpcodeSchema {
             Self::Shouyouplus => "shouyouplus",
             Self::Xiaohe => "xiaohe",
             Self::Jiajia => "jiajia",
+            Self::Wubi86 => "wubi86",
             Self::Custom(value) => value,
         }
     }
@@ -2131,6 +2134,7 @@ impl<'de> Deserialize<'de> for HelpcodeSchema {
             "shouyouplus" => Ok(Self::Shouyouplus),
             "xiaohe" => Ok(Self::Xiaohe),
             "jiajia" => Ok(Self::Jiajia),
+            "wubi86" => Ok(Self::Wubi86),
             value if crate::helpcode::is_custom_schema(value) => Ok(Self::Custom(value.into())),
             _ => Err(serde::de::Error::custom("unknown helpcode schema")),
         }

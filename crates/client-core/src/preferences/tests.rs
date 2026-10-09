@@ -2570,6 +2570,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
         HelpcodeSchema::Ziranma,
         HelpcodeSchema::Shouyou2,
         HelpcodeSchema::Shouyouplus,
+        HelpcodeSchema::Wubi86,
         HelpcodeSchema::Xiaohe,
     ]
     .into_iter()
@@ -2594,7 +2595,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
         .unwrap()
         .replace("xiaohe", "unknown");
     fs::write(store.path(), &unknown).unwrap();
-    assert!(store.save(5, Preferences::default()).is_err());
+    assert!(store.save(6, Preferences::default()).is_err());
     assert_eq!(fs::read_to_string(store.path()).unwrap(), unknown);
 }
 

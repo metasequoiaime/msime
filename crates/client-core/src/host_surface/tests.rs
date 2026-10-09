@@ -638,6 +638,16 @@ fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {
         .helpcode_schemas
         .iter()
         .any(|schema| schema == "zhengma"));
+    // 列出的每一项都是共享偏好认得的方案 id，包括五笔 86。
+    assert!(android
+        .helpcode_schemas
+        .iter()
+        .any(|schema| schema == "wubi86"));
+    for schema in &android.helpcode_schemas {
+        let parsed: crate::preferences::HelpcodeSchema =
+            serde_json::from_value(serde_json::Value::String(schema.clone())).unwrap();
+        assert_eq!(parsed.as_str(), schema);
+    }
     let windows =
         serde_json::to_value(HostCapabilities::for_platform(HostPlatform::Windows)).unwrap();
     assert!(windows.get("helpcode_schemas").is_none());

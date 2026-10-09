@@ -314,13 +314,14 @@ pub struct HostCapabilities {
 }
 
 /// Android 输入页列出的内置辅助码方案。不含郑码：仓库里还没有带授权的郑码码表。
-const ANDROID_HELPCODE_SCHEMAS: [&str; 6] = [
+const ANDROID_HELPCODE_SCHEMAS: [&str; 7] = [
     "ziranma",
     "xiaohe",
     "lantian",
     "shouyou2_0",
     "shouyouplus",
     "jiajia",
+    "wubi86",
 ];
 
 /// 设置页需要知道的版本信息。
