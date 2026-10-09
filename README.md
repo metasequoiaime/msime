@@ -127,11 +127,9 @@ macOS 原生 IMK bundle 的构建、隔离状态目录与安装见 [macOS 宿主
 
 ## 代码签名策略 / Code signing policy
 
-Windows 正式版目前由 [msime-windows](https://github.com/metasequoiaime/msime-windows) 构建、签名和发布，签名适用那边的 [Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)：
-
 Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
 
-本仓库的 `release-windows.yml` 只产出未签名的 Windows 安装包，不使用任何签名凭据。其余平台按各自平台的机制签名，不经过 SignPath。隐私说明见 [PRIVACY.md](PRIVACY.md)。
+Windows 正式版目前由 [msime-windows](https://github.com/metasequoiaime/msime-windows) 构建、签名和发布，签名适用那边的 [Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)。本仓库的 Windows 安装包由 `release-windows.yml` 构建，SignPath 签名尚未启用（要等 SignPath Foundation 把本仓库加进同一个项目），启用前发布的是未签名安装包；启用后的签名范围、角色和流程见本仓库的 [Code signing policy](docs/code-signing-policy.md)。其余平台按各自平台的机制签名，不经过 SignPath。隐私说明见 [PRIVACY.md](PRIVACY.md)。
 
 ## 许可证
 

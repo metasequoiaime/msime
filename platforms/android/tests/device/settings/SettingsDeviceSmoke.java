@@ -36,7 +36,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     private static final String NINE_KEY_SELECT =
         "document.querySelector('[aria-label=\"设为当前输入方案 全拼 9 键\"]')";
     private static final String WUBI_MIXED_PINYIN =
-        "document.querySelector('[aria-label=\"编码打不出时用拼音候选\"]')";
+        "document.querySelector('[aria-label=\"五笔拼音混输\"]')";
     private static final String KEYBOARD_HEIGHT =
         "document.querySelector('[aria-label=\"键盘高度\"]')";
     private static final String KEY_SPACING =

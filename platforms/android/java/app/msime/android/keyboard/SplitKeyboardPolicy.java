@@ -10,8 +10,8 @@ package app.msime.android;
 public final class SplitKeyboardPolicy {
     /** 中间空隙占整行宽度的比例。 */
     public static final float GAP_FRACTION = 0.25f;
-    /** 拆开的空格键每一半至少保留原宽度的这个比例，避免某一侧只剩一条窄缝。 */
-    public static final float MIN_SPACE_SHARE = 0.25f;
+    /** 拆开的空格键每一半至少保留原宽度的这个比例，避免某一侧只剩一条窄缝。中/英挪到回车左边后，空格右侧的键（。中 ↵）比左侧（123 ，）宽得多，逗号隐藏时要让空隙仍落在正中，右半只剩约 16%，所以下限取 15%。 */
+    public static final float MIN_SPACE_SHARE = 0.15f;
     /** 比较份额时的容差：键宽份额是 1.4、1.05 这样的浮点数，相等的两个候选断点不能因为舍入误差分出先后。 */
     private static final float EPSILON = 1e-3f;
 

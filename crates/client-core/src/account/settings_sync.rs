@@ -9,6 +9,7 @@
 //! 按键音、振动开关和振动强度不在共享偏好里，而在宿主自己的本地存储（Android 的 `KeyboardFeedbackStore`），由调用方读出来作为 [`HostKeyboardFeedback`] 传入，应用后再由调用方写回。
 
 use super::{AccountError, AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences};
+use crate::host_surface::HostPlatform;
 use crate::preferences::{
     FrequencyMode, InputScheme, NumberKeypadOrder, Preferences, ShuangpinProfile, ThemeMode,
     TouchKeyboardLayout, WubiProfile,
@@ -759,8 +760,10 @@ pub fn apply_android_settings(
         };
         Some(())
     })?;
+    // 只在部分宿主上提供的主题（只在 iOS 的 `native`）对 Android 来说和不认识的 id 一样：只跳过这个键，本机主题不变。
     applier.set_string(GLOBAL_THEME, |preferences, value| {
-        preferences.global_theme = GlobalTheme::from_id(value)?;
+        preferences.global_theme = GlobalTheme::from_id(value)
+            .filter(|theme| theme.is_offered_on(HostPlatform::Android))?;
         Some(())
     })?;
     applier.set_string(CUSTOM_THEME_BASE, |preferences, value| {

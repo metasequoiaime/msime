@@ -33,8 +33,8 @@ public final class KeyHeatmapView extends View {
             k("KeyH"), k("KeyJ"), k("KeyK"), k("KeyL"), new Key(null, .5f, "")),
         List.of(new Key("ShiftLeft", 1.5f, "⇧"), k("KeyZ"), k("KeyX"), k("KeyC"), k("KeyV"),
             k("KeyB"), k("KeyN"), k("KeyM"), new Key("Backspace", 1.5f, "⌫")),
-        List.of(new Key("SoftLayer", 1.25f, "123"), new Key("SoftLanguage", 1f, "中"),
-            new Key("Comma", 1f, "，"), new Key("Space", 4.25f, "空格"), new Key("Period", 1f, "。"),
+        List.of(new Key("SoftLayer", 1.25f, "123"), new Key("Comma", 1f, "，"),
+            new Key("Space", 4.25f, "空格"), new Key("Period", 1f, "。"), new Key("SoftLanguage", 1f, "中"),
             new Key("Enter", 1.5f, "↵")));
 
     private static final List<List<Key>> NINE = List.of(
@@ -44,8 +44,8 @@ public final class KeyHeatmapView extends View {
             new Key("Nine6", 1.4f, "MNO"), new Key("SoftSymbol", 1f, "符")),
         List.of(new Key("SoftPunctuation", 1f, "标点"), new Key("Nine7", 1.4f, "PQRS"),
             new Key("Nine8", 1.4f, "TUV"), new Key("Nine9", 1.4f, "WXYZ"), new Key("Nine0", 1f, "0")),
-        List.of(new Key("SoftLayer", 1f, "123"), new Key("SoftLanguage", 1f, "中"),
-            new Key("Space", 2.8f, "空格"), new Key("Enter", 1.4f, "↵")));
+        List.of(new Key("SoftLayer", 1f, "123"), new Key("Space", 2.8f, "空格"),
+            new Key("SoftLanguage", 1f, "中"), new Key("Enter", 1.4f, "↵")));
 
     private static final int[] HEAT = {R.attr.msHeat0, R.attr.msHeat1, R.attr.msHeat2, R.attr.msHeat3,
         R.attr.msHeat4};

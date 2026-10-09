@@ -928,7 +928,7 @@ fn selecting_a_quanpin_candidate_clones_only_needed_request_fields() {
         crate::ime::personal_rerank::allocations::count(|| session.select(index));
 
     assert_eq!(result.commit.as_deref(), Some("你好"));
-    assert_eq!(allocations, 31, "selection allocations: {allocations}");
+    assert_eq!(allocations, 23, "selection allocations: {allocations}");
 }
 
 #[test]
@@ -989,7 +989,7 @@ fn selecting_a_shuangpin_candidate_does_not_clone_the_full_request() {
 
     assert_eq!(result.commit.as_deref(), Some("你好"));
     assert_eq!(
-        allocations, 40,
+        allocations, 32,
         "shuangpin selection allocations: {allocations}"
     );
 }

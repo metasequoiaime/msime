@@ -243,7 +243,7 @@ pub struct PreferencesView {
     pub traditional_chinese_output: bool,
     /// 五笔用 86 还是 98 码表。
     pub wubi_profile: WubiVersion,
-    /// In Wubi, answer a code with no match with candidates from the same pinyin spelling.
+    /// 五笔拼音混输：五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。
     pub wubi_mixed_pinyin: bool,
     /// In Wubi, show the rest of each candidate's code after the typed keys.
     pub wubi_code_hint: bool,

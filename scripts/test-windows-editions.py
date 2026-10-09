@@ -322,14 +322,16 @@ def check_languages(errors: list[str], editions: list[dict]) -> None:
 
 
 def check_release_matrix(errors: list[str], editions: list[dict]) -> None:
-    match = re.search(r"^\s+edition: \[([^\]]*)\]\s*$", RELEASE_WORKFLOW.read_text(encoding="utf-8"), re.MULTILINE)
-    if not match:
+    # 构建（release）、编译安装包（package）和 Windows on Arm 冒烟（arm64）各有一份版本矩阵，每一份都要齐：package 少一个版本，那个版本就没有安装包，签名时 SignPath 也收不到它。
+    matches = list(re.finditer(r"^\s+edition: \[([^\]]*)\]\s*$", RELEASE_WORKFLOW.read_text(encoding="utf-8"), re.MULTILINE))
+    if not matches:
         errors.append(f"{RELEASE_WORKFLOW.relative_to(ROOT)} has no edition matrix")
         return
-    matrix = [item.strip() for item in match.group(1).split(",") if item.strip()]
     expected = [entry["id"] for entry in editions]
-    if sorted(matrix) != sorted(expected) or len(set(matrix)) != len(matrix):
-        errors.append(f"{RELEASE_WORKFLOW.relative_to(ROOT)} builds editions {matrix}, but the editions with Windows identifiers are {expected}")
+    for match in matches:
+        matrix = [item.strip() for item in match.group(1).split(",") if item.strip()]
+        if sorted(matrix) != sorted(expected) or len(set(matrix)) != len(matrix):
+            errors.append(f"{RELEASE_WORKFLOW.relative_to(ROOT)} has an edition matrix {matrix}, but the editions with Windows identifiers are {expected}")
 
 
 def main() -> int:
