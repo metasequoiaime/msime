@@ -35,17 +35,25 @@ struct Output {
 }
 
 impl Output {
+    fn accepts(&self, text: &str) -> bool {
+        // 输出页很小，扫描已有词面去重，避免另建字符串集合。
+        !text.is_empty() && !self.full() && !self.items.iter().any(|item| item.text == text)
+    }
+
     fn push(&mut self, text: &str, cost: i64) {
-        // Sentence output is capped at a small page (12 in the provider). Scanning the
-        // already-owned rows avoids allocating a second String for every unique result just
-        // to deduplicate it.
-        if text.is_empty() || self.full() || self.items.iter().any(|item| item.text == text) {
+        if !self.accepts(text) {
             return;
         }
         self.items.push(JapaneseConversion {
             text: text.to_owned(),
             cost,
         });
+    }
+
+    fn push_owned(&mut self, text: String, cost: i64) {
+        if self.accepts(&text) {
+            self.items.push(JapaneseConversion { text, cost });
+        }
     }
 
     fn full(&self) -> bool {
@@ -177,8 +185,9 @@ pub fn search_converted(
         node.cost += i64::from(dictionary.connection_cost(node.right_id, 0));
     }
     finals.sort_by_key(|node| node.cost);
-    if let Some(best) = finals.first() {
-        output.push(&best.text, best.cost);
+    let mut finals = finals.into_iter();
+    if let Some(best) = finals.next() {
+        output.push_owned(best.text, best.cost);
     }
 
     if !pending.is_empty() {
@@ -192,8 +201,8 @@ pub fn search_converted(
         }
     }
 
-    for node in finals.iter().skip(1) {
-        output.push(&node.text, node.cost);
+    for node in finals {
+        output.push_owned(node.text, node.cost);
     }
 
     for end in (1..=mora_count).rev() {
@@ -232,6 +241,97 @@ mod tests {
     }
 
     #[test]
+    fn owned_sentence_output_reuses_text_storage() {
+        let mut text = String::with_capacity(64);
+        text.push_str("合成句子😀");
+        let pointer = text.as_ptr();
+        let capacity = text.capacity();
+        let mut output = Output {
+            items: Vec::with_capacity(2),
+            limit: 2,
+        };
+        let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            output.push_owned(text, -123);
+        });
+        eprintln!("日文句子输出文本分配：{allocations}");
+        assert_eq!(output.items[0].text.as_ptr(), pointer);
+        assert_eq!(output.items[0].text.capacity(), capacity);
+        assert_eq!(
+            output.items,
+            [JapaneseConversion {
+                text: "合成句子😀".to_owned(),
+                cost: -123
+            }]
+        );
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn borrowed_and_owned_output_preserve_first_text_and_cost() {
+        let inputs = [
+            ("", 0),
+            ("あ", -5),
+            ("あ", -99),
+            ("😀", 2),
+            ("合成", 1),
+            ("😀", -20),
+        ];
+        let expected = [("あ", -5), ("😀", 2), ("合成", 1)];
+        for limit in [0, 1, 2, 3, 8] {
+            for mode in 0..3 {
+                let mut output = Output {
+                    items: Vec::with_capacity(limit),
+                    limit,
+                };
+                for (index, (text, cost)) in inputs.iter().enumerate() {
+                    if mode == 1 || (mode == 2 && index % 2 == 0) {
+                        output.push_owned((*text).to_owned(), *cost);
+                    } else {
+                        output.push(text, *cost);
+                    }
+                }
+                let actual: Vec<_> = output
+                    .items
+                    .iter()
+                    .map(|item| (item.text.as_str(), item.cost))
+                    .collect();
+                assert_eq!(
+                    actual,
+                    expected[..limit.min(expected.len())],
+                    "limit={limit}, mode={mode}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rejected_owned_output_does_not_allocate() {
+        for (limit, initial, rejected) in [
+            (2, Some("あ"), ""),
+            (2, Some("あ"), "あ"),
+            (1, Some("あ"), "😀"),
+            (0, None, "合成"),
+        ] {
+            let mut output = Output {
+                items: Vec::with_capacity(limit),
+                limit,
+            };
+            if let Some(text) = initial {
+                output.push(text, 7);
+            }
+            let before = output.items.clone();
+            let mut text = String::with_capacity(64);
+            text.push_str(rejected);
+            let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                output.push_owned(text, -99);
+                output.push(rejected, -99);
+            });
+            assert_eq!(output.items, before);
+            assert_eq!(allocations, 0, "limit={limit}, rejected={rejected:?}");
+        }
+    }
+
+    #[test]
     fn join_text_allocates_only_result_bytes() {
         let text = super::join_text("蚊", "な");
         assert_eq!(text, "蚊な");
@@ -253,7 +353,10 @@ mod tests {
             }]
         );
         eprintln!("日文未命中双假名矩阵搜索分配：{allocations}");
-        assert!(allocations <= 9, "未命中子读音无需排名堆：{allocations}");
+        assert!(
+            allocations <= 8,
+            "未命中输出应接收已有句子文本：{allocations}"
+        );
     }
 
     #[test]
@@ -278,8 +381,8 @@ mod tests {
         assert_eq!(actual, expected);
         eprintln!("日文密集单假名矩阵分配：{allocations}");
         assert!(
-            allocations <= 33,
-            "败选节点不应拼接字符串或扩容行：{allocations}"
+            allocations <= 25,
+            "胜选文本应移入输出，败选不应构造文本：{allocations}"
         );
     }
 
@@ -295,8 +398,8 @@ mod tests {
         assert_eq!(texts(&actual), ["蚊", "か"]);
         eprintln!("日文单假名矩阵搜索分配：{allocations}");
         assert!(
-            allocations <= 13,
-            "临时词条字符串不应重复拥有：{allocations}"
+            allocations <= 11,
+            "词条应借用，句子文本应移入输出：{allocations}"
         );
     }
 

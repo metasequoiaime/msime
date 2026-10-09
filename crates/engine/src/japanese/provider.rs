@@ -355,7 +355,10 @@ mod tests {
         assert_eq!(destination, expected);
         assert_eq!(words(&destination), ["か", "カ", "蚊"]);
         eprintln!("日文有词库单假名 provider 热查询分配：{allocations}");
-        assert!(allocations <= 13, "词条文本应从词库借用：{allocations}");
+        assert!(
+            allocations <= 11,
+            "词条应借用，句子文本应移入矩阵输出：{allocations}"
+        );
     }
 
     fn assert_provider_reuses_conversion_strings(raw: &str) {
