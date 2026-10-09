@@ -257,9 +257,36 @@ impl QuanpinDictionary {
         initial_items(self.database.query_initial(code, limit))
     }
 
+    /// 个人上下文模型里 `word` 被提交过的计数（`PersonalNgram::word_count`），只读。九键按它把用户用过的简拼词排到前面（#6185）。
+    pub fn personal_word_count(&self, word: &str) -> u32 {
+        self.personal.model().word_count(word)
+    }
+
+    /// 个人上下文模型是否还什么都没记。九键据此决定要不要为用过的词多扫简拼行。
+    pub fn personal_model_is_empty(&self) -> bool {
+        self.personal.model().is_empty()
+    }
+
+    /// 这个词库读写的个人上下文存储，与同一份用户日志上的输入会话共用一份。九键在这里记下选过的词，26 键也写进同一份。
+    pub fn personal_store(&self) -> &PersonalNgramStore {
+        &self.personal
+    }
+
     /// 简拼 `codes`（同样长度，一个字母一个音节）对应的词条，按权重从高到低最多 `limit` 行，见 `PinyinDatabase::query_jianpin_codes`。`pinyin` 和 `canonical_pinyin` 都是词条的全拼键，用户自己加的词（学习写进词库的整句、自造词）也在里面。
     pub fn query_jianpin_codes(&self, codes: &[String], limit: usize) -> Vec<WordItem> {
         initial_items(self.database.query_jianpin_codes(codes, limit))
+    }
+
+    /// 每张首字母表各取前 `table_limit` 行、合起来不再截断的简拼查询，见 `PinyinDatabase::query_jianpin_codes_per_table`。
+    pub fn query_jianpin_codes_per_table(
+        &self,
+        codes: &[String],
+        table_limit: usize,
+    ) -> Vec<WordItem> {
+        initial_items(
+            self.database
+                .query_jianpin_codes_per_table(codes, table_limit),
+        )
     }
 
     /// Replace the capped 24-row run with every row of the initial (QD:506-558); updates the row cache and the series slot of the query `(raw, segmentation, autocorrect_types)` that produced `candidates`.

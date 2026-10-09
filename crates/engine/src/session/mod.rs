@@ -55,6 +55,8 @@ impl Session {
         // 九键的整句与 26 键遵守同一组句子联想设置（#6059）。
         nine_key.set_sentence_options(options.sentence_association, options.sentence_alternatives);
         nine_key.set_rescoring_context(&options.rescoring_context);
+        // 九键选中的词记进同一个个人上下文模型，开关与 26 键相同（#6185）。
+        nine_key.set_personal_context_enabled(options.personal_context);
         Ok(Session {
             input,
             nine_key,
@@ -318,6 +320,7 @@ impl Session {
     /// Disabling also ends the current context.
     pub fn set_personal_context_enabled(&mut self, enabled: bool) {
         self.input.set_personal_context_enabled(enabled);
+        self.nine_key.set_personal_context_enabled(enabled);
     }
 
     /// The committed text the neural sentence models condition on, updated without rebuilding the session. Only the last 64 characters matter.

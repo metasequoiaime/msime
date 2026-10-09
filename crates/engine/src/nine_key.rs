@@ -17,6 +17,7 @@ use crate::lattice::decode::PHRASE_LENGTH_BONUS;
 use crate::lattice::neural::{
     shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
 };
+use crate::lattice::personal::PersonalTransition;
 use crate::lattice::SentencePath;
 use crate::local::emoji::{query_emoji_readings, query_kaomoji_readings, ExpressiveRow};
 use crate::paths::RuntimePaths;
@@ -25,7 +26,7 @@ use crate::pinyin::syllables::intact_pinyin_list;
 use crate::quanpin::QuanpinDictionary;
 use crate::session::SessionSnapshot;
 use crate::stroke;
-use crate::text::{count_utf8_chars, is_han_phrase, last_characters};
+use crate::text::{count_utf8_chars, is_all_han, is_han_phrase, last_characters};
 use crate::types::{
     CandidateSource, Command, EnglishInputOptions, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult, LocalInputMode,
@@ -58,6 +59,10 @@ const ENGLISH_CANDIDATE_CAPACITY: usize = ENGLISH_PREFIX_BUDGET * ENGLISH_LIMIT;
 const INITIALS_CODE_LIMIT: usize = 1024;
 /// 简拼一次最多取的行数，按权重从高到低。
 const INITIALS_ROW_LIMIT: usize = 64;
+/// 用户用过的简拼词可能排在按权重的前 `INITIALS_ROW_LIMIT` 行之外（出货词库里 9'7 的 隐私 前面有 284 行更重的；9'9'2'9 的 仔细查找 权重 100，前面有 246 行更重的、三百多行同样是 100）。个人上下文模型有记录时，每张首字母表各取权重最高的这么多行（`query_jianpin_codes_per_table`，九宫格的码最多分在四张表里），用过的词先留下，再截到 `INITIALS_ROW_LIMIT`（#6185）。
+const INITIALS_SCAN_LIMIT: usize = 512;
+/// 九键选中一个词时记进个人上下文模型的次数，与 26 键显式选词的 `session::learning::DICTIONARY_PICK_TIMES` 相同（`session/tests.rs` 核对两者一致）。简拼行按每 `PERSONAL_PICK_TIMES * trigger_count` 个计数算调频的一次触发，见 `boost_used_initials`。
+pub(crate) const PERSONAL_PICK_TIMES: u32 = 2;
 /// 没打切分时，同样覆盖的词典行里最前面留给音节行（最常用的单字）的位置数；其后的音节行和简拼行按权重归并，见 `interleave_initials`。
 const SYLLABLE_ROWS_BEFORE_INITIALS: usize = 3;
 /// 混入 emoji、颜文字时最多按几种读法查。一串数字能拼出几十种读法，每种读法要各查一次 emoji 和颜文字；按候选列表排好先后之后只查前面这几种，最可能的读法总在里面。
@@ -83,6 +88,8 @@ pub struct NineKeySession {
     rescoring_context: String,
     /// 键盘模型，`neural_keyboard` 打开后第一次重排时加载；内层 `None` 是模型读不到。九键不让词库在每条切分里各重排一次，见 `rerank_sentences`。
     keyboard: Option<Option<NeuralReranker>>,
+    /// 把选中的词记进 26 键共用的个人上下文模型（`SessionOptions::personal_context`，还要 `learning`），简拼行据此把用户用过的词排到前面（#6185）。
+    personal_context: bool,
     digits: String,
     locked: Vec<String>,
     /// 用户用 `'` 切开音节的数字位置，升序，都在已锁定的部分之后。和锁定的拼写不同，切分只定下一个音节在哪里结束，两边数字的各种读法都还保留：`94'26` 可以是 xi'an，也可以是 yi'an，但不会是 xian。
@@ -181,6 +188,7 @@ impl NineKeySession {
             sentence_alternatives: false,
             rescoring_context: String::new(),
             keyboard: None,
+            personal_context: true,
             digits: String::new(),
             locked: Vec::new(),
             splits: Vec::new(),
@@ -242,6 +250,11 @@ impl NineKeySession {
         if self.active() {
             self.refresh();
         }
+    }
+
+    /// 与 26 键的 `InputSession::set_personal_context_enabled` 一起设置：关掉后九键选中的词不再记进个人上下文模型。
+    pub fn set_personal_context_enabled(&mut self, enabled: bool) {
+        self.personal_context = enabled;
     }
 
     /// 键盘模型读的上屏上下文，与 26 键的 `QuanpinDictionary::set_rescoring_context` 一样只记下最后 `CONTEXT_CHARACTERS` 个字，不重排已有的候选。
@@ -486,9 +499,11 @@ impl NineKeySession {
         };
         self.consume(selected_pinyin_length);
         if self.learning {
-            let learned =
+            let (learned, stored) =
                 self.learn_selection(selected_source, &selected_canonical_pinyin, &selected_word);
             diagnostic = diagnostic.or(learned);
+            let recorded = self.record_personal_use(selected_source, &selected_word, stored);
+            diagnostic = diagnostic.or(recorded);
         } else {
             self.reset_phrase();
         }
@@ -496,13 +511,13 @@ impl NineKeySession {
         KeyResult::committed(selected_word).with_diagnostic(diagnostic)
     }
 
-    /// 选中一行之后的造词，与全拼键盘的规则相同：选掉一部分数字时记下这一段；选完全部数字时，前面有选过的段就把各段连成一个词存起来（「我滴」+「个天呐」），没有就只在选中的是整句行（词库里没有的句子）时把整句存起来，最多 `MAX_LEARNED_SENTENCE_SYLLABLES` 个音节。词库里本来就有的词不再写。
+    /// 选中一行之后的造词，与全拼键盘的规则相同：选掉一部分数字时记下这一段；选完全部数字时，前面有选过的段就把各段连成一个词存起来（「我滴」+「个天呐」），没有就只在选中的是整句行（词库里没有的句子）时把整句存起来，最多 `MAX_LEARNED_SENTENCE_SYLLABLES` 个音节。词库里本来就有的词不再写。返回诊断，以及这次存进（或词库里本来就有）的词。
     fn learn_selection(
         &mut self,
         selected_source: CandidateSource,
         selected_canonical_pinyin: &str,
         selected_word: &str,
-    ) -> Option<String> {
+    ) -> (Option<String>, Option<String>) {
         let reading = if selected_source.is_dictionary() || selected_source.is_sentence_learning() {
             selected_canonical_pinyin
         } else {
@@ -518,7 +533,7 @@ impl NineKeySession {
                 self.phrase_pinyin.push_str(reading);
             }
             self.phrase_word.push_str(selected_word);
-            return None;
+            return (None, None);
         }
         let phrase = !self.phrase_word.is_empty();
         let stored = if phrase {
@@ -535,7 +550,9 @@ impl NineKeySession {
                 .then(|| (reading.to_owned(), selected_word.to_owned()))
         };
         self.reset_phrase();
-        let (pinyin, word) = stored?;
+        let Some((pinyin, word)) = stored else {
+            return (None, None);
+        };
         // 写入前由 `create_word_from_canonical_pinyin` 核对一字一个完整音节（与全拼键盘存词前的检查相同）；读不出的词（夹着英文或符号）被它拒绝，这不是写入失败，不报诊断。
         let association = self.dictionary_association();
         match self
@@ -545,10 +562,52 @@ impl NineKeySession {
             })
             .create_word_from_canonical_pinyin(&pinyin, &word)
         {
-            Ok(()) | Err(EngineError::InvalidArgument(_)) => None,
-            Err(_) if phrase => Some(diagnostics::PHRASE_NOT_PERSISTED.to_string()),
-            Err(_) => Some(diagnostics::SENTENCE_NOT_PERSISTED.to_string()),
+            Ok(()) => (None, Some(word)),
+            Err(EngineError::InvalidArgument(_)) => (None, None),
+            Err(_) if phrase => (Some(diagnostics::PHRASE_NOT_PERSISTED.to_string()), None),
+            Err(_) => (Some(diagnostics::SENTENCE_NOT_PERSISTED.to_string()), None),
         }
+    }
+
+    /// 把这次选中的词记进个人上下文模型（#6185）：选中的多字汉字词库词，以及这次存进词库的词（分段连成的词组、选中的整句）。不论词库里原来有没有、选的是不是首位都记，简拼行据此把用户用过的词排到前面，26 键选的词也记在同一个模型里。九键没有 26 键那样的上屏词链，前一个词一律当作句首。
+    fn record_personal_use(
+        &self,
+        selected_source: CandidateSource,
+        selected_word: &str,
+        stored: Option<String>,
+    ) -> Option<String> {
+        if !self.personal_context {
+            return None;
+        }
+        let mut transitions: Vec<PersonalTransition> = Vec::with_capacity(2);
+        let words = selected_source
+            .is_dictionary()
+            .then_some(selected_word)
+            .into_iter()
+            .chain(stored.as_deref());
+        for word in words {
+            if count_utf8_chars(word) >= 2
+                && is_all_han(word)
+                && !transitions.iter().any(|transition| transition.word == word)
+            {
+                transitions.push(PersonalTransition {
+                    earlier: String::new(),
+                    previous: String::new(),
+                    word: word.to_owned(),
+                    times: PERSONAL_PICK_TIMES,
+                });
+            }
+        }
+        if transitions.is_empty() {
+            return None;
+        }
+        // 候选都来自词库，选得到词时词库一定已经打开。
+        let dictionary = self.dictionary.as_ref()?;
+        dictionary
+            .personal_store()
+            .record(&transitions)
+            .err()
+            .map(|_| diagnostics::PERSONAL_CONTEXT_NOT_PERSISTED.to_string())
     }
 
     fn reset_phrase(&mut self) {
@@ -925,11 +984,40 @@ impl NineKeySession {
                 seen.insert(key.clone());
             }
         }
+        let mut boost = None;
         if let Some(codes) = initials
             .then(|| initials_codes(remaining, INITIALS_CODE_LIMIT))
             .flatten()
         {
-            for mut candidate in dictionary.query_jianpin_codes(&codes, INITIALS_ROW_LIMIT) {
+            // 用户用过的词（个人上下文模型里有计数，26 键选的也算）不能被按权重的截断截掉（#6185）：模型有记录时多扫一些行，用过的先留下。学习关掉时不读个人数据。
+            let personal = self.learning && !dictionary.personal_model_is_empty();
+            let mut rows = if personal {
+                dictionary.query_jianpin_codes_per_table(&codes, INITIALS_SCAN_LIMIT)
+            } else {
+                dictionary.query_jianpin_codes(&codes, INITIALS_ROW_LIMIT)
+            };
+            let mut used = HashMap::new();
+            if personal {
+                for row in &rows {
+                    let count = dictionary.personal_word_count(&row.word);
+                    if count > 0 {
+                        used.insert(row.word.clone(), count);
+                    }
+                }
+                if rows.len() > INITIALS_ROW_LIMIT {
+                    // 稳定排序：用过的词在前，两边各自仍按权重。
+                    rows.sort_by_key(|row| !used.contains_key(&row.word));
+                    rows.truncate(INITIALS_ROW_LIMIT);
+                }
+            }
+            // 排位沿用调频设置：调频关掉时用过的词只保证查得到，不往前挪。
+            if self.frequency.mode != FrequencyAdjustmentMode::Disabled && !used.is_empty() {
+                boost = Some(InitialsBoost {
+                    used,
+                    frequency: self.frequency,
+                });
+            }
+            for mut candidate in rows {
                 // 没有锁定的拼音时 `remaining` 就是全部数字，简拼行一个数字一个音节，吃掉全部数字。
                 candidate.pinyin = self.digits.clone();
                 push_ranked(
@@ -947,7 +1035,7 @@ impl NineKeySession {
             let strokes = (!self.strokes.is_empty()).then_some(&self.stroke_texts);
             candidates.retain(|item| passes_filter(&item.word, self.single_character, strokes));
         }
-        rank_candidates(&mut candidates, prefer_exact, initials_lead);
+        rank_candidates(&mut candidates, prefer_exact, initials_lead, boost.as_ref());
         let remaining_length = remaining.len();
         self.rerank_sentences(&mut candidates);
         // emoji、颜文字按拼音查，读法的先后要参照排好的拼音候选，所以在插入英文行之前查；插入在英文行之后，它们也可以接在英文词后面。单字、笔画筛选针对的是汉字，筛选时不混入。
@@ -1664,14 +1752,96 @@ fn push_ranked(
     candidates.push(candidate);
 }
 
-/// Stable sort by `rank_key`, dedup by word, capped (NK:283-307).
-fn rank_candidates(candidates: &mut Vec<WordItem>, prefer_exact: bool, initials_lead: bool) {
+/// Stable sort by `rank_key`, dedup by word, capped (NK:283-307). 截断前再把用户用过的简拼行往前挪（`boost_used_initials`）。
+fn rank_candidates(
+    candidates: &mut Vec<WordItem>,
+    prefer_exact: bool,
+    initials_lead: bool,
+    boost: Option<&InitialsBoost>,
+) {
     candidates.sort_by_key(|item| rank_key(item, prefer_exact, initials_lead));
     retain_unique_words(candidates);
     if !initials_lead {
         interleave_initials(candidates);
     }
+    if let Some(boost) = boost {
+        boost_used_initials(candidates, initials_lead, boost);
+    }
     candidates.truncate(CANDIDATE_LIMIT);
+}
+
+/// 简拼行按用户用过的次数挪位（#6185），沿用调频的模式、触发次数和步长。
+struct InitialsBoost {
+    /// 用过的简拼词和它在个人上下文模型里的计数。
+    used: HashMap<String, u32>,
+    frequency: FrequencyAdjustmentOptions,
+}
+
+/// 把用户用过的简拼行往前挪（#6185）。简拼行都在覆盖全部数字的那一段词典行里（`rank_key` 先按覆盖、再按是否合成行排，所以这一段从列表开头算起），只在这一段里挪。每个用过的词从它现在的位置起，计数每够一次触发（`PERSONAL_PICK_TIMES * trigger_count`）就按调频模式算一次新位置（`ranking::ranking_target`：置顶到头、减半、按步长、提到第五位以内再逐位上移），与 26 键调频一次次挪位的结果相同。挪不过这一段开头留给音节行的位置：没打切分时前 `SYLLABLE_ROWS_BEFORE_INITIALS` 个音节行（最常用的单字）照旧在最前；打了切分时简拼行本来就领先，可以挪到最前。几个用过的词抢同一个位置时，原来靠前（权重高）的先占。只重排去重之后的列表，保留哪一行不受影响，`push_ranked` 的跳过规则照样成立。
+fn boost_used_initials(candidates: &mut Vec<WordItem>, initials_lead: bool, boost: &InitialsBoost) {
+    let Some(first) = candidates.first() else {
+        return;
+    };
+    let coverage = first.pinyin.len();
+    let end = candidates
+        .iter()
+        .take_while(|item| item.pinyin.len() == coverage && !item.source.is_generated_or_fallback())
+        .count();
+    let floor = if initials_lead {
+        0
+    } else {
+        candidates[..end]
+            .iter()
+            .take(SYLLABLE_ROWS_BEFORE_INITIALS)
+            .take_while(|item| !is_initials_row(item))
+            .count()
+    };
+    let trigger_count = u32::try_from(boost.frequency.trigger_count.clamp(1, 10)).unwrap_or(1);
+    let per_trigger = PERSONAL_PICK_TIMES * trigger_count;
+    // (目标位置, 现在的位置)
+    let mut moves = Vec::new();
+    for (index, item) in candidates[..end].iter().enumerate() {
+        if !is_initials_row(item) {
+            continue;
+        }
+        let Some(&count) = boost.used.get(&item.word) else {
+            continue;
+        };
+        let mut rank = index;
+        // 每次触发至少挪一位（步长为 0 的线性模式除外，它一位也不挪），所以最多算 `index` 次。
+        let triggers = usize::try_from(count / per_trigger).unwrap_or(usize::MAX);
+        for _ in 0..triggers.min(index) {
+            if rank == 0 {
+                break;
+            }
+            rank = ranking::ranking_target(
+                rank,
+                boost.frequency.mode,
+                boost.frequency.linear_step,
+                false,
+            );
+        }
+        let target = rank.max(floor);
+        if target < index {
+            moves.push((target, index));
+        }
+    }
+    if moves.is_empty() {
+        return;
+    }
+    // 先从后往前取出要挪的行（前面的下标不受影响），再按目标位置从前往后放回；同一个位置先放原来靠前的，后来的顺延一位。
+    let mut rows: Vec<(usize, usize, WordItem)> = moves
+        .iter()
+        .rev()
+        .map(|&(target, index)| (target, index, candidates.remove(index)))
+        .collect();
+    rows.sort_by_key(|&(target, index, _)| (target, index));
+    let mut next = 0;
+    for (target, _, row) in rows {
+        let at = target.max(next);
+        candidates.insert(at, row);
+        next = at + 1;
+    }
 }
 
 /// 没打切分时，`rank_key` 把简拼行排在同样覆盖的全部音节行之后。两位数字的音节行常有几百行（`68` 的 mu、nu、nv、ou 在出货词库里有两百多个单字），截到 `CANDIDATE_LIMIT` 时简拼行会整个被截掉，明天、今天就再也出不来（#5640）。所以在截断前，每段同样覆盖的词典行里先留下最前面 `SYLLABLE_ROWS_BEFORE_INITIALS` 个音节行，其后的音节行和简拼行按权重归并：常用词排在生僻单字前面，常用单字仍排在少见的词前面。两边各自的先后不变，权重相同时音节行在前。只重排去重之后的列表，保留哪一行不受影响，`push_ranked` 的跳过规则照样成立。
@@ -2341,7 +2511,7 @@ mod tests {
             item("你好", "64426", 1000, CandidateSource::Database),
             item("你", "64", 10, CandidateSource::Database),
         ];
-        rank_candidates(&mut candidates, false, false);
+        rank_candidates(&mut candidates, false, false, None);
         let words: Vec<_> = candidates.iter().map(|item| item.word.as_str()).collect();
         assert_eq!(words, ["你好", "米好", "你", "米", "泥"]);
         assert_eq!(candidates[2].weight, 100);
@@ -2360,7 +2530,7 @@ mod tests {
     }
 
     fn ranked(mut candidates: Vec<WordItem>, prefer_exact: bool) -> Vec<String> {
-        rank_candidates(&mut candidates, prefer_exact, false);
+        rank_candidates(&mut candidates, prefer_exact, false, None);
         candidates.into_iter().map(|item| item.word).collect()
     }
 
@@ -2432,13 +2602,13 @@ mod tests {
             }
             let prefer_exact = round % 2 == 0;
             let mut everything = rows.clone();
-            rank_candidates(&mut everything, prefer_exact, false);
+            rank_candidates(&mut everything, prefer_exact, false, None);
             let mut skipped = Vec::new();
             let mut leading = HashMap::new();
             for row in rows {
                 push_ranked(&mut skipped, &mut leading, row, prefer_exact, false);
             }
-            rank_candidates(&mut skipped, prefer_exact, false);
+            rank_candidates(&mut skipped, prefer_exact, false, None);
             assert_eq!(skipped, everything, "round {round}");
         }
     }
@@ -3985,6 +4155,200 @@ mod tests {
         // 不打切分也找得到。
         type_digits(&mut later, "93486");
         assert!(words(&later).iter().any(|word| word == "我滴个天呐"));
+    }
+
+    /// 简拼 9'7（y's）下有两百行比 隐私 重的词，按权重只取前 `INITIALS_ROW_LIMIT` 行时 隐私 被截掉（#6185 的出货词库里它排第 285 行）。
+    fn crowded_initials_fixture() -> Fixture {
+        let mut main = String::from(
+            "CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_y VALUES('yin','y','因',100);\
+CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_s VALUES('si','s','四',100);\
+CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_y VALUES('yin''si','ys','隐私',10);",
+        );
+        for index in 0..200 {
+            main.push_str(&format!(
+                "INSERT INTO tbl_2_y VALUES('ya''qi','yq','压{index}',{});",
+                100_000 - index
+            ));
+        }
+        fixture_with(&main)
+    }
+
+    fn open_with_frequency(
+        paths: &RuntimePaths,
+        mode: FrequencyAdjustmentMode,
+        trigger_count: i32,
+        linear_step: i32,
+    ) -> NineKeySession {
+        NineKeySession::new(
+            paths,
+            true,
+            FrequencyAdjustmentOptions {
+                mode,
+                trigger_count,
+                linear_step,
+            },
+            FuzzyPinyinOptions::default(),
+            EnglishInputOptions::default(),
+            true,
+            false,
+        )
+    }
+
+    /// 别处（26 键）提交过 `word` 一次：显式选词在个人上下文模型里记 `PERSONAL_PICK_TIMES` 次。
+    fn record_use(paths: &RuntimePaths, word: &str) {
+        crate::user_dictionary::ngram_store::PersonalNgramStore::for_journal(
+            &paths.user(assets::USER_JOURNAL),
+        )
+        .record(&[PersonalTransition {
+            earlier: String::new(),
+            previous: String::new(),
+            word: word.to_owned(),
+            times: PERSONAL_PICK_TIMES,
+        }])
+        .expect("record a use");
+    }
+
+    fn personal_count(paths: &RuntimePaths, word: &str) -> u32 {
+        crate::user_dictionary::ngram_store::PersonalNgramStore::for_journal(
+            &paths.user(assets::USER_JOURNAL),
+        )
+        .model()
+        .word_count(word)
+    }
+
+    /// #6185：用过的简拼词不会被按权重的截断截掉，并按调频模式往前挪；默认的「提到前五」一次就进第五位，再用一次进第四位。
+    #[test]
+    fn used_initials_words_survive_the_row_limit_and_move_up() {
+        let fixture = crowded_initials_fixture();
+        let mut session =
+            open_with_frequency(&fixture.paths, FrequencyAdjustmentMode::Promote, 1, 1);
+        type_keys(&mut session, "9'7");
+        assert!(!words(&session).iter().any(|word| word == "隐私"));
+        session.command(Command::Cancel);
+
+        // 用全拼读音的数字选一次（它在 94674 下排第一，不触发词频调整），简拼列表照样认它。
+        type_digits(&mut session, "94674");
+        assert_eq!(index_of(&session, "隐私"), 0);
+        let chosen = session.select(0);
+        assert_eq!(chosen.commit.as_deref(), Some("隐私"));
+        assert_eq!(chosen.diagnostic, None);
+        assert_eq!(personal_count(&fixture.paths, "隐私"), PERSONAL_PICK_TIMES);
+        type_keys(&mut session, "9'7");
+        assert_eq!(index_of(&session, "隐私"), 4);
+        assert_eq!(words(&session)[..4], ["压0", "压1", "压2", "压3"]);
+        session.command(Command::Cancel);
+
+        record_use(&fixture.paths, "隐私");
+        type_keys(&mut session, "9'7");
+        assert_eq!(index_of(&session, "隐私"), 3);
+        session.command(Command::Cancel);
+        // 不打切分时 97 拼不成任何音节，同样是简拼行领头，挪法相同。
+        type_digits(&mut session, "97");
+        assert_eq!(index_of(&session, "隐私"), 3);
+    }
+
+    /// 出货词库里大量词的权重同是 100：用过的词和前一张首字母表里的几百个同权重的词并列时，也不会因为合起来截断而丢掉（9'9'2'9 的 仔细查找）。
+    #[test]
+    fn a_used_word_tied_with_a_crowded_table_is_kept() {
+        let mut main = String::from(
+            "CREATE TABLE tbl_2_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_y VALUES('yin''si','ys','隐私',100);",
+        );
+        for index in 0..INITIALS_SCAN_LIMIT + 10 {
+            main.push_str(&format!(
+                "INSERT INTO tbl_2_w VALUES('wa''pi','wp','瓦{index}',100);"
+            ));
+        }
+        let fixture = fixture_with(&main);
+        record_use(&fixture.paths, "隐私");
+        // 调频关着也查得到；同权重的行里，先留下来的用过的词排在最前。
+        let mut session =
+            open_with_frequency(&fixture.paths, FrequencyAdjustmentMode::Disabled, 1, 1);
+        type_keys(&mut session, "9'7");
+        assert_eq!(index_of(&session, "隐私"), 0);
+        assert_eq!(words(&session).len(), INITIALS_ROW_LIMIT);
+    }
+
+    /// 置顶、减半、按步长三种模式和触发次数都照调频设置算。
+    #[test]
+    fn used_initials_words_follow_the_frequency_mode_and_trigger_count() {
+        let position = |mode, trigger_count, linear_step, uses| {
+            let fixture = crowded_initials_fixture();
+            for _ in 0..uses {
+                record_use(&fixture.paths, "隐私");
+            }
+            let mut session = open_with_frequency(&fixture.paths, mode, trigger_count, linear_step);
+            type_keys(&mut session, "9'7");
+            index_of(&session, "隐私")
+        };
+        // 截剩的 64 行里 隐私 原本在最后（第 64 位，下标 63）。
+        assert_eq!(position(FrequencyAdjustmentMode::Pin, 1, 1, 1), 0);
+        assert_eq!(position(FrequencyAdjustmentMode::Halve, 1, 1, 1), 31);
+        assert_eq!(position(FrequencyAdjustmentMode::Halve, 1, 1, 2), 15);
+        assert_eq!(position(FrequencyAdjustmentMode::Linear, 1, 3, 2), 57);
+        // 触发次数 2：用一次还不挪，用两次才算一次触发。
+        assert_eq!(position(FrequencyAdjustmentMode::Promote, 2, 1, 1), 63);
+        assert_eq!(position(FrequencyAdjustmentMode::Promote, 2, 1, 2), 4);
+    }
+
+    /// 关掉调频时用过的词只保证查得到，排在它按权重该在的位置；关掉学习时不读个人数据，列表与没用过时相同。
+    #[test]
+    fn used_initials_words_only_move_with_frequency_adjustment() {
+        let fixture = crowded_initials_fixture();
+        record_use(&fixture.paths, "隐私");
+        let mut unadjusted =
+            open_with_frequency(&fixture.paths, FrequencyAdjustmentMode::Disabled, 1, 1);
+        type_keys(&mut unadjusted, "9'7");
+        assert_eq!(index_of(&unadjusted, "隐私"), INITIALS_ROW_LIMIT - 1);
+
+        let mut quiet = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_keys(&mut quiet, "9'7");
+        assert!(!words(&quiet).iter().any(|word| word == "隐私"));
+    }
+
+    /// 没打切分时数字也可能是音节：用过的简拼词挪不过前面留给最常用单字的位置；打了切分才挪到最前。
+    #[test]
+    fn used_initials_words_stay_behind_the_leading_syllable_rows() {
+        let fixture = fixture_with(INITIALS_FIXTURE);
+        record_use(&fixture.paths, "那天");
+        let mut session = open_with_frequency(&fixture.paths, FrequencyAdjustmentMode::Pin, 1, 1);
+        type_digits(&mut session, "68");
+        assert_eq!(words(&session), ["木", "欧", "那天", "每天", "明天"]);
+        session.command(Command::Cancel);
+        type_keys(&mut session, "6'8");
+        assert_eq!(words(&session)[..3], ["那天", "每天", "明天"]);
+        session.command(Command::Cancel);
+
+        // 几个用过的词抢同一个位置时，原来靠前（权重高）的先占。
+        record_use(&fixture.paths, "明天");
+        type_keys(&mut session, "6'8");
+        assert_eq!(words(&session)[..3], ["明天", "那天", "每天"]);
+    }
+
+    /// 九键选中的多字词库词（首位也算）、分段连成的词组都记进个人上下文模型；单字不记，关掉个人上下文时不记。
+    #[test]
+    fn nine_key_picks_are_recorded_for_the_initials() {
+        let fixture = fixture_with(INITIALS_FIXTURE);
+        let mut session = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut session, "963443842662");
+        session.select(index_of(&session, "我滴"));
+        let rest = session.select(index_of(&session, "个天呐"));
+        assert_eq!(rest.diagnostic, None);
+        for word in ["我滴", "个天呐", "我滴个天呐"] {
+            assert_eq!(
+                personal_count(&fixture.paths, word),
+                PERSONAL_PICK_TIMES,
+                "{word}"
+            );
+        }
+        type_digits(&mut session, "68");
+        session.select(index_of(&session, "木"));
+        assert_eq!(personal_count(&fixture.paths, "木"), 0);
+
+        session.set_personal_context_enabled(false);
+        type_keys(&mut session, "6'8");
+        session.select(index_of(&session, "每天"));
+        assert_eq!(personal_count(&fixture.paths, "每天"), 0);
     }
 
     /// 不学习或取消时不造词；选中词库里本来就有的整词也不重复写。

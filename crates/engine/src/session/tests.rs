@@ -5890,6 +5890,61 @@ fn nine_key_sentence_learning_shares_the_syllable_cap() {
     );
 }
 
+/// #6185：在 26 键上打过的词，九宫格按首字母分词输入时也排到前面；关掉个人上下文的会话不记，也就不挪。
+#[test]
+fn words_typed_on_the_full_keyboard_lead_the_nine_key_initials() {
+    let mut main = String::from(
+        "CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_y VALUES('yin','y','因',100);\
+CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_s VALUES('si','s','四',100);\
+CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_y VALUES('yin''si','ys','隐私',10);",
+    );
+    for index in 0..100 {
+        main.push_str(&format!(
+            "INSERT INTO tbl_2_y VALUES('ya''qi','yq','压{index}',{});",
+            100_000 - index
+        ));
+    }
+    let fixture = Fixture::new(&main);
+    let promote = |options: &mut SessionOptions| {
+        options.frequency = crate::types::FrequencyAdjustmentOptions {
+            mode: crate::types::FrequencyAdjustmentMode::Promote,
+            trigger_count: 1,
+            linear_step: 1,
+        };
+    };
+    let position_after_typing = |session: &mut Session| {
+        type_text(session, "yinsi");
+        assert_eq!(select_word(session, "隐私").commit.as_deref(), Some("隐私"));
+        session.set_nine_key_enabled(true);
+        for key in *b"9'7" {
+            session.character(key, false);
+        }
+        let position = words(session).iter().position(|word| word == "隐私");
+        session.command(Command::Cancel);
+        session.set_nine_key_enabled(false);
+        position
+    };
+    let mut quiet = fixture.session_with(|options| {
+        promote(options);
+        options.personal_context = false;
+    });
+    assert_eq!(position_after_typing(&mut quiet), None);
+    let mut session = fixture.session_with(promote);
+    assert_eq!(position_after_typing(&mut session), Some(4));
+}
+
+/// 九宫格选一个词记进个人上下文模型的次数与全拼键盘显式选词相同（#6185）。
+#[test]
+fn nine_key_personal_picks_count_like_the_full_keyboard() {
+    assert_eq!(
+        crate::nine_key::PERSONAL_PICK_TIMES,
+        super::learning::DICTIONARY_PICK_TIMES
+    );
+}
+
 /// #5848、#5667、#5907：`SessionOptions::expressive` 同样交给九宫格；26 键和九宫格的 emoji、颜文字都紧跟它描绘的那个词，接不上任何词的排在末尾。
 #[test]
 fn nine_key_mixes_emoji_and_kaomoji_like_the_full_keyboard() {
