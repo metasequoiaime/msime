@@ -186,12 +186,13 @@ impl VocabularyProgress {
         Ok(())
     }
 
-    /// Drop day counts older than `MAX_RETAINED_DAYS` before `today`.
+    /// Drop counts before the `MAX_RETAINED_DAYS`-day window ending on `today`.
     ///
     /// Card schedules are never pruned. A card the user studied two years ago and has not seen
     /// since is exactly the card the schedule exists to bring back.
     fn prune(&mut self, today: &str) {
-        let Some(boundary) = crate::calendar::shift_day(today, -(MAX_RETAINED_DAYS as i64)) else {
+        let Some(boundary) = crate::calendar::shift_day(today, -((MAX_RETAINED_DAYS - 1) as i64))
+        else {
             return;
         };
         self.daily
@@ -663,10 +664,47 @@ mod tests {
     }
 
     #[test]
+    fn a_new_answer_after_366_recorded_days_remains_writable() {
+        let (_directory, store) = store();
+        let start = "2025-01-01";
+        let mut document = VocabularyProgress::default();
+        for offset in 0..MAX_RETAINED_DAYS {
+            let day = crate::calendar::shift_day(start, offset as i64).unwrap();
+            document.daily.insert(
+                day,
+                DailyReviewCounts {
+                    answered: 1,
+                    introduced: 0,
+                },
+            );
+        }
+        fs::write(
+            store.directory().join(PROGRESS_FILE),
+            serde_json::to_vec(&document).unwrap(),
+        )
+        .unwrap();
+
+        let next_day = crate::calendar::shift_day(start, MAX_RETAINED_DAYS as i64).unwrap();
+        store
+            .answer(
+                &book_of(&["synthetic"]),
+                "synthetic",
+                ReviewGrade::Unknown,
+                &next_day,
+            )
+            .unwrap();
+        let saved = store.load().unwrap();
+        assert_eq!(saved.daily.len(), MAX_RETAINED_DAYS);
+        assert_eq!(saved.answered_on(start), 0);
+        assert_eq!(saved.answered_on(&next_day), 1);
+    }
+
+    #[test]
     fn retention_keeps_the_exact_boundary_day() {
         let (_directory, store) = store();
         let book = book_of(&["ubiquitous", "ephemeral"]);
-        let boundary = crate::calendar::shift_day(TODAY, -(MAX_RETAINED_DAYS as i64)).unwrap();
+        let boundary =
+            crate::calendar::shift_day(TODAY, -((MAX_RETAINED_DAYS - 1) as i64)).unwrap();
 
         store
             .answer(&book, "ubiquitous", ReviewGrade::Known, &boundary)
