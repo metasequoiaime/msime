@@ -3685,6 +3685,22 @@ test("the shuangpin key hint switch appears only on touch hosts and saves into t
   });
 });
 
+test("the shuangpin key hint switch is not listed on an edition without double pinyin", async () => {
+  render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        // 五笔版收窄后的宿主：input_schemes 里没有 shuangpin。
+        host: testHost({ platform: "android", input_schemes: ["wubi"] }),
+      }}
+    />,
+  );
+  await screen.findByLabelText("键盘高度", undefined, { timeout: 3000 });
+  expect(screen.queryByRole("switch", { name: "双拼键位提示" })).toBeNull();
+});
+
 test("the theme page runs from the colour mode to the per-surface overrides", async () => {
   render(
     <SettingsPage

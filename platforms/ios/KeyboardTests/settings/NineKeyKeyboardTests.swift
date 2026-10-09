@@ -2271,6 +2271,61 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(hidden.button.accessibilityLabel, "字母 U")
   }
 
+  /// 键盘开着时在设置里切换「双拼键位提示」：键盘再次出现时从共享文档同步，已经画好的字母键当场跟着收回或画回提示，不必重建键盘。这里只改共享文档、不动 App Group 镜像，走的是 `synchronizeSharedTouchPreferences` 这条路。
+  func testTheShuangpinKeyHintSwitchReachesAKeyboardThatIsAlreadyShown() throws {
+    let key = KeyboardLayoutPreference.shuangpinKeyHintsDocumentKey
+    let previousScheme = InputSchemePreference.scheme
+    let previousHints = KeyboardLayoutPreference.shuangpinKeyHints
+    let previousDocument = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences())
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = previousDocument }
+      KeyboardLayoutPreference.shuangpinKeyHints = previousHints
+    }
+    InputSchemePreference.scheme = .shuangpin
+    KeyboardLayoutPreference.shuangpinKeyHints = true
+    // 文档里的方案要和键盘一致：会话重读文档后按 Engine 视图里的方案取提示表，文档还写着全拼时表是空的，开关打开也画不出提示。真实使用中用户选了双拼，文档里就是双拼。
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { document in
+      document["scheme"] = "shuangpin"
+      document["last_chinese_scheme"] = "shuangpin"
+      document["shuangpin_profile"] = "xiaohe"
+      document[key] = true
+    })
+
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.layoutIfNeeded()
+    let letterU = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 U" } as? UIButton)
+    // 提示行是直接加在按键上的 9pt 标签，见 `attachHintLabel`。
+    let hintLine = try XCTUnwrap(letterU.subviews.compactMap { $0 as? UILabel }.first { $0.font.pointSize == 9 })
+    XCTAssertFalse(hintLine.isHidden)
+    XCTAssertNotNil(letterU.accessibilityValue)
+
+    // 共享文档在后台线程读入、回到主线程应用，所以按条件轮询，不按固定时长等待。
+    func appear(until done: () -> Bool) {
+      controller.viewWillAppear(false)
+      let deadline = Date().addingTimeInterval(15)
+      while !done() && Date() < deadline {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+      }
+    }
+
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = false })
+    appear { hintLine.isHidden }
+    XCTAssertTrue(hintLine.isHidden, "the keyboard kept drawing hints after the switch was turned off")
+    XCTAssertNil(letterU.accessibilityValue, "VoiceOver still reads the hint")
+    XCTAssertEqual(letterU.configuration?.contentInsets.bottom, 0)
+    XCTAssertFalse(KeyboardLayoutPreference.shuangpinKeyHints, "the App Group mirror follows the document")
+
+    // 再打开：同一个键盘画回提示。这一步也确认上面收回提示不是因为方案被同步成了全拼。
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = true })
+    appear { !hintLine.isHidden }
+    XCTAssertFalse(hintLine.isHidden, "the keyboard did not draw the hints again after the switch was turned on")
+    XCTAssertNotNil(letterU.accessibilityValue)
+    XCTAssertEqual(letterU.configuration?.contentInsets.bottom, 11)
+  }
+
   func testAdditionalShuangpinProfilesAndKeyHints() throws {
     let bridge = MetasequoiaInputSessionBridge()
     for (profile, input) in [("ziranma", "nihk"), ("microsoft", "nihk"), ("shoudao", "nihd"), ("xiaohe", "nihc")] {

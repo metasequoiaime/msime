@@ -702,6 +702,12 @@ if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^  
   echo "Android keyboard geometry must not start each editor from the factory-default preference copy" >&2
   exit 1
 fi
+# 键盘开着时切换「双拼键位提示」：reloadPreferences 只在 touchGeometryKey() 变了时才 render()，开关不在这个键里，已经画好的字母键就一直留着旧提示，直到下次重建键盘。
+if ! sed -n '/private String touchGeometryKey() {$/,/^    }$/p' "$account_service" \
+    | rg -q 'shuangpinKeyHintsEnabled'; then
+  echo "Android touchGeometryKey must include the shuangpin key hint switch so a live change redraws the keys" >&2
+  exit 1
+fi
 # 长按「中/英」弹出系统输入法选择框（#5615）。这个键在没有会话的输入框里也必须保持可用：禁用的按钮收不到长按，而密码框正是最需要换到密码管理器键盘的地方。没有会话时把键画淡，点按在反馈和计数之前就忽略。
 if ! rg -q 'bindInputMethodPicker\(languageButton\)' "$account_service" \
   || ! rg -q 'manager\.showInputMethodPicker\(\)' "$account_service" \

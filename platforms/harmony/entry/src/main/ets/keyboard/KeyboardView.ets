@@ -5362,6 +5362,7 @@ struct KeyboardView {
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
     this.numberKeypadOrder = this.settings.numberKeypadOrder;
+    this.shuangpinKeyHints = this.settings.shuangpinKeyHints;
     KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
       this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
       this.settings.candidateFontSize, this.settings.candidatePreeditFontSize));
