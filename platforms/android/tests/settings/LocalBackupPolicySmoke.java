@@ -72,6 +72,19 @@ public final class LocalBackupPolicySmoke {
         equal(LocalBackupPolicy.summary(new Restored(true, 0, 0, 10, 2, 0, List.of("常用语"))),
             "已恢复设置；10 个词会在键盘空闲时陆续写入词库；2 个词无法导入，已跳过；常用语没有恢复，请重试。",
             "partial restore names what failed");
+        // 整份激活会替换本机的全部学习状态：只有备份有词、本机确定什么都没有时才用。
+        equal(LocalBackupPolicy.dictionaryRestore(120, 0, 0), LocalBackupPolicy.DictionaryRestore.ACTIVATE,
+            "a fresh device activates the whole snapshot");
+        equal(LocalBackupPolicy.dictionaryRestore(120, 0, 5), LocalBackupPolicy.DictionaryRestore.MERGE,
+            "an old backup on a device that has learned but has no words merges");
+        equal(LocalBackupPolicy.dictionaryRestore(120, 3, 0), LocalBackupPolicy.DictionaryRestore.MERGE,
+            "a device with its own words merges");
+        equal(LocalBackupPolicy.dictionaryRestore(0, 0, 0), LocalBackupPolicy.DictionaryRestore.MERGE,
+            "a backup with input records only merges");
+        equal(LocalBackupPolicy.dictionaryRestore(120, null, 0), LocalBackupPolicy.DictionaryRestore.MERGE,
+            "an unreadable word count merges");
+        equal(LocalBackupPolicy.dictionaryRestore(120, 0, null), LocalBackupPolicy.DictionaryRestore.MERGE,
+            "an unreadable input record count merges");
         System.out.println("Android local backup policy passed");
     }
 }

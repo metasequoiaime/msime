@@ -110,9 +110,23 @@ public final class LocalBackupPolicy {
         return null;
     }
 
-    /** 恢复的结果。`words` 是交给键盘写入的词数（整份快照激活，或排进待发送队列后分批写入）；`learning` 是交给键盘写入的输入记录条数（随整份快照激活，或在键盘下次建会话前合并）；`failed` 是没能恢复的部分的名字，按发生顺序。 */
+    /** 恢复的结果。`words` 是交给键盘写入的词数（整份快照激活，或排进待发送队列后分批写入）；`learning` 是交给键盘写入的输入记录条数（随整份快照激活，或在键盘收起后的空闲时合并）；`failed` 是没能恢复的部分的名字，按发生顺序。 */
     public record Restored(boolean settings, int skins, int phrases, int words, int skippedWords, int learning,
             java.util.List<String> failed) {}
+
+    /** 备份里的个人词库怎么恢复：{@link #ACTIVATE} 把整份快照交给激活队列，替换本机的全部词和输入记录；{@link #MERGE} 词进待发送队列、输入记录排给键盘合并，本机已有的都保留。 */
+    public enum DictionaryRestore { ACTIVATE, MERGE }
+
+    /**
+     * 选恢复个人词库的方式。整份激活会替换本机的全部学习状态，所以只有备份里有词、本机确定既没有用户词也没有任何输入记录（新手机、重装）时才用它；本机哪怕只学过一点、或者数不出来（参数为 null），都走合并，不冒覆盖本机的险。备份里只有输入记录没有词时同样走合并。
+     *
+     * @param localWords 本机用户词数，读不出来时为 null
+     * @param localLearning 本机输入记录条数（`learning_count`），读不出来时为 null
+     */
+    public static DictionaryRestore dictionaryRestore(int backupWords, Integer localWords, Integer localLearning) {
+        return backupWords > 0 && localWords != null && localWords == 0 && localLearning != null && localLearning == 0
+            ? DictionaryRestore.ACTIVATE : DictionaryRestore.MERGE;
+    }
 
     /** 恢复完给用户看的那句话。 */
     public static String summary(Restored restored) {

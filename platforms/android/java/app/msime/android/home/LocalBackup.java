@@ -51,7 +51,7 @@ import org.json.JSONObject;
 /**
  * 本地备份与恢复（#5659）：把设置、Android 本地设置、自定义皮肤、常用语、个人词库和输入记录打成一个 zip，存到用户在系统文件选择器里选的位置；换手机或降级时再从这个文件恢复。全程只在本机，不经过云端，也不需要登录。包的格式见 {@link LocalBackupPolicy}。
  *
- * <p>内容大体与云同步相同，复用同一套导出和应用：设置文档走 client-core 的 `msime_client_account_settings_export`/`_apply`（凭据与诊断日志永远不在里面），个人词库走 `export_snapshot`（{@link CloudSync#exportDictionarySnapshot}）。只有输入记录（学习调权、删除记录、固定位置和选词计数）是云同步没有的，导出时让 `export_snapshot` 一并写进词库快照。恢复是合并而不是覆盖：设置按备份里的值改写，皮肤按 id 和更新时间合并，常用语只加本机还没有的，词经命名词库的待发送队列在键盘空闲时陆续写入，本机已有的词不会被删掉；输入记录排给键盘在下次建会话前合并，本机已有的保留本机，选词计数取较大的那个。
+ * <p>内容大体与云同步相同，复用同一套导出和应用：设置文档走 client-core 的 `msime_client_account_settings_export`/`_apply`（凭据与诊断日志永远不在里面），个人词库走 `export_snapshot`（{@link CloudSync#exportDictionarySnapshot}）。只有输入记录（学习调权、删除记录、固定位置和选词计数）是云同步没有的，导出时让 `export_snapshot` 一并写进词库快照。恢复是合并而不是覆盖：设置按备份里的值改写，皮肤按 id 和更新时间合并，常用语只加本机还没有的，词经命名词库的待发送队列在键盘空闲时陆续写入，本机已有的词不会被删掉；输入记录排给键盘在收起后空闲时合并，本机已有的保留本机，选词计数取较大的那个。
  *
  * <p>所有方法都会读写文件、调用原生库，只能在工作线程上调。
  */
@@ -99,6 +99,9 @@ final class LocalBackup {
             JSONObject snapshot = CloudSync.exportDictionarySnapshot(context, dictionary, true);
             Integer words = DictionaryCollectionsStore.nonNegativeInteger(snapshot.opt("entries"));
             Integer learning = DictionaryCollectionsStore.nonNegativeInteger(snapshot.opt("learning"));
+            // 输入记录读不出来时原生侧照样导出词，只是不带输入记录（`learning_error`）。
+            boolean learningMissing = snapshot.optString("learning_error", "").length() > 0;
+            if (learningMissing) Log.w(TAG, "backup exported without input records: " + snapshot.optString("learning_error"));
             int skinCount = new JSONArray(skins).length();
 
             JSONObject manifest = new JSONObject()
@@ -134,6 +137,10 @@ final class LocalBackup {
                     return context.getContentResolver().openOutputStream(uri, "wt");
                 }
             });
+            if (learningMissing) {
+                return "已导出备份：" + phrases.size() + " 条常用语、" + (words == null ? 0 : words) + " 个词，以及全部设置。"
+                    + "输入记录没能读出来，这份备份里没有输入记录。";
+            }
             return "已导出备份：" + phrases.size() + " 条常用语、" + (words == null ? 0 : words) + " 个词、"
                 + (learning == null ? 0 : learning) + " 条输入记录，以及全部设置。\n\n" + PRIVACY_NOTICE;
         } catch (IOException | JSONException | RuntimeException error) {
@@ -336,11 +343,11 @@ final class LocalBackup {
     }
 
     /**
-     * 个人词库和输入记录：解出快照。本机既没有用户词、也没有任何输入记录（新手机、重装）时把整份快照交给激活队列，词和输入记录原样恢复，与云同步第一次同步而本机没有词时的做法相同。整份激活会替换本机的全部学习状态，所以本机只要学过一点（哪怕还没有自造词）就不走这条路，改为合并：
+     * 个人词库和输入记录：解出快照。本机既没有用户词、也没有任何输入记录（新手机、重装，判断在 {@link LocalBackupPolicy#dictionaryRestore}）时把整份快照交给激活队列，词和输入记录原样恢复，与云同步第一次同步而本机没有词时的做法相同。整份激活会替换本机的全部学习状态，所以本机只要学过一点（哪怕还没有自造词）就不走这条路，改为合并：
      *
      * <ul>
      *   <li>词先全部记进命名词库的待发送队列（{@link DictionaryCollectionsStore#queueUnownedWords}），再在键盘空闲时一批批送进个人词库队列。个人词库队列同时只收 128 个未完成的请求，所以不能直接把几千个词塞进去（那样第 129 个以后的词全会被拒）。
-     *   <li>输入记录交给 `queue_learning_merge` 挑出来存成待合并的文件，键盘下次建会话前同步个人词库时合并（本机已有的保留本机，选词计数取大）。改工作词库要独占维护权，键盘开着时设置页拿不到，所以不在这里直接合并。
+     *   <li>输入记录交给 `queue_learning_merge` 挑出来存成待合并的文件，键盘收起后空闲时合并（本机已有的保留本机，选词计数取大）。改工作词库要独占维护权，键盘开着时设置页拿不到，所以不在这里直接合并。
      * </ul>
      *
      * 旧版本导出的备份里没有输入记录，只恢复词。返回 {恢复的词数, 跳过的词数, 输入记录条数}。
@@ -353,7 +360,9 @@ final class LocalBackup {
                 copyBounded(input, file, LocalBackupPolicy.MAX_DICTIONARY_BYTES);
             }
             List<SyncMergePolicy.Word> words = SyncApi.snapshotWords(file);
-            if (!words.isEmpty() && CloudSync.userWordCount(context) == 0 && localLearningCount(context) == 0) {
+            LocalBackupPolicy.DictionaryRestore mode = words.isEmpty() ? LocalBackupPolicy.DictionaryRestore.MERGE
+                : LocalBackupPolicy.dictionaryRestore(words.size(), localWordCount(context), localLearningCount(context));
+            if (mode == LocalBackupPolicy.DictionaryRestore.ACTIVATE) {
                 try {
                     CloudSync.enqueueDictionarySnapshot(context, file, SNAPSHOT_OWNER, 0);
                     SyncSignals.markDirty(context, SyncSwitch.DICTIONARY);
@@ -383,20 +392,34 @@ final class LocalBackup {
                 return new int[] {queued, 0, learning};
             }
             return new int[] {queued, words.size() - queued, learning};
-        } catch (IOException | JSONException | RuntimeException error) {
+        } catch (IOException | RuntimeException error) {
             Log.w(TAG, "dictionary restore failed", error);
             failed.add("个人词库");
             return new int[] {0, 0, 0};
         }
     }
 
-    /** 本机日志里输入记录的条数（`learning_count`），不含用户自己的词。 */
-    private static int localLearningCount(Context context) throws IOException, JSONException {
-        JSONObject value = CloudSync.nativeValue(NativeClient.dictionary(new JSONObject()
-            .put("options", new JSONObject(CloudSync.hostOptions(context)))
-            .put("action", new JSONObject().put("operation", "learning_count")).toString()));
-        Integer count = DictionaryCollectionsStore.nonNegativeInteger(value.opt("count"));
-        return count == null ? 0 : count;
+    /** 本机用户词数；读不出来时为 null，恢复改走合并（{@link LocalBackupPolicy#dictionaryRestore}）。 */
+    @Nullable private static Integer localWordCount(Context context) {
+        try {
+            return CloudSync.userWordCount(context);
+        } catch (IOException | JSONException | RuntimeException error) {
+            Log.w(TAG, "local word count unavailable, merging instead", error);
+            return null;
+        }
+    }
+
+    /** 本机日志里输入记录的条数（`learning_count`），不含用户自己的词；读不出来时为 null，恢复改走合并。 */
+    @Nullable private static Integer localLearningCount(Context context) {
+        try {
+            JSONObject value = CloudSync.nativeValue(NativeClient.dictionary(new JSONObject()
+                .put("options", new JSONObject(CloudSync.hostOptions(context)))
+                .put("action", new JSONObject().put("operation", "learning_count")).toString()));
+            return DictionaryCollectionsStore.nonNegativeInteger(value.opt("count"));
+        } catch (IOException | JSONException | RuntimeException error) {
+            Log.w(TAG, "local input record count unavailable, merging instead", error);
+            return null;
+        }
     }
 
     /** 把快照里的输入记录排给键盘合并（`queue_learning_merge`），返回排进去的条数；快照里没有输入记录时返回 0。失败时在 `failed` 里记下「输入记录」，不影响词的恢复。 */
