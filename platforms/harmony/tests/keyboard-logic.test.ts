@@ -16021,6 +16021,11 @@ group("LocalVoiceModelPolicy", () => {
       "local_model_import_missing",
     "a missing import file keeps its code and drops the file name",
   );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_import_unreadable: permission denied") ===
+      "local_model_import_unreadable",
+    "an unreadable import file keeps its code",
+  );
   const catalog = JSON.stringify({
     ok: true,
     value: {

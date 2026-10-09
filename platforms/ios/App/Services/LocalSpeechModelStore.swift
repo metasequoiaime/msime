@@ -120,6 +120,7 @@ enum LocalSpeechModelStore {
     case "local_model_unsafe_archive": "模型压缩包内容不安全，已拒绝安装。"
     case "local_model_missing_file": "模型压缩包缺少必要文件。"
     case "local_model_import_missing": "所选文件里缺少这个模型需要的文件，请对照列出的文件全部下载后一起选中。"
+    case "local_model_import_unreadable": "读取所选文件失败，请确认文件仍在原处、已完整下载到本机后重新选择。"
     case "local_model_io": "无法写入模型文件，请检查剩余存储空间。"
     case "local_model_invalid_mirror": "镜像地址无效，请填写 https:// 开头的地址或留空。"
     case "local_model_invalid_root": "无法使用模型目录。"

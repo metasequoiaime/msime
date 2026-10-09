@@ -544,6 +544,9 @@ test("import failures have their own wording and fall back to the download ones"
     "重新下载后再导入",
   );
   expect(localModelImportErrorMessage({ code: "local_model_cancelled" })).toBeNull();
+  expect(localModelImportErrorMessage({ code: "local_model_import_unreadable" })).toContain(
+    "读取所选文件失败",
+  );
   expect(localModelImportErrorMessage({ code: "local_model_io" })).toBe(
     localModelErrorMessage({ code: "local_model_io" }),
   );

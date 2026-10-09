@@ -1406,6 +1406,38 @@ fn importing_picks_the_right_file_among_same_sized_ones_by_checksum() {
     assert!(!root.path().join("fixture").exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn importing_an_unreadable_file_says_so_and_installs_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let files = vec![
+        picked(downloads.path(), "model.tar.bz2", &archive),
+        picked(downloads.path(), "vad.onnx", EXTRA),
+    ];
+    fs::set_permissions(&files[0], fs::Permissions::from_mode(0o000)).unwrap();
+    // 以 root 运行时权限拦不住读取，这个场景造不出来。
+    if File::open(&files[0]).is_ok() {
+        return;
+    }
+
+    let (result, _) = run_import(root.path(), &model, &files, &AtomicBool::new(false));
+
+    assert!(
+        matches!(&result, Err(LocalModelError::UnreadableImportFile(_))),
+        "{result:?}"
+    );
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .starts_with("local_model_import_unreadable"));
+    assert!(root_entries(root.path()).is_empty());
+}
+
 #[test]
 fn cancelling_an_import_leaves_nothing_behind() {
     let root = tempfile::tempdir().unwrap();

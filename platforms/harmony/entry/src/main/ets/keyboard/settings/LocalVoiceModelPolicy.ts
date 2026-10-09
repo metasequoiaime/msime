@@ -92,6 +92,7 @@ export class LocalVoiceModelPolicy {
       case "local_model_http_status":
       case "local_model_checksum_mismatch":
       case "local_model_import_missing":
+      case "local_model_import_unreadable":
       case "local_model_io":
         return head;
       case "local_model_size_mismatch":

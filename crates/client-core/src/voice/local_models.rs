@@ -242,6 +242,9 @@ pub enum LocalModelError {
     /// 从本地文件安装时，用户选的文件里没有长度对得上的这一个（上游文件名）。
     #[error("local_model_import_missing: {0}")]
     MissingImportFile(String),
+    /// 从本地文件安装时，用户选的文件打不开或读到一半出错（权限、已被移走、可移动磁盘拔掉、iCloud 占位文件）。问题在所选文件，不在网络或写入模型目录。
+    #[error("local_model_import_unreadable: {0}")]
+    UnreadableImportFile(String),
     #[error("local_model_io: {0}")]
     Io(#[from] io::Error),
 }
@@ -392,7 +395,7 @@ pub(crate) fn import_model(
 ) -> Result<PathBuf, LocalModelError> {
     check_root(root)?;
     let fetcher = LocalFileFetcher::matching(model, files, cancel)?;
-    install_model(
+    let installed = install_model(
         root,
         model,
         &[],
@@ -408,7 +411,12 @@ pub(crate) fn import_model(
             })
         },
         cancel,
-    )
+    );
+    // 导入不联网：共用的 download() 把读取来源时的错误都报成 Network，在这里只可能是读用户所选的文件出错。
+    installed.map_err(|error| match error {
+        LocalModelError::Network(detail) => LocalModelError::UnreadableImportFile(detail),
+        other => other,
+    })
 }
 
 /// 安装一个模型要从外面取得的文件：压缩包，以及目录里给了下载地址的附加文件。
@@ -494,9 +502,10 @@ impl Fetcher for LocalFileFetcher {
             .files
             .get(url)
             .ok_or_else(|| LocalModelError::MissingImportFile(url_file_name(url)))?;
-        let mut file = File::open(path)?;
+        let unreadable = |_| LocalModelError::UnreadableImportFile(url_file_name(url));
+        let mut file = File::open(path).map_err(unreadable)?;
         if offset > 0 {
-            file.seek(io::SeekFrom::Start(offset))?;
+            file.seek(io::SeekFrom::Start(offset)).map_err(unreadable)?;
         }
         Ok(Fetched {
             reader: Box::new(BufReader::new(file)),
@@ -505,9 +514,10 @@ impl Fetcher for LocalFileFetcher {
     }
 }
 
-/// 一个本地文件的小写十六进制 SHA-256，每块之间看一次取消。
+/// 一个用户所选文件的小写十六进制 SHA-256，每块之间看一次取消。打不开或读出错报 [`LocalModelError::UnreadableImportFile`]。
 fn file_sha256(path: &Path, cancel: &AtomicBool) -> Result<String, LocalModelError> {
-    let mut file = File::open(path)?;
+    let unreadable = |error: io::Error| LocalModelError::UnreadableImportFile(error.to_string());
+    let mut file = File::open(path).map_err(unreadable)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; CHUNK];
     loop {
@@ -516,7 +526,7 @@ fn file_sha256(path: &Path, cancel: &AtomicBool) -> Result<String, LocalModelErr
             Ok(0) => break,
             Ok(read) => read,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(unreadable(error)),
         };
         hasher.update(&buffer[..read]);
     }

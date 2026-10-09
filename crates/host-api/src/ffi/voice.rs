@@ -529,7 +529,7 @@ pub unsafe extern "C" fn msime_client_voice_local_models(
 ///
 /// Request `{"root": "<absolute dir>", "id": "<catalog id>", "mirror": ""}`; response `{"path": "<root>/<id>"}`. `progress` (may be null) is called on the calling thread with `{"id","stage","downloaded","total"}` JSON, stage one of download, verify, extract, done; the buffer is only valid during the call. `msime_client_voice_local_model_cancel` stops it from any thread, and the call then fails with "local_model_cancelled". One install per id at a time; a second fails with "local_model_install_running". Other failures are "local_model_*" codes (network, http_status, size_mismatch, checksum_mismatch, unsafe_archive, missing_file, io, invalid_mirror, unknown).
 ///
-/// 请求带 `"files": ["<absolute path>", ...]`（至多 16 个）时不联网，改用用户自己下载好的这些文件安装（`msime_client_core::voice::local_models::import`）：按长度和 SHA-256 认文件，不看文件名，`mirror` 不用；进度里原来的 download 阶段报成 import；缺文件时失败为 "local_model_import_missing: <上游文件名>"。和下载共用同一个按 id 的登记，所以取消、互斥和删除时的拒绝都一样。
+/// 请求带 `"files": ["<absolute path>", ...]`（至多 16 个）时不联网，改用用户自己下载好的这些文件安装（`msime_client_core::voice::local_models::import`）：按长度和 SHA-256 认文件，不看文件名，`mirror` 不用；进度里原来的 download 阶段报成 import；缺文件时失败为 "local_model_import_missing: <上游文件名>"，所选文件打不开或读出错时为 "local_model_import_unreadable: <说明>"。和下载共用同一个按 id 的登记，所以取消、互斥和删除时的拒绝都一样。
 ///
 /// # Safety
 /// `request` must point to `length` readable bytes. `progress` must stay valid for the call, must copy the buffer before returning and must not unwind.

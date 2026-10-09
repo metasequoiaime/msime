@@ -16,7 +16,7 @@ Status: implemented
 - 各宿主：
   - 三个桌面宿主（macOS、Windows、Linux 共用 Tauri 设置页）新增命令 `voice_local_model_import(id)`，在宿主侧用 `tauri_plugin_dialog` 的 `blocking_pick_files` 多选文件，不按扩展名过滤（认文件靠内容），用户关掉对话框时返回 `null`。命令只在三个桌面目标上注册，`main.tsx` 也只在这三个平台给 `localVoiceModels` 加 `import`。
   - 共享设置页 `LocalModelManager`：`LocalVoiceModelClient.import` 是可选的，宿主不提供就不显示按钮。未安装的模型在「下载」旁边多一个「从文件导入」，下面列出要下载的文件链接；导入成功后和下载一样，没有选用模型时自动选用。
-  - HarmonyOS：设置页 `voice_local_model` 新增 `import` 操作，用 `DocumentViewPicker` 多选，选择器给的是原生库打不开的文档 URI，所以先复制进 `cacheDir/voice-model-import/<uuid>/`；只复制长度和目录里需要的文件对得上的那些（`LocalVoiceModelPolicy.importSizes`），免得用户多选了一个大文件白占空间。缓存副本在安装结束后删掉。
+  - HarmonyOS：设置页 `voice_local_model` 新增 `import` 操作，用 `DocumentViewPicker` 多选，选择器给的是原生库打不开的文档 URI，所以先复制进 `cacheDir/voice-model-import/<uuid>/`；只复制长度和目录里需要的文件对得上的那些（`LocalVoiceModelPolicy.importSizes`），免得用户多选了一个大文件白占空间。缓存副本在安装结束后删掉。复制那段时间原生安装还没登记，原生取消找不到它，所以 `SettingsBridge` 记着正在导入的 id：取消先记下来，复制每个文件前和开始安装前检查，看到就以 `local_model_cancelled` 结束，不再安装（review 发现最初的版本在复制时点「取消导入」没有作用，复制完照样装上）。
   - iOS：`LocalSpeechModelsView` 用 `.fileImporter(allowsMultipleSelection: true)`，在整个安装期间保持安全范围访问权，把原文件路径交给共享安装接口，不复制。
   - Android 原生设置页本来就没有模型下载、删除入口，本次不补；瘦包的 `voice-runtime` 也不能从文件导入，所以 Android 还不能完全离线。
 - 删除已有的 `remove` 能力不变，各宿主的「删除」按钮沿用。
@@ -31,7 +31,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：不联网也能装上目录里的模型，校验和发布与下载完全一致，没有第二条信任路径；新 ABI 只是 install 请求上的一个可选字段，老宿主不受影响。
-- **代价与已知上限**：导入时同一个文件最多读两遍（长度相同的候选有几个时先算摘要，安装时再校验一遍），842 MB 的 Fun-ASR-Nano 归档在慢盘上要多花几秒；HarmonyOS 先复制进缓存，峰值占用是原文件、缓存副本和解压结果三份。本地文件读失败会被报成 `local_model_network`（复用的 `download()` 把读错误都归为网络错误），提示措辞不准确。Android 原生应用要补模型管理和 `voice-runtime` 离线导入时，需要重新拆一期。
+- **代价与已知上限**：导入时同一个文件最多读两遍（长度相同的候选有几个时先算摘要，安装时再校验一遍），842 MB 的 Fun-ASR-Nano 归档在慢盘上要多花几秒；HarmonyOS 先复制进缓存，峰值占用是原文件、缓存副本和解压结果三份。所选文件打不开或读到一半出错（权限、文件被移走、可移动磁盘拔掉、iCloud 占位文件）报 `local_model_import_unreadable`：`LocalFileFetcher` 打开和定位失败、算摘要时读失败直接报它；复用的 `download()` 把来源读错误都归成 `Network`，而导入根本不联网，所以 `import_model` 把结果里的 `Network` 改成它。最初的版本把前者报成 `local_model_io`（页面说「无法写入，请检查存储空间」）、后者报成 `local_model_network`，都把问题指向了别处。Android 原生应用要补模型管理和 `voice-runtime` 离线导入时，需要重新拆一期。
 
 ## Verification
 

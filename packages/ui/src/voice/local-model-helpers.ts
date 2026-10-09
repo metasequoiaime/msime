@@ -94,6 +94,8 @@ export function localModelImportErrorMessage(error: unknown): string | null {
   switch (errorCode(error)) {
     case "local_model_import_missing":
       return "所选文件里缺少这个模型需要的文件，请对照上面列出的文件全部下载后一起选中。";
+    case "local_model_import_unreadable":
+      return "读取所选文件失败，请确认文件仍在原处、已完整下载到本机后重新选择。";
     case "local_model_checksum_mismatch":
       return "所选文件和模型目录里的校验值不符，可能没下载完整或版本不对，请重新下载后再导入。";
     case "local_model_invalid_archive":
