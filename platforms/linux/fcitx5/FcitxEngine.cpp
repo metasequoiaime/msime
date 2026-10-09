@@ -62,6 +62,7 @@
 #include "../src/system/DiagnosticLog.h"
 #include "../src/system/PanelInputChannel.h"
 #include "../src/core/HelpcodeDefaults.h"
+#include "../src/core/HelpcodePack.h"
 #include "../src/core/HelpcodeSchemaNames.h"
 #include "../src/core/PhrasePreedit.h"
 #include "../src/core/ClientInputModeMemory.h"
@@ -146,6 +147,8 @@ struct PendingPreferenceSave {
   Json value;
   // The value is a 主题 menu change (theme_choice_change): it writes global_theme and custom_theme together rather than one key.
   bool theme_choice = false;
+  // The value is a 辅助码方案 status-bar choice for `section` (quanpin_helpcode or shuangpin_helpcode): besides `section.schema` it clears that scheme's helpcode pack, as the settings page does, or the pack would keep overriding the schema just chosen (core/HelpcodePack.h).
+  bool helpcode_schema_choice = false;
 };
 
 // ABI buffers and errors never escape into diagnostics or the panel.
@@ -185,6 +188,10 @@ Json savePreference(const PendingPreferenceSave &request) {
       !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
     return Json::object();
   if (request.theme_choice) msime::linux_host::apply_theme_choice(snapshot["preferences"], request.value);
+  else if (request.helpcode_schema_choice)
+    msime::linux_host::apply_helpcode_schema_choice(
+        snapshot["preferences"], request.section == "shuangpin_helpcode" ? "shuangpin" : "quanpin",
+        request.value.get<std::string>());
   else if (request.section.empty()) snapshot["preferences"][request.key] = request.value;
   else snapshot["preferences"][request.section][request.key] = request.value;
   const auto encoded = snapshot.dump();
@@ -728,11 +735,13 @@ public:
     const auto current = preferences_.value(section, Json::object()).value(
         "schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
     const auto it = std::find(schemas.begin(), schemas.end(), current);
-    const auto next = it == schemas.end() || std::next(it) == schemas.end()
-        ? schemas.front() : *std::next(it);
+    // 辅助码表包生效时，第一次点按先回到存着的那个内置方案（停用插件），之后再按顺序轮换。
+    const auto next = !msime::linux_host::helpcode_pack(preferences_, scheme == 1 ? "shuangpin" : "quanpin").empty()
+        ? current
+        : it == schemas.end() || std::next(it) == schemas.end() ? std::string(schemas.front()) : std::string(*std::next(it));
     if (!view_.value("editing_text", std::string{}).empty())
       command(MSIME_FINISH_COMPOSITION);
-    saveNestedStringPreference(section, "schema", next);
+    saveHelpcodeSchemaChoice(section, next);
     waitForPreferenceSave();
     helpcode_schema_override_ = next;
     helpcode_schema_unsaved_ = unsavedChoice(section, "schema");
@@ -1104,6 +1113,10 @@ public:
     if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
     startPreferenceSave({options_path_, object, key, value});
   }
+  void saveHelpcodeSchemaChoice(const char *section, const std::string &schema) {
+    if (options_path_.empty() || private_) return;
+    startPreferenceSave({options_path_, section, "schema", schema, false, true});
+  }
   bool setFrequencyNumber(const char *key, uint8_t value) {
     if (!session_ || restricted() || privateInput() || value < 1 || value > 10)
       return false;
@@ -1361,11 +1374,10 @@ public:
   void applyContextOverrides(Json &preferences) const {
     if (scheme_override_) preferences["scheme"] = *scheme_override_;
     if (shuangpin_profile_override_) preferences["shuangpin_profile"] = *shuangpin_profile_override_;
-    if (helpcode_schema_override_) {
-      const auto section = preferences.value("scheme", std::string("quanpin")) == "shuangpin"
-          ? "shuangpin_helpcode" : "quanpin_helpcode";
-      preferences[section]["schema"] = *helpcode_schema_override_;
-    }
+    if (helpcode_schema_override_)
+      msime::linux_host::apply_helpcode_schema_choice(
+          preferences, preferences.value("scheme", std::string("quanpin")) == "shuangpin" ? "shuangpin" : "quanpin",
+          *helpcode_schema_override_);
   }
   // A status-bar save that has not landed: its retry is still pending for this very key.
   bool unsavedChoice(const char *section, const char *key) const {
@@ -1393,7 +1405,16 @@ public:
     // Checked against the section it would be written to, after the scheme above has settled, as applyContextOverrides picks it.
     const auto scheme = scheme_override_.value_or(stored.value("scheme", std::string("quanpin")));
     const auto section = scheme == "shuangpin" ? "shuangpin_helpcode" : "quanpin_helpcode";
-    expire(helpcode_schema_override_, helpcode_schema_unsaved_, stored.value(section, Json::object()), "schema");
+    // The status-bar choice clears this scheme's helpcode pack in the same save, so the store holds it only once the schema matches and the pack is gone: a choice made while a pack was active saves the schema the store already has, and its failed save must not read as landed. A pack in the store after a landed choice was chosen since, on the settings page, and outranks the schema override as it does there.
+    if (helpcode_schema_override_ &&
+        !msime::linux_host::helpcode_pack(stored, scheme == "shuangpin" ? "shuangpin" : "quanpin").empty()) {
+      if (!helpcode_schema_unsaved_) {
+        helpcode_schema_override_.reset();
+        dropped = true;
+      }
+    } else {
+      expire(helpcode_schema_override_, helpcode_schema_unsaved_, stored.value(section, Json::object()), "schema");
+    }
     return dropped;
   }
   // Every caller hands the result to the session. Store revisions belong to the
@@ -1425,10 +1446,11 @@ public:
     msime_linux_diagnostic_configure(
         options_path_, diagnostic.is_object() && diagnostic.value("server", false));
   }
-  // "在候选窗中显示辅助码" and the wubi code hint both decide whether the
-  // annotation belongs on the candidate row. This host appended it
-  // unconditionally, so turning either off changed nothing here.
+  // "在候选窗中显示辅助码" and the wubi code hint both decide whether the annotation belongs on the candidate row. This host appended it unconditionally, so turning either off changed nothing here.
+  // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so neither setting hides it; Wubi opens these modes too. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow both settings.
   bool showCandidateAnnotations() const {
+    const auto local_mode = view_.value("local_mode", std::string("none"));
+    if (local_mode == "command" || local_mode == "mention") return true;
     const auto scheme = msime::linux_host::strict_json_value(view_, "scheme", 0u);
     if (scheme == 2) return preferences_.value("wubi_code_hint", true);
     if (scheme != 0 && scheme != 1) return true;
@@ -1600,6 +1622,9 @@ public:
             if (stored.contains(section) && stored.at(section).is_object() &&
                 stored.at(section).contains("schema") && stored.at(section).at("schema").is_string())
               base[section]["schema"] = stored.at(section).at("schema");
+          // A 辅助码方案 choice clears the scheme's helpcode pack in the store alone, so the pack follows the store too.
+          for (const auto *scheme : {"quanpin", "shuangpin"})
+            msime::linux_host::set_helpcode_pack(base, scheme, msime::linux_host::helpcode_pack(stored, scheme));
           expireContextOverrides(stored);
           preferences_ = std::move(base);
           applyContextOverrides(preferences_);
@@ -4081,10 +4106,8 @@ public:
     if (!ic) return "辅助码方案";
     const auto *state = ic->propertyFor(factory_);
     const auto scheme = msime::linux_host::strict_json_value(state->view_, "scheme", 0u);
-    const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
-    const auto value = state->preferences_.value(section, Json::object())
-        .value("schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
-    return std::string("辅助码：") + std::string(msime::linux_host::helpcode_schema_label(value));
+    // 选了辅助码表包时写明插件在生效，而不是那个只作回退的内置方案。
+    return msime::linux_host::helpcode_status_label(state->preferences_, scheme == 1 ? "shuangpin" : "quanpin");
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   void activate(fcitx::InputContext *ic) override {
