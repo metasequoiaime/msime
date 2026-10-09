@@ -1474,17 +1474,9 @@ fn ios_keyboard_ai_preferences(
         _ => "custom",
     }
     .to_owned();
-    let endpoint = preferences.endpoint.trim();
     // 来源键与设置页一致：https 不限主机，http 只认本机或局域网（`ai::endpoint`）。
-    let token = msime_client_core::ai::endpoint::credential_origin(endpoint)
-        .and_then(|origin| {
-            preferences
-                .tokens
-                .get(&preferences.provider)
-                .or_else(|| preferences.tokens.get(&origin))
-                .or_else(|| (!preferences.token.is_empty()).then_some(&preferences.token))
-                .cloned()
-        })
+    let token = msime_client_core::ai::credential_for_endpoint(preferences)
+        .map(str::to_owned)
         .unwrap_or_default();
     let enabled = preferences.enabled
         && !preferences.endpoint.trim().is_empty()
