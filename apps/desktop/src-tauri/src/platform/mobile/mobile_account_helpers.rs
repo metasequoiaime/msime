@@ -55,6 +55,7 @@ pub(crate) fn validate_pending_snapshot(
     session: &crate::platform::mobile::MobileSession,
     pending: &PendingSnapshot,
 ) -> Result<(), AccountError> {
+    session.with_generation(pending.generation, Some(&pending.account_id), || Ok(()))?;
     let profile = session.profile()?;
     if profile.user.id != pending.account_id {
         return Err(AccountError::Conflict);

@@ -1,6 +1,6 @@
 //! Korean Hangul key handling on the Dubeolsik layout. The composition is the key letters of the open syllable; a key that starts the next syllable moves the finished one into `committed`, which the session hands to the host with the key's result. While the Hanja list is open the request asks for the syllable's Hanja; any edit of the composition closes the list.
 
-use super::dubeolsik::{compose, compose_into, split_finished};
+use super::dubeolsik::{compose, compose_into, split_finished_into};
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
 
 #[derive(Debug, Clone, Default)]
@@ -35,10 +35,9 @@ impl KoreanScheme {
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
                 self.hanja = false;
                 self.raw.push(char::from(letter));
-                let (finished, open) = split_finished(&self.raw);
-                if !finished.is_empty() {
-                    self.committed.push_str(&finished);
-                    let open_start = self.raw.len() - open.len();
+                let open = split_finished_into(&self.raw, &mut self.committed);
+                let open_start = self.raw.len() - open.len();
+                if open_start > 0 {
                     self.raw.drain(..open_start);
                 }
                 true
@@ -190,10 +189,41 @@ mod tests {
             scheme.handle_key(SchemeKey::Letter(b'k'));
         });
 
-        assert_eq!(allocations, 2);
+        assert_eq!(allocations, 0);
         assert_eq!(scheme.raw.as_ptr(), pointer);
         assert_eq!(scheme.preedit(), "나");
         assert_eq!(scheme.take_committed(), "가");
+    }
+
+    #[test]
+    fn typing_reuses_raw_and_committed_storage_without_temporaries() {
+        let mut scheme = KoreanScheme::new();
+        scheme.raw.reserve(32);
+        scheme.committed.reserve(128);
+        let keys = b"dkssudgktpdyekfrkrkqtlRkTkEk";
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            for key in keys {
+                scheme.handle_key(SchemeKey::Letter(*key));
+            }
+        });
+        assert_eq!(scheme.committed, "안녕하세요달가갑시까싸");
+        assert_eq!(scheme.preedit(), "따");
+        assert_eq!(allocations, 0, "逐键折叠应直接追加已完成的音节");
+    }
+
+    #[test]
+    fn request_refresh_reuses_hangul_output_without_temporaries() {
+        let mut scheme = KoreanScheme::new();
+        scheme.set_raw_input("dkssudgktpdyekfrk", "");
+        let mut request = scheme.build_request();
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            for _ in 0..8 {
+                scheme.build_request_into(&mut request);
+            }
+        });
+        assert_eq!(request.normalized_segmentation, "안녕하세요달가");
+        assert_eq!(request.segmentation, "안녕하세요달가");
+        assert_eq!(allocations, 0, "热请求刷新应复用合成字符串");
     }
 
     #[test]

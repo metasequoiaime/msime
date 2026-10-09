@@ -48,7 +48,7 @@ $symbols = Join-Path $PSScriptRoot 'Collect-Symbols.ps1'
 foreach ($path in @($build, $prepare, $payload, $compile, $installer, $symbols)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "发布入口缺失：$path" }
 }
-$editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw | ConvertFrom-Json
+$editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $editionEntry = @($editionTable.editions | Where-Object { $_.id -ceq $Edition -and $null -ne $_.platforms.windows })
 if ($editionEntry.Count -ne 1) { throw "版本 $Edition 在 shared/contracts/editions.json 里没有 Windows 标识" }
 $editionBuild = "target/windows-$Edition"

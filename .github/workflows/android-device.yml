@@ -1,5 +1,5 @@
 name: Android device
-# 在真正的 Android 模拟器上跑：client-core 单测整套，再装 APK 走首次启动、词库准备和输入验收。ci-platforms.yml 在每个动到 Android 或共享代码的 PR 上调用它，release-android.yml 在发布前调用它，失败就不发。
+# 在真正的 Android 模拟器上跑：client-core 单测整套，再装 APK 走首次启动、词库准备和输入验收。ci-platforms.yml 在动到 Android 或共享代码的 develop、main 推送上调用它（PR 上不跑），release-android.yml 在发布前调用它，失败就不发。
 #
 # 为什么要有这一步：编译、lint 和 JVM 测试全绿的 0.3.0 在设备上「词库准备失败」（私有目录从 / 起逐级以只读打开，Android 不给应用读 /data）、匿名账号写不进（SELinux 禁止应用建硬链接），Android 9 一打开就崩溃（开屏光晕的径向渐变带主题属性）。这三类问题只有在 Android 上运行才看得见。
 #

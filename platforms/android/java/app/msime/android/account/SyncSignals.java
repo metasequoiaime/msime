@@ -26,7 +26,8 @@ public final class SyncSignals {
     public static boolean markDirty(Context context, String section) {
         if (!SyncSwitch.validSection(section)) throw new IllegalArgumentException("unknown sync section");
         Context application = context.getApplicationContext();
-        if (ownsStore(application)) {
+        if (AccountSessionRoutingPolicy.ownsSession(
+                Application.getProcessName(), application.getPackageName())) {
             SyncSwitch.markDirty(application, section);
             return true;
         }
@@ -42,7 +43,8 @@ public final class SyncSignals {
     /** 当前同步开关与登录方式；读不到时按关闭处理。 */
     public static State state(Context context) {
         Context application = context.getApplicationContext();
-        if (ownsStore(application)) {
+        if (AccountSessionRoutingPolicy.ownsSession(
+                Application.getProcessName(), application.getPackageName())) {
             return stateOf(SyncSwitch.enabled(application), SyncSwitch.loginKind(application));
         }
         try {
@@ -60,10 +62,6 @@ public final class SyncSignals {
     static State stateOf(boolean enabled, String loginKind) {
         if (!SyncSwitch.validLoginKind(loginKind)) return State.OFF;
         return new State(enabled, loginKind);
-    }
-
-    private static boolean ownsStore(Context application) {
-        return AccountSessionRoutingPolicy.ownsSession(Application.getProcessName(), application.getPackageName());
     }
 
     private static Uri providerUri(Context application) {
