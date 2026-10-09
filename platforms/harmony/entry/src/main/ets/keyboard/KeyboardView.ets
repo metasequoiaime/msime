@@ -11,6 +11,7 @@ import { KeyboardSkin } from './skin/KeyboardSkin';
 import { CandidateColors, GlobalTheme } from './skin/GlobalTheme';
 import { EnglishLetterCaseState, LetterCaseMode } from './input/EnglishLetterCaseState';
 import { LetterKeyFacePolicy } from './input/LetterKeyFacePolicy';
+import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { KeyAccessibilityPolicy } from './input/KeyAccessibilityPolicy';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
 import { CandidateWrapPolicy } from './candidate/CandidateWrapPolicy';
@@ -995,11 +996,7 @@ struct KeyboardView {
   }
 
   /**
-   * 拼音键面用大写,切到英文才回小写。Every Chinese keyboard draws its 26 keys in caps, and the case
-   * there is only a typeface: the key still feeds a lowercase letter to the Engine. Shift belongs to
-   * English, where the case decides what actually lands in the document.
-   *
-   * 本地模式除外 —— 那里敲进去的就是字面的小写字母,键面写大写就是在骗人。
+   * 字母键平时画小写，与设计稿、Android 和 iOS 一致；只有下一键真的会输入大写时才画大写（`typesUppercase`）。
    */
   private letterFace(letter: string): string {
     if (this.koreanFace()) {
@@ -1009,8 +1006,16 @@ struct KeyboardView {
       // 越南语和藏文（威利转写区分大小写）的字母按 Shift 给出的大小写输入，所以键面显示那个大小写，和英文一样。
       return LetterKeyFacePolicy.face(letter, false, false, this.caseMode !== LetterCaseMode.LOWERCASE);
     }
-    return LetterKeyFacePolicy.face(letter, !this.english, this.localMode !== 'none',
-      this.caseMode !== LetterCaseMode.LOWERCASE);
+    return LetterKeyFacePolicy.face(letter, !this.english, this.localMode !== 'none', this.typesUppercase());
+  }
+
+  /**
+   * Shift 亮着时下一键是否真的输入大写，与 `tapLetter` 的判断一致：英文里是大写字母；中文里只有组字中的辅助码会以大写交给 Engine，没有组字时 Shift 加字母仍是小写拼音，键面画大写就是在骗人。读的都是视图的状态，组字开始或结束时键面跟着重绘。
+   */
+  private typesUppercase(): boolean {
+    const held: boolean = this.caseMode !== LetterCaseMode.LOWERCASE;
+    return held && (this.english
+      || ChineseHelpcodePolicy.entersHelpcode(this.english, held, this.editing, this.engineScheme, this.localMode));
   }
 
   /** The double-pinyin unit a key stands for, printed along its bottom edge while it means one. */
@@ -2995,7 +3000,8 @@ struct KeyboardView {
     // accessibility text at all, so every key on this keyboard was silent to a screen reader.
     return LetterKeyFacePolicy.accessibilityLabel(letter,
       !this.english && !this.vietnameseFace() && !this.tibetanFace(),
-      this.localMode !== 'none', this.caseMode !== LetterCaseMode.LOWERCASE);
+      this.localMode !== 'none', this.vietnameseFace() || this.tibetanFace()
+        ? this.caseMode !== LetterCaseMode.LOWERCASE : this.typesUppercase());
   }
 
   /** The shared English/primary/fallback order, as one CSS-style list for a Text modifier. */
