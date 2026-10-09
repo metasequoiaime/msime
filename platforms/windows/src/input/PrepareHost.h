@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace msime::windows {
 inline bool write_new_file(const std::filesystem::path &path,
@@ -70,6 +71,37 @@ inline bool write_new_file(const std::filesystem::path &path,
 #endif
 }
 
+#ifdef _WIN32
+// Rename the checked temporary through its own handle, never replacing an
+// existing destination. A hard link would publish just as atomically, but it
+// leaves the file with two links, which read_private_file and
+// remove_private_file both refuse - the Server could then never read it.
+inline bool publish_private_file(const std::filesystem::path &temporary,
+                                 const std::filesystem::path &destination) {
+  HANDLE handle = CreateFileW(
+      temporary.c_str(), DELETE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+      nullptr);
+  if (handle == INVALID_HANDLE_VALUE)
+    return false;
+  const std::wstring target = destination.wstring();
+  std::vector<unsigned char> buffer(sizeof(FILE_RENAME_INFO) +
+                                    target.size() * sizeof(wchar_t));
+  auto *rename = reinterpret_cast<FILE_RENAME_INFO *>(buffer.data());
+  rename->ReplaceIfExists = FALSE;
+  rename->RootDirectory = nullptr;
+  rename->FileNameLength = static_cast<DWORD>(target.size() * sizeof(wchar_t));
+  std::copy(target.begin(), target.end(), rename->FileName);
+  const bool published =
+      handle_is_trusted_file(handle) &&
+      SetFileInformationByHandle(handle, FileRenameInfo, rename,
+                                 static_cast<DWORD>(buffer.size())) != FALSE;
+  CloseHandle(handle);
+  return published;
+}
+#endif
+
 // Only orchestration belongs here. Resource verification and Engine dictionary
 // preparation stay in the shared Host API, supplied by the native executable.
 inline std::filesystem::path prepare_host_state_in_directory(
@@ -104,13 +136,15 @@ inline std::filesystem::path prepare_host_state_in_directory(
   const auto destination = state / "runtime-options.json";
   if (!write_new_file(temporary, document))
     throw std::runtime_error("Cannot write prepared configuration");
-  // A same-directory hard link publishes complete contents without replacing
-  // any destination created concurrently. Unsupported filesystems fail closed.
-  // Do not remove prepared data on failure: the user may need it to diagnose.
-  std::filesystem::create_hard_link(temporary, destination);
+  // Publish complete contents without replacing any destination created
+  // concurrently. Do not remove prepared data on failure: the user may need it
+  // to diagnose.
 #ifdef _WIN32
-  (void)remove_private_file(temporary);
+  if (!publish_private_file(temporary, destination))
+    throw std::runtime_error("Cannot publish prepared configuration");
 #else
+  // A same-directory hard link; unsupported filesystems fail closed.
+  std::filesystem::create_hard_link(temporary, destination);
   std::filesystem::remove(temporary);
 #endif
   return destination;

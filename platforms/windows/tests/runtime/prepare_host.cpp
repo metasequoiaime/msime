@@ -33,6 +33,11 @@ int main() {
     if (saved.at("preferences_directory") != state.u8string() || calls != 1 ||
         fs::exists(state / ".runtime-options-prepared"))
       throw std::runtime_error("Publication mismatch");
+#ifdef _WIN32
+    // The Server reads it through the single-link check; a published hard link would fail here.
+    if (!msime::windows::read_private_file(path, 16384))
+      throw std::runtime_error("Published configuration unreadable");
+#endif
     reject([&] { msime::windows::prepare_host_state(resources, state, host); });
     reject([&] { msime::windows::prepare_host_state("relative", root / "bad", host); });
     reject([&] { msime::windows::prepare_host_state(resources, root / "missing" / "child", host); });
@@ -75,6 +80,7 @@ int main() {
     sentinel >> value;
     if (value != "sentinel") throw std::runtime_error("Replaced concurrent state");
     sentinel.close();
+    preserved.close();
     input.close();
     fs::remove_all(root);
     std::cout << "Windows preparation orchestration passed\n";
