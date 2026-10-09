@@ -186,17 +186,27 @@ impl VocabularyProgress {
         Ok(())
     }
 
-    /// Drop counts before the `MAX_RETAINED_DAYS`-day window ending on `today`.
+    /// Drop old counts and keep at most `MAX_RETAINED_DAYS` recorded days, including `today`.
     ///
     /// Card schedules are never pruned. A card the user studied two years ago and has not seen
     /// since is exactly the card the schedule exists to bring back.
     fn prune(&mut self, today: &str) {
-        let Some(boundary) = crate::calendar::shift_day(today, -((MAX_RETAINED_DAYS - 1) as i64))
-        else {
-            return;
-        };
-        self.daily
-            .retain(|day, _| day.as_str() >= boundary.as_str());
+        if let Some(boundary) = crate::calendar::shift_day(today, -((MAX_RETAINED_DAYS - 1) as i64))
+        {
+            self.daily
+                .retain(|day, _| day.as_str() >= boundary.as_str());
+        }
+        // A clock rewind can leave future records in the window. Keep today's answer and the
+        // newest other records if their combined count exceeds the document's fixed limit.
+        let mut excess = self.daily.len().saturating_sub(MAX_RETAINED_DAYS);
+        self.daily.retain(|day, _| {
+            if day != today && excess > 0 {
+                excess -= 1;
+                false
+            } else {
+                true
+            }
+        });
     }
 }
 
@@ -400,8 +410,6 @@ impl VocabularyProgressStore {
 
         let lock = self.lock()?;
         let mut document = self.read_locked(&lock)?;
-        document.prune(today);
-
         let words = document.cards.entry(book.id.clone()).or_default();
         if words.len() >= wordbook::MAX_ENTRIES && !words.contains_key(word) {
             return Err(VocabularyProgressError::InvalidDocument);
@@ -433,6 +441,8 @@ impl VocabularyProgressStore {
         if counts.answered > MAX_REVIEWS_PER_DAY {
             return Err(VocabularyProgressError::CountExhausted);
         }
+
+        document.prune(today);
 
         self.write_locked(&lock, &document)?;
         Ok(next)
@@ -697,6 +707,51 @@ mod tests {
         assert_eq!(saved.daily.len(), MAX_RETAINED_DAYS);
         assert_eq!(saved.answered_on(start), 0);
         assert_eq!(saved.answered_on(&next_day), 1);
+    }
+
+    #[test]
+    fn a_clock_rewind_keeps_new_answers_writable_with_a_future_day() {
+        let (_directory, store) = store();
+        let boundary =
+            crate::calendar::shift_day(TODAY, -((MAX_RETAINED_DAYS - 1) as i64)).unwrap();
+        let tomorrow = crate::calendar::shift_day(TODAY, 1).unwrap();
+        let mut document = VocabularyProgress::default();
+        for offset in 0..MAX_RETAINED_DAYS - 1 {
+            let day = crate::calendar::shift_day(&boundary, offset as i64).unwrap();
+            document.daily.insert(
+                day,
+                DailyReviewCounts {
+                    answered: 1,
+                    introduced: 0,
+                },
+            );
+        }
+        document.daily.insert(
+            tomorrow.clone(),
+            DailyReviewCounts {
+                answered: 1,
+                introduced: 0,
+            },
+        );
+        fs::write(
+            store.directory().join(PROGRESS_FILE),
+            serde_json::to_vec(&document).unwrap(),
+        )
+        .unwrap();
+
+        store
+            .answer(
+                &book_of(&["synthetic"]),
+                "synthetic",
+                ReviewGrade::Unknown,
+                TODAY,
+            )
+            .unwrap();
+        let saved = store.load().unwrap();
+        assert_eq!(saved.daily.len(), MAX_RETAINED_DAYS);
+        assert_eq!(saved.answered_on(TODAY), 1);
+        assert_eq!(saved.answered_on(&tomorrow), 1);
+        assert_eq!(saved.answered_on(&boundary), 0);
     }
 
     #[test]
