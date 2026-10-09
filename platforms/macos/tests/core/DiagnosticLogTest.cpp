@@ -96,4 +96,48 @@ int main() {
   const std::string unchanged((std::istreambuf_iterator<char>(after)), {});
   assert(unchanged == contents);
   std::filesystem::remove_all(directory);
+
+  // Host API lines keep only the fixed category before the first colon: the pack id, the path and the error text after it never reach the file, and a line that arrives while the log is off is dropped, not kept for when it is turned on.
+  const auto hostDirectory = std::filesystem::temp_directory_path() /
+                             ("msime-macos-host-line-" + std::to_string(getpid()));
+  std::filesystem::remove_all(hostDirectory);
+  std::filesystem::create_directories(hostDirectory);
+  const auto hostLog = hostDirectory / "diagnostic.log";
+  msime_macos_diagnostic_host_line("helpcode pack unavailable, falling back to the scheme's schema: early-pack -> zrm: missing");
+  msime_macos_diagnostic_configure(hostDirectory.string(), false);
+  msime_macos_diagnostic_host_line("sound pack not loaded: off-pack: /Users/someone/Library/pack: corrupt");
+  assert(!std::filesystem::exists(hostLog));
+  msime_macos_diagnostic_configure(hostDirectory.string(), true);
+  assert(!std::filesystem::exists(hostLog));
+  msime_macos_diagnostic_host_line(nullptr);
+  msime_macos_diagnostic_host_line("helpcode pack unavailable, falling back to the scheme's schema: radicals -> zrm: /Users/someone/Library/pack/table.txt: No such file or directory");
+  msime_macos_diagnostic_host_line("sentence model ignored: /Users/someone/model.bin: corrupt");
+  msime_macos_diagnostic_host_line("no colon /Users/someone/secret");
+  msime_macos_diagnostic_host_line(("long " + std::string(400, 'x') + ": detail").c_str());
+  std::ifstream hostInput(hostLog);
+  const std::string hostContents((std::istreambuf_iterator<char>(hostInput)), {});
+  assert(hostContents.find("] host_api: helpcode pack unavailable, falling back to the scheme's schema\n") != std::string::npos);
+  assert(hostContents.find("] host_api: sentence model ignored\n") != std::string::npos);
+  assert(hostContents.find("] host_api: uncategorized\n") != std::string::npos);
+  for (const char *detail : {"radicals", "zrm", "/Users", "someone", "No such file", "corrupt", "early-pack", "off-pack", "detail"})
+    assert(hostContents.find(detail) == std::string::npos);
+  // Nothing was retained: exactly the four lines written while the log was on, each one record.
+  std::size_t hostLines = 0;
+  for (std::size_t start = 0; start < hostContents.size();) {
+    const auto end = hostContents.find('\n', start);
+    assert(end != std::string::npos);
+    assert(end - start <= 64 + 192);
+    ++hostLines;
+    start = end + 1;
+  }
+  assert(hostLines == 4);
+  // Turning the log off and on again writes nothing either.
+  msime_macos_diagnostic_configure(hostDirectory.string(), false);
+  msime_macos_diagnostic_host_line("music not played: late-pack: missing");
+  msime_macos_diagnostic_configure(hostDirectory.string(), true);
+  std::ifstream hostAgain(hostLog);
+  const std::string hostRepeated((std::istreambuf_iterator<char>(hostAgain)), {});
+  assert(hostRepeated == hostContents);
+  msime_macos_diagnostic_configure(hostDirectory.string(), false);
+  std::filesystem::remove_all(hostDirectory);
 }
