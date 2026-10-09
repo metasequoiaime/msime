@@ -6468,10 +6468,10 @@ static void TestTencentCandidateScheduling() {
     assert(fallback.tencentConfig && fallback.items.count == 1 && [fallback.items[0][@"text"] isEqual:@"测试"]);
     fallback.reply(@[@{@"text":@"测试", @"translation":@"test"}]);
     assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"test"}]]));
-    NSArray *(^identity)(NSDictionary *) = ^NSArray *(NSDictionary *item) {
-        return @[@"tencent", session.targetLanguage, item[@"source_language"], item[@"target_language"], item[@"key"]];
-    };
-    assert([[[MSIMETranslationCache sharedCache] valueForIdentity:identity(fallback.items[0])] isEqual:@"test"]);
+    NSUInteger cachedBatchCount = controller.batches.count;
+    session.generation++;
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == cachedBatchCount && [session.delivered.lastObject[@"translation"] isEqual:@"test"]);
     [controller cancelCandidateTranslations]; [[MSIMETranslationCache sharedCache] clear];
     session.offline = NO;
     [controller synchronizeCandidateGloss];
@@ -6482,13 +6482,15 @@ static void TestTencentCandidateScheduling() {
     [controller applySharedToolbarPreferences:@{@"tencent_tmt":disabled}];
     assert(pending.cancelled && ![controller currentCustomTranslationRequest] && session.delivered.count == 0);
     pending.reply(online); assert(session.delivered.count == 0);
-    // The provider changed while the request was in flight, and the cache identity carries no credentials: the late reply must leave neither a gloss nor a negative entry behind.
-    for (NSDictionary *item in pending.items) assert(![[MSIMETranslationCache sharedCache] valueForIdentity:identity(item)]);
+    // The provider changed while the request was in flight. Its late reply must
+    // leave neither a gloss nor a negative entry behind.
     session.tencent = disabled; assert(![controller currentCustomTranslationRequest]);
     session.tencent = TencentConfig();
     [controller applySharedToolbarPreferences:@{@"tencent_tmt":session.tencent}];
     [controller synchronizeCandidateGloss];
+    NSUInteger beforeReenable = controller.batches.count;
     [controller synchronizeCustomTranslations]; pending = controller.batches.lastObject;
+    assert(controller.batches.count == beforeReenable + 1);
     // Pending custom enablement must block Tencent even before the query updates.
     NSDictionary *custom = @{@"enabled":@YES, @"endpoint":@"https://provider.invalid", @"api_key":@""};
     [controller applySharedToolbarPreferences:@{@"custom_translation":custom}];
@@ -7433,6 +7435,37 @@ static void TestCustomTranslationCacheDelivery() {
     [controller cancelCandidateTranslations];
     [[MSIMETranslationCache sharedCache] clear];
 }
+static void TestCustomTranslationCacheSeparatesCredentialsAcrossControllers() {
+    [[MSIMETranslationCache sharedCache] clear];
+    CustomTranslationController *first = [CustomTranslationController alloc];
+    first.batches = [NSMutableArray array];
+    CustomTranslationSession *oldSession = [CustomTranslationSession new];
+    oldSession.enabled = YES; oldSession.generation = 1; oldSession.targetLanguage = @"fr";
+    oldSession.custom = @{@"enabled":@YES, @"endpoint":@"https://cache-source.invalid/api", @"api_key":@"synthetic-old"};
+    oldSession.page = @[@{@"text":@"Hello", @"source":@4}];
+    [first setValue:oldSession forKey:@"session"];
+    [first setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [first applySharedToolbarPreferences:@{@"custom_translation":oldSession.custom}];
+    [first synchronizeCustomTranslations];
+    assert(first.batches.count == 1);
+    first.batches[0].reply(@[@{@"text":@"Hello", @"translation":@"旧译文"}]);
+    [first cancelCandidateTranslations];
+    first = nil;
+
+    CustomTranslationController *second = [CustomTranslationController alloc];
+    second.batches = [NSMutableArray array];
+    CustomTranslationSession *newSession = [CustomTranslationSession new];
+    newSession.enabled = YES; newSession.generation = 1; newSession.targetLanguage = @"fr";
+    newSession.custom = @{@"enabled":@YES, @"endpoint":@"https://cache-source.invalid/api", @"api_key":@"synthetic-new"};
+    newSession.page = @[@{@"text":@"Hello", @"source":@4}];
+    [second setValue:newSession forKey:@"session"];
+    [second setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [second applySharedToolbarPreferences:@{@"custom_translation":newSession.custom}];
+    [second synchronizeCustomTranslations];
+    assert(second.batches.count == 1 && newSession.delivered.count == 0);
+    [second cancelCandidateTranslations];
+    [[MSIMETranslationCache sharedCache] clear];
+}
 static void TestCustomTranslationIdleDelay(BOOL tencent) {
     [[MSIMETranslationCache sharedCache] clear];
     CustomTranslationController *controller = [CustomTranslationController alloc];
@@ -7893,6 +7926,7 @@ int main(int argc, char **argv) {
             @autoreleasepool { TestGlossLinesSurviveSession(); }
             @autoreleasepool { TestSecondaryTranslationScheduling(); }
             @autoreleasepool { TestCustomTranslationCacheDelivery(); }
+            @autoreleasepool { TestCustomTranslationCacheSeparatesCredentialsAcrossControllers(); }
             @autoreleasepool { TestCustomTranslationIdleDelay(NO); }
             @autoreleasepool { TestCustomTranslationIdleDelay(YES); }
             @autoreleasepool { TestTencentCandidateScheduling(); }
@@ -7934,6 +7968,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestGlossLinesSurviveSession(); }
         @autoreleasepool { TestSecondaryTranslationScheduling(); }
         @autoreleasepool { TestCustomTranslationCacheDelivery(); }
+        @autoreleasepool { TestCustomTranslationCacheSeparatesCredentialsAcrossControllers(); }
         @autoreleasepool { TestCustomTranslationIdleDelay(NO); }
         @autoreleasepool { TestCustomTranslationIdleDelay(YES); }
         @autoreleasepool { TestTencentCandidateScheduling(); }

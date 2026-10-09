@@ -581,6 +581,18 @@ static NSString *MSIMETranslationWorkKey(NSString *target, NSString *text) {
     return [NSString stringWithFormat:@"%@\u001f%@", target ?: @"", text ?: @""];
 }
 
+// The cache outlives input controllers. Include the selected provider's full
+// configuration so a credential changed while no controller existed cannot
+// reuse an earlier provider's results, without retaining the credential itself.
+static NSString *MSIMETranslationProviderScope(NSString *service, NSDictionary *configuration) {
+    NSData *encoded = [NSJSONSerialization dataWithJSONObject:configuration options:NSJSONWritingSortedKeys error:nil];
+    if (!encoded || encoded.length > UINT32_MAX) return nil;
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(encoded.bytes, (CC_LONG)encoded.length, digest);
+    NSString *fingerprint = [[NSData dataWithBytes:digest length:sizeof(digest)] base64EncodedStringWithOptions:0];
+    return [NSString stringWithFormat:@"%@:%@", service, fingerprint];
+}
+
 static NSString *MSIMEJoinedTranslations(NSDictionary<NSString *, NSString *> *values,
                                           NSArray<NSString *> *targets) {
     NSMutableArray<NSString *> *ordered = [NSMutableArray array];
@@ -2408,7 +2420,6 @@ static NSImage *MSIMECandidateLogoImage() {
     [self stopAccountGloss];
     if ([_customQuery isEqual:query]) return;
     [self detachCustomTranslations];
-    _customQuery = query;
     // `/fy` translates one English sentence into the query's own target, Chinese, which the candidate target list does not name and the candidate plan refuses; it is its own plan item and is neither read from nor written to the gloss cache.
     const BOOL command = MSIMEStrictBoolean(query[@"command"]);
     NSArray<NSString *> *targets = command ? query[@"target_languages"] : MSIMETranslationTargets(query);
@@ -2417,8 +2428,10 @@ static NSImage *MSIMECandidateLogoImage() {
     MSIMETranslationCache *cache = [MSIMETranslationCache sharedCache];
     BOOL tencent = query[@"tencent_tmt"] != nil;
     BOOL niuTrans = query[@"niutrans"] != nil;
-    NSString *scope = niuTrans ? [@"niutrans:" stringByAppendingString:query[@"niutrans"][@"app_id"] ?: @""] :
-        tencent ? @"tencent" : [@"custom:" stringByAppendingString:query[@"custom_translation"][@"endpoint"] ?: @""];
+    NSString *scope = MSIMETranslationProviderScope(niuTrans ? @"niutrans" : tencent ? @"tencent" : @"custom",
+        niuTrans ? query[@"niutrans"] : tencent ? query[@"tencent_tmt"] : query[@"custom_translation"]);
+    if (!scope) return;
+    _customQuery = query;
     NSSet *glossTexts = [NSSet setWithArray:[_glossResults valueForKey:@"text"] ?: @[]];
     if ([_glossRequest isEqual:[self currentGlossRequest]]) {
         for (NSDictionary *result in _glossResults) {
