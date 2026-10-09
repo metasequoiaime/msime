@@ -296,7 +296,7 @@ actor SkinCommunityAPI {
   func clearExpiredLogin() async throws {
     try await account.forget(removingAccount: removedAccountCleanup("clear_expired_login"))
   }
-  /// 退出登录、注销账号和清除失效登录时取消旧账号的快照。远端已经生效或身份已经失效，取消失败也不能让本地会话停在旧账号上，所以只记一条诊断再继续；诊断只含操作名和失败类别，不含账号、路径或错误原文。
+  /// 退出登录、注销账号和清除失效登录时取消旧账号的快照。用户已决定离开、远端账号已删除或登录已失效，取消失败也不能让本地会话停在旧账号上，所以只记一条诊断再继续；诊断只含操作名和失败类别，不含账号、路径或错误原文。
   private func removedAccountCleanup(_ operation: String) -> @Sendable (String) -> Void {
     let cancel = cancelSnapshot
     return { accountID in

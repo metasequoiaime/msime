@@ -580,7 +580,7 @@ actor BackendAccountSession {
     if let expectedSessionID, current?.sessionID != expectedSessionID,
        !(allowMissingExpected && current == nil) { throw CancellationError() }
     if let current, current.tokens.user.id != accountID { throw CancellationError() }
-    // 先取消旧账号的待处理工作再清除身份，缩小键盘按旧身份领取的窗口。回调不能抛错：退出、注销和清除失效登录到这里时远端已生效或身份已失效，清理失败也必须让本地会话清掉，失败由调用方自行记录；切换账号的 `replacingAccount` 才允许失败并阻止切换。
+    // 先取消旧账号的待处理工作再清除身份，缩小键盘按旧身份领取的窗口。回调不能抛错：退出登录是用户明确要离开这个账号，注销账号时远端已删除，清除失效登录时身份已不可用，清理失败也必须让本地会话清掉，失败由调用方自行记录；切换账号的 `replacingAccount` 才允许失败并阻止切换。
     if let accountID = current?.tokens.user.id ?? accountID { cleanup(accountID) }
     try storage.clear()
   }
