@@ -9852,12 +9852,13 @@ fn voice_local_model_install_from_files_validates_the_paths_and_names_what_is_mi
         let request = json!({ "root": root.path() }).to_string();
         msime_client_voice_local_models(request.as_ptr(), request.len())
     });
-    let default = listed["value"]["default"].as_str().unwrap().to_owned();
+    // 不用默认模型：别的测试会并行地对默认模型发起安装，同一个 id 的登记是进程内共享的。
+    let id = "sense-voice-small";
     let model = listed["value"]["models"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|model| model["id"] == default.as_str())
+        .find(|model| model["id"] == id)
         .unwrap()
         .clone();
     let archive_name = model["import_files"][0]["name"].as_str().unwrap();
@@ -9877,7 +9878,7 @@ fn voice_local_model_install_from_files_validates_the_paths_and_names_what_is_mi
             )
         })
     };
-    let missing = install(json!({ "root": root.path(), "id": default, "files": [unrelated] }));
+    let missing = install(json!({ "root": root.path(), "id": id, "files": [unrelated] }));
     assert_eq!(missing["ok"], false, "{missing}");
     assert_eq!(
         missing["error"],
@@ -9887,12 +9888,12 @@ fn voice_local_model_install_from_files_validates_the_paths_and_names_what_is_mi
         json!(["relative/model.tar.bz2"]),
         json!(vec![unrelated.to_str().unwrap(); 17]),
     ] {
-        let refused = install(json!({ "root": root.path(), "id": default, "files": files }));
+        let refused = install(json!({ "root": root.path(), "id": id, "files": files }));
         assert_eq!(refused["error"], "invalid local model import", "{refused}");
     }
     let unknown = install(json!({ "root": root.path(), "id": "no-such-model", "files": [] }));
     assert_eq!(unknown["error"], "local_model_unknown", "{unknown}");
-    assert!(!root.path().join(&default).exists());
+    assert!(!root.path().join(id).exists());
 }
 
 #[test]
