@@ -87,6 +87,17 @@ public final class ClipboardHistoryPolicy {
     public static final String EDIT_PAGE = "CLIPBOARD_EDIT";
     /** 编辑页参数里那一条的键：值是 {@link #editKey}，不是文字本身。 */
     public static final String EDIT_ENTRY_ARG = "entry";
+    /**
+     * boolean 参数：编辑页、剪贴板历史页（#5973）做完之后回到原来的应用（`moveTaskToBack`）。
+     *
+     * <p>键盘只在当前输入框属于别的应用时带上它（{@link #returnsToCaller}）。光看深链的外部标记不够：键盘的深链在用户正在水杉自己的输入框里打字时也走同一条路，这时回到「原来的应用」就是把水杉自己送到后台。
+     */
+    public static final String RETURN_TO_CALLER_ARG = "return_to_caller";
+
+    /** 键盘打开编辑页或剪贴板历史页时要不要带 {@link #RETURN_TO_CALLER_ARG}：当前输入框属于别的应用才带。读不到输入框的包名时照样带，和这个参数出现之前的做法一样。 */
+    public static boolean returnsToCaller(String editorPackage, String ownPackage) {
+        return editorPackage == null || !editorPackage.equals(ownPackage);
+    }
 
     /**
      * 键盘交给编辑页、用来认出要编辑哪一条的键：时间戳加文字的散列和长度。

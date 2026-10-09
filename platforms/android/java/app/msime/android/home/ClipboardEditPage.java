@@ -191,13 +191,22 @@ public final class ClipboardEditPage extends DetailPage {
     }
 
     /**
-     * 关掉这一页。从键盘打开时（深链参数带 {@link HostDeepLink#ARG_EXTERNAL}）还要回到原来的应用，用户要回去接着输入；从应用里的剪贴板历史页（#5973）打开时只弹回那一页。
+     * 关掉这一页。键盘在别的应用的输入框里打开时（{@link #returnsToCaller}）还要回到那个应用，用户要回去接着输入；从应用里的剪贴板历史页（#5973）打开、或键盘在水杉自己的输入框里打开时只弹回上一页。
      */
     private void leave() {
         FragmentActivity activity = getActivity();
         if (activity == null) return;
         activity.getOnBackPressedDispatcher().onBackPressed();
-        Bundle args = getArguments();
-        if (args != null && args.getBoolean(HostDeepLink.ARG_EXTERNAL, false)) activity.moveTaskToBack(true);
+        if (returnsToCaller(getArguments())) activity.moveTaskToBack(true);
+    }
+
+    /**
+     * 编辑页、剪贴板历史页做完之后要不要回到原来的应用：参数是深链读进来的（带 {@link HostDeepLink#ARG_EXTERNAL}），并且键盘说明当前输入框属于别的应用（{@link ClipboardHistoryPolicy#RETURN_TO_CALLER_ARG}）。
+     *
+     * <p>只看外部标记不够：用户在水杉自己的输入框里打字时，键盘的深链也带着它，`moveTaskToBack` 会把水杉自己送到后台。别的应用伪造这个参数也只会让这一页在用户操作之后退到后台，属于导航。
+     */
+    static boolean returnsToCaller(@Nullable Bundle args) {
+        return args != null && args.getBoolean(HostDeepLink.ARG_EXTERNAL, false)
+            && args.getBoolean(ClipboardHistoryPolicy.RETURN_TO_CALLER_ARG, false);
     }
 }

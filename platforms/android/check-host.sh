@@ -619,7 +619,8 @@ fi
 search_body=$(rg -A 6 'void openClipboardSearch\(' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
 if ! printf '%s\n' "$search_body" | rg -q 'forgetCurrentClip\(\);' \
-  || ! printf '%s\n' "$search_body" | rg -q 'openHostPage\(ClipboardSearchPolicy\.SEARCH_PAGE\)' \
+  || ! printf '%s\n' "$search_body" | rg -q 'putReturnToCaller\(args\);' \
+  || ! printf '%s\n' "$search_body" | rg -q 'openHostPage\(ClipboardSearchPolicy\.SEARCH_PAGE, args\)' \
   || printf '%s\n' "$search_body" | rg -q 'new (AlertDialog|PopupMenu|EditText)' \
   || ! rg -q 'public static final String SEARCH_PAGE = "CLIPBOARD_SEARCH";' \
     "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardSearchPolicy.java" \

@@ -17,7 +17,6 @@ import app.msime.android.ClipboardHistoryRetentionPolicy;
 import app.msime.android.ClipboardHistoryStore;
 import app.msime.android.ClipboardSearchPolicy;
 import app.msime.android.DeviceDataApi;
-import app.msime.android.HostDeepLink;
 import app.msime.android.R;
 import app.msime.android.ViewPolicy;
 import java.util.List;
@@ -28,7 +27,7 @@ import org.json.JSONObject;
  *
  * <p>键盘里没有可输入的文本框，查询框放在应用里，和编辑（#5971）、常用语（#5673）一样。读的是键盘写的同一份共享存储（{@link ClipboardHistoryStore}），所以和面板里看到的是同一份历史；共享偏好里的剪贴板历史开关关着时不列出记录（见 {@link #reload}）。只搜本机历史，云剪贴板有自己的页面。筛选规则在 {@link ClipboardSearchPolicy}：不区分大小写的子串匹配，顺序不变（置顶在前），空查询显示全部。
  *
- * <p>一条记录：点按复制回系统剪贴板；行尾「编辑」打开 {@link ClipboardEditPage}，「删除」从共享存储里删掉这一条。从键盘打开时（深链参数带 {@link HostDeepLink#ARG_EXTERNAL}）复制之后回到原来的应用，接着就能粘贴；从应用里打开时留在这一页。
+ * <p>一条记录：点按复制回系统剪贴板；行尾「编辑」打开 {@link ClipboardEditPage}，「删除」从共享存储里删掉这一条。键盘在别的应用的输入框里打开这一页时（{@link ClipboardEditPage#returnsToCaller}）复制之后回到那个应用，接着就能粘贴；从应用里打开、或键盘在水杉自己的输入框里打开时留在这一页。
  */
 public final class ClipboardSearchPage extends DetailPage {
     private enum State { LOADING, READY, OFF, FAILED }
@@ -184,7 +183,7 @@ public final class ClipboardSearchPage extends DetailPage {
     private void copy(ClipboardHistory.Item item) {
         if (busy) return;
         ClipboardActions.copyText(requireContext(), "水杉剪贴板历史", item.text(), "已复制");
-        if (fromKeyboard()) leave();
+        if (ClipboardEditPage.returnsToCaller(getArguments())) leave();
     }
 
     /**
@@ -219,12 +218,6 @@ public final class ClipboardSearchPage extends DetailPage {
             MsToast.show(requireContext(), done == null ? "删除失败，请稍后重试" : "已删除");
             reload();
         });
-    }
-
-    /** 深链打开的（键盘的「搜索」）参数里带外部标记；应用里经 {@link SettingsNavigator} 打开的没有。 */
-    private boolean fromKeyboard() {
-        Bundle args = getArguments();
-        return args != null && args.getBoolean(HostDeepLink.ARG_EXTERNAL, false);
     }
 
     /** 关掉这一页并回到原来的应用，和编辑页的「保存」一样：用户是从键盘过来找一条去粘贴的。 */

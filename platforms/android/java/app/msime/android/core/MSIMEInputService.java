@@ -5630,6 +5630,7 @@ public final class MSIMEInputService extends InputMethodService {
         android.os.Bundle args = new android.os.Bundle();
         args.putString(ClipboardHistoryPolicy.EDIT_ENTRY_ARG,
             ClipboardHistoryPolicy.editKey(item.timestamp(), item.text()));
+        putReturnToCaller(args);
         closeClipboardHistory();
         openHostPage(ClipboardHistoryPolicy.EDIT_PAGE, args);
     }
@@ -5641,8 +5642,17 @@ public final class MSIMEInputService extends InputMethodService {
      */
     void openClipboardSearch() {
         forgetCurrentClip();
+        android.os.Bundle args = new android.os.Bundle();
+        putReturnToCaller(args);
         closeClipboardHistory();
-        openHostPage(ClipboardSearchPolicy.SEARCH_PAGE);
+        openHostPage(ClipboardSearchPolicy.SEARCH_PAGE, args);
+    }
+
+    /** 编辑页、剪贴板历史页做完之后要不要回到原来的应用：当前输入框属于别的应用才要；在水杉自己的输入框里打开时留在应用里（{@link ClipboardHistoryPolicy#RETURN_TO_CALLER_ARG}）。 */
+    private void putReturnToCaller(android.os.Bundle args) {
+        EditorInfo info = getCurrentInputEditorInfo();
+        if (ClipboardHistoryPolicy.returnsToCaller(info == null ? null : info.packageName, getPackageName()))
+            args.putBoolean(ClipboardHistoryPolicy.RETURN_TO_CALLER_ARG, true);
     }
 
     /**
