@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-/// The largest progress document that will be read.
+/// The largest progress document that will be read or written.
 ///
 /// A studied card serialises to roughly 120 bytes. Four mebibytes is tens of thousands of cards —
 /// past any real study history, and small enough that a damaged file cannot exhaust memory on a
@@ -373,6 +373,9 @@ impl VocabularyProgressStore {
     ) -> Result<(), VocabularyProgressError> {
         value.validate()?;
         let bytes = serde_json::to_vec(value)?;
+        if bytes.len() > MAX_DOCUMENT_BYTES as usize {
+            return Err(VocabularyProgressError::InvalidDocument);
+        }
         crate::file_lock::write_private_file_at(
             &lock.directory,
             std::ffi::OsStr::new(PROGRESS_FILE),
@@ -622,6 +625,36 @@ mod tests {
             store.load(),
             Err(VocabularyProgressError::InvalidDocument)
         ));
+    }
+
+    #[test]
+    fn writing_an_oversized_document_does_not_make_progress_unreadable() {
+        let (_directory, store) = store();
+        let state = CardState {
+            interval_days: 1,
+            reviews: 1,
+            last_reviewed: TODAY.to_owned(),
+            ..CardState::new(TODAY)
+        };
+        let words = (0..wordbook::MAX_ENTRIES)
+            .map(|index| (format!("word{index:05}"), state.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let document = VocabularyProgress {
+            cards: BTreeMap::from([
+                ("book-one".to_owned(), words.clone()),
+                ("book-two".to_owned(), words),
+            ]),
+            ..VocabularyProgress::default()
+        };
+        assert!(serde_json::to_vec(&document).unwrap().len() as u64 > MAX_DOCUMENT_BYTES);
+
+        let lock = store.lock().unwrap();
+        assert!(matches!(
+            store.write_locked(&lock, &document),
+            Err(VocabularyProgressError::InvalidDocument)
+        ));
+        drop(lock);
+        assert_eq!(store.load().unwrap(), VocabularyProgress::default());
     }
 
     #[test]
