@@ -162,8 +162,11 @@ impl AccountSessionStorage for FileAccountSessionStorage {
     fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
         crate::storage::reject_symlink(&self.directory).map_err(|_| AccountError::Storage)?;
         #[cfg(unix)]
-        let directory = crate::storage::open_private_directory(&self.directory)
-            .map_err(|_| AccountError::Storage)?;
+        let directory = match crate::storage::open_private_directory(&self.directory) {
+            Ok(directory) => directory,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(AccountError::Storage),
+        };
         // symlink_metadata, not metadata: a symlink here is not a store this host wrote, and following it would read through a path chosen by whoever planted it. A file another user can read or write is likewise not one any host would have produced.
         #[cfg(unix)]
         let file = match crate::storage::open_private_file_at(
@@ -237,6 +240,16 @@ impl AccountSessionStorage for FileAccountSessionStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loading_before_first_save_returns_no_session_without_creating_a_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("account-not-created");
+        let storage = FileAccountSessionStorage::new(&directory, AccountSessionFileLayout::Native);
+
+        assert!(storage.load().unwrap().is_none());
+        assert!(!directory.exists());
+    }
 
     #[test]
     fn session_file_read_reserves_file_size() {
