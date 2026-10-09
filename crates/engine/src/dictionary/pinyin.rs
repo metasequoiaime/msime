@@ -237,14 +237,10 @@ impl PinyinDatabase {
             if !query_key_is_new(keys, index, &mut seen) {
                 continue;
             }
-            let segments = split_segments(key);
-            if !has_only_complete_pinyin_segments(&segments) {
-                continue;
-            }
-            let Some(table) = build_table_name(&segments) else {
+            let Some((table, syllables)) = complete_key_table(key) else {
                 continue;
             };
-            if segments.len() == 1 {
+            if syllables == 1 {
                 let rows = self.rows(
                     &exact_sql(&table, sql_limit(per_key_limit)),
                     [key.as_str()],
@@ -751,6 +747,20 @@ fn exact_segmentations_by_table(segmentations: &[Vec<String>]) -> BTreeMap<Strin
 
 fn query_capacity(limit: usize) -> Option<usize> {
     (limit < i32::MAX as usize).then_some(limit)
+}
+
+/// 借用完整键的音节切片校验并计数，表名仍遵循共享格式规则。
+fn complete_key_table(key: &str) -> Option<(String, usize)> {
+    let initial = *key.as_bytes().first()?;
+    let intact = intact_pinyin_set();
+    let mut syllables = 0;
+    for segment in key.split('\'') {
+        if !intact.contains(segment) {
+            return None;
+        }
+        syllables += 1;
+    }
+    quanpin_table(syllables, initial).map(|table| (table, syllables))
 }
 
 fn query_key_is_new<'a>(
@@ -1465,3 +1475,7 @@ mod empty_key_map_tests;
 #[cfg(test)]
 #[path = "pinyin/dedup_before_split_tests.rs"]
 mod dedup_before_split_tests;
+
+#[cfg(test)]
+#[path = "pinyin/borrowed_key_plan_tests.rs"]
+mod borrowed_key_plan_tests;

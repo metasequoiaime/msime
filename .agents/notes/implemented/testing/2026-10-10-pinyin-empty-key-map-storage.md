@@ -33,3 +33,5 @@ Status: implemented
 空结果省去一次桶表分配，命中按原提示预留一次；首个结果前增加容量分支，没有命中延迟计时。原多音节每键 `Vec` 大提示风险保持原状。[HashMap::reserve官方契约](https://doc.rust-lang.org/std/collections/struct.HashMap.html#method.reserve)允许超额预留，不保证表的物理大小；Rust 请求字节不代表 SQLite C 堆、系统分配器内部暂存或 RSS。
 
 后续[精确键去重顺序](../../implemented/testing/2026-10-08-pinyin-exact-key-dedup.md)在拆分前跳过重复键。旧冻结正文与结果表计量保留，次数断言独立计入重复拆分的新增节省；这里的 220/219 次记录属于 PR #6584 当时实现，不代表后续生产的重复输入次数。
+
+完整键的首次音节复制由[借用键规划](../../implemented/testing/2026-10-10-pinyin-borrowed-key-plan.md)消除。旧空表基线为全部原输入键拆分，次数对照独立计入这些临时拆分收益，不将它们归因于结果哈希表。

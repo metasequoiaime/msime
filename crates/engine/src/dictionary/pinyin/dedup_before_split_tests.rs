@@ -70,7 +70,10 @@ fn duplicate_single_syllables_skip_owned_segment_allocations() {
     let (new, new_count) = count(|| database.query_exact_keys_per_key(&batch, 2));
     assert_eq!(new, old);
     assert!(new.is_empty());
-    assert_eq!(new_count + 190, old_count);
+    assert_eq!(
+        new_count + 190 + unique_split_allocations(&batch),
+        old_count
+    );
 }
 
 fn keys(values: &[&str]) -> Vec<String> {
@@ -86,7 +89,22 @@ fn assert_results(new: &HashMap<String, Vec<DictRow>>, old: &HashMap<String, Vec
     }
 }
 
+// 旧去重基线仍为每个首次键创建音节，单独计入后续借用规划节省，保留冻结正文。
+fn unique_split_allocations(keys: &[String]) -> usize {
+    keys.iter()
+        .enumerate()
+        .filter(|(index, key)| !keys[..*index].contains(key))
+        .map(|(_, key)| count(|| split_segments(key)).1)
+        .sum()
+}
+
 fn compare_hot(database: &PinyinDatabase, batch: &[String], limit: usize, saved: usize) {
+    let saved = saved
+        + if database.connection.is_some() && limit > 0 {
+            unique_split_allocations(batch)
+        } else {
+            0
+        };
     // 缓存会释放区间前的键，此边界只比较分配次数。
     drop(original_query(database, batch, limit));
     drop(database.query_exact_keys_per_key(batch, limit));
@@ -280,7 +298,10 @@ fn cold_queries_save_only_duplicate_segment_allocations() {
         let (old, old_heap) = cold(true);
         let (new, new_heap) = cold(false);
         assert_results(&new, &old);
-        assert_eq!(new_heap.allocations + saved, old_heap.allocations);
+        assert_eq!(
+            new_heap.allocations + saved + unique_split_allocations(&batch),
+            old_heap.allocations
+        );
         assert_eq!(new_heap.remaining_bytes, old_heap.remaining_bytes);
         assert_eq!(new_heap.minimum_bytes, 0);
         assert_eq!(old_heap.minimum_bytes, 0);
