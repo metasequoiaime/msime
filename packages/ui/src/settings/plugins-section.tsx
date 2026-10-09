@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import type { InputScheme } from "../index";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import type { ConfirmRequest } from "../core/confirm";
 import * as settings from "./settings-style";
 import { withoutRemovedPack, type PluginPreferences } from "./plugin-preferences";
-import { missingSelections, packKindLabel, pluginErrorMessage } from "./plugin-catalog-helpers";
+import {
+  missingSelections,
+  packKindLabel,
+  pluginErrorMessage,
+  schemeOpensTableModes,
+} from "./plugin-catalog-helpers";
 import type {
   MentionEntry,
   PluginCatalogResult,
@@ -50,8 +56,18 @@ export interface PluginsSectionProps {
   effectStyles?: boolean;
   /** The host draws an installed effect pack's style and parameters (`msime_client_typing_effect_settings`); only read where `effectStyles` is true. */
   effectPacks?: boolean;
+  /** The host draws every effect style as a flash of the candidate card, brighter for the stronger styles, and no sparks (Windows, HarmonyOS); only read where `effectStyles` is true. */
+  effectFlashOnly?: boolean;
   /** 快捷短语（K 模式）是否打开：`local_modes.quick_phrase`；关闭时短语表详情提示去打开。 */
   quickPhraseMode?: boolean;
+  /** / 指令是否打开：`local_modes.command`，缺省为关；关闭时指令表详情提示打开，列表不把已启用的指令表标成生效。 */
+  commandMode?: boolean;
+  /** @ 模式是否打开：`local_modes.mention`，缺省为关；关闭时 @ 名单提示打开。 */
+  mentionMode?: boolean;
+  /** 打开「输入 → 快捷模式」里的 / 指令或 @ 模式，留在当前页面；没有时提示改为跳到输入页（`onOpenPage`）。 */
+  onLocalMode?: (mode: "command" | "mention") => void;
+  /** 当前输入方案；只有全拼、双拼和五笔打开 K、/ 和 @ 模式，其他方案下列表（已启用短语表、指令表的标记和 @ 名单的说明）和详情都会说明。缺省时按能打开处理，不提示。 */
+  scheme?: InputScheme;
   /** 宿主使用辅助码（设置里显示辅助码这一组）；辅助码表包只在这时标记和报告缺失。 */
   helpcode?: boolean;
   /** 宿主的背单词书目列出单词本插件（`HostCapabilities.wordbook_packs`）。 */
@@ -94,7 +110,12 @@ export function PluginsSection({
   typingEffects = false,
   effectStyles = false,
   effectPacks = false,
+  effectFlashOnly = false,
   quickPhraseMode = true,
+  commandMode = false,
+  mentionMode = false,
+  onLocalMode,
+  scheme,
   helpcode = false,
   wordbookPacks = false,
   symbolSetPacks = false,
@@ -113,6 +134,13 @@ export function PluginsSection({
   const [savedMentions, setSavedMentions] = useState<MentionEntry[]>([]);
   const [view, setView] = useState<PluginView>(listView);
   const mentionsEditable = triggers && Boolean(client);
+  // The engine opens K, / and @ only under some schemes; when the current one cannot, no switch helps, so the list names the scheme first.
+  const schemeOpens = scheme ? schemeOpensTableModes(scheme) : true;
+  const mentionModeGap = !schemeOpens
+    ? "；当前方案打不开 @ 模式"
+    : mentionMode
+      ? ""
+      : "；@ 模式未开";
   const clientGeneration = useAsyncGeneration(active, client, mentionsEditable);
   const { busy: working, run: runAsyncPluginAction } = useAsyncActionRunner(
     onError,
@@ -323,7 +351,10 @@ export function PluginsSection({
             music={music}
             triggers={triggers}
             effectPacks={effectPacksDrawn}
+            effectFlashOnly={effectFlashOnly}
             quickPhraseMode={quickPhraseMode}
+            commandMode={commandMode}
+            scheme={scheme}
             helpcode={helpcode}
             wordbookPacks={wordbookPacks}
             symbolSetPacks={symbolSetPacks}
@@ -332,6 +363,7 @@ export function PluginsSection({
             onChange={onChange}
             onCommandTable={setCommandTable}
             onPhraseTable={setPhraseTable}
+            onLocalMode={onLocalMode}
             onOpenPage={onOpenPage}
             onRemove={(target) => void removePack(target)}
             onBack={backToList}
@@ -364,6 +396,7 @@ export function PluginsSection({
           typingEffects={typingEffects}
           effectStyles={effectStyles}
           effectPacks={effectPacks}
+          effectFlashOnly={effectFlashOnly}
           onChange={onChange}
           onBack={backToList}
         />
@@ -377,6 +410,10 @@ export function PluginsSection({
           issue={mentionIssue}
           dirty={mentionsDirty}
           working={working}
+          mode={mentionMode}
+          scheme={scheme}
+          onEnableMode={onLocalMode && (() => onLocalMode("mention"))}
+          onOpenPage={onOpenPage}
           onSave={() => void saveMentions()}
           onBack={backToList}
         />
@@ -390,12 +427,15 @@ export function PluginsSection({
         missing={missing}
         kinds={actedKinds}
         preferences={preferences}
+        modes={{ quickPhrase: quickPhraseMode, command: commandMode, schemeOpens }}
         triggers={triggers}
         soundEffects={soundEffects}
         soundEffectsDescription={`${soundEffectParts.join("、")}的开关与音量`}
         mentionsEditable={mentionsEditable}
         mentionsDescription={
-          mentionsDirty ? "有未保存的修改" : `${savedMentions.length} 条，只保存在本机`
+          mentionsDirty
+            ? "有未保存的修改"
+            : `${savedMentions.length} 条，只保存在本机${mentionModeGap}`
         }
         working={working}
         notice={notice}

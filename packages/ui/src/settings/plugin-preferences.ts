@@ -154,7 +154,7 @@ export function withoutRemovedPack(
   };
 }
 
-/** 把一个包设为它所属类型的当前选择：按键音效包成为按键、上屏和成就音效的来源，旋律包成为旋律，特效包成为特效，音乐包成为音乐（是否播放不变），指令表和短语表启用在已启用的之后。 */
+/** 把一个包设为它所属类型的当前选择，选用即使用：按键音效包成为按键、上屏和成就音效的来源，同时打开按键音并把发声方式改回按键音效；旋律包成为旋律，同时打开按键音并把发声方式设为按键旋律；音乐包成为音乐并打开背景音乐；特效包成为特效；指令表和短语表启用在已启用的之后（它们还要「输入 → 快捷模式」里的 / 指令、K 模式打开，这里不替用户打开）。 */
 export function withPackSelected(
   preferences: PluginPreferences,
   pack: {
@@ -166,12 +166,19 @@ export function withPackSelected(
   switch (pack.kind) {
     case "sound":
       return pack.mode === "sequence"
-        ? { ...preferences, melody: { pack: pack.id } }
-        : { ...preferences, key_sound: { ...preferences.key_sound, pack: pack.id } };
+        ? {
+            ...preferences,
+            key_sound: { ...preferences.key_sound, enabled: true, mode: "melody" },
+            melody: { pack: pack.id },
+          }
+        : {
+            ...preferences,
+            key_sound: { ...preferences.key_sound, enabled: true, mode: "keys", pack: pack.id },
+          };
     case "effect":
       return { ...preferences, effect_pack: pack.id };
     case "music":
-      return { ...preferences, music: { ...preferences.music, pack: pack.id } };
+      return { ...preferences, music: { ...preferences.music, enabled: true, pack: pack.id } };
     case "command_table":
       return preferences.command_tables.includes(pack.id)
         ? preferences
