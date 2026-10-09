@@ -3046,12 +3046,20 @@ group("the wubi hint shows only the untyped suffix", () => {
 
 group("the letter face and the engine input are decided separately", () => {
   check(
-    LetterKeyFacePolicy.face("a", true, false, false) === "A",
-    "Chinese mode prints uppercase faces while still sending lowercase",
+    LetterKeyFacePolicy.face("a", true, false, false) === "a",
+    "Chinese mode draws lowercase faces, as the design, Android and iOS do",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", true, false, true) === "A",
+    "a Chinese key that will type uppercase helpcode draws it",
   );
   check(
     LetterKeyFacePolicy.face("a", true, true, false) === "a",
-    "a local mode drops back to the lowercase face",
+    "a local mode keeps the lowercase face",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", true, true, true) === "a",
+    "a Chinese local mode keeps the lowercase face under Shift",
   );
   check(
     LetterKeyFacePolicy.face("a", false, false, false) === "a",
@@ -3066,6 +3074,14 @@ group("the letter face and the engine input are decided separately", () => {
   check(
     LetterKeyFacePolicy.accessibilityLabel("a", true, false, false) === "字母 A",
     "a Chinese key announces the letter",
+  );
+  check(
+    LetterKeyFacePolicy.accessibilityLabel("a", true, false, true) === "大写 A",
+    "a Chinese key that will type uppercase helpcode announces it",
+  );
+  check(
+    LetterKeyFacePolicy.accessibilityLabel("a", true, true, true) === "字母 A",
+    "a Chinese local mode is not announced as uppercase",
   );
   check(
     LetterKeyFacePolicy.accessibilityLabel(null, true, false, false) === "字母",

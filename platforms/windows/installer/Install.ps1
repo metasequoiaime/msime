@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 
 $issPath = Join-Path $PSScriptRoot 'msime_setup.iss'
 if (-not (Test-Path -LiteralPath $issPath -PathType Leaf)) { throw "Installer script not found: $issPath" }
-$issContent = Get-Content -LiteralPath $issPath -Raw
+$issContent = Get-Content -LiteralPath $issPath -Raw -Encoding UTF8
 if ($issContent -notmatch '(?m)^#define\s+MyAppVersion\s+"(?<version>[0-9][0-9A-Za-z.+-]*)"') {
     throw 'Could not find MyAppVersion in msime_setup.iss.'
 }

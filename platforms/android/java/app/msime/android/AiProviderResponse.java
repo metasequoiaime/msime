@@ -4,13 +4,9 @@ package app.msime.android;
 final class AiProviderResponse {
     private AiProviderResponse() {}
 
-    static String strictText(Object value) {
-        return JsonPolicy.strictStringOrEmpty(value);
-    }
-
     /** 统一限制语音转写文本的字符数、控制字符和 Unicode 合法性。 */
     static String boundedText(Object value, int maxCodePoints) {
-        String text = strictText(value);
+        String text = JsonPolicy.strictStringOrEmpty(value);
         return TextPolicy.codePointLength(text) <= maxCodePoints
                 && !TextPolicy.hasControlExceptWhitespace(text)
                 && TextPolicy.validUnicode(text) ? text : "";

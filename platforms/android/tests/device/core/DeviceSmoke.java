@@ -275,6 +275,15 @@ public class DeviceSmoke extends Instrumentation {
         }
         for (int index = 0; index < node.getChildCount(); index++) collectImeTexts(node.getChild(index), texts);
     }
+    /**
+     * 丢掉 UiAutomation 缓存里的节点，下一次查询从输入法进程重新取。
+     *
+     * <p>「更多」面板每次切换开关都整页重建磁贴（`ImeFunctionPanel.renderMoreTools` 先 removeAllViews 再挂新磁贴）。重建发出的内容变化事件和查询时预取的子树交错到达时，缓存里可能留下已经拆掉的旧磁贴；之后界面静止、不再有事件来冲掉它，只等空闲再查，拿到的还是同一个过期节点，performAction 连续三次返回 false。2026-10-09 CI 的 API 35 上，「按键音」第二次点击（`more tools sound update`）在 PR 和 develop 上反复失败，失败时整个 MoreTools 套件不到五秒就结束，三次重试几乎是立刻用完的。tap 最后一次失败时报告节点是否还在（`node live` / `node gone`），用来确认这个判断。`clearCache` 从安卓 14（API 34）起才有，更早的系统维持原来的重试。
+     */
+    protected void dropStaleNodes() {
+        if (Build.VERSION.SDK_INT >= 34) automation.clearCache();
+    }
+
     protected void tap(Predicate<AccessibilityNodeInfo> match) throws java.util.concurrent.TimeoutException {
         AccessibilityNodeInfo target = awaitAny(match);
         automation.waitForIdle(500, 5000);
@@ -289,7 +298,11 @@ public class DeviceSmoke extends Instrumentation {
                     SystemClock.sleep(150);
                     return;
                 }
-                if (attempt == 3) throw new AssertionError("Synthetic control action failed");
+                if (attempt == 3) {
+                    throw new AssertionError("Synthetic control action failed ("
+                        + (target.refresh() ? "node live" : "node gone") + ")");
+                }
+                dropStaleNodes();
                 automation.waitForIdle(500, 5000);
                 target = awaitAny(match);
             }

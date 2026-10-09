@@ -121,10 +121,8 @@ public final class OnlineCandidatePolicy {
         return result;
     }
 
-    private static String text(String value) { return TextPolicy.emptyIfNull(value); }
-
     private static String field(String value) {
-        value = text(value);
+        value = TextPolicy.emptyIfNull(value);
         return value.length() + ":" + value;
     }
 

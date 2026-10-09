@@ -17,8 +17,8 @@ public final class BackendAccountResponseSmoke {
                 .put("providers", new org.json.JSONObject().put("google", "true")));
         check(!providerAccount.supports("google"),
             "provider flags reject boolean strings instead of coercing them");
-        check(BackendAccount.providerEnabled(Boolean.TRUE), "boolean provider flag is enabled");
-        check(!BackendAccount.providerEnabled("true"),
+        check(JsonPolicy.strictTrue(Boolean.TRUE), "boolean provider flag is enabled");
+        check(!JsonPolicy.strictTrue("true"),
             "string provider flag is not enabled");
         // A valid cloud-clipboard page can contain fifty four-thousand-unit entries. Keep this
         // fixture synthetic and below the shared one-megabyte JSON response bound.

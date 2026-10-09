@@ -97,14 +97,26 @@ class DegradedStart(unittest.TestCase):
             if self.process.poll() is not None:
                 self.fail("provider exited: " + self.process.stderr.read().decode())
             if self.socket.exists():
-                return
+                try:
+                    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                        probe.settimeout(0.2)
+                        probe.connect(str(self.socket))
+                except (ConnectionRefusedError, FileNotFoundError):
+                    # bind 会先创建路径，随后 listen 才开始接受连接。
+                    pass
+                else:
+                    return
             time.sleep(0.05)
-        self.fail("provider socket did not appear")
+        self.fail("provider socket did not accept connections")
 
     def connect(self):
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         client.settimeout(10)
-        client.connect(str(self.socket))
+        try:
+            client.connect(str(self.socket))
+        except OSError:
+            client.close()
+            raise
         return client
 
     def voice(self, generation, options):

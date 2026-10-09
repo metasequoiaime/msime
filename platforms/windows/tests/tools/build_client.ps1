@@ -69,7 +69,7 @@ try {
     $desktopCall = @($global:ClientBuildCalls | Where-Object { $_.Name -eq 'pnpm' -and $_.Values -contains 'tauri' })[0]
     $desktopArgs = $desktopCall.Values
     $configIndex = [Array]::IndexOf($desktopArgs, '--config')
-    if ($configIndex -lt 0 -or (Get-Content -LiteralPath $desktopArgs[$configIndex + 1] -Raw | ConvertFrom-Json).version -ne '2026.9.1') {
+    if ($configIndex -lt 0 -or (Get-Content -LiteralPath $desktopArgs[$configIndex + 1] -Raw -Encoding UTF8 | ConvertFrom-Json).version -ne '2026.9.1') {
         throw 'Tauri version override missing or incorrect'
     }
     foreach ($arch in @('x86', 'x64')) {

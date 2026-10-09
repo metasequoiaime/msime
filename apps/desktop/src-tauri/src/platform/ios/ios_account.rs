@@ -10,7 +10,7 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_request_code as shared_account_request_code, account_status as shared_account_status,
     call_session, cleanup_stale_snapshot_previews, clear_snapshot_previews,
     clear_snapshot_previews_after, cloud_dictionary_account_request, prepare_snapshot_directory,
-    read_snapshot_file, remove_snapshot_file, replace_pending_snapshot, snapshot_command_error,
+    publish_snapshot_preview, read_snapshot_file, remove_snapshot_file, snapshot_command_error,
     snapshot_response_without_account, snapshot_text_within_limit, take_pending_snapshot,
     valid_mobile_haptic_strength, validate_pending_snapshot, write_snapshot_file, PendingSnapshot,
     SnapshotMetadata,
@@ -288,22 +288,25 @@ pub async fn account_logout(
     state: State<'_, AccountState>,
     all: bool,
 ) -> Result<(), crate::CommandError> {
+    let session = Arc::clone(&state.session);
     let previews = Arc::clone(&state.snapshot_previews);
-    clear_snapshot_previews_after(&previews, shared_account_logout(state, all).await)
+    clear_snapshot_previews_after(&session, &previews, shared_account_logout(state, all).await)
 }
 
 #[cfg(target_os = "ios")]
 #[tauri::command]
 pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
+    let session = Arc::clone(&state.session);
     let previews = Arc::clone(&state.snapshot_previews);
-    clear_snapshot_previews_after(&previews, shared_account_delete(state).await)
+    clear_snapshot_previews_after(&session, &previews, shared_account_delete(state).await)
 }
 
 #[cfg(target_os = "ios")]
 #[tauri::command]
 pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
+    let session = Arc::clone(&state.session);
     let previews = Arc::clone(&state.snapshot_previews);
-    clear_snapshot_previews_after(&previews, shared_account_forget(state).await)
+    clear_snapshot_previews_after(&session, &previews, shared_account_forget(state).await)
 }
 
 #[cfg(target_os = "ios")]
@@ -353,40 +356,55 @@ async fn dictionary_snapshot_preview(
     let previews = Arc::clone(&state.snapshot_previews);
     let token = uuid::Uuid::new_v4().to_string();
     let file_token = token.clone();
-    let (account_id, path, metadata) = tauri::async_runtime::spawn_blocking(move || {
-        prepare_snapshot_directory(&directory).map_err(|_| snapshot_command_error())?;
-        let profile = session.profile().map_err(account_command_error)?;
-        let path = directory.join(format!("download-{file_token}.ndjson"));
-        if let Err(error) = session.dictionary_snapshot_to_file(&path) {
-            let _ = remove_snapshot_file(&path);
-            return Err(crate::CommandError { code: error.code() });
-        }
-        let inspected = snapshot_bridge(serde_json::json!({
-            "operation": "inspect",
-            "path": path.to_string_lossy(),
-        }));
-        let metadata = match inspected.and_then(snapshot_metadata) {
-            Ok(value) => value,
-            Err(error) => {
+    let (account_id, generation, path, metadata) =
+        tauri::async_runtime::spawn_blocking(move || {
+            prepare_snapshot_directory(&directory).map_err(|_| snapshot_command_error())?;
+            let profile = session.profile().map_err(account_command_error)?;
+            let (_, _, generation) = session
+                .credentials_with_generation(None, Some(&profile.user.id))
+                .map_err(account_command_error)?;
+            let path = directory.join(format!("download-{file_token}.ndjson"));
+            if let Err(error) = session.dictionary_snapshot_to_file(&path) {
                 let _ = remove_snapshot_file(&path);
-                return Err(error);
+                return Err(crate::CommandError { code: error.code() });
             }
-        };
-        Ok((profile.user.id, path, metadata))
-    })
-    .await
-    .map_err(|_| snapshot_command_error())??;
-    let old = replace_pending_snapshot(
+            let inspected = snapshot_bridge(serde_json::json!({
+                "operation": "inspect",
+                "path": path.to_string_lossy(),
+            }));
+            let metadata = match inspected.and_then(snapshot_metadata) {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = remove_snapshot_file(&path);
+                    return Err(error);
+                }
+            };
+            Ok((profile.user.id, generation, path, metadata))
+        })
+        .await
+        .map_err(|_| snapshot_command_error())??;
+    let old = publish_snapshot_preview(
+        &state.session,
+        generation,
+        &account_id,
         &previews,
         token.clone(),
         PendingSnapshot {
-            account_id,
-            path,
+            account_id: account_id.clone(),
+            generation,
+            path: path.clone(),
             metadata: metadata.clone(),
         },
-    )?;
-    for path in old {
-        let _ = remove_snapshot_file(&path);
+    );
+    let old = match old {
+        Ok(old) => old,
+        Err(error) => {
+            let _ = remove_snapshot_file(&path);
+            return Err(account_command_error(error));
+        }
+    };
+    for preview in old {
+        let _ = remove_snapshot_file(&preview.path);
     }
     Ok(serde_json::json!({
         "previewToken": token,
@@ -413,14 +431,18 @@ async fn dictionary_snapshot_enqueue(
                     code: "snapshot_conflict",
                 })?
                 .to_owned();
-            snapshot_bridge(serde_json::json!({
-                "operation": "enqueue",
-                "path": path.to_string_lossy(),
-                "accountId": pending.account_id,
-                "cloudRevision": pending.metadata.cloud_revision,
-                "expectedLocalVersion": expected,
-                "fileSha256": pending.metadata.file_sha256,
-            }))
+            session
+                .with_generation(pending.generation, Some(&pending.account_id), || {
+                    Ok(snapshot_bridge(serde_json::json!({
+                        "operation": "enqueue",
+                        "path": path.to_string_lossy(),
+                        "accountId": &pending.account_id,
+                        "cloudRevision": pending.metadata.cloud_revision,
+                        "expectedLocalVersion": expected,
+                        "fileSha256": &pending.metadata.file_sha256,
+                    })))
+                })
+                .map_err(account_command_error)?
         })();
         let _ = remove_snapshot_file(&path);
         result
