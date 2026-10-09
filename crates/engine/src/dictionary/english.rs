@@ -92,7 +92,7 @@ impl EnglishDictionary {
         let Ok(mut rows) = statement.query([prefix, upper_bound.as_str()]) else {
             return Vec::new();
         };
-        let mut candidates = Vec::with_capacity(limit);
+        let mut candidates = Vec::new();
         loop {
             match rows.next() {
                 Ok(Some(row)) => {
@@ -106,6 +106,9 @@ impl EnglishDictionary {
                     else {
                         return Vec::new();
                     };
+                    if candidates.capacity() == 0 {
+                        candidates.reserve_exact(limit);
+                    }
                     candidates.push(WordItem::new(
                         word,
                         display,
@@ -833,3 +836,7 @@ hello\tlast wins\n\
         assert!(!dictionary.query_chinese_gloss("hello").is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "english/empty_page_tests.rs"]
+mod empty_page_tests;
