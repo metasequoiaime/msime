@@ -96,6 +96,7 @@
 - `voice_input.asr_model_path` 接受已安装的模型目录，Unix、Windows 盘符、UNC 等绝对路径写法在任何系统上都能通过校验，同一份偏好文件跨平台读取不再被拒。
 - 宿主接口新增 `msime_client_voice_hotwords`、`msime_client_voice_hotword_correct`、`msime_client_voice_local_models`、`msime_client_voice_local_model_install`、`msime_client_voice_local_model_cancel` 与 `msime_client_voice_local_model_remove`。
 - `msime-voice-local` 辅助进程通过标准输入输出上的 JSON 行协议识别，macOS 与 Linux 的输入法进程由它加载模型，自身不常驻数百 MB 的模型；空闲 120 秒释放模型，空闲 10 分钟退出。协议见 `shared/voice/README.md`，许可证见[第三方组件清单](docs/third-party.md)。
+- 模型可以不联网安装：用户自己下载目录里列出的压缩包（和附加的 `silero_vad.onnx`），在设置页「从文件导入」选中它们即可，文件按长度和 SHA-256 对应、不看文件名，校验、解压与发布和下载完全相同。`msime_client_voice_local_model_install` 的请求新增可选的 `files`（本地文件的绝对路径），`msime_client_voice_local_models` 的每个模型新增 `import_files`（需要的文件名、上游下载地址和大小），新增错误码 `local_model_import_missing`。macOS、Windows、Linux、iOS 与 HarmonyOS 的设置页提供导入按钮和每个文件的上游下载链接；Android 原生设置页还没有模型管理入口，本次不涉及。只接受内置目录里的模型。
 - 识别全程不联网，只有下载模型时访问 GitHub Releases 或所配置的镜像，见[网络请求与数据流向](PRIVACY.md)。
 - 各平台接入：Windows 在 `msime-client-server` 内边录边识别，浮窗与豆包一样显示实时文本；macOS 输入法经辅助进程识别；Linux 由用户级语音服务调用辅助进程，本地识别不再要求保存任何云端凭据，安装模型时顺带启用语音服务；Android 与 HarmonyOS（arm64）在应用内识别，HarmonyOS 设置页可下载与删除模型；iOS 主应用内识别（键盘扩展受内存上限所限不加载模型）。HarmonyOS 的 armeabi-v7a 包没有本地识别。
 - 系统识别：macOS 26 与 iOS 26 起使用 SpeechAnalyzer，更早的系统在支持时要求 SFSpeechRecognizer 设备端识别；HarmonyOS 的 Core Speech Kit 改为写音频模式（`recognitionMode: 0`），识别器只听输入法写入的音频，末尾不足一帧的音频补静音后写入。

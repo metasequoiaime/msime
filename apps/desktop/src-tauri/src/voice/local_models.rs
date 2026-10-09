@@ -146,6 +146,7 @@ pub(crate) fn local_model_error_code(error: &LocalModelError) -> &'static str {
         LocalModelError::UnsafeArchive(_) | LocalModelError::MissingFile(_) => {
             "local_model_invalid_archive"
         }
+        LocalModelError::MissingImportFile(_) => "local_model_import_missing",
         LocalModelError::Io(_) => "local_model_io",
     }
 }
