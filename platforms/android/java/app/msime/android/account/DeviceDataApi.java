@@ -173,10 +173,13 @@ public final class DeviceDataApi {
         for (int index = 0; index < rows.length(); index++) {
             JSONObject row = rows.optJSONObject(index);
             if (row == null) continue;
-            String id = string(row, "id");
+            String id = JsonPolicy.strictStringOrEmpty(row.opt("id"));
             if (!validSessionId(id)) continue;
-            sessions.add(new Session(id, string(row, "platform"), string(row, "name"), string(row, "app_version"),
-                instant(string(row, "created_at")), instant(string(row, "last_active")),
+            sessions.add(new Session(id, JsonPolicy.strictStringOrEmpty(row.opt("platform")),
+                JsonPolicy.strictStringOrEmpty(row.opt("name")),
+                JsonPolicy.strictStringOrEmpty(row.opt("app_version")),
+                instant(JsonPolicy.strictStringOrEmpty(row.opt("created_at"))),
+                instant(JsonPolicy.strictStringOrEmpty(row.opt("last_active"))),
                 JsonPolicy.strictTrue(row.opt("current"))));
         }
         return ListPolicy.copyOrEmpty(sessions);
@@ -200,8 +203,9 @@ public final class DeviceDataApi {
         if (rows != null) {
             for (int index = 0; index < rows.length(); index++) {
                 JSONObject row = rows.optJSONObject(index);
-                if (row == null || string(row, "id").isEmpty()) continue;
-                sections.add(new DataSection(string(row, "id"), strictCount(row.opt("bytes")),
+                if (row == null || JsonPolicy.strictStringOrEmpty(row.opt("id")).isEmpty()) continue;
+                sections.add(new DataSection(JsonPolicy.strictStringOrEmpty(row.opt("id")),
+                    strictCount(row.opt("bytes")),
                     strictCount(row.opt("items"))));
             }
         }
@@ -347,7 +351,7 @@ public final class DeviceDataApi {
 
     private static Profile parseProfile(JSONObject root) throws CloudApi.Failure {
         JSONObject user = root.optJSONObject("user");
-        if (user == null || string(user, "id").isEmpty()) {
+        if (user == null || JsonPolicy.strictStringOrEmpty(user.opt("id")).isEmpty()) {
             throw new CloudApi.Failure(500, "invalid_response", "user missing", 0);
         }
         JSONArray identities = root.optJSONArray("identities");
@@ -358,17 +362,15 @@ public final class DeviceDataApi {
         if (identities != null) {
             for (int index = 0; index < identities.length(); index++) {
                 JSONObject identity = identities.optJSONObject(index);
-                String provider = identity == null ? "" : string(identity, "provider");
+                String provider = identity == null ? ""
+                    : JsonPolicy.strictStringOrEmpty(identity.opt("provider"));
                 if (!provider.isEmpty() && !providers.contains(provider)) providers.add(provider);
             }
         }
-        return new Profile(string(user, "id"), string(user, "display_name"), string(user, "email"),
-            string(user, "avatar_url"), ListPolicy.copyOrEmpty(providers));
-    }
-
-    private static String string(JSONObject object, String key) {
-        Object value = object.opt(key);
-        return JsonPolicy.strictStringOrEmpty(value);
+        return new Profile(JsonPolicy.strictStringOrEmpty(user.opt("id")),
+            JsonPolicy.strictStringOrEmpty(user.opt("display_name")),
+            JsonPolicy.strictStringOrEmpty(user.opt("email")),
+            JsonPolicy.strictStringOrEmpty(user.opt("avatar_url")), ListPolicy.copyOrEmpty(providers));
     }
 
     /** Data summary counters are JSON integers; reject coercion and negative values. */

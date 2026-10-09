@@ -74,15 +74,10 @@ public final class VoicePolishPolicy {
      * the result is handed over in one piece.
      */
     public static String requestBody(String model, String prompt, String text) {
-        return "{\"model\":" + json(model)
+        return "{\"model\":" + JsonPolicy.quote(model)
             + ",\"stream\":false,\"temperature\":0.2,\"messages\":["
-            + "{\"role\":\"system\",\"content\":" + json(prompt) + "},"
-            + "{\"role\":\"user\",\"content\":" + json(userMessage(text)) + "}]}";
-    }
-
-    /** Minimal JSON string escaping, so a prompt cannot break out of the document it travels in. */
-    public static String json(String value) {
-        return JsonPolicy.quote(value);
+            + "{\"role\":\"system\",\"content\":" + JsonPolicy.quote(prompt) + "},"
+            + "{\"role\":\"user\",\"content\":" + JsonPolicy.quote(userMessage(text)) + "}]}";
     }
 
 }

@@ -37,7 +37,7 @@ foreach ($prefix in @($X64Dependencies, $X86Dependencies)) {
     }
 }
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-$editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw | ConvertFrom-Json
+$editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $editionEntry = @($editionTable.editions | Where-Object { $_.id -ceq $Edition -and $null -ne $_.platforms.windows })
 if ($editionEntry.Count -ne 1) { throw "Edition $Edition has no Windows identifiers in shared/contracts/editions.json" }
 # 两个版本的 TIP 被同一个应用加载时，按导入表找 msime_host_api.dll 会拿到先加载的那一个，所以不是 full 的版本把它改成自己的名字（版本表 host_dll），并生成同名的导入库给 TSF DLL、Server 和设置窗口链接。

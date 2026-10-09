@@ -2926,8 +2926,8 @@ private:
     if (scheme == L"wubi" || indexing_) {
       select_row(schemes, 0xE8AB, L"五笔方案", L"", L"wubi_profile",
                  {{L"wubi86", L"86 五笔"}, {L"wubi98", L"98 五笔"}}, L"wubi86");
-      bool_row(schemes, 0xE8D2, L"编码打不出时用拼音候选",
-               L"五笔词库无法回答当前编码时，用同一串字母查询全拼；词库能回答时不影响。",
+      bool_row(schemes, 0xE8D2, L"五笔拼音混输",
+               L"五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。",
                L"wubi_mixed_pinyin", MSIME_EDITION_WUBI_MIXED_PINYIN_DEFAULT != 0);
       bool_row(schemes, 0xE8CB, L"候选显示剩余编码",
                L"在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。",

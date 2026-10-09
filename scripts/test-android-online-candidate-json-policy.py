@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""在线候选直接复用共享 JSON 字符串策略。"""
+"""在线候选直接复用共享 JSON 字符串与空值策略。"""
 from pathlib import Path
 import sys
 
@@ -16,6 +16,15 @@ def main() -> int:
     smoke = SMOKE.read_text(encoding="utf-8")
     if "strictText(Object value)" in policy:
         print(f"{POLICY}: 不应保留 strictText 转发方法", file=sys.stderr)
+        return 1
+    if "private static String text(String value)" in policy:
+        print(f"{POLICY}: 不应保留 text 空值转发方法", file=sys.stderr)
+        return 1
+    if "value = text(value);" in policy:
+        print(f"{POLICY}: 签名字段不应通过 text 转发空值", file=sys.stderr)
+        return 1
+    if "value = TextPolicy.emptyIfNull(value);" not in policy:
+        print(f"{POLICY}: 签名字段应直接复用共享空值策略", file=sys.stderr)
         return 1
     for path, source in ((SERVICE, service), (SMOKE, smoke)):
         if "OnlineCandidatePolicy.strictText" in source:
@@ -34,7 +43,7 @@ def main() -> int:
     if smoke.count("JsonPolicy.strictString") < 3:
         print(f"{SMOKE}: 缺少共享 JSON 字符串策略合同检查", file=sys.stderr)
         return 1
-    print("Android 在线候选已复用共享 JSON 字符串策略")
+    print("Android 在线候选已复用共享 JSON 字符串与空值策略")
     return 0
 
 

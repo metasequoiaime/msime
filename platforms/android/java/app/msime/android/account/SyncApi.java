@@ -178,7 +178,7 @@ public final class SyncApi {
     }
 
     static Phrases parsePhrases(JSONObject root) throws CloudApi.Failure {
-        long revision = phraseRevision(root.opt("revision"));
+        long revision = preferenceRevision(root.opt("revision"));
         JSONArray raw = requiredPhrases(root.opt("phrases"));
         if (raw.length() > SyncMergePolicy.MAX_PHRASES)
             throw invalid("too many phrases");
@@ -216,11 +216,6 @@ public final class SyncApi {
             return longValue.intValue();
         }
         return fallback;
-    }
-
-    /** Common phrase revisions use the same non-negative integer CAS contract as preferences. */
-    static long phraseRevision(Object value) throws CloudApi.Failure {
-        return preferenceRevision(value);
     }
 
     // ---- 词库快照 ----
@@ -307,7 +302,7 @@ public final class SyncApi {
         try {
             JSONObject root = new JSONObject(new String(exchange.body(), StandardCharsets.UTF_8));
             Object next = root.opt("revision");
-            long nextRevision = snapshotRevisionValue(next);
+            long nextRevision = preferenceRevision(next);
             if (nextRevision <= revision) throw invalid("snapshot revision");
             return nextRevision;
         } catch (JSONException malformed) {
@@ -329,15 +324,10 @@ public final class SyncApi {
             JSONObject header = new JSONObject(first);
             Object revision = header.opt("revision");
             if (!"header".equals(header.opt("type"))) throw invalid("snapshot header");
-            return snapshotRevisionValue(revision);
+            return preferenceRevision(revision);
         } catch (JSONException malformed) {
             throw invalid("snapshot header");
         }
-    }
-
-    /** Snapshot headers and restore responses carry the same integer revision contract. */
-    static long snapshotRevisionValue(Object value) throws CloudApi.Failure {
-        return preferenceRevision(value);
     }
 
     /** Snapshot entry weights are positive JSON integers in the host-api range. */

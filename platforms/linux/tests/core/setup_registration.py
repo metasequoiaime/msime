@@ -18,7 +18,7 @@ SCRIPT = ROOT / "scripts/msime-linux-setup"
 
 # One stub serves every tool; it dispatches on the name it was invoked as. Arguments the setup script writes are Python literals once GVariant's text form is read back, so the stub parses them with ast rather than reusing the code under test.
 # 首行用跑测试的同一个解释器，不经 /usr/bin/env：没有 FHS 布局的环境（Nix 构建沙箱）里没有它。
-STUB = f"#!{sys.executable}\n" + r'''import ast, json, os, sys
+STUB = f"#!{sys.executable}\n" + r'''import ast, json, os, re, sys
 from pathlib import Path
 
 name = Path(sys.argv[0]).name
@@ -49,6 +49,8 @@ def save():
 
 
 if name == "pgrep":
+    if arguments[0] == "-f":
+        sys.exit(0 if any(re.search(arguments[-1], command) for command in state["commands"]) else 1)
     sys.exit(0 if arguments[-1] in state["running"] else 1)
 if name in ("systemctl", "msime-linux-prepare"):
     if name == "msime-linux-prepare":
@@ -195,9 +197,11 @@ class Harness:
             STUB_LOG=str(self.log),
         )
 
-    def world(self, running=(), desktop="", fcitx5=None, gsettings=None, ibus=None) -> None:
+    def world(self, running=(), desktop="", fcitx5=None, gsettings=None, ibus=None, commands=()) -> None:
+        # running 是进程名（pgrep -x），commands 是完整命令行（pgrep -f）。
         self.state_file.write_text(json.dumps({
             "running": list(running),
+            "commands": list(commands),
             "fcitx5": fcitx5 or {},
             "gsettings": gsettings or {},
             "ibus": ibus or {"known": False, "installed": True},
@@ -533,6 +537,20 @@ def main() -> int:
         settings = harness.state()["gsettings"]
         assert settings[IBUS]["preload-engines"] == ["xkb:us::eng", "libpinyin", "msime-linux"], settings
         assert settings[GNOME]["sources"] == [["xkb", "us"]], settings
+
+        # 经包装脚本启动的 ibus-daemon（Nix 的 wrapProgram）进程名不是 ibus-daemon，按命令行的第一个词认出它；
+        # 只是参数里出现 ibus-daemon 的进程不算。
+        hyprland = {IBUS: {"preload-engines": ["xkb:us::eng"]}}
+        harness.world(
+            desktop="Hyprland", gsettings=hyprland, ibus={"known": True, "installed": True},
+            commands=["/nix/store/0-ibus-with-plugins-1.5.34/bin/ibus-daemon --cache=refresh --daemonize --xim"],
+        )
+        result = harness.run()
+        assert "已把「Metasequoia 水杉输入法」加入输入源列表" in result.stdout, result
+        assert harness.state()["gsettings"][IBUS]["preload-engines"] == ["xkb:us::eng", "msime-linux"]
+        harness.world(desktop="Hyprland", gsettings=hyprland, commands=["/usr/bin/python3 /tmp/ibus-daemon"])
+        result = harness.run()
+        assert "下一步：启动 fcitx5 或 ibus，再在各自的设置里加入水杉输入法。" in result.stdout, result
 
         # 列表为空说明桌面在用没有写进这一项的默认输入源，只写入本引擎会把它顶掉：不写，退回手动步骤。
         harness.world(

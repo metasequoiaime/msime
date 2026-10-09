@@ -148,14 +148,21 @@ msime.url = "github:metasequoiaime/msime";
 programs.msime.enable = true;
 ```
 
-`programs.msime.enable` 接入 Fcitx5 插件，放上 `msime-linux-setup`、`msime-linux-settings` 等命令和设置窗口的桌面入口，并注册 provider 的用户单元。包按本系统的 nixpkgs 构建，与系统上的 Fcitx5 出自同一份，不需要另加 overlay。IBus engine 也在包里，但模块只接入 Fcitx5：`i18n.inputMethod.type` 不是 `fcitx5` 时会给出警告。
+`programs.msime.enable` 接入 Fcitx5 插件，放上 `msime-linux-setup`、`msime-linux-settings` 等命令和设置窗口的桌面入口，并注册 provider 的用户单元。包按本系统的 nixpkgs 构建，与系统上的 Fcitx5 出自同一份，不需要另加 overlay。
+
+用 IBus 时设 `i18n.inputMethod.type = "ibus";`（GNOME 已默认如此，不用另设），模块改用不带 Fcitx5 插件的 `msime-ibus`，把它的 IBus engine 加进 `i18n.inputMethod.ibus.engines`，其余不变。`i18n.inputMethod.type` 是其他框架时会给出警告。
+
+在 GNOME、KDE 以外的 Wayland 混成器上（Hyprland、Sway 等），nixpkgs 的 ibus 模块经 XDG autostart 以 `ibus-daemon --daemonize --xim` 启动 IBus，并导出 `GTK_IM_MODULE=ibus`、`QT_IM_MODULE=ibus`。这样的 IBus 不提供 Wayland 的输入法协议，只认 text-input 协议的原生 Wayland 程序（如 WezTerm）连不上它；经输入法模块接入的 GTK、Qt 程序，IBus 面板把候选和「中/英」提示画进 X11 候选窗，在 Hyprland 上那是一个抢焦点的新窗口，聚焦输入框时提示反复弹出。两处要一起改：
+
+- 设 `i18n.inputMethod.ibus.waylandFrontend = true;`，不再导出这两个变量（IBus 也要求 Wayland 方式下不设），改后重新登录。
+- 以 `ibus start --type wayland` 启动（IBus 已在运行时用 `ibus restart --type wayland`），由 `ibus-ui-gtk3 --enable-wayland-im` 经 `zwp_input_method_v2` 接入混成器。每次登录都这样启动，需要在混成器的启动项里执行它，并用 `~/.config/autostart/ibus-daemon.desktop`（写 `Hidden=true`）盖住系统的那一条。
 
 | 选项 | 默认 | 作用 |
 |---|---|---|
 | `programs.msime.services.online.enable` | 开 | 按 socket 激活的在线候选与翻译服务 |
 | `programs.msime.services.voice.enable` | 开 | 按 socket 激活的语音输入服务，本地与云端识别都经过它 |
 | `programs.msime.services.clipboard.enable` | 开 | 剪贴板历史监视器，只在偏好里开启剪贴板历史时才采集 |
-| `programs.msime.package` | `msime-fcitx5` | 换成 `override` 过的包，见下 |
+| `programs.msime.package` | `msime-fcitx5`，用 IBus 时 `msime-ibus` | 换成 `override` 过的包，见下 |
 
 三个服务的默认与 `msime-linux-setup` 首次配置时为用户启用的一致。包默认带着设置窗口、离线手写模型和本地语音识别的运行库，与各发行版的包相同；不要哪一样就在 `package` 里去掉它（经 overlay 取包，仍按本系统的 nixpkgs 构建）：
 
@@ -167,17 +174,25 @@ programs.msime.package = (pkgs.extend inputs.msime.overlays.default).msime-fcitx
 };
 ```
 
+用 IBus 时把上面的 `msime-fcitx5` 换成 `msime-ibus`；`type` 是 `fcitx5` 时却给了 `msime-ibus`，求值会以断言失败。
+
 设置窗口的前端用 nixpkgs 的 `pnpm_11` 和 `nodejs_24` 构建。系统的 nixpkgs 较旧、还没有它们时，包不带设置窗口，求值时给出一条警告，其余部分照常可用。
 
 录音、提示音和静音用的音频工具不随包，用系统的音频栈（例如 `services.pipewire`）。
 
-**首次使用。** 切换配置并重新登录后，运行 `msime-linux-setup --download`（见「安装后首次使用」），也可以打开设置窗口在首次配置页里完成；它会把水杉输入法加进当前的 Fcitx5 输入法组。包不带词库，与 `.deb` 一致：词库下载到 `$XDG_DATA_HOME/msime-client/resources`，配置里记录的也是这个用户目录。本地语音识别的模型在设置窗口的语音页下载。
+**首次使用。** 切换配置并重新登录后，运行 `msime-linux-setup --download`（见「安装后首次使用」），也可以打开设置窗口在首次配置页里完成；它会把水杉输入法加进当前的 Fcitx5 输入法组，用 IBus 时加进输入源列表（GNOME 的输入源，或 IBus 的预载引擎）。包不带词库，与 `.deb` 一致：词库下载到 `$XDG_DATA_HOME/msime-client/resources`，配置里记录的也是这个用户目录。本地语音识别的模型在设置窗口的语音页下载。
 
-**每次切换配置之后**，要让 Fcitx5 从新的会话环境启动：注销后重新登录，或在新开的终端里执行 `fcitx5 -rd`。从 Fcitx5 内部重启（托盘菜单的「重新启动」、`fcitx5-configtool`）沿用旧进程的环境，加载的仍是上一次构建的插件；新旧版本的词库不一致时，表现是能切到水杉输入法但打字没有候选。可以用 `grep msime-fcitx5 /proc/$(pgrep -x fcitx5)/maps` 核对正在运行的插件是否来自当前系统（`readlink -f /run/current-system/sw/bin/fcitx5` 所在的那份 `fcitx5-with-addons`）。
+**每次切换配置之后**，要让 Fcitx5 从新的会话环境启动：注销后重新登录，或在新开的终端里执行 `fcitx5 -rd`。从 Fcitx5 内部重启（托盘菜单的「重新启动」、`fcitx5-configtool`）沿用旧进程的环境，加载的仍是上一次构建的插件；新旧版本的词库不一致时，表现是能切到水杉输入法但打字没有候选。可以用 `grep msime-fcitx5 /proc/$(pgrep -x fcitx5)/maps` 核对正在运行的插件是否来自当前系统（`readlink -f /run/current-system/sw/bin/fcitx5` 所在的那份 `fcitx5-with-addons`）。IBus 同理：正在运行的 `ibus-daemon` 只读它自己那份 `ibus-with-plugins` 里的组件，切换配置后要重新登录，引擎才会换成新构建的宿主。
 
 **从按路径启用的单元迁移。** 以前用 `systemctl --user enable /nix/store/…/msime-linux-online.socket` 之类启用过这些单元的话，`~/.config/systemd/user` 里会留着指向旧 store 路径的链接，它们优先于模块注册的单元，旧路径被垃圾回收后单元就加载不了。换到模块后执行一次 `systemctl --user disable msime-linux-online.socket msime-linux-voice.socket msime-linux-clipboard.service`（会提示这些单元仍在全局范围启用，即由模块拉起）和 `systemctl --user daemon-reload`，再用 `systemctl --user show -p FragmentPath <单元>` 确认它们来自 `/etc/systemd/user`。
 
-**不用模块**、经 `overlays.default` 自己写配置时，把 `pkgs.msime-fcitx5` 加进 `i18n.inputMethod.fcitx5.addons` 和 `environment.systemPackages`，并加上 `systemd.packages = [ pkgs.msime-fcitx5 ];`，否则 provider 单元不会注册到 systemd。
+**不用模块**、经 `overlays.default` 自己写配置时，把 `pkgs.msime-fcitx5` 加进 `i18n.inputMethod.fcitx5.addons` 和 `environment.systemPackages`，并加上 `systemd.packages = [ pkgs.msime-fcitx5 ];`，否则 provider 单元不会注册到 systemd。只用 IBus 时换成不带 Fcitx5 插件的 `pkgs.msime-ibus`，并把 `pkgs.msime-ibus.ibusEngine`（不是整个包）加进 `i18n.inputMethod.ibus.engines`：
+
+```nix
+i18n.inputMethod = { enable = true; type = "ibus"; ibus.engines = [ pkgs.msime-ibus.ibusEngine ]; };
+environment.systemPackages = [ pkgs.msime-ibus ];
+systemd.packages = [ pkgs.msime-ibus ];
+```
 
 ### 包管理器
 
@@ -316,7 +331,7 @@ Fcitx5 宿主复用同一套 X11/Wayland 原生浮层和取消、结束按钮；
 
 Fcitx5 每 5 秒通过 freedesktop Settings portal 读取 `org.freedesktop.appearance/color-scheme`，因此 `voice_theme=follow` 且全局主题为 `system` 时，已显示的语音浮层会跟随系统明暗变化；portal 不可用时保留上一次主题，不阻塞输入。
 
-Fcitx5 切换中英文时，以及焦点移到另一个输入框时（共享偏好 `input_mode_hud`，默认开启），除面板自带的文字提示外还显示约 1 秒带产品 logo 的「中」/「英」徽章；从别的输入法切到水杉时由 Fcitx5 自己弹输入法名，不再叠加这个提示。IBus 下同一偏好在切换中英文和焦点移到新输入框时，于辅助区域显示约 1.2 秒「中」/「英」，IBus 协商客户端身份时重放的同一次焦点不会再显示一遍；密码框和私密输入中都不显示。Wayland 下经 `wlr-layer-shell` 固定在屏幕右下角；X11 下（没有 layer-shell 的 Wayland 会话如 GNOME 经 Xwayland 也走这里）是不抢焦点、点击穿透的原生窗口，每次显示时按语音浮层的同一套规则选显示器（前台窗口所在，取不到时用指针所在或主显示器，经 XRandR 枚举），放在该显示器工作区的右下角以避开面板，尺寸、图标和边距按 `Xft.dpi`/`GDK_SCALE` 缩放。徽章深浅与候选面板一致：`candidate_theme` 为浅色或深色时照用，为「跟随颜色模式」时取颜色模式，颜色模式为「跟随系统」时跟随上述 portal 报告的系统明暗。
+Fcitx5 切换中英文时，以及焦点移到另一个输入框时（共享偏好 `input_mode_hud`，默认开启），除面板自带的文字提示外还显示约 1 秒带产品 logo 的「中」/「英」徽章；从别的输入法切到水杉时由 Fcitx5 自己弹输入法名，不再叠加这个提示。IBus 下同一偏好在切换中英文和焦点移到新输入框时，于辅助区域显示约 1.2 秒「中」/「英」，IBus 协商客户端身份时重放的同一次焦点不会再显示一遍；密码框和私密输入中都不显示。焦点不在任何输入框时（切换窗口、落在文件列表上），开着全局引擎的 IBus 把引擎挂到它自己的 `fake` 上下文上，这时没有输入框可提示，焦点进入和切换中英文都不显示。Wayland 下经 `wlr-layer-shell` 固定在屏幕右下角；X11 下（没有 layer-shell 的 Wayland 会话如 GNOME 经 Xwayland 也走这里）是不抢焦点、点击穿透的原生窗口，每次显示时按语音浮层的同一套规则选显示器（前台窗口所在，取不到时用指针所在或主显示器，经 XRandR 枚举），放在该显示器工作区的右下角以避开面板，尺寸、图标和边距按 `Xft.dpi`/`GDK_SCALE` 缩放。徽章深浅与候选面板一致：`candidate_theme` 为浅色或深色时照用，为「跟随颜色模式」时取颜色模式，颜色模式为「跟随系统」时跟随上述 portal 报告的系统明暗。
 
 同一个 socket 也承载候选翻译请求。候选视图更新后，宿主发送一行 JSON：
 

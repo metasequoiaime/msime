@@ -53,7 +53,7 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
             JSONObject document = new JSONObject(TextPolicy.utf8(response));
             Object content = document.getJSONArray("choices").getJSONObject(0)
                 .getJSONObject("message").opt("content");
-            return AiProviderResponse.strictText(content);
+            return JsonPolicy.strictStringOrEmpty(content);
         } catch (AiPolishClient.Failure error) {
             throw error;
         } catch (IOException | JSONException | ClassCastException | SecurityException error) {

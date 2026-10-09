@@ -11,9 +11,9 @@ public final class VoiceConfigurationSmoke {
             "voice configuration accepts JSON booleans");
         check(JsonPolicy.strictBoolean("true") == null,
             "voice configuration rejects boolean strings instead of coercing them");
-        check("synthetic".equals(JsonPolicy.strictString("synthetic")),
+        check("synthetic".equals(JsonPolicy.strictStringOrEmpty("synthetic")),
             "voice configuration accepts JSON strings");
-        check(JsonPolicy.strictString(7) == null,
+        check("".equals(JsonPolicy.strictStringOrEmpty(7)),
             "voice configuration rejects numeric strings instead of coercing them");
         VoiceConfiguration configuration = VoiceConfiguration.fromProvider(
             "local", "", null);

@@ -1,7 +1,7 @@
 name: Package Definitions Windows
 # 按一个已发布的 windows-v 发布渲染 winget、Scoop 与 Chocolatey 的包定义并打出 .nupkg，作为构建产物上传，由维护者按 platforms/windows/packaging/README.md 发布；这里不向任何外部仓库推送。只发 full 的安装包。
 #
-# 不放进 release-windows.yml：那里发布的是 CI 打的未签名安装包，它的 uiAccess Server 起不来，签名的那一份要维护者用 installer/Package-SimplySign.ps1 打好后替换上去，摘要也随之改变。所以在替换之后手动触发这里。render.py --tag 下载发布页上的安装包，核对它与 GitHub 记录的摘要和 .sha256 一致，并要求 Get-AuthenticodeSignature 报告 Valid，否则失败；在 Windows 上跑既是为了这个检查，也是为了 choco pack。
+# 不放进 release-windows.yml：没有启用 SignPath 签名时，那里发布的是 CI 打的未签名安装包，它的 uiAccess Server 起不来，签名的那一份要维护者用 installer/Package-SimplySign.ps1 打好后替换上去，摘要也随之改变，所以在替换之后手动触发这里；启用之后发布的已经是签名安装包，发布完成即可触发。render.py --tag 下载发布页上的安装包，核对它与 GitHub 记录的摘要和 .sha256 一致，并要求 Get-AuthenticodeSignature 报告 Valid，否则失败；在 Windows 上跑既是为了这个检查，也是为了 choco pack。
 on:
   workflow_dispatch:
     inputs:

@@ -8,10 +8,11 @@ import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-de
 import type { ExternalSkin } from "../skin/external-skins";
 import {
   keyboardThemeId,
-  themeCatalog,
   themeEntry,
+  type BaseGlobalTheme,
   type CustomTheme,
   type GlobalTheme,
+  type ThemeCatalogEntry,
 } from "../theme/global-theme";
 
 /** 我的皮肤卡片：键盘编辑器的设计，仅在有编辑器的宿主上出现。 */
@@ -23,6 +24,8 @@ export type SkinGridCustomDesign = {
 };
 
 export interface SkinGridProps {
+  /** 本宿主提供的主题（`offeredThemeCatalog`），按目录顺序排成卡片。 */
+  themes: ThemeCatalogEntry[];
   globalTheme: GlobalTheme;
   customTheme: CustomTheme | undefined;
   /** 扫描到的外部皮肤包，排在内置主题之后。 */
@@ -90,6 +93,7 @@ function Check() {
 
 /** 按顺序排列的卡片：目录里的主题、我的皮肤，然后是外部皮肤包。最多选中一张：正在使用的皮肤包优先，其次是自定义主题正在绘制其设计时的我的皮肤，再次是选中的主题。在有编辑器的宿主上，既没有皮肤包也没有设计的自定义主题没有自己的卡片；它的颜色在更多选项里编辑。 */
 function skinGridCards({
+  themes,
   globalTheme,
   customTheme,
   packages,
@@ -103,13 +107,13 @@ function skinGridCards({
   const designInUse = !packageInUse && customDesign !== undefined && customDesign.selected;
   const storedDesign = customTheme?.keyboard ?? undefined;
   // 自定义主题在 `base` 之上绘制的键盘：有设计时用设计，否则用该 base 的键盘。
-  const customKeyboard = (base: Exclude<GlobalTheme, "custom"> | undefined) => ({
+  const customKeyboard = (base: BaseGlobalTheme | undefined) => ({
     skin: keyboardThemeId("custom", { ...customTheme, base }),
     design: storedDesign,
     theme: themeEntry(base ?? "system").appearance ?? keyboardTheme,
   });
   const cards: Card[] = [];
-  for (const entry of themeCatalog) {
+  for (const entry of themes) {
     const id = entry.id;
     if (id === "custom") {
       // 在有编辑器的宿主上，我的皮肤代表自定义主题，与 Android 皮肤页一致；再加一张卡片会绘制出相同的键盘。

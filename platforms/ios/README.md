@@ -118,6 +118,8 @@ App 有设置、社区、统计、我的四个标签页。「设置」标签页�
 
 「皮肤」页下面「明暗与候选颜色」里的明暗设置对应共享的 `screen_keyboard_theme`，以及手写、表情、语音面板各自的 `handwriting_theme`、`emoji_theme`、`voice_theme`，与电脑版同步。键盘皮肤的颜色都是动态色，所以键盘只需按这些设置覆盖 `overrideUserInterfaceStyle`，就能不管宿主 App 是浅色还是深色，都画出皮肤的浅色或深色形态。选“跟随系统”时先看共享的 `theme`，它也是 `system` 时不覆盖，保持原来跟随宿主外观的行为。面板与 Android 有一处按 iOS 调整：面板留在“跟随”且全局主题是 `system` 时跟随键盘而不是宿主，因为面板画在键盘里面，否则会在深色键盘里出现一块浅色面板，所以 App 里把它写作“跟随键盘”。iPad 上这一页把三个面板和键盘并列显示；iPhone 把面板收进“面板明暗”折叠项，多数人只会设置键盘本身。键盘下次出现时应用，不重建 Engine 会话。同一节顶部还有电脑版外观页的「颜色模式」（共享的 `theme`，各处选“跟随”时的默认值）和「设置界面」（`settings_theme`）。iOS 上的设置界面就是这个 App，所以它决定 App 窗口的浅色或深色：选“跟随颜色模式”时看颜色模式，颜色模式是“跟随系统”时不覆盖，跟随设备外观。改动立即生效，从别的设备同步过来的值在 App 回到前台时应用。
 
+皮肤列表里「跟随系统」之后是「原生」（`global_theme` 为 `native`，只有 iOS 提供，见 `.agents/notes/implemented/feature/2026-10-09-ios-native-keyboard-skin.md`）：照 iOS 自带键盘画，不跟应用主题的季节，「跟随系统」仍是季节配色。它不画键盘背景，露出 `KeyboardInputView` 的系统键盘底板，iOS 26 起就是系统的 Liquid Glass，更早的系统是系统模糊材质；iOS 26 起按键与系统键盘一样字母键和功能键同色、没有底边阴影、iPhone 圆角 6pt，更早的系统画经典 UIKit 按键。回车键和选中候选用系统蓝（`systemBlue` 的增强对比度值）。「原生」暂不上传到账号，云端保留原来的主题，免得还没升级的设备拒收整份设置；从它开始自定义时，自定义主题画在「跟随系统」上。
+
 iOS 26 会默认在滚动视图边缘叠加渐隐和模糊。键盘内的候选、拼写、方案、皮肤、工具、表情、手写、AI、语音和回复面板统一通过共享 UIKit/SwiftUI 适配关闭该效果，避免短面板首尾内容被遮盖；iOS 25 及更早版本保持原行为。
 
 繁体输出只在显示与上屏边界转换：候选显示、Engine 提交和手写结果经过 `SharedUI/preferences/ChineseTextConversion.swift`，Engine 的候选原文、候选身份和组合文本保持简体。转换调共享导出 `msime_client_simplified_to_traditional`，即 `crates/client-core/src/chinese_conversion.rs` 的 OpenCC s2t 词级转换，与 Windows、macOS、Linux、Android、HarmonyOS 逐字一致——「头发」出「頭髮」、「发展」出「發展」，`CFStringTransform` 这类逐字转换分不开这两个「发」。日语方案和 R 本地模式保留原文；C ABI 拒绝的输入（内嵌 NUL）保留原文，不丢字。回归测试是 `tests/dictionary/ChineseTextConversionTests.swift`。

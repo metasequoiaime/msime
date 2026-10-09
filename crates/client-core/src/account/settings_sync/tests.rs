@@ -352,6 +352,37 @@ fn settings_sync_unknown_enum_values_skip_only_their_key() {
     assert_eq!(applied.feedback, Some(feedback()));
 }
 
+/// 「原生」只在 iOS 提供：Android 收到它时与不认识的主题 id 一样只跳过这个键，主题和自定义主题的底都保持本机的值。
+#[test]
+fn settings_sync_skips_the_ios_only_native_theme() {
+    let local = Preferences {
+        global_theme: GlobalTheme::Night,
+        ..Preferences::default()
+    };
+    let values = BTreeMap::from([
+        (
+            GLOBAL_THEME.to_owned(),
+            AccountPreferenceValue::String("native".into()),
+        ),
+        (
+            CUSTOM_THEME_BASE.to_owned(),
+            AccountPreferenceValue::String("native".into()),
+        ),
+        (
+            "input.learning".to_owned(),
+            AccountPreferenceValue::Boolean(false),
+        ),
+    ]);
+    let applied = apply(&local, values, &full_schema());
+    assert_eq!(applied.skipped, [CUSTOM_THEME_BASE, GLOBAL_THEME]);
+    assert_eq!(applied.preferences.global_theme, GlobalTheme::Night);
+    assert_eq!(
+        applied.preferences.custom_theme.base,
+        local.custom_theme.base
+    );
+    assert!(!applied.preferences.learning);
+}
+
 #[test]
 fn settings_sync_out_of_range_values_skip_only_their_key() {
     let schema = full_schema();

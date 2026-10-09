@@ -45,7 +45,7 @@ fn ids_round_trip_in_picker_order() {
     let ids: Vec<_> = GlobalTheme::ALL.iter().map(|theme| theme.id()).collect();
     assert_eq!(
         ids,
-        ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
+        ["system", "native", "shuishan", "light", "paper", "night", "ink", "custom"]
     );
     for theme in GlobalTheme::ALL {
         assert_eq!(GlobalTheme::from_id(theme.id()), Some(theme));
@@ -80,14 +80,63 @@ fn unknown_and_retired_ids_are_refused() {
         );
     }
     assert_eq!(GlobalTheme::from_id("ink"), Some(GlobalTheme::Ink));
-    assert!(GlobalTheme::ALL[..6].iter().all(|theme| theme.is_base()));
+    for theme in GlobalTheme::ALL {
+        assert_eq!(
+            theme.is_base(),
+            theme == GlobalTheme::System || theme.builtin().is_some(),
+            "{}",
+            theme.id()
+        );
+    }
     assert!(!GlobalTheme::Custom.is_base());
+    assert!(!GlobalTheme::Native.is_base());
+}
+
+#[test]
+fn native_is_offered_only_on_ios() {
+    use crate::host_surface::HostPlatform;
+    assert_eq!(GlobalTheme::Native.title(), "原生");
+    assert_eq!(
+        GlobalTheme::Native.platforms(),
+        Some(&[HostPlatform::Ios][..])
+    );
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        let ids: Vec<_> = catalog_for(platform)
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect();
+        let expected: Vec<_> = GlobalTheme::ALL
+            .into_iter()
+            .filter(|theme| *theme != GlobalTheme::Native || platform == HostPlatform::Ios)
+            .collect();
+        assert_eq!(ids, expected, "{}", platform.as_str());
+    }
+    let native = catalog()
+        .into_iter()
+        .find(|entry| entry.id == GlobalTheme::Native)
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&native).unwrap()["platforms"],
+        serde_json::json!(["ios"])
+    );
+    let system = &catalog()[0];
+    assert_eq!(
+        serde_json::to_value(system).unwrap()["platforms"],
+        serde_json::Value::Null
+    );
 }
 
 #[test]
 fn catalog_is_complete_and_copies_the_design() {
     let catalog = catalog();
-    assert_eq!(catalog.len(), 7);
+    assert_eq!(catalog.len(), 8);
     assert_eq!(
         catalog.iter().map(|entry| entry.id).collect::<Vec<_>>(),
         GlobalTheme::ALL
@@ -95,7 +144,7 @@ fn catalog_is_complete_and_copies_the_design() {
     for entry in &catalog {
         assert!(!entry.title.is_empty());
     }
-    for edge in [&catalog[0], &catalog[6]] {
+    for edge in [&catalog[0], &catalog[1], &catalog[7]] {
         assert!(edge.appearance.is_none());
         assert!(edge.preview.is_none());
         assert!(edge.candidate.is_none());
@@ -206,6 +255,25 @@ fn system_resolves_to_platform_tokens() {
         value,
         serde_json::json!({
             "id": "system", "source": "system", "appearance": null,
+            "candidate": null, "keyboard": null, "candidate_skin": null
+        })
+    );
+}
+
+/// `native` 与 `system` 一样不带调色板，忽略自定义主题，只把自己的 id 带回去，宿主据此分辨两者。
+#[test]
+fn native_resolves_to_platform_tokens_under_its_own_id() {
+    let resolved = resolve(
+        GlobalTheme::Native,
+        &sakura(),
+        false,
+        CandidateLayout::Horizontal,
+        None,
+    );
+    assert_eq!(
+        serde_json::to_value(&resolved).unwrap(),
+        serde_json::json!({
+            "id": "native", "source": "system", "appearance": null,
             "candidate": null, "keyboard": null, "candidate_skin": null
         })
     );

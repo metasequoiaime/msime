@@ -663,8 +663,8 @@ fn base_names_system_or_a_builtin_theme() {
         assert!(catalog.issues.is_empty(), "{base}: {catalog:?}");
         assert_eq!(catalog.packages[0].base, GlobalTheme::System, "{base}");
     }
-    // `custom` is not a base, and the other retired or misspelt ids are refused rather than read as system.
-    for base in ["custom", "Fluent", "Night", "Wechat", "default"] {
+    // `custom` 和只在部分宿主上提供的 `native` 都不能当底，其他已停用或拼错的 ID 一律拒绝，不当作 system。
+    for base in ["custom", "native", "Fluent", "Night", "Wechat", "default"] {
         let catalog = scan_manifest(
             &manifest("sample").replace("base = 'night'", &format!("base = '{base}'")),
         );
@@ -891,6 +891,7 @@ fn external_ids_are_the_folder_names_the_scan_lists() {
         "-dash",
         "a b",
         "system",
+        "native",
         "night",
         "custom",
         "fluent",
@@ -903,6 +904,16 @@ fn external_ids_are_the_folder_names_the_scan_lists() {
         &"a".repeat(65),
     ] {
         assert!(!is_external_id(id), "{id}");
+    }
+}
+
+/// `native` 成为全局主题 ID 之前是合法的皮肤文件夹名，偏好里保存着它的设置仍要能读；其他全局主题 ID 一直不能当皮肤选择。
+#[test]
+fn a_skin_selection_named_native_stays_valid() {
+    assert!(is_selectable_id("native"));
+    assert!(is_reserved("native"));
+    for id in ["system", "night", "custom"] {
+        assert!(!is_selectable_id(id), "{id}");
     }
 }
 

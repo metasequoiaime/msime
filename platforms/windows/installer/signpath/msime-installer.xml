@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration「msime-installer」。与 msime-payload.xml 一样，这份是评审过的副本，改动后要原样贴回 SignPath 项目里同名的配置。
+
+  artifact 由 release-windows.yml 的 sign-installers 任务合成，是六个版本的 Inno Setup 安装包平铺在根目录，文件名是 shared/contracts/editions.json 的 installer_base_name 加 _v<版本>.exe（例如 MetasequoiaIME-Wubi_Setup_v0.2.0.exe）。
+
+  authenticode-sign 不带 description 和 description-url：SignPath Foundation 的订阅类型拒绝这两个属性，它们会覆盖 SignPath 自动生成的水印。
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file-set>
+      <include path="MetasequoiaIME-*_Setup_v*.exe" max-matches="unbounded" />
+      <for-each>
+        <authenticode-sign />
+      </for-each>
+    </pe-file-set>
+  </zip-file>
+</artifact-configuration>

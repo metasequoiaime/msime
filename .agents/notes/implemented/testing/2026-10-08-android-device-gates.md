@@ -17,7 +17,7 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 - `.github/workflows/android-device.yml` 是可复用 workflow，在 GitHub 托管的 ubuntu-24.04（有 KVM）上按 API 28（minSdk）和 35（targetSdk）各起一台 x86_64 模拟器，依次：
   - `build-core-test.sh` 交叉编译 client-core 单测，`run-core-test.sh` 在设备上整套运行；
   - 用开发密钥打 x86_64 APK，`smoke.sh` 装包，走首次启动、词库准备和输入验收。API 28 用 `--core`，只到 DeviceSmoke 的打字主路径。
-- `ci-platforms.yml` 在 `android == 'true'`（动到 Android 或共享代码）的 PR 上调用它。
+- `ci-platforms.yml` 在 `android == 'true'`（动到 Android 或共享代码）的 PR 上调用它。这一条已被 [PR 上只编译和测试，打包挪到合进 develop 之后](../process/2026-10-09-no-packaging-on-pull-requests.md) 取代：现在只在推到 develop、main 时调用，PR 上不跑。
 - `release-android.yml` 的 `publish` 依赖新的 `device` job，用同一个提交跑同一套，失败就不发。这个 job 不接触发版密钥。
 - 设备脚本：`start-emulator.sh` 接受 API 级别，按主机架构选 arm64-v8a 或 x86_64 镜像，每个级别一台独立 AVD、固定端口（`5580 - 2 × (35 - API)`）；`run-core-test.sh` 用 `MSIME_ANDROID_TEST_SERIAL` 选设备；新增 `build-core-test.sh`。
 - 设备测试统一用 `ime list` 给出的短写 id `app.msime.android/.MSIMEInputService`。

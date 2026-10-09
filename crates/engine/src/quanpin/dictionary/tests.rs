@@ -1164,7 +1164,7 @@ fn fuzzy_candidate_rows_reuse_the_first_typed_reading_string() {
     let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
         let _ = dictionary.fuzzy_candidates("zong'guo", options);
     });
-    assert_eq!(allocations, 40, "模糊候选重复复制了首个读音: {allocations}");
+    assert_eq!(allocations, 39, "模糊候选重复复制了首个读音: {allocations}");
 }
 
 #[test]

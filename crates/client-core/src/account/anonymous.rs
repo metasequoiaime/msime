@@ -115,9 +115,12 @@ pub(super) fn ensure_anonymous_account_with<A: AccountApi>(
         .map(|_| ())
 }
 
-/// Whether a readable session is saved. One that cannot be read is replaced by signing in again with the saved identity, which loses nothing: the session is only tokens the backend reissues for that identity.
+/// 只有可读取且有效的会话才跳过重新登录；无效会话用已保存的身份重新领取 token。
 fn has_session(directory: &Path) -> bool {
-    matches!(AnonymousSessionStorage::new(directory).load(), Ok(Some(_)))
+    matches!(
+        AnonymousSessionStorage::new(directory).load(),
+        Ok(Some(saved)) if super::session::validate_saved_session(&saved).is_ok()
+    )
 }
 
 /// The saved identity, or a new one. A new identity is published with no-clobber, so two processes starting together (HarmonyOS runs the app and the keyboard separately) end up with the one that landed first rather than registering two accounts.
@@ -447,6 +450,31 @@ mod tests {
             .load()
             .unwrap()
             .is_some());
+    }
+
+    #[test]
+    fn a_parseable_but_invalid_session_is_replaced_by_signing_in_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let api = RegisteringApi::default();
+        ensure_anonymous_account_with(api.clone(), dir.path()).unwrap();
+        let storage = AnonymousSessionStorage::new(dir.path());
+        let mut saved = storage.load().unwrap().unwrap();
+        saved.expires_at_unix_ms = u64::MAX;
+        storage.save(&saved).unwrap();
+        assert_eq!(
+            BackendAccountSession::new(api.clone(), AnonymousSessionStorage::new(dir.path()))
+                .status(),
+            Err(AccountError::Storage)
+        );
+
+        ensure_anonymous_account_with(api.clone(), dir.path()).unwrap();
+        assert_eq!(api.logins.lock().unwrap().len(), 2);
+        assert!(
+            BackendAccountSession::new(api, AnonymousSessionStorage::new(dir.path()))
+                .status()
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[test]

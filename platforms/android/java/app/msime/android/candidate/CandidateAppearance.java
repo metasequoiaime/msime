@@ -43,24 +43,21 @@ public final class CandidateAppearance {
 
     public static Palette fromSkin(KeyboardSkin strip, String fontFamily, String englishFont,
                                    List<String> fallbackFonts) {
-        int text = parseColor(strip.keyForeground(), 0xff000000);
+        int text = ColorPolicy.parseHex(strip.keyForeground(), 0xff000000);
         return new Palette(strip.id(), text,
-            parseColor(strip.secondary(), ColorPolicy.withAlpha(text, 0x9d)),
-            parseColor(strip.accent(), text), 0, ColorPolicy.withAlpha(text, 0x0f),
-            parseColor(strip.background(), 0xffffffff), 0,
+            ColorPolicy.parseHex(strip.secondary(), ColorPolicy.withAlpha(text, 0x9d)),
+            ColorPolicy.parseHex(strip.accent(), text), 0, ColorPolicy.withAlpha(text, 0x0f),
+            ColorPolicy.parseHex(strip.background(), 0xffffffff), 0,
             safeFont(fontFamily, "Noto Sans SC"), safeFont(englishFont, ""),
             safeFallbackFonts(fallbackFonts),
-            parseColor(strip.candidateSelectedBackground(), parseColor(strip.keyBackground(), 0xffffffff)),
-            parseColor(strip.candidateSelectedForeground(), parseColor(strip.accent(), text)));
+            ColorPolicy.parseHex(strip.candidateSelectedBackground(),
+                ColorPolicy.parseHex(strip.keyBackground(), 0xffffffff)),
+            ColorPolicy.parseHex(strip.candidateSelectedForeground(),
+                ColorPolicy.parseHex(strip.accent(), text)));
     }
 
     /** 新设计里首选候选文字的字重（600）。 */
     public static final int SELECTED_FONT_WEIGHT = 600;
-
-    /** `#RRGGBB` or Android's alpha-first `#AARRGGBB`, the two forms a keyboard skin carries. */
-    private static int parseColor(String value, int fallback) {
-        return ColorPolicy.parseHex(value, fallback);
-    }
 
     private static List<String> fallbackFonts(JSONArray values) {
         if (values == null) return List.of("Noto Sans SC", "Microsoft YaHei");
