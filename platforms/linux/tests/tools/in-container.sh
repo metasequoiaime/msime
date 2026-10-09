@@ -8,6 +8,7 @@ python3 platforms/linux/tests/provider/cloud_timeout_parity.py
 python3 platforms/linux/tests/candidate/ai_candidate_cache.py
 python3 platforms/linux/tests/dictionary/translation_cache_parity.py
 python3 platforms/linux/tests/voice/provider_voice_text_validation.py
+python3 platforms/linux/tests/voice/provider_request_format.py
 python3 platforms/linux/tests/voice/doubao_auth.py
 python3 platforms/linux/tests/dictionary/niutrans_credential_normalization.py
 python3 platforms/linux/tests/dictionary/tencent_credential_normalization.py
