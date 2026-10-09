@@ -52,11 +52,8 @@ final class ImeDebugOverlay {
         static final String PERF_FILE = "perf.jsonl";
 
         private final File directory;
-        private final ExecutorService worker = Executors.newSingleThreadExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "msime-input-events");
-            thread.setDaemon(true);
-            return thread;
-        });
+        private final ExecutorService worker = Executors.newSingleThreadExecutor(
+            ThreadPolicy.namedDaemonFactory("msime-input-events"));
 
         EventLog(File directory) {
             this.directory = directory;

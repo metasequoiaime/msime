@@ -1,11 +1,13 @@
 package app.msime.android;
 
 import android.content.Context;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.net.URL;
 import java.util.List;
+import java.util.Map;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -14,14 +16,57 @@ import org.json.JSONObject;
 public final class BackendTranslationClient implements CandidateTranslationStore.Service {
     /** Maximum number of source texts accepted by one translation request. */
     public static final int MAX_TEXTS = 32;
-    private static final String ORIGIN = "https://api.msime.app";
     private static final int MAX_RESPONSE_BYTES = 256 * 1024;
-    private final BackendAccount account;
-    private final BackendAnonymousAccount anonymous;
+    private final CloudApi cloud;
 
     public BackendTranslationClient(Context context) {
-        account = new BackendAccount(context);
-        anonymous = new BackendAnonymousAccount(context);
+        this(translationCloud(context.getApplicationContext()));
+    }
+
+    BackendTranslationClient(CloudApi cloud) {
+        this.cloud = cloud;
+    }
+
+    private static CloudApi translationCloud(Context application) {
+        return new CloudApi(BackendTranslationClient::httpExchange,
+            CloudApi.accountTokens(application),
+            rejected -> new BackendAnonymousAccount(application).accessToken(rejected));
+    }
+
+    /** Keep the translation endpoint's 256 KiB wire bound while CloudApi fences its login. */
+    private static CloudApi.Exchange httpExchange(String method, String path,
+            Map<String, String> headers, byte[] request) throws IOException {
+        HttpsURLConnection connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + path).openConnection();
+        try {
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestMethod(method);
+            connection.setConnectTimeout(30_000);
+            connection.setReadTimeout(30_000);
+            for (Map.Entry<String, String> header : headers.entrySet())
+                connection.setRequestProperty(header.getKey(), header.getValue());
+            if (request != null) {
+                connection.setDoOutput(true);
+                connection.setFixedLengthStreamingMode(request.length);
+                try (OutputStream output = connection.getOutputStream()) { output.write(request); }
+            }
+            int status = connection.getResponseCode();
+            InputStream stream = status / 100 == 2 ? connection.getInputStream() : connection.getErrorStream();
+            byte[] response = new byte[0];
+            if (stream != null) {
+                try (InputStream input = stream) {
+                    if (status / 100 == 2) {
+                        response = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
+                    } else {
+                        try { response = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES); }
+                        catch (IOException unreadable) { response = new byte[0]; }
+                    }
+                }
+            }
+            return new CloudApi.Exchange(status, connection.getContentType(),
+                connection.getHeaderField("Retry-After"), response);
+        } finally {
+            connection.disconnect();
+        }
     }
 
     @Override public List<String> translate(List<String> texts, String target) throws Exception {
@@ -32,51 +77,19 @@ public final class BackendTranslationClient implements CandidateTranslationStore
             if (text == null || text.isEmpty() || TextPolicy.utf8Length(text) > 2048)
                 throw new IllegalArgumentException("Invalid translation text");
         }
-        String accountToken = account.accessToken();
-        boolean anonymousToken = accountToken.isEmpty();
-        String token = anonymousToken ? anonymous.accessToken() : accountToken;
         JSONObject body = new JSONObject().put("texts", new JSONArray(texts))
             .put("source_lang", "ZH").put("target_lang", TextPolicy.uppercase(target));
         byte[] request = TextPolicy.utf8Bytes(body.toString());
         if (request.length > 64 * 1024) throw new IllegalArgumentException("Translation request is too large");
-        for (int attempt = 0; ; attempt++) {
-            try {
-                return translateWithToken(request, texts.size(), token);
-            } catch (BackendAccount.RequestException error) {
-                if (error.status != 401 || attempt != 0) throw error;
-                token = anonymousToken ? anonymous.accessToken(token) : account.currentAccessToken(token);
-            }
-        }
-    }
-
-    private List<String> translateWithToken(byte[] request, int expectedCount, String token) throws Exception {
-        HttpsURLConnection connection = null;
-        try {
-            connection = (HttpsURLConnection) new URL(ORIGIN + "/v1/translate").openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod("POST");
-            connection.setConnectTimeout(30_000);
-            connection.setReadTimeout(30_000);
-            connection.setDoOutput(true);
-            connection.setFixedLengthStreamingMode(request.length);
-            connection.setRequestProperty("Authorization", "Bearer " + token);
-            connection.setRequestProperty("User-Agent", "MSIME/Android");
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("Content-Type", "application/json");
-            try (OutputStream output = connection.getOutputStream()) { output.write(request); }
-            int status = connection.getResponseCode();
-            if (status != 200) throw new BackendAccount.RequestException(status);
-            byte[] bytes;
-            try (InputStream input = connection.getInputStream()) {
-                bytes = HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES);
-            }
-            if (bytes == null) throw new IllegalStateException("Translation response is too large");
-            List<String> result = parseResponse(bytes, expectedCount);
-            if (result == null) throw new IllegalStateException("Invalid translation response");
-            return result;
-        } finally {
-            if (connection != null) connection.disconnect();
-        }
+        CloudApi.Response response = cloud.send("POST", "/v1/translate",
+            new CloudApi.Body("application/json", request), CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
+        if (response.status() != 200) throw new BackendAccount.RequestException(response.status());
+        byte[] bytes = response.body();
+        if (bytes == null || bytes.length > MAX_RESPONSE_BYTES)
+            throw new IllegalStateException("Translation response is too large");
+        List<String> result = parseResponse(bytes, texts.size());
+        if (result == null) throw new IllegalStateException("Invalid translation response");
+        return result;
     }
 
     /** Decode the response without allowing org.json to coerce nulls or non-strings to text. */
@@ -119,8 +132,4 @@ public final class BackendTranslationClient implements CandidateTranslationStore
         return result;
     }
 
-    private String accessToken() throws Exception {
-        String token = account.accessToken();
-        return token.isEmpty() ? anonymous.accessToken() : token;
-    }
 }

@@ -1946,7 +1946,8 @@
     --p-g-title-gap: 10px;
     --p-group-bg: rgba(255, 255, 255, 0.08);
     --p-group-r: 12px;
-    --p-group-shadow: 0 0 0 1px rgba(0, 0, 0, 0.36), 0 1px 3px rgba(0, 0, 0, 0.07);
+    /* 不带模糊，原因见 platform-tokens.ts 的 linux 分组阴影 */
+    --p-group-shadow: 0 0 0 1px rgba(0, 0, 0, 0.36), 0 1px 0 rgba(0, 0, 0, 0.07);
     --p-row-gap: 0;
     --p-row-bg: transparent;
     --p-row-shadow: none;
@@ -2007,7 +2008,8 @@
     --p-seg-on-fg: rgba(0, 0, 0, 0.82);
     --p-g-title-fg: rgba(0, 0, 0, 0.82);
     --p-group-bg: #ffffff;
-    --p-group-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.07);
+    /* 不带模糊，原因见 platform-tokens.ts 的 linux 分组阴影 */
+    --p-group-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 0 rgba(0, 0, 0, 0.07);
     --p-row-divider: rgba(0, 0, 0, 0.1);
     --p-sel-bg: rgba(0, 0, 0, 0.06);
     --p-sel-fg: rgba(0, 0, 0, 0.82);

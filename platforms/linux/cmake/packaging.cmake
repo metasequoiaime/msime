@@ -34,14 +34,17 @@ set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 set(CPACK_DEBIAN_COMPRESSION_TYPE "xz")
 set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+# 输入法框架二选一：IBus 和 Fcitx5 有一个就能用（#6401）。系统里已有哪个就算满足哪个，所以 deepin 这类 Fcitx5 系统不会被拉进 IBus 守护进程和它的 GTK 模块，IBus 系统也不会被拉进 Fcitx5；两个都没有时 apt 装写在前面的 IBus。Fcitx5 写在后面还因为 Ubuntu 22.04 只有 5.0.14，那里由已装的 IBus 满足，整包照样装得上（#6305）。不带 Fcitx5 插件的构建只能用 IBus。辅助程序链接 libibus，所以 dpkg-shlibdeps 仍会带上 libibus-1.0-5，那只是一个库，不会启动 IBus。
 # procps provides the pgrep msime-linux-setup uses to see whether the input method is running before it switches dictionaries; a system without it fails every dictionary switch. Debian marks procps important rather than required, so a minimal install can lack it.
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "ibus (>= 1.5.20), python3 (>= 3.9), procps")
+if(MSIME_ENABLE_FCITX5)
+  set(MSIME_DEBIAN_INPUT_FRAMEWORK "ibus (>= 1.5.20) | fcitx5 (>= 5.0.20)")
+else()
+  set(MSIME_DEBIAN_INPUT_FRAMEWORK "ibus (>= 1.5.20)")
+endif()
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "${MSIME_DEBIAN_INPUT_FRAMEWORK}, python3 (>= 3.9), procps")
 # Voice runtime: Doubao streaming needs the websockets sync client from 15.0 on, recording needs one of parec, pw-cat or arecord. Recommends rather than Depends, because the voice service starts without them and only the requests that need them fail.
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "python3-websockets (>= 15), pulseaudio-utils | pipewire-bin | alsa-utils")
-# Fcitx5 插件同样只作推荐：IBus 宿主不需要它，而 Ubuntu 22.04 只有 Fcitx5 5.0.14，写进 Depends 会让整个包装不上（#6305）。apt 默认安装推荐包，Fcitx5 够新的系统照旧一起装上；满足不了版本的推荐被 apt 跳过；插件条目声明了 `core:5.0.20` 依赖，旧版 Fcitx5 在依赖检查时就拒绝加载它，不会 dlopen。dpkg-shlibdeps 从插件推出的 libfcitx5* 由 package-container.sh 重新打包时从 Depends 里去掉。
-if(MSIME_ENABLE_FCITX5)
-  string(APPEND CPACK_DEBIAN_PACKAGE_RECOMMENDS ", fcitx5 (>= 5.0.20)")
-endif()
+# Fcitx5 不进 Recommends：apt 默认安装推荐包，那样 IBus 系统会被拉进整个 Fcitx5。插件条目声明了 `core:5.0.20` 依赖，旧版 Fcitx5 在依赖检查时就拒绝加载它，不会 dlopen。dpkg-shlibdeps 从插件推出的 libfcitx5* 由 package-container.sh 重新打包时从 Depends 里去掉：插件只由 Fcitx5 加载，那时这些库一定在。
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 get_filename_component(MSIME_HOST_LIBRARY_DIR "${MSIME_HOST_LIBRARY}" DIRECTORY)
 # libsherpa-onnx-c-api.so needs libonnxruntime.so, which ships beside it in the same private directory rather than coming from a Debian package.
@@ -58,15 +61,17 @@ set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
 set(CPACK_RPM_PACKAGE_LICENSE "GPL-3.0-only")
 set(CPACK_RPM_PACKAGE_GROUP "System Environment/Libraries")
 set(CPACK_RPM_PACKAGE_URL "${CPACK_PACKAGE_HOMEPAGE_URL}")
-set(CPACK_RPM_PACKAGE_REQUIRES "ibus >= 1.5.20, python3 >= 3.9, procps-ng")
+# 与 .deb 相同，IBus 和 Fcitx5 二选一，用 rich dependency 表达（#6401）。
 if(MSIME_ENABLE_FCITX5)
-  string(APPEND CPACK_RPM_PACKAGE_REQUIRES ", fcitx5 >= 5.0.20")
+  set(CPACK_RPM_PACKAGE_REQUIRES "(ibus >= 1.5.20 or fcitx5 >= 5.0.20), python3 >= 3.9, procps-ng")
+else()
+  set(CPACK_RPM_PACKAGE_REQUIRES "ibus >= 1.5.20, python3 >= 3.9, procps-ng")
 endif()
 # The same voice runtime as the .deb Recommends, in Fedora's package names; a rich dependency expresses the alternatives.
 set(CPACK_RPM_PACKAGE_RECOMMENDS "python3-websockets >= 15, (pulseaudio-utils or pipewire-utils or alsa-utils)")
-# The host library and the sherpa-onnx runtime ship in the package's private directory, as CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS says for the .deb: nothing may require them from the system, and the package must not advertise them as system libraries either.
+# The host library and the sherpa-onnx runtime ship in the package's private directory, as CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS says for the .deb: nothing may require them from the system, and the package must not advertise them as system libraries either. The libFcitx5* the addon links are left out of the automatic Requires for the reason package-container.sh drops them from the .deb: only Fcitx5 loads the addon, and then they are there; requiring them would pull Fcitx5 into an IBus system (#6401).
 # payload 与 .deb 一样用 xz 9 级，而不是 rpmbuild 默认的 zstd；CPACK_RPM_COMPRESSION_TYPE 设为 xz 只能得到 7 级。payload 字符串里不带 T 时 rpm 单线程压缩，xz -9 所需的 674 MiB 内存就不会再乘以核数。
-set(CPACK_RPM_SPEC_MORE_DEFINE "%global __requires_exclude ^lib(${MSIME_HOST_LIBRARY_STEM}|sherpa-onnx-c-api|onnxruntime)\\\\.so.*$
+set(CPACK_RPM_SPEC_MORE_DEFINE "%global __requires_exclude ^lib(${MSIME_HOST_LIBRARY_STEM}|sherpa-onnx-c-api|onnxruntime|Fcitx5[A-Za-z]+)\\\\.so.*$
 %global __provides_exclude_from ^${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}/.*$
 %define _binary_payload w9.xzdio")
 # Directories the base system owns. An RPM that lists them conflicts with the filesystem package and with the desktop, IBus, Fcitx5 and systemd packages that own them.

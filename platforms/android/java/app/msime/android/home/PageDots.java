@@ -67,7 +67,7 @@ public final class PageDots extends View {
         }
         animator = ValueAnimator.ofFloat(0f, 1f);
         animator.setDuration(Ui.DOT_MILLIS);
-        animator.setInterpolator(Ui.emphasized());
+        animator.setInterpolator(MotionCurves.EMPHASIZED);
         animator.addUpdateListener(animation -> {
             progress = (float) animation.getAnimatedValue();
             invalidate();

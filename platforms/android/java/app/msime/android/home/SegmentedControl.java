@@ -10,6 +10,7 @@ import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.ViewPolicy;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,7 +37,7 @@ public final class SegmentedControl extends LinearLayout {
         ViewPolicy.setCenteredVertically(this);
         int pad = Ui.dp(context, 2);
         Ui.setSymmetricPaddingPx(this, pad);
-        GradientDrawable frame = Ui.outlined(Color.TRANSPARENT, 9999f, Ui.dp(context, 1),
+        GradientDrawable frame = DrawablePolicy.outlined(Color.TRANSPARENT, 9999f, Ui.dp(context, 1),
             Ui.outline(context));
         setBackground(frame);
     }
@@ -49,10 +50,8 @@ public final class SegmentedControl extends LinearLayout {
         Context context = getContext();
         for (int i = 0; i < labels.size(); i++) {
             int index = i;
-            TextView segment = Ui.styledLabel(context, labels.get(i), Ui.TEXT_SEGMENT, 400,
+            TextView segment = Ui.centeredSingleLineLabel(context, labels.get(i), Ui.TEXT_SEGMENT, 400,
                 Ui.subText(context));
-            ViewPolicy.setCentered(segment);
-            ViewPolicy.setSingleLine(segment);
             Ui.setTextMinHeightDp(segment, context, 28);
             // 平分宽度时段宽已经定死、文字居中，左右内边距只会挤掉文字：AI 设计皮肤的「按键音效」五段在 360dp 宽的屏上每段约 63dp，左右各 12dp 后只剩 39dp，系统字号稍大就把「打字机」截成「打字札」（#6070）。按文字宽度排开时内边距决定段宽，保持 12dp。
             Ui.setSymmetricPaddingDp(segment, context, fill ? 4 : 12, 4);

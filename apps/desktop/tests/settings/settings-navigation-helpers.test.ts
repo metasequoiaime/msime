@@ -12,6 +12,9 @@ test("maps primary and nested pages to the mobile tab stack", () => {
   expect(mobilePrimaryPageIds).toEqual(["home", "community", "typing-statistics", "account"]);
   expect(mobileTabForPage("community")).toBe("community");
   expect(mobileTabForPage("input")).toBe("home");
+  // 「关于」和它的二级页面「发送哪些内容」都留在「我的」。
+  expect(mobileTabForPage("about")).toBe("account");
+  expect(mobileTabForPage("usage-reporting")).toBe("account");
 });
 
 test("mobile navigation reuses the shared tab mapping", () => {

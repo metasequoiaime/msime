@@ -14,7 +14,6 @@ import android.net.ConnectivityManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
 import androidx.annotation.Nullable;
 import app.msime.android.home.HostStore;
 import app.msime.android.home.MsToast;
@@ -71,7 +70,7 @@ public final class ResourcePackService extends Service {
     private static final List<Listener> LISTENERS = new CopyOnWriteArrayList<>();
     /** 用户已经要求取消、但下载还没结束的资源包。共享层的取消标记要等下载线程进入安装后才登记，在那之前的取消只记在这里，由下载线程补上。 */
     private static final Set<String> CANCELLING = ConcurrentHashMap.newKeySet();
-    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final Handler MAIN = MainThreadPolicy.mainHandler();
 
     // ---- 设置页用的静态入口（主线程） ----
 
@@ -223,7 +222,7 @@ public final class ResourcePackService extends Service {
 
     private void install(String pack) {
         Context context = getApplicationContext();
-        Thread worker = new Thread(() -> {
+        ThreadPolicy.startNamedThread("msime-resource-pack-" + pack, () -> {
             String failure = null;
             try {
                 if (CANCELLING.contains(pack)) {
@@ -240,8 +239,7 @@ public final class ResourcePackService extends Service {
             }
             String result = failure;
             MAIN.post(() -> finished(pack, result));
-        }, "msime-resource-pack-" + pack);
-        worker.start();
+        });
     }
 
     /** 用户在共享偏好里填的下载镜像前缀（与本地语音模型共用的 `voice_input.asr_model_mirror`）；没填时为空，按项目镜像、锁文件原地址的顺序下载。 */

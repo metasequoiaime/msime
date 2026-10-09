@@ -24,7 +24,8 @@ final class DictionarySnapshotWorkerTests: XCTestCase {
     let preview = try BackendPreparedSnapshot(copying: source)
     let id = try queue.enqueue(file: preview.url, accountID: "synthetic-worker", cloudRevision: 1,
       expectedLocalVersion: originalVersion, fileSHA256: preview.fileSHA256)
-    var worker: DictionarySnapshotWorker? = DictionarySnapshotWorker(session: session!, queue: queue)
+    var worker: DictionarySnapshotWorker? = DictionarySnapshotWorker(session: session!, queue: queue,
+      currentAccountID: { "synthetic-worker" })
     var cleaned = false
     defer {
       if !cleaned {

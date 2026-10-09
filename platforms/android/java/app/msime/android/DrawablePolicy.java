@@ -1,8 +1,10 @@
 package app.msime.android;
 
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.graphics.drawable.StateListDrawable;
 
 /** Shared drawable factories for host UI surfaces. */
@@ -29,6 +31,13 @@ public final class DrawablePolicy {
         shape.setShape(GradientDrawable.RECTANGLE);
         shape.setColor(color);
         shape.setCornerRadius(radiusPx);
+        return shape;
+    }
+
+    /** 创建具有固定像素尺寸的纯色圆角矩形。 */
+    public static GradientDrawable rounded(int color, float radiusPx, int width, int height) {
+        GradientDrawable shape = rounded(color, radiusPx);
+        shape.setSize(width, height);
         return shape;
     }
 
@@ -61,6 +70,11 @@ public final class DrawablePolicy {
         GradientDrawable shape = rounded(fillColor, radiusPx);
         shape.setStroke(BoundsPolicy.atLeast(strokeWidth, 1), strokeColor, dashWidth, dashGap);
         return shape;
+    }
+
+    /** 用单色状态列表、内容层和遮罩层构造平台波纹 drawable。 */
+    public static RippleDrawable ripple(int color, Drawable content, Drawable mask) {
+        return new RippleDrawable(ColorStateList.valueOf(color), content, mask);
     }
 
     /** Build a drawable state list while keeping the supplied state precedence. */

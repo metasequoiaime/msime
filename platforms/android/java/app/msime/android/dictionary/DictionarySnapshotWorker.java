@@ -2,6 +2,7 @@ package app.msime.android;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.Supplier;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -10,10 +11,11 @@ public final class DictionarySnapshotWorker {
     private DictionarySnapshotWorker() {}
 
     /** 先处理排着的整份快照激活，再合并本地备份恢复时排下的输入记录。合并会改本机词库版本，放在激活前面会让排着的激活因版本不符被拒。 */
-    public static void process(Path filesRoot, Path queueDirectory, Path stagingDirectory, String options)
+    public static void process(Path filesRoot, Path queueDirectory, Path stagingDirectory, String options,
+            Supplier<String> currentAccountId)
             throws Exception {
         try {
-            activate(filesRoot, queueDirectory, stagingDirectory, options);
+            activate(filesRoot, queueDirectory, stagingDirectory, options, currentAccountId);
         } finally {
             mergePendingLearning(options);
         }
@@ -33,13 +35,13 @@ public final class DictionarySnapshotWorker {
         }
     }
 
-    private static void activate(Path filesRoot, Path queueDirectory, Path stagingDirectory, String options)
-            throws Exception {
+    private static void activate(Path filesRoot, Path queueDirectory, Path stagingDirectory, String options,
+            Supplier<String> currentAccountId) throws Exception {
         DictionarySnapshotQueue queue = new DictionarySnapshotQueue(filesRoot, queueDirectory);
         String current = version(options);
         queue.publishLocalVersion(current);
         try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
-            DictionarySnapshotQueue.Request request = queue.claim(lease);
+            DictionarySnapshotQueue.Request request = queue.claim(lease, currentAccountId);
             if (request == null) return;
             long handle = 0;
             try {
@@ -62,7 +64,7 @@ public final class DictionarySnapshotWorker {
                 if (preparedHandle == 0)
                     throw new IllegalStateException("snapshot handle invalid");
                 handle = preparedHandle;
-                boolean applied = queue.complete(request.id(), lease, current, false, () -> {
+                boolean applied = queue.complete(request.id(), lease, current, false, currentAccountId, () -> {
                     JSONObject activated = new JSONObject(NativeClient.snapshotActivate(
                         preparedHandle, request.expectedLocalVersion()));
                     if (!JsonPolicy.strictTrue(activated.opt("ok")))

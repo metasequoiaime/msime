@@ -249,6 +249,7 @@ import {
 } from "../entry/src/main/ets/keyboard/input/HandwritingRecognitionQueue";
 import { KeyboardFormFactorPolicy } from "../entry/src/main/ets/keyboard/KeyboardFormFactorPolicy";
 import { SettingsFormFactorCapabilities } from "../entry/src/main/ets/keyboard/settings/SettingsFormFactorCapabilities";
+import { VocabularyReviewRequest } from "../entry/src/main/ets/keyboard/settings/VocabularyReviewRequest";
 import { SymbolPanelPolicy } from "../entry/src/main/ets/keyboard/input/SymbolPanelPolicy";
 import {
   BackspaceHoldAction,
@@ -280,6 +281,7 @@ import {
   dictionaryChangePageChanged,
   parseResponseContentLength,
   accountReplyValue,
+  storedSessionUserId,
   strictAccountOk,
 } from "../entry/src/main/ets/account/AccountCloudBridge";
 import {
@@ -514,6 +516,30 @@ function check(condition: boolean, message: string): void {
 console.log("KeyboardGeometry");
 
 console.log("DictionaryMaintenancePolicy");
+
+console.log("VocabularyReviewRequest");
+group("vocabulary review request carries resources and gates plugins", () => {
+  const mobile = VocabularyReviewRequest.build(
+    "/synthetic/state",
+    "/synthetic/resources",
+    "2026-01-02",
+    { operation: "load" },
+    false,
+  );
+  check(mobile.directory === "/synthetic/state", "request keeps the state directory");
+  check(mobile.resources === "/synthetic/resources", "request carries the resource directory");
+  check(mobile.day === "2026-01-02", "request keeps the caller's local day");
+  check(mobile.plugins === undefined, "mobile request does not expose plugin storage");
+
+  const desktop = VocabularyReviewRequest.build(
+    "/synthetic/state",
+    "/synthetic/resources",
+    "2026-01-02",
+    { operation: "load" },
+    true,
+  );
+  check(desktop.plugins === "/synthetic/state/plugins", "desktop request exposes plugin storage");
+});
 
 console.log("HandwritingStrokePolicy");
 
@@ -1945,6 +1971,56 @@ group("a key's touch region reaches into half of each gap and no further", () =>
   check(
     negative.length === 1 && negative[0].x === 0 && negative[0].y === 0,
     "a negative extension never shrinks the key",
+  );
+});
+
+group("the language key takes the ambiguous touches between it and the return key", () => {
+  const languageWidth = 35;
+  const returnWidth = 64;
+  const height = 42;
+  const halfKey = 3;
+  const halfRow = 3.5;
+  const gap = halfKey * 2;
+  const yieldVp = KeyboardGeometry.RETURN_YIELD_VP;
+  check(
+    yieldVp > 0 && yieldVp < returnWidth / 4,
+    "the return key yields a few vp, not a large part of itself",
+  );
+  // 中/英向右伸过整个键距再加让出的那段；回车整体右移同样的量。回车键帽的左边缘在 languageWidth + gap。
+  const language = KeyboardGeometry.hitOffsets(halfKey, halfRow, gap + yieldVp, halfRow);
+  const returnKey = KeyboardGeometry.shiftedHitOffsets(yieldVp, halfRow, halfRow);
+  const returnLeft = languageWidth + gap;
+  let owned = true;
+  for (let x = languageWidth - 2; x < returnLeft + returnWidth / 2; x += 0.25) {
+    const inLanguage = inHitRegion(language, languageWidth, height, x, height / 2);
+    const inReturn = inHitRegion(returnKey, returnWidth, height, x - returnLeft, height / 2);
+    const expectLanguage = x < returnLeft + yieldVp;
+    // 两块区域在分界点上各自包含边界，只在那一个点上同时命中。
+    if (x !== returnLeft + yieldVp && (inLanguage === inReturn || inLanguage !== expectLanguage)) {
+      owned = false;
+    }
+  }
+  check(
+    owned,
+    "every point from the language key to mid-return belongs to one key, split inside the return key",
+  );
+  check(
+    inHitRegion(returnKey, returnWidth, height, returnWidth + yieldVp, height / 2),
+    "the return key's region reaches past its right edge into the keyboard's margin",
+  );
+  check(
+    inHitRegion(returnKey, returnWidth, height, returnWidth / 2, -halfRow) &&
+      inHitRegion(returnKey, returnWidth, height, returnWidth / 2, height + halfRow),
+    "and still reaches half a row gap above and below",
+  );
+  const negative = KeyboardGeometry.shiftedHitOffsets(-4, 0, 0);
+  check(
+    negative.length === 1 && negative[0].x === 0,
+    "a negative shift never moves the key's region to the left",
+  );
+  check(
+    KeyboardGeometry.shiftedHitOffsets(Number.NaN, 0, 0)[0].x === 0,
+    "a non-finite shift is no shift",
   );
 });
 
@@ -9632,6 +9708,19 @@ group("account native success envelopes require a value", () => {
 });
 
 group("account and cloud clipboard bridge keeps secrets native", () => {
+  const sessionFor = (id: string): string => JSON.stringify({
+    access_token: "a".repeat(64), refresh_token: "b".repeat(64),
+    token_type: "Bearer", expires_at: Date.now() + 600_000,
+    user: { id, display_name: "Synthetic", created_at: "2026-01-01" },
+  });
+  check(storedSessionUserId(sessionFor("old-account")) === "old-account",
+    "the keyboard sees the saved account owner");
+  check(storedSessionUserId(sessionFor("new-account")) === "new-account",
+    "a fresh read sees the replacement account");
+  check(storedSessionUserId(null) === null && storedSessionUserId("not json") === null,
+    "missing or malformed sessions have no owner");
+  check(storedSessionUserId(JSON.stringify({ user: { id: "forged" } })) === null,
+    "an unvalidated user id cannot own a snapshot");
   let oversizedCleared = false;
   const oversizedStore: AccountSessionStore = {
     load: () => "x".repeat(64 * 1024 + 1),
@@ -9821,6 +9910,30 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
         "dictionary offsets are bounded before transport",
       );
     });
+});
+
+group("a rejected account session cancels its snapshot before clearing storage", () => {
+  let saved: string | null = JSON.stringify({
+    access_token: "a".repeat(64), refresh_token: "b".repeat(64),
+    token_type: "Bearer", expires_at: Date.now() + 600_000,
+    user: { id: "synthetic-owner", display_name: "Synthetic", created_at: "2026-01-01" },
+  });
+  const events: string[] = [];
+  const store: AccountSessionStore & { beforeClear(accountId: string): void } = {
+    load: () => saved,
+    save: (value: string) => { saved = value; },
+    beforeClear: (accountId: string) => { events.push(`cancel:${accountId}`); },
+    clear: () => { events.push("clear"); saved = null; },
+  };
+  const bridge = new AccountCloudBridge(
+    { request: async () => ({ status: 401, body: "{}" }) }, store,
+  );
+  void bridge.handle('{"operation":"profile"}').then((reply) => {
+    check(JSON.parse(reply).error === "account_unauthorized", "the refused session is rejected");
+    check(JSON.stringify(events) === '["cancel:synthetic-owner","clear"]',
+      "the snapshot owner is cancelled before the session disappears");
+    check(saved === null, "the refused session is removed");
+  });
 });
 
 group("a failed login save preserves the last committed session", () => {
