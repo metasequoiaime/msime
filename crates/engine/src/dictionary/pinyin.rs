@@ -261,13 +261,17 @@ impl PinyinDatabase {
             if !rows.is_empty() && result.capacity() == 0 {
                 result.reserve(keys.len());
             }
-            // Ordered by weight, so the first rows of each key are its best.
+            // 按权重读取，每个键最先出现的是它的最高权重行；已有槽只借用键查找。
             for row in rows {
-                let slot = result
-                    .entry(row.key.clone())
-                    .or_insert_with(|| Vec::with_capacity(per_key_limit));
-                if slot.len() < per_key_limit {
+                if let Some(slot) = result.get_mut(row.key.as_str()) {
+                    if slot.len() < per_key_limit {
+                        slot.push(row);
+                    }
+                } else {
+                    let key = row.key.clone();
+                    let mut slot = Vec::with_capacity(per_key_limit);
                     slot.push(row);
+                    result.insert(key, slot);
                 }
             }
         }
@@ -1487,3 +1491,7 @@ mod borrowed_key_plan_tests;
 #[cfg(test)]
 #[path = "pinyin/borrowed_key_groups_tests.rs"]
 mod borrowed_key_groups_tests;
+
+#[cfg(test)]
+#[path = "pinyin/result_key_reuse_tests.rs"]
+mod result_key_reuse_tests;

@@ -107,6 +107,8 @@ fn assert_results(new: &HashMap<String, Vec<DictRow>>, old: &HashMap<String, Vec
 }
 
 fn compare_hot(database: &PinyinDatabase, batch: &[String], limit: usize, saved: usize) {
+    let saved =
+        saved + result_key_reuse_tests::repeated_row_key_allocations(database, batch, limit);
     let saved = saved
         + if database.connection.is_some() && limit > 0 {
             borrowed_key_groups_tests::owned_group_allocations(batch)

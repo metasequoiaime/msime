@@ -99,6 +99,8 @@ fn unique_split_allocations(keys: &[String]) -> usize {
 }
 
 fn compare_hot(database: &PinyinDatabase, batch: &[String], limit: usize, saved: usize) {
+    let saved =
+        saved + result_key_reuse_tests::repeated_row_key_allocations(database, batch, limit);
     let saved = saved
         + if database.connection.is_some() && limit > 0 {
             unique_split_allocations(batch)

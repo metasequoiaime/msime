@@ -83,6 +83,8 @@ fn assert_results(new: &HashMap<String, Vec<DictRow>>, old: &HashMap<String, Vec
 }
 
 fn compare_hot(database: &PinyinDatabase, batch: &[String], limit: usize, saved: usize) {
+    let saved =
+        saved + result_key_reuse_tests::repeated_row_key_allocations(database, batch, limit);
     // 热缓存会替换区间前已拥有的查询键，此边界只比较次数。
     drop(original_query(database, batch, limit));
     drop(database.query_exact_keys_per_key(batch, limit));
