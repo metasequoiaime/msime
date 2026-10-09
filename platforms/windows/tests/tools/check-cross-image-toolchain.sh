@@ -6,7 +6,9 @@ image=${1:?usage: check-cross-image-toolchain.sh <image>}
 repo_root=$(cd "$(dirname "$0")/../../../.." && pwd)
 mkdir -p "$repo_root/target/windows-cross"
 
-docker run --rm --platform linux/amd64 --network none \
+# 按被检查镜像的架构运行，分别覆盖原生 ARM64 和 amd64 镜像。
+platform=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")
+docker run --rm --platform "$platform" --network none \
   -v "$repo_root":/repo:ro \
   -v "$repo_root/target/windows-cross":/output \
   -w /repo "$image" bash -euo pipefail -c '

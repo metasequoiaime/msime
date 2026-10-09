@@ -540,7 +540,7 @@ public final class BackendAccount {
                 open = connection;
                 connection = null;
             }
-            if (open != null) new Thread(open::disconnect, "msime-chat-cancel").start();
+            if (open != null) ThreadPolicy.startNamedThread("msime-chat-cancel", open::disconnect);
         }
 
         public synchronized boolean cancelled() { return cancelled; }

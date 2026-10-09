@@ -98,6 +98,7 @@ enum SnapshotQueueAction {
         directory: String,
         staging_root: String,
         options: HostOptions,
+        account_id: Option<String>,
     },
 }
 
@@ -1272,12 +1273,19 @@ fn snapshot_queue_process(
     queue: &DictionarySnapshotQueue,
     staging_root: String,
     options: HostOptions,
+    account_id: Option<String>,
 ) -> Result<Value, String> {
     let engine_options = validate_options(options.clone()).map_err(str::to_owned)?;
     let current = durable_local_version(&engine_options).map_err(str::to_owned)?;
     queue
         .publish_local_version(&current)
         .map_err(snapshot_queue_error)?;
+    // The keyboard could not read the shared session right now. Keep the request for a
+    // later idle pass rather than applying it under an unknown account.
+    let Some(account_id) = account_id else {
+        return serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
+            .map_err(|_| "snapshot_unavailable".to_owned());
+    };
     let lease = match queue.acquire_worker_lease() {
         Ok(lease) => lease,
         Err(SnapshotQueueError::Busy) => {
@@ -1286,13 +1294,16 @@ fn snapshot_queue_process(
         }
         Err(error) => return Err(snapshot_queue_error(error)),
     };
-    let Some(request) = queue.claim(&lease).map_err(snapshot_queue_error)? else {
+    let Some(request) = queue
+        .claim(&lease, &account_id)
+        .map_err(snapshot_queue_error)?
+    else {
         return serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
             .map_err(|_| "snapshot_unavailable".to_owned());
     };
     if request.expected_local_version != current {
         let _ = queue
-            .complete(request.id, &lease, &current, false, || {
+            .complete(request.id, &lease, &current, false, &account_id, || {
                 Err(SnapshotQueueError::Conflict)
             })
             .map_err(snapshot_queue_error)?;
@@ -1337,7 +1348,7 @@ fn snapshot_queue_process(
             let latest = durable_local_version(&engine_options).map_err(str::to_owned)?;
             if latest != current {
                 let _ = queue
-                    .complete(request.id, &lease, &latest, false, || {
+                    .complete(request.id, &lease, &latest, false, &account_id, || {
                         Err(SnapshotQueueError::Conflict)
                     })
                     .map_err(snapshot_queue_error)?;
@@ -1356,7 +1367,7 @@ fn snapshot_queue_process(
         .and_then(Value::as_u64)
         .ok_or_else(|| "snapshot_unavailable".to_owned())?;
     let mut consumed = false;
-    let completion = queue.complete(request.id, &lease, &current, false, || {
+    let completion = queue.complete(request.id, &lease, &current, false, &account_id, || {
         activate(handle, &raw_expected).map_err(|_| SnapshotQueueError::Unavailable)?;
         consumed = true;
         durable_local_version(&engine_options).map_err(|_| SnapshotQueueError::Unavailable)
@@ -1410,7 +1421,13 @@ fn run_snapshot_queue(action: SnapshotQueueAction) -> Result<Value, String> {
             directory,
             staging_root,
             options,
-        } => snapshot_queue_process(&snapshot_queue(&directory)?, staging_root, options),
+            account_id,
+        } => snapshot_queue_process(
+            &snapshot_queue(&directory)?,
+            staging_root,
+            options,
+            account_id,
+        ),
     }
 }
 

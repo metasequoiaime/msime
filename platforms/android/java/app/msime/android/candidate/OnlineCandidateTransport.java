@@ -28,11 +28,8 @@ public final class OnlineCandidateTransport {
 
     // 云候选的整体时限。readTimeout 只管两次读之间的空闲，到点由这个线程断开连接，阻塞中的读会立刻抛出 IOException；守护线程，不拖住进程退出。
     private static final ScheduledExecutorService CLOUD_DEADLINES =
-        Executors.newSingleThreadScheduledExecutor(task -> {
-            Thread thread = new Thread(task, "msime-cloud-deadline");
-            thread.setDaemon(true);
-            return thread;
-        });
+        Executors.newSingleThreadScheduledExecutor(
+            ThreadPolicy.namedDaemonFactory("msime-cloud-deadline"));
 
     private OnlineCandidateTransport() {}
 

@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.util.Log;
 import app.msime.android.NativeClient;
+import app.msime.android.ThreadPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
 import java.nio.ByteBuffer;
@@ -44,11 +45,8 @@ public final class Telemetry {
     /** The keyboard process can live for days; a flush when the keyboard is shown, at most this often, sends what is queued and counts a new day's `active`. */
     private static final long INPUT_FLUSH_INTERVAL_MILLIS = 6L * 60 * 60 * 1000;
     private static final long END_WAIT_MILLIS = 1500;
-    private static final ExecutorService WORKER = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "msime-telemetry");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private static final ExecutorService WORKER = Executors.newSingleThreadExecutor(
+        ThreadPolicy.namedDaemonFactory("msime-telemetry"));
     private static boolean crashHandlerInstalled;
     /** Where a crash in this process is written: the session's own record in the keyboard process, null elsewhere. */
     private static volatile File sessionCrashRecord;

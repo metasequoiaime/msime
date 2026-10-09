@@ -304,7 +304,10 @@ fn dense_two_mora_search_avoids_losing_cartesian_product_texts() {
     assert_eq!(actual, expected);
     eprintln!("日文密集双假名矩阵分配：{baseline_allocations}→{allocations}");
     assert!(baseline_allocations >= 200, "原笛卡尔积物化成本");
-    assert!(allocations <= 46, "同分败选无需物化：{allocations}");
+    assert!(
+        allocations <= 38,
+        "胜选移入输出，同分败选无需物化：{allocations}"
+    );
 }
 
 #[test]

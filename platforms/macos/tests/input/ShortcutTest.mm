@@ -5381,7 +5381,15 @@ static void TestAiCandidateEngineDelivery() {
             @"tokens":@{@"https://synthetic.invalid:443":@"synthetic-secret"}, @"candidate_limit":@3,
             @"prompt_id":@"custom_2", @"prompt_custom_2":@"synthetic prompt"},
         @"input":@{@"segmented_pinyin":@[@"ni", @"hao"], @"context":@"", @"candidate_limit":@3}} error:&bridgeError];
-    assert(descriptor && !bridgeError && [descriptor[@"timeout_ms"] isEqual:@8000]);
+    if (!descriptor || bridgeError || ![descriptor[@"timeout_ms"] isEqual:@8000]) {
+        // Only report the fixed-shape outcome. The descriptor also contains a bearer token.
+        fprintf(stderr, "AI descriptor present=%d error=%s timeout=%s\n", descriptor != nil,
+            (bridgeError.localizedDescription ?: @"").UTF8String,
+            ([descriptor[@"timeout_ms"] description] ?: @"").UTF8String);
+    }
+    assert(descriptor);
+    assert(!bridgeError);
+    assert([descriptor[@"timeout_ms"] isEqual:@8000]);
     assert([descriptor[@"headers"][@"Authorization"] isEqual:@"Bearer synthetic-secret"]);
     assert([descriptor[@"body"][@"thinking"][@"type"] isEqual:@"disabled"]);
     NSData *response = [NSJSONSerialization dataWithJSONObject:@{@"choices":@[@{@"message":@{@"content":

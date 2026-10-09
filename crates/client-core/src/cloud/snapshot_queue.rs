@@ -495,19 +495,28 @@ impl DictionarySnapshotQueue {
     pub fn claim(
         &self,
         lease: &SnapshotWorkerLease,
+        current_account_id: &str,
     ) -> Result<Option<SnapshotRequest>, SnapshotQueueError> {
         self.check_lease(lease)?;
-        self.update(|_, state| {
+        let (claimed, cancelled) = self.update(|_, state| {
             let Some(request) = state
                 .request
                 .as_mut()
                 .filter(|request| request.status.active())
             else {
-                return Ok(None);
+                return Ok((None, None));
             };
+            if request.account_id != current_account_id {
+                request.status = SnapshotRequestStatus::Cancelled;
+                return Ok((None, Some(request.id)));
+            }
             request.status = SnapshotRequestStatus::Preparing;
-            Ok(Some(request.clone()))
-        })
+            Ok((Some(request.clone()), None))
+        })?;
+        if let Some(id) = cancelled {
+            self.delete_snapshot(id)?;
+        }
+        Ok(claimed)
     }
 
     pub fn complete(
@@ -516,6 +525,7 @@ impl DictionarySnapshotQueue {
         lease: &SnapshotWorkerLease,
         current_version: &str,
         already_applied: bool,
+        current_account_id: &str,
         apply: impl FnOnce() -> Result<String, SnapshotQueueError>,
     ) -> Result<bool, SnapshotQueueError> {
         self.check_lease(lease)?;
@@ -532,6 +542,8 @@ impl DictionarySnapshotQueue {
             if already_applied {
                 request.status = SnapshotRequestStatus::Applied;
                 state.local_version = Some(current_version.to_owned());
+            } else if request.account_id != current_account_id {
+                request.status = SnapshotRequestStatus::Cancelled;
             } else if request.expected_local_version != current_version {
                 request.status = SnapshotRequestStatus::Conflict;
                 state.local_version = Some(current_version.to_owned());
@@ -710,7 +722,7 @@ mod tests {
 
         let restored = DictionarySnapshotQueue::new(root).unwrap();
         let lease = restored.acquire_worker_lease().unwrap();
-        let request = restored.claim(&lease).unwrap().unwrap();
+        let request = restored.claim(&lease, "fixture-account").unwrap().unwrap();
         assert_eq!(request.id, id);
         assert_eq!(request.status, SnapshotRequestStatus::Preparing);
         let applied = version(&id.to_string(), 'b');
@@ -819,6 +831,63 @@ mod tests {
     }
 
     #[test]
+    fn worker_cancels_a_snapshot_from_a_previous_account() {
+        let parent = tempfile::tempdir().unwrap();
+        let source = parent.path().join("snapshot.ndjson");
+        fs::write(&source, b"synthetic snapshot\n").unwrap();
+        let digest = hex::encode(Sha256::digest(fs::read(&source).unwrap()));
+        let queue = DictionarySnapshotQueue::new(parent.path().join("queue")).unwrap();
+        let initial = version("legacy", 'a');
+        queue.publish_local_version(&initial).unwrap();
+
+        let stale = queue
+            .enqueue(&source, "old-account", 1, &initial, &digest)
+            .unwrap();
+        let lease = queue.acquire_worker_lease().unwrap();
+        assert!(queue.claim(&lease, "new-account").unwrap().is_none());
+        assert_eq!(
+            queue.read().unwrap().request.unwrap().status,
+            SnapshotRequestStatus::Cancelled
+        );
+        assert!(!queue.file_path(stale).unwrap().exists());
+
+        let signed_out = queue
+            .enqueue(&source, "old-account", 2, &initial, &digest)
+            .unwrap();
+        assert!(queue.claim(&lease, "").unwrap().is_none());
+        assert_eq!(
+            queue.read().unwrap().request.unwrap().status,
+            SnapshotRequestStatus::Cancelled
+        );
+        assert!(!queue.file_path(signed_out).unwrap().exists());
+
+        let changed_during_prepare = queue
+            .enqueue(&source, "old-account", 3, &initial, &digest)
+            .unwrap();
+        assert!(queue.claim(&lease, "old-account").unwrap().is_some());
+        let mut activated = false;
+        assert!(!queue
+            .complete(
+                changed_during_prepare,
+                &lease,
+                &initial,
+                false,
+                "new-account",
+                || {
+                    activated = true;
+                    Ok(version("changed", 'b'))
+                }
+            )
+            .unwrap());
+        assert!(!activated);
+        assert_eq!(
+            queue.read().unwrap().request.unwrap().status,
+            SnapshotRequestStatus::Cancelled
+        );
+        assert!(!queue.file_path(changed_during_prepare).unwrap().exists());
+    }
+
+    #[test]
     fn queue_rejects_oversized_state_without_reading_it_unboundedly() {
         let parent = tempfile::tempdir().unwrap();
         let root = parent.path().join("queue");
@@ -871,10 +940,10 @@ mod tests {
             .enqueue(&source, "fixture", 1, &initial, &digest)
             .unwrap();
         let lease = queue.acquire_worker_lease().unwrap();
-        queue.claim(&lease).unwrap();
+        queue.claim(&lease, "fixture").unwrap();
         let mut activated = false;
         assert!(!queue
-            .complete(id, &lease, &changed, false, || {
+            .complete(id, &lease, &changed, false, "fixture", || {
                 activated = true;
                 Ok(version(&id.to_string(), 'c'))
             })
@@ -925,13 +994,18 @@ mod tests {
             .enqueue(&source, "fixture", 1, &initial, &digest)
             .unwrap();
         let lease = queue.acquire_worker_lease().unwrap();
-        queue.claim(&lease).unwrap();
+        queue.claim(&lease, "fixture").unwrap();
         queue.cancel("fixture").unwrap();
 
         assert!(matches!(
-            queue.complete(id, &lease, &version(&id.to_string(), 'b'), true, || {
-                panic!("cancelled request must not be applied")
-            }),
+            queue.complete(
+                id,
+                &lease,
+                &version(&id.to_string(), 'b'),
+                true,
+                "fixture",
+                || { panic!("cancelled request must not be applied") }
+            ),
             Err(SnapshotQueueError::Conflict)
         ));
         let state = queue.read().unwrap();
@@ -962,9 +1036,9 @@ mod tests {
         let worker = std::thread::spawn(move || {
             let worker_queue = DictionarySnapshotQueue::new(worker_root).unwrap();
             let lease = worker_queue.acquire_worker_lease().unwrap();
-            worker_queue.claim(&lease).unwrap();
+            worker_queue.claim(&lease, "fixture").unwrap();
             worker_queue
-                .complete(id, &lease, &worker_version, false, || {
+                .complete(id, &lease, &worker_version, false, "fixture", || {
                     entered_send.send(()).unwrap();
                     release_receive.recv().unwrap();
                     Ok(version(&id.to_string(), 'b'))

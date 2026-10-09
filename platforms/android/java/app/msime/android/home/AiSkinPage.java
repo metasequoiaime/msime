@@ -38,6 +38,7 @@ import app.msime.android.KeyboardSkin;
 import app.msime.android.PhotoDecodePolicy;
 import app.msime.android.ProgressBarPolicy;
 import app.msime.android.SkinJobsApi;
+import app.msime.android.ThreadPolicy;
 import app.msime.android.ViewPolicy;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -107,7 +108,7 @@ public final class AiSkinPage extends DetailPage {
             AtomicBoolean flag = new AtomicBoolean(false);
             cancelled = flag;
             // 一次生成可能要几分钟，不能占用设置页共用的那条 HostTask 线程。
-            Thread worker = new Thread(() -> {
+            Thread worker = ThreadPolicy.namedDaemonThread("msime-ai-skin-generate", () -> {
                 List<Result> generated = new ArrayList<>(SkinJobsApi.MAX_DESIGNS);
                 CloudApi.Failure failure = null;
                 try {
@@ -122,8 +123,7 @@ public final class AiSkinPage extends DetailPage {
                 }
                 CloudApi.Failure result = failure;
                 main.post(() -> complete(application, flag, text, generated, result));
-            }, "msime-ai-skin-generate");
-            worker.setDaemon(true);
+            });
             worker.start();
         }
 

@@ -280,6 +280,7 @@ import {
   dictionaryChangePageChanged,
   parseResponseContentLength,
   accountReplyValue,
+  storedSessionUserId,
   strictAccountOk,
 } from "../entry/src/main/ets/account/AccountCloudBridge";
 import {
@@ -9682,6 +9683,19 @@ group("account native success envelopes require a value", () => {
 });
 
 group("account and cloud clipboard bridge keeps secrets native", () => {
+  const sessionFor = (id: string): string => JSON.stringify({
+    access_token: "a".repeat(64), refresh_token: "b".repeat(64),
+    token_type: "Bearer", expires_at: Date.now() + 600_000,
+    user: { id, display_name: "Synthetic", created_at: "2026-01-01" },
+  });
+  check(storedSessionUserId(sessionFor("old-account")) === "old-account",
+    "the keyboard sees the saved account owner");
+  check(storedSessionUserId(sessionFor("new-account")) === "new-account",
+    "a fresh read sees the replacement account");
+  check(storedSessionUserId(null) === null && storedSessionUserId("not json") === null,
+    "missing or malformed sessions have no owner");
+  check(storedSessionUserId(JSON.stringify({ user: { id: "forged" } })) === null,
+    "an unvalidated user id cannot own a snapshot");
   let oversizedCleared = false;
   const oversizedStore: AccountSessionStore = {
     load: () => "x".repeat(64 * 1024 + 1),
@@ -9871,6 +9885,30 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
         "dictionary offsets are bounded before transport",
       );
     });
+});
+
+group("a rejected account session cancels its snapshot before clearing storage", () => {
+  let saved: string | null = JSON.stringify({
+    access_token: "a".repeat(64), refresh_token: "b".repeat(64),
+    token_type: "Bearer", expires_at: Date.now() + 600_000,
+    user: { id: "synthetic-owner", display_name: "Synthetic", created_at: "2026-01-01" },
+  });
+  const events: string[] = [];
+  const store: AccountSessionStore & { beforeClear(accountId: string): void } = {
+    load: () => saved,
+    save: (value: string) => { saved = value; },
+    beforeClear: (accountId: string) => { events.push(`cancel:${accountId}`); },
+    clear: () => { events.push("clear"); saved = null; },
+  };
+  const bridge = new AccountCloudBridge(
+    { request: async () => ({ status: 401, body: "{}" }) }, store,
+  );
+  void bridge.handle('{"operation":"profile"}').then((reply) => {
+    check(JSON.parse(reply).error === "account_unauthorized", "the refused session is rejected");
+    check(JSON.stringify(events) === '["cancel:synthetic-owner","clear"]',
+      "the snapshot owner is cancelled before the session disappears");
+    check(saved === null, "the refused session is removed");
+  });
 });
 
 group("a failed login save preserves the last committed session", () => {

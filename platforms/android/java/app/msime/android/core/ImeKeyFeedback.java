@@ -34,11 +34,8 @@ final class ImeKeyFeedback {
     static final int KEY_BACKSPACE = 3;
 
     private final MSIMEInputService s;
-    private final ExecutorService loader = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "msime-key-sound");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ExecutorService loader = Executors.newSingleThreadExecutor(
+        ThreadPolicy.namedDaemonFactory("msime-key-sound"));
     private JSONObject preferencesSeen;
     private AndroidLocalSettings.Snapshot localSeen;
     private String packId = "default";

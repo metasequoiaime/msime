@@ -14,15 +14,21 @@
 set -uo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 arch=${1:-x86}
-image=msime-cross:local
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "skipped: docker is not installed"; exit 0
 fi
-if ! docker info >/dev/null 2>&1; then
+if ! daemon_platform=$(docker info --format '{{.OSType}}/{{.Architecture}}' 2>/dev/null); then
   echo "skipped: the docker daemon is not running"; exit 0
 fi
-docker build --platform linux/amd64 -t "$image" "$root/platforms/windows/cross" >/dev/null 2>&1 || {
+# 以 daemon 而非客户端架构选择编译器，避免 ARM 主机上的整套工具链仿真。
+# amd64 保留已有缓存；ARM64 的 vcpkg 可执行文件和宿主依赖单独存放。
+case "$daemon_platform" in
+  linux/aarch64|linux/arm64) platform=linux/arm64; cache_suffix=/arm64; image=msime-cross:local-arm64 ;;
+  linux/*) platform=linux/amd64; cache_suffix=; image=msime-cross:local ;;
+  *) echo "Unsupported cross-build Docker platform: $daemon_platform" >&2; exit 1 ;;
+esac
+docker build --platform "$platform" -t "$image" "$root/platforms/windows/cross" >/dev/null 2>&1 || {
   echo "skipped: could not build the cross image"; exit 0; }
 
 # Keep the container's tooling apart from the host's. A vcpkg checkout
@@ -31,10 +37,10 @@ docker build --platform linux/amd64 -t "$image" "$root/platforms/windows/cross" 
 # writes to target/tooling by construction, so that path is bind-mounted to a
 # container-only directory rather than teaching the script a second location.
 # `CARGO_HOME` 放在现有仓库挂载内，保留临时容器运行后下载的 registry 与 Git 源码。
-mkdir -p "$root/target/tooling-linux" "$root/target/windows-native-deps-linux" \
+mkdir -p "$root/target/tooling-linux$cache_suffix" "$root/target/windows-native-deps-linux$cache_suffix" \
   "$root/target/windows-cross/cargo-home"
-docker run --rm --platform linux/amd64 \
-  -v "$root":/repo -v "$root/target/tooling-linux":/repo/target/tooling -w /repo \
-  -e MSIME_WINDOWS_DEPS_ROOT=/repo/target/windows-native-deps-linux \
+docker run --rm --platform "$platform" \
+  -v "$root":/repo -v "$root/target/tooling-linux$cache_suffix":/repo/target/tooling -w /repo \
+  -e MSIME_WINDOWS_DEPS_ROOT="/repo/target/windows-native-deps-linux$cache_suffix" \
   -e CARGO_HOME=/repo/target/windows-cross/cargo-home \
   "$image" bash platforms/windows/build-cross.sh "$arch"

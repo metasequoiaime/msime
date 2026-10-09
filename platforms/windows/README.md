@@ -310,15 +310,18 @@ x64 宿主 DLL、会话测试及完整原生管道集成测试链接为 PE32+，
 
 x86 的 Rust GNU 目标要求 DWARF 展开，而 Homebrew 的 i686 MinGW 用 SJLJ，`build-cross.sh` 在准备依赖之前就拒绝这个组合，不通过 panic=abort 改变既有错误隔离契约。在这类主机上用 `bash platforms/windows/build-cross-container.sh x86`：容器里的 Debian i686 MinGW 以 DWARF 构建，脚本内容不变。Windows 上的 x86 由 `Build-Client.ps1` 以 MSVC 构建。
 
+交叉编译容器按 Docker daemon 的 Linux 架构选择 `linux/amd64` 或 `linux/arm64`，不依据客户端的 `uname` 或 `DOCKER_DEFAULT_PLATFORM`。ARM64 使用原生 Rust、MinGW 和 vcpkg 工具，Windows 输出目标仍由 `x86`/`x64` 参数决定；Linux ARM64 的 vcpkg 宿主 triplet 为 `arm64-linux`。amd64 保留 `msime-cross:local`、`target/tooling-linux` 和 `target/windows-native-deps-linux`；ARM64 使用 `msime-cross:local-arm64` 和两个缓存目录下的 `arm64` 子目录，避免混用 vcpkg 可执行文件及宿主依赖。现有 amd64 缓存不会自动迁移，ARM64 首次需准备依赖。其他 Linux daemon 架构保留原有 amd64 仿真路径。Wine 执行 Windows 程序仍使用独立的 amd64 容器。
+
 交叉构建容器的 `CARGO_HOME` 指向仓库挂载内的 `target/windows-cross/cargo-home`，同一 worktree 的 x86/x64 构建复用 Cargo 下载与源码缓存，容器删除后仍保留；镜像里的 Rustup 工具链与主机 Cargo home 保持各自位置。首次填充需要联网，首次改变源码缓存路径也可能触发重新编译；依赖继续由 `Cargo.lock` 和 `--locked` 约束。缓存位于既有 `target` 内，移除 worktree 时一并清理。
 
 交叉镜像的默认 Rust 工具链与 `rust-toolchain.toml` 的固定版本一致，预装 `rustfmt`、`clippy` 以及 x86/x64 两个 Windows GNU 标准库。这样从仓库目录调用 Cargo 和 `rustup target add` 时可复用镜像里的安装，不在每个临时容器中重新准备另一份工具链。升级固定版本或组件时同步 `cross/Dockerfile`，构建镜像后在仓库根目录运行：
 
 ```sh
 bash platforms/windows/tests/tools/check-cross-image-toolchain.sh msime-cross:local
+# ARM64 daemon 构建的镜像使用 msime-cross:local-arm64。
 ```
 
-该检查在断网的新 amd64 容器中只读挂载真实仓库，执行 Cargo、Rustfmt、Clippy 版本命令和两个目标的安装命令，再用两个 MinGW 链接器链接包含标准库和线程调用的合成 Rust 程序，检查 x86/x64 的 PE 格式。输出为 `target/windows-cross/i686/toolchain-probe.exe` 和 `target/windows-cross/x86_64/toolchain-probe.exe`。缺失工具链、组件或目标无法下载补齐，应当失败。它只验证工具链准备和链接，不运行 Windows 程序，不替代完整产品构建、Wine 或系统输入法验收；不接入每次 quick，以免增加容器启动开销。
+该检查按指定镜像的架构在断网的新容器中只读挂载真实仓库，执行 Cargo、Rustfmt、Clippy 版本命令和两个目标的安装命令，再用两个 MinGW 链接器链接包含标准库和线程调用的合成 Rust 程序，检查 x86/x64 的 PE 格式。输出为 `target/windows-cross/i686/toolchain-probe.exe` 和 `target/windows-cross/x86_64/toolchain-probe.exe`。缺失工具链、组件或目标无法下载补齐，应当失败。它只验证工具链准备和链接，不运行 Windows 程序，不替代完整产品构建、Wine 或系统输入法验收；不接入每次 quick，以免增加容器启动开销。
 
 交叉镜像用 `cross/add-header-aliases.py` 一次扫描三个 MinGW include 目录，补齐顶层 ASCII 小写开头的 `.h` 首字母大写相对别名，保留已有条目，不递归处理子目录。Python 已在镜像中，避免 amd64 仿真下逐文件启动多个外部命令。合成文件系统回归由本地/CI 契约门禁自动发现；大小写不敏感主机明确跳过，可在已构建的 Linux 镜像中运行：
 

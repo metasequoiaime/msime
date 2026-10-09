@@ -482,6 +482,7 @@ impl JapaneseDictionary {
                 best.push((key, id));
             }
         };
+        let mut query = String::new();
         for kana in next_kana {
             if kana.is_empty() {
                 for index in self.lower_bound(prefix)..self.token_count {
@@ -495,8 +496,21 @@ impl JapaneseDictionary {
                 }
                 continue;
             }
-            let mut query = String::with_capacity(prefix.len() + kana.len());
-            query.push_str(prefix);
+            if query.is_empty() {
+                // 只在首个非空后缀预留最长键容量，公共前缀在整个查询中保留。
+                let suffix_capacity = if next_kana.len() == 1 {
+                    kana.len()
+                } else {
+                    next_kana
+                        .iter()
+                        .map(|suffix| suffix.len())
+                        .max()
+                        .unwrap_or(0)
+                };
+                query.reserve_exact(prefix.len() + suffix_capacity);
+                query.push_str(prefix);
+            }
+            query.truncate(prefix.len());
             query.push_str(kana);
             let start = self.lower_bound(&query);
             for index in start..self.token_count {
@@ -930,7 +944,8 @@ mod tests {
                 views.iter().map(|view| view.token_id).collect::<Vec<_>>(),
                 [1, 2, 0][..limit.min(3)]
             );
-            assert_eq!(allocations, 5, "三个 suffix 字符串、排名堆及结果向量");
+            eprintln!("日文三个后缀 continuing 命中分配：{allocations}");
+            assert_eq!(allocations, 3, "一份查询键、排名堆及结果向量");
         }
     }
 
@@ -1222,3 +1237,6 @@ mod tests {
         assert!(!dictionary.prefix_lemmas("か", 24).is_empty());
     }
 }
+
+#[cfg(test)]
+mod continuing_tests;

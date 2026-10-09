@@ -410,11 +410,8 @@ public final class LocalAsrRecognizer {
         ScheduledExecutorService executor;
         synchronized (MEMORY_LOCK) {
             if (releaser == null) {
-                releaser = Executors.newSingleThreadScheduledExecutor(runnable -> {
-                    Thread thread = new Thread(runnable, "msime-local-asr-release");
-                    thread.setDaemon(true);
-                    return thread;
-                });
+                releaser = Executors.newSingleThreadScheduledExecutor(
+                    ThreadPolicy.namedDaemonFactory("msime-local-asr-release"));
             }
             executor = releaser;
         }

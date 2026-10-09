@@ -26,6 +26,7 @@ import app.msime.android.KeyboardScheme;
 import app.msime.android.core.InputViewValuePolicy;
 import app.msime.android.R;
 import app.msime.android.SchemePreferences;
+import app.msime.android.ThreadPolicy;
 import app.msime.android.ViewPolicy;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.materialswitch.MaterialSwitch;
@@ -581,13 +582,13 @@ public final class OnboardingActivity extends AppCompatActivity {
      * <p>{@link HostTask} 只收 Fragment，而这是一个 Activity；这里要的只是「别在主线程上读盘」，所以起一条一次性的线程。A failure runs the fallback so the page never waits on a read that is not coming.
      */
     private void offMainThread(Runnable work, Runnable failed) {
-        new Thread(() -> {
+        ThreadPolicy.startNamedThread("msime-onboarding", () -> {
             try {
                 work.run();
             } catch (RuntimeException | LinkageError error) {
                 failed.run();
             }
-        }, "msime-onboarding").start();
+        });
     }
 
 }

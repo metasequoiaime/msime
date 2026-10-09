@@ -26,6 +26,7 @@ case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) host_triplet=arm64-osx ;;
   Darwin-x86_64) host_triplet=x64-osx ;;
   Linux-x86_64) host_triplet=x64-linux ;;
+  Linux-aarch64|Linux-arm64) host_triplet=arm64-linux ;;
   *) echo "Set up dependencies manually on this host" >&2; exit 1 ;;
 esac
 # Check compiler/host compatibility before any network preparation.
