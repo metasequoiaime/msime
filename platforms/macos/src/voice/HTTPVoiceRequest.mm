@@ -119,9 +119,7 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
 }
 - (NSUInteger)sampleLimit {
     // 阿里云百炼的 chat_audio 上限（约 218 秒）比 multipart 小得多，录音按它截取，不让整段在上传时被拒。
-    if (msime::voice::asr_request_format(String(_options, @"asr_provider")) == "chat_audio")
-        return (msime::voice::chat_audio_max_wav_bytes - 44) / 2;
-    return msime::voice::batch_capture_sample_limit;
+    return msime::voice::batch_capture_sample_limit_for(String(_options, @"asr_provider"));
 }
 - (BOOL)recognizePCM:(NSData *)pcm completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error {
     @synchronized(self) {

@@ -108,6 +108,12 @@ std::string asr_request_format(std::string_view provider) {
   return {};
 }
 
+std::size_t batch_capture_sample_limit_for(std::string_view provider) {
+  if (asr_request_format(provider) == "chat_audio")
+    return (chat_audio_max_wav_bytes - 44u) / 2u;
+  return batch_capture_sample_limit;
+}
+
 std::string default_polish_endpoint(std::string_view provider) {
   const auto id = normalize_voice_provider(provider);
   if (id == "openai")

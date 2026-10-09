@@ -50,6 +50,13 @@ class ProviderRequestFormat(unittest.TestCase):
             voice.request_body(b"\0" * voice.CHAT_AUDIO_MAX_WAV,
                                {"provider": "bailian", "model": "qwen3-asr-flash"}, "auto")
 
+    def test_bailian_recordings_stop_at_what_one_upload_can_carry(self):
+        limit = voice.capture_byte_limit("bailian")
+        self.assertEqual(limit, voice.CHAT_AUDIO_MAX_WAV - 44)
+        voice.request_body(b"\0" * limit, {"provider": "bailian", "model": "qwen3-asr-flash"}, "auto")
+        self.assertEqual(voice.capture_byte_limit("openai"), voice.MAX_AUDIO - 44)
+        self.assertEqual(voice.capture_byte_limit("local"), voice.MAX_AUDIO - 44)
+
     def test_multipart_providers_keep_their_upload(self):
         _, content_type = voice.request_body(
             b"\0\0" * 160, {"provider": "openai", "model": "whisper-1"}, "zh-cn")

@@ -274,6 +274,13 @@ def chat_audio(pcm, config):
     return json.dumps(body).encode(), "application/json"
 
 
+def capture_byte_limit(provider):
+    """一次整句上传能带的 PCM 字节数：chat_audio（阿里云百炼）约 218 秒，其余服务是 MAX_AUDIO。录到这里就结束录音并识别，和 macOS、Windows 一样，不让录满后整段被拒。"""
+    if REQUEST_FORMATS.get(provider) == CHAT_AUDIO:
+        return CHAT_AUDIO_MAX_WAV - 44
+    return MAX_AUDIO - 44
+
+
 def request_body(pcm, config, language):
     if REQUEST_FORMATS.get(config["provider"]) == CHAT_AUDIO:
         return chat_audio(pcm, config)
@@ -823,11 +830,12 @@ class Session:
         self.stopped.set()
 
 
-def capture(session, connection, args, seconds, options, on_audio=None, on_tick=None, on_level=None):
+def capture(session, connection, args, seconds, options, on_audio=None, on_tick=None, on_level=None,
+            max_bytes=MAX_AUDIO - 44):
     pcm = bytearray()
     recorded = 0
     pending_sample = b""
-    limit = min(seconds * RATE * 2, MAX_AUDIO - 44)
+    limit = min(seconds * RATE * 2, max_bytes)
     process = None
     muted = []
     mute_watch = None
@@ -1144,7 +1152,7 @@ class Handler(socketserver.StreamRequestHandler):
                     query.get("stream") and isinstance(events, list) and "level" in events) else None
                 pcm, recorded = capture(session, self.request, capture_args, self.server.seconds, options,
                                         recognizer.feed if recognizer else None, tick if recognizer else None,
-                                        level_update)
+                                        level_update, capture_byte_limit(asr["provider"]))
             finally:
                 # Also covers recognizer initialization failures before capture().
                 self.server.microphone.release()

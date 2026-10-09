@@ -26,6 +26,8 @@ std::string default_asr_model(std::string_view provider);
 std::string asr_request_format(std::string_view provider);
 // chat_audio 一次最多上传的 WAV 字节数（与 client-core 的 CHAT_AUDIO_MAX_WAV_BYTES 相同）：百炼限制请求里的音频含 Base64 编码不超过 10 MB，16 kHz 单声道 16 位约 218 秒。
 inline constexpr std::size_t chat_audio_max_wav_bytes = 7000000u;
+// 整句录音最多留多少个 16 位样本：chat_audio（阿里云百炼）按 chat_audio_max_wav_bytes 算，约 218 秒；其余服务是 batch_capture_sample_limit。宿主录到这里就结束录音并提交，不让超出的录音在上传时被整段拒绝。
+std::size_t batch_capture_sample_limit_for(std::string_view provider);
 std::string default_polish_endpoint(std::string_view provider);
 std::string default_polish_model(std::string_view provider);
 // True when the configured provider is Doubao. Deliberately ignores the
@@ -87,6 +89,7 @@ using windows::default_asr_endpoint;
 using windows::default_asr_model;
 using windows::asr_request_format;
 using windows::chat_audio_max_wav_bytes;
+using windows::batch_capture_sample_limit_for;
 using windows::default_polish_endpoint;
 using windows::default_polish_model;
 using windows::is_doubao_asr_provider;
