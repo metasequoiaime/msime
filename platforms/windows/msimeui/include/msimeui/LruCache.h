@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -34,7 +35,9 @@ class LruCache
                 entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(index));
                 entries_.push_back(std::move(entry));
             }
-            return &entries_.back().value;
+            // Not `&`: WRL ComPtr overloads it, and the ComPtrRef it returns
+            // empties the ComPtr when converted to a ComPtr pointer.
+            return std::addressof(entries_.back().value);
         }
         return nullptr;
     }
