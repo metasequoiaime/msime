@@ -3199,7 +3199,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const staging: string = `${stateRoot}/dictionary-snapshot-staging`;
     try {
       if (!fs.accessSync(staging)) fs.mkdirSync(staging, true);
-      // Read the shared file for each idle pass; this process may outlive a settings-side account switch.
+      // 每次空闲处理都重新读共享的会话文件：键盘进程可能比设置里的一次账号切换活得更久。
       const accountId: string | null = storedSessionUserId(new FileSessionStore(stateRoot).load());
       const action: SnapshotQueueProcessAction = {
         operation: 'process', directory: `${stateRoot}/dictionary-snapshots`,
