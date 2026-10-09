@@ -138,7 +138,7 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 `package-legacy-container.sh` 在 Debian 10（buster）容器里构建一个只含 IBus 宿主的 `.deb`，给 UOS 20 专业版、Debian 10 这类 glibc 2.28 基线、装不上发布页 `.deb` 的系统用（#6311）。它不是发布页的附件，`release-linux.yml` 不构建它，需要的人在装有 Docker 的机器上自己构建：`bash platforms/linux/package-legacy-container.sh [版本]`，产物是 `target/linux-package-legacy-<架构>/dist/msime-linux_<版本>_<架构>.deb` 和它的 `SHA256SUMS`。`MSIME_LEGACY_ARCH=amd64|arm64` 选择架构，缺省是本机架构；另一种架构经 Docker 的 `--platform` 在模拟器里构建，要求 Docker 能运行该平台的容器（binfmt/qemu 或 Rosetta），比原生慢得多。
 
-构建镜像是 `tests/tools/Dockerfile.legacy`：buster 自带的 GCC 8.3、IBus 1.5.19、Python 3.7 与 glibc 2.28，加上按 SHA-256 固定的 Kitware CMake 3.25.1、nlohmann-json 3.11.2 源码和 Rust 1.97.1（buster 的 CMake 3.13 与 nlohmann-json 3.5 低于 `CMakeLists.txt` 的要求，两者的版本与 bookworm 门禁镜像相同）。Host API 库、`msime-mcp` 和原生宿主都在这个容器里编译，所以只引用 glibc 2.28 及以下的符号版本；打包后脚本逐个核对包里的 ELF 文件（含预编译的 sherpa-onnx 与 ONNX Runtime 库），任何一个要求更新的 glibc 就失败。随后它在一个只有基础系统的 `debian:buster` 容器里用 apt 安装这个包，确认每个 ELF 文件的共享库都能解析、没有设置窗口的文件，再在装好包的容器里跑构建树的 ctest：测试程序链接的库只能由包的 Depends 带进来。
+构建镜像是 `tests/tools/Dockerfile.legacy`：buster 自带的 GCC 8.3、IBus 1.5.19、Python 3.7 与 glibc 2.28，加上按 SHA-256 固定的 Kitware CMake 3.25.1、nlohmann-json 3.11.2 源码和 Rust 1.97.1（buster 的 CMake 3.13 与 nlohmann-json 3.5 低于 `CMakeLists.txt` 的要求，两者的版本与 bookworm 门禁镜像相同）。Host API 库、`msime-mcp` 和原生宿主都在这个容器里编译，所以只引用 glibc 2.28 及以下的符号版本；打包后脚本逐个核对包里的 ELF 文件（含预编译的 sherpa-onnx 与 ONNX Runtime 库），任何一个要求的 glibc、libstdc++（`GLIBCXX`、`CXXABI`）或 libgcc（`GCC`）符号版本高于 buster 提供的就失败，上限从构建镜像里的库读出。随后它在一个只有基础系统的 `debian:buster` 容器里用 apt 安装这个包，确认每个 ELF 文件的共享库和符号版本都能解析、没有设置窗口的文件，再在装好包的容器里跑构建树的 ctest：测试程序链接的库只能由包的 Depends 带进来。最后由 `tests/tools/legacy-runtime.sh` 做运行时验收：在 Python 3.7 上跑随包 Python 脚本的合约测试（与 `tests/tools/in-container.sh` 同一份清单 `python-contracts.list`，跳过只与设置窗口和豆包有关的两项），用第 1 步按词库锁取回的词库跑 `ibus-engine-smoke --page-number`，并让已安装的 `/usr/bin/msime-linux-ibus` 在 buster 自带的 ibus-daemon 1.5.19 下经合成输入上下文（`daemon_smoke.py`：打字、切换输入源、宿主崩溃后由监护进程重启、`ibus exit`）和 GTK 3 文本框（`gtk_smoke.py`）打字。词库只用于验收，不进包。
 
 这个包与发布页的 `.deb` 包名相同（`msime-linux`），安装路径也相同，装上一个就替换掉另一个。区别是：
 
@@ -160,7 +160,7 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 - IBus 面板上的输入法菜单与发布页的包相同，中英文、全角、中文标点、简繁、输入方案、双拼方案、辅助码方案和主题都在那里切换。
 - 其余偏好用随包的 `msime` 命令（`msime-mcp` 的命令行形式，见上文「包管理器」）：`msime config` 列出当前偏好，`msime config get <键>` 读取，`msime config set <键>=<值> …` 修改，例如 `msime config set candidate_page_size=7 fuzzy_pinyin=true`，输入法在几秒内热重载。能改的键是 MCP 工具 `update_preferences` 接受的那一组（`crates/mcp-server/src/preferences.rs` 的 `PreferencesChange`），包括输入方案与双拼方案、候选个数、字号、缩放、透明度、圆角与排列、候选跟随光标、数字行选词、模式提示、模糊音、默认中英文、全半角、中文标点、智能标点、繁体输出、五笔方案、五笔混输拼音、五笔编码提示和诊断日志；`msime --help` 列出全部命令。
 
-验证范围：arm64 的构建、glibc 检查、apt 安装和 ctest 在 Docker 容器里跑过；amd64 只在 arm64 主机上经模拟构建过镜像、核对过预编译语音运行库的 glibc 要求，完整构建在模拟器里太慢，没有跑完；两种架构都没有在 UOS 20 真机或任何图形会话里选中输入法打过字。
+验证范围：arm64 的构建、符号版本检查、apt 安装、ctest 和上面的运行时验收在 Docker 容器里跑过，IBus 引擎在 ibus-daemon 1.5.19 与 Xvfb 上的 GTK 3 程序里打字通过。amd64 只在 arm64 主机上经模拟构建过镜像、核对过预编译语音运行库要求的 glibc、libstdc++ 与 libgcc 符号版本（都不超过 buster），完整构建在模拟器里太慢，没有跑完，amd64 的包没有产出、安装或运行过。两种架构都没有在 UOS 20 真机或真实桌面会话里打过字，Qt 程序与 Wayland 下的行为也没有在 IBus 1.5.19 上测过。
 
 ### Nix 与 NixOS
 
