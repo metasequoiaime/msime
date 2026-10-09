@@ -52,6 +52,34 @@ pub fn convert(
     count: usize,
     pins: &[Span],
     mut best: impl FnMut(usize, usize) -> Result<Option<(String, LanguageEntry)>>,
+    fallback: impl FnMut(usize) -> String,
+) -> Result<Vec<Span>> {
+    convert_filtered(
+        count,
+        pins,
+        |start, end, can_improve| {
+            Ok(match best(start, end)? {
+                Some((key, entry)) if can_improve(entry.weight) => Lookup::Found(key, entry),
+                Some(_) => Lookup::Rejected,
+                None => Lookup::Missing,
+            })
+        },
+        fallback,
+    )
+}
+
+/// 被当前路径分数拒绝的词条仍然存在，不能把它当成缺失词条并生成单音节兜底。
+pub(super) enum Lookup {
+    Missing,
+    Rejected,
+    Found(String, LanguageEntry),
+}
+
+/// 在词条借用期间调用 `can_improve(weight)`，只为能改善路径的词条取得所有权；查询顺序和错误传播与 `convert` 相同。
+pub(super) fn convert_filtered(
+    count: usize,
+    pins: &[Span],
+    mut best: impl FnMut(usize, usize, &mut dyn FnMut(i64) -> bool) -> Result<Lookup>,
     mut fallback: impl FnMut(usize) -> String,
 ) -> Result<Vec<Span>> {
     // `paths[i]` 是转换前 `i` 个音节的最佳路径及结束它的那一段。
@@ -84,13 +112,18 @@ pub fn convert(
                 if pins.iter().any(|pin| pin.overlaps(start, end)) {
                     break;
                 }
-                let (key, text, weight) = match best(start, end)? {
-                    Some((key, entry)) => (key, entry.text, entry.weight),
-                    None if end == start + 1 => {
+                let (key, text, weight) = match best(start, end, &mut |weight| {
+                    let arrival = score.add(end - start, weight);
+                    paths[end]
+                        .as_ref()
+                        .is_none_or(|(current, _)| arrival > *current)
+                })? {
+                    Lookup::Found(key, entry) => (key, entry.text, entry.weight),
+                    Lookup::Missing if end == start + 1 => {
                         let reading = fallback(start);
                         (reading.clone(), reading, 0)
                     }
-                    None => continue,
+                    Lookup::Missing | Lookup::Rejected => continue,
                 };
                 consider_span(
                     paths,
@@ -319,6 +352,64 @@ mod tests {
             ("c", "C", 1),
         ];
         assert_eq!(texts(&run(&["a", "b", "c"], &[], &entries)), ["AB", "C"]);
+    }
+
+    #[test]
+    fn rejected_negative_single_rows_do_not_become_fallbacks() {
+        let entries = [
+            ("a", "A", 0),
+            ("b", "B", 0),
+            ("c", "C", 0),
+            ("d", "D", -20),
+            ("b c", "BC", 0),
+            ("c d", "CD", -10),
+        ];
+        assert_eq!(
+            texts(&run(&["a", "b", "c", "d"], &[], &entries)),
+            ["A", "B", "CD"]
+        );
+    }
+
+    #[test]
+    fn equal_and_saturated_scores_keep_the_first_arrival() {
+        for weight in [1, i64::MAX] {
+            let entries = [
+                ("a", "A", weight),
+                ("b", "B", weight),
+                ("c", "C", weight),
+                ("a b", "AB", weight),
+                ("b c", "BC", weight),
+            ];
+            assert_eq!(texts(&run(&["a", "b", "c"], &[], &entries)), ["A", "BC"]);
+        }
+    }
+
+    #[test]
+    fn losing_interval_queries_still_propagate_errors() {
+        let mut visited = Vec::new();
+        let result = convert(
+            3,
+            &[],
+            |start, end| {
+                visited.push((start, end));
+                if start == 1 {
+                    return Err(crate::error::EngineError::failed("合成查询失败"));
+                }
+                Ok(Some((
+                    "合成讀音".to_owned(),
+                    LanguageEntry {
+                        text: "合成文字".to_owned(),
+                        weight: 1,
+                    },
+                )))
+            },
+            |_| panic!("已有词条不应生成兜底读音"),
+        );
+        assert_eq!(visited, [(0, 1), (0, 2), (0, 3), (1, 2)]);
+        assert!(matches!(
+            result,
+            Err(crate::error::EngineError::Failed(message)) if message == "合成查询失败"
+        ));
     }
 
     #[test]

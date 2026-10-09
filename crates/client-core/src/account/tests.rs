@@ -285,6 +285,7 @@ impl AccountSessionStorage for FailingLockStorage {
 struct FakeApi {
     refreshes: Arc<AtomicUsize>,
     reject_refresh: Arc<AtomicBool>,
+    reject_logout: Arc<AtomicBool>,
     refresh_gate: Option<Arc<(Mutex<bool>, Condvar)>>,
     preferences_started: Arc<AtomicBool>,
     preferences_gate: Option<Arc<(Mutex<bool>, Condvar)>>,
@@ -298,6 +299,7 @@ impl FakeApi {
         Self {
             refreshes: Arc::new(AtomicUsize::new(0)),
             reject_refresh: Arc::new(AtomicBool::new(false)),
+            reject_logout: Arc::new(AtomicBool::new(false)),
             refresh_gate: None,
             preferences_started: Arc::new(AtomicBool::new(false)),
             preferences_gate: None,
@@ -378,7 +380,11 @@ impl AccountApi for FakeApi {
     }
 
     fn logout(&self, _access_token: &str, _all: bool) -> Result<(), AccountError> {
-        Ok(())
+        if self.reject_logout.load(Ordering::SeqCst) {
+            Err(AccountError::Unavailable)
+        } else {
+            Ok(())
+        }
     }
 
     fn delete_account(&self, _access_token: &str) -> Result<(), AccountError> {
@@ -798,6 +804,21 @@ fn logout_clears_local_session_before_remote_result() {
 }
 
 #[test]
+fn logout_remote_failure_still_invalidates_local_identity() {
+    let storage = MemoryStorage::default();
+    installed(&storage, valid_future_expiry());
+    let api = FakeApi::new();
+    api.reject_logout.store(true, Ordering::SeqCst);
+    let session = BackendAccountSession::new(api, storage);
+
+    assert_eq!(session.logout(true), Err(AccountError::Unavailable));
+    assert_eq!(
+        session.with_current_identity(|identity| Ok(identity.map(|(user, _)| user.to_owned()))),
+        Ok(None)
+    );
+}
+
+#[test]
 fn authenticated_operation_is_cancelled_when_session_changes_before_completion() {
     let storage = MemoryStorage::default();
     installed(&storage, valid_future_expiry());
@@ -887,6 +908,34 @@ fn a_generation_guard_rejects_a_same_user_relogin_before_local_write() {
         session.put_preferences_with_generation(&cloud, generation, "fixture-user"),
         Err(AccountError::Cancelled)
     );
+}
+
+#[test]
+fn current_identity_guard_tracks_same_user_relogin() {
+    let storage = MemoryStorage::default();
+    installed(&storage, valid_future_expiry());
+    let session = BackendAccountSession::new(FakeApi::new(), storage);
+    let original = session
+        .with_current_identity(|identity| {
+            Ok(identity.map(|(user, generation)| (user.to_owned(), generation)))
+        })
+        .unwrap()
+        .unwrap();
+
+    session.forget().unwrap();
+    assert_eq!(
+        session.with_current_identity(|identity| Ok(identity.map(|(user, _)| user.to_owned()))),
+        Ok(None)
+    );
+    session.sign_in("synthetic-challenge", "123456").unwrap();
+    let current = session
+        .with_current_identity(|identity| {
+            Ok(identity.map(|(user, generation)| (user.to_owned(), generation)))
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.0, original.0);
+    assert_ne!(current.1, original.1);
 }
 
 #[test]

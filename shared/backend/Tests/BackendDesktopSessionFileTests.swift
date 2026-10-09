@@ -3,6 +3,18 @@ import Foundation
 import XCTest
 @testable import MSIMEBackend
 
+private struct FirstLoginAPI: BackendSessionAPI {
+  let tokens: BackendAccountClient.Tokens
+
+  func login(challenge: String, credential: String, linkToken: String?) async throws -> BackendAccountClient.Tokens {
+    tokens
+  }
+  func refresh(_ token: String) async throws -> BackendAccountClient.Tokens {
+    throw BackendAccountClient.Failure(status: 0)
+  }
+  func logout(token: String, all: Bool) async throws { }
+}
+
 final class BackendDesktopSessionFileTests: XCTestCase {
   private var directory: URL!
 
@@ -35,6 +47,20 @@ final class BackendDesktopSessionFileTests: XCTestCase {
     try store.clear()
     XCTAssertNil(try store.load())
     try store.clear()
+  }
+
+  func testFirstSignInCreatesTheSharedLockDirectory() async throws {
+    let storage = BackendDesktopSessionFile(directory: directory)
+    let lock = BackendFileRefreshLock(url: directory.appendingPathComponent("account-refresh.lock"))
+    let account = BackendAccountSession(api: FirstLoginAPI(tokens: session("a").tokens),
+                                        storage: storage, refreshLock: lock)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+
+    try await account.signIn(challenge: "synthetic-challenge", credential: "synthetic-credential")
+
+    XCTAssertEqual(try storage.load()?.tokens.access_token, String(repeating: "a", count: 64))
+    let mode = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: directory.path)[.posixPermissions] as? Int)
+    XCTAssertEqual(mode & 0o777, 0o700)
   }
 
   /// The document exactly as the settings app writes it (`FileAccountSessionStorage` with the Apple layout), including the user fields this side does not model.

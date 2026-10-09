@@ -155,7 +155,7 @@ $issPath = Join-Path $PSScriptRoot 'msime_setup.iss'
 if (-not (Test-Path -LiteralPath $issPath -PathType Leaf)) {
     throw "找不到安装脚本：$issPath"
 }
-$issContent = Get-Content -LiteralPath $issPath -Raw
+$issContent = Get-Content -LiteralPath $issPath -Raw -Encoding UTF8
 if ($issContent -notmatch '(?m)^#define\s+MyAppVersion\s+"(?<version>[^"]+)"') {
     throw '未能在 msime_setup.iss 中找到 MyAppVersion。'
 }

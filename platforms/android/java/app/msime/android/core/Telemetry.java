@@ -260,7 +260,7 @@ public final class Telemetry {
         JSONObject request = new JSONObject(directoryRequest(app))
             .put("platform", "android")
             .put("version", version(app));
-        String preferences = preferencesDirectory(app);
+        String preferences = HostOptionsPolicy.readOption(app.getFilesDir(), "preferences_directory");
         if (preferences.isEmpty()) request.put("enabled", true);
         else request.put("preferences_directory", preferences);
         return request.toString();
@@ -276,11 +276,6 @@ public final class Telemetry {
             Log.i(TAG, "Package version unavailable", error);
         }
         return "unknown";
-    }
-
-    /** Where the shared preferences live, as Bootstrap wrote it into runtime-options.json; empty before first-run preparation. */
-    private static String preferencesDirectory(Context app) {
-        return HostOptionsPolicy.readOption(app.getFilesDir(), "preferences_directory");
     }
 
     private interface Call {

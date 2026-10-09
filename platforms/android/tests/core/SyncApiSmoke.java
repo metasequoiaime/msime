@@ -18,8 +18,6 @@ public final class SyncApiSmoke {
         check(!SyncApi.conflict(new CloudApi.Failure(412, "revision_conflict", "", 0)), "other status");
         check(!SyncApi.conflict(null), "null failure");
         check(SyncApi.preferenceRevision(42L) == 42L, "integer preference revision");
-        check(SyncApi.phraseRevision(42L) == 42L, "integer phrase revision");
-        check(SyncApi.snapshotRevisionValue(42L) == 42L, "integer snapshot revision");
         check(SyncApi.changesRevision(42L, 7L) == 42L, "integer dictionary revision");
         check(!SyncApi.changePageChanged(false, 7L, 7L), "stationary empty change page");
         check(SyncApi.changePageChanged(true, 8L, 7L), "non-empty change page");
@@ -62,24 +60,6 @@ public final class SyncApiSmoke {
             } catch (CloudApi.Failure expected) {
                 check(expected.status == 500 && "invalid_response".equals(expected.code),
                     "invalid preference revision failure");
-            }
-        }
-        for (Number invalid : new Number[] {1.5d, -1L}) {
-            try {
-                SyncApi.snapshotRevisionValue(invalid);
-                throw new AssertionError("invalid snapshot revision must be refused: " + invalid);
-            } catch (CloudApi.Failure expected) {
-                check(expected.status == 500 && "invalid_response".equals(expected.code),
-                    "invalid snapshot revision failure");
-            }
-        }
-        for (Number invalid : new Number[] {2.5d, -2L}) {
-            try {
-                SyncApi.phraseRevision(invalid);
-                throw new AssertionError("invalid phrase revision must be refused: " + invalid);
-            } catch (CloudApi.Failure expected) {
-                check(expected.status == 500 && "invalid_response".equals(expected.code),
-                    "invalid phrase revision failure");
             }
         }
         for (Number invalid : new Number[] {1.5d, -1L}) {

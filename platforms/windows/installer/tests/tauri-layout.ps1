@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$script = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../msime_setup.iss') -Raw
+$script = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../msime_setup.iss') -Raw -Encoding UTF8
 $script = $script -replace '\\\r?\n\s*', ' '
 $records = [regex]::Matches($script, '(?m)^Source:[^\r\n]*')
 $data = @($records | Where-Object { $_.Value.Contains('\app_data\*') })

@@ -39,7 +39,7 @@ if ($TargetVersion -notmatch '^[0-9][0-9A-Za-z.+-]*$') {
     throw "Invalid installer version: $TargetVersion"
 }
 
-$editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw | ConvertFrom-Json
+$editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $editionEntry = @($editionTable.editions | Where-Object { $_.id -ceq $Edition -and $null -ne $_.platforms.windows })
 if ($editionEntry.Count -ne 1) {
     throw "版本 $Edition 在 shared/contracts/editions.json 里没有 Windows 标识"
@@ -257,7 +257,7 @@ if 'weight' not in names or pk != ['word', 'display']:
         throw "英文词库数据库 schema 检查失败：$englishDb"
     }
     # Validate source content before any existing package staging is removed.
-    $defaultConfig = Get-Content -LiteralPath $factoryConfig -Raw
+    $defaultConfig = Get-Content -LiteralPath $factoryConfig -Raw -Encoding UTF8
     if ($defaultConfig -notmatch '(?m)^schema\s*=\s*"quanpin"\s*$') {
         throw '出厂配置的 input.schema 必须是 quanpin。'
     }
@@ -307,7 +307,7 @@ else {
     Reset-Directory -LiteralPath $targetAppData
     $defaultConfigPath = Join-Path $targetAppData 'config.default.toml'
     # 出厂配置来自本仓库的 default_config，不依赖本机是否已安装输入法。安装脚本用 onlyifdoesntexist 生成用户 config.toml，升级不会覆盖已有方案/主题。
-    Set-Content -LiteralPath $defaultConfigPath -Value $defaultConfig -Encoding utf8NoBOM -NoNewline
+    [IO.File]::WriteAllText($defaultConfigPath, $defaultConfig, [Text.UTF8Encoding]::new($false))
 
     $targetHelpcodes = Join-Path $targetAppData 'helpcodes'
     Reset-Directory -LiteralPath $targetHelpcodes
@@ -480,7 +480,7 @@ Copy-Item -LiteralPath $license -Destination (Join-Path $PSScriptRoot 'LICENSE.t
 
 $targetIss = Join-Path $PSScriptRoot 'msime_setup.iss'
 Assert-PathExists -LiteralPath $targetIss -Description '安装脚本'
-$issContent = Get-Content -LiteralPath $targetIss -Raw
+$issContent = Get-Content -LiteralPath $targetIss -Raw -Encoding UTF8
 if ($issContent -notmatch '(?m)^#define\s+MyAppVersion\s+"[^"]+"\s*$') {
     throw '未能在安装脚本中找到 MyAppVersion。'
 }
@@ -490,7 +490,7 @@ $updatedIss = [regex]::Replace(
     "#define MyAppVersion   `"$TargetVersion`""
 )
 $updatedIss = $updatedIss.TrimEnd("`r", "`n") + "`r`n"
-Set-Content -LiteralPath $targetIss -Value $updatedIss -Encoding utf8NoBOM -NoNewline
+[IO.File]::WriteAllText($targetIss, $updatedIss, [Text.UTF8Encoding]::new($false))
 
 $serverBinaryCount = @(Get-ChildItem -LiteralPath $targetServer -Recurse -File -Include '*.exe', '*.dll').Count
 $tsfBinaryCount = @(Get-ChildItem -LiteralPath $targetTsf -Recurse -File -Include '*.exe', '*.dll').Count

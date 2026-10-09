@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Installer = (Resolve-Path -LiteralPath $Installer).Path
 
-$editions = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../../../shared/contracts/editions.json') -Raw | ConvertFrom-Json
+$editions = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../../../shared/contracts/editions.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $identity = @($editions.editions | Where-Object { $_.id -ceq $Edition -and $null -ne $_.platforms.windows })
 if ($identity.Count -ne 1) { throw "Edition $Edition has no Windows identifiers" }
 $identity = $identity[0].platforms.windows
@@ -51,9 +51,9 @@ Check (Test-Path -LiteralPath (Join-Path $app.DataDir 'config.toml') -PathType L
 Check (Test-Path -LiteralPath (Join-Path $app.DataDir $markerName) -PathType Leaf) 'DataDir ownership marker written'
 # 每个版本（包括 full）：所有权标记写着自己的版本 id，Server 目录里有版本声明。
 $declaration = Join-Path $pf64 'server\edition.json'
-$marker = Get-Content -LiteralPath (Join-Path $app.DataDir $markerName) -Raw
+$marker = Get-Content -LiteralPath (Join-Path $app.DataDir $markerName) -Raw -Encoding UTF8
 Check ($marker.Contains("(edition $Edition)")) 'DataDir ownership marker names the edition'
-$declared = if (Test-Path -LiteralPath $declaration) { (Get-Content -LiteralPath $declaration -Raw | ConvertFrom-Json).edition } else { $null }
+$declared = if (Test-Path -LiteralPath $declaration) { (Get-Content -LiteralPath $declaration -Raw -Encoding UTF8 | ConvertFrom-Json).edition } else { $null }
 Check ($declared -eq $Edition) "server\edition.json declares $Edition"
 # The three voice runtime libraries are what the Server loads for on-device speech recognition; Build-Client.ps1 stages them for every release package.
 foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe', 'MSIME.exe', 'msime-mcp.exe',
@@ -147,7 +147,7 @@ Set-Content -LiteralPath (Join-Path $dataDir 'runtime-options.json') -Value 'smo
 Install $dataDir 'upgrade.log'
 foreach ($item in $seeded.GetEnumerator()) {
     $path = Join-Path $dataDir $item.Key
-    Check ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Content -LiteralPath $path -Raw) -eq $item.Value) "reinstall keeps $($item.Key)"
+    Check ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Content -LiteralPath $path -Raw -Encoding UTF8) -eq $item.Value) "reinstall keeps $($item.Key)"
 }
 $movedDir = Join-Path $dataDir 'moved'
 Install $movedDir 'move.log'
@@ -155,10 +155,10 @@ $app = Get-ItemProperty -LiteralPath $appKey
 Check ($app.DataDir -eq $movedDir) "DataDir recorded as the new directory ($($app.DataDir))"
 foreach ($item in $seeded.GetEnumerator()) {
     $path = Join-Path $movedDir $item.Key
-    Check ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Content -LiteralPath $path -Raw) -eq $item.Value) "move carries $($item.Key)"
+    Check ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Content -LiteralPath $path -Raw -Encoding UTF8) -eq $item.Value) "move carries $($item.Key)"
 }
 $runtimeOptions = Join-Path $movedDir 'runtime-options.json'
-Check (-not ((Test-Path -LiteralPath $runtimeOptions) -and (Get-Content -LiteralPath $runtimeOptions -Raw) -eq 'smoke-stale-runtime-options')) 'move leaves the old runtime-options.json behind'
+Check (-not ((Test-Path -LiteralPath $runtimeOptions) -and (Get-Content -LiteralPath $runtimeOptions -Raw -Encoding UTF8) -eq 'smoke-stale-runtime-options')) 'move leaves the old runtime-options.json behind'
 # The package carries no dictionary in DataDir since #2830; its app_data items are the helpcodes, audio cues and built-in sound packs, so the default sound pack stands for them.
 Check (Test-Path -LiteralPath (Join-Path $movedDir 'sound-packs\default\plugin.toml') -PathType Leaf) 'moved DataDir has the package app_data'
 $left = @(Get-ChildItem -LiteralPath $dataDir -Force | ForEach-Object Name)

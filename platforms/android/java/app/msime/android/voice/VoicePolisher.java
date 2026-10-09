@@ -89,7 +89,7 @@ public final class VoicePolisher {
             JSONArray choices = new JSONObject(response).optJSONArray("choices");
             JSONObject first = choices == null ? null : choices.optJSONObject(0);
             JSONObject message = first == null ? null : first.optJSONObject("message");
-            return message == null ? "" : AiProviderResponse.strictText(message.opt("content"));
+            return message == null ? "" : JsonPolicy.strictStringOrEmpty(message.opt("content"));
         } catch (JSONException error) {
             return "";
         }
