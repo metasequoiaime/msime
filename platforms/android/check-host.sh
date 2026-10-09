@@ -590,6 +590,15 @@ if ! rg -A 12 'void addClipboardTextToPhrases\(' \
   echo "Android clipboard add-to-phrases must write through CommonPhrasesStore on the preferences worker (#5909)" >&2
   exit 1
 fi
+# 左滑删除只在 ClipboardSwipePolicy 判定为横滑后才接手：接手时不让外层面板拦截去滚动，并给卡片补一个取消，撤掉按下态、长按和点按，松手不会插入（#5962）。
+swipe_body=$(rg -A 60 'private final class ClipboardSwipeCell implements' \
+  "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" || true)
+if ! printf '%s\n' "$swipe_body" | rg -q 'ClipboardSwipePolicy\.claims\(' \
+  || ! printf '%s\n' "$swipe_body" | rg -q 'requestDisallowInterceptTouchEvent\(true\)' \
+  || ! printf '%s\n' "$swipe_body" | rg -q 'ACTION_CANCEL\);'; then
+  echo "Android clipboard swipe must claim only through ClipboardSwipePolicy, keep the panel from scrolling and cancel the card's own press (#5962)" >&2
+  exit 1
+fi
 if rg -q 'void manageClipboardItem|new PopupMenu\(this, anchor\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android clipboard entries must not be managed through a PopupMenu (#5653)" >&2
