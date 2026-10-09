@@ -22,8 +22,9 @@ pub use crate::{close_cached_databases, flush_personal_learning};
 pub use dictionary::{
     dictionary_edit, dictionary_edit_bundled, dictionary_entries, dictionary_export_entries,
     dictionary_state_revision, dictionary_table_entries, dictionary_validate,
-    dictionary_validate_previous, replay_user_dictionary, reset_learned_data,
-    stage_dictionary_state, DictionaryEntry, DictionaryKind, DictionaryPage, DictionaryStateRecord,
+    dictionary_validate_previous, merge_dictionary_state, replay_user_dictionary,
+    reset_learned_data, stage_dictionary_state, stream_dictionary_state, DictionaryEntry,
+    DictionaryKind, DictionaryPage, DictionaryStateMerge, DictionaryStateRecord,
     DictionaryTableEntry, DictionaryTablePage, SnapshotReadError,
 };
 pub use glosses::{

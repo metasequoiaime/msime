@@ -13,7 +13,7 @@ pub type DictionaryKind = PersonalDictionaryKind;
 pub type DictionaryEntry = PersonalDictionaryEntry;
 pub use crate::user_dictionary::bundled::{DictionaryTableEntry, DictionaryTablePage};
 pub use crate::user_dictionary::personal::PersonalDictionaryPage as DictionaryPage;
-pub use crate::user_dictionary::state::DictionaryStateRecord;
+pub use crate::user_dictionary::state::{DictionaryStateMerge, DictionaryStateRecord};
 
 /// A sanitised transport failure (cancellation, truncation, bad checksum).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -173,4 +173,31 @@ pub fn stage_dictionary_state(
 
 pub fn dictionary_state_revision(options: &EngineOptions) -> Result<String> {
     released(state::dictionary_state_revision(&runtime_paths(options)))
+}
+
+/// 在一个只读事务里依次读出日志的全部操作行（含学习调权和删除记录）、固定位置和选词计数，交给 `emit`；`emit` 返回假时停下并报 `INVALID_DICTIONARY_STATE`。本地备份导出输入记录用它。
+pub fn stream_dictionary_state(
+    options: &EngineOptions,
+    emit: &mut dyn FnMut(&DictionaryStateRecord) -> bool,
+) -> Result<()> {
+    released(state::stream_dictionary_state(
+        &runtime_paths(options),
+        emit,
+    ))
+}
+
+/// 把一串词库状态记录合并进本机正在用的日志和词库，本机已有的保留本机、选词计数取大（规则见 `state::merge_dictionary_state`）。读流失败与 [`stage_dictionary_state`] 一样报 `SNAPSHOT_STREAM_FAILED`，整体回滚。调用方必须持有独占维护权。
+pub fn merge_dictionary_state(
+    options: &EngineOptions,
+    maximum_records: usize,
+    records: impl Iterator<Item = std::result::Result<DictionaryStateRecord, SnapshotReadError>>,
+) -> Result<DictionaryStateMerge> {
+    let mut records = records
+        .map(|record| record.map_err(|_| EngineError::failed(diagnostics::SNAPSHOT_STREAM_FAILED)));
+    released(state::merge_dictionary_state(
+        &runtime_paths(options),
+        main_dictionary(options),
+        &mut records,
+        maximum_records,
+    ))
 }
