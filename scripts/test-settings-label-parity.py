@@ -117,7 +117,8 @@ def macos_backend() -> dict[str, str]:
     source = (ROOT / "platforms/macos/src/backend/settings/BackendSettingsView.swift").read_text(
         encoding="utf-8"
     )
-    labels = re.search(r'helpcode_schema":\s*names = \[(.*)$', source, re.M)
+    # 标题列表放在 MacSettingsModel.helpcodeSchemeTitles，下载预览和显示共用它。
+    labels = re.search(r'static let helpcodeSchemeTitles = \[(.*)$', source, re.M)
     assert labels, "the macOS backend page no longer names the helpcode schemes"
     # The backend page indexes its names by the stored integer, and that order is the C++ one.
     identifiers = (ROOT / "platforms/macos/src/settings/HelpcodeSchemaPreference.h").read_text(
