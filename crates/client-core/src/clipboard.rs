@@ -944,6 +944,56 @@ mod tests {
     }
 
     #[test]
+    fn replace_after_clear_reports_missing_without_creating_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        // 从没记过历史：文件不存在。
+        let mut fresh = ClipboardHistoryStore::open(&path);
+        assert_eq!(
+            fresh
+                .replace("synthetic absent", "synthetic replacement".into())
+                .unwrap(),
+            ReplaceOutcome::NotFound
+        );
+        assert!(!path.exists());
+        assert!(fresh.entries().is_empty());
+
+        // 编辑页打开以后用户在键盘里清空了历史：clear 删掉文件，手里还留着旧副本的宿主保存时只说那条不在了，不把历史写回来。
+        replace_fixture(&path);
+        let mut stale = ClipboardHistoryStore::open(&path);
+        stale.load().unwrap();
+        ClipboardHistoryStore::open(&path).clear().unwrap();
+        assert!(!path.exists());
+        assert_eq!(
+            stale
+                .replace("synthetic older", "synthetic older, edited".into())
+                .unwrap(),
+            ReplaceOutcome::NotFound
+        );
+        assert!(!path.exists());
+        assert!(stale.entries().is_empty());
+    }
+
+    #[test]
+    fn replace_upgrades_legacy_string_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        fs::write(&path, br#"["synthetic newest","synthetic older"]"#).unwrap();
+        let mut store = ClipboardHistoryStore::open(&path);
+        assert_eq!(
+            store
+                .replace("synthetic older", "synthetic older, edited".into())
+                .unwrap(),
+            ReplaceOutcome::Replaced
+        );
+        assert_eq!(
+            texts(&store),
+            ["synthetic newest", "synthetic older, edited"]
+        );
+        assert_eq!(saved(&path), store.entries());
+    }
+
+    #[test]
     fn replace_uses_latest_history_and_preserves_corrupt_files() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("history.json");

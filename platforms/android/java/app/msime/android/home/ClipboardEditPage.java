@@ -10,6 +10,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
+import androidx.lifecycle.ViewModel;
+import androidx.lifecycle.ViewModelProvider;
 import app.msime.android.ClipboardHistory;
 import app.msime.android.ClipboardHistoryPolicy;
 import app.msime.android.ClipboardHistoryStore;
@@ -28,11 +30,26 @@ public final class ClipboardEditPage extends DetailPage {
     private State state = State.LOADING;
     /** 要编辑的那一条的原文；找到之前为 null。 */
     @Nullable private String original;
-    /** 输入框里的文字，视图重建（旋转、换深浅模式）后照样填回去。 */
-    @Nullable private String draft;
+    /** 输入框里的草稿，见 {@link Draft}；{@link #onCreate} 里取到。 */
+    private Draft draft;
     private boolean saving;
     @Nullable private LinearLayout column;
     @Nullable private TextView save;
+
+    /**
+     * 输入框里的文字。放在 ViewModel 里而不是 Fragment 的字段上：旋转、换深浅模式、分屏改尺寸会重建 Activity，Fragment 换成新实例，字段回到初始值，用户改到一半的文字会被原文盖掉。ViewModel 跨这类重建保留，重建后 {@link #load} 读到原文时不覆盖它。
+     *
+     * <p>不放进 `onSaveInstanceState` 的 Bundle：输入框不限长，一大段文字可能超出 Binder 事务的上限。代价是进程被系统杀掉后草稿不保留，回来时显示原文。
+     */
+    public static final class Draft extends ViewModel {
+        /** 还没读到原文时为 null。 */
+        @Nullable String text;
+    }
+
+    @Override public void onCreate(@Nullable Bundle saved) {
+        super.onCreate(saved);
+        draft = new ViewModelProvider(this).get(Draft.class);
+    }
 
     @Override protected void buildContent(LinearLayout column, Bundle args) {
         this.column = column;
@@ -58,7 +75,7 @@ public final class ClipboardEditPage extends DetailPage {
                 state = State.MISSING;
             } else {
                 original = found;
-                if (draft == null) draft = found;
+                if (draft.text == null) draft.text = found;
                 state = State.READY;
             }
             render();
@@ -93,7 +110,7 @@ public final class ClipboardEditPage extends DetailPage {
                 ViewPolicy.clearBackground(input);
                 input.setHintTextColor(Ui.subText(context));
                 Ui.setSymmetricPaddingDp(input, context, 16, 14);
-                input.setText(draft);
+                input.setText(draft.text);
                 input.setContentDescription("剪贴板记录的文字");
                 card.card().addView(input, Ui.matchWidth());
                 input.addTextChangedListener(new TextWatcher() {
@@ -102,7 +119,7 @@ public final class ClipboardEditPage extends DetailPage {
                     @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
 
                     @Override public void afterTextChanged(Editable text) {
-                        draft = text.toString();
+                        draft.text = text.toString();
                         refresh();
                     }
                 });
@@ -137,8 +154,8 @@ public final class ClipboardEditPage extends DetailPage {
         TextView button = save;
         Context context = getContext();
         if (button == null || context == null) return;
-        boolean ready = !saving && original != null && ClipboardHistoryPolicy.hasText(draft)
-            && !original.equals(draft);
+        boolean ready = !saving && original != null && ClipboardHistoryPolicy.hasText(draft.text)
+            && !original.equals(draft.text);
         button.setText(saving ? "正在保存…" : "保存");
         ViewPolicy.setEnabled(button, ready);
         ViewPolicy.setTextColor(button, ready ? Ui.onAccent(context) : Ui.subText(context));
@@ -149,7 +166,7 @@ public final class ClipboardEditPage extends DetailPage {
 
     private void submit() {
         String from = original;
-        String to = draft;
+        String to = draft.text;
         if (saving || from == null || to == null || !ClipboardHistoryPolicy.hasText(to) || from.equals(to)) return;
         saving = true;
         refresh();
