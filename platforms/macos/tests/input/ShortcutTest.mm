@@ -5382,7 +5382,7 @@ static void TestAiCandidateEngineDelivery() {
             @"prompt_id":@"custom_2", @"prompt_custom_2":@"synthetic prompt"},
         @"input":@{@"segmented_pinyin":@[@"ni", @"hao"], @"context":@"", @"candidate_limit":@3}} error:&bridgeError];
     if (!descriptor || bridgeError || ![descriptor[@"timeout_ms"] isEqual:@8000]) {
-        // Only report the fixed-shape outcome. The descriptor also contains a bearer token.
+        // 只打印固定格式的结果：描述符里还带着 bearer token，不能整个打出来。
         fprintf(stderr, "AI descriptor present=%d error=%s timeout=%s\n", descriptor != nil,
             (bridgeError.localizedDescription ?: @"").UTF8String,
             ([descriptor[@"timeout_ms"] description] ?: @"").UTF8String);
