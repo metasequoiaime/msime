@@ -126,6 +126,8 @@ public final class AndroidLocalSettingsSmoke {
             && fresh.integer(AndroidLocalSettings.FLOATING_KEYBOARD_Y) == 1000, "floating position default");
         // 键盘底栏：默认开，只在本机。
         check(fresh.bool(AndroidLocalSettings.BOTTOM_BAR), "bottom bar on by default");
+        // 加高底行（#6354）：默认关，键盘高度不变；只在本机。
+        check(!fresh.bool(AndroidLocalSettings.TALL_BOTTOM_ROW), "tall bottom row off by default");
         AndroidLocalSettings.Spec floatingX = AndroidLocalSettings.spec(AndroidLocalSettings.FLOATING_KEYBOARD_X);
         check(Integer.valueOf(0).equals(floatingX.accept(0)) && Integer.valueOf(1000).equals(floatingX.accept(1000))
             && floatingX.accept(-1) == null && floatingX.accept(1001) == null, "floating position range");
@@ -152,7 +154,7 @@ public final class AndroidLocalSettingsSmoke {
         for (String local : new String[] {AndroidLocalSettings.INCOGNITO, AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO,
                 AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, AndroidLocalSettings.FLOATING_KEYBOARD,
                 AndroidLocalSettings.FLOATING_KEYBOARD_X, AndroidLocalSettings.FLOATING_KEYBOARD_Y,
-                AndroidLocalSettings.TOOLBAR_FLOATING, AndroidLocalSettings.BOTTOM_BAR,
+                AndroidLocalSettings.TOOLBAR_FLOATING, AndroidLocalSettings.BOTTOM_BAR, AndroidLocalSettings.TALL_BOTTOM_ROW,
                 AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY,
                 AndroidLocalSettings.DEVELOPER_LOG_LEVEL, AndroidLocalSettings.DEVELOPER_INPUT_LOG,
                 AndroidLocalSettings.MCP_RETENTION, AndroidLocalSettings.MCP_INPUT_EVENTS}) {

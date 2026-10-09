@@ -620,12 +620,11 @@ final class ImeLetterRows {
             : KeyboardLayout.numberLayer(chinese, chinesePunctuation);
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             LinearLayout row = KeyboardGeometry.row(s);
-            // 最后一行是这一层自带的底栏，和功能行一样固定 46 dp、不加行距、不分摊高度调整；前三行和字母键一样分摊高度调整。否则整层比其他布局高出一份行距。底栏原先也挂了高度角色，整份调整量又加了一遍：调高时这一层比字母层高出一截，调到 75% 时底栏被压成 0 高。
+            // 最后一行是这一层自带的底栏，和功能行一样按底栏角色固定高度（默认 46 dp、不加行距，「加高底行」开着时和一行键同高）、不分摊高度调整；前三行和字母键一样分摊高度调整。否则整层比其他布局高出一份行距。底栏原先也挂了高度角色，整份调整量又加了一遍：调高时这一层比字母层高出一截，调到 75% 时底栏被压成 0 高。
             boolean bottomRow = rowIndex == rows.size() - 1;
-            if (!bottomRow) {
-                row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
+            row.setTag(bottomRow ? MSIMEInputService.KeyboardHeightRole.bottomRow()
+                : new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                     rows.size() - 1, rowIndex, true));
-            }
             s.keyRows.addView(row, bottomRow
                 ? KeyboardGeometry.matchWidthHeightPx(s.pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP))
                 : KeyboardGeometry.matchWidthWrapParams());
