@@ -88,13 +88,13 @@ public final class KeyboardOptionsPage extends DetailPage {
         KeyboardScheme current = SchemePreferences.storedScheme(preferences, edition);
 
         GroupCard layout = GroupCard.add(target, "布局");
-        boolean nineKey = "nine_key".equals(current.touchKeyboardLayout());
         KeyboardScheme[] pair = layoutPair(current);
-        boolean pairOffered = pair != null && pair[0].offeredBy(edition) && pair[1].offeredBy(edition);
+        boolean pairOffered = pair != null;
+        if (pair != null) for (KeyboardScheme choice : pair) pairOffered &= choice.offeredBy(edition);
         String note = pairOffered ? null
             : pair == null ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘";
-        layout.nav("中文键盘", note, nineKey ? "9 键" : "26 键",
-            pairOffered ? () -> pickLayout(current, pair, nineKey) : null);
+        layout.nav("中文键盘", note, layoutLabel(current),
+            pairOffered ? () -> pickLayout(current, pair) : null);
         // 本版本没有任何其他语言键盘（五笔版、拼音版）时不列这一项。
         if (offersOtherLanguage(edition)) {
             layout.toggle("中英键轮换其他语言",
@@ -121,7 +121,7 @@ public final class KeyboardOptionsPage extends DetailPage {
                 NineKeySidebarPolicy.summary(digitSidebar, 4),
                 () -> editSidebarSymbols("九键数字键盘左侧符号", AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS, digitSidebar));
         }
-        layout.nav("26 键数字键盘", "26 键按 123 时的数字键盘", twentySixKeyNumberLabel(nineKeyDigits),
+        layout.nav("26 键数字键盘", "26 键和 14 键按 123 时的数字键盘", twentySixKeyNumberLabel(nineKeyDigits),
             () -> pickTwentySixKeyNumberLayout(nineKeyDigits));
         boolean calculator = NineKeyLayout.calculatorOrder(
             preferences.optString(NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER));
@@ -275,7 +275,7 @@ public final class KeyboardOptionsPage extends DetailPage {
     }
 
     /**
-     * 当前方案的 26 键与 9 键那一对：全拼是全拼 26 键和全拼 9 键，注音是大千和注音 9 键，日语是日语 26 键和日语 9 键。双拼、五笔、手写这类只有一种排法的方案没有这一对，返回 null：原来一律给全拼的那一对，小鹤双拼用户在这里点哪一项都会被改成全拼，注音 9 键用户点「26 键」会切到全拼而不是大千。
+     * 当前方案可选的几种排法，按 26 键、14 键、9 键排列：全拼是全拼 26 键、全拼 14 键和全拼 9 键（三选一，选中即启用并切换），注音是大千和注音 9 键，日语是日语 26 键和日语 9 键（14 键只给全拼）。双拼、五笔、手写这类只有一种排法的方案没有这一组，返回 null：原来一律给全拼的那一对，小鹤双拼用户在这里点哪一项都会被改成全拼，注音 9 键用户点「26 键」会切到全拼而不是大千。
      */
     @Nullable
     private static boolean offersOtherLanguage(AppEdition edition) {
@@ -287,22 +287,32 @@ public final class KeyboardOptionsPage extends DetailPage {
 
     private static KeyboardScheme[] layoutPair(KeyboardScheme current) {
         return switch (current) {
-            case QUANPIN, QUANPIN_NINE_KEY -> new KeyboardScheme[] {KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_NINE_KEY};
+            case QUANPIN, QUANPIN_FOURTEEN_KEY, QUANPIN_NINE_KEY -> new KeyboardScheme[] {KeyboardScheme.QUANPIN,
+                KeyboardScheme.QUANPIN_FOURTEEN_KEY, KeyboardScheme.QUANPIN_NINE_KEY};
             case ZHUYIN, ZHUYIN_NINE_KEY -> new KeyboardScheme[] {KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY};
             case JAPANESE, JAPANESE_NINE_KEY -> new KeyboardScheme[] {KeyboardScheme.JAPANESE, KeyboardScheme.JAPANESE_NINE_KEY};
             default -> null;
         };
     }
 
-    private void pickLayout(KeyboardScheme current, KeyboardScheme[] pair, boolean nineKey) {
+    private void pickLayout(KeyboardScheme current, KeyboardScheme[] choices) {
         OptionSheet sheet = new OptionSheet(requireContext(), "中文键盘", null);
         // 点已选中的那一项什么也不做：OptionSheet 对选中项也会执行动作，重写一遍方案没有意义。
-        sheet.option("26 键", !nineKey, () -> { if (pair[0] != current) applyScheme(pair[0]); });
-        sheet.option("9 键", nineKey, () -> { if (pair[1] != current) applyScheme(pair[1]); });
+        for (KeyboardScheme choice : choices)
+            sheet.option(layoutLabel(choice), choice == current, () -> { if (choice != current) applyScheme(choice); });
         sheet.show();
     }
 
-    /** 26 / 9 键是当前方案那一对触屏方案（{@link #layoutPair}）；与输入页、引导页一样经 {@link SchemePreferences#withScheme} 一起写那几个键。 */
+    /** 「中文键盘」一行和选项上的排法名：按入口存下的触屏布局，`nine_key` 是「9 键」，`fourteen_key` 是「14 键」，其余是「26 键」。 */
+    private static String layoutLabel(KeyboardScheme scheme) {
+        return switch (scheme.touchKeyboardLayout()) {
+            case "nine_key" -> "9 键";
+            case "fourteen_key" -> "14 键";
+            default -> "26 键";
+        };
+    }
+
+    /** 26 / 14 / 9 键是当前方案的那几个触屏方案（{@link #layoutPair}）；与输入页、引导页一样经 {@link SchemePreferences#withScheme} 一起写那几个键。 */
     private void applyScheme(KeyboardScheme scheme) {
         HostTask.run(this, context -> {
             JSONObject snapshot = HostStore.loadPreferences(context);

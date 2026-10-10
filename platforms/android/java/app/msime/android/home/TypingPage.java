@@ -52,7 +52,8 @@ public final class TypingPage extends DetailPage {
 
     /** 一门语言：徽标、名字和它的触屏方案（按面板里的顺序）。 */
     private enum Language {
-        MANDARIN("汉", "普通话", KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.XIAOHE,
+        MANDARIN("汉", "普通话", KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_FOURTEEN_KEY,
+            KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.XIAOHE,
             KeyboardScheme.ZIRANMA, KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.WUBI,
             KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY, KeyboardScheme.STROKE, KeyboardScheme.HANDWRITING),
         CANTONESE("粤", "粤语", KeyboardScheme.CANTONESE),
@@ -401,7 +402,7 @@ public final class TypingPage extends DetailPage {
 
     private static String schemeLabel(KeyboardScheme scheme, JSONObject preferences) {
         return switch (scheme) {
-            case QUANPIN, QUANPIN_NINE_KEY -> "全拼";
+            case QUANPIN, QUANPIN_FOURTEEN_KEY, QUANPIN_NINE_KEY -> "全拼";
             case CANTONESE -> "粤拼";
             case WUBI -> scheme.title(InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
             case JAPANESE -> "26 键";
@@ -415,9 +416,10 @@ public final class TypingPage extends DetailPage {
         Context context = requireContext();
         OptionSheet sheet = new OptionSheet(context, language.title, offered.size() > 1 ? "选择输入方案" : null);
         if (language == Language.MANDARIN) {
-            boolean quanpin = applied == KeyboardScheme.QUANPIN || applied == KeyboardScheme.QUANPIN_NINE_KEY;
-            KeyboardScheme quanpinChoice = applied == KeyboardScheme.QUANPIN_NINE_KEY
-                ? KeyboardScheme.QUANPIN_NINE_KEY : KeyboardScheme.QUANPIN;
+            // 全拼的 26 / 14 / 9 键是同一个方案的几种排法，这里只列一项「全拼」，保留正在用的排法；换排法在「键盘 › 中文键盘」里。
+            boolean quanpin = applied == KeyboardScheme.QUANPIN || applied == KeyboardScheme.QUANPIN_FOURTEEN_KEY
+                || applied == KeyboardScheme.QUANPIN_NINE_KEY;
+            KeyboardScheme quanpinChoice = quanpin ? applied : KeyboardScheme.QUANPIN;
             if (offered.contains(quanpinChoice)) sheet.option("全拼", quanpin, () -> applyScheme(quanpinChoice, null));
             List<KeyboardScheme> shuangpin = new ArrayList<>(SHUANGPIN.size());
             for (KeyboardScheme scheme : SHUANGPIN) {

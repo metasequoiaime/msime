@@ -350,8 +350,11 @@ public final class KeyboardFragment extends HomeTabFragment {
             local.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
                 ? local.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
                 : KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
-        String layout = "nine_key".equals(InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"))
-            ? "九键" : "全键盘";
+        String layout = switch (InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key")) {
+            case "nine_key" -> "九键";
+            case "fourteen_key" -> "14 键";
+            default -> "全键盘";
+        };
         return percent == KeyboardGeometry.DEFAULT_HEIGHT_PERCENT
             ? layout + " · 标准高度"
             : layout + " · 高度 " + KeyboardGeometry.displayPercent(percent);
