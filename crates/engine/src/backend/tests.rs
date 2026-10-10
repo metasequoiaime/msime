@@ -221,6 +221,35 @@ fn validate_dictionary_batch_stops_at_the_first_failure() {
 }
 
 #[test]
+fn invalid_dictionary_batch_does_not_reserve_unused_output() {
+    let raw = json!({
+        "operation": "validate_dictionary_batch",
+        "entries": (0..50)
+            .map(|_| json!({"kind": "pinyin", "code": "", "text": "合成"}))
+            .collect::<Vec<_>>(),
+    });
+    let request = super::request::Request::new(&raw).unwrap();
+    let single_raw = json!({
+        "operation": "validate_dictionary_batch",
+        "entries": [{"kind": "pinyin", "code": "", "text": "合成"}],
+    });
+    let single_request = super::request::Request::new(&single_raw).unwrap();
+    let (_, single_measurement) = crate::ime::personal_rerank::allocations::measure(|| {
+        super::validation::validate_dictionary_batch(&single_request)
+    });
+    let (result, measurement) = crate::ime::personal_rerank::allocations::measure(|| {
+        super::validation::validate_dictionary_batch(&request)
+    });
+
+    assert_eq!(result, Err(super::BackendError::InvalidDictionaryEntry));
+    assert_eq!(
+        measurement.peak_bytes, single_measurement.peak_bytes,
+        "首条无效时不应为剩余批次预留输出：单条 {}，批量 {}",
+        single_measurement.peak_bytes, measurement.peak_bytes
+    );
+}
+
+#[test]
 fn request_framing_rejects_oversized_or_malformed_input() {
     let resources = resources();
     let scratch = Path::new("/nonexistent-scratch");

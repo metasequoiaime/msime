@@ -44,14 +44,18 @@ pub(super) fn validate_dictionary(request: &Request) -> Outcome {
 /// `{"entries":[{kind,code,text,weight}]}` → `{"entries":[...]}`; the first entry that fails decides the answer.
 pub(super) fn validate_dictionary_batch(request: &Request) -> Outcome {
     let entries = request.batch("entries")?;
-    let mut validated = Vec::with_capacity(entries.len());
+    let mut validated = Vec::new();
     for entry in entries {
         let mut single = entry.clone();
         single
             .as_object_mut()
             .ok_or(BackendError::InvalidRequest)?
             .insert("operation".into(), Value::from("validate_dictionary"));
-        validated.push(validate_dictionary(&Request::new(&single)?)?);
+        let validated_entry = validate_dictionary(&Request::new(&single)?)?;
+        if validated.capacity() == 0 {
+            validated.reserve_exact(entries.len());
+        }
+        validated.push(validated_entry);
     }
     Ok(json!({ "entries": validated }))
 }
