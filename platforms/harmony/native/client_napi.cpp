@@ -562,6 +562,11 @@ static napi_value DictionaryCollectionsAsync(napi_env env, napi_callback_info in
         "MSIME dictionary collections");
 }
 
+// The settings page's 修复配置文件: copies the unreadable document aside and rewrites it under the preferences writer lock, so it runs on a worker like every other call that may wait on that lock.
+static napi_value RepairPreferences(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_repair_preferences, "MSIME repair preferences");
+}
+
 // 键盘的常用语存放在一个文件里，设置进程和键盘进程都会在锁下重写它，装上短语包后文档可达数 MB，所以每个操作都在 ArkTS 线程之外运行。
 static napi_value CommonPhrases(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_common_phrases, "MSIME common phrases");
@@ -1466,6 +1471,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("plugins", Plugins),
         ENTRY("pluginsAsync", PluginsAsync),
         ENTRY("commonPhrases", CommonPhrases),
+        ENTRY("repairPreferences", RepairPreferences),
         ENTRY("ensureAnonymousAccount", EnsureAnonymousAccount),
         ENTRY("telemetryBegin", TelemetryBegin),
         ENTRY("telemetryEnd", TelemetryEnd),

@@ -101,6 +101,10 @@ export const pluginsAsync: (request: string) => Promise<string>;
  */
 export const commonPhrases: (request: string) => Promise<string>;
 /**
+ * The settings page's explicit 修复配置文件 for the absolute preferences `directory`, on a worker thread: a document load refuses, a newer build's included, is copied aside as `preferences.json.corrupt-<time>` and replaced by the settings this schema still accepts over the defaults. Resolves with `{ok,value:{recovered,snapshot,backup_path?,backup_name?,salvaged?}}` or `{ok:false,error}`; a readable or missing document is left untouched (`recovered:false`).
+ */
+export const repairPreferences: (directory: string) => Promise<string>;
+/**
  * Registers the device's anonymous MSIME account under `directory` (an absolute path; `anonymous-account.json` and `anonymous-session.json`) unless a session is already there, on a worker thread. Resolves with `{ok,value}` or `{ok:false,error}`; rejects only when the worker produced no answer.
  */
 export const ensureAnonymousAccount: (directory: string) => Promise<string>;
