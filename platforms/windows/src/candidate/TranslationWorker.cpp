@@ -290,7 +290,7 @@ void persist_english_glosses(const nlohmann::json &query,
         {"target_language", "en"},
         {"translations",
          values}}.dump();
-    msime_client_string_free(msime_client_translation_gloss_save(
+    msime::host_api::discard_string(msime_client_translation_gloss_save(
         reinterpret_cast<const uint8_t *>(request.data()), request.size(),
         reinterpret_cast<const uint8_t *>(user_data.data()), user_data.size()));
   } catch (...) {

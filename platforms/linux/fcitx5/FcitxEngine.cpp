@@ -1,4 +1,5 @@
 #include "msime_client.h"
+#include "../../common/HostApiString.h"
 #ifdef MSIME_FCITX5_TELEMETRY
 #include "Telemetry.h"
 #endif
@@ -468,7 +469,7 @@ public:
     // Every way out of a session passes here, focus loss, deactivation and teardown included, and options_path_ is still the batch's directory.
     releaseFocusResources();
     if (session_) msime_linux_diagnostic_write("focus_out");
-    if (session_) msime_client_string_free(msime_client_destroy(session_));
+    if (session_) msime::host_api::discard_string(msime_client_destroy(session_));
     session_ = 0;
     view_ = Json::object();
     preferences_ = Json::object();
@@ -534,7 +535,7 @@ public:
     if (voice_job_.valid() && !voice_socket_.empty() && voice_generation_ != 0) {
       const auto socket = voice_socket_;
       const auto generation = voice_generation_;
-      msime_client_string_free(msime_client_voice_provider_cancel(
+      msime::host_api::discard_string(msime_client_voice_provider_cancel(
           reinterpret_cast<const uint8_t *>(socket.data()), socket.size(), generation));
     }
     voice_socket_.clear();
@@ -2058,7 +2059,7 @@ public:
                       translations.erase(translations.begin() + 9, translations.end());
                     const auto save = Json{{"target_language", target},
                                            {"translations", std::move(translations)}}.dump();
-                    msime_client_string_free(msime_client_translation_gloss_save(
+                    msime::host_api::discard_string(msime_client_translation_gloss_save(
                         reinterpret_cast<const uint8_t *>(save.data()), save.size(),
                         reinterpret_cast<const uint8_t *>(userData.data()), userData.size()));
                   }
@@ -2221,7 +2222,7 @@ public:
                                     .dump();
           if (auto *raw = msime_client_typing_statistics(
                   reinterpret_cast<const uint8_t *>(request.data()), request.size()))
-            msime_client_string_free(raw);
+            msime::host_api::discard_string(raw);
         } catch (...) {
           // Statistics are best effort and must never affect text commitment.
         }
@@ -2834,7 +2835,7 @@ public:
     const auto socket = voice_socket_;
     const auto generation = voice_generation_;
     if (!socket.empty() && generation != 0)
-      msime_client_string_free(msime_client_voice_provider_cancel(
+      msime::host_api::discard_string(msime_client_voice_provider_cancel(
           reinterpret_cast<const uint8_t *>(socket.data()), socket.size(), generation));
     voice_cancelled_ = true;
     voice_mailbox_.reset();
@@ -3402,7 +3403,7 @@ public:
                                .dump();
       if (auto *raw = msime_client_typing_statistics(
               reinterpret_cast<const uint8_t *>(request.data()), request.size()))
-        msime_client_string_free(raw);
+        msime::host_api::discard_string(raw);
     } catch (...) {
       // Statistics are best effort and must never affect typing.
     }

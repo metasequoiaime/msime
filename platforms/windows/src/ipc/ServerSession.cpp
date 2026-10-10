@@ -56,7 +56,7 @@ ServerSession::~ServerSession() {
   // The player outlives every session, so music this session let play would otherwise go on with no input method in front of it.
   if (music_active_)
     (void)msime_client_music_set_active(session_, false);
-  msime_client_string_free(msime_client_destroy(session_));
+  msime::host_api::discard_string(msime_client_destroy(session_));
 }
 void ServerSession::check_thread() const {
   if (std::this_thread::get_id() != thread_)

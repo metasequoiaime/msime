@@ -1,4 +1,5 @@
 #include "FocusedSession.h"
+#include "../../../common/HostApiString.h"
 #include "InputSchemeTraits.h"
 #include "KeySoundPolicy.h"
 #include "TypingEffectPolicy.h"
@@ -35,7 +36,7 @@ void submit_typing_statistics_request(std::string request) {
         if (auto *raw = msime_client_typing_statistics(
                 reinterpret_cast<const uint8_t *>(payload.data()),
                 payload.size()))
-          msime_client_string_free(raw);
+          msime::host_api::discard_string(raw);
       } catch (...) {
         // Best effort; text commitment has already happened.
       }

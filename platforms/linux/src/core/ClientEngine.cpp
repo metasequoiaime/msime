@@ -626,11 +626,11 @@ struct State {
     stop_clipboard_monitor();
     ai_context.clear();
     if (voice_active && !voice_provider_socket.empty())
-      msime_client_string_free(msime_client_voice_provider_cancel(
+      msime::host_api::discard_string(msime_client_voice_provider_cancel(
           reinterpret_cast<const uint8_t *>(voice_provider_socket.data()),
           voice_provider_socket.size(), voice_generation));
     if (voice_active && session)
-      msime_client_string_free(msime_client_voice_cancel(session));
+      msime::host_api::discard_string(msime_client_voice_cancel(session));
     music.release(session, msime_client_music_set_active);
     // The combo lives in the session; the next one starts from none.
     typing_combo = 0;
@@ -652,7 +652,7 @@ struct State {
     clipboard_loaded = false;
     clipboard_items_cache.clear();
     if (session)
-      msime_client_string_free(msime_client_destroy(session));
+      msime::host_api::discard_string(msime_client_destroy(session));
     session = 0;
     if (focused && client_token != 0)
       key_router.set_lease(
@@ -1259,7 +1259,7 @@ void record_typing_statistics(IBusEngine *engine, std::string text,
       auto *raw = msime_client_typing_statistics(
           reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size());
       if (raw)
-        msime_client_string_free(raw);
+        msime::host_api::discard_string(raw);
     } catch (...) {
       // Statistics are best effort and must never affect text commitment.
     }
@@ -1280,7 +1280,7 @@ void write_key_presses(const msime::linux_host::KeyPressBatch &request) {
     auto *raw = msime_client_typing_statistics(
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size());
     if (raw)
-      msime_client_string_free(raw);
+      msime::host_api::discard_string(raw);
   } catch (...) {
     // Statistics are best effort and must never affect typing.
   }
@@ -1958,13 +1958,13 @@ void start_translation_task(IBusEngine *engine, TranslationTask request) {
             result.value("ok", false) && !user_data.empty()) {
           const auto save = Json{{"target_language", "en"},
                                  {"translations", result.at("value").at("translations")}}.dump();
-          msime_client_string_free(msime_client_translation_gloss_save(
+          msime::host_api::discard_string(msime_client_translation_gloss_save(
               reinterpret_cast<const uint8_t *>(save.data()), save.size(),
               reinterpret_cast<const uint8_t *>(user_data.data()), user_data.size()));
         }
       } catch (...) {}
     }
-    g_task_return_pointer(task, raw, [](gpointer value) { msime_client_string_free(static_cast<char *>(value)); });
+    g_task_return_pointer(task, raw, [](gpointer value) { msime::host_api::discard_string(static_cast<char *>(value)); });
   });
   g_object_unref(task);
 }
@@ -2237,7 +2237,7 @@ void online_dispatch(IBusEngine *engine, uint8_t only_source, bool ai_cache_only
             reinterpret_cast<const uint8_t *>(request.provider_query.data()), request.provider_query.size(),
             reinterpret_cast<const uint8_t *>(request.socket.data()), request.socket.size());
         g_task_return_pointer(task, raw, [](gpointer value) {
-          msime_client_string_free(static_cast<char *>(value));
+          msime::host_api::discard_string(static_cast<char *>(value));
         });
       });
       g_object_unref(task);
@@ -4061,11 +4061,11 @@ void voice_cancel(IBusEngine *engine) {
   auto &s = state(engine);
   const bool was_active = s.voice_active;
   if (s.voice_active && !s.voice_provider_socket.empty())
-    msime_client_string_free(msime_client_voice_provider_cancel(
+    msime::host_api::discard_string(msime_client_voice_provider_cancel(
         reinterpret_cast<const uint8_t *>(s.voice_provider_socket.data()),
         s.voice_provider_socket.size(), s.voice_generation));
   if (s.voice_active && s.session)
-    msime_client_string_free(msime_client_voice_cancel(s.session));
+    msime::host_api::discard_string(msime_client_voice_cancel(s.session));
   s.voice_active = false;
   s.voice_stopping = false;
   s.voice_phase = "正在录音…";
@@ -4329,7 +4329,7 @@ void voice_start_impl(IBusEngine *engine) {
                   std::move(result->text), s.voice_transcript, s.voice_preedit);
               try {
                 if (text.empty()) {
-                  msime_client_string_free(msime_client_voice_cancel(s.session));
+                  msime::host_api::discard_string(msime_client_voice_cancel(s.session));
                   s.voice_active = false;
                   s.voice_generation = 0;
                   s.voice_preedit.clear();
@@ -4385,7 +4385,7 @@ void voice_start_impl(IBusEngine *engine) {
                   s.voice_transcript.clear();
                   s.wave_overlay.transcript.clear();
                   s.voice_space_locked = false;
-                  msime_client_string_free(msime_client_voice_cancel(s.session));
+                  msime::host_api::discard_string(msime_client_voice_cancel(s.session));
                   render_after_voice(result->engine);
                   publish_mode(result->engine);
                 } catch (...) {
@@ -4395,7 +4395,7 @@ void voice_start_impl(IBusEngine *engine) {
                   s.voice_transcript.clear();
                   s.wave_overlay.transcript.clear();
                   s.voice_space_locked = false;
-                  msime_client_string_free(msime_client_voice_cancel(s.session));
+                  msime::host_api::discard_string(msime_client_voice_cancel(s.session));
                   render_after_voice(result->engine);
                   publish_mode(result->engine);
                   show_voice_failure(result->engine,
@@ -7888,7 +7888,7 @@ gboolean reload_preferences(gpointer data) {
             msime_client_try_load_preferences(
                 reinterpret_cast<const uint8_t *>(path.data()), path.size()),
             +[](gpointer value) {
-              msime_client_string_free(static_cast<char *>(value));
+              msime::host_api::discard_string(static_cast<char *>(value));
             });
       });
   g_object_unref(task);
