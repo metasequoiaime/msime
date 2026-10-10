@@ -18,7 +18,7 @@ Status: proposed
 |---|---|
 | 方案 | 触屏方案「全拼 14 键」，preferenceId 与 layout 都是 `fourteen_key`，引擎方案 quanpin，卡片字形「拼」、角标「14」，按 append-only 追加在 `TouchKeyboardScheme::ALL` 末尾 |
 | 默认 | 不启用：不进 `DEFAULT_ENABLED`，也不进 `LEGACY_DEFAULT_ENABLED` |
-| 设置 | 全拼的布局从「26 键 / 9 键」改为「26 键 / 14 键 / 9 键」三选一，选中即启用并切换 |
+| 设置 | 全拼的布局从「26 键 / 9 键」改为「26 键 / 14 键 / 9 键」三选一，选中即启用并切换；普通话的方案列表也按 26 键、14 键、9 键排列，选择器的方案顺序仍是 append-only 的 `ALL` |
 | 适用方案 | 只给全拼；双拼、五笔、日文、注音都没有 14 键 |
 | 提供范围 | 九键在哪里提供，14 键就在哪里提供：Android 全部形态、iPhone、iPad、鸿蒙手机和平板；鸿蒙 2in1 隐藏，同步过来的 `fourteen_key` 在 2in1 上画 26 键 |
 | 键面 | 4 行等高，总高度等于 26 键。第 1 行 `QW ER TY UI OP`；第 2 行 `AS DF GH JK L`，不缩进；第 3 行 `[分词/符] ZX CV BN M [⌫]`，两端边键宽度沿用各宿主 26 键 Shift/⌫ 的比例；底行沿用 26 键手机底行 `123 , 空格 。 中 回车` |
@@ -57,6 +57,8 @@ View 新增 `key_grid: "none" | "nine_key" | "fourteen_key"`，`nine_key: bool` 
 
 宿主用 `key_grid` 决定读音行、拼音选择条、隐藏组字和三栏面板，不能再用 `nine_key`：14 键下 `nine_key` 是假，点拼音选择条会被当成过期请求全部拒绝。
 
+`Runtime::set_nine_key_enabled` 跳过重复设置时比的是网格而不是 `nine_key`：14 键开着时关九键要真的关掉网格，宿主切回 26 键时调哪个入口结果都一样。host-api 记住宿主设下的网格（`Option<Option<KeyGrid>>`，`Some(None)` 是宿主关掉了网格），与九键的覆盖一样只保留到方案或 `touch_keyboard_layout` 改变为止；没有覆盖时按偏好的布局开网格，`fourteen_key` 只在全拼下开 14 键。
+
 ### 同步分期
 
 - Android 直接上传 `platform.android.keyboard_layout = "fourteen_key"`；服务端接受 32 字节以内的任意字符串，旧版客户端遇到未知值只跳过这一个键。
@@ -70,7 +72,7 @@ engine 加入 14 键网格后，`verify-local.sh` 加两个集合：`fourteen-ke
 
 在同一 limit、同一词库下，14 键的词级 top-1、top-5 和长句 top-1 都不低于九键基线，`rerank_latency --grid fourteen` 的 p95 不高于九键，才开始做宿主。达不到先调常量（按网格分值的常量挂成 `KeyGrid` 的方法），调了仍不行就停在引擎这一层。
 
-评测要经 Runtime 才量得到挂着重排模型的结果，所以 `Session::set_key_grid` / `grid_key`、input-runtime 的 `set_key_grid` / `grid_key` 和 `Action::GridKey` 随 14 键网格一起落地；`View.key_grid`、两道门的调整和 host-api 的入口另行跟进。实测（锁定资源 dict-v2.0.14 加 `sentence-model.safetensors`，同一次构建，常量沿用九键的，没有调）：
+评测要经 Runtime 才量得到挂着重排模型的结果，所以 `Session::set_key_grid` / `grid_key`、input-runtime 的 `set_key_grid` / `grid_key` 和 `Action::GridKey` 随 14 键网格一起落地；`View.key_grid`、两道门的调整和 host-api 的入口随后在共享层落地。实测（锁定资源 dict-v2.0.14 加 `sentence-model.safetensors`，同一次构建，常量沿用九键的，没有调）：
 
 | 集合 | 九键 top-1 / top-5 | 14 键 top-1 / top-5 |
 |---|---|---|
