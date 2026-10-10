@@ -34,9 +34,7 @@ public final class BackendAccount {
     public static final int MAX_CHAT_MODELS = 33;
     /** Fixed hexadecimal length of account challenge and clipboard identifiers. */
     public static final int HEX_ID_LENGTH = 64;
-    private static final String ORIGIN = "https://api.msime.app";
     private static final String SESSION_STORE = "msime_account_session_v2";
-    private static final String DEFAULT_USER_AGENT = "MSIME/Android";
     /** Matches client-core's account JSON response ceiling; a full cloud clipboard page can exceed 64 KiB. */
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
     /** 一条 AI 回复的 UTF-8 字节上限，流式与非流式相同。 */
@@ -83,7 +81,7 @@ public final class BackendAccount {
     private static final class HttpRequester implements Requester {
         @Override public JSONObject request(String method, String path, JSONObject body, String token)
                 throws Exception {
-            return httpRequest(method, path, body, token, DEFAULT_USER_AGENT);
+            return httpRequest(method, path, body, token, CloudApi.USER_AGENT);
         }
 
         @Override public JSONObject request(String method, String path, JSONObject body, String token,
@@ -216,7 +214,7 @@ public final class BackendAccount {
 
     /** Finish it with the provider's ID token, and keep the session this device is now signed in on. */
     public void login(Challenge challenge, String idToken) throws Exception {
-        login(challenge, idToken, DEFAULT_USER_AGENT);
+        login(challenge, idToken, CloudApi.USER_AGENT);
     }
 
     /** 同上，登录请求带 {@link #loginUserAgent} 生成的详细 User-Agent；后端只在登录时记下它，用来在「我的设备」里显示这台设备。 */
@@ -338,7 +336,7 @@ public final class BackendAccount {
     }
 
     private static String userAgent(String value) {
-        return value == null || value.isEmpty() ? DEFAULT_USER_AGENT : value;
+        return value == null || value.isEmpty() ? CloudApi.USER_AGENT : value;
     }
 
     /** 校验并保存一次登录得到的会话。 */
@@ -733,14 +731,14 @@ public final class BackendAccount {
     private static String streamChat(JSONObject body, String token, ChatCall call, ChatStreamListener listener)
             throws Exception {
         byte[] payload = TextPolicy.utf8Bytes(body.toString());
-        HttpsURLConnection connection = (HttpsURLConnection) new URL(ORIGIN + "/v1/chat/completions").openConnection();
+        HttpsURLConnection connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + "/v1/chat/completions").openConnection();
         try {
             if (!call.attach(connection)) throw new CancellationException("chat cancelled");
             HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("POST");
             HttpConnectionPolicy.setTimeouts(connection, 30_000, 30_000);
             connection.setRequestProperty("Accept", "text/event-stream");
-            connection.setRequestProperty("User-Agent", DEFAULT_USER_AGENT);
+            connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
             connection.setRequestProperty("Authorization", "Bearer " + token);
             connection.setDoOutput(true);
             connection.setFixedLengthStreamingMode(payload.length);
@@ -988,7 +986,7 @@ public final class BackendAccount {
         byte[] payload = body == null ? null : body.toString().getBytes(StandardCharsets.UTF_8);
         HttpsURLConnection connection = null;
         try {
-            connection = (HttpsURLConnection) new URL(ORIGIN + path).openConnection();
+            connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + path).openConnection();
             AccountHttpRequest.writeJson(connection, method, token, userAgent, payload);
             int status = connection.getResponseCode();
             // 状态码带进消息里：503 是这个登录方式没配，401 是凭据不对，两件事不该长同一个样子。

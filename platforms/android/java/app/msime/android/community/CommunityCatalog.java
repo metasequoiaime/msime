@@ -28,7 +28,6 @@ import org.json.JSONObject;
  * <p>Every call blocks on the network and must not run on the main thread.
  */
 public final class CommunityCatalog {
-    private static final String ORIGIN = "https://api.msime.app";
     private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
     private static final int MAX_RESOURCE_RESPONSE_BYTES = 48 * 1024 * 1024;
     private static final int TIMEOUT_MILLIS = 30_000;
@@ -103,7 +102,7 @@ public final class CommunityCatalog {
         connection.setRequestMethod(method);
         HttpConnectionPolicy.setTimeouts(connection, TIMEOUT_MILLIS, TIMEOUT_MILLIS);
         connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("User-Agent", "MSIME/Android");
+        connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
         return connection;
     }
 
@@ -177,7 +176,7 @@ public final class CommunityCatalog {
         try {
             Map<String, String> headers = new LinkedHashMap<>();
             headers.put("Accept", "application/json");
-            headers.put("User-Agent", "MSIME/Android");
+            headers.put("User-Agent", CloudApi.USER_AGENT);
             if (token != null) headers.put("Authorization", "Bearer " + token);
             CloudApi.Exchange response = listingTransport.exchange("GET",
                 CommunityRequest.path(kind, "", search, offset, category), headers, null);
@@ -201,7 +200,7 @@ public final class CommunityCatalog {
     /** Catalogue pages may be larger than the shared cloud transport's 4 MiB default. */
     private static CloudApi.Exchange httpListingExchange(String method, String path,
             Map<String, String> headers, byte[] request) throws java.io.IOException {
-        HttpsURLConnection connection = open(new URL(ORIGIN + path), method);
+        HttpsURLConnection connection = open(new URL(CloudApi.ORIGIN + path), method);
         try {
             for (Map.Entry<String, String> header : headers.entrySet())
                 connection.setRequestProperty(header.getKey(), header.getValue());
