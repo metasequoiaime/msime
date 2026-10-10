@@ -20,6 +20,7 @@ public final class TextPolicySmoke {
         check(TextPolicy.lowercaseTrimmed(null).isEmpty(),
             "lowercase-trimmed text must treat a missing value as empty");
         check(!TextPolicy.hasText(null) && !TextPolicy.hasText("  \n\t")
+                && !TextPolicy.hasText("\u2003\u00a0\u3000")
                 && TextPolicy.hasText(" synthetic "),
             "hasText must reject blank text and accept non-blank text");
         check(TextPolicy.boundedNonBlank("token", 5),

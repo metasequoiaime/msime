@@ -136,7 +136,7 @@ public final class TextPolicy {
 
     /** Return whether text contains at least one non-whitespace character. */
     public static boolean hasText(String value) {
-        return !trimmed(value).isEmpty();
+        return !blank(value);
     }
 
     /** Return whether text is non-blank, valid Unicode, control-free and within a UTF-8 byte bound. */
