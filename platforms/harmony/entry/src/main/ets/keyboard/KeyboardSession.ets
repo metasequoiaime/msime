@@ -3409,13 +3409,13 @@ export class KeyboardSession implements HardwareKeyTarget {
    * 14 键键面上的一键：`ascii` 是这一组的首字母，经 `msime_client_grid_key` 交给引擎，由它归成组码按网格解码。不走 `press()`：那条路给 26 键字母，会按 Shift 当辅助码、在双拼和英文直出里另有分支，而 14 键的一下是一组字母，不是其中某一个。
    *
    * 引擎不受理（26 键正在组字、专用英文或本地模式）时这一下不输入任何东西，与九键在这些情况下的数字键相同；键面在这些情况下本来也不画 14 键。
+   *
+   * 不组字的编辑框（数字、电话、日期这类不是文本的输入框）同样不输入：14 键的一下是一组字母，照字面写进去只能挑这一组的首字母，未必是用户要的那个。与 Android 相同（没有引擎会话时 `gridKey` 不处理）。密码、网址和邮箱框画 26 键（`EditorPolicy.prefersFullFace`），走不到这里。
    */
   pressGridKey(ascii: number): boolean {
     this.clearSmartPunctuationRepeat();
     if (!this.composes()) {
-      // 不组字的编辑框（密码、验证码）照字面输入，与 press() 相同；这些编辑框本来就画 26 键（EditorPolicy.prefersFullFace）。
-      this.insert(String.fromCharCode(ascii));
-      return true;
+      return false;
     }
     if (this.handle === 0) {
       KeyboardLog.error('grid key ignored: no session');
