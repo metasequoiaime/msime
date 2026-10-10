@@ -2,7 +2,7 @@
 #include <iostream>
 #include <array>
 #include <memory>
-#include <nlohmann/json.hpp>
+#include "provider_response_cli.h"
 #include <string>
 
 int main(int argc, char **argv) {
@@ -21,17 +21,5 @@ int main(int argc, char **argv) {
       msime_client_dictionary(reinterpret_cast<const uint8_t *>(buffer.data()),
                               length),
       msime_client_string_free);
-  if (!result)
-    return 1;
-  try {
-    auto document = nlohmann::json::parse(result.get());
-    const bool ok = document.at("ok").get<bool>();
-    std::cout << document.dump() << '\n';
-    if (!std::cout)
-      return 1;
-    return ok ? 0 : 1;
-  } catch (...) {
-    // Never print parser errors or request data; they can contain user entries.
-    return 1;
-  }
+  return msime_cli_write_provider_response(result.get(), std::cout);
 }

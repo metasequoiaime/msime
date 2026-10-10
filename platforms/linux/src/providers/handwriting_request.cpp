@@ -7,7 +7,7 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
-#include <nlohmann/json.hpp>
+#include "provider_response_cli.h"
 #include <string>
 
 // 我们自己发布的 deb/rpm 不带手写模型，由设置应用下载到默认数据目录 $XDG_CONFIG_HOME/<客户端目录>/resource-packs/handwriting/。安装前缀和环境变量里都找不到时，--local 再到这里找；用户把数据目录移到别处后，要用参数或 MSIME_HANDWRITING_MODEL 指定模型。
@@ -55,14 +55,5 @@ int main(int argc, char **argv) {
                   reinterpret_cast<const uint8_t *>(buffer.data()), length,
                   reinterpret_cast<const uint8_t *>(endpoint.data()), endpoint.size()),
       msime_client_string_free);
-  if (!result)
-    return 1;
-  try {
-    auto document = nlohmann::json::parse(result.get());
-    const bool ok = document.at("ok").get<bool>();
-    std::cout << document.dump() << '\n';
-    return std::cout ? (ok ? 0 : 1) : 1;
-  } catch (...) {
-    return 1;
-  }
+  return msime_cli_write_provider_response(result.get(), std::cout);
 }
