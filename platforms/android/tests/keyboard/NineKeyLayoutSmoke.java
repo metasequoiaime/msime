@@ -1,3 +1,4 @@
+import app.msime.android.KeyboardLayout;
 import app.msime.android.NineKeyLayout;
 import java.util.List;
 
@@ -96,7 +97,30 @@ public final class NineKeyLayoutSmoke {
             calculator.get(0).add(new NineKeyLayout.Key(0, "bad", '0', "bad"));
             throw new AssertionError();
         } catch (UnsupportedOperationException expected) { }
+
+        // `touch_twenty_six_key_number_layout`：选了九宫格时，26 键（含韩文两套式）的数字层换成九键数字键面；字母层、一行（缺省和不认识的值）、分离式键盘和其他布局都不变。
+        check(NineKeyLayout.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY.equals("touch_twenty_six_key_number_layout"));
+        check(NineKeyLayout.ROW_NUMBER_LAYOUT.equals("row"));
+        check(NineKeyLayout.NINE_KEY_NUMBER_LAYOUT.equals("nine_key"));
+        check(NineKeyLayout.nineKeyNumberLayout("nine_key"));
+        check(!NineKeyLayout.nineKeyNumberLayout("row"));
+        check(!NineKeyLayout.nineKeyNumberLayout(""));
+        check(!NineKeyLayout.nineKeyNumberLayout(null));
+        check(!NineKeyLayout.nineKeyNumberLayout("nineKey"));
+        check(!NineKeyLayout.nineKeyNumberLayout("NINE_KEY"));
+        check(NineKeyLayout.twentySixKeyDigits(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, true, false));
+        check(NineKeyLayout.twentySixKeyDigits(KeyboardLayout.KOREAN_LAYOUT, true, true, false));
+        check(!NineKeyLayout.twentySixKeyDigits(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false, true, false));
+        check(!NineKeyLayout.twentySixKeyDigits(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, false, false));
+        check(!NineKeyLayout.twentySixKeyDigits(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, true, true));
+        check(!NineKeyLayout.twentySixKeyDigits(KeyboardLayout.KOREAN_LAYOUT, true, true, true));
+        for (int other : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT,
+                KeyboardLayout.HANDWRITING_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT, KeyboardLayout.STROKE_LAYOUT,
+                KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT}) {
+            check(!NineKeyLayout.twentySixKeyDigits(other, true, true, false));
+            check(!NineKeyLayout.twentySixKeyDigits(other, false, true, false));
+        }
         System.out.println(
-            "Android nine-key layout: grid inputs, labels, digit layer, keypad order and punctuation passed");
+            "Android nine-key layout: grid inputs, labels, digit layer, keypad order, 26-key number layout and punctuation passed");
     }
 }

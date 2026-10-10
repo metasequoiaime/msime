@@ -264,6 +264,22 @@ enum GlobalThemeCatalog {
   static func isBase(_ id: String?) -> Bool { contains(id) && id != customId && id != nativeId }
 }
 
+/// 候选皮肤包放进自定义主题的哪个槽位：它清单 `base` 的明暗（client-core `theme::skin_appearance`）。包也只在这个明暗下绘制。
+enum CandidateSkinSlot: Equatable {
+  case light
+  case dark
+  /// `system` 底的包两种模式都画，两个槽位都放。
+  case both
+
+  init(base: String) {
+    switch GlobalThemeCatalog.entry(base)?.appearance {
+    case .dark: self = .dark
+    case .light: self = .light
+    default: self = .both
+    }
+  }
+}
+
 /// `msime_client_resolve_theme`'s answer: the palettes a host draws for a theme in one mode.
 struct ResolvedTheme: Equatable {
   let id: String
@@ -298,12 +314,14 @@ struct ResolvedTheme: Equatable {
     if let skinsRoot { request["skins_directory"] = skinsRoot.path }
     guard JSONSerialization.isValidJSONObject(request),
           let body = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]) else { return nil }
-    // The package on disk is part of the answer, so its manifest's change time is part of the key.
+    // 磁盘上的皮肤包也是答案的一部分，所以两个槽位指名的包，其清单的修改时间和大小都进缓存键：只看 `candidate_skin` 的话，替换了深色槽位的包，深色模式还会拿到旧答案。
     var key = body
-    if let package = customTheme?["candidate_skin"] as? String, let skinsRoot,
-       let attributes = try? FileManager.default.attributesOfItem(
-         atPath: skinsRoot.appendingPathComponent(package, isDirectory: true).appendingPathComponent("skin.toml").path) {
-      key.append(Data("\u{0}\((attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)\u{0}\(attributes[.size] ?? 0)".utf8))
+    if let skinsRoot {
+      for package in GlobalThemePreference.candidateSkins(in: customTheme ?? [:]) {
+        let manifest = skinsRoot.appendingPathComponent(package, isDirectory: true).appendingPathComponent("skin.toml")
+        let attributes = try? FileManager.default.attributesOfItem(atPath: manifest.path)
+        key.append(Data("\u{0}\(package)\u{0}\((attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)\u{0}\(attributes?[.size] ?? 0)".utf8))
+      }
     }
     lock.lock()
     let cached = cache[key]
@@ -332,6 +350,29 @@ struct ResolvedTheme: Equatable {
 /// Tauri 插件写 App Group 的 `globalTheme`（八个主题 id 之一）和 `customKeyboardSkin.v1`（键盘设计，没有时不存在）；键盘每次重新加载都用文档覆盖这两项。这里的写入先改文档，文档接受了改动才改 App Group。
 enum GlobalThemePreference {
   static let key = "globalTheme"
+  /// 自定义主题的两个候选皮肤槽位：`candidate_skin` 是浅色模式的，也是深色槽位没设时深色模式用的；`candidate_skin_dark` 是深色模式的（client-core `CustomTheme::candidate_skin_for`）。
+  static let candidateSkinKey = "candidate_skin"
+  static let candidateSkinDarkKey = "candidate_skin_dark"
+
+  /// 槽位 `key` 里的皮肤包 id，空字符串和缺省一样按没设。
+  private static func skin(_ custom: [String: Any], _ key: String) -> String? {
+    (custom[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
+  }
+
+  /// `dark` 模式下画哪款皮肤包：深色模式先取 `candidate_skin_dark`，没设时与浅色模式一样取 `candidate_skin`。包画不画还要看它的底是否属于这个模式，由 `msime_client_resolve_theme` 判断。
+  static func candidateSkin(in custom: [String: Any], dark: Bool) -> String? {
+    let light = skin(custom, candidateSkinKey)
+    return dark ? skin(custom, candidateSkinDarkKey) ?? light : light
+  }
+
+  /// 两个槽位指名的皮肤包，浅色槽位在前，同一款只出现一次。
+  static func candidateSkins(in custom: [String: Any]) -> [String] {
+    var skins: [String] = []
+    for key in [candidateSkinKey, candidateSkinDarkKey] {
+      if let id = skin(custom, key), !skins.contains(id) { skins.append(id) }
+    }
+    return skins
+  }
 
   /// The App Group copy; an id the catalog does not list reads as the default.
   static var selected: String {
@@ -374,7 +415,9 @@ enum GlobalThemePreference {
       if current != GlobalThemeCatalog.customId {
         // `native` 不能当底，从它开始自定义时和跟随系统一样不写底。
         if !GlobalThemeCatalog.isBase(current) || current == GlobalThemeCatalog.systemId { custom.removeValue(forKey: "base") } else { custom["base"] = current }
-        custom.removeValue(forKey: "candidate_skin")
+        // 两个槽位一起清：只清 `candidate_skin` 会让深色槽位的皮肤留在新的自定义主题里，深色模式继续画它。
+        custom.removeValue(forKey: candidateSkinKey)
+        custom.removeValue(forKey: candidateSkinDarkKey)
       }
       edit(&custom)
       document["custom_theme"] = custom
@@ -416,22 +459,44 @@ enum GlobalThemePreference {
     document["custom_theme"] = custom
   }
 
-  /// Draw an imported package: the custom theme over the package's own base, with this package (THEME_CONTRACT section 5).
-  static func applyingPackage(_ id: String, base: String) -> (inout [String: Any]) -> Void {
+  /// 选用一款导入的皮肤包：自定义主题画在包自己的底上（THEME_CONTRACT section 5），包放进它所属的槽位，与共享设置页的 `applyCandidateSkin` 同一条规则。深色皮肤写 `candidate_skin_dark`，浅色皮肤写 `candidate_skin`，`system` 底的两个都写。
+  ///
+  /// 写深色槽位时，原来放在 `candidate_skin` 里的深色皮肤一并清掉。写浅色槽位时，如果深色槽位还空着、原来的 `candidate_skin` 是深色或跟随系统的皮肤，先把它挪到深色槽位：只设过一款深色皮肤的旧文档把它存在 `candidate_skin` 里，深色模式靠回退取到它，直接覆盖会让它悄悄消失。`slotOf` 给出已装皮肤的槽位，nil 表示不知道（比如包已经不在了）：这种皮肤哪个模式都画不出来，直接覆盖，不挪进深色槽位。
+  static func applyingPackage(_ id: String, base: String,
+                              slotOf: @escaping (String) -> CandidateSkinSlot?) -> (inout [String: Any]) -> Void {
     { document in
       var custom = customTheme(in: document)
-      custom["candidate_skin"] = id
+      let slot = CandidateSkinSlot(base: base)
+      let previous = skin(custom, candidateSkinKey)
+      let previousDark = skin(custom, candidateSkinDarkKey)
+      if slot != .light { custom[candidateSkinDarkKey] = id }
+      // 新的深色皮肤取代旧文档放在 `candidate_skin` 里的深色皮肤：浅色模式本来就不画它，留着只会让它看起来还在用。
+      if slot == .dark, let previous, slotOf(previous) == .dark { custom.removeValue(forKey: candidateSkinKey) }
+      if slot != .dark {
+        if slot == .light, previousDark == nil, let previous, let previousSlot = slotOf(previous), previousSlot != .light {
+          custom[candidateSkinDarkKey] = previous
+        }
+        custom[candidateSkinKey] = id
+      }
       if GlobalThemeCatalog.isBase(base), base != GlobalThemeCatalog.systemId { custom["base"] = base } else { custom.removeValue(forKey: "base") }
       document["custom_theme"] = custom
       document["global_theme"] = GlobalThemeCatalog.customId
     }
   }
 
-  /// 自定义主题不使用外部皮肤: the custom theme keeps its base, pickers and design.
-  static func clearingPackage(_ document: inout [String: Any]) {
-    var custom = customTheme(in: document)
-    guard custom.removeValue(forKey: "candidate_skin") != nil else { return }
-    document["custom_theme"] = custom
+  /// 不再使用皮肤包 `id`：只清掉放着它的槽位，另一个槽位、取色器和键盘设计都不动（共享设置页的 `removeCandidateSkin`）。取下的是最后一款皮肤时底改回跟随系统（不写 `base`）：底是应用皮肤时写进来的包 base，两个槽位都空以后 client-core 在两种明暗下都用它，留着深色皮肤的 `night` 会让浅色模式变成深色。
+  static func removingPackage(_ id: String) -> (inout [String: Any]) -> Void {
+    { document in
+      var custom = customTheme(in: document)
+      var changed = false
+      for key in [candidateSkinKey, candidateSkinDarkKey] where custom[key] as? String == id {
+        custom.removeValue(forKey: key)
+        changed = true
+      }
+      guard changed else { return }
+      if candidateSkins(in: custom).isEmpty { custom.removeValue(forKey: "base") }
+      document["custom_theme"] = custom
+    }
   }
 
   /// Change the theme fields of the shared document, then copy what the document now holds to the App Group; false when the document refused the change, which leaves the App Group alone.

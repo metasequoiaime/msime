@@ -61,6 +61,47 @@ public final class ClipboardHistoryPolicySmoke {
             ClipboardHistoryPolicy.message(null);
             throw new AssertionError("there is no message for \"accepted\"");
         } catch (IllegalArgumentException expected) { /* expected */ }
+
+        // #5971：在应用里编辑一条历史。
+        check(ClipboardHistoryPolicy.editRejection("not_found") == ClipboardHistoryPolicy.EditResult.NOT_FOUND,
+            "an entry removed elsewhere is reported as gone");
+        check(ClipboardHistoryPolicy.editRejection("invalid") == ClipboardHistoryPolicy.EditResult.INVALID,
+            "invalid new text is reported as unsavable");
+        check(ClipboardHistoryPolicy.editRejection("") == ClipboardHistoryPolicy.EditResult.INVALID,
+            "an unknown refusal is still a refusal the user can act on");
+        check("已保存".equals(ClipboardHistoryPolicy.editMessage(ClipboardHistoryPolicy.EditResult.SAVED)), "a saved edit");
+        check(ClipboardHistoryPolicy.editMessage(ClipboardHistoryPolicy.EditResult.MERGED).contains("合并"),
+            "a merge is named, so the missing entry is not a surprise");
+        check(ClipboardHistoryPolicy.editMessage(ClipboardHistoryPolicy.EditResult.NOT_FOUND).contains("不在"),
+            "a vanished entry is named rather than failing silently");
+        check(ClipboardHistoryPolicy.editMessage(ClipboardHistoryPolicy.EditResult.INVALID)
+                .equals(ClipboardHistoryPolicy.message(ClipboardHistoryPolicy.Rejection.TOO_LONG)),
+            "unsavable text uses the capture wording");
+        try {
+            ClipboardHistoryPolicy.editMessage(null);
+            throw new AssertionError("there is no message for no result");
+        } catch (IllegalArgumentException expected) { /* expected */ }
+        String key = ClipboardHistoryPolicy.editKey(1_760_000_000_000L, "synthetic entry");
+        check(key.equals(ClipboardHistoryPolicy.editKey(1_760_000_000_000L, "synthetic entry")), "the key is stable");
+        check(!key.contains("synthetic"), "the key carries no text");
+        check(!key.equals(ClipboardHistoryPolicy.editKey(1_760_000_000_001L, "synthetic entry")), "the timestamp counts");
+        check(!key.equals(ClipboardHistoryPolicy.editKey(1_760_000_000_000L, "synthetic entry.")), "the text counts");
+        String longest = ClipboardHistoryPolicy.editKey(Long.MAX_VALUE, "家".repeat(10_000));
+        check(longest.length() <= app.msime.android.HostDeepLink.MAX_STRING_ARG,
+            "the key fits a deep link argument however long the entry is");
+        check(app.msime.android.HostDeepLink.isAllowedArgKey(ClipboardHistoryPolicy.EDIT_ENTRY_ARG),
+            "the argument name survives the deep link filter");
+        check(app.msime.android.HostDeepLink.isAllowedArgKey(ClipboardHistoryPolicy.RETURN_TO_CALLER_ARG),
+            "the return argument survives the deep link filter");
+        // #5973：在别的应用的输入框里打开就回到那个应用；在水杉自己的输入框里打开时不能把水杉送到后台。
+        check(ClipboardHistoryPolicy.returnsToCaller("com.example.synthetic", "app.msime.android"),
+            "another app's field returns to that app");
+        check(!ClipboardHistoryPolicy.returnsToCaller("app.msime.android", "app.msime.android"),
+            "the app's own field stays in the app");
+        check(ClipboardHistoryPolicy.returnsToCaller(null, "app.msime.android"),
+            "an unknown field keeps the old return");
+        check(ClipboardHistoryPolicy.EDIT_PAGE.equals(app.msime.android.HostDeepLink.pageName(ClipboardHistoryPolicy.EDIT_PAGE)),
+            "the page name survives the deep link filter");
         System.out.println("Android clipboard history: policy, dedupe, pinning, removal and bounds passed");
     }
 }

@@ -126,6 +126,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "input.wubi_code_hint",
             "input.wubi_schema",
             "platform.android.custom_candidate_skin",
+            "platform.android.custom_candidate_skin_dark",
             "platform.android.custom_keyboard_skin",
             "platform.android.custom_theme_base",
             "platform.android.global_theme",
@@ -148,6 +149,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.toolbar_skin",
             "platform.android.touch_key_spacing_tenths",
             "platform.android.touch_row_spacing_tenths",
+            "platform.android.twenty_six_key_number_layout",
             "platform.android.voice_language",
             "platform.android.voice_shortcut",
         ]
@@ -254,6 +256,7 @@ fn settings_sync_round_trips_every_exported_key() {
         touch_keyboard_height_adjustment: 10,
         touch_voice_shortcut: !Preferences::default().touch_voice_shortcut,
         touch_number_keypad_order: NumberKeypadOrder::Calculator,
+        touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::NineKey,
         touch_shuangpin_key_hints: !Preferences::default().touch_shuangpin_key_hints,
         ..Preferences::default()
     };
@@ -264,6 +267,8 @@ fn settings_sync_round_trips_every_exported_key() {
     };
     expected.global_theme = GlobalTheme::Custom;
     expected.custom_theme.base = GlobalTheme::Night;
+    expected.custom_theme.candidate_skin = Some("sakura".into());
+    expected.custom_theme.candidate_skin_dark = Some("midnight".into());
     expected.validate().unwrap();
     let host = HostKeyboardFeedback {
         sound_enabled: false,
@@ -378,6 +383,7 @@ fn settings_sync_unknown_enum_values_skip_only_their_key() {
         ("platform.android.custom_theme_base", "custom"),
         ("platform.android.custom_keyboard_skin", "{not json"),
         ("platform.android.custom_candidate_skin", "../escape"),
+        ("platform.android.custom_candidate_skin_dark", "../escape"),
         ("platform.android.haptic_strength", "max"),
     ];
     let mut values: BTreeMap<String, AccountPreferenceValue> = unknown_values
@@ -598,6 +604,46 @@ fn settings_sync_host_feedback_is_read_only_when_the_document_has_it() {
     );
     assert!(valid_haptic_strength("light") && !valid_haptic_strength("off"));
     assert!(valid_haptic_strength("system"), "跟随系统");
+}
+
+/// 深色槽位与浅色槽位各自同步：空串清掉本机的深色皮肤，字段表没收录这个键（旧服务端）时本机的深色皮肤保持不变。
+#[test]
+fn settings_sync_dark_candidate_skin_slot_syncs_on_its_own() {
+    let mut local = Preferences::default();
+    local.custom_theme.candidate_skin = Some("sakura".into());
+    local.custom_theme.candidate_skin_dark = Some("midnight".into());
+    local.validate().unwrap();
+    let exported = export_android_settings(&local, None).unwrap();
+    assert_eq!(
+        exported.get("platform.android.custom_candidate_skin_dark"),
+        Some(&AccountPreferenceValue::String("midnight".into()))
+    );
+
+    let cleared = BTreeMap::from([(
+        "platform.android.custom_candidate_skin_dark".to_owned(),
+        AccountPreferenceValue::String(String::new()),
+    )]);
+    let applied = apply(&local, cleared.clone(), &full_schema());
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(
+        applied.preferences.custom_theme.candidate_skin.as_deref(),
+        Some("sakura")
+    );
+    assert_eq!(applied.preferences.custom_theme.candidate_skin_dark, None);
+
+    let mut legacy = full_schema();
+    legacy
+        .fields
+        .remove("platform.android.custom_candidate_skin_dark");
+    let applied = apply(&local, cleared, &legacy);
+    assert_eq!(
+        applied
+            .preferences
+            .custom_theme
+            .candidate_skin_dark
+            .as_deref(),
+        Some("midnight")
+    );
 }
 
 #[test]

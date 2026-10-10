@@ -184,7 +184,9 @@ static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
 static NSString *const GlobalThemeKey = @"MSIMEClientGlobalTheme";
 static NSString *const CustomThemeBaseKey = @"MSIMEClientCustomThemeBase";
 static NSString *const CustomCandidateSkinKey = @"MSIMEClientCustomCandidateSkin";
-/// `custom_theme.candidate_skin`: a package folder name, never a global theme id.
+/// 深色槽位 `custom_theme.candidate_skin_dark`，与浅色槽位同样校验，空串表示没有。
+static NSString *const CustomCandidateSkinDarkKey = @"MSIMEClientCustomCandidateSkinDark";
+/// `custom_theme.candidate_skin` 与 `candidate_skin_dark` 的值：皮肤包文件夹名，不会是全局主题 id。
 static BOOL ValidCustomCandidateSkin(id value) {
     return [value isKindOfClass:NSString.class] && [value length] > 0 && [value length] <= 64 &&
            msime::mac::IsSafeSkinId([value UTF8String]) && !msime::mac::IsGlobalThemeId([value UTF8String]);
@@ -335,6 +337,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         GlobalThemeKey : @"sharedGlobalTheme",
         CustomThemeBaseKey : @"sharedCustomThemeBase",
         CustomCandidateSkinKey : @"sharedCustomCandidateSkin",
+        CustomCandidateSkinDarkKey : @"sharedCustomCandidateSkinDark",
         CandidateThemeKey : @"sharedCandidateTheme",
         ToolbarThemeKey : @"sharedToolbarTheme",
         FallbackFontsKey : @"sharedFallbackFonts",
@@ -463,6 +466,7 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             GlobalThemeKey : ^id(MSIMEAppearancePreferences *p) { return p.globalTheme; },
             CustomThemeBaseKey : ^id(MSIMEAppearancePreferences *p) { return p.customThemeBase; },
             CustomCandidateSkinKey : ^id(MSIMEAppearancePreferences *p) { return p.customCandidateSkin ?: NSNull.null; },
+            CustomCandidateSkinDarkKey : ^id(MSIMEAppearancePreferences *p) { return p.customCandidateSkinDark ?: NSNull.null; },
             CandidateLearningKey : ^id(MSIMEAppearancePreferences *p) { return @(p.candidateLearningEnabled); },
             FrequencyModeKey : ^id(MSIMEAppearancePreferences *p) { return p.frequencyAdjustmentMode ?: NSNull.null; },
             FrequencyTriggerCountKey : ^id(MSIMEAppearancePreferences *p) { return @(p.frequencyTriggerCount); },
@@ -976,6 +980,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id _sharedGlobalTheme;
     id _sharedCustomThemeBase;
     id _sharedCustomCandidateSkin;
+    id _sharedCustomCandidateSkinDark;
     NSTextField *_textColorField;
     NSColorWell *_textColorWell;
     /// The wells and 跟随皮肤 buttons of CandidateColorControls(), by the property each one sets, so
@@ -1031,8 +1036,11 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSPopUpButton *_pageShortcutButton;
     NSPopUpButton *_pageSizeButton;
     NSURL *_skinsRoot;
-    NSImage *_decorationImage;
-    NSImage *_backgroundImage;
+    /// 两种明暗各画各自槽位的皮肤包，装饰图和背景图因此也按明暗各存一份；两种明暗画同一个包时共用同一张图。
+    NSImage *_lightDecorationImage;
+    NSImage *_darkDecorationImage;
+    NSImage *_lightBackgroundImage;
+    NSImage *_darkBackgroundImage;
     msime::mac::ResolvedSkin _lightSkin;
     msime::mac::ResolvedSkin _darkSkin;
     msime::mac::SkinTokens _lightToolbarSkin;
@@ -1272,6 +1280,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (_sharedCustomThemeBase || [_defaults objectForKey:CustomThemeBaseKey]) customTheme[@"base"] = self.customThemeBase;
     if (_sharedCustomCandidateSkin || [_defaults objectForKey:CustomCandidateSkinKey])
         customTheme[@"candidate_skin"] = self.customCandidateSkin ?: (id)NSNull.null;
+    if (_sharedCustomCandidateSkinDark || [_defaults objectForKey:CustomCandidateSkinDarkKey])
+        customTheme[@"candidate_skin_dark"] = self.customCandidateSkinDark ?: (id)NSNull.null;
     NSMutableDictionary *pickerColors = [existingCustom[@"candidate_colors"] isKindOfClass:NSDictionary.class]
                                             ? [existingCustom[@"candidate_colors"] mutableCopy]
                                             : [NSMutableDictionary dictionary];
@@ -1389,8 +1399,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)localModeChanged:(NSButton *)sender {
     [self setLocalMode:sender.identifier enabled:sender.state == NSControlStateValueOn];
 }
-- (NSImage *)decorationImage { return _decorationImage; }
-- (NSImage *)backgroundImage { return _backgroundImage; }
+- (NSImage *)decorationImageForDark:(BOOL)dark { return dark ? _darkDecorationImage : _lightDecorationImage; }
+- (NSImage *)backgroundImageForDark:(BOOL)dark { return dark ? _darkBackgroundImage : _lightBackgroundImage; }
+- (std::optional<bool>)fixedThemeMode { return msime::mac::FixedThemeMode(_lightSkin, _darkSkin); }
 - (msime::mac::ResolvedSkin)resolvedSkinForDark:(BOOL)dark { return dark ? _darkSkin : _lightSkin; }
 - (msime::mac::SkinTokens)toolbarSkinForDark:(BOOL)dark { return dark ? _darkToolbarSkin : _lightToolbarSkin; }
 - (void)reloadSkins {
@@ -1432,6 +1443,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _sharedGlobalTheme = nil;
     _sharedCustomThemeBase = nil;
     _sharedCustomCandidateSkin = nil;
+    _sharedCustomCandidateSkinDark = nil;
     [self dropRuntimeOverridesUnlessPunctuation:punctuationBefore width:widthBefore];
     [self reloadSkins]; // Resolve the imported skin and publish one complete update.
     return YES;
@@ -1448,6 +1460,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     snapshot[@"platform.macos.global_theme"] = self.globalTheme;
     snapshot[@"platform.macos.custom_theme_base"] = self.customThemeBase;
     snapshot[@"platform.macos.custom_candidate_skin"] = self.customCandidateSkin ?: @"";
+    snapshot[@"platform.macos.custom_candidate_skin_dark"] = self.customCandidateSkinDark ?: @"";
     // The stored preset is kept in step by -syncStoredPageShortcut, but a navigation dictionary an account pushed down never reaches storage at all, and this method's job is to export what the host is actually using; see -storedPageShortcutForCurrentBindings for what a state the three-value contract cannot name exports as.
     snapshot[@"platform.macos.candidate_page_shortcut"] = @([self storedPageShortcutForCurrentBindings]);
     NSArray *schemes = @[@"quanpin", @"shuangpin", @"wubi"];
@@ -1474,6 +1487,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     msime::mac::CustomTheme custom;
     custom.base = self.customThemeBase.UTF8String;
     custom.candidateSkin = self.customCandidateSkin.UTF8String ?: "";
+    custom.candidateSkinDark = self.customCandidateSkinDark.UTF8String ?: "";
     custom.candidateColors.text = self.candidateTextColor.UTF8String ?: "";
     custom.candidateColors.number = self.candidateNumberColor.UTF8String ?: "";
     custom.candidateColors.accent = self.candidateAccentColor.UTF8String ?: "";
@@ -1486,7 +1500,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 /// Everything the resolved theme depends on besides the package files themselves, which -reloadSkins rereads.
 - (NSString *)themeResolutionKey {
     return [@[
-        self.globalTheme, self.customThemeBase, self.customCandidateSkin ?: @"", self.candidateTextColor ?: @"",
+        self.globalTheme, self.customThemeBase, self.customCandidateSkin ?: @"", self.customCandidateSkinDark ?: @"",
+        self.candidateTextColor ?: @"",
         self.candidateNumberColor ?: @"", self.candidateAccentColor ?: @"", self.candidateSelectedColor ?: @"",
         self.candidateHoverColor ?: @"", self.candidateSurfaceColor ?: @"", self.candidateBorderColor ?: @"",
         self.vertical ? @"vertical" : @"horizontal", _skinsRoot.path ?: @""
@@ -1504,16 +1519,17 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _lightToolbarSkin = msime::mac::ToolbarSkinTokens(_lightSkin, root);
     _darkToolbarSkin = msime::mac::ToolbarSkinTokens(_darkSkin, root);
     _resolvedThemeKey = [self themeResolutionKey];
-    _decorationImage = nil;
-    if (_lightSkin.decorationTopDip > 0 && !_lightSkin.decorationPath.empty()) {
-        _decorationImage = [[NSImage alloc] initWithContentsOfFile:@(_lightSkin.decorationPath.c_str())];
-    }
-    if (!_decorationImage && _darkSkin.decorationTopDip > 0 && !_darkSkin.decorationPath.empty()) {
-        _decorationImage = [[NSImage alloc] initWithContentsOfFile:@(_darkSkin.decorationPath.c_str())];
-    }
-    // Both modes draw the same package, so one image serves whichever of them draws a background.
-    const std::string &backgroundPath = !_lightSkin.backgroundPath.empty() ? _lightSkin.backgroundPath : _darkSkin.backgroundPath;
-    _backgroundImage = backgroundPath.empty() ? nil : [[NSImage alloc] initWithContentsOfFile:@(backgroundPath.c_str())];
+    // 每种明暗只读它自己画的那个包的图：浅色、深色槽位可以是两个包，一张图给两种明暗用会把一个包的装饰画到另一个包的配色上。
+    auto load = [](const std::string &path) -> NSImage * {
+        return path.empty() ? nil : [[NSImage alloc] initWithContentsOfFile:@(path.c_str())];
+    };
+    const auto decorationPath = [](const msime::mac::ResolvedSkin &skin) {
+        return skin.decorationTopDip > 0 ? skin.decorationPath : std::string();
+    };
+    _lightDecorationImage = load(decorationPath(_lightSkin));
+    _darkDecorationImage = decorationPath(_darkSkin) == decorationPath(_lightSkin) ? _lightDecorationImage : load(decorationPath(_darkSkin));
+    _lightBackgroundImage = load(_lightSkin.backgroundPath);
+    _darkBackgroundImage = _darkSkin.backgroundPath == _lightSkin.backgroundPath ? _lightBackgroundImage : load(_darkSkin.backgroundPath);
 }
 - (BOOL)vertical { return _sharedVertical ? _sharedVertical.boolValue : [_defaults integerForKey:LayoutKey] == 1; }
 - (BOOL)candidateFollowCursor {
@@ -2308,8 +2324,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _sharedGlobalTheme = nil;
     _sharedCustomThemeBase = nil;
     _sharedCustomCandidateSkin = nil;
+    _sharedCustomCandidateSkinDark = nil;
     [_defaults setObject:current forKey:CustomThemeBaseKey];
     [_defaults setObject:@"" forKey:CustomCandidateSkinKey];
+    [_defaults setObject:@"" forKey:CustomCandidateSkinDarkKey];
     [_defaults setObject:@"custom" forKey:GlobalThemeKey];
 }
 - (NSString *)globalTheme {
@@ -2330,20 +2348,46 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id value = _sharedCustomCandidateSkin ?: [_defaults objectForKey:CustomCandidateSkinKey];
     return ValidCustomCandidateSkin(value) ? value : nil;
 }
+- (NSString *)customCandidateSkinDark {
+    id value = _sharedCustomCandidateSkinDark ?: [_defaults objectForKey:CustomCandidateSkinDarkKey];
+    return ValidCustomCandidateSkin(value) ? value : nil;
+}
+/// 把两个槽位写回本机偏好。共享文档推下来的两个槽位已经折进 `custom`，所以丢掉这两个共享值，让 getter 读到刚写下的值。
+- (void)storeCustomCandidateSkins:(const msime::mac::CustomTheme &)custom {
+    _sharedCustomCandidateSkin = nil;
+    _sharedCustomCandidateSkinDark = nil;
+    [_defaults setObject:@(custom.candidateSkin.c_str()) forKey:CustomCandidateSkinKey];
+    [_defaults setObject:@(custom.candidateSkinDark.c_str()) forKey:CustomCandidateSkinDarkKey];
+}
 - (void)selectExternalSkin:(NSString *)skinId base:(NSString *)base {
     if (!ValidCustomCandidateSkin(skinId)) return;
+    // The package's manifest base replaces the custom theme's own; the loader has already refused anything but system or a built-in theme.
+    const std::string packageBase = msime::mac::IsThemeBaseId(base.UTF8String ?: "") ? base.UTF8String : "system";
+    const std::filesystem::path root = _skinsRoot.fileSystemRepresentation ?: "";
+    // 原来那款皮肤属于哪个槽位要读它的清单；包已经不在目录里时是 unknown，应用浅色皮肤时直接覆盖它，不挪进深色槽位。
+    const auto slotOf = [&root](const std::string &id) {
+        const auto package = msime::mac::LoadSkinPackage(root, id);
+        return package ? msime::mac::SkinSlotOfBase(package->base) : msime::mac::SkinSlot::unknown;
+    };
+    const msime::mac::CustomTheme custom = msime::mac::ApplyCandidateSkin([self customTheme], skinId.UTF8String, packageBase, slotOf);
     _sharedGlobalTheme = nil;
     _sharedCustomThemeBase = nil;
-    _sharedCustomCandidateSkin = nil;
-    // The package's manifest base replaces the custom theme's own; the loader has already refused anything but system or a built-in theme.
-    [_defaults setObject:msime::mac::IsThemeBaseId(base.UTF8String ?: "") ? base : @"system" forKey:CustomThemeBaseKey];
-    [_defaults setObject:skinId forKey:CustomCandidateSkinKey];
+    [_defaults setObject:@(custom.base.c_str()) forKey:CustomThemeBaseKey];
+    [self storeCustomCandidateSkins:custom];
     [_defaults setObject:@"custom" forKey:GlobalThemeKey];
     [self preferencesChanged];
 }
+- (void)removeCustomCandidateSkin:(NSString *)skinId {
+    if (!ValidCustomCandidateSkin(skinId)) return;
+    const msime::mac::CustomTheme custom = msime::mac::RemoveCandidateSkin([self customTheme], skinId.UTF8String);
+    _sharedCustomThemeBase = nil;
+    [_defaults setObject:@(custom.base.c_str()) forKey:CustomThemeBaseKey];
+    [self storeCustomCandidateSkins:custom];
+    [self preferencesChanged];
+}
 - (void)clearCustomCandidateSkin {
-    _sharedCustomCandidateSkin = nil;
-    [_defaults setObject:@"" forKey:CustomCandidateSkinKey];
+    // 不使用外部皮肤：两个槽位一起清，只清浅色槽位会让深色模式还画着深色槽位里的包。
+    [self storeCustomCandidateSkins:msime::mac::CustomTheme()];
     [self preferencesChanged];
 }
 /// The six colours of CandidateColorControls(), which read and write exactly as 候选文字颜色 above
@@ -2679,6 +2723,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id candidateSkin = customTheme[@"candidate_skin"];
     if (!candidateSkin || candidateSkin == NSNull.null) _sharedCustomCandidateSkin = NSNull.null;
     else if (ValidCustomCandidateSkin(candidateSkin)) _sharedCustomCandidateSkin = [candidateSkin copy];
+    id candidateSkinDark = customTheme[@"candidate_skin_dark"];
+    if (!candidateSkinDark || candidateSkinDark == NSNull.null) _sharedCustomCandidateSkinDark = NSNull.null;
+    else if (ValidCustomCandidateSkin(candidateSkinDark)) _sharedCustomCandidateSkinDark = [candidateSkinDark copy];
     NSDictionary *pickerColors = [customTheme[@"candidate_colors"] isKindOfClass:NSDictionary.class] ? customTheme[@"candidate_colors"] : @{};
     _sharedTextColor = SharedCandidateColor(pickerColors, @"text", _sharedTextColor);
     _sharedNumberColor = SharedCandidateColor(pickerColors, @"number", _sharedNumberColor);
@@ -2731,8 +2778,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 }
 
 - (NSAppearance *)candidateAppearanceOverride {
-    // A theme with a mode of its own (水杉, 浅色, 纸, 夜 and 墨, or the custom theme over one of them) is drawn in that mode whatever the light/dark choice says: its palette is the one for that mode.
-    if (_lightSkin.fixedDark) return [NSAppearance appearanceNamed:*_lightSkin.fixedDark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
+    // 固定明暗的主题（水杉、浅色、纸、夜、墨，或叠在其中之一上、没有设皮肤的自定义主题）不管明暗选择都画在自己的明暗下：它的配色就是那一种明暗的。两个槽位按明暗各画一款皮肤时两次解析的明暗不同，见 FixedThemeMode。
+    if (const auto fixed = [self fixedThemeMode]) return [NSAppearance appearanceNamed:*fixed ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
     return self.systemBaseCandidateAppearanceOverride;
 }
 - (NSAppearance *)systemBaseCandidateAppearanceOverride {
@@ -2743,7 +2790,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     return nil;
 }
 - (BOOL)candidateAppearanceOverrideConfigured {
-    return _lightSkin.fixedDark.has_value() || _sharedTheme != nil || _sharedCandidateTheme != nil || [_defaults objectForKey:ThemeKey] != nil ||
+    return [self fixedThemeMode].has_value() || _sharedTheme != nil || _sharedCandidateTheme != nil || [_defaults objectForKey:ThemeKey] != nil ||
            [_defaults objectForKey:CandidateThemeKey] != nil;
 }
 - (void)setPageShortcut:(NSInteger)value {

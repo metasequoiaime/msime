@@ -50,6 +50,7 @@ import {
   type CloudDictionaryPanelClient,
   type SettingsClient,
   type Snapshot,
+  type PreferencesRecovery,
   type UpdateCheckRequest,
   type UpdateCheckResult,
   type StatisticsRetention,
@@ -1300,6 +1301,20 @@ function makeClient(
       // preferences.json was never created. Android and Apple both send it.
       const document = JSON.stringify({ format_version: 1, revision: revision + 1, preferences });
       return unwrap<Snapshot>(native.savePreferences(revision, document));
+    },
+    // 「修复配置文件…」：只在页面报「配置文件无法读取或版本较新」并且用户点了之后才调用。旧版本读不懂新版本写的文件时，原文件备份在旁边，能认的设置保留，其余恢复默认。
+    recoverPreferences: async (): Promise<PreferencesRecovery> => {
+      const value = unwrap<{
+        recovered: boolean;
+        snapshot: Snapshot;
+        backup_path?: string;
+        salvaged?: boolean;
+      }>(await bridgeRequest(native, "repair_preferences", ""));
+      return {
+        snapshot: value.snapshot,
+        backupPath: value.recovered ? (value.backup_path ?? null) : null,
+        salvaged: value.salvaged ?? false,
+      };
     },
     readAppVersion: async () => native.appVersion(),
     // GitHub's release list is read and compared in Rust on a native worker (msime_client_update_check); ArkTS fills in the platform.

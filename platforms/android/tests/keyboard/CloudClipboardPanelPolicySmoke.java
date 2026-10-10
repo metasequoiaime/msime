@@ -1,4 +1,6 @@
 import android.text.InputType;
+import app.msime.android.ClipboardHistoryPolicy;
+import app.msime.android.CloudClipboardApi;
 import app.msime.android.CloudClipboardPanelPolicy;
 import app.msime.android.CloudClipboardPanelPolicy.Status;
 import app.msime.android.CloudClipboardPanelPolicy.Tab;
@@ -80,6 +82,29 @@ public final class CloudClipboardPanelPolicySmoke {
         check(CloudClipboardPanelPolicy.message(Status.READY, 3).startsWith("3 条"), "the ready line counts entries");
         check(CloudClipboardPanelPolicy.TAB_CLOUD.equals("云端"), "the cloud half uses the shared label");
         check(CloudClipboardPanelPolicy.UPLOAD_ACTION.equals("发到云剪贴板"), "the upload action uses the shared label");
+
+        // #5905：顶行居中的「已存条数/上限」。
+        check(CloudClipboardPanelPolicy.limit(Tab.LOCAL) == ClipboardHistoryPolicy.LIMIT, "the local limit is the shared store's");
+        check(CloudClipboardPanelPolicy.limit(Tab.CLOUD) == CloudClipboardApi.MAX_ITEMS, "the cloud limit is the service's");
+        check("0/50".equals(CloudClipboardPanelPolicy.countLabel(Tab.LOCAL, 0)), "an empty local history reads 0/50");
+        check("10/50".equals(CloudClipboardPanelPolicy.countLabel(Tab.LOCAL, 10)), "ten local entries read 10/50");
+        check("50/50".equals(CloudClipboardPanelPolicy.countLabel(Tab.LOCAL, 50)), "a full local history reads 50/50");
+        check(CloudClipboardPanelPolicy.countLabel(Tab.LOCAL, null).isEmpty(), "an unreadable or disabled local history shows no count");
+        check("本机已存 10 条，最多 50 条".equals(CloudClipboardPanelPolicy.countDescription(Tab.LOCAL, 10)),
+            "the screen reader hears what the count means");
+        check(CloudClipboardPanelPolicy.countDescription(Tab.LOCAL, null).isEmpty(), "no count, nothing to announce");
+        Integer cloudReady = CloudClipboardPanelPolicy.cloudCount(Status.READY, 3);
+        check(cloudReady != null && cloudReady == 3, "a ready cloud list is counted");
+        check("3/50".equals(CloudClipboardPanelPolicy.countLabel(Tab.CLOUD, cloudReady)), "the cloud count reads 3/50");
+        check("云端已存 3 条，最多 50 条".equals(CloudClipboardPanelPolicy.countDescription(Tab.CLOUD, cloudReady)),
+            "the cloud count names its half");
+        Integer cloudEmpty = CloudClipboardPanelPolicy.cloudCount(Status.EMPTY, 0);
+        check(cloudEmpty != null && cloudEmpty == 0, "an enabled empty cloud list counts zero");
+        for (Status status : new Status[] {Status.LOADING, Status.SIGNED_OUT, Status.DISABLED, Status.FAILED}) {
+            check(CloudClipboardPanelPolicy.cloudCount(status, 0) == null, status + " shows no cloud count");
+            check(CloudClipboardPanelPolicy.countLabel(Tab.CLOUD, CloudClipboardPanelPolicy.cloudCount(status, 0)).isEmpty(),
+                status + " leaves the header gap empty");
+        }
         for (Status status : Status.values()) {
             check(!CloudClipboardPanelPolicy.message(status, 1).isEmpty(), status + " has a message");
         }

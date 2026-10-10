@@ -733,6 +733,9 @@ test("choosing a package makes it the custom theme's skin, and the 自定义 car
   expect(within(custom).getByRole("switch").getAttribute("aria-checked")).toBe("false");
   expect(within(custom).queryByText("使用中")).toBeNull();
   expect(within(custom).getByText("外部皮肤、候选颜色与自定义键盘")).toBeTruthy();
+  // paper 底的皮肤放进浅色槽位；页面说明两种明暗各用哪款。
+  expect(within(card).getByText("浅色皮肤，用在浅色模式")).toBeTruthy();
+  expect(screen.getByText("浅色模式用「Sample skin」，深色模式不用皮肤。")).toBeTruthy();
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(save).toHaveBeenLastCalledWith(3, {
@@ -748,7 +751,54 @@ test("choosing a package makes it the custom theme's skin, and the 自定义 car
     expect(save).toHaveBeenLastCalledWith(4, {
       ...initial.preferences,
       global_theme: "custom",
-      custom_theme: { base: "paper", candidate_skin: null },
+      custom_theme: { base: "paper", candidate_skin: null, candidate_skin_dark: null },
+    }),
+  );
+  expect(screen.queryByText(/模式用「/)).toBeNull();
+});
+
+// 浅色皮肤放进浅色槽位，深色皮肤放进深色槽位，两张卡片同时打开；再点一次开关只把那款从自己的槽位取下。
+test("a light and a dark skin are in use together, each in its own slot", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 4,
+    preferences,
+  }));
+  openSkinPage({
+    save,
+    scanSkinCatalog: async () => ({
+      ...catalog,
+      packages: [
+        { ...sample, base: "paper" },
+        { ...sample, id: "midnight", name: "Midnight skin", base: "night" },
+      ],
+    }),
+  });
+  const light = await screen.findByRole("article", { name: "Sample skin" });
+  const dark = screen.getByRole("article", { name: "Midnight skin" });
+  expect(within(dark).getByText("深色皮肤，用在深色模式")).toBeTruthy();
+  fireEvent.click(within(light).getByRole("switch"));
+  fireEvent.click(within(dark).getByRole("switch"));
+  for (const card of [light, dark])
+    expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("true");
+  expect(screen.getByText("浅色模式用「Sample skin」，深色模式用「Midnight skin」。")).toBeTruthy();
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenLastCalledWith(3, {
+    ...initial.preferences,
+    global_theme: "custom",
+    custom_theme: { base: "night", candidate_skin: "sample", candidate_skin_dark: "midnight" },
+  });
+  fireEvent.click(within(dark).getByRole("switch"));
+  expect(within(dark).getByRole("switch").getAttribute("aria-checked")).toBe("false");
+  expect(within(light).getByRole("switch").getAttribute("aria-checked")).toBe("true");
+  expect(screen.getByText("浅色模式用「Sample skin」，深色模式不用皮肤。")).toBeTruthy();
+  saveSettingsNow();
+  await waitFor(() =>
+    expect(save).toHaveBeenLastCalledWith(4, {
+      ...initial.preferences,
+      global_theme: "custom",
+      custom_theme: { base: "night", candidate_skin: "sample", candidate_skin_dark: null },
     }),
   );
 });
@@ -802,7 +852,10 @@ test("external selection enters the revisioned draft; preview toggles never save
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("false");
   expect(drawn(card, "--cand-bg")).toBe("#ABCDEF");
   expect(save).not.toHaveBeenCalled();
+  // 再点一次已打开的开关会取下皮肤，第三次重新选上。
   fireEvent.click(within(card).getByRole("switch"));
+  fireEvent.click(within(card).getByRole("switch"));
+  expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("false");
   fireEvent.click(within(card).getByRole("switch"));
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("true");
   expect(save).not.toHaveBeenCalled();

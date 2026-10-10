@@ -528,9 +528,15 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
         {
             customTheme[@"base"] = @(custom.base.c_str());
         }
+        // 两个槽位都原样带上：深色模式取哪一个、包在不在这个明暗下画，都由共享解析器决定。
         if (!custom.candidateSkin.empty() && IsSafeSkinId(custom.candidateSkin) && !IsGlobalThemeId(custom.candidateSkin))
         {
             customTheme[@"candidate_skin"] = @(custom.candidateSkin.c_str());
+        }
+        if (!custom.candidateSkinDark.empty() && IsSafeSkinId(custom.candidateSkinDark) &&
+            !IsGlobalThemeId(custom.candidateSkinDark))
+        {
+            customTheme[@"candidate_skin_dark"] = @(custom.candidateSkinDark.c_str());
         }
         NSMutableDictionary *colors = [NSMutableDictionary dictionary];
         const std::pair<NSString *, const std::string *> pickers[] = {

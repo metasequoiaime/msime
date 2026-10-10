@@ -1089,6 +1089,9 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _backspaceHoldArmed;
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
+    // 上一次排版时这种明暗画的皮肤包，空串表示没有画包；外观变化后画的包不同了就要重新排版。
+    std::string _renderedCandidateSkin;
+    BOOL _rerenderingForCandidateSkin;
     CGFloat _tallestVerticalCandidateHeight;
     NSInteger _armedGlossColumn;
     // Ctrl+Enter turns the highlighted candidate's gloss into a page of its senses. The composition
@@ -3122,7 +3125,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 - (NSDictionary *)resolvedMenuThemePreferences {
     NSDictionary *preferences = _menuThemePreferences ?: @{};
     if (!_appearance) return preferences;
-    const auto fixed = [_appearance resolvedSkinForDark:NO].fixedDark;
+    const auto fixed = [_appearance fixedThemeMode];
     if (!fixed) return preferences;
     NSMutableDictionary *pinned = [preferences mutableCopy];
     pinned[@"menu_theme"] = *fixed ? @"dark" : @"light";
@@ -4922,7 +4925,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [[MSIMEScreenKeyboardPanel sharedPanel] applyThemePreferences:preferences];
     // The global theme arrives with the rest of the document, so the toolbar takes the palette resolved from it here as well as on activation. A theme with a mode of its own fixes the toolbar's mode as it fixes the candidate window's.
     NSDictionary *toolbarThemePreferences = preferences;
-    if (const auto fixed = [_appearance resolvedSkinForDark:NO].fixedDark) {
+    if (const auto fixed = [_appearance fixedThemeMode]) {
         NSMutableDictionary *pinned = [preferences mutableCopy];
         pinned[@"toolbar_theme"] = *fixed ? @"dark" : @"light";
         toolbarThemePreferences = pinned;
@@ -6546,9 +6549,13 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     NSAppearance *currentAppearance = candidateAppearance ?: _panel.effectiveAppearance ?: NSApp.effectiveAppearance;
     NSString *currentTheme = [currentAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
     // The styled skin carries the window's scale in its pad, radii, decoration and minimum width; the fonts and the fixed lengths below take it from `scale`.
-    const auto skin = [_appearance candidateWindowSkinForDark:[currentTheme isEqual:NSAppearanceNameDarkAqua]];
+    const BOOL skinDark = [currentTheme isEqual:NSAppearanceNameDarkAqua];
+    const auto skin = [_appearance candidateWindowSkinForDark:skinDark];
     const auto geometry = skin.tokens;
     _skinShowsSelectedBar = geometry.showSelectedBar;
+    _renderedCandidateSkin = skin.candidateSkin;
+    // 装饰图取这种明暗画的那个包的，两个槽位可以是两个包。
+    NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
     const CGFloat scale = MSIMECandidateScale(_appearance);
     const CGFloat inset = MAX(2.0 * scale, geometry.pad);
     NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize * scale englishFirst:YES];
@@ -6606,7 +6613,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     _panel.opaque = NO;
     _panel.backgroundColor = NSColor.clearColor;
     // The band above the card that the decoration stands in, transparent; none without an image to put there, as on Windows.
-    const CGFloat decorationHeight = _appearance.decorationImage ? MAX(0.0, skin.decorationTopDip) : 0.0;
+    const CGFloat decorationHeight = decorationImage ? MAX(0.0, skin.decorationTopDip) : 0.0;
     const CGFloat height = pageGeometry.rowsHeight + 2 * inset + decorationHeight + headerHeight;
     const CGFloat headerBottom = height - inset - decorationHeight - headerHeight;
     // Gloss replies keep the candidate IDs and all panel structure stable. Repaint those rows in
@@ -6763,13 +6770,13 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
         [content addSubview:mark];
     }
     content.cardTopInset = decorationHeight;
-    const NSSize decorationSize = _appearance.decorationImage.size;
+    const NSSize decorationSize = decorationImage.size;
     if (const auto placed = msime::mac::DecorationPlacement(skin.decorationAlign, width, inset, decorationHeight, skin.decorationWidthDip,
                                                             decorationSize.width, decorationSize.height)) {
         // Added last so it sits over the card's top edge and the top row, which is what the overlap is for. It takes no clicks.
         NSImageView *decoration = [[NSImageView alloc] initWithFrame:NSMakeRect(placed->x, height - placed->top - placed->height, placed->width, placed->height)];
         decoration.identifier = @"candidate-decoration";
-        decoration.image = _appearance.decorationImage;
+        decoration.image = decorationImage;
         decoration.imageScaling = NSImageScaleAxesIndependently;
         decoration.wantsLayer = YES;
         [content addSubview:decoration];
@@ -6798,9 +6805,17 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     if (![_panel.contentView isKindOfClass:MSIMECandidateChromeView.class]) return;
     MSIMECandidateChromeView *content = (id)_panel.contentView;
     NSString *match = [content.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
-    const auto skin = [_appearance candidateWindowSkinForDark:[match isEqual:NSAppearanceNameDarkAqua]];
+    const BOOL dark = [match isEqual:NSAppearanceNameDarkAqua];
+    const auto skin = [_appearance candidateWindowSkinForDark:dark];
     const auto &tokens = skin.tokens;
     if (tokens.showSelectedBar != _skinShowsSelectedBar) { [self renderCandidates]; return; }
+    // 明暗切换后画的是另一个槽位的包（或者这种明暗不画包）：装饰、最小宽度和圆角都跟着变，只换颜色不够，整页重排一次。重排结束时还会回到这里，那时包已经对上，不会再重排。面板没在屏幕上时不重排：重排会把它重新显示出来，下一次显示候选时本来就按当时的明暗排版。
+    if (skin.candidateSkin != _renderedCandidateSkin && _panel.isVisible && !_rerenderingForCandidateSkin) {
+        _rerenderingForCandidateSkin = YES;
+        [self renderCandidates];
+        _rerenderingForCandidateSkin = NO;
+        return;
+    }
     // The card's own opacity is already in the surface and border alpha and in backgroundOpacity, rather than in the panel's alphaValue, which would fade the candidates along with the card.
     content.fillColor = SkinColor(tokens.surface);
     content.strokeColor = SkinColor(tokens.border);
@@ -6808,7 +6823,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     content.cornerRadius = tokens.radius;
     content.lineWidth = tokens.borderWidth;
     // Only in a mode whose resolution draws the package: one that supports a single mode draws no background in the other.
-    content.backgroundImage = skin.backgroundPath.empty() ? nil : _appearance.backgroundImage;
+    content.backgroundImage = skin.backgroundPath.empty() ? nil : [_appearance backgroundImageForDark:dark];
     content.backgroundFit = skin.backgroundFit;
     content.backgroundOpacity = skin.backgroundOpacity;
     NSArray<MSIMECandidateButton *> *candidateButtons = [content.subviews filteredArrayUsingPredicate:

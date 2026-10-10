@@ -1076,10 +1076,10 @@ fn resolve_theme_at(
     use msime_client_core::skin::theme::{self, GlobalTheme, ThemePackage};
     request.custom_theme.validate()?;
     let global_theme = request.global_theme;
+    // 按请求的明暗取槽位：深色模式先取 `candidate_skin_dark`，与 `msime_client_resolve_theme` 相同。
     let package = request
         .custom_theme
-        .candidate_skin
-        .as_deref()
+        .candidate_skin_for(request.dark)
         .filter(|_| global_theme == GlobalTheme::Custom)
         .and_then(|id| msime_client_core::skin::catalog::load_package(root, id).ok())
         .map(|summary| ThemePackage::from(&summary));
@@ -1888,9 +1888,9 @@ fn linux_runtime_options_bytes(document: &Value) -> Result<Vec<u8>, RuntimeOptio
     Ok(bytes)
 }
 
-/// Serialize `document` with the installed skins, scanned from `root`, as `candidate_skin_catalog`, dropping packages from the end until the document fits within `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET`.
+/// 把 `document` 连同从 `root` 扫描到的已安装皮肤一起序列化，皮肤目录写在 `candidate_skin_catalog` 里；放不进 `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET` 时从末尾逐个丢掉皮肤包，直到放得下。
 ///
-/// The currently selected skin is dropped last, since its colours are the ones on screen. When not even an empty catalog fits, the key is left out, so the catalog never becomes the reason a document the hosts could read no longer loads; a document too large for the hosts even without it is refused.
+/// 自定义主题选中的皮肤（浅色、深色两个槽位）最后才丢，因为屏幕上画的是它们的颜色。连空目录都放不下时整个键不写，免得宿主原本能读的文档因为皮肤目录读不了；去掉目录后仍超出宿主上限的文档直接拒绝。
 #[cfg(target_os = "linux")]
 fn runtime_options_with_skin_catalog(
     document: &mut Value,
@@ -1901,10 +1901,14 @@ fn runtime_options_with_skin_catalog(
         serde_json::to_vec_pretty(document)
             .map_err(|error| std::io::Error::other(error.to_string()))
     };
-    let selected = document["preferences"]["custom_theme"]["candidate_skin"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
+    let custom_theme = &document["preferences"]["custom_theme"];
+    let selected: Vec<String> = ["candidate_skin", "candidate_skin_dark"]
+        .into_iter()
+        .filter_map(|slot| custom_theme[slot].as_str())
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect();
+    let selected: Vec<&str> = selected.iter().map(String::as_str).collect();
     let mut published =
         msime_client_core::skin::catalog::host_candidate_catalog(catalog, root, &selected);
     loop {
@@ -1921,7 +1925,11 @@ fn runtime_options_with_skin_catalog(
         }
         let dropped = packages
             .iter()
-            .rposition(|package| package["id"] != selected.as_str())
+            .rposition(|package| {
+                !package["id"]
+                    .as_str()
+                    .is_some_and(|id| selected.contains(&id))
+            })
             .unwrap_or(packages.len() - 1);
         packages.remove(dropped);
     }

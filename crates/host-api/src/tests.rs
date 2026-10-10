@@ -2526,7 +2526,7 @@ fn resolve_theme_reads_the_package_from_either_source() {
     let entry = msime_client_core::skin::catalog::host_candidate_catalog(
         &msime_client_core::skin::catalog::scan(&root),
         &root,
-        "sakura",
+        &["sakura"],
     )["packages"][0]
         .clone();
     let from_entry = call(json!({
@@ -2534,11 +2534,13 @@ fn resolve_theme_reads_the_package_from_either_source() {
     }));
     assert_eq!(from_entry["value"], from_root["value"]);
 
-    // Paper fixes the light mode, so a dark host still draws the package's light palette.
+    // paper 底的皮肤是浅色皮肤，只画在浅色模式：深色宿主没设深色槽位时不画它，自定义主题落回底和取色器。
     let dark = call(json!({
         "global_theme": "custom", "custom_theme": custom, "dark": true, "layout": "vertical", "skins_directory": root,
     }));
-    assert_eq!(dark["value"], from_root["value"]);
+    assert_eq!(dark["ok"], true, "{dark}");
+    assert_eq!(dark["value"]["candidate_skin"], Value::Null);
+    assert_eq!(dark["value"]["candidate"]["text"], "#010203");
 
     // A missing package leaves the theme to resolve over the platform tokens.
     let missing = call(json!({
@@ -3223,6 +3225,54 @@ fn recover_preferences_backs_up_malformed_documents_only() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn repair_preferences_keeps_what_an_older_build_knows_of_a_newer_document() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_str().unwrap();
+    let repair = || read(unsafe { msime_client_repair_preferences(path.as_ptr(), path.len()) });
+    let document = directory.path().join("preferences.json");
+
+    // Missing: nothing is written.
+    assert_eq!(repair()["value"]["recovered"], false);
+    assert!(!document.exists());
+
+    // A newer build added a setting this one does not know. Loading refuses the whole document, and the malformed-only recovery leaves it alone; the explicit repair backs it up verbatim and keeps the settings this schema accepts.
+    let newer = json!({
+        "format_version": 1,
+        "revision": 7,
+        "preferences": {"learning": false, "a_setting_from_a_newer_build": true},
+    })
+    .to_string();
+    std::fs::write(&document, &newer).unwrap();
+    assert_eq!(
+        read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_recover_preferences(path.as_ptr(), path.len()) })["ok"],
+        false
+    );
+    let repaired = repair();
+    assert_eq!(repaired["ok"], true, "{repaired}");
+    let value = &repaired["value"];
+    assert_eq!(value["recovered"], true);
+    assert_eq!(value["salvaged"], true);
+    assert_eq!(value["snapshot"]["preferences"]["learning"], false);
+    let backup = std::path::PathBuf::from(value["backup_path"].as_str().unwrap());
+    assert_eq!(std::fs::read_to_string(&backup).unwrap(), newer);
+    let loaded = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(loaded["value"], value["snapshot"]);
+
+    // Readable now: a second call is a no-op.
+    assert_eq!(repair()["value"]["recovered"], false);
+
+    assert_eq!(
+        read(unsafe { msime_client_repair_preferences(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn save_preferences_uses_compare_and_swap_and_rejects_invalid_snapshots() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().to_string_lossy().into_owned();
@@ -3896,6 +3946,94 @@ fn mobile_clipboard_uses_structured_actions() {
             ["ok"],
         false
     );
+}
+
+#[test]
+fn mobile_clipboard_replace_edits_in_place_and_reports_why_it_did_not() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |action: Value| {
+        let request = serde_json::to_vec(&json!({
+            "directory": directory.path(),
+            "action": action,
+        }))
+        .unwrap();
+        read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
+    };
+    for text in ["synthetic older", "synthetic current"] {
+        assert_eq!(
+            call(json!({"operation": "capture", "text": text}))["value"]["captured"],
+            true
+        );
+    }
+    let older_timestamp =
+        call(json!({"operation": "load"}))["value"]["entries"][1]["timestampMs"].clone();
+
+    // 原地改字：仍排在原来的位置，时间戳不变。
+    let replaced = call(json!({
+        "operation": "replace",
+        "text": "synthetic older",
+        "replacement": "synthetic older, trimmed"
+    }));
+    assert_eq!(replaced["ok"], true);
+    assert_eq!(replaced["value"]["replaced"], true);
+    assert_eq!(replaced["value"]["merged"], false);
+    assert!(replaced["value"]["reason"].is_null());
+    assert_eq!(
+        replaced["value"]["entries"][1]["text"],
+        "synthetic older, trimmed"
+    );
+    assert_eq!(
+        replaced["value"]["entries"][1]["timestampMs"],
+        older_timestamp
+    );
+
+    // 改成另一条已有的文字：两条合并成一条。
+    let merged = call(json!({
+        "operation": "replace",
+        "text": "synthetic older, trimmed",
+        "replacement": "synthetic current"
+    }));
+    assert_eq!(merged["value"]["replaced"], true);
+    assert_eq!(merged["value"]["merged"], true);
+    assert_eq!(
+        merged["value"]["entries"],
+        call(json!({"operation": "load"}))["value"]["entries"]
+    );
+    assert_eq!(merged["value"]["entries"].as_array().unwrap().len(), 1);
+
+    // 旧条目已经不在了、新文字不合规：不改，说明原因。
+    let missing = call(json!({
+        "operation": "replace",
+        "text": "synthetic absent",
+        "replacement": "synthetic replacement"
+    }));
+    assert_eq!(missing["value"]["replaced"], false);
+    assert_eq!(missing["value"]["reason"], "not_found");
+    let invalid = call(json!({
+        "operation": "replace",
+        "text": "synthetic current",
+        "replacement": " \n\t"
+    }));
+    assert_eq!(invalid["value"]["replaced"], false);
+    assert_eq!(invalid["value"]["reason"], "invalid");
+    assert_eq!(
+        call(json!({"operation": "load"}))["value"]["entries"][0]["text"],
+        "synthetic current"
+    );
+
+    // 请求本身不合规的拒收：缺字段、多字段、空的原文。
+    for action in [
+        json!({"operation": "replace", "text": "synthetic current"}),
+        json!({
+            "operation": "replace",
+            "text": "synthetic current",
+            "replacement": "synthetic next",
+            "pinned": true
+        }),
+        json!({"operation": "replace", "text": "", "replacement": "synthetic next"}),
+    ] {
+        assert_eq!(call(action)["ok"], false);
+    }
 }
 
 #[test]

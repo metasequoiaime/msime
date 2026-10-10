@@ -61,6 +61,7 @@ import {
   NineKeyLayout,
   NineKey,
   NumberKeypadOrder,
+  TwentySixKeyNumberLayout,
 } from "../entry/src/main/ets/keyboard/input/NineKeyLayout";
 import {
   NineKeyPanelBackspace,
@@ -208,7 +209,7 @@ import { ShuangpinKeyHintPolicy } from "../entry/src/main/ets/keyboard/input/Shu
 import { EditorPolicy, EditorTraits } from "../entry/src/main/ets/keyboard/input/EditorPolicy";
 import { EditEchoLedger } from "../entry/src/main/ets/keyboard/input/EditEchoLedger";
 import { KeyboardSkin } from "../entry/src/main/ets/keyboard/skin/KeyboardSkin";
-import { GlobalTheme, KeyboardThemePalette } from "../entry/src/main/ets/keyboard/skin/GlobalTheme";
+import { GlobalTheme, KeyboardThemePalette, ResolvedTheme } from "../entry/src/main/ets/keyboard/skin/GlobalTheme";
 import { AppThemePalette, AppThemeSeed } from "../entry/src/main/ets/keyboard/skin/AppThemePalette";
 import { AppThemeStore } from "../entry/src/main/ets/keyboard/skin/AppThemeStore";
 import {
@@ -2561,6 +2562,42 @@ group("the digit layer can be laid out like a calculator", () => {
       NumberKeypadOrder.normalized(null) === NumberKeypadOrder.PHONE &&
       NumberKeypadOrder.normalized("calculator") === NumberKeypadOrder.CALCULATOR,
     "an older document without the key reads as the phone order",
+  );
+});
+
+group("the twenty-six key 123 can open the nine-key digit layer", () => {
+  const NINE = TwentySixKeyNumberLayout.NINE_KEY;
+  check(
+    TwentySixKeyNumberLayout.opensNineKeyDigits(NINE, true, true, true),
+    "nine_key on a touch 26-key digit layer draws the nine-key digits",
+  );
+  check(
+    !TwentySixKeyNumberLayout.opensNineKeyDigits(TwentySixKeyNumberLayout.ROW, true, true, true),
+    "row keeps the 1–0 page",
+  );
+  check(
+    !TwentySixKeyNumberLayout.opensNineKeyDigits(undefined, true, true, true) &&
+      !TwentySixKeyNumberLayout.opensNineKeyDigits(null, true, true, true) &&
+      !TwentySixKeyNumberLayout.opensNineKeyDigits("grid", true, true, true),
+    "an older document or an unknown value keeps the 1–0 page",
+  );
+  check(
+    !TwentySixKeyNumberLayout.opensNineKeyDigits(NINE, true, false, true),
+    "the letter layer is never replaced",
+  );
+  check(
+    !TwentySixKeyNumberLayout.opensNineKeyDigits(NINE, false, true, true),
+    "the 2in1 screen keyboard keeps its own symbol rows",
+  );
+  check(
+    !TwentySixKeyNumberLayout.opensNineKeyDigits(NINE, true, true, false),
+    "faces that are not the 26-key letter rows (nine-key, kana, zhuyin, stroke, handwriting) are left alone",
+  );
+  check(
+    TwentySixKeyNumberLayout.normalized("nine_key") === NINE &&
+      TwentySixKeyNumberLayout.normalized(undefined) === TwentySixKeyNumberLayout.ROW &&
+      TwentySixKeyNumberLayout.normalized("calculator") === TwentySixKeyNumberLayout.ROW,
+    "only nine_key reads as the grid; everything else is the row",
   );
 });
 
@@ -8267,6 +8304,32 @@ group("a fixed appearance decides every surface's mode", () => {
   check(GlobalTheme.surfaceDark(null, false) === false, "in both directions");
 });
 
+group("两种明暗的解析一致时主题才固定明暗", () => {
+  const resolved = (appearance: string | null, skin: string | null): ResolvedTheme => ({
+    id: "custom",
+    source: "custom",
+    appearance: appearance,
+    candidate: null,
+    keyboard: null,
+    candidate_skin: skin,
+  });
+  check(
+    GlobalTheme.fixedAppearance(resolved("dark", null), resolved("dark", null)) === "dark",
+    "内置主题或固定底的自定义主题两次都是同一明暗，照旧固定",
+  );
+  // 浅色槽位放浅色底的皮肤、深色槽位放深色底的皮肤：浅色那次解析是 light，深色那次是 dark。
+  const light = resolved("light", "sakura");
+  const dark = resolved("dark", "dusk");
+  check(GlobalTheme.fixedAppearance(light, dark) === null, "两个槽位各画自己明暗的皮肤时不固定明暗");
+  const candidateDark = GlobalTheme.surfaceDark(GlobalTheme.fixedAppearance(light, dark), true);
+  check(candidateDark && (candidateDark ? dark : light).candidate_skin === "dusk", "系统深色时候选窗画深色槽位的皮肤");
+  check(
+    GlobalTheme.fixedAppearance(resolved("light", "sakura"), resolved(null, null)) === null,
+    "只设浅色皮肤时深色模式跟随系统，不被浅色皮肤钉成浅色",
+  );
+  check(GlobalTheme.fixedAppearance(null, resolved("dark", null)) === null, "解析被拒时不固定明暗");
+});
+
 group("the platform accent", () => {
   check(
     GlobalTheme.accent(false) === "#2C7A4B" && GlobalTheme.accent(true) === "#5FBF84",
@@ -11633,8 +11696,10 @@ function fullPreferenceSchema(): AccountPreferenceSchema {
       "platform.harmony.custom_keyboard_skin",
       "platform.harmony.theme",
       "platform.harmony.custom_candidate_skin",
+      "platform.harmony.custom_candidate_skin_dark",
       "platform.harmony.haptic_strength",
       "platform.harmony.number_keypad_order",
+      "platform.harmony.twenty_six_key_number_layout",
     ],
     "string",
   );
@@ -11678,7 +11743,12 @@ group("the account settings sync maps this host's document, not another's", () =
     chinese_punctuation: false,
     touch_keyboard_layout: "nine_key",
     global_theme: "night",
-    custom_theme: { base: "paper", candidate_skin: "harbour", keyboard: { background: 1 } },
+    custom_theme: {
+      base: "paper",
+      candidate_skin: "harbour",
+      candidate_skin_dark: "dusk",
+      keyboard: { background: 1 },
+    },
     touch_key_spacing_tenths: 40,
   };
   const values = localAccountPreferences(local, syncFeedback);
@@ -11690,6 +11760,10 @@ group("the account settings sync maps this host's document, not another's", () =
   check(
     values["platform.harmony.custom_candidate_skin"] === "harbour",
     "and the custom theme's candidate package",
+  );
+  check(
+    values["platform.harmony.custom_candidate_skin_dark"] === "dusk",
+    "and the dark-mode package beside it",
   );
   // Not platform.android: the two are separate devices with separate keyboards, and sharing the
   // namespace would let a HarmonyOS phone overwrite the skin on the user's Android keyboard.
@@ -11726,6 +11800,7 @@ group("the account settings sync maps this host's document, not another's", () =
     "no design travels as an empty string",
   );
   check(sparse["platform.harmony.custom_candidate_skin"] === "", "and so does no package");
+  check(sparse["platform.harmony.custom_candidate_skin_dark"] === "", "and no dark-mode package");
   const retired = localAccountPreferences({ global_theme: "midnight" }, syncFeedback);
   check(
     retired["platform.harmony.global_theme"] === "system",
@@ -11907,6 +11982,52 @@ group("the digit order and 跟随系统 travel with the account", () => {
   check(refused, "an order nobody defined is refused rather than mapped");
 });
 
+group("the 26-key digit layer choice travels with the account", () => {
+  const schema = fullPreferenceSchema();
+  const uploaded = localAccountPreferences(
+    { touch_twenty_six_key_number_layout: "nine_key" },
+    syncFeedback,
+  );
+  check(
+    uploaded["platform.harmony.twenty_six_key_number_layout"] === "nine_key",
+    "the nine-key digit layer is uploaded",
+  );
+  check(
+    localAccountPreferences({}, syncFeedback)["platform.harmony.twenty_six_key_number_layout"] ===
+      "row",
+    "a document from before the setting uploads the row",
+  );
+  check(
+    localAccountPreferences({ touch_twenty_six_key_number_layout: "grid" }, syncFeedback)[
+      "platform.harmony.twenty_six_key_number_layout"
+    ] === "row",
+    "an unknown local layout is never uploaded",
+  );
+  const applied = applyAccountPreferences(
+    {},
+    { revision: 2, settings: { "platform.harmony.twenty_six_key_number_layout": "nine_key" } },
+    schema,
+    syncFeedback,
+  );
+  check(
+    applied.preferences.touch_twenty_six_key_number_layout === "nine_key",
+    "the layout is written into the document",
+  );
+  check(applied.feedback === null, "and the feedback file is left alone");
+  let refused = false;
+  try {
+    applyAccountPreferences(
+      {},
+      { revision: 3, settings: { "platform.harmony.twenty_six_key_number_layout": "grid" } },
+      schema,
+      syncFeedback,
+    );
+  } catch (error) {
+    refused = error instanceof AccountPreferenceError && error.message === "account_invalid";
+  }
+  check(refused, "a layout nobody defined is refused rather than mapped");
+});
+
 group("the shuangpin key hint switch travels with the account", () => {
   check(
     localAccountPreferences({}, syncFeedback)["platform.harmony.shuangpin_key_hints"] === true,
@@ -11941,6 +12062,7 @@ group("applying writes only what the schema declares", () => {
       "input.frequency_trigger_count": 5,
       "platform.harmony.global_theme": "paper",
       "platform.harmony.custom_candidate_skin": "harbour",
+      "platform.harmony.custom_candidate_skin_dark": "dusk",
     },
   };
   const applied = applyAccountPreferences(local, cloud, schema, syncFeedback);
@@ -11959,11 +12081,16 @@ group("applying writes only what the schema declares", () => {
     (applied.preferences.custom_theme as Record<string, unknown>).candidate_skin === "harbour",
     "and the package lands inside the custom theme",
   );
+  check(
+    (applied.preferences.custom_theme as Record<string, unknown>).candidate_skin_dark === "dusk",
+    "and so does the dark-mode package",
+  );
   const cleared = applyAccountPreferences(
     {
       custom_theme: {
         base: "ink",
         candidate_skin: "harbour",
+        candidate_skin_dark: "dusk",
         candidate_colors: { text: "#112233" },
       },
     },
@@ -11972,6 +12099,7 @@ group("applying writes only what the schema declares", () => {
       settings: {
         "platform.harmony.custom_theme_base": "system",
         "platform.harmony.custom_candidate_skin": "",
+        "platform.harmony.custom_candidate_skin_dark": "",
         "platform.harmony.custom_keyboard_skin": "",
       },
     },
@@ -11984,8 +12112,22 @@ group("applying writes only what the schema declares", () => {
     "a system base is written by omitting it, as the shared document does",
   );
   check(
-    !("candidate_skin" in clearedTheme) && !("keyboard" in clearedTheme),
-    "empty strings clear the package and the design",
+    !("candidate_skin" in clearedTheme) &&
+      !("candidate_skin_dark" in clearedTheme) &&
+      !("keyboard" in clearedTheme),
+    "empty strings clear both packages and the design",
+  );
+  // 只带浅色槽位的云端文档（上传它的设备还不认识深色槽位）不动本机的深色槽位。
+  const lightOnly = applyAccountPreferences(
+    { custom_theme: { candidate_skin: "harbour", candidate_skin_dark: "dusk" } },
+    { revision: 5, settings: { "platform.harmony.custom_candidate_skin": "sakura" } },
+    schema,
+    syncFeedback,
+  );
+  const lightOnlyTheme = lightOnly.preferences.custom_theme as Record<string, unknown>;
+  check(
+    lightOnlyTheme.candidate_skin === "sakura" && lightOnlyTheme.candidate_skin_dark === "dusk",
+    "a cloud document without the dark slot leaves the local dark slot alone",
   );
   check(
     (clearedTheme.candidate_colors as Record<string, unknown>).text === "#112233",
@@ -11996,6 +12138,8 @@ group("applying writes only what the schema declares", () => {
     ["platform.harmony.custom_theme_base", "custom"],
     ["platform.harmony.custom_candidate_skin", "ink"],
     ["platform.harmony.custom_candidate_skin", "../escape"],
+    ["platform.harmony.custom_candidate_skin_dark", "night"],
+    ["platform.harmony.custom_candidate_skin_dark", "../escape"],
   ]) {
     let refused = false;
     try {

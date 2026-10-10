@@ -62,6 +62,12 @@ class WaylandWatch(unittest.TestCase):
                         "time.sleep(30)\n")
         path.chmod(0o700)
 
+    def shorten_retry(self):
+        # 把重起 watcher 的 30 秒间隔改成 1 秒，测试不必等满。
+        source = self.monitor.read_text()
+        self.assertIn("WATCH_RETRY_DELAY = 30\n", source)
+        self.monitor.write_text(source.replace("WATCH_RETRY_DELAY = 30\n", "WATCH_RETRY_DELAY = 1\n"))
+
     def start_monitor(self):
         self.stderr = self.root / "monitor.stderr"
         with self.stderr.open("wb") as stderr:
@@ -80,13 +86,30 @@ class WaylandWatch(unittest.TestCase):
         process.terminate()
         process.wait(timeout=4)
 
+    # 与 wl-clipboard 在不提供 data-control 的合成器上一样：一启动就在 stderr 写下原因、以状态 1 退出。
     FAILING_WATCH = '''
 import sys
 with log.open("a") as output:
     output.write("watch\\n" if "--watch" in sys.argv else "read\\n")
 if "--watch" in sys.argv:
-    raise SystemExit(7)
+    sys.stderr.write("Watch mode requires a compositor that supports the data-control protocol\\n")
+    raise SystemExit(1)
 sys.stdout.write("synthetic clipboard")
+'''
+
+    # 提供 data-control 的合成器上 watcher 后来退出：先被信号杀掉，再一次以别的原因非零退出（连不上合成器），之后正常运行。
+    CRASHING_WATCH = '''
+import os, signal, sys, time
+with log.open("a") as output:
+    output.write("watch\\n")
+starts = log.read_text().splitlines().count("watch")
+if starts == 1:
+    time.sleep(0.3)
+    os.kill(os.getpid(), signal.SIGKILL)
+if starts == 2:
+    sys.stderr.write("Failed to connect to a Wayland server\\n")
+    raise SystemExit(1)
+time.sleep(30)
 '''
 
     def test_failed_watcher_never_reads_through_wl_paste(self):
@@ -112,6 +135,19 @@ sys.stdout.write("synthetic clipboard")
             time.sleep(1)
             self.assertEqual(self.wl_log.read_text().splitlines(), ["watch", "x11-read"])
             self.assertEqual(self.capture_log.read_text().splitlines(), ["capture"])
+        finally:
+            self.stop_monitor(process)
+
+    def test_crashed_watcher_is_retried_instead_of_disabled(self):
+        # 只有「合成器不提供 data-control」才放弃 `wl-paste --watch`；崩溃、被信号杀掉、其他非零退出都照旧隔一段时间重起。没有 DISPLAY 时这一点决定采集是否还在：误判成不支持 data-control 就再也不起 watcher，整个会话不再记剪贴板。
+        self.shorten_retry()
+        self.write_wl_paste(self.CRASHING_WATCH)
+        process = self.start_monitor()
+        try:
+            self.wait_for(self.wl_log, count=3, timeout=8)
+            time.sleep(1)
+            self.assertEqual(self.wl_log.read_text().splitlines(), ["watch", "watch", "watch"])
+            self.assertNotIn("wl-paste --watch 不可用", self.stderr.read_text())
         finally:
             self.stop_monitor(process)
 

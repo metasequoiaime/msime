@@ -21,6 +21,7 @@ import { useAsyncGeneration } from "../settings/use-async-generation";
 import {
   customCandidateStyle,
   normalizedColor,
+  skinSlot,
   themeEntry,
   type BaseGlobalTheme,
   type PackageCandidatePalette,
@@ -116,6 +117,16 @@ export function drawnPackagePalette(
   return skin.themes.includes(theme) ? skin.candidate[theme] : null;
 }
 
+/** 皮肤放在哪个槽位、用在哪种明暗下，写给用户看：浅色皮肤只用在浅色模式，深色皮肤只用在深色模式，`system` 底的两种都能用（`skinSlot`）。 */
+export function skinSlotLabel(base: BaseGlobalTheme): string {
+  const slot = skinSlot(base);
+  return slot === "light"
+    ? "浅色皮肤，用在浅色模式"
+    : slot === "dark"
+      ? "深色皮肤，用在深色模式"
+      : "跟随明暗，浅色、深色模式都能用";
+}
+
 /** The package background read through the host image reader, ready for `SkinCandidatePreview`; nothing is drawn while it loads, when it fails to load or decode, or without a reader. */
 export function usePreviewBackground(
   readImage: SkinImageReader | undefined,
@@ -166,6 +177,7 @@ export function ExternalSkinCard({
   selected,
   layout,
   onSelect,
+  onDeselect,
   readImage,
   readFont,
   readToolbarCss,
@@ -175,11 +187,13 @@ export function ExternalSkinCard({
   onPublish,
 }: {
   skin: ExternalSkin;
-  /** The custom theme is in use and draws this package. */
+  /** 自定义主题正在使用，且这个包在浅色或深色槽位里。 */
   selected: boolean;
   layout: string;
   /** Choosing a package passes its manifest base, which the custom theme is then drawn over. */
   onSelect: (id: string, base: ExternalSkin["base"]) => void;
+  /** 关掉已在使用的包，把它从所在的槽位取下；不提供时开关在选中状态下再点一次仍是 `onSelect`。 */
+  onDeselect?: (id: string) => void;
   readImage?: SkinImageReader;
   readFont?: SkinFontReader;
   readToolbarCss?: ToolbarCssReader;
@@ -215,9 +229,11 @@ export function ExternalSkinCard({
   const palette = drawnPackagePalette(skin, theme);
   const hideBar = palette?.showSelectedBar === false;
   const paletteFailed = useSelectedBarPalette(scope, hideBar);
-  // Card-only overrides must not change runtime compatibility or selection. A package over a built-in base is drawn in that base's mode, so the host mode does not rule it out.
+  // 卡片上的预览切换不影响能否选用。固定明暗底的包放进自己的槽位、只在那种明暗下画，所以当前模式挡不住它；`system` 底的包两个槽位都放，仍要支持当前模式。
   const compatible =
     skin.layouts.includes(layout) && (fixed !== null || skin.themes.includes(activeTheme));
+  // 已在使用的包总能关掉，哪怕布局变了以后它不再能选。
+  const deselecting = selected && onDeselect !== undefined;
   const decorated =
     dimension(skin.decorationTopDip, 500) > 0 && dimension(skin.decorationWidthDip, 1000) > 0;
   const decoration = decorated ? decorationImage(skin) : null;
@@ -249,18 +265,23 @@ export function ExternalSkinCard({
             : `当前布局或明暗模式不受支持（${skin.layouts.join("/")}，${skin.themes.join("/")}）`
         }
         details={
-          <SettingsExternalMeta as="span">
-            {[skin.id, skin.version && `v${skin.version}`, skin.author].filter(Boolean).join(" · ")}
-          </SettingsExternalMeta>
+          <>
+            <SettingsExternalMeta as="span">{skinSlotLabel(skin.base)}</SettingsExternalMeta>
+            <SettingsExternalMeta as="span">
+              {[skin.id, skin.version && `v${skin.version}`, skin.author]
+                .filter(Boolean)
+                .join(" · ")}
+            </SettingsExternalMeta>
+          </>
         }
         actions={
           <>
             <ActionButton
-              action={() => onSelect(skin.id, skin.base)}
+              action={() => (deselecting ? onDeselect(skin.id) : onSelect(skin.id, skin.base))}
               ariaChecked={selected}
               ariaLabel={skin.name}
               className={settings.skinSwitch(selected)}
-              disabled={!compatible}
+              disabled={!compatible && !deselecting}
               label={<span className={settings.skinSwitchKnob(selected)} />}
               role="switch"
             />

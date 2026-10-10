@@ -3,6 +3,7 @@ import { ActionSheet } from "../core/action-sheet";
 import { useConfirm } from "../core/confirm";
 import { formatZhNumber } from "../core/format-number";
 import { GroupList, NavRow } from "../core/platform-controls";
+import * as controls from "../core/platform-controls-style";
 import { useToast } from "../core/toast";
 import * as dialog from "../community/community-style";
 import type { CommunityResource, CommunityResourceClient } from "../community/community-resources";
@@ -28,7 +29,6 @@ import type { DictionaryClient } from "../index";
 import { pushMobileSettingsState } from "./mobile-navigation";
 import { useMobilePopState } from "./use-mobile-pop-state";
 import { useSettingsForm } from "./settings-form-context";
-import { LearningSection } from "./learning-section";
 import { SwitchRow } from "./switch-row";
 import * as settings from "./settings-style";
 
@@ -128,7 +128,6 @@ export function HarmonyPhoneDictionary() {
         dictionary={dictionary}
         count={builtinCount}
         saveExport={client.saveExport}
-        onBack={closeDetail}
       />
     );
   }
@@ -154,7 +153,6 @@ export function HarmonyPhoneDictionary() {
           const next = await run(() => collections.delete(opened.id), `已删除「${opened.name}」`);
           if (next) closeDetail();
         }}
-        onBack={closeDetail}
       />
     );
   }
@@ -164,55 +162,48 @@ export function HarmonyPhoneDictionary() {
   const vocabulary = pageEntry("vocabulary");
   return (
     <>
-      <GroupList title="已安装">
-        {dictionary && (
-          <NavRow
-            variant="me"
-            icon={<Badge>汉</Badge>}
-            title="拼音词库"
-            description={builtinDescription(builtinCount)}
-            value="已启用"
-            onClick={() => openDetail(BUILTIN)}
-          />
-        )}
-        {view?.collections.map((item) => (
-          <NavRow
-            key={item.id}
-            variant="me"
-            icon={<Badge>{Array.from(item.name)[0] ?? "词"}</Badge>}
-            title={item.name}
-            description={collectionSubtitle(item)}
-            value={item.enabled ? "已启用" : "已停用"}
-            onClick={() => openDetail(item.id)}
-          />
-        ))}
-        <p className={settings.groupNote} role={loadFailure ? "alert" : undefined}>
+      <div className="flex flex-col gap-2">
+        <GroupList title="已安装">
+          {dictionary && (
+            <NavRow
+              variant="me"
+              icon={<Badge>汉</Badge>}
+              title="拼音词库"
+              description={builtinDescription(builtinCount)}
+              value="已启用"
+              onClick={() => openDetail(BUILTIN)}
+            />
+          )}
+          {view?.collections.map((item) => (
+            <NavRow
+              key={item.id}
+              variant="me"
+              icon={<Badge>{Array.from(item.name)[0] ?? "词"}</Badge>}
+              title={item.name}
+              description={collectionSubtitle(item)}
+              value={item.enabled ? "已启用" : "已停用"}
+              onClick={() => openDetail(item.id)}
+            />
+          ))}
+        </GroupList>
+        <p className={footnote} role={loadFailure ? "alert" : undefined}>
           {loadFailure || "点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。"}
         </p>
-      </GroupList>
+      </div>
+      {/* 与 Android 的词库页一样：这张卡片没有标题，每行是一个直接执行的操作，不是通往下一页的入口。 */}
       {collections && (
-        <GroupList title="管理">
-          <NavRow
-            variant="me"
-            icon={<Badge>+</Badge>}
-            title="新建词库"
-            disabled={busy}
-            onClick={() => setCreating(true)}
-          />
-          <NavRow
-            variant="me"
-            icon={<Badge>⇪</Badge>}
+        <GroupList>
+          <ActionRow glyph="+" title="新建词库" disabled={busy} onClick={() => setCreating(true)} />
+          <ActionRow
+            glyph="⇪"
             title="导入词库"
-            description="导入的词条会成为一个新的词库"
             disabled={busy || importSources.length === 0}
             onClick={() => setImporting(true)}
           />
           {dictionary?.export && (
-            <NavRow
-              variant="me"
-              icon={<Badge>↦</Badge>}
+            <ActionRow
+              glyph="↦"
               title="导出词库"
-              description="导出自己加过的拼音词条"
               disabled={busy}
               onClick={() =>
                 void exportUserPinyin(dictionary, client.saveExport).then(
@@ -221,9 +212,8 @@ export function HarmonyPhoneDictionary() {
               }
             />
           )}
-          <NavRow
-            variant="me"
-            icon={<Badge>↻</Badge>}
+          <ActionRow
+            glyph="↻"
             title="刷新词库"
             disabled={busy}
             onClick={() => void reload(true).then(() => mounted.current && toast("已刷新"))}
@@ -245,8 +235,10 @@ export function HarmonyPhoneDictionary() {
       )}
       {draft && (
         <GroupList title="学习">
-          <LearningSection
-            value={learning}
+          <SwitchRow
+            title="记忆新词"
+            description="把你选过的词排到前面；只在本机学习"
+            checked={learning}
             onChange={(next) =>
               setDraft((current) => (current ? { ...current, learning: next } : current))
             }
@@ -308,6 +300,50 @@ export function HarmonyPhoneDictionary() {
         />
       )}
     </>
+  );
+}
+
+/** 卡片下方的小字说明，与 Android 词库页「已安装」卡片的脚注一样放在卡片外面。 */
+const footnote = "m-0 px-4 text-[13px] leading-relaxed [color:var(--p-sub)]";
+
+/** 一个直接执行的操作：强调色的符号和文字，没有副标题和箭头，与 Android 词库页的操作行相同。`danger` 用于删除。 */
+function ActionRow({
+  glyph,
+  title,
+  danger = false,
+  disabled,
+  onClick,
+}: {
+  glyph?: string;
+  title: string;
+  danger?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  // 颜色给到符号和文字上：行本身的样式固定用正文色。
+  const tone = danger ? "text-danger" : "[color:var(--p-accent-text)]";
+  return (
+    <button
+      type="button"
+      className={`${controls.navRow} ${controls.navRowButton}`}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {glyph && (
+        <span
+          className={`flex size-7 shrink-0 items-center justify-center self-center text-[20px] ${tone}`}
+          aria-hidden="true"
+        >
+          {glyph}
+        </span>
+      )}
+      <span
+        className={`flex min-h-[52px] min-w-0 flex-1 items-center text-[16px] ${tone}`}
+        data-row-title=""
+      >
+        {title}
+      </span>
+    </button>
   );
 }
 
@@ -483,14 +519,10 @@ function DiscoverDictionaries({
   );
 }
 
-/** 词库详情页顶部：返回「词库」列表的链接和词库名。 */
-function DetailHeader({ title, onBack }: { title: string; onBack: () => void }) {
+/** 词库详情页的标题。返回不另放按钮：打开详情时推入了一条历史记录，页面顶栏的返回和系统返回键都先回到词库列表，与 Android 的词库详情页一样只有一个返回。 */
+function DetailHeader({ title }: { title: string }) {
   return (
     <div className={settings.subViewHeader}>
-      <button type="button" className={settings.backLink} aria-label="返回词库" onClick={onBack}>
-        <span aria-hidden="true">‹ </span>
-        词库
-      </button>
       <h2 className={settings.subViewTitle}>{title}</h2>
     </div>
   );
@@ -503,14 +535,12 @@ function CollectionDetail({
   onEnabled,
   onAddWord,
   onDelete,
-  onBack,
 }: {
   collection: DictionaryCollection;
   busy: boolean;
   onEnabled: (enabled: boolean) => void;
   onAddWord: (word: string, code: string) => Promise<DictionaryCollectionsView | undefined>;
   onDelete: () => Promise<void>;
-  onBack: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   const { confirm, confirmation } = useConfirm();
@@ -518,7 +548,7 @@ function CollectionDetail({
     collection.pending > 0 ? `，还有 ${formatZhNumber(collection.pending)} 条等键盘同步` : "";
   return (
     <>
-      <DetailHeader title={collection.name} onBack={onBack} />
+      <DetailHeader title={collection.name} />
       <GroupList>
         <SwitchRow
           title="启用此词库"
@@ -529,18 +559,12 @@ function CollectionDetail({
         />
       </GroupList>
       <GroupList>
-        <NavRow
-          variant="me"
-          icon={<Badge>+</Badge>}
-          title="添加词条"
-          disabled={busy}
-          onClick={() => setAdding(true)}
-        />
-        <NavRow
-          variant="me"
-          icon={<Badge>×</Badge>}
+        <ActionRow glyph="+" title="添加词条" disabled={busy} onClick={() => setAdding(true)} />
+      </GroupList>
+      <GroupList>
+        <ActionRow
           title="删除此词库"
-          description="只删掉这个词库带来的词，你自己加过的词会留下"
+          danger
           disabled={busy}
           onClick={async () => {
             const confirmed = await confirm({
@@ -571,12 +595,10 @@ function BuiltinDictionaryDetail({
   dictionary,
   count,
   saveExport,
-  onBack,
 }: {
   dictionary: DictionaryClient;
   count: number | null;
   saveExport: ((name: string, contents: string) => Promise<string | null>) | undefined;
-  onBack: () => void;
 }) {
   const toast = useToast();
   const [query, setQuery] = useState("");
@@ -620,7 +642,7 @@ function BuiltinDictionaryDetail({
 
   return (
     <>
-      <DetailHeader title="拼音词库" onBack={onBack} />
+      <DetailHeader title="拼音词库" />
       <GroupList>
         <SwitchRow
           title="启用此词库"
@@ -641,7 +663,8 @@ function BuiltinDictionaryDetail({
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
-      <GroupList title="词条">
+      {/* 与 Android 的词库详情页一样：词条和「添加词条」在同一张卡片里，导出单独一张。 */}
+      <GroupList>
         {entries.map((entry) => (
           <div
             key={`${entry.key}\u0000${entry.value}`}
@@ -660,7 +683,7 @@ function BuiltinDictionaryDetail({
         ))}
         {!loading && entries.length === 0 && (
           <p className={settings.groupNote}>
-            {query ? "没有匹配的词条。" : "输入拼音搜索内置词条；自己加过的词会列在这里。"}
+            {query ? "没有匹配的词条。" : "还没有自己添加或学到的词。输入拼音可以搜索内置词条。"}
           </p>
         )}
         {more && (
@@ -671,28 +694,20 @@ function BuiltinDictionaryDetail({
             onClick={() => void load(query, entries.length)}
           />
         )}
+        <ActionRow glyph="+" title="添加词条" onClick={() => setAdding(true)} />
       </GroupList>
-      <GroupList>
-        <NavRow
-          variant="me"
-          icon={<Badge>+</Badge>}
-          title="添加词条"
-          onClick={() => setAdding(true)}
-        />
-        {dictionary.export && (
-          <NavRow
-            variant="me"
-            icon={<Badge>↦</Badge>}
+      {dictionary.export && (
+        <GroupList>
+          <ActionRow
             title="导出词库"
-            description="导出自己加过的拼音词条"
             onClick={() =>
               void exportUserPinyin(dictionary, saveExport).then(
                 (message) => message && toast(message),
               )
             }
           />
-        )}
-      </GroupList>
+        </GroupList>
+      )}
       {adding && (
         <WordDialog
           onClose={() => setAdding(false)}

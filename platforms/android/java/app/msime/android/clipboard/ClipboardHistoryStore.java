@@ -64,6 +64,24 @@ public final class ClipboardHistoryStore {
         request("set_pinned", text, pinned);
     }
 
+    /**
+     * 把一条历史的文字改成 `replacement`（#5971）。条目按原文找，改完留在原位，时间戳和固定状态都不变；新文字和另一条已有的历史相同时两条合并。规则都在共享存储里（`crates/client-core/src/clipboard.rs` 的 `replace`），这里只把它的答复换成 {@link ClipboardHistoryPolicy.EditResult}。
+     *
+     * <p>存储写不进去或文件已坏时和其他操作一样抛 {@link IllegalStateException}。
+     */
+    public ClipboardHistoryPolicy.EditResult replace(String text, String replacement) {
+        if (text == null || text.isEmpty() || replacement == null) {
+            throw new IllegalArgumentException("Clipboard edit needs the original and the new text");
+        }
+        JSONObject response = request("replace", text, false, replacement);
+        if (response == null) throw new IllegalStateException("Clipboard history replace had no answer");
+        if (JsonPolicy.strictTrue(response.opt("replaced"))) {
+            return JsonPolicy.strictTrue(response.opt("merged"))
+                ? ClipboardHistoryPolicy.EditResult.MERGED : ClipboardHistoryPolicy.EditResult.SAVED;
+        }
+        return ClipboardHistoryPolicy.editRejection(JsonPolicy.strictStringOrEmpty(response.opt("reason")));
+    }
+
     public void clear() {
         request("clear", null, false);
     }
@@ -83,13 +101,18 @@ public final class ClipboardHistoryStore {
         }
     }
 
-    /** The request document the shared entry takes: one internally tagged `operation`. */
     private JSONObject request(String operation, String text, boolean pinned) {
+        return request(operation, text, pinned, null);
+    }
+
+    /** 共享入口要的请求文档：以 `operation` 区分操作的一个对象；`replacement` 只用于 `replace`，其他操作传 null。 */
+    private JSONObject request(String operation, String text, boolean pinned, String replacement) {
         if (directory == null) return null;
         try {
             JSONObject action = new JSONObject().put("operation", operation);
             if (text != null) action.put("text", text);
             if ("set_pinned".equals(operation)) action.put("pinned", pinned);
+            if (replacement != null) action.put("replacement", replacement);
             JSONObject payload = new JSONObject()
                 .put("directory", directory)
                 .put("action", action);

@@ -72,7 +72,10 @@ export interface CustomCandidateColors {
 /** The shared `custom_theme` preference. Every member is optional; an absent one takes its shared default. */
 export interface CustomThemeDocument {
   readonly base?: string;
+  /** 浅色模式的候选皮肤包，也是 `candidate_skin_dark` 没设时深色模式用的那款。 */
   readonly candidate_skin?: string;
+  /** 深色模式的候选皮肤包。两个槽位都由 `msime_client_resolve_theme` 按 `dark` 取用，宿主不自己挑。 */
+  readonly candidate_skin_dark?: string;
   readonly candidate_colors?: CustomCandidateColors;
   readonly keyboard?: CustomSkinDocument;
 }
@@ -234,6 +237,14 @@ export class GlobalTheme {
       .toString(16)
       .toUpperCase();
     return "#" + (scaled.length === 1 ? "0" + scaled : scaled) + rgb.toUpperCase();
+  }
+
+  /** 浅色、深色两次解析给出同一个固定明暗时，主题才算固定了明暗（内置主题、没设皮肤的自定义主题叠在固定明暗的底上）。自定义主题的浅色、深色槽位各放一款皮肤时两次解析的明暗不同，这时返回 `null`，各个界面跟随自己的明暗规则，不能被浅色那次解析钉住。与 macOS 的 `FixedThemeMode` 同一条规则。 */
+  static fixedAppearance(light: ResolvedTheme | null, dark: ResolvedTheme | null): string | null {
+    if (light === null || dark === null || light.appearance !== dark.appearance) {
+      return null;
+    }
+    return light.appearance;
   }
 
   /** A non-null appearance fixes the mode for every surface; otherwise the surface's own mode rule decides. */

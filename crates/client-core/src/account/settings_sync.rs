@@ -12,7 +12,7 @@ use super::{AccountError, AccountPreferenceSchema, AccountPreferenceValue, Accou
 use crate::host_surface::HostPlatform;
 use crate::preferences::{
     FrequencyMode, InputScheme, NumberKeypadOrder, Preferences, ShuangpinProfile, ThemeMode,
-    TouchKeyboardLayout, WubiProfile,
+    TouchKeyboardLayout, TwentySixKeyNumberLayout, WubiProfile,
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
@@ -28,11 +28,15 @@ pub const ANDROID_FEEDBACK_KEYS: [&str; 3] = [
 const GLOBAL_THEME: &str = "platform.android.global_theme";
 /// 共享偏好 `touch_number_keypad_order`；账号字段表收录它之前上传时会被滤掉。
 const NUMBER_KEYPAD_ORDER: &str = "platform.android.number_keypad_order";
+/// 共享偏好 `touch_twenty_six_key_number_layout`；账号字段表收录它之前上传时会被滤掉。
+const TWENTY_SIX_KEY_NUMBER_LAYOUT: &str = "platform.android.twenty_six_key_number_layout";
 /// 共享偏好 `touch_shuangpin_key_hints`；账号字段表收录它之前上传时会被滤掉。
 const SHUANGPIN_KEY_HINTS: &str = "platform.android.shuangpin_key_hints";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
+/// 深色模式槽位的候选窗口皮肤包（`custom_theme.candidate_skin_dark`），与 [`CUSTOM_CANDIDATE_SKIN`] 同一形状。
+const CUSTOM_CANDIDATE_SKIN_DARK: &str = "platform.android.custom_candidate_skin_dark";
 /// 整个自定义键盘皮肤库（JSON 数组，只含设计参数），值来自宿主的皮肤库而不是共享偏好。
 pub const CUSTOM_KEYBOARD_SKINS: &str = "platform.android.custom_keyboard_skins";
 /// [`CUSTOM_KEYBOARD_SKINS`] 的字节上限，与服务端字段表相同。
@@ -329,6 +333,13 @@ fn number_keypad_order(order: NumberKeypadOrder) -> &'static str {
     }
 }
 
+fn twenty_six_key_number_layout(layout: TwentySixKeyNumberLayout) -> &'static str {
+    match layout {
+        TwentySixKeyNumberLayout::Row => "row",
+        TwentySixKeyNumberLayout::NineKey => "nine_key",
+    }
+}
+
 fn keyboard_layout(layout: TouchKeyboardLayout) -> &'static str {
     match layout {
         TouchKeyboardLayout::TwentySixKey => "twenty_six_key",
@@ -466,6 +477,11 @@ pub fn export_android_settings(
         NUMBER_KEYPAD_ORDER,
         number_keypad_order(preferences.touch_number_keypad_order),
     );
+    insert_string(
+        &mut settings,
+        TWENTY_SIX_KEY_NUMBER_LAYOUT,
+        twenty_six_key_number_layout(preferences.touch_twenty_six_key_number_layout),
+    );
     insert_bool(
         &mut settings,
         SHUANGPIN_KEY_HINTS,
@@ -511,7 +527,7 @@ fn insert_new_android_settings(
     }
 }
 
-/// 全局主题、自定义主题的底色、它的键盘设计和外部候选窗口皮肤包。设计是 JSON，包是 id；两者都用空串表示「没有」，这样清除也能同步。
+/// 全局主题、自定义主题的底色、它的键盘设计和浅色、深色两个槽位的外部候选窗口皮肤包。设计是 JSON，包是 id；都用空串表示「没有」，这样清除也能同步。
 fn insert_theme_settings(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     preferences: &Preferences,
@@ -533,6 +549,15 @@ fn insert_theme_settings(
         preferences
             .custom_theme
             .candidate_skin
+            .as_deref()
+            .unwrap_or_default(),
+    );
+    insert_string(
+        settings,
+        CUSTOM_CANDIDATE_SKIN_DARK,
+        preferences
+            .custom_theme
+            .candidate_skin_dark
             .as_deref()
             .unwrap_or_default(),
     );
@@ -805,6 +830,14 @@ pub fn apply_android_settings(
         preferences.custom_theme.candidate_skin = (!value.is_empty()).then(|| value.to_owned());
         Some(())
     })?;
+    applier.set_string(CUSTOM_CANDIDATE_SKIN_DARK, |preferences, value| {
+        if !value.is_empty() && !crate::skin::catalog::is_selectable_id(value) {
+            return None;
+        }
+        preferences.custom_theme.candidate_skin_dark =
+            (!value.is_empty()).then(|| value.to_owned());
+        Some(())
+    })?;
     applier.set_string("platform.android.theme", |preferences, value| {
         preferences.theme = match value {
             "dark" => ThemeMode::Dark,
@@ -842,6 +875,14 @@ pub fn apply_android_settings(
         preferences.touch_number_keypad_order = match value {
             "phone" => NumberKeypadOrder::Phone,
             "calculator" => NumberKeypadOrder::Calculator,
+            _ => return None,
+        };
+        Some(())
+    })?;
+    applier.set_string(TWENTY_SIX_KEY_NUMBER_LAYOUT, |preferences, value| {
+        preferences.touch_twenty_six_key_number_layout = match value {
+            "row" => TwentySixKeyNumberLayout::Row,
+            "nine_key" => TwentySixKeyNumberLayout::NineKey,
             _ => return None,
         };
         Some(())

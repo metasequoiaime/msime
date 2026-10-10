@@ -1741,10 +1741,10 @@ int wmain(int argc, wchar_t **argv) {
           theme_now >= candidate_theme_check_at) {
         candidate_theme_check_at = theme_now + 500;
         system_dark = system_prefers_dark();
-        // An edited package is resolved again: its colours through the shared layer and its artwork from the catalog.
+        // 被编辑的包重新解析：颜色经共享层，装饰图来自目录。浅色和深色两个槽位的包都监视，工具条、语音浮层和菜单按自己的明暗可能画其中任一个。
         const bool skin_resources_changed = candidate_skin_revision.changed(
             config.skin_directory,
-            candidate_theme_package(current_candidate_theme));
+            candidate_theme_packages(current_candidate_theme));
         if (skin_resources_changed) {
           resolved_themes.clear();
           skin_assets.clear();

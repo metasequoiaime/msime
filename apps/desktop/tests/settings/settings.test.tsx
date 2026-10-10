@@ -4405,7 +4405,12 @@ test("automatic color swatch follows candidate theme without persisting a color 
       expect.objectContaining({
         global_theme: "custom",
         // Picking from the system theme customizes that theme: it becomes the base and no package is layered over it.
-        custom_theme: { base: "system", candidate_skin: null, candidate_colors: { text: null } },
+        custom_theme: {
+          base: "system",
+          candidate_skin: null,
+          candidate_skin_dark: null,
+          candidate_colors: { text: null },
+        },
       }),
     ),
   );
@@ -5284,7 +5289,12 @@ test("a picker used over a built-in theme customizes that theme, and the package
   expect(save).toHaveBeenLastCalledWith(7, {
     ...saved.preferences,
     global_theme: "custom",
-    custom_theme: { base: "night", candidate_skin: null, candidate_colors: { text: "#ff0000" } },
+    custom_theme: {
+      base: "night",
+      candidate_skin: null,
+      candidate_skin_dark: null,
+      candidate_colors: { text: "#ff0000" },
+    },
   });
   fireEvent.click(screen.getByRole("button", { name: "主题" }));
   const card = screen.getByRole("article", { name: "自定义" });
@@ -5323,7 +5333,11 @@ test("choosing the custom theme card drops its package and keeps the rest of the
   expect(save).toHaveBeenLastCalledWith(7, {
     ...saved.preferences,
     global_theme: "custom",
-    custom_theme: { candidate_skin: null, candidate_colors: { text: "#123456" } },
+    custom_theme: {
+      candidate_skin: null,
+      candidate_skin_dark: null,
+      candidate_colors: { text: "#123456" },
+    },
   });
 });
 
