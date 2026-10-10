@@ -387,7 +387,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn stale_snapshot_cleanup_never_deletes_through_a_symlinked_directory() {
-        use std::os::unix::fs::symlink;
+        // 以 root 运行时（Linux 测试容器）普通 `symlink` 建出的链接会被 `msime_path_trust::is_root_only_link` 当成受信任的系统链接，测不到拒绝行为；`untrusted_symlink` 那时把属主交给 `nobody`。
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let outside = tempfile::tempdir().unwrap();
         let outside_file = outside.path().join("download-outside.ndjson");

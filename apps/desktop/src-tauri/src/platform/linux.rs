@@ -114,7 +114,8 @@ mod tests {
     #[test]
     fn private_open_rejects_a_replaced_parent() {
         use std::ffi::OsStr;
-        use std::os::unix::fs::symlink;
+        // 不能用 `std::os::unix::fs::symlink`：以 root 运行时（Linux 测试容器里就是这样），root 在 0700 临时目录里建的链接满足 `msime_path_trust::is_root_only_link`，被当成受信任的系统链接跟随过去，打开反而成功。`untrusted_symlink` 在那时把链接属主交给 `nobody`，模拟别的用户换上来的链接，普通用户和 root 下测的都是同一条拒绝规则。
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let root = tempfile::tempdir().unwrap();
         let original = root.path().join("original");
