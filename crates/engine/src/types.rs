@@ -579,6 +579,8 @@ pub enum ShuangpinProfileKind {
     Ziranma = 1,
     Shoudao = 2,
     Microsoft = 3,
+    /// 用户自定义的键位，表在 [`ShuangpinCustomTable`] 里（`EngineOptions::shuangpin_custom_profile`、`SessionOptions::shuangpin_custom_profile`），没有内置的表。
+    Custom = 4,
 }
 
 impl ShuangpinProfileKind {
@@ -588,6 +590,7 @@ impl ShuangpinProfileKind {
             1 => Self::Ziranma,
             2 => Self::Shoudao,
             3 => Self::Microsoft,
+            4 => Self::Custom,
             _ => return None,
         })
     }
@@ -599,6 +602,7 @@ impl ShuangpinProfileKind {
             "ziranma" => Self::Ziranma,
             "shoudao" => Self::Shoudao,
             "microsoft" => Self::Microsoft,
+            "custom" => Self::Custom,
             _ => return None,
         })
     }
@@ -609,8 +613,17 @@ impl ShuangpinProfileKind {
             Self::Ziranma => "ziranma",
             Self::Shoudao => "shoudao",
             Self::Microsoft => "microsoft",
+            Self::Custom => "custom",
         }
     }
+}
+
+/// 用户自定义双拼方案的键位表（共享偏好 `shuangpin_custom_profile`）。三张表与内置方案同构：`initials` 只写三个多字母声母 `zh` `ch` `sh`，单字母声母仍在自己的字母键上；`finals` 把 33 个韵母各放到一个键上；`zero_initials` 给 12 个零声母音节各一个两键编码。键是小写字母或 `;`，`ü` 写作 `v`。表合不合法由 Engine 判定（见 `shuangpin::custom`），顺序无关。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ShuangpinCustomTable {
+    pub initials: Vec<(String, String)>,
+    pub finals: Vec<(String, String)>,
+    pub zero_initials: Vec<(String, String)>,
 }
 
 /// 五笔码表版本。序号即宿主 ABI 值（`EngineOptions::wubi_profile`）。

@@ -12,6 +12,7 @@ export interface VoiceAsrTokens {
   groq?: string;
   everyapi?: string;
   mistral?: string;
+  bailian?: string;
 }
 
 export interface VoiceInputConfiguration {
@@ -129,6 +130,7 @@ export class VoiceInputConfigurationPolicy {
       groq: "Groq",
       everyapi: "EveryAPI",
       mistral: "Mistral",
+      bailian: "阿里云百炼",
     };
     const provider: string | undefined = cloudProviders[config.asr_provider];
     if (provider !== undefined) {

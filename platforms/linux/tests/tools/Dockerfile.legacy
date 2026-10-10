@@ -1,0 +1,52 @@
+# legacy 包（#6311）的构建镜像：Debian 10 buster，glibc 2.28、GCC 8.3、IBus 1.5.19、Python 3.7。在这里编译的 Rust 与 C++ 产物只引用 glibc 2.28 及以下的符号版本，dpkg-shlibdeps 按 buster 的库算出的 Depends 在 UOS 20 这类 Debian 10 基线的系统上都能满足。
+#
+# 与 Dockerfile.build-gate 的开发包相同，只去掉 Fcitx5（buster 没有 5.0.20 以上的版本，legacy 包不带 Fcitx5 插件）和 Tauri 设置窗口要的 WebKitGTK 4.1、libsoup 3（buster 没有）。buster 自带的 CMake 3.13 和 nlohmann-json 3.5 低于 CMakeLists.txt 的要求，分别换成 Kitware 的 CMake 3.25.1 预编译包和 nlohmann-json 3.11.2 源码，版本与 bookworm 门禁镜像里的相同，两者都按 SHA-256 固定。Rust 用与 Dockerfile.package-rpm 相同的固定 rustup-init 安装。
+#
+# buster 已停止维护，软件源只在 archive.debian.org 上，Release 文件的有效期也已过，所以改写 sources.list 并关闭有效期检查；内容由 Release 的签名校验。
+FROM debian:buster@sha256:58ce6f1271ae1c8a2006ff7d3e54e9874d839f573d8009c20154ad0f2fb0a225
+RUN printf '%s\n' \
+    'deb http://archive.debian.org/debian buster main' \
+    'deb http://archive.debian.org/debian buster-updates main' \
+    'deb http://archive.debian.org/debian-security buster/updates main' \
+    > /etc/apt/sources.list \
+  && printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99msime-archive \
+  && apt-get update && apt-get install -y --no-install-recommends \
+    build-essential ninja-build pkg-config python3 curl ca-certificates xz-utils \
+    libasound2-dev libcurl4-openssl-dev \
+    libibus-1.0-dev libxkbcommon-dev \
+    libwayland-dev wayland-protocols libx11-dev libxfixes-dev libxrandr-dev libcairo2-dev \
+    dbus dpkg-dev file \
+  && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+  case "$(uname -m)" in \
+    x86_64) cmake_arch=x86_64; cmake_sum=3a5008b613eeb0724edeb3c15bf91d6ce518eb8eebc6ee758f89a0f4ff5d1fd6 ;; \
+    aarch64) cmake_arch=aarch64; cmake_sum=b1c9b85e0ee4db0eb335e8d8868b4527224db402d404119a4b1a5e081a89445f ;; \
+    *) echo "no pinned CMake for $(uname -m)" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSLo /tmp/cmake.tar.gz "https://github.com/Kitware/CMake/releases/download/v3.25.1/cmake-3.25.1-linux-$cmake_arch.tar.gz"; \
+  echo "$cmake_sum  /tmp/cmake.tar.gz" | sha256sum -c -; \
+  mkdir /opt/cmake; \
+  tar -xzf /tmp/cmake.tar.gz --strip-components=1 -C /opt/cmake; \
+  rm /tmp/cmake.tar.gz
+ENV PATH=/opt/cmake/bin:$PATH
+RUN set -eu; \
+  curl -fsSLo /tmp/json.tar.xz https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz; \
+  echo "8c4b26bf4b422252e13f332bc5e388ec0ab5c3443d24399acb675e68278d341f  /tmp/json.tar.xz" | sha256sum -c -; \
+  mkdir /tmp/json; \
+  tar -xJf /tmp/json.tar.xz --strip-components=1 -C /tmp/json; \
+  cmake -S /tmp/json -B /tmp/json/build -DJSON_BuildTests=OFF -DJSON_Install=ON -DCMAKE_INSTALL_PREFIX=/usr/local >/dev/null; \
+  cmake --install /tmp/json/build >/dev/null; \
+  rm -rf /tmp/json /tmp/json.tar.xz
+ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:/opt/cmake/bin:$PATH
+RUN set -eu; \
+  case "$(uname -m)" in \
+    x86_64) triple=x86_64-unknown-linux-gnu; sum=dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71 ;; \
+    aarch64) triple=aarch64-unknown-linux-gnu; sum=15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433 ;; \
+    *) echo "no pinned rustup-init for $(uname -m)" >&2; exit 1 ;; \
+  esac; \
+  curl --proto '=https' --tlsv1.2 -sSfo /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/1.29.1/$triple/rustup-init"; \
+  echo "$sum  /tmp/rustup-init" | sha256sum -c -; \
+  chmod +x /tmp/rustup-init; \
+  /tmp/rustup-init -y --profile minimal --default-toolchain 1.97.1 --no-modify-path; \
+  rm /tmp/rustup-init
+WORKDIR /source

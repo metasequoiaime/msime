@@ -194,6 +194,46 @@ final class DictionarySnapshotQueueTests: XCTestCase {
       XCTAssertEqual(try queue.read().request?.status, .cancelled)
     }
   }
+  func testCancelIfPresentTreatsInvalidStateAsNothingToCancel() throws {
+    try fixture { queue, _, _, root in
+      let state = root.appendingPathComponent("DictionarySnapshots/state.json")
+      for content in ["{not json", #"{"version":2,"localVersion":null,"request":null}"#] {
+        let data = Data(content.utf8)
+        try data.write(to: state)
+
+        try queue.cancelIfPresent(accountID: "synthetic-account")
+
+        XCTAssertEqual(try Data(contentsOf: state), data, "无效状态文件不应被改写")
+        // 放行是安全的：键盘同样读不了这份状态，领取不到其中任何请求。
+        let lease = try queue.acquireWorkerLease()
+        XCTAssertThrowsError(try queue.claim(using: lease))
+      }
+    }
+  }
+  func testCancelWithoutMatchingRequestDoesNotRewriteState() throws {
+    try fixture { queue, file, hash, root in
+      _ = try enqueue(queue, file, hash)
+      let directory = root.appendingPathComponent("DictionarySnapshots", isDirectory: true)
+      let state = directory.appendingPathComponent("state.json")
+      let before = try Data(contentsOf: state)
+      // 目录只读时原子写入会失败，用来模拟磁盘已满。
+      try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+      defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
+
+      try queue.cancelIfPresent(accountID: "different-account")
+      XCTAssertEqual(try Data(contentsOf: state), before)
+      XCTAssertEqual(try queue.read().request?.status, .queued)
+      XCTAssertThrowsError(try queue.cancelIfPresent(accountID: "synthetic-account"),
+                           "真有请求要取消时写入失败仍须报错")
+
+      try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+      try queue.cancelIfPresent(accountID: "synthetic-account")
+      XCTAssertEqual(try queue.read().request?.status, .cancelled)
+      try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+      try queue.cancelIfPresent(accountID: "synthetic-account")
+      XCTAssertEqual(try queue.read().request?.status, .cancelled)
+    }
+  }
   func testPublishedButUnacknowledgedRequestIsNotReapplied() throws {
     try fixture { queue, file, hash, _ in
       let id = try enqueue(queue, file, hash)

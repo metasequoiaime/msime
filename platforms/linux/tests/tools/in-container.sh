@@ -1,25 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 [[ ${MSIME_ISOLATED_LINUX_TEST:-} == 1 && -d /resources && -d /build ]] || exit 2
-python3 platforms/linux/tests/candidate/panel_keymap.py
-python3 platforms/linux/tests/provider/provider_config_discovery.py
-python3 platforms/linux/tests/candidate/provider_candidate_validation.py
-python3 platforms/linux/tests/provider/cloud_timeout_parity.py
-python3 platforms/linux/tests/candidate/ai_candidate_cache.py
-python3 platforms/linux/tests/dictionary/translation_cache_parity.py
-python3 platforms/linux/tests/voice/provider_voice_text_validation.py
-python3 platforms/linux/tests/voice/doubao_auth.py
-python3 platforms/linux/tests/dictionary/niutrans_credential_normalization.py
-python3 platforms/linux/tests/dictionary/tencent_credential_normalization.py
-python3 platforms/linux/tests/dictionary/custom_translation_config.py
-python3 platforms/linux/tests/dictionary/translation_provider_selection.py
-python3 platforms/linux/tests/voice/doubao_auth_mode.py
-python3 platforms/linux/tests/voice/provider_polish_prompt.py
-python3 platforms/linux/tests/provider/credential_test_contract.py
-python3 platforms/linux/tests/provider/ai_service_contract.py
-python3 platforms/linux/tests/clipboard/clipboard_capture_destination.py
-python3 platforms/linux/tests/clipboard/clipboard_watch_lifecycle.py
-python3 platforms/linux/tests/clipboard/clipboard_wayland_watch.py
+# 不依赖构建产物的 Python 合约测试列在 python-contracts.list 里，legacy 包的运行时验收（legacy-runtime.sh）在 Python 3.7 上跑同一份清单。
+mapfile -t contracts < platforms/linux/tests/tools/python-contracts.list
+for contract in "${contracts[@]}"; do
+  python3 "$contract"
+done
 cargo build -p msime-host-api --locked
 python3 - <<'PY'
 import ctypes

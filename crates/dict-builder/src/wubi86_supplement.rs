@@ -87,7 +87,7 @@ pub(crate) fn full_codes(rows: &[(String, &str, i64)]) -> HashMap<char, Vec<Stri
 }
 
 /// `c` 的全码的前 `letters` 码；所有全码都有这几码且一致时才返回。
-fn prefix(codes: &HashMap<char, Vec<String>>, c: char, letters: usize) -> Option<&str> {
+pub(crate) fn prefix(codes: &HashMap<char, Vec<String>>, c: char, letters: usize) -> Option<&str> {
     let full = codes.get(&c)?;
     let first = full.first()?.get(..letters)?;
     full.iter()

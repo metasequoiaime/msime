@@ -13,7 +13,9 @@ import { SkinPreviewStage } from "../skin/skin-preview-stage";
 import { SkinPreviewSurface } from "../skin/skin-preview-surface";
 import { defaultHelpcode } from "../settings/pages/helpcode-page";
 import {
+  candidateSkinFor,
   customCandidateStyle,
+  customDrawnBase,
   themeCandidateStyle,
   themeEntry,
   type ResolvedTheme,
@@ -54,11 +56,14 @@ export function AppearanceCandidatePreview({
   const custom = globalTheme === "custom";
   const colors = preferences.custom_theme?.candidate_colors;
   const mode = useCandidatePreviewTheme(preferences.theme, preferences.candidate_theme);
+  const dark = mode === "dark";
+  // 自定义主题按预览的明暗取槽位：深色先取 `candidate_skin_dark`。这个模式没有皮肤时画 `resolve()` 选的底：设过皮肤时 `custom.base` 只在属于这种明暗时作底，否则是 `system`。
+  const skin = custom ? candidateSkinFor(preferences.custom_theme, dark) : null;
   // A built-in theme is one fixed palette, and so is a custom theme over one; only `system` and a custom theme over it follow the light/dark mode.
-  const base = custom ? (preferences.custom_theme?.base ?? "system") : globalTheme;
+  const base = custom ? customDrawnBase(preferences.custom_theme, null, dark) : globalTheme;
   const theme = themeEntry(base).appearance ?? mode;
-  // Only a custom theme with an external package needs the package preview.
-  const builtin = !custom || !preferences.custom_theme?.candidate_skin;
+  // 只有当前明暗的槽位里有皮肤包时才需要皮肤预览。
+  const builtin = !skin;
   const helpcodeKey = preferences.scheme === "quanpin" ? "quanpin_helpcode" : "shuangpin_helpcode";
   // A missing object takes the core's per-scheme default (全拼 hides its codes, 双拼 shows them); a missing field inside a stored object is the core's serde default, which is on.
   const schemeHelpcode = preferences[helpcodeKey] ?? defaultHelpcode[helpcodeKey];
@@ -67,6 +72,34 @@ export function AppearanceCandidatePreview({
     (schemeHelpcode.enabled ?? true) &&
     (schemeHelpcode.show_in_candidate_window ?? true);
   const surfaceName = mobile ? "候选栏" : "候选窗口";
+  // 不带皮肤包的预览；皮肤包不在这种明暗下画时，皮肤预览也画它。
+  const plain = (
+    <SkinPreviewSurface
+      className="appearance-candidate-preview"
+      data-global-theme={globalTheme}
+      data-preview-theme={theme}
+      data-font-size={candidateFontSize(preferences.candidate_font_size)}
+      style={{
+        // The pickers belong to the custom theme and draw nowhere else.
+        ...(custom ? customCandidateStyle(base, colors) : themeCandidateStyle(globalTheme)),
+        ...candidateFontStyle(preferences),
+        ...candidateFamilyStyle(preferences),
+        ...candidateWindowStyle(preferences),
+      }}
+      aria-hidden="true"
+    >
+      <SkinPreviewStage>
+        <ReservedCandidatePreview
+          reserve={reserve}
+          orientation={preferences.candidate_layout ?? "vertical"}
+          count={preferences.candidate_page_size}
+          preedit={preferences.candidate_preedit_style !== "empty"}
+          helpcode={helpcode}
+          brand={brand}
+        />
+      </SkinPreviewStage>
+    </SkinPreviewSurface>
+  );
   return (
     <SettingsPreviewBlock
       as="section"
@@ -74,35 +107,12 @@ export function AppearanceCandidatePreview({
       label="预览：固定样例随当前设置草稿变化，不代表实际输入候选。"
     >
       {builtin ? (
-        <SkinPreviewSurface
-          className="appearance-candidate-preview"
-          data-global-theme={globalTheme}
-          data-preview-theme={theme}
-          data-font-size={candidateFontSize(preferences.candidate_font_size)}
-          style={{
-            // The pickers belong to the custom theme and draw nowhere else.
-            ...(custom ? customCandidateStyle(base, colors) : themeCandidateStyle(globalTheme)),
-            ...candidateFontStyle(preferences),
-            ...candidateFamilyStyle(preferences),
-            ...candidateWindowStyle(preferences),
-          }}
-          aria-hidden="true"
-        >
-          <SkinPreviewStage>
-            <ReservedCandidatePreview
-              reserve={reserve}
-              orientation={preferences.candidate_layout ?? "vertical"}
-              count={preferences.candidate_page_size}
-              preedit={preferences.candidate_preedit_style !== "empty"}
-              helpcode={helpcode}
-              brand={brand}
-            />
-          </SkinPreviewStage>
-        </SkinPreviewSurface>
+        plain
       ) : (
         <ExternalAppearancePreview
           preferences={preferences}
-          theme={theme}
+          theme={mode}
+          plain={plain}
           scan={scan}
           readImage={readImage}
           resolve={resolveTheme}

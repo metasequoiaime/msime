@@ -141,6 +141,54 @@ test("a package in use wins over the custom design it is drawn with", () => {
   );
 });
 
+// 浅色、深色两个槽位里的皮肤包都算在用：两张卡片都打勾，再点一次只把它从自己的槽位取下。
+test("skins in the light and the dark slot are both in use, and tapping one again takes it out", () => {
+  const night: ExternalSkin = { ...sample, id: "midnight", name: "Midnight skin", base: "night" };
+  const onApplied = vi.fn();
+  const { onApply } = grid({
+    globalTheme: "custom",
+    customTheme: { base: "night", candidate_skin: "sample", candidate_skin_dark: "midnight" },
+    packages: [sample, night],
+    onApplied,
+  });
+  for (const name of ["Sample skin", "Midnight skin"])
+    expect(screen.getByRole("button", { name }).getAttribute("aria-pressed")).toBe("true");
+  expect(document.querySelectorAll("[data-skin-check]")).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: "Midnight skin" }));
+  expect(onApply).toHaveBeenLastCalledWith({
+    global_theme: "custom",
+    custom_theme: { base: "night", candidate_skin: "sample", candidate_skin_dark: null },
+  });
+  expect(onApplied).not.toHaveBeenCalled();
+});
+
+test("a dark skin goes into the dark slot and keeps the light one", () => {
+  const night: ExternalSkin = { ...sample, id: "midnight", name: "Midnight skin", base: "night" };
+  const { onApply } = grid({
+    globalTheme: "custom",
+    customTheme: { base: "paper", candidate_skin: "sample" },
+    packages: [sample, night],
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Midnight skin" }));
+  expect(onApply).toHaveBeenLastCalledWith({
+    global_theme: "custom",
+    custom_theme: { base: "night", candidate_skin: "sample", candidate_skin_dark: "midnight" },
+  });
+  // 自定义卡片去掉两个槽位的皮肤。
+  cleanup();
+  const custom = grid({
+    globalTheme: "custom",
+    customTheme: { base: "night", candidate_skin: "sample", candidate_skin_dark: "midnight" },
+    packages: [sample, night],
+    customDesign: undefined,
+  });
+  fireEvent.click(screen.getByRole("button", { name: "自定义" }));
+  expect(custom.onApply).toHaveBeenLastCalledWith({
+    global_theme: "custom",
+    custom_theme: { base: "night", candidate_skin: null, candidate_skin_dark: null },
+  });
+});
+
 test("tapping a card applies it at once", () => {
   const { onApply, onSelectDesign } = grid({
     customTheme: { base: "light", candidate_colors: { text: "#112233" } },

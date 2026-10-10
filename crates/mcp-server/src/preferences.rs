@@ -5,11 +5,13 @@
 use msime_client_core::edition::Edition;
 use msime_client_core::preferences::{
     CandidateLayout, CharacterWidthPreference, ChineseScheme, DefaultImeMode, InputScheme,
-    Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile, WubiProfile,
+    Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinCustomProfile, ShuangpinProfile,
+    WubiProfile,
 };
 use rmcp::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::Path;
 
@@ -47,6 +49,41 @@ pub enum Profile {
     Ziranma,
     Shoudao,
     Microsoft,
+    /// 用户自己的键位表，即 `shuangpin_custom_profile`。没有可用的表时不能选它。
+    Custom,
+}
+
+/// 自定义双拼方案的键位表。`initials` 只写 zh ch sh 三个多字母声母（单字母声母仍在自己的字母键上），`finals` 写全 33 个韵母（a o e i u v ai ei ui ao ou iu ie ve ue an en in un ang eng ing ong ia ua uo uai ian uan iao iang uang iong），`zero_initials` 给 12 个零声母音节（a ai an ang ao e ei en eng er o ou）各一个两键编码。键是小写字母或 `;`，`;` 只能做第二个键；ü 写作 v。两个音节不能落在同一个两键编码上。
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct CustomShuangpinTable {
+    #[serde(default)]
+    pub initials: BTreeMap<String, String>,
+    #[serde(default)]
+    pub finals: BTreeMap<String, String>,
+    #[serde(default)]
+    pub zero_initials: BTreeMap<String, String>,
+}
+
+impl From<&ShuangpinCustomProfile> for CustomShuangpinTable {
+    fn from(value: &ShuangpinCustomProfile) -> Self {
+        Self {
+            initials: value.initials.clone(),
+            finals: value.finals.clone(),
+            zero_initials: value.zero_initials.clone(),
+        }
+    }
+}
+
+impl From<&CustomShuangpinTable> for ShuangpinCustomProfile {
+    fn from(value: &CustomShuangpinTable) -> Self {
+        Self {
+            initials: value.initials.clone(),
+            finals: value.finals.clone(),
+            zero_initials: value.zero_initials.clone(),
+        }
+    }
 }
 
 /// 五笔码表版本。
@@ -117,6 +154,7 @@ impl From<ShuangpinProfile> for Profile {
             ShuangpinProfile::Ziranma => Self::Ziranma,
             ShuangpinProfile::Shoudao => Self::Shoudao,
             ShuangpinProfile::Microsoft => Self::Microsoft,
+            ShuangpinProfile::Custom => Self::Custom,
         }
     }
 }
@@ -128,6 +166,7 @@ impl From<Profile> for ShuangpinProfile {
             Profile::Ziranma => Self::Ziranma,
             Profile::Shoudao => Self::Shoudao,
             Profile::Microsoft => Self::Microsoft,
+            Profile::Custom => Self::Custom,
         }
     }
 }
@@ -212,7 +251,9 @@ pub struct PreferencesView {
     pub revision: u64,
     pub scheme: Scheme,
     pub shuangpin_profile: Profile,
-    /// Candidates per page, 1 to 9.
+    /// 保存着的自定义双拼键位表，没有时为 null。
+    pub shuangpin_custom_profile: Option<CustomShuangpinTable>,
+    /// 每页候选数，1 到 10，第十个用数字键 0 选；Windows、iOS 和鸿蒙最多显示 9 个。
     pub candidate_page_size: u8,
     /// Candidate font size in points, 12 to 32.
     pub candidate_font_size: u8,
@@ -266,6 +307,8 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             revision: snapshot.revision,
             scheme: preferences.scheme.into(),
             shuangpin_profile: preferences.shuangpin_profile.into(),
+            shuangpin_custom_profile: (!preferences.shuangpin_custom_profile.is_empty())
+                .then(|| CustomShuangpinTable::from(&preferences.shuangpin_custom_profile)),
             candidate_page_size: preferences.candidate_page_size,
             candidate_font_size: preferences.candidate_font_size,
             candidate_scale_percent: preferences.candidate_scale_percent,
@@ -302,8 +345,11 @@ pub struct PreferencesChange {
     /// The revision `get_preferences` returned. The change is refused if the preferences have changed since; read them again and retry.
     pub expected_revision: u64,
     pub scheme: Option<ChineseSchemeChoice>,
+    /// `custom` 需要一张可用的键位表：已经保存着，或者在 `shuangpin_custom_profile` 里一起给出。
     pub shuangpin_profile: Option<Profile>,
-    /// 1 to 9.
+    /// 整张替换自定义双拼键位表。不能用的表会被拒绝，并说明哪里不对。
+    pub shuangpin_custom_profile: Option<CustomShuangpinTable>,
+    /// 1 到 10。无论存的是多少，Windows、iOS 和鸿蒙最多显示 9 个。
     pub candidate_page_size: Option<u8>,
     /// 12 to 32.
     pub candidate_font_size: Option<u8>,
@@ -342,6 +388,7 @@ impl PreferencesChange {
     pub(crate) fn is_empty(&self) -> bool {
         self.scheme.is_none()
             && self.shuangpin_profile.is_none()
+            && self.shuangpin_custom_profile.is_none()
             && self.candidate_page_size.is_none()
             && self.candidate_font_size.is_none()
             && self.candidate_scale_percent.is_none()
@@ -376,6 +423,9 @@ impl PreferencesChange {
         }
         if let Some(profile) = self.shuangpin_profile {
             preferences.shuangpin_profile = profile.into();
+        }
+        if let Some(table) = &self.shuangpin_custom_profile {
+            preferences.shuangpin_custom_profile = table.into();
         }
         if let Some(size) = self.candidate_page_size {
             preferences.candidate_page_size = size;
@@ -497,6 +547,13 @@ pub fn update(
     }
     let mut preferences = previous.preferences.clone();
     change.apply(&mut preferences);
+    // 键位表合不合法只有 Engine 说了算：给了新表，或者要用自定义方案，就先校验，免得存下一张输入法用不了、只能悄悄退回小鹤的表。
+    if change.shuangpin_custom_profile.is_some()
+        || preferences.shuangpin_profile == ShuangpinProfile::Custom
+    {
+        msime_host_api::validate_custom_shuangpin_profile(&preferences.shuangpin_custom_profile)
+            .map_err(|error| format!("the custom shuangpin table cannot be used: {error}"))?;
+    }
     let snapshot = store
         .save(change.expected_revision, preferences)
         .map_err(|error| error.to_string())?;
@@ -594,6 +651,7 @@ mod tests {
             ShuangpinProfile::Ziranma,
             ShuangpinProfile::Shoudao,
             ShuangpinProfile::Microsoft,
+            ShuangpinProfile::Custom,
         ] {
             same(json!(Profile::from(profile)), json!(profile));
             assert_eq!(ShuangpinProfile::from(Profile::from(profile)), profile);
@@ -624,6 +682,79 @@ mod tests {
             expected_revision: revision,
             ..PreferencesChange::default()
         }
+    }
+
+    /// 小鹤的键位，只把 ing 从 k 挪到 `;`。
+    fn custom_table() -> CustomShuangpinTable {
+        serde_json::from_value(json!({
+            "initials": { "zh": "v", "ch": "i", "sh": "u" },
+            "finals": {
+                "iu": "q", "ei": "w", "e": "e", "uan": "r", "ue": "t", "ve": "t", "un": "y",
+                "u": "u", "i": "i", "uo": "o", "o": "o", "ie": "p", "a": "a", "ong": "s",
+                "iong": "s", "ai": "d", "en": "f", "eng": "g", "ang": "h", "an": "j",
+                "uai": "k", "ing": ";", "uang": "l", "iang": "l", "ou": "z", "ua": "x",
+                "ia": "x", "ao": "c", "ui": "v", "v": "v", "in": "b", "iao": "n", "ian": "m"
+            },
+            "zero_initials": {
+                "a": "aa", "ai": "ai", "an": "an", "ang": "ah", "ao": "ao", "e": "ee",
+                "ei": "ei", "en": "en", "eng": "eg", "er": "er", "o": "oo", "ou": "ou"
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_custom_shuangpin_profile_needs_a_table_the_engine_accepts() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
+        let before = load(directory.path(), Edition::full()).unwrap();
+        assert_eq!(before.shuangpin_custom_profile, None);
+        let run = |change: &PreferencesChange| {
+            update(directory.path(), &options, Edition::full(), change)
+        };
+
+        // 没有表就不能选自定义方案。
+        let refused = run(&PreferencesChange {
+            shuangpin_profile: Some(Profile::Custom),
+            ..change(before.revision)
+        })
+        .unwrap_err();
+        assert!(
+            refused.starts_with("the custom shuangpin table cannot be used: initials unit"),
+            "{refused}"
+        );
+        // 给出的表不能用，也拒绝，并说明哪里冲突。
+        let mut colliding = custom_table();
+        colliding.finals.insert("ang".into(), "k".into());
+        let refused = run(&PreferencesChange {
+            shuangpin_custom_profile: Some(colliding),
+            ..change(before.revision)
+        })
+        .unwrap_err();
+        assert!(refused.contains("reads as both"), "{refused}");
+        assert_eq!(
+            PreferencesStore::new(directory.path())
+                .load()
+                .unwrap()
+                .revision,
+            before.revision
+        );
+
+        let updated = run(&PreferencesChange {
+            scheme: Some(ChineseSchemeChoice::Shuangpin),
+            shuangpin_profile: Some(Profile::Custom),
+            shuangpin_custom_profile: Some(custom_table()),
+            ..change(before.revision)
+        })
+        .unwrap();
+        assert_eq!(updated.shuangpin_profile, Profile::Custom);
+        assert_eq!(updated.shuangpin_custom_profile, Some(custom_table()));
+        let stored = PreferencesStore::new(directory.path()).load().unwrap();
+        assert_eq!(
+            stored.preferences.shuangpin_custom_profile,
+            ShuangpinCustomProfile::from(&custom_table())
+        );
     }
 
     #[test]
@@ -705,7 +836,7 @@ mod tests {
         };
         assert!(update(directory.path(), &options, Edition::full(), &stale).is_err());
         let invalid = PreferencesChange {
-            candidate_page_size: Some(10),
+            candidate_page_size: Some(11),
             ..change(updated.revision)
         };
         assert!(update(directory.path(), &options, Edition::full(), &invalid).is_err());

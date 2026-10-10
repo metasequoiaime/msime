@@ -908,23 +908,29 @@ pub const HOST_CATALOG_MAX_PACKAGES: usize = 32;
 ///
 /// Everything else in a package - the background image, the toolbar, other paths and stylesheets - stays out: the Linux hosts cannot draw them and every byte counts against the size limit of the document it reads, which is also why an undecorated package carries no decoration keys at all. A colour `normalized_color` cannot read is left out, as `resolve` ignores it. A palette is kept only for a theme the package declares, since every host drops an external skin for a layout or theme it does not support rather than drawing its colours there, and `resolve` does the same with the published `layouts` and themes. Ids and names are already bounded by `scan`; the hosts re-check both, and the decoration's bounds.
 ///
-/// At most `HOST_CATALOG_MAX_PACKAGES` are listed, in the catalog's order. The `selected` skin is always among them when installed, taking the last place if it falls beyond the cap, because its colours are the ones on screen.
+/// 最多列出 `HOST_CATALOG_MAX_PACKAGES` 个，按目录顺序。`selected` 是自定义主题选中的皮肤（浅色、深色两个槽位）：已安装的一律列出，落在上限之外时挤掉上限内最后几个没选中的，排到末尾，因为屏幕上画的是它们的颜色。
 pub fn host_candidate_catalog(
     catalog: &SkinCatalog,
     root: &Path,
-    selected: &str,
+    selected: &[&str],
 ) -> serde_json::Value {
-    let mut listed = Vec::with_capacity(HOST_CATALOG_MAX_PACKAGES + 1);
+    let is_selected = |package: &SkinSummary| selected.contains(&package.id.as_str());
+    let mut listed = Vec::with_capacity(HOST_CATALOG_MAX_PACKAGES + selected.len());
     listed.extend(
         catalog
             .packages
             .iter()
             .enumerate()
-            .filter(|(index, package)| *index < HOST_CATALOG_MAX_PACKAGES || package.id == selected)
+            .filter(|(index, package)| *index < HOST_CATALOG_MAX_PACKAGES || is_selected(package))
             .map(|(_, package)| package),
     );
-    if listed.len() > HOST_CATALOG_MAX_PACKAGES {
-        listed.remove(HOST_CATALOG_MAX_PACKAGES - 1);
+    while listed.len() > HOST_CATALOG_MAX_PACKAGES {
+        // 选中的比上限还多时（只有两个槽位，实际不会发生）按目录顺序截断，上限照样成立。
+        let Some(dropped) = listed.iter().rposition(|package| !is_selected(package)) else {
+            listed.truncate(HOST_CATALOG_MAX_PACKAGES);
+            break;
+        };
+        listed.remove(dropped);
     }
     let mut packages = Vec::with_capacity(HOST_CATALOG_MAX_PACKAGES);
     packages.extend(listed.into_iter().map(|package| {

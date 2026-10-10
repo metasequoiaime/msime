@@ -1302,6 +1302,8 @@ function StatisticsHourlyBars({
  *
  * On iOS the keyboard extension cannot reach the shared App Group container without Full Access,
  * so there the prerequisite is named rather than the typing.
+ *
+ * iOS 上统计文件存在也不能说明键盘写过：在 app 里开启记录时 `client-core` 的 `set_enabled` 会无条件写出统计文件，而没有完全访问的键盘什么都不记，计数一直是零。app 读不到键盘是否有完全访问，所以计数为零时也先提醒这一项，再说其他可能。
  */
 export function availabilityNotice(
   statistics: Pick<TypingStatistics, "enabled" | "total">,
@@ -1313,10 +1315,17 @@ export function availabilityNotice(
     return iosPlatform
       ? "键盘从未写入过统计。请在系统设置 → 通用 → 键盘 → 键盘 → 水杉输入法中开启“允许完全访问”，然后用水杉键盘输入几个字再回来刷新。未开启时仍可正常打字，只是不记录统计。"
       : "键盘从未写入过统计。请用水杉键盘成功输入几个字符，再返回此页刷新。";
-  if (statistics.total === 0 && status.lastWrittenMs)
-    return `统计最后写入于 ${new Date(status.lastWrittenMs).toLocaleString("zh-CN")}，当前计数为零；如果刚刚清空过统计，这是正常的。`;
-  if (statistics.total === 0) return "统计文件已建立，但当前还没有输入记录。";
-  return "";
+  if (statistics.total !== 0) return "";
+  const fullAccess = iosPlatform
+    ? "请先确认已在系统设置 → 通用 → 键盘 → 键盘 → 水杉输入法中为水杉键盘开启“允许完全访问”，未开启时键盘不记录统计。"
+    : "";
+  if (status.lastWrittenMs) {
+    const written = new Date(status.lastWrittenMs).toLocaleString("zh-CN");
+    return iosPlatform
+      ? `统计最后写入于 ${written}，当前计数为零。${fullAccess}已开启的话，如果刚刚清空过统计，这是正常的。`
+      : `统计最后写入于 ${written}，当前计数为零；如果刚刚清空过统计，这是正常的。`;
+  }
+  return `统计文件已建立，但当前还没有输入记录。${fullAccess}`;
 }
 
 export function TypingStatisticsPage({
@@ -2074,7 +2083,7 @@ export function TypingStatisticsPage({
         <section className="section m-0">
           <h2 className={heading}>统计没有数据</h2>
           <p className="mt-2 mb-0 leading-relaxed text-secondary">{availabilityMessage}</p>
-          {iosPlatform && status.availability === "neverWritten" && openSystemSettings && (
+          {iosPlatform && openSystemSettings && (
             <ActionButton action={openSystemSettings} label="打开系统键盘设置" />
           )}
         </section>

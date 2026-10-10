@@ -19,8 +19,10 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
   static var deleteRequests = 0
   static var omittedPreferenceKey: String?
   static var themeSchema = true
+  /// 服务端字段表是否收录了晚加入的深色槽位。
+  static var darkSkinSchema = true
   private static var preferenceRevision = 1
-  private static var preferences: [String: Any] = ["platform.macos.candidate_font_size": 18, "platform.macos.candidate_learning": true, "platform.ios.nine_key": true]
+  private static var preferences: [String: Any] = ["platform.macos.candidate_font_size": 18, "platform.macos.candidate_learning": true, "platform.ios.nine_key": true, "platform.macos.quanpin_helpcode_schema": 6, "platform.macos.shuangpin_helpcode_schema": 9]
   private static var clipboardEnabled = false
   private static var clipboardText: String?
   override class func canInit(with request: URLRequest) -> Bool { true }
@@ -42,7 +44,7 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     case ("GET", "/v1/users/me/preferences/schema"):
       var fields: [String: Any] = ["platform.macos.global_theme": ["type":"string", "maxLength":64], "platform.macos.candidate_font_size": ["type":"integer"], "platform.macos.candidate_learning": ["type":"boolean"], "platform.macos.shuangpin_preedit_uses_raw": ["type":"boolean"], "platform.ios.nine_key": ["type":"boolean"]]
       // A server that has registered only part of the theme group, as one that predates the custom theme would.
-      if Self.themeSchema { fields["platform.macos.custom_theme_base"] = ["type":"string", "maxLength":64]; fields["platform.macos.custom_candidate_skin"] = ["type":"string", "maxLength":128] }
+      if Self.themeSchema { fields["platform.macos.custom_theme_base"] = ["type":"string", "maxLength":64]; fields["platform.macos.custom_candidate_skin"] = ["type":"string", "maxLength":128]; if Self.darkSkinSchema { fields["platform.macos.custom_candidate_skin_dark"] = ["type":"string", "maxLength":128] } }
       body = json(["fields": fields, "maximum_bytes": 1048576, "update_mode": "replace", "revision_required": true])
     case ("GET", "/v1/users/me/preferences"):
       body = json(["revision":Self.preferenceRevision, "settings":Self.preferences.filter { $0.key != Self.omittedPreferenceKey }])
@@ -261,14 +263,21 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     model.logout(delete: true); try await finished(model)
     try require(model.user != nil && model.message != nil && storage.load() != nil)
     try require(windowClosures == 0)
-    var localSettings: MacSettingsAccess.Values = ["platform.macos.global_theme": .string("shuishan"), "platform.macos.custom_theme_base": .string("system"), "platform.macos.custom_candidate_skin": .string(""), "platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false), "platform.macos.shuangpin_preedit_uses_raw": .boolean(false)]
+    var localSettings: MacSettingsAccess.Values = ["platform.macos.global_theme": .string("shuishan"), "platform.macos.custom_theme_base": .string("system"), "platform.macos.custom_candidate_skin": .string(""), "platform.macos.custom_candidate_skin_dark": .string("night-card"), "platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false), "platform.macos.shuangpin_preedit_uses_raw": .boolean(false)]
     let settings = MacSettingsModel(accountID: "synthetic-user", client: client, account: session, local: .init(snapshot: { localSettings }, validate: { values in
-      guard values.count == 6 else { throw Failure() }
+      guard values.count == 7 else { throw Failure() }
     }, apply: { localSettings = $0 }))
     settings.download(); try await finished(settings)
     try require(settings.preview?["platform.macos.candidate_font_size"] == .integer(18))
     try require(settings.preview?["platform.macos.global_theme"] == .string("shuishan"))
     try require(settings.preview?["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(false))
+    // 云端的辅助码方案下标 9 是本机没有的方案，预览换成本机的选择；6（五笔 86）本机认得，照常进预览。
+    let helpcodeLocal: MacSettingsAccess.Values = ["platform.macos.candidate_font_size": .integer(16), "platform.macos.quanpin_helpcode_schema": .integer(0), "platform.macos.shuangpin_helpcode_schema": .integer(2)]
+    let helpcodeSettings = MacSettingsModel(accountID: "synthetic-user", client: client, account: session, local: .init(snapshot: { helpcodeLocal }, validate: { _ in }, apply: { _ in }))
+    helpcodeSettings.download(); try await finished(helpcodeSettings)
+    try require(helpcodeSettings.preview?["platform.macos.quanpin_helpcode_schema"] == .integer(6))
+    try require(helpcodeSettings.preview?["platform.macos.shuangpin_helpcode_schema"] == .integer(2))
+    helpcodeSettings.close()
     AccountFixture.omittedPreferenceKey = "platform.macos.candidate_font_size"
     settings.download(); try await finished(settings)
     try require(settings.preview == nil && settings.message != nil)
@@ -289,6 +298,7 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(savedPreferences.settings["platform.ios.nine_key"] == .boolean(true))
     try require(savedPreferences.settings["platform.macos.global_theme"] == .string("shuishan"))
     try require(savedPreferences.settings["platform.macos.custom_theme_base"] == .string("system") && savedPreferences.settings["platform.macos.custom_candidate_skin"] == .string(""))
+    try require(savedPreferences.settings["platform.macos.custom_candidate_skin_dark"] == .string("night-card"))
     try require(settings.message == "本机设置已上传，其他平台的云端设置已保留。")
     try require(savedPreferences.settings["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(true))
     localSettings["platform.macos.shuangpin_preedit_uses_raw"] = .boolean(false)
@@ -309,6 +319,21 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     let themeless = try await client.preferences(token: credentials.token)
     try require(themeless.settings["platform.macos.candidate_font_size"] == .integer(22) && themeless.settings["platform.macos.global_theme"] == .string("shuishan"))
     AccountFixture.themeSchema = true
+    // 服务端字段表只缺深色槽位：只去掉这一项，主题组其余字段照常上传，提示也不说主题没上传。
+    AccountFixture.darkSkinSchema = false
+    localSettings["platform.macos.global_theme"] = .string("ink")
+    localSettings["platform.macos.custom_candidate_skin_dark"] = .string("dusk-card")
+    settings.download(); try await finished(settings)
+    settings.upload(); try await finished(settings)
+    try require(settings.message == "本机设置已上传，其他平台的云端设置已保留。")
+    let darkless = try await client.preferences(token: credentials.token)
+    try require(darkless.settings["platform.macos.global_theme"] == .string("ink") && darkless.settings["platform.macos.custom_candidate_skin_dark"] == .string("night-card"))
+    AccountFixture.darkSkinSchema = true
+    // 云端还没有深色槽位：下载时保留本机的值，不因少一项拒绝整份快照。
+    AccountFixture.omittedPreferenceKey = "platform.macos.custom_candidate_skin_dark"
+    settings.download(); try await finished(settings)
+    try require(settings.preview?["platform.macos.custom_candidate_skin_dark"] == .string("dusk-card"))
+    AccountFixture.omittedPreferenceKey = nil
     settings.close(); try require(settings.preview == nil && settings.cloud == nil)
     let clipboard = MacClipboardModel(accountID: "synthetic-user", client: client, account: session)
     clipboard.refresh(); try await finished(clipboard)

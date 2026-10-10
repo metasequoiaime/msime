@@ -95,7 +95,9 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
     return state
   }
   func read() throws -> DictionarySnapshotQueueState { try read(root()) }
-  private func update<T>(_ action: (inout DictionarySnapshotQueueState) throws -> T) throws -> T {
+  /// `persist` 返回 `false` 时不重写状态文件：没有改动的操作不应因写入失败（例如磁盘已满）而失败。
+  private func update<T>(persist: (T) -> Bool = { _ in true },
+                         _ action: (inout DictionarySnapshotQueueState) throws -> T) throws -> T {
     Self.processLock.lock()
     defer { Self.processLock.unlock() }
     let root = try root()
@@ -106,6 +108,7 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
     defer { flock(descriptor, LOCK_UN) }
     var state = try read(root)
     let result = try action(&state)
+    guard persist(result) else { return result }
     let data = try JSONEncoder().encode(state)
     guard data.count <= 65536 else { throw Failure.invalid }
     try data.write(to: root.appendingPathComponent("state.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
@@ -234,7 +237,7 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
   func cancel(accountID: String) throws {
     for attempt in 0..<40 {
       do {
-        let cancelled = try update { state -> DictionarySnapshotRequest? in
+        let cancelled = try update(persist: { $0 != nil }) { state -> DictionarySnapshotRequest? in
           guard state.request?.accountID == accountID, state.request?.status.active == true else { return nil }
           state.request?.status = .cancelled
           return state.request
@@ -248,11 +251,10 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
     }
   }
 
-  /// A test host may have no App Group container. No queue can exist there;
-  /// errors from an existing container, including inaccessible paths, still propagate.
+  /// 账号操作取消旧账号快照的入口。没有 App Group 容器（例如测试宿主）时不存在队列，直接返回。状态文件损坏或版本不符时键盘同样领取不了其中的请求，视为没有可取消的请求，不改动该文件。其余错误（目录不可访问、状态锁一直被占用、写入失败）照常抛出，由调用方决定是否阻止账号操作。
   func cancelIfPresent(accountID: String) throws {
     guard directory != nil else { return }
-    try cancel(accountID: accountID)
+    do { try cancel(accountID: accountID) } catch Failure.invalid { return }
   }
   func fail(id: UUID) throws {
     let failed = try update { state -> DictionarySnapshotRequest? in

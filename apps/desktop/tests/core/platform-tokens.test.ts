@@ -239,6 +239,19 @@ test("without a resolved theme the platform layer is left alone", () => {
   expect(seasonAttr(autumnDark)).toBe("autumn");
 });
 
+// 手机 WebView 点按时默认盖一块蓝色或灰色高亮，原生应用里没有；页面根上把它关掉，子元素继承。
+test("tapping draws no WebView highlight", () => {
+  expect(styles).toMatch(/html,\s*body \{[^}]*-webkit-tap-highlight-color: transparent;/);
+});
+
+// 主按钮有自己的样式（迁移到 Tailwind 时 `primary` 只留下了引导页里的局部样式），手机上的次要按钮用平台按钮 token。
+test("primary and phone secondary buttons are styled", () => {
+  expect(styles).toMatch(/@utility primary \{[^}]*background: var\(--accent-strong\);/);
+  expect(styles).toMatch(
+    /:is\(\[data-platform="harmony"\], \[data-platform="android"\], \[data-platform="ios"\]\) & \{[^}]*background: var\(--p-btn-bg/,
+  );
+});
+
 test("white text on an accent fill follows the accent's on-colour on HarmonyOS", () => {
   expect(styles).toMatch(
     /:is\(\[data-platform="harmony"\], \[data-platform="hm2"\]\)\s+:is\(\.bg-accent-strong, \.bg-accent\)\.text-white \{\s*color: var\(--p-on-accent\);/,

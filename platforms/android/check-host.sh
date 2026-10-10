@@ -575,6 +575,41 @@ if rg -A 30 'void (clearClipboardHistory|renderClipboardHistory|renderClipboardI
   echo "Android clipboard panel must not raise dialogs or popup menus from the input method" >&2
   exit 1
 fi
+# 「添加到常用语」经常用语存储写入（校验、去重、上限和同步标记都在那里），它要等文件锁，必须放在工作线程上，不能在主线程卡住键盘（#5909）。
+if ! rg -A 12 'void addClipboardTextToPhrases\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg -q 'preferencesWorker\.execute' \
+  || ! rg -A 12 'void addClipboardTextToPhrases\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg -q 'CommonPhrasesStore\.add\(s, text\)'; then
+  echo "Android clipboard add-to-phrases must write through CommonPhrasesStore on the preferences worker (#5909)" >&2
+  exit 1
+fi
+# 左滑删除只在 ClipboardSwipePolicy 判定为横滑后才接手：接手时不让外层面板拦截去滚动，并给卡片补一个取消，撤掉按下态、长按和点按，松手不会插入（#5962）。
+swipe_body=$(rg -A 60 'private final class ClipboardSwipeCell implements' \
+  "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" || true)
+if ! printf '%s\n' "$swipe_body" | rg -q 'ClipboardSwipePolicy\.claims\(' \
+  || ! printf '%s\n' "$swipe_body" | rg -q 'requestDisallowInterceptTouchEvent\(true\)' \
+  || ! printf '%s\n' "$swipe_body" | rg -q 'ACTION_CANCEL\);'; then
+  echo "Android clipboard swipe must claim only through ClipboardSwipePolicy, keep the panel from scrolling and cancel the card's own press (#5962)" >&2
+  exit 1
+fi
+# 「编辑」打开应用里的编辑页，不在键盘里弹对话框或放文本框（#5971）。打开之前要把系统剪贴板当前那一条记为已处理，否则改完回来一打开面板，补读又把原文记回来；交给编辑页的是认出这一条的键，不是文字。编辑页的 PageId 名必须和键盘这边写死的页面名一致。
+edit_body=$(rg -A 12 'void editClipboardItem\(' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
+if ! printf '%s\n' "$edit_body" | rg -q 'forgetCurrentClip\(\);' \
+  || ! printf '%s\n' "$edit_body" | rg -q 'ClipboardHistoryPolicy\.editKey\(' \
+  || ! printf '%s\n' "$edit_body" | rg -q 'openHostPage\(ClipboardHistoryPolicy\.EDIT_PAGE, args\)' \
+  || printf '%s\n' "$edit_body" | rg -q 'new (AlertDialog|PopupMenu|EditText)' \
+  || ! rg -q 'public static final String EDIT_PAGE = "CLIPBOARD_EDIT";' \
+    "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryPolicy.java" \
+  || ! rg -q '^    CLIPBOARD_EDIT\("ClipboardEditPage", ' \
+    "$repo_root/platforms/android/java/app/msime/android/home/PageId.java" \
+  || ! rg -A 20 'private void renderClipboardItemActions\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" | rg -q 's\.editClipboardItem\(item\)'; then
+  echo "Android clipboard edit must open the app's CLIPBOARD_EDIT page with the entry's key after forgetting the current clip, never a dialog in the input method (#5971)" >&2
+  exit 1
+fi
 if rg -q 'void manageClipboardItem|new PopupMenu\(this, anchor\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android clipboard entries must not be managed through a PopupMenu (#5653)" >&2
@@ -687,14 +722,20 @@ if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^  
   echo "Android candidate strip must not start each editor from the factory-default preference copy" >&2
   exit 1
 fi
-# 键距、行距、语音快捷键和数字键顺序同理：按副本算，调过键距的用户每换一个输入框键盘都先按出厂间距排一帧。只有实时偏好重算键盘几何，冷启动的第一帧按皮肤片段算，片段里要记着这几个字段。
+# 键距、行距、语音快捷键、数字键顺序和双拼键位提示同理：按副本算，调过键距的用户每换一个输入框键盘都先按出厂间距排一帧。只有实时偏好重算键盘几何，冷启动的第一帧按皮肤片段算，片段里要记着这几个字段。
 if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^    }$/p' "$account_service" \
     | rg -q '^\s*if \(live\) applyTouchGeometry\(preferences\);' \
   || ! sed -n '/JSONObject hint = readSkinHint();/,/^        }$/p' "$account_service" \
     | rg -q 'applyTouchGeometry\(hint\);' \
   || ! rg -q '"touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",' "$account_service" \
-  || ! rg -q '"touch_voice_shortcut", NineKeyLayout\.NUMBER_KEYPAD_ORDER_KEY,' "$account_service"; then
+  || ! rg -q '"touch_voice_shortcut", NineKeyLayout\.NUMBER_KEYPAD_ORDER_KEY, ShuangpinKeyHintPolicy\.PREFERENCE_KEY,' "$account_service"; then
   echo "Android keyboard geometry must not start each editor from the factory-default preference copy" >&2
+  exit 1
+fi
+# 键盘开着时切换「双拼键位提示」：reloadPreferences 只在 touchGeometryKey() 变了时才 render()，开关不在这个键里，已经画好的字母键就一直留着旧提示，直到下次重建键盘。
+if ! sed -n '/private String touchGeometryKey() {$/,/^    }$/p' "$account_service" \
+    | rg -q 'shuangpinKeyHintsEnabled'; then
+  echo "Android touchGeometryKey must include the shuangpin key hint switch so a live change redraws the keys" >&2
   exit 1
 fi
 # 长按「中/英」弹出系统输入法选择框（#5615）。这个键在没有会话的输入框里也必须保持可用：禁用的按钮收不到长按，而密码框正是最需要换到密码管理器键盘的地方。没有会话时把键画淡，点按在反馈和计数之前就忽略。

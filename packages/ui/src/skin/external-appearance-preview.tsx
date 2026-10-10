@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { Preferences } from "../index";
 import {
   decorationImage,
@@ -12,7 +12,10 @@ import {
 import { useSelectedBarPalette } from "./skin-palette";
 import {
   candidatePaletteStyle,
+  candidateSkinFor,
   customCandidatePalette,
+  customDrawnBase,
+  skinDrawsIn,
   themeEntry,
   type ResolvedTheme,
   type ResolveThemeRequest,
@@ -64,24 +67,30 @@ function LoadedPreview({
   readImage?: SkinImageReader;
   resolve?: (request: ResolveThemeRequest) => Promise<ResolvedTheme>;
   helpcode: boolean;
+  /** 宿主当前的明暗模式，也就是 `resolve()` 的 `dark`。 */
   theme: "dark" | "light";
   reserve?: PreviewReserve;
 }) {
   const scope = `appearance-external-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const layout = preferences.candidate_layout ?? "vertical";
+  const dark = theme === "dark";
   // The host's `resolve()` is the authority; until it answers, and on hosts without it, the page's mirror layers the base, the package palette for the drawn mode (none when the package does not declare it) and the pickers the same way.
   const resolved = useResolvedTheme(resolve, {
     global_theme: "custom",
     custom_theme: preferences.custom_theme,
-    dark: theme === "dark",
+    dark,
     layout,
   });
+  // 与 `resolve()` 同一套规则：包只在它 base 的明暗下画，画了它时底是包的 base，否则按 `customDrawnBase`；固定明暗的底决定取哪种配色。
+  const drawsIn = skinDrawsIn(skin.base, dark);
+  const base = customDrawnBase(preferences.custom_theme, drawsIn ? skin.base : null, dark);
+  const mode = themeEntry(base).appearance ?? theme;
   const palette = resolved
     ? resolved.candidate
     : customCandidatePalette(
-        skin.base,
+        base,
         preferences.custom_theme?.candidate_colors,
-        drawnPackagePalette(skin, theme),
+        drawsIn ? drawnPackagePalette(skin, mode) : null,
       );
   const hideBar = palette?.show_selected_bar === false;
   const paletteFailed = useSelectedBarPalette(scope, hideBar);
@@ -98,7 +107,7 @@ function LoadedPreview({
     ...candidatePaletteStyle(palette),
     ...candidateFontStyle(preferences),
     ...candidateFamilyStyle(preferences),
-    ...skinGeometryStyle(skin, theme),
+    ...skinGeometryStyle(skin, mode),
     // After the package geometry: the user's corner radius beats the package's, as on the hosts.
     ...candidateWindowStyle(preferences),
   } as CSSProperties;
@@ -113,7 +122,7 @@ function LoadedPreview({
       <SkinPreviewSurface
         className={`appearance-candidate-preview ${scope}`}
         style={geometry}
-        data-preview-theme={theme}
+        data-preview-theme={mode}
         data-decoration-align={skin.decorationAlign ?? "right"}
         data-font-size={candidateFontSize(preferences.candidate_font_size)}
         aria-hidden="true"
@@ -159,6 +168,7 @@ export function ExternalAppearancePreview({
   revision,
   helpcode,
   theme,
+  plain,
   reserve,
 }: {
   preferences: Preferences;
@@ -169,12 +179,16 @@ export function ExternalAppearancePreview({
   active: boolean;
   revision: number;
   helpcode: boolean;
+  /** 宿主当前的明暗模式：决定取哪个槽位的皮肤，也就是 `resolve()` 的 `dark`。 */
   theme: "dark" | "light";
+  /** 不带皮肤包的预览（底加取色器）。所选皮肤不在这种明暗下画时画它，与 `resolve()` 一致。 */
+  plain: ReactNode;
   /** 见 `ReservedCandidatePreview`。 */
   reserve?: PreviewReserve;
 }) {
   const [refresh, setRefresh] = useState(0);
-  const id = preferences.custom_theme?.candidate_skin;
+  const dark = theme === "dark";
+  const id = candidateSkinFor(preferences.custom_theme, dark);
   const key = useMemo(() => ({}), [scan, id, active, revision, refresh]);
   const [result, setResult] = useState<{ key: object; skin?: ExternalSkin; failed?: boolean }>();
   useEffect(() => {
@@ -199,9 +213,9 @@ export function ExternalAppearancePreview({
     );
   const current = result?.key === key ? result : undefined;
   const skin = current?.skin;
-  // A built-in base fixes the mode whatever the host draws in, as `resolve()` does: the package palette for that mode is used when the package declares it, and the base alone is drawn when it does not.
+  // 固定明暗底的包只在那种明暗下画，`resolve()` 在别的模式下画底和取色器，预览照样画不带包的那个；`system` 底的包按当前模式取配色，仍要声明这个模式。
   const fixed = skin ? themeEntry(skin.base).appearance : null;
-  const drawn = fixed ?? theme;
+  const drawsIn = skin ? skinDrawsIn(skin.base, dark) : false;
   const compatible =
     skin?.layouts.includes(preferences.candidate_layout ?? "vertical") &&
     (fixed !== null || skin.themes.includes(theme));
@@ -219,6 +233,14 @@ export function ExternalAppearancePreview({
         <StatusMessage role="status">读取所选皮肤失败，请刷新预览重试。</StatusMessage>
       ) : !skin ? (
         <StatusMessage role="status">未找到所选皮肤，请检查皮肤目录后刷新预览。</StatusMessage>
+      ) : !drawsIn ? (
+        <>
+          <StatusMessage role="status">
+            所选皮肤是{fixed === "dark" ? "深色" : "浅色"}皮肤，
+            {theme === "dark" ? "深色" : "浅色"}模式下不使用它。
+          </StatusMessage>
+          {plain}
+        </>
       ) : !compatible ? (
         <StatusMessage role="status">
           所选皮肤不支持当前布局或{theme === "dark" ? "深色" : "浅色"}模式。
@@ -230,7 +252,7 @@ export function ExternalAppearancePreview({
           readImage={readImage}
           resolve={resolve}
           helpcode={helpcode}
-          theme={drawn}
+          theme={theme}
           reserve={reserve}
         />
       )}

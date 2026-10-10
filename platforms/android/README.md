@@ -71,9 +71,9 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 外接硬件键盘的退格、左右方向、Home、End 和 Forward Delete 通过 `HardwareKeyPolicy` 映射到共享 Engine 的 0/4/5/6/7/8 命令；组字或候选状态由 Engine 处理，空闲时返回给编辑器。Ctrl/Alt/Meta 组合键仍交给系统快捷键，不把宿主命令抢走。这样 Android 的物理键盘不会复制一套编辑状态机，也不会把前删错误地当成普通退格。
 
-用实体键盘打字时键盘收起成候选条（#5584，`HardwareKeyboardModePolicy`）：一次来自非虚拟、字母型键盘设备的按下就进入这个模式，键行、功能行和单手侧栏整行收起，只留顶部一行——空闲时是工具栏，组词时是候选条，候选前面标上数字行选词用的 1–9（`number_row_selection` 关着或英文直输时不标）。工具栏最右的收起键在这时朝上，点它回到完整的软键盘，下一次实体键盘打字时再收起（系统「显示虚拟键盘」关着时，挪光标、换输入框也不会把它收回去，直到键盘拔掉或重新接上）；配置报告键盘拔掉或合上（`Configuration.keyboard` / `hardKeyboardHidden` 从有到无）时也退出。打开工具栏面板、展开候选、调整键盘高度或手写时键盘临时展开，关上后回到候选条。只凭配置报告接着键盘不会收起：有的平板常驻报告 QWERTY，打开系统「使用实体键盘时显示虚拟键盘」的用户也明确要软键盘。反过来，那个系统开关关着时系统不显示输入法窗口，组词的候选就无处可看，所以 `onEvaluateInputViewShown` 对走引擎的输入框照样允许显示窗口，但直接进入候选条模式；窗口被系统收着时，实体键盘打出组词后用 `requestShowSelf` 把候选条叫出来。密码、数字这类不走引擎的输入框照系统的意思。
+用实体键盘打字时键盘收起成候选条（#5584，`HardwareKeyboardModePolicy`）：一次来自非虚拟、字母型键盘设备的按下就进入这个模式，键行、功能行和单手侧栏整行收起，只留顶部一行——空闲时是工具栏，组词时是候选条，候选前面标上数字行选词用的 1–9，每页十个候选时第十个标 0（`number_row_selection` 关着或英文直输时不标）。工具栏最右的收起键在这时朝上，点它回到完整的软键盘，下一次实体键盘打字时再收起（系统「显示虚拟键盘」关着时，挪光标、换输入框也不会把它收回去，直到键盘拔掉或重新接上）；配置报告键盘拔掉或合上（`Configuration.keyboard` / `hardKeyboardHidden` 从有到无）时也退出。打开工具栏面板、展开候选、调整键盘高度或手写时键盘临时展开，关上后回到候选条。只凭配置报告接着键盘不会收起：有的平板常驻报告 QWERTY，打开系统「使用实体键盘时显示虚拟键盘」的用户也明确要软键盘。反过来，那个系统开关关着时系统不显示输入法窗口，组词的候选就无处可看，所以 `onEvaluateInputViewShown` 对走引擎的输入框照样允许显示窗口，但直接进入候选条模式；窗口被系统收着时，实体键盘打出组词后用 `requestShowSelf` 把候选条叫出来。密码、数字这类不走引擎的输入框照系统的意思。
 
-共享 `number_row_selection` 开启时，硬件键盘数字行 1–9 选择当前候选页对应槽位；选择仍携带 Engine 返回的 session、generation 和候选 index，候选过期或当前没有该槽位时按键交回编辑器。英文、密码和直接输入不抢数字键，关闭偏好也立即恢复系统行为。
+共享 `number_row_selection` 开启时，硬件键盘数字行 1–9 选择当前候选页对应槽位，每页十个候选时 0 选第十个；选择仍携带 Engine 返回的 session、generation 和候选 index，候选过期或当前没有该槽位时按键交回编辑器。英文、密码和直接输入不抢数字键，关闭偏好也立即恢复系统行为。
 
 硬件键盘快捷键消费共享 `keybindings`：Shift+Space、Ctrl+Alt+Space 和单击 Shift/Ctrl 可切换中英，Ctrl+Shift+F 切换简繁，Alt+Shift+H 切换全角输入；每个开关都按偏好即时生效。修饰键单击只有在 600 ms 内且期间没有按下其他键时才触发，组合键优先于普通编辑器快捷键；不匹配或关闭的快捷键继续交给 Android/编辑器。触屏键盘的 Shift 和“简/繁”按钮仍走各自原生路径。
 
@@ -85,11 +85,13 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 编辑器上下文按固定 Apple 来源的边界适配 Android `inputType`：URI、邮箱、密码和明确禁用建议的字段临时进入英文输入，允许 Engine 的字段使用 dedicated English 模式，敏感字段继续绕过 Engine；离开后恢复进入前的中英状态，同一字段内用户通过“中/英”手动切换后，输入重启回调不会再次覆盖。英文模式始终展示完整 26 键，即使底层方案为九键或手写；数字和标点会在完成英文组合后由宿主直接提交，空格会完成候选并保留实际空格。`TYPE_TEXT_FLAG_CAP_CHARACTERS`、`CAP_WORDS` 和 `CAP_SENTENCES` 分别映射为全大写、单词首字母和句首自动大写，URI/邮箱强制关闭；规则只读取最多 128 个光标前字符并在内存中即时判断，不记录或持久化编辑器内容。缺失上下文安全回退为关闭自动 Shift。
 
+「键盘」设置里的「中英键轮换其他语言」（本机设置 `platform.android.language_key_cycle`，默认关，#6648）打开后，点按「中/英」键按「中 → 英 → 已添加的其他语言键盘 → 中」轮换：其他语言按启用顺序，每种语言只停一次（日语 9 键和 26 键都添加了时，取与当前中文键盘同为 9 键或 26 键的那个），之后切回进入其他语言之前用的中文键盘；停在其他语言上时键面写那种语言的字（あ、한、越、藏）。日语九键侧列的语言键也按同一轮换走，键面写下一站。没有添加其他语言时、以及实体键盘的中英快捷键和 Shift 进英文，仍只切中英。逻辑在 `LanguageKeyCyclePolicy`。
+
 长按「中/英」键弹出系统的输入法选择框（`InputMethodManager.showInputMethodPicker`），用来临时换到密码管理器之类的键盘（#5615）；日语九键侧列的「英」、以及只在 Android 9 以下才出现的地球键「切换」长按效果相同，读屏把这个长按动作念作「切换输入法」。密码框等没有引擎会话的输入框里点按「中/英」不起作用（键画淡、读屏念「中英切换暂不可用」，点按没有反馈），但这个键保持可用，否则禁用的按钮收不到长按，恰好是最需要换键盘的密码框里打不开选择框。弹出选择框时不结束组字，真的换了输入法时由 `onFinishInput` 照常收尾。
 
 删除键（26 键、九键、注音、笔画、手写等所有经 `ImeLetterRows.bindBackspaceRepeat` 绑定的退格）按下立即删一次，按住 420 ms 后开始连删并逐级加速：前 8 次每 70 ms，接下来 12 次每 45 ms，之后每 30 ms（`BackspaceRepeatPolicy`，#5585）。按住往上滑离开键的上沿 8 dp 后停止连删，键上方弹出「快速删除」框（`QuickDeleteOverlay`）；滑到框里（通常是键上沿往上 40 dp，九键第一排的删除键上方空间不够时框缩到至少 28 dp；连这样的框都放不下时，例如工具栏隐藏且没在组字，这次按压不支持上滑，照常连删）框换成强调色并振动一次，此时松手先清掉手写墨迹、丢掉组字和选中的文字，再删掉光标前的全部文字；待命后滑回框外再松手什么也不删。判定与分段删除在无 Android 依赖的 `BackspaceSwipePolicy` 里：每轮用 `getTextBeforeCursor` 读至多 4096 个 UTF-16 单元，只用来确定这一轮删多长，按读到的长度 `deleteSurroundingText`，最多 256 轮；读到的文字不保存、不记录。`BackspaceRepeatPolicySmoke` 与 `BackspaceSwipePolicySmoke` 验证加速时刻表、弹出/待命/取消的阈值、框的位置，以及重复文字、短读和不配合的编辑器下的删除。
 
-功能面板第 3 页的「文本编辑」打开文本编辑面板（#5625，`ImeTextEditPanel`，键与动作在无 Android 依赖的 `TextEditPanelModel`）：和常用语、剪贴板面板一样盖在键区上、顶边对齐工具栏下沿，收起键此时是「返回键盘」。4 × 4 的布局照 Gboard 的编辑面板：左边 ← 和 → 各占三行，中间一列 ↑、选择、↓，下面一行 移到开头、移到结尾、删除，右边一列 全选、复制、剪切、粘贴。打开前先由 Engine 完成组字，之后所有动作直接作用于编辑器：方向键发 DPAD 按键事件，「选择」开着时先按下左 Shift 再发带 Shift 的方向键（EditText 只认文字缓冲里记着的 Shift，WebView 看事件的 meta），延伸选区；开头和结尾是 Ctrl+Home / Ctrl+End，到整篇文档的两端；全选、复制、剪切、粘贴走 `InputConnection.performContextMenuAction`，编辑器不支持粘贴时退回到直接上屏剪贴板里的文字，复制和剪切不退回（那要宿主自己读选中的文字，会绕过密码框禁止复制的规则）；删除发退格键事件，有选区时删选区，按住连发、上滑同样有快速删除。方向键和删除按住连发，节奏与删除键相同。剪切、粘贴和删除之后「选择」自动关闭。`TextEditPanelModelSmoke` 验证 4 × 4 网格的覆盖、按键码、修饰键与菜单动作。
+功能面板第 3 页的「文本编辑」打开文本编辑面板；设置「键盘工具栏」里打开「文本编辑」（本地设置 `platform.android.toolbar_text_edit`，默认关，只在本机，#6351）后，工具栏上也有一个按钮直接开关它（#5625，`ImeTextEditPanel`，键与动作在无 Android 依赖的 `TextEditPanelModel`）：和常用语、剪贴板面板一样盖在键区上、顶边对齐工具栏下沿，收起键此时是「返回键盘」。4 × 4 的布局照 Gboard 的编辑面板：左边 ← 和 → 各占三行，中间一列 ↑、选择、↓，下面一行 移到开头、移到结尾、删除，右边一列 全选、复制、剪切、粘贴。打开前先由 Engine 完成组字，之后所有动作直接作用于编辑器：方向键发 DPAD 按键事件，「选择」开着时先按下左 Shift 再发带 Shift 的方向键（EditText 只认文字缓冲里记着的 Shift，WebView 看事件的 meta），延伸选区；开头和结尾是 Ctrl+Home / Ctrl+End，到整篇文档的两端；全选、复制、剪切、粘贴走 `InputConnection.performContextMenuAction`，编辑器不支持粘贴时退回到直接上屏剪贴板里的文字，复制和剪切不退回（那要宿主自己读选中的文字，会绕过密码框禁止复制的规则）；删除发退格键事件，有选区时删选区，按住连发、上滑同样有快速删除。方向键和删除按住连发，节奏与删除键相同。剪切、粘贴和删除之后「选择」自动关闭。`TextEditPanelModelSmoke` 验证 4 × 4 网格的覆盖、按键码、修饰键与菜单动作。
 
 输入模式的默认值和记忆范围也消费共享偏好：`default_ime_mode` 决定没有历史记录时进入中文还是英文，`ime_mode_scope=app` 时按 `EditorInfo.packageName` 记住用户手动切换，`global` 时所有编辑器共享同一个手动选择。包名只作为受限键名保存，不保存编辑器文本；URI、邮箱和密码字段触发的临时英文覆盖不会写入记忆，离开字段后恢复切换前的模式；只带 `TYPE_TEXT_FLAG_NO_SUGGESTIONS` 的字段不触发这层覆盖，按上面的默认值和记忆进框（#5998）。包名缺失或格式异常时退回默认模式。
 
@@ -105,7 +107,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 微软双拼在字母第二行额外提供“微软双拼 ing”分词键，只有中文微软双拼普通输入时显示；它把 `;` 原样交给 Engine，由 Engine 根据当前组合决定 ing 韵母或标点语义。英文、日语、五笔和本地输入模式不显示该键。
 
-双拼键位提示由 Engine 的 profile 表通过共享 Host API 提供，Android 不维护第二份键盘映射。提示中的 ` / ` 分隔声母侧与韵母侧，同一侧的多个单位以空格分隔；因此一个键可能同时显示多个韵母（例如小鹤 `K` 的 `ing uai`）。切换双拼方案后按 profile 刷新缓存；未知方案、损坏响应或原生失败直接隐藏提示，不用其他方案的标签误标当前键盘。提示只在中文双拼、非本地模式且非 dedicated English 时显示。
+双拼键位提示由 Engine 的 profile 表通过共享 Host API 提供，Android 不维护第二份键盘映射。提示中的 ` / ` 分隔声母侧与韵母侧，同一侧的多个单位以空格分隔；因此一个键可能同时显示多个韵母（例如小鹤 `K` 的 `ing uai`）。切换双拼方案后按 profile 刷新缓存；未知方案、损坏响应或原生失败直接隐藏提示，不用其他方案的标签误标当前键盘。提示只在中文双拼、非本地模式且非 dedicated English 时显示。用户还可以在设置的键盘页「双拼键位提示」关掉它，对应共享偏好 `touch_shuangpin_key_hints`（缺省为开，账号同步键 `platform.android.shuangpin_key_hints`）；关掉后字母键不画提示、11dp 的下边距收回，TalkBack 也不再念「双拼提示」。
 
 顶部“简 / 繁”快捷键消费共享 `traditional_chinese_output` 偏好，只在 Android 展示与插入边界用共享 OpenCC s2t 转换（`msime_client_simplified_to_traditional`，与 Windows、macOS、iOS、HarmonyOS 同一套词表）：Engine 候选原文、候选身份、组合文本和输入算法保持不变。候选条、展开候选面板、Engine 最终提交和手写候选使用同一规则；日语方案、临时日语和 dedicated English 保留原文。快捷键通过共享 revision CAS 乐观刷新当前候选，冲突或写入失败恢复最近接受值；顶部语音入口开启时让出同一快捷位，高情商回复优先于语音。转换器拒收的文本保留原文，不伪装已转换。
 
@@ -153,7 +155,7 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 非英文目标语言（fr、ja、es、ru、de、ko）的离线释义来自 `scripts/build_offline_glosses.py` 生成的 `zh-<lang>.db`。`build-apk.sh` 与 `build-client-apk.sh` 在 `target/offline-glosses`（或 `MSIME_OFFLINE_GLOSSES` 指定的目录）同时有数据库和 `offline-glosses-NOTICE.txt` 时把它们打进 `assets/offline-glosses/`，没有则照常构建；瘦包（`MSIME_ANDROID_OMIT_ON_DEMAND=1`）不打包它们，用户打开离线释义时下载资源包 `offline-glosses`（`resources/offline-glosses.lock.json`），host-api 先找资源目录旁随包的文件，再找资源包，请求里要带 `state_root` 才会去找资源包。每次打开 MSIME 应用时 `Bootstrap.prepare` 都会检查（已有运行配置也一样）：安装包的 `lastUpdateTime` 变化时把它们解压到资源目录旁的 `files/bootstrap/offline-glosses/`，不含它们的新包会清掉旧文件；这一步不属于已校验的运行配置，失败只影响非英文释义。同一个 `candidate_english_gloss` 开关控制它们；已安装词典的目标语言按用户的目标顺序与英文释义、账号翻译逐候选合并，离线释义优先，账号翻译只补离线没有的行。日文方案与临时日文模式不请求其他语言释义，与账号路径一致；韩语方案的汉字候选与中文候选一样请求非英文离线释义和账号翻译（共享翻译查询现在为韩语作答）。
 
-辅助码表不在词库发布里，由仓库自带在 `resources/helpcodes/`：`build-apk.sh` 与 `build-client-apk.sh` 把六套表连同来源声明（`NOTICE.md`、`NOTICE-jiajia.md`）打进 `assets/helpcodes/`。`Bootstrap.prepare` 每次安装包变化后把它们逐个原子替换到 `files/bootstrap/resources/helpcodes/`，Engine 就在资源目录下的这个子目录读辅助码表；共享校验放行真实的 `helpcodes/` 目录，所以首次安装之前就已准备好的配置也在升级后拿到它们，用户自己放进 `helpcodes/custom/` 的表不动。
+辅助码表不在词库发布里，由仓库自带在 `resources/helpcodes/`：`build-apk.sh` 与 `build-client-apk.sh` 把七套表连同来源声明（`NOTICE.md`、`NOTICE-jiajia.md`、`NOTICE-wubi86.md`）打进 `assets/helpcodes/`。`Bootstrap.prepare` 每次安装包变化后把它们逐个原子替换到 `files/bootstrap/resources/helpcodes/`，Engine 就在资源目录下的这个子目录读辅助码表；共享校验放行真实的 `helpcodes/` 目录，所以首次安装之前就已准备好的配置也在升级后拿到它们，用户自己放进 `helpcodes/custom/` 的表不动。
 
 触屏键盘和候选栏跟随共享的全局主题 `global_theme`：跟随系统、水杉、浅色、纸白、夜青、墨和自定义，顺序与标题都来自 `msime_client_theme_catalog`，本端不保存主题表。键盘颜色每次由 `msime_client_resolve_theme` 解析，请求带 `layout: "horizontal"`，不带 `skins_directory` 与 `package`（Android 不读取皮肤根目录，自定义主题的外部候选皮肤包因此不参与绘制）。跟随系统绘制设计稿的 Material 3 键盘：浅色底 `#E6EAE2`、白色字母键、`#CFE9D6` 功能键、`#2C7A4B` 强调色，深色一套对应取值；内置主题的明暗固定，解析结果里为空的槽位回落到 Material 3 取值。`screen_keyboard_theme`、`emoji_theme`、`handwriting_theme` 与 `candidate_theme` 各自决定该面板的明暗，`follow` 继承 `theme`，`theme` 为 `system` 时读取 Android 夜间模式。键盘内选择通过共享 revision CAS 写入 `global_theme`，失败恢复最近一次已接受的主题；设置热更新只重新应用视觉样式，不重建 Engine 会话。解析失败时绘制 Material 3 键盘，不把用户设置值当作颜色或资源名直接使用。
 
@@ -203,7 +205,7 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 Tauri/React 共享设置页现在按 Android 原生能力展示候选字体、字号、颜色和边框/悬停控件；Android 不枚举桌面系统字体，字体框允许用户输入完整字体名，保存后由输入法进程消费。这样设置页不会把 Android 未实现的桌面字体目录能力伪装成可用功能。
 
-“更多”工具页提供键盘内剪贴板历史面板。和 Gboard 一样，开启 `clipboard_history` 后，水杉作为当前输入法时通过 `ClipboardManager.addPrimaryClipChangedListener` 在每次复制后自动记下文本，打开面板时再补读一次（覆盖键盘进程没在运行时的那次复制）；隐私模式、密码类输入框和系统标记为敏感（`ClipDescription.EXTRA_IS_SENSITIVE`）的内容不记。Apple 键盘扩展读剪贴板会触发系统提示，所以只能手动保存，Android 没有这个限制。最多保存 50 条，支持去重、固定、删除、确认清空和点按插入。历史放在输入法私有偏好中，应用禁用备份且不记录内容；共享 `clipboard_history` 关闭时立即清空本机历史；此时入口只在可以显示「云端」的输入框中保留，并直接打开「云端」。非文本、空白或超过 10,000 UTF-16 单元/40,000 UTF-8 字节的内容不会保存。
+“更多”工具页提供键盘内剪贴板历史面板。和 Gboard 一样，开启 `clipboard_history` 后，水杉作为当前输入法时通过 `ClipboardManager.addPrimaryClipChangedListener` 在每次复制后自动记下文本，打开面板时再补读一次（覆盖键盘进程没在运行时的那次复制）；隐私模式、密码类输入框和系统标记为敏感（`ClipDescription.EXTRA_IS_SENSITIVE`）的内容不记。Apple 键盘扩展读剪贴板会触发系统提示，所以只能手动保存，Android 没有这个限制。最多保存 50 条，支持去重、固定、删除、确认清空和点按插入。面板顶行在分段和「清空」之间居中显示已存条数和上限（如 10/50，云端按服务端的 50 条上限；历史未开启、读取失败或云端不可用时不显示）。长按一条后可以「添加到常用语」，经 `CommonPhrasesStore` 存成无编码常用语，回车先换成换行，已经有这条、常用语已满、超过 1000 字或含制表符等常用语不能保存的字符时给出对应提示。本机条目向左滑动露出删除按钮，再点一下才删除（置顶条目同样可以），手势判定在无 Android 依赖的 `ClipboardSwipePolicy`。长按「编辑」打开应用里的编辑页（`ClipboardEditPage`），保存后经共享存储的 `replace` 原地替换这一条，时间戳和固定状态不变，改成已有的文字时两条合并成一条。历史放在输入法私有偏好中，应用禁用备份且不记录内容；共享 `clipboard_history` 关闭时立即清空本机历史；此时入口只在可以显示「云端」的输入框中保留，并直接打开「云端」。非文本、空白或超过 10,000 UTF-16 单元/40,000 UTF-8 字节的内容不会保存。
 
 Tauri 合包的 Android 账号页通过共享云剪贴板面板使用账号会话访问 HTTPS 云端接口；不自动读取系统剪贴板，只有用户明确在面板中添加文本时才上传。列表搜索、文本、64 位小写 hex ID、更新时间和分页均由共享 Rust/host 与 Android transport 做边界校验，单页最多 50 条。面板提供启用开关、搜索、添加、删除和复制操作，复制通过 Android `ClipboardManager` 写入系统剪贴板，不尝试桌面输入目标注入。独立原生 APK 保留同等能力的原生 fallback 页面。关闭云剪贴板会删除云端历史；账号会话、云端内容和系统剪贴板均不写入日志。
 

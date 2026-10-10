@@ -18,13 +18,14 @@ staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/engine"
 rm -rf "$staged"
 mkdir -p "$staged"
 while IFS= read -r artifact; do cp "$resource_dir/$artifact" "$staged/"; done <<< "$artifacts"
-# Helpcode tables are not part of the dictionary release; the repository carries them in resources/helpcodes, and the Engine reads them from helpcodes/ under the resource directory (crates/engine/src/assets.rs names the six files). The shared verification lets a real helpcodes/ directory through, and StagedResources copies it out with the rest.
+# 辅助码表不在词库发布里，由仓库自带在 resources/helpcodes，Engine 从资源目录下的 helpcodes/ 读它们（crates/engine/src/assets.rs 列出七个文件）。共享校验放行真实的 helpcodes/ 目录，StagedResources 把它和其余文件一起复制出去。
 mkdir -p "$staged/helpcodes"
-for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt; do
+for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt wubi86_helpcode.txt; do
   cp "resources/helpcodes/$table" "$staged/helpcodes/$table"
 done
 cp resources/helpcodes/ENGINE-NOTICE.md "$staged/helpcodes/NOTICE.md"
 cp resources/helpcodes/NOTICE.md "$staged/helpcodes/NOTICE-jiajia.md"
+cp resources/helpcodes/NOTICE-wubi86.md "$staged/helpcodes/NOTICE-wubi86.md"
 cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$staged" >/dev/null
 echo "Staged for the HAP: $staged"
 

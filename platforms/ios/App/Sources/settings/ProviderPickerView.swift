@@ -13,7 +13,8 @@ struct ProviderIcon: View {
           .font(.system(size: size * 0.45, weight: .medium))
           .foregroundStyle(MetasequoiaTheme.accent)
       } else {
-        Image(id == "everyAPI" ? "EveryAPI" : "Provider-\(id)")
+        // 阿里云百炼的语音识别用千问的标志。
+        Image(id == "everyAPI" ? "EveryAPI" : id == "bailian" ? "Provider-qwen" : "Provider-\(id)")
           .resizable().scaledToFit().padding(id == "everyAPI" ? 0 : size * 0.16)
       }
     }

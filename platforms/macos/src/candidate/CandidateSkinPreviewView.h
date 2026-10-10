@@ -18,6 +18,8 @@
 - (void)setShowsLayoutShowcase:(BOOL)showsLayoutShowcase;
 - (void)toggleForcedTheme;
 - (BOOL)previewUsesDark;
+/// 预览的主题是否固定了明暗（两种明暗解析出同一个固定明暗）；固定时没有另一种明暗可预览。
+- (BOOL)previewHasFixedMode;
 - (NSString *)forcedThemeButtonTitle;
 - (void)reloadPreview;
 - (msime::mac::ResolvedSkin)previewSkin;

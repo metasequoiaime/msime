@@ -22,6 +22,7 @@ fn options(root: &Path) -> EngineOptions {
         scheme: 0,
         enabled_schemes: crate::types::SchemeSet::ALL,
         shuangpin_profile: 0,
+        shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
@@ -713,6 +714,7 @@ fn helpcode_settings_reach_the_real_engine() {
         "shouyouplus",
         "xiaohe",
         "jiajia",
+        "wubi86",
     ] {
         value.helpcode_schema = schema.into();
         for enabled in [false, true] {
@@ -831,6 +833,142 @@ fn microsoft_profile_accepts_semicolon_as_an_ing_final() {
         assert_eq!(snapshot.editing_text, if profile == 3 { "b;" } else { "b" });
         assert_eq!(snapshot.microsoft_shuangpin, profile == 3);
     }
+}
+
+/// 小鹤的键位，zh 换到 a，ing 换到 `;`，零声母改用 o 引导。
+fn custom_table() -> crate::types::ShuangpinCustomTable {
+    let pairs = |entries: &[(&str, &str)]| -> Vec<(String, String)> {
+        entries
+            .iter()
+            .map(|(unit, key)| ((*unit).to_owned(), (*key).to_owned()))
+            .collect()
+    };
+    crate::types::ShuangpinCustomTable {
+        initials: pairs(&[("zh", "a"), ("ch", "i"), ("sh", "u")]),
+        finals: pairs(&[
+            ("iu", "q"),
+            ("ei", "w"),
+            ("e", "e"),
+            ("uan", "r"),
+            ("ue", "t"),
+            ("ve", "t"),
+            ("un", "y"),
+            ("u", "u"),
+            ("i", "i"),
+            ("uo", "o"),
+            ("o", "o"),
+            ("ie", "p"),
+            ("a", "a"),
+            ("ong", "s"),
+            ("iong", "s"),
+            ("ai", "d"),
+            ("en", "f"),
+            ("eng", "g"),
+            ("ang", "h"),
+            ("an", "j"),
+            ("uai", "k"),
+            ("ing", ";"),
+            ("uang", "l"),
+            ("iang", "l"),
+            ("ou", "z"),
+            ("ua", "x"),
+            ("ia", "x"),
+            ("ao", "c"),
+            ("ui", "v"),
+            ("v", "v"),
+            ("in", "b"),
+            ("iao", "n"),
+            ("ian", "m"),
+        ]),
+        zero_initials: pairs(&[
+            ("a", "oa"),
+            ("ai", "od"),
+            ("an", "oj"),
+            ("ang", "oh"),
+            ("ao", "oc"),
+            ("e", "oe"),
+            ("ei", "ow"),
+            ("en", "of"),
+            ("eng", "og"),
+            ("er", "or"),
+            ("o", "oo"),
+            ("ou", "oz"),
+        ]),
+    }
+}
+
+#[test]
+fn custom_profile_runs_the_users_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut options = options(dir.path());
+    options.scheme = 1;
+    options.shuangpin_profile = 4;
+    options.shuangpin_custom_profile = Some(custom_table());
+    options.shuangpin_preedit_uses_raw = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"ahx;oa");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.shuangpin_profile, "custom");
+    // `;` 上有韵母，宿主要把它当字母键送进来。
+    assert!(snapshot.microsoft_shuangpin);
+    assert_eq!(snapshot.editing_text, "ahx;oa");
+    assert_eq!(snapshot.segment_raw_boundaries, vec![0, 2, 4, 6]);
+    assert_eq!(snapshot.preedit, "zhang'xing'a");
+    // 偶数位置上的 `;` 不是一个音节的第二个键，不收。
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"ah;");
+    assert_eq!(session.snapshot().unwrap().editing_text, "ah");
+}
+
+/// 韵母都不在 `;` 上、只有零声母编码用 `;` 做第二个键时，会话照样收 `;`，并告诉宿主把它当字母键送进来。
+#[test]
+fn custom_profile_accepts_semicolon_used_only_by_a_zero_initial_code() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut table = custom_table();
+    for (unit, key) in &mut table.finals {
+        if unit == "ing" {
+            *key = "k".to_owned();
+        }
+    }
+    for (unit, key) in &mut table.zero_initials {
+        if unit == "a" {
+            *key = "o;".to_owned();
+        }
+    }
+    let mut options = options(dir.path());
+    options.scheme = 1;
+    options.shuangpin_profile = 4;
+    options.shuangpin_custom_profile = Some(table);
+    options.shuangpin_preedit_uses_raw = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"xko;");
+    let snapshot = session.snapshot().unwrap();
+    assert!(snapshot.microsoft_shuangpin);
+    assert_eq!(snapshot.editing_text, "xko;");
+    assert_eq!(snapshot.preedit, "xing'a");
+}
+
+#[test]
+fn custom_profile_needs_a_valid_table_only_when_shuangpin_is_enabled() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut options = options(dir.path());
+    options.shuangpin_profile = 4;
+    let message = |value: &EngineOptions| Session::new(value).err().unwrap().to_string();
+    assert_eq!(
+        message(&options),
+        "Invalid custom shuangpin profile: no table"
+    );
+    let mut table = custom_table();
+    table.finals.retain(|(unit, _)| unit != "iong");
+    options.shuangpin_custom_profile = Some(table);
+    assert_eq!(
+        message(&options),
+        "Invalid custom shuangpin profile: finals unit \"iong\" has no key"
+    );
+    // 没有双拼的会话用不上这份设置，按小鹤建起来。
+    options.enabled_schemes = crate::types::SchemeSet::of(&[crate::types::SchemeType::Quanpin]);
+    let session = Session::new(&options).unwrap();
+    assert_eq!(session.snapshot().unwrap().shuangpin_profile, "xiaohe");
 }
 
 #[test]
@@ -2640,7 +2778,10 @@ fn generated_local_modes_publish_their_spelling_symbols_and_rows() {
         .unwrap();
     session.character(b'/', false).unwrap();
     type_text(&mut session, b"y");
-    assert_eq!(session.snapshot().unwrap().candidates, ["哟"]);
+    // 内置的农历命令 `yinli` 也以 y 开头，排在指令表之后；它的文字随真实时钟变，只核对触发词。
+    let view = session.snapshot().unwrap();
+    assert_eq!(view.candidates[0], "哟");
+    assert_eq!(view.candidate_codes, ["yo", "yinli"]);
 }
 
 /// Enter in the expression, command and mention modes commits what was typed, and unlike the other local modes learns none of it as an English word: arithmetic, a trigger or a mention key is not a word the user spelled.

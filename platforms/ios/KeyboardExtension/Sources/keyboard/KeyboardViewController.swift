@@ -160,6 +160,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var nineKeyGridKeys: [NineKeyGridKey] = []
   /// 九键数字层的排列，键盘出现时从共享文档同步（`synchronizeSharedTouchPreferences`），按键时不再读 App Group。
   private var numberKeypadOrder = KeyboardLayoutPreference.numberKeypadOrder
+  /// 26 键双拼画不画键位提示（共享偏好 `touch_shuangpin_key_hints`），键盘出现时从共享文档同步，绘制键面时不再读 App Group。
+  private var shuangpinKeyHintsEnabled = KeyboardLayoutPreference.shuangpinKeyHints
   private enum MoreToolsPage { case root, localInput }
   private var moreToolsPage: MoreToolsPage = .root
   private let dismissShortcut = KeyboardToolbarButton(icon: .collapse, accessibilityLabel: "收起键盘")
@@ -683,6 +685,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   override func didReceiveMemoryWarning() {
     super.didReceiveMemoryWarning()
     DiagnosticLog.shared.write("memory_warning")
+    // Keyboard extensions are terminated shortly after a warning if they keep their optional
+    // panels, translation results, or Engine candidate caches. Drop everything that can be
+    // recreated while keeping the active composition and session alive.
+    closeKeyboardPicker()
+    closeKeyboardService()
+    handwriting.deactivate()
+    snapshotWorker.stop()
+    candidateGlossEpoch &+= 1
+    candidateGlossRequestedGeneration = nil
+    translations.clearCacheForMemoryPressure()
+    onlineCandidates.cancel()
+    session.resetCache()
+    ResolvedTheme.clearCacheForMemoryPressure()
   }
 
   /// `diagnostic_log.server` 开着时让诊断日志写到共享目录，关掉后停写；隐私模式和凭据输入框里同样停写（`KeyboardPrivacyGate` 的 `diagnosticLog`）。
@@ -3132,7 +3147,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       // A hint only means something while the key feeds a double-pinyin composition, so English
       // mode drops it even though the scheme underneath is unchanged.
-      let hint = isChineseMode && !inLocalMode ? shuangpinKeyHints[lowercase.uppercased()] : nil
+      // 用户在设置里关掉「双拼键位提示」时也不画；下边距和读屏的 accessibilityValue 都跟着 `hint == nil` 收回。
+      let hint = isChineseMode && !inLocalMode && shuangpinKeyHintsEnabled
+        ? shuangpinKeyHints[lowercase.uppercased()] : nil
       if var configuration = button.configuration {
         configuration.title = usesUppercase ? lowercase.uppercased() : lowercase
         // The hint sits along the bottom edge, so the letter is lifted clear of it instead of
@@ -3927,6 +3944,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     KeyboardLayoutPreference.numberKeypadOrder = KeyboardLayoutPreference.NumberKeypadOrder.shared(in: preferences)
     numberKeypadOrder = KeyboardLayoutPreference.numberKeypadOrder
+    KeyboardLayoutPreference.shuangpinKeyHints = KeyboardLayoutPreference.sharedShuangpinKeyHints(in: preferences)
+    if shuangpinKeyHintsEnabled != KeyboardLayoutPreference.shuangpinKeyHints {
+      shuangpinKeyHintsEnabled = KeyboardLayoutPreference.shuangpinKeyHints
+      updateLetterCaseControls()
+    }
 
     var selectedScheme: ChineseInputScheme?
     if let schemes = preferences["touch_keyboard_schemes"] as? [String: Any] {
@@ -6400,6 +6422,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardPicker()
     let picker = KeyboardSchemePickerView(
       selected: inputScheme, isChineseMode: isChineseMode, showsHeader: false, formFactor: formFactor,
+      shuangpinProfile: session.sharedPreferences?["shuangpin_profile"] as? String,
       onSelect: { [weak self] scheme in
         guard let self else { return }
         closeKeyboardPicker()

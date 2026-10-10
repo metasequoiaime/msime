@@ -31,7 +31,8 @@
       "../../../LICENSE": "Licenses/GPL-3.0.txt",
       "../../../resources/licenses/msime-engine-dictionary-NOTICE.md": "Licenses/MSIME-Engine-dictionary-NOTICE.md",
       "../../../resources/helpcodes/ENGINE-NOTICE.md": "Licenses/MSIME-Engine-helpcode-NOTICE.md",
-      "../../../resources/helpcodes/NOTICE.md": "Licenses/MSIME-helpcode-jiajia-NOTICE.md"
+      "../../../resources/helpcodes/NOTICE.md": "Licenses/MSIME-helpcode-jiajia-NOTICE.md",
+      "../../../resources/helpcodes/NOTICE-wubi86.md": "Licenses/MSIME-helpcode-wubi86-NOTICE.md"
     }
   }
 }

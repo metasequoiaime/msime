@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use crate::pinyin::syllables::intact_pinyin_set;
 use crate::types::ShuangpinProfileKind;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ShuangpinProfile {
     pub kind: ShuangpinProfileKind,
     /// Multi-letter initial to key.
@@ -235,12 +235,30 @@ static MICROSOFT: ShuangpinProfile = ShuangpinProfile {
     ],
 };
 
-pub fn profile(kind: ShuangpinProfileKind) -> &'static ShuangpinProfile {
+impl ShuangpinProfile {
+    /// 有韵母放在 `;` 上，或零声母编码以 `;` 结尾。这时方案在奇数长度的片段之后接受 `;`，宿主把 `;` 当字母键送进来（`EngineSnapshot::microsoft_shuangpin`）。
+    pub fn uses_semicolon_key(&self) -> bool {
+        self.finals.iter().any(|(_, key)| *key == ";")
+            || self
+                .zero_initials
+                .iter()
+                .any(|(_, code)| code.ends_with(';'))
+    }
+}
+
+/// 小鹤，即 `ShuangpinProfileKind` 的缺省值。只有名字、拿不到用户的表的地方（后端请求）用它代替 `custom`，与不认识的名字一样。
+pub fn default_profile() -> &'static ShuangpinProfile {
+    &XIAOHE
+}
+
+/// 内置方案的表。`Custom` 没有内置的表，为 `None`：自定义方案的表由 `custom::custom_profile` 从用户的表建出来。
+pub fn profile(kind: ShuangpinProfileKind) -> Option<&'static ShuangpinProfile> {
     match kind {
-        ShuangpinProfileKind::Xiaohe => &XIAOHE,
-        ShuangpinProfileKind::Ziranma => &ZIRANMA,
-        ShuangpinProfileKind::Shoudao => &SHOUDAO,
-        ShuangpinProfileKind::Microsoft => &MICROSOFT,
+        ShuangpinProfileKind::Xiaohe => Some(&XIAOHE),
+        ShuangpinProfileKind::Ziranma => Some(&ZIRANMA),
+        ShuangpinProfileKind::Shoudao => Some(&SHOUDAO),
+        ShuangpinProfileKind::Microsoft => Some(&MICROSOFT),
+        ShuangpinProfileKind::Custom => None,
     }
 }
 
@@ -280,27 +298,32 @@ mod tests {
             ShuangpinProfileKind::Shoudao,
             ShuangpinProfileKind::Microsoft,
         ] {
-            let selected = profile(kind);
+            let selected = profile(kind).unwrap();
             assert_eq!(selected.kind, kind);
             assert_eq!(selected.zero_initials.len(), 12);
             assert_eq!(selected.finals.len(), 33);
+            assert_eq!(
+                selected.uses_semicolon_key(),
+                kind == ShuangpinProfileKind::Microsoft
+            );
         }
+        assert!(profile(ShuangpinProfileKind::Custom).is_none());
     }
 
     #[test]
     fn tables_keep_the_profile_specific_keys() {
-        let shoudao = profile(ShuangpinProfileKind::Shoudao);
+        let shoudao = profile(ShuangpinProfileKind::Shoudao).unwrap();
         assert_eq!(key_of(shoudao.initials, "sh"), Some("e"));
         assert_eq!(key_of(shoudao.zero_initials, "ang"), Some("ay"));
         assert_eq!(key_of(shoudao.zero_initials, "e"), Some("ue"));
         assert_eq!(key_of(shoudao.zero_initials, "ei"), Some("ui"));
         assert_eq!(key_of(shoudao.zero_initials, "eng"), Some("uf"));
-        let microsoft = profile(ShuangpinProfileKind::Microsoft);
+        let microsoft = profile(ShuangpinProfileKind::Microsoft).unwrap();
         assert_eq!(key_of(microsoft.finals, "ing"), Some(";"));
         assert_eq!(key_of(microsoft.finals, "v"), Some("y"));
         assert_eq!(key_of(microsoft.finals, "ve"), Some("v"));
         assert_eq!(key_of(microsoft.zero_initials, "a"), Some("oa"));
-        let xiaohe = profile(ShuangpinProfileKind::Xiaohe);
+        let xiaohe = profile(ShuangpinProfileKind::Xiaohe).unwrap();
         assert_eq!(key_of(xiaohe.initials, "zh"), Some("v"));
         assert_eq!(key_of(xiaohe.finals, "ing"), Some("k"));
     }

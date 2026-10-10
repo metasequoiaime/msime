@@ -681,6 +681,11 @@ fn ios_voice_batch_configuration_covers_everyapi_and_mistral() {
             "https://api.mistral.ai/v1/audio/transcriptions",
             "voxtral-mini-latest",
         ),
+        (
+            "bailian",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            "qwen3-asr-flash",
+        ),
     ] {
         let mut preferences = msime_client_core::preferences::Preferences::default();
         preferences.voice_input.asr_provider = provider.into();
@@ -697,6 +702,14 @@ fn ios_voice_batch_configuration_covers_everyapi_and_mistral() {
         assert_eq!(configuration.endpoint, endpoint);
         assert_eq!(configuration.model, model);
         assert_eq!(configuration.token, "synthetic-slot");
+        assert_eq!(
+            configuration.request_format,
+            if provider == "bailian" {
+                "chat_audio"
+            } else {
+                "multipart"
+            }
+        );
         // Only Doubao carries request headers; a batch provider that grew any would be
         // sending something the multipart transport never validated.
         assert!(configuration.headers.is_empty());
@@ -1751,6 +1764,13 @@ fn resolve_theme_reads_the_custom_package_from_the_host_skin_root() {
         "schema_version = 1\nid = 'sakura'\nname = '樱花'\nversion = '1.0'\nbase = 'paper'\n[supports]\nlayouts = ['vertical', 'horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n[candidate.light]\nsurface = '#fff0f5'\n[candidate.dark]\nsurface = '#301020'\n",
     )
     .unwrap();
+    let midnight = directory.path().join("midnight");
+    std::fs::create_dir_all(&midnight).unwrap();
+    std::fs::write(
+        midnight.join("skin.toml"),
+        "schema_version = 1\nid = 'midnight'\nname = '午夜'\nversion = '1.0'\nbase = 'night'\n[supports]\nlayouts = ['vertical', 'horizontal']\nthemes = ['dark']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n[candidate.dark]\nsurface = '#101828'\n",
+    )
+    .unwrap();
     let request =
         |value: serde_json::Value| serde_json::from_value::<ResolveThemeRequest>(value).unwrap();
     let resolved = resolve_theme_at(
@@ -1758,7 +1778,7 @@ fn resolve_theme_reads_the_custom_package_from_the_host_skin_root() {
         request(serde_json::json!({
             "global_theme": "custom",
             "custom_theme": { "candidate_skin": "sakura", "candidate_colors": { "text": "#123456" } },
-            "dark": true,
+            "dark": false,
             "layout": "vertical",
         })),
     )
@@ -1766,13 +1786,44 @@ fn resolve_theme_reads_the_custom_package_from_the_host_skin_root() {
     assert_eq!(resolved.source, ThemeSource::Custom);
     assert_eq!(resolved.candidate_skin.as_deref(), Some("sakura"));
     let candidate = resolved.candidate.expect("custom candidate palette");
-    // The package's paper base fixes the light mode, so a dark host still gets the light palette.
+    // 皮肤包的 paper 底固定浅色，画的是它的浅色配色。
     assert_eq!(
         resolved.appearance,
         Some(msime_client_core::skin::theme::ThemeAppearance::Light)
     );
     assert_eq!(candidate.surface.as_deref(), Some("#FFF0F5"));
     assert_eq!(candidate.text.as_deref(), Some("#123456"));
+
+    // 深色模式取 `candidate_skin_dark` 槽位的包；没设深色槽位时，浅色皮肤在深色模式下不画。
+    let dark = resolve_theme_at(
+        directory.path(),
+        request(serde_json::json!({
+            "global_theme": "custom",
+            "custom_theme": { "candidate_skin": "sakura", "candidate_skin_dark": "midnight" },
+            "dark": true,
+            "layout": "vertical",
+        })),
+    )
+    .unwrap();
+    assert_eq!(dark.candidate_skin.as_deref(), Some("midnight"));
+    assert_eq!(
+        dark.candidate
+            .expect("dark slot palette")
+            .surface
+            .as_deref(),
+        Some("#101828")
+    );
+    let light_only = resolve_theme_at(
+        directory.path(),
+        request(serde_json::json!({
+            "global_theme": "custom",
+            "custom_theme": { "candidate_skin": "sakura" },
+            "dark": true,
+            "layout": "vertical",
+        })),
+    )
+    .unwrap();
+    assert_eq!(light_only.candidate_skin, None);
 
     // The layout is required: without it the page could not ask for the surface it previews.
     assert!(
@@ -1932,6 +1983,8 @@ fn runtime_options_skin_catalog_stays_within_what_the_hosts_read() {
     let mut preferences = serde_json::to_value(Preferences::default()).unwrap();
     // The last package by name: beyond the package cap and the first to go when trimming, were the selection not protected in both.
     preferences["custom_theme"]["candidate_skin"] = "skin39".into();
+    // 深色槽位的皮肤同样在上限之外，同样要留下。
+    preferences["custom_theme"]["candidate_skin_dark"] = "skin38".into();
     let mut document = serde_json::json!({"api_version": 1, "preferences": preferences});
     let bytes = runtime_options_with_skin_catalog(&mut document, &skins, &catalog).unwrap();
     assert!(
@@ -1949,6 +2002,7 @@ fn runtime_options_skin_catalog_stays_within_what_the_hosts_read() {
         packages.len()
     );
     assert!(packages.iter().any(|package| package["id"] == "skin39"));
+    assert!(packages.iter().any(|package| package["id"] == "skin38"));
     assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(), document);
 
     // A document already too large for the hosts is not made larger by the catalog.

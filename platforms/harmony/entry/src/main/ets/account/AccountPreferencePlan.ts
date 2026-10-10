@@ -399,6 +399,11 @@ export function localAccountPreferences(
       const value = member(customTheme, "candidate_skin");
       return typeof value === "string" && externalSkinId(value) ? value : "";
     })(),
+    // 深色模式的候选皮肤包，与上面的浅色槽位一样以空字符串表示没设，清掉也能同步。
+    "platform.harmony.custom_candidate_skin_dark": (() => {
+      const value = member(customTheme, "candidate_skin_dark");
+      return typeof value === "string" && externalSkinId(value) ? value : "";
+    })(),
     "platform.harmony.touch_key_spacing_tenths": whole(
       member(preferences, "touch_key_spacing_tenths"),
       60,
@@ -416,6 +421,11 @@ export function localAccountPreferences(
       member(preferences, "touch_number_keypad_order"),
       NUMBER_KEYPAD_ORDERS,
       "phone",
+    ),
+    // 26 键双拼的键位提示，缺省是开；账号字段表收录这个键之前上传时会被滤掉。
+    "platform.harmony.shuangpin_key_hints": flag(
+      member(preferences, "touch_shuangpin_key_hints"),
+      true,
     ),
     "platform.harmony.sound_enabled": feedback.soundEnabled,
     "platform.harmony.haptics_enabled": feedback.hapticsEnabled,
@@ -629,6 +639,17 @@ export function applyAccountPreferences(
     }
     customThemeTouched = true;
   }
+  // 深色槽位单独读：服务端还没声明它、或者上传的设备还不认识它时，本机的深色槽位保持原样。
+  const candidateSkinDark = reader.text("platform.harmony.custom_candidate_skin_dark");
+  if (candidateSkinDark !== null) {
+    if (candidateSkinDark.length === 0) {
+      delete customTheme.candidate_skin_dark;
+    } else {
+      if (!externalSkinId(candidateSkinDark)) refuse("account_invalid");
+      customTheme.candidate_skin_dark = candidateSkinDark;
+    }
+    customThemeTouched = true;
+  }
   if (customThemeTouched) preferences.custom_theme = customTheme;
   const theme = reader.text("platform.harmony.theme");
   if (theme !== null) preferences.theme = choose(theme, THEMES);
@@ -646,6 +667,8 @@ export function applyAccountPreferences(
   if (keypadOrder !== null) {
     preferences.touch_number_keypad_order = choose(keypadOrder, NUMBER_KEYPAD_ORDERS);
   }
+  const shuangpinKeyHints = reader.boolean("platform.harmony.shuangpin_key_hints");
+  if (shuangpinKeyHints !== null) preferences.touch_shuangpin_key_hints = shuangpinKeyHints;
 
   const feedbackKeys = [
     "platform.harmony.sound_enabled",

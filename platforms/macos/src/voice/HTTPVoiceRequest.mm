@@ -104,10 +104,9 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
     if (recognitionRequired) {
         const auto provider = msime::voice::normalize_voice_provider(String(snapshot, @"asr_provider"));
         const auto endpoint = msime::voice::resolved_asr_endpoint(provider, String(snapshot, @"asr_endpoint"));
-        // The batch multipart providers. Doubao is the streaming websocket and never reaches
-        // this request; anything else is stale configuration rather than a provider choice.
-        if ((provider != "openai" && provider != "groq" && provider != "siliconflow" &&
-             provider != "everyapi" && provider != "mistral") ||
+        // 只接整句上传的服务（multipart 或 chat_audio），请求体由 shared/voice 按 asr_request_format 拼。豆包是流式 WebSocket，不会走到这里；其他值是过期的配置，不是用户选的服务。
+        const auto format = msime::voice::asr_request_format(provider);
+        if ((format != "multipart" && format != "chat_audio") ||
             !Endpoint(endpoint) || ![snapshot[@"asr_token"] length]) {
             if (error) *error = Failure(); return nil;
         }
@@ -119,7 +118,8 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
     return self;
 }
 - (NSUInteger)sampleLimit {
-    return msime::voice::batch_capture_sample_limit;
+    // 阿里云百炼的 chat_audio 上限（约 218 秒）比 multipart 小得多，录音按它截取，不让整段在上传时被拒。
+    return msime::voice::batch_capture_sample_limit_for(String(_options, @"asr_provider"));
 }
 - (BOOL)recognizePCM:(NSData *)pcm completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error {
     @synchronized(self) {

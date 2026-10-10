@@ -39,9 +39,16 @@ if(BUILD_TESTING)
 endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# GCC 8（Debian 10 的编译器，package-legacy-container.sh 用它）的 std::filesystem 在单独的静态库 libstdc++fs 里，GCC 9 起才并入 libstdc++。加在每条链接命令的末尾，排在所有用到它的目标文件和静态库之后。
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9)
+  string(APPEND CMAKE_CXX_STANDARD_LIBRARIES " -lstdc++fs")
+endif()
 find_package(PkgConfig REQUIRED)
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/core" "${CMAKE_CURRENT_SOURCE_DIR}/src/candidates" "${CMAKE_CURRENT_SOURCE_DIR}/src/clipboard" "${CMAKE_CURRENT_SOURCE_DIR}/src/providers" "${CMAKE_CURRENT_SOURCE_DIR}/src/voice" "${CMAKE_CURRENT_SOURCE_DIR}/src/overlay" "${CMAKE_CURRENT_SOURCE_DIR}/src/system" "${CMAKE_CURRENT_SOURCE_DIR}/src/entrypoints")
-pkg_check_modules(IBUS REQUIRED IMPORTED_TARGET ibus-1.0>=1.5.20)
+# IBus 与 Python 的最低版本。配置时按前者检查 IBus 开发包，cmake/packaging.cmake 把两者写进 .deb 的 Depends 和 RPM 的 Requires。缺省值是发布页的包所声明的；Debian 10 基线的 legacy 包（package-legacy-container.sh）传 1.5.19 和 3.7，IBus 1.5.20 起才有的接口在源码里按 IBUS_CHECK_VERSION 条件编译。
+set(MSIME_IBUS_MIN_VERSION "1.5.20" CACHE STRING "Oldest IBus the host builds against and the packages depend on")
+set(MSIME_PYTHON_MIN_VERSION "3.9" CACHE STRING "Oldest Python 3 the packages depend on for the installed scripts")
+pkg_check_modules(IBUS REQUIRED IMPORTED_TARGET ibus-1.0>=${MSIME_IBUS_MIN_VERSION})
 pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 find_package(nlohmann_json 3.11 REQUIRED)
 # Optional on Wayland-only systems; the monitor retains bounded polling.
@@ -53,6 +60,13 @@ pkg_check_modules(WAYLAND_TEXT QUIET IMPORTED_TARGET pangocairo)
 find_program(WAYLAND_SCANNER_EXECUTABLE wayland-scanner)
 if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE)
   enable_language(C)
+  # Wayland 浮层用 shm_open 建共享内存缓冲。glibc 2.34 起它在 libc 里，更早的 glibc（legacy 包所在的 Debian 10 是 2.28）要另外链接 librt。
+  include(CheckSymbolExists)
+  check_symbol_exists(shm_open "sys/mman.h" MSIME_LIBC_HAS_SHM_OPEN)
+  set(MSIME_SHM_LIBRARIES "")
+  if(NOT MSIME_LIBC_HAS_SHM_OPEN)
+    set(MSIME_SHM_LIBRARIES rt)
+  endif()
   set(MSIME_WAYLAND_PROTOCOL_DIR "${CMAKE_CURRENT_BINARY_DIR}/wayland-protocols")
   set(MSIME_LAYER_SHELL_HEADER
       "${MSIME_WAYLAND_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-client-protocol.h")
@@ -134,7 +148,7 @@ if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE AND MSIME_XDG_SHELL_XML)
                  "${MSIME_LAYER_SHELL_CODE}" ${MSIME_XDG_SHELL_CODE})
   target_include_directories(msime-ibus-host PRIVATE "${MSIME_WAYLAND_PROTOCOL_DIR}")
   target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_HAS_WAYLAND_SURFACE)
-  target_link_libraries(msime-ibus-host PUBLIC PkgConfig::WAYLAND_CLIENT)
+  target_link_libraries(msime-ibus-host PUBLIC PkgConfig::WAYLAND_CLIENT ${MSIME_SHM_LIBRARIES})
   if(WAYLAND_TEXT_FOUND)
     target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_WAYLAND_TEXT)
     target_link_libraries(msime-ibus-host PUBLIC PkgConfig::WAYLAND_TEXT)
@@ -190,7 +204,7 @@ if(BUILD_TESTING)
   add_executable(msime-linux-online-provider-contract tests/provider/online_provider_contract.cpp)
   target_compile_options(msime-linux-online-provider-contract PRIVATE -Wall -Wextra -Werror)
   target_include_directories(msime-linux-online-provider-contract PRIVATE ../../crates/host-api/include)
-  target_link_libraries(msime-linux-online-provider-contract PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+  target_link_libraries(msime-linux-online-provider-contract PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}" Threads::Threads)
   add_test(NAME linux-online-provider-contract COMMAND msime-linux-online-provider-contract)
 endif()
 add_executable(msime-linux-translation src/providers/translation_request.cpp)
@@ -227,7 +241,7 @@ target_link_libraries(msime-linux-emoji PRIVATE msime-ibus-host)
 if(BUILD_TESTING)
   add_executable(ibus-engine-smoke tests/runtime/engine_smoke.cpp)
   target_compile_options(ibus-engine-smoke PRIVATE -Wall -Wextra -Werror)
-  target_link_libraries(ibus-engine-smoke PRIVATE msime-ibus-host)
+  target_link_libraries(ibus-engine-smoke PRIVATE msime-ibus-host Threads::Threads)
   # 注音和笔画用例把测试词库安装到独立目录，锁定资源中没有这些词库。
   target_compile_definitions(ibus-engine-smoke PRIVATE
     MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/zhuyin_dictionary.py"
@@ -360,6 +374,11 @@ if(BUILD_TESTING)
   target_compile_options(linux-input-mode-indicator-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-input-mode-indicator-test PRIVATE src)
   add_test(NAME linux-input-mode-indicator COMMAND linux-input-mode-indicator-test)
+  add_executable(linux-view-composition-test tests/core/view_composition.cpp)
+  target_compile_options(linux-view-composition-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-view-composition-test PRIVATE src)
+  target_link_libraries(linux-view-composition-test PRIVATE nlohmann_json::nlohmann_json)
+  add_test(NAME linux-view-composition COMMAND linux-view-composition-test)
   add_executable(linux-voice-provider-options-test tests/voice/voice_provider_options.cpp)
   target_compile_options(linux-voice-provider-options-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-voice-provider-options-test PRIVATE src)
@@ -433,6 +452,8 @@ if(BUILD_TESTING)
            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_panel_restore.py")
   add_test(NAME linux-setup-gnome-wayland
            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_gnome_wayland.py")
+  add_test(NAME linux-setup-linglong
+           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_linglong.py")
   add_test(NAME linux-first-run-guide
            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/first_run_guide.py")
   add_test(NAME linux-settings-launcher-contract
@@ -483,7 +504,7 @@ if(BUILD_TESTING)
   add_executable(linux-typing-statistics-test tests/core/typing_statistics.cpp)
   target_compile_options(linux-typing-statistics-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-typing-statistics-test PRIVATE src ../../crates/host-api/include)
-  target_link_libraries(linux-typing-statistics-test PRIVATE "${MSIME_HOST_LIBRARY}")
+  target_link_libraries(linux-typing-statistics-test PRIVATE "${MSIME_HOST_LIBRARY}" Threads::Threads)
   add_test(NAME linux-typing-statistics COMMAND linux-typing-statistics-test)
   add_executable(linux-panel-input-channel-test tests/core/panel_input_channel.cpp)
   target_compile_options(linux-panel-input-channel-test PRIVATE -Wall -Wextra -Werror)
@@ -681,7 +702,7 @@ if(MSIME_ENGINE_RESOURCES)
     install(FILES "${MSIME_ENGINE_RESOURCE_FILE}"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/resources")
   endforeach()
-  # The helpcode tables are not part of the dictionary release; the repository carries them in resources/helpcodes, and the Engine reads them from helpcodes/ under the resource directory (crates/engine/src/assets.rs names the six files). The hosts' verification lets a real helpcodes/ directory through. Their notices are installed with the others below.
+  # 辅助码表不在词库发布里，由仓库自带在 resources/helpcodes，Engine 从资源目录下的 helpcodes/ 读它们（crates/engine/src/assets.rs 列出七个文件）。宿主的校验放行真实的 helpcodes/ 目录。它们的来源声明与下面其他声明一起安装。
   install(FILES
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/helpcode.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/zrm_helpcode_big_unique.txt"
@@ -689,6 +710,7 @@ if(MSIME_ENGINE_RESOURCES)
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/shouyouplus_helpcode.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/xiaohe_helpcode.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/jiajia_helpcode.txt"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/wubi86_helpcode.txt"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/resources/helpcodes")
   # Keep the reviewed lock beside the installed bundle as provenance metadata;
   # it is not copied into the runtime directory because the Engine verifier
@@ -962,7 +984,7 @@ if(BUILD_TESTING)
     target_compile_definitions(linux-wave-overlay-model-test PRIVATE
                                MSIME_LINUX_HAS_WAYLAND_SURFACE)
     target_link_libraries(linux-wave-overlay-model-test PRIVATE
-                          PkgConfig::WAYLAND_CLIENT)
+                          PkgConfig::WAYLAND_CLIENT ${MSIME_SHM_LIBRARIES})
     if(WAYLAND_TEXT_FOUND)
       target_compile_definitions(linux-wave-overlay-model-test PRIVATE
                                  MSIME_LINUX_WAYLAND_TEXT)
@@ -1018,6 +1040,8 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/msime-engine-dictionary-NOTICE.md"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/ENGINE-NOTICE.md"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE.md"
+  # 五笔 86 辅助码表的来源与生成方法，附它所派生的极点码表的 Apache-2.0 全文。
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE-wubi86.md"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Zinnia-LICENSE.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Administrative-divisions-of-China-WTFPL.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt"
@@ -1033,6 +1057,7 @@ set(MSIME_NOTICE_NAMES
   msime-engine-dictionary-NOTICE.md
   msime-engine-helpcode-NOTICE.md
   msime-helpcode-jiajia-NOTICE.md
+  msime-helpcode-wubi86-NOTICE.md
   Zinnia-LICENSE.txt
   Administrative-divisions-of-China-WTFPL.txt
   libhangul-hanja-BSD-3-Clause.txt

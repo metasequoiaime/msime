@@ -11,6 +11,7 @@ export const ASR_PROVIDER_OPTIONS: readonly VoiceProviderOption[] = [
   { value: "groq", label: "Groq" },
   { value: "everyapi", label: "EveryAPI" },
   { value: "mistral", label: "Mistral · Voxtral" },
+  { value: "bailian", label: "阿里云百炼 · 千问" },
 ];
 
 /** Text polishing providers shared by the settings selector and credential flow. */

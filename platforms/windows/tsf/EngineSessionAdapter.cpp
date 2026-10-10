@@ -1,12 +1,14 @@
 #include "EngineSessionAdapter.h"
+#include "../../common/HostApiString.h"
 #include <nlohmann/json.hpp>
 namespace msime::tsf {
 using json = nlohmann::json;
 EngineSessionAdapter::~EngineSessionAdapter() { destroy(); }
 bool EngineSessionAdapter::response(char *raw, std::string *out,
                                     std::string *error) const {
-  if (!raw) { if (error) *error = "Engine returned no response"; return false; }
-  std::string text(raw); msime_client_string_free(raw);
+  auto owned = msime::host_api::own_string(raw);
+  if (!owned) { if (error) *error = "Engine returned no response"; return false; }
+  std::string text(owned.get());
   try {
     auto value = json::parse(text);
     if (!value.value("ok", false)) {
@@ -30,7 +32,10 @@ bool EngineSessionAdapter::create(const std::string &options, std::string *error
   } catch (...) { if (error) *error = "Engine response has no valid session"; return false; }
 }
 void EngineSessionAdapter::destroy() noexcept {
-  if (session_) { if (auto *raw = msime_client_destroy(session_)) msime_client_string_free(raw); session_ = 0; }
+  if (session_) {
+    auto response = msime::host_api::own_string(msime_client_destroy(session_));
+    session_ = 0;
+  }
 }
 bool EngineSessionAdapter::character(uint8_t value, bool shift, std::string *out, std::string *error) {
   if (!session_) { if (error) *error = "Engine session is not created"; return false; }
@@ -96,10 +101,9 @@ bool EngineSessionAdapter::reload_preferences(const std::string &directory,
                                               std::string *out,
                                               std::string *error) {
   if (!session_) { if (error) *error = "Engine session is not created"; return false; }
-  std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+  auto raw = msime::host_api::own_string(
       msime_client_try_load_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()),
-      msime_client_string_free);
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
   if (!raw) { if (error) *error = "Preferences load failed"; return false; }
   try {
     const auto response_value = json::parse(raw.get());

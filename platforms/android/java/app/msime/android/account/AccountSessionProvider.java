@@ -62,7 +62,11 @@ public final class AccountSessionProvider extends ContentProvider {
             reply.putString(AccountSessionRoutingPolicy.KEY_LOGIN_KIND, SyncSwitch.loginKind(context));
             // Do not acquire bindingLock here: the snapshot worker may hold the queue lock
             // while calling us, and sign-out holds bindingLock while cancelling that queue.
-            reply.putString(AccountSessionRoutingPolicy.KEY_ACCOUNT_ID, SyncSwitch.accountId(context));
+            SyncSwitch.Binding binding = SyncSwitch.bindingSnapshot(context);
+            if (binding != null) {
+                reply.putString(AccountSessionRoutingPolicy.KEY_ACCOUNT_ID, binding.accountId());
+                reply.putLong(AccountSessionRoutingPolicy.KEY_BINDING_GENERATION, binding.generation());
+            }
             return reply;
         }
         if (!SyncSwitch.validSection(section)) throw new IllegalArgumentException("unknown sync section");

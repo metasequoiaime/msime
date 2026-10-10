@@ -37,11 +37,11 @@ set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 # 输入法框架二选一：IBus 和 Fcitx5 有一个就能用（#6401）。系统里已有哪个就算满足哪个，所以 deepin 这类 Fcitx5 系统不会被拉进 IBus 守护进程和它的 GTK 模块，IBus 系统也不会被拉进 Fcitx5；两个都没有时 apt 装写在前面的 IBus。Fcitx5 写在后面还因为 Ubuntu 22.04 只有 5.0.14，那里由已装的 IBus 满足，整包照样装得上（#6305）。不带 Fcitx5 插件的构建只能用 IBus。辅助程序链接 libibus，所以 dpkg-shlibdeps 仍会带上 libibus-1.0-5，那只是一个库，不会启动 IBus。
 # procps provides the pgrep msime-linux-setup uses to see whether the input method is running before it switches dictionaries; a system without it fails every dictionary switch. Debian marks procps important rather than required, so a minimal install can lack it.
 if(MSIME_ENABLE_FCITX5)
-  set(MSIME_DEBIAN_INPUT_FRAMEWORK "ibus (>= 1.5.20) | fcitx5 (>= 5.0.20)")
+  set(MSIME_DEBIAN_INPUT_FRAMEWORK "ibus (>= ${MSIME_IBUS_MIN_VERSION}) | fcitx5 (>= 5.0.20)")
 else()
-  set(MSIME_DEBIAN_INPUT_FRAMEWORK "ibus (>= 1.5.20)")
+  set(MSIME_DEBIAN_INPUT_FRAMEWORK "ibus (>= ${MSIME_IBUS_MIN_VERSION})")
 endif()
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "${MSIME_DEBIAN_INPUT_FRAMEWORK}, python3 (>= 3.9), procps")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "${MSIME_DEBIAN_INPUT_FRAMEWORK}, python3 (>= ${MSIME_PYTHON_MIN_VERSION}), procps")
 # Voice runtime: Doubao streaming needs the websockets sync client from 15.0 on, recording needs one of parec, pw-cat or arecord. Recommends rather than Depends, because the voice service starts without them and only the requests that need them fail.
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "python3-websockets (>= 15), pulseaudio-utils | pipewire-bin | alsa-utils")
 # Fcitx5 不进 Recommends：apt 默认安装推荐包，那样 IBus 系统会被拉进整个 Fcitx5。插件条目声明了 `core:5.0.20` 依赖，旧版 Fcitx5 在依赖检查时就拒绝加载它，不会 dlopen。dpkg-shlibdeps 从插件推出的 libfcitx5* 由 package-container.sh 重新打包时从 Depends 里去掉：插件只由 Fcitx5 加载，那时这些库一定在。
@@ -63,9 +63,9 @@ set(CPACK_RPM_PACKAGE_GROUP "System Environment/Libraries")
 set(CPACK_RPM_PACKAGE_URL "${CPACK_PACKAGE_HOMEPAGE_URL}")
 # 与 .deb 相同，IBus 和 Fcitx5 二选一，用 rich dependency 表达（#6401）。
 if(MSIME_ENABLE_FCITX5)
-  set(CPACK_RPM_PACKAGE_REQUIRES "(ibus >= 1.5.20 or fcitx5 >= 5.0.20), python3 >= 3.9, procps-ng")
+  set(CPACK_RPM_PACKAGE_REQUIRES "(ibus >= ${MSIME_IBUS_MIN_VERSION} or fcitx5 >= 5.0.20), python3 >= ${MSIME_PYTHON_MIN_VERSION}, procps-ng")
 else()
-  set(CPACK_RPM_PACKAGE_REQUIRES "ibus >= 1.5.20, python3 >= 3.9, procps-ng")
+  set(CPACK_RPM_PACKAGE_REQUIRES "ibus >= ${MSIME_IBUS_MIN_VERSION}, python3 >= ${MSIME_PYTHON_MIN_VERSION}, procps-ng")
 endif()
 # The same voice runtime as the .deb Recommends, in Fedora's package names; a rich dependency expresses the alternatives.
 set(CPACK_RPM_PACKAGE_RECOMMENDS "python3-websockets >= 15, (pulseaudio-utils or pipewire-utils or alsa-utils)")

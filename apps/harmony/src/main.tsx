@@ -6,6 +6,8 @@ import {
   SettingsStartupPage,
   WelcomeFlowPage,
   type DictionaryClient,
+  type DictionaryCollectionsClient,
+  type DictionaryCollectionsView,
   type DictionaryEntry,
   type DictionaryManifest,
   type DictionaryImportResult,
@@ -48,6 +50,8 @@ import {
   type CloudDictionaryPanelClient,
   type SettingsClient,
   type Snapshot,
+  type UpdateCheckRequest,
+  type UpdateCheckResult,
   type StatisticsRetention,
   type TypingStatisticsClient,
   type VocabularyReviewClient,
@@ -950,6 +954,8 @@ function localVoiceModelClient(native: NativeBridge): LocalVoiceModelClient {
   return {
     list: () => request<LocalVoiceModelList>({ operation: "list" }),
     install: (id) => request<string>({ operation: "install", id }, 6 * 60 * 60 * 1000),
+    // 等用户在系统选择器里选文件，再复制和解压几百 MB，期限和下载一样放宽。
+    import: (id) => request<string | null>({ operation: "import", id }, 6 * 60 * 60 * 1000),
     cancel: (id) => request<boolean>({ operation: "cancel", id }),
     remove: async (id) => {
       await request<null>({ operation: "remove", id });
@@ -1100,12 +1106,30 @@ function makeClient(
         offset,
         limit,
       }),
+    count: async (kind: LocalDictionaryKind) =>
+      dictionaryReply<{ count: number }>({ operation: "count", kind }).count,
     retry: async (request_id: string) => {
       dictionaryReply<{ applied: boolean }>({ operation: "retry", request_id });
     },
     dismissFailure: async (request_id: string) => {
       dictionaryReply<{ applied: boolean }>({ operation: "dismiss_failure", request_id });
     },
+  };
+  // 命名词库。导入要解析最多 16 MiB 的文本，所以走 startRequest 在原生工作线程上执行，并给足两分钟；其余操作只改几个小文件。
+  const collectionsReply = async (action: Record<string, unknown>) =>
+    unwrap<DictionaryCollectionsView>(
+      await bridgeRequest(native, "dictionary_collections", JSON.stringify(action), 120000),
+    );
+  const dictionaryCollections: DictionaryCollectionsClient = {
+    load: () => collectionsReply({ operation: "load" }),
+    flush: () => collectionsReply({ operation: "flush" }),
+    create: (name) => collectionsReply({ operation: "create", name, kind: "pinyin" }),
+    delete: (id) => collectionsReply({ operation: "delete", id }),
+    setEnabled: (id, enabled) => collectionsReply({ operation: "set_enabled", id, enabled }),
+    addWords: (id, entries) => collectionsReply({ operation: "add_words", id, entries }),
+    importFile: (name, format, text) =>
+      collectionsReply({ operation: "import", name, kind: "pinyin", format, text }),
+    installCommunity: (resource) => collectionsReply({ operation: "install_community", resource }),
   };
   const userWordCount = (): number | undefined => {
     try {
@@ -1278,6 +1302,19 @@ function makeClient(
       return unwrap<Snapshot>(native.savePreferences(revision, document));
     },
     readAppVersion: async () => native.appVersion(),
+    // GitHub's release list is read and compared in Rust on a native worker (msime_client_update_check); ArkTS fills in the platform.
+    checkUpdate: async (request: UpdateCheckRequest) =>
+      unwrap<UpdateCheckResult>(
+        await bridgeRequest(
+          native,
+          "update_check",
+          JSON.stringify({
+            current_version: request.currentVersion,
+            ...(request.edition === undefined ? {} : { edition: request.edition }),
+            ...(request.arch === undefined ? {} : { arch: request.arch }),
+          }),
+        ),
+      ),
     scanSkinCatalog: async () => unwrap<SkinCatalog>(native.scanSkinCatalog()),
     readSkinImage: async (id: string, relative: string) =>
       unwrap<SkinImage>(native.readSkinImage(id, relative)),
@@ -1328,6 +1365,7 @@ function makeClient(
       },
     },
     dictionary,
+    dictionaryCollections,
     typingStatistics,
     vocabularyReview,
     aiAssistant,

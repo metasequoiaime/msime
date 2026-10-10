@@ -191,10 +191,11 @@ set(MSIME_LEGAL_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/Licenses")
 file(MAKE_DIRECTORY "${MSIME_LEGAL_DIRECTORY}")
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE" "${MSIME_LEGAL_DIRECTORY}/GPL-3.0.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources/Licenses/THIRD_PARTY_NOTICES.txt" "${MSIME_LEGAL_DIRECTORY}/THIRD_PARTY_NOTICES.txt" COPYONLY)
-# The dictionary data in the pinned release, the notices of the helpcode tables stage-resources.sh puts in EngineResources/helpcodes (the five the Engine brought and jiajia), and zinnia, whose recognizer crates/engine/src/handwriting ports and host-api links in. The first and last come from resources/licenses, the copies every platform ships.
+# 固定词库发布里的词库数据、stage-resources.sh 放进 EngineResources/helpcodes 的辅助码表的来源声明（Engine 带来的五套、加加和五笔 86），以及 zinnia（crates/engine/src/handwriting 移植了它的识别器，host-api 链接进来）。第一份和最后一份来自 resources/licenses，是各平台随包的同一份副本。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/msime-engine-dictionary-NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-engine-dictionary-NOTICE.md" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/ENGINE-NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-engine-helpcode-NOTICE.md" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-helpcode-jiajia-NOTICE.md" COPYONLY)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE-wubi86.md" "${MSIME_LEGAL_DIRECTORY}/msime-helpcode-wubi86-NOTICE.md" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Zinnia-LICENSE.txt" "${MSIME_LEGAL_DIRECTORY}/Zinnia-LICENSE.txt" COPYONLY)
 # The place names `@` mode offers, compiled into the engine from modood/Administrative-divisions-of-China (WTFPL).
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Administrative-divisions-of-China-WTFPL.txt" "${MSIME_LEGAL_DIRECTORY}/Administrative-divisions-of-China-WTFPL.txt" COPYONLY)
@@ -215,6 +216,8 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/MPL-2.0.txt
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../shared/voice/third_party/sherpa-onnx/LICENSE" "${MSIME_LEGAL_DIRECTORY}/sherpa-onnx-Apache-2.0.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../linux/data/licenses/onnxruntime-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/onnxruntime-MIT.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../linux/data/licenses/onnxruntime-ThirdPartyNotices.txt" "${MSIME_LEGAL_DIRECTORY}/onnxruntime-ThirdPartyNotices.txt" COPYONLY)
+# cppcodec 编进输入法（shared/voice 的百炼请求用它做 Base64），MIT 要求随副本附带版权与许可声明。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../shared/voice/third_party/cppcodec/LICENSE" "${MSIME_LEGAL_DIRECTORY}/cppcodec-MIT.txt" COPYONLY)
 file(GLOB MSIME_LEGAL_RESOURCES CONFIGURE_DEPENDS "${MSIME_LEGAL_DIRECTORY}/*")
 target_sources(MSIMEClientInputMethod PRIVATE ${MSIME_LEGAL_RESOURCES})
 set_source_files_properties(${MSIME_LEGAL_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/Licenses")

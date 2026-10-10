@@ -131,15 +131,8 @@ enum InputHabitPreference {
   }
 
   private static func count(_ value: Any?) -> Int? {
-    let integer = (value as? NSNumber).flatMap(strictInteger)
+    let integer = SharedNumber.strictInt(value)
     guard let integer, FrequencyAdjustmentPreference.countRange.contains(integer) else { return nil }
-    return integer
-  }
-
-  private static func strictInteger(_ value: NSNumber) -> Int? {
-    guard CFGetTypeID(value) != CFBooleanGetTypeID(),
-          let integer = Int(value.stringValue),
-          NSNumber(value: integer).compare(value) == .orderedSame else { return nil }
     return integer
   }
 

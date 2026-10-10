@@ -687,7 +687,7 @@ fn host_catalog_keeps_only_what_candidate_hosts_draw() {
     let catalog = scan(root.path());
     assert!(catalog.issues.is_empty(), "{catalog:?}");
     // The title is the manifest name; paths and stylesheets stay out, and every colour `theme::resolve` reads is published in the one form it emits.
-    let published = host_candidate_catalog(&catalog, root.path(), "absent");
+    let published = host_candidate_catalog(&catalog, root.path(), &["absent"]);
     assert_eq!(
         published,
         serde_json::json!({"packages": [{
@@ -727,7 +727,8 @@ fn a_published_entry_resolves_exactly_as_the_scanned_package() {
         let catalog = scan(root.path());
         assert!(catalog.issues.is_empty(), "{catalog:?}");
         let scanned = ThemePackage::from(&catalog.packages[0]);
-        let entry = host_candidate_catalog(&catalog, root.path(), "sample")["packages"][0].clone();
+        let entry =
+            host_candidate_catalog(&catalog, root.path(), &["sample"])["packages"][0].clone();
         let published = ThemePackage::from_host_catalog_entry(entry).unwrap();
         let custom = crate::preferences::CustomTheme {
             candidate_skin: Some("sample".into()),
@@ -737,9 +738,10 @@ fn a_published_entry_resolves_exactly_as_the_scanned_package() {
             // The package declares only the vertical layout, so the horizontal one checks that both sources carry the same gate.
             for layout in [CandidateLayout::Vertical, CandidateLayout::Horizontal] {
                 let from_root = resolve(GlobalTheme::Custom, &custom, dark, layout, Some(&scanned));
+                // 包只在声明的排列、且只在它 `base` 的明暗下绘制：paper 底只画在浅色，night 底只画在深色。
                 assert_eq!(
                     from_root.candidate_skin.is_some(),
-                    layout == CandidateLayout::Vertical,
+                    layout == CandidateLayout::Vertical && scanned.draws_in(dark),
                     "{base} {dark} {layout:?}"
                 );
                 assert_eq!(
@@ -778,7 +780,7 @@ fn host_catalog_carries_a_decoration_only_for_decorated_packages() {
     fs::write(styled.join("skin.toml"), body).unwrap();
     let catalog = scan(root.path());
     assert!(catalog.issues.is_empty(), "{catalog:?}");
-    let published = host_candidate_catalog(&catalog, root.path(), "");
+    let published = host_candidate_catalog(&catalog, root.path(), &[]);
     let package = |id: &str| {
         published["packages"]
             .as_array()
@@ -812,7 +814,7 @@ fn host_catalog_carries_a_decoration_only_for_decorated_packages() {
     );
     // The host opens the path as published, so a relative root publishes none.
     assert!(
-        host_candidate_catalog(&catalog, Path::new("skins"), "")["packages"]
+        host_candidate_catalog(&catalog, Path::new("skins"), &[])["packages"]
             .as_array()
             .unwrap()
             .iter()
@@ -829,14 +831,14 @@ fn host_catalog_drops_undeclared_themes_and_caps_its_size() {
     );
     let catalog = scan_manifest(&body);
     assert_eq!(
-        host_candidate_catalog(&catalog, Path::new("/skins"), "")["packages"][0]["candidate"],
+        host_candidate_catalog(&catalog, Path::new("/skins"), &[])["packages"][0]["candidate"],
         serde_json::json!({"light": {"border": "#00000000"}})
     );
     // A package without colours for a declared theme still lists, with an empty palette for that theme so the entry still says the package may be drawn in it.
     let bare = host_candidate_catalog(
         &scan_manifest(&manifest("sample")),
         Path::new("/skins"),
-        "sample",
+        &["sample"],
     );
     assert_eq!(
         bare,
@@ -865,18 +867,47 @@ fn host_catalog_drops_undeclared_themes_and_caps_its_size() {
         .map(|package| package.id.clone())
         .collect();
     assert_eq!(
-        ids(host_candidate_catalog(&catalog, root.path(), "absent")),
+        ids(host_candidate_catalog(&catalog, root.path(), &["absent"])),
         listed[..HOST_CATALOG_MAX_PACKAGES]
     );
     // A selected skin beyond the cap takes the last place instead of disappearing from the host's menu and colours.
     let beyond = listed[HOST_CATALOG_MAX_PACKAGES + 1].clone();
-    let published = ids(host_candidate_catalog(&catalog, root.path(), &beyond));
+    let published = ids(host_candidate_catalog(&catalog, root.path(), &[&beyond]));
     assert_eq!(published.len(), HOST_CATALOG_MAX_PACKAGES);
     assert_eq!(
         published[..HOST_CATALOG_MAX_PACKAGES - 1],
         listed[..HOST_CATALOG_MAX_PACKAGES - 1]
     );
     assert_eq!(published.last(), Some(&beyond));
+    // 浅色、深色两个槽位的皮肤都在上限之外时，两个都保留，挤掉上限内最后两个没选中的，各自保持目录顺序。
+    let light = listed[HOST_CATALOG_MAX_PACKAGES + 2].clone();
+    let published = ids(host_candidate_catalog(
+        &catalog,
+        root.path(),
+        &[&light, &beyond],
+    ));
+    assert_eq!(published.len(), HOST_CATALOG_MAX_PACKAGES);
+    assert_eq!(
+        published[..HOST_CATALOG_MAX_PACKAGES - 2],
+        listed[..HOST_CATALOG_MAX_PACKAGES - 2]
+    );
+    assert_eq!(
+        published[HOST_CATALOG_MAX_PACKAGES - 2..],
+        [beyond.clone(), light]
+    );
+    // 一个在上限内、一个在上限外：上限内的不动，只挤掉上限内最后一个没选中的。
+    let inside = listed[HOST_CATALOG_MAX_PACKAGES - 1].clone();
+    let published = ids(host_candidate_catalog(
+        &catalog,
+        root.path(),
+        &[&inside, &beyond],
+    ));
+    assert_eq!(published.len(), HOST_CATALOG_MAX_PACKAGES);
+    assert_eq!(
+        published[..HOST_CATALOG_MAX_PACKAGES - 2],
+        listed[..HOST_CATALOG_MAX_PACKAGES - 2]
+    );
+    assert_eq!(published[HOST_CATALOG_MAX_PACKAGES - 2..], [inside, beyond]);
 }
 
 #[test]
@@ -1374,7 +1405,7 @@ fn host_catalog_publishes_what_linux_draws_of_a_styled_package() {
     let root = tempdir().unwrap();
     let skin = styled_package(root.path());
     let catalog = scan(root.path());
-    let published = host_candidate_catalog(&catalog, root.path(), "bigfish");
+    let published = host_candidate_catalog(&catalog, root.path(), &["bigfish"]);
     // The background and toolbar stay out: neither Linux host can draw them.
     assert_eq!(
         published,

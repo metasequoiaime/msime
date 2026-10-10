@@ -15,6 +15,7 @@ mod panel_input;
 mod panel_window;
 mod platform;
 mod shared;
+mod update_check;
 mod vocabulary;
 mod voice;
 
@@ -221,6 +222,7 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
     capabilities.os_version = macos_product_version();
     capabilities.arch = Some(std::env::consts::ARCH.to_owned());
     capabilities.candidate_panel_limit = linux_candidate_panel_limit();
+    fill_linux_environment(&mut capabilities);
     let host_options = app
         .try_state::<DictionaryHostOptions>()
         .and_then(|options| options.snapshot().ok());
@@ -322,10 +324,46 @@ fn drop_unpinned_language_schemes(capabilities: &mut HostCapabilities) {
 /// What the running Linux host found about the desktop's candidate panel. Only the host knows which panel draws its list - GNOME Shell's popup, a Fcitx5 theme the user picked, the desktop's Kimpanel - so it writes that finding to a per-session file and the page reads it here instead of guessing from the desktop name.
 #[cfg(target_os = "linux")]
 fn linux_candidate_panel_limit() -> Option<msime_client_core::host_surface::CandidatePanelLimit> {
+    msime_client_core::host_surface::CandidatePanelLimit::from_host_status(
+        &linux_candidate_panel_status_document()?,
+    )
+}
+
+/// 运行中的 Linux 宿主写的候选面板状态文件（`{"host": ..., "limit": ...}`）的内容；宿主没在运行或还没写过时为 `None`。
+#[cfg(target_os = "linux")]
+fn linux_candidate_panel_status_document() -> Option<String> {
     use msime_client_core::host_surface::CandidatePanelLimit;
     let file = CandidatePanelLimit::status_file(std::env::var_os("XDG_RUNTIME_DIR").as_deref())?;
-    CandidatePanelLimit::from_host_status(&read_candidate_panel_status(&file)?)
+    read_candidate_panel_status(&file)
 }
+
+/// 「关于」页系统信息里 Linux 才有的几项：发行版、内核、桌面会话、输入法框架和设备型号。都是几个小文件和环境变量，不起进程；读不到的项留空，页面就不列它。解析与清洗在 `host_surface::environment`。
+#[cfg(target_os = "linux")]
+fn fill_linux_environment(capabilities: &mut HostCapabilities) {
+    use msime_client_core::host_surface::environment;
+    let read = |path: &str| std::fs::read_to_string(path).ok();
+    capabilities.os_version = read("/etc/os-release")
+        .or_else(|| read("/usr/lib/os-release"))
+        .as_deref()
+        .and_then(environment::os_release_name);
+    capabilities.kernel_version = read("/proc/sys/kernel/osrelease")
+        .as_deref()
+        .and_then(environment::kernel_release);
+    capabilities.desktop_session = environment::desktop_session(
+        std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref(),
+        std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+    );
+    capabilities.input_method_framework = linux_candidate_panel_status_document()
+        .as_deref()
+        .and_then(environment::input_method_framework_from_host_status);
+    capabilities.device_model = environment::device_model(
+        read("/sys/class/dmi/id/sys_vendor").as_deref(),
+        read("/sys/class/dmi/id/product_name").as_deref(),
+    );
+}
+
+#[cfg(not(target_os = "linux"))]
+fn fill_linux_environment(_capabilities: &mut HostCapabilities) {}
 
 #[cfg(any(target_os = "linux", test))]
 const CANDIDATE_PANEL_STATUS_READ_LIMIT: u64 = 4096;
@@ -1038,10 +1076,10 @@ fn resolve_theme_at(
     use msime_client_core::skin::theme::{self, GlobalTheme, ThemePackage};
     request.custom_theme.validate()?;
     let global_theme = request.global_theme;
+    // 按请求的明暗取槽位：深色模式先取 `candidate_skin_dark`，与 `msime_client_resolve_theme` 相同。
     let package = request
         .custom_theme
-        .candidate_skin
-        .as_deref()
+        .candidate_skin_for(request.dark)
         .filter(|_| global_theme == GlobalTheme::Custom)
         .and_then(|id| msime_client_core::skin::catalog::load_package(root, id).ok())
         .map(|summary| ThemePackage::from(&summary));
@@ -1850,9 +1888,9 @@ fn linux_runtime_options_bytes(document: &Value) -> Result<Vec<u8>, RuntimeOptio
     Ok(bytes)
 }
 
-/// Serialize `document` with the installed skins, scanned from `root`, as `candidate_skin_catalog`, dropping packages from the end until the document fits within `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET`.
+/// 把 `document` 连同从 `root` 扫描到的已安装皮肤一起序列化，皮肤目录写在 `candidate_skin_catalog` 里；放不进 `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET` 时从末尾逐个丢掉皮肤包，直到放得下。
 ///
-/// The currently selected skin is dropped last, since its colours are the ones on screen. When not even an empty catalog fits, the key is left out, so the catalog never becomes the reason a document the hosts could read no longer loads; a document too large for the hosts even without it is refused.
+/// 自定义主题选中的皮肤（浅色、深色两个槽位）最后才丢，因为屏幕上画的是它们的颜色。连空目录都放不下时整个键不写，免得宿主原本能读的文档因为皮肤目录读不了；去掉目录后仍超出宿主上限的文档直接拒绝。
 #[cfg(target_os = "linux")]
 fn runtime_options_with_skin_catalog(
     document: &mut Value,
@@ -1863,10 +1901,14 @@ fn runtime_options_with_skin_catalog(
         serde_json::to_vec_pretty(document)
             .map_err(|error| std::io::Error::other(error.to_string()))
     };
-    let selected = document["preferences"]["custom_theme"]["candidate_skin"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
+    let custom_theme = &document["preferences"]["custom_theme"];
+    let selected: Vec<String> = ["candidate_skin", "candidate_skin_dark"]
+        .into_iter()
+        .filter_map(|slot| custom_theme[slot].as_str())
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect();
+    let selected: Vec<&str> = selected.iter().map(String::as_str).collect();
     let mut published =
         msime_client_core::skin::catalog::host_candidate_catalog(catalog, root, &selected);
     loop {
@@ -1883,7 +1925,11 @@ fn runtime_options_with_skin_catalog(
         }
         let dropped = packages
             .iter()
-            .rposition(|package| package["id"] != selected.as_str())
+            .rposition(|package| {
+                !package["id"]
+                    .as_str()
+                    .is_some_and(|id| selected.contains(&id))
+            })
             .unwrap_or(packages.len() - 1);
         packages.remove(dropped);
     }
@@ -5259,6 +5305,7 @@ pub fn run() {
             host_capabilities,
             notices::notices_list,
             notices::notice_dismiss,
+            update_check::update_check,
             list_voice_capture_devices,
             capture_voice_pcm,
             supports_font_catalog,
@@ -5359,6 +5406,8 @@ pub fn run() {
             voice::stop_voice,
             voice::local_models::voice_local_models,
             voice::local_models::voice_local_model_install,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            voice::local_models::voice_local_model_import,
             voice::local_models::voice_local_model_cancel,
             voice::local_models::voice_local_model_remove,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]

@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 
 use super::request::Request;
 use super::BackendError;
-use crate::shuangpin::profile::profile;
+use crate::shuangpin::profile::{default_profile, profile};
 use crate::shuangpin::ShuangpinProfile;
 use crate::types::{SchemeType, ShuangpinProfileKind, WordItem, WubiProfileKind};
 use crate::RuntimePaths;
@@ -66,13 +66,14 @@ pub(super) fn wubi_profile(request: &Request) -> Result<WubiProfileKind, Backend
     })
 }
 
-/// `profile`: a shuangpin layout name. An unknown name falls back to xiaohe, as the C++ `GetShuangpinProfile` did.
+/// `profile`：双拼方案名。不认识的名字按小鹤，与 C++ 的 `GetShuangpinProfile` 相同；`custom` 也按小鹤，因为请求只带名字，不带用户的表。
 pub(super) fn shuangpin_profile(
     request: &Request,
 ) -> Result<&'static ShuangpinProfile, BackendError> {
     let name = request.string_or("profile", "xiaohe")?;
-    let kind = ShuangpinProfileKind::from_name(name).unwrap_or(ShuangpinProfileKind::Xiaohe);
-    Ok(profile(kind))
+    Ok(ShuangpinProfileKind::from_name(name)
+        .and_then(profile)
+        .unwrap_or_else(default_profile))
 }
 
 pub(super) fn candidate(item: &WordItem) -> Value {

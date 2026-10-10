@@ -125,7 +125,7 @@ inline nlohmann::json candidate_theme_selection(const nlohmann::json &preference
               {"custom_theme", custom != preferences.end() ? *custom : Json(nullptr)}};
 }
 
-// 候选请求沿用存储的全局/自定义主题、已解析明暗与布局，仅为匹配的自定义皮肤附上清单；非对象文档按 `system` 处理，FFI 由调用方执行。
+// 候选窗的 msime_client_resolve_theme 请求：原样存储的全局主题和自定义主题、要绘制的明暗 `dark`（候选窗是 candidate_dark_theme 定下的那个，语音浮层和模式角标各按自己的规则）、正在绘制的布局，以及自定义主题在这个明暗下的槽位指名已安装皮肤包时，该包在目录里的原样条目。槽位按 candidate_skin_for 取：深色取 `candidate_skin_dark`，没设时取 `candidate_skin`；浅色取 `candidate_skin`。共享层只在 `custom` 下、且包 id 正是当前模式槽位指名的那个时才用它，所以只在这时发送。FFI 调用由调用方做，这个头文件不碰它，调色板测试因此不需要引擎。
 inline nlohmann::json candidate_theme_request(const nlohmann::json &preferences, bool dark,
                                               const nlohmann::json &catalog) {
   using Json = nlohmann::json;
@@ -136,9 +136,9 @@ inline nlohmann::json candidate_theme_request(const nlohmann::json &preferences,
   const auto custom = preferences.find("custom_theme");
   if (custom == preferences.end() || !custom->is_object()) return request;
   request["custom_theme"] = *custom;
-  const auto skin = custom->find("candidate_skin");
-  if (request["global_theme"] != "custom" || skin == custom->end() || !skin->is_string()) return request;
-  if (const auto *package = candidate_skin_package(catalog, skin->get<std::string>()))
+  const auto skin = candidate_skin_for(*custom, dark);
+  if (request["global_theme"] != "custom" || skin.empty()) return request;
+  if (const auto *package = candidate_skin_package(catalog, skin))
     request["package"] = *package;
   return request;
 }

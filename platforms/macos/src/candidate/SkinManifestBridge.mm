@@ -4,6 +4,7 @@
 #import <Foundation/Foundation.h>
 
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 
 #include <string>
 #include <utility>
@@ -28,14 +29,14 @@ struct HostReply
 HostReply CallHost(HostCall call, NSData *request)
 {
     HostReply reply;
-    char *raw = call(static_cast<const uint8_t *>(request.bytes), request.length);
-    if (raw == nullptr)
+    auto raw = msime::host_api::own_string(
+        call(static_cast<const uint8_t *>(request.bytes), request.length));
+    if (!raw)
     {
         reply.error = "no response";
         return reply;
     }
-    NSData *data = [NSData dataWithBytes:raw length:std::char_traits<char>::length(raw)];
-    msime_client_string_free(raw);
+    NSData *data = [NSData dataWithBytes:raw.get() length:std::char_traits<char>::length(raw.get())];
     NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
     if (![envelope isKindOfClass:NSDictionary.class])
     {
@@ -435,13 +436,12 @@ const std::vector<ThemeCatalogEntry> &ThemeCatalog()
         std::vector<ThemeCatalogEntry> result;
         @autoreleasepool
         {
-            char *raw = msime_client_theme_catalog();
-            if (raw == nullptr)
+            auto raw = msime::host_api::own_string(msime_client_theme_catalog());
+            if (!raw)
             {
                 return result;
             }
-            NSData *data = [NSData dataWithBytes:raw length:std::char_traits<char>::length(raw)];
-            msime_client_string_free(raw);
+            NSData *data = [NSData dataWithBytes:raw.get() length:std::char_traits<char>::length(raw.get())];
             NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
             NSDictionary *value = [envelope isKindOfClass:NSDictionary.class] && [envelope[@"ok"] isEqual:@YES]
                                       ? envelope[@"value"]
@@ -528,9 +528,15 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
         {
             customTheme[@"base"] = @(custom.base.c_str());
         }
+        // 两个槽位都原样带上：深色模式取哪一个、包在不在这个明暗下画，都由共享解析器决定。
         if (!custom.candidateSkin.empty() && IsSafeSkinId(custom.candidateSkin) && !IsGlobalThemeId(custom.candidateSkin))
         {
             customTheme[@"candidate_skin"] = @(custom.candidateSkin.c_str());
+        }
+        if (!custom.candidateSkinDark.empty() && IsSafeSkinId(custom.candidateSkinDark) &&
+            !IsGlobalThemeId(custom.candidateSkinDark))
+        {
+            customTheme[@"candidate_skin_dark"] = @(custom.candidateSkinDark.c_str());
         }
         NSMutableDictionary *colors = [NSMutableDictionary dictionary];
         const std::pair<NSString *, const std::string *> pickers[] = {
