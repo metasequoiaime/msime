@@ -1,6 +1,7 @@
 #import "CustomTranslationBatch.h"
 #import "../cloud/CloudCandidateRequest.h"
 #import "MSIMEClientSession.h"
+#include "../candidate/CandidatePageSize.h"
 
 @implementation MSIMECustomTranslationBatch {
     NSArray<NSDictionary *> *_items;
@@ -22,7 +23,7 @@
                         configuration:(NSURLSessionConfiguration *)configuration
                            completion:(void (^)(NSArray<NSDictionary *> *))completion {
     NSMutableArray *requests = [NSMutableArray array];
-    BOOL valid = [items isKindOfClass:NSArray.class] && items.count <= 9 && [config isKindOfClass:NSDictionary.class];
+    BOOL valid = [items isKindOfClass:NSArray.class] && items.count <= msime::mac::kMaximumCandidatePageSize && [config isKindOfClass:NSDictionary.class];
     if (valid) for (id item in items) {
         if (![item isKindOfClass:NSDictionary.class]) { valid = NO; break; }
         for (NSString *key in @[@"text", @"key", @"source_language", @"target_language"])
@@ -66,7 +67,7 @@
         _completion = [completion copy];
         _configuration = [configuration copy];
         _results = [NSMutableArray array];
-        if (![items isKindOfClass:NSArray.class] || items.count > 9 ||
+        if (![items isKindOfClass:NSArray.class] || items.count > msime::mac::kMaximumCandidatePageSize ||
             ![NSJSONSerialization isValidJSONObject:items]) return self;
         for (id item in items) {
             if (![item isKindOfClass:NSDictionary.class] || ![item[@"text"] isKindOfClass:NSString.class] ||
@@ -86,7 +87,7 @@
     self = [self initWithItems:@[] configuration:configuration completion:completion];
     if (!self) return nil;
     _tencent = YES;
-    if (![items isKindOfClass:NSArray.class] || items.count > 9 ||
+    if (![items isKindOfClass:NSArray.class] || items.count > msime::mac::kMaximumCandidatePageSize ||
         ![config isKindOfClass:NSDictionary.class]) return self;
     NSDictionary *input = @{@"items":items, @"config":config};
     if (![NSJSONSerialization isValidJSONObject:input]) return self;

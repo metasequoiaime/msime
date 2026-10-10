@@ -25,7 +25,7 @@ import org.json.JSONObject;
  *
  * <p>设置应用和 :ime 进程是同一个 UID，读写同一个文件。写入在同目录的锁文件上加进程间文件锁，读出、修改、写到临时文件再原子改名；读取按文件的 inode、修改时间和大小缓存，文件被另一进程换掉后下一次 {@link #load} 就读到新值。文件缺失、过大、损坏或某一项取值不合规时，那一项（或整份）回到默认值；读取从不改写文件。
  *
- * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十七项随云同步交给 client-core 的 `android_local`（crates/client-core/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、语音数据贡献、开发者选项、键盘高度、浮动键盘的开关与位置、工具栏上的浮动键盘按钮和键盘底栏只留在本机。
+ * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十七项随云同步交给 client-core 的 `android_local`（crates/client-core/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、语音数据贡献、开发者选项、键盘高度、浮动键盘的开关与位置、工具栏上的浮动键盘和文本编辑按钮、键盘底栏、底部留白和加高底行只留在本机。
  */
 public final class AndroidLocalSettings {
     public static final String FILE_NAME = "android-settings.json";
@@ -59,6 +59,8 @@ public final class AndroidLocalSettings {
     public static final String VOICE_CONTRIBUTE_AUDIO = "platform.android.voice_contribute_audio";
     /** 「滑行输入」（{@link GlideTypingPolicy}），默认关。服务端的同步字段表还没有这个键，所以先只在本机。 */
     public static final String GLIDE_TYPING = "platform.android.glide_typing";
+    /** 中英键按「中 → 英 → 已启用的其他语言键盘 → 中」轮换（{@link LanguageKeyCyclePolicy}，#6648），默认关，关着时只切中英。服务端的同步字段表还没有这个键，所以先只在本机。 */
+    public static final String LANGUAGE_KEY_CYCLE = "platform.android.language_key_cycle";
     /** 剪贴板面板一行排几条（{@link ClipboardLayoutPolicy}）：`one` 单列、`two` 双列，默认单列。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_COLUMNS = "platform.android.clipboard_columns";
     /** 工具栏显示最近复制的文字（{@link RecentClipboardSuggestion}），默认开；剪贴板历史关着时不生效。同步字段表里没有这个键，只在本机。 */
@@ -78,8 +80,14 @@ public final class AndroidLocalSettings {
     public static final String FLOATING_KEYBOARD_Y = "platform.android.floating_keyboard_y";
     /** 工具栏上的「浮动键盘」按钮，默认不显示；同步的工具栏开关表在 Rust 的 `ANDROID_LOCAL_SETTINGS` 里，这一项先只在本机。 */
     public static final String TOOLBAR_FLOATING = "platform.android.toolbar_floating";
+    /** 工具栏上的「文本编辑」按钮（#6351），点按开关文本编辑面板，默认不显示；同步字段表里没有这个键，先只在本机。 */
+    public static final String TOOLBAR_TEXT_EDIT = "platform.android.toolbar_text_edit";
     /** 手势导航下垫在键区下面的底栏（{@link KeyboardBottomBarPolicy}），默认开。是否出现还取决于导航栏的高度，换一台设备时意义不同，同步字段表里也没有这个键，只在本机。 */
     public static final String BOTTOM_BAR = "platform.android.bottom_bar";
+    /** 键区下面垫一段不可点的空白（{@link KeyboardBottomBarPolicy#paddingShown}），把回车等底行键抬离屏幕底边（#6392），默认关。和键盘底栏一样与设备的导航方式有关，同步字段表里也没有这个键，只在本机。 */
+    public static final String BOTTOM_PADDING = "platform.android.bottom_padding";
+    /** 「加高底行」（#6354）：123、空格、换行那一行和上面的键一样高（{@link KeyboardGeometry#bottomRowHeightDp}），默认关，键盘高度不变。同步字段表里没有这个键，只在本机。 */
+    public static final String TALL_BOTTOM_ROW = "platform.android.tall_bottom_row";
     public static final String DEVELOPER_DEBUG_OVERLAY = "platform.android.developer.debug_overlay";
     public static final String DEVELOPER_LOG_LEVEL = "platform.android.developer.log_level";
     /** 「记录输入日志」：只记时间和事件种类，不记按键内容、文本和候选。 */
@@ -171,6 +179,7 @@ public final class AndroidLocalSettings {
         bool(INCOGNITO, false, false);
         bool(VOICE_CONTRIBUTE_AUDIO, false, false);
         bool(GLIDE_TYPING, false, false);
+        bool(LANGUAGE_KEY_CYCLE, false, false);
         choice(CLIPBOARD_COLUMNS, ClipboardLayoutPolicy.ONE_COLUMN, false,
             ClipboardLayoutPolicy.ONE_COLUMN, ClipboardLayoutPolicy.TWO_COLUMNS);
         bool(CLIPBOARD_SUGGESTION, true, false);
@@ -187,7 +196,10 @@ public final class AndroidLocalSettings {
         integer(FLOATING_KEYBOARD_Y, FloatingKeyboardPolicy.DEFAULT_Y_FRACTION, false, 0,
             FloatingKeyboardPolicy.MAX_FRACTION, 1);
         bool(TOOLBAR_FLOATING, false, false);
+        bool(TOOLBAR_TEXT_EDIT, false, false);
         bool(BOTTOM_BAR, true, false);
+        bool(BOTTOM_PADDING, false, false);
+        bool(TALL_BOTTOM_ROW, false, false);
         bool(DEVELOPER_DEBUG_OVERLAY, false, false);
         choice(DEVELOPER_LOG_LEVEL, "warn", false, "error", "warn", "info", "debug");
         bool(DEVELOPER_INPUT_LOG, false, false);

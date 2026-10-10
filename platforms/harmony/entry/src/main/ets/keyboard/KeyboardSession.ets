@@ -40,7 +40,7 @@ import { FullWidthInputPolicy } from './input/FullWidthInputPolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { ChineseOutputPolicy } from './input/ChineseOutputPolicy';
 import { KeyboardFeedback, FeedbackSettings, HapticPlan, HapticStrength } from './KeyboardFeedback';
-import { NumberKeypadOrder } from './input/NineKeyLayout';
+import { NumberKeypadOrder, TwentySixKeyNumberLayout } from './input/NineKeyLayout';
 import { HardwareKeyRouter, HardwareNavigationPreferences, HardwareSpelling } from './HardwareKeyRouter';
 import vibrator from '@ohos.vibrator';
 import common from '@ohos.app.ability.common';
@@ -100,9 +100,9 @@ import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure
 } from './clipboard/ClipboardHistoryStore';
 import { ClipboardHistoryPreferencePolicy } from './clipboard/ClipboardHistoryPreferencePolicy';
-import { CloudClipboardClient } from './clipboard/CloudClipboardClient';
+import { CloudClipboardBoundListing, CloudClipboardClient } from './clipboard/CloudClipboardClient';
 import {
-  CloudClipboardListing, CloudClipboardPolicy, CloudClipboardSendOutcome
+  CloudClipboardPolicy, CloudClipboardSendOutcome
 } from './clipboard/CloudClipboardPolicy';
 import {
   DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration, VoiceInputConfigurationPolicy
@@ -847,6 +847,10 @@ interface PreparedPreferences {
   touch_voice_shortcut: boolean;
   /** 九键数字层的排列：`phone`（1 2 3 在上）或 `calculator`（7 8 9 在上）；旧文档没有这个键，按 `phone`。 */
   touch_number_keypad_order?: string;
+  /** 26 键按「123」切到的数字层：`row`（一行 1 到 0）或 `nine_key`（九宫格数字层）；旧文档没有这个键，按 `row`。 */
+  touch_twenty_six_key_number_layout?: string;
+  /** 26 键双拼字母键底部的声母/韵母提示；旧文档没有这个键，按开。 */
+  touch_shuangpin_key_hints?: boolean;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
   clipboard_history: boolean;
   voice_input: VoiceInputConfiguration;
@@ -982,6 +986,10 @@ export interface KeyboardPreferences {
   readonly heightAdjustment: number;
   /** `NumberKeypadOrder` 归一后的九键数字层排列。 */
   readonly numberKeypadOrder: string;
+  /** `TwentySixKeyNumberLayout` 归一后的 26 键数字层。 */
+  readonly twentySixKeyNumberLayout: string;
+  /** `touch_shuangpin_key_hints`：关掉时 26 键双拼不画键位提示。 */
+  readonly shuangpinKeyHints: boolean;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1024,6 +1032,22 @@ interface DictionaryRequest {
 interface PersonalDictionarySyncValue {
   pending_count: number;
 }
+
+interface DictionaryCollectionsFlushValue {
+  sent?: number;
+}
+
+interface DictionaryCollectionsFlushResponse {
+  ok: boolean;
+  value: DictionaryCollectionsFlushValue;
+  error?: string;
+}
+
+/** 命名词库接受的操作，与 client-core 的 `DictionaryCollectionsAction` 一致；别的一律在桥上拒绝。 */
+const DICTIONARY_COLLECTION_OPERATIONS: string[] = [
+  'load', 'create', 'rename', 'delete', 'set_enabled', 'add_words', 'remove_words', 'import',
+  'install_community', 'queue_words', 'flush',
+];
 
 interface PersonalDictionarySyncResponse {
   ok: boolean;
@@ -1220,7 +1244,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
-    numberKeypadOrder: NumberKeypadOrder.PHONE
+    numberKeypadOrder: NumberKeypadOrder.PHONE,
+    twentySixKeyNumberLayout: TwentySixKeyNumberLayout.ROW,
+    shuangpinKeyHints: true
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1486,7 +1512,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       rowSpacingTenths: KeyboardGeometry.rowSpacing(preferences.touch_row_spacing_tenths),
       heightAdjustment:
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
-      numberKeypadOrder: NumberKeypadOrder.normalized(preferences.touch_number_keypad_order)
+      numberKeypadOrder: NumberKeypadOrder.normalized(preferences.touch_number_keypad_order),
+      twentySixKeyNumberLayout:
+        TwentySixKeyNumberLayout.normalized(preferences.touch_twenty_six_key_number_layout),
+      shuangpinKeyHints: preferences.touch_shuangpin_key_hints !== false
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(
@@ -1502,9 +1531,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardSkin.resolveDark(surfaceTheme, appMode, this.systemDark));
   }
 
-  /** `light` or `dark` when the global theme fixes the mode; the answer is the same for both requested modes. */
+  /** 全局主题固定了明暗时为 `light` 或 `dark`：两种明暗的解析结果一致才算，见 `GlobalTheme.fixedAppearance`。 */
   private fixedAppearance(): string | null {
-    return this.themeLight === null ? null : this.themeLight.appearance;
+    return GlobalTheme.fixedAppearance(this.themeLight, this.themeDark);
   }
 
   private readThemeCatalog(): ThemeCatalogEntry[] {
@@ -1680,10 +1709,28 @@ export class KeyboardSession implements HardwareKeyTarget {
         KeyboardLog.error(`personal dictionary queue not applied; it will be retried: ${reply.error}`);
         return false;
       }
-      return reply.value.pending_count === 0;
+      // 命名词库的词分批交给个人词库队列（同时最多 128 条在途）。每处理完一批就送下一批，和 Android 键盘的 `flushSent` 一样，导入的大词库不用等用户回设置页刷新。
+      const sent: number = this.flushDictionaryCollections(options);
+      return reply.value.pending_count === 0 && sent === 0;
     } catch (error) {
       KeyboardLog.error(`personal dictionary queue unavailable: ${describeError(error)}`);
       return false;
+    }
+  }
+
+  /** 把命名词库里还没送出的增删再送一批，返回这次送出的条数；失败按 0 算，下次排空时再试。 */
+  private flushDictionaryCollections(options: string): number {
+    try {
+      const reply: DictionaryCollectionsFlushResponse = JSON.parse(client.dictionaryCollections(
+        `{"options":${options},"action":{"operation":"flush"}}`)) as DictionaryCollectionsFlushResponse;
+      if (reply.ok !== true) {
+        KeyboardLog.error(`dictionary collections not flushed: ${reply.error}`);
+        return 0;
+      }
+      return typeof reply.value.sent === 'number' ? reply.value.sent : 0;
+    } catch (error) {
+      KeyboardLog.error(`dictionary collections unavailable: ${describeError(error)}`);
+      return 0;
     }
   }
 
@@ -3199,7 +3246,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const staging: string = `${stateRoot}/dictionary-snapshot-staging`;
     try {
       if (!fs.accessSync(staging)) fs.mkdirSync(staging, true);
-      // Read the shared file for each idle pass; this process may outlive a settings-side account switch.
+      // 每次空闲处理都重新读共享的会话文件：键盘进程可能比设置里的一次账号切换活得更久。
       const accountId: string | null = storedSessionUserId(new FileSessionStore(stateRoot).load());
       const action: SnapshotQueueProcessAction = {
         operation: 'process', directory: `${stateRoot}/dictionary-snapshots`,
@@ -3283,6 +3330,33 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
     }
     return result;
+  }
+
+  /**
+   * 设置页的命名词库操作（`msime_client_dictionary_collections`），在原生工作线程上执行。
+   *
+   * 集合只是元数据，词条经由个人词库队列交给 Engine，所以这里不碰键盘的会话，也不需要维护锁。API 12 起设置应用和键盘各有自己的沙箱，在共享沙箱接上之前，这里写下的集合键盘看不到（platforms/harmony/README.md「输入法扩展的独立沙箱」）。
+   */
+  async dictionaryCollections(actionDocument: string, resources: string,
+    stateRoot: string): Promise<string> {
+    let action: DictionaryAction;
+    try {
+      const decoded: DictionaryAction | null = JSON.parse(actionDocument) as DictionaryAction | null;
+      if (decoded === null || !DICTIONARY_COLLECTION_OPERATIONS.includes(decoded.operation)) {
+        return JSON.stringify({ ok: false, error: 'collections_invalid' });
+      }
+      action = decoded;
+    } catch (error) {
+      return JSON.stringify({ ok: false, error: 'collections_invalid' });
+    }
+    const bootstrap: PrepareRequest = KeyboardSession.prepareRequest(resources, stateRoot);
+    const prepared: PrepareResponse =
+      JSON.parse(client.prepareHost(JSON.stringify(bootstrap))) as PrepareResponse;
+    if (prepared.ok !== true) {
+      return JSON.stringify(prepared);
+    }
+    const request: DictionaryRequest = { options: prepared.value, action: action };
+    return await client.dictionaryCollectionsAsync(JSON.stringify(request));
   }
 
   /** Whether the key did anything. The touch keyboard ignores the answer; the hardware path hands a declined letter back to the application. */
@@ -5046,14 +5120,20 @@ export class KeyboardSession implements HardwareKeyTarget {
    *
    * Null when the listing no longer belongs to the focused editor: the field changed while the request was out, or it is one that may not see cloud items. A late answer for another field is dropped rather than shown, since tapping one of its items would paste into a field it was never fetched for.
    */
-  async cloudClipboardItems(): Promise<CloudClipboardListing | null> {
+  async cloudClipboardItems(): Promise<CloudClipboardBoundListing | null> {
     const editor: number = this.attributeGeneration;
     if (!this.cloudClipboardVisible()) return null;
-    const listing: CloudClipboardListing = await this.cloudClipboard().list();
+    const client: CloudClipboardClient = this.cloudClipboard();
+    const listing: CloudClipboardBoundListing | null = await client.list();
+    if (listing === null || (listing.binding !== null && !(await client.matches(listing.binding)))) return null;
     if (!CloudClipboardPolicy.current(editor, this.attributeGeneration) || !this.cloudClipboardVisible()) {
       return null;
     }
     return listing;
+  }
+
+  async cloudClipboardBindingCurrent(binding: string): Promise<boolean> {
+    return await this.cloudClipboard().matches(binding);
   }
 
   /** Inserts a cloud item the way a local history entry is inserted, but only into the editor its listing was fetched for. */
@@ -5066,12 +5146,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /** Uploads one local history entry the user chose; nothing reaches the cloud clipboard any other way. */
-  async sendToCloudClipboard(text: string): Promise<CloudClipboardSendOutcome> {
+  async sendToCloudClipboard(text: string, binding: string): Promise<CloudClipboardSendOutcome> {
     // 面板只在云端那一半可见时提供「发到云剪贴板」；如果隐私模式在提供之后才开启，这里守住这条线。
     if (!this.cloudClipboardVisible()) {
       return CloudClipboardSendOutcome.FAILED;
     }
-    return await this.cloudClipboard().add(text);
+    return await this.cloudClipboard().add(text, binding);
   }
 
   private cloudClipboard(): CloudClipboardClient {

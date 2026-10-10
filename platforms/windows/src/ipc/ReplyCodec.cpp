@@ -234,7 +234,7 @@ void apply_local_mode_switches(TsfLocalConfig &config, int scheme, bool expressi
 
 std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config) {
   std::vector<std::vector<uint8_t>> frames;
-  frames.reserve(10);
+  frames.reserve(11);
   // The paging frame carries the preedit style after a '|', which is how the
   // TIP receives it - there is no separate message type for it.
   std::wstring paging = config.paging_comma_period ? L"1" : L"0";
@@ -281,6 +281,9 @@ std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config
   // After the trigger frame, so an older TIP that drops the unknown type still finds every frame before it where it was. The Engine's own English mode composes every letter, which the TIP has to know before it hands an idle Stroke letter to the application.
   frames.push_back(worker_flag_frame(
       FanyImeWorkerReplyType::DedicatedEnglishChanged, config.dedicated_english));
+  // 放在最后，前面每一帧的位置不变；不认识这个类型的旧 TIP 丢掉它，两个键照常是标点。
+  frames.push_back(worker_flag_frame(
+      FanyImeWorkerReplyType::SecondThirdCandidateChanged, config.second_third_candidate));
   return frames;
 }
 

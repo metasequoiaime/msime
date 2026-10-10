@@ -105,7 +105,10 @@ void WaveOverlayWaylandSurface::seat_capabilities(void *data, wl_seat *seat,
       listener.axis_source = pointer_axis_source;
       listener.axis_stop = pointer_axis_stop;
       listener.axis_discrete = pointer_axis_discrete;
+      // axis_value120 是 wl_pointer 第 8 版的事件，wayland-client 1.21 起的头文件才有这个成员；Debian 10 的 1.16（legacy 包）没有，按生成头文件里的版本宏条件编译。
+#ifdef WL_POINTER_AXIS_VALUE120_SINCE_VERSION
       listener.axis_value120 = pointer_axis_value120;
+#endif
       return listener;
     }();
     wl_pointer_add_listener(self->pointer_, &pointer_listener, self);

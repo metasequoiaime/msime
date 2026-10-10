@@ -124,6 +124,103 @@ pub fn query_date_time_with_limit(
         .collect()
 }
 
+/// 拼音组字里直接给出的几种日期时间（#5952）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InlineDateTime {
+    Date,
+    Time,
+    Week,
+    Lunar,
+}
+
+/// 拼音组字正好是这些全拼或简拼时，候选里接着锚定词给出当前的日期、时间、星期或农历：(关键词, 锚定词, 种类)。只认锚定词出现在候选里的情况，所以词库里没有这个词、或者它被别的读法挤出列表时什么都不加。
+const INLINE_KEYWORDS: [(&str, &str, InlineDateTime); 9] = [
+    ("riqi", "日期", InlineDateTime::Date),
+    ("rq", "日期", InlineDateTime::Date),
+    ("shijian", "时间", InlineDateTime::Time),
+    ("sj", "时间", InlineDateTime::Time),
+    ("xingqi", "星期", InlineDateTime::Week),
+    ("xq", "星期", InlineDateTime::Week),
+    ("nongli", "农历", InlineDateTime::Lunar),
+    ("nl", "农历", InlineDateTime::Lunar),
+    ("yinli", "阴历", InlineDateTime::Lunar),
+];
+
+/// 第一个让 `spells` 认出的关键词的锚定词和种类；`spells` 判断组字（全拼字母或九宫格数字）是否拼出这个关键词。
+pub(crate) fn inline_date_time_keyword(
+    mut spells: impl FnMut(&str) -> bool,
+) -> Option<(&'static str, InlineDateTime)> {
+    INLINE_KEYWORDS
+        .iter()
+        .find(|(keyword, _, _)| spells(keyword))
+        .map(|&(_, anchor, kind)| (anchor, kind))
+}
+
+/// 组字里给出的几行，取自日期时间模式的同一套格式：日期是「年月日」、ISO 和带星期的写法，时间是 24 小时的时分、时分秒和「上午 / 下午」，星期是「星期X」和「周X」，农历只有一行，日历换算不了时没有。
+pub(crate) fn inline_date_time_rows(kind: InlineDateTime, now: &LocalDateTime) -> Vec<String> {
+    let LocalDateTime {
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        ..
+    } = *now;
+    let weekday = weekday_index(now);
+    match kind {
+        InlineDateTime::Date => vec![
+            format!("{year}年{month}月{day}日"),
+            format!("{year:04}-{month:02}-{day:02}"),
+            format!("{year}年{month}月{day}日 {}", WEEKDAYS[weekday]),
+        ],
+        InlineDateTime::Time => {
+            let hour12 = if hour % 12 == 0 { 12 } else { hour % 12 };
+            let period = if hour < 12 { "上午" } else { "下午" };
+            vec![
+                format!("{hour:02}:{minute:02}"),
+                format!("{hour:02}:{minute:02}:{second:02}"),
+                format!("{period}{hour12}:{minute:02}"),
+            ]
+        }
+        InlineDateTime::Week => vec![
+            WEEKDAYS[weekday].to_owned(),
+            SHORT_WEEKDAYS[weekday].to_owned(),
+        ],
+        InlineDateTime::Lunar => lunar_date(now).into_iter().collect(),
+    }
+}
+
+/// 把 `kind` 的几行接在第一个锚定词候选后面，`pinyin` 是选中它们时吃掉的整段组字。候选里没有锚定词时不加，也不读时钟。新加的行是 `Generated` 且没有规范读音，上屏时不进词库、不记个人上下文；列表里已有同样文字的行时挪那一行，不重复。
+pub(crate) fn insert_inline_date_time(
+    candidates: &mut Vec<WordItem>,
+    anchor: &str,
+    kind: InlineDateTime,
+    pinyin: &str,
+    now: impl FnOnce() -> LocalDateTime,
+) {
+    let Some(position) = candidates.iter().position(|item| item.word == anchor) else {
+        return;
+    };
+    let weight = candidates[position].weight;
+    let mut at = position + 1;
+    for text in inline_date_time_rows(kind, &now()) {
+        match candidates.iter().position(|item| item.word == text) {
+            // 词库里本来就有这一行（`xingqi` 下的 星期六）：已经排在锚定词前面就不动，在后面就挪上来，仍是词库行，选中照常调频。
+            Some(existing) if existing < at => continue,
+            Some(existing) => {
+                let row = candidates.remove(existing);
+                candidates.insert(at, row);
+            }
+            None => candidates.insert(
+                at,
+                WordItem::new(pinyin, text, weight, CandidateSource::Generated, ""),
+            ),
+        }
+        at += 1;
+    }
+}
+
 fn weekday_index(now: &LocalDateTime) -> usize {
     now.weekday.min(6) as usize
 }
@@ -429,6 +526,99 @@ mod tests {
             &query_date_time("xq", &out_of_range),
             &["星期六", "Saturday", "Sat"],
         );
+    }
+
+    #[test]
+    fn inline_rows_and_keywords() {
+        let now = sample_time();
+        assert_eq!(
+            inline_date_time_rows(InlineDateTime::Date, &now),
+            ["2026年8月9日", "2026-08-09", "2026年8月9日 星期日"]
+        );
+        assert_eq!(
+            inline_date_time_rows(InlineDateTime::Time, &now),
+            ["14:30", "14:30:00", "下午2:30"]
+        );
+        let midnight = LocalDateTime {
+            hour: 0,
+            minute: 5,
+            ..now
+        };
+        assert_eq!(
+            inline_date_time_rows(InlineDateTime::Time, &midnight)[2],
+            "上午12:05"
+        );
+        assert_eq!(
+            inline_date_time_rows(InlineDateTime::Week, &now),
+            ["星期日", "周日"]
+        );
+        assert_eq!(
+            inline_date_time_rows(InlineDateTime::Lunar, &now),
+            ["丙午年六月二十七日"]
+        );
+        assert!(inline_date_time_rows(InlineDateTime::Lunar, &at(2200, 6, 15, 0)).is_empty());
+
+        assert_eq!(
+            inline_date_time_keyword(|keyword| keyword == "sj"),
+            Some(("时间", InlineDateTime::Time))
+        );
+        assert_eq!(
+            inline_date_time_keyword(|keyword| keyword == "yinli"),
+            Some(("阴历", InlineDateTime::Lunar))
+        );
+        assert_eq!(inline_date_time_keyword(|keyword| keyword == "date"), None);
+    }
+
+    #[test]
+    fn inline_rows_follow_the_first_anchor_and_read_the_clock_only_then() {
+        let row = |word: &str| WordItem::new("riqi", word, 10, CandidateSource::Database, "");
+        let mut candidates = vec![row("日起"), row("日期"), row("日期"), row("日企")];
+        insert_inline_date_time(
+            &mut candidates,
+            "日期",
+            InlineDateTime::Week,
+            "riqi",
+            sample_time,
+        );
+        let words: Vec<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
+        assert_eq!(words, ["日起", "日期", "星期日", "周日", "日期", "日企"]);
+        assert_eq!(candidates[2].source, CandidateSource::Generated);
+        assert_eq!(candidates[2].pinyin, "riqi");
+        assert!(candidates[2].canonical_pinyin.is_empty());
+
+        // 列表里已有的同一行挪到锚定词后面，不重复；排在锚定词前面的不动。
+        let mut listed = vec![row("星期五"), row("星期"), row("星期一"), row("星期日")];
+        insert_inline_date_time(
+            &mut listed,
+            "星期",
+            InlineDateTime::Week,
+            "xingqi",
+            sample_time,
+        );
+        let words: Vec<&str> = listed.iter().map(|item| item.word.as_str()).collect();
+        assert_eq!(words, ["星期五", "星期", "星期日", "周日", "星期一"]);
+        assert_eq!(listed[2].source, CandidateSource::Database);
+        assert_eq!(listed[3].source, CandidateSource::Generated);
+        let mut ahead = vec![row("星期日"), row("星期")];
+        insert_inline_date_time(
+            &mut ahead,
+            "星期",
+            InlineDateTime::Week,
+            "xingqi",
+            sample_time,
+        );
+        let words: Vec<&str> = ahead.iter().map(|item| item.word.as_str()).collect();
+        assert_eq!(words, ["星期日", "星期", "周日"]);
+
+        let mut without_anchor = vec![row("日起")];
+        insert_inline_date_time(
+            &mut without_anchor,
+            "日期",
+            InlineDateTime::Date,
+            "riqi",
+            || panic!("没有锚定词时不读时钟"),
+        );
+        assert_eq!(without_anchor.len(), 1);
     }
 
     #[test]

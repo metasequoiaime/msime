@@ -705,6 +705,24 @@ int main(int argc, const char **argv) {
         assert(automatic.previewUsesDark && automatic.previewSkin.fixedDark == true);
         [automatic setPreviewSkinId:@"missing-package"];
         assert(automatic.previewSkin.id == "custom" && automatic.previewSkin.candidateSkin.empty());
+        // 包只画在它 base 的明暗下：深色底的包卡片在浅色宿主里也按深色预览出包本身，浅色底的同理，不落回没有包的底色。
+        for (NSArray<NSString *> *fixture in @[ @[ @"night-card", @"night", @"dark" ], @[ @"paper-card", @"paper", @"light" ] ]) {
+            std::filesystem::create_directories(root / fixture[0].UTF8String);
+            std::ofstream manifest(root / fixture[0].UTF8String / "skin.toml");
+            manifest << "schema_version = 1\nid = \"" << fixture[0].UTF8String << "\"\nname = \"" << fixture[0].UTF8String
+                     << "\"\nversion = \"1\"\nbase = \"" << fixture[1].UTF8String << "\"\n[supports]\nlayouts = [\"horizontal\", \"vertical\"]\nthemes = [\""
+                     << fixture[2].UTF8String << "\"]\n[candidate_window]\nmin_width_dip = 0\n[candidate." << fixture[2].UTF8String << "]\nsurface = \"#345678\"\n";
+            assert(manifest.good());
+        }
+        for (NSAppearanceName host in @[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]) {
+            automatic.appearance = [NSAppearance appearanceNamed:host];
+            [automatic setPreviewSkinId:@"night-card"];
+            assert(automatic.previewSkin.candidateSkin == "night-card" && automatic.previewUsesDark && [automatic previewHasFixedMode]);
+            [automatic setPreviewSkinId:@"paper-card"];
+            assert(automatic.previewSkin.candidateSkin == "paper-card" && !automatic.previewUsesDark && [automatic previewHasFixedMode]);
+        }
+        std::filesystem::remove_all(root / "night-card");
+        std::filesystem::remove_all(root / "paper-card");
         // A large external decoration increases scrollable height, not the fixed settings window.
         std::filesystem::create_directory(root / "synthetic");
         {

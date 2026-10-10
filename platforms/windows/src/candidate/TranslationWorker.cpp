@@ -4,6 +4,7 @@
 #include "TranslationDisplay.h"
 
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -53,12 +54,8 @@ int transfer_progress(void *context, curl_off_t, curl_off_t, curl_off_t,
   return cancelled && cancelled() ? 1 : 0;
 }
 
-std::unique_ptr<char, decltype(&msime_client_string_free)> owned(char *raw) {
-  return {raw, msime_client_string_free};
-}
-
 std::optional<nlohmann::json> host_value(char *raw) {
-  auto value = owned(raw);
+  auto value = msime::host_api::own_string(raw);
   if (!value)
     return std::nullopt;
   try {
@@ -293,7 +290,7 @@ void persist_english_glosses(const nlohmann::json &query,
         {"target_language", "en"},
         {"translations",
          values}}.dump();
-    msime_client_string_free(msime_client_translation_gloss_save(
+    msime::host_api::discard_string(msime_client_translation_gloss_save(
         reinterpret_cast<const uint8_t *>(request.data()), request.size(),
         reinterpret_cast<const uint8_t *>(user_data.data()), user_data.size()));
   } catch (...) {

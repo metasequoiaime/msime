@@ -1,4 +1,5 @@
 #include "ServerSession.h"
+#include "../../../common/HostApiString.h"
 #include "CandidateCompletionPolicy.h"
 #include "EditPolicy.h"
 #include "InputSchemeTraits.h"
@@ -6,14 +7,12 @@
 #include "KeyEvent.h"
 #include "PunctuationPolicy.h"
 #include <algorithm>
-#include <memory>
 #include <stdexcept>
 
 namespace msime::windows {
 namespace {
 nlohmann::json response(char *raw) {
-  std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-      raw, msime_client_string_free);
+  auto owned = msime::host_api::own_string(raw);
   if (!raw)
     throw std::runtime_error("Missing shared host response");
   auto document = nlohmann::json::parse(raw);
@@ -57,7 +56,7 @@ ServerSession::~ServerSession() {
   // The player outlives every session, so music this session let play would otherwise go on with no input method in front of it.
   if (music_active_)
     (void)msime_client_music_set_active(session_, false);
-  msime_client_string_free(msime_client_destroy(session_));
+  msime::host_api::discard_string(msime_client_destroy(session_));
 }
 void ServerSession::check_thread() const {
   if (std::this_thread::get_id() != thread_)

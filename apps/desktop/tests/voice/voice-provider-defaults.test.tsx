@@ -98,6 +98,7 @@ test("shared ASR service provider ids cover the credential-backed providers", ()
     "groq",
     "everyapi",
     "mistral",
+    "bailian",
     "doubao",
   ]);
 });

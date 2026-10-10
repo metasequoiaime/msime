@@ -11,6 +11,7 @@ import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { SettingsPreviewBlock } from "../settings-preview-block";
 import { SelectRow } from "../select-row";
 import type { TouchKeyboardScheme } from "../touch-keyboard-scheme-helpers";
+import { supportedInputSchemes } from "../input-scheme-options";
 
 /** 同一方案在 HarmonyOS 键盘上同时画出的 26 键和 9 键两种键盘。其他方案在那里都只有一种键盘。 */
 const harmonyLayoutPairs: readonly (readonly [TouchKeyboardScheme, TouchKeyboardScheme])[] = [
@@ -145,6 +146,15 @@ export function ScreenKeyboardSettingsPage() {
         numberKeypadOrder={
           mobilePlatform ? (draft.touch_number_keypad_order ?? "phone") : undefined
         }
+        twentySixKeyNumberLayout={
+          mobilePlatform ? (draft.touch_twenty_six_key_number_layout ?? "row") : undefined
+        }
+        // 只有触屏宿主的 26 键双拼画键位提示；不含双拼的版本（五笔、日文、越南文、藏文等）里不存在双拼键盘，和 Android、iOS 原生设置页一样不列出。缺省为开，与 client-core 的默认值一致。
+        shuangpinKeyHints={
+          mobilePlatform && supportedInputSchemes(host).includes("shuangpin")
+            ? (draft.touch_shuangpin_key_hints ?? true)
+            : undefined
+        }
         tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
         onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
           onPreferencesChange({ touch_keyboard_height_adjustment })
@@ -160,6 +170,12 @@ export function ScreenKeyboardSettingsPage() {
         }
         onNumberKeypadOrderChange={(touch_number_keypad_order) =>
           onPreferencesChange({ touch_number_keypad_order })
+        }
+        onTwentySixKeyNumberLayoutChange={(touch_twenty_six_key_number_layout) =>
+          onPreferencesChange({ touch_twenty_six_key_number_layout })
+        }
+        onShuangpinKeyHintsChange={(touch_shuangpin_key_hints) =>
+          onPreferencesChange({ touch_shuangpin_key_hints })
         }
         onToolbarChange={(touch_toolbar) => onPreferencesChange({ touch_toolbar })}
         onTabletFullKeysChange={(tabletFullKeys) => {

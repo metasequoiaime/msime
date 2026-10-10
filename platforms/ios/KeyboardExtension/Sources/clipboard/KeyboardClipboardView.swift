@@ -528,7 +528,7 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
     if showsCloud {
       let items = cloudItems
       guard indexPath.row < items.count else { return }
-      onInsert(items[indexPath.row].text)
+      cloud?.insert(items[indexPath.row], onInsert: onInsert)
       return
     }
     onInsert(shown[indexPath.row].text)

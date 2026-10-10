@@ -122,10 +122,9 @@ fn load(path: &Path) -> Result<Vec<Case>, Box<dyn std::error::Error>> {
     Ok(cases)
 }
 
-/// Types one input from an empty composition, timing each keystroke.
+/// 从空的输入串开始打一条输入，逐键计时。
 ///
-/// `Cancel` first rather than a fresh session: building a session re-opens the dictionaries, which
-/// would dominate the measurement and is not something a user pays for per keystroke.
+/// 先发 `Cancel` 而不是新建会话：新建会话会重新打开词库，这笔开销会盖过要量的东西，而用户也不会每按一次键都付一次。
 ///
 /// `nine_key` 时把字母换成九宫格上印着它的数字再输入，与 `convert_eval --nine-key` 相同。
 fn type_case(

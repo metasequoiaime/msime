@@ -9,6 +9,11 @@ import {
   customCandidateStyle,
   themeCandidateStyle,
   keyboardThemeId,
+  applyCandidateSkin,
+  candidateSkinFor,
+  removeCandidateSkin,
+  skinDrawsIn,
+  skinSlot,
 } from "../../theme/global-theme";
 import { SkinCandidatePreview } from "../../skin/skin-candidate-preview";
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
@@ -33,7 +38,6 @@ import { ThemeSettingsSection } from "../theme-settings-section";
 import { ScreenKeyboardSkinsSection } from "../screen-keyboard-skins-section";
 import { useSettingsForm } from "../settings-form-context";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
-import { CandidatePaletteFallbackNotice } from "../candidate-palette-fallback-notice";
 import { SkinPlatformNotice } from "../skin-platform-notice";
 import { ActionButton } from "../action-button";
 import { ThemeCarousel } from "../theme-carousel";
@@ -107,9 +111,45 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
   const packages = skins.catalog?.packages ?? [];
   // 只列本宿主提供的主题：「原生」只在 iOS 上有。
   const themeCatalog = offeredThemeCatalog(host?.platform);
-  // A package is part of the custom theme, so its card is the one in use while the custom theme draws it; the 自定义 card is then the custom theme without a package.
-  const skinInUse = globalTheme === "custom" ? (draft.custom_theme?.candidate_skin ?? null) : null;
-  const packageInUse = packages.findIndex((skin) => skin.id === skinInUse);
+  // 皮肤包是自定义主题的一部分：放在浅色或深色槽位里的包都算正在使用，它们的卡片都打开；这时「自定义」卡片代表的是不带皮肤包的自定义主题。
+  const customTheme = draft.custom_theme;
+  const skinsInUse =
+    globalTheme === "custom"
+      ? [customTheme?.candidate_skin, customTheme?.candidate_skin_dark].filter((id): id is string =>
+          Boolean(id),
+        )
+      : [];
+  // 轮播停在当前预览明暗下用的那款皮肤上，没有时停在另一个槽位的那款上。
+  const previewSkin =
+    globalTheme === "custom"
+      ? candidateSkinFor(customTheme, candidatePreviewTheme === "dark")
+      : null;
+  const shownSkin = [previewSkin, ...skinsInUse].find((id) =>
+    packages.some((skin) => skin.id === id),
+  );
+  const packageInUse = packages.findIndex((skin) => skin.id === shownSkin);
+  // 应用皮肤时用目录判断原来那款皮肤属于哪个槽位，见 `applyCandidateSkin`。
+  const slotOf = (id: string) => {
+    const skin = packages.find((entry) => entry.id === id);
+    return skin ? skinSlot(skin.base) : undefined;
+  };
+  // 每种明暗下实际画的皮肤：取那个模式的槽位，包的 base 还得属于那种明暗。目录里还没有的包按 id 显示。
+  const drawnSkinName = (dark: boolean) => {
+    const id = candidateSkinFor(customTheme, dark);
+    if (!id) return null;
+    const skin = packages.find((entry) => entry.id === id);
+    if (!skin) return id;
+    return skinDrawsIn(skin.base, dark) ? skin.name : null;
+  };
+  const slotSummary =
+    skinsInUse.length > 0
+      ? ([false, true] as const)
+          .map((dark) => {
+            const name = drawnSkinName(dark);
+            return `${dark ? "深色" : "浅色"}模式${name ? `用「${name}」` : "不用皮肤"}`;
+          })
+          .join("，") + "。"
+      : null;
   // 鸿蒙手机画设计里的缩略图网格；其他宿主保留轮播。
   const phoneGrid = harmonyPlatform && mobilePlatform;
   // 触屏外壳把这页的标题叫作「皮肤」，所以页面也这样称呼自己。
@@ -137,12 +177,15 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
   );
   const moreSkins = (
     <GroupList title="更多皮肤">
-      <ExternalSkinDirectoryRow
-        skins={skins}
-        scannable={!!client.scanSkinCatalog}
-        openable={!!client.openSkinDirectory}
-        importsSkin={importsSkin}
-      />
+      {/* 外部皮肤是候选窗口的皮肤文件夹（skin.toml 加图片），要在电脑上整理好再导入；手机上没有人会备好这样的文件夹，皮肤从下面的社区获取，所以手机不显示这一行。HarmonyOS 2in1 是桌面形态，照旧显示。 */}
+      {!mobilePlatform && (
+        <ExternalSkinDirectoryRow
+          skins={skins}
+          scannable={!!client.scanSkinCatalog}
+          openable={!!client.openSkinDirectory}
+          importsSkin={importsSkin}
+        />
+      )}
       {/* 桌面宿主在本页顶部的「社区皮肤」标签里浏览候选窗口皮肤，并从上面各自的卡片发布；这一行是手机进入「社区」标签里键盘皮肤图库的入口。 */}
       {mobilePlatform && client.communitySkins && (
         <ActionRow
@@ -171,19 +214,18 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
           }
         />
       )}
-      {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === false && (
-        <CandidatePaletteFallbackNotice />
+      {/* 候选颜色取色器作用于候选窗的配色。手机的触屏候选栏画的是键盘皮肤的颜色：Android 不读解析出的候选配色，HarmonyOS 手机的候选栏也取键盘调色板（只有 2in1 的候选窗用候选配色，见 KeyboardView.ets `candidateColors`），只有 iOS 在打开上面的「候选栏使用主题配色」后才读它们。所以手机上只在那个开关打开时显示取色器，其余时候它们改了也看不到效果；桌面和 HarmonyOS 2in1 照旧显示。选颜色会让主题变成自定义，叠在当时屏幕上的主题之上（见 `onCandidateColorChange`）。 */}
+      {(!mobilePlatform || mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === true) && (
+        <CandidateColorsSection
+          preferences={customColors}
+          previewTheme={candidatePreviewTheme}
+          showRowColors={showCandidateRowColors}
+          showSelectionAppearance={showCandidateSelectionAppearance}
+          showBorderColor={showCandidateBorderColor}
+          linux={linuxPlatform}
+          onChange={onCandidateColorChange}
+        />
       )}
-      {/* Choosing a colour makes the theme custom, over whatever theme was on screen (see `onCandidateColorChange`). */}
-      <CandidateColorsSection
-        preferences={customColors}
-        previewTheme={candidatePreviewTheme}
-        showRowColors={showCandidateRowColors}
-        showSelectionAppearance={showCandidateSelectionAppearance}
-        showBorderColor={showCandidateBorderColor}
-        linux={linuxPlatform}
-        onChange={onCandidateColorChange}
-      />
       {client.customTouchKeyboardSkins && (
         <ScreenKeyboardSkinsSection
           theme={keyboardPreviewTheme}
@@ -255,9 +297,9 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
               onApplied={(id) => void client.typingStatistics?.recordSkin?.(id)}
               onOpenAi={aiSkins && customSkinLibrary ? openAi : undefined}
             />
-            {/* 设计里这页没有设置行；颜色模式、皮肤目录和社区入口、自定义主题和各界面的单独设置仍可在「更多选项」下找到。 */}
+            {/* 设计里这页没有设置行；颜色模式、皮肤目录和社区入口、自定义主题和各界面的单独设置仍可在「更多选项」下找到。从「我的 → 社区作品 → 我的设计」进来时编辑器已经打开，它在这个折叠区里，所以折叠区一开始就展开，否则用户只看到网格。 */}
             <GroupList>
-              <MoreOptions>
+              <MoreOptions defaultOpen={showTouchSkinEditor}>
                 {colourMode}
                 {moreSkins}
                 {customThemeGroup}
@@ -312,10 +354,14 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                             action={() =>
                               onPreferencesChange(
                                 id === "custom"
-                                  ? // Choosing the custom card itself drops the package and keeps the rest of the custom theme, drawn over its own base.
+                                  ? // 选「自定义」卡片本身会去掉两个槽位的皮肤包，保留自定义主题的其余部分，画在它自己的底上。
                                     {
                                       global_theme: "custom",
-                                      custom_theme: { ...draft.custom_theme, candidate_skin: null },
+                                      custom_theme: {
+                                        ...draft.custom_theme,
+                                        candidate_skin: null,
+                                        candidate_skin_dark: null,
+                                      },
                                     }
                                   : { global_theme: id },
                               )
@@ -392,14 +438,20 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                 <ExternalSkinCard
                   key={`package:${skin.id}`}
                   skin={skin}
-                  selected={skin.id === skinInUse}
+                  selected={skinsInUse.includes(skin.id)}
                   // A host that draws one layout judges a skin by that layout, not by a setting it ignores.
                   layout={host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical"}
-                  // The package's manifest base becomes the custom theme's base, which is what `resolve()` draws under the package, so the previews match and removing the package keeps that base.
+                  // 皮肤包放进它 base 所属的槽位（浅色皮肤给浅色模式，深色皮肤给深色模式，`system` 底两个都放），另一个槽位不动。清单的 base 成为自定义主题的底，即 `resolve()` 画在包下面的那个，所以预览一致，取下皮肤后也保留这个底。
                   onSelect={(id, base) =>
                     onPreferencesChange({
                       global_theme: "custom",
-                      custom_theme: { ...draft.custom_theme, base, candidate_skin: id },
+                      custom_theme: applyCandidateSkin(draft.custom_theme, id, base, slotOf),
+                    })
+                  }
+                  onDeselect={(id) =>
+                    onPreferencesChange({
+                      global_theme: "custom",
+                      custom_theme: removeCandidateSkin(draft.custom_theme, id),
                     })
                   }
                   readImage={client.readSkinImage}
@@ -419,6 +471,7 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                 />
               ))}
             </ThemeCarousel>
+            {slotSummary && <SettingsExternalMeta>{slotSummary}</SettingsExternalMeta>}
             {published && (
               <SettingsExternalMeta role="status">
                 {published === "private" ? "已保存到你的皮肤库，仅自己可见。" : "已发布到社区。"}

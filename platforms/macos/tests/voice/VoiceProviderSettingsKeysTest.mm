@@ -194,12 +194,13 @@ static void TestEveryRuntimeProviderIsEditable()
 {
     NSArray *providers = MSIMEVoiceASRProviderIDs();
     NSArray *expected = @[ @"doubao", @"openai", @"siliconflow", @"groq", @"everyapi", @"mistral",
-                           @"system", @"local" ];
+                           @"bailian", @"system", @"local" ];
     assert([providers isEqual:expected]);
     assert(MSIMEVoiceASRProviderTitles().count == providers.count);
     NSDictionary *defaults = @{
         @"everyapi" : @[ @"https://api.everyapi.ai/v1/audio/transcriptions", @"openai/whisper-large-v3-turbo" ],
-        @"mistral" : @[ @"https://api.mistral.ai/v1/audio/transcriptions", @"voxtral-mini-latest" ]
+        @"mistral" : @[ @"https://api.mistral.ai/v1/audio/transcriptions", @"voxtral-mini-latest" ],
+        @"bailian" : @[ @"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", @"qwen3-asr-flash" ]
     };
     for (NSString *provider in defaults) {
         assert([MSIMEVoiceASRProviderDefaultEndpoint(provider) isEqual:defaults[provider][0]]);

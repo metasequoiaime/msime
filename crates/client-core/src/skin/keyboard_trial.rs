@@ -32,9 +32,12 @@ struct TrialRecord {
     id: Uuid,
     name: String,
     previous_theme: GlobalTheme,
-    /// The custom theme's base and package before the trial. When another theme was on screen the trial rebases the custom theme onto it and drops the package, so declining puts both back.
+    /// 试用前自定义主题的底和两个槽位的皮肤包。从别的主题试用时，自定义主题改以那个主题为底并清掉皮肤包，所以放弃试用时把它们都放回去。
     previous_base: GlobalTheme,
     previous_candidate_skin: Option<String>,
+    /// 试用前深色槽位的皮肤包。旧版本写的记录没有这个键，读出来是 `None`，与它们当时没有深色槽位一致。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    previous_candidate_skin_dark: Option<String>,
     previous_design: Option<TouchKeyboardSkinDesign>,
     design: TouchKeyboardSkinDesign,
 }
@@ -89,6 +92,11 @@ impl KeyboardSkinTrialStore {
             previous_theme: snapshot.preferences.global_theme,
             previous_base: snapshot.preferences.custom_theme.base,
             previous_candidate_skin: snapshot.preferences.custom_theme.candidate_skin.clone(),
+            previous_candidate_skin_dark: snapshot
+                .preferences
+                .custom_theme
+                .candidate_skin_dark
+                .clone(),
             previous_design: snapshot.preferences.custom_theme.keyboard.clone(),
             design: design.clone(),
         };
@@ -102,6 +110,7 @@ impl KeyboardSkinTrialStore {
                 GlobalTheme::System
             };
             preferences.custom_theme.candidate_skin = None;
+            preferences.custom_theme.candidate_skin_dark = None;
         }
         preferences.global_theme = GlobalTheme::Custom;
         preferences.custom_theme.keyboard = Some(design);
@@ -171,6 +180,7 @@ impl KeyboardSkinTrialStore {
         if record.previous_theme != GlobalTheme::Custom {
             preferences.custom_theme.base = record.previous_base;
             preferences.custom_theme.candidate_skin = record.previous_candidate_skin;
+            preferences.custom_theme.candidate_skin_dark = record.previous_candidate_skin_dark;
         }
         preferences.global_theme = record.previous_theme;
         preferences.custom_theme.keyboard = record.previous_design;
@@ -307,6 +317,7 @@ mod tests {
         let mut night = loaded.preferences;
         night.global_theme = GlobalTheme::Night;
         night.custom_theme.candidate_skin = Some("sakura".into());
+        night.custom_theme.candidate_skin_dark = Some("midnight".into());
         let original = preferences.save(loaded.revision, night).unwrap();
         let design = TouchKeyboardSkinDesign {
             background: 0x0F1E2D,
@@ -317,6 +328,7 @@ mod tests {
         assert_eq!(applied.preferences.global_theme, GlobalTheme::Custom);
         assert_eq!(applied.preferences.custom_theme.base, GlobalTheme::Night);
         assert_eq!(applied.preferences.custom_theme.candidate_skin, None);
+        assert_eq!(applied.preferences.custom_theme.candidate_skin_dark, None);
         assert_eq!(applied.preferences.custom_theme.keyboard, Some(design));
 
         let restored = trials.finish(trial.id, false).unwrap();
@@ -352,6 +364,7 @@ mod tests {
         custom.global_theme = GlobalTheme::Custom;
         custom.custom_theme.base = GlobalTheme::Paper;
         custom.custom_theme.candidate_skin = Some("sakura".into());
+        custom.custom_theme.candidate_skin_dark = Some("midnight".into());
         let original = preferences.save(loaded.revision, custom).unwrap();
         let design = TouchKeyboardSkinDesign {
             background: 0x2D1E0F,
@@ -363,6 +376,14 @@ mod tests {
         assert_eq!(
             applied.preferences.custom_theme.candidate_skin.as_deref(),
             Some("sakura")
+        );
+        assert_eq!(
+            applied
+                .preferences
+                .custom_theme
+                .candidate_skin_dark
+                .as_deref(),
+            Some("midnight")
         );
         assert_eq!(applied.preferences.custom_theme.keyboard, Some(design));
 
@@ -398,6 +419,40 @@ mod tests {
     }
 
     #[test]
+    fn a_pending_record_from_before_the_dark_slot_still_restores() {
+        let (root, preferences, trials) = stores();
+        let loaded = preferences.load().unwrap();
+        let mut night = loaded.preferences;
+        night.global_theme = GlobalTheme::Night;
+        let original = preferences.save(loaded.revision, night).unwrap();
+        let design = TouchKeyboardSkinDesign {
+            background: 0x0F2D1E,
+            ..TouchKeyboardSkinDesign::default()
+        };
+        let (trial, _) = trials.begin("旧版记录", design).unwrap();
+        // 旧版本写的记录没有 `previous_candidate_skin_dark`；`deny_unknown_fields` 之下它仍要读得出来。
+        let path = root.path().join("KeyboardSkinTrial.json");
+        let written: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert!(written.get("previous_candidate_skin_dark").is_none());
+        let mut legacy = written;
+        legacy["previous_candidate_skin"] = "sakura".into();
+        fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+
+        let restored = trials.finish(trial.id, false).unwrap();
+        assert_eq!(restored.preferences.global_theme, GlobalTheme::Night);
+        assert_eq!(
+            restored.preferences.custom_theme.candidate_skin.as_deref(),
+            Some("sakura")
+        );
+        assert_eq!(restored.preferences.custom_theme.candidate_skin_dark, None);
+        assert_eq!(
+            restored.preferences.custom_theme.base,
+            original.preferences.custom_theme.base
+        );
+        assert!(!path.exists());
+    }
+
+    #[test]
     fn malformed_pending_record_is_preserved() {
         let (root, _preferences, trials) = stores();
         fs::write(root.path().join("KeyboardSkinTrial.json"), b"not json").unwrap();
@@ -421,6 +476,7 @@ mod tests {
             previous_theme: GlobalTheme::System,
             previous_base: GlobalTheme::System,
             previous_candidate_skin: None,
+            previous_candidate_skin_dark: None,
             previous_design: None,
             design: TouchKeyboardSkinDesign::default(),
         };
@@ -451,6 +507,7 @@ mod tests {
             previous_theme: GlobalTheme::System,
             previous_base: GlobalTheme::System,
             previous_candidate_skin: None,
+            previous_candidate_skin_dark: None,
             previous_design: None,
             design: TouchKeyboardSkinDesign::default(),
         };

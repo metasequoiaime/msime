@@ -524,6 +524,57 @@ SkinTokens ToolbarSkinTokens(const ResolvedSkin &skin, const std::filesystem::pa
 
 // LoadSkinPackage and ScanSkinCatalog live in SkinManifestBridge.mm: manifests are validated by the shared client-core loader over the host C ABI.
 
+SkinSlot SkinSlotOfBase(std::string_view base)
+{
+    for (const ThemeCatalogEntry &entry : ThemeCatalog())
+    {
+        if (entry.id != base) continue;
+        if (entry.appearance == "light") return SkinSlot::light;
+        if (entry.appearance == "dark") return SkinSlot::dark;
+        break;
+    }
+    return SkinSlot::both;
+}
+
+CustomTheme ApplyCandidateSkin(CustomTheme custom, const std::string &id, const std::string &base,
+                               const std::function<SkinSlot(const std::string &)> &slotOf)
+{
+    const SkinSlot slot = SkinSlotOfBase(base);
+    const std::string previous = custom.candidateSkin;
+    const bool darkSlotWasEmpty = custom.candidateSkinDark.empty();
+    custom.base = base;
+    if (slot != SkinSlot::light) custom.candidateSkinDark = id;
+    // 旧文档放在浅色槽位里的深色皮肤被新的深色皮肤取代：浅色模式本来就不画它，留着只会让它看起来还在用。
+    if (slot == SkinSlot::dark && !previous.empty() && slotOf(previous) == SkinSlot::dark) custom.candidateSkin.clear();
+    if (slot != SkinSlot::dark)
+    {
+        // 只设过一款深色皮肤的旧文档把它存在浅色槽位里，深色模式靠回退取到它；直接覆盖会让它悄悄消失，所以先挪进深色槽位。只挪确知能画在深色模式的（深色底或 system 底）：不知道属于哪个槽位的（包已不在目录里）直接覆盖，不把一个画不出来的 id 留进深色槽位。
+        if (slot == SkinSlot::light && darkSlotWasEmpty && !previous.empty())
+        {
+            const SkinSlot previousSlot = slotOf(previous);
+            if (previousSlot == SkinSlot::dark || previousSlot == SkinSlot::both) custom.candidateSkinDark = previous;
+        }
+        custom.candidateSkin = id;
+    }
+    return custom;
+}
+
+CustomTheme RemoveCandidateSkin(CustomTheme custom, const std::string &id)
+{
+    if (id.empty() || (custom.candidateSkin != id && custom.candidateSkinDark != id)) return custom;
+    if (custom.candidateSkin == id) custom.candidateSkin.clear();
+    if (custom.candidateSkinDark == id) custom.candidateSkinDark.clear();
+    // 取下的是最后一款皮肤：底是应用皮肤时写进来的包 base，两个槽位都空以后 resolve 在两种明暗下都用它，留着深色皮肤的 night 会让浅色模式变成深色，所以改回 system。
+    if (custom.candidateSkin.empty() && custom.candidateSkinDark.empty()) custom.base = "system";
+    return custom;
+}
+
+std::optional<bool> FixedThemeMode(const ResolvedSkin &light, const ResolvedSkin &dark)
+{
+    if (light.fixedDark && dark.fixedDark && *light.fixedDark == *dark.fixedDark) return light.fixedDark;
+    return std::nullopt;
+}
+
 bool SupportsSkin(const SkinPackage &package, std::string_view layout, std::string_view theme)
 {
     const auto contains = [](const std::vector<std::string> &values, std::string_view value) {

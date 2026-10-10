@@ -393,6 +393,7 @@ mod tests {
             "shouyouplus",
             "xiaohe",
             "jiajia",
+            "wubi86",
             "custom/mine",
         ] {
             assert!(is_supported_helpcode_schema(schema), "{schema}");
@@ -610,6 +611,18 @@ mod tests {
         for (character, code) in [("好", "nz"), ("你", "de"), ("中", "ks"), ("国", "ky")] {
             assert_eq!(loaded.code(character), Some(code));
         }
+    }
+
+    // 仓库里的五笔 86 码表（由 dict-builder 的 wubi86-helpcode 生成）整表载入，表头的 `#` 行不算数，码是全码的前两码。
+    #[test]
+    fn the_generated_wubi86_table_loads_whole() {
+        let resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../resources");
+        let loaded = load_helpcode_keymap(&resources, "wubi86").unwrap();
+        assert_eq!(loaded.len(), 20614);
+        for (character, code) in [("码", "dc"), ("一", "gg"), ("我", "tr"), ("工", "aa")] {
+            assert_eq!(loaded.code(character), Some(code));
+        }
+        assert_eq!(loaded.code("#"), None);
     }
 
     #[test]

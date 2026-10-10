@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """User-session speech service. Audio, credentials and transcripts are never logged."""
 import argparse
+import base64
 import hashlib
 import http.client
 import io
@@ -36,18 +37,24 @@ MAX_AUDIO = 20 * 1024 * 1024
 MAX_PACTL_OUTPUT = 1024 * 1024
 MAX_PIPEWIRE_OUTPUT = 8 * 1024 * 1024
 MAX_VOLUME_OUTPUT = 4096
-# Polishing is chat completions, so it takes the batch transcription set minus the two
-# transcription-only services, plus DeepSeek; recognition additionally has Doubao.
-ASR_PROVIDERS = {"openai", "groq", "siliconflow", "everyapi", "mistral"}
-POLISH_PROVIDERS = (ASR_PROVIDERS - {"everyapi", "mistral"}) | {"deepseek"}
+# 润色走 Chat Completions，所以取整句识别服务集合，去掉只做识别的服务，再加上 DeepSeek；识别另外还有豆包。
+ASR_PROVIDERS = {"openai", "groq", "siliconflow", "everyapi", "mistral", "bailian"}
+POLISH_PROVIDERS = (ASR_PROVIDERS - {"everyapi", "mistral", "bailian"}) | {"deepseek"}
 ASR_PROVIDERS = ASR_PROVIDERS | {"doubao"}
+# 整句上传的请求格式，与 client-core 的 `voice::provider::asr_request_format` 相同：multipart 是 OpenAI 兼容的 /audio/transcriptions，chat_audio 是 Chat Completions 带 input_audio（阿里云百炼）。请求体按格式拼，不按 provider 名字判断。
+CHAT_AUDIO = "chat_audio"
+REQUEST_FORMATS = {"openai": "multipart", "groq": "multipart", "siliconflow": "multipart",
+                   "everyapi": "multipart", "mistral": "multipart", "bailian": CHAT_AUDIO}
+# 百炼限制请求里的音频含 Base64 编码不超过 10 MB；与 client-core 的 CHAT_AUDIO_MAX_WAV_BYTES 相同，约 218 秒。
+CHAT_AUDIO_MAX_WAV = 7_000_000
 # On-device recognition through the msime-voice-local helper (msime_voice_local.py). It needs no credential: the request names the installed model directory in `asr_model_path`, so a private file entry for it carries only the provider name.
 LOCAL_PROVIDER = "local"
 # Windows voice_providers.cpp at 7fa6fb1a7862c5ca1541b9cb839d9bea3a06e2c6.
 DEFAULT_MODELS = {
     "asr": {"openai": "whisper-1", "groq": "whisper-large-v3-turbo",
             "siliconflow": "FunAudioLLM/SenseVoiceSmall", "doubao": "",
-            "everyapi": "openai/whisper-large-v3-turbo", "mistral": "voxtral-mini-latest"},
+            "everyapi": "openai/whisper-large-v3-turbo", "mistral": "voxtral-mini-latest",
+            "bailian": "qwen3-asr-flash"},
     "polish": {"openai": "gpt-4o-mini", "groq": "llama-3.3-70b-versatile",
                "siliconflow": "Qwen/Qwen3-8B", "deepseek": "deepseek-v4-flash"},
 }
@@ -58,6 +65,7 @@ DEFAULT_ENDPOINTS = {
         "siliconflow": "https://api.siliconflow.cn/v1/audio/transcriptions",
         "everyapi": "https://api.everyapi.ai/v1/audio/transcriptions",
         "mistral": "https://api.mistral.ai/v1/audio/transcriptions",
+        "bailian": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
         "doubao": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
     },
     "polish": {
@@ -245,19 +253,56 @@ def normalize_voice_language(value):
     return "zh-cn" if parts[0] == "zh" else parts[0]
 
 
-def multipart(pcm, config, language):
-    if config["provider"] == "siliconflow":
-        pcm = b"\0" * (RATE * 2 // 5) + pcm + b"\0" * (RATE * 2 // 5)
-        pcm = pcm.ljust(RATE * 2, b"\0")
-    if len(pcm) + 44 > MAX_AUDIO:
-        raise ValueError("audio too large")
+def wav_audio(pcm):
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as wav:
         wav.setnchannels(1)
         wav.setsampwidth(2)
         wav.setframerate(RATE)
         wav.writeframes(pcm)
-    audio = buffer.getvalue()
+    return buffer.getvalue()
+
+
+def chat_audio(pcm, config):
+    """chat_audio 的请求体：唯一一条 user 消息，内容是录音的 Base64 数据 URL；不带语种，交给模型自动识别。"""
+    if len(pcm) + 44 > CHAT_AUDIO_MAX_WAV:
+        raise ValueError("audio too large")
+    data = "data:audio/wav;base64," + base64.b64encode(wav_audio(pcm)).decode("ascii")
+    body = {"model": config["model"], "stream": False, "messages": [
+        {"role": "user", "content": [{"type": "input_audio", "input_audio": {"data": data}}]}]}
+    return json.dumps(body).encode(), "application/json"
+
+
+def capture_byte_limit(provider):
+    """一次整句上传能带的 PCM 字节数：chat_audio（阿里云百炼）约 218 秒，其余服务是 MAX_AUDIO。录到这里就结束录音并识别，和 macOS、Windows 一样，不让录满后整段被拒。"""
+    if REQUEST_FORMATS.get(provider) == CHAT_AUDIO:
+        return CHAT_AUDIO_MAX_WAV - 44
+    return MAX_AUDIO - 44
+
+
+def request_body(pcm, config, language):
+    if REQUEST_FORMATS.get(config["provider"]) == CHAT_AUDIO:
+        return chat_audio(pcm, config)
+    return multipart(pcm, config, language)
+
+
+def transcript(result):
+    """回答里的文字：multipart 接口在 `text` 等字段，chat_audio 接口在 `choices[0].message.content`。"""
+    text = result.get("text") or result.get("transcription") or (result.get("result") or {}).get("text")
+    if text is None and isinstance(result.get("choices"), list) and result["choices"]:
+        choice = result["choices"][0]
+        message = choice.get("message") if isinstance(choice, dict) else None
+        text = message.get("content") if isinstance(message, dict) else None
+    return bounded_text(text)
+
+
+def multipart(pcm, config, language):
+    if config["provider"] == "siliconflow":
+        pcm = b"\0" * (RATE * 2 // 5) + pcm + b"\0" * (RATE * 2 // 5)
+        pcm = pcm.ljust(RATE * 2, b"\0")
+    if len(pcm) + 44 > MAX_AUDIO:
+        raise ValueError("audio too large")
+    audio = wav_audio(pcm)
     fields = [("model", config["model"])]
     if config["provider"] != "siliconflow" and language != "auto":
         fields.append(("language", "zh" if language == "zh-cn" else language))
@@ -276,7 +321,7 @@ def multipart(pcm, config, language):
 
 
 def transcribe(pcm, config, language, session):
-    body, content_type = multipart(pcm, config, normalize_voice_language(language))
+    body, content_type = request_body(pcm, config, normalize_voice_language(language))
     for attempt in range(2 if config["provider"] == "siliconflow" else 1):
         if session.cancelled.is_set():
             return ""
@@ -284,8 +329,7 @@ def transcribe(pcm, config, language, session):
             result = bounded_post(config, body, content_type, 60, session.cancelled)
             if result is None:
                 return ""
-            return bounded_text(result.get("text") or result.get("transcription") or
-                                (result.get("result") or {}).get("text"))
+            return transcript(result)
         except VoiceRequestError as error:
             if config["provider"] != "siliconflow" or not error.retryable or attempt:
                 raise
@@ -611,7 +655,10 @@ class AudioMuteJournal:
                 os.close(directory)
         finally:
             if temporary is not None:
-                temporary.unlink(missing_ok=True)
+                try:
+                    temporary.unlink()
+                except FileNotFoundError:
+                    pass
 
     def record(self, backend, stream):
         if not self.available:
@@ -785,11 +832,12 @@ class Session:
         self.stopped.set()
 
 
-def capture(session, connection, args, seconds, options, on_audio=None, on_tick=None, on_level=None):
+def capture(session, connection, args, seconds, options, on_audio=None, on_tick=None, on_level=None,
+            max_bytes=MAX_AUDIO - 44):
     pcm = bytearray()
     recorded = 0
     pending_sample = b""
-    limit = min(seconds * RATE * 2, MAX_AUDIO - 44)
+    limit = min(seconds * RATE * 2, max_bytes)
     process = None
     muted = []
     mute_watch = None
@@ -1106,7 +1154,7 @@ class Handler(socketserver.StreamRequestHandler):
                     query.get("stream") and isinstance(events, list) and "level" in events) else None
                 pcm, recorded = capture(session, self.request, capture_args, self.server.seconds, options,
                                         recognizer.feed if recognizer else None, tick if recognizer else None,
-                                        level_update)
+                                        level_update, capture_byte_limit(asr["provider"]))
             finally:
                 # Also covers recognizer initialization failures before capture().
                 self.server.microphone.release()
@@ -1156,7 +1204,7 @@ class Handler(socketserver.StreamRequestHandler):
 
 
 def batch_asr_credential_test(config):
-    body, content_type = multipart(b"\0" * RATE * 2, config, "auto")
+    body, content_type = request_body(b"\0" * RATE * 2, config, "auto")
     return isinstance(bounded_post(config, body, content_type, 15), dict)
 
 

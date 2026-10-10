@@ -17,6 +17,11 @@ public final class KeyboardGeometrySmoke {
         check(KeyboardGeometry.DESIGN_PADDING_TOP_DP == 8
             && KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP == 6
             && KeyboardGeometry.DESIGN_PADDING_BOTTOM_DP == 6);
+        // 底栏（#6354）：默认 46 dp 不加行距，键帽比键行矮一截；「加高底行」开着时和一行键同高、另加一份行距。
+        check(KeyboardGeometry.bottomRowHeightDp(false) == KeyboardGeometry.STANDARD_ROW_HEIGHT_DP
+            && KeyboardGeometry.bottomRowSpacings(false) == 0, "bottom row keeps 46 dp by default");
+        check(KeyboardGeometry.bottomRowHeightDp(true) == KeyboardGeometry.KEY_ROW_HEIGHT_DP
+            && KeyboardGeometry.bottomRowSpacings(true) == 1, "tall bottom row matches a key row");
         // 百分比换算 round(184 × (p − 100) / 100)：逐档钉住，往返不变。
         int[] percents = {75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 140, 150, 160};
         int[] adjustments = {-46, -37, -28, -18, -9, 0, 9, 18, 28, 37, 46, 55, 74, 92, 110};

@@ -13,7 +13,7 @@ import app.msime.android.KeyboardGeometry;
  */
 public final class KeyboardIconKey extends KeyboardPressButton {
     /** 键上画的图标。 */
-    public enum Kind { SHIFT, CAPS_LOCK, BACKSPACE, RETURN, EMOJI, CURSOR_LEFT, TOGGLE_NEXT }
+    public enum Kind { SHIFT, CAPS_LOCK, BACKSPACE, RETURN, EMOJI, CURSOR_LEFT, TOGGLE_NEXT, TRASH }
 
     public static final float ICON_DP = 22f;
 
@@ -69,6 +69,7 @@ public final class KeyboardIconKey extends KeyboardPressButton {
             case EMOJI -> KeyboardIconPaths.Icon.KEY_EMOJI;
             case CURSOR_LEFT -> KeyboardIconPaths.Icon.CURSOR_LEFT;
             case TOGGLE_NEXT -> KeyboardIconPaths.Icon.TOGGLE_NEXT;
+            case TRASH -> KeyboardIconPaths.Icon.TRASH;
         };
     }
 

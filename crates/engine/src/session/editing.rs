@@ -8,7 +8,7 @@ use crate::shuangpin::query::{
     trim_trailing_letters_preserve_delimiters,
 };
 use crate::stroke;
-use crate::types::{Command, KeyResult, LocalInputMode, SchemeType, ShuangpinProfileKind};
+use crate::types::{Command, KeyResult, LocalInputMode, SchemeType};
 
 pub(super) fn temporary_japanese_preedit(raw: &str) -> String {
     let mut preedit = String::with_capacity(1 + raw.len());
@@ -157,9 +157,9 @@ impl InputSession {
                                     && self.shuangpin_helpcode_enabled)));
                     if value == b';'
                         && scheme == SchemeType::Shuangpin
-                        && self.profile == ShuangpinProfileKind::Microsoft
+                        && self.profile.uses_semicolon_key()
                     {
-                        // The Microsoft `ing` key is a final: it may only complete an odd-length chunk.
+                        // `;`（微软的 ing，或自定义方案放在 `;` 上的韵母、零声母编码的第二个键）只能补完一个奇数长度的片段。
                         let start = text[..caret].rfind('\'').map_or(0, |at| at + 1);
                         accepted = (caret - start) % 2 == 1;
                     }

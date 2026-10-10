@@ -35,6 +35,19 @@ public final class KeyboardBottomBarPolicy {
     }
 
     /**
+     * 「底部留白」此刻垫不垫（#6392）：键区下面垫一段 {@link #BAR_HEIGHT_DP} 高、不可点的空白，把回车、空格这些底行键抬离屏幕底边。
+     *
+     * <p>不看导航方式：键盘底栏只在细手势条、系统不画输入法按钮时出现，其余设备（系统自己画按钮的 Pixel 一类、Android 11 及以前读不到导航栏高度、三键导航）想抬高底行只能靠它。底栏画着时不再叠加，底栏本身已经把键区抬高了同样的距离。浮动键盘、外接键盘收起键区、手机横屏时同底栏一样不垫。
+     *
+     * @param enabled 本地设置 `platform.android.bottom_padding`
+     * @param barShown 键盘底栏此刻画着（{@link #shown}）
+     */
+    public static boolean paddingShown(boolean enabled, boolean barShown, boolean floating, boolean keysCollapsed,
+            boolean phoneLandscape) {
+        return enabled && !barShown && !floating && !keysCollapsed && !phoneLandscape;
+    }
+
+    /**
      * 底栏底边离键盘列底边的距离（像素）：先让出落在键盘窗口里的那截导航栏，系统手势区比导航栏高时再让出高出的部分，这样底栏中间的横向拖动不会从系统的手势区里起手。
      *
      * @param insetBottom 键盘视图收到的底部系统栏 inset，即导航栏落在键盘窗口里的那一截（Android 14 及以前输入法窗口默认停在导航栏上方，这里是 0）

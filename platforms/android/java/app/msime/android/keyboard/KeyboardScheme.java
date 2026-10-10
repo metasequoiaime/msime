@@ -238,6 +238,34 @@ public enum KeyboardScheme {
         return schemes == null || schemes.isEmpty() ? List.of(fallback(edition)) : schemes;
     }
 
+    /**
+     * 键盘「输入方式」面板里列出的方案：`schemes` 里的双拼只留一种，其余方案原样、按原顺序保留。
+     *
+     * <p>留下的那一种依次取：`selected` 本身是双拼时就是它；否则是偏好 `shuangpin_profile`（`profile`，缺省或不认识时按小鹤，与 {@link #mapping} 的规整相同）对应的那一种；它不在 `schemes` 里时取 `schemes` 里第一种双拼。大多数人只用一种双拼，四种都列出来会把手写挤到第二页（#6450）；换双拼方案在设置的「双拼」子菜单里。与 iOS 的 `InputSchemePreference.pickerSchemes`、鸿蒙的 `KeyboardScheme.pickerSchemes` 一致。
+     */
+    public static List<KeyboardScheme> pickerSchemes(
+            List<KeyboardScheme> schemes, KeyboardScheme selected, String profile) {
+        KeyboardScheme kept = null;
+        if (selected != null && selected.shuangpinProfile != null && schemes.contains(selected)) {
+            kept = selected;
+        } else {
+            String configured = normalizedProfile(profile);
+            for (KeyboardScheme candidate : schemes) {
+                if (candidate.shuangpinProfile == null) continue;
+                if (kept == null) kept = candidate;
+                if (configured.equals(candidate.shuangpinProfile)) {
+                    kept = candidate;
+                    break;
+                }
+            }
+        }
+        List<KeyboardScheme> picker = new ArrayList<>(schemes.size());
+        for (KeyboardScheme candidate : schemes) {
+            if (candidate.shuangpinProfile == null || candidate == kept) picker.add(candidate);
+        }
+        return List.copyOf(picker);
+    }
+
     /** Shared selected is authoritative; otherwise preserve the applied scheme or use first enabled. */
     public static KeyboardScheme resolveEnabledSelection(KeyboardScheme applied,
             String selectedPreferenceId, List<KeyboardScheme> enabled, AppEdition edition) {
@@ -296,13 +324,24 @@ public enum KeyboardScheme {
         return new PreferenceMapping(scheme, lastChinese, profile, touchKeyboardLayout);
     }
 
+    /** 中文以外的语言键盘：日语、韩语、越南语和藏文。手写跑的是中文方案，不算。中英键开了「轮换其他语言」时按启用顺序轮到它们（{@link LanguageKeyCyclePolicy}）。 */
+    public boolean otherLanguage() {
+        return this != HANDWRITING && !isChineseScheme(engineScheme);
+    }
+
+    /** 这个入口属于哪种语言：就是它的 Engine 方案（日语 9 键和日语 26 键都是 `japanese`）。手写没有自己的语言，返回 null。 */
+    public String language() {
+        return this == HANDWRITING ? null : engineScheme;
+    }
+
     private static boolean isChineseScheme(String value) {
         return "quanpin".equals(value) || "shuangpin".equals(value) || "wubi".equals(value)
             || "cantonese".equals(value) || "zhuyin".equals(value) || "stroke".equals(value);
     }
 
     private static String normalizedProfile(String value) {
-        if ("ziranma".equals(value) || "microsoft".equals(value) || "shoudao".equals(value)) {
+        if ("ziranma".equals(value) || "microsoft".equals(value) || "shoudao".equals(value)
+                || "custom".equals(value)) {
             return value;
         }
         return "xiaohe";

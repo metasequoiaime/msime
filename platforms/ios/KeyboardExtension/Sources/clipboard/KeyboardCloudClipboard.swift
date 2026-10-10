@@ -1,20 +1,26 @@
 import Foundation
 
+struct KeyboardCloudClipboardBinding: Equatable, Sendable {
+  let userID: String
+  let sessionID: UUID
+}
+
 /// What the keyboard needs from the account's cloud clipboard. The live one goes through the signed-in session the app shares with the keyboard through the App Group keychain group; tests substitute their own.
 protocol KeyboardCloudClipboardService: Sendable {
-  /// Whether an account is signed in on this device. Reads the shared keychain only, no request.
-  func isSignedIn() async -> Bool
-  func page() async throws -> BackendAccountClient.ClipboardPage
-  func add(_ text: String) async throws
-  func uploadIfEnabled(_ text: String) async throws -> BackendAccountClient.ClipboardPage?
+  /// Captures the current login before a panel request.
+  func binding() async throws -> KeyboardCloudClipboardBinding?
+  func matches(_ binding: KeyboardCloudClipboardBinding) async -> Bool
+  func page(matching binding: KeyboardCloudClipboardBinding) async throws -> BackendAccountClient.ClipboardPage
+  func add(_ text: String, matching binding: KeyboardCloudClipboardBinding) async throws
+  func uploadIfEnabled(_ text: String, matching binding: KeyboardCloudClipboardBinding) async throws -> BackendAccountClient.ClipboardPage?
 }
 
 extension KeyboardCloudClipboardService {
-  func uploadIfEnabled(_ text: String) async throws -> BackendAccountClient.ClipboardPage? {
-    let before = try await page()
+  func uploadIfEnabled(_ text: String, matching binding: KeyboardCloudClipboardBinding) async throws -> BackendAccountClient.ClipboardPage? {
+    let before = try await page(matching: binding)
     guard before.enabled else { return nil }
-    try await add(text)
-    return try await page()
+    try await add(text, matching: binding)
+    return try await page(matching: binding)
   }
 }
 
@@ -22,18 +28,30 @@ struct BackendKeyboardCloudClipboardService: KeyboardCloudClipboardService {
   var session: BackendAccountSession = .shared
   var client = BackendAccountClient()
 
-  func isSignedIn() async -> Bool { ((try? await session.user()) ?? nil) != nil }
-  func page() async throws -> BackendAccountClient.ClipboardPage {
-    try await authorized { [client] token in try await client.clipboard(token: token) }
+  func binding() async throws -> KeyboardCloudClipboardBinding? {
+    do {
+      let identity = try await session.credentials()
+      return .init(userID: identity.userID, sessionID: identity.sessionID)
+    } catch let failure as BackendAccountClient.Failure where failure.status == 401 {
+      return nil
+    }
   }
-  func add(_ text: String) async throws {
-    _ = try await authorized { [client] token in try await client.addClipboard(text, token: token) }
+  func matches(_ binding: KeyboardCloudClipboardBinding) async -> Bool {
+    do {
+      try await session.requireSession(matchingUserID: binding.userID, matchingSessionID: binding.sessionID)
+      return true
+    } catch { return false }
   }
-  func uploadIfEnabled(_ text: String) async throws -> BackendAccountClient.ClipboardPage? {
-    let identity = try await session.credentials()
+  func page(matching binding: KeyboardCloudClipboardBinding) async throws -> BackendAccountClient.ClipboardPage {
+    try await authorized(matching: binding) { [client] token in try await client.clipboard(token: token) }
+  }
+  func add(_ text: String, matching binding: KeyboardCloudClipboardBinding) async throws {
+    _ = try await authorized(matching: binding) { [client] token in try await client.addClipboard(text, token: token) }
+  }
+  func uploadIfEnabled(_ text: String, matching binding: KeyboardCloudClipboardBinding) async throws -> BackendAccountClient.ClipboardPage? {
     func request<T: Sendable>(_ operation: @Sendable (String) async throws -> T) async throws -> T {
-      try await session.authenticated(matchingUserID: identity.userID,
-                                      matchingSessionID: identity.sessionID, operation).value
+      try await session.authenticated(matchingUserID: binding.userID,
+                                      matchingSessionID: binding.sessionID, operation).value
     }
     let before = try await request { [client] token in try await client.clipboard(token: token) }
     guard before.enabled else { return nil }
@@ -41,13 +59,13 @@ struct BackendKeyboardCloudClipboardService: KeyboardCloudClipboardService {
     return try await request { [client] token in try await client.clipboard(token: token) }
   }
   /// 将请求及可能发生的令牌刷新绑定到发起时的登录会话。
-  private func authorized<T: Sendable>(_ body: @Sendable (String) async throws -> T) async throws -> T {
-    let identity = try await session.credentials()
-    let result = try await session.authenticated(matchingUserID: identity.userID,
-                                                 matchingSessionID: identity.sessionID) { token in
+  private func authorized<T: Sendable>(matching binding: KeyboardCloudClipboardBinding,
+                                       _ body: @Sendable (String) async throws -> T) async throws -> T {
+    let result = try await session.authenticated(matchingUserID: binding.userID,
+                                                 matchingSessionID: binding.sessionID) { token in
       try await body(token)
     }.value
-    try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+    try await session.requireSession(matchingUserID: binding.userID, matchingSessionID: binding.sessionID)
     try Task.checkCancellation()
     return result
   }
@@ -81,6 +99,7 @@ final class KeyboardCloudClipboard {
   var fieldAllowsCloud: () -> Bool = { true }
   private let service: any KeyboardCloudClipboardService
   private var fetch: Task<Void, Never>?
+  private var binding: KeyboardCloudClipboardBinding?
   private var generation = 0
   private var active = true
 
@@ -121,29 +140,52 @@ final class KeyboardCloudClipboard {
     generation += 1
     let version = generation
     fetch?.cancel()
+    binding = nil
+    signedIn = false
+    notice = nil
     state = .loading
     onChange?()
     let service = service
     fetch = Task { [weak self] in
-      let signedIn = await service.isSignedIn()
+      var account: KeyboardCloudClipboardBinding?
       let outcome: State
-      if !signedIn { outcome = .signedOut }
-      else {
-        do {
-          let page = try await service.page()
+      do {
+        account = try await service.binding()
+        if let account {
+          let page = try await service.page(matching: account)
           outcome = page.enabled ? .loaded(page.items) : .disabled
-        } catch { outcome = Self.state(for: error) }
-      }
+        } else { outcome = .signedOut }
+      } catch { outcome = Self.state(for: error) }
       guard let self, !Task.isCancelled, self.active, self.generation == version else { return }
-      self.signedIn = signedIn && !(outcome.isSignedOut)
+      if let account, !(await service.matches(account)) {
+        self.refresh()
+        return
+      }
+      guard !Task.isCancelled, self.active, self.generation == version else { return }
+      self.binding = account
+      self.signedIn = account != nil && !outcome.isSignedOut
       self.state = outcome
       self.onChange?()
     }
   }
 
+  /// A displayed row may outlive its account. Recheck the shared session before inserting it.
+  func insert(_ item: BackendAccountClient.ClipboardItem, onInsert: @escaping (String) -> Void) {
+    guard active, let binding, items.contains(where: { $0.id == item.id && $0.text == item.text }) else { return }
+    let version = generation
+    let service = service
+    Task { [weak self] in
+      let stillCurrent = await service.matches(binding)
+      guard let self, self.active, self.generation == version else { return }
+      guard stillCurrent else { self.refresh(); return }
+      guard self.fieldAllowsCloud(), self.items.contains(where: { $0.id == item.id && $0.text == item.text }) else { return }
+      onInsert(item.text)
+    }
+  }
+
   /// Send one local history item. The server's `enabled` flag is read first, so nothing goes up while the user has the cloud clipboard switched off on another device.
   func upload(_ text: String) {
-    guard canUpload else { return }
+    guard canUpload, let binding else { return }
     guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.utf16.count <= 4000,
           !text.contains("\0") else {
       notice = "这条记录超过 4000 字，不能发到云剪贴板。"
@@ -159,7 +201,7 @@ final class KeyboardCloudClipboard {
       var refreshed: State?
       var notice: String
       do {
-        if let page = try await service.uploadIfEnabled(text) {
+        if let page = try await service.uploadIfEnabled(text, matching: binding) {
           refreshed = .loaded(page.items)
           notice = "已发到云剪贴板"
         } else {
@@ -172,6 +214,11 @@ final class KeyboardCloudClipboard {
         notice = "没能发到云剪贴板：" + (failed.failureText ?? Self.signedOutMessage)
       }
       guard let self, self.active else { return }
+      guard await service.matches(binding) else {
+        self.uploading = false
+        self.refresh()
+        return
+      }
       self.uploading = false
       self.notice = notice
       if let refreshed {

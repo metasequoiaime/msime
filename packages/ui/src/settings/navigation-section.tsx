@@ -29,12 +29,12 @@ const harmonyPhoneNavigationOptions: [keyof NavigationPreferences, string][] = [
   ["brackets", "[ / ]"],
   ["arrows", "↑ / ↓"],
   ["tab", "Shift+Tab / Tab"],
-  ["page_up_down", "PageUp / PageDown"],
+  // 两列网格里放不下「PageUp / PageDown」，用键帽上常印的缩写，免得折成两行。
+  ["page_up_down", "PgUp / PgDn"],
 ];
 
-/** HarmonyOS 手机把 legend 画成单独一行、只有标题，下面是两列复选框网格，所以这个块去掉行内边距，改给 legend。 */
-const harmonyPhoneBlock =
-  "min-w-0 [&_legend]:mb-0 [&_legend]:box-border [&_legend]:flex [&_legend]:min-h-[var(--p-row-h)] [&_legend]:w-full [&_legend]:items-center [&_legend]:[padding:var(--p-row-pad)]";
+/** HarmonyOS 手机上外面的「翻页」组标题已经说明了这是什么，legend 只留给读屏，不再画成一行和组标题重复；两列复选框网格自己补上顶部留白。 */
+const harmonyPhoneBlock = "min-w-0 [&_legend]:sr-only [&>fieldset>div]:pt-3";
 
 const linuxWheelPagingNote =
   "鼠标滚轮：开启后在 IBus 候选窗口上滚动即翻页，关闭时滚轮不做任何事。Fcitx5 经典界面的滚轮翻页是 Fcitx5 自己的设置，开启或改回关闭后会同步写入，对 Fcitx5 中的所有输入法生效；从未开启过时沿用 Fcitx5 原有设置。";
@@ -43,7 +43,7 @@ export interface NavigationSectionProps {
   navigation: NavigationPreferences;
   wordCharacter: WordCharacterPreferences;
   linux: boolean;
-  /** HarmonyOS 手机的「候选栏」页以「外接键盘翻页键」承载翻页键：用设计的标签，没有鼠标滚轮，在只有标题的一行下面排成两列网格。 */
+  /** HarmonyOS 手机的「外接键盘快捷键」页以「外接键盘翻页键」承载翻页键：用设计的标签，没有鼠标滚轮，直接在「翻页」组里排成两列网格，legend 只给读屏。 */
   harmonyPhone?: boolean;
   onChange: (next: {
     navigation: NavigationPreferences;
@@ -51,7 +51,7 @@ export interface NavigationSectionProps {
   }) => void;
 }
 
-/** 共用的候选翻页设置及其与以词定字的互斥：输入页「选词与翻页」组里以词定字之后的部分；HarmonyOS 手机上放在候选栏页的「翻页」组。 */
+/** 共用的候选翻页设置及其与以词定字的互斥：输入页「选词与翻页」组里以词定字之后的部分；HarmonyOS 手机上放在「外接键盘快捷键」页的「翻页」组。 */
 export function NavigationSection({
   navigation,
   wordCharacter,

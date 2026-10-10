@@ -51,6 +51,13 @@ public final class NineKeyLayout {
     /** 计算器顺序：7 8 9 在上。 */
     public static final String CALCULATOR_ORDER = "calculator";
 
+    /** 共享偏好里 26 键按「123」切到的数字层。 */
+    public static final String TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY = "touch_twenty_six_key_number_layout";
+    /** 一行（默认）：新设计的 123 层，1 到 0 排成一行，下面是符号行。 */
+    public static final String ROW_NUMBER_LAYOUT = "row";
+    /** 九宫格：和拼音九键数字键面同一个键面（左侧符号栏、3×3 数字、右列删除 / 小数点 / 0）。 */
+    public static final String NINE_KEY_NUMBER_LAYOUT = "nine_key";
+
     private NineKeyLayout() {}
 
     public static List<List<Key>> rows() { return ROWS; }
@@ -63,6 +70,28 @@ public final class NineKeyLayout {
     /** 当前键面要画的三行：字母键面始终是 1 2 3 在上（ABC 在第一行），只有数字键面跟 `touch_number_keypad_order` 走。 */
     public static List<List<Key>> rows(boolean digits, boolean calculator) {
         return digits && calculator ? CALCULATOR_ROWS : ROWS;
+    }
+
+    /** 偏好值是不是九宫格；缺省和不认识的值按一行。 */
+    public static boolean nineKeyNumberLayout(String value) {
+        return NINE_KEY_NUMBER_LAYOUT.equals(value);
+    }
+
+    /**
+     * 26 键的数字层此刻是否画成九键数字键面，而不是新设计的 123 层。
+     *
+     * <p>只有字母层是 26 个 QWERTY 键的界面才算：标准 26 键（全拼、双拼、五笔、英文、日文罗马字、粤拼、越南语、藏文）和韩文两套式。拼音九键本来就是九键数字键面；手写、笔画和注音 9 键的字母层是网格，大千注音的数字和标点键另有用途，日语九键自带数字层，这些都不受这个偏好影响。平板横屏画成分离式键盘时仍用 123 层：分离的意义是两半各贴一侧给拇指，三列网格铺满整个宽度反而两只手都够不着中间。
+     *
+     * @param touchLayout {@link KeyboardLayout} 的界面常量（英文模式下已经是 26 键）
+     * @param symbols 当前是不是数字符号层
+     * @param nineKeyNumberLayout 偏好 {@link #TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY} 选的是九宫格
+     * @param splitKeyboard 正在画分离式键盘（{@link SplitKeyboardPolicy#drawn}）
+     */
+    public static boolean twentySixKeyDigits(int touchLayout, boolean symbols, boolean nineKeyNumberLayout,
+                                             boolean splitKeyboard) {
+        return symbols && nineKeyNumberLayout && !splitKeyboard
+            && (touchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT
+                || touchLayout == KeyboardLayout.KOREAN_LAYOUT);
     }
     public static List<String> punctuation() { return PUNCTUATION; }
 

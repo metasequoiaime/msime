@@ -11,6 +11,7 @@ import signal
 import stat
 import sys
 import subprocess
+import tempfile
 import time
 
 
@@ -19,11 +20,9 @@ MAX_CONFIGURATION_BYTES = 1024 * 1024
 # 4000 UTF-16 units occupy at most 12000 UTF-8 bytes.
 MAX_TEXT_BYTES = 12000
 WATCH_RETRY_DELAY = 30
+# 合成器不提供 data-control 协议时，wl-clipboard 的 `wl-paste --watch` 一启动就在 stderr 写下含这段文字的一行并以状态 1 退出（2.2 起是 "Watch mode requires a compositor that supports the data-control protocol"，更早是 "... wlroots data-control protocol"；编译时没带该协议的是 "wl-clipboard was built without support for the data-control protocol"）。
+WAYLAND_NO_DATA_CONTROL = b"data-control protocol"
 POLL_INTERVAL = 0.75
-# wl-paste --watch is not available on Mutter's native Wayland clipboard. A
-# failed watcher must not turn the fallback into the 750ms focus-changing
-# probe that caused GNOME Shell input focus churn.
-WAYLAND_WATCH_FAILURE_POLL_INTERVAL = 5
 
 
 def history_text(data, complete):
@@ -92,9 +91,8 @@ def read_command(args):
 
 
 def clipboard_text():
+    # 监视器自己读剪贴板只走 X11（Wayland 会话里即 XWayland），从不调用 `wl-paste`。Wayland 上的变化由 `wl-paste --watch` 推送，数据经标准输入交给 `--capture-event`，用不到这里；需要靠这里轮询的 Wayland 会话，恰恰是合成器不提供 data-control 协议（GNOME/Mutter）、`--watch` 起不来的那种，而在那里 `wl-paste` 只能临时建一个窗口抢走键盘焦点才读得到剪贴板，每读一次都会打断前台应用里输入法的预编辑，并让 gnome-shell 刷 `meta_window_set_stack_position_no_sync` 断言（#6514）。Mutter 会把 Wayland 剪贴板同步到 XWayland 的 CLIPBOARD，经 X11 读取不涉及焦点。
     commands = []
-    if os.environ.get("WAYLAND_DISPLAY"):
-        commands.append(["wl-paste", "--no-newline", "--type", "text"])
     if os.environ.get("DISPLAY"):
         native = Path(__file__).resolve().parent / "msime-linux-clipboard-watch-x11"
         if native.is_file():
@@ -132,6 +130,14 @@ def capture_event(options, capture):
                 subprocess.run([str(capture), str(directory)], input=text.encode("utf-8"),
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
             return
+
+
+def wayland_lacks_data_control(returncode, errors):
+    """已退出的 `wl-paste --watch` 是否是因为合成器不提供 data-control 而起不来。`errors` 是它的 stderr 所写的文件。崩溃、被信号杀掉（returncode 为负）、连不上合成器都不算，这些照旧过 WATCH_RETRY_DELAY 再试。"""
+    if returncode <= 0:
+        return False
+    errors.seek(0)
+    return WAYLAND_NO_DATA_CONTROL in errors.read(4096)
 
 
 def stop_watch(process):
@@ -176,9 +182,12 @@ def main():
     signal.signal(signal.SIGTERM, terminate)
     last = None
     watcher = None
+    watcher_kind = None
     retry_watch = 0
-    next_poll = 0
+    # `wl-paste --watch` 报告合成器不提供 data-control 协议（见 `wayland_lacks_data_control`）后，本轮不再起它，改用 X11 监听（Wayland 会话里即 XWayland）；关闭剪贴板历史时清除，重新开启后再试一次。别的退出不设它，照旧 30 秒后重起 `wl-paste --watch`。
     wayland_watch_failed = False
+    # `wl-paste --watch` 的 stderr 写进这个文件，退出后据它判断原因；每次启动前清空。用文件而不用管道：它活着的时候没人读，`--watch` 起的子进程也继承这个 stderr，管道写满会把它们卡住。
+    watch_errors = tempfile.TemporaryFile()
     try:
         while True:
             try:
@@ -186,43 +195,49 @@ def main():
                 if directory is None:
                     stop_watch(watcher)
                     watcher = None
+                    watcher_kind = None
                     last = None
-                    next_poll = 0
                     wayland_watch_failed = False
                 else:
                     if watcher is not None and watcher.poll() is not None:
-                        returncode = watcher.returncode
+                        failed = watcher_kind == "wayland" and wayland_lacks_data_control(watcher.returncode, watch_errors)
                         stop_watch(watcher)
                         watcher = None
-                        now = time.monotonic()
-                        retry_watch = now + WATCH_RETRY_DELAY
-                        wayland_watch_failed = bool(os.environ.get("WAYLAND_DISPLAY")) and returncode != 0
-                        next_poll = now
-                    if (watcher is None and time.monotonic() >= retry_watch and
-                            os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-paste")):
-                        watcher = subprocess.Popen(
-                            ["wl-paste", "--type", "text", "--watch", sys.executable,
-                             str(Path(__file__).resolve()), "--capture-event", str(args.options)],
-                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, start_new_session=True)
+                        watcher_kind = None
+                        if failed and not wayland_watch_failed:
+                            wayland_watch_failed = True
+                            # 立即换 X11 监听，不等重试间隔。
+                            retry_watch = 0
+                            fallback = ("改经 XWayland 读取剪贴板" if os.environ.get("DISPLAY")
+                                        else "且没有 X11 显示，暂停采集剪贴板")
+                            print(f"msime-linux-clipboard-monitor: wl-paste --watch 不可用（合成器不支持 wlr-data-control），{fallback}",
+                                  file=sys.stderr, flush=True)
+                        else:
+                            retry_watch = time.monotonic() + WATCH_RETRY_DELAY
+                    wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
                     x11_watch = Path(__file__).resolve().parent / "msime-linux-clipboard-watch-x11"
-                    if (watcher is None and time.monotonic() >= retry_watch and
-                            not os.environ.get("WAYLAND_DISPLAY") and os.environ.get("DISPLAY") and
-                            x11_watch.is_file()):
-                        watcher = subprocess.Popen([str(x11_watch)], stdin=subprocess.DEVNULL,
-                                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                                   start_new_session=True)
+                    if watcher is None and time.monotonic() >= retry_watch:
+                        if wayland and not wayland_watch_failed and shutil.which("wl-paste"):
+                            watch_errors.seek(0)
+                            watch_errors.truncate()
+                            watcher = subprocess.Popen(
+                                ["wl-paste", "--type", "text", "--watch", sys.executable,
+                                 str(Path(__file__).resolve()), "--capture-event", str(args.options)],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=watch_errors, start_new_session=True)
+                            watcher_kind = "wayland"
+                        elif ((not wayland or wayland_watch_failed) and os.environ.get("DISPLAY") and
+                              x11_watch.is_file()):
+                            watcher = subprocess.Popen([str(x11_watch)], stdin=subprocess.DEVNULL,
+                                                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                                       start_new_session=True)
+                            watcher_kind = "x11"
                     changed = False
                     if watcher is not None and watcher.stdout is not None:
                         if select.select([watcher.stdout], [], [], 0)[0]:
                             changed = bool(os.read(watcher.stdout.fileno(), 4096))
-                    # Event mode also captures an explicit copy of identical text.
-                    # Systems without a usable watcher retain bounded polling.
-                    # Wayland watcher failures use a slower fallback because each
-                    # wl-paste read can steal focus from the active input method.
-                    poll_due = (watcher is None and
-                                (not wayland_watch_failed or time.monotonic() >= next_poll))
-                    if poll_due or changed:
+                    # 事件模式下再次复制相同文本也会采集；没有可用监听时退回有界轮询，轮询只经 X11 读取（见 `clipboard_text`）。
+                    if watcher is None or changed:
                         text = clipboard_text()
                         identity = (str(directory), text)
                         # Reading the selection can block while runtime options
@@ -237,15 +252,11 @@ def main():
                                 last = identity
                         elif text is None:
                             last = None
-                        if watcher is None and wayland_watch_failed:
-                            next_poll = time.monotonic() + WAYLAND_WATCH_FAILURE_POLL_INTERVAL
             except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
                 stop_watch(watcher)
                 watcher = None
-                now = time.monotonic()
-                retry_watch = now + WATCH_RETRY_DELAY
-                next_poll = now
-                wayland_watch_failed = bool(os.environ.get("WAYLAND_DISPLAY"))
+                watcher_kind = None
+                retry_watch = time.monotonic() + WATCH_RETRY_DELAY
                 last = None
             if watcher is not None and watcher.stdout is not None:
                 select.select([watcher.stdout], [], [], POLL_INTERVAL)
