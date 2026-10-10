@@ -77,7 +77,10 @@ const SHUANGPIN_PROFILES = ["xiaohe", "ziranma", "shoudao", "microsoft"];
 // `input.wubi_schema` 是本地 `wubi_profile` 在云端的名字，只在 `input.schema` 为 `wubi` 时有意义；其它值一律拒绝。
 const WUBI_PROFILES = ["wubi86", "wubi98"];
 const FREQUENCY_MODES = ["disabled", "pin", "halve", "linear", "promote"];
-const LAYOUTS = ["twenty_six_key", "nine_key", "handwriting"];
+// 下载时认得的 `touch_keyboard_layout` 取值；不在这里的取值（更新的版本加的布局）只跳过这个键，不拒绝整份文档。
+const LAYOUTS = ["twenty_six_key", "nine_key", "handwriting", "fourteen_key"];
+// 本版上传的布局。全拼 14 键先不上传：旧版鸿蒙读到 `fourteen_key` 会拒收整份文档，而上传是把本机的键盖在云端快照上，省略这个键等于保留云端原值；写成 `twenty_six_key` 则会把同账号的其他设备切回 26 键。
+const UPLOADED_LAYOUTS = ["twenty_six_key", "nine_key", "handwriting"];
 // The seven global theme ids the shared layer accepts; any other id, a retired skin id included, is refused rather than mapped.
 const GLOBAL_THEMES = ["system", "shuishan", "light", "paper", "night", "ink", "custom"];
 // What a custom theme may be drawn over: the platform tokens or a built-in theme, never `custom` itself.
@@ -375,11 +378,6 @@ export function localAccountPreferences(
     "input.paired_punctuation": flag(member(preferences, "paired_punctuation"), true),
     "input.wubi_code_hint": flag(member(preferences, "wubi_code_hint"), true),
     "input.wubi_auto_commit_unique": flag(member(preferences, "wubi_auto_commit_unique"), true),
-    "platform.harmony.keyboard_layout": enumerated(
-      member(preferences, "touch_keyboard_layout"),
-      LAYOUTS,
-      "twenty_six_key",
-    ),
     "platform.harmony.global_theme": enumerated(
       member(preferences, "global_theme"),
       GLOBAL_THEMES,
@@ -442,6 +440,13 @@ export function localAccountPreferences(
       "medium",
     ),
   };
+  // 缺少或损坏的布局按默认的 26 键上传；认得却不上传的（14 键）和不认得的布局都省略这个键，保留云端原值。
+  const layout = member(preferences, "touch_keyboard_layout");
+  if (typeof layout !== "string") {
+    settings["platform.harmony.keyboard_layout"] = "twenty_six_key";
+  } else if (UPLOADED_LAYOUTS.includes(layout)) {
+    settings["platform.harmony.keyboard_layout"] = layout;
+  }
   if (!(typeof scheme === "string" && LOCAL_ONLY_SCHEMES.includes(scheme))) {
     // 本机文档里的方案认不出时按本版本的默认方案上传（full 是全拼）。
     const fallback: string = SCHEMES.includes(edition.defaultScheme)
@@ -603,8 +608,9 @@ export function applyAccountPreferences(
   const wubiAutoCommitUnique = reader.boolean("input.wubi_auto_commit_unique");
   if (wubiAutoCommitUnique !== null) preferences.wubi_auto_commit_unique = wubiAutoCommitUnique;
 
+  // 不认得的布局（更新的版本加的）只跳过这个键，本机布局不变，其余设置照常生效。
   const layout = reader.text("platform.harmony.keyboard_layout");
-  if (layout !== null) preferences.touch_keyboard_layout = choose(layout, LAYOUTS);
+  if (layout !== null && LAYOUTS.includes(layout)) preferences.touch_keyboard_layout = layout;
   const globalTheme = reader.text("platform.harmony.global_theme");
   if (globalTheme !== null) preferences.global_theme = choose(globalTheme, GLOBAL_THEMES);
   // The custom theme is one nested record; its synced parts are written onto a copy so the ones the account does not carry (the candidate colour pickers) stay as they were.

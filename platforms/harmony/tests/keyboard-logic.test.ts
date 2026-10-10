@@ -11886,6 +11886,30 @@ group("the account settings sync maps this host's document, not another's", () =
     retired["platform.harmony.global_theme"] === "system",
     "a retired skin id is never uploaded",
   );
+  check(
+    sparse["platform.harmony.keyboard_layout"] === "twenty_six_key",
+    "an absent layout uploads as the default 26-key",
+  );
+  // 14 键这一版先不上传：省略这个键等于保留云端原值，写成 26 键会把同账号的其他设备切回去。
+  for (const layout of ["fourteen_key", "future_layout"]) {
+    const omitted = localAccountPreferences(
+      { scheme: "quanpin", touch_keyboard_layout: layout },
+      syncFeedback,
+    );
+    check(
+      !("platform.harmony.keyboard_layout" in omitted) && omitted["input.schema"] === "quanpin",
+      `a local ${layout} layout is left out of the upload rather than rewritten`,
+    );
+    const merged = mergeAccountPreferences(
+      { revision: 2, settings: { "platform.harmony.keyboard_layout": "nine_key" } },
+      omitted,
+      fullPreferenceSchema(),
+    );
+    check(
+      merged.settings["platform.harmony.keyboard_layout"] === "nine_key",
+      `so the cloud keeps its layout when this device is on ${layout}`,
+    );
+  }
 });
 
 group("uploading keeps what other devices wrote", () => {
@@ -12277,6 +12301,35 @@ group("applying writes only what the schema declares", () => {
     check(kept.preferences.scheme === "wubi", `an unknown scheme ${unknown} keeps the local one`);
     check(kept.preferences.learning === false, `and the rest of the sync applies past ${unknown}`);
   }
+
+  // 布局同理：14 键照常写入，不认得的布局只跳过这个键，不拒绝整份文档。
+  const fourteen = applyAccountPreferences(
+    { ...local, touch_keyboard_layout: "nine_key" },
+    { revision: 1, settings: { "platform.harmony.keyboard_layout": "fourteen_key" } },
+    schema,
+    syncFeedback,
+  );
+  check(
+    fourteen.preferences.touch_keyboard_layout === "fourteen_key",
+    "a cloud fourteen_key layout is written",
+  );
+  const futureLayout = applyAccountPreferences(
+    { ...local, touch_keyboard_layout: "nine_key" },
+    {
+      revision: 1,
+      settings: { "platform.harmony.keyboard_layout": "future_layout", "input.learning": false },
+    },
+    schema,
+    syncFeedback,
+  );
+  check(
+    futureLayout.preferences.touch_keyboard_layout === "nine_key",
+    "an unknown layout keeps the local one",
+  );
+  check(
+    futureLayout.preferences.learning === false,
+    "and the rest of the sync applies past the unknown layout",
+  );
 
   let refusedMismatch = false;
   try {
