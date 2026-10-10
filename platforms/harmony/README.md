@@ -268,6 +268,8 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 验证看的是打出来的包而不是源文件——`$media:` 解析不到时会被丢掉而不是报错。解包 `module.json` 后两个元素都带着 `"iconId": 16777217`，说明引用真的解析到了资源。`scripts/test-harmony-manifest.py` 现在查这三件事：模块级重复键、mainElement 有没有 icon、桌面入口有没有 icon，外加包里 `icon` 有没有对应的 `iconId`。对着改之前的清单跑，三条全报。
 
+桌面图标用分层图标 `$media:app_icon_layered`（`AppScope/resources/base/media/app_icon_layered.json`）：背景层 `app_icon_background.png` 是 1024×1024 的 `#252525`，与 Android 经典图标的 `app_icon_field` 同色；前景层 `app_icon_foreground.png` 是 `app_icon.png` 缩到 640 居中，四周留给桌面的圆角遮罩。只有 `app.json5` 和桌面入口 `EntryAbility` 用它；`app_icon.png` 本身是透明底，直接给桌面时圆角方块外透出壁纸，看起来没有底板，而键盘里的品牌键、输入模式提示和启动窗仍按普通图片用它，输入法列表那枚也照旧。
+
 ## 日语数字层的第十二格：从死键变成括号键
 
 假名格的第十二格是 `小゛゜`（把刚输入的假名变成小写／浊音／半浊音）。切到数字层之后键不再产生假名，这个后置修饰符就没有东西可修饰——`JapaneseVariantPolicy.enabled` 里那个 `!symbols` 让它在整个数字层恒为停用，于是那一格是死的。来源把这个空出来的格子给了括号：`setDigits(true)` 时键面变 `（）`、读作 `括弧`、始终可用，按下给出八个括号。这些括号在这套布局上没有别的落点。

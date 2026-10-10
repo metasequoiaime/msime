@@ -4,7 +4,7 @@
     "vendor": "metasequoiaime",
     "versionCode": 2000,
     "versionName": "0.2.0",
-    "icon": "$media:app_icon",
+    "icon": "$media:app_icon_layered",
     "label": "$string:app_name"
   }
 }
