@@ -4,10 +4,7 @@ package app.msime.android;
 /**
  * Whether a configured transcription provider can be used here, and what to send it.
  *
- * <p>The shared layer resolves the provider, endpoint, model and token from the settings document
- * and validates them before they reach this host, so nothing here re-derives a default. What is
- * left is the part that belongs to the transport: which request formats this host can actually
- * send, and how each body is assembled. 共享层随配置给出请求格式（`requestFormat`），这里只按格式挑请求构造，不按 provider 名字判断。
+ * <p>共享层从设置文档解析出 provider、接口地址、模型和密钥，并在交给本宿主之前校验过，所以这里不再推导任何默认值。剩下的是属于传输层的部分：本宿主实际能发哪些请求格式，以及每种请求体怎么拼。共享层随配置给出请求格式（`requestFormat`），这里只按格式挑请求构造，不按 provider 名字判断。
  *
  * <p>`doubao` is the streaming WebSocket protocol and is not implemented here yet. It is reported
  * as unsupported rather than failed, because the caller's answer to "unsupported" is to use the

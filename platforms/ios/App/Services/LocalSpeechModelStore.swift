@@ -27,7 +27,7 @@ struct LocalSpeechHotword: Codable, Equatable, Sendable {
   let pinyin: String
 }
 
-/// Install progress as the host reports it: `stage` is download, verify, extract or done, and import instead of download when installing from local files.
+/// 宿主报告的安装进度：`stage` 是 download、verify、extract 或 done；从本地文件安装时用 import 代替 download。
 struct LocalSpeechInstallProgress: Decodable, Equatable, Sendable {
   let id: String
   let stage: String
@@ -55,7 +55,7 @@ enum LocalSpeechModelStore {
     return try JSONDecoder().decode(Catalog.self, from: data)
   }
 
-  /// Downloads, verifies and installs `id` under `root`, returning the model directory. `progress` is called on the calling thread. 给了 `files` 时不联网，改用这些本地文件安装（按长度和 SHA-256 认文件，`mirror` 不用）；调用方要在整个调用期间保持对它们的访问权。
+  /// 下载、校验并把 `id` 安装到 `root` 下，返回模型目录。`progress` 在调用线程上回调。给了 `files` 时不联网，改用这些本地文件安装（按长度和 SHA-256 认文件，`mirror` 不用）；调用方要在整个调用期间保持对它们的访问权。
   static func install(root: URL, id: String, mirror: String, files: [URL]? = nil,
                       progress: @escaping (LocalSpeechInstallProgress) -> Void) throws -> URL {
     var object: [String: Any] = ["root": root.path, "id": id, "mirror": mirror]

@@ -268,7 +268,7 @@ std::string encode_wav(const std::vector<float> &samples) {
   return wav;
 }
 
-// The transcript in an OpenAI-style answer: `text`, then `transcription`, then `result.text`, then `choices[0].message.content` (chat_audio), whichever is a non-empty string first. write_response has already bounded the body to 1 MiB.
+// 从 OpenAI 风格的回答里取识别文字：依次看 `text`、`transcription`、`result.text`、`choices[0].message.content`（chat_audio），取第一个非空字符串。write_response 已把回答体限制在 1 MiB 以内。
 std::string parse_transcription(const std::string &response) {
   nlohmann::json json;
   try {

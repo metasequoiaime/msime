@@ -211,7 +211,7 @@ pub struct LocalModelImportFile {
 /// Install progress. `downloaded`/`total` are archive bytes: received while downloading, consumed while extracting.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct InstallProgress {
-    /// `download`, `verify`, `extract` or `done`; installing from local files reports `import` where a download would report `download`.
+    /// 取值为 `download`、`verify`、`extract` 或 `done`；从本地文件安装时，下载阶段报成 `import`。
     pub stage: &'static str,
     pub downloaded: u64,
     pub total: u64,

@@ -37,8 +37,7 @@ MAX_AUDIO = 20 * 1024 * 1024
 MAX_PACTL_OUTPUT = 1024 * 1024
 MAX_PIPEWIRE_OUTPUT = 8 * 1024 * 1024
 MAX_VOLUME_OUTPUT = 4096
-# Polishing is chat completions, so it takes the batch transcription set minus the
-# transcription-only services, plus DeepSeek; recognition additionally has Doubao.
+# 润色走 Chat Completions，所以取整句识别服务集合，去掉只做识别的服务，再加上 DeepSeek；识别另外还有豆包。
 ASR_PROVIDERS = {"openai", "groq", "siliconflow", "everyapi", "mistral", "bailian"}
 POLISH_PROVIDERS = (ASR_PROVIDERS - {"everyapi", "mistral", "bailian"}) | {"deepseek"}
 ASR_PROVIDERS = ASR_PROVIDERS | {"doubao"}

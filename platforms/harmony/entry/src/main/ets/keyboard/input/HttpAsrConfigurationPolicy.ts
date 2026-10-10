@@ -12,7 +12,7 @@ export const HTTP_ASR_MULTIPART: string = "multipart";
 /** Chat Completions 带 `input_audio` 的 JSON 请求（阿里云百炼），回答在 `choices[0].message.content`。 */
 export const HTTP_ASR_CHAT_AUDIO: string = "chat_audio";
 
-/** Resolves and validates every batch transcription preset. */
+/** 解析并校验所有整句识别预设。 */
 export class HttpAsrConfigurationPolicy {
   static supported(provider: string): boolean {
     return HttpAsrConfigurationPolicy.requestFormat(provider).length > 0;
