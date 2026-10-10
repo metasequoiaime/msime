@@ -7346,6 +7346,19 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   // With its Hanja list open a Korean syllable has candidates, and the candidate block below takes the keys as it does for any list; so does a Zhuyin conversion with its list open.
   const bool koreanHanjaList = msime::linux_host::korean_hanja_list_open(view_);
   const bool openedList = msime::linux_host::opened_candidate_list(view_);
+  // 与 Windows（korean_hanja_key）、macOS 和 IBus 一致：候选列表打开时组字里没有光标，四个方向键都移高亮（←↑ 上一个、→↓ 下一个），不看导航开关。
+  if (composing && openedList &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt, fcitx::KeyState::Shift,
+                                       fcitx::KeyState::Super, fcitx::KeyState::Hyper, fcitx::KeyState::Meta,
+                                       fcitx::KeyState::Mod5})) {
+    switch (sym) {
+    case FcitxKey_Left: case FcitxKey_KP_Left: case FcitxKey_Up: case FcitxKey_KP_Up:
+      return command(MSIME_PREVIOUS_CANDIDATE);
+    case FcitxKey_Right: case FcitxKey_KP_Right: case FcitxKey_Down: case FcitxKey_KP_Down:
+      return command(MSIME_NEXT_CANDIDATE);
+    default: break;
+    }
+  }
   // 除此之外韩文音节没有候选。结束它的按键把它作为上屏交给应用，再在应用里做自己的事（转换结果为未处理），和所有韩文输入法一样；Esc 丢弃它，Backspace 退回一个字母。其他按键继续往下走：字母组字，数字或标点经运行时结束音节，其余按键在本函数末尾结束它。列表未打开的注音转换和越南文单词也这样结束。藏文音节串同样走这里，只是 Engine 吞掉结束它的空格和回车（空格带音节点上屏，回车只上屏藏文），转换结果为已处理，按键不再交给应用。
   if (composing && commitsOnBlur() && !openedList) {
     switch (sym) {

@@ -6607,6 +6607,16 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     // With its Hanja list open a Korean syllable has candidates, which the candidate keys below act on as for any list; so does a Zhuyin conversion with its list open.
     const bool korean_hanja_list = msime::linux_host::korean_hanja_list_open(s.view);
     const bool opened_list = msime::linux_host::opened_candidate_list(s.view);
+    // 与 Windows（korean_hanja_key）和 macOS 一致：候选列表打开时组字里没有光标，四个方向键都移高亮（←↑ 上一个、→↓ 下一个），不看导航开关。
+    if (opened_list && modifiers == 0 &&
+        (key == IBUS_Left || key == IBUS_KP_Left || key == IBUS_Up || key == IBUS_KP_Up ||
+         key == IBUS_Right || key == IBUS_KP_Right || key == IBUS_Down || key == IBUS_KP_Down)) {
+      const bool backwards = key == IBUS_Left || key == IBUS_KP_Left || key == IBUS_Up || key == IBUS_KP_Up;
+      s.paired_tracker.clear();
+      apply(engine, msime_client_command(s.session, backwards ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE));
+      handled = true;
+      return;
+    }
     if (key == IBUS_BackSpace || key == IBUS_Delete || key == IBUS_KP_Delete ||
         key == IBUS_Return || key == IBUS_KP_Enter || key == IBUS_Escape ||
         key == IBUS_Left || key == IBUS_KP_Left || key == IBUS_Right ||

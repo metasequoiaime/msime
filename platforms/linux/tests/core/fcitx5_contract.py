@@ -638,5 +638,12 @@ assert "edits_sentence(s.view) ? MSIME_CONVERSION_LEFT : MSIME_MOVE_LEFT" in ibu
 assert "edits_sentence(s.view) ? MSIME_CONVERSION_RIGHT : MSIME_MOVE_RIGHT" in ibus
 assert "(sentence ? (left ? MSIME_MOVE_LEFT : MSIME_MOVE_RIGHT)" in ibus
 assert "msime::linux_host::conversion_preedit(view)" in ibus
+# 候选列表打开（韩文汉字列表、注音列表）时，两个入口都与 Windows 的 korean_hanja_key 一样让四个方向键移高亮：←↑ 上一个、→↓ 下一个，不看导航开关。
+list_arrows = body(source, "  if (composing && openedList &&\n", "\n  }\n")
+assert "case FcitxKey_Left: case FcitxKey_KP_Left: case FcitxKey_Up: case FcitxKey_KP_Up:\n      return command(MSIME_PREVIOUS_CANDIDATE);" in list_arrows
+assert "case FcitxKey_Right: case FcitxKey_KP_Right: case FcitxKey_Down: case FcitxKey_KP_Down:\n      return command(MSIME_NEXT_CANDIDATE);" in list_arrows
+ibus_list_arrows = body(ibus, "    if (opened_list && modifiers == 0 &&\n", "\n    }\n")
+assert "backwards ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE" in ibus_list_arrows
+assert "key == IBUS_Up || key == IBUS_KP_Up;" in ibus_list_arrows
 
 print("Fcitx5 addon metadata passed")
