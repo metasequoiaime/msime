@@ -63,31 +63,68 @@ pub fn launch(program: &str, arguments: &[&str], check: Duration) -> bool {
     }
 }
 
-/// 命令在 `window` 内是否一直没有退出。到时仍在运行就结束并回收它，返回 `true`；起不来或提前退出（不论退出码）返回 `false`。用来探测只有在条件不满足时才会立即退出的常驻命令。
-pub fn stays_running(program: &str, arguments: &[&str], window: Duration) -> bool {
+/// 常驻命令在探测窗口内的结局，见 `probe_stays_running`。
+#[derive(Debug, PartialEq, Eq)]
+pub enum StartupProbe {
+    /// 到时仍在运行。
+    Running,
+    /// 窗口内自己退出了。`code` 是退出码，被信号结束时为 `None`；`stderr` 是它退出前写下的 stderr 开头（最多 `STARTUP_PROBE_STDERR_BYTES` 字节）。
+    Exited { code: Option<i32>, stderr: Vec<u8> },
+    /// 起不来（例如没装），或者等待它时出错。
+    Failed,
+}
+
+/// `probe_stays_running` 最多保留的 stderr 字节数，足够装下一条错误信息。
+pub const STARTUP_PROBE_STDERR_BYTES: usize = 4096;
+
+/// 运行一个常驻命令最多 `window`，看它是一直运行，还是提前退出、退出时说了什么。到时仍在运行就结束并回收它。用来探测只有在条件不满足时才会立即退出的常驻命令：调用方靠退出码和 stderr 区分「条件不满足」和一次偶然的失败。stderr 接到非阻塞管道，只在命令退出后读一次已写下的内容，不等 EOF：命令起的子进程可能继承这个 stderr 并一直开着它。
+pub fn probe_stays_running(program: &str, arguments: &[&str], window: Duration) -> StartupProbe {
     let Ok(mut child) = Command::new(program)
         .args(arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
     else {
-        return false;
+        return StartupProbe::Failed;
     };
+    let errors = child.stderr.take().filter(|errors| {
+        fcntl_getfl(errors)
+            .and_then(|flags| fcntl_setfl(errors, flags | OFlags::NONBLOCK))
+            .is_ok()
+    });
     let deadline = Instant::now() + window;
-    let running = loop {
+    let probe = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break false,
+            Ok(Some(status)) => {
+                let mut stderr = Vec::new();
+                if let Some(mut errors) = errors {
+                    let mut buffer = [0; STARTUP_PROBE_STDERR_BYTES];
+                    while stderr.len() < STARTUP_PROBE_STDERR_BYTES {
+                        let remaining = STARTUP_PROBE_STDERR_BYTES - stderr.len();
+                        match errors.read(&mut buffer[..remaining]) {
+                            Ok(0) => break,
+                            Ok(count) => stderr.extend_from_slice(&buffer[..count]),
+                            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                            Err(_) => break,
+                        }
+                    }
+                }
+                break StartupProbe::Exited {
+                    code: status.code(),
+                    stderr,
+                };
+            }
             Ok(None) if Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(10));
             }
-            Ok(None) => break true,
-            Err(_) => break false,
+            Ok(None) => break StartupProbe::Running,
+            Err(_) => break StartupProbe::Failed,
         }
     };
     let _ = child.kill();
     let _ = child.wait();
-    running
+    probe
 }
 
 /// Run a command with one path argument without requiring the path to be UTF-8.
@@ -308,21 +345,64 @@ mod tests {
     }
 
     #[test]
-    fn stays_running_distinguishes_an_early_exit() {
+    fn probe_stays_running_reports_how_the_command_ended() {
+        use super::{probe_stays_running, StartupProbe};
+
         let window = Duration::from_secs(2);
-        assert!(!super::stays_running("/bin/sh", &["-c", "exit 1"], window));
-        assert!(!super::stays_running("/bin/sh", &["-c", "exit 0"], window));
-        assert!(!super::stays_running(
-            "/nonexistent/msime-probe",
-            &[],
-            window
-        ));
+        assert_eq!(
+            probe_stays_running("/bin/sh", &["-c", "echo nope >&2; exit 1"], window),
+            StartupProbe::Exited {
+                code: Some(1),
+                stderr: b"nope\n".to_vec(),
+            }
+        );
+        assert_eq!(
+            probe_stays_running("/bin/sh", &["-c", "exit 0"], window),
+            StartupProbe::Exited {
+                code: Some(0),
+                stderr: Vec::new(),
+            }
+        );
+        // 被信号结束没有退出码。
+        assert_eq!(
+            probe_stays_running("/bin/sh", &["-c", "kill -9 $$"], window),
+            StartupProbe::Exited {
+                code: None,
+                stderr: Vec::new(),
+            }
+        );
+        // 退出后由它的子进程继续开着 stderr，也不会让探测等到 EOF。
         let started = std::time::Instant::now();
-        assert!(super::stays_running(
+        assert_eq!(
+            probe_stays_running(
+                "/bin/sh",
+                &["-c", "echo held >&2; sleep 5 & exit 1"],
+                window
+            ),
+            StartupProbe::Exited {
+                code: Some(1),
+                stderr: b"held\n".to_vec(),
+            }
+        );
+        assert!(started.elapsed() < Duration::from_secs(4));
+        // 只保留 stderr 的开头。
+        let StartupProbe::Exited { stderr, .. } = probe_stays_running(
             "/bin/sh",
-            &["-c", "sleep 5"],
-            Duration::from_millis(200)
-        ));
+            &["-c", "head -c 10000 /dev/zero >&2; exit 1"],
+            window,
+        ) else {
+            panic!("命令应当提前退出");
+        };
+        assert_eq!(stderr.len(), super::STARTUP_PROBE_STDERR_BYTES);
+        assert_eq!(
+            probe_stays_running("/nonexistent/msime-probe", &[], window),
+            StartupProbe::Failed
+        );
+        let started = std::time::Instant::now();
+        assert_eq!(
+            probe_stays_running("/bin/sh", &["-c", "sleep 5"], Duration::from_millis(200)),
+            StartupProbe::Running
+        );
         assert!(started.elapsed() < Duration::from_secs(4));
     }
 
