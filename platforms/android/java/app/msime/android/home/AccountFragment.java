@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.DrawablePolicy;
 import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.content.Intent;
@@ -262,7 +263,7 @@ public final class AccountFragment extends HomeTabFragment {
             }
         });
         if (real) {
-            ViewPolicy.setBackground(sync, Ui.ripple(context));
+            ViewPolicy.setBackground(sync, DrawablePolicy.ripple(context));
             ViewPolicy.setInteractive(sync, true);
             ViewPolicy.bindClick(sync, () -> setSync(!toggle.isChecked()));
         } else {

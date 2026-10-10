@@ -242,7 +242,7 @@ final class LoginSheet {
             return true;
         });
         TextView again = Ui.textButton(activity, "换个邮箱或重新发送", 14, 500,
-            ThemeColorPolicy.accent(activity), Ui.ripple(activity), 40, () -> {
+            ThemeColorPolicy.accent(activity), DrawablePolicy.ripple(activity), 40, () -> {
                 if (busy) return;
                 email.removeAllViews();
                 ViewPolicy.hide(status);

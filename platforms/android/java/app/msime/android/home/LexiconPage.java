@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.DrawablePolicy;
 import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.database.Cursor;

@@ -12,7 +12,6 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -338,19 +337,12 @@ public final class Ui {
         return new FrameLayout.LayoutParams(size, size, gravity);
     }
 
-    /** 主题的按压反馈（`selectableItemBackground`），行在代码里构造时用它。 */
-    @androidx.annotation.Nullable public static Drawable ripple(Context context) {
-        TypedValue value = new TypedValue();
-        if (!context.getTheme().resolveAttribute(androidx.appcompat.R.attr.selectableItemBackground, value, true)) return null;
-        return androidx.core.content.ContextCompat.getDrawable(context, value.resourceId);
-    }
-
-    /** 有底色的按压反馈：底色画在波纹下面，波纹裁在 `radiusPx` 的圆角里；底色透明时波纹照样可见。 */
     /** Create a pill-shaped press ripple with a fully rounded mask. */
     public static Drawable pillRipple(Context context, @ColorInt int fill) {
         return rippleOn(context, fill, 9999f);
     }
 
+    /** Create a theme ripple over a rounded fill and mask. */
     public static Drawable rippleOn(Context context, @ColorInt int fill, float radiusPx) {
         int pressed = ColorPolicy.withAlpha(ThemeColorPolicy.text(context), 0.10f);
         return DrawablePolicy.ripple(pressed, DrawablePolicy.rounded(fill, radiusPx),
@@ -544,7 +536,7 @@ public final class Ui {
         button.setImageDrawable(icon);
         ImageViewPolicy.setTint(button, tint);
         button.setScaleType(ImageView.ScaleType.CENTER);
-        ViewPolicy.setBackground(button, ripple(context));
+        ViewPolicy.setBackground(button, DrawablePolicy.ripple(context));
         button.setContentDescription(description);
         bindClick(button, action);
         int size = dp(context, sizeDp);
@@ -596,7 +588,7 @@ public final class Ui {
 
     /** Apply the standard ripple and keyboard-accessible click behavior to a view. */
     public static void makeClickable(View view, Context context, Runnable action) {
-        ViewPolicy.setBackground(view, ripple(context));
+        ViewPolicy.setBackground(view, DrawablePolicy.ripple(context));
         bindClick(view, action);
     }
 

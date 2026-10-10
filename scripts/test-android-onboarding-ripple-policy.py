@@ -14,11 +14,11 @@ ONBOARDING = HOME / "OnboardingActivity.java"
 def main() -> int:
     errors = []
     ui = UI.read_text(encoding="utf-8")
-    if "public static Drawable ripple(Context context)" not in ui:
-        errors.append(f"{UI}: 缺少共享主题按压反馈")
+    if "public static Drawable ripple(Context context)" in ui:
+        errors.append(f"{UI}: 不应保留主题按压反馈转发")
 
     onboarding = ONBOARDING.read_text(encoding="utf-8")
-    if "ViewPolicy.setBackground(button, Ui.ripple(this));" not in onboarding:
+    if "ViewPolicy.setBackground(button, DrawablePolicy.ripple(this));" not in onboarding:
         errors.append(f"{ONBOARDING}: 操作按钮未复用 Ui.ripple")
 
     for path in HOME.glob("*.java"):

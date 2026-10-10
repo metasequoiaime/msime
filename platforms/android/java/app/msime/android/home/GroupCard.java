@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.DrawablePolicy;
 import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.view.MotionEvent;
@@ -106,7 +107,7 @@ public final class GroupCard {
             onChange.accept(control.isChecked());
         });
         ViewPolicy.setInteractive(row.view, true);
-        ViewPolicy.setBackground(row.view, Ui.ripple(context));
+        ViewPolicy.setBackground(row.view, DrawablePolicy.ripple(context));
         row.view.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
                 super.onInitializeAccessibilityNodeInfo(host, info);
@@ -249,7 +250,7 @@ public final class GroupCard {
         }
 
         private void setAction(@Nullable Runnable action) {
-            ViewPolicy.setBackground(view, action == null ? null : Ui.ripple(view.getContext()));
+            ViewPolicy.setBackground(view, action == null ? null : DrawablePolicy.ripple(view.getContext()));
             ViewPolicy.setInteractive(view, action != null);
             ViewPolicy.bindOptionalClick(view, action);
             ViewPolicy.setEnabledWithAlpha(view, action != null, 0.38f);
