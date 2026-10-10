@@ -12,13 +12,9 @@ import app.msime.android.CloudClipboardApi;
 import app.msime.android.R;
 import app.msime.android.ViewPolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.concurrent.Callable;
+import app.msime.android.CloudClipboardTimePolicy;
 
 /**
  * 云剪贴板：主开关与保留时长一张卡，下面是「最近」列表（文本、置顶 · 设备 · 时间，行尾置顶与删除），右上角「清空」。
@@ -257,23 +253,7 @@ public final class CloudClipboardPage extends DetailPage {
 
     /** 刚刚、N 分钟前、N 小时前、昨天，再早就写月日。读不出时间时为空。 */
     static String relative(String timestamp) {
-        Instant then;
-        try {
-            then = Instant.parse(timestamp);
-        } catch (DateTimeParseException malformed) {
-            return "";
-        }
-        Instant now = Instant.now();
-        long minutes = Duration.between(then, now).toMinutes();
-        if (minutes < 1) return "刚刚";
-        if (minutes < 60) return minutes + " 分钟前";
-        ZoneId zone = ZoneId.systemDefault();
-        LocalDate day = then.atZone(zone).toLocalDate();
-        LocalDate today = now.atZone(zone).toLocalDate();
-        if (day.equals(today)) return (minutes / 60) + " 小时前";
-        if (day.equals(today.minusDays(1))) return "昨天";
-        if (day.getYear() == today.getYear()) return day.getMonthValue() + " 月 " + day.getDayOfMonth() + " 日";
-        return day.getYear() + " 年 " + day.getMonthValue() + " 月 " + day.getDayOfMonth() + " 日";
+        return CloudClipboardTimePolicy.relative(timestamp);
     }
 
     private void setEnabled(boolean enabled) {
