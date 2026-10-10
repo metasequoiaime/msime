@@ -24,9 +24,7 @@ int main()
     assert(helpcode_schema_label("") == "蓝天小雨点");
     assert(helpcode_schema_label("sogou") == "蓝天小雨点");
 
-    // Seven schemes, and no two of them share a name or an identifier - the IBus property list keys
-    // its radio items by identifier and shows the label, so a duplicate in either column would make
-    // two entries that cannot be told apart.
+    // 七套方案，名字和标识都不能重复：IBus 的属性列表按标识区分单选项、显示的是名字，任一列重复都会出现两项分不清的条目。
     static_assert(kHelpcodeSchemaNames.size() == 7);
     std::set<std::string_view> values;
     std::set<std::string_view> labels;

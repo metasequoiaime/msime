@@ -554,10 +554,10 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
 
 #[derive(Args)]
 struct Wubi86Helpcode {
-    /// The table to write (msime's resources/helpcodes/wubi86_helpcode.txt).
+    /// 要写出的码表（msime 的 `resources/helpcodes/wubi86_helpcode.txt`）。
     #[arg(long)]
     out: PathBuf,
-    /// The msime checkout the sources lock is read from.
+    /// 读取来源锁文件（`resources/dictionary-sources.lock.json`）的 msime checkout。
     #[arg(long, default_value_os_t = repository_root())]
     repository: PathBuf,
     /// 读取 `sources/wubi/wubi86-jidian.txt` 的 msime-dictionary checkout（按其 `upstream.lock.json` 校验）。
