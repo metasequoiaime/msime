@@ -258,6 +258,31 @@ test("the desktop home card keeps the full keyboard", async () => {
   expect(keys).toContain("Tab");
 });
 
+// 触屏宿主的键盘就是三排字母加一排功能键：设置页在根部声明宿主的键盘布局，没写 `layout` 的预览（键盘页、皮肤编辑器、社区皮肤详情等）都按它画，不会在手机上画出 Win、Alt、Caps Lock。
+test.each([
+  ["harmony", { mobile_settings: true }],
+  ["android", {}],
+])("a %s keyboard page previews the touch keyboard", async (platform, host) => {
+  renderSettings(platform, host, "screen-keyboard");
+  await settingsFormReady();
+  const keys = Array.from(document.querySelectorAll("[data-keyboard-key]")).map((key) =>
+    key.getAttribute("data-keyboard-key"),
+  );
+  expect(keys.length).toBeGreaterThan(0);
+  expect(keys).not.toContain("Caps Lock");
+  expect(keys).not.toContain("Win");
+  expect(keys).not.toContain("Tab");
+});
+
+test("a desktop keyboard page keeps the full keyboard", async () => {
+  renderSettings("windows", {}, "screen-keyboard");
+  await settingsFormReady();
+  const keys = Array.from(document.querySelectorAll("[data-keyboard-key]")).map((key) =>
+    key.getAttribute("data-keyboard-key"),
+  );
+  expect(keys).toContain("Caps Lock");
+});
+
 test("the phone home surface hides its duplicate page heading", async () => {
   renderSettings("android");
   await settingsFormReady();

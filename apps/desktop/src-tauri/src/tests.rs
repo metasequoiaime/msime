@@ -681,6 +681,11 @@ fn ios_voice_batch_configuration_covers_everyapi_and_mistral() {
             "https://api.mistral.ai/v1/audio/transcriptions",
             "voxtral-mini-latest",
         ),
+        (
+            "bailian",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            "qwen3-asr-flash",
+        ),
     ] {
         let mut preferences = msime_client_core::preferences::Preferences::default();
         preferences.voice_input.asr_provider = provider.into();
@@ -697,6 +702,14 @@ fn ios_voice_batch_configuration_covers_everyapi_and_mistral() {
         assert_eq!(configuration.endpoint, endpoint);
         assert_eq!(configuration.model, model);
         assert_eq!(configuration.token, "synthetic-slot");
+        assert_eq!(
+            configuration.request_format,
+            if provider == "bailian" {
+                "chat_audio"
+            } else {
+                "multipart"
+            }
+        );
         // Only Doubao carries request headers; a batch provider that grew any would be
         // sending something the multipart transport never validated.
         assert!(configuration.headers.is_empty());

@@ -3758,6 +3758,79 @@ impl InputEngine for DigitCommitsEngine {
     }
 }
 
+/// 每页十个时数字键 0 选第十个；每页不到十个时 0 不是选词键，照旧交回宿主，和改动前一样。#6679
+#[test]
+fn zero_picks_the_tenth_candidate_only_on_a_page_of_ten() {
+    let words: Vec<String> = (1..=12).map(|index| format!("词{index}")).collect();
+    let type_h = |runtime: &mut Runtime<Fixture>| {
+        runtime
+            .dispatch(Action::Character {
+                value: b'h',
+                shift: false,
+            })
+            .unwrap();
+    };
+    let zero = Action::Character {
+        value: b'0',
+        shift: false,
+    };
+
+    let mut runtime = Runtime::new(
+        Fixture {
+            local_mode: "none".into(),
+            words: words.clone(),
+            ..Fixture::default()
+        },
+        10,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    type_h(&mut runtime);
+    assert_eq!(runtime.view().candidates.len(), 10);
+    let picked = runtime.dispatch(zero).unwrap();
+    assert!(picked.handled);
+    assert_eq!(picked.commit.as_deref(), Some("词10"));
+
+    let mut runtime = Runtime::new(
+        Fixture {
+            local_mode: "none".into(),
+            words,
+            ..Fixture::default()
+        },
+        9,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    type_h(&mut runtime);
+    let passed = runtime
+        .dispatch(Action::Character {
+            value: b'0',
+            shift: false,
+        })
+        .unwrap();
+    assert!(!passed.handled);
+    assert!(passed.commit.is_none());
+    assert_eq!(runtime.view().candidates.len(), 9);
+}
+
+#[test]
+fn page_size_accepts_one_to_ten() {
+    assert!(matches!(
+        Runtime::new(Fixture::default(), 0),
+        Err(RuntimeError::InvalidPageSize)
+    ));
+    assert!(matches!(
+        Runtime::new(Fixture::default(), 11),
+        Err(RuntimeError::InvalidPageSize)
+    ));
+    let mut runtime = Runtime::new(Fixture::default(), 10).unwrap();
+    assert!(runtime.set_page_size(10).is_ok());
+    assert!(matches!(
+        runtime.set_page_size(11),
+        Err(RuntimeError::InvalidPageSize)
+    ));
+}
+
 /// A digit the Engine already answered with a commit is not also a page selection: selecting would replace the commit, and the text it carried - a Korean syllable - would be lost.
 #[test]
 fn a_digit_that_already_committed_is_not_also_a_selection() {

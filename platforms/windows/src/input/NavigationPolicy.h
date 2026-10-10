@@ -17,24 +17,38 @@ struct NavigationBindings {
   bool page_up_down = false;
   bool arrows = false;
   bool mouse_wheel = false;
+  // 组字时 ';' 和 '\'' 选第二、第三个候选（偏好 `second_third_candidate`）。和翻页键一样是候选列表上的键，所以随这份快照一起交给按键路由；规则见 SecondThirdCandidatePolicy.h。
+  bool second_third_candidate = false;
 };
 struct NavigationAction {
   std::optional<uint32_t> command;
   NavigationReply reply;
 };
+// 共享偏好的 `second_third_candidate`：整个对象缺省（关闭时不写进文档）为关闭，缺字段时取 client-core 的默认值。键位名不认识时拒绝整份偏好，和以词定字一样，不会悄悄换成别的键。
+inline bool preference_second_third_candidate(const nlohmann::json &preferences) {
+  if (!preferences.contains("second_third_candidate"))
+    return false;
+  const auto &value = preferences.at("second_third_candidate");
+  if (value.value("keys", std::string("semicolon_quote")) != "semicolon_quote")
+    throw std::invalid_argument("Invalid shared second and third candidate keys");
+  return value.value("enabled", false);
+}
 // Decode once per publication; no file reads or JSON parsing on the key path.
 inline NavigationBindings
 preference_navigation(const nlohmann::json &preferences) {
-  if (!preferences.contains("navigation"))
-    return {true, true, false, true, true, true, false};
-  const auto &value = preferences.at("navigation");
-  return {value.at("minus_equal").get<bool>(),
-          value.at("comma_period").get<bool>(),
-          value.at("brackets").get<bool>(),
-          value.at("tab").get<bool>(),
-          value.at("page_up_down").get<bool>(),
-          value.at("arrows").get<bool>(),
-          value.value("mouse_wheel", false)};
+  NavigationBindings bindings{true, true, false, true, true, true, false};
+  if (preferences.contains("navigation")) {
+    const auto &value = preferences.at("navigation");
+    bindings = {value.at("minus_equal").get<bool>(),
+                value.at("comma_period").get<bool>(),
+                value.at("brackets").get<bool>(),
+                value.at("tab").get<bool>(),
+                value.at("page_up_down").get<bool>(),
+                value.at("arrows").get<bool>(),
+                value.value("mouse_wheel", false)};
+  }
+  bindings.second_third_candidate = preference_second_third_candidate(preferences);
+  return bindings;
 }
 inline std::optional<NavigationAction>
 navigation_action(const FanyImeNamedpipeData &packet,

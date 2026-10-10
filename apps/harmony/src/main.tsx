@@ -954,6 +954,8 @@ function localVoiceModelClient(native: NativeBridge): LocalVoiceModelClient {
   return {
     list: () => request<LocalVoiceModelList>({ operation: "list" }),
     install: (id) => request<string>({ operation: "install", id }, 6 * 60 * 60 * 1000),
+    // 等用户在系统选择器里选文件，再复制和解压几百 MB，期限和下载一样放宽。
+    import: (id) => request<string | null>({ operation: "import", id }, 6 * 60 * 60 * 1000),
     cancel: (id) => request<boolean>({ operation: "cancel", id }),
     remove: async (id) => {
       await request<null>({ operation: "remove", id });

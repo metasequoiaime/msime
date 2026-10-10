@@ -71,9 +71,9 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 外接硬件键盘的退格、左右方向、Home、End 和 Forward Delete 通过 `HardwareKeyPolicy` 映射到共享 Engine 的 0/4/5/6/7/8 命令；组字或候选状态由 Engine 处理，空闲时返回给编辑器。Ctrl/Alt/Meta 组合键仍交给系统快捷键，不把宿主命令抢走。这样 Android 的物理键盘不会复制一套编辑状态机，也不会把前删错误地当成普通退格。
 
-用实体键盘打字时键盘收起成候选条（#5584，`HardwareKeyboardModePolicy`）：一次来自非虚拟、字母型键盘设备的按下就进入这个模式，键行、功能行和单手侧栏整行收起，只留顶部一行——空闲时是工具栏，组词时是候选条，候选前面标上数字行选词用的 1–9（`number_row_selection` 关着或英文直输时不标）。工具栏最右的收起键在这时朝上，点它回到完整的软键盘，下一次实体键盘打字时再收起（系统「显示虚拟键盘」关着时，挪光标、换输入框也不会把它收回去，直到键盘拔掉或重新接上）；配置报告键盘拔掉或合上（`Configuration.keyboard` / `hardKeyboardHidden` 从有到无）时也退出。打开工具栏面板、展开候选、调整键盘高度或手写时键盘临时展开，关上后回到候选条。只凭配置报告接着键盘不会收起：有的平板常驻报告 QWERTY，打开系统「使用实体键盘时显示虚拟键盘」的用户也明确要软键盘。反过来，那个系统开关关着时系统不显示输入法窗口，组词的候选就无处可看，所以 `onEvaluateInputViewShown` 对走引擎的输入框照样允许显示窗口，但直接进入候选条模式；窗口被系统收着时，实体键盘打出组词后用 `requestShowSelf` 把候选条叫出来。密码、数字这类不走引擎的输入框照系统的意思。
+用实体键盘打字时键盘收起成候选条（#5584，`HardwareKeyboardModePolicy`）：一次来自非虚拟、字母型键盘设备的按下就进入这个模式，键行、功能行和单手侧栏整行收起，只留顶部一行——空闲时是工具栏，组词时是候选条，候选前面标上数字行选词用的 1–9，每页十个候选时第十个标 0（`number_row_selection` 关着或英文直输时不标）。工具栏最右的收起键在这时朝上，点它回到完整的软键盘，下一次实体键盘打字时再收起（系统「显示虚拟键盘」关着时，挪光标、换输入框也不会把它收回去，直到键盘拔掉或重新接上）；配置报告键盘拔掉或合上（`Configuration.keyboard` / `hardKeyboardHidden` 从有到无）时也退出。打开工具栏面板、展开候选、调整键盘高度或手写时键盘临时展开，关上后回到候选条。只凭配置报告接着键盘不会收起：有的平板常驻报告 QWERTY，打开系统「使用实体键盘时显示虚拟键盘」的用户也明确要软键盘。反过来，那个系统开关关着时系统不显示输入法窗口，组词的候选就无处可看，所以 `onEvaluateInputViewShown` 对走引擎的输入框照样允许显示窗口，但直接进入候选条模式；窗口被系统收着时，实体键盘打出组词后用 `requestShowSelf` 把候选条叫出来。密码、数字这类不走引擎的输入框照系统的意思。
 
-共享 `number_row_selection` 开启时，硬件键盘数字行 1–9 选择当前候选页对应槽位；选择仍携带 Engine 返回的 session、generation 和候选 index，候选过期或当前没有该槽位时按键交回编辑器。英文、密码和直接输入不抢数字键，关闭偏好也立即恢复系统行为。
+共享 `number_row_selection` 开启时，硬件键盘数字行 1–9 选择当前候选页对应槽位，每页十个候选时 0 选第十个；选择仍携带 Engine 返回的 session、generation 和候选 index，候选过期或当前没有该槽位时按键交回编辑器。英文、密码和直接输入不抢数字键，关闭偏好也立即恢复系统行为。
 
 硬件键盘快捷键消费共享 `keybindings`：Shift+Space、Ctrl+Alt+Space 和单击 Shift/Ctrl 可切换中英，Ctrl+Shift+F 切换简繁，Alt+Shift+H 切换全角输入；每个开关都按偏好即时生效。修饰键单击只有在 600 ms 内且期间没有按下其他键时才触发，组合键优先于普通编辑器快捷键；不匹配或关闭的快捷键继续交给 Android/编辑器。触屏键盘的 Shift 和“简/繁”按钮仍走各自原生路径。
 
@@ -84,6 +84,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 “符”入口按 Apple 的整屏符号面板适配为 Android 原生面板：常用、中文、英文、数字、网络五类使用左侧分类和右侧五列滚动网格，底部提供返回、删除和锁定连续输入。这五类之后是颜文字（每行两个）和形状、箭头、标点、数学、货币、爱心、字母、游戏、文化、自然、人物、更多十二类符号，内容不写在宿主里，而是打开分类时在表情目录的工作线程上经 `msime_client_emoji_catalog_request`（`category` 为 `kaomoji` 或 `symbols`，后者带 `parent`）从随包的 `msime-others.db` 每次读 64 条，滚到底再读下一页，与 iOS 键盘和桌面面板是同一份数据；颜文字不记进「常用」。打开前先由 Engine 完成组合；符号通过普通 `InputConnection` 以本地输入来源上屏，未锁定时插入一个后回到键盘，锁定时可连续输入。「常用」不是写死的表，而是用户在面板里实际点过的符号，最近点的在前、最多 30 个，只存在本机的 `android-symbol-recents`；隐私模式和不许个性化学习的输入框不记。还没有记录时面板打开在「中文」，原先写在「常用」里的中文标点也在「中文」最前面。分类、网格数量、使用记录和锁定行为由无 Android 依赖的 `SymbolPanelModel` 验证，宿主只负责 View 与触摸反馈。
 
 编辑器上下文按固定 Apple 来源的边界适配 Android `inputType`：URI、邮箱、密码和明确禁用建议的字段临时进入英文输入，允许 Engine 的字段使用 dedicated English 模式，敏感字段继续绕过 Engine；离开后恢复进入前的中英状态，同一字段内用户通过“中/英”手动切换后，输入重启回调不会再次覆盖。英文模式始终展示完整 26 键，即使底层方案为九键或手写；数字和标点会在完成英文组合后由宿主直接提交，空格会完成候选并保留实际空格。`TYPE_TEXT_FLAG_CAP_CHARACTERS`、`CAP_WORDS` 和 `CAP_SENTENCES` 分别映射为全大写、单词首字母和句首自动大写，URI/邮箱强制关闭；规则只读取最多 128 个光标前字符并在内存中即时判断，不记录或持久化编辑器内容。缺失上下文安全回退为关闭自动 Shift。
+
+「键盘」设置里的「中英键轮换其他语言」（本机设置 `platform.android.language_key_cycle`，默认关，#6648）打开后，点按「中/英」键按「中 → 英 → 已添加的其他语言键盘 → 中」轮换：其他语言按启用顺序，每种语言只停一次（日语 9 键和 26 键都添加了时，取与当前中文键盘同为 9 键或 26 键的那个），之后切回进入其他语言之前用的中文键盘；停在其他语言上时键面写那种语言的字（あ、한、越、藏）。日语九键侧列的语言键也按同一轮换走，键面写下一站。没有添加其他语言时、以及实体键盘的中英快捷键和 Shift 进英文，仍只切中英。逻辑在 `LanguageKeyCyclePolicy`。
 
 长按「中/英」键弹出系统的输入法选择框（`InputMethodManager.showInputMethodPicker`），用来临时换到密码管理器之类的键盘（#5615）；日语九键侧列的「英」、以及只在 Android 9 以下才出现的地球键「切换」长按效果相同，读屏把这个长按动作念作「切换输入法」。密码框等没有引擎会话的输入框里点按「中/英」不起作用（键画淡、读屏念「中英切换暂不可用」，点按没有反馈），但这个键保持可用，否则禁用的按钮收不到长按，恰好是最需要换键盘的密码框里打不开选择框。弹出选择框时不结束组字，真的换了输入法时由 `onFinishInput` 照常收尾。
 
@@ -153,7 +155,7 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 非英文目标语言（fr、ja、es、ru、de、ko）的离线释义来自 `scripts/build_offline_glosses.py` 生成的 `zh-<lang>.db`。`build-apk.sh` 与 `build-client-apk.sh` 在 `target/offline-glosses`（或 `MSIME_OFFLINE_GLOSSES` 指定的目录）同时有数据库和 `offline-glosses-NOTICE.txt` 时把它们打进 `assets/offline-glosses/`，没有则照常构建；瘦包（`MSIME_ANDROID_OMIT_ON_DEMAND=1`）不打包它们，用户打开离线释义时下载资源包 `offline-glosses`（`resources/offline-glosses.lock.json`），host-api 先找资源目录旁随包的文件，再找资源包，请求里要带 `state_root` 才会去找资源包。每次打开 MSIME 应用时 `Bootstrap.prepare` 都会检查（已有运行配置也一样）：安装包的 `lastUpdateTime` 变化时把它们解压到资源目录旁的 `files/bootstrap/offline-glosses/`，不含它们的新包会清掉旧文件；这一步不属于已校验的运行配置，失败只影响非英文释义。同一个 `candidate_english_gloss` 开关控制它们；已安装词典的目标语言按用户的目标顺序与英文释义、账号翻译逐候选合并，离线释义优先，账号翻译只补离线没有的行。日文方案与临时日文模式不请求其他语言释义，与账号路径一致；韩语方案的汉字候选与中文候选一样请求非英文离线释义和账号翻译（共享翻译查询现在为韩语作答）。
 
-辅助码表不在词库发布里，由仓库自带在 `resources/helpcodes/`：`build-apk.sh` 与 `build-client-apk.sh` 把六套表连同来源声明（`NOTICE.md`、`NOTICE-jiajia.md`）打进 `assets/helpcodes/`。`Bootstrap.prepare` 每次安装包变化后把它们逐个原子替换到 `files/bootstrap/resources/helpcodes/`，Engine 就在资源目录下的这个子目录读辅助码表；共享校验放行真实的 `helpcodes/` 目录，所以首次安装之前就已准备好的配置也在升级后拿到它们，用户自己放进 `helpcodes/custom/` 的表不动。
+辅助码表不在词库发布里，由仓库自带在 `resources/helpcodes/`：`build-apk.sh` 与 `build-client-apk.sh` 把七套表连同来源声明（`NOTICE.md`、`NOTICE-jiajia.md`、`NOTICE-wubi86.md`）打进 `assets/helpcodes/`。`Bootstrap.prepare` 每次安装包变化后把它们逐个原子替换到 `files/bootstrap/resources/helpcodes/`，Engine 就在资源目录下的这个子目录读辅助码表；共享校验放行真实的 `helpcodes/` 目录，所以首次安装之前就已准备好的配置也在升级后拿到它们，用户自己放进 `helpcodes/custom/` 的表不动。
 
 触屏键盘和候选栏跟随共享的全局主题 `global_theme`：跟随系统、水杉、浅色、纸白、夜青、墨和自定义，顺序与标题都来自 `msime_client_theme_catalog`，本端不保存主题表。键盘颜色每次由 `msime_client_resolve_theme` 解析，请求带 `layout: "horizontal"`，不带 `skins_directory` 与 `package`（Android 不读取皮肤根目录，自定义主题的外部候选皮肤包因此不参与绘制）。跟随系统绘制设计稿的 Material 3 键盘：浅色底 `#E6EAE2`、白色字母键、`#CFE9D6` 功能键、`#2C7A4B` 强调色，深色一套对应取值；内置主题的明暗固定，解析结果里为空的槽位回落到 Material 3 取值。`screen_keyboard_theme`、`emoji_theme`、`handwriting_theme` 与 `candidate_theme` 各自决定该面板的明暗，`follow` 继承 `theme`，`theme` 为 `system` 时读取 Android 夜间模式。键盘内选择通过共享 revision CAS 写入 `global_theme`，失败恢复最近一次已接受的主题；设置热更新只重新应用视觉样式，不重建 Engine 会话。解析失败时绘制 Material 3 键盘，不把用户设置值当作颜色或资源名直接使用。
 

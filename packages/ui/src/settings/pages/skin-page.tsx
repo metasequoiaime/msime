@@ -33,7 +33,6 @@ import { ThemeSettingsSection } from "../theme-settings-section";
 import { ScreenKeyboardSkinsSection } from "../screen-keyboard-skins-section";
 import { useSettingsForm } from "../settings-form-context";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
-import { CandidatePaletteFallbackNotice } from "../candidate-palette-fallback-notice";
 import { SkinPlatformNotice } from "../skin-platform-notice";
 import { ActionButton } from "../action-button";
 import { ThemeCarousel } from "../theme-carousel";
@@ -137,12 +136,15 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
   );
   const moreSkins = (
     <GroupList title="更多皮肤">
-      <ExternalSkinDirectoryRow
-        skins={skins}
-        scannable={!!client.scanSkinCatalog}
-        openable={!!client.openSkinDirectory}
-        importsSkin={importsSkin}
-      />
+      {/* 外部皮肤是候选窗口的皮肤文件夹（skin.toml 加图片），要在电脑上整理好再导入；手机上没有人会备好这样的文件夹，皮肤从下面的社区获取，所以手机不显示这一行。HarmonyOS 2in1 是桌面形态，照旧显示。 */}
+      {!mobilePlatform && (
+        <ExternalSkinDirectoryRow
+          skins={skins}
+          scannable={!!client.scanSkinCatalog}
+          openable={!!client.openSkinDirectory}
+          importsSkin={importsSkin}
+        />
+      )}
       {/* 桌面宿主在本页顶部的「社区皮肤」标签里浏览候选窗口皮肤，并从上面各自的卡片发布；这一行是手机进入「社区」标签里键盘皮肤图库的入口。 */}
       {mobilePlatform && client.communitySkins && (
         <ActionRow
@@ -171,19 +173,18 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
           }
         />
       )}
-      {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === false && (
-        <CandidatePaletteFallbackNotice />
+      {/* 候选颜色取色器作用于候选窗的配色。手机的触屏候选栏画的是键盘皮肤的颜色：Android 不读解析出的候选配色，HarmonyOS 手机的候选栏也取键盘调色板（只有 2in1 的候选窗用候选配色，见 KeyboardView.ets `candidateColors`），只有 iOS 在打开上面的「候选栏使用主题配色」后才读它们。所以手机上只在那个开关打开时显示取色器，其余时候它们改了也看不到效果；桌面和 HarmonyOS 2in1 照旧显示。选颜色会让主题变成自定义，叠在当时屏幕上的主题之上（见 `onCandidateColorChange`）。 */}
+      {(!mobilePlatform || mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === true) && (
+        <CandidateColorsSection
+          preferences={customColors}
+          previewTheme={candidatePreviewTheme}
+          showRowColors={showCandidateRowColors}
+          showSelectionAppearance={showCandidateSelectionAppearance}
+          showBorderColor={showCandidateBorderColor}
+          linux={linuxPlatform}
+          onChange={onCandidateColorChange}
+        />
       )}
-      {/* Choosing a colour makes the theme custom, over whatever theme was on screen (see `onCandidateColorChange`). */}
-      <CandidateColorsSection
-        preferences={customColors}
-        previewTheme={candidatePreviewTheme}
-        showRowColors={showCandidateRowColors}
-        showSelectionAppearance={showCandidateSelectionAppearance}
-        showBorderColor={showCandidateBorderColor}
-        linux={linuxPlatform}
-        onChange={onCandidateColorChange}
-      />
       {client.customTouchKeyboardSkins && (
         <ScreenKeyboardSkinsSection
           theme={keyboardPreviewTheme}
@@ -255,9 +256,9 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
               onApplied={(id) => void client.typingStatistics?.recordSkin?.(id)}
               onOpenAi={aiSkins && customSkinLibrary ? openAi : undefined}
             />
-            {/* 设计里这页没有设置行；颜色模式、皮肤目录和社区入口、自定义主题和各界面的单独设置仍可在「更多选项」下找到。 */}
+            {/* 设计里这页没有设置行；颜色模式、皮肤目录和社区入口、自定义主题和各界面的单独设置仍可在「更多选项」下找到。从「我的 → 社区作品 → 我的设计」进来时编辑器已经打开，它在这个折叠区里，所以折叠区一开始就展开，否则用户只看到网格。 */}
             <GroupList>
-              <MoreOptions>
+              <MoreOptions defaultOpen={showTouchSkinEditor}>
                 {colourMode}
                 {moreSkins}
                 {customThemeGroup}

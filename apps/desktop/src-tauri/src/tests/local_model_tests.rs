@@ -140,6 +140,14 @@ fn install_failures_map_to_the_codes_the_settings_page_knows() {
         ),
         (LocalModelError::InvalidMirror, "local_model_invalid_mirror"),
         (
+            LocalModelError::MissingImportFile("fixture.tar.bz2".into()),
+            "local_model_import_missing",
+        ),
+        (
+            LocalModelError::UnreadableImportFile("fixture.tar.bz2".into()),
+            "local_model_import_unreadable",
+        ),
+        (
             LocalModelError::Io(std::io::Error::other("fixture")),
             "local_model_io",
         ),

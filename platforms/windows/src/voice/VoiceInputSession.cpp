@@ -514,8 +514,10 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
       return refuse(voice_doubao_start_message);
     }
   }
-  const bool started = capture_->start([this, review](const float *samples,
-                                                      std::size_t frames) {
+  // 阿里云百炼（chat_audio）一次能上传的录音短得多（约 218 秒），录到它就结束并提交，和 macOS 一样，不让录满后整段被拒。
+  const std::size_t batch_limit = batch_capture_sample_limit_for(config.asr_provider);
+  const bool started = capture_->start([this, review, batch_limit](const float *samples,
+                                                                   std::size_t frames) {
     if (!samples || (!recording_.load() && !starting_.load()))
       return;
     double sum = 0.0;
@@ -551,8 +553,7 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
       return;
     }
     // A batch recording keeps what one upload can carry. When that is reached the recording finishes and submits it, as it does on macOS; maintain() calls stop(), which this capture thread must not.
-    const auto capture = voice_batch_capture(captured_frames_, frames,
-                                             voice_batch_sample_limit);
+    const auto capture = voice_batch_capture(captured_frames_, frames, batch_limit);
     samples_.insert(samples_.end(), samples, samples + capture.keep);
     captured_frames_ += capture.keep;
     if (capture.full)

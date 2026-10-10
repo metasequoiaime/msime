@@ -44,7 +44,7 @@ export class VoiceResponsePolicy {
     let text: string = "";
     try {
       const document: Record<string, Object> = JSON.parse(body) as Record<string, Object>;
-      const value: Object | undefined = document.text;
+      const value: Object | undefined = document.text ?? VoiceResponsePolicy.chatContent(document);
       text = VoiceRecognitionPolicy.result(typeof value === "string" ? (value as string) : "");
     } catch (error) {
       return { text: "", failure: "语音服务未返回有效识别结果。", last: true };
@@ -52,6 +52,16 @@ export class VoiceResponsePolicy {
     return text.length === 0
       ? { text: "", failure: "语音服务未识别到文字。", last: true }
       : { text: text, failure: "", last: true };
+  }
+
+  /** chat_audio 回答里的文字：`choices[0].message.content`；没有时为 undefined。 */
+  private static chatContent(document: Record<string, Object>): Object | undefined {
+    const choices: Object | undefined = document.choices;
+    if (!Array.isArray(choices) || choices.length === 0) return undefined;
+    const choice: Record<string, Object> | null = VoiceResponsePolicy.record(choices[0]);
+    const message: Record<string, Object> | null =
+      choice === null ? null : VoiceResponsePolicy.record(choice.message);
+    return message === null ? undefined : message.content;
   }
 
   /**

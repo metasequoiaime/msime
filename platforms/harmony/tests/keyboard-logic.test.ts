@@ -7307,7 +7307,7 @@ group("only a streaming provider gets the listening face, whose stop is a pause"
       `${provider || "the default"} streams words as they are heard`,
     );
   }
-  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral"]) {
+  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral", "bailian"]) {
     check(
       !VoiceRecordingBehaviourPolicy.streamsPartialResults({ ...base, asr_provider: provider }),
       `${provider} answers only after a stop, so it keeps 停止录音`,
@@ -7651,6 +7651,15 @@ group("a batch transcription reply is judged before it is parsed", () => {
   check(
     VoiceResponsePolicy.batchResult(200, JSON.stringify({ text: "" })).failure.length > 0,
     "an empty transcription says so rather than committing nothing",
+  );
+  const chat: VoiceOutcome = VoiceResponsePolicy.batchResult(
+    200,
+    JSON.stringify({ choices: [{ message: { role: "assistant", content: "百炼" } }] }),
+  );
+  check(chat.text === "百炼" && chat.failure === "", "a chat_audio reply is read from its message");
+  check(
+    VoiceResponsePolicy.batchResult(200, JSON.stringify({ choices: [] })).failure.length > 0,
+    "a chat reply without a choice is not a transcript",
   );
   // Judged on the raw body: a provider answering with a megabyte is not one to parse first.
   const huge: string = JSON.stringify({ text: "x".repeat(2 * 1024 * 1024) });
@@ -9782,19 +9791,30 @@ group("account native success envelopes require a value", () => {
 });
 
 group("account and cloud clipboard bridge keeps secrets native", () => {
-  const sessionFor = (id: string): string => JSON.stringify({
-    access_token: "a".repeat(64), refresh_token: "b".repeat(64),
-    token_type: "Bearer", expires_at: Date.now() + 600_000,
-    user: { id, display_name: "Synthetic", created_at: "2026-01-01" },
-  });
-  check(storedSessionUserId(sessionFor("old-account")) === "old-account",
-    "the keyboard sees the saved account owner");
-  check(storedSessionUserId(sessionFor("new-account")) === "new-account",
-    "a fresh read sees the replacement account");
-  check(storedSessionUserId(null) === null && storedSessionUserId("not json") === null,
-    "missing or malformed sessions have no owner");
-  check(storedSessionUserId(JSON.stringify({ user: { id: "forged" } })) === null,
-    "an unvalidated user id cannot own a snapshot");
+  const sessionFor = (id: string): string =>
+    JSON.stringify({
+      access_token: "a".repeat(64),
+      refresh_token: "b".repeat(64),
+      token_type: "Bearer",
+      expires_at: Date.now() + 600_000,
+      user: { id, display_name: "Synthetic", created_at: "2026-01-01" },
+    });
+  check(
+    storedSessionUserId(sessionFor("old-account")) === "old-account",
+    "the keyboard sees the saved account owner",
+  );
+  check(
+    storedSessionUserId(sessionFor("new-account")) === "new-account",
+    "a fresh read sees the replacement account",
+  );
+  check(
+    storedSessionUserId(null) === null && storedSessionUserId("not json") === null,
+    "missing or malformed sessions have no owner",
+  );
+  check(
+    storedSessionUserId(JSON.stringify({ user: { id: "forged" } })) === null,
+    "an unvalidated user id cannot own a snapshot",
+  );
   let oversizedCleared = false;
   const oversizedStore: AccountSessionStore = {
     load: () => "x".repeat(64 * 1024 + 1),
@@ -9988,24 +10008,36 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
 
 group("a rejected account session cancels its snapshot before clearing storage", () => {
   let saved: string | null = JSON.stringify({
-    access_token: "a".repeat(64), refresh_token: "b".repeat(64),
-    token_type: "Bearer", expires_at: Date.now() + 600_000,
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600_000,
     user: { id: "synthetic-owner", display_name: "Synthetic", created_at: "2026-01-01" },
   });
   const events: string[] = [];
   const store: AccountSessionStore & { beforeClear(accountId: string): void } = {
     load: () => saved,
-    save: (value: string) => { saved = value; },
-    beforeClear: (accountId: string) => { events.push(`cancel:${accountId}`); },
-    clear: () => { events.push("clear"); saved = null; },
+    save: (value: string) => {
+      saved = value;
+    },
+    beforeClear: (accountId: string) => {
+      events.push(`cancel:${accountId}`);
+    },
+    clear: () => {
+      events.push("clear");
+      saved = null;
+    },
   };
   const bridge = new AccountCloudBridge(
-    { request: async () => ({ status: 401, body: "{}" }) }, store,
+    { request: async () => ({ status: 401, body: "{}" }) },
+    store,
   );
   void bridge.handle('{"operation":"profile"}').then((reply) => {
     check(JSON.parse(reply).error === "account_unauthorized", "the refused session is rejected");
-    check(JSON.stringify(events) === '["cancel:synthetic-owner","clear"]',
-      "the snapshot owner is cancelled before the session disappears");
+    check(
+      JSON.stringify(events) === '["cancel:synthetic-owner","clear"]',
+      "the snapshot owner is cancelled before the session disappears",
+    );
     check(saved === null, "the refused session is removed");
   });
 });
@@ -14432,7 +14464,7 @@ group("a refused preferences write carries the code the page has a sentence for"
     "a stale revision is a conflict",
   );
   check(
-    PreferencesErrorCode.of("candidate page size must be between 1 and 9") === "invalid",
+    PreferencesErrorCode.of("candidate page size must be between 1 and 10") === "invalid",
     "an out-of-range page size is invalid",
   );
   check(
@@ -14695,6 +14727,51 @@ group("AI model catalogs filter capabilities and paginate safely", () => {
   check(
     AiModelCatalogPolicy.append([], { data: [{ id: "first" }, { id: "second" }] }, 1) === false,
     "the aggregate model bound is enforced across pages",
+  );
+});
+
+group("Harmony batch transcription picks the request by its format", () => {
+  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral"]) {
+    check(
+      HttpAsrConfigurationPolicy.requestFormat(provider) === "multipart",
+      `${provider} is a multipart upload`,
+    );
+  }
+  check(
+    HttpAsrConfigurationPolicy.requestFormat("bailian") === "chat_audio",
+    "Bailian is a chat completion with audio input",
+  );
+  check(
+    ["doubao", "local", "system", ""].every(
+      (provider: string) => HttpAsrConfigurationPolicy.requestFormat(provider) === "",
+    ),
+    "streaming, on-device and system recognition are not uploads",
+  );
+  const body = JSON.parse(HttpAsrConfigurationPolicy.chatAudioBody("qwen3-asr-flash", "UklGRg=="));
+  check(
+    body.model === "qwen3-asr-flash" &&
+      body.stream === false &&
+      body.messages.length === 1 &&
+      body.messages[0].role === "user" &&
+      body.messages[0].content[0].type === "input_audio" &&
+      body.messages[0].content[0].input_audio.data === "data:audio/wav;base64,UklGRg==",
+    "the chat body carries the recording as a data URL in one user message",
+  );
+  const bailian: VoiceInputConfiguration = {
+    ...DEFAULT_VOICE_INPUT_CONFIGURATION,
+    asr_provider: "bailian",
+    asr_endpoint: "",
+    asr_model: "",
+    asr_token: "",
+    asr_tokens: { bailian: "synthetic-bailian-key" },
+  };
+  check(
+    HttpAsrConfigurationPolicy.endpoint(bailian) ===
+      "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions" &&
+      HttpAsrConfigurationPolicy.model(bailian) === "qwen3-asr-flash" &&
+      HttpAsrConfigurationPolicy.token(bailian) === "synthetic-bailian-key" &&
+      HttpAsrConfigurationPolicy.valid(bailian),
+    "Bailian resolves to the DashScope compatible endpoint and can record",
   );
 });
 
@@ -16184,6 +16261,44 @@ group("LocalVoiceModelPolicy", () => {
     LocalVoiceModelPolicy.action('{"operation":"install","id":"sense-voice-small"}')?.id ===
       "sense-voice-small",
     "an install names its model",
+  );
+  check(
+    LocalVoiceModelPolicy.action('{"operation":"import","id":"sense-voice-small"}')?.operation ===
+      "import",
+    "an import names its model",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_import_missing: silero_vad.onnx") ===
+      "local_model_import_missing",
+    "a missing import file keeps its code and drops the file name",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_import_unreadable: permission denied") ===
+      "local_model_import_unreadable",
+    "an unreadable import file keeps its code",
+  );
+  const catalog = JSON.stringify({
+    ok: true,
+    value: {
+      models: [
+        { id: "x-asr-zh-en-streaming", import_files: [{ size: 133895136 }] },
+        { id: "sense-voice-small", import_files: [{ size: 163002883 }, { size: 643854 }, {}] },
+      ],
+    },
+  });
+  check(
+    LocalVoiceModelPolicy.importSizes(catalog, "sense-voice-small").join(",") ===
+      "163002883,643854",
+    "an import copies only files as long as one the model needs",
+  );
+  check(
+    LocalVoiceModelPolicy.importSizes(catalog, "unknown").length === 0 &&
+      LocalVoiceModelPolicy.importSizes("{", "sense-voice-small").length === 0 &&
+      LocalVoiceModelPolicy.importSizes(
+        JSON.stringify({ ok: false, error: "invalid local model root" }),
+        "sense-voice-small",
+      ).length === 0,
+    "an unknown model or an unreadable list copies nothing",
   );
   check(
     LocalVoiceModelPolicy.action('{"operation":"remove"}') === null &&
