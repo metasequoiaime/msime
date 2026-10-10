@@ -393,6 +393,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
         account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
         shared_account = (TAURI_ROOT / "src/platform/mobile/mobile_account_helpers.rs").read_text()
+        shared_dispatch = (TAURI_ROOT / "src/platform/cloud_dictionary.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
         bridge = (TAURI_ROOT / "../../../platforms/ios/App/Sources/dictionary/TauriDictionarySnapshotBridge.swift").read_text()
 
@@ -408,7 +409,8 @@ class IOSProjectConfigTests(unittest.TestCase):
             ".import_dictionary(",
             ".export_dictionary(",
         ]:
-            self.assertIn(method, shared_account)
+            self.assertIn(method, shared_dispatch)
+        self.assertIn("crate::platform::cloud_dictionary::account_request(state.session(), request)", shared_account)
         self.assertIn(
             'openCloudDictionary: async () => navigateMobilePanel("cloud-dictionary")',
             desktop_entry,
@@ -446,6 +448,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
         account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
         community = (TAURI_ROOT / "src/platform/mobile/mobile_community.rs").read_text()
+        resources = (TAURI_ROOT / "src/platform/community_resources.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
         mobile_services = (TAURI_ROOT.parent / "src/core/mobile-host-services.ts").read_text()
 
@@ -454,22 +457,30 @@ class IOSProjectConfigTests(unittest.TestCase):
             "mobile_community::community_skin_list",
             "mobile_community::community_skin_download",
             "mobile_community::ai_skin_generate",
-            "mobile_community::community_resource_list",
-            "mobile_community::community_resource_apply",
+            "community_resources::community_resource_list",
+            "community_resources::community_resource_apply",
+            "mobile_community::community_resource_store_reply",
         ]:
             self.assertIn(symbol, rust_entry)
         self.assertIn("MobileCommunityState::new(client, &session)", account)
         self.assertIn("app.manage(community);", account)
+        self.assertIn("CommunityResourceState::new(&session)", account)
+        self.assertIn("app.manage(resources);", account)
         for symbol in [
             "BackendCommunitySkinService",
-            "BackendCommunityResourceService",
             "BackendAiSkinService",
             "pub async fn community_skin_list",
             "pub async fn ai_skin_generate",
-            "pub async fn community_resource_list",
+            "pub async fn community_resource_store_reply",
             "CommunityResourceLibraryStore",
         ]:
             self.assertIn(symbol, community)
+        for symbol in [
+            "BackendCommunityResourceService",
+            "pub async fn community_resource_list",
+            "pub async fn community_resource_apply",
+        ]:
+            self.assertIn(symbol, resources)
         self.assertIn("createMobileHostServices", desktop_entry)
         self.assertIn("communitySkins:", mobile_services)
         self.assertIn("communityResources:", mobile_services)

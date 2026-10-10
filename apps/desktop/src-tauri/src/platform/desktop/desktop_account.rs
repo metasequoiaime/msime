@@ -52,8 +52,30 @@ pub(crate) fn manage(
             Arc::clone(&session),
         )),
     });
+    // 社区词包与回复模板目前只在 Windows 的设置应用里提供；macOS 由输入法自己的账号窗口提供，Linux 还没有接入。
+    #[cfg(target_os = "windows")]
+    app.manage(crate::platform::community_resources::CommunityResourceState::new(&session)?);
     app.manage(AccountState { session });
     Ok(())
+}
+
+/// 会话换了目录以后接管旧目录里的会话：`directory` 还没有 `account-session.json` 而 `legacy` 里有时，把旧文件搬过去，用户不用重新登录。两个目录在同一个卷上，搬动是一次改名。搬不动时什么也不做，用户看到的是未登录，重新登录即可。
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn adopt_legacy_session(legacy: &std::path::Path, directory: &std::path::Path) {
+    use msime_client_core::account::ACCOUNT_SESSION_FILE;
+    let source = legacy.join(ACCOUNT_SESSION_FILE);
+    let destination = directory.join(ACCOUNT_SESSION_FILE);
+    let regular_file = |path: &std::path::Path| {
+        std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
+    };
+    if legacy == directory
+        || std::fs::symlink_metadata(&destination).is_ok()
+        || !regular_file(&source)
+        || crate::shared::atomic_file::create_directory_and_check(directory).is_err()
+    {
+        return;
+    }
+    let _ = std::fs::rename(&source, &destination);
 }
 
 #[tauri::command]
@@ -216,4 +238,61 @@ pub async fn account_forget(
     state: tauri::State<'_, AccountState>,
 ) -> Result<(), crate::CommandError> {
     call_session(&state.session, |session| session.forget()).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::adopt_legacy_session;
+    use msime_client_core::account::ACCOUNT_SESSION_FILE;
+
+    #[test]
+    fn a_session_left_in_the_old_directory_moves_to_the_shared_one() {
+        let root = tempfile::tempdir().unwrap();
+        let legacy = root.path().join("app.msime.windows");
+        let shared = root.path().join("MSIME").join("account");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join(ACCOUNT_SESSION_FILE), b"synthetic-session").unwrap();
+
+        adopt_legacy_session(&legacy, &shared);
+
+        assert_eq!(
+            std::fs::read(shared.join(ACCOUNT_SESSION_FILE)).unwrap(),
+            b"synthetic-session"
+        );
+        assert!(!legacy.join(ACCOUNT_SESSION_FILE).exists());
+    }
+
+    #[test]
+    fn a_session_already_in_the_shared_directory_wins() {
+        let root = tempfile::tempdir().unwrap();
+        let legacy = root.path().join("app.msime.windows");
+        let shared = root.path().join("MSIME").join("account");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&shared).unwrap();
+        std::fs::write(legacy.join(ACCOUNT_SESSION_FILE), b"synthetic-old").unwrap();
+        std::fs::write(shared.join(ACCOUNT_SESSION_FILE), b"synthetic-current").unwrap();
+
+        adopt_legacy_session(&legacy, &shared);
+
+        assert_eq!(
+            std::fs::read(shared.join(ACCOUNT_SESSION_FILE)).unwrap(),
+            b"synthetic-current"
+        );
+        assert_eq!(
+            std::fs::read(legacy.join(ACCOUNT_SESSION_FILE)).unwrap(),
+            b"synthetic-old"
+        );
+    }
+
+    #[test]
+    fn without_an_old_session_nothing_is_created() {
+        let root = tempfile::tempdir().unwrap();
+        let legacy = root.path().join("app.msime.windows");
+        let shared = root.path().join("MSIME").join("account");
+        std::fs::create_dir_all(&legacy).unwrap();
+
+        adopt_legacy_session(&legacy, &shared);
+
+        assert!(!shared.exists());
+    }
 }

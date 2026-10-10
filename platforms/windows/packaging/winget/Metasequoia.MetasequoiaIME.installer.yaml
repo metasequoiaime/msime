@@ -18,7 +18,7 @@ InstallModes:
 InstallerSwitches:
   Silent: /SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
   SilentWithProgress: /SP- /SILENT /SUPPRESSMSGBOXES /NORESTART
-# 安装包就地升级并保留用户的数据目录；先卸载会删掉这个目录，因为卸载程序会删除它拥有的数据目录。
+# 安装包就地升级并保留用户的数据目录。先卸载再装也不丢数据（静默卸载默认保留数据目录），但就地升级不必停掉再重新注册输入法。
 UpgradeBehavior: install
 ElevationRequirement: elevatesSelf
 # 安装包不带这两样，静默安装缺了也照样继续（msime_setup.iss 的 InitializeSetup 只把缺的写进日志）。

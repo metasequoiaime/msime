@@ -1,6 +1,6 @@
-//! Where the library reports a failure it recovers from by itself: a sound or music pack that does not load, an audio device that does not open, a helpcode pack the Engine falls back from.
+//! 本库报告自行恢复的失败的地方：音效包或音乐包载入失败、音频设备打不开、Engine 回退了辅助码包。
 //!
-//! These used to go to stderr only. That is enough for Linux and Windows, where the host's stderr reaches a journal or a console, but the macOS input method is started by launchd with stderr on /dev/null, so a pack that failed left no trace anywhere and looked exactly like a plugin that does nothing. A host that keeps its own diagnostic log registers a sink with `msime_client_set_diagnostic_sink` and gets the same lines; without one they still go to stderr.
+//! 这些原先只写 stderr。Linux 宿主的 stderr 能进 journal 或终端，但 macOS 输入法由 launchd 启动、stderr 指向 /dev/null，Windows Server 在 Watchdog 下运行、stderr 也没人读，失败的包不留任何痕迹，看上去和一个不起作用的插件一模一样。有自己诊断日志的宿主用 `msime_client_set_diagnostic_sink` 登记出口，收到同样的行（macOS 输入法写 `diagnostic.log`，Windows Server 写 `logs\server.log`）；没登记时仍写 stderr。
 
 use std::ffi::{c_char, CString};
 use std::sync::atomic::{AtomicPtr, Ordering};

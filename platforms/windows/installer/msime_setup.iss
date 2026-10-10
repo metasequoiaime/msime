@@ -211,6 +211,8 @@ var
   { OtherEditionDataDirs 的缓存：安装和卸载期间别的版本的登记不会变。 }
   OtherEditionDataDirList: TArrayOfString;
   OtherEditionDataDirsLoaded: Boolean;
+  { 卸载时是否连数据目录一起删除，由 DecideUserDataRemoval 在 usUninstall 一开始决定。默认保留。 }
+  RemoveUserDataOnUninstall: Boolean;
 
 { WebView2 Runtime 与 VC 运行库都不随包分发：前者有自己的 Evergreen 更新通道，
   后者是系统级共享组件，安装器不该替用户装。但缺了任何一个，输入法装完就是坏的，
@@ -1354,10 +1356,65 @@ begin
   end;
 end;
 
+{ 选了删除数据时，一并删掉不在数据目录里的本用户数据：%LOCALAPPDATA%\<本版本的用户目录>\account 存着设置应用的登录会话（含刷新令牌）和本机匿名账号的密钥，%LOCALAPPDATA%\<Tauri 标识> 和 %APPDATA%\<Tauri 标识> 是设置应用自己的目录：前者是 Tauri 的 app_local_data_dir（旧版本的登录会话、词库快照暂存和 WebView2 数据），后者是 Tauri 的 app_data_dir（语音页下载的本机语音识别模型 voice-models，动辄几百 MB）。用户目录里的其余内容（使用统计的安装 id 与事件队列）不动，用户目录空了才删。与数据目录一样只在本次卸载的 Windows 用户下。 }
+procedure DeleteUserProfileData;
+var
+  UserDataDir: String;
+begin
+  UserDataDir := ExpandConstant('{localappdata}\{#MyEditionUserDataDir}');
+  TryDeleteTree(UserDataDir + '\account');
+  RemoveDir(UserDataDir);
+  TryDeleteTree(ExpandConstant('{localappdata}\{#MyEditionTauriIdentifier}'));
+  TryDeleteTree(ExpandConstant('{userappdata}\{#MyEditionTauriIdentifier}'));
+end;
+
+{ 卸载程序的命令行里有没有 Name 这个开关（不分大小写）。 }
+function UninstallSwitchGiven(const Name: String): Boolean;
+var
+  Index: Integer;
+begin
+  Result := False;
+  for Index := 1 to ParamCount do
+    if CompareText(ParamStr(Index), Name) = 0 then
+      Result := True;
+end;
+
+{ 卸载默认保留词库、学习记录和设置，重新安装后接着用，与 macOS 设置里卸载的默认一致（packages/ui/src/settings/uninstall-section.tsx）。/REMOVEDATA 连数据目录一起删，/KEEPDATA 保留，两个都给时保留。静默卸载（winget、Scoop、Chocolatey 都用 /VERYSILENT）不带开关时保留，不能停在看不见的对话框上；交互卸载不带开关时问一次，默认按钮是「否」。数据目录不归本安装器管（OwnsDataDir 为假）时本来就不删，也就不问。服务密钥在数据目录的 preferences.json 里，随数据目录一起留下或删除；本机登录的账号不在数据目录里，选了删除时由 DeleteUserProfileData 一并删掉。 }
+procedure DecideUserDataRemoval;
+var
+  DataDir: String;
+  ReinstallHint: String;
+begin
+  DataDir := ResolvePreviousDataDir;
+  { HKLM 的 DataDir 在卸载时删掉，重新安装只会自动接上默认位置；自定义位置要在「选择数据位置」里重新选（带所有权标记的非空目录会被接受），提示里写明，免得用户以为数据丢了。 }
+  if CompareText(DataDir, ExpandConstant('{localappdata}\{#MyEditionInstallDir}')) = 0 then
+    ReinstallHint := '选择「否」保留数据目录，重新安装后自动接着用：'
+  else
+    ReinstallHint := '选择「否」保留数据目录。它不在默认位置，重新安装时请在「选择数据位置」一步重新选它（或给安装包加 /DATADIR=），才能接着用：';
+  if (not OwnsDataDir(DataDir)) or UninstallSwitchGiven('/KEEPDATA') then
+    RemoveUserDataOnUninstall := False
+  else if UninstallSwitchGiven('/REMOVEDATA') then
+    RemoveUserDataOnUninstall := True
+  else if UninstallSilent then
+    RemoveUserDataOnUninstall := False
+  else
+    RemoveUserDataOnUninstall := SuppressibleMsgBox(
+      '是否同时删除词库、学习记录和设置？' + #13#10#13#10 +
+      ReinstallHint + #13#10 +
+      '   ' + DataDir + #13#10#13#10 +
+      '选择「是」将永久删除其中自己加的词、学习记录、设置、皮肤、剪贴板历史，以及语音、翻译和 AI 服务的密钥，并退出本机登录的水杉账号。',
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;
+  if RemoveUserDataOnUninstall then
+    Log('Removing the data directory ' + DataDir + ' on uninstall.')
+  else
+    Log('Keeping the data directory ' + DataDir + '.');
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
   begin
+    DecideUserDataRemoval;
     DeleteWatchdogLogonTask;
     StopImeProcesses;
   end
@@ -1378,8 +1435,10 @@ begin
     TryDeleteTree(ExpandConstant('{commonpf32}\{#MyEditionInstallDir}'));
     TryDeleteTree(ExpandConstant('{commonpf64}\{#MyEditionInstallDir}'));
     TryDeleteSystemVersionDirs('');
-    { 用 InitializeUninstall 缓存的路径：此时注册表里的 DataDir 已被删除。}
-    if OwnsDataDir(ResolvePreviousDataDir) then
+    { 用 InitializeUninstall 缓存的路径：此时注册表里的 DataDir 已被删除。只有用户选了删除（DecideUserDataRemoval）才删。}
+    if RemoveUserDataOnUninstall and OwnsDataDir(ResolvePreviousDataDir) then
       DeleteDataDir(ResolvePreviousDataDir, '');
+    if RemoveUserDataOnUninstall then
+      DeleteUserProfileData;
   end;
 end;

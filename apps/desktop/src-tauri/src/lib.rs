@@ -42,6 +42,10 @@ use panel_input::{send_panel_key_windows, send_panel_text_windows, windows_panel
 
 #[cfg(target_os = "android")]
 use platform::android::android_account;
+#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+use platform::community_resources;
+#[cfg(windows)]
+use platform::desktop::desktop_cloud_dictionary;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 use platform::desktop::{
     desktop_account, desktop_candidate_skin_community, desktop_community_report,
@@ -64,7 +68,7 @@ use platform::mobile::mobile_account_helpers::parse_cloud_dictionary_request;
 #[cfg(any(target_os = "ios", target_os = "android"))]
 use platform::mobile::mobile_community;
 #[cfg(windows)]
-use platform::windows::{windows_account, windows_voice};
+use platform::windows::{windows_account, windows_settings_sync, windows_voice};
 
 use msime_client_core::clipboard::ClipboardHistoryStore;
 use msime_client_core::host_surface::{HostCapabilities, HostPlatform, SurfaceRoute};
@@ -1288,6 +1292,7 @@ impl From<PreferencesError> for CommandError {
                 PreferencesError::ConflictingKeyBindings => "key_conflict",
                 PreferencesError::InvalidPlugins => "plugins_invalid",
                 PreferencesError::InvalidGameCompatibility => "game_compatibility_invalid",
+                PreferencesError::InvalidAppInputModeRules => "app_input_mode_rules_invalid",
                 PreferencesError::UnsupportedFormat | PreferencesError::Json(_) => "format",
                 _ => "storage",
             },
@@ -2320,10 +2325,21 @@ async fn cloud_dictionary_request(
         .map_err(|_| CommandError { code: "invalid" })?;
     msime_host_api::cloud_dictionary::validate_cloud_request(&request)
         .map_err(|_| CommandError { code: "invalid" })?;
-    let options = options.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        #[cfg(unix)]
-        {
+    // Windows 没有 provider socket，也没有输入法交来的原生会话：面板的每个请求都由设置应用用自己登录的账号会话完成，完整快照的「应用到本机」也在本进程里做（见 desktop_cloud_dictionary）。
+    #[cfg(not(unix))]
+    {
+        let _ = action;
+        let document = options.snapshot()?;
+        let account = app.state::<desktop_account::AccountState>();
+        let snapshots = app.state::<desktop_cloud_dictionary::CloudDictionaryState>();
+        desktop_cloud_dictionary::request(&account.session, snapshots.inner(), document, request)
+            .await
+    }
+    #[cfg(unix)]
+    {
+        let _ = request;
+        let options = options.inner().clone();
+        tauri::async_runtime::spawn_blocking(move || {
             let document = options.snapshot()?;
             let configured = document
                 .get("cloud_dictionary_provider_socket")
@@ -2354,19 +2370,12 @@ async fn cloud_dictionary_request(
                 .ok_or(CommandError {
                     code: "unavailable",
                 })
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = (options, action);
-            Err(CommandError {
-                code: "unavailable",
-            })
-        }
-    })
-    .await
-    .map_err(|_| CommandError {
-        code: "unavailable",
-    })?
+        })
+        .await
+        .map_err(|_| CommandError {
+            code: "unavailable",
+        })?
+    }
 }
 
 #[cfg(target_os = "ios")]
@@ -3096,6 +3105,7 @@ fn macos_input_method_defaults_domain() -> &'static str {
     macos_input_source::input_source_bundle_id()
 }
 
+// 「输入时显示双拼键位提示」升级前的本机存放处。开关现在是共享偏好 `shuangpin_keymap_hint`，设置页只在文档还没有这一项时读这里，好显示输入法实际沿用的旧选择；写入一律走共享偏好。
 #[cfg(target_os = "macos")]
 const MACOS_SHUANGPIN_KEYMAP_DEFAULTS_KEY: &str = "MSIMEClientShuangpinKeymap";
 
@@ -3126,32 +3136,6 @@ async fn load_macos_shuangpin_keymap() -> Result<bool, HostActionError> {
                 code: "unavailable",
             }),
         }
-    })
-    .await
-    .map_err(|_| HostActionError {
-        code: "unavailable",
-    })?
-}
-
-#[cfg(target_os = "macos")]
-#[tauri::command]
-async fn save_macos_shuangpin_keymap(enabled: bool) -> Result<(), HostActionError> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let status = std::process::Command::new("defaults")
-            .args([
-                "write",
-                macos_input_method_defaults_domain(),
-                MACOS_SHUANGPIN_KEYMAP_DEFAULTS_KEY,
-                "-bool",
-                if enabled { "true" } else { "false" },
-            ])
-            .status()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        status.success().then_some(()).ok_or(HostActionError {
-            code: "unavailable",
-        })
     })
     .await
     .map_err(|_| HostActionError {
@@ -3237,6 +3221,38 @@ async fn pick_voice_model_path(app: tauri::AppHandle) -> Result<Option<String>, 
     received.recv().map_err(|_| HostActionError {
         code: "unavailable",
     })
+}
+
+// 与 macOS 同样的理由：本地语音模型是按路径加载的已安装目录，网页的文件输入只交回内容，所以由宿主弹出系统的选择文件夹对话框，只选已有的目录。
+#[cfg(target_os = "windows")]
+#[tauri::command]
+async fn pick_voice_model_path(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<Option<String>, HostActionError> {
+    use tauri_plugin_dialog::DialogExt;
+    // 对话框在主线程上运行，这个工作线程只等结果。
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_parent(&window)
+            .set_title("选择本地语音模型目录")
+            .blocking_pick_folder()
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    picked
+        .map(|picked| {
+            picked
+                .into_path()
+                .map(|path| path.to_string_lossy().into_owned())
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })
+        })
+        .transpose()
 }
 
 #[cfg(target_os = "macos")]
@@ -4103,13 +4119,19 @@ async fn submit_handwriting_candidate(
     // produce candidates and then refuse to insert the one the user picked.
     #[cfg(target_os = "windows")]
     {
-        // Windows panels inject through the host rather than the runtime, so
-        // they do not pass through the typing counter, matching send_text.
-        let _ = (&app, &typing_statistics);
+        // Windows 面板经宿主注入而不经运行时，计数器看不到这段文字，所以注入成功后在这里按手写来源计数，与 Linux 和 macOS 原生手写一致；注入的按键带面板标记，tip 不会再把它当作直通字符记一次。
+        let _ = &app;
         msime_client_core::panels::validate_candidate(&candidate).map_err(|_| HostActionError {
             code: "invalid_text",
         })?;
-        send_panel_text_windows(&state, &candidate)
+        send_panel_text_windows(&state, &candidate)?;
+        panel_input::record_windows_panel_typing_statistics(
+            &typing_statistics.0,
+            &candidate,
+            TypingSource::Handwriting,
+        )
+        .await;
+        Ok(())
     }
     #[cfg(target_os = "macos")]
     return macos_panel_session::submit(app, window, candidate).await;
@@ -4137,9 +4159,17 @@ async fn send_text(
     if window.label() == CLOUD_CLIPBOARD_PANEL {
         return panel_input::send_cloud_clipboard_text(app, &typing_statistics, text).await;
     }
+    // Windows 面板的文字经宿主注入，注入成功后在这里计数，来源与 macOS 面板提交一致记为本地输入。
     #[cfg(target_os = "windows")]
     if window.label() == CLOUD_CLIPBOARD_PANEL {
-        return panel_input::send_cloud_clipboard_text_windows(&app, &text);
+        panel_input::send_cloud_clipboard_text_windows(&app, &text)?;
+        panel_input::record_windows_panel_typing_statistics(
+            &typing_statistics.0,
+            &text,
+            TypingSource::Local,
+        )
+        .await;
+        return Ok(());
     }
     #[cfg(target_os = "linux")]
     return send_panel_text(
@@ -4152,7 +4182,16 @@ async fn send_text(
     )
     .await;
     #[cfg(target_os = "windows")]
-    return send_panel_text_windows(&state, &text);
+    {
+        send_panel_text_windows(&state, &text)?;
+        panel_input::record_windows_panel_typing_statistics(
+            &typing_statistics.0,
+            &text,
+            TypingSource::Local,
+        )
+        .await;
+        Ok(())
+    }
     #[cfg(target_os = "macos")]
     return macos_panel_session::submit(app, window, text).await;
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
@@ -4179,6 +4218,7 @@ async fn paste_clipboard_text(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     state: tauri::State<'_, PanelInputState>,
+    typing_statistics: tauri::State<'_, TypingStatisticsState>,
     text: String,
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
@@ -4235,12 +4275,16 @@ async fn paste_clipboard_text(
                     code: "unavailable",
                 })?
         };
+        let statistics = typing_statistics.0.clone();
         return tauri::async_runtime::spawn_blocking(move || {
             msime_host_windows::paste_text(target, &text)
                 .then_some(())
                 .ok_or(HostActionError {
                     code: "unavailable",
-                })
+                })?;
+            // 与 macOS 剪贴板面板一致，粘贴成功后按本地输入计数；粘贴走 Ctrl+V，tip 不会把它当作直通字符再记一次。
+            record_panel_typing_statistics(&statistics, &text, TypingSource::Local);
+            Ok(())
         })
         .await
         .map_err(|_| HostActionError {
@@ -4534,6 +4578,36 @@ fn open_third_party_licenses(app: tauri::AppHandle) -> Result<(), HostActionErro
             code: "unavailable",
         })?;
     status.success().then_some(()).ok_or(HostActionError {
+        code: "unavailable",
+    })
+}
+
+// 安装器把 THIRD_PARTY_NOTICES.txt 装在安装目录下，MSIME.exe 在它的 server 子目录里，所以是可执行文件所在目录的上一级；原生设置窗口按同一条规则找它（platforms/windows/settings/SettingsDocumentFile.h）。
+#[cfg(target_os = "windows")]
+#[tauri::command]
+async fn open_third_party_licenses() -> Result<(), HostActionError> {
+    let notices = std::env::current_exe()
+        .ok()
+        .and_then(|executable| {
+            Some(
+                executable
+                    .parent()?
+                    .parent()?
+                    .join("THIRD_PARTY_NOTICES.txt"),
+            )
+        })
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
+    // 与 open_directory 一样在单独的线程里调用 shell，不沿用运行时工作线程的 COM 套间。
+    let opened = tauri::async_runtime::spawn_blocking(move || {
+        std::thread::spawn(move || msime_host_windows::open_file(&notices))
+            .join()
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false);
+    opened.then_some(()).ok_or(HostActionError {
         code: "unavailable",
     })
 }
@@ -5418,7 +5492,7 @@ pub fn run() {
             desktop_resource_packs::resource_pack_cancel,
             submit_handwriting_candidate,
             open_external_url,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             open_third_party_licenses,
             panel_window::open_keyboard_panel,
             panel_window::open_handwriting_panel,
@@ -5463,14 +5537,12 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             load_macos_shuangpin_keymap,
             #[cfg(target_os = "macos")]
-            save_macos_shuangpin_keymap,
-            #[cfg(target_os = "macos")]
             on_device_translation_downloadable_languages,
             #[cfg(target_os = "macos")]
             open_translation_language_settings,
             #[cfg(target_os = "macos")]
             uninstall_input_source,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             pick_voice_model_path,
             #[cfg(target_os = "android")]
             android_account::account_status,
@@ -5540,6 +5612,14 @@ pub fn run() {
             android_account::account_forget,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_forget,
+            #[cfg(target_os = "windows")]
+            windows_settings_sync::account_preferences_schema,
+            #[cfg(target_os = "windows")]
+            windows_settings_sync::account_preferences_load,
+            #[cfg(target_os = "windows")]
+            windows_settings_sync::account_preferences_upload,
+            #[cfg(target_os = "windows")]
+            windows_settings_sync::account_preferences_apply,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_candidate_skin_community::candidate_skin_community_list,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
@@ -5674,20 +5754,20 @@ pub fn run() {
             mobile_community::ai_skin_generate,
             #[cfg(any(target_os = "ios", target_os = "android"))]
             mobile_community::ai_skin_cancel,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_resource_list,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_resource_detail,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_resource_publish,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_resource_apply,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_resource_save,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_resource_rate,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_resource_unpublish,
+            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            community_resources::community_resource_list,
+            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            community_resources::community_resource_detail,
+            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            community_resources::community_resource_publish,
+            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            community_resources::community_resource_apply,
+            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            community_resources::community_resource_save,
+            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            community_resources::community_resource_rate,
+            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            community_resources::community_resource_unpublish,
             #[cfg(any(target_os = "ios", target_os = "android"))]
             mobile_community::community_resource_store_reply,
             #[cfg(any(target_os = "ios", target_os = "android"))]

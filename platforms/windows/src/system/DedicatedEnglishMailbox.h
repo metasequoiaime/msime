@@ -2,6 +2,11 @@
 #include "FocusGate.h"
 
 namespace msime::windows {
+// 托盘「英文候选模式」交给工作线程的请求：把这个焦点租约的 Engine 英文模式设成 `enabled`。
+struct DedicatedEnglishSwitch {
+  FocusLease lease;
+  bool enabled = false;
+};
 // Only a mode bit and its owning focus lease cross into the UI thread.
 class DedicatedEnglishMailbox {
 public:

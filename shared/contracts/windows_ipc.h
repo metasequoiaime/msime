@@ -285,7 +285,7 @@ constexpr std::uint32_t UpdateVoiceComposition = 15;
 constexpr std::uint32_t CancelVoiceComposition = 16;
 // Streaming ASR: replace the inline composition with this snapshot and commit.
 constexpr std::uint32_t CommitVoiceComposition = 17;
-// Payload: one character naming the configured scheme's family, "0" quanpin, shuangpin or wubi, "1" Japanese, "2" Korean, "3" Cantonese, "4" Zhuyin, "5" Vietnamese, "6" Tibetan, "7" Stroke (platforms/windows/common/InputSchemeTraits.h InputMode). A DLL reads a code it does not know as "0".
+// 载荷是一个字符，表示所配置方案的类别："0" 全拼，"1" 日文，"2" 韩文，"3" 粤拼，"4" 注音，"5" 越南文，"6" 藏文，"7" 笔画，"8" 双拼，"9" 五笔（platforms/windows/common/InputSchemeTraits.h 的 InputMode）。"8"、"9" 只决定任务栏图标，TIP 按全拼键入它们。DLL 把不认识的码读成 "0"。
 constexpr std::uint32_t InputModeChanged = 18;
 // Payload "1" when Caps Lock is on. Server is the source of truth.
 constexpr std::uint32_t CapsLockChanged = 19;

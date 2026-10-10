@@ -171,7 +171,8 @@ Check ($systemVersions.Count -eq 1 -and $systemVersions[0] -eq $app.VersionDir) 
 # The uninstaller relaunches itself from a temporary copy and returns at once, so wait for the program directory to go away instead of the process.
 $uninstaller = Join-Path $pf64 'unins000.exe'
 Check (Test-Path -LiteralPath $uninstaller -PathType Leaf) 'uninstaller present'
-Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$logs\uninstall.log`"" -Wait
+# 卸载默认保留数据目录（静默卸载不带开关时也保留）；/REMOVEDATA 要求连同它一起删除，下面核对自定义数据目录确实删掉了。
+Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/REMOVEDATA', "/LOG=`"$logs\uninstall.log`"" -Wait
 $deadline = (Get-Date).AddMinutes(3)
 while ((Test-Path -LiteralPath $uninstaller) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
 Start-Sleep -Seconds 5

@@ -56,6 +56,8 @@ public:
   nlohmann::json dedicated_english(uint64_t epoch, bool exit);
   // Ctrl+Shift+E: flip the dedicated English mode. Like the reference, the open composition is discarded rather than committed. Returns the new view.
   nlohmann::json toggle_dedicated_english(uint64_t epoch);
+  // 托盘「英文候选模式」：把 Engine 的英文模式设成 `enabled`。和 Ctrl+Shift+E 一样丢弃正在组的字；已经是这个状态时什么也不动，原样返回视图。
+  nlohmann::json set_dedicated_english(uint64_t epoch, bool enabled);
   bool input_enabled() const {
     check_thread();
     return input_enabled_;
@@ -113,6 +115,11 @@ public:
     check_thread();
     return typing_effect_settings_;
   }
+  // 同一份设置里特效包的全部颜色和火花数，光标处的火花用它；和设置一起读，按键路径只发布。
+  const TypingEffectPalette &typing_effect_palette() const {
+    check_thread();
+    return typing_effect_palette_;
+  }
   // Whether background music may play: true while this client holds the focus. Remembered, so a preference update can repeat it and destroying the session stops music it started.
   void set_music_active(bool active);
 
@@ -131,6 +138,7 @@ private:
   nlohmann::json preferences_ = nlohmann::json::object();
   bool music_active_ = false;
   TypingEffectSettings typing_effect_settings_{};
+  TypingEffectPalette typing_effect_palette_{};
   void refresh_typing_effect_settings();
 };
 } // namespace msime::windows

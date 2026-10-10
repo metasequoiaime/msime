@@ -51,7 +51,7 @@ export interface PluginDetailViewProps {
   triggers: boolean;
   /** The host draws an installed effect pack: `typingEffects && effectStyles && effectPacks`. */
   effectPacks: boolean;
-  /** The host draws every effect style as a flash of the candidate card and no sparks (Windows, HarmonyOS). */
+  /** 宿主把每种特效样式都画成候选卡片闪一下、不画火花（HarmonyOS）。 */
   effectFlashOnly?: boolean;
   /** 快捷短语（K 模式）是否打开：`local_modes.quick_phrase`。 */
   quickPhraseMode: boolean;

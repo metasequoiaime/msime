@@ -10,6 +10,7 @@
 #include "MetasequoiaIME.h"
 #include "CompositionProcessorEngine.h"
 #include "LanguageBar.h"
+#include "ModeIconPolicy.h"
 #include "Globals.h"
 #include "Compartment.h"
 #include "Ipc.h"
@@ -60,6 +61,64 @@ DWORD ResolveThemeIconIndex(DWORD lightIconIndex)
         return static_cast<DWORD>(IME_MODE_OFF_DARK_ICON_INDEX);
     }
     return lightIconIndex;
+}
+
+// 模式图标对应的资源，浅色任务栏用黑字，深色任务栏用白字。
+DWORD ModeIconResource(msime::tsf::ModeIcon icon, bool dark)
+{
+    using msime::tsf::ModeIcon;
+    int light = IME_MODE_ON_ICON_INDEX;
+    int darkIndex = IME_MODE_ON_DARK_ICON_INDEX;
+    switch (icon)
+    {
+    case ModeIcon::Chinese:
+        break;
+    case ModeIcon::English:
+        light = IME_MODE_OFF_ICON_INDEX;
+        darkIndex = IME_MODE_OFF_DARK_ICON_INDEX;
+        break;
+    case ModeIcon::CapsLock:
+        light = IME_MODE_CAP_ICON_INDEX;
+        darkIndex = IME_MODE_CAP_DARK_ICON_INDEX;
+        break;
+    case ModeIcon::Shuangpin:
+        light = IME_MODE_ON_SHUANGPIN_ICON_INDEX;
+        darkIndex = IME_MODE_ON_SHUANGPIN_DARK_ICON_INDEX;
+        break;
+    case ModeIcon::Wubi:
+        light = IME_MODE_ON_WUBI_ICON_INDEX;
+        darkIndex = IME_MODE_ON_WUBI_DARK_ICON_INDEX;
+        break;
+    case ModeIcon::Japanese:
+        light = IME_MODE_ON_JP_ICON_INDEX;
+        darkIndex = IME_MODE_ON_JP_DARK_ICON_INDEX;
+        break;
+    case ModeIcon::Korean:
+        light = IME_MODE_ON_KR_ICON_INDEX;
+        darkIndex = IME_MODE_ON_KR_DARK_ICON_INDEX;
+        break;
+    case ModeIcon::Cantonese:
+        light = IME_MODE_ON_CANTONESE_ICON_INDEX;
+        darkIndex = IME_MODE_ON_CANTONESE_DARK_ICON_INDEX;
+        break;
+    case ModeIcon::Zhuyin:
+        light = IME_MODE_ON_ZHUYIN_ICON_INDEX;
+        darkIndex = IME_MODE_ON_ZHUYIN_DARK_ICON_INDEX;
+        break;
+    case ModeIcon::Vietnamese:
+        light = IME_MODE_ON_VIETNAMESE_ICON_INDEX;
+        darkIndex = IME_MODE_ON_VIETNAMESE_DARK_ICON_INDEX;
+        break;
+    case ModeIcon::Tibetan:
+        light = IME_MODE_ON_TIBETAN_ICON_INDEX;
+        darkIndex = IME_MODE_ON_TIBETAN_DARK_ICON_INDEX;
+        break;
+    case ModeIcon::Stroke:
+        light = IME_MODE_ON_STROKE_ICON_INDEX;
+        darkIndex = IME_MODE_ON_STROKE_DARK_ICON_INDEX;
+        break;
+    }
+    return static_cast<DWORD>(dark ? darkIndex : light);
 }
 
 // Design size of the mode icons for language bar / taskbar indicators (at 96 DPI).
@@ -644,23 +703,21 @@ STDAPI CLangBarItemButton::GetIcon(_Out_ HICON *phIcon)
         desiredSize = 24;
     }
 
-    DWORD lightIconIndex = (isOn && !(status & TF_LBI_STATUS_DISABLED)) ? _onIconIndex : _offIconIndex;
-    if (!(status & TF_LBI_STATUS_DISABLED) && _onIconIndex == static_cast<DWORD>(IME_MODE_ON_ICON_INDEX) &&
-        Global::CapsLockEnabled.load(std::memory_order_relaxed))
+    DWORD iconIndex = 0;
+    // 模式按钮按 Server 告诉的模式选图标，每个方案一个字（ModeIconPolicy.h）；全角和标点按钮仍是开/关两张。
+    if (_onIconIndex == static_cast<DWORD>(IME_MODE_ON_ICON_INDEX))
     {
-        lightIconIndex = static_cast<DWORD>(IME_MODE_CAP_ICON_INDEX);
+        const auto mode = msime::windows::scheme::input_mode_from_code(
+            static_cast<wchar_t>(Global::InputModeIndicator.load(std::memory_order_relaxed)));
+        iconIndex = ModeIconResource(msime::tsf::mode_icon(isOn != FALSE, (status & TF_LBI_STATUS_DISABLED) != 0,
+                                                           Global::CapsLockEnabled.load(std::memory_order_relaxed),
+                                                           mode),
+                                     IsSystemDarkMode());
     }
-    else if (isOn && !(status & TF_LBI_STATUS_DISABLED) && _onIconIndex == static_cast<DWORD>(IME_MODE_ON_ICON_INDEX) &&
-             Global::InputModeScheme.load(std::memory_order_relaxed) == msime::windows::scheme::Japanese)
+    else
     {
-        lightIconIndex = static_cast<DWORD>(IME_MODE_ON_JP_ICON_INDEX);
+        iconIndex = ResolveThemeIconIndex((isOn && !(status & TF_LBI_STATUS_DISABLED)) ? _onIconIndex : _offIconIndex);
     }
-    else if (isOn && !(status & TF_LBI_STATUS_DISABLED) && _onIconIndex == static_cast<DWORD>(IME_MODE_ON_ICON_INDEX) &&
-             Global::InputModeScheme.load(std::memory_order_relaxed) == msime::windows::scheme::Korean)
-    {
-        lightIconIndex = static_cast<DWORD>(IME_MODE_ON_KR_ICON_INDEX);
-    }
-    const DWORD iconIndex = ResolveThemeIconIndex(lightIconIndex);
 
     if (Global::dllInstanceHandle)
     {

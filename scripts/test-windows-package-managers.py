@@ -116,7 +116,7 @@ def check_installer_facts(render) -> None:
     check(yaml_scalar(installer_yaml, "Publisher") == [publisher], f"winget AppsAndFeaturesEntries Publisher is not {publisher!r}")
     check(yaml_scalar(installer_yaml, "Architecture") == ["x64"], "winget offers an installer other than x64")
     check(yaml_scalar(installer_yaml, "Scope") == ["machine"] and yaml_scalar(installer_yaml, "InstallerType") == ["inno", "inno"], "winget is not a machine-scope Inno installer")
-    check(yaml_scalar(installer_yaml, "UpgradeBehavior") == ["install"], "winget must upgrade in place: uninstalling first deletes the user's data directory")
+    check(yaml_scalar(installer_yaml, "UpgradeBehavior") == ["install"], "winget must upgrade in place rather than uninstall and reinstall the input method")
     for mode in ("Silent", "SilentWithProgress"):
         switches = yaml_scalar(installer_yaml, mode)
         check(len(switches) == 1 and all(s in switches[0] for s in SILENT[1:]), f"winget {mode} switches lack {SILENT[1:]}")
@@ -128,7 +128,7 @@ def check_installer_facts(render) -> None:
     uninstall_script = "\n".join(scoop["uninstaller"]["script"])
     check(all(f"'{s}'" in install_script for s in SILENT), "Scoop installer script lacks the silent switches")
     check(product_code in uninstall_script, f"Scoop uninstaller does not read the {product_code} uninstall key")
-    check("$cmd -eq 'update'" in uninstall_script, "Scoop uninstaller must skip 'scoop update': the Inno uninstaller deletes the data directory")
+    check("$cmd -eq 'update'" in uninstall_script, "Scoop uninstaller must skip 'scoop update': running the Inno uninstaller there would unregister the input method mid-update")
     check(set(scoop["architecture"]) == {"64bit"}, "Scoop offers an architecture other than 64bit")
     # Inno 卸载程序从临时副本重新启动后立即返回，退出码拦不住第二阶段的失败；等待之后文件还在就必须让 scoop uninstall 失败，否则 Scoop 删掉记录而输入法还装着。
     wait_index = next((i for i, line in enumerate(scoop["uninstaller"]["script"]) if "$deadline" in line and "while" in line), None)

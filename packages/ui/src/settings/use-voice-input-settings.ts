@@ -6,6 +6,8 @@ export interface UseVoiceInputSettingsOptions {
   macos: boolean;
   android: boolean;
   harmony: boolean;
+  /** Windows 的系统识别器叫「Windows 系统识别」。 */
+  windows?: boolean;
   nativeVoicePlatform: boolean;
   localModelsAvailable: boolean;
   onChange: (patch: Partial<VoiceInputPreferences>) => void;
@@ -17,13 +19,20 @@ export function useVoiceInputSettings({
   macos,
   android,
   harmony,
+  windows = false,
   nativeVoicePlatform,
   localModelsAvailable,
   onChange,
 }: UseVoiceInputSettingsOptions) {
   const voiceInput = { ...defaultVoiceInput, ...preferences };
   const systemVoice = nativeVoicePlatform && voiceInput.asr_provider === "system";
-  const systemVoiceHostName = harmony ? "HarmonyOS" : android ? "Android" : "macOS";
+  const systemVoiceHostName = harmony
+    ? "HarmonyOS"
+    : android
+      ? "Android"
+      : windows
+        ? "Windows"
+        : "macOS";
   const localVoiceAvailable = macos || localModelsAvailable;
   const localVoice = localVoiceAvailable && voiceInput.asr_provider === "local";
   const serviceVoice = !systemVoice && !localVoice;

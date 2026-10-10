@@ -318,6 +318,60 @@ void candidate_mailbox_tests() {
   require(!mailbox.snapshot(gate)->game_host);
   require(publish(relaunched, 210, false, PipeMetadata::GameHost));
   require(mailbox.snapshot(gate)->game_host);
+  // 读音和逐词拆解只用于显示：单独到达时挂到眼下的候选上并换一个快照编号让候选窗重画；读音只跟着算它时的那条释义，拆解只看候选文字；偏好变了就摘掉。
+  {
+    FanyImeNamedpipeData packet{};
+    packet.client_id = relaunched.transport.client;
+    packet.request_id = 212;
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    PendingReply reply{};
+    reply.source.client_id = packet.client_id;
+    reply.source.activation_epoch = relaunched.epoch;
+    reply.source.request_id = packet.request_id;
+    const auto row = [](size_t index, const char *text, const char *translation) {
+      return nlohmann::json{{"id", {{"session", 1}, {"generation", 212}, {"index", index}}},
+                            {"text", text},
+                            {"highlighted", index == 0},
+                            {"translation", translation}};
+    };
+    reply.source.transition = {{"view",
+                                {{"session", 1},
+                                 {"generation", 212},
+                                 {"focused", true},
+                                 {"editing_text", "nihao"},
+                                 {"preedit", "nihao"},
+                                 {"candidates",
+                                  {row(0, "你好", "hello"), row(1, "我喜欢你", "")}}}}};
+    require(gate.with_active(relaunched,
+                             [&] { mailbox.delivered(relaunched, reply, packet); }));
+    const auto before = mailbox.snapshot(gate);
+    require(before && before->candidates.size() == 2 &&
+            before->candidates[0].pronunciation.empty());
+    CandidateReadings readings;
+    readings["你好"] = {"hello", "/həˈləʊ/", ""};
+    readings["我喜欢你"] = {"", "", "我 I · 喜欢 to like · 你 you"};
+    mailbox.readings(relaunched, readings);
+    const auto after = mailbox.snapshot(gate);
+    require(after && after->render_serial > before->render_serial);
+    require(after->candidates[0].pronunciation == "/həˈləʊ/" &&
+            candidate_secondary_text(after->candidates[0]) == "hello  /həˈləʊ/");
+    require(after->candidates[1].breakdown == "我 I · 喜欢 to like · 你 you");
+    // 释义变了的候选不挂旧读音。
+    readings["你好"].translation = "hi";
+    mailbox.readings(relaunched, readings);
+    require(mailbox.snapshot(gate)->candidates[0].pronunciation.empty());
+    // 下一个键的快照同样挂得上，直到偏好变化把它们摘掉。
+    mailbox.readings(relaunched, {{"你好", {"hello", "/həˈləʊ/", ""}}});
+    packet.request_id = reply.source.request_id = 213;
+    require(gate.with_active(relaunched,
+                             [&] { mailbox.delivered(relaunched, reply, packet); }));
+    require(mailbox.snapshot(gate)->candidates[0].pronunciation == "/həˈləʊ/");
+    const auto serial = mailbox.snapshot(gate)->render_serial;
+    mailbox.clear_readings();
+    const auto cleared = mailbox.snapshot(gate);
+    require(cleared->candidates[0].pronunciation.empty() &&
+            cleared->candidates[1].breakdown.empty() && cleared->render_serial > serial);
+  }
   mailbox.stop();
   require(publish(relaunched, 211));
   require(

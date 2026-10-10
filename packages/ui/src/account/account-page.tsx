@@ -92,6 +92,10 @@ export interface AppIconClient {
 }
 
 export interface SettingsSyncClient {
+  /** 卡片上说明同步哪些设置。宿主同步的范围不同（Windows 只同步各平台共有的输入设置）时自己给，缺省是移动端的说明。 */
+  description?: string;
+  /** 应用云端设置成功后的提示。缺省是移动端的说法，要用户重新打开键盘；设置当场生效的宿主（Windows 的 Server 从共享偏好里实时读到）自己给。 */
+  appliedMessage?: string;
   schema(): Promise<AccountPreferenceSchema>;
   load(): Promise<AccountPreferences>;
   upload(): Promise<AccountPreferences>;
@@ -717,7 +721,7 @@ function SettingsSyncCard({
       report(
         operation === "upload"
           ? "本机设置已上传。"
-          : "已应用云端设置。请重新打开键盘使部分设置生效。",
+          : (client.appliedMessage ?? "已应用云端设置。请重新打开键盘使部分设置生效。"),
       );
     });
   };
@@ -763,7 +767,8 @@ function SettingsSyncCard({
     <section className={`${account.section} ${account.stack}`}>
       <h2 className={account.heading}>设置同步</h2>
       <p className={account.note}>
-        同步输入方案、繁体输出、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。
+        {client.description ??
+          "同步输入方案、繁体输出、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。"}
       </p>
       {cloud && <p className={account.muted}>云端版本：{cloud.revision}</p>}
       <div className={account.actionRow}>
@@ -876,6 +881,7 @@ export function AccountPage({
   onOpenPublishedSkins,
   onOpenLocalDesigns,
   onOpenCommunity,
+  communityHasSkins,
   onOpenCloudDictionary,
   onOpenCloudClipboard,
   onOpenAbout,
@@ -894,6 +900,8 @@ export function AccountPage({
   onOpenPublishedSkins?: () => void;
   onOpenLocalDesigns?: () => void;
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
+  /** 社区页里有没有皮肤画廊。没有时（Windows 的社区页只有词包与回复模板）「我发布的皮肤」不经社区页打开。缺省为有。 */
+  communityHasSkins?: boolean;
   onOpenCloudDictionary?: () => void;
   onOpenCloudClipboard?: () => void;
   onOpenAbout?: () => void;
@@ -931,6 +939,7 @@ export function AccountPage({
       onOpenPublishedSkins={onOpenPublishedSkins}
       onOpenLocalDesigns={onOpenLocalDesigns}
       onOpenCommunity={onOpenCommunity}
+      communityHasSkins={communityHasSkins}
       onOpenCloudDictionary={onOpenCloudDictionary}
       onOpenCloudClipboard={onOpenCloudClipboard}
       onOpenAbout={onOpenAbout}
@@ -969,6 +978,7 @@ function AccountDetailsPage({
   onOpenPublishedSkins,
   onOpenLocalDesigns,
   onOpenCommunity,
+  communityHasSkins = true,
   onOpenCloudDictionary,
   onOpenCloudClipboard,
   onOpenAbout,
@@ -992,6 +1002,7 @@ function AccountDetailsPage({
   onOpenPublishedSkins?: () => void;
   onOpenLocalDesigns?: () => void;
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
+  communityHasSkins?: boolean;
   onOpenCloudDictionary?: () => void;
   onOpenCloudClipboard?: () => void;
   onOpenAbout?: () => void;
@@ -1243,9 +1254,10 @@ function AccountDetailsPage({
     });
   };
 
-  const openPublishedSkins = onOpenCommunity
-    ? () => onOpenCommunity("published-skins")
-    : onOpenPublishedSkins;
+  const openPublishedSkins =
+    onOpenCommunity && communityHasSkins
+      ? () => onOpenCommunity("published-skins")
+      : onOpenPublishedSkins;
 
   if (loading)
     return (

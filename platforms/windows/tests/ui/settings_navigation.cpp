@@ -105,6 +105,9 @@ int main() {
                 find_page("ai")->shell)) == L"settings:ai");
     require(msime::windows::shell_route_argument(
                 request_for(shell_links::input)) == L"settings:input");
+    // 翻译服务和凭据在共享应用的「标点与翻译」页编辑。
+    require(msime::windows::shell_route_argument(
+                request_for(shell_links::expression)) == L"settings:expression");
 
     // Every settings category the shared routes know still opens a page here, and the ids the tray sends land where the features moved.
     const std::set<std::string_view> categories{

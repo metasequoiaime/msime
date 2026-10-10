@@ -1,4 +1,5 @@
 #pragma once
+#include "TypingEffectPolicy.h"
 #include <windows.h>
 #include <atomic>
 #include <cstdint>
@@ -27,7 +28,7 @@ public:
       return;
     reported_ = packed != 0;
     uint32_t previous = latest_.load(std::memory_order_relaxed);
-    while (!latest_.compare_exchange_weak(previous, packed | waiting_bit | (previous & tier_up_bit),
+    while (!latest_.compare_exchange_weak(previous, packed | waiting_bit | (previous & carried_bits),
                                           std::memory_order_acq_rel, std::memory_order_relaxed)) {
     }
     if (const HWND target = target_.load(std::memory_order_acquire))
@@ -37,6 +38,17 @@ public:
   void publish_settings(uint64_t packed) { settings_.store(packed, std::memory_order_release); }
   // UI thread: the latest settings, 0 before any session published them.
   uint64_t settings() const { return settings_.load(std::memory_order_acquire); }
+  // 输入线程：会话的特效包颜色和火花数，和设置一样在每次发布之前存下，只留最新的、不发消息。两个字分开存，换特效包的那一刻界面线程可能读到新旧各一半，画错的最多是那一下的颜色。
+  void publish_palette(const TypingEffectPalette &palette) {
+    const auto words = pack_typing_effect_palette(palette);
+    palette_second_.store(words[1], std::memory_order_release);
+    palette_first_.store(words[0], std::memory_order_release);
+  }
+  // 界面线程：最新的颜色和火花数，没有会话发布过时为空。
+  TypingEffectPalette palette() const {
+    const uint64_t first = palette_first_.load(std::memory_order_acquire);
+    return unpack_typing_effect_palette(first, palette_second_.load(std::memory_order_acquire));
+  }
   // UI thread: the waiting value, which may be 0, or nothing when an earlier message already took it.
   std::optional<uint32_t> take() {
     const uint32_t value = latest_.exchange(0, std::memory_order_acq_rel);
@@ -47,6 +59,8 @@ public:
 
 private:
   static constexpr uint32_t tier_up_bit = 0x10000u;
+  // 还没被界面线程取走的新档位和上屏标记会带到下一个值上，和 macOS 的 typingEffect:commit: 合并未画的那一下一样：上屏后紧接着的一个键不会吞掉上屏加倍的火花。
+  static constexpr uint32_t carried_bits = tier_up_bit | typing_effect_commit_mark;
   // Marks a published value, so a published 0 is told apart from nothing waiting. The answer never uses bit 31.
   static constexpr uint32_t waiting_bit = 0x80000000u;
   // Input thread only: whether the last value published was not 0.
@@ -54,6 +68,8 @@ private:
   TypingEffectSignal() = default;
   std::atomic<uint32_t> latest_{0};
   std::atomic<uint64_t> settings_{0};
+  std::atomic<uint64_t> palette_first_{0};
+  std::atomic<uint64_t> palette_second_{0};
   std::atomic<HWND> target_{nullptr};
 };
 } // namespace msime::windows

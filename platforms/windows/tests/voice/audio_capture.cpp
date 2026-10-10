@@ -12,9 +12,14 @@ int main() {
   first.stop();
   first.stop();
   second.stop();
+  assert(first.last_failure() == msime::windows::AudioCaptureFailure::None);
   assert(!first.start({}, {}));
-  for (const auto *invalid : {"0", "wasapi:", "wasapi:001", "wasapi:gggg", "coreaudio:4275696c74496e"})
+  assert(first.last_failure() == msime::windows::AudioCaptureFailure::Failed);
+  // 格式不对或别的平台写下的设备 id 是「所选麦克风不可用」，不是通用的启动失败，提示才能让人去重选设备。
+  for (const auto *invalid : {"0", "wasapi:", "wasapi:001", "wasapi:gggg", "coreaudio:4275696c74496e"}) {
     assert(!first.start([](const float *, std::size_t) {}, invalid));
+    assert(first.last_failure() == msime::windows::AudioCaptureFailure::DeviceUnavailable);
+  }
   assert(!first.callback_failed() && !second.callback_failed());
   return 0;
 }

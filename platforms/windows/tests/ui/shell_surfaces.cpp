@@ -1,4 +1,5 @@
 #include "ShellSurfaces.h"
+#include "SecureFieldPolicy.h"
 #include <chrono>
 #include <cstdio>
 #include <fstream>
@@ -55,6 +56,35 @@ int main() {
     require(dictionary && dictionary->panel.empty() &&
             dictionary->page == "dictionary");
     require(shell_route_argument(*dictionary) == L"settings:dictionary");
+    // 「云剪贴板…」按共享应用的 cloud-clipboard 路由打开面板，环境块和命令行都接受这个路由。
+    const auto cloud = shell_surface_request(TrayMenuCommand::OpenCloudClipboard);
+    require(cloud && cloud->panel == "cloud-clipboard" && cloud->page.empty());
+    require(shell_surface_route(*cloud) == "cloud-clipboard");
+    require(shell_route_argument(*cloud) == L"cloud-clipboard");
+    require(shell_executable_names(*cloud) == std::vector<std::wstring>{L"MSIME.exe"});
+    require(entries(shell_environment_block(L"\0", *cloud))[0] ==
+            L"MSIME_CLIENT_ROUTE=cloud-clipboard");
+    // 卡片自己的翻页、主题行、繁体输出和英文候选模式都不经过外壳。
+    for (auto command :
+         {TrayMenuCommand::ShowSchemes, TrayMenuCommand::ShowThemes,
+          TrayMenuCommand::ShowMain, TrayMenuCommand::SelectTheme,
+          TrayMenuCommand::ToggleTraditionalOutput,
+          TrayMenuCommand::ToggleDedicatedEnglish})
+      require(!shell_surface_request(command));
+    // 焦点在密码框里时不打开云剪贴板：Win32 编辑控件的 ES_PASSWORD 只在编辑类控件上算数，UI Automation 的 IsPassword 次之，没有回答时照常打开。
+    require(win32_password_edit(L"Edit", 0x50010020));
+    require(win32_password_edit(L"RichEdit20W", 0x20));
+    require(win32_password_edit(L"WindowsForms10.EDIT.app.0.141b42a_r6_ad1", 0x20));
+    require(!win32_password_edit(L"Edit", 0x50010000));
+    require(!win32_password_edit(L"Button", 0x20));
+    require(!win32_password_edit(L"", 0x20));
+    require(focused_field_kind(true, false) == FocusedFieldKind::Password);
+    require(focused_field_kind(false, true) == FocusedFieldKind::Password);
+    require(focused_field_kind(false, false) == FocusedFieldKind::Ordinary);
+    require(focused_field_kind(false, std::nullopt) == FocusedFieldKind::Unknown);
+    require(!cloud_clipboard_may_open(FocusedFieldKind::Password));
+    require(cloud_clipboard_may_open(FocusedFieldKind::Ordinary) &&
+            cloud_clipboard_may_open(FocusedFieldKind::Unknown));
     // Modes and stored switches are this process's own and never start the shell.
     for (auto command :
          {TrayMenuCommand::SelectChinese, TrayMenuCommand::SelectEnglish,

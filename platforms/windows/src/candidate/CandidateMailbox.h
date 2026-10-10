@@ -37,6 +37,7 @@ public:
     auto value = candidate_presentation(lease, reply, packet);
     std::lock_guard lock(mutex_);
     if (!stopped_) {
+      attach_candidate_readings(value.candidates, readings_);
       value.render_serial = ++render_serial_;
       // 同一租约里游戏会话标记只置位不清除：某个按键包漏了 GameHost 位时，不能把已经认出的游戏会话打回普通宿主。
       if (latest_ && latest_->game_host && latest_->lease.epoch == lease.epoch &&
@@ -55,8 +56,43 @@ public:
   }
   // Translation application keeps the same Engine generation; only the
   // candidate metadata changes.
-  void translations(const FocusLease &lease, const nlohmann::json &view) {
+  // readings 是同一次翻译算出的读音和拆解，替换上一次的；之后同样文字的候选（下一个键、翻页回来）也挂得上，直到下一次翻译或偏好变化。
+  void translations(const FocusLease &lease, const nlohmann::json &view,
+                    CandidateReadings readings = {}) {
+    auto keyed = keyed_readings(std::move(readings));
+    {
+      std::lock_guard lock(mutex_);
+      readings_ = std::move(keyed);
+    }
     refresh_view(lease, view, false);
+  }
+  // 这一页没有新释义可交给会话、只有读音或拆解（比如整句候选没有释义但有逐词拆解）：换上新的读音和拆解，重新挂到眼下的候选上，并发布一个新快照让候选窗重画。
+  void readings(const FocusLease &lease, CandidateReadings readings) {
+    auto keyed = keyed_readings(std::move(readings));
+    std::lock_guard lock(mutex_);
+    readings_ = std::move(keyed);
+    if (stopped_ || !latest_ || latest_->lease.epoch != lease.epoch ||
+        latest_->lease.token != lease.token ||
+        !same_ticket(latest_->lease.transport, lease.transport))
+      return;
+    attach_candidate_readings(latest_->candidates, readings_);
+    latest_->render_serial = ++render_serial_;
+  }
+  // 偏好变了（读音开关、释义开关、目标语言）：旧的读音和拆解作废，眼下的候选上也摘掉，等重新翻译。
+  void clear_readings() {
+    std::lock_guard lock(mutex_);
+    readings_.clear();
+    if (stopped_ || !latest_)
+      return;
+    const bool shown = std::any_of(
+        latest_->candidates.begin(), latest_->candidates.end(),
+        [](const PresentationCandidate &candidate) {
+          return !candidate.pronunciation.empty() || !candidate.breakdown.empty();
+        });
+    if (!shown)
+      return;
+    attach_candidate_readings(latest_->candidates, readings_);
+    latest_->render_serial = ++render_serial_;
   }
   // Candidate menu actions advance Engine's generation without sending text
   // through TSF. Publish the resulting view immediately on the input queue.
@@ -65,6 +101,18 @@ public:
   }
 
 private:
+  // 繁体输出时候选显示的是繁体，所以每条读音按繁体文字再存一份。在锁外做：繁简转换要调用共享层。
+  static CandidateReadings keyed_readings(CandidateReadings readings) {
+    CandidateReadings keyed;
+    keyed.reserve(readings.size() * 2);
+    for (auto &[text, reading] : readings) {
+      auto traditional = simplified_to_traditional(text, true);
+      if (traditional != text)
+        keyed.emplace(std::move(traditional), reading);
+      keyed.emplace(text, std::move(reading));
+    }
+    return keyed;
+  }
   void refresh_view(const FocusLease &lease, const nlohmann::json &view,
                     bool require_new_generation) {
     std::lock_guard lock(mutex_);
@@ -87,10 +135,15 @@ private:
           latest_->preedit.substr(0, latest_->preedit.size() - text.size());
       // 视图来自 Engine，不带包元数据；游戏会话标记和坐标一样属于原有的展示。
       const bool game_host = latest_->game_host;
+      // Tab 预选的释义列在 ReplyComposer 里活到下一个按键，释义或云候选在这之间送到时下划线不能丢；高亮候选已经没有那一列时就不画了，上屏时 ReplyComposer 也按这条规则判断。
+      const int armed_gloss_column = latest_->armed_gloss_column;
       latest_ =
           candidate_presentation_from_view(lease, view, latest_->x, latest_->y,
                                            prefix, latest_->traditional_output);
       latest_->game_host = game_host;
+      latest_->armed_gloss_column =
+          candidate_armed_gloss_column(latest_->candidates, armed_gloss_column);
+      attach_candidate_readings(latest_->candidates, readings_);
       latest_->render_serial = ++render_serial_;
       pending_hide_.reset();
     } catch (...) {
@@ -251,6 +304,8 @@ private:
   bool suppressed_ = false;
   std::optional<std::chrono::steady_clock::time_point> pending_hide_;
   std::optional<CandidatePresentation> latest_;
+  // 最近一次翻译算出的读音和拆解，按候选文字存，见 translations()。
+  CandidateReadings readings_;
   std::optional<FocusLease> rendered_lease_;
   uint64_t rendered_generation_ = 0;
   uint64_t render_serial_ = 0;

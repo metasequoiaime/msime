@@ -119,8 +119,9 @@ export interface CommunityResourceClient {
   save(id: string, saved: boolean): Promise<void>;
   rate(id: string, stars: number): Promise<void>;
   unpublish(id: string): Promise<void>;
-  storeReply(item: CommunityResource): Promise<void>;
-  removeReply(id: string): Promise<void>;
+  /** 把回复模板存进本机「高情商回复」键盘、从中移除。只有移动端有这个键盘；桌面宿主不提供这两个，页面就不显示对应的按钮，回复模板只能收藏、评分、举报和发布。 */
+  storeReply?(item: CommunityResource): Promise<void>;
+  removeReply?(id: string): Promise<void>;
   /** Reports another user's dictionary or reply template to the moderators. */
   report?(
     kind: CommunityResourceKind,
@@ -484,6 +485,7 @@ function ResourceDetail({
     });
   const storeReply = () =>
     void run(async (generation) => {
+      if (!client.storeReply) return;
       await client.save(item.id, true);
       if (!mounted.current || generation !== clientGeneration.current) return;
       const latest = await client.detail(item.id);
@@ -504,6 +506,7 @@ function ResourceDetail({
     });
   const removeReply = () =>
     void run(async (generation) => {
+      if (!client.removeReply) return;
       await client.removeReply(item.id);
       if (!mounted.current || generation !== clientGeneration.current) return;
       setNotice("已从本机高情商回复键盘移除，社区收藏保留。");
@@ -574,18 +577,22 @@ function ResourceDetail({
         <>
           <h3>提示词预览</h3>
           <pre className={style.promptPreview}>{item.content.prompt}</pre>
-          <ActionButton
-            action={storeReply}
-            className={`primary ${style.action}`}
-            disabled={busy}
-            label="添加到高情商回复键盘"
-          />
-          <ActionButton
-            action={removeReply}
-            className={`secondary ${style.action}`}
-            disabled={busy}
-            label="从本机高情商回复键盘移除"
-          />
+          {client.storeReply && (
+            <ActionButton
+              action={storeReply}
+              className={`primary ${style.action}`}
+              disabled={busy}
+              label="添加到高情商回复键盘"
+            />
+          )}
+          {client.removeReply && (
+            <ActionButton
+              action={removeReply}
+              className={`secondary ${style.action}`}
+              disabled={busy}
+              label="从本机高情商回复键盘移除"
+            />
+          )}
         </>
       )}
       {notice && <CommunityActionNotice>{notice}</CommunityActionNotice>}
@@ -796,8 +803,13 @@ export function CommunityResourcesPage({
       } else {
         await client.save(item.id, true);
         const latest = await client.detail(item.id);
-        await client.storeReply(latest);
-        toast(`已添加「${item.name}」到高情商回复键盘`);
+        // 没有「高情商回复」键盘的宿主只收藏。
+        if (client.storeReply) {
+          await client.storeReply(latest);
+          toast(`已添加「${item.name}」到高情商回复键盘`);
+        } else {
+          toast(`已收藏「${item.name}」`);
+        }
       }
       setAdded((current) => new Set(current).add(item.id));
     } catch (failure) {
@@ -982,7 +994,8 @@ export function CommunityHomePage({
   onApplyPreferences,
   onSkinApplied,
 }: {
-  skins: CommunitySkinClient;
+  /** 键盘皮肤画廊。Windows 没有（它的候选窗口皮肤社区在主题页），这时只有「词库」和「回复模板」两个分类。 */
+  skins?: CommunitySkinClient;
   resources: CommunityResourceClient;
   theme: "light" | "dark";
   initialMine?: boolean;
@@ -1004,11 +1017,13 @@ export function CommunityHomePage({
   onApplyPreferences?: (next: Preferences) => void | Promise<void>;
   onSkinApplied?: (id: string) => void;
 }) {
-  const [category, setCategory] = useState<"skin" | CommunityResourceKind>(initialCategory);
+  const [category, setCategory] = useState<"skin" | CommunityResourceKind>(
+    skins || initialCategory !== "skin" ? initialCategory : "dictionary",
+  );
   const harmony = look === "harmony";
   // 设计稿把第三段命名为「短语」。本宿主没有接入短语包，所以在 HarmonyOS 上这一段放的是回复模板，使用它们自己的分区标题。
   const tabs: { category: "skin" | CommunityResourceKind; label: string }[] = [
-    { category: "skin", label: "皮肤" },
+    ...(skins ? [{ category: "skin" as const, label: "皮肤" }] : []),
     { category: "dictionary", label: "词库" },
     { category: "reply", label: harmony ? "短语" : "回复模板" },
   ];
@@ -1031,7 +1046,7 @@ export function CommunityHomePage({
           </button>
         ))}
       </div>
-      {category === "skin" ? (
+      {category === "skin" && skins ? (
         <CommunitySkinsPage
           client={skins}
           theme={theme}
@@ -1047,7 +1062,7 @@ export function CommunityHomePage({
       ) : (
         <CommunityResourcesPage
           client={resources}
-          kind={category}
+          kind={category === "skin" ? "dictionary" : category}
           initialScope={initialScope}
           localDictionary={localDictionary}
           mobile={mobile}

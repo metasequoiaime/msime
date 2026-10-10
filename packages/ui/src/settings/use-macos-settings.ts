@@ -21,8 +21,8 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
     null,
   );
   const [onDeviceDownloadable, setOnDeviceDownloadable] = useState<string[]>([]);
+  // 双拼键位提示的开关现在是共享偏好 `shuangpin_keymap_hint`；文档里还没有这一项时，macOS 输入法仍按本机 defaults 里的旧选择显示键位图，设置页读它只为显示同一个值。
   const [shuangpinKeymap, setShuangpinKeymap] = useState<boolean>();
-  const [savedShuangpinKeymap, setSavedShuangpinKeymap] = useState<boolean>();
   const clientGeneration = useAsyncGeneration(client, macos);
 
   // Set once the user dismisses the notice, so a later focus refresh does not bring it back in this window.
@@ -104,7 +104,6 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
   useEffect(() => {
     if (!macos || !client.loadMacosShuangpinKeymap) {
       setShuangpinKeymap(undefined);
-      setSavedShuangpinKeymap(undefined);
       return;
     }
     const generation = clientGeneration.current;
@@ -113,7 +112,6 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
       .then((value) => {
         if (generation !== clientGeneration.current) return;
         setShuangpinKeymap(value);
-        setSavedShuangpinKeymap(value);
       })
       .catch(() => {
         if (generation === clientGeneration.current) setError("无法读取双拼键位提示设置，请重试。");
@@ -125,9 +123,6 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
     inputSourceStartup,
     onDeviceDownloadable,
     refreshInputSourceStartup,
-    savedShuangpinKeymap,
-    setSavedShuangpinKeymap,
-    setShuangpinKeymap,
     shuangpinKeymap,
   } as const;
 }

@@ -17,6 +17,7 @@ struct AudioCapture::Impl {
   bool initialized = false;
   AudioCallback callback;
   std::atomic_bool failed{false};
+  AudioCaptureFailure failure = AudioCaptureFailure::None;
 
   static void receive(ma_device *device, void *, const void *input, ma_uint32 frames) noexcept {
     auto *self = static_cast<Impl *>(device->pUserData);
@@ -37,24 +38,36 @@ AudioCapture::~AudioCapture() { stop(); }
 
 bool AudioCapture::start(AudioCallback callback, const std::string &device_id) {
   stop();
+  impl_->failure = AudioCaptureFailure::Failed;
+  // Windows 隐私设置关掉麦克风时，WASAPI 的 Activate 或 Initialize 返回 E_ACCESSDENIED，miniaudio 把它译成 MA_ACCESS_DENIED。
+  const auto fail = [this](ma_result result) {
+    stop();
+    impl_->failure = result == MA_ACCESS_DENIED ? AudioCaptureFailure::AccessDenied
+                                                : AudioCaptureFailure::Failed;
+    return false;
+  };
   if (!callback)
     return false;
   if (!device_id.empty()) {
-    if (!is_wasapi_capture_device_id(device_id))
+    if (!is_wasapi_capture_device_id(device_id)) {
+      impl_->failure = AudioCaptureFailure::DeviceUnavailable;
       return false;
+    }
     const ma_backend backend = ma_backend_wasapi;
-    if (ma_context_init(&backend, 1, nullptr, &impl_->context) != MA_SUCCESS)
-      return false;
+    if (const auto result = ma_context_init(&backend, 1, nullptr, &impl_->context);
+        result != MA_SUCCESS)
+      return fail(result);
     impl_->context_initialized = true;
     ma_device_info *capture = nullptr;
     ma_uint32 count = 0;
-    if (ma_context_get_devices(&impl_->context, nullptr, nullptr, &capture, &count) != MA_SUCCESS) {
-      stop();
-      return false;
-    }
+    if (const auto result =
+            ma_context_get_devices(&impl_->context, nullptr, nullptr, &capture, &count);
+        result != MA_SUCCESS)
+      return fail(result);
     const auto *selected = select_capture_device(capture, count, device_id);
     if (!selected) {
       stop();
+      impl_->failure = AudioCaptureFailure::DeviceUnavailable;
       return false;
     }
     impl_->selected = selected->id;
@@ -68,16 +81,14 @@ bool AudioCapture::start(AudioCallback callback, const std::string &device_id) {
   config.sampleRate = 16000;
   config.dataCallback = Impl::receive;
   config.pUserData = impl_.get();
-  if (ma_device_init(impl_->context_initialized ? &impl_->context : nullptr, &config, &impl_->device) !=
-      MA_SUCCESS) {
-    stop();
-    return false;
-  }
+  if (const auto result = ma_device_init(
+          impl_->context_initialized ? &impl_->context : nullptr, &config, &impl_->device);
+      result != MA_SUCCESS)
+    return fail(result);
   impl_->initialized = true;
-  if (ma_device_start(&impl_->device) != MA_SUCCESS) {
-    stop();
-    return false;
-  }
+  if (const auto result = ma_device_start(&impl_->device); result != MA_SUCCESS)
+    return fail(result);
+  impl_->failure = AudioCaptureFailure::None;
   return true;
 }
 
@@ -94,4 +105,6 @@ void AudioCapture::stop() {
 }
 
 bool AudioCapture::callback_failed() const { return impl_->failed.load(); }
+
+AudioCaptureFailure AudioCapture::last_failure() const { return impl_->failure; }
 } // namespace msime::windows

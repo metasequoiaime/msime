@@ -21,6 +21,7 @@ Windows 平台的实现源码在 `src/` 下；`tsf/`、`msimeui/`、`tests/`、`
 - 数据目录的所有权标记文件名也按版本取：`.metasequoiaime-data` 接上名字后缀（例如 full 是 `.metasequoiaime-data.full`，五笔版是 `.metasequoiaime-data.wubi`），标记内容写着版本 id。不带后缀的 `.metasequoiaime-data` 是 msime-windows 的标记。每个版本的安装器只认本版本的标记，目录里只要有别的版本或 msime-windows 的标记就不认，即使那是它自己的默认数据目录，所以不会接管、清理或删除别人的数据目录。
 - 标记只看目录顶层，看不到嵌在子目录里的别的版本，所以安装器还按 `editions.iss` 里别的版本和 msime-windows 的注册表键和安装目录名（由 `edition_windows.py gen` 从版本表和 `MSIME_WINDOWS` 生成）找出别人的数据目录：它们登记的 `DataDir` 和默认目录 `%LOCALAPPDATA%\<安装目录>`。本版本的数据目录不能和这些目录重叠或互相包含，向导和 `/DATADIR` 都会拒绝；卸载和更换数据目录时，嵌在本版本目录里的别的版本的数据目录原样留下，迁移也不把它当作用户数据复制。
 - 升级和卸载前，每个版本的安装器（包括 full）只结束可执行文件在本安装 `server` 目录里的进程，不按映像名结束：几个版本的 Server、看门狗、设置窗口、`MSIME.exe` 和 `msime-mcp.exe` 同名，`taskkill /IM` 会把同时安装的其他版本一起停掉。msime-windows 和已经发出去的旧版 full 仍按映像名结束进程，所以卸载它们、或运行它们的安装包时，同时安装的本仓库各版本的进程会被停一次；数据和安装不受影响，Server 在下次需要时由 TSF 重新拉起，看门狗在下次登录时由计划任务拉起。
+- 卸载默认保留数据目录（词库、学习记录、设置、皮肤和服务密钥都在里面），重新安装后接着用（HKLM 的 `DataDir` 照旧在卸载时删掉，所以只有默认位置自动接上；自定义位置要在「选择数据位置」里重新选或重新传 `/DATADIR=`，交互卸载的对话框对自定义位置会这样提示），与 macOS 设置里卸载的默认一致：交互卸载时问一次是否一并删除，默认按钮是「否」；静默卸载（winget、Scoop、Chocolatey）不带开关时保留；`/REMOVEDATA` 删除、`/KEEPDATA` 保留。只删本版本拥有的目录，规则仍是上面的所有权标记。选了删除时还会删掉不在数据目录里的本用户数据：`%LOCALAPPDATA%\<用户目录>\account`（登录会话与匿名账号的密钥，full 是 `%LOCALAPPDATA%\MSIME\account`）和设置应用自己的 `%LOCALAPPDATA%\<Tauri 标识>`、`%APPDATA%\<Tauri 标识>`（后者是 Tauri 的 `app_data_dir`，语音页下载的本机语音模型在里面）。判定在 `msime_setup.iss` 的 `DecideUserDataRemoval`，由 `installer/tests/lifecycle.ps1` 核对。
 - `scripts/test-editions.py` 检查版本表（GUID 两两不同、名字不撞、目录不嵌套，也都不等于 msime-windows 的），`scripts/test-windows-editions.py` 检查生成文件没有漂移、安装脚本按版本展开后互不越界、每个版本的 `langid` 是它默认方案所属的语言、`release-windows.yml` 的发布矩阵恰好是有 Windows 段的全部版本，并且 Windows 源码不自己写 full 或 msime-windows 的 CLSID 和注册表键。
 
 `src/` 按职责分目录，每个目录一句话说清它收什么：
@@ -87,6 +88,8 @@ WindowsServer::request_selection 只能从外部 I/O 线程调用，串行完成
 Server 主线程创建 `CandidateWindow`，显示预编辑、当前页序号与高亮；通过 NOACTIVATE/TOOLWINDOW 样式及 WM_MOUSEACTIVATE 拒绝鼠标激活，不抢输入焦点。字体族、字号与配色来自皮肤和候选设置，缺省为按 DPI 缩放的 Segoe UI，长文本省略，位置限制到最近显示器工作区；前台在同一块显示器上几何全屏时改为限制到整块显示器，因为任务栏不在。主线程以最长 50ms 空闲等待轮询状态，消息批次有界，快照身份未变时不重复触发绘制；每次 WM_PAINT 重新读取候选，失焦/UILess/断开/停机隐藏，绘制错误关闭窗口。模式状态与工具入口由悬浮工具条和托盘菜单提供，不挤进候选窗。
 
 窗口使用临时线程 Per-Monitor V2 上下文，创建/布局/绘制结束后恢复调用者设置，不修改进程 DPI 默认值；该上下文要求 Windows 10 1703 或更新版本。坐标按固定 TSF 上游的物理屏幕锚点消费；换屏时先隐藏迁移，再按 GetDpiForWindow 重新计算宽度、行高、间距和字体。WM_DPICHANGED 使布局失效，下一次刷新按当前锚点重新定位，避免在 SetWindowPos 回调里递归布局。`windows-candidate-card-size` 独立验证卡片尺寸、行矩形与命中测试，覆盖多候选页、负屏幕原点、极小工作区和整数极值。
+
+双拼键位提示（`ShuangpinKeymapWindow`，对应 macOS 的 `MSIMEShuangpinKeymapPanel`）：共享偏好 `shuangpin_keymap_hint` 打开、双拼组字（view 的 scheme 为 1、没有局部模式、不在 Engine 自己的英文模式）且候选窗可见时，在候选窗离光标远的一侧显示当前方案的三排键帽和零声母说明，高亮刚按下的键，上屏或取消后随候选窗一起收起。要不要显示由 `CandidatePresentation::shuangpin_keymap` 随候选快照带出，主循环在候选窗 `refresh()` 之后按同一帧摆放；键位表经 `msime_client_shuangpin_key_hints` / `msime_client_shuangpin_zero_initials` 取自 Engine，不另存一份。窗口不激活、不接收鼠标，配色与候选窗相同，强调色上的字按明暗取黑或白。纯计算的部分在 `src/candidate/ShuangpinKeymapLayout.h`，由 `windows-shuangpin-keymap-layout` 验证；画不出来时记一条诊断后隐藏，Server 照常服务输入。
 
 游戏会话：命中 TIP 游戏候选窗策略（`tsf/Global/CandidateOverlayHostPolicy.h`）的进程不报 UILess、不调 `BeginUIElement`，协商到可选能力 `GameHostCandidate` 后在 Key/Show/Move/Hide 包上带 `PipeMetadata::GameHost`；这一位不能带在 StatusSnapshot/FocusRestored 上，那两类包把 `modifiers_down` 当全角状态读。Server 对游戏会话做三件普通宿主没有的事，并且都要求前台窗口属于这个客户端进程：锚点是 `INVALID_Y` 或垃圾值（客户区外、贴着顶边）时兜底到游戏客户区左下部（`GameCandidateAnchor.h`）；前台是 D3D 独占全屏（`FullscreenForeground.h` 的 `foreground_presentation`：几何铺满，且 `SHQueryUserNotificationState` 报 `QUNS_RUNNING_D3D_FULL_SCREEN`，同一前台缓存 300ms）时不显示；每个连接第一次在几何全屏前台上弹出后 2 秒内，游戏窗口最小化、失去前台、改了窗口矩形或系统改了显示模式时，对这个进程锁存不显示，前台改回窗口化、同一客户端重连或进程退出时解除。前台几何全屏、并且前台进程自己的窗口压在候选窗上时，`keep_on_top()` 重申置顶，每个快照最多一次、两次至少间隔 1 秒，不和别的进程的常驻置顶窗口互抢。任何策略隐藏（包括普通宿主的 `INVALID_Y`）对可见快照都按 `render_serial` 发一次渲染回执，选词键不等回执超时。诊断日志记录前台呈现方式的变化、第一次 QUNS 调用的耗时、抑制与锁存的进入和解除、候选窗第一次在全屏下显示时的 `GetWindowBand`，以及管道对端身份被拒时的 pid 与错误码（同一 pid 每分钟一条）。判定规则、取舍和尚待实机确认的事项见 [Windows 游戏里由水杉画候选窗](../../.agents/notes/implemented/feature/2026-10-08-windows-game-candidate-overlay.md)。
 
@@ -369,6 +372,8 @@ key_bindings 可选对象示例：
 
 托盘菜单七项与成品一致：悬浮工具栏开关由 Server 自己处理；设置和关于在独立的 WinUI 3 `msime-client-settings.exe` 中打开，表情/符号面板、手写识别板和屏幕键盘仍在共享桌面面板宿主（Tauri）中打开。两类窗口与 Linux 的 IBus 属性菜单共用同一套路由契约——用 `--route=<面板>` 指定面板，`--route=settings:<分类>` 指定设置分类（关于用 `settings:about`），只接受小写 ASCII 标识符；同一路由也写进子进程的 `MSIME_CLIENT_ROUTE`，进程自身继承到的同名变量会被丢弃，不会盖过实际点击的那一行。Windows 语音输入由 Server 内置的 VoiceInputSession 和波形浮层负责录音、识别及 TSF 提交；共享外壳的语音入口通过固定 Aux 管道发送 `ToggleVoiceInput`，由 Server 主线程消费，避免让 Tauri 伪造一个无法录音的面板。
 
+托盘卡片的行与 macOS 输入菜单对齐（`src/candidate/TrayMenuLayout.h`）：中文/英文之后是「英文候选模式」（Ctrl+Shift+E，只在 TIP 报告中文、方案不是韩文/注音/越南文/藏文时可用，Server 经 `SessionController::set_dedicated_english` 在焦点会话上设置 Engine 的英文模式，组字中不切换），开关组里有「繁体输出」（与工具栏简繁按钮、Ctrl+Shift+F 同一个工作线程）；`punctuation_lock` 钉住标点时「中文标点」不可用。「输入方案」和「主题」各占一行、右侧写当前选择，点开后整张卡片换成那一页（`TrayMenuPage`），主题页的行直接写 `global_theme`，末行「主题设置…」打开设置应用的主题页。「云剪贴板…」按 `cloud-clipboard` 路由打开共享应用的面板，卡片不抢焦点，所以 Tauri 打开面板时记下的前台编辑器就是用户在用的那个，条目能直接输入回去；焦点控件是密码框（Win32 编辑控件的 ES_PASSWORD，或 UI Automation 的 IsPassword，最多等 250 毫秒）时拒绝打开并响一声（`src/system/SecureFieldPolicy.h`、`SecureFieldProbe.h`）。卡片开着时装一个低级键盘钩子：↑↓、Home/End 移动高亮，回车/空格执行高亮的行（没有高亮时收起卡片、交给应用），→ 打开翻页行，← 和 Esc 在子页上返回，Esc 在主页上收起卡片，工具条里用 ←→ 在几格之间移动；别的键收起卡片并照常交给应用，模拟的按键不算。卡片有 UI Automation 树：`src/candidate/AccessibleWindow.h` 把 `TrayMenuAccessibility.h` 的 `tray_menu_accessible_tree` 发布成一个菜单容器，每行是一个元素，名字是行的文字，可点的行是菜单项，勾上的行报告为已勾选，带快捷键的行报告快捷键，翻页行右侧的当前选择作为补充说明，键盘高亮的行报告为焦点，读屏执行一个元素等同于点那一行；卡片开合时发菜单打开、关闭事件，读屏键（Caps Lock、Insert）原样交给读屏，不收起卡片。`windows-accessible-elements` 测试核对这棵树。
+
 设置外壳按 `MSIME_CLIENT_SETTINGS_COMMAND`（须为绝对路径且存在）、Server 同目录的 `msime-client-settings.exe` 查找；面板外壳使用同目录的 `MSIME.exe`。找不到时这些行保持可见但禁用，点击不会做任何事，也不会声称已打开；启动失败同样按未处理返回，菜单不会因为一个没发生的动作而关闭。两个外壳都用 `CreateProcessW` 启动并继承本进程令牌，因此打包时它们与 Server 的完整性级别一致。
 
 隔离预览实例不注册 TSF，也不接管系统输入源：它挂上候选窗口、后台点击选词和悬浮工具条，走 configured_key 的同一套路径；未支持的路由会断开当前连接。生产模式复用同一份 Server 会话/窗口实现，只是换成安装器注册的生产管道名，TSF 注册和 DLL/Server 部署由安装器完成。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。预览实例不连接旧产品管道，也不替代生产 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻 Server 进程；CMake 另登记无副作用的 `windows-preview-help` --help 测试。
@@ -439,7 +444,7 @@ WindowsServer/SessionController::request_mode(lease, mode) 提供中英文、中
 
 发送在焦点锁内核对 lease 与当前连接；失效、未就绪、停机或非法模式返回 Rejected。Sent 只证明完整投递，不证明 TSF 已应用；实际中英文/标点状态经 TSF 回报再进入共享会话，不提前改变 Engine。写入失败或异常返回 WriteFailed，撤销连接焦点并关闭连接，不重发不确定命令。这条线格式不携带服务端 epoch，所以 Sent 之后的确认只能靠 TSF 的回报，模式请求与对象析构由调用者管理生命周期。
 
-固定上游 TSF 的 _HandleCompositionDoubleSingleByte 在编辑会话内转换并上屏全角字符，Server 不重复转换。Server 拥有一个非激活的 Win32 悬浮工具栏，显示中英、标点、全半角状态，并把这三个按钮通过当前焦点 lease 路由回 TSF；位置按当前工作区定位，客户区支持拖动，隔离预览实例还会把拖动后的位置写回启动配置。`floating_toolbar_enabled` 控制显示，缺省开启；简繁输出、图标菜单和缩放通过共享设置与 `FloatingToolbarSettings` 下发。工具栏本身不注册也不修改本机输入源，那归安装器。
+固定上游 TSF 的 _HandleCompositionDoubleSingleByte 在编辑会话内转换并上屏全角字符，Server 不重复转换。Server 拥有一个非激活的 Win32 悬浮工具栏，显示中英、标点、全半角状态，并把这三个按钮通过当前焦点 lease 路由回 TSF；位置按当前工作区定位，客户区支持拖动；拖动后的位置生产 Server 记在状态目录的 `floating_toolbar_position.json`，隔离预览实例写回启动配置，重启后都回到原处。`floating_toolbar_enabled` 控制显示，缺省开启；简繁输出、图标菜单和缩放通过共享设置与 `FloatingToolbarSettings` 下发。按钮组与 macOS 一致：中英、切换输入方案（弹出与托盘「输入方案」同一组行）、全角、标点、简繁、表情、手写（按版本提供）、屏幕键盘、语音（与托盘和语音快捷键切换同一个会话）、设置，各自受 `floating_toolbar.*` 开关控制；语言按钮在双拼、五笔下显示「双」「五」，每个按钮都有悬停提示。卡片上点右键弹出实用菜单：表情与符号（系统 Win+. 面板）、打开设置、检查更新、访问 msime.app、使用帮助、关于、问题反馈、隐藏悬浮状态栏（写回 `floating_toolbar.enabled`）。没有共享应用时表情和屏幕键盘退回系统表情面板和 osk.exe。`show_app_logo` 关着时左端画两列三行圆点的握把代替 logo。连续 10 秒没有键盘输入工具栏自动隐藏，下一次按键时回来；在工具栏上点按、拖动或开着它的菜单都会重新计时。工具栏本身不注册也不修改本机输入源，那归安装器。
 
 ### 编辑键与 TSF 预编辑回复
 
@@ -503,8 +508,14 @@ TSF 在收到 Server 回复之前就要决定一个键是组合输入还是选�
 
 ### 按键音、上屏音与背景音乐
 
-播放由共享库完成（host-api 的 kira 播放器，设置来自会话的 `preferences.plugins`），Server 只在自己的输入队列上报事件，TSF DLL 从不调用任何音频接口：它把同一个 `msime_host_api.dll` 加载进每个宿主进程，而播放器要等第一次有开关打开的调用才启动。`FocusedSession::configured_key` 在 Engine 处理完一个它接受的键之后调用 `msime_client_key_sound`，类别由 `src/input/KeySoundPolicy.h` 决定（空格 1、回车 2、退格 3、其他 0；Ctrl/Alt 组合键和单独的修饰键不出声），英文模式下不出声。TSF 只把输入法接手的键转给 Server，所以没有组合时的空格、回车等交给应用的键不会出声。确认送达的上屏在 `record_commit` 里调用 `msime_client_commit_sound`。获得焦点时调用 `msime_client_music_set_active(true)`，失去焦点、会话销毁时置为 false，偏好更新后在仍持有焦点时再报一次，让中途打开的背景音乐立即开始。前台是全屏应用（`FullscreenForeground.h`）时按键音、上屏音都不出，获得焦点时也不开音乐。
+播放由共享库完成（host-api 的 kira 播放器，设置来自会话的 `preferences.plugins`），Server 只在自己的输入队列上报事件，TSF DLL 从不调用任何音频接口：它把同一个 `msime_host_api.dll` 加载进每个宿主进程，而播放器要等第一次有开关打开的调用才启动。`FocusedSession::configured_key` 在 Engine 处理完一个它接受的键之后调用 `msime_client_key_sound`，类别由 `src/input/KeySoundPolicy.h` 决定（空格 1、回车 2、退格 3、其他 0；Ctrl/Alt 组合键和单独的修饰键不出声），英文模式下不出声。TSF 交给应用的键（没有组字时的空格、回车、退格、数字、方向键）不经过 Server 的按键路径，TSF 在 `OnTestKeyDown` 里按 `common/KeySoundClass.h` 的同一张表分类（自动重复、Ctrl/Alt/Windows 组合键、英文模式、停用的键盘和安全模式都不出声），在线程池上经 Aux 管道发 `KeySound|客户端|焦点令牌|类别`，不占按键路径的时间；Server 核对发送方进程号和焦点令牌后排进输入队列，由 `FocusedSession::passthrough_key` 出按键音、计入打字特效的连击。按键音和打字特效都关着时 Server 不回 "OK"，TSF 停发 10 秒。确认送达的上屏在 `record_commit` 里调用 `msime_client_commit_sound`。获得焦点时调用 `msime_client_music_set_active(true)`，失去焦点、会话销毁时置为 false，偏好更新后在仍持有焦点时再报一次，让中途打开的背景音乐立即开始。前台是全屏应用（`FullscreenForeground.h`）时按键音、上屏音都不出，获得焦点时也不开音乐。
 
 密码框：TSF 不读取输入范围（InputScope），靠的是键盘上下文。经典 Edit 的 ES_PASSWORD 控件会停用输入法；Chromium 与 Firefox 的密码框按它们的实现也挂在停用的上下文上（这一点没有在真机上逐个验证）。`_IsKeyboardDisabled()` 为真时 TSF 不接手任何键，Server 也就收不到，按键音不会泄露密码节奏。背景音乐只随 Server 的焦点租约开关，并不知道字段是不是密码框，所以不会因为密码框而暂停。
 
 内置音效包由安装器放在 DataDir 的 `sound-packs`（与提示音 `audios` 同级），Server 通过 `src/system/SoundPackRoot.h` 在会话选项里写入 `sound_packs`；开发运行的状态目录里没有它时不写，由共享库按 resources 旁边的默认位置查找。
+
+### 打字特效
+
+`msime_client_typing_effect` 的答案由输入线程经 `TypingEffectSignal` 交给界面线程，特效包的颜色和每键火花数随它一起发布（`TypingEffectPalette`）。候选窗取到之后自己画卡片闪光（闪光和 Power Mode）和 Power Mode 的横向抖动，其余交给 `src/candidate/TypingEffectOverlay.cpp`：一个 `WS_EX_LAYERED | WS_EX_TRANSPARENT`、不激活的置顶分层窗口，排在候选窗下面，用 `UpdateLayeredWindow` 贴出光标处的火花、候选窗不在时（上屏之后、交给应用的键）光标所在行的闪光，以及「连击 ×N」徽标（有卡片时在卡片右上角上方，没有时在光标右上方），升档和 Power Mode 时徽标弹一下。数值照搬 macOS 的 `TypingEffectPanel.mm`，都在 `TypingEffectOverlayPolicy.h` 里。光标位置先取前台线程的系统光标，没有时用最近一次组字的锚点往上估一行。「显示动画」关掉时不闪、不动，只留徽标；节电模式下火花和 Power Mode 退回闪光；全屏应用在前台时浮层什么都不画。浮层每帧只用一把自己的画刷，播完就停计时器、收起窗口；建不出来时候选卡片照旧自己画闪光和连击数。
+
+未在真机核实：浮层的点击穿透、在候选窗下面的层级、火花的观感和帧率，以及没有系统光标的应用里按锚点估出的光标行，只在 macOS 上用 MinGW 语法检查和本机运行的纯策略测试验证过。

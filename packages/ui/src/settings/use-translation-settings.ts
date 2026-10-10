@@ -19,6 +19,8 @@ export interface UseTranslationSettingsOptions {
   mobile: boolean;
   macos: boolean;
   linux: boolean;
+  /** Windows Server 的翻译线程也会把候选发给水杉账号（TranslationWorker 的 account_glosses），所以同样认得「水杉账号」。 */
+  windows?: boolean;
   candidateEnglishGlossAvailable: boolean;
   onDeviceDownloadable: string[];
   onChange: (preferences: Preferences) => void;
@@ -30,6 +32,7 @@ export function useTranslationSettings({
   mobile,
   macos,
   linux,
+  windows = false,
   candidateEnglishGlossAvailable,
   onDeviceDownloadable,
   onChange,
@@ -64,7 +67,7 @@ export function useTranslationSettings({
   const niutrans = preferences?.niutrans ?? defaultNiuTrans;
   // Mirrors `selected_translation_services` in crates/host-api/src/ffi/providers.rs: Tencent's default `enabled: true` without usable secrets is not a user choice, so it does not shadow the account.
   const translationProvider =
-    (macos || linux) &&
+    (macos || linux || windows) &&
     preferences?.translation_account &&
     !niutrans.enabled &&
     !customTranslation.enabled &&

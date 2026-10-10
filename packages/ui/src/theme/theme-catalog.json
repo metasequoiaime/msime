@@ -13,9 +13,7 @@
     "candidate": null,
     "id": "native",
     "keyboard": null,
-    "platforms": [
-      "ios"
-    ],
+    "platforms": ["ios"],
     "preview": null,
     "title": "原生"
   },

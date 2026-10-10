@@ -28,7 +28,7 @@ Tags:
   - 输入法
   - 拼音
   - 五笔
-InstallationNotes: 卸载会删除输入法的数据目录，包括自己加的词、设置和皮肤；升级会保留。请以登录的用户身份安装，不要以 SYSTEM 身份（Intune、winget-autoupdate、计划任务）：数据目录默认在安装账户的本地应用数据下，SYSTEM 的那个位于 C:\Windows 里，安装包会拒绝。
+InstallationNotes: 卸载和升级都会保留输入法的数据目录（自己加的词、设置和皮肤）。在默认位置时重新安装后自动接着用；以前交互安装时选在别处的目录，重新安装时要在安装程序的「选择数据位置」一步重新选它；要一并删除，请在 Windows 设置里卸载并在询问时选「是」，或者给卸载程序加 /REMOVEDATA。请以登录的用户身份安装，不要以 SYSTEM 身份（Intune、winget-autoupdate、计划任务）：数据目录默认在安装账户的本地应用数据下，SYSTEM 的那个位于 C:\Windows 里，安装包会拒绝。
 ReleaseNotesUrl: "@RELEASE_NOTES_URL@"
 ManifestType: locale
 ManifestVersion: 1.12.0

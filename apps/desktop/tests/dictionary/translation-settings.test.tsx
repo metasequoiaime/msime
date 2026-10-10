@@ -178,7 +178,7 @@ describe("the MSIME account translation is an explicit choice", () => {
     expect(saved.niutrans?.enabled).toBe(false);
   };
 
-  test.each(["macos", "linux"])(
+  test.each(["macos", "linux", "windows"])(
     "%s offers the account and saves it with every other service off",
     async (platform) => {
       const save = await mountOn(platform);
@@ -212,8 +212,8 @@ describe("the MSIME account translation is an explicit choice", () => {
     },
   );
 
-  test("Windows has no account option", async () => {
-    const platform = "windows";
+  test("HarmonyOS has no account option", async () => {
+    const platform = "harmony";
     await mountOn(platform);
     expect(optionValues()).not.toContain("account");
   });

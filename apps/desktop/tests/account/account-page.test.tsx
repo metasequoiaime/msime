@@ -668,6 +668,17 @@ test("logged-in accounts expose local designs and every community collection", a
   ]);
 });
 
+test("a community page without the skin gallery offers only its dictionary and reply collections", async () => {
+  const openCommunity = vi.fn();
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  // Windows：社区页只有词包与回复模板，「我发布的皮肤」不能经社区页打开。
+  render(<AccountPage client={client} onOpenCommunity={openCommunity} communityHasSkins={false} />);
+  fireEvent.click(await screen.findByRole("button", { name: "我发布的词库" }));
+  fireEvent.click(screen.getByRole("button", { name: "收藏的回复模板" }));
+  expect(screen.queryByRole("button", { name: "我发布的皮肤" })).toBeNull();
+  expect(openCommunity.mock.calls).toEqual([["published-dictionary"], ["saved-reply"]]);
+});
+
 test("logged-in mobile accounts expose direct cloud dictionary and clipboard entries", async () => {
   const openCloudDictionary = vi.fn();
   const openCloudClipboard = vi.fn();
@@ -972,6 +983,32 @@ test("settings sync requires confirmation and preserves a remote conflict error"
     }),
   );
   expect(await screen.findByText("云端设置已被其他设备更新，请刷新后重新确认。")).not.toBeNull();
+});
+
+test("settings sync shows the host's own message after applying cloud settings", async () => {
+  const apply = vi.fn().mockResolvedValue(undefined);
+  const client = account({
+    status: vi.fn().mockResolvedValue({ user }),
+    settingsSync: {
+      appliedMessage: "已应用云端设置。",
+      schema: vi.fn().mockResolvedValue({
+        fields: { "input.schema": { type: "string" } },
+        maximumBytes: 65536,
+        updateMode: "replace",
+        revisionRequired: true,
+      }),
+      load: vi.fn().mockResolvedValue({ revision: 7, settings: { "input.schema": "quanpin" } }),
+      upload: vi.fn(),
+      apply,
+    },
+  });
+  render(<AccountPage client={client} />);
+  expect(await screen.findByText("云端版本：7")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "下载并应用云端设置" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
+  await waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
+  expect(await screen.findByText("已应用云端设置。")).not.toBeNull();
+  expect(screen.queryByText(/重新打开键盘/)).toBeNull();
 });
 
 test("ignores a second settings upload while the first is pending", async () => {

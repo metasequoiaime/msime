@@ -32,6 +32,13 @@ int main() {
     require(toolbar_icon(kToolbarEmoji, std::nullopt).codepoint == 0xE76E);
     require(toolbar_icon(kToolbarScreenKeyboard, std::nullopt).codepoint == 0xE765);
     require(toolbar_icon(kToolbarSettings, std::nullopt).codepoint == 0xE713);
+    // 手写和语音与托盘工具条同一个字形，切换输入方案是 BulletedList。
+    require(toolbar_icon(kToolbarHandwriting, std::nullopt).codepoint == 0xE70F);
+    require(std::wcscmp(toolbar_icon(kToolbarHandwriting, std::nullopt).fallback, L"写") == 0);
+    require(toolbar_icon(kToolbarVoice, std::nullopt).codepoint == 0xE720);
+    require(std::wcscmp(toolbar_icon(kToolbarVoice, std::nullopt).fallback, L"音") == 0);
+    require(toolbar_icon(kToolbarInputScheme, std::nullopt).codepoint == 0xE8FD);
+    require(std::wcscmp(toolbar_icon(kToolbarInputScheme, std::nullopt).fallback, L"方") == 0);
 
     // An unreported mode is a question mark, not a guessed state. Showing 中
     // when the Server has not said so would tell the user the wrong mode.
@@ -44,7 +51,7 @@ int main() {
 
     // Every icon carries a non-empty text fallback: the glyph fonts are not
     // present on every Windows build, and a missing glyph draws a blank box.
-    for (int button = kToolbarLanguage; button <= kToolbarHide; ++button)
+    for (int button = kToolbarLanguage; button <= kToolbarInputScheme; ++button)
       for (const std::optional<bool> state :
            {std::optional<bool>{}, std::optional<bool>{true},
             std::optional<bool>{false}}) {
@@ -71,18 +78,17 @@ int main() {
           toolbar_icon(kToolbarCharacterSet, true), toolbar_icon(kToolbarCharacterSet, false),
           toolbar_icon(kToolbarEmoji, std::nullopt),
           toolbar_icon(kToolbarScreenKeyboard, std::nullopt),
-          toolbar_icon(kToolbarSettings, std::nullopt)}) {
+          toolbar_icon(kToolbarSettings, std::nullopt),
+          toolbar_icon(kToolbarHandwriting, std::nullopt),
+          toolbar_icon(kToolbarVoice, std::nullopt),
+          toolbar_icon(kToolbarInputScheme, std::nullopt)}) {
       require(seen.insert(entry.codepoint).second);
     }
 
-    // Hide has no upstream counterpart and no glyph, so it stays text. An id
-    // outside the table - including the retired handwriting, voice and about
-    // ids - is a question mark rather than a blank.
+    // 隐藏按钮在来源里没有对应，也没有字形，所以保持文字。表外的 id（包括已经退役的「关于」id 9）画成问号，而不是空白。
     require(toolbar_icon(kToolbarHide, std::nullopt).codepoint == 0);
-    require(toolbar_icon(7, std::nullopt).codepoint == 0);
-    require(std::wcscmp(toolbar_icon(7, std::nullopt).fallback, L"?") == 0);
-    require(toolbar_icon(8, std::nullopt).codepoint == 0);
     require(toolbar_icon(9, std::nullopt).codepoint == 0);
+    require(std::wcscmp(toolbar_icon(9, std::nullopt).fallback, L"?") == 0);
     require(toolbar_icon(99, std::nullopt).codepoint == 0);
     require(std::wcscmp(toolbar_icon(99, true).fallback, L"?") == 0);
 
@@ -136,6 +142,37 @@ int main() {
         require(toolbar_icon(kToolbarLanguage, true, language).codepoint == 0xE7B5);
       }
 
+      // 双拼和五笔属于中文模式，按方案画 双 和 五；临时英文、Caps Lock 和 Engine 的英文模式照样排在前面，全拼仍是 中。
+      for (const auto &[number, text] :
+           {std::pair{scheme::Shuangpin, L"双"}, std::pair{scheme::Wubi, L"五"}}) {
+        ToolbarLanguageState language;
+        language.scheme = number;
+        const auto icon = toolbar_icon(kToolbarLanguage, true, language);
+        require(!icon.codepoint && std::wcscmp(icon.fallback, text) == 0 && !icon.underline);
+        require(toolbar_icon(kToolbarLanguage, false, language).codepoint == 0xE983);
+        language.dedicated_english = true;
+        require(toolbar_icon(kToolbarLanguage, true, language).underline);
+        language.caps_lock = true;
+        require(toolbar_icon(kToolbarLanguage, true, language).codepoint == 0xE7B5);
+      }
+      // 发给 TIP 的模式本身就是双拼或五笔时（输入模式帧的 '8' 和 '9'），方案编号还不知道也画 双 和 五。
+      for (const auto &[mode, text] : {std::pair{scheme::InputMode::Shuangpin, L"双"},
+                                       std::pair{scheme::InputMode::Wubi, L"五"}}) {
+        ToolbarLanguageState language;
+        language.mode = mode;
+        const auto icon = toolbar_icon(kToolbarLanguage, true, language);
+        require(!icon.codepoint && std::wcscmp(icon.fallback, text) == 0);
+        require(toolbar_icon(kToolbarLanguage, false, language).codepoint == 0xE983);
+      }
+      ToolbarLanguageState quanpin;
+      quanpin.scheme = scheme::Quanpin;
+      require(toolbar_icon(kToolbarLanguage, true, quanpin).codepoint == 0xE982);
+      // 方案编号只在中文模式里起作用：日文模式下照样是 日。
+      ToolbarLanguageState japanese_wubi;
+      japanese_wubi.mode = scheme::InputMode::Japanese;
+      japanese_wubi.scheme = scheme::Wubi;
+      require(toolbar_icon(kToolbarLanguage, true, japanese_wubi).codepoint == 0xE7DE);
+
       // Caps Lock beats Japanese too, and the two together are not a fourth
       // state.
       ToolbarLanguageState both;
@@ -186,7 +223,7 @@ int main() {
       // Nothing else is ever underlined; the line means one specific mode.
       require(!toolbar_icon(kToolbarLanguage, true, plain).underline);
       require(!toolbar_icon(kToolbarLanguage, false, plain).underline);
-      for (int button = kToolbarLanguage; button <= kToolbarHide; ++button)
+      for (int button = kToolbarLanguage; button <= kToolbarInputScheme; ++button)
         if (button != kToolbarLanguage)
           require(!toolbar_icon(button, true, dedicated).underline);
 

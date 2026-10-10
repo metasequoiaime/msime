@@ -1,7 +1,10 @@
 #include "../../src/ipc/SessionController.h"
 #include "../../src/system/DedicatedEnglishMailbox.h"
 #include "../core/TestHostOptions.h"
+#include <atomic>
 #include <cassert>
+#include <chrono>
+#include <thread>
 using namespace msime::windows;
 class ModeTransport final : public MainTransport {
 public:
@@ -102,6 +105,33 @@ int main() {
     ++stale.transport.generations[0];
     assert(!controller.dedicated_english_state(stale));
     assert(!mailbox.snapshot(stale));
+    // 托盘「英文候选模式」在焦点会话上设置 Engine 的英文模式，读回来就是新状态；它不向 TIP 写任何东西，新状态之后由 DedicatedEnglishChanged 推送。过期的租约什么也不动。
+    assert(!controller.set_dedicated_english(stale, true));
+    assert(controller.set_dedicated_english(lease, true));
+    assert(controller.dedicated_english_state(lease) == true);
+    assert(controller.set_dedicated_english(lease, false));
+    assert(controller.dedicated_english_state(lease) == false);
+    // 250 毫秒一次的英文模式读取和托盘点击抢同一把事务锁。读取占着锁时托盘开关等它做完再切，不会点了没反应。
+    {
+      std::atomic<bool> reading{true};
+      std::thread reader([&] {
+        while (reading.load()) {
+          const auto started = std::chrono::steady_clock::now();
+          (void)controller.dedicated_english_state(lease);
+          // 每次读完空出和这次读取一样长的时间再读，锁大约一半时间被占着：只试一次的开关二十次里几乎必然撞上，等锁的开关每次都等得到。读取之间不留空隙时锁几乎一直被占着，每 5 毫秒一次的重试能否撞上空档全凭调度，在 Wine 和繁忙的 CI 上会把 2 秒等完。
+          const auto now = std::chrono::steady_clock::now();
+          const auto until = now + (now - started);
+          while (std::chrono::steady_clock::now() < until)
+            std::this_thread::yield();
+        }
+      });
+      for (int round = 0; round < 20; ++round)
+        assert(controller.set_dedicated_english(lease, round % 2 == 0));
+      reading.store(false);
+      reader.join();
+    }
+    assert(controller.dedicated_english_state(lease) == false);
+    assert(transport.writes == 1);
     controller.stop();
     assert(!controller.dedicated_english_state(lease));
   }

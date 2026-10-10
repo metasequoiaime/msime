@@ -2,6 +2,7 @@
 // Decisions VoiceInputSession makes that need no Win32: how much of a capture callback a batch recording keeps, and which sentence the person dictating is shown when a recording cannot start or does not produce text. The wording is MSIME-Windows voice_input_service.cpp's, which shows each of these in a message box; this host shows them on the voice overlay instead.
 
 #include "../../../../shared/voice/VoiceProviders.h"
+#include "AudioCapture.h"
 
 #include <cstddef>
 #include <exception>
@@ -38,7 +39,29 @@ inline constexpr std::string_view voice_missing_model_message = "ASR 模型名�
 inline constexpr std::string_view voice_doubao_start_message =
     "无法启动豆包流式语音识别。请检查“语音输入”设置中的接口地址、凭据和资源 ID。";
 inline constexpr std::string_view voice_microphone_start_message = "无法启动麦克风。";
+// Windows 隐私设置拒绝了桌面应用的麦克风访问（WASAPI 返回 E_ACCESSDENIED）。对应 macOS 的「请在系统设置允许麦克风访问」，这里写出 Windows 设置里那个开关的位置。
+inline constexpr std::string_view voice_microphone_permission_message =
+    "请在 Windows 设置 › 隐私和安全性 › 麦克风 中允许桌面应用访问麦克风。";
+// 设置里选定的录音设备不在了，或者存的是别的平台的设备，文案沿用 macOS VoiceCaptureDevice.h。
+inline constexpr std::string_view voice_microphone_device_message =
+    "所选麦克风不可用，请重新选择录音设备";
 inline constexpr std::string_view voice_capture_interrupted_message = "录音中断，请重试。";
+// 识别正常结束却没有文字，文案与 macOS VoiceWaveOverlay 的 MSIMEVoiceFailureNoSpeech 相同。不足 0.25 秒的短录音不走这里，和 macOS 一样静默结束。
+inline constexpr std::string_view voice_no_speech_message = "未识别到语音，请重试";
+// 润色请求的整体超时，与 macOS HTTPVoiceRequest.mm 相同。共享层默认的 3 秒等不到 chat completion 返回，润色结果会被丢掉、只剩原始识别文本，界面上也没有任何提示。
+inline constexpr long voice_polish_timeout_ms = 30000;
+
+// 麦克风没能启动时给人看的那句话：权限被拒和设备不可用各有能照着去改的说明，其余情况用通用的一句。
+constexpr std::string_view voice_capture_start_message(AudioCaptureFailure failure) {
+  switch (failure) {
+  case AudioCaptureFailure::AccessDenied:
+    return voice_microphone_permission_message;
+  case AudioCaptureFailure::DeviceUnavailable:
+    return voice_microphone_device_message;
+  default:
+    return voice_microphone_start_message;
+  }
+}
 inline constexpr std::string_view voice_recognition_failed_message = "语音识别失败";
 // The on-device provider needs a model instead of a token; the settings page downloads one and fills in asr_model_path.
 inline constexpr std::string_view voice_missing_local_model_message =
@@ -61,6 +84,8 @@ struct VoiceStartConfig {
   // The on-device provider: recognition needs `model_path` (an installed model directory) and nothing the cloud providers need.
   bool local = false;
   std::string_view model_path{};
+  // Windows 系统识别（SAPI）：不需要 Token、接口地址、模型名，也不需要下载模型；识别器和语言是否可用在开始录音前另行检查（system_asr_start_problem）。
+  bool system = false;
 };
 
 enum class VoiceStartCheck { Ready, Disabled, Rejected };
@@ -74,6 +99,8 @@ struct VoiceStartVerdict {
 constexpr VoiceStartVerdict voice_start_verdict(const VoiceStartConfig &config) {
   if (!config.enabled)
     return {VoiceStartCheck::Disabled, {}};
+  if (config.system)
+    return {};
   if (config.local)
     return config.model_path.empty()
                ? VoiceStartVerdict{VoiceStartCheck::Rejected, voice_missing_local_model_message}

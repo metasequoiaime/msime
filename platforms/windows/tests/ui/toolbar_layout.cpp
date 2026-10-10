@@ -217,6 +217,24 @@ void buttons_fit_within_the_bar() {
     check(size, true);
   }
 }
+// show_app_logo 关掉时 logo 槽收窄成握把：按钮整体左移，握把仍是拖动区，按钮的点按区不变宽也不变窄。
+void the_grip_replaces_the_logo_when_it_is_off() {
+  for (double size : {16.0, 24.0, 28.0}) {
+    const auto with_logo = toolbar_metrics(size, true, true);
+    const auto grip = toolbar_metrics(size, true, false);
+    const auto plain = toolbar_metrics(size, true);
+    assert(near(with_logo.logo, plain.logo));
+    assert(grip.logo < with_logo.logo && grip.logo >= 8.0);
+    assert(near(grip.cell, with_logo.cell) && near(grip.height, with_logo.height));
+    assert(near(toolbar_content_width(7, with_logo) - toolbar_content_width(7, grip),
+                with_logo.logo - grip.logo));
+    assert(toolbar_is_drag_strip(grip.shadow.left + grip.logo / 2.0, grip));
+    assert(!toolbar_is_drag_strip(grip.shadow.left + grip.logo + grip.handle, grip));
+    assert(toolbar_button_at(toolbar_cell(0, grip).left + 0.01, 7, grip) == std::optional<size_t>(0));
+  }
+  // 图标 24 时与 macOS 的握把同宽。
+  assert(near(toolbar_metrics(24.0, false, false).logo, 10.0));
+}
 } // namespace
 
 int main() {
@@ -230,5 +248,6 @@ int main() {
   shadow_pads_the_window_without_resizing_the_bar();
   drag_strip_excludes_the_shadow_margin();
   buttons_fit_within_the_bar();
+  the_grip_replaces_the_logo_when_it_is_off();
   return 0;
 }

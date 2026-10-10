@@ -1595,6 +1595,8 @@ export type VietnamesePreferences = {
   input_method?: "telex" | "vni";
   tone_style?: "modern" | "classic";
 };
+/** 对应 `client-core::preferences::AppInputModeRule`。 */
+export type AppInputModeRule = "chinese" | "english";
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
 export interface HostCapabilities {
   platform: HostPlatform;
@@ -1605,6 +1607,8 @@ export interface HostCapabilities {
   restart_input_method: boolean;
   panel_windows: boolean;
   ime_mode_scope: boolean;
+  /** 宿主按 `app_input_mode_rules` 给指定应用定起始中英文模式（macOS 和 Windows）。 */
+  app_input_mode_rules?: boolean;
   typing_statistics: boolean;
   /** The host has wired the shared 背单词 entry point. */
   vocabulary_review: boolean;
@@ -1629,7 +1633,7 @@ export interface HostCapabilities {
   candidate_font_controls: boolean;
   candidate_preedit_font: boolean;
   candidate_page_number: boolean;
-  /** 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo（目前只有 macOS）。 */
+  /** 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo（macOS 和 Windows）。 */
   app_logo?: boolean;
   candidate_row_colors: boolean;
   candidate_selection_appearance: boolean;
@@ -1656,6 +1660,8 @@ export interface HostCapabilities {
   /** The touch keyboard picks its toolbar buttons from `touch_toolbar`. */
   touch_toolbar_components: boolean;
   shuangpin_preedit: boolean;
+  /** 宿主在双拼组字时按 `shuangpin_keymap_hint` 在候选窗旁画键位图（macOS 和 Windows）。 */
+  shuangpin_keymap_hint?: boolean;
   /** The host routes the Ctrl+Shift+Alt maintenance chords. */
   maintenance_shortcuts: boolean;
   /** The host reserves Option/Alt+Shift+H for the character width. */
@@ -1793,12 +1799,16 @@ export type Preferences = {
   touch_toolbar?: Partial<TouchToolbarPreferences>;
   default_ime_mode?: "chinese" | "english";
   ime_mode_scope?: "app" | "global";
+  /** 应用例外：键是应用标识（macOS 的 bundle id、Windows 的进程基名），值是切到该应用时的起始模式。没有规则时文档里没有这个键。 */
+  app_input_mode_rules?: Record<string, AppInputModeRule>;
   last_chinese_scheme?: ChineseScheme | null;
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
   /** 五笔用 86 还是 98 码表，只在方案为五笔时起作用；缺省为 86。 */
   wubi_profile?: "wubi86" | "wubi98";
   /** macOS exposes the native shuangpin preedit presentation in the appearance page. */
   shuangpin_preedit_uses_raw?: boolean;
+  /** 「输入时显示双拼键位提示」。没选过时文档里没有这一项，按关显示；macOS 那时仍沿用本机旧的选择。 */
+  shuangpin_keymap_hint?: boolean;
   vietnamese?: VietnamesePreferences;
   wubi_mixed_pinyin?: boolean;
   /** 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字；缺省为关。 */
@@ -1814,7 +1824,7 @@ export type Preferences = {
   /** Candidate card corner radius in points (0-32). Absent or null follows the skin package's radius, then the host's own. */
   candidate_corner_radius?: number | null;
   candidate_follow_cursor?: boolean;
-  /** macOS-only non-activating badge shown after switching Chinese/English input. */
+  /** 切换中英文后在光标旁短暂显示的徽标（macOS、Windows、Linux 和鸿蒙 2in1）。 */
   input_mode_hud?: boolean;
   candidate_font_family?: string;
   candidate_english_font?: string | null;
@@ -2181,9 +2191,8 @@ export interface SettingsClient {
   notices?: NoticesClient;
   /** macOS opens the versioned third-party notices shipped with the app bundle. */
   openThirdPartyLicenses?: () => Promise<void>;
-  /** macOS keeps the native shuangpin keymap panel preference outside shared Engine preferences. */
+  /** 「输入时显示双拼键位提示」以前只存在 macOS 本机 defaults 里，现在是共享偏好 `shuangpin_keymap_hint`。文档里还没有这一项时，macOS 输入法仍按本机的旧选择显示键位图，设置页读这个值只为显示同一个状态；改动写进共享偏好。 */
   loadMacosShuangpinKeymap?: () => Promise<boolean>;
-  saveMacosShuangpinKeymap?: (enabled: boolean) => Promise<void>;
   copyText?: (text: string) => Promise<void>;
   /** The desktop hosts ship `msime-mcp` beside the settings app and report where it is and the entry an AI assistant runs it with. */
   mcpServerStatus?: () => Promise<McpServerStatus>;
@@ -2417,6 +2426,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showEnglishSuggestions,
     showHelpcodeShiftEntry,
     showShuangpinPreedit,
+    showShuangpinKeymapHint,
     showCharacterWidth,
     aiProviderCredentials,
     showVoiceCommitMode,
@@ -2495,10 +2505,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     dismissInputSourceStartup,
     inputSourceStartup,
     onDeviceDownloadable,
-    setSavedShuangpinKeymap,
-    setShuangpinKeymap,
     shuangpinKeymap: macosShuangpinKeymap,
-    savedShuangpinKeymap: savedMacosShuangpinKeymap,
   } = useMacosSettings({ client, macos: macosPlatform, setError });
   const restoredMobilePage =
     mobilePlatform &&
@@ -2647,7 +2654,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   } = useSettingsPersistence({
     client,
     mobile: mobilePlatform,
-    macos: macosPlatform,
     mounted,
     snapshot,
     draft,
@@ -2657,10 +2663,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     setError,
     setNotice,
     setRecoveredBackup,
-    macosShuangpinKeymap,
-    savedMacosShuangpinKeymap,
-    saveMacosShuangpinKeymap: client.saveMacosShuangpinKeymap,
-    setSavedMacosShuangpinKeymap: setSavedShuangpinKeymap,
   });
 
   const { restoreDefaults, recoverPreferences } = usePreferenceRecovery({
@@ -2706,9 +2708,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const openPanel = useOpenPanel({ setError });
 
   // Only a failed save leaves changes unsaved for long; 重新读取 then asks before discarding them.
-  const dirty =
-    (!!draft && !!snapshot && !deepEqual(draft, snapshot.preferences)) ||
-    (macosShuangpinKeymap !== undefined && macosShuangpinKeymap !== savedMacosShuangpinKeymap);
+  const dirty = !!draft && !!snapshot && !deepEqual(draft, snapshot.preferences);
   const { ai, storedAiCredential } = aiSettingsPreferences(
     draft?.ai_assistant,
     providerCredentials,
@@ -2788,6 +2788,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     mobile: mobilePlatform,
     macos: macosPlatform,
     linux: linuxPlatform,
+    windows: windowsPlatform,
     candidateEnglishGlossAvailable: Boolean(client.candidateEnglishGloss),
     onDeviceDownloadable,
     onChange: onTranslationChange,
@@ -2807,6 +2808,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     macos: macosPlatform,
     android: androidPlatform,
     harmony: harmonyPlatform,
+    windows: windowsPlatform,
     nativeVoicePlatform,
     localModelsAvailable: client.localVoiceModels !== undefined,
     onChange: onVoiceChange,
@@ -3036,7 +3038,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     mobileKeyboardFeedback,
     mobileKeyboardFeedbackBusy,
     macosShuangpinKeymap,
-    setShuangpinKeymap,
+    showShuangpinKeymapHint,
     setPhrases,
     phrases,
     phrasePage,
@@ -3645,9 +3647,9 @@ function SettingsShell(props: SettingsPageProps) {
                   onOpenLocalDesigns={
                     client.customTouchKeyboardSkins ? openLocalDesigns : undefined
                   }
-                  onOpenCommunity={
-                    client.communitySkins && client.communityResources ? openCommunity : undefined
-                  }
+                  // Windows 的社区页只有词包与回复模板，没有皮肤画廊；它的候选窗口皮肤社区在主题页。
+                  onOpenCommunity={client.communityResources ? openCommunity : undefined}
+                  communityHasSkins={Boolean(client.communitySkins)}
                   onOpenCloudDictionary={
                     client.openCloudDictionary
                       ? () => {

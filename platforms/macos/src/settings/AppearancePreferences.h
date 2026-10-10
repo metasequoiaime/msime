@@ -209,6 +209,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 - (void)applySharedInputPreferences:(NSDictionary *)preferences;
 /// 是否已经从共享偏好文档载入过一次输入选项。在此之前方案等字段读的是 NSUserDefaults 里本输入法自己上次写下的值，而设置页、`msime config set` 和云端同步只写文档，那个值可能早已过时（#4288）。
 @property(nonatomic, readonly) BOOL sharedInputPreferencesApplied;
+/// 本机有共享文档还没有、但收得下的应用例外（升级前存在 NSUserDefaults 里的规则）。最近一次 -applySharedInputPreferences: 之后为真时，输入法应当保存一次，把它们经 -sharedPreferencesByMerging: 发布进文档，共享设置页才显示得出输入法实际在用的规则。
+@property(nonatomic, readonly) BOOL applicationInputModeRulesAwaitPublication;
 - (void)applySharedCandidatePreferences:(NSDictionary *)preferences;
 /// The native candidate panel appearance override. A nil value means AppKit follows the system.
 @property(nonatomic, readonly) NSAppearance *candidateAppearanceOverride;

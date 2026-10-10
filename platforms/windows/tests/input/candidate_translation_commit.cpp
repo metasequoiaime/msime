@@ -126,6 +126,9 @@ int main() {
   require(payload(*reply) == u"hello", "Ctrl+Enter committed something other than the sense");
   require(reply->committed_text == "hello" && reply->next_prefix.empty(), "Ctrl+Enter kept a prefix");
   require(reply->source.transition.at("commit").is_null(), "Ctrl+Enter reported an Engine commit");
+  // 送达后候选窗按 transition 的 view 收起（candidate_presentation），缺了 view 会在输入队列里抛出并停掉整个队列。
+  require(reply->source.transition.at("view").at("editing_text") == "",
+          "Ctrl+Enter's transition did not carry the cancelled view");
   require(session.view().at("editing_text") == "", "Ctrl+Enter left the composition open");
   composer.confirm_delivery(42, epoch, enter.request_id);
   return EXIT_SUCCESS;

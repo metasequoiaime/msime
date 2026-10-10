@@ -1,14 +1,14 @@
 use msime_client_core::account::AccountError;
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
 use msime_client_core::account::{AccountApi, AccountSessionStorage, BackendAccountSession};
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
 use std::path::Path;
 use std::sync::Arc;
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
 use std::{collections::HashMap, sync::Mutex};
 
 /// 在账户代次锁内发布预览，避免退出登录后旧下载重新写入预览表。
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
 pub(crate) fn publish_snapshot_preview<A, S, V>(
     session: &BackendAccountSession<A, S>,
     generation: u64,
@@ -30,7 +30,7 @@ where
 }
 
 /// 在账户锁内取走不属于当前代次的预览，避免退出后的清理误删新会话预览。
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
 pub(crate) fn take_invalid_snapshot_previews<A, S, V, F>(
     session: &BackendAccountSession<A, S>,
     previews: &Mutex<HashMap<String, V>>,
@@ -57,7 +57,7 @@ where
 /// Create a snapshot scratch directory only when every path component is a real directory.
 /// Snapshot writers pass paths in this directory to native bridges, so following a replaced
 /// temporary-directory symlink would redirect cloud data outside the app's scratch area.
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
 pub(crate) fn prepare_snapshot_directory(directory: &Path) -> std::io::Result<()> {
     crate::shared::atomic_file::create_directory_and_check(directory).map(|_| ())
 }
@@ -65,13 +65,13 @@ pub(crate) fn prepare_snapshot_directory(directory: &Path) -> std::io::Result<()
 /// Write snapshot text through a private temporary sibling before replacing the requested path.
 /// Restore paths are generated internally, but a concurrent filesystem change must not turn one
 /// into a write through a leaf symlink.
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
 pub(crate) fn write_snapshot_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     crate::shared::atomic_file::write(path, contents)
 }
 
 /// Read a staged snapshot through a no-follow handle and the native 512 MiB limit.
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
 pub(crate) fn read_snapshot_file(path: &Path) -> std::io::Result<String> {
     let file = crate::shared::atomic_file::open_private(path)?;
     let bytes =
@@ -88,13 +88,13 @@ pub(crate) fn read_snapshot_file(path: &Path) -> std::io::Result<String> {
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "snapshot is not UTF-8"))
 }
 
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
 #[allow(dead_code)]
 pub(crate) fn remove_snapshot_file(path: &Path) -> std::io::Result<()> {
     crate::shared::atomic_file::remove_private(path)
 }
 
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
 pub(crate) fn cleanup_stale_snapshot_previews(directory: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
@@ -153,7 +153,7 @@ fn cleanup_stale_snapshot_previews_in_directory(
 }
 
 /// Keep restore requests from copying data that the native snapshot inspectors will reject.
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
 pub(crate) fn snapshot_text_within_limit(bytes: usize) -> bool {
     bytes <= 512 * 1024 * 1024
 }
@@ -170,7 +170,6 @@ pub(crate) fn account_value<T: serde::Serialize>(
 }
 
 /// Maps an account error from a community service to the `community_*` codes the community pages translate. It is the mapping `mobile_community` uses, so a page reads the same code on every host.
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 pub(crate) fn community_error(error: AccountError) -> crate::CommandError {
     crate::CommandError {
         code: match error {
@@ -191,7 +190,6 @@ pub(crate) fn community_error(error: AccountError) -> crate::CommandError {
 }
 
 /// Parses a community item id the page sent.
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 pub(crate) fn community_id(
     value: &str,
 ) -> Result<msime_client_core::uuid::Uuid, crate::CommandError> {
@@ -201,7 +199,6 @@ pub(crate) fn community_id(
 }
 
 /// Runs one blocking community service call off the async runtime, mapping its error with [`community_error`].
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 pub(crate) async fn community_service_call<T, S, F>(
     service: Arc<S>,
     operation: F,

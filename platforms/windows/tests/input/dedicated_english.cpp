@@ -62,6 +62,23 @@ int main() {
     assert(idle && idle->at("dedicated_english") == false);
     assert(idle->at("editing_text") == "a");
     assert(idle->at("generation") == typed->at("generation"));
+    // 托盘「英文候选模式」显式设置模式：组字中和过期的租约什么也不动，重复设置同一个状态不推进 Engine。
+    assert(!state.set_dedicated_english(stale, true));
+    assert(!state.set_dedicated_english(lease, true));
+    const auto still = state.dedicated_english(lease, false);
+    assert(still && still->at("dedicated_english") == false &&
+           still->at("editing_text") == "a");
+    assert(state.cancel_composition(lease));
+    const auto entered = state.set_dedicated_english(lease, true);
+    assert(entered && entered->at("dedicated_english") == true);
+    assert(entered->at("editing_text") == "");
+    const auto again = state.set_dedicated_english(lease, true);
+    assert(again && again->at("dedicated_english") == true);
+    assert(again->at("generation") == entered->at("generation"));
+    const auto read = state.dedicated_english(lease, false);
+    assert(read && read->at("dedicated_english") == true);
+    const auto left = state.set_dedicated_english(lease, false);
+    assert(left && left->at("dedicated_english") == false);
     assert(state.quiesce_dictionaries() == 1);
     assert(!state.dedicated_english(lease, true));
   }

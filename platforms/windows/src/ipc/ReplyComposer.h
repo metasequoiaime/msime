@@ -1,6 +1,7 @@
 #pragma once
 #include "ReplyCodec.h"
 #include "EditPolicy.h"
+#include "JapaneseSpacePolicy.h"
 #include "ServerSession.h"
 #include <functional>
 #include <optional>
@@ -108,6 +109,12 @@ public:
   std::optional<PendingReply> translation_page_key(
       ServerSession &session, const FanyImeNamedpipeData &packet,
       uint64_t epoch);
+  // 释义列快捷键（GlossColumnPolicy.h）：Alt/Ctrl+数字上屏对应候选的第 1/2 列释义，Tab/Shift+Tab 预选高亮候选的释义列，预选之后数字和空格上屏那一列。armed 是这次按键之前预选的列。不是这些键、或者那一列没有释义时返回空，按键照常处理。
+  std::optional<PendingReply> gloss_column_key(
+      ServerSession &session, const FanyImeNamedpipeData &packet,
+      uint64_t epoch, int armed);
+  // 眼下预选的释义列，0 表示没有预选。只活到下一个按键：Server 收到的任何按键都会先清掉它，只有预选列的 Tab 再设回去。
+  int armed_gloss_column() const { return armed_gloss_column_; }
   PendingReply translation_page_reply(const FanyImeNamedpipeData &packet,
                                      uint64_t epoch,
                                      const nlohmann::json &view);
@@ -122,6 +129,11 @@ public:
   std::optional<PendingReply> korean_syllable_end(
       ServerSession &session, const FanyImeNamedpipeData &packet,
       uint64_t epoch);
+  // 日语方案组字时的空格（japanese_space_applies 已经判过）：开始转换时回一个不上屏的导航回执，之后每一次在会话里移到下一个候选、过了末尾回到第一个，同样回导航回执，候选窗跟着送达的 view 走。状态机不接管时返回空，空格照常上屏高亮候选。
+  std::optional<PendingReply> japanese_space(ServerSession &session,
+                                             const FanyImeNamedpipeData &packet,
+                                             uint64_t epoch,
+                                             const nlohmann::json &view);
   // 组字时 ';' 或 '\'' 选当前页第二、第三个候选，走和数字键相同的选词回复。规则与 TIP 共用 SecondThirdCandidatePolicy.h；不归它管的键返回空，Engine 不动。
   std::optional<PendingReply> second_third_candidate(
       ServerSession &session, const FanyImeNamedpipeData &packet,
@@ -159,8 +171,11 @@ private:
   std::optional<PendingReply> pending_;
   bool traditional_output_ = false;
   bool translation_page_active_ = false;
+  int armed_gloss_column_ = 0;
   std::vector<std::string> translation_page_items_;
   nlohmann::json translation_page_view_;
   std::vector<PendingReply::SegmentRestore> segment_restore_history_;
+  // 日语空格「変換」进行到哪一个候选、对着哪一段读音。组字结束（回复里 editing_text 为空）或取消时清掉，下一段组字从头开始。
+  input::JapaneseConversion japanese_conversion_;
 };
 } // namespace msime::windows

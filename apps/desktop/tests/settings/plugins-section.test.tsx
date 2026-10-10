@@ -1540,7 +1540,7 @@ test("the 插件 page tells a user whose scheme cannot open / or @ so on the lis
   ).toBeTruthy();
 });
 
-test("the 插件 page on Windows describes every effect style as a flash of the candidate card", async () => {
+test("the 插件 page on Windows describes the sparks it draws at the caret", async () => {
   render(
     <SettingsPage
       client={{
@@ -1557,10 +1557,10 @@ test("the 插件 page on Windows describes every effect style as a flash of the 
   expect(within(form).getByRole("radiogroup", { name: "效果样式" })).toBeTruthy();
   expect(
     within(form).getByText(
-      "这台设备上各样式都只让候选栏闪一下，不迸出火花：闪光最淡，火花更亮，Power Mode 最亮，连击升档时再亮一些。",
+      "闪光：按键时候选栏闪一下；火花：按键和上屏时迸出火花；Power Mode：火花随连击变大。",
     ),
   ).toBeTruthy();
-  expect(within(form).queryByText(/火花：按键和上屏时迸出火花/)).toBeNull();
+  expect(within(form).queryByText(/这台设备上各样式都只让候选栏闪一下/)).toBeNull();
 });
 
 test("the 插件 page offers the typing effects where the host draws them, and only the combo count on Linux", async () => {
@@ -1628,8 +1628,8 @@ test("effect packs are offered where the host draws a style, not on Linux", () =
   expect(capabilities("harmony").showTypingEffectStyles).toBe(true);
   expect(capabilities("harmony").showTypingEffectPacks).toBe(true);
   expect(capabilities("linux").showTypingEffectPacks).toBe(false);
-  // Windows and HarmonyOS draw every style as a flash of the candidate card, so the style text must not promise sparks there.
-  expect(capabilities("windows").typingEffectsFlashOnly).toBe(true);
+  // HarmonyOS 把每种样式都画成候选卡片闪一下，样式说明不能许诺火花；Windows 和 macOS 一样在光标处画火花。
+  expect(capabilities("windows").typingEffectsFlashOnly).toBe(false);
   expect(capabilities("harmony").typingEffectsFlashOnly).toBe(true);
   expect(capabilities("macos").typingEffectsFlashOnly).toBe(false);
   expect(capabilities("linux").typingEffectsFlashOnly).toBe(false);

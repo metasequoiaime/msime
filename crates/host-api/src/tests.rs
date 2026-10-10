@@ -2491,6 +2491,67 @@ fn restoring_default_preferences_is_a_locked_compare_and_swap() {
 }
 
 #[test]
+fn exported_settings_import_as_a_compare_and_swap_that_keeps_local_services() {
+    let source = tempfile::tempdir().unwrap();
+    let source_store = PreferencesStore::new(source.path());
+    let mut exported = Preferences {
+        candidate_page_size: 8,
+        ..Preferences::default()
+    };
+    exported.voice_input.asr_token = "fixture-exported-token".into();
+    source_store.save(0, exported).unwrap();
+    let source_path = source.path().to_str().unwrap();
+    let document =
+        read(unsafe { msime_client_export_settings(source_path.as_ptr(), source_path.len()) });
+    assert_eq!(document["ok"], true, "{document}");
+    let text = document["value"].as_str().unwrap().to_owned();
+    assert!(!text.contains("fixture-exported-token"));
+
+    let target = tempfile::tempdir().unwrap();
+    let target_store = PreferencesStore::new(target.path());
+    let mut local = Preferences::default();
+    local.voice_input.asr_token = "fixture-local-token".into();
+    // 本机开着剪贴板历史、存着记录；导出的文件里剪贴板历史是默认的关闭，导入后本机仍开着，记录也还在。
+    local.clipboard_history = true;
+    let saved = target_store.save(0, local).unwrap();
+    assert!(target_store
+        .capture_clipboard_text("synthetic local history".into())
+        .unwrap());
+    let history = target.path().join("clipboard_history.json");
+    let original_history = std::fs::read(&history).unwrap();
+    let target_path = target.path().to_str().unwrap();
+    let import = |revision: u64, bytes: &[u8]| {
+        read(unsafe {
+            msime_client_import_settings(
+                target_path.as_ptr(),
+                target_path.len(),
+                revision,
+                bytes.as_ptr(),
+                bytes.len(),
+            )
+        })
+    };
+    let stale = import(saved.revision + 3, text.as_bytes());
+    assert_eq!(stale["error"], "settings_conflict");
+    assert_eq!(target_store.load().unwrap(), saved);
+    assert_eq!(
+        import(saved.revision, b"{\"format\":\"elsewhere\"}")["error"],
+        "settings_document_invalid"
+    );
+    let imported = import(saved.revision, text.as_bytes());
+    assert_eq!(imported["ok"], true, "{imported}");
+    assert_eq!(imported["value"]["revision"], saved.revision + 1);
+    let loaded = target_store.load().unwrap();
+    assert_eq!(loaded.preferences.candidate_page_size, 8);
+    assert_eq!(
+        loaded.preferences.voice_input.asr_token,
+        "fixture-local-token"
+    );
+    assert!(loaded.preferences.clipboard_history);
+    assert_eq!(std::fs::read(&history).unwrap(), original_history);
+}
+
+#[test]
 #[cfg(not(target_os = "android"))]
 fn resolve_theme_reads_the_package_from_either_source() {
     let directory = tempfile::tempdir().unwrap();
@@ -4446,9 +4507,7 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
     );
     assert_eq!(secondary_gloss["value"]["english_gloss"], true);
 
-    // With the gloss off, only the user path needed to persist successful
-    // English-target provider results is carried. Packaged resources stay
-    // private to offline lookup.
+    // 离线英文释义关着、只开候选翻译时：用户目录照旧带上，存成功的英文翻译；英文目标下整句候选仍要逐词拆解（和 macOS currentGlossRequest 一样不要求离线释义开着），所以带 gloss_breakdown 和拆解表所在的资源目录。
     preferences.candidate_english_gloss = false;
     preferences.translation_target_language =
         msime_client_core::preferences::TranslationTargetLanguage::En;
@@ -4457,8 +4516,18 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
     update(handle, 9, &preferences);
     let online = read(msime_client_translation_query(handle));
     assert_eq!(online["value"]["english_gloss"], false);
-    assert!(online["value"]["resources"].is_null());
+    assert_eq!(online["value"]["gloss_breakdown"], true);
+    assert!(online["value"]["resources"].is_string());
     assert!(online["value"]["user_data"].is_string());
+
+    // 目标语言里没有英文时没有拆解，资源目录也不带。
+    preferences.translation_target_language =
+        msime_client_core::preferences::TranslationTargetLanguage::Ja;
+    preferences.translation_secondary_language = None;
+    update(handle, 10, &preferences);
+    let japanese = read(msime_client_translation_query(handle));
+    assert!(japanese["value"].get("gloss_breakdown").is_none());
+    assert!(japanese["value"]["resources"].is_null());
     read(msime_client_destroy(handle));
 }
 
@@ -4606,10 +4675,18 @@ fn translation_query_carries_the_pronunciation_switch_only_when_on() {
     let on = read(msime_client_translation_query(handle));
     assert_eq!(on["value"]["candidate_pronunciation"], true);
 
+    // 只开在线翻译时也带资源目录，宿主才能给在线翻出来的英文释义标音标。
+    preferences.candidate_english_gloss = false;
+    preferences.candidate_translations = true;
+    update(handle, 2, &preferences);
+    let online = read(msime_client_translation_query(handle));
+    assert_eq!(online["value"]["english_gloss"], false);
+    assert!(online["value"]["resources"].is_string());
+
     // Pronunciation annotates a gloss; with every gloss source off there is nothing to annotate.
     preferences.candidate_english_gloss = false;
     preferences.candidate_translations = false;
-    update(handle, 2, &preferences);
+    update(handle, 3, &preferences);
     assert_eq!(
         read(msime_client_translation_query(handle))["value"],
         Value::Null

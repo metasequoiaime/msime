@@ -21,7 +21,10 @@ public:
   // Reports the new Caps Lock state on every press. The Server is the
   // authority for it; the TIP only sampled it at activation.
   using CapsSink = std::function<void(bool)>;
-  explicit MaintenanceHotkeyController(Handler handler, CapsSink caps = {});
+  // 每一次真实的按键按下（不含本进程注入的）都报告一次，悬浮工具栏用它判断用户是否还在打字。钩子回调跑在装钩子的 UI 线程上，所以这里可以直接改 UI 线程的状态，但不能做费时的事。
+  using KeySink = std::function<void()>;
+  explicit MaintenanceHotkeyController(Handler handler, CapsSink caps = {},
+                                       KeySink key = {});
   ~MaintenanceHotkeyController();
   MaintenanceHotkeyController(const MaintenanceHotkeyController &) = delete;
   MaintenanceHotkeyController &operator=(const MaintenanceHotkeyController &) = delete;
@@ -31,6 +34,7 @@ private:
   static LRESULT CALLBACK keyboard_proc(int code, WPARAM wparam, LPARAM lparam);
   Handler handler_;
   CapsSink caps_sink_;
+  KeySink key_sink_;
   bool caps_ = false;
   // Low-level hooks carry no repeat bit; only the first down after an up toggles.
   bool caps_down_ = false;

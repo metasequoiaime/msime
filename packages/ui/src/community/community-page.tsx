@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import {
   CommunityHomePage,
-  CommunityResourcesPage,
   type CommunityLocalDictionaryClient,
   type CommunityResourceClient,
   type CommunityResourceKind,
@@ -124,13 +123,18 @@ function CommunityGallery({
     );
   }
 
+  // 只有词包与回复模板、没有皮肤画廊的宿主（Windows）：同一个首页，只是没有「皮肤」分类。
   if (resources) {
     return (
-      <CommunityResourcesPage
-        client={resources}
-        kind={initialCategory === "reply" ? "reply" : "dictionary"}
+      <CommunityHomePage
+        key={destinationKey}
+        resources={resources}
+        theme={theme}
+        initialCategory={initialCategory}
         initialScope={initialScope}
+        localDictionary={localDictionary}
         mobile={mobile}
+        onLogin={onLogin}
         look={look}
       />
     );

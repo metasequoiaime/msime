@@ -31,7 +31,7 @@ Example: `choco install msime --params "'/DataDir:D:\msime-data'"`
 
 ## Notes
 
-Uninstalling deletes the input method's data directory, including your own dictionary words, settings and skins. Upgrading keeps it.
+Uninstalling keeps the input method's data directory, including your own dictionary words, settings and skins; upgrading keeps it too. A later install picks it up again by itself only in the default location: the uninstaller forgets a directory given with `/DataDir:`, so pass the same `/DataDir:` again when reinstalling (a directory this input method used before is accepted even though it is not empty). To delete it as well, uninstall from Windows Settings and answer Yes when asked, or run the uninstaller with `/REMOVEDATA`.
 
 Installing as SYSTEM (for example from an RMM tool or a scheduled task) needs `/DataDir:`: without it the installer picks the SYSTEM account's local app data, which lies inside `C:\Windows`, rejects it and the install fails.
 ]]></description>

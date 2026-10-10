@@ -126,8 +126,9 @@ mod key_sound;
 mod plugin_tables;
 mod voice_capture;
 pub use dictionary_snapshot::{
-    msime_client_snapshot_discard, msime_client_snapshot_inspect, msime_client_snapshot_prepare,
-    msime_client_snapshot_queue, msime_client_snapshot_restore, msime_client_snapshot_version,
+    inspect_snapshot_json, msime_client_snapshot_discard, msime_client_snapshot_inspect,
+    msime_client_snapshot_prepare, msime_client_snapshot_queue, msime_client_snapshot_restore,
+    msime_client_snapshot_version, snapshot_queue_json,
 };
 
 /// Capture endpoint identities paired with labels. Neither belongs in logs.

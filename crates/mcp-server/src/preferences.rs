@@ -4,9 +4,9 @@
 
 use msime_client_core::edition::Edition;
 use msime_client_core::preferences::{
-    CandidateLayout, CharacterWidthPreference, ChineseScheme, DefaultImeMode, InputScheme,
-    Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinCustomProfile, ShuangpinProfile,
-    WubiProfile,
+    AppInputModeRule, CandidateLayout, CharacterWidthPreference, ChineseScheme, DefaultImeMode,
+    InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinCustomProfile,
+    ShuangpinProfile, WubiProfile,
 };
 use rmcp::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -207,6 +207,24 @@ impl From<StartMode> for DefaultImeMode {
     }
 }
 
+impl From<AppInputModeRule> for StartMode {
+    fn from(value: AppInputModeRule) -> Self {
+        match value {
+            AppInputModeRule::Chinese => Self::Chinese,
+            AppInputModeRule::English => Self::English,
+        }
+    }
+}
+
+impl From<StartMode> for AppInputModeRule {
+    fn from(value: StartMode) -> Self {
+        match value {
+            StartMode::Chinese => Self::Chinese,
+            StartMode::English => Self::English,
+        }
+    }
+}
+
 impl From<CharacterWidthPreference> for Width {
     fn from(value: CharacterWidthPreference) -> Self {
         match value {
@@ -267,13 +285,15 @@ pub struct PreferencesView {
     pub candidate_follow_cursor: bool,
     /// Select candidates with the number row.
     pub number_row_selection: bool,
-    /// Show a badge when switching between Chinese and English (macOS).
+    /// 切换中英文时显示「中」或「英」的提示（macOS、Windows、Linux 和 HarmonyOS）。
     pub input_mode_hud: bool,
-    /// Show the app logo at the left end of the candidate window and the floating toolbar (macOS).
+    /// 在候选窗和悬浮工具栏左端显示水杉 logo（macOS 和 Windows；其他宿主始终显示，没有这个开关）。
     pub show_app_logo: bool,
     pub fuzzy_pinyin: bool,
     /// The mode a newly focused text field starts in.
     pub default_ime_mode: StartMode,
+    /// 应用例外（macOS 和 Windows）：切到这些应用时固定从这里给的模式开始，优先于按应用记忆和 `default_ime_mode`；用户在应用里手动切换后，本次停留期间让位。键在 macOS 上是 bundle id，在 Windows 上是程序文件名（如 `code.exe`，不分大小写）。
+    pub app_input_mode_rules: BTreeMap<String, StartMode>,
     /// The width of the ASCII letters, digits and punctuation the input method outputs.
     pub character_width: Width,
     /// Type Chinese punctuation in Chinese mode.
@@ -288,6 +308,8 @@ pub struct PreferencesView {
     pub wubi_mixed_pinyin: bool,
     /// In Wubi, show the rest of each candidate's code after the typed keys.
     pub wubi_code_hint: bool,
+    /// 双拼组字时在候选窗旁显示当前方案的键位图（macOS 和 Windows）。null 表示从没设置过：macOS 这时沿用本机旧的设置，其他宿主为关。
+    pub shuangpin_keymap_hint: Option<bool>,
     /// 五笔里，完整四码且只有一个候选时在第四键提交。
     pub wubi_auto_commit_unique: bool,
     /// Whether the input method writes its diagnostic log: focus changes, slow requests, candidate window and dictionary events and failures, never what is typed.
@@ -321,6 +343,11 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             show_app_logo: preferences.show_app_logo,
             fuzzy_pinyin: preferences.fuzzy_pinyin.enabled,
             default_ime_mode: preferences.default_ime_mode.into(),
+            app_input_mode_rules: preferences
+                .app_input_mode_rules
+                .iter()
+                .map(|(id, rule)| (id.clone(), (*rule).into()))
+                .collect(),
             character_width: preferences.character_width.into(),
             chinese_punctuation: preferences.chinese_punctuation,
             smart_punctuation: preferences.smart_punctuation,
@@ -328,6 +355,7 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             wubi_profile: preferences.wubi_profile.into(),
             wubi_mixed_pinyin: preferences.wubi_mixed_pinyin,
             wubi_code_hint: preferences.wubi_code_hint,
+            shuangpin_keymap_hint: preferences.shuangpin_keymap_hint,
             wubi_auto_commit_unique: preferences.wubi_auto_commit_unique,
             diagnostic_log_server: preferences.diagnostic_log.server,
             diagnostic_log_tsf: preferences.diagnostic_log.tsf,
@@ -368,6 +396,8 @@ pub struct PreferencesChange {
     /// Turning fuzzy pinyin on for the first time also turns on every fuzzy rule, as the settings page does.
     pub fuzzy_pinyin: Option<bool>,
     pub default_ime_mode: Option<StartMode>,
+    /// 整张替换应用例外表，`{}` 清空。最多 32 条；标识非空、不超过 64 字节、两端没有空白、不含控制字符和 `/` `\`，按 ASCII 不分大小写不能重复。
+    pub app_input_mode_rules: Option<BTreeMap<String, StartMode>>,
     pub character_width: Option<Width>,
     pub chinese_punctuation: Option<bool>,
     pub smart_punctuation: Option<bool>,
@@ -375,6 +405,7 @@ pub struct PreferencesChange {
     pub wubi_profile: Option<WubiVersion>,
     pub wubi_mixed_pinyin: Option<bool>,
     pub wubi_code_hint: Option<bool>,
+    pub shuangpin_keymap_hint: Option<bool>,
     pub wubi_auto_commit_unique: Option<bool>,
     /// Turn on to look into a problem the user reports, and off again once it is understood.
     pub diagnostic_log_server: Option<bool>,
@@ -401,6 +432,7 @@ impl PreferencesChange {
             && self.show_app_logo.is_none()
             && self.fuzzy_pinyin.is_none()
             && self.default_ime_mode.is_none()
+            && self.app_input_mode_rules.is_none()
             && self.character_width.is_none()
             && self.chinese_punctuation.is_none()
             && self.smart_punctuation.is_none()
@@ -408,6 +440,7 @@ impl PreferencesChange {
             && self.wubi_profile.is_none()
             && self.wubi_mixed_pinyin.is_none()
             && self.wubi_code_hint.is_none()
+            && self.shuangpin_keymap_hint.is_none()
             && self.wubi_auto_commit_unique.is_none()
             && self.diagnostic_log_server.is_none()
             && self.diagnostic_log_tsf.is_none()
@@ -463,6 +496,12 @@ impl PreferencesChange {
         if let Some(mode) = self.default_ime_mode {
             preferences.default_ime_mode = mode.into();
         }
+        if let Some(rules) = &self.app_input_mode_rules {
+            preferences.app_input_mode_rules = rules
+                .iter()
+                .map(|(id, mode)| (id.clone(), (*mode).into()))
+                .collect();
+        }
         if let Some(width) = self.character_width {
             preferences.character_width = width.into();
         }
@@ -483,6 +522,9 @@ impl PreferencesChange {
         }
         if let Some(value) = self.wubi_code_hint {
             preferences.wubi_code_hint = value;
+        }
+        if let Some(value) = self.shuangpin_keymap_hint {
+            preferences.shuangpin_keymap_hint = Some(value);
         }
         if let Some(value) = self.wubi_auto_commit_unique {
             preferences.wubi_auto_commit_unique = value;
@@ -667,6 +709,10 @@ mod tests {
         for mode in [DefaultImeMode::Chinese, DefaultImeMode::English] {
             same(json!(StartMode::from(mode)), json!(mode));
             assert_eq!(DefaultImeMode::from(StartMode::from(mode)), mode);
+        }
+        for rule in [AppInputModeRule::Chinese, AppInputModeRule::English] {
+            same(json!(StartMode::from(rule)), json!(rule));
+            assert_eq!(AppInputModeRule::from(StartMode::from(rule)), rule);
         }
         for width in [
             CharacterWidthPreference::Halfwidth,
@@ -1007,6 +1053,55 @@ mod tests {
     }
 
     /// 代理只能开关游戏里的候选窗，用户写下的两张进程表原样保留。
+    #[test]
+    fn app_input_mode_rules_and_the_keymap_hint_are_set_and_invalid_rules_refused() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let before = load(directory.path(), Edition::full()).unwrap();
+        assert!(before.app_input_mode_rules.is_empty());
+        assert_eq!(before.shuangpin_keymap_hint, None);
+
+        let set: PreferencesChange = serde_json::from_value(json!({
+            "expected_revision": before.revision,
+            "app_input_mode_rules": { "code.exe": "english", "com.tencent.xinWeChat": "chinese" },
+            "shuangpin_keymap_hint": true,
+        }))
+        .unwrap();
+        assert!(!set.is_empty());
+        let updated = update(directory.path(), &options, Edition::full(), &set).unwrap();
+        assert_eq!(updated.app_input_mode_rules["code.exe"], StartMode::English);
+        assert_eq!(updated.shuangpin_keymap_hint, Some(true));
+        let stored = store.load().unwrap().preferences;
+        assert_eq!(
+            stored.app_input_mode_rules["com.tencent.xinWeChat"],
+            AppInputModeRule::Chinese
+        );
+        assert_eq!(stored.shuangpin_keymap_hint, Some(true));
+
+        // 只差大小写的两条会让 Windows 上同一个进程拿到两种模式，存储层拒绝，原来的表不变。
+        let duplicate: PreferencesChange = serde_json::from_value(json!({
+            "expected_revision": updated.revision,
+            "app_input_mode_rules": { "Code.exe": "chinese", "code.exe": "english" },
+        }))
+        .unwrap();
+        assert!(update(directory.path(), &options, Edition::full(), &duplicate).is_err());
+        assert_eq!(
+            store.load().unwrap().preferences.app_input_mode_rules.len(),
+            2
+        );
+
+        let cleared: PreferencesChange = serde_json::from_value(json!({
+            "expected_revision": updated.revision,
+            "app_input_mode_rules": {},
+        }))
+        .unwrap();
+        let cleared = update(directory.path(), &options, Edition::full(), &cleared).unwrap();
+        assert!(cleared.app_input_mode_rules.is_empty());
+        assert_eq!(cleared.shuangpin_keymap_hint, Some(true));
+    }
+
     #[test]
     fn the_game_candidate_overlay_switch_leaves_the_process_lists_alone() {
         let directory = tempfile::tempdir().unwrap();

@@ -1,4 +1,6 @@
 #include "CandidateWindow.h"
+#include "AccessibleWindow.h"
+#include "CandidateAccessibility.h"
 #include "CandidateFlyoutWindow.h"
 #include "CandidateFontFormat.h"
 #include "CandidateWheel.h"
@@ -10,6 +12,7 @@
 #include "TypingEffectSignal.h"
 #include "WindowShadow.h"
 #include <algorithm>
+#include <commctrl.h>
 #include <iterator>
 #include "../../../../shared/contracts/msime_edition.h"
 
@@ -37,7 +40,7 @@ bool installed_font(const std::wstring &family) {
   return found;
 }
 constexpr wchar_t class_name[] = L"MSIME.Client.Preview.Candidates" MSIME_EDITION_NAME_SUFFIX;
-// The typing flash repaints at about 30 frames a second while it fades, then its timer is killed; the combo timer fires once, when the count it shows goes stale.
+// 打字闪光和 Power Mode 抖动持续期间约每秒重画 30 帧，结束后停掉定时器；连击定时器只在显示的计数过期时触发一次。
 constexpr UINT_PTR typing_flash_timer = 0x4501;
 constexpr UINT_PTR typing_combo_timer = 0x4502;
 constexpr UINT typing_flash_frame_millis = 30;
@@ -91,6 +94,20 @@ std::wstring wide(const std::string &text) {
                           static_cast<int>(text.size()), result.data(),
                           count) != count)
     throw std::invalid_argument("Invalid window text");
+  return result;
+}
+// 悬停提示的文字：候选和释义拼起来可能超过 wide() 的 4096 字节上限，提示又不值得为此让候选窗失败，所以单独转换，非法字节换成替换字符。
+std::wstring tooltip_wide(const std::string &text) {
+  if (text.empty() || text.size() > 65536)
+    return {};
+  const int count = MultiByteToWideChar(CP_UTF8, 0, text.data(),
+                                        static_cast<int>(text.size()), nullptr, 0);
+  if (count <= 0)
+    return {};
+  std::wstring result(static_cast<size_t>(count), L'\0');
+  if (MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+                          result.data(), count) != count)
+    return {};
   return result;
 }
 // Text width in device independent pixels. DirectWrite is the same engine the renderer draws with, so the card cannot be sized for a different shaping. `weight` is the weight the text is drawn at: the preedit is semibold.
@@ -264,6 +281,19 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
   if (!window_)
     throw std::runtime_error("Candidate window unavailable");
   TypingEffectSignal::instance().attach(window_);
+  // 与 macOS 候选窗每个子视图的 accessibilityLabel 对应：读屏通过 UI Automation 读到每行候选、页码、翻页箭头、预编辑和 logo。
+  accessible_ = std::make_unique<AccessibleWindow>(window_);
+  // 悬停提示，与 macOS 每个候选按钮的 toolTip 对应。建不出来不算候选窗失败，只是没有提示。
+  INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_BAR_CLASSES};
+  if (InitCommonControlsEx(&controls))
+    tooltip_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                               TOOLTIPS_CLASSW, nullptr,
+                               WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, CW_USEDEFAULT,
+                               CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, window_,
+                               nullptr, descriptor.hInstance, nullptr);
+  // 设了最大宽度，提示里的 "\n" 才会换行，过长的一行也会折开。
+  if (tooltip_)
+    SendMessageW(tooltip_, TTM_SETMAXTIPWIDTH, 0, 480);
 }
 CandidateWindow::Apartment::Apartment() {
   const HRESULT entered =
@@ -279,6 +309,10 @@ CandidateWindow::Apartment::~Apartment() {
     CoUninitialize();
 }
 CandidateWindow::~CandidateWindow() {
+  // 先断开读屏拿着的提供者，再销毁窗口。
+  accessible_.reset();
+  if (tooltip_)
+    DestroyWindow(tooltip_);
   if (window_) {
     TypingEffectSignal::instance().detach(window_);
     DestroyWindow(window_);
@@ -358,10 +392,14 @@ bool CandidateWindow::set_fonts(const CandidateFontSettings &settings) {
 }
 void CandidateWindow::set_layout(CandidateLayoutSettings settings) {
   if (horizontal_ == settings.horizontal && show_preedit_ == settings.show_preedit &&
-      wubi_code_hint_ == settings.wubi_code_hint)
+      wubi_code_hint_ == settings.wubi_code_hint &&
+      show_app_logo_ == settings.show_app_logo &&
+      reserved_gloss_lines_ == settings.reserved_gloss_lines)
     return;
   horizontal_ = settings.horizontal;
   show_preedit_ = settings.show_preedit;
+  show_app_logo_ = settings.show_app_logo;
+  reserved_gloss_lines_ = settings.reserved_gloss_lines;
   // The hint is applied by the reader; remembering it here is what repaints an unchanged generation when it is toggled.
   wubi_code_hint_ = settings.wubi_code_hint;
   invalidate_geometry();
@@ -401,6 +439,12 @@ void CandidateWindow::hide() {
   pressed_page_.reset();
   hovered_.reset();
   wheel_accumulator_ = 0;
+  // 提示是候选窗拥有的弹出窗口，候选窗隐藏时它不会跟着消失，正开着的提示要收起来。
+  if (tooltip_)
+    SendMessageW(tooltip_, TTM_POP, 0, 0);
+  // 隐藏的候选窗没有可读的东西。
+  if (accessible_)
+    accessible_->publish({AccessibleContainer::List, candidate_accessible_name, {}});
   ShowWindow(window_, SW_HIDE);
 }
 // Measuring the page reads Engine text, so unusable presentation data reaches
@@ -612,6 +656,9 @@ void CandidateWindow::reposition() {
   // layout uses does not. Everything downstream - the monitor it lands on, the
   // flip decision, the cached-frame comparison below - reads the anchored
   // copy, so a caret move alone no longer even wakes the window.
+  // 打字特效浮层在候选窗收起之后（上屏、英文直输）还要知道光标在哪。
+  typing_anchor_ = POINT{value->x, value->y};
+  typing_anchor_foreground_ = GetForegroundWindow();
   auto anchored = *value;
   if (!follow_cursor_) {
     if (anchor_) {
@@ -622,9 +669,11 @@ void CandidateWindow::reposition() {
     }
   }
   value = anchored;
+  // render_serial 也要比：读音和逐词拆解在同一个 Engine generation 上单独到达（CandidateMailbox::readings），只换了快照编号。
   if (shown_ && shown_dpi_ == GetDpiForWindow(window_) &&
       shown_->session == value->session &&
-      shown_->generation == value->generation && shown_->x == value->x &&
+      shown_->generation == value->generation &&
+      shown_->render_serial == value->render_serial && shown_->x == value->x &&
       shown_->y == value->y && shown_->lease.epoch == value->lease.epoch &&
       shown_->lease.token == value->lease.token &&
       same_ticket(shown_->lease.transport, value->lease.transport))
@@ -700,12 +749,17 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
       static_cast<double>(available_width) / scale - 2.0 * 16.0;
   input.max_height = static_cast<double>(available_height) / scale / 2.0;
   input.skin_min_width = skin_min_width_;
+  input.logo_visible = show_app_logo_;
+  input.reserved_secondary_lines = reserved_secondary_lines(value);
+  if (horizontal_)
+    input.reserved_secondary_height =
+        reserved_secondary_height(input.reserved_secondary_lines);
   if (show_preedit_)
     input.preedit_width = measured_width(
         device_, wide(value.preedit), font_family_,
         static_cast<float>(preedit_font_size_), font_fallback_.Get(),
         DWRITE_FONT_WEIGHT_SEMI_BOLD);
-  // The pager shares the preedit row, which is drawn with or without the preedit because it carries the brand mark.
+  // 翻页和拼音共用首行；只要有 logo 或翻页，拼音隐藏时首行也照样画。
   input.page_width = measured_width(
       device_, pager_label(value), font_family_,
       static_cast<float>(CandidateCardMetrics{}.pager_font),
@@ -784,6 +838,28 @@ CandidateWindow::measure_items(const CandidatePresentation &value) {
   }
   return items;
 }
+size_t CandidateWindow::reserved_secondary_lines(
+    const CandidatePresentation &value) const {
+  // 韩文汉字列表的每一行都在释义行画 훈음，不管翻译开关怎样，所以再多留一行，译文在它下面。
+  const bool hanja = std::any_of(
+      value.candidates.begin(), value.candidates.end(),
+      [](const PresentationCandidate &candidate) { return !candidate.gloss.empty(); });
+  // 这一页的方案或模式根本不请求释义（日文、网址模式这些）时，偏好算出的释义行一行也不留。
+  return (value.shows_glosses ? reserved_gloss_lines_ : 0u) + (hanja ? 1u : 0u);
+}
+double CandidateWindow::reserved_secondary_height(size_t lines) {
+  if (lines < 2)
+    return 0.0;
+  const auto metrics =
+      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_);
+  // 和 macOS reservedGlossHeightForFont 量「X\nX」一样：每行一个 X，宽度给足，不会折行。
+  std::wstring placeholder = L"X";
+  for (size_t line = 1; line < lines; ++line)
+    placeholder += L"\nX";
+  return wrapped_height(device_, placeholder, font_family_,
+                        static_cast<float>(metrics.translation_font), 8192.0,
+                        font_fallback_.Get());
+}
 CandidateWrapMeasure
 CandidateWindow::wrap_measure(const CandidatePresentation &value) {
   const auto metrics =
@@ -829,8 +905,32 @@ void CandidateWindow::take_typing_effect() {
   BOOL animations = TRUE;
   if (!SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0))
     animations = TRUE;
-  effect_flashing_ = animations && typing_effect_flash_alpha(effect_, effect_settings_.intensity, 0, effect_settings_.flash_millis) > 0.0f;
-  if (effect_flashing_)
+  const bool power_saver = TypingEffectOverlay::power_saver();
+  const auto drawn = typing_effect_drawn_style(effect_.style, animations != FALSE, power_saver);
+  // 火花、光标行闪光和连击徽标交给光标处的浮层画；浮层不可用时卡片照旧自己画计数，各样式都闪卡片。
+  effect_badge_elsewhere_ = false;
+  if (typing_effect_presenter_) {
+    TypingEffectPresentation presentation;
+    presentation.effect = effect_;
+    presentation.settings = effect_settings_;
+    presentation.palette = TypingEffectSignal::instance().palette();
+    presentation.card = typing_effect_card();
+    presentation.candidate_window = window_;
+    if (typing_anchor_ && GetForegroundWindow() == typing_anchor_foreground_)
+      presentation.anchor = typing_anchor_;
+    const auto channel = [](float value) {
+      return static_cast<uint32_t>(std::lround((std::min)(1.0f, (std::max)(0.0f, value)) * 255.0f));
+    };
+    presentation.accent = (channel(palette_.accent.r) << 16) | (channel(palette_.accent.g) << 8) | channel(palette_.accent.b);
+    presentation.animations = animations != FALSE;
+    presentation.power_saver = power_saver;
+    effect_badge_elsewhere_ = typing_effect_presenter_(presentation);
+  }
+  effect_flashing_ = animations && typing_effect_card_flashes(drawn, effect_badge_elsewhere_) &&
+                     typing_effect_flash_alpha(effect_, effect_settings_.intensity, 0, effect_settings_.flash_millis) > 0.0f;
+  // Power Mode 抖一下候选卡片，和 macOS 的 shakeLayer 一样；关掉动画或开着节电模式时不抖（drawn 已经退回了闪光）。
+  effect_shaking_ = drawn == TypingEffectStyle::power_mode && IsWindowVisible(window_);
+  if (effect_flashing_ || effect_shaking_)
     SetTimer(window_, typing_flash_timer, typing_flash_frame_millis, nullptr);
   else
     KillTimer(window_, typing_flash_timer);
@@ -844,12 +944,31 @@ void CandidateWindow::take_typing_effect() {
 void CandidateWindow::typing_effect_tick(UINT_PTR timer) {
   if (timer == typing_combo_timer) {
     KillTimer(window_, typing_combo_timer);
-  } else if (GetTickCount64() - effect_started_ >= effect_settings_.flash_millis) {
-    KillTimer(window_, typing_flash_timer);
-    effect_flashing_ = false;
+  } else {
+    const uint64_t elapsed = GetTickCount64() - effect_started_;
+    if (elapsed >= effect_settings_.flash_millis)
+      effect_flashing_ = false;
+    if (elapsed >= typing_shake_millis)
+      effect_shaking_ = false;
+    if (!effect_flashing_ && !effect_shaking_)
+      KillTimer(window_, typing_flash_timer);
   }
   if (IsWindowVisible(window_))
     InvalidateRect(window_, nullptr, FALSE);
+}
+std::optional<TypingRect> CandidateWindow::typing_effect_card() const {
+  if (!window_ || !shown_ || !IsWindowVisible(window_))
+    return std::nullopt;
+  RECT outer{};
+  if (!GetWindowRect(window_, &outer))
+    return std::nullopt;
+  // 和 card_bounds 同样的换算：窗口四周是透明的阴影边距，顶上可能还有吉祥物那一条。
+  const double scale = layout_scale(shown_dpi_);
+  const double decoration = decoration_image_.empty() ? 0.0 : decoration_top_ * scale;
+  return TypingRect{static_cast<float>(outer.left + std::lround(shadow_insets_.left * scale)),
+                    static_cast<float>(outer.top + std::lround(shadow_insets_.top * scale + decoration)),
+                    static_cast<float>(outer.right - std::lround(shadow_insets_.right * scale)),
+                    static_cast<float>(outer.bottom - std::lround(shadow_insets_.bottom * scale))};
 }
 void CandidateWindow::paint() {
   DpiScope dpi_scope;
@@ -875,8 +994,11 @@ void CandidateWindow::paint() {
     throw std::runtime_error("Candidate render target unavailable");
   // DrawText goes through the windows.h macro so the call matches whichever
   // name the Direct2D declaration picked up for this target.
+  // 首行高度取决于有没有 logo 和翻页，必须和 card_bounds 量尺寸时一样算，行的位置和点击区域才对得上。
+  const auto label = pager_label(*value);
   const auto metrics = candidate_card_metrics(font_size_, preedit_font_size_,
-                                              show_preedit_);
+                                              show_preedit_, show_app_logo_,
+                                              !label.empty());
   const auto size = target->GetSize();
   const auto frame = candidate_shadow_frame(
       size.width -
@@ -918,6 +1040,14 @@ void CandidateWindow::paint() {
   // Clear to nothing: only the rounded card itself is opaque, so the corners
   // stay transparent rather than showing a square window edge.
   target->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
+  // Power Mode 的抖动：整张卡片连同阴影横向位移一两个设备无关像素，阴影的透明边距装得下；抖完回到原位，点击区域不受影响。
+  // 每帧都设一次：上一帧若在 EndDraw 之前抛出，留在目标上的位移不会带进这一帧。
+  target->SetTransform(
+      effect_shaking_
+          ? D2D1::Matrix3x2F::Translation(
+                typing_shake_offset(static_cast<uint32_t>(GetTickCount64() - effect_started_), effect_settings_.intensity),
+                0.0f)
+          : D2D1::Matrix3x2F::Identity());
   const D2D1_RECT_F card_rect{
       static_cast<float>(frame.card_left) + inset,
       static_cast<float>(frame.card_top) + inset,
@@ -967,11 +1097,12 @@ void CandidateWindow::paint() {
   // The typing flash: a faint accent wash over the surface, under the text, and an accent outline that grows with the style. Both fade with the flash. An effect pack's first colour takes the accent's place.
   if (flash > 0.0f) {
     const auto flash_color = effect_settings_.color ? candidate_rgb(*effect_settings_.color) : palette_.accent;
+    // 不透明度量化成有限的几档：brush() 按颜色缓存画刷，每帧一个新的透明度会让缓存一直变大。
     auto wash = flash_color;
-    wash.a = flash * 0.12f;
+    wash.a = typing_effect_quantized_alpha(flash * 0.12f);
     target->FillRoundedRectangle(card, brush(wash));
     auto outline = flash_color;
-    outline.a = flash;
+    outline.a = typing_effect_quantized_alpha(flash);
     target->DrawRoundedRectangle(card, brush(outline),
                                  palette_.border_width + static_cast<float>(static_cast<uint32_t>(effect_.style)));
   }
@@ -994,7 +1125,7 @@ void CandidateWindow::paint() {
             1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
   }
-  // The Fluent top row: the brand mark, then the preedit in the accent colour at semibold on the left, the page indicator and the previous and next arrows in the secondary colour on the right. The row is there even with the preedit hidden, so the mark always is.
+  // Fluent 风格的首行：左边是水杉 logo（`show_app_logo` 关掉时不画）和强调色半粗体的拼音，右边是次要色的页码和上一页、下一页箭头。只要有 logo 或翻页，拼音隐藏时这一行也在。
   auto box = [&frame](const CandidateRowBounds &bounds) {
     return D2D1_RECT_F{static_cast<float>(frame.card_left + bounds.left),
                        static_cast<float>(frame.card_top + bounds.top),
@@ -1002,11 +1133,11 @@ void CandidateWindow::paint() {
                        static_cast<float>(frame.card_top + bounds.bottom)};
   };
   // Loaded at the size it is drawn at, in real pixels, as the floating toolbar loads it, and skipped rather than substituted if the icon will not load.
-  if (auto *logo = logo_bitmap(static_cast<int>(std::lround(
-          metrics.logo_side * layout_scale(GetDpiForWindow(window_))))))
-    target->DrawBitmap(logo, box(candidate_logo_bounds(metrics)), 1.0f,
-                       D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-  const auto label = pager_label(*value);
+  if (metrics.logo_visible)
+    if (auto *logo = logo_bitmap(static_cast<int>(std::lround(
+            metrics.logo_side * layout_scale(GetDpiForWindow(window_))))))
+      target->DrawBitmap(logo, box(candidate_logo_bounds(metrics)), 1.0f,
+                         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
   const std::optional<CandidatePagerLayout> pager = candidate_pager_layout(
       frame.card_width,
       measured_width(device_, label, font_family_,
@@ -1038,7 +1169,7 @@ void CandidateWindow::paint() {
       static_cast<float>(frame.card_top) +
           static_cast<float>(metrics.pad_y + metrics.preedit_row)};
   // The combo count, right-aligned at the end of the preedit row before the pager. Drawn only where it fits beside the reading, so it never covers what the user is typing.
-  if (typing_effect_shows_combo(effect_.combo, effect_elapsed)) {
+  if (!effect_badge_elsewhere_ && typing_effect_shows_combo(effect_.combo, effect_elapsed)) {
     const auto combo = L"\u00D7" + std::to_wstring(effect_.combo);
     const double combo_width = measured_width(
         device_, combo, font_family_, static_cast<float>(metrics.pager_font),
@@ -1091,8 +1222,12 @@ void CandidateWindow::paint() {
   const float gutter = static_cast<float>(metrics.number_and_bar);
   const size_t count = value->candidates.size();
   // Laid out at the width actually drawn, which the work area may have narrowed below what card_bounds asked for.
-  auto rows = candidate_page_layout(measure_items(*value), frame.card_width,
-                                    metrics, horizontal_, wrap_measure(*value));
+  const size_t reserved_lines = horizontal_ ? reserved_secondary_lines(*value) : 0;
+  auto rows = candidate_page_layout(
+      measure_items(*value), frame.card_width, metrics, horizontal_,
+      wrap_measure(*value),
+      candidate_reserved_row_height(metrics, reserved_lines,
+                                    reserved_secondary_height(reserved_lines)));
   const float first_line = static_cast<float>(metrics.candidate_row);
   for (size_t i = 0; i < count; ++i) {
     const auto &row = rows[i].bounds;
@@ -1165,9 +1300,37 @@ void CandidateWindow::paint() {
     };
     draw_run(value->candidates[i].annotation, item.annotation, font_size_,
              annotation_color);
-    draw_run(candidate_secondary_text(value->candidates[i]), item.translation,
-             metrics.translation_font, translation_color);
+    const auto secondary = candidate_secondary_text(value->candidates[i]);
+    // Tab 预选的释义列在高亮候选上画下划线，和 macOS 候选按钮的 armedGlossColumn 一样；数字、空格会上屏这一列。
+    const auto armed = selected ? candidate_gloss_column_range(value->candidates[i],
+                                                               value->armed_gloss_column)
+                                : std::nullopt;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> underlined;
+    auto *factory = device_.GetDWriteFactory();
+    if (armed && factory && item.translation.width > 0.0) {
+      const auto run_text = wide(secondary);
+      const auto start = wide(secondary.substr(0, armed->first)).size();
+      const auto length = wide(secondary.substr(armed->first, armed->second)).size();
+      const float left = rect.left + gutter + static_cast<float>(item.translation.x);
+      if (SUCCEEDED(factory->CreateTextLayout(
+              run_text.c_str(), static_cast<UINT32>(run_text.size()),
+              format(metrics.translation_font, DWRITE_TEXT_ALIGNMENT_LEADING,
+                     item.translation.below),
+              (std::max)(rect.right - left, 0.0f),
+              static_cast<float>(item.translation.height), underlined.GetAddressOf())) &&
+          underlined &&
+          SUCCEEDED(underlined->SetUnderline(
+              TRUE, DWRITE_TEXT_RANGE{static_cast<UINT32>(start), static_cast<UINT32>(length)})))
+        target->DrawTextLayout(
+            D2D1_POINT_2F{left, rect.top + static_cast<float>(item.translation.y)},
+            underlined.Get(), brush(translation_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+      else
+        underlined.Reset();
+    }
+    if (!underlined)
+      draw_run(secondary, item.translation, metrics.translation_font, translation_color);
   }
+  target->SetTransform(D2D1::Matrix3x2F::Identity());
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.
   if (SUCCEEDED(drawn) && FAILED(device_.Present()))
@@ -1193,8 +1356,76 @@ void CandidateWindow::paint() {
   painted_rows_ = std::move(rows);
   painted_pager_ = pager;
   painted_dpi_ = GetDpiForWindow(window_);
+  sync_tooltips();
+  if (accessible_)
+    accessible_->publish(candidate_accessible_tree(
+        *painted_, painted_rows_, painted_pager_, metrics, show_preedit_,
+        CandidateAccessibleFrame{frame.card_left, frame.card_top, frame.card_width,
+                                 layout_scale(painted_dpi_)},
+        static_cast<bool>(click_), static_cast<bool>(page_), MSIME_EDITION_DISPLAY_NAME_UTF8));
   if (rendered_)
     rendered_(*painted_);
+}
+void CandidateWindow::sync_tooltips() {
+  if (!tooltip_ || !painted_)
+    return;
+  // 行在卡片坐标里，换回客户区像素：和 hit() 的换算相反，加上阴影边距和装饰图让出的高度。
+  const double scale = layout_scale(painted_dpi_);
+  std::vector<RECT> rects;
+  if (painted_->pointer_input) {
+    rects.reserve(painted_rows_.size());
+    for (const auto &row : painted_rows_)
+      rects.push_back(
+          {static_cast<LONG>(std::floor((row.bounds.left + shadow_insets_.left) * scale)),
+           static_cast<LONG>(std::floor((row.bounds.top + shadow_insets_.top + decoration_offset_) * scale)),
+           static_cast<LONG>(std::ceil((row.bounds.right + shadow_insets_.left) * scale)),
+           static_cast<LONG>(std::ceil((row.bounds.bottom + shadow_insets_.top + decoration_offset_) * scale))});
+  }
+  const auto same = [](const RECT &a, const RECT &b) {
+    return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom;
+  };
+  if (tooltip_serial_ == painted_->render_serial && rects.size() == tooltip_rects_.size() &&
+      std::equal(rects.begin(), rects.end(), tooltip_rects_.begin(), same))
+    return;
+  TTTOOLINFOW tool{};
+  // V2 的大小在没有 comctl32 v6 清单的进程里也被接受；带 lpReserved 的完整大小会让旧版控件拒绝登记。
+  tool.cbSize = TTTOOLINFOW_V2_SIZE;
+  tool.hwnd = window_;
+  for (size_t id = 0; id < tooltip_rects_.size(); ++id) {
+    tool.uId = id;
+    SendMessageW(tooltip_, TTM_DELTOOLW, 0, reinterpret_cast<LPARAM>(&tool));
+  }
+  tooltip_rects_.clear();
+  tooltip_serial_ = painted_->render_serial;
+  for (size_t index = 0; index < rects.size(); ++index) {
+    tool = {};
+    tool.cbSize = TTTOOLINFOW_V2_SIZE;
+    tool.uFlags = TTF_SUBCLASS;
+    tool.hwnd = window_;
+    tool.uId = index;
+    tool.rect = rects[index];
+    tool.lpszText = LPSTR_TEXTCALLBACKW;
+    if (!SendMessageW(tooltip_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool)))
+      break;
+    tooltip_rects_.push_back(rects[index]);
+  }
+}
+void CandidateWindow::invoke_accessible(int id, LPARAM token) {
+  if (!accessible_ || !accessible_->current(token) || !painted_ ||
+      !painted_->pointer_input || !IsWindowVisible(window_))
+    return;
+  const auto &value = *painted_;
+  // 翻页与点箭头一样一次一页，带上画出来的那一页的身份，页已经换了时 Server 会拒绝。
+  if (id == candidate_accessible_previous || id == candidate_accessible_next) {
+    const bool previous = id == candidate_accessible_previous;
+    if (page_ && painted_pager_ && (!previous || value.page > 0))
+      page_(CandidatePage{value.lease, value.session, value.generation, previous, 1u});
+    return;
+  }
+  if (!click_ || id < 1 || static_cast<size_t>(id) > value.candidates.size())
+    return;
+  const auto &candidate = value.candidates[static_cast<size_t>(id - 1)];
+  click_(CandidateClick{value.lease, candidate.session, candidate.generation, candidate.index});
 }
 std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   if (!click_ || !painted_ || !painted_->pointer_input || !IsWindowVisible(window_))
@@ -1311,10 +1542,10 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         const auto &value = *self->painted_;
         if (steps.page_up > 0)
           self->page_(CandidatePage{value.lease, value.session, value.generation,
-                                    true, static_cast<unsigned>(steps.page_up)});
+                                    true, static_cast<unsigned>(steps.page_up), true});
         if (steps.page_down > 0)
           self->page_(CandidatePage{value.lease, value.session, value.generation,
-                                    false, static_cast<unsigned>(steps.page_down)});
+                                    false, static_cast<unsigned>(steps.page_down), true});
         return 0;
       }
       case WM_LBUTTONDOWN:
@@ -1400,8 +1631,35 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         self->hovered_.reset();
         SetCursor(LoadCursorW(nullptr, wide_cursor(IDC_ARROW)));
         return 0;
+      case WM_NOTIFY: {
+        auto *header = reinterpret_cast<NMHDR *>(lparam);
+        if (header && self->tooltip_ && header->hwndFrom == self->tooltip_ &&
+            header->code == TTN_GETDISPINFOW) {
+          auto *info = reinterpret_cast<NMTTDISPINFOW *>(lparam);
+          const auto index = static_cast<size_t>(header->idFrom);
+          self->tooltip_text_.clear();
+          if (self->painted_ && index < self->painted_->candidates.size())
+            self->tooltip_text_ =
+                tooltip_wide(candidate_tooltip_text(self->painted_->candidates[index]));
+          info->lpszText = self->tooltip_text_.data();
+          return 0;
+        }
+        break;
+      }
       case WM_ERASEBKGND:
         return 1;
+      case WM_GETOBJECT:
+        if (self->accessible_)
+          if (const auto answer = self->accessible_->answer(wparam, lparam))
+            return *answer;
+        break;
+      case accessible_invoke_message:
+        self->invoke_accessible(static_cast<int>(wparam), lparam);
+        return 0;
+      case WM_DESTROY:
+        if (self->accessible_)
+          self->accessible_->disconnect();
+        break;
       case WM_POWERBROADCAST:
         if (wparam != PBT_APMRESUMEAUTOMATIC &&
             wparam != PBT_APMRESUMECRITICAL && wparam != PBT_APMRESUMESUSPEND)

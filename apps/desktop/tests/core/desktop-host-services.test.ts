@@ -1,7 +1,9 @@
 import { expect, test, vi } from "vitest";
 import {
   createDesktopCandidateSkinCommunity,
+  createDesktopCommunityResources,
   createDesktopPluginCommunity,
+  createDesktopSettingsSync,
 } from "../../src/core/desktop-host-services";
 
 test("the desktop candidate-skin community invokes the host commands with camelCase args", async () => {
@@ -70,4 +72,67 @@ test("the desktop plugin community lists the user's own packs and reports with t
     ["plugin_community_list", { offset: 0, search: "", kind: "sound", mine: true }],
     ["community_report", { kind: "plugins", id, reason: "恶意插件", detail: "" }],
   ]);
+});
+
+test("Windows community resources use the shared commands and leave the reply keyboard out", async () => {
+  const invoke = vi.fn(async () => undefined);
+  const resources = createDesktopCommunityResources(
+    invoke as unknown as Parameters<typeof createDesktopCommunityResources>[0],
+  );
+  const id = "10000000-0000-4000-8000-000000000003";
+
+  await resources.list("dictionary", "mine", "成语", 20);
+  await resources.detail(id);
+  await resources.publish(id, "reply", "婉拒", "礼貌回绝", { prompt: "礼貌地拒绝" }, 2);
+  await resources.apply(id, 3);
+  await resources.save(id, true);
+  await resources.rate(id, 4);
+  await resources.unpublish(id);
+  await resources.report?.("reply", id, "垃圾广告", "");
+
+  // 桌面没有「高情商回复」键盘，页面据此不显示添加到键盘的按钮。
+  expect(resources.storeReply).toBeUndefined();
+  expect(resources.removeReply).toBeUndefined();
+  expect(invoke.mock.calls).toEqual([
+    ["community_resource_list", { kind: "dictionary", scope: "mine", search: "成语", offset: 20 }],
+    ["community_resource_detail", { id }],
+    [
+      "community_resource_publish",
+      {
+        id,
+        kind: "reply",
+        name: "婉拒",
+        description: "礼貌回绝",
+        content: { prompt: "礼貌地拒绝" },
+        revision: 2,
+      },
+    ],
+    ["community_resource_apply", { id, resourceRevision: 3 }],
+    ["community_resource_save", { id, saved: true }],
+    ["community_resource_rate", { id, stars: 4 }],
+    ["community_resource_unpublish", { id }],
+    ["community_report", { kind: "replies", id, reason: "垃圾广告", detail: "" }],
+  ]);
+});
+
+test("Windows settings sync invokes the same four commands as the mobile hosts", async () => {
+  const invoke = vi.fn(async () => undefined);
+  const sync = createDesktopSettingsSync(
+    invoke as unknown as Parameters<typeof createDesktopSettingsSync>[0],
+  );
+  const preferences = { revision: 3, settings: { "input.learning": true } };
+
+  await sync.schema();
+  await sync.load();
+  await sync.upload();
+  await sync.apply("synthetic-user", preferences);
+
+  expect(invoke.mock.calls).toEqual([
+    ["account_preferences_schema"],
+    ["account_preferences_load"],
+    ["account_preferences_upload"],
+    ["account_preferences_apply", { userId: "synthetic-user", preferences }],
+  ]);
+  // Windows 没有要重新打开的键盘，应用后的提示不能沿用移动端的说法。
+  expect(sync.appliedMessage).toBe("已应用云端设置。");
 });

@@ -4,6 +4,7 @@ import { GroupList } from "../../core/platform-controls";
 import { InputSchemeSettingsContent } from "../input-scheme-settings-content";
 import { supportedInputSchemes } from "../input-scheme-options";
 import { InputSharedSettingsSection } from "../input-shared-settings-section";
+import { AppInputModeRulesSection } from "../app-input-mode-rules-section";
 import { LocalModesSection } from "../local-modes-section";
 import { CharacterWidthRow } from "../punctuation-section";
 import { FuzzyPinyinSection } from "../fuzzy-pinyin-section";
@@ -45,7 +46,7 @@ export function InputSettingsPage() {
     busy,
     page,
     macosShuangpinKeymap,
-    setShuangpinKeymap,
+    showShuangpinKeymapHint,
     wordCharacter,
     frequency,
     fuzzyPinyin,
@@ -83,6 +84,8 @@ export function InputSettingsPage() {
   const temporaryJapanese = host?.edition?.temporary_japanese ?? true;
   // 不带键盘神经模型的版本（host-api 也始终把它关掉）在触屏宿主上不列出神经联想开关。
   const neuralKeyboard = host?.edition?.neural_keyboard ?? true;
+  // 应用例外只在认得前台应用的宿主上提供（macOS 按 bundle id，Windows 按进程基名）。
+  const showAppInputModeRules = host?.app_input_mode_rules === true;
   // HarmonyOS 手机像 Android 的 `TypingPage` 一样画设计稿的 输入 页：语言与方案、中文、辅助码 和 翻译 直接可见，其余都放进末尾的 更多 折叠区。翻页键在它的 外接键盘快捷键 页，整句联想 在它的 表达 页，所以这里不画。
   const harmonyPhone = harmonyPlatform && mobilePlatform;
   // 拼音纠错 是两项全拼纠错共用的一个开关，只有两项都开启时才显示为开；打开或关闭会同时设置两项，和 Android 的 `TypingPage` 一样。
@@ -127,9 +130,12 @@ export function InputSettingsPage() {
         macos={macosPlatform}
         inputSchemes={supportedInputSchemes(host)}
         edition={host?.edition}
-        macosShuangpinKeymap={
-          macosPlatform && client.loadMacosShuangpinKeymap && macosShuangpinKeymap !== undefined
-            ? macosShuangpinKeymap
+        // 共享偏好里还没有这一项时，macOS 显示本机 defaults 里的旧选择，与输入法实际的行为一致；其他宿主按关显示。
+        shuangpinKeymapHint={
+          showShuangpinKeymapHint
+            ? (draft.shuangpin_keymap_hint ??
+              (macosPlatform ? macosShuangpinKeymap : undefined) ??
+              false)
             : undefined
         }
         macosInputModes={client.macosInputModes}
@@ -139,7 +145,6 @@ export function InputSettingsPage() {
         onToggleTouchKeyboardScheme={(scheme, enabled) =>
           setTouchKeyboardSchemeEnabled(scheme, enabled)
         }
-        onMacosShuangpinKeymapChange={setShuangpinKeymap}
         resourcePacks={resourcePacks}
         languageCard={harmonyPhone}
         onEnableAndSelectTouchKeyboardScheme={selectHomeScheme}
@@ -221,6 +226,15 @@ export function InputSettingsPage() {
         // 中英文切换提示在所有平台都放在这里；macOS 以前把它放在快捷键页。
         showInputModeHUD={showInputModeHUD}
         showModeScope={showModeScope}
+        modeExtra={
+          showAppInputModeRules && (
+            <AppInputModeRulesSection
+              value={draft.app_input_mode_rules}
+              windows={host?.platform === "windows"}
+              onChange={(app_input_mode_rules) => onPreferencesChange({ app_input_mode_rules })}
+            />
+          )
+        }
         mixedInput={mixedInput}
         onMixedInputChange={(mixed_input) => onPreferencesChange({ mixed_input })}
         paging={

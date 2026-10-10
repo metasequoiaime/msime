@@ -30,7 +30,7 @@ export interface PluginSoundEffectsViewProps {
   typingEffects: boolean;
   effectStyles: boolean;
   effectPacks: boolean;
-  /** The host draws every style as a flash of the candidate card, brighter for the stronger styles, and no sparks (Windows, HarmonyOS). */
+  /** 宿主把每种样式都画成候选卡片闪一下，越强的样式闪得越亮，不画火花（HarmonyOS）。 */
   effectFlashOnly?: boolean;
   onChange: (preferences: PluginPreferences) => void;
   onBack: () => void;

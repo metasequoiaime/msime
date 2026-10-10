@@ -33,6 +33,14 @@
 
 「候选窗口」页「游戏」组的两张程序列表（`game_compatibility.overlay_processes`、`excluded_processes`）在写入前先按偏好库的规则规范化和校验（`GameProcessList.h`）：去掉首尾空白、ASCII 字母转小写，要求以 `.exe` 结尾、不超过 64 个字符、不带路径和 `\ / : * ? " < > |` 及控制字符，两张表之间不重复、合计不超过 32 条。不合法时在列表下方说明具体原因，不写入文档：保存被拒时窗口只能给出上面那句笼统的说明，用户看不出是哪一项出了问题。这组设置只由 TSF DLL 在每次激活时读取，对已打开的游戏要切换一次输入法才生效，取舍见 [决策笔记](../../../.agents/notes/implemented/feature/2026-10-08-windows-game-candidate-overlay.md)。
 
+## 设置文件、数据目录与许可声明
+
+「维护与诊断」页的「设置文件」组导出和导入设置。「导出…」用系统的保存对话框选位置，`msime_client_export_settings` 读出已保存的偏好并换算成设置文件（`app.msime.client.preferences`，规则在 `crates/client-core/src/settings_document.rs`），再先写临时文件后改名写到所选位置。「导入…」用打开对话框选文件，读入（上限 1 MiB）后交给 `msime_client_import_settings`：它保留本机的语音、AI 辅助和翻译服务配置与密钥、诊断日志、使用统计和剪贴板历史开关（所以也不会清空已存的剪贴板历史），文件里的方案本版本不提供时保留本机的方案，然后按本窗口读到的修订号比较并交换写回。导入成功或被拒都会重新读取设置；错误码换成说明的规则在 `SettingsDocumentFile.h`，由 `tests/ui/settings_document_file.cpp` 核对。
+
+同一页的「数据目录」行显示状态根并可在资源管理器中打开。移到其他磁盘要重新运行完整安装包：数据目录登记在 HKLM 的 `DataDir`，改它要管理员权限，安装器的「选择数据位置」一步已经负责复制、切换和删除旧目录，本窗口只说明这条路径。
+
+「关于」页的产品名按版本取（`MSIME_EDITION_DISPLAY_NAME`），「许可与隐私」组的「第三方组件许可」用关联程序打开安装目录下的 `THIRD_PARTY_NOTICES.txt`（本窗口所在 `server` 目录的上一级，与安装器的 `DestDir` 一致）。取舍见 [决策笔记](../../../.agents/notes/implemented/feature/2026-10-10-windows-settings-file-and-local-data-parity.md)。
+
 ## 检查更新
 
 「关于」页的「检查更新」在本窗口中完成，不再打开共享应用：工作线程调用 `msime_client_update_check`（`crates/client-core/src/update_check.rs`，与共享设置页、鸿蒙走同一份 Rust 逻辑），请求带 `platform: windows`、本版本 id 和当前版本，结果写在该行下方：「已是最新版本」「暂无可用发行版」「检查失败，请稍后重试」，或「发现新版本 vX」加未签名提示与安装包的 SHA256，按钮随之变成「前往下载」，打开该版本在 GitHub 上的发布页。只接受本仓库的 tag 页地址。当前版本是编译期宏 `MSIME_WINDOWS_VERSION`：`Build-Client.ps1` 用 `/p:MsimeVersion=<TargetVersion>` 传入，开发构建取 `platforms/windows/version.txt`，与 Server 上报的版本相同。

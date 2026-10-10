@@ -198,10 +198,71 @@ static NSString *const ImeModeScopeKey = @"MSIMEClientImeModeScope";
 ///
 /// Deliberately not the same store as the remembered mode: a rule is a decision the user wrote down and a memory is an observation of what they last did, so a rule is saved and a memory is not, and -resetRememberedInputModes throws the observations away on every input-source switch without touching the decisions. Reading them apart is also the only way the lookup below can put the rule first.
 ///
-/// macOS-local for now, and so absent from both -sharedPreferencesByMerging: and -cloudSettingsSnapshot. Publishing it would make it a field of crates/client-core's Preferences, which is a shape Windows, Linux, iOS and HarmonyOS have to agree on before any one host starts writing it.
+/// 规则表现在是共享偏好文档的 `app_input_mode_rules`（crates/client-core 的 `Preferences::app_input_mode_rules`，macOS 按 bundle id、Windows 按进程基名），共享设置页和 Windows 也读写它。这个 NSUserDefaults 键只剩三种用途：升级前写下的规则在文档还没有这个键时照样生效，并由输入法载入文档后立即发起的一次保存（applicationInputModeRulesAwaitPublication）发布进文档；本窗口改规则时先记在这里，等同一次合并把它写进文档；偏好库收不下的旧规则（标识不合法，或超出 32 条）留在这里，只在本机生效。文档一旦带着这个键载入，它就是权威来源，已经进了文档的规则随即从这个键里删掉，键空了就整个删除。不在 -cloudSettingsSnapshot 里：bundle id 只对本机有意义。
 static NSString *const AppInputModeRulesKey = @"MSIMEClientAppInputModeRules";
 static BOOL ValidInputModeRule(id value) {
     return [value isKindOfClass:NSString.class] && [@[@"chinese", @"english"] containsObject:value];
+}
+/// 一张规则表里合法的条目：标识是非空字符串，模式是 chinese 或 english；别的都丢掉。
+static NSDictionary<NSString *, NSString *> *ValidInputModeRules(id stored) {
+    if (![stored isKindOfClass:NSDictionary.class]) return @{};
+    NSMutableDictionary<NSString *, NSString *> *rules = [NSMutableDictionary dictionary];
+    for (id identifier in stored)
+        if ([identifier isKindOfClass:NSString.class] && [identifier length] > 0 && ValidInputModeRule(stored[identifier]))
+            rules[identifier] = [stored[identifier] copy];
+    return rules;
+}
+/// 与 crates/client-core 的 MAX_APP_INPUT_MODE_RULES 一致。共享文档里的规则表超过它时偏好库拒绝整份保存。
+static const NSUInteger MaxPublishedInputModeRules = 32;
+/// 标识能否写进共享文档，与 crates/client-core 的 valid_app_input_mode_rules 逐条一致：非空、UTF-8 不超过 64 字节、两侧没有空白、不含控制字符（U+0000–U+001F、U+007F–U+009F）和 \ /。偏好库对不合法的表拒绝整份保存，所以发布前必须先过这一关，否则一条升级前留下的怪标识就会让本输入法此后的每一次保存都失败。
+static BOOL PublishableInputModeRuleIdentifier(NSString *identifier) {
+    if (![identifier isKindOfClass:NSString.class] || identifier.length == 0) return NO;
+    const NSUInteger bytes = [identifier lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+    if (bytes == 0 || bytes > 64) return NO;
+    if (![[identifier stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] isEqualToString:identifier]) return NO;
+    NSMutableCharacterSet *forbidden = [NSMutableCharacterSet characterSetWithRange:NSMakeRange(0x00, 0x20)];
+    [forbidden addCharactersInRange:NSMakeRange(0x7F, 0x21)];
+    [forbidden addCharactersInString:@"\\/"];
+    return [identifier rangeOfCharacterFromSet:forbidden].location == NSNotFound;
+}
+/// 两个标识是否是同一个：只把 ASCII 字母当作不分大小写，和偏好库去重用的 to_ascii_lowercase 相同（ASCII 字母在 UTF-8 和 UTF-16 里都是单个码元，逐码元比较结果一致）。不分配内存，-englishMode 每次查规则都会走到这里。
+static BOOL InputModeRuleIdentifiersEqual(NSString *left, NSString *right) {
+    const NSUInteger length = left.length;
+    if (right.length != length) return NO;
+    for (NSUInteger index = 0; index < length; ++index) {
+        unichar a = [left characterAtIndex:index], b = [right characterAtIndex:index];
+        if (a >= 'A' && a <= 'Z') a = (unichar)(a - 'A' + 'a');
+        if (b >= 'A' && b <= 'Z') b = (unichar)(b - 'A' + 'a');
+        if (a != b) return NO;
+    }
+    return YES;
+}
+/// 表里代表这个标识的那条规则的键：先找完全相同的，再按 ASCII 不分大小写找，和偏好库的去重规则相同；没有时为 nil。共享设置页按用户键入的文字写标识，大小写未必和应用的 bundle id 一致，所以按应用查规则必须走这里，不能直接下标取。
+static NSString *InputModeRuleKeyForIdentifier(NSDictionary<NSString *, NSString *> *rules, NSString *identifier) {
+    if (identifier == nil) return nil;
+    if (rules[identifier] != nil) return identifier;
+    for (NSString *existing in rules)
+        if (InputModeRuleIdentifiersEqual(existing, identifier)) return existing;
+    return nil;
+}
+/// 表里是否已有这个标识，按 ASCII 不分大小写比较，和偏好库的去重规则相同。
+static BOOL InputModeRulesContainIdentifier(NSDictionary<NSString *, NSString *> *rules, NSString *identifier) {
+    return InputModeRuleKeyForIdentifier(rules, identifier) != nil;
+}
+/// 按应用查它的规则，标识的认法同 InputModeRuleKeyForIdentifier。
+static NSString *InputModeRuleForIdentifier(NSDictionary<NSString *, NSString *> *rules, NSString *identifier) {
+    NSString *key = InputModeRuleKeyForIdentifier(rules, identifier);
+    return key == nil ? nil : rules[key];
+}
+/// 能写进共享文档的那部分规则：丢掉不合法的标识和只差大小写的重复项，最多 32 条。按标识排序后取，结果与字典的遍历顺序无关。
+static NSDictionary<NSString *, NSString *> *PublishableInputModeRules(NSDictionary<NSString *, NSString *> *rules) {
+    NSMutableDictionary<NSString *, NSString *> *published = [NSMutableDictionary dictionary];
+    for (NSString *identifier in [rules.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+        if (published.count >= MaxPublishedInputModeRules) break;
+        if (!PublishableInputModeRuleIdentifier(identifier) || InputModeRulesContainIdentifier(published, identifier)) continue;
+        published[identifier] = rules[identifier];
+    }
+    return published;
 }
 static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
@@ -315,10 +376,12 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         LayoutKey : @"sharedVertical",
         CandidateFollowCursorKey : @"sharedCandidateFollowCursor",
         InputModeHUDKey : @"sharedInputModeHUD",
+        AppInputModeRulesKey : @"sharedAppInputModeRules",
         AppLogoKey : @"sharedShowsAppLogo",
         SchemeKey : @"sharedInputScheme",
         ShuangpinProfileKey : @"sharedShuangpinProfile",
         ShuangpinPreeditKey : @"sharedShuangpinPreeditUsesRaw",
+        KeymapKey : @"sharedShuangpinKeymap",
         WubiProfileKey : @"sharedWubiProfile",
         WubiMixedPinyinKey : @"sharedWubiMixedPinyin",
         WubiKey : @"sharedWubiAutoCommitUnique",
@@ -885,6 +948,12 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     MSIMEUpdateController *_updateController;
     NSString *_sharedDefaultImeMode;
     NSString *_sharedImeModeScope;
+    // 共享文档里的应用例外（加上还没发布、文档收得下的旧规则，和本窗口对它的改动）；文档没有这个键时为 nil，查找退回 NSUserDefaults 里升级前的规则。本窗口改规则时只改它和 _localOnlyAppInputModeRules 里那一条，两边不合并，见 -setInputMode:forApplication:。
+    NSDictionary<NSString *, NSString *> *_sharedAppInputModeRules;
+    // 文档收不下的旧规则：标识不合法（超过 64 字节、带 / 或 \ 等），或文档已满 32 条。它们留在 NSUserDefaults 里，只在本机查找时生效，不发布。
+    NSDictionary<NSString *, NSString *> *_localOnlyAppInputModeRules;
+    // 有文档还没有、但收得下的规则，需要保存一次才能发布；见 applicationInputModeRulesAwaitPublication。
+    BOOL _applicationInputModeRulesAwaitPublication;
     NSString *_activeModeApplication;
     BOOL _activeModeGlobal;
     NSMutableDictionary<NSString *, NSNumber *> *_applicationInputModes;
@@ -1018,6 +1087,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSString *_lastChineseScheme;
     NSString *_sharedShuangpinProfile;
     NSNumber *_sharedShuangpinPreeditUsesRaw;
+    // 共享偏好 `shuangpin_keymap_hint`。文档里没有这一项时为 nil，getter 退回本机 defaults 里升级前的选择；文档带着这一项载入过之后那个旧键已经删除，退回的就是关。
+    NSNumber *_sharedShuangpinKeymap;
     NSString *_sharedWubiProfile;
     NSTextField *_wubiProfileLabel;
     NSNumber *_sharedWubiMixedPinyin;
@@ -1185,6 +1256,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSMutableDictionary *merged = [snapshot mutableCopy];
     if ([_defaults objectForKey:DefaultImeModeKey] != nil) merged[@"default_ime_mode"] = self.defaultImeMode;
     if ([_defaults objectForKey:ImeModeScopeKey] != nil) merged[@"ime_mode_scope"] = self.imeModeScope;
+    // 整张表一起写，MSIMEMergePreferenceSnapshot 对这个键整体替换而不是逐项合并，移除的规则才会从文档里消失。表为空时写空对象，偏好库保存时把它省掉。载入过文档时取文档那张表（加上本窗口的改动和收得下、等待发布的旧规则），文档没有这个键时取本地键里的整张表；只写偏好库收得下的部分（PublishableInputModeRules），否则整份保存都会被拒。
+    // 还没载入过文档时一律不写，即使本地键存在：迁移之后本地键只剩文档收不下、只在本机生效的旧规则，和本窗口写下、等待下一次载入确认已进文档的规则，并不是完整的规则表，写进去会把文档里的整张表换成这一小部分甚至清空。升级前还没发布的旧规则也不会因此丢掉：载入文档后 applicationInputModeRulesAwaitPublication 为真，输入法随即保存一次把它们发布出去。
+    if (_sharedInputPreferencesApplied)
+        merged[@"app_input_mode_rules"] = PublishableInputModeRules(_sharedAppInputModeRules ?: [self applicationInputModeRules]);
     // Apple exposes one switch for both a solitary Shift tap and Shift+Space.
     // Keep the legacy native keys independent when no shared snapshot exists,
     // but publish one shared value for both routes.
@@ -1237,6 +1312,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (![@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:self.inputScheme] || _lastChineseScheme) merged[@"last_chinese_scheme"] = self.lastChineseScheme;
     merged[@"shuangpin_profile"] = self.shuangpinProfile;
     merged[@"shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
+    // 双拼键位提示以前只存在 defaults 里。载入过文档之后总是写当前值，这样「恢复默认值」清掉文档缓存和 defaults 后写回的是关，而不是让文档里的旧值在下次载入时又回来；还没载入过文档时只在本机留下过选择才写，把升级前的选择带进共享偏好，否则不写，免得没读到的文档值被这里的缺省覆盖。
+    if (_sharedInputPreferencesApplied || _sharedShuangpinKeymap || [_defaults objectForKey:KeymapKey] != nil)
+        merged[@"shuangpin_keymap_hint"] = @(self.shuangpinKeymap);
     merged[@"wubi_profile"] = self.wubiProfile;
     merged[@"wubi_mixed_pinyin"] = @(self.wubiMixedPinyinEnabled);
     merged[@"wubi_auto_commit_unique"] = @(self.wubiAutoCommitUnique);
@@ -1426,6 +1504,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _sharedVertical = nil;
     _sharedInputScheme = nil;
     _sharedShuangpinPreeditUsesRaw = nil;
+    // 双拼键位提示同样在云快照里（platform.macos.shuangpin_keymap，写进 defaults），套用后丢掉文档缓存，由 getter 读新值，下一次保存再写回文档。
+    _sharedShuangpinKeymap = nil;
     // 四码唯一自动上屏在云快照里，所以套用之后要丢掉共享文档缓存，让新的值经 getter 生效。
     _sharedWubiAutoCommitUnique = nil;
     _sharedChinesePunctuation = nil;
@@ -1473,6 +1553,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     for (NSString *mode in MSIMECloudLocalModeKeys()) allLocalModes = allLocalModes && [self localModeEnabled:mode];
     snapshot[@"platform.macos.local_input_modes"] = @(allLocalModes);
     snapshot[@"platform.macos.shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
+    // 双拼键位提示的权威值在共享文档里（共享设置页只写文档），导出取宿主真正在用的值，而不是 defaults 里可能过时的旧值。
+    snapshot[@"platform.macos.shuangpin_keymap"] = @(self.shuangpinKeymap);
     // 这个键只写共享文档、不再写 defaults，所以导出要取宿主真正在用的值，而不是 defaults 里的旧值。
     snapshot[@"platform.macos.wubi_auto_commit_unique"] = @(self.wubiAutoCommitUnique);
     snapshot[@"platform.macos.chinese_punctuation"] = @(self.chinesePunctuation);
@@ -1806,6 +1888,36 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id defaultMode = preferences[@"default_ime_mode"], scope = preferences[@"ime_mode_scope"];
     if ([@[@"chinese", @"english"] containsObject:defaultMode]) _sharedDefaultImeMode = defaultMode;
     if ([@[@"app", @"global"] containsObject:scope]) _sharedImeModeScope = scope;
+    // 文档没有规则时不写这个键，所以缺这个键就是没有规则；只有升级前的规则还没发布时才退回 NSUserDefaults，并要求保存一次把它们发布出去，共享设置页才看得到输入法实际在用的规则。文档带着这个键载入时，逐条看本地旧键：已经在文档里的（含只差大小写的同一个 bundle id，以文档为准）从旧键里删掉，免得以后文档删掉它时又冒出来；文档还没有、收得下的并进来等下一次保存发布（它们可能是还没发布就有别处先写了规则表）；收不下的（标识不合法，或文档已满 32 条）留在旧键里只在本机生效，不悄悄丢掉。旧键空了就整个删除。
+    id applicationRules = preferences[@"app_input_mode_rules"];
+    NSDictionary<NSString *, NSString *> *legacy = ValidInputModeRules([_defaults dictionaryForKey:AppInputModeRulesKey]);
+    if ([applicationRules isKindOfClass:NSDictionary.class]) {
+        NSDictionary<NSString *, NSString *> *published = ValidInputModeRules(applicationRules);
+        NSMutableDictionary<NSString *, NSString *> *rules = [published mutableCopy];
+        NSMutableDictionary<NSString *, NSString *> *remaining = [NSMutableDictionary dictionary];
+        NSMutableDictionary<NSString *, NSString *> *localOnly = [NSMutableDictionary dictionary];
+        BOOL unpublished = NO;
+        for (NSString *identifier in [legacy.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+            if (InputModeRulesContainIdentifier(published, identifier)) continue;
+            remaining[identifier] = legacy[identifier];
+            if (PublishableInputModeRuleIdentifier(identifier) && rules.count < MaxPublishedInputModeRules &&
+                !InputModeRulesContainIdentifier(rules, identifier)) {
+                rules[identifier] = legacy[identifier];
+                unpublished = YES;
+            } else {
+                localOnly[identifier] = legacy[identifier];
+            }
+        }
+        _sharedAppInputModeRules = rules;
+        _localOnlyAppInputModeRules = localOnly.count > 0 ? localOnly : nil;
+        _applicationInputModeRulesAwaitPublication = unpublished;
+        if (remaining.count == 0) [_defaults removeObjectForKey:AppInputModeRulesKey];
+        else if (![remaining isEqualToDictionary:legacy]) [_defaults setObject:remaining forKey:AppInputModeRulesKey];
+    } else {
+        _sharedAppInputModeRules = nil;
+        _localOnlyAppInputModeRules = nil;
+        _applicationInputModeRulesAwaitPublication = PublishableInputModeRules(legacy).count > 0;
+    }
     id keys = preferences[@"keybindings"];
     if ([keys isKindOfClass:NSDictionary.class]) {
         id shift = keys[@"switch_language_shift"];
@@ -1867,6 +1979,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     // 自定义表由共享偏好管理；原生设置暂不编辑它，但保存其它选项时必须保留这个方案名。
     if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"custom"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
     if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
+    // 文档没有这一项时回到 nil，getter 读 defaults：从没在共享设置里选过，就沿用本机升级前的选择。文档一旦带着这一项载入，那个选择已经发布过（或者文档里有更新的选择），文档从此是唯一来源：删掉本机旧键，之后文档再缺这一项（共享设置页恢复默认设置、导入不带这一项的设置文件）就是关，旧选择不会复活。与 AppInputModeRulesKey 迁移完成后删除旧键是同一个做法。
+    id keymap = preferences[@"shuangpin_keymap_hint"];
+    _sharedShuangpinKeymap = LocalModeBoolean(keymap) ? keymap : nil;
+    if (_sharedShuangpinKeymap) [_defaults removeObjectForKey:KeymapKey];
     if (LocalModeBoolean(wubiMixedPinyin)) _sharedWubiMixedPinyin = wubiMixedPinyin;
     if (LocalModeBoolean(wubiAutoCommitUnique)) {
         _sharedWubiAutoCommitUnique = wubiAutoCommitUnique;
@@ -1906,32 +2022,71 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     // Scope changes take effect on activation, never in the middle of typing.
     _activeModeGlobal = [self.imeModeScope isEqual:@"global"];
 }
-/// The rules the user has written down, with anything the stored dictionary has picked up that is not one dropped.
+/// 用户写下的规则：文档里有就用文档的（再加上文档收不下、只在本机生效的旧规则），否则用本窗口或升级前的版本记在本地的，不是规则的条目丢掉。
 - (NSDictionary<NSString *, NSString *> *)applicationInputModeRules {
-    NSDictionary *stored = [_defaults dictionaryForKey:AppInputModeRulesKey];
-    if (![stored isKindOfClass:NSDictionary.class]) return @{};
-    NSMutableDictionary<NSString *, NSString *> *rules = [NSMutableDictionary dictionary];
-    for (id identifier in stored)
-        if ([identifier isKindOfClass:NSString.class] && [identifier length] > 0 && ValidInputModeRule(stored[identifier]))
-            rules[identifier] = [stored[identifier] copy];
-    return rules;
+    if (_sharedAppInputModeRules) {
+        if (_localOnlyAppInputModeRules.count == 0) return _sharedAppInputModeRules;
+        NSMutableDictionary<NSString *, NSString *> *rules = [_sharedAppInputModeRules mutableCopy];
+        for (NSString *identifier in _localOnlyAppInputModeRules)
+            if (!rules[identifier]) rules[identifier] = _localOnlyAppInputModeRules[identifier];
+        return rules;
+    }
+    return ValidInputModeRules([_defaults dictionaryForKey:AppInputModeRulesKey]);
 }
+- (BOOL)applicationInputModeRulesAwaitPublication { return _applicationInputModeRulesAwaitPublication; }
 /// Writes one rule, or removes it when the mode is nil. The key goes rather than being left holding an empty dictionary, so that 恢复默认值 has nothing to offer once the last rule is gone.
 - (void)setInputMode:(NSString *)mode forApplication:(NSString *)identifier {
     if (![identifier isKindOfClass:NSString.class] || identifier.length == 0) return;
     if (mode != nil && !ValidInputModeRule(mode)) return;
-    NSMutableDictionary<NSString *, NSString *> *rules = [[self applicationInputModeRules] mutableCopy];
-    if (mode == nil) [rules removeObjectForKey:identifier]; else rules[identifier] = mode;
     // Writing a rule is the user saying what this application should be in, so it takes effect now rather than waiting for them to leave and come back.
-    [_inputModeRuleOverrides removeObject:identifier];
-    if (rules.count > 0) [_defaults setObject:rules forKey:AppInputModeRulesKey];
+    for (NSString *overridden in [_inputModeRuleOverrides allObjects])
+        if (InputModeRuleIdentifiersEqual(overridden, identifier)) [_inputModeRuleOverrides removeObject:overridden];
+    if (_sharedAppInputModeRules == nil) {
+        // 文档还没有规则表（或还没载入过文档）：本地键就是整张表，改动直接记在这里，载入文档后的那次保存或 preferencesChanged 触发的保存把它发布出去。
+        NSMutableDictionary<NSString *, NSString *> *rules = [[self applicationInputModeRules] mutableCopy];
+        NSString *key = InputModeRuleKeyForIdentifier(rules, identifier) ?: identifier;
+        if (mode == nil) [rules removeObjectForKey:key]; else rules[key] = mode;
+        if (rules.count > 0) [_defaults setObject:rules forKey:AppInputModeRulesKey];
+        else [_defaults removeObjectForKey:AppInputModeRulesKey];
+        [self preferencesChanged];
+        return;
+    }
+    // 文档有规则表时，文档里的规则和只在本机生效的旧规则分开改：改哪条就只动它所在的那一边。以前把两边合成一张表记进本地键、丢掉文档那张，合并时再按标识排序取前 32 条，就会把一条已经在文档里的规则挤出去，换上一条只在本机生效的旧规则。
+    NSMutableDictionary<NSString *, NSString *> *shared = [_sharedAppInputModeRules mutableCopy];
+    NSMutableDictionary<NSString *, NSString *> *localOnly = [_localOnlyAppInputModeRules mutableCopy] ?: [NSMutableDictionary dictionary];
+    // 本地键同时记下这次改动：保存没成功、或者在下一次载入前进程就退出时，下一次载入会把文档还没有的规则并进来再发布；文档已经有的照旧以文档为准从本地键里删掉。
+    NSMutableDictionary<NSString *, NSString *> *stored = [ValidInputModeRules([_defaults dictionaryForKey:AppInputModeRulesKey]) mutableCopy];
+    NSString *sharedKey = InputModeRuleKeyForIdentifier(shared, identifier);
+    NSString *localKey = InputModeRuleKeyForIdentifier(localOnly, identifier);
+    NSString *storedKey = InputModeRuleKeyForIdentifier(stored, identifier);
+    if (mode == nil) {
+        if (sharedKey) [shared removeObjectForKey:sharedKey];
+        if (localKey) [localOnly removeObjectForKey:localKey];
+        if (storedKey) [stored removeObjectForKey:storedKey];
+    } else if (sharedKey || localKey) {
+        // 升级前的表里可能有两条只差大小写的规则，一条并进了文档那边、另一条留在本机那边，查找时各自精确命中；两边都改，用户改的这一行才真的生效。
+        if (sharedKey) shared[sharedKey] = mode;
+        if (localKey) localOnly[localKey] = mode;
+        stored[storedKey ?: (sharedKey ?: localKey)] = mode;
+    } else if (PublishableInputModeRuleIdentifier(identifier) && shared.count < MaxPublishedInputModeRules) {
+        shared[identifier] = mode;
+        stored[identifier] = mode;
+    } else {
+        // 偏好库收不下的新规则（「添加应用…」已经当场拒绝，这里只防别的调用方）只在本机生效，不挤占文档里的位置。
+        localOnly[identifier] = mode;
+        stored[identifier] = mode;
+    }
+    _sharedAppInputModeRules = shared;
+    _localOnlyAppInputModeRules = localOnly.count > 0 ? localOnly : nil;
+    if (stored.count > 0) [_defaults setObject:stored forKey:AppInputModeRulesKey];
     else [_defaults removeObjectForKey:AppInputModeRulesKey];
     [self preferencesChanged];
 }
 - (BOOL)englishMode {
     if (!_activeModeApplication) return [_defaults boolForKey:EnglishKey];
     // Rule, then memory, then the default. A rule is what the user decided this application should start in and it is saved, so it goes on answering after -resetRememberedInputModes has thrown away what they happened to do last time; it also holds under 全局 scope, which is what makes it an exception rather than a second way of saying the same thing. What it does not outrank is the user reaching for Shift+空格 inside the application: that writes an override which stands until they leave and come back.
-    NSString *rule = [self applicationInputModeRules][_activeModeApplication];
+    // 规则按 ASCII 不分大小写查，和偏好库的去重、Windows 的查找一致：共享设置页写下的标识大小写未必和应用的 bundle id 相同。
+    NSString *rule = InputModeRuleForIdentifier([self applicationInputModeRules], _activeModeApplication);
     if (rule != nil && ![_inputModeRuleOverrides containsObject:_activeModeApplication]) return [rule isEqual:@"english"];
     NSNumber *mode = _activeModeGlobal ? _globalInputMode : _applicationInputModes[_activeModeApplication];
     return mode ? mode.boolValue : [self.defaultImeMode isEqual:@"english"];
@@ -1991,7 +2146,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 // Off unless asked for, matching the Windows baseline and the shared default.
 - (BOOL)smartPunctuationSpaceConvert { return _sharedSmartPunctuationSpaceConvert ? _sharedSmartPunctuationSpaceConvert.boolValue : [_defaults boolForKey:SmartPunctuationSpaceConvertKey]; }
 - (void)setSmartPunctuationSpaceConvert:(BOOL)value { _sharedSmartPunctuationSpaceConvert = nil; [_defaults setBool:value forKey:SmartPunctuationSpaceConvertKey]; [self preferencesChanged]; }
-- (BOOL)shuangpinKeymap { return [_defaults boolForKey:KeymapKey]; }
+// 共享文档的值优先；文档还没有这一项时读升级前留在 defaults 里的选择。
+- (BOOL)shuangpinKeymap { return _sharedShuangpinKeymap ? _sharedShuangpinKeymap.boolValue : [_defaults boolForKey:KeymapKey]; }
 // 从没设置过时是开：这个开关接进共享偏好之前，第四键上屏是唯一可能的实际行为，缺省必须是 YES 才不会在升级后改掉手感。共享文档的值最优先；原生 defaults 只有在本机留下过新语义下的选择之后才作数，否则里面存的 NO 是历史缺省，当作未设置。
 - (BOOL)wubiAutoCommitUnique {
     if (_sharedWubiAutoCommitUnique) return _sharedWubiAutoCommitUnique.boolValue;
@@ -2090,6 +2246,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [self preferencesChanged];
 }
 - (void)setShuangpinKeymap:(BOOL)value {
+    _sharedShuangpinKeymap = nil;
     [_defaults setBool:value forKey:KeymapKey];
     [self preferencesChanged];
 }
@@ -2167,7 +2324,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 /// Records that the user switched mode by hand in an application that has a rule, so -englishMode stops answering with the rule until they arrive at the application again. Does nothing where there is no rule to outrank.
 - (void)overrideActiveInputModeRule {
     if (!_activeModeApplication) return;
-    if ([self applicationInputModeRules][_activeModeApplication] == nil) return;
+    if (InputModeRuleForIdentifier([self applicationInputModeRules], _activeModeApplication) == nil) return;
     if (!_inputModeRuleOverrides) _inputModeRuleOverrides = [NSMutableSet set];
     [_inputModeRuleOverrides addObject:_activeModeApplication];
 }
@@ -5409,8 +5566,22 @@ static NSString *CandidateColorHex(NSColor *color) {
         _appRuleStatusLabel.textColor = NSColor.systemRedColor;
         return;
     }
+    // 规则表在共享文档里，偏好库收不下的规则（标识不合法、只差大小写的重复、超过 32 条）会让整份保存失败，所以在这里就拒绝并说明原因，和共享设置页的提示相同。
+    NSDictionary<NSString *, NSString *> *existingRules = [self applicationInputModeRules];
+    if (existingRules[identifier] == nil) {
+        NSString *refusal = nil;
+        if (!PublishableInputModeRuleIdentifier(identifier)) refusal = @"这个应用的 Bundle ID 无法加入应用例外。";
+        else if (InputModeRulesContainIdentifier(existingRules, identifier)) refusal = @"这个应用已经有例外了，在列表里改它的模式即可。";
+        // 上限只数占文档位置的规则：只在本机生效的旧规则（标识不合法、第 33 条以后）不进文档，不该挡住新规则，和偏好库的 MAX_APP_INPUT_MODE_RULES 只数文档里的规则一致。
+        else if (PublishableInputModeRules(_sharedAppInputModeRules ?: existingRules).count >= MaxPublishedInputModeRules) refusal = @"最多 32 个应用例外，请先移除不再需要的。";
+        if (refusal) {
+            _appRuleStatusLabel.stringValue = refusal;
+            _appRuleStatusLabel.textColor = NSColor.systemRedColor;
+            return;
+        }
+    }
     // A rule for an application that already has one is that application's rule, so the selection moves to it rather than a second row appearing.
-    if ([self applicationInputModeRules][identifier] == nil) [self setInputMode:@"chinese" forApplication:identifier];
+    if (existingRules[identifier] == nil) [self setInputMode:@"chinese" forApplication:identifier];
     [self refreshControls];
     const NSUInteger index = [_appRuleIdentifiers indexOfObject:identifier];
     if (index != NSNotFound) {

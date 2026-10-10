@@ -270,6 +270,54 @@ test("desktop dictionary apply page previews, confirms and cancels through the s
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_cancel" }));
 });
 
+test("a host that applies snapshots in the panel does not promise an idle-time apply", async () => {
+  let pending: { id: string; cloudRevision: number; status: string } | null = null;
+  const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
+    if (action.operation === "snapshot_status")
+      return { localVersion: "local-v1", request: pending };
+    if (action.operation === "snapshot_preview")
+      return {
+        previewToken: "preview-token",
+        snapshot: {
+          cloudRevision: 7,
+          sha256: "a".repeat(64),
+          bytes: 128,
+          records: 4,
+          entries: 2,
+          overlays: 1,
+          positions: 1,
+          selections: 0,
+        },
+      };
+    if (action.operation === "snapshot_enqueue")
+      return { request: { id: "request", cloudRevision: 7, status: "queued" } };
+    return {};
+  });
+  render(
+    <CloudDictionaryApplyPanel
+      client={{ close: async () => {}, request, snapshot: true, snapshotAppliesInPanel: true }}
+    />,
+  );
+  await waitFor(() => expect(screen.getByText("已获取本机词库版本")).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: "下载云词库并预览" }));
+  fireEvent.click(await screen.findByRole("button", { name: "替换本机词库" }));
+  const dialog = (await screen.findByRole("alertdialog")).textContent ?? "";
+  expect(dialog).toContain("请保持这个面板打开");
+  expect(dialog).not.toContain("空闲");
+  await answerConfirm("confirm");
+  // Windows 上没有别人处理队列：没能马上应用时提示保持面板打开，而不是说输入法空闲时会应用。
+  expect((await screen.findByText(/稍后会自动重试/)).textContent).toContain("请保持这个面板打开");
+  expect(screen.getByText(/快照只在这个面板开着时应用/)).toBeTruthy();
+  expect(screen.queryByText(/空闲/)).toBeNull();
+
+  // 面板轮询时重试成功：结果被取走前换掉「请保持面板打开」那句。
+  pending = { id: "request", cloudRevision: 7, status: "applied" };
+  fireEvent.click(screen.getByRole("button", { name: "刷新状态" }));
+  expect(await screen.findByText("云端快照已应用到本机")).toBeTruthy();
+  expect(screen.queryByText(/稍后会自动重试/)).toBeNull();
+  expect(screen.queryByText(/快照只在这个面板开着时应用/)).toBeNull();
+});
+
 test("apply status polling cannot overwrite a mutation result with a stale response", async () => {
   vi.useFakeTimers();
   let statusCalls = 0;

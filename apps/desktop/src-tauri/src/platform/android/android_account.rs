@@ -1,3 +1,4 @@
+use crate::platform::community_resources::CommunityResourceState;
 use crate::platform::mobile::mobile_account_helpers::{
     account_chat as shared_account_chat, account_chat_models as shared_account_chat_models,
     account_command_error, account_login as shared_account_login,
@@ -162,6 +163,7 @@ pub fn init() -> TauriPlugin<Wry> {
                 AndroidAccountStorage(handle),
             ));
             let community = MobileCommunityState::new(client, &session)?;
+            let resources = CommunityResourceState::new(&session)?;
             let snapshot_directory = app
                 .path()
                 .app_data_dir()?
@@ -176,6 +178,7 @@ pub fn init() -> TauriPlugin<Wry> {
                 feedback,
             });
             app.manage(community);
+            app.manage(resources);
             Ok(())
         })
         .build()

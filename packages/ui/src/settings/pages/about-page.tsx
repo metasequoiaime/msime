@@ -25,6 +25,7 @@ export function AboutSettingsPage() {
     client,
     linuxPlatform,
     macosPlatform,
+    windowsPlatform,
     mobilePlatform,
     settingsPlatform,
     clientHostedPlatform,
@@ -167,7 +168,10 @@ export function AboutSettingsPage() {
           external
           onClick={() => void openExternalUrl(platformLicenseUrl)}
         />
-        {macosPlatform && <LicenseRows openThirdPartyLicenses={client.openThirdPartyLicenses} />}
+        {/* 第三方声明随 macOS 应用资源和 Windows 安装目录提供，两个宿主都能打开它。 */}
+        {(macosPlatform || windowsPlatform) && (
+          <LicenseRows openThirdPartyLicenses={client.openThirdPartyLicenses} />
+        )}
         <LinkRow title="隐私政策" external onClick={openPrivacy} />
         <TelemetryRow
           value={draft?.usage_reporting}

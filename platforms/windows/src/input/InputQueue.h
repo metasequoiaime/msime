@@ -32,6 +32,8 @@ public:
   // that client is not focused under that token - which is what the DLL is
   // waiting to hear, and is already so when it never was.
   bool deactivate_terminal(uint64_t client, uint64_t token);
+  // TIP 经 Aux 管道报来的一次交给应用的按下：交给那个客户端的会话出按键音、计入连击。客户端不在或没有以 `token` 持有焦点时什么都不做。
+  bool passthrough_key(uint64_t client, uint64_t token, uint32_t key_class);
   // Dictionary maintenance runs in another process and needs the exclusive
   // file lock that every Engine session holds a share of. Dropping the
   // sessions is what releases it: the Engine has the dictionary files open,
@@ -54,6 +56,8 @@ public:
   HideCandidateDisposition hide_candidate(const FocusLease &lease);
   std::optional<nlohmann::json> dedicated_english(const FocusLease &lease,
                                                   bool exit);
+  std::optional<nlohmann::json> set_dedicated_english(const FocusLease &lease,
+                                                      bool enabled);
   std::optional<nlohmann::json>
   apply_ai_candidates(const FocusLease &lease, const std::string &query,
                       const std::string &candidates);
@@ -83,7 +87,8 @@ public:
   std::optional<nlohmann::json> page_candidate(const FocusLease &lease,
                                                uint64_t session,
                                                uint64_t generation,
-                                               bool previous, unsigned steps);
+                                               bool previous, unsigned steps,
+                                               bool from_wheel);
   bool ui_delivered(const FocusLease &lease, uint64_t generation);
   std::optional<PendingReply> configured_key(
       const FocusLease &lease, const FanyImeNamedpipeData &packet,

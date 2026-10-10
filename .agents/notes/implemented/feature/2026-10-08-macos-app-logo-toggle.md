@@ -13,7 +13,7 @@ macOS 候选窗首行和悬浮工具栏左端总是画着水杉 logo，用户没
 - `Default` 为 `false`：新装、写第一份偏好文档、以及「恢复默认设置」时都隐藏 logo。
 - serde 缺省为 `true`：已有文档里没有这个字段时读成显示，升级用户看到的和原来一样。
 
-`HostCapabilities::app_logo` 只在 macOS 为真，开关只在 macOS 的设置里出现：共享设置页「候选窗口」→「布局」组的「显示水杉 logo」，以及原生设置窗口候选窗卡片里的同名开关。Windows、Linux 和鸿蒙的候选窗照常画 logo，不读这个偏好。
+`HostCapabilities::app_logo` 在 macOS 和 Windows 为真，开关出现在共享设置页「候选窗口」→「布局」组的「显示水杉 logo」，macOS 原生设置窗口候选窗卡片里也有同名开关。Windows 的候选窗和悬浮工具栏同样按它画 logo（[Windows 候选窗](2026-10-10-windows-candidate-window-mac-parity.md)）。Linux 和鸿蒙的候选窗照常画 logo，不读这个偏好。
 
 macOS 宿主的行为：
 

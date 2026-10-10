@@ -160,4 +160,16 @@ int main() {
              .empty());
   assert(theme_catalog_title(nlohmann::json::array(), "night").empty());
   assert(theme_catalog_title(nlohmann::json(), "night").empty());
+  // 托盘主题页按目录顺序列出能写进偏好的主题：标题不是字符串、过长，或 id 不是短的小写标识的都不列。
+  {
+    auto listed = catalog;
+    listed["value"]["themes"].push_back({{"id", "Bad Id"}, {"title", "Bad"}});
+    listed["value"]["themes"].push_back({{"id", "paper"}, {"title", ""}});
+    const auto entries = theme_catalog_entries(listed);
+    assert(entries.size() == 2);
+    assert(entries[0].first == "system" && entries[0].second == "System");
+    assert(entries[1].first == "night" && entries[1].second == "Night");
+    assert(theme_catalog_entries({{"ok", false}, {"value", catalog.at("value")}}).empty());
+    assert(theme_catalog_entries(nlohmann::json()).empty());
+  }
 }

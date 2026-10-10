@@ -138,9 +138,11 @@ fi
 fixtures="$root/platforms/windows/tests/input/fixtures"
 stroke_argument='Z:\\fixtures\\msime-stroke.db'
 zhuyin_argument='Z:\\fixtures\\msime-zhuyin.db'
-# CMake builds TSF tests in a subdirectory; its two wiring checks read source files.
+# CMake 在子目录里构建 TSF 的测试，其中的接线检查要读源文件。
 tsf_source="$root/platforms/windows/tsf"
 tsf_source_argument='Z:\\tsf-source'
+# 日语转换的接线检查还要读 Server 的 ReplyComposer.cpp，按 TSF 源码目录的 ../src 找，所以 Server 源码挂在 /src，与 /tsf-source 同级。
+server_source="$root/platforms/windows/src"
 
 # The Rust host carries the Windows-only code the C++ suite never touches:
 # clipboard reads and writes, synthetic key strokes, the extended-key set. Its
@@ -233,7 +235,7 @@ fi
 
 docker run --rm --platform linux/amd64 \
   -v "$build":/bin-win:ro -v "$runtime":/rt:ro -v "$rust_stage":/bin-rust:ro ${resources_mount[@]+"${resources_mount[@]}"} \
-  ${installer_mount[@]+"${installer_mount[@]}"} -v "$fixtures":/fixtures:ro -v "$tsf_source":/tsf-source:ro \
+  ${installer_mount[@]+"${installer_mount[@]}"} -v "$fixtures":/fixtures:ro -v "$tsf_source":/tsf-source:ro -v "$server_source":/src:ro \
   -e "MSIME_RESOURCES=$resources_argument" -e "MSIME_INSTALLER=$installer_argument" \
   -e "MSIME_STROKE_FIXTURE=$stroke_argument" -e "MSIME_ZHUYIN_FIXTURE=$zhuyin_argument" \
   -e "MSIME_TSF_SOURCE=$tsf_source_argument" \
@@ -257,6 +259,8 @@ for exe in /bin-win/windows-*.exe /bin-win/tsf/msime-tsf-*.exe /bin-win/msimeui-
   [ "$name" = windows-zhuyin-keys ] && argument="$MSIME_ZHUYIN_FIXTURE"
   [ "$name" = msime-tsf-paired-punctuation-wiring-test ] && argument="$MSIME_TSF_SOURCE"
   [ "$name" = msime-tsf-smart-punctuation-focus-wiring-test ] && argument="$MSIME_TSF_SOURCE"
+  [ "$name" = msime-tsf-japanese-conversion-wiring-test ] && argument="$MSIME_TSF_SOURCE"
+  [ "$name" = msime-tsf-gloss-column-wiring-test ] && argument="$MSIME_TSF_SOURCE"
   if timeout 120 xvfb-run -a wine "/run/t/$name.exe" $argument >/dev/null 2>&1; then
     echo "PASS $name"
   else

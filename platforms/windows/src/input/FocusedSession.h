@@ -39,6 +39,8 @@ public:
   bool prepare(const FocusLease &lease);
   // No operation may invalidate a key reply awaiting transport confirmation.
   std::optional<nlohmann::json> dedicated_english(const FocusLease &lease, bool exit);
+  // 把 Engine 的英文模式设成 `enabled`（托盘「英文候选模式」）。有等待送达确认的按键回复、正在组字或列着候选时都不动，返回空。
+  std::optional<nlohmann::json> set_dedicated_english(const FocusLease &lease, bool enabled);
   std::optional<PendingReply>
   key(const FocusLease &lease, const FanyImeNamedpipeData &packet,
       ReplyPath path, bool uiless = false,
@@ -97,6 +99,8 @@ public:
   // not focused on that token: the state the caller asked for holds either
   // way, and it is the state - not the act - that is being reported.
   bool cancel_focus_token(uint64_t token);
+  // TIP 交给应用的一次按下（Aux 管道的 KeySound）：出按键音、计入打字特效的连击，和 Server 处理的键一样。只在这个客户端正以 `token` 持有焦点、而且不在英文模式时才出声；返回是否出了声。
+  bool passthrough_key(uint64_t token, uint32_t key_class);
   // Explicit host composition termination, preserving the active focus lease.
   bool cancel_composition(const FocusLease &lease);
   HideCandidateDisposition hide_candidate(const FocusLease &lease);
@@ -131,6 +135,10 @@ private:
   std::optional<Commit> pending_commit() const;
   // Records a commit that has been confirmed as delivered, and plays its commit sound.
   void record_commit(const std::optional<Commit> &delivered);
+  // 一个出声的键：按键音（全屏应用在前台时不出）和打字特效。
+  void sound_key(uint32_t key_class, bool auto_repeat);
+  // 把会话解析好的特效设置和特效包的颜色、粒子数交给界面线程，在发布特效之前调用。
+  void publish_typing_effect_settings();
   static std::string typing_statistics_directory(const std::string &options);
   FocusGate &gate_;
   uint64_t client_;

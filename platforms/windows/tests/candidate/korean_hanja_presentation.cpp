@@ -82,6 +82,34 @@ int main() {
     const auto delivered = candidate_presentation(lease, reply, packet);
     require(delivered.candidates[0].annotation.empty() && delivered.candidates[0].gloss == "나라 이름 한, 한나라 한" &&
             delivered.candidates[0].translation == "Korea");
+
+    // 两种目标语言的释义每种一行（会话里用 U+2028 分行），读音跟在各自那一行后面，逐词拆解在最后一行；훈음 仍在最上面。
+    auto both = korea;
+    both.translation = "Korea\xE2\x80\xA8" "韓国";
+    both.pronunciation = "/kəˈriːə/";
+    require(candidate_secondary_text(both) == "나라 이름 한, 한나라 한\nKorea  /kəˈriːə/\n韓国");
+    require(candidate_secondary_lines(both) == 3);
+    PresentationCandidate sentence{};
+    sentence.text = "我喜欢你";
+    sentence.breakdown = "我 I · 喜欢 to like · 你 you";
+    require(candidate_secondary_text(sentence) == "我 I · 喜欢 to like · 你 you" &&
+            candidate_secondary_lines(sentence) == 1);
+    sentence.translation = "I like you";
+    require(candidate_secondary_text(sentence) == "I like you\n我 I · 喜欢 to like · 你 you" &&
+            candidate_secondary_lines(sentence) == 2);
+    // 悬停提示是候选全文，下一行起是释义；没有释义时只有候选。
+    require(candidate_tooltip_text(sentence) == "我喜欢你\nI like you\n我 I · 喜欢 to like · 你 you");
+    PresentationCandidate bare{};
+    bare.text = "你好";
+    bare.badge = " ☁️";
+    require(candidate_tooltip_text(bare) == "你好 ☁️");
+    // 释义本身接近 4096 字节上限时，加上读音和拆解会超出候选窗能画的长度，这时只画释义，不让整个候选窗失败。
+    PresentationCandidate long_gloss{};
+    long_gloss.text = "长";
+    long_gloss.translation = std::string(4090, 'a');
+    long_gloss.pronunciation = "/ə/";
+    long_gloss.breakdown = "长 long";
+    require(candidate_secondary_text(long_gloss) == long_gloss.translation);
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;

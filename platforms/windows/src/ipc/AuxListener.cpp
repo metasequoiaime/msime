@@ -19,7 +19,8 @@ std::unique_ptr<AuxListener> AuxListener::create(const std::wstring &name,
                                                  TerminalSink terminal,
                                                  MaintenanceSink maintenance,
                                                  StatisticsSink statistics,
-                                                 KeysSink keys) {
+                                                 KeysSink keys,
+                                                 KeySoundSink key_sound) {
   error = ERROR_SUCCESS;
   if (!sink) {
     error = ERROR_INVALID_PARAMETER;
@@ -42,6 +43,7 @@ std::unique_ptr<AuxListener> AuxListener::create(const std::wstring &name,
   aux->maintenance_ = std::move(maintenance);
   aux->statistics_ = std::move(statistics);
   aux->keys_ = std::move(keys);
+  aux->key_sound_ = std::move(key_sound);
   aux->worker_ = std::thread([raw = aux.get()] { raw->run(); });
   return aux;
 }
@@ -234,6 +236,31 @@ void AuxListener::run() {
         write_ok(accepted.connection->handle());
       std::lock_guard<std::mutex> lock(stats_mutex_);
       if (done)
+        ++stats_.dispatched;
+      else
+        ++stats_.unknown_verb;
+      continue;
+    }
+    if (const auto key = parse_aux_key_sound(*text)) {
+      // 和 TerminalDeactivation 一样，client 是 (pid << 32) | tid，发送方只能替自己的线程报键。
+      ULONG pid = 0;
+      DWORD peer_error = ERROR_SUCCESS;
+      if (!pipe_client_in_session(accepted.connection->handle(), pid, peer_error) ||
+          static_cast<DWORD>(key->client_id >> 32) != pid) {
+        std::lock_guard<std::mutex> lock(stats_mutex_);
+        ++stats_.rejected;
+        continue;
+      }
+      bool wanted = false;
+      try {
+        wanted = key_sound_ && key_sound_(*key);
+      } catch (...) {
+        callback_failed();
+      }
+      if (wanted)
+        write_ok(accepted.connection->handle());
+      std::lock_guard<std::mutex> lock(stats_mutex_);
+      if (wanted)
         ++stats_.dispatched;
       else
         ++stats_.unknown_verb;

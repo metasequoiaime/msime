@@ -84,6 +84,14 @@ inline ToolbarMetrics toolbar_metrics(double font_size, bool shadow = true) {
   return metrics;
 }
 
+// 偏好 `show_app_logo` 关掉时 logo 槽收窄成一条握把：画两列三行小圆点，仍是拖动区的一部分。宽度与 macOS 的 kToolbarGripWidth 同比例（图标 24 时 10），再小也留 8，免得握把细到按不准。
+inline ToolbarMetrics toolbar_metrics(double font_size, bool shadow, bool logo) {
+  auto metrics = toolbar_metrics(font_size, shadow);
+  if (!logo)
+    metrics.logo = (std::max)(8.0, metrics.icon * 10.0 / 24.0);
+  return metrics;
+}
+
 // The bar, without the shadow margin around it.
 inline double toolbar_content_width(size_t buttons,
                                     const ToolbarMetrics &metrics) {

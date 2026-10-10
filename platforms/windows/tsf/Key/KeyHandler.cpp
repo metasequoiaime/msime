@@ -74,26 +74,8 @@ WCHAR GetPairedPunctuationClosing(const std::wstring &text)
     {
         return 0;
     }
-
-    switch (text.back())
-    {
-    case L'“':
-        return L'”';
-    case L'‘':
-        return L'’';
-    case L'【':
-        return L'】';
-    case L'{':
-        return L'}';
-    case L'《':
-        return L'》';
-    case L'〈':
-        return L'〉';
-    case L'（':
-        return L'）';
-    default:
-        return 0;
-    }
+    // 成对表在 Global/PairedPunctuationHostPolicy.h，候选上屏的补全用同一张表。
+    return Global::PairedPunctuationClosingFor(text.back());
 }
 
 DWORD_PTR MapRawCaretToPreedit(const CStringRange &raw, DWORD_PTR rawCaret, const std::wstring &preedit,
@@ -250,6 +232,40 @@ HRESULT CMetasequoiaIME::_HandleHostRawCommit(TfEditCookie ec, _In_ ITfContext *
     if (status == msime::tsf::RawCommitStatus::Completed) return S_OK;
     if (status == msime::tsf::RawCommitStatus::Unhandled) return S_FALSE;
     return FAILED(writeResult) ? writeResult : E_FAIL;
+}
+
+namespace
+{
+// 宿主会话当前的 editing_text（日语是罗马字原文）。宿主会话不可用或读不出 view 时为空，日语转换的记号随之不成立，回车照旧上屏假名。
+std::string HostEditingText(CCompositionProcessorEngine *engine)
+{
+    auto *host = engine ? engine->GetHostEngineAdapter() : nullptr;
+    if (!host || !host->valid())
+        return {};
+    std::string raw, error;
+    msime::tsf::EngineResult result;
+    if (!host->view(&raw, &error) || !msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error))
+        return {};
+    return result.view.editing_text;
+}
+} // namespace
+
+void CMetasequoiaIME::_NoteJapaneseConversionStarted()
+{
+    _japaneseConversion.compositionEpoch = _CaptureCompositionEpoch();
+    _japaneseConversion.reading = HostEditingText(_pCompositionProcessorEngine);
+}
+
+bool CMetasequoiaIME::_JapaneseEnterCommitsCandidate(UINT modifiers)
+{
+    const bool japanese =
+        Global::InputModeScheme.load(std::memory_order_relaxed) == msime::windows::scheme::Japanese;
+    if (!japanese || _japaneseConversion.compositionEpoch == 0)
+        return false;
+    // 线上的修饰键位 Shift=1、Control=2、Alt=4；带修饰键的回车保留原来的意思。
+    return Global::JapaneseEnterCommitsCandidate(_japaneseConversion, _CaptureCompositionEpoch(),
+                                                 HostEditingText(_pCompositionProcessorEngine), japanese,
+                                                 (modifiers & 0b111u) == 0);
 }
 
 HRESULT CMetasequoiaIME::_HandleConversionKey(TfEditCookie ec, _In_ ITfContext *pContext, bool enter,
@@ -2047,10 +2063,13 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
 
     const bool pairedPunctuationEnabled = Global::PairedPunctuationEnabled.load(std::memory_order_relaxed) &&
                                           !Global::IsPairedPunctuationExcludedProcess(Global::current_process_name);
+    // 全角模式下 `{` 补出 ｛｝、`}` 跨过 ｝，与 macOS 一致；只在成对补全打开时才需要读这个状态。
+    const bool fullWidthPair = pairedPunctuationEnabled && (wch == L'{' || wch == L'}') &&
+                               pCompositionProcessorEngine->GetDoubleSingleByteMode(_pThreadMgr, _tfClientId) != FALSE;
     if (pairedPunctuationEnabled && !_IsComposing() && _candidateMode == CANDIDATE_NONE)
     {
         // A pair whose closing half is still waiting on the right of the caret is closed by stepping over it. Without this the closing key inserts a second one （内容）） and, because of the pinning below, the right quote could never be typed at all.
-        const WCHAR stepOver = Global::PairedPunctuationStepOverCandidate(wch, punctuationStr);
+        const WCHAR stepOver = Global::PairedPunctuationStepOverCandidate(wch, punctuationStr, fullWidthPair);
         if (_TryStepOverPairedPunctuation(ec, pContext, stepOver))
         {
             return S_OK;
@@ -2070,6 +2089,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
         {
             punctuationStr.back() = L'‘';
         }
+        punctuationStr.back() = Global::PairedPunctuationKeyOpening(wch, punctuationStr.back(), fullWidthPair);
     }
 
     const WCHAR pairedOpening = punctuationStr.empty() ? 0 : punctuationStr.back();

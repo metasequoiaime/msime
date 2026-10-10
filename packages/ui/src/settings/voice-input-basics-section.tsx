@@ -8,6 +8,7 @@ import {
 
 export interface VoiceInputBasicsSectionProps extends VoiceInputIntroSectionProps {
   localVoiceAvailable: boolean;
+  windows?: boolean;
   nativeVoicePlatform: boolean;
   harmonyUnsupportedAsr: boolean;
   voiceInput: VoiceInputPreferences;
@@ -27,6 +28,7 @@ export function VoiceInputBasicsSection({
   linux,
   showVoiceProviderSettings,
   localVoiceAvailable,
+  windows = false,
   nativeVoicePlatform,
   harmonyUnsupportedAsr,
   voiceInput,
@@ -57,6 +59,7 @@ export function VoiceInputBasicsSection({
         macos={macos}
         harmony={harmony}
         android={android}
+        windows={windows}
         localVoiceAvailable={localVoiceAvailable}
         nativeVoicePlatform={nativeVoicePlatform}
         harmonyUnsupportedAsr={harmonyUnsupportedAsr}

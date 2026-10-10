@@ -27,11 +27,12 @@ enum ToolbarButton {
   kToolbarEmoji = 4,
   kToolbarScreenKeyboard = 5,
   kToolbarSettings = 6,
-  // 7, 8 and 9 were handwriting, voice and about. The toolbar no longer
-  // offers them - they live in the tray menu - and the ids are left with no
-  // constants rather than renumbered, so a stored layout cannot silently
-  // point at a different button.
+  // 手写和语音回到工具栏时沿用它们原来的 7 和 8，含义没有变。9 曾经是「关于」，现在在设置按钮的右键菜单里，这个 id 不再分配，免得旧布局指到别的按钮。
+  kToolbarHandwriting = 7,
+  kToolbarVoice = 8,
   kToolbarHide = 10,
+  // 切换输入方案，点开列出这个版本提供的方案。
+  kToolbarInputScheme = 11,
 };
 // The icon for one button. `state` is that button's two-way mode - Chinese,
 // full width, Chinese punctuation, traditional output - and is absent when the
@@ -39,11 +40,13 @@ enum ToolbarButton {
 // rather than a guessed state, which would tell the user the wrong thing.
 // Extra state the language button reflects beyond Chinese/English.
 //
-// 出厂工具栏在这里显示这些不同的状态：Caps Lock 开着时是 'A'，日文模式是 日，韩文模式是 한，粤拼是 粤，注音是 注，越南文是 越，藏文是 藏，笔画是 笔，其余是 中/英。 Showing 中 while Caps Lock is on tells the user the wrong thing about what the next key will do.
+// 出厂工具栏在这里显示这些不同的状态：Caps Lock 开着时是 'A'，日文模式是 日，韩文模式是 한，粤拼是 粤，注音是 注，越南文是 越，藏文是 藏，笔画是 笔，双拼是 双，五笔是 五，其余是 中/英。Caps Lock 开着时还显示 中，会让用户误判下一个字母键的作用。
 struct ToolbarLanguageState {
   bool caps_lock = false;
   // The configured scheme's family, as the TIP is told it.
   scheme::InputMode mode = scheme::InputMode::Chinese;
+  // 正在运行的方案编号（scheme::Quanpin 等），-1 表示还不知道。中文模式里用它区分双拼和五笔，按钮显示 双 或 五，与 macOS 的方案徽标一致。
+  int scheme = -1;
   // The Engine's own English mode, as opposed to the temporary Chinese/English
   // toggle carried in `state`. It outlives a commit, so it is worth telling
   // apart on the button.
@@ -80,7 +83,16 @@ inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state,
       return {0, L"藏"};
     case scheme::InputMode::Stroke:
       return {0, L"笔"};
+    case scheme::InputMode::Shuangpin:
+      return {0, L"双"};
+    case scheme::InputMode::Wubi:
+      return {0, L"五"};
     case scheme::InputMode::Chinese:
+      // 双拼和五笔同属中文模式，图标字体没有对应的字形，直接画字。
+      if (language.scheme == scheme::Shuangpin)
+        return {0, L"双"};
+      if (language.scheme == scheme::Wubi)
+        return {0, L"五"};
       break;
     }
     if (!state)
@@ -108,6 +120,14 @@ inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state,
     return {0xE765, L"键"}; // 键
   case kToolbarSettings:
     return {0xE713, L"设"}; // 设
+  // 手写和语音与托盘工具条用同一个字形和替代字。
+  case kToolbarHandwriting:
+    return {0xE70F, L"写"};
+  case kToolbarVoice:
+    return {0xE720, L"音"};
+  // BulletedList，对应 macOS 的 list.bullet。
+  case kToolbarInputScheme:
+    return {0xE8FD, L"方"};
   case kToolbarHide:
     return {0, L"×"};
   default:

@@ -221,6 +221,12 @@ fn capabilities_describe_each_host() {
             && windows.floating_toolbar_appearance
             && windows.floating_toolbar_components
     );
+    // Windows 的工具栏也画手写、语音和切换输入方案三个按钮，设置页给它们开关。
+    assert!(
+        windows.floating_toolbar_handwriting
+            && windows.floating_toolbar_voice
+            && windows.floating_toolbar_input_scheme
+    );
     assert!(windows.candidate_font_controls);
     assert!(windows.candidate_preedit_font);
     assert!(windows.candidate_row_colors);
@@ -247,7 +253,7 @@ fn capabilities_describe_each_host() {
     assert!(macos.candidate_follow_cursor);
     assert!(macos.panel_shortcuts);
     assert!(macos.app_logo);
-    assert!(!windows.app_logo);
+    assert!(windows.app_logo);
     assert!(!linux.app_logo);
     // 只有向会话报告大写锁定的宿主提供「大写锁定时使用英文标点」，目前是 macOS。
     for platform in [
@@ -260,11 +266,17 @@ fn capabilities_describe_each_host() {
         assert!(!HostCapabilities::for_platform(platform).caps_lock_punctuation);
     }
     assert!(macos.caps_lock_punctuation);
-    // Only the two hosts that can put a badge beside the caret claim it; a touch keyboard says
-    // the mode on its own key faces, and Windows/Linux draw nothing of the kind.
+    // 能在光标旁放徽标的宿主才声明它：触屏键盘在键面上就显示了模式。Windows 的 Server 自己画，Linux 交给 Fcitx5 面板。
     assert!(macos.input_mode_hud);
-    assert!(!windows.input_mode_hud);
+    assert!(windows.input_mode_hud);
     assert!(linux.input_mode_hud);
+    // 应用例外只在认得前台应用、并按规则定起始模式的两个桌面宿主上提供。
+    assert!(macos.app_input_mode_rules);
+    assert!(windows.app_input_mode_rules);
+    assert!(!linux.app_input_mode_rules);
+    assert!(!HostCapabilities::for_platform(HostPlatform::Android).app_input_mode_rules);
+    assert!(!HostCapabilities::for_platform(HostPlatform::Harmony).app_input_mode_rules);
+    assert!(!HostCapabilities::for_platform(HostPlatform::Ios).app_input_mode_rules);
     assert!(!HostCapabilities::for_platform(HostPlatform::Android).input_mode_hud);
     assert!(!HostCapabilities::for_platform(HostPlatform::Ios).input_mode_hud);
     // Mobile hosts draw no toolbar at all.
@@ -457,7 +469,19 @@ fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
     // One commit path, so there is nothing to choose between and no control for it.
     assert!(!harmony.voice_commit_mode);
     assert!(HostCapabilities::for_platform(HostPlatform::Macos).shuangpin_preedit);
-    assert!(!HostCapabilities::for_platform(HostPlatform::Windows).shuangpin_preedit);
+    // 候选窗的预编辑行和 TIP 的行内组字都取 Engine 的 preedit，原始按键与展开拼音的差别在 Windows 上看得见。
+    assert!(HostCapabilities::for_platform(HostPlatform::Windows).shuangpin_preedit);
+    // 双拼键位图只有 macOS 和 Windows 画。
+    assert!(HostCapabilities::for_platform(HostPlatform::Macos).shuangpin_keymap_hint);
+    assert!(HostCapabilities::for_platform(HostPlatform::Windows).shuangpin_keymap_hint);
+    for platform in [
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).shuangpin_keymap_hint);
+    }
     assert!(!HostCapabilities::for_platform(HostPlatform::Ios).english_suggestions);
     assert!(!HostCapabilities::for_platform(HostPlatform::Windows).english_suggestions);
     // Pango resolves the panel's family list per glyph, so the Linux hosts name the English family first.
@@ -486,8 +510,8 @@ fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
     assert!(!HostCapabilities::for_platform(HostPlatform::Ios).maintenance_shortcuts);
     assert!(HostCapabilities::for_platform(HostPlatform::Android).fullwidth_chord);
     assert!(HostCapabilities::for_platform(HostPlatform::Macos).fullwidth_chord);
+    assert!(HostCapabilities::for_platform(HostPlatform::Windows).fullwidth_chord);
     for platform in [
-        HostPlatform::Windows,
         HostPlatform::Linux,
         HostPlatform::Ios,
         HostPlatform::Harmony,
@@ -787,7 +811,7 @@ fn a_narrower_edition_drops_its_missing_schemes_and_says_which_edition_it_is() {
     assert!(!edition.wubi_mixed_pinyin_default);
 }
 
-/// 不提供中文方案的版本（日文、越南文和藏文版）不带离线释义也不提供手写：设置页据此藏起手写页，macOS 悬浮工具栏的手写按钮开关也随之消失。提供中文方案的版本保持原样。
+/// 不提供中文方案的版本（日文、越南文和藏文版）不带离线释义也不提供手写：设置页据此藏起手写页，macOS 和 Windows 悬浮工具栏的手写按钮开关也随之消失。提供中文方案的版本保持原样。
 #[test]
 fn editions_without_a_chinese_scheme_offer_no_handwriting_or_offline_glosses() {
     for id in ["japanese", "vietnamese", "tibetan"] {
@@ -795,6 +819,15 @@ fn editions_without_a_chinese_scheme_offer_no_handwriting_or_offline_glosses() {
         assert!(capabilities.floating_toolbar_handwriting);
         capabilities.narrow_to_edition(Edition::by_id(id).unwrap());
         assert!(!capabilities.floating_toolbar_handwriting, "{id}");
+        // Windows 的工具栏同样按版本去掉手写按钮的开关，语音和切换输入方案不受影响。
+        let mut windows = HostCapabilities::for_platform(HostPlatform::Windows);
+        assert!(windows.floating_toolbar_handwriting);
+        windows.narrow_to_edition(Edition::by_id(id).unwrap());
+        assert!(!windows.floating_toolbar_handwriting, "{id}");
+        assert!(
+            windows.floating_toolbar_voice && windows.floating_toolbar_input_scheme,
+            "{id}"
+        );
         let edition = capabilities.edition.unwrap();
         assert!(!edition.handwriting, "{id}");
         assert!(!edition.offline_glosses, "{id}");

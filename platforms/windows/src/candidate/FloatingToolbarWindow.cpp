@@ -1,18 +1,23 @@
 #include "FloatingToolbarWindow.h"
+#include "AccessibleWindow.h"
 #include "FloatingToolbarPlacement.h"
+#include "ToolbarAccessibility.h"
 #include "ToolbarIcons.h"
 #include "ToolbarLayout.h"
 #include "ToolbarCoordinates.h"
 #include "ToolbarClick.h"
 #include "ToolbarModeCommand.h"
+#include "ToolbarTooltips.h"
 #include "ServerResources.h"
 #include "WindowShadow.h"
+#include "WaveOverlayUtils.h"
 #include "IconFont.h"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <string>
 #include <windowsx.h>
+#include <commctrl.h>
 #include <vector>
 #include "../../../../shared/contracts/msime_edition.h"
 
@@ -41,23 +46,187 @@ bool same(const FocusLease &a, const FocusLease &b) {
   return a.epoch == b.epoch && a.token == b.token &&
          same_ticket(a.transport, b.transport);
 }
-std::vector<int> slots(const std::array<bool, 6> &items, bool language) {
-  return floating_toolbar_slots(items, language);
-}
-// Buttons that do nothing on their own: they ask the shared desktop shell to
-// open a surface. The rest - the three mode toggles, 简繁, voice and hide - are
-// handled inside this process and stay usable without a shell.
-bool needs_shell(int button) {
-  switch (button) {
-  case kToolbarEmoji:
-  case kToolbarScreenKeyboard:
-  case kToolbarSettings:
-    return true;
-  default:
-    return false;
-  }
+// 按钮名字交给读屏时用 UTF-8（AccessibleElement 的约定）。
+std::string utf8(const std::wstring &text) {
+  if (text.empty())
+    return {};
+  const int count = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+                                        nullptr, 0, nullptr, nullptr);
+  if (count <= 0)
+    return {};
+  std::string result(static_cast<size_t>(count), '\0');
+  if (WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), result.data(),
+                          count, nullptr, nullptr) != count)
+    return {};
+  return result;
 }
 } // namespace
+
+std::vector<int> FloatingToolbarWindow::slots() const {
+  return floating_toolbar_slots(layout_, MSIME_EDITION_HANDWRITING != 0);
+}
+ToolbarMetrics FloatingToolbarWindow::metrics() const {
+  return toolbar_metrics(static_cast<double>(font_size_), true, layout_.show_logo);
+}
+// 只有设置和手写要靠外壳打开：设置按钮要设置窗口，手写按钮要共享应用。三个模式按钮、简繁、语音、切换输入方案和隐藏都在这个进程里处理；表情和屏幕键盘没有共享应用时打开系统自带的面板，所以也总是可用。
+bool FloatingToolbarWindow::usable(int button) const {
+  switch (button) {
+  case kToolbarSettings:
+    return settings_available_;
+  case kToolbarHandwriting:
+    return panels_available_;
+  default:
+    return true;
+  }
+}
+ToolbarMenuAnchor FloatingToolbarWindow::menu_anchor(std::optional<size_t> index,
+                                                     int x) const {
+  // 工具栏不感知 DPI，这里（它的窗口过程里）量到的外框和点击坐标都是逻辑坐标；弹出菜单在每显示器感知的上下文里按物理像素摆放，所以在每显示器感知的上下文里再量一次同一个外框，把锚点换过去。缩放不是 100% 时不换的话，菜单会开到离按钮很远的地方，副屏旁边还可能开到另一块屏上。
+  RECT window{};
+  GetWindowRect(window_, &window);
+  RECT physical = window;
+  {
+    WaveOverlayDpiScope dpi_scope;
+    if (!GetWindowRect(window_, &physical))
+      physical = window;
+  }
+  const auto layout = metrics();
+  const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+  const auto card = toolbar_card(slots().size(), layout);
+  double centre = static_cast<double>(x);
+  if (index) {
+    const auto cell = toolbar_cell(*index, layout);
+    centre = (cell.left + cell.right) / 2.0 * unit;
+  }
+  const auto horizontal = [&](int value) {
+    return toolbar_physical_coordinate(value, window.left, window.right, physical.left,
+                                       physical.right);
+  };
+  const auto vertical = [&](int value) {
+    return toolbar_physical_coordinate(value, window.top, window.bottom, physical.top,
+                                       physical.bottom);
+  };
+  return {horizontal(window.left + static_cast<int>(std::lround(centre))),
+          vertical(window.top + static_cast<int>(std::lround(card.top * unit))),
+          vertical(window.top + static_cast<int>(std::lround(card.bottom * unit)))};
+}
+void FloatingToolbarWindow::sync_tooltips() {
+  if (!tooltip_)
+    return;
+  TTTOOLINFOW tool{};
+  // V2 的大小在没有 comctl32 v6 清单的进程里也被接受；带 lpReserved 的完整大小会让旧版控件拒绝登记。
+  tool.cbSize = TTTOOLINFOW_V2_SIZE;
+  tool.hwnd = window_;
+  for (size_t id = 0; id < tooltip_tools_; ++id) {
+    tool.uId = id;
+    SendMessageW(tooltip_, TTM_DELTOOLW, 0, reinterpret_cast<LPARAM>(&tool));
+  }
+  tooltip_tools_ = 0;
+  const auto layout = metrics();
+  const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+  const auto count = slots().size();
+  for (size_t index = 0; index < count; ++index) {
+    const auto cell = toolbar_cell(index, layout);
+    tool = {};
+    tool.cbSize = TTTOOLINFOW_V2_SIZE;
+    tool.uFlags = TTF_SUBCLASS;
+    tool.hwnd = window_;
+    tool.uId = index;
+    tool.rect = {static_cast<LONG>(std::floor(cell.left * unit)),
+                 static_cast<LONG>(std::floor(cell.top * unit)),
+                 static_cast<LONG>(std::ceil(cell.right * unit)),
+                 static_cast<LONG>(std::ceil(cell.bottom * unit))};
+    tool.lpszText = LPSTR_TEXTCALLBACKW;
+    if (!SendMessageW(tooltip_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool)))
+      break;
+    tooltip_tools_ = index + 1;
+  }
+}
+std::wstring FloatingToolbarWindow::tooltip_text(size_t index) {
+  const auto active = slots();
+  if (index >= active.size())
+    return {};
+  return button_name(active[index], reader_());
+}
+std::wstring FloatingToolbarWindow::button_name(int button,
+                                                const std::optional<ModePresentation> &value) const {
+  std::optional<bool> state;
+  if (value && button <= kToolbarCharacterSet) {
+    switch (button) {
+    case kToolbarLanguage:
+      state = value->chinese;
+      break;
+    case kToolbarFullwidth:
+      state = value->fullwidth;
+      break;
+    case kToolbarPunctuation:
+      state = value->chinese_punctuation;
+      break;
+    default:
+      state = shown_character_set_;
+      break;
+    }
+  }
+  return toolbar_tooltip(button, state, language_, scheme_title_, panels_available_,
+                         MSIME_EDITION_DISPLAY_NAME);
+}
+void FloatingToolbarWindow::sync_accessibility(const std::optional<ModePresentation> &value) {
+  if (!accessible_)
+    return;
+  std::vector<ToolbarAccessibleButton> buttons;
+  for (const int button : slots())
+    buttons.push_back({button, utf8(button_name(button, value)), usable(button)});
+  accessible_->publish(toolbar_accessible_tree(
+      buttons, metrics(), toolbar_pixel_unit(GetDpiForWindow(window_), scale_), layout_.show_logo,
+      MSIME_EDITION_DISPLAY_NAME_UTF8));
+}
+void FloatingToolbarWindow::invoke_accessible(int id, LPARAM token) {
+  if (!accessible_ || !accessible_->current(token) || !IsWindowVisible(window_))
+    return;
+  // 与鼠标点击同样的条件：按钮画出来时的焦点租约还是当前的。
+  const auto value = reader_();
+  if (!value || !shown_ || !same(value->lease, shown_->lease))
+    return;
+  const auto active = slots();
+  const auto found = std::find_if(active.begin(), active.end(), [id](int button) {
+    return toolbar_accessible_id(button) == id;
+  });
+  if (found == active.end())
+    return;
+  if (activity_action_)
+    activity_action_();
+  run(static_cast<size_t>(found - active.begin()), *value, 0);
+}
+void FloatingToolbarWindow::run(size_t position, const ModePresentation &value, int x) {
+  const auto active = slots();
+  if (position >= active.size())
+    return;
+  const int slot = active[position];
+  if (!usable(slot)) {
+    // 没有可打开的界面，按下不算动作：和托盘一样什么都不做，不显示按下再丢掉命令。
+  }
+  else if (slot <= kToolbarPunctuation) {
+    if (auto command = toolbar_mode_command(
+            slot, value.chinese, value.fullwidth, value.chinese_punctuation))
+      click_(ModeClick{value.lease, *command});
+  }
+  else if (slot == 3 && character_set_action_)
+    character_set_action_();
+  else if (slot == 4 && emoji_action_)
+    emoji_action_();
+  else if (slot == 5 && keyboard_action_)
+    keyboard_action_();
+  else if (slot == 6 && settings_action_)
+    settings_action_();
+  else if (slot == kToolbarHandwriting && handwriting_action_)
+    handwriting_action_();
+  else if (slot == kToolbarVoice && voice_action_)
+    voice_action_();
+  else if (slot == kToolbarInputScheme && input_scheme_action_)
+    input_scheme_action_(menu_anchor(position, x));
+  else if (slot == 10 && hide_action_)
+    hide_action_();
+}
 
 FloatingToolbarWindow::FloatingToolbarWindow(Reader reader, Click click)
     : reader_(std::move(reader)), click_(std::move(click)) {
@@ -75,10 +244,23 @@ FloatingToolbarWindow::FloatingToolbarWindow(Reader reader, Click click)
                             kWidth, kHeight, nullptr, nullptr, type.hInstance,
                             this);
   if (!window_) throw std::runtime_error("Toolbar window unavailable");
+  // 与 macOS 工具栏每个按钮的 accessibilityLabel 对应：读屏通过 UI Automation 读到按钮的名字和状态，也能执行按钮。
+  accessible_ = std::make_unique<AccessibleWindow>(window_);
+  // 悬停提示，与 macOS 每个按钮的 toolTip 对应。建不出来不算工具栏失败，只是没有提示。
+  INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_BAR_CLASSES};
+  if (InitCommonControlsEx(&controls))
+    tooltip_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                               TOOLTIPS_CLASSW, nullptr,
+                               WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, CW_USEDEFAULT,
+                               CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, window_,
+                               nullptr, type.hInstance, nullptr);
 }
 FloatingToolbarWindow::~FloatingToolbarWindow() {
   hide();
+  // 先断开读屏拿着的提供者，再销毁窗口。
+  accessible_.reset();
   if (logo_) DestroyIcon(logo_);
+  if (tooltip_) DestroyWindow(tooltip_);
   if (window_) DestroyWindow(window_);
 }
 ID2D1Bitmap *FloatingToolbarWindow::logo_bitmap(int pixels) {
@@ -103,6 +285,10 @@ void FloatingToolbarWindow::hide() {
   pressed_.reset();
   shown_.reset();
   shown_character_set_.reset();
+  // 提示是工具栏拥有的弹出窗口，工具栏隐藏时它不会跟着消失，正开着的提示要收起来。
+  if (tooltip_) SendMessageW(tooltip_, TTM_POP, 0, 0);
+  // 隐藏的工具栏没有可读的东西。
+  if (accessible_) accessible_->publish({AccessibleContainer::ToolBar, toolbar_accessible_name, {}});
   if (window_) ShowWindow(window_, SW_HIDE);
 }
 void FloatingToolbarWindow::refresh(bool enabled) {
@@ -151,11 +337,11 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     info.cbSize = sizeof(info);
     if (!GetMonitorInfoW(monitor, &info)) throw std::runtime_error("Toolbar monitor unavailable");
     work = info.rcWork;
-    const auto metrics = toolbar_metrics(static_cast<double>(font_size_));
+    const auto layout = metrics();
     const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
     const int width = static_cast<int>(std::ceil(
-        toolbar_window_width(slots(items_, language_button_).size(), metrics) * unit));
-    const int height = static_cast<int>(std::ceil(toolbar_window_height(metrics) * unit));
+        toolbar_window_width(slots().size(), layout) * unit));
+    const int height = static_cast<int>(std::ceil(toolbar_window_height(layout) * unit));
     const int margin = dpi_scale(window_, 20);
     FloatingToolbarPlacementInput placement;
     placement.width = width;
@@ -182,6 +368,7 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     // Only after the move succeeded, so a failed first placement retries the
     // corner rather than preserving a position the window never took.
     placed_ = true;
+    sync_tooltips();
     InvalidateRect(window_, nullptr, FALSE);
   } catch (...) { fail(failure_at_stage("refresh", static_cast<uint32_t>(GetLastError()))); }
 }
@@ -237,8 +424,8 @@ void FloatingToolbarWindow::paint() {
       DWRITE_WORD_WRAPPING_NO_WRAP);
   if (!format)
     throw std::runtime_error("Toolbar text format unavailable");
-  const auto bar = toolbar_metrics(static_cast<double>(font_size_));
-  const auto card = toolbar_card(slots(items_, language_button_).size(), bar);
+  const auto bar = metrics();
+  const auto card = toolbar_card(slots().size(), bar);
   const D2D1_RECT_F card_rect{
       static_cast<float>(card.left) * unit, static_cast<float>(card.top) * unit,
       static_cast<float>(card.right) * unit,
@@ -270,25 +457,39 @@ void FloatingToolbarWindow::paint() {
         value->chinese_punctuation,
         shown_character_set_,
         std::nullopt, std::nullopt, std::nullopt,
-        std::nullopt, std::nullopt, std::nullopt, std::nullopt};
-    const auto active = slots(items_, language_button_);
-    const auto layout = toolbar_metrics(static_cast<double>(font_size_));
+        std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt};
+    const auto active = slots();
+    const auto layout = bar;
     // The product mark at the far left. Drawn before the drag strip and the
     // buttons, and skipped rather than substituted if the icon will not load -
     // a missing mark costs nothing, a placeholder box would look like a bug.
     const auto mark = toolbar_logo(layout);
-    // Loaded at the size it is drawn at, in real pixels rather than Direct2D's
-    // DIPs: msime.ico carries frames from 16 to 256, and asking for the right
-    // one is the difference between a crisp mark and a resampled one.
-    const double pixels = (mark.right - mark.left) *
-                          toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
-    if (auto *logo = logo_bitmap(static_cast<int>(std::lround(pixels))))
-      target->DrawBitmap(logo,
-                         D2D1_RECT_F{static_cast<float>(mark.left) * unit,
-                                     static_cast<float>(mark.top) * unit,
-                                     static_cast<float>(mark.right) * unit,
-                                     static_cast<float>(mark.bottom) * unit},
-                         1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    if (layout_.show_logo) {
+      // 按画出来的实际像素尺寸加载，而不是 Direct2D 的 DIP：msime.ico 带 16 到 256 的各档图像，取对那一档图标才清晰，取错就是重新采样过的模糊图标。
+      const double pixels = (mark.right - mark.left) *
+                            toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+      if (auto *logo = logo_bitmap(static_cast<int>(std::lround(pixels))))
+        target->DrawBitmap(logo,
+                           D2D1_RECT_F{static_cast<float>(mark.left) * unit,
+                                       static_cast<float>(mark.top) * unit,
+                                       static_cast<float>(mark.right) * unit,
+                                       static_cast<float>(mark.bottom) * unit},
+                           1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    } else {
+      // logo 关掉时画握把：两列三行小圆点，尺寸与 macOS 的握把相同（点径 2.4、间距 4.4，再乘用户缩放），颜色取分隔线色。
+      const float dot = 1.2f * unit;
+      const float pitch = 4.4f * unit;
+      const float centre_x = static_cast<float>(mark.left + mark.right) / 2.0f * unit;
+      const float centre_y = static_cast<float>(mark.top + mark.bottom) / 2.0f * unit;
+      auto *grip = brush(palette_.divider.value_or(palette_.border));
+      for (int column = 0; column < 2; ++column)
+        for (int row = 0; row < 3; ++row)
+          target->FillEllipse(
+              D2D1::Ellipse({centre_x + (static_cast<float>(column) - 0.5f) * pitch,
+                             centre_y + static_cast<float>(row - 1) * pitch},
+                            dot, dot),
+              grip);
+    }
     // The drag strip and the divider that separates it from the buttons. The
     // strip is the only part that drags, so it has to be visible; upstream
     // draws it in the accent colour. Both follow the bar height so they stay
@@ -315,7 +516,7 @@ void FloatingToolbarWindow::paint() {
                              static_cast<float>(box.right) * unit,
                              static_cast<float>(box.bottom) * unit};
       // Hover and press fills, so a button looks like one. Pressed is drawn like the card's selected row, the selected fill with the selected text colour on it, rather than a darker hover. A button the shell would have to answer is drawn disabled: no hover fill and the secondary text colour, exactly as the tray draws a row whose capability is missing.
-      const bool usable = shell_available_ || !needs_shell(button);
+      const bool usable = this->usable(button);
       const bool down = usable && hovered_ == i && pressed_ == i;
       const auto &glyph_color = !usable ? palette_.number
                                 : down  ? palette_.selected_text
@@ -375,6 +576,9 @@ void FloatingToolbarWindow::paint() {
   }
   if (FAILED(drawn))
     throw std::runtime_error("Toolbar drawing failed");
+  // 名字按刚画出来的状态取。这次没读到模式（输入队列正忙）或租约不是画面上那个时按钮没有重画，读屏的树也留着上一棵，免得名字在带状态和不带状态之间来回跳、作废读屏刚发出的执行请求。
+  if (value && shown_ && same(value->lease, shown_->lease))
+    sync_accessibility(value);
 }
 LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
                                                     WPARAM w, LPARAM l) noexcept {
@@ -420,9 +624,14 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       if (self->shown_) self->refresh(true);
       return 0;
     case WM_PAINT: self->paint(); return 0;
-    case WM_ENTERSIZEMOVE:
+    case WM_ENTERSIZEMOVE: {
       self->moving_ = true;
+      RECT rect{};
+      self->move_start_.reset();
+      if (GetWindowRect(window, &rect))
+        self->move_start_ = POINT{rect.left, rect.top};
       return 0;
+    }
     case WM_MOVE:
       // Only a move the user drove counts. refresh()'s own SetWindowPos raises
       // WM_MOVE too, and treating that as a drag would record the default
@@ -434,9 +643,10 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // The window rect, not lParam: WM_MOVE reports the client area's origin,
       // so persisting that shifted the toolbar up and left by the frame on
       // every restart.
+      // 移动循环里的每一帧都记下来，这样拖动途中有 refresh 也按拖到的位置摆，不会把工具栏拽回角上。
       {
         RECT rect{};
-        if (self->user_dragging_ && GetWindowRect(window, &rect))
+        if (GetWindowRect(window, &rect))
           self->dragged_position_ = POINT{rect.left, rect.top};
       }
       return 0;
@@ -445,6 +655,24 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // of the drag, and the listener rewrites the whole configuration file, so
       // persisting there rewrote it dozens of times per second on the UI thread.
       self->moving_ = false;
+      // 松手时按窗口实际的位置再判一次：系统设置成拖动时只画轮廓的话，窗口要到松手才移动；第一次拖动之前没有记过位置，也要在这里记下，否则生产 Server 永远写不出位置文件。只按了一下没动时保留原来的记录。
+      {
+        RECT rect{};
+        if (self->move_start_ && GetWindowRect(window, &rect)) {
+          std::optional<FloatingToolbarPlacement> stored;
+          if (self->dragged_position_)
+            stored = FloatingToolbarPlacement{self->dragged_position_->x, self->dragged_position_->y};
+          const auto ended = floating_toolbar_drag_end(
+              stored, FloatingToolbarPlacement{self->move_start_->x, self->move_start_->y},
+              FloatingToolbarPlacement{rect.left, rect.top});
+          if (ended)
+            self->dragged_position_ = POINT{ended->x, ended->y};
+        }
+        self->move_start_.reset();
+      }
+      // 拖动时系统的移动循环占着 UI 线程，空闲计时在此期间没有机会重置；按下时记的那次输入到松开时可能已经超过 10 秒，所以松开时再记一次，免得工具栏一放下就隐藏。与 macOS 拖动工具栏会重新计时一致。
+      if (self->activity_action_)
+        self->activity_action_();
       if (self->dragged_position_) {
         // The move loop lets the window be dropped past the work area, and the
         // system does not pull it back. Clamping only the remembered position
@@ -469,10 +697,12 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
     case WM_LBUTTONDOWN: {
       self->pressed_.reset();
       self->pressed_lease_.reset();
+      if (self->activity_action_)
+        self->activity_action_();
       // Only the strip left of the first button drags. Treating the whole
       // window as a caption meant a press on a button entered the system move
       // loop, and the click below only ran for whatever button-up survived it.
-      const auto drag = toolbar_metrics(static_cast<double>(self->font_size_));
+      const auto drag = self->metrics();
       if (toolbar_drag_at_pixel(GET_X_LPARAM(l), GET_Y_LPARAM(l),
                                 GetDpiForWindow(window), self->scale_, drag)) {
         ReleaseCapture();
@@ -482,7 +712,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // Pressing a button shows it pressed until the release is handled.
       self->pressed_ = toolbar_button_at_pixel(
           GET_X_LPARAM(l), GET_Y_LPARAM(l), GetDpiForWindow(window),
-          self->scale_, slots(self->items_, self->language_button_).size(), drag);
+          self->scale_, self->slots().size(), drag);
       const auto value = self->reader_();
       if (self->pressed_ && value && self->shown_ &&
           same(value->lease, self->shown_->lease)) {
@@ -506,7 +736,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
             GetClientRect(window, &bounds) &&
             toolbar_drag_at_pixel(
                 cursor.x, cursor.y, GetDpiForWindow(window), self->scale_,
-                toolbar_metrics(static_cast<double>(self->font_size_)))) {
+                self->metrics())) {
           SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
           return TRUE;
         }
@@ -516,8 +746,8 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // Hover feedback needs to know where the pointer is; without tracking,
       // the buttons gave no sign that they were buttons at all.
       const int x = GET_X_LPARAM(l);
-      const auto active = slots(self->items_, self->language_button_);
-      const auto layout = toolbar_metrics(static_cast<double>(self->font_size_));
+      const auto active = self->slots();
+      const auto layout = self->metrics();
       const auto hovered = toolbar_button_at_pixel(
           x, GET_Y_LPARAM(l), GetDpiForWindow(window), self->scale_, active.size(), layout);
       if (self->pressed_ && self->pressed_ != hovered) {
@@ -556,8 +786,8 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       }
       const auto value = self->reader_();
       const int x = GET_X_LPARAM(l);
-      const auto active = slots(self->items_, self->language_button_);
-      const auto layout = toolbar_metrics(static_cast<double>(self->font_size_));
+      const auto active = self->slots();
+      const auto layout = self->metrics();
       const auto position_at =
           toolbar_button_at_pixel(x, GET_Y_LPARAM(l), GetDpiForWindow(window),
                                   self->scale_, active.size(), layout);
@@ -567,31 +797,45 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
               same(value->lease, *self->pressed_lease_) &&
               same(value->lease, self->shown_->lease));
       self->pressed_lease_.reset();
-      if (valid_click) {
-        const size_t position = *position_at;
-        const int slot = active[position];
-        if (!self->shell_available_ && needs_shell(slot)) {
-          // Nothing to open, so the press is not an action. Reported the same
-          // way the tray reports it: by doing nothing visible, not by looking
-          // pressed and then dropping the command.
-        }
-        else if (slot <= kToolbarPunctuation) {
-          if (auto command = toolbar_mode_command(
-                  slot, value->chinese, value->fullwidth, value->chinese_punctuation))
-            self->click_(ModeClick{value->lease, *command});
-        }
-        else if (slot == 3 && self->character_set_action_)
-          self->character_set_action_();
-        else if (slot == 4 && self->emoji_action_)
-          self->emoji_action_();
-        else if (slot == 5 && self->keyboard_action_)
-          self->keyboard_action_();
-        else if (slot == 6 && self->settings_action_)
-          self->settings_action_();
-        else if (slot == 10 && self->hide_action_)
-          self->hide_action_();
-      }
+      if (valid_click)
+        self->run(*position_at, *value, x);
       return 0;
+    }
+    case WM_RBUTTONDOWN:
+      if (self->activity_action_)
+        self->activity_action_();
+      return 0;
+    case WM_RBUTTONUP: {
+      // 卡片上任何位置点右键都打开实用菜单。macOS 只挂在设置按钮上；这里不限按钮，设置按钮被关掉时菜单也够得着，隐藏工具栏这一项更不能因此丢掉。
+      const int x = GET_X_LPARAM(l);
+      if (self->context_menu_action_ &&
+          toolbar_card_at_pixel(x, GET_Y_LPARAM(l), GetDpiForWindow(window),
+                                self->scale_, self->slots().size(), self->metrics()))
+        self->context_menu_action_(self->menu_anchor(std::nullopt, x));
+      return 0;
+    }
+    case WM_GETOBJECT:
+      if (self->accessible_)
+        if (const auto answer = self->accessible_->answer(w, l))
+          return *answer;
+      break;
+    case accessible_invoke_message:
+      self->invoke_accessible(static_cast<int>(w), l);
+      return 0;
+    case WM_DESTROY:
+      if (self->accessible_)
+        self->accessible_->disconnect();
+      break;
+    case WM_NOTIFY: {
+      auto *header = reinterpret_cast<NMHDR *>(l);
+      if (header && self->tooltip_ && header->hwndFrom == self->tooltip_ &&
+          header->code == TTN_GETDISPINFOW) {
+        auto *info = reinterpret_cast<NMTTDISPINFOW *>(l);
+        self->tooltip_text_ = self->tooltip_text(static_cast<size_t>(header->idFrom));
+        info->lpszText = self->tooltip_text_.data();
+        return 0;
+      }
+      break;
     }
     // Let DefWindowProc handle the caption message sent by the drag strip.
     // Sending that same synchronous message again here recurses indefinitely.

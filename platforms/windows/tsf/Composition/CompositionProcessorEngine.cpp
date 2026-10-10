@@ -1483,11 +1483,12 @@ void CCompositionProcessorEngine::SetupPunctuationPair()
 void CCompositionProcessorEngine::InitializeMetasequoiaIMECompartment(_In_ ITfThreadMgr *pThreadMgr,
                                                                       TfClientId tfClientId)
 {
-    // Default CN/EN on IME activate / switch-in (input.default_ime_mode).
-    const BOOL openChinese = FanyUtils::ReadConfiguredDefaultImeModeChinese();
-    Global::InputModeScheme.store(
-        msime::windows::scheme::mode_scheme(msime::windows::scheme::input_mode(FanyUtils::ReadConfiguredRunningScheme())),
-        std::memory_order_relaxed);
+    // 激活或切回本输入法时的起始中英文（input.default_ime_mode）。本进程在应用例外里有规则时从规则里的模式开始；Server 在焦点从别的应用进来时也按同一条规则推送，这里先定好，第一份状态快照就已经是规则的模式，不会先闪一下默认模式。
+    const auto ruled = FanyUtils::ReadConfiguredAppInputModeChinese(Global::current_process_name);
+    const BOOL openChinese = ruled ? *ruled : FanyUtils::ReadConfiguredDefaultImeModeChinese();
+    const auto configuredMode = msime::windows::scheme::input_mode(FanyUtils::ReadConfiguredRunningScheme());
+    Global::InputModeScheme.store(msime::windows::scheme::mode_scheme(configuredMode), std::memory_order_relaxed);
+    Global::InputModeIndicator.store(msime::windows::scheme::input_mode_code(configuredMode), std::memory_order_relaxed);
     // Use the suppressing writer so the OPENCLOSE sink does not treat this as
     // a user choice and drop the defense we are about to arm.
     SetKeyboardOpenCompartment(pThreadMgr, tfClientId, openChinese);

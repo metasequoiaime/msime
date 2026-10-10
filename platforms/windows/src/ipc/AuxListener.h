@@ -45,6 +45,8 @@ public:
   using StatisticsSink = std::function<bool(const AuxTypingStatistics &)>;
   // Per-key press counts for the key heatmap, or a probe with no counts. Return true only while statistics are on and the counts, if any, have been handed to the store; the DLL buffers nothing until a probe is answered "OK" and stops again at the first unanswered batch.
   using KeysSink = std::function<bool(const AuxTypingKeys &)>;
+  // TIP 交给应用的一次按下（KeySound），发送方的进程号已经核对过。返回 true 表示按键音或打字特效开着，之后写回的 "OK" 让 TIP 继续发；没有 "OK" 时 TIP 停一阵。只能入队、不能等输入线程。
+  using KeySoundSink = std::function<bool(const AuxKeySound &)>;
   static std::unique_ptr<AuxListener> create(const std::wstring &name,
                                              Sink sink, DWORD &error,
                                              MessageSink message_sink = {},
@@ -52,7 +54,8 @@ public:
                                              TerminalSink terminal = {},
                                              MaintenanceSink maintenance = {},
                                              StatisticsSink statistics = {},
-                                             KeysSink keys = {});
+                                             KeysSink keys = {},
+                                             KeySoundSink key_sound = {});
   ~AuxListener();
   AuxListener(const AuxListener &) = delete;
   AuxListener &operator=(const AuxListener &) = delete;
@@ -75,6 +78,7 @@ private:
   MaintenanceSink maintenance_;
   StatisticsSink statistics_;
   KeysSink keys_;
+  KeySoundSink key_sound_;
   HANDLE cancel_ = nullptr;
   std::thread worker_;
   std::mutex stop_mutex_;

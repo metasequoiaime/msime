@@ -229,6 +229,15 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                         msime_client_core::preferences::TranslationTargetLanguage::En
                     )
                 });
+            // 整句候选的逐词拆解（随包的英文词释义表）：和 macOS currentGlossRequest 一样，候选翻译或离线英文释义打开、目标语言里有英文就请求，不要求离线英文释义开着。
+            let gloss_breakdown = (preferences.candidate_translations
+                || preferences.candidate_english_gloss)
+                && target_languages.iter().any(|language| {
+                    matches!(
+                        language,
+                        msime_client_core::preferences::TranslationTargetLanguage::En
+                    )
+                });
             let persist_english_translation = preferences.candidate_translations
                 && matches!(
                     preferences.translation_target_language,
@@ -339,10 +348,12 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 "tencent_tmt": services.tencent_tmt,
                 "niutrans": services.niutrans,
                 "english_gloss": english_gloss,
-                // The packaged resource path is only needed for offline
-                // lookup. The user path is also needed by a background host
-                // worker to persist successful English-target translations.
-                "resources": (english_gloss || !offline_gloss_languages.is_empty())
+                // 资源目录在要查离线释义（英文或其他语言）时带上，打开读音或要拆解整句候选时也带上：读音表 pronunciations/en-phonetic.db 和拆解用的词释义表都装在资源目录旁边，在线翻译出来的英文释义也要靠读音表标音标。
+                // 用户目录在要查英文释义时带上，要把成功的英文翻译存下来时也带上：宿主的后台工作线程把它们写进用户目录。
+                "resources": (english_gloss
+                    || gloss_breakdown
+                    || !offline_gloss_languages.is_empty()
+                    || preferences.candidate_pronunciation)
                     .then(|| session.options.resources.clone()),
                 "user_data": (english_gloss || persist_english_translation)
                     .then(|| session.options.user_data.clone()),
@@ -354,6 +365,10 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             // Likewise present only when on: the host then pronounces the gloss lines it draws, English through msime_client_pronunciation_request.
             if preferences.candidate_pronunciation {
                 query["candidate_pronunciation"] = json!(true);
+            }
+            // 同样只在要拆解时出现：宿主据此对整句候选调 msime_client_gloss_breakdown_request，拆解表装在 resources 旁边。
+            if gloss_breakdown {
+                query["gloss_breakdown"] = json!(true);
             }
             // Only when a dictionary comes from the downloaded pack: the host passes it back to msime_client_candidate_gloss_request, which looks there after the resources.
             if from_pack {

@@ -84,7 +84,7 @@ test("macOS system recognition is configurable without cloud ASR fields", async 
   });
 });
 
-test("a stored system provider is preserved on macOS and marked unavailable elsewhere", async () => {
+test("a stored system provider is preserved on macOS and Windows and marked unavailable elsewhere", async () => {
   for (const platform of ["macos", "windows", "linux"]) {
     mount({
       host: testHost({ platform }),
@@ -99,7 +99,7 @@ test("a stored system provider is preserved on macOS and marked unavailable else
     const select = await openVoice();
     expect(select.value).toBe("system");
     expect(Array.from(select.options).find((option) => option.value === "system")?.disabled).toBe(
-      platform !== "macos",
+      platform === "linux",
     );
     cleanup();
   }

@@ -1,5 +1,6 @@
 #include "FocusedSession.h"
 #include "../../../common/HostApiString.h"
+#include "FloatingToolbarVisibilityPolicy.h"
 #include "InputSchemeTraits.h"
 #include "KeySoundPolicy.h"
 #include "TypingEffectPolicy.h"
@@ -87,9 +88,9 @@ void FocusedSession::record_commit(const std::optional<Commit> &delivered) {
     (void)session_.commit_sound();
   // The commit flash, on the session's current combo: a commit counts nothing and only reports the state.
   if (session_.input_enabled()) {
-    TypingEffectSignal::instance().publish_settings(pack_typing_effect_settings(session_.typing_effect_settings()));
+    publish_typing_effect_settings();
     TypingEffectSignal::instance().publish(
-        session_.typing_effect(typing_effect_commit(allowed)));
+        typing_effect_mark_commit(session_.typing_effect(typing_effect_commit(allowed))));
   }
   if (!delivered->typing)
     return;
@@ -134,6 +135,25 @@ FocusedSession::dedicated_english(const FocusLease &lease, bool exit) {
   gate_.with_active(lease, [&] {
     result = session_.dedicated_english(lease.epoch, exit);
     if (exit) composer_->cancel();
+  });
+  return result;
+}
+std::optional<nlohmann::json>
+FocusedSession::set_dedicated_english(const FocusLease &lease, bool enabled) {
+  check_thread();
+  if (!prepared(lease) || composer_->has_pending())
+    return std::nullopt;
+  std::optional<nlohmann::json> result;
+  gate_.with_active(lease, [&] {
+    const auto current = session_.view();
+    // 托盘点击不经过 TIP：组字时切换会让 Engine 丢掉组字，而 TIP 手里的组字还留在编辑器里，两边从此对不上。所以只在没有组字、没有候选时切换，组字中的点击什么也不做。
+    if (!current.at("editing_text").get<std::string>().empty() ||
+        !current.at("candidates").empty())
+      return;
+    const bool changed = current.at("dedicated_english").get<bool>() != enabled;
+    result = session_.set_dedicated_english(lease.epoch, enabled);
+    // 切换后回复合成器记下的前缀和译文页属于旧模式，一并作废。
+    if (changed) composer_->cancel();
   });
   return result;
 }
@@ -557,24 +577,47 @@ std::optional<PendingReply> FocusedSession::configured_key(
     return std::nullopt;
   std::optional<PendingReply> result;
   gate_.with_active(lease, [&] {
+    // 不论输入法收不收这个键（英文模式也算），都是用户在打字：空闲隐藏的工具栏据此回来。
+    ServerKeyActivity::instance().note();
     result = composer_->configured_key(session_, packet, lease.epoch, style,
                                        bindings, std::move(local_text),
                                        word_binding);
     // After the Engine, so only a key the input method took sounds (with input off, in English mode, the Server answers keys without taking them), and before the online queries are built, so they add no delay to it.
     if (result && session_.input_enabled()) {
-      if (const auto key_class = key_sound_class(packet)) {
-        const bool allowed = sound_allowed();
-        if (allowed)
-          (void)session_.key_sound(*key_class);
-        // The same keys drive the typing effect and its combo, which keep counting in a full-screen application but stay silent there. The candidate window draws it on the UI thread; this only posts the packed value.
-        const bool auto_repeat = (packet.modifiers_down & PipeMetadata::AutoRepeat) != 0;
-        TypingEffectSignal::instance().publish_settings(pack_typing_effect_settings(session_.typing_effect_settings()));
-        TypingEffectSignal::instance().publish(
-            session_.typing_effect(typing_effect_key_event(*key_class, allowed, auto_repeat)));
-      }
+      if (const auto key_class = key_sound_class(packet))
+        sound_key(*key_class, (packet.modifiers_down & PipeMetadata::AutoRepeat) != 0);
     }
     attach_online_query(lease, result);
   });
   return result;
+}
+void FocusedSession::sound_key(uint32_t key_class, bool auto_repeat) {
+  const bool allowed = sound_allowed();
+  if (allowed)
+    (void)session_.key_sound(key_class);
+  // The same keys drive the typing effect and its combo, which keep counting in a full-screen application but stay silent there. The candidate window draws it on the UI thread; this only posts the packed value.
+  publish_typing_effect_settings();
+  TypingEffectSignal::instance().publish(
+      session_.typing_effect(typing_effect_key_event(key_class, allowed, auto_repeat)));
+}
+void FocusedSession::publish_typing_effect_settings() {
+  TypingEffectSignal::instance().publish_settings(pack_typing_effect_settings(session_.typing_effect_settings()));
+  TypingEffectSignal::instance().publish_palette(session_.typing_effect_palette());
+}
+bool FocusedSession::passthrough_key(uint64_t token, uint32_t key_class) {
+  check_thread();
+  // 只认此刻持有焦点的那次激活：令牌对不上的是已经离开的会话，或者别的线程。
+  if (!token || !lease_ || lease_->token != token || !prepared(*lease_))
+    return false;
+  bool sounded = false;
+  gate_.with_active(*lease_, [&] {
+    ServerKeyActivity::instance().note();
+    // 英文模式不出声，和 Server 处理的键一样。交给应用的键没有自动重复：TIP 已经把它们滤掉了。
+    if (!session_.input_enabled())
+      return;
+    sound_key(key_class, false);
+    sounded = true;
+  });
+  return sounded;
 }
 } // namespace msime::windows

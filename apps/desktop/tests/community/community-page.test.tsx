@@ -55,13 +55,18 @@ test("routes a skins-only client to the skin page", () => {
   expect(screen.queryByTestId("resources-page")).toBeNull();
 });
 
-test("routes a resources-only client to the requested resource kind", () => {
+test("routes a resources-only client to the combined page without a skin gallery", () => {
+  // Windows：只有词包与回复模板，首页只剩「词库」「回复模板」两个分类，仍能切换。
   render(<CommunityPage {...common} resources={{} as never} />);
 
-  expect(screen.getByTestId("resources-page")).toBeTruthy();
-  expect(screen.queryByTestId("home-page")).toBeNull();
+  expect(screen.getByTestId("home-page")).toBeTruthy();
+  expect(screen.queryByTestId("resources-page")).toBeNull();
   expect(screen.queryByTestId("skins-page")).toBeNull();
-  expect(screen.getByTestId("resources-page").textContent).toContain('"kind":"reply"');
+  const props = JSON.parse(screen.getByTestId("home-page").textContent ?? "{}");
+  expect(props.skins).toBeUndefined();
+  expect(props.initialCategory).toBe("reply");
+  expect(props.initialScope).toBe("saved");
+  expect(props.localDictionary).toBeDefined();
 });
 
 test("routes a candidate-skins-only client to the candidate skin page", () => {
@@ -94,6 +99,6 @@ test("a candidate client leaves the mobile skin and resource routes unchanged", 
   skinsOnly.unmount();
 
   render(<CommunityPage {...common} resources={{} as never} candidateSkins={{} as never} />);
-  expect(screen.getByTestId("resources-page")).toBeTruthy();
+  expect(screen.getByTestId("home-page")).toBeTruthy();
   expect(screen.queryByTestId("candidate-skins-page")).toBeNull();
 });

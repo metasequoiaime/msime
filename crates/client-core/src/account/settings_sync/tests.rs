@@ -861,3 +861,63 @@ fn settings_sync_custom_keyboard_skin_library_is_bounded_and_an_array() {
         None
     );
 }
+
+#[test]
+fn settings_sync_desktop_export_is_only_the_shared_input_keys() {
+    let preferences = Preferences {
+        scheme: InputScheme::Wubi,
+        traditional_chinese_output: true,
+        ..Preferences::default()
+    };
+    let exported = export_desktop_settings(&preferences);
+    assert!(exported.keys().all(|key| key.starts_with("input.")));
+    let android = export_android_settings(&preferences, None).unwrap();
+    let shared: BTreeMap<_, _> = android
+        .into_iter()
+        .filter(|(key, _)| key.starts_with("input."))
+        .collect();
+    assert_eq!(exported, shared);
+    assert_eq!(
+        exported.get("input.character_set"),
+        Some(&AccountPreferenceValue::String("traditional".into()))
+    );
+    assert_eq!(
+        exported.get("input.wubi_schema"),
+        Some(&AccountPreferenceValue::String("wubi86".into()))
+    );
+}
+
+#[test]
+fn settings_sync_desktop_apply_changes_only_the_shared_input_settings() {
+    let local = Preferences::default();
+    let mut settings = export_desktop_settings(&Preferences {
+        scheme: InputScheme::Shuangpin,
+        learning: !local.learning,
+        ..Preferences::default()
+    });
+    // 别的平台的设置和本机不认识的方案都不应改动桌面偏好。
+    settings.insert(
+        "platform.android.theme".into(),
+        AccountPreferenceValue::String("dark".into()),
+    );
+    let mut schema = full_schema();
+    schema.fields.insert(
+        "input.schema".into(),
+        AccountPreferenceField {
+            value_type: "string".into(),
+        },
+    );
+    let applied = apply_desktop_settings(&local, &document(settings.clone()), &schema).unwrap();
+    assert_eq!(applied.preferences.scheme, InputScheme::Shuangpin);
+    assert_eq!(applied.preferences.learning, !local.learning);
+    assert_eq!(applied.preferences.theme, local.theme);
+    assert!(applied.skipped.is_empty());
+
+    settings.insert(
+        "input.schema".into(),
+        AccountPreferenceValue::String("future-scheme".into()),
+    );
+    let applied = apply_desktop_settings(&local, &document(settings), &schema).unwrap();
+    assert_eq!(applied.preferences.scheme, local.scheme);
+    assert_eq!(applied.skipped, ["input.schema"]);
+}

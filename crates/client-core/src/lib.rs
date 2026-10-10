@@ -39,6 +39,7 @@ pub mod preferences;
 pub mod punctuation;
 pub mod resource_packs;
 pub mod resources;
+pub mod settings_document;
 pub mod skin;
 mod storage;
 pub mod telemetry;

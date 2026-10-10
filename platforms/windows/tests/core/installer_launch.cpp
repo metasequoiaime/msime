@@ -152,8 +152,10 @@ int main(int argc, char **argv) {
     const auto post_uninstall =
         between(script, "else if CurUninstallStep = usPostUninstall",
                 "DeleteDataDir(ResolvePreviousDataDir, '');");
-    contains(post_uninstall, "if OwnsDataDir(ResolvePreviousDataDir) then",
-             "Uninstall removes a data directory it did not record");
+    // 卸载默认保留数据目录：删除既要用户选了删除（RemoveUserDataOnUninstall），也要目录归本安装器所有。
+    contains(post_uninstall,
+             "if RemoveUserDataOnUninstall and OwnsDataDir(ResolvePreviousDataDir) then",
+             "Uninstall removes a data directory it did not record or the user chose to keep");
     if (post_uninstall.find("GetDataDir(") != std::string::npos)
       throw std::runtime_error(
           "Uninstall re-reads DataDir after the registry value is removed");

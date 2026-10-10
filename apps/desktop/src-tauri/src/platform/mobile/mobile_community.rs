@@ -6,11 +6,7 @@ use msime_client_core::account::{AccountError, BackendAccountClient, BackendAcco
 use msime_client_core::community::report::{
     BackendCommunityReportService, CommunityReport, CommunityReportKind, CommunityReportReason,
 };
-use msime_client_core::community::resource::{
-    BackendCommunityResourceService, CommunityResource, CommunityResourceApplication,
-    CommunityResourceContent, CommunityResourceKind, CommunityResourcePage,
-    CommunityResourcePublication, CommunityResourceScope,
-};
+use msime_client_core::community::resource::CommunityResource;
 use msime_client_core::community::resource_library::{
     CommunityResourceLibraryError, CommunityResourceLibraryStore,
 };
@@ -35,31 +31,24 @@ use super::MobileStorage;
 
 type Session = BackendAccountSession<BackendAccountClient, MobileStorage>;
 type CommunityService = BackendCommunitySkinService<BackendAccountClient, MobileStorage>;
-type CommunityResourceService =
-    BackendCommunityResourceService<BackendAccountClient, MobileStorage>;
 type AiSkinService = BackendAiSkinService<BackendAccountClient, MobileStorage>;
 type CommunityReportService = BackendCommunityReportService<BackendAccountClient, MobileStorage>;
 
 pub(crate) struct MobileCommunityState {
     community: Arc<CommunityService>,
-    resources: Arc<CommunityResourceService>,
     ai_skin: Arc<AiSkinService>,
     reports: Arc<CommunityReportService>,
     ai_skin_requests: AiSkinRequests,
 }
 
 impl MobileCommunityState {
-    /// Builds the four services over the account session. `client` is the one the session was built with; the resource, AI skin and report services each get a client of their own.
+    /// 在账号会话上建社区皮肤、AI 皮肤和举报三个服务。`client` 是建会话用的那个，AI 皮肤和举报服务各用自己的客户端。社区词包与回复模板的服务在 [`crate::platform::community_resources`]，由各平台另行登记。
     pub(crate) fn new(
         client: BackendAccountClient,
         session: &Arc<Session>,
     ) -> Result<Self, AccountError> {
         let community = Arc::new(BackendCommunitySkinService::new(
             client,
-            Arc::clone(session),
-        ));
-        let resources = Arc::new(BackendCommunityResourceService::new(
-            BackendAccountClient::new()?,
             Arc::clone(session),
         ));
         let ai_skin = Arc::new(BackendAiSkinService::new(
@@ -72,7 +61,6 @@ impl MobileCommunityState {
         ));
         Ok(Self {
             community,
-            resources,
             ai_skin,
             reports,
             ai_skin_requests: AiSkinRequests::default(),
@@ -375,112 +363,6 @@ pub async fn community_skin_finish_trial(
     let id = community_id(&id)?;
     let trials = trials.inner().clone();
     storage_call(move || trials.finish(id, keep).map(|_| ()), trial_error).await
-}
-
-fn resource_scope(value: &str) -> Result<CommunityResourceScope, crate::CommandError> {
-    match value {
-        "" => Ok(CommunityResourceScope::All),
-        "mine" => Ok(CommunityResourceScope::Mine),
-        "saved" => Ok(CommunityResourceScope::Saved),
-        _ => Err(crate::CommandError {
-            code: "community_invalid",
-        }),
-    }
-}
-
-#[tauri::command]
-pub async fn community_resource_list(
-    state: State<'_, MobileCommunityState>,
-    kind: CommunityResourceKind,
-    scope: String,
-    search: String,
-    offset: usize,
-) -> Result<CommunityResourcePage, crate::CommandError> {
-    let scope = resource_scope(&scope)?;
-    service_call(Arc::clone(&state.resources), move |service| {
-        service.list(kind, scope, &search, offset)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn community_resource_detail(
-    state: State<'_, MobileCommunityState>,
-    id: String,
-) -> Result<CommunityResource, crate::CommandError> {
-    let id = community_id(&id)?;
-    service_call(Arc::clone(&state.resources), move |service| {
-        service.detail(id)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn community_resource_publish(
-    state: State<'_, MobileCommunityState>,
-    id: String,
-    kind: CommunityResourceKind,
-    name: String,
-    description: String,
-    content: CommunityResourceContent,
-    revision: u32,
-) -> Result<CommunityResourcePublication, crate::CommandError> {
-    let id = community_id(&id)?;
-    service_call(Arc::clone(&state.resources), move |service| {
-        service.publish(id, kind, &name, &description, &content, revision)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn community_resource_apply(
-    state: State<'_, MobileCommunityState>,
-    id: String,
-    resource_revision: u32,
-) -> Result<CommunityResourceApplication, crate::CommandError> {
-    let id = community_id(&id)?;
-    service_call(Arc::clone(&state.resources), move |service| {
-        service.apply(id, resource_revision)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn community_resource_save(
-    state: State<'_, MobileCommunityState>,
-    id: String,
-    saved: bool,
-) -> Result<(), crate::CommandError> {
-    let id = community_id(&id)?;
-    service_call(Arc::clone(&state.resources), move |service| {
-        service.save(id, saved)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn community_resource_rate(
-    state: State<'_, MobileCommunityState>,
-    id: String,
-    stars: u8,
-) -> Result<(), crate::CommandError> {
-    let id = community_id(&id)?;
-    service_call(Arc::clone(&state.resources), move |service| {
-        service.rate(id, stars)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn community_resource_unpublish(
-    state: State<'_, MobileCommunityState>,
-    id: String,
-) -> Result<(), crate::CommandError> {
-    let id = community_id(&id)?;
-    service_call(Arc::clone(&state.resources), move |service| {
-        service.delete(id)
-    })
-    .await
 }
 
 #[tauri::command]

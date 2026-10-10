@@ -382,6 +382,28 @@ if (-not $editionOfflineGlosses) {
         Write-Host "No offline glosses with their notice in $glossesSource; candidate glosses stay English only"
     }
 }
+# 候选释义的英文读音表（scripts/build_pronunciations.py）、单字英文释义（scripts/build_character_glosses.py）和 english.db 没收的词的英文释义（scripts/build_word_glosses.py），和 macOS 的 stage-resources.sh 一样装在 resources 旁边：host-api 的 msime_client_pronunciation_request、msime_client_candidate_gloss_request 和 msime_client_gloss_breakdown_request 到那里找。都是可选的，只随各自的授权声明一起装；没有时英文释义不标音标、单字和长尾词没有英文释义、整句候选没有逐词拆解。单字和词的释义按中文候选查，只给提供中文方案的版本。
+foreach ($table in @(
+        @{ Name = 'pronunciations'; Database = 'en-phonetic.db'; Notice = 'pronunciations-NOTICE.txt'; Chinese = $false },
+        @{ Name = 'character-glosses'; Database = 'zh-en.db'; Notice = 'character-glosses-NOTICE.txt'; Chinese = $true },
+        @{ Name = 'word-glosses'; Database = 'zh-en.db'; Notice = 'word-glosses-NOTICE.txt'; Chinese = $true })) {
+    $tableSource = Join-Path $RepoRoot (Join-Path 'target' $table.Name)
+    $tableTarget = Join-Path $targetServer $table.Name
+    if (Test-Path -LiteralPath $tableTarget) {
+        Remove-Item -LiteralPath $tableTarget -Recurse -Force
+    }
+    if ($Light -or ($table.Chinese -and -not $editionOfflineGlosses)) { continue }
+    $tableDatabase = Join-Path $tableSource $table.Database
+    $tableNotice = Join-Path $tableSource $table.Notice
+    if ((Test-Path -LiteralPath $tableDatabase -PathType Leaf) -and (Test-Path -LiteralPath $tableNotice -PathType Leaf)) {
+        New-Item -ItemType Directory -Path $tableTarget -Force | Out-Null
+        Copy-Item -LiteralPath $tableDatabase -Destination $tableTarget -Force
+        Copy-Item -LiteralPath $tableNotice -Destination $tableTarget -Force
+        Write-Host "$($table.Name) staged in $tableTarget"
+    } else {
+        Write-Host "No $($table.Database) with $($table.Notice) in $tableSource; $($table.Name) not packaged"
+    }
+}
 # 粤拼、注音和笔画词库（scripts/fetch_language_dictionaries.py 下载到 target/language-dictionaries，版本由 resources/language-dictionaries.lock.json 固定），和译文一样装在 resources 旁边：host-api 在那里找到 language-dictionaries 并写进运行时配置。可选；缺少词库时对应方案显示为不可用并退回上次的中文方案，越南文和藏文不需要数据。每个词库只随它的授权文本一起分发，授权文本必须跟着数据走。设置 MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 时，没有带上 resources/language-dictionaries.lock.json 固定的每一个词库的包会失败。
 $languagesSource = Join-Path $RepoRoot 'target/language-dictionaries'
 $languagesTarget = Join-Path $targetServer 'language-dictionaries'

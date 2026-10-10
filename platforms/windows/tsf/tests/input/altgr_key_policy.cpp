@@ -42,6 +42,16 @@ int main() {
     check(CharacterModifiers(0u, L'a', 0x41u) == 0u, "a plain key has no modifiers");
     check(CharacterModifiers(1u, L'A', 0x41u) == 1u, "Shift alone stays");
 
+    // 已经交给应用的键：AltGr 打出的字符都是打字，选候选的数字键也一样，因为它们不会再选候选。
+    check(IsAltGrCharacter(0b110u, L'@'), "German AltGr+Q types @");
+    check(IsAltGrCharacter(0b111u, L'|'), "Shift does not change an AltGr character");
+    check(IsAltGrCharacter(0b110u, L'#'), "AZERTY AltGr+3 is typing once the key went to the application");
+    check(!IsAltGrCharacter(0b110u, L'\0'), "Ctrl+Alt with no character is a shortcut");
+    check(!IsAltGrCharacter(0b110u, L' '), "Ctrl+Alt+Space is the input hotkey");
+    check(!IsAltGrCharacter(0b110u, wchar_t(0x7F)), "DEL is not a character");
+    check(!IsAltGrCharacter(0b010u, L'a'), "Ctrl alone is not AltGr");
+    check(!IsAltGrCharacter(0b100u, L'a'), "Alt alone is not AltGr");
+
     if (failures != 0)
         return 1;
     std::puts("altgr key policy: ok");

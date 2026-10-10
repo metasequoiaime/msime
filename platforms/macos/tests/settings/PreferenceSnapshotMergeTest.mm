@@ -23,6 +23,14 @@ int main() {
         assert([retry[@"candidate_page_size"] isEqual:@7]);
         assert([retry[@"quanpin_helpcode"][@"schema"] isEqual:@"synthetic-new"]);
         assert([base[@"candidate_page_size"] isEqual:@9]);
+        // 应用例外整张替换：本机移除的规则不能被文档里的旧表合并回来，清空时写空表。
+        NSDictionary *rules = MSIMEMergePreferenceSnapshot(
+            @{@"app_input_mode_rules": @{@"org.example.a": @"english", @"org.example.b": @"chinese"}},
+            @{@"app_input_mode_rules": @{@"org.example.b": @"english"}});
+        assert([rules[@"app_input_mode_rules"] isEqual:(@{@"org.example.b": @"english"})]);
+        NSDictionary *cleared = MSIMEMergePreferenceSnapshot(
+            @{@"app_input_mode_rules": @{@"org.example.a": @"english"}}, @{@"app_input_mode_rules": @{}});
+        assert([cleared[@"app_input_mode_rules"] isEqual:@{}]);
         assert(!MSIMEMergePreferenceSnapshot(nil, captured));
         assert(!MSIMEMergePreferenceSnapshot(@{@"quanpin_helpcode": @"invalid"}, captured));
     }

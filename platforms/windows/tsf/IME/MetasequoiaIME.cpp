@@ -2062,6 +2062,9 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
             Global::InputModeScheme.store(
                 msime::windows::scheme::mode_scheme(msime::windows::scheme::input_mode_from_code(buf.data[0])),
                 std::memory_order_relaxed);
+            Global::InputModeIndicator.store(msime::windows::scheme::input_mode_code(
+                                                 msime::windows::scheme::input_mode_from_code(buf.data[0])),
+                                             std::memory_order_relaxed);
             const HWND ownerWindow = pIME->_msgWndHandle;
             if (ownerWindow && IsWindow(ownerWindow))
             {

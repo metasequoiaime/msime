@@ -4793,6 +4793,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [self syncSystemInputModeForClient:_activeClient];
         [self renderCandidates];
         [self synchronizeCandidateServices];
+        // 升级前存在本机的应用例外还没进文档：保存一次把它们发布出去，不等用户碰巧改一项别的外观设置。保存后的重新载入看到文档已经包含它们，这个标记就落下，不会反复保存。
+        if (_appearance.applicationInputModeRulesAwaitPublication) [self persistAppearancePreferences];
     } else {
         msime_macos_diagnostic_write("preferences_apply_failed");
     }

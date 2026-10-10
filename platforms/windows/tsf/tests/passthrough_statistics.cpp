@@ -31,6 +31,9 @@ int main()
     Require(!ShouldCountPassthroughChar(0x7F, false, false, false, false), "DEL is not a character");
     Require(!ShouldCountPassthroughChar(L'\0', false, false, false, false), "a key without a character does not count");
     Require(!ShouldCountPassthroughChar(static_cast<wchar_t>(0xD83D), false, false, false, false), "a lone surrogate does not count");
+    Require(IsPanelTextSendInput(0x4D535053u), "text the settings app's panels inject is counted there, not here");
+    Require(!IsPanelTextSendInput(0), "ordinary keys carry no panel marker");
+    Require(!IsPanelTextSendInput(0x4D535050u), "smart punctuation's own marker is not panel text");
 
     if (failures == 0)
     {

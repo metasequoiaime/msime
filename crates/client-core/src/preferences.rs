@@ -626,6 +626,33 @@ pub enum ImeModeScope {
     Global,
 }
 
+/// 「应用例外」里一个应用固定的起始模式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppInputModeRule {
+    Chinese,
+    English,
+}
+
+/// 「应用例外」的条目上限与应用标识的字节上限。规则表进 Windows Server 的偏好快照和 iOS 桥接的偏好文档（都是整份 16KiB 上限），32 条、每条 64 字节以内最多约 2.6KB；bundle id 和程序文件名很少超过 64 字节。
+pub const MAX_APP_INPUT_MODE_RULES: usize = 32;
+pub const MAX_APP_INPUT_MODE_RULE_ID_BYTES: usize = 64;
+
+/// 应用标识：macOS 是 bundle id，Windows 是进程的可执行文件基名（如 `code.exe`，设置页写入前转成小写）。非空、不超过 `MAX_APP_INPUT_MODE_RULE_ID_BYTES` 字节，不含控制字符和路径分隔符，两侧没有空白；整张表按 ASCII 不分大小写地不重复，因为 Windows 按这个规则比较进程名，只差大小写的两条会让同一个进程拿到两种模式。
+fn valid_app_input_mode_rules(rules: &BTreeMap<String, AppInputModeRule>) -> bool {
+    let mut seen = BTreeSet::new();
+    rules.len() <= MAX_APP_INPUT_MODE_RULES
+        && rules.keys().all(|id| {
+            !id.is_empty()
+                && id.len() <= MAX_APP_INPUT_MODE_RULE_ID_BYTES
+                && id.trim() == id.as_str()
+                && !id
+                    .chars()
+                    .any(|character| character.is_control() || matches!(character, '\\' | '/'))
+                && seen.insert(id.to_ascii_lowercase())
+        })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChineseScheme {
@@ -759,6 +786,9 @@ pub struct Preferences {
     pub default_ime_mode: DefaultImeMode,
     #[serde(default)]
     pub ime_mode_scope: ImeModeScope,
+    /// 应用例外：切到这些应用时从固定的中文或英文开始，优先于按应用记忆、全局状态和 `default_ime_mode`，在全局作用域下同样生效；用户在应用里手动切换后，本次停留期间让位，离开再回来重新生效。macOS 按 bundle id、Windows 按进程基名查找。没有规则时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub app_input_mode_rules: BTreeMap<String, AppInputModeRule>,
     #[serde(default)]
     pub voice_input: VoiceInputPreferences,
     #[serde(default)]
@@ -815,9 +845,7 @@ pub struct Preferences {
     pub diagnostic_log: DiagnosticLogPreferences,
     #[serde(default = "enabled_by_default")]
     pub candidate_follow_cursor: bool,
-    /// macOS displays a short, non-activating badge after switching between
-    /// Chinese and English input. Other hosts preserve this preference but do
-    /// not render the native badge.
+    /// 切换中英文后在光标旁短暂显示一个不抢焦点的「中」/「英」徽标。macOS 和 Windows 自己画，HarmonyOS 和 Linux 交给各自的面板（见 `HostCapabilities::input_mode_hud`），其他宿主保留这个偏好但不画。
     #[serde(default = "enabled_by_default")]
     pub input_mode_hud: bool,
     /// 候选窗和悬浮工具栏左端的水杉 logo。新装默认隐藏（见 `Default`）；已存文档缺这个字段时读成显示，升级沿用原来的样子。
@@ -879,6 +907,11 @@ pub struct Preferences {
     pub shuangpin_custom_profile: ShuangpinCustomProfile,
     #[serde(default = "enabled_by_default")]
     pub shuangpin_preedit_uses_raw: bool,
+    /// 「输入时显示双拼键位提示」：双拼组字时在候选窗旁显示当前方案的键位图，高亮刚按下的键，上屏后隐藏。macOS 和 Windows 画它。
+    ///
+    /// 没写过时为 `None`，不写进文档：这个开关以前只存在 macOS 本机的 defaults 里（`MSIMEClientShuangpinKeymap`），macOS 在文档从没带过这一项时仍读那里的旧选择，再由下一次保存写进文档；文档带着这一项载入过一次之后 macOS 删掉那个旧键，此后缺这一项在所有宿主上都是关。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shuangpin_keymap_hint: Option<bool>,
     /// The Vietnamese input method and tone placement.
     #[serde(default)]
     pub vietnamese: VietnamesePreferences,
@@ -1330,7 +1363,7 @@ pub struct FloatingToolbarPreferences {
     pub enabled: bool,
     #[serde(default = "enabled_by_default")]
     pub english_mode: bool,
-    /// 切换输入方案的按钮：点开列出全拼、双拼、五笔、粤拼、注音等方案。默认开启——在 macOS 27 上粤、注这类菜单栏入口只能由用户自己去系统设置里添加，这个按钮让不加入口也能切换。目前只有 macOS 的工具栏画它（见 `HostCapabilities::floating_toolbar_input_scheme`）。
+    /// 切换输入方案的按钮：点开列出全拼、双拼、五笔、粤拼、注音等方案。默认开启——在 macOS 27 上粤、注这类菜单栏入口只能由用户自己去系统设置里添加，这个按钮让不加入口也能切换。macOS 和 Windows 的工具栏画它（见 `HostCapabilities::floating_toolbar_input_scheme`）。
     #[serde(default = "enabled_by_default")]
     pub input_scheme: bool,
     #[serde(default = "default_toolbar_scale")]
@@ -1826,9 +1859,7 @@ pub struct KeybindingPreferences {
     pub switch_language_ctrl_alt_space: bool,
     #[serde(default = "enabled_by_default")]
     pub toggle_character_set_ctrl_shift_f: bool,
-    /// The macOS Option+Shift+H chord. The host has reserved it unconditionally since it shipped,
-    /// so this defaults on: the preference gives the chord back to the application, it does not
-    /// turn on something that was off. Other hosts have no such chord and ignore it.
+    /// macOS 的 Option+Shift+H、Windows 和 Android 的 Alt+Shift+H 切换全半角。macOS 从上线起就无条件占用这个组合键，所以默认开：这个偏好是把组合键还给应用，而不是打开一个原本关着的功能。没有这个组合键的宿主忽略它。
     #[serde(default = "enabled_by_default")]
     pub toggle_fullwidth_option_shift_h: bool,
 }
@@ -1951,6 +1982,7 @@ impl Default for Preferences {
         Self {
             default_ime_mode: DefaultImeMode::default(),
             ime_mode_scope: ImeModeScope::default(),
+            app_input_mode_rules: BTreeMap::new(),
             ai_assistant: AiAssistantPreferences::default(),
             sentence_association: SentenceAssociationPreferences::default(),
             custom_translation: CustomTranslationPreferences::default(),
@@ -1998,6 +2030,7 @@ impl Default for Preferences {
             shuangpin_profile: ShuangpinProfile::default(),
             shuangpin_custom_profile: ShuangpinCustomProfile::default(),
             shuangpin_preedit_uses_raw: true,
+            shuangpin_keymap_hint: None,
             vietnamese: VietnamesePreferences::default(),
             single_character_only: false,
             candidate_page_size: 6,
@@ -2600,6 +2633,9 @@ impl Preferences {
         if !self.game_compatibility.validate() {
             return Err(PreferencesError::InvalidGameCompatibility);
         }
+        if !valid_app_input_mode_rules(&self.app_input_mode_rules) {
+            return Err(PreferencesError::InvalidAppInputModeRules);
+        }
         if !(1..=10).contains(&self.frequency.trigger_count)
             || !(1..=10).contains(&self.frequency.linear_step)
         {
@@ -2757,6 +2793,8 @@ pub enum PreferencesError {
     InvalidPlugins,
     #[error("game compatibility process names must be distinct .exe base names of at most 64 characters, at most 32 in total")]
     InvalidGameCompatibility,
+    #[error("app input mode rules must use distinct application identifiers of at most 64 bytes without control characters or path separators, at most 32 in total")]
+    InvalidAppInputModeRules,
     #[error("preferences changed; reload before saving")]
     Conflict,
     #[error("unsupported preferences format")]
@@ -3002,7 +3040,9 @@ impl PreferencesStore {
         // enabled opts every fuzzy rule in once. The marker is separate from
         // the rule set so intentionally clearing every rule does not reseed
         // on a later disable/enable cycle.
+        // 写入方自己已经标了 seeded 时不再种：共享设置页首次打开时自己种好规则并标记，导入的设置文件带的是用户在另一台电脑上定下的规则（settings_document::import_document），这里再种会把它们盖成全部规则。
         if preferences.fuzzy_pinyin.enabled
+            && !preferences.fuzzy_pinyin.seeded
             && !current.preferences.fuzzy_pinyin.enabled
             && !current.preferences.fuzzy_pinyin.seeded
         {

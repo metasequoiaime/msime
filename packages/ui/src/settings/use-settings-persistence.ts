@@ -35,7 +35,6 @@ const externalNotice = "设置已从其他窗口更新。";
 export interface UseSettingsPersistenceOptions {
   client: SettingsClient;
   mobile: boolean;
-  macos: boolean;
   mounted: RefObject<boolean>;
   snapshot: Snapshot | undefined;
   draft: Preferences | undefined;
@@ -45,17 +44,12 @@ export interface UseSettingsPersistenceOptions {
   setError: (error: string) => void;
   setNotice: (notice: string) => void;
   setRecoveredBackup: (path: string) => void;
-  macosShuangpinKeymap: boolean | undefined;
-  savedMacosShuangpinKeymap: boolean | undefined;
-  saveMacosShuangpinKeymap?: (enabled: boolean) => Promise<void>;
-  setSavedMacosShuangpinKeymap: (enabled: boolean) => void;
 }
 
 /** Owns loading, automatic saving, and cross-window synchronization of shared preferences. */
 export function useSettingsPersistence({
   client,
   mobile,
-  macos,
   mounted,
   snapshot,
   draft,
@@ -65,10 +59,6 @@ export function useSettingsPersistence({
   setError,
   setNotice,
   setRecoveredBackup,
-  macosShuangpinKeymap,
-  savedMacosShuangpinKeymap,
-  saveMacosShuangpinKeymap,
-  setSavedMacosShuangpinKeymap,
 }: UseSettingsPersistenceOptions) {
   const snapshotRef = useRef(snapshot);
   const draftRef = useRef(draft);
@@ -87,24 +77,6 @@ export function useSettingsPersistence({
     draftRef.current = draft;
   }, [client, snapshot, draft]);
 
-  // The macOS-only preferences live outside the shared document; the save loop reads them through this so a value changed while a save is in flight is still seen.
-  const nativeRef = useRef({
-    shuangpin: macosShuangpinKeymap,
-    savedShuangpin: savedMacosShuangpinKeymap,
-  });
-  nativeRef.current = {
-    shuangpin: macosShuangpinKeymap,
-    savedShuangpin: savedMacosShuangpinKeymap,
-  };
-  const shuangpinPending = () => {
-    const native = nativeRef.current;
-    return (
-      macos &&
-      !!saveMacosShuangpinKeymap &&
-      native.shuangpin !== undefined &&
-      native.shuangpin !== native.savedShuangpin
-    );
-  };
   const draftPending = () => {
     const currentSnapshot = snapshotRef.current;
     const currentDraft = draftRef.current;
@@ -112,7 +84,7 @@ export function useSettingsPersistence({
       !!currentSnapshot && !!currentDraft && !deepEqual(currentDraft, currentSnapshot.preferences)
     );
   };
-  const savePending = () => draftPending() || shuangpinPending();
+  const savePending = () => draftPending();
 
   // The refs are also written the moment a load or save resolves: the host's monitor echoes this
   // window's own save back as a change, and it can arrive before React commits the new snapshot.
@@ -343,14 +315,6 @@ export function useSettingsPersistence({
           adoptSaved(value, sent);
         }
         if (clientRef.current !== saveClient) break;
-        // The native macOS preferences follow the shared document, in the order the save button used to write them.
-        if (shuangpinPending() && saveMacosShuangpinKeymap) {
-          const enabled = nativeRef.current.shuangpin === true;
-          await saveMacosShuangpinKeymap(enabled);
-          if (clientRef.current !== saveClient) break;
-          nativeRef.current = { ...nativeRef.current, savedShuangpin: enabled };
-          if (mounted.current) setSavedMacosShuangpinKeymap(enabled);
-        }
       }
     } catch (reason) {
       failed = true;
@@ -423,7 +387,7 @@ export function useSettingsPersistence({
     }
     setSaveState((state) => (state === "saved" ? "idle" : state));
     if (!savingRef.current) scheduleAutosave();
-  }, [draft, snapshot, macosShuangpinKeymap, savedMacosShuangpinKeymap]);
+  }, [draft, snapshot]);
 
   // Unmounting with an edit still counting down writes it without waiting for an answer: nothing is left on screen to show the result.
   useEffect(

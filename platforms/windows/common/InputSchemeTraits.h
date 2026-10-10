@@ -124,7 +124,7 @@ constexpr bool OpensTableModes(int scheme) { return scheme == Quanpin || scheme 
 
 // ---- The input mode the Server tells the TIP about ----
 
-// The scheme family the TIP has to know before its host session answers a key, carried as one character in FanyImeWorkerReplyType::InputModeChanged (shared/contracts/windows_ipc.h). The three pinyin and shape schemes share Chinese: the TIP keys them alike. Stroke has a code of its own: its traits are not quanpin's (ScriptConversionApplies, ShowsGlosses) and the TIP hands most letters to the application while it is idle (LetterPassesWhileIdle). The values are the wire codes and never change; a DLL that predates a mode compares against '1' and '2' only, so it reads a newer code as Chinese.
+// TIP 在会话回答按键之前就要知道的方案类别，作为 FanyImeWorkerReplyType::InputModeChanged（shared/contracts/windows_ipc.h）里的一个字符传过去。全拼是 Chinese。双拼和五笔各有一个码（'8'、'9'），只为让任务栏的语言栏图标显示 双 和 五（tsf/LanguageBar/ModeIconPolicy.h）：TIP 仍把它们当全拼来键入（mode_scheme），比它们早的 DLL 把这两个码读成 Chinese，和以前一样。笔画有自己的码：它的 trait 与全拼不同（ScriptConversionApplies、ShowsGlosses），空闲时 TIP 把大多数字母交给应用（LetterPassesWhileIdle）。这些值就是线上的码，永远不改；比某个模式早的 DLL 只和 '1'、'2' 比较，所以把更新的码读成 Chinese。
 enum class InputMode : wchar_t
 {
     Chinese = L'0',
@@ -135,6 +135,8 @@ enum class InputMode : wchar_t
     Vietnamese = L'5',
     Tibetan = L'6',
     Stroke = L'7',
+    Shuangpin = L'8',
+    Wubi = L'9',
 };
 
 // 一个模式写的语言。日文、韩文、越南文和藏文各是独立的输入语言；粤拼、注音和笔画是中文方案，切到它们时和其他中文方案一样更新 `last_chinese_scheme`。
@@ -160,6 +162,8 @@ constexpr InputLanguage input_language(InputMode mode)
     case InputMode::Tibetan:
         return InputLanguage::Tibetan;
     case InputMode::Chinese:
+    case InputMode::Shuangpin:
+    case InputMode::Wubi:
     case InputMode::Cantonese:
     case InputMode::Zhuyin:
     case InputMode::Stroke:
@@ -173,6 +177,10 @@ constexpr InputMode input_mode(int scheme)
 {
     switch (scheme)
     {
+    case Shuangpin:
+        return InputMode::Shuangpin;
+    case Wubi:
+        return InputMode::Wubi;
     case Japanese:
         return InputMode::Japanese;
     case Korean:
@@ -335,6 +343,10 @@ constexpr InputMode input_mode_from_code(wchar_t code)
         return InputMode::Tibetan;
     case static_cast<wchar_t>(InputMode::Stroke):
         return InputMode::Stroke;
+    case static_cast<wchar_t>(InputMode::Shuangpin):
+        return InputMode::Shuangpin;
+    case static_cast<wchar_t>(InputMode::Wubi):
+        return InputMode::Wubi;
     default:
         return InputMode::Chinese;
     }
@@ -348,7 +360,7 @@ constexpr bool is_input_mode_payload(const wchar_t *data, std::size_t size)
     return size >= 2 && data[0] != L'\0' && data[1] == L'\0';
 }
 
-// The representative scheme number of a mode, for the scheme traits above. Chinese stands for quanpin: the three schemes it covers answer every trait alike except OpensLocalModes, which only the Server reads, from the scheme that runs.
+// 一个模式的代表方案号，供上面的方案 trait 使用。Chinese、Shuangpin 和 Wubi 都代表全拼：这三个方案除 OpensLocalModes 外每个 trait 都相同，而 OpensLocalModes 只由 Server 按正在运行的方案读，所以 TIP 照旧键入它们。
 constexpr int mode_scheme(InputMode mode)
 {
     switch (mode)
@@ -368,6 +380,8 @@ constexpr int mode_scheme(InputMode mode)
     case InputMode::Stroke:
         return Stroke;
     case InputMode::Chinese:
+    case InputMode::Shuangpin:
+    case InputMode::Wubi:
         break;
     }
     return Quanpin;

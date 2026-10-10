@@ -104,6 +104,19 @@ int main() {
     const auto squeezed_drag = floating_toolbar_placement(tiny);
     require(squeezed_drag.x == 0 && squeezed_drag.y == 0);
 
+    // 第一次拖动：之前没有记过位置，窗口从角上被拖走，松手时的位置要记下来，否则生产 Server 永远写不出 floating_toolbar_position.json，下一次切换中英文工具栏又跳回角上。
+    const FloatingToolbarPlacement corner{1500, 968};
+    const FloatingToolbarPlacement dropped{120, 80};
+    const auto first_drag = floating_toolbar_drag_end(std::nullopt, corner, dropped);
+    require(first_drag && first_drag->x == 120 && first_drag->y == 80);
+    // 再拖一次，新位置取代旧的。
+    const auto second_drag = floating_toolbar_drag_end(first_drag, dropped, FloatingToolbarPlacement{640, 400});
+    require(second_drag && second_drag->x == 640 && second_drag->y == 400);
+    // 只在拖动条上按了一下没动：没记过就仍然没有，工具栏照旧贴着角；记过就保留原来的位置。
+    require(!floating_toolbar_drag_end(std::nullopt, corner, corner));
+    const auto kept = floating_toolbar_drag_end(dropped, dropped, dropped);
+    require(kept && kept->x == 120 && kept->y == 80);
+
     std::cout << "Floating toolbar placement: the dragged position survives\n";
   } catch (const std::exception &failure) {
     std::cerr << failure.what() << '\n';

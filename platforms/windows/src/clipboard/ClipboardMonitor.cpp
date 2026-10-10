@@ -1,5 +1,6 @@
 #include "ClipboardHistory.h"
 #ifdef _WIN32
+#include "ClipboardPrivacyPolicy.h"
 #include <windows.h>
 #include <string>
 
@@ -15,6 +16,36 @@ std::string wide_to_utf8(const std::wstring &text) {
   std::string result(size, '\0');
   WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), result.data(), size, nullptr, nullptr);
   return result;
+}
+
+bool clipboard_format_present(UINT format) {
+  return format != 0 && IsClipboardFormatAvailable(format) != FALSE;
+}
+
+// 只在剪贴板已打开时调用：读 DWORD 许可格式要取数据。
+ClipboardPermission clipboard_permission(UINT format) {
+  if (!clipboard_format_present(format))
+    return ClipboardPermission::absent;
+  const auto data = GetClipboardData(format);
+  const void *bytes = data ? GlobalLock(data) : nullptr;
+  const auto permission = clipboard_permission_from_data(bytes, bytes ? GlobalSize(data) : 0);
+  if (bytes)
+    GlobalUnlock(data);
+  return permission;
+}
+
+// 格式 id 是会话内全局的，注册一次即可；注册失败得到 0，等同于剪贴板上没有这个格式。
+ClipboardPrivacyMarkers clipboard_privacy_markers() {
+  static const UINT exclude_monitor = RegisterClipboardFormatW(clipboard_exclude_monitor_format);
+  static const UINT viewer_ignore = RegisterClipboardFormatW(clipboard_viewer_ignore_format);
+  static const UINT history = RegisterClipboardFormatW(clipboard_history_permission_format);
+  static const UINT cloud = RegisterClipboardFormatW(clipboard_cloud_permission_format);
+  ClipboardPrivacyMarkers markers;
+  markers.exclude_from_monitor = clipboard_format_present(exclude_monitor);
+  markers.viewer_ignore = clipboard_format_present(viewer_ignore);
+  markers.history = clipboard_permission(history);
+  markers.cloud = clipboard_permission(cloud);
+  return markers;
 }
 }
 ClipboardMonitor::ClipboardMonitor(ClipboardHistory &history, Callback callback) : history_(history), callback_(std::move(callback)) {}
@@ -49,7 +80,9 @@ LRESULT CALLBACK ClipboardMonitor::window_proc(HWND window, UINT message, WPARAM
       struct ClipboardScope {
         ~ClipboardScope() { CloseClipboard(); }
       } scope;
-      if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
+      // 密码管理器等标记为不可记录的内容整条丢弃，这次变化照样记为已处理，不会在下一次通知时重读。
+      if (!clipboard_sample_excluded(clipboard_privacy_markers()) &&
+          IsClipboardFormatAvailable(CF_UNICODETEXT)) {
         auto data = GetClipboardData(CF_UNICODETEXT);
         const auto *text = data ? static_cast<const wchar_t *>(GlobalLock(data)) : nullptr;
         if (text) {

@@ -4,8 +4,10 @@ namespace msime::windows {
 MaintenanceHotkeyController *MaintenanceHotkeyController::instance_ = nullptr;
 
 MaintenanceHotkeyController::MaintenanceHotkeyController(Handler handler,
-                                                         CapsSink caps)
+                                                         CapsSink caps,
+                                                         KeySink key)
     : handler_(std::move(handler)), caps_sink_(std::move(caps)),
+      key_sink_(std::move(key)),
       // Seed from the OS so the first report is an actual change, not the
       // state the session already started in.
       caps_((GetKeyState(VK_CAPITAL) & 1) != 0) {
@@ -50,6 +52,12 @@ LRESULT CALLBACK MaintenanceHotkeyController::keyboard_proc(int code,
   // something could drive itself.
   if (event->flags & LLKHF_INJECTED)
     return CallNextHookEx(nullptr, code, wparam, lparam);
+  if (self->key_sink_) {
+    try {
+      self->key_sink_();
+    } catch (...) {
+    }
+  }
   // Caps Lock is observed, not claimed: the Server is the authority for the
   // indicator, and the TIP only sampled GetKeyState at activation, so pressing
   // Caps mid-session left the language-bar icon stale. The stroke is always

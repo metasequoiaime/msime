@@ -66,7 +66,12 @@ try {
         'resources/sound-packs/default/plugin.toml',
         'resources/sound-packs/default/key.wav',
         'target/offline-glosses/zh-fr.db',
-        'target/offline-glosses/offline-glosses-NOTICE.txt'
+        'target/offline-glosses/offline-glosses-NOTICE.txt',
+        'target/pronunciations/en-phonetic.db',
+        'target/pronunciations/pronunciations-NOTICE.txt',
+        'target/character-glosses/zh-en.db',
+        'target/character-glosses/character-glosses-NOTICE.txt',
+        'target/word-glosses/zh-en.db'
     )) { Write-Fixture $file }
     Write-Fixture 'windows/build32-release/Release/msime_host_api.dll' 'synthetic x86 host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api.dll' 'synthetic x64 host'
@@ -150,12 +155,18 @@ try {
                          'server_exe/RestartAgent.exe',
                          'server_exe/offline-glosses/zh-fr.db',
                          'server_exe/offline-glosses/offline-glosses-NOTICE.txt',
+                         'server_exe/pronunciations/en-phonetic.db',
+                         'server_exe/pronunciations/pronunciations-NOTICE.txt',
+                         'server_exe/character-glosses/zh-en.db',
+                         'server_exe/character-glosses/character-glosses-NOTICE.txt',
                          'app_data/helpcodes/helpcode.txt',
                          'app_data/sound-packs/default/plugin.toml', 'app_data/sound-packs/default/key.wav',
                          'THIRD_PARTY_NOTICES.txt', 'LICENSE.txt')) {
         if (-not (Test-Path (Join-Path $installer $file))) { throw "Missing packaged file: $file" }
     }
     Assert-NoOnDemandModels 'Full package'
+    # 读音和英文释义表只随授权声明一起装：夹具里 word-glosses 没有声明，就不装。
+    if (Test-Path (Join-Path $installer 'server_exe/word-glosses')) { throw 'Packaged word glosses without their notice' }
     if (Test-Path (Join-Path $installer 'app_data/helpcodes/NOTICE.md')) { throw 'Staged a helpcode notice as a table' }
     # The Zhuyin and Stroke dictionaries travel beside resources with their licences; the absent Cantonese one leaves that scheme unavailable, and a dictionary without its licence is refused.
     foreach ($name in @('msime-zhuyin.db', 'msime-libchewing_data_LICENSE.txt', 'msime-stroke.db', 'msime-rime_stroke_LICENSE.txt')) {
@@ -473,9 +484,11 @@ try {
         source_commit = ('a' * 40); artifacts = $vietnameseArtifacts
     } | ConvertTo-Json -Depth 5)
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Edition vietnamese
-    foreach ($absent in @('server_exe/handwriting', 'server_exe/offline-glosses', 'server_exe/language-dictionaries')) {
+    foreach ($absent in @('server_exe/handwriting', 'server_exe/offline-glosses', 'server_exe/language-dictionaries', 'server_exe/character-glosses', 'server_exe/word-glosses')) {
         if (Test-Path (Join-Path $installer $absent)) { throw "Edition without a Chinese scheme packaged $absent" }
     }
+    # 英文读音表不分版本：英文候选和英文释义在每个版本里都可能出现。
+    if (-not (Test-Path (Join-Path $installer 'server_exe/pronunciations/en-phonetic.db'))) { throw 'Edition without a Chinese scheme lost server_exe/pronunciations' }
     $rejected = $false
     try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Edition klingon }
     catch { $rejected = $_.Exception.Message -match 'klingon' }

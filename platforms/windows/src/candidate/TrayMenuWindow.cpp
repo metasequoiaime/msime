@@ -1,9 +1,14 @@
 #include "TrayMenuWindow.h"
+#include "AccessibleWindow.h"
 #include "IconFont.h"
+#include "TrayMenuAccessibility.h"
 #include "ServerResources.h"
+#include "WaveOverlayUtils.h"
+#include <bitset>
 #include <cmath>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include "../../../../shared/contracts/msime_edition.h"
 
 namespace msime::windows {
@@ -12,6 +17,18 @@ constexpr wchar_t class_name[] = L"MSIME.Client.Preview.TrayMenu" MSIME_EDITION_
 constexpr size_t no_row = static_cast<size_t>(-1);
 // Segoe Fluent Icons / MDL2 CheckMark, the mark native Windows menus draw.
 constexpr wchar_t check_mark_glyph = 0xE73E;
+// 同一套图标字体里的 ChevronLeft 和 ChevronRight：返回行和翻页行的箭头。
+constexpr wchar_t chevron_left_glyph = 0xE76B;
+constexpr wchar_t chevron_right_glyph = 0xE76C;
+// 键盘钩子把导航键投递给卡片的消息，wparam 是 TrayMenuKey。
+constexpr UINT keyboard_message = WM_APP + 0x54;
+// 低级键盘钩子在装它的线程（UI 线程）上回调，这几项只在那个线程上读写。`swallowed_keys` 记下吞掉了按下的键，它们的松开也一并吞掉，应用不会收到没有按下的松开。
+HHOOK keyboard_hook = nullptr;
+TrayMenuWindow *keyboard_owner = nullptr;
+std::bitset<256> swallowed_keys;
+// 读屏键（Caps Lock、Insert）此刻是否按着，由钩子按它看到的按下和松开记录：读屏自己的钩子会吞掉读屏键，GetAsyncKeyState 读不到它按着。
+bool caps_lock_held = false;
+bool insert_held = false;
 // Affect only this UI operation; restore the caller's thread context even on
 // failure.
 struct DpiScope {
@@ -69,6 +86,15 @@ TrayMenuWindow::TrayMenuWindow(TrayMenuCapabilities capabilities,
       state_(std::move(state)) {
   if (!command_ || !state_)
     throw std::invalid_argument("Missing tray menu callback");
+  create_window();
+}
+TrayMenuWindow::TrayMenuWindow(Items items, Command command)
+    : command_(std::move(command)), items_builder_(std::move(items)) {
+  if (!command_ || !items_builder_)
+    throw std::invalid_argument("Missing tray menu callback");
+  create_window();
+}
+void TrayMenuWindow::create_window() {
   DpiScope dpi_scope;
   WNDCLASSEXW descriptor{};
   descriptor.cbSize = sizeof(descriptor);
@@ -88,8 +114,13 @@ TrayMenuWindow::TrayMenuWindow(TrayMenuCapabilities capabilities,
                             nullptr, descriptor.hInstance, this);
   if (!window_)
     throw std::runtime_error("Tray menu window unavailable");
+  // 与 macOS 输入菜单（原生 NSMenu）自带的读屏对应：读屏通过 UI Automation 读到每一行，键盘导航时焦点跟着高亮走。
+  accessible_ = std::make_unique<AccessibleWindow>(window_);
 }
 TrayMenuWindow::~TrayMenuWindow() {
+  stop_keyboard();
+  // 先断开读屏拿着的提供者，再销毁窗口。
+  accessible_.reset();
   if (window_)
     DestroyWindow(window_);
   if (logo_)
@@ -114,8 +145,8 @@ ID2D1Bitmap *TrayMenuWindow::logo_bitmap(int pixels) {
                                               std::to_wstring(pixels));
 }
 void TrayMenuWindow::refresh_items() {
-  items_ = tray_menu_items(capabilities_, state_());
-  geometry_ = tray_menu_geometry(items_, metrics_);
+  items_ = items_builder_ ? items_builder_() : tray_menu_items(capabilities_, state_(), page_);
+  geometry_ = items_.empty() ? TrayMenuGeometry{} : tray_menu_geometry(items_, metrics_);
 }
 void TrayMenuWindow::set_palette(CandidatePalette palette) {
   palette_ = std::move(palette);
@@ -126,11 +157,38 @@ bool TrayMenuWindow::visible() const {
   return window_ && IsWindowVisible(window_);
 }
 void TrayMenuWindow::hide() {
+  stop_keyboard();
+  // 收起之前报告菜单关闭，读屏随即离开这张卡片。
+  if (accessible_ && visible())
+    accessible_->menu_closed();
   hovered_ = no_row;
+  keyboard_highlight_ = false;
   items_.clear();
   geometry_ = {};
   if (window_)
     ShowWindow(window_, SW_HIDE);
+  sync_accessibility();
+}
+void TrayMenuWindow::sync_accessibility() {
+  if (!accessible_)
+    return;
+  if (!visible() || items_.empty() || geometry_.rows.size() != items_.size()) {
+    accessible_->publish({AccessibleContainer::Menu, {}, {}});
+    return;
+  }
+  const auto highlight = keyboard_highlight_ && hovered_ < items_.size()
+                             ? std::optional<size_t>(hovered_)
+                             : std::nullopt;
+  accessible_->publish(tray_menu_accessible_tree(items_, geometry_,
+                                                 static_cast<double>(dpi_) / 96.0, highlight));
+}
+void TrayMenuWindow::invoke_accessible(int id, LPARAM token) {
+  if (!accessible_ || !accessible_->current(token) || !visible() || id < 1 ||
+      static_cast<size_t>(id) > items_.size())
+    return;
+  // 读屏执行和按键一样算在用卡片，不按闲置收起。
+  keyboard_at_ = GetTickCount64();
+  choose(static_cast<size_t>(id - 1), true);
 }
 bool TrayMenuWindow::open(int icon_center_x, int icon_top) noexcept {
   try {
@@ -138,6 +196,16 @@ bool TrayMenuWindow::open(int icon_center_x, int icon_top) noexcept {
     return visible();
   } catch (...) {
     // Appearance must not be fatal: leave failed_ alone and report no menu.
+    hide();
+    return false;
+  }
+}
+bool TrayMenuWindow::open_beside(int anchor_center_x, int anchor_top,
+                                 int anchor_bottom) noexcept {
+  try {
+    place(anchor_center_x, anchor_top, anchor_bottom);
+    return visible();
+  } catch (...) {
     hide();
     return false;
   }
@@ -150,34 +218,196 @@ bool TrayMenuWindow::pointer_inside() const noexcept {
   return PtInRect(&bounds, cursor) != FALSE;
 }
 void TrayMenuWindow::show(int icon_center_x, int icon_top) {
+  // 每次打开都从主页开始，和原生菜单每次从顶层展开一样。
+  page_ = TrayMenuPage::Main;
+  place(icon_center_x, icon_top, std::nullopt);
+}
+void TrayMenuWindow::place(int icon_center_x, int icon_top,
+                           std::optional<int> anchor_bottom) {
   DpiScope dpi_scope;
   if (failed_) {
     hide();
     return;
   }
+  const bool was_visible = visible();
+  anchor_x_ = icon_center_x;
+  anchor_top_ = icon_top;
+  anchor_bottom_ = anchor_bottom;
   MONITORINFO monitor{};
   monitor.cbSize = sizeof(monitor);
-  if (!GetMonitorInfoW(MonitorFromPoint({icon_center_x, icon_top},
-                                        MONITOR_DEFAULTTONEAREST),
-                       &monitor))
+  const HMONITOR target = MonitorFromPoint({icon_center_x, icon_top}, MONITOR_DEFAULTTONEAREST);
+  if (!GetMonitorInfoW(target, &monitor))
     throw std::runtime_error("Tray menu monitor unavailable");
   // Read the state once per opening: the rows show what the Server reports now, not what a click later assumed.
   refresh_items();
   hovered_ = no_row;
+  keyboard_highlight_ = false;
+  // 空的一组行没有可画的东西，不开卡片。
+  if (items_.empty()) {
+    hide();
+    return;
+  }
   const auto &work = monitor.rcWork;
-  dpi_ = GetDpiForWindow(window_);
+  // 尺寸按卡片要去的那块显示器的 DPI 算，而不是窗口上次所在的显示器：工具栏在缩放不同的副屏上时，按旧 DPI 算的卡片挪过去后大小不对。
+  dpi_ = monitor_effective_dpi(target);
   metrics_ = tray_menu_fitted_metrics(
       items_, TrayMenuMetrics{},
       static_cast<double>(work.bottom - work.top) * 96.0 /
           static_cast<double>(dpi_));
   geometry_ = tray_menu_geometry(items_, metrics_);
   const auto bounds =
-      tray_menu_bounds(icon_center_x, icon_top, work.left, work.top, work.right,
-                       work.bottom, dpi_, geometry_.size);
-  if (!SetWindowPos(window_, HWND_TOPMOST, bounds.x, bounds.y, bounds.width,
-                    bounds.height, SWP_NOACTIVATE | SWP_SHOWWINDOW))
+      anchor_bottom
+          ? toolbar_menu_bounds(icon_center_x, icon_top, *anchor_bottom, work.left,
+                                work.top, work.right, work.bottom, dpi_,
+                                geometry_.size)
+          : tray_menu_bounds(icon_center_x, icon_top, work.left, work.top,
+                             work.right, work.bottom, dpi_, geometry_.size);
+  placing_ = true;
+  const BOOL moved = SetWindowPos(window_, HWND_TOPMOST, bounds.x, bounds.y, bounds.width,
+                                  bounds.height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+  placing_ = false;
+  if (!moved)
     throw std::runtime_error("Tray menu positioning failed");
+  // 挪动期间的消息（显示环境变化、失去焦点）可能已经把卡片收起；收起的卡片不能装键盘钩子，否则导航键在所有程序里都被吞掉。
+  if (!visible())
+    return;
+  start_keyboard();
   InvalidateRect(window_, nullptr, FALSE);
+  sync_accessibility();
+  // 翻页时卡片一直开着，只有从隐藏到显示才算打开菜单。
+  if (accessible_ && !was_visible)
+    accessible_->menu_opened();
+}
+void TrayMenuWindow::start_keyboard() {
+  if (keyboard_owner == this)
+    return;
+  // 另一张卡片还开着时钩子已经装着，换个主人即可。
+  if (!keyboard_hook) {
+    keyboard_hook = SetWindowsHookExW(WH_KEYBOARD_LL, keyboard_procedure,
+                                      GetModuleHandleW(nullptr), 0);
+    // 装不上只是少了键盘导航，鼠标照常可用。
+    if (!keyboard_hook)
+      return;
+    // 上一张卡片收起时，吞掉的键可能还没松开，钩子先卸了，那次松开已经交给了应用。新装的钩子不能再按旧记录吞掉下一次松开，否则应用只收到按下、收不到松开。
+    swallowed_keys.reset();
+    caps_lock_held = false;
+    insert_held = false;
+  }
+  keyboard_owner = this;
+  keyboard_at_ = 0;
+}
+void TrayMenuWindow::stop_keyboard() {
+  if (keyboard_owner != this)
+    return;
+  keyboard_owner = nullptr;
+  if (keyboard_hook)
+    UnhookWindowsHookEx(keyboard_hook);
+  keyboard_hook = nullptr;
+}
+LRESULT CALLBACK TrayMenuWindow::keyboard_procedure(int code, WPARAM wparam,
+                                                    LPARAM lparam) noexcept {
+  if (code != HC_ACTION || !keyboard_owner || !lparam)
+    return CallNextHookEx(nullptr, code, wparam, lparam);
+  const auto *event = reinterpret_cast<const KBDLLHOOKSTRUCT *>(lparam);
+  // 别的程序模拟的按键（包括共享应用面板往编辑器里输入的文字）不当作导航。
+  if (event->flags & LLKHF_INJECTED)
+    return CallNextHookEx(nullptr, code, wparam, lparam);
+  const unsigned virtual_key = event->vkCode & 0xFFu;
+  const bool released = wparam == WM_KEYUP || wparam == WM_SYSKEYUP;
+  if (virtual_key == tray_menu_caps_lock_key)
+    caps_lock_held = !released;
+  else if (virtual_key == tray_menu_insert_key)
+    insert_held = !released;
+  if (released) {
+    if (swallowed_keys.test(virtual_key)) {
+      swallowed_keys.reset(virtual_key);
+      return 1;
+    }
+    return CallNextHookEx(nullptr, code, wparam, lparam);
+  }
+  // 卡片已经看不见时钩子不再导航，按下原样交给应用；正常情况下 hide() 会先卸掉钩子，这里兜住没卸掉的情况。
+  if (!IsWindowVisible(keyboard_owner->window_)) {
+    swallowed_keys.reset(virtual_key);
+    return CallNextHookEx(nullptr, code, wparam, lparam);
+  }
+  // 读屏的命令原样交给读屏，卡片不导航也不收起；读屏在读这张卡片，算作在用它，不按闲置收起。
+  const bool reader_key_down =
+      caps_lock_held || insert_held ||
+      ((GetAsyncKeyState(VK_CAPITAL) | GetAsyncKeyState(VK_INSERT)) & 0x8000) != 0;
+  if (tray_menu_screen_reader_key(virtual_key, reader_key_down)) {
+    keyboard_owner->keyboard_at_ = GetTickCount64();
+    swallowed_keys.reset(virtual_key);
+    return CallNextHookEx(nullptr, code, wparam, lparam);
+  }
+  // Shift 也算修饰键：Shift+方向键之类不是菜单导航，和原生菜单一样收起卡片并交给应用。吞掉它们会让 TIP 只看到 Shift 的按下和松开，把这次 Shift 当成单按，切换中英文。
+  const bool modified =
+      ((GetAsyncKeyState(VK_CONTROL) | GetAsyncKeyState(VK_MENU) | GetAsyncKeyState(VK_SHIFT) |
+        GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) &
+       0x8000) != 0;
+  const auto &owner = *keyboard_owner;
+  const bool highlighted = owner.hovered_ < owner.items_.size() &&
+                           tray_menu_actionable(owner.items_[owner.hovered_]);
+  const auto key = tray_menu_key(virtual_key, modified, highlighted);
+  // 交给应用的按下，它的松开也交给应用。
+  if (key == TrayMenuKey::None) {
+    swallowed_keys.reset(virtual_key);
+    return CallNextHookEx(nullptr, code, wparam, lparam);
+  }
+  // 钩子回调要尽快返回，执行命令、重画卡片都放到卡片自己的消息里做。
+  PostMessageW(keyboard_owner->window_, keyboard_message,
+               static_cast<WPARAM>(key), 0);
+  if (!tray_menu_key_swallowed(key)) {
+    swallowed_keys.reset(virtual_key);
+    return CallNextHookEx(nullptr, code, wparam, lparam);
+  }
+  swallowed_keys.set(virtual_key);
+  return 1;
+}
+void TrayMenuWindow::key(TrayMenuKey key) {
+  if (!visible() || items_.empty())
+    return;
+  keyboard_at_ = GetTickCount64();
+  const auto current =
+      hovered_ < items_.size() ? std::optional<size_t>(hovered_) : std::nullopt;
+  const auto result =
+      tray_menu_key_result(items_, current, key, page_ != TrayMenuPage::Main);
+  if (result.close) {
+    hide();
+    return;
+  }
+  if (result.back) {
+    show_page(TrayMenuPage::Main, true);
+    return;
+  }
+  const size_t highlight = result.highlight ? *result.highlight : no_row;
+  if (highlight != hovered_ || !keyboard_highlight_) {
+    hovered_ = highlight;
+    keyboard_highlight_ = true;
+    InvalidateRect(window_, nullptr, FALSE);
+    // 键盘高亮就是读屏的焦点：报告焦点移到这一行，读屏随即读出它。
+    sync_accessibility();
+    if (accessible_ && hovered_ < items_.size())
+      accessible_->focus(static_cast<int>(hovered_ + 1));
+  }
+  if (result.activate && result.highlight)
+    choose(*result.highlight, true);
+}
+void TrayMenuWindow::show_page(TrayMenuPage page, bool from_keyboard) {
+  const auto from = page_;
+  page_ = page;
+  place(anchor_x_, anchor_top_, anchor_bottom_);
+  if (!visible())
+    return;
+  // 鼠标翻页时高亮跟着指针走；键盘翻页时先高亮一行，接着按上下键就有起点。
+  if (from_keyboard) {
+    const auto highlight = tray_menu_page_highlight(items_, from);
+    hovered_ = highlight ? *highlight : no_row;
+    keyboard_highlight_ = true;
+  }
+  InvalidateRect(window_, nullptr, FALSE);
+  sync_accessibility();
+  if (from_keyboard && accessible_ && hovered_ < items_.size())
+    accessible_->focus(static_cast<int>(hovered_ + 1));
 }
 std::optional<size_t> TrayMenuWindow::hit(int x, int y) const {
   if (items_.empty() || !dpi_)
@@ -185,10 +415,20 @@ std::optional<size_t> TrayMenuWindow::hit(int x, int y) const {
   const double scale = static_cast<double>(dpi_) / 96.0;
   return tray_menu_hit(x / scale, y / scale, items_, metrics_);
 }
-void TrayMenuWindow::choose(size_t index) {
+void TrayMenuWindow::choose(size_t index, bool from_keyboard) {
   if (index >= items_.size() || !tray_menu_actionable(items_[index]))
     return;
   const auto command = items_[index].command;
+  // 翻页只在卡片里处理，不交给 Server。
+  if (const auto page = tray_menu_page_target(command)) {
+    show_page(*page, from_keyboard);
+    return;
+  }
+  if (command == TrayMenuCommand::SelectTheme) {
+    if (theme_action_ && theme_action_(items_[index].value))
+      hide();
+    return;
+  }
   // A command that could not run leaves the menu open, so a failure is not mistaken for an applied action.
   if (command_(command) && tray_menu_closes_after(command)) {
     hide();
@@ -198,6 +438,7 @@ void TrayMenuWindow::choose(size_t index) {
   refresh_items();
   if (window_)
     InvalidateRect(window_, nullptr, FALSE);
+  sync_accessibility();
 }
 void TrayMenuWindow::paint() {
   DpiScope dpi_scope;
@@ -343,16 +584,26 @@ void TrayMenuWindow::paint() {
       auto *hint_brush = brush(item.available ? secondary : palette_.number);
       const float mark_left =
           rect.left + static_cast<float>(tray_menu_mark_x(metrics_));
-      if (item.checked)
-        draw_glyph(check_mark_glyph, L"✓",
-                   {mark_left, rect.top,
-                    mark_left + static_cast<float>(metrics_.mark_column),
-                    rect.bottom},
-                   text_brush);
+      const D2D1_RECT_F mark{mark_left, rect.top,
+                             mark_left + static_cast<float>(metrics_.mark_column),
+                             rect.bottom};
+      // 返回行在勾选列画向左的箭头，勾选行画勾。
+      if (item.back)
+        draw_glyph(chevron_left_glyph, L"‹", mark, text_brush);
+      else if (item.checked)
+        draw_glyph(check_mark_glyph, L"✓", mark, text_brush);
       // Labels start after the mark column so they line up across rows; the hint is right-aligned in the same span, as the design's flex row puts it.
-      const D2D1_RECT_F text{
+      D2D1_RECT_F text{
           rect.left + static_cast<float>(tray_menu_label_x(metrics_)), rect.top,
           rect.right - row_inset, rect.bottom};
+      // 翻页行在最右边画向右的箭头，提示文字让到箭头左边。
+      if (item.submenu) {
+        const float column = static_cast<float>(metrics_.mark_column);
+        draw_glyph(chevron_right_glyph, L"›",
+                   {text.right - column, rect.top, text.right, rect.bottom},
+                   hint_brush);
+        text.right -= column + static_cast<float>(metrics_.gap) / 2.0f;
+      }
       draw_text(item.label, label_format, text, text_brush);
       draw_text(item.hint, hint_format, text, hint_brush);
       break;
@@ -426,6 +677,9 @@ LRESULT CALLBACK TrayMenuWindow::procedure(HWND window, UINT message,
           InvalidateRect(window, nullptr, FALSE);
           TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0};
           TrackMouseEvent(&track);
+          // 指针接管了高亮，键盘焦点不再停在原来那一行。
+          if (std::exchange(self->keyboard_highlight_, false))
+            self->sync_accessibility();
         }
         return 0;
       }
@@ -433,6 +687,8 @@ LRESULT CALLBACK TrayMenuWindow::procedure(HWND window, UINT message,
         if (self->hovered_ != no_row) {
           self->hovered_ = no_row;
           InvalidateRect(window, nullptr, FALSE);
+          if (std::exchange(self->keyboard_highlight_, false))
+            self->sync_accessibility();
         }
         return 0;
       case WM_LBUTTONUP: {
@@ -445,6 +701,15 @@ LRESULT CALLBACK TrayMenuWindow::procedure(HWND window, UINT message,
       case WM_KILLFOCUS:
         self->hide();
         return 0;
+      case WM_DPICHANGED:
+        // place() 把卡片挪到另一块 DPI 不同的显示器时同步收到这条消息：尺寸已经按那块显示器算好，只丢掉按旧 DPI 建的绘制目标，不采用系统建议的矩形，也不收起刚打开的卡片。
+        if (self->placing_) {
+          self->device_.DiscardTarget();
+          return 0;
+        }
+        self->device_.DiscardTarget();
+        self->hide();
+        return 0;
       case WM_POWERBROADCAST:
         if (wparam != PBT_APMRESUMEAUTOMATIC &&
             wparam != PBT_APMRESUMECRITICAL && wparam != PBT_APMRESUMESUSPEND)
@@ -452,7 +717,6 @@ LRESULT CALLBACK TrayMenuWindow::procedure(HWND window, UINT message,
         [[fallthrough]];
       case WM_DISPLAYCHANGE:
       case WM_DWMCOMPOSITIONCHANGED:
-      case WM_DPICHANGED:
         // This transient menu does not retain the tray icon anchor needed to
         // place itself again. Close it and discard the display-bound target;
         // the next click reopens from the current icon, DPI and work area.
@@ -462,6 +726,21 @@ LRESULT CALLBACK TrayMenuWindow::procedure(HWND window, UINT message,
       case WM_PAINT:
         self->paint();
         return 0;
+      case keyboard_message:
+        self->key(static_cast<TrayMenuKey>(wparam));
+        return 0;
+      case WM_GETOBJECT:
+        if (self->accessible_)
+          if (const auto answer = self->accessible_->answer(wparam, lparam))
+            return *answer;
+        break;
+      case accessible_invoke_message:
+        self->invoke_accessible(static_cast<int>(wparam), lparam);
+        return 0;
+      case WM_DESTROY:
+        if (self->accessible_)
+          self->accessible_->disconnect();
+        break;
       }
     } catch (...) {
       self->failed_ = true;

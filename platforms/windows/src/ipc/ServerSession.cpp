@@ -151,6 +151,15 @@ nlohmann::json ServerSession::toggle_dedicated_english(uint64_t epoch) {
   cancel_composition(epoch);
   return response(msime_client_set_english_mode(session_, !enabled));
 }
+nlohmann::json ServerSession::set_dedicated_english(uint64_t epoch,
+                                                    bool enabled) {
+  check_active(epoch);
+  auto current = view();
+  if (current.at("dedicated_english").get<bool>() == enabled)
+    return current;
+  cancel_composition(epoch);
+  return response(msime_client_set_english_mode(session_, enabled));
+}
 KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
                              uint64_t epoch) {
   check_active(epoch);
@@ -565,6 +574,7 @@ uint32_t ServerSession::typing_effect(uint32_t event) {
 void ServerSession::refresh_typing_effect_settings() {
   // A settings answer that cannot be read leaves the effect as the preferences alone describe it rather than failing the focus change or the preference update it follows.
   TypingEffectSettings settings;
+  TypingEffectPalette palette;
   try {
     const auto value = response(msime_client_typing_effect_settings(session_));
     const auto intensity = value.value("intensity", 50.0);
@@ -576,10 +586,26 @@ void ServerSession::refresh_typing_effect_settings() {
         value.at("colors").front().is_string())
       color = typing_effect_rgb(value.at("colors").front().get<std::string>());
     settings = resolve_typing_effect_settings(static_cast<uint32_t>((std::max)(0.0, intensity)), duration, color);
+    // 火花轮流取的颜色：读得懂的 #RRGGBB 按顺序留下，读不懂的跳过，和 macOS 的 applySettings: 一样。
+    uint32_t colors[typing_effect_max_colors] = {};
+    size_t count = 0;
+    if (value.contains("colors") && value.at("colors").is_array())
+      for (const auto &entry : value.at("colors"))
+        if (count < typing_effect_max_colors && entry.is_string())
+          if (const auto rgb = typing_effect_rgb(entry.get<std::string>()))
+            colors[count++] = *rgb;
+    std::optional<uint32_t> particles;
+    if (value.contains("particles") && value.at("particles").is_number())
+      // 先夹到 0-64 再换成整数：超出 uint32_t 的浮点数直接转换是未定义行为。
+      particles = static_cast<uint32_t>((std::min)(static_cast<double>(typing_effect_max_particles),
+                                                   (std::max)(0.0, value.at("particles").get<double>())));
+    palette = resolve_typing_effect_palette(colors, count, particles);
   } catch (...) {
     settings = TypingEffectSettings{};
+    palette = TypingEffectPalette{};
   }
   typing_effect_settings_ = settings;
+  typing_effect_palette_ = palette;
 }
 void ServerSession::set_music_active(bool active) {
   check_thread();

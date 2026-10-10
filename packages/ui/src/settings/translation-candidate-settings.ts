@@ -21,6 +21,8 @@ export interface CandidateTranslationSettingsOptions {
   macos: boolean;
   harmony: boolean;
   linux: boolean;
+  /** Windows 的候选窗把每种目标语言的释义画成一行，所以也显示「第二种候选语言」；Server 的翻译线程会问水杉账号，所以翻译服务里也列出「水杉账号」。 */
+  windows?: boolean;
   translationAccount: boolean;
   onPreferencesChange: (patch: Partial<Preferences>) => void;
   onDeviceMissingLanguages: readonly (readonly [string, string])[];
@@ -44,6 +46,7 @@ export function createCandidateTranslationSettings({
   macos,
   harmony,
   linux,
+  windows = false,
   translationAccount,
   onPreferencesChange,
   onDeviceMissingLanguages,
@@ -60,7 +63,7 @@ export function createCandidateTranslationSettings({
     candidateGlossLanguagesEnabled,
     visibleLanguages: visibleTranslationLanguages,
     visibleSecondaryLanguages,
-    showSecondaryLanguage: android || ios || macos || harmony,
+    showSecondaryLanguage: android || ios || macos || harmony || windows,
     showAccountTranslation: android,
     accountTranslation: translationAccount,
     onEnabledChange: (enabled) => onPreferencesChange({ candidate_translations: enabled }),
@@ -77,7 +80,7 @@ export function createCandidateTranslationSettings({
     onError,
     showTranslationService: !android,
     translationProvider,
-    showAccountProvider: macos || linux,
+    showAccountProvider: macos || linux || windows,
     onTranslationProviderChange: setTranslationProvider,
   };
 }

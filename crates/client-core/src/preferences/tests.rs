@@ -493,6 +493,38 @@ fn app_logo_starts_hidden_but_an_upgraded_document_keeps_it() {
 }
 
 #[test]
+fn shuangpin_keymap_hint_stays_out_of_the_document_until_chosen() {
+    let defaults = Preferences::default();
+    assert_eq!(defaults.shuangpin_keymap_hint, None);
+    // 没选过时不写进文档，macOS 才分得出「从没选过」和「选了关」，前者仍读本机 defaults 里的旧选择。
+    let serialized = serde_json::to_value(&defaults).unwrap();
+    assert!(serialized.get("shuangpin_keymap_hint").is_none());
+    assert_eq!(
+        serde_json::from_value::<Preferences>(serialized)
+            .unwrap()
+            .shuangpin_keymap_hint,
+        None
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let chosen = Preferences {
+        shuangpin_keymap_hint: Some(false),
+        ..defaults
+    };
+    store.save(0, chosen).unwrap();
+    // 选了关也是一个选择，照样存下来，免得 macOS 退回去读旧的开。
+    assert_eq!(
+        store.load().unwrap().preferences.shuangpin_keymap_hint,
+        Some(false)
+    );
+    assert_eq!(
+        serde_json::to_value(store.load().unwrap().preferences).unwrap()["shuangpin_keymap_hint"],
+        false
+    );
+}
+
+#[test]
 fn cloud_candidates_start_off_but_an_upgraded_document_keeps_them() {
     let defaults = Preferences::default();
     assert!(!defaults.cloud_candidates);
@@ -1278,6 +1310,131 @@ fn game_compatibility_process_names_are_validated() {
     assert!(matches!(
         store.save(0, rejected),
         Err(PreferencesError::InvalidGameCompatibility)
+    ));
+    assert!(!store.path().exists());
+}
+
+#[test]
+fn app_input_mode_rules_stay_out_of_the_document_until_written() {
+    // 没有规则时不写这个键，没有它的旧版本照样能读；缺这个键的文档读成空表。
+    let serialized = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(serialized.get("app_input_mode_rules").is_none());
+    assert!(Preferences::default().app_input_mode_rules.is_empty());
+
+    // macOS 的 bundle id 和 Windows 的进程基名放在同一张表里，保存再读回原样不变。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut chosen = Preferences::default();
+    chosen
+        .app_input_mode_rules
+        .insert("com.apple.Terminal".into(), AppInputModeRule::English);
+    chosen
+        .app_input_mode_rules
+        .insert("code.exe".into(), AppInputModeRule::English);
+    chosen
+        .app_input_mode_rules
+        .insert("wechat.exe".into(), AppInputModeRule::Chinese);
+    let written = serde_json::to_value(&chosen).unwrap();
+    assert_eq!(
+        written["app_input_mode_rules"],
+        serde_json::json!({
+            "code.exe": "english",
+            "com.apple.Terminal": "english",
+            "wechat.exe": "chinese",
+        })
+    );
+    store.save(0, chosen.clone()).unwrap();
+    assert_eq!(
+        store.load().unwrap().preferences.app_input_mode_rules,
+        chosen.app_input_mode_rules
+    );
+    assert!(chosen
+        .restored_to_defaults()
+        .app_input_mode_rules
+        .is_empty());
+
+    // 模式只认 chinese 和 english。
+    let mut value = serialized;
+    value["app_input_mode_rules"] = serde_json::json!({ "code.exe": "global" });
+    assert!(serde_json::from_value::<Preferences>(value).is_err());
+}
+
+#[test]
+fn app_input_mode_rule_identifiers_are_validated() {
+    let invalid: [fn(&mut std::collections::BTreeMap<String, AppInputModeRule>); 8] = [
+        |rules| {
+            rules.insert(String::new(), AppInputModeRule::English);
+        },
+        |rules| {
+            rules.insert(" code.exe".into(), AppInputModeRule::English);
+        },
+        |rules| {
+            rules.insert(
+                r"C:\Program Files\code.exe".into(),
+                AppInputModeRule::English,
+            );
+        },
+        |rules| {
+            rules.insert("apps/code".into(), AppInputModeRule::English);
+        },
+        |rules| {
+            rules.insert("code\n.exe".into(), AppInputModeRule::English);
+        },
+        |rules| {
+            rules.insert(
+                "a".repeat(MAX_APP_INPUT_MODE_RULE_ID_BYTES + 1),
+                AppInputModeRule::English,
+            );
+        },
+        // Windows 不分大小写地比较进程名，只差大小写的两条会让同一个进程拿到两种模式。
+        |rules| {
+            rules.insert("Code.exe".into(), AppInputModeRule::English);
+            rules.insert("code.exe".into(), AppInputModeRule::Chinese);
+        },
+        |rules| {
+            for index in 0..=MAX_APP_INPUT_MODE_RULES {
+                rules.insert(format!("app{index}.exe"), AppInputModeRule::English);
+            }
+        },
+    ];
+    for (index, change) in invalid.into_iter().enumerate() {
+        let mut preferences = Preferences::default();
+        change(&mut preferences.app_input_mode_rules);
+        assert!(
+            matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidAppInputModeRules)
+            ),
+            "{index}"
+        );
+    }
+
+    // 恰好上限的条数和字节数、带空格和非 ASCII 字符的程序名都合法。
+    let mut preferences = Preferences::default();
+    for index in 0..MAX_APP_INPUT_MODE_RULES - 2 {
+        preferences
+            .app_input_mode_rules
+            .insert(format!("app{index}.exe"), AppInputModeRule::Chinese);
+    }
+    preferences.app_input_mode_rules.insert(
+        "a".repeat(MAX_APP_INPUT_MODE_RULE_ID_BYTES),
+        AppInputModeRule::English,
+    );
+    preferences
+        .app_input_mode_rules
+        .insert("微信 beta.exe".into(), AppInputModeRule::English);
+    assert!(preferences.validate().is_ok());
+
+    // 拒绝的文档不会被保存。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut rejected = Preferences::default();
+    rejected
+        .app_input_mode_rules
+        .insert("apps/code".into(), AppInputModeRule::English);
+    assert!(matches!(
+        store.save(0, rejected),
+        Err(PreferencesError::InvalidAppInputModeRules)
     ));
     assert!(!store.path().exists());
 }

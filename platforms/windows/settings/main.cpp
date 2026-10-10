@@ -2,6 +2,7 @@
 #include <windows.h>
 
 #include <shellapi.h>
+#include <shobjidl_core.h>
 #include "../common/StateDirectory.h"
 #undef GetCurrentTime
 #undef GetObject
@@ -28,6 +29,8 @@
 #include "CandidatePalette.h"
 #include "CandidateWindowStyle.h"
 #include "GameProcessList.h"
+#include "AppInputModeRuleList.h"
+#include "SettingsDocumentFile.h"
 #include "SettingsNavigation.h"
 #include "SettingsStateDirectory.h"
 #include "ShellLauncher.h"
@@ -2489,6 +2492,122 @@ private:
       show_notice(L"无法打开数据目录：" + folder.wstring());
   }
 
+  // 安装器随包装入的第三方组件许可声明，用系统关联的程序（通常是记事本）打开。
+  void open_third_party_notices() {
+    const auto notices = msime::settings::third_party_notices_path(shell_executable());
+    std::error_code error;
+    if (notices.empty() || !std::filesystem::is_regular_file(notices, error)) {
+      show_notice(L"找不到第三方组件许可声明。请重新安装输入法后再试。");
+      return;
+    }
+    const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(
+        nullptr, L"open", notices.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+    if (result <= 32)
+      show_notice(L"无法打开第三方组件许可声明：" + notices.wstring());
+  }
+
+  // 「导出设置」「导入设置」的文件对话框：Windows 自己的保存或打开对话框，只列 .json。用户取消或对话框打不开时返回空。
+  std::optional<std::filesystem::path> pick_settings_file(bool save) {
+    com_ptr<IFileDialog> dialog;
+    if (FAILED(CoCreateInstance(save ? CLSID_FileSaveDialog : CLSID_FileOpenDialog,
+                                nullptr, CLSCTX_INPROC_SERVER,
+                                IID_PPV_ARGS(dialog.put()))))
+      return std::nullopt;
+    const COMDLG_FILTERSPEC filter{L"设置文件 (*.json)", L"*.json"};
+    dialog->SetFileTypes(1, &filter);
+    dialog->SetDefaultExtension(L"json");
+    dialog->SetTitle(save ? L"导出设置" : L"导入设置");
+    dialog->SetOkButtonLabel(save ? L"导出" : L"导入");
+    if (save)
+      dialog->SetFileName(MSIME_EDITION_DISPLAY_NAME L"设置.json");
+    FILEOPENDIALOGOPTIONS options = 0;
+    if (SUCCEEDED(dialog->GetOptions(&options)))
+      dialog->SetOptions(options | FOS_FORCEFILESYSTEM |
+                         (save ? FOS_OVERWRITEPROMPT : FOS_FILEMUSTEXIST));
+    // 点击按钮时本窗口就是这个线程的活动窗口，对话框以它为所有者，模态地挡住设置窗口。
+    if (dialog->Show(GetActiveWindow()) != S_OK)
+      return std::nullopt;
+    com_ptr<IShellItem> item;
+    if (FAILED(dialog->GetResult(item.put())))
+      return std::nullopt;
+    PWSTR raw = nullptr;
+    if (FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw)) || !raw)
+      return std::nullopt;
+    std::filesystem::path chosen(raw);
+    CoTaskMemFree(raw);
+    return chosen;
+  }
+
+  // 导出的是已经保存的设置：先把还在等待的滑块修改存下，再由 host-api 读出并换算成设置文件。
+  void export_settings() {
+    flush_pending();
+    const auto directory = state_directory();
+    if (directory.empty()) {
+      show_notice(L"找不到水杉输入法的数据目录。请先完成输入法安装。");
+      return;
+    }
+    const auto target = pick_settings_file(true);
+    if (!target)
+      return;
+    const auto path = path_utf8(directory);
+    auto response = take_response(msime_client_export_settings(
+        reinterpret_cast<const uint8_t *>(path.data()), path.size()));
+    std::string contents;
+    if (response.ok) {
+      try {
+        contents = utf8(
+            JsonObject::Parse(text(response.text)).GetNamedString(L"value"));
+      } catch (...) {
+        response.ok = false;
+      }
+    }
+    if (!response.ok) {
+      show_notice(L"导出设置未能完成：无法读取当前设置。");
+      return;
+    }
+    if (!msime::settings::write_settings_document(*target, contents)) {
+      show_notice(L"导出设置未能完成：无法写入所选位置。");
+      return;
+    }
+    show_notice(L"设置已导出到 " + target->wstring() + L"。", InfoBarSeverity::Success);
+  }
+
+  // 导入按本窗口读到的修订号比较并交换写回，与每个控件的保存一样；别处刚改过设置时拒绝导入，什么也不写。
+  void import_settings() {
+    flush_pending();
+    const auto directory = state_directory();
+    if (directory.empty()) {
+      show_notice(L"找不到水杉输入法的数据目录。请先完成输入法安装。");
+      return;
+    }
+    const auto source = pick_settings_file(false);
+    if (!source)
+      return;
+    const auto contents = msime::settings::read_settings_document(*source);
+    if (!contents) {
+      show_notice(L"无法导入这个文件：读取失败，或者文件太大，不是水杉输入法导出的设置文件。");
+      return;
+    }
+    const auto path = path_utf8(directory);
+    auto response = take_response(msime_client_import_settings(
+        reinterpret_cast<const uint8_t *>(path.data()), path.size(),
+        document_.revision(), reinterpret_cast<const uint8_t *>(contents->data()),
+        contents->size()));
+    // 成功时控件要显示导入后的设置，修订号冲突时要换成别处刚存下的设置，所以两种情况都重新读取。
+    reload_document();
+    if (!response.ok) {
+      std::string code;
+      try {
+        code = utf8(JsonObject::Parse(text(response.text)).GetNamedString(L"error", L""));
+      } catch (...) {
+      }
+      show_notice(msime::settings::settings_import_error_message(code));
+      return;
+    }
+    show_notice(L"设置已导入并立即生效。本机的服务配置与密钥、诊断日志、使用统计和剪贴板历史开关保持不变。",
+                InfoBarSeverity::Success);
+  }
+
   static void copy_text(std::wstring const &value) {
     Windows::ApplicationModel::DataTransfer::DataPackage package;
     package.SetText(hstring(value));
@@ -2848,10 +2967,23 @@ private:
     slider_row(look, 0xE7B3, L"不透明度", L"只淡化候选框的底色和边框，文字保持清晰（50–100%）",
                L"candidate_opacity_percent", 50, 100, 100, 5, L"%");
     corner_radius_row(look);
+    // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::app_logo`）：新装默认关，缺值读成关。
+    bool_row(look, 0xE790, L"显示水杉 logo", L"在候选窗和悬浮工具栏左端显示水杉图标。",
+             L"show_app_logo", false);
 
     auto preedit = add_group(page, L"预编辑");
     select_row(preedit, 0xE70F, L"候选窗口预编辑", L"", L"candidate_preedit_style",
                {{L"pinyin", L"拼音分词"}, {L"empty", L"不显示"}}, L"pinyin", true);
+    // 与共享设置「候选窗口」页的「双拼预编辑」相同：偏好是布尔值 shuangpin_preedit_uses_raw，这里按原始按键 / 拼音分词两项给出，缺省是原始按键。
+    add_row(preedit, 0xE8AB, L"双拼预编辑",
+            L"仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。",
+            select_control(L"双拼预编辑", {{L"raw", L"原始按键"}, {L"pinyin", L"拼音分词"}},
+                           document_.Boolean(L"shuangpin_preedit_uses_raw", true) ? L"raw" : L"pinyin",
+                           [this](std::wstring const &value) {
+                             change([&](PreferencesDocument &doc) {
+                               doc.SetBoolean(L"shuangpin_preedit_uses_raw", value == L"raw");
+                             }, false);
+                           }));
     select_row(preedit, 0xE8D2, L"行内预编辑", L"", L"tsf_preedit_style",
                {{L"raw", L"原始按键"}, {L"pinyin", L"拼音分词"}, {L"empty", L"不显示"}},
                L"raw");
@@ -2883,6 +3015,136 @@ private:
             overridden ? L"已覆盖皮肤包的圆角，点“默认”恢复跟随皮肤"
                 : L"跟随皮肤；设定后会覆盖皮肤包的圆角（0–16pt）",
             box);
+  }
+
+  static const wchar_t *app_input_mode_rule_problem(nav::AppInputModeRuleError error) {
+    switch (error) {
+    case nav::AppInputModeRuleError::Empty:
+      return L"请填写程序文件名，例如 code.exe。";
+    case nav::AppInputModeRuleError::TooLong:
+      return L"程序文件名不能超过 64 个字节（一个汉字算 3 个字节）。";
+    case nav::AppInputModeRuleError::InvalidCharacter:
+      return L"程序文件名不能包含控制字符。";
+    case nav::AppInputModeRuleError::NotExe:
+      return L"程序文件名要以 .exe 结尾，例如 code.exe。";
+    case nav::AppInputModeRuleError::Duplicate:
+      return L"这个程序已经有例外了，在下面的列表里改它的模式即可。";
+    case nav::AppInputModeRuleError::TooMany:
+      return L"最多 32 个应用例外，请先移除不再需要的。";
+    }
+    return L"";
+  }
+
+  // 文档里的应用例外，复制成一份可以改的对象。共享偏好里同一张表也装着 macOS 的 bundle id，它们原样带过去，不在这里丢掉。
+  static JsonObject app_input_mode_rules_of(PreferencesDocument const &doc) {
+    JsonObject rules;
+    const auto stored = doc.Value(L"app_input_mode_rules");
+    if (stored && stored.ValueType() == JsonValueType::Object)
+      for (auto const &entry : stored.GetObject())
+        rules.SetNamedValue(entry.Key(), JsonValue::Parse(entry.Value().Stringify()));
+    return rules;
+  }
+
+  // 应用例外（`app_input_mode_rules`）：输入框加「添加」按钮，每条规则一行，可以选中文或英文、可以移除。新加的规则从中文开始，和 macOS 与共享设置页相同。写入前先按偏好库的规则规范化和校验（AppInputModeRuleList.h），不合法时在本行下面说明原因，不写入。
+  void app_input_mode_rule_row(StackPanel const &group) {
+    std::vector<std::pair<std::wstring, std::wstring>> rules;
+    for (auto const &entry : app_input_mode_rules_of(document_))
+      if (entry.Value().ValueType() == JsonValueType::String)
+        rules.emplace_back(std::wstring(entry.Key().c_str()),
+                           std::wstring(entry.Value().GetString().c_str()));
+    std::sort(rules.begin(), rules.end());
+    const auto set_rule = [this](std::wstring const &name,
+                                 std::optional<std::wstring> const &mode) {
+      change([&](PreferencesDocument &doc) {
+        auto current = app_input_mode_rules_of(doc);
+        if (mode)
+          current.SetNamedValue(hstring(name), JsonValue::CreateStringValue(hstring(*mode)));
+        else if (current.HasKey(hstring(name)))
+          current.Remove(hstring(name));
+        doc.SetValue(L"app_input_mode_rules", current);
+      }, true);
+    };
+    InfoBar problem;
+    problem.IsOpen(false);
+    problem.IsClosable(true);
+    problem.Severity(InfoBarSeverity::Error);
+    problem.Margin(Thickness{61, 0, 25, 16});
+    problem.Visibility(Visibility::Collapsed);
+    problem.Closed([](InfoBar const &sender, InfoBarClosedEventArgs const &) {
+      sender.Visibility(Visibility::Collapsed);
+    });
+    TextBox input;
+    input.Width(180);
+    input.PlaceholderText(L"例如 code.exe");
+    input.IsEnabled(loaded_);
+    A11y::SetName(input, L"应用例外的程序文件名");
+    StackPanel box;
+    box.Orientation(Orientation::Horizontal);
+    box.Spacing(8);
+    box.Children().Append(input);
+    box.Children().Append(button_control(
+        L"添加",
+        [this, set_rule, weak_input = make_weak(input), weak_problem = make_weak(problem)] {
+          auto field = weak_input.get();
+          if (!field)
+            return;
+          const auto name = nav::normalize_app_input_mode_rule(std::wstring_view(field.Text()));
+          std::vector<std::wstring> existing;
+          for (auto const &entry : app_input_mode_rules_of(document_))
+            existing.emplace_back(entry.Key().c_str());
+          if (const auto error = nav::validate_app_input_mode_rule(name, existing)) {
+            if (auto bar = weak_problem.get()) {
+              bar.Message(hstring(app_input_mode_rule_problem(*error)));
+              bar.Visibility(Visibility::Visible);
+              bar.IsOpen(true);
+            }
+            return;
+          }
+          set_rule(name, std::wstring(L"chinese"));
+        },
+        loaded_));
+    StackPanel below;
+    if (!rules.empty()) {
+      StackPanel list;
+      list.Spacing(4);
+      list.Margin(Thickness{61, 0, 25, 16});
+      for (auto const &rule : rules) {
+        const std::wstring name = rule.first;
+        const std::wstring mode = rule.second;
+        Grid item;
+        item.ColumnSpacing(16);
+        ColumnDefinition name_column;
+        name_column.Width(GridLength{1, GridUnitType::Star});
+        ColumnDefinition mode_column;
+        mode_column.Width(GridLength{1, GridUnitType::Auto});
+        ColumnDefinition action_column;
+        action_column.Width(GridLength{1, GridUnitType::Auto});
+        item.ColumnDefinitions().Append(name_column);
+        item.ColumnDefinitions().Append(mode_column);
+        item.ColumnDefinitions().Append(action_column);
+        auto label = make_text(name, 14, palette_.text);
+        label.VerticalAlignment(VerticalAlignment::Center);
+        Grid::SetColumn(label, 0);
+        item.Children().Append(label);
+        auto mode_select = select_control(
+            name + L" 的输入模式", {{L"chinese", L"中文"}, {L"english", L"英文"}}, mode,
+            [set_rule, name](std::wstring const &value) { set_rule(name, value); });
+        Grid::SetColumn(mode_select, 1);
+        item.Children().Append(mode_select);
+        auto remove_button = button_control(L"移除", [set_rule, name] {
+          set_rule(name, std::nullopt);
+        }, loaded_);
+        A11y::SetName(remove_button, hstring(L"移除 " + name));
+        Grid::SetColumn(remove_button, 2);
+        item.Children().Append(remove_button);
+        list.Children().Append(item);
+      }
+      below.Children().Append(list);
+    }
+    below.Children().Append(problem);
+    add_row(group, 0xE71D, L"应用例外",
+            L"切到这些程序时从指定的中文或英文开始，优先于上面的默认状态和记忆，「全局统一」下也生效；在程序里手动切换后，到下次切回这个程序之前不再套用。",
+            box, below);
   }
 
   static const wchar_t *game_process_problem(nav::GameProcessError error) {
@@ -3017,21 +3279,33 @@ private:
                       L"图标基准大小（像素），再乘以上方缩放",
                       L"floating_toolbar.font_size", {16, 18, 20, 22, 24, 26, 28},
                       24, L"");
-    const std::array<std::pair<const wchar_t *, const wchar_t *>, 7> components{{
-        {L"english_mode", L"英文输入模式"},
-        {L"fullwidth", L"全角 / 半角"},
-        {L"punctuation", L"中英文标点"},
-        {L"character_set", L"简繁切换"},
-        {L"emoji", L"表情与符号"},
-        {L"screen_keyboard", L"屏幕键盘"},
-        {L"settings", L"设置"},
+    // 顺序与工具栏上按钮的顺序一致；没写进文档时的默认值与 client-core 的 FloatingToolbarPreferences 相同：切换输入方案默认开，手写和语音默认关。
+    struct Component {
+      const wchar_t *id;
+      const wchar_t *label;
+      bool fallback;
+    };
+    const std::array<Component, 10> components{{
+        {L"english_mode", L"英文输入模式", true},
+        {L"input_scheme", L"切换输入方案", true},
+        {L"fullwidth", L"全角 / 半角", true},
+        {L"punctuation", L"中英文标点", true},
+        {L"character_set", L"简繁切换", true},
+        {L"emoji", L"表情与符号", false},
+        {L"handwriting", L"手写识别板", false},
+        {L"screen_keyboard", L"屏幕键盘", false},
+        {L"voice", L"语音输入", false},
+        {L"settings", L"设置", true},
     }};
     std::vector<Check> checks;
     checks.reserve(components.size() + 1);
     checks.push_back({L"中英文切换（始终显示）", true, [](bool) {}, false});
-    for (const auto &[id, label] : components) {
+    for (const auto &[id, label, fallback] : components) {
+      // 不提供手写的版本（日文、越南文和藏文版）工具栏上没有手写按钮，也不给它的开关。
+      if (std::wstring_view(id) == L"handwriting" && MSIME_EDITION_HANDWRITING == 0)
+        continue;
       const std::wstring key = std::wstring(L"floating_toolbar.") + id;
-      checks.push_back({label, document_.Boolean(key, false), [this, key](bool on) {
+      checks.push_back({label, document_.Boolean(key, fallback), [this, key](bool on) {
                           change([&](PreferencesDocument &doc) {
                             doc.SetBoolean(key, on);
                           }, false);
@@ -3060,11 +3334,16 @@ private:
     add_row(schemes, 0xE765, L"输入方案",
             L"全拼、双拼、五笔、粤拼、注音、日语、韩语、越南语、藏文或笔画。粤拼、注音和笔画需要安装对应词库，未安装时沿用上次的中文方案", segmented_control(
         L"输入方案", scheme_options, scheme, [this](std::wstring const &next) { select_scheme(next); }));
-    if (scheme == L"shuangpin" || indexing_)
+    if (scheme == L"shuangpin" || indexing_) {
       select_row(schemes, 0xE8AB, L"双拼方案", L"", L"shuangpin_profile",
                  {{L"xiaohe", L"小鹤双拼"}, {L"ziranma", L"自然码双拼"},
                   {L"microsoft", L"微软双拼"}, {L"shoudao", L"首道双拼"}},
                  L"xiaohe");
+      // 共享偏好 shuangpin_keymap_hint，与共享设置的同名开关相同；没选过时文档里没有这一项，按关显示。
+      bool_row(schemes, 0xE765, L"输入时显示双拼键位提示",
+               L"双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。",
+               L"shuangpin_keymap_hint", false);
+    }
     if (scheme == L"vietnamese" || indexing_) {
       segment_row(schemes, 0xE8AB, L"越南语输入法", L"Telex 用字母打声调和变音，VNI 用数字键",
                   L"vietnamese.input_method", {{L"telex", L"Telex"}, {L"vni", L"VNI"}}, L"telex");
@@ -3098,6 +3377,10 @@ private:
                 L"按应用分别记忆输入状态，或让所有输入上下文保持同一状态",
                 L"ime_mode_scope", {{L"app", L"按应用记忆"}, {L"global", L"全局统一"}},
                 L"app");
+    bool_row(language, 0xE946, L"中英文切换提示",
+             L"切换输入模式后，在光标附近短暂显示“中”或“英”，不会抢占焦点。",
+             L"input_mode_hud", true);
+    app_input_mode_rule_row(language);
 
     auto word = add_group(page, L"选词与翻页");
     const bool word_enabled = document_.Boolean(L"word_character.enabled", false);
@@ -3327,7 +3610,13 @@ private:
     auto gloss = add_group(page, L"多语言与释义");
     bool_row(gloss, 0xE82D, L"显示英文释义",
              L"在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。",
-             L"candidate_english_gloss", false);
+             L"candidate_english_gloss", false, true);
+    // 与共享设置「标点与翻译」页的「显示读音」相同，释义打开（英文释义或候选词翻译）时才可选。日文罗马音由系统的微软日语输入法（IFELanguage）读出，没有它时只读纯假名的释义。
+    bool_row(gloss, 0xE8D4, L"显示读音",
+             L"在释义后面标出怎么读：英文释义给音标，日文释义给罗马音。音标来自随输入法打包的离线词表，罗马音由系统生成，都不联网。需要先打开释义。",
+             L"candidate_pronunciation", false, false,
+             document_.Boolean(L"candidate_english_gloss", false) ||
+                 document_.Boolean(L"candidate_translations", false));
 
     auto candidates = add_group(page, L"候选词翻译");
     const bool translations = document_.Boolean(L"candidate_translations", false);
@@ -3338,6 +3627,30 @@ private:
                {{L"en", L"英语"}, {L"fr", L"法语"}, {L"ja", L"日语"}, {L"es", L"西班牙语"},
                 {L"ru", L"俄语"}, {L"de", L"德语"}, {L"ko", L"韩语"}},
                L"en", false, translations);
+    // 第二种语言：候选窗在第一种语言下面再画一行。和共享设置页一样，翻译或英文释义打开时可选，「不显示第二种语言」写回 null。
+    {
+      const bool glosses =
+          translations || document_.Boolean(L"candidate_english_gloss", false);
+      add_row(candidates, 0xE774, L"第二种语言", L"候选词下方可同时显示第二种释义",
+              select_control(L"第二种语言",
+                             {{L"", L"不显示第二种语言"}, {L"en", L"英语"}, {L"fr", L"法语"},
+                              {L"ja", L"日语"}, {L"es", L"西班牙语"}, {L"ru", L"俄语"},
+                              {L"de", L"德语"}, {L"ko", L"韩语"}},
+                             document_.String(L"translation_secondary_language", L""),
+                             [this](std::wstring const &value) {
+                               change([&](PreferencesDocument &doc) {
+                                 if (value.empty())
+                                   doc.SetValue(L"translation_secondary_language",
+                                                JsonValue::CreateNullValue());
+                                 else
+                                   doc.SetString(L"translation_secondary_language", value);
+                               }, false);
+                             },
+                             glosses));
+    }
+    shell_row(candidates, 0xE774, L"翻译服务",
+              L"在水杉输入法应用的「标点与翻译」中选择水杉账号、腾讯云、小牛翻译或自定义接口，后三种需要填写凭据",
+              L"打开", nav::shell_links::expression);
   }
 
   void fuzzy_row(StackPanel const &group) {
@@ -3416,10 +3729,13 @@ private:
                            }));
     bool_row(keys, 0xE8C1, L"Ctrl+Shift+F 切换繁体输出", L"在简体与繁体输出之间切换",
              L"keybindings.toggle_character_set_ctrl_shift_f", true);
+    bool_row(keys, 0xE8D3, L"Alt+Shift+H 切换全半角",
+             L"中文模式下切换全角与半角。关掉后这个组合键交给应用处理；工具栏的全半角开关和 Ctrl+Shift+Space 不受影响。",
+             L"keybindings.toggle_fullwidth_option_shift_h", true);
 
     auto reset = add_group(page, L"");
     add_row(reset, 0xE72C, L"恢复默认快捷键",
-            L"切换中英文和 Ctrl+Shift+F 恢复为默认设置",
+            L"切换中英文、Ctrl+Shift+F 和 Alt+Shift+H 恢复为默认设置",
             button_control(L"恢复默认",
                            [this] {
                              change([](PreferencesDocument &doc) {
@@ -3531,10 +3847,22 @@ private:
              L"排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。",
              L"diagnostic_log.tsf", false);
     const auto directory = state_directory();
+    // 数据目录登记在安装器写的 HKLM DataDir 里（common/StateDirectory.h），32 位和 64 位 TSF DLL 与 Server 都按它解析状态根，改它要管理员权限，搬迁时还要先停掉 Server 和看门狗；这些安装器都已经做了（「选择数据位置」一步、MigrateUserDataDir 只复制、安装成功后 FinishDataDirMove 才删旧目录），所以这里指向安装器，而不是在设置窗口里另做一套搬迁。
     add_row(diagnostics, 0xE838, L"数据目录",
-            directory.empty() ? L"未找到数据目录" : directory.wstring(),
+            directory.empty()
+                ? std::wstring(L"未找到数据目录")
+                : directory.wstring() +
+                      L"\n要移到其他磁盘，请下载完整安装包重新安装，在「选择数据位置」一步选一个空文件夹；词库、学习记录、皮肤和设置会自动迁移过去，旧目录随后删除。",
             button_control(L"打开", [this, directory] { open_folder(directory); },
                            !directory.empty()));
+
+    auto settings_file = add_group(page, L"设置文件");
+    add_row(settings_file, 0xEDE1, L"导出设置",
+            L"把当前设置保存为文件，换电脑或重装后可以导入。语音、AI 辅助和翻译服务的配置与密钥、诊断日志、使用统计和剪贴板历史开关只属于本机，不写进文件；词库和学习记录也不在其中。",
+            button_control(L"导出…", [this] { export_settings(); }, loaded_));
+    add_row(settings_file, 0xE8B5, L"导入设置",
+            L"用导出的设置文件替换当前设置，立即生效。本机的服务配置与密钥、诊断日志、使用统计和剪贴板历史开关保持不变。",
+            button_control(L"导入…", [this] { import_settings(); }, loaded_));
 
     auto mcp = add_group(page, L"连接 AI 助手");
     record(L"连接 AI 助手", L"MCP msime-mcp Claude Desktop Cursor");
@@ -3583,7 +3911,8 @@ private:
       StackPanel names;
       names.Spacing(4);
       names.VerticalAlignment(VerticalAlignment::Center);
-      auto product = make_text(L"水杉输入法", 20, palette_.text);
+      // 产品名按版本取，与窗口标题和侧栏一致；full 仍是「水杉输入法」。
+      auto product = make_text(MSIME_EDITION_DISPLAY_NAME, 20, palette_.text);
       product.FontWeight(Windows::UI::Text::FontWeight{600});
       names.Children().Append(product);
       names.Children().Append(make_text(L"© 2026 Metasequoia", 12, palette_.faint));
@@ -3636,6 +3965,8 @@ private:
     url_row(privacy, 0xEA18, L"隐私政策", L"设置保存到当前输入法数据目录，详细说明见隐私政策。",
             L"查看", privacy_url);
     url_row(privacy, 0xE8A5, L"开源许可协议", L"水杉输入法的开源许可证", L"查看", license_url);
+    add_row(privacy, 0xE8A5, L"第三方组件许可", L"随安装包提供的第三方组件许可声明",
+            button_control(L"查看", [this] { open_third_party_notices(); }));
   }
 
   // ---- 连接 AI 助手 ----

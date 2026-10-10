@@ -32,6 +32,33 @@ int main() {
     check(PairedPunctuationStepOverCandidate(L'(', L"（") == 0, "opening half never steps over");
     check(PairedPunctuationStepOverCandidate(L'^', L"……") == 0, "multi-character output never steps over");
     check(PairedPunctuationStepOverCandidate(L')', L"") == 0, "empty output never steps over");
+    check(PairedPunctuationStepOverCandidate(L'}', L"}", true) == L'｝', "full-width brace pair is stepped over by its full-width half");
+    check(PairedPunctuationStepOverCandidate(L'}', L"}", false) == L'}', "half-width brace pair keeps its ASCII half");
+    check(PairedPunctuationStepOverCandidate(L')', L"）", true) == L'）', "full width changes only the brace");
+    check(PairedPunctuationStepOverCandidate(L'x', L"」") == L'」', "corner bracket closing half steps over");
+
+    // 成对表：与 macOS 的 MSIMEPunctuationPairs 一致，另含按键才补的 {} 与全角 ｛｝。
+    check(PairedPunctuationClosingFor(L'（') == L'）', "paren pair");
+    check(PairedPunctuationClosingFor(L'「') == L'」', "corner bracket pair");
+    check(PairedPunctuationClosingFor(L'｛') == L'｝', "full-width brace pair");
+    check(PairedPunctuationClosingFor(L'{') == L'}', "ascii brace pair");
+    check(PairedPunctuationClosingFor(L'“') == L'”', "double quote pair");
+    check(PairedPunctuationClosingFor(L'。') == 0, "full stop is not an opening");
+    check(PairedPunctuationClosingFor(L'）') == 0, "closing half is not an opening");
+
+    // 候选上屏只在整条文字恰好是一个左半边时补全，花括号只由按键补全。
+    check(PairedPunctuationClosingForCandidate(L"「") == L'」', "corner bracket candidate opens a pair");
+    check(PairedPunctuationClosingForCandidate(L"《") == L'》', "book title candidate opens a pair");
+    check(PairedPunctuationClosingForCandidate(L"‘") == L'’', "single quote candidate opens a pair");
+    check(PairedPunctuationClosingForCandidate(L"{") == 0, "ascii brace candidate stays alone");
+    check(PairedPunctuationClosingForCandidate(L"｛") == 0, "full-width brace candidate stays alone");
+    check(PairedPunctuationClosingForCandidate(L"你好（") == 0, "a phrase ending in an opening mark stays as it is");
+    check(PairedPunctuationClosingForCandidate(L"") == 0, "empty commit opens nothing");
+
+    // 全角模式下 `{` 键开的是 ｛，其余按键与半角时不变。
+    check(PairedPunctuationKeyOpening(L'{', L'{', true) == L'｛', "full-width brace key opens a full-width pair");
+    check(PairedPunctuationKeyOpening(L'{', L'{', false) == L'{', "half-width brace key keeps the ASCII brace");
+    check(PairedPunctuationKeyOpening(L'(', L'（', true) == L'（', "full width leaves other keys alone");
 
     // Candidate navigation keeps paging on the main-row -/= and Tab, but not on the numpad arithmetic keys.
     check(IsCandidateNavigationKeyBeforePunctuation(0xBD), "main-row minus pages");

@@ -42,14 +42,14 @@ export interface InputSchemeSettingsContentProps {
   inputSchemes?: readonly InputScheme[];
   /** 运行中的版本（`HostCapabilities.edition`），不是 full 时才有：本版本没有的方案和触屏键盘不列出，只有一个方案时隐藏方案选择。 */
   edition?: EditionInfo;
-  macosShuangpinKeymap?: boolean;
+  /** 「输入时显示双拼键位提示」的当前值，宿主不画双拼键位图时不传；改动写进共享偏好 `shuangpin_keymap_hint`。 */
+  shuangpinKeymapHint?: boolean;
   /** macOS 的输入法列表；有它时在方案组末尾显示「菜单栏入口」。 */
   macosInputModes?: MacosInputModesClient;
   onError?: (message: string) => void;
   onPreferencesChange: (patch: Partial<Preferences>) => void;
   onSelectTouchKeyboardScheme: (scheme: TouchKeyboardScheme) => void;
   onToggleTouchKeyboardScheme: (scheme: TouchKeyboardScheme, enabled: boolean) => void;
-  onMacosShuangpinKeymapChange: (enabled: boolean) => void;
   /** 宿主提供按需资源包时传入（目前只有 macOS）：选用日文、粤拼、注音或笔画会照常保存方案并开始下载对应词库，下载完成前运行时按缺少词库回退。 */
   resourcePacks?: ResourcePacks;
   /** HarmonyOS 手机把触屏方案画成「语言与方案」卡片，而不是每个方案一个开关，余下的方案选项收在其下方的「更多选项」折叠区里。仅在 `hasTouchKeyboardSchemes` 时生效。 */
@@ -67,13 +67,12 @@ export function InputSchemeSettingsContent({
   macos,
   inputSchemes = baseInputSchemes,
   edition,
-  macosShuangpinKeymap,
+  shuangpinKeymapHint,
   macosInputModes,
   onError = () => {},
   onPreferencesChange,
   onSelectTouchKeyboardScheme,
   onToggleTouchKeyboardScheme,
-  onMacosShuangpinKeymapChange,
   resourcePacks,
   languageCard = false,
   onEnableAndSelectTouchKeyboardScheme = onSelectTouchKeyboardScheme,
@@ -211,12 +210,14 @@ export function InputSchemeSettingsContent({
         macos={macos}
         hasTouchKeyboardSchemes={hasTouchKeyboardSchemes}
         touchKeyboardHasWubi={touchHasWubi}
-        macosShuangpinKeymap={macosShuangpinKeymap}
+        shuangpinKeymapHint={shuangpinKeymapHint}
         onShuangpinProfileChange={(shuangpin_profile: ShuangpinProfile) =>
           onPreferencesChange({ shuangpin_profile })
         }
         onWubiProfileChange={(wubi_profile: WubiProfile) => onPreferencesChange({ wubi_profile })}
-        onMacosShuangpinKeymapChange={onMacosShuangpinKeymapChange}
+        onShuangpinKeymapHintChange={(shuangpin_keymap_hint) =>
+          onPreferencesChange({ shuangpin_keymap_hint })
+        }
         vietnamese={preferences.vietnamese}
         onVietnameseChange={(vietnamese) => onPreferencesChange({ vietnamese })}
       />

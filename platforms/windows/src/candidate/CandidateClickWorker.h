@@ -20,6 +20,8 @@ struct CandidatePage {
   uint64_t generation;
   bool previous;
   unsigned steps;
+  // 滚轮发起的翻页为 true，首行箭头为 false；Server 只对滚轮套「鼠标滚轮翻页」开关，见 candidate_page_allowed。
+  bool from_wheel = false;
 };
 // One worker and one outstanding click. No backlog/retries. Dependencies must
 // outlive stop(); cancel handler I/O before joining when necessary.

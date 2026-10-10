@@ -30,6 +30,8 @@ use serde_json::Value;
 mod account_preferences;
 
 #[cfg(target_os = "ios")]
+use crate::platform::community_resources::CommunityResourceState;
+#[cfg(target_os = "ios")]
 use crate::platform::mobile::mobile_community::MobileCommunityState;
 #[cfg(target_os = "ios")]
 use msime_client_core::account::{
@@ -109,6 +111,7 @@ pub fn setup(app: &AppHandle<Wry>) -> Result<(), AccountError> {
         IosAccountStorage(platform.clone()),
     ));
     let community = MobileCommunityState::new(client, &session)?;
+    let resources = CommunityResourceState::new(&session)?;
     let snapshot_directory =
         std::env::temp_dir().join(format!("msime-ios-tauri-snapshots-{}", std::process::id()));
     prepare_snapshot_directory(&snapshot_directory).map_err(|_| AccountError::Storage)?;
@@ -120,6 +123,7 @@ pub fn setup(app: &AppHandle<Wry>) -> Result<(), AccountError> {
         snapshot_previews: Arc::new(Mutex::new(HashMap::new())),
     });
     app.manage(community);
+    app.manage(resources);
     Ok(())
 }
 

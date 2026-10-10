@@ -56,7 +56,7 @@ export interface PluginsSectionProps {
   effectStyles?: boolean;
   /** The host draws an installed effect pack's style and parameters (`msime_client_typing_effect_settings`); only read where `effectStyles` is true. */
   effectPacks?: boolean;
-  /** The host draws every effect style as a flash of the candidate card, brighter for the stronger styles, and no sparks (Windows, HarmonyOS); only read where `effectStyles` is true. */
+  /** 宿主把每种特效样式都画成候选卡片闪一下，越强的样式闪得越亮，不画火花（HarmonyOS）；只在 `effectStyles` 为真时读取。 */
   effectFlashOnly?: boolean;
   /** 快捷短语（K 模式）是否打开：`local_modes.quick_phrase`；关闭时短语表详情提示去打开。 */
   quickPhraseMode?: boolean;

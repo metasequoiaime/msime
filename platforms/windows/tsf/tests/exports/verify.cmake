@@ -15,7 +15,7 @@ foreach(symbol DllGetClassObject DllCanUnloadNow DllRegisterServer DllUnregister
 endforeach()
 if(MODE STREQUAL "objdump")
   # RT_GROUP_ICON = 14: one group per original ICO, not one per bitmap size.
-  if(NOT exports MATCHES "Entry: ID: 0x00000e[^\n]*\n[^\n]*IDs: 15")
-    message(FATAL_ERROR "Expected fifteen embedded TSF icon groups")
+  if(NOT exports MATCHES "Entry: ID: 0x00000e[^\n]*\n[^\n]*IDs: 29")
+    message(FATAL_ERROR "Expected twenty-nine embedded TSF icon groups")
   endif()
 endif()

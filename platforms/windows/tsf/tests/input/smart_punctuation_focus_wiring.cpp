@@ -1,4 +1,5 @@
 // The focus sinks need the whole TSF to build, so this checks their source: like the reference, losing thread focus, a genuine focus-session handover and a top-context change must each clear the smart-punctuation action, so a queued repeated-punctuation rewrite cannot backspace into whatever gains focus next. Run from the repository root, or pass the TSF source directory.
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -17,7 +18,10 @@ std::string read(const std::string &path) {
     }
     std::ostringstream text;
     text << file.rdbuf();
-    return text.str();
+    // 下面有跨行的锚点：Git for Windows 默认 autocrlf 检出成 CRLF，读进来时去掉回车，换行一律按 LF 比较。
+    std::string content = text.str();
+    content.erase(std::remove(content.begin(), content.end(), '\r'), content.end());
+    return content;
 }
 
 // The text from `from` up to the next `to` after it, or empty when either is missing.

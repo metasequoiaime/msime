@@ -57,7 +57,8 @@ function Check-Removed([string]$Edition, [string]$When) {
 }
 function Uninstall([string]$Edition) {
     $uninstaller = Join-Path (Join-Path $env:ProgramFiles (Identity $Edition).install_dir) 'unins000.exe'
-    Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$logs\uninstall-$Edition.log`"" -Wait
+    # 卸载默认保留数据目录；这里带 /REMOVEDATA，核对删掉自己的数据目录时不会碰到别的版本和 msime-windows 的。
+    Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/REMOVEDATA', "/LOG=`"$logs\uninstall-$Edition.log`"" -Wait
     # 卸载程序会把自己复制到临时目录再运行并立即返回，所以等程序目录消失，而不是等进程。
     $deadline = (Get-Date).AddMinutes(3)
     while ((Test-Path -LiteralPath $uninstaller) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }

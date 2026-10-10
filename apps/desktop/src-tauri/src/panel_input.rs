@@ -1000,6 +1000,21 @@ pub(crate) fn record_panel_typing_statistics(
     let _ = store.record(text, source, &day, Some(now.hour()));
 }
 
+/// Windows 面板文字注入成功后计入打字统计，与 Linux 的 `deliver_panel_text` 一样在阻塞线程上写：统计文件要拿跨进程的文件锁，不能占着异步运行时的线程等。计数失败只丢这一次，不影响已经上屏的文字。
+#[cfg(target_os = "windows")]
+pub(crate) async fn record_windows_panel_typing_statistics(
+    store: &TypingStatisticsStore,
+    text: &str,
+    source: TypingSource,
+) {
+    let store = store.clone();
+    let text = text.to_owned();
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        record_panel_typing_statistics(&store, &text, source)
+    })
+    .await;
+}
+
 #[cfg(target_os = "linux")]
 pub(crate) async fn send_panel_text(
     app: tauri::AppHandle,

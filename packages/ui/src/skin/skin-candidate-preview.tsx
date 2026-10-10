@@ -80,7 +80,7 @@ export function SkinCandidatePreview({
   helpcode?: boolean;
   /** 只用来占位的那一份不带 `data-preview-layout`，读预览排布的地方只会找到实际样例。 */
   ghost?: boolean;
-  /** 画不画首行的水杉 logo。macOS 按 `show_app_logo` 隐藏它，拼音行也隐藏时首行整行不画，和候选窗一致。 */
+  /** 画不画首行的水杉 logo。macOS 和 Windows 按 `show_app_logo` 隐藏它，拼音行也隐藏时首行整行不画，和候选窗一致。 */
   brand?: boolean;
 }) {
   const horizontal = orientation === "horizontal";

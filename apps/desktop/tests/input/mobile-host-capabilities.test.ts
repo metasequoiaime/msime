@@ -15,7 +15,13 @@ test("cloud dictionary snapshots distinguish mobile queue and macOS native paths
   expect(cloudDictionaryCapabilities("android")).toEqual({ snapshot: true, snapshotNative: false });
   expect(cloudDictionaryCapabilities("ios")).toEqual({ snapshot: true, snapshotNative: false });
   expect(cloudDictionaryCapabilities("macos")).toEqual({ snapshot: true, snapshotNative: true });
+  // Windows 的设置应用用账号会话完成快照，走与移动端相同的非原生路径；队列也由面板自己处理，输入法不会在空闲时应用。
   expect(cloudDictionaryCapabilities("windows")).toEqual({
+    snapshot: true,
+    snapshotNative: false,
+    snapshotAppliesInPanel: true,
+  });
+  expect(cloudDictionaryCapabilities("linux")).toEqual({
     snapshot: false,
     snapshotNative: false,
   });

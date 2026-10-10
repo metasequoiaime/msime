@@ -52,3 +52,13 @@ test("offers the iOS voice entry when provided", () => {
   fireEvent.click(screen.getByRole("button", { name: "开始 iOS 语音" }));
   expect(onOpenVoice).toHaveBeenCalledOnce();
 });
+
+test("describes the Windows system recognizer as on-device and names the language pack", () => {
+  render(<VoiceInputIntroSection {...common} systemVoice systemVoiceHostName="Windows" />);
+
+  expect(screen.getByText("Windows 系统语音")).toBeTruthy();
+  expect(screen.getByText(/音频不会离开本机/)).toBeTruthy();
+  expect(screen.getByText(/语言和区域/)).toBeTruthy();
+  // macOS 的说明要人授予语音识别权限，Windows 的 SAPI 听写没有这一步。
+  expect(document.body.textContent).not.toMatch(/语音识别权限/);
+});

@@ -1,6 +1,7 @@
 //! Windows host integration.
 
 pub(crate) mod windows_account;
+pub(crate) mod windows_settings_sync;
 pub(crate) mod windows_voice;
 
 /// 启动时检查 Server 目录里的版本声明（`Edition::of_windows_package`）：声明了本构建不认识的版本、或者声明读不了的包不能当成 full 运行，否则它会去读写 full 的状态目录、叫 full 的 Server 重启。

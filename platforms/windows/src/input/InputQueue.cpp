@@ -1,5 +1,6 @@
 #include "InputQueue.h"
 #include "TerminalDeactivationPolicy.h"
+#include "CandidateWheel.h"
 
 namespace msime::windows {
 std::optional<PendingReply>
@@ -132,6 +133,15 @@ bool InputState::deactivate_terminal(uint64_t client, uint64_t token) {
           found != clients_.end() && found->second.session != nullptr))
     return false;
   return found->second.session->cancel_focus_token(token);
+}
+bool InputState::passthrough_key(uint64_t client, uint64_t token, uint32_t key_class) {
+  check_thread();
+  if (!client || !token || quiesced_)
+    return false;
+  const auto found = clients_.find(client);
+  if (found == clients_.end() || !found->second.session)
+    return false;
+  return found->second.session->passthrough_key(token, key_class);
 }
 void InputState::cleanup(const FocusRoute &route) {
   if (route.cleanup)
@@ -292,6 +302,12 @@ InputState::dedicated_english(const FocusLease &lease, bool exit) {
   auto *owner = session(lease.transport);
   return owner ? owner->dedicated_english(lease, exit) : std::nullopt;
 }
+std::optional<nlohmann::json>
+InputState::set_dedicated_english(const FocusLease &lease, bool enabled) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner ? owner->set_dedicated_english(lease, enabled) : std::nullopt;
+}
 bool InputState::cancel_composition(const FocusLease &lease) {
   check_thread();
   auto *owner = session(lease.transport);
@@ -360,9 +376,10 @@ InputState::update_preferences(const FocusLease &lease,
 }
 std::optional<nlohmann::json>
 InputState::page_candidate(const FocusLease &lease, uint64_t session,
-                           uint64_t generation, bool previous, unsigned steps) {
+                           uint64_t generation, bool previous, unsigned steps,
+                           bool from_wheel) {
   check_thread();
-  if (!navigation_.mouse_wheel)
+  if (!candidate_page_allowed(from_wheel, navigation_.mouse_wheel))
     return std::nullopt;
   auto *owner = this->session(lease.transport);
   return owner ? owner->page_candidate(lease, session, generation, previous,

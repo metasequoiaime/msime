@@ -14,10 +14,13 @@ int main() {
   static_assert(input_mode_code(InputMode::Vietnamese) == L'5');
   static_assert(input_mode_code(InputMode::Tibetan) == L'6');
   static_assert(input_mode_code(InputMode::Stroke) == L'7');
+  static_assert(input_mode_code(InputMode::Shuangpin) == L'8');
+  static_assert(input_mode_code(InputMode::Wubi) == L'9');
   for (const auto mode : {InputMode::Chinese, InputMode::Japanese, InputMode::Korean, InputMode::Cantonese,
-                          InputMode::Zhuyin, InputMode::Vietnamese, InputMode::Tibetan, InputMode::Stroke})
+                          InputMode::Zhuyin, InputMode::Vietnamese, InputMode::Tibetan, InputMode::Stroke,
+                          InputMode::Shuangpin, InputMode::Wubi})
     assert(input_mode_from_code(input_mode_code(mode)) == mode);
-  assert(input_mode_from_code(L'9') == InputMode::Chinese);
+  assert(input_mode_from_code(L':') == InputMode::Chinese);
   assert(input_mode_from_code(L'\0') == InputMode::Chinese);
 
   // Every configured scheme maps to the mode its view reports, and the mode back to a scheme with the same traits.
@@ -42,6 +45,11 @@ int main() {
   // 笔画有自己的模式：它的 trait 与全拼不同，TIP 不能把它当中文模式处理。
   assert(input_mode(Stroke) == InputMode::Stroke && mode_scheme(InputMode::Stroke) == Stroke);
   assert(input_mode("stroke") == InputMode::Stroke);
+  // 双拼和五笔的码只给语言栏图标用：TIP 仍按全拼键入它们，语言是中文。
+  assert(input_mode(Shuangpin) == InputMode::Shuangpin && mode_scheme(InputMode::Shuangpin) == Quanpin);
+  assert(input_mode(Wubi) == InputMode::Wubi && mode_scheme(InputMode::Wubi) == Quanpin);
+  assert(input_language(InputMode::Shuangpin) == InputLanguage::Chinese &&
+         input_language(InputMode::Wubi) == InputLanguage::Chinese);
 
   // The scheme that runs, as host-api's effective_scheme picks it: Cantonese, Zhuyin and Stroke need their dictionary, and without it the last Chinese scheme that can run takes over, then quanpin.
   constexpr LanguageDictionaryPresence none{};
@@ -150,12 +158,13 @@ int main() {
     assert(KeyboardOnlyCandidateList(scheme) == (scheme == Zhuyin));
   // Every mode code passes the TIP's frame check, the ones after Chinese and Japanese included, and so does a code from a newer Server, which reads as Chinese; an empty payload or one longer than a character does not.
   for (const auto mode : {InputMode::Chinese, InputMode::Japanese, InputMode::Korean, InputMode::Cantonese,
-                          InputMode::Zhuyin, InputMode::Vietnamese, InputMode::Tibetan, InputMode::Stroke}) {
+                          InputMode::Zhuyin, InputMode::Vietnamese, InputMode::Tibetan, InputMode::Stroke,
+                          InputMode::Shuangpin, InputMode::Wubi}) {
     const wchar_t payload[4] = {input_mode_code(mode), L'\0', L'\0', L'\0'};
     assert(is_input_mode_payload(payload, 4));
     assert(input_mode_from_code(payload[0]) == mode);
   }
-  const wchar_t newer[4] = {L'9', L'\0', L'\0', L'\0'};
+  const wchar_t newer[4] = {L':', L'\0', L'\0', L'\0'};
   assert(is_input_mode_payload(newer, 4) && input_mode_from_code(newer[0]) == InputMode::Chinese);
   const wchar_t empty[4] = {L'\0', L'\0', L'\0', L'\0'};
   const wchar_t longer[4] = {L'2', L'2', L'\0', L'\0'};

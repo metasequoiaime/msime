@@ -66,3 +66,37 @@ test("shows native platform provider options and language guidance", () => {
   expect(screen.getByText(/选择明确的语言代码/)).toBeTruthy();
   expect(screen.queryByRole("option", { name: "自动识别" })).toBeNull();
 });
+
+test("offers the Windows system recognizer on Windows only", () => {
+  const { rerender } = render(
+    <VoiceInputCoreSection
+      {...base}
+      provider="system"
+      language="zh-CN"
+      systemVoice
+      windows
+      nativeVoicePlatform
+      onEnabledChange={vi.fn()}
+      onProviderChange={vi.fn()}
+      onLanguageChange={vi.fn()}
+    />,
+  );
+
+  const option = screen.getByRole("option", { name: "Windows 系统识别" }) as HTMLOptionElement;
+  expect(option.disabled).toBe(false);
+  expect(screen.queryByRole("option", { name: "macOS 系统识别" })).toBeNull();
+  expect(screen.queryByRole("option", { name: "系统识别（当前平台不可用）" })).toBeNull();
+
+  // Linux 等没有系统识别器的宿主仍把存下的 system 显示为不可用。
+  rerender(
+    <VoiceInputCoreSection
+      {...base}
+      provider="system"
+      onEnabledChange={vi.fn()}
+      onProviderChange={vi.fn()}
+      onLanguageChange={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole("option", { name: "Windows 系统识别" })).toBeNull();
+  expect(screen.getByRole("option", { name: "系统识别（当前平台不可用）" })).toBeTruthy();
+});

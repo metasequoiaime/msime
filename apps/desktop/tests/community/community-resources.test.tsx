@@ -142,6 +142,17 @@ test("community home opens the requested resource collection", async () => {
   expect(screen.getByRole("tab", { name: "回复模板" }).getAttribute("aria-selected")).toBe("true");
 });
 
+test("a host without the skin gallery gets only the dictionary and reply categories", async () => {
+  const resources = client();
+  // Windows 的社区页：只有词包与回复模板，从「皮肤」入口进来时落到词库。
+  render(<CommunityHomePage resources={resources} theme="light" initialCategory="skin" />);
+  await waitFor(() => expect(resources.list).toHaveBeenCalledWith("dictionary", "", "", 0));
+  expect(screen.queryByRole("tab", { name: "皮肤" })).toBeNull();
+  expect(screen.getByRole("tab", { name: "词库" }).getAttribute("aria-selected")).toBe("true");
+  fireEvent.click(screen.getByRole("tab", { name: "回复模板" }));
+  await waitFor(() => expect(resources.list).toHaveBeenLastCalledWith("reply", "", "", 0));
+});
+
 test("resource scope also has a compact filter menu for mobile layouts", async () => {
   const list = vi.fn().mockResolvedValue({ items: [], has_more: false });
   render(<CommunityResourcesPage client={client({ list })} kind="reply" initialScope="saved" />);
@@ -387,6 +398,29 @@ test("reply details store an explicit local copy and never hide the prompt", asy
   expect(
     await screen.findByText("已添加到高情商回复键盘；只有点按生成时才会发送文字。"),
   ).not.toBeNull();
+});
+
+test("reply details offer no reply keyboard actions where the host has no such keyboard", async () => {
+  const item = base("reply");
+  const save = vi.fn().mockResolvedValue(undefined);
+  render(
+    <CommunityResourcesPage
+      client={client({
+        list: vi.fn().mockResolvedValue({ items: [item], has_more: false }),
+        detail: vi.fn().mockResolvedValue(item),
+        save,
+        storeReply: undefined,
+        removeReply: undefined,
+      })}
+      kind="reply"
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "查看回复模板 礼貌回复" }));
+  expect(screen.getByText("请简洁、礼貌地回复。")).not.toBeNull();
+  expect(screen.queryByRole("button", { name: "添加到高情商回复键盘" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "从本机高情商回复键盘移除" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "收藏，关注后续更新" }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(item.id, true));
 });
 
 test("publishing a reply requires explicit rights confirmation", async () => {

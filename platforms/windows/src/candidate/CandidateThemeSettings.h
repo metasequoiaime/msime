@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace msime::windows {
@@ -169,6 +170,32 @@ inline std::string theme_catalog_title(const nlohmann::json &response,
     return title.size() <= 64 ? title : std::string{};
   }
   return {};
+}
+// 托盘主题页列出的主题：msime_client_theme_catalog 回答里本平台的主题 id 和标题，按选择器顺序。id 要写进偏好，只收短的小写 ASCII 标识；标题和 theme_catalog_title 一样不收空的或过长的。回答不是目录时为空。
+inline std::vector<std::pair<std::string, std::string>>
+theme_catalog_entries(const nlohmann::json &response) {
+  std::vector<std::pair<std::string, std::string>> entries;
+  if (!response.is_object() || !response.contains("ok") ||
+      response.at("ok") != true || !response.contains("value") ||
+      !response.at("value").is_object())
+    return entries;
+  const auto &value = response.at("value");
+  if (!value.contains("themes") || !value.at("themes").is_array())
+    return entries;
+  for (const auto &theme : value.at("themes")) {
+    if (!theme.is_object() || !theme.contains("id") || !theme.at("id").is_string() ||
+        !theme.contains("title") || !theme.at("title").is_string())
+      continue;
+    auto id = theme.at("id").get<std::string>();
+    auto title = theme.at("title").get<std::string>();
+    if (id.empty() || id.size() > 64 ||
+        id.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-_") !=
+            std::string::npos ||
+        title.empty() || title.size() > 64)
+      continue;
+    entries.emplace_back(std::move(id), std::move(title));
+  }
+  return entries;
 }
 // Only the small display projection crosses the preference/UI thread boundary.
 class CandidateThemeMailbox {

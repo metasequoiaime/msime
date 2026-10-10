@@ -50,6 +50,18 @@ int main() {
       packet.event_type = FanyImePipeEventType::KeyEvent;
       const auto delivered = candidate_presentation(lease, reply, packet);
       require(delivered.visible && delivered.pointer_input == !keyboard_only);
+      // 释义只在全拼、双拼、五笔和韩文里请求，横排候选窗只为这些方案预留释义行。
+      const bool glossed = number == static_cast<unsigned>(scheme::Quanpin) ||
+                           number == static_cast<unsigned>(scheme::Shuangpin) ||
+                           number == static_cast<unsigned>(scheme::Wubi) ||
+                           number == static_cast<unsigned>(scheme::Korean);
+      require(projected.shows_glosses == glossed && delivered.shows_glosses == glossed);
+    }
+    // 临时日文组字和网址模式不请求释义，和 host-api 的翻译查询一样。
+    for (const char *mode : {"temporary_japanese", "url"}) {
+      auto local = view(static_cast<unsigned>(scheme::Quanpin));
+      local["local_mode"] = mode;
+      require(!candidate_presentation_from_view(lease, local, 0, 0, "").shows_glosses);
     }
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

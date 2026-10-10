@@ -198,6 +198,7 @@ export function VoiceSettingsContent({
       linux={linuxPlatform}
       showVoiceProviderSettings={showVoiceProviderSettings}
       localVoiceAvailable={localVoiceAvailable}
+      windows={windowsPlatform}
       nativeVoicePlatform={nativeVoicePlatform}
       harmonyUnsupportedAsr={harmonyUnsupportedAsr}
       voiceInput={voiceInput}

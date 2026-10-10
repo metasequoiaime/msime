@@ -9,6 +9,7 @@
 #include "Ipc.h"
 #include "../HostOptionsPaths.h"
 #include "../../common/InputSchemeTraits.h"
+#include "../../common/AppInputModeRules.h"
 #include "../../../common/HostApiString.h"
 #include <msime_client.h>
 #include <nlohmann/json.hpp>
@@ -59,6 +60,23 @@ std::optional<nlohmann::json> ReadSharedPreferences()
     }
 }
 } // namespace
+
+std::optional<BOOL> ReadConfiguredAppInputModeChinese(const std::wstring &process)
+{
+    if (process.empty())
+    {
+        return std::nullopt;
+    }
+    if (const auto preferences = ReadSharedPreferences())
+    {
+        const auto rules = msime::windows::ReadAppInputModeRules(*preferences);
+        if (const auto chinese = msime::windows::AppInputModeRuleFor(rules, wstring_to_string(process)))
+        {
+            return *chinese ? TRUE : FALSE;
+        }
+    }
+    return std::nullopt;
+}
 
 BOOL ReadConfiguredDefaultImeModeChinese()
 {
@@ -147,6 +165,7 @@ SwitchLanguageHotkeys ReadConfiguredSwitchLanguageHotkeys()
             result.ctrl = keybindings.value("switch_language_ctrl", false);
             result.ctrl_alt_space = keybindings.value("switch_language_ctrl_alt_space", true);
             result.character_set_ctrl_shift_f = keybindings.value("toggle_character_set_ctrl_shift_f", true);
+            result.fullwidth_alt_shift_h = keybindings.value("toggle_fullwidth_option_shift_h", true);
             return result;
         }
     }

@@ -9,6 +9,7 @@
 #include "CandidateShadow.h"
 #include "CandidateSkin.h"
 #include "TypingEffectPolicy.h"
+#include "TypingEffectOverlay.h"
 #include "CandidateWindowStyle.h"
 #include "ComponentFailure.h"
 #include "FullscreenForeground.h"
@@ -27,6 +28,7 @@ namespace msime::windows {
 // Forward declared: the flyout pulls in its own window headers, and only the
 // implementation needs them.
 class CandidateFlyoutWindow;
+class AccessibleWindow;
 // 候选窗因前台呈现方式被策略隐藏的原因：游戏会话的前台处在 D3D 独占全屏，或这个游戏进程已被反应式锁存。
 enum class CandidateSuppression { ExclusiveFullscreen, Latched };
 // 一次抑制状态的变化，由主循环取出写进诊断日志。cause 是锁存触发或解除的固定标签，独占抑制没有 cause。
@@ -82,6 +84,12 @@ public:
   // word. A change takes effect at the next appearance, since the pinned
   // anchor is only forgotten when the card hides.
   void set_follow_cursor(bool enabled) { follow_cursor_ = enabled; }
+  // 「鼠标滚轮翻页」（`navigation.mouse_wheel`），主循环每轮按已发布的偏好设置，和 macOS 每次渲染都重读一样即时生效。关掉时丢掉攒了一半的滚动量，免得重新打开后第一格翻得太早。
+  void set_mouse_wheel(bool enabled) {
+    if (mouse_wheel_ != enabled)
+      wheel_accumulator_ = 0;
+    mouse_wheel_ = enabled;
+  }
   // The mascot a package draws above the card. Empty image means none.
   void set_skin_decoration(const CandidateSkinDecoration &decoration) {
     decoration_image_ = decoration.image;
@@ -97,6 +105,9 @@ public:
   void set_skin_corner_radius(std::optional<float> radius) { skin_radius_ = radius; }
   // preferences.plugins.effect_intensity, 0-100: how bright the typing flash is until a session publishes its resolved effect settings. The style, the combo and those settings come with each key from the input thread (TypingEffectSignal).
   void set_effect_intensity(uint32_t intensity) { effect_intensity_ = (std::min)(intensity, 100u); }
+  // 光标处的打字特效浮层：每取到一个特效就交给它画火花、光标行闪光和连击徽标。返回 true 表示浮层在负责连击数，卡片就不在拼音行里再画一份；没有设置或返回 false 时，卡片照旧自己画计数、各样式都闪。
+  using TypingEffectPresenter = std::function<bool(const TypingEffectPresentation &)>;
+  void set_typing_effect_presenter(TypingEffectPresenter presenter) { typing_effect_presenter_ = std::move(presenter); }
   // The user's scale, opacity and corner radius. Scale changes the card's size, so the next refresh lays it out again. Invalid values leave the previous style intact.
   bool set_style(const CandidateWindowStyle &style);
   void hide();
@@ -104,6 +115,8 @@ public:
   // 第一次失败的位置，只有固定标签和数字，可以写进诊断日志。
   const std::optional<ComponentFailureSite> &failure_site() const { return failure_site_; }
   HWND handle() const { return window_; }
+  // 候选卡片（不含四周的透明阴影边距和顶上吉祥物那一条）此刻的屏幕矩形，物理像素，候选窗不可见时为空。调用方要在每显示器 DPI 感知的线程上下文里，双拼键位图贴着它摆放。
+  std::optional<TypingRect> card_on_screen() const { return typing_effect_card(); }
 
 private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
@@ -120,6 +133,10 @@ private:
   // Each candidate's runs measured the way paint() draws them, and their wrapped heights. card_bounds and paint share both, so the card is sized for exactly the rows that get drawn.
   std::vector<CandidateItemWidths> measure_items(const CandidatePresentation &value);
   CandidateWrapMeasure wrap_measure(const CandidatePresentation &value);
+  // 横排候选为还没到的释义预留几行：偏好算出的有释义来源的目标语言行数（这一页不请求释义时为 0），韩文汉字列表再加 훈음 那一行。card_bounds 和 paint 都读它，量出来的尺寸和画出来的行才一致。
+  size_t reserved_secondary_lines(const CandidatePresentation &value) const;
+  // 预留的 lines 行释义用释义字体量出的高度（lines 行占位文字，和 wrap_measure 量多行释义同一种格式），交给 candidate_reserved_row_height。不到两行时为 0：一行释义按固定行高算，不用量。
+  double reserved_secondary_height(size_t lines);
   void paint();
   // UI thread: adopt the waiting typing effect and start its flash and combo timers.
   void take_typing_effect();
@@ -135,6 +152,10 @@ private:
   // The pager arrow under a client point: true for the previous page, false for the next. None over anything else, over the previous arrow on the first page, or without a page callback.
   std::optional<bool> pager_hit(int x, int y);
   void show_context_menu(const CandidateClick &click, POINT client_point);
+  // 按刚画好的行重新登记悬停提示的区域；行的位置和快照都没变时不动，打字闪光每秒重画几十次也不会反复登记。
+  void sync_tooltips();
+  // 读屏要求执行一个元素（accessible_invoke_message）：候选行等同于点它，翻页箭头等同于点箭头。`token` 对不上当前的树时丢掉。
+  void invoke_accessible(int id, LPARAM token);
   Reader reader_;
   Click click_;
   Page page_;
@@ -176,6 +197,10 @@ private:
   bool horizontal_ = false;
   bool show_preedit_ = true;
   bool wubi_code_hint_ = true;
+  // 共享偏好 `show_app_logo`，经 set_layout 即时生效；关掉时首行不画 logo。
+  bool show_app_logo_ = false;
+  // 偏好算出的释义预留行数（0 到 2），经 set_layout 即时生效。
+  unsigned reserved_gloss_lines_ = 0;
   // Configured supplementary faces, in order, for the per-glyph fallback chain.
   // Minimum card width asked for by the active skin package, in DIPs.
   double skin_min_width_ = 0.0;
@@ -198,6 +223,13 @@ private:
   // Owner-drawn menu labels, kept alive for the duration of the popup: the draw messages carry pointers into this list.
   // Built on first use: most sessions never open the right-click menu, and the flyout owns two windows and two Direct2D devices.
   std::unique_ptr<CandidateFlyoutWindow> flyout_;
+  // 悬停提示（comctl32 的 tooltip 控件），每行候选一个区域，文字在 TTN_GETDISPINFOW 时按 painted_ 现取。建不出来时为空，只是没有提示。
+  HWND tooltip_ = nullptr;
+  std::vector<RECT> tooltip_rects_;
+  uint64_t tooltip_serial_ = 0;
+  std::wstring tooltip_text_;
+  // 交给读屏的 UI Automation 提供者，每次画完换上新的元素树（CandidateAccessibility.h）。窗口建好后才创建，CreateWindowExW 期间为空。
+  std::unique_ptr<AccessibleWindow> accessible_;
   // The candidate the open flyout acts on, recorded afresh on every right click because the flyout itself outlives any one opening.
   CandidateMenuTarget<CandidateClick> menu_target_;
   std::vector<std::wstring> fallback_families_;
@@ -216,6 +248,16 @@ private:
   TypingEffectSettings effect_settings_{};
   uint64_t effect_started_ = 0;
   bool effect_flashing_ = false;
+  // Power Mode 的抖动还在进行（typing_shake_millis 之内）：卡片按 typing_shake_offset 横向位移着画。
+  bool effect_shaking_ = false;
+  // 浮层在画连击徽标，卡片不画计数。
+  bool effect_badge_elsewhere_ = false;
+  TypingEffectPresenter typing_effect_presenter_;
+  // 最近一次显示候选时 TSF 给的光标锚点，以及当时的前台窗口：上屏之后候选窗收起了，浮层还要知道光标在哪；前台换了就不再用它。
+  std::optional<POINT> typing_anchor_;
+  HWND typing_anchor_foreground_ = nullptr;
+  // 候选卡片（不含阴影和吉祥物那一条）此刻的屏幕矩形，候选窗不可见时为空。
+  std::optional<TypingRect> typing_effect_card() const;
   // set_foreground 记下的前台窗口、它的进程和呈现方式。
   HWND foreground_ = nullptr;
   DWORD foreground_pid_ = 0;

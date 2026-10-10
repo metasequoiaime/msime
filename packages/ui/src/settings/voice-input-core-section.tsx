@@ -21,6 +21,8 @@ export interface VoiceInputCoreSectionProps {
   macos: boolean;
   harmony: boolean;
   android: boolean;
+  /** 提供「Windows 系统识别」（SAPI 听写）。 */
+  windows?: boolean;
   localVoiceAvailable: boolean;
   nativeVoicePlatform: boolean;
   harmonyUnsupportedAsr: boolean;
@@ -42,6 +44,7 @@ export function VoiceInputServiceRows({
   macos,
   harmony,
   android,
+  windows = false,
   localVoiceAvailable,
   nativeVoicePlatform,
   harmonyUnsupportedAsr,
@@ -66,6 +69,7 @@ export function VoiceInputServiceRows({
           onChange={onProviderChange}
         >
           {macos && <option value="system">macOS 系统识别</option>}
+          {windows && <option value="system">Windows 系统识别</option>}
           {localVoiceAvailable && <option value="local">本地模型（离线）</option>}
           {!localVoiceAvailable && provider === "local" && (
             <option value="local" disabled>

@@ -29,6 +29,10 @@ export function localVoiceIntro(localVoiceModelsAvailable: boolean): string {
 export const systemVoiceIntro =
   "在目标应用中启用水杉输入法，使用键盘内的语音入口录音。不需要识别 API Key；首次使用需授予麦克风和语音识别权限。服务可用性及是否联网由系统决定，可选文本润色仍使用你配置的云服务。";
 
+/** Windows 的系统识别是 SAPI 听写：在本机识别、不需要权限弹窗，但要装好识别语言的语音识别组件。 */
+export const windowsSystemVoiceIntro =
+  "用下方语音快捷键或悬浮工具栏开始语音输入，由 Windows 自带的语音识别在这台电脑上完成识别，音频不会离开本机，也不需要识别 API Key。需要先在 Windows 设置 › 时间和语言 › 语言和区域 中为识别语言安装“语音识别”。可选文本润色仍使用你配置的云服务。";
+
 /** 鸿蒙键盘如何借助云服务或 CoreSpeechKit 录音和识别。 */
 export const harmonyVoiceIntro =
   "豆包配置有效时，键盘直接采集 16 kHz 麦克风音频并进行实时识别；选择系统识别时由 HarmonyOS CoreSpeechKit 处理。识别结果会回到键盘，确认后才插入当前输入框。";
@@ -67,7 +71,9 @@ export function VoiceInputIntroSection({
   if (systemVoice) {
     return (
       <GroupList title={`${systemVoiceHostName} 系统语音`}>
-        <SettingsGroupNote>{systemVoiceIntro}</SettingsGroupNote>
+        <SettingsGroupNote>
+          {systemVoiceHostName === "Windows" ? windowsSystemVoiceIntro : systemVoiceIntro}
+        </SettingsGroupNote>
       </GroupList>
     );
   }

@@ -266,15 +266,13 @@ pub(crate) fn sync_clipboard_history_blocking(
         .text;
     #[cfg(target_os = "linux")]
     let text = linux_clipboard_text()?;
+    // Windows 的读取同样拒收带 ExcludeClipboardContentFromMonitorProcessing、CanIncludeInClipboardHistory=0 等隐私标记的剪贴板，与 Server 的采集用同一份名单。
     #[cfg(target_os = "windows")]
-    let text = Some(
-        msime_host_windows::read_clipboard_text()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .trim_end_matches(['\r', '\n'])
-            .to_owned(),
-    );
+    let text = msime_host_windows::read_clipboard_text()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .map(|text| text.trim_end_matches(['\r', '\n']).to_owned());
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     let text: Option<String> = Err(HostActionError {
         code: "unavailable",

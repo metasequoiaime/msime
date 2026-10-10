@@ -26,7 +26,8 @@ export function settingsCapabilities({
   canInstallInputSource,
   canListVoiceCaptureDevices,
 }: SettingsCapabilitiesInput) {
-  const nativeVoicePlatform = macos || harmony || android;
+  // 宿主自带不需要 API Key 的系统识别器：macOS 的 Speech、HarmonyOS 的 CoreSpeechKit、Android 的 SpeechRecognizer、Windows 的 SAPI 听写。
+  const nativeVoicePlatform = macos || harmony || android || windows;
   const showModeScope = host ? host.ime_mode_scope : false;
   const showModeSwitchShortcuts = host ? host.mode_switch_shortcuts : false;
   const showPanelShortcuts = host ? host.panel_shortcuts : false;
@@ -44,6 +45,8 @@ export function settingsCapabilities({
   const showEnglishSuggestions = host ? host.english_suggestions : false;
   const showHelpcodeShiftEntry = host ? host.helpcode_shift_entry : false;
   const showShuangpinPreedit = host ? host.shuangpin_preedit : false;
+  // 只有画双拼键位图的宿主（macOS、Windows）给出「输入时显示双拼键位提示」。
+  const showShuangpinKeymapHint = host ? host.shuangpin_keymap_hint === true : false;
   const showCharacterWidth = host ? host.character_width : true;
   const aiProviderCredentials = host ? host.ai_provider_credentials : false;
   const showVoiceCommitMode = host ? host.voice_commit_mode : true;
@@ -76,8 +79,8 @@ export function settingsCapabilities({
   const showTypingEffectStyles = showTypingEffects && !linux;
   // An effect pack only sets a drawn style's parameters, so it is offered wherever a style is.
   const showTypingEffectPacks = showTypingEffectStyles;
-  // Windows and HarmonyOS have no particle overlay: every style is a flash of the candidate card, brighter for sparks and Power Mode, so the style descriptions must not promise sparks there.
-  const typingEffectsFlashOnly = showTypingEffectStyles && (windows || harmony);
+  // HarmonyOS 没有粒子浮层：每种样式都是候选卡片闪一下，火花和 Power Mode 闪得更亮，所以那里的样式说明不能许诺火花。Windows 和 macOS 一样在光标处画火花。
+  const typingEffectsFlashOnly = showTypingEffectStyles && harmony;
   const showWordbookPacks = host ? host.wordbook_packs : false;
   const showSymbolSetPacks = host ? host.symbol_set_packs : false;
   return {
@@ -97,6 +100,7 @@ export function settingsCapabilities({
     showEnglishSuggestions,
     showHelpcodeShiftEntry,
     showShuangpinPreedit,
+    showShuangpinKeymapHint,
     showCharacterWidth,
     aiProviderCredentials,
     showVoiceCommitMode,

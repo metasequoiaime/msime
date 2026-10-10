@@ -507,6 +507,23 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
   expect(screen.queryByRole("switch", { name: "显示读音" })).toBeNull();
 });
 
+test("Windows describes candidate pronunciation for English and Japanese glosses", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        candidateEnglishGloss: true,
+        candidatePronunciation: true,
+        host: testHost({ platform: "windows" }),
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  expect(screen.getByRole("switch", { name: "显示读音" })).toBeDefined();
+  expect(screen.getByText(/英文释义给音标，日文释义给罗马音/)).toBeDefined();
+});
+
 test("Android English suggestions default on and persist independently", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
@@ -7210,7 +7227,7 @@ test("the app logo row needs a host that hides the logo", async () => {
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: testHost({ platform: "windows", candidate_font_controls: true }),
+        host: testHost({ platform: "linux", candidate_font_controls: true }),
       }}
     />,
   );
@@ -8491,9 +8508,8 @@ test("a saved page size below the reference's three stays in range and selected"
   expect(size.value).toBe("2");
 });
 
-test("macOS shuangpin keymap setting loads, toggles, and saves through the native preference bridge", async () => {
+test("macOS shows the native shuangpin keymap choice until the shared preference holds one, and saves the switch there", async () => {
   const loadMacosShuangpinKeymap = vi.fn().mockResolvedValue(true);
-  const saveMacosShuangpinKeymap = vi.fn().mockResolvedValue(undefined);
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
     revision: 8,
@@ -8503,7 +8519,6 @@ test("macOS shuangpin keymap setting loads, toggles, and saves through the nativ
     load: vi.fn().mockResolvedValue(initial),
     save,
     loadMacosShuangpinKeymap,
-    saveMacosShuangpinKeymap,
     host: testHost({ platform: "macos" }),
   };
   render(<SettingsPage client={client} />);
@@ -8514,6 +8529,7 @@ test("macOS shuangpin keymap setting loads, toggles, and saves through the nativ
     name: "输入时显示双拼键位提示",
   })) as HTMLInputElement;
   expect(loadMacosShuangpinKeymap).toHaveBeenCalledTimes(1);
+  // 文档里还没有这一项，所以显示输入法沿用的本机旧选择。
   expect(keymap.checked).toBe(true);
   fireEvent.click(keymap);
   saveSettingsNow();
@@ -8522,8 +8538,58 @@ test("macOS shuangpin keymap setting loads, toggles, and saves through the nativ
     ...initial.preferences,
     scheme: "shuangpin",
     last_chinese_scheme: "shuangpin",
+    shuangpin_keymap_hint: false,
   });
-  expect(saveMacosShuangpinKeymap).toHaveBeenCalledWith(false);
+});
+
+test("Windows offers the shuangpin keymap switch from the shared preference", async () => {
+  const loadMacosShuangpinKeymap = vi.fn().mockResolvedValue(true);
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save,
+    loadMacosShuangpinKeymap,
+    host: testHost({ platform: "windows" }),
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(await screen.findByRole("radio", { name: "双拼" }));
+  const keymap = (await screen.findByRole("switch", {
+    name: "输入时显示双拼键位提示",
+  })) as HTMLInputElement;
+  // Windows 没有本机旧值可读，文档里没有这一项就是关。
+  expect(loadMacosShuangpinKeymap).not.toHaveBeenCalled();
+  expect(keymap.checked).toBe(false);
+  fireEvent.click(keymap);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    scheme: "shuangpin",
+    last_chinese_scheme: "shuangpin",
+    shuangpin_keymap_hint: true,
+  });
+});
+
+test("a host that draws no shuangpin keymap does not offer the switch", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue({
+      ...initial,
+      preferences: { ...initial.preferences, scheme: "shuangpin" },
+    }),
+    save: vi.fn(),
+    host: testHost({ platform: "linux" }),
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  await screen.findByRole("combobox", { name: "双拼方案" });
+  expect(screen.queryByRole("switch", { name: "输入时显示双拼键位提示" })).toBeNull();
 });
 
 test("an edit made while a save is in flight is kept and saved after it", async () => {

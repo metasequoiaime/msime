@@ -675,6 +675,16 @@ void BindNamedpipeFocusState(const void *owner, bool *focusResetPending, bool *a
     boundWorkerPipeGeneration = workerPipeGeneration;
 }
 
+uint64_t GetNamedpipeClientId()
+{
+    return GetPipeClientId();
+}
+
+uint64_t GetNamedpipeFocusToken()
+{
+    return boundExpectedWorkerFocusToken ? boundExpectedWorkerFocusToken->load(std::memory_order_acquire) : 0;
+}
+
 void UnbindNamedpipeFocusState(const void *owner)
 {
     if (owner == nullptr || boundFocusStateOwner != owner)

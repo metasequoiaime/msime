@@ -1055,6 +1055,26 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
     [NSApp sendAction:toggle.action to:toggle.target from:toggle];
     assert(appearance.shuangpinKeymap);
     assert([[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot] shuangpinKeymap]);
+    // 文档还没有 shuangpin_keymap_hint 时退回 defaults 里升级前的选择，并把它写进文档。
+    [appearance applySharedInputPreferences:@{}];
+    assert(appearance.shuangpinKeymap);
+    assert([[appearance sharedPreferencesByMerging:@{}][@"shuangpin_keymap_hint"] isEqual:@YES]);
+    // 文档带着这一项载入后它优先于 defaults，保存时原样写回，本机旧键随即删除。
+    [appearance applySharedInputPreferences:@{@"shuangpin_keymap_hint": @NO}];
+    assert(!appearance.shuangpinKeymap);
+    assert([defaults objectForKey:@"MSIMEClientShuangpinKeymap"] == nil);
+    assert([[appearance sharedPreferencesByMerging:@{}][@"shuangpin_keymap_hint"] isEqual:@NO]);
+    // 之后文档又没有这一项（共享设置页的恢复默认设置、导入不带这一项的设置文件）就是关，升级前的旧选择不会复活。
+    [appearance applySharedInputPreferences:@{}];
+    assert(!appearance.shuangpinKeymap);
+    assert([[appearance sharedPreferencesByMerging:@{}][@"shuangpin_keymap_hint"] isEqual:@NO]);
+    // 「恢复默认值」经 SharedOverrideProperties() 用 KVC 清掉文档缓存、再删掉 defaults；载入过文档之后合并写回关，文档里的旧值不会在下次载入时回来。
+    [appearance applySharedInputPreferences:@{@"shuangpin_keymap_hint": @YES}];
+    [appearance setValue:nil forKey:@"sharedShuangpinKeymap"];
+    [defaults removeObjectForKey:@"MSIMEClientShuangpinKeymap"];
+    assert(!appearance.shuangpinKeymap);
+    assert([[appearance sharedPreferencesByMerging:@{}][@"shuangpin_keymap_hint"] isEqual:@NO]);
+    [defaults setBool:YES forKey:@"MSIMEClientShuangpinKeymap"];
     HiddenKeymapPanel *panel = [[HiddenKeymapPanel alloc] init];
     assert(panel.ignoresMouseEvents && panel.floatingPanel);
     for (NSString *profile in @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"]) {
@@ -4707,6 +4727,162 @@ static void TestRealSessionComposition() {
 
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+}
+
+// 应用例外迁到共享文档：升级前的本地规则在文档还没有这个键时照样生效并被发布；文档带着规则载入后成为权威来源、本地旧键删除；文档清空规则后旧规则不会回来；本窗口写的规则经合并整张写进文档。
+static void TestApplicationInputModeRulesFollowSharedDocument() {
+    NSString *suite = [@"msime.app-rules." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    [defaults setObject:@{@"org.example.legacy": @"english", @"org.example.bad": @"global"} forKey:@"MSIMEClientAppInputModeRules"];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!prefs.applicationInputModeRulesAwaitPublication);
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese"}];
+    [prefs activateInputModeForApplication:@"org.example.legacy"];
+    assert(prefs.englishMode);
+    // 文档还没有规则表、本机有升级前的规则：输入法载入后要立即保存一次把它们发布出去，共享设置页才看得到。
+    assert(prefs.applicationInputModeRulesAwaitPublication);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"] isEqual:(@{@"org.example.legacy": @"english"})]);
+    // 升级前的规则还没发布，共享设置页就先写了规则表：旧规则并进来、旧键留着，下一次保存把两边一起写进文档，不会被悄悄丢掉。
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese", @"app_input_mode_rules": @{@"org.example.shared": @"english"}}];
+    assert([defaults objectForKey:@"MSIMEClientAppInputModeRules"] != nil);
+    assert(prefs.applicationInputModeRulesAwaitPublication);
+    [prefs activateInputModeForApplication:@"org.example.shared"];
+    assert(prefs.englishMode);
+    [prefs activateInputModeForApplication:@"org.example.legacy"];
+    assert(prefs.englishMode);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"] isEqual:(@{@"org.example.shared": @"english", @"org.example.legacy": @"english"})]);
+    // 文档已经包含旧键里的全部规则：迁移完成，旧键删除，文档是唯一来源。
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese", @"app_input_mode_rules": @{@"org.example.shared": @"english"}}];
+    assert([defaults objectForKey:@"MSIMEClientAppInputModeRules"] != nil);
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese", @"app_input_mode_rules": @{@"org.example.shared": @"english", @"org.example.legacy": @"english"}}];
+    assert([defaults objectForKey:@"MSIMEClientAppInputModeRules"] == nil);
+    assert(!prefs.applicationInputModeRulesAwaitPublication);
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese", @"app_input_mode_rules": @{@"org.example.shared": @"english"}}];
+    [prefs activateInputModeForApplication:@"org.example.shared"];
+    assert(prefs.englishMode);
+    [prefs activateInputModeForApplication:@"org.example.legacy"];
+    assert(!prefs.englishMode);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"] isEqual:(@{@"org.example.shared": @"english"})]);
+    // 偏好库收不下的规则不发布：不合法的标识、只差大小写的重复和第 33 条以后的规则都留在本机，整份保存才不会被拒。
+    NSMutableDictionary *crowded = [NSMutableDictionary dictionary];
+    for (int index = 0; index < 40; ++index) crowded[[NSString stringWithFormat:@"org.example.app%02d", index]] = @"chinese";
+    crowded[@"org.example.APP00"] = @"english";
+    crowded[@" org.example.padded"] = @"english";
+    crowded[@"org/example"] = @"english";
+    crowded[[@"org.example." stringByPaddingToLength:65 withString:@"x" startingAtIndex:0]] = @"english";
+    [defaults setObject:crowded forKey:@"MSIMEClientAppInputModeRules"];
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese"}];
+    NSDictionary *published = [prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"];
+    assert(published.count == 32);
+    for (NSString *identifier in published) assert([identifier.lowercaseString hasPrefix:@"org.example.app"]);
+    assert(published[@"org.example.APP00"] == nil || published[@"org.example.app00"] == nil);
+    // 文档载入了发布出去的 32 条之后：已发布的从旧键里删掉，与已发布的只差大小写的那条是同一个 bundle id，以文档为准也删掉；收不下的（不合法的标识、第 33 条以后）留在旧键里，只在本机生效，不发布，也不再要求保存。
+    NSString *longIdentifier = [@"org.example." stringByPaddingToLength:65 withString:@"x" startingAtIndex:0];
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese", @"app_input_mode_rules": published}];
+    assert(!prefs.applicationInputModeRulesAwaitPublication);
+    NSDictionary *leftover = [defaults dictionaryForKey:@"MSIMEClientAppInputModeRules"];
+    assert(leftover.count == crowded.count - 33);
+    assert(leftover[@"org.example.app00"] == nil && leftover[@"org.example.APP00"] == nil);
+    for (NSString *identifier in published) assert(leftover[identifier] == nil);
+    assert([leftover[longIdentifier] isEqual:@"english"] && [leftover[@"org/example"] isEqual:@"english"]);
+    [prefs activateInputModeForApplication:longIdentifier];
+    assert(prefs.englishMode);
+    [prefs activateInputModeForApplication:@"org/example"];
+    assert(prefs.englishMode);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"] isEqual:published]);
+    // 文档空出位置后，收得下的旧规则并进来、等下一次保存发布。
+    NSMutableDictionary *roomy = [published mutableCopy];
+    [roomy removeObjectForKey:roomy.allKeys.firstObject];
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese", @"app_input_mode_rules": roomy}];
+    assert(prefs.applicationInputModeRulesAwaitPublication);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"] count] == 32);
+    [defaults removeObjectForKey:@"MSIMEClientAppInputModeRules"];
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese"}];
+    assert(!prefs.applicationInputModeRulesAwaitPublication);
+    [prefs activateInputModeForApplication:@"org.example.shared"];
+    assert(!prefs.englishMode);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"] isEqual:@{}]);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+// 原生窗口的规则表编辑入口，「添加应用…」、移除和行内的模式选择都经由它。
+@interface MSIMEAppearancePreferences (InputModeRuleEditing)
+- (void)setInputMode:(NSString *)mode forApplication:(NSString *)identifier;
+@end
+
+// 迁移之后在原生窗口改规则：只改那一条所在的一边，不把已经在文档里的规则挤出去换成只在本机生效的旧规则；输入法重新启动、还没载入文档时不写规则表，免得本地键里剩下的那一小部分替换掉文档的整张表；按应用查规则时不分 ASCII 大小写，和偏好库的去重一致。
+static void TestApplicationInputModeRuleEditsKeepDocumentTable() {
+    NSString *suite = [@"msime.app-rule-edits." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    NSMutableDictionary *legacy = [NSMutableDictionary dictionary];
+    for (int index = 0; index < 40; ++index) legacy[[NSString stringWithFormat:@"org.example.app%02d", index]] = @"chinese";
+    NSString *longIdentifier = [@"org.example." stringByPaddingToLength:65 withString:@"x" startingAtIndex:0];
+    legacy[longIdentifier] = @"english";
+    [defaults setObject:legacy forKey:@"MSIMEClientAppInputModeRules"];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert([prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"] == nil);
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese"}];
+    NSDictionary *first = [prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"];
+    assert(first.count == 32 && first[@"org.example.app31"] != nil && first[@"org.example.app32"] == nil);
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese", @"app_input_mode_rules": first}];
+    assert([[defaults dictionaryForKey:@"MSIMEClientAppInputModeRules"] count] == 9);
+    // 共享设置页一次保存里删掉 app01、加上 org.zeta，文档仍是满的 32 条，app32 以后的旧规则继续只在本机生效。
+    NSMutableDictionary *document = [first mutableCopy];
+    [document removeObjectForKey:@"org.example.app01"];
+    document[@"org.zeta"] = @"english";
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese", @"app_input_mode_rules": document}];
+    assert(!prefs.applicationInputModeRulesAwaitPublication);
+    // 在原生窗口改一条文档里的规则：写出去的仍是文档那张表加上这次改动，org.zeta 不会被按标识排在前面的 app32 挤掉。
+    [prefs setInputMode:@"english" forApplication:@"org.example.app05"];
+    NSMutableDictionary *expected = [document mutableCopy];
+    expected[@"org.example.app05"] = @"english";
+    assert([[prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"] isEqual:expected]);
+    [prefs activateInputModeForApplication:@"org.example.app05"];
+    assert(prefs.englishMode);
+    // 改只在本机生效的旧规则只动本机那一边，文档那张表不变。
+    [prefs setInputMode:@"chinese" forApplication:longIdentifier];
+    assert([[prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"] isEqual:expected]);
+    [prefs activateInputModeForApplication:longIdentifier];
+    assert(!prefs.englishMode);
+    // 保存后重新载入：文档已经有的改动从本地键里删掉，收不下的旧规则带着新模式留在本地键。
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese", @"app_input_mode_rules": expected}];
+    NSDictionary *leftover = [defaults dictionaryForKey:@"MSIMEClientAppInputModeRules"];
+    assert(leftover.count == 9 && [leftover[longIdentifier] isEqual:@"chinese"] && leftover[@"org.example.app05"] == nil);
+    // 输入法重新启动、文档还没载入：本地键只剩收不下的旧规则，不能拿它替换文档的整张表。
+    MSIMEAppearancePreferences *restarted = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert([restarted sharedPreferencesByMerging:@{}][@"app_input_mode_rules"] == nil);
+    [restarted applySharedInputPreferences:@{@"default_ime_mode": @"chinese", @"app_input_mode_rules": expected}];
+    assert([[restarted sharedPreferencesByMerging:@{}][@"app_input_mode_rules"] isEqual:expected]);
+    // 移除文档里的一条规则：文档那张表少这一条，空出的位置在下一次载入时由收得下的旧规则补上，等待发布。
+    [prefs setInputMode:nil forApplication:@"org.zeta"];
+    [expected removeObjectForKey:@"org.zeta"];
+    assert([[prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"] isEqual:expected]);
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese", @"app_input_mode_rules": expected}];
+    assert(prefs.applicationInputModeRulesAwaitPublication);
+    NSDictionary *refilled = [prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"];
+    assert(refilled.count == 32 && [refilled[@"org.example.app32"] isEqual:@"chinese"] && refilled[@"org.zeta"] == nil);
+    // 共享设置页写下的标识大小写和 bundle id 不同：按应用查规则仍然找得到，手动切换照样让位，再次进入应用回到规则。
+    [defaults setObject:@{@"com.apple.Terminal": @"chinese"} forKey:@"MSIMEClientAppInputModeRules"];
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese", @"app_input_mode_rules": @{@"com.apple.terminal": @"english"}}];
+    assert([defaults objectForKey:@"MSIMEClientAppInputModeRules"] == nil);
+    [prefs activateInputModeForApplication:@"com.apple.Terminal"];
+    assert(prefs.englishMode);
+    prefs.englishMode = NO;
+    assert(!prefs.englishMode);
+    [prefs activateInputModeForApplication:@"org.example.other"];
+    [prefs activateInputModeForApplication:@"com.apple.Terminal"];
+    assert(prefs.englishMode);
+    // 按应用的 bundle id 改规则，改的是文档里那一条，不会多出一条只差大小写的规则让整份保存被拒。
+    [prefs setInputMode:@"chinese" forApplication:@"com.apple.Terminal"];
+    assert([[prefs sharedPreferencesByMerging:@{}][@"app_input_mode_rules"] isEqual:(@{@"com.apple.terminal": @"chinese"})]);
+    assert(!prefs.englishMode);
+    // 升级前的表里有两条只差大小写的规则：一条并进文档那边，另一条留在本机那边。改本机那一条要真的生效，不能只改到文档里那条。
+    [defaults setObject:@{@"com.example.Dup": @"chinese", @"com.example.dup": @"chinese"} forKey:@"MSIMEClientAppInputModeRules"];
+    [prefs applySharedInputPreferences:@{@"default_ime_mode": @"chinese", @"app_input_mode_rules": @{@"com.apple.terminal": @"chinese"}}];
+    [prefs setInputMode:@"english" forApplication:@"com.example.dup"];
+    [prefs activateInputModeForApplication:@"com.example.dup"];
+    assert(prefs.englishMode);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 static void TestInputSourceModeReset() {
@@ -9903,6 +10079,8 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestInputModePolicy(); }
         @autoreleasepool { TestPerApplicationPunctuationAndWidth(); }
         @autoreleasepool { TestEnglishModePunctuationAndWidthOutput(); }
+        @autoreleasepool { TestApplicationInputModeRulesFollowSharedDocument(); }
+        @autoreleasepool { TestApplicationInputModeRuleEditsKeepDocumentTable(); }
         @autoreleasepool { TestInputSourceModeReset(); }
         @autoreleasepool { TestRealSessionComposition(); }
         @autoreleasepool { TestModifierTaps(); }

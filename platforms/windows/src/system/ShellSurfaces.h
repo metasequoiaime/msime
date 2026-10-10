@@ -38,10 +38,25 @@ shell_surface_request(TrayMenuCommand command) {
     return ShellSurfaceRequest{{}, {}};
   case TrayMenuCommand::OpenAbout:
     return ShellSurfaceRequest{{}, "about"};
+  // 检查更新在设置窗口「关于」页里完成（msime_client_update_check），和「关于」一行打开同一页。
+  case TrayMenuCommand::CheckForUpdates:
+    return ShellSurfaceRequest{{}, "about"};
   case TrayMenuCommand::OpenTheme:
     return ShellSurfaceRequest{{}, "skin"};
   case TrayMenuCommand::OpenDictionary:
     return ShellSurfaceRequest{{}, "dictionary"};
+  // 设置窗口把 help 和 feedback 都落到「帮助与反馈」页（SettingsNavigation.h 的 route_aliases）。
+  case TrayMenuCommand::OpenHelp:
+    return ShellSurfaceRequest{{}, "help"};
+  case TrayMenuCommand::OpenFeedback:
+    return ShellSurfaceRequest{{}, "feedback"};
+  // 共享应用按 cloud-clipboard 路由打开面板，打开前记下前台的编辑器（panel_input.rs 的 remember_opening_panel_target），所以条目能直接输入回原来的编辑器。托盘卡片不抢焦点，点这一行时前台仍是那个编辑器。
+  case TrayMenuCommand::OpenCloudClipboard:
+    return ShellSurfaceRequest{"cloud-clipboard", {}};
+  // 系统表情面板、官网和隐藏工具栏都不是外壳的界面。
+  case TrayMenuCommand::OpenSystemEmoji:
+  case TrayMenuCommand::OpenWebsite:
+  case TrayMenuCommand::HideFloatingToolbar:
   case TrayMenuCommand::ToggleFloatingToolbar:
   case TrayMenuCommand::SelectChinese:
   case TrayMenuCommand::SelectEnglish:
@@ -58,6 +73,12 @@ shell_surface_request(TrayMenuCommand command) {
   case TrayMenuCommand::SelectVietnamese:
   case TrayMenuCommand::SelectTibetan:
   case TrayMenuCommand::SelectStroke:
+  case TrayMenuCommand::ToggleDedicatedEnglish:
+  case TrayMenuCommand::ToggleTraditionalOutput:
+  case TrayMenuCommand::SelectTheme:
+  case TrayMenuCommand::ShowSchemes:
+  case TrayMenuCommand::ShowThemes:
+  case TrayMenuCommand::ShowMain:
     break;
   }
   return std::nullopt;

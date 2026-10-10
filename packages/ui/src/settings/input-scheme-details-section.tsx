@@ -48,10 +48,11 @@ export interface InputSchemeDetailsSectionProps {
   hasTouchKeyboardSchemes: boolean;
   /** 触屏宿主启用了五笔键盘：触屏只有一个五笔键盘，86 还是 98 仍在这里选。 */
   touchKeyboardHasWubi?: boolean;
-  macosShuangpinKeymap?: boolean;
+  /** 「输入时显示双拼键位提示」的当前值；宿主不画双拼键位图时不传，这一行不出现。 */
+  shuangpinKeymapHint?: boolean;
   onShuangpinProfileChange: (profile: ShuangpinProfile) => void;
   onWubiProfileChange?: (profile: WubiProfile) => void;
-  onMacosShuangpinKeymapChange?: (enabled: boolean) => void;
+  onShuangpinKeymapHintChange?: (enabled: boolean) => void;
   /** The document's Vietnamese options; absent means the defaults, Telex with modern tone placement. */
   vietnamese?: VietnamesePreferences;
   onVietnameseChange?: (vietnamese: VietnamesePreferences) => void;
@@ -75,10 +76,10 @@ export function InputSchemeDetailsSection({
   macos,
   hasTouchKeyboardSchemes,
   touchKeyboardHasWubi = false,
-  macosShuangpinKeymap,
+  shuangpinKeymapHint,
   onShuangpinProfileChange,
   onWubiProfileChange,
-  onMacosShuangpinKeymapChange,
+  onShuangpinKeymapHintChange,
   vietnamese,
   onVietnameseChange,
 }: InputSchemeDetailsSectionProps) {
@@ -108,13 +109,13 @@ export function InputSchemeDetailsSection({
       >
         {shuangpinProfileOptions()}
       </SelectRow>
-      {macosShuangpinKeymap !== undefined && (
+      {shuangpinKeymapHint !== undefined && (
         <SwitchRow
           title="输入时显示双拼键位提示"
           description="双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。"
           hidden={hasTouchKeyboardSchemes || scheme !== "shuangpin"}
-          checked={macosShuangpinKeymap}
-          onChange={onMacosShuangpinKeymapChange ?? (() => {})}
+          checked={shuangpinKeymapHint}
+          onChange={onShuangpinKeymapHintChange ?? (() => {})}
         />
       )}
       {/* 五笔方案在 86 与 98 码表之间切换，个人词条和学习记录按版本分开存；触屏宿主没有方案选择器，启用了五笔键盘时也在这里选。 */}

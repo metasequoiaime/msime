@@ -327,6 +327,8 @@ export interface CloudDictionaryPanelClient extends PanelClient {
   request(action: CloudDictionaryAction): Promise<CloudDictionaryResponse>;
   snapshot?: boolean;
   snapshotNative?: boolean;
+  /** 「应用到本机」由这个面板自己处理队列（Windows 设置应用）：入列后马上应用、输入暂停，没能应用的请求只在面板开着时重试，输入法不会在空闲时自己应用。 */
+  snapshotAppliesInPanel?: boolean;
   exportNative?: boolean;
   chooseSnapshotRestore?(): Promise<CloudDictionaryResponse>;
   downloadToLocal?(entry: CloudDictionaryEntry): Promise<void>;
@@ -2812,6 +2814,26 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
   );
 }
 
+const PANEL_SNAPSHOT_RETRY_NOTICE =
+  "快照已入列，这次没能马上应用；请保持这个面板打开，稍后会自动重试";
+
+/** 由面板自己处理队列的宿主（`snapshotAppliesInPanel`）按请求状态给出的提示。结束的结果在下一次轮询时被取走、处理结果一节随之消失，所以提示自己说清结局，不指向那一节。 */
+function panelSnapshotNotice(status: CloudDictionarySnapshotRequest["status"] | undefined): string {
+  switch (status) {
+    case "applied":
+      return "云端快照已应用到本机";
+    case "queued":
+    case "preparing":
+      return PANEL_SNAPSHOT_RETRY_NOTICE;
+    case "conflict":
+      return "快照因冲突作废，本机词库未改变";
+    case "cancelled":
+      return "已取消待应用快照";
+    default:
+      return "快照没有应用";
+  }
+}
+
 /** Apply the complete cloud snapshot through the platform's idle-boundary queue. */
 export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryPanelClient }) {
   const { confirm, confirmation } = useConfirm();
@@ -2838,7 +2860,13 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
       const result = await client.request({ operation: "snapshot_status" });
       if (lifecycle !== lifecycleRevision.current || !isCurrent(revision)) return;
       setLocalVersion(typeof result.localVersion === "string" ? result.localVersion : null);
-      setRequest(cloudResponseRequest<CloudDictionarySnapshotRequest>(result));
+      const current = cloudResponseRequest<CloudDictionarySnapshotRequest>(result);
+      setRequest(current);
+      // 面板重试成功或作废以后，换掉「请保持面板打开」那句，否则结果被取走后它一直留在那里。
+      if (client.snapshotAppliesInPanel && current) {
+        const notice = panelSnapshotNotice(current.status);
+        setNotice((shown) => (shown === PANEL_SNAPSHOT_RETRY_NOTICE ? notice : shown));
+      }
     } catch {
       if (lifecycle === lifecycleRevision.current && isCurrent(revision))
         setNotice("无法读取本机词库状态，请确认键盘已启用");
@@ -2872,7 +2900,9 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     const lifecycle = lifecycleRevision.current;
     const confirmed = await confirm({
       title: "替换本机词库",
-      message: "这份云端快照会替换本机个人词库和学习记录，输入法将在下一次空闲边界应用。",
+      message: client.snapshotAppliesInPanel
+        ? "这份云端快照会替换本机个人词库和学习记录。替换马上进行，期间输入会暂停；请保持这个面板打开，直到状态显示已应用。"
+        : "这份云端快照会替换本机个人词库和学习记录，输入法将在下一次空闲边界应用。",
       confirmLabel: "替换",
       danger: true,
     });
@@ -2882,8 +2912,13 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
       if (currentLifecycle !== lifecycleRevision.current || !isCurrent(revision)) return;
       setPreview(null);
       setPreviewToken(null);
-      setRequest(cloudResponseRequest<CloudDictionarySnapshotRequest>(result));
-      setNotice("快照已入列，将在输入法空闲时应用");
+      const queued = cloudResponseRequest<CloudDictionarySnapshotRequest>(result);
+      setRequest(queued);
+      setNotice(
+        client.snapshotAppliesInPanel
+          ? panelSnapshotNotice(queued?.status)
+          : "快照已入列，将在输入法空闲时应用",
+      );
     }, "快照入列失败，本机词库未改变");
   }
 
@@ -2999,6 +3034,12 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
             <p className={cloud.dictionaryNote}>
               状态：{request.status} · 云端 revision {request.cloudRevision}
             </p>
+            {client.snapshotAppliesInPanel &&
+              (request.status === "queued" || request.status === "preparing") && (
+                <p className={cloud.dictionaryNote}>
+                  快照只在这个面板开着时应用，关掉面板会停在待应用；之后输入改变了本机词库，这份快照会因冲突作废。
+                </p>
+              )}
             {(request.status === "queued" || request.status === "preparing") && (
               <button type="button" className="secondary" onClick={cancel} disabled={busy}>
                 取消待应用快照

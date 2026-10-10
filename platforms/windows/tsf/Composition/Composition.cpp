@@ -526,25 +526,7 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITf
 
 WCHAR CMetasequoiaIME::_GetPairedPunctuationClosingFor(WCHAR opening)
 {
-    switch (opening)
-    {
-    case L'“':
-        return L'”';
-    case L'‘':
-        return L'’';
-    case L'【':
-        return L'】';
-    case L'{':
-        return L'}';
-    case L'《':
-        return L'》';
-    case L'〈':
-        return L'〉';
-    case L'（':
-        return L'）';
-    default:
-        return 0;
-    }
+    return Global::PairedPunctuationClosingFor(opening);
 }
 
 void CMetasequoiaIME::_PushPairedPunctuation(WCHAR opening, WCHAR closing)
@@ -564,6 +546,27 @@ void CMetasequoiaIME::_PushPairedPunctuation(WCHAR opening, WCHAR closing)
     entry.closing = closing;
     entry.focusToken = _CaptureFocusSessionToken();
     _pairedPunctuationStack.push_back(entry);
+}
+
+WCHAR CMetasequoiaIME::_CandidateCommitPairedClosing(const std::wstring &text) const
+{
+    if (!Global::PairedPunctuationEnabled.load(std::memory_order_relaxed) ||
+        Global::IsPairedPunctuationExcludedProcess(Global::current_process_name))
+    {
+        return 0;
+    }
+    return Global::PairedPunctuationClosingForCandidate(text);
+}
+
+void CMetasequoiaIME::_OpenCandidateCommitPair(WCHAR opening, WCHAR closing)
+{
+    if (opening == 0 || closing == 0)
+    {
+        return;
+    }
+    _InvalidateSmartPunctuationShadow();
+    _PushPairedPunctuation(opening, closing);
+    _QueuePairedPunctuationCaretMove(-1);
 }
 
 void CMetasequoiaIME::_ClearPairedPunctuationStack()

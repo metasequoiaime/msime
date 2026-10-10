@@ -141,6 +141,11 @@ int main() {
       std::vector<AuxTypingStatistics> statistics_batches;
       std::atomic<bool> keys_ok{false};
       std::vector<AuxTypingKeys> key_batches;
+      std::atomic<bool> key_sound_ok{false};
+      std::atomic<uint64_t> key_sound_calls{0};
+      std::atomic<uint64_t> seen_key_client{0};
+      std::atomic<uint64_t> seen_key_token{0};
+      std::atomic<uint32_t> seen_key_class{0};
       auto listener = AuxListener::create(
           name, [&](const TrayMenuAnchor &a) { collected.add(a); }, error, {},
           [&](AuxActivation activation) {
@@ -173,6 +178,13 @@ int main() {
             std::lock_guard<std::mutex> lock(statistics_mutex);
             key_batches.push_back(batch);
             return keys_ok.load();
+          },
+          [&](const AuxKeySound &key) {
+            seen_key_client.store(key.client_id);
+            seen_key_token.store(key.focus_token);
+            seen_key_class.store(key.key_class);
+            ++key_sound_calls;
+            return key_sound_ok.load();
           });
       require(listener != nullptr);
       const auto dispatched = [&] { return listener->stats().dispatched; };
@@ -294,6 +306,29 @@ int main() {
         require(key_batches[2].day == L"2026-10-01" &&
                 key_batches[2].counts ==
                     std::map<std::wstring, uint64_t>{{L"KeyA", 3}, {L"Space", 2}});
+      }
+      // TIP 交给应用的按键（KeySound）：按键音和打字特效都关着时 sink 返回 false，不写回 "OK"，TIP 据此停一阵不再为每个键连管道；记作 unknown_verb，不算 dispatched。
+      const auto unknown_before_key = listener->stats().unknown_verb;
+      const auto dispatched_before_key = listener->stats().dispatched;
+      require(send_and_read_reply(name, aux_key_sound_message({own_client, 5, 1})).empty());
+      require(key_sound_calls.load() == 1);
+      require(listener->stats().unknown_verb == unknown_before_key + 1);
+      require(listener->stats().dispatched == dispatched_before_key);
+      // 开着时写回 "OK"，sink 拿到的正是 TIP 报的客户端、焦点令牌和键类别。sink 在写 "OK" 之前运行，所以读到回复时调用已经发生。
+      key_sound_ok.store(true);
+      require(send_and_read_reply(name, aux_key_sound_message({own_client, 6, 2})) == L"OK");
+      require(key_sound_calls.load() == 2);
+      require(seen_key_client.load() == own_client && seen_key_token.load() == 6 &&
+              seen_key_class.load() == 2u);
+      // 客户端写的是别的进程：在 sink 之前拒掉，记作 rejected，不写 "OK"，一个宿主不能替另一个宿主的线程出声和计连击。
+      const auto rejected_before_key = listener->stats().rejected;
+      require(send_and_read_reply(name, aux_key_sound_message({foreign_client, 7, 1})).empty());
+      require(key_sound_calls.load() == 2);
+      require(listener->stats().rejected == rejected_before_key + 1);
+      // KeySound 只进自己的 sink，不会被当成统计或按键热力图的批次。
+      {
+        std::lock_guard<std::mutex> lock(statistics_mutex);
+        require(statistics_batches.size() == 2 && key_batches.size() == 3);
       }
       // Progress is the click count, not `dispatched`: acknowledged verbs have already pushed that counter past any fixed target, which would turn deliver's retry into a single send that races the listener's next accept.
       const auto clicks = [&] { return uint64_t(collected.snapshot().size()); };

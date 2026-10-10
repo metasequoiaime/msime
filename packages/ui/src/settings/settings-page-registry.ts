@@ -64,7 +64,7 @@ export const pages = [
     title: "账号与同步",
     icon: new URL("../assets/account.svg", import.meta.url).href,
   },
-  // The touch hosts' 社区 tab, a primary tab rather than a member of a navigation group. Desktop hosts have no such page: they browse candidate-window skins on 主题 and plugin packs on 插件.
+  // 触屏宿主的「社区」主标签页，不属于任何导航分组。桌面宿主的侧栏没有这一页：候选窗口皮肤在「主题」页浏览，插件包在「插件」页浏览；Windows 只从账号页「我的内容」里的词库、回复模板几行进入这一页。
   {
     id: "community",
     title: "社区",

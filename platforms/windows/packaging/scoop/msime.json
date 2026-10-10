@@ -1,7 +1,7 @@
 {
     "##": [
         "模板：platforms/windows/packaging/render.py 按一个 windows-v 发布填写 @...@ 字段。没有 checkver 与 autoupdate：发布页上先出现的是 CI 打的未签名安装包（它的 uiAccess Server 起不来），Excavator 按它们会把那一份写进 bucket；新版本由维护者在签名的安装包替换上去之后重新渲染、提交。",
-        "不是便携应用：输入法要在系统范围注册 TSF DLL 与 COM 类，所以这里运行发布的 Inno Setup 安装包（按机器安装，会弹 UAC），Scoop 的应用目录里什么也不留。安装包就地升级并保留数据目录，所以卸载脚本在 scoop update 时什么也不做，只在 scoop uninstall 时运行 Inno 卸载程序，后者也会删除安装包拥有的数据目录。"
+        "不是便携应用：输入法要在系统范围注册 TSF DLL 与 COM 类，所以这里运行发布的 Inno Setup 安装包（按机器安装，会弹 UAC），Scoop 的应用目录里什么也不留。安装包就地升级并保留数据目录，所以卸载脚本在 scoop update 时什么也不做，只在 scoop uninstall 时静默运行 Inno 卸载程序；静默卸载默认保留数据目录。"
     ],
     "version": "@VERSION@",
     "description": "Metasequoia IME (水杉输入法): Chinese input method for Windows. Not related to Microsoft IME.",
@@ -13,7 +13,7 @@
     "notes": [
         "Metasequoia IME was installed machine-wide by its own installer (Program Files\\metasequoiaime-full), not into the Scoop directory.",
         "It needs the Visual C++ 2015-2022 x64 redistributable and the Microsoft Edge WebView2 Runtime; the installer only logs which one is missing when it runs silently.",
-        "'scoop uninstall msime' also deletes the input method's data directory (your own words, settings and skins)."
+        "'scoop uninstall msime' keeps the input method's data directory (your own words, settings and skins). A later install picks it up again when it is in the default location (%LOCALAPPDATA%\\metasequoiaime-full); a directory chosen elsewhere has to be chosen again on the installer's data location page. To delete it as well, uninstall from Windows Settings and answer Yes when asked, or run the uninstaller with /REMOVEDATA."
     ],
     "architecture": {
         "64bit": {

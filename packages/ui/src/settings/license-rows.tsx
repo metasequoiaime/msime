@@ -5,7 +5,7 @@ export interface LicenseRowsProps {
   openThirdPartyLicenses?: () => Promise<void>;
 }
 
-/** 「关于 › 许可与隐私」里的 macOS 版权和第三方声明行。 */
+/** 「关于 › 许可与隐私」里的版权和第三方声明行，macOS 和 Windows 显示。 */
 export function LicenseRows({ openThirdPartyLicenses }: LicenseRowsProps) {
   return (
     <>

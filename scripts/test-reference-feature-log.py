@@ -59,9 +59,10 @@ REVIEWED: dict[str, str] = {
     ),
     "**langbar:** switch IME mode icons by system light/dark theme": (
         "platforms/windows/tsf/LanguageBar/LanguageBar.cpp: IsSystemDarkMode reads "
-        "Personalize\\SystemUsesLightTheme and ResolveThemeIconIndex picks the icon. Assets are "
-        "tsf/assets/{cn,en,jp,cap}-{light,dark}.ico - one pair more than the reference, which has "
-        "no Japanese indicator."
+        "Personalize\\SystemUsesLightTheme; ModeIconResource picks the mode button's icon and "
+        "ResolveThemeIconIndex the others'. Assets are tsf/assets/{cn,en,cap,jp,kr}-{light,dark}.ico "
+        "plus one pair per further scheme (tsf/assets/README.md) - the reference has no Japanese "
+        "or per-scheme indicator."
     ),
     "**product:** keep WebView and native contracts in one locked combination": (
         "Release plumbing; see the product lock bullets above."

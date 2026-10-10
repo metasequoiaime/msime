@@ -36,22 +36,36 @@ test("changes the Shuangpin profile and disables it outside Shuangpin on macOS",
   expect(onShuangpinProfileChange).toHaveBeenCalledWith("ziranma");
 });
 
-test("updates the macOS Shuangpin keymap toggle when provided", () => {
-  const onMacosShuangpinKeymapChange = vi.fn();
+test("updates the Shuangpin keymap toggle when provided", () => {
+  const onShuangpinKeymapHintChange = vi.fn();
   render(
     <InputSchemeDetailsSection
       scheme="shuangpin"
       shuangpinProfile="xiaohe"
-      macos
+      macos={false}
       hasTouchKeyboardSchemes={false}
-      macosShuangpinKeymap={false}
+      shuangpinKeymapHint={false}
       onShuangpinProfileChange={vi.fn()}
-      onMacosShuangpinKeymapChange={onMacosShuangpinKeymapChange}
+      onShuangpinKeymapHintChange={onShuangpinKeymapHintChange}
     />,
   );
 
   fireEvent.click(screen.getByRole("switch", { name: "输入时显示双拼键位提示" }));
-  expect(onMacosShuangpinKeymapChange).toHaveBeenCalledWith(true);
+  expect(onShuangpinKeymapHintChange).toHaveBeenCalledWith(true);
+});
+
+test("leaves the Shuangpin keymap toggle out when the host draws no keymap", () => {
+  render(
+    <InputSchemeDetailsSection
+      scheme="shuangpin"
+      shuangpinProfile="xiaohe"
+      macos={false}
+      hasTouchKeyboardSchemes={false}
+      onShuangpinProfileChange={vi.fn()}
+    />,
+  );
+
+  expect(screen.queryByRole("switch", { name: "输入时显示双拼键位提示" })).toBeNull();
 });
 
 test("shows only the Japanese scheme details in Japanese mode", () => {

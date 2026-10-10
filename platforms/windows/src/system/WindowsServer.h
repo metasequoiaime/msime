@@ -60,6 +60,10 @@ public:
   bool deactivate_terminal(uint64_t client, uint64_t token) {
     return controller_->deactivate_terminal(client, token);
   }
+  // Aux 管道的 KeySound；见 SessionController。
+  void passthrough_key(uint64_t client, uint64_t token, uint32_t key_class) {
+    controller_->passthrough_key(client, token, key_class);
+  }
   // Dictionary maintenance handshake; see SessionController.
   bool quiesce_dictionaries() { return controller_->quiesce_dictionaries(); }
   bool resume_dictionaries() { return controller_->resume_dictionaries(); }
@@ -71,6 +75,9 @@ public:
   }
   bool exit_dedicated_english(const FocusLease &lease) {
     return controller_->exit_dedicated_english(lease);
+  }
+  bool set_dedicated_english(const FocusLease &lease, bool enabled) {
+    return controller_->set_dedicated_english(lease, enabled);
   }
   std::vector<PipeTicket> current_tsf_tickets() {
     return transport_->current_tickets();

@@ -318,8 +318,12 @@ if call[:2] == ["info", "--format"]:
         self.assertIn("cp /bin-win/tsf/*MetasequoiaImeTsf.dll /run/t/", command)
         self.assertIn(f"{source}:/tsf-source:ro", wine)
         self.assertIn("MSIME_TSF_SOURCE=Z:\\\\tsf-source", command)
+        # 日语转换的接线检查从 TSF 源码目录的 ../src 读 Server 的 ReplyComposer.cpp。
+        self.assertIn(f"{self.windows / 'src'}:/src:ro", wine)
         for name in ("msime-tsf-paired-punctuation-wiring-test",
-                     "msime-tsf-smart-punctuation-focus-wiring-test"):
+                     "msime-tsf-smart-punctuation-focus-wiring-test",
+                     "msime-tsf-japanese-conversion-wiring-test",
+                     "msime-tsf-gloss-column-wiring-test"):
             self.assertIn(f'"$name" = {name} ] && argument="$MSIME_TSF_SOURCE"', command)
 
 

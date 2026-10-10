@@ -334,6 +334,48 @@ parse_aux_typing_keys(const std::wstring &text) {
   return keys;
 }
 
+// KeySound|<client>|<token>|<class>
+//
+// 一次交给应用的按下：没有组字时的空格、回车、退格、数字和方向键这类 TIP 不接手的键。只为按键音和打字特效的连击而发，所以只带 msime_client_key_sound 的类别（0 其他键、1 空格、2 回车、3 退格），不带是哪个键、打出了什么字。client 是 (pid << 32) | tid，Server 核对发送方的进程号；token 是这个线程当前的焦点令牌，只有正持有焦点的会话会出声。TIP 在线程池上发送、等 "OK"：Server 只在按键音或打字特效开着时回 "OK"，没有回音时 TIP 停一阵再发，功能都关着时不会每个键都连一次管道。
+struct AuxKeySound {
+  uint64_t client_id = 0;
+  uint64_t focus_token = 0;
+  uint32_t key_class = 0;
+};
+inline constexpr std::wstring_view aux_key_sound_verb = L"KeySound";
+
+inline std::wstring aux_key_sound_message(const AuxKeySound &key) {
+  std::wstring message(aux_key_sound_verb);
+  message += L'|';
+  message += std::to_wstring(key.client_id);
+  message += L'|';
+  message += std::to_wstring(key.focus_token);
+  message += L'|';
+  message += std::to_wstring(key.key_class);
+  return message;
+}
+
+inline std::optional<AuxKeySound> parse_aux_key_sound(const std::wstring &text) {
+  const auto verb = aux_key_sound_verb;
+  if (text.size() <= verb.size() || text.compare(0, verb.size(), verb) != 0 || text[verb.size()] != L'|')
+    return std::nullopt;
+  std::wstring_view rest(text);
+  rest.remove_prefix(verb.size() + 1);
+  const auto first = rest.find(L'|');
+  if (first == std::wstring_view::npos)
+    return std::nullopt;
+  const auto second = rest.find(L'|', first + 1);
+  if (second == std::wstring_view::npos)
+    return std::nullopt;
+  // 第四个 '|' 会留在类别字段里，被当成非数字拒掉。
+  const auto client = detail::aux_u64_field(rest.substr(0, first));
+  const auto token = detail::aux_u64_field(rest.substr(first + 1, second - first - 1));
+  const auto key_class = detail::aux_u64_field(rest.substr(second + 1));
+  if (!client || !token || !key_class || *client == 0 || *token == 0 || *key_class > 3)
+    return std::nullopt;
+  return AuxKeySound{*client, *token, static_cast<uint32_t>(*key_class)};
+}
+
 // Anchor the card on the button. The centre is computed as left + width / 2
 // rather than (left + right) / 2 so a rectangle far from the origin cannot
 // overflow on the way.

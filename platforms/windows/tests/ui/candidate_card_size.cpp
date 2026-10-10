@@ -864,4 +864,89 @@ int main() {
     paged.page_width = -1.0;
     require(rejected(paged));
   }
+
+  // `show_app_logo` 关掉：logo 和它的间隔不占宽度，拼音从左边距开始；拼音隐藏又没有翻页时首行不占高度，有翻页时首行仍是 22 DIP，和 macOS 一致。
+  {
+    const auto bare = candidate_card_metrics(16.0, 16.0, true, false, true);
+    require(!bare.logo_visible && near(bare.preedit_row, 16.0 * 1.4 + 6.0));
+    require(near(candidate_preedit_left(bare), bare.pad_x));
+    require(near(candidate_card_metrics(16.0, 16.0, false, false, true).preedit_row, 22.0));
+    require(near(candidate_card_metrics(16.0, 16.0, false, false, false).preedit_row, 0.0));
+    // 有 logo 时即使没有拼音和翻页，首行也留给 logo。
+    require(near(candidate_card_metrics(16.0, 16.0, false, true, false).preedit_row, 22.0));
+    require(!candidate_pager_layout(200.0, 30.0,
+                                    candidate_card_metrics(16.0, 16.0, false, false, false)));
+
+    CandidateCardInput plain;
+    plain.preedit_width = 300.0;
+    plain.items = {{40.0}};
+    const auto marked = candidate_card_size(plain);
+    plain.logo_visible = false;
+    const auto unmarked = candidate_card_size(plain);
+    require(near(marked.width - unmarked.width, 16.0 + 6.0));
+    require(near(unmarked.width, 300.0 + 6.0 + 12.0 + 14.0));
+    require(near(unmarked.height, marked.height));
+    // 拼音隐藏、没有翻页、也不画 logo：卡片高度只剩候选行和上下边距。
+    plain.preedit_visible = false;
+    const auto collapsed = candidate_card_size(plain);
+    require(near(collapsed.height, 6.0 + 6.0 + row16));
+    // 有翻页时首行回来，放翻页。
+    plain.page_width = 30.0;
+    require(near(candidate_card_size(plain).height, 6.0 + 6.0 + 22.0 + row16));
+    // 首行为 0 高时第一行候选紧贴上边距，行的位置和点击区域都从这里算。
+    const auto rows = candidate_page_layout(
+        {{40.0}}, 200.0, candidate_card_metrics(16.0, 16.0, false, false, false), false);
+    require(near(rows.front().bounds.top, 6.0));
+  }
+
+  // 横排候选在释义到达前就预留释义行：每行至少一行候选加 N 行释义高，释义到了也不再变高；竖排不预留。
+  {
+    const auto shape = candidate_card_metrics(16.0, 16.0, true);
+    require(near(candidate_reserved_row_height(shape, 0), 0.0));
+    const double two = candidate_reserved_row_height(shape, 2);
+    require(near(two, shape.candidate_row + 2.0 * shape.translation_line));
+    CandidateCardInput reserved;
+    reserved.horizontal = true;
+    reserved.items = {{40.0}, {40.0}};
+    const auto bare = candidate_card_size(reserved);
+    reserved.reserved_secondary_lines = 2;
+    const auto waiting = candidate_card_size(reserved);
+    require(near(waiting.height - bare.height, two - shape.candidate_row));
+    // 释义到了（各一行）：高度不变。
+    reserved.items = {{40.0, 0.0, 30.0}, {40.0, 0.0, 30.0}};
+    require(near(candidate_card_size(reserved).height, waiting.height));
+    const auto rows = candidate_page_layout(reserved.items, 400.0, shape, true, {}, two);
+    require(near(rows[0].bounds.bottom - rows[0].bounds.top, two) &&
+            near(rows[1].bounds.bottom - rows[1].bounds.top, two));
+    // 两行释义到达后由 DirectWrite 量高（常见字体的行高约 1.33 倍字号，比 translation_line 的 1.25 倍高）：预留时用同一种测量量出的两行占位高度，释义到了卡片也不变高。
+    {
+      const double measured = 2.0 * shape.translation_font * 1.33;
+      require(measured > 2.0 * shape.translation_line);
+      require(near(candidate_reserved_row_height(shape, 2, measured), shape.candidate_row + measured));
+      // 一行释义不量，按固定行高；量出来比估算还矮或不是有限值时按估算。
+      require(near(candidate_reserved_row_height(shape, 1, measured), shape.candidate_row + shape.translation_line));
+      require(near(candidate_reserved_row_height(shape, 2, 1.0), two));
+      require(near(candidate_reserved_row_height(shape, 2, std::nan("")), two));
+      CandidateCardInput tall;
+      tall.horizontal = true;
+      tall.items = {{40.0}, {40.0}};
+      tall.reserved_secondary_lines = 2;
+      tall.reserved_secondary_height = measured;
+      const auto before = candidate_card_size(tall);
+      CandidateItemWidths arrived{40.0, 0.0, 30.0};
+      arrived.translation_lines = 2;
+      tall.items = {arrived, arrived};
+      tall.wrapped = [&](size_t, CandidateRun run, double) {
+        return run == CandidateRun::translation ? measured : shape.candidate_row;
+      };
+      require(near(candidate_card_size(tall).height, before.height));
+    }
+    // 竖排不预留。
+    reserved.horizontal = false;
+    reserved.items = {{40.0}, {40.0}};
+    reserved.reserved_secondary_lines = 0;
+    const auto vertical_bare = candidate_card_size(reserved);
+    reserved.reserved_secondary_lines = 2;
+    require(near(candidate_card_size(reserved).height, vertical_bare.height));
+  }
 }

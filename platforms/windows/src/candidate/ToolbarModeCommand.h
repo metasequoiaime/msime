@@ -85,6 +85,19 @@ tray_menu_mode_command(TrayMenuCommand command, std::optional<bool> chinese,
   case TrayMenuCommand::SelectStroke:
   case TrayMenuCommand::OpenTheme:
   case TrayMenuCommand::OpenDictionary:
+  case TrayMenuCommand::OpenSystemEmoji:
+  case TrayMenuCommand::CheckForUpdates:
+  case TrayMenuCommand::OpenWebsite:
+  case TrayMenuCommand::OpenHelp:
+  case TrayMenuCommand::OpenFeedback:
+  case TrayMenuCommand::HideFloatingToolbar:
+  case TrayMenuCommand::ToggleDedicatedEnglish:
+  case TrayMenuCommand::ToggleTraditionalOutput:
+  case TrayMenuCommand::OpenCloudClipboard:
+  case TrayMenuCommand::SelectTheme:
+  case TrayMenuCommand::ShowSchemes:
+  case TrayMenuCommand::ShowThemes:
+  case TrayMenuCommand::ShowMain:
     break;
   }
   return {};

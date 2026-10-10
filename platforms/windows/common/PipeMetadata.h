@@ -3,9 +3,7 @@
 #include "../../../shared/contracts/windows_ipc.h"
 
 namespace msime::windows::PipeMetadata {
-// Set by the TSF while its original candidate list is active. This metadata
-// is distinct from keyboard modifiers: VK_RETURN has different semantics for
-// an original candidate list and an incremental/raw composition.
+// TSF 在候选列表开着时设这一位，和键盘修饰键无关：通配转换的候选列表（CANDIDATE_ORIGINAL）里每个键都带；普通组字的增量候选只给释义列、Ctrl+Enter 和释义页认的键带（tsf/Global/CandidateActiveKeyPolicy.h），日语转换开始之后的回车也带；其余的裸回车、以词定字和 Ctrl+Backspace 靠没有这一位走组字原文的路。
 inline constexpr std::uint32_t CandidateActive = 0x40000000u;
 // Set by the TSF on a key-down that is the auto-repeat of a held key (bit 30 of its lParam). The Server still handles the key as it always did; only the typing effect's combo leaves it uncounted.
 inline constexpr std::uint32_t AutoRepeat = 0x20000000u;

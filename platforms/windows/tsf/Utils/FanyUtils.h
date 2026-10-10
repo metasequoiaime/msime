@@ -15,6 +15,8 @@ std::wstring GetCurrentProcessName();
 std::string::size_type count_utf8_chars(const std::string &str);
 // Read default_ime_mode from the shared MSIME-Client PreferencesStore. Returns TRUE for Chinese (also when the store cannot be read), FALSE for English.
 BOOL ReadConfiguredDefaultImeModeChinese();
+// 应用例外（共享偏好 app_input_mode_rules）里这个进程基名的起始模式：TRUE 为中文、FALSE 为英文；没有规则或读不到偏好时为空。
+std::optional<BOOL> ReadConfiguredAppInputModeChinese(const std::wstring &process);
 // Read the active scheme from shared PreferencesStore. TRUE when Japanese input is active.
 BOOL ReadConfiguredJapaneseInputMode();
 // The active scheme id from the shared PreferencesStore ("quanpin" when it names none or the store is unreadable). One read answers both the Japanese and the Korean input mode.
@@ -32,6 +34,8 @@ struct SwitchLanguageHotkeys
     bool ctrl = false;
     bool ctrl_alt_space = true;
     bool character_set_ctrl_shift_f = true;
+    // keybindings.toggle_fullwidth_option_shift_h：中文模式下 Alt+Shift+H 切换全半角。
+    bool fullwidth_alt_shift_h = true;
 };
 // Read keybindings.switch_language_* from shared PreferencesStore, or the defaults when it is unreadable.
 SwitchLanguageHotkeys ReadConfiguredSwitchLanguageHotkeys();

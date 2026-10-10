@@ -115,6 +115,93 @@ pub(super) fn ensure_anonymous_account_with<A: AccountApi>(
         .map(|_| ())
 }
 
+/// 输入法进程调用账号服务时用的令牌，以及它属于哪个账号。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SharedAccessToken {
+    pub access_token: String,
+    pub user_id: String,
+    /// 设置应用里没有登录、用的是本机匿名账号时为真。
+    pub anonymous: bool,
+}
+
+/// 输入法进程取账号令牌。`directory` 是设置应用和输入法共用的账号目录：设置应用登录后把 `account-session.json`（[`FileAccountSessionStorage`] 的 Native 格式）写在这里，输入法安装后注册的匿名会话 `anonymous-session.json` 也在这里。已登录的账号优先，刷新时与设置应用拿同一把 `account-refresh.lock`，两个进程不会用对方已经用掉的刷新令牌；没有登录时用匿名会话。每次调用都重新读文件，所以设置应用里的登录、退出和换号下一次调用就生效，不需要进程间通知。`rejected_token` 是服务端刚以 401 拒绝的令牌，传入后强制刷新。刷新会阻塞网络，调用方放在输入线程以外。
+pub fn shared_access_token(
+    directory: &Path,
+    rejected_token: Option<&str>,
+) -> Result<SharedAccessToken, AccountError> {
+    shared_access_token_with(BackendAccountClient::new()?, directory, rejected_token)
+}
+
+pub(super) fn shared_access_token_with<A: AccountApi + Clone>(
+    api: A,
+    directory: &Path,
+    rejected_token: Option<&str>,
+) -> Result<SharedAccessToken, AccountError> {
+    let signed_in = BackendAccountSession::new(
+        api.clone(),
+        FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native),
+    );
+    match signed_in.credentials(rejected_token, None) {
+        Ok((user_id, access_token)) => {
+            return Ok(SharedAccessToken {
+                access_token,
+                user_id,
+                anonymous: false,
+            })
+        }
+        // 没有登录，或者登录的会话已被服务端吊销并清掉：退回匿名账号。
+        Err(AccountError::Unauthorized) => {}
+        Err(error) => return Err(error),
+    }
+    BackendAccountSession::new(api, LockedAnonymousSessionStorage::new(directory))
+        .credentials(rejected_token, None)
+        .map(|(user_id, access_token)| SharedAccessToken {
+            access_token,
+            user_id,
+            anonymous: true,
+        })
+}
+
+/// [`shared_access_token`] 读匿名会话用的存储：文件仍是 `anonymous-session.json`，但每次都重新读，刷新时持与登录会话同一把 `account-refresh.lock`。输入法进程里几个线程可能同时取令牌，每次调用又各建一个会话，不加锁时它们会拿同一个刷新令牌各刷新一次，而服务端见到用过的刷新令牌会吊销整个会话。只用在这里，[`ensure_anonymous_account`] 和其他宿主读写匿名会话的方式不变。
+struct LockedAnonymousSessionStorage {
+    session: AnonymousSessionStorage,
+    lock: FileAccountSessionStorage,
+}
+
+impl LockedAnonymousSessionStorage {
+    fn new(directory: &Path) -> Self {
+        Self {
+            session: AnonymousSessionStorage::new(directory),
+            lock: FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native),
+        }
+    }
+}
+
+impl AccountSessionStorage for LockedAnonymousSessionStorage {
+    fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
+        self.session.load()
+    }
+
+    fn save(&self, session: &SavedAccountSession) -> Result<(), AccountError> {
+        self.session.save(session)
+    }
+
+    fn clear(&self) -> Result<(), AccountError> {
+        self.session.clear()
+    }
+
+    fn shared_across_processes(&self) -> bool {
+        true
+    }
+
+    fn with_refresh_lock<T>(
+        &self,
+        body: impl FnOnce() -> Result<T, AccountError>,
+    ) -> Result<T, AccountError> {
+        self.lock.with_refresh_lock(body)
+    }
+}
+
 /// 只有可读取且有效的会话才跳过重新登录；无效会话用已保存的身份重新领取 token。
 fn has_session(directory: &Path) -> bool {
     matches!(
@@ -474,6 +561,181 @@ mod tests {
                 .status()
                 .unwrap()
                 .is_some()
+        );
+    }
+
+    fn signed_in_session(access: char) -> SavedAccountSession {
+        SavedAccountSession {
+            tokens: AccountTokens {
+                access_token: access.to_string().repeat(64),
+                refresh_token: "d".repeat(64),
+                token_type: "Bearer".into(),
+                expires_in: 3600,
+                user: AccountUser {
+                    id: "synthetic-user".into(),
+                    display_name: "合成用户".into(),
+                    created_at: "2026-01-01T00:00:00Z".into(),
+                    email: None,
+                    avatar_url: None,
+                },
+            },
+            // 一小时以后才过期，不会触发提前刷新。
+            expires_at_unix_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64
+                + 3_600_000,
+            session_id: None,
+        }
+    }
+
+    /// 每次刷新都轮换令牌；同一个刷新令牌第二次出现时像服务端那样拒绝。刷新故意放慢，让并发的调用重叠。
+    #[derive(Clone, Default)]
+    struct RotatingApi {
+        presented: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl AccountApi for RotatingApi {
+        fn providers(&self) -> Result<std::collections::HashMap<String, bool>, AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn challenge(&self, _: &str, _: &str) -> Result<AccountChallenge, AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn login(&self, _: &str, _: &str) -> Result<AccountTokens, AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn refresh(&self, refresh_token: &str) -> Result<AccountTokens, AccountError> {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let mut presented = self.presented.lock().unwrap();
+            if presented.iter().any(|token| token == refresh_token) {
+                return Err(AccountError::Unauthorized);
+            }
+            presented.push(refresh_token.to_owned());
+            let mut tokens = anonymous_session('a', 'b').tokens;
+            tokens.access_token = "c".repeat(64);
+            tokens.refresh_token = "d".repeat(64);
+            Ok(tokens)
+        }
+        fn profile(&self, _: &str) -> Result<AccountProfile, AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn rename(&self, _: &str, _: &str) -> Result<(), AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn logout(&self, _: &str, _: bool) -> Result<(), AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn delete_account(&self, _: &str) -> Result<(), AccountError> {
+            Err(AccountError::Unavailable)
+        }
+    }
+
+    fn anonymous_session(access: char, refresh: char) -> SavedAccountSession {
+        SavedAccountSession {
+            tokens: AccountTokens {
+                access_token: access.to_string().repeat(64),
+                refresh_token: refresh.to_string().repeat(64),
+                token_type: "Bearer".into(),
+                expires_in: 3600,
+                user: AccountUser {
+                    id: "fixture-anonymous".into(),
+                    display_name: String::new(),
+                    created_at: "2026-01-01T00:00:00Z".into(),
+                    email: None,
+                    avatar_url: None,
+                },
+            },
+            expires_at_unix_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64
+                + 3_600_000,
+            session_id: Some(uuid::Uuid::new_v4()),
+        }
+    }
+
+    #[test]
+    fn concurrent_input_method_calls_refresh_the_anonymous_session_only_once() {
+        let dir = tempfile::tempdir().unwrap();
+        AnonymousSessionStorage::new(dir.path())
+            .save(&anonymous_session('a', 'b'))
+            .unwrap();
+        let api = RotatingApi::default();
+        let rejected = "a".repeat(64);
+        let start = Arc::new(std::sync::Barrier::new(2));
+        let calls: Vec<_> = (0..2)
+            .map(|_| {
+                let (api, directory, rejected, start) = (
+                    api.clone(),
+                    dir.path().to_path_buf(),
+                    rejected.clone(),
+                    Arc::clone(&start),
+                );
+                std::thread::spawn(move || {
+                    start.wait();
+                    shared_access_token_with(api, &directory, Some(&rejected))
+                })
+            })
+            .collect();
+        for call in calls {
+            let token = call.join().unwrap().unwrap();
+            assert_eq!(token.access_token, "c".repeat(64));
+            assert!(token.anonymous);
+        }
+        // 后拿到锁的那一次读到已经轮换过的会话，直接用新令牌，不再拿用过的刷新令牌去刷新。
+        assert_eq!(*api.presented.lock().unwrap(), ["b".repeat(64)]);
+        assert_eq!(
+            AnonymousSessionStorage::new(dir.path())
+                .load()
+                .unwrap()
+                .unwrap()
+                .tokens
+                .refresh_token,
+            "d".repeat(64)
+        );
+    }
+
+    #[test]
+    fn the_input_method_token_prefers_the_signed_in_account_over_the_anonymous_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let api = RegisteringApi::default();
+        assert_eq!(
+            shared_access_token_with(api.clone(), dir.path(), None).err(),
+            Some(AccountError::Unauthorized)
+        );
+
+        ensure_anonymous_account_with(api.clone(), dir.path()).unwrap();
+        assert_eq!(
+            shared_access_token_with(api.clone(), dir.path(), None).unwrap(),
+            SharedAccessToken {
+                access_token: "a".repeat(64),
+                user_id: "fixture-anonymous".into(),
+                anonymous: true,
+            }
+        );
+
+        // 设置应用登录后写下的会话文件，输入法下一次调用就读到。
+        FileAccountSessionStorage::new(dir.path(), AccountSessionFileLayout::Native)
+            .save(&signed_in_session('c'))
+            .unwrap();
+        assert_eq!(
+            shared_access_token_with(api.clone(), dir.path(), None).unwrap(),
+            SharedAccessToken {
+                access_token: "c".repeat(64),
+                user_id: "synthetic-user".into(),
+                anonymous: false,
+            }
+        );
+
+        // 退出登录删掉会话文件后，又回到匿名账号。
+        FileAccountSessionStorage::new(dir.path(), AccountSessionFileLayout::Native)
+            .clear()
+            .unwrap();
+        assert!(
+            shared_access_token_with(api, dir.path(), None)
+                .unwrap()
+                .anonymous
         );
     }
 

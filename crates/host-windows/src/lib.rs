@@ -18,7 +18,9 @@
 
 use msime_client_core::{is_bounded_text, is_bounded_utf16};
 
+mod clipboard_privacy;
 pub mod ink;
+mod send_input_marker;
 pub mod voice_controller;
 
 use std::path::Path;
@@ -191,12 +193,54 @@ impl Drop for GlobalLockGuard {
     }
 }
 
-/// Read the current Windows Unicode clipboard without spawning a shell.
+/// 剪贴板已打开时读出密码管理器等程序留下的隐私标记，判定见 [`clipboard_privacy`]。
+fn clipboard_privacy_markers() -> clipboard_privacy::ClipboardPrivacyMarkers {
+    use clipboard_privacy::{
+        ClipboardPermission, ClipboardPrivacyMarkers, CLOUD_PERMISSION_FORMAT,
+        EXCLUDE_MONITOR_FORMAT, HISTORY_PERMISSION_FORMAT, VIEWER_IGNORE_FORMAT,
+    };
+    use windows_sys::Win32::System::DataExchange::{
+        GetClipboardData, IsClipboardFormatAvailable, RegisterClipboardFormatW,
+    };
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize};
+    // 格式 id 是会话内全局的；注册失败得到 0，等同于剪贴板上没有这个格式。
+    // SAFETY: 名字是以 NUL 结尾的临时缓冲，调用期间有效；查询的是调用方已打开的剪贴板。
+    let present = |name: &str| {
+        let format = unsafe { RegisterClipboardFormatW(wide(name).as_ptr()) };
+        (format != 0 && unsafe { IsClipboardFormatAvailable(format) } != 0).then_some(format)
+    };
+    let permission = |name: &str| {
+        let Some(format) = present(name) else {
+            return ClipboardPermission::Absent;
+        };
+        // SAFETY: 句柄在使用前判空，锁住的内存按 GlobalSize 限界，并由 guard 在复制完之后解锁。
+        let handle = unsafe { GetClipboardData(format) };
+        if handle.is_null() {
+            return ClipboardPermission::from_data(None);
+        }
+        let size = unsafe { GlobalSize(handle) };
+        let pointer = unsafe { GlobalLock(handle) } as *const u8;
+        if pointer.is_null() {
+            return ClipboardPermission::from_data(None);
+        }
+        let _lock = GlobalLockGuard(handle);
+        let bytes = unsafe { std::slice::from_raw_parts(pointer, size.min(4)) };
+        ClipboardPermission::from_data(Some(bytes))
+    };
+    ClipboardPrivacyMarkers {
+        exclude_from_monitor: present(EXCLUDE_MONITOR_FORMAT).is_some(),
+        viewer_ignore: present(VIEWER_IGNORE_FORMAT).is_some(),
+        history: permission(HISTORY_PERMISSION_FORMAT),
+        cloud: permission(CLOUD_PERMISSION_FORMAT),
+    }
+}
+
+/// 不起 shell，直接读当前的 Windows Unicode 剪贴板。
 ///
-/// The caller owns normalization and persistence. This wrapper only accepts a
-/// bounded, NUL-terminated UTF-16 payload and never returns clipboard data in
-/// logs or diagnostics.
-pub fn read_clipboard_text() -> Result<String, ()> {
+/// 规范化和持久化归调用方。这里只接受有界、以 NUL 结尾的 UTF-16 内容，也从不把剪贴板内容写进日志或诊断。
+///
+/// `Ok(None)` 表示剪贴板带着密码管理器等程序的隐私标记（判定见 `clipboard_privacy`），这次内容不可采集；Server 的 `ClipboardMonitor` 按同一份名单跳过。
+pub fn read_clipboard_text() -> Result<Option<String>, ()> {
     use windows_sys::Win32::System::DataExchange::{
         GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
     };
@@ -208,6 +252,9 @@ pub fn read_clipboard_text() -> Result<String, ()> {
         return Err(());
     }
     let _clipboard = ClipboardGuard;
+    if clipboard_privacy_markers().excluded() {
+        return Ok(None);
+    }
     // SAFETY: these calls operate on the clipboard opened above.
     if unsafe { IsClipboardFormatAvailable(CF_UNICODETEXT) } == 0 {
         return Err(());
@@ -230,7 +277,7 @@ pub fn read_clipboard_text() -> Result<String, ()> {
     // pinned until after String::from_utf16 has copied it.
     let value = unsafe { std::slice::from_raw_parts(pointer, units) };
     let end = value.iter().position(|unit| *unit == 0).ok_or(())?;
-    String::from_utf16(&value[..end]).map_err(|_| ())
+    String::from_utf16(&value[..end]).map(Some).map_err(|_| ())
 }
 
 /// Replace the Windows Unicode clipboard without relying on PowerShell.
@@ -326,7 +373,8 @@ fn unicode_input(
                 wScan: unit,
                 dwFlags: KEYEVENTF_UNICODE | if release { KEYEVENTF_KEYUP } else { 0 },
                 time: 0,
-                dwExtraInfo: 0,
+                // 调用方在注入成功后自己记打字统计，标记让水杉的 tip 不再把这些字符当作直通按键重复计数。
+                dwExtraInfo: send_input_marker::PANEL_TEXT_SENDINPUT_EXTRA_INFO,
             },
         },
     }
@@ -495,7 +543,7 @@ where
                 let mut message = std::mem::zeroed();
                 while GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) > 0 {
                     if message.message == CLIPBOARD_CAPTURE_MESSAGE {
-                        if let Ok(text) = read_clipboard_text() {
+                        if let Ok(Some(text)) = read_clipboard_text() {
                             on_text(text);
                         }
                     } else {
@@ -576,6 +624,16 @@ pub fn work_area() -> Option<WorkArea> {
 /// Reveal an existing directory in the shell. The caller owns the path; a missing or relative path is refused rather than handed to the shell.
 pub fn open_directory(path: &Path) -> bool {
     if !path.is_absolute() || !path.is_dir() {
+        return false;
+    }
+    let mut target: Vec<u16> = path.as_os_str().encode_wide().collect();
+    target.push(0);
+    shell_open(&target)
+}
+
+/// 用系统关联的程序打开一个已有的文件（例如随包的 THIRD_PARTY_NOTICES.txt）。路径由调用方给出，相对路径或不存在的文件不交给 shell。
+pub fn open_file(path: &Path) -> bool {
+    if !path.is_absolute() || !path.is_file() {
         return false;
     }
     let mut target: Vec<u16> = path.as_os_str().encode_wide().collect();

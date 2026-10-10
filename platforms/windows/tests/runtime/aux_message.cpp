@@ -237,6 +237,31 @@ int main() {
     require(!parse_aux_typing_statistics(L"TypingKeys|2026-10-01|KeyA=1"));
     require(!parse_aux_typing_keys(L"TypingStatistics|E|a"));
   }
+  {
+    // 交给应用的一次按下：客户端、焦点令牌和按键音类别，往返不变，也放得进一条 Aux 消息。
+    const AuxKeySound key{(uint64_t{0xFFFFFFFFu} << 32) | 0xFFFFFFFFu, UINT64_MAX, 2};
+    const auto message = aux_key_sound_message(key);
+    require(message.size() * sizeof(wchar_t) <= max_aux_message_bytes);
+    const auto bytes = wire(message);
+    const auto text = aux_text_from_bytes(bytes.data(), bytes.size());
+    require(text.has_value());
+    const auto parsed = parse_aux_key_sound(*text);
+    require(parsed && parsed->client_id == key.client_id && parsed->focus_token == key.focus_token && parsed->key_class == 2u);
+    require(aux_key_sound_message({7, 9, 0}) == L"KeySound|7|9|0");
+    require(parse_aux_key_sound(L"KeySound|7|9|3")->key_class == 3u);
+    // 只有 msime_client_key_sound 认识的四类；客户端和令牌为 0 都表示没有真实的会话。
+    require(!parse_aux_key_sound(L"KeySound|7|9|4"));
+    require(!parse_aux_key_sound(L"KeySound|0|9|1"));
+    require(!parse_aux_key_sound(L"KeySound|7|0|1"));
+    require(!parse_aux_key_sound(L"KeySound|7|9"));
+    require(!parse_aux_key_sound(L"KeySound|7|9|1|2"));
+    require(!parse_aux_key_sound(L"KeySound|7|9|"));
+    require(!parse_aux_key_sound(L"KeySound|-7|9|1"));
+    require(!parse_aux_key_sound(L"KeySoundX|7|9|1"));
+    require(!parse_aux_key_sound(L"KeySound"));
+    require(!parse_aux_typing_statistics(L"KeySound|7|9|1"));
+    require(!parse_aux_terminal_deactivation(L"KeySound|7|9|1"));
+  }
 
   std::cout << "Aux message: langbar rectangle parsed, malformed rejected\n";
     return 0;

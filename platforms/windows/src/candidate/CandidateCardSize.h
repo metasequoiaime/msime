@@ -38,8 +38,14 @@ struct CandidateCardInput {
   double max_single_line_width = 0.0;
   // Minimum card width asked for by an external skin package, in DIPs. Zero keeps the width derived from the font size. A mascot skin needs it: the artwork is drawn against a card of a particular width, and a narrow card makes the decoration overhang.
   double skin_min_width = 0.0;
-  // Measured width of the page indicator ("1 / 3") at CandidateCardMetrics::pager_font. Zero draws no pager. It shares the preedit row, which is drawn even with the preedit hidden, because it carries the brand mark.
+  // 页码（「1 / 3」）按 CandidateCardMetrics::pager_font 量出的宽度，为 0 时不画翻页。翻页和拼音共用首行；只要有 logo 或翻页，拼音隐藏时首行也照样画。
   double page_width = 0.0;
+  // 共享偏好 `show_app_logo`：首行左端画不画水杉 logo。不画时拼音顶到左边，拼音隐藏又没有翻页时首行不占高度，和 macOS 一致。
+  bool logo_visible = true;
+  // 横排时每行候选预留的释义行数，见 candidate_reserved_row_height：释义几秒后才到，先留出高度，卡片就不会在用户打字时突然变高。竖排不预留。
+  size_t reserved_secondary_lines = 0;
+  // 这几行释义用释义字体量出来的高度：窗口拿同一个 DirectWrite 格式量 reserved_secondary_lines 行占位文字，和释义到达后多行释义的测量（CandidateWrapMeasure）同一条路，预留的和画出来的才一样高。0 时按 translation_line 估算。
+  double reserved_secondary_height = 0.0;
 };
 struct CandidateCardSize {
   double width, height;
@@ -62,12 +68,16 @@ struct CandidateCardMetrics {
   double item_gap = 2.0;
   // The pager at the right of the preedit row: the page indicator and the previous and next arrows, in the secondary colour at 13 DIP, 12 DIP after the preedit and 12 DIP before the arrows. Each arrow is a square box of pager_arrow for its glyph and its click.
   double pager_font = 13.0, pager_gap = 12.0, pager_arrow = 16.0;
-  // The full-colour brand mark leading the preedit row, as the macOS card and the floating toolbar lead with it: a logo_side square at pad_x, then logo_gap before the preedit. The row is always there so the mark is, at least header_row tall when the preedit is hidden: the mark with 3 DIP above and below.
+  // 首行打头的全彩水杉 logo，和 macOS 候选窗、悬浮工具栏一样：pad_x 处一个 logo_side 见方的图，再隔 logo_gap 才是拼音。只要有 logo 或翻页，拼音隐藏时首行也至少 header_row 高，logo 上下各留 3 DIP；`show_app_logo` 关掉时 logo_visible 为 false，logo 和它的间隔都不占宽度。
   double logo_side = 16.0, logo_gap = 6.0, header_row = 22.0;
+  bool logo_visible = true;
 };
+// logo_visible 和 pager_visible 只决定首行：两者都没有、拼音也隐藏时首行高度为 0。
 inline CandidateCardMetrics candidate_card_metrics(double font_size,
                                                    double preedit_font_size,
-                                                   bool preedit_visible) {
+                                                   bool preedit_visible,
+                                                   bool logo_visible = true,
+                                                   bool pager_visible = true) {
   if (!std::isfinite(font_size) || font_size < 12.0 || font_size > 32.0 ||
       !std::isfinite(preedit_font_size) || preedit_font_size < 12.0 ||
       preedit_font_size > 32.0)
@@ -77,9 +87,11 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
   metrics.number_and_bar = font_size * 0.8 + font_size * 0.2 + 8.0;
   // kCandidateMinWidthDip in the shipped presenter (card->SetMinWidth), independent of the font size.
   metrics.min_width = 160.0;
-  // The top row: the preedit's line when it is shown, never shorter than the brand mark and the pager need.
+  // 首行：显示拼音时是拼音那一行，有 logo 或翻页时不矮于它们需要的高度；三者都没有时不占高度。
+  metrics.logo_visible = logo_visible;
   metrics.preedit_row = (std::max)(
-      preedit_visible ? preedit_font_size * 1.4 + 6.0 : 0.0, metrics.header_row);
+      preedit_visible ? preedit_font_size * 1.4 + 6.0 : 0.0,
+      logo_visible || pager_visible ? metrics.header_row : 0.0);
   // The shipped presenter's CandidateList itemHeight: the minimum height of one candidate row.
   metrics.candidate_row = font_size * 1.35 + 2.0;
   metrics.annotation_line = font_size * 1.25;
@@ -147,9 +159,10 @@ inline CandidateRowBounds candidate_logo_bounds(const CandidateCardMetrics &metr
   return {metrics.pad_x, top, metrics.pad_x + metrics.logo_side,
           top + metrics.logo_side};
 }
-// Where the preedit starts in the preedit row, in card coordinates: after the brand mark and its gap.
+// 拼音在首行里从哪里开始（卡片坐标）：logo 和它的间隔之后；不画 logo 时就在左边距处。
 inline double candidate_preedit_left(const CandidateCardMetrics &metrics) {
-  return metrics.pad_x + metrics.logo_side + metrics.logo_gap;
+  return metrics.pad_x +
+         (metrics.logo_visible ? metrics.logo_side + metrics.logo_gap : 0.0);
 }
 // Which arrow of a drawn pager a card point falls on: true for the previous page, false for the next. The previous arrow is inert on the first page. The next one is always live, because the Engine hands candidates over lazily and the page count grows as the user pages.
 inline std::optional<bool>
@@ -326,16 +339,27 @@ candidate_single_line_columns(const std::vector<CandidateItemWidths> &items,
     natural[index] = firm[index] + (natural[index] - firm[index]) * keep;
   return natural;
 }
+// 横排候选在释义到达前就留出的行高：一行候选文字加 `lines` 行释义，和 macOS 的 reservedGlossHeightForFont 一样。lines 为 0 时不预留。释义到达后，一行的释义按 translation_line 算高，多行的总是用 DirectWrite 量（candidate_item_layout 的 run_height，不矮于 translation_line 乘行数）；所以多行时用 `measured`（窗口用同一种测量量出的 lines 行占位文字的高度），规则与 run_height 相同，预留的和到达后的一样高。measured 为 0 或不是有限值时按 translation_line 估算。
+inline double candidate_reserved_row_height(const CandidateCardMetrics &metrics,
+                                            size_t lines, double measured = 0.0) {
+  if (lines == 0)
+    return 0.0;
+  const double estimated = metrics.translation_line * static_cast<double>(lines);
+  const double gloss = lines > 1 && std::isfinite(measured) ? (std::max)(measured, estimated) : estimated;
+  return metrics.candidate_row + gloss;
+}
 // One laid out row: its rectangle in card coordinates and the runs inside it.
 struct CandidateRowLayout {
   CandidateRowBounds bounds;
   CandidateItemLayout item;
 };
 // Rows for a whole page at the card width actually drawn. A vertical list stacks rows of their own heights. A horizontal list keeps every candidate on one line: candidate_single_line_columns narrows the translations to fit, and only when the candidate lines themselves do not fit does it fall back to the shipped presenter's CandidateList::Measure, where each column is its candidate's natural width and one that would pass the card's inner edge starts a new line (a candidate wider than a whole line is narrowed to it, and its text and runs wrap inside that). Every column on a line takes the line's tallest height, so the selection fills evenly. Sizing, painting and hit testing all read this one result.
+// minimum_row_height 只作用于横排：每一行候选至少这么高（candidate_reserved_row_height）。
 inline std::vector<CandidateRowLayout>
 candidate_page_layout(const std::vector<CandidateItemWidths> &items,
                       double width, const CandidateCardMetrics &metrics,
-                      bool horizontal, const CandidateWrapMeasure &wrapped = {}) {
+                      bool horizontal, const CandidateWrapMeasure &wrapped = {},
+                      double minimum_row_height = 0.0) {
   if (items.size() > 9 || !std::isfinite(width) || width <= 0.0)
     throw std::invalid_argument("Invalid candidate page");
   std::vector<CandidateRowLayout> rows;
@@ -388,6 +412,8 @@ candidate_page_layout(const std::vector<CandidateItemWidths> &items,
       top = bounds.bottom + metrics.item_gap;
     }
     tallest = (std::max)(tallest, item.height);
+    if (horizontal && std::isfinite(minimum_row_height))
+      tallest = (std::max)(tallest, minimum_row_height);
     rows.push_back({bounds, item});
   }
   if (horizontal)
@@ -422,9 +448,9 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
     if (!measured(item.text) || !measured(item.annotation) ||
         !measured(item.translation))
       throw std::invalid_argument("Invalid candidate card measurement");
-  const auto shape = candidate_card_metrics(input.font_size,
-                                            input.preedit_font_size,
-                                            input.preedit_visible);
+  const auto shape = candidate_card_metrics(
+      input.font_size, input.preedit_font_size, input.preedit_visible,
+      input.logo_visible, input.page_width > 0.0);
   const double pad_x = shape.pad_x, pad_y = shape.pad_y,
                slack_x = shape.slack_x, slack_y = shape.slack_y;
   // The skin's floor only ever raises the built-in one, never lowers it: a
@@ -439,10 +465,10 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
 
   double width = 0.0;
   double height = pad_y + slack_y;
-  // The preedit row is always drawn: the brand mark, the preedit when it is shown, and the pager.
+  // 首行：显示时的 logo、显示时的拼音，以及翻页。三者都没有时首行高度为 0。
   {
     const double pager = candidate_pager_width(input.page_width, shape);
-    width = (std::max)(width, shape.logo_side + shape.logo_gap +
+    width = (std::max)(width, (shape.logo_visible ? shape.logo_side + shape.logo_gap : 0.0) +
                                   (input.preedit_visible
                                        ? input.preedit_width + 6.0
                                        : 0.0) +
@@ -479,8 +505,13 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
                        pad_x + slack_x));
   width = clamp(width, width_cap);
   // Heights come from the width the card will actually get: a capped card wraps the runs that no longer fit, and grows by exactly what the painter will draw.
+  const double reserved =
+      input.horizontal
+          ? candidate_reserved_row_height(shape, input.reserved_secondary_lines,
+                                          input.reserved_secondary_height)
+          : 0.0;
   const auto rows = candidate_page_layout(input.items, width, shape,
-                                          input.horizontal, input.wrapped);
+                                          input.horizontal, input.wrapped, reserved);
   // A horizontal page ends at its last line's bottom, however many lines the capped width broke it into.
   // A vertical page is its visible rows plus one item_gap between each two of them.
   double rows_height = 0.0;
@@ -495,8 +526,8 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
             : rows_height + (stacked ? shape.item_gap : 0.0) + row.item.height;
     stacked = true;
   }
-  // An empty list still reserves one row so the card cannot collapse.
-  height += (std::max)(rows_height, candidate_row);
+  // 空列表也留一行，卡片不会塌掉；横排时留的是预留了释义的行高。
+  height += (std::max)(rows_height, (std::max)(candidate_row, reserved));
   return {width, clamp(height, input.max_height)};
 }
 // Where the card sits relative to the caret. All values are physical pixels

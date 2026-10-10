@@ -431,8 +431,8 @@ pub mod settings_sync;
 mod validate;
 
 pub use anonymous::{
-    ensure_anonymous_account, AnonymousSessionStorage, ANONYMOUS_ACCOUNT_FILE,
-    ANONYMOUS_SESSION_FILE,
+    ensure_anonymous_account, shared_access_token, AnonymousSessionStorage, SharedAccessToken,
+    ANONYMOUS_ACCOUNT_FILE, ANONYMOUS_SESSION_FILE,
 };
 pub use api::*;
 pub use avatar::*;
