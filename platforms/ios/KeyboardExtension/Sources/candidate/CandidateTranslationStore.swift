@@ -8,7 +8,8 @@ struct BackendCandidateTranslationService: CandidateTranslationService {
   private static let client = BackendAccountClient()
   private static let session = BackendAccountSession(storage: BackendAnonymousAccount.sessionStorage())
   func translate(words: [String], target: String) async throws -> [String] {
-    try await Self.client.translate(texts: words, target: target, token: token())
+    _ = try await token()
+    return try await Self.client.translate(texts: words, target: target, session: Self.session)
   }
   private func token() async throws -> String {
     if let value = try? await Self.session.accessToken() { return value }

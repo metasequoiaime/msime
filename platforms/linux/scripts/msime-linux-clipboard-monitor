@@ -18,6 +18,12 @@ import time
 MAX_CONFIGURATION_BYTES = 1024 * 1024
 # 4000 UTF-16 units occupy at most 12000 UTF-8 bytes.
 MAX_TEXT_BYTES = 12000
+WATCH_RETRY_DELAY = 30
+POLL_INTERVAL = 0.75
+# wl-paste --watch is not available on Mutter's native Wayland clipboard. A
+# failed watcher must not turn the fallback into the 750ms focus-changing
+# probe that caused GNOME Shell input focus churn.
+WAYLAND_WATCH_FAILURE_POLL_INTERVAL = 5
 
 
 def history_text(data, complete):
@@ -171,6 +177,8 @@ def main():
     last = None
     watcher = None
     retry_watch = 0
+    next_poll = 0
+    wayland_watch_failed = False
     try:
         while True:
             try:
@@ -179,11 +187,17 @@ def main():
                     stop_watch(watcher)
                     watcher = None
                     last = None
+                    next_poll = 0
+                    wayland_watch_failed = False
                 else:
                     if watcher is not None and watcher.poll() is not None:
+                        returncode = watcher.returncode
                         stop_watch(watcher)
                         watcher = None
-                        retry_watch = time.monotonic() + 30
+                        now = time.monotonic()
+                        retry_watch = now + WATCH_RETRY_DELAY
+                        wayland_watch_failed = bool(os.environ.get("WAYLAND_DISPLAY")) and returncode != 0
+                        next_poll = now
                     if (watcher is None and time.monotonic() >= retry_watch and
                             os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-paste")):
                         watcher = subprocess.Popen(
@@ -204,7 +218,11 @@ def main():
                             changed = bool(os.read(watcher.stdout.fileno(), 4096))
                     # Event mode also captures an explicit copy of identical text.
                     # Systems without a usable watcher retain bounded polling.
-                    if watcher is None or changed:
+                    # Wayland watcher failures use a slower fallback because each
+                    # wl-paste read can steal focus from the active input method.
+                    poll_due = (watcher is None and
+                                (not wayland_watch_failed or time.monotonic() >= next_poll))
+                    if poll_due or changed:
                         text = clipboard_text()
                         identity = (str(directory), text)
                         # Reading the selection can block while runtime options
@@ -219,15 +237,20 @@ def main():
                                 last = identity
                         elif text is None:
                             last = None
+                        if watcher is None and wayland_watch_failed:
+                            next_poll = time.monotonic() + WAYLAND_WATCH_FAILURE_POLL_INTERVAL
             except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
                 stop_watch(watcher)
                 watcher = None
-                retry_watch = time.monotonic() + 30
+                now = time.monotonic()
+                retry_watch = now + WATCH_RETRY_DELAY
+                next_poll = now
+                wayland_watch_failed = bool(os.environ.get("WAYLAND_DISPLAY"))
                 last = None
             if watcher is not None and watcher.stdout is not None:
-                select.select([watcher.stdout], [], [], 0.75)
+                select.select([watcher.stdout], [], [], POLL_INTERVAL)
             else:
-                time.sleep(0.75)
+                time.sleep(POLL_INTERVAL)
     finally:
         stop_watch(watcher)
 

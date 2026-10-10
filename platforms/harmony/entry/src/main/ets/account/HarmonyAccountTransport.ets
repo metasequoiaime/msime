@@ -1,8 +1,10 @@
 import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
+import client from 'libmsimeclient.so';
 import {
-  AccountSessionStore, AccountTransport, AccountTransportResponse, parseResponseContentLength
+  AccountSessionStore, AccountTransport, AccountTransportResponse, parseResponseContentLength,
+  strictAccountOk
 } from './AccountCloudBridge';
 import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
 import { KeyboardLog } from '../keyboard/KeyboardLog';
@@ -17,6 +19,21 @@ import {
  */
 export const ACCOUNT_ORIGIN: string = 'https://api.msime.app';
 
+interface SnapshotCancelReply {
+  ok: boolean;
+}
+
+export function cancelSnapshotQueueForAccount(directory: string, accountId: string): boolean {
+  try {
+    const reply: SnapshotCancelReply = JSON.parse(client.snapshotQueue(JSON.stringify({
+      operation: 'cancel', directory: `${directory}/dictionary-snapshots`, account_id: accountId
+    }))) as SnapshotCancelReply;
+    return reply !== null && strictAccountOk(reply.ok);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * `<state>/account-session.json`, written whole and then renamed into place.
  *
@@ -26,12 +43,21 @@ export class FileSessionStore implements AccountSessionStore {
   private readonly directory: string;
   private readonly file: string;
   private readonly lockFile: string;
+  private readonly cancelSnapshots: boolean;
 
   /** `name` 是文件名主干：已登录账号为 `account-session`，设备匿名账号为 `anonymous-session`。 */
   constructor(directory: string, name: string = 'account-session') {
     this.directory = directory;
     this.file = `${directory}/${name}.json`;
     this.lockFile = `${directory}/${name}.lock`;
+    this.cancelSnapshots = name === 'account-session';
+  }
+
+  /** Queue cancellation shares a lock with activation, so an invalidated owner cannot apply a snapshot after this returns. */
+  beforeClear(accountId: string): void {
+    if (this.cancelSnapshots && !cancelSnapshotQueueForAccount(this.directory, accountId)) {
+      throw new Error('snapshot_unavailable');
+    }
   }
 
   /**

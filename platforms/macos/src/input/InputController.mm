@@ -1,6 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <InputMethodKit/InputMethodKit.h>
 #import <CoreText/CoreText.h>
+#import <CommonCrypto/CommonDigest.h>
 #import "MSIMEClientSession.h"
 #import "../settings/RuntimeOptions.h"
 #import "../../../../shared/apple/TextClient.h"
@@ -218,6 +219,12 @@ static NSString *MSIMEAICacheKey(NSDictionary *online) {
     if (![config isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(config[@"enabled"]) ||
         ![segments isKindOfClass:NSArray.class] || !segments.count ||
         ![NSJSONSerialization isValidJSONObject:segments]) return nil;
+    NSString *context = [online[@"ai_context"] isKindOfClass:NSString.class] ? online[@"ai_context"] : @"";
+    NSData *contextBytes = [context dataUsingEncoding:NSUTF8StringEncoding];
+    if (!contextBytes || contextBytes.length > UINT32_MAX) return nil;
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(contextBytes.bytes, (CC_LONG)contextBytes.length, digest);
+    NSString *contextHash = [[NSData dataWithBytes:digest length:sizeof(digest)] base64EncodedStringWithOptions:0];
     NSDictionary *identity = @{ @"provider": [config[@"provider"] isKindOfClass:NSString.class] ? config[@"provider"] : @"",
         @"endpoint": [config[@"endpoint"] isKindOfClass:NSString.class] ? config[@"endpoint"] : @"",
         @"model": [config[@"model"] isKindOfClass:NSString.class] ? config[@"model"] : @"",
@@ -226,6 +233,7 @@ static NSString *MSIMEAICacheKey(NSDictionary *online) {
         @"prompt_custom_1": [config[@"prompt_custom_1"] isKindOfClass:NSString.class] ? config[@"prompt_custom_1"] : @"",
         @"prompt_custom_2": [config[@"prompt_custom_2"] isKindOfClass:NSString.class] ? config[@"prompt_custom_2"] : @"",
         @"prompt_custom_3": [config[@"prompt_custom_3"] isKindOfClass:NSString.class] ? config[@"prompt_custom_3"] : @"",
+        @"ai_context_sha256": contextHash,
         @"pinyin_segments": segments };
     NSData *data = [NSJSONSerialization dataWithJSONObject:identity options:0 error:nil];
     return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
@@ -573,6 +581,18 @@ static NSString *MSIMETranslationWorkKey(NSString *target, NSString *text) {
     return [NSString stringWithFormat:@"%@\u001f%@", target ?: @"", text ?: @""];
 }
 
+// The cache outlives input controllers. Include the selected provider's full
+// configuration so a credential changed while no controller existed cannot
+// reuse an earlier provider's results, without retaining the credential itself.
+static NSString *MSIMETranslationProviderScope(NSString *service, NSDictionary *configuration) {
+    NSData *encoded = [NSJSONSerialization dataWithJSONObject:configuration options:NSJSONWritingSortedKeys error:nil];
+    if (!encoded || encoded.length > UINT32_MAX) return nil;
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(encoded.bytes, (CC_LONG)encoded.length, digest);
+    NSString *fingerprint = [[NSData dataWithBytes:digest length:sizeof(digest)] base64EncodedStringWithOptions:0];
+    return [NSString stringWithFormat:@"%@:%@", service, fingerprint];
+}
+
 static NSString *MSIMEJoinedTranslations(NSDictionary<NSString *, NSString *> *values,
                                           NSArray<NSString *> *targets) {
     NSMutableArray<NSString *> *ordered = [NSMutableArray array];
@@ -623,6 +643,11 @@ static NSUInteger MSIMECandidateDeletionSlot(NSEvent *event) {
     const unsigned short codes[] = {18, 19, 20, 21, 23, 22, 26, 28};
     for (NSUInteger slot = 0; slot < 8; ++slot) if (event.keyCode == codes[slot]) return slot;
     return NSNotFound;
+}
+// 这次按键在当前键盘布局上对应的快捷键字母，规则见 `msime::mac::ShortcutLetter`。
+static char MSIMEShortcutLetter(NSEvent *event) {
+    NSString *characters = event.charactersIgnoringModifiers;
+    return msime::mac::ShortcutLetter(event.keyCode, characters.length == 1 ? [characters characterAtIndex:0] : 0);
 }
 static BOOL MSIMEPunctuationToggle(NSEvent *event) {
     const NSEventModifierFlags modifiers = NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagCommand;
@@ -2400,7 +2425,6 @@ static NSImage *MSIMECandidateLogoImage() {
     [self stopAccountGloss];
     if ([_customQuery isEqual:query]) return;
     [self detachCustomTranslations];
-    _customQuery = query;
     // `/fy` translates one English sentence into the query's own target, Chinese, which the candidate target list does not name and the candidate plan refuses; it is its own plan item and is neither read from nor written to the gloss cache.
     const BOOL command = MSIMEStrictBoolean(query[@"command"]);
     NSArray<NSString *> *targets = command ? query[@"target_languages"] : MSIMETranslationTargets(query);
@@ -2409,8 +2433,10 @@ static NSImage *MSIMECandidateLogoImage() {
     MSIMETranslationCache *cache = [MSIMETranslationCache sharedCache];
     BOOL tencent = query[@"tencent_tmt"] != nil;
     BOOL niuTrans = query[@"niutrans"] != nil;
-    NSString *scope = niuTrans ? [@"niutrans:" stringByAppendingString:query[@"niutrans"][@"app_id"] ?: @""] :
-        tencent ? @"tencent" : [@"custom:" stringByAppendingString:query[@"custom_translation"][@"endpoint"] ?: @""];
+    NSString *scope = MSIMETranslationProviderScope(niuTrans ? @"niutrans" : tencent ? @"tencent" : @"custom",
+        niuTrans ? query[@"niutrans"] : tencent ? query[@"tencent_tmt"] : query[@"custom_translation"]);
+    if (!scope) return;
+    _customQuery = query;
     NSSet *glossTexts = [NSSet setWithArray:[_glossResults valueForKey:@"text"] ?: @[]];
     if ([_glossRequest isEqual:[self currentGlossRequest]]) {
         for (NSDictionary *result in _glossResults) {
@@ -4526,6 +4552,44 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions, NSString 
     return requested;
 }
 
+// The current preferences are available before the first HostSession is
+// constructed. Configure the log from them so failures emitted while that
+// constructor loads plugin tables are not lost before the asynchronous
+// preferences reload catches up.
+static BOOL MSIMEConfigureDiagnosticLog(NSString *directory,
+                                        NSDictionary *preferences) {
+    NSDictionary *diagnostic = [preferences isKindOfClass:NSDictionary.class]
+        ? preferences[@"diagnostic_log"] : nil;
+    const BOOL enabled = [diagnostic isKindOfClass:NSDictionary.class] &&
+        [diagnostic[@"server"] isKindOfClass:NSNumber.class] &&
+        CFGetTypeID((__bridge CFTypeRef)diagnostic[@"server"]) == CFBooleanGetTypeID() &&
+        [diagnostic[@"server"] boolValue];
+    const std::string path = [directory isKindOfClass:NSString.class] && directory.isAbsolutePath
+        ? std::string(directory.UTF8String ?: "") : std::string();
+    msime_macos_diagnostic_configure(path, enabled);
+    return enabled;
+}
+
+static void MSIMEConfigureDiagnosticLogFromRuntimeOptions(NSDictionary *options) {
+    if (![options isKindOfClass:NSDictionary.class]) return;
+    MSIMEConfigureDiagnosticLog(options[@"preferences_directory"], options[@"preferences"]);
+}
+
+static void MSIMEConfigureDiagnosticLogBeforeSession(NSDictionary *options) {
+    if (![options isKindOfClass:NSDictionary.class]) return;
+    NSString *directory = [options[@"preferences_directory"] isKindOfClass:NSString.class] &&
+        [options[@"preferences_directory"] isAbsolutePath] ? options[@"preferences_directory"] : nil;
+    if (directory) {
+        NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
+        NSDictionary *preferences = [snapshot isKindOfClass:NSDictionary.class] ? snapshot[@"preferences"] : nil;
+        if ([preferences isKindOfClass:NSDictionary.class]) {
+            MSIMEConfigureDiagnosticLog(directory, preferences);
+            return;
+        }
+    }
+    MSIMEConfigureDiagnosticLogFromRuntimeOptions(options);
+}
+
 // Resources/sound-packs of this bundle, where CMakeLists.txt stages the built-in packs; nil when it is not there.
 static NSString *MSIMEBundleSoundPacks(NSBundle *bundle) {
     NSString *directory = [bundle.resourcePath stringByAppendingPathComponent:@"sound-packs"];
@@ -4554,10 +4618,14 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
     msime_macos_diagnostic_writef("session_unavailable reason=%s", reason.UTF8String);
 }
 
+// Background music plays while one controller of this process is the active input method. IMK does not promise that the previous client's deactivateServer: comes before the next one's activateServer:, so only the controller that last let music play may stop it. Declared ahead of prepareSession, which reads it too.
+static __weak MSIMEInputController *MSIMEMusicOwner;
+
 - (void)prepareSession {
     // The device's anonymous MSIME account is registered the first time the input method activates, so a new install has one before any feature asks for it. It runs once per process and returns at once when a signed-in or anonymous session is already saved; only the random identity is sent, never input.
     if (MSIMEEnsureAnonymousAccount != nullptr) MSIMEEnsureAnonymousAccount();
     BOOL reopened = NO;
+    BOOL created = NO;
     if (!_session) {
         NSDictionary *options = MSIMESessionOptions([self runtimeOptions], MSIMEBundleSoundPacks(NSBundle.mainBundle));
         // Dictionary maintenance is running: open nothing, so keys pass through to the application until the lease is gone. The preferences timer keeps running, so settings still apply meanwhile.
@@ -4568,12 +4636,14 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
         // Before the session exists, so nothing this process writes can be mistaken for an earlier install.
         [self resolveCloudCandidatesConsentWithOptions:options];
         if (options) {
+            MSIMEConfigureDiagnosticLogBeforeSession(options);
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             _requestedPageSize = 0;
             id directory = options[@"preferences_directory"];
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
             if (_session) {
                 [MSIMEInputController holdDictionarySession:self];
+                created = YES;
                 reopened = _resumeDedicatedEnglish;
                 _resumeDedicatedEnglish = NO;
             }
@@ -4592,6 +4662,8 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
         [self apply:[_session setFocused:YES error:nil]];
         _focusPending = NO;
         [self refreshTypingEffectSettings];
+        // 激活时若处于英文模式就还没有会话，那次 claimBackgroundMusic 发给的是 nil，播放器从没被告知输入法处于活动状态；会话在之后切回中文、按键或菜单操作时才建好，这里补上，否则背景音乐要等下一次偏好变化才响。
+        if (created && MSIMEMusicOwner == self) [self claimBackgroundMusic];
     }
     [self startPreferencesMonitoring];
 }
@@ -4733,14 +4805,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
-    NSDictionary *diagnostic = [preferences isKindOfClass:NSDictionary.class] ? preferences[@"diagnostic_log"] : nil;
-    const BOOL diagnosticEnabled = [diagnostic isKindOfClass:NSDictionary.class] &&
-        [diagnostic[@"server"] isKindOfClass:NSNumber.class] &&
-        CFGetTypeID((__bridge CFTypeRef)diagnostic[@"server"]) == CFBooleanGetTypeID() &&
-        [diagnostic[@"server"] boolValue];
-    const std::string directory = _preferencesDirectory.UTF8String ? _preferencesDirectory.UTF8String : "";
-    msime_macos_diagnostic_configure(directory, diagnosticEnabled);
-    if (diagnosticEnabled) msime_macos_diagnostic_write("preferences_applied");
+    if (MSIMEConfigureDiagnosticLog(_preferencesDirectory, preferences))
+        msime_macos_diagnostic_write("preferences_applied");
     if ([preferences isKindOfClass:NSDictionary.class]) {
         id wubiCodeHint = preferences[@"wubi_code_hint"];
         if ([wubiCodeHint isKindOfClass:NSNumber.class] &&
@@ -5044,9 +5110,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     for (NSUInteger line = 0; line < lines; ++line) [placeholder addObject:@"X"];
     return MSIMETranslationTextSize([placeholder componentsJoinedByString:@"\n"], glossFont).height + MSIMECandidateGlossPadding * MSIMECandidateScale(_appearance);
 }
-
-// Background music plays while one controller of this process is the active input method. IMK does not promise that the previous client's deactivateServer: comes before the next one's activateServer:, so only the controller that last let music play may stop it.
-static __weak MSIMEInputController *MSIMEMusicOwner;
 
 // Secure event input is on while a password field, or a terminal's secure keyboard entry, has the keyboard. It is window-server state shared by every process, so an application that leaves it on also silences this one; that errs the right way, because a click per keystroke tells anyone listening how long a password is.
 - (BOOL)secureEventInputActive { return IsSecureEventInputEnabled(); }
@@ -5398,32 +5461,33 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
         if (!event.isARepeat) [self floatingToolbarDidRequestTogglePunctuation:nil];
         return YES;
     }
-    if (_appearance.characterSetShortcut && event.keyCode == 3 &&
+    const char shortcutLetter = MSIMEShortcutLetter(event);
+    if (_appearance.characterSetShortcut && shortcutLetter == 'f' &&
         (event.modifierFlags & (competing | NSEventModifierFlagShift)) == (NSEventModifierFlagControl | NSEventModifierFlagShift)) {
         // Like the Windows host, reserve the chord but only toggle in Chinese mode.
         if (!event.isARepeat && !_appearance.englishMode) [self floatingToolbarDidRequestToggleTraditionalOutput:nil];
         return YES;
     }
-    if (event.keyCode == 14 && (event.modifierFlags & (competing | NSEventModifierFlagShift)) == (NSEventModifierFlagControl | NSEventModifierFlagShift)) {
+    if (shortcutLetter == 'e' && (event.modifierFlags & (competing | NSEventModifierFlagShift)) == (NSEventModifierFlagControl | NSEventModifierFlagShift)) {
         if (!event.isARepeat) [self toggleDedicatedEnglishMode:nil];
         return YES;
     }
     // Only the Option+Shift+H arm is a preference; Ctrl+Shift+Space is the chord the Windows host
     // reserves too, and the settings page says nothing about it.
-    if (msime::mac::IsFullWidthInputToggle(event.keyCode, event.modifierFlags) &&
+    if (msime::mac::IsFullWidthInputToggle(event.keyCode, shortcutLetter, event.modifierFlags) &&
         (event.keyCode == 49 || _appearance.fullWidthShortcut) &&
         (!_appearance.englishMode || event.keyCode == 49)) {
         if (!event.isARepeat) [self toggleRuntimeFullWidthInput];
         return YES;
     }
-    if (event.keyCode == 40 &&
+    if (shortcutLetter == 'k' &&
         (event.modifierFlags & (competing | NSEventModifierFlagShift)) ==
             (NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagCommand)) {
         if (!event.isARepeat) [self showScreenKeyboard:nil];
         return YES;
     }
-    const auto maintenanceShortcut = msime::mac::PhysicalMaintenanceShortcut(
-        event.keyCode,
+    const auto maintenanceShortcut = msime::mac::MaintenanceShortcut(
+        shortcutLetter,
         (event.modifierFlags & NSEventModifierFlagControl) != 0,
         (event.modifierFlags & NSEventModifierFlagShift) != 0,
         (event.modifierFlags & NSEventModifierFlagOption) != 0,

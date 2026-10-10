@@ -3,7 +3,6 @@ package app.msime.android.home;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
-import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -13,6 +12,7 @@ import androidx.annotation.Nullable;
 import androidx.core.view.ViewCompat;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.ViewPolicy;
@@ -29,29 +29,13 @@ import org.json.JSONObject;
  *
  * <p>点一张卡立刻生效：全局主题写 `global_theme`；我的设计按键盘自己的皮肤面板那样写进 `custom_theme.keyboard` 并选中 `custom`，同时按 P23 写设计带的按键动画和音效。每次换皮肤都在统计里记一次 `record_skin`，并标记云同步的「皮肤」分类。水杉四季那张卡跟着应用主题当前的季节写成「水杉四季 · 秋杉」。卡片预览用与键盘相同的解析器（{@link HostStore#keyboardSkin(JSONObject, boolean, app.msime.android.AppThemePalette.Seed)}），跟随系统那张按应用主题的种子色画。
  */
-public final class SkinsPage extends DetailPage {
+public final class SkinsPage extends ReloadingDetailPage {
     /** 一张卡：`design` 为 null 是全局主题，否则是皮肤库里的设计。 */
     private record Card(String id, String title, KeyboardSkin skin, @Nullable JSONObject design, boolean selected) {}
 
     private record Model(List<Card> themes, List<Card> designs) {}
 
-    @Nullable private LinearLayout column;
-
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
-        reload();
-    }
-
-    @Override protected void onBecameVisible() {
-        if (column != null) reload();
-    }
-
-    @Override public void onDestroyView() {
-        column = null;
-        super.onDestroyView();
-    }
-
-    private void reload() {
+    @Override protected void reload() {
         boolean dark = AppMode.dark(requireContext());
         String season = KeyboardSheets.seasonTitle(AppThemeController.cachedSeason(requireContext()));
         HostTask.run(this, context -> read(context, dark, season), this::render);
@@ -104,7 +88,7 @@ public final class SkinsPage extends DetailPage {
     }
 
     private void render(@Nullable Model model) {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         if (target == null) return;
         target.removeAllViews();
         if (model == null) {
@@ -152,7 +136,7 @@ public final class SkinsPage extends DetailPage {
 
         FrameLayout tile = new FrameLayout(context);
         int ring = Ui.dp(context, 2);
-        GradientDrawable frame = Ui.outlined(Color.TRANSPARENT, Ui.dp(context, 14),
+        GradientDrawable frame = DrawablePolicy.outlined(Color.TRANSPARENT, Ui.dp(context, 14),
             card.selected() ? ring : KeyboardGeometry.atLeastOnePixel(context, 1),
             card.selected() ? Ui.accent(context) : Ui.outline(context));
         ViewPolicy.setBackground(tile, frame);
@@ -161,13 +145,13 @@ public final class SkinsPage extends DetailPage {
         SkinSwatchView swatch = new SkinSwatchView(context);
         swatch.setSkin(card.skin());
         Ui.hideFromAccessibility(swatch);
-        tile.addView(swatch, Ui.frameMatchWidthHeight(context, 76));
+        tile.addView(swatch,
+            KeyboardGeometry.frameMatchWidthHeightPx(Ui.dp(context, 76)));
         cell.addView(tile, Ui.matchWidth());
 
-        TextView name = Ui.styledLabel(context, card.selected() ? "✓ " + card.title() : card.title(),
+        TextView name = Ui.centeredLabel(context, card.selected() ? "✓ " + card.title() : card.title(),
             Ui.TEXT_ROW_SUBTITLE + 1, card.selected() ? 600 : 400,
             card.selected() ? Ui.accent(context) : Ui.text(context));
-        ViewPolicy.setCentered(name);
         ViewPolicy.setSingleLineEllipsized(name);
         LinearLayout.LayoutParams nameParams = Ui.matchWidth();
         nameParams.topMargin = Ui.dp(context, 8);
@@ -187,20 +171,17 @@ public final class SkinsPage extends DetailPage {
         ViewPolicy.setCenteredHorizontally(cell);
         LinearLayout tile = Ui.column(context);
         ViewPolicy.setCentered(tile);
-        GradientDrawable dashed = Ui.outlinedDashed(Ui.accentSoft(context), Ui.dp(context, 14),
+        GradientDrawable dashed = DrawablePolicy.outlinedDashed(Ui.accentSoft(context), Ui.dp(context, 14),
             KeyboardGeometry.atLeastOnePixel(context, 1.5f), Ui.accent(context), Ui.dp(context, 6),
             Ui.dp(context, 4));
         ViewPolicy.setBackground(tile, dashed);
-        TextView spark = Ui.styledLabel(context, "✦", 22, 400, Ui.accent(context));
-        ViewPolicy.setCentered(spark);
+        TextView spark = Ui.centeredLabel(context, "✦", 22, 400, Ui.accent(context));
         tile.addView(spark);
-        TextView hint = Ui.styledLabel(context, "描述一句话生成", 12, 400, Ui.accent(context));
-        ViewPolicy.setCentered(hint);
+        TextView hint = Ui.centeredLabel(context, "描述一句话生成", 12, 400, Ui.accent(context));
         tile.addView(hint);
-        cell.addView(tile, Ui.matchWidthHeightPx(Ui.dp(context, 76) + Ui.dp(context, 6)));
-        TextView name = Ui.styledLabel(context, "AI 设计皮肤", Ui.TEXT_ROW_SUBTITLE + 1, 500,
+        cell.addView(tile, KeyboardGeometry.matchWidthHeightPx(Ui.dp(context, 76) + Ui.dp(context, 6)));
+        TextView name = Ui.centeredLabel(context, "AI 设计皮肤", Ui.TEXT_ROW_SUBTITLE + 1, 500,
             Ui.accent(context));
-        ViewPolicy.setCentered(name);
         LinearLayout.LayoutParams nameParams = Ui.matchWidth();
         nameParams.topMargin = Ui.dp(context, 8);
         cell.addView(name, nameParams);

@@ -1,6 +1,5 @@
 //! Explicit user-requested credential probes; never run while loading settings.
 use serde_json::{json, Value};
-use std::io::Read;
 use std::time::Duration;
 
 #[derive(serde::Serialize)]
@@ -38,10 +37,23 @@ impl ProbeTransport for ChatProbeTransport {
             .send()
             .ok()?;
         let status = response.status().as_u16();
-        // Match the source's response ceiling without retaining provider text.
-        let mut limited = response.take(256 * 1024 + 1);
-        let bytes = std::io::copy(&mut limited, &mut std::io::sink()).ok()?;
-        (bytes <= 256 * 1024).then_some(status)
+        // The actual chat path needs a usable completion, not just HTTP 2xx.
+        // Parse locally; provider text never enters the public result.
+        let bytes = crate::bounded_io::read_bounded(response, 256 * 1024).ok()?;
+        if (200..300).contains(&status) {
+            let document: Value = serde_json::from_slice(&bytes).ok()?;
+            let valid = document
+                .pointer("/choices/0/message/content")
+                .and_then(Value::as_str)
+                .is_some_and(|content| {
+                    let content = content.trim();
+                    !content.is_empty() && content.len() <= 16 * 1024
+                });
+            if !valid {
+                return None;
+            }
+        }
+        Some(status)
     }
 }
 
@@ -83,7 +95,7 @@ pub fn test_chat(service: &str, config: &Value, transport: &impl ProbeTransport)
         Some(401 | 403) => result(false, "认证失败，请检查 API Key 和访问权限。"),
         Some(429) => result(false, "服务限流或额度不足，请稍后重试。"),
         Some(_) => result(false, "服务拒绝请求，请检查接口地址和模型配置。"),
-        None => result(false, "连接失败或响应超出限制，请检查网络后重试。"),
+        None => result(false, "连接失败或响应无效，请检查接口地址和网络后重试。"),
     }
 }
 
@@ -185,5 +197,27 @@ mod tests {
             assert!(result.message.len() < 256);
             assert!(!result.message.contains("synthetic-key"));
         }
+    }
+
+    #[test]
+    fn credential_chat_rejects_success_status_without_a_completion() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!(
+            "http://{}/v1/chat/completions",
+            listener.local_addr().unwrap()
+        );
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            assert!(stream.read(&mut request).unwrap() > 0);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+                .unwrap();
+        });
+        let mut request = config("openai");
+        request["endpoint"] = json!(endpoint);
+        assert!(!test_chat("ai.assistant", &request, &ChatProbeTransport).ok);
+        server.join().unwrap();
     }
 }

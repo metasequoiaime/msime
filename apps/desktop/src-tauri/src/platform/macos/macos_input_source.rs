@@ -39,6 +39,8 @@ pub(crate) enum InstallError {
     Io,
     Registration,
     /// A first install whose registration the system did not accept: the bundle is left in place, because there is nothing to roll back to and the login session's input source list only picks up an identifier that is new to it at the next login.
+    ///
+    /// 更新也会报它：登记失败、而替换之前查到本登录会话的注册表里本来就没有这个标识符（首次安装后还没重新登录就打开了更新版的设置应用）。旧版本这次登录同样列不出来，回滚换不来任何东西，所以留下新版本，与首次安装一样提示重新登录。
     RegistrationPending,
 }
 
@@ -205,12 +207,16 @@ fn remove_staging(path: &Path) -> Result<(), InstallError> {
 }
 
 /// Install a validated bundle below `input_methods`, replacing an existing directory only after the complete copy has succeeded and registration has accepted the staged replacement. A failed registration restores the old bundle before returning the error; with no old bundle it keeps the new one and returns `RegistrationPending`, as `scripts/install.sh` does.
-fn install_bundle_at_with_registration<F>(
+///
+/// 有旧版本时，替换之前先用 `listed_before` 查一次本登录会话的注册表（传入的是 `source`，查的是标识符，与哪份 bundle 无关）。登记失败而那时查到的是 `Some(false)`，说明旧版本这次登录本来就列不出来，回滚没有意义：留下新版本、删掉备份，返回 `RegistrationPending`。查到在注册表里或无从判断时照旧回滚。替换之后再查不行：登记后有一段分钟级的注册表空窗，那时查不到不说明什么。
+fn install_bundle_at_with_registration<L, F>(
     source: &Path,
     input_methods: &Path,
+    listed_before: L,
     register: F,
 ) -> Result<PathBuf, InstallError>
 where
+    L: FnOnce(&Path) -> Option<bool>,
     F: FnOnce(&Path) -> Result<(), InstallError>,
 {
     validate_bundle(source)?;
@@ -234,6 +240,7 @@ where
     copy_tree(source, &staging)?;
 
     let had_previous = fs::symlink_metadata(&target).is_ok();
+    let missing_before = had_previous && listed_before(source) == Some(false);
     if had_previous {
         fs::rename(&target, &backup).map_err(|_| {
             let _ = remove_staging(&staging);
@@ -250,6 +257,10 @@ where
     if let Err(error) = register(&target) {
         // An identifier that was not in the input source list when the login session began cannot join it before the next login, however the bundle is signed (see platforms/macos/README.md). Deleting the only copy would leave nothing for that login to find.
         if !had_previous {
+            return Err(InstallError::RegistrationPending);
+        }
+        if missing_before {
+            fs::remove_dir_all(&backup).map_err(|_| InstallError::Io)?;
             return Err(InstallError::RegistrationPending);
         }
         if fs::remove_dir_all(&target).is_err() {
@@ -311,7 +322,7 @@ pub(crate) fn install_bundle_at(
     source: &Path,
     input_methods: &Path,
 ) -> Result<PathBuf, InstallError> {
-    install_bundle_at_with_registration(source, input_methods, |_| Ok(()))
+    install_bundle_at_with_registration(source, input_methods, |_| None, |_| Ok(()))
 }
 
 fn source_candidates(resource_directory: Option<&Path>, current_directory: &Path) -> Vec<PathBuf> {
@@ -456,6 +467,89 @@ fn register_installed_bundle(bundle: &Path) -> Result<(), InstallError> {
     }
 }
 
+/// `--input-source-registered` 的退出码，与 platforms/macos 的 `MSIMEInputSourceRegistryExitCode` 一致；其余退出码（含 1）都当作无从判断。
+const REGISTRY_LISTED_EXIT: i32 = 0;
+const REGISTRY_MISSING_EXIT: i32 = 3;
+/// 查询只做一次 TIS 查找，正常不到一秒。上限防的是一个不认识这个参数的旧版输入法：它会当成普通启动，起 IMK 服务后一直运行。
+const REGISTRY_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+/// 报「不在注册表里」之前多查几次：登记后的注册表空窗里 `TISCreateInputSourceList` 会暂时查不到（platforms/macos/README.md）。
+const REGISTRY_PROBE_ATTEMPTS: usize = 3;
+const REGISTRY_PROBE_PAUSE: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// 本登录会话的输入源注册表里有没有已装的输入法：跑一次已装 bundle 的 `--input-source-registered`，它只读。查不到时隔一会儿再查，几次都查不到才是 `Some(false)`；没装、bundle 不对、跑不起来或超时都是 `None`。
+///
+/// 首次安装后同一个登录会话里再打开设置应用，已装版本与内嵌版本相同，启动检查报 `up_to_date`，单看这一点分不出「登记好了等用户添加」和「这次登录看不到它、要重新登录」，状态请求用它来区分。
+pub(crate) fn input_source_registered() -> Option<bool> {
+    let bundle = installed_bundle_path().ok()?;
+    validate_bundle(&bundle).ok()?;
+    registered_after_retries(
+        || registry_lookup(&bundle),
+        REGISTRY_PROBE_ATTEMPTS,
+        || std::thread::sleep(REGISTRY_PROBE_PAUSE),
+    )
+}
+
+/// 跑 `bundle` 里输入法可执行文件的 `--input-source-registered` 查一次，不重试。查的是本登录会话的注册表里有没有这个标识符，所以设置应用内嵌的那份和已装的那份查出来一样。
+fn registry_lookup(bundle: &Path) -> Option<bool> {
+    let executable = bundle
+        .join("Contents/MacOS")
+        .join(input_source_executable());
+    registry_probe_exit_code(&executable, REGISTRY_PROBE_TIMEOUT)
+        .and_then(registered_from_exit_code)
+}
+
+fn registered_from_exit_code(code: i32) -> Option<bool> {
+    match code {
+        REGISTRY_LISTED_EXIT => Some(true),
+        REGISTRY_MISSING_EXIT => Some(false),
+        _ => None,
+    }
+}
+
+/// 最多查 `attempts` 次，两次之间 `pause`：查到或无从判断就立即返回，只有每次都查不到才是 `Some(false)`。
+fn registered_after_retries(
+    mut probe: impl FnMut() -> Option<bool>,
+    attempts: usize,
+    mut pause: impl FnMut(),
+) -> Option<bool> {
+    let mut answer = None;
+    for attempt in 0..attempts {
+        if attempt > 0 {
+            pause();
+        }
+        answer = probe();
+        if answer != Some(false) {
+            break;
+        }
+    }
+    answer
+}
+
+/// 带上 `--input-source-registered` 跑 `executable`，返回退出码；起不来、被信号结束或超时（超时会杀掉它）为 `None`。
+fn registry_probe_exit_code(executable: &Path, timeout: std::time::Duration) -> Option<i32> {
+    let mut child = Command::new(executable)
+        .arg("--input-source-registered")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.code(),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Ok(None) | Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+}
+
 pub(crate) fn install(resource_directory: Option<&Path>) -> Result<(), InstallError> {
     let _guard = install_lock();
     install_unlocked(resource_directory)
@@ -467,11 +561,23 @@ fn install_unlocked(resource_directory: Option<&Path>) -> Result<(), InstallErro
         &std::env::current_dir().map_err(|_| InstallError::SourceUnavailable)?,
     )?;
     let input_methods = home_input_methods()?;
-    let target =
-        install_bundle_at_with_registration(&source, &input_methods, register_installed_bundle)?;
-    stop_running_copies(&target);
-    refresh_system_input_source_lists();
-    Ok(())
+    let target = input_methods.join(input_source_bundle_name());
+    let result = install_bundle_at_with_registration(
+        &source,
+        &input_methods,
+        registry_lookup,
+        register_installed_bundle,
+    );
+    if after_install_refreshes(&result) {
+        stop_running_copies(&target);
+        refresh_system_input_source_lists();
+    }
+    result.map(|_| ())
+}
+
+/// 装好之后要不要停掉旧进程、刷新系统设置的输入源缓存。`RegistrationPending` 也要：bundle 已经留在原处，而登记后查不到源不一定是「新标识符要等下次登录」，也可能只是 platforms/macos/README.md 记的那段登记后分钟级的注册表空窗；那时源过一会儿就进了注册表，系统设置「添加」对话框读的却仍是登录时写下的旧缓存，不清掉就要等到下次登录才列得出来。
+fn after_install_refreshes(result: &Result<PathBuf, InstallError>) -> bool {
+    matches!(result, Ok(_) | Err(InstallError::RegistrationPending))
 }
 
 /// The keyboard settings extension that hosts System Settings' 「添加」 dialog: its bundle identifier names its per-user cache directory.
@@ -1581,9 +1687,12 @@ mod tests {
         let new_source = fixture(new_root.path(), input_source_bundle_id(), b"new");
         let destination = destination_root.path().join("Library/Input Methods");
 
-        let result = install_bundle_at_with_registration(&new_source, &destination, |_| {
-            Err(InstallError::Registration)
-        });
+        let result = install_bundle_at_with_registration(
+            &new_source,
+            &destination,
+            |_| None,
+            |_| Err(InstallError::Registration),
+        );
         assert!(matches!(result, Err(InstallError::RegistrationPending)));
         assert_eq!(
             fs::read(
@@ -1604,6 +1713,107 @@ mod tests {
     }
 
     #[test]
+    fn a_pending_registration_still_refreshes_the_system_lists() {
+        let target = PathBuf::from("/synthetic/Input Methods/bundle.app");
+        assert!(after_install_refreshes(&Ok(target)));
+        assert!(after_install_refreshes(&Err(
+            InstallError::RegistrationPending
+        )));
+        assert!(!after_install_refreshes(&Err(InstallError::Registration)));
+        assert!(!after_install_refreshes(&Err(InstallError::Io)));
+        assert!(!after_install_refreshes(&Err(InstallError::InvalidBundle)));
+    }
+
+    #[test]
+    fn registry_probe_exit_codes_match_the_input_method() {
+        assert_eq!(registered_from_exit_code(0), Some(true));
+        assert_eq!(registered_from_exit_code(3), Some(false));
+        assert_eq!(registered_from_exit_code(1), None);
+        assert_eq!(registered_from_exit_code(2), None);
+    }
+
+    #[test]
+    fn registry_probe_retries_only_a_missing_answer() {
+        let mut answers = vec![Some(true), Some(false)];
+        let mut pauses = 0;
+        assert_eq!(
+            registered_after_retries(|| answers.pop().unwrap(), 3, || pauses += 1),
+            Some(true)
+        );
+        assert_eq!(pauses, 1);
+
+        let mut probes = 0;
+        let mut pauses = 0;
+        assert_eq!(
+            registered_after_retries(
+                || {
+                    probes += 1;
+                    Some(false)
+                },
+                3,
+                || pauses += 1
+            ),
+            Some(false)
+        );
+        assert_eq!((probes, pauses), (3, 2));
+
+        let mut probes = 0;
+        assert_eq!(
+            registered_after_retries(
+                || {
+                    probes += 1;
+                    None
+                },
+                3,
+                || {}
+            ),
+            None
+        );
+        assert_eq!(probes, 1);
+        assert_eq!(registered_after_retries(|| Some(true), 0, || {}), None);
+    }
+
+    #[test]
+    fn registry_probe_passes_its_argument_and_reads_the_exit_code() {
+        let root = tempdir().unwrap();
+        let bundle = fixture(
+            root.path(),
+            input_source_bundle_id(),
+            b"#!/bin/sh\n[ \"$#\" -eq 1 ] && [ \"$1\" = \"--input-source-registered\" ] && exit 3\nexit 9\n",
+        );
+        let executable = bundle.join(format!("Contents/MacOS/{}", input_source_executable()));
+        assert_eq!(
+            registry_probe_exit_code(&executable, std::time::Duration::from_secs(10)),
+            Some(3)
+        );
+        assert_eq!(
+            registry_probe_exit_code(
+                &root.path().join("missing"),
+                std::time::Duration::from_secs(10)
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn registry_probe_stops_an_input_method_that_does_not_exit() {
+        let root = tempdir().unwrap();
+        // exec 让被杀的就是 sleep 本身，不留孤儿进程。
+        let bundle = fixture(
+            root.path(),
+            input_source_bundle_id(),
+            b"#!/bin/sh\nexec /bin/sleep 30\n",
+        );
+        let executable = bundle.join(format!("Contents/MacOS/{}", input_source_executable()));
+        let started = std::time::Instant::now();
+        assert_eq!(
+            registry_probe_exit_code(&executable, std::time::Duration::from_millis(200)),
+            None
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    }
+
+    #[test]
     fn registration_failure_restores_previous_install() {
         let old_root = tempdir().unwrap();
         let new_root = tempdir().unwrap();
@@ -1613,9 +1823,12 @@ mod tests {
         let destination = destination_root.path().join("Library/Input Methods");
         install_bundle_at(&old_source, &destination).unwrap();
 
-        let result = install_bundle_at_with_registration(&new_source, &destination, |_| {
-            Err(InstallError::Registration)
-        });
+        let result = install_bundle_at_with_registration(
+            &new_source,
+            &destination,
+            |_| None,
+            |_| Err(InstallError::Registration),
+        );
         assert!(matches!(result, Err(InstallError::Registration)));
         assert_eq!(
             fs::read(
@@ -1635,6 +1848,112 @@ mod tests {
             .exists());
     }
 
+    /// 首次安装后没重新登录就打开了更新版的设置应用：替换前注册表里本来就没有这个标识符，登记失败时留下新版本、报 `RegistrationPending`，而不是回滚后报失败。
+    #[test]
+    fn an_update_in_a_session_still_waiting_for_a_login_keeps_the_new_bundle() {
+        let old_root = tempdir().unwrap();
+        let new_root = tempdir().unwrap();
+        let destination_root = tempdir().unwrap();
+        let old_source = fixture(old_root.path(), input_source_bundle_id(), b"old");
+        let new_source = fixture(new_root.path(), input_source_bundle_id(), b"new");
+        let destination = destination_root.path().join("Library/Input Methods");
+        install_bundle_at(&old_source, &destination).unwrap();
+
+        let mut looked_up = None;
+        let result = install_bundle_at_with_registration(
+            &new_source,
+            &destination,
+            |bundle| {
+                // 替换之前查：此时槽位里还是旧版本。
+                looked_up = Some((
+                    bundle.to_path_buf(),
+                    fs::read(
+                        destination
+                            .join(input_source_bundle_name())
+                            .join(format!("Contents/MacOS/{}", input_source_executable())),
+                    )
+                    .unwrap(),
+                ));
+                Some(false)
+            },
+            |_| Err(InstallError::Registration),
+        );
+        assert!(matches!(result, Err(InstallError::RegistrationPending)));
+        assert_eq!(looked_up, Some((new_source.clone(), b"old".to_vec())));
+        assert_eq!(
+            fs::read(
+                destination
+                    .join(input_source_bundle_name())
+                    .join(format!("Contents/MacOS/{}", input_source_executable()))
+            )
+            .unwrap(),
+            b"new"
+        );
+        assert!(!destination
+            .join(format!(
+                ".{}.previous-{}",
+                input_source_bundle_name(),
+                std::process::id()
+            ))
+            .exists());
+    }
+
+    /// 替换前查到在注册表里或无从判断时，登记失败照旧回滚；登记成功时查到什么都不影响结果。首次安装不查。
+    #[test]
+    fn only_a_registry_known_to_be_missing_keeps_a_failed_update() {
+        for listed in [Some(true), None] {
+            let old_root = tempdir().unwrap();
+            let new_root = tempdir().unwrap();
+            let destination_root = tempdir().unwrap();
+            let old_source = fixture(old_root.path(), input_source_bundle_id(), b"old");
+            let new_source = fixture(new_root.path(), input_source_bundle_id(), b"new");
+            let destination = destination_root.path().join("Library/Input Methods");
+            install_bundle_at(&old_source, &destination).unwrap();
+
+            let result = install_bundle_at_with_registration(
+                &new_source,
+                &destination,
+                |_| listed,
+                |_| Err(InstallError::Registration),
+            );
+            assert!(matches!(result, Err(InstallError::Registration)));
+            assert_eq!(
+                fs::read(
+                    destination
+                        .join(input_source_bundle_name())
+                        .join(format!("Contents/MacOS/{}", input_source_executable()))
+                )
+                .unwrap(),
+                b"old"
+            );
+        }
+
+        let old_root = tempdir().unwrap();
+        let new_root = tempdir().unwrap();
+        let destination_root = tempdir().unwrap();
+        let old_source = fixture(old_root.path(), input_source_bundle_id(), b"old");
+        let new_source = fixture(new_root.path(), input_source_bundle_id(), b"new");
+        let destination = destination_root.path().join("Library/Input Methods");
+        install_bundle_at(&old_source, &destination).unwrap();
+        assert!(install_bundle_at_with_registration(
+            &new_source,
+            &destination,
+            |_| Some(false),
+            |_| Ok(())
+        )
+        .is_ok());
+
+        let fresh_root = tempdir().unwrap();
+        let fresh_destination = fresh_root.path().join("Library/Input Methods");
+        let result = install_bundle_at_with_registration(
+            &new_source,
+            &fresh_destination,
+            |_| panic!("a first install has no previous bundle to keep or restore"),
+            |_| Err(InstallError::Registration),
+        );
+        assert!(matches!(result, Err(InstallError::RegistrationPending)));
+    }
+
     #[test]
     fn refuses_a_regular_file_at_the_bundle_slot_without_replacing_it() {
         let new_root = tempdir().unwrap();
@@ -1645,7 +1964,8 @@ mod tests {
         let target = destination.join(input_source_bundle_name());
         fs::write(&target, b"synthetic stray file").unwrap();
 
-        let result = install_bundle_at_with_registration(&new_source, &destination, |_| Ok(()));
+        let result =
+            install_bundle_at_with_registration(&new_source, &destination, |_| None, |_| Ok(()));
 
         assert!(matches!(result, Err(InstallError::InvalidBundle)));
         assert_eq!(fs::read(&target).unwrap(), b"synthetic stray file");
@@ -1671,7 +1991,8 @@ mod tests {
         let target = destination.join(input_source_bundle_name());
         symlink(destination.join("missing.app"), &target).unwrap();
 
-        let result = install_bundle_at_with_registration(&new_source, &destination, |_| Ok(()));
+        let result =
+            install_bundle_at_with_registration(&new_source, &destination, |_| None, |_| Ok(()));
 
         assert!(matches!(result, Err(InstallError::InvalidBundle)));
         assert!(target.read_link().is_ok());

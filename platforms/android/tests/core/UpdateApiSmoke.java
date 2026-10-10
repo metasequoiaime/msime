@@ -1,3 +1,4 @@
+import app.msime.android.DigestPolicy;
 import app.msime.android.UpdateApi;
 import app.msime.android.JsonPolicy;
 import java.io.ByteArrayInputStream;
@@ -67,7 +68,7 @@ public final class UpdateApiSmoke {
 
         // 下载：每一跳都过白名单，校验通过才留下文件。
         byte[] apk = "apk-bytes".getBytes(StandardCharsets.US_ASCII);
-        String good = hex(MessageDigest.getInstance("SHA-256").digest(apk));
+        String good = DigestPolicy.hex(MessageDigest.getInstance("SHA-256").digest(apk));
         Map<String, UpdateApi.Exchange> routes = new HashMap<>();
         List<String> seen = new ArrayList<>();
         UpdateApi api = new UpdateApi(url -> {
@@ -95,7 +96,7 @@ public final class UpdateApiSmoke {
             return new UpdateApi.Exchange(404, null, 0, new ByteArrayInputStream(new byte[0]));
         });
         File mirroredCache = Files.createTempDirectory("update-smoke-mirror").toFile();
-        check(good.equals(UpdateApi.sha256Hex(mirrored.download(update, mirroredCache, null))), "the mirror alone delivers a verified APK");
+        check(good.equals(DigestPolicy.sha256Hex(mirrored.download(update, mirroredCache, null))), "the mirror alone delivers a verified APK");
         check(mirrorSeen.stream().allMatch(url -> url.startsWith(UpdateApi.MIRROR_PREFIX)), "GitHub is not contacted when the mirror works");
 
         // 镜像给的包摘要不符：删掉，换 GitHub 再下一次。
@@ -107,7 +108,7 @@ public final class UpdateApiSmoke {
             return new UpdateApi.Exchange(404, null, 0, new ByteArrayInputStream(new byte[0]));
         });
         File corruptedCache = Files.createTempDirectory("update-smoke-corrupt").toFile();
-        check(good.equals(UpdateApi.sha256Hex(corrupted.download(update, corruptedCache, null))), "a corrupt mirror copy falls back to GitHub");
+        check(good.equals(DigestPolicy.sha256Hex(corrupted.download(update, corruptedCache, null))), "a corrupt mirror copy falls back to GitHub");
         check(!new File(corruptedCache, "updates/msime-android.apk.part").exists(), "the corrupt copy is not left behind");
 
         // Cancelling from the progress callback must remove the partial APK.
@@ -197,7 +198,7 @@ public final class UpdateApiSmoke {
         File two = second.get();
         pool.shutdown();
         check(one.equals(two) && one.isFile(), "concurrent downloads end with the same verified file");
-        check(good.equals(UpdateApi.sha256Hex(one)), "the shared file is intact");
+        check(good.equals(DigestPolicy.sha256Hex(one)), "the shared file is intact");
         check(apkFetches.get() == 1, "the second download reuses the verified file");
         check(!new File(raceCache, "updates/msime-android.apk.part").exists(), "no partial file is left behind");
 
@@ -208,7 +209,7 @@ public final class UpdateApiSmoke {
             java.nio.file.Path digestLink = digestRoot.resolve("linked.bin");
             Files.createLink(digestLink, digestSource);
             try {
-                UpdateApi.sha256Hex(digestLink.toFile());
+                DigestPolicy.sha256Hex(digestLink.toFile());
                 throw new AssertionError("hard-linked digest input must be refused");
             } catch (java.io.IOException expected) {
                 // Private digest inputs must have one directory entry.
@@ -245,12 +246,6 @@ public final class UpdateApiSmoke {
     private static UpdateApi.Exchange body(String text) {
         byte[] bytes = text.getBytes(StandardCharsets.US_ASCII);
         return new UpdateApi.Exchange(200, null, bytes.length, new ByteArrayInputStream(bytes));
-    }
-
-    private static String hex(byte[] bytes) {
-        StringBuilder out = new StringBuilder();
-        for (byte value : bytes) out.append(String.format(Locale.ROOT, "%02x", value & 0xff));
-        return out.toString();
     }
 
     private static void rejects(Runnable action, String message) {

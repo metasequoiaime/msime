@@ -266,9 +266,13 @@ pub fn translation_response_failed(response: &str) -> bool {
     if let Some(code) = object.get("code") {
         return code.as_i64() != Some(200) && code.as_str() != Some("200");
     }
-    !["data", "translation", "result", "translations"]
+    !["data", "translation", "result"]
         .iter()
-        .any(|key| object.contains_key(*key))
+        .any(|key| object.get(*key).is_some_and(has_supported_result_shape))
+        && !object
+            .get("translations")
+            .and_then(Value::as_array)
+            .is_some_and(|items| items.first().is_none_or(is_result_item_shape))
 }
 
 pub fn parse_translation_response(response: &str) -> Option<String> {
@@ -306,6 +310,23 @@ fn has_explicit_error(root: &Value) -> bool {
         Value::String(message) => !message.is_empty(),
         _ => true,
     })
+}
+
+fn has_supported_result_shape(value: &Value) -> bool {
+    is_result_item_shape(value)
+        || value
+            .as_array()
+            .is_some_and(|items| items.first().is_none_or(is_result_item_shape))
+}
+
+fn is_result_item_shape(value: &Value) -> bool {
+    match value {
+        Value::String(_) => true,
+        Value::Object(object) => ["text", "translation", "data"]
+            .iter()
+            .any(|key| object.get(*key).is_some_and(Value::is_string)),
+        _ => false,
+    }
 }
 
 fn value_as_text(value: &Value) -> Option<String> {
@@ -544,6 +565,27 @@ Signature=fdaffffbe1460ecd8cbc30e296ff6f49cc3b4af10b11e099462cca023fdb2c6c"
         let response = r#"{"error":"rate limited","data":"stale synthetic gloss"}"#;
         assert!(translation_response_failed(response));
         assert!(parse_translation_response(response).is_none());
+    }
+
+    #[test]
+    fn unsupported_result_shapes_do_not_count_as_empty_answers() {
+        for response in [
+            r#"{"data":null}"#,
+            r#"{"translation":42}"#,
+            r#"{"result":false}"#,
+            r#"{"translations":"synthetic"}"#,
+            r#"{"data":{}}"#,
+            r#"{"data":[null]}"#,
+        ] {
+            assert!(translation_response_failed(response), "{response}");
+        }
+        for response in [
+            r#"{"data":""}"#,
+            r#"{"translations":[]}"#,
+            r#"{"translation":{"text":""}}"#,
+        ] {
+            assert!(!translation_response_failed(response), "{response}");
+        }
     }
 
     #[test]

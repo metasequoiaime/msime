@@ -21,3 +21,5 @@ Status: implemented
 ## Consequences
 
 临时英文模式处理常见小写输入时不再为查询前缀分配堆内存，大小写输入仍按原规则转换后查询。
+
+词库内部空页存储由[英文前缀空页延后预留](2026-10-10-english-empty-prefix-storage.md)单独约束，调用方借用前缀的规则继续保持。

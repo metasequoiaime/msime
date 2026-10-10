@@ -201,8 +201,8 @@ public final class KeyboardSkinPreview extends View {
         state.background.draw(canvas);
         double opacity = skin.designed() ? skin.keyOpacity() : 1d;
         drawMiniKeyboard(canvas, bounds,
-            withOpacity(Color.parseColor(skin.keyBackground()), opacity),
-            withOpacity(Color.parseColor(skin.functionBackground()), opacity),
+            ColorPolicy.withAlpha(Color.parseColor(skin.keyBackground()), opacity),
+            ColorPolicy.withAlpha(Color.parseColor(skin.functionBackground()), opacity),
             Color.parseColor(skin.returnBackground()), Color.parseColor(skin.returnForeground()),
             Color.parseColor(skin.keyForeground()), Color.parseColor(skin.secondary()),
             Color.parseColor(skin.accent()), state);
@@ -245,11 +245,6 @@ public final class KeyboardSkinPreview extends View {
         clip.reset();
         clip.addRoundRect(bounds, radius, radius, android.graphics.Path.Direction.CW);
         canvas.clipPath(clip);
-    }
-
-    private static int withOpacity(int colour, double opacity) {
-        float factor = (float) KeyboardGeometry.bounded(opacity, 0, 1);
-        return ColorPolicy.withAlpha(colour, factor);
     }
 
     /** MiniKb 字母键右上角的提示字，与设计的 HINT 表一一对应。 */
@@ -356,7 +351,7 @@ public final class KeyboardSkinPreview extends View {
         // 底部指示条：134×5，键字色 85%，居中在键区下方的余量里。
         float keysBottom = top - 11f;
         float barTop = keysBottom + (MINI_HEIGHT - keysBottom) / 2f - 2.5f;
-        paint.setColor(withOpacity(ink, .85));
+        paint.setColor(ColorPolicy.withAlpha(ink, .85));
         rect.set(MINI_WIDTH / 2f - 67f, barTop, MINI_WIDTH / 2f + 67f, barTop + 5f);
         canvas.drawRoundRect(rect, 3f, 3f, paint);
         canvas.restoreToCount(saved);

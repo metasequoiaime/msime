@@ -342,6 +342,12 @@ final class ImeBottomRow {
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());
+        // 中/英紧挨回车时，回车把键帽左边几 dp 让给中/英。每次都重设：回车键换成图标键后是另一个视图。
+        if (s.actionRow instanceof KeyboardKeyArea area) {
+            boolean yield = KeyboardActionRow.languageBesideReturn(entries);
+            area.setYield(yield ? s.enterButton : null, yield ? s.languageButton : null,
+                KeyboardGeometry.floatPixels(s, KeyboardActionRow.RETURN_YIELD_DP));
+        }
         if (signature.equals(s.actionRowSignature)) {
             if (!ownBottom) s.updateQuickPunctuation();
             return;

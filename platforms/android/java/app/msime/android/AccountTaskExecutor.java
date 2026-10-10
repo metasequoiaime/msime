@@ -17,11 +17,7 @@ public final class AccountTaskExecutor {
             0,
             TimeUnit.MILLISECONDS,
             new ArrayBlockingQueue<>(QUEUE_CAPACITY),
-            runnable -> {
-                Thread thread = new Thread(runnable, "msime-account");
-                thread.setDaemon(true);
-                return thread;
-            },
+            ThreadPolicy.namedDaemonFactory("msime-account"),
             new ThreadPoolExecutor.AbortPolicy());
     }
 }

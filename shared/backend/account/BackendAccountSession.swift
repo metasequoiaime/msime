@@ -32,6 +32,12 @@ private func backendDirectoryPathIsSafe(_ url: URL) -> Bool {
 struct BackendSavedSession: Codable, Sendable {
   let tokens: BackendAccountClient.Tokens
   let expiresAt: Date
+  /// 令牌刷新时保持不变；同一用户重新登录也会取得新值。
+  let sessionID: UUID?
+
+  init(tokens: BackendAccountClient.Tokens, expiresAt: Date, sessionID: UUID? = UUID()) {
+    self.tokens = tokens; self.expiresAt = expiresAt; self.sessionID = sessionID
+  }
 
   static func validated(_ session: BackendSavedSession, now: Date = Date()) throws -> BackendSavedSession {
     try BackendAccountClient.validate(session.tokens)
@@ -42,10 +48,11 @@ struct BackendSavedSession: Codable, Sendable {
     return session
   }
 
-  static func forTokens(_ tokens: BackendAccountClient.Tokens, now: Date = Date()) throws -> BackendSavedSession {
+  static func forTokens(_ tokens: BackendAccountClient.Tokens, now: Date = Date(),
+                        sessionID: UUID? = UUID()) throws -> BackendSavedSession {
     try BackendAccountClient.validate(tokens)
     return try validated(.init(tokens: tokens,
-      expiresAt: now.addingTimeInterval(TimeInterval(tokens.expires_in))), now: now)
+      expiresAt: now.addingTimeInterval(TimeInterval(tokens.expires_in)), sessionID: sessionID), now: now)
   }
 }
 protocol BackendSessionStorage: Sendable {
@@ -332,7 +339,7 @@ actor BackendAccountSession {
     }
   }
   func signIn(challenge: String, credential: String,
-              replacingAccount cleanup: @Sendable (String) -> Void = { _ in }) async throws {
+              replacingAccount cleanup: @Sendable (String) throws -> Void = { _ in }) async throws {
     generation += 1
     refreshing?.cancel(); refreshing = nil
     let version = generation
@@ -343,36 +350,51 @@ actor BackendAccountSession {
     }
   }
   private func installReplacingAccount(_ tokens: BackendAccountClient.Tokens,
-                                       version: Int, cleanup: @Sendable (String) -> Void) throws {
+                                       version: Int, cleanup: @Sendable (String) throws -> Void) throws {
     guard generation == version else { throw CancellationError() }
     let previous = try? storage.load().map { try BackendSavedSession.validated($0) }
-    try install(tokens)
-    if let accountID = previous?.tokens.user.id, accountID != tokens.user.id { cleanup(accountID) }
+    try install(tokens) {
+      if let accountID = previous?.tokens.user.id, accountID != tokens.user.id { try cleanup(accountID) }
+    }
   }
-  private func install(_ tokens: BackendAccountClient.Tokens) throws {
-    let value = try BackendSavedSession.forTokens(tokens)
+  private func install(_ tokens: BackendAccountClient.Tokens, sessionID: UUID? = UUID(),
+                       beforeSave: () throws -> Void = {}) throws {
+    let value = try BackendSavedSession.forTokens(tokens, sessionID: sessionID)
+    try beforeSave()
     try storage.save(value)
     saved = value; loaded = true
   }
   func accessToken(retrying rejectedToken: String? = nil) async throws -> String {
+    try await ensureSessionID()
     try load()
     // A refresh may have been started because another caller received a 401
     // for the still-unexpired access token. Every concurrent caller must join
     // it before returning that rejected token from the fast path.
-    if let refreshing { return try await refreshing.value }
+    if let refreshing {
+      let sessionID = saved?.sessionID
+      let token = try await refreshing.value
+      try load()
+      guard saved?.sessionID == sessionID, saved?.tokens.access_token == token else { throw CancellationError() }
+      return token
+    }
     if let current = saved, current.expiresAt.timeIntervalSinceNow > 30 && rejectedToken != current.tokens.access_token {
       return current.tokens.access_token
     }
     // Other actors and processes share this storage and may already have rotated (or created) the session.
+    let sessionID = saved?.sessionID
     if let stored = try? storage.load().map({ try BackendSavedSession.validated($0) }),
-       stored.tokens.refresh_token != saved?.tokens.refresh_token { saved = stored }
+       stored.tokens.refresh_token != saved?.tokens.refresh_token {
+      guard sessionID == nil || stored.sessionID == sessionID else { saved = stored; throw CancellationError() }
+      saved = stored
+    }
     guard let current = saved else { throw BackendAccountClient.Failure(status: 401) }
     if current.expiresAt.timeIntervalSinceNow > 30 && rejectedToken != current.tokens.access_token { return current.tokens.access_token }
     let refreshToken = current.tokens.refresh_token
     let version = generation
     let task = Task<String, Error> {
       try await self.refreshLock.run {
-        try await self.refreshHoldingLock(refreshToken, rejectedToken: rejectedToken, version: version)
+        try await self.refreshHoldingLock(refreshToken, rejectedToken: rejectedToken,
+                                          sessionID: sessionID, version: version)
       }
     }
     refreshing = task
@@ -380,7 +402,8 @@ actor BackendAccountSession {
     return try await task.value
   }
   /// Runs with the refresh lock held, so no other process can rotate the stored session between the read below and the save after the refresh.
-  private func refreshHoldingLock(_ expected: String, rejectedToken: String?, version: Int) async throws -> String {
+  private func refreshHoldingLock(_ expected: String, rejectedToken: String?,
+                                  sessionID: UUID?, version: Int) async throws -> String {
     var refreshToken = expected
     let before = try? storage.load().map({ try BackendSavedSession.validated($0) })
     // Another process signed out while this one waited for the lock.
@@ -388,10 +411,15 @@ actor BackendAccountSession {
       saved = nil
       throw BackendAccountClient.Failure(status: 401)
     }
+    if let stored = before, stored.sessionID != sessionID {
+      saved = stored
+      throw CancellationError()
+    }
     // Another process may have rotated the session while this one waited for the lock; refreshing from the token it already used would revoke the session.
     if let stored = before, stored.tokens.refresh_token != expected {
       guard generation == version else { throw CancellationError() }
       saved = stored
+      guard stored.sessionID == sessionID else { throw CancellationError() }
       if stored.expiresAt.timeIntervalSinceNow > 30 && rejectedToken != stored.tokens.access_token { return stored.tokens.access_token }
       refreshToken = stored.tokens.refresh_token
     }
@@ -400,7 +428,8 @@ actor BackendAccountSession {
       guard generation == version else { throw CancellationError() }
       // Writers that do not take the lock (another host's own keychain code) can still change the store; tokens for a session that is no longer the stored one are discarded instead of resurrecting it.
       let current = try? storage.load().map({ try BackendSavedSession.validated($0) })
-      if let current, current.tokens.refresh_token != refreshToken || current.tokens.user.id != tokens.user.id {
+      if let current, current.tokens.refresh_token != refreshToken ||
+          current.tokens.user.id != tokens.user.id || current.sessionID != sessionID {
         saved = current
         throw CancellationError()
       }
@@ -408,15 +437,20 @@ actor BackendAccountSession {
         saved = nil
         throw BackendAccountClient.Failure(status: 401)
       }
-      try install(tokens)
+      try install(tokens, sessionID: sessionID)
       return tokens.access_token
     } catch {
       if version == generation, let failure = error as? BackendAccountClient.Failure, failure.status == 401 {
         // Clear only the session that was rejected; a rotation saved meanwhile elsewhere is adopted.
         // A nil read may be an unreadable keychain rather than an absent item, so it is not cleared.
         let stored = try? storage.load().map({ try BackendSavedSession.validated($0) })
+        if let stored, stored.sessionID != sessionID {
+          saved = stored
+          throw CancellationError()
+        }
         if let stored, stored.tokens.refresh_token != refreshToken {
           saved = stored
+          guard stored.sessionID == sessionID else { throw CancellationError() }
           if stored.expiresAt.timeIntervalSinceNow > 30 && rejectedToken != stored.tokens.access_token { return stored.tokens.access_token }
         } else {
           if stored != nil { try storage.clear() }
@@ -426,56 +460,144 @@ actor BackendAccountSession {
       throw error
     }
   }
-  func updateUser(_ user: BackendAccountClient.User, matching token: String) async throws {
-    try await refreshLock.run { try await self.updateUserHoldingLock(user, matching: token) }
+  func updateUser(_ user: BackendAccountClient.User, matching token: String,
+                  matchingSessionID sessionID: UUID? = nil) async throws {
+    try await refreshLock.run { try await self.updateUserHoldingLock(user, matching: token, matchingSessionID: sessionID) }
   }
-  private func updateUserHoldingLock(_ user: BackendAccountClient.User, matching token: String) throws {
+  private func updateUserHoldingLock(_ user: BackendAccountClient.User, matching token: String,
+                                     matchingSessionID sessionID: UUID?) throws {
     try load()
-    guard let current = saved, current.tokens.access_token == token, current.tokens.user.id == user.id else {
+    guard let current = saved, current.tokens.access_token == token, current.tokens.user.id == user.id,
+          sessionID == nil || current.sessionID == sessionID else {
       throw CancellationError()
     }
     let old = current.tokens
     let tokens = BackendAccountClient.Tokens(access_token: old.access_token, refresh_token: old.refresh_token,
       token_type: old.token_type, expires_in: old.expires_in, user: user)
-    let value = try BackendSavedSession.validated(.init(tokens: tokens, expiresAt: current.expiresAt))
+    let value = try BackendSavedSession.validated(.init(tokens: tokens, expiresAt: current.expiresAt,
+                                                        sessionID: current.sessionID))
     try storage.save(value); saved = value
   }
-  func credentials(retrying rejectedToken: String? = nil, matchingUserID expected: String? = nil) async throws -> (userID: String, token: String) {
+  /// 在登录和刷新共用的锁内为旧会话保存 ID，使两个进程在发请求前认定同一次登录。
+  private func ensureSessionID() async throws {
+    try load()
+    guard let saved, saved.sessionID == nil else { return }
+    try await refreshLock.run { try await self.installSessionIDHoldingLock() }
+  }
+  private func installSessionIDHoldingLock() throws {
+    guard let current = try storage.load().map({ try BackendSavedSession.validated($0) }) else {
+      saved = nil
+      throw BackendAccountClient.Failure(status: 401)
+    }
+    if current.sessionID != nil { saved = current; return }
+    let migrated = BackendSavedSession(tokens: current.tokens, expiresAt: current.expiresAt)
+    try storage.save(migrated)
+    saved = migrated
+  }
+  func credentials(retrying rejectedToken: String? = nil, matchingUserID expected: String? = nil,
+                   matchingSessionID expectedSessionID: UUID? = nil) async throws -> (userID: String, token: String, sessionID: UUID) {
+    try await ensureSessionID()
     try load()
     if let expected, saved?.tokens.user.id != expected { throw CancellationError() }
+    if let expectedSessionID, saved?.sessionID != expectedSessionID { throw CancellationError() }
     let token = try await accessToken(retrying: rejectedToken)
     guard let saved, saved.tokens.access_token == token,
-          expected == nil || saved.tokens.user.id == expected else { throw CancellationError() }
-    return (saved.tokens.user.id, token)
+          let sessionID = saved.sessionID,
+          expected == nil || saved.tokens.user.id == expected,
+          expectedSessionID == nil || sessionID == expectedSessionID else { throw CancellationError() }
+    return (saved.tokens.user.id, token, sessionID)
+  }
+  func requireSession(matchingUserID userID: String, matchingSessionID sessionID: UUID) throws {
+    try load()
+    guard saved?.tokens.user.id == userID, saved?.sessionID == sessionID else { throw CancellationError() }
   }
   /// Perform one authenticated request and retry it once when the backend rejects the
   /// still locally valid access token. The returned token is the one paired with the
   /// successful result, so callers that update cached account data cannot bind it to a
   /// token that was already rejected.
-  func authenticated<T: Sendable>(matchingUserID expected: String,
+  func authenticated<T: Sendable>(matchingUserID expected: String, matchingSessionID expectedSessionID: UUID? = nil,
                                   _ operation: @Sendable (String) async throws -> T) async throws -> (value: T, token: String) {
-    var identity = try await credentials(matchingUserID: expected)
+    var identity = try await credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    let sessionID = identity.sessionID
+    let value: T
     do {
-      return (try await operation(identity.token), identity.token)
+      value = try await operation(identity.token)
     } catch let failure as BackendAccountClient.Failure where failure.status == 401 {
-      identity = try await credentials(retrying: identity.token, matchingUserID: expected)
-      return (try await operation(identity.token), identity.token)
+      identity = try await credentials(retrying: identity.token, matchingUserID: expected,
+                                       matchingSessionID: sessionID)
+      value = try await operation(identity.token)
     }
+    try requireSession(matchingUserID: expected, matchingSessionID: sessionID)
+    try Task.checkCancellation()
+    return (value, identity.token)
   }
-  func forget() async throws {
+  func forget(removingAccount cleanup: @Sendable (String) throws -> Void = { _ in }) async throws {
+    try await forget(removingAccount: cleanup, fallbackAccountID: nil)
+  }
+  func forget(matchingUserID expected: String, matchingSessionID expectedSessionID: UUID? = nil,
+              removingAccount cleanup: @Sendable (String) throws -> Void = { _ in }) async throws {
+    try await forget(removingAccount: cleanup, fallbackAccountID: expected, matchingUserID: expected,
+                     matchingSessionID: expectedSessionID)
+  }
+  private func forget(removingAccount cleanup: @Sendable (String) throws -> Void,
+                      fallbackAccountID: String?, matchingUserID expectedUserID: String? = nil,
+                      matchingSessionID expectedSessionID: UUID? = nil,
+                      allowMissingExpected: Bool = false) async throws {
+    // Keep the old identity before clearing memory. The shared lock below rechecks the account
+    // so an older sign-out cannot clear another process's replacement session. A refresh by
+    // that process rotates its token but must still allow this sign-out to finish.
+    let stored = try storage.load()
+    if let expectedUserID, stored?.tokens.user.id != expectedUserID,
+       !(allowMissingExpected && stored == nil) { throw CancellationError() }
+    if let expectedSessionID, stored?.sessionID != expectedSessionID,
+       !(allowMissingExpected && stored == nil) { throw CancellationError() }
+    let expected = stored ?? saved
+    let sessionID = expectedSessionID ?? expected?.sessionID
+    let accountID = expected?.tokens.user.id ?? fallbackAccountID
     generation += 1
     refreshing?.cancel(); refreshing = nil
     saved = nil; loaded = true
+    let version = generation
     // 清理必须在共享锁内完成，避免另一个进程正在刷新的 token 在注销后写回。
     // 如果暂时拿不到锁就保留持久化会话；无锁清理会让进行中的刷新重新复活已注销的会话。
-    try await refreshLock.run { try await self.clearStorage() }
+    try await refreshLock.run {
+      try await self.clearStorage(at: version, accountID: accountID,
+                                  matchingUserID: expectedUserID,
+                                  matchingSessionID: sessionID,
+                                  allowMissingExpected: allowMissingExpected, cleanup: cleanup)
+    }
   }
-  private func clearStorage() throws { try storage.clear() }
-  func logout(all: Bool = false) async throws {
+  private func clearStorage(at version: Int, accountID: String?,
+                            matchingUserID expectedUserID: String?,
+                            matchingSessionID expectedSessionID: UUID?,
+                            allowMissingExpected: Bool,
+                            cleanup: @Sendable (String) throws -> Void) throws {
+    guard generation == version else { throw CancellationError() }
+    let current = try storage.load()
+    if let expectedUserID, current?.tokens.user.id != expectedUserID,
+       !(allowMissingExpected && current == nil) { throw CancellationError() }
+    if let expectedSessionID, current?.sessionID != expectedSessionID,
+       !(allowMissingExpected && current == nil) { throw CancellationError() }
+    if let current, current.tokens.user.id != accountID { throw CancellationError() }
+    if let accountID = current?.tokens.user.id ?? accountID { try cleanup(accountID) }
+    try storage.clear()
+  }
+  func logout(all: Bool = false, removingAccount cleanup: @Sendable (String) throws -> Void = { _ in }) async throws {
+    try await ensureSessionID()
+    guard let owner = try user()?.id, let sessionID = saved?.sessionID else {
+      throw BackendAccountClient.Failure(status: 401)
+    }
+    let version = generation
     let token: String
-    do { token = try await accessToken() }
-    catch { try await forget(); throw error }
-    try await forget()
+    do { token = try await credentials(matchingUserID: owner, matchingSessionID: sessionID).token }
+    catch {
+      guard generation == version else { throw CancellationError() }
+      try await forget(removingAccount: cleanup, fallbackAccountID: owner,
+                       matchingUserID: owner, matchingSessionID: sessionID, allowMissingExpected: true)
+      throw error
+    }
+    guard generation == version else { throw CancellationError() }
+    try await forget(matchingUserID: owner, matchingSessionID: sessionID, removingAccount: cleanup)
     try await api.logout(token: token, all: all)
   }
 }

@@ -69,11 +69,12 @@ export const themeCarouselDot = (active: boolean, edge = false) =>
   `${edge ? "size-1.5" : "size-2"} shrink-0 rounded-full border-0 p-0 ${active ? "bg-accent" : "bg-[var(--toggle-off-bg)] hover:bg-edge-strong"}`;
 export const themeCarouselCount =
   "min-w-10 shrink-0 text-center text-xs whitespace-nowrap text-muted tabular-nums";
+/** 皮肤卡片。Linux 下去掉卡片的模糊阴影，只留边框和选中时的强调色外圈：设置窗口在那里关着 WebKit 合成，带模糊的阴影让每一步滚动的重绘慢好几倍（#6403，见 platform-tokens.ts 的 linux 分组阴影）。 */
 export const skinCard = (selected: boolean) =>
   `block overflow-hidden rounded-[var(--p-group-r)] border bg-[var(--p-group-bg)] p-0 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent hover:border-edge-strong ${
     selected
-      ? "border-accent shadow-[0_0_0_1px_var(--accent-color),var(--card-shadow)]"
-      : "border-edge shadow-card"
+      ? "border-accent shadow-[0_0_0_1px_var(--accent-color),var(--card-shadow)] linux:shadow-[0_0_0_1px_var(--accent-color)]"
+      : "border-edge shadow-card linux:shadow-none"
   }`;
 /** The design's 使用中 mark on the selected card. */
 export const skinCardInUse = "ml-2 text-xs font-normal text-accent";

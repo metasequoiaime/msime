@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libibus-1.0-dev libxkbcommon-dev nlohmann-json3-dev \
   libwayland-dev wayland-protocols libx11-dev libxfixes-dev libxrandr-dev \
   libfcitx5core-dev libfcitx5utils-dev libfcitx5config-dev libcairo2-dev \
+  fcitx5-modules libpango1.0-dev \
   dbus dbus-bin \
   && rm -rf /var/lib/apt/lists/*
 # 仓库工具链声明要求这两个组件，预装后临时容器不再逐次补装；保留上面的 apt 缓存层。

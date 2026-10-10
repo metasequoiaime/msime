@@ -10,8 +10,8 @@
 #
 # 编译器用发行版自己的 rust/cargo，不用 rust-toolchain.toml 钉住的版本：构建农场取不到 rustup，下限取锁定依赖里最高的 rust-version：Cargo.toml 自己声明 1.89，但 Cargo.lock 锁定的 tauri 2.12、tauri-utils、tauri-runtime-wry、muda、tray-icon 等声明 1.90，cargo 默认拒绝用更低的编译器构建它们。
 
-# 包内私有目录里的 Host API 与 sherpa-onnx 运行库按 RUNPATH 加载，既不能向系统要，也不能当作系统库对外提供；与 packaging.cmake 给 CPack 的设置相同。
-%global __requires_exclude ^lib(msime_host_api|sherpa-onnx-c-api|onnxruntime)\\.so.*$
+# 包内私有目录里的 Host API 与 sherpa-onnx 运行库按 RUNPATH 加载，既不能向系统要，也不能当作系统库对外提供；与 packaging.cmake 给 CPack 的设置相同。Fcitx5 插件链接的 libFcitx5* 也不自动 Requires：插件只由 Fcitx5 加载，那时这些库一定在，否则 IBus 系统会被它们拉进 Fcitx5（#6401）。
+%global __requires_exclude ^lib(msime_host_api|sherpa-onnx-c-api|onnxruntime|Fcitx5[A-Za-z]+)\\.so.*$
 %global __provides_exclude_from ^%{_libdir}/msime-client/.*$
 # 不给 C/C++ 代码开 LTO：rusqlite 等 crate 用 cc 把 C 代码编成静态库，optflags 里的 -flto=auto 让库里只有 GCC 的 LTO 中间码，openSUSE 的 Rust 用 clang 加 rust-lld 链接，读不懂这种目标文件，链接时 sqlite3_* 等符号全部未定义（OBS openSUSE_Tumbleweed 上 msime-mcp 就是这样失败的）。
 %define _lto_cflags %{nil}
@@ -78,8 +78,8 @@ BuildRequires:  dbus-daemon
 %endif
 BuildRequires:  desktop-file-utils
 
-Requires:       ibus >= 1.5.20
-Requires:       fcitx5 >= 5.0.20
+# IBus 和 Fcitx5 二选一，系统里已有哪个就算满足哪个（#6401）。
+Requires:       (ibus >= 1.5.20 or fcitx5 >= 5.0.20)
 Requires:       python3 >= 3.9
 # msime-linux-setup 切换词库前用 pgrep 确认输入法是否在运行。
 %if 0%{?suse_version}

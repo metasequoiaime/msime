@@ -1090,7 +1090,7 @@ mod tests {
         fs::create_dir(&outside_root).unwrap();
         fs::write(outside_root.join("msime-pinyin.db"), b"fixture").unwrap();
         let linked = parent.path().join("linked");
-        std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+        msime_path_trust::untrusted_symlink(outside.path(), &linked).unwrap();
         let directory = linked.join("resources");
         let store = ResourceStore::new(&directory);
 

@@ -1,5 +1,6 @@
 //! 存储路径要做符号链接检查，防止被人放进去的链接把客户端的写入重定向到别处。但通往每个应用存储的路径上，有些链接本来就属于操作系统，连它们一起拒绝，等于拒绝了该平台上的全部存储。这个 crate 是唯一列出这些系统链接的地方，所有逐层检查存储路径的 crate 都来这里查询。
 
+use std::fs::File;
 use std::path::{Component, Path, PathBuf};
 
 /// 存储路径可以经过的系统链接，以及每条链接唯一受信任的目标。
@@ -59,6 +60,137 @@ pub fn is_root_only_link(path: &Path) -> bool {
     }
 }
 
+/// 只读打开的文件有多个硬链接时，是否仍然可以读。
+///
+/// 拒绝硬链接防的是：别人在我们读取的目录里放一个指向别处 inode 的链接，让我们把不属于这里的文件当作资源或私有数据读进来。要放下这样的链接，必须能写这个目录。所以文件所在的目录如果属于 root 或当前用户、组和其他用户都不可写，里面的多链接文件只可能是 root 或用户自己建的，例如包管理器把相同文件合并成硬链接（Nix 的 store 去重、ostree 部署），或者用户用 `cp -al` 做的备份。这时放行；其他情况都拒绝。
+///
+/// 只用于只读打开。写入一个多链接文件会改到链接另一端的文件，那条规则与目录是否可信无关，写入路径继续要求单链接。
+///
+/// `file` 是已经打开的文件，`path` 是打开它用的路径。这里以句柄打开 `path` 的父目录，检查目录的属主和权限，再在这个目录句柄下按名字查到的 inode 必须就是 `file` 的那一个，所以检查的正是手里这个文件所在的目录，而不是检查之后被换上来的另一个。Windows 等没有属主和权限位的平台一律不信任。
+pub fn multi_link_is_trusted(file: &File, path: &Path) -> std::io::Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+            return Ok(false);
+        };
+        let parent = if parent.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            parent
+        };
+        let directory = open_directory(parent)?;
+        if !directory_is_trusted(&directory.metadata()?) {
+            return Ok(false);
+        }
+        let opened = file.metadata()?;
+        Ok(entry_identity(&directory, name)?
+            .is_some_and(|(device, inode)| device == opened.dev() && inode == opened.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (file, path);
+        Ok(false)
+    }
+}
+
+/// 与 [`multi_link_is_trusted`] 相同，但文件是相对于 `directory` 这个已打开的目录句柄打开的（`openat`），所以只需检查这个目录本身。
+pub fn multi_link_in_directory_is_trusted(directory: &File) -> std::io::Result<bool> {
+    #[cfg(unix)]
+    {
+        Ok(directory_is_trusted(&directory.metadata()?))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = directory;
+        Ok(false)
+    }
+}
+
+/// 与 [`multi_link_is_trusted`] 相同，给只能按路径打开文件的调用方用（SQLite）：`path` 处必须是普通文件，且所在目录可信。按路径检查之后调用方还要按路径再打开一次，所以它只比按句柄的版本多一个与原先单链接检查相同的窗口。
+pub fn multi_link_path_is_trusted(path: &Path) -> std::io::Result<bool> {
+    #[cfg(unix)]
+    {
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+            return Ok(false);
+        };
+        let parent = if parent.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            parent
+        };
+        let directory = open_directory(parent)?;
+        Ok(directory_is_trusted(&directory.metadata()?)
+            && entry_identity(&directory, name)?.is_some())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(false)
+    }
+}
+
+/// 目录属于 root 或当前用户，且组和其他用户都不可写：只有 root 或当前用户能在里面放进、替换文件。
+#[cfg(unix)]
+fn directory_is_trusted(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    metadata.is_dir()
+        && (metadata.uid() == 0 || metadata.uid() == effective_uid())
+        && metadata.mode() & 0o022 == 0
+}
+
+#[cfg(unix)]
+fn open_directory(path: &Path) -> std::io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
+        .open(path)
+}
+
+#[cfg(unix)]
+#[allow(unsafe_code)]
+fn effective_uid() -> u32 {
+    // SAFETY: geteuid takes no arguments, cannot fail and touches no memory of ours.
+    unsafe { libc::geteuid() }
+}
+
+/// `directory` 下名为 `name` 的目录项（不跟随符号链接）是普通文件时，返回它的设备号和 inode 号；不存在或不是普通文件时返回 `None`。
+#[cfg(unix)]
+#[allow(unsafe_code)]
+// `libc::stat` 的字段宽度随平台而变（`st_mode` 与 `S_IFMT` 在有的平台上类型不同），统一转换后比较，在宽度刚好一致的平台上这些转换就是多余的。
+#[allow(clippy::unnecessary_cast, clippy::useless_conversion)]
+fn entry_identity(directory: &File, name: &std::ffi::OsStr) -> std::io::Result<Option<(u64, u64)>> {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::io::AsRawFd;
+    let Ok(name) = std::ffi::CString::new(name.as_bytes()) else {
+        return Ok(None);
+    };
+    let mut status = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: the descriptor is open for the duration of the call, `name` is a NUL-terminated string that outlives it, and `status` points to writable memory of the size fstatat fills.
+    let result = unsafe {
+        libc::fstatat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            status.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if result != 0 {
+        let error = std::io::Error::last_os_error();
+        return match error.kind() {
+            std::io::ErrorKind::NotFound => Ok(None),
+            _ => Err(error),
+        };
+    }
+    // SAFETY: fstatat returned 0, so it initialised every field.
+    let status = unsafe { status.assume_init() };
+    if (status.st_mode as u32) & (libc::S_IFMT as u32) != libc::S_IFREG as u32 {
+        return Ok(None);
+    }
+    Ok(Some((status.st_dev as u64, status.st_ino as u64)))
+}
+
 /// 建一个本 crate 永远不会当作系统链接的符号链接，给测试拒绝行为用。Linux 上属于 root、所在目录只有 root 能写的链接是受信任的（见 [`is_root_only_link`]），以 root 身份运行的测试（测试容器、容器里的 CI 任务）建出的链接正是这样，所以那时把链接的属主交给 `nobody`。
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub fn untrusted_symlink(
@@ -72,6 +204,20 @@ pub fn untrusted_symlink(
         std::os::unix::fs::lchown(link, Some(65534), Some(65534))?;
     }
     Ok(())
+}
+
+/// 让别的用户也能写 `directory`，给测试拒绝行为用：这样的目录里的多链接文件可能是别人放进来的，不受信任（见 [`multi_link_is_trusted`]）。
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub fn open_to_other_users(directory: impl AsRef<Path>) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o777))
+}
+
+/// 让只有属主能写 `directory`（0700），给测试放行行为用。临时目录的权限取决于 umask：umask 为 002 时目录是组可写的，里面的多链接文件不受信任。
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub fn close_to_other_users(directory: impl AsRef<Path>) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
 }
 
 /// 拒绝 `path` 任何一级上的符号链接（包括最后一级），唯一的例外是最后一级之上至多一个受信任的系统链接。
@@ -194,6 +340,65 @@ mod tests {
         // 目录一旦允许其他人写入，链接就可能已被他们替换。
         std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
         assert!(!is_root_only_link(&link));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hard_linked_files_are_trusted_only_in_a_closed_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // 属于运行测试的用户（或 root）且只有属主能写，相当于包管理器的 store 或用户自己的目录。
+        let directory = tempfile::tempdir().unwrap();
+        close_to_other_users(directory.path()).unwrap();
+        let original = directory.path().join("model");
+        let linked = directory.path().join("linked-model");
+        std::fs::write(&original, b"model").unwrap();
+        std::fs::hard_link(&original, &linked).unwrap();
+        let file = File::open(&linked).unwrap();
+        assert!(multi_link_is_trusted(&file, &linked).unwrap());
+        assert!(multi_link_path_is_trusted(&linked).unwrap());
+        assert!(
+            multi_link_in_directory_is_trusted(&File::open(directory.path()).unwrap()).unwrap()
+        );
+
+        // 组或其他用户能写这个目录，链接就可能是他们放的。
+        for mode in [0o770, 0o707, 0o777] {
+            std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(mode))
+                .unwrap();
+            assert!(
+                !multi_link_is_trusted(&file, &linked).unwrap(),
+                "mode {mode:o}"
+            );
+            assert!(
+                !multi_link_path_is_trusted(&linked).unwrap(),
+                "mode {mode:o}"
+            );
+            assert!(
+                !multi_link_in_directory_is_trusted(&File::open(directory.path()).unwrap())
+                    .unwrap(),
+                "mode {mode:o}"
+            );
+        }
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn multi_link_trust_checks_the_directory_of_the_opened_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let opened = directory.path().join("opened");
+        let elsewhere = directory.path().join("elsewhere");
+        std::fs::write(&opened, b"opened").unwrap();
+        std::fs::write(&elsewhere, b"elsewhere").unwrap();
+        let file = File::open(&opened).unwrap();
+        // 路径上现在是另一个 inode：检查之后被换掉的文件不能借用这个目录的信任。
+        assert!(!multi_link_is_trusted(&file, &elsewhere).unwrap());
+        assert!(!multi_link_is_trusted(&file, &directory.path().join("missing")).unwrap());
+        // 符号链接本身不是普通文件。
+        let link = directory.path().join("link");
+        std::os::unix::fs::symlink(&opened, &link).unwrap();
+        assert!(!multi_link_is_trusted(&file, &link).unwrap());
+        assert!(!multi_link_path_is_trusted(&link).unwrap());
     }
 
     #[cfg(target_os = "macos")]

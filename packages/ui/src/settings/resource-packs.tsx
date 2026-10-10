@@ -124,6 +124,7 @@ export function useResourcePacks(
   activeClient.current = client;
   const statusesRef = useRef(statuses);
   statusesRef.current = statuses;
+  const refreshRequest = useRef(0);
   // 本页发起、尚未结束的下载；进度事件可能晚到，所以不能只看 progress 判断。
   const running = useRef(new Set<string>());
   const runningKey = (generation: number, id: ResourcePackId) => `${generation}:${id}`;
@@ -134,9 +135,10 @@ export function useResourcePacks(
     mounted.current && activeClient.current === expected && clientGeneration.current === generation;
 
   const refresh = useCallback(async (expected: ResourcePackClient, generation: number) => {
+    const request = ++refreshRequest.current;
     try {
       const next = await expected.list();
-      if (current(expected, generation)) setStatuses(next);
+      if (current(expected, generation) && request === refreshRequest.current) setStatuses(next);
     } catch {
       // 读不到列表时不提供下载入口，输入法照常按缺少资源降级。
     }
