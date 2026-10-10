@@ -41,6 +41,17 @@ public final class AppleWebSignInPendingSmoke {
         AppleWebSignIn.clearPending(store, verifier);
         check(AppleWebSignIn.peekPending(store, now) == null, "the matching verifier clears the flow");
 
+        store.edit().putString(AppleWebSignIn.KEY_VERIFIER, verifier)
+            .putString(AppleWebSignIn.KEY_PURPOSE, "link")
+            .putString(AppleWebSignIn.KEY_SESSION_ID, "session-a")
+            .putLong(AppleWebSignIn.KEY_CREATED_AT, now - 1_000L).commit();
+        AppleWebSignIn.Pending linked = AppleWebSignIn.peekPending(store, now);
+        check(linked != null && linked.link() && "session-a".equals(linked.sessionId()),
+            "a link flow keeps the account session that started it");
+        store.edit().remove(AppleWebSignIn.KEY_SESSION_ID).commit();
+        check(AppleWebSignIn.peekPending(store, now) == null,
+            "a link flow without an account session is discarded");
+
         store.edit().putString(AppleWebSignIn.KEY_VERIFIER, verifier).putString(AppleWebSignIn.KEY_PURPOSE, "link")
             .putLong(AppleWebSignIn.KEY_CREATED_AT, now - AppleWebSignIn.PENDING_MILLIS - 1L).commit();
         check(AppleWebSignIn.peekPending(store, now) == null, "an expired flow is not returned");

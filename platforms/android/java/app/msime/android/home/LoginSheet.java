@@ -180,7 +180,7 @@ final class LoginSheet {
 
     private void google() {
         if (!begin("正在登录…")) return;
-        SignIn.startGoogle(activity, this::finishWith);
+        SignIn.startGoogle(activity, purpose, this::finishWith);
     }
 
     private void expandEmail() {

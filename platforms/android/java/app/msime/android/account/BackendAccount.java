@@ -48,10 +48,16 @@ public final class BackendAccount {
     private static FutureTask<String> refreshFlight;
     private static long sessionGeneration;
 
-    /** One challenge, waiting for the provider's token. */
-    public record Challenge(String id, String nonce) {}
+    /** 一次等待提供商凭据的挑战；link 挑战还记住发起它的账号会话。 */
+    public record Challenge(String id, String nonce, String purpose, String sessionId) {
+        public Challenge(String id, String nonce) { this(id, nonce, "login", ""); }
+    }
     /** 一次邮箱验证码挑战：服务端的 id、用途（login / link）与有效秒数。 */
-    public record EmailChallenge(String id, String purpose, long expiresIn) {}
+    public record EmailChallenge(String id, String purpose, long expiresIn, String sessionId) {
+        public EmailChallenge(String id, String purpose, long expiresIn) {
+            this(id, purpose, expiresIn, "");
+        }
+    }
     public record ChatModel(String id) {}
     public record ChatMessage(String role, String content) {}
     public record ClipboardItem(String id, String text, String updatedAt) {}
@@ -199,17 +205,26 @@ public final class BackendAccount {
         }
     }
 
-    /** Start a sign-in and get the nonce the provider's SDK has to echo. */
+    /** 开始登录或关联并取得提供商 SDK 必须原样回传的 nonce。 */
     public Challenge challenge(String provider, String target) throws Exception {
-        JSONObject body = new JSONObject().put("provider", provider).put("purpose", "login");
+        return challenge(provider, target, "login");
+    }
+
+    /** 只允许在发起 link 挑战的同一账号会话中完成关联。 */
+    public Challenge challenge(String provider, String target, String purpose) throws Exception {
+        SessionCredential session = linkSession(purpose);
+        ensureBoundSession(session);
+        JSONObject body = new JSONObject().put("provider", provider).put("purpose", purpose);
         if (target != null && !target.isEmpty()) body.put("target", target);
-        JSONObject response = request("POST", "/v1/auth/challenges", body, null);
+        JSONObject response = request("POST", "/v1/auth/challenges", body,
+            session.token().isEmpty() ? null : session.token());
+        ensureBoundSession(session);
         String id = optionalStringField(response.opt("challenge_id"), "");
         String nonce = optionalStringField(response.opt("nonce"), "");
         if (id.length() != HEX_ID_LENGTH || nonce.isEmpty()) {
             throw new IllegalStateException("challenge unavailable");
         }
-        return new Challenge(id, nonce);
+        return new Challenge(id, nonce, purpose, session.sessionId());
     }
 
     /** Finish it with the provider's ID token, and keep the session this device is now signed in on. */
@@ -220,9 +235,16 @@ public final class BackendAccount {
     /** 同上，登录请求带 {@link #loginUserAgent} 生成的详细 User-Agent；后端只在登录时记下它，用来在「我的设备」里显示这台设备。 */
     public void login(Challenge challenge, String idToken, String userAgent) throws Exception {
         if (ownerProcess != null) throw new IllegalStateException("account session owner");
-        keepSession(request("POST", "/v1/auth/login",
-            new JSONObject().put("challenge_id", challenge.id()).put("credential", idToken), null,
-            userAgent(userAgent)));
+        if (challenge == null || !("login".equals(challenge.purpose()) || "link".equals(challenge.purpose())))
+            throw new IllegalArgumentException("invalid challenge");
+        SessionCredential session = linkSession(challenge.purpose());
+        requireSession(session, "link".equals(challenge.purpose()) ? challenge.sessionId() : null);
+        JSONObject response = request("POST", "/v1/auth/login",
+            new JSONObject().put("challenge_id", challenge.id()).put("credential", idToken),
+            session.token().isEmpty() ? null : session.token(),
+            userAgent(userAgent));
+        ensureBoundSession(session);
+        keepSession(response);
     }
 
     /**
@@ -235,13 +257,16 @@ public final class BackendAccount {
     public EmailChallenge requestEmailCode(String email, String purpose) throws Exception {
         String target = TextPolicy.trimmed(email);
         if (!validEmail(target)) throw new IllegalArgumentException("invalid email");
-        String token = linkToken(purpose);
+        SessionCredential session = linkSession(purpose);
+        ensureBoundSession(session);
         JSONObject response = request("POST", "/v1/auth/challenges", new JSONObject()
-            .put("provider", "email").put("target", target).put("purpose", purpose), token);
+            .put("provider", "email").put("target", target).put("purpose", purpose),
+            session.token().isEmpty() ? null : session.token());
+        ensureBoundSession(session);
         String id = optionalStringField(response.opt("challenge_id"), "");
         long expires = AccountTokenPolicy.strictLong(response.opt("expires_in"), 0);
         if (id.length() != HEX_ID_LENGTH || expires <= 0) throw new IllegalStateException("challenge unavailable");
-        return new EmailChallenge(id, purpose, expires);
+        return new EmailChallenge(id, purpose, expires, session.sessionId());
     }
 
     /** 提交邮件里的验证码完成登录（或绑定），保存得到的会话。 */
@@ -249,10 +274,14 @@ public final class BackendAccount {
         if (ownerProcess != null) throw new IllegalStateException("account session owner");
         String credential = TextPolicy.trimmed(code);
         if (challenge == null || !validEmailCode(credential)) throw new IllegalArgumentException("invalid code");
-        String token = linkToken(challenge.purpose());
-        keepSession(request("POST", "/v1/auth/login",
-            new JSONObject().put("challenge_id", challenge.id()).put("credential", credential), token,
-            userAgent(userAgent)));
+        SessionCredential session = linkSession(challenge.purpose());
+        requireSession(session, "link".equals(challenge.purpose()) ? challenge.sessionId() : null);
+        JSONObject response = request("POST", "/v1/auth/login",
+            new JSONObject().put("challenge_id", challenge.id()).put("credential", credential),
+            session.token().isEmpty() ? null : session.token(),
+            userAgent(userAgent));
+        ensureBoundSession(session);
+        keepSession(response);
     }
 
     /**
@@ -262,23 +291,33 @@ public final class BackendAccount {
      */
     public void loginWithAppleGrant(String grant, String verifier, boolean link, String userAgent)
             throws Exception {
+        loginWithAppleGrant(grant, verifier, link, userAgent, null);
+    }
+
+    /** 用发起 Apple link 流程时的会话兑换授权码，账号切换后拒绝写入新会话。 */
+    public void loginWithAppleGrant(String grant, String verifier, boolean link, String userAgent,
+            String expectedSessionId) throws Exception {
         if (ownerProcess != null) throw new IllegalStateException("account session owner");
         if (grant == null || grant.isEmpty() || grant.length() > AppleWebSignIn.MAX_GRANT_LENGTH
                 || verifier == null || verifier.isEmpty()) {
             throw new IllegalArgumentException("invalid grant");
         }
-        String token = link ? linkToken("link") : null;
-        keepSession(request("POST", "/v1/auth/apple/web/login",
-            new JSONObject().put("grant", grant).put("code_verifier", verifier), token, userAgent(userAgent)));
+        SessionCredential session = link ? linkSession("link") : NO_SESSION;
+        requireSession(session, link ? expectedSessionId : null);
+        JSONObject response = request("POST", "/v1/auth/apple/web/login",
+            new JSONObject().put("grant", grant).put("code_verifier", verifier),
+            session.token().isEmpty() ? null : session.token(), userAgent(userAgent));
+        ensureBoundSession(session);
+        keepSession(response);
     }
 
-    /** 当前登录会话的令牌，供需要「最近登录」的请求（`purpose=link`）使用；`login` 用途不带令牌。 */
-    private String linkToken(String purpose) throws Exception {
-        if ("login".equals(purpose)) return null;
+    /** 读取 link 的当前会话；login 不读取账号令牌。 */
+    private SessionCredential linkSession(String purpose) throws Exception {
+        if ("login".equals(purpose)) return NO_SESSION;
         if (!"link".equals(purpose)) throw new IllegalArgumentException("invalid purpose");
-        String token = currentAccessToken();
-        if (token.isEmpty()) throw new IllegalStateException("HTTP 401");
-        return token;
+        SessionCredential session = currentSession();
+        if (session.token().isEmpty()) throw new IllegalStateException("HTTP 401");
+        return session;
     }
 
     /** 粗查邮箱形状：去掉首尾空白后 3–254 个字符、恰好一个 @、两边都不为空、没有空白和控制字符。真正的校验在服务端。 */
@@ -963,6 +1002,10 @@ public final class BackendAccount {
             ensureCurrentSession(session);
             return response;
         }
+    }
+
+    private void ensureBoundSession(SessionCredential expected) throws Exception {
+        if (!expected.sessionId().isEmpty()) ensureCurrentSession(expected);
     }
 
     private void ensureCurrentSession(SessionCredential expected) throws Exception {

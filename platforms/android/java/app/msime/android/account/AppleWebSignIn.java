@@ -24,6 +24,7 @@ public final class AppleWebSignIn {
     static final String STORE = "msime_auth_pending";
     static final String KEY_VERIFIER = "verifier";
     static final String KEY_PURPOSE = "purpose";
+    static final String KEY_SESSION_ID = "session_id";
     static final String KEY_CREATED_AT = "created_at";
     /** 等待中的流程最多保留 10 分钟；服务端的授权地址 5 分钟过期，grant 签发后 120 秒内必须兑换。 */
     static final long PENDING_MILLIS = 10 * 60_000L;
@@ -36,7 +37,11 @@ public final class AppleWebSignIn {
     private static final Object PENDING_LOCK = new Object();
 
     /** 本机等着回调的那一次流程。 */
-    public record Pending(String verifier, String purpose, long createdAt) {
+    public record Pending(String verifier, String purpose, String sessionId, long createdAt) {
+        public Pending(String verifier, String purpose, long createdAt) {
+            this(verifier, purpose, "", createdAt);
+        }
+
         public boolean link() { return "link".equals(purpose); }
     }
 
@@ -96,8 +101,16 @@ public final class AppleWebSignIn {
         Context application = context.getApplicationContext();
         String app = application.getPackageName();
         if (!APPS.contains(app)) throw new CloudApi.Failure(400, "invalid_app", "unsupported package", 0);
+        String sessionId = "";
+        CloudApi cloud = new CloudApi(application);
+        if ("link".equals(purpose)) {
+            sessionId = new BackendAccount(application).sessionId();
+            if (sessionId.isEmpty()) throw new CloudApi.Failure(401, "signed_out", "not signed in", 0);
+            cloud = cloud.forAccountSession(sessionId);
+        }
         String verifier = newVerifier(RANDOM);
         store(application).edit().putString(KEY_VERIFIER, verifier).putString(KEY_PURPOSE, purpose)
+            .putString(KEY_SESSION_ID, sessionId)
             .putLong(KEY_CREATED_AT, System.currentTimeMillis()).commit();
         JSONObject body;
         try {
@@ -106,7 +119,7 @@ public final class AppleWebSignIn {
         } catch (JSONException impossible) {
             throw new IllegalStateException(impossible);
         }
-        JSONObject response = new CloudApi(application).json("POST", "/v1/auth/apple/web", body,
+        JSONObject response = cloud.json("POST", "/v1/auth/apple/web", body,
             "link".equals(purpose) ? CloudApi.Auth.ACCOUNT : CloudApi.Auth.NONE);
         Object url = response.opt("authorization_url");
         if (!(url instanceof String value) || !validAuthorizationUrl(value)) {
@@ -159,13 +172,18 @@ public final class AppleWebSignIn {
         synchronized (PENDING_LOCK) {
             String verifier = store.getString(KEY_VERIFIER, null);
             String purpose = store.getString(KEY_PURPOSE, null);
+            String sessionId = store.getString(KEY_SESSION_ID, "");
             long createdAt = store.getLong(KEY_CREATED_AT, 0L);
             if (verifier == null || purpose == null) return null;
             if (!fresh(createdAt, now)) {
                 store.edit().clear().commit();
                 return null;
             }
-            return new Pending(verifier, purpose, createdAt);
+            if ("link".equals(purpose) && sessionId.isEmpty()) {
+                store.edit().clear().commit();
+                return null;
+            }
+            return new Pending(verifier, purpose, sessionId, createdAt);
         }
     }
 
@@ -183,7 +201,7 @@ public final class AppleWebSignIn {
     public static void complete(Context context, Pending pending, String grant, String userAgent) throws Exception {
         if (pending == null || !validGrant(grant)) throw new IllegalArgumentException("invalid grant");
         new BackendAccount(context.getApplicationContext())
-            .loginWithAppleGrant(grant, pending.verifier(), pending.link(), userAgent);
+            .loginWithAppleGrant(grant, pending.verifier(), pending.link(), userAgent, pending.sessionId());
     }
 
     private static SharedPreferences store(Context context) {

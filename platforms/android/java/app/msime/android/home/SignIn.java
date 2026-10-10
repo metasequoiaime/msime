@@ -72,12 +72,17 @@ final class SignIn {
 
     /** Google 的那一路：向后端要 nonce、拉起 Google 的账号选择、用 ID token 换会话。 */
     static void startGoogle(Activity activity, Consumer<String> finished) {
+        startGoogle(activity, "login", finished);
+    }
+
+    /** Google 登录或关联：link 流程始终绑定发起它的账号会话。 */
+    static void startGoogle(Activity activity, String purpose, Consumer<String> finished) {
         String clientId = activity.getString(R.string.google_server_client_id);
         Context context = activity.getApplicationContext();
         offMainThread(() -> {
             BackendAccount.Challenge challenge;
             try {
-                challenge = new BackendAccount(context).challenge("google", null);
+                challenge = new BackendAccount(context).challenge("google", null, purpose);
             } catch (Exception | LinkageError error) {
                 challenge = null;
             }
@@ -98,7 +103,7 @@ final class SignIn {
                                 try {
                                     synchronized (SyncSwitch.bindingLock()) {
                                         new BackendAccount(context).login(started, idToken, userAgent(context));
-                                        bind(context, "google");
+                                        if (!"link".equals(purpose)) bind(context, "google");
                                     }
                                     failure = "";
                                 } catch (Exception | LinkageError error) {
