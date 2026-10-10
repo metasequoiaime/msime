@@ -401,7 +401,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// UIKit 也为键盘自己的改动回调 `textWillChange`，而它会结束组字：没认出回声，一次留着剩余组字的上屏会在一轮之后把组字毁掉，下一键刚开始的组字也会被前一键迟到的回声结束。怎么认见 `OwnEditEchoWindow`。
   private var ownEditEcho = OwnEditEchoWindow()
   /// What 行内预编辑 last wrote into the host as marked text; empty when nothing is marked.
-  private var inlineMarkedText = ""
+  private(set) var inlineMarkedText = ""
 
   /// The chips the strip numbers, the page size the session was given (see CandidatePageSizePreference), so a digit picks the chip carrying its number. Everything past it is in the expanded panel.
   private var candidatePageSize: Int {
@@ -2105,6 +2105,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 拼音选择条是否在读音行里：全拼 14 键是，九键的在侧栏里。
   private var readingRowCarriesSpellings: Bool { typesFourteenKey }
+
+  /// 九键侧栏此刻画拼音选择条，而不是标点列。14 键的选择条在读音行里，借来的九键数字层侧栏照常画标点，与 Android、鸿蒙相同。
+  private var sidebarCarriesSpellings: Bool { !readingRowCarriesSpellings && !currentNineKeySpellings.isEmpty }
 
   private func fillSpellingButtons(_ buttons: inout [UIButton], in stack: UIStackView, spellings: [String], readingRow: Bool) {
     while buttons.count < spellings.count {
@@ -4650,7 +4653,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     KeyboardLayoutInputs(
       chinese: isChineseMode, scheme: inputScheme, localMode: currentLocalMode,
       symbols: showsSymbols, moreSymbols: showsMoreSymbols, globe: needsInputModeSwitchKey,
-      hasSpellings: !currentNineKeySpellings.isEmpty,
+      hasSpellings: sidebarCarriesSpellings,
       geometry: KeyboardLayoutPreference.geometry,
       formFactor: formFactor, fullKeys: KeyboardLayoutPreference.tabletFullKeys,
       split: wantsSplitKeyboard)
@@ -4772,7 +4775,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineKeyRows.forEach { $0.isHidden = !nineKeyFrame || strokePad }
     applyNineKeyDigitLayer(nineKeyDigits)
     updateNineKeyMiddleKey()
-    let hasSpellings = !currentNineKeySpellings.isEmpty
+    let hasSpellings = sidebarCarriesSpellings
     spellingScrollView.isHidden = !hasSpellings
     punctuationStack.isHidden = hasSpellings
     if actionRow != nil {
@@ -5468,8 +5471,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       && !snapshot.editingText.isEmpty && snapshot.editingText.allSatisfy(\.isASCII)
       ? (snapshot.editingText, snapshot.caretPosition) : nil
     let japaneseReading = inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : nil
-    // 全拼 14 键的组字是组码字母（`buguo`），写进输入框对用户没有意义，与 Android 一样不在输入框里标记，只显示在读音行上。
-    showInlineComposition(hasComposition && !(isChineseMode && inputScheme == .fourteenKey)
+    // 全拼 14 键的组字是组码字母（`buguo`），写进输入框对用户没有意义，与 Android 一样不在输入框里标记，只显示在读音行上。英文模式和本地输入模式画 26 键，组字照常标记。
+    showInlineComposition(hasComposition && !typesFourteenKey
       ? InlineCompositionPolicy.markedText(
         inPlace: isChineseMode && inputScheme.composesInPlace, style: InlinePreeditPreference.style,
         drawsKeysAsGlyphs: isChineseMode && inputScheme.drawsKeysAsGlyphs, phrasePrefix: snapshot.phrasePrefix, preedit: snapshot.preedit,

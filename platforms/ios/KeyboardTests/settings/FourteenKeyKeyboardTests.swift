@@ -6,6 +6,11 @@ import UIKit.UIGestureRecognizerSubclass
 @MainActor
 final class FourteenKeyKeyboardTests: XCTestCase {
   private var previousScheme = InputSchemePreference.scheme
+  /// 测试里会改的键盘偏好，结束时还原成模拟器上原来的值。
+  private var savedPreferences: [(UserDefaults, String, Any?)] = []
+  private let preferenceKeys = [(KeyboardLayoutPreference.defaults, KeyboardLayoutPreference.twentySixKeyNumberLayoutKey),
+                                (InlinePreeditPreference.defaults, InlinePreeditPreference.key),
+                                (InlinePreeditPreference.defaults, InlinePreeditPreference.styleKey)]
 
   // 认领全部方案，免得对 `InputSchemePreference.scheme` 的赋值落到模拟器上残留的别的方案。14 键要用户自己打开，不先启用就选不上。见 InputSchemeTestSupport。
   override func setUp() {
@@ -13,10 +18,14 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     enableAllInputSchemes()
     previousScheme = InputSchemePreference.scheme
     InputSchemePreference.scheme = .fourteenKey
+    savedPreferences = preferenceKeys.map { defaults, key in (defaults, key, defaults.object(forKey: key)) }
   }
 
   override func tearDown() {
     InputSchemePreference.scheme = previousScheme
+    for (defaults, key, value) in savedPreferences {
+      if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+    }
     super.tearDown()
   }
 
@@ -219,6 +228,49 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertTrue(shown(qw))
+  }
+
+  /// 「26 键数字键盘」选了九宫格时，14 键组字中点 123 借九键的数字层：侧栏照常是 ，。？ 标点列，拼音选择条留在读音行，与 Android、鸿蒙相同。
+  func testTheBorrowedDigitPadKeepsItsPunctuationWhileComposing() throws {
+    KeyboardLayoutPreference.twentySixKeyNumberLayout = .nineKey
+    let controller = makeController(width: 390)
+    try tap(["AS", "GH", "UI"], in: controller)
+    let composition = preedit(in: controller)
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(preedit(in: controller), composition, "123 keeps the composition")
+    XCTAssertTrue(shown(try view("nineKeySidebar", in: controller)), "123 opens the nine-key digit pad")
+    XCTAssertTrue(shown(try button("nineKey1", in: controller)))
+    for mark in KeyboardViewController.nineKeySidebarMarks {
+      XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityLabel == "符号 \(mark)" && shown($0) },
+                      "the sidebar keeps \(mark)")
+    }
+    XCTAssertFalse(shown(try view("nineKeySpellingStrip", in: controller)), "the sidebar draws no empty spelling column")
+    XCTAssertTrue(shown(try view("readingSpellingStrip", in: controller)), "the spellings stay beside the reading")
+    XCTAssertTrue(shown(try button("readingSpelling_shi", in: controller)))
+    attachScreenshot(of: controller, named: "Fourteen-key borrowed digit pad while composing")
+  }
+
+  /// 行内预编辑开着时，14 键的组码不写进输入框；本地输入模式画 26 键，组字照常标记，与全拼 26 键和 Android 相同。
+  func testInlinePreeditSkipsTheCodesButMarksALocalMode() throws {
+    InlinePreeditPreference.style = .pinyin
+    let controller = makeController(width: 390)
+    try tap(["BN", "UI"], in: controller)
+    XCTAssertFalse(preedit(in: controller).isEmpty)
+    XCTAssertEqual(controller.inlineMarkedText, "", "the 14-key codes are not written into the editor")
+    try button("fourteenKeyDelete", in: controller).sendActions(for: .touchDown)
+    try button("fourteenKeyDelete", in: controller).sendActions(for: .touchUpInside)
+    try button("fourteenKeyDelete", in: controller).sendActions(for: .touchDown)
+    try button("fourteenKeyDelete", in: controller).sendActions(for: .touchUpInside)
+    XCTAssertFalse(composing(controller))
+
+    controller.openLocalInputMode("U")
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(shown(try button("fourteenKeyQW", in: controller)), "a local mode draws the 26 letters")
+    let a = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 A" && shown($0) } as? UIButton)
+    a.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(controller.inlineMarkedText.isEmpty, "the local mode's composition is marked")
   }
 
   /// 26 键之前按下、14 键之后才到的字母点按（设置在键盘开着时改了布局）不开始 26 键组字。
