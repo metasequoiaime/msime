@@ -15,8 +15,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import org.json.JSONException;
-import org.json.JSONObject;
 
 /** 键盘的着色与几何：按键样式、皮肤套用、键距行距与键盘高度；从 MSIMEInputService 原样搬出。 */
 final class ImeStyler {
@@ -83,7 +81,7 @@ final class ImeStyler {
         int month = LocalDate.now(ZoneId.systemDefault()).getMonthValue();
         if (seed != null && theme.equals(seedTheme) && month == seedMonth) return false;
         AppThemePalette.Seed next = AppThemePalette.Seed.fromResolved(
-            resolveAppTheme(theme, month, false), resolveAppTheme(theme, month, true));
+            AppThemeResolver.resolve(theme, month, false), AppThemeResolver.resolve(theme, month, true));
         if (next == null) next = AppThemePalette.Seed.AUTUMN;
         boolean changed = seed == null || !seed.id.equals(next.id) || !seed.season.equals(next.season);
         seedTheme = theme;
@@ -101,16 +99,6 @@ final class ImeStyler {
         if (refreshAppTheme(false)) applySkin();
         s.imeFrame.applyOneHanded();
         s.imeDebugOverlay.refreshPreferences();
-    }
-
-    private static JSONObject resolveAppTheme(String theme, int month, boolean dark) {
-        try {
-            JSONObject root = new JSONObject(NativeClient.resolveAppTheme(theme, month, dark));
-            return JsonPolicy.strictTrue(root.opt("ok"))
-                ? root.optJSONObject("value") : null;
-        } catch (JSONException | RuntimeException | LinkageError error) {
-            return null;
-        }
     }
 
     /** The key spacing the displayed layout draws with: the user's setting, capped on the eleven-column Dachen rows (KeyboardGeometry.layoutKeySpacing). */

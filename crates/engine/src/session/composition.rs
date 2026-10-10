@@ -11,7 +11,7 @@ use crate::pinyin::active_helpcode::{
 use crate::pinyin::autocorrect::{
     autocorrect_cut_detail, looks_like_syllable_with_jianpin_tail, AutocorrectCutSegment,
 };
-use crate::pinyin::segment::{is_complete_pinyin_input, join_segments, split_segments};
+use crate::pinyin::segment::is_complete_pinyin_input;
 use crate::shuangpin::query::{
     detect_active_double_helpcode_length, effective_input_length, is_complete_input,
     raw_length_for_effective_prefix, remove_manual_delimiters,
@@ -147,22 +147,22 @@ fn active_shuangpin_helpcode_length(request: &QueryRequest, profile: &ShuangpinP
     0
 }
 
-/// The canonical reading of a selected word, if it has one complete syllable per character (input_session_composition.cpp:76-96).
+/// 所选词的规范读音：撇号段数等于字符数，且每段可完整切分（input_session_composition.cpp:76-96）。
 pub(super) fn normalize_canonical_pinyin_for_word(pinyin: &str, word: &str) -> String {
     if pinyin.is_empty() {
         return String::new();
     }
-    let segments = split_segments(pinyin);
-    if segments.is_empty() || segments.len() != count_han_chars(word) {
+    let segment_count = pinyin.bytes().filter(|&byte| byte == b'\'').count() + 1;
+    if segment_count != count_han_chars(word) {
         return String::new();
     }
-    if segments
-        .iter()
+    if pinyin
+        .split('\'')
         .any(|segment| segment.is_empty() || !is_complete_pinyin_input(segment))
     {
         return String::new();
     }
-    join_segments(&segments)
+    pinyin.to_owned()
 }
 
 /// An unknown reading anywhere makes the whole phrase unstorable, so an empty suffix empties the result.
@@ -700,6 +700,10 @@ impl InputSession {
             || !self.wubi_candidates_are_native()
     }
 }
+
+#[cfg(test)]
+#[path = "composition/canonical_reading_tests.rs"]
+mod canonical_reading_tests;
 
 #[cfg(test)]
 mod tests {
