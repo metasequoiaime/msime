@@ -15,6 +15,7 @@ use crate::types::{
     CandidateEdge, CandidateSource, Command, FrequencyAdjustmentMode, FrequencyAdjustmentOptions,
     LocalInputMode, SchemeKey, SchemeSet, SchemeType, ShuangpinProfileKind,
 };
+use crate::KeyGrid;
 
 /// test_input_session.cpp:390-430 (fixture M), the rows the portable-selection, caret and edge cases read.
 const QUANPIN_FIXTURE: &str =
@@ -2258,6 +2259,63 @@ INSERT INTO tbl_1_n VALUES('ni','n','你',100),('ni','n','拟',90);",
     session.set_nine_key_enabled(false);
     type_text(&mut session, "ni");
     assert!(!words(&session).contains(&"云候选".to_owned()));
+}
+
+/// 14 键：组码只从 `grid_key` 进九宫格，组里任一字母都归成首字母；硬件键盘的字母照常走全拼，九宫格组字中不处理。
+#[test]
+fn fourteen_key_letters_enter_the_grid_only_through_grid_key() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    session.set_key_grid(Some(KeyGrid::FourteenKey));
+    assert!(session.character(b'q', false).handled);
+    assert!(!session.nine_key.active());
+    assert_eq!(session.snapshot().editing_text, "q");
+    // 26 键正在组字：`grid_key` 不处理，状态不变。
+    assert!(!session.grid_key(b'n').handled);
+    assert_eq!(session.snapshot().editing_text, "q");
+    session.command(Command::Cancel);
+
+    for letter in *b"nihao" {
+        assert!(session.grid_key(letter).handled);
+    }
+    assert!(session.nine_key.active());
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.editing_text, "bugao");
+    let candidates = words(&session);
+    assert!(candidates.contains(&"你好".to_owned()) && candidates.contains(&"不好".to_owned()));
+    // 九宫格组字中硬件字母和数字都不处理，`'` 切分。
+    assert!(!session.character(b'h', false).handled);
+    assert!(!session.character(b'6', false).handled);
+    assert!(!session.grid_key(b'1').handled);
+    assert!(!session.grid_key(b'A').handled);
+    assert_eq!(session.snapshot().editing_text, "bugao");
+    session.command(Command::Cancel);
+
+    // 九键下数字进九宫格，`grid_key` 不处理。
+    session.set_key_grid(Some(KeyGrid::NineKey));
+    assert!(!session.grid_key(b'n').handled);
+    assert!(session.character(b'6', false).handled);
+    assert!(session.nine_key.active());
+    session.command(Command::Cancel);
+
+    // 专用英文画全键盘，`grid_key` 不处理；14 键不打开英文九键。
+    session.set_key_grid(Some(KeyGrid::FourteenKey));
+    session.set_dedicated_english(true);
+    assert!(!session.grid_key(b'o').handled);
+    assert!(!session.nine_key.active());
+    session.set_dedicated_english(false);
+
+    // 全拼以外的方案没有 14 键。
+    session.switch_scheme(SchemeType::Shuangpin).unwrap();
+    assert!(!session.grid_key(b'o').handled);
+    session.switch_scheme(SchemeType::Quanpin).unwrap();
+    assert!(session.grid_key(b'o').handled);
+    session.command(Command::Cancel);
+
+    session.set_key_grid(None);
+    assert!(!session.grid_key(b'o').handled);
+    session.character(b'6', false);
+    assert!(!session.nine_key.active());
 }
 
 /// Loading a helpcode table drops the cached pinyin answers, online rows included, as the reference's keymap setters did (quanpin/engine.h:37-41); the golden ri_session_a_resources records the same sequence.

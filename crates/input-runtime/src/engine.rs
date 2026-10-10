@@ -81,6 +81,19 @@ pub trait InputEngine {
     fn set_nine_key_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Err(RuntimeError::Engine("Nine-key mode is unsupported".into()))
     }
+    /// 触屏的组码网格（九键、14 键），`None` 不用网格；没有九宫格的引擎不支持。
+    fn set_key_grid(&mut self, _grid: Option<KeyGrid>) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Engine("Key grids are unsupported".into()))
+    }
+    /// 14 键的一键，`letter` 是这一组里的任一字母；没有网格的引擎不处理。
+    fn grid_key(&mut self, _letter: u8) -> Result<EngineResult, RuntimeError> {
+        Ok(EngineResult {
+            handled: false,
+            has_commit: false,
+            commit: String::new(),
+            diagnostic: String::new(),
+        })
+    }
     /// Replace the `/` mode's command table. Engines without the mode ignore it.
     fn set_command_table(&mut self, _table: &[CommandTableEntry]) -> Result<(), RuntimeError> {
         Ok(())
@@ -282,6 +295,12 @@ impl InputEngine for Session {
     fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         Session::set_nine_key_enabled(self, enabled)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn set_key_grid(&mut self, grid: Option<KeyGrid>) -> Result<(), RuntimeError> {
+        Session::set_key_grid(self, grid).map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn grid_key(&mut self, letter: u8) -> Result<EngineResult, RuntimeError> {
+        Session::grid_key(self, letter).map_err(|e| RuntimeError::Engine(e.to_string()))
     }
     fn set_command_table(&mut self, table: &[CommandTableEntry]) -> Result<(), RuntimeError> {
         Session::set_command_table(self, table).map_err(|e| RuntimeError::Engine(e.to_string()))

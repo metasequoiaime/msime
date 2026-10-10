@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use msime_engine::assets::USER_JOURNAL;
 use msime_engine::vietnamese::{InputMethod, ToneStyle};
 use msime_engine::{
-    CandidateEdge, CandidateSource, Command, FrequencyAdjustmentMode, PersonalDictionaryEntry,
-    PersonalDictionaryKind, RuntimePaths, SchemeType, Session, SessionOptions,
-    ShuangpinProfileKind,
+    CandidateEdge, CandidateSource, Command, FrequencyAdjustmentMode, KeyGrid,
+    PersonalDictionaryEntry, PersonalDictionaryKind, RuntimePaths, SchemeType, Session,
+    SessionOptions, ShuangpinProfileKind,
 };
 use serde_json::{json, Map, Value};
 
@@ -342,6 +342,16 @@ fn scheme_from(name: &str) -> SchemeType {
     }
 }
 
+/// `set_key_grid` 的取值，与 View 的 `key_grid` 同名。
+fn key_grid_from(name: &str) -> Option<KeyGrid> {
+    match name {
+        "none" => None,
+        "nine_key" => Some(KeyGrid::NineKey),
+        "fourteen_key" => Some(KeyGrid::FourteenKey),
+        _ => panic!("unknown key grid {name}"),
+    }
+}
+
 fn source_from(value: &Value) -> CandidateSource {
     if let Some(number) = value.as_u64() {
         return u8::try_from(number)
@@ -660,6 +670,12 @@ impl Scenario {
                 self.session().set_nine_key_enabled(as_bool(arg));
                 None
             }
+            "set_key_grid" => {
+                self.session().set_key_grid(key_grid_from(as_str(arg)));
+                None
+            }
+            // 每个字节一次 `grid_key`，结果的形状与 `type` 相同。
+            "grid_key" => Some(self.type_keys(as_str(arg), |session, byte| session.grid_key(byte))),
             "choose_nine_key_spelling" => {
                 let index = if arg.is_u64() {
                     as_index(arg)
@@ -797,11 +813,20 @@ impl Scenario {
 
     /// One `character` call per byte; the step reports the combined outcome.
     fn type_text(&mut self, text: &str) -> Value {
+        self.type_keys(text, |session, byte| session.character(byte, false))
+    }
+
+    /// 每个字节调一次 `key`，合并成一步的结果。
+    fn type_keys(
+        &mut self,
+        text: &str,
+        mut key: impl FnMut(&mut Session, u8) -> msime_engine::KeyResult,
+    ) -> Value {
         let mut unhandled = Vec::new();
         let mut commit: Option<String> = None;
         let mut diagnostics = Vec::new();
         for (index, byte) in text.bytes().enumerate() {
-            let result = self.session().character(byte, false);
+            let result = key(self.session(), byte);
             if !result.handled {
                 unhandled.push(index);
             }
@@ -834,7 +859,7 @@ mod tests {
     #[test]
     fn every_scenario_is_selected_in_name_order_without_a_filter() {
         let all = selected_scenarios_from(None);
-        assert_eq!(all.len(), 299);
+        assert_eq!(all.len(), 300);
         let mut sorted = all.clone();
         sorted.sort();
         assert_eq!(all, sorted);
@@ -884,6 +909,8 @@ mod tests {
             "set_paired_punctuation_enabled",
             "balance_paired_punctuation_after_auto_close",
             "set_nine_key_enabled",
+            "set_key_grid",
+            "grid_key",
             "choose_nine_key_spelling",
             "set_personal_context_enabled",
             "reset_cache",

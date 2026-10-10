@@ -39,6 +39,8 @@ pub enum Action {
     FixCandidatePosition(CandidateId, u8),
     ClearCandidatePosition(CandidateId),
     ChooseNineKeySpelling(NineKeySpellingId),
+    /// 14 键的一键，`a`–`z` 里这一组的任一字母（宿主约定送首字母）。不在 14 键下时不处理。
+    GridKey(u8),
     /// 九宫格候选的筛选：只留单字，以及首字笔顺的前缀（`hspnz`，空表示不按笔画）。没有九宫格组字时不处理。
     SetNineKeyFilter {
         single_character: bool,
@@ -680,6 +682,25 @@ impl<E: InputEngine> Runtime<E> {
     /// Original-cased raw input after the decoded prefix.
     pub fn pending_suffix(&self) -> String {
         self.engine.pending_suffix()
+    }
+
+    /// 换触屏的组码网格。九键要求方案能打九键（全拼、注音），14 键只给全拼，否则报 `InvalidNineKeyScheme`；组字中切换报 `CompositionActive`。
+    pub fn set_key_grid(&mut self, grid: Option<KeyGrid>) -> Result<(), RuntimeError> {
+        let scheme = scheme_type(self.cached.scheme);
+        let supported = match grid {
+            None => true,
+            Some(KeyGrid::NineKey) => scheme.is_some_and(SchemeType::nine_key),
+            Some(KeyGrid::FourteenKey) => scheme == Some(SchemeType::Quanpin),
+        };
+        if !supported {
+            return Err(RuntimeError::InvalidNineKeyScheme);
+        }
+        if !self.is_idle() {
+            return Err(RuntimeError::CompositionActive);
+        }
+        self.advance()?;
+        self.engine.set_key_grid(grid)?;
+        self.refresh()
     }
 
     pub fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
@@ -2005,6 +2026,7 @@ impl<E: InputEngine> Runtime<E> {
                 .engine
                 .clear_candidate_position(self.engine_index(id.index)),
             Action::ChooseNineKeySpelling(id) => self.engine.choose_nine_key_spelling(id.index),
+            Action::GridKey(letter) => self.engine.grid_key(letter),
             Action::SetNineKeyFilter {
                 single_character,
                 ref strokes,

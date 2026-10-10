@@ -2623,6 +2623,35 @@ fn nine_key_mode_owns_digits_and_spelling_choices_are_generation_scoped() {
     ));
 }
 
+/// 九键要求方案能打九键，14 键只给全拼；组字中不能换网格。
+#[test]
+fn key_grid_checks_the_scheme_and_the_composition() {
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    for grid in [None, Some(KeyGrid::NineKey), Some(KeyGrid::FourteenKey)] {
+        assert!(matches!(
+            runtime.set_key_grid(grid),
+            Err(RuntimeError::CompositionActive)
+        ));
+    }
+    runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    runtime.engine.scheme = msime_engine::SchemeType::Shuangpin as u8;
+    runtime.refresh().unwrap();
+    for grid in [Some(KeyGrid::NineKey), Some(KeyGrid::FourteenKey)] {
+        assert!(matches!(
+            runtime.set_key_grid(grid),
+            Err(RuntimeError::InvalidNineKeyScheme)
+        ));
+    }
+    runtime.engine.scheme = msime_engine::SchemeType::Zhuyin as u8;
+    runtime.refresh().unwrap();
+    assert!(matches!(
+        runtime.set_key_grid(Some(KeyGrid::FourteenKey)),
+        Err(RuntimeError::InvalidNineKeyScheme)
+    ));
+}
+
 #[test]
 fn unavailable_numeric_slot_does_not_jump_back_to_first_page() {
     let mut runtime = runtime();

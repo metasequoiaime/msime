@@ -11,6 +11,7 @@ use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::helpcode::{compute_helpcodes, load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};
 use crate::local::database::LocalDatabaseLease;
+use crate::nine_key::KeyGrid;
 use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::pinyin::segment::is_complete_pinyin_input;
 use crate::types::{
@@ -454,9 +455,19 @@ impl Session {
     }
 
     pub fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<()> {
-        self.inner.set_nine_key_enabled(enabled);
-        self.nine_key = enabled;
+        self.set_key_grid(enabled.then_some(KeyGrid::NineKey))
+    }
+
+    /// 见 [`crate::Session::set_key_grid`]。快照的 `nine_key` 只在九键下为真。
+    pub fn set_key_grid(&mut self, grid: Option<KeyGrid>) -> Result<()> {
+        self.inner.set_key_grid(grid);
+        self.nine_key = grid == Some(KeyGrid::NineKey);
         Ok(())
+    }
+
+    /// 14 键的一键，见 [`crate::Session::grid_key`]；不是当前网格的字母时不处理，状态不变。
+    pub fn grid_key(&mut self, letter: u8) -> Result<EngineResult> {
+        Ok(result_for(self.inner.grid_key(letter)))
     }
 
     /// 滑行的一笔，见 [`crate::Session::glide`]。
