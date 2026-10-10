@@ -417,6 +417,11 @@ export function localAccountPreferences(
       NUMBER_KEYPAD_ORDERS,
       "phone",
     ),
+    // 26 键双拼的键位提示，缺省是开；账号字段表收录这个键之前上传时会被滤掉。
+    "platform.harmony.shuangpin_key_hints": flag(
+      member(preferences, "touch_shuangpin_key_hints"),
+      true,
+    ),
     "platform.harmony.sound_enabled": feedback.soundEnabled,
     "platform.harmony.haptics_enabled": feedback.hapticsEnabled,
     "platform.harmony.haptic_strength": enumerated(
@@ -646,6 +651,8 @@ export function applyAccountPreferences(
   if (keypadOrder !== null) {
     preferences.touch_number_keypad_order = choose(keypadOrder, NUMBER_KEYPAD_ORDERS);
   }
+  const shuangpinKeyHints = reader.boolean("platform.harmony.shuangpin_key_hints");
+  if (shuangpinKeyHints !== null) preferences.touch_shuangpin_key_hints = shuangpinKeyHints;
 
   const feedbackKeys = [
     "platform.harmony.sound_enabled",

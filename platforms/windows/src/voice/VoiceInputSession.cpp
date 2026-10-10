@@ -10,6 +10,7 @@
 #include "../../../../shared/voice/VoiceProviders.h"
 #include "VoiceSessionPolicy.h"
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 
 #include <algorithm>
 #include <chrono>
@@ -35,8 +36,7 @@ bool is_local_asr_provider(std::string_view provider) {
 
 // The value of a host-api response, or nothing when the call failed. Frees the returned string.
 std::optional<nlohmann::json> host_value(char *raw) {
-  const std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-      raw, msime_client_string_free);
+  const auto owned = msime::host_api::own_string(raw);
   if (!owned)
     return std::nullopt;
   auto document = nlohmann::json::parse(owned.get(), nullptr, false);

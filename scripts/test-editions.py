@@ -14,7 +14,7 @@
 - 只认中文的功能：非英文离线释义（`features.offline_glosses`）和手写（`features.handwriting`）都只对中文候选、汉字有用，所以两者必须等于本版本是否提供中文方案（与 client-core 的 `ChineseScheme::of` 是同一组方案，这里另外核对那组方案没有变）；日文、越南文和藏文版两者都是 false，各平台的打包和设置据此不带这些数据、不提供这些入口；
 - 数据依赖：用到 msime-pinyin.db 的方案（全拼、双拼、五笔，与 Engine 的 `SchemeSet::reads_main_dictionary` 相同）要带 chinese-main，反过来没有这些方案的版本（日文、越南文、藏文）不带 chinese-main 和 ngram——Engine 给它们准备的代次里本来就没有 msime-pinyin.db，带上也没人读；功能开关要带对应组件，粤语、注音和笔画要列出对应语言词库；
 - macOS 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的输入法 bundle id 不能是另一个版本输入模式标识符的前缀，钥匙串服务名连同 `.refresh` 和语音服务凭据的服务名（`EditionIdentity.h` 从 bundle id 推出）也不能撞，使用统计目录（同样由 `EditionIdentity.h` 从版本 id 推出）互不嵌套；full 的值等于今天的 Info.plist.in、tauri.macos.conf.json、cask 和 DMG 名；
-- Windows 身份标识：全部版本的全部 GUID（CLSID、profile、TSF 内部 GUID、Inno AppId）两两不同（不区分大小写），名字类字段两两不同，注册表键互不嵌套，%LOCALAPPDATA% 下的目录名（安装器默认数据目录、状态目录、用户目录）两两不同；每个版本（包括 full）的名字后缀和安装包名按版本 id 推出，安装包名与 `update-manifest.ts` 认的形式一致，不是 full 的版本的 host DLL 名也按版本 id 推出；full 的值等于下面固定的那一组，Tauri identifier 等于 tauri.windows.conf.json；没有任何版本的 GUID、显示名、安装目录、注册表键（包括互相嵌套）、环境变量、名字后缀、看门狗任务、安装包名或数据目录标记等于 msime-windows 的（`edition_windows.py` 的 `MSIME_WINDOWS`），否则装上或卸掉这个版本会覆盖或删掉 msime-windows；
+- Windows 身份标识：全部版本的全部 GUID（CLSID、profile、TSF 内部 GUID、Inno AppId）两两不同（不区分大小写），名字类字段两两不同，注册表键互不嵌套，%LOCALAPPDATA% 下的目录名（安装器默认数据目录、状态目录、用户目录）两两不同；每个版本（包括 full）的名字后缀和安装包名按版本 id 推出，安装包名与更新检查（`crates/client-core/src/update_check.rs`，以及 `update-manifest.ts` 给出的占位名）认的形式一致，不是 full 的版本的 host DLL 名也按版本 id 推出；full 的值等于下面固定的那一组，Tauri identifier 等于 tauri.windows.conf.json；没有任何版本的 GUID、显示名、安装目录、注册表键（包括互相嵌套）、环境变量、名字后缀、看门狗任务、安装包名或数据目录标记等于 msime-windows 的（`edition_windows.py` 的 `MSIME_WINDOWS`），否则装上或卸掉这个版本会覆盖或删掉 msime-windows；
 - Linux 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的安装前缀不能嵌在另一个版本的前缀里，由包名推出的 systemd 用户单元、图标和 /usr/bin 命令名也两两不同；不是 full 的版本按版本 id 推出（`msime-linux-<id>`、`/opt/msime-linux-<id>`、`msime-client-<id>`、`msime-<id>`、`app.msime.linux.<id>`）；full 的值等于今天的包名（packaging.cmake 从版本表取）、IBus 组件、Fcitx5 配置、msime-linux-setup 和 tauri.linux.conf.json 里的值；
 - Android 身份标识：applicationId 和 APK 名在所有版本间两两不同（不区分大小写），不是 full 的版本按版本 id 推出（`app.msime.android.<id>`、`msime-client-<id>`），清单里每个 ContentProvider 的 authority 都写成 `${applicationId}.<名字>`，所以各版本的 authority 也两两不同；full 的值等于今天 gradle-app 的 applicationId、tauri.android.conf.json 的 identifier 和 build-apk.sh 产出的 APK 名，主资源的应用名等于 full 的显示名；其他版本的 `platforms/android/editions/<id>/res` 里应用名等于版本的显示名，覆盖的另外几句与主资源只差产品名，method.xml 与主资源只差子类型标签和语言，子类型的语言是版本输入的那个语言（中文的版本与主资源同为 zh_CN，日文、越南文、藏文版是 ja_JP、vi_VN、bo）；Tauri 包的 `src/editions/<id>/res-msime` 里启动器标题与 `src/main/res-msime` 只差产品名，tauri_method.xml 同样只差子类型标签和语言；
 - 只追加不改写：`shared/contracts/editions.frozen.json` 里的每个版本都还在，冻结的平台标识一字未改，新写入的平台标识必须同时冻结。
@@ -45,6 +45,7 @@ TAURI_MACOS_CONF = ROOT / "apps/desktop/src-tauri/tauri.macos.conf.json"
 EDITION_IDENTITY = ROOT / "platforms/macos/src/core/EditionIdentity.h"
 TAURI_WINDOWS_CONF = ROOT / "apps/desktop/src-tauri/tauri.windows.conf.json"
 UPDATE_MANIFEST = ROOT / "packages/ui/src/settings/update-manifest.ts"
+UPDATE_CHECK = ROOT / "crates/client-core/src/update_check.rs"
 WINDOWS_GENERATOR = ROOT / "platforms/windows/scripts/edition_windows.py"
 ANDROID_ROOT = ROOT / "platforms/android"
 ANDROID_GRADLE = ANDROID_ROOT / "gradle-app/app/build.gradle.kts"
@@ -284,7 +285,7 @@ def check_editions(errors: list[str], table: dict, frozen: dict) -> None:
     for entry in editions:
         edition_id = entry["id"]
         where = f"edition {edition_id}"
-        # No hyphen: the id is spliced into asset names after a hyphen (`msime-linux-<id>-<version>`), and packages/ui/src/settings/update-manifest.ts only accepts `[a-z][a-z0-9]*`.
+        # No hyphen: the id is spliced into asset names after a hyphen (`msime-linux-<id>-<version>`), and the update check (crates/client-core/src/update_check.rs) only accepts `[a-z][a-z0-9]*`.
         if not re.fullmatch(r"[a-z][a-z0-9]*", edition_id):
             errors.append(f"{where}: id must be lowercase letters and digits, starting with a letter")
 
@@ -479,7 +480,7 @@ def windows_guids(section: dict) -> list[tuple[str, str]]:
 
 
 def installer_base_name(edition_id: str) -> str:
-    """版本（包括 full）的安装包名前缀，与 `update-manifest.ts` 的 `editionInstallerPrefix` 相同。"""
+    """版本（包括 full）的安装包名前缀，与 `update_check.rs` 的 `edition_installer_prefix` 和 `update-manifest.ts` 的 `editionInstallerPrefix` 相同。"""
     return f"MetasequoiaIME-{edition_id[:1].upper()}{edition_id[1:]}_Setup"
 
 
@@ -533,11 +534,15 @@ def check_windows(errors: list[str], editions: list[dict]) -> None:
         if full["tauri_identifier"] != identifier:
             errors.append(f"edition full: platforms.windows.tauri_identifier must equal identifier {identifier!r} in {TAURI_WINDOWS_CONF.relative_to(ROOT)}")
     check_msime_windows(errors, sections)
-    # 推出规则抄自 update-manifest.ts；那边改了而这里没跟上时，上面查的就不是更新检查认的名字。
-    manifest = UPDATE_MANIFEST.read_text(encoding="utf-8")
-    for fragment in ['const id = edition ?? "full";', "return `MetasequoiaIME-${id.charAt(0).toUpperCase()}${id.slice(1)}_Setup_v`;"]:
-        if fragment not in manifest:
-            errors.append(f"{UPDATE_MANIFEST.relative_to(ROOT)} no longer contains {fragment!r}; update installer_base_name in this script")
+    # 推出规则抄自更新检查：Rust 按它挑安装包，设置页按它写占位名。那边改了而这里没跟上时，上面查的就不是更新检查认的名字。
+    for path, fragments in [
+        (UPDATE_CHECK, ['let id = edition.unwrap_or("full");', '"MetasequoiaIME-{}{}_Setup_v",', "first.to_ascii_uppercase(),"]),
+        (UPDATE_MANIFEST, ['const id = edition ?? "full";', "return `MetasequoiaIME-${id.charAt(0).toUpperCase()}${id.slice(1)}_Setup_v`;"]),
+    ]:
+        source = path.read_text(encoding="utf-8")
+        for fragment in fragments:
+            if fragment not in source:
+                errors.append(f"{path.relative_to(ROOT)} no longer contains {fragment!r}; update installer_base_name in this script")
 
 
 def load_windows_generator():
