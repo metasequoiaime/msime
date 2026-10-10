@@ -48,6 +48,7 @@ test("the touch layout is chosen on a phone or when a soft-keyboard-only key was
   expect(keyboardHeatmapLayout({}, true)).toBe("touch");
   expect(keyboardHeatmapLayout({ KeyA: 1, Nine3: 1 }, false)).toBe("touch");
   expect(keyboardHeatmapLayout({ SoftGlobe: 1 }, false)).toBe("touch");
+  expect(keyboardHeatmapLayout({ FourteenQW: 1 }, false)).toBe("touch");
 });
 
 test("the ANSI board places physical keys and lists the rest under 其他键", () => {
@@ -131,6 +132,8 @@ test("key names follow the host platform's modifier names", () => {
   expect(keyLabel("ControlLeft")).toBe("左 Ctrl");
   expect(keyLabel("Nine1")).toBe("九宫格 1（标点）");
   expect(keyLabel("Nine0")).toBe("九宫格 0");
+  expect(keyLabel("FourteenQW")).toBe("14 键 QW");
+  expect(keyLabel("FourteenL")).toBe("14 键 L");
   expect(keyLabel("SoftVoice")).toBe("语音");
 });
 
