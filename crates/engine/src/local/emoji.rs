@@ -339,7 +339,7 @@ where
 {
     let mut statement = connection.prepare_cached(sql)?;
     let capacity = limit.saturating_mul(prefix_count);
-    let mut entries = Vec::with_capacity(capacity);
+    let mut entries = Vec::new();
     for prefix in prefixes {
         let upper_bound = prefix_upper_bound(prefix);
         let rows = statement.query_map(
@@ -357,6 +357,9 @@ where
                 // page per spelling). Scanning the collected rows avoids allocating a
                 // second owned copy of every emoji/kaomoji just to deduplicate it.
                 if !entries.iter().any(|(entry, _)| entry == &text) {
+                    if entries.is_empty() {
+                        entries.reserve_exact(capacity);
+                    }
                     entries.push((text, sort_order.unwrap_or(0)));
                 }
             }
@@ -445,6 +448,16 @@ mod tests {
         let upper_bound = prefix_upper_bound(prefix);
         assert_eq!(upper_bound, "xiao'lian\x7f");
         assert_eq!(upper_bound.capacity(), upper_bound.len());
+    }
+
+    #[test]
+    fn empty_catalog_prefix_does_not_reserve_result_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path());
+        let connection = Connection::open(path).unwrap();
+        let entries = read(&connection, EMOJI.sql, std::iter::once("missing"), 1, 10).unwrap();
+        assert!(entries.is_empty());
+        assert_eq!(entries.capacity(), 0);
     }
 
     /// test_local_modes.cpp:269-296, the quanpin half.
