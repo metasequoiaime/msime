@@ -1967,7 +1967,7 @@ final class ImePanels {
         if (iso == null || iso.isEmpty()) return "";
         try {
             return relativeTime(java.time.Instant.parse(iso).toEpochMilli(), now);
-        } catch (java.time.format.DateTimeParseException error) {
+        } catch (java.time.format.DateTimeParseException | ArithmeticException error) {
             return "";
         }
     }

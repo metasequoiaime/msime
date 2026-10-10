@@ -137,6 +137,11 @@ public final class CommunityRequestSmoke {
             && !CommunityRequest.updatedThisWeek("2026-10-06T00:00:00Z", now)
             && !CommunityRequest.updatedThisWeek("yesterday", now)
             && !CommunityRequest.updatedThisWeek(null, now), "only an update within the last seven days counts");
+        check(!CommunityRequest.updatedThisWeek("+1000000000-01-01T00:00:00Z", now)
+            && !CommunityRequest.updatedThisWeek("-1000000000-01-01T00:00:00Z", now),
+            "overflowing update timestamps are ignored");
+        check(!CommunityRequest.updatedThisWeek("-292275055-05-16T16:47:04.192Z", now),
+            "old in-range timestamps do not pass through subtraction overflow");
         System.out.println("Android community requests: paths, categories, query encoding, reports and failures passed");
     }
 

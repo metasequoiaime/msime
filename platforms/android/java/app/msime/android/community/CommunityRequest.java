@@ -216,8 +216,15 @@ public final class CommunityRequest {
         if (updatedAt == null || updatedAt.isEmpty()) return false;
         try {
             long updated = java.time.OffsetDateTime.parse(updatedAt).toInstant().toEpochMilli();
-            return updated <= nowMillis && nowMillis - updated <= 7L * 24 * 60 * 60 * 1000;
-        } catch (java.time.format.DateTimeParseException error) {
+            long week = 7L * 24 * 60 * 60 * 1000;
+            long earliest;
+            try {
+                earliest = Math.subtractExact(nowMillis, week);
+            } catch (ArithmeticException beforeEpoch) {
+                earliest = Long.MIN_VALUE;
+            }
+            return updated >= earliest && updated <= nowMillis;
+        } catch (java.time.format.DateTimeParseException | ArithmeticException error) {
             return false;
         }
     }
