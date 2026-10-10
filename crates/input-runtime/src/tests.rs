@@ -874,6 +874,8 @@ impl InputEngine for Fixture {
             scheme: self.scheme,
             nine_key: self.key_grid == Some(KeyGrid::NineKey),
             key_grid: self.key_grid,
+            // 这里只有网格的按键会给出拼写条，硬件字母和 `command` 都不会，所以拼写条非空就是网格在组字。
+            grid_composing: self.key_grid.is_some() && !self.nine_key_spellings.is_empty(),
             nine_key_spellings: self.nine_key_spellings.clone(),
             nine_key_reading: String::new(),
             nine_key_single_character: false,
@@ -2683,6 +2685,83 @@ fn fourteen_key_shares_the_spelling_strip_and_separator_while_digits_still_pick(
     runtime.set_key_grid(Some(KeyGrid::FourteenKey)).unwrap();
     runtime.set_nine_key_enabled(false).unwrap();
     assert_eq!(runtime.view().key_grid, "none");
+}
+
+/// 退格收回 14 键里的一次选词：读音是组码字母，要从 `grid_key` 打回网格，从 `character` 进就成了全拼 26 键的组字，之后 14 键的键全都不处理。同一个 14 键布局下用硬件键盘打的 26 键组字，照样从 `character` 打回去。
+#[test]
+fn retreating_a_fourteen_key_selection_types_the_codes_back_on_the_grid() {
+    let start = |grid_keys: bool| {
+        let mut runtime = runtime();
+        runtime.set_phrase_preedit(true);
+        runtime.focus(true).unwrap();
+        runtime.set_key_grid(Some(KeyGrid::FourteenKey)).unwrap();
+        runtime.engine.remaining_after_select = Some("g".into());
+        for &letter in b"bug" {
+            let typed = if grid_keys {
+                runtime.dispatch(Action::GridKey(letter))
+            } else {
+                runtime.dispatch(Action::Character {
+                    value: letter,
+                    shift: false,
+                })
+            };
+            assert!(typed.unwrap().handled);
+        }
+        let first = runtime.view().candidates[0].id;
+        let held = runtime.dispatch(Action::Select(first)).unwrap();
+        assert_eq!(held.view.phrase_prefix, "candidate-0");
+        assert_eq!(held.view.editing_text, "g");
+        runtime
+    };
+
+    let mut grid = start(true);
+    let restored = grid.dispatch(Action::Command(Command::Backspace)).unwrap();
+    assert!(restored.handled && restored.commit.is_none());
+    assert_eq!(restored.view.key_grid, "fourteen_key");
+    assert_eq!(restored.view.editing_text, "bu");
+    assert!(restored.view.phrase_prefix.is_empty());
+    assert_eq!(restored.view.nine_key_spellings, ["ni", "bi"]);
+
+    let mut hardware = start(false);
+    let restored = hardware
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert_eq!(restored.view.editing_text, "bu");
+    assert!(restored.view.nine_key_spellings.is_empty());
+}
+
+/// 14 键的原样上屏是结束组字，从宿主高亮的那一行开始，与 `Finish` 相同：重排后用户看到的首位不一定是引擎的首位。九键的原样上屏照旧交给引擎上屏数字。
+#[test]
+fn fourteen_key_commit_raw_finishes_from_the_highlighted_row() {
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    runtime.set_key_grid(Some(KeyGrid::FourteenKey)).unwrap();
+    for &letter in b"bu" {
+        runtime.dispatch(Action::GridKey(letter)).unwrap();
+    }
+    runtime.dispatch(Action::NextCandidate).unwrap();
+    let committed = runtime
+        .dispatch(Action::Command(Command::CommitRaw))
+        .unwrap();
+    assert_eq!(
+        committed.commit.as_deref(),
+        Some("candidate-1-remaining-segments")
+    );
+    assert!(committed.view.editing_text.is_empty());
+
+    runtime.set_key_grid(Some(KeyGrid::NineKey)).unwrap();
+    for &digit in b"64" {
+        runtime
+            .dispatch(Action::Character {
+                value: digit,
+                shift: false,
+            })
+            .unwrap();
+    }
+    let raw = runtime
+        .dispatch(Action::Command(Command::CommitRaw))
+        .unwrap();
+    assert!(raw.commit.is_none(), "{:?}", raw.commit);
 }
 
 /// 九键要求方案能打九键，14 键只给全拼；组字中不能换网格。

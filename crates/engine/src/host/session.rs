@@ -74,6 +74,8 @@ pub struct EngineSnapshot {
     pub nine_key_single_character: bool,
     /// `SessionSnapshot::nine_key_strokes`.
     pub nine_key_strokes: String,
+    /// 这次组字是在九宫格（九键或 14 键）里打的，见 [`crate::Session::grid_composing`]。`key_grid` 开着时硬件键盘的字母照样走全拼 26 键，这一项分得清两者。
+    pub grid_composing: bool,
     /// 当前方案是双拼，且韵母或零声母编码用 `;` 作第二键：宿主把 `;` 当作字母键送给 Engine。字段名沿用微软双拼，是宿主已经在读的契约。
     pub microsoft_shuangpin: bool,
     pub shuangpin_profile: String,
@@ -195,6 +197,7 @@ impl Session {
             nine_key_reading: value.nine_key_reading,
             nine_key_single_character: value.nine_key_single_character,
             nine_key_strokes: value.nine_key_strokes,
+            grid_composing: self.inner.grid_composing(),
             microsoft_shuangpin: self.microsoft_shuangpin,
             shuangpin_profile: self.shuangpin_profile.clone(),
             preedit: value.preedit,
