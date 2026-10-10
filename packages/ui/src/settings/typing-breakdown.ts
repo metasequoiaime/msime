@@ -53,10 +53,18 @@ export function summaryComposition(characters: Record<string, number>): Breakdow
 }
 
 /** 不属于文字输入方式的来源：AI 改写、回复建议和未分类的剩余部分。 */
-const notInputMethods = new Set(["nineKey", "voice", "handwriting", "unknown", "ai", "reply"]);
+const notInputMethods = new Set([
+  "nineKey",
+  "fourteenKey",
+  "voice",
+  "handwriting",
+  "unknown",
+  "ai",
+  "reply",
+]);
 
 /**
- * 统计概览上的「输入方式」：26 键（九宫格以外的所有键盘方案）、9 键、语音和手写。AI 改写、回复和未分类字符不算输入方式，不计入。分组方式与 Android 的 `TypingStatisticsSummary.methods` 一致。
+ * 统计概览上的「输入方式」：26 键（九宫格和 14 键以外的所有键盘方案）、14 键、9 键、语音和手写。AI 改写、回复和未分类字符不算输入方式，不计入。分组方式与 Android 的 `TypingStatisticsSummary.methods` 一致。
  */
 export function summaryMethods(sources: Record<string, number>): BreakdownShare[] {
   const full = Object.keys(sources)
@@ -64,6 +72,7 @@ export function summaryMethods(sources: Record<string, number>): BreakdownShare[
     .reduce((sum, key) => sum + count(sources, key), 0);
   return shares([
     ["26 键", full],
+    ["14 键", count(sources, "fourteenKey")],
     ["9 键", count(sources, "nineKey")],
     ["语音", count(sources, "voice")],
     ["手写", count(sources, "handwriting")],

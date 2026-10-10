@@ -20,9 +20,13 @@ public final class KeyPressCountingSmoke {
     }
 
     private static void ids() {
-        // The same 127 ids as KEY_IDS in crates/client-core/src/typing_statistics.rs.
-        check(KeyPressIds.KEY_IDS.size() == 127, "the whitelist has the store's 127 ids");
-        check(new HashSet<>(KeyPressIds.KEY_IDS).size() == 127, "the whitelist has no duplicate");
+        // 与 crates/client-core/src/typing_statistics.rs 的 KEY_IDS 是同样的 141 个 id。
+        check(KeyPressIds.KEY_IDS.size() == 141, "the whitelist has the store's 141 ids");
+        check(new HashSet<>(KeyPressIds.KEY_IDS).size() == 141, "the whitelist has no duplicate");
+        // 14 键的十四个键按键面字母命名，与 Rust 的 KEY_IDS 末尾逐字相同。
+        check(KeyPressIds.KEY_IDS.subList(127, 141).equals(List.of("FourteenQW", "FourteenER", "FourteenTY",
+            "FourteenUI", "FourteenOP", "FourteenAS", "FourteenDF", "FourteenGH", "FourteenJK", "FourteenL",
+            "FourteenZX", "FourteenCV", "FourteenBN", "FourteenM")), "the fourteen-key ids close the whitelist");
         check(KeyPressIds.isKnown("Nine0") && KeyPressIds.isKnown("SoftVoice"), "soft ids are known");
         check(!KeyPressIds.isKnown("KeyAA") && !KeyPressIds.isKnown(null) && !KeyPressIds.isKnown(""),
             "anything else is not");
@@ -77,7 +81,8 @@ public final class KeyPressCountingSmoke {
             check(!KeyPressIds.label(id).isEmpty(), "every id has a label: " + id);
         }
         check("A".equals(KeyPressIds.label("KeyA")) && "空格".equals(KeyPressIds.label("Space"))
-            && "九键 2".equals(KeyPressIds.label("Nine2")), "labels read as the keys do");
+            && "九键 2".equals(KeyPressIds.label("Nine2")) && "14 键 QW".equals(KeyPressIds.label("FourteenQW"))
+            && "14 键 L".equals(KeyPressIds.label("FourteenL")), "labels read as the keys do");
     }
 
     private static void batching() {

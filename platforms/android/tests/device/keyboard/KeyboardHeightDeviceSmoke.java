@@ -150,6 +150,29 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
                             + expected);
                 }
             }
+
+            // 全拼 14 键：三行两字母键加 26 键的底行，键区总高与 26 键相同，底行也和字母键同高。
+            stage = "fourteen-key keyboard is as tall as the 26 keys";
+            settledKeyBounds(localSettings, new JSONObject().put(BOTTOM_BAR_SETTING, false));
+            int twentySixSpan = keyBounds("空格").bottom - keyBounds("q").top;
+            JSONObject fourteen = new JSONObject(snapshot.getJSONObject("preferences").toString())
+                .put("scheme", "quanpin").put("touch_keyboard_layout", "fourteen_key")
+                .put("touch_keyboard_schemes", new JSONObject()
+                    .put("enabled", new org.json.JSONArray().put("quanpin").put("fourteen_key"))
+                    .put("selected", "fourteen_key"));
+            publish(preferences, new JSONObject().put("format_version", 1).put("revision", revision + 2)
+                .put("preferences", fourteen).toString().getBytes(StandardCharsets.UTF_8));
+            rebindInputMethod();
+            openEditor();
+            Rect pair = new Rect();
+            awaitStableBounds(description("按键 Q W")).getBoundsInScreen(pair);
+            Rect fourteenSpace = keyBounds("空格");
+            int fourteenSpan = fourteenSpace.bottom - pair.top;
+            if (Math.abs(fourteenSpan - twentySixSpan) > tolerance)
+                throw new AssertionError("Fourteen-key area is " + fourteenSpan + " px, the 26 keys " + twentySixSpan);
+            if (Math.abs(fourteenSpace.height() - pair.height()) > tolerance)
+                throw new AssertionError("Fourteen-key bottom row is not as tall as its keys: space "
+                    + fourteenSpace.height() + " vs QW " + pair.height());
         } finally {
             shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());

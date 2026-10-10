@@ -155,6 +155,8 @@ Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-core�
 | `HandwritingDownloadSession.m/.h` | **不迁移**：ML Kit 模型下载；鸿蒙用系统 OCR |
 | `MetasequoiaKeyboard-Bridging-Header.h` | ObjC 桥接头，无对应物 |
 
+来源之后本仓库新增的键面不在这张表里，因为它们在来源中没有文件。全拼 14 键是其中之一：鸿蒙的 `keyboard/input/FourteenKeyLayout.ts` 与本仓库 iOS、Android 的 `FourteenKeyLayout` 是同一张表，三端与引擎 `KeyGrid::FourteenKey` 的一致性由 `scripts/test-fourteen-key-table.py` 核对。
+
 ## `platforms/ios/KeyboardTestHost`（1）
 
 `AppDelegate.swift` 是 iOS UI 测试的宿主应用，不是产品代码，无对应物。

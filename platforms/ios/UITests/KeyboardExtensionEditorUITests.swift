@@ -169,6 +169,34 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
                   "the editor holds \(value) but the chip that was tapped said \(candidate)")
   }
 
+  /// 全拼 14 键当成系统键盘来用：点方案卡片切到 14 键，按 BN UI GH AS OP 打出「你好」，从候选条上选它上屏到别人的编辑框里。bu 和 ni 同组码，锁定词库里「不好」的权重高于「你好」，所以只要求「你好」在前几个候选里，与 Android 设备验收和 FourteenKeyKeyboardTests 相同。14 键要用户自己打开，没打开时跳过。
+  func testFourteenKeysTypeNihaoIntoTheHostEditor() throws {
+    let app = XCUIApplication()
+    let field = try focusedTryoutKeyboard(app)
+
+    let scheme = app.buttons["schemeButton"]
+    XCTAssertTrue(scheme.waitForExistence(timeout: 5), "the scheme button is missing")
+    scheme.tap()
+    let card = app.buttons["schemeCard-fourteenKey"]
+    guard card.waitForExistence(timeout: 5) else {
+      throw XCTSkip("全拼 14 键 is not among the enabled schemes on this device.")
+    }
+    card.tap()
+
+    for label in ["按键 B N", "按键 U I", "按键 G H", "按键 A S", "按键 O P"] {
+      let key = app.buttons[label].exists ? app.buttons[label] : app.keys[label]
+      XCTAssertTrue(key.waitForExistence(timeout: 5), "\(label) is missing from the 14-key face")
+      key.tap()
+    }
+    XCTAssertTrue(app.buttons["candidate-1"].waitForExistence(timeout: 8), "the candidate strip stayed empty for the 14-key nihao")
+    let shown = (1...3).map { app.buttons["candidate-\($0)"] }.filter(\.exists)
+    let nihao = try XCTUnwrap(shown.first { $0.label.contains("你好") },
+                              "你好 is not among the first candidates: \(shown.map(\.label))")
+    nihao.tap()
+    let value = (field.value as? String) ?? ""
+    XCTAssertTrue(value.contains("你好"), "the editor holds \(value)")
+  }
+
   /// The double-pinyin face labels its keys with the units the running profile puts on them.
   ///
   /// These hints are read out of the Engine through the shared ABI rather than from a table kept

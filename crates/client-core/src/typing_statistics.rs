@@ -111,6 +111,8 @@ where
 pub enum TypingSource {
     Quanpin,
     NineKey,
+    /// 全拼 14 键。
+    FourteenKey,
     Shuangpin,
     Ziranma,
     Microsoft,
@@ -137,6 +139,7 @@ impl TypingSource {
         match self {
             Self::Quanpin => "quanpin",
             Self::NineKey => "nineKey",
+            Self::FourteenKey => "fourteenKey",
             Self::Shuangpin => "shuangpin",
             Self::Ziranma => "ziranma",
             Self::Microsoft => "microsoft",
@@ -514,6 +517,21 @@ pub const KEY_IDS: &[&str] = &[
     "SoftGlobe",
     "SoftEmoji",
     "SoftVoice",
+    // 屏幕键盘专有：全拼 14 键的各键，按键面上的字母命名（`FourteenQW` 是 Q、W 合在一起的键）。不记到 `KeyQ` 这些 26 键字母上，否则会混进 26 键的热力图。
+    "FourteenQW",
+    "FourteenER",
+    "FourteenTY",
+    "FourteenUI",
+    "FourteenOP",
+    "FourteenAS",
+    "FourteenDF",
+    "FourteenGH",
+    "FourteenJK",
+    "FourteenL",
+    "FourteenZX",
+    "FourteenCV",
+    "FourteenBN",
+    "FourteenM",
 ];
 
 /// Whether `id` is one of [`KEY_IDS`].

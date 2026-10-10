@@ -61,6 +61,12 @@ const KEYPAD: &[u8; 26] = b"22233344455566677778889999";
 const DIGIT_LETTERS: [&str; 10] = [
     "", "", "abc", "def", "ghi", "jkl", "mno", "pqrs", "tuv", "wxyz",
 ];
+/// 全拼 14 键 `a..=z` 各自的组码：QWERTY 上相邻两个字母一个键，组码取这一组首字母的小写。
+const FOURTEEN_KEYPAD: &[u8; 26] = b"abcdedggujjlmbooqeatucqztz";
+/// 全拼 14 键的十四个键，按键面从左到右、从上到下。组码是每组的首字母，与左列的大写字母项和 `'` 都不冲突。
+const FOURTEEN_KEY_GROUPS: [&str; 14] = [
+    "qw", "er", "ty", "ui", "op", "as", "df", "gh", "jk", "l", "zx", "cv", "bn", "m",
+];
 /// T9 expansion multiplies by three or four per digit, so only the leading digits become letter prefixes and the dictionary's own prefix search carries the rest (NK:189).
 const ENGLISH_PREFIX_BUDGET: usize = 64;
 const ENGLISH_LIMIT: usize = 5;
@@ -81,6 +87,84 @@ const SYLLABLE_ROWS_BEFORE_INITIALS: usize = 3;
 const EXPRESSIVE_READING_LIMIT: usize = 8;
 /// 选中整句时最多存多少个音节，与全拼键盘的 `session::learning::MAX_LEARNED_SENTENCE_SYLLABLES` 相同（`session/tests.rs` 核对两者一致）：更长的整句只用于这一次上屏。
 pub(crate) const MAX_LEARNED_SENTENCE_SYLLABLES: usize = 7;
+
+/// 九宫格会话把字母归成组码用的键盘。一个组码键上有几个字母，解码只认组码：路径搜索、锁定、切分、整句、简拼和英文混入都与「字母怎么变成码」无关，只经由这里的表。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum KeyGrid {
+    /// 电话键盘：组码是 `2`–`9`。
+    NineKey,
+    /// 全拼 14 键：组码是每组首字母的小写 `q e t u o a d g j l z c b m`。
+    FourteenKey,
+}
+
+impl KeyGrid {
+    /// `a..=z` 各自的组码。
+    fn keypad(self) -> &'static [u8; 26] {
+        match self {
+            Self::NineKey => KEYPAD,
+            Self::FourteenKey => FOURTEEN_KEYPAD,
+        }
+    }
+
+    /// 小写字母所在键的组码；不是小写字母时为 `None`。
+    pub fn code_of(self, letter: u8) -> Option<u8> {
+        letter
+            .is_ascii_lowercase()
+            .then(|| self.keypad()[usize::from(letter - b'a')])
+    }
+
+    /// 组码键上印的字母；不是这种键盘的组码时为空。
+    pub fn letters(self, code: u8) -> &'static str {
+        match self {
+            Self::NineKey if (b'2'..=b'9').contains(&code) => {
+                DIGIT_LETTERS[usize::from(code - b'0')]
+            }
+            Self::NineKey => "",
+            Self::FourteenKey => FOURTEEN_KEY_GROUPS
+                .iter()
+                .find(|group| group.as_bytes().first() == Some(&code))
+                .copied()
+                .unwrap_or(""),
+        }
+    }
+
+    /// `byte` 是这种键盘的一个组码键。
+    pub fn is_code(self, byte: u8) -> bool {
+        !self.letters(byte).is_empty()
+    }
+
+    /// 拼音（或任何字母串）的组码；`a..=z` 以外的字节（`'`）跳过。
+    pub fn encode(self, pinyin: &str) -> String {
+        let keypad = self.keypad();
+        pinyin
+            .bytes()
+            .filter(u8::is_ascii_lowercase)
+            .map(|letter| char::from(keypad[usize::from(letter - b'a')]))
+            .collect()
+    }
+
+    /// 组码本身是不是可上屏的文字。九键的数字是：左列在没有锁定时给出「原样上屏这一键」，`CommitRaw` 上屏数字。14 键的组码只是这一组的首字母，原样上屏没有意义：左列没有这一项，`CommitRaw` 改为结束组字。
+    pub fn offers_raw_key(self) -> bool {
+        match self {
+            Self::NineKey => true,
+            Self::FourteenKey => false,
+        }
+    }
+
+    /// 这种键盘的拼写表，每种键盘在进程里建一次。
+    fn spelling_table(self) -> &'static SpellingTable {
+        match self {
+            Self::NineKey => {
+                static TABLE: OnceLock<SpellingTable> = OnceLock::new();
+                TABLE.get_or_init(|| SpellingTable::build(self, intact_pinyin_list()))
+            }
+            Self::FourteenKey => {
+                static TABLE: OnceLock<SpellingTable> = OnceLock::new();
+                TABLE.get_or_init(|| SpellingTable::build(self, intact_pinyin_list()))
+            }
+        }
+    }
+}
 
 type Path = Vec<String>;
 
@@ -148,6 +232,8 @@ pub struct NineKeySession {
     stroke: Option<LanguageDictionary>,
     /// `strokes` 对应的字，随 `set_filter` 重建。
     stroke_texts: HashSet<char>,
+    /// 把字母归成组码的键盘，`digits` 里存的是它的组码。
+    grid: KeyGrid,
 }
 
 /// 一次锁定之前的样子。
@@ -237,6 +323,7 @@ impl NineKeySession {
             stroke_dictionary: PathBuf::new(),
             stroke: None,
             stroke_texts: HashSet::new(),
+            grid: KeyGrid::NineKey,
         }
     }
 
@@ -321,6 +408,13 @@ impl NineKeySession {
         self.refresh();
     }
 
+    /// 换一种网格。已打的组码和整句种子都是按原来的网格编的，所以先结束组字，再丢掉种子。
+    pub fn set_grid(&mut self, grid: KeyGrid) {
+        self.command(Command::Cancel);
+        self.sentence_seeds.clear();
+        self.grid = grid;
+    }
+
     /// `2`..=`9`；到 32 个数字时按 `NINE_KEY_DIGIT_LIMIT` 处理。组字中按 `'` 在光标处切开音节；在同一处再切一次，或者紧跟在锁定的拼写之后切，都没有作用。光标在数字中间时数字插在光标处，光标落在锁定的拼写里时从那个音节起解除锁定。
     pub fn character(&mut self, digit: u8) -> KeyResult {
         if digit == b'\'' {
@@ -339,7 +433,7 @@ impl NineKeySession {
             self.refresh();
             return KeyResult::handled();
         }
-        if !(b'2'..=b'9').contains(&digit) {
+        if !self.grid.is_code(digit) {
             return KeyResult::unhandled();
         }
         if self.digits.len() >= DIGIT_LIMIT {
@@ -439,7 +533,8 @@ impl NineKeySession {
                 let end = offset + choice.len().min(self.digits.len() - offset);
                 let replaced = self.digits[offset..end].to_string();
                 let before = self.digits.len();
-                self.digits.replace_range(offset..end, &encode(&choice));
+                self.digits
+                    .replace_range(offset..end, &self.grid.encode(&choice));
                 // 拼写比已打的数字长时数字串变长；光标原来在被替换的那段之后的，跟着后移。
                 if let Some(caret) = self.caret {
                     if caret >= end {
@@ -657,7 +752,7 @@ impl NineKeySession {
         self.phrase_storable = true;
     }
 
-    /// Out of range commits the digits. 与全拼键盘的 `finish_composition` 相同，余下各段逐个按 `select` 选首选，造词也一样：用户先选掉的段和替他选的余下各段连成一个词存起来（选了「我滴」再打标点，存的是「我滴个天呐」），首选是整句行时存整句。
+    /// `first_index` 越界时与 `CommitRaw` 相同：九键上屏数字，14 键因此取首选。与全拼键盘的 `finish_composition` 相同，余下各段逐个按 `select` 选首选，造词也一样：用户先选掉的段和替他选的余下各段连成一个词存起来（选了「我滴」再打标点，存的是「我滴个天呐」），首选是整句行时存整句。
     pub fn finish(&mut self, first_index: usize) -> KeyResult {
         if !self.active() {
             return KeyResult::unhandled();
@@ -693,6 +788,10 @@ impl NineKeySession {
         match command {
             Command::CommitCandidate => return self.select(0),
             Command::CommitRaw => {
+                // 14 键的组码只是每组的首字母（按「你好」的键是 `bugao`），不是用户想写的字母：原样上屏改为结束组字、逐段取首选，与 `finish(0)` 相同。没有候选时只剩组码可上屏。
+                if !self.grid.offers_raw_key() && !self.candidates.is_empty() {
+                    return self.finish(0);
+                }
                 let raw = self.digits.clone();
                 self.command(Command::Cancel);
                 return KeyResult::committed(raw);
@@ -913,7 +1012,8 @@ impl NineKeySession {
         }
         // 每个锁定都有一条撤销记录，哪怕是作废的。
         self.lock_undo.resize_with(self.locked.len(), || None);
-        let table = spelling_table();
+        let grid = self.grid;
+        let table = grid.spelling_table();
         let locked_length = self.locked_length();
         let remaining = remaining_digits(&self.digits, locked_length);
         let unlocked_digit_count = remaining.len();
@@ -1008,7 +1108,7 @@ impl NineKeySession {
                 } else {
                     canonical.as_str()
                 };
-                let code = encode(matched);
+                let code = grid.encode(matched);
                 if code.is_empty()
                     || (!code.starts_with(&self.digits) && !self.digits.starts_with(&code))
                 {
@@ -1046,7 +1146,7 @@ impl NineKeySession {
         }
         let mut boost = None;
         if let Some(codes) = initials
-            .then(|| initials_codes(remaining, INITIALS_CODE_LIMIT))
+            .then(|| initials_codes(grid, remaining, INITIALS_CODE_LIMIT))
             .flatten()
         {
             // 用户用过的词（个人上下文模型里有计数，26 键选的也算）不能被按权重的截断截掉（#6185）：模型有记录时多扫一些行，用过的先留下。学习或个人上下文关掉时不读个人数据，与 26 键的 `personal_context_applies` 相同。
@@ -1104,6 +1204,7 @@ impl NineKeySession {
         self.rerank_sentences(&mut candidates);
         let mut seeds = std::mem::take(&mut self.seed_buffer);
         next_seeds(
+            grid,
             &candidates,
             &self.digits,
             &mut self.sentence_seeds,
@@ -1145,7 +1246,7 @@ impl NineKeySession {
         {
             let digits = self.digits.as_str();
             if let Some((anchor, kind)) =
-                inline_date_time_keyword(|keyword| keyword_spells_digits(keyword, digits))
+                inline_date_time_keyword(|keyword| keyword_spells_digits(grid, keyword, digits))
             {
                 insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock());
             }
@@ -1337,13 +1438,15 @@ impl NineKeySession {
         let Some(&digit) = remaining.as_bytes().first() else {
             return Vec::new();
         };
-        let table = spelling_table();
-        let mut choices: Vec<String> = letters_for_digit(digit)
+        let table = self.grid.spelling_table();
+        let mut choices: Vec<String> = self
+            .grid
+            .letters(digit)
             .bytes()
             .filter(|&letter| table.starts_syllable(letter))
             .map(|letter| char::from(letter.to_ascii_uppercase()).to_string())
             .collect();
-        if self.locked.is_empty() {
+        if self.locked.is_empty() && self.grid.offers_raw_key() {
             choices.push(char::from(digit).to_string());
         }
         choices
@@ -1391,7 +1494,7 @@ impl NineKeySession {
         )
     }
 
-    /// The leading row's pinyin cut to the digits it covers, then the uncovered digits with their splits: `xi'an` for 西安 over `94'26`, `yi'c` for 遗产 over `942`. Empty when an English word or nothing leads.
+    /// 读音行：首行的拼音截到它覆盖的那几个键，后面接上没覆盖的键码和切分，例如 `94'26` 上的 西安 是 `xi'an`，`942` 上的 遗产 是 `yi'c`。首行不是从拼音读出来的（英文词、emoji、日期时间行）或者没有首行时为空；14 键的首行是英文词时是这个词覆盖已打键数的那段小写字母，一键一个字母，没有歧义。
     fn reading_for(&self, front: Option<&WordItem>) -> String {
         let Some(front) = front else {
             return String::new();
@@ -1400,7 +1503,13 @@ impl NineKeySession {
         if front.fuzzy {
             return String::new();
         }
-        if front.pinyin.is_empty() || !front.pinyin.bytes().all(|byte| byte.is_ascii_digit()) {
+        if front.source == CandidateSource::EnglishDictionary && self.grid == KeyGrid::FourteenKey {
+            // 英文行的 `pinyin` 是小写的查询键（`word_matches_digits` 保证全是字母）；九键不给英文读音，与按数字判断时相同。
+            let typed = front.pinyin.len().min(self.digits.len());
+            return front.pinyin[..typed].to_ascii_lowercase();
+        }
+        // 只有从拼音读出来的行（词库行、整句）才有可显示的读音：按来源正向判定，不看 `pinyin` 的字节形状，因为 14 键的组码和英文词一样都是小写字母。
+        if front.canonical_pinyin.is_empty() || !reads_pinyin(front.source) {
             return String::new();
         }
         // 简拼行一个数字一个音节，读音行显示每个音节的首字母（`m't`），而不是全拼的前几个字母（`me`）。
@@ -1462,10 +1571,11 @@ impl NineKeySession {
             return Vec::new();
         }
         let digits = self.digits.clone();
+        let grid = self.grid;
         let Some(english) = self.open_english() else {
             return Vec::new();
         };
-        let prefixes = letter_prefixes(&digits, ENGLISH_PREFIX_BUDGET);
+        let prefixes = letter_prefixes(grid, &digits, ENGLISH_PREFIX_BUDGET);
         let capacity = prefixes.len().saturating_mul(ENGLISH_LIMIT);
         let mut words = Vec::new();
         for prefix in prefixes {
@@ -1473,7 +1583,7 @@ impl NineKeySession {
                 // 词条必须覆盖全部输入数字，防止展开前缀后面的字母读出不匹配的词。
                 // 对照 `pinyin` 中的小写查询键；`word` 是展示形式，可以带标点或空格，
                 // 例如查询键 `dont` 可以显示为 `don't`。
-                if !word_matches_digits(&word.pinyin, &digits) {
+                if !word_matches_digits(grid, &word.pinyin, &digits) {
                     continue;
                 }
                 if words.capacity() == 0 {
@@ -1652,7 +1762,7 @@ fn seed_prefix(seed: &str) -> &str {
 }
 
 /// `prefix` 开头有几个音节按键盘依次拼得出 `digits` 的开头：(音节数, 用掉的数字数, 是否全部拼得出)。不分配。
-fn fitting_syllables(prefix: &str, digits: &str) -> (usize, usize, bool) {
+fn fitting_syllables(grid: KeyGrid, prefix: &str, digits: &str) -> (usize, usize, bool) {
     let mut syllables = 0;
     let mut covered = 0;
     if prefix.is_empty() {
@@ -1662,7 +1772,7 @@ fn fitting_syllables(prefix: &str, digits: &str) -> (usize, usize, bool) {
         let end = covered + syllable.len();
         if !digits
             .get(covered..end)
-            .is_some_and(|code| letters_spell_code(syllable, code))
+            .is_some_and(|code| letters_spell_code(grid, syllable, code))
         {
             return (syllables, covered, false);
         }
@@ -1673,15 +1783,17 @@ fn fitting_syllables(prefix: &str, digits: &str) -> (usize, usize, bool) {
 }
 
 /// 小写字母串按键盘上印的字母正好拼出同样长的 `code`。
-fn letters_spell_code(letters: &str, code: &str) -> bool {
+fn letters_spell_code(grid: KeyGrid, letters: &str, code: &str) -> bool {
+    let keypad = grid.keypad();
     letters.len() == code.len()
         && letters.bytes().zip(code.bytes()).all(|(letter, digit)| {
-            letter.is_ascii_lowercase() && KEYPAD[usize::from(letter - b'a')] == digit
+            letter.is_ascii_lowercase() && keypad[usize::from(letter - b'a')] == digit
         })
 }
 
 /// 把这次刷新之后的种子写进 `seeds`（先清空），`previous` 用完清空：先取排好的候选里覆盖全部数字、不是模糊音的前 `SENTENCE_SEED_LIMIT` 条全拼（`seed_prefix` 相同的只留一条，免得几条种子只差在最后一个音节上），再接上 `previous` 里 `seed_prefix` 仍拼得出数字开头的，合计最多 `SEED_RETAIN_LIMIT` 条。末尾只按了下一个音节的头一两个数字时没有覆盖全部数字的行，这时全靠留下来的种子，否则每隔一键就丢一次。`previous` 里已有的同一条直接挪过来，不再复制字符串。
 fn next_seeds(
+    grid: KeyGrid,
     candidates: &[WordItem],
     digits: &str,
     previous: &mut Vec<String>,
@@ -1715,7 +1827,7 @@ fn next_seeds(
     }
     for seed in previous.drain(..) {
         if seeds.len() < SEED_RETAIN_LIMIT
-            && fitting_syllables(seed_prefix(&seed), digits).2
+            && fitting_syllables(grid, seed_prefix(&seed), digits).2
             && is_new(seeds, &seed)
         {
             seeds.push(seed);
@@ -1732,7 +1844,7 @@ fn seeded_paths(
     prior: &SyllablePrior,
 ) {
     for seed in seeds {
-        let (kept, covered, _) = fitting_syllables(seed_prefix(seed), remaining);
+        let (kept, covered, _) = fitting_syllables(table.grid, seed_prefix(seed), remaining);
         if kept == 0 {
             continue;
         }
@@ -1881,6 +1993,13 @@ fn is_personal_word(word: &str) -> bool {
     count_utf8_chars(word) >= 2 && is_all_han(word)
 }
 
+/// 这一来源的行是查拼音词库得来的（词库行、词网格和键盘模型的整句、回退解码），`canonical_pinyin` 是它的全拼。
+fn reads_pinyin(source: CandidateSource) -> bool {
+    source.is_dictionary()
+        || source.is_generated_or_fallback()
+        || source == CandidateSource::NeuralKeyboard
+}
+
 /// 一个数字一个音节、全拼比数字长的词典行：按简拼查出来的行（`68` 的 明天 mei'tian）。只有两个及以上数字时才算，一个数字本来就按首字母补全。
 fn is_initials_row(item: &WordItem) -> bool {
     let digits = item.pinyin.len();
@@ -1911,24 +2030,24 @@ fn initials_apply(digits: usize, splits: &[usize]) -> bool {
 }
 
 /// 数字键上能作音节首字母的字母：i、u、v 不起头任何音节，词库也没有以它们命名的表，所以 4 只有 g、h，8 只有 t。
-fn initials_for_digit(digit: u8) -> impl Iterator<Item = u8> {
-    letters_for_digit(digit)
+fn initials_for_digit(grid: KeyGrid, digit: u8) -> impl Iterator<Item = u8> {
+    grid.letters(digit)
         .bytes()
         .filter(|letter| !matches!(letter, b'i' | b'u' | b'v'))
 }
 
 /// 每个数字当一个音节的首字母时能拼出的全部简拼（`68` → mt、nt、ot）；多于 `limit` 个，或有数字不是 2-9 时为 `None`。
-fn initials_codes(digits: &str, limit: usize) -> Option<Vec<String>> {
+fn initials_codes(grid: KeyGrid, digits: &str, limit: usize) -> Option<Vec<String>> {
     let mut codes = vec![String::with_capacity(digits.len())];
     for digit in digits.bytes() {
-        let count = initials_for_digit(digit).count();
+        let count = initials_for_digit(grid, digit).count();
         if count == 0 || codes.len().saturating_mul(count) > limit {
             return None;
         }
         codes = codes
             .iter()
             .flat_map(|code| {
-                initials_for_digit(digit).map(move |letter| {
+                initials_for_digit(grid, digit).map(move |letter| {
                     let mut next = String::with_capacity(digits.len());
                     next.push_str(code);
                     next.push(char::from(letter));
@@ -2203,15 +2322,6 @@ fn rank_english(words: &mut Vec<WordItem>, typed: usize) {
     words.truncate(ENGLISH_LIMIT);
 }
 
-/// The digit code of a pinyin spelling; anything but `a..=z` (apostrophes) is skipped.
-fn encode(pinyin: &str) -> String {
-    pinyin
-        .bytes()
-        .filter(u8::is_ascii_lowercase)
-        .map(|letter| char::from(KEYPAD[usize::from(letter - b'a')]))
-        .collect()
-}
-
 /// The digit code of an English word, ignoring case; a word with any non-letter has none.
 #[cfg(test)]
 fn digits_for_word(word: &str) -> String {
@@ -2219,10 +2329,11 @@ fn digits_for_word(word: &str) -> String {
     if !lowered.bytes().all(|byte| byte.is_ascii_lowercase()) {
         return String::new();
     }
-    encode(&lowered)
+    KeyGrid::NineKey.encode(&lowered)
 }
 
-fn word_matches_digits(word: &str, digits: &str) -> bool {
+fn word_matches_digits(grid: KeyGrid, word: &str, digits: &str) -> bool {
+    let keypad = grid.keypad();
     let mut matched = 0;
     for byte in word.bytes() {
         let letter = byte.to_ascii_lowercase();
@@ -2230,7 +2341,7 @@ fn word_matches_digits(word: &str, digits: &str) -> bool {
             return false;
         }
         if let Some(&digit) = digits.as_bytes().get(matched) {
-            if KEYPAD[usize::from(letter - b'a')] != digit {
+            if keypad[usize::from(letter - b'a')] != digit {
                 return false;
             }
             matched += 1;
@@ -2240,26 +2351,19 @@ fn word_matches_digits(word: &str, digits: &str) -> bool {
 }
 
 /// `keyword`（小写字母）按键盘上的字母正好拼出 `digits`，不分配。
-fn keyword_spells_digits(keyword: &str, digits: &str) -> bool {
+fn keyword_spells_digits(grid: KeyGrid, keyword: &str, digits: &str) -> bool {
+    let keypad = grid.keypad();
     keyword.len() == digits.len()
         && keyword.bytes().zip(digits.bytes()).all(|(letter, digit)| {
-            letter.is_ascii_lowercase() && KEYPAD[usize::from(letter - b'a')] == digit
+            letter.is_ascii_lowercase() && keypad[usize::from(letter - b'a')] == digit
         })
 }
 
-fn letters_for_digit(digit: u8) -> &'static str {
-    if (b'2'..=b'9').contains(&digit) {
-        DIGIT_LETTERS[usize::from(digit - b'0')]
-    } else {
-        ""
-    }
-}
-
 /// Every letter prefix of the leading digits, expanded while the count stays within `budget`.
-fn letter_prefixes(digits: &str, budget: usize) -> Vec<String> {
+fn letter_prefixes(grid: KeyGrid, digits: &str, budget: usize) -> Vec<String> {
     let mut prefixes = vec![String::new()];
     for digit in digits.bytes() {
-        let letters = letters_for_digit(digit);
+        let letters = grid.letters(digit);
         if letters.is_empty() || prefixes.len() * letters.len() > budget {
             break;
         }
@@ -2281,6 +2385,8 @@ fn letter_prefixes(digits: &str, budget: usize) -> Vec<String> {
 
 /// The syllables and spelling pieces digits can stand for, built once from the intact syllable list.
 struct SpellingTable {
+    /// 码按哪种键盘算。
+    grid: KeyGrid,
     /// Every complete syllable with its code, in list order.
     syllables: Vec<(String, String)>,
     intact: HashSet<String>,
@@ -2289,13 +2395,8 @@ struct SpellingTable {
     longest_code: usize,
 }
 
-fn spelling_table() -> &'static SpellingTable {
-    static TABLE: OnceLock<SpellingTable> = OnceLock::new();
-    TABLE.get_or_init(|| SpellingTable::new(intact_pinyin_list()))
-}
-
 impl SpellingTable {
-    fn new(syllables: &[&str]) -> Self {
+    fn build(grid: KeyGrid, syllables: &[&str]) -> Self {
         let prefix_capacity = syllables.iter().map(|syllable| syllable.len()).sum();
         let mut seen = HashSet::with_capacity(prefix_capacity);
         let mut by_code: HashMap<String, Vec<String>> = HashMap::with_capacity(prefix_capacity);
@@ -2306,16 +2407,17 @@ impl SpellingTable {
                     continue;
                 };
                 if seen.insert(prefix.to_string()) {
-                    let code = encode(prefix);
+                    let code = grid.encode(prefix);
                     longest_code = longest_code.max(code.len());
                     by_code.entry(code).or_default().push(prefix.to_string());
                 }
             }
         }
         Self {
+            grid,
             syllables: syllables
                 .iter()
-                .map(|syllable| (syllable.to_string(), encode(syllable)))
+                .map(|syllable| (syllable.to_string(), grid.encode(syllable)))
                 .collect(),
             intact: syllables
                 .iter()
@@ -2492,6 +2594,46 @@ mod tests {
     use super::*;
     use crate::types::CandidateSource;
     use rusqlite::Connection;
+
+    // 九键的单测按电话键盘写，这几个函数固定取九键。
+    fn encode(pinyin: &str) -> String {
+        KeyGrid::NineKey.encode(pinyin)
+    }
+
+    fn word_matches_digits(word: &str, digits: &str) -> bool {
+        super::word_matches_digits(KeyGrid::NineKey, word, digits)
+    }
+
+    fn initials_codes(digits: &str, limit: usize) -> Option<Vec<String>> {
+        super::initials_codes(KeyGrid::NineKey, digits, limit)
+    }
+
+    fn letter_prefixes(digits: &str, budget: usize) -> Vec<String> {
+        super::letter_prefixes(KeyGrid::NineKey, digits, budget)
+    }
+
+    fn spelling_table() -> &'static SpellingTable {
+        KeyGrid::NineKey.spelling_table()
+    }
+
+    fn fitting_syllables(prefix: &str, digits: &str) -> (usize, usize, bool) {
+        super::fitting_syllables(KeyGrid::NineKey, prefix, digits)
+    }
+
+    fn next_seeds(
+        candidates: &[WordItem],
+        digits: &str,
+        previous: &mut Vec<String>,
+        seeds: &mut Vec<String>,
+    ) {
+        super::next_seeds(KeyGrid::NineKey, candidates, digits, previous, seeds);
+    }
+
+    impl SpellingTable {
+        fn new(syllables: &[&str]) -> Self {
+            Self::build(KeyGrid::NineKey, syllables)
+        }
+    }
 
     // ---- Pure helpers ----
 
@@ -5364,5 +5506,369 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         sorted.sort_unstable();
         expected.sort_unstable();
         assert_eq!(sorted, expected, "{spellings:?}");
+    }
+
+    // ---- 14 键：同一套解码换一张码表，凡是与键盘有关的判断都按两种网格各跑一遍 ----
+
+    const GRIDS: [KeyGrid; 2] = [KeyGrid::NineKey, KeyGrid::FourteenKey];
+
+    /// 14 键的词库：nihao 和 buhao、xi'an 和 xian 在 14 键上是同一串组码。
+    const FOURTEEN_FIXTURE: &str = "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',100);CREATE TABLE tbl_1_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_b VALUES('bu','b','不',90);CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_h VALUES('hao','h','好',100);CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',1000);CREATE TABLE tbl_2_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_b VALUES('bu''hao','bh','不好',500);CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_x VALUES('xi','x','西',100),('xian','x','先',300);CREATE TABLE tbl_1_a(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_a VALUES('an','a','安',100);CREATE TABLE tbl_2_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_x VALUES('xi''an','xa','西安',800);CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_s VALUES('shi','s','是',1000),('shu','s','书',500);";
+
+    fn fourteen_key_session(paths: &RuntimePaths, english: EnglishInputOptions) -> NineKeySession {
+        let mut session = open(paths, false, english);
+        session.set_grid(KeyGrid::FourteenKey);
+        session
+    }
+
+    #[test]
+    fn grid_codes_come_from_the_printed_keys() {
+        for grid in GRIDS {
+            // 每个字母恰好印在一个键上，它的组码就是那个键。
+            let mut derived = [0u8; 26];
+            let codes: Vec<u8> = match grid {
+                KeyGrid::NineKey => (b'2'..=b'9').collect(),
+                KeyGrid::FourteenKey => FOURTEEN_KEY_GROUPS
+                    .iter()
+                    .map(|group| group.as_bytes()[0])
+                    .collect(),
+            };
+            for &code in &codes {
+                assert!(grid.is_code(code));
+                for letter in grid.letters(code).bytes() {
+                    let slot = &mut derived[usize::from(letter - b'a')];
+                    assert_eq!(*slot, 0, "{grid:?}: {} on two keys", char::from(letter));
+                    *slot = code;
+                }
+            }
+            assert_eq!(&derived, grid.keypad(), "{grid:?}");
+            for letter in b'a'..=b'z' {
+                let code = grid.code_of(letter).unwrap();
+                assert!(grid.letters(code).as_bytes().contains(&letter));
+            }
+            assert_eq!(grid.code_of(b'A'), None);
+            assert_eq!(grid.code_of(b'\''), None);
+            assert!(!grid.is_code(b'\'') && !grid.is_code(b'A') && !grid.is_code(b'1'));
+        }
+        assert_eq!(FOURTEEN_KEYPAD, b"abcdedggujjlmbooqeatucqztz");
+        assert_eq!(KeyGrid::FourteenKey.encode("ni'hao"), "bugao");
+        assert_eq!(KeyGrid::FourteenKey.letters(b'l'), "l");
+        assert_eq!(KeyGrid::FourteenKey.letters(b'w'), "", "w is not a code");
+        assert!(KeyGrid::NineKey.offers_raw_key());
+        assert!(!KeyGrid::FourteenKey.offers_raw_key());
+    }
+
+    #[test]
+    fn syllable_codes_per_grid() {
+        for (grid, expected) in [(KeyGrid::NineKey, 218), (KeyGrid::FourteenKey, 314)] {
+            let codes: HashSet<String> = intact_pinyin_list()
+                .iter()
+                .map(|syllable| grid.encode(syllable))
+                .collect();
+            assert_eq!(intact_pinyin_list().len(), 421);
+            assert_eq!(codes.len(), expected, "{grid:?}");
+        }
+    }
+
+    #[test]
+    fn fourteen_key_shares_codes_between_syllables() {
+        let grid = KeyGrid::FourteenKey;
+        for (code, syllables) in [
+            ("bu", ["bi", "bu", "ni", "nu"]),
+            ("zu", ["xi", "xu", "zi", "zu"]),
+        ] {
+            for syllable in syllables {
+                assert_eq!(grid.encode(syllable), code, "{syllable}");
+            }
+        }
+        assert_eq!(grid.encode("shi"), grid.encode("shu"));
+        // 跨音节的歧义：sha 和 a'ga 是同一串组码。
+        assert_eq!(grid.encode("sha"), grid.encode("a'ga"));
+        let paths = grid
+            .spelling_table()
+            .split_paths("aga", &[], &SyllablePrior::default());
+        assert!(paths.contains(&path(&["sha"])), "{paths:?}");
+        assert!(paths.contains(&path(&["a", "ga"])), "{paths:?}");
+        let table = grid.spelling_table();
+        let spellings = table.spellings_for("agu", 0, None, &SyllablePrior::default());
+        assert!(spellings.contains(&"shi".to_owned()) && spellings.contains(&"shu".to_owned()));
+    }
+
+    #[test]
+    fn grid_initials_expand_each_key_and_stop_at_keys_without_initials() {
+        assert_eq!(
+            super::initials_codes(KeyGrid::FourteenKey, "bg", 1024).unwrap(),
+            ["bg", "bh", "ng", "nh"]
+        );
+        // UI 键上的 u、i 都不起头音节，含它的串没有简拼。
+        assert!(super::initials_codes(KeyGrid::FourteenKey, "bug", 1024).is_none());
+        // 两个字母一键，十个键正好 1024 个码。
+        assert_eq!(
+            super::initials_codes(KeyGrid::FourteenKey, "qqqqqqqqqq", 1024)
+                .unwrap()
+                .len(),
+            1024
+        );
+        assert!(super::initials_codes(KeyGrid::FourteenKey, "qqqqqqqqqqq", 1024).is_none());
+        // 九键的 1 键同样没有字母。
+        assert!(super::initials_codes(KeyGrid::NineKey, "61", 1024).is_none());
+    }
+
+    #[test]
+    fn grid_letter_prefixes_and_english_matches() {
+        assert_eq!(
+            super::letter_prefixes(KeyGrid::FourteenKey, "oj", 64),
+            ["oj", "ok", "pj", "pk"]
+        );
+        assert_eq!(super::letter_prefixes(KeyGrid::FourteenKey, "l", 64), ["l"]);
+        assert!(super::word_matches_digits(KeyGrid::FourteenKey, "OK", "oj"));
+        assert!(super::word_matches_digits(KeyGrid::FourteenKey, "ok", "o"));
+        assert!(!super::word_matches_digits(
+            KeyGrid::FourteenKey,
+            "ok",
+            "ob"
+        ));
+        assert!(!super::word_matches_digits(KeyGrid::NineKey, "ok", "oj"));
+        assert!(super::keyword_spells_digits(
+            KeyGrid::FourteenKey,
+            "riqi",
+            "euqu"
+        ));
+        assert!(super::letters_spell_code(KeyGrid::FourteenKey, "ni", "bu"));
+        assert!(!super::letters_spell_code(KeyGrid::FourteenKey, "ni", "64"));
+    }
+
+    #[test]
+    fn fourteen_key_left_column_has_letters_but_no_raw_key() {
+        let fixture = fixture_with(FOURTEEN_FIXTURE);
+        let mut nine = open(&fixture.paths, false, EnglishInputOptions::default());
+        let mut fourteen = fourteen_key_session(&fixture.paths, EnglishInputOptions::default());
+        assert!(
+            !fourteen.character(b'6').handled,
+            "digits are not 14-key codes"
+        );
+        assert!(
+            !fourteen.character(b'w').handled,
+            "only the first letter is a code"
+        );
+        type_digits(&mut nine, "7");
+        type_digits(&mut fourteen, "q");
+        let spellings = fourteen.snapshot().nine_key_spellings;
+        assert_eq!(spellings[spellings.len() - 2..], ["Q", "W"]);
+        assert!(!spellings.contains(&"q".to_owned()), "{spellings:?}");
+        assert_eq!(
+            nine.snapshot()
+                .nine_key_spellings
+                .last()
+                .map(String::as_str),
+            Some("7")
+        );
+        fourteen.command(Command::Cancel);
+        // UI 键上的字母都不起头音节：没有字母项，也没有原样上屏项。
+        type_digits(&mut fourteen, "u");
+        assert!(fourteen.snapshot().nine_key_spellings.is_empty());
+        fourteen.command(Command::Cancel);
+        // AS GH UI：选择条里有 shi 和 shu。
+        type_digits(&mut fourteen, "agu");
+        let spellings = fourteen.snapshot().nine_key_spellings;
+        assert!(
+            spellings.starts_with(&["shi".to_owned(), "shu".to_owned()]),
+            "{spellings:?}"
+        );
+        assert_eq!(words(&fourteen)[..2], ["是", "书"]);
+        assert_eq!(fourteen.snapshot().nine_key_reading, "shi");
+    }
+
+    #[test]
+    fn fourteen_key_types_words_sentences_and_splits() {
+        let fixture = fixture_with(FOURTEEN_FIXTURE);
+        let mut session = fourteen_key_session(&fixture.paths, EnglishInputOptions::default());
+        // 你好：BN UI GH AS OP，与 不好 是同一串组码。
+        type_digits(&mut session, "bugao");
+        let view = session.snapshot();
+        assert_eq!(view.editing_text, "bugao");
+        assert_eq!(view.preedit, "bugao");
+        assert_eq!(words(&session)[..2], ["你好", "不好"]);
+        assert_eq!(view.nine_key_reading, "ni'hao");
+        assert_eq!(view.candidates[0].pinyin, "bugao");
+        let result = session.select(0);
+        assert_eq!(result.commit.as_deref(), Some("你好"));
+        assert!(!session.active());
+
+        // 不打切分时 zuab 也是 xian（先）；用分词键切开就是 西安。
+        type_digits(&mut session, "zu");
+        assert!(session.character(b'\'').handled);
+        type_digits(&mut session, "ab");
+        assert_eq!(session.snapshot().preedit, "zu'ab");
+        assert_eq!(words(&session).first().map(String::as_str), Some("西安"));
+        assert_eq!(session.snapshot().nine_key_reading, "xi'an");
+        assert!(!words(&session).contains(&"先".to_owned()));
+        session.command(Command::Cancel);
+        type_digits(&mut session, "zuab");
+        assert!(words(&session).contains(&"先".to_owned()));
+    }
+
+    #[test]
+    fn fourteen_key_locks_undoes_and_backspaces() {
+        let fixture = fixture_with(FOURTEEN_FIXTURE);
+        let mut session = fourteen_key_session(&fixture.paths, EnglishInputOptions::default());
+        type_digits(&mut session, "bu");
+        let spellings = session.snapshot().nine_key_spellings;
+        let ni = spellings
+            .iter()
+            .position(|spelling| spelling == "ni")
+            .unwrap();
+        assert!(session.choose_spelling(ni).handled);
+        assert_eq!(session.snapshot().preedit, "ni");
+        assert_eq!(words(&session).first().map(String::as_str), Some("你"));
+        // 组码全部锁定时退格先撤销锁定。
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.snapshot().preedit, "bu");
+        assert!(session.locked.is_empty());
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.snapshot().preedit, "b");
+        // 锁定之后还有没锁定的组码：退格删的是组码。
+        type_digits(&mut session, "ugao");
+        let spellings = session.snapshot().nine_key_spellings;
+        let bu = spellings
+            .iter()
+            .position(|spelling| spelling == "bu")
+            .unwrap();
+        assert!(session.choose_spelling(bu).handled);
+        assert_eq!(session.snapshot().preedit, "bu'gao");
+        assert_eq!(words(&session).first().map(String::as_str), Some("不好"));
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.snapshot().preedit, "bu'ga");
+        assert_eq!(session.locked, ["bu"]);
+        // 选首字母：W 限定下一个音节以 w 开头，退格撤销它。
+        session.command(Command::Cancel);
+        type_digits(&mut session, "q");
+        let spellings = session.snapshot().nine_key_spellings;
+        let w = spellings
+            .iter()
+            .position(|spelling| spelling == "W")
+            .unwrap();
+        assert!(session.choose_spelling(w).handled);
+        assert_eq!(session.snapshot().preedit, "w");
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.snapshot().preedit, "q");
+    }
+
+    #[test]
+    fn fourteen_key_mixes_english_words_and_reads_them() {
+        let fixture = fixture_with(FOURTEEN_FIXTURE);
+        let mut session = fourteen_key_session(&fixture.paths, mixed());
+        // OP JK：拼音读不通，出 ok，读音是这个词覆盖已打键数的字母。
+        type_digits(&mut session, "oj");
+        assert_eq!(words(&session).first().map(String::as_str), Some("ok"));
+        assert_eq!(session.snapshot().nine_key_reading, "ok");
+        session.command(Command::Cancel);
+        // 英文词比已打的键长时只读已打的那几个：OP LL → ol，首行是 old。
+        type_digits(&mut session, "ol");
+        assert_eq!(words(&session).first().map(String::as_str), Some("old"));
+        assert_eq!(session.snapshot().nine_key_reading, "ol");
+        let result = session.select(0);
+        assert_eq!(result.commit.as_deref(), Some("old"));
+        assert!(!session.active());
+    }
+
+    /// 读音行按首行的来源判定：九键下与按 `pinyin` 是否全是数字判定的结果相同，14 键下英文首行也有读音。
+    #[test]
+    fn reading_is_judged_by_where_the_leading_row_came_from() {
+        let mut nine = detached();
+        nine.digits = "94".into();
+        let mut fourteen = detached();
+        fourteen.grid = KeyGrid::FourteenKey;
+        fourteen.digits = "zu".into();
+        let pinyin_sources = [
+            CandidateSource::Database,
+            CandidateSource::UserDatabase,
+            CandidateSource::Generated,
+            CandidateSource::Fallback,
+            CandidateSource::NeuralKeyboard,
+        ];
+        for source in pinyin_sources {
+            assert_eq!(
+                nine.reading_for(Some(&spelled("西", "94", "xi", 1, source))),
+                "xi"
+            );
+            assert_eq!(
+                fourteen.reading_for(Some(&spelled("西", "zu", "xi", 1, source))),
+                "xi"
+            );
+            // 日期时间行是 `Generated`，没有规范读音。
+            assert_eq!(nine.reading_for(Some(&item("2026年", "94", 1, source))), "");
+        }
+        for source in [CandidateSource::Emoji, CandidateSource::Kaomoji] {
+            // emoji、颜文字行的 `pinyin` 是全部组码，没有规范读音。
+            assert_eq!(nine.reading_for(Some(&item("😀", "94", 1, source))), "");
+            assert_eq!(fourteen.reading_for(Some(&item("😀", "zu", 1, source))), "");
+        }
+        let english = item("xi", "xi", 1, CandidateSource::EnglishDictionary);
+        // 英文行的 `pinyin` 是查询键：九键下不全是数字，没有读音；14 键下是覆盖已打键数的字母。
+        assert_eq!(nine.reading_for(Some(&english)), "");
+        assert_eq!(fourteen.reading_for(Some(&english)), "xi");
+        let longer = item("Xian", "xian", 1, CandidateSource::EnglishDictionary);
+        assert_eq!(fourteen.reading_for(Some(&longer)), "xi");
+        assert_eq!(nine.reading_for(None), "");
+    }
+
+    #[test]
+    fn switching_grids_ends_the_composition() {
+        let fixture = fixture_with(FOURTEEN_FIXTURE);
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut session, "64426");
+        assert!(!session.sentence_seeds.is_empty());
+        session.set_grid(KeyGrid::FourteenKey);
+        assert!(!session.active());
+        assert!(session.sentence_seeds.is_empty());
+        assert!(!session.character(b'6').handled);
+        type_digits(&mut session, "bugao");
+        assert_eq!(words(&session).first().map(String::as_str), Some("你好"));
+    }
+
+    /// 原样上屏：九键上屏键入的数字；14 键的组码不是用户想写的字母（按「你好」的键是 `bugao`），改为结束组字取首选，锁定的音节照样算数；没有候选时只剩组码。
+    #[test]
+    fn fourteen_key_commit_raw_finishes_instead_of_writing_the_codes() {
+        let fixture = fixture_with(FOURTEEN_FIXTURE);
+        let mut nine = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut nine, "64426");
+        assert_eq!(
+            nine.command(Command::CommitRaw).commit.as_deref(),
+            Some("64426")
+        );
+
+        let mut session = fourteen_key_session(&fixture.paths, EnglishInputOptions::default());
+        type_digits(&mut session, "bugao");
+        assert_eq!(
+            session.command(Command::CommitRaw).commit.as_deref(),
+            Some("你好")
+        );
+        assert!(!session.active());
+        type_digits(&mut session, "bugao");
+        assert_eq!(session.finish(999).commit.as_deref(), Some("你好"));
+        assert!(!session.active());
+
+        type_digits(&mut session, "bu");
+        let bu = session
+            .snapshot()
+            .nine_key_spellings
+            .iter()
+            .position(|spelling| spelling == "bu")
+            .unwrap();
+        assert!(session.choose_spelling(bu).handled);
+        type_digits(&mut session, "gao");
+        assert_eq!(
+            session.command(Command::CommitRaw).commit.as_deref(),
+            Some("不好")
+        );
+
+        type_digits(&mut session, "qqq");
+        assert!(session.snapshot().candidates.is_empty());
+        assert_eq!(
+            session.command(Command::CommitRaw).commit.as_deref(),
+            Some("qqq")
+        );
+        assert!(!session.active());
     }
 }

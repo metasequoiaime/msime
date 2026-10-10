@@ -345,6 +345,7 @@ fn keyboard_layout(layout: TouchKeyboardLayout) -> &'static str {
         TouchKeyboardLayout::TwentySixKey => "twenty_six_key",
         TouchKeyboardLayout::NineKey => "nine_key",
         TouchKeyboardLayout::Handwriting => "handwriting",
+        TouchKeyboardLayout::FourteenKey => "fourteen_key",
     }
 }
 
@@ -800,6 +801,7 @@ pub fn apply_android_settings(
             "twenty_six_key" => TouchKeyboardLayout::TwentySixKey,
             "nine_key" => TouchKeyboardLayout::NineKey,
             "handwriting" => TouchKeyboardLayout::Handwriting,
+            "fourteen_key" => TouchKeyboardLayout::FourteenKey,
             _ => return None,
         };
         Some(())

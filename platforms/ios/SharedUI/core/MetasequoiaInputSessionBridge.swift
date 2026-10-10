@@ -53,8 +53,10 @@ private func msimeClientShuangpinKeyHints(_ profile: UnsafePointer<MSIMEByte>?, 
 private func msimeClientChooseNineKeySpelling(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_nine_key_filter")
 private func msimeClientSetNineKeyFilter(_ session: UInt64, _ singleCharacter: Bool, _ strokes: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
-@_silgen_name("msime_client_set_nine_key_mode")
-private func msimeClientSetNineKeyMode(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_set_key_grid")
+private func msimeClientSetKeyGrid(_ session: UInt64, _ grid: UInt8) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_grid_key")
+private func msimeClientGridKey(_ session: UInt64, _ letter: MSIMEByte) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_chinese_punctuation")
 private func msimeClientSetChinesePunctuation(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_ai_credential")
@@ -172,7 +174,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   /// paying for that several times over.
   let localMode: String
   let nineKeySpellings: [String]
-  /// 全拼九键组字时首选候选覆盖的数字写成拼音（`ning'bai`），给读音行显示；其他情况为空，这时照旧显示 `preedit`（全拼九键下仍是数字）。
+  /// 全拼九键和 14 键组字时首选候选覆盖的按键写成拼音（`ning'bai`；首选是英文词时是这个词的字母），给读音行显示；其他情况为空，这时照旧显示 `preedit`（九键下是数字，14 键下是组码字母）。
   let nineKeyReading: String
   /// 九键候选当前的筛选：只留单字，以及首字笔顺前缀（`hspnz`，空表示不按笔画）。组字结束时 Engine 把两者都清掉。
   let nineKeySingleCharacter: Bool
@@ -250,9 +252,14 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var documentRevision: UInt64 = 0
   private var appliedFuzzyPinyinRules: UInt32?
   private var suspended = false
-  // Nine-key lives on the session, not in the preferences the options carry, so a rebuilt session
-  // starts back on the 26-key layout unless it is told again.
-  private var nineKeyEnabled = false
+  /// 引擎的组码网格，取值与 `msime_client_set_key_grid` 的 `grid` 相同：0 不用网格（26 键），1 九键，2 全拼 14 键。
+  enum KeyGrid: UInt8 {
+    case none = 0
+    case nineKey = 1
+    case fourteenKey = 2
+  }
+  // 网格（九键或 14 键）是会话状态，不在选项带的偏好里，所以重建的会话要再告诉一次，否则会回到 26 键。
+  private var keyGrid = KeyGrid.none
   // The width, like nine-key, is session state the options do not carry, so a rebuilt session is told it again.
   private var fullwidth = false
   /// The keyboard's 中文标点 switch; nil until it is first set, so a rebuilt session keeps the document's value.
@@ -471,6 +478,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let layout: String
     switch selected {
     case .nineKey, .japaneseNineKey: layout = "nine_key"
+    case .fourteenKey: layout = "fourteen_key"
     case .handwriting: layout = "handwriting"
     default: layout = "twenty_six_key"
     }
@@ -1011,10 +1019,22 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func `switch`(toShuangpinProfile profile: String) -> MetasequoiaInputSnapshot {
     switchScheme("shuangpin", profile: profile)
   }
-  func switchToNineKey() -> MetasequoiaInputSnapshot {
-    guard updatePreferences({ $0["scheme"] = "quanpin" }) else { return diagnostic("九键模式切换失败") }
-    nineKeyEnabled = true
-    return dispatch { msimeClientSetNineKeyMode(handle, true) }
+  func switchToNineKey() -> MetasequoiaInputSnapshot { switchToKeyGrid(.nineKey) }
+  /// 全拼 14 键：方案是全拼，按键经 `gridKey` 送组码。
+  func switchToFourteenKey() -> MetasequoiaInputSnapshot { switchToKeyGrid(.fourteenKey) }
+
+  /// 先把方案切到全拼，再开网格：引擎只给全拼开九键和 14 键，方案改变时还会丢掉宿主之前设下的网格。只在组字结束后调用。
+  private func switchToKeyGrid(_ grid: KeyGrid) -> MetasequoiaInputSnapshot {
+    guard updatePreferences({ $0["scheme"] = "quanpin" }) else {
+      return diagnostic(grid == .fourteenKey ? "14 键模式切换失败" : "九键模式切换失败")
+    }
+    keyGrid = grid
+    return dispatch { msimeClientSetKeyGrid(handle, grid.rawValue) }
+  }
+
+  /// 14 键的一键：`letter` 是这一组的首字母（q e t u o a d g j l z c b m），引擎把整组当作一个组码。不在 14 键下、在本地模式里或 26 键正在组字时引擎不处理（`isHandled` 为 false），会话不变。
+  func gridKey(_ letter: String) -> MetasequoiaInputSnapshot {
+    dispatch { Self.ascii(letter).flatMap { msimeClientGridKey(handle, $0) } }
   }
   /// Tell the runtime the width it commits in; from then on every commit it completes arrives already converted.
   @discardableResult func setCharacterWidth(fullwidth: Bool) -> MetasequoiaInputSnapshot {
@@ -1155,10 +1175,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   /// Create and focus a session, then restore the state the prepared options do not carry.
   ///
-  /// Nine-key lives on the session, so every path that destroys and rebuilds one has to set it
-  /// again. Dictionary maintenance and snapshot activation rebuild as often as resuming does:
-  /// leaving the replay to the caller left the host drawing the nine-key layout over a 26-key
-  /// engine after the first personal-dictionary refresh of a keyboard appearance.
+  /// 九键和 14 键的网格在会话上，所以每条销毁再重建会话的路径都要把它再设一次。词库维护和快照激活与恢复一样频繁地重建会话：把重放留给调用方时，键盘出现后第一次刷新个人词库，宿主画的还是九键，引擎却已经回到 26 键。
   private func createFocusedSession() throws {
     // 选中只吃掉部分输入的候选时，让运行时把已选的那一段留在组字里而不是立刻上屏：用户还在打后
     // 半截，前半截已经进了文档的话，搜索框会拿半个词去搜，编辑器为它记一次撤销。键盘把它画在候选
@@ -1166,7 +1183,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     var requested = options
     requested["phrase_preedit"] = true
     handle = try Self.callCreateFocused(requested)
-    if nineKeyEnabled { _ = dispatch { msimeClientSetNineKeyMode(handle, true) } }
+    if keyGrid != .none { _ = dispatch { msimeClientSetKeyGrid(handle, keyGrid.rawValue) } }
     if fullwidth { _ = dispatch { msimeClientSetCharacterWidth(handle, true) } }
     if let chinesePunctuation { _ = dispatch { msimeClientSetChinesePunctuation(handle, chinesePunctuation) } }
     if aiCredential != nil { _ = applyAICredential() }
@@ -1306,8 +1323,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       if let profile { prefs["shuangpin_profile"] = profile }
     }
     guard updated else { return diagnostic("输入方案切换失败") }
-    nineKeyEnabled = false
-    return dispatch { msimeClientSetNineKeyMode(handle, false) }
+    keyGrid = .none
+    return dispatch { msimeClientSetKeyGrid(handle, KeyGrid.none.rawValue) }
   }
 
   private func command(_ value: UInt32) -> MetasequoiaInputSnapshot {

@@ -47,15 +47,17 @@ const available: TouchKeyboardScheme[] = [
 function Harness({
   initial,
   onPreferences,
+  offered = available,
 }: {
   initial: Preferences;
   onPreferences: (preferences: Preferences) => void;
+  offered?: TouchKeyboardScheme[];
 }) {
   const [preferences, setPreferences] = useState(initial);
   onPreferences(preferences);
   return (
     <LanguageCard
-      available={available}
+      available={offered}
       enabled={preferences.touch_keyboard_schemes?.enabled ?? defaultTouchKeyboardSchemes}
       selected={inferredTouchKeyboardScheme(preferences)}
       wubiProfile={preferences.wubi_profile}
@@ -80,13 +82,17 @@ function Harness({
   );
 }
 
-function renderCard(enabled: TouchKeyboardScheme[], selected?: TouchKeyboardScheme) {
+function renderCard(
+  enabled: TouchKeyboardScheme[],
+  selected?: TouchKeyboardScheme,
+  offered?: TouchKeyboardScheme[],
+) {
   let latest = base;
   const initial = selectHomeTouchKeyboardScheme(
     { ...base, touch_keyboard_schemes: { enabled } },
     selected ?? enabled[0],
   );
-  render(<Harness initial={initial} onPreferences={(next) => (latest = next)} />);
+  render(<Harness initial={initial} onPreferences={(next) => (latest = next)} offered={offered} />);
   return () => latest;
 }
 
@@ -148,6 +154,24 @@ test("the 普通话 sheet lists every offered scheme, with 双拼 and 五笔 as 
     touch_keyboard_schemes: { enabled: ["quanpin", "ziranma"], selected: "ziranma" },
   });
   expect(languageRow("普通话").textContent).toContain("双拼 · 自然码");
+});
+
+test("the 普通话 sheet offers 全拼 14 键 between 26 键 and 9 键 when the host has it", () => {
+  const preferences = renderCard(["quanpin"], undefined, [...available, "fourteen_key"]);
+
+  fireEvent.click(languageRow("普通话"));
+  const options = within(sheet())
+    .getAllByRole("button")
+    .filter((button) => button.hasAttribute("data-sheet-option"))
+    .map((button) => button.textContent?.replace(/\s*›$/, ""));
+  expect(options.slice(0, 3)).toEqual(["全拼", "全拼 14 键", "全拼 9 键"]);
+  fireEvent.click(within(sheet()).getByRole("button", { name: "全拼 14 键" }));
+  expect(preferences()).toMatchObject({
+    scheme: "quanpin",
+    touch_keyboard_layout: "fourteen_key",
+    touch_keyboard_schemes: { enabled: ["quanpin", "fourteen_key"], selected: "fourteen_key" },
+  });
+  expect(languageRow("普通话").textContent).toContain("全拼 14 键");
 });
 
 test("a 五笔 profile picked in its submenu sets the profile and switches to 五笔", () => {

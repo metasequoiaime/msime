@@ -250,20 +250,22 @@ public final class TypingStatisticsSummary {
         return shares(groups);
     }
 
-    /** 输入方式：26 键、9 键、语音、手写；AI 润色、回复和未分类不算输入方式，不计入。 */
+    /** 输入方式：26 键（九宫格和 14 键以外的所有键盘方案）、14 键、9 键、语音、手写；AI 润色、回复和未分类不算输入方式，不计入。与共享 UI 的 `summaryMethods` 一致。 */
     public static List<Share> methods(Map<String, Long> sources) {
         long nine = value(sources, "nineKey");
+        long fourteen = value(sources, "fourteenKey");
         long voice = value(sources, "voice");
         long handwriting = value(sources, "handwriting");
         long full = 0;
         for (Map.Entry<String, Long> entry : sources.entrySet()) {
             switch (entry.getKey()) {
-                case "nineKey", "voice", "handwriting", "unknown", "ai", "reply" -> { }
+                case "nineKey", "fourteenKey", "voice", "handwriting", "unknown", "ai", "reply" -> { }
                 default -> full += BoundsPolicy.nonNegative(entry.getValue());
             }
         }
-        Map<String, Long> groups = new LinkedHashMap<>(4);
+        Map<String, Long> groups = new LinkedHashMap<>(5);
         groups.put("26 键", full);
+        groups.put("14 键", fourteen);
         groups.put("9 键", nine);
         groups.put("语音", voice);
         groups.put("手写", handwriting);

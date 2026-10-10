@@ -403,6 +403,7 @@ impl IosKeyboardPreferences {
                 | "vietnamese"
                 | "tibetan"
                 | "stroke"
+                | "fourteenKey"
         ) && matches!(
             self.haptic_strength.as_str(),
             "light" | "medium" | "strong" | "system"
@@ -1234,6 +1235,18 @@ mod tests {
             dictionary_learning: false,
             global_theme: "custom".into(),
             custom_keyboard_skin: Some(r#"{"background":15269867}"#.into()),
+        }
+    }
+
+    /// 全拼 14 键的原生 id 是 `fourteenKey`，与 `MobilePlatformPlugin.schemeOrder` 一致。
+    #[test]
+    fn ios_keyboard_preferences_accept_the_fourteen_key_touch_scheme() {
+        let mut preferences = keyboard_preferences();
+        preferences.input_scheme = "fourteenKey".into();
+        assert!(preferences.is_valid());
+        for scheme in ["fourteen_key", "FourteenKey", "fourteen"] {
+            preferences.input_scheme = scheme.into();
+            assert!(!preferences.is_valid(), "{scheme}");
         }
     }
 

@@ -216,6 +216,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var nineKeyMiddleButton: UIButton?
   /// The four Dachen rows, shown instead of the letter rows while the Zhuyin scheme is active.
   private var zhuyinRowViews: [UIView] = []
+  /// 全拼 14 键的三排键（`FourteenKeyLayout`），中文模式下代替三排字母。
+  private var fourteenKeyRowViews: [UIView] = []
+  /// 14 键的各键和它代表的那一组字母，长按时据此找出弹出的字母。
+  private var fourteenKeyButtons: [(button: UIButton, key: FourteenKeyLayout.Key)] = []
+  /// 第三排两端分词键和 ⌫ 的宽度：手机上是 26 键 ⇧ 和 ⌫ 的 44pt，iPad 上是 26 键 ⇧ 占一排的比例（`applyTabletLetterKeys` 切换）。
+  private var fourteenKeyEdgeWidths: [(phone: NSLayoutConstraint, tablet: NSLayoutConstraint)] = []
+  /// 14 键第三排最左的键：组字时是「分词」，送 `'`；空闲时是「符」，打开符号面板，与九键的 1 键相同。
+  private weak var fourteenKeySeparatorButton: UIButton?
+  /// 14 键的拼音选择条：挂在读音行右侧，横向滚动，不盖住候选行。九键的拼音条仍在网格左侧的侧栏里。
+  private let readingSpellingScrollView = UIScrollView()
+  private let readingSpellingStack = UIStackView()
+  private var readingSpellingButtons: [UIButton] = []
+  /// 拼音选择条显示时给它留的最小宽度，读音再长也不会把它挤没；隐藏时停用，读音照旧占满这一行。
+  private var readingSpellingMinimumWidth: NSLayoutConstraint?
   // Symbol keys show the punctuation they actually emit in Chinese mode.
   private var symbolKeyFaces: [(key: UIButton, ascii: String, chinese: String)] = []
   /// 符号页第三排的 `=` 键：藏文方案下换成威利叠写用的 `+`（见 `symbolRowKey`）。
@@ -387,7 +401,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// UIKit 也为键盘自己的改动回调 `textWillChange`，而它会结束组字：没认出回声，一次留着剩余组字的上屏会在一轮之后把组字毁掉，下一键刚开始的组字也会被前一键迟到的回声结束。怎么认见 `OwnEditEchoWindow`。
   private var ownEditEcho = OwnEditEchoWindow()
   /// What 行内预编辑 last wrote into the host as marked text; empty when nothing is marked.
-  private var inlineMarkedText = ""
+  private(set) var inlineMarkedText = ""
 
   /// The chips the strip numbers, the page size the session was given (see CandidatePageSizePreference), so a digit picks the chip carrying its number. Everything past it is in the expanded panel.
   private var candidatePageSize: Int {
@@ -880,6 +894,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       zhuyinRowViews.append(rowView)
       keyColumn.addArrangedSubview(rowView)
     }
+    for (index, row) in FourteenKeyLayout.rows.enumerated() {
+      let rowView = makeFourteenKeyRow(row, includesEdges: index == FourteenKeyLayout.rows.count - 1)
+      rowView.isHidden = true
+      fourteenKeyRowViews.append(rowView)
+      keyColumn.addArrangedSubview(rowView)
+    }
     keyColumn.addArrangedSubview(makeNineKeyLayout())
     let japaneseSymbols = makeKey(title: "123", accessibilityLabel: "切换到数字和符号") { [weak self] in
       self?.countKeyPress(TypingKeyID.layer)
@@ -964,7 +984,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     root.yieldingKey = enterButton
     root.yieldReceiver = bottomLanguageButton
     installSplitGaps(in: root)
-    standardRowHeights = ([numberRow] + letterRowViews + zhuyinRowViews + symbolRowViews + symbolLayerRowViews).map {
+    // 分几步拼出来：写成一个长的 + 表达式时，编译器会在类型推断上超时。
+    var standardRows: [UIView] = [numberRow]
+    standardRows += letterRowViews
+    standardRows += zhuyinRowViews
+    standardRows += fourteenKeyRowViews
+    standardRows += symbolRowViews
+    standardRows += symbolLayerRowViews as [UIView]
+    standardRowHeights = standardRows.map {
       ($0, $0.heightAnchor.constraint(equalTo: actionRow.heightAnchor))
     }
     // Keep the three keypad rows the same height as the bottom controls.
@@ -1453,10 +1480,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let letters = Self.nineKeyLetters[key.tag] else { return }
     // The hold replaces the tap, so the press is counted here and the option picked from the menu is not a second one.
     countKeyPress(TypingKeyID.nineKey(key.tag))
-    showNineKeyHoldOptions(from: key, digit: key.tag, letters: letters)
+    showKeyHoldOptions(from: key, options: [String(key.tag)] + letters.lowercased().map(String.init))
   }
 
-  private func showNineKeyHoldOptions(from key: UIButton, digit: Int, letters: String) {
+  /// 长按菜单：九键 2–9 弹出数字和字母，14 键弹出这一键的字母。选中的一项先结束组字再原样上屏（`commitNineKeyHoldOption`）。
+  private func showKeyHoldOptions(from key: UIButton, options optionTexts: [String]) {
     dismissNineKeyHoldOptions()
     playInputClick()
     let skin = KeyboardTheme.current
@@ -1480,7 +1508,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     options.layoutMargins = UIEdgeInsets(top: 5, left: 5, bottom: 5, right: 5)
     options.translatesAutoresizingMaskIntoConstraints = false
 
-    for option in [String(digit)] + letters.lowercased().map(String.init) {
+    for option in optionTexts {
       let item = makeKey(title: option, accessibilityLabel: "输入 \(option)") { [weak self] in
         self?.commitNineKeyHoldOption(option)
       }
@@ -1579,6 +1607,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
     preeditButton.translatesAutoresizingMaskIntoConstraints = false
     compositionRow.addSubview(preeditButton)
+    installReadingSpellingStrip(in: compositionRow)
 
     let content = UIStackView(arrangedSubviews: [
       candidateScrollView, diagnosticLabel,
@@ -1655,6 +1684,36 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])
     return container
   }
+
+  /// 14 键的拼音选择条：读音右边、横向滚动的一行按钮，内容与九键左列相同（完整音节，再是下一键上能作声母的大写字母）。它只占读音行，不盖住下面的候选行，三端放在同一个位置。
+  private func installReadingSpellingStrip(in row: UIView) {
+    readingSpellingScrollView.accessibilityIdentifier = "readingSpellingStrip"
+    readingSpellingScrollView.showsHorizontalScrollIndicator = false
+    readingSpellingScrollView.disableEdgeEffects()
+    readingSpellingScrollView.isHidden = true
+    readingSpellingScrollView.translatesAutoresizingMaskIntoConstraints = false
+    readingSpellingStack.axis = .horizontal
+    readingSpellingStack.spacing = 4
+    readingSpellingStack.translatesAutoresizingMaskIntoConstraints = false
+    readingSpellingScrollView.addSubview(readingSpellingStack)
+    row.addSubview(readingSpellingScrollView)
+    readingSpellingMinimumWidth = readingSpellingScrollView.widthAnchor.constraint(
+      greaterThanOrEqualTo: row.widthAnchor, multiplier: Self.readingSpellingMinimumShare)
+    NSLayoutConstraint.activate([
+      readingSpellingScrollView.leadingAnchor.constraint(equalTo: preeditButton.trailingAnchor, constant: 4),
+      readingSpellingScrollView.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+      readingSpellingScrollView.topAnchor.constraint(equalTo: row.topAnchor),
+      readingSpellingScrollView.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+      readingSpellingStack.leadingAnchor.constraint(equalTo: readingSpellingScrollView.contentLayoutGuide.leadingAnchor),
+      readingSpellingStack.trailingAnchor.constraint(equalTo: readingSpellingScrollView.contentLayoutGuide.trailingAnchor),
+      readingSpellingStack.topAnchor.constraint(equalTo: readingSpellingScrollView.contentLayoutGuide.topAnchor),
+      readingSpellingStack.bottomAnchor.constraint(equalTo: readingSpellingScrollView.contentLayoutGuide.bottomAnchor),
+      readingSpellingStack.heightAnchor.constraint(equalTo: readingSpellingScrollView.frameLayoutGuide.heightAnchor),
+    ])
+  }
+
+  /// 拼音选择条显示时至少占读音行的这一份宽度；读音更长时由读音截断让出来。
+  static let readingSpellingMinimumShare: CGFloat = 0.5
 
   private func installShortcutBar(in container: UIView) {
     shortcutBar.axis = .horizontal
@@ -2029,32 +2088,56 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return spellingScrollView
   }
 
+  /// 拼音选择条：九键画在网格左侧的侧栏里（竖排），全拼 14 键画在读音行右侧（横排）。两处按钮各自复用，只有当前布局的那一处有内容。
   private func updateSpellingStrip() {
     let spellings = currentNineKeySpellings
-    while spellingButtons.count < spellings.count {
+    let inReadingRow = readingRowCarriesSpellings
+    fillSpellingButtons(&spellingButtons, in: spellingStack, spellings: inReadingRow ? [] : spellings, readingRow: false)
+    fillSpellingButtons(&readingSpellingButtons, in: readingSpellingStack, spellings: inReadingRow ? spellings : [],
+                        readingRow: true)
+    let readingStripShown = inReadingRow && !spellings.isEmpty
+    if readingSpellingScrollView.isHidden == readingStripShown { readingSpellingScrollView.isHidden = !readingStripShown }
+    readingSpellingMinimumWidth?.isActive = readingStripShown
+    spellingScrollView.setContentOffset(.zero, animated: false)
+    readingSpellingScrollView.setContentOffset(.zero, animated: false)
+    updateKeyboardLayoutIfNeeded()
+  }
+
+  /// 拼音选择条是否在读音行里：全拼 14 键是，九键的在侧栏里。
+  private var readingRowCarriesSpellings: Bool { typesFourteenKey }
+
+  /// 九键侧栏此刻画拼音选择条，而不是标点列。14 键的选择条在读音行里，借来的九键数字层侧栏照常画标点，与 Android、鸿蒙相同。
+  private var sidebarCarriesSpellings: Bool { !readingRowCarriesSpellings && !currentNineKeySpellings.isEmpty }
+
+  private func fillSpellingButtons(_ buttons: inout [UIButton], in stack: UIStackView, spellings: [String], readingRow: Bool) {
+    while buttons.count < spellings.count {
       let button = UIButton(type: .system)
       button.addAction(UIAction { [weak self, weak button] _ in
         guard let self, let button else { return }
         self.playInputClick()
         self.render(self.session.chooseNineKeySpelling(at: UInt(button.tag)))
       }, for: .primaryActionTriggered)
-      spellingButtons.append(button)
-      spellingStack.addArrangedSubview(button)
+      buttons.append(button)
+      stack.addArrangedSubview(button)
     }
-    for (index, button) in spellingButtons.enumerated() {
+    for (index, button) in buttons.enumerated() {
       guard spellings.indices.contains(index) else {
         button.isHidden = true
         continue
       }
       let spelling = spellings[index]
       // Drawn like the punctuation keys that share the sidebar: bare text in the key colour on the sidebar's own fill. The accent is kept for the reading and the chosen candidate.
+      // 读音行里的拼音条同样只画文字，字号比读音大一号，左右留出间距好点中，高度就是读音行的高度。
       var configuration = UIButton.Configuration.plain()
       configuration.title = spelling
       configuration.titleLineBreakMode = .byClipping
-      configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 2, bottom: 6, trailing: 2)
+      configuration.contentInsets = readingRow
+        ? NSDirectionalEdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6)
+        : NSDirectionalEdgeInsets(top: 6, leading: 2, bottom: 6, trailing: 2)
+      let size: CGFloat = readingRow ? Self.preeditFontSize + 1 : 14
       configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
         var attributes = attributes
-        attributes.font = .systemFont(ofSize: 14)
+        attributes.font = .systemFont(ofSize: size)
         return attributes
       }
       configuration.baseForegroundColor = KeyboardTheme.current.keyForeground
@@ -2063,10 +2146,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       button.tag = index
       button.isHidden = false
       button.accessibilityLabel = KeyboardNineKeyPanelColumns.spellingAccessibilityLabel(spelling)
-      button.accessibilityIdentifier = "nineKeySpelling_\(spelling)"
+      button.accessibilityIdentifier = (readingRow ? "readingSpelling_" : "nineKeySpelling_") + spelling
     }
-    spellingScrollView.setContentOffset(.zero, animated: false)
-    updateKeyboardLayoutIfNeeded()
   }
 
   /// Digits 1–0 for the full-size iPad keyboard. They go through the same path as the symbol layer's digits, so with a composition open 1–9 pick candidates as on the desktop.
@@ -2106,6 +2187,93 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     row.accessibilityIdentifier = "zhuyinRow"
     return row
   }
+
+  /// 全拼 14 键的一排（`FourteenKeyLayout`）。点一下把这一组的组码交给引擎（`handleFourteenKey`），长按弹出这一键的字母。键都用 `makeKey` 建，不进 `letterButtons` 和滑行的 `glideLetterKeys`，所以 Shift 的大小写、双拼键位提示、角标滑动和滑行输入都碰不到它们。第三排两端是分词键和 ⌫，第二排不缩进。
+  private func makeFourteenKeyRow(_ keys: [FourteenKeyLayout.Key], includesEdges: Bool) -> UIStackView {
+    let row = makeRow()
+    row.accessibilityIdentifier = "fourteenKeyRow"
+    for key in keys {
+      let button = makeKey(title: key.face, accessibilityLabel: key.accessibilityLabel) { [weak self] in
+        self?.countKeyPress(key.keyID)
+        self?.handleFourteenKey(key)
+      }
+      button.accessibilityIdentifier = "fourteenKey\(key.face)"
+      // 不画按键预览气泡，与九键和 Android、鸿蒙的 14 键相同：一键是一组字母，气泡里放大的键面说不出这一下打的是哪个字母。
+      applyLetterFont(to: button)
+      if !key.holdLetters.isEmpty {
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleFourteenKeyHold(_:)))
+        // 与九键的长按同一个时长，理由见 `makeNineKeyLayout`。
+        hold.minimumPressDuration = Self.nineKeyHoldDuration
+        button.addGestureRecognizer(hold)
+        button.accessibilityHint = "长按输入 " + key.holdLetters.joined(separator: " 或 ")
+      }
+      fourteenKeyButtons.append((button, key))
+      row.addArrangedSubview(button)
+    }
+    guard includesEdges else { return row }
+    let separator = makeKey(title: "", accessibilityLabel: "", function: true) { [weak self] in
+      self?.handleFourteenKeySeparator()
+    }
+    separator.configuration?.contentInsets = .zero
+    separator.configuration?.titleTextAttributesTransformer = Self.functionLabelTransformer
+    separator.accessibilityIdentifier = "fourteenKeySeparator"
+    fourteenKeySeparatorButton = separator
+    row.insertArrangedSubview(separator, at: 0)
+    updateFourteenKeySeparator()
+    let delete = makeDeleteKey()
+    delete.accessibilityIdentifier = "fourteenKeyDelete"
+    row.addArrangedSubview(delete)
+    row.distribution = .fill
+    let letters = Array(row.arrangedSubviews.dropFirst().dropLast())
+    NSLayoutConstraint.activate(letters.dropFirst().map { $0.widthAnchor.constraint(equalTo: letters[0].widthAnchor) })
+    fourteenKeyEdgeWidths = [separator, delete].map { edge in
+      (phone: edge.widthAnchor.constraint(equalToConstant: Self.phoneLetterEdgeWidth),
+       tablet: edge.widthAnchor.constraint(equalTo: row.widthAnchor, multiplier: Self.tabletFourteenKeyEdgeRatio))
+    }
+    return row
+  }
+
+  /// iPad 上 14 键第三排两端键占这一排的比例：26 键第三排是 ⇧、七个字母、，。、⇧，两个 ⇧ 各 `TabletLetterLayout.shiftWeight` 个键宽，一个 ⇧ 占这一排的这么多。
+  static let tabletFourteenKeyEdgeRatio: CGFloat = TabletLetterLayout.shiftWeight / (9 + 2 * TabletLetterLayout.shiftWeight)
+
+  /// 14 键的一键：把这一组的组码交给引擎。设置在键盘开着时被改掉、方案已经不是 14 键时，这次过期的点按什么也不做，组码不会落进别的方案。
+  private func handleFourteenKey(_ key: FourteenKeyLayout.Key) {
+    playInputClick()
+    guard isChineseMode else { return }
+    synchronizeInputSchemePreference()
+    guard typesFourteenKey else { return }
+    render(session.gridKey(key.code))
+  }
+
+  /// 14 键第三排的分词键，照搬九键的 1 键：组字时送 `'`，在已打的组码末尾定一个音节分界，只定在哪里断、不定是哪个拼音；空闲时打开符号面板。
+  private func handleFourteenKeySeparator() {
+    // 一个键一个键位 id：不论组字与否都记作符号键，与 Android、鸿蒙的 14 键相同。
+    countKeyPress(TypingKeyID.symbol)
+    if hasComposition {
+      handleCharacter("'")
+    } else {
+      showSymbolPanel()
+    }
+  }
+
+  /// 分词键的键面跟着组字状态在「符」和「分词」之间换，render 时调用。
+  private func updateFourteenKeySeparator() {
+    guard let button = fourteenKeySeparatorButton else { return }
+    let face = hasComposition ? "分词" : "符"
+    if button.configuration?.title != face { button.configuration?.title = face }
+    button.accessibilityLabel = hasComposition ? "拼音分词" : "符号"
+  }
+
+  /// 长按 14 键的一键：弹出这一键的字母，选中后与九键一样先结束组字，再上屏这个字母。长按取代这次点按，所以按键在这里记一次，菜单里选的那一项不再记。
+  @objc private func handleFourteenKeyHold(_ gesture: UILongPressGestureRecognizer) {
+    guard gesture.state == .began, let button = gesture.view as? UIButton,
+          let key = fourteenKeyButtons.first(where: { $0.button === button })?.key, !key.holdLetters.isEmpty else { return }
+    countKeyPress(key.keyID)
+    showKeyHoldOptions(from: button, options: key.holdLetters)
+  }
+
+  /// 14 键是否画在屏幕上并把按键交给引擎的 14 键网格：中文模式、方案是全拼 14 键、不在本地输入模式里。英文模式和本地输入模式画 26 键字母。
+  private var typesFourteenKey: Bool { isChineseMode && inputScheme == .fourteenKey && !isInLocalMode }
 
   private func makeLetterRow(_ letters: [Character], includesShift: Bool) -> UIStackView {
     let row = makeRow()
@@ -2773,6 +2941,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         && !("2"..."9").contains(character) && character != "'" {
         return
       }
+      // 全拼 14 键同理：它的键经 `gridKey` 送组码，这里只收分词键的 `'`；切到 14 键之前按下的 26 键字母不再开始一段 26 键组字。
+      if typesFourteenKey && character != "'" { return }
       // Korean sends the letter under the jamo on the key, in upper case for a tense consonant or an extra vowel, which is how the Engine tells ㄲ from ㄱ. The finished syllable, if this key started a new one, arrives as the snapshot's commit.
       if typesKorean, let key = DubeolsikKeyLayout.keyInput(for: character, shifted: letterCaseState != .lowercase) {
         render(session.handleCharacter(key, shifted: key != character))
@@ -3605,6 +3775,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func applyInputScheme() -> MetasequoiaInputSnapshot {
     switch inputScheme {
     case .nineKey: session.switchToNineKey()
+    case .fourteenKey: session.switchToFourteenKey()
     case .ziranma, .microsoft, .shoudao: session.switch(toShuangpinProfile: inputScheme.rawValue)
     case .wubi: session.switchToWubi()
     case .japanese, .japaneseNineKey: session.switchToJapanese()
@@ -4159,9 +4330,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 全拼九键正在组字时，展开的是三栏的九键面板；其他方案、注音九键和本地模式照旧是带「返回」和 ⌫ 底栏的候选网格。
+  /// 全拼九键或 14 键正在组字时，展开的是三栏的九键面板（单字和笔画筛选照常可用）；其他方案、注音九键和本地模式照旧是带「返回」和 ⌫ 底栏的候选网格。
   private var opensNineKeyPanel: Bool {
-    inputScheme == .nineKey && isChineseMode && hasComposition && !isInLocalMode
+    (inputScheme == .nineKey || inputScheme == .fourteenKey) && isChineseMode && hasComposition && !isInLocalMode
   }
 
   private func candidatePanelAnnotations(_ snapshot: CandidatePanelSnapshot) -> [KeyboardCandidateAnnotation] {
@@ -4435,6 +4606,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     var keyRows: [UIView] = letterRowViews
     if let numberRowView { keyRows.append(numberRowView) }
     keyRows += zhuyinRowViews
+    keyRows += fourteenKeyRowViews
     keyRows += symbolRowViews
     keyRows += symbolLayerRowViews as [UIView]
     keyRows += nineKeyRows
@@ -4481,7 +4653,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     KeyboardLayoutInputs(
       chinese: isChineseMode, scheme: inputScheme, localMode: currentLocalMode,
       symbols: showsSymbols, moreSymbols: showsMoreSymbols, globe: needsInputModeSwitchKey,
-      hasSpellings: !currentNineKeySpellings.isEmpty,
+      hasSpellings: sidebarCarriesSpellings,
       geometry: KeyboardLayoutPreference.geometry,
       formFactor: formFactor, fullKeys: KeyboardLayoutPreference.tabletFullKeys,
       split: wantsSplitKeyboard)
@@ -4570,6 +4742,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 笔画方案在九键外框里画它的 2×3 笔画键：沿用同样的标点侧栏、删除列和功能行。它的符号层与 Android 一样是设计稿的 123 / #+= 层，所以只有拼音网格保留自己的数字层。
     let strokes = isChineseMode && inputScheme.isStroke && !isInLocalMode
     let strokePad = strokes && !showsSymbols
+    // 全拼 14 键在三排字母的位置画它的三排键；123 与 26 键一样打开设计稿的 123 层（或按「26 键数字键盘」打开九宫格数字层），底行沿用手机 26 键底行。
+    let fourteenKey = typesFourteenKey
+    let fourteenKeyRows = fourteenKey && !showsSymbols
+    for row in fourteenKeyRowViews where row.isHidden == fourteenKeyRows { row.isHidden = !fourteenKeyRows }
+    updateFourteenKeySeparator()
     // 「26 键数字键盘」选了九宫格时，手机 26 键的 123 画成九键的数字层：同一个外框和同一组键，只有回到字母的键回到 26 键字母。
     let digitPad = showsSymbols && Self.opensNineKeyDigitPad(
       layout: twentySixKeyNumberLayout, formFactor: formFactor,
@@ -4577,11 +4754,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineKeyDigitPadShown = digitPad
     let nineKeyFrame = nineKey || strokePad || digitPad
     let symbolLayer = Self.drawsSymbolLayer(symbols: showsSymbols, nineKey: nineKey || digitPad, kana: kana, dachen: dachen)
-    let letterRowsShown = !(showsSymbols || nineKeyFrame || writes || kana || dachen)
+    let letterRowsShown = !(showsSymbols || nineKeyFrame || writes || kana || dachen || fourteenKey)
     letterRowViews.forEach { $0.isHidden = !letterRowsShown }
     applyTabletLetterKeys()
     let fullKeys = formFactor.canShowFullKeys && KeyboardLayoutPreference.tabletFullKeys
-    numberRowView?.isHidden = !fullKeys || showsSymbols || nineKeyFrame || writes || kana || dachen
+    numberRowView?.isHidden = !fullKeys || showsSymbols || nineKeyFrame || writes || kana || dachen || fourteenKey
     tabKey?.isHidden = !fullKeys
     let rowPunctuation = formFactor.showsLetterRowPunctuation
     for key in letterRowPunctuationKeys where key.isHidden == rowPunctuation { key.isHidden = !rowPunctuation }
@@ -4598,11 +4775,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineKeyRows.forEach { $0.isHidden = !nineKeyFrame || strokePad }
     applyNineKeyDigitLayer(nineKeyDigits)
     updateNineKeyMiddleKey()
-    let hasSpellings = !currentNineKeySpellings.isEmpty
+    let hasSpellings = sidebarCarriesSpellings
     spellingScrollView.isHidden = !hasSpellings
     punctuationStack.isHidden = hasSpellings
     if actionRow != nil {
-      let phoneRow = Self.usesPhoneBottomRow(formFactor: formFactor, nineKeyFrame: nineKeyFrame, handwriting: writes, kana: kana)
+      let phoneRow = Self.usesPhoneBottomRow(formFactor: formFactor, nineKeyFrame: nineKeyFrame, handwriting: writes, kana: kana,
+                                             fourteenKey: fourteenKeyRows)
       let tabletRow = Self.usesTabletBottomRow(formFactor: formFactor, letterRows: letterRowsShown)
       let style: ActionRowStyle = symbolLayer ? .symbolLayer : nineKeyFrame ? .nineKey : tabletRow ? .tablet : phoneRow ? .phone : .standard
       phoneBottomRowShown = style == .phone
@@ -4699,9 +4877,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updatePreferredKeyboardHeight()
   }
 
-  /// 底行是否为设计稿的手机底行（123 | ， | space | 。 | 中 | return）：手机键盘显示字母或大千符号行时是，任一设备形态上的手写板也是，与 Android 的 designEntries 给手写共用底行一致。九键外框和假名键保留自己的底行，123 / #+= 层自带一行（`ActionRowStyle.symbolLayer`），iPad 的字母也有自己的（`usesTabletBottomRow`）。
-  static func usesPhoneBottomRow(formFactor: KeyboardFormFactor, nineKeyFrame: Bool, handwriting: Bool, kana: Bool) -> Bool {
-    !nineKeyFrame && !kana && (handwriting || formFactor == .phone)
+  /// 底行是否为设计稿的手机底行（123 | ， | space | 。 | 中 | return）：手机键盘显示字母或大千符号行时是，任一设备形态上的手写板和全拼 14 键也是，与 Android 的 designEntries 给手写和 14 键共用底行一致（iPad 26 键底行的回车在第二排字母上，14 键没有那个位置）。九键外框和假名键保留自己的底行，123 / #+= 层自带一行（`ActionRowStyle.symbolLayer`），iPad 的字母也有自己的（`usesTabletBottomRow`）。
+  static func usesPhoneBottomRow(formFactor: KeyboardFormFactor, nineKeyFrame: Bool, handwriting: Bool, kana: Bool,
+                                 fourteenKey: Bool = false) -> Bool {
+    !nineKeyFrame && !kana && (handwriting || fourteenKey || formFactor == .phone)
   }
 
   /// 底行是否为 iPad 的 26 键底行（123 | 中 | space | 123 | ⌄，`TabletLetterLayout`）：平板键盘显示字母行时才是，因为这一行的回车在第二排字母上。
@@ -4723,6 +4902,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     } else {
       tabletShiftWidth?.isActive = false
       phoneShiftWidth?.isActive = true
+    }
+    // 14 键第三排两端的分词键和 ⌫ 跟着 26 键的 ⇧ 换宽度。
+    for width in fourteenKeyEdgeWidths {
+      if tablet {
+        width.phone.isActive = false
+        width.tablet.isActive = true
+      } else {
+        width.tablet.isActive = false
+        width.phone.isActive = true
+      }
     }
   }
 
@@ -5256,6 +5445,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let wasComposing = hasComposition
     let wasKoreanHanjaListOpen = koreanHanjaListOpen
     hasComposition = !snapshot.preedit.isEmpty
+    if hasComposition != wasComposing { updateFourteenKeySeparator() }
     // 菜单与工具栏共用顶栏，组字时顶栏会变成候选条；菜单打开时到来的组字（手写或回复结果）会把菜单关掉。
     if hasComposition && morePicker != nil { closeKeyboardPicker() }
     strokeKeys?.setComposing(hasComposition)
@@ -5270,7 +5460,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
     // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。行内预编辑关闭时（默认）编辑框里没有组字，候选条这一行就是用户唯一能看见它的地方；打开后按所选样式（原始按键或拼音分词）也作为标记文本写进编辑框。
-    // 全拼九键的 `preedit` 是数字，读音行显示 Engine 给的拼音读音（`ning'bai`）；没有读音时才退回数字。
+    // 全拼九键的 `preedit` 是数字、14 键的是组码字母，读音行显示 Engine 给的拼音读音（`ning'bai`；首选是英文词时是这个词的字母）；没有读音时才退回 `preedit`。
     let shownPreedit = !snapshot.nineKeyReading.isEmpty ? snapshot.nineKeyReading
       : inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit
     let composing = snapshot.phrasePrefix + shownPreedit
@@ -5281,7 +5471,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       && !snapshot.editingText.isEmpty && snapshot.editingText.allSatisfy(\.isASCII)
       ? (snapshot.editingText, snapshot.caretPosition) : nil
     let japaneseReading = inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : nil
-    showInlineComposition(hasComposition
+    // 全拼 14 键的组字是组码字母（`buguo`），写进输入框对用户没有意义，与 Android 一样不在输入框里标记，只显示在读音行上。英文模式和本地输入模式画 26 键，组字照常标记。
+    showInlineComposition(hasComposition && !typesFourteenKey
       ? InlineCompositionPolicy.markedText(
         inPlace: isChineseMode && inputScheme.composesInPlace, style: InlinePreeditPreference.style,
         drawsKeysAsGlyphs: isChineseMode && inputScheme.drawsKeysAsGlyphs, phrasePrefix: snapshot.phrasePrefix, preedit: snapshot.preedit,

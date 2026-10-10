@@ -298,7 +298,9 @@ impl Edition {
     pub fn offers_touch_scheme(&self, scheme: TouchKeyboardScheme) -> bool {
         let input = match scheme {
             TouchKeyboardScheme::Handwriting => return self.features.handwriting,
-            TouchKeyboardScheme::Quanpin | TouchKeyboardScheme::NineKey => InputScheme::Quanpin,
+            TouchKeyboardScheme::Quanpin
+            | TouchKeyboardScheme::NineKey
+            | TouchKeyboardScheme::FourteenKey => InputScheme::Quanpin,
             TouchKeyboardScheme::Xiaohe
             | TouchKeyboardScheme::Ziranma
             | TouchKeyboardScheme::Microsoft
@@ -784,6 +786,25 @@ mod tests {
         assert_eq!(
             offered,
             [TouchKeyboardScheme::Wubi, TouchKeyboardScheme::Handwriting]
+        );
+        // 全拼 14 键跟着全拼走：拼音版有，五笔版和日文版没有。
+        let pinyin = Edition::by_id("pinyin").unwrap();
+        let offered: Vec<_> = TouchKeyboardScheme::ALL
+            .into_iter()
+            .filter(|scheme| pinyin.offers_touch_scheme(*scheme))
+            .collect();
+        assert_eq!(
+            offered,
+            [
+                TouchKeyboardScheme::Quanpin,
+                TouchKeyboardScheme::NineKey,
+                TouchKeyboardScheme::Xiaohe,
+                TouchKeyboardScheme::Ziranma,
+                TouchKeyboardScheme::Microsoft,
+                TouchKeyboardScheme::Shoudao,
+                TouchKeyboardScheme::Handwriting,
+                TouchKeyboardScheme::FourteenKey,
+            ]
         );
         let japanese = Edition::by_id("japanese").unwrap();
         let offered: Vec<_> = TouchKeyboardScheme::ALL

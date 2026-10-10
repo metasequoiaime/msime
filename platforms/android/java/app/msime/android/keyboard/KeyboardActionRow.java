@@ -93,6 +93,7 @@ public final class KeyboardActionRow {
         if (touchLayout == KeyboardLayout.ZHUYIN_LAYOUT) return ZhuyinKeyboardLayout.LAYER_TITLE;
         if (touchLayout == KeyboardLayout.STROKE_LAYOUT) return StrokeKeyboardLayout.LAYER_TITLE;
         if (touchLayout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT) return ZhuyinNineKeyLayout.LAYER_TITLE;
+        if (touchLayout == KeyboardLayout.FOURTEEN_KEY_LAYOUT) return FourteenKeyLayout.LAYER_TITLE;
         return touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT ? "九键" : "ABC";
     }
 

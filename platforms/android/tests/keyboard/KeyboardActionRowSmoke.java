@@ -162,6 +162,10 @@ public final class KeyboardActionRowSmoke {
             "the digit page returns to 26 keys");
         check("九键".equals(KeyboardActionRow.layerTitle(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true)),
             "the digit page returns to the grid the user picked");
+        check("14键".equals(KeyboardActionRow.layerTitle(KeyboardLayout.FOURTEEN_KEY_LAYOUT, true))
+                && KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, false)
+                    .equals(KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false)),
+            "the fourteen-key keyboard keeps the 26-key bottom row and returns from its digit page by name");
         check("123".equals(KeyboardActionRow.layerTitle(KeyboardLayout.KOREAN_LAYOUT, false))
                 && "한".equals(KeyboardActionRow.layerTitle(KeyboardLayout.KOREAN_LAYOUT, true)),
             "the Korean digit page returns to the Hangul keycaps");

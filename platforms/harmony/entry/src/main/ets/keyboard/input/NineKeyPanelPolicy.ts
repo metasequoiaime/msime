@@ -46,10 +46,10 @@ export class NineKeyPanelPolicy {
   }
 
   /**
-   * 展开面板是否画成三栏：九键键面上的全拼正在组字时。英文、本地模式（rulesScheme 为 -1）、日语和其他方案仍是原来的整块候选面板，它们没有拼音栏可放，也没有九键筛选可用。
+   * 展开面板是否画成三栏：九键或 14 键键面（`gridFace`）上的全拼正在组字时，两种网格共用引擎的拼音栏和筛选。英文、本地模式（rulesScheme 为 -1）、日语和其他方案仍是原来的整块候选面板，它们没有拼音栏可放，也没有九键筛选可用。
    */
-  static threeColumn(nineKeyFace: boolean, rulesScheme: number, composing: boolean): boolean {
-    return nineKeyFace && rulesScheme === SchemeTraits.QUANPIN && composing;
+  static threeColumn(gridFace: boolean, rulesScheme: number, composing: boolean): boolean {
+    return gridFace && rulesScheme === SchemeTraits.QUANPIN && composing;
   }
 
   /** 面板里的 ⌫：笔画模式下有笔画就先撤一笔，否则交给引擎退格（引擎在全部锁定时撤销最后一次锁定，否则删一个数字）。 */

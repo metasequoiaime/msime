@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
-use crate::nine_key::NineKeySession;
+use crate::nine_key::{KeyGrid, NineKeySession};
 use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::types::{
     CandidateEdge, CandidateSource, Command, CommandTableEntry, CommandTranslationQuery, KeyResult,
@@ -35,7 +35,8 @@ pub use options::{SessionOptions, SessionSnapshot};
 pub struct Session {
     input: InputSession,
     nine_key: NineKeySession,
-    nine_key_enabled: bool,
+    /// 触屏的组码网格：九键的数字从 `character` 进来，14 键的字母从 `grid_key` 进来；`None` 是不用网格。
+    key_grid: Option<KeyGrid>,
     shuangpin_preedit_uses_raw: bool,
 }
 
@@ -69,7 +70,7 @@ impl Session {
         Ok(Session {
             input,
             nine_key,
-            nine_key_enabled: false,
+            key_grid: None,
             shuangpin_preedit_uses_raw: options.shuangpin_preedit_uses_raw,
         })
     }
@@ -91,7 +92,7 @@ impl Session {
     /// One ASCII character; `shift_only` is a bare Shift+letter (local mode entry). 全拼下九键开启且没有别的组字时，数字 2-9 交给九宫格会话；注音九键的数字由注音编辑器自己处理。
     pub fn character(&mut self, value: u8, shift_only: bool) -> KeyResult {
         // English is a mode rather than a scheme, so the grid stays available in it: the same digits spell words instead of syllables. A local mode still takes the keys, and the scheme underneath must be quanpin: 拼音九宫格只认得全拼音节，注音九键走注音编辑器。
-        if self.nine_key_enabled
+        if self.key_grid == Some(KeyGrid::NineKey)
             && self.input.scheme() == SchemeType::Quanpin
             && self.input.local_mode == LocalInputMode::None
             && self.input.preedit().is_empty()
@@ -119,13 +120,46 @@ impl Session {
         self.input.glide(keyboard, points)
     }
 
-    /// Cancels any nine-key digits first. Call with nothing composing when the keyboard layout changes. 同时切换注音编辑器的九键模式（注音组字会被丢掉）。
+    /// 九宫格（九键或 14 键）正在组字：这时的快照、命令和上屏都来自九宫格会话。
+    pub fn grid_composing(&self) -> bool {
+        self.nine_key.active()
+    }
+
+    /// `set_key_grid` 的九键开关：开是九键，关是不用网格。
     pub fn set_nine_key_enabled(&mut self, enabled: bool) {
+        self.set_key_grid(enabled.then_some(KeyGrid::NineKey));
+    }
+
+    /// 换触屏的组码网格，先丢掉网格里的组字，所以在换键盘布局、没有组字时调用。英文九键和注音九键只在九键下打开（注音组字会被丢掉）：14 键的英文模式画全键盘，注音没有 14 键。
+    pub fn set_key_grid(&mut self, grid: Option<KeyGrid>) {
         self.nine_key.command(Command::Cancel);
-        self.nine_key_enabled = enabled;
+        if let Some(grid) = grid {
+            self.nine_key.set_grid(grid);
+        }
+        self.key_grid = grid;
+        let nine_key = grid == Some(KeyGrid::NineKey);
         self.nine_key
-            .set_english_only(enabled && self.input.dedicated_english);
-        self.input.set_zhuyin_nine_key(enabled);
+            .set_english_only(nine_key && self.input.dedicated_english);
+        self.input.set_zhuyin_nine_key(nine_key);
+    }
+
+    /// 14 键的一键：`letter` 是这一组里的任一字母，由 `KeyGrid::code_of` 归成组码交给九宫格会话，宿主约定送这一组的首字母。不复用 `character`，因为硬件键盘的字母也走 `character`，物理 q 不能变成有歧义的 QW 组。只在 14 键、全拼、没有本地模式、不在专用英文里、26 键没有组字（或九宫格正在组字）时处理 `a`–`z`，其余不处理，状态不变。
+    pub fn grid_key(&mut self, letter: u8) -> KeyResult {
+        let Some(grid @ KeyGrid::FourteenKey) = self.key_grid else {
+            return KeyResult::unhandled();
+        };
+        let Some(code) = grid.code_of(letter) else {
+            return KeyResult::unhandled();
+        };
+        if self.input.scheme() != SchemeType::Quanpin
+            || self.input.local_mode != LocalInputMode::None
+            || self.input.dedicated_english
+            || !(self.input.preedit().is_empty() || self.nine_key.active())
+        {
+            return KeyResult::unhandled();
+        }
+        let result = self.nine_key.character(code);
+        self.after_nine_key(result)
     }
 
     /// 九宫格会话活跃时选它的拼写；否则在注音里钉目标音节的读音。
@@ -313,7 +347,7 @@ impl Session {
         self.input.set_dedicated_english_mode(enabled);
         // The grid's digits mean letters in English and syllables outside it, so whichever of the two switches moves last has to tell it.
         self.nine_key
-            .set_english_only(self.nine_key_enabled && enabled);
+            .set_english_only(self.key_grid == Some(KeyGrid::NineKey) && enabled);
     }
 
     pub fn set_wubi_mixed_pinyin(&mut self, enabled: bool) {

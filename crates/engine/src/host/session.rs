@@ -11,6 +11,7 @@ use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::helpcode::{compute_helpcodes, load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};
 use crate::local::database::LocalDatabaseLease;
+use crate::nine_key::KeyGrid;
 use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::pinyin::segment::is_complete_pinyin_input;
 use crate::types::{
@@ -62,8 +63,10 @@ pub struct EngineSnapshot {
     /// The non-letter characters `character` takes in this state (`SessionSnapshot::spelling_symbols`): send one of these as a character, never as punctuation.
     pub spelling_symbols: String,
     pub dedicated_english: bool,
-    /// Mirrors `set_nine_key_enabled`; the engine snapshot has no such flag.
+    /// 九键组码网格开着（`set_key_grid` 设成九键，或 `set_nine_key_enabled(true)`）；14 键下为假。引擎快照里没有这个标志，由这里转述。
     pub nine_key: bool,
+    /// `set_key_grid` 设下的组码网格，`None` 是不用网格。九键和 14 键共用 `nine_key_*` 那几项。
+    pub key_grid: Option<KeyGrid>,
     pub nine_key_spellings: Vec<String>,
     /// `SessionSnapshot::nine_key_reading`.
     pub nine_key_reading: String,
@@ -71,6 +74,8 @@ pub struct EngineSnapshot {
     pub nine_key_single_character: bool,
     /// `SessionSnapshot::nine_key_strokes`.
     pub nine_key_strokes: String,
+    /// 这次组字是在九宫格（九键或 14 键）里打的，见 [`crate::Session::grid_composing`]。`key_grid` 开着时硬件键盘的字母照样走全拼 26 键，这一项分得清两者。
+    pub grid_composing: bool,
     /// 当前方案是双拼，且韵母或零声母编码用 `;` 作第二键：宿主把 `;` 当作字母键送给 Engine。字段名沿用微软双拼，是宿主已经在读的契约。
     pub microsoft_shuangpin: bool,
     pub shuangpin_profile: String,
@@ -126,7 +131,7 @@ pub struct OnlineQuerySnapshot {
 pub struct Session {
     inner: crate::session::Session,
     options: EngineOptions,
-    nine_key: bool,
+    key_grid: Option<KeyGrid>,
     microsoft_shuangpin: bool,
     shuangpin_profile: String,
     helpcode_keymap: Option<SharedKeymap>,
@@ -157,7 +162,7 @@ impl Session {
         Ok(Session {
             inner,
             options: options.clone(),
-            nine_key: false,
+            key_grid: None,
             microsoft_shuangpin: options.scheme == SchemeType::Shuangpin as u8
                 && profile.uses_semicolon_key(),
             shuangpin_profile: profile.kind.name().to_owned(),
@@ -186,11 +191,13 @@ impl Session {
             local_mode: value.local_mode.name().to_owned(),
             spelling_symbols: value.spelling_symbols,
             dedicated_english: value.dedicated_english,
-            nine_key: self.nine_key,
+            nine_key: self.key_grid == Some(KeyGrid::NineKey),
+            key_grid: self.key_grid,
             nine_key_spellings: value.nine_key_spellings,
             nine_key_reading: value.nine_key_reading,
             nine_key_single_character: value.nine_key_single_character,
             nine_key_strokes: value.nine_key_strokes,
+            grid_composing: self.inner.grid_composing(),
             microsoft_shuangpin: self.microsoft_shuangpin,
             shuangpin_profile: self.shuangpin_profile.clone(),
             preedit: value.preedit,
@@ -454,9 +461,19 @@ impl Session {
     }
 
     pub fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<()> {
-        self.inner.set_nine_key_enabled(enabled);
-        self.nine_key = enabled;
+        self.set_key_grid(enabled.then_some(KeyGrid::NineKey))
+    }
+
+    /// 见 [`crate::Session::set_key_grid`]。快照的 `nine_key` 只在九键下为真。
+    pub fn set_key_grid(&mut self, grid: Option<KeyGrid>) -> Result<()> {
+        self.inner.set_key_grid(grid);
+        self.key_grid = grid;
         Ok(())
+    }
+
+    /// 14 键的一键，见 [`crate::Session::grid_key`]；不是当前网格的字母时不处理，状态不变。
+    pub fn grid_key(&mut self, letter: u8) -> Result<EngineResult> {
+        Ok(result_for(self.inner.grid_key(letter)))
     }
 
     /// 滑行的一笔，见 [`crate::Session::glide`]。
@@ -598,8 +615,9 @@ impl Session {
         result_for(KeyResult::committed(raw))
     }
 
-    /// Windows learns an entered word only on Enter: letters committed raw in dedicated English, a local mode, or pinyin that is not a complete syllable sequence are learned as an English word (bridge.cpp:1332-1359).
+    /// Windows 只在回车时学词：专用英文、本地模式里原样上屏的字母，以及不是完整音节序列的拼音，学成英文词（bridge.cpp:1332-1359）。九宫格（九键、14 键）组字时上屏的不是用户逐个打出的字母：九键是数字，14 键是结束组字后的首选，都不学成英文词。
     fn commit_raw_with_policy(&mut self) -> EngineResult {
+        let grid_composing = self.inner.grid_composing();
         let before = self.inner.snapshot();
         let chinese_scheme = before.scheme.learns_english_words();
         let complete_pure_pinyin = chinese_scheme && {
@@ -613,6 +631,7 @@ impl Session {
         // 计算、指令和名单模式里是算式、触发词或键，网址也不是英文单词，都不是用户拼出的词，不进英文词库。
         // 整句改字时回车上屏的是改好的汉字，不是拼出来的字母。
         let should_learn = before.conversion.is_empty()
+            && !grid_composing
             && !before.local_mode.generates_text()
             && before.local_mode != LocalInputMode::Url
             && (before.dedicated_english

@@ -36,7 +36,10 @@ public final class KeyPressIds {
         "NumpadMultiply", "NumpadDivide", "NumLock",
         "Nine0", "Nine1", "Nine2", "Nine3", "Nine4", "Nine5", "Nine6", "Nine7", "Nine8", "Nine9",
         "SoftPunctuation", "SoftSymbol", "SoftLayer", "SoftLanguage", "SoftGlobe", "SoftEmoji",
-        "SoftVoice");
+        "SoftVoice",
+        "FourteenQW", "FourteenER", "FourteenTY", "FourteenUI", "FourteenOP", "FourteenAS",
+        "FourteenDF", "FourteenGH", "FourteenJK", "FourteenL", "FourteenZX", "FourteenCV",
+        "FourteenBN", "FourteenM");
 
     private static final Set<String> KNOWN = Set.copyOf(KEY_IDS);
 
@@ -164,6 +167,7 @@ public final class KeyPressIds {
         if (id.length() == 4 && id.startsWith("Key")) return id.substring(3);
         if (id.length() == 6 && id.startsWith("Digit")) return id.substring(5);
         if (id.length() == 5 && id.startsWith("Nine")) return "九键 " + id.substring(4);
+        if (id.startsWith("Fourteen") && id.length() > 8) return "14 键 " + id.substring(8);
         if (id.startsWith("Numpad") && id.length() == 7) return "小键盘 " + id.substring(6);
         if (id.matches("F[0-9]{1,2}")) return id;
         return switch (id) {

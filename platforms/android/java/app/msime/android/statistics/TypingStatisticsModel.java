@@ -47,7 +47,7 @@ public final class TypingStatisticsModel {
     private static final Map<String, String> CHARACTER_KINDS = kinds();
     private static final Map<String, String> SOURCES = sources();
     private static final List<String> CHINESE_SOURCES = List.of(
-        "quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
+        "quanpin", "nineKey", "fourteenKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
         "cantonese", "zhuyin", "stroke");
 
     private final boolean enabled;
@@ -295,9 +295,10 @@ public final class TypingStatisticsModel {
     }
 
     private static Map<String, String> sources() {
-        Map<String, String> titles = new LinkedHashMap<>(21);
+        Map<String, String> titles = new LinkedHashMap<>(22);
         titles.put("quanpin", "全拼 26 键");
         titles.put("nineKey", "全拼 9 键");
+        titles.put("fourteenKey", "全拼 14 键");
         titles.put("shuangpin", "小鹤双拼");
         titles.put("ziranma", "自然码双拼");
         titles.put("microsoft", "微软双拼");

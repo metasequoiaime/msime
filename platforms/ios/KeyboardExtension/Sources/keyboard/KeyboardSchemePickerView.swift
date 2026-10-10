@@ -39,7 +39,7 @@ final class KeyboardSchemePickerView: UIView {
     var tiles: [KeyboardSchemeTileView] = schemes.map { scheme in
       let glyph: String
       let badge: String
-      // 瓷砖全部走皮肤的颜色：未选中用按键文字色，选中用强调色。字形本来就两两不同(拼26/拼9/鹤双/自双/微双/S双/五86/あ26/あ9/한26/粤26/注大千/越26/藏26/笔5/写手/EN26)，分辨靠读字，不靠给每一族配一个不跟皮肤走的系统色。
+      // 瓷砖全部走皮肤的颜色：未选中用按键文字色，选中用强调色。字形本来就两两不同(拼26/拼9/拼14/鹤双/自双/微双/S双/五86/あ26/あ9/한26/粤26/注大千/越26/藏26/笔5/写手/EN26)，分辨靠读字，不靠给每一族配一个不跟皮肤走的系统色。
       switch scheme {
       case .quanpin: glyph = "拼"; badge = "26"
       case .nineKey: glyph = "拼"; badge = "9"
@@ -58,6 +58,7 @@ final class KeyboardSchemePickerView: UIView {
       // 角标是五个笔画键，与 Android、鸿蒙的卡片一致。
       case .stroke: glyph = "笔"; badge = "5"
       case .handwriting: glyph = "写"; badge = "手"
+      case .fourteenKey: glyph = "拼"; badge = "14"
       }
       return KeyboardSchemeTileView(
         title: scheme.title, face: .glyph(glyph, badge: badge), selected: isChineseMode && scheme == selected,

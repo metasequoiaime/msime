@@ -44,14 +44,18 @@ final class ImeLetterRows {
     /** 123 / #+= 层建的时候用的标点：全角中文或半角英文。中文标点开关变了要重建，否则键面和上屏的还是旧的。 */
     private Boolean builtLayerPunctuation;
 
-    /** 新设计的 123 / #+= 层画在哪些界面上：26 键（含韩文键面）以及把符号页交给 26 键行的手写、笔画和注音 9 键。这一层的字符键原样上屏、不经 Engine，所以注音 9 键的数字页不会被读成音键；大千注音的数字和标点键另有用途，保留原符号行。 */
+    /** 新设计的 123 / #+= 层画在哪些界面上：26 键（含韩文键面）、底行与 26 键相同的 14 键，以及把符号页交给 26 键行的手写、笔画和注音 9 键。这一层的字符键原样上屏、不经 Engine，所以注音 9 键的数字页不会被读成音键；大千注音的数字和标点键另有用途，保留原符号行。 */
     static boolean drawsDesignLayer(int touchLayout) {
         return touchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT
             || touchLayout == KeyboardLayout.KOREAN_LAYOUT
+            || touchLayout == KeyboardLayout.FOURTEEN_KEY_LAYOUT
             || touchLayout == KeyboardLayout.HANDWRITING_LAYOUT
             || touchLayout == KeyboardLayout.STROKE_LAYOUT
             || touchLayout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
     }
+
+    /** 14 键第 3 行左端的分词键；键面随组字状态在「符」和「分词」之间换（{@link #updateFourteenKeySeparator}）。不在 14 键字母层时为 null。 */
+    private Button fourteenSeparatorKey;
 
     /** 偏好里的一个布尔触控开关。 */
     private boolean touchPreference(String key) {
@@ -442,6 +446,7 @@ final class ImeLetterRows {
         s.japaneseReturnKey = null;
         s.japaneseSymbolsKey = null;
         s.japaneseVariantsButton = null;
+        fourteenSeparatorKey = null;
         s.keyRows.removeAllViews();
         if (s.displayedTouchLayout(s.view) == MSIMEInputService.JAPANESE_NINE_KEY_LAYOUT) {
             s.imeLayoutRows.rebuildJapaneseNineKeyRows();
@@ -472,6 +477,13 @@ final class ImeLetterRows {
         if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS
             && s.displayedTouchLayout(s.view) == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT) {
             s.imeLayoutRows.rebuildZhuyinNineKeyRows();
+            s.imeStyler.applyKeyboardGeometry();
+            return;
+        }
+        // 14 键只在字母层画自己的三行；123 层与 26 键相同（新设计层，或偏好选了九宫格时借用拼音九键的数字键面）。
+        if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && s.displayedTouchLayout(s.view) == KeyboardLayout.FOURTEEN_KEY_LAYOUT) {
+            rebuildFourteenKeyRows();
             s.imeStyler.applyKeyboardGeometry();
             return;
         }
@@ -635,6 +647,71 @@ final class ImeLetterRows {
             }
         }
         s.imeStyler.applyKeyboardGeometry();
+    }
+
+    /**
+     * 全拼 14 键的字母层：{@link FourteenKeyLayout} 的三行，和 26 键字母行同样三行等高、按同样的方式分摊键盘高度调整，底行仍是 26 键的功能行，所以键盘总高与 26 键相同。
+     *
+     * <p>点按经 {@link MSIMEInputService#gridKey} 送这一组的首字母，不走 {@link MSIMEInputService#type}（辅助码、微软双拼 `;`、英文直出都按单个确定的字母处理）。第 2 行不缩进、没有微软双拼的 `;`；第 3 行左端是分词键（组字时送 `'`，空闲时打开符号面板，照搬九键 1 键），右端是 ⌫，两端宽度沿用 26 键 ⇧ ⌫ 的份额。中文 14 键没有 Shift、角标和滑动输入符号。长按两字母键弹出这两个字母，选中后先结束组字再上屏，与九键长按相同。拼音选择条挂到读音行右侧（{@link ImeLayoutRows#attachReadingRowSpellings}），不盖住候选行。
+     */
+    private void rebuildFourteenKeyRows() {
+        s.imeLayoutRows.dismissNineKeyHoldOptions();
+        boolean composing = s.hasEngineComposition();
+        java.util.List<java.util.List<FourteenKeyLayout.Key>> rows = FourteenKeyLayout.rows();
+        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
+            LinearLayout row = KeyboardGeometry.row(s);
+            row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
+                rows.size(), rowIndex, true));
+            s.keyRows.addView(row, KeyboardGeometry.matchWidthWrapParams());
+            boolean last = rowIndex == rows.size() - 1;
+            if (last) {
+                Button separator = s.keyId(s.keyboardKey(FourteenKeyLayout.separatorFace(composing),
+                    FourteenKeyLayout.separatorDescription(composing), this::fourteenKeySeparator),
+                    "SoftSymbol");
+                KeyboardGeometry.setKeyTextSize(separator, 15);
+                if (separator instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+                fourteenSeparatorKey = separator;
+                row.addView(separator, KeyboardGeometry.weightedMatchParentParams(
+                    KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT));
+            }
+            for (FourteenKeyLayout.Key key : rows.get(rowIndex)) {
+                Button keyButton = s.keyId(s.keyboardKey(FourteenKeyLayout.face(key),
+                    FourteenKeyLayout.description(key), () -> s.gridKey(key.input())),
+                    FourteenKeyLayout.keyId(key));
+                keyButton.setContentDescription(FourteenKeyLayout.accessibilityLabel(key));
+                KeyboardGeometry.setKeyTextSize(keyButton, 22);
+                if (keyButton instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+                String letters = FourteenKeyLayout.holdLetters(key);
+                if (!letters.isEmpty()) {
+                    keyButton.setOnLongClickListener(ignored -> {
+                        // 长按是这个键的一次按压，之后从弹窗里选的不是另一次按键。
+                        s.countKey(keyButton);
+                        s.imeLayoutRows.showNineKeyHoldOptions(keyButton, "", letters);
+                        return true;
+                    });
+                }
+                row.addView(keyButton, KeyboardGeometry.weightedMatchParentParams(FourteenKeyLayout.LETTER_WEIGHT));
+            }
+            if (last) addLetterRowEdgeKey(row, s.deleteButton, row.getChildCount(),
+                KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT);
+        }
+        s.imeLayoutRows.attachReadingRowSpellings();
+    }
+
+    /** 分词键：组字时送 `'`，在已打的组码末尾定一个音节分界；空闲时打开符号面板。 */
+    private void fourteenKeySeparator() {
+        if (s.hasEngineComposition()) s.character('\'', false);
+        else s.imePanels.showSymbolPanel();
+    }
+
+    /** 分词键的键面跟着组字状态在「符」和「分词」之间换，render 时调用。 */
+    void updateFourteenKeySeparator() {
+        if (fourteenSeparatorKey == null) return;
+        boolean composing = s.hasEngineComposition();
+        String face = FourteenKeyLayout.separatorFace(composing);
+        if (face.contentEquals(fourteenSeparatorKey.getText())) return;
+        fourteenSeparatorKey.setText(face);
+        fourteenSeparatorKey.setContentDescription("按键 " + FourteenKeyLayout.separatorDescription(composing));
     }
 
     /**

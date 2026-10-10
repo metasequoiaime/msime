@@ -2,10 +2,11 @@ import Foundation
 
 enum ChineseInputScheme: String, CaseIterable {
   // 「高情商回复」已改为工具栏入口，不再是方案。旧版存下的 `thoughtfulReply`（App Group）或 `thoughtful_reply`（共享文档）在这里认不出来，与其他未知值一样走 `InputSchemePreference` 的回退：已选的落到全拼 26 键或第一个可用方案，启用列表里直接忽略。
-  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japaneseNineKey, japanese, korean, handwriting, cantonese, zhuyin, vietnamese, tibetan, stroke
+  // 全拼 14 键排在最后：方案按 client-core 的 `TouchKeyboardScheme::ALL` 只往后追加，启用列表也按这个顺序写回文档。
+  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japaneseNineKey, japanese, korean, handwriting, cantonese, zhuyin, vietnamese, tibetan, stroke, fourteenKey
 
-  /// 全新安装默认不打开、要用户自己启用的方案，与设置宿主一致（MobilePlatformPlugin 里的 `optInSchemes`）。
-  static let optInSchemes: [ChineseInputScheme] = [.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke]
+  /// 全新安装默认不打开、要用户自己启用的方案，与设置宿主一致（MobilePlatformPlugin 里的 `optInSchemes`）。全拼 14 键也不默认打开，与 client-core 的 `DEFAULT_ENABLED` 一致。
+  static let optInSchemes: [ChineseInputScheme] = [.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey]
 
   var isJapanese: Bool { self == .japanese || self == .japaneseNineKey }
 
@@ -48,13 +49,13 @@ enum ChineseInputScheme: String, CaseIterable {
   /// Whether the scheme reads a dictionary that ships apart from the resource set, and so is offered only where it is installed.
   var needsLanguageDictionary: Bool { isCantonese || isZhuyin || isStroke }
 
-  /// Whether a held backspace and a quick space-bar flick edit the spelling a syllable at a time. Only a lettered pinyin spelling has syllables to step over: a nine-key digit run is still ambiguous, and a wubi code is not made of syllables, so those keep a hold that clears the composition.
+  /// 长按退格和空格键快速轻扫是否按音节编辑拼写。只有用字母写的拼音才有音节可跳：九键的一串数字仍有歧义，五笔码不由音节组成，所以它们长按时整段清除组字。全拼 14 键的组字是组码，同样有歧义，与九键一样整段清除。
   var editsBySyllable: Bool { self == .quanpin || shuangpinProfile != nil }
 
   /// 这个入口背后的输入方案，即版本表和共享偏好 `scheme` 里的方案名。手写的识别由平台识别器完成，不属于任何一个方案，这里的 `quanpin` 只用来归类；它写进偏好的方案见 `MetasequoiaInputSessionBridge.schemeMapping`。
   var engineScheme: String {
     switch self {
-    case .quanpin, .nineKey, .handwriting: "quanpin"
+    case .quanpin, .nineKey, .fourteenKey, .handwriting: "quanpin"
     case .shuangpin, .ziranma, .microsoft, .shoudao: "shuangpin"
     case .wubi: "wubi"
     case .japanese, .japaneseNineKey: "japanese"
@@ -107,12 +108,14 @@ enum ChineseInputScheme: String, CaseIterable {
     case .vietnamese: "vietnamese"
     case .tibetan: "tibetan"
     case .stroke: "stroke"
+    case .fourteenKey: "fourteen_key"
     }
   }
   /// 这个方案在云端设置文档里的 `input.schema`，云端带不了的方案为 nil。云端只认 quanpin、shuangpin、wubi、japanese 和 korean，任何设备收到其他值都会拒绝整份文档（`IOSPreferencePlan`），所以粤拼、注音、越南语、藏文和笔画不写这个字段，保留账号里的方案，与 Tauri 的 `local_account_preferences` 一致。
   var cloudSchema: String? {
     switch self {
-    case .quanpin, .nineKey, .handwriting: "quanpin"
+    // 全拼 14 键在云端还没有自己的键，按全拼上传（`platform.ios.nine_key` 为 false），在别的设备上落成全拼 26 键。
+    case .quanpin, .nineKey, .fourteenKey, .handwriting: "quanpin"
     case .shuangpin, .ziranma, .microsoft, .shoudao: "shuangpin"
     case .wubi: "wubi"
     case .japanese, .japaneseNineKey: "japanese"
@@ -141,6 +144,7 @@ enum ChineseInputScheme: String, CaseIterable {
     case .vietnamese: "越南语 26 键"
     case .tibetan: "藏文 26 键"
     case .stroke: "笔画"
+    case .fourteenKey: "全拼 14 键"
     }
   }
 }

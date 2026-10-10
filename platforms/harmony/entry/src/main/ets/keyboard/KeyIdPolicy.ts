@@ -133,6 +133,21 @@ export const KEY_IDS: readonly string[] = [
   "SoftGlobe",
   "SoftEmoji",
   "SoftVoice",
+  // 全拼 14 键的各键，按键面上的字母命名（`FourteenQW` 是 Q、W 合在一起的键）；不记到 `KeyQ` 这些 26 键字母上，否则会混进 26 键的热力图。
+  "FourteenQW",
+  "FourteenER",
+  "FourteenTY",
+  "FourteenUI",
+  "FourteenOP",
+  "FourteenAS",
+  "FourteenDF",
+  "FourteenGH",
+  "FourteenJK",
+  "FourteenL",
+  "FourteenZX",
+  "FourteenCV",
+  "FourteenBN",
+  "FourteenM",
 ];
 
 const KNOWN: Set<string> = new Set<string>(KEY_IDS);
@@ -269,6 +284,12 @@ export class KeyIdPolicy {
     if (input === "'" || input === "@") return "Nine1";
     if (input.length === 1 && input >= "0" && input <= "9") return `Nine${input}`;
     return null;
+  }
+
+  /** 全拼 14 键的一键，按键面上的字母（`FourteenKey.letters`，如 `qw`、`l`）定位；不是 14 键的键面时不计。 */
+  static fourteenKey(letters: string): string | null {
+    const id: string = `Fourteen${letters.toUpperCase()}`;
+    return KNOWN.has(id) ? id : null;
   }
 
   /**

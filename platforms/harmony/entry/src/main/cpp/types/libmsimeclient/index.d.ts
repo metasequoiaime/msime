@@ -203,6 +203,8 @@ export const create: (options: string) => string;
 export const destroy: (handle: number) => string;
 export const focus: (handle: number, focused: boolean) => string;
 export const setNineKeyMode: (handle: number, enabled: boolean) => string;
+/** 换引擎的组码网格：0 关，1 九键，2 全拼 14 键；只在组字结束后调用，答复的 value 是 View，`key_grid` 是权威状态。 */
+export const setKeyGrid: (handle: number, grid: number) => string;
 export const setEnglishMode: (handle: number, enabled: boolean) => string;
 /** Whether ASCII is committed as its fullwidth twin, which Ctrl+Shift+F toggles. */
 export const setCharacterWidth: (handle: number, fullwidth: boolean) => string;
@@ -210,6 +212,8 @@ export const setCharacterWidth: (handle: number, fullwidth: boolean) => string;
 export const setPrivateSession: (handle: number, enabled: boolean) => string;
 
 export const character: (handle: number, ascii: number, shift: boolean) => string;
+/** `msime_client_grid_key`：14 键的一键，送这一组的首字母（ASCII 码）；答复同 `character`。不在 14 键下、26 键正在组字、专用英文或本地模式时 `handled` 为假，会话不变。 */
+export const gridKey: (handle: number, letter: number) => string;
 /**
  * `msime_client_glide`: one glide stroke (滑行输入) across the letter keys, `request` being `{"keys":[[x,y] x 26],"key_width":w,"key_height":h,"points":[[x,y,ms], 2..1024]}` (at most 65536 bytes, unknown keys refused). Answers like `character`; `handled` false means the stroke was not typed (not quanpin, a local mode, dedicated English, nine-key digits composing, or nothing decoded) and its keys must not be typed either.
  */

@@ -2,7 +2,7 @@ import {
   KeyboardSession, KeyboardPreferences, KeyboardState, CandidateEntry, ExpandedCandidate,
   EmojiPage, EmojiRow, ClipboardHistoryMutation
 } from './KeyboardSession';
-import { KeyboardScheme, SchemeDefinition } from './KeyboardScheme';
+import { KeyboardScheme, KeyGrid, SchemeDefinition } from './KeyboardScheme';
 import { KeyIdPolicy } from './KeyIdPolicy';
 import { VoiceHotkeyAction } from './input/VoiceHotkeyPolicy';
 import { BusinessErrorPolicy } from './BusinessErrorPolicy';
@@ -56,6 +56,7 @@ import {
 } from './TypingEffectPolicy';
 import { HitOffset, KeyboardGeometry } from './KeyboardGeometry';
 import { NineKeyLayout, NineKey, TwentySixKeyNumberLayout } from './input/NineKeyLayout';
+import { FourteenKey, FourteenKeyLayout } from './input/FourteenKeyLayout';
 import { LayerCharacterRoute, LayerKey, LayerKeyKind, NumberSymbolLayout } from './input/NumberSymbolLayout';
 import {
   NineKeyPanelBackspace, NineKeyPanelMode, NineKeyPanelPolicy, NineKeyStroke
@@ -232,6 +233,11 @@ const PREEDIT_FONT_SIZE: number = 12;
 const PREEDIT_LETTER_SPACING: number = 0.24;
 const PREEDIT_INDENT_VP: number = 10;
 const PREEDIT_LINE_VP: number = 14;
+// 14 键的拼音选择条与读音同一行：读音最多占这一行的一半，其余留给选择条，与 Android、iOS 相同；拼音比读音大一号、用强调色，两侧各留 6vp 当触摸余量。
+const READING_WITH_SPELLINGS_MAX_WIDTH: string = '50%';
+const READING_SPELLING_FONT_SIZE: number = 13;
+const READING_SPELLING_PADDING_VP: number = 6;
+const READING_SPELLING_GAP_VP: number = 8;
 const CANDIDATE_BAR_GAP_VP: number = 2;
 const CHIP_HEIGHT_VP: number = 34;
 const CHIP_MIN_WIDTH_VP: number = 30;
@@ -492,6 +498,8 @@ struct KeyboardView {
   /** 在触屏键盘的符号层中，当前显示的是否是 #+= 层而不是 123 层；在字母层上始终为 false（Android 的 `ImeLetterRows.moreSymbols`）。 */
   @State @Watch('dropLetterGestures') moreSymbols: boolean = false;
   @State nineKey: boolean = false;
+  /** 全拼 14 键在这台设备上生效：方案是 14 键且不是 2in1；地址栏、密码框这类编辑框由 `applyEditorFace` 收回到 26 键。英文时仍为真，只是画 26 键（`drawsFourteenKey`）。 */
+  @State fourteenKey: boolean = false;
   /** Scheme 3 is Japanese, which has its own grid rather than a pinyin one. */
   @State japanese: boolean = false;
   /** The active kana key's live flick target; -1 means no finger is previewing a key. */
@@ -533,6 +541,7 @@ struct KeyboardView {
   private hoverTimer: number = -1;
   @State symbolCategory: number = 0;
   @State symbolLocked: boolean = false;
+  /** 长按九键字母格或 14 键双字母键时弹出的字母（九键还有数字），两种键面共用 `SURFACE_NINE_KEY_HOLD`。 */
   @State nineKeyHoldOptions: string[] = [];
   /**
    * Which surface is covering the keys, if any.
@@ -1190,7 +1199,7 @@ struct KeyboardView {
       this.symbols, this.twentySixKeyLetterRows());
   }
 
-  /** 字母层是否由 26 键字母行画成：`typingFace` 里排在字母行之前、各有自己数字层或符号行的键面（假名网格、手写板、九键、注音大千、笔画）都不是。 */
+  /** 字母层是否由 26 键字母行画成：`typingFace` 里排在字母行之前、各有自己数字层或符号行的键面（假名网格、手写板、九键、注音大千、笔画）都不是。14 键算在内：它的底行和 123 层都与 26 键相同，123 跟随同一个偏好。 */
   private twentySixKeyLetterRows(): boolean {
     return !this.japanese
       && !KeyboardScheme.usesHandwritingFace(this.scheme, this.english, false, this.localMode)
@@ -1266,7 +1275,7 @@ struct KeyboardView {
   private qwertyLettersShowing(): boolean {
     return this.surface === SURFACE_NONE && !this.symbols && !this.japanese
       && !KeyboardScheme.usesHandwritingFace(this.scheme, this.english, this.symbols, this.localMode)
-      && !KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode)
+      && !KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode) && !this.drawsFourteenKey()
       && !this.zhuyinFace() && !this.strokeFace() && !this.koreanFace()
       && !this.vietnameseFace() && !this.tibetanFace();
   }
@@ -2080,8 +2089,8 @@ struct KeyboardView {
     }
   }
 
-  private openNineKeyHold(key: NineKey): void {
-    const options: string[] = NineKeyLayout.holdOptions(key);
+  /** 长按弹出的字母：九键格子的 `NineKeyLayout.holdOptions`，或 14 键的 `FourteenKeyLayout.holdOptions`。选中后都是先结束组字再上屏（`selectNineKeyHoldOption`）。 */
+  private openKeyHold(options: string[]): void {
     if (options.length === 0 || this.symbols) {
       return;
     }
@@ -2131,11 +2140,12 @@ struct KeyboardView {
     }
     this.scheme = candidate;
     this.nineKey = candidate.touchKeyboardLayout === 'nine_key';
+    this.fourteenKey = this.offersFourteenKey(candidate);
     // The kana grid belongs to the scheme, not to what the Engine last reported: the Engine only
     // says so once something has been typed, and the face has to change before that.
     this.japanese = candidate.engineScheme === 'japanese' && candidate.touchKeyboardLayout
       === 'nine_key';
-    KeyboardSession.shared.setNineKey(this.nineKey);
+    KeyboardSession.shared.setKeyGrid(this.keyGrid());
     this.show(SURFACE_NONE);
     return true;
   }
@@ -2234,16 +2244,37 @@ struct KeyboardView {
    * still focused outranks it until the next attach, the user having asked for that face by name.
    */
   private applyEditorFace(): void {
-    const grid: boolean = this.scheme.touchKeyboardLayout === 'nine_key'
-      && !KeyboardSession.shared.prefersFullFace();
-    if (grid === this.nineKey) {
+    const fullFace: boolean = KeyboardSession.shared.prefersFullFace();
+    const grid: boolean = this.scheme.touchKeyboardLayout === 'nine_key' && !fullFace;
+    // 14 键同理：地址、密码这些编辑框画整块 26 键，离开后回到 14 键。
+    const fourteen: boolean = this.offersFourteenKey(this.scheme) && !fullFace;
+    if (grid === this.nineKey && fourteen === this.fourteenKey) {
       return;
     }
     this.nineKey = grid;
+    this.fourteenKey = fourteen;
     // Same reason the scheme cards set this rather than waiting for the Engine: the Engine only
     // reports Japanese once something has been typed, and the face has to change before that.
     this.japanese = grid && this.scheme.engineScheme === 'japanese';
-    KeyboardSession.shared.setNineKey(grid);
+    KeyboardSession.shared.setKeyGrid(this.keyGrid());
+  }
+
+  /** 这个方案在这台设备上是否画 14 键：2in1 有实体键盘，不提供 14 键（同九键），同步过来的 `fourteen_key` 在 2in1 上画 26 键。 */
+  private offersFourteenKey(scheme: SchemeDefinition): boolean {
+    return scheme.touchKeyboardLayout === 'fourteen_key' && !KeyboardFormFactor.isDesktop();
+  }
+
+  /** 交给引擎的网格（`KeyGrid`），由当前键面决定；不是全拼时会话不开网格。英文下 14 键网格照旧开着，引擎在专用英文里不受理组码，字母走 26 键。 */
+  private keyGrid(): number {
+    if (this.nineKey) {
+      return KeyGrid.NINE_KEY;
+    }
+    return this.fourteenKey ? KeyGrid.FOURTEEN_KEY : KeyGrid.NONE;
+  }
+
+  /** 是否正在画 14 键键面：英文和本地模式画 26 键。 */
+  private drawsFourteenKey(): boolean {
+    return KeyboardScheme.usesFourteenKeyFace(this.fourteenKey, this.english, this.localMode);
   }
 
   /**
@@ -2271,6 +2302,7 @@ struct KeyboardView {
     } else if (this.nineKey) {
       // Leaving the grid for the letters is the same request the 26/九 key makes, and the scheme has
       // to follow the face or the candidate strip goes on naming a layout that is off screen.
+      // 14 键不走这里：英文本来就画 26 键，切回中文要回到 14 键，所以不改写 `touch_keyboard_layout`。
       const changes: Map<string, Object> = new Map<string, Object>();
       changes.set('touch_keyboard_layout', KeyboardScheme.QUANPIN.touchKeyboardLayout);
       if (!KeyboardSession.shared.changePreferences(changes)) {
@@ -2280,7 +2312,10 @@ struct KeyboardView {
       this.japanese = false;
     }
     this.nineKey = nineKey;
-    KeyboardSession.shared.setNineKey(nineKey);
+    if (nineKey) {
+      this.fourteenKey = false;
+    }
+    KeyboardSession.shared.setKeyGrid(this.keyGrid());
     if (!this.english) {
       this.english = KeyboardSession.shared.toggleLanguage();
       this.letterCase.reset();
@@ -2320,7 +2355,8 @@ struct KeyboardView {
       this.settings.enabledSchemes.includes(candidate.preferenceId)
       // A grid is a way of getting twenty-six letters out of nine keys, which is a problem only a
       // touch screen has. On a machine with a physical keyboard every letter already has a key.
-      && !(KeyboardFormFactor.isDesktop() && candidate.touchKeyboardLayout === 'nine_key'));
+      && !(KeyboardFormFactor.isDesktop() && (candidate.touchKeyboardLayout === 'nine_key'
+        || candidate.touchKeyboardLayout === 'fourteen_key')));
   }
 
   private schemeAvailable(candidate: SchemeDefinition): boolean {
@@ -2447,9 +2483,15 @@ struct KeyboardView {
     }
   }
 
-  /** 展开面板是否画成全拼九键的三栏。 */
+  /** 读音行右侧是否画 14 键的拼音选择条：14 键组字、有可选的拼音时。在 123 层和三栏面板开着时照样画，与 Android、iOS 相同：读音行一直在，选择条跟着它。 */
+  private readingRowSpellings(): boolean {
+    return this.drawsFourteenKey() && this.spellings.length > 0;
+  }
+
+  /** 展开面板是否画成全拼九键的三栏；14 键用同一个面板。 */
   private nineKeyPanel(): boolean {
-    return NineKeyPanelPolicy.threeColumn(KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode),
+    return NineKeyPanelPolicy.threeColumn(
+      KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode) || this.drawsFourteenKey(),
       SchemeCompositionPolicy.rulesScheme(this.engineScheme, this.english, this.localMode),
       this.editing.length > 0);
   }
@@ -2712,8 +2754,9 @@ struct KeyboardView {
     this.wubiProfile = this.settings.wubiProfile;
     this.scheme = this.enabledScheme();
     this.nineKey = this.scheme.touchKeyboardLayout === 'nine_key';
+    this.fourteenKey = this.offersFourteenKey(this.scheme);
     this.japanese = this.scheme.engineScheme === 'japanese' && this.nineKey;
-    KeyboardSession.shared.setNineKey(this.nineKey);
+    KeyboardSession.shared.setKeyGrid(this.keyGrid());
   }
 
   /**
@@ -2883,6 +2926,7 @@ struct KeyboardView {
     switch (this.scheme.preferenceId) {
       case 'quanpin':
       case 'nine_key':
+      case 'fourteen_key':
         return '全拼';
       case 'xiaohe':
         return '双拼 · 小鹤';
@@ -3860,6 +3904,32 @@ struct KeyboardView {
               .fontFamily(this.candidateFontFamily())
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .constraintSize({ maxWidth: this.readingRowSpellings() ? READING_WITH_SPELLINGS_MAX_WIDTH : '100%' })
+          }
+          if (this.readingRowSpellings()) {
+            // 14 键的拼音选择条在读音右侧横向滚动，不盖住下面的候选，三端位置相同。内容与九键左列相同：先完整音节，再列下一键上能作声母的大写字母；点音节锁定，退格先撤销锁定。
+            Scroll() {
+              Row() {
+                ForEach(this.spellings, (spelling: string, index: number) => {
+                  Text(spelling)
+                    .fontSize(READING_SPELLING_FONT_SIZE)
+                    .fontColor(this.skin.accent)
+                    .fontFamily(this.candidateFontFamily())
+                    .maxLines(1)
+                    .height('100%')
+                    .padding({ left: READING_SPELLING_PADDING_VP, right: READING_SPELLING_PADDING_VP })
+                    .accessibilityText(KeyAccessibilityPolicy.spelling(spelling))
+                    .onClick(() => KeyboardSession.shared.chooseSpelling(index))
+                }, (spelling: string, index: number) => `${index}:${spelling}`)
+              }
+              .height('100%')
+            }
+            .scrollable(ScrollDirection.Horizontal)
+            .scrollBar(BarState.Off)
+            .align(Alignment.Start)
+            .layoutWeight(1)
+            .height('100%')
+            .margin({ left: READING_SPELLING_GAP_VP })
           }
         }
         .width('100%')
@@ -4493,7 +4563,121 @@ struct KeyboardView {
     .gesture(LongPressGesture().onAction(() => {
       // A hold is still one press of the cell, whichever of its options it ends in.
       KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
-      this.openNineKeyHold(key);
+      this.openKeyHold(NineKeyLayout.holdOptions(key));
+    }))
+  }
+
+  /**
+   * 全拼 14 键的字母层，与 Android（`ImeLetterRows`）和 iOS（`FourteenKeyLayout`）同一张表：`QW ER TY UI OP` / `AS DF GH JK L`（不缩进）/ `[分词] ZX CV BN M [⌫]`，四行等高，总高度与 26 键相同，底行就是 26 键的 `designActionRow`。
+   *
+   * 键面写两个大字母，没有角标；不画 Shift，不接滑行、角标滑动和双拼提示。点一下把这一组的首字母交给引擎（`pressGridKey`），长按弹出这一键的两个字母。
+   */
+  @Builder
+  fourteenKeyFace() {
+    Row({ space: this.keySpacing() }) {
+      ForEach(FourteenKeyLayout.rows()[0], (key: FourteenKey) => {
+        this.fourteenKeyButton(key)
+      }, (key: FourteenKey) => key.letters + this.faceKey())
+    }
+    .width('100%')
+    .height(this.rowHeight(0))
+
+    Row({ space: this.keySpacing() }) {
+      ForEach(FourteenKeyLayout.rows()[1], (key: FourteenKey) => {
+        this.fourteenKeyButton(key)
+      }, (key: FourteenKey) => key.letters + this.faceKey())
+    }
+    .width('100%')
+    .height(this.rowHeight(1))
+
+    Row({ space: this.keySpacing() }) {
+      // 左端键照搬九键的 1 键：组字中是「分词」，送 ' 在已打的键末尾定一个音节分界；没在组字时是「符」，打开符号面板。宽度同 26 键的 Shift。
+      this.fixedKey({
+        face: this.editing.length > 0 ? '分词' : '符',
+        label: this.editing.length > 0 ? NineKeyLayout.separator().description
+          : KeyAccessibilityPolicy.symbolPanel(),
+        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+        fontWeight: FUNCTION_LABEL_WEIGHT,
+        emphasized: false,
+        special: true,
+        width: 0,
+        share: LETTER_EDGE_SHARE,
+        action: () => this.tapFourteenKeySeparator()
+      });
+      ForEach(FourteenKeyLayout.rows()[2], (key: FourteenKey) => {
+        this.fourteenKeyButton(key)
+      }, (key: FourteenKey) => key.letters + this.faceKey())
+      this.deleteKey(KeyboardMetrics.MODIFIER_WIDTH_VP, true, LETTER_EDGE_SHARE);
+    }
+    .width('100%')
+    .height(this.rowHeight(2))
+
+    this.actionRow()
+  }
+
+  /** 14 键的一个字母键：两个字母的键可以长按，L、M 只有点按。 */
+  @Builder
+  fourteenKeyButton(key: FourteenKey) {
+    if (FourteenKeyLayout.holdOptions(key).length > 0) {
+      this.fourteenKeyHoldKey(key)
+    } else {
+      this.flexibleKey(this.fourteenKeyOptions(key))
+    }
+  }
+
+  private fourteenKeyOptions(key: FourteenKey): KeyOptions {
+    return {
+      face: key.label,
+      label: key.description,
+      size: TOUCH_LETTER_FONT_SIZE,
+      emphasized: false,
+      width: 0,
+      action: () => this.tapFourteenKey(key)
+    };
+  }
+
+  /** 点一下 14 键：记这一键的键位，把这一组的首字母交给引擎。 */
+  private tapFourteenKey(key: FourteenKey): void {
+    KeyboardSession.shared.recordKey(KeyIdPolicy.fourteenKey(key.letters));
+    KeyboardSession.shared.pressGridKey(key.input.charCodeAt(0));
+  }
+
+  /** 第三行左端键：组字中送分词符 '，空闲时打开符号面板，同九键的 1 键（Android `ImeLayoutRows.symbolKey`）。 */
+  private tapFourteenKeySeparator(): void {
+    // 一个键一个键位 id：不论组字与否都记作符号键，与 Android、iOS 的 14 键相同。
+    KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+    if (KeyboardSession.shared.composing()) {
+      KeyboardSession.shared.press(NineKeyLayout.separator().input.charCodeAt(0), false);
+      return;
+    }
+    this.openSymbolSurface();
+  }
+
+  /** 两个字母的 14 键：点按同 `fourteenKeyOptions`，长按弹出这两个字母。 */
+  @Builder
+  fourteenKeyHoldKey(key: FourteenKey) {
+    Column() {
+      this.keyFace(this.fourteenKeyOptions(key))
+    }
+    .accessibilityText(key.description)
+    .layoutWeight(1)
+    .height('100%')
+    .backgroundColor(this.skin.keySurfaceBackground(false))
+    .linearGradient({ angle: 180,
+      colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
+    .borderRadius(this.skin.keyCornerRadius())
+    .borderWidth(this.skin.borderWidth)
+    .borderColor(this.skin.borderColor)
+    .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
+      offsetX: 0, offsetY: this.skin.shadowOffset })
+    .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
+    .animation({ duration: KEY_PRESS_MS })
+    .responseRegion(this.keyHitRegion())
+    .onClick(() => this.tapFourteenKey(key))
+    .gesture(LongPressGesture().onAction(() => {
+      // 长按也是按了这一键一次，不管最后选哪个字母。
+      KeyboardSession.shared.recordKey(KeyIdPolicy.fourteenKey(key.letters));
+      this.openKeyHold(FourteenKeyLayout.holdOptions(key));
     }))
   }
 
@@ -8818,6 +9002,9 @@ struct KeyboardView {
         this.dachenFace()
       } else if (this.strokeFace() && !this.symbols) {
         this.strokeKeypadFace()
+      } else if (this.drawsFourteenKey() && !this.symbols) {
+        // 14 键的字母层；123 打开的是 26 键那套数字层（下面两个分支），返回后回到这里。
+        this.fourteenKeyFace()
       } else if (this.twentySixKeyDigitGrid()) {
         // 26 键的 123 换成九宫格数字层；它的返回键回到 26 键字母，不是九键字母。
         this.nineKeyFace()

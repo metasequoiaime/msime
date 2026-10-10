@@ -25,7 +25,7 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
   --set resources/eval/sentences-v1.tsv
 ```
 
-需要资源目录里有 `sentence-model.safetensors`——它量的就是重排的开销，没有模型就没有可量的东西。`--budget-ms` 默认 16（一帧），p95 超出即以非零码退出；`--warmup N` 丢弃前 N 条用例的样本（默认 5）。`--nine-key` 在九宫格上打（字母换成键上的数字，同 `convert_eval --nine-key`），量九键长串每次按键的开销。
+需要资源目录里有 `sentence-model.safetensors`——它量的就是重排的开销，没有模型就没有可量的东西。`--budget-ms` 默认 16（一帧），p95 超出即以非零码退出；`--warmup N` 丢弃前 N 条用例的样本（默认 5）。`--grid nine` 在九宫格上打（字母换成键上的数字，同 `convert_eval --grid nine`，`--nine-key` 是它的旧写法），量九键长串每次按键的开销；`--grid fourteen` 在全拼 14 键上打。
 
 同进程里开两个 runtime，一个挂重排一个不挂，逐条交替先后顺序，按键**配对**相减。配对是必须的：真正要问的不是一次按键多久，而是**因为重排**多了多久，两次独立运行的差值里混着散热状态和页缓存。
 
@@ -54,6 +54,21 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 手写的合成短句，4 到 12 个字每档 9 条，`verify-local.sh` 以 `--nine-key` 跑它，对照 `baseline-nine-key-sentences.json`。九键一次最多 32 个数字（`DIGIT_LIMIT`），超出的键被丢掉，而 `sentences-v1.tsv` 11 个音节以上的 7 条里有 6 条超过 32 个字母，`sentences-neutral-v1.tsv` 1105 条里也有 279 条超过，在九键上金标准根本打不出来；这份每条都在 32 个字母以内，12 个字的句子也能整串打完。金标准的取舍与 `sentences-v1.tsv` 相同，另外不收 ta 开头或句中带 他/她 的句子（#6059）。
 
 同一份集合在全键盘上打（不带 `--nine-key`）是九键要追的参照：按切分路径各自解码时（#6377），九键 top-1 0.457、found 0.556；按键之间沿用前几次的好切分、跨切分比较时每个词组多扣一份奖励之后（#6059），0.506 / 0.617；全键盘 0.691 / 0.716。九键按键延迟用 `rerank_latency --nine-key` 在这份集合上量，见上文的「延迟基准」。
+
+### `--grid fourteen`：同两份集合在全拼 14 键上打
+
+`convert_eval --grid fourteen` 打开 Runtime 的 14 键网格，把每个字母换成它所在键的组码（QW 键是 q，BN 键是 b，即每组的首字母），用宿主触屏键面用的 `GridKey` 逐键送进去，金标准不变。14 键与九键是同一套解码（`KeyGrid`），只换码表：421 个全拼音节在九键上是 218 种码，在 14 键上是 314 种，重码少了，所以同一份集合上 14 键应当不低于九键。`verify-local.sh` 以 `fourteen-key`（`quanpin-words-v1.tsv --limit 3000`）和 `fourteen-key-sentences`（`sentences-nine-key-v1.tsv`）跑它们，对照 `baseline-fourteen-key.json` 和 `baseline-fourteen-key-sentences.json`。
+
+锁定资源 dict-v2.0.14 加 `sentence-model.safetensors`，同一次构建：
+
+| 集合 | 九键 top-1 | 九键 top-5 | 14 键 top-1 | 14 键 top-5 |
+|---|---|---|---|---|
+| `quanpin-words-v1` 3000 条（实取 2791） | 0.575 | 0.851 | 0.660 | 0.906 |
+| `sentences-nine-key-v1` 81 条 | 0.506 | 0.519 | 0.568 | 0.568 |
+
+`rerank_latency` 在 `sentences-nine-key-v1` 上同一个二进制交替各跑两轮，挂着重排模型的 p95 九键 22.34 / 22.29 ms、14 键 20.80 / 20.78 ms，只有引擎时九键 8.73 / 8.72 ms、14 键 7.20 / 7.10 ms。两者都超出 16 ms 的帧预算，这是九键长串原有的问题，14 键没有让它更糟。
+
+14 键的重码集中在少数几组上：bi/bu/ni/nu、xi/xu/zi/zu 这样的四重码，shi/shu，以及 sha 对 a'ga 这类跨音节的歧义。同一串组码下谁排第一只看词库权重，harness 又关掉了学习，所以这里量到的是新用户的第一次输入。BN UI GH AS OP（`bugao`）在锁定词库里首选是「不好」（权重 500381），「你好」（332885）第二；九键上两者是 28426 和 64426，不相遇。三端的手工验收以「你好」出现在候选里、点读音行的 ni 后成为首选为准。
 
 ### `sentences-v2.tsv` — 310 条收割，带上文
 
@@ -174,4 +189,4 @@ TYPESAFE_API_KEY=... scripts/review-harvested-cases.py target/harvest.jsonl targ
 
 ## 已知测不到的东西
 
-词表覆盖（词级集的金标准 99.94% 本来就在词典里）、用户学习与调频（harness 强制关闭，否则前一条会污染后一条）、双拼路径、语言模型困惑度（没有语料）。九宫格由 `--nine-key` 的两份集合覆盖，见上文。
+词表覆盖（词级集的金标准 99.94% 本来就在词典里）、用户学习与调频（harness 强制关闭，否则前一条会污染后一条）、双拼路径、语言模型困惑度（没有语料）。九宫格由 `--nine-key` 的两份集合覆盖，14 键由 `--grid fourteen` 的两份覆盖，见上文。

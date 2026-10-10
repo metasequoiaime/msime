@@ -12,11 +12,20 @@ import type {
   AchievementSummary,
   TypingSummary,
 } from "../../../../packages/ui/src/settings/typing-summary";
+import { summaryMethods } from "../../../../packages/ui/src/settings/typing-breakdown";
 import { answerConfirm } from "../support/confirm";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+test("14 键 is an input method of its own, not part of 26 键", () => {
+  expect(summaryMethods({ quanpin: 6, shuangpin: 2, fourteenKey: 3, nineKey: 1, ai: 5 })).toEqual([
+    { title: "26 键", count: 8 },
+    { title: "14 键", count: 3 },
+    { title: "9 键", count: 1 },
+  ]);
 });
 
 function key(offset: number): string {

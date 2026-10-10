@@ -2,7 +2,7 @@ package app.msime.android;
 
 /** Apple-compatible source IDs for aggregate committed-character statistics. */
 public enum TypingSource {
-    QUANPIN("quanpin"), NINE_KEY("nineKey"), SHUANGPIN("shuangpin"),
+    QUANPIN("quanpin"), NINE_KEY("nineKey"), FOURTEEN_KEY("fourteenKey"), SHUANGPIN("shuangpin"),
     ZIRANMA("ziranma"), MICROSOFT("microsoft"), SHOUDAO("shoudao"),
     WUBI("wubi"), JAPANESE("japanese"), KOREAN("korean"), CANTONESE("cantonese"),
     ZHUYIN("zhuyin"), VIETNAMESE("vietnamese"), TIBETAN("tibetan"), STROKE("stroke"), HANDWRITING("handwriting"),
@@ -24,6 +24,7 @@ public enum TypingSource {
         return switch (scheme) {
             case QUANPIN -> QUANPIN;
             case QUANPIN_NINE_KEY -> NINE_KEY;
+            case QUANPIN_FOURTEEN_KEY -> FOURTEEN_KEY;
             case XIAOHE -> SHUANGPIN;
             case ZIRANMA -> ZIRANMA;
             case MICROSOFT -> MICROSOFT;

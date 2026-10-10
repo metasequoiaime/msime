@@ -110,6 +110,11 @@ final class ImeToolbar {
         preeditFrame.addView(s.preedit, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateHeader.addView(preeditFrame, KeyboardGeometry.weightedWrapParams(1));
+        // 14 键的拼音选择条挂在读音右边（ImeLayoutRows.attachReadingRowSpellings），不叠在候选行上；其他布局下收起，不占宽度。
+        s.readingSpellingSlot = new FrameLayout(s);
+        ViewPolicy.hide(s.readingSpellingSlot);
+        candidateHeader.addView(s.readingSpellingSlot, new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
         // 宿主提示通道：正常为空，只有准备中、失败或提示时才有文字。
         s.status = toolbarText(10);
         ViewPolicy.setMaxLinesEllipsized(s.status, 1);

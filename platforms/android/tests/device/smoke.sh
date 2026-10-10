@@ -87,6 +87,7 @@ for entry in \
     "CandidateGlossDeviceSmoke|Candidate gloss acceptance failed" \
     "NineKeyEnglishDeviceSmoke|Nine-key English acceptance failed" \
     "NineKeyPanelDeviceSmoke|Nine-key panel acceptance failed" \
+    "FourteenKeyDeviceSmoke|Fourteen-key acceptance failed" \
     "ChineseHelpcodeDeviceSmoke|Chinese helpcode acceptance failed" \
     "MicrosoftShuangpinDeviceSmoke|Microsoft double-pinyin acceptance failed" \
     "EmailSuffixDeviceSmoke|Email suffix acceptance failed" \

@@ -19,7 +19,7 @@
 | crate | 职责 |
 | --- | --- |
 | `msime-client-core` | 宿主无关的客户端业务：`preferences`、`account`、`ai`、`cloud`、`community`、`credential`、`dictionary`、`helpcode`、`skin`、`translation`、`voice`、`clipboard`、`punctuation`、`chinese_conversion`、`typing_statistics`、`resources`、`host_surface`、`panels`。不依赖 Tauri、React、Engine 或任何平台 API。 |
-| `msime-engine` | 纯 Rust 输入引擎（由 C++ MSIME-Engine 移植）：组合状态、全拼／双拼／五笔／九键／日语等方案、词库查询与分代准备、学习日志与回放、手写识别；`examples/` 下是各类真实词库探针，`tests/golden/` 是从 C++ 参考实现录下的行为基准。 |
+| `msime-engine` | 纯 Rust 输入引擎（由 C++ MSIME-Engine 移植）：组合状态、全拼／双拼／五笔／九键／全拼 14 键／日语等方案、词库查询与分代准备、学习日志与回放、手写识别；`examples/` 下是各类真实词库探针，`tests/golden/` 是从 C++ 参考实现录下的行为基准。 |
 | `msime-input-runtime` | 输入宿主的会话编排：焦点、候选翻页、代次选择、全半角转换、在线候选调度。含重排模型 `Reranker` 的接入。 |
 | `msime-host-api` | 版本化 C ABI（`msime_client_abi_version()` 返回 3），132 个 `msime_client_*` 导出（头文件另有 2 个 `static inline` 辅助函数），`crate-type = ["cdylib", "staticlib", "rlib"]`。`ffi/` 按 host/session/input/candidates/lifecycle/providers/translation/voice 分文件。 |
 | `msime-host-macos` | macOS 宿主的 Objective-C++ 平台能力：键盘注入、账户、剪贴板、词库、文件选择器、卸载器、录音设备枚举，以及 `panel_session`、`cloud_clipboard`、`cloud_dictionary`。 |
@@ -108,7 +108,7 @@ InputMethodKit 宿主，产物 bundle 名为 `水杉输入法.app`，`CFBundleId
 
 工程由 XcodeGen 从 `project.yml` 生成（`project.yml` 是唯一权威来源），9 个 target：主 App `MSIMEApp`、键盘扩展 `MSIMEKeyboardExtension`（`com.apple.keyboard-service`）、测试宿主、四个测试 target 和独立的 `MSIMEDoubaoTransport` framework。App 与扩展共用 App Group `group.app.msime.ios`，最低 iOS 17.0；唯一的 CocoaPods 依赖是 ML Kit Digital Ink，手写按 SDK 切源文件（device 用真实识别器，simulator 用 fallback）。
 
-`KeyboardExtension/Sources/` 是产品键盘：候选栏与展开候选面板、方案/布局/皮肤/更多选择器、符号面板、表情与颜文字、剪贴板、日语九宫、手写、云候选、候选翻译、词库快照工作线程、英文大写与建议策略、空格移光标、标点上下文。`SharedUI/` 是 App 与扩展共用的表现层与偏好适配器；`App/` 是主应用，承载欢迎引导、账号、社区皮肤、AI 皮肤生成、云词典、个人词典、云剪贴板、聊天和十余个设置页。测试宿主声明了与扩展相同的 App Group entitlement——被测键盘要靠这个容器读共享偏好，缺它会让宿主在套件中途被杀掉。
+`KeyboardExtension/Sources/` 是产品键盘：候选栏与展开候选面板、方案/布局/皮肤/更多选择器、符号面板、表情与颜文字、剪贴板、日语九宫、全拼 14 键、手写、云候选、候选翻译、词库快照工作线程、英文大写与建议策略、空格移光标、标点上下文。`SharedUI/` 是 App 与扩展共用的表现层与偏好适配器；`App/` 是主应用，承载欢迎引导、账号、社区皮肤、AI 皮肤生成、云词典、个人词典、云剪贴板、聊天和十余个设置页。测试宿主声明了与扩展相同的 App Group entitlement——被测键盘要靠这个容器读共享偏好，缺它会让宿主在套件中途被杀掉。
 
 构建链是三步：`install_resources` 取得已校验资源目录 → `platforms/ios/stage-resources.sh` 暂存 → `platforms/ios/build-app.sh <资源目录> simulator|device`。`.cargo/config.toml` 只对两个 iOS target 延后解析四个由 Xcode 编译的 Swift `@_cdecl` 符号，不做工作区级放宽，以免在其他平台掩盖真正缺失的符号。
 
@@ -118,7 +118,7 @@ InputMethodKit 宿主，产物 bundle 名为 `水杉输入法.app`，`CFBundleId
 
 Java 侧按 `java/app/msime/android/<feature>/` 分层（core、home、keyboard、candidate、voice、account、dictionary、policy、handwriting、statistics、community、clipboard、settings），其中 `policy/` 是一批无 Android 依赖的纯模型类——键面大小写、硬件按键映射、候选导航、被拒标点、数字行选词、候选滚动、候选折行、智能标点上下文等规则都放在这里，因此可以用 JVM smoke 直接覆盖而不需要设备。`NativeClient.java` 是唯一的 JNI 声明处，对应 `native/client_jni.cpp`。
 
-能力覆盖软键盘 26 键与符号层、全拼九键（含数字层）、日语九键、四套双拼加微软双拼分词键、86 五笔、手写、AI 回复键盘；候选条与展开面板、候选长按管理、离线英文释义、在线候选翻译、云与 AI 联想、剪贴板历史与云剪贴板、表情浏览器、八种本地输入模式、AI 润色、语音、打字统计、内置与自定义皮肤、社区资源、账号、硬件键盘快捷键与数字行选词、大屏居中外框、无障碍键盘尺寸调整。
+能力覆盖软键盘 26 键与符号层、全拼九键（含数字层）、全拼 14 键、日语九键、四套双拼加微软双拼分词键、86 五笔、手写、AI 回复键盘；候选条与展开面板、候选长按管理、离线英文释义、在线候选翻译、云与 AI 联想、剪贴板历史与云剪贴板、表情浏览器、八种本地输入模式、AI 润色、语音、打字统计、内置与自定义皮肤、社区资源、账号、硬件键盘快捷键与数字行选词、大屏居中外框、无障碍键盘尺寸调整。
 
 有两个构建脚本产出同名同路径的 `target/android/msime-android.apk`：`build-apk.sh` 出的是本目录的原生 IME（Java 来自 `platforms/android/java`，无 WebView），`build-client-apk.sh` 出的是 Tauri + React 设置合包。两者包名相同、内容完全不同，README 为此专门写了一节。Gradle 工程 `gradle-app` 的 `srcDirs` 直接指向 `platforms/android/{AndroidManifest.xml,java,res}` 和 `target/android/{host-assets,jniLibs}`，不复制任何源码。
 

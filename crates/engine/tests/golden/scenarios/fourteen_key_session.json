@@ -1,0 +1,169 @@
+{
+ "name": "fourteen_key_session",
+ "source": "crates/engine/src/nine_key.rs KeyGrid::FourteenKey and Session::grid_key (no C++ reference: the 14-key grid is Rust-only, so the expected file was recorded from this engine and checked by hand)",
+ "note": "14 键：组码只从 grid_key 进九宫格，组里任一字母归成首字母；硬件字母走全拼 26 键，九宫格组字中不处理。nihao 与 buhao、xi'an 与 xian 在 14 键上同码；左列没有原样上屏项；选音节锁定、退格撤销；切分得到 西安；拼音读不通的 OP JK 出 ok。九键、专用英文和不用网格时 grid_key 不处理。这份预期只防回归，正确性以 nine_key.rs 的单测和评测为准。",
+ "covers": [
+  "nine key",
+  "fourteen key"
+ ],
+ "fixture": {
+  "databases": {
+   "msime-pinyin.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',100);CREATE TABLE tbl_1_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_b VALUES('bu','b','不',90);CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_h VALUES('hao','h','好',100);CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',1000);CREATE TABLE tbl_2_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_b VALUES('bu''hao','bh','不好',500);CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_x VALUES('xi','x','西',100);INSERT INTO tbl_1_x VALUES('xian','x','先',300);CREATE TABLE tbl_1_a(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_a VALUES('an','a','安',100);CREATE TABLE tbl_2_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_x VALUES('xi''an','xa','西安',800);CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_s VALUES('shi','s','是',1000);INSERT INTO tbl_1_s VALUES('shu','s','书',500);",
+   "msime-english.db": "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);INSERT INTO english_words VALUES('ok','ok',900);INSERT INTO english_words VALUES('old','old',1000);INSERT INTO english_words VALUES('older','older',800);"
+  }
+ },
+ "options": {
+  "learning": false,
+  "english": {
+   "mixed_candidates": true
+  }
+ },
+ "steps": [
+  {
+   "op": "set_key_grid",
+   "arg": "fourteen_key"
+  },
+  {
+   "op": "char",
+   "arg": "q"
+  },
+  {
+   "op": "grid_key",
+   "arg": "b"
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
+   "op": "grid_key",
+   "arg": "nihao"
+  },
+  {
+   "op": "char",
+   "arg": "h"
+  },
+  {
+   "op": "char",
+   "arg": "6"
+  },
+  {
+   "op": "choose_nine_key_spelling",
+   "arg": {
+    "spelling": "ni"
+   }
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
+   "op": "grid_key",
+   "arg": "bu"
+  },
+  {
+   "op": "choose_nine_key_spelling",
+   "arg": {
+    "spelling": "ni"
+   }
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
+   "op": "grid_key",
+   "arg": "agu"
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
+   "op": "grid_key",
+   "arg": "zu"
+  },
+  {
+   "op": "char",
+   "arg": "'"
+  },
+  {
+   "op": "grid_key",
+   "arg": "ab"
+  },
+  {
+   "op": "select",
+   "arg": {
+    "word": "西安"
+   }
+  },
+  {
+   "op": "grid_key",
+   "arg": "zuab"
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
+   "op": "grid_key",
+   "arg": "ok"
+  },
+  {
+   "op": "select",
+   "arg": 0
+  },
+  {
+   "op": "grid_key",
+   "arg": "1"
+  },
+  {
+   "op": "set_key_grid",
+   "arg": "nine_key"
+  },
+  {
+   "op": "grid_key",
+   "arg": "b"
+  },
+  {
+   "op": "type",
+   "arg": "64426"
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
+   "op": "set_key_grid",
+   "arg": "fourteen_key"
+  },
+  {
+   "op": "set_dedicated_english",
+   "arg": true
+  },
+  {
+   "op": "grid_key",
+   "arg": "o"
+  },
+  {
+   "op": "set_dedicated_english",
+   "arg": false
+  },
+  {
+   "op": "set_key_grid",
+   "arg": "none"
+  },
+  {
+   "op": "grid_key",
+   "arg": "o"
+  }
+ ]
+}

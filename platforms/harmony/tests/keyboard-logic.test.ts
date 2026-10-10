@@ -49,9 +49,11 @@ import {
 } from "../entry/src/main/ets/keyboard/candidate/CandidateGlossLayoutPolicy";
 import {
   KeyboardScheme,
+  KeyGrid,
   SchemeDefinition,
   PreferenceMapping,
 } from "../entry/src/main/ets/keyboard/KeyboardScheme";
+import { FourteenKeyLayout } from "../entry/src/main/ets/keyboard/input/FourteenKeyLayout";
 import { AppEdition } from "../entry/src/main/ets/keyboard/AppEdition";
 import { ReplyKeyboardPolicy } from "../entry/src/main/ets/keyboard/ReplyKeyboardPolicy";
 import { ReplyContextPolicy } from "../entry/src/main/ets/keyboard/ReplyContextPolicy";
@@ -554,32 +556,46 @@ console.log("VoiceRecognitionPolicy");
 
 group("maps Harmony commits to shared typing-statistics sources", () => {
   check(
-    TypingStatisticsPolicy.source("quanpin", "xiaohe", false, false, "none") === "quanpin",
+    TypingStatisticsPolicy.source("quanpin", "xiaohe", false, KeyGrid.NONE, "none") === "quanpin",
     "quanpin uses the shared source id",
   );
   check(
-    TypingStatisticsPolicy.source("quanpin", "xiaohe", false, true, "none") === "nineKey",
+    TypingStatisticsPolicy.source("quanpin", "xiaohe", false, KeyGrid.NINE_KEY, "none") ===
+      "nineKey",
     "nine-key quanpin has its own source id",
   );
   check(
-    TypingStatisticsPolicy.source("shuangpin", "microsoft", false, false, "none") === "microsoft",
+    TypingStatisticsPolicy.source("quanpin", "xiaohe", false, KeyGrid.FOURTEEN_KEY, "none") ===
+      "fourteenKey" &&
+      TypingStatisticsPolicy.source("quanpin", "xiaohe", true, KeyGrid.FOURTEEN_KEY, "none") ===
+        "english",
+    "全拼 14 键记在 fourteenKey 名下，英文时仍记英文",
+  );
+  check(
+    TypingStatisticsPolicy.source("shuangpin", "microsoft", false, KeyGrid.NONE, "none") ===
+      "microsoft",
     "shuangpin profile is retained",
   );
   check(
-    TypingStatisticsPolicy.source("wubi", "xiaohe", false, false, "none") === "wubi",
+    TypingStatisticsPolicy.source("wubi", "xiaohe", false, KeyGrid.NONE, "none") === "wubi",
     "wubi uses the shared source id",
   );
   check(
-    TypingStatisticsPolicy.source("quanpin", "xiaohe", true, false, "none") === "english",
+    TypingStatisticsPolicy.source("quanpin", "xiaohe", true, KeyGrid.NONE, "none") === "english",
     "dedicated English takes precedence",
   );
   check(
-    TypingStatisticsPolicy.source("quanpin", "xiaohe", false, false, "emoji") === "local",
+    TypingStatisticsPolicy.source("quanpin", "xiaohe", false, KeyGrid.NONE, "emoji") === "local",
     "local modes are attributed as local input",
   );
   check(
-    TypingStatisticsPolicy.source("quanpin", "xiaohe", false, false, "temporary_japanese") ===
-      "japanese",
+    TypingStatisticsPolicy.source(
+      "quanpin",
+      "xiaohe",
+      false,
+      KeyGrid.NONE,
+      "temporary_japanese",
+    ) === "japanese",
     "temporary Japanese retains its language source",
   );
   check(
@@ -600,7 +616,7 @@ group("maps Harmony commits to shared typing-statistics sources", () => {
 
 group("names keys with the shared key heatmap ids and nothing else", () => {
   const knownKeyId = (id: string): boolean => KEY_IDS.includes(id);
-  check(KEY_IDS.length === 127, "the whitelist has the shared store's 127 ids");
+  check(KEY_IDS.length === 141, "the whitelist has the shared store's 141 ids");
   check(new Set(KEY_IDS).size === KEY_IDS.length, "no id is listed twice");
   for (const id of [
     KeyIdPolicy.SPACE,
@@ -2159,8 +2175,8 @@ group("enabled schemes keep the fixed order and never resolve to nothing", () =>
   );
   check(
     KeyboardScheme.enabledFromPreferenceIds(null) === KeyboardScheme.DEFAULT_ENABLED &&
-      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 5,
-    "a null list means every scheme but the five the user turns on",
+      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 6,
+    "a null list means every scheme but the six the user turns on",
   );
 });
 
@@ -2705,6 +2721,164 @@ group("a long press exposes the literal digit and letters", () => {
   check(
     NineKeyLayout.holdOptions(NineKeyLayout.digits()[0][1]).length === 0,
     "the digit face does not duplicate its own tap",
+  );
+});
+
+console.log("FourteenKeyLayout");
+
+group("全拼 14 键的键表与引擎的组码表是同一张", () => {
+  const rows = FourteenKeyLayout.rows();
+  check(
+    rows.map((row) => row.map((key) => key.label).join(" ")).join(" / ") ===
+      "QW ER TY UI OP / AS DF GH JK L / ZX CV BN M",
+    "三行依次是 QW ER TY UI OP、AS DF GH JK L、ZX CV BN M",
+  );
+  const keys = rows.reduce((all, row) => all.concat(row), rows[0].slice(0, 0));
+  check(keys.length === 14, "一共 14 个键");
+  check(
+    keys.map((key) => key.letters).join("") === "qwertyuiopasdfghjklzxcvbnm",
+    "26 个字母按 QWERTY 顺序各出现一次",
+  );
+  // 与引擎 `FOURTEEN_KEYPAD` 比对：a 到 z 各自落在哪一组，组码是这一组的首字母。
+  let codes = "";
+  for (let letter = 0x61; letter <= 0x7a; letter++) {
+    const owner = keys.find((key) => key.letters.includes(String.fromCharCode(letter)));
+    codes += owner === undefined ? "?" : owner.input;
+  }
+  check(codes === "abcdedggujjlmbooqeatucqztz", "组码表等于引擎的 abcdedggujjlmbooqeatucqztz");
+  check(
+    keys.map((key) => key.input).join(" ") === "q e t u o a d g j l z c b m",
+    "送给引擎的是每组首字母 q e t u o a d g j l z c b m",
+  );
+  check(
+    keys[0].description === "按键 Q W" &&
+      keys[9].description === "字母 L" &&
+      keys[13].description === "字母 M",
+    "读屏说「按键 Q W」，单字母键说「字母 L」",
+  );
+  check(
+    FourteenKeyLayout.holdOptions(keys[0]).join(",") === "q,w" &&
+      FourteenKeyLayout.holdOptions(keys[12]).join(",") === "b,n",
+    "长按弹出这一键的两个字母",
+  );
+  check(
+    FourteenKeyLayout.holdOptions(keys[9]).length === 0 &&
+      FourteenKeyLayout.holdOptions(keys[13]).length === 0,
+    "L、M 只有一个字母，长按不弹",
+  );
+  for (const key of keys) {
+    const id = KeyIdPolicy.fourteenKey(key.letters);
+    check(id === `Fourteen${key.label}` && KEY_IDS.includes(id), `${key.label} 记在 ${id} 上`);
+  }
+  check(
+    KeyIdPolicy.fourteenKey("q") === null && KeyIdPolicy.fourteenKey("ab") === null,
+    "不是 14 键键面的字母不计",
+  );
+});
+
+group("全拼 14 键是追加在最后的一张卡，只给全拼，默认不启用", () => {
+  const fourteen: SchemeDefinition = KeyboardScheme.QUANPIN_FOURTEEN_KEY;
+  check(
+    KeyboardScheme.SCHEMES[16] === fourteen && KeyboardScheme.SCHEMES.length === 17,
+    "按 append-only 排在笔画之后",
+  );
+  check(
+    fourteen.preferenceId === "fourteen_key" &&
+      fourteen.engineScheme === "quanpin" &&
+      fourteen.shuangpinProfile === null &&
+      fourteen.touchKeyboardLayout === "fourteen_key" &&
+      fourteen.title === "全拼 14 键" &&
+      fourteen.glyph === "拼" &&
+      fourteen.badge === "14",
+    "preferenceId 和布局都是 fourteen_key，卡片「拼」、角标「14」",
+  );
+  check(KeyboardScheme.fromPreferenceId("fourteen_key") === fourteen, "选择器 id 是 fourteen_key");
+  check(
+    KeyboardScheme.fromPreferences("quanpin", null, "fourteen_key") === fourteen,
+    "全拼加 fourteen_key 是 14 键",
+  );
+  check(
+    KeyboardScheme.fromPreferences("quanpin", null, "twenty_six_key") === KeyboardScheme.QUANPIN,
+    "全拼 26 键不会落到 14 键上",
+  );
+  check(
+    KeyboardScheme.fromPreferences("wubi", null, "fourteen_key") === KeyboardScheme.WUBI &&
+      KeyboardScheme.fromPreferences("shuangpin", "ziranma", "fourteen_key") ===
+        KeyboardScheme.ZIRANMA,
+    "别的方案带着 fourteen_key 仍是各自的 26 键",
+  );
+  check(
+    !KeyboardScheme.DEFAULT_ENABLED.includes(fourteen) &&
+      !KeyboardScheme.defaultEnabled(
+        AppEdition.of("pinyin", ["quanpin", "shuangpin"], "quanpin"),
+      ).includes(fourteen),
+    "新装和没存过列表的设备都不启用 14 键",
+  );
+  check(
+    KeyboardScheme.defaultEnabled(AppEdition.of("pinyin", ["quanpin"], "quanpin")).includes(
+      fourteen,
+    ),
+    "只有全拼一个方案的版本照 client-core 启用它提供的全部入口，14 键也在内",
+  );
+  check(
+    !KeyboardScheme.offeredBy(fourteen, AppEdition.of("wubi", ["wubi"], "wubi")),
+    "不提供全拼的版本没有 14 键",
+  );
+  const enabled = KeyboardScheme.enabledFromPreferenceIds(["fourteen_key", "quanpin"]);
+  check(
+    enabled.length === 2 && enabled[0] === KeyboardScheme.QUANPIN && enabled[1] === fourteen,
+    "启用后按声明顺序排在最后",
+  );
+  const mapping: PreferenceMapping = KeyboardScheme.mapping(fourteen, "wubi", "ziranma");
+  check(
+    mapping.scheme === "quanpin" &&
+      mapping.touchKeyboardLayout === "fourteen_key" &&
+      mapping.lastChineseScheme === "quanpin" &&
+      mapping.shuangpinProfile === "ziranma",
+    "选中时写全拼、fourteen_key，双拼配置保持不变",
+  );
+  check(
+    KeyboardScheme.pickerSchemes([KeyboardScheme.QUANPIN, fourteen], fourteen, null).includes(
+      fourteen,
+    ),
+    "输入方式面板照常列出 14 键",
+  );
+});
+
+group("14 键的网格与键面", () => {
+  check(
+    KeyboardScheme.keyGrid("fourteen_key", "quanpin", false) === KeyGrid.FOURTEEN_KEY &&
+      KeyboardScheme.keyGrid("nine_key", "quanpin", false) === KeyGrid.NINE_KEY &&
+      KeyboardScheme.keyGrid("twenty_six_key", "quanpin", false) === KeyGrid.NONE,
+    "全拼的 14 键、九键各开各的网格，26 键不开",
+  );
+  check(
+    KeyboardScheme.keyGrid("fourteen_key", "quanpin", true) === KeyGrid.NONE &&
+      KeyboardScheme.keyGrid("nine_key", "quanpin", true) === KeyGrid.NINE_KEY,
+    "2in1 不开 14 键网格（同步过来的 fourteen_key 画 26 键），九键不受影响",
+  );
+  check(
+    KeyboardScheme.keyGrid("nine_key", "japanese", false) === KeyGrid.NONE &&
+      KeyboardScheme.keyGrid("fourteen_key", "wubi", false) === KeyGrid.NONE,
+    "日语九键和其他方案不开引擎网格",
+  );
+  check(
+    KeyGrid.NONE === 0 && KeyGrid.NINE_KEY === 1 && KeyGrid.FOURTEEN_KEY === 2,
+    "取值与 msime_client_set_key_grid 的 0、1、2 相同",
+  );
+  check(KeyboardScheme.usesFourteenKeyFace(true, false, "none"), "14 键布局画 14 键键面");
+  check(
+    !KeyboardScheme.usesFourteenKeyFace(true, true, "none"),
+    "英文画 26 键 QWERTY，布局不变，切回中文恢复 14 键",
+  );
+  check(
+    !KeyboardScheme.usesFourteenKeyFace(true, false, "unicode") &&
+      !KeyboardScheme.usesFourteenKeyFace(false, false, "none"),
+    "本地模式和别的布局不画 14 键",
+  );
+  check(
+    NineKeyPanelPolicy.threeColumn(true, SchemeTraits.QUANPIN, true),
+    "14 键组字时展开候选也是九键的三栏面板",
   );
 });
 
@@ -11909,6 +12083,30 @@ group("the account settings sync maps this host's document, not another's", () =
     retired["platform.harmony.global_theme"] === "system",
     "a retired skin id is never uploaded",
   );
+  check(
+    sparse["platform.harmony.keyboard_layout"] === "twenty_six_key",
+    "an absent layout uploads as the default 26-key",
+  );
+  // 14 键这一版先不上传：省略这个键等于保留云端原值，写成 26 键会把同账号的其他设备切回去。
+  for (const layout of ["fourteen_key", "future_layout"]) {
+    const omitted = localAccountPreferences(
+      { scheme: "quanpin", touch_keyboard_layout: layout },
+      syncFeedback,
+    );
+    check(
+      !("platform.harmony.keyboard_layout" in omitted) && omitted["input.schema"] === "quanpin",
+      `a local ${layout} layout is left out of the upload rather than rewritten`,
+    );
+    const merged = mergeAccountPreferences(
+      { revision: 2, settings: { "platform.harmony.keyboard_layout": "nine_key" } },
+      omitted,
+      fullPreferenceSchema(),
+    );
+    check(
+      merged.settings["platform.harmony.keyboard_layout"] === "nine_key",
+      `so the cloud keeps its layout when this device is on ${layout}`,
+    );
+  }
 });
 
 group("uploading keeps what other devices wrote", () => {
@@ -12300,6 +12498,35 @@ group("applying writes only what the schema declares", () => {
     check(kept.preferences.scheme === "wubi", `an unknown scheme ${unknown} keeps the local one`);
     check(kept.preferences.learning === false, `and the rest of the sync applies past ${unknown}`);
   }
+
+  // 布局同理：14 键照常写入，不认得的布局只跳过这个键，不拒绝整份文档。
+  const fourteen = applyAccountPreferences(
+    { ...local, touch_keyboard_layout: "nine_key" },
+    { revision: 1, settings: { "platform.harmony.keyboard_layout": "fourteen_key" } },
+    schema,
+    syncFeedback,
+  );
+  check(
+    fourteen.preferences.touch_keyboard_layout === "fourteen_key",
+    "a cloud fourteen_key layout is written",
+  );
+  const futureLayout = applyAccountPreferences(
+    { ...local, touch_keyboard_layout: "nine_key" },
+    {
+      revision: 1,
+      settings: { "platform.harmony.keyboard_layout": "future_layout", "input.learning": false },
+    },
+    schema,
+    syncFeedback,
+  );
+  check(
+    futureLayout.preferences.touch_keyboard_layout === "nine_key",
+    "an unknown layout keeps the local one",
+  );
+  check(
+    futureLayout.preferences.learning === false,
+    "and the rest of the sync applies past the unknown layout",
+  );
 
   let refusedMismatch = false;
   try {
@@ -15300,8 +15527,8 @@ group("Korean draws the syllable, not the key letters behind it", () => {
 
 group("the Korean scheme is one more card, and remembers the Chinese scheme it replaced", () => {
   check(
-    KeyboardScheme.SCHEMES[10] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 16,
-    "appended after the first ten, as the shared sixteen-entry picker has it",
+    KeyboardScheme.SCHEMES[10] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 17,
+    "appended after the first ten, as the shared seventeen-entry picker has it",
   );
   check(
     KeyboardScheme.fromPreferenceId("korean") === KeyboardScheme.KOREAN,
@@ -15331,7 +15558,7 @@ group("the Korean scheme is one more card, and remembers the Chinese scheme it r
     "Korean offers no dictionary actions",
   );
   check(
-    TypingStatisticsPolicy.source("korean", "xiaohe", false, false, "none") === "korean",
+    TypingStatisticsPolicy.source("korean", "xiaohe", false, KeyGrid.NONE, "none") === "korean",
     "Korean typing counts under its own source",
   );
   check(
@@ -17632,7 +17859,7 @@ group(
   "Cantonese, Zhuyin and Vietnamese are three more cards, Cantonese and Zhuyin needing a dictionary",
   () => {
     check(
-      KeyboardScheme.SCHEMES.length === 16 &&
+      KeyboardScheme.SCHEMES.length === 17 &&
         KeyboardScheme.SCHEMES[10] === KeyboardScheme.KOREAN &&
         KeyboardScheme.SCHEMES[11] === KeyboardScheme.CANTONESE &&
         KeyboardScheme.SCHEMES[12] === KeyboardScheme.ZHUYIN &&
@@ -17715,9 +17942,11 @@ group(
       "and a Japanese switch remembers either",
     );
     check(
-      TypingStatisticsPolicy.source("cantonese", "xiaohe", false, false, "none") === "cantonese" &&
-        TypingStatisticsPolicy.source("zhuyin", "xiaohe", false, false, "none") === "zhuyin" &&
-        TypingStatisticsPolicy.source("vietnamese", "xiaohe", false, false, "none") ===
+      TypingStatisticsPolicy.source("cantonese", "xiaohe", false, KeyGrid.NONE, "none") ===
+        "cantonese" &&
+        TypingStatisticsPolicy.source("zhuyin", "xiaohe", false, KeyGrid.NONE, "none") ===
+          "zhuyin" &&
+        TypingStatisticsPolicy.source("vietnamese", "xiaohe", false, KeyGrid.NONE, "none") ===
           "vietnamese",
       "each counts under its own typing source",
     );
@@ -17802,7 +18031,7 @@ group("the Dachen keys wear their bopomofo and send their ASCII key", () => {
 
 group("Stroke is one more card, opt-in and needing msime-stroke.db", () => {
   check(
-    KeyboardScheme.SCHEMES.length === 16 &&
+    KeyboardScheme.SCHEMES.length === 17 &&
       KeyboardScheme.SCHEMES[14] === KeyboardScheme.TIBETAN &&
       KeyboardScheme.SCHEMES[15] === KeyboardScheme.STROKE,
     "appended after Tibetan, as the shared TouchKeyboardScheme::ALL appends it",
@@ -17884,9 +18113,9 @@ group("Stroke is one more card, opt-in and needing msime-stroke.db", () => {
     "Stroke is itself the Chinese scheme 中文 goes back to, and a non-Chinese switch remembers it",
   );
   check(
-    TypingStatisticsPolicy.source("stroke", "xiaohe", false, false, "none") === "stroke" &&
-      TypingStatisticsPolicy.source("stroke", "xiaohe", true, false, "none") === "english" &&
-      TypingStatisticsPolicy.source("stroke", "xiaohe", false, false, "emoji") === "local",
+    TypingStatisticsPolicy.source("stroke", "xiaohe", false, KeyGrid.NONE, "none") === "stroke" &&
+      TypingStatisticsPolicy.source("stroke", "xiaohe", true, KeyGrid.NONE, "none") === "english" &&
+      TypingStatisticsPolicy.source("stroke", "xiaohe", false, KeyGrid.NONE, "emoji") === "local",
     "it counts under its own typing source, and English or a local mode under theirs",
   );
   check(
@@ -18359,8 +18588,8 @@ group("藏文是第九个方案：按 EWTS 威利转写组字，不是中文方�
     "藏文保留原来的中文方案，「中文」回到它",
   );
   check(
-    TypingStatisticsPolicy.source("tibetan", "xiaohe", false, false, "none") === "tibetan" &&
-      TypingStatisticsPolicy.source("tibetan", "xiaohe", true, false, "none") === "english",
+    TypingStatisticsPolicy.source("tibetan", "xiaohe", false, KeyGrid.NONE, "none") === "tibetan" &&
+      TypingStatisticsPolicy.source("tibetan", "xiaohe", true, KeyGrid.NONE, "none") === "english",
     "打字统计记在 tibetan 名下，英文模式下仍记英文",
   );
   check(

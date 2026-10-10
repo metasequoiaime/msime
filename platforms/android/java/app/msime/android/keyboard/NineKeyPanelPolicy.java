@@ -41,10 +41,10 @@ public final class NineKeyPanelPolicy {
         return STROKES;
     }
 
-    /** 展开面板是否画成三栏：九键字母键面上的全拼正在组字时。英文、本地模式、注音九键和其他方案仍是原来的整块候选面板，它们没有拼音栏可放，也没有九键筛选可用。 */
-    public static boolean threeColumn(boolean quanpinNineKeyFace, boolean letterLayer,
+    /** 展开面板是否画成三栏：`layout` 是正在显示的触屏布局，拼音九键或全拼 14 键（两者共用引擎的组码网格、拼音选择和筛选，见 {@link KeyboardLayout#drawsKeyGrid}）的字母键面上正在组字时。英文、本地模式、注音九键和其他方案仍是原来的整块候选面板，它们没有拼音栏可放，也没有九键筛选可用。 */
+    public static boolean threeColumn(int layout, boolean letterLayer,
                                       boolean localMode, boolean composing) {
-        return quanpinNineKeyFace && letterLayer && !localMode && composing;
+        return KeyboardLayout.drawsKeyGrid(layout) && letterLayer && !localMode && composing;
     }
 
     /** 面板里的 ⌫：笔画模式下有笔画就先撤一笔，否则交给引擎退格（引擎在全部锁定时撤销最后一次锁定，否则删一个数字）。 */

@@ -1142,6 +1142,39 @@ fn real_engine_exposes_nine_key_mode_and_spelling_choices() {
     assert!(!session.snapshot().unwrap().nine_key);
 }
 
+/// 14 键：快照的 `nine_key` 只表示九键，`key_grid` 说出是哪种网格；组码只从 `grid_key` 进来，硬件字母照常走全拼。
+#[test]
+fn real_engine_reports_the_fourteen_key_grid_apart_from_nine_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut session = Session::new(&options(dir.path())).unwrap();
+    assert_eq!(session.snapshot().unwrap().key_grid, None);
+    session
+        .set_key_grid(Some(crate::KeyGrid::FourteenKey))
+        .unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert!(!snapshot.nine_key);
+    assert_eq!(snapshot.key_grid, Some(crate::KeyGrid::FourteenKey));
+    assert!(session.character(b'q', false).unwrap().handled);
+    assert_eq!(session.snapshot().unwrap().editing_text, "q");
+    assert!(!session.grid_key(b'n').unwrap().handled);
+    session.command(Command::Cancel).unwrap();
+    assert!(session.grid_key(b'n').unwrap().handled);
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.editing_text, "b");
+    assert!(!snapshot.nine_key_spellings.is_empty());
+    session.command(Command::Cancel).unwrap();
+
+    session.set_nine_key_enabled(true).unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert!(snapshot.nine_key);
+    assert_eq!(snapshot.key_grid, Some(crate::KeyGrid::NineKey));
+    assert!(!session.grid_key(b'n').unwrap().handled);
+    session.set_key_grid(None).unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert!(!snapshot.nine_key);
+    assert_eq!(snapshot.key_grid, None);
+}
+
 #[test]
 fn real_engine_cycles_the_last_japanese_kana_variant() {
     let dir = tempfile::tempdir().unwrap();
@@ -1650,6 +1683,32 @@ fn incomplete_pinyin_raw_commit_is_learned_as_an_english_word() {
     assert_eq!(result.commit, "xyz");
     assert_eq!(result.diagnostic, "");
     assert_eq!(english_word_count(&value, "xyz"), 1);
+}
+
+/// 九宫格组字时回车上屏的不是用户逐个打出的字母：九键是数字，14 键是结束组字后的首选（没有候选时是组码 `bugao`），都不学成英文词，也不报学不进去。
+#[test]
+fn grid_raw_commit_is_not_learned_as_an_english_word() {
+    let dir = tempfile::tempdir().unwrap();
+    let value = options(dir.path());
+    let mut session = Session::new(&value).unwrap();
+    session.set_nine_key_enabled(true).unwrap();
+    type_text(&mut session, b"64426");
+    let result = session.command(Command::CommitRaw).unwrap();
+    assert_eq!(result.commit, "64426");
+    assert_eq!(result.diagnostic, "");
+
+    session
+        .set_key_grid(Some(crate::KeyGrid::FourteenKey))
+        .unwrap();
+    for letter in b"nihao" {
+        assert!(session.grid_key(*letter).unwrap().handled);
+    }
+    let result = session.command(Command::CommitRaw).unwrap();
+    assert!(result.has_commit);
+    assert_eq!(result.diagnostic, "");
+    assert!(session.snapshot().unwrap().editing_text.is_empty());
+    assert_eq!(english_word_count(&value, &result.commit), 0);
+    assert_eq!(english_word_count(&value, "bugao"), 0);
 }
 
 /// bridge.cpp:1332-1359: Enter in any local mode learns the committed letters as an English word. Local modes are entered only from the pinyin schemes, whose segmentation is empty while one is active, so the incomplete-pinyin rule would learn the word too; this pins the outcome the two rules share.

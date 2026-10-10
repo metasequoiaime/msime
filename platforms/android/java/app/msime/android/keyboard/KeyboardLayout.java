@@ -18,6 +18,13 @@ public final class KeyboardLayout {
     public static final int STROKE_LAYOUT = 6;
     /** 注音 9 键：声调列、{@link ZhuyinNineKeyLayout} 的 1-9/0 音键网格和 ⌫ 列；音键发送数字，声调键发送 z x c v b。 */
     public static final int ZHUYIN_NINE_KEY_LAYOUT = 7;
+    /** 全拼 14 键：{@link FourteenKeyLayout} 的三行两字母键，点按经 `gridKey` 送这一组的首字母；123 层、底行和 26 键相同。 */
+    public static final int FOURTEEN_KEY_LAYOUT = 8;
+
+    /** 画着的是引擎组码网格的键面（拼音九键或 14 键）：读音行显示 `nine_key_reading`，组字不写进输入框，展开候选是三栏面板。 */
+    public static boolean drawsKeyGrid(int layout) {
+        return layout == QUANPIN_NINE_KEY_LAYOUT || layout == FOURTEEN_KEY_LAYOUT;
+    }
 
     private static final List<List<String>> LETTER_ROWS = List.of(
         List.of("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
@@ -52,6 +59,14 @@ public final class KeyboardLayout {
     /** Resolves the host surface from the Engine view without conflating Japanese nine-key. */
     public static int resolveTouchLayout(boolean handwriting, boolean nineKey, int scheme,
                                          String touchLayout) {
+        return resolveTouchLayout(handwriting, nineKey, false, scheme, touchLayout);
+    }
+
+    /**
+     * 同 {@link #resolveTouchLayout(boolean, boolean, int, String)}，`fourteenKey` 是引擎此刻开着 14 键网格（`View.key_grid` 为 `fourteen_key`）且没有本地模式：本地模式要逐个确定的字母，14 键的组码打不出来，所以回落 26 键。14 键只在全拼下开，排在九键之前判断。
+     */
+    public static int resolveTouchLayout(boolean handwriting, boolean nineKey, boolean fourteenKey,
+                                         int scheme, String touchLayout) {
         // Korean has only the 26-key Dubeolsik keyboard, whatever layout the document carries.
         if (scheme == KoreanInputPolicy.KOREAN_SCHEME) return KOREAN_LAYOUT;
         // Zhuyin draws the nine-key bopomofo grid when the document stores the nine-key layout, the Dachen rows otherwise; it has no handwriting surface. The stored layout decides, as for Japanese, rather than the view's nine_key flag.
@@ -61,6 +76,7 @@ public final class KeyboardLayout {
         // 笔画方案画自己的笔画键盘：偏好是 26 键还是 9 键都一样，只有手写让给手写面板。
         if (scheme == InputSchemeTraits.STROKE) return STROKE_LAYOUT;
         if (scheme == 3 && "nine_key".equals(touchLayout)) return JAPANESE_NINE_KEY_LAYOUT;
+        if (fourteenKey) return FOURTEEN_KEY_LAYOUT;
         if (nineKey) return QUANPIN_NINE_KEY_LAYOUT;
         return STANDARD_TOUCH_LAYOUT;
     }

@@ -15,7 +15,8 @@ use std::time::Duration;
 struct Fixture {
     scheme: u8,
     dedicated_english: bool,
-    nine_key: bool,
+    /// 引擎的组码网格：九键的数字从 `character` 进来，14 键的字母从 `grid_key` 进来。
+    key_grid: Option<KeyGrid>,
     nine_key_spellings: Vec<String>,
     local_mode: String,
     words: Vec<String>,
@@ -819,12 +820,24 @@ impl InputEngine for Fixture {
         Ok(true)
     }
     fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
-        self.nine_key = enabled;
+        self.set_key_grid(enabled.then_some(KeyGrid::NineKey))
+    }
+    fn set_key_grid(&mut self, grid: Option<KeyGrid>) -> Result<(), RuntimeError> {
+        self.key_grid = grid;
         self.nine_key_spellings.clear();
         Ok(())
     }
+    /// 14 键的组码照原样记成字母，拼写条给两个读音，和九键的数字一样。
+    fn grid_key(&mut self, letter: u8) -> Result<EngineResult, RuntimeError> {
+        if self.key_grid != Some(KeyGrid::FourteenKey) || !letter.is_ascii_lowercase() {
+            return Ok(empty_result(false));
+        }
+        self.text.push(letter as char);
+        self.nine_key_spellings = vec!["ni".into(), "bi".into()];
+        Ok(empty_result(true))
+    }
     fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
-        if !self.nine_key || index >= self.nine_key_spellings.len() {
+        if self.key_grid.is_none() || index >= self.nine_key_spellings.len() {
             return Ok(empty_result(false));
         }
         self.text = self.nine_key_spellings[index].clone();
@@ -859,7 +872,10 @@ impl InputEngine for Fixture {
         }
         Ok(EngineSnapshot {
             scheme: self.scheme,
-            nine_key: self.nine_key,
+            nine_key: self.key_grid == Some(KeyGrid::NineKey),
+            key_grid: self.key_grid,
+            // 这里只有网格的按键会给出拼写条，硬件字母和 `command` 都不会，所以拼写条非空就是网格在组字。
+            grid_composing: self.key_grid.is_some() && !self.nine_key_spellings.is_empty(),
             nine_key_spellings: self.nine_key_spellings.clone(),
             nine_key_reading: String::new(),
             nine_key_single_character: false,
@@ -907,7 +923,7 @@ impl InputEngine for Fixture {
         })
     }
     fn character(&mut self, value: u8, _shift: bool) -> Result<EngineResult, RuntimeError> {
-        if self.nine_key && (b'2'..=b'9').contains(&value) {
+        if self.key_grid == Some(KeyGrid::NineKey) && (b'2'..=b'9').contains(&value) {
             self.text.push(value as char);
             self.nine_key_spellings = vec!["ni".into(), "mi".into()];
             return Ok(empty_result(true));
@@ -1182,7 +1198,7 @@ fn runtime() -> Runtime<Fixture> {
         Fixture {
             scheme: 0,
             dedicated_english: false,
-            nine_key: false,
+            key_grid: None,
             nine_key_spellings: Vec::new(),
             local_mode: "none".into(),
             words: (0..12).map(|n| format!("candidate-{n}")).collect(),
@@ -1234,7 +1250,7 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
             Fixture {
                 scheme: 0,
                 dedicated_english: false,
-                nine_key: false,
+                key_grid: None,
                 nine_key_spellings: Vec::new(),
                 local_mode: "none".into(),
                 words: words.iter().map(|word| (*word).into()).collect(),
@@ -1357,7 +1373,7 @@ fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
             Fixture {
                 scheme: 0,
                 dedicated_english: false,
-                nine_key: false,
+                key_grid: None,
                 nine_key_spellings: Vec::new(),
                 local_mode: "none".into(),
                 words: words.iter().map(|word| (*word).into()).collect(),
@@ -1481,7 +1497,7 @@ fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
             Fixture {
                 scheme: 0,
                 dedicated_english: false,
-                nine_key: false,
+                key_grid: None,
                 nine_key_spellings: Vec::new(),
                 local_mode: "none".into(),
                 words: vec!["海滩".into(), "跑步".into()],
@@ -1583,7 +1599,7 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
         Fixture {
             scheme: 0,
             dedicated_english: false,
-            nine_key: false,
+            key_grid: None,
             nine_key_spellings: Vec::new(),
             local_mode: "none".into(),
             words: vec!["海滩".into(), "跑步".into()],
@@ -2001,7 +2017,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
         Fixture {
             scheme: 2,
             dedicated_english: false,
-            nine_key: false,
+            key_grid: None,
             nine_key_spellings: Vec::new(),
             local_mode: "none".into(),
             words: vec!["甲".into(), "乙".into()],
@@ -2619,6 +2635,160 @@ fn nine_key_mode_owns_digits_and_spelling_choices_are_generation_scoped() {
     runtime.refresh().unwrap();
     assert!(matches!(
         runtime.set_nine_key_enabled(true),
+        Err(RuntimeError::InvalidNineKeyScheme)
+    ));
+}
+
+/// 14 键与九键共用拼写条和分词键：选拼写不会被当成过期请求，`'` 不变成中文引号；但数字不是 14 键的输入，照常是选词键。`View::key_grid` 说出网格，`nine_key` 只表示九键。
+#[test]
+fn fourteen_key_shares_the_spelling_strip_and_separator_while_digits_still_pick() {
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    assert_eq!(runtime.view().key_grid, "none");
+    runtime.set_key_grid(Some(KeyGrid::FourteenKey)).unwrap();
+    let view = runtime.view();
+    assert_eq!(view.key_grid, "fourteen_key");
+    assert!(!view.nine_key);
+
+    let typed = runtime.dispatch(Action::GridKey(b'b')).unwrap();
+    assert!(typed.handled && typed.commit.is_none());
+    assert_eq!(typed.view.nine_key_spellings, ["ni", "bi"]);
+    let separator = runtime
+        .dispatch(Action::Character {
+            value: b'\'',
+            shift: false,
+        })
+        .unwrap();
+    assert!(!separator.handled && separator.commit.is_none());
+    let selected = runtime
+        .dispatch(Action::ChooseNineKeySpelling(NineKeySpellingId {
+            session: separator.view.session,
+            generation: separator.view.generation,
+            index: 0,
+        }))
+        .unwrap();
+    assert!(selected.handled && selected.view.editing_text == "ni");
+    let picked = runtime
+        .dispatch(Action::Character {
+            value: b'2',
+            shift: false,
+        })
+        .unwrap();
+    assert_eq!(picked.commit.as_deref(), Some("candidate-1"));
+
+    // 九键下 `GridKey` 不处理；关掉网格后 `View::key_grid` 回到 none。
+    runtime.set_key_grid(Some(KeyGrid::NineKey)).unwrap();
+    assert_eq!(runtime.view().key_grid, "nine_key");
+    assert!(runtime.view().nine_key);
+    assert!(!runtime.dispatch(Action::GridKey(b'b')).unwrap().handled);
+    // 14 键开着时关九键，网格也要真的关掉。
+    runtime.set_key_grid(Some(KeyGrid::FourteenKey)).unwrap();
+    runtime.set_nine_key_enabled(false).unwrap();
+    assert_eq!(runtime.view().key_grid, "none");
+}
+
+/// 退格收回 14 键里的一次选词：读音是组码字母，要从 `grid_key` 打回网格，从 `character` 进就成了全拼 26 键的组字，之后 14 键的键全都不处理。同一个 14 键布局下用硬件键盘打的 26 键组字，照样从 `character` 打回去。
+#[test]
+fn retreating_a_fourteen_key_selection_types_the_codes_back_on_the_grid() {
+    let start = |grid_keys: bool| {
+        let mut runtime = runtime();
+        runtime.set_phrase_preedit(true);
+        runtime.focus(true).unwrap();
+        runtime.set_key_grid(Some(KeyGrid::FourteenKey)).unwrap();
+        runtime.engine.remaining_after_select = Some("g".into());
+        for &letter in b"bug" {
+            let typed = if grid_keys {
+                runtime.dispatch(Action::GridKey(letter))
+            } else {
+                runtime.dispatch(Action::Character {
+                    value: letter,
+                    shift: false,
+                })
+            };
+            assert!(typed.unwrap().handled);
+        }
+        let first = runtime.view().candidates[0].id;
+        let held = runtime.dispatch(Action::Select(first)).unwrap();
+        assert_eq!(held.view.phrase_prefix, "candidate-0");
+        assert_eq!(held.view.editing_text, "g");
+        runtime
+    };
+
+    let mut grid = start(true);
+    let restored = grid.dispatch(Action::Command(Command::Backspace)).unwrap();
+    assert!(restored.handled && restored.commit.is_none());
+    assert_eq!(restored.view.key_grid, "fourteen_key");
+    assert_eq!(restored.view.editing_text, "bu");
+    assert!(restored.view.phrase_prefix.is_empty());
+    assert_eq!(restored.view.nine_key_spellings, ["ni", "bi"]);
+
+    let mut hardware = start(false);
+    let restored = hardware
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert_eq!(restored.view.editing_text, "bu");
+    assert!(restored.view.nine_key_spellings.is_empty());
+}
+
+/// 14 键的原样上屏是结束组字，从宿主高亮的那一行开始，与 `Finish` 相同：重排后用户看到的首位不一定是引擎的首位。九键的原样上屏照旧交给引擎上屏数字。
+#[test]
+fn fourteen_key_commit_raw_finishes_from_the_highlighted_row() {
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    runtime.set_key_grid(Some(KeyGrid::FourteenKey)).unwrap();
+    for &letter in b"bu" {
+        runtime.dispatch(Action::GridKey(letter)).unwrap();
+    }
+    runtime.dispatch(Action::NextCandidate).unwrap();
+    let committed = runtime
+        .dispatch(Action::Command(Command::CommitRaw))
+        .unwrap();
+    assert_eq!(
+        committed.commit.as_deref(),
+        Some("candidate-1-remaining-segments")
+    );
+    assert!(committed.view.editing_text.is_empty());
+
+    runtime.set_key_grid(Some(KeyGrid::NineKey)).unwrap();
+    for &digit in b"64" {
+        runtime
+            .dispatch(Action::Character {
+                value: digit,
+                shift: false,
+            })
+            .unwrap();
+    }
+    let raw = runtime
+        .dispatch(Action::Command(Command::CommitRaw))
+        .unwrap();
+    assert!(raw.commit.is_none(), "{:?}", raw.commit);
+}
+
+/// 九键要求方案能打九键，14 键只给全拼；组字中不能换网格。
+#[test]
+fn key_grid_checks_the_scheme_and_the_composition() {
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    for grid in [None, Some(KeyGrid::NineKey), Some(KeyGrid::FourteenKey)] {
+        assert!(matches!(
+            runtime.set_key_grid(grid),
+            Err(RuntimeError::CompositionActive)
+        ));
+    }
+    runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    runtime.engine.scheme = msime_engine::SchemeType::Shuangpin as u8;
+    runtime.refresh().unwrap();
+    for grid in [Some(KeyGrid::NineKey), Some(KeyGrid::FourteenKey)] {
+        assert!(matches!(
+            runtime.set_key_grid(grid),
+            Err(RuntimeError::InvalidNineKeyScheme)
+        ));
+    }
+    runtime.engine.scheme = msime_engine::SchemeType::Zhuyin as u8;
+    runtime.refresh().unwrap();
+    assert!(matches!(
+        runtime.set_key_grid(Some(KeyGrid::FourteenKey)),
         Err(RuntimeError::InvalidNineKeyScheme)
     ));
 }
@@ -4664,7 +4834,7 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
         Fixture {
             scheme: 0,
             dedicated_english: false,
-            nine_key: false,
+            key_grid: None,
             nine_key_spellings: Vec::new(),
             local_mode: "none".into(),
             words: (0..offered).map(|n| format!("candidate-{n}")).collect(),

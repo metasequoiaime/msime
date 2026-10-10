@@ -45,8 +45,8 @@ use msime_input_runtime::HandwritingQuery;
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{
     Action, AiAssistantProviderConfig, CandidateId, CharacterWidth, GlideKeyboard, GlidePoint,
-    NineKeySpellingId, OnlineCandidate, OnlineQuery, Reranker, Runtime, SentenceModel, Transition,
-    TranslationService,
+    KeyGrid, NineKeySpellingId, OnlineCandidate, OnlineQuery, Reranker, Runtime, SentenceModel,
+    Transition, TranslationService,
 };
 #[cfg(unix)]
 use msime_input_runtime::{EmojiPanelQuery, TranslationQuery};
@@ -225,7 +225,8 @@ struct HostSession {
     /// 宿主经 `msime_client_set_caps_lock` 报告的大写锁定状态。不报告的宿主一直是 `false`，`caps_lock_ascii_punctuation` 对它不起作用。
     caps_lock: bool,
     page_size_override: Option<u8>,
-    nine_key_override: Option<bool>,
+    /// 宿主经 `msime_client_set_key_grid` 或 `msime_client_set_nine_key_mode` 设下的组码网格，`Some(None)` 是宿主关掉了网格。只对设下它时的方案和布局有效，见 `apply_pending`。
+    key_grid_override: Option<Option<KeyGrid>>,
     /// 宿主经 `msime_client_set_private_session` 标出的隐私会话（Android 的隐私模式和不允许学习的输入框，鸿蒙和 iOS 的隐私模式）：不记选词位置和上屏效率。与用户自己关掉的「学习」无关。
     statistics_private: bool,
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
@@ -619,20 +620,22 @@ impl HostSession {
         let layout_changed =
             preferences.touch_keyboard_layout != self.applied.touch_keyboard_layout;
         let scheme = SchemeType::from_u8(options.scheme);
-        let nine_key_scheme = scheme.is_some_and(SchemeType::nine_key);
-        // 宿主的九键覆盖只对它设下时的那个方案有效：全拼九宫格的开关带进注音，会让没选「注音 9 键」的注音也离开大千键位。
+        // 只有能打九键的方案（全拼、注音）才有网格；14 键只给全拼，`Runtime::set_key_grid` 已经拦下别的组合。
+        let grid_scheme = scheme.is_some_and(SchemeType::nine_key);
+        // 宿主的网格覆盖只对它设下时的那个方案有效：全拼九宫格的开关带进注音，会让没选「注音 9 键」的注音也离开大千键位。
         let scheme_changed = options.scheme != self.options.scheme;
-        let next_nine_key_override = if nine_key_scheme && !layout_changed && !scheme_changed {
-            self.nine_key_override
+        let next_key_grid_override = if grid_scheme && !layout_changed && !scheme_changed {
+            self.key_grid_override
         } else {
             None
         };
-        let nine_key_mode = nine_key_scheme
-            && next_nine_key_override.unwrap_or(layout_starts_nine_key(scheme, &preferences));
-        if nine_key_mode {
-            engine
-                .set_nine_key_enabled(true)
-                .map_err(|e| e.to_string())?;
+        let key_grid = if grid_scheme {
+            next_key_grid_override.unwrap_or_else(|| layout_key_grid(scheme, &preferences))
+        } else {
+            None
+        };
+        if key_grid.is_some() {
+            engine.set_key_grid(key_grid).map_err(|e| e.to_string())?;
         }
         engine
             .set_dedicated_english(self.english_mode)
@@ -665,7 +668,7 @@ impl HostSession {
         self.applied = preferences;
         self.preferences_pending = false;
         self.resources_pending = false;
-        self.nine_key_override = next_nine_key_override;
+        self.key_grid_override = next_key_grid_override;
         Ok(fallback)
     }
 
@@ -2285,28 +2288,24 @@ const SELECTION_BATCH: u64 = 32;
 #[cfg(test)]
 mod tests;
 
-/// 只看偏好时，运行 `scheme` 的会话是否以引擎的九键模式开始（宿主的 `msime_client_set_nine_key_mode` 仍可覆盖，但覆盖只对设下它时的方案有效）。全拼看 `touch_keyboard_layout`。注音还要选了「注音 9 键」触屏方案，这个方案只有 Android 键盘会写：`touch_keyboard_layout` 是所有方案共用的一个字段，桌面宿主为全拼九宫格设它（Linux 的九键开关），那里的注音会话必须留在大千键位，不能继承九宫格。
-pub(crate) fn layout_starts_nine_key(
+/// 只看偏好时，运行 `scheme` 的会话以哪种组码网格开始（宿主的 `msime_client_set_key_grid` 和 `msime_client_set_nine_key_mode` 仍可覆盖，但覆盖只对设下它时的方案有效）。全拼看 `touch_keyboard_layout`：九键是九键，14 键是 14 键。注音只有九键，还要选了「注音 9 键」触屏方案，这个方案只有 Android 键盘会写：`touch_keyboard_layout` 是所有方案共用的一个字段，桌面宿主为全拼九宫格设它（Linux 的九键开关），那里的注音会话必须留在大千键位，不能继承九宫格。
+pub(crate) fn layout_key_grid(
     scheme: Option<SchemeType>,
     preferences: &Preferences,
-) -> bool {
-    if !matches!(
-        preferences.touch_keyboard_layout,
-        TouchKeyboardLayout::NineKey
-    ) {
-        return false;
-    }
-    match scheme {
-        Some(SchemeType::Quanpin) => true,
-        Some(SchemeType::Zhuyin) => {
+) -> Option<KeyGrid> {
+    match (preferences.touch_keyboard_layout, scheme) {
+        (TouchKeyboardLayout::NineKey, Some(SchemeType::Quanpin)) => Some(KeyGrid::NineKey),
+        (TouchKeyboardLayout::FourteenKey, Some(SchemeType::Quanpin)) => Some(KeyGrid::FourteenKey),
+        (TouchKeyboardLayout::NineKey, Some(SchemeType::Zhuyin)) => {
             let schemes = &preferences.touch_keyboard_schemes;
             // 用户改了启用列表时 Android 可能清掉 `selected`，所以启用了「注音 9 键」而没有选中项时也算。
-            schemes.selected == Some(TouchKeyboardScheme::ZhuyinNineKey)
+            let zhuyin_nine_key = schemes.selected == Some(TouchKeyboardScheme::ZhuyinNineKey)
                 || (schemes.selected.is_none()
                     && schemes
                         .enabled
-                        .contains(&TouchKeyboardScheme::ZhuyinNineKey))
+                        .contains(&TouchKeyboardScheme::ZhuyinNineKey));
+            zhuyin_nine_key.then_some(KeyGrid::NineKey)
         }
-        _ => false,
+        _ => None,
     }
 }

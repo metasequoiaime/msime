@@ -51,6 +51,8 @@ pub enum TouchKeyboardLayout {
     TwentySixKey,
     NineKey,
     Handwriting,
+    /// 全拼 14 键：QWERTY 上相邻两个字母一个键（L、M 单独一键），按组消歧，与九键共用九宫格会话。只配全拼。
+    FourteenKey,
 }
 
 /// 触屏九宫格数字层的排列。桌面宿主原样保留、不使用。
@@ -404,11 +406,13 @@ pub enum TouchKeyboardScheme {
     Stroke,
     /// 注音 9 键：数字键 1-0 各承载几个注音符号（US 6,009,444 FIG.1 的分组），声调键 ˉ ˊ ˇ ˋ ˙ 结束一个音节，与大千注音一样输出繁体（`InputScheme::Zhuyin` 配 `TouchKeyboardLayout::NineKey`）。
     ZhuyinNineKey,
+    /// 全拼 14 键（`InputScheme::Quanpin` 配 `TouchKeyboardLayout::FourteenKey`）。默认不启用，由用户在「添加语言」或全拼的布局选择里打开。
+    FourteenKey,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -426,9 +430,10 @@ impl TouchKeyboardScheme {
         Self::Tibetan,
         Self::Stroke,
         Self::ZhuyinNineKey,
+        Self::FourteenKey,
     ];
 
-    /// 新装时键盘显示的方案：只有中文方案（拼音、双拼、五笔和手写）。日文（9 键和 26 键）、韩文、粤拼、注音（大千和 9 键）、越南文、藏文和笔画都由用户自己在「添加语言」里打开：日文词典和语言词库在 Android 上按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。
+    /// 新装时键盘显示的方案：只有中文方案（拼音、双拼、五笔和手写）。日文（9 键和 26 键）、韩文、粤拼、注音（大千和 9 键）、越南文、藏文和笔画都由用户自己在「添加语言」里打开：日文词典和语言词库在 Android 上按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。全拼 14 键也不默认启用：它是全拼的另一种键面，由用户在全拼的布局选择或「添加语言」里打开。
     ///
     /// 只用于新装：还没有偏好文件、状态目录也没有被以前的版本准备过的时候（见 `PreferencesStore` 读不到文件时的处理）。已有的文档没存列表时按 [`Self::LEGACY_DEFAULT_ENABLED`]，存过列表的照旧按它保存的列表。
     pub const DEFAULT_ENABLED: [Self; 8] = [

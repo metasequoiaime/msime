@@ -18,7 +18,8 @@ export type TouchKeyboardScheme =
   | "vietnamese"
   | "tibetan"
   | "stroke"
-  | "zhuyin_nine_key";
+  | "zhuyin_nine_key"
+  | "fourteen_key";
 export type TouchKeyboardSchemePreferences = {
   enabled: TouchKeyboardScheme[];
   selected?: TouchKeyboardScheme;
@@ -31,6 +32,7 @@ export function touchKeyboardSchemeInputScheme(scheme: TouchKeyboardScheme): Inp
       return null;
     case "quanpin":
     case "nine_key":
+    case "fourteen_key":
       return "quanpin";
     case "xiaohe":
     case "ziranma":
@@ -80,6 +82,7 @@ export function touchKeyboardSchemeTitle(preferences: Preferences): string {
       tibetan: "藏文 26 键",
       stroke: "笔画",
       zhuyin_nine_key: "注音 9 键",
+      fourteen_key: "全拼 14 键",
     }[selected];
   }
   // 韩语、粤拼、注音、越南语、藏文和笔画各只有一个键盘，不管文档里记的是哪种布局。
@@ -90,6 +93,9 @@ export function touchKeyboardSchemeTitle(preferences: Preferences): string {
   if (preferences.scheme === "tibetan") return "藏文 26 键";
   if (preferences.scheme === "stroke") return "笔画";
   if (preferences.touch_keyboard_layout === "handwriting") return "手写";
+  // 14 键只配全拼；别的方案记着这个布局时按各自的键盘命名。
+  if (preferences.touch_keyboard_layout === "fourteen_key" && preferences.scheme === "quanpin")
+    return "全拼 14 键";
   if (preferences.touch_keyboard_layout === "nine_key")
     return preferences.scheme === "japanese" ? "日语 9 键" : "全拼 9 键";
   if (preferences.scheme === "japanese") return "日语 26 键";
@@ -116,10 +122,11 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["tibetan", "藏文 26 键"],
   ["stroke", "笔画"],
   ["zhuyin_nine_key", "注音 9 键"],
+  ["fourteen_key", "全拼 14 键"],
 ];
 /** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
-/** 没有存过列表的文档显示的方案：粤拼、注音、越南语、藏文和笔画以外的全部，日语和韩语也在里面。对应 client-core 的 `TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED`：没有列表的文档只可能出自默认值改成只有中文之前的版本，按那时的默认列表读，升级的用户键盘不变。新装只启用中文方案（`TouchKeyboardScheme::DEFAULT_ENABLED`），这个列表由 client-core 显式写进文档，不经过这里的回退。 */
+/** 没有存过列表的文档显示的方案：粤拼、注音、越南语、藏文、笔画和全拼 14 键以外的全部，日语和韩语也在里面。对应 client-core 的 `TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED`：没有列表的文档只可能出自默认值改成只有中文之前的版本，按那时的默认列表读，升级的用户键盘不变。新装只启用中文方案（`TouchKeyboardScheme::DEFAULT_ENABLED`），这个列表由 client-core 显式写进文档，不经过这里的回退。 */
 export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboardSchemes.filter(
   (scheme) =>
     scheme !== "cantonese" &&
@@ -127,7 +134,8 @@ export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboa
     scheme !== "vietnamese" &&
     scheme !== "tibetan" &&
     scheme !== "stroke" &&
-    scheme !== "zhuyin_nine_key",
+    scheme !== "zhuyin_nine_key" &&
+    scheme !== "fourteen_key",
 );
 
 /**
@@ -163,6 +171,8 @@ export function inferredTouchKeyboardScheme(
     inferred = "handwriting";
   else if (preferences.touch_keyboard_layout === "nine_key" && scheme !== "korean")
     inferred = scheme === "japanese" ? "japanese_nine_key" : "nine_key";
+  else if (preferences.touch_keyboard_layout === "fourteen_key" && scheme === "quanpin")
+    inferred = "fourteen_key";
   return enabled.includes(inferred) ? inferred : (enabled[0] ?? "quanpin");
 }
 
@@ -281,9 +291,11 @@ export function selectTouchKeyboardScheme(
     touch_keyboard_layout:
       selected === "nine_key"
         ? "nine_key"
-        : selected === "handwriting"
-          ? "handwriting"
-          : "twenty_six_key",
+        : selected === "fourteen_key"
+          ? "fourteen_key"
+          : selected === "handwriting"
+            ? "handwriting"
+            : "twenty_six_key",
     touch_keyboard_schemes,
   };
 }
@@ -351,6 +363,7 @@ export const touchKeyboardLanguages: readonly TouchKeyboardLanguage[] = [
     title: "普通话",
     schemes: [
       "quanpin",
+      "fourteen_key",
       "nine_key",
       "xiaohe",
       "ziranma",

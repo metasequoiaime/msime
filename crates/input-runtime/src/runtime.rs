@@ -39,6 +39,8 @@ pub enum Action {
     FixCandidatePosition(CandidateId, u8),
     ClearCandidatePosition(CandidateId),
     ChooseNineKeySpelling(NineKeySpellingId),
+    /// 14 键的一键，`a`–`z` 里这一组的任一字母（宿主约定送首字母）。不在 14 键下时不处理。
+    GridKey(u8),
     /// 九宫格候选的筛选：只留单字，以及首字笔顺的前缀（`hspnz`，空表示不按笔画）。没有九宫格组字时不处理。
     SetNineKeyFilter {
         single_character: bool,
@@ -67,6 +69,8 @@ pub enum Action {
 pub(crate) struct PhraseSelection {
     pub(crate) word_before: String,
     pub(crate) reading: String,
+    /// 选词时正在组字的网格；`None` 是 26 键组字。退格收回这次选词时按它把读音打回去：14 键的读音是组码字母，要从 `grid_key` 进，从 `character` 进会变成全拼 26 键的字母。
+    pub(crate) grid: Option<KeyGrid>,
 }
 
 pub struct Runtime<E: InputEngine = Session> {
@@ -682,6 +686,28 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.pending_suffix()
     }
 
+    /// 换触屏的组码网格。九键要求方案能打九键（全拼、注音），14 键只给全拼，否则报 `InvalidNineKeyScheme`；组字中切换报 `CompositionActive`。
+    pub fn set_key_grid(&mut self, grid: Option<KeyGrid>) -> Result<(), RuntimeError> {
+        let scheme = scheme_type(self.cached.scheme);
+        let supported = match grid {
+            None => true,
+            Some(KeyGrid::NineKey) => scheme.is_some_and(SchemeType::nine_key),
+            Some(KeyGrid::FourteenKey) => scheme == Some(SchemeType::Quanpin),
+        };
+        if !supported {
+            return Err(RuntimeError::InvalidNineKeyScheme);
+        }
+        if !self.is_idle() {
+            return Err(RuntimeError::CompositionActive);
+        }
+        if self.cached.key_grid == grid {
+            return Ok(());
+        }
+        self.advance()?;
+        self.engine.set_key_grid(grid)?;
+        self.refresh()
+    }
+
     pub fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         if enabled && !scheme_type(self.cached.scheme).is_some_and(SchemeType::nine_key) {
             return Err(RuntimeError::InvalidNineKeyScheme);
@@ -689,7 +715,8 @@ impl<E: InputEngine> Runtime<E> {
         if !self.is_idle() {
             return Err(RuntimeError::CompositionActive);
         }
-        if self.cached.nine_key == enabled {
+        // 比的是网格而不只是九键：14 键开着时关九键也要真的关掉网格。
+        if self.cached.key_grid == enabled.then_some(KeyGrid::NineKey) {
             return Ok(());
         }
         self.advance()?;
@@ -721,6 +748,7 @@ impl<E: InputEngine> Runtime<E> {
             chinese_text: scheme_type(self.cached.scheme).is_some_and(SchemeType::is_chinese),
             script_conversion: script_conversion(self.cached.scheme, &self.cached.local_mode),
             nine_key: self.cached.nine_key,
+            key_grid: key_grid_name(self.cached.key_grid),
             nine_key_spellings: self.cached.nine_key_spellings.clone(),
             nine_key_reading: self.cached.nine_key_reading.clone(),
             nine_key_single_character: self.cached.nine_key_single_character,
@@ -1201,7 +1229,12 @@ impl<E: InputEngine> Runtime<E> {
         // consumed, with its candidates, and the caret at its end.
         self.engine.command(Command::Cancel)?;
         for byte in selection.reading.bytes() {
-            self.engine.character(byte, byte.is_ascii_uppercase())?;
+            // 14 键的组码只认 `grid_key`；分词键 `'` 和九键的数字本来就从 `character` 进。
+            if selection.grid == Some(KeyGrid::FourteenKey) && byte != b'\'' {
+                self.engine.grid_key(byte)?;
+            } else {
+                self.engine.character(byte, byte.is_ascii_uppercase())?;
+            }
         }
         self.refresh()?;
         Ok(Some(self.transition(empty_result(true))))
@@ -1238,6 +1271,7 @@ impl<E: InputEngine> Runtime<E> {
                 self.phrase_selections.push(PhraseSelection {
                     word_before: self.phrase_prefix.clone(),
                     reading: consumed.to_owned(),
+                    grid: self.cached.key_grid.filter(|_| self.cached.grid_composing),
                 });
             }
             self.phrase_prefix.push_str(&result.commit);
@@ -1568,10 +1602,12 @@ impl<E: InputEngine> Runtime<E> {
                 self.cached = EngineSnapshot {
                     scheme: 255,
                     nine_key: false,
+                    key_grid: None,
                     nine_key_spellings: Vec::new(),
                     nine_key_reading: String::new(),
                     nine_key_single_character: false,
                     nine_key_strokes: String::new(),
+                    grid_composing: false,
                     candidate_annotations: Vec::new(),
                     candidate_codes: Vec::new(),
                     candidate_sources: Vec::new(),
@@ -1812,7 +1848,8 @@ impl<E: InputEngine> Runtime<E> {
         if let Action::ChooseNineKeySpelling(id) = &action {
             if id.session != self.session
                 || id.generation != self.generation
-                || !self.cached.nine_key
+                // 九键和 14 键共用这一列拼写。
+                || self.cached.key_grid.is_none()
                 || id.index >= self.cached.nine_key_spellings.len()
             {
                 return Err(RuntimeError::StaleNineKeySpelling);
@@ -1944,8 +1981,8 @@ impl<E: InputEngine> Runtime<E> {
             }
             Action::Character { value, shift } => {
                 self.engine.character(value, shift).and_then(|result| {
-                    // The nine-key separator is a layout action, not Chinese quote punctuation.
-                    if !result.handled && self.cached.nine_key && value == b'\'' {
+                    // 九键和 14 键的分词键 `'` 是键面上的切分动作，不是中文引号标点。
+                    if !result.handled && self.cached.key_grid.is_some() && value == b'\'' {
                         return Ok(result);
                     }
                     if !result.handled && value.is_ascii_punctuation() {
@@ -1985,6 +2022,17 @@ impl<E: InputEngine> Runtime<E> {
             Action::Command(Command::ConversionLeft) if self.cached.conversion.is_empty() => self
                 .engine
                 .conversion_left_from(self.engine_index(self.highlighted)),
+            // 14 键的组码不是可上屏的字母，引擎把原样上屏当成结束组字、从它自己的首位取词；用户看到的首位可能是重排上来的另一行，所以与 `Finish` 一样从宿主高亮的那一行结束组字。
+            Action::Command(Command::CommitRaw)
+                if self.cached.grid_composing
+                    && self
+                        .cached
+                        .key_grid
+                        .is_some_and(|grid| !grid.offers_raw_key())
+                    && len > 0 =>
+            {
+                self.engine.finish(self.engine_index(self.highlighted))
+            }
             Action::Command(command) => self.engine.command(command),
             Action::SegmentBackspace => self.engine.segment_command(SegmentCommand::Backspace),
             Action::SegmentMoveLeft => self.engine.segment_command(SegmentCommand::MoveLeft),
@@ -2005,6 +2053,7 @@ impl<E: InputEngine> Runtime<E> {
                 .engine
                 .clear_candidate_position(self.engine_index(id.index)),
             Action::ChooseNineKeySpelling(id) => self.engine.choose_nine_key_spelling(id.index),
+            Action::GridKey(letter) => self.engine.grid_key(letter),
             Action::SetNineKeyFilter {
                 single_character,
                 ref strokes,
@@ -2111,6 +2160,15 @@ pub(crate) fn empty_result(handled: bool) -> EngineResult {
         has_commit: false,
         commit: String::new(),
         diagnostic: String::new(),
+    }
+}
+
+/// `View::key_grid` 的取值。
+fn key_grid_name(grid: Option<KeyGrid>) -> &'static str {
+    match grid {
+        None => "none",
+        Some(KeyGrid::NineKey) => "nine_key",
+        Some(KeyGrid::FourteenKey) => "fourteen_key",
     }
 }
 

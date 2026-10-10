@@ -80,7 +80,7 @@ public final class NineKeyLayout {
     /**
      * 26 键的数字层此刻是否画成九键数字键面，而不是新设计的 123 层。
      *
-     * <p>只有字母层是 26 个 QWERTY 键的界面才算：标准 26 键（全拼、双拼、五笔、英文、日文罗马字、粤拼、越南语、藏文）和韩文两套式。拼音九键本来就是九键数字键面；手写、笔画和注音 9 键的字母层是网格，大千注音的数字和标点键另有用途，日语九键自带数字层，这些都不受这个偏好影响。平板横屏画成分离式键盘时仍用 123 层：分离的意义是两半各贴一侧给拇指，三列网格铺满整个宽度反而两只手都够不着中间。
+     * <p>只有底行与 26 键相同的界面才算：标准 26 键（全拼、双拼、五笔、英文、日文罗马字、粤拼、越南语、藏文）、韩文两套式和全拼 14 键（14 键的 123 与 26 键是同一套，用户对 123 的选择也一样跟着走）。拼音九键本来就是九键数字键面；手写、笔画和注音 9 键的字母层是网格，大千注音的数字和标点键另有用途，日语九键自带数字层，这些都不受这个偏好影响。平板横屏画成分离式键盘时仍用 123 层：分离的意义是两半各贴一侧给拇指，三列网格铺满整个宽度反而两只手都够不着中间。
      *
      * @param touchLayout {@link KeyboardLayout} 的界面常量（英文模式下已经是 26 键）
      * @param symbols 当前是不是数字符号层
@@ -91,7 +91,8 @@ public final class NineKeyLayout {
                                              boolean splitKeyboard) {
         return symbols && nineKeyNumberLayout && !splitKeyboard
             && (touchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT
-                || touchLayout == KeyboardLayout.KOREAN_LAYOUT);
+                || touchLayout == KeyboardLayout.KOREAN_LAYOUT
+                || touchLayout == KeyboardLayout.FOURTEEN_KEY_LAYOUT);
     }
     public static List<String> punctuation() { return PUNCTUATION; }
 
