@@ -1674,6 +1674,101 @@ fn nine_key_mode_and_spelling_identity_cross_the_host_boundary() {
     read(msime_client_destroy(persisted));
 }
 
+/// 14 键经宿主接口开关：`View.key_grid` 说出网格，`nine_key` 只表示九键。组码只从 `msime_client_grid_key` 进来，硬件字母照常走全拼；选拼写不被当成过期请求。
+#[test]
+fn fourteen_key_grid_crosses_the_host_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    assert_eq!(read(msime_client_view(handle))["value"]["key_grid"], "none");
+    assert_eq!(read(msime_client_set_key_grid(handle, 3))["ok"], false);
+    assert_eq!(read(msime_client_view(handle))["value"]["key_grid"], "none");
+    let enabled = read(msime_client_set_key_grid(handle, 2));
+    assert_eq!(enabled["value"]["key_grid"], "fourteen_key");
+    assert_eq!(enabled["value"]["nine_key"], false);
+
+    let hardware = read(msime_client_character(handle, b'q', false));
+    assert_eq!(hardware["value"]["handled"], true);
+    assert_eq!(hardware["value"]["view"]["preedit"], "q");
+    assert_eq!(
+        read(msime_client_grid_key(handle, b'n'))["value"]["handled"],
+        false
+    );
+    read(msime_client_command(handle, 3));
+
+    let typed = read(msime_client_grid_key(handle, b'n'));
+    assert_eq!(typed["value"]["handled"], true, "{typed}");
+    let view = &typed["value"]["view"];
+    assert!(!view["nine_key_spellings"].as_array().unwrap().is_empty());
+    let generation = view["generation"].as_u64().unwrap();
+    let selected = read(msime_client_choose_nine_key_spelling(handle, generation, 0));
+    assert_eq!(selected["value"]["handled"], true, "{selected}");
+    assert_eq!(read(msime_client_set_key_grid(handle, 0))["ok"], false);
+    read(msime_client_command(handle, 3));
+    assert_eq!(
+        read(msime_client_set_key_grid(handle, 0))["value"]["key_grid"],
+        "none"
+    );
+
+    let nine_key = read(msime_client_set_nine_key_mode(handle, true));
+    assert_eq!(nine_key["value"]["key_grid"], "nine_key");
+    assert_eq!(
+        read(msime_client_grid_key(handle, b'n'))["value"]["handled"],
+        false
+    );
+    read(msime_client_set_key_grid(handle, 2));
+    assert_eq!(
+        read(msime_client_set_nine_key_mode(handle, false))["value"]["key_grid"],
+        "none"
+    );
+    read(msime_client_destroy(handle));
+}
+
+/// 偏好里的 14 键布局让全拼会话以 14 键开始，重建后不变；宿主的覆盖只到布局或方案改变为止；别的方案没有 14 键。
+#[test]
+fn a_fourteen_key_layout_starts_and_keeps_the_fourteen_key_grid() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        touch_keyboard_layout: TouchKeyboardLayout::FourteenKey,
+        ..chinese_preferences()
+    };
+    let handle = test_host_preferences(dir.path(), preferences.clone());
+    let view = read(msime_client_view(handle));
+    assert_eq!(view["value"]["key_grid"], "fourteen_key");
+    assert_eq!(view["value"]["nine_key"], false);
+    assert_eq!(view["value"]["touch_keyboard_layout"], "fourteen_key");
+    preferences.learning = !preferences.learning;
+    assert_eq!(
+        update(handle, 1, &preferences)["value"]["view"]["key_grid"],
+        "fourteen_key"
+    );
+    // 宿主关掉网格（比如密码框画 26 键），同一布局下重建也不会再打开。
+    read(msime_client_set_key_grid(handle, 0));
+    preferences.learning = !preferences.learning;
+    assert_eq!(
+        update(handle, 2, &preferences)["value"]["view"]["key_grid"],
+        "none"
+    );
+    preferences.touch_keyboard_layout = TouchKeyboardLayout::NineKey;
+    assert_eq!(
+        update(handle, 3, &preferences)["value"]["view"]["key_grid"],
+        "nine_key"
+    );
+    preferences.touch_keyboard_layout = TouchKeyboardLayout::FourteenKey;
+    assert_eq!(
+        update(handle, 4, &preferences)["value"]["view"]["key_grid"],
+        "fourteen_key"
+    );
+    preferences.scheme = InputScheme::Shuangpin;
+    let shuangpin = update(handle, 5, &preferences);
+    assert_eq!(
+        shuangpin["value"]["view"]["key_grid"], "none",
+        "{shuangpin}"
+    );
+    assert_eq!(read(msime_client_set_key_grid(handle, 2))["ok"], false);
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn a_fallen_back_scheme_starts_in_the_nine_key_mode_a_rebuild_gives_it() {
     // Cantonese without its dictionary runs as Quanpin, so a nine-key layout starts nine-key at creation exactly as the next preferences rebuild would leave it.

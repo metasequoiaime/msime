@@ -698,6 +698,9 @@ impl<E: InputEngine> Runtime<E> {
         if !self.is_idle() {
             return Err(RuntimeError::CompositionActive);
         }
+        if self.cached.key_grid == grid {
+            return Ok(());
+        }
         self.advance()?;
         self.engine.set_key_grid(grid)?;
         self.refresh()
@@ -710,7 +713,8 @@ impl<E: InputEngine> Runtime<E> {
         if !self.is_idle() {
             return Err(RuntimeError::CompositionActive);
         }
-        if self.cached.nine_key == enabled {
+        // 比的是网格而不只是九键：14 键开着时关九键也要真的关掉网格。
+        if self.cached.key_grid == enabled.then_some(KeyGrid::NineKey) {
             return Ok(());
         }
         self.advance()?;
@@ -742,6 +746,7 @@ impl<E: InputEngine> Runtime<E> {
             chinese_text: scheme_type(self.cached.scheme).is_some_and(SchemeType::is_chinese),
             script_conversion: script_conversion(self.cached.scheme, &self.cached.local_mode),
             nine_key: self.cached.nine_key,
+            key_grid: key_grid_name(self.cached.key_grid),
             nine_key_spellings: self.cached.nine_key_spellings.clone(),
             nine_key_reading: self.cached.nine_key_reading.clone(),
             nine_key_single_character: self.cached.nine_key_single_character,
@@ -1589,6 +1594,7 @@ impl<E: InputEngine> Runtime<E> {
                 self.cached = EngineSnapshot {
                     scheme: 255,
                     nine_key: false,
+                    key_grid: None,
                     nine_key_spellings: Vec::new(),
                     nine_key_reading: String::new(),
                     nine_key_single_character: false,
@@ -1833,7 +1839,8 @@ impl<E: InputEngine> Runtime<E> {
         if let Action::ChooseNineKeySpelling(id) = &action {
             if id.session != self.session
                 || id.generation != self.generation
-                || !self.cached.nine_key
+                // 九键和 14 键共用这一列拼写。
+                || self.cached.key_grid.is_none()
                 || id.index >= self.cached.nine_key_spellings.len()
             {
                 return Err(RuntimeError::StaleNineKeySpelling);
@@ -1965,8 +1972,8 @@ impl<E: InputEngine> Runtime<E> {
             }
             Action::Character { value, shift } => {
                 self.engine.character(value, shift).and_then(|result| {
-                    // The nine-key separator is a layout action, not Chinese quote punctuation.
-                    if !result.handled && self.cached.nine_key && value == b'\'' {
+                    // The nine-key separator is a layout action, not Chinese quote punctuation. 14 键的分词键也是这样。
+                    if !result.handled && self.cached.key_grid.is_some() && value == b'\'' {
                         return Ok(result);
                     }
                     if !result.handled && value.is_ascii_punctuation() {
@@ -2133,6 +2140,15 @@ pub(crate) fn empty_result(handled: bool) -> EngineResult {
         has_commit: false,
         commit: String::new(),
         diagnostic: String::new(),
+    }
+}
+
+/// `View::key_grid` 的取值。
+fn key_grid_name(grid: Option<KeyGrid>) -> &'static str {
+    match grid {
+        None => "none",
+        Some(KeyGrid::NineKey) => "nine_key",
+        Some(KeyGrid::FourteenKey) => "fourteen_key",
     }
 }
 

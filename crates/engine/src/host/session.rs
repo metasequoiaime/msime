@@ -63,8 +63,10 @@ pub struct EngineSnapshot {
     /// The non-letter characters `character` takes in this state (`SessionSnapshot::spelling_symbols`): send one of these as a character, never as punctuation.
     pub spelling_symbols: String,
     pub dedicated_english: bool,
-    /// Mirrors `set_nine_key_enabled`; the engine snapshot has no such flag.
+    /// 九键组码网格开着（`set_key_grid` 设成九键，或 `set_nine_key_enabled(true)`）；14 键下为假。引擎快照里没有这个标志，由这里转述。
     pub nine_key: bool,
+    /// `set_key_grid` 设下的组码网格，`None` 是不用网格。九键和 14 键共用 `nine_key_*` 那几项。
+    pub key_grid: Option<KeyGrid>,
     pub nine_key_spellings: Vec<String>,
     /// `SessionSnapshot::nine_key_reading`.
     pub nine_key_reading: String,
@@ -127,7 +129,7 @@ pub struct OnlineQuerySnapshot {
 pub struct Session {
     inner: crate::session::Session,
     options: EngineOptions,
-    nine_key: bool,
+    key_grid: Option<KeyGrid>,
     microsoft_shuangpin: bool,
     shuangpin_profile: String,
     helpcode_keymap: Option<SharedKeymap>,
@@ -158,7 +160,7 @@ impl Session {
         Ok(Session {
             inner,
             options: options.clone(),
-            nine_key: false,
+            key_grid: None,
             microsoft_shuangpin: options.scheme == SchemeType::Shuangpin as u8
                 && profile.uses_semicolon_key(),
             shuangpin_profile: profile.kind.name().to_owned(),
@@ -187,7 +189,8 @@ impl Session {
             local_mode: value.local_mode.name().to_owned(),
             spelling_symbols: value.spelling_symbols,
             dedicated_english: value.dedicated_english,
-            nine_key: self.nine_key,
+            nine_key: self.key_grid == Some(KeyGrid::NineKey),
+            key_grid: self.key_grid,
             nine_key_spellings: value.nine_key_spellings,
             nine_key_reading: value.nine_key_reading,
             nine_key_single_character: value.nine_key_single_character,
@@ -461,7 +464,7 @@ impl Session {
     /// 见 [`crate::Session::set_key_grid`]。快照的 `nine_key` 只在九键下为真。
     pub fn set_key_grid(&mut self, grid: Option<KeyGrid>) -> Result<()> {
         self.inner.set_key_grid(grid);
-        self.nine_key = grid == Some(KeyGrid::NineKey);
+        self.key_grid = grid;
         Ok(())
     }
 

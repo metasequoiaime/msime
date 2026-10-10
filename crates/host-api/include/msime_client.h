@@ -489,10 +489,16 @@ char *msime_client_english_completions_request(const uint8_t *request,
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_character_width(uint64_t session, bool fullwidth);
 char *msime_client_set_english_mode(uint64_t session, bool enabled);
-/* 引擎负责的九键模式，用于全拼九宫格或注音九键（注音下 View.nine_key_spellings 是目标音节的候选读音）。只在组字结束后调用。View.nine_key 和 View.nine_key_spellings 是权威状态。对其他方案开启、或在组字中切换模式都会被拒绝。
- * 创建和重建会话时按偏好自动开启：全拼看 touch_keyboard_layout 是否为 nine_key；注音还要求 touch_keyboard_schemes 选中（或在没有选中项时启用了）zhuyin_nine_key，这个方案只有 Android 写，桌面宿主为全拼九宫格写下的 nine_key 不会让注音会话离开大千键位。
+/* 引擎负责的九键模式，用于全拼九宫格或注音九键（注音下 View.nine_key_spellings 是目标音节的候选读音）。只在组字结束后调用。View.nine_key 和 View.nine_key_spellings 是权威状态。对其他方案开启、或在组字中切换模式都会被拒绝。等同于 msime_client_set_key_grid 的 1（开）和 0（关），所以关掉时 14 键也一并关掉。
+ * 创建和重建会话时按偏好自动开启：全拼看 touch_keyboard_layout 是否为 nine_key（fourteen_key 则开 14 键）；注音还要求 touch_keyboard_schemes 选中（或在没有选中项时启用了）zhuyin_nine_key，这个方案只有 Android 写，桌面宿主为全拼九宫格写下的 nine_key 不会让注音会话离开大千键位。宿主设下的网格只保留到方案或 touch_keyboard_layout 改变为止。
  * View.touch_keyboard_layout 是已应用的宿主呈现偏好；日文九键宿主只用它，不开启引擎的九键模式。 */
 char *msime_client_set_nine_key_mode(uint64_t session, bool enabled);
+/* 换引擎的组码网格：0 关，1 九键（同 msime_client_set_nine_key_mode），2 全拼 14 键（QWERTY 上相邻两个字母一个键，L、M 单独一键）。只在组字结束后调用；14 键只给全拼，对其他方案开启、在组字中切换都会被拒绝，其他取值报错，会话不变。Value 是 View。
+ * View.key_grid 是权威状态："none"、"nine_key" 或 "fourteen_key"。View.nine_key 只在九键下为真。两种网格共用 View.nine_key_spellings、nine_key_reading、nine_key_single_character、nine_key_strokes，以及 msime_client_choose_nine_key_spelling 和 msime_client_set_nine_key_filter；14 键的分词键照九键送 '\''。14 键下数字不是输入，照常是选词键。 */
+char *msime_client_set_key_grid(uint64_t session, uint8_t grid);
+/* 14 键的一键：letter 是这一组里的任一小写字母，引擎归成这一组，宿主约定送首字母（q e t u o a d g j l z c b m）。返回与 msime_client_character 相同的输入响应。不在 14 键下、方案不是全拼、在本地模式或专用英文里、26 键正在组字、或 letter 不是 a-z 时 handled=false，会话不变。
+ * 硬件键盘的字母照常经 msime_client_character 走全拼 26 键：14 键组字进行中它们 handled=false，同九键。 */
+char *msime_client_grid_key(uint64_t session, uint8_t letter);
 /* 标出隐私会话（隐私模式、不允许学习的输入框）：这个会话的选词位置和上屏效率不记入打字统计。用户在设置里关掉学习不算隐私会话。学习本身仍由偏好里的 learning 决定。Value 是设下的布尔值。 */
 char *msime_client_set_private_session(uint64_t session, bool enabled);
 /* 报告大写锁定状态：偏好 caps_lock_ascii_punctuation 打开时，大写锁定期间没有组字的标点键（经 msime_client_character、msime_client_punctuation 或 msime_client_punctuation_with_context 送来）改走字面 ASCII 路线，和英文模式一样；punctuation_lock 为 chinese 时仍是中文标点。会话状态而非偏好，会话重建后由宿主重新报告。Value 是设下的布尔值。接上这个调用的宿主在 HostCapabilities.caps_lock_punctuation 里声明。 */
@@ -563,7 +569,8 @@ char *msime_client_clear_candidate_position(uint64_t session, uint64_t generatio
 /* 从 View.nine_key_spellings 里选一项，generation 拒绝过期的界面。全拼下把这个拼写锁进数字；注音下只钉住目标音节的读音（不上屏），nine_key_spellings 随后换成下一个有歧义的音节。 */
 char *msime_client_choose_nine_key_spelling(uint64_t session, uint64_t generation, size_t index);
 /* 全拼九键组字时筛选候选，作用到这次组字结束：single_character 只留单字；strokes 是 length 字节的笔顺前缀（h 横、s 竖、p 撇、n 点、z 折，<=64），只留首字笔顺以它开头的候选，length 为 0 时不按笔画筛选（strokes 可为 NULL）。当前状态见 View.nine_key_single_character 和 View.nine_key_strokes。没有九键组字或 strokes 含其他字节时 handled=false；笔画字典不可用时 handled=true 并带 diagnostic LANGUAGE_DICTIONARY_UNAVAILABLE，筛选不变。
- * View.nine_key_spellings 在全拼九键下的含义：先是完整音节；再是下一个数字键上能起头一个音节的字母，大写（M N O），选它限定下一个音节的首字母；最后是这个数字本身（6），只在没有锁定的音节时出现，选它直接上屏这个数字。数字全部锁定后它是最后一次锁定时的选项，选其中一项就换掉那次锁定。这时退格先撤销最后一次锁定，其余情况退格删数字。 */
+ * View.nine_key_spellings 在全拼九键下的含义：先是完整音节；再是下一个数字键上能起头一个音节的字母，大写（M N O），选它限定下一个音节的首字母；最后是这个数字本身（6），只在没有锁定的音节时出现，选它直接上屏这个数字。数字全部锁定后它是最后一次锁定时的选项，选其中一项就换掉那次锁定。这时退格先撤销最后一次锁定，其余情况退格删数字。
+ * 14 键下含义相同，只是没有最后那一项「原样上屏」：完整音节，再是下一键上能起头一个音节的大写字母（Q W）。preedit 是组码字母（bugao），不是拼音，读音行用 View.nine_key_reading。 */
 char *msime_client_set_nine_key_filter(uint64_t session, bool single_character,
                                        const uint8_t *strokes, size_t length);
 /* 滑行输入：手指一笔滑过字母键，由引擎解码成最可能拼出的全拼字母，像打字一样写到组字的光标处（与已有字母之间用 ' 隔开）。request 是 length 字节的 UTF-8 JSON（<=65536，拒绝未知键）：{"keys":[[x,y] x 26],"key_width":w,"key_height":h,"points":[[x,y] 或 [x,y,ms]，2..1024 个]}，keys 是 a..z 各键中心（按此次序），key_width/key_height 是一个字母键的尺寸，全部在宿主自选的同一个坐标系里；ms 是距笔画开始的毫秒数，有了它，手指在键上停一下就能确认那个键。返回与 msime_client_character 相同的输入响应。方案不是全拼、在本地模式或专用英文里、九键数字正在组字，或者没有音节跟得上这一笔时 handled=false：宿主丢掉这一笔，不得把它经过的键当作按键输入。在会话线程上、手指抬起时调用；一次触摸是滑行还是点按只由宿主判断。 */

@@ -1142,6 +1142,39 @@ fn real_engine_exposes_nine_key_mode_and_spelling_choices() {
     assert!(!session.snapshot().unwrap().nine_key);
 }
 
+/// 14 键：快照的 `nine_key` 只表示九键，`key_grid` 说出是哪种网格；组码只从 `grid_key` 进来，硬件字母照常走全拼。
+#[test]
+fn real_engine_reports_the_fourteen_key_grid_apart_from_nine_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut session = Session::new(&options(dir.path())).unwrap();
+    assert_eq!(session.snapshot().unwrap().key_grid, None);
+    session
+        .set_key_grid(Some(crate::KeyGrid::FourteenKey))
+        .unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert!(!snapshot.nine_key);
+    assert_eq!(snapshot.key_grid, Some(crate::KeyGrid::FourteenKey));
+    assert!(session.character(b'q', false).unwrap().handled);
+    assert_eq!(session.snapshot().unwrap().editing_text, "q");
+    assert!(!session.grid_key(b'n').unwrap().handled);
+    session.command(Command::Cancel).unwrap();
+    assert!(session.grid_key(b'n').unwrap().handled);
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.editing_text, "b");
+    assert!(!snapshot.nine_key_spellings.is_empty());
+    session.command(Command::Cancel).unwrap();
+
+    session.set_nine_key_enabled(true).unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert!(snapshot.nine_key);
+    assert_eq!(snapshot.key_grid, Some(crate::KeyGrid::NineKey));
+    assert!(!session.grid_key(b'n').unwrap().handled);
+    session.set_key_grid(None).unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert!(!snapshot.nine_key);
+    assert_eq!(snapshot.key_grid, None);
+}
+
 #[test]
 fn real_engine_cycles_the_last_japanese_kana_variant() {
     let dir = tempfile::tempdir().unwrap();

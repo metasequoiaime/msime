@@ -113,7 +113,7 @@ pub extern "C" fn msime_client_set_private_session(handle: u64, enabled: bool) -
     })
 }
 
-/// 在组字空闲后开启引擎负责的九键数字处理：全拼九宫格，或注音九键。
+/// 在组字空闲后开启引擎负责的九键数字处理：全拼九宫格，或注音九键。`msime_client_set_key_grid` 的九键开关，关掉时连 14 键也关掉。
 #[no_mangle]
 pub extern "C" fn msime_client_set_nine_key_mode(handle: u64, enabled: bool) -> *mut c_char {
     response(|| {
@@ -122,7 +122,28 @@ pub extern "C" fn msime_client_set_nine_key_mode(handle: u64, enabled: bool) -> 
                 .runtime
                 .set_nine_key_enabled(enabled)
                 .map_err(|e| e.to_string())?;
-            session.nine_key_override = Some(enabled);
+            session.key_grid_override = Some(enabled.then_some(KeyGrid::NineKey));
+            serialized_runtime_view(session)
+        })
+    })
+}
+
+/// 在组字空闲后换引擎的组码网格：0 关，1 九键，2 全拼 14 键。其他取值报错，会话不变。
+#[no_mangle]
+pub extern "C" fn msime_client_set_key_grid(handle: u64, grid: u8) -> *mut c_char {
+    response(|| {
+        let grid = match grid {
+            0 => None,
+            1 => Some(KeyGrid::NineKey),
+            2 => Some(KeyGrid::FourteenKey),
+            _ => return Err("unknown key grid".into()),
+        };
+        with_session(handle, |session| {
+            session
+                .runtime
+                .set_key_grid(grid)
+                .map_err(|e| e.to_string())?;
+            session.key_grid_override = Some(grid);
             serialized_runtime_view(session)
         })
     })
@@ -151,6 +172,12 @@ pub extern "C" fn msime_client_character(handle: u64, ascii: u8, shift: bool) ->
             shift,
         },
     )
+}
+
+/// 14 键的一键：`letter` 是这一组里的任一小写字母（宿主约定送首字母）。不在 14 键下、或不是 `a`–`z` 时 handled=false，会话不变。
+#[no_mangle]
+pub extern "C" fn msime_client_grid_key(handle: u64, letter: u8) -> *mut c_char {
+    dispatch(handle, Action::GridKey(letter))
 }
 
 #[no_mangle]
