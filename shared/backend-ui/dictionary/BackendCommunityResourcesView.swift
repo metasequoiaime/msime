@@ -374,8 +374,7 @@ struct CommunityCloudImportButton: View {
       let id = resourceID, version = resourceRevision
       run {
         let identity = try await credentials()
-        let catalog = try await client.dictionaryCatalog(.quick, code: "", session: BackendAccountSession.shared,
-          matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+        let catalog = try await client.dictionaryCatalog(.quick, code: "", token: identity.token)
         try Task.checkCancellation()
         preview = Preview(resourceID: id, resourceRevision: version, dictionaryRevision: catalog.revision,
                           accountID: identity.userID, sessionID: identity.sessionID)
@@ -392,12 +391,13 @@ struct CommunityCloudImportButton: View {
           guard let selected = preview else { return }
           preview = nil
           run {
-            let identity = try await BackendAccountSession.shared.credentials(matchingUserID: selected.accountID,
-                                                                              matchingSessionID: selected.sessionID)
+            let identity = try await credentials()
+            guard identity.userID == selected.accountID, identity.sessionID == selected.sessionID else {
+              throw BackendAccountClient.Failure(status: 409)
+            }
             try Task.checkCancellation()
             let result = try await client.applyResource(selected.resourceID, resourceRevision: selected.resourceRevision,
-              dictionaryRevision: selected.dictionaryRevision, session: BackendAccountSession.shared,
-              matchingUserID: selected.accountID, matchingSessionID: selected.sessionID)
+              dictionaryRevision: selected.dictionaryRevision, token: identity.token)
             try Task.checkCancellation()
             message = "已导入云端词库，新增或更新 \(result.imported) 个词条。请通过词库同步应用到本机。"
           }
