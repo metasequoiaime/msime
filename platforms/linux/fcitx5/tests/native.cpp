@@ -375,6 +375,16 @@ void translationPreferenceChangesIncludeAccount() {
           "translation account changes invalidate translation requests");
 }
 
+void emojiGroupResultFencing() {
+  const Json current = Json{{"_generation", 7}, {"_category", "symbols"}};
+  require(emojiGroupsResultCurrent(current, 7, "symbols"),
+          "emoji groups accept a result for the active category");
+  require(!emojiGroupsResultCurrent(current, 7, "kaomoji"),
+          "emoji groups reject a result from a different category");
+  require(!emojiGroupsResultCurrent(Json{{"_generation", 7}}, 7, "symbols"),
+          "emoji groups reject results without a category fence");
+}
+
 // 用真实 classicui 配置验证接管与恢复：缺省和切回「系统」保留水杉样式，只有主动选择才从第三方主题手里接管；无覆盖自定义主题与解析失败仍恢复持有项。每个 fcitx::Instance 就是一次进程启动（内存里的缓存与所有权状态从零开始），所有路径都指向合成目录；机器上只有 classicui 开发库而没有运行库时跳过（77）。
 int candidateThemePriority() {
   char temporary[] = "/tmp/msime-fcitx-theme-priority-XXXXXX";
@@ -987,6 +997,7 @@ int main(int argc, char **argv) {
     modeBadgeTheme();
     classicuiTakeoverRecord();
     translationPreferenceChangesIncludeAccount();
+    emojiGroupResultFencing();
     require(argc == 2 || (argc == 3 && (std::string(argv[2]) == "--ai" ||
                                        std::string(argv[2]) == "--ctrl-space" ||
                                        std::string(argv[2]) == "--local-modes")),

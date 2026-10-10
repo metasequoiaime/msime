@@ -401,6 +401,13 @@ std::string translationSocket(const Json &options) {
   return value.empty() ? onlineSocket(options) : value;
 }
 
+bool emojiGroupsResultCurrent(const Json &result, uint64_t generation,
+                              const std::string &category) {
+  return result.is_object() &&
+         msime::linux_host::strict_json_value(result, "_generation", uint64_t{}) == generation &&
+         result.value("_category", std::string{}) == category;
+}
+
 bool launchDesktopPanel(const char *panel) {
   if (!panel || !*panel) return false;
   const char *command = std::getenv("MSIME_CLIENT_SETTINGS_COMMAND");
@@ -2374,8 +2381,7 @@ public:
           emoji_groups_job_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         auto result = emoji_groups_job_.get();
         emoji_groups_job_ = {};
-        if (result.is_object() &&
-            msime::linux_host::strict_json_value(result, "_generation", uint64_t{}) == emoji_generation_) {
+        if (emojiGroupsResultCurrent(result, emoji_generation_, emoji_category_)) {
           emoji_groups_.clear();
           for (const auto &item : result.value("groups", Json::array()))
             if (item.is_string() && !item.get<std::string>().empty()) emoji_groups_.push_back(item.get<std::string>());
@@ -2554,6 +2560,7 @@ public:
         } catch (...) {}
         if (withPlugins) result["_plugin_groups"] = loadPluginSymbolGroups(resources, plugins);
         result["_generation"] = generation;
+        result["_category"] = category;
         return result;
       });
       return false;
