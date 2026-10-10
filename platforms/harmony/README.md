@@ -227,6 +227,14 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 筛选走 `msime_client_set_nine_key_filter`（NAPI `setNineKeyFilter`），状态以引擎的 `nine_key_single_character`、`nine_key_strokes` 为准，界面不另存。笔画模式下 ⌫ 先撤一笔，没有笔画才是普通退格；切回拼音或关闭面板时清掉筛选。读音行画 `nine_key_reading`（`ning'bai`），引擎算不出读音时仍画数字。其他布局保持原来的整块面板。
 
+## 全拼 14 键
+
+触屏方案 `QUANPIN_FOURTEEN_KEY`（preferenceId 和 layout 都是 `fourteen_key`，卡片「拼 14」，追加在方案表末尾，默认不启用），把 QWERTY 上相邻两个字母合成一键：`QW ER TY UI OP` / `AS DF GH JK L`（不缩进）/ `[符/分词] ZX CV BN M [⌫]`，四行与 26 键等高，底行就是 26 键的 `actionRow`。键表在 `keyboard/input/FourteenKeyLayout.ts`，与 Android、iOS 和引擎 `KeyGrid::FourteenKey` 是同一张表，`scripts/test-fourteen-key-table.py` 核对。手机和平板提供，2in1 与九键一样不提供：选择器里过滤掉，同步过来的 `fourteen_key` 在 2in1 上画 26 键、不开网格。
+
+点一下经 `pressGridKey`（NAPI `gridKey`，`msime_client_grid_key`）送这一组的首字母；会话的网格是 `keyGrid`（`KeyGrid` 的 0 / 1 / 2，与 C ABI 一致），建会话、获得焦点、词库维护后重建这三处都重发 `setKeyGrid`。组字不写进输入框，读音行显示 `nine_key_reading`；拼音选择条在读音右侧横向滚动（读音最多占半行），不盖住候选，在 123 层和三栏面板开着时照样画；展开候选用九键的三栏面板（`NineKeyPanelPolicy.threeColumn` 放宽到 14 键）。第三排左端键组字时是「分词」（送 `'`），空闲时是「符」（打开符号面板），两种状态都记作 `SoftSymbol`。两个字母的键长按弹出这两个字母（复用 `SURFACE_NINE_KEY_HOLD`），选中后先结束组字再上屏，L、M 不弹。`qwertyLettersShowing` 不含 14 键，所以没有滑行；没有 Shift、按键气泡、双拼提示和角标。英文画 26 键，`selectEnglish` 不改写 `touch_keyboard_layout`，切回中文恢复 14 键；密码框、网址框（`prefersFullFace`）和本地模式画 26 键；123 跟随 `touch_twenty_six_key_number_layout`。组字中在 123 层点字符、打开符号或表情面板这些走 `commitRaw` 的路径，Engine 对 14 键结束组字取首选，不会把组码原样上屏。
+
+同步：导入端认识 `fourteen_key`，这个键的未知值只跳过、不再整份拒收；本版导出时本机是 `fourteen_key` 就省略这个键，上传按 merge 合到云端快照上，等于保留云端旧值。打字统计的来源是 `fourteenKey`，键位 id 是 `FourteenQW` 到 `FourteenM`（`KeyIdPolicy.fourteenKey`）。逻辑测试在 `tests/keyboard-logic.test.ts` 的 14 键三组。
+
 ## 键盘里调的高度被设置页的值盖回去
 
 `changePreferences` 存好文档、记下版本号，却不更新缓存的偏好，`preferences()` 一直返回准备会话时的那份。视图存完立刻读回旧高度：拖动弹回原位，± 不累加，拖间距时把旧高度一起写回，面板尺寸也按旧值算；下次聚焦时版本号已经一致，不会重建，旧值就留到进程重启。现在存完按存下的整份文档重算外观（`refreshPreparedPreferences`），`selectGlobalTheme` 原来自己补的那一步也并进去了。设置页的改动仍按版本号在下次聚焦时重建会话。

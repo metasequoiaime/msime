@@ -68,6 +68,8 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 `rerank_latency` 在 `sentences-nine-key-v1` 上同一个二进制交替各跑两轮，挂着重排模型的 p95 九键 22.34 / 22.29 ms、14 键 20.80 / 20.78 ms，只有引擎时九键 8.73 / 8.72 ms、14 键 7.20 / 7.10 ms。两者都超出 16 ms 的帧预算，这是九键长串原有的问题，14 键没有让它更糟。
 
+14 键的重码集中在少数几组上：bi/bu/ni/nu、xi/xu/zi/zu 这样的四重码，shi/shu，以及 sha 对 a'ga 这类跨音节的歧义。同一串组码下谁排第一只看词库权重，harness 又关掉了学习，所以这里量到的是新用户的第一次输入。BN UI GH AS OP（`bugao`）在锁定词库里首选是「不好」（权重 500381），「你好」（332885）第二；九键上两者是 28426 和 64426，不相遇。三端的手工验收以「你好」出现在候选里、点读音行的 ni 后成为首选为准。
+
 ### `sentences-v2.tsv` — 310 条收割，带上文
 
 从 C4 中文部分（ODC-BY，保留标点的原文，不是 `corpus/fetch.py` 剥过标点的训练语料）收割：把句子用 Engine 的拼音表转成拼音再打回去，首选与原句不同的收下来，上文取同一篇的前一句。`harvest_eval_set` 做这件事，`scripts/review-harvested-cases.py` 用 Jev 过一道评审（选中原文且无强歧义否决），再按拼音+原文去重。500 条收割 → 345 条通过 → 310 条。
@@ -187,4 +189,4 @@ TYPESAFE_API_KEY=... scripts/review-harvested-cases.py target/harvest.jsonl targ
 
 ## 已知测不到的东西
 
-词表覆盖（词级集的金标准 99.94% 本来就在词典里）、用户学习与调频（harness 强制关闭，否则前一条会污染后一条）、双拼路径、语言模型困惑度（没有语料）。九宫格由 `--nine-key` 的两份集合覆盖，见上文。
+词表覆盖（词级集的金标准 99.94% 本来就在词典里）、用户学习与调频（harness 强制关闭，否则前一条会污染后一条）、双拼路径、语言模型困惑度（没有语料）。九宫格由 `--nine-key` 的两份集合覆盖，14 键由 `--grid fourteen` 的两份覆盖，见上文。
