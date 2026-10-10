@@ -427,6 +427,59 @@ final class SkinCommunityTests: XCTestCase {
     XCTAssertEqual(recorder.events.first?.stored, "previous-user")
   }
 
+  func testFailedSnapshotCancelDoesNotBlockSignOutDeletionOrExpiredClear() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CommunityFixtureProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let operations: [(String, @Sendable (SkinCommunityAPI) async throws -> Void)] = [
+      ("logout", { try await $0.logout() }),
+      ("logout_all", { try await $0.logout(all: true) }),
+      ("delete_account", { try await $0.logout(deleteAccount: true) }),
+      ("clear_expired_login", { try await $0.clearExpiredLogin() }),
+    ]
+    for (name, operation) in operations {
+      let memory = CommunityMemoryCredentials()
+      let recorder = AccountReplacementRecorder()
+      let api = SkinCommunityAPI(client: client, account: communitySession(client, memory), cancelSnapshot: {
+        recorder.record($0, storage: memory)
+        throw DictionarySnapshotQueue.Failure.busy
+      })
+      try await api.login(challenge: "fixture", identityToken: "synthetic")
+      XCTAssertTrue(recorder.events.isEmpty, name)
+
+      try await operation(api)
+
+      XCTAssertNil(try memory.load(), "\(name) 在取消快照失败后仍须清除本地会话")
+      XCTAssertEqual(recorder.events.count, 1, name)
+      XCTAssertEqual(recorder.events.first?.old, "fixture-user", name)
+      XCTAssertEqual(recorder.events.first?.stored, "fixture-user", "\(name) 应在清除会话前取消快照")
+    }
+  }
+  func testFailedSnapshotCancelKeepsPreviousAccountWhenSwitching() async throws {
+    let memory = CommunityMemoryCredentials()
+    let oldTokens = BackendAccountClient.Tokens(
+      access_token: String(repeating: "a", count: 64), refresh_token: String(repeating: "f", count: 64),
+      token_type: "Bearer", expires_in: 900,
+      user: .init(id: "previous-user", display_name: "Previous", created_at: "2026-01-01T00:00:00Z"))
+    try memory.save(BackendSavedSession.forTokens(oldTokens))
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CommunityFixtureProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let recorder = AccountReplacementRecorder()
+    let api = SkinCommunityAPI(client: client, account: communitySession(client, memory), cancelSnapshot: {
+      recorder.record($0, storage: memory)
+      throw DictionarySnapshotQueue.Failure.busy
+    })
+
+    do {
+      try await api.login(challenge: "fixture", identityToken: "synthetic")
+      XCTFail("取消旧账号快照失败时不得切换账号")
+    } catch DictionarySnapshotQueue.Failure.busy { }
+
+    XCTAssertEqual(try memory.load()?.tokens.user.id, "previous-user")
+    XCTAssertEqual(recorder.events.map { $0.old }, ["previous-user"])
+  }
+
   func testDelayedNativeForgetKeepsAnotherSessionsNewLoginAndSnapshot() async throws {
     let memory = CommunityMemoryCredentials()
     let oldTokens = BackendAccountClient.Tokens(

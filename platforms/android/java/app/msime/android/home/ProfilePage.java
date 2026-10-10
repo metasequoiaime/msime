@@ -25,6 +25,7 @@ import app.msime.android.DeviceDataApi;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.FilePolicy;
 import app.msime.android.HttpBodyPolicy;
+import app.msime.android.HttpConnectionPolicy;
 import app.msime.android.ListPolicy;
 import app.msime.android.SyncSwitch;
 import app.msime.android.ViewPolicy;
@@ -123,9 +124,8 @@ public final class ProfilePage extends DetailPage {
         try {
             HttpsURLConnection connection = (HttpsURLConnection) new URL(url).openConnection();
             try {
-                connection.setInstanceFollowRedirects(false);
-                connection.setConnectTimeout(10_000);
-                connection.setReadTimeout(15_000);
+                HttpConnectionPolicy.rejectRedirects(connection);
+                HttpConnectionPolicy.setTimeouts(connection, 10_000, 15_000);
                 connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
                 if (connection.getResponseCode() / 100 != 2) return null;
                 try (InputStream input = connection.getInputStream()) {

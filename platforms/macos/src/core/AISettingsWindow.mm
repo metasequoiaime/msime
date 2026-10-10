@@ -1,32 +1,7 @@
 #import "AISettingsWindow.h"
-#import "MSIMEClientSession.h"
+#import "PreferenceEditsSave.h"
 #import "AISettingsSnapshot.h"
 #import "AIEndpointPolicy.h"
-
-static BOOL MSIMEAIStrictRevision(id value, uint64_t *result) {
-    if (![value isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || CFNumberIsFloatType((__bridge CFNumberRef)value)) return NO;
-    NSNumber *number = (NSNumber *)value;
-    if ([number compare:@0] == NSOrderedAscending) return NO;
-    uint64_t revision = number.unsignedLongLongValue;
-    if ([number compare:@(revision)] != NSOrderedSame) return NO;
-    if (result) *result = revision;
-    return YES;
-}
-
-/// Saves `edits` (a subset of the AI keys) over `snapshot`; when another writer saved first, they are merged onto its revision and written once more so its other changes survive.
-static NSDictionary *SaveAIEdits(NSString *directory, NSDictionary *snapshot, NSDictionary *edits) {
-    NSMutableDictionary *next = [snapshot mutableCopy]; next[@"preferences"] = MSIMEAISettingsMerge(snapshot[@"preferences"], edits);
-    uint64_t revision = 0;
-    if (!MSIMEAIStrictRevision(snapshot[@"revision"], &revision)) return nil;
-    NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:revision snapshot:next error:nil];
-    if (saved) return saved;
-    NSDictionary *latest = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
-    // The same revision means the document itself was refused, which another attempt cannot fix.
-    uint64_t latestRevision = 0;
-    if (!latest || !MSIMEAIStrictRevision(latest[@"revision"], &latestRevision) || latestRevision == revision) return nil;
-    next = [latest mutableCopy]; next[@"preferences"] = MSIMEAISettingsMerge(latest[@"preferences"], edits);
-    return [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:latestRevision snapshot:next error:nil];
-}
 
 @interface MSIMEAISettingsWindow () <NSWindowDelegate, NSTextFieldDelegate>
 @end
@@ -78,7 +53,7 @@ static NSDictionary *SaveAIEdits(NSString *directory, NSDictionary *snapshot, NS
         if (problem == MSIMEAIEndpointProblemCleartextPublicHost) { _status.stringValue = [MSIMEAIEndpointCleartextMessage stringByAppendingString:@"修改尚未保存。"]; return; }
         if (problem != MSIMEAIEndpointProblemNone) { _status.stringValue = @"启用 AI 时请输入有效的接口地址（https，或本机、局域网的 http）；修改尚未保存。"; return; }
     }
-    NSDictionary *saved = SaveAIEdits(_directory, _snapshot, edits);
+    NSDictionary *saved = MSIMESavePreferenceEdits(_directory, _snapshot, edits, MSIMEAISettingsMerge);
     if (saved) { _snapshot = saved; _committed = form; _status.stringValue = @"已保存。"; if (_saved) _saved(saved[@"preferences"]); }
     else _status.stringValue = @"保存失败，修改尚未写入；再次修改或关闭窗口时会重试。";
 }

@@ -238,6 +238,34 @@ public enum KeyboardScheme {
         return schemes == null || schemes.isEmpty() ? List.of(fallback(edition)) : schemes;
     }
 
+    /**
+     * 键盘「输入方式」面板里列出的方案：`schemes` 里的双拼只留一种，其余方案原样、按原顺序保留。
+     *
+     * <p>留下的那一种依次取：`selected` 本身是双拼时就是它；否则是偏好 `shuangpin_profile`（`profile`，缺省或不认识时按小鹤，与 {@link #mapping} 的规整相同）对应的那一种；它不在 `schemes` 里时取 `schemes` 里第一种双拼。大多数人只用一种双拼，四种都列出来会把手写挤到第二页（#6450）；换双拼方案在设置的「双拼」子菜单里。与 iOS 的 `InputSchemePreference.pickerSchemes`、鸿蒙的 `KeyboardScheme.pickerSchemes` 一致。
+     */
+    public static List<KeyboardScheme> pickerSchemes(
+            List<KeyboardScheme> schemes, KeyboardScheme selected, String profile) {
+        KeyboardScheme kept = null;
+        if (selected != null && selected.shuangpinProfile != null && schemes.contains(selected)) {
+            kept = selected;
+        } else {
+            String configured = normalizedProfile(profile);
+            for (KeyboardScheme candidate : schemes) {
+                if (candidate.shuangpinProfile == null) continue;
+                if (kept == null) kept = candidate;
+                if (configured.equals(candidate.shuangpinProfile)) {
+                    kept = candidate;
+                    break;
+                }
+            }
+        }
+        List<KeyboardScheme> picker = new ArrayList<>(schemes.size());
+        for (KeyboardScheme candidate : schemes) {
+            if (candidate.shuangpinProfile == null || candidate == kept) picker.add(candidate);
+        }
+        return List.copyOf(picker);
+    }
+
     /** Shared selected is authoritative; otherwise preserve the applied scheme or use first enabled. */
     public static KeyboardScheme resolveEnabledSelection(KeyboardScheme applied,
             String selectedPreferenceId, List<KeyboardScheme> enabled, AppEdition edition) {

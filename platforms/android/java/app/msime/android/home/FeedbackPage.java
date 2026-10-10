@@ -8,9 +8,7 @@ import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.text.Editable;
 import android.text.InputType;
-import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -140,16 +138,10 @@ public final class FeedbackPage extends DetailPage {
         column.addView(button, buttonParams);
         submit = button;
 
-        input.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
-
-            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
-
-            @Override public void afterTextChanged(Editable text) {
-                draft = text.toString();
-                if (sent) sent = false;
-                refresh();
-            }
+        Ui.afterTextChanged(input, text -> {
+            draft = text.toString();
+            if (sent) sent = false;
+            refresh();
         });
 
         GroupCard channels = GroupCard.add(column, "其他渠道").withDividers(Ui.ROW_PADDING_H);

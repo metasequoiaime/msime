@@ -7,6 +7,7 @@ import { ToastProvider } from "../../../../packages/ui/src/core/toast";
 import { CandidateFontSizeSliderRow } from "../../../../packages/ui/src/settings/candidate-sizing-section";
 import { NavigationSection } from "../../../../packages/ui/src/settings/navigation-section";
 import { AppearanceSettingsPage } from "../../../../packages/ui/src/settings/pages/appearance-page";
+import { ShortcutSettingsPage } from "../../../../packages/ui/src/settings/pages/shortcuts-page";
 import {
   defaultKeybindings,
   defaultNumberRowSelection,
@@ -147,7 +148,7 @@ function appearanceForm(setDraft = vi.fn()): SettingsFormModel {
   } as unknown as SettingsFormModel;
 }
 
-test("the HarmonyOS phone 候选栏 page has a 候选栏 group and a 翻页 group, with the rest under 更多选项", () => {
+test("the HarmonyOS phone 候选栏 page has only the 候选栏 group, with the rest under 更多选项", () => {
   const setDraft = vi.fn();
   render(
     <SettingsFormContext.Provider value={appearanceForm(setDraft)}>
@@ -159,7 +160,9 @@ test("the HarmonyOS phone 候选栏 page has a 候选栏 group and a 翻页 grou
 
   expect(
     Array.from(document.querySelectorAll("[data-group-title]")).map((node) => node.textContent),
-  ).toEqual(["候选栏", "翻页"]);
+  ).toEqual(["候选栏"]);
+  // 外接键盘的翻页键在「外接键盘快捷键」页，不在这里。
+  expect(screen.queryByText("外接键盘翻页键")).toBeNull();
   // 没有预览、没有主题链接、没有每页数量行（手机候选条从不读取它），也没有「候选栏高度」和「翻页按钮」。
   expect(screen.queryByText("皮肤、颜色与明暗")).toBeNull();
   expect(screen.queryByText("每页候选项数量")).toBeNull();
@@ -173,15 +176,6 @@ test("the HarmonyOS phone 候选栏 page has a 候选栏 group and a 翻页 grou
   for (const title of ["候选字体", "预编辑字号", "候选栏预编辑"]) {
     expect(screen.getByText(title).closest("details")).toBe(more);
   }
-
-  const paging = groupTitled("翻页");
-  expect(within(paging).getByText("外接键盘翻页键")).toBeTruthy();
-  fireEvent.click(within(paging).getByRole("checkbox", { name: "PageUp / PageDown" }));
-  const update = setDraft.mock.calls.at(-1)?.[0] as (current: Preferences) => Preferences;
-  expect(update({ navigation } as Preferences).navigation).toEqual({
-    ...navigation,
-    page_up_down: false,
-  });
 });
 
 // ---- 外接键盘快捷键 ----
@@ -327,4 +321,59 @@ test("HarmonyOS 2in1 keeps the desktop shortcuts page", () => {
   expect(groupTitled("候选操作")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "恢复默认" })).toBeNull();
   expect(screen.getByRole("switch", { name: /Ctrl\+Shift\+F 切换繁体输出/ })).toBeTruthy();
+});
+
+test("the HarmonyOS phone shortcuts page carries the external keyboard paging keys between 候选 and 按键速查", () => {
+  shortcuts({
+    paging: (
+      <NavigationSection
+        navigation={navigation}
+        wordCharacter={wordCharacter}
+        linux={false}
+        harmonyPhone
+        onChange={vi.fn()}
+      />
+    ),
+  });
+
+  expect(
+    Array.from(document.querySelectorAll("[data-group-title]")).map((node) => node.textContent),
+  ).toEqual(["通用", "候选", "翻页", "按键速查"]);
+  expect(within(groupTitled("翻页")).getByText("外接键盘翻页键")).toBeTruthy();
+});
+
+test("only the HarmonyOS phone shows a paging group on the shortcuts page", () => {
+  shortcuts({ harmony: false, paging: <span>翻页键</span> });
+  expect(screen.queryByText("翻页键")).toBeNull();
+});
+
+test("the HarmonyOS phone 外接键盘快捷键 page writes the paging keys it shows", () => {
+  const setDraft = vi.fn();
+  render(
+    <SettingsFormContext.Provider
+      value={
+        {
+          ...appearanceForm(setDraft),
+          page: "shortcuts",
+          keybindings: { ...defaultKeybindings },
+          showModeSwitchShortcuts: true,
+          showNumberRowSelection: true,
+          showPanelShortcuts: false,
+          fullwidthChord: "Alt+Shift+H",
+        } as unknown as SettingsFormModel
+      }
+    >
+      <ToastProvider>
+        <ShortcutSettingsPage />
+      </ToastProvider>
+    </SettingsFormContext.Provider>,
+  );
+
+  const paging = groupTitled("翻页");
+  fireEvent.click(within(paging).getByRole("checkbox", { name: "PageUp / PageDown" }));
+  const update = setDraft.mock.calls.at(-1)?.[0] as (current: Preferences) => Preferences;
+  expect(update({ navigation } as Preferences).navigation).toEqual({
+    ...navigation,
+    page_up_down: false,
+  });
 });
