@@ -26,6 +26,8 @@ public final class AccountSessionRoutingPolicy {
     public static final String KEY_SYNC_MARKED = "sync_marked";
     /** 回复中携带令牌的字段名。 */
     public static final String KEY_ACCESS_TOKEN = "access_token";
+    /** The stable identifier of the current login; refresh keeps it, sign-in replaces it. */
+    public static final String KEY_SESSION_ID = "session_id";
     /** Optional access token that the caller just saw rejected; the owner must not reuse it. */
     public static final String KEY_REJECTED_ACCESS_TOKEN = "rejected_access_token";
     /** The reply key saying which of the three answers this is. */

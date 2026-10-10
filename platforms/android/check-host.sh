@@ -281,18 +281,13 @@ if rg -n 'optBoolean\("ok"' \
   echo "Android notice responses must require a typed boolean ok field" >&2
   exit 1
 fi
-# App theme resolution is another native envelope; only a JSON boolean can authorize caching
-# the returned palette and season.
+# App theme resolution is shared by the settings app and keyboard. Only a JSON boolean can
+# authorize caching the returned palette and season in either process.
 if rg -n 'optBoolean\("ok"' \
-    "$repo_root/platforms/android/java/app/msime/android/home/AppThemeController.java"; then
-  echo "Android app theme responses must require a typed boolean ok field" >&2
-  exit 1
-fi
-# The keyboard-side resolver has the same native envelope contract as the settings app. Keep its
-# fallback path from accepting string booleans and caching an untrusted palette.
-if rg -n 'optBoolean\("ok"' \
+    "$repo_root/platforms/android/java/app/msime/android/AppThemeResolver.java" \
+    "$repo_root/platforms/android/java/app/msime/android/home/AppThemeController.java" \
     "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java"; then
-  echo "Android keyboard theme responses must require a typed boolean ok field" >&2
+  echo "Android app theme responses must require a typed boolean ok field" >&2
   exit 1
 fi
 # Dictionary pinyin lookup is a native envelope too; a string status must fall back to no
@@ -745,9 +740,9 @@ for manifest in \
 done
 # 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，没开始聆听就被拒时转交识别窗口，系统识别服务不被 1.5 s 停顿截断，说完后收回音量光圈。
 voice_entry="$repo_root/platforms/android/java/app/msime/android/core/ImeVoiceEntry.java"
-if ! rg -qF 'fail(PlatformSpeechPolicy.message(error))' "$voice_activity" \
+if ! rg -qF 'fail(PlatformSpeechPolicy.message(error, recognizerLabel(VoiceRecognitionActivity.this)))' "$voice_activity" \
   || ! rg -qF 'fail(PlatformSpeechPolicy.emptyResult())' "$voice_activity" \
-  || ! rg -qF 'PlatformSpeechPolicy.message(error)' "$voice_entry" \
+  || ! rg -qF 'PlatformSpeechPolicy.message(error, VoiceRecognitionActivity.recognizerLabel(s))' "$voice_entry" \
   || ! rg -qF 'PlatformSpeechPolicy.emptyResult()' "$voice_entry" \
   || ! rg -qF 's.launchVoiceActivity();' "$voice_entry" \
   || ! rg -qF 'if (platform != null) return;' "$voice_entry" \

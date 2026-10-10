@@ -10,7 +10,7 @@ Windows 交叉编译容器强制 `linux/amd64`，在实测 `aarch64` Docker daem
 
 `build-cross-container.sh` 从 Docker daemon 的 `OSType` 和 `Architecture` 选择 amd64 或 ARM64 Linux 镜像，并给 build/run 显式传入相同平台，避开客户端架构和 `DOCKER_DEFAULT_PLATFORM` 的影响。amd64 保留原镜像标签和缓存路径；ARM64 使用 `msime-cross:local-arm64`，在既有 `target/tooling-linux` 与 `target/windows-native-deps-linux` 下使用 `arm64` 子目录。工具和宿主依赖隔离，Cargo 下载缓存继续共用。其他 Linux 架构沿用已有 amd64 仿真路径；非 Linux daemon 在准备缓存之前报错；Docker 不可用的既有跳过行为保持。
 
-`build-cross.sh` 对 Linux `aarch64`/`arm64` 使用 `arm64-linux` 宿主 triplet，Windows 目标仍由 `x86`/`x64` 参数选择。镜像安装本机 Rust 和 Debian MinGW，不更改 Windows ABI、异常模型或产品运行边界。工具链探针按被检查镜像架构运行；Wine 运行器仍使用 amd64 镜像。
+`build-cross.sh` 对 Linux `aarch64`/`arm64` 使用 `arm64-linux` 宿主 triplet，Windows 目标仍由 `x86`/`x64` 参数选择。镜像安装本机 Rust 和 Debian MinGW，不更改 Windows ABI、异常模型或产品运行边界。工具链探针按被检查镜像架构运行；Wine 执行镜像仍为 amd64，运行时来源由 [构建方暂存运行时](2026-10-09-windows-producer-runtime.md) 接管。
 
 固定 vcpkg 提交 `ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0` 的 [bootstrap](https://github.com/microsoft/vcpkg/blob/ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0/scripts/bootstrap.sh) 提供 ARM64 glibc 可执行文件，其 [arm64-linux triplet](https://github.com/microsoft/vcpkg/blob/ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0/triplets/community/arm64-linux.cmake) 定义原生 Linux 宿主；[官方宿主依赖说明](https://learn.microsoft.com/en-us/vcpkg/users/host-dependencies) 区分宿主工具和目标库。[Docker info](https://docs.docker.com/reference/cli/docker/system/info/) 给出 daemon 架构。
 

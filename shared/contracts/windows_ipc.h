@@ -299,7 +299,7 @@ constexpr std::uint32_t CancelKeyboardComposition = 22;
 // Commit a completed Wubi code while preserving letters already buffered after it.
 // Payload: "<consumed>\t<text>".
 constexpr std::uint32_t CommitCandidateAndContinue = 27;
-// Which of the V, "/" and "@" local modes the Engine opens, so the TIP routes their keys as composition input. Payload: three '0'/'1' flags in that order. Each is already false outside the pinyin schemes, where the Engine opens none of them.
+// Which of the V, "/" and "@" local modes the Engine opens, so the TIP routes their keys as composition input. Payload: three '0'/'1' flags in that order. Each is already false in a scheme where the Engine does not open its mode: V opens only in the pinyin schemes (`opens_local_modes`), "/" and "@" in the pinyin schemes and Wubi (`opens_table_modes`), so a Wubi "/" with the command flag on is expected. All three are false in the Engine's own English mode.
 constexpr std::uint32_t LocalModeTriggersChanged = 28;
 // Payload "1" while the focused client's Engine is in its own English mode (Ctrl+Shift+E, the toolbar or tray English), "0" otherwise. The TIP keeps reporting Chinese there, so this is the only way it learns that every letter belongs to the Engine: under Stroke it otherwise hands idle letters other than the five strokes to the application (InputSchemeTraits.h LetterPassesWhileIdle).
 constexpr std::uint32_t DedicatedEnglishChanged = 29;

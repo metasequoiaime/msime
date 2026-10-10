@@ -8,6 +8,17 @@ public final class ThreadPolicySmoke {
     }
 
     public static void main(String[] args) throws InterruptedException {
+        AtomicBoolean namedRan = new AtomicBoolean(false);
+        ThreadFactory namedFactory = ThreadPolicy.namedFactory("msime-smoke-named");
+        Thread named = namedFactory.newThread(() -> namedRan.set(true));
+        check("msime-smoke-named".equals(named.getName()), "named factory preserves the name");
+        check(!named.isDaemon(), "named factory preserves the default non-daemon lifetime");
+        check(named.getPriority() == Thread.NORM_PRIORITY, "named factory preserves the default priority");
+        check(named.getState() == Thread.State.NEW, "named factory does not start the thread");
+        named.start();
+        named.join();
+        check(namedRan.get(), "named factory task runs");
+
         AtomicBoolean ran = new AtomicBoolean(false);
         ThreadFactory factory = ThreadPolicy.namedDaemonFactory("msime-smoke-worker");
         Thread thread = factory.newThread(() -> ran.set(true));
@@ -28,6 +39,20 @@ public final class ThreadPolicySmoke {
         direct.start();
         direct.join();
         check(directRan.get(), "direct worker task runs");
-        System.out.println("Android named daemon thread factory passed");
+
+        AtomicBoolean startedRan = new AtomicBoolean(false);
+        Thread started = ThreadPolicy.startNamedThread("msime-smoke-started", () -> startedRan.set(true));
+        started.join();
+        check("msime-smoke-started".equals(started.getName()), "started thread name is preserved");
+        check(started.isDaemon() == Thread.currentThread().isDaemon(),
+            "started thread preserves inherited daemon state");
+        check(startedRan.get(), "started worker task runs");
+
+        Thread unstarted = ThreadPolicy.namedThread("msime-smoke-unstarted", () -> {});
+        check("msime-smoke-unstarted".equals(unstarted.getName()), "unstarted thread name is preserved");
+        check(unstarted.getState() == Thread.State.NEW, "named thread is not started");
+        check(unstarted.isDaemon() == Thread.currentThread().isDaemon(),
+            "named thread preserves inherited daemon state");
+        System.out.println("Android named thread policy passed");
     }
 }

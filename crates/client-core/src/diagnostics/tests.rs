@@ -185,7 +185,7 @@ fn the_configuration_snapshot_is_redacted_inside_the_zip() {
 #[cfg(unix)]
 #[test]
 fn diagnostic_zip_rejects_a_symlinked_destination_parent() {
-    use std::os::unix::fs::symlink;
+    use msime_path_trust::untrusted_symlink as symlink;
 
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
@@ -342,7 +342,7 @@ fn a_crash_directory_keeps_only_the_newest_records() {
 #[cfg(unix)]
 #[test]
 fn crash_directory_reader_rejects_a_symlinked_directory() {
-    use std::os::unix::fs::symlink;
+    use msime_path_trust::untrusted_symlink as symlink;
 
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();

@@ -1,13 +1,12 @@
 package app.msime.android.home;
 
+import app.msime.android.MainThreadPolicy;
 import app.msime.android.TextPolicy;
+import app.msime.android.ThreadPolicy;
 
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.Looper;
 import android.os.SystemClock;
-import android.text.Editable;
-import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -24,6 +23,7 @@ import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
+import app.msime.android.WindowInsetsPolicy;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -56,8 +56,9 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     /** 流式回复两次重画之间的最短间隔：最多每秒 20 次。 */
     private static final long STREAM_FRAME_MS = 50;
     private static final String FAILURE = "请求失败，请检查登录状态或稍后重试。";
-    private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final Handler mainHandler = MainThreadPolicy.mainHandler();
+    private final ExecutorService worker = Executors.newSingleThreadExecutor(
+        ThreadPolicy.namedFactory("msime-keyboard-tryout"));
     private final ArrayList<BackendAccount.ChatModel> models = new ArrayList<>(BackendAccount.MAX_CHAT_MODELS);
     private final List<BackendAccount.ChatMessage> messages = new ArrayList<>(13);
     private Future<?> operation;
@@ -83,7 +84,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
             Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
             ViewPolicy.setPadding(view, bars.left, bars.top, bars.right,
-                Ui.bottomContentInset(bars.bottom, 0, ime.bottom, 0));
+                WindowInsetsPolicy.bottomContentInset(bars.bottom, 0, ime.bottom, 0));
             return windowInsets;
         });
 
@@ -131,14 +132,10 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             else ViewPolicy.hide(dismiss);
         });
 
-        field.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
-            @Override public void afterTextChanged(@NonNull Editable text) {
-                if (text.length() > DRAFT_LIMIT) text.delete(DRAFT_LIMIT, text.length());
-                // 请求进行中按钮是「停止」，继续编辑或清空草稿都不能禁用取消操作。默认就能和 AI 对话：有字就能发，目录还没加载完时发出的那句等目录到了再发。
-                ViewPolicy.setEnabled(sendAi, sending || text.length() > 0);
-            }
+        Ui.afterTextChanged(field, text -> {
+            if (text.length() > DRAFT_LIMIT) text.delete(DRAFT_LIMIT, text.length());
+            // 请求进行中按钮是「停止」，继续编辑或清空草稿都不能禁用取消操作。默认就能和 AI 对话：有字就能发，目录还没加载完时发出的那句等目录到了再发。
+            ViewPolicy.setEnabled(sendAi, sending || text.length() > 0);
         });
 
         ViewPolicy.bindClick(sendAi, () -> {
@@ -371,7 +368,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         setBubbleText(bubble, text, !mine);
         if (!mine) bubble.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         ViewPolicy.setLineSpacing(bubble, Ui.dp(this, 3), 1f);
-        ViewPolicy.setBackground(bubble, Ui.rounded(mine ? Ui.accent(this) : Ui.card(this), Ui.dp(this, 18)));
+        ViewPolicy.setBackground(bubble, DrawablePolicy.rounded(mine ? Ui.accent(this) : Ui.card(this), Ui.dp(this, 18)));
         Ui.setSymmetricPaddingDp(bubble, this, 14, 10);
         bubble.setMaxWidth(Math.round(KeyboardGeometry.screenWidthPixels(this) * 0.8f));
         LinearLayout.LayoutParams params = Ui.wrap();

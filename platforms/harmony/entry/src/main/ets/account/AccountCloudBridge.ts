@@ -48,6 +48,8 @@ export interface AccountSessionStore {
   load(): string | null;
   save(value: string): void;
   clear(): void;
+  /** Synchronously cancel work owned by a valid saved session before removing it. */
+  beforeClear?(accountId: string): void;
   /**
    * Runs `body` holding a lock that every process sharing this store takes before it refreshes.
    *
@@ -2467,7 +2469,12 @@ export class AccountCloudBridge {
   private expireSession(matches: (session: Session) => boolean): void {
     if (this.session !== null && matches(this.session)) this.forgetSession();
     const stored: Session | null = this.storedSession();
-    if (stored !== null && matches(stored)) this.store.clear();
+    if (stored !== null && matches(stored)) this.clearStoredSession(stored);
+  }
+
+  private clearStoredSession(stored: Session | null): void {
+    if (stored !== null) this.store.beforeClear?.(stored.user.id);
+    this.store.clear();
   }
 
   private forgetSession(): void {
@@ -2479,6 +2486,6 @@ export class AccountCloudBridge {
 
   private clearExpired(): void {
     this.forgetSession();
-    this.store.clear();
+    this.clearStoredSession(this.storedSession());
   }
 }

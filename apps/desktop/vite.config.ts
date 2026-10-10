@@ -35,6 +35,6 @@ export default defineConfig({
     // with assertion-level races under load even though the affected files
     // passed alone and with a bounded worker pool.
     maxWorkers: 8,
-    setupFiles: ["tests/support/reset-history.ts"],
+    setupFiles: ["tests/support/reset-history.ts", "tests/support/testing-library-timeout.ts"],
   },
 });

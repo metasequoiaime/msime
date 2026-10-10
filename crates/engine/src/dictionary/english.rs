@@ -92,7 +92,7 @@ impl EnglishDictionary {
         let Ok(mut rows) = statement.query([prefix, upper_bound.as_str()]) else {
             return Vec::new();
         };
-        let mut candidates = Vec::with_capacity(limit);
+        let mut candidates = Vec::new();
         loop {
             match rows.next() {
                 Ok(Some(row)) => {
@@ -106,6 +106,9 @@ impl EnglishDictionary {
                     else {
                         return Vec::new();
                     };
+                    if candidates.capacity() == 0 {
+                        candidates.reserve_exact(limit);
+                    }
                     candidates.push(WordItem::new(
                         word,
                         display,
@@ -322,7 +325,7 @@ fn open_read_only(path: &Path) -> Option<Connection> {
     if path.as_os_str().is_empty() {
         return None;
     }
-    let path = crate::paths::sqlite_path_no_follow(path).ok()?;
+    let path = crate::paths::sqlite_read_only_path_no_follow(path).ok()?;
     let connection = Connection::open_with_flags(
         &path,
         OpenFlags::SQLITE_OPEN_READ_ONLY
@@ -833,3 +836,7 @@ hello\tlast wins\n\
         assert!(!dictionary.query_chinese_gloss("hello").is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "english/empty_page_tests.rs"]
+mod empty_page_tests;

@@ -90,12 +90,15 @@ enum AISkinService {
     let prompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
     guard (1...500).contains(prompt.count) else { throw ServiceFailure(message: "无法生成抽卡灵感，请重试。") }
     let identity = try await account.credentials()
-    let catalog = try await client.chatModels(token: identity.token)
-    let fresh = try await account.credentials(matchingUserID: identity.userID)
+    let catalog = try await client.chatModels(session: account, matchingUserID: identity.userID,
+                                              matchingSessionID: identity.sessionID)
     try Task.checkCancellation()
-    let result = try await client.chat(messages: [.init(role:"system",content:systemPrompt), .init(role:"user",content:prompt)],
-      model:catalog.default_model, token:fresh.token)
-    _ = try await account.credentials(matchingUserID:identity.userID)
+    let result = try await account.authenticated(matchingUserID: identity.userID,
+                                                 matchingSessionID: identity.sessionID) { token in
+      try await client.chat(messages: [.init(role:"system",content:systemPrompt), .init(role:"user",content:prompt)],
+        model:catalog.default_model, token:token)
+    }.value
+    try await account.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
     try Task.checkCancellation()
     let plans = try parse(result)
     guard Set(plans.compactMap { $0.design.keyShape }).count == 3,
@@ -109,7 +112,8 @@ enum AISkinService {
       // The validated response has exactly three independent illustrations.
       for (index, plan) in plans.enumerated() {
         group.addTask {
-          (index, try await illustrate(plan, prompt: prompt, client: client, account: account, userID: identity.userID))
+          (index, try await illustrate(plan, prompt: prompt, client: client, account: account,
+                                       userID: identity.userID, sessionID: identity.sessionID))
         }
       }
       var completed: [(Int, AISkinProposal)] = []
@@ -118,19 +122,20 @@ enum AISkinService {
         try Task.checkCancellation()
         await progress(completed.count)
       }
-      _ = try await account.credentials(matchingUserID: identity.userID)
+      try await account.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
       try Task.checkCancellation()
       return completed.sorted { $0.0 < $1.0 }.map { $0.1 }
     }
   }
   private static func illustrate(_ plan: AISkinProposal, prompt: String, client: BackendAccountClient,
-                                 account: BackendAccountSession, userID: String) async throws -> AISkinProposal {
-      _ = try await account.credentials(matchingUserID: userID)
+                                 account: BackendAccountSession, userID: String,
+                                 sessionID: UUID) async throws -> AISkinProposal {
+      try await account.requireSession(matchingUserID: userID, matchingSessionID: sessionID)
       try Task.checkCancellation()
       guard let scene = plan.artworkPrompt else { throw ServiceFailure(message: "缺少背景场景，请重新抽取。") }
       let artwork = try await client.skinArtwork(prompt: scene,
-        account: account, userID: userID)
-      _ = try await account.credentials(matchingUserID: userID)
+        account: account, userID: userID, matchingSessionID: sessionID)
+      try await account.requireSession(matchingUserID: userID, matchingSessionID: sessionID)
       try Task.checkCancellation()
       guard ["image/png", "image/jpeg"].contains(artwork.mime_type), (1...2048).contains(artwork.width),
             (1...2048).contains(artwork.height), let data = Data(base64Encoded:artwork.b64_json),

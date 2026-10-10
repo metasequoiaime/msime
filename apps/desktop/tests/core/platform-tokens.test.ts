@@ -121,6 +121,21 @@ test("the iOS switch is system green while every other platform's follows its ac
   }
 });
 
+// Linux 设置窗口关掉了 WebKit 合成，内容区每滚一步整块重绘，分组阴影一带模糊滚动就卡（#6403）。每一层阴影的模糊半径（第三个长度）都必须是 0。
+test("the Linux group shadow carries no blur", () => {
+  for (const appearance of ["light", "dark"] as const) {
+    const layers = platformTokens.linux[appearance].group.shadow.split(/,(?![^(]*\))/);
+    expect(layers.length, appearance).toBeGreaterThan(0);
+    for (const layer of layers) {
+      const lengths = layer
+        .replace(/rgba?\([^)]*\)/g, "")
+        .trim()
+        .split(/\s+/);
+      expect(lengths[2] ?? "0", `${appearance}: ${layer}`).toMatch(/^0(px)?$/);
+    }
+  }
+});
+
 test("the host and viewport choose the settings platform", () => {
   const narrow = { wide: false };
   const wide = { wide: true };

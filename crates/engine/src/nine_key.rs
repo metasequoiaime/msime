@@ -2,7 +2,7 @@
 //!
 //! The digits stay the composition: a chosen spelling only rewrites its span of digits and is remembered in `locked`, and every candidate's `pinyin` is the run of digits it consumes, so selection advances the same way whichever reading produced the row.
 
-use std::cmp::Reverse;
+use std::cmp::{Ordering, Reverse};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -752,6 +752,7 @@ impl NineKeySession {
         let table = spelling_table();
         let locked_length = self.locked_length();
         let remaining = remaining_digits(&self.digits, locked_length);
+        let unlocked_digit_count = remaining.len();
         let mut split_offsets = [0usize; DIGIT_LIMIT];
         for (index, split) in self.splits.iter().enumerate() {
             split_offsets[index] = split - locked_length;
@@ -917,7 +918,9 @@ impl NineKeySession {
             None,
             false,
         );
-        // Keep the most likely reading visible without requiring a horizontal scroll.
+        // One digit is predictive; after that, keep a likely reading visible
+        // only once its digits are complete. An unfinished longer syllable
+        // must not hide readings already spelled in full.
         if let Some(front) = candidates.first() {
             let offset = if locked_key.is_empty() {
                 0
@@ -926,8 +929,10 @@ impl NineKeySession {
             };
             if let Some(rest) = front.canonical_pinyin.get(offset..) {
                 let preferred = rest.split('\'').next().unwrap_or_default();
-                if let Some(found) = self.spellings.iter().position(|s| s == preferred) {
-                    self.spellings[..=found].rotate_right(1);
+                if unlocked_digit_count < 2 || preferred.len() <= unlocked_digit_count {
+                    if let Some(found) = self.spellings.iter().position(|s| s == preferred) {
+                        self.spellings[..=found].rotate_right(1);
+                    }
                 }
             }
         }
@@ -1201,12 +1206,14 @@ impl NineKeySession {
         self.digits.drain(..count);
         // 与全拼键盘相同（`session/commit.rs` 的 `commit`）：选中一行后光标回到末尾。改完中间的数字选掉前一个词，接着打的是下一个词，应接在剩下的数字后面，而不是插在它们中间。
         self.caret = None;
-        self.splits = self
-            .splits
-            .iter()
-            .filter(|&&split| split > count)
-            .map(|split| split - count)
-            .collect();
+        self.splits.retain_mut(|split| {
+            if *split > count {
+                *split -= count;
+                true
+            } else {
+                false
+            }
+        });
         let mut consumed = count;
         while let Some(front) = self.locked.first() {
             if consumed < front.len() {
@@ -1747,7 +1754,7 @@ impl SpellingTable {
             .any(|(syllable, _)| syllable.as_bytes().first() == Some(&letter))
     }
 
-    /// Complete syllables the unlocked digits can start with, or that complete them, longest covered first (NK:238-250). Coverage is counted in digits: comparing letter counts would put a syllable that needs two digits ahead under the same digit prefix.
+    /// Complete syllables the unlocked digits can start with, or that complete them, longest covered first (NK:238-250). Coverage is counted in digits; after the first digit, a reading already spelled in full comes before a longer completion within one coverage bucket.
     /// 有切分时，只有在切分处或之前结束的音节才算。
     fn spellings_for(
         &self,
@@ -1771,7 +1778,16 @@ impl SpellingTable {
             .collect();
         let covered = |code: &str| code.len().min(remaining.len());
         matches.sort_by(|(a, a_code), (b, b_code)| {
-            covered(b_code).cmp(&covered(a_code)).then_with(|| a.cmp(b))
+            covered(b_code)
+                .cmp(&covered(a_code))
+                .then_with(|| {
+                    if remaining.len() > 1 {
+                        a_code.len().cmp(&b_code.len())
+                    } else {
+                        Ordering::Equal
+                    }
+                })
+                .then_with(|| a.cmp(b))
         });
         matches.into_iter().map(|(text, _)| text.clone()).collect()
     }
@@ -2058,13 +2074,26 @@ mod tests {
         ]);
         assert_eq!(
             table.spellings_for("426", 2, None),
-            ["gan", "gang", "gao", "han", "hang", "hao", "ga", "ha"]
+            ["gan", "gao", "han", "hao", "gang", "hang", "ga", "ha"]
         );
         // With 31 digits already locked, only a one-digit completion still fits in 32.
         assert_eq!(table.spellings_for("2", 31, None), ["a"]);
         assert!(table.spellings_for("", 0, None).is_empty());
         // 在两个数字之后切开，就排除了所有跨过这个位置的音节。
         assert_eq!(table.spellings_for("426", 0, Some(2)), ["ga", "ha"]);
+    }
+
+    #[test]
+    fn complete_two_digit_readings_precede_longer_completions() {
+        let table = SpellingTable::new(&["pi", "pian", "piao", "pie", "qi", "ri", "shi", "si"]);
+        let choices = table.spellings_for("74", 0, None);
+        assert_eq!(&choices[..4], ["pi", "qi", "ri", "si"]);
+    }
+
+    #[test]
+    fn one_digit_keeps_predictive_readings_ahead_of_single_letter_syllables() {
+        let table = SpellingTable::new(&["ma", "mi", "o"]);
+        assert_eq!(table.spellings_for("6", 0, None), ["ma", "mi", "o"]);
     }
 
     fn item(word: &str, digits: &str, weight: i64, source: CandidateSource) -> WordItem {
@@ -2369,6 +2398,17 @@ mod tests {
     }
 
     #[test]
+    fn consuming_digits_reuses_split_storage() {
+        let mut session = detached();
+        session.digits = "64426".into();
+        session.splits = vec![2, 4];
+        let (_, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.consume(2));
+        assert_eq!(session.splits, [2]);
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
     fn snapshot_shows_locked_syllables_before_the_open_digits() {
         let mut session = detached();
         session.digits = "64426".into();
@@ -2520,6 +2560,21 @@ mod tests {
             "mixed English waits for the minimum prefix"
         );
         assert_eq!(session.snapshot().candidates[0].pinyin, "6");
+    }
+
+    #[test]
+    fn unfinished_top_candidate_does_not_displace_complete_readings() {
+        let fixture = fixture_with("CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_s VALUES('shi','s','是',10000);");
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut session, "74");
+        let view = session.snapshot();
+        assert_eq!(
+            view.candidates
+                .first()
+                .map(|candidate| candidate.word.as_str()),
+            Some("是")
+        );
+        assert_eq!(&view.nine_key_spellings[..4], ["pi", "qi", "ri", "si"]);
     }
 
     #[test]
@@ -2759,8 +2814,8 @@ mod tests {
         assert_eq!(
             before.nine_key_spellings,
             [
-                "ni", "mi", "mian", "miao", "mie", "min", "ming", "miu", "nian", "niang", "niao",
-                "nie", "nin", "ning", "niu", "o", "M", "N", "O", "6"
+                "ni", "mi", "mie", "min", "miu", "nie", "nin", "niu", "mian", "miao", "ming",
+                "nian", "niao", "ning", "niang", "o", "M", "N", "O", "6"
             ],
             "the preferred spelling leads, the key's letters and digit follow"
         );
@@ -2772,7 +2827,7 @@ mod tests {
         assert_eq!(view.preedit, "ni'426");
         assert_eq!(
             view.nine_key_spellings,
-            ["hao", "gan", "gang", "gao", "han", "hang", "ga", "ha", "G", "H"],
+            ["hao", "gan", "gao", "han", "gang", "hang", "ga", "ha", "G", "H"],
             "no i, which starts no syllable, and no digit behind a lock"
         );
         let result = session.select(index_of(&session, "你好"));

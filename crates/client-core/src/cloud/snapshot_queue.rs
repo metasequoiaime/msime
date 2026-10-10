@@ -662,7 +662,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn snapshot_cleanup_does_not_follow_a_symlinked_parent() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let outside = tempfile::tempdir().unwrap();
         let outside_file = outside.path().join("synthetic.ndjson");

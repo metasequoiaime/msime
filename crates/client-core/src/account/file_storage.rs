@@ -30,6 +30,8 @@ struct AppleSavedSession {
     tokens: AccountTokens,
     #[serde(rename = "expiresAt")]
     expires_at: f64,
+    #[serde(rename = "sessionID", default, skip_serializing_if = "Option::is_none")]
+    session_id: Option<uuid::Uuid>,
 }
 
 #[derive(Clone)]
@@ -77,6 +79,7 @@ impl FileAccountSessionStorage {
                 tokens: session.tokens.clone(),
                 expires_at: session.expires_at_unix_ms as f64 / 1000.0
                     - APPLE_REFERENCE_DATE_UNIX_SECONDS,
+                session_id: session.session_id,
             }),
         }
         .map_err(|_| AccountError::Storage)
@@ -116,6 +119,7 @@ fn decode(bytes: &[u8]) -> Result<SavedAccountSession, AccountError> {
     Ok(SavedAccountSession {
         tokens: saved.tokens,
         expires_at_unix_ms: expires_at_unix_ms.round() as u64,
+        session_id: saved.session_id,
     })
 }
 

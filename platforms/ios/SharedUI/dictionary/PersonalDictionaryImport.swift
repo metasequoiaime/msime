@@ -83,10 +83,10 @@ struct PersonalDictionaryImport: Codable, Sendable {
   /// Mirrors `describeImportResult` in the shared settings page, minus the count the preview already shows.
   static func notice(_ report: [String: Any]) -> String {
     var parts: [String] = []
-    let failed = integer(report["failed"]) ?? 0
+    let failed = SharedNumber.nonnegativeInt(report["failed"]) ?? 0
     if failed > 0 {
       let failures = report["first_failures"] as? [[String: Any]] ?? []
-      let lines = failures.compactMap { integer($0["line"]) }.map(String.init).joined(separator: "、")
+      let lines = failures.compactMap { SharedNumber.nonnegativeInt($0["line"]) }.map(String.init).joined(separator: "、")
       parts.append(lines.isEmpty ? "跳过 \(failed) 行。" : "跳过 \(failed) 行，首先出现在第 \(lines) 行。")
       if failures.contains(where: { $0["issue"] as? String == "rejected" }) {
         parts.append("其中部分行的编码与词不匹配，例如简拼、或音节数与汉字数不一致。")
@@ -95,15 +95,6 @@ struct PersonalDictionaryImport: Codable, Sendable {
     if report["truncated"] as? Bool == true { parts.append("文件过长，仅导入前 128 条，其余请拆分后再导入。") }
     if report["swapped"] as? Bool == true { parts.append("该文件的两列与所选格式相反，已按文件本身的顺序读取。") }
     return parts.joined()
-  }
-
-  private static func integer(_ value: Any?) -> Int? {
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID(),
-          let integer = Int(number.stringValue),
-          integer >= 0,
-          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
-    return integer
   }
 
   static func read(from url: URL) throws -> Self {

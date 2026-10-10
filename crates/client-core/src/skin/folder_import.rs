@@ -594,7 +594,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn leftover_cleanup_rejects_a_symlinked_parent() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let state = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();

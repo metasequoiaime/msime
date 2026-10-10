@@ -17,8 +17,12 @@ private final class TranslationRetryProtocol: URLProtocol {
   static let newToken = String(repeating: "b", count: 64)
   private static let lock = NSLock()
   private static var attempts: [String] = []
+  private static var onRejected: (() -> Void)?
   static var authorizations: [String] { lock.lock(); defer { lock.unlock() }; return attempts }
-  static func reset() { lock.lock(); defer { lock.unlock() }; attempts = [] }
+  static func reset() { lock.lock(); defer { lock.unlock() }; attempts = []; onRejected = nil }
+  static func whenRejected(_ action: @escaping () -> Void) {
+    lock.lock(); defer { lock.unlock() }; onRejected = action
+  }
 
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -31,9 +35,15 @@ private final class TranslationRetryProtocol: URLProtocol {
       status = 200
       body = "{\"access_token\":\"\(Self.newToken)\",\"refresh_token\":\"\(String(repeating: "d", count: 64))\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"synthetic-user\",\"display_name\":\"示例\",\"created_at\":\"2026-09-08\"}}"
     } else if path == "/v1/translate" {
-      Self.lock.lock(); Self.attempts.append(authorization); Self.lock.unlock()
+      let onRejected: (() -> Void)?
+      Self.lock.lock()
+      Self.attempts.append(authorization)
+      onRejected = Self.onRejected
+      Self.onRejected = nil
+      Self.lock.unlock()
       status = authorization == "Bearer \(Self.newToken)" ? 200 : 401
       body = status == 200 ? #"{"code":200,"data":["hello"]}"# : #"{"error":{"code":"invalid_credentials"}}"#
+      if status == 401 { onRejected?() }
     } else {
       status = 404
       body = #"{"error":{"code":"not_found"}}"#
@@ -68,5 +78,33 @@ final class BackendTranslationRetryTests: XCTestCase {
     XCTAssertEqual(TranslationRetryProtocol.authorizations,
                    ["Bearer \(TranslationRetryProtocol.oldToken)",
                     "Bearer \(TranslationRetryProtocol.newToken)"])
+  }
+
+  func testRejectedTranslationNeverResendsOldWordsAsNewAccount() async throws {
+    TranslationRetryProtocol.reset()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [TranslationRetryProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let tokens = BackendAccountClient.Tokens(
+      access_token: TranslationRetryProtocol.oldToken,
+      refresh_token: String(repeating: "c", count: 64),
+      token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-user", display_name: "示例", created_at: "2026-09-08"))
+    let storage = TranslationSessionStorage(try BackendSavedSession.forTokens(tokens))
+    let session = BackendAccountSession(api: client, storage: storage,
+                                        refreshLock: BackendProcessRefreshLock())
+    let next = BackendAccountClient.Tokens(
+      access_token: TranslationRetryProtocol.newToken,
+      refresh_token: String(repeating: "d", count: 64),
+      token_type: "Bearer", expires_in: 900,
+      user: .init(id: "other-synthetic-user", display_name: "另一个账号", created_at: "2026-09-08"))
+    TranslationRetryProtocol.whenRejected { try? storage.save(try BackendSavedSession.forTokens(next)) }
+
+    do {
+      _ = try await client.translate(texts: ["合成词"], target: "en", session: session)
+      XCTFail("old account words must not be retried as the new account")
+    } catch is CancellationError { }
+    XCTAssertEqual(TranslationRetryProtocol.authorizations,
+                   ["Bearer \(TranslationRetryProtocol.oldToken)"])
   }
 }

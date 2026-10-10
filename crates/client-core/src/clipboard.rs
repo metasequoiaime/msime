@@ -681,7 +681,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn clear_does_not_follow_a_parent_replaced_after_locking() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let root = tempfile::tempdir().unwrap();
         let live = root.path().join("user-data");

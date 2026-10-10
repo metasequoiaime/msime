@@ -10,9 +10,6 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 import androidx.core.widget.NestedScrollView;
 import app.msime.android.HostDeepLink;
 import app.msime.android.R;
@@ -78,16 +75,7 @@ public abstract class DetailPage extends HomeTabFragment {
             (ignored, x, y, oldX, oldY) -> setCollapsed(y > threshold, true));
 
         // home_content 已经让开了状态栏和左右的刘海，这里只管底部：内容要能滚到底部导航栏（80dp 加手势区）之上，键盘弹出时再让到键盘之上。
-        int base = Ui.dp(requireContext(), Ui.PAGE_PADDING_BOTTOM);
-        int tabs = Ui.dp(requireContext(), Ui.TAB_BAR_HEIGHT);
-        ViewCompat.setOnApplyWindowInsetsListener(scroll, (target, insets) -> {
-            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
-            int bottom = Ui.bottomContentInset(bars.bottom, tabs, ime.bottom, base);
-            Ui.setBottomPadding(target, bottom);
-            return insets;
-        });
-        ViewCompat.requestApplyInsets(scroll);
+        Ui.bindPageBottomInsets(scroll);
 
         Bundle args = getArguments();
         buildContent(view.findViewById(R.id.ms_detail_column), args == null ? new Bundle() : args);

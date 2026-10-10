@@ -10,6 +10,18 @@ extension BackendAccountClient {
     let data: [Model]
     let default_model: String
   }
+  func chatModels(session: BackendAccountSession, matchingUserID expected: String? = nil,
+                  matchingSessionID expectedSessionID: UUID? = nil) async throws -> ChatModels {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    let catalog = try await session.authenticated(matchingUserID: identity.userID,
+                                                   matchingSessionID: identity.sessionID) { token in
+      try await chatModels(token: token)
+    }.value
+    try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+    try Task.checkCancellation()
+    return catalog
+  }
+
   func chatModels(token: String) async throws -> ChatModels {
     let catalog: ChatModels = try await json("GET", "/v1/models", token: token)
     guard !catalog.data.isEmpty, catalog.data.count <= 33,
@@ -19,6 +31,19 @@ extension BackendAccountClient {
           Set(catalog.data.map(\.id)).count == catalog.data.count else { throw Failure(status: 0) }
     return catalog
   }
+  func chat(messages: [ChatMessage], model: String, session: BackendAccountSession,
+            matchingUserID expected: String? = nil,
+            matchingSessionID expectedSessionID: UUID? = nil) async throws -> String {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    let reply = try await session.authenticated(matchingUserID: identity.userID,
+                                                 matchingSessionID: identity.sessionID) { token in
+      try await chat(messages: messages, model: model, token: token)
+    }.value
+    try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+    try Task.checkCancellation()
+    return reply
+  }
+
   func chat(messages: [ChatMessage], model: String, token: String) async throws -> String {
     struct Body: Encodable { let messages: [ChatMessage]; let model: String; let max_tokens = 2048; let stream = false }
     struct Response: Decodable {
@@ -60,12 +85,14 @@ extension BackendAccountClient {
   /// Translate one visible candidate page in order. The backend owns the provider and credentials;
   /// the keyboard only receives bounded display strings and never sends the user's raw keystrokes.
   func translate(texts: [String], target: String, session: BackendAccountSession) async throws -> [String] {
-    let token = try await session.accessToken()
-    do { return try await translate(texts: texts, target: target, token: token) }
-    catch let failure as Failure where failure.status == 401 {
-      return try await translate(texts: texts, target: target,
-                                 token: session.accessToken(retrying: token))
-    }
+    let identity = try await session.credentials()
+    let result = try await session.authenticated(matchingUserID: identity.userID,
+                                                 matchingSessionID: identity.sessionID) { token in
+      try await translate(texts: texts, target: target, token: token)
+    }.value
+    try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+    try Task.checkCancellation()
+    return result
   }
 
   func translate(texts: [String], target: String, token: String) async throws -> [String] {
