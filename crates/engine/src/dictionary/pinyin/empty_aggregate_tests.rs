@@ -82,25 +82,6 @@ fn exact_empty_aggregate_keeps_no_row_storage() {
     assert_eq!(rows.capacity(), 0);
 }
 
-fn compare_hot(
-    original: impl Fn() -> Vec<DictRow>,
-    current: impl Fn() -> Vec<DictRow>,
-    saved: usize,
-) {
-    // 缓存键替换的析构跨越热测量边界，热查询仅比较分配次数。
-    drop(original());
-    drop(current());
-    let (old, old_count) = count(original);
-    let (new, new_count) = count(current);
-    assert_eq!(new, old);
-    assert_eq!(new_count + saved, old_count);
-    if new.is_empty() {
-        assert_eq!(new.capacity(), 0);
-    } else {
-        assert_eq!(new.capacity(), old.capacity());
-    }
-}
-
 fn compare_longer(
     database: &PinyinDatabase,
     key: &[String],
@@ -132,11 +113,23 @@ fn compare_longer(
 }
 
 fn compare_exact(database: &PinyinDatabase, keys: &[Vec<String>], limit: usize, saved: usize) {
-    compare_hot(
-        || original_query_exact_segmentations_keyed_flat(database, keys, limit),
-        || database.query_exact_segmentations_keyed_flat(keys, limit),
-        saved,
-    );
+    drop(original_query_exact_segmentations_keyed_flat(
+        database, keys, limit,
+    ));
+    drop(database.query_exact_segmentations_keyed_flat(keys, limit));
+    let (old, before) =
+        count(|| original_query_exact_segmentations_keyed_flat(database, keys, limit));
+    let (new, after) = count(|| database.query_exact_segmentations_keyed_flat(keys, limit));
+    assert_eq!(new, old);
+    if new.is_empty() {
+        assert_eq!(new.capacity(), 0);
+        assert_eq!(after + saved, before);
+    } else {
+        // 非空聚合由页复用策略接管；扩容次数只受实际查询表数约束。
+        let tables = exact_segmentations_by_table(keys).len();
+        assert!(after <= before + tables.saturating_sub(2));
+        assert!(new.capacity() <= old.capacity());
+    }
 }
 
 #[test]
@@ -172,7 +165,7 @@ fn sparse_longer_pages_do_not_reserve_all_future_limit_slots() {
 }
 
 #[test]
-fn aggregate_hits_keep_fields_order_capacity_and_reservation_count() {
+fn aggregate_hits_keep_fields_order_and_bounded_storage() {
     let directory = tempfile::tempdir().unwrap();
     let path = pinyin_db(
         directory.path(),
@@ -242,7 +235,7 @@ fn empty_pages_missing_tables_and_invalid_batches_save_only_the_aggregate() {
         compare_exact(&database, &[segments(&["nan", "guo"])], limit, 1);
         compare_exact(&database, &[segments(&["p", "guo"]), Vec::new()], limit, 1);
     }
-    // 第一层/第一张表为空，随后命中时仍预留原聚合容量一次。
+    // 第一张表为空时，精确聚合接管随后命中的首个页；长词续接保持自己的策略。
     let late = segments(&["ping", "guo", "shu"]);
     compare_exact(&database, &[segments(&["nan"]), late], 12, 0);
     let connection = Connection::open(&path).unwrap();

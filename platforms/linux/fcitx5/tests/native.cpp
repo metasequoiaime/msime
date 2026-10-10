@@ -2786,9 +2786,7 @@ int main(int argc, char **argv) {
     require(ic.committed == beforeTranslatedCommit + translatedText, "gloss excluded from committed text");
     state->close();
     state->clearPanel();
-    // The helpcode annotation on a candidate row follows the scheme's
-    // show_in_candidate_window preference, the way the IBus host renders it.
-    // This host used to append it whatever the setting said.
+    // The helpcode annotation on a candidate row follows the scheme's show_in_candidate_window preference, the way the IBus host renders it. This host used to append it whatever the setting said. In / and @ the annotation is the command title or the place's province and city, so neither that preference nor the wubi code hint hides it; Wubi opens / and @ too, and with 五笔剩余编码 off its command rows used to lose their titles. The other local modes still carry helpcodes and stay behind the preference.
     {
       require(state->ensure(), "session for the annotation check");
       auto withHelpcode = options;
@@ -2800,6 +2798,25 @@ int main(int argc, char **argv) {
       state->preferences_["quanpin_helpcode"]["show_in_candidate_window"] = false;
       require(!state->showCandidateAnnotations(),
               "quanpin annotation hidden when the preference turns it off");
+      const auto savedView = state->view_;
+      state->view_["local_mode"] = "mention";
+      require(state->showCandidateAnnotations(),
+              "a mention row keeps its place annotation with the helpcode switch off");
+      state->view_["local_mode"] = "super_jianpin";
+      require(!state->showCandidateAnnotations(),
+              "super jianpin helpcodes stay hidden with the helpcode switch off");
+      state->view_["local_mode"] = "quick_phrase";
+      require(!state->showCandidateAnnotations(),
+              "quick phrase helpcodes stay hidden with the helpcode switch off");
+      state->view_["scheme"] = 2;
+      state->view_["local_mode"] = "none";
+      state->preferences_["wubi_code_hint"] = false;
+      require(!state->showCandidateAnnotations(),
+              "wubi code hint off hides the remaining-code annotation");
+      state->view_["local_mode"] = "command";
+      require(state->showCandidateAnnotations(),
+              "a wubi command row keeps its title with the wubi code hint off");
+      state->view_ = savedView;
       state->close();
       state->clearPanel();
     }
@@ -2957,6 +2974,104 @@ int main(int argc, char **argv) {
                   state->preferences_.value("shuangpin_helpcode", Json::object())
                           .value("schema", std::string("lantian")) == storedShuangpin,
               "shuangpin keeps the store's helpcode schema, not quanpin's status bar choice");
+      // A helpcode pack picked on the settings page outranks the schema, so the status bar names the pack, and its first click returns to the stored built-in schema by clearing the pack in the store, as the settings page does. The store stays the authority for the pack in new sessions, a pack picked later replaces the status bar schema, and a failed save of that first click keeps the choice until its retry lands.
+      const auto settingsPageSetsPack = [&](const std::string &pack, bool mirror) {
+        auto snapshot = loadStore();
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        msime::linux_host::set_helpcode_pack(snapshot["preferences"], "quanpin", pack);
+        snapshot["revision"] = revision + 1;
+        const auto document = snapshot.dump();
+        const auto saved = response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+        require(saved.value("revision", uint64_t{}) > revision, "settings page helpcode pack saved");
+        if (!mirror) return;
+        msime::linux_host::set_helpcode_pack(options["preferences"], "quanpin", pack);
+        std::ofstream(path) << options.dump();
+      };
+      const auto storedPack = [&] { return msime::linux_host::helpcode_pack(loadStore().at("preferences"), "quanpin"); };
+      const auto storedHelpcodeSchema = [&] {
+        return loadStore().at("preferences").value("quanpin_helpcode", Json::object()).value("schema", std::string());
+      };
+      const auto sessionPack = [&] { return msime::linux_host::helpcode_pack(state->preferences_, "quanpin"); };
+      const auto sessionHelpcodeSchema = [&] {
+        return state->preferences_.value("quanpin_helpcode", Json::object()).value("schema", std::string());
+      };
+      const auto schemaLabel = [](const std::string &schema) {
+        return std::string("辅助码：") + std::string(msime::linux_host::helpcode_schema_label(schema));
+      };
+      state->scheme_override_.reset();
+      state->scheme_unsaved_ = false;
+      state->close();
+      state->clearPanel();
+      settingsPageSetsScheme("quanpin");
+      settingsPageSetsPack("radicals", true);
+      require(state->ensure() && state->view_.value("scheme", 0u) == 0 && sessionPack() == "radicals" &&
+                  engine.helpcode_schema_action_.shortText(&ic) == "辅助码：插件 radicals",
+              "the status bar names the helpcode pack in use");
+      const auto packedSchema = storedHelpcodeSchema();
+      require(!packedSchema.empty(), "the store keeps a helpcode schema under the pack");
+      require(state->cycleHelpcodeSchema() && !state->preferences_save_retry_ && storedPack().empty() &&
+                  storedHelpcodeSchema() == packedSchema,
+              "the first status bar click clears the pack in the store and keeps its schema");
+      require(sessionPack().empty() && sessionHelpcodeSchema() == packedSchema &&
+                  engine.helpcode_schema_action_.shortText(&ic) == schemaLabel(packedSchema),
+              "the session returns to the stored built-in schema");
+      // The runtime options file still names the pack, which only the settings page rewrites.
+      state->helpcode_schema_override_.reset();
+      state->close();
+      state->clearPanel();
+      require(state->ensure() && sessionPack().empty() && sessionHelpcodeSchema() == packedSchema,
+              "a new session takes the pack from the store, not the runtime options file");
+      require(state->cycleHelpcodeSchema() && !state->preferences_save_retry_ && state->helpcode_schema_override_ &&
+                  *state->helpcode_schema_override_ != packedSchema && storedHelpcodeSchema() == *state->helpcode_schema_override_,
+              "the next status bar click moves on to the next built-in schema");
+      settingsPageSetsPack("radicals", false);
+      const auto packDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+      while (state->helpcode_schema_override_ && std::chrono::steady_clock::now() < packDeadline) {
+        state->refreshPreferences();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+      require(!state->helpcode_schema_override_ && sessionPack() == "radicals" &&
+                  engine.helpcode_schema_action_.shortText(&ic) == "辅助码：插件 radicals",
+              "a pack picked later on the settings page replaces the status bar schema on reload");
+      // The first click while a pack is active saves the schema the store already holds; a failed save must not read as landed because of that.
+      const auto pendingSchema = storedHelpcodeSchema();
+      {
+        std::ifstream in(storeFile, std::ios::binary);
+        storeBytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+      }
+      require(!storeBytes.empty(), "store file to freeze under the pack");
+      auto frozenPack = loadStore();
+      frozenPack["revision"] = std::numeric_limits<uint64_t>::max();
+      std::ofstream(storeFile, std::ios::binary | std::ios::trunc) << frozenPack.dump();
+      require(state->cycleHelpcodeSchema(), "status bar helpcode click with a failing save");
+      require(state->preferences_save_retry_ && state->preferences_save_retry_->key == "schema" &&
+                  state->preferences_save_retry_->helpcode_schema_choice && storedPack() == "radicals",
+              "the status bar helpcode save failed and awaits a retry");
+      require(state->helpcode_schema_override_ == std::optional<std::string>(pendingSchema) && sessionPack().empty() &&
+                  engine.helpcode_schema_action_.shortText(&ic) == schemaLabel(pendingSchema),
+              "a failed helpcode save survives the cycle's own rebuild");
+      state->close();
+      state->clearPanel();
+      require(state->ensure() && state->helpcode_schema_override_ == std::optional<std::string>(pendingSchema) &&
+                  sessionPack().empty() && state->preferences_save_retry_ &&
+                  state->preferences_save_retry_->key == "schema",
+              "a failed helpcode save and its retry survive a focus change");
+      std::ofstream(storeFile, std::ios::binary | std::ios::trunc) << storeBytes;
+      require(state->retryPreferenceSave(), "retry the helpcode save");
+      state->waitForPreferenceSave();
+      require(!state->preferences_save_retry_ && storedPack().empty() && storedHelpcodeSchema() == pendingSchema,
+              "the retried helpcode save clears the pack in the store");
+      state->close();
+      state->clearPanel();
+      require(state->ensure() && state->helpcode_schema_override_ == std::optional<std::string>(pendingSchema) &&
+                  !state->helpcode_schema_unsaved_ && sessionPack().empty(),
+              "once the store holds the choice it is no longer marked unsaved");
+      state->helpcode_schema_override_.reset();
+      // The store has no pack left; only the runtime options file still names it.
+      msime::linux_host::set_helpcode_pack(options["preferences"], "quanpin", "");
+      std::ofstream(path) << options.dump();
       settingsPageSetsScheme("japanese");
       state->scheme_override_.reset();
       state->shuangpin_profile_override_.reset();

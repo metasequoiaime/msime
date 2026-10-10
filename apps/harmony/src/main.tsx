@@ -578,10 +578,19 @@ const GOOGLE_SIGN_IN_TIMEOUT_MS = 6 * 60 * 1000;
 function accountClient(native: NativeBridge): AccountClient {
   const request = <T,>(action: Record<string, unknown>): Promise<T> =>
     bridgeRequest(native, "account", JSON.stringify(action)).then(unwrap<T>);
-  const user = (value: { id: string; display_name: string; created_at: string }) => ({
+  // 头像地址原样交给页面，页面据此决定何时重新取头像；图片本身由宿主的 `avatar` 下载（页面只放行 `data:` 图片），不认可的地址在宿主那边被拒绝。
+  const user = (value: {
+    id: string;
+    display_name: string;
+    created_at: string;
+    avatar_url?: string | null;
+  }) => ({
     id: value.id,
     displayName: value.display_name,
     createdAt: value.created_at,
+    ...(typeof value.avatar_url === "string" && value.avatar_url.startsWith("https://")
+      ? { avatarUrl: value.avatar_url }
+      : {}),
   });
   const profile = (value: {
     user: { id: string; display_name: string; created_at: string };
@@ -653,6 +662,9 @@ function accountClient(native: NativeBridge): AccountClient {
           identities: { provider: string }[];
         }>({ operation: "rename", display_name: displayName }),
       ),
+    // 头像的 `data:` 地址：宿主按 client-core 的头像规则从会话用户的地址下载并校验，没有头像或取不到时为 null，页面显示名字首字。
+    avatar: async () =>
+      (await request<{ data_url: string | null }>({ operation: "avatar" })).data_url ?? null,
     logout: async (all) => {
       await request({ operation: "logout", all });
     },

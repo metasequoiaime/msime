@@ -4,9 +4,7 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
-import android.text.Editable;
 import android.text.InputType;
-import android.text.TextWatcher;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
@@ -118,13 +116,7 @@ public final class InputDialog {
             KeyboardGeometry.atLeastOnePixel(context, 1), Ui.hairline(context));
         ViewPolicy.setBackground(input, field);
         Ui.setHorizontalPaddingDp(input, context, 12);
-        input.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
-
-            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
-
-            @Override public void afterTextChanged(Editable text) { refresh(); }
-        });
+        Ui.afterTextChanged(input, ignored -> refresh());
         input.setOnEditorActionListener((view, actionId, event) -> {
             int index = inputs.indexOf(input);
             if (index < inputs.size() - 1) return false;

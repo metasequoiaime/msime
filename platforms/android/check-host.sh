@@ -281,18 +281,13 @@ if rg -n 'optBoolean\("ok"' \
   echo "Android notice responses must require a typed boolean ok field" >&2
   exit 1
 fi
-# App theme resolution is another native envelope; only a JSON boolean can authorize caching
-# the returned palette and season.
+# App theme resolution is shared by the settings app and keyboard. Only a JSON boolean can
+# authorize caching the returned palette and season in either process.
 if rg -n 'optBoolean\("ok"' \
-    "$repo_root/platforms/android/java/app/msime/android/home/AppThemeController.java"; then
-  echo "Android app theme responses must require a typed boolean ok field" >&2
-  exit 1
-fi
-# The keyboard-side resolver has the same native envelope contract as the settings app. Keep its
-# fallback path from accepting string booleans and caching an untrusted palette.
-if rg -n 'optBoolean\("ok"' \
+    "$repo_root/platforms/android/java/app/msime/android/AppThemeResolver.java" \
+    "$repo_root/platforms/android/java/app/msime/android/home/AppThemeController.java" \
     "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java"; then
-  echo "Android keyboard theme responses must require a typed boolean ok field" >&2
+  echo "Android app theme responses must require a typed boolean ok field" >&2
   exit 1
 fi
 # Dictionary pinyin lookup is a native envelope too; a string status must fall back to no

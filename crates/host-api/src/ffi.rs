@@ -128,7 +128,10 @@ pub(crate) fn sentence_model(
                 Err(error) => {
                     // A corrupt or mismatched model is worth saying out loud: the input method keeps
                     // working without it, so nothing else would ever reveal that it is not running.
-                    eprintln!("msime: ignoring {}: {error}", path.display());
+                    crate::diagnostics::report(
+                        "sentence model ignored",
+                        &format!("{}: {error}", path.display()),
+                    );
                     None
                 }
             })

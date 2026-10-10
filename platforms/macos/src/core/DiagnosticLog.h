@@ -14,3 +14,6 @@ bool msime_macos_diagnostic_enabled() noexcept;
 // printf-style write for call sites that format numbers. Returns at once while the log is off; the formatted event is cut to the same per-event cap as msime_macos_diagnostic_write.
 void msime_macos_diagnostic_writef(const char *format, ...) noexcept
     __attribute__((format(printf, 1, 2)));
+
+// The sink registered with msime_client_set_diagnostic_sink; writes "host_api: <category>", the fixed text before the line's first colon, and drops the rest: the pack id, the file and the error text that Host API puts after it. Like every other event it is dropped while the log is off and nothing is kept for later, so a failure Host API reports once - such as a helpcode pack fallback while the session is created, before the first preference load has configured this log - reaches the log only when it is reported again with the log on. Any thread; takes only this log's own lock, never throws.
+void msime_macos_diagnostic_host_line(const char *line) noexcept;
