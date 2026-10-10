@@ -12,6 +12,7 @@ public final class CloudClipboardTimePolicy {
 
     /** 「刚刚、N 分钟前、N 小时前、昨天」；无法表示的时间为空。 */
     public static String relative(String timestamp) {
+        if (timestamp == null || timestamp.isEmpty()) return "";
         final Instant then;
         try {
             then = Instant.parse(timestamp);
