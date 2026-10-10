@@ -1685,6 +1685,32 @@ fn incomplete_pinyin_raw_commit_is_learned_as_an_english_word() {
     assert_eq!(english_word_count(&value, "xyz"), 1);
 }
 
+/// 九宫格组字时回车上屏的不是用户逐个打出的字母：九键是数字，14 键是结束组字后的首选（没有候选时是组码 `bugao`），都不学成英文词，也不报学不进去。
+#[test]
+fn grid_raw_commit_is_not_learned_as_an_english_word() {
+    let dir = tempfile::tempdir().unwrap();
+    let value = options(dir.path());
+    let mut session = Session::new(&value).unwrap();
+    session.set_nine_key_enabled(true).unwrap();
+    type_text(&mut session, b"64426");
+    let result = session.command(Command::CommitRaw).unwrap();
+    assert_eq!(result.commit, "64426");
+    assert_eq!(result.diagnostic, "");
+
+    session
+        .set_key_grid(Some(crate::KeyGrid::FourteenKey))
+        .unwrap();
+    for letter in b"nihao" {
+        assert!(session.grid_key(*letter).unwrap().handled);
+    }
+    let result = session.command(Command::CommitRaw).unwrap();
+    assert!(result.has_commit);
+    assert_eq!(result.diagnostic, "");
+    assert!(session.snapshot().unwrap().editing_text.is_empty());
+    assert_eq!(english_word_count(&value, &result.commit), 0);
+    assert_eq!(english_word_count(&value, "bugao"), 0);
+}
+
 /// bridge.cpp:1332-1359: Enter in any local mode learns the committed letters as an English word. Local modes are entered only from the pinyin schemes, whose segmentation is empty while one is active, so the incomplete-pinyin rule would learn the word too; this pins the outcome the two rules share.
 #[test]
 fn local_mode_raw_commit_is_learned_as_an_english_word() {

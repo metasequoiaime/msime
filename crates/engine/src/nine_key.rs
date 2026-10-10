@@ -143,7 +143,7 @@ impl KeyGrid {
             .collect()
     }
 
-    /// 左列在没有锁定时是否给出「原样上屏这一键」：九键的数字本身就是可上屏的文字；14 键的组码只是这一组的首字母，原样上屏没有意义。
+    /// 组码本身是不是可上屏的文字。九键的数字是：左列在没有锁定时给出「原样上屏这一键」，`CommitRaw` 上屏数字。14 键的组码只是这一组的首字母，原样上屏没有意义：左列没有这一项，`CommitRaw` 改为结束组字。
     pub fn offers_raw_key(self) -> bool {
         match self {
             Self::NineKey => true,
@@ -752,7 +752,7 @@ impl NineKeySession {
         self.phrase_storable = true;
     }
 
-    /// Out of range commits the digits. 与全拼键盘的 `finish_composition` 相同，余下各段逐个按 `select` 选首选，造词也一样：用户先选掉的段和替他选的余下各段连成一个词存起来（选了「我滴」再打标点，存的是「我滴个天呐」），首选是整句行时存整句。
+    /// Out of range commits the digits（走 `CommitRaw`，14 键因此取首选）。与全拼键盘的 `finish_composition` 相同，余下各段逐个按 `select` 选首选，造词也一样：用户先选掉的段和替他选的余下各段连成一个词存起来（选了「我滴」再打标点，存的是「我滴个天呐」），首选是整句行时存整句。
     pub fn finish(&mut self, first_index: usize) -> KeyResult {
         if !self.active() {
             return KeyResult::unhandled();
@@ -788,6 +788,10 @@ impl NineKeySession {
         match command {
             Command::CommitCandidate => return self.select(0),
             Command::CommitRaw => {
+                // 14 键的组码只是每组的首字母（按「你好」的键是 `bugao`），不是用户想写的字母：原样上屏改为结束组字、逐段取首选，与 `finish(0)` 相同。没有候选时只剩组码可上屏。
+                if !self.grid.offers_raw_key() && !self.candidates.is_empty() {
+                    return self.finish(0);
+                }
                 let raw = self.digits.clone();
                 self.command(Command::Cancel);
                 return KeyResult::committed(raw);
@@ -5800,5 +5804,50 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         assert!(!session.character(b'6').handled);
         type_digits(&mut session, "bugao");
         assert_eq!(words(&session).first().map(String::as_str), Some("你好"));
+    }
+
+    /// 原样上屏：九键上屏键入的数字；14 键的组码不是用户想写的字母（按「你好」的键是 `bugao`），改为结束组字取首选，锁定的音节照样算数；没有候选时只剩组码。
+    #[test]
+    fn fourteen_key_commit_raw_finishes_instead_of_writing_the_codes() {
+        let fixture = fixture_with(FOURTEEN_FIXTURE);
+        let mut nine = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut nine, "64426");
+        assert_eq!(
+            nine.command(Command::CommitRaw).commit.as_deref(),
+            Some("64426")
+        );
+
+        let mut session = fourteen_key_session(&fixture.paths, EnglishInputOptions::default());
+        type_digits(&mut session, "bugao");
+        assert_eq!(
+            session.command(Command::CommitRaw).commit.as_deref(),
+            Some("你好")
+        );
+        assert!(!session.active());
+        type_digits(&mut session, "bugao");
+        assert_eq!(session.finish(999).commit.as_deref(), Some("你好"));
+        assert!(!session.active());
+
+        type_digits(&mut session, "bu");
+        let bu = session
+            .snapshot()
+            .nine_key_spellings
+            .iter()
+            .position(|spelling| spelling == "bu")
+            .unwrap();
+        assert!(session.choose_spelling(bu).handled);
+        type_digits(&mut session, "gao");
+        assert_eq!(
+            session.command(Command::CommitRaw).commit.as_deref(),
+            Some("不好")
+        );
+
+        type_digits(&mut session, "qqq");
+        assert!(session.snapshot().candidates.is_empty());
+        assert_eq!(
+            session.command(Command::CommitRaw).commit.as_deref(),
+            Some("qqq")
+        );
+        assert!(!session.active());
     }
 }

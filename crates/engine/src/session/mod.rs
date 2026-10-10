@@ -120,6 +120,11 @@ impl Session {
         self.input.glide(keyboard, points)
     }
 
+    /// 九宫格（九键或 14 键）正在组字：这时的快照、命令和上屏都来自九宫格会话。
+    pub fn grid_composing(&self) -> bool {
+        self.nine_key.active()
+    }
+
     /// `set_key_grid` 的九键开关：开是九键，关是不用网格。
     pub fn set_nine_key_enabled(&mut self, enabled: bool) {
         self.set_key_grid(enabled.then_some(KeyGrid::NineKey));
