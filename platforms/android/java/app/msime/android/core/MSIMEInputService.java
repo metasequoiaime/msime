@@ -3790,7 +3790,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 画着的是引擎组码网格的键面（拼音九键或 14 键）：读音行显示 `nine_key_reading`，组字不写进输入框。 */
     static boolean drawsKeyGrid(int layout) {
-        return layout == QUANPIN_NINE_KEY_LAYOUT || layout == FOURTEEN_KEY_LAYOUT;
+        return KeyboardLayout.drawsKeyGrid(layout);
     }
 
     void enter() {

@@ -342,7 +342,9 @@ final class ImeLayoutRows {
         boolean borrowed = s.twentySixKeyDigitFace();
         // 左列是可以上下滚动的符号栏，字母键面默认 ，。？、：；……～@，！ 仍放在右列最下面，和 3×3 网格逐行对齐；数字键面默认是 + - * / = 等算式符号，！ 挪到它们后面（#5590），右列是删除、小数点和 0。两张表都可在设置里自定义。
         FrameLayout sidebar = symbolSidebar(digits);
-        attachSpellings(sidebar, SpellingPlacement.SIDEBAR);
+        // 14 键在 123 层借九键的数字层：拼音选择条留在读音行右侧，侧栏照常是标点列，与 iOS、HarmonyOS 相同。
+        if (s.displayedTouchLayout(s.view) == MSIMEInputService.FOURTEEN_KEY_LAYOUT) attachReadingRowSpellings();
+        else attachSpellings(sidebar, SpellingPlacement.SIDEBAR);
         container.addView(sidebar, KeyboardGeometry.weightedMatchParentParams(0.7f));
 
         LinearLayout grid = KeyboardGeometry.column(s);

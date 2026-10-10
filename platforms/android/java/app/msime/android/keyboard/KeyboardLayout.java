@@ -21,6 +21,11 @@ public final class KeyboardLayout {
     /** 全拼 14 键：{@link FourteenKeyLayout} 的三行两字母键，点按经 `gridKey` 送这一组的首字母；123 层、底行和 26 键相同。 */
     public static final int FOURTEEN_KEY_LAYOUT = 8;
 
+    /** 画着的是引擎组码网格的键面（拼音九键或 14 键）：读音行显示 `nine_key_reading`，组字不写进输入框，展开候选是三栏面板。 */
+    public static boolean drawsKeyGrid(int layout) {
+        return layout == QUANPIN_NINE_KEY_LAYOUT || layout == FOURTEEN_KEY_LAYOUT;
+    }
+
     private static final List<List<String>> LETTER_ROWS = List.of(
         List.of("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
         List.of("a", "s", "d", "f", "g", "h", "j", "k", "l"),

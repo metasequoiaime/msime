@@ -134,7 +134,7 @@ final class ImeNineKeyPanel {
         JSONObject view = s.view;
         if (s.session == 0 || view == null) return false;
         return NineKeyPanelPolicy.threeColumn(
-            MSIMEInputService.drawsKeyGrid(s.displayedTouchLayout(view)),
+            s.displayedTouchLayout(view),
             s.keyboardLayer == KeyboardLayout.Layer.LETTERS,
             !"none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none")),
             !InputViewValuePolicy.editingText(view).isEmpty());

@@ -119,8 +119,10 @@ public final class FourteenKeyLayoutSmoke {
         check(NineKeyLayout.twentySixKeyDigits(fourteen, true, true, false), "the 9-grid digit face is borrowed");
         check(!NineKeyLayout.twentySixKeyDigits(fourteen, true, false, false), "the row 123 layer by default");
         check(!NineKeyLayout.twentySixKeyDigits(fourteen, false, true, false), "letters stay letters");
-        // 三栏面板与九键共用。
-        check(NineKeyPanelPolicy.threeColumn(true, true, false, true), "the three-column panel opens while composing");
+        // 三栏面板与九键共用：按 14 键的布局判断，字母层组字时画三栏，123 层不画。
+        check(KeyboardLayout.drawsKeyGrid(fourteen), "the 14 keys are a key-grid face");
+        check(NineKeyPanelPolicy.threeColumn(fourteen, true, false, true), "the three-column panel opens while composing");
+        check(!NineKeyPanelPolicy.threeColumn(fourteen, false, false, true), "the 123 layer keeps the candidate grid");
         // 方案与统计。
         check(KeyboardScheme.QUANPIN_FOURTEEN_KEY.touchKeyboardLayout().equals("fourteen_key")
             && KeyboardScheme.QUANPIN_FOURTEEN_KEY.preferenceId().equals("fourteen_key")

@@ -1,3 +1,4 @@
+import app.msime.android.KeyboardLayout;
 import app.msime.android.NineKeyPanelPolicy;
 import app.msime.android.NineKeyPanelPolicy.Backspace;
 import app.msime.android.NineKeyPanelPolicy.Mode;
@@ -18,11 +19,14 @@ public final class NineKeyPanelPolicySmoke {
         check(strokes.stream().map(StrokeKeyboardLayout.Key::glyph).toList()
             .equals(List.of("一", "丨", "丿", "丶", "乛")), "stroke glyphs");
 
-        check(NineKeyPanelPolicy.threeColumn(true, true, false, true), "quanpin composing");
-        check(!NineKeyPanelPolicy.threeColumn(false, true, false, true), "other layouts keep the grid");
-        check(!NineKeyPanelPolicy.threeColumn(true, false, false, true), "digit layer");
-        check(!NineKeyPanelPolicy.threeColumn(true, true, true, true), "local mode");
-        check(!NineKeyPanelPolicy.threeColumn(true, true, false, false), "idle");
+        int nineKey = KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT;
+        check(NineKeyPanelPolicy.threeColumn(nineKey, true, false, true), "quanpin composing");
+        for (int other : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT,
+                KeyboardLayout.STROKE_LAYOUT, KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT})
+            check(!NineKeyPanelPolicy.threeColumn(other, true, false, true), "other layouts keep the grid: " + other);
+        check(!NineKeyPanelPolicy.threeColumn(nineKey, false, false, true), "digit layer");
+        check(!NineKeyPanelPolicy.threeColumn(nineKey, true, true, true), "local mode");
+        check(!NineKeyPanelPolicy.threeColumn(nineKey, true, false, false), "idle");
 
         check(NineKeyPanelPolicy.appendStroke("", 'h').equals("h"), "first stroke");
         check(NineKeyPanelPolicy.appendStroke("h", 'z').equals("hz"), "second stroke");
