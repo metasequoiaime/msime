@@ -21,9 +21,13 @@ import app.msime.android.ImageViewPolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
+import app.msime.android.WindowInsetsPolicy;
 import androidx.annotation.AttrRes;
 import androidx.annotation.ColorInt;
 import androidx.annotation.DrawableRes;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
 import java.util.function.Consumer;
@@ -220,6 +224,21 @@ public final class Ui {
                                     float rightDp, float bottomDp) {
         ViewPolicy.setPadding(view, dp(context, leftDp), dp(context, topDp),
             dp(context, rightDp), dp(context, bottomDp));
+    }
+
+    /** 让页面底部避开导航栏、底部标签栏和输入法，并保留标准内容留白。 */
+    public static void bindPageBottomInsets(View view) {
+        Context context = view.getContext();
+        int base = dp(context, PAGE_PADDING_BOTTOM);
+        int tabs = dp(context, TAB_BAR_HEIGHT);
+        ViewCompat.setOnApplyWindowInsetsListener(view, (target, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+            int bottom = WindowInsetsPolicy.bottomContentInset(bars.bottom, tabs, ime.bottom, base);
+            ViewPolicy.setBottomPadding(target, bottom);
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(view);
     }
 
     /** Exclude a decorative view from the accessibility tree. */
