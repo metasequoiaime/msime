@@ -1,4 +1,4 @@
-//! Usage reporting and notices for native hosts: the telemetry queue, the notice feed and the Markdown renderer of `msime_client_core::telemetry` and `msime_client_core::notices`.
+//! Usage reporting, notices and the update check for native hosts: the telemetry queue, the notice feed and the Markdown renderer of `msime_client_core::telemetry` and `msime_client_core::notices`, and `msime_client_core::update_check`.
 //!
 //! Part of the C ABI; see the parent module for what these shims guarantee. Every request is a small JSON document so a host builds it with the JSON library it already has, and a field added later does not change a signature.
 
@@ -7,6 +7,7 @@ use crate::*;
 use msime_client_core::account::BackendAccountClient;
 use msime_client_core::notices::{fetch_notices, markdown_to_html, NoticeChannel, NoticeStore};
 use msime_client_core::telemetry::{TelemetryApp, TelemetryStore};
+use msime_client_core::update_check::{check_for_update, UpdateCheckRequest};
 use std::time::SystemTime;
 
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
@@ -262,6 +263,22 @@ pub unsafe extern "C" fn msime_client_notices(request: *const u8, length: usize)
             })
             .collect();
         Ok(json!({ "items": items }))
+    })
+}
+
+/// Compares the newest published release of the host's platform with the running version: `{status:"available"|"current", update:{version:{display,parts}, release_url, installer_name, installer_sha256, signed}}`, or `{status:"none"}` when the platform has no release yet. Request: `{platform, current_version, edition?, arch?}`. Blocks on the network for up to ten seconds: call off the UI and input threads.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_update_check(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        // SAFETY: guaranteed by the documented caller contract.
+        let request: UpdateCheckRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
+        let check = check_for_update(&request).map_err(|error| error.to_string())?;
+        serde_json::to_value(check).map_err(|error| error.to_string())
     })
 }
 

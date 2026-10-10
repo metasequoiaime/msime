@@ -88,7 +88,7 @@ enum KeyboardEmojiCatalog {
   ) throws -> Page {
     guard requestedOffset >= 0, requestedOffset <= maximumCursor,
           let rows = value["items"] as? [[String: Any]], rows.count <= pageSize,
-          let nextOffset = integerCursor(value["next_offset"]),
+          let nextOffset = SharedNumber.nonnegativeInt(value["next_offset"]),
           let complete = value["complete"] as? Bool else {
       throw KeyboardEmojiCatalogError.invalidPage
     }
@@ -181,7 +181,7 @@ enum KeyboardEmojiCatalog {
     while true {
       let value = try page(offset)
       guard let rows = value["items"] as? [[String: Any]], rows.count <= 255,
-            let next = integerCursor(value["next_offset"]),
+            let next = SharedNumber.nonnegativeInt(value["next_offset"]),
             let complete = value["complete"] as? Bool,
             complete || next > offset else {
         throw KeyboardEmojiCatalogError.invalidPage
@@ -195,15 +195,6 @@ enum KeyboardEmojiCatalog {
       guard next <= maximumSymbols else { throw KeyboardEmojiCatalogError.invalidPage }
       offset = next
     }
-  }
-
-  private static func integerCursor(_ value: Any?) -> Int? {
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID(),
-          let integer = Int(number.stringValue),
-          integer >= 0,
-          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
-    return integer
   }
 
   static func validRecent(_ value: String) -> Bool {

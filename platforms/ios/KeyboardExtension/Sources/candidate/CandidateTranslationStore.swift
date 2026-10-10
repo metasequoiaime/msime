@@ -78,6 +78,13 @@ final class CandidateTranslationStore {
     tasks.removeAll()
     signature = nil
   }
+
+  /// Release candidate glosses when the keyboard extension is under memory pressure. The visible
+  /// page will request them again after the warning has passed.
+  func clearCacheForMemoryPressure() {
+    cancel()
+    cache.removeAll(keepingCapacity: false)
+  }
   private static func signature(_ values: [String]) -> String {
      values.reduce(into: "\(values.count):") { result, value in
        result += "\(value.utf8.count):\(value)"

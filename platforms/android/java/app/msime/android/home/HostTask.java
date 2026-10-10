@@ -1,8 +1,8 @@
 package app.msime.android.home;
 
+import app.msime.android.MainThreadPolicy;
 import android.content.Context;
 import android.os.Handler;
-import android.os.Looper;
 import android.view.View;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
@@ -29,7 +29,7 @@ public final class HostTask {
     /** HTTP calls get their own threads: one can block for a full connect plus read timeout, and the shared store's reads and writes must not queue behind it. */
     private static final ExecutorService NETWORK = Executors.newCachedThreadPool(
         ThreadPolicy.namedDaemonFactory("msime-settings-network"));
-    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final Handler MAIN = MainThreadPolicy.mainHandler();
 
     private HostTask() {}
 

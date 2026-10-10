@@ -383,7 +383,8 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
         style: "inset",
         bg: S("#FFFFFF", "rgba(255,255,255,.08)"),
         radius: "12px",
-        shadow: `0 0 0 1px ${S("rgba(0,0,0,.08)", "rgba(0,0,0,.36)")}, 0 1px 3px rgba(0,0,0,.07)`,
+        // 下沿只用不带模糊的 1px 硬阴影：Linux 设置窗口由启动器关掉了 WebKit 合成（msime-linux-settings），右侧内容区每滚一步都要在 CPU 上整块重绘，带模糊的阴影每次都要对整个分组做一遍模糊，WebKitGTK 2.50 上「输入」页每步重绘从约 18ms 涨到约 100ms，滚轮因此不跟手（#6403）。
+        shadow: `0 0 0 1px ${S("rgba(0,0,0,.08)", "rgba(0,0,0,.36)")}, 0 1px 0 rgba(0,0,0,.07)`,
         rowGap: "0",
         rowBg: "transparent",
         rowShadow: "none",

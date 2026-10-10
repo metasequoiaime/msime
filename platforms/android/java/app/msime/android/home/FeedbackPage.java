@@ -2,16 +2,13 @@ package app.msime.android.home;
 
 import android.content.ContentResolver;
 import android.content.Context;
-import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.text.Editable;
 import android.text.InputType;
-import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -25,6 +22,8 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import app.msime.android.AppEdition;
+import app.msime.android.DrawablePolicy;
+import app.msime.android.AppVersionPolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import app.msime.android.CloudApi;
 import app.msime.android.BitmapPolicy;
@@ -33,6 +32,7 @@ import app.msime.android.FeedbackImagePolicy;
 import app.msime.android.ImageViewPolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.R;
+import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import java.io.IOException;
 import java.io.InputStream;
@@ -96,8 +96,8 @@ public final class FeedbackPage extends DetailPage {
         card.addView(input, Ui.matchWidth());
         detail = input;
 
-        View rule = Ui.hairlineView(context);
-        LinearLayout.LayoutParams ruleParams = Ui.matchWidthHeightPx(
+        View rule = ViewPolicy.newColorView(context, Ui.hairline(context));
+        LinearLayout.LayoutParams ruleParams = KeyboardGeometry.matchWidthHeightPx(
             KeyboardGeometry.atLeastOnePixel(context, 0.5f));
         ruleParams.setMarginStart(Ui.dp(requireContext(), 16));
         card.addView(rule, ruleParams);
@@ -138,16 +138,10 @@ public final class FeedbackPage extends DetailPage {
         column.addView(button, buttonParams);
         submit = button;
 
-        input.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
-
-            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
-
-            @Override public void afterTextChanged(Editable text) {
-                draft = text.toString();
-                if (sent) sent = false;
-                refresh();
-            }
+        Ui.afterTextChanged(input, text -> {
+            draft = text.toString();
+            if (sent) sent = false;
+            refresh();
         });
 
         GroupCard channels = GroupCard.add(column, "其他渠道").withDividers(Ui.ROW_PADDING_H);
@@ -186,7 +180,7 @@ public final class FeedbackPage extends DetailPage {
     private void refresh() {
         Context context = getContext();
         if (context == null || counter == null || submit == null) return;
-        int length = FeedbackApi.length(draft);
+        int length = TextPolicy.codePointLength(draft);
         counter.setText(length + " / " + FeedbackApi.MAX_TEXT);
         ViewPolicy.setTextColor(counter,
             length > FeedbackApi.MAX_TEXT ? Ui.danger(context) : Ui.subText(context));
@@ -216,7 +210,7 @@ public final class FeedbackPage extends DetailPage {
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inSampleSize = 4;
             image.setImageBitmap(BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options));
-            ViewPolicy.setBackground(image, Ui.rounded(Ui.rowBackground(context), Ui.dp(requireContext(), 10)));
+            ViewPolicy.setBackground(image, DrawablePolicy.rounded(Ui.rowBackground(context), Ui.dp(requireContext(), 10)));
             image.setClipToOutline(true);
             image.setContentDescription("截图 " + (index + 1));
             frame.addView(image, Ui.squareFrameParams(requireContext(), Ui.THUMBNAIL_SIZE));
@@ -349,8 +343,8 @@ public final class FeedbackPage extends DetailPage {
 
     private static String appVersion(Context context) {
         try {
-            PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
-            return (info.versionName == null ? "—" : info.versionName) + " (" + info.getLongVersionCode() + ")";
+            AppVersionPolicy.Version version = AppVersionPolicy.current(context);
+            return (version.name() == null ? "—" : version.name()) + " (" + version.code() + ")";
         } catch (PackageManager.NameNotFoundException missing) {
             return "—";
         }

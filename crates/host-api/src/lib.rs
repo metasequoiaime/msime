@@ -92,6 +92,11 @@ pub(crate) fn valid_uuid_string(value: &str) -> bool {
 
 mod ffi;
 pub use ffi::*;
+
+/// 会话实际用的每页候选数：偏好或宿主覆盖的值，按本库编译到的平台能排的上限截断（`HostPlatform::max_candidate_page_size`）。共享文档在别的设备上存了 10 时，只排得下九个的宿主仍拿到 9。
+fn host_page_size(requested: u8) -> u8 {
+    requested.min(ffi::host::compiled_platform().max_candidate_page_size())
+}
 mod doubao_auth;
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 mod handwriting_cells;
@@ -111,6 +116,8 @@ pub use dictionary::{
     LookupCandidate, LookupScheme, NewWord, QuickPhrase, QuickPhraseEdit, QuickPhrasePage, Word,
     WordEdit, WordImport, WordKind, WordPage,
 };
+mod diagnostics;
+pub use diagnostics::{msime_client_set_diagnostic_sink, DiagnosticSink};
 mod dictionary_snapshot;
 mod key_sound;
 mod plugin_tables;
@@ -212,12 +219,14 @@ struct HostSession {
     paired_punctuation_override: Option<bool>,
     punctuation_lock_override: Option<u8>,
     english_mode: bool,
+    /// 宿主经 `msime_client_set_caps_lock` 报告的大写锁定状态。不报告的宿主一直是 `false`，`caps_lock_ascii_punctuation` 对它不起作用。
+    caps_lock: bool,
     page_size_override: Option<u8>,
     nine_key_override: Option<bool>,
     /// 宿主经 `msime_client_set_private_session` 标出的隐私会话（Android 的隐私模式和不允许学习的输入框，鸿蒙和 iOS 的隐私模式）：不记选词位置和上屏效率。与用户自己关掉的「学习」无关。
     statistics_private: bool,
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
-    ai_credential: Option<String>,
+    ai_credential: Option<SessionAiCredential>,
     /// Cached copy used by every online query until preferences change.
     ai_provider_cache: Option<AiAssistantProviderConfig>,
     voice: VoiceSessionState,
@@ -249,6 +258,11 @@ struct HostSession {
     settled_model_loading: Option<SettledModelSlot>,
     // Declared after runtime so the Engine is dropped before releasing access.
     _dictionary_access: DictionaryAccess,
+}
+
+struct SessionAiCredential {
+    endpoint: String,
+    token: String,
 }
 
 /// 本地模式由偏好开关，但它们读的词典是不可变的运行时资源。可选资源不在时，触发键不能被吞掉：在资源齐全之前，Engine 看到的这个模式必须是关的。
@@ -297,6 +311,53 @@ fn engine_chinese_punctuation(enabled: bool, lock: u8) -> bool {
 }
 
 impl HostSession {
+    /// 判断一个标点键去向所用的上下文。`msime_client_punctuation_with_context` 和大写锁定改道（[`Self::caps_lock_punctuation`]）用的是同一份。
+    fn punctuation_context(&self, character: u8, preceding: Option<char>) -> PunctuationContext {
+        let lock = match self.punctuation_lock_override {
+            Some(1) => msime_client_core::preferences::PunctuationLock::Chinese,
+            Some(2) => msime_client_core::preferences::PunctuationLock::English,
+            Some(_) => msime_client_core::preferences::PunctuationLock::Follow,
+            None => self.applied.punctuation_lock,
+        };
+        PunctuationContext {
+            character,
+            preceding,
+            host_context_available: self
+                .runtime
+                .punctuation_host_context_available(self.english_mode),
+            has_composition: !self.runtime.is_idle(),
+            chinese_punctuation: self
+                .punctuation_override
+                .unwrap_or(self.applied.chinese_punctuation),
+            smart_punctuation: self.applied.smart_punctuation,
+            direct_digit: self.applied.smart_punctuation_direct_digit,
+            direct_letter: self.applied.smart_punctuation_direct_letter,
+            lock,
+            caps_lock_ascii: self.caps_lock && self.applied.caps_lock_ascii_punctuation,
+        }
+    }
+
+    /// 大写锁定时，把经字符或标点入口送来的标点键改走字面 ASCII 路线（#6370）。宿主大多把标点键当普通字符交给 `msime_client_character`，这条路线上没有标点判断，所以在分发前统一改道，每个报告了大写锁定的宿主都不用再写一份。只看大写锁定这一条：智能标点要读前文，不在这里判断。不改道时原样返回。
+    fn caps_lock_punctuation(&self, action: Action) -> Action {
+        if !(self.caps_lock && self.applied.caps_lock_ascii_punctuation) {
+            return action;
+        }
+        let ascii = match action {
+            Action::Character { value, .. } | Action::Punctuation(value)
+                if value.is_ascii_punctuation() =>
+            {
+                value
+            }
+            _ => return action,
+        };
+        let mut context = self.punctuation_context(ascii, None);
+        context.smart_punctuation = false;
+        match punctuation_route(context) {
+            PunctuationRoute::Ascii => Action::PunctuationAscii(ascii),
+            PunctuationRoute::Engine => action,
+        }
+    }
+
     /// `engine_chinese_punctuation` for the live overrides over the applied preferences.
     fn live_engine_chinese_punctuation(&self) -> bool {
         engine_chinese_punctuation(
@@ -446,7 +507,7 @@ impl HostSession {
         if self.runtime.is_idle() {
             if let Some(size) = self.page_size_override {
                 self.runtime
-                    .set_page_size(size)
+                    .set_page_size(host_page_size(size))
                     .map_err(|e| e.to_string())?;
             }
             // 落定重排模型不属于 Engine，换模型不用重建 Engine。约 25 MB 的权重由 `refresh_resource_packs` 起的后台线程加载，这里只在加载完之后、输入空闲时换上，不在输入线程上读文件；还没加载完就留到下一次。
@@ -577,8 +638,10 @@ impl HostSession {
         self.runtime
             .replace_engine_with_touch_layout(
                 engine,
-                self.page_size_override
-                    .unwrap_or(preferences.candidate_page_size),
+                host_page_size(
+                    self.page_size_override
+                        .unwrap_or(preferences.candidate_page_size),
+                ),
                 preferences.touch_keyboard_layout,
             )
             .map_err(|e| e.to_string())?;
@@ -630,7 +693,9 @@ impl HostSession {
             // 辅助码表换不上不算聚焦失败：报错会让这次和之后每一次聚焦都失败（戳没更新，下次又会重试）。记下来，保留当前的表，照常更新戳。
             match self.runtime.set_helpcode_table(table.clone()) {
                 Ok(()) => self.options.helpcode_table = table,
-                Err(error) => eprintln!("msime: helpcode table not replaced: {error}"),
+                Err(error) => {
+                    diagnostics::report("helpcode table not replaced", &error.to_string())
+                }
             }
         }
         self.plugin_tables = tables;
@@ -1987,6 +2052,8 @@ fn with_session(
 fn dispatch(handle: u64, action: Action) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
+            // 大写锁定改道先于其余处理，后面看到的都是改道后的动作。
+            let action = session.caps_lock_punctuation(action);
             // Which row the user reached for, read before dispatching because the view it is
             // relative to is gone afterwards. Every platform host routes candidate selection
             // through here, so counting it here covers all of them without a line of platform

@@ -312,6 +312,25 @@ fn date_time_validates_the_supplied_date() {
         .map(|item| item["word"].as_str().unwrap().to_owned())
         .collect();
     assert_eq!(words, ["2026年9月9日", "2026-09-09", "2026/09/09"]);
+    // 农历关键词也在服务端白名单里。
+    let summer = json!({"year": 2026, "month": 8, "day": 9, "weekday": 0, "hour": 8, "minute": 5, "second": 0});
+    for text in ["nl", "nongli", "yinli"] {
+        let response = run(
+            json!({"operation": "datetime", "text": text, "date": summer, "limit": 2}),
+            Path::new(""),
+        );
+        let words: Vec<_> = response["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["word"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            words,
+            ["丙午年六月二十七日", "丙午年六月二十七日 星期日"],
+            "{text}"
+        );
+    }
     for (text, date) in [
         ("hello", date.clone()),
         (

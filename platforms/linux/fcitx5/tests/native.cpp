@@ -15,6 +15,16 @@
 #include <cstring>
 #include <poll.h>
 
+#ifdef MSIME_FCITX5_HINT_FONT
+// 只统计测试程序自身创建的字体映射，不拦截动态加载的 classicui：重复提示不能重新排版。
+static int hint_font_map_creations = 0;
+extern "C" PangoFontMap *__real_pango_cairo_font_map_new();
+extern "C" PangoFontMap *__wrap_pango_cairo_font_map_new() {
+  ++hint_font_map_creations;
+  return __real_pango_cairo_font_map_new();
+}
+#endif
+
 using namespace msime::fcitx_host;
 class FixtureContext : public fcitx::InputContext {
 public:
@@ -31,6 +41,19 @@ public:
   std::vector<std::pair<fcitx::Key, bool>> forwarded;
 };
 void require(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
+void removeFixtureTree(const std::filesystem::path &directory) {
+  // A detached private-file write may rename its temporary file while remove_all walks the tree.
+  // Retry only that transient missing-entry error and still require the fixture to be gone.
+  for (int attempt = 0; attempt < 20; ++attempt) {
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+    if (error && error != std::errc::no_such_file_or_directory)
+      throw std::filesystem::filesystem_error("remove fixture", directory, error);
+    if (!std::filesystem::exists(directory)) return;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  require(!std::filesystem::exists(directory), "native fixture directory removed");
+}
 // The autocorrect marker is display-only: Windows appends '*' to the row text of a candidate whose spelling the Engine corrected, and the IBus host does the same. It sits right after the word and before the cloud/AI badge, and the text the candidate selects with stays the Engine's. Runs before the resource fixture so it needs nothing but the plugin code.
 void autocorrectMarker() {
   // FcitxCandidate::text() is the Engine text it selects with; the row the panel draws is the base class's.
@@ -246,7 +269,7 @@ public:
   mutable int scans = 0;
   int writes = 0;
 };
-// 每 250 ms 一拍的主题同步（#5988）：用户选了第三方主题时只看一次经典界面的现值，之后的每一拍既不再调 `getConfig()` 也不栅格化；在 fcitx5-configtool 里改回默认主题后下一拍恢复接管；接管之后的拍子不重写主题，卸载还原或用户手改 classicui.conf 之后也不再接管回去；配色变化照常重写；写主题失败不在每一拍上重试，到点再试。classicui.conf 落在 main 开头指定的临时 XDG_CONFIG_HOME 里，主题和接管记录写进这里的临时目录。
+// 每 250 ms 一拍的主题同步（#5988）：用户选了第三方主题时只看一次经典界面的现值，之后的每一拍既不再调 `getConfig()` 也不栅格化；在 fcitx5-configtool 里改回默认主题后下一拍恢复接管；接管之后的拍子不重写主题，卸载还原或用户手改 classicui.conf 之后只重读一次现值刷新提示，不再接管回去；配色变化照常重写；写主题失败不在每一拍上重试，到点再试。classicui.conf 落在 main 开头指定的临时 XDG_CONFIG_HOME 里，主题和接管记录写进这里的临时目录。
 void classicuiThemeTicks(FcitxEngine &engine) {
   namespace host = msime::linux_host;
   char temporary[] = "/tmp/msime-fcitx5-ticks-XXXXXX";
@@ -270,14 +293,15 @@ void classicuiThemeTicks(FcitxEngine &engine) {
     return ::stat(themeFile.c_str(), &info) == 0 ? info.st_ino : 0;
   };
   const auto tick = [&](FakeClassicUi &classicui, const Json &preferences, bool dark) {
-    engine.applyCandidatePanelTheme(&classicui, preferences, dark, Json());
+    engine.applyCandidatePanelTheme(&classicui, preferences, dark, Json(), false);
   };
   FakeClassicUi classicui;
   classicui.config.theme.setValue("nord");
   require(fcitx::safeSaveAsIni(classicui.config, "conf/classicui.conf") && std::filesystem::is_regular_file(classicuiConf),
           "classicui.conf is read from the scratch config home");
+  // 默认值会被 fcitx 写成注释；落盘缺失 DarkTheme 等同于 default-dark。
   require(read_classicui_theme_selection().theme == "nord" &&
-              read_classicui_theme_selection().dark_theme == std::optional<std::string>("default-dark"),
+              read_classicui_theme_selection().dark_theme.value_or("default-dark") == "default-dark",
           "the persisted selection is what classicui saved");
   engine.candidate_theme_applied_.clear();
   engine.candidate_theme_attempt_.clear();
@@ -306,33 +330,33 @@ void classicuiThemeTicks(FcitxEngine &engine) {
   // 卸载时 `msime-linux-setup --unregister` 经 D-Bus 的 SetConfig 把主题还原成默认，同样落盘；仍在运行的插件不能在下一拍又把它接管回去。
   classicui.setConfig(stock);
   for (int count = 0; count < 4; ++count) tick(classicui, paper, false);
-  require(classicui.scans == 3 && classicui.writes == 4 && classicui.config.theme.value() == "default",
-          "a theme restored after the takeover is not taken over again while the inputs are unchanged");
+  require(classicui.scans == 4 && classicui.writes == 4 && classicui.config.theme.value() == "default",
+          "还原主题只重读一次提示配置，不重新接管或逐拍扫描");
   // fcitx5 运行时用户手改 classicui.conf（第三方主题的安装说明常这么写，改完再重启 fcitx5）：同样不去覆盖。
   FakeClassicUiConfig edited;
   edited.theme.setValue("Material-Color-Pink");
   require(fcitx::safeSaveAsIni(edited, "conf/classicui.conf"), "classicui.conf edited by hand");
   for (int count = 0; count < 4; ++count) tick(classicui, paper, false);
-  require(classicui.scans == 3 && classicui.writes == 4 && read_classicui_theme_selection().theme == "Material-Color-Pink",
-          "a hand edit of classicui.conf is left alone");
+  require(classicui.scans == 5 && classicui.writes == 4 && read_classicui_theme_selection().theme == "Material-Color-Pink",
+          "手改主题只重读一次提示配置，不重写或逐拍扫描");
   // 主题目录的位置被一个普通文件占住，写主题失败：不在之后的每一拍上重试，到了重试时间才再试，目录恢复可写后自己接上。
   std::filesystem::create_directories(root / "blocked/fcitx5/themes");
   std::ofstream(root / "blocked/fcitx5/themes" / std::string(host::kFcitxCandidateTheme)) << "synthetic";
   setenv("XDG_DATA_HOME", (root / "blocked").c_str(), 1);
   const Json night{{"global_theme", "night"}};
   for (int count = 0; count < 4; ++count) tick(classicui, night, false);
-  require(classicui.scans == 4 && classicui.writes == 4, "a failed theme write is not retried on every tick");
+  require(classicui.scans == 6 && classicui.writes == 4, "a failed theme write is not retried on every tick");
   require(engine.candidate_theme_retry_at_ <= std::chrono::steady_clock::now() + FcitxEngine::kCandidateThemeRetry,
           "a failed theme write schedules its retry");
   setenv("XDG_DATA_HOME", (root / "data").c_str(), 1);
   tick(classicui, night, false);
-  require(classicui.scans == 4 && classicui.writes == 4, "the retry waits for its time");
+  require(classicui.scans == 6 && classicui.writes == 4, "the retry waits for its time");
   engine.candidate_theme_retry_at_ = std::chrono::steady_clock::now() - std::chrono::seconds(1);
   tick(classicui, night, false);
-  require(classicui.scans == 5 && classicui.writes == 5 && classicui.config.theme.value() == host::kFcitxCandidateTheme,
+  require(classicui.scans == 7 && classicui.writes == 5 && classicui.config.theme.value() == host::kFcitxCandidateTheme,
           "a failed theme write is retried once its time comes, without any input changing");
   tick(classicui, Json{{"global_theme", "system"}}, false);
-  require(classicui.scans == 6 && classicui.writes == 6, "the next change of the inputs writes the theme again");
+  require(classicui.scans == 8 && classicui.writes == 6, "the next change of the inputs writes the theme again");
   if (savedDataHome) setenv("XDG_DATA_HOME", savedDataHome->c_str(), 1);
   else unsetenv("XDG_DATA_HOME");
   if (savedStateHome) setenv("XDG_STATE_HOME", savedStateHome->c_str(), 1);
@@ -351,8 +375,499 @@ void translationPreferenceChangesIncludeAccount() {
           "translation account changes invalidate translation requests");
 }
 
+// 用真实 classicui 配置验证接管与恢复：缺省和切回「系统」保留水杉样式，只有主动选择才从第三方主题手里接管；无覆盖自定义主题与解析失败仍恢复持有项。每个 fcitx::Instance 就是一次进程启动（内存里的缓存与所有权状态从零开始），所有路径都指向合成目录；机器上只有 classicui 开发库而没有运行库时跳过（77）。
+int candidateThemePriority() {
+  char temporary[] = "/tmp/msime-fcitx-theme-priority-XXXXXX";
+  const auto *directory = mkdtemp(temporary);
+  require(directory != nullptr, "theme priority fixture directory");
+  const std::filesystem::path root(directory);
+  for (const auto *name : {"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"})
+    setenv(name, directory, 1);
+  setenv("MSIME_FCITX5_OPTIONS", (root / "missing-options.json").c_str(), 1);
+  const auto conf = root / "fcitx5/conf/classicui.conf";
+  const auto record = root / "msime-client/panel-restore.json";
+  const auto theme_file = root / "fcitx5/themes/msime/theme.conf";
+  // fcitx5-configtool 选了一个第三方主题，另有水杉写入的字体：恢复主题不能顺手动它。
+  const auto choose_external = [&] {
+    std::filesystem::create_directories(conf.parent_path());
+    std::ofstream(conf) << "Theme=Nord-Dark\nDarkTheme=Nord-Dark\nFont=Noto Sans SC 18px\n";
+  };
+  choose_external();
+  char program[] = "msime-theme-test";
+  char disabled[] = "--disable=all";
+  char enabled[] = "--enable=classicui";
+  char *args[] = {program, disabled, enabled, nullptr};
+  {
+    fcitx::Instance instance(3, args);
+    instance.addonManager().registerDefaultLoader(nullptr);
+    instance.initialize();
+    if (!instance.addonManager().addonInfo("classicui")) {
+      std::filesystem::remove_all(root);
+      std::cout << "skipped: classicui runtime is not installed\n";
+      return 77;
+    }
+    auto *classicui = instance.addonManager().addon("classicui", true);
+    require(classicui && classicui->getConfig(), "real classicui loaded");
+    const auto option = [&](const char *key) {
+      fcitx::RawConfig config;
+      classicui->getConfig()->save(config);
+      const auto *value = config.valueByPath(key);
+      return value ? *value : std::string();
+    };
+    // 用户在 fcitx5-configtool 里换主题，写进运行中的 addon；`light_only` 只改 Theme（Fcitx5 的 DarkTheme 单独判断）。
+    const auto pick_third_party = [&](bool light_only) {
+      fcitx::RawConfig external;
+      external.setValueByPath("Theme", "Nord-Dark");
+      if (!light_only && !option("DarkTheme").empty()) external.setValueByPath("DarkTheme", "Nord-Dark");
+      classicui->setConfig(external);
+    };
+    // Fcitx5 5.0.x 没有 DarkTheme；同一套测试仍验证 Theme，支持时再验证深色项。
+    const bool has_dark_theme = !option("DarkTheme").empty();
+    FcitxEngine engine(&instance);
+    // 新装缺省仍使用水杉卡片，系统明暗只改变配色。
+    fcitx::RawConfig stock;
+    stock.setValueByPath("Theme", "default");
+    stock.setValueByPath("DarkTheme", "default-dark");
+    classicui->setConfig(stock);
+    engine.applyCandidatePanelTheme(Json::object(), false, Json(), false);
+    require(option("Theme") == "msime" && (!has_dark_theme || option("DarkTheme") == "msime"),
+            "新装缺省跟随系统保留水杉样式");
+    const auto theme_text = [&] {
+      std::ifstream in(theme_file);
+      return std::string(std::istreambuf_iterator<char>(in), {});
+    };
+    require(theme_text().find("Color=#ffffff\n") != std::string::npos, "跟随系统的浅色候选底色");
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}}, true, Json(), false);
+    require(theme_text().find("Color=#303030\n") != std::string::npos, "跟随系统的深色候选底色");
+    require(option("Theme") == "msime", "系统明暗变化保留水杉样式");
+    pick_third_party(false);
+    // 启动与焦点同步只是重读同一份偏好：不碰用户已经选的第三方主题。
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "paper"}}, false, Json(), false);
+    require(option("Theme") == "Nord-Dark" && (!has_dark_theme || option("DarkTheme") == "Nord-Dark"),
+            "启动与焦点同步保留第三方主题");
+    // 「系统」有默认样式，但后台同步也不接管第三方主题。
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}}, false, Json(), false);
+    require(option("Theme") == "Nord-Dark" && (!has_dark_theme || option("DarkTheme") == "Nord-Dark"), "系统主题保留第三方主题");
+    // 畸形或其他字段的偏好文档不抛异常，也不能因此接管第三方主题。
+    for (const auto &document : {Json(nullptr), Json::array({Json("paper")}), Json(7),
+                                 Json{{"global_theme", "retired-skin"}}, Json{{"global_theme", 7}}})
+      engine.applyCandidatePanelTheme(document, false, Json(), false);
+    require(option("Theme") == "Nord-Dark", "畸形偏好文档不接管第三方主题");
+    // 用户在主题菜单里主动选择水杉内置主题：即使当前是第三方主题也接管，并先记下被替换的值。
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "paper"}}, false, Json(), true);
+    require(option("Theme") == "msime" && (!has_dark_theme || option("DarkTheme") == "msime"), "主动选择水杉主题得以接管第三方主题");
+    {
+      std::ifstream in(record);
+      const auto written = Json::parse(in).at("fcitx5");
+      require(written.at("Theme").at("prior") == "Nord-Dark" &&
+                  (!has_dark_theme || written.at("DarkTheme").at("prior") == "Nord-Dark"),
+              "接管前记下要恢复的第三方主题");
+    }
+    // 主动切回「系统」只改为原生配色，仍画水杉样式。
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}}, false, Json(), true);
+    require(option("Theme") == "msime" && (!has_dark_theme || option("DarkTheme") == "msime"),
+            "主动切回系统保留水杉 Theme 与 DarkTheme");
+    // 再次主动选择重新接管；这一次只把 Theme 换成第三方主题。
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "paper"}}, false, Json(), true);
+    require(option("Theme") == "msime" && (!has_dark_theme || option("DarkTheme") == "msime"), "再次主动选择重新接管");
+    pick_third_party(true);
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "paper"}}, false, Json(), false);
+    require(option("Theme") == "Nord-Dark", "偏好同步不夺回第三方主题");
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "paper"}}, true, Json(), false);
+    require(option("Theme") == "Nord-Dark" && (!has_dark_theme || option("DarkTheme") == "msime"),
+            "系统明暗变化不夺回第三方主题，DarkTheme 仍由水杉持有");
+    // 系统偏好的后台同步不接管第三方项，也不退出仍属于水杉的深色项。
+    const auto record_before = [&] { std::ifstream in(record); return Json::parse(in); };
+    const auto before_sync = record_before();
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}}, false, Json(), false);
+    require(option("Theme") == "Nord-Dark" && (!has_dark_theme || option("DarkTheme") == "msime"),
+            "系统后台同步保留第三方 Theme 与水杉 DarkTheme");
+    require(option("Font") == "Noto Sans SC 18px", "系统后台同步不改变字体");
+    require(record_before() == before_sync, "未接管的后台同步不重写恢复记录");
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}}, false, Json(), true);
+    require(option("Theme") == "msime" && (!has_dark_theme || option("DarkTheme") == "msime"),
+            "主动选择系统可重新接管第三方主题");
+    // 两项都换成第三方主题后，后台同步一项都不夺回。
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "ink"}}, false, Json(), true);
+    require(option("Theme") == "msime" && (!has_dark_theme || option("DarkTheme") == "msime"), "主动选择再次接管");
+    pick_third_party(false);
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "paper"}}, false, Json(), false);
+    require(option("Theme") == "Nord-Dark" && (!has_dark_theme || option("DarkTheme") == "Nord-Dark"),
+            "两项都换成第三方主题后焦点与偏好同步都不夺回");
+    // 系统偏好的后台同步：两项都已是第三方主题，一项也不动。
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}}, false, Json(), false);
+    require(option("Theme") == "Nord-Dark" && (!has_dark_theme || option("DarkTheme") == "Nord-Dark"),
+            "系统后台同步不覆盖用户自己改过的项");
+    // 「系统」基底、没有皮肤也没有颜色槽位的自定义主题没有实际覆盖：即使是一次主动选择也退出接管。
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "ink"}}, false, Json(), true);
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "custom"}, {"custom_theme", {{"base", "system"}}}}, false,
+                                    Json(), true);
+    require(option("Theme") == "Nord-Dark" && (!has_dark_theme || option("DarkTheme") == "Nord-Dark"),
+            "没有候选覆盖的自定义主题不接管");
+    // 有效的外部皮肤（清单声明了当前布局与明暗）接管，颜色写进主题文件。
+    const Json catalog{{"packages", Json::array({{{"id", "omarchy"},
+                                                  {"title", "Omarchy"},
+                                                  {"base", "system"},
+                                                  {"layouts", Json::array({"horizontal", "vertical"})},
+                                                  {"candidate", {{"light", {{"surface", "#123456"}}}}}}})}};
+    engine.applyCandidatePanelTheme(
+        Json{{"global_theme", "custom"}, {"custom_theme", {{"base", "system"}, {"candidate_skin", "omarchy"}}}},
+        false, catalog, true);
+    require(option("Theme") == "msime", "有效的外部皮肤接管");
+    {
+      std::ifstream in(theme_file);
+      const std::string theme(std::istreambuf_iterator<char>(in), {});
+      require(theme.find("Color=#123456") != std::string::npos, "皮肤颜色写进 classicui 主题");
+    }
+    // 皮肤不支持当前明暗时没有实际覆盖：后台同步退出接管。
+    engine.applyCandidatePanelTheme(
+        Json{{"global_theme", "custom"}, {"custom_theme", {{"base", "system"}, {"candidate_skin", "omarchy"}}}},
+        true, catalog, false);
+    require(option("Theme") == "Nord-Dark", "皮肤不支持当前明暗时不接管");
+    // 两个真实会话轮流聚焦：旧窗口晚读到已处理的主题选择，不能把第三方主题再抢回来。
+    {
+      const auto state_directory = (root / "preferences").string();
+      const auto initial = response(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(state_directory.data()), state_directory.size()));
+      Json options{{"api_version", 1}, {"preferences_directory", state_directory},
+                   {"preferences", initial.at("preferences")}};
+      for (const auto *key : {"resources", "user_data", "cache", "dictionaries"}) {
+        const auto path = root / key;
+        std::filesystem::create_directories(path);
+        options[key] = path.string();
+      }
+      const auto options_file = root / "context-options.json";
+      std::ofstream(options_file) << options.dump();
+      setenv("MSIME_FCITX5_OPTIONS", options_file.c_str(), 1);
+      FixtureContext old_window(instance.inputContextManager());
+      old_window.focusIn();
+      auto *old_state = old_window.propertyFor(&engine.factory_);
+      require(old_state->ensure(), "旧窗口建立真实会话");
+      old_window.focusOut();
+      FixtureContext active_window(instance.inputContextManager());
+      active_window.focusIn();
+      auto *active_state = active_window.propertyFor(&engine.factory_);
+      require(active_state->ensure(), "活动窗口建立真实会话");
+      const auto save_theme = [&](const char *theme) {
+        auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(state_directory.data()), state_directory.size()));
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        snapshot["preferences"]["global_theme"] = theme;
+        const auto encoded = snapshot.dump();
+        response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(state_directory.data()), state_directory.size(), revision,
+            reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+        return snapshot["preferences"];
+      };
+      const auto refresh = [&](FcitxState *state, const Json &expected) {
+        // 不跑事件循环：只驱动真实异步偏好读取，避免计时器把测试的焦点顺序打乱。
+        state->refreshPreferences();
+        require(state->preferences_job_.valid(), "偏好读取已排队");
+        state->preferences_job_.wait();
+        state->refreshPreferences();
+        require(state->preferences_ == expected, "上下文读到最新偏好");
+      };
+      pick_third_party(false);
+      const auto paper = save_theme("paper");
+      refresh(active_state, paper);
+      require(option("Theme") == "msime", "设置页的主动主题选择接管第三方主题");
+      pick_third_party(false);
+      active_window.focusOut();
+      old_window.focusIn();
+      require(old_state->ensure(), "切回旧窗口复用会话");
+      refresh(old_state, paper);
+      require(option("Theme") == "Nord-Dark" && (!has_dark_theme || option("DarkTheme") == "Nord-Dark"),
+              "旧窗口补读已处理的偏好不能夺回第三方主题");
+      refresh(old_state, save_theme("ink"));
+      require(option("Theme") == "msime", "旧窗口中的下一次主动主题选择仍能接管");
+      pick_third_party(false);
+      require(old_state->setThemeChoice("paper"), "主题菜单主动选择成功");
+      old_state->preferences_save_job_.wait();
+      old_state->waitForPreferenceSave();
+      require(option("Theme") == "msime", "菜单主动选择立即接管");
+      pick_third_party(false);
+      old_window.focusOut();
+      active_window.focusIn();
+      refresh(active_state, paper);
+      require(option("Theme") == "Nord-Dark" && (!has_dark_theme || option("DarkTheme") == "Nord-Dark"),
+              "另一个窗口补读菜单保存的选择不能再次接管");
+      require(active_state->setThemeChoice("system"), "主题菜单主动切回系统成功");
+      active_state->preferences_save_job_.wait();
+      active_state->waitForPreferenceSave();
+      require(option("Theme") == "msime" && (!has_dark_theme || option("DarkTheme") == "msime"),
+              "菜单主动切回系统重新接管并保留水杉样式");
+      pick_third_party(false);
+      active_window.focusOut();
+      old_window.focusIn();
+      refresh(old_state, active_state->preferences_);
+      require(option("Theme") == "Nord-Dark" && (!has_dark_theme || option("DarkTheme") == "Nord-Dark"),
+              "旧窗口补读菜单的系统选择不夺回第三方主题");
+      old_window.focusOut();
+      // 设置页会同时更新存储与 runtime options，返回输入框时可能需要新建会话。
+      old_state->close();
+      active_state->close();
+      for (const bool publish_options : {false, true}) {
+        pick_third_party(false);
+        options["preferences"] = save_theme(publish_options ? "paper" : "ink");
+        if (publish_options) std::ofstream(options_file) << options.dump();
+        FixtureContext settings_return_window(instance.inputContextManager());
+        settings_return_window.focusIn();
+        auto *settings_return_state = settings_return_window.propertyFor(&engine.factory_);
+        require(settings_return_state->ensure(), "设置页保存后返回输入框建立会话");
+        settings_return_state->refreshProviderSockets();
+        require(option("Theme") == "msime" && (!has_dark_theme || option("DarkTheme") == "msime"),
+                "设置页的新选择不能在新会话建立基线时丢掉主动接管");
+        pick_third_party(false);
+        settings_return_state->refreshProviderSockets();
+        require(option("Theme") == "Nord-Dark", "新会话处理过选择后也不能后台夺回第三方主题");
+        settings_return_window.focusOut();
+        settings_return_state->close();
+      }
+      // 不带偏好存储的合法 runtime options 仍可建立会话，不能对 null 快照调用 value()。
+      old_state->close();
+      options.erase("preferences_directory");
+      options["preferences"]["global_theme"] = "ink";
+      pick_third_party(false);
+      std::ofstream(options_file) << options.dump();
+      old_window.focusIn();
+      require(old_state->ensure(), "没有偏好存储时仍可建立会话");
+      require(option("Theme") == "Nord-Dark", "没有存储快照的 runtime options 变化不能算主动选择");
+      old_window.focusOut();
+      setenv("MSIME_FCITX5_OPTIONS", (root / "missing-options.json").c_str(), 1);
+    }
+    // 旧版本留下水杉主题但恢复记录缺失或损坏：系统保留样式，无覆盖自定义仍安全恢复。
+    for (const auto *contents : {"", "broken json"}) {
+      fcitx::RawConfig held;
+      held.setValueByPath("Theme", "msime");
+      held.setValueByPath("DarkTheme", "msime");
+      classicui->setConfig(held);
+      std::filesystem::remove(record);
+      if (*contents) std::ofstream(record) << contents;
+      engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}}, false, Json(), false);
+      require(option("Theme") == "msime" && (!has_dark_theme || option("DarkTheme") == "msime"),
+              "旧用户默认系统主题在恢复记录缺失或损坏时仍保留水杉样式");
+      engine.applyCandidatePanelTheme(Json{{"global_theme", "custom"}, {"custom_theme", {{"base", "system"}}}},
+                                      false, Json(), false);
+      require(option("Theme") == "default" && (!has_dark_theme || option("DarkTheme") == "default-dark"),
+              "无覆盖主题在恢复记录缺失或损坏时仍恢复自带主题");
+      require(option("Font") == "Noto Sans SC 18px", "默认主题兜底不改变字体");
+    }
+  }
+  // 进程重启：缓存清空，classicui 仍是用户选的第三方主题，启动同步不能接管；自带主题时仍正常接管。
+  choose_external();
+  {
+    fcitx::Instance instance(3, args);
+    instance.addonManager().registerDefaultLoader(nullptr);
+    instance.initialize();
+    auto *classicui = instance.addonManager().addon("classicui", true);
+    require(classicui && classicui->getConfig(), "real classicui loaded after restart");
+    const auto option = [&](const char *key) {
+      fcitx::RawConfig config;
+      classicui->getConfig()->save(config);
+      const auto *value = config.valueByPath(key);
+      return value ? *value : std::string();
+    };
+    const bool has_dark_theme = !option("DarkTheme").empty();
+    require(option("Theme") == "Nord-Dark", "重启后读到的是用户的第三方主题");
+    FcitxEngine engine(&instance);
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}}, false, Json(), false);
+    require(option("Theme") == "Nord-Dark", "默认系统主题重启后不夺回第三方主题");
+    fcitx::RawConfig stock;
+    stock.setValueByPath("Theme", "default");
+    stock.setValueByPath("DarkTheme", "default-dark");
+    classicui->setConfig(stock);
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}}, false, Json(), false);
+    require(option("Theme") == "msime" && (!has_dark_theme || option("DarkTheme") == "msime"), "默认系统主题在自带主题下重启后仍接管");
+  }
+  std::filesystem::remove_all(root);
+  std::cout << "Fcitx5 candidate theme ownership passed\n";
+  return 0;
+}
+#ifdef MSIME_FCITX5_HINT_FONT
+// 模式提示的宽度：classicui 画水杉主题且主题带装饰图时，「中」「英」要补到装饰完整显示；
+// 第三方主题（含由 DarkTheme 决定的活动主题）、没有装饰都保持原样。全部用合成目录与合成图。
+int candidateThemeHint() {
+  char temporary[] = "/tmp/msime-fcitx-hint-XXXXXX";
+  const auto *directory = mkdtemp(temporary);
+  require(directory != nullptr, "theme hint fixture directory");
+  const std::filesystem::path root(directory);
+  for (const auto *name : {"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"})
+    setenv(name, directory, 1);
+  setenv("MSIME_FCITX5_OPTIONS", (root / "missing-options.json").c_str(), 1);
+  // PNG 文件头声明 200 x 12；缩放器解不开它，装饰按原图暂存，宽度就是 200。
+  const std::string png_header("\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\0\xc8\0\0\0\x0c\x08\x06\0\0\0", 29);
+  // 纯几何：提示宽度只由主题写的边距与装饰宽度决定，与字体无关。
+  require(fcitx_draws_candidate_theme("msime", "Nord-Dark", false, true), "浅色画水杉 Theme");
+  require(!fcitx_draws_candidate_theme("msime", "Nord-Dark", true, true), "深色画第三方 DarkTheme");
+  require(fcitx_draws_candidate_theme("msime", "msime", true, true), "深色画水杉 DarkTheme");
+  require(!fcitx_draws_candidate_theme("Nord-Dark", "msime", false, true), "第三方 Theme 不算水杉");
+  require(fcitx_overlay_panel_width(32, "Top Center", 0, 13, 13) == 58, "居中装饰两边各留 clip 边距");
+  require(fcitx_overlay_panel_width(32, "Top Left", 19, 13, 13) == 64, "靠边装饰量 OverlayOffsetX 与对面 clip 边距");
+  require(fcitx_pad_hint_label("中", 58, 16, 16) == "中\u3000\u3000\u3000", "按全角空格一次补到目标宽度");
+  require(fcitx_pad_hint_label("中", 16, 16, 16) == "中", "已经够宽就不再补");
+  require(fcitx_pad_hint_label("中", 40, 16, 0) == "中", "量不出空格宽度就不补");
+  // 读回主题：居中装饰的宽度与四边边距决定提示要占的宽度，没有装饰就是 0。
+  const auto synthetic = root / "synthetic";
+  std::filesystem::create_directories(synthetic);
+  {
+    std::ofstream out(synthetic / "decoration-synthetic.png", std::ios::binary);
+    out << png_header;
+  }
+  std::ofstream(synthetic / "theme.conf")
+      << "[InputPanel/Background]\nOverlay=decoration-synthetic.png\nGravity=Top Center\nOverlayOffsetX=0\n"
+         "[InputPanel/Background/OverlayClipMargin]\nLeft=13\nRight=13\nTop=8\nBottom=17\n"
+         "[InputPanel/ContentMargin]\nLeft=19\nRight=19\nTop=14\nBottom=23\n"
+         "[InputPanel/TextMargin]\nLeft=10\nRight=12\nTop=6\nBottom=6\n";
+  require(fcitx_hint_width_from_theme(synthetic / "theme.conf") == 200 + 2 * 13 - 19 - 19 - 10 - 12,
+          "居中的装饰按两边 clip 边距算提示宽度");
+  std::ofstream(synthetic / "plain.conf") << "[InputPanel/Background]\nColor=#ffffff\n";
+  require(fcitx_hint_width_from_theme(synthetic / "plain.conf") == 0, "没有装饰就没有要预留的宽度");
+  std::filesystem::create_directories(root / "fcitx5/conf");
+  // 从第三方主题主动切换后，第一次提示就必须补宽，不依赖下一次焦点或偏好同步。
+  std::ofstream(root / "fcitx5/conf/classicui.conf") << "Theme=Nord-Dark\nDarkTheme=Nord-Dark\nFont=Sans 10\n";
+  const auto image = root / "skins/sakura/ears.png";
+  std::filesystem::create_directories(image.parent_path());
+  {
+    std::ofstream out(image, std::ios::binary);
+    out << png_header;
+  }
+  const Json catalog = {{"packages", Json::array({{{"id", "sakura"},
+                                                  {"title", "樱花"},
+                                                  {"base", "system"},
+                                                  {"layouts", Json::array({"horizontal", "vertical"})},
+                                                  {"candidate", {{"light", Json::object()}, {"dark", Json::object()}}},
+                                                  {"decoration_top_dip", 24.5},
+                                                  {"decoration_width_dip", 200},
+                                                  {"decoration_image", image.string()}}})}};
+  char program[] = "msime-theme-hint-test";
+  char disabled[] = "--disable=all";
+  char enabled[] = "--enable=classicui";
+  char *args[] = {program, disabled, enabled, nullptr};
+  {
+    fcitx::Instance instance(3, args);
+    instance.addonManager().registerDefaultLoader(nullptr);
+    instance.initialize();
+    if (!instance.addonManager().addonInfo("classicui")) {
+      std::filesystem::remove_all(root);
+      std::cout << "skipped: classicui runtime is not installed\n";
+      return 77;
+    }
+    auto *classicui = instance.addonManager().addon("classicui", true);
+    require(classicui && classicui->getConfig(), "real classicui loaded");
+    fcitx::RawConfig theme_config;
+    classicui->getConfig()->save(theme_config);
+    const bool has_dark_theme = theme_config.valueByPath("DarkTheme") != nullptr;
+    FcitxEngine engine(&instance);
+    classicuiThemeTicks(engine);
+    const Json preferences{{"global_theme", "custom"}, {"custom_theme", {{"candidate_skin", "sakura"}}}};
+    engine.applyCandidatePanelTheme(preferences, false, catalog, true);
+    const auto theme_file = root / "fcitx5/themes/msime/theme.conf";
+    require(std::filesystem::is_regular_file(theme_file), "装饰主题已写入");
+    const int target = fcitx_hint_width_from_theme(theme_file);
+    require(target > 0, "带装饰的主题给出提示宽度");
+    const auto resolution = fcitx_default_font_resolution();
+    const auto chinese = engine.modeHintLabel("x11::0", "中");
+    require(chinese.size() > std::string("中").size(), "水杉主题的提示被补宽");
+    require(fcitx_measure_text("Sans 10", resolution, chinese) >= target, "补宽后的提示容得下装饰");
+    require(fcitx_measure_text("Sans 10", resolution, engine.modeHintLabel("x11::0", "英")) >= target, "英同样补宽");
+    const auto english = engine.modeHintLabel("x11::0", "英");
+    const int measured = hint_font_map_creations;
+    for (int index = 0; index < 20; ++index) {
+      require(engine.modeHintLabel("x11::0", "中") == chinese && engine.modeHintLabel("x11::0", "英") == english,
+              "重复切换用同一份结果");
+    }
+    require(hint_font_map_creations == measured, "重复切换不再创建 Pango 字体映射");
+    // 水杉偏好不变时，外部换主题也要刷新提示，但不能重新接管用户还原的自带主题。
+    engine.applyCandidatePanelTheme(preferences, false, catalog, false);
+    fcitx::RawConfig changed;
+    changed.setValueByPath("Theme", "Nord-Dark");
+    classicui->setConfig(changed);
+    engine.applyCandidatePanelTheme(preferences, false, catalog, false);
+    require(engine.modeHintLabel("x11::0", "中") == "中", "只换第三方 Theme 时立即停止补宽");
+    for (const auto *font : {"Sans 14", "Sans 18"}) {
+      fcitx::RawConfig changed_font;
+      changed_font.setValueByPath("Font", font);
+      classicui->setConfig(changed_font);
+      engine.applyCandidatePanelTheme(preferences, false, catalog, false);
+      require(engine.hint_inputs_.font == font, "第三方主题下连续修改字体也刷新提示缓存");
+    }
+    changed.setValueByPath("Theme", "default");
+    classicui->setConfig(changed);
+    engine.applyCandidatePanelTheme(preferences, false, catalog, false);
+    fcitx::RawConfig stock_current;
+    classicui->getConfig()->save(stock_current);
+    require(stock_current.valueByPath("Theme") && *stock_current.valueByPath("Theme") == "default",
+            "已接管后外部还原自带主题不会被相同偏好抢回");
+    require(engine.modeHintLabel("x11::0", "中") == "中", "外部还原自带主题时停止补宽");
+    changed.setValueByPath("Theme", "msime");
+    changed.setValueByPath("Font", "Sans 10");
+    classicui->setConfig(changed);
+    engine.applyCandidatePanelTheme(preferences, false, catalog, false);
+    require(engine.modeHintLabel("x11::0", "中") == chinese, "外部换回水杉主题时恢复缓存的补宽结果");
+    changed.setValueByPath("UseDarkTheme", "True");
+    changed.setValueByPath("DarkTheme", "msime");
+    classicui->setConfig(changed);
+    engine.applyCandidatePanelTheme(preferences, true, catalog, false);
+    require(engine.modeHintLabel("x11::0", "中") == chinese, "深色画水杉时补宽");
+    // 5.0.x 没有独立深色项，改实际绘制的 Theme；新版本只改 DarkTheme。
+    changed.setValueByPath(has_dark_theme ? "DarkTheme" : "Theme", "Nord-Dark");
+    classicui->setConfig(changed);
+    engine.applyCandidatePanelTheme(preferences, true, catalog, false);
+    require(engine.modeHintLabel("x11::0", "中") == "中", "换成第三方活动主题时立即停止补宽");
+    changed.setValueByPath("Theme", "msime");
+    changed.setValueByPath("UseDarkTheme", "False");
+    changed.setValueByPath("DarkTheme", "msime");
+    classicui->setConfig(changed);
+    engine.applyCandidatePanelTheme(preferences, false, catalog, false);
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}}, false, Json(), true);
+    require(engine.hint_inputs_.active && engine.modeHintLabel("x11::0", "中") == "中",
+            "跟随系统仍画水杉样式，但没有皮肤装饰就不补宽");
+    engine.applyCandidatePanelTheme(preferences, false, catalog, true);
+    require(engine.modeHintLabel("x11::0", "中") == chinese, "从系统配色选回皮肤后恢复提示宽度");
+    // 无覆盖自定义主题退出后，再选回同一皮肤必须重新初始化，不能被旧 stamp 短路。
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "custom"}, {"custom_theme", {{"base", "system"}}}},
+                                    false, Json(), true);
+    require(engine.modeHintLabel("x11::0", "中") == "中", "退出接管后不补宽");
+    engine.applyCandidatePanelTheme(preferences, false, catalog, true);
+    require(engine.modeHintLabel("x11::0", "中") == chinese, "选回同一皮肤后恢复提示宽度");
+    // 热路径不碰文件：删掉主题与装饰图后，中/英切换仍用写主题时算好的宽度。
+    std::filesystem::remove_all(root / "fcitx5/themes/msime");
+    require(engine.modeHintLabel("x11::0", "中") == chinese, "提示不依赖主题文件");
+    // 桌面切深色、DarkTheme 是第三方：classicui 画的是第三方主题，提示保持原样。
+    fcitx::RawConfig external;
+    external.setValueByPath("UseDarkTheme", "True");
+    external.setValueByPath(has_dark_theme ? "DarkTheme" : "Theme", "Nord-Dark");
+    classicui->setConfig(external);
+    engine.applyCandidatePanelTheme(preferences, true, catalog, false);
+    require(engine.modeHintLabel("x11::0", "中") == "中", "第三方深色主题不补宽");
+    // 新版本关掉跟随系统后画回水杉 Theme；5.0.x 直接恢复 Theme，提示重新补宽。
+    fcitx::RawConfig light;
+    if (!has_dark_theme) light.setValueByPath("Theme", "msime");
+    light.setValueByPath("UseDarkTheme", "False");
+    classicui->setConfig(light);
+    engine.applyCandidatePanelTheme(preferences, true, catalog, false);
+    require(engine.modeHintLabel("x11::0", "中").size() > std::string("中").size(), "回到水杉主题后重新补宽");
+    // 换成没有装饰的内置主题：没有要放的装饰，提示保持原样。
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "paper"}}, false, Json(), true);
+    require(engine.modeHintLabel("x11::0", "中") == "中", "没有装饰就不补宽");
+    // 第三方主题：即使水杉自己的主题文件还在，也不补宽。
+    fcitx::RawConfig third;
+    third.setValueByPath("Theme", "Nord-Dark");
+    classicui->setConfig(third);
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "ink"}}, false, Json(), false);
+    require(engine.modeHintLabel("x11::0", "中") == "中", "第三方主题不补宽");
+  }
+  std::filesystem::remove_all(root);
+  std::cout << "Fcitx5 candidate theme hint passed\n";
+  return 0;
+}
+#endif
 int main(int argc, char **argv) {
   try {
+    if (argc == 2 && std::string(argv[1]) == "--theme-priority") return candidateThemePriority();
+#ifdef MSIME_FCITX5_HINT_FONT
+    if (argc == 2 && std::string(argv[1]) == "--theme-hint") return candidateThemeHint();
+#endif
     autocorrectMarker();
     koreanHanjaGlossRow();
     candidateThemeDecoration();
@@ -425,7 +940,7 @@ int main(int argc, char **argv) {
     options["voice_provider_socket"] = voiceSocketPath;
     const auto path = std::string(directory) + "/runtime-options.json";
     std::ofstream(path) << options.dump();
-    // The online, cloud clipboard and voice steps come many seconds after these providers start listening (the whole run takes 8 to 15 seconds in the build-gate container, more under load), and the Fcitx5 host only dispatches the online request once the test polls for it, so each accept window spans the run instead of its first few seconds.
+    // Online and cloud clipboard requests arrive after earlier native checks; voice starts its listener immediately before its own key test below.
     constexpr int kProviderAcceptMs = 30000;
     std::thread provider([providerServer, ai, suggestion] {
       const auto reply = Json{{"candidates", Json::array({Json{{"text", suggestion}, {"source", ai ? 1 : 0}}})}}.dump() + "\n";
@@ -474,39 +989,6 @@ int main(int argc, char **argv) {
       const bool sent = send(client, reply, std::strlen(reply), MSG_NOSIGNAL) == static_cast<ssize_t>(std::strlen(reply));
       close(client); close(cloudServer);
       return valid && sent;
-    });
-    auto voiceProvider = std::async(std::launch::async, [voiceServer] {
-      pollfd ready{voiceServer, POLLIN, 0};
-      if (poll(&ready, 1, kProviderAcceptMs) <= 0) { close(voiceServer); return false; }
-      const int client = accept(voiceServer, nullptr, nullptr);
-      if (client < 0) { close(voiceServer); return false; }
-      char request[4096]{};
-      const auto count = read(client, request, sizeof(request) - 1);
-      uint64_t generation = 1;
-      try {
-        generation = Json::parse(request, request + std::max<ssize_t>(count, 0))
-                         .at("query").at("generation").get<uint64_t>();
-      } catch (...) {}
-      const auto partial = Json{{"type", "partial"}, {"generation", generation},
-                                {"text", "语音中"}}.dump() + "\n";
-      const auto status = Json{{"type", "status"}, {"generation", generation},
-                               {"phase", "recognizing"}}.dump() + "\n";
-      const auto level = Json{{"type", "level"}, {"generation", generation},
-                              {"level", 0.7}}.dump() + "\n";
-      const auto final = Json{{"type", "final"}, {"generation", generation},
-                              {"text", "语音测试"}}.dump() + "\n";
-      const bool valid = count > 0 && std::string(request, count).find("voice") != std::string::npos;
-      const bool partialSent = send(client, partial.data(), partial.size(), MSG_NOSIGNAL) ==
-                               static_cast<ssize_t>(partial.size());
-      const bool statusSent = send(client, status.data(), status.size(), MSG_NOSIGNAL) ==
-                              static_cast<ssize_t>(status.size());
-      const bool levelSent = send(client, level.data(), level.size(), MSG_NOSIGNAL) ==
-                             static_cast<ssize_t>(level.size());
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      const bool finalSent = send(client, final.data(), final.size(), MSG_NOSIGNAL) ==
-                             static_cast<ssize_t>(final.size());
-      close(client); close(voiceServer);
-      return valid && partialSent && statusSent && levelSent && finalSent;
     });
     setenv("MSIME_FCITX5_OPTIONS", path.c_str(), 1);
     char name[] = "fcitx5-native-test";
@@ -721,7 +1203,7 @@ int main(int argc, char **argv) {
       require(ic.committed == before, "Mode shortcuts must not commit uppercase letters");
       if (argc == 3 && std::string(argv[2]) == "--local-modes") {
         state->close();
-        std::filesystem::remove_all(directory);
+        removeFixtureTree(directory);
         std::cout << "Fcitx5 Shift local modes, uppercase passthrough and modifier release passed\n";
         return 0;
       }
@@ -790,7 +1272,7 @@ int main(int argc, char **argv) {
               "Consumed Ctrl+Space release escaped after Ctrl was released");
       require(chord() && state->input_enabled_, "Ctrl+Space did not restore Chinese mode");
       state->close();
-      std::filesystem::remove_all(directory);
+      removeFixtureTree(directory);
       std::cout << "Fcitx5 Ctrl+Space defaults, passthrough, hot-reload and repeat passed\n";
       return 0;
     }
@@ -1187,13 +1669,13 @@ int main(int argc, char **argv) {
           require(!action->name().empty(), "every option group entry is registered");
           if (!action->isSeparator()) ++grouped;
         }
-      require(grouped == 38, ("option groups hold the moved status actions: " + std::to_string(grouped)).c_str());
+      require(grouped == 42, ("option groups hold the moved status actions: " + std::to_string(grouped)).c_str());
       for (auto *menu : {&engine.scheme_menu_, &engine.desktop_tools_menu_})
         for (auto *action : menu->actions())
           require(!action->name().empty(), "scheme and desktop tools entries are registered");
     }
-    require(engine.candidate_page_size_menu_.actions().size() == 9,
-            "candidate page-size menu attached");
+    require(engine.candidate_page_size_menu_.actions().size() == 10,
+            "candidate page-size menu attached, one to ten");
     engine.candidate_page_size3_.activate(&ic);
     require(state->preferences_.value("candidate_page_size", 0u) == 3,
             "candidate page-size action persists a larger page");
@@ -1796,7 +2278,8 @@ int main(int argc, char **argv) {
     }
     require(response(msime_client_all_candidates(state->session_)).dump().find(suggestion) != std::string::npos,
             "provider candidate applied to full candidate list");
-    if (ai) {
+    const auto verifyPreferenceInvalidation = [&] {
+      if (!ai) return;
       const auto epochBeforeSettings = state->online_epoch_;
       auto changedPreferences = state->preferences_snapshot_;
       changedPreferences["preferences"]["ai_assistant"]["prompt_custom_1"] =
@@ -1826,7 +2309,7 @@ int main(int argc, char **argv) {
       require(state->translation_epoch_ > translationEpochBeforeSettings &&
                   state->translation_query_.empty() && state->translation_pending_.empty(),
               "translation preference changes invalidate translation completions");
-    }
+    };
     provider.join();
     auto page = ic.inputPanel().candidateList();
     require(page && page->layoutHint() == fcitx::CandidateLayoutHint::Vertical,
@@ -1858,6 +2341,18 @@ int main(int argc, char **argv) {
       }
     }
     require(selected && ic.committed == oldCommit + suggestion, "exact provider candidate commit");
+    verifyPreferenceInvalidation();
+    require(key(FcitxKey_n) && key(FcitxKey_i), "second composition keys");
+    // Recreate a displayed answer in the same synthetic composition so disabling the provider checks a real candidate removal after the selection above committed the first answer.
+    const auto secondQuery = response(msime_client_online_query(state->session_)).dump();
+    const auto secondCandidates = Json::array({suggestion}).dump();
+    const uint8_t activeSource = ai ? 1 : 0;
+    state->view_ = response(msime_client_apply_online_candidates(
+        state->session_, reinterpret_cast<const uint8_t *>(secondQuery.data()), secondQuery.size(),
+        reinterpret_cast<const uint8_t *>(secondCandidates.data()), secondCandidates.size(), activeSource)).at("view");
+    state->render();
+    require(response(msime_client_all_candidates(state->session_)).dump().find(suggestion) != std::string::npos,
+            "synthetic provider answer is displayed before disabling it");
     // 已显示答案后禁用服务必须立即移除该答案；不能先更新偏好再清除，否则 Host API 会把回调视为过期。
     {
       auto disabled = state->preferences_snapshot_;
@@ -1871,7 +2366,6 @@ int main(int argc, char **argv) {
                   std::string::npos,
               "disabling the active provider clears displayed candidates");
     }
-    require(key(FcitxKey_n) && key(FcitxKey_i), "second composition keys");
     const auto beforeWordCharacter = ic.committed;
     require(key(FcitxKey_bracketleft), "configured word-to-character binding");
     require(ic.committed != beforeWordCharacter, "word-to-character commits selected edge");
@@ -1882,7 +2376,7 @@ int main(int argc, char **argv) {
     require(key(FcitxKey_minus), "configured minus previous-page binding");
     require(key(FcitxKey_equal), "configured equal next-page binding");
     require(key(FcitxKey_Escape), "cancel after navigation");
-    // Tab and Shift+Tab page the candidates by default (navigation.tab), as on macOS, Windows and IBus. A real keyboard sends Shift+Tab as Shift+ISO_Left_Tab, and Fcitx normalises both to Tab with Shift; a back-tab without Shift must still go back.
+    // Tab and Shift+Tab page the candidates by default (navigation.tab), as on macOS, Windows and IBus. A real keyboard sends Shift+Tab as Shift+ISO_Left_Tab; Fcitx can drop Shift from the normalized key, so the raw event decides direction.
     {
       const auto candidatePage = [&] { return state->view_.value("page", size_t{0}); };
       const auto preedit = [&] { return ic.inputPanel().clientPreedit().toString(); };
@@ -1895,7 +2389,10 @@ int main(int argc, char **argv) {
               "Tab paging test composes a multi-page ni");
       require(key(FcitxKey_Tab) && candidatePage() == 1, "Tab moves to the next candidate page");
       require(key(FcitxKey_Tab) && candidatePage() == 2, "a second Tab moves on again");
-      require(keyWith(FcitxKey_Tab, shiftState) && candidatePage() == 1, "Shift+Tab moves to the previous page");
+      const bool shiftTabAccepted = keyWith(FcitxKey_Tab, shiftState);
+      require(shiftTabAccepted && candidatePage() == 1,
+              ("Shift+Tab moves to the previous page: accepted=" + std::to_string(shiftTabAccepted) +
+               " page=" + std::to_string(candidatePage())).c_str());
       require(keyWith(FcitxKey_ISO_Left_Tab, shiftState) && candidatePage() == 0,
               "Shift+ISO_Left_Tab moves to the previous page");
       require(key(FcitxKey_Tab) && candidatePage() == 1 && key(FcitxKey_ISO_Left_Tab) && candidatePage() == 0,
@@ -1984,6 +2481,39 @@ int main(int argc, char **argv) {
                 ic.inputPanel().clientPreedit().toString() == "ni",
             "composition before voice input");
     const auto committedBeforeVoice = ic.committed;
+    auto voiceProvider = std::async(std::launch::async, [voiceServer] {
+      pollfd ready{voiceServer, POLLIN, 0};
+      if (poll(&ready, 1, kProviderAcceptMs) <= 0) { close(voiceServer); return false; }
+      const int client = accept(voiceServer, nullptr, nullptr);
+      if (client < 0) { close(voiceServer); return false; }
+      char request[4096]{};
+      const auto count = read(client, request, sizeof(request) - 1);
+      uint64_t generation = 1;
+      try {
+        generation = Json::parse(request, request + std::max<ssize_t>(count, 0))
+                         .at("query").at("generation").get<uint64_t>();
+      } catch (...) {}
+      const auto partial = Json{{"ok", true}, {"type", "partial"}, {"generation", generation},
+                                {"text", "语音中"}}.dump() + "\n";
+      const auto status = Json{{"ok", true}, {"type", "status"}, {"generation", generation},
+                               {"phase", "recognizing"}}.dump() + "\n";
+      const auto level = Json{{"ok", true}, {"type", "level"}, {"generation", generation},
+                              {"level", 0.7}}.dump() + "\n";
+      const auto final = Json{{"ok", true}, {"type", "final"}, {"generation", generation},
+                              {"text", "语音测试"}}.dump() + "\n";
+      const bool valid = count > 0 && std::string(request, count).find("voice") != std::string::npos;
+      const bool partialSent = send(client, partial.data(), partial.size(), MSG_NOSIGNAL) ==
+                               static_cast<ssize_t>(partial.size());
+      const bool statusSent = send(client, status.data(), status.size(), MSG_NOSIGNAL) ==
+                              static_cast<ssize_t>(status.size());
+      const bool levelSent = send(client, level.data(), level.size(), MSG_NOSIGNAL) ==
+                             static_cast<ssize_t>(level.size());
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      const bool finalSent = send(client, final.data(), final.size(), MSG_NOSIGNAL) ==
+                             static_cast<ssize_t>(final.size());
+      close(client); close(voiceServer);
+      return valid && partialSent && statusSent && levelSent && finalSent;
+    });
     fcitx::KeyEvent voiceHotkey(&ic,
         fcitx::Key(FcitxKey_F9, fcitx::KeyStates{fcitx::KeyState::Ctrl}));
     engine.keyEvent(entry, voiceHotkey);
@@ -2004,7 +2534,14 @@ int main(int argc, char **argv) {
       observedVoicePreedit = observedVoicePreedit ||
                              ic.inputPanel().clientPreedit().toString() == "语音中";
     }
-    require(observedVoicePartial || state->voice_partial_seen_, "voice action receives provider partial text");
+    const bool voiceProtocolValid = voiceProvider.get();
+    require(observedVoicePartial || state->voice_partial_seen_,
+            ("voice action receives provider partial text: provider_valid=" +
+             std::to_string(voiceProtocolValid) +
+             " job_valid=" + std::to_string(state->voice_job_.valid()) +
+             " failure_visible=" + std::to_string(state->voice_failure_visible_) +
+             " committed=" + std::to_string(ic.committed.find("语音测试") != std::string::npos) +
+             " aux=" + ic.inputPanel().auxUp().toString()).c_str());
     require(observedVoicePreedit,
             "streaming Doubao text reaches preedit even with a stored ctrl_v commit mode");
     require(state->voice_phase_seen_ && state->voice_level_seen_,
@@ -2015,7 +2552,7 @@ int main(int argc, char **argv) {
     require(ic.inputPanel().clientPreedit().toString().empty(),
             "final voice result clears streaming preedit");
     require(!state->wave_overlay_visible_, "voice completion hides the native wave overlay");
-    require(voiceProvider.get(), "voice socket protocol");
+    require(voiceProtocolValid, "voice socket protocol");
     Json statistics;
     const auto statisticsDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (std::chrono::steady_clock::now() < statisticsDeadline) {
@@ -2249,9 +2786,7 @@ int main(int argc, char **argv) {
     require(ic.committed == beforeTranslatedCommit + translatedText, "gloss excluded from committed text");
     state->close();
     state->clearPanel();
-    // The helpcode annotation on a candidate row follows the scheme's
-    // show_in_candidate_window preference, the way the IBus host renders it.
-    // This host used to append it whatever the setting said.
+    // The helpcode annotation on a candidate row follows the scheme's show_in_candidate_window preference, the way the IBus host renders it. This host used to append it whatever the setting said. In / and @ the annotation is the command title or the place's province and city, so neither that preference nor the wubi code hint hides it; Wubi opens / and @ too, and with 五笔剩余编码 off its command rows used to lose their titles. The other local modes still carry helpcodes and stay behind the preference.
     {
       require(state->ensure(), "session for the annotation check");
       auto withHelpcode = options;
@@ -2263,6 +2798,25 @@ int main(int argc, char **argv) {
       state->preferences_["quanpin_helpcode"]["show_in_candidate_window"] = false;
       require(!state->showCandidateAnnotations(),
               "quanpin annotation hidden when the preference turns it off");
+      const auto savedView = state->view_;
+      state->view_["local_mode"] = "mention";
+      require(state->showCandidateAnnotations(),
+              "a mention row keeps its place annotation with the helpcode switch off");
+      state->view_["local_mode"] = "super_jianpin";
+      require(!state->showCandidateAnnotations(),
+              "super jianpin helpcodes stay hidden with the helpcode switch off");
+      state->view_["local_mode"] = "quick_phrase";
+      require(!state->showCandidateAnnotations(),
+              "quick phrase helpcodes stay hidden with the helpcode switch off");
+      state->view_["scheme"] = 2;
+      state->view_["local_mode"] = "none";
+      state->preferences_["wubi_code_hint"] = false;
+      require(!state->showCandidateAnnotations(),
+              "wubi code hint off hides the remaining-code annotation");
+      state->view_["local_mode"] = "command";
+      require(state->showCandidateAnnotations(),
+              "a wubi command row keeps its title with the wubi code hint off");
+      state->view_ = savedView;
       state->close();
       state->clearPanel();
     }
@@ -2302,7 +2856,7 @@ int main(int argc, char **argv) {
       require(state->modeIndicatorLabel() == "한", "the status area labels Korean input");
       // The 输入方案 menu picks a scheme directly and marks the one in use.
       // Cantonese, Zhuyin and Stroke are listed only with their dictionaries, which this fixture does not install.
-      require(engine.scheme_menu_.actions().size() == 6, "scheme menu lists the six schemes that need no dictionary");
+      require(engine.scheme_menu_.actions().size() == 7, "scheme menu lists the seven schemes that need no dictionary");
       require(engine.scheme_korean_action_.isChecked(&ic) && !engine.scheme_japanese_action_.isChecked(&ic) &&
                   !engine.scheme_quanpin_action_.isChecked(&ic),
               "scheme menu marks the scheme in use");
@@ -2420,6 +2974,104 @@ int main(int argc, char **argv) {
                   state->preferences_.value("shuangpin_helpcode", Json::object())
                           .value("schema", std::string("lantian")) == storedShuangpin,
               "shuangpin keeps the store's helpcode schema, not quanpin's status bar choice");
+      // A helpcode pack picked on the settings page outranks the schema, so the status bar names the pack, and its first click returns to the stored built-in schema by clearing the pack in the store, as the settings page does. The store stays the authority for the pack in new sessions, a pack picked later replaces the status bar schema, and a failed save of that first click keeps the choice until its retry lands.
+      const auto settingsPageSetsPack = [&](const std::string &pack, bool mirror) {
+        auto snapshot = loadStore();
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        msime::linux_host::set_helpcode_pack(snapshot["preferences"], "quanpin", pack);
+        snapshot["revision"] = revision + 1;
+        const auto document = snapshot.dump();
+        const auto saved = response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+        require(saved.value("revision", uint64_t{}) > revision, "settings page helpcode pack saved");
+        if (!mirror) return;
+        msime::linux_host::set_helpcode_pack(options["preferences"], "quanpin", pack);
+        std::ofstream(path) << options.dump();
+      };
+      const auto storedPack = [&] { return msime::linux_host::helpcode_pack(loadStore().at("preferences"), "quanpin"); };
+      const auto storedHelpcodeSchema = [&] {
+        return loadStore().at("preferences").value("quanpin_helpcode", Json::object()).value("schema", std::string());
+      };
+      const auto sessionPack = [&] { return msime::linux_host::helpcode_pack(state->preferences_, "quanpin"); };
+      const auto sessionHelpcodeSchema = [&] {
+        return state->preferences_.value("quanpin_helpcode", Json::object()).value("schema", std::string());
+      };
+      const auto schemaLabel = [](const std::string &schema) {
+        return std::string("辅助码：") + std::string(msime::linux_host::helpcode_schema_label(schema));
+      };
+      state->scheme_override_.reset();
+      state->scheme_unsaved_ = false;
+      state->close();
+      state->clearPanel();
+      settingsPageSetsScheme("quanpin");
+      settingsPageSetsPack("radicals", true);
+      require(state->ensure() && state->view_.value("scheme", 0u) == 0 && sessionPack() == "radicals" &&
+                  engine.helpcode_schema_action_.shortText(&ic) == "辅助码：插件 radicals",
+              "the status bar names the helpcode pack in use");
+      const auto packedSchema = storedHelpcodeSchema();
+      require(!packedSchema.empty(), "the store keeps a helpcode schema under the pack");
+      require(state->cycleHelpcodeSchema() && !state->preferences_save_retry_ && storedPack().empty() &&
+                  storedHelpcodeSchema() == packedSchema,
+              "the first status bar click clears the pack in the store and keeps its schema");
+      require(sessionPack().empty() && sessionHelpcodeSchema() == packedSchema &&
+                  engine.helpcode_schema_action_.shortText(&ic) == schemaLabel(packedSchema),
+              "the session returns to the stored built-in schema");
+      // The runtime options file still names the pack, which only the settings page rewrites.
+      state->helpcode_schema_override_.reset();
+      state->close();
+      state->clearPanel();
+      require(state->ensure() && sessionPack().empty() && sessionHelpcodeSchema() == packedSchema,
+              "a new session takes the pack from the store, not the runtime options file");
+      require(state->cycleHelpcodeSchema() && !state->preferences_save_retry_ && state->helpcode_schema_override_ &&
+                  *state->helpcode_schema_override_ != packedSchema && storedHelpcodeSchema() == *state->helpcode_schema_override_,
+              "the next status bar click moves on to the next built-in schema");
+      settingsPageSetsPack("radicals", false);
+      const auto packDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+      while (state->helpcode_schema_override_ && std::chrono::steady_clock::now() < packDeadline) {
+        state->refreshPreferences();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+      require(!state->helpcode_schema_override_ && sessionPack() == "radicals" &&
+                  engine.helpcode_schema_action_.shortText(&ic) == "辅助码：插件 radicals",
+              "a pack picked later on the settings page replaces the status bar schema on reload");
+      // The first click while a pack is active saves the schema the store already holds; a failed save must not read as landed because of that.
+      const auto pendingSchema = storedHelpcodeSchema();
+      {
+        std::ifstream in(storeFile, std::ios::binary);
+        storeBytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+      }
+      require(!storeBytes.empty(), "store file to freeze under the pack");
+      auto frozenPack = loadStore();
+      frozenPack["revision"] = std::numeric_limits<uint64_t>::max();
+      std::ofstream(storeFile, std::ios::binary | std::ios::trunc) << frozenPack.dump();
+      require(state->cycleHelpcodeSchema(), "status bar helpcode click with a failing save");
+      require(state->preferences_save_retry_ && state->preferences_save_retry_->key == "schema" &&
+                  state->preferences_save_retry_->helpcode_schema_choice && storedPack() == "radicals",
+              "the status bar helpcode save failed and awaits a retry");
+      require(state->helpcode_schema_override_ == std::optional<std::string>(pendingSchema) && sessionPack().empty() &&
+                  engine.helpcode_schema_action_.shortText(&ic) == schemaLabel(pendingSchema),
+              "a failed helpcode save survives the cycle's own rebuild");
+      state->close();
+      state->clearPanel();
+      require(state->ensure() && state->helpcode_schema_override_ == std::optional<std::string>(pendingSchema) &&
+                  sessionPack().empty() && state->preferences_save_retry_ &&
+                  state->preferences_save_retry_->key == "schema",
+              "a failed helpcode save and its retry survive a focus change");
+      std::ofstream(storeFile, std::ios::binary | std::ios::trunc) << storeBytes;
+      require(state->retryPreferenceSave(), "retry the helpcode save");
+      state->waitForPreferenceSave();
+      require(!state->preferences_save_retry_ && storedPack().empty() && storedHelpcodeSchema() == pendingSchema,
+              "the retried helpcode save clears the pack in the store");
+      state->close();
+      state->clearPanel();
+      require(state->ensure() && state->helpcode_schema_override_ == std::optional<std::string>(pendingSchema) &&
+                  !state->helpcode_schema_unsaved_ && sessionPack().empty(),
+              "once the store holds the choice it is no longer marked unsaved");
+      state->helpcode_schema_override_.reset();
+      // The store has no pack left; only the runtime options file still names it.
+      msime::linux_host::set_helpcode_pack(options["preferences"], "quanpin", "");
+      std::ofstream(path) << options.dump();
       settingsPageSetsScheme("japanese");
       state->scheme_override_.reset();
       state->shuangpin_profile_override_.reset();
@@ -2547,6 +3199,17 @@ int main(int argc, char **argv) {
     {
       options["preferences"]["scheme"] = "korean";
       std::ofstream(path) << options.dump();
+      // Status-bar choices live in the store and take precedence over runtime options on a new session.
+      auto snapshot = response(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+      const auto revision = snapshot.at("revision").get<uint64_t>();
+      snapshot["preferences"]["scheme"] = "korean";
+      snapshot["revision"] = revision + 1;
+      const auto document = snapshot.dump();
+      const auto saved = response(msime_client_save_preferences(
+          reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(), revision,
+          reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+      require(saved.value("revision", uint64_t{}) > revision, "Korean saved as the scheme");
       const auto press = [&](fcitx::KeySym sym, fcitx::KeyStates states = fcitx::KeyStates()) {
         fcitx::KeyEvent event(&ic, fcitx::Key(sym, states));
         engine.keyEvent(entry, event);
@@ -2556,7 +3219,9 @@ int main(int argc, char **argv) {
       auto before = ic.committed;
       require(press(FcitxKey_d) && press(FcitxKey_k) && press(FcitxKey_s), "Korean letters compose");
       require(state->view_.at("scheme") == 4 && preedit() == "안" && ic.committed == before,
-              "the syllable is drawn inline while it composes");
+              ("the syllable is drawn inline while it composes: scheme=" +
+               state->view_.at("scheme").dump() + " preedit=" + preedit() +
+               " committed=" + std::to_string(ic.committed != before)).c_str());
       require(state->view_.at("candidates").empty(), "Korean offers no candidates before the Hanja key");
       require(ic.inputPanel().clientPreedit().cursor() == static_cast<int>(std::string("안").size()),
               "the caret follows the syllable");
@@ -2654,15 +3319,16 @@ int main(int argc, char **argv) {
         state->traditional_ = true;
         before = ic.committed;
         require(press(FcitxKey_g) && press(FcitxKey_n) && press(FcitxKey_F9) && preedit() == "후" &&
-                    candidates().size() > 3 && candidates().at(3).value("text", std::string()) == "后",
-                "the Hanja list of 후 holds 后 fourth");
+                    state->view_.value("page_count", size_t{0}) > 1 && press(FcitxKey_Page_Down) &&
+                    candidates().size() == 2 && candidates().at(1).value("text", std::string()) == "后",
+                "the second Hanja page of 후 holds 后 fourth");
         const auto *panel = ic.inputPanel().candidateList().get();
         require(panel && panel->size() == static_cast<int>(candidates().size()), "the panel shows the Hanja list");
         for (int row = 0; row < panel->size(); ++row)
           require(panel->candidate(row).text().toString().rfind(
                       candidates().at(row).value("text", std::string()), 0) == 0,
                   "with traditional output on a Hanja row shows the character it commits");
-        require(press(FcitxKey_4) && ic.committed == before + "后", "the row showing 后 commits 后");
+        require(press(FcitxKey_2) && ic.committed == before + "后", "the row showing 后 commits 后");
         state->traditional_ = false;
       }
       before = ic.committed;
@@ -2911,10 +3577,12 @@ int main(int argc, char **argv) {
                   candidates().at(0).value("text", std::string()) == "一" &&
                   state->view_.value("editing_text", std::string()) == "h",
               "h composes the stroke 一");
-      require(press(FcitxKey_s) && preedit() == "一丨" && candidates().size() >= 3 &&
+      require(press(FcitxKey_s) && preedit() == "一丨" && candidates().size() == 2 &&
                   candidates().at(0).value("text", std::string()) == "十" &&
                   candidates().at(1).value("text", std::string()) == "木" &&
-                  candidates().at(2).value("text", std::string()) == "古",
+                  press(FcitxKey_Page_Down) && !candidates().empty() &&
+                  candidates().at(0).value("text", std::string()) == "古" &&
+                  press(FcitxKey_Page_Up),
               "h s lists 十 exactly and then its completions");
       require(press(FcitxKey_q) && preedit() == "一丨" && ic.committed == before,
               "a letter that is no stroke is swallowed while composing");
@@ -2940,7 +3608,7 @@ int main(int argc, char **argv) {
       state->close();
       state->clearPanel();
     }
-    std::filesystem::remove_all(directory);
+    removeFixtureTree(directory);
     std::cout << "Fcitx5 native context tests passed\n";
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

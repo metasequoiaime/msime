@@ -7,7 +7,7 @@ import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
 import { HarmonyVoiceCaptureDevices } from './HarmonyVoiceCaptureDevices';
 import { VoiceOutcome, VoiceResponsePolicy } from './VoiceResponsePolicy';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
-import { HttpAsrConfigurationPolicy } from './HttpAsrConfigurationPolicy';
+import { HTTP_ASR_CHAT_AUDIO, HttpAsrConfigurationPolicy } from './HttpAsrConfigurationPolicy';
 
 const SAMPLE_RATE: number = 16000;
 const SAMPLE_BYTES: number = 2;
@@ -191,7 +191,13 @@ export class HarmonyHttpAsrRecognizer {
     const model: string = HttpAsrConfigurationPolicy.model(config);
     const credential: string = HttpAsrConfigurationPolicy.token(config);
     const boundary: string = `----msime-${util.generateRandomUUID(false).replace(/-/g, '')}`;
-    const body: ArrayBuffer = this.multipart(boundary, model, config.asr_provider, config.language, wav);
+    // 按请求格式挑请求构造：chat_audio 是带 Base64 录音的 JSON，其余是 multipart。
+    const chat: boolean =
+      HttpAsrConfigurationPolicy.requestFormat(config.asr_provider) === HTTP_ASR_CHAT_AUDIO;
+    const body: ArrayBuffer | string = chat
+      ? HttpAsrConfigurationPolicy.chatAudioBody(model,
+        new util.Base64Helper().encodeToStringSync(new Uint8Array(wav)))
+      : this.multipart(boundary, model, config.asr_provider, config.language, wav);
     const request: http.HttpRequest = http.createHttp();
     installNoRedirectGuard(request);
     this.request = request;
@@ -200,7 +206,7 @@ export class HarmonyHttpAsrRecognizer {
         method: http.RequestMethod.POST,
         header: {
           Accept: 'application/json',
-          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Type': chat ? 'application/json' : `multipart/form-data; boundary=${boundary}`,
           Authorization: `Bearer ${credential}`
         },
         connectTimeout: 5000,

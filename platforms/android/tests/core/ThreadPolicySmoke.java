@@ -8,6 +8,17 @@ public final class ThreadPolicySmoke {
     }
 
     public static void main(String[] args) throws InterruptedException {
+        AtomicBoolean namedRan = new AtomicBoolean(false);
+        ThreadFactory namedFactory = ThreadPolicy.namedFactory("msime-smoke-named");
+        Thread named = namedFactory.newThread(() -> namedRan.set(true));
+        check("msime-smoke-named".equals(named.getName()), "named factory preserves the name");
+        check(!named.isDaemon(), "named factory preserves the default non-daemon lifetime");
+        check(named.getPriority() == Thread.NORM_PRIORITY, "named factory preserves the default priority");
+        check(named.getState() == Thread.State.NEW, "named factory does not start the thread");
+        named.start();
+        named.join();
+        check(namedRan.get(), "named factory task runs");
+
         AtomicBoolean ran = new AtomicBoolean(false);
         ThreadFactory factory = ThreadPolicy.namedDaemonFactory("msime-smoke-worker");
         Thread thread = factory.newThread(() -> ran.set(true));

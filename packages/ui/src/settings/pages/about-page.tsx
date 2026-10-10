@@ -35,6 +35,7 @@ export function AboutSettingsPage() {
     page,
     updateStatus,
     updateBusy,
+    updateCheckSupported,
     availableUpdate,
     currentAppVersion,
     openExternalUrl,
@@ -88,7 +89,7 @@ export function AboutSettingsPage() {
             platformLabel={settingsPlatform === "hm2" ? "HarmonyOS 2in1" : "HarmonyOS"}
             update={updateBusy ? "checking" : latest ? "latest" : "idle"}
             updateStatus={updateBusy || latest ? undefined : updateStatus}
-            onCheckForUpdate={onCheckForUpdate}
+            onCheckForUpdate={updateCheckSupported ? onCheckForUpdate : undefined}
           />
         </GroupList>
         {(updateResult || !mobilePlatform) && (
@@ -115,7 +116,11 @@ export function AboutSettingsPage() {
             />
           </Row>
         </GroupList>
-        <TelemetrySection value={draft?.usage_reporting} onChange={onTelemetryChange} />
+        <TelemetrySection
+          value={draft?.usage_reporting}
+          onChange={onTelemetryChange}
+          onOpenDetails={() => selectPage("usage-reporting")}
+        />
       </SettingsPageFieldset>
     );
   }
@@ -135,12 +140,14 @@ export function AboutSettingsPage() {
               </p>
             )}
           </div>
-          <ActionButton
-            action={onCheckForUpdate}
-            className={`secondary ${doc.updateButton}`}
-            disabled={updateBusy}
-            label={updateBusy ? "正在检查…" : "检查更新"}
-          />
+          {updateCheckSupported && (
+            <ActionButton
+              action={onCheckForUpdate}
+              className={`secondary ${doc.updateButton}`}
+              disabled={updateBusy}
+              label={updateBusy ? "正在检查…" : "检查更新"}
+            />
+          )}
         </div>
         {updateResult}
         <OtherPlatformDownloadRows />
@@ -153,7 +160,11 @@ export function AboutSettingsPage() {
         />
         {macosPlatform && <LicenseRows openThirdPartyLicenses={client.openThirdPartyLicenses} />}
         <LinkRow title="隐私政策" external onClick={openPrivacy} />
-        <TelemetryRow value={draft?.usage_reporting} onChange={onTelemetryChange} />
+        <TelemetryRow
+          value={draft?.usage_reporting}
+          onChange={onTelemetryChange}
+          onOpenDetails={() => selectPage("usage-reporting")}
+        />
       </GroupList>
     </SettingsPageFieldset>
   );

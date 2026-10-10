@@ -93,6 +93,48 @@ private final class ChatModelsSessionStorage: BackendSessionStorage, @unchecked 
   func clear() throws { lock.lock(); defer { lock.unlock() }; value = nil }
 }
 
+private struct SharedChatTestLock: BackendRefreshLock {
+  var sharedAcrossProcesses: Bool { true }
+  func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T { try await body() }
+}
+
+private final class ChatIdentityChangeProtocol: URLProtocol, @unchecked Sendable {
+  static let oldToken = String(repeating: "a", count: 64)
+  static let newToken = String(repeating: "b", count: 64)
+  private static let lock = NSLock()
+  private static var recorded: [String] = []
+  private static var onOldRequest: (() -> Void)?
+  private static var rejectOldChat = false
+  static var authorizations: [String] { lock.withLock { recorded } }
+  static func reset(rejectOldChat: Bool = false, onOldRequest: @escaping () -> Void) {
+    lock.withLock { recorded = []; Self.rejectOldChat = rejectOldChat; Self.onOldRequest = onOldRequest }
+  }
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let authorization = request.value(forHTTPHeaderField: "Authorization") ?? ""
+    let (rejectOldChat, onOldRequest) = Self.lock.withLock { () -> (Bool, (() -> Void)?) in
+      Self.recorded.append(authorization)
+      defer { Self.onOldRequest = nil }
+      return (Self.rejectOldChat, Self.onOldRequest)
+    }
+    let oldRequest = authorization == "Bearer \(Self.oldToken)"
+    if oldRequest { onOldRequest?() }
+    let chat = request.url?.path == "/v1/chat/completions"
+    let rejected = chat && rejectOldChat && oldRequest
+    let body: String
+    if rejected { body = #"{"error":{"code":"invalid_credentials"}}"# }
+    else if chat { body = #"{"choices":[{"message":{"role":"assistant","content":"合成回复"}}]}"# }
+    else { body = #"{"data":[{"id":"fixture-model"}],"default_model":"fixture-model"}"# }
+    let response = HTTPURLResponse(url: request.url!, statusCode: rejected ? 401 : 200, httpVersion: nil,
+                                   headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 private final class ChatModelsRetryProtocol: URLProtocol {
   static let oldToken = String(repeating: "a", count: 64)
   static let newToken = String(repeating: "b", count: 64)
@@ -130,6 +172,83 @@ private final class ChatModelsRetryProtocol: URLProtocol {
 }
 
 final class BackendChatClientTests: XCTestCase {
+  func testChatResponseFromPreviousAccountIsDiscarded() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ChatIdentityChangeProtocol.self]
+    let api = BackendAccountClient(configuration: configuration)
+    let old = BackendAccountClient.Tokens(access_token: ChatIdentityChangeProtocol.oldToken,
+      refresh_token: String(repeating: "c", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-chat-user", display_name: "示例", created_at: "2026-09-08"))
+    let replacement = BackendAccountClient.Tokens(access_token: ChatIdentityChangeProtocol.newToken,
+      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "replacement-chat-user", display_name: "新账号", created_at: "2026-09-08"))
+    let storage = ChatModelsSessionStorage(try BackendSavedSession.forTokens(old))
+    let replacementSession = try BackendSavedSession.forTokens(replacement)
+    ChatIdentityChangeProtocol.reset(onOldRequest: { try? storage.save(replacementSession) })
+    let session = BackendAccountSession(api: api, storage: storage, refreshLock: SharedChatTestLock())
+
+    do {
+      _ = try await api.chat(messages: [.init(role: "user", content: "合成消息")],
+                             model: "fixture-model", session: session,
+                             matchingUserID: "synthetic-chat-user")
+      XCTFail("old account's reply must be discarded after account replacement")
+    } catch is CancellationError { }
+    XCTAssertEqual(ChatIdentityChangeProtocol.authorizations,
+                   ["Bearer \(ChatIdentityChangeProtocol.oldToken)"])
+    XCTAssertEqual(try storage.load()?.tokens.user.id, "replacement-chat-user")
+  }
+
+  func testRejectedChatDoesNotRetryAsReplacementAccount() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ChatIdentityChangeProtocol.self]
+    let api = BackendAccountClient(configuration: configuration)
+    let old = BackendAccountClient.Tokens(access_token: ChatIdentityChangeProtocol.oldToken,
+      refresh_token: String(repeating: "c", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-chat-user", display_name: "示例", created_at: "2026-09-08"))
+    let replacement = BackendAccountClient.Tokens(access_token: ChatIdentityChangeProtocol.newToken,
+      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "replacement-chat-user", display_name: "新账号", created_at: "2026-09-08"))
+    let storage = ChatModelsSessionStorage(try BackendSavedSession.forTokens(old))
+    let replacementSession = try BackendSavedSession.forTokens(replacement)
+    ChatIdentityChangeProtocol.reset(rejectOldChat: true,
+                                     onOldRequest: { try? storage.save(replacementSession) })
+    let session = BackendAccountSession(api: api, storage: storage, refreshLock: SharedChatTestLock())
+
+    do {
+      _ = try await api.chat(messages: [.init(role: "user", content: "合成消息")],
+                             model: "fixture-model", session: session,
+                             matchingUserID: "synthetic-chat-user")
+      XCTFail("old chat must not be retried with the replacement account's token")
+    } catch is CancellationError { }
+    XCTAssertEqual(ChatIdentityChangeProtocol.authorizations,
+                   ["Bearer \(ChatIdentityChangeProtocol.oldToken)"])
+    XCTAssertEqual(try storage.load()?.tokens.user.id, "replacement-chat-user")
+  }
+
+  func testModelsResponseFromPreviousAccountIsDiscarded() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ChatIdentityChangeProtocol.self]
+    let api = BackendAccountClient(configuration: configuration)
+    let old = BackendAccountClient.Tokens(access_token: ChatIdentityChangeProtocol.oldToken,
+      refresh_token: String(repeating: "c", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-chat-user", display_name: "示例", created_at: "2026-09-08"))
+    let replacement = BackendAccountClient.Tokens(access_token: ChatIdentityChangeProtocol.newToken,
+      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "replacement-chat-user", display_name: "新账号", created_at: "2026-09-08"))
+    let storage = ChatModelsSessionStorage(try BackendSavedSession.forTokens(old))
+    let replacementSession = try BackendSavedSession.forTokens(replacement)
+    ChatIdentityChangeProtocol.reset(onOldRequest: { try? storage.save(replacementSession) })
+    let session = BackendAccountSession(api: api, storage: storage, refreshLock: SharedChatTestLock())
+
+    do {
+      _ = try await api.chatModels(session: session)
+      XCTFail("old account's model catalog must be discarded after account replacement")
+    } catch is CancellationError { }
+    XCTAssertEqual(ChatIdentityChangeProtocol.authorizations,
+                   ["Bearer \(ChatIdentityChangeProtocol.oldToken)"])
+    XCTAssertEqual(try storage.load()?.tokens.user.id, "replacement-chat-user")
+  }
+
   func testModelsRefreshRejectedSessionAndPreserveAccount() async throws {
     ChatModelsRetryProtocol.reset()
     let configuration = URLSessionConfiguration.ephemeral

@@ -21,7 +21,7 @@ export const candidatePanelLimitNotes: Record<
   gnome_shell:
     "GNOME Shell 自己绘制 IBus 候选窗口并跟随 Shell 主题，这里的候选字体、颜色和皮肤在当前桌面不会生效。",
   fcitx_theme:
-    "Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题，这里的候选颜色和皮肤不会覆盖它；字体仍然生效。改回 Fcitx5 默认主题后即可使用这里的设置。",
+    "Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题，这里的候选颜色和皮肤不会覆盖它；字体仍然生效。把它改回 Fcitx5 默认主题，或在这里换一个全局主题，即可让候选颜色与皮肤生效。",
   kimpanel:
     "Fcitx5 的候选窗口由桌面的 Kimpanel 绘制，使用桌面自己的字体和主题，这里的候选字体、颜色和皮肤不会生效。",
 };

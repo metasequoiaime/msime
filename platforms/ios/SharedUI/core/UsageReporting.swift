@@ -116,11 +116,7 @@ enum UsageReporting {
   }
 
   private static func unsignedInteger(_ value: Any?) -> UInt64 {
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID(),
-          let integer = UInt64(number.stringValue),
-          NSNumber(value: integer).compare(number) == .orderedSame else { return 0 }
-    return integer
+    SharedNumber.strictUInt64(value) ?? 0
   }
 
   /// The value of the {ok,value} envelope, or nil on any failure; reporting never affects the host.

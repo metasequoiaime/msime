@@ -2,6 +2,7 @@
 #include <windows.h>
 
 #include <shellapi.h>
+#include "../common/StateDirectory.h"
 #undef GetCurrentTime
 #undef GetObject
 
@@ -14,7 +15,9 @@
 #include <cstring>
 #include <cwctype>
 #include <filesystem>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -26,6 +29,7 @@
 #include "CandidateWindowStyle.h"
 #include "GameProcessList.h"
 #include "SettingsNavigation.h"
+#include "SettingsStateDirectory.h"
 #include "ShellLauncher.h"
 #include "msime_client.h"
 #include "../../../shared/contracts/msime_edition.h"
@@ -110,18 +114,41 @@ std::wstring environment(const wchar_t *name) {
   }
 }
 
+std::filesystem::path injected_state_directory() {
+  return std::filesystem::path(environment(L"MSIME_CLIENT_STATE_DIR"));
+}
+
+std::filesystem::path runtime_options_directory() {
+  if (auto injected = injected_state_directory(); injected.is_absolute())
+    return injected;
+  return msime::windows::resolve_state_directory();
+}
+
+std::filesystem::path configured_preferences_directory(
+    const std::filesystem::path &directory) {
+  if (directory.empty())
+    return {};
+  std::error_code error;
+  const auto file = directory / L"runtime-options.json";
+  if (!std::filesystem::is_regular_file(file, error))
+    return {};
+  std::ifstream stream(file, std::ios::binary);
+  const std::string content((std::istreambuf_iterator<char>(stream)),
+                            std::istreambuf_iterator<char>());
+  JsonObject options{nullptr};
+  if (!JsonObject::TryParse(text(content), options) ||
+      !options.HasKey(L"preferences_directory"))
+    return {};
+  const auto value = options.Lookup(L"preferences_directory");
+  if (value.ValueType() != JsonValueType::String)
+    return {};
+  return std::filesystem::path(std::wstring(value.GetString().c_str()));
+}
+
 std::filesystem::path state_directory() {
-  if (const auto raw = environment(L"MSIME_CLIENT_STATE_DIR"); !raw.empty()) {
-    std::filesystem::path path(raw);
-    if (path.is_absolute()) {
-      return path;
-    }
-  }
-  // 本版本的状态目录名（版本表 platforms.windows.state_directory），full 是 MSIME-Client。
-  if (const auto local = environment(L"LOCALAPPDATA"); !local.empty()) {
-    return std::filesystem::path(local) / MSIME_EDITION_STATE_DIRECTORY;
-  }
-  return {};
+  const auto root = msime::windows::resolve_state_directory();
+  return msime::settings::settings_state_directory(
+      injected_state_directory(), root, configured_preferences_directory(root));
 }
 
 std::string path_utf8(const std::filesystem::path &path) {
@@ -261,7 +288,7 @@ std::string route_page() {
   return std::string(nav::offered_page_for_route(page.value_or(std::string()), MSIME_EDITION_HANDWRITING != 0));
 }
 
-// The runtime options file the Server hands this window, or the one in the state directory when started from the Start menu. None before the input method is set up.
+// The runtime options file the Server hands this window, or the one the Server reads at startup when started from the Start menu. None before the input method is set up.
 std::optional<std::filesystem::path> runtime_options_file() {
   std::error_code error;
   if (const auto raw = environment(L"MSIME_CLIENT_HOST_OPTIONS"); !raw.empty()) {
@@ -269,7 +296,7 @@ std::optional<std::filesystem::path> runtime_options_file() {
     if (path.is_absolute() && std::filesystem::is_regular_file(path, error))
       return path;
   }
-  const auto directory = state_directory();
+  const auto directory = runtime_options_directory();
   if (directory.empty())
     return std::nullopt;
   auto path = directory / L"runtime-options.json";
@@ -730,6 +757,81 @@ constexpr const wchar_t *license_url =
     L"https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
 constexpr const wchar_t *releases_url =
     L"https://github.com/metasequoiaime/msime/releases";
+
+// The version this build runs as: what Build-Client.ps1 stamps on the release (TargetVersion), or platforms/windows/version.txt for a development build, the same value the Server reports.
+constexpr std::wstring_view app_version = L"" MSIME_WINDOWS_VERSION;
+
+// What 检查更新 found, in the words the shared settings page uses.
+struct UpdateOutcome {
+  std::wstring status;
+  // The unsigned-build warning and how to verify the installer; empty unless a newer release is offered.
+  std::wstring detail;
+  // The release page to open; empty unless a newer release is offered.
+  std::wstring release_url;
+};
+
+// msime_client_update_check's request: this edition's Windows releases. No architecture: one installer serves x64 and Arm64.
+JsonObject update_check_request() {
+  JsonObject request;
+  request.SetNamedValue(L"platform", JsonValue::CreateStringValue(L"windows"));
+  request.SetNamedValue(L"current_version",
+                        JsonValue::CreateStringValue(hstring(app_version)));
+  request.SetNamedValue(L"edition", JsonValue::CreateStringValue(text(MSIME_EDITION_ID)));
+  return request;
+}
+
+// The installer this edition publishes, for the warning when the release does not name one: MetasequoiaIME-<Id>_Setup_v<版本>.exe, as update_check.rs and the shared page derive it.
+std::wstring installer_placeholder() {
+  std::wstring id(text(MSIME_EDITION_ID).c_str());
+  if (!id.empty())
+    id[0] = static_cast<wchar_t>(std::towupper(id[0]));
+  return L"MetasequoiaIME-" + id + L"_Setup_v<版本>.exe";
+}
+
+// Reads msime_client_update_check's answer. A release page outside this repository's tags is treated as a failed check rather than opened.
+UpdateOutcome describe_update_check(Response const &response) {
+  const UpdateOutcome failed{L"检查失败，请稍后重试", {}, {}};
+  if (!response.ok)
+    return failed;
+  try {
+    const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+    const std::wstring status(value.GetNamedString(L"status", L"").c_str());
+    if (status == L"none")
+      return {L"暂无可用发行版", {}, {}};
+    const auto update = value.GetNamedObject(L"update");
+    const std::wstring version(
+        update.GetNamedObject(L"version").GetNamedString(L"display", L"").c_str());
+    const std::wstring url(update.GetNamedString(L"release_url", L"").c_str());
+    if (version.empty() || !url.starts_with(std::wstring(releases_url) + L"/tag/"))
+      return failed;
+    if (status == L"current")
+      return {L"已是最新版本", {}, {}};
+    if (status != L"available")
+      return failed;
+    UpdateOutcome outcome{L"发现新版本 v" + version, {}, url};
+    const auto is_string = [&](wchar_t const *key) {
+      return update.GetNamedValue(key, JsonValue::CreateNullValue()).ValueType() ==
+             JsonValueType::String;
+    };
+    const auto signed_value = update.GetNamedValue(L"signed", JsonValue::CreateNullValue());
+    if (signed_value.ValueType() == JsonValueType::Boolean && !signed_value.GetBoolean()) {
+      // The shipped settings page's wording: an unsigned installer is not only a SmartScreen prompt, it also loses uiAccess.
+      const std::wstring name = is_string(L"installer_name")
+                                    ? std::wstring(update.GetNamedString(L"installer_name").c_str())
+                                    : installer_placeholder();
+      outcome.detail =
+          L"该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。";
+      if (is_string(L"installer_sha256"))
+        outcome.detail += L"下载 " + name + L" 后请核对 SHA256：" +
+                          std::wstring(update.GetNamedString(L"installer_sha256").c_str());
+      else
+        outcome.detail += L"请从发行页一并下载 " + name + L".sha256 核对。";
+    }
+    return outcome;
+  } catch (...) {
+    return failed;
+  }
+}
 
 std::wstring lowercase(std::wstring_view value) {
   std::wstring result(value);
@@ -2263,6 +2365,56 @@ private:
             button_control(action, [this, url] { open_url(url); }));
   }
 
+  // ---- 检查更新 ----
+
+  // Shows the check in progress, or its last outcome, on the about page's controls; nothing when that page is not built.
+  void show_update_outcome() {
+    if (!update_button_)
+      return;
+    const bool download =
+        !update_checking_ && update_outcome_ && !update_outcome_->release_url.empty();
+    update_button_.Content(box_value(hstring(
+        update_checking_ ? L"正在检查…" : download ? L"前往下载" : L"检查")));
+    update_button_.IsEnabled(!update_checking_);
+    const std::wstring status = update_outcome_ ? update_outcome_->status : L"";
+    const std::wstring detail = update_outcome_ ? update_outcome_->detail : L"";
+    update_status_.Text(hstring(status));
+    update_detail_.Text(hstring(detail));
+    update_detail_.Visibility(detail.empty() ? Visibility::Collapsed : Visibility::Visible);
+    update_lines_.Visibility(status.empty() ? Visibility::Collapsed : Visibility::Visible);
+  }
+
+  void on_update_button() {
+    if (update_checking_)
+      return;
+    if (update_outcome_ && !update_outcome_->release_url.empty()) {
+      const auto url = update_outcome_->release_url;
+      open_url(url.c_str());
+      return;
+    }
+    check_for_update();
+  }
+
+  // GitHub may take up to ten seconds, so the request runs off the UI thread and only the outcome comes back.
+  fire_and_forget check_for_update() {
+    update_checking_ = true;
+    update_outcome_.reset();
+    show_update_outcome();
+    auto weak = get_weak();
+    auto queue = DispatcherQueue();
+    const auto body = utf8(update_check_request().Stringify());
+    co_await resume_background();
+    auto outcome = describe_update_check(take_response(msime_client_update_check(
+        reinterpret_cast<const uint8_t *>(body.data()), body.size())));
+    queue.TryEnqueue([weak, outcome = std::move(outcome)] {
+      if (auto self = weak.get()) {
+        self->update_checking_ = false;
+        self->update_outcome_ = outcome;
+        self->show_update_outcome();
+      }
+    });
+  }
+
   // ---- Launching ----
 
   // The shared desktop app (MSIME.exe) is installed beside this executable.
@@ -2967,6 +3119,19 @@ private:
                                doc.SetBoolean(L"navigation." + value, false);
                              }, true);
                            }));
+    const bool second_third_enabled = document_.Boolean(L"second_third_candidate.enabled", false);
+    add_row(word, 0xE8C1, L"二三候选",
+            L"开启后，输入时按 ; 选第二个候选，按 ' 选第三个候选。组字中的 ' 不再作为音节分隔符。",
+            select_control(L"二三候选",
+                           {{L"off", L"关闭"}, {L"semicolon_quote", L"; / '"}},
+                           second_third_enabled ? L"semicolon_quote" : L"off",
+                           [this](std::wstring const &value) {
+                             change([&](PreferencesDocument &doc) {
+                               // 两个字段一起写，关闭时也写上键位，偏好里不会留下缺字段的对象。
+                               doc.SetString(L"second_third_candidate.keys", L"semicolon_quote");
+                               doc.SetBoolean(L"second_third_candidate.enabled", value != L"off");
+                             }, false);
+                           }));
 
     const std::array<std::pair<const wchar_t *, const wchar_t *>, 7> paging_keys{{
         {L"minus_equal", L"- / ="},
@@ -3121,7 +3286,7 @@ private:
     select_row(group, 0xE8D2, label + L"辅助码方案", L"", prefix + L".schema",
                {{L"lantian", L"蓝天小雨点"}, {L"ziranma", L"自然码"},
                 {L"shouyou2_0", L"首右2.0"}, {L"shouyouplus", L"首右plus"},
-                {L"xiaohe", L"小鹤"}, {L"jiajia", L"加加"}},
+                {L"xiaohe", L"小鹤"}, {L"jiajia", L"加加"}, {L"wubi86", L"五笔 86"}},
                L"lantian", false, enabled);
     bool_row(group, 0xE8FD, L"在候选窗口中显示" + label + L"辅助码", L"",
              prefix + L".show_in_candidate_window", false, false, enabled);
@@ -3428,8 +3593,31 @@ private:
     }
 
     auto updates = add_group(page, L"版本与更新");
-    shell_row(updates, 0xE895, L"检查更新", L"在水杉输入法应用中检查并安装新版本", L"检查",
-              nav::shell_links::about);
+    // The check runs here, through msime_client_update_check, and its outcome is shown under the row; only 前往下载 leaves the window.
+    StackPanel update_lines;
+    update_lines.Spacing(4);
+    update_lines.Padding(Thickness{61, 0, 25, 12});
+    auto update_status = make_text(L"", 12, palette_.text);
+    auto update_detail = make_text(L"", 12, palette_.sub);
+    update_status.IsTextSelectionEnabled(true);
+    update_detail.IsTextSelectionEnabled(true);
+    update_lines.Children().Append(update_status);
+    update_lines.Children().Append(update_detail);
+    Button update_button;
+    update_button.Height(32);
+    update_button.Padding(Thickness{16, 0, 16, 0});
+    update_button.Click([this](Inspectable const &, RoutedEventArgs const &) {
+      on_update_button();
+    });
+    add_row(updates, 0xE895, L"检查更新", L"当前版本 v" + std::wstring(app_version),
+            update_button, update_lines);
+    if (!indexing_) {
+      update_button_ = update_button;
+      update_lines_ = update_lines;
+      update_status_ = update_status;
+      update_detail_ = update_detail;
+    }
+    show_update_outcome();
     url_row(updates, 0xE896, L"其他平台下载",
             L"在 macOS、Linux、iOS、Android 和鸿蒙设备上安装水杉输入法。",
             L"打开下载页", download_url);
@@ -3641,6 +3829,14 @@ private:
 
   std::wstring mcp_result_;
   bool mcp_busy_ = false;
+
+  // 检查更新: kept across page rebuilds; the controls are the about page's current ones.
+  bool update_checking_ = false;
+  std::optional<UpdateOutcome> update_outcome_;
+  Button update_button_{nullptr};
+  StackPanel update_lines_{nullptr};
+  TextBlock update_status_{nullptr};
+  TextBlock update_detail_{nullptr};
 
   Grid root_{nullptr};
   Grid titlebar_{nullptr};

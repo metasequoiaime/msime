@@ -2,6 +2,74 @@
 
 use super::*;
 
+#[test]
+fn continuing_views_stream_in_order_without_the_result_vector() {
+    let surfaces: Vec<_> = (0..70)
+        .map(|index| format!("合成語{}", index % 7))
+        .collect();
+    let mut entries = vec![
+        ("か", "仮", 0, 1, -100),
+        ("かない", "仮内", 1, 0, -20),
+        ("かに", "仮荷", 0, 0, 30),
+        ("かん", "仮漢", 1, 1, 10),
+        ("甲😀か", "仮長", 0, 1, -40),
+        ("甲😀か😀", "仮長続", 1, 0, -40),
+    ];
+    entries.extend(
+        surfaces
+            .iter()
+            .enumerate()
+            .map(|(index, surface)| ("かな", surface.as_str(), 0, 1, index as i32 % 9 - 8)),
+    );
+    let dictionary = dictionary(&entries, 2);
+    for prefix in ["", "か", "かな", "甲😀", "未知"] {
+        for next in [
+            &[][..],
+            &[""][..],
+            &["な", "ない", "ん"][..],
+            &["な", "な"][..],
+            &["に", "な"][..],
+            &["な", "", "ない"][..],
+            &["😀", "か"][..],
+            &["未"][..],
+        ] {
+            for limit in [0, 1, 2, 24, 48, 64, 65, 70, 100] {
+                let (expected, view_allocations) =
+                    crate::ime::personal_rerank::allocations::count(|| {
+                        dictionary.continuing_lemma_views(prefix, next, limit)
+                    });
+                let mut actual = Vec::with_capacity(expected.len());
+                let ((), streamed_allocations) =
+                    crate::ime::personal_rerank::allocations::count(|| {
+                        dictionary.for_each_continuing_lemma_view(prefix, next, limit, |view| {
+                            actual.push(view);
+                        });
+                    });
+                assert_eq!(actual, expected, "prefix={prefix}, limit={limit}");
+                assert_eq!(
+                    streamed_allocations + usize::from(!expected.is_empty()),
+                    view_allocations,
+                    "只减少命中时的视图结果向量：prefix={prefix}, limit={limit}"
+                );
+            }
+        }
+    }
+    let saved = {
+        let prefix = String::from("か");
+        let next = String::from("な");
+        let mut saved = None;
+        dictionary.for_each_continuing_lemma_view(&prefix, &[next.as_str()], 1, |view| {
+            saved = Some(view);
+        });
+        saved.expect("合成查询必须命中")
+    };
+    // 临时前缀与后缀已释放，词条视图仍只借用词库。
+    assert_eq!(
+        saved,
+        dictionary.continuing_lemma_views("か", &["な"], 1)[0]
+    );
+}
+
 fn dictionary(entries: &[test_model::Entry<'_>], size: u32) -> JapaneseDictionary {
     let mut entries = entries.to_vec();
     entries.sort_by_key(|entry| entry.0);

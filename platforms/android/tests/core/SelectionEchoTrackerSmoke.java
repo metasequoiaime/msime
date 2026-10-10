@@ -33,6 +33,20 @@ public final class SelectionEchoTrackerSmoke {
         check(full.acknowledge(2, 2, 1, 2));
         check(!full.acknowledge(2, 2, 1, 2));
 
+        // #6458：应用不认 commitText(closing, 0)，后半个之后再发左方向键退回两半之间；上屏后半个和左移各自的回声都认得出来，补全的记录不会被当成光标移动清掉。
+        SelectionEchoTracker paired = new SelectionEchoTracker();
+        paired.reset(4, 4);
+        paired.commit(1);
+        paired.expect();
+        paired.commit(1);
+        paired.expect();
+        paired.caretLeft(1);
+        paired.expect();
+        check(paired.acknowledge(5, 5, -1, -1));
+        check(paired.acknowledge(6, 6, -1, -1));
+        check(paired.acknowledge(5, 5, -1, -1));
+        check(!paired.acknowledge(6, 6, -1, -1));
+
         // 编辑器把几次写入合成一次回报时，对上较新的预期也会作废更早的。
         SelectionEchoTracker coalesced = new SelectionEchoTracker();
         coalesced.reset(0, 0);

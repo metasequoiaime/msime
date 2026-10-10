@@ -1,14 +1,18 @@
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
+#include "../../src/core/BoundedCliInput.h"
+#include "../../src/providers/provider_response_cli.h"
 #include <nlohmann/json.hpp>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -20,14 +24,52 @@ void require(bool value, const char *message) {
   if (!value) throw std::runtime_error(message);
 }
 Json response(char *raw) {
-  std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-      raw, msime_client_string_free);
+  auto owned = msime::host_api::own_string(raw);
   require(raw != nullptr, "provider response missing");
   return Json::parse(raw);
 }
 } // namespace
 
 int main() {
+  std::array<char, 4> request_buffer{};
+  std::istringstream accepted_request("abc");
+  require(msime::linux_host::read_bounded_cli_input(accepted_request, request_buffer) == 3 &&
+              std::string(request_buffer.data(), 3) == "abc",
+          "bounded provider request was rejected");
+  std::istringstream oversized_request("abcd");
+  require(!msime::linux_host::read_bounded_cli_input(oversized_request, request_buffer),
+          "oversized provider request was accepted");
+  std::istringstream empty_request;
+  require(!msime::linux_host::read_bounded_cli_input(empty_request, request_buffer),
+          "empty provider request was accepted");
+  std::istringstream empty_history;
+  require(msime::linux_host::read_bounded_cli_input(empty_history, request_buffer, 0) == 0,
+          "empty no-op CLI input was rejected");
+  std::istringstream failed_request("abc");
+  failed_request.setstate(std::ios::badbit);
+  require(!msime::linux_host::read_bounded_cli_input(failed_request, request_buffer),
+          "failed provider input stream was accepted");
+
+  std::ostringstream output;
+  require(msime_cli_write_provider_response(nullptr, output) == 1 && output.str().empty(),
+          "null provider response was accepted");
+  require(msime_cli_write_provider_response("{", output) == 1 && output.str().empty(),
+          "malformed provider response was printed");
+  require(msime_cli_write_provider_response("{}", output) == 1 && output.str().empty(),
+          "missing response status was accepted");
+  require(msime_cli_write_provider_response("{\"ok\":1}", output) == 1 && output.str().empty(),
+          "non-boolean response status was accepted");
+  require(msime_cli_write_provider_response("{\"z\":2,\"ok\":true}", output) == 0 &&
+              output.str() == "{\"ok\":true,\"z\":2}\n",
+          "successful response was not normalized");
+  output.str("");
+  require(msime_cli_write_provider_response("{\"ok\":false}", output) == 1 &&
+              output.str() == "{\"ok\":false}\n",
+          "failed response was not printed");
+  output.setstate(std::ios::badbit);
+  require(msime_cli_write_provider_response("{\"ok\":true}", output) == 1,
+          "output failure was ignored");
+
   // Use a unique private subdirectory so CTest and direct invocations work
   // even when the source tree is mounted read-only.
   const auto directory = std::filesystem::temp_directory_path() /

@@ -5,8 +5,7 @@ import android.content.SharedPreferences;
 import androidx.annotation.Nullable;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppThemePalette;
-import app.msime.android.NativeClient;
-import app.msime.android.JsonPolicy;
+import app.msime.android.AppThemeResolver;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import org.json.JSONException;
@@ -38,8 +37,8 @@ final class AppThemeController {
         if (preferences == null) return false;
         String theme = AndroidLocalSettings.load(context).choice(AndroidLocalSettings.APP_THEME);
         int month = LocalDate.now(ZoneId.systemDefault()).getMonthValue();
-        JSONObject light = resolve(theme, month, false);
-        JSONObject dark = resolve(theme, month, true);
+        JSONObject light = AppThemeResolver.resolve(theme, month, false);
+        JSONObject dark = AppThemeResolver.resolve(theme, month, true);
         if (light == null || dark == null || AppThemePalette.Seed.fromResolved(light, dark) == null) return false;
         String season = light.optString("season", "");
         SharedPreferences store = store(context);
@@ -70,17 +69,6 @@ final class AppThemeController {
             return seed == null ? AppThemePalette.Seed.AUTUMN : seed;
         } catch (JSONException error) {
             return AppThemePalette.Seed.AUTUMN;
-        }
-    }
-
-    /** 一次解析的 `value`；宿主库加载不了或请求被拒时为 null，缓存保持原样。 */
-    @Nullable private static JSONObject resolve(String theme, int month, boolean dark) {
-        try {
-            JSONObject root = new JSONObject(NativeClient.resolveAppTheme(theme, month, dark));
-            return JsonPolicy.strictTrue(root.opt("ok"))
-                ? root.optJSONObject("value") : null;
-        } catch (JSONException | RuntimeException | LinkageError error) {
-            return null;
         }
     }
 

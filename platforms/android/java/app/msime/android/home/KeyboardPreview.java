@@ -1,6 +1,7 @@
 package app.msime.android.home;
 
 import app.msime.android.KeyboardGeometry;
+import app.msime.android.DrawablePolicy;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -103,7 +104,7 @@ public final class KeyboardPreview extends View {
     private void applyBackground() {
         int radius = Ui.dp(getContext(), cornerRadiusDp);
         int base = skin == null ? Ui.card(getContext()) : ColorPolicy.parse(skin.background(), Ui.card(getContext()));
-        android.graphics.drawable.GradientDrawable surface = Ui.rounded(base, radius);
+        android.graphics.drawable.GradientDrawable surface = DrawablePolicy.rounded(base, radius);
         // 设计皮肤的底是一道渐变，和键盘本身一样画出来；只画纯色时，深色设计上的功能键和回车显得格外跳。
         String end = skin != null && skin.designed() ? skin.gradientEnd() : null;
         if (end != null && !end.isEmpty()) {
@@ -119,8 +120,7 @@ public final class KeyboardPreview extends View {
     /** 设计皮肤的字母键与功能键按其键帽不透明度叠在背景上，与键盘的 KeyboardSkinKeyDrawable 一致；回车不透明。 */
     private int withKeyOpacity(int colour) {
         if (skin == null || !skin.designed()) return colour;
-        float opacity = (float) KeyboardGeometry.bounded(skin.keyOpacity(), 0, 1);
-        return ColorPolicy.withAlpha(colour, opacity);
+        return ColorPolicy.withAlpha(colour, skin.keyOpacity());
     }
 
     private int ink() {

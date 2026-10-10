@@ -249,6 +249,7 @@ import {
 } from "../entry/src/main/ets/keyboard/input/HandwritingRecognitionQueue";
 import { KeyboardFormFactorPolicy } from "../entry/src/main/ets/keyboard/KeyboardFormFactorPolicy";
 import { SettingsFormFactorCapabilities } from "../entry/src/main/ets/keyboard/settings/SettingsFormFactorCapabilities";
+import { VocabularyReviewRequest } from "../entry/src/main/ets/keyboard/settings/VocabularyReviewRequest";
 import { SymbolPanelPolicy } from "../entry/src/main/ets/keyboard/input/SymbolPanelPolicy";
 import {
   BackspaceHoldAction,
@@ -515,6 +516,30 @@ function check(condition: boolean, message: string): void {
 console.log("KeyboardGeometry");
 
 console.log("DictionaryMaintenancePolicy");
+
+console.log("VocabularyReviewRequest");
+group("vocabulary review request carries resources and gates plugins", () => {
+  const mobile = VocabularyReviewRequest.build(
+    "/synthetic/state",
+    "/synthetic/resources",
+    "2026-01-02",
+    { operation: "load" },
+    false,
+  );
+  check(mobile.directory === "/synthetic/state", "request keeps the state directory");
+  check(mobile.resources === "/synthetic/resources", "request carries the resource directory");
+  check(mobile.day === "2026-01-02", "request keeps the caller's local day");
+  check(mobile.plugins === undefined, "mobile request does not expose plugin storage");
+
+  const desktop = VocabularyReviewRequest.build(
+    "/synthetic/state",
+    "/synthetic/resources",
+    "2026-01-02",
+    { operation: "load" },
+    true,
+  );
+  check(desktop.plugins === "/synthetic/state/plugins", "desktop request exposes plugin storage");
+});
 
 console.log("HandwritingStrokePolicy");
 
@@ -2154,6 +2179,53 @@ group("selection prefers the shared choice, then the applied one", () => {
   check(
     KeyboardScheme.resolveEnabledSelection(null, null, []) === KeyboardScheme.QUANPIN,
     "an empty enabled set still yields a usable keyboard",
+  );
+});
+
+group("输入方式面板里双拼只留用户设置的那一种（#6450）", () => {
+  const all: SchemeDefinition[] = KeyboardScheme.SCHEMES;
+  const only = (kept: SchemeDefinition): SchemeDefinition[] =>
+    all.filter(
+      (value: SchemeDefinition): boolean => value.shuangpinProfile === null || value === kept,
+    );
+  const same = (actual: SchemeDefinition[], expected: SchemeDefinition[]): boolean =>
+    actual.length === expected.length &&
+    actual.every((value: SchemeDefinition, index: number): boolean => value === expected[index]);
+  check(
+    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, undefined), only(KeyboardScheme.XIAOHE)) &&
+      same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, "future"), only(KeyboardScheme.XIAOHE)),
+    "没设置过或值不认识时按小鹤",
+  );
+  check(
+    KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, null).indexOf(KeyboardScheme.HANDWRITING) < 7,
+    "手写回到第一页的八格之内（英文占第三格）",
+  );
+  check(
+    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.WUBI, "microsoft"), only(KeyboardScheme.MICROSOFT)),
+    "设置的是哪一种就留哪一种，位置不变",
+  );
+  check(
+    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.SHOUDAO, "ziranma"), only(KeyboardScheme.SHOUDAO)),
+    "选中的双拼总留在面板里",
+  );
+  const partial: SchemeDefinition[] = [
+    KeyboardScheme.QUANPIN,
+    KeyboardScheme.ZIRANMA,
+    KeyboardScheme.SHOUDAO,
+    KeyboardScheme.HANDWRITING,
+  ];
+  check(
+    same(KeyboardScheme.pickerSchemes(partial, KeyboardScheme.XIAOHE, "xiaohe"), [
+      KeyboardScheme.QUANPIN,
+      KeyboardScheme.ZIRANMA,
+      KeyboardScheme.HANDWRITING,
+    ]),
+    "设置的那一种不在列表里时留列表里第一种双拼",
+  );
+  const none: SchemeDefinition[] = [KeyboardScheme.QUANPIN, KeyboardScheme.WUBI];
+  check(
+    same(KeyboardScheme.pickerSchemes(none, null, "microsoft"), none),
+    "没有双拼的列表原样返回",
   );
 });
 
@@ -7235,7 +7307,7 @@ group("only a streaming provider gets the listening face, whose stop is a pause"
       `${provider || "the default"} streams words as they are heard`,
     );
   }
-  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral"]) {
+  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral", "bailian"]) {
     check(
       !VoiceRecordingBehaviourPolicy.streamsPartialResults({ ...base, asr_provider: provider }),
       `${provider} answers only after a stop, so it keeps 停止录音`,
@@ -7580,6 +7652,15 @@ group("a batch transcription reply is judged before it is parsed", () => {
     VoiceResponsePolicy.batchResult(200, JSON.stringify({ text: "" })).failure.length > 0,
     "an empty transcription says so rather than committing nothing",
   );
+  const chat: VoiceOutcome = VoiceResponsePolicy.batchResult(
+    200,
+    JSON.stringify({ choices: [{ message: { role: "assistant", content: "百炼" } }] }),
+  );
+  check(chat.text === "百炼" && chat.failure === "", "a chat_audio reply is read from its message");
+  check(
+    VoiceResponsePolicy.batchResult(200, JSON.stringify({ choices: [] })).failure.length > 0,
+    "a chat reply without a choice is not a transcript",
+  );
   // Judged on the raw body: a provider answering with a megabyte is not one to parse first.
   const huge: string = JSON.stringify({ text: "x".repeat(2 * 1024 * 1024) });
   check(
@@ -7711,66 +7792,93 @@ group("the mode badge is the floating toolbar's size", () => {
 console.log("ShuangpinKeyHintPolicy");
 
 group("hints appear only for a shuangpin composition", () => {
-  check(ShuangpinKeyHintPolicy.visible(false, 1, "none") === true, "shuangpin shows hints");
-  check(ShuangpinKeyHintPolicy.visible(false, 0, "none") === false, "quanpin has no key units");
-  check(ShuangpinKeyHintPolicy.visible(true, 1, "none") === false, "dedicated English shows none");
-  check(ShuangpinKeyHintPolicy.visible(false, 1, "emoji") === false, "a local mode owns the keys");
+  check(ShuangpinKeyHintPolicy.visible(false, 1, "none", true) === true, "shuangpin shows hints");
   check(
-    ShuangpinKeyHintPolicy.hint("xiaohe", "q", true, 1, "none") === "",
+    ShuangpinKeyHintPolicy.visible(false, 0, "none", true) === false,
+    "quanpin has no key units",
+  );
+  check(
+    ShuangpinKeyHintPolicy.visible(true, 1, "none", true) === false,
+    "dedicated English shows none",
+  );
+  check(
+    ShuangpinKeyHintPolicy.visible(false, 1, "emoji", true) === false,
+    "a local mode owns the keys",
+  );
+  check(
+    ShuangpinKeyHintPolicy.hint("xiaohe", "q", true, 1, "none", true) === "",
     "an invisible context yields no hint",
   );
-  check(ShuangpinKeyHintPolicy.hint("xiaohe", null, false, 1, "none") === "", "a null key is safe");
   check(
-    ShuangpinKeyHintPolicy.hint("nonsense", "q", false, 1, "none") === "",
+    ShuangpinKeyHintPolicy.hint("xiaohe", null, false, 1, "none", true) === "",
+    "a null key is safe",
+  );
+  check(
+    ShuangpinKeyHintPolicy.hint("nonsense", "q", false, 1, "none", true) === "",
     "an unknown profile yields no hint rather than a wrong one",
+  );
+});
+
+group("the user's switch turns every hint off and nothing else on", () => {
+  check(
+    ShuangpinKeyHintPolicy.visible(false, 1, "none", false) === false,
+    "turned off, shuangpin shows no hints",
+  );
+  check(
+    ShuangpinKeyHintPolicy.hint("xiaohe", "U", false, 1, "none", false) === "",
+    "so the key gets no hint text, and the key face drops the hint line",
+  );
+  check(
+    ShuangpinKeyHintPolicy.visible(false, 0, "none", true) === false,
+    "turned on, quanpin still has none",
   );
 });
 
 group("the key hint pairs the initial with the finals", () => {
   check(
-    ShuangpinKeyHintPolicy.hint("xiaohe", "U", false, 1, "none") === "sh / u",
+    ShuangpinKeyHintPolicy.hint("xiaohe", "U", false, 1, "none", true) === "sh / u",
     "u carries both an initial and a final, separated",
   );
   check(
-    ShuangpinKeyHintPolicy.hint("xiaohe", "u", false, 1, "none") === "sh / u",
+    ShuangpinKeyHintPolicy.hint("xiaohe", "u", false, 1, "none", true) === "sh / u",
     "the lookup is case-insensitive",
   );
   check(
-    ShuangpinKeyHintPolicy.hint("xiaohe", "W", false, 1, "none") === "ei",
+    ShuangpinKeyHintPolicy.hint("xiaohe", "W", false, 1, "none", true) === "ei",
     "a key with only a final shows just the final",
   );
 });
 
 group("v is printed as u-umlaut, which is what the user is looking for", () => {
-  const v = ShuangpinKeyHintPolicy.hint("xiaohe", "V", false, 1, "none");
+  const v = ShuangpinKeyHintPolicy.hint("xiaohe", "V", false, 1, "none", true);
   check(v.includes("ü"), `xiaohe v should print u-umlaut, got "${v}"`);
   check(!v.includes("v="), "the raw table spelling never reaches the label");
-  const t = ShuangpinKeyHintPolicy.hint("xiaohe", "T", false, 1, "none");
+  const t = ShuangpinKeyHintPolicy.hint("xiaohe", "T", false, 1, "none", true);
   check(t.includes("ü"), `xiaohe t carries ue and ve, so it shows u-umlaut too, got "${t}"`);
 });
 
 group("finals sharing a key are listed in a stable order", () => {
-  const s = ShuangpinKeyHintPolicy.hint("xiaohe", "S", false, 1, "none");
+  const s = ShuangpinKeyHintPolicy.hint("xiaohe", "S", false, 1, "none", true);
   check(s === "iong ong", `two finals sort rather than following table order, got "${s}"`);
-  const l = ShuangpinKeyHintPolicy.hint("xiaohe", "L", false, 1, "none");
+  const l = ShuangpinKeyHintPolicy.hint("xiaohe", "L", false, 1, "none", true);
   check(l === "iang uang", `and so do these, got "${l}"`);
 });
 
 group("each profile has its own table", () => {
-  const xiaohe = ShuangpinKeyHintPolicy.hint("xiaohe", "W", false, 1, "none");
-  const ziranma = ShuangpinKeyHintPolicy.hint("ziranma", "W", false, 1, "none");
+  const xiaohe = ShuangpinKeyHintPolicy.hint("xiaohe", "W", false, 1, "none", true);
+  const ziranma = ShuangpinKeyHintPolicy.hint("ziranma", "W", false, 1, "none", true);
   check(xiaohe !== ziranma, "the same key means different things in different profiles");
   check(ziranma === "ia ua", `ziranma w carries ia and ua, got "${ziranma}"`);
   check(
-    ShuangpinKeyHintPolicy.hint("microsoft", ";", false, 1, "none") === "ing",
+    ShuangpinKeyHintPolicy.hint("microsoft", ";", false, 1, "none", true) === "ing",
     "microsoft is the profile that uses the semicolon key",
   );
   check(
-    ShuangpinKeyHintPolicy.hint("xiaohe", ";", false, 1, "none") === "",
+    ShuangpinKeyHintPolicy.hint("xiaohe", ";", false, 1, "none", true) === "",
     "xiaohe leaves the semicolon unassigned",
   );
   check(
-    ShuangpinKeyHintPolicy.hint("shoudao", "E", false, 1, "none") === "sh / e",
+    ShuangpinKeyHintPolicy.hint("shoudao", "E", false, 1, "none", true) === "sh / e",
     "shoudao puts sh on e rather than on u",
   );
 });
@@ -11526,6 +11634,7 @@ function fullPreferenceSchema(): AccountPreferenceSchema {
       "input.wubi_code_hint",
       "input.wubi_auto_commit_unique",
       "platform.harmony.voice_shortcut",
+      "platform.harmony.shuangpin_key_hints",
       "platform.harmony.sound_enabled",
       "platform.harmony.haptics_enabled",
     ],
@@ -11793,6 +11902,29 @@ group("the digit order and 跟随系统 travel with the account", () => {
     refused = error instanceof AccountPreferenceError && error.message === "account_invalid";
   }
   check(refused, "an order nobody defined is refused rather than mapped");
+});
+
+group("the shuangpin key hint switch travels with the account", () => {
+  check(
+    localAccountPreferences({}, syncFeedback)["platform.harmony.shuangpin_key_hints"] === true,
+    "a document from before the switch uploads the hints as shown",
+  );
+  check(
+    localAccountPreferences({ touch_shuangpin_key_hints: false }, syncFeedback)[
+      "platform.harmony.shuangpin_key_hints"
+    ] === false,
+    "turning them off is uploaded",
+  );
+  const applied = applyAccountPreferences(
+    {},
+    { revision: 2, settings: { "platform.harmony.shuangpin_key_hints": false } },
+    fullPreferenceSchema(),
+    syncFeedback,
+  );
+  check(
+    applied.preferences.touch_shuangpin_key_hints === false,
+    "the switch is written into the document",
+  );
 });
 
 group("applying writes only what the schema declares", () => {
@@ -14366,7 +14498,7 @@ group("a refused preferences write carries the code the page has a sentence for"
     "a stale revision is a conflict",
   );
   check(
-    PreferencesErrorCode.of("candidate page size must be between 1 and 9") === "invalid",
+    PreferencesErrorCode.of("candidate page size must be between 1 and 10") === "invalid",
     "an out-of-range page size is invalid",
   );
   check(
@@ -14629,6 +14761,51 @@ group("AI model catalogs filter capabilities and paginate safely", () => {
   check(
     AiModelCatalogPolicy.append([], { data: [{ id: "first" }, { id: "second" }] }, 1) === false,
     "the aggregate model bound is enforced across pages",
+  );
+});
+
+group("Harmony batch transcription picks the request by its format", () => {
+  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral"]) {
+    check(
+      HttpAsrConfigurationPolicy.requestFormat(provider) === "multipart",
+      `${provider} is a multipart upload`,
+    );
+  }
+  check(
+    HttpAsrConfigurationPolicy.requestFormat("bailian") === "chat_audio",
+    "Bailian is a chat completion with audio input",
+  );
+  check(
+    ["doubao", "local", "system", ""].every(
+      (provider: string) => HttpAsrConfigurationPolicy.requestFormat(provider) === "",
+    ),
+    "streaming, on-device and system recognition are not uploads",
+  );
+  const body = JSON.parse(HttpAsrConfigurationPolicy.chatAudioBody("qwen3-asr-flash", "UklGRg=="));
+  check(
+    body.model === "qwen3-asr-flash" &&
+      body.stream === false &&
+      body.messages.length === 1 &&
+      body.messages[0].role === "user" &&
+      body.messages[0].content[0].type === "input_audio" &&
+      body.messages[0].content[0].input_audio.data === "data:audio/wav;base64,UklGRg==",
+    "the chat body carries the recording as a data URL in one user message",
+  );
+  const bailian: VoiceInputConfiguration = {
+    ...DEFAULT_VOICE_INPUT_CONFIGURATION,
+    asr_provider: "bailian",
+    asr_endpoint: "",
+    asr_model: "",
+    asr_token: "",
+    asr_tokens: { bailian: "synthetic-bailian-key" },
+  };
+  check(
+    HttpAsrConfigurationPolicy.endpoint(bailian) ===
+      "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions" &&
+      HttpAsrConfigurationPolicy.model(bailian) === "qwen3-asr-flash" &&
+      HttpAsrConfigurationPolicy.token(bailian) === "synthetic-bailian-key" &&
+      HttpAsrConfigurationPolicy.valid(bailian),
+    "Bailian resolves to the DashScope compatible endpoint and can record",
   );
 });
 
@@ -16118,6 +16295,44 @@ group("LocalVoiceModelPolicy", () => {
     LocalVoiceModelPolicy.action('{"operation":"install","id":"sense-voice-small"}')?.id ===
       "sense-voice-small",
     "an install names its model",
+  );
+  check(
+    LocalVoiceModelPolicy.action('{"operation":"import","id":"sense-voice-small"}')?.operation ===
+      "import",
+    "an import names its model",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_import_missing: silero_vad.onnx") ===
+      "local_model_import_missing",
+    "a missing import file keeps its code and drops the file name",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_import_unreadable: permission denied") ===
+      "local_model_import_unreadable",
+    "an unreadable import file keeps its code",
+  );
+  const catalog = JSON.stringify({
+    ok: true,
+    value: {
+      models: [
+        { id: "x-asr-zh-en-streaming", import_files: [{ size: 133895136 }] },
+        { id: "sense-voice-small", import_files: [{ size: 163002883 }, { size: 643854 }, {}] },
+      ],
+    },
+  });
+  check(
+    LocalVoiceModelPolicy.importSizes(catalog, "sense-voice-small").join(",") ===
+      "163002883,643854",
+    "an import copies only files as long as one the model needs",
+  );
+  check(
+    LocalVoiceModelPolicy.importSizes(catalog, "unknown").length === 0 &&
+      LocalVoiceModelPolicy.importSizes("{", "sense-voice-small").length === 0 &&
+      LocalVoiceModelPolicy.importSizes(
+        JSON.stringify({ ok: false, error: "invalid local model root" }),
+        "sense-voice-small",
+      ).length === 0,
+    "an unknown model or an unreadable list copies nothing",
   );
   check(
     LocalVoiceModelPolicy.action('{"operation":"remove"}') === null &&

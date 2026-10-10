@@ -246,7 +246,8 @@ jq --arg version "$version" '.version = $version' "$sdk/package.json" > "$npm_pk
 helpcodes_jsonl="$npm_dir/helpcodes.jsonl"
 : > "$helpcodes_jsonl"
 for entry in lantian:helpcodes/helpcode.txt ziranma:helpcodes/zrm_helpcode_big_unique.txt shouyou2_0:helpcodes/shouyou2_0_helpcode.txt \
-  shouyouplus:helpcodes/shouyouplus_helpcode.txt xiaohe:helpcodes/xiaohe_helpcode.txt jiajia:helpcodes/jiajia_helpcode.txt; do
+  shouyouplus:helpcodes/shouyouplus_helpcode.txt xiaohe:helpcodes/xiaohe_helpcode.txt jiajia:helpcodes/jiajia_helpcode.txt \
+  wubi86:helpcodes/wubi86_helpcode.txt; do
   schema="${entry%%:*}"
   table="resources/${entry#*:}"
   [ -f "$table" ] || die "$table is missing"

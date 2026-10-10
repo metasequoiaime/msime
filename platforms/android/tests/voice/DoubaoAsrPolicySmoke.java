@@ -27,7 +27,7 @@ public final class DoubaoAsrPolicySmoke {
         check(!DoubaoAsrPolicy.isStreaming("openai") && !DoubaoAsrPolicy.isStreaming(null),
             "nothing else is");
         // The two protocols are disjoint: a request qualifies for exactly one path.
-        check(!HttpAsrPolicy.supported("doubao"), "doubao is not an upload provider");
+        check(!HttpAsrPolicy.supported("doubao_websocket"), "doubao is not an upload format");
         check(!DoubaoAsrPolicy.usable("openai", endpoint, apiKey),
             "an upload provider is not opened as a stream");
 

@@ -3,6 +3,7 @@ import app.msime.android.DownloadLinkApi;
 import app.msime.android.FeedbackApi;
 import app.msime.android.CloudApi;
 import app.msime.android.JsonPolicy;
+import app.msime.android.TextPolicy;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,7 +15,7 @@ public final class FeedbackApiSmoke {
         check(FeedbackApi.validText("候选词不对\n第二行"), "newlines allowed");
         check(FeedbackApi.validText("字".repeat(500)), "500 characters allowed");
         check(!FeedbackApi.validText("字".repeat(501)), "501 characters refused");
-        check(FeedbackApi.length("😀a") == 2, "code points are counted");
+        check(TextPolicy.codePointLength("😀a") == 2, "code points are counted");
         check(!FeedbackApi.validText("a\u0000b"), "control characters refused");
         check("synthetic".equals(JsonPolicy.strictString("synthetic")),
             "feedback response ids accept strings");

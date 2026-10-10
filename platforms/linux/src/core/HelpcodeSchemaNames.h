@@ -23,13 +23,15 @@ struct HelpcodeSchemaName
     const char *label;
 };
 
-inline constexpr std::array<HelpcodeSchemaName, 6> kHelpcodeSchemaNames{{
+inline constexpr std::array<HelpcodeSchemaName, 7> kHelpcodeSchemaNames{{
     {"lantian", "蓝天小雨点"},
     {"ziranma", "自然码"},
     {"shouyou2_0", "首右2.0"},
     {"shouyouplus", "首右plus"},
     {"xiaohe", "小鹤"},
     {"jiajia", "加加"},
+    // 五笔 86 是本项目自己加的方案，参考实现没有它，名字以共享设置页为准。
+    {"wubi86", "五笔 86"},
 }};
 
 // The label for one scheme. An identifier this does not know is the default scheme's, which is what

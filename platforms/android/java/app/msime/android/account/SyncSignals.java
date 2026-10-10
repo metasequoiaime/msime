@@ -58,20 +58,29 @@ public final class SyncSignals {
         }
     }
 
-    /** 当前主进程绑定的账号；null 表示 provider 暂不可达，空字符串表示账号已清除。不要在按键路径调用。 */
-    public static String accountId(Context context) {
+    /** 当前主进程绑定的账号与代次；null 表示 provider 暂不可达或快照不一致。不要在按键路径调用。 */
+    public static SyncSwitch.Binding binding(Context context) {
         Context application = context.getApplicationContext();
         if (AccountSessionRoutingPolicy.ownsSession(
                 Application.getProcessName(), application.getPackageName())) {
-            return SyncSwitch.accountId(application);
+            return SyncSwitch.bindingSnapshot(application);
         }
         try {
             Bundle reply = application.getContentResolver().call(providerUri(application),
                 AccountSessionRoutingPolicy.METHOD_SYNC_STATE, null, null);
-            return reply == null ? null : reply.getString(AccountSessionRoutingPolicy.KEY_ACCOUNT_ID);
+            if (reply == null || !reply.containsKey(AccountSessionRoutingPolicy.KEY_ACCOUNT_ID)
+                    || !reply.containsKey(AccountSessionRoutingPolicy.KEY_BINDING_GENERATION)) return null;
+            return new SyncSwitch.Binding(reply.getString(AccountSessionRoutingPolicy.KEY_ACCOUNT_ID),
+                reply.getLong(AccountSessionRoutingPolicy.KEY_BINDING_GENERATION));
         } catch (RuntimeException unavailable) {
             return null;
         }
+    }
+
+    /** 当前主进程绑定的账号；null 表示 provider 暂不可达，空字符串表示账号已清除。 */
+    public static String accountId(Context context) {
+        SyncSwitch.Binding binding = binding(context);
+        return binding == null ? null : binding.accountId();
     }
 
     /** 把读到的两个值收成一个状态：开关只有在登录方式是真实账号时才算打开。 */

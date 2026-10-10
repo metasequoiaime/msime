@@ -1,6 +1,5 @@
 package app.msime.android.home;
 
-import android.os.Bundle;
 import android.text.InputType;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -16,29 +15,13 @@ import org.json.JSONObject;
  *
  * <p>与原来键盘页的底部面板写法相同：启用时端点必须是 https 地址，或指向本机、局域网的 http 地址（规则见 `AiEndpointPolicy`，键盘会拒绝别的地址，这里也不写进去）；凭据按端点的来源（origin）分别存放在 `ai_assistant.tokens` 里，换端点不会把凭据带到另一个主机，留空凭据只删掉这个来源的那一条；提示词写进 `prompt_id` 选中的那个槽位，也就是键盘读的那个。每一项点开是一个输入框，确认后立即保存。
  */
-public final class AiSettingsPage extends DetailPage {
-    @Nullable private LinearLayout column;
-
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
-        reload();
-    }
-
-    @Override protected void onBecameVisible() {
-        if (column != null) reload();
-    }
-
-    @Override public void onDestroyView() {
-        column = null;
-        super.onDestroyView();
-    }
-
-    private void reload() {
+public final class AiSettingsPage extends ReloadingDetailPage {
+    @Override protected void reload() {
         HostTask.run(this, KeyboardSheets::preferences, this::render);
     }
 
     private void render(@Nullable JSONObject preferences) {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         if (target == null) return;
         target.removeAllViews();
         if (preferences == null) {

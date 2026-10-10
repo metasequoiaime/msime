@@ -242,6 +242,7 @@ pub(crate) async fn recognize_voice(
             |(configuration, hotwords)| MobileVoiceTranscriptionRequest {
                 request_id: request.request_id.clone(),
                 provider: configuration.provider,
+                request_format: configuration.request_format,
                 endpoint: configuration.endpoint,
                 model: configuration.model,
                 token: configuration.token,
@@ -442,6 +443,7 @@ pub(crate) async fn recognize_voice(
             .recognize_voice(MobileVoiceTranscriptionRequest {
                 request_id,
                 provider: configuration.provider,
+                request_format: configuration.request_format,
                 endpoint: configuration.endpoint,
                 model: configuration.model,
                 token: configuration.token,

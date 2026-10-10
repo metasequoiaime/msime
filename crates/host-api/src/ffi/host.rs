@@ -246,6 +246,7 @@ pub unsafe extern "C" fn msime_client_mobile_voice_configuration(
         .map(|value| {
             json!({
                 "provider": value.provider,
+                "requestFormat": value.request_format,
                 "endpoint": value.endpoint,
                 "model": value.model,
                 "token": value.token,
@@ -279,8 +280,8 @@ pub unsafe extern "C" fn msime_client_mobile_voice_configuration(
     })
 }
 
-/// 本库编译到的宿主平台。主题目录按它列出主题：这个接口不带参数，而每个原生宿主链接的都是为自己的平台编出的库。
-fn theme_catalog_platform() -> HostPlatform {
+/// 本库编译到的宿主平台。主题目录按它列出主题、会话按它截断每页候选数：这些接口不带平台参数，而每个原生宿主链接的都是为自己的平台编出的库。
+pub(crate) fn compiled_platform() -> HostPlatform {
     if cfg!(target_os = "ios") {
         HostPlatform::Ios
     } else if cfg!(target_os = "android") {
@@ -303,7 +304,7 @@ fn theme_catalog_platform() -> HostPlatform {
 pub extern "C" fn msime_client_theme_catalog() -> *mut c_char {
     response(|| {
         Ok(serde_json::json!({
-            "themes": msime_client_core::skin::theme::catalog_for(theme_catalog_platform()),
+            "themes": msime_client_core::skin::theme::catalog_for(compiled_platform()),
             "default": msime_client_core::skin::theme::GlobalTheme::default(),
         }))
     })

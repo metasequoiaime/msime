@@ -64,7 +64,7 @@ final class BackendDesktopSessionFileTests: XCTestCase {
   }
 
   /// The document exactly as the settings app writes it (`FileAccountSessionStorage` with the Apple layout), including the user fields this side does not model.
-  func testReadsTheSessionTheSettingsAppWrites() throws {
+  func testReadsTheSessionTheSettingsAppWrites() async throws {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     let expiresAt = Date().addingTimeInterval(600).timeIntervalSinceReferenceDate
     let document = """
@@ -77,6 +77,14 @@ final class BackendDesktopSessionFileTests: XCTestCase {
     let loaded = try XCTUnwrap(BackendDesktopSessionFile(directory: directory).load())
     XCTAssertEqual(loaded.tokens.refresh_token, String(repeating: "d", count: 64))
     XCTAssertEqual(loaded.expiresAt.timeIntervalSinceReferenceDate, expiresAt, accuracy: 0.001)
+    XCTAssertNil(loaded.sessionID)
+    let storage = BackendDesktopSessionFile(directory: directory)
+    let account = BackendAccountSession(api: FirstLoginAPI(tokens: loaded.tokens), storage: storage,
+      refreshLock: BackendFileRefreshLock(url: directory.appendingPathComponent("account-refresh.lock")))
+    let identity = try await account.credentials()
+    XCTAssertEqual(try storage.load()?.sessionID, identity.sessionID)
+    let repeated = try await account.credentials()
+    XCTAssertEqual(repeated.sessionID, identity.sessionID)
   }
 
   func testRefusesAFileOthersCanRead() throws {

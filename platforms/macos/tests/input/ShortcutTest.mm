@@ -112,6 +112,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) BOOL failCancel;
 @property(nonatomic) NSUInteger focusCalls;
 @property(nonatomic) BOOL chinesePunctuation;
+@property(nonatomic) BOOL capsLock;
+@property(nonatomic) NSUInteger capsLockCalls;
 @property(nonatomic) NSUInteger punctuationCalls;
 @property(nonatomic, copy) NSDictionary *punctuationView;
 @property(nonatomic) BOOL pairedPunctuation;
@@ -167,6 +169,9 @@ static void CheckMenu(NSMenu *menu, id controller) {
 - (NSDictionary *)typingEffectSettingsWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
     (void)error; self.fullwidth = fullwidth; ++self.widthCalls; return nil;
+}
+- (BOOL)setCapsLockEnabled:(BOOL)enabled error:(NSError **)error {
+    (void)error; self.capsLock = enabled; ++self.capsLockCalls; return YES;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error;
@@ -536,7 +541,44 @@ static void TestKeyLatencyIsLoggedWithoutTheKey() {
 @end
 
 static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL repeat) {
-    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:code == 49 ? @" " : @"a" charactersIgnoringModifiers:code == 49 ? @" " : @"a" isARepeat:repeat keyCode:code];
+    // 字母键带上它在美式布局上打出的字母，和真实事件一样：字母快捷键按这个字符认键。
+    const char letter = msime::mac::PhysicalAnsiLetter(code);
+    NSString *characters = code == 49 ? @" " : letter ? [NSString stringWithFormat:@"%c", letter] : @"a";
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:repeat keyCode:code];
+}
+
+// 非美式键盘布局上的按键：`code` 是物理位置，`characters` 是当前布局在这个键上打出的字符。
+static NSEvent *LayoutKey(unsigned short code, NSString *characters, NSEventModifierFlags flags) {
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
+}
+
+// 字母快捷键按当前键盘布局在这个键上打出的字母认键（#5552）。
+static void TestShortcutLetterFollowsKeyboardLayout(void) {
+    for (unsigned short code = 0; code < 128; ++code) {
+        const char letter = msime::mac::PhysicalAnsiLetter(code);
+        if (!letter) continue;
+        // 美式布局：字符和物理位置一致，大写（Shift）折成小写。
+        assert(msime::mac::ShortcutLetter(code, static_cast<unsigned short>(letter)) == letter);
+        assert(msime::mac::ShortcutLetter(code, static_cast<unsigned short>(letter - 'a' + 'A')) == letter);
+        // 没有字符的合成事件、布局给出非拉丁字母时按物理位置认。
+        assert(msime::mac::ShortcutLetter(code, 0) == letter);
+        assert(msime::mac::ShortcutLetter(code, 0x0430) == letter);
+    }
+    // Dvorak：物理 Y 键打出 f，物理 F 键打出 u。
+    assert(msime::mac::ShortcutLetter(16, 'f') == 'f' && msime::mac::ShortcutLetter(16, 'F') == 'f');
+    assert(msime::mac::ShortcutLetter(3, 'u') == 'u');
+    // 布局在字母位置上放的是 ASCII 标点或数字时它不是字母快捷键，不能再按物理位置认成 E。
+    assert(msime::mac::ShortcutLetter(14, '.') == '\0');
+    assert(msime::mac::ShortcutLetter(12, '\'') == '\0');
+    assert(msime::mac::ShortcutLetter(49, ' ') == '\0');
+    assert(msime::mac::ShortcutLetter(18, '1') == '\0');
+    const NSEventModifierFlags optionShift = NSEventModifierFlagOption | NSEventModifierFlagShift;
+    assert(msime::mac::IsFullWidthInputToggle(38, msime::mac::ShortcutLetter(38, 'H'), optionShift));
+    assert(!msime::mac::IsFullWidthInputToggle(4, msime::mac::ShortcutLetter(4, 'D'), optionShift));
+    assert(msime::mac::MaintenanceShortcut(msime::mac::ShortcutLetter(34, 'C'), true, true, true, false) ==
+           msime::mac::MaintenanceShortcutAction::ClearCache);
+    assert(msime::mac::MaintenanceShortcut(msime::mac::ShortcutLetter(8, 'J'), true, true, true, false) ==
+           msime::mac::MaintenanceShortcutAction::None);
 }
 
 static NSEvent *KeypadKey(unsigned short code, NSString *characters, NSEventModifierFlags flags, BOOL repeat) {
@@ -790,11 +832,14 @@ static void TestIndependentAssistancePreferences() {
     assert(saves == 2 && [defaults objectForKey:@"MSIMEClientHelpcodeOptions"] == nil);
     assert([(NSPopUpButton *)schemaControls[@"quanpin"] indexOfSelectedItem] == 2);
     assert([(NSButton *)displayControls[@"quanpin"] state] == NSControlStateValueOff);
+    NSArray *identifiers = @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia", @"wubi86"];
+    // 下拉框的项数由内置方案数推出：没选插件时就是这些方案，选了插件再多一项，新增方案不必再改下面的断言。
+    const NSInteger builtInSchemas = (NSInteger)identifiers.count;
+    const NSInteger withPack = builtInSchemas + 1;
     for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
         NSPopUpButton *schemas = schemaControls[scheme];
         NSButton *display = displayControls[scheme];
-        NSArray *identifiers = @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia"];
-        assert(([schemas.itemTitles isEqual:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤", @"加加"]]));
+        assert(([schemas.itemTitles isEqual:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤", @"加加", @"五笔 86"]]));
         for (NSUInteger index = 0; index < identifiers.count; ++index) {
             [schemas selectItemAtIndex:index];
             [NSApp sendAction:schemas.action to:schemas.target from:schemas];
@@ -813,6 +858,64 @@ static void TestIndependentAssistancePreferences() {
     assert(saves == beforeRefresh);
     assert([[prefs helpcodeOptionsForScheme:@"quanpin"] isEqual:options[@"quanpin_helpcode"]]);
     assert([[prefs helpcodeOptionsForScheme:@"shuangpin"] isEqual:options[@"shuangpin_helpcode"]]);
+    // 选了辅助码表插件时，方案下拉框末尾多一项代表插件并选中它；再选这一项什么都不改，选一个方案就不再使用插件并把清空写进共享文档，与共享设置页一致。另一族的插件和其他插件设置原样保留。
+    NSPopUpButton *quanpinSchemas = schemaControls[@"quanpin"];
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals", @"helpcode_pack_shuangpin": @"strokes"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && [[prefs helpcodePackForScheme:@"shuangpin"] isEqual:@"strokes"]);
+    assert(quanpinSchemas.numberOfItems == withPack && [quanpinSchemas.titleOfSelectedItem isEqual:@"radicals（插件）"]);
+    NSUInteger beforePack = saves;
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    assert(saves == beforePack && [[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"]);
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [quanpinSchemas selectItemAtIndex:1];
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    assert(saves > beforePack && ![prefs helpcodePackForScheme:@"quanpin"]);
+    assert(quanpinSchemas.numberOfItems == builtInSchemas && quanpinSchemas.indexOfSelectedItem == 1);
+    NSDictionary *cleared = [prefs sharedPreferencesByMerging:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals", @"helpcode_pack_shuangpin": @"strokes", @"sound_pack": @"twinkle"}}];
+    assert(([cleared[@"plugins"] isEqual:@{@"helpcode_pack_quanpin": @"", @"helpcode_pack_shuangpin": @"strokes", @"sound_pack": @"twinkle"}]));
+    assert([cleared[@"quanpin_helpcode"][@"schema"] isEqual:@"ziranma"]);
+    // 保存落盘之前读到的文档仍是旧插件，不能把它带回来；文档写进清空之后，别处再选的插件照常显示。
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == builtInSchemas);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @""}}];
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == withPack);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"", @"helpcode_pack_shuangpin": @""}}];
+    assert(quanpinSchemas.numberOfItems == builtInSchemas && [schemaControls[@"shuangpin"] numberOfItems] == builtInSchemas);
+    // 清空没能写进文档（保存失败）时，共享设置页另选的插件不是那个旧 id：照常显示，之后的保存也不把它写成空串。
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    [quanpinSchemas selectItemAtIndex:1];
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    assert(![prefs helpcodePackForScheme:@"quanpin"]);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"strokes"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"strokes"]);
+    assert(quanpinSchemas.numberOfItems == withPack && [quanpinSchemas.titleOfSelectedItem isEqual:@"strokes（插件）"]);
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @""}}];
+    assert(quanpinSchemas.numberOfItems == builtInSchemas);
+    // 共享偏好落盘时不写空的辅助码表包（空串的键省略，全为默认的 plugins 整个省略），所以清空写进文档后读回来的是没有 plugins 的文档：它与空串一样了结这次清空，之后在共享设置页再选同一个包照常显示，也不会被下一次保存写回空串。
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    [quanpinSchemas selectItemAtIndex:1];
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    assert(![prefs helpcodePackForScheme:@"quanpin"]);
+    [prefs applySharedAssistancePreferences:@{}];
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == withPack);
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    // plugins 还有别的设置、只是没有这个键时同样是空包；共享设置页清掉插件也是这样回来的，下拉框随之去掉插件项。
+    [quanpinSchemas selectItemAtIndex:1];
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"sound_pack": @"twinkle"}}];
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == withPack);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"sound_pack": @"twinkle"}}];
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == builtInSchemas);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @7}}];
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == builtInSchemas);
     NSButton *neighbor = (id)PreferenceControl(prefs, @selector(neighborChanged:));
     [prefs applySharedAssistancePreferences:@{@"quanpin": @{@"autocorrect_transposition": @YES, @"autocorrect_neighbor": @NO}}];
     assert(autocorrect.state == NSControlStateValueOn && neighbor.state == NSControlStateValueOff);
@@ -1497,6 +1600,21 @@ static void TestCharacterSetShortcut(void) {
         assert(appearance.traditionalOutput == traditional);
     }
     assert(![controller handleEvent:ModeKey(2, flags, NO) client:client]);
+    // Dvorak：标着 F 的键在美式布局的 Y 位置（keyCode 16），物理 F 键打出 u。英文模式下只占用不切换。
+    assert([controller handleEvent:LayoutKey(16, @"F", flags) client:client]);
+    assert(appearance.traditionalOutput == traditional);
+    assert(![controller handleEvent:LayoutKey(3, @"U", flags) client:client]);
+    appearance.englishMode = NO;
+    assert([controller handleEvent:LayoutKey(16, @"F", flags) client:client]);
+    assert(appearance.traditionalOutput != traditional);
+    assert([controller handleEvent:LayoutKey(16, @"f", flags) client:client]);
+    assert(appearance.traditionalOutput == traditional);
+    // 没有字符的合成事件、给出非拉丁字母的布局仍按物理位置认键。
+    assert([controller handleEvent:LayoutKey(3, @"", flags) client:client]);
+    assert(appearance.traditionalOutput != traditional);
+    assert([controller handleEvent:LayoutKey(3, @"\u0430", flags) client:client]);
+    assert(appearance.traditionalOutput == traditional);
+    appearance.englishMode = YES;
     [appearance applySharedInputPreferences:@{@"keybindings":keys}];
     assert(![controller handleEvent:ModeKey(3, flags, NO) client:client]);
     appearance.characterSetShortcut = NO;
@@ -1572,6 +1690,14 @@ static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
         [controller handleEvent:ModeKey(14, flags | extra.unsignedIntegerValue, NO) client:client];
         assert(session.englishCandidateCalls == calls);
     }
+    // Dvorak：E 在美式布局的 D 位置（keyCode 2），物理 E 键打出句点，不再切换。
+    const BOOL dedicated = session.dedicatedEnglish;
+    [controller handleEvent:LayoutKey(14, @".", flags) client:client];
+    assert(session.dedicatedEnglish == dedicated && session.englishCandidateCalls == calls);
+    assert([controller handleEvent:LayoutKey(2, @"E", flags) client:client]);
+    assert(session.dedicatedEnglish != dedicated);
+    assert([controller handleEvent:LayoutKey(2, @"E", flags) client:client]);
+    assert(session.dedicatedEnglish == dedicated);
 }
 
 static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
@@ -1611,7 +1737,7 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     [controller appearanceChanged:nil];
     assert(appearance.runtimeFullWidthInput && session.fullwidth);
     for (NSEventModifierFlags extra : {NSEventModifierFlagCommand, NSEventModifierFlagOption})
-        assert(!msime::mac::IsFullWidthInputToggle(49, windowsChord | extra));
+        assert(!msime::mac::IsFullWidthInputToggle(49, '\0', windowsChord | extra));
     for (NSEventModifierFlags extra : {NSEventModifierFlagCommand, NSEventModifierFlagControl}) {
         assert(![controller handleEvent:ModeKey(4, chord | extra, NO) client:client]);
         assert(appearance.runtimeFullWidthInput);
@@ -1631,6 +1757,11 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
     assert(appearance.runtimeFullWidthInput != fullWidthBefore);
     assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
+    assert(appearance.runtimeFullWidthInput == fullWidthBefore);
+    // Dvorak：H 在美式布局的 J 位置（keyCode 38）。
+    assert([controller handleEvent:LayoutKey(38, @"H", chord) client:client]);
+    assert(appearance.runtimeFullWidthInput != fullWidthBefore);
+    assert([controller handleEvent:LayoutKey(38, @"H", chord) client:client]);
     assert(appearance.runtimeFullWidthInput == fullWidthBefore);
     appearance.englishMode = YES;
     assert(![controller handleEvent:ModeKey(4, chord, NO) client:client]);
@@ -1731,6 +1862,43 @@ static void TestSessionOptions() {
     assert([NSFileManager.defaultManager createDirectoryAtPath:[resources stringByAppendingPathComponent:@"sound-packs"] withIntermediateDirectories:NO attributes:nil error:nil]);
     NSString *found = MSIMEBundleSoundPacks([NSBundle bundleWithPath:bundlePath]);
     assert([found.lastPathComponent isEqual:@"sound-packs"] && found.isAbsolutePath);
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
+// A helpcode or sound failure can be reported while the first HostSession is
+// being constructed. The live preference document is authoritative, so the
+// log must be configured before that construction rather than only after the
+// first asynchronous preference reload.
+static void TestDiagnosticLogConfiguredBeforeSession() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSError *error = nil;
+    NSDictionary *initial = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(initial && !error);
+    NSMutableDictionary *preferences = [initial[@"preferences"] mutableCopy];
+    NSMutableDictionary *diagnostic = [preferences[@"diagnostic_log"] mutableCopy];
+    diagnostic[@"server"] = @YES;
+    preferences[@"diagnostic_log"] = diagnostic;
+    NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:root
+        expectedRevision:[initial[@"revision"] unsignedLongLongValue]
+        snapshot:@{ @"format_version": @1, @"revision": initial[@"revision"], @"preferences": preferences }
+        error:&error];
+    assert(saved && !error);
+    NSDictionary *options = @{
+        @"preferences_directory": root,
+        // The runtime-options copy is stale and still says diagnostics are off;
+        // the live preferences document above is authoritative at startup.
+        @"preferences": @{ @"diagnostic_log": @{ @"server": @NO } },
+    };
+    msime_macos_diagnostic_configure(std::string(), false);
+    assert(!msime_macos_diagnostic_enabled());
+    MSIMEConfigureDiagnosticLogBeforeSession(options);
+    assert(msime_macos_diagnostic_enabled());
+    msime_macos_diagnostic_write("startup_failure");
+    NSString *contents = [NSString stringWithContentsOfFile:[root stringByAppendingPathComponent:@"diagnostic.log"]
+                                                    encoding:NSUTF8StringEncoding error:nil];
+    assert([contents containsString:@"startup_failure"]);
+    msime_macos_diagnostic_configure(std::string(), false);
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
 }
 
@@ -2597,6 +2765,8 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
     NSEvent *capsA = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagCapsLock timestamp:0
                                   windowNumber:0 context:nil characters:@"A" charactersIgnoringModifiers:@"a" isARepeat:NO keyCode:0];
     session.nextTransition = @{@"handled": @YES, @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
+    session.capsLock = NO;
+    const NSUInteger capsLockReports = session.capsLockCalls;
     for (NSNumber *scheme in @[@0, @5, @6, @9, @4, @7, @8]) {
         const int value = scheme.intValue;
         [controller setValue:@{@"focused": @YES, @"scheme": scheme, @"local_mode": @"none", @"editing_text": @"", @"caret_position": @0,
@@ -2609,6 +2779,14 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
         if (value == 4) assert(session.lastASCII == 'a');
         if (value == 7 || value == 8) assert(session.lastASCII == 'A');
     }
+    // 大写锁定一变就报告给会话，只报告变化的那一次：「大写锁定时使用英文标点」由共享层按这个状态决定标点去向（#6370）。
+    assert(session.capsLock && session.capsLockCalls == capsLockReports + 1);
+    [controller setValue:@{@"focused": @YES, @"scheme": @0, @"local_mode": @"none", @"editing_text": @"", @"caret_position": @0,
+                           @"candidates": @[]} forKey:@"view"];
+    NSEvent *lowerA = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+                                   windowNumber:0 context:nil characters:@"a" charactersIgnoringModifiers:@"a" isARepeat:NO keyCode:0];
+    [controller handleEvent:lowerA client:client];
+    assert(!session.capsLock && session.capsLockCalls == capsLockReports + 2);
     session.nextTransition = nil;
 }
 
@@ -2973,6 +3151,11 @@ static void TestScreenKeyboardShortcut(MSIMEAppearancePreferences *appearance) {
     }
     assert(![controller handleEvent:ModeKey(39, chord, NO) client:client]);
     assert(controller.screenKeyboardCalls == 3);
+    // Dvorak：K 在美式布局的 V 位置（keyCode 9），物理 K 键打出 t。
+    assert([controller handleEvent:LayoutKey(9, @"K", chord) client:client]);
+    assert(controller.screenKeyboardCalls == 4);
+    assert(![controller handleEvent:LayoutKey(40, @"T", chord) client:client]);
+    assert(controller.screenKeyboardCalls == 4);
     appearance.englishMode = previousEnglishMode;
 }
 
@@ -3018,6 +3201,12 @@ static void TestMaintenanceShortcuts(MSIMEAppearancePreferences *appearance) {
     }
     assert(![controller handleEvent:ModeKey(9, chord, NO) client:client]);
     assert(session.resetCacheCalls == 2 && controller.restartCalls == 2 && controller.terminationCalls == 1);
+    // Dvorak：C、R、T 分别在美式布局的 I、O、K 位置，物理 C 键打出 j。
+    assert([controller handleEvent:LayoutKey(34, @"C", chord) client:client]);
+    assert([controller handleEvent:LayoutKey(31, @"R", chord) client:client]);
+    assert([controller handleEvent:LayoutKey(40, @"T", chord) client:client]);
+    assert(![controller handleEvent:LayoutKey(8, @"J", chord) client:client]);
+    assert(session.resetCacheCalls == 3 && controller.restartCalls == 3 && controller.terminationCalls == 2);
     appearance.englishMode = previousEnglishMode;
 }
 
@@ -3104,6 +3293,66 @@ static void TestStaleClientDeactivation() {
     assert(session.focusCalls == 1 && toolbar.calls == 0 && baseDeactivationCalls == 1);
     [controller deactivateServer:current];
     assert(session.focusCalls == 1 && toolbar.calls == 0 && baseDeactivationCalls == 1);
+    method_setImplementation(base, original);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+// IMK 不保证上一个客户端的 deactivateServer: 先于下一个客户端的 activateServer: 到达。activateServer: 已经丢掉了上一个客户端欠着的闭合符，所以迟到的那次回调到来时，控制器里待补的闭合符和跳过记录都属于当前客户端：它们既不能被提前写进当前客户端（成对标点被提前合上，组字中的 marked text 也会被整段替换掉），也不能被清掉。正常的 deactivate 仍在自己的客户端里补上闭合符。
+static void TestStaleDeactivationLeavesTheCurrentPairOpen() {
+    NSString *suite = [@"msime.stale-deactivation-pair." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(appearance.pairedPunctuation && appearance.runtimeChinesePunctuation && !appearance.runtimeFullWidthInput);
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *previous = [ShortcutClient new], *current = [ShortcutClient new];
+    previous.document = current.document = @"";
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:current forKey:@"activeClient"];
+    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] };
+    [controller setValue:idle forKey:@"view"];
+    NSEvent *brace = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift
+                                      timestamp:0 windowNumber:0 context:nil characters:@"{" charactersIgnoringModifiers:@"["
+                                      isARepeat:NO keyCode:33];
+    NSEvent *closeBrace = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift
+                                           timestamp:0 windowNumber:0 context:nil characters:@"}" charactersIgnoringModifiers:@"]"
+                                           isARepeat:NO keyCode:30];
+    Method base = class_getInstanceMethod(IMKInputController.class, @selector(deactivateServer:));
+    assert(base);
+    baseDeactivationCalls = 0;
+    IMP original = method_setImplementation(base, (IMP)RecordBaseDeactivation);
+
+    // 当前客户端打开了一对 `{}`，`}` 作为 marked text 的尾巴等着补上。
+    session.punctuationASCIITransition = @{ @"handled": @NO, @"commit": NSNull.null, @"view": idle };
+    assert([controller handleEvent:brace client:current]);
+    assert([current.committed isEqual:@"{"] && [current.marked isEqual:@"}"]);
+    for (id stale in @[previous, NSNull.null]) {
+        [controller deactivateServer:stale == NSNull.null ? nil : stale];
+        assert([current.committed isEqual:@"{"] && [current.marked isEqual:@"}"] && current.insertions.count == 1);
+        assert(previous.insertions.count == 0 && previous.marked == nil);
+        assert([[controller valueForKey:@"pendingPairedClosing"] isEqual:@"}"]);
+        assert([controller valueForKey:@"activeClient"] == current && baseDeactivationCalls == 0);
+    }
+
+    // 这一对仍归当前客户端：下一次上屏把 `}` 一起带走，之后在它前面敲的 `}` 被跨过去。
+    [controller apply:@{ @"commit": @"a", @"view": idle }];
+    assert([current.committed isEqual:@"a}"] && [current.document isEqual:@"{a}"]);
+    for (id stale in @[previous, NSNull.null]) [controller deactivateServer:stale == NSNull.null ? nil : stale];
+    current.selection = NSMakeRange(2, 0);
+    const NSUInteger asciiBeforeStep = session.asciiCalls;
+    assert([controller handleEvent:closeBrace client:current]);
+    assert(session.asciiCalls == asciiBeforeStep && [current.document isEqual:@"{a}"] && current.selection.location == 3);
+    assert(previous.insertions.count == 0 && previous.marked == nil);
+
+    // 正常的 deactivate 照旧在自己的客户端里把这一对合上。
+    current.selection = NSMakeRange(current.document.length, 0);
+    assert([controller handleEvent:brace client:current]);
+    assert([current.committed isEqual:@"{"] && [current.marked isEqual:@"}"]);
+    [controller deactivateServer:current];
+    assert([current.committed isEqual:@"}"] && [current.document isEqual:@"{a}{}"]);
+    assert([controller valueForKey:@"pendingPairedClosing"] == nil && [controller valueForKey:@"activeClient"] == nil);
+    assert(baseDeactivationCalls == 1 && previous.insertions.count == 0);
     method_setImplementation(base, original);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
@@ -3198,6 +3447,66 @@ static void TestSoundsFollowKeysCommitsAndActivation() {
     assert(([nextSession.musicStates isEqual:@[@YES, @NO]]));
     method_setImplementation(base, original);
 
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
+// Opens a real session from its own options and records, for every music claim, whether a session was there to hear it.
+@interface MusicClaimController : MSIMEInputController
+@property(nonatomic, copy) NSDictionary *options;
+@property(nonatomic, strong) NSMutableArray<NSNumber *> *claims;
+@end
+@implementation MusicClaimController
+- (NSDictionary *)runtimeOptions { return self.options; }
+- (BOOL)secureEventInputActive { return NO; }
+- (void)claimBackgroundMusic {
+    if (!self.claims) self.claims = [NSMutableArray array];
+    [self.claims addObject:@([self valueForKey:@"session"] != nil)];
+    [super claimBackgroundMusic];
+}
+@end
+
+// 在英文模式下激活的控制器还没有会话，激活时那次 claimBackgroundMusic 发给的是 nil，播放器从没听到「输入法处于活动状态」。之后切回中文、按键或重新打开会话时建好会话，音乐的归属者要在那时补报一次；不是归属者的控制器、以及已经有会话的再次准备都不报。
+static void TestMusicIsClaimedOnceTheSessionOpens() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSMutableDictionary *options = [@{@"api_version": @1,
+        @"preferences": @{@"scheme": @"quanpin", @"default_ime_mode": @"chinese", @"candidate_page_size": @5,
+                          @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    NSString *suite = [@"msime.music-claim." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.englishMode = YES;
+    auto controllerFor = ^MusicClaimController *(ShortcutClient *client) {
+        MusicClaimController *controller = [MusicClaimController alloc];
+        controller.options = options;
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+        return controller;
+    };
+    MusicClaimController *owner = controllerFor([ShortcutClient new]);
+    MusicClaimController *other = controllerFor([ShortcutClient new]);
+
+    // activateServer: in English mode: the claim finds no session.
+    [owner claimBackgroundMusic];
+    assert(([owner.claims isEqual:@[@NO]]));
+    // The session opens later (back to Chinese, a key, a menu action): the owner claims again, now with a session to tell.
+    [owner prepareSession];
+    assert([owner valueForKey:@"session"]);
+    assert(([owner.claims isEqual:@[@NO, @YES]]));
+    // Preparing a session that is already open claims nothing more.
+    [owner prepareSession];
+    assert(owner.claims.count == 2);
+    // A controller music does not follow opens its session without taking music over.
+    [other prepareSession];
+    assert([other valueForKey:@"session"] && other.claims.count == 0);
+
+    [owner releaseBackgroundMusic];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
 }
@@ -3314,6 +3623,106 @@ static void TestPreferenceClientGeneration() {
         assert(session.updates == (session ? 2 : 0));
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
+}
+
+// 记录控制器释放时在哪个线程收起浮动工具栏。真实的工具栏是 NSPanel，在后台线程 orderOut: 会让 AppKit 直接终止进程。
+@interface ThreadRecordingToolbar : NSObject
+@property(atomic) NSUInteger deactivations;
+@property(atomic) BOOL deactivatedOffMain;
+@property(atomic) NSUInteger completions;
+@end
+@implementation ThreadRecordingToolbar
+- (void)deactivateForDelegate:(id)delegate {
+    (void)delegate;
+    if (!NSThread.isMainThread) self.deactivatedOffMain = YES;
+    self.deactivations = self.deactivations + 1;
+}
+@end
+
+// 偏好读取完成时把次数记到工具栏桩上：控制器释放后它自己的计数读不到。
+@interface DroppedPreferencesController : AsyncPreferencesController
+@end
+@implementation DroppedPreferencesController
+- (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
+                       session:(MSIMEClientSession *)session client:(id)client {
+    (void)snapshot; (void)error; (void)generation; (void)session; (void)client;
+    ThreadRecordingToolbar *toolbar = [self valueForKey:@"toolbar"];
+    toolbar.completions = toolbar.completions + 1;
+}
+@end
+
+// IMK 放掉控制器时，后台的偏好读取可能还握着它。最后一个强引用若在读取线程上释放，dealloc 就在那条线程上收起浮动工具栏，AppKit 以「Must only be used from the main thread」终止输入法进程（0.52.0 的崩溃报告，#6667）。
+static void DrainMainQueue();
+static void TestPreferenceReadDoesNotDeallocControllerOffMain() {
+    ThreadRecordingToolbar *toolbar = [ThreadRecordingToolbar new];
+    ControlledPreferenceRead *read = [ControlledPreferenceRead new];
+    read.snapshot = @{@"preferences":@{}};
+    @autoreleasepool {
+        DroppedPreferencesController *controller = [DroppedPreferencesController alloc];
+        controller.reads = @[read];
+        controller.appliedPreferences = [NSMutableArray array];
+        [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+        [controller setValue:@"/synthetic-preferences" forKey:@"preferencesDirectory"];
+        [controller setValue:toolbar forKey:@"toolbar"];
+        [controller reloadPreferences];
+        assert(dispatch_semaphore_wait(read.started, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+    }
+    // 主线程这一侧的引用已全部放掉，读取还在进行：此后控制器只由后台读取持有。这里不再碰控制器本身，免得主线程上多出一个自动释放的引用把它留到读取之后。
+    assert(toolbar.deactivations == 0);
+    dispatch_semaphore_signal(read.released);
+    SettleWindowLayout();
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    while (toolbar.deactivations == 0 && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    assert(toolbar.deactivations == 1);
+    assert(!toolbar.deactivatedOffMain);
+    // 释放排在完成块之前：完成块按弱引用取控制器，取不到就不应用这份偏好，和读取开始前控制器就已释放时一样。
+    DrainMainQueue();
+    assert(toolbar.completions == 0);
+}
+
+// 打开设置应用的完成回调由 NSWorkspace 在并发队列上调用并释放。它持有的回退块若强引用控制器，IMK 在设置应用启动期间放掉控制器时，最后一次释放就落在那条队列上。这里把 NSWorkspace 换成只收下完成回调的桩，再在后台队列上放掉它。
+static void TestDesktopLaunchDoesNotDeallocControllerOffMain() {
+    Method locate = class_getInstanceMethod(NSWorkspace.class, @selector(URLForApplicationWithBundleIdentifier:));
+    Method open = class_getInstanceMethod(NSWorkspace.class, @selector(openApplicationAtURL:configuration:completionHandler:));
+    __block id pendingHandler = nil;
+    IMP originalLocate = method_setImplementation(locate, imp_implementationWithBlock(^NSURL *(id workspace, NSString *identifier) {
+        (void)workspace; (void)identifier;
+        return [NSURL fileURLWithPath:@"/Applications/synthetic.app"];
+    }));
+    IMP originalOpen = method_setImplementation(open, imp_implementationWithBlock(^(id workspace, NSURL *url, id configuration, id handler) {
+        (void)workspace; (void)url; (void)configuration;
+        // 调用方传进来的是栈上的块，按 id 收下只会 retain 不会拷贝，要显式 copy。
+        pendingHandler = [handler copy];
+    }));
+    void (^launches[])(MSIMEInputController *) = {
+        ^(MSIMEInputController *controller) { [controller showDictionary:nil]; },
+        ^(MSIMEInputController *controller) { [controller restartCurrentInputMethod]; },
+    };
+    for (auto launch : launches) {
+        ThreadRecordingToolbar *toolbar = [ThreadRecordingToolbar new];
+        @autoreleasepool {
+            MSIMEInputController *controller = [MSIMEInputController alloc];
+            [controller setValue:toolbar forKey:@"toolbar"];
+            launch(controller);
+        }
+        assert(pendingHandler);
+        // 设置应用还在启动，主线程这一侧已经放掉控制器，再转一圈主队列，让主线程上自动释放的引用都先放掉。
+        DrainMainQueue();
+        dispatch_semaphore_t released = dispatch_semaphore_create(0);
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            pendingHandler = nil;
+            dispatch_semaphore_signal(released);
+        });
+        assert(dispatch_semaphore_wait(released, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+        while (toolbar.deactivations == 0 && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+        assert(toolbar.deactivations == 1);
+        assert(!toolbar.deactivatedOffMain);
+    }
+    method_setImplementation(locate, originalLocate);
+    method_setImplementation(open, originalOpen);
 }
 
 @interface ReloadCountingController : ModeController
@@ -5458,7 +5867,7 @@ static void TestAiCandidateEngineDelivery() {
             @"prompt_id":@"custom_2", @"prompt_custom_2":@"synthetic prompt"},
         @"input":@{@"segmented_pinyin":@[@"ni", @"hao"], @"context":@"", @"candidate_limit":@3}} error:&bridgeError];
     if (!descriptor || bridgeError || ![descriptor[@"timeout_ms"] isEqual:@8000]) {
-        // Only report the fixed-shape outcome. The descriptor also contains a bearer token.
+        // 只打印固定格式的结果：描述符里还带着 bearer token，不能整个打出来。
         fprintf(stderr, "AI descriptor present=%d error=%s timeout=%s\n", descriptor != nil,
             (bridgeError.localizedDescription ?: @"").UTF8String,
             ([descriptor[@"timeout_ms"] description] ?: @"").UTF8String);
@@ -8081,8 +8490,8 @@ int main(int argc, char **argv) {
             appearance.globalTheme = invalid;
             assert([appearance.globalTheme isEqual:@"system"]);
         }
-        appearance.pageSize = 10;
-        assert(appearance.pageSize == 9);
+        appearance.pageSize = 11;
+        assert(appearance.pageSize == 10);
         appearance.pageSize = 4;
         assert(appearance.pageSize == 4);
         appearance.pageShortcut = 99;
@@ -8113,9 +8522,9 @@ int main(int argc, char **argv) {
             assert([loaded.globalTheme isEqual:skinIDs[option]]);
         }
         appearance.globalTheme = @"system";
-        // The reference's set, three through nine.
+        // 三到十：参考实现的三到九，加上 0 键选第十个的 10（#6679）。
         assert(sizeControl.numberOfItems == (NSInteger)msime::mac::kOfferedCandidatePageSizes);
-        NSArray *pageSizes = @[@3, @4, @5, @6, @7, @8, @9];
+        NSArray *pageSizes = @[@3, @4, @5, @6, @7, @8, @9, @10];
         for (NSInteger option = 0; option < (NSInteger)msime::mac::kOfferedCandidatePageSizes; ++option) {
             assert(([sizeControl.itemTitles[option] isEqual:[NSString stringWithFormat:@"%@ 个", pageSizes[option]]]));
             [sizeControl selectItemAtIndex:option];
@@ -8184,7 +8593,8 @@ int main(int argc, char **argv) {
         [controller setValue:appearance forKey:@"appearance"];
         [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientPinnedCandidates"];
         [controller syncPageSize];
-        assert(session.requestedPageSize == 9);
+        // 上面逐项点过每页候选的弹出菜单，停在最后一项 10。
+        assert(session.requestedPageSize == 10);
         appearance.pageSize = 5;
         [controller appearanceChanged:nil];
         assert(session.requestedPageSize == 5);
@@ -9450,8 +9860,12 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestModifierTaps(); }
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
         @autoreleasepool { TestStaleClientDeactivation(); }
+        @autoreleasepool { TestStaleDeactivationLeavesTheCurrentPairOpen(); }
         @autoreleasepool { TestSoundsFollowKeysCommitsAndActivation(); }
+        @autoreleasepool { TestMusicIsClaimedOnceTheSessionOpens(); }
         @autoreleasepool { TestPreferenceClientGeneration(); }
+        @autoreleasepool { TestPreferenceReadDoesNotDeallocControllerOffMain(); }
+        @autoreleasepool { TestDesktopLaunchDoesNotDeallocControllerOffMain(); }
         @autoreleasepool { TestSavedPreferencesReachTheFocusedController(); }
         @autoreleasepool { TestModeSwitchReachesTheSessionBeforeTheNextKey(); }
         @autoreleasepool { TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne(); }
@@ -9461,6 +9875,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestInputModeSwitchDoesNotSaveSharedPreferences(); }
         @autoreleasepool { TestFullWidth(defaults, appearance); }
         @autoreleasepool { TestSessionOptions(); }
+        @autoreleasepool { TestDiagnosticLogConfiguredBeforeSession(); }
         @autoreleasepool { TestKeypadDecimal(appearance); }
         @autoreleasepool { TestFloatingToolbarMenuToggle(appearance); }
         @autoreleasepool { TestCandidatePanelSingleOwner(); }
@@ -9480,6 +9895,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestSharedCharacterWidth(); }
         @autoreleasepool { TestScreenKeyboardShortcut(appearance); }
         @autoreleasepool { TestMaintenanceShortcuts(appearance); }
+        @autoreleasepool { TestShortcutLetterFollowsKeyboardLayout(); }
         @autoreleasepool { TestPunctuation(defaults, appearance); }
         @autoreleasepool { TestPairedPunctuationPreferences(); }
         @autoreleasepool { TestPairedPunctuationHostExclusion(); }

@@ -60,7 +60,8 @@ repo_section="$work/repo.md"
     "resources/licenses/mozc-BSD-3-Clause.txt|BSD-3-Clause：Mozc（日语模型 msime-japanese.dat 的来源，词库 release 的 msime-mozc_LICENSE.txt）" \
     "resources/licenses/mozc-dictionary_oss-README.txt|IPAdic、ICOT 与冲绳词典的条款（日语模型 msime-japanese.dat，词库 release 的 msime-mozc_dictionary_oss_README.txt）" \
     "resources/helpcodes/ENGINE-NOTICE.md|辅助码表 helpcode-lantian、helpcode-ziranma、helpcode-shouyou2_0、helpcode-shouyouplus、helpcode-xiaohe（只在 npm 包里）的来源与权利说明" \
-    "resources/helpcodes/NOTICE.md|辅助码表 helpcode-jiajia（只在 npm 包里）的来源、权利与分发限制"; do
+    "resources/helpcodes/NOTICE.md|辅助码表 helpcode-jiajia（只在 npm 包里）的来源、权利与分发限制" \
+    "resources/helpcodes/NOTICE-wubi86.md|辅助码表 helpcode-wubi86（只在 npm 包里）的来源、许可与生成方法"; do
     path="${entry%%|*}"
     title="${entry#*|}"
     [ -f "$path" ] || { echo "web-engine-notice: $path is missing" >&2; exit 1; }

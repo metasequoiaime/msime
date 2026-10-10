@@ -211,7 +211,8 @@ class CCandidateRange
     ~CCandidateRange(void);
 
     BOOL IsRange(UINT vKey);
-    int GetIndex(UINT vKey);
+    // enginePage：presenter 持有 TIP 宿主会话的真实一页（见 common/SecondThirdCandidatePolicy.h 的 tip_candidate_selection_index）。
+    int GetIndex(UINT vKey, WCHAR wch, bool enginePage);
 
     inline int Count() const
     {

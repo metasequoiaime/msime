@@ -31,7 +31,7 @@ export class PreferencesErrorCode {
     switch (error) {
       case "preferences changed; reload before saving":
         return "conflict";
-      case "candidate page size must be between 1 and 9":
+      case "candidate page size must be between 1 and 10":
         return "invalid";
       case "frequency trigger count and linear step must be between 1 and 10":
         return "frequency_invalid";

@@ -42,13 +42,14 @@ pub const GENERATION_READY: &str = ".ready";
 pub const NEURAL_MODEL_KEYBOARD: &str = "sentence-model.safetensors";
 
 /// Built-in helpcode schemas and their files under the resource root.
-pub const HELPCODES: [(&str, &str); 6] = [
+pub const HELPCODES: [(&str, &str); 7] = [
     ("lantian", "helpcodes/helpcode.txt"),
     ("ziranma", "helpcodes/zrm_helpcode_big_unique.txt"),
     ("shouyou2_0", "helpcodes/shouyou2_0_helpcode.txt"),
     ("shouyouplus", "helpcodes/shouyouplus_helpcode.txt"),
     ("xiaohe", "helpcodes/xiaohe_helpcode.txt"),
     ("jiajia", "helpcodes/jiajia_helpcode.txt"),
+    ("wubi86", "helpcodes/wubi86_helpcode.txt"),
 ];
 
 /// `custom/<stem>` schemas resolve to `helpcodes/custom/<stem>.txt`.
