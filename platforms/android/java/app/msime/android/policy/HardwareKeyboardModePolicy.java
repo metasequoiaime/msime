@@ -62,11 +62,11 @@ public final class HardwareKeyboardModePolicy {
     }
 
     /**
-     * 候选前面的序号：模式开着、共享 `number_row_selection` 开着、不是英文直输，且槽位在 1–9 以内时为「N 」，否则为空。数字行选的就是这一页第 N 个，序号和按键一一对应。
+     * 候选前面的序号：模式开着、共享 `number_row_selection` 开着、不是英文直输，且槽位在前十个以内时为「N 」，否则为空。数字行选的就是这一页第 N 个，序号和按键一一对应，所以第十个标「0」。
      */
     public static String candidatePrefix(boolean active, boolean numberRowSelection, boolean dedicatedEnglish,
             int slot) {
-        if (!active || !numberRowSelection || dedicatedEnglish || slot < 0 || slot >= 9) return "";
-        return (slot + 1) + " ";
+        if (!active || !numberRowSelection || dedicatedEnglish || slot < 0 || slot >= 10) return "";
+        return NumberRowSelectionPolicy.digitOfSlot(slot) + " ";
     }
 }

@@ -5,8 +5,12 @@ import type { ReactNode } from "react";
 import type { NavigationPreferences, Preferences, WordCharacterPreferences } from "@msime/ui";
 import { ToastProvider } from "../../../../packages/ui/src/core/toast";
 import { CandidateFontSizeSliderRow } from "../../../../packages/ui/src/settings/candidate-sizing-section";
-import { NavigationSection } from "../../../../packages/ui/src/settings/navigation-section";
+import {
+  NavigationSection,
+  defaultNavigation,
+} from "../../../../packages/ui/src/settings/navigation-section";
 import { AppearanceSettingsPage } from "../../../../packages/ui/src/settings/pages/appearance-page";
+import { ShortcutSettingsPage } from "../../../../packages/ui/src/settings/pages/shortcuts-page";
 import {
   defaultKeybindings,
   defaultNumberRowSelection,
@@ -41,7 +45,7 @@ function groupTitled(name: string): HTMLElement {
 
 // ---- 候选栏 ----
 
-test("the HarmonyOS phone's paging keys use the design's labels in a two-column grid under a title-only row", () => {
+test("the HarmonyOS phone's paging keys use the design's labels in a two-column grid named only for screen readers", () => {
   const onChange = vi.fn();
   render(
     <NavigationSection
@@ -56,13 +60,15 @@ test("the HarmonyOS phone's paging keys use the design's labels in a two-column 
   const legend = screen.getByText("外接键盘翻页键");
   expect(legend.tagName).toBe("LEGEND");
   expect(legend.hasAttribute("data-row-title")).toBe(true);
+  // 外面的「翻页」组标题已经说明了这些是什么，legend 不再画成一行重复它。
+  expect(legend.closest("div")?.className).toContain("[&_legend]:sr-only");
   expect(screen.getAllByRole("checkbox").map((box) => box.closest("label")?.textContent)).toEqual([
     "- / =",
     "，/ 。",
     "[ / ]",
     "↑ / ↓",
     "Shift+Tab / Tab",
-    "PageUp / PageDown",
+    "PgUp / PgDn",
   ]);
   expect(screen.queryByText(/鼠标滚轮/)).toBeNull();
   expect(screen.getByRole("checkbox", { name: "↑ / ↓" })).toHaveProperty("checked", true);
@@ -147,7 +153,7 @@ function appearanceForm(setDraft = vi.fn()): SettingsFormModel {
   } as unknown as SettingsFormModel;
 }
 
-test("the HarmonyOS phone 候选栏 page has a 候选栏 group and a 翻页 group, with the rest under 更多选项", () => {
+test("the HarmonyOS phone 候选栏 page has only the 候选栏 group, with the rest under 更多选项", () => {
   const setDraft = vi.fn();
   render(
     <SettingsFormContext.Provider value={appearanceForm(setDraft)}>
@@ -159,7 +165,9 @@ test("the HarmonyOS phone 候选栏 page has a 候选栏 group and a 翻页 grou
 
   expect(
     Array.from(document.querySelectorAll("[data-group-title]")).map((node) => node.textContent),
-  ).toEqual(["候选栏", "翻页"]);
+  ).toEqual(["候选栏"]);
+  // 外接键盘的翻页键在「外接键盘快捷键」页，不在这里。
+  expect(screen.queryByText("外接键盘翻页键")).toBeNull();
   // 没有预览、没有主题链接、没有每页数量行（手机候选条从不读取它），也没有「候选栏高度」和「翻页按钮」。
   expect(screen.queryByText("皮肤、颜色与明暗")).toBeNull();
   expect(screen.queryByText("每页候选项数量")).toBeNull();
@@ -173,15 +181,6 @@ test("the HarmonyOS phone 候选栏 page has a 候选栏 group and a 翻页 grou
   for (const title of ["候选字体", "预编辑字号", "候选栏预编辑"]) {
     expect(screen.getByText(title).closest("details")).toBe(more);
   }
-
-  const paging = groupTitled("翻页");
-  expect(within(paging).getByText("外接键盘翻页键")).toBeTruthy();
-  fireEvent.click(within(paging).getByRole("checkbox", { name: "PageUp / PageDown" }));
-  const update = setDraft.mock.calls.at(-1)?.[0] as (current: Preferences) => Preferences;
-  expect(update({ navigation } as Preferences).navigation).toEqual({
-    ...navigation,
-    page_up_down: false,
-  });
 });
 
 // ---- 外接键盘快捷键 ----
@@ -296,21 +295,29 @@ test("the HarmonyOS phone shortcut selects show the stored choice", () => {
   expect(screen.getByRole("combobox", { name: "简繁切换" })).toHaveProperty("value", "none");
 });
 
-test("恢复默认 writes the default bindings and number-row selection and confirms with a toast", () => {
+test("恢复默认 sits alone at the end of the page, writes the default bindings, number-row selection and paging keys, and confirms with a toast", () => {
   vi.useFakeTimers();
-  const props = shortcuts({ numberRowSelection: false }, (node) => (
-    <ToastProvider>{node}</ToastProvider>
-  ));
+  const props = shortcuts(
+    { numberRowSelection: false, paging: <span>翻页键</span>, onRestorePaging: vi.fn() },
+    (node) => <ToastProvider>{node}</ToastProvider>,
+  );
 
   const candidate = groupTitled("候选");
   expect(within(candidate).getByRole("switch", { name: "数字键选词" })).toHaveProperty(
     "checked",
     false,
   );
-  fireEvent.click(within(candidate).getByRole("button", { name: "恢复默认" }));
+  // 恢复的是整页，所以不在「候选」或其他任何一组里，而是最后一组。
+  expect(within(candidate).queryByRole("button", { name: "恢复默认" })).toBeNull();
+  const restore = screen.getByRole("button", { name: "恢复默认" });
+  const groups = Array.from(document.querySelectorAll("section"));
+  expect(restore.closest("section")).toBe(groups.at(-1));
+  expect(restore.closest("section")?.querySelector("[data-group-title]")).toBeNull();
+  fireEvent.click(restore);
 
   expect(props.onKeybindingsChange).toHaveBeenCalledWith(defaultKeybindings);
   expect(props.onNumberRowSelectionChange).toHaveBeenCalledWith(defaultNumberRowSelection);
+  expect(props.onRestorePaging).toHaveBeenCalledOnce();
   expect(defaultNumberRowSelection).toBe(true);
   expect(screen.getByRole("status").textContent).toBe("已恢复默认快捷键");
   act(() => {
@@ -327,4 +334,97 @@ test("HarmonyOS 2in1 keeps the desktop shortcuts page", () => {
   expect(groupTitled("候选操作")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "恢复默认" })).toBeNull();
   expect(screen.getByRole("switch", { name: /Ctrl\+Shift\+F 切换繁体输出/ })).toBeTruthy();
+});
+
+test("the HarmonyOS phone shortcuts page carries the external keyboard paging keys between 候选 and 按键速查", () => {
+  shortcuts({
+    paging: (
+      <NavigationSection
+        navigation={navigation}
+        wordCharacter={wordCharacter}
+        linux={false}
+        harmonyPhone
+        onChange={vi.fn()}
+      />
+    ),
+  });
+
+  expect(
+    Array.from(document.querySelectorAll("[data-group-title]")).map((node) => node.textContent),
+  ).toEqual(["通用", "候选", "翻页", "按键速查"]);
+  expect(within(groupTitled("翻页")).getByText("外接键盘翻页键")).toBeTruthy();
+});
+
+test("only the HarmonyOS phone shows a paging group on the shortcuts page", () => {
+  shortcuts({ harmony: false, paging: <span>翻页键</span> });
+  expect(screen.queryByText("翻页键")).toBeNull();
+});
+
+function renderShortcutsPage(setDraft = vi.fn(), overrides: Partial<SettingsFormModel> = {}) {
+  render(
+    <SettingsFormContext.Provider
+      value={
+        {
+          ...appearanceForm(setDraft),
+          page: "shortcuts",
+          keybindings: { ...defaultKeybindings },
+          showModeSwitchShortcuts: true,
+          showNumberRowSelection: true,
+          showPanelShortcuts: false,
+          fullwidthChord: "Alt+Shift+H",
+          ...overrides,
+        } as unknown as SettingsFormModel
+      }
+    >
+      <ToastProvider>
+        <ShortcutSettingsPage />
+      </ToastProvider>
+    </SettingsFormContext.Provider>,
+  );
+}
+
+test("the HarmonyOS phone 外接键盘快捷键 page writes the paging keys it shows", () => {
+  const setDraft = vi.fn();
+  renderShortcutsPage(setDraft);
+
+  const paging = groupTitled("翻页");
+  fireEvent.click(within(paging).getByRole("checkbox", { name: "PgUp / PgDn" }));
+  const update = setDraft.mock.calls.at(-1)?.[0] as (current: Preferences) => Preferences;
+  expect(update({ navigation } as Preferences).navigation).toEqual({
+    ...navigation,
+    page_up_down: false,
+  });
+});
+
+test("恢复默认 on the HarmonyOS phone 外接键盘快捷键 page also restores the paging keys", () => {
+  const setDraft = vi.fn();
+  renderShortcutsPage(setDraft);
+
+  fireEvent.click(screen.getByRole("button", { name: "恢复默认" }));
+  const updates = setDraft.mock.calls.map(
+    ([update]) => update as (current: Preferences) => Preferences,
+  );
+  const restored = updates.reduce((current, update) => update(current), {
+    navigation: { ...navigation, page_up_down: false, brackets: true },
+    word_character: wordCharacter,
+  } as Preferences);
+  expect(restored.navigation).toEqual(defaultNavigation);
+  // 以词定字用的是默认不翻页的 [ / ]，不用让出来，也不写它。
+  expect(restored.word_character).toEqual(wordCharacter);
+});
+
+test("恢复默认 releases 以词定字 when it holds a pair the default paging keys take", () => {
+  const setDraft = vi.fn();
+  const holdingMinusEqual: WordCharacterPreferences = { enabled: true, keys: "minus_equal" };
+  renderShortcutsPage(setDraft, { wordCharacter: holdingMinusEqual });
+
+  fireEvent.click(screen.getByRole("button", { name: "恢复默认" }));
+  const restored = setDraft.mock.calls
+    .map(([update]) => update as (current: Preferences) => Preferences)
+    .reduce((current, update) => update(current), {
+      navigation: { ...navigation, minus_equal: false },
+      word_character: holdingMinusEqual,
+    } as Preferences);
+  expect(restored.navigation).toEqual(defaultNavigation);
+  expect(restored.word_character).toEqual({ enabled: false, keys: "minus_equal" });
 });

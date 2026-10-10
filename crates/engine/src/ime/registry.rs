@@ -17,13 +17,11 @@ use crate::korean::hanja;
 use crate::language_dictionary::{self, LanguageDictionary};
 use crate::paths::RuntimePaths;
 use crate::quanpin::QuanpinEngine;
-use crate::shuangpin::profile::profile;
-use crate::shuangpin::ShuangpinEngine;
+use crate::shuangpin::{ShuangpinEngine, ShuangpinProfile};
 use crate::stroke::scheme::StrokeQueryBuffer;
 use crate::stroke::{StrokeCandidate, StrokeScheme};
 use crate::types::{
-    CandidateSource, QueryRequest, SchemeSet, SchemeType, ShuangpinProfileKind, WordItem,
-    WubiProfileKind,
+    CandidateSource, QueryRequest, SchemeSet, SchemeType, WordItem, WubiProfileKind,
 };
 use crate::wubi::provider::WubiProvider;
 
@@ -72,7 +70,7 @@ impl ProviderRegistry {
     /// 五笔读 `wubi_database` 选出的文件，通常是代次里的 `msime-pinyin.db`； the Japanese model is the immutable resource (provider_registry.cpp:4-10). `japanese_path` 非空时改读这个位置（例如按需下载的那份），为空时读资源目录里的 `msime-japanese.dat`。`enabled` 为 [`SchemeSet::ALL`] 时四个 provider 都构造，与收窄之前相同；否则只构造 `enabled` 用得到的那些，查询不在其中的方案一律答空。
     pub fn new(
         enabled: SchemeSet,
-        profile_kind: ShuangpinProfileKind,
+        profile: &'static ShuangpinProfile,
         paths: &RuntimePaths,
         cantonese_path: PathBuf,
         zhuyin_path: PathBuf,
@@ -91,7 +89,7 @@ impl ProviderRegistry {
             quanpin: quanpin_needed.then(|| QuanpinEngine::new(paths)),
             shuangpin: enabled
                 .contains(SchemeType::Shuangpin)
-                .then(|| ShuangpinEngine::new(profile(profile_kind), paths)),
+                .then(|| ShuangpinEngine::new(profile, paths)),
             wubi: enabled
                 .contains(SchemeType::Wubi)
                 .then(|| WubiProvider::new(&wubi_database(paths))),
@@ -895,7 +893,7 @@ mod tests {
     fn registry(enabled: SchemeSet) -> ProviderRegistry {
         ProviderRegistry::new(
             enabled,
-            ShuangpinProfileKind::Xiaohe,
+            crate::shuangpin::profile::default_profile(),
             &RuntimePaths::default(),
             PathBuf::new(),
             PathBuf::new(),

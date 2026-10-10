@@ -2,6 +2,11 @@
 #include <ibus.h>
 #include <string>
 
+// IBUS_INPUT_HINT_PRIVATE（输入框要求不更新个人数据）从 IBus 1.5.26 起才在头文件里。这一位的值属于 D-Bus 协议，是固定的 1 << 11；用更旧的头文件构建时（Debian 10 基线的 legacy 包，IBus 1.5.19）按同一个值补上，客户端带着这一位时行为不变，不带时这一位本来就是 0。
+#if !IBUS_CHECK_VERSION(1, 5, 26)
+#define IBUS_INPUT_HINT_PRIVATE (1u << 11)
+#endif
+
 GType msime_ibus_engine_get_type();
 // Set once before registering the factory. The document is prepared by
 // host-api.

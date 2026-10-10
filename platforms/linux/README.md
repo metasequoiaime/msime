@@ -65,6 +65,19 @@ esac
 
 Qt 程序没有类似的做法：Qt5 不支持 text-input，只能靠 `QT_IM_MODULE=fcitx`，因此在 GNOME Wayland 下由客户端面板绘制，候选窗仍可能闪烁。
 
+### deepin 玲珑应用里只能输入字母
+
+在 deepin、统信 UOS 等带玲珑（Linglong，linyaps）的系统上，如果水杉输入法用的是 IBus，玲珑格式的应用（例如应用商店里的 Chrome、Firefox、文本编辑器）里切到中文也只能打出字母，非玲珑应用正常（#6410）。
+
+原因在玲珑运行时：玲珑应用跑在自己的运行时容器里，GTK、Qt 的输入法模块取自容器内的运行时，而运行时只带 Fcitx5 的 GTK2/3 和 Qt6 模块，没有任何 IBus 模块。会话 D-Bus 和 `~/.config` 都挂进了容器，所以输入法框架是 Fcitx5 时，玲珑应用能连上宿主的 Fcitx5，水杉照常工作；框架是 IBus 时，应用里的 `GTK_IM_MODULE=ibus` 找不到模块，GTK 退回自带的简单输入，于是只出字母。水杉这边改不了容器里有哪些模块，能做的是改用 Fcitx5：
+
+1. 确认装了 5.0.20 及以上的 Fcitx5（deepin 默认就是 Fcitx5，`fcitx5 --version` 查看版本；没有时 `sudo apt install fcitx5`）。水杉的安装包同时带 IBus 引擎和 Fcitx5 插件，不用重装水杉；更旧的 Fcitx5 会按插件声明的 `core:5.0.20` 依赖拒绝加载它。
+2. 把输入法框架切到 Fcitx5：`im-config -n fcitx5`，然后注销并重新登录。登录后 `echo $GTK_IM_MODULE $QT_IM_MODULE $XMODIFIERS` 应当显示 `fcitx fcitx @im=fcitx`。
+3. 运行 `msime-linux-setup --register`，把水杉输入法加进 Fcitx5 当前的输入法组；也可以在 deepin 的输入法设置或 `fcitx5-configtool` 里手动添加「水杉输入法」。
+4. 不再用 IBus 的话，可以把它从开机自启动里去掉，免得两个框架同时运行。
+
+`msime-linux-setup` 和 `--register` 注册进 IBus 时，如果系统是 deepin/UOS 或装了玲珑（有 `ll-cli` 或 `/var/lib/linglong`），会打印一句提示指向这一节，但不会替用户切换框架；其他系统的输出不变。设置窗口的首次配置页运行的是同一个脚本，提示也会显示在页面上。改用 Fcitx5 后玲珑应用里仍然只出字母的，请在 issue 里附上：玲珑应用里 `echo $GTK_IM_MODULE $QT_IM_MODULE $XMODIFIERS` 的输出、deepin 自带的拼音在同一个玲珑应用里能不能输入中文，以及焦点在那个玲珑应用里时 `busctl --user call org.fcitx.Fcitx5 /controller org.fcitx.Fcitx.Controller1 DebugInfo` 的输出里有没有它的输入上下文。
+
 ## 安装后首次使用
 
 安装包的 Debian `postinst` 会为当前已登录且可联系到的用户自动注册本机匿名水杉账号；网络暂时不可用时不影响安装，在线 provider 会在之后重试。安装本身仍不准备词库和运行配置，也不会替你选中输入法。其余首次配置由随装的 `msime-linux-setup` 补齐：
@@ -118,11 +131,11 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 ## 生成 Linux 安装包
 
-发行版由 `.github/workflows/release-linux.yml` 手动触发，标签为 `linux-v<版本>`（版本默认取 `platforms/linux/version.txt`），附件按 x86_64 与 aarch64 两个架构各有一套（两者分别在 GitHub 的 x64 与 arm64 runner 上原生构建）：一个 Debian 包 `msime-linux_<版本>_<架构>.deb`（架构是 dpkg 的 `amd64`/`arm64`）、一个与它同一套文件、按 `/usr` 布局的归档 `msime-linux-<版本>-linux-<架构>.tar.gz`（`x86_64`/`aarch64`）、一个 Fedora 包 `msime-linux-<版本>-1.<架构>.rpm`（`x86_64`/`aarch64`），另有发行版源码构建用的三个 tarball `msime-<版本>.tar.xz`、`msime-<版本>-vendor.tar.xz` 与 `msime-<版本>-frontend.tar.xz`（见下文「包管理器」），以及覆盖全部附件的 `SHA256SUMS`。设置页的检查更新按 `linux-v` 标签前缀挑选发行版并打开发行页；附件只用来显示校验值，按扩展名 `.deb`（没有时取 `.tar.gz`）识别，并按宿主报告的架构（`HostCapabilities.arch`）只看本机架构的那一份；宿主没报告架构时，一个发行版里有两份就不显示校验值。同一个标签下其他版本（见下文「多版本」）各有同样的一组附件，包名换成 `msime-linux-<id>`，设置页按本版本的包名挑选自己的那一份。
+发行版由 `.github/workflows/release-linux.yml` 手动触发，标签为 `linux-v<版本>`（版本默认取 `platforms/linux/version.txt`），附件按 x86_64 与 aarch64 两个架构各有一套（两者分别在 GitHub 的 x64 与 arm64 runner 上原生构建）：一个 Debian 包 `msime-linux_<版本>_<架构>.deb`（架构是 dpkg 的 `amd64`/`arm64`）、一个与它同一套文件、按 `/usr` 布局的归档 `msime-linux-<版本>-linux-<架构>.tar.gz`（`x86_64`/`aarch64`）、一个 Fedora 包 `msime-linux-<版本>-1.<架构>.rpm`（`x86_64`/`aarch64`），另有发行版源码构建用的三个 tarball `msime-<版本>.tar.xz`、`msime-<版本>-vendor.tar.xz` 与 `msime-<版本>-frontend.tar.xz`（见下文「包管理器」），以及覆盖全部附件的 `SHA256SUMS`。设置页的检查更新按 `linux-v` 标签前缀挑选发行版并打开发行页；附件只用来显示校验值，按扩展名 `.deb`（没有时取 `.tar.gz`）识别，并按宿主报告的架构（`HostCapabilities.arch`）只看本机架构的那一份；宿主没报告架构时，一个发行版里有两份就不显示校验值。同一个标签下其他版本（见下文「多版本」）各有同样的一组附件，包名换成 `msime-linux-<id>`，设置页按本版本的包名挑选自己的那一份。两个架构另各有一个给 glibc 2.28 基线系统用的 `msime-linux-legacy_<版本>_<架构>.deb`（见下文「旧发行版的 legacy 包」），包内的包名仍是 `msime-linux`，附件名带 `legacy` 是为了不和上面那个 `.deb` 撞名，设置页挑 full 的包时也按 `msime-linux-<字母>` 开头把它排除。
 
 安装前先核对校验值：`sha256sum -c SHA256SUMS --ignore-missing`。Debian/Ubuntu 用 `sudo apt install ./msime-linux_<版本>_<架构>.deb`，依赖由 apt 一并装好，卸载用 `sudo apt remove msime-linux`。对应 Windows 安装程序在卸载和升级时停止输入法进程：`apt remove` 删除文件前，包的 prerm 在每个已登录（或启用了 linger）用户的 systemd 用户实例里逐个 `disable --now` 与 CMake 卸载相同的那组在线、语音和剪贴板单元，免得它们指着已删除的程序反复重启，再在同一实例里以临时单元运行 `msime-linux-setup --unregister`，把本输入法从该用户的输入法列表里移除（见「卸载 CMake 安装」）；升级后 postinst 让这些实例重读单元文件，并重启其中正在运行的服务，使其换到新程序，socket 单元保持监听，输入法宿主自己换到新程序（见上文「安装后首次使用」里的升级一段）。联系不上的用户实例只打印该用户需要执行的命令；未登录的用户没有运行中的服务，但启用链接仍留在各自的 `~/.config/systemd/user`，需要时自行执行 `systemctl --user disable …`。没有 systemd 的环境（例如容器）两步都跳过，也都不会让 apt 失败。包里唯一不在 `/usr` 下的文件是剪贴板服务的 XDG 自启动项 `/etc/xdg/autostart/msime-linux-clipboard.desktop`（见「独立剪贴板采集」），它是 conffile：管理员修改或删除它之后，升级不会把它改回来；`apt remove` 留下它、`apt purge` 才删除，留下的自启动项在服务已被 prerm 停用后什么也不做。归档给不经 apt 安装的 Debian 系系统用，不是跨发行版的通用包：库目录是 Debian 的多架构布局 `usr/lib/<三元组>/`（例如 `usr/lib/x86_64-linux-gnu/`），Fcitx5 插件因此在 `usr/lib/<三元组>/fcitx5/`，Arch（`/usr/lib/fcitx5`）和 Fedora（`/usr/lib64/fcitx5`）上的 Fcitx5 不会去那里加载它。用法：`sudo tar -xzf msime-linux-<版本>-linux-<架构>.tar.gz --strip-components=1 -C /`，再执行 `sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor`；归档没有依赖声明，需由发行版提供 IBus 1.5.20+ 或 Fcitx5 5.0.20+、Python 3.9+，以及二进制链接的共享库（WebKitGTK 4.1、GTK 3、libsoup 3、ICU、libcurl、SQLite、D-Bus、Wayland、X11、xkbcommon 等，完整列表以同版本 `.deb` 的 Depends 为准）；它也没有卸载入口，删除时按归档内的文件列表（`tar -tzf`）逐个移除。两种方式装完都按上面的「安装后首次使用」执行 `msime-linux-setup`。
 
-`.deb` 与归档在 Debian 12（bookworm）容器里构建，链接的是 bookworm 的库版本，Depends 因此要求 glibc 2.35、libstdc++ 11、WebKitGTK 4.1 与 libsoup 3 及以上，只能装在提供这些包的发行版上：Debian 12、Ubuntu 22.04 与更新的版本可以，Debian 11、UOS 20 这类 glibc 更旧或没有 WebKitGTK 4.1 的系统不行（#6311）。输入法框架在 Depends 里写成二选一 `ibus (>= 1.5.20) | fcitx5 (>= 5.0.20)`（#6401）：系统里已有哪个就算满足哪个，deepin 这类用 Fcitx5 的系统不会被拉进 IBus 守护进程和它的 GTK 模块，用 IBus 的系统也不会被拉进 Fcitx5；两个都没有时 apt 装写在前面的 IBus。Fcitx5 不进 Recommends，因为 apt 默认安装推荐包，那样 IBus 系统会被拉进 Fcitx5。Ubuntu 22.04 只有 Fcitx5 5.0.14，在那里由 IBus 满足这一项，整包照样装得上（#6305）；即使另装了系统的 Fcitx5 5.0.14，它也会按插件条目的 `core:5.0.20` 依赖拒绝加载插件。辅助程序链接 libibus，所以 `dpkg-shlibdeps` 仍会带上 `libibus-1.0-5`，那只是一个库，不会启动 IBus。`dpkg-shlibdeps` 从插件推出的 `libfcitx5*` 依赖由 `package-container.sh` 重新打包时从 Depends 去掉，`release-linux.yml` 逐包核对 Depends 里只以这个二选一提到两个框架。`.rpm` 同样写成 `(ibus >= 1.5.20 or fcitx5 >= 5.0.20)`，插件链接的 `libFcitx5*` 不进自动生成的 Requires；Arch 的两个 PKGBUILD 把 `ibus`、`fcitx5` 都放在 optdepends。
+`.deb` 与归档在 Debian 12（bookworm）容器里构建，链接的是 bookworm 的库版本，Depends 因此要求 glibc 2.35、libstdc++ 11、WebKitGTK 4.1 与 libsoup 3 及以上，只能装在提供这些包的发行版上：Debian 12、Ubuntu 22.04 与更新的版本可以，Debian 11、UOS 20 这类 glibc 更旧或没有 WebKitGTK 4.1 的系统不行（#6311）；Debian 10 基线的系统装发布页上只含 IBus 的 legacy 包，见下文「旧发行版的 legacy 包（glibc 2.28）」。输入法框架在 Depends 里写成二选一 `ibus (>= 1.5.20) | fcitx5 (>= 5.0.20)`（#6401）：系统里已有哪个就算满足哪个，deepin 这类用 Fcitx5 的系统不会被拉进 IBus 守护进程和它的 GTK 模块，用 IBus 的系统也不会被拉进 Fcitx5；两个都没有时 apt 装写在前面的 IBus。Fcitx5 不进 Recommends，因为 apt 默认安装推荐包，那样 IBus 系统会被拉进 Fcitx5。Ubuntu 22.04 只有 Fcitx5 5.0.14，在那里由 IBus 满足这一项，整包照样装得上（#6305）；即使另装了系统的 Fcitx5 5.0.14，它也会按插件条目的 `core:5.0.20` 依赖拒绝加载插件。辅助程序链接 libibus，所以 `dpkg-shlibdeps` 仍会带上 `libibus-1.0-5`，那只是一个库，不会启动 IBus。`dpkg-shlibdeps` 从插件推出的 `libfcitx5*` 依赖由 `package-container.sh` 重新打包时从 Depends 去掉，`release-linux.yml` 逐包核对 Depends 里只以这个二选一提到两个框架。`.rpm` 同样写成 `(ibus >= 1.5.20 or fcitx5 >= 5.0.20)`，插件链接的 `libFcitx5*` 不进自动生成的 Requires；Arch 的两个 PKGBUILD 把 `ibus`、`fcitx5` 都放在 optdepends。
 
 `.rpm` 在 Fedora 44 容器里单独构建（`tests/tools/Dockerfile.package-rpm`），不是由 `.deb` 转换来的：rpmbuild 按二进制实际链接的库生成 Requires，在 Debian 上链接的二进制会带上 Debian 独有的 soname 与符号版本（例如 libcurl 的 `CURL_OPENSSL_4`），Fedora 上没有包提供它们，已归档的 MSIME-Linux 0.9.1 的 rpm 就是因此装不上（#2095）。它面向 Fedora 44 及提供同样库版本的 DNF 系统，用 `sudo dnf install ./msime-linux-<版本>-1.<架构>.rpm` 安装，`sudo dnf remove msime-linux` 卸载；维护脚本就是 `.deb` 的 prerm 与 postinst，前面加一段把 RPM 的实例计数换算成对应的 dpkg 参数，所以卸载与升级的行为与上面 `.deb` 的描述相同，自启动项是 `%config(noreplace)`。包自带的 Host API 库与 sherpa-onnx 运行库既不作为依赖要求、也不对系统声明提供。发行流程在构建后把它装进一个干净的 Fedora 容器再卸掉（`tests/tools/check-rpm-install.sh`），依赖解析不了就在那一步失败。支持更多发行版仍需按目标发行版分别构建。
 
@@ -130,9 +143,49 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 在 Linux 上手工打包时，同样显式传入 `-DMSIME_ENABLE_PACKAGING=ON -DCMAKE_INSTALL_PREFIX=/usr`，并提供 Release 版 Host API 库、桌面二进制和已固定来源的资源；`-DMSIME_PACKAGE_VERSION=<版本>` 指定包版本，不传时取 `platforms/linux/version.txt`（发布工作流读的同一个文件）；IBus 宿主在启动与崩溃上报里报告的也是这个版本。打包构建必定包含 Fcitx5 原生插件（不受开发机上是否装有 Fcitx5 开发包影响）；若只需 IBus 开发构建，可显式传入 `-DMSIME_ENABLE_FCITX5=OFF`。打包构建不得设置 `MSIME_RUNTIME_OPTIONS_FILE`，也不得启用安装开发测试程序的 `MSIME_LINUX_VOICE`。打包构建还必须传入 `-DMSIME_RUST_NOTICES=<文件>`（`python3 platforms/linux/collect-notices.py cargo <文件> msime-host-api msime-desktop:tauri/custom-protocol`，不打桌面二进制时去掉后一项），打包桌面二进制时再传 `-DMSIME_FRONTEND_NOTICES=<文件>`（`python3 platforms/linux/collect-notices.py npm <文件> apps/desktop`，需先装好 `node_modules`），缺哪一个配置就失败。构建完成后运行 `cpack --config <build-dir>/CPackConfig.cmake -G "TGZ;DEB"`；DEB 需要 `dpkg-shlibdeps`（`dpkg-dev`）与 `file`。Debian 包在手写的 IBus、Python、Fcitx5 依赖之外，由 `dpkg-shlibdeps` 从 ELF 文件生成共享库依赖。归档不是可任意搬移的便携包。
 
-许可证与第三方声明装在 `${CMAKE_INSTALL_DATADIR}/doc/msime-client/`，普通 `cmake --install` 与安装包相同：`copyright`（本项目 GPL-3.0）、`THIRD_PARTY_NOTICES.txt`（本平台随附组件总览，源文件 `data/THIRD_PARTY_NOTICES.txt`），词库来源声明 `msime-engine-dictionary-NOTICE.md`（从 msime-engine 原样带过来，固定副本在 `resources/licenses/`）、辅助码声明 `msime-engine-helpcode-NOTICE.md`（`resources/helpcodes/ENGINE-NOTICE.md`）与 `msime-helpcode-jiajia-NOTICE.md`（`resources/helpcodes/NOTICE.md`）、离线手写识别所移植的 zinnia 的许可证 `Zinnia-LICENSE.txt`（`resources/licenses/`）、`@` 模式内置地名所取自的 modood/Administrative-divisions-of-China 的许可证 `Administrative-divisions-of-China-WTFPL.txt`（`resources/licenses/`）、韩语汉字转换内置汉字表所取自的 libhangul `data/hanja/hanja.txt` 的许可证 `libhangul-hanja-BSD-3-Clause.txt`（`resources/licenses/`）、引擎粤语与注音方案的数据所取自的 rime-cantonese 与 libchewing-data 的许可证 `rime-cantonese-CC-BY-4.0.txt` 与 `libchewing-data-LGPL-2.1.txt`、笔画方案的笔顺数据所取自的 rime-stroke 的许可证 `rime-stroke-LGPL-3.0.txt`（`resources/licenses/`；装了这些词库时，词库旁还有随数据发布的 `msime-rime_cantonese_LICENSE.txt`、`msime-libchewing_data_LICENSE.txt` 与 `msime-rime_stroke_LICENSE.txt`）、藏文方案所用 ewts crate 的许可证 `ewts-MIT.txt`（`resources/licenses/`；这个 crate 没有附许可证文件，按包元数据收集的 `rust-crates-NOTICES.txt` 里只有它声明的许可证表达式）、装了手写模型时随模型的 `HandwritingModel-LICENSE.txt`、OpenCC 词典的许可证，编进原生宿主与 Fcitx5 插件的 nlohmann/json（`nlohmann_json-MIT.txt`，固定副本在 `data/licenses/`）与 Wayland 协议代码（配置时从实际编译的 `wlr-layer-shell-unstable-v1.xml`、`xdg-shell.xml` 取出 `<copyright>` 段，只在找到 `xdg-shell.xml`、协议代码确实编入时安装），以及打包时收集的 `rust-crates-NOTICES.txt` 与 `frontend-npm-NOTICES.txt`。输入引擎是本项目自己的 Rust 代码（`crates/engine`），由同为 GPL-3.0 的 msime-engine 移植而来，由 `copyright` 覆盖，不再单独附 Engine 的许可证；录音采集走 cpal，其许可证在 Rust 汇总里。本项目许可证在这里按 Debian 的要求叫 `copyright`（macOS 是 `GPL-3.0.txt`）。打包配置时任何一份声明的来源缺失（通常是没有传入 Rust/npm 汇总，或要随包却没有手写模型）都会直接失败；普通开发配置不要求 Rust/npm 汇总，其余缺失只给出警告并安装剩下的部分。
+许可证与第三方声明装在 `${CMAKE_INSTALL_DATADIR}/doc/msime-client/`，普通 `cmake --install` 与安装包相同：`copyright`（本项目 GPL-3.0）、`THIRD_PARTY_NOTICES.txt`（本平台随附组件总览，源文件 `data/THIRD_PARTY_NOTICES.txt`），词库来源声明 `msime-engine-dictionary-NOTICE.md`（从 msime-engine 原样带过来，固定副本在 `resources/licenses/`）、辅助码声明 `msime-engine-helpcode-NOTICE.md`（`resources/helpcodes/ENGINE-NOTICE.md`）、`msime-helpcode-jiajia-NOTICE.md`（`resources/helpcodes/NOTICE.md`）与 `msime-helpcode-wubi86-NOTICE.md`（`resources/helpcodes/NOTICE-wubi86.md`）、离线手写识别所移植的 zinnia 的许可证 `Zinnia-LICENSE.txt`（`resources/licenses/`）、`@` 模式内置地名所取自的 modood/Administrative-divisions-of-China 的许可证 `Administrative-divisions-of-China-WTFPL.txt`（`resources/licenses/`）、韩语汉字转换内置汉字表所取自的 libhangul `data/hanja/hanja.txt` 的许可证 `libhangul-hanja-BSD-3-Clause.txt`（`resources/licenses/`）、引擎粤语与注音方案的数据所取自的 rime-cantonese 与 libchewing-data 的许可证 `rime-cantonese-CC-BY-4.0.txt` 与 `libchewing-data-LGPL-2.1.txt`、笔画方案的笔顺数据所取自的 rime-stroke 的许可证 `rime-stroke-LGPL-3.0.txt`（`resources/licenses/`；装了这些词库时，词库旁还有随数据发布的 `msime-rime_cantonese_LICENSE.txt`、`msime-libchewing_data_LICENSE.txt` 与 `msime-rime_stroke_LICENSE.txt`）、藏文方案所用 ewts crate 的许可证 `ewts-MIT.txt`（`resources/licenses/`；这个 crate 没有附许可证文件，按包元数据收集的 `rust-crates-NOTICES.txt` 里只有它声明的许可证表达式）、装了手写模型时随模型的 `HandwritingModel-LICENSE.txt`、OpenCC 词典的许可证，编进原生宿主与 Fcitx5 插件的 nlohmann/json（`nlohmann_json-MIT.txt`，固定副本在 `data/licenses/`）与 Wayland 协议代码（配置时从实际编译的 `wlr-layer-shell-unstable-v1.xml`、`xdg-shell.xml` 取出 `<copyright>` 段，只在找到 `xdg-shell.xml`、协议代码确实编入时安装），以及打包时收集的 `rust-crates-NOTICES.txt` 与 `frontend-npm-NOTICES.txt`。输入引擎是本项目自己的 Rust 代码（`crates/engine`），由同为 GPL-3.0 的 msime-engine 移植而来，由 `copyright` 覆盖，不再单独附 Engine 的许可证；录音采集走 cpal，其许可证在 Rust 汇总里。本项目许可证在这里按 Debian 的要求叫 `copyright`（macOS 是 `GPL-3.0.txt`）。打包配置时任何一份声明的来源缺失（通常是没有传入 Rust/npm 汇总，或要随包却没有手写模型）都会直接失败；普通开发配置不要求 Rust/npm 汇总，其余缺失只给出警告并安装剩下的部分。
 
 安装包不包含用户状态，不自动启用 provider 服务或切换输入法。首次使用由随装的 `msime-linux-setup` 备齐词库并准备运行配置（见上面的「安装后首次使用」）；语音录音、剪贴板、Wayland/X11 输入工具及可选模型按对应功能章节配置。包的内容取决于配置阶段传入了什么：没有传入桌面二进制或资源的构建只打包实际配置的部分，完整包需要同时提供二者。
+
+### 旧发行版的 legacy 包（glibc 2.28）
+
+该装哪个包，先看系统的 C 库版本（`ldd --version` 的第一行）和输入法框架：
+
+| 系统 | 装哪个包 |
+|---|---|
+| glibc 2.35 及以上的 Debian 系（Debian 12、Ubuntu 22.04 及更新的版本），有 IBus 1.5.20+ 或 Fcitx5 5.0.20+ | 发布页的 `msime-linux_<版本>_<架构>.deb`，带设置窗口 |
+| Fedora 等 RPM 系 | 发布页的 `.rpm`，或下文「包管理器」里的软件源 |
+| glibc 2.28 到 2.34 的 Debian 系（UOS 20 专业版、Debian 10 这一类，Debian 11、Ubuntu 20.04 也是） | 发布页的 `msime-linux-legacy_<版本>_<架构>.deb`：只有 IBus 宿主，没有设置窗口，先装 IBus |
+| 只有 fcitx 4 的系统（UOS 20、麒麟 V10 等默认就是 fcitx 4） | 没有 fcitx 4 前端。改用 IBus 后，按 glibc 版本装上面对应的包 |
+| glibc 低于 2.28 | 没有能用的包 |
+
+两个架构（`amd64`、`arm64`）都有 legacy 包。它由 `release-linux.yml` 调用 `.github/workflows/build-linux-legacy.yml` 在各自架构的原生 runner 上构建，发版时取消勾选 `legacy` 可以不带它；同一个 workflow 每周一在 develop 上定时跑一次，legacy 构建线自己的文件有改动的 Pull Request 上也会跑。
+
+`package-legacy-container.sh` 在 Debian 10（buster）容器里构建这个只含 IBus 宿主的 `.deb`，给 UOS 20 专业版、Debian 10 这类 glibc 2.28 基线、装不上发布页 `.deb` 的系统用（#6311）。也可以在装有 Docker 的机器上自己构建：`bash platforms/linux/package-legacy-container.sh [版本]`，产物是 `target/linux-package-legacy-<架构>/dist/msime-linux_<版本>_<架构>.deb` 和它的 `SHA256SUMS`；发布工作流上传前把它改名为 `msime-linux-legacy_<版本>_<架构>.deb`，内容不变。`MSIME_LEGACY_ARCH=amd64|arm64` 选择架构，缺省是本机架构；另一种架构经 Docker 的 `--platform` 在模拟器里构建，要求 Docker 能运行该平台的容器（binfmt/qemu 或 Rosetta），比原生慢得多。
+
+构建镜像是 `tests/tools/Dockerfile.legacy`：buster 自带的 GCC 8.3、IBus 1.5.19、Python 3.7 与 glibc 2.28，加上按 SHA-256 固定的 Kitware CMake 3.25.1、nlohmann-json 3.11.2 源码和 Rust 1.97.1（buster 的 CMake 3.13 与 nlohmann-json 3.5 低于 `CMakeLists.txt` 的要求，两者的版本与 bookworm 门禁镜像相同）。Host API 库、`msime-mcp` 和原生宿主都在这个容器里编译，所以只引用 glibc 2.28 及以下的符号版本；打包后脚本用 `tests/tools/check-elf-symbol-versions.sh` 逐个核对包里的 ELF 文件（含预编译的 sherpa-onnx 与 ONNX Runtime 库），任何一个要求的 glibc、libstdc++（`GLIBCXX`、`CXXABI`）或 libgcc（`GCC`）符号版本高于 buster 提供的就失败，上限从构建镜像里的库读出；发布工作流对改名后要上传的那个文件按固定上限 `GLIBC=2.28 GLIBCXX=3.4.25 CXXABI=1.3.11 GCC=7.0.0` 再核一次。这个脚本也可以单独拿来查任何一个 `.deb` 或解开的目录，例如 `bash platforms/linux/tests/tools/check-elf-symbol-versions.sh msime-linux_<版本>_arm64.deb GLIBC=2.28`，超出时逐个列出文件和它要求的版本。随后它在一个只有基础系统的 `debian:buster` 容器里用 apt 安装这个包，确认每个 ELF 文件的共享库和符号版本都能解析、没有设置窗口的文件，再在装好包的容器里跑构建树的 ctest：测试程序链接的库只能由包的 Depends 带进来。最后由 `tests/tools/legacy-runtime.sh` 做运行时验收：在 Python 3.7 上跑随包 Python 脚本的合约测试（与 `tests/tools/in-container.sh` 同一份清单 `python-contracts.list`，跳过只与设置窗口和豆包有关的两项），用第 1 步按词库锁取回的词库跑 `ibus-engine-smoke --page-number`，并让已安装的 `/usr/bin/msime-linux-ibus` 在 buster 自带的 ibus-daemon 1.5.19 下经合成输入上下文（`daemon_smoke.py`：打字、切换输入源、宿主崩溃后由监护进程重启、`ibus exit`）和 GTK 3 文本框（`gtk_smoke.py`）打字。词库只用于验收，不进包。
+
+这个包与发布页的 `.deb` 包名相同（`msime-linux`），安装路径也相同，装上一个就替换掉另一个。区别是：
+
+- **没有设置窗口。** 不带 Tauri 桌面二进制：它要 WebKitGTK 4.1 和 libsoup 3，buster 没有，Tauri 2 也不支持更旧的 WebKitGTK 4.0。于是没有 `msime-linux-settings`、应用列表里的「水杉输入法」和首次配置页；IBus 菜单里打开设置窗口的那些项（设置、词库、手写识别板、屏幕键盘、表情与符号、本地剪贴板、语音面板、云词库、云剪贴板、关于、帮助、反馈）点了没有反应。只能在设置窗口里做的事（词库管理、皮肤、账号与云同步、手写模型下载、检查更新）在这个包里没有替代入口。
+- **没有 Fcitx5 插件。** buster 没有 5.0.20 以上的 Fcitx5；UOS 20 默认的 fcitx 4 也没有水杉的前端，只能走 IBus。
+- **只有 full（水杉拼音）一个版本。** 其他版本配置时要用 `scripts/edition_linux.py` 改写脚本，它需要 Python 3.10。
+- **依赖更低。** Depends 是 `ibus (>= 1.5.19), python3 (>= 3.7), procps`，加上 `dpkg-shlibdeps` 按 buster 的库算出的共享库依赖（`libc6 (>= 2.28)` 等）。这两个下限来自 CMake 缓存变量 `MSIME_IBUS_MIN_VERSION` 和 `MSIME_PYTHON_MIN_VERSION`，它们同时决定配置时检查的 IBus 版本和 `.deb`/`.rpm` 的依赖声明，发布页的包用缺省值 1.5.20 和 3.9。宿主用到的 IBus 接口里只有 `IBUS_INPUT_HINT_PRIVATE` 晚于 1.5.19（1.5.26 才进头文件），旧头文件上按协议的固定值补上（`src/core/ClientEngine.h`）；1.5.27 的 `focus_in_id` 与 `has-focus-id` 原本就按 `IBUS_CHECK_VERSION` 条件编译，旧版 IBus 不报告客户端身份，`ime_mode_scope = app` 因此退化为所有窗口共用一个中英文状态（`src/core/ClientInputModeMemory.h`）。
+- **豆包实时识别不可用。** 它要 `websockets` 15，而 `websockets` 15 需要 Python 3.9；语音服务照常启动，选用豆包时报告依赖不满足。Recommends 里的 `python3-websockets (>= 15)` 在 buster 上满足不了，apt 会跳过它。
+- **升级和卸载时不会替已登录用户处理用户服务。** postinst 和 prerm 用 `systemctl --user -M <uid>@` 联系每个用户的 systemd 管理器，这要 systemd 248，buster 是 241；联系不上时它们只打印该用户要执行的命令，安装和卸载本身不受影响。postinst 顺带为每个用户注册匿名账号的那一步也因此跳过，由在线服务之后重试。
+
+在 UOS 20 上的用法：
+
+1. UOS 20 默认的输入法框架是 fcitx 4，系统里没有 IBus。先装 IBus，再装这个包：`sudo apt install ibus`，然后 `sudo apt install ./msime-linux-legacy_<版本>_<架构>.deb`。卸载时包名仍是 `msime-linux`：`sudo apt remove msime-linux`。
+2. 把输入法框架切到 IBus 并重新登录。Debian 10 上是 `im-config -n ibus`；UOS 20 上的切换方式我们没有在真机上验证过。
+3. 在终端运行 `msime-linux-setup --download`，按上面「安装后首次使用」取回词库、准备状态并把输入法加进 IBus 的列表；加不上时执行 `ibus restart`，再在 `ibus-setup` 的「输入法」页添加「Metasequoia 水杉输入法」。没有设置窗口，所以先选中输入法、还没做首次配置时不会打开首次配置页，装有 `notify-send` 时桌面通知直接指向 `msime-linux-setup`。
+
+没有设置窗口时改偏好有两条路：
+
+- IBus 面板上的输入法菜单与发布页的包相同，中英文、全角、中文标点、简繁、输入方案、双拼方案、辅助码方案和主题都在那里切换。
+- 其余偏好用随包的 `msime` 命令（`msime-mcp` 的命令行形式，见上文「包管理器」）：`msime config` 列出当前偏好，`msime config get <键>` 读取，`msime config set <键>=<值> …` 修改，例如 `msime config set candidate_page_size=7 fuzzy_pinyin=true`，输入法在几秒内热重载。能改的键是 MCP 工具 `update_preferences` 接受的那一组（`crates/mcp-server/src/preferences.rs` 的 `PreferencesChange`），包括输入方案与双拼方案、候选个数、字号、缩放、透明度、圆角与排列、候选跟随光标、数字行选词、模式提示、模糊音、默认中英文、全半角、中文标点、智能标点、繁体输出、五笔方案、五笔混输拼音、五笔编码提示和诊断日志；`msime --help` 列出全部命令。
+
+验证范围：amd64 与 arm64 的构建、符号版本检查、buster 里的 apt 安装、ctest 和上面的运行时验收都由 `build-linux-legacy.yml` 在各自架构的原生 runner 上跑过，IBus 引擎在 ibus-daemon 1.5.19 与 Xvfb 上的 GTK 3 程序里打字通过。arm64 的包另在 Debian 11、Ubuntu 20.04 和 Ubuntu 22.04 的容器里用 apt 装上过，`ldd` 没有缺库或缺符号版本，但没有在这些系统上跑运行时验收。两种架构都没有在 UOS 20 真机或真实桌面会话里打过字，Qt 程序与 Wayland 下的行为也没有在 IBus 1.5.19 上测过。
 
 ### Nix 与 NixOS
 
@@ -361,7 +414,7 @@ Linux 独立手写面板使用同一类用户管理 Unix socket，不把 GTK、W
 
 Fcitx5 插件状态栏里的表情菜单同样显示已安装的符号集插件：在切换表情类别、开始表情搜索和读取分组列表时，经 `msime_client_emoji_catalog_request` 的 `list_plugin_symbol_groups` 读取 `<preferences_directory>/plugins` 下的符号集。符号组排在内置符号之后，分组循环里显示为「插件名 / 组名」；颜文字组排在内置的 All 之后。「全部」和搜索结果在内置条目读完后接上插件条目，搜索匹配组关键词或条目原文；不与内置目录去重。插件读取失败时菜单只显示内置目录。合并与分页规则在 `src/core/EmojiPluginGroups.h`，由 `tests/core/emoji_plugin_groups.cpp` 钉住。
 
-桌面 Tauri 面板的系统剪贴板按 Linux 会话能力选择后端：优先使用 Wayland 的 `wl-paste` / `wl-copy`，不可用时回退到 X11 的 `xclip`；剪贴板历史仍只在用户开启设置后写入本地受限存储。桌面宿主运行期间以低频轮询捕获新的文本剪贴板内容，设置关闭后立即停止记录并清除本轮监视状态，读取失败不会伪造同步结果。
+桌面 Tauri 面板的系统剪贴板按 Linux 会话能力选择后端：优先使用 Wayland 的 `wl-paste` / `wl-copy`，不可用时回退到 X11 的 `xclip`；合成器不提供 data-control 协议时（GNOME/Mutter，进程内用 `wl-paste --watch` 是否立即退出探测一次），读取不用 `wl-paste`，直接经 XWayland 的 `xclip`，避免每次轮询都抢焦点打断输入法；剪贴板历史仍只在用户开启设置后写入本地受限存储。桌面宿主运行期间以低频轮询捕获新的文本剪贴板内容，设置关闭后立即停止记录并清除本轮监视状态，读取失败不会伪造同步结果。
 
 桌面 Tauri 面板在 Linux 上也接入了屏幕键盘、手写和语音提交。打开面板时宿主先保存当前输入目标：X11 使用 `xdotool getactivewindow`，Sway 使用 `swaymsg -t get_tree`；按键通过目标窗口的 `xdotool key`、Sway 的 `wtype` 或通用 Wayland 的 `ydotool` 发送。`ydotool` 仅在其 daemon 可用时启用，以 `/dev/uinput` 注入，不依赖面板重新夺取焦点；没有全局注入能力时回退到 `wtype`。手写候选和语音识别结果通过同一目标提交文本，语音面板消费 provider 的 partial/final 事件并实时显示转写，关闭面板时发送当前 generation 的取消消息。手写识别服务的绝对 Unix socket 由 `MSIME_HANDWRITING_PROVIDER_SOCKET` 提供，语音服务使用 HostOptions 的 `voice_provider_socket` 或 `MSIME_VOICE_PROVIDER_SOCKET`；服务仍负责录音、模型和凭据。缺少注入工具或服务时面板保留可见状态并返回宿主错误，不伪造提交。
 
@@ -483,7 +536,7 @@ msime-linux-ibus-launcher
 
 两个参数必须是绝对路径，状态目录的父目录必须已存在；全新状态目录不能已有文件，但安装流程预先写入的 `anonymous-account.json` 或 `anonymous-session.json` 可以保留在其中。命令通过 Host API 按固定的 `desktop-dictionary.lock.json` 校验资源目录及其资源，再准备 Engine 用户数据、缓存和偏好配置；以 0700 创建状态目录，以 0600 原子发布 `runtime-options.json`，成功时输出配置路径。失败时保留已准备的数据，不覆盖已有目录或配置；重试需另选全新目录。若希望启动器自动发现配置，可将新状态目录选为 `$XDG_CONFIG_HOME/msime-client`（未设置时为 `$HOME/.config/msime-client`），并事先准备其父目录。自定义位置的 `MSIME_IBUS_OPTIONS` 需传入实际启动 IBus 的会话环境。
 
-若安装时已在 CMake 配置阶段传入 `-DMSIME_ENGINE_RESOURCES=/absolute/verified-resources`，CMake 会按仓库内固定的 `resources/desktop-dictionary.lock.json` 校验每个词库文件的名称、大小和 SHA-256，并将这些文件安装到 `${CMAKE_INSTALL_DATADIR}/msime-client/resources`；仓库自带的六套辅助码表（`resources/helpcodes`，不在词库发布里）装进其中的 `helpcodes/`，Engine 从资源目录下的这个子目录读辅助码表，宿主校验放行它；锁文件作为同级的来源元数据安装，不会混入 Engine 运行目录。`msime-linux-setup --download` 下载的词库目录目前不带辅助码表。这样可以直接使用已安装资源准备状态：
+若安装时已在 CMake 配置阶段传入 `-DMSIME_ENGINE_RESOURCES=/absolute/verified-resources`，CMake 会按仓库内固定的 `resources/desktop-dictionary.lock.json` 校验每个词库文件的名称、大小和 SHA-256，并将这些文件安装到 `${CMAKE_INSTALL_DATADIR}/msime-client/resources`；仓库自带的七套辅助码表（`resources/helpcodes`，不在词库发布里）装进其中的 `helpcodes/`，Engine 从资源目录下的这个子目录读辅助码表，宿主校验放行它；锁文件作为同级的来源元数据安装，不会混入 Engine 运行目录。`msime-linux-setup --download` 下载的词库目录目前不带辅助码表。这样可以直接使用已安装资源准备状态：
 
 ```sh
 msime-linux-prepare --installed /absolute/new-state
@@ -741,7 +794,7 @@ systemctl --user enable --now msime-linux-voice.socket
 
 `msime-linux-clipboard-monitor /absolute/runtime-options.json` 在没有 Tauri 设置窗口时也可采集文本历史。它读取 runtime-options 的 `preferences_directory`，仅在该目录已保存的 `preferences.json` 中明确开启 `clipboard_history` 时工作；如果指定 `clipboard_history_path`，它必须指向同目录的 `clipboard_history.json`。配置读取失败或关闭开关时停止采集并忘记本轮去重状态。
 
-Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和 `xfixes` pkg-config 模块时，安装 `msime-linux-clipboard-watch-x11`，通过 XFixes 监听 CLIPBOARD 所有权变化，并优先使用同一工具的 `--read` 原生读取路径，无需额外安装 `xclip`/`xsel`。读取支持 UTF8_STRING、STRING 编码回退和 INCR 分块传输，限制累计数据量并使用统一超时；原生读取不可用时仍可回退 `xclip` 或 `xsel`。再次复制相同文本也会触发捕获。监听模式只输出事件标记；读取模式将有界文本经标准输出管道交给监控器，不写日志。不支持事件监听的环境继续以 750ms 间隔轮询；Wayland 的 `wl-paste --watch` 启动后以非零状态退出时，回退读取节流为每 5 秒一次，避免反复读取剪贴板造成桌面焦点抖动。每次文本读取限时 1 秒、最多 12000 个 UTF-8 字节，并保留最多 4000 个完整 UTF-16 单元。文本经标准输入交给 `msime-linux-clipboard-capture`，由 Host API 在偏好锁内重新检查开关并持有历史锁写入，避免关闭设置与写入竞态。监视器不打印剪贴板文本。
+Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和 `xfixes` pkg-config 模块时，安装 `msime-linux-clipboard-watch-x11`，通过 XFixes 监听 CLIPBOARD 所有权变化，并优先使用同一工具的 `--read` 原生读取路径，无需额外安装 `xclip`/`xsel`。读取支持 UTF8_STRING、STRING 编码回退和 INCR 分块传输，限制累计数据量并使用统一超时；原生读取不可用时仍可回退 `xclip` 或 `xsel`。再次复制相同文本也会触发捕获。监听模式只输出事件标记；读取模式将有界文本经标准输出管道交给监控器，不写日志。不支持事件监听的环境继续以 750ms 间隔轮询，轮询只经 X11 读取，从不调用 `wl-paste`。Wayland 的 `wl-paste --watch` 启动后以非零状态退出，说明合成器不提供 data-control 协议（GNOME/Mutter 就是这样）：在这种合成器上 `wl-paste` 只能临时建窗口抢走键盘焦点才读得到剪贴板，每读一次都会打断前台应用里的拼音预编辑，并让 gnome-shell 刷 `meta_window_set_stack_position_no_sync` 断言。监视器因此改用 `msime-linux-clipboard-watch-x11` 经 XWayland 监听和读取（Mutter 会把 Wayland 剪贴板同步到 XWayland），在日志里记一行原因，关闭再开启剪贴板历史前不再尝试 `wl-paste --watch`；没有 `DISPLAY` 时暂停采集。每次文本读取限时 1 秒、最多 12000 个 UTF-8 字节，并保留最多 4000 个完整 UTF-16 单元。文本经标准输入交给 `msime-linux-clipboard-capture`，由 Host API 在偏好锁内重新检查开关并持有历史锁写入，避免关闭设置与写入竞态。监视器不打印剪贴板文本。
 
 可按需执行 `systemctl --user enable --now msime-linux-clipboard.service`，使用默认 XDG runtime-options 路径。`make install` 本身不启用服务，由 `msime-linux-setup` 在首次配置时启用；语音和在线服务不依赖它。启用后服务随 `graphical-session.target` 启动，桌面会话需向用户服务管理器提供 `WAYLAND_DISPLAY` 或 `DISPLAY`。没有这个 target 的会话（Sway、i3、未用 uwsm 的 Hyprland 等）由随包安装的 XDG 自启动项 `msime-linux-clipboard.desktop` 在登录时启动，这对应 Windows 上剪贴板监视随输入法在每次登录时启动：它先把本次会话的 `WAYLAND_DISPLAY`、`DISPLAY`、`XAUTHORITY` 导入用户服务管理器，再重启服务，使 linger 下遗留的旧实例也换到本次会话的显示。从未启用服务的用户不受影响，自启动项什么都不做；`graphical-session.target` 已在运行时也交给它，不重复启动。安装包把它放在 `/etc/xdg/autostart/`；CMake 安装在前缀为 `/usr` 时同样放在那里，其他前缀放在 `<前缀>/etc/xdg/autostart/`，随 `cmake --install --prefix` 一起移动，但只有这个目录在会话的 `XDG_CONFIG_DIRS` 里时才会被读到。安装位置、卸载与启动条件由 `tests/core/clipboard_autostart.py` 钉住。
 
@@ -849,7 +902,7 @@ Linux 安装包包含 Windows 固定提交中的开始、结束录音提示音�
 
 ### Wayland 剪贴板变更通知
 
-启用剪贴板历史时，监视服务优先使用 `wl-paste --watch` 接收复制事件，减少快速连续复制被轮询漏掉的情况。每个事件通过标准输入读取最多 4096 字节并重新读取历史开关；空、清除或标记为敏感的选择不保存。关闭历史或停止服务会结束监听及其子进程。缺少工具、不支持 data-control 或监听退出时回退到原有有界轮询，失败后至少间隔 30 秒再尝试监听。协议依据 [wl-clipboard 官方手册](https://github.com/bugaevc/wl-clipboard/blob/master/data/wl-clipboard.1)。
+启用剪贴板历史时，监视服务优先使用 `wl-paste --watch` 接收复制事件，减少快速连续复制被轮询漏掉的情况。每个事件通过标准输入读取最多 4096 字节并重新读取历史开关；空、清除或标记为敏感的选择不保存。关闭历史或停止服务会结束监听及其子进程。缺少工具或监听异常退出时回退到有界轮询，失败后至少间隔 30 秒再尝试监听；不支持 data-control 时改经 XWayland 监听，见上文。协议依据 [wl-clipboard 官方手册](https://github.com/bugaevc/wl-clipboard/blob/master/data/wl-clipboard.1)。
 
 剪贴板监视读取完整 runtime options 和偏好文件时允许最多 1 MiB，容纳自定义语音提示词等设置，不再因为超过 16 KiB 而停用历史。读取只接受普通文件，使用非阻塞打开并核对读取前后的文件信息；遇到写入中的不完整配置会跳过本轮，后续重新读取。剪贴板文本自身仍保持 4096 字节上限。
 
@@ -977,7 +1030,7 @@ IBus 属性菜单与 Fcitx5 状态区按设计稿的顺序和文案排列：「�
 
 IBus 候选表只发布可表达的行级颜色：候选边框、圆角与阴影只由 Fcitx5 classicui 主题绘制，accent 颜色只在 IBus 生效，圆角、阴影与 hover 在 IBus 中无法呈现。固定候选仅在未高亮时使用 accent，高亮后与其他候选一样优先使用选中行正文颜色。
 
-候选数量（1–9）、候选学习开关、词频调节模式、触发次数和线性调整步长菜单在配置共享偏好目录时持久化保存，后台只修改对应字段并保留其他调频参数。成功后由共享运行时接收偏好更新，组合中的应用时机和候选排序仍归 Engine，不主动完成组合。单选取消通知及保存期间的重复点击被忽略，页大小动作仅接受一个 1–9 数字，触发次数和线性步长仅接受 1–10；失败保留原设置。未配置存储目录的预览保留会话级覆盖，切换这些选项会先结束当前组合再重建 Engine 会话。私密输入和受限字段禁用候选学习开关。
+候选数量（1–10，第十个候选用 0 键选、序号标 0）、候选学习开关、词频调节模式、触发次数和线性调整步长菜单在配置共享偏好目录时持久化保存，后台只修改对应字段并保留其他调频参数。成功后由共享运行时接收偏好更新，组合中的应用时机和候选排序仍归 Engine，不主动完成组合。单选取消通知及保存期间的重复点击被忽略，页大小动作仅接受 1–10，触发次数和线性步长仅接受 1–10；失败保留原设置。未配置存储目录的预览保留会话级覆盖，切换这些选项会先结束当前组合再重建 Engine 会话。私密输入和受限字段禁用候选学习开关。
 
 智能标点、重复标点转中文、成对标点及标点锁定菜单在配置共享偏好目录时持久化保存。重复标点转中文只取决于智能标点和它自己的开关，与成对标点补全无关，与 Windows `_CanInterceptSmartPunctuationRevert` 一致；智能标点关闭时中文标点模式下每个标点键都输出中文标点，与 Windows 在智能标点关闭时直接取标点表一致。后台按 revision 比较只写入选定字段，成功后通过共享偏好更新路径应用，保存失败保留原设置。保存期间禁止重复提交，标点锁定只响应选中通知。未配置存储目录的预览保留原会话级行为。
 

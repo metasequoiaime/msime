@@ -2,6 +2,7 @@
 #include "CandidateHttpPolicy.h"
 
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -45,9 +46,8 @@ int transfer_progress(void *context, curl_off_t, curl_off_t, curl_off_t, curl_of
 
 std::string request_url(const std::string &query)
 {
-    std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
-        msime_client_cloud_request_url(reinterpret_cast<const uint8_t *>(query.data()), query.size()),
-        msime_client_string_free);
+    auto raw = msime::host_api::own_string(
+        msime_client_cloud_request_url(reinterpret_cast<const uint8_t *>(query.data()), query.size()));
     if (!raw)
         return {};
     try

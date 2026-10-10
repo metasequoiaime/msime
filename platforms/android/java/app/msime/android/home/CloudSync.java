@@ -612,8 +612,9 @@ public final class CloudSync {
             return pending == null ? 0 : pending;
         }
 
+        /** 云同步上传的快照只有词，不带输入记录（学习调权、固定位置和选词计数只进本地备份）。 */
         private void exportSnapshot(Path destination) throws IOException, JSONException {
-            exportDictionarySnapshot(context, destination);
+            exportDictionarySnapshot(context, destination, false);
         }
 
         /** 下载的快照交给现有的激活队列，键盘下次没有会话时整份激活。 */
@@ -674,13 +675,20 @@ public final class CloudSync {
         return HostOptionsPolicy.read(new File(files, "runtime-options.json"));
     }
 
-    /** 把本机个人词库写成云端快照格式的 NDJSON（`export_snapshot`），返回快照的元数据（`entries` 是词数）：云同步上传和本地备份（{@link LocalBackup}）都用它。 */
-    static JSONObject exportDictionarySnapshot(Context context, Path destination) throws IOException, JSONException {
+    /**
+     * 把本机个人词库写成云端快照格式的 NDJSON（`export_snapshot`），返回快照的元数据（`entries` 是词数）：云同步上传和本地备份（{@link LocalBackup}）都用它。
+     *
+     * @param includeLearning 为真时再写上输入记录（学习调权、删除记录、固定位置和选词计数），元数据里多出 `learning` 条数。只有本地备份传真；为假时请求里不带这个字段，与云同步原来上传的快照逐字节相同。
+     */
+    static JSONObject exportDictionarySnapshot(Context context, Path destination, boolean includeLearning)
+            throws IOException, JSONException {
         Files.deleteIfExists(destination);
+        JSONObject action = new JSONObject().put("operation", "export_snapshot")
+            .put("destination", destination.toAbsolutePath().toString());
+        if (includeLearning) action.put("include_learning", true);
         return nativeValue(NativeClient.dictionary(new JSONObject()
             .put("options", new JSONObject(hostOptions(context)))
-            .put("action", new JSONObject().put("operation", "export_snapshot")
-                .put("destination", destination.toAbsolutePath().toString())).toString()));
+            .put("action", action).toString()));
     }
 
     /** 本机用户词库里的词数（不含内置词库）。 */

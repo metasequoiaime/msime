@@ -60,6 +60,8 @@ pub const UNSUPPORTED_INPUT_SCHEME: &str = "Unsupported input scheme";
 /// 方案合法，但不在会话的 `enabled_schemes` 里（例如五笔版的 Engine 被要求切到全拼）。
 pub const INPUT_SCHEME_NOT_ENABLED: &str = "Input scheme is not enabled";
 pub const UNSUPPORTED_SHUANGPIN_PROFILE: &str = "Unsupported shuangpin profile";
+/// 双拼方案是 `custom`，但没有给表或表不合法；消息后面接着具体原因（`shuangpin::custom::CustomProfileError`）。
+pub const INVALID_CUSTOM_SHUANGPIN_PROFILE: &str = "Invalid custom shuangpin profile";
 pub const UNSUPPORTED_WUBI_PROFILE: &str = "Unsupported wubi profile";
 pub const UNSUPPORTED_FREQUENCY_MODE: &str = "Unsupported frequency mode";
 pub const UNSUPPORTED_VIETNAMESE_METHOD: &str = "Unsupported Vietnamese input method";

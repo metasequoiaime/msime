@@ -534,7 +534,8 @@ export function ExternalSkinDirectoryRow({
                       : ""}
             </span>
             {status}
-            {skins.catalog?.directory && (
+            {/* 目录只在要手动把皮肤文件夹复制进去时有用；能用「导入皮肤」的宿主（手机）上它是应用沙箱里的内部路径，用户既看不到也用不上，不显示。 */}
+            {!importsSkin && skins.catalog?.directory && (
               <code className={settings.externalDirectory} title={skins.catalog.directory}>
                 {skins.catalog.directory}
               </code>

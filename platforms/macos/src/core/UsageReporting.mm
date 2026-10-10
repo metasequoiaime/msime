@@ -4,6 +4,7 @@
 #import <AppKit/AppKit.h>
 
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 
 #include <execinfo.h>
 #include <fcntl.h>
@@ -25,10 +26,10 @@ id CallHost(HostCall call, NSDictionary *request)
 {
     NSData *body = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
     if (!body) return nil;
-    char *raw = call(static_cast<const uint8_t *>(body.bytes), body.length);
+    auto raw = msime::host_api::own_string(
+        call(static_cast<const uint8_t *>(body.bytes), body.length));
     if (!raw) return nil;
-    NSData *data = [NSData dataWithBytes:raw length:strlen(raw)];
-    msime_client_string_free(raw);
+    NSData *data = [NSData dataWithBytes:raw.get() length:strlen(raw.get())];
     NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
     if (![envelope isKindOfClass:NSDictionary.class]) return nil;
     if ([envelope[@"ok"] isEqual:@YES]) return envelope[@"value"];

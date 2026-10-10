@@ -176,9 +176,10 @@ static void TestBoundsAndEmptyResults() {
         batch.requests[i].reply(Response(@""));
     }
     assert(done);
-    NSArray *ten = [nine arrayByAddingObject:Item(@"ten")];
+    // 一批是一页候选，最多十个（每页候选数上限，#6679）。
+    NSArray *eleven = [[nine arrayByAddingObject:Item(@"ten")] arrayByAddingObject:Item(@"eleven")];
     NSString *oversized = [@"x" stringByPaddingToLength:262145 withString:@"x" startingAtIndex:0];
-    for (NSArray *invalid in @[@[], ten, @[@1], @[@{@"text":@"", @"request":@{}}],
+    for (NSArray *invalid in @[@[], eleven, @[@1], @[@{@"text":@"", @"request":@{}}],
         @[@{@"text":@"one", @"request":@1}], @[Item(oversized)], @[@{@"text":@"one", @"request":@{@"body":oversized}}]]) {
         __block NSUInteger calls = 0;
         SyntheticTranslationBatch *rejected = Batch(invalid, ^(NSArray *results) { assert(++calls == 1 && results.count == 0); });
@@ -308,21 +309,21 @@ static void TestTencentFailuresAndCancellation() {
         assert(calls == 1 && batch.requests.count == 0);
         AssertReleased(batch);
     }
-    NSMutableArray *ten = [NSMutableArray array];
-    for (NSUInteger i = 0; i < 10; ++i) [ten addObject:items[0]];
+    NSMutableArray *eleven = [NSMutableArray array];
+    for (NSUInteger i = 0; i < 11; ++i) [eleven addObject:items[0]];
     __block NSUInteger calls = 0;
-    SyntheticTranslationBatch *oversized = TencentBatch(ten, ^(NSArray *results) { assert(++calls == 1 && results.count == 0); });
+    SyntheticTranslationBatch *oversized = TencentBatch(eleven, ^(NSArray *results) { assert(++calls == 1 && results.count == 0); });
     [oversized start];
     assert(calls == 1 && oversized.requests.count == 0);
     AssertReleased(oversized);
-    [ten removeLastObject];
-    __block BOOL nineDone = NO;
-    SyntheticTranslationBatch *nine = TencentBatch(ten, ^(NSArray *results) { assert(results.count == 9); nineDone = YES; });
-    [nine start];
-    assert(nine.requests.count == 1 && [nine.descriptors[0][@"expected_count"] isEqual:@9]);
-    nine.requests[0].reply(TencentResponse(@[@"一", @"二", @"三", @"四", @"五", @"六", @"七", @"八", @"九"]));
-    assert(nineDone);
-    AssertReleased(nine);
+    [eleven removeLastObject];
+    __block BOOL tenDone = NO;
+    SyntheticTranslationBatch *ten = TencentBatch(eleven, ^(NSArray *results) { assert(results.count == 10); tenDone = YES; });
+    [ten start];
+    assert(ten.requests.count == 1 && [ten.descriptors[0][@"expected_count"] isEqual:@10]);
+    ten.requests[0].reply(TencentResponse(@[@"一", @"二", @"三", @"四", @"五", @"六", @"七", @"八", @"九", @"十"]));
+    assert(tenDone);
+    AssertReleased(ten);
     for (NSDictionary *config in @[@{}, @{@"enabled":@NO},
         @{@"enabled":@YES, @"secret_id":@"AKIDsynthetic", @"secret_key":@"synthetic", @"region":@"bad\nregion"}]) {
         __block BOOL rejected = NO;

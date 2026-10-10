@@ -37,7 +37,7 @@ pub const MAX_PICK_PAIR_WORD_CHARS: usize = 4;
 pub const PICK_PAIR_MAX_GAP_SECONDS: u64 = 10;
 
 /// An explicit pick among alternatives says more than accepting a decoded sentence, so it counts twice (IS:1181).
-const DICTIONARY_PICK_TIMES: u32 = 2;
+pub(super) const DICTIONARY_PICK_TIMES: u32 = 2;
 
 /// Split and umlaut-normalised syllables of a reading.
 fn normalized_syllables(pinyin: &str) -> Vec<String> {

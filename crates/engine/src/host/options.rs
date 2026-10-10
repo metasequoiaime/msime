@@ -14,7 +14,7 @@ use crate::types::{
     autocorrect_type, fuzzy_rule, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, LocalModeOptions, MentionEntry,
     MixedExpressiveOptions, QuickPhraseEntry, SchemeSet, SchemeType, SentenceAssociationOptions,
-    ShuangpinProfileKind, WubiInputOptions, WubiProfileKind,
+    ShuangpinCustomTable, ShuangpinProfileKind, WubiInputOptions, WubiProfileKind,
 };
 use crate::user_dictionary::generation::prepare_runtime_paths_for;
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
@@ -59,8 +59,10 @@ pub struct EngineOptions {
     pub scheme: u8,
     /// 会话允许运行的方案，`prepare_options` 填 [`SchemeSet::ALL`]，`prepare_options_for` 填调用方给的集合。宿主按产品版本收窄它：`scheme` 不在其中时建会话失败（`INPUT_SCHEME_NOT_ENABLED`），不在其中的方案不构造 provider。
     pub enabled_schemes: SchemeSet,
-    /// 0 xiaohe, 1 ziranma, 2 shoudao, 3 microsoft. 双拼不在 `enabled_schemes` 里时不校验，不合法的值按小鹤处理。
+    /// 0 xiaohe, 1 ziranma, 2 shoudao, 3 microsoft, 4 custom（表在 `shuangpin_custom_profile`）。双拼不在 `enabled_schemes` 里时不校验，不合法的值按小鹤处理。
     pub shuangpin_profile: u8,
+    /// `shuangpin_profile` 为 4 时的键位表（`SessionOptions::shuangpin_custom_profile`）。双拼在 `enabled_schemes` 里时缺表或表不合法，建会话失败（`INVALID_CUSTOM_SHUANGPIN_PROFILE`）；宿主应先用 `validate_shuangpin_custom_profile` 校验，不合法就不要传 4。
+    pub shuangpin_custom_profile: Option<ShuangpinCustomTable>,
     pub shuangpin_preedit_uses_raw: bool,
     pub learning: bool,
     pub autocorrect_transposition: bool,
@@ -161,6 +163,7 @@ pub fn prepare_options_for(
         scheme: SchemeType::Quanpin as u8,
         enabled_schemes,
         shuangpin_profile: ShuangpinProfileKind::Xiaohe as u8,
+        shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
@@ -238,6 +241,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.scheme = scheme;
     session.enabled_schemes = options.enabled_schemes;
     session.shuangpin_profile = shuangpin_profile;
+    session.shuangpin_custom_profile = options.shuangpin_custom_profile.clone();
     session.shuangpin_preedit_uses_raw = options.shuangpin_preedit_uses_raw;
     session.single_character_only = options.single_character_only;
     session.vietnamese_input_method = vietnamese_input_method;

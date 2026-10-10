@@ -129,7 +129,8 @@
   --animate-ms-wiggle: ms-wiggle 0.6s ease both;
   --animate-ms-sheet-up: ms-sheet-up 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   --animate-ms-fade-in: ms-fade-in 0.2s ease both;
-  --animate-ms-push-in: ms-push-in 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  /* `backwards`, not `both`: a transform animation still in effect after it ends makes the pushed page the containing block for every fixed descendant, so dialogs and their backdrops stopped at the content's height instead of covering the screen. The end state is the element's own style anyway. */
+  --animate-ms-push-in: ms-push-in 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 
   @keyframes splash-circ-in {
     0% {
@@ -397,6 +398,19 @@
   background-color: var(--divider-color);
   backdrop-filter: none;
 }
+/* 主操作按钮：强调色底配白字，圆角跟随平台（`--p-r-ctl`，手机是胶囊）。迁移到 Tailwind 时 `primary` 只在引导页留下了局部样式，别处写了 `className="primary"` 的按钮一直是浏览器默认按钮。 */
+@utility primary {
+  padding: 8px 18px;
+  border: 0;
+  border-radius: var(--p-r-ctl, 8px);
+  background: var(--accent-strong);
+  color: #ffffff;
+  font-weight: 600;
+
+  &:hover:not(:disabled) {
+    filter: brightness(1.06);
+  }
+}
 @utility secondary {
   margin-top: 12px;
   padding: 7px 12px;
@@ -406,6 +420,21 @@
 
   &:hover:not(:disabled) {
     background: var(--button-secondary-hover);
+  }
+
+  /* 手机上的次要按钮用平台的按钮 token：HarmonyOS 是浅色底、强调色字、无边框的胶囊，Android、iOS 各按自己的设计稿；桌面仍是上面这套。 */
+  :is([data-platform="harmony"], [data-platform="android"], [data-platform="ios"]) & {
+    padding: 7px 12px;
+    border: var(--p-btn-border, 0);
+    border-radius: var(--p-r-ctl, 8px);
+    background: var(--p-btn-bg, var(--button-secondary-bg));
+    color: var(--p-btn-fg, inherit);
+    white-space: nowrap;
+  }
+  :is([data-platform="harmony"], [data-platform="android"], [data-platform="ios"])
+    &:hover:not(:disabled) {
+    background: var(--p-btn-bg, var(--button-secondary-hover));
+    opacity: 0.85;
   }
 }
 @utility danger-text {
@@ -2624,6 +2653,8 @@
   body {
     background: var(--chrome-bg);
     color: var(--text-color);
+    /* 手机 WebView（HarmonyOS 的 ArkWeb、Android WebView、iOS WKWebView）点按时默认给被点的元素盖一块蓝色或灰色高亮，原生应用里没有这种东西；按下的反馈由各控件自己的 :active 样式给。 */
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
@@ -2698,6 +2729,10 @@
   /* 季节主题的深色强调色是浅色，因此共用页面放在强调色底上的白字（主按钮、选中的标签和聊天气泡下的 `--accent-strong`；生词复习按钮下的普通强调色）改用强调色自己的前景色。没有季节主题时前景色就是白色，没有变化。 */
   :is([data-platform="harmony"], [data-platform="hm2"])
     :is(.bg-accent-strong, .bg-accent).text-white {
+    color: var(--p-on-accent);
+  }
+  /* 主按钮 `primary` 同样画在强调色上。 */
+  :is([data-platform="harmony"], [data-platform="hm2"]) .primary {
     color: var(--p-on-accent);
   }
 

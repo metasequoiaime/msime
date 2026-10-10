@@ -733,8 +733,8 @@ public:
       return false;
     // The size follows the list rather than being written twice: jiajia was added as the sixth
     // schema and the count stayed at five, which stopped this addon compiling at all.
-    static constexpr std::array schemas = {"lantian",     "ziranma", "shouyou2_0",
-                                           "shouyouplus", "xiaohe",  "jiajia"};
+    static constexpr std::array schemas = {"lantian", "ziranma", "shouyou2_0", "shouyouplus",
+                                           "xiaohe",  "jiajia",  "wubi86"};
     const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
     const auto current = preferences_.value(section, Json::object()).value(
         "schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
@@ -768,7 +768,7 @@ public:
     return true;
   }
   bool setCandidatePageSize(uint8_t size) {
-    if (!session_ || size < 1 || size > 9 || restricted() || privateInput()) return false;
+    if (!session_ || size < 1 || size > 10 || restricted() || privateInput()) return false;
     if (msime::linux_host::strict_json_value(view_, "page_size", size_t{}) == size) return true;
     view_ = response(msime_client_set_candidate_page_size(session_, size)).at("view");
     preferences_["candidate_page_size"] = size;
@@ -3695,7 +3695,8 @@ public:
       words_.push_back(std::make_unique<FcitxCandidate>(
           factory, candidate, state.traditionalApplies(), annotations,
           msime::linux_host::korean_hanja_gloss(state.view_, candidate)));
-      labels_.emplace_back(std::to_string(words_.size()) + ". ");
+      // 序号与选它的数字键一致：第十个由 0 键选，标 0。
+      labels_.emplace_back((words_.size() == 10 ? std::string("0") : std::to_string(words_.size())) + ". ");
     }
   }
   const fcitx::Text &label(int index) const override { return labels_.at(index); }
@@ -5837,6 +5838,7 @@ public:
     candidate_page_size_menu_.addAction(&candidate_page_size7_);
     candidate_page_size_menu_.addAction(&candidate_page_size8_);
     candidate_page_size_menu_.addAction(&candidate_page_size9_);
+    candidate_page_size_menu_.addAction(&candidate_page_size10_);
     learning_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-learning", &instance->userInterfaceManager());
     frequency_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-frequency", &instance->userInterfaceManager());
     frequency_trigger_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-frequency-trigger", &instance->userInterfaceManager());
@@ -6491,6 +6493,7 @@ public:
   FcitxCandidatePageSizeItemAction candidate_page_size7_{&factory_, 7};
   FcitxCandidatePageSizeItemAction candidate_page_size8_{&factory_, 8};
   FcitxCandidatePageSizeItemAction candidate_page_size9_{&factory_, 9};
+  FcitxCandidatePageSizeItemAction candidate_page_size10_{&factory_, 10};
   FcitxLearningAction learning_action_{&factory_};
   FcitxFrequencyAction frequency_action_{&factory_};
   FcitxFrequencyNumberAction frequency_trigger_action_{&factory_, "trigger_count", "词频触发次数"};

@@ -269,10 +269,11 @@ class AiServiceContract(unittest.TestCase):
             return {"choices": [{"message": {"content": json.dumps(answer, ensure_ascii=False)}}]}
 
         online.fetch = fetch
+        # 合并字典用 {**a, **b} 而不是 a | b：后者要 Python 3.9，legacy 包的运行时验收在 Python 3.7 上跑这个测试。
         # A prompt someone cleared by hand, whitespace included, is still "not customised".
         for blank in ("", "  \n"):
             sent.clear()
-            rows = online.ai(query | {"ai_assistant": options | {"prompt_custom_1": blank}}, PRIVATE)
+            rows = online.ai({**query, "ai_assistant": {**options, "prompt_custom_1": blank}}, PRIVATE)
             self.assertEqual([row["text"] for row in rows], ["输入法", "书入法"])
             system = sent[0]["messages"][0]
             self.assertEqual(system["role"], "system")
@@ -281,15 +282,15 @@ class AiServiceContract(unittest.TestCase):
             self.assertIn("candidates", system["content"])
         # A prompt the user did write is sent untouched.
         sent.clear()
-        online.ai(query | {"ai_assistant": options | {"prompt_custom_1": "synthetic prompt"}}, PRIVATE)
+        online.ai({**query, "ai_assistant": {**options, "prompt_custom_1": "synthetic prompt"}}, PRIVATE)
         self.assertEqual(sent[0]["messages"][0]["content"], "synthetic prompt")
         # An empty slot two or three gets the built-in text too, not slot one's, as client-core does; "custom" names no slot and sends nothing.
         for slot in ("custom_2", "custom_3"):
             sent.clear()
-            online.ai(query | {"ai_assistant": options | {"prompt_id": slot, "prompt_custom_1": "synthetic prompt"}}, PRIVATE)
+            online.ai({**query, "ai_assistant": {**options, "prompt_id": slot, "prompt_custom_1": "synthetic prompt"}}, PRIVATE)
             self.assertEqual(sent[0]["messages"][0]["content"], online.DEFAULT_AI_PROMPT)
         sent.clear()
-        online.ai(query | {"ai_assistant": options | {"prompt_id": "custom", "prompt_custom_1": "synthetic prompt"}}, PRIVATE)
+        online.ai({**query, "ai_assistant": {**options, "prompt_id": "custom", "prompt_custom_1": "synthetic prompt"}}, PRIVATE)
         self.assertEqual(sent, [])
 
     def test_builtin_prompt_matches_client_core(self):
