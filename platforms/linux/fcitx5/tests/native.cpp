@@ -2399,6 +2399,61 @@ int main(int argc, char **argv) {
     engine.cloud_clipboard_item2_.activate(&ic);
     require(ic.committed == beforeCloudSecond + "云剪贴板第二条",
             "cloud clipboard menu commits selected provider entry");
+    {
+      // Moving the local history store must release reads and mutations that
+      // still belong to the previous directory; otherwise refreshClipboard()
+      // waits on an old future forever and never starts the new read.
+      auto switched = options;
+      const auto switchedClipboardPath = std::filesystem::path(directory) / "clipboard-switch";
+      switched["clipboard_history_path"] =
+          (switchedClipboardPath / "clipboard_history.json").string();
+      std::ofstream(path) << switched.dump();
+      std::promise<void> releaseRead;
+      std::promise<void> releaseMutation;
+      auto readGate = releaseRead.get_future().share();
+      auto mutationGate = releaseMutation.get_future().share();
+      state->clipboard_job_ = detachedJob([readGate] {
+        readGate.wait();
+        return Json::object();
+      });
+      state->clipboard_mutation_job_ = detachedJob([mutationGate] {
+        mutationGate.wait();
+        return Json::object();
+      });
+      const auto generationBefore = state->clipboard_generation_;
+      state->refreshProviderSockets();
+      require(state->clipboard_generation_ > generationBefore &&
+                  state->clipboard_path_ == switchedClipboardPath.string() &&
+                  !state->clipboard_job_.valid() && !state->clipboard_mutation_job_.valid(),
+              "switching clipboard stores releases stale futures");
+      releaseRead.set_value();
+      releaseMutation.set_value();
+      std::ofstream(path) << options.dump();
+      state->refreshProviderSockets();
+    }
+    {
+      // A cloud clipboard socket switch has the same lifetime rule: the old
+      // provider request must not block requests sent to the new socket.
+      auto switched = options;
+      const auto switchedCloudSocket = std::filesystem::path(directory) / "cloud-clipboard-switch.sock";
+      switched["cloud_clipboard_provider_socket"] = switchedCloudSocket.string();
+      std::ofstream(path) << switched.dump();
+      std::promise<void> release;
+      auto gate = release.get_future().share();
+      state->cloud_clipboard_job_ = detachedJob([gate] {
+        gate.wait();
+        return Json::object();
+      });
+      const auto generationBefore = state->cloud_clipboard_generation_;
+      state->refreshProviderSockets();
+      require(state->cloud_clipboard_generation_ > generationBefore &&
+                  state->cloud_clipboard_socket_ == switchedCloudSocket.string() &&
+                  !state->cloud_clipboard_job_.valid(),
+              "switching cloud clipboard sockets releases stale futures");
+      release.set_value();
+      std::ofstream(path) << options.dump();
+      state->refreshProviderSockets();
+    }
     if (ai) {
       require(onlineQuery.value("ai_eligible", false), "AI query eligible");
       require(onlineQuery.at("ai_assistant").value("enabled", false), "AI provider enabled");

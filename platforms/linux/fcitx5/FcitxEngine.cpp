@@ -1685,6 +1685,8 @@ public:
       ++clipboard_generation_;
       clipboard_items_.clear();
       clipboard_loading_ = false;
+      clipboard_job_ = {};
+      clipboard_mutation_job_ = {};
     }
     clipboard_path_ = std::move(clipboard_path);
     auto cloud_clipboard_socket = cloudClipboardSocket(options);
@@ -1692,6 +1694,7 @@ public:
       ++cloud_clipboard_generation_;
       cloud_clipboard_items_.clear();
       cloud_clipboard_enabled_ = true;
+      cloud_clipboard_job_ = {};
     }
     cloud_clipboard_socket_ = std::move(cloud_clipboard_socket);
     voice_socket_ = providerSocket(options, "voice_provider_socket",
@@ -1894,6 +1897,8 @@ public:
         ++clipboard_generation_;
         clipboard_items_.clear();
         clipboard_loading_ = false;
+        clipboard_job_ = {};
+        clipboard_mutation_job_ = {};
         clipboard_path_ = std::move(nextClipboard);
       }
       auto nextCloudClipboard = cloudClipboardSocket(options);
@@ -1901,6 +1906,7 @@ public:
         ++cloud_clipboard_generation_;
         cloud_clipboard_items_.clear();
         cloud_clipboard_enabled_ = true;
+        cloud_clipboard_job_ = {};
         cloud_clipboard_socket_ = std::move(nextCloudClipboard);
       }
       auto nextVoice = providerSocket(options, "voice_provider_socket",
