@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "MSIME input method"
+      "value": "水杉输入法"
     },
     {
       "name": "keyboard_ability_desc",
-      "value": "MSIME keyboard"
+      "value": "水杉输入法键盘"
     },
     {
       "name": "keyboard_ability_label",
-      "value": "MSIME"
+      "value": "水杉输入法"
     },
     {
       "name": "internet_permission_reason",

@@ -2519,6 +2519,7 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
         "touch_voice_shortcut",
         "touch_number_keypad_order",
         "touch_twenty_six_key_number_layout",
+        "touch_shuangpin_key_hints",
     ] {
         legacy["preferences"].as_object_mut().unwrap().remove(key);
     }
@@ -2537,6 +2538,9 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
         loaded.preferences.touch_twenty_six_key_number_layout,
         TwentySixKeyNumberLayout::Row
     );
+    // 旧文档没有这个键：双拼键位提示照旧显示。
+    assert!(loaded.preferences.touch_shuangpin_key_hints);
+    assert!(Preferences::default().touch_shuangpin_key_hints);
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
 
     let saved = store
@@ -2549,10 +2553,13 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
                 touch_voice_shortcut: true,
                 touch_number_keypad_order: NumberKeypadOrder::Calculator,
                 touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::NineKey,
+                touch_shuangpin_key_hints: false,
                 ..Preferences::default()
             },
         )
         .unwrap();
+    assert!(!saved.preferences.touch_shuangpin_key_hints);
+    assert!(!store.load().unwrap().preferences.touch_shuangpin_key_hints);
     assert_eq!(
         saved.preferences.touch_number_keypad_order,
         NumberKeypadOrder::Calculator
@@ -4451,6 +4458,7 @@ const NOT_CREDENTIALS: &[&str] = &[
     "touch_keyboard_layout",
     "touch_keyboard_schemes",
     "touch_number_keypad_order",
+    "touch_shuangpin_key_hints",
     "touch_twenty_six_key_number_layout",
     "voice_input.hotkey_ctrl_f9",
     "voice_input.hotkey_ctrl_win",

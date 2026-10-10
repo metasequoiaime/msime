@@ -9,10 +9,13 @@ public final class ShuangpinKeyHintPolicy {
     private static final int MAX_HINT_LENGTH = 128;
     private static final String OK_TRUE = "\"ok\"\\s*:\\s*true";
 
+    /** 共享偏好里控制提示的开关，缺省为开；关掉后双拼也不画提示，其余条件与它无关。 */
+    public static final String PREFERENCE_KEY = "touch_shuangpin_key_hints";
+
     private ShuangpinKeyHintPolicy() { }
 
-    public static boolean visible(boolean dedicatedEnglish, int scheme, String localMode) {
-        return !dedicatedEnglish && scheme == 1 && "none".equals(localMode);
+    public static boolean visible(boolean dedicatedEnglish, int scheme, String localMode, boolean enabled) {
+        return enabled && !dedicatedEnglish && scheme == 1 && "none".equals(localMode);
     }
 
     /** Decode the shared host envelope; malformed or failed responses intentionally yield no map. */
@@ -72,8 +75,8 @@ public final class ShuangpinKeyHintPolicy {
     }
 
     public static String hint(Map<String, String> hints, String key,
-            boolean dedicatedEnglish, int scheme, String localMode) {
-        if (!visible(dedicatedEnglish, scheme, localMode) || key == null || hints == null)
+            boolean dedicatedEnglish, int scheme, String localMode, boolean enabled) {
+        if (!visible(dedicatedEnglish, scheme, localMode, enabled) || key == null || hints == null)
             return "";
         return hints.getOrDefault(TextPolicy.uppercase(key), "");
     }

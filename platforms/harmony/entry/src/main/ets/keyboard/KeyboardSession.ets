@@ -849,6 +849,8 @@ interface PreparedPreferences {
   touch_number_keypad_order?: string;
   /** 26 键按「123」切到的数字层：`row`（一行 1 到 0）或 `nine_key`（九宫格数字层）；旧文档没有这个键，按 `row`。 */
   touch_twenty_six_key_number_layout?: string;
+  /** 26 键双拼字母键底部的声母/韵母提示；旧文档没有这个键，按开。 */
+  touch_shuangpin_key_hints?: boolean;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
   clipboard_history: boolean;
   voice_input: VoiceInputConfiguration;
@@ -986,6 +988,8 @@ export interface KeyboardPreferences {
   readonly numberKeypadOrder: string;
   /** `TwentySixKeyNumberLayout` 归一后的 26 键数字层。 */
   readonly twentySixKeyNumberLayout: string;
+  /** `touch_shuangpin_key_hints`：关掉时 26 键双拼不画键位提示。 */
+  readonly shuangpinKeyHints: boolean;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1225,7 +1229,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
     numberKeypadOrder: NumberKeypadOrder.PHONE,
-    twentySixKeyNumberLayout: TwentySixKeyNumberLayout.ROW
+    twentySixKeyNumberLayout: TwentySixKeyNumberLayout.ROW,
+    shuangpinKeyHints: true
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1493,7 +1498,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
       numberKeypadOrder: NumberKeypadOrder.normalized(preferences.touch_number_keypad_order),
       twentySixKeyNumberLayout:
-        TwentySixKeyNumberLayout.normalized(preferences.touch_twenty_six_key_number_layout)
+        TwentySixKeyNumberLayout.normalized(preferences.touch_twenty_six_key_number_layout),
+      shuangpinKeyHints: preferences.touch_shuangpin_key_hints !== false
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(
@@ -3206,7 +3212,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const staging: string = `${stateRoot}/dictionary-snapshot-staging`;
     try {
       if (!fs.accessSync(staging)) fs.mkdirSync(staging, true);
-      // Read the shared file for each idle pass; this process may outlive a settings-side account switch.
+      // 每次空闲处理都重新读共享的会话文件：键盘进程可能比设置里的一次账号切换活得更久。
       const accountId: string | null = storedSessionUserId(new FileSessionStore(stateRoot).load());
       const action: SnapshotQueueProcessAction = {
         operation: 'process', directory: `${stateRoot}/dictionary-snapshots`,

@@ -30,6 +30,8 @@ const GLOBAL_THEME: &str = "platform.android.global_theme";
 const NUMBER_KEYPAD_ORDER: &str = "platform.android.number_keypad_order";
 /// 共享偏好 `touch_twenty_six_key_number_layout`；账号字段表收录它之前上传时会被滤掉。
 const TWENTY_SIX_KEY_NUMBER_LAYOUT: &str = "platform.android.twenty_six_key_number_layout";
+/// 共享偏好 `touch_shuangpin_key_hints`；账号字段表收录它之前上传时会被滤掉。
+const SHUANGPIN_KEY_HINTS: &str = "platform.android.shuangpin_key_hints";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
@@ -478,6 +480,11 @@ pub fn export_android_settings(
         TWENTY_SIX_KEY_NUMBER_LAYOUT,
         twenty_six_key_number_layout(preferences.touch_twenty_six_key_number_layout),
     );
+    insert_bool(
+        &mut settings,
+        SHUANGPIN_KEY_HINTS,
+        preferences.touch_shuangpin_key_hints,
+    );
     insert_new_android_settings(&mut settings, preferences);
     if let Some(feedback) = feedback {
         insert_bool(
@@ -856,6 +863,9 @@ pub fn apply_android_settings(
             _ => return None,
         };
         Some(())
+    })?;
+    applier.set_bool(SHUANGPIN_KEY_HINTS, |preferences, value| {
+        preferences.touch_shuangpin_key_hints = value
     })?;
 
     apply_new_android_settings(&mut applier)?;

@@ -22,6 +22,7 @@ import app.msime.android.NineKeyLayout;
 import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.NineKeySwipePolicy;
 import app.msime.android.SchemePreferences;
+import app.msime.android.ShuangpinKeyHintPolicy;
 import app.msime.android.SwipeHintPolicy;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
@@ -30,9 +31,9 @@ import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键、九键字母与数字键盘的左侧符号、26 键数字键盘（一行 / 九宫格）、九宫格数字键盘顺序、键盘高度、按键间距、行间距、横屏分离式键盘、浮动键盘、键盘底栏）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）、剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键、九键字母与数字键盘的左侧符号、26 键数字键盘（一行 / 九宫格）、九宫格数字键盘顺序、双拼键位提示、键盘高度、按键间距、行间距、横屏分离式键盘、浮动键盘、键盘底栏）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）、剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距、26 键数字键盘、数字键盘顺序和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_twenty_six_key_number_layout`、`touch_number_keypad_order`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、键盘底栏、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
+ * <p>键盘与本页读同一批存储：按键间距、行间距、26 键数字键盘、数字键盘顺序、双拼键位提示和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_twenty_six_key_number_layout`、`touch_number_keypad_order`、`touch_shuangpin_key_hints`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、键盘底栏、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
 public final class KeyboardOptionsPage extends DetailPage {
     private static final String[] ANIMATIONS = {"bounce", "ripple", "glow", "lift", "none"};
@@ -41,6 +42,7 @@ public final class KeyboardOptionsPage extends DetailPage {
     private static final String[][] TOOLBAR_BUTTONS = {
         {"emoji", "表情"}, {AndroidLocalSettings.TOOLBAR_PHRASE, "常用语"}, {"clipboard", "剪贴板"}, {"skin", "皮肤"},
         {AndroidLocalSettings.TOOLBAR_SCHEME, "输入方式"}, {AndroidLocalSettings.TOOLBAR_FLOATING, "浮动键盘"},
+        {AndroidLocalSettings.TOOLBAR_TEXT_EDIT, "文本编辑"},
     };
 
     private record State(JSONObject preferences, AndroidLocalSettings.Snapshot local,
@@ -118,6 +120,12 @@ public final class KeyboardOptionsPage extends DetailPage {
             preferences.optString(NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER));
         layout.nav("数字键盘顺序", "九宫格数字键盘的排列（9 键，以及选了九宫格的 26 键）", numberKeypadLabel(calculator),
             () -> pickNumberKeypadOrder(calculator));
+        // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。缺省为开，与键盘和 client-core 一致。
+        if (KeyboardScheme.XIAOHE.offeredBy(edition)) {
+            layout.toggle("双拼键位提示", "双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母",
+                preferences.optBoolean(ShuangpinKeyHintPolicy.PREFERENCE_KEY, true),
+                checked -> savePreference(ShuangpinKeyHintPolicy.PREFERENCE_KEY, checked));
+        }
         int height = KeyboardGeometry.heightAdjustmentToPercent(
             settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
                 ? settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)

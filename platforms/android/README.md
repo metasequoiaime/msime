@@ -89,7 +89,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 删除键（26 键、九键、注音、笔画、手写等所有经 `ImeLetterRows.bindBackspaceRepeat` 绑定的退格）按下立即删一次，按住 420 ms 后开始连删并逐级加速：前 8 次每 70 ms，接下来 12 次每 45 ms，之后每 30 ms（`BackspaceRepeatPolicy`，#5585）。按住往上滑离开键的上沿 8 dp 后停止连删，键上方弹出「快速删除」框（`QuickDeleteOverlay`）；滑到框里（通常是键上沿往上 40 dp，九键第一排的删除键上方空间不够时框缩到至少 28 dp；连这样的框都放不下时，例如工具栏隐藏且没在组字，这次按压不支持上滑，照常连删）框换成强调色并振动一次，此时松手先清掉手写墨迹、丢掉组字和选中的文字，再删掉光标前的全部文字；待命后滑回框外再松手什么也不删。判定与分段删除在无 Android 依赖的 `BackspaceSwipePolicy` 里：每轮用 `getTextBeforeCursor` 读至多 4096 个 UTF-16 单元，只用来确定这一轮删多长，按读到的长度 `deleteSurroundingText`，最多 256 轮；读到的文字不保存、不记录。`BackspaceRepeatPolicySmoke` 与 `BackspaceSwipePolicySmoke` 验证加速时刻表、弹出/待命/取消的阈值、框的位置，以及重复文字、短读和不配合的编辑器下的删除。
 
-功能面板第 3 页的「文本编辑」打开文本编辑面板（#5625，`ImeTextEditPanel`，键与动作在无 Android 依赖的 `TextEditPanelModel`）：和常用语、剪贴板面板一样盖在键区上、顶边对齐工具栏下沿，收起键此时是「返回键盘」。4 × 4 的布局照 Gboard 的编辑面板：左边 ← 和 → 各占三行，中间一列 ↑、选择、↓，下面一行 移到开头、移到结尾、删除，右边一列 全选、复制、剪切、粘贴。打开前先由 Engine 完成组字，之后所有动作直接作用于编辑器：方向键发 DPAD 按键事件，「选择」开着时先按下左 Shift 再发带 Shift 的方向键（EditText 只认文字缓冲里记着的 Shift，WebView 看事件的 meta），延伸选区；开头和结尾是 Ctrl+Home / Ctrl+End，到整篇文档的两端；全选、复制、剪切、粘贴走 `InputConnection.performContextMenuAction`，编辑器不支持粘贴时退回到直接上屏剪贴板里的文字，复制和剪切不退回（那要宿主自己读选中的文字，会绕过密码框禁止复制的规则）；删除发退格键事件，有选区时删选区，按住连发、上滑同样有快速删除。方向键和删除按住连发，节奏与删除键相同。剪切、粘贴和删除之后「选择」自动关闭。`TextEditPanelModelSmoke` 验证 4 × 4 网格的覆盖、按键码、修饰键与菜单动作。
+功能面板第 3 页的「文本编辑」打开文本编辑面板；设置「键盘工具栏」里打开「文本编辑」（本地设置 `platform.android.toolbar_text_edit`，默认关，只在本机，#6351）后，工具栏上也有一个按钮直接开关它（#5625，`ImeTextEditPanel`，键与动作在无 Android 依赖的 `TextEditPanelModel`）：和常用语、剪贴板面板一样盖在键区上、顶边对齐工具栏下沿，收起键此时是「返回键盘」。4 × 4 的布局照 Gboard 的编辑面板：左边 ← 和 → 各占三行，中间一列 ↑、选择、↓，下面一行 移到开头、移到结尾、删除，右边一列 全选、复制、剪切、粘贴。打开前先由 Engine 完成组字，之后所有动作直接作用于编辑器：方向键发 DPAD 按键事件，「选择」开着时先按下左 Shift 再发带 Shift 的方向键（EditText 只认文字缓冲里记着的 Shift，WebView 看事件的 meta），延伸选区；开头和结尾是 Ctrl+Home / Ctrl+End，到整篇文档的两端；全选、复制、剪切、粘贴走 `InputConnection.performContextMenuAction`，编辑器不支持粘贴时退回到直接上屏剪贴板里的文字，复制和剪切不退回（那要宿主自己读选中的文字，会绕过密码框禁止复制的规则）；删除发退格键事件，有选区时删选区，按住连发、上滑同样有快速删除。方向键和删除按住连发，节奏与删除键相同。剪切、粘贴和删除之后「选择」自动关闭。`TextEditPanelModelSmoke` 验证 4 × 4 网格的覆盖、按键码、修饰键与菜单动作。
 
 输入模式的默认值和记忆范围也消费共享偏好：`default_ime_mode` 决定没有历史记录时进入中文还是英文，`ime_mode_scope=app` 时按 `EditorInfo.packageName` 记住用户手动切换，`global` 时所有编辑器共享同一个手动选择。包名只作为受限键名保存，不保存编辑器文本；URI、邮箱和密码字段触发的临时英文覆盖不会写入记忆，离开字段后恢复切换前的模式；只带 `TYPE_TEXT_FLAG_NO_SUGGESTIONS` 的字段不触发这层覆盖，按上面的默认值和记忆进框（#5998）。包名缺失或格式异常时退回默认模式。
 
@@ -105,7 +105,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 微软双拼在字母第二行额外提供“微软双拼 ing”分词键，只有中文微软双拼普通输入时显示；它把 `;` 原样交给 Engine，由 Engine 根据当前组合决定 ing 韵母或标点语义。英文、日语、五笔和本地输入模式不显示该键。
 
-双拼键位提示由 Engine 的 profile 表通过共享 Host API 提供，Android 不维护第二份键盘映射。提示中的 ` / ` 分隔声母侧与韵母侧，同一侧的多个单位以空格分隔；因此一个键可能同时显示多个韵母（例如小鹤 `K` 的 `ing uai`）。切换双拼方案后按 profile 刷新缓存；未知方案、损坏响应或原生失败直接隐藏提示，不用其他方案的标签误标当前键盘。提示只在中文双拼、非本地模式且非 dedicated English 时显示。
+双拼键位提示由 Engine 的 profile 表通过共享 Host API 提供，Android 不维护第二份键盘映射。提示中的 ` / ` 分隔声母侧与韵母侧，同一侧的多个单位以空格分隔；因此一个键可能同时显示多个韵母（例如小鹤 `K` 的 `ing uai`）。切换双拼方案后按 profile 刷新缓存；未知方案、损坏响应或原生失败直接隐藏提示，不用其他方案的标签误标当前键盘。提示只在中文双拼、非本地模式且非 dedicated English 时显示。用户还可以在设置的键盘页「双拼键位提示」关掉它，对应共享偏好 `touch_shuangpin_key_hints`（缺省为开，账号同步键 `platform.android.shuangpin_key_hints`）；关掉后字母键不画提示、11dp 的下边距收回，TalkBack 也不再念「双拼提示」。
 
 顶部“简 / 繁”快捷键消费共享 `traditional_chinese_output` 偏好，只在 Android 展示与插入边界用共享 OpenCC s2t 转换（`msime_client_simplified_to_traditional`，与 Windows、macOS、iOS、HarmonyOS 同一套词表）：Engine 候选原文、候选身份、组合文本和输入算法保持不变。候选条、展开候选面板、Engine 最终提交和手写候选使用同一规则；日语方案、临时日语和 dedicated English 保留原文。快捷键通过共享 revision CAS 乐观刷新当前候选，冲突或写入失败恢复最近接受值；顶部语音入口开启时让出同一快捷位，高情商回复优先于语音。转换器拒收的文本保留原文，不伪装已转换。
 

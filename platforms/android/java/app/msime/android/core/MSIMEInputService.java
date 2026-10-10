@@ -237,6 +237,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean numberKeypadCalculator;
     /** 26 键按「123」画九键数字键面，来自共享偏好 `touch_twenty_six_key_number_layout`；什么时候真的画见 {@link #twentySixKeyDigitFace}。 */
     private boolean twentySixKeyNineKeyDigits;
+    /** 26 键双拼的字母键画不画声母/韵母提示，来自共享偏好 `touch_shuangpin_key_hints`，缺省为开。 */
+    private boolean shuangpinKeyHintsEnabled = true;
     private boolean voiceInputEnabled = true;
     private String voiceLanguage = "zh-CN";
     KeyboardSkin skin = KeyboardSkin.system(false);
@@ -254,6 +256,7 @@ public final class MSIMEInputService extends InputMethodService {
     Button schemeButton;
     /** 工具栏上的「浮动键盘」按钮（本地设置 TOOLBAR_FLOATING，默认不显示）。 */
     Button floatingShortcutButton;
+    Button textEditShortcutButton;
     Button skinButton;
     Button layoutSettingsButton;
     Button scriptShortcutButton;
@@ -297,6 +300,8 @@ public final class MSIMEInputService extends InputMethodService {
     Button recentClipButton;
     private final Runnable recentClipExpiry = this::render;
     boolean toolbarFloating;
+    /** 本地设置 `platform.android.toolbar_text_edit`：工具栏上显示「文本编辑」按钮。 */
+    boolean toolbarTextEdit;
     /** 浮动键盘（本地设置 FLOATING_KEYBOARD，{@link FloatingKeyboardPolicy}）与它在可移动范围里的位置（千分比）。 */
     boolean floatingKeyboard;
     private int floatingX = FloatingKeyboardPolicy.DEFAULT_X_FRACTION;
@@ -335,7 +340,7 @@ public final class MSIMEInputService extends InputMethodService {
     KeyboardScheme selectedScheme = KeyboardScheme.fallback(edition);
     private java.util.List<KeyboardScheme> enabledSchemes =
         KeyboardScheme.enabledFromPreferenceIds(null, edition);
-    // The schemes the picker offers: `enabledSchemes` without those whose dictionary `languageDictionaries` lacks. `enabledSchemes` stays the stored list, so a picker save does not drop a scheme the user turned on before its dictionary arrived.
+    // 「输入方式」面板列出的方案：词典已装好的全部方案，双拼只留用户设置的那一种（见 `schemeConfiguration` 和 `KeyboardScheme.pickerSchemes`）。`enabledSchemes` 仍是存下的列表，面板里的一次保存不会丢掉用户在词典到达之前打开的方案。
     java.util.List<KeyboardScheme> visibleSchemes = enabledSchemes;
     // The runtime options' `language_dictionaries` directory, read with them in onStartInput; empty when the configuration names none.
     private String languageDictionaries = "";
@@ -642,8 +647,12 @@ public final class MSIMEInputService extends InputMethodService {
             KeyboardScheme.installedOf(java.util.List.of(KeyboardScheme.values()), languageDictionaries, resourcePacks, edition);
         String selected = shared == null || shared.isNull("selected")
             ? null : shared.optString("selected", null);
-        return new SchemeConfiguration(enabled, visible,
-            KeyboardScheme.resolveEnabledSelection(engineScheme, selected, visible, edition));
+        KeyboardScheme resolved = KeyboardScheme.resolveEnabledSelection(engineScheme, selected, visible, edition);
+        // 选中项按全部已安装方案解析，面板里的双拼再只留用户设置的那一种（#6450）。
+        String profile = preferences == null ? null
+            : InputViewValuePolicy.textOr(preferences, "shuangpin_profile", null);
+        return new SchemeConfiguration(enabled,
+            KeyboardScheme.pickerSchemes(visible, resolved, profile), resolved);
     }
 
     /**
@@ -714,7 +723,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (localModes == null) localModes = new JSONObject();
         // 候选条的配色和字号与皮肤同理：按副本重算，候选条会先铺一层出厂薄荷底、字号回到出厂的 18/15，实时偏好到了才换回来（#5933）。副本这条路径保留当前外观，也就是上次真正读到的偏好或 onCreate 按皮肤片段算好的那一份。
         if (live) applyCandidateAppearance(preferences);
-        // 键距、行距、语音快捷键和数字键顺序同理：副本里是出厂值，onStartInput 紧接着就按它重建键行，调过键距的用户每换一个输入框，键盘都先按出厂间距排一帧，实时偏好到了才跳回来。副本这条路径保留当前几何，也就是上次真正读到的偏好或 onCreate 按皮肤片段算好的那一份。键高例外：本地设置里有键高时那份是实时的，照旧跟着刷新；没有时 heightAdjustmentFrom 会退回副本里的出厂值，所以要先判断。
+        // 键距、行距、语音快捷键、数字键顺序和双拼键位提示同理：副本里是出厂值，onStartInput 紧接着就按它重建键行，调过键距的用户每换一个输入框，键盘都先按出厂间距排一帧，实时偏好到了才跳回来。副本这条路径保留当前几何，也就是上次真正读到的偏好或 onCreate 按皮肤片段算好的那一份。键高例外：本地设置里有键高时那份是实时的，照旧跟着刷新；没有时 heightAdjustmentFrom 会退回副本里的出厂值，所以要先判断。
         if (live) applyTouchGeometry(preferences);
         else if (localSettings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT))
             adoptSavedHeightAdjustment(heightAdjustmentFrom(preferences));
@@ -1761,6 +1770,7 @@ public final class MSIMEInputService extends InputMethodService {
             && preferences.optBoolean("touch_voice_shortcut", false);
         numberKeypadCalculator = numberKeypadCalculatorFrom(preferences);
         twentySixKeyNineKeyDigits = twentySixKeyNineKeyDigitsFrom(preferences);
+        shuangpinKeyHintsEnabled = shuangpinKeyHintsFrom(preferences);
     }
 
     /** 用上保存的键高。键盘里正在拖动高度时（应用 `restartInput` 同一个输入框时会走到这里，不经过 onFinishInputView）不动预览，只改「取消」要回到的值，与 applyPreferencesSnapshot 一致；否则预览跳回保存值，按「完成」什么也存不下。 */
@@ -1783,6 +1793,11 @@ public final class MSIMEInputService extends InputMethodService {
     boolean twentySixKeyDigitFace() {
         return NineKeyLayout.twentySixKeyDigits(displayedTouchLayout(view),
             keyboardLayer == KeyboardLayout.Layer.SYMBOLS, twentySixKeyNineKeyDigits, splitKeyboardDrawn());
+    }
+
+    /** 没有偏好或旧文档里没有这个键时按开，与 client-core 的默认值一致。 */
+    private static boolean shuangpinKeyHintsFrom(JSONObject preferences) {
+        return preferences == null || preferences.optBoolean(ShuangpinKeyHintPolicy.PREFERENCE_KEY, true);
     }
 
     /** 日语九键侧列的 ☺：顶部工具栏有表情按钮时两处入口重复，不放；工具栏关掉表情或整条隐藏时才放回来。 */
@@ -1821,6 +1836,7 @@ public final class MSIMEInputService extends InputMethodService {
             localSettings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS));
         clipboardSuggestionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
         toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
+        toolbarTextEdit = localSettings.bool(AndroidLocalSettings.TOOLBAR_TEXT_EDIT);
         floatingKeyboard = localSettings.bool(AndroidLocalSettings.FLOATING_KEYBOARD);
         // 拖动进行中不让重读覆盖手指下的位置；松手后的保存会把它写回文件。
         if (!floatingDragging) {
@@ -2018,7 +2034,7 @@ public final class MSIMEInputService extends InputMethodService {
         return touchKeySpacingTenths + ":" + touchRowSpacingTenths + ":"
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
-            + numberKeypadCalculator + ":" + twentySixKeyNineKeyDigits;
+            + numberKeypadCalculator + ":" + shuangpinKeyHintsEnabled + ":" + twentySixKeyNineKeyDigits;
     }
 
     private void reloadPreferences(String response) {
@@ -2104,6 +2120,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         boolean nextNumberKeypadCalculator = numberKeypadCalculatorFrom(preferences);
         boolean nextTwentySixKeyNineKeyDigits = twentySixKeyNineKeyDigitsFrom(preferences);
+        boolean nextShuangpinKeyHints = shuangpinKeyHintsFrom(preferences);
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
         boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
         String nextVoiceLanguage = nextVoice == null ? "zh-CN"
@@ -2180,6 +2197,8 @@ public final class MSIMEInputService extends InputMethodService {
             && keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         numberKeypadCalculator = nextNumberKeypadCalculator;
         twentySixKeyNineKeyDigits = nextTwentySixKeyNineKeyDigits;
+        // 键面提示在 render() 的 updateShuangpinKeyHints 里按它重画；它进了 touchGeometryKey，变了就会触发 render()。
+        shuangpinKeyHintsEnabled = nextShuangpinKeyHints;
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
         applyAiPreferences(preferences);
@@ -3540,7 +3559,7 @@ public final class MSIMEInputService extends InputMethodService {
             ShuangpinHintButton button = shuangpinKeyButtons.get(index);
             String input = shuangpinKeyInputs.get(index);
             String hint = ShuangpinKeyHintPolicy.hint(
-                shuangpinHints, input, dedicatedEnglish, scheme, localMode);
+                shuangpinHints, input, dedicatedEnglish, scheme, localMode, shuangpinKeyHintsEnabled);
             button.setHintText(hint);
             button.setHintColor(Color.parseColor(skin.accent()));
             if (";".equals(input)) continue;
@@ -4123,7 +4142,7 @@ public final class MSIMEInputService extends InputMethodService {
         "candidate_theme", "candidate_font_family", "candidate_english_font", "candidate_fallback_fonts",
         "candidate_font_size", "candidate_preedit_font_size",
         "touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
-        "touch_voice_shortcut", NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY,
+        "touch_voice_shortcut", NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, ShuangpinKeyHintPolicy.PREFERENCE_KEY, NineKeyLayout.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY,
         "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
     /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
     private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";
@@ -7742,6 +7761,12 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setEnabled(floatingShortcutButton, !hardwareKeyboardMode);
             if (Build.VERSION.SDK_INT >= 30)
                 floatingShortcutButton.setStateDescription(floatingKeyboard ? "已开启" : "已关闭");
+        }
+        if (textEditShortcutButton != null) {
+            ViewPolicy.setVisible(textEditShortcutButton, toolbarTextEdit);
+            ViewPolicy.setSelected(textEditShortcutButton, ViewPolicy.isVisible(textEditPanel));
+            // 没有可编辑的输入框时面板打不开（ImeTextEditPanel.show 只给一句提示），按钮灰掉。
+            ViewPolicy.setEnabled(textEditShortcutButton, connection != null);
         }
         if (schemeButton != null) {
             ViewPolicy.setVisible(schemeButton, toolbarScheme);

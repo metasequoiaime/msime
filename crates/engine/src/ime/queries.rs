@@ -91,11 +91,11 @@ impl CandidateQueries {
     }
 
     /// The annotation of an `@` row: a place's parent division, empty for the user's own entries.
-    pub fn mention_annotation(&self, text: &str) -> &'static str {
+    pub fn mention_annotation(&self, text: &str, key: &str) -> &'static str {
         if !self.mention_places {
             return "";
         }
-        mention_annotation(text, &self.mentions)
+        mention_annotation(text, key, &self.mentions)
     }
 
     /// The translate command's trigger and English for the letters after `/`, against the live command table.

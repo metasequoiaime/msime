@@ -4924,11 +4924,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [[MSIMETypingEffectPanel sharedPanel] settle];
     // Every focus loss writes the key heatmap counts, including a late one for a previous client: they are this controller's presses either way.
     [self flushKeyPresses];
+    // 上一个客户端迟到的回调不能拆掉当前客户端的组字、面板、监视和尚未松开的修饰键。成对标点也一样：activateServer: 已丢掉上一个客户端欠着的闭合符，此刻待补的闭合符和跳过记录都属于当前客户端，替它补上会把这一对提前合上、把组字中的 marked text 整段替换掉，所以迟到判断必须先于补闭合符。
+    if (!sender || sender != _activeClient) return;
     [self flushPendingPairedClosing];
     _pairedPunctuation.clear();
-    // A delayed callback from the previous client must not tear down the
-    // active client's composition, panels, monitoring or pending modifier tap.
-    if (!sender || sender != _activeClient) return;
     _backspaceHoldArmed = NO;
     [self clearSmartPunctuationSpaceConversion];
     [self clearSmartPunctuationSpaceRevert];

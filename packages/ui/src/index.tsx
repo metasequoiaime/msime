@@ -171,6 +171,11 @@ export {
 } from "./settings/use-settings-navigation";
 export { useSettingsContentScrollReset } from "./settings/use-settings-content-scroll-reset";
 export { useUpdateCheck, type UseUpdateCheckOptions } from "./settings/use-update-check";
+export type {
+  HostReleaseUpdate,
+  UpdateCheckRequest,
+  UpdateCheckResult,
+} from "./settings/update-manifest";
 export {
   aiSettingsPreferences,
   type AiSettingsPreferences,
@@ -1443,7 +1448,11 @@ export {
   type CandidateAppearance,
   type CandidateOrientation,
 } from "./candidate/candidate-themes";
-import { describeInstallerTrust } from "./settings/update-manifest";
+import {
+  describeInstallerTrust,
+  type UpdateCheckRequest,
+  type UpdateCheckResult,
+} from "./settings/update-manifest";
 import { editionUsesHelpcode } from "./settings/input-scheme-options";
 export {
   serializeWindowHostMessage,
@@ -1755,6 +1764,8 @@ export type Preferences = {
   touch_number_keypad_order?: "phone" | "calculator";
   /** 26 键按「123」时的数字层：一行 1 到 0，或九宫格那样的 3×3 数字键。 */
   touch_twenty_six_key_number_layout?: "row" | "nine_key";
+  /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为开。 */
+  touch_shuangpin_key_hints?: boolean;
   touch_toolbar?: Partial<TouchToolbarPreferences>;
   default_ime_mode?: "chinese" | "english";
   ime_mode_scope?: "app" | "global";
@@ -2125,6 +2136,8 @@ export interface SettingsClient {
   /** Open the folder holding the preferences document, where a repair leaves its backup. */
   openPreferencesDirectory?: () => Promise<void>;
   readAppVersion?: () => Promise<string>;
+  /** Compares the newest published release of this platform and edition with the running version, through `msime_client_core::update_check` (the Tauri `update_check` command, or `msime_client_update_check` on a native host). Absent, the about page offers no update check. */
+  checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
   openExternalUrl?: (url: string) => Promise<void>;
   /** The console's app notices; the host fetches and caches the feed and remembers dismissals. Absent shows none. */
   notices?: NoticesClient;
@@ -2643,12 +2656,12 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     busy: updateBusy,
     checkForUpdate,
     status: updateStatus,
+    supported: updateCheckSupported,
   } = useUpdateCheck({
-    clientHostedPlatform,
-    releasePlatform: client.host?.platform ?? null,
+    checkUpdate: client.checkUpdate,
+    platform: client.host?.platform ?? null,
     edition: client.host?.edition?.id,
     arch: client.host?.arch,
-    releasePageUrl: platformReleasesPageUrl,
     currentAppVersion,
   });
 
@@ -2971,6 +2984,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     communityDestination,
     updateStatus,
     updateBusy,
+    updateCheckSupported,
     availableUpdate,
     currentAppVersion,
     copyFeedbackGroup,

@@ -3667,6 +3667,28 @@ fn mention_mode_offers_places_after_the_list_when_switched_on() {
 }
 
 #[test]
+fn mention_place_annotation_uses_the_shown_row_when_a_list_name_does_not_match() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = generated_modes_session(&fixture);
+    session.set_mention_entries(&[crate::types::MentionEntry {
+        text: "深圳市".to_owned(),
+        key: "other".to_owned(),
+    }]);
+    session.set_mention_places(true);
+    session.character(b'@', false);
+    type_text(&mut session, "shenzhenshi");
+
+    let snapshot = session.snapshot();
+    let shenzhen = snapshot
+        .candidates
+        .iter()
+        .position(|candidate| candidate.word == "深圳市")
+        .expect("embedded place should be offered");
+    assert_eq!(snapshot.candidates[shenzhen].pinyin, "shen'zhen'shi");
+    assert_eq!(snapshot.candidate_annotations[shenzhen], "广东省");
+}
+
+#[test]
 fn generated_mode_commits_are_never_learned() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {

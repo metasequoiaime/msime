@@ -1,11 +1,12 @@
 #include "msime_client.h"
+#include "provider_request_cli.h"
+#include "provider_response_cli.h"
 #include "../core/LocalResourcePaths.h"
 #include "provider_socket_cli.h"
 
 #include <array>
 #include <iostream>
 #include <memory>
-#include <nlohmann/json.hpp>
 #include <string>
 
 std::string local_resources(int argc, char **argv, bool *local) {
@@ -30,10 +31,10 @@ int main(int argc, char **argv) {
   if (target.empty() || target[0] != '/')
     return 2;
   std::array<char, 16385> buffer;
-  std::cin.read(buffer.data(), buffer.size());
-  const auto length = static_cast<size_t>(std::cin.gcount());
-  if (std::cin.bad() || length == 0 || length > 16384)
+  const auto request_length = msime_cli_read_provider_request(std::cin, buffer);
+  if (!request_length)
     return 2;
+  const size_t length = *request_length;
   std::unique_ptr<char, decltype(&msime_client_string_free)> result(
       local ? msime_client_emoji_catalog_request(
                   reinterpret_cast<const uint8_t *>(buffer.data()), length,
@@ -42,14 +43,5 @@ int main(int argc, char **argv) {
                   reinterpret_cast<const uint8_t *>(buffer.data()), length,
                   reinterpret_cast<const uint8_t *>(target.data()), target.size()),
       msime_client_string_free);
-  if (!result)
-    return 1;
-  try {
-    auto document = nlohmann::json::parse(result.get());
-    const bool ok = document.at("ok").get<bool>();
-    std::cout << document.dump() << '\n';
-    return std::cout ? (ok ? 0 : 1) : 1;
-  } catch (...) {
-    return 1;
-  }
+  return msime_cli_write_provider_response(result.get(), std::cout);
 }

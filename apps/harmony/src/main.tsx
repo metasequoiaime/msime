@@ -48,6 +48,8 @@ import {
   type CloudDictionaryPanelClient,
   type SettingsClient,
   type Snapshot,
+  type UpdateCheckRequest,
+  type UpdateCheckResult,
   type StatisticsRetention,
   type TypingStatisticsClient,
   type VocabularyReviewClient,
@@ -1278,6 +1280,19 @@ function makeClient(
       return unwrap<Snapshot>(native.savePreferences(revision, document));
     },
     readAppVersion: async () => native.appVersion(),
+    // GitHub's release list is read and compared in Rust on a native worker (msime_client_update_check); ArkTS fills in the platform.
+    checkUpdate: async (request: UpdateCheckRequest) =>
+      unwrap<UpdateCheckResult>(
+        await bridgeRequest(
+          native,
+          "update_check",
+          JSON.stringify({
+            current_version: request.currentVersion,
+            ...(request.edition === undefined ? {} : { edition: request.edition }),
+            ...(request.arch === undefined ? {} : { arch: request.arch }),
+          }),
+        ),
+      ),
     scanSkinCatalog: async () => unwrap<SkinCatalog>(native.scanSkinCatalog()),
     readSkinImage: async (id: string, relative: string) =>
       unwrap<SkinImage>(native.readSkinImage(id, relative)),

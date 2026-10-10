@@ -3279,6 +3279,66 @@ static void TestStaleClientDeactivation() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// IMK 不保证上一个客户端的 deactivateServer: 先于下一个客户端的 activateServer: 到达。activateServer: 已经丢掉了上一个客户端欠着的闭合符，所以迟到的那次回调到来时，控制器里待补的闭合符和跳过记录都属于当前客户端：它们既不能被提前写进当前客户端（成对标点被提前合上，组字中的 marked text 也会被整段替换掉），也不能被清掉。正常的 deactivate 仍在自己的客户端里补上闭合符。
+static void TestStaleDeactivationLeavesTheCurrentPairOpen() {
+    NSString *suite = [@"msime.stale-deactivation-pair." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(appearance.pairedPunctuation && appearance.runtimeChinesePunctuation && !appearance.runtimeFullWidthInput);
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *previous = [ShortcutClient new], *current = [ShortcutClient new];
+    previous.document = current.document = @"";
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:current forKey:@"activeClient"];
+    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] };
+    [controller setValue:idle forKey:@"view"];
+    NSEvent *brace = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift
+                                      timestamp:0 windowNumber:0 context:nil characters:@"{" charactersIgnoringModifiers:@"["
+                                      isARepeat:NO keyCode:33];
+    NSEvent *closeBrace = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift
+                                           timestamp:0 windowNumber:0 context:nil characters:@"}" charactersIgnoringModifiers:@"]"
+                                           isARepeat:NO keyCode:30];
+    Method base = class_getInstanceMethod(IMKInputController.class, @selector(deactivateServer:));
+    assert(base);
+    baseDeactivationCalls = 0;
+    IMP original = method_setImplementation(base, (IMP)RecordBaseDeactivation);
+
+    // 当前客户端打开了一对 `{}`，`}` 作为 marked text 的尾巴等着补上。
+    session.punctuationASCIITransition = @{ @"handled": @NO, @"commit": NSNull.null, @"view": idle };
+    assert([controller handleEvent:brace client:current]);
+    assert([current.committed isEqual:@"{"] && [current.marked isEqual:@"}"]);
+    for (id stale in @[previous, NSNull.null]) {
+        [controller deactivateServer:stale == NSNull.null ? nil : stale];
+        assert([current.committed isEqual:@"{"] && [current.marked isEqual:@"}"] && current.insertions.count == 1);
+        assert(previous.insertions.count == 0 && previous.marked == nil);
+        assert([[controller valueForKey:@"pendingPairedClosing"] isEqual:@"}"]);
+        assert([controller valueForKey:@"activeClient"] == current && baseDeactivationCalls == 0);
+    }
+
+    // 这一对仍归当前客户端：下一次上屏把 `}` 一起带走，之后在它前面敲的 `}` 被跨过去。
+    [controller apply:@{ @"commit": @"a", @"view": idle }];
+    assert([current.committed isEqual:@"a}"] && [current.document isEqual:@"{a}"]);
+    for (id stale in @[previous, NSNull.null]) [controller deactivateServer:stale == NSNull.null ? nil : stale];
+    current.selection = NSMakeRange(2, 0);
+    const NSUInteger asciiBeforeStep = session.asciiCalls;
+    assert([controller handleEvent:closeBrace client:current]);
+    assert(session.asciiCalls == asciiBeforeStep && [current.document isEqual:@"{a}"] && current.selection.location == 3);
+    assert(previous.insertions.count == 0 && previous.marked == nil);
+
+    // 正常的 deactivate 照旧在自己的客户端里把这一对合上。
+    current.selection = NSMakeRange(current.document.length, 0);
+    assert([controller handleEvent:brace client:current]);
+    assert([current.committed isEqual:@"{"] && [current.marked isEqual:@"}"]);
+    [controller deactivateServer:current];
+    assert([current.committed isEqual:@"}"] && [current.document isEqual:@"{a}{}"]);
+    assert([controller valueForKey:@"pendingPairedClosing"] == nil && [controller valueForKey:@"activeClient"] == nil);
+    assert(baseDeactivationCalls == 1 && previous.insertions.count == 0);
+    method_setImplementation(base, original);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // Key sounds, the commit sound and background music, as the controller asks the session for them. The session decides whether anything is switched on; what is pinned here is which key class each key reports, that auto-repeat, key-up and secure event input stay silent, that dictated text and results the Engine computed are kept out of what counts as typing, and that music follows the controller that is actually active.
 static void TestSoundsFollowKeysCommitsAndActivation() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
@@ -5613,7 +5673,7 @@ static void TestAiCandidateEngineDelivery() {
             @"prompt_id":@"custom_2", @"prompt_custom_2":@"synthetic prompt"},
         @"input":@{@"segmented_pinyin":@[@"ni", @"hao"], @"context":@"", @"candidate_limit":@3}} error:&bridgeError];
     if (!descriptor || bridgeError || ![descriptor[@"timeout_ms"] isEqual:@8000]) {
-        // Only report the fixed-shape outcome. The descriptor also contains a bearer token.
+        // 只打印固定格式的结果：描述符里还带着 bearer token，不能整个打出来。
         fprintf(stderr, "AI descriptor present=%d error=%s timeout=%s\n", descriptor != nil,
             (bridgeError.localizedDescription ?: @"").UTF8String,
             ([descriptor[@"timeout_ms"] description] ?: @"").UTF8String);
@@ -9604,6 +9664,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestModifierTaps(); }
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
         @autoreleasepool { TestStaleClientDeactivation(); }
+        @autoreleasepool { TestStaleDeactivationLeavesTheCurrentPairOpen(); }
         @autoreleasepool { TestSoundsFollowKeysCommitsAndActivation(); }
         @autoreleasepool { TestMusicIsClaimedOnceTheSessionOpens(); }
         @autoreleasepool { TestPreferenceClientGeneration(); }

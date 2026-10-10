@@ -900,7 +900,7 @@ function validateSession(value: unknown): value is Session {
   );
 }
 
-/** Read only the owner of a freshly loaded session, without caching it across processes. */
+/** 只读出刚从文件载入的会话属于哪个账号，不跨进程缓存；会话缺失、格式不对或校验不过时返回 null。 */
 export function storedSessionUserId(saved: string | null): string | null {
   if (saved === null || utf8Length(saved) > MAX_SESSION_BYTES) return null;
   try {
