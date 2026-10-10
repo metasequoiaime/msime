@@ -411,6 +411,10 @@ import {
 } from "./account/account-page";
 import { ChatPage, type ChatClient } from "./chat/chat-page";
 import { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/home-page";
+import {
+  ScreenKeyboardLayoutContext,
+  screenKeyboardLayoutFor,
+} from "./keyboard/screen-keyboard-preview";
 import { useSettingsPlatform } from "./theme/settings-platform";
 import { SettingsFormContext } from "./settings/settings-form-context";
 import { createSettingsReloadAction } from "./settings/settings-reload-action";
@@ -3149,6 +3153,17 @@ function ShellToasts({ enabled, children }: { enabled: boolean; children: ReactN
 export type SettingsPageModel = ReturnType<typeof useSettingsPageModel>;
 
 export function SettingsPage(props: SettingsPageProps) {
+  // 宿主自己的屏幕键盘布局：没写 `layout` 的键盘预览按它画，手机上不画桌面键盘。
+  return (
+    <ScreenKeyboardLayoutContext.Provider
+      value={screenKeyboardLayoutFor(props.client.host?.platform)}
+    >
+      <SettingsShell {...props} />
+    </ScreenKeyboardLayoutContext.Provider>
+  );
+}
+
+function SettingsShell(props: SettingsPageProps) {
   const { onReplayOnboarding } = props;
   const model = useSettingsPageModel(props);
   // The 插件 page shows either the installed packs (a page of the settings form) or the community gallery, which has its own search form and so is drawn outside the settings one.

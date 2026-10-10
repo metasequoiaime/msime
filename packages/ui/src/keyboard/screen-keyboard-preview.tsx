@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { createContext, useContext, useId } from "react";
 import { themeEntry, type GlobalTheme } from "../theme/global-theme";
 import { clamp } from "../core/number";
 import {
@@ -197,6 +197,16 @@ function ThumbnailToolbar({ accent, foreground }: { accent: string; foreground: 
   );
 }
 
+/** 宿主自己的屏幕键盘画成哪种：Android、iOS 和 HarmonyOS 的输入法在任何形态下都是触屏键盘（三排字母加一排功能键），桌面宿主是 Windows 式的屏幕键盘。设置页在根部按宿主提供（`screenKeyboardLayoutFor`），没写 `layout` 的预览就画这一种，手机上因此不会出现 Win、Alt、Caps Lock。 */
+export const ScreenKeyboardLayoutContext = createContext<"desktop" | "touch">("desktop");
+
+/** `platform` 宿主的屏幕键盘布局，供 `ScreenKeyboardLayoutContext` 使用。 */
+export function screenKeyboardLayoutFor(platform: string | undefined): "desktop" | "touch" {
+  return platform === "android" || platform === "ios" || platform === "harmony"
+    ? "touch"
+    : "desktop";
+}
+
 /**
  * 用皮肤配色画的键盘。`compact` 是小型装饰卡片的插图；`thumbnail` 是手机皮肤网格的卡片插图，即带工具栏的触屏键盘，画在设计的 390 × 292 画布上，填满容器宽度（圆角和描边由容器负责）。两者都对辅助技术隐藏，因为外面的卡片已带有名称。
  */
@@ -209,7 +219,7 @@ export function ScreenKeyboardPreview({
   keySpacingTenths = 60,
   rowSpacingTenths = 70,
   heightAdjustment = 0,
-  layout = "desktop",
+  layout,
 }: {
   theme: "dark" | "light";
   skin?: GlobalTheme;
@@ -219,9 +229,11 @@ export function ScreenKeyboardPreview({
   keySpacingTenths?: number;
   rowSpacingTenths?: number;
   heightAdjustment?: number;
+  /** 省略时取 `ScreenKeyboardLayoutContext`，即宿主自己的键盘。 */
   layout?: "desktop" | "touch";
 }) {
-  const touch = thumbnail || layout === "touch";
+  const hostLayout = useContext(ScreenKeyboardLayoutContext);
+  const touch = thumbnail || (layout ?? hostLayout) === "touch";
   const decorative = compact || thumbnail;
   const layoutRows = touch ? touchKeyboardRows : desktopKeyboardRows;
   const custom = skin === "custom" && customDesign ? customDesign : undefined;
@@ -254,7 +266,8 @@ export function ScreenKeyboardPreview({
   const actionMaterialId = `touch-skin-action-material-${unique}`;
   const keySpacing = clamp(keySpacingTenths / 10, 3, 6);
   const rowSpacing = clamp(rowSpacingTenths / 10, 4, 10);
-  const canvasWidth = thumbnail ? thumbnailWidth : 1100;
+  // 触屏键盘按手机竖屏的比例画：桌面画布 1100 宽时，每排十个键被拉成又扁又宽的长条，不像手机上的键盘；700 宽时单键约为宽 3 高 4 的竖长方形，与手机上的键接近。桌面键盘仍是 1100。
+  const canvasWidth = thumbnail ? thumbnailWidth : touch ? 700 : 1100;
   const canvasHeight = thumbnail ? thumbnailHeight : 400 + clamp(heightAdjustment, -12, 48);
   const inset = thumbnail ? thumbnailInset : 7;
   const rowsTop = thumbnail ? thumbnailToolbarHeight + 8 : 28;

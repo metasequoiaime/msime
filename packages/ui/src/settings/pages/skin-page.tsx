@@ -255,9 +255,9 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
               onApplied={(id) => void client.typingStatistics?.recordSkin?.(id)}
               onOpenAi={aiSkins && customSkinLibrary ? openAi : undefined}
             />
-            {/* 设计里这页没有设置行；颜色模式、皮肤目录和社区入口、自定义主题和各界面的单独设置仍可在「更多选项」下找到。 */}
+            {/* 设计里这页没有设置行；颜色模式、皮肤目录和社区入口、自定义主题和各界面的单独设置仍可在「更多选项」下找到。从「我的 → 社区作品 → 我的设计」进来时编辑器已经打开，它在这个折叠区里，所以折叠区一开始就展开，否则用户只看到网格。 */}
             <GroupList>
-              <MoreOptions>
+              <MoreOptions defaultOpen={showTouchSkinEditor}>
                 {colourMode}
                 {moreSkins}
                 {customThemeGroup}

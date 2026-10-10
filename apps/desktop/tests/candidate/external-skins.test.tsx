@@ -1029,6 +1029,8 @@ test("an import host lists the imported skin without a manual refresh", async ()
   expect(within(row).getByText(/选中包含 skin.toml 的皮肤文件夹/)).toBeTruthy();
   expect(within(row).queryByText(/复制到下面的目录/)).toBeNull();
   await within(row).findByText("没有发现外部皮肤。");
+  // 皮肤目录在应用沙箱里，用户用不上，导入型宿主不显示它。
+  expect(within(row).queryByText("/skins")).toBeNull();
   expect(scan).toHaveBeenCalledTimes(1);
   fireEvent.click(within(row).getByRole("button", { name: "导入皮肤" }));
   await waitFor(() => expect(scan).toHaveBeenCalledTimes(2));

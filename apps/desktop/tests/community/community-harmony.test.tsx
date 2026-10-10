@@ -14,6 +14,7 @@ import {
   type TouchKeyboardSkinDesign,
 } from "@msime/ui";
 import { communityResourceSubtitle } from "../../../../packages/ui/src/community/community-resources";
+import { ScreenKeyboardLayoutContext } from "../../../../packages/ui/src/keyboard/screen-keyboard-preview";
 
 afterEach(() => {
   cleanup();
@@ -282,6 +283,35 @@ test("tapping a card outside its pill still opens the detail", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "查看皮肤 春芽" }));
   await waitFor(() => expect(client.detail).toHaveBeenCalledWith(inLibrary));
   expect(await screen.findByRole("button", { name: "下载并试用" })).toBeTruthy();
+});
+
+// 手机上的社区皮肤详情画触屏键盘：设置页根部按宿主提供 `touch`，详情预览不再画 Windows 屏幕键盘的 Win、Alt、Caps Lock。
+test("the skin detail on a touch host previews the touch keyboard", async () => {
+  render(
+    <ScreenKeyboardLayoutContext.Provider value="touch">
+      <ToastProvider>
+        <CommunityPage
+          theme="light"
+          skins={skinClient()}
+          resources={resourceClient()}
+          localSkinLibrary={library()}
+          preferences={preferences}
+          onApplyPreferences={vi.fn()}
+          onSkinApplied={vi.fn()}
+          look="harmony"
+          mobile
+        />
+      </ToastProvider>
+    </ScreenKeyboardLayoutContext.Provider>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "查看皮肤 春芽" }));
+  await screen.findByRole("button", { name: "下载并试用" });
+  const keys = Array.from(document.querySelectorAll("[data-keyboard-key]")).map((key) =>
+    key.getAttribute("data-keyboard-key"),
+  );
+  expect(keys.length).toBeGreaterThan(0);
+  expect(keys).not.toContain("Caps Lock");
+  expect(keys).not.toContain("Win");
 });
 
 test("添加 imports a dictionary into this device and settles on 已添加", async () => {
