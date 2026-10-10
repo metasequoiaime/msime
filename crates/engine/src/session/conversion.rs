@@ -8,7 +8,7 @@ use super::learning::MAX_LEARNED_SENTENCE_SYLLABLES;
 use crate::diagnostics;
 use crate::lattice::decode::PinnedSpan;
 use crate::pinyin::segment::split_segments;
-use crate::text::count_han_chars;
+use crate::text::{count_han_chars, is_all_han};
 use crate::types::{CandidateSource, Command, KeyResult, LocalInputMode, SchemeType, WordItem};
 
 /// 每个长度的跨度最多列出的候选条数。
@@ -35,7 +35,7 @@ impl ConversionEdit {
     /// 首选能改字时的初始状态：读音是一个字对一个完整音节，至少两个字。整句候选按它的词切段，其余候选整个算一段。
     fn from_row(row: &WordItem) -> Option<Self> {
         let canonical = normalize_canonical_pinyin_for_word(&row.canonical_pinyin, &row.word);
-        if canonical.is_empty() {
+        if canonical.is_empty() || !is_all_han(&row.word) {
             return None;
         }
         let syllables = split_segments(&canonical);
@@ -44,6 +44,7 @@ impl ConversionEdit {
             return None;
         }
         let words_cover = !row.sentence_words.is_empty()
+            && row.sentence_words.iter().all(|word| is_all_han(word))
             && row
                 .sentence_words
                 .iter()
@@ -385,6 +386,12 @@ mod tests {
         assert!(ConversionEdit::from_row(&single).is_none());
         let abbreviated = WordItem::new("nh", "你好", 9, CandidateSource::Database, "n'h");
         assert!(ConversionEdit::from_row(&abbreviated).is_none());
+    }
+
+    #[test]
+    fn rows_with_non_han_text_do_not_enter_conversion() {
+        let row = WordItem::new("nihao", "你a", 9, CandidateSource::Generated, "ni'hao");
+        assert!(ConversionEdit::from_row(&row).is_none());
     }
 
     #[test]
