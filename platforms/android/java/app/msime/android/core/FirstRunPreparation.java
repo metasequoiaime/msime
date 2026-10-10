@@ -2,7 +2,6 @@ package app.msime.android;
 
 import android.content.Context;
 import android.os.Handler;
-import android.os.Looper;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -25,8 +24,9 @@ public final class FirstRunPreparation {
         void onPreparationState(State state);
     }
 
-    private static final ExecutorService WORKER = Executors.newSingleThreadExecutor();
-    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final ExecutorService WORKER = Executors.newSingleThreadExecutor(
+        ThreadPolicy.namedFactory("msime-first-run"));
+    private static final Handler MAIN = MainThreadPolicy.mainHandler();
     private static final AtomicBoolean RUNNING = new AtomicBoolean();
     private static volatile State state = State.IDLE;
     private static volatile String failure = "";

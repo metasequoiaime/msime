@@ -37,6 +37,7 @@ final class MacSettingsModel: ObservableObject {
   private var schema: BackendAccountClient.PreferenceSchema?
   private var expectedLocal: MacSettingsAccess.Values?
   private let accountID: String
+  private var sessionID: UUID?
   private let client: BackendAccountClient
   private let account: BackendAccountSession
   private let local: MacSettingsAccess
@@ -45,9 +46,10 @@ final class MacSettingsModel: ObservableObject {
     self.accountID = accountID; self.client = client; self.account = account; self.local = local ?? .native
   }
   private func authorize() async throws -> String {
-    let identity = try await account.credentials(matchingUserID: accountID)
+    let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
     try Task.checkCancellation()
     guard identity.userID == accountID else { throw CancellationError() }
+    sessionID = identity.sessionID
     return identity.token
   }
   private func run(_ operation: @escaping @MainActor (String) async throws -> Void) {
@@ -71,7 +73,7 @@ final class MacSettingsModel: ObservableObject {
       var values = cloud.settings.filter { before[$0.key] != nil }
       // Preserve device choices for fields added after the original snapshot format.
       // Missing original fields must still reject an incomplete restore.
-      for key in ["platform.macos.global_theme", "platform.macos.custom_theme_base", "platform.macos.custom_candidate_skin", "platform.macos.shuangpin_preedit_uses_raw"] where values[key] == nil {
+      for key in ["platform.macos.global_theme", "platform.macos.custom_theme_base", "platform.macos.custom_candidate_skin", Self.darkSkinKey, "platform.macos.shuangpin_preedit_uses_raw"] where values[key] == nil {
         values[key] = before[key]
       }
       // 云端的方案是本版本没有的（比如五笔版上传的五笔落到拼音版）：当作没有这一项，保留本机的方案，其余设置照常应用。规则与 client-core 的 filter_downloaded_account_settings 相同；只有一个方案的版本的本机快照里根本没有这个键，上面已经把它滤掉了。
@@ -81,6 +83,12 @@ final class MacSettingsModel: ObservableObject {
           values["platform.macos.input_scheme"] = before["platform.macos.input_scheme"]
         }
       }
+      // 云端的辅助码方案下标超出本机方案目录（更新的版本追加的方案）：预览里换成本机的选择，与原生层应用时保留本机选择的做法一致，预览不会显示一个替换后并不会生效的值。
+      for key in ["platform.macos.quanpin_helpcode_schema", "platform.macos.shuangpin_helpcode_schema"] {
+        if case .integer(let index)? = values[key], index >= Int64(Self.helpcodeSchemeTitles.count) {
+          values[key] = before[key]
+        }
+      }
       guard values.count == before.count else {
         self.message = "云端还没有完整的 macOS 设置，可以先上传本机设置。"; return
       }
@@ -88,8 +96,12 @@ final class MacSettingsModel: ObservableObject {
       self.preview = values; self.expectedLocal = before
     }
   }
+  /// 辅助码方案按云端下标排列的标题，顺序与 CloudAppearanceSettings.h 的 MSIMECloudHelpcodeSchemas 相同。
+  static let helpcodeSchemeTitles = ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加", "五笔 86"]
   /// The global theme travels with the custom theme's base and package, so the three are uploaded together or not at all: a cloud copy with a theme but without its base or package would restore a different look elsewhere.
   static let themeKeys = ["platform.macos.global_theme", "platform.macos.custom_theme_base", "platform.macos.custom_candidate_skin"]
+  /// 深色槽位的皮肤包。它比主题组晚加入，服务端字段表还没收录它时只去掉这一项：别处恢复时深色模式回退到浅色槽位，与只有一个槽位的旧文档相同，不必为此把整个主题组都留在本机。
+  static let darkSkinKey = "platform.macos.custom_candidate_skin_dark"
   func upload() {
     guard let cloud, let schema else { return }
     run { token in
@@ -98,6 +110,7 @@ final class MacSettingsModel: ObservableObject {
       // A server that has not registered the theme fields yet rejects the whole upload over them, so the other settings are uploaded without the theme and the message says so.
       let themeless = Self.themeKeys.contains { schema.fields[$0] == nil }
       if themeless { for key in Self.themeKeys { values[key] = nil } }
+      if themeless || schema.fields[Self.darkSkinKey] == nil { values[Self.darkSkinKey] = nil }
       let merged = try BackendAccountClient.mergedPreferences(cloud, replacing: values, schema: schema)
       let saved = try await self.client.putPreferences(merged, token: token)
       _ = try await self.authorize()
@@ -154,7 +167,7 @@ struct MacCloudSettingsView: View {
   }
   private func label(_ key: String) -> String {
     if key == "platform.macos.shuangpin_preedit_uses_raw" { return "双拼预编辑" }
-    let names = ["global_theme":"全局主题", "custom_theme_base":"自定义主题底色", "custom_candidate_skin":"自定义候选皮肤", "input_scheme":"输入方案", "quanpin_helpcode_schema":"全拼辅助码", "shuangpin_helpcode_schema":"双拼辅助码", "candidate_panel_style":"候选布局", "candidate_page_size":"每页候选数", "candidate_font_size":"候选字号", "candidate_page_shortcut":"翻页快捷键", "autocorrect":"拼音纠错", "helpcode":"辅助码", "chinese_punctuation":"中文标点", "smart_punctuation":"智能标点", "smart_punctuation_repeat":"重复标点转中文", "candidate_learning":"候选学习", "english_input_mode":"英文模式", "input_mode_shortcut":"中英切换快捷键", "full_width_input":"全角输入", "floating_toolbar":"悬浮工具栏", "traditional_chinese_output":"繁体输出", "wubi_auto_commit_unique":"五笔唯一候选自动上屏", "shuangpin_keymap":"双拼键位图", "local_input_modes":"快捷模式"]
+    let names = ["global_theme":"全局主题", "custom_theme_base":"自定义主题底色", "custom_candidate_skin":"自定义候选皮肤", "custom_candidate_skin_dark":"深色模式候选皮肤", "input_scheme":"输入方案", "quanpin_helpcode_schema":"全拼辅助码", "shuangpin_helpcode_schema":"双拼辅助码", "candidate_panel_style":"候选布局", "candidate_page_size":"每页候选数", "candidate_font_size":"候选字号", "candidate_page_shortcut":"翻页快捷键", "autocorrect":"拼音纠错", "helpcode":"辅助码", "chinese_punctuation":"中文标点", "smart_punctuation":"智能标点", "smart_punctuation_repeat":"重复标点转中文", "candidate_learning":"候选学习", "english_input_mode":"英文模式", "input_mode_shortcut":"中英切换快捷键", "full_width_input":"全角输入", "floating_toolbar":"悬浮工具栏", "traditional_chinese_output":"繁体输出", "wubi_auto_commit_unique":"五笔唯一候选自动上屏", "shuangpin_keymap":"双拼键位图", "local_input_modes":"快捷模式"]
     return names[String(key.dropFirst("platform.macos.".count))] ?? "桌面设置"
   }
   private func display(_ value: BackendPreferenceValue, key: String) -> String {
@@ -168,14 +181,14 @@ struct MacCloudSettingsView: View {
             let title = type.perform(NSSelectorFromString("themeTitleForIdentifier:"), with: id)?.takeUnretainedValue() as? String else { return id }
       return title
     }
-    if key == "platform.macos.custom_candidate_skin", case .string(let id) = value {
+    if key == "platform.macos.custom_candidate_skin" || key == MacSettingsModel.darkSkinKey, case .string(let id) = value {
       return id.isEmpty ? "不使用外部皮肤" : id
     }
     if case .integer(let n) = value {
       let names: [String]?
       switch key {
       case "platform.macos.input_scheme": names = ["全拼", "双拼", "五笔"]
-      case "platform.macos.quanpin_helpcode_schema", "platform.macos.shuangpin_helpcode_schema": names = ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加"]
+      case "platform.macos.quanpin_helpcode_schema", "platform.macos.shuangpin_helpcode_schema": names = MacSettingsModel.helpcodeSchemeTitles
       case "platform.macos.candidate_panel_style": names = ["横排", "竖排"]
       // The keys themselves, the way the settings window and the reference's shortcut page write
       // them. This page and that window show one setting, and a reader comparing them should not

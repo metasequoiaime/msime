@@ -394,6 +394,12 @@ impl From<&SkinSummary> for ThemePackage {
 }
 
 impl ThemePackage {
+    /// 这个皮肤包能否在 `dark` 模式下绘制：`base` 是固定明暗的内置主题时只在那种明暗下画，`system` 底两种都画。设置页按同一规则把皮肤分到浅色、深色两个槽位（`skin_appearance`）。
+    pub fn draws_in(&self, dark: bool) -> bool {
+        skin_appearance(self.base)
+            .is_none_or(|appearance| (appearance == ThemeAppearance::Dark) == dark)
+    }
+
     /// Read one entry of the published `candidate_skin_catalog` (see `catalog::host_candidate_catalog`). That entry carries a palette for exactly the modes the package declares, so a missing mode reads as undeclared. Its `title`, decoration and corner radius keys are not theme colours and are ignored. The entry is read strictly: an unknown key anywhere, a missing `layouts`, a `base` that is not `system` or a built-in theme (as `catalog::scan` refuses the manifest) or an unsafe id is refused. In particular a `SkinSummary` from `msime_client_skin_catalog`, whose keys are camelCase (`showSelectedBar`, `minWidthDip`, `themes`), is not an entry and is refused rather than read with its selection bar and declared modes silently lost; hosts that scan the skin root pass `skins_directory` instead.
     pub fn from_host_catalog_entry(entry: serde_json::Value) -> Result<Self, String> {
         #[derive(Deserialize)]
@@ -483,11 +489,16 @@ pub struct ResolvedTheme {
     pub candidate_skin: Option<String>,
 }
 
+/// 以 `base` 为底的皮肤包属于哪种明暗：固定明暗的内置主题给出它自己的明暗，`system` 为 `None`，两种模式都可以画。
+pub fn skin_appearance(base: GlobalTheme) -> Option<ThemeAppearance> {
+    base.builtin().map(|builtin| builtin.appearance)
+}
+
 /// Resolve the colours for `theme`.
 ///
-/// `dark` is the host's effective mode for the surface being drawn; only `custom` over a `system` base reads it. `layout` is the candidate layout of that surface; only a custom theme's package reads it. `package` is the installed package `custom.candidate_skin` names, already loaded by the caller (`None` when the custom theme names none or it is not installed); a package with a different id is ignored.
+/// `dark` 是宿主正在绘制的界面当前的明暗模式：它决定自定义主题取哪个槽位的皮肤包，`system` 底也按它取色。`layout` 是该界面的候选排列，只有自定义主题的皮肤包读它。`package` 是调用方已经加载好的、`custom.candidate_skin_for(dark)` 指名的那个已安装皮肤包（自定义主题没指名或没安装时为 `None`）；id 对不上的包被忽略。
 ///
-/// A custom theme is drawn over a base: the named package's manifest `base`, or else `custom.base`. A built-in base fixes the mode, so the package palette is the one for the base's own appearance and `dark` is ignored. The package is drawn only where its manifest says it may be: in a layout it does not declare, or a mode it does not declare, it contributes nothing and is not reported in `candidate_skin`, and the base is drawn with the pickers. A `system` base contributes no slots and follows `dark`.
+/// 自定义主题画在一个底上：选中皮肤包清单里的 `base`，否则是 `custom.base`。皮肤包只在它 `base` 的明暗下绘制：`base` 是固定明暗的内置主题、且与 `dark` 不符时，这个模式不画它，主题落回底加取色器，所以浅色模式不会出现深色皮肤，反之亦然。设过皮肤却在这个模式下没有可画的包时，`custom.base` 也只在属于当前明暗时作底，否则按 `system`；完全没设皮肤的自定义主题照旧用 `custom.base`。`system` 底的皮肤包两种模式都画，按 `dark` 取对应配色。皮肤包也只在清单声明的排列和模式下绘制：其余情况下它不提供任何颜色，也不出现在 `candidate_skin` 里，底照常与取色器一起画。`system` 底不提供槽位颜色，按 `dark` 绘制。
 ///
 /// Candidate colours are layered: the base, then the package palette, then every picker the user set. A text picker also sets the numbers to that colour at `PICKED_NUMBER_ALPHA` unless the number picker is set. `secondary` is the package's `translation` colour, and otherwise follows `number`. Over a built-in base the slots that base derives keep following their sources unless the package or a picker set them: `selected` is `accent` at `SELECTED_ALPHA`, `hover` is `text` at `HOVER_ALPHA`, `selected_text` is `accent` and `selected_number` is `number`. When the selected picker is set, on any base, `selected_text` is black or white by that colour's luminance and `selected_number` is the same colour at `PICKED_NUMBER_ALPHA`, so the highlighted candidate stays readable whatever colour was picked. A custom theme over `system` with no package slots and no pickers has no candidate palette at all and draws the platform's own.
 ///
@@ -520,10 +531,24 @@ pub fn resolve(
             candidate_skin: None,
         };
     }
-    let package = package.filter(|package| custom.candidate_skin.as_deref() == Some(&package.id));
-    let base = package
-        .map_or(custom.base, |package| package.base)
-        .builtin();
+    let package = package
+        .filter(|package| custom.candidate_skin_for(dark) == Some(package.id.as_str()))
+        .filter(|package| package.draws_in(dark));
+    let base = match package {
+        Some(package) => package.base,
+        // 设过皮肤、这个模式却没有能画的（槽位空着、明暗不符或包没装）：底也按同一条明暗规则，不属于当前明暗就跟随系统。应用皮肤时会把包的 `base` 写进 `custom.base`，不这样做，浅色模式会落回深色皮肤留下的 `night`。
+        None if custom.candidate_skin.is_some() || custom.candidate_skin_dark.is_some() => {
+            if skin_appearance(custom.base)
+                .is_none_or(|appearance| (appearance == ThemeAppearance::Dark) == dark)
+            {
+                custom.base
+            } else {
+                GlobalTheme::System
+            }
+        }
+        None => custom.base,
+    }
+    .builtin();
     let dark = base.map_or(dark, |base| base.appearance == ThemeAppearance::Dark);
     let drawn = package
         .filter(|package| package.layouts.contains(&layout))

@@ -84,7 +84,9 @@ public final class KeyboardIconPaths {
         /** Lucide-style picture-in-picture-2 (浮动键盘) */
         FLOATING(true, 1.7f),
         /** Lucide-style text-cursor-input (文本编辑) */
-        TEXT_EDIT(true, 1.7f);
+        TEXT_EDIT(true, 1.7f),
+        /** Lucide-style trash-2 (剪贴板左滑删除) */
+        TRASH(true, 1.7f);
 
         private final boolean stroked;
         private final float strokeWidth;
@@ -179,6 +181,7 @@ public final class KeyboardIconPaths {
             case EXIT_ONE_HAND -> appendExitOneHand(p);
             case FLOATING -> appendFloating(p);
             case TEXT_EDIT -> appendTextEdit(p);
+            case TRASH -> appendTrash(p);
         }
     }
 
@@ -889,5 +892,26 @@ public final class KeyboardIconPaths {
         p.lineTo(13f, 16f);
         p.moveTo(9f, 7f);
         p.lineTo(9f, 17f);
+    }
+
+    private static void appendTrash(Path p) {
+        p.moveTo(3f, 6f);
+        p.lineTo(21f, 6f);
+        p.moveTo(19f, 6f);
+        p.lineTo(19f, 20f);
+        p.cubicTo(19f, 21.1046f, 18.1046f, 22f, 17f, 22f);
+        p.lineTo(7f, 22f);
+        p.cubicTo(5.8954f, 22f, 5f, 21.1046f, 5f, 20f);
+        p.lineTo(5f, 6f);
+        p.moveTo(8f, 6f);
+        p.lineTo(8f, 4f);
+        p.cubicTo(8f, 2.8954f, 8.8954f, 2f, 10f, 2f);
+        p.lineTo(14f, 2f);
+        p.cubicTo(15.1046f, 2f, 16f, 2.8954f, 16f, 4f);
+        p.lineTo(16f, 6f);
+        p.moveTo(10f, 11f);
+        p.lineTo(10f, 17f);
+        p.moveTo(14f, 11f);
+        p.lineTo(14f, 17f);
     }
 }

@@ -26,6 +26,9 @@ const RELOAD_RETRY_PAUSE: Duration = Duration::from_secs(10);
 /// Reported by `record` when an earlier background write failed; the caller maps it to its own diagnostic.
 const WRITE_FAILED: &str = "Personal context could not be written to the journal";
 
+/// 把两张表的计数各减半、丢掉会变成 0 的行（`count>0` 是 CHECK 约束）。衰减（`decay_locked`）和本地备份合并输入习惯后压回上限（`habits::merge_learning_habits`）共用。
+pub(crate) const HALVE_SQL: &str = "DELETE FROM personal_bigram WHERE count<2;UPDATE personal_bigram SET count=count/2;DELETE FROM personal_trigram WHERE count<2;UPDATE personal_trigram SET count=count/2;";
+
 /// Bumped by `release_all`: every store's model is stale until it reloads from the file now at its path.
 static STORE_GENERATION: AtomicU64 = AtomicU64::new(0);
 
@@ -320,9 +323,7 @@ impl PersonalNgramStore {
             connection.execute_batch("BEGIN IMMEDIATE")?;
             loop {
                 // Rows that would reach 0 are dropped first because count>0 is a CHECK.
-                connection.execute_batch(
-                    "DELETE FROM personal_bigram WHERE count<2;UPDATE personal_bigram SET count=count/2;DELETE FROM personal_trigram WHERE count<2;UPDATE personal_trigram SET count=count/2;",
-                )?;
+                connection.execute_batch(HALVE_SQL)?;
                 if count_entries(connection)? <= low_water {
                     break;
                 }
@@ -534,6 +535,13 @@ pub(crate) fn flush_journal(user_db: &Path) -> Result<()> {
     match PersonalNgramStore::existing(user_db) {
         Some(store) => store.flush(),
         None => Ok(()),
+    }
+}
+
+/// 日志的两张表被别的连接改过（本地备份合并输入习惯）之后调用：这个日志的 store 若还在，把它的模型标成过期，下次用到时从磁盘重读。没有 store 时什么也不做，下次打开时本来就会读盘。
+pub(crate) fn invalidate_journal(user_db: &Path) {
+    if let Some(store) = PersonalNgramStore::existing(user_db) {
+        store.invalidations.fetch_add(1, Ordering::AcqRel);
     }
 }
 

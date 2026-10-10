@@ -81,7 +81,7 @@ pub(super) fn registry(
     let enabled = SchemeSet::of(&[SchemeType::Quanpin, SchemeType::Shuangpin, SchemeType::Wubi]);
     let mut providers = ProviderRegistry::new(
         enabled,
-        profile.kind,
+        profile,
         &paths,
         PathBuf::new(),
         PathBuf::new(),

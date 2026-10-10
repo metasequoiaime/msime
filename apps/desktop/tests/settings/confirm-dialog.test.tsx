@@ -100,3 +100,16 @@ test("unmounting while open answers no rather than leaving the caller waiting", 
   view.unmount();
   await waitFor(() => expect(answered).toHaveBeenCalledWith(false));
 });
+
+// 确认按钮是对话框的主操作：没有样式类时，手机宿主上它是 WebView 自带的灰色方框按钮，旁边的「取消」却是平台样式。
+test("the confirming button is styled as the main action, or as destructive when it deletes", () => {
+  render(<Harness danger={false} />);
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  expect(screen.getByRole("button", { name: "确定" }).className).toBe("primary");
+  cleanup();
+
+  render(<Harness />);
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  expect(screen.getByRole("button", { name: "确定" }).className).not.toBe("");
+  expect(screen.getByRole("button", { name: "确定" }).className).not.toBe("primary");
+});

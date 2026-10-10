@@ -23,3 +23,5 @@ Status: implemented
 请求构造直接写入已有 reading，完整性检查只扫描不收集结果，见[罗马字流式扫描](2026-10-09-japanese-reading-stream.md)。本篇的规范化与公开拥有型结果构造契约继续有效。
 
 provider 的转换结果复用独立缓冲，规范化与公开冷构造契约保持不变，见[provider 转换缓冲](2026-10-09-japanese-provider-conversion-buffer.md)。
+
+待定假名前缀采用[固定拼法索引](2026-10-09-japanese-kana-prefix-index.md)借用排序去重结果；转换的规范化和全部别名边界保持。

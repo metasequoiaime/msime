@@ -1,6 +1,7 @@
 #import "LocalVoiceRequest.h"
 #import "VoiceFailureMessages.h"
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 #include <atomic>
 #include <array>
 #include <cerrno>
@@ -10,7 +11,6 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <sys/stat.h>
-#include <memory>
 #include <iterator>
 #include <unistd.h>
 #include <vector>
@@ -33,8 +33,8 @@ id HostValue(char *(*function)(const uint8_t *, size_t), NSDictionary *request) 
     if (![NSJSONSerialization isValidJSONObject:request]) return nil;
     NSData *body = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
     if (!body) return nil;
-    std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
-        function(static_cast<const uint8_t *>(body.bytes), body.length), msime_client_string_free);
+    auto raw = msime::host_api::own_string(
+        function(static_cast<const uint8_t *>(body.bytes), body.length));
     if (!raw) return nil;
     id response = [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytesNoCopy:raw.get() length:std::strlen(raw.get()) freeWhenDone:NO]
                                                   options:0 error:nil];

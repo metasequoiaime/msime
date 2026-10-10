@@ -142,7 +142,7 @@ pub fn candidate_target_glosses(
     if database_path.is_empty() {
         return Err(EngineError::failed(diagnostics::OFFLINE_GLOSS_UNAVAILABLE));
     }
-    let database_path = crate::paths::sqlite_path_no_follow(Path::new(database_path))
+    let database_path = crate::paths::sqlite_read_only_path_no_follow(Path::new(database_path))
         .map_err(|_| EngineError::failed(diagnostics::OFFLINE_GLOSS_UNAVAILABLE))?;
     let connection = Connection::open_with_flags(
         &database_path,
@@ -205,7 +205,7 @@ pub fn english_phonetics(database_path: &str, words: &[String]) -> Result<Vec<St
     if database_path.is_empty() {
         return Err(EngineError::failed(diagnostics::PRONUNCIATION_UNAVAILABLE));
     }
-    let database_path = crate::paths::sqlite_path_no_follow(Path::new(database_path))
+    let database_path = crate::paths::sqlite_read_only_path_no_follow(Path::new(database_path))
         .map_err(|_| EngineError::failed(diagnostics::PRONUNCIATION_UNAVAILABLE))?;
     let connection = Connection::open_with_flags(
         &database_path,

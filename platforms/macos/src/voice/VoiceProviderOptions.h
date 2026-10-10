@@ -1,16 +1,12 @@
 #pragma once
 #import <Foundation/Foundation.h>
 
-// Decide the in-process recognition transport from the persisted provider id.
-// Keep this pure so the settings surface and controller cannot silently drift:
-// every HTTPS multipart preset belongs to the batch request path, while Doubao
-// and system Speech have dedicated transports. An external provider socket owns
-// all provider routing when present.
+// 按持久化的 provider id 决定进程内用哪条识别通道。保持纯函数，免得设置页和控制器悄悄走偏：所有 HTTPS 整句预设（multipart，以及阿里云百炼的 chat_audio）都走整句请求路径，豆包和系统语音各有专用通道。有外部 provider socket 时，provider 路由全部交给它。
 // `local` never takes this path: an installed on-device model directory runs in the helper (MSIMEVoiceUsesLocalModelHelper), and anything else the preference holds for it, such as a Whisper model file from before the model catalog, is refused before recording (MSIMEVoiceLocalModelMissing).
 static inline BOOL MSIMEVoiceUsesNativeHTTPProvider(NSString *provider, BOOL providerSocketAvailable) {
     if (providerSocketAvailable) return NO;
     NSString *identifier = provider.lowercaseString ?: @"";
-    return [@[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral"]
+    return [@[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral", @"bailian"]
         containsObject:identifier];
 }
 

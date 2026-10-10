@@ -1117,6 +1117,7 @@ final class ImePanels {
             s.clipboardTab, s.clipboardHistoryEnabled, cloudAllowed);
         clipboardClearPending = false;
         clipboardActionText = null;
+        clipboardSwipedText = null;
         endClipboardSegmentation();
         // 补读一次：键盘进程没在运行时复制的内容，监听收不到。
         s.captureClipboard(ClipboardCapturePolicy.Trigger.PANEL_OPENED, false);
@@ -1141,6 +1142,7 @@ final class ImePanels {
         s.clipboardTab = tab;
         clipboardClearPending = false;
         clipboardActionText = null;
+        clipboardSwipedText = null;
         endClipboardSegmentation();
         renderClipboardHistory();
     }
@@ -1152,23 +1154,37 @@ final class ImePanels {
      */
     void refreshCloudClipboard() {
         if (!cloudClipboardAllowed()) return;
+        app.msime.android.SyncSwitch.Binding binding = SyncSignals.binding(s);
+        String accountId = binding == null ? "" : binding.accountId();
+        long bindingGeneration = binding == null ? -1L : binding.generation();
+        s.cloudClipboardAccountId = accountId;
+        s.cloudClipboardBindingGeneration = bindingGeneration;
         long generation = ++s.cloudClipboardGeneration;
         s.cloudClipboardStatus = CloudClipboardPanelPolicy.Status.LOADING;
         s.cloudClipboardItems = java.util.List.of();
+        s.cloudClipboardSessionId = "";
         if (s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD) renderClipboardHistory();
+        if (binding == null || accountId.isEmpty()) {
+            s.cloudClipboardStatus = CloudClipboardPanelPolicy.Status.SIGNED_OUT;
+            if (s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD) renderClipboardHistory();
+            return;
+        }
         try {
             s.cloudClipboardWorker.execute(() -> {
                 CloudClipboardPanelPolicy.Status status;
                 java.util.List<BackendAccount.ClipboardItem> items = java.util.List.of();
+                String sessionId = "";
                 try {
                     BackendAccount account = new BackendAccount(s);
                     // Throws when the session owner cannot tell right now, which is a retry, not a sign-in.
-                    if (account.currentAccessToken().isEmpty()) {
+                    BackendAccount.SessionCredential session = account.currentSession();
+                    if (session.token().isEmpty()) {
                         status = CloudClipboardPanelPolicy.Status.SIGNED_OUT;
                     } else {
-                        BackendAccount.ClipboardPage page = account.clipboard("");
+                        BackendAccount.ClipboardPage page = account.clipboard("", session.sessionId());
                         status = CloudClipboardPanelPolicy.loaded(page.enabled(), page.items().size());
                         if (CloudClipboardPanelPolicy.showsItems(status)) items = page.items();
+                        sessionId = session.sessionId();
                     }
                 } catch (BackendAccount.RequestException error) {
                     status = CloudClipboardPanelPolicy.failed(error.status);
@@ -1177,11 +1193,14 @@ final class ImePanels {
                 }
                 CloudClipboardPanelPolicy.Status answer = status;
                 java.util.List<BackendAccount.ClipboardItem> answered = items;
+                String answeredSessionId = sessionId;
                 s.main.post(() -> {
                     if (!CloudClipboardPanelPolicy.accepts(generation, s.cloudClipboardGeneration)
+                            || !acceptsCurrentBinding(accountId, bindingGeneration)
                             || !clipboardPanelOpen() || !cloudClipboardAllowed()) return;
                     s.cloudClipboardStatus = answer;
                     s.cloudClipboardItems = answered;
+                    s.cloudClipboardSessionId = answeredSessionId;
                     if (s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD) renderClipboardHistory();
                 });
             });
@@ -1193,6 +1212,18 @@ final class ImePanels {
     /** Send one local entry to the account's cloud clipboard, because the user asked for exactly this one. */
     void uploadClipboardText(String text) {
         boolean cloudAllowed = cloudClipboardAllowed();
+        app.msime.android.SyncSwitch.Binding binding = SyncSignals.binding(s);
+        String accountId = binding == null ? "" : binding.accountId();
+        long bindingGeneration = binding == null ? -1L : binding.generation();
+        if (!CloudClipboardPanelPolicy.acceptsBinding(
+                s.cloudClipboardAccountId, s.cloudClipboardBindingGeneration,
+                accountId, bindingGeneration) || s.cloudClipboardSessionId.isEmpty()) {
+            s.cloudClipboardStatus = CloudClipboardPanelPolicy.Status.SIGNED_OUT;
+            s.cloudClipboardItems = java.util.List.of();
+            s.cloudClipboardSessionId = "";
+            renderClipboardHistory();
+            return;
+        }
         if (!CloudClipboardPanelPolicy.canUpload(cloudAllowed, s.cloudClipboardStatus, text)) {
             s.notice(s.cloudClipboardStatus == CloudClipboardPanelPolicy.Status.SIGNED_OUT
                     || s.cloudClipboardStatus == CloudClipboardPanelPolicy.Status.DISABLED
@@ -1201,11 +1232,12 @@ final class ImePanels {
             return;
         }
         long generation = s.cloudClipboardGeneration;
+        String sessionId = s.cloudClipboardSessionId;
         try {
             s.cloudClipboardWorker.execute(() -> {
                 CloudClipboardPanelPolicy.Status failure = null;
                 try {
-                    new BackendAccount(s).addClipboard(text);
+                    new BackendAccount(s).addClipboard(text, sessionId);
                 } catch (BackendAccount.RequestException error) {
                     failure = CloudClipboardPanelPolicy.failed(error.status);
                 } catch (Exception | LinkageError error) {
@@ -1214,7 +1246,9 @@ final class ImePanels {
                 CloudClipboardPanelPolicy.Status result = failure;
                 s.main.post(() -> {
                     if (!CloudClipboardPanelPolicy.acceptsUploadResult(
-                            generation, s.cloudClipboardGeneration) || !clipboardPanelOpen()) return;
+                            generation, s.cloudClipboardGeneration)
+                            || !acceptsCurrentBinding(accountId, bindingGeneration)
+                            || !clipboardPanelOpen()) return;
                     s.notice(result == null ? "已发到云剪贴板"
                         : result == CloudClipboardPanelPolicy.Status.SIGNED_OUT
                             ? CloudClipboardPanelPolicy.SIGNED_OUT_MESSAGE
@@ -1230,8 +1264,19 @@ final class ImePanels {
 
     void insertCloudClipboardText(String text) {
         // Re-checked at the tap: the list was drawn for this field, but a field never gets cloud text once it has turned sensitive.
-        if (!cloudClipboardAllowed()) return;
+        app.msime.android.SyncSwitch.Binding binding = SyncSignals.binding(s);
+        if (!cloudClipboardAllowed()
+                || binding == null
+                || !CloudClipboardPanelPolicy.acceptsBinding(
+                    s.cloudClipboardAccountId, s.cloudClipboardBindingGeneration,
+                    binding.accountId(), binding.generation())) return;
         s.insertClipboardText(text);
+    }
+
+    private boolean acceptsCurrentBinding(String accountId, long bindingGeneration) {
+        app.msime.android.SyncSwitch.Binding current = SyncSignals.binding(s);
+        return current != null && CloudClipboardPanelPolicy.acceptsBinding(
+            accountId, bindingGeneration, current.accountId(), current.generation());
     }
 
     /** 顶行的「清空」点过一次、正在等用户确认；换分段、重开面板都会撤销。 */
@@ -1243,6 +1288,7 @@ final class ImePanels {
         if (s.clipboardPanel == null || s.clipboardHistory == null) return;
         s.clipboardPanel.removeAllViews();
         clipboardCardRow = null;
+        clipboardSwipedCell = null;
         KeyboardGeometry.setSymmetricPaddingDp(s.clipboardPanel, s, 8, 8);
         boolean cloudAllowed = cloudClipboardAllowed();
         if (!cloudAllowed) s.clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
@@ -1251,7 +1297,16 @@ final class ImePanels {
             renderClipboardSegmentation();
             return;
         }
-        java.util.List<TextView> notes = new java.util.ArrayList<>(1);
+        java.util.List<TextView> notes = new java.util.ArrayList<>(2);
+        // 本机历史在画顶行之前读一次：顶行的条数和下面的卡片用的是同一份，不读第二次。读不出来时 items 为 null，提示照旧画在下面。
+        java.util.List<ClipboardHistory.Item> items = null;
+        if (!cloud && s.clipboardHistoryEnabled) {
+            try {
+                items = s.clipboardHistory.load();
+            } catch (IllegalStateException error) {
+                items = null;
+            }
+        }
         // 顶部一行小号操作：本机 / 云端分段（云端可用时）、刷新或清空；返回由工具栏的「返回键盘」负责。
         LinearLayout header = KeyboardGeometry.row(s);
         ViewPolicy.setCenteredVertically(header);
@@ -1261,7 +1316,21 @@ final class ImePanels {
             addClipboardTab(header, CloudClipboardPanelPolicy.TAB_LOCAL, CloudClipboardPanelPolicy.Tab.LOCAL);
             addClipboardTab(header, CloudClipboardPanelPolicy.TAB_CLOUD, CloudClipboardPanelPolicy.Tab.CLOUD);
         }
-        if (!confirmingClear) header.addView(new View(s), KeyboardGeometry.weightedZeroParams(1));
+        if (!confirmingClear) {
+            // 分段和「清空」之间原来是一块空白，现在居中写「已存条数/上限」（#5905），不另占地方；没有可数的内容时它是空的，布局和原来一样。
+            Integer count = cloud
+                ? CloudClipboardPanelPolicy.cloudCount(s.cloudClipboardStatus, s.cloudClipboardItems.size())
+                : items == null ? null : items.size();
+            TextView counter = ViewPolicy.centeredText(s,
+                CloudClipboardPanelPolicy.countLabel(s.clipboardTab, count), 12);
+            KeyboardGeometry.setKeyTextSize(counter, 12);
+            ViewPolicy.setMaxLinesEllipsized(counter, 1);
+            String description = CloudClipboardPanelPolicy.countDescription(s.clipboardTab, count);
+            if (description.isEmpty()) ViewPolicy.hideFromAccessibility(counter);
+            else counter.setContentDescription(description);
+            header.addView(counter, KeyboardGeometry.weightedMatchParentParams(1));
+            notes.add(counter);
+        }
         if (cloud) {
             Button refresh = clipboardAction(header, "刷新", this::refreshCloudClipboard);
             ViewPolicy.setEnabled(refresh,
@@ -1284,10 +1353,16 @@ final class ImePanels {
             });
             confirm.setContentDescription("确认清空剪贴板历史");
         } else if (s.clipboardHistoryEnabled) {
+            // 「搜索」打开应用里可搜索的剪贴板历史页（#5973）：键盘里没有可输入的文本框，查询框放在应用里。没有可搜的记录（空或读不出）时不放。
+            if (items != null && !items.isEmpty()) {
+                Button search = clipboardAction(header, "搜索", s::openClipboardSearch);
+                search.setContentDescription("在水杉应用里搜索剪贴板历史");
+            }
             // 复制会自动记录，不再需要「保存当前」。
             clipboardAction(header, "清空", () -> {
                 clipboardClearPending = true;
                 clipboardActionText = null;
+                clipboardSwipedText = null;
                 renderClipboardHistory();
             });
         }
@@ -1296,39 +1371,50 @@ final class ImePanels {
             renderCloudClipboard(notes);
         } else if (!s.clipboardHistoryEnabled) {
             notes.add(clipboardNote("剪贴板历史未开启，可在设置中开启"));
+        } else if (items == null) {
+            notes.add(clipboardNote("历史记录无法读取，请清空后重试"));
         } else {
-            try {
-                java.util.List<ClipboardHistory.Item> items = s.clipboardHistory.load();
-                if (items.isEmpty()) notes.add(clipboardNote("复制的文字会自动出现在这里，点按即可插入\n只保存在本机"));
-                long now = System.currentTimeMillis();
-                int columns = s.clipboardColumns;
-                ClipboardHistory.Item actionItem = null;
-                for (int index = 0; index < items.size(); index++) {
-                    ClipboardHistory.Item item = items.get(index);
-                    String meta = (item.pinned() ? "已置顶 · " : "") + "本机 · " + relativeTime(item.timestamp(), now);
-                    boolean managed = item.text().equals(clipboardActionText);
-                    Button card = clipboardCard(index, items.size(), item.text(), meta, managed,
-                        () -> s.insertClipboardText(item.text()));
-                    card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，长按管理");
-                    card.setOnLongClickListener(ignored -> {
-                        s.imeKeyFeedback.playFeedback(card);
-                        clipboardActionText = item.text();
-                        clipboardClearPending = false;
-                        renderClipboardHistory();
-                        return true;
-                    });
-                    if (managed) actionItem = item;
-                    // 操作行放在这条所在那一行的下面：双列时跨在两条下方，不插进两条中间。
-                    boolean rowEnds = index == items.size() - 1
-                        || ClipboardLayoutPolicy.row(index + 1, columns) != ClipboardLayoutPolicy.row(index, columns);
-                    if (rowEnds && actionItem != null) {
-                        renderClipboardItemActions(actionItem, cloudAllowed);
-                        actionItem = null;
+            if (items.isEmpty()) notes.add(clipboardNote("复制的文字会自动出现在这里，点按即可插入\n只保存在本机"));
+            long now = System.currentTimeMillis();
+            int columns = s.clipboardColumns;
+            float reveal = ClipboardSwipePolicy.revealWidth(KeyboardGeometry.density(s), clipboardCellWidth(columns));
+            boolean swipedPresent = false;
+            ClipboardHistory.Item actionItem = null;
+            for (int index = 0; index < items.size(); index++) {
+                ClipboardHistory.Item item = items.get(index);
+                String meta = (item.pinned() ? "已置顶 · " : "") + "本机 · " + relativeTime(item.timestamp(), now);
+                boolean managed = item.text().equals(clipboardActionText);
+                boolean swiped = item.text().equals(clipboardSwipedText);
+                swipedPresent |= swiped;
+                Button card = newClipboardCard(item.text(), meta, managed, () -> {
+                    // 有一条左滑打开着时，点任何一张卡片只把它收回，不插入。
+                    if (clipboardSwipedText != null) {
+                        closeClipboardSwipe();
+                        return;
                     }
+                    s.insertClipboardText(item.text());
+                });
+                card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，左滑删除，长按管理");
+                card.setOnLongClickListener(ignored -> {
+                    s.imeKeyFeedback.playFeedback(card);
+                    clipboardActionText = item.text();
+                    clipboardClearPending = false;
+                    clipboardSwipedText = null;
+                    renderClipboardHistory();
+                    return true;
+                });
+                placeClipboardCell(index, items.size(), clipboardSwipeCell(card, item, swiped, reveal));
+                if (managed) actionItem = item;
+                // 操作行放在这条所在那一行的下面：双列时跨在两条下方，不插进两条中间。
+                boolean rowEnds = index == items.size() - 1
+                    || ClipboardLayoutPolicy.row(index + 1, columns) != ClipboardLayoutPolicy.row(index, columns);
+                if (rowEnds && actionItem != null) {
+                    renderClipboardItemActions(actionItem, cloudAllowed);
+                    actionItem = null;
                 }
-            } catch (IllegalStateException error) {
-                notes.add(clipboardNote("历史记录无法读取，请清空后重试"));
             }
+            // 打开着的那一条已经不在了（别处删掉或清空）：不再记着它。
+            if (!swipedPresent) clipboardSwipedText = null;
         }
         s.imeStyler.applySkin();
         for (TextView note : notes) ViewPolicy.setTextColor(note, ImeStyler.fade(s.skin.keyForeground(), .6));
@@ -1340,9 +1426,8 @@ final class ImePanels {
      * <p>原来是 `PopupMenu`：弹出菜单是可获得焦点的窗口，打开时编辑器的窗口失去焦点，在 Via 这类用系统 WebView 的浏览器里键盘随即被收起（#5653）。画在面板里的按钮不会碰窗口焦点。
      */
     private void renderClipboardItemActions(ClipboardHistory.Item item, boolean cloudAllowed) {
-        LinearLayout row = KeyboardGeometry.row(s);
-        ViewPolicy.setCenteredVertically(row);
-        row.setContentDescription("剪贴板记录操作");
+        // 操作分两行：一行放不下「添加到常用语」「发到云剪贴板」两个长按钮和其余几个短按钮，挤在一行时每个按钮都被截成省略号。阅读顺序是 固定、删除、编辑、分词、添加到常用语、发到云剪贴板、收起。
+        LinearLayout row = addClipboardItemActionRow();
         clipboardItemAction(row, item.pinned() ? "取消固定" : "固定", () -> {
             clipboardActionText = null;
             s.setClipboardItemPinned(item);
@@ -1351,10 +1436,21 @@ final class ImePanels {
             clipboardActionText = null;
             s.removeClipboardItem(item);
         });
+        // 编辑在应用里做（#5971）：键盘里没有可输入的文本框，增删改放在应用里，和常用语（#5673）一样。
+        clipboardItemAction(row, "编辑", () -> {
+            clipboardActionText = null;
+            s.editClipboardItem(item);
+        });
         clipboardItemAction(row, "分词", () -> startClipboardSegmentation(item.text()));
+        LinearLayout more = addClipboardItemActionRow();
+        clipboardItemAction(more, CommonPhrasesPanelPolicy.ADD_FROM_CLIPBOARD, () -> {
+            clipboardActionText = null;
+            renderClipboardHistory();
+            addClipboardTextToPhrases(item.text());
+        });
         // 只要有云端分段就提供这个操作，让用户发现得了；只有这次打开面板的拉取确认账号已登录且开着云剪贴板时它才真正执行。
         if (cloudAllowed) {
-            Button upload = clipboardItemAction(row, CloudClipboardPanelPolicy.UPLOAD_ACTION, () -> {
+            Button upload = clipboardItemAction(more, CloudClipboardPanelPolicy.UPLOAD_ACTION, () -> {
                 clipboardActionText = null;
                 renderClipboardHistory();
                 uploadClipboardText(item.text());
@@ -1362,13 +1458,50 @@ final class ImePanels {
             ViewPolicy.setEnabledWithAlpha(upload, CloudClipboardPanelPolicy.canUpload(
                 cloudAllowed, s.cloudClipboardStatus, item.text()), .45f);
         }
-        clipboardItemAction(row, "收起", () -> {
+        clipboardItemAction(more, "收起", () -> {
             clipboardActionText = null;
             renderClipboardHistory();
         });
+    }
+
+    /** 操作行里的一行：加在面板里当前位置（紧贴被长按那条的下方），返回给调用方往里放按钮。 */
+    private LinearLayout addClipboardItemActionRow() {
+        LinearLayout row = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(row);
+        row.setContentDescription("剪贴板记录操作");
         LinearLayout.LayoutParams params = KeyboardGeometry.matchWidthHeightPx(s.pixels(38));
         params.topMargin = s.pixels(4);
         s.clipboardPanel.addView(row, params);
+        return row;
+    }
+
+    /**
+     * 长按操作行里的「添加到常用语」（#5909）：把这一条存成无编码常用语，之后在键盘的「常用语」面板里点一下就能上屏。
+     *
+     * <p>经 {@link CommonPhrasesStore#add} 写入，校验、去重、条数上限和标记同步都在那里；常用语读写要等文件锁，放在 `preferencesWorker` 上，结果回到主线程用 `notice` 说出来。剪贴板历史不限 1000 字、允许回车和制表符，常用语都不行：先把回车换成换行，仍存不下的在这里拦下，按实际原因说明（{@link CommonPhrasesPanelPolicy#clipboardRefusal}）。
+     */
+    private void addClipboardTextToPhrases(String entry) {
+        String text = CommonPhrasesPanelPolicy.clipboardPhraseText(entry);
+        String refusal = CommonPhrasesPanelPolicy.clipboardRefusal(text);
+        if (refusal != null) {
+            s.notice(refusal);
+            return;
+        }
+        try {
+            s.preferencesWorker.execute(() -> {
+                CommonPhrasesStore.Result result;
+                try {
+                    result = CommonPhrasesStore.add(s, text);
+                } catch (RuntimeException | LinkageError error) {
+                    result = null;
+                }
+                String notice = CommonPhrasesPanelPolicy.clipboardAddNotice(
+                    result != null && result.ok(), result == null ? "" : result.failure());
+                s.main.post(() -> s.notice(notice));
+            });
+        } catch (java.util.concurrent.RejectedExecutionException error) {
+            s.notice(CommonPhrasesStore.failureMessage(""));
+        }
     }
 
     /** 正在分词的那一条切出的片段；没有在分词时为 null。 */
@@ -1384,6 +1517,7 @@ final class ImePanels {
     private void startClipboardSegmentation(String text) {
         clipboardActionText = null;
         clipboardClearPending = false;
+        clipboardSwipedText = null;
         clipboardSegments = ClipboardSegmentation.segment(text,
             java.text.BreakIterator.getWordInstance(java.util.Locale.CHINESE));
         clipboardSegmentSelected = new boolean[clipboardSegments.size()];
@@ -1551,6 +1685,13 @@ final class ImePanels {
      */
     private Button clipboardCard(int index, int count, String text, String meta, boolean selected,
             Runnable action) {
+        Button card = newClipboardCard(text, meta, selected, action);
+        placeClipboardCell(index, count, card);
+        return card;
+    }
+
+    /** 只造卡片，不放进面板；本机历史要先把它包进左滑容器（{@link #clipboardSwipeCell}）再放。 */
+    private Button newClipboardCard(String text, String meta, boolean selected, Runnable action) {
         KeyboardPressButton card = ViewPolicy.newPressButton(s);
         card.setKeyboardRole(KeyboardKeyRole.KEY);
         android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(text);
@@ -1572,12 +1713,17 @@ final class ImePanels {
         ViewPolicy.clearMinimumHeight(card);
         ViewPolicy.clearStateListAnimator(card);
         bindFeedbackAction(card, action);
+        return card;
+    }
+
+    /** 把第 `index` 条（卡片本身，或包着它的左滑容器）按列数放进面板。 */
+    private void placeClipboardCell(int index, int count, View cell) {
         int columns = s.clipboardColumns;
         if (columns <= 1) {
             LinearLayout.LayoutParams params = KeyboardGeometry.matchWidthWrapParams();
             params.topMargin = s.pixels(6);
-            s.clipboardPanel.addView(card, params);
-            return card;
+            s.clipboardPanel.addView(cell, params);
+            return;
         }
         int column = index % columns;
         if (column == 0 || clipboardCardRow == null) {
@@ -1586,7 +1732,7 @@ final class ImePanels {
             rowParams.topMargin = s.pixels(6);
             s.clipboardPanel.addView(clipboardCardRow, rowParams);
         }
-        clipboardCardRow.addView(card, clipboardCellParams(column));
+        clipboardCardRow.addView(cell, clipboardCellParams(column));
         boolean lastInRow = index == count - 1
             || ClipboardLayoutPolicy.row(index + 1, columns) != ClipboardLayoutPolicy.row(index, columns);
         if (lastInRow) {
@@ -1594,7 +1740,207 @@ final class ImePanels {
                 clipboardCardRow.addView(new View(s), clipboardCellParams(empty));
             clipboardCardRow = null;
         }
-        return card;
+    }
+
+    /** 左滑露出删除按钮的那一条（共享存储以文字标识条目）；同一时间只有一条打开，没有时为 null（#5962）。渲染时按它把那张卡片直接画成打开的样子。 */
+    private String clipboardSwipedText;
+    /** 打开着的那一格，收回时用；每次渲染重建，没有时为 null。 */
+    private ClipboardSwipeCell clipboardSwipedCell;
+
+    /**
+     * 本机历史的一格：底下靠右是删除按钮，上面盖着卡片。卡片往左滑让开，露出删除按钮，点它才删（#5962）；手势的判定在 {@link ClipboardSwipePolicy}。
+     *
+     * <p>删除按钮只在卡片让开（拖动中或打开着）时显示，收着时是 `INVISIBLE`：按住卡片时按压动画会把卡片缩小一圈，底下的删除按钮若一直在，就会从卡片边上露出来（在模拟器上看到过）。收着时它也不可点、不被读屏读到。读屏用户和不会滑的用户仍然从长按操作行里的「删除」删。
+     */
+    // 监听只在横滑时接手，其余按压原样交给卡片，点击由它自己发出，见 ClipboardSwipeCell。
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private FrameLayout clipboardSwipeCell(Button card, ClipboardHistory.Item item, boolean open, float reveal) {
+        FrameLayout cell = new FrameLayout(s);
+        KeyboardIconKey trash = new KeyboardIconKey(s, KeyboardIconKey.Kind.TRASH);
+        trash.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        // 节点 text 留给读屏，图标代替文字画出来。
+        trash.setText("删除");
+        trash.setContentDescription("删除这条剪贴板记录");
+        ViewPolicy.clearMinimumSize(trash);
+        ViewPolicy.clearStateListAnimator(trash);
+        // 不让删除按钮的文字高度把这一格撑得比卡片高：格高只由卡片决定。
+        trash.setPadding(0, 0, 0, 0);
+        bindFeedbackAction(trash, () -> {
+            clipboardSwipedText = null;
+            clipboardSwipedCell = null;
+            clipboardActionText = null;
+            s.removeClipboardItem(item);
+        });
+        // 删除按钮比让开的距离窄一点，和卡片之间留出与卡片间距相同的空隙。
+        int trashWidth = Math.max(1, Math.round(reveal) - s.pixels(6));
+        FrameLayout.LayoutParams trashParams = new FrameLayout.LayoutParams(trashWidth,
+            FrameLayout.LayoutParams.MATCH_PARENT, Gravity.END);
+        cell.addView(trash, trashParams);
+        cell.addView(card, KeyboardGeometry.frameMatchParentParams());
+        ClipboardSwipeCell swipe = new ClipboardSwipeCell(card, trash, item.text(), reveal);
+        card.setTranslationX(open ? -reveal : 0f);
+        swipe.showTrash(open);
+        if (open) clipboardSwipedCell = swipe;
+        card.setOnTouchListener(swipe);
+        return cell;
+    }
+
+    /** 收回打开着的那一条（有的话）。点任何一张卡片、开始滑另一条时先收回它；长按、换分段、重开面板、清空和分词会整面板重画，靠清掉 {@link #clipboardSwipedText} 收回。 */
+    private void closeClipboardSwipe() {
+        ClipboardSwipeCell cell = clipboardSwipedCell;
+        clipboardSwipedText = null;
+        clipboardSwipedCell = null;
+        if (cell != null) cell.settle(false);
+    }
+
+    /**
+     * 一格的横滑。按下、轻微移动、点按和长按都照常交给卡片自己；手指越过 touch slop 且明显是横向（{@link ClipboardSwipePolicy#claims}）时才接手：不让外层面板拦截去滚动，给卡片补一个取消把按下态、待触发的长按和点按撤掉，之后卡片跟手移动，松手按 {@link ClipboardSwipePolicy#settlesOpen} 停在打开或收回。
+     *
+     * <p>位移动画用自己的 `ObjectAnimator`，不用 `View.animate()`：卡片的按压反馈（`KeyboardPressFeedback`）也走 `animate()`，按下、松开时会 `cancel()` 它，两边共用一个动画器就会互相打断，卡片停在半路、或者一直保持按下的缩小（在模拟器上看到过）。
+     *
+     * <p>卡片的点击仍由 `KeyboardPressButton` 自己在松手时发出（这里没接手的按压原样交给它），所以监听里不调 `performClick`。
+     */
+    private final class ClipboardSwipeCell implements View.OnTouchListener {
+        private final Button card;
+        private final View trash;
+        private final String text;
+        private final float reveal;
+        private final float density;
+        private final int touchSlop;
+        private android.animation.ObjectAnimator settling;
+        private float downX;
+        private float downY;
+        private float startOffset;
+        private boolean openAtDown;
+        private boolean dragging;
+        private android.view.VelocityTracker velocity;
+
+        ClipboardSwipeCell(Button card, View trash, String text, float reveal) {
+            this.card = card;
+            this.trash = trash;
+            this.text = text;
+            this.reveal = reveal;
+            density = KeyboardGeometry.density(s);
+            touchSlop = android.view.ViewConfiguration.get(s).getScaledTouchSlop();
+        }
+
+        @Override public boolean onTouch(View view, android.view.MotionEvent event) {
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN -> {
+                    downX = event.getRawX();
+                    downY = event.getRawY();
+                    // 不在这里停掉正在进行的收回动画：没有拖起来的轻点要让它照常放完，否则卡片会停在半路。
+                    openAtDown = card.getTranslationX() < 0;
+                    dragging = false;
+                    recycleVelocity();
+                    velocity = android.view.VelocityTracker.obtain();
+                    track(event);
+                    return false;
+                }
+                case android.view.MotionEvent.ACTION_MOVE -> {
+                    track(event);
+                    float dx = event.getRawX() - downX;
+                    if (!dragging) {
+                        if (!ClipboardSwipePolicy.claims(dx, event.getRawY() - downY, touchSlop,
+                                openAtDown)) return false;
+                        dragging = true;
+                        // 接手时卡片可能还在收回的动画里：停在当前位置，再从这里跟手，不跳。
+                        stopSettling();
+                        startOffset = card.getTranslationX() - dx;
+                        if (card.getParent() != null) card.getParent().requestDisallowInterceptTouchEvent(true);
+                        android.view.MotionEvent cancel = android.view.MotionEvent.obtain(event);
+                        cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
+                        card.onTouchEvent(cancel);
+                        cancel.recycle();
+                        // 同一时间只有一条打开：开始滑这一条时先收回另一条。
+                        if (clipboardSwipedCell != null && clipboardSwipedCell != this) closeClipboardSwipe();
+                        showTrash(true);
+                    }
+                    card.setTranslationX(ClipboardSwipePolicy.offset(startOffset, dx, reveal));
+                    return true;
+                }
+                case android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    boolean handled = dragging;
+                    if (dragging) {
+                        float velocityX = 0f;
+                        if (velocity != null && event.getActionMasked() == android.view.MotionEvent.ACTION_UP) {
+                            track(event);
+                            velocity.computeCurrentVelocity(1000);
+                            velocityX = velocity.getXVelocity();
+                        }
+                        boolean open = ClipboardSwipePolicy.settlesOpen(card.getTranslationX(), velocityX, reveal, density);
+                        if (open) {
+                            clipboardSwipedText = text;
+                            clipboardSwipedCell = this;
+                        } else if (clipboardSwipedCell == this || text.equals(clipboardSwipedText)) {
+                            clipboardSwipedText = null;
+                            clipboardSwipedCell = null;
+                        }
+                        settle(open);
+                    }
+                    dragging = false;
+                    recycleVelocity();
+                    return handled;
+                }
+                default -> {
+                    return dragging;
+                }
+            }
+        }
+
+        /** 把卡片动画到打开或收回的位置；收回的动画放完、卡片回到原位后再藏起删除按钮，动画里它还露在卡片右边。 */
+        void settle(boolean open) {
+            stopSettling();
+            android.animation.ObjectAnimator animator = android.animation.ObjectAnimator.ofFloat(
+                card, View.TRANSLATION_X, card.getTranslationX(), open ? -reveal : 0f);
+            animator.setDuration(ClipboardSwipePolicy.SETTLE_MILLIS);
+            if (!open) animator.addListener(new android.animation.AnimatorListenerAdapter() {
+                private boolean cancelled;
+
+                @Override public void onAnimationCancel(android.animation.Animator animation) {
+                    cancelled = true;
+                }
+
+                @Override public void onAnimationEnd(android.animation.Animator animation) {
+                    if (!cancelled) showTrash(false);
+                }
+            });
+            settling = animator;
+            animator.start();
+        }
+
+        /** 删除按钮只在卡片让开时显示：收着时 `INVISIBLE`，既不会在按压动画缩小卡片时从边上露出来，也点不到、读屏读不到。 */
+        void showTrash(boolean shown) {
+            trash.setVisibility(shown ? View.VISIBLE : View.INVISIBLE);
+        }
+
+        private void stopSettling() {
+            if (settling != null) settling.cancel();
+            settling = null;
+        }
+
+        // 速度按屏幕坐标算：卡片跟着手指移动，事件里相对卡片的坐标会把位移吃掉一部分。
+        private void track(android.view.MotionEvent event) {
+            if (velocity == null) return;
+            android.view.MotionEvent screen = android.view.MotionEvent.obtain(event);
+            screen.setLocation(event.getRawX(), event.getRawY());
+            velocity.addMovement(screen);
+            screen.recycle();
+        }
+
+        private void recycleVelocity() {
+            if (velocity != null) velocity.recycle();
+            velocity = null;
+        }
+    }
+
+    /** 一格的宽度（像素），给双列时的删除区限宽用；面板还没量过时为 0，删除区按默认宽度。 */
+    private float clipboardCellWidth(int columns) {
+        int width = s.clipboardPanel.getWidth() - s.clipboardPanel.getPaddingLeft()
+            - s.clipboardPanel.getPaddingRight();
+        if (width <= 0) return 0f;
+        int count = Math.max(1, columns);
+        return (width - s.pixels(6) * (count - 1)) / (float) count;
     }
 
     /** 双列里的一格：等宽、与同一行的另一条同高，两格之间留 6 dp。 */

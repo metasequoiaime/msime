@@ -146,6 +146,8 @@ pub(crate) fn local_model_error_code(error: &LocalModelError) -> &'static str {
         LocalModelError::UnsafeArchive(_) | LocalModelError::MissingFile(_) => {
             "local_model_invalid_archive"
         }
+        LocalModelError::MissingImportFile(_) => "local_model_import_missing",
+        LocalModelError::UnreadableImportFile(_) => "local_model_import_unreadable",
         LocalModelError::Io(_) => "local_model_io",
     }
 }
@@ -255,6 +257,56 @@ pub(crate) async fn voice_local_model_install<R: tauri::Runtime>(
     )
     .await;
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// 「从文件导入」：用系统的打开对话框让用户多选自己下载好的模型文件，再按目录里的长度和 SHA-256 对上并安装，结束时解析为安装好的目录；用户关掉对话框时为 `None`。文件路径只在宿主这边经过，页面拿不到也给不出路径。和下载共用同一个按 id 的登记，所以取消、互斥、进度事件都一样，进度阶段是 `import`。
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[tauri::command]
+pub(crate) async fn voice_local_model_import(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    installs: tauri::State<'_, LocalModelInstalls>,
+    id: String,
+) -> Result<Option<String>, HostActionError> {
+    use tauri_plugin_dialog::DialogExt;
+
+    valid_model_id(&id)?;
+    let root = app_model_root(&app)?;
+    let dialog = app.dialog().file().set_parent(&window);
+    // 对话框在主线程上弹出，这个阻塞线程只等结果。不按扩展名过滤：下载工具可能改过名，认文件靠内容。
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        dialog
+            .set_title("选择下载好的模型文件")
+            .blocking_pick_files()
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
+    let files: Vec<PathBuf> = picked
+        .into_iter()
+        .filter_map(|file| file.into_path().ok())
+        .collect();
+    let worker_id = id.clone();
+    let path = run_install(
+        &app,
+        &installs,
+        &id,
+        LOCAL_MODEL_PROGRESS_EVENT,
+        id.clone(),
+        move |progress, cancel| local_models::import(&root, &worker_id, &files, progress, cancel),
+    )
+    .await?;
+    // 和下载安装一样，Linux 上顺带启用用户级语音服务，见 `voice_local_model_install`。
+    #[cfg(target_os = "linux")]
+    let _ = tauri::async_runtime::spawn_blocking(
+        crate::platform::linux::linux_provider_credentials::enable_voice_service,
+    )
+    .await;
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 /// Stop a running install. Resolves to whether one was running; the install command itself then fails with `local_model_cancelled`.

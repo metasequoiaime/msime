@@ -15,15 +15,16 @@ while IFS= read -r artifact; do
   cp "$source_dir/$artifact" "$destination/$artifact"
 done <<< "$artifacts"
 cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$destination" >/dev/null
-# Helpcode tables are not part of the dictionary release; the repository carries them in resources/helpcodes, and the Engine reads them from helpcodes/ under the resource directory (crates/engine/src/assets.rs names the six files). Without them the Engine has nothing to match: Shift letters are taken as helpcode and narrow nothing.
+# 辅助码表不在词库发布里，由仓库自带在 resources/helpcodes，Engine 从资源目录下的 helpcodes/ 读它们（crates/engine/src/assets.rs 列出七个文件）。没有它们 Engine 就没有可匹配的码：Shift 字母被当作辅助码，却什么也筛不掉。
 helpcodes="$repo_root/resources/helpcodes"
 rm -rf "$destination/helpcodes"
 mkdir -p "$destination/helpcodes"
-for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt; do
+for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt wubi86_helpcode.txt; do
   cp "$helpcodes/$table" "$destination/helpcodes/$table"
 done
 cp "$helpcodes/ENGINE-NOTICE.md" "$destination/helpcodes/NOTICE.md"
 cp "$helpcodes/NOTICE.md" "$destination/helpcodes/NOTICE-jiajia.md"
+cp "$helpcodes/NOTICE-wubi86.md" "$destination/helpcodes/NOTICE-wubi86.md"
 # Optional: non-English candidate glosses built by scripts/build_offline_glosses.py, bundled beside EngineResources because host-api looks for them next to the resource directory. The directory is always created, empty when there are none, since the keyboard target bundles it as a folder; without the databases only English is glossed offline.
 glosses_source=${2:-$repo_root/target/offline-glosses}
 glosses_destination="$repo_root/target/ios/offline-glosses"

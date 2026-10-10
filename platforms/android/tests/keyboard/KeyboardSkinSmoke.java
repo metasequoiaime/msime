@@ -68,6 +68,9 @@ public final class KeyboardSkinSmoke {
         check("#99FFFFFF".equals(KeyboardSkin.androidColor("#FFFFFF99")));
         check("#12ABCDEF".equals(KeyboardSkin.androidColor("#abcdef12")));
         check("#ABCDEF".equals(KeyboardSkin.androidColor("#abcdef")));
+        check(ColorPolicy.withAlpha(0x80ABCDEF, .5) == 0x40ABCDEF);
+        check(ColorPolicy.withAlpha(0x80ABCDEF, 2d) == 0x80ABCDEF);
+        check(ColorPolicy.withAlpha(0x80ABCDEF, -1d) == 0x00ABCDEF);
         check(KeyboardSkin.androidColor("red") == null && KeyboardSkin.androidColor("#12345") == null);
         check(KeyboardSkin.androidColor(null) == null);
         KeyboardSkin partial = KeyboardSkin.palette("custom", "自定义", false, null, "#FFFFFF",
@@ -112,6 +115,9 @@ public final class KeyboardSkinSmoke {
         check(CustomKeyboardSkin.doubleValue(Double.NaN, 7) == 7);
         check(JsonPolicy.strictBoolean("true", false) == false);
         check(JsonPolicy.strictBoolean(Boolean.TRUE, false));
+        check("skin".equals(JsonPolicy.strictString("skin", "fallback")));
+        check("fallback".equals(JsonPolicy.strictString(7, "fallback")));
+        check(JsonPolicy.strictString(null, null) == null);
         KeyboardSkin custom = KeyboardSkin.customFixture(design, false);
         check("custom".equals(custom.id()) && "我的皮肤".equals(custom.title()) && custom.designed());
         check("#151022".equals(custom.background()) && "#30224A".equals(custom.gradientEnd()));

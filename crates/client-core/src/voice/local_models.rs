@@ -195,12 +195,23 @@ pub struct LocalModelStatus {
     pub license_terms: String,
     pub license_notice: String,
     pub hotwords: String,
+    /// 不联网安装时用户需要自己下载的文件：先是模型压缩包，再是目录里给了下载地址的附加文件。内嵌在本程序里的附加文件不在其中。
+    pub import_files: Vec<LocalModelImportFile>,
+}
+
+/// 「从本地文件安装」需要的一个文件。导入时按 `size` 和目录里的 SHA-256 认文件，不看文件名，`name` 只是给人看的上游文件名。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct LocalModelImportFile {
+    pub name: String,
+    /// 上游的下载地址，设置页的「打开下载页」直接打开它。
+    pub url: String,
+    pub size: u64,
 }
 
 /// Install progress. `downloaded`/`total` are archive bytes: received while downloading, consumed while extracting.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct InstallProgress {
-    /// `download`, `verify`, `extract` or `done`.
+    /// 取值为 `download`、`verify`、`extract` 或 `done`；从本地文件安装时，下载阶段报成 `import`。
     pub stage: &'static str,
     pub downloaded: u64,
     pub total: u64,
@@ -228,6 +239,12 @@ pub enum LocalModelError {
     UnsafeArchive(String),
     #[error("local_model_missing_file: {0}")]
     MissingFile(String),
+    /// 从本地文件安装时，用户选的文件里没有长度对得上的这一个（上游文件名）。
+    #[error("local_model_import_missing: {0}")]
+    MissingImportFile(String),
+    /// 从本地文件安装时，用户选的文件打不开或读到一半出错（权限、已被移走、可移动磁盘拔掉、iCloud 占位文件）。问题在所选文件，不在网络或写入模型目录。
+    #[error("local_model_import_unreadable: {0}")]
+    UnreadableImportFile(String),
     #[error("local_model_io: {0}")]
     Io(#[from] io::Error),
 }
@@ -301,6 +318,13 @@ pub fn list(root: &Path) -> Vec<LocalModelStatus> {
                 license_terms: model.license.terms.clone().unwrap_or_default(),
                 license_notice: model.license.notice.clone(),
                 hotwords: model.hotwords.clone(),
+                import_files: import_sources(model)
+                    .map(|source| LocalModelImportFile {
+                        name: source.name.to_owned(),
+                        url: source.url.to_owned(),
+                        size: source.size,
+                    })
+                    .collect(),
             }
         })
         .collect()
@@ -347,6 +371,166 @@ pub fn install(
         progress,
         cancel,
     )
+}
+
+/// 用用户自己下载好的文件安装一个目录模型到 `<root>/<id>`，替换之前的安装。阻塞调用，不要放在 UI 线程。
+///
+/// `files` 是宿主的文件选择器给出的绝对路径，顺序和文件名都无所谓：每个需要的文件（见 [`LocalModelStatus::import_files`]）先按长度找，长度相同的不止一个时再按 SHA-256 挑出对的那个；多选的无关文件忽略。找到之后走和下载完全相同的 [`install_model`]：照样按目录里的长度和 SHA-256 校验、在暂存目录里解压、最后整体改名发布，所以文件不对或被改过时什么也不会装上。只认内置目录里的 id。
+pub fn import(
+    root: &Path,
+    id: &str,
+    files: &[PathBuf],
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Result<PathBuf, LocalModelError> {
+    import_model(root, find_model(id)?, files, progress, cancel)
+}
+
+pub(crate) fn import_model(
+    root: &Path,
+    model: &CatalogModel,
+    files: &[PathBuf],
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Result<PathBuf, LocalModelError> {
+    check_root(root)?;
+    let fetcher = LocalFileFetcher::matching(model, files, cancel)?;
+    let installed = install_model(
+        root,
+        model,
+        &[],
+        &fetcher,
+        &mut |event| {
+            progress(InstallProgress {
+                stage: if event.stage == "download" {
+                    "import"
+                } else {
+                    event.stage
+                },
+                ..event
+            })
+        },
+        cancel,
+    );
+    // 导入不联网：共用的 download() 把读取来源时的错误都报成 Network，在这里只可能是读用户所选的文件出错。
+    installed.map_err(|error| match error {
+        LocalModelError::Network(detail) => LocalModelError::UnreadableImportFile(detail),
+        other => other,
+    })
+}
+
+/// 安装一个模型要从外面取得的文件：压缩包，以及目录里给了下载地址的附加文件。
+struct ImportSource<'a> {
+    name: &'a str,
+    url: &'a str,
+    sha256: &'a str,
+    size: u64,
+}
+
+fn import_sources(model: &CatalogModel) -> impl Iterator<Item = ImportSource<'_>> {
+    std::iter::once(ImportSource {
+        name: &model.archive.name,
+        url: &model.archive.url,
+        sha256: &model.archive.sha256,
+        size: model.archive.size,
+    })
+    .chain(model.extra.iter().filter_map(|extra| {
+        Some(ImportSource {
+            name: &extra.name,
+            url: extra.url.as_deref()?,
+            sha256: &extra.sha256,
+            size: extra.size,
+        })
+    }))
+}
+
+/// 把目录里的下载地址对应到用户选的本地文件，交给 [`install_model`] 代替网络来源。
+struct LocalFileFetcher {
+    files: BTreeMap<String, PathBuf>,
+}
+
+impl LocalFileFetcher {
+    /// 为 `model` 需要的每个文件在 `files` 里找出对应的那个。只有一个长度对得上时直接用它，摘要留给安装时的校验；有几个时逐个算 SHA-256。一个都没有时报 [`LocalModelError::MissingImportFile`]，有长度相同但摘要都不对的报 [`LocalModelError::ChecksumMismatch`]。
+    fn matching(
+        model: &CatalogModel,
+        files: &[PathBuf],
+        cancel: &AtomicBool,
+    ) -> Result<Self, LocalModelError> {
+        let mut sized = Vec::with_capacity(files.len());
+        for path in files {
+            if !path.is_absolute() {
+                continue;
+            }
+            // 用户选的文件允许是指向别处的链接：这里只读它，内容照样按目录校验。
+            if let Ok(metadata) = fs::metadata(path) {
+                if metadata.is_file() {
+                    sized.push((path, metadata.len()));
+                }
+            }
+        }
+        let mut matched = BTreeMap::new();
+        for source in import_sources(model) {
+            let candidates: Vec<&PathBuf> = sized
+                .iter()
+                .filter(|(_, size)| *size == source.size)
+                .map(|(path, _)| *path)
+                .collect();
+            let path = match candidates.as_slice() {
+                [] => return Err(LocalModelError::MissingImportFile(source.name.to_owned())),
+                [only] => (*only).clone(),
+                several => {
+                    let mut found = None;
+                    for candidate in several {
+                        if file_sha256(candidate, cancel)?.eq_ignore_ascii_case(source.sha256) {
+                            found = Some((*candidate).clone());
+                            break;
+                        }
+                    }
+                    found
+                        .ok_or_else(|| LocalModelError::ChecksumMismatch(source.name.to_owned()))?
+                }
+            };
+            matched.insert(source.url.to_owned(), path);
+        }
+        Ok(Self { files: matched })
+    }
+}
+
+impl Fetcher for LocalFileFetcher {
+    fn fetch<'a>(&'a self, url: &str, offset: u64) -> Result<Fetched<'a>, LocalModelError> {
+        let path = self
+            .files
+            .get(url)
+            .ok_or_else(|| LocalModelError::MissingImportFile(url_file_name(url)))?;
+        let unreadable = |_| LocalModelError::UnreadableImportFile(url_file_name(url));
+        let mut file = File::open(path).map_err(unreadable)?;
+        if offset > 0 {
+            file.seek(io::SeekFrom::Start(offset)).map_err(unreadable)?;
+        }
+        Ok(Fetched {
+            reader: Box::new(BufReader::new(file)),
+            offset,
+        })
+    }
+}
+
+/// 一个用户所选文件的小写十六进制 SHA-256，每块之间看一次取消。打不开或读出错报 [`LocalModelError::UnreadableImportFile`]。
+fn file_sha256(path: &Path, cancel: &AtomicBool) -> Result<String, LocalModelError> {
+    let unreadable = |error: io::Error| LocalModelError::UnreadableImportFile(error.to_string());
+    let mut file = File::open(path).map_err(unreadable)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; CHUNK];
+    loop {
+        check_cancel(cancel)?;
+        let read = match file.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(unreadable(error)),
+        };
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 /// Delete an installed model. Only catalog ids are accepted, so the id can never name anything outside `root`. Removing a model that is not installed succeeds.

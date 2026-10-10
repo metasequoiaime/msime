@@ -66,7 +66,8 @@ pub fn execute(bytes: &[u8]) -> Result<Value, &'static str> {
         || directory.parent().is_none()
         || request.target_language == "zh"
         || !is_supported_translation_language(&request.target_language)
-        || request.items.len() > 9
+        || request.items.len()
+            > usize::from(msime_client_core::preferences::MAX_CANDIDATE_PAGE_SIZE)
         || request.items.iter().any(|item| {
             !is_valid_source_text(&item.text)
                 || !is_bounded_text(&item.text, 160)
@@ -257,7 +258,7 @@ mod tests {
             .unwrap()
             .push(json!({"text":"world","direction":"english_to_chinese"}));
         assert!(run(&bad).is_err());
-        bad["items"] = json!(vec![valid["items"][0].clone(); 10]);
+        bad["items"] = json!(vec![valid["items"][0].clone(); 11]);
         assert!(run(&bad).is_err());
         assert!(!root.path().join("translation-glosses.db").exists());
     }

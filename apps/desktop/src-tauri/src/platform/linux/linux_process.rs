@@ -63,6 +63,33 @@ pub fn launch(program: &str, arguments: &[&str], check: Duration) -> bool {
     }
 }
 
+/// 命令在 `window` 内是否一直没有退出。到时仍在运行就结束并回收它，返回 `true`；起不来或提前退出（不论退出码）返回 `false`。用来探测只有在条件不满足时才会立即退出的常驻命令。
+pub fn stays_running(program: &str, arguments: &[&str], window: Duration) -> bool {
+    let Ok(mut child) = Command::new(program)
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    let deadline = Instant::now() + window;
+    let running = loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break false,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) => break true,
+            Err(_) => break false,
+        }
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    running
+}
+
 /// Run a command with one path argument without requiring the path to be UTF-8.
 pub fn run_status_path(program: &str, argument: &Path, timeout: Duration) -> bool {
     run_status_os(OsStr::new(program), &[argument.as_os_str()], timeout)
@@ -278,6 +305,25 @@ mod tests {
             Duration::from_millis(20)
         ));
         assert!(started.elapsed() < Duration::from_millis(900));
+    }
+
+    #[test]
+    fn stays_running_distinguishes_an_early_exit() {
+        let window = Duration::from_secs(2);
+        assert!(!super::stays_running("/bin/sh", &["-c", "exit 1"], window));
+        assert!(!super::stays_running("/bin/sh", &["-c", "exit 0"], window));
+        assert!(!super::stays_running(
+            "/nonexistent/msime-probe",
+            &[],
+            window
+        ));
+        let started = std::time::Instant::now();
+        assert!(super::stays_running(
+            "/bin/sh",
+            &["-c", "sleep 5"],
+            Duration::from_millis(200)
+        ));
+        assert!(started.elapsed() < Duration::from_secs(4));
     }
 
     #[cfg(unix)]

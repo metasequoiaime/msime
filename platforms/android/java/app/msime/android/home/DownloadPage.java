@@ -12,6 +12,7 @@ import android.widget.TextView;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 import app.msime.android.CloudApi;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.DownloadLinkApi;
 import app.msime.android.R;
 import app.msime.android.ViewPolicy;
@@ -57,12 +58,12 @@ public final class DownloadPage extends DetailPage {
     private View hero(Context context) {
         LinearLayout card = Ui.row(context);
         ViewPolicy.setCenteredVertically(card);
-        ViewPolicy.setBackground(card, Ui.rounded(Ui.accentSoft(context), Ui.dp(context, 20)));
+        ViewPolicy.setBackground(card, DrawablePolicy.rounded(Ui.accentSoft(context), Ui.dp(context, 20)));
         int pad = Ui.dp(context, 16);
         Ui.setSymmetricPaddingPx(card, pad);
 
         FrameLayout tile = new FrameLayout(context);
-        ViewPolicy.setBackground(tile, Ui.rounded(Ui.accent(context), Ui.dp(context, 12)));
+        ViewPolicy.setBackground(tile, DrawablePolicy.rounded(Ui.accent(context), Ui.dp(context, 12)));
         ImageView icon = Ui.decorativeIcon(context, R.drawable.ic_ms_link, Ui.onAccent(context));
         int iconSize = Ui.dp(context, 24);
         tile.addView(icon, Ui.squareFrameParamsPx(iconSize, Gravity.CENTER));

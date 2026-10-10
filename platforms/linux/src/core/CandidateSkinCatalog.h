@@ -72,6 +72,18 @@ inline std::vector<CandidateSkin> parse_configured_skins(const nlohmann::json &o
   return skins;
 }
 
+// 自定义主题在 `dark` 模式下取哪个槽位的皮肤包 id（共享层 `CustomTheme::candidate_skin_for`）：深色模式先取 `candidate_skin_dark`，没设时与浅色模式一样取 `candidate_skin`。空串表示这个模式没有皮肤包；空字符串和非字符串的值都按没设处理。
+inline std::string candidate_skin_for(const nlohmann::json &custom_theme, bool dark) {
+  if (!custom_theme.is_object()) return {};
+  const auto slot = [&](const char *key) {
+    const auto value = custom_theme.find(key);
+    return value != custom_theme.end() && value->is_string() ? value->get<std::string>() : std::string{};
+  };
+  if (dark)
+    if (auto skin = slot("candidate_skin_dark"); !skin.empty()) return skin;
+  return slot("candidate_skin");
+}
+
 // The catalogue entry for one installed skin, unchanged, as msime_client_resolve_theme takes it for `package`. Null when the catalogue does not list it.
 inline const nlohmann::json *candidate_skin_package(const nlohmann::json &catalog, std::string_view id) {
   if (id.empty() || !catalog.is_object()) return nullptr;

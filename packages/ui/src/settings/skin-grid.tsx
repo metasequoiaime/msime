@@ -7,7 +7,10 @@ import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
 import type { ExternalSkin } from "../skin/external-skins";
 import {
+  applyCandidateSkin,
   keyboardThemeId,
+  removeCandidateSkin,
+  skinSlot,
   themeEntry,
   type BaseGlobalTheme,
   type CustomTheme,
@@ -52,6 +55,8 @@ type Card = {
   /** 换装达人徽章把这张卡片计为什么。 */
   statisticsId: string;
   select: () => void;
+  /** 再点一次已在使用的卡片时做什么；没有时什么也不改。只有皮肤包卡片有：把它从所在的槽位取下。 */
+  deselect?: () => void;
 };
 
 const grid = "grid grid-cols-2 gap-x-3.5 gap-y-[18px] px-1 pt-1";
@@ -91,7 +96,7 @@ function Check() {
   );
 }
 
-/** 按顺序排列的卡片：目录里的主题、我的皮肤，然后是外部皮肤包。最多选中一张：正在使用的皮肤包优先，其次是自定义主题正在绘制其设计时的我的皮肤，再次是选中的主题。在有编辑器的宿主上，既没有皮肤包也没有设计的自定义主题没有自己的卡片；它的颜色在更多选项里编辑。 */
+/** 按顺序排列的卡片：目录里的主题、我的皮肤，然后是外部皮肤包。皮肤包分浅色、深色两个槽位，所以最多同时选中两张皮肤包卡片；没有皮肤包在使用时，最多选中一张：自定义主题正在绘制其设计时的我的皮肤，否则是选中的主题。在有编辑器的宿主上，既没有皮肤包也没有设计的自定义主题没有自己的卡片；它的颜色在更多选项里编辑。 */
 function skinGridCards({
   themes,
   globalTheme,
@@ -101,9 +106,19 @@ function skinGridCards({
   keyboardTheme,
   onApply,
 }: SkinGridProps): Card[] {
-  // 皮肤包是自定义主题的一部分，所以自定义主题绘制它时，它的卡片就是正在使用的那张。
-  const skinInUse = globalTheme === "custom" ? (customTheme?.candidate_skin ?? null) : null;
-  const packageInUse = packages.some((skin) => skin.id === skinInUse);
+  // 皮肤包是自定义主题的一部分，放在浅色或深色槽位里的皮肤包都算正在使用。
+  const skinsInUse =
+    globalTheme === "custom"
+      ? [customTheme?.candidate_skin, customTheme?.candidate_skin_dark].filter((id): id is string =>
+          Boolean(id),
+        )
+      : [];
+  const packageInUse = packages.some((skin) => skinsInUse.includes(skin.id));
+  // 应用皮肤时用目录判断原来那款皮肤属于哪个槽位，见 `applyCandidateSkin`。
+  const slotOf = (id: string) => {
+    const skin = packages.find((entry) => entry.id === id);
+    return skin ? skinSlot(skin.base) : undefined;
+  };
   const designInUse = !packageInUse && customDesign !== undefined && customDesign.selected;
   const storedDesign = customTheme?.keyboard ?? undefined;
   // 自定义主题在 `base` 之上绘制的键盘：有设计时用设计，否则用该 base 的键盘。
@@ -124,11 +139,11 @@ function skinGridCards({
         selected: globalTheme === "custom" && !packageInUse,
         ...customKeyboard(customTheme?.base),
         statisticsId: "custom",
-        // 选择自定义卡片本身会去掉皮肤包，保留自定义主题的其余部分，并在它自己的 base 上绘制。
+        // 选择自定义卡片本身会去掉两个槽位的皮肤包，保留自定义主题的其余部分，并在它自己的 base 上绘制。
         select: () =>
           onApply({
             global_theme: "custom",
-            custom_theme: { ...customTheme, candidate_skin: null },
+            custom_theme: { ...customTheme, candidate_skin: null, candidate_skin_dark: null },
           }),
       });
       continue;
@@ -158,14 +173,19 @@ function skinGridCards({
     cards.push({
       key: `package:${skin.id}`,
       title: skin.name,
-      selected: skin.id === skinInUse,
+      selected: skinsInUse.includes(skin.id),
       ...customKeyboard(skin.base),
       statisticsId: skin.id,
-      // 皮肤包 manifest 中的 base 成为自定义主题的 base，`resolve()` 在皮肤包之下绘制的就是它。
+      // 皮肤包放进它 base 所属的槽位（浅色或深色，`system` 底两个都放），另一个槽位不动；manifest 中的 base 成为自定义主题的 base，`resolve()` 在皮肤包之下绘制的就是它。
       select: () =>
         onApply({
           global_theme: "custom",
-          custom_theme: { ...customTheme, base: skin.base, candidate_skin: skin.id },
+          custom_theme: applyCandidateSkin(customTheme, skin.id, skin.base, slotOf),
+        }),
+      deselect: () =>
+        onApply({
+          global_theme: "custom",
+          custom_theme: removeCandidateSkin(customTheme, skin.id),
         }),
     });
   return cards;
@@ -184,10 +204,10 @@ export function SkinGrid(props: SkinGridProps) {
         {cards.map((card) => (
           <ActionButton
             key={card.key}
-            // 点击已在使用的卡片不改变任何东西，所以不触碰草稿。
+            // 点击已在使用的卡片不改变任何东西，所以不触碰草稿；皮肤包卡片例外，再点一次把它从槽位取下。
             action={
               card.selected
-                ? () => undefined
+                ? (card.deselect ?? (() => undefined))
                 : () => {
                     card.select();
                     props.onApplied?.(card.statisticsId);

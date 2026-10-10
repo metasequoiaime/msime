@@ -163,13 +163,132 @@ accent = "#ff0000"
 )toml");
     auto nightBased = msime::mac::LoadSkinPackage(root, "night-based", &error);
     Require(nightBased.has_value() && nightBased->base == "night", "A night-based skin was rejected.");
-    // The manifest base wins over the stored one and fixes the mode: a dark base draws the dark palette in a light system.
-    const auto resolvedNight = msime::mac::ResolveSkin("custom", withSkin("night-based"), false, "horizontal", root);
+    // 清单的 base 胜过存下的底色，并决定包画在哪种明暗下：深色底的包只在深色模式画，按那个底的深色配色。
+    const auto resolvedNight = msime::mac::ResolveSkin("custom", withSkin("night-based"), true, "horizontal", root);
     Require(resolvedNight.candidateSkin == "night-based" && resolvedNight.fixedDark == true && resolvedNight.dark &&
                 !resolvedNight.tokens.showSelectedBar && resolvedNight.tokens.accent.r > 0.9f &&
                 resolvedNight.tokens.selected.r > 0.9f && resolvedNight.tokens.selected.a < 0.2f &&
                 resolvedNight.tokens.surface.b > resolvedNight.tokens.surface.r,
             "External skin tokens did not inherit the declared base theme.");
+    // 浅色模式不画深色底的包：皮肤留下的 night 底也不属于浅色，按 system 画，主题因此不再固定明暗。
+    const auto nightInLight = msime::mac::ResolveSkin("custom", withSkin("night-based", "night"), false, "horizontal", root);
+    Require(nightInLight.candidateSkin.empty() && !nightInLight.fixedDark && !nightInLight.dark,
+            "A dark-based package was drawn in light mode.");
+
+    // 浅色、深色两个槽位：深色模式取 candidate_skin_dark，浅色模式取 candidate_skin；解析请求必须把深色槽位带给共享解析器。
+    WriteFile(root / "paper-based" / "skin.toml", R"toml(
+schema_version = 1
+id = "paper-based"
+name = "Paper Based"
+version = "1.0"
+base = "paper"
+
+[supports]
+layouts = ["horizontal", "vertical"]
+themes = ["light"]
+
+[candidate_window]
+min_width_dip = 0
+
+[candidate.light]
+accent = "#00ff00"
+)toml");
+    Require(msime::mac::LoadSkinPackage(root, "paper-based", &error).has_value(), "A paper-based skin was rejected.");
+    msime::mac::CustomTheme slots = withSkin("paper-based", "night");
+    slots.candidateSkinDark = "night-based";
+    const auto slotLight = msime::mac::ResolveSkin("custom", slots, false, "horizontal", root);
+    const auto slotDark = msime::mac::ResolveSkin("custom", slots, true, "horizontal", root);
+    Require(slotLight.candidateSkin == "paper-based" && slotLight.fixedDark == false && slotLight.tokens.accent.g > 0.9f,
+            "The light slot was not drawn in light mode.");
+    Require(slotDark.candidateSkin == "night-based" && slotDark.fixedDark == true && slotDark.tokens.accent.r > 0.9f,
+            "The dark slot was not sent with the resolve request or not drawn in dark mode.");
+    // 两个槽位各画各自明暗的包时，主题不固定明暗，跟随宿主；内置主题和没设皮肤的自定义主题仍固定。
+    Require(!msime::mac::FixedThemeMode(slotLight, slotDark), "Two slots of different modes pinned one mode.");
+    Require(msime::mac::FixedThemeMode(msime::mac::ResolveSkin("night", {}, false, "horizontal", root),
+                                       msime::mac::ResolveSkin("night", {}, true, "horizontal", root)) == true &&
+                msime::mac::FixedThemeMode(msime::mac::ResolveSkin("custom", withSkin("", "paper"), false, "horizontal", root),
+                                           msime::mac::ResolveSkin("custom", withSkin("", "paper"), true, "horizontal", root)) == false &&
+                !msime::mac::FixedThemeMode(msime::mac::ResolveSkin("system", {}, false, "horizontal", root),
+                                            msime::mac::ResolveSkin("system", {}, true, "horizontal", root)),
+            "A theme with one mode of its own was not reported as fixed.");
+    // 只有一个槽位的旧文档：深色槽位空着，深色模式回落到 candidate_skin。
+    Require(msime::mac::ResolveSkin("custom", withSkin("night-based", "night"), true, "horizontal", root).candidateSkin == "night-based",
+            "Dark mode did not fall back to the light slot.");
+    // 不安全的深色槽位 id 不进请求，请求也不会因此整个失败。
+    msime::mac::CustomTheme unsafeDark = withSkin("paper-based", "paper");
+    unsafeDark.candidateSkinDark = "../escape";
+    Require(msime::mac::ResolveSkin("custom", unsafeDark, false, "horizontal", root).candidateSkin == "paper-based",
+            "An unsafe dark slot broke the resolve request.");
+
+    // 槽位归属与应用、取消的规则，用例与 apps/desktop/tests/candidate/candidate-skin-slots.test.ts 相同。
+    Require(msime::mac::SkinSlotOfBase("paper") == msime::mac::SkinSlot::light &&
+                msime::mac::SkinSlotOfBase("light") == msime::mac::SkinSlot::light &&
+                msime::mac::SkinSlotOfBase("night") == msime::mac::SkinSlot::dark &&
+                msime::mac::SkinSlotOfBase("ink") == msime::mac::SkinSlot::dark &&
+                msime::mac::SkinSlotOfBase("shuishan") == msime::mac::SkinSlot::dark &&
+                msime::mac::SkinSlotOfBase("system") == msime::mac::SkinSlot::both,
+            "A skin was not put in the slot of its base.");
+    const auto slotOf = [](const std::string &id) {
+        if (id == "sakura" || id == "paper-notes") return msime::mac::SkinSlot::light;
+        if (id == "dusk" || id == "starry") return msime::mac::SkinSlot::dark;
+        if (id == "mist") return msime::mac::SkinSlot::both;
+        return msime::mac::SkinSlot::unknown;
+    };
+    msime::mac::CustomTheme start;
+    start.candidateSkinDark = "dusk";
+    start.candidateColors.text = "#123456";
+    const auto light = msime::mac::ApplyCandidateSkin(start, "sakura", "paper", slotOf);
+    Require(light.base == "paper" && light.candidateSkin == "sakura" && light.candidateSkinDark == "dusk" &&
+                light.candidateColors.text == "#123456",
+            "A light skin did not fill only the light slot.");
+    const auto dark = msime::mac::ApplyCandidateSkin(light, "starry", "night", slotOf);
+    Require(dark.base == "night" && dark.candidateSkin == "sakura" && dark.candidateSkinDark == "starry",
+            "A dark skin did not fill only the dark slot.");
+    const auto both = msime::mac::ApplyCandidateSkin(dark, "mist", "system", slotOf);
+    Require(both.base == "system" && both.candidateSkin == "mist" && both.candidateSkinDark == "mist",
+            "A system skin did not fill both slots.");
+    // 旧文档只有一款深色皮肤，存在 candidate_skin 里：应用浅色皮肤时把它挪进深色槽位；原来是浅色皮肤时不挪。
+    const auto legacy = msime::mac::ApplyCandidateSkin(withSkin("starry", "night"), "sakura", "paper", slotOf);
+    Require(legacy.candidateSkin == "sakura" && legacy.candidateSkinDark == "starry",
+            "A legacy dark skin was lost when a light skin was applied.");
+    const auto replaced = msime::mac::ApplyCandidateSkin(withSkin("paper-notes"), "sakura", "paper", slotOf);
+    Require(replaced.candidateSkin == "sakura" && replaced.candidateSkinDark.empty(),
+            "A replaced light skin was moved into the dark slot.");
+    // 不知道属于哪个槽位的旧皮肤（包已不在目录里）直接覆盖，不挪进深色槽位；system 底的旧皮肤能画在深色模式，照样挪过去。
+    const auto unknown = msime::mac::ApplyCandidateSkin(withSkin("gone"), "sakura", "paper", slotOf);
+    Require(unknown.candidateSkin == "sakura" && unknown.candidateSkinDark.empty(),
+            "An unknown legacy skin was moved into the dark slot.");
+    Require(msime::mac::ApplyCandidateSkin(withSkin("mist"), "sakura", "paper", slotOf).candidateSkinDark == "mist",
+            "A legacy system-based skin was not kept for dark mode.");
+    // 新的深色皮肤取代旧文档放在 candidate_skin 里的深色皮肤。
+    const auto newDark = msime::mac::ApplyCandidateSkin(withSkin("starry", "night"), "dusk", "night", slotOf);
+    Require(newDark.candidateSkin.empty() && newDark.candidateSkinDark == "dusk",
+            "A new dark skin did not replace the legacy dark skin.");
+    msime::mac::CustomTheme twoSkins = withSkin("sakura");
+    twoSkins.candidateSkinDark = "dusk";
+    const auto removedDark = msime::mac::RemoveCandidateSkin(twoSkins, "dusk");
+    Require(removedDark.candidateSkin == "sakura" && removedDark.candidateSkinDark.empty(),
+            "Removing a skin cleared the other slot.");
+    Require(removedDark.base == twoSkins.base, "Removing one of two skins changed the base.");
+    msime::mac::CustomTheme mist = withSkin("mist");
+    mist.candidateSkinDark = "mist";
+    const auto removedMist = msime::mac::RemoveCandidateSkin(mist, "mist");
+    Require(removedMist.candidateSkin.empty() && removedMist.candidateSkinDark.empty(),
+            "Removing a skin in both slots left one of them.");
+    // 先用浅色皮肤再用深色皮肤，底是 night；两款都取下后底回到 system，浅色模式不会被 night 钉成深色。
+    const auto lightThenDark =
+        msime::mac::ApplyCandidateSkin(msime::mac::ApplyCandidateSkin({}, "sakura", "paper", slotOf), "dusk", "night", slotOf);
+    Require(lightThenDark.base == "night", "Applying a dark skin did not take its base.");
+    const auto darkLeft = msime::mac::RemoveCandidateSkin(lightThenDark, "sakura");
+    Require(darkLeft.base == "night" && darkLeft.candidateSkinDark == "dusk", "Removing the light skin changed the base.");
+    const auto noneLeft = msime::mac::RemoveCandidateSkin(darkLeft, "dusk");
+    Require(noneLeft.base == "system" && noneLeft.candidateSkin.empty() && noneLeft.candidateSkinDark.empty(),
+            "Removing the last skin kept a base that fixes both modes.");
+    msime::mac::CustomTheme picked;
+    picked.base = "ink";
+    Require(msime::mac::RemoveCandidateSkin(picked, "dusk").base == "ink",
+            "Removing a skin that is not in use changed the base.");
+    std::filesystem::remove_all(root / "paper-based");
 
     WriteFile(root / "wechat-based" / "skin.toml", R"toml(
 schema_version = 1

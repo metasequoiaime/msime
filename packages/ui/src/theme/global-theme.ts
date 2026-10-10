@@ -82,12 +82,60 @@ export type CustomCandidateColors = {
 export type CustomTheme = {
   /** 自定义主题的底：`system`（默认，平台 token）或内置主题，不能是 `custom` 或 `native`。应用了皮肤包时改用包清单自己的 base。 */
   base?: BaseGlobalTheme;
-  /** The external candidate skin package id; never a global theme id. Unset means "no package". */
+  /** 浅色模式用的候选窗皮肤包 id，也是没设 `candidate_skin_dark` 时深色模式用的那款；不会是全局主题 id。未设表示没有皮肤包。 */
   candidate_skin?: string | null;
+  /** 深色模式用的候选窗皮肤包 id。未设时深色模式也取 `candidate_skin`。 */
+  candidate_skin_dark?: string | null;
   candidate_colors?: CustomCandidateColors;
   /** The keyboard editor design. Unset or `null` means "no design": the custom theme draws its base theme's keyboard. */
   keyboard?: TouchKeyboardSkinDesign | null;
 };
+
+/** 以 `base` 为底的皮肤包放在哪个槽位：固定明暗的内置主题给出它自己的明暗，`system` 为 `null`，两个槽位都放（`theme::skin_appearance`）。 */
+export function skinSlot(base: GlobalTheme): ThemeAppearance | null {
+  return themeEntry(base).appearance;
+}
+
+/**
+ * 把皮肤包 `id`（清单 `base` 为 `base`）放进它所属的槽位，返回新的 `custom_theme`：深色皮肤写 `candidate_skin_dark`，浅色皮肤写 `candidate_skin`，`system` 底的写两个。`base` 照旧写成包的 base。
+ *
+ * 写深色槽位时，原来放在 `candidate_skin` 里的深色皮肤一并清掉。写浅色槽位时，如果深色槽位还空着，而原来的 `candidate_skin` 确知是深色或 `system` 底的皮肤（`slotOf` 给出 `"dark"` 或 `null`），就先把它挪到深色槽位；`slotOf` 给出 `undefined`（包不在目录里，槽位不知道）时不挪，直接覆盖，免得把一个本机没有的包塞进深色槽位：只设过一款深色皮肤的旧文档把它存在 `candidate_skin` 里，深色模式靠回退取到它，直接覆盖会让它悄悄消失。
+ */
+export function applyCandidateSkin(
+  custom: CustomTheme | undefined,
+  id: string,
+  base: BaseGlobalTheme,
+  slotOf: (id: string) => ThemeAppearance | null | undefined,
+): CustomTheme {
+  const slot = skinSlot(base);
+  const next: CustomTheme = { ...custom, base };
+  if (slot !== "light") next.candidate_skin_dark = id;
+  // 旧文档放在 `candidate_skin` 里的深色皮肤被新的深色皮肤取代：浅色模式本来就不画它，留着只会让它看起来还在用。
+  if (slot === "dark" && custom?.candidate_skin && slotOf(custom.candidate_skin) === "dark")
+    next.candidate_skin = null;
+  if (slot !== "dark") {
+    const previous = custom?.candidate_skin || null;
+    if (
+      slot === "light" &&
+      !custom?.candidate_skin_dark &&
+      previous &&
+      (slotOf(previous) === "dark" || slotOf(previous) === null)
+    )
+      next.candidate_skin_dark = previous;
+    next.candidate_skin = id;
+  }
+  return next;
+}
+
+/** 取消使用皮肤包 `id`：清掉放着它的槽位，另一个槽位不动。取下的是最后一款皮肤时底改回 `system`：应用皮肤时底被写成包的 base，两个槽位都空了以后 `resolve` 会在两种明暗下都用这个底，留着深色皮肤的 `night` 会让浅色模式变成深色。 */
+export function removeCandidateSkin(custom: CustomTheme | undefined, id: string): CustomTheme {
+  if (custom?.candidate_skin !== id && custom?.candidate_skin_dark !== id) return { ...custom };
+  const next: CustomTheme = { ...custom };
+  if (next.candidate_skin === id) next.candidate_skin = null;
+  if (next.candidate_skin_dark === id) next.candidate_skin_dark = null;
+  if (!next.candidate_skin && !next.candidate_skin_dark) next.base = "system";
+  return next;
+}
 
 /** 选着 `current` 时用了取色器，自定义主题画在哪个底上：屏幕上的主题留在下面，已经选着的自定义主题保留自己的底。`native` 不能当底，从它开始自定义时底是 `system`。 */
 export function customThemeBase(
@@ -265,6 +313,30 @@ export function customCandidatePalette(
       typeof packagePalette?.showSelectedBar === "boolean" ? packagePalette.showSelectedBar : null,
   };
   return Object.values(palette).some((value) => value !== null) ? palette : null;
+}
+
+/** `CustomTheme::candidate_skin_for`：`dark` 模式下取哪个槽位的皮肤包。深色模式先取 `candidate_skin_dark`，没设时与浅色模式一样取 `candidate_skin`。 */
+export function candidateSkinFor(custom: CustomTheme | undefined, dark: boolean): string | null {
+  const light = custom?.candidate_skin || null;
+  return dark ? custom?.candidate_skin_dark || light : light;
+}
+
+/** `ThemePackage::draws_in`：以 `base` 为底的皮肤包能否在 `dark` 模式下画。固定明暗的内置主题只画在自己的明暗下，`system` 两种都画。 */
+export function skinDrawsIn(base: GlobalTheme, dark: boolean): boolean {
+  const appearance = themeEntry(base).appearance;
+  return appearance === null || (appearance === "dark") === dark;
+}
+
+/** `resolve()` 给自定义主题选的底：画了皮肤包时是包的 base（`drawnPackageBase`）；设过皮肤、却没有能在 `dark` 下画的包时，`custom.base` 只在属于这种明暗时作底，否则是 `system`；没设皮肤时就是 `custom.base`。 */
+export function customDrawnBase(
+  custom: CustomTheme | undefined,
+  drawnPackageBase: BaseGlobalTheme | null,
+  dark: boolean,
+): BaseGlobalTheme {
+  if (drawnPackageBase !== null) return drawnPackageBase;
+  const base = custom?.base ?? "system";
+  const configured = Boolean(custom?.candidate_skin || custom?.candidate_skin_dark);
+  return !configured || skinDrawsIn(base, dark) ? base : "system";
 }
 
 /** The candidate preview style of a custom theme: `customCandidatePalette` as `--cand-*` properties. */

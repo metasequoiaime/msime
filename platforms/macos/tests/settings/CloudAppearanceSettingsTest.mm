@@ -10,11 +10,12 @@ int main() {
     assert([initial[@"platform.macos.candidate_page_size"] isEqual:@9]);
     assert([initial[@"platform.macos.candidate_panel_style"] isEqual:@0]);
     assert(MSIMEValidateCloudAppearance(initial));
-    assert(initial.count == 25);
+    assert(initial.count == 26);
     // A fresh install is on the system theme with no custom base or package.
     assert([initial[@"platform.macos.global_theme"] isEqual:@"system"]);
     assert([initial[@"platform.macos.custom_theme_base"] isEqual:@"system"]);
     assert([initial[@"platform.macos.custom_candidate_skin"] isEqual:@""]);
+    assert([initial[@"platform.macos.custom_candidate_skin_dark"] isEqual:@""]);
     assert([initial[@"platform.macos.quanpin_helpcode_schema"] isEqual:@1]);
     assert([initial[@"platform.macos.shuangpin_helpcode_schema"] isEqual:@0]);
     assert([initial[@"platform.macos.local_input_modes"] isEqual:@YES]);
@@ -62,6 +63,7 @@ int main() {
     values[@"platform.macos.global_theme"] = @"custom";
     values[@"platform.macos.custom_theme_base"] = @"night";
     values[@"platform.macos.custom_candidate_skin"] = @"wide-card";
+    values[@"platform.macos.custom_candidate_skin_dark"] = @"night-card";
     values[@"platform.macos.candidate_panel_style"] = @1;
     values[@"platform.macos.candidate_font_size"] = @20;
     values[@"platform.macos.candidate_page_size"] = @7;
@@ -77,6 +79,8 @@ int main() {
     assert(MSIMEApplyCloudAppearance(values, defaults));
     assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:values]);
     assert([[defaults stringForKey:@"MSIMEClientInputScheme"] isEqual:@"wubi"]);
+    // 深色槽位与浅色槽位一样往返：写进本机偏好，再原样导出。
+    assert([[defaults stringForKey:@"MSIMEClientCustomCandidateSkinDark"] isEqual:@"night-card"]);
     assert([defaults integerForKey:@"MSIMEClientCandidatePageShortcut"] == 1);
     NSDictionary *helpcode = [defaults dictionaryForKey:@"MSIMEClientHelpcodeOptions"];
     assert([helpcode[@"quanpin"][@"schema"] isEqual:@"xiaohe"]);
@@ -118,9 +122,21 @@ int main() {
       }
     }
     for (NSString *key in @[@"platform.macos.quanpin_helpcode_schema", @"platform.macos.shuangpin_helpcode_schema"]) {
-      for (id invalid in @[@YES, @(MSIMECloudHelpcodeSchemas().count), @(-1), @1.5, @"1"]) {
+      for (id invalid in @[@YES, @(-1), @1.5, @"1"]) {
         NSMutableDictionary *bad = [saved mutableCopy]; bad[key] = invalid;
         assert(!MSIMEApplyCloudAppearance(bad, defaults));
+        assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
+      }
+      // 更新的版本追加的方案：本机不认识这个下标，这一项保留本机的选择，快照的其余部分照常应用。
+      for (NSNumber *unknown in @[@(MSIMECloudHelpcodeSchemas().count), @(MSIMECloudHelpcodeSchemas().count + 5)]) {
+        NSMutableDictionary *newer = [saved mutableCopy]; newer[key] = unknown;
+        newer[@"platform.macos.candidate_font_size"] = @([saved[@"platform.macos.candidate_font_size"] integerValue] == 20 ? 21 : 20);
+        assert(MSIMEValidateCloudAppearance(newer));
+        assert(MSIMEApplyCloudAppearance(newer, defaults));
+        NSDictionary *after = MSIMECloudAppearanceSnapshot(defaults);
+        assert([after[key] isEqual:saved[key]]);
+        assert([after[@"platform.macos.candidate_font_size"] isEqual:newer[@"platform.macos.candidate_font_size"]]);
+        assert(MSIMEApplyCloudAppearance(saved, defaults));
         assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
       }
     }
@@ -137,8 +153,8 @@ int main() {
       assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
     }
     // 1 and 6 are sizes the shared preferences accept, so a snapshot carrying either is applied rather
-    // than refused; what stays invalid is a non-number, a non-integer, and anything outside 1..9.
-    for (id invalid in @[@YES, @0, @10, @1.5,
+    // than refused; what stays invalid is a non-number, a non-integer, and anything outside 1..10.
+    for (id invalid in @[@YES, @0, @11, @1.5,
                          [NSDecimalNumber decimalNumberWithString:@"5.0000000000000001"],
                          @"5", NSNull.null]) {
       values = [saved mutableCopy];
@@ -146,7 +162,7 @@ int main() {
       assert(!MSIMEApplyCloudAppearance(values, defaults));
       assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
     }
-    for (NSNumber *accepted in @[@1, @4, @6, @9]) {
+    for (NSNumber *accepted in @[@1, @4, @6, @9, @10]) {
       values = [saved mutableCopy];
       values[@"platform.macos.candidate_page_size"] = accepted;
       assert(MSIMEApplyCloudAppearance(values, defaults));
@@ -169,7 +185,8 @@ int main() {
     assert(!MSIMEApplyCloudAppearance(values, defaults));
     NSDictionary *invalidThemes = @{@"platform.macos.global_theme": @[@"fluent", @"", @"../unsafe", @1, NSNull.null],
                                     @"platform.macos.custom_theme_base": @[@"custom", @"fluent", @"", @1, NSNull.null],
-                                    @"platform.macos.custom_candidate_skin": @[@"../unsafe", @"shuishan", @"custom", @1, NSNull.null]};
+                                    @"platform.macos.custom_candidate_skin": @[@"../unsafe", @"shuishan", @"custom", @1, NSNull.null],
+                                    @"platform.macos.custom_candidate_skin_dark": @[@"../unsafe", @"night", @"custom", @1, NSNull.null]};
     for (NSString *key in invalidThemes) {
       for (id invalid in invalidThemes[key]) {
         NSMutableDictionary *bad = [saved mutableCopy]; bad[key] = invalid;
@@ -181,7 +198,9 @@ int main() {
     [defaults setObject:@"fluent" forKey:@"MSIMEClientGlobalTheme"];
     [defaults setObject:@"custom" forKey:@"MSIMEClientCustomThemeBase"];
     [defaults setObject:@"../unsafe" forKey:@"MSIMEClientCustomCandidateSkin"];
+    [defaults setObject:@"ink" forKey:@"MSIMEClientCustomCandidateSkinDark"];
     NSDictionary *sanitized = MSIMECloudAppearanceSnapshot(defaults);
+    assert([sanitized[@"platform.macos.custom_candidate_skin_dark"] isEqual:@""]);
     assert([sanitized[@"platform.macos.global_theme"] isEqual:@"system"]);
     assert([sanitized[@"platform.macos.custom_theme_base"] isEqual:@"system"]);
     assert([sanitized[@"platform.macos.custom_candidate_skin"] isEqual:@""]);
@@ -189,6 +208,15 @@ int main() {
     assert(MSIMEApplyCloudAppearance(saved, defaults));
     values = [saved mutableCopy]; values[@"unexpected"] = @1;
     assert(!MSIMEApplyCloudAppearance(values, defaults));
+    // 早于深色槽位导出的快照没有这一项：校验照样拒绝，导入设置文件时由 MSIMEAdoptCloudAppearance 补上本机的深色槽位。
+    NSMutableDictionary *legacy = [saved mutableCopy];
+    [legacy removeObjectForKey:@"platform.macos.custom_candidate_skin_dark"];
+    assert(!MSIMEValidateCloudAppearance(legacy));
+    NSMutableDictionary *local = [saved mutableCopy];
+    local[@"platform.macos.custom_candidate_skin_dark"] = @"local-dark";
+    NSDictionary *adoptedLegacy = MSIMEAdoptCloudAppearance(legacy, local, nil);
+    assert([adoptedLegacy[@"platform.macos.custom_candidate_skin_dark"] isEqual:@"local-dark"] && MSIMEValidateCloudAppearance(adoptedLegacy));
+    assert(MSIMEAdoptCloudAppearance(saved, local, nil) == saved);
 
     // 版本收窄（与 client-core 的账号偏好过滤规则相同）。测试进程是 full：什么也不去掉。
     assert(MSIMENarrowCloudAppearance(saved, nil) == saved);

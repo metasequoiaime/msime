@@ -127,7 +127,7 @@ int main() {
     REQUIRE(spelled(key(0xBB, '=')) == EditKind::None);
     REQUIRE(spelled(key(0xBC, ',')) == EditKind::None);
     REQUIRE(spelled(key('4', '4', control)) == EditKind::None);
-    // On an empty pinyin composition the Engine lists "/" and "@" for the modes that are on; Shift+2's '@' is then the mode's key.
+    // On an empty composition in a scheme that opens the table modes (the pinyin schemes and Wubi, `opens_table_modes`) the Engine lists "/" and "@" for the modes that are on; Shift+2's '@' is then the mode's key.
     REQUIRE(edit_kind(key(0xBF, '/'), "none", false, false, {}, 0, false, "/@") ==
             EditKind::Character);
     REQUIRE(edit_kind(key('2', '@', shift), "none", false, false, {}, 0, false, "/@") ==
@@ -196,6 +196,28 @@ int main() {
       refused = true;
     }
     REQUIRE(refused);
+
+    // TIP 的 `;` 开关按 Engine 的规则从偏好算出：微软双拼，或者自定义表里有韵母、零声母编码用到 `;`。
+    REQUIRE(shuangpin_uses_semicolon_key({{"shuangpin_profile", "microsoft"}}));
+    REQUIRE(!shuangpin_uses_semicolon_key(nlohmann::json::object()));
+    REQUIRE(!shuangpin_uses_semicolon_key({{"shuangpin_profile", "xiaohe"}}));
+    REQUIRE(!shuangpin_uses_semicolon_key({{"shuangpin_profile", "custom"}}));
+    REQUIRE(shuangpin_uses_semicolon_key(
+        {{"shuangpin_profile", "custom"},
+         {"shuangpin_custom_profile",
+          {{"finals", {{"ing", ";"}, {"iu", "q"}}}}}}));
+    REQUIRE(shuangpin_uses_semicolon_key(
+        {{"shuangpin_profile", "custom"},
+         {"shuangpin_custom_profile",
+          {{"finals", {{"ing", "k"}}}, {"zero_initials", {{"a", "o;"}}}}}}));
+    REQUIRE(!shuangpin_uses_semicolon_key(
+        {{"shuangpin_profile", "custom"},
+         {"shuangpin_custom_profile",
+          {{"finals", {{"ing", "k"}}}, {"zero_initials", {{"a", "oa"}}}}}}));
+    // 表留着但选的是内置方案时，按内置方案回答。
+    REQUIRE(!shuangpin_uses_semicolon_key(
+        {{"shuangpin_profile", "xiaohe"},
+         {"shuangpin_custom_profile", {{"finals", {{"ing", ";"}}}}}}));
 
     std::cout << "Windows edit policy checks passed\n";
     return 0;

@@ -1,3 +1,4 @@
+import app.msime.android.NumberPolicy;
 import app.msime.android.TypingStatisticsSummary;
 import app.msime.android.TypingStatisticsSummary.Achievement;
 import app.msime.android.TypingStatisticsSummary.PeakWindow;
@@ -12,7 +13,7 @@ import java.util.Map;
  */
 public final class TypingStatisticsSummarySmoke {
     public static void main(String[] args) {
-        check("12,846".equals(TypingStatisticsSummary.grouped(12_846)), "thousands separator");
+        check("12,846".equals(NumberPolicy.grouped(12_846)), "thousands separator");
         check("比上周多 18%".equals(TypingStatisticsSummary.weekDelta(12_846, 10_886)), "week up");
         check("比上周少 50%".equals(TypingStatisticsSummary.weekDelta(50, 100)), "week down");
         check("和上周持平".equals(TypingStatisticsSummary.weekDelta(100, 100)), "week flat");

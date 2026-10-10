@@ -79,7 +79,10 @@ class Fixture:
         stub.write_text(STUB.format(python=sys.executable, scratch=str(self.scratch)))
         stub.chmod(0o755)
         for name in ("runs.log", "signals.log"):
-            (self.scratch / name).unlink(missing_ok=True)
+            try:
+                (self.scratch / name).unlink()
+            except FileNotFoundError:
+                pass
         (self.scratch / "plan.json").write_text(json.dumps(plan))
         self.options.write_text("{}")
 

@@ -42,7 +42,7 @@ int main() {
     auto frames = tsf_config_frames(config);
     // Every setting the TIP consumes gets a frame; it kept compiled defaults
     // because the Server encoded none of them.
-    require(frames.size() == 10);
+    require(frames.size() == 11);
     for (const auto &frame : frames)
       require(frame.size() == sizeof(FanyImeNamedpipeDataToTsfWorkerThread));
 
@@ -57,7 +57,8 @@ int main() {
         FanyImeWorkerReplyType::TsfDiagnosticLogChanged,
         FanyImeWorkerReplyType::PunctuationLockChanged,
         FanyImeWorkerReplyType::LocalModeTriggersChanged,
-        FanyImeWorkerReplyType::DedicatedEnglishChanged};
+        FanyImeWorkerReplyType::DedicatedEnglishChanged,
+        FanyImeWorkerReplyType::SecondThirdCandidateChanged};
     for (size_t i = 0; i < frames.size(); ++i)
       require(frame_type(frames[i]) == expected[i]);
 
@@ -149,6 +150,28 @@ int main() {
     require(frame_text(tsf_config_frames(config)[8]) == L"000");
     config.dedicated_english = false;
     require(frame_text(tsf_config_frames(config)[8]) == L"111");
+    // The switches reach the flags only where the Engine opens the mode: V in the pinyin schemes (`opens_local_modes`), "/" and "@" in the pinyin schemes and Wubi too (`opens_table_modes`). A Wubi user with "/" and "@" on gets them; the TIP would otherwise send "/" as punctuation while the Engine waits to open the command mode.
+    {
+      const auto switched = [](std::string_view name, bool expression, bool command, bool mention) {
+        TsfLocalConfig local;
+        apply_local_mode_switches(local, scheme::scheme_from_name(name), expression, command, mention);
+        return frame_text(tsf_config_frames(local)[8]);
+      };
+      require(switched("quanpin", true, true, true) == L"111");
+      require(switched("shuangpin", true, true, true) == L"111");
+      require(switched("wubi", true, true, true) == L"011");
+      require(switched("wubi", false, true, false) == L"010");
+      require(switched("wubi", false, false, true) == L"001");
+      require(switched("wubi", false, false, false) == L"000");
+      require(switched("quanpin", false, false, false) == L"000");
+      for (const auto name : {"japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan", "stroke", "unknown"})
+        require(switched(name, true, true, true) == L"000");
+      // A switch the scheme does not open never leaves a stale flag on from an earlier scheme.
+      TsfLocalConfig reused;
+      apply_local_mode_switches(reused, scheme::Quanpin, true, true, true);
+      apply_local_mode_switches(reused, scheme::Korean, true, true, true);
+      require(!reused.expression_mode && !reused.command_mode && !reused.mention_mode);
+    }
     // The TIP drops every type above MaxKnown, so the new type has to be inside it.
     require(FanyImeWorkerReplyType::LocalModeTriggersChanged <=
             FanyImeWorkerReplyType::MaxKnown);
@@ -157,7 +180,13 @@ int main() {
     config.dedicated_english = true;
     require(frame_text(tsf_config_frames(config)[9]) == L"1");
     config.dedicated_english = false;
-    require(FanyImeWorkerReplyType::DedicatedEnglishChanged == FanyImeWorkerReplyType::MaxKnown);
+    require(FanyImeWorkerReplyType::DedicatedEnglishChanged < FanyImeWorkerReplyType::MaxKnown);
+    // 二三候选单独一帧，排在所有旧帧之后：关着时是 "0"，TIP 据此把 ';' 和 '\'' 留作标点。
+    require(frame_text(tsf_config_frames(TsfLocalConfig{})[10]) == L"0");
+    config.second_third_candidate = true;
+    require(frame_text(tsf_config_frames(config)[10]) == L"1");
+    config.second_third_candidate = false;
+    require(FanyImeWorkerReplyType::SecondThirdCandidateChanged == FanyImeWorkerReplyType::MaxKnown);
 
     // Caps Lock travels on its own frame rather than in the configuration set:
     // the Server owns the indicator because the TIP only sampled GetKeyState at

@@ -36,12 +36,30 @@ enum AppServicesBridge {
     return ["body": body, "contentType": "multipart/form-data; boundary=\(boundary)"]
   }
 
+  /// 阿里云百炼的整句识别（chat_audio）：唯一一条 user 消息，内容是录音的 Base64 数据 URL；不带语种，交给模型自动识别。录音上限和 multipart 相同，编码后仍远在百炼 10 MB 的上限以内。
+  static func chatAudioBody(_ wav: Data, model: String) throws -> Data {
+    guard wav.count <= maximumVoiceAudioBytes else {
+      throw ServiceFailure(message: "语音文件过大。")
+    }
+    let content: [[String: Any]] = [[
+      "type": "input_audio",
+      "input_audio": ["data": "data:audio/wav;base64," + wav.base64EncodedString()],
+    ]]
+    return try JSONSerialization.data(withJSONObject: [
+      "model": model,
+      "stream": false,
+      "messages": [["role": "user", "content": content]],
+    ] as [String: Any])
+  }
+
   static func parseResponse(_ data: Data, voice: Bool) throws -> String {
     guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
       throw ServiceFailure(message: "服务返回格式无效。")
     }
     if voice {
-      guard let text = object["text"] as? String,
+      // multipart 接口的文字在 `text`，chat_audio 接口的在 `choices[0].message.content`。
+      let chat = ((object["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"]
+      guard let text = (object["text"] ?? chat) as? String,
             text.count <= maximumVoiceTextCharacters else {
         throw ServiceFailure(message: object["error"] as? String ?? "服务未返回可用文字。")
       }

@@ -9,6 +9,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.AppEdition;
 import app.msime.android.ClipboardLayoutPolicy;
 import app.msime.android.ColorPolicy;
@@ -21,6 +22,7 @@ import app.msime.android.NineKeyLayout;
 import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.NineKeySwipePolicy;
 import app.msime.android.SchemePreferences;
+import app.msime.android.ShuangpinKeyHintPolicy;
 import app.msime.android.SwipeHintPolicy;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
@@ -29,9 +31,9 @@ import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键、九键字母与数字键盘的左侧符号、9 键数字键盘顺序、键盘高度、按键间距、行间距、横屏分离式键盘、浮动键盘、键盘底栏）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）、剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键、九键字母与数字键盘的左侧符号、26 键数字键盘（一行 / 九宫格）、九宫格数字键盘顺序、双拼键位提示、键盘高度、按键间距、行间距、横屏分离式键盘、浮动键盘、键盘底栏）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）、剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距、数字键盘顺序和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_number_keypad_order`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
+ * <p>键盘与本页读同一批存储：按键间距、行间距、26 键数字键盘、数字键盘顺序、双拼键位提示和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_twenty_six_key_number_layout`、`touch_number_keypad_order`、`touch_shuangpin_key_hints`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
 public final class KeyboardOptionsPage extends DetailPage {
     private static final String[] ANIMATIONS = {"bounce", "ripple", "glow", "lift", "none"};
@@ -40,6 +42,7 @@ public final class KeyboardOptionsPage extends DetailPage {
     private static final String[][] TOOLBAR_BUTTONS = {
         {"emoji", "表情"}, {AndroidLocalSettings.TOOLBAR_PHRASE, "常用语"}, {"clipboard", "剪贴板"}, {"skin", "皮肤"},
         {AndroidLocalSettings.TOOLBAR_SCHEME, "输入方式"}, {AndroidLocalSettings.TOOLBAR_FLOATING, "浮动键盘"},
+        {AndroidLocalSettings.TOOLBAR_TEXT_EDIT, "文本编辑"},
     };
 
     private record State(JSONObject preferences, AndroidLocalSettings.Snapshot local,
@@ -92,7 +95,14 @@ public final class KeyboardOptionsPage extends DetailPage {
             : pair == null ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘";
         layout.nav("中文键盘", note, nineKey ? "9 键" : "26 键",
             pairOffered ? () -> pickLayout(current, pair, nineKey) : null);
-        // 左侧符号栏只属于拼音九键和笔画键盘；本版本两者都没有（例如五笔版）时不列这两行。
+        // 本版本没有任何其他语言键盘（五笔版、拼音版）时不列这一项。
+        if (offersOtherLanguage(edition)) {
+            layout.toggle("中英键轮换其他语言",
+                "中英键依次切换中文、英文和已添加的日语、韩语等键盘，再回到中文；没有添加其他语言时仍只切中英",
+                settings.bool(AndroidLocalSettings.LANGUAGE_KEY_CYCLE),
+                checked -> saveLocal(AndroidLocalSettings.LANGUAGE_KEY_CYCLE, checked));
+        }
+        // 左侧符号栏只属于拼音九键和笔画键盘；本版本两者都没有（例如五笔版）时不列这一行，数字键面那一行另看下面的条件。
         boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
         if (quanpinNineKey || KeyboardScheme.STROKE.offeredBy(edition)) {
             java.util.List<String> sidebar = NineKeySidebarPolicy.letterSymbols(
@@ -101,17 +111,28 @@ public final class KeyboardOptionsPage extends DetailPage {
                 NineKeySidebarPolicy.summary(sidebar, 4),
                 () -> editSidebarSymbols("九键左侧符号", AndroidLocalSettings.NINE_KEY_SYMBOLS, sidebar));
         }
-        if (quanpinNineKey) {
+        boolean nineKeyDigits = NineKeyLayout.nineKeyNumberLayout(preferences.optString(
+            NineKeyLayout.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY, NineKeyLayout.ROW_NUMBER_LAYOUT));
+        // 26 键选了九宫格数字键盘时用的是同一张数字键面符号表，本版本没有拼音九键也要能改它。
+        if (quanpinNineKey || nineKeyDigits) {
             java.util.List<String> digitSidebar = NineKeySidebarPolicy.digitSymbols(
                 settings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
-            layout.nav("九键数字键盘左侧符号", "拼音九键按 123 切到数字键盘后左侧的符号栏",
+            layout.nav("九键数字键盘左侧符号", "九宫格数字键盘（9 键和选了九宫格的 26 键）左侧的符号栏",
                 NineKeySidebarPolicy.summary(digitSidebar, 4),
                 () -> editSidebarSymbols("九键数字键盘左侧符号", AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS, digitSidebar));
         }
+        layout.nav("26 键数字键盘", "26 键按 123 时的数字键盘", twentySixKeyNumberLabel(nineKeyDigits),
+            () -> pickTwentySixKeyNumberLayout(nineKeyDigits));
         boolean calculator = NineKeyLayout.calculatorOrder(
             preferences.optString(NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER));
-        layout.nav("数字键盘顺序", "9 键切到数字时的排列", numberKeypadLabel(calculator),
+        layout.nav("数字键盘顺序", "九宫格数字键盘的排列（9 键，以及选了九宫格的 26 键）", numberKeypadLabel(calculator),
             () -> pickNumberKeypadOrder(calculator));
+        // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。缺省为开，与键盘和 client-core 一致。
+        if (KeyboardScheme.XIAOHE.offeredBy(edition)) {
+            layout.toggle("双拼键位提示", "双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母",
+                preferences.optBoolean(ShuangpinKeyHintPolicy.PREFERENCE_KEY, true),
+                checked -> savePreference(ShuangpinKeyHintPolicy.PREFERENCE_KEY, checked));
+        }
         int height = KeyboardGeometry.heightAdjustmentToPercent(
             settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
                 ? settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
@@ -218,7 +239,7 @@ public final class KeyboardOptionsPage extends DetailPage {
         LinearLayout plate = Ui.row(context);
         ViewPolicy.setCenteredVertically(plate);
         Ui.setHorizontalPaddingDp(plate, context, 10);
-        ViewPolicy.setBackground(plate, Ui.rounded(ColorPolicy.parse(skin.background(), Ui.page(context)), Ui.dp(context, 12)));
+        ViewPolicy.setBackground(plate, DrawablePolicy.rounded(ColorPolicy.parse(skin.background(), Ui.page(context)), Ui.dp(context, 12)));
         ViewPolicy.setImportantForAccessibility(plate,
             View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         int icon = ColorPolicy.parse(skin.toolbarIcon(), Ui.subText(context));
@@ -248,6 +269,13 @@ public final class KeyboardOptionsPage extends DetailPage {
      * 当前方案的 26 键与 9 键那一对：全拼是全拼 26 键和全拼 9 键，注音是大千和注音 9 键，日语是日语 26 键和日语 9 键。双拼、五笔、手写这类只有一种排法的方案没有这一对，返回 null：原来一律给全拼的那一对，小鹤双拼用户在这里点哪一项都会被改成全拼，注音 9 键用户点「26 键」会切到全拼而不是大千。
      */
     @Nullable
+    private static boolean offersOtherLanguage(AppEdition edition) {
+        for (KeyboardScheme scheme : KeyboardScheme.values()) {
+            if (scheme.otherLanguage() && scheme.offeredBy(edition)) return true;
+        }
+        return false;
+    }
+
     private static KeyboardScheme[] layoutPair(KeyboardScheme current) {
         return switch (current) {
             case QUANPIN, QUANPIN_NINE_KEY -> new KeyboardScheme[] {KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_NINE_KEY};
@@ -361,6 +389,23 @@ public final class KeyboardOptionsPage extends DetailPage {
 
     private static String numberKeypadLabel(boolean calculator) {
         return calculator ? "计算器（789 在上）" : "电话（123 在上）";
+    }
+
+    /** 26 键按 123 切到的数字层写进共享偏好 `touch_twenty_six_key_number_layout`，与其他平台和云同步共用。 */
+    private void pickTwentySixKeyNumberLayout(boolean nineKey) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "26 键数字键盘",
+            "一行把 1 到 0 排在符号上面；九宫格换成和 9 键一样的 3×3 数字键");
+        sheet.option(twentySixKeyNumberLabel(false), !nineKey, () -> {
+            if (nineKey) savePreference(NineKeyLayout.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY, NineKeyLayout.ROW_NUMBER_LAYOUT);
+        });
+        sheet.option(twentySixKeyNumberLabel(true), nineKey, () -> {
+            if (!nineKey) savePreference(NineKeyLayout.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY, NineKeyLayout.NINE_KEY_NUMBER_LAYOUT);
+        });
+        sheet.show();
+    }
+
+    private static String twentySixKeyNumberLabel(boolean nineKey) {
+        return nineKey ? "九宫格" : "一行";
     }
 
     private static String swipeDirectionLabel(String value) {

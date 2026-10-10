@@ -2,11 +2,11 @@ import XCTest
 import UIKit
 
 private final class ThemeSessionStorage: BackendSessionStorage, @unchecked Sendable {
-  func load() throws -> BackendSavedSession? {
-    .init(tokens: .init(access_token: String(repeating: "a", count: 64), refresh_token: String(repeating: "b", count: 64),
+  private let session = BackendSavedSession(
+    tokens: .init(access_token: String(repeating: "a", count: 64), refresh_token: String(repeating: "b", count: 64),
       token_type: "Bearer", expires_in: 900, user: .init(id: "synthetic-theme-user", display_name: "测试", created_at: "")),
-      expiresAt: Date().addingTimeInterval(900))
-  }
+    expiresAt: Date().addingTimeInterval(900))
+  func load() throws -> BackendSavedSession? { session }
   func save(_ session: BackendSavedSession) throws {}
   func clear() throws {}
 }

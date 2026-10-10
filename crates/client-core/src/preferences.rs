@@ -64,6 +64,17 @@ pub enum NumberKeypadOrder {
     Calculator,
 }
 
+/// 触屏 26 键按「123」切到的数字层。桌面宿主原样保留、不使用。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TwentySixKeyNumberLayout {
+    /// 1 到 0 排成一行，下面是符号行。
+    #[default]
+    Row,
+    /// 九宫格数字层：3×3 数字键，排列跟 [`NumberKeypadOrder`] 走。
+    NineKey,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchSkinKeyShape {
@@ -254,9 +265,12 @@ pub struct CustomTheme {
     /// 自定义主题的底：`system` 或五个内置主题之一，不能是 `custom`，也不能是只在部分宿主上提供的 `native`（见 `GlobalTheme::is_base`）。皮肤包和取色器没设的候选颜色由它补上；没有键盘设计时，键盘也画它的。应用了皮肤包时，改用包清单自己的 `base`。
     #[serde(skip_serializing_if = "is_system_theme")]
     pub base: crate::skin::theme::GlobalTheme,
-    /// The external candidate skin package (a folder name in the host's skin root) whose colours and decoration the custom theme uses. Never a global theme id.
+    /// 浅色模式用的候选窗皮肤包（宿主皮肤目录里的文件夹名），也是没设 `candidate_skin_dark` 时深色模式用的那款。不会是全局主题 ID。皮肤包只在它 `base` 的明暗下绘制，见 `CustomTheme::candidate_skin_for`。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub candidate_skin: Option<String>,
+    /// 深色模式用的候选窗皮肤包。`None` 时深色模式也取 `candidate_skin`，只设过一款皮肤的旧文档因此照旧。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidate_skin_dark: Option<String>,
     /// The candidate colour pickers, drawn over the package's colours.
     #[serde(skip_serializing_if = "CustomCandidateColors::is_empty")]
     pub candidate_colors: CustomCandidateColors,
@@ -315,14 +329,25 @@ impl CustomTheme {
             }
         }
         // 与皮肤目录的文件夹名同一形状，但沿用较宽的 `is_selectable_id`：被 msime-windows 内置外观占用的旧皮肤名仍可保存，只是目录里找不到它。
-        if self
-            .candidate_skin
-            .as_deref()
-            .is_some_and(|skin| !crate::skin::catalog::is_selectable_id(skin))
+        if [&self.candidate_skin, &self.candidate_skin_dark]
+            .into_iter()
+            .flatten()
+            .any(|skin| !crate::skin::catalog::is_selectable_id(skin))
         {
             return Err(PreferencesError::InvalidCandidateSkin);
         }
         Ok(())
+    }
+
+    /// 宿主在 `dark` 模式下要加载的皮肤包：深色模式优先取 `candidate_skin_dark`，没设时与浅色模式一样取 `candidate_skin`。选中的包画不画还要看它的 `base` 是否属于这个模式，由 `theme::resolve` 判断。
+    pub fn candidate_skin_for(&self, dark: bool) -> Option<&str> {
+        if dark {
+            self.candidate_skin_dark
+                .as_deref()
+                .or(self.candidate_skin.as_deref())
+        } else {
+            self.candidate_skin.as_deref()
+        }
     }
 }
 
@@ -835,6 +860,12 @@ pub struct Preferences {
     /// 九宫格数字层按电话还是计算器排列；字母层不受影响。
     #[serde(default)]
     pub touch_number_keypad_order: NumberKeypadOrder,
+    /// 26 键按「123」时出一行 1 到 0 的数字符号页，还是九宫格那样的 3×3 数字层。
+    #[serde(default)]
+    pub touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout,
+    /// 触屏 26 键双拼时在字母键底部画当前方案的声母/韵母提示，读屏也读它。默认开；全拼、独立英文和本地模式本来就不画，不受它影响。桌面宿主原样保留、不使用。
+    #[serde(default = "enabled_by_default")]
+    pub touch_shuangpin_key_hints: bool,
     /// The optional buttons on the touch keyboard's toolbar, the counterpart of the floating toolbar's component switches. The voice entry stays under `touch_voice_shortcut`.
     #[serde(default)]
     pub touch_toolbar: TouchToolbarPreferences,
@@ -843,6 +874,9 @@ pub struct Preferences {
     pub last_chinese_scheme: Option<ChineseScheme>,
     #[serde(default)]
     pub shuangpin_profile: ShuangpinProfile,
+    /// `shuangpin_profile` 为 `custom` 时用的键位表。这里只限制大小，合不合法由 Engine 判定（`msime_engine::host::validate_shuangpin_custom_profile`）；表缺失或不合法时宿主按小鹤运行。选别的方案时保留，切回 `custom` 还能用。
+    #[serde(default, skip_serializing_if = "ShuangpinCustomProfile::is_empty")]
+    pub shuangpin_custom_profile: ShuangpinCustomProfile,
     #[serde(default = "enabled_by_default")]
     pub shuangpin_preedit_uses_raw: bool,
     /// The Vietnamese input method and tone placement.
@@ -917,12 +951,21 @@ pub struct Preferences {
     pub paired_punctuation: bool,
     #[serde(default)]
     pub punctuation_lock: PunctuationLock,
+    /// 大写锁定打开时，中文模式下没有组字时的标点按英文标点输出，和切到英文模式时一样（`punctuation_lock` 为 `chinese` 时仍是中文标点）。只有向会话报告大写锁定状态的宿主（`HostCapabilities::caps_lock_punctuation`）会用到它。默认关，打开前的行为不变。
+    #[serde(default)]
+    pub caps_lock_ascii_punctuation: bool,
     #[serde(default)]
     pub navigation: NavigationPreferences,
     #[serde(default)]
     pub keybindings: KeybindingPreferences,
     #[serde(default)]
     pub word_character: WordCharacterPreferences,
+    /// 用两个专用键直接选当前页的第二、第三个候选。等于默认值（关闭）时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(
+        default,
+        skip_serializing_if = "SecondThirdCandidatePreferences::is_default"
+    )]
+    pub second_third_candidate: SecondThirdCandidatePreferences,
     #[serde(default)]
     pub frequency: FrequencyPreferences,
     #[serde(default)]
@@ -1718,6 +1761,29 @@ impl Default for WordCharacterPreferences {
     }
 }
 
+/// 选第二、第三个候选的那一对键。目前只有分号和单引号一种；留成枚举，是为了以后加左右 Shift 之类的键位时不必改文档格式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SecondThirdCandidateKeys {
+    /// `;` 选第二个候选，`'` 选第三个候选。
+    #[default]
+    SemicolonQuote,
+}
+
+/// 缺哪个字段就取默认值，宿主的设置页只写 `enabled` 也能读。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct SecondThirdCandidatePreferences {
+    pub enabled: bool,
+    pub keys: SecondThirdCandidateKeys,
+}
+
+impl SecondThirdCandidatePreferences {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NavigationPreferences {
@@ -1925,9 +1991,12 @@ impl Default for Preferences {
             touch_keyboard_height_adjustment: 0,
             touch_voice_shortcut: false,
             touch_number_keypad_order: NumberKeypadOrder::default(),
+            touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::default(),
+            touch_shuangpin_key_hints: true,
             touch_toolbar: TouchToolbarPreferences::default(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
+            shuangpin_custom_profile: ShuangpinCustomProfile::default(),
             shuangpin_preedit_uses_raw: true,
             vietnamese: VietnamesePreferences::default(),
             single_character_only: false,
@@ -1955,9 +2024,11 @@ impl Default for Preferences {
             smart_punctuation_direct_letter: smart_punctuation_default(),
             paired_punctuation: true,
             punctuation_lock: PunctuationLock::Follow,
+            caps_lock_ascii_punctuation: false,
             navigation: NavigationPreferences::default(),
             keybindings: KeybindingPreferences::default(),
             word_character: WordCharacterPreferences::default(),
+            second_third_candidate: SecondThirdCandidatePreferences::default(),
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),
@@ -2076,6 +2147,46 @@ pub enum ShuangpinProfile {
     Ziranma,
     Shoudao,
     Microsoft,
+    /// 用户自己的键位表，见 `Preferences::shuangpin_custom_profile`。
+    Custom,
+}
+
+/// 自定义双拼方案的键位表，与 Engine 的 `ShuangpinCustomTable` 一一对应：`initials` 只放 `zh` `ch` `sh`，`finals` 放 33 个韵母，`zero_initials` 放 12 个零声母音节的两键编码；键是小写字母或 `;`，`ü` 写作 `v`。导入导出用的也是这个 JSON 形状。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShuangpinCustomProfile {
+    #[serde(default)]
+    pub initials: BTreeMap<String, String>,
+    #[serde(default)]
+    pub finals: BTreeMap<String, String>,
+    #[serde(default)]
+    pub zero_initials: BTreeMap<String, String>,
+}
+
+impl ShuangpinCustomProfile {
+    /// 一张合法的表最多有 3 + 33 + 12 个单位；留出余量，只挡住明显不是键位表的东西。
+    const MAX_UNITS_PER_PART: usize = 64;
+    const MAX_UNIT_BYTES: usize = 8;
+    const MAX_KEY_BYTES: usize = 4;
+
+    pub fn is_empty(&self) -> bool {
+        self.initials.is_empty() && self.finals.is_empty() && self.zero_initials.is_empty()
+    }
+
+    /// 只看大小和字符，不看键位合不合法。
+    fn validate(&self) -> bool {
+        [&self.initials, &self.finals, &self.zero_initials]
+            .into_iter()
+            .all(|part| {
+                part.len() <= Self::MAX_UNITS_PER_PART
+                    && part.iter().all(|(unit, key)| {
+                        unit.len() <= Self::MAX_UNIT_BYTES
+                            && key.len() <= Self::MAX_KEY_BYTES
+                            && unit.bytes().all(|byte| byte.is_ascii_lowercase())
+                            && key.bytes().all(|byte| byte.is_ascii_graphic())
+                    })
+            })
+    }
 }
 
 /// 五笔码表版本。Engine 的编码是声明顺序（`wubi_profile`）。
@@ -2097,6 +2208,8 @@ pub enum HelpcodeSchema {
     Shouyouplus,
     Xiaohe,
     Jiajia,
+    /// 五笔 86：每个字取 86 五笔全码的前两码（`resources/helpcodes/wubi86_helpcode.txt`）。
+    Wubi86,
     /// A user table under the resource set's `helpcodes/custom` directory.
     Custom(String),
 }
@@ -2110,6 +2223,7 @@ impl HelpcodeSchema {
             Self::Shouyouplus => "shouyouplus",
             Self::Xiaohe => "xiaohe",
             Self::Jiajia => "jiajia",
+            Self::Wubi86 => "wubi86",
             Self::Custom(value) => value,
         }
     }
@@ -2137,6 +2251,7 @@ impl<'de> Deserialize<'de> for HelpcodeSchema {
             "shouyouplus" => Ok(Self::Shouyouplus),
             "xiaohe" => Ok(Self::Xiaohe),
             "jiajia" => Ok(Self::Jiajia),
+            "wubi86" => Ok(Self::Wubi86),
             value if crate::helpcode::is_custom_schema(value) => Ok(Self::Custom(value.into())),
             _ => Err(serde::de::Error::custom("unknown helpcode schema")),
         }
@@ -2223,13 +2338,14 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
 }
 
 /// Persisted recognition provider identifiers. Hosts expose only the providers they implement: `system` is the platform speech adapter, not a cloud profile, and `local` is an installed on-device sherpa-onnx model directory named by `asr_model_path`, which needs a host built with the recognizer behind it.
-pub const ASR_PROVIDERS: [&str; 8] = [
+pub const ASR_PROVIDERS: [&str; 9] = [
     "doubao",
     "siliconflow",
     "openai",
     "groq",
     "everyapi",
     "mistral",
+    "bailian",
     "system",
     "local",
 ];
@@ -2478,6 +2594,9 @@ impl Preferences {
         if !self.plugins.validate() {
             return Err(PreferencesError::InvalidPlugins);
         }
+        if !self.shuangpin_custom_profile.validate() {
+            return Err(PreferencesError::InvalidShuangpinCustomProfile);
+        }
         if !self.game_compatibility.validate() {
             return Err(PreferencesError::InvalidGameCompatibility);
         }
@@ -2486,7 +2605,7 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidFrequency);
         }
-        if !(1..=9).contains(&self.candidate_page_size) {
+        if !(1..=MAX_CANDIDATE_PAGE_SIZE).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
         }
         if !(30..=60).contains(&self.touch_key_spacing_tenths)
@@ -2592,7 +2711,7 @@ pub enum PreferencesError {
     InvalidTencentTmt,
     #[error("NiuTrans translation credentials are invalid")]
     InvalidNiuTrans,
-    #[error("candidate page size must be between 1 and 9")]
+    #[error("candidate page size must be between 1 and 10")]
     InvalidPageSize,
     #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
     InvalidTouchKeyboardSpacing,
@@ -2600,6 +2719,8 @@ pub enum PreferencesError {
         "at least one touch keyboard scheme must be enabled and the selection must be visible"
     )]
     InvalidTouchKeyboardSchemes,
+    #[error("custom shuangpin profile table is too large or has non-ASCII units or keys")]
+    InvalidShuangpinCustomProfile,
     #[error("custom theme keyboard design is invalid")]
     InvalidTouchKeyboardSkinDesign,
     #[error("custom theme base must be system or a built-in theme")]
@@ -3247,6 +3368,9 @@ fn sweep_stale_temporaries(directory: &Path) {
 
 /// 诊断快照里替换凭据的值，与服务端校验要求的写法相同。
 pub const REDACTED: &str = "<redacted>";
+
+/// 每页候选数的上限。数字键 1–9 选前九个，第十个由 0 键选（宿主各自按键位映射）。
+pub const MAX_CANDIDATE_PAGE_SIZE: u8 = 10;
 
 /// [`Preferences::credential_slots`] 里的一个凭据字段。
 pub enum CredentialSlot<'a> {

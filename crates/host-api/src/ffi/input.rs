@@ -8,19 +8,20 @@ use crate::*;
 #[no_mangle]
 pub extern "C" fn msime_client_set_candidate_page_size(handle: u64, size: u8) -> *mut c_char {
     response(|| {
-        if !(1..=9).contains(&size) {
-            return Err("candidate page size must be between 1 and 9".into());
+        if !(1..=msime_client_core::preferences::MAX_CANDIDATE_PAGE_SIZE).contains(&size) {
+            return Err("candidate page size must be between 1 and 10".into());
         }
+        let applied = host_page_size(size);
         with_session(handle, |session| {
             if session.runtime.is_idle() {
                 session
                     .runtime
-                    .set_page_size(size)
+                    .set_page_size(applied)
                     .map_err(|e| e.to_string())?;
             }
             session.page_size_override = Some(size);
             let view = session.runtime.view();
-            Ok(json!({"deferred": view.page_size != usize::from(size), "view": view}))
+            Ok(json!({"deferred": view.page_size != usize::from(applied), "view": view}))
         })
     })
 }
@@ -86,6 +87,17 @@ pub extern "C" fn msime_client_set_english_mode(handle: u64, enabled: bool) -> *
                 .map_err(|e| e.to_string())?;
             session.english_mode = enabled;
             serialized_runtime_view(session)
+        })
+    })
+}
+
+/// 宿主报告大写锁定状态。偏好 `caps_lock_ascii_punctuation` 打开时，大写锁定期间没有组字的标点按英文标点输出（见 `HostSession::caps_lock_punctuation`）。不是持久化的偏好，换会话后由宿主重新报告。
+#[no_mangle]
+pub extern "C" fn msime_client_set_caps_lock(handle: u64, enabled: bool) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session.caps_lock = enabled;
+            Ok(Value::Bool(enabled))
         })
     })
 }
@@ -205,27 +217,7 @@ pub extern "C" fn msime_client_punctuation_with_context(
         let session = sessions
             .get(&handle)
             .ok_or_else(|| "unknown session or wrong thread".to_owned())?;
-        let lock = match session.punctuation_lock_override {
-            Some(1) => msime_client_core::preferences::PunctuationLock::Chinese,
-            Some(2) => msime_client_core::preferences::PunctuationLock::English,
-            Some(_) => msime_client_core::preferences::PunctuationLock::Follow,
-            None => session.applied.punctuation_lock,
-        };
-        let route = punctuation_route(PunctuationContext {
-            character: ascii,
-            preceding,
-            host_context_available: session
-                .runtime
-                .punctuation_host_context_available(session.english_mode),
-            has_composition: !session.runtime.is_idle(),
-            chinese_punctuation: session
-                .punctuation_override
-                .unwrap_or(session.applied.chinese_punctuation),
-            smart_punctuation: session.applied.smart_punctuation,
-            direct_digit: session.applied.smart_punctuation_direct_digit,
-            direct_letter: session.applied.smart_punctuation_direct_letter,
-            lock,
-        });
+        let route = punctuation_route(session.punctuation_context(ascii, preceding));
         Ok(match route {
             PunctuationRoute::Engine => Action::Punctuation(ascii),
             PunctuationRoute::Ascii => Action::PunctuationAscii(ascii),

@@ -22,10 +22,14 @@ public final class AccountSessionRoutingPolicy {
     public static final String KEY_LOGIN_KIND = "login_kind";
     /** `sync_state` 回复中的主进程账号 ID；缺失表示暂不可读，空字符串表示未绑定。 */
     public static final String KEY_ACCOUNT_ID = "account_id";
+    /** `sync_state` 回复中的账号绑定代次；缺失表示快照不可用。 */
+    public static final String KEY_BINDING_GENERATION = "binding_generation";
     /** `sync_dirty` 回复中「标记已记下」的字段。 */
     public static final String KEY_SYNC_MARKED = "sync_marked";
     /** 回复中携带令牌的字段名。 */
     public static final String KEY_ACCESS_TOKEN = "access_token";
+    /** The stable identifier of the current login; refresh keeps it, sign-in replaces it. */
+    public static final String KEY_SESSION_ID = "session_id";
     /** Optional access token that the caller just saw rejected; the owner must not reuse it. */
     public static final String KEY_REJECTED_ACCESS_TOKEN = "rejected_access_token";
     /** The reply key saying which of the three answers this is. */

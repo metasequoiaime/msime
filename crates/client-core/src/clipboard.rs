@@ -47,6 +47,21 @@ enum StoredHistory {
     Legacy(Vec<String>),
 }
 
+/// [`ClipboardHistoryStore::replace`] 的结果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplaceOutcome {
+    /// 原条目的文字已改成新文字，时间戳和固定状态不变。
+    Replaced,
+    /// 新文字和另一条已有的历史相同，两条合并成一条，留在被编辑那条的位置。
+    Merged,
+    /// 新文字和原文相同，没有写盘。
+    Unchanged,
+    /// 原条目已经不在了（被别的宿主删掉或清空），没有写盘。
+    NotFound,
+    /// 新文字不合规（空白、过长或含 NUL），没有读写磁盘。
+    Invalid,
+}
+
 #[derive(Debug, Clone)]
 pub struct ClipboardHistoryStore {
     path: PathBuf,
@@ -225,6 +240,44 @@ impl ClipboardHistoryStore {
         }
         self.entries = latest.entries;
         Ok(true)
+    }
+
+    /// 把一条历史的文字改成 `replacement`，按内容找原条目，不信任宿主手里可能已过时的行号。
+    ///
+    /// 改完的条目留在原位：时间戳和固定状态都不变，编辑不会让它跳到最前。新文字和另一条已有的历史相同时两条合并成一条，留在被编辑那条的位置，固定状态取两者之或。新文字按移动端的规则校验（`mobile_text_is_valid`），不合规时不碰磁盘。
+    pub fn replace(&mut self, text: &str, replacement: String) -> std::io::Result<ReplaceOutcome> {
+        if !mobile_text_is_valid(&replacement) {
+            return Ok(ReplaceOutcome::Invalid);
+        }
+        let _lock = self.lock_writer()?;
+        let mut latest = Self::open(&self.path);
+        latest.load()?;
+        let mut next = latest.entries;
+        let Some(index) = next.iter().position(|entry| entry.text == text) else {
+            self.entries = next;
+            return Ok(ReplaceOutcome::NotFound);
+        };
+        if text == replacement {
+            self.entries = next;
+            return Ok(ReplaceOutcome::Unchanged);
+        }
+        let outcome = match next.iter().position(|entry| entry.text == replacement) {
+            Some(duplicate) => {
+                let merged_pin = next[duplicate].pinned;
+                next[index].pinned |= merged_pin;
+                next[index].text = replacement;
+                next.remove(duplicate);
+                ReplaceOutcome::Merged
+            }
+            None => {
+                next[index].text = replacement;
+                ReplaceOutcome::Replaced
+            }
+        };
+        sort_entries(&mut next);
+        self.persist(&next)?;
+        self.entries = next;
+        Ok(outcome)
     }
 
     fn lock_writer(&self) -> std::io::Result<fs::File> {
@@ -681,7 +734,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn clear_does_not_follow_a_parent_replaced_after_locking() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let root = tempfile::tempdir().unwrap();
         let live = root.path().join("user-data");
@@ -746,6 +799,236 @@ mod tests {
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(upgraded[0].text, "synthetic older");
         assert!(upgraded[0].pinned);
+    }
+
+    fn replace_fixture(path: &std::path::Path) {
+        let fixture = vec![
+            ClipboardHistoryEntry {
+                text: "synthetic older".into(),
+                timestamp_ms: 10,
+                pinned: false,
+            },
+            ClipboardHistoryEntry {
+                text: "synthetic pinned".into(),
+                timestamp_ms: 1,
+                pinned: true,
+            },
+            ClipboardHistoryEntry {
+                text: "synthetic newer".into(),
+                timestamp_ms: 20,
+                pinned: false,
+            },
+        ];
+        fs::write(path, serde_json::to_vec(&fixture).unwrap()).unwrap();
+    }
+
+    fn saved(path: &std::path::Path) -> Vec<ClipboardHistoryEntry> {
+        serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn replace_keeps_position_timestamp_and_pin() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        replace_fixture(&path);
+        let mut store = ClipboardHistoryStore::open(&path);
+        assert_eq!(
+            store
+                .replace("synthetic older", "synthetic older, trimmed".into())
+                .unwrap(),
+            ReplaceOutcome::Replaced
+        );
+        assert_eq!(
+            texts(&store),
+            [
+                "synthetic pinned",
+                "synthetic newer",
+                "synthetic older, trimmed"
+            ]
+        );
+        let edited = &store.entries()[2];
+        assert_eq!(edited.timestamp_ms, 10);
+        assert!(!edited.pinned);
+
+        assert_eq!(
+            store
+                .replace("synthetic pinned", "synthetic pinned, edited".into())
+                .unwrap(),
+            ReplaceOutcome::Replaced
+        );
+        let pinned = &store.entries()[0];
+        assert_eq!(pinned.text, "synthetic pinned, edited");
+        assert!(pinned.pinned);
+        assert_eq!(pinned.timestamp_ms, 1);
+
+        // 改动已经落盘，另一个宿主重新读到的是同一份。
+        let mut reloaded = ClipboardHistoryStore::open(&path);
+        reloaded.load().unwrap();
+        assert_eq!(reloaded.entries(), store.entries());
+        assert_eq!(saved(&path), store.entries());
+    }
+
+    #[test]
+    fn replace_with_existing_text_merges_into_the_edited_position() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        replace_fixture(&path);
+        let mut store = ClipboardHistoryStore::open(&path);
+        // 固定的那条改成另一条已有的文字：合并成一条，仍是固定，留在原位置。
+        assert_eq!(
+            store
+                .replace("synthetic pinned", "synthetic newer".into())
+                .unwrap(),
+            ReplaceOutcome::Merged
+        );
+        assert_eq!(texts(&store), ["synthetic newer", "synthetic older"]);
+        assert!(store.entries()[0].pinned);
+        assert_eq!(store.entries()[0].timestamp_ms, 1);
+        assert_eq!(saved(&path), store.entries());
+
+        // 没固定的那条改成固定的那条的文字：合并后的一条继承固定状态。
+        replace_fixture(&path);
+        assert_eq!(
+            store
+                .replace("synthetic older", "synthetic pinned".into())
+                .unwrap(),
+            ReplaceOutcome::Merged
+        );
+        assert_eq!(texts(&store), ["synthetic pinned", "synthetic newer"]);
+        assert!(store.entries()[0].pinned);
+        assert_eq!(store.entries()[0].timestamp_ms, 10);
+        assert!(!store.entries()[1].pinned);
+        assert_eq!(saved(&path), store.entries());
+    }
+
+    #[test]
+    fn replace_leaves_history_untouched_when_nothing_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        replace_fixture(&path);
+        let original = fs::read(&path).unwrap();
+        let mut store = ClipboardHistoryStore::open(&path);
+
+        // 旧条目已经不在了（别的宿主删掉或清空）。
+        assert_eq!(
+            store
+                .replace("synthetic absent", "synthetic replacement".into())
+                .unwrap(),
+            ReplaceOutcome::NotFound
+        );
+        assert_eq!(
+            texts(&store),
+            ["synthetic pinned", "synthetic newer", "synthetic older"]
+        );
+        // 文字没变。
+        assert_eq!(
+            store
+                .replace("synthetic newer", "synthetic newer".into())
+                .unwrap(),
+            ReplaceOutcome::Unchanged
+        );
+        // 新文字不合规：空白、含 NUL、超过字数或字节上限。
+        for invalid in [
+            " \n\t".to_string(),
+            String::new(),
+            "synthetic\0nul".to_string(),
+            "家".repeat(MAX_MOBILE_TEXT_CHARACTERS + 1),
+            "😀".repeat(MAX_MOBILE_TEXT_BYTES / 4 + 1),
+        ] {
+            assert_eq!(
+                store.replace("synthetic newer", invalid).unwrap(),
+                ReplaceOutcome::Invalid
+            );
+        }
+        assert_eq!(fs::read(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn replace_after_clear_reports_missing_without_creating_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        // 从没记过历史：文件不存在。
+        let mut fresh = ClipboardHistoryStore::open(&path);
+        assert_eq!(
+            fresh
+                .replace("synthetic absent", "synthetic replacement".into())
+                .unwrap(),
+            ReplaceOutcome::NotFound
+        );
+        assert!(!path.exists());
+        assert!(fresh.entries().is_empty());
+
+        // 编辑页打开以后用户在键盘里清空了历史：clear 删掉文件，手里还留着旧副本的宿主保存时只说那条不在了，不把历史写回来。
+        replace_fixture(&path);
+        let mut stale = ClipboardHistoryStore::open(&path);
+        stale.load().unwrap();
+        ClipboardHistoryStore::open(&path).clear().unwrap();
+        assert!(!path.exists());
+        assert_eq!(
+            stale
+                .replace("synthetic older", "synthetic older, edited".into())
+                .unwrap(),
+            ReplaceOutcome::NotFound
+        );
+        assert!(!path.exists());
+        assert!(stale.entries().is_empty());
+    }
+
+    #[test]
+    fn replace_upgrades_legacy_string_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        fs::write(&path, br#"["synthetic newest","synthetic older"]"#).unwrap();
+        let mut store = ClipboardHistoryStore::open(&path);
+        assert_eq!(
+            store
+                .replace("synthetic older", "synthetic older, edited".into())
+                .unwrap(),
+            ReplaceOutcome::Replaced
+        );
+        assert_eq!(
+            texts(&store),
+            ["synthetic newest", "synthetic older, edited"]
+        );
+        assert_eq!(saved(&path), store.entries());
+    }
+
+    #[test]
+    fn replace_uses_latest_history_and_preserves_corrupt_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        let mut first = ClipboardHistoryStore::open(&path);
+        let mut stale = ClipboardHistoryStore::open(&path);
+        first.push("synthetic first".into()).unwrap();
+        stale.load().unwrap();
+        first.push("synthetic second".into()).unwrap();
+        // 手里的副本过时了也不会丢掉别的宿主刚记下的那条。
+        assert_eq!(
+            stale
+                .replace("synthetic first", "synthetic first, edited".into())
+                .unwrap(),
+            ReplaceOutcome::Replaced
+        );
+        assert_eq!(
+            texts(&stale),
+            ["synthetic second", "synthetic first, edited"]
+        );
+        // 别的宿主已经删掉的条目，过时的副本里还有，也按最新的历史回答。
+        assert!(first.remove("synthetic second").unwrap());
+        assert_eq!(
+            stale
+                .replace("synthetic second", "synthetic resurrected".into())
+                .unwrap(),
+            ReplaceOutcome::NotFound
+        );
+        assert_eq!(texts(&stale), ["synthetic first, edited"]);
+
+        fs::write(&path, b"broken synthetic document").unwrap();
+        assert!(stale
+            .replace("synthetic first, edited", "synthetic rejected".into())
+            .is_err());
+        assert_eq!(texts(&stale), ["synthetic first, edited"]);
+        assert_eq!(fs::read(&path).unwrap(), b"broken synthetic document");
     }
 
     #[test]

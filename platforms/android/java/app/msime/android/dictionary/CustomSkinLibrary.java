@@ -238,6 +238,21 @@ public final class CustomSkinLibrary {
         });
     }
 
+    /**
+     * 把库整份换回 `items`（通常是改动之前 {@link #read} 读到的那份）：本地备份恢复中途失败时撤销已经并进来的皮肤用（#5659）。设计里的照片引用原样写回，照片文件本身不受合并影响，所以撤销后皮肤和恢复前完全一样。在锁里原子写入；写不下（超过库的字节上限）时抛 IOException。
+     */
+    public static void replaceAll(Path preferencesDirectory, List<Item> items) throws IOException {
+        Path root = checkedRoot(preferencesDirectory);
+        ensureSafeDirectory(root);
+        locked(root, () -> {
+            JSONArray values = new JSONArray();
+            for (Item item : items)
+                values.put(entry(item.id(), item.name(), item.design(), item.updatedAt()));
+            if (!write(root, values)) throw new IOException("custom skin library too large");
+            return null;
+        });
+    }
+
     /** {@link #mergeDesigns} 的结果：合并后的库与新增或更新的条目数。 */
     public record Merge(List<Item> items, int changed) {}
 

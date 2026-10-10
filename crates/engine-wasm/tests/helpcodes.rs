@@ -50,9 +50,16 @@ fn the_web_package_ships_every_engine_helpcode_table() {
         "packages/web-engine/src/index.js must declare {declaration}"
     );
     let types = read(&root.join("packages/web-engine/src/index.d.ts"));
-    let union = format!("export type MsimeHelpcode = {};", names.join(" | "));
-    assert!(
-        types.contains(&union),
-        "packages/web-engine/src/index.d.ts must declare {union}"
+    // 格式化工具会把成员多的联合类型拆成每行一个 `| "名字"`，所以比较前去掉空白和开头那个 `|`。
+    let union = names.join("|");
+    let declared = types
+        .split_once("export type MsimeHelpcode =")
+        .and_then(|(_, rest)| rest.split_once(';'))
+        .map(|(body, _)| body.split_whitespace().collect::<String>())
+        .expect("packages/web-engine/src/index.d.ts declares MsimeHelpcode");
+    assert_eq!(
+        declared.trim_start_matches('|'),
+        union,
+        "packages/web-engine/src/index.d.ts must declare MsimeHelpcode as {union}"
     );
 }

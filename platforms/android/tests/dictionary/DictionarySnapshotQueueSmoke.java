@@ -235,6 +235,41 @@ public final class DictionarySnapshotQueueSmoke {
             check(!activated.get());
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.CANCELLED);
             check(!Files.exists(queue.filePath(switchedDuringPreparation)));
+
+            // 原生快照准备和激活只认版本里的 64 位摘要；带前缀的整串会被原生侧当成越界请求拒绝。
+            String digestOnly = "a".repeat(64);
+            check(digestOnly.equals(DictionarySnapshotQueue.nativeVersion("local-v1:legacy:" + digestOnly)));
+            check(digestOnly.equals(DictionarySnapshotQueue.nativeVersion("local-v1:" + id + ":" + digestOnly)));
+            fails(DictionarySnapshotQueue.Reason.INVALID, () -> DictionarySnapshotQueue.nativeVersion(digestOnly));
+            fails(DictionarySnapshotQueue.Reason.INVALID, () -> DictionarySnapshotQueue.nativeVersion(null));
+            fails(DictionarySnapshotQueue.Reason.INVALID,
+                () -> DictionarySnapshotQueue.nativeVersion("local-v1:legacy:" + "A".repeat(64)));
+
+            // 本地备份恢复的请求不属于任何账号：未登录（空字符串）、已登录（真实账号 id）、账号暂时读不到（null）时都照常认领和激活，退出登录取消账号请求时也碰不到它。
+            String restoreVersion = lateReceipt;
+            String[][] restoreAccounts = { {""}, {"signed-in-account"}, {null} };
+            for (String[] current : restoreAccounts) {
+                UUID restore = queue.enqueue(source, DictionarySnapshotQueue.LOCAL_RESTORE_OWNER, 0,
+                    restoreVersion, digest);
+                queue.cancel(account);
+                check(queue.read().request().status() == DictionarySnapshotQueue.Status.QUEUED);
+                AtomicBoolean restored = new AtomicBoolean();
+                String next = "local-v1:" + restore + ":" + "f".repeat(64);
+                try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
+                    DictionarySnapshotQueue.Request claimed = queue.claim(lease, () -> current[0]);
+                    check(claimed != null && claimed.id().equals(restore)
+                        && claimed.status() == DictionarySnapshotQueue.Status.PREPARING);
+                    check(queue.complete(restore, lease, restoreVersion, false, () -> current[0], () -> {
+                        restored.set(true);
+                        return next;
+                    }));
+                }
+                check(restored.get());
+                check(queue.read().request().status() == DictionarySnapshotQueue.Status.APPLIED);
+                check(next.equals(queue.read().localVersion()));
+                check(!Files.exists(queue.filePath(restore)));
+                restoreVersion = next;
+            }
             System.out.println("Android dictionary snapshot queue: atomic files, hash bounds, lease and conflict guards passed");
         } finally {
             try (Stream<Path> paths = Files.walk(root)) {

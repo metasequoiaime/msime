@@ -5,6 +5,7 @@ on:
       version: {description: Semantic version (defaults to platforms/linux/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as a linux-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
+      legacy: {description: "Also build the IBus-only legacy .deb for glibc 2.28 systems (Debian 10, UOS 20) and attach it as msime-linux-legacy_VERSION_ARCH.deb", required: false, default: true, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-linux, cancel-in-progress: false}
 jobs:
@@ -166,6 +167,15 @@ jobs:
           name: msime-linux-rpm-${{ matrix.arch }}-${{ steps.version.outputs.value }}
           path: target/linux-package-rpm/dist/
           if-no-files-found: error
+  # glibc 2.28 基线（Debian 10、UOS 20 一类）用的 legacy .deb（#6311），在 buster 容器里构建，两个架构各在原生 runner 上；逻辑在 build-linux-legacy.yml。它的产物名也是 msime-linux-*-VERSION，publish 一并取到并作为附件发布。取消勾选 legacy 时跳过，发布照常进行。
+  legacy:
+    needs: source
+    if: ${{ inputs.legacy }}
+    permissions: {contents: read}
+    uses: ./.github/workflows/build-linux-legacy.yml
+    with:
+      ref: ${{ needs.source.outputs.sha }}
+      version: ${{ inputs.version }}
   # 发行版源码构建要的 tarball（COPR、OBS 与 PPA 用源码与 vendor 包，Gentoo 只用前端包；AUR 的 msime 从 GitHub 的标签归档构建，不用这些）：当前提交的源码、离线构建用的 vendor 包（crate、构建好的前端、按锁文件取回的数据）和单独的前端包，见 platforms/linux/packaging/make-source-tarballs.sh。随发布一起上传，各包定义按发布页地址引用它们。只打 full。
   distro-sources:
     needs: source
@@ -191,14 +201,14 @@ jobs:
           path: target/distro-sources/
           if-no-files-found: error
   publish:
-    needs: [source, deb, rpm, distro-sources]
-    # distro-sources 被跳过时照样发布（见 source 的说明），它失败时不发布。
-    if: ${{ !cancelled() && inputs.publish && needs.deb.result == 'success' && needs.rpm.result == 'success' && (needs.distro-sources.result == 'success' || needs.distro-sources.result == 'skipped') }}
+    needs: [source, deb, rpm, distro-sources, legacy]
+    # distro-sources 被跳过时照样发布（见 source 的说明），它失败时不发布；legacy 同理，没勾选时跳过，勾选了却失败时不发布。
+    if: ${{ !cancelled() && inputs.publish && needs.deb.result == 'success' && needs.rpm.result == 'success' && (needs.distro-sources.result == 'success' || needs.distro-sources.result == 'skipped') && (needs.legacy.result == 'success' || needs.legacy.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
-      # 只取要发布的产物：两个架构各自的 msime-linux-deb/rpm-ARCH-VERSION 与 msime-linux-sources-VERSION。
+      # 只取要发布的产物：两个架构各自的 msime-linux-deb/rpm/legacy-deb-ARCH-VERSION 与 msime-linux-sources-VERSION。
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: msime-linux-*-${{ needs.deb.outputs.version }}

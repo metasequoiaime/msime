@@ -63,9 +63,9 @@ test("Android keeps its own wording", async () => {
   expect(card.textContent).not.toContain("iOS");
 });
 
-// A host that reports no platform still gets a sentence that reads correctly.
+// A host that reports no platform still gets a sentence that reads correctly. The HarmonyOS 2in1 keeps the full dictionary form; the HarmonyOS phone lists dictionaries the way Android does and, like Android, has no Apple-file card.
 test("an unknown host names no platform at all", async () => {
-  const card = await openDictionary("harmony");
+  const card = await openDictionary("hm2");
 
   expect(card.textContent).toContain("键盘同步队列");
   expect(card.textContent).not.toContain("Android");

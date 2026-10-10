@@ -86,6 +86,8 @@ const THEMES = ["dark", "light", "system"];
 const HAPTIC_STRENGTHS = ["light", "medium", "strong", "system"];
 // 九键数字层的排列，`touch_number_keypad_order` 的全部取值。
 const NUMBER_KEYPAD_ORDERS = ["phone", "calculator"];
+// 26 键按「123」切到的数字层，`touch_twenty_six_key_number_layout` 的全部取值。
+const TWENTY_SIX_KEY_NUMBER_LAYOUTS = ["row", "nine_key"];
 
 // 账号设置里 `input.schema` 认得的取值，即 client-core `InputScheme` 的全部方案。不在这里的取值不归版本过滤管，留给下面的规则处理。
 const ACCOUNT_SCHEMES = SCHEMES.concat(LOCAL_ONLY_SCHEMES);
@@ -399,6 +401,11 @@ export function localAccountPreferences(
       const value = member(customTheme, "candidate_skin");
       return typeof value === "string" && externalSkinId(value) ? value : "";
     })(),
+    // 深色模式的候选皮肤包，与上面的浅色槽位一样以空字符串表示没设，清掉也能同步。
+    "platform.harmony.custom_candidate_skin_dark": (() => {
+      const value = member(customTheme, "candidate_skin_dark");
+      return typeof value === "string" && externalSkinId(value) ? value : "";
+    })(),
     "platform.harmony.touch_key_spacing_tenths": whole(
       member(preferences, "touch_key_spacing_tenths"),
       60,
@@ -416,6 +423,16 @@ export function localAccountPreferences(
       member(preferences, "touch_number_keypad_order"),
       NUMBER_KEYPAD_ORDERS,
       "phone",
+    ),
+    "platform.harmony.twenty_six_key_number_layout": enumerated(
+      member(preferences, "touch_twenty_six_key_number_layout"),
+      TWENTY_SIX_KEY_NUMBER_LAYOUTS,
+      "row",
+    ),
+    // 26 键双拼的键位提示，缺省是开；账号字段表收录这个键之前上传时会被滤掉。
+    "platform.harmony.shuangpin_key_hints": flag(
+      member(preferences, "touch_shuangpin_key_hints"),
+      true,
     ),
     "platform.harmony.sound_enabled": feedback.soundEnabled,
     "platform.harmony.haptics_enabled": feedback.hapticsEnabled,
@@ -629,6 +646,17 @@ export function applyAccountPreferences(
     }
     customThemeTouched = true;
   }
+  // 深色槽位单独读：服务端还没声明它、或者上传的设备还不认识它时，本机的深色槽位保持原样。
+  const candidateSkinDark = reader.text("platform.harmony.custom_candidate_skin_dark");
+  if (candidateSkinDark !== null) {
+    if (candidateSkinDark.length === 0) {
+      delete customTheme.candidate_skin_dark;
+    } else {
+      if (!externalSkinId(candidateSkinDark)) refuse("account_invalid");
+      customTheme.candidate_skin_dark = candidateSkinDark;
+    }
+    customThemeTouched = true;
+  }
   if (customThemeTouched) preferences.custom_theme = customTheme;
   const theme = reader.text("platform.harmony.theme");
   if (theme !== null) preferences.theme = choose(theme, THEMES);
@@ -646,6 +674,15 @@ export function applyAccountPreferences(
   if (keypadOrder !== null) {
     preferences.touch_number_keypad_order = choose(keypadOrder, NUMBER_KEYPAD_ORDERS);
   }
+  const numberLayout = reader.text("platform.harmony.twenty_six_key_number_layout");
+  if (numberLayout !== null) {
+    preferences.touch_twenty_six_key_number_layout = choose(
+      numberLayout,
+      TWENTY_SIX_KEY_NUMBER_LAYOUTS,
+    );
+  }
+  const shuangpinKeyHints = reader.boolean("platform.harmony.shuangpin_key_hints");
+  if (shuangpinKeyHints !== null) preferences.touch_shuangpin_key_hints = shuangpinKeyHints;
 
   const feedbackKeys = [
     "platform.harmony.sound_enabled",

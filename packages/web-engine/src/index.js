@@ -13,7 +13,7 @@ export const SCHEMES = Object.freeze(["quanpin", "xiaohe", "ziranma", "shoudao",
 // 全拼和四种双拼共用拼音库，可以就地切换，也只有它们用辅助码。
 const PINYIN = new Set(["quanpin", "xiaohe", "ziranma", "shoudao", "microsoft"]);
 // 辅助码方案，顺序和名字同引擎的 assets::HELPCODES（crates/engine-wasm/tests/helpcodes.rs 核对）。
-export const HELPCODES = Object.freeze(["lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe", "jiajia"]);
+export const HELPCODES = Object.freeze(["lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe", "jiajia", "wubi86"]);
 
 export class MsimeError extends Error {
   constructor(code, message, phase = "runtime") {

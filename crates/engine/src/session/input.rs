@@ -22,7 +22,7 @@ use crate::local::GENERATED_MODE_INPUT_LIMIT;
 use crate::paths::RuntimePaths;
 use crate::punctuation::PunctuationPolicy;
 use crate::quanpin::QuanpinEngine;
-use crate::shuangpin::profile::profile;
+use crate::shuangpin::custom::session_profile;
 use crate::shuangpin::ShuangpinProfile;
 use crate::stroke;
 use crate::tibetan::{SHAD, TSHEG};
@@ -30,7 +30,7 @@ use crate::time::Instant;
 use crate::types::{
     CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
     KeyResult, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,
-    QuickPhraseEntry, SchemeKey, SchemeType, ShuangpinProfileKind, WordItem, WubiInputOptions,
+    QuickPhraseEntry, SchemeKey, SchemeType, WordItem, WubiInputOptions,
 };
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::removal::learn_entered_english_word;
@@ -57,7 +57,7 @@ pub(super) struct InputSession {
     pub engine: ImeSession,
     pub queries: CandidateQueries,
     pub clock: Clock,
-    pub profile: ShuangpinProfileKind,
+    pub profile: &'static ShuangpinProfile,
     pub caret: Option<usize>,
     pub phrase_progress: CreatingWordProgress,
     pub pending_sequence: Option<String>,
@@ -106,10 +106,15 @@ impl InputSession {
     pub fn new(options: &SessionOptions) -> Result<Self> {
         let paths = options.paths.clone();
         let journal = paths.user(assets::USER_JOURNAL);
+        let profile = session_profile(
+            options.shuangpin_profile,
+            options.shuangpin_custom_profile.as_ref(),
+            options.enabled_schemes.contains(SchemeType::Shuangpin),
+        )?;
         let mut engine = ImeSession::new(
             options.scheme,
             options.enabled_schemes,
-            options.shuangpin_profile,
+            profile,
             &paths,
             options.cantonese_dictionary.clone(),
             options.zhuyin_dictionary.clone(),
@@ -124,10 +129,10 @@ impl InputSession {
             options.vietnamese_tone_style,
         );
         let mut session = Self {
-            queries: CandidateQueries::new(&paths, options.shuangpin_profile),
+            queries: CandidateQueries::new(&paths, profile),
             engine,
             clock: Clock::default(),
-            profile: options.shuangpin_profile,
+            profile,
             caret: None,
             phrase_progress: CreatingWordProgress::default(),
             pending_sequence: None,
@@ -256,7 +261,7 @@ impl InputSession {
         if self.is_stroke() {
             return self.handle_stroke_character(value);
         }
-        if !self.has_composition() && self.scheme().opens_local_modes() {
+        if !self.has_composition() {
             let entry = if shift_only {
                 self.local_mode_for_entry(value)
             } else {
@@ -275,9 +280,8 @@ impl InputSession {
 
         let scheme = self.scheme();
         let lowercase_letter = value.is_ascii_lowercase();
-        let microsoft_final = value == b';'
-            && scheme == SchemeType::Shuangpin
-            && self.profile == ShuangpinProfileKind::Microsoft;
+        let microsoft_final =
+            value == b';' && scheme == SchemeType::Shuangpin && self.profile.uses_semicolon_key();
         let japanese_long_vowel = value == b'-' && scheme == SchemeType::JapaneseRomaji;
         let active_helpcode = value.is_ascii_uppercase()
             && self.has_composition()
@@ -1065,7 +1069,7 @@ impl InputSession {
         if let Some(keys) = self.url_entry_keys() {
             return keys.to_owned();
         }
-        if self.has_composition() || !self.scheme().opens_local_modes() {
+        if self.has_composition() || !self.scheme().opens_table_modes() {
             return String::new();
         }
         (*b"/@")
@@ -1306,7 +1310,7 @@ impl InputSession {
     }
 
     pub(super) fn shuangpin_profile(&self) -> &'static ShuangpinProfile {
-        profile(self.profile)
+        self.profile
     }
 
     pub(super) fn journal_path(&self) -> &Path {
@@ -1508,12 +1512,20 @@ impl InputSession {
             b'V' => (LocalInputMode::Expression, options.expression),
             _ => return None,
         };
-        enabled.then_some(mode)
+        let scheme_opens = if mode == LocalInputMode::QuickPhrase {
+            self.scheme().opens_table_modes()
+        } else {
+            self.scheme().opens_local_modes()
+        };
+        (enabled && scheme_opens).then_some(mode)
     }
 
-    /// The symbol keys that open a mode with nothing composed. Only while Chinese punctuation is in force: with ASCII punctuation the key is the literal character the user chose.
+    /// 没有组字时，`/` 和 `@` 只在支持本地表入口且启用中文标点时打开模式；英文标点下它们是字面字符。
     fn local_mode_for_symbol(&self, value: u8) -> Option<LocalInputMode> {
-        if !self.chinese_punctuation_enabled || self.punctuation_lock == 2 {
+        if !self.scheme().opens_table_modes()
+            || !self.chinese_punctuation_enabled
+            || self.punctuation_lock == 2
+        {
             return None;
         }
         let options = self.local_mode_options;

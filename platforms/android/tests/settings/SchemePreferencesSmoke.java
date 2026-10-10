@@ -19,6 +19,10 @@ public final class SchemePreferencesSmoke {
         check(List.copyOf(quanpin.keySet()).equals(List.of("scheme", "last_chinese_scheme", "shuangpin_profile", "touch_keyboard_layout")),
             "keys and their order: " + quanpin.keySet());
         check(quanpin.get("touch_keyboard_layout").equals("twenty_six_key"), "quanpin layout");
+        // 设置页改选其它输入方式时保留自定义双拼，之后切回双拼还可继续使用原表。
+        Map<String, String> leavingCustom = SchemePreferences.schemeValues(
+            KeyboardScheme.QUANPIN, "shuangpin", "custom", null, full);
+        check(leavingCustom.get("shuangpin_profile").equals("custom"), "custom profile survives scheme switch");
 
         // 每个方案写的值必须和 KeyboardScheme 自己的映射一模一样，这里只是把它摊成偏好键。
         for (KeyboardScheme scheme : KeyboardScheme.values()) {
