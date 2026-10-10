@@ -1495,7 +1495,13 @@ public:
   void invalidateOnlineRequests() {
     ++online_epoch_;
     online_query_.clear();
-    for (auto &slot : online_slots_) slot.query.clear();
+    for (auto &slot : online_slots_) {
+      // Provider workers are detached and their results are fenced by the
+      // epoch. Drop the old handles here so a slow request from a previous
+      // composition or session cannot block the next query from starting.
+      slot.job = {};
+      slot.query.clear();
+    }
   }
   void clearOnlineCandidates(uint8_t source) {
     if (!session_ || source >= 2) return;

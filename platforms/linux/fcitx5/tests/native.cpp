@@ -2477,6 +2477,22 @@ int main(int argc, char **argv) {
     }
     require(selected && ic.committed == oldCommit + suggestion, "exact provider candidate commit");
     verifyPreferenceInvalidation();
+    {
+      // A provider request can outlive focus. Its detached worker is fenced by
+      // the epoch, but retaining the future would block the next session from
+      // starting its own request until the old provider times out.
+      std::promise<void> release;
+      auto gate = release.get_future().share();
+      state->online_slots_[0].job = detachedJob([gate] {
+        gate.wait();
+        return Json::object();
+      });
+      state->online_slots_[0].query = "synthetic-stale-query";
+      state->invalidateOnlineRequests();
+      require(!state->online_slots_[0].job.valid(),
+              "invalidating online requests releases stale provider futures");
+      release.set_value();
+    }
     require(key(FcitxKey_n) && key(FcitxKey_i), "second composition keys");
     // Recreate a displayed answer in the same synthetic composition so disabling the provider checks a real candidate removal after the selection above committed the first answer.
     const auto secondQuery = response(msime_client_online_query(state->session_)).dump();
