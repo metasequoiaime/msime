@@ -292,7 +292,8 @@ impl PinyinDatabase {
                     }
                 } else {
                     let key = row.key.clone();
-                    let mut slot = Vec::with_capacity(per_key_limit);
+                    let mut slot =
+                        query_capacity(per_key_limit).map_or_else(Vec::new, Vec::with_capacity);
                     slot.push(row);
                     result.insert(key, slot);
                 }
@@ -1582,6 +1583,10 @@ mod lattice_span_key_plan_tests;
 #[cfg(test)]
 #[path = "pinyin/aggregate_page_reuse_tests.rs"]
 mod aggregate_page_reuse_tests;
+
+#[cfg(test)]
+#[path = "pinyin/per_key_unbounded_slot_tests.rs"]
+mod per_key_unbounded_slot_tests;
 
 #[cfg(test)]
 #[path = "pinyin/word_key_plan_tests.rs"]

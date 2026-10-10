@@ -108,11 +108,44 @@ test("the kind filter is sent with every page, including the ones load more appe
   fireEvent.click(screen.getByRole("button", { name: "音效包" }));
   await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "", "sound", false));
   expect(screen.getByRole("button", { name: "音效包" }).getAttribute("aria-pressed")).toBe("true");
-  expect(screen.queryByRole("button", { name: "特效包" })).toBeNull();
 
   fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
   await waitFor(() => expect(list).toHaveBeenLastCalledWith(1, "", "sound", false));
   expect(await screen.findByRole("button", { name: "查看插件 雷雨" })).not.toBeNull();
+});
+
+test("effect packs are listed and filtered like every other kind", async () => {
+  const sparkle = plugin("20000000-0000-4000-8000-000000000003", "霓虹", {
+    kind: "effect",
+    plugin_id: "sparkle",
+  });
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({ plugins: [first], has_more: false })
+    .mockResolvedValueOnce({ plugins: [sparkle], has_more: false });
+  render(<CommunityPluginsPage client={client({ list })} />);
+  await waitFor(() => expect(list).toHaveBeenCalledWith(0, "", null, false));
+  const kinds = screen.getByRole("group", { name: "插件类型" });
+  expect(
+    within(kinds)
+      .getAllByRole("button")
+      .map((button) => button.textContent),
+  ).toEqual([
+    "全部",
+    "音效包",
+    "音乐包",
+    "指令表",
+    "特效包",
+    "短语表",
+    "辅助码表",
+    "单词本",
+    "符号集",
+  ]);
+
+  fireEvent.click(within(kinds).getByRole("button", { name: "特效包" }));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "", "effect", false));
+  const card = await screen.findByRole("button", { name: "查看插件 霓虹" });
+  expect(card.textContent).toContain("特效包");
 });
 
 test("an empty community without a search or filter says nothing is published yet", async () => {
@@ -282,7 +315,7 @@ test("rates and takes down through the gallery", async () => {
   await waitFor(() => expect(communityClient.delete).toHaveBeenCalledWith(owned.id));
 });
 
-test("publishing offers only installed, shareable packs and retries under the same id", async () => {
+test("publishing offers every installed pack that is not built in, effect packs included, and retries under the same id", async () => {
   const publish = vi
     .fn()
     .mockRejectedValueOnce({ code: "community_unavailable" })
@@ -305,7 +338,7 @@ test("publishing offers only installed, shareable packs and retries under the sa
   const options = within(select)
     .getAllByRole("option")
     .map((option) => option.getAttribute("value"));
-  expect(options).toEqual(["command_table/dates", "sound/rain"]);
+  expect(options).toEqual(["effect/sparkle", "command_table/dates", "sound/rain"]);
 
   fireEvent.change(select, { target: { value: "sound/rain" } });
   await waitFor(() =>

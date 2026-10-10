@@ -222,6 +222,7 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
     capabilities.os_version = macos_product_version();
     capabilities.arch = Some(std::env::consts::ARCH.to_owned());
     capabilities.candidate_panel_limit = linux_candidate_panel_limit();
+    fill_linux_environment(&mut capabilities);
     let host_options = app
         .try_state::<DictionaryHostOptions>()
         .and_then(|options| options.snapshot().ok());
@@ -323,10 +324,46 @@ fn drop_unpinned_language_schemes(capabilities: &mut HostCapabilities) {
 /// What the running Linux host found about the desktop's candidate panel. Only the host knows which panel draws its list - GNOME Shell's popup, a Fcitx5 theme the user picked, the desktop's Kimpanel - so it writes that finding to a per-session file and the page reads it here instead of guessing from the desktop name.
 #[cfg(target_os = "linux")]
 fn linux_candidate_panel_limit() -> Option<msime_client_core::host_surface::CandidatePanelLimit> {
+    msime_client_core::host_surface::CandidatePanelLimit::from_host_status(
+        &linux_candidate_panel_status_document()?,
+    )
+}
+
+/// 运行中的 Linux 宿主写的候选面板状态文件（`{"host": ..., "limit": ...}`）的内容；宿主没在运行或还没写过时为 `None`。
+#[cfg(target_os = "linux")]
+fn linux_candidate_panel_status_document() -> Option<String> {
     use msime_client_core::host_surface::CandidatePanelLimit;
     let file = CandidatePanelLimit::status_file(std::env::var_os("XDG_RUNTIME_DIR").as_deref())?;
-    CandidatePanelLimit::from_host_status(&read_candidate_panel_status(&file)?)
+    read_candidate_panel_status(&file)
 }
+
+/// 「关于」页系统信息里 Linux 才有的几项：发行版、内核、桌面会话、输入法框架和设备型号。都是几个小文件和环境变量，不起进程；读不到的项留空，页面就不列它。解析与清洗在 `host_surface::environment`。
+#[cfg(target_os = "linux")]
+fn fill_linux_environment(capabilities: &mut HostCapabilities) {
+    use msime_client_core::host_surface::environment;
+    let read = |path: &str| std::fs::read_to_string(path).ok();
+    capabilities.os_version = read("/etc/os-release")
+        .or_else(|| read("/usr/lib/os-release"))
+        .as_deref()
+        .and_then(environment::os_release_name);
+    capabilities.kernel_version = read("/proc/sys/kernel/osrelease")
+        .as_deref()
+        .and_then(environment::kernel_release);
+    capabilities.desktop_session = environment::desktop_session(
+        std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref(),
+        std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+    );
+    capabilities.input_method_framework = linux_candidate_panel_status_document()
+        .as_deref()
+        .and_then(environment::input_method_framework_from_host_status);
+    capabilities.device_model = environment::device_model(
+        read("/sys/class/dmi/id/sys_vendor").as_deref(),
+        read("/sys/class/dmi/id/product_name").as_deref(),
+    );
+}
+
+#[cfg(not(target_os = "linux"))]
+fn fill_linux_environment(_capabilities: &mut HostCapabilities) {}
 
 #[cfg(any(target_os = "linux", test))]
 const CANDIDATE_PANEL_STATUS_READ_LIMIT: u64 = 4096;

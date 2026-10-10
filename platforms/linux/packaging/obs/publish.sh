@@ -3,14 +3,14 @@
 #
 # 用法：platforms/linux/packaging/obs/publish.sh VERSION DEFS RELEASE
 #   DEFS 是 render-definitions.sh 的输出目录（MSIME_DEFINITIONS=rpm,debian,arch），里面要有 rpm/、debian/ 与 arch/msime-bin/。
-#   RELEASE 是放发布资产的目录，里面要有 msime-VERSION.tar.xz、msime-VERSION-vendor.tar.xz 与 msime-linux-VERSION-1.x86_64.rpm；把它作为 MSIME_RELEASE_DIR 交给 render-definitions.sh，它会先对着同目录的 SHA256SUMS 核对，这里不再重复核对。
+#   RELEASE 是放发布资产的目录，里面要有 msime-VERSION.tar.xz、msime-VERSION-vendor.tar.xz 与 msime-linux-VERSION-1.x86_64.rpm，msime-bin 的 PKGBUILD 列了 aarch64 的 source 时还要 msime-linux-VERSION-1.aarch64.rpm；把它作为 MSIME_RELEASE_DIR 交给 render-definitions.sh，它会先对着同目录的 SHA256SUMS 核对，这里不再重复核对。
 #   需要已经登录的 osc（~/.config/osc/oscrc，或 OSC_CONFIG 指向的配置）。
 #
 # 环境变量：
 #   OBS_PROJECT  默认 home:<osc 配置里的用户名>
 #   OBS_PACKAGE  默认 msime
 #
-# 每次运行都会：按 repositories.txt 和 OBS 的发行版列表重写项目配置（仓库、架构），写入 prjconf，确保包存在，再把包里的文件整体换成这次发布的（RPM 用 spec、rpmlintrc 与两个 tarball；Debian/Ubuntu 用 .dsc、.debian.tar.xz 与按 .dsc 要求改名的两个 orig tarball；Arch 用 msime-bin 的 PKGBUILD、msime.install 与它重新打包的那个发布的 .rpm；加上 _constraints），提交后 OBS 按仓库类型各取所需的构建文件，自动开始构建。重复运行同一版本不会产生新的构建。
+# 每次运行都会：按 repositories.txt 和 OBS 的发行版列表重写项目配置（仓库、架构），写入 prjconf，确保包存在，再把包里的文件整体换成这次发布的（RPM 用 spec、rpmlintrc 与两个 tarball；Debian/Ubuntu 用 .dsc、.debian.tar.xz 与按 .dsc 要求改名的两个 orig tarball；Arch 用 msime-bin 的 PKGBUILD、msime.install 与它重新打包的发布的 .rpm（PKGBUILD 列出的每个架构一个）；加上 _constraints），提交后 OBS 按仓库类型各取所需的构建文件，自动开始构建。重复运行同一版本不会产生新的构建。
 set -euo pipefail
 
 if [ $# -ne 3 ]; then
@@ -38,11 +38,14 @@ dsc=$defs/debian/msime_$version-1.dsc
 debian_tar=$defs/debian/msime_$version-1.debian.tar.xz
 source_tar=$release/msime-$version.tar.xz
 vendor_tar=$release/msime-$version-vendor.tar.xz
-# Arch 仓库不联网，PKGBUILD 的 source 写的是发布页地址，makepkg 在包目录里找到同名文件就不再下载，所以把那个 .rpm 原名放进包里。
+# Arch 仓库不联网，PKGBUILD 的 source 写的是发布页地址，makepkg 在包目录里找到同名文件就不再下载，所以把 .rpm 原名放进包里。OBS 的 Arch 配方打完二进制包还会跑一次 makepkg --allsource，它要取齐 PKGBUILD 里所有架构的 source，不只是构建机那个架构的：只放 x86_64 的 .rpm 时它去下载 aarch64 的那个，断网失败，整个构建算失败，pacman 源停在上一版（#6687）。PKGBUILD 从 0.11.0 起才有 source_aarch64，更早的版本只放 x86_64 的。
 pkgbuild=$defs/arch/msime-bin/PKGBUILD
 arch_install=$defs/arch/msime-bin/msime.install
-arch_rpm=$release/msime-linux-$version-1.x86_64.rpm
-for f in "$spec" "$rpmlintrc" "$dsc" "$debian_tar" "$source_tar" "$vendor_tar" "$pkgbuild" "$arch_install" "$arch_rpm"; do need "$f"; done
+arch_rpms=("$release/msime-linux-$version-1.x86_64.rpm")
+if grep -q '^source_aarch64=' "$pkgbuild"; then
+  arch_rpms+=("$release/msime-linux-$version-1.aarch64.rpm")
+fi
+for f in "$spec" "$rpmlintrc" "$dsc" "$debian_tar" "$source_tar" "$vendor_tar" "$pkgbuild" "$arch_install" "${arch_rpms[@]}"; do need "$f"; done
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -105,7 +108,7 @@ echo "== upload $version"
   cd "$project/$package"
   # 包里的文件整体换成这次发布的，上一版的 tarball 不留。
   find . -maxdepth 1 -type f ! -name '.*' -delete
-  cp "$spec" "$rpmlintrc" "$dsc" "$debian_tar" "$source_tar" "$vendor_tar" "$pkgbuild" "$arch_install" "$arch_rpm" "$here/_constraints" .
+  cp "$spec" "$rpmlintrc" "$dsc" "$debian_tar" "$source_tar" "$vendor_tar" "$pkgbuild" "$arch_install" "${arch_rpms[@]}" "$here/_constraints" .
   # .dsc 里写的是 Debian 的 orig 名字，按它改名的副本供 Debian/Ubuntu 仓库使用；RPM 仓库用原名的那两个。
   cp "$source_tar" "msime_$version.orig.tar.xz"
   cp "$vendor_tar" "msime_$version.orig-vendor.tar.xz"

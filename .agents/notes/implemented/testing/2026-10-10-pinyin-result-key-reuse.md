@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-已有结果槽通过 `get_mut(row.key.as_str())` 查找，保留原始 `DictRow` 后按同一每键限额追加；首次键仍复制一次并用 `Vec::with_capacity(per_key_limit)` 建槽。SQL、按表及行的遍历顺序、输入去重、单音节路径、字段、等权稳定顺序、结果容量和返回所有权保持不变，继续使用标准库默认随机哈希器。借用键查找遵循 [Rust `HashMap::get_mut`](https://doc.rust-lang.org/std/collections/struct.HashMap.html#method.get_mut) 的 `Borrow` 契约；标准库的 `String`/`str` 查找实例是同一机制。
+已有结果槽通过 `get_mut(row.key.as_str())` 查找，保留原始 `DictRow` 后按同一每键限额追加；首次键仍复制一次，有限限额用 `Vec::with_capacity(per_key_limit)` 建槽；[无界槽预留修复](2026-10-10-pinyin-per-key-unbounded-slot.md)接管 `i32::MAX` 及以上限额的初始容量，有限槽和本篇重复键收益不变。SQL、按表及行的遍历顺序、输入去重、单音节路径、字段、等权稳定顺序、结果容量和返回所有权保持不变，继续使用标准库默认随机哈希器。借用键查找遵循 [Rust `HashMap::get_mut`](https://doc.rust-lang.org/std/collections/struct.HashMap.html#method.get_mut) 的 `Borrow` 契约；标准库的 `String`/`str` 查找实例是同一机制。
 
 ## 既有笔记审计
 
@@ -34,4 +34,4 @@ arm64 debug 冷测量：同键三行分配 40→38 次，限额 1/2/5 的逻辑�
 
 ## Consequences
 
-每个多音节结果键只拥有一次 Map 键副本，限额内重复行直接保留原行，限额外重复行不再产生额外键副本。首次键增加一次借用查找，再执行插入，是减少重复行分配的代价；该片只声明 Rust 临时分配减少，不推断发布计时、真实宿主延迟、SQLite C 堆或 RSS 收益。首个槽仍使用原限额容量，结果表仍按原输入键数延后预留。
+每个多音节结果键只拥有一次 Map 键副本，限额内重复行直接保留原行，限额外重复行不再产生额外键副本。首次键增加一次借用查找，再执行插入，是减少重复行分配的代价；该片只声明 Rust 临时分配减少，不推断发布计时、真实宿主延迟、SQLite C 堆或 RSS 收益。有限限额的首个槽仍使用原容量，无界槽由上述修复自然增长，结果表仍按原输入键数延后预留。
