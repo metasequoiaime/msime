@@ -47,6 +47,14 @@ class ClipboardTool(unittest.TestCase):
             self.assertEqual(result.stderr, b"")
             self.assertEqual(self.path.read_text(), original)
 
+    def test_index_operations_reject_trailing_characters(self):
+        self.path.write_text('["synthetic saved"]')
+        for operation in ("get", "remove-index"):
+            result = self.run_tool(operation, "0junk")
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stderr, b"")
+        self.assertEqual(json.loads(self.path.read_text()), ["synthetic saved"])
+
     def test_lock_symlink_is_rejected(self):
         outside = self.path.parent / "outside.lock"
         outside.write_text("synthetic lock target")

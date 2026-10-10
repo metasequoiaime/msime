@@ -3,12 +3,15 @@
 #include "ClipboardText.h"
 #include "ClipboardAtomicWrite.h"
 #include <algorithm>
+#include <charconv>
 #include <filesystem>
 #include <fcntl.h>
 #include <iostream>
 #include <string>
 #include <sys/file.h>
 #include <unistd.h>
+#include <optional>
+#include <string_view>
 #include <vector>
 
 using Json = nlohmann::json;
@@ -16,6 +19,13 @@ namespace {
 constexpr size_t kMaxItems = 50;
 constexpr size_t kMaxChars = 4000;
 constexpr size_t kMaxStoreBytes = 1024 * 1024;
+
+std::optional<size_t> parse_index(std::string_view value) {
+  size_t index = 0;
+  const auto parsed = std::from_chars(value.data(), value.data() + value.size(), index);
+  if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size()) return std::nullopt;
+  return index;
+}
 
 class HistoryLock {
  public:
@@ -116,12 +126,11 @@ int main(int argc, char **argv) {
   // A compositor or desktop launcher can use this explicit stream operation to
   // paste a selected entry.  It never touches the system clipboard itself.
   if (op == "get" && argc == 4) {
-    try {
-      const auto index = std::stoul(argv[3]);
-      if (index >= items.size()) return 1;
-      std::cout << items[index];
-      return static_cast<bool>(std::cout) ? 0 : 1;
-    } catch (...) { return 2; }
+    const auto index = parse_index(argv[3]);
+    if (!index) return 2;
+    if (*index >= items.size()) return 1;
+    std::cout << items[*index];
+    return static_cast<bool>(std::cout) ? 0 : 1;
   }
   if ((op == "add" && argc == 4) || op == "add-stdin") {
     auto text = std::move(added_text); if (!items.empty() && items.front() == text) return 0;
@@ -137,12 +146,11 @@ int main(int argc, char **argv) {
     return old == items.size() ? 0 : (save(path, items) ? 0 : 1);
   }
   if (op == "remove-index" && argc == 4) {
-    try {
-      const auto index = std::stoul(argv[3]);
-      if (index >= items.size()) return 1;
-      items.erase(items.begin() + static_cast<std::ptrdiff_t>(index));
-      return save(path, items) ? 0 : 1;
-    } catch (...) { return 2; }
+    const auto index = parse_index(argv[3]);
+    if (!index) return 2;
+    if (*index >= items.size()) return 1;
+    items.erase(items.begin() + static_cast<std::ptrdiff_t>(*index));
+    return save(path, items) ? 0 : 1;
   }
   if (op == "clear") return msime::linux_host::remove_clipboard_file(path) ? 0 : 1;
   return 2;
