@@ -122,6 +122,8 @@ public final class AndroidLocalSettingsSmoke {
         AndroidLocalSettings.Snapshot fresh = AndroidLocalSettings.defaults();
         check(!fresh.bool(AndroidLocalSettings.FLOATING_KEYBOARD), "floating keyboard off by default");
         check(!fresh.bool(AndroidLocalSettings.TOOLBAR_FLOATING), "floating toolbar button hidden by default");
+        // 工具栏的文本编辑按钮（#6351）：默认不显示，只在本机。
+        check(!fresh.bool(AndroidLocalSettings.TOOLBAR_TEXT_EDIT), "text edit toolbar button hidden by default");
         check(fresh.integer(AndroidLocalSettings.FLOATING_KEYBOARD_X) == 500
             && fresh.integer(AndroidLocalSettings.FLOATING_KEYBOARD_Y) == 1000, "floating position default");
         // 键盘底栏：默认开，只在本机。
@@ -152,7 +154,7 @@ public final class AndroidLocalSettingsSmoke {
         for (String local : new String[] {AndroidLocalSettings.INCOGNITO, AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO,
                 AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, AndroidLocalSettings.FLOATING_KEYBOARD,
                 AndroidLocalSettings.FLOATING_KEYBOARD_X, AndroidLocalSettings.FLOATING_KEYBOARD_Y,
-                AndroidLocalSettings.TOOLBAR_FLOATING, AndroidLocalSettings.BOTTOM_BAR,
+                AndroidLocalSettings.TOOLBAR_FLOATING, AndroidLocalSettings.TOOLBAR_TEXT_EDIT, AndroidLocalSettings.BOTTOM_BAR,
                 AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY,
                 AndroidLocalSettings.DEVELOPER_LOG_LEVEL, AndroidLocalSettings.DEVELOPER_INPUT_LOG,
                 AndroidLocalSettings.MCP_RETENTION, AndroidLocalSettings.MCP_INPUT_EVENTS}) {

@@ -1,4 +1,5 @@
 #include "ClientEngine.h"
+#include "../../../common/HostApiString.h"
 #include "LinuxEdition.h"
 #include "KeyRouterAdapter.h"
 #include "BackspaceHoldPolicy.h"
@@ -18,6 +19,7 @@
 #include "GlobalTheme.h"
 #include "DictionaryQuiesceLease.h"
 #include "InputModeIndicator.h"
+#include "ViewComposition.h"
 #include "ReplacedProgram.h"
 #include "SmartPunctuationSpace.h"
 #include "SpellingSymbols.h"
@@ -174,8 +176,7 @@ std::optional<bool> global_input_enabled;
 // rejects - and the host then cannot create a session at all.
 const Json &shared_preference_defaults() {
   static const Json defaults = [] {
-    std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-        msime_client_default_preferences(), msime_client_string_free);
+    auto owned = msime::host_api::own_string(msime_client_default_preferences());
     if (!owned)
       return Json::object();
     auto document = Json::parse(owned.get(), nullptr, false);
@@ -205,8 +206,7 @@ void patch_preference_object(Json &preferences, const char *name,
 void register_properties(IBusEngine *engine);
 void page(IBusEngine *engine, uint32_t command);
 Json response(char *raw) {
-  std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-      raw, msime_client_string_free);
+  auto owned = msime::host_api::own_string(raw);
   if (!raw)
     throw std::runtime_error("Missing host response");
   auto document = Json::parse(raw);
@@ -2283,9 +2283,8 @@ void online_schedule(IBusEngine *engine) {
 void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
   auto engine = IBUS_ENGINE(source);
   auto &s = state(engine);
-  std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
-      static_cast<char *>(g_task_propagate_pointer(G_TASK(result), nullptr)),
-      msime_client_string_free);
+  auto raw = msime::host_api::own_string(
+      static_cast<char *>(g_task_propagate_pointer(G_TASK(result), nullptr)));
   const auto *request = static_cast<const TranslationTask *>(
       g_task_get_task_data(G_TASK(result)));
   if (!request || request->session != s.session || request->epoch != s.provider_epoch)
@@ -2354,9 +2353,8 @@ void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
 void online_complete(GObject *source, GAsyncResult *result, gpointer) {
   auto engine = IBUS_ENGINE(source);
   auto &s = state(engine);
-  std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
-      static_cast<char *>(g_task_propagate_pointer(G_TASK(result), nullptr)),
-      msime_client_string_free);
+  auto raw = msime::host_api::own_string(
+      static_cast<char *>(g_task_propagate_pointer(G_TASK(result), nullptr)));
   const auto *request = static_cast<const OnlineTask *>(
       g_task_get_task_data(G_TASK(result)));
   if (!request || request->source >= s.online_loading.size() ||
@@ -4122,11 +4120,10 @@ void voice_stop(IBusEngine *engine) {
   auto &s = state(engine);
   if (!s.voice_active || s.voice_stopping || s.voice_provider_socket.empty())
     return;
-  std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+  auto owned = msime::host_api::own_string(
       msime_client_voice_provider_stop(
           reinterpret_cast<const uint8_t *>(s.voice_provider_socket.data()),
-          s.voice_provider_socket.size(), s.voice_generation),
-      msime_client_string_free);
+          s.voice_provider_socket.size(), s.voice_generation));
   bool stopped = false;
   if (owned) {
     try {
@@ -4254,8 +4251,7 @@ void voice_start_impl(IBusEngine *engine) {
             reinterpret_cast<const uint8_t *>(query.data()), query.size(),
             reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
             voice_provider_stream_update, voice_provider_status_update, voice_provider_level_update, &stream);
-        std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-            raw, msime_client_string_free);
+        auto owned = msime::host_api::own_string(raw);
         if (cancelled.load() || !raw)
           return std::string{};
         try {
@@ -5940,8 +5936,9 @@ struct ModeHintNotice {
 // panel 按当前输入上下文摆放，因此也跟着输入点走。不自己画窗口——那条边界在这个宿主上
 // 仍然成立（Fcitx5 那侧的徽章是所有者要求的例外，且带 logo 是它存在的理由）。
 //
-// 隐藏时先确认辅助区域还属于这条提示：用户可能在这 1.2 秒内已经开始打字，那时辅助文本
-// 是候选页码，收掉它等于替用户关掉正在看的东西。代次和组合状态两道都查。
+// 隐藏时先确认辅助区域还属于这条提示：用户可能在这 1.2 秒内已经开始打字，那时辅助文本是候选页码，收掉它等于替用户关掉正在看的东西。代次和组合状态两道都查。
+//
+// 这 1.2 秒里会话可能已经被关掉（换到密码框、用途不同的输入框，偏好保存触发重建，或 `guarded()` 兜底），`s.view` 于是回到 null。回调外面没有 `guarded()`，这里抛出的异常会直接让宿主 abort（#6675），所以组合状态只能经 `view_is_composing()` 读，它对 null 视图回答「没有组字」。
 void show_input_mode_hint(IBusEngine *engine) {
   auto &s = state(engine);
   if (!configured.contains("preferences") ||
@@ -5963,9 +5960,7 @@ void show_input_mode_hint(IBusEngine *engine) {
         if (!notice->alive->load())
           return G_SOURCE_REMOVE;
         auto &s = state(notice->engine);
-        const bool composing =
-            !s.view.value("editing_text", std::string{}).empty() ||
-            !s.view.value("candidates", Json::array()).empty();
+        const bool composing = msime::linux_host::view_is_composing(s.view);
         if (s.mode_hint_id == notice->id && !composing)
           ibus_engine_hide_auxiliary_text(notice->engine);
         return G_SOURCE_REMOVE;
@@ -7250,7 +7245,7 @@ struct CandidateMenuHintNotice {
 };
 // 右键候选：Windows 弹出候选右键菜单（固定、固定排位、删除），选定之前不改动词典。IBus 没有逐个候选的右键菜单接口，「候选操作」属性菜单就是这里的对应物，所以右键只在辅助区域提示去那里操作，约 1.5 秒后恢复页码。
 //
-// 恢复前确认辅助区域仍属于这条提示：期间任何重绘都已换上新的页码，只有同一会话、同一代次仍在显示时才重绘一次。
+// 恢复前确认辅助区域仍属于这条提示：期间任何重绘都已换上新的页码，只有同一会话、同一代次仍在显示时才重绘一次。这个回调同样没有 `guarded()` 兜底，读 `s.view` 之前先确认它是对象，理由同输入模式提示（#6675）。
 void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation) {
   auto &s = state(engine);
   ++s.candidate_menu_hint_id;
@@ -7275,6 +7270,7 @@ void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation) {
             !s.session || s.session != notice->session ||
             s.rendered_session != s.session || !s.rendered_view.is_object() ||
             s.rendered_view.value("generation", uint64_t{0}) != notice->generation ||
+            !s.view.is_object() ||
             s.view.value("generation", uint64_t{0}) != notice->generation)
           return G_SOURCE_REMOVE;
         guarded(engine, "candidate_menu_hint", [&] { render(engine, s.view); });
@@ -7821,10 +7817,9 @@ gboolean reload_preferences(gpointer data) {
   auto task = g_task_new(G_OBJECT(engine), nullptr,
                          +[](GObject *source, GAsyncResult *result, gpointer) {
                            auto self = reinterpret_cast<MsimeIbusEngine *>(source);
-                           std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+                           auto raw = msime::host_api::own_string(
                                static_cast<char *>(g_task_propagate_pointer(
-                                   G_TASK(result), nullptr)),
-                               msime_client_string_free);
+                                   G_TASK(result), nullptr)));
                            if (!self->state)
                              return;
                            auto &s = *self->state;

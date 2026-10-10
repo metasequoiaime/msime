@@ -31,6 +31,7 @@ public final class CandidateTranslationStore {
     private final Map<String, String> cache = new LinkedHashMap<>(MAX_CACHE_ENTRIES, 0.75f, true);
     private Runnable pending;
     private String signature;
+    private String binding;
     private long requestEpoch;
 
     public CandidateTranslationStore(Context context, ExecutorService worker, Handler main,
@@ -62,6 +63,16 @@ public final class CandidateTranslationStore {
 
     public String gloss(String word, String target) {
         return cache.get(key(target, word));
+    }
+
+    public boolean hasEntries() { return !cache.isEmpty(); }
+
+    /** Bind cached display data to one account session lineage; changing it fences and clears old rows. */
+    public boolean bindTo(String nextBinding) {
+        if (java.util.Objects.equals(binding, nextBinding)) return nextBinding != null;
+        binding = nextBinding;
+        clear();
+        return false;
     }
 
     public void refresh(List<String> words, String target, long generation) {

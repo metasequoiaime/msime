@@ -1,7 +1,7 @@
 #include "PrepareHost.h"
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 #include <iostream>
-#include <memory>
 
 int wmain(int argc, wchar_t **argv) {
   if (argc == 2 && std::wstring(argv[1]) == L"--help") {
@@ -17,10 +17,9 @@ int wmain(int argc, wchar_t **argv) {
   }
   try {
     msime::windows::prepare_host_state(argv[1], argv[2], [](const std::string &request) {
-      std::unique_ptr<char, decltype(&msime_client_string_free)> response(
+      auto response = msime::host_api::own_string(
           msime_client_prepare_host(
-              reinterpret_cast<const uint8_t *>(request.data()), request.size()),
-          msime_client_string_free);
+              reinterpret_cast<const uint8_t *>(request.data()), request.size()));
       if (!response)
         throw std::runtime_error("Shared host preparation failed");
       return std::string(response.get());

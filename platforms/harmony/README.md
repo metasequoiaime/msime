@@ -233,6 +233,8 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 共享偏好 `touch_number_keypad_order` 为 `calculator` 时，九键数字层排成 7 8 9 在上、1 2 3 在下（`NineKeyLayout.digits(order)`），字母层不变；账号同步键是 `platform.harmony.number_keypad_order`。
 
+共享偏好 `touch_shuangpin_key_hints` 为 `false` 时（设置页「屏幕键盘 › 布局」的「双拼键位提示」），26 键双拼的字母键不再画底部的声母/韵母提示，提示行不占高度；缺省和旧文档都按开。账号同步键是 `platform.harmony.shuangpin_key_hints`。
+
 振动三档以前只差时长（10/20/35 ms）、强度固定，摸不出差别。现在每档用一个预置效果加拉开的强度（`KeyboardFeedback.plan`：轻 `haptic.effect.soft` 35、中 `haptic.effect.sharp` 70、强 `haptic.effect.hard` 100），设备不支持该效果（`isSupportEffectSync`，结果按效果缓存）时退回 8/20/40 ms。新增「跟随系统」（`system`）：用 `usage: 'touch'` 和 `haptic.clock.timer`、不带强度，振不振、多强由系统的触感反馈设置决定。按键反馈文件每次聚焦都重读，设置页改了档位不必等输入法重启。这些强度是按 SDK 6.1.1（API 24）的类型声明写的，还没在真机上逐档摸过。
 
 ## 候选词的译文此前只能看，不能用
@@ -465,6 +467,8 @@ V、`/`、`@` 三个模式的按键由 Engine 导出的 `spelling_symbols` 决�
 Windows 文档里的“自定义候选窗翻译”在 Harmony 上没有设置入口。Engine 仍在每个宿主上读这份覆盖层——`prepare_translation_sidecar` 先看用户数据目录（`<state>/user/custom_translations.txt`）再看资源目录——但应用沙盒里的这个文件用户无法直接放入，设置页也不再提供编辑它的「自定义候选释义」。**不要把它写进已暂存的资源目录**：那里按锁文件逐项精确校验，多一个文件就会让键盘拒绝启动。
 
 设置页的本地词库管理复用共享设置 UI 和 `msime_client_dictionary`：可分页查看、编辑、导入、导出和处理失败队列。ArkTS 设置桥只接受操作 JSON；引擎资源和状态目录始终由宿主从应用沙盒准备，WebView 不能提交路径。词库写操作需要 Engine 独占维护窗口：空闲时会短暂重建会话并恢复语言、九键和焦点状态；正在组合输入时会返回忙碌错误，不会替用户取消输入。读取操作可与活动会话并行。
+
+手机的「词库」页按 Android 的 `LexiconPage` 布局，不再是那张按种类查词条的桌面表单（`packages/ui/src/settings/harmony-phone-dictionary.tsx`，只在 HarmonyOS 手机上出现，2in1 仍用桌面表单）：「已安装」列出拼音词库和命名词库，点进去启用、停用、加词或删除；「管理」新建、导入（导入成一个新词库）、导出和刷新；「发现词库」把社区词库装成一个独立的词库，社区页的「添加」也走同一条路，之后可以停用或删除。命名词库走 `msime_client_dictionary_collections`：设置页经 `startRequest` 的 `dictionary_collections` 调 NAPI `dictionaryCollectionsAsync`，导入最多 16 MiB，在原生工作线程上执行；词条由 client-core 经个人词库队列分批送进 Engine，键盘每排空一批个人词库队列就用同步的 `dictionaryCollections` 送下一批（`flush`），和 Android 键盘的 `flushSent` 一样，大词库不用等用户回词库页刷新。`scripts/test-harmony-dictionary-collections.py` 守着这条接线。API 12 起设置应用与键盘不共用 `files/state`（见上文「输入法扩展的独立沙箱」），在共享沙箱接上之前，设置页建的命名词库和个人词库队列都只在设置应用这边，键盘看不到。
 
 ## 设置页打包
 

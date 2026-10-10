@@ -154,9 +154,15 @@ actor SkinCommunityAPI {
   private let account: BackendAccountSession
   /// 没有登录账号时举报和下载所用的设备匿名身份，默认是应用与键盘扩展共用的那一个；测试传入只在内存里的会话。
   private let anonymous: BackendAccountSession
+  /// 按账号取消键盘待处理的词库快照，默认操作 App Group 里的共享队列；测试传入可观察或会失败的实现。
+  private let cancelSnapshot: @Sendable (String) throws -> Void
   init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared,
-       anonymous: BackendAccountSession = BackendAnonymousAccount.session) {
+       anonymous: BackendAccountSession = BackendAnonymousAccount.session,
+       cancelSnapshot: @escaping @Sendable (String) throws -> Void = {
+         try DictionarySnapshotQueue().cancelIfPresent(accountID: $0)
+       }) {
     self.client = client; self.account = account; self.anonymous = anonymous
+    self.cancelSnapshot = cancelSnapshot
   }
   func currentUser() async throws -> CommunityUser? { try await account.user() }
   func signedIn() async throws -> Bool { try await account.user() != nil }
@@ -245,9 +251,7 @@ actor SkinCommunityAPI {
     return CommunityChallenge(challenge_id: value.challenge_id, nonce: nonce)
   }
   func login(challenge: String, identityToken: String) async throws {
-    try await account.signIn(challenge: challenge, credential: identityToken, replacingAccount: { accountID in
-      try DictionarySnapshotQueue().cancelIfPresent(accountID: accountID)
-    })
+    try await account.signIn(challenge: challenge, credential: identityToken, replacingAccount: cancelSnapshot)
   }
   func profile() async throws -> CommunityProfile {
     let identity = try await account.credentials()
@@ -284,19 +288,26 @@ actor SkinCommunityAPI {
         token in try await client.deleteAccount(token: token)
       }
       try await account.forget(matchingUserID: identity.userID, matchingSessionID: identity.sessionID,
-                               removingAccount: { accountID in
-        try DictionarySnapshotQueue().cancelIfPresent(accountID: accountID)
-      })
+                               removingAccount: removedAccountCleanup("delete_account"))
     } else {
-      try await account.logout(all: all, removingAccount: { accountID in
-        try DictionarySnapshotQueue().cancelIfPresent(accountID: accountID)
-      })
+      try await account.logout(all: all, removingAccount: removedAccountCleanup("logout"))
     }
   }
   func clearExpiredLogin() async throws {
-    try await account.forget(removingAccount: { accountID in
-      try DictionarySnapshotQueue().cancelIfPresent(accountID: accountID)
-    })
+    try await account.forget(removingAccount: removedAccountCleanup("clear_expired_login"))
+  }
+  /// 退出登录、注销账号和清除失效登录时取消旧账号的快照。用户已决定离开、远端账号已删除或登录已失效，取消失败也不能让本地会话停在旧账号上，所以只记一条诊断再继续；诊断只含操作名和失败类别，不含账号、路径或错误原文。
+  private func removedAccountCleanup(_ operation: String) -> @Sendable (String) -> Void {
+    let cancel = cancelSnapshot
+    return { accountID in
+      do { try cancel(accountID) } catch {
+        let reason = (error as? DictionarySnapshotQueue.Failure).map { "\($0)" } ?? "other"
+        let log = DiagnosticLog.shared
+        log.configure(directory: MetasequoiaInputSessionBridge.sharedStateDirectory,
+                      enabled: DiagnosticLog.isEnabled(in: MetasequoiaInputSessionBridge.loadSharedPreferences()))
+        log.write("snapshot_cancel_failed operation=\(operation) reason=\(reason)")
+      }
+    }
   }
   /// `category` 为 `nil` 时不按分类筛选。
   func list(offset: Int = 0, search: String = "", mine: Bool = false,

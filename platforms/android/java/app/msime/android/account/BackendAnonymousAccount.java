@@ -31,7 +31,6 @@ final class BackendAnonymousAccount {
         long retryAfterMillis() { return retryAfterMillis; }
     }
 
-    private static final String ORIGIN = "https://api.msime.app";
     private static final String SESSION_STORE = "msime_anonymous_session_v1";
     private static final String CREDENTIAL_STORE = "msime_anonymous_account_v1";
     private static final int MAX_RESPONSE_BYTES = 64 * 1024;
@@ -206,8 +205,8 @@ final class BackendAnonymousAccount {
         byte[] payload = body == null ? null : TextPolicy.utf8Bytes(body.toString());
         HttpsURLConnection connection = null;
         try {
-            connection = (HttpsURLConnection) new URL(ORIGIN + path).openConnection();
-            AccountHttpRequest.writeJson(connection, method, token, "MSIME/Android", payload);
+            connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + path).openConnection();
+            AccountHttpRequest.writeJson(connection, method, token, CloudApi.USER_AGENT, payload);
             int status = connection.getResponseCode();
             if (status == 429) {
                 // 服务端给了重试时间就按它来；没给就退一分钟，别把这件事变成一个忙等的循环。
