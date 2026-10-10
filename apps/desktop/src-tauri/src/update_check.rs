@@ -1,6 +1,6 @@
-//! The settings page's update check (`msime_client_core::update_check`).
+//! 设置页的检查更新（`msime_client_core::update_check`）。
 //!
-//! The check runs here rather than as a `fetch` in the webview so every host asks the same Rust code which release is newer and which package belongs to this edition and architecture; the native Windows settings window and the HarmonyOS page reach the same function through `msime_client_update_check`.
+//! 检查放在这里而不是在 webview 里 `fetch`，是为了让每个宿主都问同一份 Rust 代码：哪个发布更新、哪个安装包属于本版本和本架构；原生 Windows 设置窗口和 HarmonyOS 页面经由 `msime_client_update_check` 调到同一个函数。
 
 use crate::CommandError;
 use msime_client_core::update_check::{
@@ -16,7 +16,7 @@ fn update_check_error(error: UpdateCheckError) -> CommandError {
     }
 }
 
-/// The newest published release of `platform` compared with `current_version`. Blocks on GitHub for up to ten seconds, on the blocking pool.
+/// 把 `platform` 最新的已发布版本与 `current_version` 比较。在阻塞线程池上等待 GitHub，最多十秒。
 #[tauri::command]
 pub async fn update_check(
     platform: String,

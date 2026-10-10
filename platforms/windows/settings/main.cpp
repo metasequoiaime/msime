@@ -759,19 +759,19 @@ constexpr const wchar_t *license_url =
 constexpr const wchar_t *releases_url =
     L"https://github.com/metasequoiaime/msime/releases";
 
-// The version this build runs as: what Build-Client.ps1 stamps on the release (TargetVersion), or platforms/windows/version.txt for a development build, the same value the Server reports.
+// 本次构建运行时的版本号：发布构建取 `Build-Client.ps1` 打上的值（`TargetVersion`），开发构建取 `platforms/windows/version.txt`，与 Server 报告的值相同。
 constexpr std::wstring_view app_version = L"" MSIME_WINDOWS_VERSION;
 
-// What 检查更新 found, in the words the shared settings page uses.
+// 检查更新的结果，措辞与共享设置页一致。
 struct UpdateOutcome {
   std::wstring status;
-  // The unsigned-build warning and how to verify the installer; empty unless a newer release is offered.
+  // 未签名构建的警告以及如何校验安装程序；只有提供了更新的发布时才非空。
   std::wstring detail;
-  // The release page to open; empty unless a newer release is offered.
+  // 要打开的发布页面；只有提供了更新的发布时才非空。
   std::wstring release_url;
 };
 
-// msime_client_update_check's request: this edition's Windows releases. No architecture: one installer serves x64 and Arm64.
+// `msime_client_update_check` 的请求：本版本的 Windows 发布。不带架构：同一个安装程序同时支持 x64 和 Arm64。
 JsonObject update_check_request() {
   JsonObject request;
   request.SetNamedValue(L"platform", JsonValue::CreateStringValue(L"windows"));
@@ -781,7 +781,7 @@ JsonObject update_check_request() {
   return request;
 }
 
-// The installer this edition publishes, for the warning when the release does not name one: MetasequoiaIME-<Id>_Setup_v<版本>.exe, as update_check.rs and the shared page derive it.
+// 本版本发布的安装程序名，用于发布里没有给出安装程序时的警告：`MetasequoiaIME-<Id>_Setup_v<版本>.exe`，与 `update_check.rs` 和共享页面的推导方式相同。
 std::wstring installer_placeholder() {
   std::wstring id(text(MSIME_EDITION_ID).c_str());
   if (!id.empty())
@@ -789,7 +789,7 @@ std::wstring installer_placeholder() {
   return L"MetasequoiaIME-" + id + L"_Setup_v<版本>.exe";
 }
 
-// Reads msime_client_update_check's answer. A release page outside this repository's tags is treated as a failed check rather than opened.
+// 读取 `msime_client_update_check` 的答复。不在本仓库 tag 下的发布页面视为检查失败，不会打开。
 UpdateOutcome describe_update_check(Response const &response) {
   const UpdateOutcome failed{L"检查失败，请稍后重试", {}, {}};
   if (!response.ok)
@@ -816,7 +816,7 @@ UpdateOutcome describe_update_check(Response const &response) {
     };
     const auto signed_value = update.GetNamedValue(L"signed", JsonValue::CreateNullValue());
     if (signed_value.ValueType() == JsonValueType::Boolean && !signed_value.GetBoolean()) {
-      // The shipped settings page's wording: an unsigned installer is not only a SmartScreen prompt, it also loses uiAccess.
+      // 沿用正式发布的设置页的措辞：未签名的安装程序不只会触发 SmartScreen 提示，还会失去 uiAccess。
       const std::wstring name = is_string(L"installer_name")
                                     ? std::wstring(update.GetNamedString(L"installer_name").c_str())
                                     : installer_placeholder();
@@ -2368,7 +2368,7 @@ private:
 
   // ---- 检查更新 ----
 
-  // Shows the check in progress, or its last outcome, on the about page's controls; nothing when that page is not built.
+  // 在「关于」页的控件上显示正在检查或上一次检查的结果；该页没有构建出来时什么都不做。
   void show_update_outcome() {
     if (!update_button_)
       return;
@@ -2396,7 +2396,7 @@ private:
     check_for_update();
   }
 
-  // GitHub may take up to ten seconds, so the request runs off the UI thread and only the outcome comes back.
+  // GitHub 可能要十秒才回应，所以请求在 UI 线程之外执行，只把结果传回来。
   fire_and_forget check_for_update() {
     update_checking_ = true;
     update_outcome_.reset();
@@ -3594,7 +3594,7 @@ private:
     }
 
     auto updates = add_group(page, L"版本与更新");
-    // The check runs here, through msime_client_update_check, and its outcome is shown under the row; only 前往下载 leaves the window.
+    // 检查经由 `msime_client_update_check` 在这里执行，结果显示在该行下方；只有「前往下载」会离开窗口。
     StackPanel update_lines;
     update_lines.Spacing(4);
     update_lines.Padding(Thickness{61, 0, 25, 12});
@@ -3831,7 +3831,7 @@ private:
   std::wstring mcp_result_;
   bool mcp_busy_ = false;
 
-  // 检查更新: kept across page rebuilds; the controls are the about page's current ones.
+  // 检查更新：状态跨页面重建保留；控件是「关于」页当前的那一组。
   bool update_checking_ = false;
   std::optional<UpdateOutcome> update_outcome_;
   Button update_button_{nullptr};

@@ -8,9 +8,9 @@ import {
 } from "./update-manifest";
 
 export interface UseUpdateCheckOptions {
-  /** The host's update check (`SettingsClient.checkUpdate`), which asks GitHub through `msime_client_core::update_check`. Absent, the page offers no check. */
+  /** 宿主的检查更新（`SettingsClient.checkUpdate`），经由 `msime_client_core::update_check` 询问 GitHub。未提供时页面不提供检查。 */
   checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
-  /** The host's platform (`HostCapabilities.platform`), which is also its release tag prefix. */
+  /** 宿主所在平台（`HostCapabilities.platform`），同时也是它的发布 tag 前缀。 */
   platform: string | null;
   /** 运行中的版本 id（`HostCapabilities.edition.id`），缺省是 full：只选本版本的安装包。 */
   edition?: string;
@@ -19,7 +19,7 @@ export interface UseUpdateCheckOptions {
   currentAppVersion: string;
 }
 
-/** Asks the host whether a newer release of this platform and edition is published, and keeps the status the about page shows. */
+/** 询问宿主本平台、本版本有没有更新的已发布版本，并保存关于页展示的状态。 */
 export function useUpdateCheck({
   checkUpdate,
   platform,

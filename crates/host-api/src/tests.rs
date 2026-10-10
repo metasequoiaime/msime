@@ -11628,7 +11628,7 @@ fn notice_abi_serves_the_cached_feed_with_rendered_html_and_dismissals() {
 #[test]
 fn update_check_abi_refuses_a_bad_request_before_reaching_the_network() {
     use crate::ffi::reporting::*;
-    // Each of these is refused while the request is read or validated, so the test never reaches GitHub.
+    // 这些请求都会在读取或校验阶段被拒绝，所以测试不会访问 GitHub。
     for request in [
         json!({"platform": "windows", "current_version": "unknown"}),
         json!({"platform": "", "current_version": "1.0.0"}),
@@ -11638,7 +11638,7 @@ fn update_check_abi_refuses_a_bad_request_before_reaching_the_network() {
         let refused = reporting_call(msime_client_update_check, request.clone());
         assert_eq!(refused["ok"], false, "{request} -> {refused}");
     }
-    // SAFETY: a null pointer is part of the documented refusal contract.
+    // SAFETY: 空指针属于文档写明的拒绝契约。
     let null = read(unsafe { msime_client_update_check(std::ptr::null(), 0) });
     assert_eq!(null["ok"], false);
 }

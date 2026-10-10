@@ -84,14 +84,14 @@ interface ExportSaveRequest {
   contents: string;
 }
 
-/** What the about page sends with `update_check`: the running version and, when the page knows them, the edition and architecture. */
+/** 「关于」页随 `update_check` 发来的内容：当前运行的版本号，以及页面知道时的版本 id 和架构。 */
 interface UpdateCheckPayload {
   current_version: string;
   edition?: string;
   arch?: string;
 }
 
-/** `msime_client_update_check`'s request; the platform is always this host's. */
+/** `msime_client_update_check` 的请求；平台始终是本宿主的。 */
 interface UpdateCheckRequest {
   platform: string;
   current_version: string;

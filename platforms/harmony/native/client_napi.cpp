@@ -463,8 +463,7 @@ static napi_value EnsureAnonymousAccount(napi_env env, napi_callback_info info) 
     return promise;
 }
 
-// Slow one-document requests share a worker: telemetry, notices and the update check wait on the network, while
-// the custom skin library reads or writes a bounded multi-megabyte file under a lock.
+// 较慢的单文档请求共用一个工作线程：上报、公告和检查更新要等网络，自定义皮肤库要在锁内读写有上限的数 MB 文件。
 using RequestCall = char *(*)(const uint8_t *, size_t);
 
 struct RequestWork {
@@ -522,7 +521,7 @@ static napi_value Notices(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_notices, "MSIME notices");
 }
 
-// The about page's 检查更新: reads GitHub's release list for up to ten seconds, so never on the UI thread.
+// 「关于」页的检查更新：读取 GitHub 发布列表最多要十秒，所以绝不能在 UI 线程上执行。
 static napi_value UpdateCheck(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_update_check, "MSIME update check");
 }

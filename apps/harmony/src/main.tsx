@@ -1317,7 +1317,7 @@ function makeClient(
       };
     },
     readAppVersion: async () => native.appVersion(),
-    // GitHub's release list is read and compared in Rust on a native worker (msime_client_update_check); ArkTS fills in the platform.
+    // GitHub 的发布列表由 Rust 在原生工作线程上读取和比较（`msime_client_update_check`），平台由 ArkTS 填入。
     checkUpdate: async (request: UpdateCheckRequest) =>
       unwrap<UpdateCheckResult>(
         await bridgeRequest(

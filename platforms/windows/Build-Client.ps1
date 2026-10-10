@@ -111,7 +111,7 @@ try {
             $settingsIntermediate = Join-Path $output 'settings-obj'
             # -restore rather than /t:Restore,Build: restore writes obj\*.nuget.g.targets, where the CppWinRT and Windows App SDK build logic lives, and only a separate evaluation after it imports them. In one evaluation the build skips header generation, which only a previously restored obj directory hides.
             # Built under the name the Server launcher, PE checks and packaging expect. Renaming the output afterwards would leave its resource index behind as MSIME.Settings.pri, which MRT Core looks up by the executable's name.
-            # The about page shows this version and checks for updates against it; without TargetVersion the project reads version.txt, as CMake does for the Server.
+            # 「关于」页显示这个版本号，并以它为准检查更新；不传 `TargetVersion` 时工程读取 `version.txt`，与 CMake 给 Server 的做法相同。
             $settingsVersion = if ($TargetVersion -ne '') { @("/p:MsimeVersion=$TargetVersion") } else { @() }
             Invoke-ClientBuild msbuild (@($settingsProject, '-restore', '/t:Build',
                 '/p:Configuration=RelWithDebInfo', '/p:Platform=x64',

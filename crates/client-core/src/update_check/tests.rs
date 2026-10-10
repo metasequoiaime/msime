@@ -15,7 +15,7 @@ fn release(tag: &str, assets: Value) -> Value {
     json!({ "tag_name": tag, "html_url": format!("{PAGE}/tag/{tag}"), "assets": assets })
 }
 
-/// The chosen package's name and digest, or `None` when no release was selected at all.
+/// 选中安装包的文件名和摘要；一个发布都没选中时为 `None`。
 fn pick(
     releases: &[Value],
     platform: &str,
@@ -32,7 +32,7 @@ fn chosen(name: &str, sha256: Option<String>) -> Option<(Option<String>, Option<
 
 const NOTHING: Option<(Option<String>, Option<String>)> = Some((None, None));
 
-// The editions publish under the same platform tag and are told apart by asset name only.
+// 各版本发布在同一个平台 tag 下，只靠资产名区分。
 fn linux_release() -> Value {
     release(
         "linux-v1.2.0",
@@ -55,7 +55,7 @@ fn windows_release() -> Value {
         json!([
             { "name": "MetasequoiaIME-Full_Setup_v1.2.0.exe", "digest": digest('a') },
             { "name": "MetasequoiaIME-Full_Setup_v1.2.0.exe.sha256", "digest": digest('b') },
-            // msime-windows' installer name. This repository never publishes it; it is here to show full does not take it for its own.
+            // `msime-windows` 的安装程序名。本仓库从不发布它；放在这里是为了证明 `full` 不会把它当成自己的安装包。
             { "name": "MetasequoiaIME_Setup_v1.2.0.exe", "digest": digest('e') },
             { "name": "MetasequoiaIME-Wubi_Setup_v1.2.0.exe", "digest": digest('c') },
             { "name": "MetasequoiaIME-Pinyin_Setup_v1.2.0.exe", "digest": digest('d') },
@@ -71,7 +71,7 @@ fn full_picks_its_own_linux_package_beside_the_other_editions() {
             chosen("msime-linux_1.2.0_amd64.deb", Some(hex('a')))
         );
     }
-    // Without a .deb full falls back to its own tarball, never the Wubi edition's.
+    // 没有 `.deb` 时 `full` 退回到自己的 tarball，绝不会选五笔版的。
     let mut without_deb = linux_release();
     without_deb["assets"]
         .as_array_mut()
@@ -103,12 +103,12 @@ fn an_edition_picks_only_its_own_package_and_installer() {
         pick(&[windows_release()], "windows", Some("wubi"), None),
         chosen("MetasequoiaIME-Wubi_Setup_v1.2.0.exe", Some(hex('c')))
     );
-    // The release has no asset for this edition yet: the version is still offered, with no installer to verify.
+    // 该发布还没有这个版本的资产：仍然提供版本号，只是没有可供校验的安装包。
     assert_eq!(
         pick(&[windows_release()], "windows", Some("cantonese"), None),
         NOTHING
     );
-    // Something that is not an edition id selects no asset.
+    // 不是合法版本 id 的值选不出任何资产。
     assert_eq!(
         pick(&[windows_release()], "windows", Some("wubi|.*"), None),
         NOTHING
@@ -137,7 +137,7 @@ fn an_edition_picks_its_own_package_for_the_hosts_architecture() {
         pick(&both, "linux", Some("wubi"), Some("x86_64")),
         chosen("msime-linux-wubi_1.2.0_amd64.deb", Some(hex('c')))
     );
-    // pinyin has no aarch64 package in this release, so an aarch64 host is offered none of the x86_64 ones.
+    // 这个发布里 `pinyin` 没有 aarch64 包，所以 aarch64 宿主拿不到任何 x86_64 包。
     assert_eq!(
         pick(&both, "linux", Some("pinyin"), Some("aarch64")),
         NOTHING
@@ -167,7 +167,7 @@ fn linux_assets_yield_a_digest_only_when_well_formed_and_unambiguous() {
             Some(false)
         ))
     );
-    // The tarball is the fallback when no .deb was uploaded.
+    // 没有上传 `.deb` 时退回到 tarball。
     assert_eq!(
         full(
             json!([{ "name": "msime-linux-1.2.0-linux-x86_64.tar.gz", "digest": format!("sha256:{digest_a}") }])
@@ -178,7 +178,7 @@ fn linux_assets_yield_a_digest_only_when_well_formed_and_unambiguous() {
             Some(false)
         ))
     );
-    // Older responses omit the digest or send null; another algorithm, uppercase hex or a short value is not trusted either.
+    // 较老的响应会省略摘要或给 `null`；其他算法、大写十六进制或长度不足的值同样不信任。
     for bad in [
         Value::Null,
         json!(format!("sha512:{digest_a}")),
@@ -204,7 +204,7 @@ fn linux_assets_yield_a_digest_only_when_well_formed_and_unambiguous() {
             Some(false)
         ))
     );
-    // Without the host's architecture, two architectures would make any single digest wrong for someone.
+    // 不知道宿主架构时，有两种架构的包，无论展示哪一个摘要都会对某些用户是错的。
     let both = json!([
         { "name": "msime-linux_1.2.0_amd64.deb", "digest": format!("sha256:{digest_a}") },
         { "name": "msime-linux_1.2.0_arm64.deb", "digest": digest('b') },
@@ -223,21 +223,21 @@ fn linux_assets_yield_a_digest_only_when_well_formed_and_unambiguous() {
         for_arch(both.clone(), "aarch64"),
         chosen("msime-linux_1.2.0_arm64.deb", Some(hex('b')))
     );
-    // Each architecture falls back to its own tarball, never another architecture's .deb.
+    // 每种架构都退回到自己的 tarball，绝不会选另一种架构的 `.deb`。
     let tarballs_and_amd64_deb = json!([both[4], both[5], both[0]]);
     assert_eq!(
         for_arch(tarballs_and_amd64_deb, "aarch64"),
         chosen("msime-linux-1.2.0-linux-aarch64.tar.gz", Some(hex('f')))
     );
-    // A release from before aarch64 packages offers an aarch64 host nothing rather than the x86_64 package.
+    // 还没有 aarch64 包的旧发布不给 aarch64 宿主提供任何安装包，而不是给它 x86_64 的包。
     assert_eq!(for_arch(json!([both[0], both[4]]), "aarch64"), NOTHING);
-    // An architecture no package is built for keeps every asset, and two of them still offer nothing.
+    // 没有为之构建安装包的架构保留全部资产；有两个候选时仍然什么都不提供。
     assert_eq!(for_arch(both.clone(), "riscv64"), NOTHING);
     assert_eq!(
         for_arch(json!([both[0]]), "riscv64"),
         chosen("msime-linux_1.2.0_amd64.deb", Some(digest_a.clone()))
     );
-    // A name that would need shell quoting is never offered for the copyable command.
+    // 需要 shell 引号的文件名绝不会出现在可复制的命令里。
     assert_eq!(
         full(json!([{ "name": "--x;rm -rf ~.deb", "digest": format!("sha256:{digest_a}") }])),
         Some((None, None, Some(false)))
@@ -249,7 +249,7 @@ fn linux_assets_yield_a_digest_only_when_well_formed_and_unambiguous() {
     ] {
         assert_eq!(full(assets), Some((None, None, Some(false))));
     }
-    // Windows never takes a Linux package for its installer.
+    // Windows 绝不会把 Linux 安装包当成自己的安装程序。
     let windows = select_platform_release(
         &[release(
             "windows-v1.2.0",
@@ -268,7 +268,7 @@ fn linux_assets_yield_a_digest_only_when_well_formed_and_unambiguous() {
         ),
         (None, None, Some(false))
     );
-    // Other platforms ignore assets.
+    // 其他平台不看资产。
     let macos = select_platform_release(
         &[release(
             "macos-v1.2.0",
@@ -299,7 +299,7 @@ fn windows_assets_yield_the_installer_digest_and_mark_the_build_unsigned() {
             },
         )
     };
-    // What release-windows.yml uploads: the installer and its .sha256 file.
+    // `release-windows.yml` 上传的内容：安装程序和它的 `.sha256` 文件。
     assert_eq!(
         windows(json!([
             { "name": "MetasequoiaIME-Full_Setup_v1.2.0.exe", "digest": format!("sha256:{digest_d}") },
@@ -311,7 +311,7 @@ fn windows_assets_yield_the_installer_digest_and_mark_the_build_unsigned() {
             Some(false)
         ))
     );
-    // An older response without digests keeps the name, so the page can point at the .sha256 file.
+    // 不带摘要的旧响应仍保留文件名，页面可以据此指向 `.sha256` 文件。
     assert_eq!(
         windows(json!([{ "name": "MetasequoiaIME-Full_Setup_v1.2.0.exe", "digest": null }])),
         Some((
@@ -320,7 +320,7 @@ fn windows_assets_yield_the_installer_digest_and_mark_the_build_unsigned() {
             Some(false)
         ))
     );
-    // Two installers are ambiguous; a name needing quoting never reaches the command.
+    // 两个安装程序有歧义；需要加引号的文件名绝不会进入命令。
     assert_eq!(
         windows(json!([
             { "name": "MetasequoiaIME-Full_Setup_v1.2.0.exe", "digest": format!("sha256:{digest_d}") },
@@ -427,7 +427,7 @@ fn a_check_reports_available_current_or_no_release() {
         evaluate_update(&list, &request("windows", "2.0")).unwrap(),
         UpdateCheck::Current(_)
     ));
-    // Another platform's newer release is not this platform's update.
+    // 别的平台的新发布不是本平台的更新。
     assert_eq!(
         evaluate_update(&list, &request("linux", "0.1.0")).unwrap(),
         UpdateCheck::None

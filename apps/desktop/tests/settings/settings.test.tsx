@@ -7327,7 +7327,7 @@ test("macOS sidebar uses the same six groups", async () => {
   ]);
 });
 
-// Which release and which package the host offers is decided in Rust (crates/client-core/src/update_check.rs); these cover what the about page asks the host and does with its answer.
+// 宿主提供哪个发布、哪个安装包由 Rust 决定（`crates/client-core/src/update_check.rs`）；这里覆盖的是关于页向宿主问什么、拿到答复后怎么做。
 const releasesPage = "https://github.com/metasequoiaime/msime/releases";
 
 function hostRelease(
@@ -7474,7 +7474,7 @@ test("Windows update notice shows the installer digest and the unsigned warning"
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
   expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
-  // The installer's digest and the unsigned warning reach the notice, as on the shipped settings page.
+  // 与正式发布的设置页一样，安装包摘要和未签名警告会显示在提示里。
   expect(screen.getByText(/SmartScreen 会拦截，且 uiAccess 失效/)).toBeDefined();
   expect(screen.getByText("b".repeat(64))).toBeDefined();
   expect(

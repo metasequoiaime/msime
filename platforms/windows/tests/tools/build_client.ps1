@@ -171,7 +171,7 @@ try {
         $calls[19].Values -notcontains '-restore' -or
         $calls[19].Values -notcontains '/p:TargetName=msime-client-settings' -or
         $calls[15].Values -notcontains 'RelWithDebInfo') { throw 'Build target mismatch' }
-    # The settings window shows this version and checks for updates against it.
+    # 设置窗口显示这个版本号，并以它为准检查更新。
     if ($calls[19].Values -notcontains '/p:MsimeVersion=2026.9.1') { throw 'Settings window built without the target version' }
     # With -RustOutputs, as each release edition runs, nothing is compiled by cargo or pnpm and every Rust input comes from that directory.
     $prebuilt = Join-Path $fixture 'prebuilt rust'

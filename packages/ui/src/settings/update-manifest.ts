@@ -2,7 +2,7 @@ import { releasesPageUrl } from "./app-resources";
 
 export type Version = { display: string; parts: number[] };
 
-/** What the settings page asks its host: the release tag prefix of this platform, the running version, and the edition id and architecture when the host reports them. */
+/** 设置页向宿主发出的请求：本平台的发布 tag 前缀、当前运行的版本号，以及宿主报告了时的版本 id 和架构。 */
 export type UpdateCheckRequest = {
   platform: string;
   currentVersion: string;
@@ -10,7 +10,7 @@ export type UpdateCheckRequest = {
   arch?: string;
 };
 
-/** A release as `msime_client_core::update_check::ReleaseUpdate` serialises it. */
+/** `msime_client_core::update_check::ReleaseUpdate` 序列化后的发布。 */
 export type HostReleaseUpdate = {
   version: { display: string; parts: number[] };
   release_url: string;
@@ -19,7 +19,7 @@ export type HostReleaseUpdate = {
   signed: boolean | null;
 };
 
-/** What the host's update check found (`msime_client_core::update_check::UpdateCheck`): a newer release, the running version already being the newest, or no release of this platform yet. */
+/** 宿主检查更新的结果（`msime_client_core::update_check::UpdateCheck`）：有更新的发布、当前运行的已是最新版本，或者本平台还没有发布。 */
 export type UpdateCheckResult =
   | { status: "available" | "current"; update: HostReleaseUpdate }
   | { status: "none" };
@@ -44,7 +44,7 @@ export type ValidatedUpdate = {
   signed: boolean | null;
 };
 
-/** Normalises the version string a host reports (`v1.2.0`, `1.2.0-beta`) to the dotted numbers the page shows. */
+/** 把宿主报告的版本字符串（`v1.2.0`、`1.2.0-beta`）规整为页面展示的点分数字。 */
 export function parseVersion(value: string): Version | null {
   const match = value.trim().match(/^v?(\d+(?:\.\d+)*)(?:[-+].*)?$/i);
   if (!match?.[1]) return null;
@@ -52,11 +52,11 @@ export function parseVersion(value: string): Version | null {
 }
 
 const sha256Pattern = /^[0-9a-f]{64}$/;
-// The name is shown inside a shell command the user may copy; the host only reports names of this shape.
+// 文件名会出现在用户可能复制的 shell 命令里；宿主只会报告这种形状的文件名。
 const installerNamePattern = /^[A-Za-z0-9][\w.+~-]*$/;
 
 /**
- * The host's release in the page's shape, or null when it is not one the page can show safely: the release page must be a tag page of the shared repository, and an installer name or digest that does not look like one is dropped. The host's Rust check already guarantees all of this; the page does not take a URL it will open on trust.
+ * 把宿主给的发布转换成页面使用的形状；页面不能安全展示时返回 null：发布页必须是共用仓库的 tag 页面，不像安装包名或摘要的值会被丢弃。宿主的 Rust 检查已经保证了这些；页面对将要打开的 URL 不做无条件信任。
  */
 export function fromHostUpdate(update: HostReleaseUpdate): ValidatedUpdate | null {
   if (!update || typeof update !== "object") return null;

@@ -7,7 +7,7 @@ import {
   type ValidatedUpdate,
 } from "../../../../packages/ui/src/settings/update-manifest";
 
-// Which release and which package belong to a platform, edition and architecture is decided in Rust (crates/client-core/src/update_check.rs and its tests); these cover what the page does with the answer.
+// 哪个发布、哪个安装包属于某个平台、版本和架构，由 Rust 决定（`crates/client-core/src/update_check.rs` 及其测试）；这里覆盖的是页面拿到答复后怎么做。
 
 const page = "https://github.com/metasequoiaime/msime/releases";
 
@@ -81,7 +81,7 @@ test("the host's release becomes the page's update", () => {
 });
 
 test("a release the page would open or show unsafely is refused or trimmed", () => {
-  // Only a tag page of the shared repository is ever opened.
+  // 只会打开共用仓库的 tag 页面。
   for (const release_url of [
     "https://github.com/metasequoiaime/MSIME-Windows/releases/tag/v1.2.0",
     page,
@@ -91,7 +91,7 @@ test("a release the page would open or show unsafely is refused or trimmed", () 
     expect(fromHostUpdate(hostUpdate({ release_url }))).toBeNull();
   }
   expect(fromHostUpdate(hostUpdate({ version: { display: "next", parts: [] } }))).toBeNull();
-  // A name needing shell quoting or a digest of the wrong shape is dropped, not shown in the copyable command.
+  // 需要 shell 引号的文件名或格式不对的摘要会被丢弃，不会出现在可复制的命令里。
   expect(
     fromHostUpdate(
       hostUpdate({ installer_name: "--x;rm -rf ~.exe", installer_sha256: "A".repeat(64) }),

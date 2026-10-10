@@ -266,7 +266,7 @@ const client: SettingsClient = {
     list: () => invoke<AppNotice[]>("notices_list"),
     dismiss: (id) => invoke<void>("notice_dismiss", { id }),
   },
-  // The release list is read and compared in Rust (msime_client_core::update_check), as on every other host.
+  // 与其他宿主一样，发布列表由 Rust（`msime_client_core::update_check`）读取和比较。
   checkUpdate: (request) => invoke<UpdateCheckResult>("update_check", request),
   openThirdPartyLicenses: () => invoke("open_third_party_licenses"),
   loadMacosShuangpinKeymap: () => invoke<boolean>("load_macos_shuangpin_keymap"),

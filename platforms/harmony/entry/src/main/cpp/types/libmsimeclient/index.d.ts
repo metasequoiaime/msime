@@ -127,7 +127,7 @@ export const notices: (request: string) => Promise<string>;
 /** `{directory,id}`: remembers that the user dismissed notice `id`. */
 export const noticeDismiss: (request: string) => string;
 /**
- * `{platform,current_version,edition?,arch?}` in; on a worker thread, `{ok,value:{status:"available"|"current",update:{version:{display,parts},release_url,installer_name,installer_sha256,signed}}}` or `{ok,value:{status:"none"}}` out, from the newest published release of `platform` on GitHub. Waits up to ten seconds for the network.
+ * 传入 `{platform,current_version,edition?,arch?}`；在工作线程上根据 GitHub 上 `platform` 最新的已发布版本，返回 `{ok,value:{status:"available"|"current",update:{version:{display,parts},release_url,installer_name,installer_sha256,signed}}}` 或 `{ok,value:{status:"none"}}`。最多等网络十秒。
  */
 export const updateCheck: (request: string) => Promise<string>;
 /**

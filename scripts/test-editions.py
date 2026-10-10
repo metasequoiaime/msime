@@ -285,7 +285,7 @@ def check_editions(errors: list[str], table: dict, frozen: dict) -> None:
     for entry in editions:
         edition_id = entry["id"]
         where = f"edition {edition_id}"
-        # No hyphen: the id is spliced into asset names after a hyphen (`msime-linux-<id>-<version>`), and the update check (crates/client-core/src/update_check.rs) only accepts `[a-z][a-z0-9]*`.
+        # 不能含连字符：id 会拼在资产名的连字符之后（`msime-linux-<id>-<version>`），而检查更新（`crates/client-core/src/update_check.rs`）只接受 `[a-z][a-z0-9]*`。
         if not re.fullmatch(r"[a-z][a-z0-9]*", edition_id):
             errors.append(f"{where}: id must be lowercase letters and digits, starting with a letter")
 
