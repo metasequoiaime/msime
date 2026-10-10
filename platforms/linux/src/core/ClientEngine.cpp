@@ -1,4 +1,5 @@
 #include "ClientEngine.h"
+#include "../../../common/HostApiString.h"
 #include "LinuxEdition.h"
 #include "KeyRouterAdapter.h"
 #include "BackspaceHoldPolicy.h"
@@ -174,8 +175,7 @@ std::optional<bool> global_input_enabled;
 // rejects - and the host then cannot create a session at all.
 const Json &shared_preference_defaults() {
   static const Json defaults = [] {
-    std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-        msime_client_default_preferences(), msime_client_string_free);
+    auto owned = msime::host_api::own_string(msime_client_default_preferences());
     if (!owned)
       return Json::object();
     auto document = Json::parse(owned.get(), nullptr, false);
@@ -205,8 +205,7 @@ void patch_preference_object(Json &preferences, const char *name,
 void register_properties(IBusEngine *engine);
 void page(IBusEngine *engine, uint32_t command);
 Json response(char *raw) {
-  std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-      raw, msime_client_string_free);
+  auto owned = msime::host_api::own_string(raw);
   if (!raw)
     throw std::runtime_error("Missing host response");
   auto document = Json::parse(raw);
@@ -2283,9 +2282,8 @@ void online_schedule(IBusEngine *engine) {
 void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
   auto engine = IBUS_ENGINE(source);
   auto &s = state(engine);
-  std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
-      static_cast<char *>(g_task_propagate_pointer(G_TASK(result), nullptr)),
-      msime_client_string_free);
+  auto raw = msime::host_api::own_string(
+      static_cast<char *>(g_task_propagate_pointer(G_TASK(result), nullptr)));
   const auto *request = static_cast<const TranslationTask *>(
       g_task_get_task_data(G_TASK(result)));
   if (!request || request->session != s.session || request->epoch != s.provider_epoch)
@@ -2354,9 +2352,8 @@ void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
 void online_complete(GObject *source, GAsyncResult *result, gpointer) {
   auto engine = IBUS_ENGINE(source);
   auto &s = state(engine);
-  std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
-      static_cast<char *>(g_task_propagate_pointer(G_TASK(result), nullptr)),
-      msime_client_string_free);
+  auto raw = msime::host_api::own_string(
+      static_cast<char *>(g_task_propagate_pointer(G_TASK(result), nullptr)));
   const auto *request = static_cast<const OnlineTask *>(
       g_task_get_task_data(G_TASK(result)));
   if (!request || request->source >= s.online_loading.size() ||
@@ -4122,11 +4119,10 @@ void voice_stop(IBusEngine *engine) {
   auto &s = state(engine);
   if (!s.voice_active || s.voice_stopping || s.voice_provider_socket.empty())
     return;
-  std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+  auto owned = msime::host_api::own_string(
       msime_client_voice_provider_stop(
           reinterpret_cast<const uint8_t *>(s.voice_provider_socket.data()),
-          s.voice_provider_socket.size(), s.voice_generation),
-      msime_client_string_free);
+          s.voice_provider_socket.size(), s.voice_generation));
   bool stopped = false;
   if (owned) {
     try {
@@ -4254,8 +4250,7 @@ void voice_start_impl(IBusEngine *engine) {
             reinterpret_cast<const uint8_t *>(query.data()), query.size(),
             reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
             voice_provider_stream_update, voice_provider_status_update, voice_provider_level_update, &stream);
-        std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-            raw, msime_client_string_free);
+        auto owned = msime::host_api::own_string(raw);
         if (cancelled.load() || !raw)
           return std::string{};
         try {
@@ -7820,10 +7815,9 @@ gboolean reload_preferences(gpointer data) {
   auto task = g_task_new(G_OBJECT(engine), nullptr,
                          +[](GObject *source, GAsyncResult *result, gpointer) {
                            auto self = reinterpret_cast<MsimeIbusEngine *>(source);
-                           std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+                           auto raw = msime::host_api::own_string(
                                static_cast<char *>(g_task_propagate_pointer(
-                                   G_TASK(result), nullptr)),
-                               msime_client_string_free);
+                                   G_TASK(result), nullptr)));
                            if (!self->state)
                              return;
                            auto &s = *self->state;
