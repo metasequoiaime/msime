@@ -6,6 +6,8 @@ Status: proposed
 
 #6059：九键打长串数字时整句首选常常不对，用户只能在左列一段段选音节。[九宫格切分路径按音节频度截断](../../implemented/bug-fix/2026-10-08-nine-key-path-ranking.md) 和 [九键遵守句子联想设置](../../implemented/feature/2026-10-09-nine-key-sentence-options.md) 之后，结构性的上限还在：`NineKeySession::refresh` 先在每个数字位置留至多 `PATH_LIMIT`（48）条音节切分，再把每条切分整串交给全拼的 `QuanpinDictionary::query`，各自建一张音节词网格、各自解码，最后用 `comparable_weight` 扣掉词组奖励把各条切分的整句凑成可比。正确读法不在这 48 条里就永远出不来；在里面也得和几十条各自解出来的整句比，而那些分本来不在一张图上。
 
+之后 [九键整句在按键之间沿用好切分](../../implemented/feature/2026-10-10-nine-key-sentence-seeds.md) 在现有的逐切分结构上补了两处缺口（按键之间的种子束、跨切分比较时每个词组多扣一份奖励），81 条九键 top-1 0.457 → 0.506、found 0.556 → 0.617，下面的基线是那之前的数；这篇的统一词网格仍没有做，那篇的每词代价在统一网格里同样需要。
+
 仓库里没有能说明九键整句好坏的数字：`quanpin-words-v1` 九键是词级集；整句集的长句大多超过九键的 32 个数字（`DIGIT_LIMIT`），第 33 个数字起的键被丢掉，金标准打不出来（`sentences-v1` 11 个音节以上 7 条里 6 条，`sentences-neutral-v1` 279 条里 243 条）。
 
 ## Proposal

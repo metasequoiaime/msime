@@ -20,12 +20,12 @@
     },
     "4": {
       "cases": 556,
-      "found": 0.876,
-      "mrr": 0.872,
-      "top1": 0.871,
-      "top1_char_prefix": 0.889,
-      "top5": 0.874,
-      "top9": 0.874
+      "found": 0.883,
+      "mrr": 0.88,
+      "top1": 0.878,
+      "top1_char_prefix": 0.899,
+      "top5": 0.881,
+      "top9": 0.881
     },
     "5": {
       "cases": 10,
@@ -40,17 +40,17 @@
   "by_tag": {},
   "cases": 2791,
   "gold_source": {
-    "database": 2696,
+    "database": 2700,
     "generated": 3
   },
   "overall": {
     "cases": 2791,
-    "found": 0.967,
-    "mrr": 0.691,
-    "top1": 0.573,
-    "top1_char_prefix": 0.604,
-    "top5": 0.85,
-    "top9": 0.905
+    "found": 0.968,
+    "mrr": 0.693,
+    "top1": 0.575,
+    "top1_char_prefix": 0.606,
+    "top5": 0.851,
+    "top9": 0.906
   },
   "sample_failures": [
     {
@@ -208,13 +208,6 @@
       "top1": "草地"
     },
     {
-      "gold": "宝贵意见",
-      "id": "w-00451",
-      "input": "baoguiyijian",
-      "rank": null,
-      "top1": "参会意见"
-    },
-    {
       "gold": "褒奖",
       "id": "w-00469",
       "input": "baojiang",
@@ -332,10 +325,17 @@
       "input": "bianzhu",
       "rank": 2,
       "top1": "标注"
+    },
+    {
+      "gold": "标语",
+      "id": "w-00910",
+      "input": "biaoyu",
+      "rank": 5,
+      "top1": "超越"
     }
   ],
   "top1_source": {
-    "database": 2731,
-    "generated": 60
+    "database": 2735,
+    "generated": 56
   }
 }
