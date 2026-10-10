@@ -26,6 +26,7 @@
 //! it checks is therefore a ceiling on this crate's share of a frame, not a guarantee about what a
 //! user perceives.
 use msime_engine::host::{Command, Session};
+use msime_engine::KeyGrid;
 use msime_input_runtime::{Action, Reranker, Runtime, SentenceModel};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -126,18 +127,17 @@ fn load(path: &Path) -> Result<Vec<Case>, Box<dyn std::error::Error>> {
 ///
 /// 先发 `Cancel` 而不是新建会话：新建会话会重新打开词库，这笔开销会盖过要量的东西，而用户也不会每按一次键都付一次。
 ///
-/// `nine_key` 时把字母换成九宫格上印着它的数字再输入，与 `convert_eval --nine-key` 相同。
+/// 给了 `grid` 时把字母换成它所在键的组码再输入（`'` 不输入），与 `convert_eval --grid` 相同。
 fn type_case(
     runtime: &mut Runtime<Session>,
     input: &str,
-    nine_key: bool,
+    grid: Option<KeyGrid>,
     into: &mut Arm,
 ) -> Result<(), Box<dyn std::error::Error>> {
     runtime.dispatch(Action::Command(Command::Cancel))?;
-    let keys: Vec<u8> = if nine_key {
-        input.bytes().filter_map(keypad_digit).collect()
-    } else {
-        input.bytes().collect()
+    let keys: Vec<u8> = match grid {
+        Some(grid) => grid.encode(input).into_bytes(),
+        None => input.bytes().collect(),
     };
     for byte in keys {
         let started = Instant::now();
@@ -157,7 +157,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut budget_ms = FRAME_MS;
     let mut warmup = 5usize;
     let mut limit: Option<usize> = None;
-    let mut nine_key = false;
+    let mut grid: Option<KeyGrid> = None;
     let mut index = 0;
     while index < args.len() {
         let take = |index: &mut usize| -> Result<String, String> {
@@ -172,13 +172,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--budget-ms" => budget_ms = take(&mut index)?.parse()?,
             "--warmup" => warmup = take(&mut index)?.parse()?,
             "--limit" => limit = Some(take(&mut index)?.parse()?),
-            "--nine-key" => nine_key = true,
+            "--grid" => grid = Some(parse_grid(&take(&mut index)?)?),
+            // `--grid nine` 的旧写法。
+            "--nine-key" => grid = Some(KeyGrid::NineKey),
             other => return Err(format!("unknown argument: {other}").into()),
         }
         index += 1;
     }
     let resources = resources.ok_or(
-        "usage: rerank_latency --resources <verified-dir> --set <file.tsv> [--budget-ms 16] [--warmup 5] [--limit N] [--nine-key]",
+        "usage: rerank_latency --resources <verified-dir> --set <file.tsv> [--budget-ms 16] [--warmup 5] [--limit N] [--grid nine]",
     )?;
     if sets.is_empty() {
         return Err("at least one --set is required".into());
@@ -237,9 +239,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ranked.focus(true)?;
     ranked.set_reranker(Some(Reranker::new(model)));
     // 九键的长串数字每次按键都要重新解一遍整句，量它的按键延迟要在九宫格上打（#6059）。
-    if nine_key {
-        plain.set_nine_key_enabled(true)?;
-        ranked.set_nine_key_enabled(true)?;
+    match grid {
+        Some(KeyGrid::NineKey) => {
+            plain.set_nine_key_enabled(true)?;
+            ranked.set_nine_key_enabled(true)?;
+        }
+        None => {}
     }
 
     // The first keystrokes of a process pay for lazily-opened dictionaries and a cold allocator.
@@ -247,8 +252,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // outside the samples.
     let mut discard = Arm::default();
     for case in cases.iter().take(warmup) {
-        type_case(&mut ranked, &case.input, nine_key, &mut discard)?;
-        type_case(&mut plain, &case.input, nine_key, &mut discard)?;
+        type_case(&mut ranked, &case.input, grid, &mut discard)?;
+        type_case(&mut plain, &case.input, grid, &mut discard)?;
     }
 
     let mut off = Arm::default();
@@ -259,11 +264,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (position, case) in cases.iter().enumerate() {
         let before = on.samples.len();
         if position % 2 == 0 {
-            type_case(&mut plain, &case.input, nine_key, &mut off)?;
-            type_case(&mut ranked, &case.input, nine_key, &mut on)?;
+            type_case(&mut plain, &case.input, grid, &mut off)?;
+            type_case(&mut ranked, &case.input, grid, &mut on)?;
         } else {
-            type_case(&mut ranked, &case.input, nine_key, &mut on)?;
-            type_case(&mut plain, &case.input, nine_key, &mut off)?;
+            type_case(&mut ranked, &case.input, grid, &mut on)?;
+            type_case(&mut plain, &case.input, grid, &mut off)?;
         }
         let case_max = on.samples[before..]
             .iter()
@@ -339,10 +344,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// 小写字母在九宫格上对应的数字；其他字符（少数用例里的 `'`）不输入。与 `convert_eval` 的同名函数相同。
-fn keypad_digit(letter: u8) -> Option<u8> {
-    const KEYPAD: &[u8; 26] = b"22233344455566677778889999";
-    letter
-        .is_ascii_lowercase()
-        .then(|| KEYPAD[usize::from(letter - b'a')])
+/// `--grid` 的取值，与 `convert_eval` 的同名函数相同。
+fn parse_grid(name: &str) -> Result<KeyGrid, String> {
+    match name {
+        "nine" => Ok(KeyGrid::NineKey),
+        other => Err(format!("unknown grid: {other} (expected nine)")),
+    }
 }

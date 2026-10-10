@@ -45,6 +45,7 @@ pub use error::{EngineError, Result};
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 pub use handwriting::handwriting_recognize;
 pub use handwriting::order_handwriting_candidates;
+pub use nine_key::KeyGrid;
 pub use paths::RuntimePaths;
 pub use pinyin::glide::{GlideKeyboard, GlidePoint};
 pub use session::{Clock, Session, SessionOptions, SessionSnapshot};
