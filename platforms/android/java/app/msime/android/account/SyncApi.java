@@ -554,9 +554,8 @@ public final class SyncApi {
             HttpsURLConnection connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + path).openConnection();
             HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod(method);
-            connection.setConnectTimeout(CloudApi.CONNECT_TIMEOUT_MILLIS);
             // 快照在服务端整份导出或原子恢复，读超时和 client-core 一样放宽到两分钟以上。
-            connection.setReadTimeout(130_000);
+            HttpConnectionPolicy.setTimeouts(connection, CloudApi.CONNECT_TIMEOUT_MILLIS, 130_000);
             connection.setRequestProperty("Accept", accept);
             connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
             connection.setRequestProperty("Authorization", "Bearer " + token);

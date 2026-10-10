@@ -531,8 +531,7 @@ public final class UpdateApi {
     private static Exchange httpGet(String url) throws IOException {
         HttpsURLConnection connection = (HttpsURLConnection) new URL(url).openConnection();
         HttpConnectionPolicy.rejectRedirects(connection);
-        connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-        connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+        HttpConnectionPolicy.setTimeouts(connection, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS);
         connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
         connection.setRequestProperty("Accept", "*/*");
         int status = connection.getResponseCode();

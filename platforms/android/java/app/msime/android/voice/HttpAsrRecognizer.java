@@ -148,8 +148,7 @@ public final class HttpAsrRecognizer {
             // The bearer token belongs to this configured origin. Never let HttpURLConnection
             // replay it after a redirect to another host or protocol.
             HttpConnectionPolicy.rejectRedirects(opened);
-            opened.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-            opened.setReadTimeout(READ_TIMEOUT_MILLIS);
+            HttpConnectionPolicy.setTimeouts(opened, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS);
             opened.setRequestMethod("POST");
             opened.setDoOutput(true);
             opened.setFixedLengthStreamingMode(body.length);

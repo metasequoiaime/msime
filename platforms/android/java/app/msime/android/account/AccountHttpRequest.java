@@ -12,8 +12,7 @@ final class AccountHttpRequest {
             String userAgent, byte[] payload) throws IOException {
         HttpConnectionPolicy.rejectRedirects(connection);
         connection.setRequestMethod(method);
-        connection.setConnectTimeout(30_000);
-        connection.setReadTimeout(30_000);
+        HttpConnectionPolicy.setTimeouts(connection, 30_000, 30_000);
         connection.setRequestProperty("Accept", "application/json");
         connection.setRequestProperty("User-Agent", userAgent);
         if (token != null) connection.setRequestProperty("Authorization", "Bearer " + token);

@@ -431,9 +431,9 @@ public final class DeviceDataApi {
         try {
             HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("GET");
-            connection.setConnectTimeout(CloudApi.CONNECT_TIMEOUT_MILLIS);
             // 导出在服务端现拼，给它比普通请求长的读超时。
-            connection.setReadTimeout(CloudApi.READ_TIMEOUT_MILLIS * 4);
+            HttpConnectionPolicy.setTimeouts(connection, CloudApi.CONNECT_TIMEOUT_MILLIS,
+                    CloudApi.READ_TIMEOUT_MILLIS * 4);
             connection.setRequestProperty("Accept", "application/zip");
             connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
             connection.setRequestProperty("Authorization", "Bearer " + token);

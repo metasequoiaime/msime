@@ -28,8 +28,7 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
             if (cancellation.cancelled()) throw new AiPolishClient.Failure(AiPolishClient.Reason.CANCELLED);
             HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("POST");
-            connection.setConnectTimeout(60_000);
-            connection.setReadTimeout(60_000);
+            HttpConnectionPolicy.setTimeouts(connection, 60_000, 60_000);
             connection.setDoOutput(true);
             connection.setFixedLengthStreamingMode(bytes.length);
             connection.setRequestProperty("Content-Type", "application/json");

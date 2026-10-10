@@ -738,8 +738,7 @@ public final class BackendAccount {
             if (!call.attach(connection)) throw new CancellationException("chat cancelled");
             HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("POST");
-            connection.setConnectTimeout(30_000);
-            connection.setReadTimeout(30_000);
+            HttpConnectionPolicy.setTimeouts(connection, 30_000, 30_000);
             connection.setRequestProperty("Accept", "text/event-stream");
             connection.setRequestProperty("User-Agent", DEFAULT_USER_AGENT);
             connection.setRequestProperty("Authorization", "Bearer " + token);

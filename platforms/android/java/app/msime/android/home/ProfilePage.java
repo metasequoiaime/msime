@@ -125,8 +125,7 @@ public final class ProfilePage extends DetailPage {
             HttpsURLConnection connection = (HttpsURLConnection) new URL(url).openConnection();
             try {
                 HttpConnectionPolicy.rejectRedirects(connection);
-                connection.setConnectTimeout(10_000);
-                connection.setReadTimeout(15_000);
+                HttpConnectionPolicy.setTimeouts(connection, 10_000, 15_000);
                 connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
                 if (connection.getResponseCode() / 100 != 2) return null;
                 try (InputStream input = connection.getInputStream()) {

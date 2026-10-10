@@ -100,8 +100,7 @@ public final class AiPolishModelCatalog {
             connection = (HttpURLConnection) AiEndpointPolicy.open(uri.toURL());
             HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("GET");
-            connection.setConnectTimeout(30_000);
-            connection.setReadTimeout(30_000);
+            HttpConnectionPolicy.setTimeouts(connection, 30_000, 30_000);
             connection.setRequestProperty("Accept", "application/json");
             if (anthropic) {
                 connection.setRequestProperty("x-api-key", token);

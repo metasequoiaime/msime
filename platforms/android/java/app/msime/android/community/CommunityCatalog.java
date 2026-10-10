@@ -101,8 +101,7 @@ public final class CommunityCatalog {
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
         HttpConnectionPolicy.rejectRedirects(connection);
         connection.setRequestMethod(method);
-        connection.setConnectTimeout(TIMEOUT_MILLIS);
-        connection.setReadTimeout(TIMEOUT_MILLIS);
+        HttpConnectionPolicy.setTimeouts(connection, TIMEOUT_MILLIS, TIMEOUT_MILLIS);
         connection.setRequestProperty("Accept", "application/json");
         connection.setRequestProperty("User-Agent", "MSIME/Android");
         return connection;

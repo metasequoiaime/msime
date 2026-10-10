@@ -451,8 +451,7 @@ public final class CloudApi {
         try {
             HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod(method);
-            connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+            HttpConnectionPolicy.setTimeouts(connection, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS);
             for (Map.Entry<String, String> header : headers.entrySet()) {
                 connection.setRequestProperty(header.getKey(), header.getValue());
             }

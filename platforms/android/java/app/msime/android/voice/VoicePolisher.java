@@ -46,8 +46,7 @@ public final class VoicePolisher {
             connection = (HttpURLConnection) new URL(endpoint).openConnection();
             this.connection = connection;
             if (cancelled) return null;
-            connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+            HttpConnectionPolicy.setTimeouts(connection, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS);
             connection.setRequestMethod("POST");
             connection.setDoOutput(true);
             // The bearer token belongs to this configured origin. Never let HttpURLConnection

@@ -45,8 +45,8 @@ public final class OnlineCandidateTransport {
             connection = (HttpsURLConnection) target.openConnection();
             HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("GET");
-            connection.setConnectTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
-            connection.setReadTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
+            HttpConnectionPolicy.setTimeouts(connection,
+                OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS, OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
             connection.setRequestProperty("Accept", "application/json");
             watchdog = CLOUD_DEADLINES.schedule(connection::disconnect,
                 OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
@@ -76,10 +76,9 @@ public final class OnlineCandidateTransport {
             connection = (HttpURLConnection) AiEndpointPolicy.open(target);
             HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("POST");
-            connection.setConnectTimeout(KeyboardGeometry.bounded(
+            HttpConnectionPolicy.setTimeouts(connection, KeyboardGeometry.bounded(
                 KeyboardGeometry.strictInt(descriptor, "connect_timeout_ms", CONNECT_TIMEOUT_MILLIS),
-                1_000, 10_000));
-            connection.setReadTimeout(KeyboardGeometry.bounded(
+                1_000, 10_000), KeyboardGeometry.bounded(
                 KeyboardGeometry.strictInt(descriptor, "timeout_ms", READ_TIMEOUT_MILLIS),
                 1_000, 10_000));
             connection.setDoOutput(true);
