@@ -430,7 +430,7 @@ mod tests {
             assert_eq!(custom.kind, ShuangpinProfileKind::Custom);
             assert_eq!(custom.uses_semicolon_key(), builtin.uses_semicolon_key());
             for first in b'a'..=b'z' {
-                for second in (b'a'..=b'z').chain([b';']) {
+                for second in (b'a'..=b'z').chain(*b";") {
                     let code = code_text(first, second);
                     assert_eq!(
                         cvt_single_sp_to_pinyin(&code, custom),
