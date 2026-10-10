@@ -9,8 +9,13 @@ public final class ColorPolicy {
 
     /** Multiply a colour's existing alpha by the supplied factor. */
     public static int withAlpha(int color, float alpha) {
-        int base = Color.alpha(color);
+        int base = (color >>> 24) & 0xFF;
         return (color & 0x00FFFFFF) | (Math.round(base * alpha) << 24);
+    }
+
+    /** 把 double 透明度限制在 0–1 后乘进颜色已有的 alpha。 */
+    public static int withAlpha(int color, double alpha) {
+        return withAlpha(color, (float) BoundsPolicy.bounded(alpha, 0d, 1d));
     }
 
     /** Replace a colour's alpha channel with an explicit 0–255 value. */

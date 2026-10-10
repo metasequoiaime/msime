@@ -12,6 +12,7 @@ final class MacDictionaryModel: ObservableObject {
   @Published var importText: String?
   @Published var format = BackendAccountClient.DictionaryFileFormat.standard
   private let accountID: String
+  private var sessionID: UUID?
   private let client: BackendAccountClient
   private let account: BackendAccountSession
   private var pending: Task<Void, Never>?
@@ -21,9 +22,10 @@ final class MacDictionaryModel: ObservableObject {
     self.accountID = accountID; self.client = client; self.account = account
   }
   func authorize() async throws -> String {
-    let identity = try await account.credentials(matchingUserID: accountID)
+    let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
     try Task.checkCancellation()
     guard !closed, identity.userID == accountID else { throw CancellationError() }
+    sessionID = identity.sessionID
     return identity.token
   }
   private func run(offset: Int = 0, _ operation: @escaping @MainActor (String, BackendAccountClient.DictionaryKind) async throws -> Void) {

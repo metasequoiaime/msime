@@ -14,7 +14,6 @@ import android.net.ConnectivityManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
 import androidx.annotation.Nullable;
 import app.msime.android.home.HostStore;
 import app.msime.android.home.MsToast;
@@ -71,7 +70,7 @@ public final class ResourcePackService extends Service {
     private static final List<Listener> LISTENERS = new CopyOnWriteArrayList<>();
     /** 用户已经要求取消、但下载还没结束的资源包。共享层的取消标记要等下载线程进入安装后才登记，在那之前的取消只记在这里，由下载线程补上。 */
     private static final Set<String> CANCELLING = ConcurrentHashMap.newKeySet();
-    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final Handler MAIN = MainThreadPolicy.mainHandler();
 
     // ---- 设置页用的静态入口（主线程） ----
 

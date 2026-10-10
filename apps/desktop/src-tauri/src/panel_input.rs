@@ -646,14 +646,17 @@ fn panel_input_socket() -> Option<std::path::PathBuf> {
 pub(crate) enum ImeReply {
     Ok(Option<u64>),
     Declined,
+    Rejected,
 }
 
 #[cfg(target_os = "linux")]
 #[derive(Debug, PartialEq, Eq)]
 enum ImeOutcome {
     Delivered,
-    // The host answered that it did not type anything, or could not be reached: another route may try.
+    // The host had no focused context, or could not be reached: another route may try.
     Declined,
+    // The host explicitly refused the request; a tool route must not bypass it.
+    Rejected,
     // The request was sent and no answer came back. The host may still have typed it, so no other route may try, or the text could appear twice.
     Unknown,
 }
@@ -665,7 +668,11 @@ pub(crate) fn parse_ime_reply(line: &str) -> Option<ImeReply> {
         true => Some(ImeReply::Ok(
             value.get("generation").and_then(serde_json::Value::as_u64),
         )),
-        false => Some(ImeReply::Declined),
+        false => match value.get("error")?.as_str()? {
+            "no_focus" => Some(ImeReply::Declined),
+            "restricted" | "invalid" => Some(ImeReply::Rejected),
+            _ => None,
+        },
     }
 }
 
@@ -733,6 +740,7 @@ fn send_through_input_method(app: &tauri::AppHandle, mut request: serde_json::Va
         return match ime_exchange(&socket, &request) {
             Ok(ImeReply::Ok(_)) => ImeOutcome::Delivered,
             Ok(ImeReply::Declined) => ImeOutcome::Declined,
+            Ok(ImeReply::Rejected) => ImeOutcome::Rejected,
             Err(outcome) => outcome,
         };
     }
@@ -751,6 +759,7 @@ fn send_through_input_method(app: &tauri::AppHandle, mut request: serde_json::Va
         match ime_exchange(&socket, &request) {
             Ok(ImeReply::Ok(_)) => ImeOutcome::Delivered,
             Ok(ImeReply::Declined) => ImeOutcome::Declined,
+            Ok(ImeReply::Rejected) => ImeOutcome::Rejected,
             Err(outcome) => outcome,
         }
     };
@@ -767,7 +776,7 @@ fn settle_through_input_method(
 ) -> Option<Result<(), HostActionError>> {
     match send_through_input_method(app, request) {
         ImeOutcome::Delivered => Some(Ok(())),
-        ImeOutcome::Unknown => Some(Err(HostActionError {
+        ImeOutcome::Unknown | ImeOutcome::Rejected => Some(Err(HostActionError {
             code: "unavailable",
         })),
         ImeOutcome::Declined if matches!(target, PanelInputTarget::InputMethod) => {

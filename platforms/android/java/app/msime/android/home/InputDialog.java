@@ -4,9 +4,7 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
-import android.text.Editable;
 import android.text.InputType;
-import android.text.TextWatcher;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
@@ -50,12 +48,11 @@ public final class InputDialog {
         dialog.supportRequestWindowFeature(Window.FEATURE_NO_TITLE);
 
         LinearLayout root = Ui.column(context);
-        ViewPolicy.setBackground(root, Ui.rounded(Ui.sheetBackground(context), Ui.dp(context, Ui.DIALOG_RADIUS)));
+        ViewPolicy.setBackground(root, DrawablePolicy.rounded(Ui.sheetBackground(context), Ui.dp(context, Ui.DIALOG_RADIUS)));
         root.setClipToOutline(true);
 
-        TextView heading = Ui.styledLabel(context, title, Ui.TEXT_DIALOG_TITLE, 600, Ui.text(context));
+        TextView heading = Ui.headingLabel(context, title, Ui.TEXT_DIALOG_TITLE, 600, Ui.text(context));
         ViewPolicy.setCentered(heading);
-        heading.setAccessibilityHeading(true);
         LinearLayout.LayoutParams headingParams = Ui.matchWidth();
         headingParams.topMargin = Ui.dp(context, 20);
         headingParams.leftMargin = Ui.dp(context, 20);
@@ -63,8 +60,8 @@ public final class InputDialog {
         root.addView(heading, headingParams);
 
         if (message != null && message.length() > 0) {
-            TextView note = Ui.styledLabel(context, message, Ui.TEXT_SHEET_HEADER, 400, Ui.subText(context));
-            ViewPolicy.setCentered(note);
+            TextView note = Ui.centeredLabel(context, message, Ui.TEXT_SHEET_HEADER, 400,
+                Ui.subText(context));
             LinearLayout.LayoutParams params = Ui.matchWidth();
             params.topMargin = Ui.dp(context, 4);
             params.leftMargin = Ui.dp(context, 20);
@@ -80,11 +77,13 @@ public final class InputDialog {
         LinearLayout buttons = Ui.row(context);
         TextView cancel = button("取消", 400, Ui.accent(context));
         ViewPolicy.bindClick(cancel, dialog::cancel);
-        buttons.addView(cancel, Ui.weightedHeight(context, 48, 1f));
+        buttons.addView(cancel,
+            KeyboardGeometry.weightedHeightPxParams(Ui.dp(context, 48), 1f));
         buttons.addView(Ui.divider(context, false));
         primary = button("确定", 600, Ui.text(context));
         ViewPolicy.bindClick(primary, this::submit);
-        buttons.addView(primary, Ui.weightedHeight(context, 48, 1f));
+        buttons.addView(primary,
+            KeyboardGeometry.weightedHeightPxParams(Ui.dp(context, 48), 1f));
         root.addView(buttons, Ui.matchWidth());
 
         dialog.setContentView(root);
@@ -117,13 +116,7 @@ public final class InputDialog {
             KeyboardGeometry.atLeastOnePixel(context, 1), Ui.hairline(context));
         ViewPolicy.setBackground(input, field);
         Ui.setHorizontalPaddingDp(input, context, 12);
-        input.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
-
-            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
-
-            @Override public void afterTextChanged(Editable text) { refresh(); }
-        });
+        Ui.afterTextChanged(input, ignored -> refresh());
         input.setOnEditorActionListener((view, actionId, event) -> {
             int index = inputs.indexOf(input);
             if (index < inputs.size() - 1) return false;

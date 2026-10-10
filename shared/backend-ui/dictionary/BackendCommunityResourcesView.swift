@@ -14,6 +14,7 @@ struct BackendCommunityResourcesView: View {
   @State private var pending: Task<Void, Never>?
   @State private var selected: BackendAccountClient.CommunityResource?
   @State private var creating = false
+  @State private var sessionID: UUID?
   private let client = BackendAccountClient()
   private var scopeTitle: String {
     switch scope {
@@ -23,7 +24,11 @@ struct BackendCommunityResourcesView: View {
     }
   }
   private func authorize() async throws -> String {
-    let value = try await BackendAccountSession.shared.credentials(matchingUserID: accountID)
+    let value = try await BackendAccountSession.shared.credentials(matchingUserID: accountID,
+                                                                   matchingSessionID: sessionID)
+    if let sessionID {
+      guard value.sessionID == sessionID else { throw CancellationError() }
+    } else { sessionID = value.sessionID }
     try Task.checkCancellation(); return value.token
   }
   var body: some View {
@@ -330,7 +335,7 @@ struct CommunityResourcesAccountView: View {
 struct CommunityCloudImportButton: View {
   let resourceID: UUID
   let resourceRevision: Int
-  var credentials: @MainActor () async throws -> (userID: String, token: String) = {
+  var credentials: @MainActor () async throws -> (userID: String, token: String, sessionID: UUID) = {
     try await BackendAccountSession.shared.credentials()
   }
   private struct Preview {
@@ -338,6 +343,7 @@ struct CommunityCloudImportButton: View {
     let resourceRevision: Int
     let dictionaryRevision: Int64
     let accountID: String
+    let sessionID: UUID
   }
   @State private var preview: Preview?
   @State private var confirming = false
@@ -351,9 +357,11 @@ struct CommunityCloudImportButton: View {
       run {
         let identity = try await credentials()
         let catalog = try await client.dictionaryCatalog(.quick, code: "", token: identity.token)
-        _ = try await BackendAccountSession.shared.credentials(matchingUserID: identity.userID)
+        _ = try await BackendAccountSession.shared.credentials(matchingUserID: identity.userID,
+                                                                matchingSessionID: identity.sessionID)
         try Task.checkCancellation()
-        preview = Preview(resourceID: id, resourceRevision: version, dictionaryRevision: catalog.revision, accountID: identity.userID)
+        preview = Preview(resourceID: id, resourceRevision: version, dictionaryRevision: catalog.revision,
+                          accountID: identity.userID, sessionID: identity.sessionID)
         confirming = true
       }
     }.disabled(busy)
@@ -367,11 +375,13 @@ struct CommunityCloudImportButton: View {
           guard let selected = preview else { return }
           preview = nil
           run {
-            let identity = try await BackendAccountSession.shared.credentials(matchingUserID: selected.accountID)
+            let identity = try await BackendAccountSession.shared.credentials(matchingUserID: selected.accountID,
+                                                                              matchingSessionID: selected.sessionID)
             try Task.checkCancellation()
             let result = try await client.applyResource(selected.resourceID, resourceRevision: selected.resourceRevision,
               dictionaryRevision: selected.dictionaryRevision, token: identity.token)
-            _ = try await BackendAccountSession.shared.credentials(matchingUserID: selected.accountID)
+            _ = try await BackendAccountSession.shared.credentials(matchingUserID: selected.accountID,
+                                                                    matchingSessionID: selected.sessionID)
             try Task.checkCancellation()
             message = "已导入云端词库，新增或更新 \(result.imported) 个词条。请通过词库同步应用到本机。"
           }

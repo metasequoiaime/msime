@@ -21,3 +21,5 @@ Status: implemented
 ## Consequences
 
 每个计划中的纠错键只分配最终 `String`，不再为短音节范围创建临时 `Vec<String>` 或克隆替换音节。
+
+词网格跨度的固定别名规范化采用[独立的借用查询键规划](2026-10-10-pinyin-lattice-span-key-plan.md)，保留本篇纠错替换位置和范围拼接行为。

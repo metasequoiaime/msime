@@ -89,7 +89,7 @@ struct TsfLocalConfig {
   bool tsf_diagnostic_log = false;
   // 0 follow, 1 always Chinese, 2 always English.
   uint8_t punctuation_lock = 0;
-  // The local modes whose keys the TIP must route as composition input: Shift+V's digits and operators, and the "/" or "@" that opens a mode on an empty composition. Each is on only in a pinyin scheme, the only schemes the Engine opens them in.
+  // The local modes whose keys the TIP must route as composition input: Shift+V's digits and operators, and the "/" or "@" that opens a mode on an empty composition. Each is on only where the Engine opens it (apply_local_mode_switches): V in the pinyin schemes (`opens_local_modes`), "/" and "@" in the pinyin schemes and Wubi (`opens_table_modes`).
   bool expression_mode = false;
   bool command_mode = false;
   bool mention_mode = false;
@@ -98,6 +98,8 @@ struct TsfLocalConfig {
   // 组字时 ';' 和 '\'' 选第二、第三个候选，TIP 据此把这两个键归为数字选词（SecondThirdCandidatePolicy.h）。
   bool second_third_candidate = false;
 };
+// Set the V, "/" and "@" flags from the user's `local_modes` switches for `scheme`, the `SchemeType` number of the scheme the Engine runs (scheme::scheme_from_name; -1 for a name no build knows). A switch stays off where the Engine would not open its mode: V follows scheme::OpensLocalModes, "/" and "@" follow scheme::OpensTableModes.
+void apply_local_mode_switches(TsfLocalConfig &config, int scheme, bool expression, bool command, bool mention);
 // One frame per setting, in the order the reference pushes them.
 std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config);
 // Caps Lock changes on its own cadence, so it gets its own frame rather than

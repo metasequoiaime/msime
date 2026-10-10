@@ -53,7 +53,17 @@ docker run --rm --init \
       -DMSIME_ENABLE_FCITX5=ON \
       -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so
     cmake --build /build/cmake
-    ctest --test-dir /build/cmake --output-on-failure
+    ctest --test-dir /build/cmake --output-on-failure --output-junit /build/native-tests.xml
+    # 两项真实 classicui 测试必须注册并执行，缺依赖或返回 77 都不能让门禁假绿。
+    python3 - /build/native-tests.xml <<"PY"
+import sys
+import xml.etree.ElementTree as ET
+report = ET.parse(sys.argv[1]).getroot()
+for name in ("fcitx5-candidate-theme-priority", "fcitx5-candidate-theme-hint"):
+    tests = [test for test in report.findall("testcase") if test.get("name") == name]
+    assert len(tests) == 1, f"{name}: missing from Linux gate"
+    assert tests[0].get("status") == "run" and tests[0].find("skipped") is None, f"{name}: skipped"
+PY
     # 不是 full 的版本只差 LinuxEdition.h 里的名字和按版本改写的脚本，但那条配置与编译路径（cmake/Edition.cmake、改写规则、系统目录下带版本名的文件）只有打包时才会走到。这里用五笔版按打包的前缀配置并编译一遍，不跑单测；再把它与 full 各自装进暂存目录，两边不能有同一个路径的文件，否则两个包装不到一起。
     cmake -S platforms/linux -B /build/cmake-wubi -G Ninja \
       -DMSIME_EDITION=wubi \

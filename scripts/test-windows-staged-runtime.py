@@ -64,10 +64,28 @@ if call[0] == "run":
         if arg.endswith(":/rt:ro"):
             folder = pathlib.Path(arg[:-len(":/rt:ro")])
             entry["runtime"] = {p.name: p.read_text() for p in folder.glob("*.dll")}
+        if arg.endswith(":/repo"):
+            entry["repo"] = arg[:-len(":/repo")]
 with open(os.environ["MSIME_TEST_DOCKER_LOG"], "a") as log:
     log.write(json.dumps(entry) + "\\n")
+if "--message-format=json" in " ".join(call):
+    if os.environ.get("MSIME_TEST_CARGO_FAIL"):
+        print("error: synthetic Cargo failure", file=sys.stderr)
+        sys.exit(1)
+    for target in ("msime_host_windows", "paste_policy", "msime_engine", "golden"):
+        exe = pathlib.Path(entry["repo"]) / f"target/x86_64-pc-windows-gnu/debug/deps/{target}-0123456789abcdef.exe"
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_text("synthetic Rust test executable")
+        print(json.dumps({"executable": "/repo/" + str(exe.relative_to(entry["repo"])),
+                          "profile": {"test": True}, "target": {"name": target}}))
 if "runtime" in entry:
     print("PASS windows-synthetic-runtime")
+    rust_stage = next((pathlib.Path(arg[:-len(":/bin-rust:ro")]) for arg in call
+                       if arg.endswith(":/bin-rust:ro")), None)
+    if rust_stage is not None and (rust_stage / "rust-msime_host_windows.exe").is_file():
+        print("PASS rust-msime_host_windows")
+if call[:2] == ["info", "--format"]:
+    print("linux/arm64")
 ''')
 
     def write_command(self, name, text):
@@ -156,6 +174,8 @@ if "runtime" in entry:
         self.assertIn("Unclassified dependency: synthetic-unknown.dll", result.stderr)
 
     def test_wine_uses_staged_dlls_without_querying_host_or_cross_compiler(self):
+        (self.bin / "x86_64-w64-mingw32-gcc").symlink_to("synthetic-compiler")
+        (self.bin / "i686-w64-mingw32-gcc").symlink_to("synthetic-compiler")
         for arch in ("x86", "x64"):
             with self.subTest(arch=arch):
                 self.log.unlink(missing_ok=True)
@@ -178,6 +198,94 @@ if "runtime" in entry:
                 self.assertEqual(run["runtime"], {name: f"synthetic-{arch}-{name}" for name in self.names(arch)})
                 self.assertEqual(run["args"][run["args"].index("--platform") + 1], "linux/amd64")
                 self.assertIn("PASS windows-synthetic-runtime", result.stdout)
+
+    def test_wine_stages_rust_tests_with_cross_container_when_host_lacks_mingw(self):
+        build = self.root / "target/windows-full/x64"
+        build.mkdir(parents=True)
+        for name in self.names("x64"):
+            (build / name).write_text(name)
+        result = subprocess.run(["bash", str(self.windows / "run-tests-wine.sh"), "x64"],
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        staged = self.root / "target/wine-rust-tests/x64/rust-msime_host_windows.exe"
+        self.assertTrue(staged.is_file(), result.stdout)
+        self.assertIn("PASS rust-msime_host_windows", result.stdout)
+        self.assertTrue((staged.parent / "rust-paste_policy.exe").is_file())
+        self.assertFalse((staged.parent / "rust-msime_engine.exe").exists())
+        self.assertFalse((staged.parent / "rust-golden.exe").exists())
+        calls = [json.loads(line)["args"] for line in self.log.read_text().splitlines()]
+        cargo_run = next((args for args in calls if "--message-format=json" in " ".join(args)), None)
+        self.assertIsNotNone(cargo_run, calls)
+        self.assertIn("msime-cross:local-arm64", cargo_run)
+        self.assertIn("CARGO_HOME=/repo/target/windows-cross/cargo-home", cargo_run)
+        self.assertIn("CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc", cargo_run)
+
+    def test_wine_reports_rust_build_failure_alongside_native_results(self):
+        build = self.root / "target/windows-full/x64"
+        build.mkdir(parents=True)
+        for name in self.names("x64"):
+            (build / name).write_text(name)
+        self.env["MSIME_TEST_CARGO_FAIL"] = "1"
+        result = subprocess.run(["bash", str(self.windows / "run-tests-wine.sh"), "x64"],
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("FAIL rust-test-build", result.stdout)
+        self.assertIn("PASS windows-synthetic-runtime", result.stdout)
+
+    def test_wine_supplies_dictionary_fixtures_to_stroke_and_zhuyin_suites(self):
+        build = self.root / "target/windows-full/x64"
+        build.mkdir(parents=True)
+        for name in self.names("x64"):
+            (build / name).write_text(name)
+        for name in ("windows-stroke-keys.exe", "windows-zhuyin-keys.exe"):
+            (build / name).write_text("synthetic test executable")
+        fixtures = self.windows / "tests/input/fixtures"
+        fixtures.mkdir(parents=True)
+        for name in ("msime-stroke.db", "msime-zhuyin.db"):
+            (fixtures / name).write_text("synthetic dictionary")
+        result = subprocess.run(["bash", str(self.windows / "run-tests-wine.sh"), "x64"],
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = [json.loads(line) for line in self.log.read_text().splitlines()]
+        wine = next(call["args"] for call in calls if "runtime" in call)
+        self.assertIn(f"{fixtures}:/fixtures:ro", wine)
+        command = "\n".join(wine)
+        self.assertIn("msime-stroke.db", command)
+        self.assertIn("msime-zhuyin.db", command)
+
+    def test_wine_runs_tsf_subdirectory_tests_with_source_for_wiring_checks(self):
+        build = self.root / "target/windows-full/x64"
+        tsf_build = build / "tsf"
+        tsf_build.mkdir(parents=True)
+        for name in self.names("x64"):
+            (build / name).write_text(name)
+        for name in ("msime-tsf-paired-punctuation-wiring-test.exe",
+                     "msime-tsf-smart-punctuation-focus-wiring-test.exe"):
+            (tsf_build / name).write_text("synthetic test executable")
+        for directory, name in (("registration_categories", "msime-tsf-category-registration-test.exe"),
+                                ("registration_profiles", "msime-tsf-profile-registration-test.exe")):
+            nested = tsf_build / "tests" / directory
+            nested.mkdir(parents=True)
+            (nested / name).write_text("synthetic test executable")
+        source = self.windows / "tsf"
+        source.mkdir()
+        (tsf_build / "libMetasequoiaImeTsf.dll").write_text("synthetic TSF DLL")
+
+        result = subprocess.run(["bash", str(self.windows / "run-tests-wine.sh"), "x64"],
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = [json.loads(line) for line in self.log.read_text().splitlines()]
+        wine = next(call["args"] for call in calls if "runtime" in call)
+        command = "\n".join(wine)
+        self.assertIn("/bin-win/tsf/msime-tsf-*.exe", command)
+        self.assertIn("/bin-win/tsf/tests/registration_categories/msime-tsf-*.exe", command)
+        self.assertIn("/bin-win/tsf/tests/registration_profiles/msime-tsf-*.exe", command)
+        self.assertIn("cp /bin-win/tsf/*MetasequoiaImeTsf.dll /run/t/", command)
+        self.assertIn(f"{source}:/tsf-source:ro", wine)
+        self.assertIn("MSIME_TSF_SOURCE=Z:\\\\tsf-source", command)
+        for name in ("msime-tsf-paired-punctuation-wiring-test",
+                     "msime-tsf-smart-punctuation-focus-wiring-test"):
+            self.assertIn(f'"$name" = {name} ] && argument="$MSIME_TSF_SOURCE"', command)
 
 
 if __name__ == "__main__":

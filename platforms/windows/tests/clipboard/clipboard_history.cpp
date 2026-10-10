@@ -1,4 +1,5 @@
 #include "ClipboardHistory.h"
+#include "../core/MaterializedSymlink.h"
 #include <cassert>
 #include <chrono>
 #include <filesystem>
@@ -130,8 +131,8 @@ int main() {
        std::to_string(GetTickCount64()));
   REQUIRE(std::filesystem::create_directory(outside_directory));
   const auto linked_directory = directory / "linked";
-  if (CreateSymbolicLinkW(linked_directory.c_str(), outside_directory.c_str(),
-                          SYMBOLIC_LINK_FLAG_DIRECTORY)) {
+  if (msime::windows::tests::create_materialized_symlink(
+          linked_directory, outside_directory, SYMBOLIC_LINK_FLAG_DIRECTORY)) {
     msime::windows::ClipboardHistory linked_history(
         linked_directory / "history.json");
     REQUIRE(!linked_history.add("synthetic-reparse"));
@@ -147,7 +148,8 @@ int main() {
     std::ofstream output(outside_store, std::ios::trunc);
     output << "[\"synthetic-outside\"]";
   }
-  if (CreateSymbolicLinkW(linked_store.c_str(), outside_store.c_str(), 0)) {
+  if (msime::windows::tests::create_materialized_symlink(
+          linked_store, outside_store, 0)) {
     msime::windows::ClipboardHistory linked_history(linked_store);
     REQUIRE(linked_history.load().empty());
     REQUIRE(!linked_history.add("synthetic-reparse"));

@@ -1,4 +1,4 @@
-//! The matrix search the provider uses for sentence conversion (schemes-lang.md §5.6, `japanese_matrix_search.cpp`), modelled on Google Pinyin's MatrixSearch: one row per mora of the converted reading, k-best nodes per row extended by lemmas whose reading covers the next morae, plus a single unknown-kana backoff so every reading has a path.
+//! 日文句子转换矩阵（schemes-lang.md §5.6、`japanese_matrix_search.cpp`）：每个读音位置保留前八条路径，按词条跨度扩展，并以未知假名回退保证可达；物理行滚动复用。
 
 use super::decoder::JapaneseDictionary;
 use super::romaji::{kana_for_romaji_prefix_view, RomajiConversion};
@@ -107,41 +107,77 @@ impl Row {
     }
 }
 
-/// `SearchReading(conversion.hiragana, conversion.pending, limit)`: the best sentence, pending-kana completions, the other finals, then longest-prefix lemmas, unique by text.
+/// 测试冷查询与历史对照的拥有型入口：最佳句子、待定补全、其余末行和最长前缀词条，按文本去重。
+#[cfg(test)]
 pub fn search_converted(
     dictionary: &JapaneseDictionary,
     conversion: &RomajiConversion,
     limit: usize,
 ) -> Vec<JapaneseConversion> {
+    search_with_output(
+        dictionary,
+        conversion,
+        Output {
+            items: Vec::with_capacity(limit),
+            limit,
+        },
+    )
+}
+
+/// 先释放旧结果文本，再复用结果向量；排序、去重与限额仍由同一搜索核心处理。
+pub(crate) fn search_converted_into(
+    dictionary: &JapaneseDictionary,
+    conversion: &RomajiConversion,
+    limit: usize,
+    destination: &mut Vec<JapaneseConversion>,
+) {
+    destination.clear();
+    destination.reserve(limit);
+    *destination = search_with_output(
+        dictionary,
+        conversion,
+        Output {
+            items: std::mem::take(destination),
+            limit,
+        },
+    );
+}
+
+fn search_with_output(
+    dictionary: &JapaneseDictionary,
+    conversion: &RomajiConversion,
+    mut output: Output,
+) -> Vec<JapaneseConversion> {
     let reading = conversion.hiragana.as_str();
     let pending = conversion.pending.as_str();
-    let mut output = Output {
-        items: Vec::with_capacity(limit),
-        limit,
-    };
+    let limit = output.limit;
     if limit == 0 {
         return output.items;
     }
     let pending_kana = kana_for_romaji_prefix_view(pending);
     if reading.is_empty() {
         for kana in pending_kana {
-            for lemma in dictionary.prefix_lemma_views(kana, 24) {
+            dictionary.for_each_prefix_lemma_view(kana, 24, |lemma| {
                 output.push(lemma.surface, i64::from(lemma.word_cost));
-                if output.full() {
-                    return output.items;
-                }
+            });
+            if output.full() {
+                return output.items;
             }
         }
         return output.items;
     }
 
-    let boundaries: Vec<usize> = reading
+    let mora_count = reading.chars().count();
+    let mut next_boundaries = reading
         .char_indices()
-        .map(|(index, _)| index)
-        .chain(std::iter::once(reading.len()))
+        .map(|(index, character)| index + character.len_utf8());
+    let mut boundaries = [0; MAX_LEMMA_MORA + 1];
+    for boundary in boundaries.iter_mut().skip(1).take(mora_count) {
+        *boundary = next_boundaries.next().expect("计数读音边界");
+    }
+    let mut rows: Vec<Row> = (0..=mora_count.min(MAX_LEMMA_MORA))
+        .map(|_| Row::new())
         .collect();
-    let mora_count = boundaries.len() - 1;
-    let mut rows: Vec<Row> = (0..=mora_count).map(|_| Row::new()).collect();
     rows[0].nodes.push(Node {
         text: String::new(),
         cost: 0,
@@ -149,27 +185,36 @@ pub fn search_converted(
     });
 
     for start in 0..mora_count {
-        if rows[start].nodes.is_empty() {
+        let slot = start % (MAX_LEMMA_MORA + 1);
+        let start_byte = boundaries[slot];
+        // 当前字节位置已保存；最大跨度内的目标都不使用当前槽，提前补下一轮边界。
+        if mora_count - start > MAX_LEMMA_MORA {
+            boundaries[slot] = next_boundaries.next().expect("计数读音边界");
+        }
+        if rows[slot].nodes.is_empty() {
             continue;
         }
-        let previous_row = std::mem::take(&mut rows[start]);
-        let start_byte = boundaries[start];
+        let mut previous_row = std::mem::take(&mut rows[slot]);
         let max_end = mora_count.min(start + MAX_LEMMA_MORA);
         for end in start + 1..=max_end {
-            let key = &reading[start_byte..boundaries[end]];
-            for lemma in dictionary.exact_lemma_views(key, 24) {
+            let end_slot = end % (MAX_LEMMA_MORA + 1);
+            let key = &reading[start_byte..boundaries[end_slot]];
+            let target = &mut rows[end_slot];
+            dictionary.for_each_exact_lemma_view(key, 24, |lemma| {
                 for previous in &previous_row.nodes {
                     let cost = previous.cost
                         + i64::from(lemma.word_cost)
                         + i64::from(dictionary.connection_cost(previous.right_id, lemma.left_id));
-                    rows[end].extend(&previous.text, lemma.surface, cost, lemma.right_id);
+                    target.extend(&previous.text, lemma.surface, cost, lemma.right_id);
                 }
-            }
+            });
         }
 
-        let kana = &reading[start_byte..boundaries[start + 1]];
+        let next_slot = (start + 1) % (MAX_LEMMA_MORA + 1);
+        let kana = &reading[start_byte..boundaries[next_slot]];
+        let target = &mut rows[next_slot];
         for previous in &previous_row.nodes {
-            rows[start + 1].extend(
+            target.extend(
                 &previous.text,
                 kana,
                 previous.cost + i64::from(UNKNOWN_KANA_COST),
@@ -177,10 +222,16 @@ pub fn search_converted(
             );
         }
 
-        rows[start] = previous_row;
+        // 窗口多于最大跨度，当前槽与所有目标槽独立；扩展完立即释放前驱文本。
+        if mora_count - start > MAX_LEMMA_MORA {
+            previous_row.nodes.clear();
+            previous_row.ranked = false;
+            rows[slot] = previous_row;
+        }
+        // 尾部不再使用的槽直接析构，避免留住节点缓冲抬高峰值。
     }
 
-    let mut finals = std::mem::take(&mut rows[mora_count]).nodes;
+    let mut finals = std::mem::take(&mut rows[mora_count % (MAX_LEMMA_MORA + 1)]).nodes;
     for node in &mut finals {
         node.cost += i64::from(dictionary.connection_cost(node.right_id, 0));
     }
@@ -191,30 +242,46 @@ pub fn search_converted(
     }
 
     if !pending.is_empty() {
-        for kana in pending_kana {
-            for lemma in dictionary.exact_lemma_views(&join_text(reading, kana), 16) {
-                output.push(lemma.surface, i64::from(lemma.word_cost));
+        if let Some(first) = pending_kana.first() {
+            let suffix_capacity = if pending_kana.len() == 1 {
+                first.len()
+            } else {
+                pending_kana
+                    .iter()
+                    .map(|kana| kana.len())
+                    .max()
+                    .unwrap_or(0)
+            };
+            let mut key = String::with_capacity(reading.len() + suffix_capacity);
+            key.push_str(reading);
+            for kana in pending_kana {
+                // 只替换假名后缀，容量覆盖最长后缀，避免循环中扩容。
+                key.truncate(reading.len());
+                key.push_str(kana);
+                dictionary.for_each_exact_lemma_view(&key, 16, |lemma| {
+                    output.push(lemma.surface, i64::from(lemma.word_cost));
+                });
             }
         }
-        for lemma in dictionary.continuing_lemma_views(reading, pending_kana, 48) {
+        dictionary.for_each_continuing_lemma_view(reading, pending_kana, 48, |lemma| {
             output.push(lemma.surface, i64::from(lemma.word_cost));
-        }
+        });
     }
 
     for node in finals {
         output.push_owned(node.text, node.cost);
     }
 
-    for end in (1..=mora_count).rev() {
-        if output.full() {
+    // 矩阵窗口已覆盖早期位置；前缀从原读音末尾反向遍历，页满时不再解码。
+    let mut prefixes = reading.char_indices();
+    while !output.full() {
+        let Some((start, character)) = prefixes.next_back() else {
             break;
-        }
-        for lemma in dictionary.exact_lemma_views(&reading[..boundaries[end]], 16) {
+        };
+        let end = start + character.len_utf8();
+        dictionary.for_each_exact_lemma_view(&reading[..end], 16, |lemma| {
             output.push(lemma.surface, i64::from(lemma.word_cost));
-            if output.full() {
-                break;
-            }
-        }
+        });
     }
     output.items
 }
@@ -354,7 +421,7 @@ mod tests {
         );
         eprintln!("日文未命中双假名矩阵搜索分配：{allocations}");
         assert!(
-            allocations <= 8,
+            allocations <= 7,
             "未命中输出应接收已有句子文本：{allocations}"
         );
     }
@@ -381,7 +448,7 @@ mod tests {
         assert_eq!(actual, expected);
         eprintln!("日文密集单假名矩阵分配：{allocations}");
         assert!(
-            allocations <= 25,
+            allocations <= 22,
             "胜选文本应移入输出，败选不应构造文本：{allocations}"
         );
     }
@@ -398,7 +465,7 @@ mod tests {
         assert_eq!(texts(&actual), ["蚊", "か"]);
         eprintln!("日文单假名矩阵搜索分配：{allocations}");
         assert!(
-            allocations <= 11,
+            allocations <= 8,
             "词条应借用，句子文本应移入输出：{allocations}"
         );
     }
@@ -498,4 +565,60 @@ mod tests {
 }
 
 #[cfg(test)]
+#[path = "matrix/continuing_reference.rs"]
+mod continuing_reference;
+
+#[cfg(test)]
 mod pruning_tests;
+
+#[cfg(test)]
+#[path = "matrix/output_buffer_tests.rs"]
+mod output_buffer_tests;
+
+#[cfg(test)]
+#[path = "matrix/pending_tests.rs"]
+mod pending_tests;
+
+#[cfg(test)]
+#[path = "matrix/vector_row_reference.rs"]
+mod vector_row_reference;
+
+#[cfg(test)]
+#[path = "matrix/inline_row_experiment.rs"]
+mod inline_row_experiment;
+
+#[cfg(test)]
+#[path = "matrix/inline_row_tests.rs"]
+mod inline_row_tests;
+
+#[cfg(test)]
+#[path = "matrix/exact_stream_tests.rs"]
+mod exact_stream_tests;
+
+#[cfg(test)]
+#[path = "matrix/consumed_row_tests.rs"]
+mod consumed_row_tests;
+
+#[cfg(test)]
+#[path = "matrix/initial_prefix_tests.rs"]
+mod initial_prefix_tests;
+
+#[cfg(test)]
+#[path = "matrix/row_lifetime_tests.rs"]
+mod row_lifetime_tests;
+
+#[cfg(test)]
+#[path = "matrix/linear_row_reference.rs"]
+mod linear_row_reference;
+
+#[cfg(test)]
+#[path = "matrix/rolling_row_tests.rs"]
+mod rolling_row_tests;
+
+#[cfg(test)]
+#[path = "matrix/full_boundary_reference.rs"]
+mod full_boundary_reference;
+
+#[cfg(test)]
+#[path = "matrix/boundary_tests.rs"]
+mod boundary_tests;

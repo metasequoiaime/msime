@@ -249,6 +249,7 @@ import {
 } from "../entry/src/main/ets/keyboard/input/HandwritingRecognitionQueue";
 import { KeyboardFormFactorPolicy } from "../entry/src/main/ets/keyboard/KeyboardFormFactorPolicy";
 import { SettingsFormFactorCapabilities } from "../entry/src/main/ets/keyboard/settings/SettingsFormFactorCapabilities";
+import { VocabularyReviewRequest } from "../entry/src/main/ets/keyboard/settings/VocabularyReviewRequest";
 import { SymbolPanelPolicy } from "../entry/src/main/ets/keyboard/input/SymbolPanelPolicy";
 import {
   BackspaceHoldAction,
@@ -515,6 +516,30 @@ function check(condition: boolean, message: string): void {
 console.log("KeyboardGeometry");
 
 console.log("DictionaryMaintenancePolicy");
+
+console.log("VocabularyReviewRequest");
+group("vocabulary review request carries resources and gates plugins", () => {
+  const mobile = VocabularyReviewRequest.build(
+    "/synthetic/state",
+    "/synthetic/resources",
+    "2026-01-02",
+    { operation: "load" },
+    false,
+  );
+  check(mobile.directory === "/synthetic/state", "request keeps the state directory");
+  check(mobile.resources === "/synthetic/resources", "request carries the resource directory");
+  check(mobile.day === "2026-01-02", "request keeps the caller's local day");
+  check(mobile.plugins === undefined, "mobile request does not expose plugin storage");
+
+  const desktop = VocabularyReviewRequest.build(
+    "/synthetic/state",
+    "/synthetic/resources",
+    "2026-01-02",
+    { operation: "load" },
+    true,
+  );
+  check(desktop.plugins === "/synthetic/state/plugins", "desktop request exposes plugin storage");
+});
 
 console.log("HandwritingStrokePolicy");
 

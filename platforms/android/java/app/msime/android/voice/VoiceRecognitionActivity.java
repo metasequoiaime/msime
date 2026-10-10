@@ -2,10 +2,14 @@ package app.msime.android;
 
 import app.msime.android.policy.HostOptionsPolicy;
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.os.Bundle;
+import android.provider.Settings;
+import android.speech.RecognitionService;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -20,6 +24,7 @@ import app.msime.android.ViewPolicy;
 import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -68,6 +73,35 @@ public final class VoiceRecognitionActivity extends Activity {
 
     public static boolean available(Context context) {
         return SpeechRecognizer.isRecognitionAvailable(context);
+    }
+
+    /**
+     * 设备默认语音识别服务应用的名字，取不到时为 null，用来在错误提示里告诉用户该给哪个应用开权限。
+     *
+     * <p>不指定组件的 SpeechRecognizer 连的就是 `Settings.Secure` 里 `voice_recognition_service` 记的那个服务。这个键没有公开常量，个别系统可能不让读，读不到时设备上只装了一个识别服务就用它，有好几个就不猜。
+     */
+    public static String recognizerLabel(Context context) {
+        PackageManager packages = context.getPackageManager();
+        String packageName = null;
+        try {
+            String setting = Settings.Secure.getString(context.getContentResolver(), "voice_recognition_service");
+            ComponentName component = setting == null ? null : ComponentName.unflattenFromString(setting);
+            if (component != null) packageName = component.getPackageName();
+        } catch (SecurityException refused) {
+            packageName = null;
+        }
+        if (packageName == null) {
+            List<ResolveInfo> services = packages.queryIntentServices(new Intent(RecognitionService.SERVICE_INTERFACE), 0);
+            if (services.size() == 1 && services.get(0).serviceInfo != null) {
+                packageName = services.get(0).serviceInfo.packageName;
+            }
+        }
+        if (packageName == null) return null;
+        try {
+            return packages.getApplicationInfo(packageName, 0).loadLabel(packages).toString();
+        } catch (PackageManager.NameNotFoundException missing) {
+            return null;
+        }
     }
 
     public static void markLaunched(String requestId) {
@@ -296,7 +330,7 @@ public final class VoiceRecognitionActivity extends Activity {
             @Override public void onError(int error) {
                 if (!finished) {
                     // 带上错误码：同一句「未返回结果」分不出网络、权限、没听到声音还是服务不可用（#5553）。
-                    if (!stopping) fail(PlatformSpeechPolicy.message(error));
+                    if (!stopping) fail(PlatformSpeechPolicy.message(error, recognizerLabel(VoiceRecognitionActivity.this)));
                     finishRequest();
                 }
             }

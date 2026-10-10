@@ -6,6 +6,7 @@ struct CloudDictionaryView: View {
   @State private var search = ""
   @State private var page: BackendAccountClient.DictionaryPage?
   @State private var userID: String?
+  @State private var sessionID: UUID?
   @State private var busy = false
   @State private var message: String?
   @State private var editing: Edit?
@@ -171,9 +172,10 @@ struct CloudDictionaryView: View {
     } message: { Text("下载内容仅在 Engine 完成处理后生效，可在本机词库查看成功或失败状态。") }
   }
   @MainActor private func authorizedToken(matching expected: String) async throws -> String {
-    let identity = try await session.credentials()
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: sessionID)
     guard identity.userID == expected else { throw BackendAccountClient.Failure(status: 401) }
     try Task.checkCancellation()
+    sessionID = identity.sessionID
     return identity.token
   }
   @MainActor private func load(offset: Int) async throws {
