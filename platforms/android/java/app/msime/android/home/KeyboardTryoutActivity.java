@@ -66,6 +66,8 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     private boolean sending;
     /** 模型目录正在加载。 */
     private boolean loadingModels;
+    /** 页面打开时绑定的真实账号会话；空值表示打开时没有登录。 */
+    private String pageSessionId = "";
     /** 目录还没到时就发出的一句：已经画成气泡，目录到了再真正发给模型。 */
     private String pendingSend;
     /** 正在流式到达的那条回复；没有请求在进行时为 null。只在界面线程上读写。 */
@@ -76,6 +78,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         super.onCreate(state);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         setContentView(R.layout.activity_keyboard_tryout);
+        pageSessionId = new BackendAccount(this).sessionId();
 
         View root = findViewById(R.id.tryout_root);
         // The keyboard is the point of this screen, so its inset is applied rather than assumed:
@@ -174,9 +177,13 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         loadingModels = true;
         operation = worker.submit(() -> {
             try {
-                List<BackendAccount.ChatModel> loaded = new BackendAccount(this).chatModels();
+                List<BackendAccount.ChatModel> loaded = new BackendAccount(this).chatModels(pageSessionId);
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
+                    if (!pageSessionCurrent()) {
+                        abortForSessionChange();
+                        return;
+                    }
                     models.clear();
                     models.ensureCapacity(loaded.size());
                     models.addAll(loaded);
@@ -189,6 +196,10 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             } catch (Exception error) {
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
+                    if (!pageSessionCurrent()) {
+                        abortForSessionChange();
+                        return;
+                    }
                     loadingModels = false;
                     flushPendingSend(send);
                 });
@@ -232,6 +243,10 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     }
 
     private void dispatchChat(String text, MaterialButton send) {
+        if (!pageSessionCurrent()) {
+            abortForSessionChange();
+            return;
+        }
         // 请求最多 14 条：开头一条系统约定，加最近 13 条对话。
         while (messages.size() >= 13) messages.remove(0);
         messages.add(new BackendAccount.ChatMessage("user", text));
@@ -245,9 +260,14 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         streaming = reply;
         operation = worker.submit(() -> {
             try {
-                String full = new BackendAccount(this).chatStream(request, selectedModel, reply.call, reply::append);
+                String full = new BackendAccount(this).chatStream(request, selectedModel, reply.call, reply::append,
+                    pageSessionId);
                 runOnUiThread(() -> {
                     if (token != generation) return;
+                    if (!pageSessionCurrent()) {
+                        abortForSessionChange();
+                        return;
+                    }
                     streaming = null;
                     reply.show(full);
                     messages.add(new BackendAccount.ChatMessage("assistant", full));
@@ -256,6 +276,10 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             } catch (Exception error) {
                 runOnUiThread(() -> {
                     if (token != generation) return;
+                    if (!pageSessionCurrent()) {
+                        abortForSessionChange();
+                        return;
+                    }
                     streaming = null;
                     // 已经到了一部分就留着它；一个字都没到才说失败。
                     if (!keepPartial(reply)) appendBubble(FAILURE, false);
@@ -327,6 +351,10 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         private void render() {
             scheduled.set(false);
             if (token != generation || isFinishing() || isDestroyed()) return;
+            if (!pageSessionCurrent()) {
+                abortForSessionChange();
+                return;
+            }
             show(text());
         }
 
@@ -349,6 +377,25 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         send.setContentDescription("发送");
         EditText field = findViewById(R.id.tryout_field);
         ViewPolicy.setEnabled(send, field.getText() != null && field.length() > 0);
+    }
+
+    /** 页面所属账号已经改变时，丢弃目录、草稿和聊天流并关闭页面。 */
+    private void abortForSessionChange() {
+        generation++;
+        pendingSend = null;
+        if (streaming != null) streaming.call.cancel();
+        streaming = null;
+        if (operation != null) operation.cancel(true);
+        finish();
+    }
+
+    private boolean pageSessionCurrent() {
+        return pageSessionId.equals(new BackendAccount(this).sessionId());
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (!isFinishing() && !pageSessionCurrent()) abortForSessionChange();
     }
 
     /**

@@ -474,7 +474,13 @@ public final class BackendAccount {
 
     /** Loads the bounded model catalogue used by the keyboard tryout chat. */
     public List<ChatModel> chatModels() throws Exception {
+        return chatModels(null);
+    }
+
+    /** 只在页面传入的会话仍是当前会话时加载模型目录。 */
+    public List<ChatModel> chatModels(String expectedSessionId) throws Exception {
         SessionCredential session = currentSession();
+        requireSession(session, expectedSessionId);
         if (session.token().isEmpty()) throw new IllegalStateException("HTTP 401");
         JSONObject response = authorizedRequest("GET", "/v1/models", null, session);
         org.json.JSONArray data = response.optJSONArray("data");
@@ -554,7 +560,14 @@ public final class BackendAccount {
      */
     public String chatStream(List<ChatMessage> messages, String model, ChatCall call, ChatStreamListener listener)
             throws Exception {
+        return chatStream(messages, model, call, listener, null);
+    }
+
+    /** 只在页面传入的会话仍是当前会话时发送聊天流。 */
+    public String chatStream(List<ChatMessage> messages, String model, ChatCall call, ChatStreamListener listener,
+            String expectedSessionId) throws Exception {
         SessionCredential session = currentSession();
+        requireSession(session, expectedSessionId);
         JSONObject body = chatBody(messages, model, session.token()).put("stream", true);
         ChatStreamListener guarded = delta -> {
             try {

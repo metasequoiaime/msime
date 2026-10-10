@@ -179,6 +179,39 @@ public final class AccountSessionRoutingSmoke {
         check(oldListCancelled && clipboardRequests.get() == 0,
             "a queued list fetch cannot switch to the new session");
 
+        AtomicInteger chatRequests = new AtomicInteger();
+        AtomicInteger streamCalls = new AtomicInteger();
+        BackendAccount.TokenSource switchedChatOwner = new BackendAccount.TokenSource() {
+            @Override public String accessToken() { return TOKEN; }
+            @Override public BackendAccount.SessionCredential session(String rejected) {
+                return new BackendAccount.SessionCredential(TOKEN, "session-b");
+            }
+        };
+        BackendAccount chat = new BackendAccount(store, (method, path, body, token) -> {
+            chatRequests.incrementAndGet();
+            throw new AssertionError("old session must not send a chat request");
+        }, switchedChatOwner, (body, token, call, listener) -> {
+            streamCalls.incrementAndGet();
+            throw new AssertionError("old session must not open a chat stream");
+        });
+        boolean oldModelsCancelled = false;
+        try {
+            chat.chatModels("session-a");
+        } catch (java.util.concurrent.CancellationException expected) {
+            oldModelsCancelled = true;
+        }
+        check(oldModelsCancelled && chatRequests.get() == 0,
+            "a model catalogue queued by the old session cannot use the new session");
+        boolean oldChatCancelled = false;
+        try {
+            chat.chatStream(java.util.List.of(new BackendAccount.ChatMessage("user", "synthetic message")),
+                "synthetic-model", new BackendAccount.ChatCall(), delta -> { }, "session-a");
+        } catch (java.util.concurrent.CancellationException expected) {
+            oldChatCancelled = true;
+        }
+        check(oldChatCancelled && chatRequests.get() == 0 && streamCalls.get() == 0,
+            "a chat queued by the old session cannot use the new session");
+
         BackendAccount.TokenSource rotatingOwner = new BackendAccount.TokenSource() {
             @Override public String accessToken() { return TOKEN; }
             @Override public String accessToken(String rejectedToken) {
