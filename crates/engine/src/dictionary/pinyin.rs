@@ -13,7 +13,9 @@ use crate::pinyin::jianpin::{
     build_key_like_pattern, build_mixed_jianpin_scan_limit, can_match_exact_key, is_pure_jianpin,
     key_prefix_upper_bound, matches_mixed_segments, needs_mixed_jianpin_query, QuerySource,
 };
-use crate::pinyin::segment::{join_segments, segments_to_jianpin, split_segments};
+#[cfg(test)]
+use crate::pinyin::segment::split_segments;
+use crate::pinyin::segment::{join_segments, segments_to_jianpin};
 use crate::pinyin::syllables::{
     canonical_lattice_syllable, has_only_complete_pinyin_segments, intact_pinyin_set,
     prefix_pinyin_set,
@@ -366,24 +368,28 @@ impl PinyinDatabase {
         })
     }
 
-    /// `SELECT weight FROM <t> WHERE key=?1 AND value=?2 LIMIT 1`, table from the key's segments (QD:484-499).
+    /// 按原键的段数选表，查询 `key` 与 `value` 的首行权重（QD:484-499）。
     pub fn find_weight(&self, key: &str, value: &str) -> Option<i64> {
         let connection = self.connection.as_ref()?;
-        let table = build_table_name(&split_segments(key))?;
-        // A missing table or a failed step is "not found" in the reference (QD:490-497).
+        let (table, _) = word_key_table(key)?;
+        // 缺表或首步失败沿用参考实现的未找到结果（QD:490-497）。
         let mut statement = connection.prepare_cached(&find_weight_sql(&table)).ok()?;
         let mut rows = statement.query((key, value)).ok()?;
         let row = rows.next().ok()??;
         column_i64(row, 0).ok()
     }
 
-    /// Insert `(key, jp, value, INSERTED_WEIGHT)` into the key's table; `jp` is the first letter of each syllable. The caller has checked the row is absent and validated the key.
+    /// 插入原键、各非空段的首个字符、词值及 `INSERTED_WEIGHT`；调用方负责查重和键校验。
     pub fn insert_word(&self, key: &str, value: &str) -> Result<()> {
         let connection = self.writable()?;
-        let segments = split_segments(key);
-        let table = build_table_name(&segments)
-            .ok_or_else(|| EngineError::invalid(INVALID_DICTIONARY_KEY))?;
-        let jp = segments_to_jianpin(&segments);
+        let (table, syllables) =
+            word_key_table(key).ok_or_else(|| EngineError::invalid(INVALID_DICTIONARY_KEY))?;
+        let mut jp = String::with_capacity(syllables);
+        for segment in key.split('\'') {
+            if let Some(initial) = segment.chars().next() {
+                jp.push(initial);
+            }
+        }
         connection
             .prepare_cached(&insert_word_sql(&table))?
             .execute((key, jp.as_str(), value, INSERTED_WEIGHT))?;
@@ -784,6 +790,13 @@ fn exact_segmentations_by_table(segmentations: &[Vec<String>]) -> BTreeMap<Strin
 
 fn query_capacity(limit: usize) -> Option<usize> {
     (limit < i32::MAX as usize).then_some(limit)
+}
+
+/// 词条入口只按段数和首字节规划，保留空段计数且不增加完整音节校验。
+fn word_key_table(key: &str) -> Option<(String, usize)> {
+    let initial = *key.as_bytes().first()?;
+    let syllables = key.bytes().filter(|&byte| byte == b'\'').count() + 1;
+    quanpin_table(syllables, initial).map(|table| (table, syllables))
 }
 
 /// 借用完整键的音节切片校验并计数，表名仍遵循共享格式规则。
@@ -1528,3 +1541,7 @@ mod result_key_reuse_tests;
 #[cfg(test)]
 #[path = "pinyin/lattice_span_key_plan_tests.rs"]
 mod lattice_span_key_plan_tests;
+
+#[cfg(test)]
+#[path = "pinyin/word_key_plan_tests.rs"]
+mod word_key_plan_tests;
