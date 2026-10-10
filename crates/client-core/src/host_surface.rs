@@ -10,6 +10,8 @@ use crate::preferences::InputScheme;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod environment;
+
 /// Routes are embedded in command lines and environment variables, so they stay
 /// short and free of anything a shell or a line-framed channel would reinterpret.
 const MAX_ROUTE_BYTES: usize = 64;
@@ -312,6 +314,18 @@ pub struct HostCapabilities {
     /// The CPU architecture the host was built for, as Rust names it (`std::env::consts::ARCH`: `x86_64`, `aarch64`). A Linux release carries one package per architecture, and the update check picks this machine's by it. Filled in at runtime like `os_version`; absent from a host that does not report it, where the check offers a package only when the release has a single one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arch: Option<String>,
+    /// 内核版本（Linux 的 `/proc/sys/kernel/osrelease`），给「关于」页的系统信息。与 `os_version` 一样由宿主在 `for_platform` 之后按实际机器填写，读不到就不写；解析见 [`environment`]。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kernel_version: Option<String>,
+    /// 桌面会话（Linux 的 `XDG_CURRENT_DESKTOP` 与 `XDG_SESSION_TYPE`，如 `ubuntu:GNOME (wayland)`），给「关于」页的系统信息。运行时填写，同上。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop_session: Option<String>,
+    /// 水杉实际挂在哪个输入法框架上（Linux 的 `IBus` / `Fcitx5`，取自运行中的宿主写的状态文件），给「关于」页的系统信息。宿主没有在运行、或者还没写过状态时缺省。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_method_framework: Option<String>,
+    /// 设备型号（Linux 的 DMI 厂商与产品名），给「关于」页的系统信息。运行时填写，同上。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_model: Option<String>,
     /// Why the desktop's candidate panel on this machine ignores the candidate font, colour and skin settings, when the running Linux host has found that it does. Filled in at runtime from what the host reports, the way `os_version` is; absent when the panel honours them or nothing has been reported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_panel_limit: Option<CandidatePanelLimit>,
@@ -644,6 +658,10 @@ impl HostCapabilities {
             caps_lock_punctuation: platform == HostPlatform::Macos,
             os_version: None,
             arch: None,
+            kernel_version: None,
+            desktop_session: None,
+            input_method_framework: None,
+            device_model: None,
             candidate_panel_limit: None,
             // 每个宿主都路由粤拼、注音、越南文、藏文和笔画的按键，并附带粤拼、注音和笔画需要的词库。
             input_schemes: ALL_INPUT_SCHEMES.to_vec(),

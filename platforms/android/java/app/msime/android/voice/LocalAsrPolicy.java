@@ -113,6 +113,24 @@ public final class LocalAsrPolicy {
         return "pinyin".equals(hotwordMode);
     }
 
+    /**
+     * 本机识别被拒时给用户看的统一说明。
+     *
+     * @return 用户主动取消时为 null，其余失败返回可直接展示的文案
+     */
+    public static String failureMessage(LocalAsrRecognizer.Failure failure, boolean runtimeMissing) {
+        return switch (failure) {
+            case PERMISSION -> "语音识别需要麦克风权限";
+            case UNAVAILABLE -> "麦克风被其他应用占用";
+            case MODEL -> "本地语音模型未安装或已损坏，请在设置中重新下载";
+            case RUNTIME -> runtimeMissing
+                ? "本地语音识别组件尚未下载，请在设置中下载后再试"
+                : "本地语音识别组件无法加载";
+            case EMPTY -> "没有听到内容";
+            case CANCELLED -> null;
+        };
+    }
+
     /** Native ASR text must be plain, well-formed Unicode before it reaches the editor. */
     static String transcript(Object value) {
         String text = JsonPolicy.strictString(value);

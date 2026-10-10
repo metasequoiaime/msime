@@ -12,10 +12,15 @@ pub mod text;
 
 pub use crate::helpcode::{load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};
 pub use crate::local::catalog::{EmojiCatalogItem, EmojiCatalogSlice, EmojiSymbolGroup};
+// 自定义双拼方案的表和它的校验：宿主（host-api、MCP）在把 `custom` 交给 Engine 之前先校验，不合法就不要传。
+pub use crate::shuangpin::custom::{
+    validate_custom_profile as validate_shuangpin_custom_profile,
+    CustomProfileError as ShuangpinCustomProfileError, CustomTablePart as ShuangpinCustomTablePart,
+};
 pub use crate::shuangpin::hints::ShuangpinKeyHint;
 pub use crate::types::{
     CandidateEdge, CommandTableEntry, CommandTranslationQuery, MentionEntry, QuickPhraseEntry,
-    SentenceAssociationOptions,
+    SentenceAssociationOptions, ShuangpinCustomTable,
 };
 // Hosts call one of these at shutdown (or before replacing a data directory) so the delayed personal-context writes reach the journal; the bridge had no counterpart because the C++ flushed from `atexit`.
 pub use crate::{close_cached_databases, flush_personal_learning};

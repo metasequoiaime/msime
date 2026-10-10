@@ -65,6 +65,11 @@ impl Session {
         })
     }
 
+    /// 会话建立时定下的双拼方案（内置的表，或校验过的用户表）。
+    pub(crate) fn shuangpin_layout(&self) -> &'static crate::shuangpin::ShuangpinProfile {
+        self.input.profile
+    }
+
     /// Replace the steady and local clocks, so tests can cross the 3 s / 8 s / 10 s personal-learning windows and the date/time mode can be pinned.
     pub fn set_clock(&mut self, clock: Clock) {
         self.input.clock = clock;
@@ -393,7 +398,7 @@ impl Session {
             nine_key_strokes: String::new(),
             answered_by_pinyin_fallback: input.answered_by_pinyin_fallback(),
             wubi_unique_four_code: input.wubi_unique_four_code(),
-            shuangpin_profile: input.profile.name().to_owned(),
+            shuangpin_profile: input.profile.kind.name().to_owned(),
             candidate_sources: candidates.iter().map(|item| item.source).collect(),
             candidate_annotations: input.candidate_annotations(),
             // `pinyin` rather than `canonical_pinyin`: the former is what composition advancement consumes, which is the question being asked.

@@ -21,10 +21,10 @@ use crate::local::quick_phrase::{
 use crate::local::unicode::query_unicode;
 use crate::local::LocalQueryResult;
 use crate::paths::RuntimePaths;
-use crate::shuangpin::profile::profile;
+use crate::shuangpin::ShuangpinProfile;
 use crate::types::{
     CandidateSource, CommandTableEntry, EnglishInputOptions, LocalInputMode, MentionEntry,
-    MixedExpressiveOptions, QuickPhraseEntry, SchemeType, ShuangpinProfileKind, WordItem,
+    MixedExpressiveOptions, QuickPhraseEntry, SchemeType, WordItem,
 };
 
 pub const MIXED_ENGLISH_LIMIT: usize = 5;
@@ -45,7 +45,7 @@ pub(crate) fn lowercase_prefix(raw: &str) -> Cow<'_, str> {
 
 pub struct CandidateQueries {
     paths: RuntimePaths,
-    profile: ShuangpinProfileKind,
+    profile: &'static ShuangpinProfile,
     english: Option<EnglishDictionary>,
     /// The host's command table, usable rows only.
     command_table: Vec<CommandTableEntry>,
@@ -58,7 +58,7 @@ pub struct CandidateQueries {
 }
 
 impl CandidateQueries {
-    pub fn new(paths: &RuntimePaths, profile: ShuangpinProfileKind) -> Self {
+    pub fn new(paths: &RuntimePaths, profile: &'static ShuangpinProfile) -> Self {
         Self {
             paths: paths.clone(),
             profile,
@@ -131,7 +131,7 @@ impl CandidateQueries {
     ) -> LocalQueryResult {
         // Every local preedit starts with its ASCII prefix letter (candidate_queries.cpp:15-99 strips it with `substr(1)`).
         let code = preedit.get(1..).unwrap_or_default();
-        let shuangpin = profile(self.profile);
+        let shuangpin = self.profile;
         let rows = |candidates| LocalQueryResult {
             candidates,
             diagnostic: None,
@@ -230,7 +230,7 @@ impl CandidateQueries {
             Vec::new()
         };
         let others_db = self.paths.resource(assets::OTHER_DICTIONARY);
-        let shuangpin = profile(self.profile);
+        let shuangpin = self.profile;
         let long_enough = prefix.len() >= MIXED_EXPRESSIVE_MINIMUM_INPUT;
         let emoji_rows = if expressive.emoji_candidates && long_enough {
             query_mixed_emoji(prefix, scheme, &others_db, shuangpin)
@@ -436,6 +436,7 @@ mod tests {
     use rusqlite::Connection;
 
     use super::*;
+    use crate::shuangpin::profile::default_profile;
 
     #[test]
     fn lowercase_prefix_is_borrowed_without_allocating() {
@@ -813,8 +814,7 @@ mod tests {
 
     #[test]
     fn mixed_passes_through_when_it_does_not_apply() {
-        let mut queries =
-            CandidateQueries::new(&RuntimePaths::default(), ShuangpinProfileKind::Xiaohe);
+        let mut queries = CandidateQueries::new(&RuntimePaths::default(), default_profile());
         let on = EnglishInputOptions {
             mixed_candidates: true,
             minimum_prefix: 2,
@@ -933,7 +933,7 @@ mod tests {
             dictionaries: directory.path().to_owned(),
             ..RuntimePaths::default()
         };
-        let mut queries = CandidateQueries::new(&paths, ShuangpinProfileKind::Xiaohe);
+        let mut queries = CandidateQueries::new(&paths, default_profile());
 
         let candidates = queries.temporary_english("he");
 

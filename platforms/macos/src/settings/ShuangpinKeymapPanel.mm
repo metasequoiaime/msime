@@ -3,8 +3,8 @@
 
 #include "ShuangpinProfileNames.h"
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 #include <cstring>
-#include <memory>
 
 namespace
 {
@@ -27,8 +27,8 @@ NSDictionary<NSString *, NSString *> *ProfileTable(char *(*query)(const uint8_t 
 {
     const char *profile =
         msime::mac::NormalizeShuangpinSchema(profileName.UTF8String != nullptr ? profileName.UTF8String : "");
-    std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
-        query(reinterpret_cast<const uint8_t *>(profile), std::strlen(profile)), msime_client_string_free);
+    auto raw = msime::host_api::own_string(
+        query(reinterpret_cast<const uint8_t *>(profile), std::strlen(profile)));
     if (!raw)
     {
         return @{};

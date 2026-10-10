@@ -2192,20 +2192,34 @@ group("输入方式面板里双拼只留用户设置的那一种（#6450）", ()
     actual.length === expected.length &&
     actual.every((value: SchemeDefinition, index: number): boolean => value === expected[index]);
   check(
-    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, undefined), only(KeyboardScheme.XIAOHE)) &&
-      same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, "future"), only(KeyboardScheme.XIAOHE)),
+    same(
+      KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, undefined),
+      only(KeyboardScheme.XIAOHE),
+    ) &&
+      same(
+        KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, "future"),
+        only(KeyboardScheme.XIAOHE),
+      ),
     "没设置过或值不认识时按小鹤",
   );
   check(
-    KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, null).indexOf(KeyboardScheme.HANDWRITING) < 7,
+    KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, null).indexOf(
+      KeyboardScheme.HANDWRITING,
+    ) < 7,
     "手写回到第一页的八格之内（英文占第三格）",
   );
   check(
-    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.WUBI, "microsoft"), only(KeyboardScheme.MICROSOFT)),
+    same(
+      KeyboardScheme.pickerSchemes(all, KeyboardScheme.WUBI, "microsoft"),
+      only(KeyboardScheme.MICROSOFT),
+    ),
     "设置的是哪一种就留哪一种，位置不变",
   );
   check(
-    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.SHOUDAO, "ziranma"), only(KeyboardScheme.SHOUDAO)),
+    same(
+      KeyboardScheme.pickerSchemes(all, KeyboardScheme.SHOUDAO, "ziranma"),
+      only(KeyboardScheme.SHOUDAO),
+    ),
     "选中的双拼总留在面板里",
   );
   const partial: SchemeDefinition[] = [

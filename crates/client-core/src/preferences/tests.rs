@@ -2801,6 +2801,67 @@ fn shuangpin_profiles_preserve_legacy_files_and_reject_unknown_values() {
 }
 
 #[test]
+fn custom_shuangpin_profile_round_trips_and_stays_out_of_documents_without_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let saved = store.save(0, Preferences::default()).unwrap();
+    assert!(!fs::read_to_string(store.path())
+        .unwrap()
+        .contains("shuangpin_custom_profile"));
+    let mut preferences = Preferences {
+        scheme: InputScheme::Shuangpin,
+        shuangpin_profile: ShuangpinProfile::Custom,
+        ..Preferences::default()
+    };
+    let table = &mut preferences.shuangpin_custom_profile;
+    table.initials.insert("zh".into(), "a".into());
+    table.finals.insert("ing".into(), ";".into());
+    table.zero_initials.insert("a".into(), "oa".into());
+    let saved = store.save(saved.revision, preferences.clone()).unwrap();
+    let document: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(store.path()).unwrap()).unwrap();
+    assert_eq!(document["preferences"]["shuangpin_profile"], "custom");
+    assert_eq!(
+        document["preferences"]["shuangpin_custom_profile"],
+        serde_json::json!({
+            "initials": { "zh": "a" },
+            "finals": { "ing": ";" },
+            "zero_initials": { "a": "oa" }
+        })
+    );
+    assert_eq!(store.load().unwrap(), saved);
+    // 结构上的限制：单位只能是小写字母，键是可见 ASCII，大小有上限。合不合法是 Engine 的事，这里不判断。
+    for (unit, key) in [("Zh", "a"), ("zh", "é"), ("zh", "a b"), ("zhzhzhzhz", "a")] {
+        let mut invalid = preferences.clone();
+        invalid.shuangpin_custom_profile.initials = [(unit.to_owned(), key.to_owned())].into();
+        assert!(
+            matches!(
+                invalid.validate(),
+                Err(PreferencesError::InvalidShuangpinCustomProfile)
+            ),
+            "{unit:?} {key:?}"
+        );
+    }
+    let mut oversized = preferences.clone();
+    oversized.shuangpin_custom_profile.finals = (0..65u8)
+        .map(|index| {
+            (
+                format!(
+                    "{}{}",
+                    char::from(b'a' + index / 26),
+                    char::from(b'a' + index % 26)
+                ),
+                "q".to_owned(),
+            )
+        })
+        .collect();
+    assert!(matches!(
+        oversized.validate(),
+        Err(PreferencesError::InvalidShuangpinCustomProfile)
+    ));
+}
+
+#[test]
 fn wubi_profile_defaults_to_86_and_rejects_unknown_values() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());

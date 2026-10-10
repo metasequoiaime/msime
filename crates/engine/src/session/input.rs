@@ -22,7 +22,7 @@ use crate::local::GENERATED_MODE_INPUT_LIMIT;
 use crate::paths::RuntimePaths;
 use crate::punctuation::PunctuationPolicy;
 use crate::quanpin::QuanpinEngine;
-use crate::shuangpin::profile::profile;
+use crate::shuangpin::custom::session_profile;
 use crate::shuangpin::ShuangpinProfile;
 use crate::stroke;
 use crate::tibetan::{SHAD, TSHEG};
@@ -30,7 +30,7 @@ use crate::time::Instant;
 use crate::types::{
     CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
     KeyResult, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,
-    QuickPhraseEntry, SchemeKey, SchemeType, ShuangpinProfileKind, WordItem, WubiInputOptions,
+    QuickPhraseEntry, SchemeKey, SchemeType, WordItem, WubiInputOptions,
 };
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::removal::learn_entered_english_word;
@@ -57,7 +57,7 @@ pub(super) struct InputSession {
     pub engine: ImeSession,
     pub queries: CandidateQueries,
     pub clock: Clock,
-    pub profile: ShuangpinProfileKind,
+    pub profile: &'static ShuangpinProfile,
     pub caret: Option<usize>,
     pub phrase_progress: CreatingWordProgress,
     pub pending_sequence: Option<String>,
@@ -106,10 +106,15 @@ impl InputSession {
     pub fn new(options: &SessionOptions) -> Result<Self> {
         let paths = options.paths.clone();
         let journal = paths.user(assets::USER_JOURNAL);
+        let profile = session_profile(
+            options.shuangpin_profile,
+            options.shuangpin_custom_profile.as_ref(),
+            options.enabled_schemes.contains(SchemeType::Shuangpin),
+        )?;
         let mut engine = ImeSession::new(
             options.scheme,
             options.enabled_schemes,
-            options.shuangpin_profile,
+            profile,
             &paths,
             options.cantonese_dictionary.clone(),
             options.zhuyin_dictionary.clone(),
@@ -124,10 +129,10 @@ impl InputSession {
             options.vietnamese_tone_style,
         );
         let mut session = Self {
-            queries: CandidateQueries::new(&paths, options.shuangpin_profile),
+            queries: CandidateQueries::new(&paths, profile),
             engine,
             clock: Clock::default(),
-            profile: options.shuangpin_profile,
+            profile,
             caret: None,
             phrase_progress: CreatingWordProgress::default(),
             pending_sequence: None,
@@ -275,9 +280,8 @@ impl InputSession {
 
         let scheme = self.scheme();
         let lowercase_letter = value.is_ascii_lowercase();
-        let microsoft_final = value == b';'
-            && scheme == SchemeType::Shuangpin
-            && self.profile == ShuangpinProfileKind::Microsoft;
+        let microsoft_final =
+            value == b';' && scheme == SchemeType::Shuangpin && self.profile.uses_semicolon_key();
         let japanese_long_vowel = value == b'-' && scheme == SchemeType::JapaneseRomaji;
         let active_helpcode = value.is_ascii_uppercase()
             && self.has_composition()
@@ -1306,7 +1310,7 @@ impl InputSession {
     }
 
     pub(super) fn shuangpin_profile(&self) -> &'static ShuangpinProfile {
-        profile(self.profile)
+        self.profile
     }
 
     pub(super) fn journal_path(&self) -> &Path {

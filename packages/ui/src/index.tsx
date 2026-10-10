@@ -1669,6 +1669,14 @@ export interface HostCapabilities {
   os_version?: string;
   /** The CPU architecture the host was built for (Rust's `std::env::consts::ARCH`, e.g. `x86_64`, `aarch64`); the update check picks this machine's Linux package by it. */
   arch?: string;
+  /** 内核版本（Linux 的 `/proc/sys/kernel/osrelease`），「关于」页系统信息用；宿主读不到时缺省。 */
+  kernel_version?: string;
+  /** 桌面会话（Linux 的 `XDG_CURRENT_DESKTOP` 与 `XDG_SESSION_TYPE`，如 `ubuntu:GNOME (wayland)`）。 */
+  desktop_session?: string;
+  /** 水杉实际挂在哪个输入法框架上（Linux 的 `IBus` / `Fcitx5`），取自运行中的宿主写的状态。 */
+  input_method_framework?: string;
+  /** 设备型号（Linux 的 DMI 厂商与产品名）。 */
+  device_model?: string;
   /** Why the Linux desktop panel drawing the candidate list ignores the candidate font, colours and skin, as the running host reported it. Absent when the panel honours them. */
   candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel";
   /** The host plays the sound packs in `plugins`: key sounds, the melody, the commit sound and the achievement jingle. */
