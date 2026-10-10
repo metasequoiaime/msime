@@ -89,6 +89,11 @@ public final class DeveloperPage extends DetailPage {
     private void reload() {
         if (getView() == null) return;
         long request = ++generation;
+        cloud = DiagnosticsApi.State.EMPTY;
+        cloudLoaded = false;
+        cloudAccountId = "";
+        cloudSessionId = "";
+        render();
         HostTask.run(this, context -> new Object[] {HostStore.loadPreferences(context),
             AndroidLocalSettings.load(context)}, loaded -> {
             if (request != generation || getView() == null) return;
