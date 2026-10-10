@@ -5,9 +5,7 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Locale;
 import javax.net.ssl.HttpsURLConnection;
@@ -33,7 +31,6 @@ final class BackendAnonymousAccount {
         long retryAfterMillis() { return retryAfterMillis; }
     }
 
-    private static final String ORIGIN = "https://api.msime.app";
     private static final String SESSION_STORE = "msime_anonymous_session_v1";
     private static final String CREDENTIAL_STORE = "msime_anonymous_account_v1";
     private static final int MAX_RESPONSE_BYTES = 64 * 1024;
@@ -205,23 +202,11 @@ final class BackendAnonymousAccount {
     }
 
     private static JSONObject request(String method, String path, JSONObject body, String token) throws Exception {
-        byte[] payload = body == null ? null : body.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] payload = body == null ? null : TextPolicy.utf8Bytes(body.toString());
         HttpsURLConnection connection = null;
         try {
-            connection = (HttpsURLConnection) new URL(ORIGIN + path).openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod(method);
-            connection.setConnectTimeout(30_000);
-            connection.setReadTimeout(30_000);
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("User-Agent", "MSIME/Android");
-            if (token != null) connection.setRequestProperty("Authorization", "Bearer " + token);
-            if (payload != null) {
-                connection.setDoOutput(true);
-                connection.setFixedLengthStreamingMode(payload.length);
-                connection.setRequestProperty("Content-Type", "application/json");
-                try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
-            }
+            connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + path).openConnection();
+            AccountHttpRequest.writeJson(connection, method, token, CloudApi.USER_AGENT, payload);
             int status = connection.getResponseCode();
             if (status == 429) {
                 // 服务端给了重试时间就按它来；没给就退一分钟，别把这件事变成一个忙等的循环。
@@ -236,7 +221,7 @@ final class BackendAnonymousAccount {
                 "anonymous account unavailable: HTTP " + status);
             try (InputStream input = connection.getInputStream()) {
                 byte[] response = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
-                return new JSONObject(new String(response, StandardCharsets.UTF_8));
+                return new JSONObject(TextPolicy.utf8(response));
             }
         } finally { if (connection != null) connection.disconnect(); }
     }

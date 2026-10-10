@@ -161,7 +161,11 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         # HttpURLConnection follows redirects by default. The polish request carries a bearer
         # token, so following one could replay that credential to an endpoint outside the user's
         # configured origin before the response is parsed.
-        self.assertIn("connection.setInstanceFollowRedirects(false);", polisher)
+        policy = (
+            ROOT / "platforms/android/java/app/msime/android/HttpConnectionPolicy.java"
+        ).read_text()
+        self.assertIn("HttpConnectionPolicy.rejectRedirects(connection);", polisher)
+        self.assertIn("connection.setInstanceFollowRedirects(false);", policy)
 
     def test_keyboard_voice_releases_recognizer_when_worker_submission_is_rejected(self):
         entry = (
@@ -332,7 +336,11 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         # HttpURLConnection follows redirects by default. The upload carries a bearer token, so
         # following one could replay that credential to an endpoint outside the user's configured
         # origin before the response is parsed.
-        self.assertIn("opened.setInstanceFollowRedirects(false);", recognizer)
+        policy = (
+            ROOT / "platforms/android/java/app/msime/android/HttpConnectionPolicy.java"
+        ).read_text()
+        self.assertIn("HttpConnectionPolicy.rejectRedirects(opened);", recognizer)
+        self.assertIn("connection.setInstanceFollowRedirects(false);", policy)
 
     def test_stopping_the_voice_activity_cancels_active_capture(self):
         activity = (

@@ -7,8 +7,6 @@ import app.msime.android.ThreadPolicy;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.SystemClock;
-import android.text.Editable;
-import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -134,14 +132,10 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             else ViewPolicy.hide(dismiss);
         });
 
-        field.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
-            @Override public void afterTextChanged(@NonNull Editable text) {
-                if (text.length() > DRAFT_LIMIT) text.delete(DRAFT_LIMIT, text.length());
-                // 请求进行中按钮是「停止」，继续编辑或清空草稿都不能禁用取消操作。默认就能和 AI 对话：有字就能发，目录还没加载完时发出的那句等目录到了再发。
-                ViewPolicy.setEnabled(sendAi, sending || text.length() > 0);
-            }
+        Ui.afterTextChanged(field, text -> {
+            if (text.length() > DRAFT_LIMIT) text.delete(DRAFT_LIMIT, text.length());
+            // 请求进行中按钮是「停止」，继续编辑或清空草稿都不能禁用取消操作。默认就能和 AI 对话：有字就能发，目录还没加载完时发出的那句等目录到了再发。
+            ViewPolicy.setEnabled(sendAi, sending || text.length() > 0);
         });
 
         ViewPolicy.bindClick(sendAi, () -> {

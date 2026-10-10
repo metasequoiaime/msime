@@ -95,6 +95,10 @@ struct Observation {
   bool autocorrect_properties_registered = false;
   bool autocorrect_transposition = false;
   bool autocorrect_neighbor = false;
+  // The active helpcode-pack marker is kept in the fixed IBus menu so it can
+  // appear after a preference reload; it must stay hidden when no pack is
+  // selected.
+  bool helpcode_schema_pack_visible = false;
   bool learning_enabled = false;
   bool learning_sensitive = false;
   int delete_surrounding_calls = 0;
@@ -209,6 +213,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     }
     if (key == "EnglishMode")
       seen.english_mode = ibus_property_get_state(property) == PROP_STATE_CHECKED;
+    if (key == "HelpcodeSchemaPack")
+      seen.helpcode_schema_pack_visible = ibus_property_get_visible(property);
     if (key == "EmojiCandidates")
       seen.emoji_candidates = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key.rfind("GlobalTheme/", 0) == 0 &&
@@ -1825,6 +1831,26 @@ int main(int argc, char **argv) {
             "Initial input and clipboard properties were not available");
     require(seen.desktop_help && seen.desktop_feedback && seen.desktop_dictionary,
             "Linux desktop tools did not publish help, feedback and dictionary routes");
+    require(!seen.helpcode_schema_pack_visible,
+            "IBus exposed an empty helpcode-pack marker without a selected pack");
+    // The marker stays in the same fixed menu when a pack becomes configured,
+    // but its visibility must flip on for the active pack.
+    ibus_object_destroy(IBUS_OBJECT(engine));
+    g_object_unref(engine);
+    auto packed_options = options;
+    packed_options["preferences"]["plugins"]["helpcode_pack_quanpin"] = "synthetic-pack";
+    msime_ibus_configure(packed_options.dump());
+    engine = create_engine();
+    seen = Observation{};
+    invoke("FocusIn");
+    require(seen.helpcode_schema_pack_visible,
+            "IBus hid the active helpcode-pack marker");
+    ibus_object_destroy(IBUS_OBJECT(engine));
+    g_object_unref(engine);
+    msime_ibus_configure(options.dump());
+    engine = create_engine();
+    seen = Observation{};
+    invoke("FocusIn");
     {
       // The top of the menu follows the design order: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于.
       const std::vector<std::string> design{

@@ -551,13 +551,14 @@ msime::windows::TsfLocalConfig tsf_local_config(
           .value("tsf", false);
   const auto lock = preferences.value("punctuation_lock", std::string("follow"));
   config.punctuation_lock = lock == "chinese" ? 1 : lock == "english" ? 2 : 0;
-  // The Engine opens V, "/" and "@" only in the pinyin schemes. The switches are left out of the stored document while off.
-  const bool pinyin = scheme == "quanpin" || scheme == "shuangpin";
+  // The Engine opens V only in the pinyin schemes (`opens_local_modes`), and "/" and "@" in the pinyin schemes and Wubi (`opens_table_modes`); apply_local_mode_switches gates each switch on the common/InputSchemeTraits.h mirror that scripts/test-scheme-traits-parity.py checks. The switches are left out of the stored document while off.
   const auto local_modes =
       preferences.value("local_modes", nlohmann::json::object());
-  config.expression_mode = pinyin && local_modes.value("expression", false);
-  config.command_mode = pinyin && local_modes.value("command", false);
-  config.mention_mode = pinyin && local_modes.value("mention", false);
+  msime::windows::apply_local_mode_switches(
+      config, msime::windows::scheme::scheme_from_name(scheme),
+      local_modes.value("expression", false),
+      local_modes.value("command", false),
+      local_modes.value("mention", false));
   return config;
 }
 

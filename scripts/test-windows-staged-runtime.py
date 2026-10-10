@@ -200,6 +200,12 @@ if call[:2] == ["info", "--format"]:
                 self.assertIn("PASS windows-synthetic-runtime", result.stdout)
 
     def test_wine_stages_rust_tests_with_cross_container_when_host_lacks_mingw(self):
+        # 这条测的是主机没有 MinGW 的路径：装了 mingw-w64 的开发机（Homebrew 放在 /opt/homebrew/bin）会让脚本改用本机 cargo，所以把含有 MinGW 编译器的 PATH 目录挡在外面。
+        self.env["PATH"] = os.pathsep.join(
+            entry for entry in self.env["PATH"].split(os.pathsep)
+            if not (Path(entry) / "x86_64-w64-mingw32-gcc").exists()
+            or Path(entry) == self.bin
+        )
         build = self.root / "target/windows-full/x64"
         build.mkdir(parents=True)
         for name in self.names("x64"):

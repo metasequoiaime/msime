@@ -13,7 +13,7 @@ inline TsfPreeditStyle preference_tsf_preedit_style(const nlohmann::json &p) {
   throw std::invalid_argument("Invalid TSF preedit style preference");
 }
 enum class EditKind { None, Character, Erase, Caret };
-// Whether the Engine takes this key's text as input in its current state: View.spelling_symbols, which lists V's digits and operators, U's digits, and on an empty pinyin composition the "/" and "@" that open their modes.
+// Whether the Engine takes this key's text as input in its current state: View.spelling_symbols, which lists V's digits and operators, U's digits, and on an empty composition in a scheme that opens the table modes (the pinyin schemes and Wubi, `opens_table_modes`) the "/" and "@" that open their modes.
 inline bool spelled_by_engine(std::string_view spelling_symbols, uint32_t text) {
   return text >= 0x21 && text <= 0x7E &&
          spelling_symbols.find(static_cast<char>(text)) != std::string_view::npos;
@@ -90,7 +90,7 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
       return EditKind::Character;
     return EditKind::None;
   }
-  // V's digits and operators, and on an empty pinyin composition the "/" or "@" that opens its mode.
+  // V's digits and operators, and on an empty composition in a scheme that opens the table modes (the pinyin schemes and Wubi, `opens_table_modes`) the "/" or "@" that opens its mode.
   if (spelled_by_engine(spelling_symbols, text))
     return EditKind::Character;
   return EditKind::None;

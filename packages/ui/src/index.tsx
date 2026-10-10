@@ -2389,6 +2389,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showTypingEffects,
     showTypingEffectStyles,
     showTypingEffectPacks,
+    typingEffectsFlashOnly,
     showWordbookPacks,
     showSymbolSetPacks,
   } = capabilities;
@@ -2938,6 +2939,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showTypingEffects,
     showTypingEffectStyles,
     showTypingEffectPacks,
+    typingEffectsFlashOnly,
     showWordbookPacks,
     showSymbolSetPacks,
     snapshot,

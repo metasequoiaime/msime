@@ -10,6 +10,7 @@ import {
 } from "react";
 import * as settings from "./settings-style";
 import { ActionButton } from "../core/action-button";
+import { clamp } from "../core/number";
 
 /** 导航最多显示的圆点数。每个已安装的皮肤都是一张卡片，主题多于这个数时，圆点改为跟随当前卡片的一段窗口，导航行的宽度不随皮肤数量增长。 */
 export const MAX_CAROUSEL_DOTS = 9;
@@ -21,7 +22,7 @@ export function carouselDotWindowStart(
   size = MAX_CAROUSEL_DOTS,
 ): number {
   if (count <= size) return 0;
-  return Math.min(Math.max(index - Math.floor(size / 2), 0), count - size);
+  return clamp(index - Math.floor(size / 2), 0, count - size);
 }
 
 export interface ThemeCarouselProps {
@@ -49,7 +50,7 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
   const windowStart = carouselDotWindowStart(index, labels.length);
 
   const show = useCallback((next: number, smooth: boolean) => {
-    const clamped = Math.min(Math.max(next, 0), Math.max(latestKeys.current.length - 1, 0));
+    const clamped = clamp(next, 0, Math.max(latestKeys.current.length - 1, 0));
     current.current = clamped;
     shownKey.current = latestKeys.current[clamped];
     setIndex(clamped);

@@ -10,10 +10,8 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
-import android.text.Editable;
 import android.text.InputFilter;
 import android.text.InputType;
-import android.text.TextWatcher;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
@@ -421,15 +419,9 @@ public final class AiSkinPage extends DetailPage {
             bindEnabled(input, again);
             ViewPolicy.setEnabledWithAlpha(use, !s.busy && !saving, 0.38f);
         }
-        input.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
-
-            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
-
-            @Override public void afterTextChanged(Editable text) {
-                s.prompt = text.toString();
-                styleChips(context, chipViews);
-            }
+        Ui.afterTextChanged(input, text -> {
+            s.prompt = text.toString();
+            styleChips(context, chipViews);
         });
         refreshPreview();
     }
@@ -442,13 +434,7 @@ public final class AiSkinPage extends DetailPage {
             ViewPolicy.setEnabledWithAlpha(button, enabled, 0.38f);
         };
         update.run();
-        input.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
-
-            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
-
-            @Override public void afterTextChanged(Editable text) { update.run(); }
-        });
+        Ui.afterTextChanged(input, ignored -> update.run());
     }
 
     /** 和描述相同的 chip 填强调色，其余是 accentSoft 底。 */
