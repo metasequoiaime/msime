@@ -12,6 +12,6 @@ public final class VoiceCapturePolicy {
      */
     public static int readLength(long limit, long captured, int requested) {
         if (limit <= 0 || captured < 0 || requested <= 0 || captured >= limit) return 0;
-        return (int) Math.min((long) requested, limit - captured);
+        return (int) BoundsPolicy.atMost((long) requested, limit - captured);
     }
 }

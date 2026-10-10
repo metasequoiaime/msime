@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <stdexcept>
 #include <thread>
 
 int main() {
@@ -43,6 +44,25 @@ int main() {
              });
   for (int i = 0; i < 100 && !delivered.load(); ++i)
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  worker.cancel();
+  assert(delivered.load());
+
+  worker.run(
+      [](const std::atomic_bool &) -> std::string {
+        throw std::runtime_error("synthetic provider failure");
+      },
+      [&](std::string) { delivered.store(false); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  worker.cancel();
+  assert(delivered.load());
+
+  worker.run_stream(
+      [](const std::atomic_bool &, const MsimeVoiceWorker::Progress &) -> std::string {
+        throw std::runtime_error("synthetic streaming provider failure");
+      },
+      {},
+      [&](std::string) { delivered.store(false); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
   worker.cancel();
   assert(delivered.load());
 }

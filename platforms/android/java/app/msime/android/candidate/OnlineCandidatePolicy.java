@@ -42,7 +42,7 @@ public final class OnlineCandidatePolicy {
 
     /** Read the positive host session id without JSONObject's lossy numeric conversions. */
     public static long sessionId(Object raw, long fallback) {
-        long value = KeyboardGeometry.strictLong(raw, fallback);
+        long value = NumberPolicy.strictLong(raw, fallback);
         return value > 0 ? value : fallback;
     }
 

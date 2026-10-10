@@ -23,7 +23,7 @@ public final class ClipboardCapturePolicy {
      */
     public static String identity(long copiedAtMs, String text) {
         if (text == null) throw new IllegalArgumentException("No clipboard text");
-        long timestamp = Math.max(0, copiedAtMs);
+        long timestamp = BoundsPolicy.nonNegative(copiedAtMs);
         return timestamp + ":" + Integer.toHexString(text.hashCode()) + ":" + text.length();
     }
 

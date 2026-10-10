@@ -186,7 +186,7 @@ public final class CommunityReplyLibrary {
             int start = index;
             if (take('-') && index >= input.length()) throw invalid();
             if (take('0')) {
-                if (index < input.length() && Character.isDigit(input.charAt(index))) throw invalid();
+                if (index < input.length() && TextPolicy.isDigit(input.charAt(index))) throw invalid();
             } else {
                 digits();
             }
@@ -201,7 +201,7 @@ public final class CommunityReplyLibrary {
 
         private void digits() {
             int start = index;
-            while (index < input.length() && Character.isDigit(input.charAt(index))) index++;
+            while (index < input.length() && TextPolicy.isDigit(input.charAt(index))) index++;
             if (start == index) throw invalid();
         }
 

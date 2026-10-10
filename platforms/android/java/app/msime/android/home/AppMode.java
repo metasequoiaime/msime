@@ -1,5 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.DimensionPolicy;
+
 import android.content.Context;
 import android.content.SharedPreferences;
 import androidx.annotation.Nullable;
@@ -63,7 +65,7 @@ final class AppMode {
 
     /** Whether this context is drawing dark right now: the system's night mode, or the one `theme` forces. */
     static boolean dark(Context context) {
-        return KeyboardGeometry.isNight(context);
+        return DimensionPolicy.isNight(context);
     }
 
     private static void apply(String mode) {

@@ -34,6 +34,11 @@ public final class TextPolicy {
         return Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint);
     }
 
+    /** Return whether a code point matches Java's whitespace predicate. */
+    public static boolean isWhitespace(int codePoint) {
+        return Character.isWhitespace(codePoint);
+    }
+
     public static boolean blank(String value) {
         if (value == null || value.isEmpty()) return true;
         return value.codePoints().allMatch(TextPolicy::isSpace);
@@ -47,6 +52,21 @@ public final class TextPolicy {
     /** Return whether a code point is an ISO control character. */
     public static boolean isControl(int codePoint) {
         return Character.isISOControl(codePoint);
+    }
+
+    /** Return whether a code point is a Unicode letter or digit. */
+    public static boolean isLetterOrDigit(int codePoint) {
+        return Character.isLetterOrDigit(codePoint);
+    }
+
+    /** Return whether a code point is a Unicode decimal digit. */
+    public static boolean isDigit(int codePoint) {
+        return Character.isDigit(codePoint);
+    }
+
+    /** Return whether a code point is an uppercase Unicode letter. */
+    public static boolean isUpperCase(int codePoint) {
+        return Character.isUpperCase(codePoint);
     }
 
     public static boolean hasControlExceptWhitespace(String value) {

@@ -1,5 +1,8 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
+
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Canvas;
@@ -34,9 +37,9 @@ public final class InlineHeightBar extends LinearLayout {
         void onDone();
     }
 
-    public static final int MIN_PERCENT = KeyboardGeometry.MIN_HEIGHT_PERCENT;
-    public static final int MAX_PERCENT = KeyboardGeometry.MAX_HEIGHT_PERCENT;
-    public static final int DEFAULT_PERCENT = KeyboardGeometry.DEFAULT_HEIGHT_PERCENT;
+    public static final int MIN_PERCENT = KeyboardHeightPolicy.MIN_HEIGHT_PERCENT;
+    public static final int MAX_PERCENT = KeyboardHeightPolicy.MAX_HEIGHT_PERCENT;
+    public static final int DEFAULT_PERCENT = KeyboardHeightPolicy.DEFAULT_HEIGHT_PERCENT;
     public static final int ACCESSIBILITY_STEP = 5;
     public static final String DESCRIPTION = "键盘布局调整";
 
@@ -55,20 +58,20 @@ public final class InlineHeightBar extends LinearLayout {
         setOrientation(HORIZONTAL);
         ViewPolicy.setCenteredVertically(this);
         setContentDescription(DESCRIPTION);
-        KeyboardGeometry.setHorizontalPaddingDp(this, context, 6);
+        LayoutPolicy.setHorizontalPaddingDp(this, context, 6);
         cancel = textButton(context, "取消");
         reset = textButton(context, "重置");
         done = textButton(context, "完成");
         ViewPolicy.setTypefaceStyle(done, Typeface.BOLD);
-        KeyboardGeometry.setKeyTextSize(done, 14);
+        KeyboardTypographyPolicy.setKeyTextSize(done, 14);
         handle = new Handle(context, this);
-        int pill = KeyboardGeometry.pixels(context, 32);
-        addView(cancel, KeyboardGeometry.linearParamsPx(LayoutParams.WRAP_CONTENT, pill));
-        addView(handle, KeyboardGeometry.weightedMatchParentParams(1f));
-        LinearLayout.LayoutParams resetParams = KeyboardGeometry.linearParamsPx(LayoutParams.WRAP_CONTENT, pill);
-        resetParams.rightMargin = KeyboardGeometry.pixels(context, 4);
+        int pill = DimensionPolicy.pixels(context, 32);
+        addView(cancel, LayoutPolicy.linearParamsPx(LayoutParams.WRAP_CONTENT, pill));
+        addView(handle, LayoutPolicy.weightedMatchParentParams(1f));
+        LinearLayout.LayoutParams resetParams = LayoutPolicy.linearParamsPx(LayoutParams.WRAP_CONTENT, pill);
+        resetParams.rightMargin = DimensionPolicy.pixels(context, 4);
         addView(reset, resetParams);
-        addView(done, KeyboardGeometry.linearParamsPx(LayoutParams.WRAP_CONTENT, pill));
+        addView(done, LayoutPolicy.linearParamsPx(LayoutParams.WRAP_CONTENT, pill));
         ViewPolicy.bindClick(cancel, () -> { if (listener != null) listener.onCancel(); });
         ViewPolicy.bindClick(done, () -> { if (listener != null) listener.onDone(); });
         ViewPolicy.bindClick(reset, () -> {
@@ -83,7 +86,7 @@ public final class InlineHeightBar extends LinearLayout {
         ViewPolicy.setAllCapsFalse(button);
         ViewPolicy.clearBackground(button);
         ViewPolicy.clearMinimumSize(button);
-        int horizontal = KeyboardGeometry.pixels(context, 12);
+        int horizontal = DimensionPolicy.pixels(context, 12);
         ViewPolicy.setHorizontalPadding(button, horizontal);
         ViewPolicy.setCenteredKeyTextSizeSp(button, 14);
         return button;
@@ -91,7 +94,7 @@ public final class InlineHeightBar extends LinearLayout {
 
     /** 把百分比夹进 75–160。 */
     public static int clamp(int value) {
-        return KeyboardGeometry.bounded(value, MIN_PERCENT, MAX_PERCENT);
+        return BoundsPolicy.bounded(value, MIN_PERCENT, MAX_PERCENT);
     }
 
     /**
@@ -130,7 +133,7 @@ public final class InlineHeightBar extends LinearLayout {
 
     /** 键盘实际画出来的高度（像素），由键盘外框的布局回调传入；变了才重画。 */
     public void setHeightPixels(int value) {
-        int next = Math.max(0, value);
+        int next = BoundsPolicy.nonNegative(value);
         if (next == heightPixels) return;
         heightPixels = next;
         handle.invalidate();
@@ -149,7 +152,7 @@ public final class InlineHeightBar extends LinearLayout {
         ((BarButton) cancel).setColors(foreground, null);
         ((BarButton) reset).setColors(foreground, null);
         GradientDrawable pill = DrawablePolicy.rounded(accent,
-            KeyboardGeometry.floatPixels(getContext(), 16));
+            DimensionPolicy.floatPixels(getContext(), 16));
         ((BarButton) done).setColors(onAccent, pill);
         handle.barColor = ColorPolicy.withAlpha(foreground, .35f);
         handle.textColor = secondary;
@@ -280,21 +283,21 @@ public final class InlineHeightBar extends LinearLayout {
         }
 
         @Override protected void onDraw(Canvas canvas) {
-            ViewPolicy.setTextSize(text, KeyboardGeometry.keySp(getContext(), LABEL_SP));
-            float gap = KeyboardGeometry.floatPixels(getContext(), 6);
+            ViewPolicy.setTextSize(text, KeyboardTypographyPolicy.keySp(getContext(), LABEL_SP));
+            float gap = DimensionPolicy.floatPixels(getContext(), 6);
             String caption = label(bar.percent(), bar.heightPixels);
             float scale = fitScale(text.measureText(caption), getWidth() - 2 * gap);
             if (scale < 1f) ViewPolicy.setTextSize(text, text.getTextSize() * scale);
             Paint.FontMetrics metrics = text.getFontMetrics();
             float textHeight = metrics.descent - metrics.ascent;
-            float total = KeyboardGeometry.floatPixels(getContext(), BAR_HEIGHT_DP) + gap + textHeight;
+            float total = DimensionPolicy.floatPixels(getContext(), BAR_HEIGHT_DP) + gap + textHeight;
             float top = (getHeight() - total) / 2f;
             float cx = getWidth() / 2f;
-            float barWidth = KeyboardGeometry.floatPixels(getContext(), BAR_WIDTH_DP);
-            float barHeight = KeyboardGeometry.floatPixels(getContext(), BAR_HEIGHT_DP);
+            float barWidth = DimensionPolicy.floatPixels(getContext(), BAR_WIDTH_DP);
+            float barHeight = DimensionPolicy.floatPixels(getContext(), BAR_HEIGHT_DP);
             rect.set(cx - barWidth / 2f, top, cx + barWidth / 2f, top + barHeight);
             paint.setColor(barColor);
-            float radius = KeyboardGeometry.floatPixels(getContext(), BAR_RADIUS_DP);
+            float radius = DimensionPolicy.floatPixels(getContext(), BAR_RADIUS_DP);
             canvas.drawRoundRect(rect, radius, radius, paint);
             text.setColor(textColor);
             canvas.drawText(caption, cx, rect.bottom + gap - metrics.ascent, text);

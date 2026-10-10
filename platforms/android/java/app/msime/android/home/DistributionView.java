@@ -1,5 +1,8 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
+import app.msime.android.DimensionPolicy;
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -77,13 +80,13 @@ public final class DistributionView extends View {
     /** 第 `index` 段的颜色。 */
     private int colour(int index) {
         Context context = getContext();
-        int accent = Ui.accent(context);
+        int accent = ThemeColorPolicy.accent(context);
         int mix = MIX[BoundsPolicy.atMost(index, MIX.length - 1)];
-        return ColorPolicy.blend(Ui.card(context), accent, mix / 100f);
+        return ColorPolicy.blend(ThemeColorPolicy.card(context), accent, mix / 100f);
     }
 
     private int track() {
-        boolean dark = KeyboardGeometry.isNight(getContext());
+        boolean dark = DimensionPolicy.isNight(getContext());
         return dark ? ColorPolicy.withAlpha(Color.WHITE, .1f) : ColorPolicy.withAlpha(Color.BLACK, .07f);
     }
 
@@ -149,7 +152,7 @@ public final class DistributionView extends View {
         for (int index = 0; index < shares.size(); index++) {
             Share share = shares.get(index);
             float middle = index * row + row / 2;
-            styleText(14, Typeface.NORMAL, Ui.text(context));
+            styleText(14, Typeface.NORMAL, ThemeColorPolicy.text(context));
             canvas.drawText(share.title(), 0, middle + textOffset(), text);
             float left = labelWidth;
             float right = width - percentWidth;
@@ -163,7 +166,7 @@ public final class DistributionView extends View {
                 left + BoundsPolicy.atLeast(part, barHeight), middle + barHeight / 2);
                 canvas.drawRoundRect(box, barHeight / 2, barHeight / 2, fill);
             }
-            styleText(14, Typeface.NORMAL, Ui.subText(context));
+            styleText(14, Typeface.NORMAL, ThemeColorPolicy.subText(context));
             String percent = TypingStatisticsSummary.share(share.count(), total) + "%";
             canvas.drawText(percent, width - text.measureText(percent), middle + textOffset(), text);
         }
@@ -188,11 +191,11 @@ public final class DistributionView extends View {
         }
         fill.setStyle(Paint.Style.FILL);
         Share first = shares.get(0);
-        styleText(18, Typeface.BOLD, Ui.text(context));
+        styleText(18, Typeface.BOLD, ThemeColorPolicy.text(context));
         String percent = TypingStatisticsSummary.share(first.count(), total) + "%";
         canvas.drawText(percent, size / 2 - text.measureText(percent) / 2,
             top + size / 2, text);
-        styleText(10, Typeface.NORMAL, Ui.subText(context));
+        styleText(10, Typeface.NORMAL, ThemeColorPolicy.subText(context));
         canvas.drawText(first.title(), size / 2 - text.measureText(first.title()) / 2,
             top + size / 2 + Ui.dp(context, 14), text);
         float left = size + Ui.dp(context, 20);
@@ -211,7 +214,7 @@ public final class DistributionView extends View {
         float dot = Ui.dp(context, 4);
         fill.setColor(colour(index));
         canvas.drawCircle(left + dot, middle, dot, fill);
-        styleText(14, Typeface.NORMAL, Ui.text(context));
+        styleText(14, Typeface.NORMAL, ThemeColorPolicy.text(context));
         canvas.drawText(share.title(), left + dot * 2 + Ui.dp(context, 10), middle + textOffset(), text);
         String percent = TypingStatisticsSummary.share(share.count(), total) + "%";
         canvas.drawText(percent, left + width - text.measureText(percent), middle + textOffset(), text);

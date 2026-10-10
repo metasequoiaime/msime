@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
@@ -39,7 +40,7 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
         borderColor = Color.parseColor(skin.borderColor());
     }
 
-    private float dp(double value) { return KeyboardGeometry.floatPixels(value, density); }
+    private float dp(double value) { return DimensionPolicy.floatPixels(value, density); }
 
     private Path path(RectF rect) {
         if (shapeValid && shapeBounds.equals(rect)) return shapePath;
@@ -61,7 +62,7 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
                 shapePath.close();
             }
             case "ticket" -> {
-                float notch = KeyboardGeometry.shorterSide(rect.width(), rect.height()) * .12f;
+                float notch = DimensionPolicy.shorterSide(rect.width(), rect.height()) * .12f;
                 shapePath.moveTo(rect.left, rect.top);
                 shapePath.lineTo(rect.right, rect.top);
                 shapePath.lineTo(rect.right, rect.centerY() - notch);
@@ -78,7 +79,7 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
             }
             default -> {
                 float radius = BoundsPolicy.atMost(dp(skin.cornerRadius()),
-                    KeyboardGeometry.shorterSide(rect.width(), rect.height()) / 2);
+                    DimensionPolicy.shorterSide(rect.width(), rect.height()) / 2);
                 shapePath.addRoundRect(rect, radius, radius, Path.Direction.CW);
             }
         }
@@ -165,7 +166,7 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
     }
 
     @Override public void setAlpha(int value) {
-        alpha = KeyboardGeometry.bounded(value, 0, 255);
+        alpha = BoundsPolicy.bounded(value, 0, 255);
         invalidateSelf();
     }
 

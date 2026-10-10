@@ -138,7 +138,7 @@ public final class WebSocketFrames {
      */
     public static byte[] clientFrame(int opcode, byte[] payload, int length, byte[] mask) {
         byte[] body = payload == null ? new byte[0] : payload;
-        int size = KeyboardGeometry.bounded(length, 0, body.length);
+        int size = BoundsPolicy.bounded(length, 0, body.length);
         int headerLength = 2 + lengthBytes(size) + 4;
         byte[] frame = new byte[headerLength + size];
         frame[0] = (byte) (0x80 | opcode & 0x0f);

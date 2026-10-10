@@ -84,25 +84,25 @@ struct CloudDictionaryView: View {
       if let userID {
         Section {
           NavigationLink(destination: CloudCandidatesView(kind: kind,
-            authorize: { try await authorizedToken(matching: userID) })) {
+            authorize: { try await authorizedToken(matching: userID) }, accountID: userID, session: session)) {
             CloudDictionaryRowLabel(
               title: "云端候选与排序", detail: "调整这个词库里候选的先后",
               symbol: "list.number")
           }
           NavigationLink(destination: CloudDictionaryCatalogView(kind: kind,
-            authorize: { try await authorizedToken(matching: userID) })) {
+            authorize: { try await authorizedToken(matching: userID) }, accountID: userID, session: session)) {
             CloudDictionaryRowLabel(
               title: "完整目录", detail: "查询与批量管理全部词条",
               symbol: "square.stack.3d.up.fill")
           }
           NavigationLink(destination: CloudDictionaryApplyView(accountID: userID,
-            authorize: { try await authorizedToken(matching: userID) })) {
+            session: session)) {
             CloudDictionaryRowLabel(
               title: "应用到本机", detail: "把整份云词库交给本机键盘",
               symbol: "iphone.and.arrow.forward")
           }
           NavigationLink(destination: CloudDictionaryFilesView(kind: kind,
-            authorize: { try await authorizedToken(matching: userID) }, imported: { try await load(offset: 0) })) {
+            accountID: userID, session: session, imported: { try await load(offset: 0) })) {
             CloudDictionaryRowLabel(
               title: "导入与导出", detail: "用文件搬运词条",
               symbol: "doc.badge.arrow.up.fill")
@@ -139,9 +139,15 @@ struct CloudDictionaryView: View {
     .onDisappear { pending?.cancel(); page = nil }
     .sheet(item: $editing) { edit in
       CloudDictionaryEditor(kind: edit.kind, value: edit.entry.map { .init(code: $0.code, word: $0.word, weight: $0.weight) }) { value in
-        let token = try await authorizedToken(matching: edit.userID)
-        if let entry = edit.entry { _ = try await client.updateDictionary(entry, value: value, token: token) }
-        else { _ = try await client.addDictionary(edit.kind, value: value, token: token) }
+        let credentials = try await session.credentials(matchingUserID: edit.userID, matchingSessionID: sessionID)
+        if let entry = edit.entry {
+          _ = try await client.updateDictionary(entry, value: value, session: session,
+            matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
+        } else {
+          _ = try await client.addDictionary(edit.kind, value: value, session: session,
+            matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
+        }
+        sessionID = credentials.sessionID
         try await load(offset: 0)
       }
     }
@@ -150,8 +156,10 @@ struct CloudDictionaryView: View {
       Button("删除", role: .destructive) {
         guard let entry = deleting, let userID else { return }
         run {
-          let token = try await authorizedToken(matching: userID)
-          _ = try await client.deleteDictionary(entry, token: token)
+          let credentials = try await session.credentials(matchingUserID: userID, matchingSessionID: sessionID)
+          _ = try await client.deleteDictionary(entry, session: session,
+            matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
+          sessionID = credentials.sessionID
           try await load(offset: 0)
         }
         deleting = nil
@@ -162,7 +170,7 @@ struct CloudDictionaryView: View {
       Button("下载") {
         guard let entry = downloading, let userID else { return }
         run {
-          _ = try await authorizedToken(matching: userID)
+          _ = try await session.credentials(matchingUserID: userID, matchingSessionID: sessionID)
           let word = try entry.localWord()
           try PersonalDictionaryStore().enqueue(previous: nil, replacement: word)
           message = "已加入本机队列。请打开允许完全访问的水杉键盘，确认同步后再试打。"
@@ -180,9 +188,10 @@ struct CloudDictionaryView: View {
   }
   @MainActor private func load(offset: Int) async throws {
     guard let identity = try await session.user()?.id else { throw BackendAccountClient.Failure(status: 401) }
-    let token = try await authorizedToken(matching: identity)
-    let result = try await client.dictionary(kind, search: search, offset: offset, token: token)
-    _ = try await authorizedToken(matching: identity)
+    let credentials = try await session.credentials(matchingUserID: identity, matchingSessionID: sessionID)
+    let result = try await client.dictionary(kind, search: search, offset: offset,
+      session: session, matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
+    sessionID = credentials.sessionID
     page = result; userID = identity
   }
   @MainActor private func run(_ work: @escaping @MainActor () async throws -> Void) {

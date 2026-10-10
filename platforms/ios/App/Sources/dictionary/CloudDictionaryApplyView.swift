@@ -2,7 +2,7 @@ import SwiftUI
 
 struct CloudDictionaryApplyView: View {
   let accountID: String
-  let authorize: () async throws -> String
+  let session: BackendAccountSession
   @State private var state = DictionarySnapshotQueueState()
   @State private var preview: BackendPreparedSnapshot?
   @State private var expectedVersion: String?
@@ -11,6 +11,7 @@ struct CloudDictionaryApplyView: View {
   @State private var message: String?
   @State private var probe = ""
   @State private var pending: Task<Void, Never>?
+  @State private var sessionID: UUID?
   private let queue = DictionarySnapshotQueue()
   private let client = BackendAccountClient()
 
@@ -105,11 +106,13 @@ struct CloudDictionaryApplyView: View {
       defer { busy = false }
       do {
         guard try PersonalDictionaryStore().read().pendingCount == 0 else { throw DictionarySnapshotQueue.Failure.busy }
-        let token = try await authorize()
-        let file = try await client.dictionarySnapshot(token: token)
+        let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+        sessionID = identity.sessionID
+        let file = try await client.dictionarySnapshot(session: session, matchingUserID: accountID,
+                                                       matchingSessionID: identity.sessionID)
         defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
         let prepared = try await BackendPreparedSnapshot.prepareDocument(file.url)
-        _ = try await authorize(); try Task.checkCancellation()
+        try Task.checkCancellation()
         preview = prepared; expectedVersion = version
       } catch is CancellationError { }
       catch { message = error.localizedDescription }
@@ -121,9 +124,11 @@ struct CloudDictionaryApplyView: View {
     pending = Task {
       defer { busy = false }
       do {
-        let token = try await authorize()
-        let changes = try await client.dictionaryChanges(after: preview.envelope.revision, limit: 1, token: token)
-        _ = try await authorize(); try Task.checkCancellation()
+        let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+        sessionID = identity.sessionID
+        let changes = try await client.dictionaryChanges(after: preview.envelope.revision, limit: 1,
+          session: session, matchingUserID: accountID, matchingSessionID: identity.sessionID)
+        try Task.checkCancellation()
         guard changes.changes.isEmpty else {
           self.preview = nil; expectedVersion = nil
           message = "预览后云词库已变化，请重新下载并确认。"

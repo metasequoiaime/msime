@@ -62,68 +62,35 @@ struct CommunityFailure: LocalizedError {
 }
 
 enum CommunityResponseValidation {
-  private static let maximumJavaScriptInteger = 9_007_199_254_740_991
-
-  static func validID(_ value: String) -> Bool {
-    guard let id = UUID(uuidString: value) else { return false }
-    return id.uuidString != "00000000-0000-0000-0000-000000000000"
-  }
-
-  static func matchesID(_ value: String, requested: String) -> Bool {
-    guard validID(value), validID(requested),
-          let valueID = UUID(uuidString: value), let requestedID = UUID(uuidString: requested)
-    else { return false }
-    return valueID == requestedID
-  }
-
-  static func validText(_ value: String, minimum: Int, maximum: Int,
-                        multiline: Bool, trimmed: Bool = false) -> Bool {
-    let scalars = value.unicodeScalars
-    guard (minimum...maximum).contains(scalars.count),
-          (!trimmed || value == value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-      return false
-    }
-    return !scalars.contains { scalar in
-      CharacterSet.controlCharacters.contains(scalar)
-        && !(multiline && (scalar == "\n" || scalar == "\t"))
-    }
-  }
-
-  static func validRating(count: Int, average: Double, mine: Int) -> Bool {
-    count >= 0 && count <= maximumJavaScriptInteger && (0...5).contains(mine)
-      && average.isFinite && (0...5).contains(average)
-      && (count != 0 || average == 0)
-  }
-
   static func validSkin(_ skin: CommunitySkin) -> Bool {
-    validID(skin.id)
-      && validText(skin.name, minimum: 1, maximum: 32, multiline: false, trimmed: true)
-      && validText(skin.description, minimum: 0, maximum: 280, multiline: true)
-      && validText(skin.author, minimum: 1, maximum: 128, multiline: false, trimmed: true)
-      && skin.downloads >= 0 && skin.downloads <= maximumJavaScriptInteger
-      && validRating(count: skin.rating_count, average: skin.rating_average, mine: skin.my_rating)
+    CommunityValidation.validID(skin.id)
+      && CommunityValidation.validText(skin.name, minimum: 1, maximum: 32, multiline: false, trimmed: true)
+      && CommunityValidation.validText(skin.description, minimum: 0, maximum: 280, multiline: true)
+      && CommunityValidation.validText(skin.author, minimum: 1, maximum: 128, multiline: false, trimmed: true)
+      && skin.downloads >= 0 && skin.downloads <= CommunityValidation.maximumJavaScriptInteger
+      && CommunityValidation.validRating(count: skin.rating_count, average: skin.rating_average, mine: skin.my_rating)
   }
 
   static func validResource(_ item: CommunityResource, expectedKind: CommunityResourceKind) -> Bool {
-    guard item.kind == expectedKind, validID(item.id), item.revision > 0,
-          validText(item.name, minimum: 1, maximum: 32, multiline: false, trimmed: true),
-          validText(item.description, minimum: 0, maximum: 280, multiline: true),
-          validText(item.author, minimum: 1, maximum: 128, multiline: false, trimmed: true),
-          item.saves >= 0, item.saves <= maximumJavaScriptInteger,
-          validRating(count: item.rating_count, average: item.rating_average, mine: item.my_rating)
+    guard item.kind == expectedKind, CommunityValidation.validID(item.id), item.revision > 0,
+          CommunityValidation.validText(item.name, minimum: 1, maximum: 32, multiline: false, trimmed: true),
+          CommunityValidation.validText(item.description, minimum: 0, maximum: 280, multiline: true),
+          CommunityValidation.validText(item.author, minimum: 1, maximum: 128, multiline: false, trimmed: true),
+          item.saves >= 0, item.saves <= CommunityValidation.maximumJavaScriptInteger,
+          CommunityValidation.validRating(count: item.rating_count, average: item.rating_average, mine: item.my_rating)
     else { return false }
     switch item.kind {
     case .reply:
       return (item.content.entries ?? []).isEmpty
-        && item.content.prompt.map { validText($0, minimum: 1, maximum: 2_000, multiline: true) } == true
+        && item.content.prompt.map { CommunityValidation.validText($0, minimum: 1, maximum: 2_000, multiline: true) } == true
     case .dictionary:
       guard item.content.prompt == nil, let entries = item.content.entries,
             (1...128).contains(entries.count) else { return false }
       var seen = Set<String>()
       return entries.allSatisfy { entry in
         ["pinyin", "wubi", "quick", "english"].contains(entry.kind)
-          && validText(entry.code, minimum: 1, maximum: 256, multiline: false)
-          && validText(entry.word, minimum: 1, maximum: 1_024, multiline: false)
+          && CommunityValidation.validText(entry.code, minimum: 1, maximum: 256, multiline: false)
+          && CommunityValidation.validText(entry.word, minimum: 1, maximum: 1_024, multiline: false)
           && entry.weight >= 0
           && seen.insert("\(entry.kind)|\(entry.code)|\(entry.word)").inserted
       }
@@ -336,12 +303,12 @@ actor SkinCommunityAPI {
     #if DEBUG && targetEnvironment(simulator)
     if CommunityPreviewFixtures.enabled, let skin = CommunityPreviewFixtures.skins.first(where: { $0.id == id }) { return skin }
     #endif
-    guard CommunityResponseValidation.validID(id) else {
+    guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     let skin: CommunitySkin = try await request(Self.skinPath(id))
     guard CommunityResponseValidation.validSkin(skin),
-          CommunityResponseValidation.matchesID(skin.id, requested: id) else {
+          CommunityValidation.matchesID(skin.id, requested: id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     return skin
@@ -353,23 +320,23 @@ actor SkinCommunityAPI {
       let category: CommunitySkinCategory
     }
     struct Result: Decodable { let id: String }
-    guard CommunityResponseValidation.validID(id) else {
+    guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     let result: Result = try await request("/v1/community/skins", method: "POST", body: JSONEncoder().encode(Payload(id: id, name: name, description: description, design: design.normalized, category: category)), authenticated: true)
-    guard CommunityResponseValidation.matchesID(result.id, requested: id) else {
+    guard CommunityValidation.matchesID(result.id, requested: id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
   }
   /// 作者修改自己作品的分类，返回更新后的条目。请求体只能有 `category` 一个键，服务端对多余的键回 400。返回的条目不带 `moderation`，调用方要沿用原条目的审核状态。
   func setCategory(_ id: String, category: CommunitySkinCategory) async throws -> CommunitySkin {
-    guard CommunityResponseValidation.validID(id) else {
+    guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     let skin: CommunitySkin = try await request(Self.skinPath(id, moderation: false), method: "PATCH",
       body: JSONEncoder().encode(["category": category]), authenticated: true)
     guard CommunityResponseValidation.validSkin(skin),
-          CommunityResponseValidation.matchesID(skin.id, requested: id), skin.category == category else {
+          CommunityValidation.matchesID(skin.id, requested: id), skin.category == category else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     return skin
@@ -386,7 +353,7 @@ actor SkinCommunityAPI {
     if CommunityPreviewFixtures.enabled, let skin = CommunityPreviewFixtures.skins.first(where: { $0.id == id }) { return skin.design }
     #endif
     struct Result: Decodable, Sendable { let design: CustomKeyboardSkin }
-    guard CommunityResponseValidation.validID(id) else {
+    guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     let path = "/v1/community/skins/\(id)/download", body = Data("{}".utf8)
@@ -413,7 +380,7 @@ actor SkinCommunityAPI {
   }
   func rate(_ id: String, stars: Int) async throws {
     struct Result: Decodable { let stars: Int }
-    guard CommunityResponseValidation.validID(id), (1...5).contains(stars) else {
+    guard CommunityValidation.validID(id), (1...5).contains(stars) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     let result: Result = try await request("/v1/community/skins/\(id)/rating", method: "PUT", body: JSONSerialization.data(withJSONObject: ["stars": stars]), authenticated: true)
@@ -423,7 +390,7 @@ actor SkinCommunityAPI {
   }
   func unpublish(_ id: String) async throws {
     struct Result: Decodable { let deleted: Bool }
-    guard CommunityResponseValidation.validID(id) else {
+    guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     let result: Result = try await request("/v1/community/skins/\(id)", method: "DELETE", authenticated: true)
@@ -461,12 +428,12 @@ actor SkinCommunityAPI {
     #if DEBUG && targetEnvironment(simulator)
     if CommunityPreviewFixtures.enabled, let item = CommunityPreviewFixtures.items.first(where: { $0.id == id }) { return item }
     #endif
-    guard CommunityResponseValidation.validID(id) else {
+    guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     let resource: CommunityResource = try await request("/v1/community/resources/\(id)?fields=moderation", maximumResponseBytes: 3 * 1024 * 1024)
     guard CommunityResponseValidation.validResource(resource, expectedKind: resource.kind),
-          CommunityResponseValidation.matchesID(resource.id, requested: id) else {
+          CommunityValidation.matchesID(resource.id, requested: id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     return resource
@@ -478,18 +445,18 @@ actor SkinCommunityAPI {
       let content: CommunityResourceContent; let revision: Int
     }
     struct Result: Decodable { let id: String; let revision: Int }
-    guard CommunityResponseValidation.validID(id) else {
+    guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     let result: Result = try await request("/v1/community/resources", method: "POST", body: JSONEncoder().encode(
       Payload(id: id, kind: kind, name: name, description: description, content: content, revision: revision)), authenticated: true)
-    guard CommunityResponseValidation.matchesID(result.id, requested: id), result.revision > 0 else {
+    guard CommunityValidation.matchesID(result.id, requested: id), result.revision > 0 else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
   }
   func saveResource(_ id: String, saved: Bool) async throws {
     struct Result: Decodable { let saved: Bool }
-    guard CommunityResponseValidation.validID(id) else {
+    guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     let result: Result = try await request("/v1/community/resources/\(id)/save", method: "PUT",
@@ -500,7 +467,7 @@ actor SkinCommunityAPI {
   }
   func rateResource(_ id: String, stars: Int) async throws {
     struct Result: Decodable { let stars: Int }
-    guard CommunityResponseValidation.validID(id), (1...5).contains(stars) else {
+    guard CommunityValidation.validID(id), (1...5).contains(stars) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     let result: Result = try await request("/v1/community/resources/\(id)/rating", method: "PUT",
@@ -512,8 +479,8 @@ actor SkinCommunityAPI {
   /// Report another user's work. Signed in or not: without a signed-in account the device's anonymous account sends it.
   func report(kind: String, itemID: String, reason: String, detail: String) async throws {
     let detail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard CommunityResponseValidation.validID(itemID), BackendAccountClient.reportReasons.contains(reason),
-          CommunityResponseValidation.validText(detail, minimum: 0, maximum: 1_000, multiline: true) else {
+    guard CommunityValidation.validID(itemID), BackendAccountClient.reportReasons.contains(reason),
+          CommunityValidation.validText(detail, minimum: 0, maximum: 1_000, multiline: true) else {
       throw CommunityFailure(message: "请选择举报原因，补充说明不超过 1000 字。")
     }
     guard let id = UUID(uuidString: itemID) else { throw CommunityFailure(message: "作品不存在或已下架。") }
@@ -531,7 +498,7 @@ actor SkinCommunityAPI {
   }
   func unpublishResource(_ id: String) async throws {
     struct Result: Decodable { let deleted: Bool }
-    guard CommunityResponseValidation.validID(id) else {
+    guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     let result: Result = try await request("/v1/community/resources/\(id)", method: "DELETE", authenticated: true)

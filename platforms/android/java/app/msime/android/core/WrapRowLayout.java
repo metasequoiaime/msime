@@ -15,8 +15,8 @@ final class WrapRowLayout extends ViewGroup {
 
     WrapRowLayout(Context context, int horizontalGap, int verticalGap) {
         super(context);
-        this.horizontalGap = Math.max(0, horizontalGap);
-        this.verticalGap = Math.max(0, verticalGap);
+        this.horizontalGap = BoundsPolicy.nonNegative(horizontalGap);
+        this.verticalGap = BoundsPolicy.nonNegative(verticalGap);
     }
 
     /** 宽 `width` 的子视图放在当前行 `x` 处会不会越过可用宽度；行首的那一个再宽也不换行。 */
@@ -27,7 +27,8 @@ final class WrapRowLayout extends ViewGroup {
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int widthMode = MeasureSpec.getMode(widthMeasureSpec);
         boolean bounded = widthMode != MeasureSpec.UNSPECIFIED;
-        int available = Math.max(0, MeasureSpec.getSize(widthMeasureSpec) - getPaddingLeft() - getPaddingRight());
+        int available = BoundsPolicy.nonNegative(MeasureSpec.getSize(widthMeasureSpec)
+            - getPaddingLeft() - getPaddingRight());
         int childWidthSpec = bounded
             ? MeasureSpec.makeMeasureSpec(available, MeasureSpec.AT_MOST)
             : MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
@@ -46,9 +47,9 @@ final class WrapRowLayout extends ViewGroup {
                 x = 0;
                 rowHeight = 0;
             }
-            widest = Math.max(widest, x + width);
+            widest = BoundsPolicy.atLeast(widest, x + width);
             x += width + horizontalGap;
-            rowHeight = Math.max(rowHeight, child.getMeasuredHeight());
+            rowHeight = BoundsPolicy.atLeast(rowHeight, child.getMeasuredHeight());
         }
         int width = widthMode == MeasureSpec.EXACTLY ? MeasureSpec.getSize(widthMeasureSpec)
             : widest + getPaddingLeft() + getPaddingRight();
@@ -57,7 +58,7 @@ final class WrapRowLayout extends ViewGroup {
     }
 
     @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        int available = Math.max(0, right - left - getPaddingLeft() - getPaddingRight());
+        int available = BoundsPolicy.nonNegative(right - left - getPaddingLeft() - getPaddingRight());
         int x = 0;
         int y = 0;
         int rowHeight = 0;
@@ -75,7 +76,7 @@ final class WrapRowLayout extends ViewGroup {
             int childTop = getPaddingTop() + y;
             child.layout(childLeft, childTop, childLeft + width, childTop + height);
             x += width + horizontalGap;
-            rowHeight = Math.max(rowHeight, height);
+            rowHeight = BoundsPolicy.atLeast(rowHeight, height);
         }
     }
 }

@@ -324,7 +324,7 @@ public final class DiagnosticsApi {
 
     private static void appendEvents(List<Event> target, List<Event> additions) {
         int overflow = target.size() + additions.size() - MAX_EVENTS;
-        if (overflow > 0) target.subList(0, Math.min(overflow, target.size())).clear();
+        if (overflow > 0) target.subList(0, BoundsPolicy.atMost(overflow, target.size())).clear();
         int remaining = MAX_EVENTS - target.size();
         if (additions.size() > remaining) {
             target.addAll(additions.subList(additions.size() - remaining, additions.size()));
@@ -379,8 +379,8 @@ public final class DiagnosticsApi {
         }
         JSONArray list = root.optJSONArray("accesses");
         int accessCount = list == null ? 0 : list.length();
-        int firstAccess = Math.max(0, accessCount - MAX_EVENTS);
-        List<Access> accesses = new ArrayList<>(Math.min(accessCount, MAX_EVENTS));
+        int firstAccess = BoundsPolicy.nonNegative(accessCount - MAX_EVENTS);
+        List<Access> accesses = new ArrayList<>(BoundsPolicy.atMost(accessCount, MAX_EVENTS));
         if (list != null) {
             for (int i = firstAccess; i < list.length(); i++) {
                 JSONObject item = list.optJSONObject(i);

@@ -128,7 +128,7 @@ public final class TypingStatisticsModel {
      */
     public int[] trend(String today, int length) {
         if (length <= 0) return new int[0];
-        int bounded = KeyboardGeometry.bounded(length, 0, MAX_TREND_DAYS);
+        int bounded = BoundsPolicy.bounded(length, 0, MAX_TREND_DAYS);
         LocalDate end = day(today);
         int[] series = new int[bounded];
         if (end == null) return series;
@@ -141,7 +141,7 @@ public final class TypingStatisticsModel {
 
     /** The day key each cell of {@link #trend} was taken from, in the same order. */
     public List<String> trendDays(String today, int length) {
-        int bounded = KeyboardGeometry.bounded(length, 0, MAX_TREND_DAYS);
+        int bounded = BoundsPolicy.bounded(length, 0, MAX_TREND_DAYS);
         LocalDate end = day(today);
         if (end == null || bounded == 0) return List.of();
         List<String> result = new ArrayList<>(bounded);

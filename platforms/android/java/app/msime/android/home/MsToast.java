@@ -1,5 +1,9 @@
 package app.msime.android.home;
 
+import app.msime.android.DrawablePolicy;
+import app.msime.android.ThemeColorPolicy;
+import app.msime.android.LayoutPolicy;
+
 import android.app.Activity;
 import android.content.Context;
 import android.view.Gravity;
@@ -38,15 +42,15 @@ public final class MsToast {
         }
 
         TextView toast = Ui.centeredLabel(activity, text, Ui.TEXT_TOAST, 400,
-            Ui.color(activity, com.google.android.material.R.attr.colorOnSurfaceInverse));
+            ThemeColorPolicy.color(activity, com.google.android.material.R.attr.colorOnSurfaceInverse));
         toast.setTag(TAG);
         ViewPolicy.setMaxLines(toast, 3);
-        ViewPolicy.setBackground(toast, Ui.pill(Ui.color(activity, com.google.android.material.R.attr.colorSurfaceInverse)));
+        ViewPolicy.setBackground(toast, DrawablePolicy.pill(ThemeColorPolicy.color(activity, com.google.android.material.R.attr.colorSurfaceInverse)));
         Ui.setSymmetricPaddingDp(toast, activity, 20, 10);
         ViewPolicy.setElevation(toast, Ui.dp(activity, 6));
         ViewPolicy.setPoliteLiveRegion(toast);
 
-        FrameLayout.LayoutParams params = KeyboardGeometry.frameParamsPx(
+        FrameLayout.LayoutParams params = LayoutPolicy.frameParamsPx(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         int side = Ui.dp(activity, 32);

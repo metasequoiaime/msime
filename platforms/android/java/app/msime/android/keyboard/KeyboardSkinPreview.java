@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -101,20 +102,20 @@ public final class KeyboardSkinPreview extends View {
     public KeyboardSkinPreview(Context context, KeyboardSkin skin) {
         super(context);
         this.skin = skin;
-        previewDrawState = new PreviewDrawState(skin, KeyboardGeometry.density(context));
+        previewDrawState = new PreviewDrawState(skin, DimensionPolicy.density(context));
         setWillNotDraw(false);
     }
 
     public void setSkin(KeyboardSkin value) {
         skin = value;
-        previewDrawState = new PreviewDrawState(value, KeyboardGeometry.density(getContext()));
+        previewDrawState = new PreviewDrawState(value, DimensionPolicy.density(getContext()));
         invalidate();
     }
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         previewBounds.set(0, 0, getWidth(), getHeight());
-        drawPreview(canvas, previewBounds, skin, KeyboardGeometry.density(getContext()),
+        drawPreview(canvas, previewBounds, skin, DimensionPolicy.density(getContext()),
             previewText, previewKey, previewDrawState);
     }
 
@@ -139,14 +140,14 @@ public final class KeyboardSkinPreview extends View {
         background.draw(canvas);
         String[][] rows = PREVIEW_ROWS;
         float gap = BoundsPolicy.bounded(
-            KeyboardGeometry.shorterSide(bounds.width(), bounds.height()) * .035f,
+            DimensionPolicy.shorterSide(bounds.width(), bounds.height()) * .035f,
             1f, Float.MAX_VALUE);
         float rowHeight = (bounds.height() - gap * 3) / rows.length;
         Paint text = reusableText == null ? new Paint(Paint.ANTI_ALIAS_FLAG) : reusableText;
         text.setTextAlign(Paint.Align.CENTER);
         ViewPolicy.setTypeface(text, skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
-        ViewPolicy.setTextSize(text, KeyboardGeometry.bounded(rowHeight * .42f, 7f,
-            KeyboardGeometry.floatPixels(14f, density)));
+        ViewPolicy.setTextSize(text, BoundsPolicy.bounded(rowHeight * .42f, 7f,
+            DimensionPolicy.floatPixels(14f, density)));
         int keyFill = Color.parseColor(skin.keyBackground());
         int actionFill = Color.parseColor(skin.actionBackground());
         int keyText = Color.parseColor(skin.keyForeground());

@@ -1,5 +1,8 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
+import app.msime.android.NumberPolicy;
+
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.os.Bundle;
@@ -17,7 +20,7 @@ import app.msime.android.AndroidLocalSettings;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
-import app.msime.android.KeyboardGeometry;
+import app.msime.android.KeyboardHeightPolicy;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
@@ -59,7 +62,7 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         View card = view.findViewById(R.id.keyboard_status_card);
-        ViewPolicy.setBackground(card, DrawablePolicy.rounded(Ui.card(requireContext()),
+        ViewPolicy.setBackground(card, DrawablePolicy.rounded(ThemeColorPolicy.card(requireContext()),
             Ui.dp(requireContext(), Ui.NAV_GROUP_RADIUS)));
 
         MaterialButton trial = view.findViewById(R.id.keyboard_try);
@@ -85,7 +88,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         scroll.setOnScrollChangeListener(
             (NestedScrollView.OnScrollChangeListener) (scrolled, x, y, oldX, oldY) -> {
                 boolean collapsed = y > threshold;
-                if (collapsed == (bar.getVisibility() == View.VISIBLE)) return;
+                if (collapsed == ViewPolicy.isVisible(bar)) return;
                 bar.animate().cancel();
                 if (collapsed) {
                     ViewPolicy.show(bar);
@@ -104,7 +107,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         // Preparation is silent while it works out and while it is done; it only takes the screen
         // when the keyboard cannot reach the Engine, which is the one case the user has to know.
         TextView preparation = view.findViewById(R.id.keyboard_preparation);
-        ViewPolicy.setBackground(preparation, DrawablePolicy.rounded(Ui.page(requireContext()), Ui.dp(requireContext(), 12)));
+        ViewPolicy.setBackground(preparation, DrawablePolicy.rounded(ThemeColorPolicy.page(requireContext()), Ui.dp(requireContext(), 12)));
         ViewPolicy.bindClick(preparation, () -> FirstRunPreparation.retry(requireContext()));
         preparationListener = status -> {
             if (!isAdded()) return;
@@ -333,7 +336,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         TextView button = view.findViewById(actionId);
         ViewPolicy.setVisible(button, !done);
         ViewPolicy.bindOptionalClick(button, done ? null : action);
-        ViewPolicy.setTextColor(button, ColorStateList.valueOf(Ui.accent(requireContext())));
+        ViewPolicy.setTextColor(button, ColorStateList.valueOf(ThemeColorPolicy.accent(requireContext())));
         view.findViewById(rowId).setContentDescription(
             getString(label) + (done ? "，已完成" : "，未完成"));
     }
@@ -346,18 +349,18 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     private static String keysSummary(JSONObject preferences, AndroidLocalSettings.Snapshot local) {
         // 和键盘页一样按百分比显示：存的是 dp 调整量，MIN_VALUE 表示没有设置（即 100 %），超出范围的旧值先夹紧再换算。
-        int percent = KeyboardGeometry.heightAdjustmentToPercent(
+        int percent = KeyboardHeightPolicy.heightAdjustmentToPercent(
             local.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
                 ? local.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
-                : KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
+                : NumberPolicy.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
         String layout = switch (InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key")) {
             case "nine_key" -> "九键";
             case "fourteen_key" -> "14 键";
             default -> "全键盘";
         };
-        return percent == KeyboardGeometry.DEFAULT_HEIGHT_PERCENT
+        return percent == KeyboardHeightPolicy.DEFAULT_HEIGHT_PERCENT
             ? layout + " · 标准高度"
-            : layout + " · 高度 " + KeyboardGeometry.displayPercent(percent);
+            : layout + " · 高度 " + KeyboardHeightPolicy.displayPercent(percent);
     }
 
     private static String voiceLanguage(JSONObject preferences) {

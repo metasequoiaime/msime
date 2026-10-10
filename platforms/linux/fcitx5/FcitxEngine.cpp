@@ -401,6 +401,13 @@ std::string translationSocket(const Json &options) {
   return value.empty() ? onlineSocket(options) : value;
 }
 
+bool emojiGroupsResultCurrent(const Json &result, uint64_t generation,
+                              const std::string &category) {
+  return result.is_object() &&
+         msime::linux_host::strict_json_value(result, "_generation", uint64_t{}) == generation &&
+         result.value("_category", std::string{}) == category;
+}
+
 bool launchDesktopPanel(const char *panel) {
   if (!panel || !*panel) return false;
   const char *command = std::getenv("MSIME_CLIENT_SETTINGS_COMMAND");
@@ -1495,7 +1502,13 @@ public:
   void invalidateOnlineRequests() {
     ++online_epoch_;
     online_query_.clear();
-    for (auto &slot : online_slots_) slot.query.clear();
+    for (auto &slot : online_slots_) {
+      // Provider workers are detached and their results are fenced by the
+      // epoch. Drop the old handles here so a slow request from a previous
+      // composition or session cannot block the next query from starting.
+      slot.job = {};
+      slot.query.clear();
+    }
   }
   void clearOnlineCandidates(uint8_t source) {
     if (!session_ || source >= 2) return;
@@ -1517,6 +1530,10 @@ public:
     translation_pending_.clear();
     translation_manual_sentence_ = false;
     translation_session_ = 0;
+    // Translation workers are detached and their results are fenced by the
+    // epoch. Drop the old handle so a slow provider cannot block the next
+    // session from starting a fresh translation request.
+    translation_job_ = {};
   }
   void clearCandidateTranslations() {
     if (session_ && view_.contains("generation")) {
@@ -1675,6 +1692,8 @@ public:
       ++clipboard_generation_;
       clipboard_items_.clear();
       clipboard_loading_ = false;
+      clipboard_job_ = {};
+      clipboard_mutation_job_ = {};
     }
     clipboard_path_ = std::move(clipboard_path);
     auto cloud_clipboard_socket = cloudClipboardSocket(options);
@@ -1682,6 +1701,7 @@ public:
       ++cloud_clipboard_generation_;
       cloud_clipboard_items_.clear();
       cloud_clipboard_enabled_ = true;
+      cloud_clipboard_job_ = {};
     }
     cloud_clipboard_socket_ = std::move(cloud_clipboard_socket);
     voice_socket_ = providerSocket(options, "voice_provider_socket",
@@ -1862,6 +1882,8 @@ public:
         options_path_ = nextPreferencesDirectory;
         preferences_job_session_ = 0;
         preferences_snapshot_ = Json();
+        preferences_job_ = {};
+        preferences_save_job_ = {};
         preferences_save_retry_.reset();
       }
       candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
@@ -1884,6 +1906,8 @@ public:
         ++clipboard_generation_;
         clipboard_items_.clear();
         clipboard_loading_ = false;
+        clipboard_job_ = {};
+        clipboard_mutation_job_ = {};
         clipboard_path_ = std::move(nextClipboard);
       }
       auto nextCloudClipboard = cloudClipboardSocket(options);
@@ -1891,6 +1915,7 @@ public:
         ++cloud_clipboard_generation_;
         cloud_clipboard_items_.clear();
         cloud_clipboard_enabled_ = true;
+        cloud_clipboard_job_ = {};
         cloud_clipboard_socket_ = std::move(nextCloudClipboard);
       }
       auto nextVoice = providerSocket(options, "voice_provider_socket",
@@ -2356,8 +2381,7 @@ public:
           emoji_groups_job_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         auto result = emoji_groups_job_.get();
         emoji_groups_job_ = {};
-        if (result.is_object() &&
-            msime::linux_host::strict_json_value(result, "_generation", uint64_t{}) == emoji_generation_) {
+        if (emojiGroupsResultCurrent(result, emoji_generation_, emoji_category_)) {
           emoji_groups_.clear();
           for (const auto &item : result.value("groups", Json::array()))
             if (item.is_string() && !item.get<std::string>().empty()) emoji_groups_.push_back(item.get<std::string>());
@@ -2536,6 +2560,7 @@ public:
         } catch (...) {}
         if (withPlugins) result["_plugin_groups"] = loadPluginSymbolGroups(resources, plugins);
         result["_generation"] = generation;
+        result["_category"] = category;
         return result;
       });
       return false;
@@ -2855,6 +2880,10 @@ public:
           reinterpret_cast<const uint8_t *>(socket.data()), socket.size(), generation));
     voice_cancelled_ = true;
     voice_mailbox_.reset();
+    // The worker is detached and owns its mailbox; dropping this handle lets
+    // a new recording start even if the cancelled provider takes a long time
+    // to acknowledge cancellation.
+    voice_job_ = {};
     voice_loading_ = false;
     voice_space_consumed_ = false;
     voice_space_locked_ = false;

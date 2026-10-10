@@ -1,5 +1,10 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
+import app.msime.android.LayoutPolicy;
+
+import app.msime.android.DimensionPolicy;
+
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
@@ -48,10 +53,10 @@ public final class InputDialog {
         dialog.supportRequestWindowFeature(Window.FEATURE_NO_TITLE);
 
         LinearLayout root = Ui.column(context);
-        ViewPolicy.setBackground(root, DrawablePolicy.rounded(Ui.sheetBackground(context), Ui.dp(context, Ui.DIALOG_RADIUS)));
+        ViewPolicy.setBackground(root, DrawablePolicy.rounded(ThemeColorPolicy.sheetBackground(context), Ui.dp(context, Ui.DIALOG_RADIUS)));
         root.setClipToOutline(true);
 
-        TextView heading = Ui.headingLabel(context, title, Ui.TEXT_DIALOG_TITLE, 600, Ui.text(context));
+        TextView heading = Ui.headingLabel(context, title, Ui.TEXT_DIALOG_TITLE, 600, ThemeColorPolicy.text(context));
         ViewPolicy.setCentered(heading);
         LinearLayout.LayoutParams headingParams = Ui.matchWidth();
         headingParams.topMargin = Ui.dp(context, 20);
@@ -61,7 +66,7 @@ public final class InputDialog {
 
         if (message != null && message.length() > 0) {
             TextView note = Ui.centeredLabel(context, message, Ui.TEXT_SHEET_HEADER, 400,
-                Ui.subText(context));
+                ThemeColorPolicy.subText(context));
             LinearLayout.LayoutParams params = Ui.matchWidth();
             params.topMargin = Ui.dp(context, 4);
             params.leftMargin = Ui.dp(context, 20);
@@ -75,15 +80,15 @@ public final class InputDialog {
 
         root.addView(Ui.divider(context, true));
         LinearLayout buttons = Ui.row(context);
-        TextView cancel = button("取消", 400, Ui.accent(context));
+        TextView cancel = button("取消", 400, ThemeColorPolicy.accent(context));
         ViewPolicy.bindClick(cancel, dialog::cancel);
         buttons.addView(cancel,
-            KeyboardGeometry.weightedHeightPxParams(Ui.dp(context, 48), 1f));
+            LayoutPolicy.weightedHeightPxParams(Ui.dp(context, 48), 1f));
         buttons.addView(Ui.divider(context, false));
-        primary = button("确定", 600, Ui.text(context));
+        primary = button("确定", 600, ThemeColorPolicy.text(context));
         ViewPolicy.bindClick(primary, this::submit);
         buttons.addView(primary,
-            KeyboardGeometry.weightedHeightPxParams(Ui.dp(context, 48), 1f));
+            LayoutPolicy.weightedHeightPxParams(Ui.dp(context, 48), 1f));
         root.addView(buttons, Ui.matchWidth());
 
         dialog.setContentView(root);
@@ -91,7 +96,7 @@ public final class InputDialog {
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             window.setLayout(BoundsPolicy.atMost(Ui.dp(context, Ui.DIALOG_WIDTH),
-                KeyboardGeometry.screenWidthPixels(context) - Ui.dp(context, 48)),
+                DimensionPolicy.screenWidthPixels(context) - Ui.dp(context, 48)),
                 ViewGroup.LayoutParams.WRAP_CONTENT);
             window.setDimAmount(0.35f);
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
@@ -106,14 +111,14 @@ public final class InputDialog {
      * @param inputType `InputType` 的组合；0 表示普通单行文字
      */
     public EditText addField(CharSequence hint, @Nullable CharSequence initial, int inputType) {
-        EditText input = Ui.styledInput(context, 15, 400, Ui.text(context));
+        EditText input = Ui.styledInput(context, 15, 400, ThemeColorPolicy.text(context));
         input.setHint(hint);
         input.setText(initial);
         ViewPolicy.setSingleLine(input);
         input.setInputType(inputType == 0 ? InputType.TYPE_CLASS_TEXT : inputType);
-        input.setHintTextColor(Ui.subText(context));
-        GradientDrawable field = DrawablePolicy.outlined(Ui.rowBackground(context), Ui.dp(context, 10),
-            KeyboardGeometry.atLeastOnePixel(context, 1), Ui.hairline(context));
+        input.setHintTextColor(ThemeColorPolicy.subText(context));
+        GradientDrawable field = DrawablePolicy.outlined(ThemeColorPolicy.rowBackground(context), Ui.dp(context, 10),
+            DimensionPolicy.atLeastOnePixel(context, 1), ThemeColorPolicy.hairline(context));
         ViewPolicy.setBackground(input, field);
         Ui.setHorizontalPaddingDp(input, context, 12);
         Ui.afterTextChanged(input, ignored -> refresh());

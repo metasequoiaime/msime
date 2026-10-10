@@ -73,25 +73,34 @@ fn collect_place_matches(
 
 /// The entries that are usable of a host list: non-empty text within the candidate text bound, a key of lowercase letters and single apostrophes between them, the first entry of a text, at most `LIST_LIMIT`.
 pub fn usable_mentions(entries: &[MentionEntry]) -> Vec<MentionEntry> {
-    let mut usable: Vec<MentionEntry> = Vec::with_capacity(LIST_LIMIT.min(entries.len()));
+    let mut usable = Vec::new();
     if entries.len() <= SMALL_MENTION_TABLE {
         for (index, entry) in entries.iter().enumerate() {
             if usable.len() == LIST_LIMIT {
                 break;
             }
             if valid_mention(entry) && mention_text_is_new(entries, index, &entry.text) {
+                if usable.capacity() == 0 {
+                    usable.reserve_exact(LIST_LIMIT.min(entries.len()));
+                }
                 usable.push(entry.clone());
             }
         }
         return usable;
     }
-    let mut texts = HashSet::with_capacity(LIST_LIMIT.min(entries.len()));
+    let mut texts = HashSet::new();
     for entry in entries {
         if usable.len() == LIST_LIMIT {
             break;
         }
-        if valid_mention(entry) && texts.insert(entry.text.as_str()) {
-            usable.push(entry.clone());
+        if valid_mention(entry) {
+            if usable.capacity() == 0 {
+                usable.reserve_exact(LIST_LIMIT.min(entries.len()));
+                texts.reserve(LIST_LIMIT.min(entries.len()));
+            }
+            if texts.insert(entry.text.as_str()) {
+                usable.push(entry.clone());
+            }
         }
     }
     usable
@@ -314,6 +323,17 @@ mod tests {
             mention("丙", "bing"),
         ];
         assert_eq!(usable_mentions(&entries).capacity(), entries.len());
+    }
+
+    #[test]
+    fn all_invalid_mention_rows_do_not_allocate_filter_state() {
+        let entries: Vec<_> = (0..=SMALL_MENTION_TABLE)
+            .map(|index| mention(&format!("无效{index}"), "bad key"))
+            .collect();
+        let (usable, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| usable_mentions(&entries));
+        assert!(usable.is_empty());
+        assert_eq!(allocations, 0);
     }
 
     #[test]

@@ -1,3 +1,4 @@
+import app.msime.android.NumberPolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.core.InputViewValuePolicy;
 
@@ -7,17 +8,17 @@ public final class InputViewValuePolicySmoke {
     }
 
     public static void main(String[] args) throws Exception {
-        check(KeyboardGeometry.strictInt(4, -1) == 4, "integer scheme is preserved");
-        check(KeyboardGeometry.strictInt(4.5, -1) == -1,
+        check(NumberPolicy.strictInt(4, -1) == 4, "integer scheme is preserved");
+        check(NumberPolicy.strictInt(4.5, -1) == -1,
             "fractional scheme is rejected");
-        check(KeyboardGeometry.strictInt(true, -1) == -1,
+        check(NumberPolicy.strictInt(true, -1) == -1,
             "boolean scheme is rejected");
-        check(KeyboardGeometry.strictInt("4", -1) == -1,
+        check(NumberPolicy.strictInt("4", -1) == -1,
             "string scheme is rejected");
         check(InputViewValuePolicy.integer(null, "missing", 7) == 7,
             "missing integer uses fallback");
-        check(KeyboardGeometry.strictInt(46, 0) == 46, "ASCII replacement is preserved");
-        check(KeyboardGeometry.strictInt(46.5, 0) == 0, "fractional ASCII is rejected");
+        check(NumberPolicy.strictInt(46, 0) == 46, "ASCII replacement is preserved");
+        check(NumberPolicy.strictInt(46.5, 0) == 0, "fractional ASCII is rejected");
         check(!InputViewValuePolicy.booleanValue("true", false),
             "string booleans are rejected");
         check(InputViewValuePolicy.booleanValue(Boolean.TRUE, false),

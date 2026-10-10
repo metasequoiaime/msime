@@ -436,9 +436,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
                               heightAdjustment: Double? = nil,
                               voiceEnabled: Bool? = nil) -> ((inout [String: Any]) -> Void)? {
     guard [keySpacing, rowSpacing, heightAdjustment].allSatisfy({ $0?.isFinite ?? true }) else { return nil }
-    let keySpacingTenths = keySpacing.map { Int((min(6, max(3, $0)) * 10).rounded()) }
-    let rowSpacingTenths = rowSpacing.map { Int((min(10, max(4, $0)) * 10).rounded()) }
-    let clampedHeight = heightAdjustment.map { Int(min(48, max(-12, $0)).rounded()) }
+    let keySpacingTenths = keySpacing.map { Int((SharedNumber.clamped($0, to: 3...6) * 10).rounded()) }
+    let rowSpacingTenths = rowSpacing.map { Int((SharedNumber.clamped($0, to: 4...10) * 10).rounded()) }
+    let clampedHeight = heightAdjustment.map { Int(SharedNumber.clamped($0, to: -12...48).rounded()) }
     return { preferences in
       if let keySpacingTenths { preferences["touch_key_spacing_tenths"] = keySpacingTenths }
       if let rowSpacingTenths { preferences["touch_row_spacing_tenths"] = rowSpacingTenths }

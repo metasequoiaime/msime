@@ -24,12 +24,12 @@ def main() -> int:
     for path in HOME.glob("*.java"):
         source = path.read_text(encoding="utf-8")
         if "Ui.dpFloat(" in source:
-            errors.append(f"{path}: 应直接调用 KeyboardGeometry.floatPixels")
+            errors.append(f"{path}: 应直接调用 DimensionPolicy.floatPixels")
 
     for name in EXPECTED_CALLERS:
         path = HOME / name
-        if "KeyboardGeometry.floatPixels(" not in path.read_text(encoding="utf-8"):
-            errors.append(f"{path}: 未直接复用 KeyboardGeometry.floatPixels")
+        if "DimensionPolicy.floatPixels(" not in path.read_text(encoding="utf-8"):
+            errors.append(f"{path}: 未直接复用 DimensionPolicy.floatPixels")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)

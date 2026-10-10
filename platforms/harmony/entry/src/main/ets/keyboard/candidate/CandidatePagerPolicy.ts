@@ -1,4 +1,5 @@
 import { CandidateWidthPolicy } from "./CandidateWidthPolicy";
+import { KeyboardGeometry } from "../KeyboardGeometry";
 
 /**
  * The page indicator at the end of a 2in1 candidate window's composition line: "current / total" and a previous and next arrow, as the Harmony design draws it (`pageInfo` and `pageBtn`).
@@ -25,7 +26,7 @@ export class CandidatePagerPolicy {
     if (!CandidatePagerPolicy.visible(pageCount)) {
       return "";
     }
-    const current: number = Math.min(Math.max(page, 0), pageCount - 1) + 1;
+    const current: number = KeyboardGeometry.bounded(page, 0, pageCount - 1) + 1;
     return `${current} / ${pageCount}`;
   }
 

@@ -1,5 +1,8 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
+
 import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -51,7 +54,7 @@ final class ImeBottomRow {
                 new KeyboardIconKey(s, KeyboardIconKey.Kind.RETURN), "Enter");
             // 组词时 SVC 把 text 设成「确认」（日语「確定」），这时按文字画；其他动作文字一律画 ↵。
             key.setTextFaces(java.util.Set.of("确认", "確定"));
-            KeyboardGeometry.setKeyTextSize(key, 15);
+            KeyboardTypographyPolicy.setKeyTextSize(key, 15);
             ViewPolicy.setTypefaceStyle(key, android.graphics.Typeface.BOLD);
             key.setKeyboardRole(KeyboardKeyRole.RETURN);
             s.imeStyler.styleButton(key, KeyboardKeyRole.RETURN, s.skin);
@@ -171,7 +174,7 @@ final class ImeBottomRow {
                     // 组字中或关了长按语音时不武装长按：这次按压保持普通空格与拖动移光标，与 develop 一致；否则慢一点的空格会被吞掉、停顿后的拖动也移不了光标。
                     boolean voice = touchPreference(AndroidLocalSettings.SPACE_VOICE) && s.voiceInsertionReady();
                     press.gesture.down(SystemClock.uptimeMillis(),
-                        KeyboardGeometry.fromPixels(s, event.getX()), voice);
+                        DimensionPolicy.fromPixels(s, event.getX()), voice);
                     press.cancelLongPress();
                     if (voice) {
                         press.longPress = () -> {
@@ -190,7 +193,7 @@ final class ImeBottomRow {
                         float horizontal = event.getX() - origin[0];
                         float vertical = event.getY() - origin[1];
                         press.gesture.move(SystemClock.uptimeMillis(),
-                            KeyboardGeometry.fromPixels(s, event.getX()));
+                            DimensionPolicy.fromPixels(s, event.getX()));
                         SpaceGesturePolicy.State state = press.gesture.state();
                         if (state == SpaceGesturePolicy.State.VOICE) {
                             // VOICE is only reachable when long-press voice was on at ACTION_DOWN.
@@ -292,7 +295,7 @@ final class ImeBottomRow {
     private Button periodButton() {
         if (periodButton == null) {
             periodButton = s.keyId(s.keyboardKey(".", "句号", () -> s.type('.')), "Period");
-            KeyboardGeometry.setKeyTextSize(periodButton, 22);
+            KeyboardTypographyPolicy.setKeyTextSize(periodButton, 22);
         }
         return periodButton;
     }
@@ -349,7 +352,7 @@ final class ImeBottomRow {
         if (s.actionRow instanceof KeyboardKeyArea area) {
             boolean yield = KeyboardActionRow.languageBesideReturn(entries);
             area.setYield(yield ? s.enterButton : null, yield ? s.languageButton : null,
-                KeyboardGeometry.floatPixels(s, KeyboardActionRow.RETURN_YIELD_DP));
+                DimensionPolicy.floatPixels(s, KeyboardActionRow.RETURN_YIELD_DP));
         }
         if (signature.equals(s.actionRowSignature)) {
             if (!ownBottom) s.updateQuickPunctuation();
@@ -371,14 +374,14 @@ final class ImeBottomRow {
             };
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(role);
             // 123、中/英、逗号由通用的 button() 建出来，没有经过键帽工厂；放进底行时才知道它们是键帽。
-            KeyboardGeometry.normalizeKeyCap(key);
+            KeyboardTypographyPolicy.normalizeKeyCap(key);
             s.imeStyler.styleButton(key, role, s.skin);
             if (entry.slot() == KeyboardActionRow.DesignSlot.COMMA)
-                KeyboardGeometry.setKeyTextSize(key, 22);
+                KeyboardTypographyPolicy.setKeyTextSize(key, 22);
             else if (role == KeyboardKeyRole.ACCENT)
-                KeyboardGeometry.setKeyTextSize(key, 15);
+                KeyboardTypographyPolicy.setKeyTextSize(key, 15);
             ViewPolicy.show(key);
-            s.actionRow.addView(key, KeyboardGeometry.weightedMatchParentParams(entry.weight()));
+            s.actionRow.addView(key, LayoutPolicy.weightedMatchParentParams(entry.weight()));
         }
         // The quick punctuation key hides itself when the scheme has no punctuation to offer, and
         // the loop above just told every slot it was visible.

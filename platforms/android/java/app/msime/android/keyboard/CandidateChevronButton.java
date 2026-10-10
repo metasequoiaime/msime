@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
@@ -86,8 +87,8 @@ public final class CandidateChevronButton extends Button {
     }
 
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        int width = KeyboardGeometry.pixels(getContext(), WIDTH_DP);
-        int height = KeyboardGeometry.pixels(getContext(), BUTTON_DP);
+        int width = DimensionPolicy.pixels(getContext(), WIDTH_DP);
+        int height = DimensionPolicy.pixels(getContext(), BUTTON_DP);
         setMeasuredDimension(resolveSize(width, widthMeasureSpec),
             resolveSize(height, heightMeasureSpec));
     }
@@ -95,16 +96,16 @@ public final class CandidateChevronButton extends Button {
     @Override protected void onDraw(Canvas canvas) {
         float height = getHeight();
         float dividerHeight = BoundsPolicy.atMost(height,
-            KeyboardGeometry.floatPixels(getContext(), DIVIDER_HEIGHT_DP));
+            DimensionPolicy.floatPixels(getContext(), DIVIDER_HEIGHT_DP));
         divider.setColor(hairlineColor);
         float lineWidth = BoundsPolicy.bounded(
-            KeyboardGeometry.floatPixels(getContext(), 1), 1f, Float.MAX_VALUE);
+            DimensionPolicy.floatPixels(getContext(), 1), 1f, Float.MAX_VALUE);
         canvas.drawRect(0, (height - dividerHeight) / 2f, lineWidth,
             (height + dividerHeight) / 2f, divider);
         float areaLeft = lineWidth;
         float areaWidth = getWidth() - areaLeft;
-        float size = BoundsPolicy.atMost(KeyboardGeometry.shorterSide(areaWidth, height),
-            KeyboardGeometry.floatPixels(getContext(), CHEVRON_DP));
+        float size = BoundsPolicy.atMost(DimensionPolicy.shorterSide(areaWidth, height),
+            DimensionPolicy.floatPixels(getContext(), CHEVRON_DP));
         if (size <= 0) return;
         float centerX = areaLeft + areaWidth / 2f;
         float centerY = height / 2f;

@@ -1,3 +1,4 @@
+import app.msime.android.KeyboardHeightPolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardLayoutAdjustPolicy;
 
@@ -19,7 +20,7 @@ public final class KeyboardLayoutAdjustPolicySmoke {
         check(KeyboardLayoutAdjustPolicy.heightFromDrag(0, -12) == 12);
         check(KeyboardLayoutAdjustPolicy.heightFromDrag(0, 60) == -12);
         check(KeyboardLayoutAdjustPolicy.heightFromDrag(Integer.MIN_VALUE, Float.POSITIVE_INFINITY)
-            == KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_DP);
+            == KeyboardHeightPolicy.DEFAULT_HEIGHT_ADJUSTMENT_DP);
         System.out.println("Android keyboard adjustment drag policy: axis, scale and bounds passed");
     }
 }

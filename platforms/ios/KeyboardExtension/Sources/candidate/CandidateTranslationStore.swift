@@ -5,16 +5,30 @@ protocol CandidateTranslationService: Sendable {
 }
 
 struct BackendCandidateTranslationService: CandidateTranslationService {
-  private static let client = BackendAccountClient()
-  private static let session = BackendAccountSession(storage: BackendAnonymousAccount.sessionStorage())
-  func translate(words: [String], target: String) async throws -> [String] {
-    _ = try await token()
-    return try await Self.client.translate(texts: words, target: target, session: Self.session)
+  private let client: BackendAccountClient
+  private let account: BackendAccountSession
+  private let anonymous: BackendAccountSession
+
+  init(client: BackendAccountClient = BackendAccountClient(),
+       account: BackendAccountSession = .shared,
+       anonymous: BackendAccountSession = BackendAnonymousAccount.session) {
+    self.client = client
+    self.account = account
+    self.anonymous = anonymous
   }
+
+  func translate(words: [String], target: String) async throws -> [String] {
+    if (try? await account.user()) != nil {
+      return try await client.translate(texts: words, target: target, session: account)
+    }
+    _ = try await token()
+    return try await client.translate(texts: words, target: target, session: anonymous)
+  }
+
   private func token() async throws -> String {
-    if let value = try? await Self.session.accessToken() { return value }
-    _ = try await BackendAnonymousAccount.ensureSignedIn(session: Self.session, client: Self.client)
-    return try await Self.session.accessToken()
+    if let value = try? await anonymous.accessToken() { return value }
+    _ = try await BackendAnonymousAccount.ensureSignedIn(session: anonymous, client: client)
+    return try await anonymous.accessToken()
   }
 }
 

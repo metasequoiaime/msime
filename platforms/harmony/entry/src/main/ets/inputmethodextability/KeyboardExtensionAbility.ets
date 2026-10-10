@@ -35,6 +35,7 @@ import { HarmonyHardwareKeyboards } from '../keyboard/input/HarmonyHardwareKeybo
 import { HardwareBackspaceGuard } from '../keyboard/input/BackspaceHoldPolicy';
 import { HeldKeys, KeyIdPolicy } from '../keyboard/KeyIdPolicy';
 import { HarmonyTelemetry } from '../telemetry/Telemetry';
+import { HarmonySharedSandboxPolicy } from '../keyboard/HarmonySharedSandboxPolicy';
 
 // Where the badge goes and how long it stays, from platforms/macos/src/input/InputModeHUDPanel.mm: shown long enough to read and gone before the next word. Its size is the floating toolbar's, from InputModeHudPolicy.sizeVp.
 const HUD_SCREEN_MARGIN_VP: number = 8;
@@ -854,6 +855,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const files: string = this.context.filesDir;
     const resources: string = `${files}/engine`;
     const state: string = `${files}/state`;
+    const sharedSandbox = HarmonySharedSandboxPolicy.status();
+    KeyboardLog.warn(`shared sandbox unavailable: ${sharedSandbox.reason}`);
     if (!fs.accessSync(state)) {
       fs.mkdirSync(state, true);
     }

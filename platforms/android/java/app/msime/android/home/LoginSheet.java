@@ -1,5 +1,8 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
+import app.msime.android.DimensionPolicy;
+
 import app.msime.android.TextPolicy;
 
 import android.app.Activity;
@@ -113,20 +116,20 @@ final class LoginSheet {
         LinearLayout header = Ui.row(activity);
         ViewPolicy.setCenteredVertically(header);
         TextView title = Ui.headingLabel(activity, "link".equals(purpose) ? "添加登录方式" : "登录水杉",
-            22, 700, Ui.text(activity));
+            22, 700, ThemeColorPolicy.text(activity));
         header.addView(title, Ui.weightWrap(1f));
         ImageView close = Ui.iconButton(activity,
-            new PathIcon(24, new String[] {CLOSE_PATH}, new int[] {Ui.text(activity)}),
-            Ui.text(activity), "关闭", Ui.BACK_BUTTON_SIZE, dialog::cancel);
+            new PathIcon(24, new String[] {CLOSE_PATH}, new int[] {ThemeColorPolicy.text(activity)}),
+            ThemeColorPolicy.text(activity), "关闭", Ui.BACK_BUTTON_SIZE, dialog::cancel);
         header.addView(close, Ui.squareParams(activity, 40));
         root.addView(header);
 
         TextView subtitle = Ui.styledLabel(activity, "在手机、平板和电脑之间同步词库、皮肤和云剪贴板",
-            14, 400, Ui.subText(activity));
+            14, 400, ThemeColorPolicy.subText(activity));
         root.addView(subtitle, Ui.matchWidth(activity, 2));
 
         options = Ui.column(activity);
-        boolean night = KeyboardGeometry.isNight(activity);
+        boolean night = DimensionPolicy.isNight(activity);
         if (providers.appleWeb()) {
             // Apple 的规范按钮：浅色下黑底白字，深色下白底黑字；这是 Apple 的品牌色，不随季节主题变。
             int fill = night ? Color.WHITE : Color.BLACK;
@@ -136,13 +139,13 @@ final class LoginSheet {
         }
         if (google) {
             options.addView(button(new PathIcon(48, GOOGLE_PATHS, GOOGLE_COLORS), "通过 Google 登录",
-                Color.TRANSPARENT, Ui.text(activity), Ui.outline(activity), this::google), Ui.matchWidth(activity, 12));
+                Color.TRANSPARENT, ThemeColorPolicy.text(activity), ThemeColorPolicy.outline(activity), this::google), Ui.matchWidth(activity, 12));
         }
         email = Ui.column(activity);
         if (providers.email()) {
-            int accent = Ui.accent(activity);
+            int accent = ThemeColorPolicy.accent(activity);
             options.addView(button(new PathIcon(24, new String[] {MAIL_PATH}, new int[] {accent}), "使用邮箱登录",
-                Ui.color(activity, com.google.android.material.R.attr.colorSecondaryContainer), accent, 0,
+                ThemeColorPolicy.color(activity, com.google.android.material.R.attr.colorSecondaryContainer), accent, 0,
                 this::expandEmail), Ui.matchWidth(activity, 12));
             options.addView(email, Ui.matchWidth(activity, 0));
         }
@@ -189,7 +192,7 @@ final class LoginSheet {
         EditText field = field("邮箱地址", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, 254);
         field.setText(emailAddress);
         email.addView(field, Ui.matchWidth(activity, 12));
-        View send = button(null, "发送验证码", Ui.accent(activity), Ui.onAccent(activity), 0,
+        View send = button(null, "发送验证码", ThemeColorPolicy.accent(activity), ThemeColorPolicy.onAccent(activity), 0,
             () -> sendCode(field.getText().toString()));
         email.addView(send, Ui.matchWidth(activity, 12));
         field.setOnEditorActionListener((view, action, event) -> {
@@ -225,13 +228,13 @@ final class LoginSheet {
         email.removeAllViews();
         TextView sent = Ui.styledLabel(activity, "验证码已发到 " + emailAddress + "，"
             + BoundsPolicy.bounded(challenge.expiresIn() / 60, 1, Integer.MAX_VALUE)
-            + " 分钟内有效", 13, 400, Ui.subText(activity));
+            + " 分钟内有效", 13, 400, ThemeColorPolicy.subText(activity));
         email.addView(sent, Ui.matchWidth(activity, 12));
         EditText code = field("6 位验证码", InputType.TYPE_CLASS_NUMBER, 6);
         code.setImeOptions(EditorInfo.IME_ACTION_DONE);
         code.setLetterSpacing(0.3f);
         email.addView(code, Ui.matchWidth(activity, 8));
-        email.addView(button(null, "登录", Ui.accent(activity), Ui.onAccent(activity), 0,
+        email.addView(button(null, "登录", ThemeColorPolicy.accent(activity), ThemeColorPolicy.onAccent(activity), 0,
             () -> verify(code.getText().toString())), Ui.matchWidth(activity, 12));
         code.setOnEditorActionListener((view, action, event) -> {
             if (action != EditorInfo.IME_ACTION_DONE) return false;
@@ -239,7 +242,7 @@ final class LoginSheet {
             return true;
         });
         TextView again = Ui.textButton(activity, "换个邮箱或重新发送", 14, 500,
-            Ui.accent(activity), Ui.ripple(activity), 40, () -> {
+            ThemeColorPolicy.accent(activity), Ui.ripple(activity), 40, () -> {
                 if (busy) return;
                 email.removeAllViews();
                 ViewPolicy.hide(status);
@@ -302,9 +305,9 @@ final class LoginSheet {
         Ui.setMinimumHeightDp(button, activity, 50);
         GradientDrawable face = stroke == 0
             ? DrawablePolicy.rounded(fill, Ui.dp(activity, 12))
-            : DrawablePolicy.outlined(fill, Ui.dp(activity, 12), KeyboardGeometry.atLeastOnePixel(activity, 1), stroke);
+            : DrawablePolicy.outlined(fill, Ui.dp(activity, 12), DimensionPolicy.atLeastOnePixel(activity, 1), stroke);
         GradientDrawable mask = DrawablePolicy.rounded(Color.WHITE, Ui.dp(activity, 12));
-        int pressed = ColorPolicy.withAlpha(fill == Color.BLACK ? Color.WHITE : Ui.text(activity), 0.12f);
+        int pressed = ColorPolicy.withAlpha(fill == Color.BLACK ? Color.WHITE : ThemeColorPolicy.text(activity), 0.12f);
         ViewPolicy.setBackground(button, DrawablePolicy.ripple(pressed, face, mask));
         if (icon != null) {
             ImageView glyph = Ui.decorativeIcon(activity, icon);
@@ -321,14 +324,14 @@ final class LoginSheet {
     }
 
     private EditText field(String hint, int inputType, int maxLength) {
-        EditText field = Ui.styledInput(activity, 16, 400, Ui.text(activity));
+        EditText field = Ui.styledInput(activity, 16, 400, ThemeColorPolicy.text(activity));
         field.setHint(hint);
         field.setInputType(inputType);
         ViewPolicy.setSingleLine(field);
         field.setFilters(new InputFilter[] {new InputFilter.LengthFilter(maxLength)});
-        field.setHintTextColor(Ui.subText(activity));
-        GradientDrawable face = DrawablePolicy.outlined(Ui.rowBackground(activity), Ui.dp(activity, 12),
-            KeyboardGeometry.atLeastOnePixel(activity, 1), Ui.hairline(activity));
+        field.setHintTextColor(ThemeColorPolicy.subText(activity));
+        GradientDrawable face = DrawablePolicy.outlined(ThemeColorPolicy.rowBackground(activity), Ui.dp(activity, 12),
+            DimensionPolicy.atLeastOnePixel(activity, 1), ThemeColorPolicy.hairline(activity));
         ViewPolicy.setBackground(field, face);
         Ui.setHorizontalPaddingDp(field, activity, 14);
         Ui.setTextMinHeightDp(field, activity, 50);
@@ -351,11 +354,11 @@ final class LoginSheet {
             }
 
             @Override public void updateDrawState(android.text.TextPaint paint) {
-                paint.setColor(Ui.subText(activity));
+                paint.setColor(ThemeColorPolicy.subText(activity));
                 paint.setUnderlineText(false);
             }
         }, start, start + "《隐私政策》".length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        TextView view = Ui.styledLabel(activity, spanned, 12, 400, Ui.subText(activity));
+        TextView view = Ui.styledLabel(activity, spanned, 12, 400, ThemeColorPolicy.subText(activity));
         view.setMovementMethod(LinkMovementMethod.getInstance());
         ViewPolicy.setCenteredHorizontally(view);
         return view;
@@ -380,7 +383,7 @@ final class LoginSheet {
 
         @Override public void draw(Canvas canvas) {
             RectF bounds = new RectF(getBounds());
-            float scale = KeyboardGeometry.shorterSide(bounds.width(), bounds.height()) / viewport;
+            float scale = DimensionPolicy.shorterSide(bounds.width(), bounds.height()) / viewport;
             matrix.setScale(scale, scale);
             matrix.postTranslate(bounds.left + (bounds.width() - viewport * scale) / 2f,
                 bounds.top + (bounds.height() - viewport * scale) / 2f);

@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -63,8 +64,8 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
     public boolean isPanelOpen() { return panelOpen; }
 
     @Override protected void onDraw(Canvas canvas) {
-        int width = KeyboardGeometry.contentWidth(this);
-        int height = KeyboardGeometry.contentHeight(this);
+        int width = DimensionPolicy.contentWidth(this);
+        int height = DimensionPolicy.contentHeight(this);
         if (designed) {
             drawDesigned(canvas, width, height);
             return;
@@ -79,22 +80,22 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
     }
 
     private void drawDesigned(Canvas canvas, int width, int height) {
-        float shorter = KeyboardGeometry.shorterSide(width, height);
+        float shorter = DimensionPolicy.shorterSide(width, height);
         if (shorter <= 0) return;
         float centerX = getPaddingLeft() + width / 2f;
         float centerY = getPaddingTop() + height / 2f;
         if (panelOpen && Color.alpha(panelOpenFill) > 0) {
             float side = BoundsPolicy.atMost(shorter,
-                KeyboardGeometry.floatPixels(getContext(), ACTIVE_SIDE_DP));
+                DimensionPolicy.floatPixels(getContext(), ACTIVE_SIDE_DP));
             bounds.set(centerX - side / 2f, centerY - side / 2f, centerX + side / 2f,
                 centerY + side / 2f);
             fill.setColor(panelOpenFill);
             float radius = BoundsPolicy.atMost(side / 2f,
-                KeyboardGeometry.floatPixels(getContext(), ACTIVE_RADIUS_DP));
+                DimensionPolicy.floatPixels(getContext(), ACTIVE_RADIUS_DP));
             canvas.drawRoundRect(bounds, radius, radius, fill);
         }
         float disc = BoundsPolicy.atMost(shorter,
-            KeyboardGeometry.floatPixels(getContext(), DISC_DP));
+            DimensionPolicy.floatPixels(getContext(), DISC_DP));
         fill.setColor(discColor);
         canvas.drawCircle(centerX, centerY, disc / 2f, fill);
         float markSize = disc * (DISC_MARK_DP / DISC_DP);

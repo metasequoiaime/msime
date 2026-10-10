@@ -2,6 +2,7 @@
 #include "AudioCapture.h"
 #include "PolishPrompt.h"
 #include "VoiceHotwordTexts.h"
+#include "VoiceRequestCancellation.h"
 
 #include "LocalAsr.h"
 #include "LocalAsrAudioQueue.h"
@@ -737,6 +738,7 @@ void VoiceInputSession::stop() {
   auto cancelled = std::make_shared<std::atomic_bool>(false);
   {
     std::lock_guard request_lock(request_mutex_);
+    prune_completed_voice_requests(request_cancellations_);
     request_cancellations_.push_back(cancelled);
   }
   tasks_.emplace_back(std::async(
@@ -999,6 +1001,7 @@ void VoiceInputSession::cancel_session(bool failed) {
   }
   {
     std::lock_guard request_lock(request_mutex_);
+    prune_completed_voice_requests(request_cancellations_);
     for (const auto &request : request_cancellations_)
       request->store(true);
   }

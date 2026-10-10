@@ -64,7 +64,7 @@ public final class DeviceInfoReport {
     /** 「可用 23.4 GB / 共 128.0 GB」；总量读不到时为「未知」。 */
     public static String storage(long available, long total) {
         if (total <= 0) return UNKNOWN;
-        return "可用 " + bytes(Math.max(0, Math.min(available, total))) + " / 共 " + bytes(total);
+        return "可用 " + bytes(BoundsPolicy.bounded(available, 0L, total)) + " / 共 " + bytes(total);
     }
 
     /** 按系统设置里的习惯用十进制单位：1 GB = 1000³ 字节。 */

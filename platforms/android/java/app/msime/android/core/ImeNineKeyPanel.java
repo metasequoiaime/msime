@@ -1,5 +1,7 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
 import android.graphics.Color;
 import android.os.Build;
 import android.text.TextUtils;
@@ -45,42 +47,42 @@ final class ImeNineKeyPanel {
 
     /** 在创建键盘视图时建一次，和其他面板一样作为键盘表面的覆盖层，顶边由 alignOverlaysBelowTopRow 对齐到顶部一行下面。 */
     View build() {
-        root = KeyboardGeometry.row(s);
+        root = LayoutPolicy.row(s);
         root.setContentDescription("九键候选面板");
         ViewPolicy.setSymmetricPadding(root, s.pixels(3), s.pixels(4));
 
         left = new FrameLayout(s);
-        spellingColumn = KeyboardGeometry.column(s);
+        spellingColumn = LayoutPolicy.column(s);
         spellingScroll = new ScrollView(s);
         spellingScroll.setVerticalScrollBarEnabled(false);
         spellingScroll.setContentDescription("九键拼音选择");
-        spellingScroll.addView(spellingColumn, KeyboardGeometry.scrollMatchWidthWrapParams());
-        left.addView(spellingScroll, KeyboardGeometry.frameMatchParentParams());
-        strokeColumn = KeyboardGeometry.column(s);
+        spellingScroll.addView(spellingColumn, LayoutPolicy.scrollMatchWidthWrapParams());
+        left.addView(spellingScroll, LayoutPolicy.frameMatchParentParams());
+        strokeColumn = LayoutPolicy.column(s);
         strokeColumn.setContentDescription("笔画筛选");
         strokeReading = ViewPolicy.centeredText(s, "", 15);
-        KeyboardGeometry.setKeyTextSize(strokeReading, 15);
+        KeyboardTypographyPolicy.setKeyTextSize(strokeReading, 15);
         ViewPolicy.setSingleLine(strokeReading);
         strokeReading.setEllipsize(TextUtils.TruncateAt.START);
         ViewPolicy.setNonInteractive(strokeReading);
-        strokeColumn.addView(strokeReading, KeyboardGeometry.weightedWidthParams(1));
+        strokeColumn.addView(strokeReading, LayoutPolicy.weightedWidthParams(1));
         for (StrokeKeyboardLayout.Key key : NineKeyPanelPolicy.strokes()) {
             Button stroke = pressButton(key.glyph(), 18, KeyboardKeyRole.PLAIN,
                 "笔画筛选 " + key.name(), () -> appendStroke(key.input()));
-            strokeColumn.addView(stroke, KeyboardGeometry.weightedWidthParams(1));
+            strokeColumn.addView(stroke, LayoutPolicy.weightedWidthParams(1));
         }
         ViewPolicy.hide(strokeColumn);
-        left.addView(strokeColumn, KeyboardGeometry.frameMatchParentParams());
+        left.addView(strokeColumn, LayoutPolicy.frameMatchParentParams());
         root.addView(left, margined(0.7f));
 
         candidateHolder = new FrameLayout(s);
         candidateScroll = new ScrollView(s);
         candidateScroll.setFillViewport(true);
-        candidateScroll.addView(candidateHolder, KeyboardGeometry.scrollMatchParentParams());
+        candidateScroll.addView(candidateHolder, LayoutPolicy.scrollMatchParentParams());
         candidateGrid = new ImeCandidateGrid(s, candidateScroll, false);
         root.addView(candidateScroll, margined(3));
 
-        LinearLayout actions = KeyboardGeometry.column(s);
+        LinearLayout actions = LayoutPolicy.column(s);
         addAction(actions, pressButton("返回", 15, KeyboardKeyRole.ACCENT, "收起候选面板", () -> {
             s.closeCandidatePanel();
             s.render();
@@ -102,13 +104,13 @@ final class ImeNineKeyPanel {
     }
 
     private LinearLayout.LayoutParams margined(float weight) {
-        LinearLayout.LayoutParams params = KeyboardGeometry.weightedMatchParentParams(weight);
+        LinearLayout.LayoutParams params = LayoutPolicy.weightedMatchParentParams(weight);
         params.setMargins(s.pixels(2), 0, s.pixels(2), 0);
         return params;
     }
 
     private void addAction(LinearLayout actions, Button button) {
-        LinearLayout.LayoutParams params = KeyboardGeometry.weightedWidthParams(1);
+        LinearLayout.LayoutParams params = LayoutPolicy.weightedWidthParams(1);
         params.setMargins(0, s.pixels(2), 0, s.pixels(2));
         actions.addView(button, params);
     }
@@ -116,10 +118,10 @@ final class ImeNineKeyPanel {
     private Button pressButton(String label, float sizeSp, KeyboardKeyRole role, String description,
                                Runnable action) {
         KeyboardPressButton button = ViewPolicy.newPressButton(s);
-        KeyboardGeometry.normalizeKeyCap(button);
+        KeyboardTypographyPolicy.normalizeKeyCap(button);
         button.setKeyboardRole(role);
         ViewPolicy.setTextSizeLabel(button, label, sizeSp);
-        KeyboardGeometry.setKeyTextSize(button, sizeSp);
+        KeyboardTypographyPolicy.setKeyTextSize(button, sizeSp);
         ViewPolicy.setSingleLine(button);
         button.setContentDescription(description);
         ViewPolicy.bindClick(button, () -> {
@@ -205,17 +207,17 @@ final class ImeNineKeyPanel {
         if (count == 0) {
             // 筛选可能一个候选也不剩；面板仍开着，好让用户撤掉一笔或换回全部。
             TextView empty = ViewPolicy.centeredText(s, "没有符合筛选的候选", 14);
-            KeyboardGeometry.setKeyTextSize(empty, 14);
+            KeyboardTypographyPolicy.setKeyTextSize(empty, 14);
             ViewPolicy.setNonInteractive(empty);
-            candidateHolder.addView(empty, KeyboardGeometry.frameMatchWidthWrapParams(Gravity.CENTER));
+            candidateHolder.addView(empty, LayoutPolicy.frameMatchWidthWrapParams(Gravity.CENTER));
             return;
         }
         String reading = InputViewValuePolicy.textOr(s.view, "nine_key_reading", "");
         // 格子分批建，滚到接近底部再追加；换了一代或面板收起后重开时，网格把滚动位置拉回顶部。
         CandidateWrapLayout list = candidateGrid.build(snapshot, entries,
             "完整候选列表；" + reading + "；" + count + " 个候选");
-        KeyboardGeometry.setSymmetricPaddingDp(list, s, 4, 4);
-        candidateHolder.addView(list, KeyboardGeometry.frameMatchWidthWrapParams());
+        LayoutPolicy.setSymmetricPaddingDp(list, s, 4, 4);
+        candidateHolder.addView(list, LayoutPolicy.frameMatchWidthWrapParams());
     }
 
     private void renderActions() {
@@ -257,7 +259,7 @@ final class ImeNineKeyPanel {
         mode = NineKeyPanelPolicy.Mode.SPELLING;
         renderedGeneration = -1;
         if (candidateGrid != null) candidateGrid.reset();
-        if (root != null && root.getVisibility() != View.GONE) ViewPolicy.hide(root);
+        if (!ViewPolicy.isGone(root)) ViewPolicy.hide(root);
         if (filterResetPending || !filtered()) return;
         // 同一代只清一次：清除的响应会再走到这里，引擎万一没清掉也不会每次重画都再发一遍。
         long generation = CandidateGlossPolicy.strictOr(s.view.opt("generation"), -1);

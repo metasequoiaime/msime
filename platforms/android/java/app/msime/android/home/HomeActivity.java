@@ -186,7 +186,7 @@ public final class HomeActivity extends AppCompatActivity {
         if (season == null || season.equals(drawnSeason)) return;
         // 开屏正在放时不打断它：放完之后下一次回到前台再换。
         View intro = findViewById(R.id.home_intro);
-        if (intro != null && intro.getVisibility() == View.VISIBLE) return;
+        if (ViewPolicy.isVisible(intro)) return;
         drawnSeason = season;
         recreate();
     }
@@ -326,7 +326,7 @@ public final class HomeActivity extends AppCompatActivity {
     /** Fade the splash out, whether its time ran out or it was tapped, and hand over to onboarding if this was the first launch. */
     private void dismissIntro() {
         View intro = findViewById(R.id.home_intro);
-        if (intro.getVisibility() != View.VISIBLE || !intro.isClickable()) return;
+        if (!ViewPolicy.isVisible(intro) || !intro.isClickable()) return;
         intro.removeCallbacks(dismissIntro);
         // Not clickable while it fades, so a second tap during the fade does not start onboarding twice.
         ViewPolicy.setClickable(intro, false);

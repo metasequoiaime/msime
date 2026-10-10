@@ -55,6 +55,7 @@ public final class KeyboardBottomBarPolicy {
      * @param gestureBottom 屏幕底部系统手势区的高度
      */
     public static int barBottomPx(int insetBottom, int navigationBottom, int gestureBottom) {
-        return Math.max(0, insetBottom) + Math.max(0, gestureBottom - Math.max(0, navigationBottom));
+        return BoundsPolicy.nonNegative(insetBottom)
+            + BoundsPolicy.nonNegative(gestureBottom - BoundsPolicy.nonNegative(navigationBottom));
     }
 }

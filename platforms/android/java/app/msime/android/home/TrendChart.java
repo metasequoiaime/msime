@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -73,10 +74,10 @@ public final class TrendChart extends View {
         float radius = Ui.dp(context, 6);
         long peak = 1;
         for (DayCount day : days) peak = BoundsPolicy.atLeast(peak, day.count());
-        int accent = Ui.accent(context);
-        int rest = Ui.color(context, R.attr.msStatBar);
-        int text = Ui.text(context);
-        int sub = Ui.subText(context);
+        int accent = ThemeColorPolicy.accent(context);
+        int rest = ThemeColorPolicy.color(context, R.attr.msStatBar);
+        int text = ThemeColorPolicy.text(context);
+        int sub = ThemeColorPolicy.subText(context);
         float labelBaseline = max + Ui.dp(context, LABEL_GAP) + label.getTextSize();
         for (int index = 0; index < days.size(); index++) {
             boolean today = index == days.size() - 1;

@@ -52,12 +52,20 @@ final class MacSettingsModel: ObservableObject {
     sessionID = identity.sessionID
     return identity.token
   }
-  private func run(_ operation: @escaping @MainActor (String) async throws -> Void) {
+  private func run(_ operation: @escaping @MainActor @Sendable (String) async throws -> Void) {
     guard !busy else { return }
     busy = true; message = nil
     pending = Task {
       defer { busy = false }
-      do { try await operation(try await authorize()) }
+      do {
+        let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+        try Task.checkCancellation()
+        sessionID = identity.sessionID
+        _ = try await account.authenticated(matchingUserID: identity.userID,
+                                            matchingSessionID: identity.sessionID) { token in
+          try await operation(token)
+        }.value
+      }
       catch is CancellationError { preview = nil; cloud = nil; schema = nil }
       catch { preview = nil; if !Task.isCancelled { message = error.localizedDescription } }
     }

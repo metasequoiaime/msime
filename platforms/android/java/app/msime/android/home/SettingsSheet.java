@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
@@ -30,11 +31,11 @@ public final class SettingsSheet {
         root.addView(Ui.sheetDragHandle(context));
 
         // M3 headline small：面板标题是标题，不是加粗的标签。
-        TextView heading = Ui.headingLabel(context, title, Ui.TEXT_BAR_TITLE, 400, Ui.text(context));
+        TextView heading = Ui.headingLabel(context, title, Ui.TEXT_BAR_TITLE, 400, ThemeColorPolicy.text(context));
         root.addView(heading);
 
         if (subtitle != null && !subtitle.isEmpty()) {
-            TextView note = Ui.styledLabel(context, subtitle, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
+            TextView note = Ui.styledLabel(context, subtitle, Ui.TEXT_ROW_SUBTITLE, 400, ThemeColorPolicy.subText(context));
             LinearLayout.LayoutParams params = Ui.matchWidth(context, 4);
             root.addView(note, params);
         }
@@ -62,7 +63,7 @@ public final class SettingsSheet {
 
     /** 这一列末尾的脚注。 */
     public void addNote(String text) {
-        TextView note = Ui.styledLabel(context, text, 12, 400, Ui.subText(context));
+        TextView note = Ui.styledLabel(context, text, 12, 400, ThemeColorPolicy.subText(context));
         LinearLayout.LayoutParams params = Ui.matchWidth();
         params.topMargin = Ui.dp(context, 14);
         content.addView(note, params);

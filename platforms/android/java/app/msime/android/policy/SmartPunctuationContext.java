@@ -5,7 +5,7 @@ public final class SmartPunctuationContext {
     private SmartPunctuationContext() {}
 
     public static boolean isAsciiPunctuation(char value) {
-        return value >= '!' && value <= '~' && !Character.isLetterOrDigit(value);
+        return value >= '!' && value <= '~' && !TextPolicy.isLetterOrDigit(value);
     }
 
     /** Returns zero when the editor exposes no preceding character. */

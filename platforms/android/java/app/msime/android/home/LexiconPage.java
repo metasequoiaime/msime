@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
@@ -126,13 +127,13 @@ public final class LexiconPage extends DetailPage {
         String builtinCount = current.builtinCount() < 0 ? null
             : NumberPolicy.groupedCount(current.builtinCount());
         installed.addView(KeyboardSheets.badgeNavRow(context, "汉", "拼音词库", builtinCount, "已启用",
-            Ui.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_PINYIN, "拼音词库")));
+            ThemeColorPolicy.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_PINYIN, "拼音词库")));
         for (DictionaryCollectionsStore.Collection collection : current.view().collections()) {
             String subtitle = NumberPolicy.groupedCount(collection.entryCount())
                 + ("community".equals(collection.sourceType()) ? " · 社区" : "");
             installed.addView(KeyboardSheets.badgeNavRow(context, TextPolicy.initial(collection.name(), "词"), collection.name(),
                 subtitle, collection.enabled() ? "已启用" : "已停用",
-                collection.enabled() ? Ui.accent(context) : Ui.subText(context),
+                collection.enabled() ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.subText(context),
                 () -> openDetail(collection.id(), collection.name())));
         }
         installed.footer("点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。");
@@ -191,7 +192,7 @@ public final class LexiconPage extends DetailPage {
         if (words != null) parts.add(NumberPolicy.groupedCount(words.length()));
         if (parts.isEmpty() && !item.description().isEmpty()) parts.add(item.description());
         row.addView(KeyboardSheets.texts(context, item.name(), parts.isEmpty() ? null : String.join(" · ", parts),
-                Ui.text(context)),
+                ThemeColorPolicy.text(context)),
             Ui.weightWrap(1f));
         boolean added = view.installed(item.id());
         boolean busy = installing.contains(item.id());
@@ -199,13 +200,13 @@ public final class LexiconPage extends DetailPage {
         TextView button;
         if (enabled) {
             button = Ui.pillButton(context, "添加", Ui.TEXT_BUTTON_SMALL, 500,
-                Ui.accentSoft(context), Ui.accent(context), Ui.BUTTON_PADDING_H, Ui.BUTTON_PADDING_V,
+                ThemeColorPolicy.accentSoft(context), ThemeColorPolicy.accent(context), Ui.BUTTON_PADDING_H, Ui.BUTTON_PADDING_V,
                 Ui.COMPACT_BUTTON_MIN_HEIGHT, 0, () -> install(item));
         } else {
             button = Ui.centeredSingleLineLabel(context, added ? "已添加" : "添加中",
-                Ui.TEXT_BUTTON_SMALL, 500, Ui.subText(context));
+                Ui.TEXT_BUTTON_SMALL, 500, ThemeColorPolicy.subText(context));
             ViewPolicy.setBackground(button, Ui.pillRipple(context,
-                added ? Ui.rowBackground(context) : Ui.accentSoft(context)));
+                added ? ThemeColorPolicy.rowBackground(context) : ThemeColorPolicy.accentSoft(context)));
             Ui.setButtonPadding(button, context);
             Ui.setTextMinHeightDp(button, context, Ui.COMPACT_BUTTON_MIN_HEIGHT);
             ViewPolicy.setEnabled(button, false);

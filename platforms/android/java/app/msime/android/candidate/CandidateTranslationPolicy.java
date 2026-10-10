@@ -61,6 +61,11 @@ public final class CandidateTranslationPolicy {
         return candidateTranslations && translationAccount && !niutransEnabled && !customEnabled;
     }
 
+    /** A delayed account translation may be applied only while the same binding snapshot is current. */
+    public static boolean acceptsBinding(String requested, String current) {
+        return requested != null && !requested.isEmpty() && requested.equals(current);
+    }
+
     /** 偏好变化后当前候选行中的译文必须先清空，再等待新配置的回答。 */
     public static boolean displayInvalidated(boolean previousEnglishGloss,
             boolean nextEnglishGloss, boolean previousTranslations,

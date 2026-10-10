@@ -306,7 +306,8 @@ pub fn append_unique_words(result: &mut Vec<WordItem>, rows: Vec<WordItem>) {
         .filter_map(|(index, item)| (!seen.insert(item.word.as_str())).then_some(index))
         .collect::<Vec<_>>();
     drop(seen);
-    result.reserve(rows.len());
+    let unique_count = rows.len() - duplicates.len();
+    result.reserve(unique_count);
     let mut duplicates = duplicates.into_iter().peekable();
     result.extend(rows.into_iter().enumerate().filter_map(|(index, item)| {
         if duplicates.peek() == Some(&index) {
@@ -580,6 +581,19 @@ mod tests {
 
         assert_eq!(result.len(), 11);
         assert_eq!(result.capacity(), 11);
+    }
+
+    #[test]
+    fn append_unique_words_reserves_only_unique_incoming_rows() {
+        let mut result = Vec::with_capacity(1);
+        result.push(row("a", "已有", 1));
+        let rows = (0..100).map(|index| row("a", "新增", index)).collect();
+
+        append_unique_words(&mut result, rows);
+
+        assert_eq!(words(&result), ["已有", "新增"]);
+        // `Vec` 会为极小的增长保留实现规定的最小余量，但不应按 100 行输入扩容。
+        assert!(result.capacity() <= 4);
     }
 
     #[test]

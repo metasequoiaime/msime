@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -40,9 +41,9 @@ public final class HandwritingCanvas extends View {
         stroke.setStyle(Paint.Style.STROKE);
         stroke.setStrokeCap(Paint.Cap.ROUND);
         stroke.setStrokeJoin(Paint.Join.ROUND);
-        stroke.setStrokeWidth(KeyboardGeometry.floatPixels(context, 3));
+        stroke.setStrokeWidth(DimensionPolicy.floatPixels(context, 3));
         guide.setStyle(Paint.Style.STROKE);
-        guide.setStrokeWidth(KeyboardGeometry.floatPixels(context, 1));
+        guide.setStrokeWidth(DimensionPolicy.floatPixels(context, 1));
         applySkin(KeyboardSkin.system(false));
     }
 
@@ -103,7 +104,7 @@ public final class HandwritingCanvas extends View {
         super.onDraw(canvas);
         RectF card = cardRect.isEmpty() ? drawCard : cardRect;
         if (card == drawCard) drawCard.set(0, 0, getWidth(), getHeight());
-        float radius = KeyboardGeometry.floatPixels(getContext(), 10);
+        float radius = DimensionPolicy.floatPixels(getContext(), 10);
         canvas.drawRoundRect(card, radius, radius, background);
         guideLines[0] = card.centerX();
         guideLines[1] = card.top;

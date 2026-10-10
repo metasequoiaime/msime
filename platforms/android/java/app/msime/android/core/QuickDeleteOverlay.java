@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -51,7 +52,7 @@ final class QuickDeleteOverlay extends View {
         float left = keyLocation[0] - ownLocation[0];
         float top = keyLocation[1] - ownLocation[1];
         box = BackspaceSwipePolicy.box(left, top, left + key.getWidth(), frame.getWidth(),
-            KeyboardGeometry.density(getContext()));
+            DimensionPolicy.density(getContext()));
         this.armed = armed;
         if (getParent() instanceof ViewGroup parent) parent.bringChildToFront(this);
         ViewPolicy.show(this);
@@ -68,14 +69,14 @@ final class QuickDeleteOverlay extends View {
         super.onDraw(canvas);
         BackspaceSwipePolicy.Box current = box;
         if (current == null) return;
-        float density = KeyboardGeometry.density(getContext());
-        float radius = KeyboardGeometry.floatPixels(10, density);
+        float density = DimensionPolicy.density(getContext());
+        float radius = DimensionPolicy.floatPixels(10, density);
         KeyboardSkin skin = s.imeStyler.themed(s.skin);
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.parseColor(armed ? skin.accent() : skin.keyBackground()));
         // 和日语九键的 flick 浮层一样先带一层投影：框要看得出压在键盘上面，而不是键盘本身的一部分。
-        paint.setShadowLayer(KeyboardGeometry.floatPixels(10, density), 0,
-            KeyboardGeometry.floatPixels(3, density), 0x40000000);
+        paint.setShadowLayer(DimensionPolicy.floatPixels(10, density), 0,
+            DimensionPolicy.floatPixels(3, density), 0x40000000);
         canvas.drawRoundRect(current.left(), current.top(), current.right(), current.bottom(),
             radius, radius, paint);
         paint.clearShadowLayer();
@@ -86,7 +87,7 @@ final class QuickDeleteOverlay extends View {
             radius, radius, paint);
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.parseColor(armed ? skin.onAccent() : skin.keyForeground()));
-        ViewPolicy.setTextSize(paint, KeyboardGeometry.keySp(getContext(), 15));
+        ViewPolicy.setTextSize(paint, KeyboardTypographyPolicy.keySp(getContext(), 15));
         ViewPolicy.setTypeface(paint, Typeface.DEFAULT_BOLD);
         Paint.FontMetrics metrics = paint.getFontMetrics();
         float baseline = (current.top() + current.bottom()) / 2 - (metrics.ascent + metrics.descent) / 2;

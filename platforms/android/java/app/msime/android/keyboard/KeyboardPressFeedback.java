@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import app.msime.android.KeyboardGeometry;
 
 import android.provider.Settings;
@@ -39,7 +40,7 @@ public final class KeyboardPressFeedback {
             return;
         }
         if (pressed) {
-            view.animate().translationY(KeyboardGeometry.floatPixels(view.getContext(),
+            view.animate().translationY(DimensionPolicy.floatPixels(view.getContext(),
                     PRESSED_TRANSLATION_DP))
                 .scaleX(PRESSED_SCALE).scaleY(PRESSED_SCALE)
                 .setDuration(PRESS_DURATION_MILLIS)

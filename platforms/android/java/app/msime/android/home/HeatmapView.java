@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -94,7 +95,7 @@ public final class HeatmapView extends View {
             int row = index % ROWS;
             int source = index - offset;
             long count = source >= 0 ? shown.get(source).count() : 0;
-            cell.setColor(Ui.color(context, HEAT[level(count, peak)]));
+            cell.setColor(ThemeColorPolicy.color(context, HEAT[level(count, peak)]));
             float left = column * (size + gap);
             float top = row * (size + gap);
             box.set(left, top, left + size, top + size);
@@ -104,14 +105,14 @@ public final class HeatmapView extends View {
         float legend = Ui.dp(context, LEGEND_CELL);
         float legendGap = Ui.dp(context, 3);
         float baseline = ROWS * (size + gap) - gap + Ui.dp(context, LEGEND_HEIGHT) - Ui.dp(context, 7);
-        label.setColor(Ui.subText(context));
+        label.setColor(ThemeColorPolicy.subText(context));
         float right = getWidth();
         float more = label.measureText("多");
         canvas.drawText("多", right - more, baseline, label);
         float x = right - more - Ui.dp(context, 4) - legend;
         float cellTop = baseline - legend + Ui.dp(context, 1);
         for (int level = HEAT.length - 1; level >= 0; level--) {
-            cell.setColor(Ui.color(context, HEAT[level]));
+            cell.setColor(ThemeColorPolicy.color(context, HEAT[level]));
             box.set(x, cellTop, x + legend, cellTop + legend);
             canvas.drawRoundRect(box, Ui.dp(context, 2), Ui.dp(context, 2), cell);
             x -= legend + legendGap;

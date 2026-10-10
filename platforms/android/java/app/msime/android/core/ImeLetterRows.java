@@ -1,5 +1,8 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
+
 import android.graphics.Color;
 import android.util.TypedValue;
 import android.view.MotionEvent;
@@ -95,7 +98,7 @@ final class ImeLetterRows {
         if (keyPreviewLayer == null) return null;
         if (keyPreview == null || keyPreview.getParent() != keyPreviewLayer) {
             keyPreview = new KeyboardKeyPreview(s);
-            keyPreviewLayer.addView(keyPreview, KeyboardGeometry.frameWrapParams());
+            keyPreviewLayer.addView(keyPreview, LayoutPolicy.frameWrapParams());
         }
         return keyPreview;
     }
@@ -149,7 +152,7 @@ final class ImeLetterRows {
         key.setOnTouchListener((view, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
-                    downY[0] = KeyboardGeometry.fromPixels(s, event.getY());
+                    downY[0] = DimensionPolicy.fromPixels(s, event.getY());
                     triggered[0] = false;
                     if (touchPreference(AndroidLocalSettings.KEY_POPUP)) showKeyPreview(key, face);
                     if (hint != null) {
@@ -162,7 +165,7 @@ final class ImeLetterRows {
                     if (hint != null && !triggered[0] && touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
                             && SwipeHintPolicy.swiped(
                                 s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION), downY[0],
-                                KeyboardGeometry.fromPixels(s, event.getY()))) {
+                                DimensionPolicy.fromPixels(s, event.getY()))) {
                         triggered[0] = true;
                         key.removeCallbacks(hold);
                         if (keyPreview != null && keyPreviewOwner == key) keyPreview.setLabel(hint);
@@ -244,7 +247,7 @@ final class ImeLetterRows {
     /** 一个子视图在分离计算里的份额：按渲染后的最终可见状态计，隐藏的记 0；微软双拼的 `;` 键在建行时还没被渲染校正，按 {@link #microsoftTenKeys} 计。 */
     private float splitWeight(View child) {
         if (child == s.microsoftFinalKey) return microsoftTenKeys() ? 1f : 0f;
-        if (child.getVisibility() == View.GONE) return 0f;
+        if (ViewPolicy.isGone(child)) return 0f;
         return child.getLayoutParams() instanceof LinearLayout.LayoutParams params ? params.weight : 0f;
     }
 
@@ -268,7 +271,7 @@ final class ImeLetterRows {
     /** 同 {@link #splitRow(LinearLayout)}，空隙里要再放一个份额为 {@code duplicateWeight} 的重复键（{@link SplitKeyboardPolicy#gapWeight(float, float)}）。 */
     private void splitRow(LinearLayout row, float duplicateWeight) {
         float[] weights = splitWeights(row);
-        row.addView(splitGap(), SplitKeyboardPolicy.cutIndex(weights), KeyboardGeometry.weightedMatchParentParams(
+        row.addView(splitGap(), SplitKeyboardPolicy.cutIndex(weights), LayoutPolicy.weightedMatchParentParams(
             SplitKeyboardPolicy.gapWeight(sum(weights), duplicateWeight)));
     }
 
@@ -286,13 +289,13 @@ final class ImeLetterRows {
         float total = sum(weights);
         float left = SplitKeyboardPolicy.leftSpaceWeight(weights, spaceIndex);
         float right = weights[spaceIndex] - left;
-        space.setLayoutParams(KeyboardGeometry.weightedMatchParentParams(left));
+        space.setLayoutParams(LayoutPolicy.weightedMatchParentParams(left));
         row.addView(splitGap(), spaceIndex + 1,
-            KeyboardGeometry.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(total)));
+            LayoutPolicy.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(total)));
         Button second = s.imeBottomRow.splitSpaceButton();
         if (second.getParent() instanceof android.view.ViewGroup parent) parent.removeView(second);
         ViewPolicy.show(second);
-        row.addView(second, spaceIndex + 2, KeyboardGeometry.weightedMatchParentParams(right));
+        row.addView(second, spaceIndex + 2, LayoutPolicy.weightedMatchParentParams(right));
     }
 
     private View indent() {
@@ -384,7 +387,7 @@ final class ImeLetterRows {
         if (overlay == null || button.getWindowToken() == null) return false;
         float keyTop = overlay.keyTop(button);
         BackspaceSwipePolicy.Phase next = BackspaceSwipePolicy.next(backspaceSwipePhase,
-            keyTop + yInKey, keyTop, KeyboardGeometry.density(s));
+            keyTop + yInKey, keyTop, DimensionPolicy.density(s));
         if (next == BackspaceSwipePolicy.Phase.IDLE) return false;
         BackspaceSwipePolicy.Phase previous = backspaceSwipePhase;
         backspaceSwipePhase = next;
@@ -518,9 +521,9 @@ final class ImeLetterRows {
         // 键盘在各布局间切换时总高度不变：字母行多于三行（大千注音四行）时，整组挤进三行的高度里，而不是每行照标准键高再多出一行。
         LinearLayout block = null;
         if (rows.size() > 3) {
-            block = KeyboardGeometry.column(s);
+            block = LayoutPolicy.column(s);
             s.imeStyler.adjustThreeRowBlockHeight(block);
-            s.keyRows.addView(block, KeyboardGeometry.matchWidthHeightPx(
+            s.keyRows.addView(block, LayoutPolicy.matchWidthHeightPx(
                 s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
         }
         boolean tibetanSymbols = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
@@ -561,7 +564,7 @@ final class ImeLetterRows {
                 s.shuangpinKeyInputs.add(input);
                 String hint = standardLetters ? LetterHintTable.hint(input) : null;
                 hintButton.setCornerHint(hint);
-                KeyboardGeometry.setKeyTextSize(hintButton, 22);
+                KeyboardTypographyPolicy.setKeyTextSize(hintButton, 22);
                 bindLetterGestures(hintButton, face, hint);
             } else {
                 keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
@@ -587,24 +590,24 @@ final class ImeLetterRows {
         if (builtNumberRow) addNumberRow(rows.size());
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             java.util.List<String> keys = rows.get(rowIndex);
-            LinearLayout row = KeyboardGeometry.row(s);
+            LinearLayout row = LayoutPolicy.row(s);
             if (block != null) {
-                block.addView(row, KeyboardGeometry.weightedWidthParams(1));
+                block.addView(row, LayoutPolicy.weightedWidthParams(1));
             } else {
                 row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                     rows.size(), rowIndex, true));
-                s.keyRows.addView(row, KeyboardGeometry.matchWidthWrapParams());
+                s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
             }
             // 第二行（a–l）两侧各缩进 5%：9 个键加两侧各 0.5 的占位正好是第一行 10 个键的宽度。
             if (standardLetters && rowIndex == 1) {
                 secondRowLeadingIndent = indent();
-                row.addView(secondRowLeadingIndent, KeyboardGeometry.weightedMatchParentParams(.5f));
+                row.addView(secondRowLeadingIndent, LayoutPolicy.weightedMatchParentParams(.5f));
             }
             java.util.List<View> rowKeys = new java.util.ArrayList<>(keys.size());
             for (String rowKey : keys) {
                 Button keyButton = characterKey.apply(rowKey);
                 rowKeys.add(keyButton);
-                row.addView(keyButton, KeyboardGeometry.weightedMatchParentParams(1));
+                row.addView(keyButton, LayoutPolicy.weightedMatchParentParams(1));
             }
             // The Dachen rows carry their own ; key (ㄤ), and no double-pinyin final.
             if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS && rowIndex == 1 && !zhuyinKeycaps) {
@@ -612,12 +615,12 @@ final class ImeLetterRows {
                     "Semicolon");
                 s.shuangpinKeyButtons.add((ShuangpinHintButton) s.microsoftFinalKey);
                 s.shuangpinKeyInputs.add(";");
-                KeyboardGeometry.setKeyTextSize(s.microsoftFinalKey, 22);
-                row.addView(s.microsoftFinalKey, KeyboardGeometry.weightedMatchParentParams(1));
+                KeyboardTypographyPolicy.setKeyTextSize(s.microsoftFinalKey, 22);
+                row.addView(s.microsoftFinalKey, LayoutPolicy.weightedMatchParentParams(1));
             }
             if (standardLetters && rowIndex == 1) {
                 secondRowTrailingIndent = indent();
-                row.addView(secondRowTrailingIndent, KeyboardGeometry.weightedMatchParentParams(.5f));
+                row.addView(secondRowTrailingIndent, LayoutPolicy.weightedMatchParentParams(.5f));
                 updateSecondRowIndent();
             }
             // 大小写和删除属于最后一行的两端，不属于底部功能行。Leaving them in a strip below the keys
@@ -643,7 +646,7 @@ final class ImeLetterRows {
                 int inner = duplicate && cut > 0 ? rowKeys.indexOf(row.getChildAt(cut - 1)) : -1;
                 splitRow(row, inner >= 0 ? 1f : 0f);
                 if (inner >= 0) row.addView(characterKey.apply(keys.get(inner)), cut + 1,
-                    KeyboardGeometry.weightedMatchParentParams(1));
+                    LayoutPolicy.weightedMatchParentParams(1));
             }
         }
         s.imeStyler.applyKeyboardGeometry();
@@ -659,19 +662,19 @@ final class ImeLetterRows {
         boolean composing = s.hasEngineComposition();
         java.util.List<java.util.List<FourteenKeyLayout.Key>> rows = FourteenKeyLayout.rows();
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
-            LinearLayout row = KeyboardGeometry.row(s);
+            LinearLayout row = LayoutPolicy.row(s);
             row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                 rows.size(), rowIndex, true));
-            s.keyRows.addView(row, KeyboardGeometry.matchWidthWrapParams());
+            s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
             boolean last = rowIndex == rows.size() - 1;
             if (last) {
                 Button separator = s.keyId(s.keyboardKey(FourteenKeyLayout.separatorFace(composing),
                     FourteenKeyLayout.separatorDescription(composing), this::fourteenKeySeparator),
                     "SoftSymbol");
-                KeyboardGeometry.setKeyTextSize(separator, 15);
+                KeyboardTypographyPolicy.setKeyTextSize(separator, 15);
                 if (separator instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
                 fourteenSeparatorKey = separator;
-                row.addView(separator, KeyboardGeometry.weightedMatchParentParams(
+                row.addView(separator, LayoutPolicy.weightedMatchParentParams(
                     KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT));
             }
             for (FourteenKeyLayout.Key key : rows.get(rowIndex)) {
@@ -679,7 +682,7 @@ final class ImeLetterRows {
                     FourteenKeyLayout.description(key), () -> s.gridKey(key.input())),
                     FourteenKeyLayout.keyId(key));
                 keyButton.setContentDescription(FourteenKeyLayout.accessibilityLabel(key));
-                KeyboardGeometry.setKeyTextSize(keyButton, 22);
+                KeyboardTypographyPolicy.setKeyTextSize(keyButton, 22);
                 if (keyButton instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
                 String letters = FourteenKeyLayout.holdLetters(key);
                 if (!letters.isEmpty()) {
@@ -690,7 +693,7 @@ final class ImeLetterRows {
                         return true;
                     });
                 }
-                row.addView(keyButton, KeyboardGeometry.weightedMatchParentParams(FourteenKeyLayout.LETTER_WEIGHT));
+                row.addView(keyButton, LayoutPolicy.weightedMatchParentParams(FourteenKeyLayout.LETTER_WEIGHT));
             }
             if (last) addLetterRowEdgeKey(row, s.deleteButton, row.getChildCount(),
                 KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT);
@@ -720,16 +723,16 @@ final class ImeLetterRows {
      * @param letterRows 字母行数，数字行按其中第一行的份额分摊高度调整
      */
     private void addNumberRow(int letterRows) {
-        LinearLayout row = KeyboardGeometry.row(s);
+        LinearLayout row = LayoutPolicy.row(s);
         row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, letterRows, 0, true));
-        s.keyRows.addView(row, KeyboardGeometry.matchWidthWrapParams());
+        s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
         for (String digit : KeyboardLayout.NUMBER_ROW) {
             char input = digit.charAt(0);
             Button key = s.keyboardKey(digit, digit, () -> s.type(input));
-            KeyboardGeometry.setKeyTextSize(key, 20);
+            KeyboardTypographyPolicy.setKeyTextSize(key, 20);
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             s.keyId(key, KeyPressIds.forCharacter(input));
-            row.addView(key, KeyboardGeometry.weightedMatchParentParams(1));
+            row.addView(key, LayoutPolicy.weightedMatchParentParams(1));
         }
         if (builtSplit) splitRow(row);
     }
@@ -743,7 +746,7 @@ final class ImeLetterRows {
             press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
         ViewPolicy.show(key);
-        row.addView(key, index, KeyboardGeometry.weightedMatchParentParams(weight));
+        row.addView(key, index, LayoutPolicy.weightedMatchParentParams(weight));
     }
 
     /**
@@ -757,21 +760,21 @@ final class ImeLetterRows {
             ? KeyboardLayout.moreSymbolLayer(chinese, chinesePunctuation)
             : KeyboardLayout.numberLayer(chinese, chinesePunctuation);
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
-            LinearLayout row = KeyboardGeometry.row(s);
+            LinearLayout row = LayoutPolicy.row(s);
             // 最后一行是这一层自带的底行，和功能行一样挂底行角色：和一行键同高，分到四行均分后底行的那一份调整；前三行和字母键一样分摊其余部分，整层与字母层同高。底行原先挂的是 rowCount 为 1 的普通角色，整份调整量在三行之外又加了一遍：调高时这一层比字母层高出一截，调到 75% 时底行被压成 0 高。
             boolean bottomRow = rowIndex == rows.size() - 1;
             row.setTag(bottomRow ? MSIMEInputService.KeyboardHeightRole.bottomRow()
                 : new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                     rows.size() - 1, rowIndex, true));
             s.keyRows.addView(row, bottomRow
-                ? KeyboardGeometry.matchWidthHeightPx(s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP))
-                : KeyboardGeometry.matchWidthWrapParams());
+                ? LayoutPolicy.matchWidthHeightPx(s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP))
+                : LayoutPolicy.matchWidthWrapParams());
             for (KeyboardLayout.LayerKey layerKey : rows.get(rowIndex)) {
                 Button key = designLayerKey(layerKey, rowIndex == 0);
                 if (key == null) continue;
                 if (key.getParent() instanceof android.view.ViewGroup parent) parent.removeView(key);
                 ViewPolicy.show(key);
-                row.addView(key, KeyboardGeometry.weightedMatchParentParams(layerKey.weight()));
+                row.addView(key, LayoutPolicy.weightedMatchParentParams(layerKey.weight()));
             }
             if (builtSplit) {
                 if (rowIndex == rows.size() - 1) splitSpaceRow(row);
@@ -786,7 +789,7 @@ final class ImeLetterRows {
         switch (layerKey.kind()) {
             case CHARACTER -> {
                 key = s.keyboardKey(text, text, () -> s.imeLayoutRows.commitNineKeyLiteral(text));
-                KeyboardGeometry.setKeyTextSize(key, firstRow ? 20 : 18);
+                KeyboardTypographyPolicy.setKeyTextSize(key, firstRow ? 20 : 18);
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
                 if (text.length() == 1) s.keyId(key, KeyPressIds.forCharacter(text.charAt(0)));
                 return key;
@@ -840,7 +843,7 @@ final class ImeLetterRows {
         }
         // 功能键（层切换、返回字母、表情、符号）：功能键底色、15 sp，描述按 §2.8。
         key.setContentDescription(layerKey.description());
-        KeyboardGeometry.setKeyTextSize(key, 15);
+        KeyboardTypographyPolicy.setKeyTextSize(key, 15);
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
         return key;

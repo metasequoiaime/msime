@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
@@ -70,14 +71,14 @@ final class AppThemeSheet {
             if (index > 0) root.addView(Ui.divider(context, true));
             String id = THEMES[index][0];
             root.addView(SheetOptionView.create(context, THEMES[index][1], id.equals(current), false,
-                Ui.accent(context), id.equals(current), () -> {
+                ThemeColorPolicy.accent(context), id.equals(current), () -> {
                 dialog.dismiss();
                 if (!id.equals(current)) saveAppTheme(host, id, refresh);
             }));
         }
 
         root.addView(Ui.sheetSeparator(context));
-        root.addView(SheetOptionView.create(context, "取消", false, false, Ui.accent(context), false,
+        root.addView(SheetOptionView.create(context, "取消", false, false, ThemeColorPolicy.accent(context), false,
             dialog::cancel));
         dialog.setContentView(root);
         dialog.show();

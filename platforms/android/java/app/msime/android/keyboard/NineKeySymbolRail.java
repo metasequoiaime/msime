@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
@@ -21,7 +22,7 @@ public final class NineKeySymbolRail extends ScrollView {
         setVerticalScrollBarEnabled(false);
         setOverScrollMode(View.OVER_SCROLL_NEVER);
         setVerticalFadingEdgeEnabled(true);
-        setFadingEdgeLength(KeyboardGeometry.pixels(context, 12));
+        setFadingEdgeLength(DimensionPolicy.pixels(context, 12));
         addView(column, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT));
     }
@@ -33,11 +34,11 @@ public final class NineKeySymbolRail extends ScrollView {
 
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int row = NineKeySidebarPolicy.rowHeight(MeasureSpec.getSize(heightMeasureSpec), column.getChildCount(),
-            KeyboardGeometry.pixels(getContext(), NineKeySidebarPolicy.MIN_ROW_HEIGHT_DP));
+            DimensionPolicy.pixels(getContext(), NineKeySidebarPolicy.MIN_ROW_HEIGHT_DP));
         for (int index = 0; index < column.getChildCount(); index++) {
             View child = column.getChildAt(index);
             if (!(child.getLayoutParams() instanceof LinearLayout.LayoutParams params)) continue;
-            params.height = Math.max(0, row - params.topMargin - params.bottomMargin);
+            params.height = BoundsPolicy.nonNegative(row - params.topMargin - params.bottomMargin);
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
     }

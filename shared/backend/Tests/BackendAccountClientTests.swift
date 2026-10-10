@@ -58,6 +58,87 @@ private final class AuthInputProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+
+private final class ClipboardRetryStorage: BackendSessionStorage, @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: BackendSavedSession?
+
+  init(_ value: BackendSavedSession?) { self.value = value }
+  func load() throws -> BackendSavedSession? { lock.lock(); defer { lock.unlock() }; return value }
+  func save(_ session: BackendSavedSession) throws { lock.lock(); defer { lock.unlock() }; value = session }
+  func clear() throws { lock.lock(); defer { lock.unlock() }; value = nil }
+}
+
+private final class ClipboardRetryProtocol: URLProtocol {
+  static let oldToken = String(repeating: "a", count: 64)
+  static let newToken = String(repeating: "b", count: 64)
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let path = request.url!.path
+    let authorization = request.value(forHTTPHeaderField: "Authorization") ?? ""
+    let status: Int
+    let body: String
+    switch path {
+    case "/v1/users/me/clipboard":
+      if authorization == "Bearer \(Self.newToken)" {
+        status = 200
+        body = #"{"enabled":true,"items":[]}"#
+      } else {
+        status = 401
+        body = #"{"error":{"code":"invalid_credentials"}}"#
+      }
+    case "/v1/users/me/dictionaries/pinyin":
+      if authorization == "Bearer \(Self.newToken)" {
+        status = 200
+        let id = String(repeating: "a", count: 64)
+        body = "{\"entries\":[{\"id\":\"\(id)\",\"kind\":\"pinyin\",\"code\":\"ni\",\"word\":\"你\",\"weight\":1,\"revision\":1}],\"has_more\":false,\"offset\":0}"
+      } else {
+        status = 401
+        body = #"{"error":{"code":"invalid_credentials"}}"#
+      }
+    case "/v1/users/me/dictionaries/quick":
+      if authorization == "Bearer \(Self.newToken)" {
+        status = 200
+        let id = String(repeating: "b", count: 64)
+        body = "{\"revision\":2,\"previous\":null,\"replacement\":{\"id\":\"\(id)\",\"kind\":\"quick\",\"code\":\"sample\",\"word\":\"合成\",\"weight\":1,\"revision\":2}}"
+      } else {
+        status = 401
+        body = #"{"error":{"code":"invalid_credentials"}}"#
+      }
+    case let path where path.hasSuffix("/catalog"):
+      if authorization == "Bearer \(Self.newToken)" {
+        status = 200
+        body = #"{"entries":[],"offset":0,"has_more":false,"revision":1,"normalized":""}"#
+      } else {
+        status = 401
+        body = #"{"error":{"code":"invalid_credentials"}}"#
+      }
+    case let path where path.hasSuffix("/apply"):
+      if authorization == "Bearer \(Self.newToken)" {
+        status = 200
+        body = #"{"revision":2,"imported":1,"resource_revision":1}"#
+      } else {
+        status = 401
+        body = #"{"error":{"code":"invalid_credentials"}}"#
+      }
+    case "/v1/auth/refresh":
+      status = 200
+      let refresh = String(repeating: "c", count: 64)
+      body = "{\"access_token\":\"\(Self.newToken)\",\"refresh_token\":\"\(refresh)\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"synthetic-user\",\"display_name\":\"示例\",\"created_at\":\"2026-09-08\"}}"
+    default:
+      status = 404
+      body = #"{"error":{"code":"not_found"}}"#
+    }
+    let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
 private final class OversizedAccountProtocol: URLProtocol {
   override class func canInit(with request: URLRequest) -> Bool { request.url?.path == "/v1/auth/login" }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -332,6 +413,72 @@ final class BackendAccountClientTests: XCTestCase {
     XCTAssertEqual(page.items.first?.text, search)
     try await client().setClipboardEnabled(false, token: "session")
     try await client().deleteClipboard(token: "session")
+  }
+
+  func testClipboardSessionRetriesRejectedAccessToken() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ClipboardRetryProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let tokens = BackendAccountClient.Tokens(
+      access_token: ClipboardRetryProtocol.oldToken,
+      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-user", display_name: "示例", created_at: "2026-09-08"))
+    let storage = ClipboardRetryStorage(try BackendSavedSession.forTokens(tokens))
+    let session = BackendAccountSession(api: client, storage: storage,
+                                        refreshLock: BackendProcessRefreshLock())
+
+    let page = try await client.clipboard(session: session)
+    XCTAssertTrue(page.enabled)
+  }
+
+  func testDictionarySessionRetriesRejectedAccessToken() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ClipboardRetryProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let tokens = BackendAccountClient.Tokens(
+      access_token: ClipboardRetryProtocol.oldToken,
+      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-user", display_name: "示例", created_at: "2026-09-08"))
+    let session = BackendAccountSession(api: client,
+      storage: ClipboardRetryStorage(try BackendSavedSession.forTokens(tokens)),
+      refreshLock: BackendProcessRefreshLock())
+
+    let page = try await client.dictionary(.pinyin, session: session)
+    XCTAssertEqual(page.entries.count, 1)
+  }
+
+  func testDictionaryMutationSessionRetriesRejectedAccessToken() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ClipboardRetryProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let tokens = BackendAccountClient.Tokens(
+      access_token: ClipboardRetryProtocol.oldToken,
+      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-user", display_name: "示例", created_at: "2026-09-08"))
+    let session = BackendAccountSession(api: client,
+      storage: ClipboardRetryStorage(try BackendSavedSession.forTokens(tokens)),
+      refreshLock: BackendProcessRefreshLock())
+
+    let change = try await client.addDictionary(.quick,
+      value: .init(code: "sample", word: "合成", weight: 1), session: session)
+    XCTAssertEqual(change.revision, 2)
+  }
+
+  func testCommunityApplySessionRetriesRejectedAccessToken() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ClipboardRetryProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let tokens = BackendAccountClient.Tokens(
+      access_token: ClipboardRetryProtocol.oldToken,
+      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-user", display_name: "示例", created_at: "2026-09-08"))
+    let session = BackendAccountSession(api: client,
+      storage: ClipboardRetryStorage(try BackendSavedSession.forTokens(tokens)),
+      refreshLock: BackendProcessRefreshLock())
+
+    let result = try await client.applyResource(UUID(uuidString: "11111111-1111-4111-8111-111111111111")!,
+      resourceRevision: 1, dictionaryRevision: 1, session: session)
+    XCTAssertEqual(result.imported, 1)
   }
   func testClipboardSearchRejectsOversizedAndUnsafeValues() async throws {
     for search in [String(repeating: "a", count: 1025), "safe\u{0007}query"] {

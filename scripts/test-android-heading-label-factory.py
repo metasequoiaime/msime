@@ -18,7 +18,7 @@ def main() -> int:
         "TextView heading = label(context, text, sizeSp, color);",
         "public static TextView headingLabel(Context context, CharSequence text, int sizeSp, int weight,",
         "TextView heading = styledLabel(context, text, sizeSp, weight, color);",
-        "return headingLabel(context, text, TEXT_GROUP_TITLE, 500, accent(context));",
+        "return headingLabel(context, text, TEXT_GROUP_TITLE, 500, ThemeColorPolicy.accent(context));",
     )
     for snippet in required:
         if snippet not in ui:

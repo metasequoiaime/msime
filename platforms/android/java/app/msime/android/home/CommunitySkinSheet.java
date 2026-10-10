@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -55,7 +56,7 @@ public final class CommunitySkinSheet {
 
         TextView description = Ui.styledLabel(context,
             item.description().isEmpty() ? "作者没有写说明。" : item.description(),
-            14, 400, Ui.subText(context));
+            14, 400, ThemeColorPolicy.subText(context));
         LinearLayout.LayoutParams text = Ui.matchWidth();
         text.topMargin = Ui.dp(context, 14);
         sheet.content().addView(description, text);

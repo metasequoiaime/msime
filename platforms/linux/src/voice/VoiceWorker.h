@@ -34,8 +34,12 @@ class MsimeVoiceWorker {
     cancelled_ = std::make_shared<std::atomic_bool>(false);
     const auto token = cancelled_;
     thread_ = std::thread([token, task = std::move(task), result = std::move(result)] {
-      auto value = task(*token);
-      if (!token->load() && result) result(std::move(value));
+      try {
+        auto value = task(*token);
+        if (!token->load() && result) result(std::move(value));
+      } catch (...) {
+        // Provider and completion failures must not terminate the input method.
+      }
     });
   }
   // Run a task that can publish bounded interim values while it waits for the
@@ -48,13 +52,21 @@ class MsimeVoiceWorker {
     thread_ = std::thread([
         token, task = std::move(task), progress = std::move(progress),
         result = std::move(result)] {
-      const auto publish = [token, progress](std::string value, bool final) {
-        if (!token->load() && progress)
-          progress(std::move(value), final);
-      };
-      auto value = task(*token, publish);
-      if (!token->load() && result)
-        result(std::move(value));
+      try {
+        const auto publish = [token, progress](std::string value, bool final) {
+          if (!token->load() && progress) {
+            try {
+              progress(std::move(value), final);
+            } catch (...) {
+              // A UI progress callback is optional and must not kill the worker.
+            }
+          }
+        };
+        auto value = task(*token, publish);
+        if (!token->load() && result) result(std::move(value));
+      } catch (...) {
+        // Provider and completion failures must not terminate the input method.
+      }
     });
   }
  private:

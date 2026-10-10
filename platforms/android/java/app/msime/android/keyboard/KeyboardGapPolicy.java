@@ -24,7 +24,7 @@ public final class KeyboardGapPolicy {
      * 按下落在让给左邻的那一段里：`x` 是让出的键自己的坐标，`leftMargin` 是它左侧的外边距，`yield` 是键帽让出的宽度。这一段是左侧整段外边距（原本按最近的键归它）加上键帽左侧 `yield` 宽，见 {@link KeyboardKeyArea#setYield}。
      */
     public static boolean yieldsToLeft(float x, int leftMargin, float yield) {
-        return yield > 0 && x >= -Math.max(0, leftMargin) && x < yield;
+        return yield > 0 && x >= -BoundsPolicy.nonNegative(leftMargin) && x < yield;
     }
 
     /**

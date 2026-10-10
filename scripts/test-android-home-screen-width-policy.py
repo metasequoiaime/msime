@@ -23,12 +23,12 @@ def main() -> int:
     for path in HOME.glob("*.java"):
         source = path.read_text(encoding="utf-8")
         if "Ui.screenWidthPixels(" in source:
-            errors.append(f"{path}: 应直接调用 KeyboardGeometry.screenWidthPixels")
+            errors.append(f"{path}: 应直接调用 DimensionPolicy.screenWidthPixels")
 
     for name in EXPECTED_CALLERS:
         path = HOME / name
-        if "KeyboardGeometry.screenWidthPixels(" not in path.read_text(encoding="utf-8"):
-            errors.append(f"{path}: 未直接复用 KeyboardGeometry.screenWidthPixels")
+        if "DimensionPolicy.screenWidthPixels(" not in path.read_text(encoding="utf-8"):
+            errors.append(f"{path}: 未直接复用 DimensionPolicy.screenWidthPixels")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)

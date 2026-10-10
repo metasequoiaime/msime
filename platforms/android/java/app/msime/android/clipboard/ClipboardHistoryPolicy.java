@@ -44,7 +44,7 @@ public final class ClipboardHistoryPolicy {
     }
 
     public static long timestampValue(Object raw) {
-        long timestamp = KeyboardGeometry.strictLong(raw, 0);
+        long timestamp = NumberPolicy.strictLong(raw, 0);
         return timestamp < 0 ? 0 : timestamp;
     }
 
@@ -106,7 +106,7 @@ public final class ClipboardHistoryPolicy {
      */
     public static String editKey(long timestamp, String text) {
         if (text == null) throw new IllegalArgumentException("No clipboard text");
-        return Math.max(0, timestamp) + ":" + Integer.toHexString(text.hashCode()) + ":" + text.length();
+        return BoundsPolicy.nonNegative(timestamp) + ":" + Integer.toHexString(text.hashCode()) + ":" + text.length();
     }
 
     /** What to tell the user, naming the action that would let the save succeed. */

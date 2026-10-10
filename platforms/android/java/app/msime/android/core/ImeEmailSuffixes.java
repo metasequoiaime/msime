@@ -50,7 +50,7 @@ final class ImeEmailSuffixes {
             String suffix = suffixes.get(slot);
             ViewPolicy.show(button);
             button.setText(suffix);
-            KeyboardGeometry.setKeyTextSize(button, s.candidateFontSize);
+            KeyboardTypographyPolicy.setKeyTextSize(button, s.candidateFontSize);
             button.setContentDescription("邮箱后缀 " + (slot + 1) + "：" + suffix);
             s.imeStyler.styleButton(button, false);
             ViewPolicy.setTypeface(button, s.imeStyler.candidateTypeface());

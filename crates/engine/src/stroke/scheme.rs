@@ -163,16 +163,41 @@ impl StrokeScheme {
         if input.is_empty() {
             return Ok(Vec::new());
         }
-        let has_wildcard = input.contains(char::from(WILDCARD));
-        let mut buffer = StrokeQueryBuffer {
-            entries: Vec::with_capacity(if has_wildcard { 0 } else { EXACT_LIMIT }),
-            exact_pattern: Vec::with_capacity(if has_wildcard { EXACT_LIMIT } else { 0 }),
-            completions: Vec::with_capacity(COMPLETION_LIMIT),
-        };
+        let mut buffer = StrokeQueryBuffer::default();
         buffer.query(dictionary, input)?;
-        let mut candidates = Vec::with_capacity(
-            buffer.entries.len() + buffer.exact_pattern.len() + buffer.completions.len(),
-        );
+        let unique_len = {
+            let mut seen: [Option<&str>; EXACT_LIMIT + COMPLETION_LIMIT] =
+                [None; EXACT_LIMIT + COMPLETION_LIMIT];
+            let mut unique_len = 0;
+            for text in buffer
+                .entries
+                .iter()
+                .map(|entry| entry.text.as_str())
+                .chain(
+                    buffer
+                        .exact_pattern
+                        .iter()
+                        .map(|(_, entry)| entry.text.as_str()),
+                )
+                .chain(
+                    buffer
+                        .completions
+                        .iter()
+                        .map(|(_, entry)| entry.text.as_str()),
+                )
+            {
+                if !seen[..unique_len]
+                    .iter()
+                    .flatten()
+                    .any(|seen| *seen == text)
+                {
+                    seen[unique_len] = Some(text);
+                    unique_len += 1;
+                }
+            }
+            unique_len
+        };
+        let mut candidates = Vec::with_capacity(unique_len);
         for entry in buffer.entries {
             push_owned_candidate(&mut candidates, input, entry);
         }
@@ -428,6 +453,36 @@ mod tests {
         assert_eq!(candidates[1].key, "hsh");
         assert!(texts(&typed("zzzz"), dictionary).is_empty());
         assert!(texts(&StrokeScheme::new(), dictionary).is_empty());
+    }
+
+    #[test]
+    fn owned_candidates_do_not_reserve_duplicate_query_rows() {
+        let fixture = fixture();
+        let candidates = typed("h").candidates(&fixture.dictionary).unwrap();
+
+        assert_eq!(candidates.len(), 8);
+        assert_eq!(
+            candidates.capacity(),
+            candidates.len(),
+            "重复笔画码不应继续占用候选容量"
+        );
+    }
+
+    #[test]
+    fn empty_owned_query_does_not_allocate_page_buffers() {
+        let fixture = fixture();
+        for (input, expected_allocations) in [("zzzz", 3), ("zzzx", 6)] {
+            let scheme = typed(input);
+            scheme.candidates(&fixture.dictionary).unwrap();
+            let (candidates, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                scheme.candidates(&fixture.dictionary).unwrap()
+            });
+            assert!(candidates.is_empty());
+            assert_eq!(
+                allocations, expected_allocations,
+                "空笔画查询 {input} 申请了 {allocations} 个缓冲"
+            );
+        }
     }
 
     #[test]

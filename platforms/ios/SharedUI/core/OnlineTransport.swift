@@ -1,5 +1,12 @@
 import Foundation
 
+/// 统一在线请求的毫秒超时范围，避免不同提供方使用不同边界。
+enum OnlineRequestPolicy {
+  static func timeout(milliseconds: Int) -> TimeInterval {
+    TimeInterval(SharedNumber.clamped(milliseconds, to: 1_000...10_000)) / 1000
+  }
+}
+
 /// One bounded HTTPS request for a cloud or AI candidate provider.
 struct OnlineCandidateRequest: Sendable {
   var urlRequest: URLRequest

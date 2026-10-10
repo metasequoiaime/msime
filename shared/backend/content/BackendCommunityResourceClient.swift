@@ -63,12 +63,31 @@ extension BackendAccountClient {
           page.items.allSatisfy({ Self.validResponse($0, expectedKind: kind) }) else { throw Failure(status: 502) }
     return page
   }
+  func communityResources(_ kind: ResourceKind, scope: ResourceScope = .all, search: String = "",
+                          offset: Int = 0, session: BackendAccountSession,
+                          matchingUserID expected: String? = nil,
+                          matchingSessionID expectedSessionID: UUID? = nil) async throws -> ResourcePage {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    return try await session.authenticated(matchingUserID: identity.userID,
+                                           matchingSessionID: identity.sessionID) { token in
+      try await communityResources(kind, scope: scope, search: search, offset: offset, token: token)
+    }.value
+  }
   func communityResource(_ id: UUID, token: String? = nil) async throws -> CommunityResource {
     guard Self.validResourceID(id) else { throw Failure(status: 400) }
     let value: CommunityResource = try await json("GET", Self.resourcePath(id) + "?fields=moderation", token: token,
                                                  maximumResponseBytes: 3 * 1024 * 1024)
     guard value.id == id, Self.validResponse(value, expectedKind: value.kind) else { throw Failure(status: 502) }
     return value
+  }
+  func communityResource(_ id: UUID, session: BackendAccountSession,
+                         matchingUserID expected: String? = nil,
+                         matchingSessionID expectedSessionID: UUID? = nil) async throws -> CommunityResource {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    return try await session.authenticated(matchingUserID: identity.userID,
+                                           matchingSessionID: identity.sessionID) { token in
+      try await communityResource(id, token: token)
+    }.value
   }
   func publishResource(id: UUID, kind: ResourceKind, name: String, description: String,
                        content: ResourceContent, revision: Int, token: String) async throws -> ResourcePublication {
@@ -94,6 +113,17 @@ extension BackendAccountClient {
     guard result.id == id, result.revision > 0 else { throw Failure(status: 502) }
     return result
   }
+  func publishResource(id: UUID, kind: ResourceKind, name: String, description: String,
+                       content: ResourceContent, revision: Int, session: BackendAccountSession,
+                       matchingUserID expected: String? = nil,
+                       matchingSessionID expectedSessionID: UUID? = nil) async throws -> ResourcePublication {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    return try await session.authenticated(matchingUserID: identity.userID,
+                                           matchingSessionID: identity.sessionID) { token in
+      try await publishResource(id: id, kind: kind, name: name, description: description,
+                                content: content, revision: revision, token: token)
+    }.value
+  }
   struct ResourceApplication: Decodable, Sendable {
     let revision: Int64
     let imported: Int
@@ -110,12 +140,32 @@ extension BackendAccountClient {
           result.revision - dictionaryRevision == Int64(result.imported) else { throw Failure(status: 502) }
     return result
   }
+  func applyResource(_ id: UUID, resourceRevision: Int, dictionaryRevision: Int64,
+                     session: BackendAccountSession,
+                     matchingUserID expected: String? = nil,
+                     matchingSessionID expectedSessionID: UUID? = nil) async throws -> ResourceApplication {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    return try await session.authenticated(matchingUserID: identity.userID,
+                                           matchingSessionID: identity.sessionID) { token in
+      try await applyResource(id, resourceRevision: resourceRevision,
+                              dictionaryRevision: dictionaryRevision, token: token)
+    }.value
+  }
   func saveResource(_ id: UUID, saved: Bool, token: String) async throws {
     guard Self.validResourceID(id) else { throw Failure(status: 400) }
     struct Body: Codable { let saved: Bool }
     let response: Body = try await json("PUT", Self.resourcePath(id) + "/save", token: token,
                                         body: JSONEncoder().encode(Body(saved: saved)))
     guard response.saved == saved else { throw Failure(status: 502) }
+  }
+  func saveResource(_ id: UUID, saved: Bool, session: BackendAccountSession,
+                    matchingUserID expected: String? = nil,
+                    matchingSessionID expectedSessionID: UUID? = nil) async throws {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    _ = try await session.authenticated(matchingUserID: identity.userID,
+                                        matchingSessionID: identity.sessionID) { token in
+      try await saveResource(id, saved: saved, token: token)
+    }.value
   }
   func rateResource(_ id: UUID, stars: Int, token: String) async throws {
     guard Self.validResourceID(id), (1...5).contains(stars) else { throw Failure(status: 400) }
@@ -124,11 +174,29 @@ extension BackendAccountClient {
                                         body: JSONEncoder().encode(Body(stars: stars)))
     guard response.stars == stars else { throw Failure(status: 502) }
   }
+  func rateResource(_ id: UUID, stars: Int, session: BackendAccountSession,
+                    matchingUserID expected: String? = nil,
+                    matchingSessionID expectedSessionID: UUID? = nil) async throws {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    _ = try await session.authenticated(matchingUserID: identity.userID,
+                                        matchingSessionID: identity.sessionID) { token in
+      try await rateResource(id, stars: stars, token: token)
+    }.value
+  }
   func deleteResource(_ id: UUID, token: String) async throws {
     guard Self.validResourceID(id) else { throw Failure(status: 400) }
     struct Result: Decodable { let deleted: Bool }
     let response: Result = try await json("DELETE", Self.resourcePath(id), token: token)
     guard response.deleted else { throw Failure(status: 502) }
+  }
+  func deleteResource(_ id: UUID, session: BackendAccountSession,
+                      matchingUserID expected: String? = nil,
+                      matchingSessionID expectedSessionID: UUID? = nil) async throws {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    _ = try await session.authenticated(matchingUserID: identity.userID,
+                                        matchingSessionID: identity.sessionID) { token in
+      try await deleteResource(id, token: token)
+    }.value
   }
   /// The fixed report reasons, in dialog order; each is the exact string the server accepts.
   static let reportReasons = ["侵权/抄袭", "色情低俗", "违法违规", "垃圾广告", "恶意插件", "其他"]
@@ -145,6 +213,16 @@ extension BackendAccountClient {
                                              detail: detail.isEmpty ? nil : detail))
     let response: Result = try await json("POST", "/v1/community/reports", token: token, body: body)
     guard response.reported else { throw Failure(status: 502) }
+  }
+  func reportContent(kind: String, itemID: UUID, reason: String, detail: String,
+                     session: BackendAccountSession,
+                     matchingUserID expected: String? = nil,
+                     matchingSessionID expectedSessionID: UUID? = nil) async throws {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    _ = try await session.authenticated(matchingUserID: identity.userID,
+                                        matchingSessionID: identity.sessionID) { token in
+      try await reportContent(kind: kind, itemID: itemID, reason: reason, detail: detail, token: token)
+    }.value
   }
   private static func resourcePath(_ id: UUID) -> String { "/v1/community/resources/" + id.uuidString.lowercased() }
   private static func validResourceID(_ id: UUID) -> Bool {

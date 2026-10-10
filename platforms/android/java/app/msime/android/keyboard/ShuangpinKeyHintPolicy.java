@@ -53,12 +53,12 @@ public final class ShuangpinKeyHintPolicy {
     }
 
     private static int skipSpaces(String value, int cursor, int limit) {
-        while (cursor < limit && Character.isWhitespace(value.charAt(cursor))) cursor++;
+        while (cursor < limit && TextPolicy.isWhitespace(value.charAt(cursor))) cursor++;
         return cursor;
     }
 
     private static int skipSpaceAndCommas(String value, int cursor, int limit) {
-        while (cursor < limit && (Character.isWhitespace(value.charAt(cursor))
+            while (cursor < limit && (TextPolicy.isWhitespace(value.charAt(cursor))
                 || value.charAt(cursor) == ',')) cursor++;
         return cursor;
     }

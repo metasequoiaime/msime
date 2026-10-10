@@ -70,6 +70,16 @@ extension BackendAccountClient {
     guard page.next == cursor, !page.has_more || !page.changes.isEmpty else { throw Failure(status: 502) }
     return page
   }
+  func dictionaryChanges(after: Int64, limit: Int = 100,
+                         session: BackendAccountSession,
+                         matchingUserID expected: String? = nil,
+                         matchingSessionID expectedSessionID: UUID? = nil) async throws -> DictionaryChangePage {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    return try await session.authenticated(matchingUserID: identity.userID,
+                                           matchingSessionID: identity.sessionID) { token in
+      try await dictionaryChanges(after: after, limit: limit, token: token)
+    }.value
+  }
   struct DictionaryValue: Encodable, Sendable {
     let code: String
     let word: String
@@ -88,11 +98,37 @@ extension BackendAccountClient {
           }) else { throw Failure(status: 0) }
     return page
   }
+  /// Read a dictionary page while keeping the account session bound across an access-token refresh.
+  /// The page is discarded if the account changes while the request is in flight.
+  func dictionary(_ kind: DictionaryKind, search: String = "", offset: Int = 0,
+                  session: BackendAccountSession,
+                  matchingUserID expected: String? = nil,
+                  matchingSessionID expectedSessionID: UUID? = nil) async throws -> DictionaryPage {
+    let identity = try await session.credentials(matchingUserID: expected,
+                                                 matchingSessionID: expectedSessionID)
+    let page = try await session.authenticated(matchingUserID: identity.userID,
+                                               matchingSessionID: identity.sessionID) { token in
+      try await dictionary(kind, search: search, offset: offset, token: token)
+    }.value
+    try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+    try Task.checkCancellation()
+    return page
+  }
   func addDictionary(_ kind: DictionaryKind, value: DictionaryValue, token: String) async throws -> DictionaryChange {
     guard Self.validNewDictionaryValue(value, kind: kind) else { throw Failure(status: 400) }
     let change: DictionaryChange = try await json("POST", "/v1/users/me/dictionaries/" + kind.rawValue, token: token, body: JSONEncoder().encode(value))
     guard Self.validDictionaryChange(change, expectedKind: kind) else { throw Failure(status: 0) }
     return change
+  }
+  func addDictionary(_ kind: DictionaryKind, value: DictionaryValue,
+                     session: BackendAccountSession,
+                     matchingUserID expected: String? = nil,
+                     matchingSessionID expectedSessionID: UUID? = nil) async throws -> DictionaryChange {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    return try await session.authenticated(matchingUserID: identity.userID,
+                                           matchingSessionID: identity.sessionID) { token in
+      try await addDictionary(kind, value: value, token: token)
+    }.value
   }
   func updateDictionary(_ entry: DictionaryEntry, value: DictionaryValue, token: String) async throws -> DictionaryChange {
     guard Self.validNewDictionaryValue(value, kind: entry.kind) else { throw Failure(status: 400) }
@@ -102,11 +138,31 @@ extension BackendAccountClient {
     guard Self.validDictionaryChange(change, expectedKind: entry.kind) else { throw Failure(status: 0) }
     return change
   }
+  func updateDictionary(_ entry: DictionaryEntry, value: DictionaryValue,
+                        session: BackendAccountSession,
+                        matchingUserID expected: String? = nil,
+                        matchingSessionID expectedSessionID: UUID? = nil) async throws -> DictionaryChange {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    return try await session.authenticated(matchingUserID: identity.userID,
+                                           matchingSessionID: identity.sessionID) { token in
+      try await updateDictionary(entry, value: value, token: token)
+    }.value
+  }
   func deleteDictionary(_ entry: DictionaryEntry, token: String) async throws -> DictionaryChange {
     struct Body: Encodable { let revision: Int64 }
     let change: DictionaryChange = try await json("DELETE", dictionaryEntryPath(entry), token: token, body: JSONEncoder().encode(Body(revision: entry.revision)))
     guard Self.validDictionaryChange(change, expectedKind: entry.kind) else { throw Failure(status: 0) }
     return change
+  }
+  func deleteDictionary(_ entry: DictionaryEntry,
+                        session: BackendAccountSession,
+                        matchingUserID expected: String? = nil,
+                        matchingSessionID expectedSessionID: UUID? = nil) async throws -> DictionaryChange {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    return try await session.authenticated(matchingUserID: identity.userID,
+                                           matchingSessionID: identity.sessionID) { token in
+      try await deleteDictionary(entry, token: token)
+    }.value
   }
   enum DictionaryFileFormat: String, CaseIterable, Identifiable, Sendable {
     case standard, windows, hans
@@ -132,10 +188,30 @@ extension BackendAccountClient {
     guard (0...1_000_000).contains(result.imported), result.revision >= 0 else { throw Failure(status: 0) }
     return result
   }
+  func importDictionary(_ kind: DictionaryKind, text: String, format: DictionaryFileFormat,
+                        session: BackendAccountSession,
+                        matchingUserID expected: String? = nil,
+                        matchingSessionID expectedSessionID: UUID? = nil) async throws -> DictionaryImportResult {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    return try await session.authenticated(matchingUserID: identity.userID,
+                                           matchingSessionID: identity.sessionID) { token in
+      try await importDictionary(kind, text: text, format: format, token: token)
+    }.value
+  }
   func exportDictionary(_ kind: DictionaryKind, format: DictionaryFileFormat, token: String) async throws -> URL {
     guard format != .hans else { throw Failure(status: 400) }
     return try await download("/v1/users/me/dictionaries/" + kind.rawValue + "/export?format=" + format.rawValue,
       token: token, filename: "dictionary-" + kind.rawValue + ".tsv", maximumBytes: 384 * 1024 * 1024)
+  }
+  func exportDictionary(_ kind: DictionaryKind, format: DictionaryFileFormat,
+                        session: BackendAccountSession,
+                        matchingUserID expected: String? = nil,
+                        matchingSessionID expectedSessionID: UUID? = nil) async throws -> URL {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    return try await session.authenticated(matchingUserID: identity.userID,
+                                           matchingSessionID: identity.sessionID) { token in
+      try await exportDictionary(kind, format: format, token: token)
+    }.value
   }
   struct CatalogEntry: Decodable, Identifiable, Sendable {
     let kind: DictionaryKind
@@ -168,6 +244,17 @@ extension BackendAccountClient {
                                                              allowStoredQuickCode: true)
           }) else { throw Failure(status: 0) }
     return page
+  }
+  func dictionaryCatalog(_ kind: DictionaryKind, code: String, offset: Int = 0,
+                         scheme: String = "pinyin", profile: String = "xiaohe",
+                         session: BackendAccountSession,
+                         matchingUserID expected: String? = nil,
+                         matchingSessionID expectedSessionID: UUID? = nil) async throws -> DictionaryCatalog {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    return try await session.authenticated(matchingUserID: identity.userID,
+                                           matchingSessionID: identity.sessionID) { token in
+      try await dictionaryCatalog(kind, code: code, offset: offset, scheme: scheme, profile: profile, token: token)
+    }.value
   }
   func editCatalog(_ entry: CatalogEntry, revision: Int64, replacement: DictionaryValue?, token: String) async throws -> DictionaryChange {
     guard revision >= 0,

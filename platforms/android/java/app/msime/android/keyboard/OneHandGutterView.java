@@ -1,5 +1,8 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -31,10 +34,10 @@ public final class OneHandGutterView extends LinearLayout {
         swap.setContentDescription("单手键盘换到另一侧");
         exit = new GutterButton(context, KeyboardIconPaths.Icon.EXIT_ONE_HAND, false);
         exit.setContentDescription("退出单手模式");
-        int size = KeyboardGeometry.pixels(context, BUTTON_DP);
-        LinearLayout.LayoutParams swapParams = KeyboardGeometry.linearParamsPx(size, size);
-        LinearLayout.LayoutParams exitParams = KeyboardGeometry.linearParamsPx(size, size);
-        exitParams.topMargin = KeyboardGeometry.pixels(context, 24);
+        int size = DimensionPolicy.pixels(context, BUTTON_DP);
+        LinearLayout.LayoutParams swapParams = LayoutPolicy.linearParamsPx(size, size);
+        LinearLayout.LayoutParams exitParams = LayoutPolicy.linearParamsPx(size, size);
+        exitParams.topMargin = DimensionPolicy.pixels(context, 24);
         addView(swap, swapParams);
         addView(exit, exitParams);
     }
@@ -103,9 +106,9 @@ public final class OneHandGutterView extends LinearLayout {
             float cy = getHeight() / 2f;
             if (round && Color.alpha(fillColor) > 0) {
                 fill.setColor(fillColor);
-            canvas.drawCircle(cx, cy, KeyboardGeometry.shorterSide(getWidth(), getHeight()) / 2f, fill);
+            canvas.drawCircle(cx, cy, DimensionPolicy.shorterSide(getWidth(), getHeight()) / 2f, fill);
             }
-            float size = KeyboardGeometry.floatPixels(getContext(), ICON_DP);
+            float size = DimensionPolicy.floatPixels(getContext(), ICON_DP);
             int saved = canvas.save();
             if (mirrored) canvas.scale(-1f, 1f, cx, cy);
             KeyboardIconPaths.draw(canvas, stroke, icon, cx - size / 2f, cy - size / 2f, size,

@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -24,7 +25,7 @@ public final class KeyboardIconKey extends KeyboardPressButton {
 
     public KeyboardIconKey(Context context, Kind kind) {
         super(context);
-        KeyboardGeometry.normalizeKeyCap(this);
+        KeyboardTypographyPolicy.normalizeKeyCap(this);
         this.kind = kind;
         ViewPolicy.setAllCapsFalse(this);
     }
@@ -78,10 +79,10 @@ public final class KeyboardIconKey extends KeyboardPressButton {
             super.onDraw(canvas);
             return;
         }
-        int width = KeyboardGeometry.contentWidth(this);
-        int height = KeyboardGeometry.contentHeight(this);
-        float size = BoundsPolicy.atMost(KeyboardGeometry.shorterSide(width, height),
-            KeyboardGeometry.floatPixels(getContext(), ICON_DP));
+        int width = DimensionPolicy.contentWidth(this);
+        int height = DimensionPolicy.contentHeight(this);
+        float size = BoundsPolicy.atMost(DimensionPolicy.shorterSide(width, height),
+            DimensionPolicy.floatPixels(getContext(), ICON_DP));
         if (size <= 0) return;
         int color = getCurrentTextColor();
         if (!isEnabled()) color = ColorPolicy.withAlpha(color, 96f / 255f);

@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
@@ -100,7 +101,7 @@ public final class VoiceListeningView extends TextView {
     }
 
     private static float clampProgress(float value) {
-        return KeyboardGeometry.bounded(value, 0f, 1f);
+        return BoundsPolicy.bounded(value, 0f, 1f);
     }
 
     @Override protected void onAttachedToWindow() {
@@ -124,25 +125,25 @@ public final class VoiceListeningView extends TextView {
     }
 
     @Override protected void onDraw(Canvas canvas) {
-        float density = KeyboardGeometry.density(getContext());
-        float radius = KeyboardGeometry.floatPixels(getContext(), ORB_DP) / 2f;
-        ViewPolicy.setTextSize(title, KeyboardGeometry.keySp(getContext(), 16));
-        ViewPolicy.setTextSize(hint, KeyboardGeometry.keySp(getContext(), 13));
+        float density = DimensionPolicy.density(getContext());
+        float radius = DimensionPolicy.floatPixels(getContext(), ORB_DP) / 2f;
+        ViewPolicy.setTextSize(title, KeyboardTypographyPolicy.keySp(getContext(), 16));
+        ViewPolicy.setTextSize(hint, KeyboardTypographyPolicy.keySp(getContext(), 13));
         Paint.FontMetrics titleMetrics = title.getFontMetrics();
         Paint.FontMetrics hintMetrics = hint.getFontMetrics();
         float titleHeight = titleMetrics.descent - titleMetrics.ascent;
         float hintHeight = hintMetrics.descent - hintMetrics.ascent;
-        float gap = KeyboardGeometry.floatPixels(getContext(), 16);
+        float gap = DimensionPolicy.floatPixels(getContext(), 16);
         float total = radius * 2 + gap + titleHeight
-            + KeyboardGeometry.floatPixels(getContext(), 6) + hintHeight;
+            + DimensionPolicy.floatPixels(getContext(), 6) + hintHeight;
         float top = (getHeight() - total) / 2f;
         float cx = getWidth() / 2f;
         float cy = top + radius;
         ring.setColor(accent);
         ring.setAlpha(pulseAlpha(pulse));
         canvas.drawCircle(cx, cy, radius + pulseSpread(pulse,
-            KeyboardGeometry.floatPixels(getContext(), PULSE_DP)), ring);
-        float spread = levelSpread(level, KeyboardGeometry.floatPixels(getContext(), LEVEL_DP));
+            DimensionPolicy.floatPixels(getContext(), PULSE_DP)), ring);
+        float spread = levelSpread(level, DimensionPolicy.floatPixels(getContext(), LEVEL_DP));
         if (spread > 0f) {
             volume.setColor(accent);
             volume.setAlpha(70);
@@ -150,13 +151,13 @@ public final class VoiceListeningView extends TextView {
         }
         orb.setColor(accent);
         canvas.drawCircle(cx, cy, radius, orb);
-        float mic = KeyboardGeometry.floatPixels(getContext(), MIC_DP);
+        float mic = DimensionPolicy.floatPixels(getContext(), MIC_DP);
         KeyboardIconPaths.draw(canvas, icon, KeyboardIconPaths.Icon.MIC, cx - mic / 2f,
             cy - mic / 2f, mic, onAccent);
         float titleBaseline = cy + radius + gap - titleMetrics.ascent;
         // 两行居中绘制，左右各留 16 dp；放不下时省略：标题省略结尾，提示里是滚动中的识别文字，省略开头留住最新说的那段。
         float available = BoundsPolicy.nonNegative(getWidth() - getPaddingLeft() - getPaddingRight()
-            - KeyboardGeometry.floatPixels(getContext(), 32));
+            - DimensionPolicy.floatPixels(getContext(), 32));
         String titleText = String.valueOf(getText());
         if (!titleText.equals(fittedTitleSource) || available != fittedWidth
                 || title.getTextSize() != fittedTitleSize) {
@@ -177,7 +178,7 @@ public final class VoiceListeningView extends TextView {
                 fittedHintSize = hint.getTextSize();
             }
             canvas.drawText(fittedHint, cx, titleBaseline + titleMetrics.descent
-                + KeyboardGeometry.floatPixels(getContext(), 6) - hintMetrics.ascent, hint);
+                + DimensionPolicy.floatPixels(getContext(), 6) - hintMetrics.ascent, hint);
         }
     }
 

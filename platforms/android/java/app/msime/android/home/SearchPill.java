@@ -1,5 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.DrawablePolicy;
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.text.InputType;
 import android.util.AttributeSet;
@@ -29,19 +31,19 @@ public final class SearchPill extends LinearLayout {
         ViewPolicy.setCenteredVertically(this);
         Ui.setMinimumHeightDp(this, context, Ui.SEARCH_HEIGHT);
         Ui.setHorizontalPaddingDp(this, context, 18);
-        setBackground(Ui.pill(Ui.card(context)));
+        setBackground(DrawablePolicy.pill(ThemeColorPolicy.card(context)));
 
-        ImageView glyph = Ui.decorativeIcon(context, R.drawable.ic_search, Ui.subText(context));
+        ImageView glyph = Ui.decorativeIcon(context, R.drawable.ic_search, ThemeColorPolicy.subText(context));
         int icon = Ui.dp(context, 16);
         addView(glyph, new LayoutParams(icon, icon));
 
-        field = Ui.styledInput(context, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
+        field = Ui.styledInput(context, Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.text(context));
         ViewPolicy.clearBackground(field);
         ViewPolicy.clearPadding(field);
         ViewPolicy.setSingleLine(field);
         field.setInputType(InputType.TYPE_CLASS_TEXT);
         field.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        field.setHintTextColor(Ui.subText(context));
+        field.setHintTextColor(ThemeColorPolicy.subText(context));
         field.setHint("搜索");
         LayoutParams params = new LayoutParams(0, Ui.dp(context, Ui.SEARCH_HEIGHT), 1f);
         params.setMarginStart(Ui.dp(context, 14));

@@ -195,7 +195,7 @@ fn query_rows(
     let mut statement = connection.prepare_cached(query_sql(profile))?;
     prefix_upper_bound_into(code, upper);
     let mut rows = statement.query((code, upper.as_str(), QUERY_LIMIT))?;
-    let mut candidates = Vec::with_capacity(QUERY_LIMIT as usize);
+    let mut candidates = Vec::new();
     while let Some(row) = rows.next()? {
         // The reference skipped rows whose key or value read back as NULL.
         let (ValueRef::Text(key), ValueRef::Text(value)) = (row.get_ref(0)?, row.get_ref(1)?)
@@ -209,6 +209,9 @@ fn query_rows(
             ValueRef::Real(weight) => weight as i64,
             ValueRef::Null | ValueRef::Text(_) | ValueRef::Blob(_) => 0,
         };
+        if candidates.is_empty() {
+            candidates.reserve_exact(QUERY_LIMIT as usize);
+        }
         let mut item = WordItem::new(key, value, weight, CandidateSource::Database, "");
         item.scheme = SchemeType::Wubi;
         candidates.push(item);
@@ -397,6 +400,17 @@ mod tests {
              INSERT INTO wubi86 VALUES('a','工',NULL);",
         );
         assert_eq!(rows(&mut fixture.provider, "a"), vec![row("a", "工", 0)]);
+    }
+
+    #[test]
+    fn empty_prefix_query_does_not_reserve_candidate_page() {
+        let mut fixture = fixture(
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO wubi86 VALUES('a',NULL,5);",
+        );
+        let candidates = fixture.provider.query(&request("a"));
+        assert!(candidates.is_empty());
+        assert_eq!(candidates.capacity(), 0);
     }
 
     #[test]

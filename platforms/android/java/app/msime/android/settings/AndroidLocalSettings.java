@@ -1,5 +1,7 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
 import android.content.Context;
 import java.io.IOException;
 import java.io.InputStream;
@@ -101,8 +103,8 @@ public final class AndroidLocalSettings {
     public static final String MCP_CONFIG_SNAPSHOT = "platform.android.developer.mcp_config_snapshot";
 
     /** 与 {@link KeyboardGeometry#MIN_DESIGN_HEIGHT_ADJUSTMENT_DP} / {@link KeyboardGeometry#MAX_DESIGN_HEIGHT_ADJUSTMENT_DP} 相同。 */
-    public static final int HEIGHT_ADJUSTMENT_MIN = KeyboardGeometry.MIN_DESIGN_HEIGHT_ADJUSTMENT_DP;
-    public static final int HEIGHT_ADJUSTMENT_MAX = KeyboardGeometry.MAX_DESIGN_HEIGHT_ADJUSTMENT_DP;
+    public static final int HEIGHT_ADJUSTMENT_MIN = KeyboardHeightPolicy.MIN_DESIGN_HEIGHT_ADJUSTMENT_DP;
+    public static final int HEIGHT_ADJUSTMENT_MAX = KeyboardHeightPolicy.MAX_DESIGN_HEIGHT_ADJUSTMENT_DP;
 
     /** 一项设置的类型、默认值与取值范围。 */
     public static final class Spec {

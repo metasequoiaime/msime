@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
@@ -176,7 +177,7 @@ final class KeyboardSheets {
     /** 设计里语言卡那种行：左边一个字的徽标，标题和副标题，行尾是值和 ›。 */
     static View badgeNavRow(Context context, String badge, String title, @Nullable String subtitle,
             @Nullable String value, Runnable action) {
-        return badgeNavRow(context, badge, title, subtitle, value, Ui.subText(context), action);
+        return badgeNavRow(context, badge, title, subtitle, value, ThemeColorPolicy.subText(context), action);
     }
 
     /** 徽标导航行的尾部值可使用强调色，供已启用状态等页面复用。 */
@@ -184,7 +185,7 @@ final class KeyboardSheets {
             @Nullable String value, int valueColor, Runnable action) {
         LinearLayout row = baseRow(context);
         row.addView(badge(context, badge));
-        row.addView(texts(context, title, subtitle, Ui.text(context)),
+        row.addView(texts(context, title, subtitle, ThemeColorPolicy.text(context)),
             Ui.weightWrap(1f));
         if (value != null && !value.isEmpty()) {
             TextView state = Ui.trailingValue(context, value, Ui.TEXT_ROW_TITLE, valueColor);
@@ -221,14 +222,14 @@ final class KeyboardSheets {
         LinearLayout row = baseRow(context);
         Ui.setMinimumHeightDp(row, context, Ui.COMPACT_ROW_MIN_HEIGHT);
         if (glyph != null) {
-            TextView icon = Ui.styledLabel(context, glyph, 22, 400, Ui.accent(context));
+            TextView icon = Ui.styledLabel(context, glyph, 22, 400, ThemeColorPolicy.accent(context));
             ViewPolicy.setCentered(icon);
             Ui.hideFromAccessibility(icon);
             LinearLayout.LayoutParams iconParams = Ui.squareParams(context, iconSize);
             iconParams.setMarginEnd(Ui.dp(context, iconMarginEnd));
             row.addView(icon, iconParams);
         }
-        TextView label = Ui.styledLabel(context, title, Ui.TEXT_ROW_TITLE, 400, Ui.accent(context));
+        TextView label = Ui.styledLabel(context, title, Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.accent(context));
         LinearLayout.LayoutParams labelParams = Ui.weightWrap(1f);
         labelParams.setMarginStart(Ui.dp(context, labelMarginStart));
         row.addView(label, labelParams);
@@ -246,16 +247,16 @@ final class KeyboardSheets {
             String label, @Nullable Runnable action) {
         LinearLayout row = baseRow(context);
         row.addView(badge(context, badge));
-        row.addView(texts(context, title, subtitle, Ui.text(context)),
+        row.addView(texts(context, title, subtitle, ThemeColorPolicy.text(context)),
             Ui.weightWrap(1f));
         boolean enabled = action != null;
         TextView button;
         if (enabled) {
             button = Ui.pillButton(context, label, Ui.TEXT_BUTTON_SMALL, 500,
-                Ui.accentSoft(context), Ui.accent(context), Ui.BUTTON_PADDING_H, Ui.BUTTON_PADDING_V,
+                ThemeColorPolicy.accentSoft(context), ThemeColorPolicy.accent(context), Ui.BUTTON_PADDING_H, Ui.BUTTON_PADDING_V,
                 Ui.COMPACT_BUTTON_MIN_HEIGHT, 0, action);
         } else {
-            button = Ui.styledLabel(context, label, Ui.TEXT_BUTTON_SMALL, 500, Ui.subText(context));
+            button = Ui.styledLabel(context, label, Ui.TEXT_BUTTON_SMALL, 500, ThemeColorPolicy.subText(context));
             ViewPolicy.setCentered(button);
             ViewPolicy.setSingleLine(button);
             Ui.setButtonPadding(button, context);
@@ -271,8 +272,8 @@ final class KeyboardSheets {
     /** 页面底部的大按钮：主按钮是实心强调色，次按钮是卡片底、正文色；52dp 高、r16。 */
     static TextView bigButton(Context context, String label, boolean primary, Runnable action) {
         TextView button = Ui.textButton(context, label, Ui.TEXT_ROW_TITLE, 600,
-            primary ? Ui.onAccent(context) : Ui.text(context),
-            Ui.rippleOn(context, primary ? Ui.accent(context) : Ui.card(context), Ui.dp(context, 16)),
+            primary ? ThemeColorPolicy.onAccent(context) : ThemeColorPolicy.text(context),
+            Ui.rippleOn(context, primary ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.card(context), Ui.dp(context, 16)),
             Ui.ACTION_BUTTON_MIN_HEIGHT, action);
         Ui.setHorizontalPaddingDp(button, context, 16);
         button.setAccessibilityDelegate(buttonDelegate(label));
@@ -289,9 +290,9 @@ final class KeyboardSheets {
 
     /** 32dp 的圆角方块徽标，供词库和语言行共用。 */
     static TextView badge(Context context, String text) {
-        TextView badge = Ui.styledLabel(context, text, 15, 600, Ui.accent(context));
+        TextView badge = Ui.styledLabel(context, text, 15, 600, ThemeColorPolicy.accent(context));
         ViewPolicy.setCentered(badge);
-        ViewPolicy.setBackground(badge, DrawablePolicy.rounded(Ui.accentSoft(context), Ui.dp(context, 8)));
+        ViewPolicy.setBackground(badge, DrawablePolicy.rounded(ThemeColorPolicy.accentSoft(context), Ui.dp(context, 8)));
             Ui.hideFromAccessibility(badge);
         LinearLayout.LayoutParams params = Ui.squareParams(context, 32);
         params.setMarginEnd(Ui.dp(context, Ui.ROW_GAP));
@@ -306,7 +307,7 @@ final class KeyboardSheets {
         texts.addView(heading);
         if (subtitle != null && !subtitle.isEmpty()) {
             TextView detail = Ui.styledLabel(context, subtitle, Ui.TEXT_ROW_SUBTITLE, 400,
-                Ui.subText(context));
+                ThemeColorPolicy.subText(context));
             ViewPolicy.setSingleLine(detail);
             texts.addView(detail);
         }
@@ -332,22 +333,22 @@ final class KeyboardSheets {
             subtitle == null ? Ui.COMPACT_ROW_MIN_HEIGHT : Ui.ROW_MIN_HEIGHT);
         Ui.setRowPadding(row, context);
 
-        ImageView glyph = Ui.decorativeIcon(context, icon, Ui.subText(context));
+        ImageView glyph = Ui.decorativeIcon(context, icon, ThemeColorPolicy.subText(context));
         LinearLayout.LayoutParams glyphParams = Ui.squareParams(context, 22);
         glyphParams.setMarginEnd(Ui.dp(context, 18));
         row.addView(glyph, glyphParams);
 
         LinearLayout texts = Ui.column(context);
-        TextView heading = Ui.styledLabel(context, title, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
+        TextView heading = Ui.styledLabel(context, title, Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.text(context));
         texts.addView(heading);
         if (subtitle != null) {
-            TextView detail = Ui.styledLabel(context, subtitle, 12, 400, Ui.subText(context));
+            TextView detail = Ui.styledLabel(context, subtitle, 12, 400, ThemeColorPolicy.subText(context));
             texts.addView(detail);
         }
         row.addView(texts, Ui.weightWrap(1f));
 
         if (value != null && value.length() > 0) {
-            TextView trailing = Ui.trailingValue(context, value, Ui.TEXT_ROW_SUBTITLE, Ui.subText(context));
+            TextView trailing = Ui.trailingValue(context, value, Ui.TEXT_ROW_SUBTITLE, ThemeColorPolicy.subText(context));
             LinearLayout.LayoutParams valueParams = Ui.rowGapParams(context);
             row.addView(trailing, valueParams);
         }
@@ -364,7 +365,7 @@ final class KeyboardSheets {
     /** 构造详情卡片行尾的 tonal 胶囊按钮；调用方只需绑定业务点击行为。 */
     static TextView tonalButton(Context context, CharSequence label, CharSequence description, int weight) {
         TextView button = Ui.pillButton(context, label, Ui.TEXT_BUTTON_SMALL, weight,
-            Ui.accentSoft(context), Ui.accent(context), Ui.BUTTON_PADDING_H, Ui.BUTTON_PADDING_V,
+            ThemeColorPolicy.accentSoft(context), ThemeColorPolicy.accent(context), Ui.BUTTON_PADDING_H, Ui.BUTTON_PADDING_V,
             Ui.COMPACT_BUTTON_MIN_HEIGHT, 0);
         button.setAccessibilityDelegate(buttonDelegate(description));
         ViewPolicy.setPoliteLiveRegion(button);

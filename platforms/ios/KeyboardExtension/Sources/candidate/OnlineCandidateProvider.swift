@@ -175,7 +175,7 @@ final class OnlineCandidateProvider {
   private static func seconds(_ value: Any?, fallback: Int) -> TimeInterval? {
     let milliseconds = value == nil ? fallback : SharedNumber.strictInt(value)
     guard let milliseconds, milliseconds > 0 else { return nil }
-    return TimeInterval(min(10_000, max(1_000, milliseconds))) / 1000
+    return OnlineRequestPolicy.timeout(milliseconds: milliseconds)
   }
 
   private static func object(_ document: Data) -> [String: Any]? {

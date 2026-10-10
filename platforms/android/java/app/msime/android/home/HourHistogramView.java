@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -78,8 +79,8 @@ public final class HourHistogramView extends View {
         float radius = Ui.dp(context, 2);
         long highest = 1;
         for (long value : hours) highest = BoundsPolicy.atLeast(highest, value);
-        int accent = Ui.accent(context);
-        int rest = Ui.color(context, R.attr.msStatBar);
+        int accent = ThemeColorPolicy.accent(context);
+        int rest = ThemeColorPolicy.color(context, R.attr.msStatBar);
         for (int hour = 0; hour < count; hour++) {
             long value = hour < hours.size() ? hours.get(hour) : 0;
             float height = BoundsPolicy.atLeast(min, max * value / (float) highest);
@@ -88,7 +89,7 @@ public final class HourHistogramView extends View {
             bar.setColor(highlighted(hour) ? accent : rest);
             canvas.drawRoundRect(box, radius, radius, bar);
         }
-        label.setColor(Ui.subText(context));
+        label.setColor(ThemeColorPolicy.subText(context));
         float baseline = max + Ui.dp(context, LABEL_GAP) + label.getTextSize();
         for (int tick : TICKS) {
             String text = tick == 0 ? "0 时" : String.valueOf(tick);

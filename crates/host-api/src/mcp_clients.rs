@@ -496,7 +496,11 @@ fn write_config_at(
 
 /// 文件里 `name`（full 是 `msime`）条目是 `base` 加上若干权限参数时，返回这些参数和它要不要换命令（见 `existing_entry`）；没有条目、条目不是这里写的、或文件读不了时返回 `None`。
 fn configured_entry(path: &Path, name: &str, base: &Value) -> Option<ExistingEntry> {
-    let document = read_config(path).ok()?;
+    // Installation deliberately follows a user-owned symlink (for example a
+    // dotfiles-managed config) and atomically replaces its target. Status must
+    // inspect that same target, while still using the bounded private reader.
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let document = read_config(&resolved).ok()?;
     existing_entry(
         document.get("mcpServers")?.get(name)?,
         base,
@@ -1063,6 +1067,7 @@ mod tests {
             .file_type()
             .is_symlink());
         assert_eq!(configured_flags(&real, SERVER_NAME, &entry()), Some(vec![]));
+        assert_eq!(configured_flags(&link, SERVER_NAME, &entry()), Some(vec![]));
         assert_eq!(
             std::fs::metadata(&real).unwrap().permissions().mode() & 0o777,
             0o644

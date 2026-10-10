@@ -95,12 +95,12 @@ public final class PlatformSpeechPolicy {
     public static float level(float rmsDb) {
         if (Float.isNaN(rmsDb)) return 0f;
         float scaled = (rmsDb - QUIET_RMS_DB) / (LOUD_RMS_DB - QUIET_RMS_DB);
-        return Math.max(0f, Math.min(1f, scaled));
+        return BoundsPolicy.bounded(scaled, 0f, 1f);
     }
 
     /** 下一帧显示的音量：变大直接跟上，变小按 {@link #LEVEL_RELEASE} 回落。 */
     public static float smoothed(float shown, float next) {
-        float target = Math.max(0f, Math.min(1f, Float.isNaN(next) ? 0f : next));
+        float target = BoundsPolicy.bounded(Float.isNaN(next) ? 0f : next, 0f, 1f);
         if (target >= shown) return target;
         return shown * LEVEL_RELEASE + target * (1f - LEVEL_RELEASE);
     }

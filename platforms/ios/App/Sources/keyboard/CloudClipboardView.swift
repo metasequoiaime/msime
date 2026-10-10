@@ -288,19 +288,24 @@ struct CloudClipboardView: View {
     .presentationDetents([.medium, .large])
   }
 
-  @MainActor private func run(_ action: @escaping (String) async throws -> Void) {
+  @MainActor private func run(_ action: @escaping @MainActor @Sendable (String) async throws -> Void) {
     guard !busy else { return }
     busy = true; message = nil
     pending = Task { await execute(action) }
   }
-  @MainActor private func execute(_ action: (String) async throws -> Void) async {
+  @MainActor private func execute(_ action: @MainActor @Sendable (String) async throws -> Void) async {
     defer { busy = false }
     do {
       let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
       try Task.checkCancellation()
       accountID = identity.userID; sessionID = identity.sessionID
-      try await action(identity.token)
-      let page = try await client.clipboard(token: identity.token, search: search)
+      _ = try await session.authenticated(matchingUserID: identity.userID,
+                                          matchingSessionID: identity.sessionID) { token in
+        try await action(token)
+      }.value
+      let page = try await client.clipboard(search: search, session: session,
+                                            matchingUserID: identity.userID,
+                                            matchingSessionID: identity.sessionID)
       try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
       try Task.checkCancellation()
       enabled = page.enabled; retention = page.retention_days; items = page.items; loaded = true

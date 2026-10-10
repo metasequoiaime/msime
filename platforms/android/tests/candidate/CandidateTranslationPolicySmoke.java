@@ -125,6 +125,14 @@ public final class CandidateTranslationPolicySmoke {
         check(!CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
                 true, true, List.of("en"), List.of("en")),
             "unrelated preference refresh keeps the displayed rows");
+        check(CandidateTranslationPolicy.acceptsBinding("7:account-a", "7:account-a"),
+            "a translation response remains valid for the same account binding");
+        check(CandidateTranslationPolicy.acceptsBinding("7:", "7:"),
+            "the anonymous translation identity still has a stable binding snapshot");
+        check(!CandidateTranslationPolicy.acceptsBinding("7:account-a", "8:account-a")
+                && !CandidateTranslationPolicy.acceptsBinding("7:account-a", "7:account-b")
+                && !CandidateTranslationPolicy.acceptsBinding("7:account-a", null),
+            "a binding change or unavailable account rejects a stale translation response");
         System.out.println("Android candidate translation language policy passed");
     }
 

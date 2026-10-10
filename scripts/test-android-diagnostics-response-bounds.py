@@ -9,10 +9,10 @@ text = SOURCE.read_text(encoding="utf-8")
 start = text.index("JSONArray list = root.optJSONArray(\"accesses\");")
 end = text.index("return new State(snapshot", start)
 body = text[start:end]
-assert "Math.min(accessCount, MAX_EVENTS)" in body, (
-    "diagnostics access parsing must cap list allocation"
+assert "BoundsPolicy.atMost(accessCount, MAX_EVENTS)" in body, (
+    "diagnostics access parsing must cap list allocation through the shared policy"
 )
-assert "accessCount - MAX_EVENTS" in body, (
+assert "BoundsPolicy.nonNegative(accessCount - MAX_EVENTS)" in body, (
     "diagnostics access parsing must retain only the newest bounded entries"
 )
 print("Android diagnostics access responses are bounded before list construction")

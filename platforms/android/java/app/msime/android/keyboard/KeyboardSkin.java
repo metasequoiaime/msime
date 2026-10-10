@@ -361,7 +361,7 @@ public final class KeyboardSkin {
     }
 
     private static int channel(double value) {
-        return (int) Math.round(KeyboardGeometry.bounded(value, 0, 1) * 255);
+        return (int) Math.round(BoundsPolicy.bounded(value, 0, 1) * 255);
     }
 
     /** `color` at a fraction of full opacity; any alpha it already carried is replaced. */

@@ -29,7 +29,7 @@ public final class ClipboardSwipePolicy {
     public static float revealWidth(float density, float cellWidth) {
         if (density <= 0) throw new IllegalArgumentException("density must be positive");
         float preferred = REVEAL_DP * density;
-        return cellWidth > 0 ? Math.min(preferred, cellWidth * MAX_REVEAL_FRACTION) : preferred;
+        return cellWidth > 0 ? BoundsPolicy.atMost(preferred, cellWidth * MAX_REVEAL_FRACTION) : preferred;
     }
 
     /**
@@ -42,14 +42,14 @@ public final class ClipboardSwipePolicy {
      */
     public static boolean claims(float dx, float dy, float touchSlop, boolean open) {
         float horizontal = Math.abs(dx);
-        if (horizontal <= Math.max(0f, touchSlop)) return false;
+        if (horizontal <= BoundsPolicy.nonNegative(touchSlop)) return false;
         if (horizontal < Math.abs(dy) * HORIZONTAL_DOMINANCE) return false;
         return open || dx < 0;
     }
 
     /** 拖动中卡片的位移：起点位移加上手指相对按下点的位移，夹在 `[-reveal, 0]`，不会往右拖出空白，也不会拖过删除区。起点取接手那一刻卡片的位移减去当时的手指位移，卡片从原地开始跟手，不会因为越过 slop 而跳一下。 */
     public static float offset(float startOffset, float dx, float reveal) {
-        return Math.max(-Math.abs(reveal), Math.min(0f, startOffset + dx));
+        return BoundsPolicy.bounded(startOffset + dx, -Math.abs(reveal), 0f);
     }
 
     /**

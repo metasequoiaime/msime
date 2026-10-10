@@ -12,6 +12,7 @@ UI = ROOT / "platforms/android/java/app/msime/android/home/Ui.java"
 HOME = ROOT / "platforms/android/java/app/msime/android/home"
 ANDROID_JAVA = ROOT / "platforms/android/java"
 KEYBOARD_GEOMETRY = ROOT / "platforms/android/java/app/msime/android/keyboard/KeyboardGeometry.java"
+LAYOUT_POLICY = ROOT / "platforms/android/java/app/msime/android/LayoutPolicy.java"
 
 
 def main() -> None:
@@ -21,6 +22,7 @@ def main() -> None:
     bottom_bar = BOTTOM_BAR.read_text(encoding="utf-8")
     ui = UI.read_text(encoding="utf-8")
     keyboard_geometry = KEYBOARD_GEOMETRY.read_text(encoding="utf-8")
+    layout_policy = LAYOUT_POLICY.read_text(encoding="utf-8")
     required = (
         "public static void setEnabledRecursively(ViewGroup group, boolean enabled, float inactiveAlpha)",
         "if (child instanceof ViewGroup nested && !child.isClickable())",
@@ -96,10 +98,10 @@ def main() -> None:
     for path in HOME.glob("*.java"):
         if "Ui.hairlineView(" in path.read_text(encoding="utf-8"):
             raise AssertionError(f"{path} 没有直接调用共享着色视图工厂")
-    if "ViewPolicy.newColorView(context, hairline(context));" not in ui:
+    if "ViewPolicy.newColorView(context, ThemeColorPolicy.hairline(context));" not in ui:
         raise AssertionError("Ui 分隔线没有调用共享着色视图工厂")
     feedback = (HOME / "FeedbackPage.java").read_text(encoding="utf-8")
-    if "ViewPolicy.newColorView(context, Ui.hairline(context));" not in feedback:
+    if "ViewPolicy.newColorView(context, ThemeColorPolicy.hairline(context));" not in feedback:
         raise AssertionError("FeedbackPage 没有调用共享着色视图工厂")
     if "public static void setHorizontalPaddingPx(" in ui:
         raise AssertionError("Ui 仍保留水平像素内边距转发方法")
@@ -111,14 +113,14 @@ def main() -> None:
         raise AssertionError("MsSlider 没有直接调用共享水平内边距策略")
     if "return ViewPolicy.newRow(context);" not in ui:
         raise AssertionError("Ui 没有调用共享横向容器工厂")
-    if "return ViewPolicy.newRow(context);" not in keyboard_geometry:
+    if "return ViewPolicy.newRow(context);" not in layout_policy:
         raise AssertionError("KeyboardGeometry 没有调用共享横向容器工厂")
     horizontal_factory = "LinearLayout view = new LinearLayout(context);\n        view.setOrientation(LinearLayout.HORIZONTAL);"
     if horizontal_factory in ui or horizontal_factory in keyboard_geometry:
         raise AssertionError("页面工具类仍保留重复的横向容器实现")
     if "return ViewPolicy.newColumn(context);" not in ui:
         raise AssertionError("Ui 没有调用共享纵向容器工厂")
-    if "return ViewPolicy.newColumn(context);" not in keyboard_geometry:
+    if "return ViewPolicy.newColumn(context);" not in layout_policy:
         raise AssertionError("KeyboardGeometry 没有调用共享纵向容器工厂")
     vertical_factory = "LinearLayout view = new LinearLayout(context);\n        view.setOrientation(LinearLayout.VERTICAL);"
     if vertical_factory in ui or vertical_factory in keyboard_geometry:

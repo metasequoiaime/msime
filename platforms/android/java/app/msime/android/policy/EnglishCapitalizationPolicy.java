@@ -20,7 +20,7 @@ public final class EnglishCapitalizationPolicy {
         if (context.length() == 0) return true;
         int codePoint = Character.codePointBefore(context, context.length());
         if (codePoint == '\'' || codePoint == '\u2019') return false;
-        return !Character.isLetterOrDigit(codePoint);
+        return !TextPolicy.isLetterOrDigit(codePoint);
     }
 
     private static boolean shouldShiftSentences(CharSequence context) {

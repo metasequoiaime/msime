@@ -25,12 +25,12 @@ def main() -> int:
     for path in HOME.glob("*.java"):
         source = path.read_text(encoding="utf-8")
         if "Ui.isNight(" in source:
-            errors.append(f"{path}: 应直接调用 KeyboardGeometry.isNight")
+            errors.append(f"{path}: 应直接调用 DimensionPolicy.isNight")
 
     for name in EXPECTED_CALLERS:
         path = HOME / name
-        if "KeyboardGeometry.isNight(" not in path.read_text(encoding="utf-8"):
-            errors.append(f"{path}: 未直接复用 KeyboardGeometry.isNight")
+        if "DimensionPolicy.isNight(" not in path.read_text(encoding="utf-8"):
+            errors.append(f"{path}: 未直接复用 DimensionPolicy.isNight")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)

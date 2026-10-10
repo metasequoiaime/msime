@@ -20,6 +20,10 @@ public final class BoundsPolicy {
         return Math.max(minimum, Math.min(value, maximum));
     }
 
+    public static double bounded(double value, double minimum, double maximum, double fallback) {
+        return Double.isFinite(value) ? bounded(value, minimum, maximum) : fallback;
+    }
+
     public static int nonNegative(int value) {
         return Math.max(0, value);
     }

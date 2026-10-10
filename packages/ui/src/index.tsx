@@ -13,6 +13,7 @@ import { useSettingsNavigation } from "./settings/use-settings-navigation";
 import { useSettingsContentScrollReset } from "./settings/use-settings-content-scroll-reset";
 import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings/settings-page-header";
+import { SettingsWarning } from "./settings/settings-warning";
 import {
   mobilePrimaryPageIds,
   mobileTabForPage,
@@ -1597,6 +1598,8 @@ export type VietnamesePreferences = {
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
 export interface HostCapabilities {
   platform: HostPlatform;
+  /** HarmonyOS input-method extensions and the settings ability share files only when the signed HAP has a data-group id. */
+  harmony_shared_sandbox?: boolean;
   /** Whether settings use the phone navigation and touch-oriented surface. */
   mobile_settings: boolean;
   restart_input_method: boolean;
@@ -3228,6 +3231,7 @@ function SettingsShell(props: SettingsPageProps) {
     client,
     confirmation,
     confirm,
+    host,
     androidPlatform,
     iosPlatform,
     harmonyPlatform,
@@ -3558,6 +3562,13 @@ function SettingsShell(props: SettingsPageProps) {
                 (page === "input" || page === "about") && (
                   <SetupWarningStrip actions={client.home} />
                 )}
+              {harmonyPlatform && host?.harmony_shared_sandbox === false && (
+                <SettingsWarning role="alert">
+                  当前 HarmonyOS
+                  构建未启用输入法共享沙箱；设置页的偏好、账号、插件和统计不会同步到键盘。请使用已配置
+                  data-group-id 的签名版本。
+                </SettingsWarning>
+              )}
               <SettingsPageStatus
                 error={error}
                 notice={notice}

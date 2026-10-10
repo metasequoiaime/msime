@@ -365,11 +365,7 @@ public final class DeviceDataApi {
     public static String relativeTime(long nowMillis, long thenMillis) {
         if (thenMillis <= 0) return "";
         long minutes = BoundsPolicy.nonNegative(nowMillis - thenMillis) / 60_000L;
-        if (minutes < 1) return "刚刚";
-        if (minutes < 60) return minutes + " 分钟前";
-        long hours = minutes / 60;
-        if (hours < 24) return hours + " 小时前";
-        return (hours / 24) + " 天前";
+        return RelativeTimePolicy.minutesAgo(minutes);
     }
 
     /** 导出文件名，与服务端 `Content-Disposition` 的写法一致。 */

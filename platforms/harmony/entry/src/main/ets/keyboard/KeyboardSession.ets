@@ -79,6 +79,7 @@ import {
   CandidateSkinAlign, CandidateSkinFit
 } from './candidate/CandidateSkinCatalogPolicy';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
+import { CandidateFontSizePolicy } from './candidate/CandidateFontSizePolicy';
 import { CandidatePagerPolicy } from './candidate/CandidatePagerPolicy';
 import { CandidateLogoPolicy } from './candidate/CandidateLogoPolicy';
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
@@ -1496,9 +1497,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       // The shared store validates these to 12..32 and strips control
       // characters from family names. Clamp again at the host boundary so
       // an older staged document cannot produce an unusable panel.
-      candidateFontSize: Math.max(12, Math.min(32, preferences.candidate_font_size)),
+      candidateFontSize: CandidateFontSizePolicy.bounded(preferences.candidate_font_size),
       candidatePreeditFontSize:
-        Math.max(12, Math.min(32, preferences.candidate_preedit_font_size)),
+        CandidateFontSizePolicy.bounded(preferences.candidate_preedit_font_size),
       candidateFontFamily: preferences.candidate_font_family.trim().length > 0
         ? preferences.candidate_font_family : 'Noto Sans SC',
       candidateEnglishFont: preferences.candidate_english_font ?? null,

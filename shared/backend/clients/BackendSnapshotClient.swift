@@ -111,6 +111,17 @@ extension BackendAccountClient {
     guard result.reset, result.revision > revision else { throw Failure(status: 0) }
     return result
   }
+  func restoreDictionarySnapshot(file: URL, expectedSHA256: String, revision: Int64,
+                                 session: BackendAccountSession,
+                                 matchingUserID expected: String? = nil,
+                                 matchingSessionID expectedSessionID: UUID? = nil) async throws -> SnapshotRestoreResult {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    return try await session.authenticated(matchingUserID: identity.userID,
+                                           matchingSessionID: identity.sessionID) { token in
+      try await restoreDictionarySnapshot(file: file, expectedSHA256: expectedSHA256,
+                                           revision: revision, token: token)
+    }.value
+  }
 
   func dictionarySnapshot(token: String) async throws -> DownloadedSnapshot {
     let url = try await download("/v1/users/me/dictionary/snapshot", token: token,
@@ -122,6 +133,15 @@ extension BackendAccountClient {
       try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
       throw error
     }
+  }
+  func dictionarySnapshot(session: BackendAccountSession,
+                          matchingUserID expected: String? = nil,
+                          matchingSessionID expectedSessionID: UUID? = nil) async throws -> DownloadedSnapshot {
+    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
+    return try await session.authenticated(matchingUserID: identity.userID,
+                                           matchingSessionID: identity.sessionID) { token in
+      try await dictionarySnapshot(token: token)
+    }.value
   }
 }
 

@@ -4,6 +4,8 @@
  * The desktop hosts play through host-api's player (`crates/host-api/src/key_sound`), which HarmonyOS does not link; this host plays the same packs through SoundPool instead. Which pack answers which event, how a melody steps and when it starts over are that player's rules (`Selection::of`, `sounds_for`, `Melody::step`), ported here so the two cannot hear different things in the same preferences. Validating a pack is not ported: `msime_client_key_sound_pack` answers with the files client-core's validation accepted.
  */
 
+import { AudioVolumePolicy } from "./AudioVolumePolicy";
+
 /** A key's sound class, numbered as `msime_client_key_sound` numbers them. */
 export enum KeySoundClass {
   DEFAULT = 0,
@@ -227,7 +229,7 @@ export class KeySoundPolicy {
 
   /** SoundPool's volume, 0-1. The setting scales amplitude, as host-api's `decibels` does: 50 is half, -6 dB. */
   static gain(settings: KeySoundSettings): number {
-    return Math.min(Math.max(settings.volume, 0), 100) / 100;
+    return AudioVolumePolicy.gain(settings.volume);
   }
 
   /**

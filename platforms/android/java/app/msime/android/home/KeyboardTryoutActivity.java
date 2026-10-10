@@ -1,5 +1,8 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
+import app.msime.android.DimensionPolicy;
+
 import app.msime.android.MainThreadPolicy;
 import app.msime.android.TextPolicy;
 import app.msime.android.ThreadPolicy;
@@ -99,10 +102,10 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
 
         // 设计的输入栏：andCard 底、上面一条分隔线；输入框是页面底色的胶囊，描一圈 hair。
         View inputBar = findViewById(R.id.tryout_input_bar);
-        ViewPolicy.setBackgroundColor(inputBar, Ui.card(this));
+        ViewPolicy.setBackgroundColor(inputBar, ThemeColorPolicy.card(this));
         // 固定 20 dp 圆角而不是全圆：单行 40 dp 高时看起来仍是胶囊，长到几行时是圆角矩形，不会撑成一个椭圆。
-        android.graphics.drawable.GradientDrawable pill = DrawablePolicy.outlined(Ui.page(this),
-            Ui.dp(this, 20), Ui.dp(this, 1), Ui.hairline(this));
+        android.graphics.drawable.GradientDrawable pill = DrawablePolicy.outlined(ThemeColorPolicy.page(this),
+            Ui.dp(this, 20), Ui.dp(this, 1), ThemeColorPolicy.hairline(this));
         ViewPolicy.setBackground(field, pill);
         // 聊天页的回车是发送：键盘回车显示「发送」，按下等同右边的发送键，不再插入换行把输入框越撑越高。长句仍会折行显示，最多 4 行。
         field.setHorizontallyScrolling(false);
@@ -113,7 +116,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             if (!sending && sendAi.isEnabled()) sendAi.performClick();
             return true;
         });
-        int accent = Ui.accent(this);
+        int accent = ThemeColorPolicy.accent(this);
         sendAi.setBackgroundTintList(ColorPolicy.stateList(
             new int[][] {{-android.R.attr.state_enabled}, {}},
             new int[] {ColorPolicy.withAlpha(accent, 0.38f), accent}));
@@ -409,15 +412,15 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         LinearLayout chat = findViewById(R.id.tryout_chat);
         while (chat.getChildCount() >= BUBBLE_LIMIT) chat.removeViewAt(0);
         TextView bubble = Ui.styledLabel(this, text, 15, 400,
-            mine ? Ui.onAccent(this) : Ui.text(this));
+            mine ? ThemeColorPolicy.onAccent(this) : ThemeColorPolicy.text(this));
         // 先设可选再放文字：setTextIsSelectable 会换成 ArrowKeyMovementMethod，放在后面就把 Markwon 装好的 LinkMovementMethod 冲掉，回复里的链接点不动。AI 的气泡再显式装上链接的点按处理，之后流式更新的 setMarkdown 会沿用它。
         bubble.setTextIsSelectable(true);
         setBubbleText(bubble, text, !mine);
         if (!mine) bubble.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         ViewPolicy.setLineSpacing(bubble, Ui.dp(this, 3), 1f);
-        ViewPolicy.setBackground(bubble, DrawablePolicy.rounded(mine ? Ui.accent(this) : Ui.card(this), Ui.dp(this, 18)));
+        ViewPolicy.setBackground(bubble, DrawablePolicy.rounded(mine ? ThemeColorPolicy.accent(this) : ThemeColorPolicy.card(this), Ui.dp(this, 18)));
         Ui.setSymmetricPaddingDp(bubble, this, 14, 10);
-        bubble.setMaxWidth(Math.round(KeyboardGeometry.screenWidthPixels(this) * 0.8f));
+        bubble.setMaxWidth(Math.round(DimensionPolicy.screenWidthPixels(this) * 0.8f));
         LinearLayout.LayoutParams params = Ui.wrap();
         params.gravity = mine ? Gravity.END : Gravity.START;
         if (chat.getChildCount() > 0) params.topMargin = Ui.dp(this, 10);

@@ -1,5 +1,9 @@
 package app.msime.android.home;
 
+import app.msime.android.LayoutPolicy;
+
+import app.msime.android.DimensionPolicy;
+
 import app.msime.android.DrawablePolicy;
 import android.content.Context;
 import android.graphics.Color;
@@ -20,15 +24,14 @@ import app.msime.android.ColorPolicy;
 import app.msime.android.ImageViewPolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.TextPolicy;
+import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ViewPolicy;
 import app.msime.android.WindowInsetsPolicy;
-import androidx.annotation.AttrRes;
 import androidx.annotation.ColorInt;
 import androidx.annotation.DrawableRes;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
-import com.google.android.material.color.MaterialColors;
 import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
 import java.util.function.Consumer;
 
@@ -168,7 +171,7 @@ public final class Ui {
     // ---- 读取 ----
 
     public static int dp(Context context, float value) {
-        return KeyboardGeometry.pixels(context, value);
+        return DimensionPolicy.pixels(context, value);
     }
 
     /** Apply the standard detail-row horizontal and vertical insets to a view. */
@@ -267,10 +270,10 @@ public final class Ui {
 
     /** Create a theme-coloured one-pixel divider in either orientation. */
     public static View divider(Context context, boolean horizontal) {
-        View view = ViewPolicy.newColorView(context, hairline(context));
-        int thin = KeyboardGeometry.atLeastOnePixel(context, 0.5f);
+        View view = ViewPolicy.newColorView(context, ThemeColorPolicy.hairline(context));
+        int thin = DimensionPolicy.atLeastOnePixel(context, 0.5f);
         view.setLayoutParams(horizontal
-            ? KeyboardGeometry.matchWidthHeightPx(thin)
+            ? LayoutPolicy.matchWidthHeightPx(thin)
             : new LinearLayout.LayoutParams(thin, ViewGroup.LayoutParams.MATCH_PARENT));
         return view;
     }
@@ -278,7 +281,7 @@ public final class Ui {
     /** Create the page-coloured separation band used between sheet options and the cancel row. */
     public static View sheetSeparator(Context context) {
         View view = new View(context);
-        ViewPolicy.setBackgroundColor(view, page(context));
+        ViewPolicy.setBackgroundColor(view, ThemeColorPolicy.page(context));
         view.setLayoutParams(matchWidthHeight(context, 8));
         return view;
     }
@@ -335,64 +338,6 @@ public final class Ui {
         return new FrameLayout.LayoutParams(size, size, gravity);
     }
 
-    /** 读一个颜色主题属性；属性缺失时退回洋红，让漏配的属性在截图里一眼可见，而不是悄悄显示成别的颜色。 */
-    @ColorInt public static int color(Context context, @AttrRes int attr) {
-        return MaterialColors.getColor(context, attr, Color.MAGENTA);
-    }
-
-    @ColorInt public static int accent(Context context) {
-        return color(context, androidx.appcompat.R.attr.colorPrimary);
-    }
-
-    @ColorInt public static int onAccent(Context context) {
-        return color(context, com.google.android.material.R.attr.colorOnPrimary);
-    }
-
-    @ColorInt public static int accentSoft(Context context) {
-        return color(context, com.google.android.material.R.attr.colorPrimaryContainer);
-    }
-
-    @ColorInt public static int card(Context context) {
-        return color(context, com.google.android.material.R.attr.colorSurfaceContainer);
-    }
-
-    @ColorInt public static int rowBackground(Context context) {
-        return color(context, com.google.android.material.R.attr.colorSurfaceContainerLowest);
-    }
-
-    @ColorInt public static int sheetBackground(Context context) {
-        return color(context, com.google.android.material.R.attr.colorSurfaceContainerLow);
-    }
-
-    @ColorInt public static int page(Context context) {
-        return color(context, com.google.android.material.R.attr.colorSurface);
-    }
-
-    @ColorInt public static int text(Context context) {
-        return color(context, com.google.android.material.R.attr.colorOnSurface);
-    }
-
-    @ColorInt public static int subText(Context context) {
-        return color(context, com.google.android.material.R.attr.colorOnSurfaceVariant);
-    }
-
-    @ColorInt public static int outline(Context context) {
-        return color(context, com.google.android.material.R.attr.colorOutline);
-    }
-
-    @ColorInt public static int hairline(Context context) {
-        return color(context, com.google.android.material.R.attr.colorOutlineVariant);
-    }
-
-    @ColorInt public static int danger(Context context) {
-        return color(context, androidx.appcompat.R.attr.colorError);
-    }
-
-    /** 胶囊形状：GradientDrawable 会把过大的圆角夹到短边的一半，所以高度怎么变两端都是半圆。 */
-    public static GradientDrawable pill(@ColorInt int color) {
-        return DrawablePolicy.rounded(color, 9999f);
-    }
-
     /** 主题的按压反馈（`selectableItemBackground`），行在代码里构造时用它。 */
     @androidx.annotation.Nullable public static Drawable ripple(Context context) {
         TypedValue value = new TypedValue();
@@ -407,7 +352,7 @@ public final class Ui {
     }
 
     public static Drawable rippleOn(Context context, @ColorInt int fill, float radiusPx) {
-        int pressed = ColorPolicy.withAlpha(text(context), 0.10f);
+        int pressed = ColorPolicy.withAlpha(ThemeColorPolicy.text(context), 0.10f);
         return DrawablePolicy.ripple(pressed, DrawablePolicy.rounded(fill, radiusPx),
             DrawablePolicy.rounded(Color.WHITE, radiusPx));
     }
@@ -480,7 +425,7 @@ public final class Ui {
 
     /** 创建会由辅助功能礼貌播报变化的空状态文本。 */
     public static TextView liveStatus(Context context, int sizeSp) {
-        TextView status = styledLabel(context, "", sizeSp, 400, subText(context));
+        TextView status = styledLabel(context, "", sizeSp, 400, ThemeColorPolicy.subText(context));
         ViewPolicy.setPoliteLiveRegion(status);
         return status;
     }
@@ -527,14 +472,14 @@ public final class Ui {
 
     /** Create the standard accent-coloured group heading. */
     public static TextView groupHeading(Context context, CharSequence text) {
-        return headingLabel(context, text, TEXT_GROUP_TITLE, 500, accent(context));
+        return headingLabel(context, text, TEXT_GROUP_TITLE, 500, ThemeColorPolicy.accent(context));
     }
 
     /** Create a filled accent pill button; callers add their content description and action. */
     public static TextView pillButton(Context context, CharSequence label, float sizeSp, int weight,
                                       @ColorInt int ink, float horizontalPaddingDp, float verticalPaddingDp,
                                       float minHeightDp, float minWidthDp) {
-        return pillButton(context, label, sizeSp, weight, accent(context), ink,
+        return pillButton(context, label, sizeSp, weight, ThemeColorPolicy.accent(context), ink,
             horizontalPaddingDp, verticalPaddingDp, minHeightDp, minWidthDp, null);
     }
 
@@ -542,7 +487,7 @@ public final class Ui {
     public static TextView pillButton(Context context, CharSequence label, float sizeSp, int weight,
                                       @ColorInt int ink, float horizontalPaddingDp, float verticalPaddingDp,
                                       float minHeightDp, float minWidthDp, Runnable action) {
-        return pillButton(context, label, sizeSp, weight, accent(context), ink,
+        return pillButton(context, label, sizeSp, weight, ThemeColorPolicy.accent(context), ink,
             horizontalPaddingDp, verticalPaddingDp, minHeightDp, minWidthDp, action);
     }
 
@@ -644,7 +589,7 @@ public final class Ui {
     public static ImageView chevron(Context context) {
         ImageView view = new ImageView(context);
         view.setImageResource(app.msime.android.R.drawable.ms_w1_a2_chevron);
-        ImageViewPolicy.setTint(view, subText(context));
+        ImageViewPolicy.setTint(view, ThemeColorPolicy.subText(context));
         ViewPolicy.hideFromAccessibility(view);
         return view;
     }
@@ -664,7 +609,7 @@ public final class Ui {
     public static LinearLayout verticalCard(Context context, float radiusDp) {
         LinearLayout card = column(context);
         ViewPolicy.setBackground(card,
-            DrawablePolicy.rounded(card(context), dp(context, radiusDp)));
+            DrawablePolicy.rounded(ThemeColorPolicy.card(context), dp(context, radiusDp)));
         return card;
     }
 

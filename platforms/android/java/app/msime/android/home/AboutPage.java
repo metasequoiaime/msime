@@ -1,5 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.DrawablePolicy;
+import app.msime.android.ThemeColorPolicy;
 import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
@@ -150,7 +152,7 @@ public final class AboutPage extends DetailPage {
         }
 
         TextView footer = Ui.styledLabel(context, "© 2026 Metasequoia · 输入内容默认只在本机处理",
-            13, 400, Ui.subText(context));
+            13, 400, ThemeColorPolicy.subText(context));
         ViewPolicy.setCentered(footer);
         LinearLayout.LayoutParams footerParams = Ui.matchWidth();
         footerParams.topMargin = Ui.dp(context, 24);
@@ -194,14 +196,14 @@ public final class AboutPage extends DetailPage {
         Ui.setPaddingDp(header, context, 0, 8, 0, 20);
 
         FrameLayout disc = new FrameLayout(context);
-        ViewPolicy.setBackground(disc, Ui.pill(Ui.color(context, com.google.android.material.R.attr.colorTertiaryContainer)));
+        ViewPolicy.setBackground(disc, DrawablePolicy.pill(ThemeColorPolicy.color(context, com.google.android.material.R.attr.colorTertiaryContainer)));
         ImageView mark = Ui.decorativeIcon(context, R.drawable.splash_mark);
         int markSize = Ui.dp(context, 60);
         disc.addView(mark, Ui.squareFrameParamsPx(markSize, Gravity.CENTER));
         int discSize = Ui.dp(context, 116);
         header.addView(disc, ViewPolicy.newSquareParamsPx(discSize));
 
-        TextView name = Ui.styledLabel(context, getString(R.string.app_name), 22, 700, Ui.text(context));
+        TextView name = Ui.styledLabel(context, getString(R.string.app_name), 22, 700, ThemeColorPolicy.text(context));
         ViewPolicy.setCentered(name);
         name.setAccessibilityHeading(true);
         LinearLayout.LayoutParams nameParams = Ui.wrap();
@@ -209,14 +211,14 @@ public final class AboutPage extends DetailPage {
         header.addView(name, nameParams);
 
         TextView version = Ui.styledLabel(context,
-            "版本 " + UpdateJobService.currentVersion(context) + " · Android", 13, 400, Ui.subText(context));
+            "版本 " + UpdateJobService.currentVersion(context) + " · Android", 13, 400, ThemeColorPolicy.subText(context));
         ViewPolicy.setCentered(version);
         LinearLayout.LayoutParams versionParams = Ui.wrap();
         versionParams.topMargin = Ui.dp(context, 6);
         header.addView(version, versionParams);
 
         if (!play) {
-            TextView button = Ui.pillButton(context, "检查更新", 15, 600, Ui.onAccent(context),
+            TextView button = Ui.pillButton(context, "检查更新", 15, 600, ThemeColorPolicy.onAccent(context),
                 20, 0, 36, 96, this::onPill);
             ViewPolicy.setPoliteLiveRegion(button);
             LinearLayout.LayoutParams pillParams = Ui.wrap();
@@ -244,8 +246,8 @@ public final class AboutPage extends DetailPage {
         ViewPolicy.setEnabled(button, !busy);
         // 「已是最新版本」是结果而不是按钮，换成 accentSoft 底、强调色字，再点一次重新检查。
         boolean quiet = state == State.UP_TO_DATE || busy;
-        ViewPolicy.setTextColor(button, quiet ? Ui.accent(context) : Ui.onAccent(context));
-        ViewPolicy.setBackground(button, Ui.pillRipple(context, quiet ? Ui.accentSoft(context) : Ui.accent(context)));
+        ViewPolicy.setTextColor(button, quiet ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.onAccent(context));
+        ViewPolicy.setBackground(button, Ui.pillRipple(context, quiet ? ThemeColorPolicy.accentSoft(context) : ThemeColorPolicy.accent(context)));
     }
 
     private void onPill() {

@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.os.Bundle;
 import android.view.View;
@@ -153,20 +154,20 @@ public final class ClipboardSearchPage extends DetailPage {
         Ui.setPaddingDp(row, context, 16, 12, 8, 12);
 
         LinearLayout texts = Ui.column(context);
-        TextView text = Ui.styledLabel(context, item.text(), 15, 400, Ui.text(context));
+        TextView text = Ui.styledLabel(context, item.text(), 15, 400, ThemeColorPolicy.text(context));
         ViewPolicy.setMaxLinesEllipsized(text, 3);
         texts.addView(text);
         String meta = meta(item, now);
         if (!meta.isEmpty()) {
-            TextView label = Ui.styledLabel(context, meta, 12, 400, Ui.subText(context));
+            TextView label = Ui.styledLabel(context, meta, 12, 400, ThemeColorPolicy.subText(context));
             LinearLayout.LayoutParams metaParams = Ui.wrap();
             metaParams.topMargin = Ui.dp(context, 4);
             texts.addView(label, metaParams);
         }
         row.addView(texts, Ui.weightWrap(1f));
 
-        row.addView(Ui.iconButton(context, R.drawable.ic_ms_edit, Ui.subText(context), "编辑", 40, () -> edit(item)));
-        row.addView(Ui.iconButton(context, R.drawable.ic_ms_delete, Ui.subText(context), "删除", 40, () -> delete(item)));
+        row.addView(Ui.iconButton(context, R.drawable.ic_ms_edit, ThemeColorPolicy.subText(context), "编辑", 40, () -> edit(item)));
+        row.addView(Ui.iconButton(context, R.drawable.ic_ms_delete, ThemeColorPolicy.subText(context), "删除", 40, () -> delete(item)));
 
         row.setContentDescription(item.text() + (meta.isEmpty() ? "" : "，" + meta) + "，点按复制");
         Ui.makeClickable(row, context, () -> copy(item));

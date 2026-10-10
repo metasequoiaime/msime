@@ -49,7 +49,8 @@ public final class GlideTypingPolicy {
         if (centers.length != LETTERS * 2) throw new IllegalArgumentException("26 letter key centres expected");
         if (count < 2 || count > xs.length || count > ys.length || count > times.length)
             throw new IllegalArgumentException("A glide stroke needs at least two points");
-        StringBuilder json = new StringBuilder(64 + LETTERS * 24 + Math.min(count, MAX_POINTS) * 28);
+        StringBuilder json = new StringBuilder(64 + LETTERS * 24
+            + BoundsPolicy.atMost(count, MAX_POINTS) * 28);
         json.append("{\"keys\":[");
         for (int letter = 0; letter < LETTERS; letter++) {
             if (letter > 0) json.append(',');
@@ -63,14 +64,14 @@ public final class GlideTypingPolicy {
             int point = picked[index];
             if (index > 0) json.append(',');
             json.append('[').append(number(xs[point])).append(',').append(number(ys[point]))
-                .append(',').append(Math.max(0, times[point])).append(']');
+                .append(',').append(BoundsPolicy.nonNegative(times[point])).append(']');
         }
         return json.append("]}").toString();
     }
 
     /** `count` 个点里均匀取至多 `limit` 个的下标，首尾两点总在其中，次序不变。 */
     static int[] sample(int count, int limit) {
-        int size = Math.min(count, limit);
+        int size = BoundsPolicy.atMost(count, limit);
         int[] picked = new int[size];
         if (size == count) {
             for (int index = 0; index < size; index++) picked[index] = index;

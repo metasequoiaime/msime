@@ -1,5 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.DimensionPolicy;
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -49,18 +51,18 @@ public final class SkinSwatchView extends View {
     @Override protected void onDraw(Canvas canvas) {
         KeyboardSkin value = skin;
         if (value == null || getWidth() <= 0 || getHeight() <= 0) return;
-        float radius = KeyboardGeometry.floatPixels(getContext(), 10);
+        float radius = DimensionPolicy.floatPixels(getContext(), 10);
         paint.setColor(ColorPolicy.parse(value.background(), Color.LTGRAY));
         box.set(0, 0, getWidth(), getHeight());
         canvas.drawRoundRect(box, radius, radius, paint);
 
-        float pad = KeyboardGeometry.floatPixels(getContext(), 5);
-        float gap = KeyboardGeometry.floatPixels(getContext(), 2.5f);
+        float pad = DimensionPolicy.floatPixels(getContext(), 5);
+        float gap = DimensionPolicy.floatPixels(getContext(), 2.5f);
         float cellWidth = (getWidth() - pad * 2 - gap * (COLUMNS - 1)) / COLUMNS;
         float cellHeight = (getHeight() - pad * 2 - gap * (ROWS - 1)) / ROWS;
         if (cellWidth <= 0 || cellHeight <= 0) return;
         float capRadius = BoundsPolicy.atMost(
-            KeyboardGeometry.floatPixels(getContext(), (float) value.cornerRadius()) / 2f,
+            DimensionPolicy.floatPixels(getContext(), (float) value.cornerRadius()) / 2f,
             cellHeight / 2.5f);
         int cap = ColorPolicy.parse(value.keyBackground(), Color.WHITE);
         int function = ColorPolicy.parse(value.functionBackground(), cap);

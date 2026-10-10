@@ -43,7 +43,7 @@ public final class ArithmeticResultPolicy {
      */
     public static Result evaluateTrailing(CharSequence before) {
         if (before == null || before.length() == 0) return null;
-        int from = Math.max(0, before.length() - MAX_CONTEXT);
+        int from = BoundsPolicy.nonNegative(before.length() - MAX_CONTEXT);
         StringBuilder text = new StringBuilder(before.length() - from);
         for (int index = from; index < before.length(); index++) text.append(normalize(before.charAt(index)));
         int end = text.length();

@@ -80,37 +80,37 @@ def main() -> int:
         if "import app.msime.android.keyboard.KeyboardGeometry;" in source:
             errors.append(f"{path}: KeyboardGeometry 的包名应为 app.msime.android")
         if "Ui.atLeastOnePx(" in source:
-            errors.append(f"{path}: 应直接调用 KeyboardGeometry.atLeastOnePixel")
+            errors.append(f"{path}: 应直接调用 DimensionPolicy.atLeastOnePixel")
         if "Ui.sp(" in source:
             errors.append(f"{path}: 不应调用已移除的 Ui.sp")
         if "Ui.hairlinePx(" in source:
-            errors.append(f"{path}: 应直接调用 KeyboardGeometry.atLeastOnePixel")
+            errors.append(f"{path}: 应直接调用 DimensionPolicy.atLeastOnePixel")
         if "Ui.bottomContentInset(" in source:
             errors.append(f"{path}: 应直接调用 WindowInsetsPolicy.bottomContentInset")
         if "Ui.matchWidthHeightPx(" in source:
-            errors.append(f"{path}: 应直接调用 KeyboardGeometry.matchWidthHeightPx")
+            errors.append(f"{path}: 应直接调用 LayoutPolicy.matchWidthHeightPx")
         if "Ui.weightedWidth(" in source:
-            errors.append(f"{path}: 应直接调用 KeyboardGeometry.weightedWidthParams")
+            errors.append(f"{path}: 应直接调用 LayoutPolicy.weightedWidthParams")
         if "Ui.weightedMatchParent(" in source:
-            errors.append(f"{path}: 应直接调用 KeyboardGeometry.weightedMatchParentParams")
+            errors.append(f"{path}: 应直接调用 LayoutPolicy.weightedMatchParentParams")
         if "Ui.weightedHeight(" in source:
-            errors.append(f"{path}: 应直接调用 KeyboardGeometry.weightedHeightPxParams")
+            errors.append(f"{path}: 应直接调用 LayoutPolicy.weightedHeightPxParams")
         if "Ui.frameWrap(" in source:
-            errors.append(f"{path}: 应直接调用 KeyboardGeometry.frameParamsPx")
+            errors.append(f"{path}: 应直接调用 LayoutPolicy.frameParamsPx")
         if "Ui.wrapHeight(" in source:
-            errors.append(f"{path}: 应直接调用 KeyboardGeometry.linearParamsPx")
+            errors.append(f"{path}: 应直接调用 LayoutPolicy.linearParamsPx")
         if "Ui.frameMatchWidthHeight(" in source:
-            errors.append(f"{path}: 应直接调用 KeyboardGeometry.frameMatchWidthHeightPx")
+            errors.append(f"{path}: 应直接调用 LayoutPolicy.frameMatchWidthHeightPx")
 
     for name in EXPECTED_CALLERS:
         path = HOME / name
-        if "KeyboardGeometry.atLeastOnePixel(" not in path.read_text(encoding="utf-8"):
-            errors.append(f"{path}: 未直接复用 KeyboardGeometry.atLeastOnePixel")
+        if "DimensionPolicy.atLeastOnePixel(" not in path.read_text(encoding="utf-8"):
+            errors.append(f"{path}: 未直接复用 DimensionPolicy.atLeastOnePixel")
 
     for name in HEIGHT_PX_CALLERS:
         path = HOME / name
-        if "KeyboardGeometry.matchWidthHeightPx(" not in path.read_text(encoding="utf-8"):
-            errors.append(f"{path}: 未直接复用 KeyboardGeometry.matchWidthHeightPx")
+        if "LayoutPolicy.matchWidthHeightPx(" not in path.read_text(encoding="utf-8"):
+            errors.append(f"{path}: 未直接复用 LayoutPolicy.matchWidthHeightPx")
 
     for name in BOTTOM_INSET_CALLERS:
         path = HOME / name
@@ -126,37 +126,37 @@ def main() -> int:
             errors.append(f"{path}: 不应重复绑定页面底部避让监听")
 
     option_sheet = HOME / "OptionSheet.java"
-    if "KeyboardGeometry.weightedWidthParams(" not in option_sheet.read_text(encoding="utf-8"):
-        errors.append(f"{option_sheet}: 未直接复用 KeyboardGeometry.weightedWidthParams")
+    if "LayoutPolicy.weightedWidthParams(" not in option_sheet.read_text(encoding="utf-8"):
+        errors.append(f"{option_sheet}: 未直接复用 LayoutPolicy.weightedWidthParams")
 
     statistics = HOME / "StatisticsFragment.java"
     if statistics.read_text(encoding="utf-8").count(
-        "KeyboardGeometry.weightedMatchParentParams("
+        "LayoutPolicy.weightedMatchParentParams("
     ) != 2:
-        errors.append(f"{statistics}: 未直接复用 KeyboardGeometry.weightedMatchParentParams")
+        errors.append(f"{statistics}: 未直接复用 LayoutPolicy.weightedMatchParentParams")
 
     input_dialog = HOME / "InputDialog.java"
     if input_dialog.read_text(encoding="utf-8").count(
-        "KeyboardGeometry.weightedHeightPxParams("
+        "LayoutPolicy.weightedHeightPxParams("
     ) != 2:
-        errors.append(f"{input_dialog}: 未直接复用 KeyboardGeometry.weightedHeightPxParams")
+        errors.append(f"{input_dialog}: 未直接复用 LayoutPolicy.weightedHeightPxParams")
 
     for name in ("MsToast.java", "SheetOptionView.java"):
         path = HOME / name
-        if path.read_text(encoding="utf-8").count("KeyboardGeometry.frameParamsPx(") != 1:
-            errors.append(f"{path}: 未直接复用 KeyboardGeometry.frameParamsPx")
+        if path.read_text(encoding="utf-8").count("LayoutPolicy.frameParamsPx(") != 1:
+            errors.append(f"{path}: 未直接复用 LayoutPolicy.frameParamsPx")
 
     for name in ("OnboardingActivity.java", "StatisticsFragment.java"):
         path = HOME / name
-        if path.read_text(encoding="utf-8").count("KeyboardGeometry.linearParamsPx(") != 1:
-            errors.append(f"{path}: 未直接复用 KeyboardGeometry.linearParamsPx")
+        if path.read_text(encoding="utf-8").count("LayoutPolicy.linearParamsPx(") != 1:
+            errors.append(f"{path}: 未直接复用 LayoutPolicy.linearParamsPx")
 
     for name in ("AiSkinPage.java", "SkinsPage.java"):
         path = HOME / name
         if path.read_text(encoding="utf-8").count(
-            "KeyboardGeometry.frameMatchWidthHeightPx("
+            "LayoutPolicy.frameMatchWidthHeightPx("
         ) != 1:
-            errors.append(f"{path}: 未直接复用 KeyboardGeometry.frameMatchWidthHeightPx")
+            errors.append(f"{path}: 未直接复用 LayoutPolicy.frameMatchWidthHeightPx")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)

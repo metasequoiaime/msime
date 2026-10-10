@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -164,9 +165,9 @@ public final class KeyHeatmapView extends View {
                 if (key.id() != null) peak = BoundsPolicy.atLeast(peak, counts.getOrDefault(key.id(), 0L));
             }
         }
-        int text = Ui.text(context);
-        int sub = Ui.subText(context);
-        int onAccent = Ui.onAccent(context);
+        int text = ThemeColorPolicy.text(context);
+        int sub = ThemeColorPolicy.subText(context);
+        int onAccent = ThemeColorPolicy.onAccent(context);
         float width = getWidth();
         List<List<Key>> rows = layout();
         for (int r = 0; r < rows.size(); r++) {
@@ -191,7 +192,7 @@ public final class KeyHeatmapView extends View {
                 drawn = true;
                 long value = counts.getOrDefault(key.id(), 0L);
                 int level = HeatmapView.level(value, peak);
-                fill.setColor(Ui.color(context, HEAT[level]));
+                fill.setColor(ThemeColorPolicy.color(context, HEAT[level]));
                 box.set(x, top, x + keyWidth, top + height);
                 canvas.drawRoundRect(box, radius, radius, fill);
                 int ink = level >= 3 ? onAccent : text;
@@ -218,7 +219,7 @@ public final class KeyHeatmapView extends View {
         float cellTop = baseline - cell + Ui.dp(context, 1);
         float cx = width - more - Ui.dp(context, 4) - cell;
         for (int level = HEAT.length - 1; level >= 0; level--) {
-            fill.setColor(Ui.color(context, HEAT[level]));
+            fill.setColor(ThemeColorPolicy.color(context, HEAT[level]));
             box.set(cx, cellTop, cx + cell, cellTop + cell);
             canvas.drawRoundRect(box, Ui.dp(context, 2), Ui.dp(context, 2), fill);
             cx -= cell + cellGap;

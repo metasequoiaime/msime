@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -28,7 +29,7 @@ public class KeyHintButton extends KeyboardPressButton {
     @SuppressWarnings("this-escape")
     public KeyHintButton(Context context) {
         super(context);
-        KeyboardGeometry.normalizeKeyCap(this);
+        KeyboardTypographyPolicy.normalizeKeyCap(this);
         basePaddingTop = getPaddingTop();
         basePaddingBottom = getPaddingBottom();
         hintPaint.setTextAlign(Paint.Align.CENTER);
@@ -41,10 +42,10 @@ public class KeyHintButton extends KeyboardPressButton {
         String next = TextPolicy.emptyIfNull(value);
         if (hintText.equals(next)) return;
         hintText = next;
-        // 键帽的上下内边距和字体留白在构造时已归零（KeyboardGeometry.normalizeKeyCap）；有提示时下边只留提示那一行，字母在剩下的高度里居中。
+        // 键帽的上下内边距和字体留白在构造时已归零（KeyboardTypographyPolicy.normalizeKeyCap）；有提示时下边只留提示那一行，字母在剩下的高度里居中。
         boolean hinted = !hintText.isEmpty();
-        setPadding(getPaddingLeft(), hinted ? 0 : basePaddingTop, getPaddingRight(),
-            hinted ? KeyboardGeometry.pixels(getContext(), 11) : basePaddingBottom);
+        ViewPolicy.setPadding(this, getPaddingLeft(), hinted ? 0 : basePaddingTop, getPaddingRight(),
+            hinted ? DimensionPolicy.pixels(getContext(), 11) : basePaddingBottom);
         invalidate();
     }
 
@@ -78,30 +79,30 @@ public class KeyHintButton extends KeyboardPressButton {
     }
 
     private void drawCornerHint(Canvas canvas) {
-        ViewPolicy.setTextSize(cornerPaint, KeyboardGeometry.keySp(getContext(), CORNER_HINT_SP));
+        ViewPolicy.setTextSize(cornerPaint, KeyboardTypographyPolicy.keySp(getContext(), CORNER_HINT_SP));
         cornerPaint.setColor(cornerHintColor);
         cornerPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 255, 96));
         Paint.FontMetrics metrics = cornerPaint.getFontMetrics();
-        float baseline = KeyboardGeometry.floatPixels(getContext(), CORNER_HINT_TOP_DP) - metrics.ascent;
+        float baseline = DimensionPolicy.floatPixels(getContext(), CORNER_HINT_TOP_DP) - metrics.ascent;
         canvas.drawText(cornerHint,
-            getWidth() - KeyboardGeometry.floatPixels(getContext(), CORNER_HINT_RIGHT_DP), baseline,
+            getWidth() - DimensionPolicy.floatPixels(getContext(), CORNER_HINT_RIGHT_DP), baseline,
             cornerPaint);
     }
 
     private void drawBottomHint(Canvas canvas) {
-        float size = KeyboardGeometry.keySp(getContext(), 9);
+        float size = KeyboardTypographyPolicy.keySp(getContext(), 9);
         float available = BoundsPolicy.bounded(getWidth() - getPaddingLeft() - getPaddingRight()
-            - KeyboardGeometry.pixels(getContext(), 4), 1f, Float.MAX_VALUE);
+            - DimensionPolicy.pixels(getContext(), 4), 1f, Float.MAX_VALUE);
         ViewPolicy.setTextSize(hintPaint, size);
-        while (size > KeyboardGeometry.keySp(getContext(), 6)
+        while (size > KeyboardTypographyPolicy.keySp(getContext(), 6)
                 && hintPaint.measureText(hintText) > available) {
-            size -= KeyboardGeometry.keySp(getContext(), 0.5f);
+            size -= KeyboardTypographyPolicy.keySp(getContext(), 0.5f);
             ViewPolicy.setTextSize(hintPaint, size);
         }
         hintPaint.setColor(hintColor);
         hintPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 204, 96));
         Paint.FontMetrics metrics = hintPaint.getFontMetrics();
-        float baseline = getHeight() - KeyboardGeometry.pixels(getContext(), 2) - metrics.bottom;
+        float baseline = getHeight() - DimensionPolicy.pixels(getContext(), 2) - metrics.bottom;
         canvas.drawText(hintText, getWidth() / 2f, baseline, hintPaint);
     }
 }

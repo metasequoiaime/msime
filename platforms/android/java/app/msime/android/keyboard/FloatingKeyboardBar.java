@@ -1,5 +1,8 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
+
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Canvas;
@@ -39,8 +42,8 @@ public final class FloatingKeyboardBar extends LinearLayout {
         ViewPolicy.setCenteredVertically(this);
         grip = new Grip(context, this);
         dock = new DockButton(context);
-        addView(grip, KeyboardGeometry.weightedMatchParentParams(1f));
-        addView(dock, KeyboardGeometry.linearParamsPx(KeyboardGeometry.pixels(context, 40),
+        addView(grip, LayoutPolicy.weightedMatchParentParams(1f));
+        addView(dock, LayoutPolicy.linearParamsPx(DimensionPolicy.pixels(context, 40),
             LayoutParams.MATCH_PARENT));
         ViewPolicy.bindClick(dock, () -> { if (listener != null) listener.dock(); });
     }
@@ -100,8 +103,8 @@ public final class FloatingKeyboardBar extends LinearLayout {
         }
 
         @Override protected void onDraw(Canvas canvas) {
-            float width = KeyboardGeometry.floatPixels(getContext(), BAR_WIDTH_DP);
-            float height = KeyboardGeometry.floatPixels(getContext(), BAR_HEIGHT_DP);
+            float width = DimensionPolicy.floatPixels(getContext(), BAR_WIDTH_DP);
+            float height = DimensionPolicy.floatPixels(getContext(), BAR_HEIGHT_DP);
             float cx = getWidth() / 2f;
             float cy = getHeight() / 2f;
             rect.set(cx - width / 2f, cy - height / 2f, cx + width / 2f, cy + height / 2f);
@@ -129,8 +132,9 @@ public final class FloatingKeyboardBar extends LinearLayout {
         }
 
         @Override protected void onDraw(Canvas canvas) {
-            float size = Math.min(KeyboardGeometry.floatPixels(getContext(), ICON_DP),
-                Math.min(getWidth(), getHeight()));
+            float size = BoundsPolicy.atMost(
+                DimensionPolicy.floatPixels(getContext(), ICON_DP),
+                BoundsPolicy.atMost(getWidth(), getHeight()));
             KeyboardIconPaths.draw(canvas, paint, KeyboardIconPaths.Icon.EXIT_ONE_HAND,
                 (getWidth() - size) / 2f, (getHeight() - size) / 2f, size, color);
         }

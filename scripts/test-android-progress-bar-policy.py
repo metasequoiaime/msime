@@ -28,7 +28,7 @@ def main() -> int:
 
     for path, call in (
         (IME_PANELS, "ProgressBarPolicy.setIndeterminateTint(s.replyProgress, accent);"),
-        (AI_SKIN, "ProgressBarPolicy.setIndeterminateTint(spinner, Ui.accent(context));"),
+        (AI_SKIN, "ProgressBarPolicy.setIndeterminateTint(spinner, ThemeColorPolicy.accent(context));"),
     ):
         source = path.read_text(encoding="utf-8")
         if call not in source:

@@ -375,6 +375,16 @@ void translationPreferenceChangesIncludeAccount() {
           "translation account changes invalidate translation requests");
 }
 
+void emojiGroupResultFencing() {
+  const Json current = Json{{"_generation", 7}, {"_category", "symbols"}};
+  require(emojiGroupsResultCurrent(current, 7, "symbols"),
+          "emoji groups accept a result for the active category");
+  require(!emojiGroupsResultCurrent(current, 7, "kaomoji"),
+          "emoji groups reject a result from a different category");
+  require(!emojiGroupsResultCurrent(Json{{"_generation", 7}}, 7, "symbols"),
+          "emoji groups reject results without a category fence");
+}
+
 // 用真实 classicui 配置验证接管与恢复：缺省和切回「系统」保留水杉样式，只有主动选择才从第三方主题手里接管；无覆盖自定义主题与解析失败仍恢复持有项。每个 fcitx::Instance 就是一次进程启动（内存里的缓存与所有权状态从零开始），所有路径都指向合成目录；机器上只有 classicui 开发库而没有运行库时跳过（77）。
 int candidateThemePriority() {
   char temporary[] = "/tmp/msime-fcitx-theme-priority-XXXXXX";
@@ -987,6 +997,7 @@ int main(int argc, char **argv) {
     modeBadgeTheme();
     classicuiTakeoverRecord();
     translationPreferenceChangesIncludeAccount();
+    emojiGroupResultFencing();
     require(argc == 2 || (argc == 3 && (std::string(argv[2]) == "--ai" ||
                                        std::string(argv[2]) == "--ctrl-space" ||
                                        std::string(argv[2]) == "--local-modes")),
@@ -2399,6 +2410,93 @@ int main(int argc, char **argv) {
     engine.cloud_clipboard_item2_.activate(&ic);
     require(ic.committed == beforeCloudSecond + "云剪贴板第二条",
             "cloud clipboard menu commits selected provider entry");
+    {
+      // Moving the preferences store must release both the read and save
+      // futures that still target the previous directory; otherwise the next
+      // refresh remains blocked behind an old store operation.
+      auto switched = options;
+      const auto switchedPreferencesDirectory = std::filesystem::path(directory) / "preferences-switch";
+      switched["preferences_directory"] = switchedPreferencesDirectory.string();
+      std::ofstream(path) << switched.dump();
+      std::promise<void> releaseRead;
+      std::promise<void> releaseSave;
+      auto readGate = releaseRead.get_future().share();
+      auto saveGate = releaseSave.get_future().share();
+      state->preferences_job_ = detachedJob([readGate] {
+        readGate.wait();
+        return Json::object();
+      });
+      state->preferences_save_job_ = detachedJob([saveGate] {
+        saveGate.wait();
+        return Json::object();
+      });
+      state->preferences_save_retry_ = PendingPreferenceSave{
+          state->options_path_, {}, "synthetic", true};
+      state->refreshProviderSockets();
+      require(state->options_path_ == switchedPreferencesDirectory.string() &&
+                  !state->preferences_job_.valid() && !state->preferences_save_job_.valid() &&
+                  !state->preferences_save_retry_,
+              "switching preference stores releases stale futures");
+      releaseRead.set_value();
+      releaseSave.set_value();
+      std::ofstream(path) << options.dump();
+      state->refreshProviderSockets();
+    }
+    {
+      // Moving the local history store must release reads and mutations that
+      // still belong to the previous directory; otherwise refreshClipboard()
+      // waits on an old future forever and never starts the new read.
+      auto switched = options;
+      const auto switchedClipboardPath = std::filesystem::path(directory) / "clipboard-switch";
+      switched["clipboard_history_path"] =
+          (switchedClipboardPath / "clipboard_history.json").string();
+      std::ofstream(path) << switched.dump();
+      std::promise<void> releaseRead;
+      std::promise<void> releaseMutation;
+      auto readGate = releaseRead.get_future().share();
+      auto mutationGate = releaseMutation.get_future().share();
+      state->clipboard_job_ = detachedJob([readGate] {
+        readGate.wait();
+        return Json::object();
+      });
+      state->clipboard_mutation_job_ = detachedJob([mutationGate] {
+        mutationGate.wait();
+        return Json::object();
+      });
+      const auto generationBefore = state->clipboard_generation_;
+      state->refreshProviderSockets();
+      require(state->clipboard_generation_ > generationBefore &&
+                  state->clipboard_path_ == switchedClipboardPath.string() &&
+                  !state->clipboard_job_.valid() && !state->clipboard_mutation_job_.valid(),
+              "switching clipboard stores releases stale futures");
+      releaseRead.set_value();
+      releaseMutation.set_value();
+      std::ofstream(path) << options.dump();
+      state->refreshProviderSockets();
+    }
+    {
+      // A cloud clipboard socket switch has the same lifetime rule: the old
+      // provider request must not block requests sent to the new socket.
+      auto switched = options;
+      const auto switchedCloudSocket = std::filesystem::path(directory) / "cloud-clipboard-switch.sock";
+      switched["cloud_clipboard_provider_socket"] = switchedCloudSocket.string();
+      std::ofstream(path) << switched.dump();
+      std::promise<void> release;
+      auto gate = release.get_future().share();
+      state->cloud_clipboard_job_ = detachedJob([gate] {
+        gate.wait();
+        return Json::object();
+      });
+      const auto generationBefore = state->cloud_clipboard_generation_;
+      state->refreshProviderSockets();
+      require(state->cloud_clipboard_generation_ > generationBefore &&
+                  state->cloud_clipboard_socket_ == switchedCloudSocket.string() &&
+                  !state->cloud_clipboard_job_.valid(),
+              "switching cloud clipboard sockets releases stale futures");
+      release.set_value();
+      std::ofstream(path) << options.dump();
+      state->refreshProviderSockets();
+    }
     if (ai) {
       require(onlineQuery.value("ai_eligible", false), "AI query eligible");
       require(onlineQuery.at("ai_assistant").value("enabled", false), "AI provider enabled");
@@ -2477,6 +2575,37 @@ int main(int argc, char **argv) {
     }
     require(selected && ic.committed == oldCommit + suggestion, "exact provider candidate commit");
     verifyPreferenceInvalidation();
+    {
+      // A provider request can outlive focus. Its detached worker is fenced by
+      // the epoch, but retaining the future would block the next session from
+      // starting its own request until the old provider times out.
+      std::promise<void> release;
+      auto gate = release.get_future().share();
+      state->online_slots_[0].job = detachedJob([gate] {
+        gate.wait();
+        return Json::object();
+      });
+      state->online_slots_[0].query = "synthetic-stale-query";
+      state->invalidateOnlineRequests();
+      require(!state->online_slots_[0].job.valid(),
+              "invalidating online requests releases stale provider futures");
+      release.set_value();
+    }
+    {
+      // Translation has the same detached-worker lifetime as online
+      // candidates; invalidating it must release a stale provider future.
+      std::promise<void> release;
+      auto gate = release.get_future().share();
+      state->translation_job_ = detachedJob([gate] {
+        gate.wait();
+        return Json::object();
+      });
+      state->translation_query_ = "synthetic-stale-translation";
+      state->invalidateTranslationRequests();
+      require(!state->translation_job_.valid(),
+              "invalidating translation requests releases stale provider futures");
+      release.set_value();
+    }
     require(key(FcitxKey_n) && key(FcitxKey_i), "second composition keys");
     // Recreate a displayed answer in the same synthetic composition so disabling the provider checks a real candidate removal after the selection above committed the first answer.
     const auto secondQuery = response(msime_client_online_query(state->session_)).dump();
@@ -2724,6 +2853,8 @@ int main(int argc, char **argv) {
     require(state->cancelVoice(), "voice cancellation accepts an active delayed provider");
     require(std::chrono::steady_clock::now() - cancelStarted < std::chrono::milliseconds(100),
             "voice cancellation does not wait for the provider future");
+    require(!state->voice_job_.valid(),
+            "voice cancellation releases the stale provider future");
     const auto cancelDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (state->voice_job_.valid() && std::chrono::steady_clock::now() < cancelDeadline) {
       state->refreshVoice();

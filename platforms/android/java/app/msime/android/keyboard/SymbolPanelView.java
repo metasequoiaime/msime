@@ -1,5 +1,8 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
+
 import android.content.Context;
 import android.view.Gravity;
 import android.view.View;
@@ -73,34 +76,34 @@ public final class SymbolPanelView extends LinearLayout {
         super(context);
         this.buttons = buttons;
         this.listener = listener;
-        categories = KeyboardGeometry.column(context);
+        categories = LayoutPolicy.column(context);
         setOrientation(VERTICAL);
         setContentDescription("符号面板");
         setFocusable(true);
 
-        LinearLayout title = KeyboardGeometry.row(context);
+        LinearLayout title = LayoutPolicy.row(context);
         ViewPolicy.setCenteredVertically(title);
         // 这个键只是关掉面板，回到打开它的那一层（字母、#+= 或手写），不一定是字母键盘。
         Button back = buttons.create("‹", "关闭符号面板", listener::close, true);
-        back.setLayoutParams(KeyboardGeometry.linearParams(getContext(), 56, 42));
+        back.setLayoutParams(LayoutPolicy.linearParams(getContext(), 56, 42));
         title.addView(back);
         TextView heading = ViewPolicy.centeredText(context, "符号", 17);
-        KeyboardGeometry.setKeyTextSize(heading, 17);
-        title.addView(heading, KeyboardGeometry.weightedHeightParams(getContext(), 42, 1));
+        KeyboardTypographyPolicy.setKeyTextSize(heading, 17);
+        title.addView(heading, LayoutPolicy.weightedHeightParams(getContext(), 42, 1));
         Button delete = buttons.create("⌫", "删除", listener::delete, true);
-        delete.setLayoutParams(KeyboardGeometry.linearParams(getContext(), 56, 42));
+        delete.setLayoutParams(LayoutPolicy.linearParams(getContext(), 56, 42));
         title.addView(delete);
-        addView(title, KeyboardGeometry.matchWidthWrapParams());
+        addView(title, LayoutPolicy.matchWidthWrapParams());
 
-        LinearLayout body = KeyboardGeometry.row(context);
+        LinearLayout body = LayoutPolicy.row(context);
         ViewPolicy.setGravity(categories, Gravity.TOP);
         // 空白网格的根因：body 是横排 LinearLayout，权重只分宽度；这里和网格原先写的高度 0 是字面上的 0 像素，分类列和网格都被测成零高，面板中间于是什么都没有（面板本身又没底色，透出底下的字母键）。高度要铺满 body。
         // 分类列放进可滚动的容器、每类固定 40 dp：键盘区扣掉标题和底栏只剩百来 dp，五类按权重平分时每类二十来 dp，按钮默认的 48 dp 最小高度和内边距把字挤没了，只剩选中那块底色。
         ScrollView categoryScroll = new ScrollView(context);
         categoryScroll.setVerticalScrollBarEnabled(false);
-        categoryScroll.addView(categories, KeyboardGeometry.scrollMatchWidthWrapParams());
-        body.addView(categoryScroll, KeyboardGeometry.linearParamsPx(
-            KeyboardGeometry.pixels(getContext(), 76), LayoutParams.MATCH_PARENT));
+        categoryScroll.addView(categories, LayoutPolicy.scrollMatchWidthWrapParams());
+        body.addView(categoryScroll, LayoutPolicy.linearParamsPx(
+            DimensionPolicy.pixels(getContext(), 76), LayoutParams.MATCH_PARENT));
         grid.setColumnCount(SymbolPanelModel.COLUMNS);
         grid.setUseDefaultMargins(false);
         grid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
@@ -109,18 +112,18 @@ public final class SymbolPanelView extends LinearLayout {
         gridScroll.setOnScrollChangeListener((view, scrollX, scrollY, oldX, oldY) -> {
             if (scrollY > oldY && !view.canScrollVertically(1)) loadNextCatalogPage();
         });
-        gridScroll.addView(grid, KeyboardGeometry.scrollMatchWidthWrapParams());
-        body.addView(gridScroll, KeyboardGeometry.weightedMatchParentParams(1));
-        addView(body, KeyboardGeometry.weightedWidthParams(1));
+        gridScroll.addView(grid, LayoutPolicy.scrollMatchWidthWrapParams());
+        body.addView(gridScroll, LayoutPolicy.weightedMatchParentParams(1));
+        addView(body, LayoutPolicy.weightedWidthParams(1));
 
-        LinearLayout bottom = KeyboardGeometry.row(context);
+        LinearLayout bottom = LayoutPolicy.row(context);
         Button bottomBack = buttons.create("返回", "返回键盘", listener::close, true);
-        bottom.addView(bottomBack, KeyboardGeometry.weightedHeightParams(getContext(), 48, 1));
+        bottom.addView(bottomBack, LayoutPolicy.weightedHeightParams(getContext(), 48, 1));
         lockButton = buttons.create("锁定", "连续输入符号", this::toggleLock, true);
-        bottom.addView(lockButton, KeyboardGeometry.weightedHeightParams(getContext(), 48, 1));
+        bottom.addView(lockButton, LayoutPolicy.weightedHeightParams(getContext(), 48, 1));
         Button bottomDelete = buttons.create("⌫", "删除", listener::delete, true);
-        bottom.addView(bottomDelete, KeyboardGeometry.weightedHeightParams(getContext(), 48, 1));
-        addView(bottom, KeyboardGeometry.matchWidthHeightPx(KeyboardGeometry.pixels(getContext(), 48)));
+        bottom.addView(bottomDelete, LayoutPolicy.weightedHeightParams(getContext(), 48, 1));
+        addView(bottom, LayoutPolicy.matchWidthHeightPx(DimensionPolicy.pixels(getContext(), 48)));
 
         List<SymbolPanelModel.Category> values = SymbolPanelModel.categories(recents);
         for (int index = 0; index < values.size(); index++) {
@@ -130,10 +133,10 @@ public final class SymbolPanelView extends LinearLayout {
             ViewPolicy.setCenteredTextSizeSp(button, 13);
             ViewPolicy.clearMinimumHeight(button);
             ViewPolicy.clearPadding(button);
-            KeyboardGeometry.setKeyTextSize(button, 13);
+            KeyboardTypographyPolicy.setKeyTextSize(button, 13);
             categoryButtons.add(button);
-            categories.addView(button, KeyboardGeometry.matchWidthHeightPx(
-                KeyboardGeometry.pixels(getContext(), 40)));
+            categories.addView(button, LayoutPolicy.matchWidthHeightPx(
+                DimensionPolicy.pixels(getContext(), 40)));
         }
         select(SymbolPanelModel.initialCategory(recents));
     }
@@ -173,11 +176,11 @@ public final class SymbolPanelView extends LinearLayout {
     private void showHint(String text, int columns) {
         grid.removeAllViews();
         TextView hint = ViewPolicy.centeredText(getContext(), text, 14);
-        KeyboardGeometry.setKeyTextSize(hint, 14);
+        KeyboardTypographyPolicy.setKeyTextSize(hint, 14);
         GridLayout.LayoutParams params = new GridLayout.LayoutParams(GridLayout.spec(0),
             GridLayout.spec(0, columns, 1f));
         params.width = 0;
-        params.height = KeyboardGeometry.pixels(getContext(), 92);
+        params.height = DimensionPolicy.pixels(getContext(), 92);
         grid.addView(hint, params);
         listener.restyle(hint);
     }
@@ -206,7 +209,7 @@ public final class SymbolPanelView extends LinearLayout {
                 GridLayout.Spec column = GridLayout.spec(index - start, 1f);
                 GridLayout.LayoutParams params = new GridLayout.LayoutParams(row, column);
                 params.width = 0;
-                params.height = KeyboardGeometry.pixels(getContext(), 46);
+                params.height = DimensionPolicy.pixels(getContext(), 46);
                 grid.addView(button, params);
             }
             for (int index = end - start; index < columns; index++) {
@@ -215,7 +218,7 @@ public final class SymbolPanelView extends LinearLayout {
                 GridLayout.Spec column = GridLayout.spec(index, 1f);
                 GridLayout.LayoutParams params = new GridLayout.LayoutParams(row, column);
                 params.width = 0;
-                params.height = KeyboardGeometry.pixels(getContext(), 46);
+                params.height = DimensionPolicy.pixels(getContext(), 46);
                 grid.addView(spacer, params);
             }
         }

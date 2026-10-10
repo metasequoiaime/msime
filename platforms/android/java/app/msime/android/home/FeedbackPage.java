@@ -1,5 +1,10 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
+import app.msime.android.LayoutPolicy;
+
+import app.msime.android.DimensionPolicy;
+
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -82,23 +87,23 @@ public final class FeedbackPage extends DetailPage {
 
         GroupCard description = GroupCard.add(column, "描述");
         LinearLayout card = description.card();
-        EditText input = Ui.styledInput(context, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
+        EditText input = Ui.styledInput(context, Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.text(context));
         input.setHint("遇到了什么问题？可以写复现步骤、出错的词或期望的结果");
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
             | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         ViewPolicy.setTopStart(input);
         ViewPolicy.setMinLines(input, 4);
         ViewPolicy.clearBackground(input);
-        input.setHintTextColor(Ui.subText(context));
+        input.setHintTextColor(ThemeColorPolicy.subText(context));
         Ui.setSymmetricPaddingDp(input, requireContext(), 16, 14);
         input.setText(draft);
         input.setContentDescription("描述");
         card.addView(input, Ui.matchWidth());
         detail = input;
 
-        View rule = ViewPolicy.newColorView(context, Ui.hairline(context));
-        LinearLayout.LayoutParams ruleParams = KeyboardGeometry.matchWidthHeightPx(
-            KeyboardGeometry.atLeastOnePixel(context, 0.5f));
+        View rule = ViewPolicy.newColorView(context, ThemeColorPolicy.hairline(context));
+        LinearLayout.LayoutParams ruleParams = LayoutPolicy.matchWidthHeightPx(
+            DimensionPolicy.atLeastOnePixel(context, 0.5f));
         ruleParams.setMarginStart(Ui.dp(requireContext(), 16));
         card.addView(rule, ruleParams);
 
@@ -114,9 +119,9 @@ public final class FeedbackPage extends DetailPage {
         ViewPolicy.setCenteredVertically(add);
         Ui.setPaddingDp(add, requireContext(), 16, 12, 16, 14);
         add.setContentDescription("添加截图，最多 " + FeedbackApi.MAX_SCREENSHOTS + " 张");
-        ImageView icon = Ui.decorativeIcon(context, R.drawable.ms_w4_me2_image, Ui.accent(context));
+        ImageView icon = Ui.decorativeIcon(context, R.drawable.ms_w4_me2_image, ThemeColorPolicy.accent(context));
         add.addView(icon, Ui.squareParams(requireContext(), 20));
-        TextView label = Ui.styledLabel(context, "添加截图", Ui.TEXT_ROW_TITLE, 400, Ui.accent(context));
+        TextView label = Ui.styledLabel(context, "添加截图", Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.accent(context));
         LinearLayout.LayoutParams labelParams = Ui.wrap();
         labelParams.setMarginStart(Ui.dp(requireContext(), 10));
         add.addView(label, labelParams);
@@ -124,13 +129,13 @@ public final class FeedbackPage extends DetailPage {
         card.addView(add, Ui.matchWidth());
         addShot = add;
 
-        TextView count = Ui.styledLabel(context, "", 13, 400, Ui.subText(context));
+        TextView count = Ui.styledLabel(context, "", 13, 400, ThemeColorPolicy.subText(context));
         Ui.setPaddingDp(count, requireContext(), Ui.GROUP_TITLE_INSET, 6,
             Ui.GROUP_TITLE_INSET, 0);
         description.view().addView(count, Ui.matchWidth());
         counter = count;
 
-        TextView button = Ui.textButton(context, "", 16, 600, Ui.onAccent(context), null,
+        TextView button = Ui.textButton(context, "", 16, 600, ThemeColorPolicy.onAccent(context), null,
             Ui.ACTION_BUTTON_MIN_HEIGHT, this::submit);
         ViewPolicy.setPoliteLiveRegion(button);
         LinearLayout.LayoutParams buttonParams = Ui.matchWidth();
@@ -183,13 +188,13 @@ public final class FeedbackPage extends DetailPage {
         int length = TextPolicy.codePointLength(draft);
         counter.setText(length + " / " + FeedbackApi.MAX_TEXT);
         ViewPolicy.setTextColor(counter,
-            length > FeedbackApi.MAX_TEXT ? Ui.danger(context) : Ui.subText(context));
+            length > FeedbackApi.MAX_TEXT ? ThemeColorPolicy.danger(context) : ThemeColorPolicy.subText(context));
         boolean ready = !sending && !sent && FeedbackApi.validText(draft);
         submit.setText(sent ? "已提交" : sending ? "正在提交…" : "提交");
         ViewPolicy.setEnabled(submit, ready);
-        ViewPolicy.setTextColor(submit, ready ? Ui.onAccent(context) : Ui.subText(context));
-        int fill = ready ? Ui.accent(context)
-            : Ui.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
+        ViewPolicy.setTextColor(submit, ready ? ThemeColorPolicy.onAccent(context) : ThemeColorPolicy.subText(context));
+        int fill = ready ? ThemeColorPolicy.accent(context)
+            : ThemeColorPolicy.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
         ViewPolicy.setBackground(submit, Ui.rippleOn(context, fill, Ui.dp(requireContext(), Ui.GROUP_RADIUS)));
         if (addShot != null) ViewPolicy.setEnabledWithAlpha(addShot,
             screenshots.size() < FeedbackApi.MAX_SCREENSHOTS && !sending, 0.38f);
@@ -210,15 +215,15 @@ public final class FeedbackPage extends DetailPage {
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inSampleSize = 4;
             image.setImageBitmap(BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options));
-            ViewPolicy.setBackground(image, DrawablePolicy.rounded(Ui.rowBackground(context), Ui.dp(requireContext(), 10)));
+            ViewPolicy.setBackground(image, DrawablePolicy.rounded(ThemeColorPolicy.rowBackground(context), Ui.dp(requireContext(), 10)));
             image.setClipToOutline(true);
             image.setContentDescription("截图 " + (index + 1));
             frame.addView(image, Ui.squareFrameParams(requireContext(), Ui.THUMBNAIL_SIZE));
             ImageView remove = new ImageView(context);
             remove.setImageResource(R.drawable.ms_w4_me2_close);
             ImageViewPolicy.setTint(remove,
-                Ui.color(context, com.google.android.material.R.attr.colorOnSurfaceInverse));
-            ViewPolicy.setBackground(remove, Ui.pill(Ui.color(context, com.google.android.material.R.attr.colorSurfaceInverse)));
+                ThemeColorPolicy.color(context, com.google.android.material.R.attr.colorOnSurfaceInverse));
+            ViewPolicy.setBackground(remove, DrawablePolicy.pill(ThemeColorPolicy.color(context, com.google.android.material.R.attr.colorSurfaceInverse)));
             Ui.setSymmetricPaddingDp(remove, requireContext(), 3, 3);
             remove.setContentDescription("移除截图 " + (index + 1));
             ViewPolicy.bindClick(remove, () -> {

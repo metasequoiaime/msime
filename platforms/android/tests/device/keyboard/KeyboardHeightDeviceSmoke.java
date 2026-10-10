@@ -86,7 +86,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             if (Math.abs(keyHeight("n") - shortHeight) > 2)
                 throw new AssertionError("Cancelled preview was not reverted");
 
-            // 不点「完成」就收起键盘：收起照「完成」保存，只有「取消」才放弃预览。110% 是 18 dp（KeyboardGeometry.heightPercentToAdjustment）。
+            // 不点「完成」就收起键盘：收起照「完成」保存，只有「取消」才放弃预览。110% 是 18 dp（KeyboardHeightPolicy.heightPercentToAdjustment）。
             stage = "hiding mid-adjustment keeps the height";
             openHeightBar();
             setHeight(110);

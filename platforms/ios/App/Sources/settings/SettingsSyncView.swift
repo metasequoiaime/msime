@@ -64,8 +64,14 @@ struct SettingsSyncView: View {
     defer { busy = false }
     do {
       let identity = try await session.credentials()
-      let fields = try await client.preferenceSchema(token: identity.token)
-      let values = try await client.preferences(token: identity.token)
+      let fields = try await session.authenticated(matchingUserID: identity.userID,
+                                                   matchingSessionID: identity.sessionID) { token in
+        try await client.preferenceSchema(token: token)
+      }.value
+      let values = try await session.authenticated(matchingUserID: identity.userID,
+                                                   matchingSessionID: identity.sessionID) { token in
+        try await client.preferences(token: token)
+      }.value
       try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
       try Task.checkCancellation()
       schema = fields; cloud = values; loadedUserID = identity.userID; loadedSessionID = identity.sessionID
@@ -91,7 +97,10 @@ struct SettingsSyncView: View {
       let identity = try await session.credentials(matchingUserID: loadedUserID,
                                                    matchingSessionID: loadedSessionID)
       try Task.checkCancellation()
-      let updated = try await client.putPreferences(values, token: identity.token)
+      let updated = try await session.authenticated(matchingUserID: identity.userID,
+                                                   matchingSessionID: identity.sessionID) { token in
+        try await client.putPreferences(values, token: token)
+      }.value
       try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
       self.cloud = updated
       message = "本机设置已上传。"

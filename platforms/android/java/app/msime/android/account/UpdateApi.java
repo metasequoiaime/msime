@@ -254,7 +254,7 @@ public final class UpdateApi {
         if (sidecar == null) return null;
         String trimmed = TextPolicy.trimmed(sidecar);
         int end = 0;
-        while (end < trimmed.length() && !Character.isWhitespace(trimmed.charAt(end))) end++;
+        while (end < trimmed.length() && !TextPolicy.isWhitespace(trimmed.charAt(end))) end++;
         String digest = TextPolicy.lowercase(trimmed.substring(0, end));
         return TextPolicy.isLowerHex(digest, 64) ? digest : null;
     }

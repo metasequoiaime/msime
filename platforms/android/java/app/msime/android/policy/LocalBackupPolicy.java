@@ -76,7 +76,7 @@ public final class LocalBackupPolicy {
         StringBuilder name = new StringBuilder(value.length());
         for (int index = 0; index < value.length(); index++) {
             char character = value.charAt(index);
-            boolean unsafe = character < 0x20 || "/\\:*?\"<>|".indexOf(character) >= 0 || Character.isWhitespace(character);
+            boolean unsafe = character < 0x20 || "/\\:*?\"<>|".indexOf(character) >= 0 || TextPolicy.isWhitespace(character);
             name.append(unsafe ? '_' : character);
         }
         return name.toString();

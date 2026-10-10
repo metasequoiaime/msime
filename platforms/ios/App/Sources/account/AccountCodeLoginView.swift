@@ -195,7 +195,7 @@ struct CodeLoginView: View {
             .accessibilityIdentifier("backendCodeTarget")
             .onChange(of: target) { _ in challenge = nil; code = "" }
           TimelineView(.periodic(from: .now, by: 1)) { timeline in
-            let seconds = max(0, Int(ceil(resendAt.timeIntervalSince(timeline.date))))
+            let seconds = VerificationCodePolicy.remainingSeconds(until: resendAt, now: timeline.date)
             Button(seconds == 0 ? "获取验证码" : "\(seconds) 秒后可重新发送") {
               pending = Task {
                 let response = await model.requestCode(provider: channel.rawValue,

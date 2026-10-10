@@ -10,7 +10,7 @@ enum VoiceLevel {
   /// A decibel reading as a bar height from 0 to 1.
   static func normalized(decibels: Float) -> Float {
     guard decibels.isFinite else { return 0 }
-    return min(1, max(0, (decibels - floorDecibels) / -floorDecibels))
+    return SharedNumber.clamped((decibels - floorDecibels) / -floorDecibels, to: 0...1)
   }
 
   /// The RMS level of little-endian PCM16 samples, in decibels relative to full scale; silence and empty buffers read as the floor.

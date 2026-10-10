@@ -31,10 +31,17 @@ final class MacClipboardModel: ObservableObject {
     pending = Task {
       defer { busy = false }
       do {
-        let token = try await credentials()
-        try await action(token)
-        let page = try await client.clipboard(token: token, search: search)
-        _ = try await credentials()
+        let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+        try Task.checkCancellation()
+        sessionID = identity.sessionID
+        _ = try await account.authenticated(matchingUserID: identity.userID,
+                                            matchingSessionID: identity.sessionID) { token in
+          try await action(token)
+        }.value
+        let page = try await client.clipboard(search: search, session: account,
+                                              matchingUserID: identity.userID,
+                                              matchingSessionID: identity.sessionID)
+        try await account.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
         enabled = page.enabled; items = page.items; loaded = true
       } catch is CancellationError { items = []; text = ""; loaded = false }
       catch { items = []; loaded = false; if !Task.isCancelled { message = error.localizedDescription } }

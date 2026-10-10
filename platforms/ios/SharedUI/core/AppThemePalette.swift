@@ -162,7 +162,7 @@ enum AppThemePalette {
 
   /// CSS `color-mix(in srgb, a percentA%, b)`，移植自 Android 的 `AppThemePalette.mix`：包括透明度在内的每个通道都在 0–255 范围上线性混合，再按 Chrome 打印设计稿 token 表的方式量化（0–1 通道值先取 6 位有效数字，再乘 255 后四舍五入）。直接取整会让恰好落在 .5 上的通道和设计稿差一级。
   static func mix(_ a: UIColor, _ percentA: Double, _ b: UIColor) -> UIColor {
-    let weight = min(max(percentA, 0), 100)
+    let weight = SharedNumber.clamped(percentA, to: 0...100)
     let first = channels(a), second = channels(b)
     var mixed = [CGFloat](repeating: 0, count: 4)
     for index in 0..<4 {
@@ -209,13 +209,13 @@ enum AppThemePalette {
   private static func channels(_ color: UIColor) -> [Double] {
     var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
     color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-    return [red, green, blue, alpha].map { (min(max(Double($0), 0), 1) * 255).rounded() }
+    return [red, green, blue, alpha].map { (SharedNumber.clamped(Double($0), to: 0...1) * 255).rounded() }
   }
 
   /// 按 Chrome 打印方式得到的一个 0–255 通道：0–1 值取 6 位有效数字，再乘 255 后四舍五入。`%.5e` 对精确的二进制值取整，与 Java 的 `BigDecimal(double).round(MathContext(6))` 一致。
   private static func quantize(_ channel: Double) -> Int {
     let unit = channel / 255
     let printed = Double(String(format: "%.5e", unit)) ?? unit
-    return min(max(Int((printed * 255).rounded(.toNearestOrAwayFromZero)), 0), 255)
+    return SharedNumber.clamped(Int((printed * 255).rounded(.toNearestOrAwayFromZero)), to: 0...255)
   }
 }

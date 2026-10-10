@@ -121,12 +121,12 @@ final class ImeKeyFeedback {
 
     /** 0–100 的音量换成 SoundPool 的 0–1。 */
     static float volumeFor(int percent) {
-        return KeyboardGeometry.bounded(percent, 0, 100) / 100f;
+        return BoundsPolicy.bounded(percent, 0, 100) / 100f;
     }
 
     /** 共享偏好里的音量必须是 JSON 整数；异常值按 100% 处理。 */
     static int volumePreference(Object raw) {
-        return KeyboardGeometry.strictInt(raw, 100);
+        return NumberPolicy.strictInt(raw, 100);
     }
 
     private void refreshPreferences() {

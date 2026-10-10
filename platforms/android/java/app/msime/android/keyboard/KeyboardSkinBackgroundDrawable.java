@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.graphics.Canvas;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -126,34 +127,34 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
         float right = getBounds().right;
         float bottom = getBounds().bottom;
         if (patternId == 1) {
-            float diameter = KeyboardGeometry.floatPixels(1.5, density);
-            for (float y = top + KeyboardGeometry.floatPixels(8, density); y < bottom;
-                 y += KeyboardGeometry.floatPixels(16, density)) {
-                for (float x = left + KeyboardGeometry.floatPixels(8, density); x < right;
-                     x += KeyboardGeometry.floatPixels(16, density))
+            float diameter = DimensionPolicy.floatPixels(1.5, density);
+            for (float y = top + DimensionPolicy.floatPixels(8, density); y < bottom;
+                 y += DimensionPolicy.floatPixels(16, density)) {
+                for (float x = left + DimensionPolicy.floatPixels(8, density); x < right;
+                     x += DimensionPolicy.floatPixels(16, density))
                     canvas.drawOval(x, y, x + diameter, y + diameter, pattern);
             }
             return;
         }
         pattern.setStyle(Paint.Style.STROKE);
         if (patternId == 2) {
-            pattern.setStrokeWidth(KeyboardGeometry.floatPixels(0.5, density));
-            for (float x = left; x < right; x += KeyboardGeometry.floatPixels(20, density))
+            pattern.setStrokeWidth(DimensionPolicy.floatPixels(0.5, density));
+            for (float x = left; x < right; x += DimensionPolicy.floatPixels(20, density))
                 canvas.drawLine(x, top, x, bottom, pattern);
-            for (float y = top; y < bottom; y += KeyboardGeometry.floatPixels(20, density))
+            for (float y = top; y < bottom; y += DimensionPolicy.floatPixels(20, density))
                 canvas.drawLine(left, y, right, y, pattern);
             return;
         }
-        pattern.setStrokeWidth(KeyboardGeometry.floatPixels(2, density));
+        pattern.setStrokeWidth(DimensionPolicy.floatPixels(2, density));
         float width = right - left;
         if (!wavePathValid) {
             wavePath.reset();
-            for (float offset = top - KeyboardGeometry.floatPixels(100, density);
-                 offset < bottom + width; offset += KeyboardGeometry.floatPixels(24, density)) {
+            for (float offset = top - DimensionPolicy.floatPixels(100, density);
+                 offset < bottom + width; offset += DimensionPolicy.floatPixels(24, density)) {
                 wavePath.moveTo(left, offset);
-                wavePath.cubicTo(left + width * 0.35f, offset - KeyboardGeometry.floatPixels(90, density),
-                    left + width * 0.65f, offset + KeyboardGeometry.floatPixels(20, density), right,
-                    offset - KeyboardGeometry.floatPixels(70, density));
+                wavePath.cubicTo(left + width * 0.35f, offset - DimensionPolicy.floatPixels(90, density),
+                    left + width * 0.65f, offset + DimensionPolicy.floatPixels(20, density), right,
+                    offset - DimensionPolicy.floatPixels(70, density));
             }
             wavePathValid = true;
         }
@@ -176,7 +177,7 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
     }
 
     @Override public void setAlpha(int value) {
-        alpha = KeyboardGeometry.bounded(value, 0, 255);
+        alpha = BoundsPolicy.bounded(value, 0, 255);
         background.setAlpha(alpha);
         pattern.setAlpha(Math.round(patternAlpha * alpha / 255f));
         photoPaint.setAlpha(alpha);

@@ -93,6 +93,11 @@ const MIN_FLASH_MILLIS: number = 60;
 const MAX_FLASH_MILLIS: number = 1500;
 
 export class TypingEffectPolicy {
+  /** 将运行时强度限制在效果策略使用的百分比范围内。 */
+  static boundedIntensity(intensity: number): number {
+    return Math.min(Math.max(intensity, 0), 100);
+  }
+
   /** The settings `preferences.plugins` asks for; a missing record or an unknown style is off. */
   static settings(plugins: PluginPreferenceDocument | undefined): TypingEffectSettings {
     if (plugins === undefined) {
@@ -214,7 +219,8 @@ export class TypingEffectPolicy {
     if (effect.tierUp) {
       base *= 1.5;
     }
-    const scaled: number = (base * Math.min(Math.max(intensity, 0), 100)) / DEFAULT_INTENSITY;
+    const scaled: number =
+      (base * TypingEffectPolicy.boundedIntensity(intensity)) / DEFAULT_INTENSITY;
     return Math.min(scaled, 0.6);
   }
 
@@ -228,7 +234,7 @@ export class TypingEffectPolicy {
     if (effect.style !== TypingEffectStyle.POWER_MODE || effect.count < BADGE_MINIMUM) {
       return 1;
     }
-    const strength: number = Math.min(Math.max(intensity, 0), 100) / 100;
+    const strength: number = TypingEffectPolicy.boundedIntensity(intensity) / 100;
     return 1 + (effect.tierUp ? 0.5 : 0.2) * strength;
   }
 }

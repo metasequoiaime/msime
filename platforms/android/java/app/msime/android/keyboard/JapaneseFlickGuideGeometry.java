@@ -30,15 +30,15 @@ public final class JapaneseFlickGuideGeometry {
                                float rootWidth, float rootHeight, float outset, float minCell) {
         if (keyWidth < 0 || keyHeight < 0 || rootWidth < 0 || rootHeight < 0 || outset < 0 || minCell < 0)
             throw new IllegalArgumentException("Flick guide sizes cannot be negative");
-        float width = Math.max(keyWidth + 2 * outset, 3 * minCell);
-        float height = Math.max(keyHeight + 2 * outset, 3 * minCell);
+        float width = BoundsPolicy.atLeast(keyWidth + 2 * outset, 3 * minCell);
+        float height = BoundsPolicy.atLeast(keyHeight + 2 * outset, 3 * minCell);
         float left = keyLeft + keyWidth / 2f - width / 2f;
         float top = keyTop + keyHeight / 2f - height / 2f;
         return new Guide(clamp(left, width, rootWidth), clamp(top, height, rootHeight), width, height);
     }
 
     private static float clamp(float start, float length, float limit) {
-        return Math.max(0f, Math.min(start, limit - length));
+        return BoundsPolicy.bounded(start, 0f, limit - length);
     }
 
     private static int checked(int direction) {

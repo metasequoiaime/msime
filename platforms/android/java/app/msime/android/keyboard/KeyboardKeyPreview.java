@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -51,7 +52,7 @@ public final class KeyboardKeyPreview extends View {
             float parentWidth) {
         float left = keyLeft + keyWidth / 2f - bubbleWidth / 2f;
         float max = BoundsPolicy.nonNegative(parentWidth - bubbleWidth);
-        return KeyboardGeometry.bounded(left, 0f, max);
+        return BoundsPolicy.bounded(left, 0f, max);
     }
 
     /** 气泡顶边：底边落在键顶以下 {@code overlap} 处。 */
@@ -76,8 +77,8 @@ public final class KeyboardKeyPreview extends View {
             float parentWidth) {
         label = TextPolicy.emptyIfNull(value);
         float width = bubbleWidth(keyWidth, weight);
-        float height = KeyboardGeometry.floatPixels(getContext(), HEIGHT_DP);
-        float margin = KeyboardGeometry.floatPixels(getContext(), SHADOW_MARGIN_DP);
+        float height = DimensionPolicy.floatPixels(getContext(), HEIGHT_DP);
+        float margin = DimensionPolicy.floatPixels(getContext(), SHADOW_MARGIN_DP);
         int nextWidth = Math.round(width + margin * 2);
         int nextHeight = Math.round(height + margin * 2);
         if (nextWidth != bubbleWidth || nextHeight != bubbleHeight) {
@@ -87,7 +88,7 @@ public final class KeyboardKeyPreview extends View {
         }
         setTranslationX(bubbleLeft(keyLeft, keyWidth, width, parentWidth) - margin);
         setTranslationY(bubbleTop(keyTop, height,
-            KeyboardGeometry.floatPixels(getContext(), OVERLAP_DP)) - margin);
+            DimensionPolicy.floatPixels(getContext(), OVERLAP_DP)) - margin);
         ViewPolicy.show(this);
         invalidate();
     }
@@ -111,23 +112,23 @@ public final class KeyboardKeyPreview extends View {
     }
 
     @Override protected void onDraw(Canvas canvas) {
-        float margin = KeyboardGeometry.floatPixels(getContext(), SHADOW_MARGIN_DP);
+        float margin = DimensionPolicy.floatPixels(getContext(), SHADOW_MARGIN_DP);
         rect.set(margin, margin, getWidth() - margin, getHeight() - margin);
         if (rect.width() <= 0 || rect.height() <= 0) return;
-        float top = KeyboardGeometry.floatPixels(getContext(), TOP_RADIUS_DP);
-        float bottom = KeyboardGeometry.floatPixels(getContext(), BOTTOM_RADIUS_DP);
+        float top = DimensionPolicy.floatPixels(getContext(), TOP_RADIUS_DP);
+        float bottom = DimensionPolicy.floatPixels(getContext(), BOTTOM_RADIUS_DP);
         radii[0] = radii[1] = radii[2] = radii[3] = top;
         radii[4] = radii[5] = radii[6] = radii[7] = bottom;
         shape.reset();
         shape.addRoundRect(rect, radii, Path.Direction.CW);
-        fill.setShadowLayer(KeyboardGeometry.floatPixels(getContext(), 9), 0,
-            KeyboardGeometry.floatPixels(getContext(), 6), ColorPolicy.withAlpha(Color.BLACK, 56));
+        fill.setShadowLayer(DimensionPolicy.floatPixels(getContext(), 9), 0,
+            DimensionPolicy.floatPixels(getContext(), 6), ColorPolicy.withAlpha(Color.BLACK, 56));
         canvas.drawPath(shape, fill);
         outline.setStrokeWidth(BoundsPolicy.bounded(
-            KeyboardGeometry.floatPixels(getContext(), .5f), 1f, Float.MAX_VALUE));
+            DimensionPolicy.floatPixels(getContext(), .5f), 1f, Float.MAX_VALUE));
         canvas.drawPath(shape, outline);
         if (label.isEmpty()) return;
-        ViewPolicy.setTextSize(text, KeyboardGeometry.keySp(getContext(), TEXT_SP));
+        ViewPolicy.setTextSize(text, KeyboardTypographyPolicy.keySp(getContext(), TEXT_SP));
         Paint.FontMetrics metrics = text.getFontMetrics();
         canvas.drawText(label, rect.centerX(), rect.centerY() - (metrics.ascent + metrics.descent) / 2f,
             text);

@@ -15,11 +15,11 @@ enum KeyboardLayoutPreference {
   static let oneHandedKey = "keyboard.oneHanded"
   static var keySpacing: Double {
     get { spacing(key: keySpacingKey, fallback: 6, range: 3...6) }
-    set { defaults.set(min(6, max(3, newValue)), forKey: keySpacingKey) }
+    set { defaults.set(SharedNumber.clamped(newValue, to: 3...6), forKey: keySpacingKey) }
   }
   static var rowSpacing: Double {
     get { spacing(key: rowSpacingKey, fallback: 7, range: 4...10) }
-    set { defaults.set(min(10, max(4, newValue)), forKey: rowSpacingKey) }
+    set { defaults.set(SharedNumber.clamped(newValue, to: 4...10), forKey: rowSpacingKey) }
   }
   /// Keyboard height adjustment relative to the platform's current default, in points.
   ///
@@ -27,7 +27,7 @@ enum KeyboardLayoutPreference {
   /// same setting remains useful when the candidate surface changes height.
   static var heightAdjustment: Double {
     get { spacing(key: heightAdjustmentKey, fallback: 0, range: -12...48) }
-    set { defaults.set(min(48, max(-12, newValue)), forKey: heightAdjustmentKey) }
+    set { defaults.set(SharedNumber.clamped(newValue, to: -12...48), forKey: heightAdjustmentKey) }
   }
   /// Whether Tab opens the full candidate panel while composing on the full-size iPad keyboard: the shared `navigation.tab` (Windows `paging_tab`, on by default). Read by the keyboard and edited by the App's iPad section.
   static func tabShowsMoreCandidates(_ preferences: [String: Any]?) -> Bool {
@@ -231,22 +231,22 @@ enum KeyboardLayoutPreference {
   /// Values from the canonical document are integer tenths/points. Reject booleans and fractions before clamping so malformed synced data cannot silently become a valid geometry setting.
   static func sharedKeySpacing(_ value: Any?) -> Double? {
     guard let integer = SharedNumber.strictInt(value) else { return nil }
-    return min(6, max(3, Double(integer) / 10))
+    return SharedNumber.clamped(Double(integer) / 10, to: 3...6)
   }
 
   static func sharedRowSpacing(_ value: Any?) -> Double? {
     guard let integer = SharedNumber.strictInt(value) else { return nil }
-    return min(10, max(4, Double(integer) / 10))
+    return SharedNumber.clamped(Double(integer) / 10, to: 4...10)
   }
 
   static func sharedHeightAdjustment(_ value: Any?) -> Double? {
     guard let integer = SharedNumber.strictInt(value) else { return nil }
-    return Double(min(48, max(-12, integer)))
+    return Double(SharedNumber.clamped(integer, to: -12...48))
   }
 
   private static func spacing(key: String, fallback: Double, range: ClosedRange<Double>) -> Double {
     guard let value = defaults.object(forKey: key) as? NSNumber, value.doubleValue.isFinite else { return fallback }
-    return min(range.upperBound, max(range.lowerBound, value.doubleValue))
+    return SharedNumber.clamped(value.doubleValue, to: range)
   }
 }
 
@@ -341,7 +341,7 @@ struct KeyboardGeometry: Equatable {
   var showsFullKeyboardSymbols: Bool { false }
 
   static func clamped(_ value: Double, _ lower: Double, _ upper: Double) -> Double {
-    min(upper, max(lower, value))
+    SharedNumber.clamped(value, to: lower...upper)
   }
 
   static func formattedHeightAdjustment(_ value: Double) -> String {

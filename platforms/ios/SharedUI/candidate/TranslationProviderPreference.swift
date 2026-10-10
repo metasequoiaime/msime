@@ -189,7 +189,7 @@ struct TranslationProviderClient: Sendable {
       guard let value = SharedNumber.nonnegativeInt(descriptor["timeout_ms"]), value > 0 else { return nil }
       milliseconds = value
     }
-    let timeout = TimeInterval(min(10_000, max(1_000, milliseconds))) / 1000
+    let timeout = OnlineRequestPolicy.timeout(milliseconds: milliseconds)
     let maxBytes: Int
     if descriptor["max_response_bytes"] == nil {
       maxBytes = 1_048_576

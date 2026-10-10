@@ -37,6 +37,24 @@ extension BackendAccountClient {
     let retention = page.retention_days.flatMap { Self.clipboardRetentionDays.contains($0) ? $0 : nil }
     return ClipboardPage(enabled: page.enabled, items: items, retention_days: retention)
   }
+
+  /// Read the clipboard with the session binding held across a possible access-token refresh.
+  /// Callers cannot accidentally publish a page from an account that changed while the request
+  /// was in flight.
+  func clipboard(search: String = "", session: BackendAccountSession,
+                 matchingUserID expected: String? = nil,
+                 matchingSessionID expectedSessionID: UUID? = nil) async throws -> ClipboardPage {
+    let identity = try await session.credentials(matchingUserID: expected,
+                                                 matchingSessionID: expectedSessionID)
+    let page = try await session.authenticated(matchingUserID: identity.userID,
+                                               matchingSessionID: identity.sessionID) { token in
+      try await clipboard(token: token, search: search)
+    }.value
+    try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+    try Task.checkCancellation()
+    return page
+  }
+
   func setClipboardPinned(id: String, pinned: Bool, token: String) async throws {
     guard Self.validClipboardID(id) else { throw Failure(status: 400) }
     struct Body: Encodable { let pinned: Bool }

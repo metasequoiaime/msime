@@ -32,6 +32,6 @@ public final class ReadingRowPolicy {
      */
     public static int heightPx(int designPx, int ascent, int descent, int verticalPadding) {
         int text = BoundsPolicy.nonNegative(descent - ascent) + BoundsPolicy.nonNegative(verticalPadding);
-        return Math.max(BoundsPolicy.nonNegative(designPx), text);
+        return BoundsPolicy.atLeast(text, BoundsPolicy.nonNegative(designPx));
     }
 }

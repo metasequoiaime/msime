@@ -1,5 +1,10 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
+import app.msime.android.LayoutPolicy;
+
+import app.msime.android.DimensionPolicy;
+
 import app.msime.android.MainThreadPolicy;
 import app.msime.android.TextPolicy;
 
@@ -286,9 +291,9 @@ public final class AiSkinPage extends DetailPage {
         LinearLayout header = Ui.row(context);
         ViewPolicy.setCenteredVertically(header);
         LinearLayout heading = Ui.column(context);
-        title = Ui.singleLineLabel(context, "", 17, 600, Ui.text(context));
+        title = Ui.singleLineLabel(context, "", 17, 600, ThemeColorPolicy.text(context));
         heading.addView(title);
-        subtitle = Ui.styledLabel(context, "", 13, 400, Ui.subText(context));
+        subtitle = Ui.styledLabel(context, "", 13, 400, ThemeColorPolicy.subText(context));
         heading.addView(subtitle);
         header.addView(heading, Ui.weightWrap(1f));
         SegmentedControl layout = new SegmentedControl(context);
@@ -304,13 +309,13 @@ public final class AiSkinPage extends DetailPage {
         preview = new KeyboardPreview(context);
         preview.setContentDescription("皮肤预览");
         stage.addView(preview,
-            KeyboardGeometry.frameMatchWidthHeightPx(Ui.dp(context, 200)));
+            LayoutPolicy.frameMatchWidthHeightPx(Ui.dp(context, 200)));
         LinearLayout overlay = Ui.column(context);
         ViewPolicy.setCentered(overlay);
         ProgressBar spinner = new ProgressBar(context);
-        ProgressBarPolicy.setIndeterminateTint(spinner, Ui.accent(context));
+        ProgressBarPolicy.setIndeterminateTint(spinner, ThemeColorPolicy.accent(context));
         overlay.addView(spinner, Ui.squareParams(context, 32));
-        TextView designing = Ui.styledLabel(context, "正在设计…", 14, 500, Ui.text(context));
+        TextView designing = Ui.styledLabel(context, "正在设计…", 14, 500, ThemeColorPolicy.text(context));
         overlay.addView(designing);
         busyOverlay = overlay;
         stage.addView(overlay, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -321,7 +326,7 @@ public final class AiSkinPage extends DetailPage {
 
         LinearLayout colours = Ui.row(context);
         ViewPolicy.setCenteredVertically(colours);
-        TextView label = Ui.styledLabel(context, "配色", 13, 400, Ui.subText(context));
+        TextView label = Ui.styledLabel(context, "配色", 13, 400, ThemeColorPolicy.subText(context));
         colours.addView(label);
         palette = Ui.row(context);
         LinearLayout.LayoutParams paletteParams = Ui.wrap();
@@ -347,10 +352,10 @@ public final class AiSkinPage extends DetailPage {
         }
 
         GroupCard describe = GroupCard.add(target, "描述");
-        EditText input = Ui.styledInput(context, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
+        EditText input = Ui.styledInput(context, Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.text(context));
         input.setText(s.prompt);
         input.setHint("写下你想要的样子，例如「雨后竹林」");
-        input.setHintTextColor(Ui.subText(context));
+        input.setHintTextColor(ThemeColorPolicy.subText(context));
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         ViewPolicy.setMinLines(input, 2);
         ViewPolicy.setTopStart(input);
@@ -365,7 +370,7 @@ public final class AiSkinPage extends DetailPage {
         Ui.setPaddingDp(chips, context, 12, 4, 12, 12);
         List<TextView> chipViews = new ArrayList<>(SUGGESTIONS.length);
         for (String suggestion : SUGGESTIONS) {
-            TextView chip = Ui.singleLineLabel(context, suggestion, 13, 400, Ui.text(context));
+            TextView chip = Ui.singleLineLabel(context, suggestion, 13, 400, ThemeColorPolicy.text(context));
             Ui.setSymmetricPaddingDp(chip, context, 12, 6);
             ViewPolicy.setInteractive(chip, true);
             ViewPolicy.bindClick(chip, () -> {
@@ -447,8 +452,8 @@ public final class AiSkinPage extends DetailPage {
         String current = TextPolicy.trimmed(s.prompt);
         for (TextView chip : chips) {
             boolean on = chip.getText().toString().equals(current);
-            Ui.style(chip, 13, on ? 600 : 400, on ? Ui.onAccent(context) : Ui.text(context));
-            ViewPolicy.setBackground(chip, Ui.pillRipple(context, on ? Ui.accent(context) : Ui.rowBackground(context)));
+            Ui.style(chip, 13, on ? 600 : 400, on ? ThemeColorPolicy.onAccent(context) : ThemeColorPolicy.text(context));
+            ViewPolicy.setBackground(chip, Ui.pillRipple(context, on ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.rowBackground(context)));
         }
     }
 
@@ -479,7 +484,7 @@ public final class AiSkinPage extends DetailPage {
                     View dot = new View(context);
                     android.graphics.drawable.GradientDrawable shape = DrawablePolicy.outlined(
                         ColorPolicy.parse(colour, Color.GRAY), 9999f,
-                        KeyboardGeometry.atLeastOnePixel(context, 1), Ui.hairline(context));
+                        DimensionPolicy.atLeastOnePixel(context, 1), ThemeColorPolicy.hairline(context));
                     ViewPolicy.setBackground(dot, shape);
                     LinearLayout.LayoutParams params = Ui.squareParams(context, 16);
                     params.setMarginEnd(Ui.dp(context, 6));

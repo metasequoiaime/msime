@@ -15,7 +15,7 @@ def main() -> int:
     ui = UI.read_text(encoding="utf-8")
     required = (
         "public static TextView liveStatus(Context context, int sizeSp)",
-        'TextView status = styledLabel(context, "", sizeSp, 400, subText(context));',
+        'TextView status = styledLabel(context, "", sizeSp, 400, ThemeColorPolicy.subText(context));',
         "ViewPolicy.setPoliteLiveRegion(status);",
         "return status;",
     )

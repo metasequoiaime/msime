@@ -81,7 +81,7 @@ public final class CustomSkinLibrary {
             if (id == null || name == null) continue;
             name = TextPolicy.trimmed(name);
             if (id.isEmpty() || !boundedName(name) || design == null) continue;
-            long updatedAt = BoundsPolicy.nonNegative(KeyboardGeometry.strictLong(item.opt("updated_at"), 0));
+            long updatedAt = BoundsPolicy.nonNegative(NumberPolicy.strictLong(item.opt("updated_at"), 0));
             result.add(new Item(id, name, design, updatedAt));
         }
         return List.copyOf(result);
@@ -277,7 +277,7 @@ public final class CustomSkinLibrary {
             if (id == null || id.isEmpty() || name == null || design == null) continue;
             name = TextPolicy.trimmed(name);
             if (!boundedName(name)) continue;
-            long updatedAt = BoundsPolicy.nonNegative(KeyboardGeometry.strictLong(value.opt("updated_at"), 0));
+            long updatedAt = BoundsPolicy.nonNegative(NumberPolicy.strictLong(value.opt("updated_at"), 0));
             int position = indexOf(result, id);
             if (position >= 0) {
                 Item current = result.get(position);

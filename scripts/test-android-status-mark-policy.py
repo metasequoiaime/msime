@@ -20,8 +20,8 @@ def main() -> int:
         "public final class StatusMarkPolicy",
         "public static void apply(TextView mark, Context context, boolean done)",
         'mark.setText(done ? "✓" : "!");',
-        "ViewPolicy.setTextColor(mark, done ? Ui.onAccent(context) : 0xFFFFFFFF);",
-        "DrawablePolicy.circle(done ? Ui.accent(context) : Ui.color(context, R.attr.msWarn))",
+        "ViewPolicy.setTextColor(mark, done ? ThemeColorPolicy.onAccent(context) : 0xFFFFFFFF);",
+        "DrawablePolicy.circle(done ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.color(context, R.attr.msWarn))",
         "ViewPolicy.hideFromAccessibility(mark);",
     )
     for snippet in required:

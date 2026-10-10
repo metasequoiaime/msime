@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.os.Bundle;
@@ -62,7 +63,7 @@ public final class PagedTileGrid extends ViewGroup {
     /** 页数：至少一页。 */
     public static int pageCount(int items, int perPage) {
         if (items <= 0) return 1;
-        int capacity = Math.max(1, perPage);
+        int capacity = BoundsPolicy.atLeast(perPage, 1);
         return items / capacity + (items % capacity == 0 ? 0 : 1);
     }
 
@@ -87,7 +88,7 @@ public final class PagedTileGrid extends ViewGroup {
         } else {
             target = Math.round(scrollX / pageWidth);
         }
-        return KeyboardGeometry.bounded(target, 0, pageCount - 1);
+        return BoundsPolicy.bounded(target, 0, pageCount - 1);
     }
 
     public void setGrid(int columnCount, int rowCount) {
@@ -112,7 +113,7 @@ public final class PagedTileGrid extends ViewGroup {
     public int pageCount() { return pageCount(getChildCount(), perPage(columns, rows)); }
 
     public void setPage(int value, boolean animate) {
-        int target = KeyboardGeometry.bounded(value, 0, pageCount() - 1);
+        int target = BoundsPolicy.bounded(value, 0, pageCount() - 1);
         int width = getWidth();
         if (!animate || width <= 0) {
             scroller.forceFinished(true);
@@ -128,7 +129,7 @@ public final class PagedTileGrid extends ViewGroup {
         }
     }
 
-    private float px(float dp) { return KeyboardGeometry.floatPixels(getContext(), dp); }
+    private float px(float dp) { return DimensionPolicy.floatPixels(getContext(), dp); }
 
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int width = MeasureSpec.getSize(widthMeasureSpec);

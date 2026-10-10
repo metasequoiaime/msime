@@ -1,5 +1,8 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -74,17 +77,17 @@ public final class FunctionPanelView extends LinearLayout {
         super(context);
         setOrientation(VERTICAL);
         setContentDescription("更多工具");
-        KeyboardGeometry.setPaddingDp(this, context, 0, 10, 0, 4);
+        LayoutPolicy.setPaddingDp(this, context, 0, 10, 0, 4);
         grid = new PagedTileGrid(context);
         grid.setGrid(4, 2);
         grid.setSpacing(ITEM_HEIGHT_DP, 16f, 4f, 4f);
         dots = new KeyboardPagerDots(context);
         grid.setOnPageChangeListener((page, count) -> dots.setActive(page, true));
-        LinearLayout.LayoutParams gridParams = KeyboardGeometry.weightedWidthParams(1f);
+        LinearLayout.LayoutParams gridParams = LayoutPolicy.weightedWidthParams(1f);
         addView(grid, gridParams);
-        LinearLayout.LayoutParams dotParams = KeyboardGeometry.wrapParams();
+        LinearLayout.LayoutParams dotParams = LayoutPolicy.wrapParams();
         dotParams.gravity = Gravity.CENTER_HORIZONTAL;
-        dotParams.topMargin = KeyboardGeometry.pixels(context, 8);
+        dotParams.topMargin = DimensionPolicy.pixels(context, 8);
         addView(dots, dotParams);
     }
 
@@ -200,7 +203,7 @@ public final class FunctionPanelView extends LinearLayout {
         }
 
         private void configureLabelPaint(boolean on) {
-            ViewPolicy.setTextSize(textPaint, KeyboardGeometry.keySp(getContext(), LABEL_SP));
+            ViewPolicy.setTextSize(textPaint, KeyboardTypographyPolicy.keySp(getContext(), LABEL_SP));
             ViewPolicy.setTypeface(textPaint, on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
         }
 
@@ -212,25 +215,25 @@ public final class FunctionPanelView extends LinearLayout {
             configureLabelPaint(on);
             Paint.FontMetrics label = textPaint.getFontMetrics();
             float labelHeight = label.descent - label.ascent;
-            float area = KeyboardGeometry.floatPixels(getContext(), ICON_AREA_DP);
-            float total = area + KeyboardGeometry.floatPixels(getContext(), LABEL_GAP_DP) + labelHeight;
+            float area = DimensionPolicy.floatPixels(getContext(), ICON_AREA_DP);
+            float total = area + DimensionPolicy.floatPixels(getContext(), LABEL_GAP_DP) + labelHeight;
             float top = BoundsPolicy.nonNegative((getHeight() - total) / 2f);
             float centerX = getWidth() / 2f;
             float iconCenterY = top + area / 2f;
             float iconRight;
             float iconBottom;
             if (entry.glyph != null) {
-                float box = KeyboardGeometry.floatPixels(getContext(), GLYPH_BOX_DP);
+                float box = DimensionPolicy.floatPixels(getContext(), GLYPH_BOX_DP);
                 rect.set(centerX - box / 2f, iconCenterY - box / 2f, centerX + box / 2f,
                     iconCenterY + box / 2f);
                 boxPaint.setColor(color);
-                boxPaint.setStrokeWidth(KeyboardGeometry.floatPixels(getContext(), GLYPH_STROKE_DP));
-                float inset = KeyboardGeometry.floatPixels(getContext(), GLYPH_STROKE_DP) / 2f;
+                boxPaint.setStrokeWidth(DimensionPolicy.floatPixels(getContext(), GLYPH_STROKE_DP));
+                float inset = DimensionPolicy.floatPixels(getContext(), GLYPH_STROKE_DP) / 2f;
                 rect.inset(inset, inset);
-                float radius = KeyboardGeometry.floatPixels(getContext(), GLYPH_RADIUS_DP);
+                float radius = DimensionPolicy.floatPixels(getContext(), GLYPH_RADIUS_DP);
                 canvas.drawRoundRect(rect, radius, radius, boxPaint);
                 Paint glyph = textPaint;
-                ViewPolicy.setTextSize(glyph, KeyboardGeometry.keySp(getContext(), GLYPH_SP));
+                ViewPolicy.setTextSize(glyph, KeyboardTypographyPolicy.keySp(getContext(), GLYPH_SP));
                 ViewPolicy.setTypeface(glyph, Typeface.DEFAULT_BOLD);
                 glyph.setColor(color);
                 Paint.FontMetrics metrics = glyph.getFontMetrics();
@@ -240,7 +243,7 @@ public final class FunctionPanelView extends LinearLayout {
                 iconBottom = iconCenterY + box / 2f;
                 configureLabelPaint(on);
             } else {
-                float size = KeyboardGeometry.floatPixels(getContext(), ICON_DP);
+                float size = DimensionPolicy.floatPixels(getContext(), ICON_DP);
                 if (entry.icon != null) {
                     KeyboardIconPaths.draw(canvas, iconPaint, entry.icon, centerX - size / 2f,
                         iconCenterY - size / 2f, size, color);
@@ -251,21 +254,21 @@ public final class FunctionPanelView extends LinearLayout {
             if (on) drawBadge(canvas, iconRight, iconBottom);
             textPaint.setColor(color);
             float baseline = top + area
-                + KeyboardGeometry.floatPixels(getContext(), LABEL_GAP_DP) - label.ascent;
+                + DimensionPolicy.floatPixels(getContext(), LABEL_GAP_DP) - label.ascent;
             canvas.drawText(fit(entry.label, getWidth()), centerX, baseline, textPaint);
         }
 
         private void drawBadge(Canvas canvas, float iconRight, float iconBottom) {
-            float badge = KeyboardGeometry.floatPixels(getContext(), BADGE_DP);
+            float badge = DimensionPolicy.floatPixels(getContext(), BADGE_DP);
             float cx = iconRight;
             float cy = iconBottom;
             badgePaint.setStyle(Paint.Style.FILL);
             badgePaint.setColor(panel.panelBackground);
             canvas.drawCircle(cx, cy, badge / 2f
-                + KeyboardGeometry.floatPixels(getContext(), BADGE_RING_DP), badgePaint);
+                + DimensionPolicy.floatPixels(getContext(), BADGE_RING_DP), badgePaint);
             badgePaint.setColor(panel.accent);
             canvas.drawCircle(cx, cy, badge / 2f, badgePaint);
-            float check = KeyboardGeometry.floatPixels(getContext(), BADGE_CHECK_DP);
+            float check = DimensionPolicy.floatPixels(getContext(), BADGE_CHECK_DP);
             KeyboardIconPaths.draw(canvas, iconPaint, KeyboardIconPaths.Icon.CHECK,
                 cx - check / 2f, cy - check / 2f, check, panel.panelBackground);
         }

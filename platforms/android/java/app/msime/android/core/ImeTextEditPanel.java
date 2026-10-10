@@ -1,5 +1,7 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.os.SystemClock;
@@ -32,36 +34,36 @@ final class ImeTextEditPanel {
     /** 建面板视图（隐藏状态），布局与 {@link TextEditPanelModel} 的 4 × 4 网格一致。 */
     LinearLayout build() {
         buttons.clear();
-        LinearLayout panel = KeyboardGeometry.row(s);
+        LinearLayout panel = LayoutPolicy.row(s);
         panel.setContentDescription("文本编辑面板");
         int padding = s.pixels(4);
         ViewPolicy.setPadding(panel, padding, padding, padding, padding);
         // 键之间的空隙不能把触摸漏给底下的字母键。
         ViewPolicy.setClickable(panel, true);
 
-        LinearLayout left = KeyboardGeometry.column(s);
-        LinearLayout arrows = KeyboardGeometry.row(s);
+        LinearLayout left = LayoutPolicy.column(s);
+        LinearLayout arrows = LayoutPolicy.row(s);
         arrows.addView(key(TextEditPanelModel.Action.LEFT), cell(true));
-        LinearLayout vertical = KeyboardGeometry.column(s);
+        LinearLayout vertical = LayoutPolicy.column(s);
         vertical.addView(key(TextEditPanelModel.Action.UP), cell(false));
         vertical.addView(key(TextEditPanelModel.Action.SELECT), cell(false));
         vertical.addView(key(TextEditPanelModel.Action.DOWN), cell(false));
-        arrows.addView(vertical, KeyboardGeometry.weightedMatchParentParams(1));
+        arrows.addView(vertical, LayoutPolicy.weightedMatchParentParams(1));
         arrows.addView(key(TextEditPanelModel.Action.RIGHT), cell(true));
-        left.addView(arrows, KeyboardGeometry.weightedWidthParams(3));
-        LinearLayout ends = KeyboardGeometry.row(s);
+        left.addView(arrows, LayoutPolicy.weightedWidthParams(3));
+        LinearLayout ends = LayoutPolicy.row(s);
         ends.addView(key(TextEditPanelModel.Action.DOCUMENT_START), cell(true));
         ends.addView(key(TextEditPanelModel.Action.DOCUMENT_END), cell(true));
         ends.addView(key(TextEditPanelModel.Action.DELETE), cell(true));
-        left.addView(ends, KeyboardGeometry.weightedWidthParams(1));
-        panel.addView(left, KeyboardGeometry.weightedMatchParentParams(3));
+        left.addView(ends, LayoutPolicy.weightedWidthParams(1));
+        panel.addView(left, LayoutPolicy.weightedMatchParentParams(3));
 
-        LinearLayout clipboard = KeyboardGeometry.column(s);
+        LinearLayout clipboard = LayoutPolicy.column(s);
         clipboard.addView(key(TextEditPanelModel.Action.SELECT_ALL), cell(false));
         clipboard.addView(key(TextEditPanelModel.Action.COPY), cell(false));
         clipboard.addView(key(TextEditPanelModel.Action.CUT), cell(false));
         clipboard.addView(key(TextEditPanelModel.Action.PASTE), cell(false));
-        panel.addView(clipboard, KeyboardGeometry.weightedMatchParentParams(1));
+        panel.addView(clipboard, LayoutPolicy.weightedMatchParentParams(1));
         ViewPolicy.hide(panel);
         return panel;
     }
@@ -69,7 +71,7 @@ final class ImeTextEditPanel {
     /** 一格的布局参数：`horizontal` 为真时在横排里按宽度均分，否则在竖排里按高度均分，四周留出键距。 */
     private LinearLayout.LayoutParams cell(boolean horizontal) {
         LinearLayout.LayoutParams params = horizontal
-            ? KeyboardGeometry.weightedMatchParentParams(1) : KeyboardGeometry.weightedWidthParams(1);
+            ? LayoutPolicy.weightedMatchParentParams(1) : LayoutPolicy.weightedWidthParams(1);
         int margin = s.pixels(3);
         params.setMargins(margin, margin, margin, margin);
         return params;
@@ -85,7 +87,7 @@ final class ImeTextEditPanel {
         } else {
             button = s.keyboardKey(spec.label(), spec.description(), run);
             if (action == TextEditPanelModel.Action.SELECT || spec.label().length() > 1)
-                KeyboardGeometry.setKeyTextSize(button, 16);
+                KeyboardTypographyPolicy.setKeyTextSize(button, 16);
             if (spec.repeats()) bindRepeat(button, run);
         }
         ViewPolicy.clearPadding(button);

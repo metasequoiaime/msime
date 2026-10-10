@@ -60,11 +60,11 @@ enum HandwritingPreference {
 
   /// 取整到最近的步长并限制在范围内，这样旧版本或手工写入的值不会以奇怪的延迟传到计时器上。
   static func clampedDelay(_ value: Int) -> Int {
-    let bounded = min(max(value, delayRange.lowerBound), delayRange.upperBound)
+    let bounded = SharedNumber.clamped(value, to: delayRange)
     return Int((Double(bounded) / Double(delayStep)).rounded()) * delayStep
   }
 
   static func clampedWidth(_ value: Int) -> Int {
-    min(max(value, strokeWidthRange.lowerBound), strokeWidthRange.upperBound)
+    SharedNumber.clamped(value, to: strokeWidthRange)
   }
 }

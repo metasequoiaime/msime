@@ -3,6 +3,8 @@ import SwiftUI
 struct CloudDictionaryCatalogView: View {
   let kind: BackendAccountClient.DictionaryKind
   let authorize: () async throws -> String
+  let accountID: String?
+  let session: BackendAccountSession?
   @State private var code = ""
   @State private var scheme = "pinyin"
   @State private var profile = "xiaohe"
@@ -13,9 +15,15 @@ struct CloudDictionaryCatalogView: View {
   @State private var busy = false
   @State private var message: String?
   @State private var pending: Task<Void, Never>?
+  @State private var sessionID: UUID?
   private let client = BackendAccountClient()
-  private struct Query { let code: String; let scheme: String; let profile: String }
-  private struct Edit: Identifiable { let id = UUID(); let entry: BackendAccountClient.CatalogEntry; let revision: Int64 }
+  private struct Query: Sendable { let code: String; let scheme: String; let profile: String }
+  private struct Edit: Identifiable, Sendable { let id = UUID(); let entry: BackendAccountClient.CatalogEntry; let revision: Int64 }
+
+  init(kind: BackendAccountClient.DictionaryKind, authorize: @escaping () async throws -> String,
+       accountID: String? = nil, session: BackendAccountSession? = nil) {
+    self.kind = kind; self.authorize = authorize; self.accountID = accountID; self.session = session
+  }
 
   var body: some View {
     List {
@@ -83,8 +91,10 @@ struct CloudDictionaryCatalogView: View {
     .onDisappear { pending?.cancel(); page = nil }
     .sheet(item: $editing) { edit in
       CloudDictionaryEditor(kind: kind, value: edit.entry.value) { value in
-        let token = try await authorize()
-        _ = try await client.editCatalog(edit.entry, revision: edit.revision, replacement: value, token: token)
+        let client = self.client
+        _ = try await authenticated { token in
+          try await client.editCatalog(edit.entry, revision: edit.revision, replacement: value, token: token)
+        }
         try await reload(offset: 0)
       }
     }
@@ -93,8 +103,10 @@ struct CloudDictionaryCatalogView: View {
       Button("删除", role: .destructive) {
         guard let edit = deleting else { return }
         run {
-          let token = try await authorize()
-          _ = try await client.editCatalog(edit.entry, revision: edit.revision, replacement: nil, token: token)
+          let client = self.client
+          _ = try await authenticated { token in
+            try await client.editCatalog(edit.entry, revision: edit.revision, replacement: nil, token: token)
+          }
           try await reload(offset: 0)
         }
         deleting = nil
@@ -102,11 +114,20 @@ struct CloudDictionaryCatalogView: View {
     } message: { Text("基础词条也可从当前账号的云端目录删除。本机词库保持原样；云端版本变化时须重新查询并确认。") }
   }
   @MainActor private func load(query: Query, offset: Int) async throws {
-    let token = try await authorize()
-    let result = try await client.dictionaryCatalog(kind, code: query.code, offset: offset, scheme: query.scheme, profile: query.profile, token: token)
-    _ = try await authorize()
-    try Task.checkCancellation()
+    let client = self.client
+    let result = try await authenticated { token in
+      try await client.dictionaryCatalog(kind, code: query.code, offset: offset, scheme: query.scheme, profile: query.profile, token: token)
+    }
     page = result; confirmedQuery = query
+  }
+  @MainActor private func authenticated<T: Sendable>(_ operation: @escaping @Sendable (String) async throws -> T) async throws -> T {
+    if let session, let accountID {
+      let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+      sessionID = identity.sessionID
+      return try await session.authenticated(matchingUserID: identity.userID,
+                                             matchingSessionID: identity.sessionID, operation).value
+    }
+    return try await operation(try await authorize())
   }
   @MainActor private func reload(offset: Int) async throws {
     guard let query = confirmedQuery else { return }

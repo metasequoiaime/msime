@@ -311,7 +311,7 @@ struct AccountLoginOptions: View {
         .focused($focus, equals: .email)
         .accessibilityIdentifier("backendCodeTarget")
       TimelineView(.periodic(from: .now, by: 1)) { timeline in
-        let seconds = max(0, Int(ceil(resendAt.timeIntervalSince(timeline.date))))
+        let seconds = VerificationCodePolicy.remainingSeconds(until: resendAt, now: timeline.date)
         let ready = emailValid && seconds == 0 && !model.busy
         Button(action: sendCode) {
           HStack(spacing: 8) {

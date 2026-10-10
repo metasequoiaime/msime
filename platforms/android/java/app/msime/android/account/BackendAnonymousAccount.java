@@ -210,7 +210,7 @@ final class BackendAnonymousAccount {
             int status = connection.getResponseCode();
             if (status == 429) {
                 // 服务端给了重试时间就按它来；没给就退一分钟，别把这件事变成一个忙等的循环。
-                long seconds = KeyboardGeometry.bounded(
+                long seconds = BoundsPolicy.bounded(
                     connection.getHeaderFieldInt("Retry-After", 60), 1, 3600);
                 synchronized (LOCK) {
                     nextAttemptAtMillis = System.currentTimeMillis() + seconds * 1000L;

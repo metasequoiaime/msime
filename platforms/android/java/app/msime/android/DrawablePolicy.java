@@ -34,6 +34,11 @@ public final class DrawablePolicy {
         return shape;
     }
 
+    /** Create a fully rounded rectangle whose corners clamp to the short side. */
+    public static GradientDrawable pill(int color) {
+        return rounded(color, 9999f);
+    }
+
     /** 创建具有固定像素尺寸的纯色圆角矩形。 */
     public static GradientDrawable rounded(int color, float radiusPx, int width, int height) {
         GradientDrawable shape = rounded(color, radiusPx);

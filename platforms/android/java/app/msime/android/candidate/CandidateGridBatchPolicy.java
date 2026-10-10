@@ -17,15 +17,15 @@ public final class CandidateGridBatchPolicy {
     public static int initialCount(int total, int previouslyBuilt, boolean sameGeneration) {
         if (total < 0 || previouslyBuilt < 0)
             throw new IllegalArgumentException("Invalid candidate grid counts");
-        int wanted = sameGeneration ? Math.max(BATCH, previouslyBuilt) : BATCH;
-        return Math.min(total, wanted);
+        int wanted = sameGeneration ? BoundsPolicy.atLeast(previouslyBuilt, BATCH) : BATCH;
+        return BoundsPolicy.atMost(wanted, total);
     }
 
     /** 追加一批后已建的格子数。 */
     public static int nextCount(int built, int total) {
         if (built < 0 || total < 0 || built > total)
             throw new IllegalArgumentException("Invalid candidate grid counts");
-        return (int) Math.min((long) built + BATCH, total);
+        return (int) BoundsPolicy.atMost((long) built + BATCH, (long) total);
     }
 
     /**

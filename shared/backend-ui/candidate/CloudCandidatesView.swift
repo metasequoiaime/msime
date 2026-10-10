@@ -3,6 +3,8 @@ import SwiftUI
 struct CloudCandidatesView: View {
   let kind: BackendAccountClient.DictionaryKind
   let authorize: () async throws -> String
+  let accountID: String?
+  let session: BackendAccountSession?
   @State private var text = ""
   @State private var scheme = "pinyin"
   @State private var profile = "xiaohe"
@@ -19,8 +21,9 @@ struct CloudCandidatesView: View {
   @State private var busy = false
   @State private var message: String?
   @State private var pending: Task<Void, Never>?
+  @State private var sessionID: UUID?
   private let client = BackendAccountClient()
-  private enum Action {
+  private enum Action: Sendable {
     case rank(BackendAccountClient.PersonalCandidate)
     case fix(BackendAccountClient.PersonalCandidate)
     case remove(BackendAccountClient.PersonalCandidate)
@@ -28,6 +31,11 @@ struct CloudCandidatesView: View {
     var title: String {
       switch self { case .rank: return "调整云端候选排序？"; case .fix: return "固定云端候选位置？"; case .remove: return "删除云端候选？"; case .unfix: return "取消固定位置？" }
     }
+  }
+
+  init(kind: BackendAccountClient.DictionaryKind, authorize: @escaping () async throws -> String,
+       accountID: String? = nil, session: BackendAccountSession? = nil) {
+    self.kind = kind; self.authorize = authorize; self.accountID = accountID; self.session = session
   }
 
   var body: some View {
@@ -116,31 +124,48 @@ struct CloudCandidatesView: View {
     } message: { Text("修改当前查询的云端状态；固定位置会替换该位置原有的词条。若其他设备已更新，需重新查询再确认。") }
   }
   @MainActor private func load(_ query: BackendAccountClient.CandidateQuery) async throws {
-    let token = try await authorize()
-    let result = try await client.personalCandidates(query, token: token)
-    let fixed: [BackendAccountClient.FixedPosition]
-    if query.kind != "quick" && !result.context.isEmpty { fixed = try await client.fixedPositions(context: result.context, token: token).positions }
-    else { fixed = [] }
-    _ = try await authorize()
-    try Task.checkCancellation()
-    self.query = query; page = result; positions = fixed
+    let client = self.client
+    let value = try await authenticated { token in
+      let result = try await client.personalCandidates(query, token: token)
+      let fixed: [BackendAccountClient.FixedPosition]
+      if query.kind != "quick" && !result.context.isEmpty {
+        fixed = try await client.fixedPositions(context: result.context, token: token).positions
+      } else { fixed = [] }
+      return (result, fixed)
+    }
+    self.query = query; page = value.0; positions = value.1
   }
   @MainActor private func apply(_ action: Action, page: BackendAccountClient.PersonalCandidates, query: BackendAccountClient.CandidateQuery) async throws {
-    let token = try await authorize()
-    var status = "云端状态已更新，本机设置保持原样。"
-    switch action {
-    case .rank(let candidate):
-      let result = try await client.rankCandidate(candidate, query: query, revision: page.revision, mode: mode, step: step, trigger: trigger, forceTop: forceTop, token: token)
-      status = result.changed ? "云端排序已更新。" : "已记录本次选择，本次未调整排序；累计 \(result.selection.count) 次。"
-    case .fix(let candidate):
-      _ = try await client.setFixedPosition(context: page.context, code: candidate.mutationCode, word: candidate.word, position: position, revision: page.revision, token: token)
-    case .unfix(let item):
-      _ = try await client.setFixedPosition(context: item.context, code: item.code, word: item.word, position: nil, revision: page.revision, token: token)
-    case .remove(let candidate):
-      _ = try await client.removeCandidate(candidate, query: query, revision: page.revision, token: token)
+    let unchangedStatus = "云端状态已更新，本机设置保持原样。"
+    let client = self.client
+    let mode = self.mode, step = self.step, trigger = self.trigger, forceTop = self.forceTop, position = self.position
+    let status = try await authenticated { token in
+      switch action {
+      case .rank(let candidate):
+        let result = try await client.rankCandidate(candidate, query: query, revision: page.revision, mode: mode, step: step, trigger: trigger, forceTop: forceTop, token: token)
+        return result.changed ? "云端排序已更新。" : "已记录本次选择，本次未调整排序；累计 \(result.selection.count) 次。"
+      case .fix(let candidate):
+        _ = try await client.setFixedPosition(context: page.context, code: candidate.mutationCode, word: candidate.word, position: position, revision: page.revision, token: token)
+        return unchangedStatus
+      case .unfix(let item):
+        _ = try await client.setFixedPosition(context: item.context, code: item.code, word: item.word, position: nil, revision: page.revision, token: token)
+        return unchangedStatus
+      case .remove(let candidate):
+        _ = try await client.removeCandidate(candidate, query: query, revision: page.revision, token: token)
+        return unchangedStatus
+      }
     }
     try await load(query)
     message = status
+  }
+  @MainActor private func authenticated<T: Sendable>(_ operation: @escaping @Sendable (String) async throws -> T) async throws -> T {
+    if let session, let accountID {
+      let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+      sessionID = identity.sessionID
+      return try await session.authenticated(matchingUserID: identity.userID,
+                                             matchingSessionID: identity.sessionID, operation).value
+    }
+    return try await operation(try await authorize())
   }
   @MainActor private func run(_ work: @escaping @MainActor () async throws -> Void) {
     guard !busy else { return }

@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -49,7 +50,7 @@ public final class KeyboardBrandMark extends View {
     /** Draws the mark centred in the given content box at {@code scale} of its shorter side. */
     static void draw(Canvas canvas, Paint paint, float left, float top, float width, float height,
             float scale) {
-        float size = KeyboardGeometry.shorterSide(width, height) * scale;
+        float size = DimensionPolicy.shorterSide(width, height) * scale;
         if (size <= 0) return;
         canvas.save();
         canvas.translate(left + (width - size) / 2f, top + (height - size) / 2f);
@@ -71,8 +72,8 @@ public final class KeyboardBrandMark extends View {
     @Override protected void onDraw(Canvas canvas) {
         int color = colorOrWhite(accent);
         mark.setColor(color);
-        int width = KeyboardGeometry.contentWidth(this);
-        int height = KeyboardGeometry.contentHeight(this);
+        int width = DimensionPolicy.contentWidth(this);
+        int height = DimensionPolicy.contentHeight(this);
         draw(canvas, mark, getPaddingLeft(), getPaddingTop(), width, height, 1f);
     }
 }

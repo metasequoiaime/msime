@@ -222,7 +222,7 @@ public final class DictionaryCollectionsStore {
     public static Result<WordPage> words(Context context, String kind, String query, int offset, int limit) {
         try {
             JSONObject request = action("list").put("kind", kind).put("offset", BoundsPolicy.nonNegative(offset))
-                .put("limit", KeyboardGeometry.bounded(limit, 1, 1000));
+                .put("limit", BoundsPolicy.bounded(limit, 1, 1000));
             if (query != null && !query.isEmpty()) request.put("query", query);
             JSONObject value = dictionary(context, request);
             if (value == null) return Result.failed(failureMessage(""));
@@ -246,7 +246,7 @@ public final class DictionaryCollectionsStore {
                 if (page == null) return Result.failed(failureMessage(""));
                 int nextBytes = exportBytesAfterPage(bytes, page);
                 if (nextBytes < 0) return Result.failed(failureMessage("collections_too_large"));
-                if (text == null) text = new StringBuilder(Math.max(16, page.length()));
+                if (text == null) text = new StringBuilder(BoundsPolicy.atLeast(page.length(), 16));
                 text.append(page);
                 bytes = nextBytes;
                 Object rawHasMore = value.opt("has_more");

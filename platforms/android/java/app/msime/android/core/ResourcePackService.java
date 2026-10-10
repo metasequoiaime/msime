@@ -57,7 +57,7 @@ public final class ResourcePackService extends Service {
         }
 
         public int percent() {
-            return total <= 0 ? 0 : (int) Math.min(100, done * 100 / total);
+            return total <= 0 ? 0 : (int) BoundsPolicy.atMost(done * 100 / total, 100L);
         }
     }
 
@@ -342,7 +342,7 @@ public final class ResourcePackService extends Service {
             total += status.total();
             verifying &= status.phase() == Phase.VERIFYING;
         }
-        int percent = total <= 0 ? 0 : (int) Math.min(100, done * 100 / total);
+        int percent = total <= 0 ? 0 : (int) BoundsPolicy.atMost(done * 100 / total, 100L);
         PendingIntent cancel = PendingIntent.getService(this, 0,
             new Intent(this, ResourcePackService.class).setAction(ACTION_CANCEL),
             PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);

@@ -18,8 +18,8 @@ def main() -> int:
             errors.append(f"{SOURCE}: 不应保留或调用 {name} 转发方法")
     if source.count("ColorPolicy.parse(") < 4:
         errors.append(f"{SOURCE}: 皮肤颜色应直接复用 ColorPolicy.parse")
-    if source.count("KeyboardGeometry.fromPixels(") < 3:
-        errors.append(f"{SOURCE}: 拖动距离应直接复用 KeyboardGeometry.fromPixels")
+    if source.count("DimensionPolicy.fromPixels(") < 3:
+        errors.append(f"{SOURCE}: 拖动距离应直接复用 DimensionPolicy.fromPixels")
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1

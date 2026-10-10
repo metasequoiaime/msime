@@ -7,6 +7,7 @@ import androidx.annotation.Nullable;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppEdition;
 import app.msime.android.BackupDestinationWriter;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.DictionaryCollectionsStore;
@@ -256,10 +257,10 @@ final class LocalBackup {
                     manifest == null ? "" : manifest.optString("app", ""),
                     manifest == null ? "" : manifest.optString("app_version", ""),
                     manifest == null ? "" : manifest.optString("created_at", ""),
-                    contents == null ? 0 : Math.max(0, contents.optInt("phrases", 0)),
-                    contents == null ? 0 : Math.max(0, contents.optInt("dictionary_words", 0)),
-                    contents == null ? 0 : Math.max(0, contents.optInt("learning", 0))
-                        + Math.max(0, contents.optInt("habits", 0)));
+                    contents == null ? 0 : BoundsPolicy.nonNegative(contents.optInt("phrases", 0)),
+                    contents == null ? 0 : BoundsPolicy.nonNegative(contents.optInt("dictionary_words", 0)),
+                    contents == null ? 0 : BoundsPolicy.nonNegative(contents.optInt("learning", 0))
+                        + BoundsPolicy.nonNegative(contents.optInt("habits", 0)));
                 if (compatibility != LocalBackupPolicy.Compatibility.OK) discard(archive);
                 return new Prepared(archive, preview);
             }
@@ -740,7 +741,7 @@ final class LocalBackup {
         try {
             JSONObject manifest = jsonEntry(zip, LocalBackupPolicy.MANIFEST, LocalBackupPolicy.MAX_MANIFEST_BYTES);
             JSONObject contents = manifest == null ? null : manifest.optJSONObject("contents");
-            return contents == null ? 0 : Math.max(0, contents.optInt("learning", 0));
+            return contents == null ? 0 : BoundsPolicy.nonNegative(contents.optInt("learning", 0));
         } catch (IOException | JSONException error) {
             return 0;
         }

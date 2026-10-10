@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -176,7 +177,7 @@ public final class ProfilePage extends DetailPage {
     /** 圆形头像：有图片时画图片，否则是强调色底上的昵称首字。 */
     static FrameLayout avatarView(Context context, int sizeDp, String name, @Nullable Bitmap image) {
         FrameLayout frame = new FrameLayout(context);
-        GradientDrawable circle = DrawablePolicy.circle(Ui.accent(context));
+        GradientDrawable circle = DrawablePolicy.circle(ThemeColorPolicy.accent(context));
         if (image != null) {
             ImageView picture = new ImageView(context);
             picture.setImageBitmap(image);
@@ -187,7 +188,7 @@ public final class ProfilePage extends DetailPage {
             frame.addView(picture, Ui.squareFrameParams(context, sizeDp));
         } else {
             TextView letter = Ui.centeredLabel(context, Ui.trimmedInitial(name, "?"),
-                Math.round(sizeDp * 0.4f), 600, Ui.onAccent(context));
+                Math.round(sizeDp * 0.4f), 600, ThemeColorPolicy.onAccent(context));
             ViewPolicy.setBackground(letter, circle);
             Ui.hideFromAccessibility(letter);
             frame.addView(letter, Ui.squareFrameParams(context, sizeDp));
@@ -257,8 +258,8 @@ public final class ProfilePage extends DetailPage {
         FrameLayout avatar = new FrameLayout(context);
         avatar.addView(avatarView(context, 88, profile.displayName(), image));
         ImageView camera = Ui.decorativeIcon(context, app.msime.android.R.drawable.ms_w5_me_camera,
-            Ui.text(context));
-        GradientDrawable badge = DrawablePolicy.circle(Ui.card(context));
+            ThemeColorPolicy.text(context));
+        GradientDrawable badge = DrawablePolicy.circle(ThemeColorPolicy.card(context));
         ViewPolicy.setBackground(camera, badge);
         int pad = Ui.dp(context, 6);
         Ui.setSymmetricPaddingPx(camera, pad);
@@ -271,14 +272,14 @@ public final class ProfilePage extends DetailPage {
         ViewPolicy.bindClick(avatar, this::chooseAvatar);
         header.addView(avatar, Ui.squareParams(context, 92));
 
-        TextView name = Ui.styledLabel(context, profile.displayName(), 22, 700, Ui.text(context));
+        TextView name = Ui.styledLabel(context, profile.displayName(), 22, 700, ThemeColorPolicy.text(context));
         LinearLayout.LayoutParams nameParams = Ui.wrap();
         nameParams.topMargin = Ui.dp(context, 10);
         header.addView(name, nameParams);
 
         if (!profile.email().isEmpty()) {
             TextView email = Ui.styledLabel(context, profile.email(), Ui.TEXT_ROW_SUBTITLE, 400,
-                Ui.subText(context));
+                ThemeColorPolicy.subText(context));
             LinearLayout.LayoutParams emailParams = Ui.wrap();
             emailParams.topMargin = Ui.dp(context, 2);
             header.addView(email, emailParams);
@@ -288,8 +289,8 @@ public final class ProfilePage extends DetailPage {
             : profile.loginKind();
         if (!kind.isEmpty()) {
             TextView chip = Ui.styledLabel(context, "通过 " + providerName(kind) + " 登录", 12, 500,
-                Ui.accent(context));
-            ViewPolicy.setBackground(chip, Ui.pill(Ui.accentSoft(context)));
+                ThemeColorPolicy.accent(context));
+            ViewPolicy.setBackground(chip, DrawablePolicy.pill(ThemeColorPolicy.accentSoft(context)));
             Ui.setSymmetricPaddingDp(chip, context, 10, 3);
             LinearLayout.LayoutParams chipParams = Ui.wrap();
             chipParams.topMargin = Ui.dp(context, 8);
@@ -299,7 +300,7 @@ public final class ProfilePage extends DetailPage {
     }
 
     private static View dangerButton(Context context, CharSequence label, Runnable action) {
-        TextView button = Ui.textButton(context, label, Ui.TEXT_ROW_TITLE, 500, Ui.danger(context),
+        TextView button = Ui.textButton(context, label, Ui.TEXT_ROW_TITLE, 500, ThemeColorPolicy.danger(context),
             Ui.ripple(context), Ui.ACTION_BUTTON_MIN_HEIGHT, action);
         return button;
     }

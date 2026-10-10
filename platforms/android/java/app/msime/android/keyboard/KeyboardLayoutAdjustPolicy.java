@@ -1,5 +1,7 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
 /** Pure drag math for the transparent keyboard-layout adjustment surface. */
 public final class KeyboardLayoutAdjustPolicy {
     public enum Axis { HORIZONTAL, VERTICAL }
@@ -16,24 +18,24 @@ public final class KeyboardLayoutAdjustPolicy {
     }
 
     public static int keySpacingFromDrag(int baseTenths, float translationDp) {
-        if (!Float.isFinite(translationDp)) return KeyboardGeometry.keySpacing(baseTenths);
+        if (!Float.isFinite(translationDp)) return KeyboardSpacingPolicy.keySpacing(baseTenths);
         int delta = Math.round(translationDp * 10f / SPACING_DRAG_SCALE_DP);
-        return KeyboardGeometry.bounded(baseTenths + delta, KeyboardGeometry.MIN_KEY_SPACING_TENTHS,
-            KeyboardGeometry.MAX_KEY_SPACING_TENTHS);
+        return BoundsPolicy.bounded(baseTenths + delta, KeyboardSpacingPolicy.MIN_KEY_SPACING_TENTHS,
+            KeyboardSpacingPolicy.MAX_KEY_SPACING_TENTHS);
     }
 
     public static int rowSpacingFromDrag(int baseTenths, float translationDp) {
-        if (!Float.isFinite(translationDp)) return KeyboardGeometry.rowSpacing(baseTenths);
+        if (!Float.isFinite(translationDp)) return KeyboardSpacingPolicy.rowSpacing(baseTenths);
         int delta = Math.round(translationDp * 10f / SPACING_DRAG_SCALE_DP);
-        return KeyboardGeometry.bounded(baseTenths + delta, KeyboardGeometry.MIN_ROW_SPACING_TENTHS,
-            KeyboardGeometry.MAX_ROW_SPACING_TENTHS);
+        return BoundsPolicy.bounded(baseTenths + delta, KeyboardSpacingPolicy.MIN_ROW_SPACING_TENTHS,
+            KeyboardSpacingPolicy.MAX_ROW_SPACING_TENTHS);
     }
 
     public static int heightFromDrag(int baseAdjustment, float translationDp) {
-        if (!Float.isFinite(translationDp)) return KeyboardGeometry.heightAdjustment(baseAdjustment);
+        if (!Float.isFinite(translationDp)) return KeyboardHeightPolicy.heightAdjustment(baseAdjustment);
         int delta = Math.round(translationDp);
-        return KeyboardGeometry.bounded(KeyboardGeometry.heightAdjustment(baseAdjustment) - delta,
-            KeyboardGeometry.MIN_HEIGHT_ADJUSTMENT_DP,
-            KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_DP);
+        return BoundsPolicy.bounded(KeyboardHeightPolicy.heightAdjustment(baseAdjustment) - delta,
+            KeyboardHeightPolicy.MIN_HEIGHT_ADJUSTMENT_DP,
+            KeyboardHeightPolicy.MAX_HEIGHT_ADJUSTMENT_DP);
     }
 }

@@ -84,16 +84,16 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
     }
 
     @Override protected void onDraw(Canvas canvas) {
-        int width = KeyboardGeometry.contentWidth(this);
-        int height = KeyboardGeometry.contentHeight(this);
+        int width = DimensionPolicy.contentWidth(this);
+        int height = DimensionPolicy.contentHeight(this);
         if (KeyboardShortcutIconPolicy.materialGlyph(icon)) {
             drawMaterial(canvas, width, height);
             return;
         }
-        float size = KeyboardGeometry.shorterSide(width, height) * GLYPH_SCALE;
+        float size = DimensionPolicy.shorterSide(width, height) * GLYPH_SCALE;
         if (size <= 0) return;
         if (isSelected() && Color.alpha(activeFill) > 0) {
-        float side = KeyboardGeometry.shorterSide(width, height) * ACTIVE_SCALE;
+        float side = DimensionPolicy.shorterSide(width, height) * ACTIVE_SCALE;
             float left = getPaddingLeft() + (width - side) / 2f;
             float top = getPaddingTop() + (height - side) / 2f;
             bounds.set(left, top, left + side, top + side);
@@ -125,18 +125,18 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
 
     private void drawMaterial(Canvas canvas, int width, int height) {
         float density = getResources().getDisplayMetrics().density;
-        float shorter = KeyboardGeometry.shorterSide(width, height);
+        float shorter = DimensionPolicy.shorterSide(width, height);
         if (shorter <= 0) return;
         float centerX = getPaddingLeft() + width / 2f;
         float centerY = getPaddingTop() + height / 2f;
         if (isSelected() && Color.alpha(activeFill) > 0) {
             float side = BoundsPolicy.atMost(shorter,
-                KeyboardGeometry.floatPixels(getContext(), ACTIVE_SIDE_DP));
+                DimensionPolicy.floatPixels(getContext(), ACTIVE_SIDE_DP));
             bounds.set(centerX - side / 2f, centerY - side / 2f, centerX + side / 2f,
                 centerY + side / 2f);
             fill.setColor(activeFill);
             float radius = BoundsPolicy.atMost(side / 2f,
-                KeyboardGeometry.floatPixels(getContext(), ACTIVE_RADIUS_DP));
+                DimensionPolicy.floatPixels(getContext(), ACTIVE_RADIUS_DP));
             canvas.drawRoundRect(bounds, radius, radius, fill);
         }
         int color = iconColor();
@@ -157,7 +157,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         float iconDp = icon == KeyboardShortcutIconPolicy.Icon.DISMISS
             ? DISMISS_ICON_DP : MATERIAL_ICON_DP;
         float size = BoundsPolicy.atMost(shorter,
-            KeyboardGeometry.floatPixels(getContext(), iconDp));
+            DimensionPolicy.floatPixels(getContext(), iconDp));
         int saved = canvas.save();
         if (flipped) canvas.rotate(180f, centerX, centerY);
         KeyboardIconPaths.draw(canvas, glyph, path, centerX - size / 2f, centerY - size / 2f,

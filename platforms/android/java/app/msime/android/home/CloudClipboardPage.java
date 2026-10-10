@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.os.Bundle;
 import android.view.View;
@@ -131,7 +132,7 @@ public final class CloudClipboardPage extends DetailPage {
         ViewPolicy.setCenteredVertically(retention);
         Ui.setRowMinimumHeight(retention, context);
         Ui.setRowPadding(retention, context);
-        TextView label = Ui.styledLabel(context, "保留时长", Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
+        TextView label = Ui.styledLabel(context, "保留时长", Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.text(context));
         retention.addView(label, Ui.weightWrap(1f));
         SegmentedControl segments = new SegmentedControl(context);
         int selected = current == null ? -1 : CloudClipboardApi.RETENTION_DAYS.indexOf(current.retentionDays());
@@ -156,7 +157,7 @@ public final class CloudClipboardPage extends DetailPage {
         TextView recent = Ui.groupHeading(context, "最近");
         header.addView(recent, Ui.weightWrap(1f));
         if (!current.items().isEmpty()) {
-            TextView clear = Ui.styledLabel(context, "清空", Ui.TEXT_GROUP_TITLE, 500, Ui.accent(context));
+            TextView clear = Ui.styledLabel(context, "清空", Ui.TEXT_GROUP_TITLE, 500, ThemeColorPolicy.accent(context));
         Ui.setPaddingDp(clear, context, 8, 4, 0, 4);
             Ui.makeClickable(clear, context, this::confirmClear);
             header.addView(clear);
@@ -171,10 +172,10 @@ public final class CloudClipboardPage extends DetailPage {
             LinearLayout empty = Ui.column(context);
             ViewPolicy.setCenteredHorizontally(empty);
             Ui.setSymmetricPaddingDp(empty, context, 16, 32);
-            TextView title = Ui.styledLabel(context, "还没有同步内容", Ui.TEXT_ROW_TITLE, 500, Ui.text(context));
+            TextView title = Ui.styledLabel(context, "还没有同步内容", Ui.TEXT_ROW_TITLE, 500, ThemeColorPolicy.text(context));
             empty.addView(title);
             TextView hint = Ui.centeredLabel(context, "在任一设备上复制文字，这里就会出现",
-                Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
+                Ui.TEXT_ROW_SUBTITLE, 400, ThemeColorPolicy.subText(context));
             LinearLayout.LayoutParams hintParams = Ui.wrap();
             hintParams.topMargin = Ui.dp(context, 4);
             empty.addView(hint, hintParams);
@@ -190,23 +191,23 @@ public final class CloudClipboardPage extends DetailPage {
         Ui.setPaddingDp(row, context, 16, 12, 8, 12);
 
         LinearLayout texts = Ui.column(context);
-        TextView text = Ui.styledLabel(context, item.text(), 15, 400, Ui.text(context));
+        TextView text = Ui.styledLabel(context, item.text(), 15, 400, ThemeColorPolicy.text(context));
         ViewPolicy.setMaxLinesEllipsized(text, 3);
         texts.addView(text);
-        TextView meta = Ui.styledLabel(context, meta(item), 12, 400, Ui.subText(context));
+        TextView meta = Ui.styledLabel(context, meta(item), 12, 400, ThemeColorPolicy.subText(context));
         LinearLayout.LayoutParams metaParams = Ui.wrap();
         metaParams.topMargin = Ui.dp(context, 4);
         texts.addView(meta, metaParams);
         row.addView(texts, Ui.weightWrap(1f));
 
         row.addView(Ui.iconButton(context, R.drawable.ic_ms_keep,
-            item.pinned() ? Ui.accent(context) : Ui.subText(context),
+            item.pinned() ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.subText(context),
             item.pinned() ? "取消置顶" : "置顶", 40, () -> {
                 CloudClipboardApi api = loadedApi;
                 if (api == null) return;
                 mutate(() -> { api.setPinned(item.id(), !item.pinned()); return null; }, null);
             }));
-        row.addView(Ui.iconButton(context, R.drawable.ic_ms_delete, Ui.subText(context), "删除", 40, () -> {
+        row.addView(Ui.iconButton(context, R.drawable.ic_ms_delete, ThemeColorPolicy.subText(context), "删除", 40, () -> {
             CloudClipboardApi api = loadedApi;
             if (api == null) return;
             mutate(() -> { api.delete(item.id()); return null; }, "已删除");

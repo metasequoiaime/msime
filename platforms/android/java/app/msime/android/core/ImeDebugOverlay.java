@@ -79,7 +79,7 @@ final class ImeDebugOverlay {
          */
         static byte[] trimmed(byte[] existing, int incoming, long cap) {
             if (existing.length + (long) incoming <= cap) return existing;
-            long keep = KeyboardGeometry.bounded(cap * 3 / 4, 0L, cap - incoming);
+            long keep = BoundsPolicy.bounded(cap * 3 / 4, 0L, cap - incoming);
             int start = (int) BoundsPolicy.nonNegative(existing.length - keep);
             while (start < existing.length && start > 0 && existing[start - 1] != '\n') start++;
             byte[] kept = new byte[existing.length - start];

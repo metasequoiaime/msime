@@ -49,7 +49,7 @@ public final class RecentClipboardSuggestion {
     /** 离过期还有多久；没有可显示的内容时为 0。 */
     public long remainingMs(long nowMs) {
         if (text(nowMs) == null) return 0;
-        return Math.max(0, copiedAtMs + WINDOW_MS - nowMs);
+        return BoundsPolicy.nonNegative(copiedAtMs + WINDOW_MS - nowMs);
     }
 
     /** 用户用过或关掉了这一条：收起，同一条不再出现。 */

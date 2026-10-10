@@ -119,7 +119,7 @@ public final class CloudClipboardPanelPolicy {
      * 云端分段在顶行显示的条数：只有这次拉取有了答复、账号开着云剪贴板（{@link Status#READY} 或 {@link Status#EMPTY}）时才有，读取中、未登录、未开启和失败时为 null，不显示。
      */
     public static Integer cloudCount(Status status, int itemCount) {
-        return status == Status.READY || status == Status.EMPTY ? Math.max(0, itemCount) : null;
+        return status == Status.READY || status == Status.EMPTY ? BoundsPolicy.nonNegative(itemCount) : null;
     }
 
     /** 这一分段的条数上限：本机历史由共享存储限定（{@link ClipboardHistoryPolicy#LIMIT}），云端由服务端限定（{@link CloudClipboardApi#MAX_ITEMS}）。 */

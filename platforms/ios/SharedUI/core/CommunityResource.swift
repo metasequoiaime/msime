@@ -53,7 +53,6 @@ struct CommunityResource: Codable, Identifiable, Sendable {
 enum CommunityLibrary {
   private static let maximumBytes = 4_000_000
   private static let maximumItems = 50
-  private static let maximumJavaScriptInteger = 9_007_199_254_740_991
   private static let processLock = NSLock()
 
   private static func rejectSymlinkAncestors(_ path: URL) throws {
@@ -141,49 +140,30 @@ enum CommunityLibrary {
   static var replies: [CommunityResource] { replies() }
 
   private static func valid(_ item: CommunityResource) -> Bool {
-    guard let id = UUID(uuidString: item.id),
-          id != UUID(uuidString: "00000000-0000-0000-0000-000000000000")!, item.revision > 0,
-          validText(item.name, minimum: 1, maximum: 32, multiline: false, trimmed: true),
-          validText(item.description, minimum: 0, maximum: 280, multiline: true),
-          validText(item.author, minimum: 1, maximum: 128, multiline: false, trimmed: true),
-          item.saves >= 0, item.saves <= maximumJavaScriptInteger,
-          validRating(count: item.rating_count, average: item.rating_average, mine: item.my_rating)
+    guard CommunityValidation.validID(item.id), item.revision > 0,
+          CommunityValidation.validText(item.name, minimum: 1, maximum: 32, multiline: false, trimmed: true),
+          CommunityValidation.validText(item.description, minimum: 0, maximum: 280, multiline: true),
+          CommunityValidation.validText(item.author, minimum: 1, maximum: 128, multiline: false, trimmed: true),
+          item.saves >= 0, item.saves <= CommunityValidation.maximumJavaScriptInteger,
+          CommunityValidation.validRating(count: item.rating_count, average: item.rating_average, mine: item.my_rating)
     else { return false }
     switch item.kind {
     case .reply:
       return (item.content.entries ?? []).isEmpty
-        && item.content.prompt.map { validText($0, minimum: 1, maximum: 2_000, multiline: true) } == true
+        && item.content.prompt.map { CommunityValidation.validText($0, minimum: 1, maximum: 2_000, multiline: true) } == true
     case .dictionary:
       guard item.content.prompt == nil, let entries = item.content.entries,
             (1...128).contains(entries.count) else { return false }
       var seen = Set<String>()
       return entries.allSatisfy { entry in
-        validText(entry.code, minimum: 1, maximum: 256, multiline: false)
-          && validText(entry.word, minimum: 1, maximum: 1_024, multiline: false)
+        CommunityValidation.validText(entry.code, minimum: 1, maximum: 256, multiline: false)
+          && CommunityValidation.validText(entry.word, minimum: 1, maximum: 1_024, multiline: false)
           && entry.weight >= 0
           && seen.insert("\(entry.kind)|\(entry.code)|\(entry.word)").inserted
       }
     }
   }
 
-  private static func validRating(count: Int, average: Double, mine: Int) -> Bool {
-    count >= 0 && count <= maximumJavaScriptInteger && (0...5).contains(mine)
-      && average.isFinite && (0...5).contains(average)
-      && (count != 0 || average == 0)
-  }
-
-  private static func validText(_ value: String, minimum: Int, maximum: Int,
-                                multiline: Bool, trimmed: Bool = false) -> Bool {
-    let scalars = value.unicodeScalars
-    guard (minimum...maximum).contains(scalars.count),
-          (!trimmed || value == value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-      return false
-    }
-    return !scalars.contains { scalar in
-      CharacterSet.controlCharacters.contains(scalar)
-        && !(multiline && (scalar == "\n" || scalar == "\t"))
-    }
-  }
 }
 
 /// 本机排队导入过的社区词库 id，社区列表和词库页的「已添加」胶囊据此显示，与 Android 按本机命名词库的 `resourceId` 判断一致。iOS 的个人词库不记词条来自哪份社区词库，所以在排队导入成功时另记一笔；服务器上的收藏（`saved`）只表示关注更新，不代表本机装过。只有设置 App 读写它，所以存在 App 自己的 defaults 里。

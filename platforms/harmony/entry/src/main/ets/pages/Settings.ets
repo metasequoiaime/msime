@@ -54,6 +54,7 @@ import { AiEndpointPolicy } from '../keyboard/settings/AiEndpointPolicy';
 import { HarmonyTelemetry } from '../telemetry/Telemetry';
 import { TelemetryPolicy } from '../telemetry/TelemetryPolicy';
 import { NoticeItem, NoticePolicy } from '../notices/NoticePolicy';
+import { HarmonySharedSandboxPolicy } from '../keyboard/HarmonySharedSandboxPolicy';
 
 /** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id, files}` for an import from local files, `{root, id}` for a removal, `{id}` for a cancel. */
 interface LocalVoiceModelRequest {
@@ -808,6 +809,7 @@ struct Settings {
  */
 class SettingsBridge {
   private stateDirectory: string = '';
+  private sharedSandboxAvailable: boolean = false;
   // What the page was last handed, so an activation can tell a changed document from an unchanged
   // one. -1 until the page has loaded once, which never compares equal to a real revision.
   private observedRevision: number = -1;
@@ -850,6 +852,9 @@ class SettingsBridge {
   attach(context: common.UIAbilityContext): void {
     this.context = context;
     this.stateDirectory = `${context.filesDir}/state`;
+    const sharedSandbox = HarmonySharedSandboxPolicy.status();
+    this.sharedSandboxAvailable = sharedSandbox.available;
+    KeyboardLog.warn(`shared sandbox unavailable: ${sharedSandbox.reason}`);
     this.accountBridge = new HarmonyAccountCloudBridge(context);
     this.aiSkins = this.accountBridge.aiSkins();
     // The same copy the keyboard makes, by the same rule. The page reaches the dictionary through
@@ -1795,6 +1800,7 @@ class SettingsBridge {
       value['typing_effects'] = projection.typingEffects;
       value['wordbook_packs'] = projection.wordbookPacks;
       value['symbol_set_packs'] = projection.symbolSetPacks;
+      value['harmony_shared_sandbox'] = this.sharedSandboxAvailable;
       if (release !== null) {
         value['os_version'] = release;
       }

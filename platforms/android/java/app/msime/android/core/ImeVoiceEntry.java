@@ -1,5 +1,7 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
 import app.msime.android.policy.HostOptionsPolicy;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -470,7 +472,7 @@ final class ImeVoiceEntry {
         hidden.ensureCapacity(keyArea.getChildCount());
         for (int index = 0; index < keyArea.getChildCount(); index++) {
             View child = keyArea.getChildAt(index);
-            if (child.getVisibility() == View.VISIBLE) {
+            if (ViewPolicy.isVisible(child)) {
                 hidden.add(child);
                 ViewPolicy.setInvisible(child);
             }
@@ -501,7 +503,7 @@ final class ImeVoiceEntry {
         int height = BoundsPolicy.atLeast(keyArea.getHeight(),
             s.pixels(KeyboardGeometry.NINE_KEY_HEIGHT_DP));
         ViewGroup.LayoutParams params = keyArea instanceof LinearLayout
-            ? KeyboardGeometry.matchWidthHeightPx(height)
+            ? LayoutPolicy.matchWidthHeightPx(height)
             : new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height);
         // 盖在原来的键行上：键行仍占着位置（INVISIBLE），面板用负的上外边距叠上去，键盘高度不跳。
         if (params instanceof LinearLayout.LayoutParams linear && keyArea.getHeight() > 0) {

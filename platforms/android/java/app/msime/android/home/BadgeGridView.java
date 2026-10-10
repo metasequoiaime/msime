@@ -1,5 +1,8 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
+import app.msime.android.DimensionPolicy;
+
 import app.msime.android.KeyboardGeometry;
 import android.animation.ValueAnimator;
 import android.content.Context;
@@ -214,7 +217,7 @@ public final class BadgeGridView extends View {
     }
 
     private boolean dark() {
-        return KeyboardGeometry.isNight(getContext());
+        return DimensionPolicy.isNight(getContext());
     }
 
     /** 分组的两种颜色：深色端和浅色端。 */
@@ -228,7 +231,7 @@ public final class BadgeGridView extends View {
     }
 
     private void refreshColours(Context context) {
-        int accent = Ui.accent(context);
+        int accent = ThemeColorPolicy.accent(context);
         if (coloursCached && cachedAccent == accent) return;
         cachedAccent = accent;
         coloursCached = true;
@@ -257,9 +260,9 @@ public final class BadgeGridView extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         Context context = getContext();
-        int card = Ui.card(context);
-        int text = Ui.text(context);
-        int sub = Ui.subText(context);
+        int card = ThemeColorPolicy.card(context);
+        int text = ThemeColorPolicy.text(context);
+        int sub = ThemeColorPolicy.subText(context);
         int track = dark() ? ColorPolicy.withAlpha(Color.WHITE, .1f) : ColorPolicy.withAlpha(Color.BLACK, .07f);
         float radius = Ui.dp(context, 20);
         refreshColours(context);
@@ -278,7 +281,7 @@ public final class BadgeGridView extends View {
                 scale = frame(WIGGLE, wiggle, 2);
             } else if (popStart >= 0) {
                 long local = popStart - POP_DELAY - POP_STAGGER * index;
-                float t = KeyboardGeometry.bounded(local / (float) POP_MILLIS, 0f, 1f);
+                float t = BoundsPolicy.bounded(local / (float) POP_MILLIS, 0f, 1f);
                 scale = frame(POP, t, 1);
             }
             int[] colours = colours(badge.group());

@@ -1,5 +1,6 @@
 package app.msime.android;
 
+
 import app.msime.android.KeyboardGeometry;
 
 import android.animation.Animator;
@@ -123,11 +124,11 @@ public final class KeyPressAnimator {
     }
 
     private static void lift(View key, ViewGroup host) {
-        float density = KeyboardGeometry.density(key.getContext());
+        float density = DimensionPolicy.density(key.getContext());
         unclipUpTo(key, host);
         start(key, ObjectAnimator.ofPropertyValuesHolder(key,
             PropertyValuesHolder.ofFloat(View.TRANSLATION_Y, key.getTranslationY(),
-                -KeyboardGeometry.floatPixels(LIFT_DP, density), 0f),
+                -DimensionPolicy.floatPixels(LIFT_DP, density), 0f),
             PropertyValuesHolder.ofFloat(View.SCALE_X, key.getScaleX(), 1.1f, 1f),
             PropertyValuesHolder.ofFloat(View.SCALE_Y, key.getScaleY(), 1.1f, 1f)));
     }
@@ -163,8 +164,8 @@ public final class KeyPressAnimator {
     private static void halo(View key, ViewGroup host, int accent, float spreadDp, boolean glow) {
         if (host == null || !(key.getParent() instanceof ViewGroup parent)) return;
         if (key.getWidth() <= 0 || key.getHeight() <= 0) return;
-        float density = KeyboardGeometry.density(key.getContext());
-        float spread = KeyboardGeometry.floatPixels(spreadDp, density);
+        float density = DimensionPolicy.density(key.getContext());
+        float spread = DimensionPolicy.floatPixels(spreadDp, density);
         HaloDrawable halo = new HaloDrawable(accent, glow, density);
         // Untransformed key origin in host coordinates: the key itself may be mid press-scale.
         parent.getLocationInWindow(PARENT_LOCATION);
@@ -212,14 +213,14 @@ public final class KeyPressAnimator {
             float spread = inset * progress;
             rect.set(getBounds());
             rect.inset(inset - spread, inset - spread);
-            float radius = KeyboardGeometry.floatPixels(8, density) + spread;
+            float radius = DimensionPolicy.floatPixels(8, density) + spread;
             int alpha = Math.round(Color.alpha(accent) * (1f - progress));
             if (glow) {
                 paint.setStyle(Paint.Style.FILL);
                 paint.setColor(ColorPolicy.withAlpha(accent, Math.round(alpha * .35f)));
             } else {
                 paint.setStyle(Paint.Style.STROKE);
-                paint.setStrokeWidth(KeyboardGeometry.floatPixels(2, density));
+                paint.setStrokeWidth(DimensionPolicy.floatPixels(2, density));
                 paint.setColor(ColorPolicy.withAlpha(accent, alpha));
             }
             canvas.drawRoundRect(rect, radius, radius, paint);

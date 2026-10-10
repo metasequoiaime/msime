@@ -71,9 +71,13 @@ pub(super) fn catalog(request: &Request, roots: Roots) -> Outcome {
             },
         )
         .map_err(|_| BackendError::ResourcesUnavailable)?;
-    let mut items = Vec::with_capacity((limit + 1) as usize);
+    let mut items = Vec::new();
     for row in rows {
-        items.push(row.map_err(|_| BackendError::ResourcesUnavailable)?);
+        let item = row.map_err(|_| BackendError::ResourcesUnavailable)?;
+        if items.is_empty() {
+            items.reserve_exact((limit + 1) as usize);
+        }
+        items.push(item);
     }
     let more = items.len() > limit as usize;
     items.truncate(limit as usize);
@@ -220,14 +224,18 @@ pub(super) fn dictionary(request: &Request, roots: Roots) -> Outcome {
         statement.raw_bind_parameter(index, value)?;
     }
     let mut rows = statement.raw_query();
-    let mut entries = Vec::with_capacity(page_size as usize);
+    let mut entries = Vec::new();
     while let Some(row) = rows.next()? {
-        entries.push(json!({
+        let entry = json!({
             "kind": kind,
             "code": text_column(row, 0)?,
             "word": text_column(row, 1)?,
             "weight": row.get::<_, Option<i64>>(2)?.unwrap_or_default(),
-        }));
+        });
+        if entries.is_empty() {
+            entries.reserve_exact(page_size as usize);
+        }
+        entries.push(entry);
     }
     let more = entries.len() > limit as usize;
     entries.truncate(limit as usize);

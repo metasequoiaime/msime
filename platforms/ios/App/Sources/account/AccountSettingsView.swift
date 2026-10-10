@@ -350,11 +350,7 @@ struct AccountSettingsView: View {
   /// 「云剪贴板」行尾的条数。取不到时这一行不显示值，不为一个数字弹出提示。
   @MainActor private func loadClipboardCount() async {
     do {
-      let identity = try await BackendAccountSession.shared.credentials()
-      let page = try await BackendAccountClient().clipboard(token: identity.token)
-      try await BackendAccountSession.shared.requireSession(matchingUserID: identity.userID,
-                                                            matchingSessionID: identity.sessionID)
-      try Task.checkCancellation()
+      let page = try await BackendAccountClient().clipboard(session: .shared)
       clipboardValue = page.enabled ? "\(page.items.count) 条" : "已关闭"
     } catch {
       if !isCancellation(error) { clipboardValue = nil }

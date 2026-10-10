@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.widget.TextView;
 import app.msime.android.DrawablePolicy;
@@ -13,9 +14,9 @@ public final class StatusMarkPolicy {
     /** 根据安装状态更新字形、前景色、圆形背景与无障碍可见性。 */
     public static void apply(TextView mark, Context context, boolean done) {
         mark.setText(done ? "✓" : "!");
-        ViewPolicy.setTextColor(mark, done ? Ui.onAccent(context) : 0xFFFFFFFF);
+        ViewPolicy.setTextColor(mark, done ? ThemeColorPolicy.onAccent(context) : 0xFFFFFFFF);
         ViewPolicy.setBackground(mark,
-            DrawablePolicy.circle(done ? Ui.accent(context) : Ui.color(context, R.attr.msWarn)));
+            DrawablePolicy.circle(done ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.color(context, R.attr.msWarn)));
         ViewPolicy.hideFromAccessibility(mark);
     }
 }

@@ -1,5 +1,8 @@
 package app.msime.android.home;
 
+import app.msime.android.ThemeColorPolicy;
+import app.msime.android.LayoutPolicy;
+
 import android.content.Context;
 import android.os.Bundle;
 import android.text.InputType;
@@ -102,13 +105,13 @@ public final class ClipboardEditPage extends DetailPage {
             case MISSING -> card.note(ClipboardHistoryPolicy.editMessage(ClipboardHistoryPolicy.EditResult.NOT_FOUND));
             case FAILED -> card.note("剪贴板历史读取失败，请稍后重试");
             case READY -> {
-                EditText input = Ui.styledInput(context, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
+                EditText input = Ui.styledInput(context, Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.text(context));
                 input.setHint("剪贴板记录的文字");
                 input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
                 ViewPolicy.setTopStart(input);
                 ViewPolicy.setMinLines(input, 4);
                 ViewPolicy.clearBackground(input);
-                input.setHintTextColor(Ui.subText(context));
+                input.setHintTextColor(ThemeColorPolicy.subText(context));
                 Ui.setSymmetricPaddingDp(input, context, 16, 14);
                 input.setText(draft.text);
                 input.setContentDescription("剪贴板记录的文字");
@@ -128,14 +131,14 @@ public final class ClipboardEditPage extends DetailPage {
         buttonsParams.topMargin = Ui.dp(context, Ui.GROUP_GAP);
         target.addView(buttons, buttonsParams);
         boolean editing = state == State.READY;
-        TextView cancel = Ui.textButton(context, editing ? "取消" : "返回", 16, 600, Ui.accent(context),
-            Ui.rippleOn(context, Ui.rowBackground(context), Ui.dp(context, Ui.GROUP_RADIUS)),
+        TextView cancel = Ui.textButton(context, editing ? "取消" : "返回", 16, 600, ThemeColorPolicy.accent(context),
+            Ui.rippleOn(context, ThemeColorPolicy.rowBackground(context), Ui.dp(context, Ui.GROUP_RADIUS)),
             Ui.ACTION_BUTTON_MIN_HEIGHT, this::leave);
-        buttons.addView(cancel, KeyboardGeometry.weightedHeightPxParams(Ui.dp(context, Ui.ACTION_BUTTON_MIN_HEIGHT), 1f));
+        buttons.addView(cancel, LayoutPolicy.weightedHeightPxParams(Ui.dp(context, Ui.ACTION_BUTTON_MIN_HEIGHT), 1f));
         if (editing) {
-            TextView primary = Ui.textButton(context, "保存", 16, 600, Ui.onAccent(context), null,
+            TextView primary = Ui.textButton(context, "保存", 16, 600, ThemeColorPolicy.onAccent(context), null,
                 Ui.ACTION_BUTTON_MIN_HEIGHT, this::submit);
-            LinearLayout.LayoutParams primaryParams = KeyboardGeometry.weightedHeightPxParams(Ui.dp(context, Ui.ACTION_BUTTON_MIN_HEIGHT), 1f);
+            LinearLayout.LayoutParams primaryParams = LayoutPolicy.weightedHeightPxParams(Ui.dp(context, Ui.ACTION_BUTTON_MIN_HEIGHT), 1f);
             primaryParams.setMarginStart(Ui.dp(context, 12));
             buttons.addView(primary, primaryParams);
             save = primary;
@@ -152,9 +155,9 @@ public final class ClipboardEditPage extends DetailPage {
             && !original.equals(draft.text);
         button.setText(saving ? "正在保存…" : "保存");
         ViewPolicy.setEnabled(button, ready);
-        ViewPolicy.setTextColor(button, ready ? Ui.onAccent(context) : Ui.subText(context));
-        int fill = ready ? Ui.accent(context)
-            : Ui.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
+        ViewPolicy.setTextColor(button, ready ? ThemeColorPolicy.onAccent(context) : ThemeColorPolicy.subText(context));
+        int fill = ready ? ThemeColorPolicy.accent(context)
+            : ThemeColorPolicy.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
         ViewPolicy.setBackground(button, Ui.rippleOn(context, fill, Ui.dp(context, Ui.GROUP_RADIUS)));
     }
 

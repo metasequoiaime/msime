@@ -1,5 +1,7 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
 import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Color;
@@ -55,7 +57,7 @@ final class ImeFrame {
             boolean anyVisible = false;
             if (keys != null) {
                 for (int index = 0; index < keys.getChildCount(); index++) {
-                    if (keys.getChildAt(index).getVisibility() != View.GONE) {
+                    if (!ViewPolicy.isGone(keys.getChildAt(index))) {
                         anyVisible = true;
                         break;
                     }
@@ -72,7 +74,7 @@ final class ImeFrame {
     private LinearLayout column() {
         if (column != null && row != null && row.getParent() == keyboard) return column;
         row = new OneHandRow(s);
-        column = KeyboardGeometry.column(s);
+        column = LayoutPolicy.column(s);
         row.keys = column;
         gutter = new OneHandGutterView(s);
         gutter.setOnSwap(() -> s.toggleOneHanded(true));
@@ -80,8 +82,8 @@ final class ImeFrame {
             if (oneHanded(s.oneHandedMode)) s.toggleOneHanded(false);
         });
         ViewPolicy.hide(gutter);
-        row.addView(column, KeyboardGeometry.weightedWrapParams(1));
-        keyboard.addView(row, KeyboardGeometry.matchWidthWrapParams());
+        row.addView(column, LayoutPolicy.weightedWrapParams(1));
+        keyboard.addView(row, LayoutPolicy.matchWidthWrapParams());
         appliedMode = "";
         return column;
     }
@@ -93,7 +95,7 @@ final class ImeFrame {
 
     /** 按默认布局参数放入键区。 */
     void wrap(ViewGroup keyArea) {
-        column().addView(keyArea, KeyboardGeometry.matchWidthWrapParams());
+        column().addView(keyArea, LayoutPolicy.matchWidthWrapParams());
         applyOneHanded();
     }
 
@@ -118,17 +120,17 @@ final class ImeFrame {
         if (gutter.getParent() != null) row.removeView(gutter);
         if (!oneHanded(mode)) {
             ViewPolicy.hide(gutter);
-            column.setLayoutParams(KeyboardGeometry.weightedWrapParams(1));
+            column.setLayoutParams(LayoutPolicy.weightedWrapParams(1));
             row.requestLayout();
             return;
         }
         float gutterWeight = OneHandGutterView.GUTTER_FRACTION;
-        LinearLayout.LayoutParams gutterParams = KeyboardGeometry.weightedMatchParentParams(gutterWeight);
+        LinearLayout.LayoutParams gutterParams = LayoutPolicy.weightedMatchParentParams(gutterWeight);
         boolean left = gutterOnLeft(mode);
         gutter.setKeyboardOnRight(left);
         ViewPolicy.show(gutter);
         row.addView(gutter, left ? 0 : 1, gutterParams);
-        column.setLayoutParams(KeyboardGeometry.weightedWrapParams(1f - gutterWeight));
+        column.setLayoutParams(LayoutPolicy.weightedWrapParams(1f - gutterWeight));
         row.requestLayout();
     }
 

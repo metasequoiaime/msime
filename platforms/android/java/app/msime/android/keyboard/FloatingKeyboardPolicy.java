@@ -32,13 +32,13 @@ public final class FloatingKeyboardPolicy {
     public static int widthDp(int windowWidthDp) {
         if (windowWidthDp <= 0) return MIN_WIDTH_DP;
         int preferred = (int) ((long) windowWidthDp * WIDTH_PERCENT / 100);
-        int bounded = Math.max(MIN_WIDTH_DP, Math.min(MAX_WIDTH_DP, preferred));
-        return Math.min(bounded, windowWidthDp);
+        int bounded = BoundsPolicy.bounded(preferred, MIN_WIDTH_DP, MAX_WIDTH_DP);
+        return BoundsPolicy.atMost(bounded, windowWidthDp);
     }
 
     /** 千分比钳到 0–1000。 */
     public static int fraction(int value) {
-        return Math.max(0, Math.min(MAX_FRACTION, value));
+        return BoundsPolicy.bounded(value, 0, MAX_FRACTION);
     }
 
     /**
@@ -57,8 +57,8 @@ public final class FloatingKeyboardPolicy {
 
     /** 拖动时的新偏移：起点加位移后钳进 0…{@code free}；位移不是有限数时停在起点。 */
     public static float dragged(float start, float delta, int free) {
-        float limit = Math.max(0, free);
+        float limit = BoundsPolicy.nonNegative(free);
         float next = Float.isFinite(delta) ? start + delta : start;
-        return Math.max(0f, Math.min(limit, next));
+        return BoundsPolicy.nonNegative(BoundsPolicy.atMost(limit, next));
     }
 }

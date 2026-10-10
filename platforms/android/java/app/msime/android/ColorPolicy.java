@@ -30,11 +30,24 @@ public final class ColorPolicy {
 
     /** Linearly interpolate each ARGB channel; callers provide an expected 0–1 amount. */
     public static int blend(int from, int to, float amount) {
-        int a = Math.round(((from >>> 24) & 0xFF) + (((to >>> 24) & 0xFF) - ((from >>> 24) & 0xFF)) * amount);
-        int r = Math.round(((from >> 16) & 0xFF) + (((to >> 16) & 0xFF) - ((from >> 16) & 0xFF)) * amount);
-        int g = Math.round(((from >> 8) & 0xFF) + (((to >> 8) & 0xFF) - ((from >> 8) & 0xFF)) * amount);
-        int b = Math.round((from & 0xFF) + ((to & 0xFF) - (from & 0xFF)) * amount);
+        int a = blendChannel(from >>> 24, to >>> 24, amount);
+        int r = blendChannel(from >> 16, to >> 16, amount);
+        int g = blendChannel(from >> 8, to >> 8, amount);
+        int b = blendChannel(from, to, amount);
         return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    private static int blendChannel(int from, int to, float amount) {
+        return Math.round((from & 0xFF) + ((to & 0xFF) - (from & 0xFF)) * amount);
+    }
+
+    /** Blend opaque RGB channels after clamping the mix amount to 0–1. */
+    public static int blendOpaque(int from, int to, float amount) {
+        float bounded = BoundsPolicy.bounded(amount, 0f, 1f);
+        return Color.rgb(
+            blendChannel(from, to, bounded),
+            blendChannel(from >> 8, to >> 8, bounded),
+            blendChannel(from >> 16, to >> 16, bounded));
     }
 
     /** Build a color state list while validating that each state has a matching color. */

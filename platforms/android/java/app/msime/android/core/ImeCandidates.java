@@ -1,5 +1,7 @@
 package app.msime.android;
 
+import app.msime.android.LayoutPolicy;
+
 import android.graphics.Typeface;
 import android.os.Build;
 import android.util.TypedValue;
@@ -78,7 +80,7 @@ final class ImeCandidates {
         applyCandidateTypeface(button);
         ViewPolicy.setMinimumWidth(button, s.pixels(30));
         ViewPolicy.clearMinimumHeight(button);
-        KeyboardGeometry.setHorizontalPaddingDp(button, s, 11);
+        LayoutPolicy.setHorizontalPaddingDp(button, s, 11);
         ViewPolicy.setLineSpacing(button, 0, 1.0f);
         ViewPolicy.clearFontPadding(button);
         ViewPolicy.clearElevation(button);
@@ -183,11 +185,11 @@ final class ImeCandidates {
         int labelLines = MSIMEInputService.candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         s.configureCandidateTextLayout(button, labelLines);
-        KeyboardGeometry.setKeyTextSize(button, 17);
+        KeyboardTypographyPolicy.setKeyTextSize(button, 17);
         ViewPolicy.setSelected(button, highlighted);
         expandedCells.add(button);
         ViewPolicy.setMinimumSize(button, s.pixels(64), s.pixels(44));
-        KeyboardGeometry.setHorizontalPaddingDp(button, s, 10);
+        LayoutPolicy.setHorizontalPaddingDp(button, s, 10);
         // The completed keyboard tree is styled once by MSIMEInputService.render().
         // Styling here would be repeated immediately after this button is attached.
         long index = id == null ? -1
@@ -225,7 +227,7 @@ final class ImeCandidates {
         KeyboardPressButton button = candidateButton();
         button.setKeyboardRole(KeyboardKeyRole.ACCENT);
         ViewPolicy.setTextSizeLabel(button, label, sizeSp);
-        KeyboardGeometry.setKeyTextSize(button, sizeSp);
+        KeyboardTypographyPolicy.setKeyTextSize(button, sizeSp);
         button.setContentDescription(description);
         ViewPolicy.bindClick(button, () -> {
             s.imeKeyFeedback.playFeedback(button);
@@ -245,7 +247,7 @@ final class ImeCandidates {
             // The normal keyboard render reaches this method on every keystroke. The panel is
             // normally already hidden by closeCandidatePanel(); avoid traversing and clearing an
             // empty subtree until the next open actually needs to rebuild it.
-            if (s.expandedCandidates.getVisibility() != View.GONE) {
+            if (!ViewPolicy.isGone(s.expandedCandidates)) {
                 ViewPolicy.hide(s.expandedCandidates);
                 ViewPolicy.hide(s.expandedCandidateScroll);
             }
@@ -255,7 +257,7 @@ final class ImeCandidates {
         }
         // 全拼九键的三栏面板：选拼音、⌫、筛选换了一代候选时不收起，重新取完整候选再画；组字结束时 eligible 为假，落到下面按代次收起。
         if (s.imeNineKeyPanel.eligible() && s.imeNineKeyPanel.refreshSnapshot()) {
-            if (s.expandedCandidates.getVisibility() != View.GONE) {
+            if (!ViewPolicy.isGone(s.expandedCandidates)) {
                 s.expandedCandidates.removeAllViews();
                 ViewPolicy.hide(s.expandedCandidates);
                 ViewPolicy.hide(s.expandedCandidateScroll);
@@ -274,7 +276,7 @@ final class ImeCandidates {
         }
         ViewPolicy.show(s.expandedCandidateScroll);
         ViewPolicy.show(s.expandedCandidates);
-        KeyboardGeometry.setSymmetricPaddingDp(s.expandedCandidates, s, 8, 6);
+        LayoutPolicy.setSymmetricPaddingDp(s.expandedCandidates, s, 8, 6);
         JSONArray entries = s.candidatePanelSnapshot.optJSONArray("candidates");
         int count = entries == null ? 0 : entries.length();
         String reading = InputViewValuePolicy.textOr(s.candidatePanelSnapshot, "reading", "");
@@ -285,9 +287,9 @@ final class ImeCandidates {
             expandedGrid = new ImeCandidateGrid(s, s.expandedCandidateScroll, true);
         CandidateWrapLayout list = expandedGrid.build(s.candidatePanelSnapshot, entries,
             "完整候选列表；" + compositionText + "；" + count + " 个候选");
-        s.expandedCandidates.addView(list, KeyboardGeometry.weightedWidthParams(1));
+        s.expandedCandidates.addView(list, LayoutPolicy.weightedWidthParams(1));
         // 底部 返回 + ⌫，各 40 dp 高、功能键底色。
-        LinearLayout footer = KeyboardGeometry.row(s);
+        LinearLayout footer = LayoutPolicy.row(s);
         KeyboardPressButton close = expandedActionButton("返回", 15, "收起候选面板", () -> {
             s.closeCandidatePanel();
             s.render();
@@ -296,12 +298,12 @@ final class ImeCandidates {
             s.closeCandidatePanel();
             s.deleteFromHandwriting();
         });
-        LinearLayout.LayoutParams closeParams = KeyboardGeometry.weightedHeightParams(s, 40, 1);
-        LinearLayout.LayoutParams deleteParams = KeyboardGeometry.weightedHeightParams(s, 40, 1);
+        LinearLayout.LayoutParams closeParams = LayoutPolicy.weightedHeightParams(s, 40, 1);
+        LinearLayout.LayoutParams deleteParams = LayoutPolicy.weightedHeightParams(s, 40, 1);
         deleteParams.setMarginStart(s.pixels(6));
         footer.addView(close, closeParams);
         footer.addView(delete, deleteParams);
-        LinearLayout.LayoutParams footerParams = KeyboardGeometry.matchWidthWrapParams();
+        LinearLayout.LayoutParams footerParams = LayoutPolicy.matchWidthWrapParams();
         footerParams.topMargin = s.pixels(6);
         s.expandedCandidates.addView(footer, footerParams);
     }
