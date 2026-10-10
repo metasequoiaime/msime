@@ -306,7 +306,6 @@ fn engine_chinese_punctuation(enabled: bool, lock: u8) -> bool {
 }
 
 impl HostSession {
-    /// `engine_chinese_punctuation` for the live overrides over the applied preferences.
     /// 判断一个标点键去向所用的上下文。`msime_client_punctuation_with_context` 和大写锁定改道（[`Self::caps_lock_punctuation`]）用的是同一份。
     fn punctuation_context(&self, character: u8, preceding: Option<char>) -> PunctuationContext {
         let lock = match self.punctuation_lock_override {
@@ -354,6 +353,7 @@ impl HostSession {
         }
     }
 
+    /// `engine_chinese_punctuation` for the live overrides over the applied preferences.
     fn live_engine_chinese_punctuation(&self) -> bool {
         engine_chinese_punctuation(
             self.punctuation_override
@@ -2045,11 +2045,12 @@ fn with_session(
 fn dispatch(handle: u64, action: Action) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
+            // 大写锁定改道先于其余处理，后面看到的都是改道后的动作。
+            let action = session.caps_lock_punctuation(action);
             // Which row the user reached for, read before dispatching because the view it is
             // relative to is gone afterwards. Every platform host routes candidate selection
             // through here, so counting it here covers all of them without a line of platform
             // code; doing it per host would have meant six chances to forget.
-            let action = session.caps_lock_punctuation(action);
             let position = selected_position(&action);
             let efficiency = position.and_then(|_| session.efficiency_candidate(&action));
             let result = session

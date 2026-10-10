@@ -28,7 +28,7 @@ pub struct PunctuationContext {
     pub caps_lock_ascii: bool,
 }
 
-/// Select the explicit ASCII route only when a host document decision is safe. Engine remains authoritative for composition, local/Japanese/English modes, Korean (whose punctuation is always half-width ASCII), and all punctuation not covered by the shared smart-punctuation contract or the Caps Lock switch.
+/// 只在宿主能安全按文档上下文决定时才选显式 ASCII 路线。组字中、本地/日文/英文模式、韩文（标点总是半角 ASCII），以及共享智能标点约定和大写锁定开关都不管的标点，仍由 Engine 决定。
 pub fn route(context: PunctuationContext) -> PunctuationRoute {
     if context.has_composition || !context.host_context_available {
         return PunctuationRoute::Engine;

@@ -71,7 +71,7 @@ export interface PunctuationSectionProps {
   preferences: PunctuationPreferences;
   /** Draws the 全角输入 row after 中文标点. The settings form keeps that row with the other output settings on the 输入 page, so its 标点 group leaves this off and renders `CharacterWidthRow` there instead. */
   showCharacterWidth: boolean;
-  /** Draws the 大写锁定时使用英文标点 row; only a host that reports Caps Lock to the session (`HostCapabilities.caps_lock_punctuation`) can act on it. */
+  /** 显示「大写锁定时使用英文标点」一行；只有向会话报告大写锁定的宿主（`HostCapabilities.caps_lock_punctuation`）才用得上。 */
   showCapsLockPunctuation?: boolean;
   onChange: (patch: Partial<PunctuationPreferences>) => void;
 }
