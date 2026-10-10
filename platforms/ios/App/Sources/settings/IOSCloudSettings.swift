@@ -54,7 +54,6 @@ enum IOSCloudSettings {
     if let learning = plan.learning, InputHabitPreference.update({ $0.learning = learning }) == nil {
       throw CocoaError(.fileWriteUnknown)
     }
-    let scheme = plan.scheme.flatMap(ChineseInputScheme.init(rawValue:))
     // 方案在写文档的闭包里按文档当时的启用列表落下，不拿 App Group 镜像里可能过时的列表覆盖文档。
     var writtenScheme: InputSchemePreference.Selection?
     let written = MetasequoiaInputSessionBridge.updateSharedPreferences { document in
@@ -67,7 +66,11 @@ enum IOSCloudSettings {
         if let design { customTheme["keyboard"] = design }
         document["custom_theme"] = customTheme
       }
-      if let scheme { writtenScheme = InputSchemePreference.write({ $0.scheme = scheme }, into: &document) }
+      // 云端的全拼、不是九键时，本机的 14 键保留（`IOSPreferencePlan.scheme(keeping:)`）。
+      let local = InputSchemePreference.current(in: document).scheme
+      if let scheme = plan.scheme(keeping: local.rawValue).flatMap(ChineseInputScheme.init(rawValue:)) {
+        writtenScheme = InputSchemePreference.write({ $0.scheme = scheme }, into: &document)
+      }
       if let profile = plan.wubiProfile { document[WubiProfilePreference.documentKey] = profile }
       if let traditional = plan.traditional { document[ChineseOutputPreference.documentKey] = traditional }
     }

@@ -301,7 +301,10 @@ impl IosPreferencePlan {
             return Err(AccountError::Storage);
         }
         let mut requested = current.clone();
-        if let Some(value) = &self.input_scheme {
+        // 云端还没有 14 键自己的键，本机的 14 键上传成全拼、不是九键（`local_account_preferences`）。云端是这一组值时本机的 14 键保留，免得在本机「应用云端设置」把 14 键改回 26 键；云端是九键或别的方案时照常切换。
+        let keeps_fourteen_key = self.input_scheme.as_deref() == Some("quanpin")
+            && current.input_scheme == "fourteenKey";
+        if let Some(value) = self.input_scheme.as_ref().filter(|_| !keeps_fourteen_key) {
             requested.input_scheme.clone_from(value);
         }
         if let Some(value) = self.traditional_chinese_output {
@@ -692,6 +695,59 @@ mod tests {
         assert_eq!(
             settings["platform.ios.nine_key"],
             AccountPreferenceValue::Boolean(false)
+        );
+    }
+
+    /// 云端的全拼、不是九键可能就是本机 14 键上传的：本机是 14 键时保留，云端是九键或别的方案时照常切换，本机不是 14 键时照常落成全拼 26 键。
+    #[test]
+    fn applying_cloud_quanpin_keeps_a_local_fourteen_key_choice() {
+        let cloud = |nine_key: bool, schema: &str| AccountPreferences {
+            revision: 7,
+            settings: BTreeMap::from([
+                (
+                    "input.schema".into(),
+                    AccountPreferenceValue::String(schema.into()),
+                ),
+                (
+                    "platform.ios.nine_key".into(),
+                    AccountPreferenceValue::Boolean(nine_key),
+                ),
+            ]),
+        };
+        let requested = |cloud: &AccountPreferences, local: &str| {
+            let mut current = native();
+            current.input_scheme = local.into();
+            IosPreferencePlan::from_cloud(cloud)
+                .unwrap()
+                .requested_native(&current)
+                .unwrap()
+                .input_scheme
+        };
+        assert_eq!(
+            requested(&cloud(false, "quanpin"), "fourteenKey"),
+            "fourteenKey"
+        );
+        assert_eq!(requested(&cloud(true, "quanpin"), "fourteenKey"), "nineKey");
+        assert_eq!(requested(&cloud(false, "wubi"), "fourteenKey"), "wubi");
+        assert_eq!(requested(&cloud(false, "quanpin"), "nineKey"), "quanpin");
+
+        let mut native = native();
+        native.input_scheme = "fourteenKey".into();
+        let mut preferences = Preferences::default();
+        preferences
+            .touch_keyboard_schemes
+            .enabled
+            .insert(TouchKeyboardScheme::FourteenKey);
+        let plan = IosPreferencePlan::from_cloud(&cloud(false, "quanpin")).unwrap();
+        let native = plan.requested_native(&native).unwrap();
+        plan.apply_shared(&native, &mut preferences).unwrap();
+        assert_eq!(
+            preferences.touch_keyboard_schemes.selected,
+            Some(TouchKeyboardScheme::FourteenKey)
+        );
+        assert_eq!(
+            preferences.touch_keyboard_layout,
+            TouchKeyboardLayout::FourteenKey
         );
     }
 

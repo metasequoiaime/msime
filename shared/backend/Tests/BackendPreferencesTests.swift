@@ -142,6 +142,19 @@ final class BackendPreferencesTests: XCTestCase {
     XCTAssertNil(older.wubiProfile)
   }
 
+  /// 云端的全拼、不是九键可能就是本机 14 键上传的：本机是 14 键时保留，云端是九键或别的方案时照常切换，本机不是 14 键时照常落成全拼。
+  func testCloudQuanpinKeepsALocalFourteenKeyChoice() throws {
+    let quanpin = try IOSPreferencePlan(["input.schema": .string("quanpin"), "platform.ios.nine_key": .boolean(false)], themes: themes)
+    XCTAssertNil(quanpin.scheme(keeping: "fourteenKey"))
+    XCTAssertEqual(quanpin.scheme(keeping: "nineKey"), "quanpin")
+    XCTAssertEqual(quanpin.scheme(keeping: "quanpin"), "quanpin")
+    let nine = try IOSPreferencePlan(["input.schema": .string("quanpin"), "platform.ios.nine_key": .boolean(true)], themes: themes)
+    XCTAssertEqual(nine.scheme(keeping: "fourteenKey"), "nineKey")
+    let wubi = try IOSPreferencePlan(["input.schema": .string("wubi")], themes: themes)
+    XCTAssertEqual(wubi.scheme(keeping: "fourteenKey"), "wubi")
+    XCTAssertNil(try IOSPreferencePlan([:], themes: themes).scheme(keeping: "fourteenKey"))
+  }
+
   func testThemeValuesAreCheckedAgainstTheCatalog() throws {
     let plan = try IOSPreferencePlan(["platform.ios.global_theme": .string("custom"), "platform.ios.custom_theme_base": .string("paper"), "platform.ios.custom_keyboard_skin": .string("{}")], themes: themes)
     XCTAssertEqual(plan.globalTheme, "custom")

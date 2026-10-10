@@ -69,6 +69,11 @@ struct IOSPreferencePlan {
     }
     customSkinJSON = try string("platform.ios.custom_keyboard_skin")
   }
+
+  /// 落到本机的方案，`local` 是本机当前的方案（`ChineseInputScheme` 的原始值）。云端还没有 14 键自己的键，本机的 14 键上传成全拼、不是九键（`IOSCloudSettings`）；云端是这一组值时保留本机的 14 键，返回 nil，免得在本机「应用云端设置」把 14 键改回 26 键。云端是九键或别的方案时照常切换。与 Tauri 公共组件 iOS 工程的 `IosPreferencePlan::requested_native` 是同一条规则。
+  func scheme(keeping local: String) -> String? {
+    scheme == "quanpin" && local == "fourteenKey" ? nil : scheme
+  }
 }
 
 /// 按产品版本过滤账号设置，规则与 client-core 的 `filter_uploaded_account_settings` 和 `filter_downloaded_account_settings`（crates/client-core/src/edition.rs）相同，Tauri 公共组件的 iOS 工程走的就是那两个函数。`offered` 是本版本提供的方案（版本表里的方案名，见 `MSIMEAppEdition.inputSchemes`），nil 表示 full：提供全部方案，什么也不去掉。
