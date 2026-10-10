@@ -2,9 +2,7 @@ package app.msime.android.home;
 
 import android.content.Context;
 import android.os.Bundle;
-import android.text.Editable;
 import android.text.InputType;
-import android.text.TextWatcher;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -15,6 +13,7 @@ import androidx.lifecycle.ViewModelProvider;
 import app.msime.android.ClipboardHistory;
 import app.msime.android.ClipboardHistoryPolicy;
 import app.msime.android.ClipboardHistoryStore;
+import app.msime.android.KeyboardGeometry;
 import app.msime.android.ViewPolicy;
 
 /**
@@ -113,15 +112,9 @@ public final class ClipboardEditPage extends DetailPage {
                 input.setText(draft.text);
                 input.setContentDescription("剪贴板记录的文字");
                 card.card().addView(input, Ui.matchWidth());
-                input.addTextChangedListener(new TextWatcher() {
-                    @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
-
-                    @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
-
-                    @Override public void afterTextChanged(Editable text) {
-                        draft.text = text.toString();
-                        refresh();
-                    }
+                Ui.afterTextChanged(input, text -> {
+                    draft.text = text.toString();
+                    refresh();
                 });
                 card.footer("保存后替换原来那一条，位置和固定状态不变；改成已有的文字时两条合并成一条。");
                 input.requestFocus();
@@ -137,11 +130,11 @@ public final class ClipboardEditPage extends DetailPage {
         TextView cancel = Ui.textButton(context, editing ? "取消" : "返回", 16, 600, Ui.accent(context),
             Ui.rippleOn(context, Ui.rowBackground(context), Ui.dp(context, Ui.GROUP_RADIUS)),
             Ui.ACTION_BUTTON_MIN_HEIGHT, this::leave);
-        buttons.addView(cancel, Ui.weightedHeight(context, Ui.ACTION_BUTTON_MIN_HEIGHT, 1f));
+        buttons.addView(cancel, KeyboardGeometry.weightedHeightPxParams(Ui.dp(context, Ui.ACTION_BUTTON_MIN_HEIGHT), 1f));
         if (editing) {
             TextView primary = Ui.textButton(context, "保存", 16, 600, Ui.onAccent(context), null,
                 Ui.ACTION_BUTTON_MIN_HEIGHT, this::submit);
-            LinearLayout.LayoutParams primaryParams = Ui.weightedHeight(context, Ui.ACTION_BUTTON_MIN_HEIGHT, 1f);
+            LinearLayout.LayoutParams primaryParams = KeyboardGeometry.weightedHeightPxParams(Ui.dp(context, Ui.ACTION_BUTTON_MIN_HEIGHT), 1f);
             primaryParams.setMarginStart(Ui.dp(context, 12));
             buttons.addView(primary, primaryParams);
             save = primary;
