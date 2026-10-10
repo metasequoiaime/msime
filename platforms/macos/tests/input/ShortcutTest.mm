@@ -827,10 +827,13 @@ static void TestIndependentAssistancePreferences() {
     assert(saves == 2 && [defaults objectForKey:@"MSIMEClientHelpcodeOptions"] == nil);
     assert([(NSPopUpButton *)schemaControls[@"quanpin"] indexOfSelectedItem] == 2);
     assert([(NSButton *)displayControls[@"quanpin"] state] == NSControlStateValueOff);
+    NSArray *identifiers = @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia", @"wubi86"];
+    // 下拉框的项数由内置方案数推出：没选插件时就是这些方案，选了插件再多一项，新增方案不必再改下面的断言。
+    const NSInteger builtInSchemas = (NSInteger)identifiers.count;
+    const NSInteger withPack = builtInSchemas + 1;
     for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
         NSPopUpButton *schemas = schemaControls[scheme];
         NSButton *display = displayControls[scheme];
-        NSArray *identifiers = @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia", @"wubi86"];
         assert(([schemas.itemTitles isEqual:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤", @"加加", @"五笔 86"]]));
         for (NSUInteger index = 0; index < identifiers.count; ++index) {
             [schemas selectItemAtIndex:index];
@@ -854,7 +857,7 @@ static void TestIndependentAssistancePreferences() {
     NSPopUpButton *quanpinSchemas = schemaControls[@"quanpin"];
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals", @"helpcode_pack_shuangpin": @"strokes"}}];
     assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && [[prefs helpcodePackForScheme:@"shuangpin"] isEqual:@"strokes"]);
-    assert(quanpinSchemas.numberOfItems == 7 && [quanpinSchemas.titleOfSelectedItem isEqual:@"radicals（插件）"]);
+    assert(quanpinSchemas.numberOfItems == withPack && [quanpinSchemas.titleOfSelectedItem isEqual:@"radicals（插件）"]);
     NSUInteger beforePack = saves;
     [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
     assert(saves == beforePack && [[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"]);
@@ -862,19 +865,19 @@ static void TestIndependentAssistancePreferences() {
     [quanpinSchemas selectItemAtIndex:1];
     [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
     assert(saves > beforePack && ![prefs helpcodePackForScheme:@"quanpin"]);
-    assert(quanpinSchemas.numberOfItems == 6 && quanpinSchemas.indexOfSelectedItem == 1);
+    assert(quanpinSchemas.numberOfItems == builtInSchemas && quanpinSchemas.indexOfSelectedItem == 1);
     NSDictionary *cleared = [prefs sharedPreferencesByMerging:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals", @"helpcode_pack_shuangpin": @"strokes", @"sound_pack": @"twinkle"}}];
     assert(([cleared[@"plugins"] isEqual:@{@"helpcode_pack_quanpin": @"", @"helpcode_pack_shuangpin": @"strokes", @"sound_pack": @"twinkle"}]));
     assert([cleared[@"quanpin_helpcode"][@"schema"] isEqual:@"ziranma"]);
     // 保存落盘之前读到的文档仍是旧插件，不能把它带回来；文档写进清空之后，别处再选的插件照常显示。
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
-    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == 6);
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == builtInSchemas);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @""}}];
     assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
-    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == 7);
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == withPack);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"", @"helpcode_pack_shuangpin": @""}}];
-    assert(quanpinSchemas.numberOfItems == 6 && [schemaControls[@"shuangpin"] numberOfItems] == 6);
+    assert(quanpinSchemas.numberOfItems == builtInSchemas && [schemaControls[@"shuangpin"] numberOfItems] == builtInSchemas);
     // 清空没能写进文档（保存失败）时，共享设置页另选的插件不是那个旧 id：照常显示，之后的保存也不把它写成空串。
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
     [quanpinSchemas selectItemAtIndex:1];
@@ -882,10 +885,10 @@ static void TestIndependentAssistancePreferences() {
     assert(![prefs helpcodePackForScheme:@"quanpin"]);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"strokes"}}];
     assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"strokes"]);
-    assert(quanpinSchemas.numberOfItems == 7 && [quanpinSchemas.titleOfSelectedItem isEqual:@"strokes（插件）"]);
+    assert(quanpinSchemas.numberOfItems == withPack && [quanpinSchemas.titleOfSelectedItem isEqual:@"strokes（插件）"]);
     assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @""}}];
-    assert(quanpinSchemas.numberOfItems == 6);
+    assert(quanpinSchemas.numberOfItems == builtInSchemas);
     // 共享偏好落盘时不写空的辅助码表包（空串的键省略，全为默认的 plugins 整个省略），所以清空写进文档后读回来的是没有 plugins 的文档：它与空串一样了结这次清空，之后在共享设置页再选同一个包照常显示，也不会被下一次保存写回空串。
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
     [quanpinSchemas selectItemAtIndex:1];
@@ -894,7 +897,7 @@ static void TestIndependentAssistancePreferences() {
     [prefs applySharedAssistancePreferences:@{}];
     assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
-    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == 7);
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == withPack);
     assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
     // plugins 还有别的设置、只是没有这个键时同样是空包；共享设置页清掉插件也是这样回来的，下拉框随之去掉插件项。
     [quanpinSchemas selectItemAtIndex:1];
@@ -902,12 +905,12 @@ static void TestIndependentAssistancePreferences() {
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"sound_pack": @"twinkle"}}];
     assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
-    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == 7);
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == withPack);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"sound_pack": @"twinkle"}}];
-    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == 6);
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == builtInSchemas);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @7}}];
-    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == 6);
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == builtInSchemas);
     NSButton *neighbor = (id)PreferenceControl(prefs, @selector(neighborChanged:));
     [prefs applySharedAssistancePreferences:@{@"quanpin": @{@"autocorrect_transposition": @YES, @"autocorrect_neighbor": @NO}}];
     assert(autocorrect.state == NSControlStateValueOn && neighbor.state == NSControlStateValueOff);
