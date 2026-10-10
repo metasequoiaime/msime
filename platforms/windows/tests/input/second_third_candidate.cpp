@@ -97,6 +97,22 @@ void policy_tests() {
   require(microsoft_shuangpin_final_position(std::wstring(L"nih"), 9), "A caret past the end was not clamped");
   require(!microsoft_shuangpin_final_position(std::wstring(), 0), "An empty composition has an ing key");
 
+  // Engine 视图里的输入：spelling_symbols 列出的符号，或者微软双拼声母后的 ';'。Server 和有宿主会话的 TIP 都用这一个函数读各自的视图。
+  require(second_third_candidate_engine_input(";'", ';', false, std::string("www"), 3),
+          "A ';' the URL mode spells was not input");
+  require(second_third_candidate_engine_input("'", '\'', false, std::string("www"), 3),
+          "A '\'' the URL mode spells was not input");
+  require(!second_third_candidate_engine_input("", '\'', false, std::string("nihao"), 5),
+          "A pinyin '\'' was input");
+  require(second_third_candidate_engine_input("", ';', true, std::string("n"), 1),
+          "The Microsoft Shuangpin final ing was not input");
+  require(!second_third_candidate_engine_input("", ';', true, std::string("ni"), 2),
+          "';' after a whole Microsoft Shuangpin syllable was input");
+  require(!second_third_candidate_engine_input("", ';', false, std::string("n"), 1),
+          "';' after an initial was input without Microsoft Shuangpin");
+  require(!second_third_candidate_engine_input("", '\'', true, std::string("n"), 1),
+          "'\'' was taken as the Microsoft Shuangpin final");
+
   // 偏好：整个对象缺省时关闭；缺字段按 client-core 的默认值；不认识的键位拒绝整份偏好。
   require(!preference_second_third_candidate(Json::object()), "A document without the key turned it on");
   require(preference_second_third_candidate(

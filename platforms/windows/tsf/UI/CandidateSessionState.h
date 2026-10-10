@@ -15,6 +15,8 @@ class CCandidateSessionState
     UINT GetCount() const;
     UINT GetSelection() const;
     bool GetSelectedCandidate(CCandidateListItem *item) const;
+    // 列表是不是 TIP 宿主会话的真实一页（候选带着宿主会话的身份），而不是没有宿主会话时的最小镜像。与 CCandidateListUIPresenter::_SetText 用同一个判断。
+    bool HoldsEnginePage() const;
     void SetScrollInfo(_In_ int nMax, _In_ int nPage);
 
     DWORD GetCandidateString(_In_ int iIndex, _Outptr_result_maybenull_z_ const WCHAR **ppwchCandidateString);

@@ -1657,7 +1657,7 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         return true;
     }
 
-    // 与 _IsKeyEaten（CCompositionProcessorEngine::IsSecondThirdCandidateKey）相同：打开「二三候选」后，组字中的 ';' 和 '\'' 是数字选词，排在音节分隔符和标点前面；网址模式和 V 模式拼写的符号、微软双拼的韵母 ing 仍是输入。Ctrl 和 Alt 组合键在上面已经交给应用。
+    // 与 _IsKeyEaten（CCompositionProcessorEngine::IsSecondThirdCandidateKey）相同：打开「二三候选」后，组字中的 ';' 和 '\'' 是数字选词，排在音节分隔符和标点前面；网址模式和 V 模式拼写的符号、微软双拼的韵母 ing 仍是输入。Ctrl 和 Alt 组合键在上面已经交给应用。是否在组字和光标前的字母取自排队按键的投影，与下面的数字键相同；宿主会话拥有组字时投影从空开始，这是数字键同样有的限制（.agents/notes/implemented/bug-fix/2026-10-10-second-third-candidate-tip-slot.md）。
     if (shadow.imeOpen && shadow.inputLength > 0 && Global::SecondThirdCandidateEnabled.load(std::memory_order_relaxed) &&
         msime::windows::second_third_candidate_slot(*classifiedCode, *classifiedWch))
     {

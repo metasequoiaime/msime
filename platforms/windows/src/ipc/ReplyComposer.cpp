@@ -867,10 +867,10 @@ std::optional<PendingReply> ReplyComposer::second_third_candidate(
   const auto editing = current.at("editing_text").get<std::string>();
   const auto text = static_cast<uint32_t>(packet.wch);
   // 当前状态下 Engine 拼写这个键（网址模式的 ';' 和 '\''），或者它是微软双拼声母后的韵母 ing，就是输入，交给后面的编辑路由。韵母 ing 和 TIP 一样只看光标前的字母数，不看本地模式，两边才不会对同一个键归类不同。
-  const bool engine_input =
-      spelled_by_engine(current.value("spelling_symbols", std::string{}), text) ||
-      (text == ';' && current.value("microsoft_shuangpin", false) &&
-       microsoft_shuangpin_final_position(editing, current.at("caret_position").get<size_t>()));
+  const bool engine_input = second_third_candidate_engine_input(
+      current.value("spelling_symbols", std::string{}), text,
+      current.value("microsoft_shuangpin", false), editing,
+      current.at("caret_position").get<size_t>());
   const auto slot = second_third_candidate_selection(
       true, packet.keycode, text, PipeMetadata::key_modifiers(packet.modifiers_down),
       !editing.empty(), view_scheme(current), current.value("dedicated_english", false),
