@@ -382,7 +382,7 @@ public final class DeviceDataApi {
         if (value == null || value.isEmpty()) return 0L;
         try {
             return Instant.parse(value).toEpochMilli();
-        } catch (DateTimeParseException malformed) {
+        } catch (DateTimeParseException | ArithmeticException malformed) {
             return 0L;
         }
     }
