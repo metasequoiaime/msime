@@ -320,10 +320,7 @@ public final class DictionaryCollectionsStore {
     public static boolean validName(String name) {
         if (name == null || name.isEmpty() || !name.equals(TextPolicy.stripped(name))) return false;
         if (!TextPolicy.withinCodePoints(name, MAX_NAME_CHARS)) return false;
-        for (int index = 0; index < name.length(); index++) {
-            if (Character.isISOControl(name.charAt(index))) return false;
-        }
-        return true;
+        return !TextPolicy.hasControl(name);
     }
 
     /** 拼音编码能否作为新词的编码：小写字母，音节之间可以用撇号分隔，不以撇号开头或结尾。 */

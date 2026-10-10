@@ -70,6 +70,10 @@ public final class ReplyKeyboardSmoke {
                 + "\"content\":{\"prompt\":\"use \\\"kind\\\" words\"}}]");
             List<CommunityReplyLibrary.Template> templates = CommunityReplyLibrary.read(file);
             check(templates.size() == 1 && templates.get(0).id().equals("fixture"));
+            Files.writeString(file, "[{\"id\":\"multiline\",\"kind\":\"reply\",\"name\":\"多行模板\","
+                + "\"content\":{\"prompt\":\"第一条\\n第二条\\t带缩进\"}}]");
+            templates = CommunityReplyLibrary.read(file);
+            check(templates.size() == 1 && templates.get(0).prompt().equals("第一条\n第二条\t带缩进"));
             Files.writeString(file, "[]".repeat(CommunityReplyLibrary.MAXIMUM_BYTES));
             try { CommunityReplyLibrary.read(file); throw new AssertionError(); }
             catch (java.io.IOException expected) { check(expected.getMessage().contains("large")); }

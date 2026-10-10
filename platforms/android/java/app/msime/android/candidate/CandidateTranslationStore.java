@@ -167,7 +167,7 @@ public final class CandidateTranslationStore {
         boolean arrived = false;
         for (int index = 0; index < words.size(); index++) {
             String value = values.get(index);
-            value = trimWhitespace(value);
+            value = TextPolicy.stripSpaceChars(value);
             if (value == null || value.isEmpty() || value.equals(words.get(index))
                     || TextPolicy.utf8Length(value) > 4096) continue;
             remember(key(target, words.get(index)), value);
@@ -181,24 +181,6 @@ public final class CandidateTranslationStore {
             cache.remove(cache.keySet().iterator().next());
         }
         cache.put(cacheKey, value);
-    }
-
-    /** Match Apple's whitespace/newline normalization before a gloss enters the cache. */
-    private static String trimWhitespace(String value) {
-        if (value == null || value.isEmpty()) return value;
-        int start = 0;
-        while (start < value.length()) {
-            int codePoint = value.codePointAt(start);
-            if (!Character.isWhitespace(codePoint) && !Character.isSpaceChar(codePoint)) break;
-            start += Character.charCount(codePoint);
-        }
-        int end = value.length();
-        while (end > start) {
-            int codePoint = value.codePointBefore(end);
-            if (!Character.isWhitespace(codePoint) && !Character.isSpaceChar(codePoint)) break;
-            end -= Character.charCount(codePoint);
-        }
-        return value.substring(start, end);
     }
 
     private static final class HandlerScheduler implements Scheduler {

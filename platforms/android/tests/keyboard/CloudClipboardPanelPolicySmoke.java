@@ -55,6 +55,15 @@ public final class CloudClipboardPanelPolicySmoke {
             "an empty account binding is never accepted");
         check(!CloudClipboardPanelPolicy.acceptsBinding("account-a", -1, "account-a", -1),
             "an unavailable binding generation is never accepted");
+        check(CloudClipboardPanelPolicy.canUseCloudRows(true, Status.READY,
+                "account-a", 7, "account-a", 7),
+            "cloud rows remain usable only for the loaded account binding");
+        check(!CloudClipboardPanelPolicy.canUseCloudRows(true, Status.READY,
+                "account-a", 7, "account-b", 8),
+            "stale cloud rows are unusable after an account change");
+        check(!CloudClipboardPanelPolicy.canUseCloudRows(true, Status.EMPTY,
+                "account-a", 7, "account-a", 7),
+            "an empty cloud page has no rows to use");
         check(CloudClipboardPanelPolicy.acceptsUploadResult(4, 4),
             "an upload result for the same panel may show its status");
         check(!CloudClipboardPanelPolicy.acceptsUploadResult(4, 5),

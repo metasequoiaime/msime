@@ -71,7 +71,7 @@ public final class CommunityReplyLibrary {
                 throw new IOException("Invalid community library");
             if (!TextPolicy.validUnicode(id) || !TextPolicy.validUnicode(name)
                     || !TextPolicy.validUnicode(prompt) || TextPolicy.hasControl(id)
-                    || TextPolicy.hasControl(name) || TextPolicy.hasControl(prompt)
+                    || TextPolicy.hasControl(name) || CommunityTextPolicy.hasDisallowedControl(prompt, true)
                     || TextPolicy.utf8Length(id) > MAXIMUM_ID_BYTES
                     || !TextPolicy.withinCodePoints(name, MAXIMUM_NAME_CHARACTERS)
                     || !TextPolicy.withinCodePoints(prompt, MAXIMUM_PROMPT_CHARACTERS))

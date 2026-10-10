@@ -182,7 +182,7 @@ final class ImeVoiceEntry {
                 if (result != null && !result.isEmpty() && polish != null) {
                     String polished = new VoicePolisher().polish(polish.endpoint(), polish.model(), polish.token(),
                         polish.prompt(), result);
-                    if (polished != null && !TextPolicy.trimmed(polished).isEmpty()) {
+                    if (TextPolicy.hasText(polished)) {
                         result = TextPolicy.trimmed(polished);
                     }
                 }
@@ -333,7 +333,7 @@ final class ImeVoiceEntry {
             worker.execute(() -> {
                 String polished = new VoicePolisher().polish(polish.endpoint(), polish.model(), polish.token(),
                     polish.prompt(), transcript);
-                String finalText = polished != null && !TextPolicy.trimmed(polished).isEmpty()
+                String finalText = TextPolicy.hasText(polished)
                     ? TextPolicy.trimmed(polished) : transcript;
                 s.main.post(() -> delivered(session, finalText, null, null, elapsed, language, PLATFORM_PROVIDER));
             });

@@ -3,7 +3,6 @@ package app.msime.android;
 import app.msime.android.clipboard.CloudClipboardTextPolicy;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Pattern;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -20,7 +19,6 @@ public final class CloudClipboardApi {
     public static final int MAX_ITEMS = 50;
     /** 保留时长的可选值（天），0 表示一直保留。 */
     public static final List<Integer> RETENTION_DAYS = List.of(1, 7, 30, 0);
-    private static final Pattern ID = Pattern.compile("[0-9a-f]{64}");
 
     /** 一条记录。`device` 是写入时的设备名，未知时为空字符串。 */
     public record Item(String id, String text, String updatedAt, boolean pinned, String device) {}
@@ -40,7 +38,7 @@ public final class CloudClipboardApi {
     }
 
     public static boolean validId(String id) {
-        return id != null && ID.matcher(id).matches();
+        return TextPolicy.isLowerHex(id, 64);
     }
 
     public static boolean validRetention(int days) {

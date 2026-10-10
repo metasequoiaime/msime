@@ -54,7 +54,7 @@ public final class AiPolishConfiguration {
     }
 
     public static boolean acceptableText(String text) {
-        if (text == null || TextPolicy.trimmed(text).isEmpty() || !TextPolicy.validUnicode(text)) return false;
+        if (!TextPolicy.hasText(text) || !TextPolicy.validUnicode(text)) return false;
         return TextPolicy.withinCodePoints(text, MAXIMUM_TEXT_CODE_POINTS);
     }
 

@@ -47,8 +47,8 @@ public final class InputModeStore {
             return null;
         for (int index = 0; index < packageName.length(); index++) {
             char value = packageName.charAt(index);
-            if (!(value == '.' || value == '_' || value == '-' || TextPolicy.isAsciiLetter(value)
-                    || value >= '0' && value <= '9')) return null;
+            if (!(value == '.' || value == '_' || value == '-'
+                    || TextPolicy.isAsciiLetterOrDigit(value))) return null;
         }
         return APP_PREFIX + packageName;
     }

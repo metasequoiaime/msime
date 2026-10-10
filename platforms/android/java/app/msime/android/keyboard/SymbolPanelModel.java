@@ -117,7 +117,7 @@ public final class SymbolPanelModel {
      */
     public static float cellTextSizeSp(Category category, String symbol) {
         if (category.kaomoji()) return 14;
-        int length = symbol == null ? 0 : symbol.codePointCount(0, symbol.length());
+        int length = TextPolicy.codePointLength(symbol);
         if (length <= SHORT_SYMBOL_CODE_POINTS) return 18;
         return length <= 9 ? 13 : 11;
     }
@@ -125,7 +125,7 @@ public final class SymbolPanelModel {
     /** 这个条目要不要单行省略：比 {@link #SHORT_SYMBOL_CODE_POINTS} 长的非颜文字条目。 */
     public static boolean singleLineCell(Category category, String symbol) {
         return !category.kaomoji() && symbol != null
-            && symbol.codePointCount(0, symbol.length()) > SHORT_SYMBOL_CODE_POINTS;
+            && TextPolicy.codePointLength(symbol) > SHORT_SYMBOL_CODE_POINTS;
     }
 
     /** 左列的全部分类：第一个是「常用」，内容就是 `recents`（最近点的在前），然后是写死的分类，最后是 Engine 目录里的分类。 */

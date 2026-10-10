@@ -20,8 +20,16 @@ public final class TextPolicySmoke {
         check(TextPolicy.lowercaseTrimmed(null).isEmpty(),
             "lowercase-trimmed text must treat a missing value as empty");
         check(!TextPolicy.hasText(null) && !TextPolicy.hasText("  \n\t")
+                && !TextPolicy.hasText("\u2003\u00a0\u3000")
                 && TextPolicy.hasText(" synthetic "),
             "hasText must reject blank text and accept non-blank text");
+        check(TextPolicy.boundedNonBlank("token", 5),
+            "bounded non-blank text is accepted");
+        check(!TextPolicy.boundedNonBlank("", 5)
+                && !TextPolicy.boundedNonBlank("token", 4)
+                && !TextPolicy.boundedNonBlank("bad\u0000", 20)
+                && !TextPolicy.boundedNonBlank("bad\uD800", 20),
+            "bounded non-blank text enforces all shared boundaries");
         check(TextPolicy.initial("词库", "?").equals("词"),
             "initial must return the first basic-plane code point");
         check(TextPolicy.initial("\ud840\udc00字", "?").equals("\ud840\udc00"),
@@ -33,6 +41,15 @@ public final class TextPolicySmoke {
             "ASCII letters must be recognized");
         check(!TextPolicy.isAsciiLetter('0') && !TextPolicy.isAsciiLetter(0xff21),
             "digits and full-width letters are not ASCII letters");
+        check(TextPolicy.stripSpaceChars("\u2003\u00a0text\u3000").equals("text"),
+            "space-character trimming must cover Unicode space separators");
+        check(TextPolicy.stripSpaceChars(null) == null
+                && TextPolicy.stripSpaceChars("\u2003").isEmpty(),
+            "space-character trimming preserves null and removes all-space text");
+        String emojiBoundary = "a".repeat(1023) + "\ud83d\ude42";
+        String clipped = TextPolicy.clipWithEllipsis(emojiBoundary, 1024);
+        check(!Character.isHighSurrogate(clipped.charAt(1023)),
+            "display clipping must not leave an isolated high surrogate");
         System.out.println("Android shared text policy passed");
     }
 }

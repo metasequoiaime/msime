@@ -87,7 +87,7 @@ impl LanguageDictionary {
 
     /// The entries stored under exactly `key`, heaviest first and by text within a weight, at most `limit`.
     pub fn lookup(&self, key: &str, limit: usize) -> Result<Vec<LanguageEntry>> {
-        let mut result = query_capacity(limit).map_or_else(Vec::new, Vec::with_capacity);
+        let mut result = Vec::new();
         self.lookup_into(key, limit, &mut result)?;
         Ok(result)
     }
@@ -99,6 +99,7 @@ impl LanguageDictionary {
         limit: usize,
         result: &mut Vec<LanguageEntry>,
     ) -> Result<()> {
+        let capacity = query_capacity(limit);
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
         let mut statement = self.connection.prepare_cached(
             "SELECT text, weight FROM entries WHERE key = ?1 ORDER BY weight DESC, text ASC LIMIT ?2",
@@ -110,6 +111,7 @@ impl LanguageDictionary {
                 rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(error))
             })?;
             let weight = row.get(1)?;
+            reserve_query_capacity(result, length, capacity);
             if let Some(entry) = result.get_mut(length) {
                 entry.text.clear();
                 entry.text.push_str(text);
@@ -149,7 +151,7 @@ impl LanguageDictionary {
         prefix: &str,
         limit: usize,
     ) -> Result<Vec<(String, LanguageEntry)>> {
-        let mut result = query_capacity(limit).map_or_else(Vec::new, Vec::with_capacity);
+        let mut result = Vec::new();
         self.lookup_completions_into(prefix, limit, &mut result)?;
         Ok(result)
     }
@@ -161,6 +163,7 @@ impl LanguageDictionary {
         limit: usize,
         result: &mut Vec<(String, LanguageEntry)>,
     ) -> Result<()> {
+        let capacity = query_capacity(limit);
         // Keys are space-joined syllables, so every key starting with `prefix` sorts at or after it and before `prefix` with its last character incremented.
         let Some(upper) = completion_upper_bound(prefix) else {
             result.clear();
@@ -180,6 +183,7 @@ impl LanguageDictionary {
                 rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(error))
             })?;
             let weight = row.get(2)?;
+            reserve_query_capacity(result, length, capacity);
             if let Some((existing_key, entry)) = result.get_mut(length) {
                 existing_key.clear();
                 existing_key.push_str(key);
@@ -224,7 +228,7 @@ impl LanguageDictionary {
         if pattern.is_empty() {
             return Ok(Vec::new());
         }
-        let mut result = query_capacity(limit).map_or_else(Vec::new, Vec::with_capacity);
+        let mut result = Vec::new();
         self.lookup_pattern_into(pattern, wildcard, completions, limit, &mut result)?;
         Ok(result)
     }
@@ -245,6 +249,7 @@ impl LanguageDictionary {
         let glob = glob_pattern(pattern, wildcard, completions);
         let length = i64::try_from(pattern.chars().count()).unwrap_or(i64::MAX);
         let literal = pattern.split(wildcard).next().unwrap_or_default();
+        let capacity = query_capacity(limit);
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
         // 字面前缀为空（通配符打头）时没有可用的键范围，只能整表按 GLOB 过滤。
         match completion_upper_bound(literal) {
@@ -255,13 +260,18 @@ impl LanguageDictionary {
                 read_keyed_rows_into(
                     &mut statement.query((literal, upper, glob, length, limit))?,
                     result,
+                    capacity,
                 )?;
             }
             None => {
                 let mut statement = self.connection.prepare_cached(
                     "SELECT key, text, weight FROM entries WHERE key GLOB ?1 AND instr(substr(key, ?2 + 1), ' ') = 0 ORDER BY weight DESC, text ASC LIMIT ?3",
                 )?;
-                read_keyed_rows_into(&mut statement.query((glob, length, limit))?, result)?;
+                read_keyed_rows_into(
+                    &mut statement.query((glob, length, limit))?,
+                    result,
+                    capacity,
+                )?;
             }
         }
         Ok(())
@@ -462,6 +472,7 @@ fn glob_pattern(pattern: &str, wildcard: char, completions: bool) -> String {
 fn read_keyed_rows_into(
     rows: &mut rusqlite::Rows<'_>,
     result: &mut Vec<(String, LanguageEntry)>,
+    capacity: Option<usize>,
 ) -> rusqlite::Result<()> {
     let mut length = 0;
     while let Some(row) = rows.next()? {
@@ -472,6 +483,7 @@ fn read_keyed_rows_into(
             rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(error))
         })?;
         let weight = row.get(2)?;
+        reserve_query_capacity(result, length, capacity);
         if let Some((existing_key, entry)) = result.get_mut(length) {
             existing_key.clear();
             existing_key.push_str(key);
@@ -491,6 +503,14 @@ fn read_keyed_rows_into(
     }
     result.truncate(length);
     Ok(())
+}
+
+fn reserve_query_capacity<T>(result: &mut Vec<T>, length: usize, capacity: Option<usize>) {
+    if length == 0 && result.is_empty() && result.capacity() == 0 {
+        if let Some(capacity) = capacity {
+            result.reserve_exact(capacity);
+        }
+    }
 }
 
 fn completion_upper_bound(prefix: &str) -> Option<String> {
@@ -581,7 +601,9 @@ mod tests {
             dictionary.lookup("nei", 10).unwrap(),
             vec![entry("你", 5000)]
         );
-        assert!(dictionary.lookup("ngo", 10).unwrap().is_empty());
+        let empty = dictionary.lookup("ngo", 10).unwrap();
+        assert!(empty.is_empty());
+        assert_eq!(empty.capacity(), 0);
         assert!(dictionary.has_syllable("hou").unwrap());
         assert!(!dictionary.has_syllable("ho").unwrap());
         assert_eq!(
@@ -634,8 +656,12 @@ mod tests {
         assert_eq!(completions("nei h", 1).1, [pair("nei hou", "你好")]);
         assert_eq!(completions("ne", 10).1, [pair("nei", "你")]);
         assert!(completions("nei ho", 0).1.is_empty());
-        assert!(completions("ngo", 10).1.is_empty());
-        assert!(completions("", 10).1.is_empty());
+        let (capacity, rows) = completions("ngo", 10);
+        assert!(rows.is_empty());
+        assert_eq!(capacity, 0);
+        let (capacity, rows) = completions("", 10);
+        assert!(rows.is_empty());
+        assert_eq!(capacity, 0);
     }
 
     #[test]
@@ -706,9 +732,13 @@ mod tests {
         assert_eq!(texts("hsx", true, 10).1, ["hsh:土"]);
         // GLOB 的元字符按字面匹配。
         assert_eq!(texts("a*b", false, 10).1, ["a*b:星"]);
-        assert!(texts("a?b", false, 10).1.is_empty());
+        let (capacity, rows) = texts("a?b", false, 10);
+        assert!(rows.is_empty());
+        assert_eq!(capacity, 0);
         assert!(texts("", true, 10).1.is_empty());
-        assert!(texts("xxxxxx", true, 10).1.is_empty());
+        let (capacity, rows) = texts("xxxxxx", true, 10);
+        assert!(rows.is_empty());
+        assert_eq!(capacity, 0);
         assert!(texts("hx", true, 0).1.is_empty());
     }
 

@@ -1173,7 +1173,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (PairedPunctuationPolicy.caretPassedClosing(closing, after, before)) {
             selectionEcho.commit(closing.length());
             selectionEcho.expect();
-            for (int index = closing.codePointCount(0, closing.length()); index > 0; index--)
+            for (int index = TextPolicy.codePointLength(closing); index > 0; index--)
                 sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_LEFT);
             selectionEcho.caretLeft(closing.length());
         } else {
@@ -1932,7 +1932,7 @@ public final class MSIMEInputService extends InputMethodService {
                 String prompt = ai.optString(
                     AiPolishConfiguration.promptSlotKey(
                         InputViewValuePolicy.textOr(ai, "prompt_id", "")), "");
-                if (TextPolicy.trimmed(prompt).isEmpty()) prompt = AiPolishConfiguration.DEFAULT_PROMPT;
+                if (!TextPolicy.hasText(prompt)) prompt = AiPolishConfiguration.DEFAULT_PROMPT;
                 next = new AiPolishConfiguration(endpoint,
                     InputViewValuePolicy.textOr(ai, "model", ""), prompt, token);
             } catch (IllegalArgumentException ignored) {

@@ -69,7 +69,7 @@ public final class RecentClipboardSuggestion {
         for (int offset = 0; offset < trimmed.length(); ) {
             int codePoint = trimmed.codePointAt(offset);
             offset += Character.charCount(codePoint);
-            if (Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint)) {
+            if (TextPolicy.isSpace(codePoint)) {
                 space = true;
                 continue;
             }

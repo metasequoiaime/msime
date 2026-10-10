@@ -19,6 +19,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
 import app.msime.android.BoundsPolicy;
+import app.msime.android.BackendAccount;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -53,6 +54,7 @@ import org.json.JSONObject;
 public final class CommunityFragment extends Fragment {
     private static final String ARG_KIND = "kind";
     private static final String REPLY_SECTION = "AI 回复模板";
+    private record LoadedPage(CommunityCatalog.Page page, String sessionId, boolean stable) {}
 
     /** The segment on screen: skins, dictionaries or phrases. */
     private CommunityRequest.Kind kind = CommunityRequest.Kind.SKIN;
@@ -257,14 +259,29 @@ public final class CommunityFragment extends Fragment {
         String term = search;
         CommunityRequest.Category filter = requestCategory();
         HostTask.run(this,
-            context -> new CommunityCatalog(context).list(requested, term, offset, filter),
-            page -> {
+            context -> {
+                BackendAccount account = new BackendAccount(context);
+                String before = account.sessionId();
+                CommunityCatalog.Page page = new CommunityCatalog(context).list(
+                    requested, term, offset, filter);
+                String after = account.sessionId();
+                return new LoadedPage(page, before, java.util.Objects.equals(before, after));
+            },
+            loaded -> {
                 // The tab, the search or the category may have moved on while this page was in flight. A stale answer must not write over what the user is now looking at, and must not clear the flag belonging to the request that replaced it.
                 if (segment != kind || requested != section || !term.equals(search)
                         || filter != requestCategory()) {
                     return;
                 }
+                if (loaded == null || !loaded.stable()
+                        || !java.util.Objects.equals(loaded.sessionId(),
+                            new BackendAccount(requireContext()).sessionId())) {
+                    loading = false;
+                    state("账号已切换，请重试。", true);
+                    return;
+                }
                 loading = false;
+                CommunityCatalog.Page page = loaded.page();
                 boolean replies = requested == CommunityRequest.Kind.REPLY;
                 if (page == null || page.failed()) {
                     // 回复模板只是短语分段的第二个小节：它读不到时短语包照常显示，只是不再往下翻。

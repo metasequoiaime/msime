@@ -61,9 +61,9 @@ public final class ClipboardSegmentation {
         int start = words.first();
         for (int end = words.next(); end != BreakIterator.DONE; start = end, end = words.next()) {
             String piece = source.substring(start, end);
-            if (isBlank(piece)) {
+            if (TextPolicy.blank(piece)) {
                 appendSeparator(segments, piece);
-            } else if (isIdeographRun(piece) && piece.codePointCount(0, piece.length()) > MAX_IDEOGRAPH_RUN) {
+            } else if (isIdeographRun(piece) && TextPolicy.codePointLength(piece) > MAX_IDEOGRAPH_RUN) {
                 for (int offset = 0; offset < piece.length(); ) {
                     int next = piece.offsetByCodePoints(offset, 1);
                     segments.add(new Segment(piece.substring(offset, next), false));
@@ -120,15 +120,6 @@ public final class ClipboardSegmentation {
         } else {
             segments.add(new Segment(piece, true));
         }
-    }
-
-    private static boolean isBlank(String piece) {
-        for (int offset = 0; offset < piece.length(); ) {
-            int codePoint = piece.codePointAt(offset);
-            if (!Character.isWhitespace(codePoint) && !Character.isSpaceChar(codePoint)) return false;
-            offset += Character.charCount(codePoint);
-        }
-        return true;
     }
 
     private static boolean isIdeographRun(String piece) {

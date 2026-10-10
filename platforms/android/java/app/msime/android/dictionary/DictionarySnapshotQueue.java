@@ -145,9 +145,7 @@ public final class DictionarySnapshotQueue {
     }
 
     public static boolean validDigest(String value) {
-        return value != null && value.length() == 64
-            && value.chars().allMatch(c -> c >= '0' && c <= '9'
-                || c >= 'a' && c <= 'f');
+        return TextPolicy.isLowerHex(value, 64);
     }
 
     public State read() throws Failure { return locked(this::readUnlocked); }

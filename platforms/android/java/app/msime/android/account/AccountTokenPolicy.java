@@ -12,7 +12,7 @@ public final class AccountTokenPolicy {
 
     /** Backend account tokens are fixed-width lower-case hex values. */
     public static boolean validToken(String value) {
-        return value != null && value.matches("[0-9a-f]{64}");
+        return TextPolicy.isLowerHex(value, 64);
     }
 
     /** The complete token envelope required before a session can be persisted or used. */

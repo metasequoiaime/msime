@@ -61,7 +61,6 @@ public final class UpdateApi {
     static final int READ_TIMEOUT_MILLIS = 60_000;
     private static final Pattern EDITION_ID = Pattern.compile("[a-z][a-z0-9]{0,31}");
     private static final Pattern TAG = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._+-]{0,127}");
-    private static final Pattern SHA256 = Pattern.compile("[0-9a-f]{64}");
     /** 同一时刻只让一次下载动 `updates/` 目录：关于页的手动更新和 UpdateJobService 的每日任务都在主进程里，同时下载时会互删对方的 `.part`、写同一个文件。 */
     private static final Object DOWNLOAD_LOCK = new Object();
 
@@ -257,7 +256,7 @@ public final class UpdateApi {
         int end = 0;
         while (end < trimmed.length() && !Character.isWhitespace(trimmed.charAt(end))) end++;
         String digest = TextPolicy.lowercase(trimmed.substring(0, end));
-        return SHA256.matcher(digest).matches() ? digest : null;
+        return TextPolicy.isLowerHex(digest, 64) ? digest : null;
     }
 
     /** 读 msime.app 的发行版列表：`{items:[{tag,version,prerelease,…}]}`，只保留平台是 android 的条目。 */

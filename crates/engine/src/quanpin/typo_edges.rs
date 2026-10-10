@@ -113,14 +113,16 @@ fn lookup_planned_edges(
         }
     }
 
-    let mut edges = Vec::new();
+    // 纠错键的查词页可能只有一两行；按缓存中的实际行数预留，避免把 96 个键的上限乘进返回缓冲。
+    let edge_count = planned
+        .iter()
+        .filter_map(|entry| span_cache.get_ref(&entry.key))
+        .fold(0usize, |count, rows| count.saturating_add(rows.len()));
+    let mut edges = Vec::with_capacity(edge_count);
     for entry in planned {
         let Some(found) = span_cache.get_ref(&entry.key) else {
             continue;
         };
-        if edges.is_empty() && !found.is_empty() {
-            edges = Vec::with_capacity(planned.len() * TYPO_ROWS_PER_KEY);
-        }
         edges.extend(found.iter().map(|row| TypoEdge {
             start: entry.start,
             end: entry.end,

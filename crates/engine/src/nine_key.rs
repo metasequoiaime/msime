@@ -1080,7 +1080,7 @@ impl NineKeySession {
         candidates.clear();
         let mut key = String::with_capacity(locked_key.len() + self.digits.len() * 4 + 1);
         // 各条切分的前缀组彼此大量重复，一次刷新会推入上万行，见 `push_ranked`。
-        let mut leading: HashMap<String, RankKey> = HashMap::with_capacity(CANDIDATE_LIMIT);
+        let mut leading: HashMap<String, RankKey> = HashMap::new();
         // Only a split the user typed says where a syllable ends; without one, `3` must keep 的 (a completion of d) ahead of the rarer 额 (e).
         let prefer_exact = !self.splits.is_empty();
         // 每个数字都能当一个音节的首字母时也按简拼查（`68` 是 m't：明天、每天）。用户在每个数字之间都打了切分（`6'8`），说的就是简拼，简拼行排在前面；没打切分时数字也可能是完整音节（`68` 是 mu），简拼行排在同样覆盖的音节行之后。
@@ -2118,6 +2118,9 @@ fn push_ranked(
         Some(best) if *best <= key => return,
         Some(best) => *best = key,
         None => {
+            if leading.is_empty() {
+                leading.reserve(CANDIDATE_LIMIT);
+            }
             leading.insert(candidate.word.clone(), key);
         }
     }
@@ -3031,6 +3034,24 @@ mod tests {
         let candidates = vec![item("old", "653", 1, CandidateSource::EnglishDictionary)];
         assert!(has_candidate_word(&candidates, "old"));
         assert!(!has_candidate_word(&candidates, "older"));
+    }
+
+    #[test]
+    fn push_ranked_defers_leading_capacity_until_a_candidate_exists() {
+        let mut candidates = Vec::new();
+        let mut leading = HashMap::new();
+        assert_eq!(leading.capacity(), 0);
+
+        push_ranked(
+            &mut candidates,
+            &mut leading,
+            item("你", "64", 1, CandidateSource::Database),
+            false,
+            false,
+        );
+
+        assert_eq!(candidates.len(), 1);
+        assert!(leading.capacity() >= CANDIDATE_LIMIT);
     }
 
     #[test]

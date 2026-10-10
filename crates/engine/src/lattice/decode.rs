@@ -406,8 +406,8 @@ pub(super) fn decode_graph(
 
     // 同一列里很多假设经由同一个词到达，只是更早的历史不同；它们对每条出边查到的二元分完全一样。按前一个词把这一列所有出边的二元分记下来，同一个词只查一遍表。
     let row_capacity = options.beam.max(options.nbest);
-    let mut bigram_rows: Vec<(&str, Vec<f32>)> = Vec::with_capacity(row_capacity);
-    let mut bigram_row_indices: HashMap<&str, usize> = HashMap::with_capacity(row_capacity);
+    let mut bigram_rows: Vec<(&str, Vec<f32>)> = Vec::new();
+    let mut bigram_row_indices: HashMap<&str, usize> = HashMap::new();
     // 这一列的出边，按原来的顺序（先图里的，再 `extra` 的）收集一次，每个假设都按这个顺序展开。
     let mut outgoing: Vec<&Edge> = Vec::new();
     for pos in 0..n {
@@ -429,6 +429,10 @@ pub(super) fn decode_graph(
                 let row = if let Some(&row) = bigram_row_indices.get(previous) {
                     row
                 } else {
+                    if bigram_rows.is_empty() {
+                        bigram_rows.reserve_exact(row_capacity);
+                        bigram_row_indices.reserve(row_capacity);
+                    }
                     let scores = match memo.as_deref_mut() {
                         Some(memo) => outgoing
                             .iter()
@@ -812,6 +816,18 @@ pub(super) mod tests {
         let extra = vec![vec![], vec![edge(2)], vec![]];
 
         assert_eq!(column_capacities(&graph, Some(&extra), 4, 2), [4, 4, 12, 4]);
+    }
+
+    #[test]
+    fn decode_without_bigram_does_not_allocate_bigram_rows() {
+        let graph = vec![Vec::new()];
+        let options = LatticeOptions::default();
+        let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            decode_graph(&graph, &options, None)
+        });
+
+        assert!(paths.is_empty());
+        assert_eq!(allocations, 4);
     }
 
     /// test_pinyin.cpp:540-548, like the other fake-lookup lattice cases of `test_word_lattice` (:534-677) ported here and in merge.rs; the SQLite lookup case (:641-666) is in dictionary/pinyin.rs.

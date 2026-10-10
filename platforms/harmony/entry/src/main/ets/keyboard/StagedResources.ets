@@ -21,6 +21,7 @@ export class StagedResources {
    * looks unstaged rather than complete.
    */
   static stage(packaged: string, destination: string, marker: string): boolean {
+    const staging: string = `${destination}.${util.generateRandomUUID(false)}.staging`;
     try {
       if (!fs.accessSync(packaged)) {
         KeyboardLog.error(`no packaged resources at ${packaged}`);
@@ -32,35 +33,37 @@ export class StagedResources {
       if (!StagedResourcePolicy.needsStaging(StagedResources.readMarker(marker), token)) {
         return true;
       }
-      if (fs.accessSync(marker)) {
-        fs.unlinkSync(marker);
-      }
-      StagedResources.removeDirectory(destination);
-      fs.mkdirSync(destination, true);
+      // Build beside the live tree. Readers can continue using the previous complete generation
+      // while a second process stages the new one.
+      fs.mkdirSync(staging, true);
       for (const artifact of artifacts) {
         const slash: number = artifact.name.lastIndexOf('/');
-        const parent: string = `${destination}/${artifact.name.substring(0, slash)}`;
+        const parent: string = `${staging}/${artifact.name.substring(0, slash)}`;
         if (slash > 0 && !fs.accessSync(parent)) {
           fs.mkdirSync(parent, true);
         }
-        fs.copyFileSync(`${packaged}/${artifact.name}`, `${destination}/${artifact.name}`);
+        fs.copyFileSync(`${packaged}/${artifact.name}`, `${staging}/${artifact.name}`);
       }
-      const staging: string = `${marker}.${util.generateRandomUUID(false)}.tmp`;
+      StagedResources.replaceDirectory(staging, destination);
+      if (fs.accessSync(marker)) {
+        fs.unlinkSync(marker);
+      }
+      const markerStaging: string = `${marker}.${util.generateRandomUUID(false)}.tmp`;
       let renamed: boolean = false;
       try {
-        const handle = fs.openSync(staging,
+        const handle = fs.openSync(markerStaging,
           fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
         try {
           fs.writeSync(handle.fd, token);
         } finally {
           fs.closeSync(handle);
         }
-        fs.renameSync(staging, marker);
+        fs.renameSync(markerStaging, marker);
         renamed = true;
       } finally {
         if (!renamed) {
           try {
-            if (fs.accessSync(staging)) fs.unlinkSync(staging);
+            if (fs.accessSync(markerStaging)) fs.unlinkSync(markerStaging);
           } catch {
             // A failed marker write leaves at most its uniquely named staging file.
           }
@@ -70,6 +73,11 @@ export class StagedResources {
       return true;
     } catch (error) {
       KeyboardLog.error(`staging failed: ${describeError(error)}`);
+      try {
+        StagedResources.removeDirectory(staging);
+      } catch {
+        // The original failure is more useful than a best-effort cleanup failure.
+      }
       return false;
     }
   }
@@ -160,5 +168,37 @@ export class StagedResources {
       }
     }
     fs.rmdirSync(directory);
+  }
+
+  /** Replace a live resource tree only after its replacement is complete. */
+  private static replaceDirectory(staging: string, destination: string): void {
+    const previous: string = `${destination}.${util.generateRandomUUID(false)}.previous`;
+    let moved: boolean = false;
+    let installed: boolean = false;
+    try {
+      if (fs.accessSync(destination)) {
+        fs.renameSync(destination, previous);
+        moved = true;
+      }
+      fs.renameSync(staging, destination);
+      installed = true;
+      if (moved) {
+        StagedResources.removeDirectory(previous);
+      }
+    } catch (error) {
+      if (!installed) {
+        try {
+          if (fs.accessSync(staging)) StagedResources.removeDirectory(staging);
+        } catch {
+          // Preserve the swap failure below.
+        }
+        try {
+          if (moved && !fs.accessSync(destination)) fs.renameSync(previous, destination);
+        } catch {
+          // A failed rollback leaves the marker invalid, so the next stage will retry.
+        }
+      }
+      throw error as Error;
+    }
   }
 }

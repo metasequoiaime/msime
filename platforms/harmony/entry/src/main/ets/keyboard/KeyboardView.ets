@@ -5168,14 +5168,13 @@ struct KeyboardView {
         this.cloudStateKnown = this.cloudEditor === KeyboardSession.shared.cloudClipboardEditor()
           && this.cloudVisible;
         if (previousBinding.length > 0) {
-          this.clipSendTarget = '';
-          this.invalidateCloudSend();
+          this.closeCloudClipboard();
         }
         return;
       }
       if (previousBinding.length > 0 && listing.binding !== previousBinding) {
-        this.clipSendTarget = '';
-        this.invalidateCloudSend();
+        this.closeCloudClipboard();
+        return;
       }
       this.cloudClips = listing.items;
       this.cloudBinding = listing.binding ?? '';
@@ -5192,6 +5191,21 @@ struct KeyboardView {
     this.cloudClips = [];
     this.cloudStateKnown = false;
     this.cloudLoading = false;
+  }
+
+  /** 账号会话或编辑框绑定失效时关闭整个云剪贴板面板，避免把失效状态留在可操作界面里。 */
+  private closeCloudClipboard(): void {
+    this.clipSendTarget = '';
+    this.clipboardTab = CLIPBOARD_TAB_LOCAL;
+    this.dropCloudClipboard();
+    if (KeyboardFormFactor.isDesktop() && this.desktop === DesktopSurface.EMOJI
+      && this.emojiPanel === CLIPBOARD_PANEL) {
+      // Reopening the desktop emoji surface must start on the ordinary emoji page rather than
+      // immediately reopening the cloud page whose binding was just rejected.
+      this.emojiPanel = EMOJI_PANEL;
+      this.resetEmojiSearch();
+    }
+    this.leaveSurface(DesktopSurface.EMOJI);
   }
 
   /**
@@ -5252,12 +5266,12 @@ struct KeyboardView {
     const binding: string = this.cloudBinding;
     KeyboardSession.shared.cloudClipboardBindingCurrent(binding).then((current: boolean): void => {
       if (request !== this.cloudRequest || !this.clipboardShowing() || binding !== this.cloudBinding) return;
-      if (current && KeyboardSession.shared.insertCloudClipboard(text, editor)) return;
-      // The editor or account changed while the row was visible; replace the old listing.
-      this.cloudVisible = KeyboardSession.shared.cloudClipboardVisible();
-      this.dropCloudClipboard();
-      if (this.cloudVisible) this.refreshCloudClipboard();
-      else this.clipboardTab = CLIPBOARD_TAB_LOCAL;
+      if (CloudClipboardPolicy.canUseRows(this.cloudVisible,
+        this.cloudStateKnown ? this.cloudState : null, binding, current ? binding : '')
+        && KeyboardSession.shared.insertCloudClipboard(text, editor)) return;
+      // The editor or account changed while the row was visible; close the old listing instead of
+      // leaving a stale panel that invites another tap.
+      this.closeCloudClipboard();
     });
   }
 
@@ -5302,7 +5316,10 @@ struct KeyboardView {
         return;
       }
       this.cloudSending = false;
-      if (binding !== this.cloudBinding) return;
+      if (binding !== this.cloudBinding) {
+        this.closeCloudClipboard();
+        return;
+      }
       if (this.clipSendTarget === text) {
         this.clipSendTarget = '';
       }

@@ -64,14 +64,11 @@ public final class EmailSuffixPolicy {
     }
 
     private static boolean domainChar(char value) {
-        return asciiLetterOrDigit(value) || value == '.' || value == '-';
+        return TextPolicy.isAsciiLetterOrDigit(value) || value == '.' || value == '-';
     }
 
     private static boolean localChar(char value) {
-        return asciiLetterOrDigit(value) || value == '.' || value == '_' || value == '%' || value == '+' || value == '-';
-    }
-
-    private static boolean asciiLetterOrDigit(char value) {
-        return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9');
+        return TextPolicy.isAsciiLetterOrDigit(value) || value == '.' || value == '_' || value == '%'
+            || value == '+' || value == '-';
     }
 }

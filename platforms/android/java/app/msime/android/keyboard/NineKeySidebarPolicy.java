@@ -43,15 +43,15 @@ public final class NineKeySidebarPolicy {
         int index = 0;
         while (index <= text.length()) {
             int codePoint = index < text.length() ? text.codePointAt(index) : ' ';
-            if (Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint)) {
+            if (TextPolicy.isSpace(codePoint)) {
                 if (token.length() > 0) {
                     symbols.add(token.toString());
                     token.setLength(0);
                 }
             } else {
-                if (Character.isISOControl(codePoint)) return null;
+                if (TextPolicy.isControl(codePoint)) return null;
                 token.appendCodePoint(codePoint);
-                if (token.codePointCount(0, token.length()) > MAX_SYMBOL_CODE_POINTS) return null;
+                if (TextPolicy.codePointLength(token.toString()) > MAX_SYMBOL_CODE_POINTS) return null;
             }
             index += index < text.length() ? Character.charCount(codePoint) : 1;
         }

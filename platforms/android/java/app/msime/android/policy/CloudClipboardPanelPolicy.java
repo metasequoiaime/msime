@@ -81,6 +81,15 @@ public final class CloudClipboardPanelPolicy {
             && requestedGeneration == currentGeneration;
     }
 
+    /** 云端条目只有在字段允许、页面已成功读取且账号绑定仍相同时才可使用。 */
+    public static boolean canUseCloudRows(boolean cloudAllowed, Status status,
+            String requestedAccount, long requestedGeneration,
+            String currentAccount, long currentGeneration) {
+        return cloudAllowed && status == Status.READY
+            && acceptsBinding(requestedAccount, requestedGeneration,
+                currentAccount, currentGeneration);
+    }
+
     /** Whether an upload completion still belongs to the visible panel that started it. */
     public static boolean acceptsUploadResult(long requestGeneration, long currentGeneration) {
         return accepts(requestGeneration, currentGeneration);

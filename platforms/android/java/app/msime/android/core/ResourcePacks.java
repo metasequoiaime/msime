@@ -138,7 +138,7 @@ public final class ResourcePacks {
             JSONArray mirrors = new JSONArray();
             if (sources != null) {
                 for (String source : sources) {
-                    if (source != null && !source.trim().isEmpty()) mirrors.put(source.trim());
+                    if (TextPolicy.hasText(source)) mirrors.put(TextPolicy.trimmed(source));
                 }
             }
             if (mirrors.length() > 0) request.put("sources", mirrors);

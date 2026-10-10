@@ -129,7 +129,7 @@ fn assert_same_edges(edges: &[TypoEdge], legacy_edges: &[TypoEdge]) {
 }
 
 #[test]
-fn warm_nonempty_rows_keep_order_penalties_and_original_capacity() {
+fn warm_nonempty_rows_keep_order_penalties_and_exact_capacity() {
     let fixture = Fixture::new();
     let profile = PersonalTypoProfile::shared(&fixture.journal());
     let first_typo = &syllable_typos("zhuang")[0];
@@ -167,9 +167,32 @@ fn warm_nonempty_rows_keep_order_penalties_and_original_capacity() {
         });
         assert!(!edges.is_empty());
         assert_same_edges(&edges, &legacy_edges);
-        assert_eq!(edges.capacity(), legacy_edges.capacity());
-        assert_eq!(allocations + 1, legacy_allocations);
+        assert_eq!(edges.capacity(), edges.len());
+        assert!(edges.capacity() <= legacy_edges.capacity());
+        assert!(allocations <= legacy_allocations);
     }
+}
+
+#[test]
+fn sparse_first_hit_reserves_only_the_rows_it_has() {
+    let fixture = Fixture::new();
+    let profile = PersonalTypoProfile::shared(&fixture.journal());
+    let database = PinyinDatabase::open(&fixture.database());
+    let (segments, literal) = input(6);
+    let planned = plan_keys(&profile, &segments, &literal, TYPES);
+    assert!(planned.len() > TYPO_ROWS_PER_KEY);
+    let mut cache = FifoCache::new(512);
+    for (index, entry) in planned.iter().enumerate() {
+        cache.insert(
+            entry.key.clone(),
+            if index == 0 { rows(entry, 1) } else { vec![] },
+        );
+    }
+
+    let edges = collect_typo_edges(&database, &mut cache, &profile, &segments, &literal, TYPES);
+
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges.capacity(), 1);
 }
 
 #[test]
@@ -224,7 +247,8 @@ fn real_queries_and_partial_hits_keep_batch_fill_and_fifo_eviction() {
                 if edges.is_empty() {
                     assert_eq!(edges.capacity(), 0);
                 } else {
-                    assert_eq!(edges.capacity(), legacy_edges.capacity());
+                    assert_eq!(edges.capacity(), edges.len());
+                    assert!(edges.capacity() <= legacy_edges.capacity());
                 }
                 let saved = usize::from(!had_misses) + usize::from(edges.is_empty());
                 assert_eq!(allocations + saved, legacy_allocations);
@@ -339,9 +363,9 @@ fn cold_measurement_creates_and_drops_database_and_cache_inside_the_scope() {
             assert!(heap.peak_bytes < legacy_heap.peak_bytes);
         } else {
             assert_eq!(heap.allocations, legacy_heap.allocations);
-            assert_eq!(edges.capacity(), legacy_edges.capacity());
-            assert_eq!(heap.remaining_bytes, legacy_heap.remaining_bytes);
-            assert_eq!(heap.peak_bytes, legacy_heap.peak_bytes);
+            assert_eq!(edges.capacity(), edges.len());
+            assert!(heap.remaining_bytes < legacy_heap.remaining_bytes);
+            assert!(heap.peak_bytes < legacy_heap.peak_bytes);
         }
         println!(
             "冷查询 with_rows={with_rows}：分配 {}→{}，峰值 {}→{}，返回存储 {}→{}",

@@ -14,6 +14,20 @@ if ! grep -qF 'StagedResources.removeDirectory(this.cacheRoot)' \
   echo "key sound reloads must remove the rendered cache tree, not only the empty root" >&2
   exit 1
 fi
+# Resource staging must build off to the side and swap a complete tree into place; copying into the
+# live directory lets the settings and keyboard processes observe a half-staged engine.
+if ! grep -qF 'StagedResources.replaceDirectory(staging, destination)' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/StagedResources.ets"; then
+  echo "Harmony resource staging must replace the live directory only after the staged tree is complete" >&2
+  exit 1
+fi
+# Starter insertion is several separately locked native operations; the returned panel snapshot
+# must be reloaded after that sequence so a concurrent settings edit cannot leave it stale.
+if ! grep -qF "await KeyboardSession.commonPhrasesCall(directory, { operation: 'load' })" \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"; then
+  echo "Harmony common phrases must reload after starter seeding" >&2
+  exit 1
+fi
 # 字母键的 ForEach 按 faceKey() 判定子树是否重建。「双拼键位提示」不在这个键里时，键盘开着切换开关，已经画好的字母键会一直留着旧提示。
 if ! sed -n '/^  private faceKey(): string {$/,/^  }$/p' \
     "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \

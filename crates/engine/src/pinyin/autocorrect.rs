@@ -281,7 +281,7 @@ impl Search {
         Self {
             best: (0..=length).map(|_| Vec::new()).collect(),
             arrival: 0,
-            sequences: HashMap::with_capacity(length.saturating_mul(k)),
+            sequences: HashMap::new(),
             k,
         }
     }
@@ -337,6 +337,9 @@ impl Search {
             // A legal-only reading of the whole input is the caller's plain segmentation; dropping it on arrival also keeps k = 1 consistent with larger k.
             if end == length && edge_count == 0 {
                 continue;
+            }
+            if self.sequences.is_empty() {
+                self.sequences.reserve(length.saturating_mul(self.k));
             }
             let next_sequence = self.sequences.len() + 1;
             let sequence = *self
@@ -559,7 +562,7 @@ mod tests {
         let search = Search::new(4, 3);
         assert_eq!(search.best.len(), 5);
         assert!(search.best.iter().all(|slot| slot.capacity() == 0));
-        assert!(search.sequences.capacity() >= 12);
+        assert_eq!(search.sequences.capacity(), 0);
     }
 
     #[test]
@@ -571,6 +574,14 @@ mod tests {
             allocations <= 3,
             "empty position beams should not allocate: {allocations}"
         );
+    }
+
+    #[test]
+    fn search_defers_sequence_interning_allocation_until_a_path_exists() {
+        let search = Search::new(64, 9);
+
+        assert!(search.sequences.is_empty());
+        assert_eq!(search.sequences.capacity(), 0);
     }
 
     #[test]
@@ -591,6 +602,7 @@ mod tests {
 
         assert_eq!(search.best[1].len(), 1);
         assert_eq!(search.best[1].capacity(), 3);
+        assert!(search.sequences.capacity() >= 3);
     }
 
     #[test]
@@ -601,7 +613,7 @@ mod tests {
         });
 
         assert!(cuts.is_empty());
-        assert_eq!(allocations, 3);
+        assert_eq!(allocations, 2);
     }
 
     #[test]

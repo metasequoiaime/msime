@@ -111,7 +111,7 @@ public final class OnlineCandidatePolicy {
         List<String> result = new ArrayList<>(BoundsPolicy.bounded(texts.size(), 0, boundedLimit));
         for (String text : texts) {
             if (result.size() == boundedLimit) break;
-            if (text == null || TextPolicy.trimmed(text).isEmpty() || TextPolicy.utf8Length(text) > MAX_CANDIDATE_BYTES
+            if (!TextPolicy.hasText(text) || TextPolicy.utf8Length(text) > MAX_CANDIDATE_BYTES
                     || TextPolicy.hasControl(text) || !TextPolicy.validUnicode(text)
                     || result.contains(text)) {
                 continue;

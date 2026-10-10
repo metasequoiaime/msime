@@ -48,11 +48,8 @@ public final class HttpAsrPolicy {
     public static boolean usable(String requestFormat, String endpoint, String model, String token) {
         return supported(requestFormat)
             && TextPolicy.validAuthority(endpoint, "https://", AiPolishConfiguration.MAX_ENDPOINT_LENGTH)
-            && model != null && !TextPolicy.trimmed(model).isEmpty() && TextPolicy.utf8Length(model) <= 512
-            && !TextPolicy.hasControl(model) && TextPolicy.validUnicode(model)
-            && token != null && !TextPolicy.trimmed(token).isEmpty()
-            && TextPolicy.utf8Length(token) <= 16 * 1024
-            && !TextPolicy.hasControl(token) && TextPolicy.validUnicode(token);
+            && TextPolicy.boundedNonBlank(model, 512)
+            && TextPolicy.boundedNonBlank(token, 16 * 1024);
     }
 
     /** A boundary that cannot occur in the parts, derived from the request rather than random. */
@@ -61,8 +58,7 @@ public final class HttpAsrPolicy {
         String source = requestId == null ? "" : requestId;
         for (int index = 0; index < source.length() && safe.length() < 40; index++) {
             char value = source.charAt(index);
-            if (value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z'
-                    || value >= '0' && value <= '9' || value == '-') {
+            if (TextPolicy.isAsciiLetterOrDigit(value) || value == '-') {
                 safe.append(value);
             }
         }

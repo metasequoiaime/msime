@@ -280,7 +280,7 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
         try {
             val text = invoke.parseArgs(SaveVoiceTextArgs::class.java).text
             if (TextPolicy.codePointLength(text) > VoiceResultStore.MAXIMUM_CHARACTERS
-                || text.contains('\u0000') || TextPolicy.trimmed(text).isEmpty()) {
+                || text.contains('\u0000') || !TextPolicy.hasText(text)) {
                 invoke.reject("invalid_text", "invalid_text")
                 return
             }

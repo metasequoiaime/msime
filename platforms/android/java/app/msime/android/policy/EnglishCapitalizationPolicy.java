@@ -32,7 +32,7 @@ public final class EnglishCapitalizationPolicy {
             int codePoint = Character.codePointBefore(context, offset);
             offset -= Character.charCount(codePoint);
             if (codePoint == '\n' || codePoint == '\r') return true;
-            if (Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint)) {
+            if (TextPolicy.isSpace(codePoint)) {
                 whitespaceAfter = true;
                 continue;
             }

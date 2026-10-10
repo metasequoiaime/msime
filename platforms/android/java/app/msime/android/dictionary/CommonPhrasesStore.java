@@ -313,11 +313,7 @@ public final class CommonPhrasesStore {
      */
     public static boolean validText(String text) {
         if (text == null || text.isBlank() || text.length() > MAX_PHRASE_UNITS) return false;
-        for (int index = 0; index < text.length(); index++) {
-            char character = text.charAt(index);
-            if (character != '\n' && Character.isISOControl(character)) return false;
-        }
-        return true;
+        return !TextPolicy.hasControlExceptNewline(text);
     }
 
     /** 把 client-core 的错误码换成可直接展示的话；不认识的码一律按通用失败处理，不把内部信息漏给用户。 */

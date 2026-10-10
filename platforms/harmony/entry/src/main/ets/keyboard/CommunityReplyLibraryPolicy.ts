@@ -7,6 +7,13 @@ export interface CommunityReplyTemplate {
   readonly prompt: string;
 }
 
+function hasDisallowedPromptControl(value: string): boolean {
+  return Array.from(value).some((character: string): boolean => {
+    if (character === '\n' || character === '\t') return false;
+    return TextPolicy.hasControl(character);
+  });
+}
+
 /** Validates the app-private CommunityLibrary.json shared by the settings app and IME. */
 export class CommunityReplyLibraryPolicy {
   static readonly MAX_BYTES: number = 4 * 1024 * 1024;
@@ -45,7 +52,7 @@ export class CommunityReplyLibraryPolicy {
         || Array.from(prompt).length > CommunityReplyLibraryPolicy.MAX_PROMPT_CHARACTERS
         || TextPolicy.hasControl(id)
         || TextPolicy.hasControl(name)
-        || TextPolicy.hasControl(prompt)) return [];
+        || hasDisallowedPromptControl(prompt)) return [];
       ids.push(id);
       result.push({ id: id, name: name, prompt: prompt });
     }

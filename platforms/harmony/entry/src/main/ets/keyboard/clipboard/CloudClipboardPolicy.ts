@@ -121,6 +121,18 @@ export class CloudClipboardPolicy {
     );
   }
 
+  /** 云端条目只有在当前编辑框仍可见且账号会话仍与读取结果一致时才能使用。 */
+  static canUseRows(
+    visible: boolean,
+    state: CloudClipboardState | null,
+    expectedBinding: string,
+    currentBinding: string,
+  ): boolean {
+    return visible && state === CloudClipboardState.READY
+      && expectedBinding.length > 0
+      && expectedBinding === currentBinding;
+  }
+
   /** Whether a completed send still belongs to the currently active send request. */
   static sendCurrent(expectedGeneration: number, actualGeneration: number): boolean {
     return (
