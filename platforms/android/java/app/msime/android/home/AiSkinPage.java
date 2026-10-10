@@ -1,20 +1,17 @@
 package app.msime.android.home;
 
+import app.msime.android.MainThreadPolicy;
 import app.msime.android.TextPolicy;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.Looper;
-import android.text.Editable;
 import android.text.InputFilter;
 import android.text.InputType;
-import android.text.TextWatcher;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
@@ -33,10 +30,13 @@ import app.msime.android.BoundsPolicy;
 import app.msime.android.ColorPolicy;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.PhotoDecodePolicy;
+import app.msime.android.ProgressBarPolicy;
 import app.msime.android.SkinJobsApi;
+import app.msime.android.ThreadPolicy;
 import app.msime.android.ViewPolicy;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -83,7 +83,7 @@ public final class AiSkinPage extends DetailPage {
      * <p>工作线程的结果先落到这里（{@link #complete}），页面有视图时再经 {@link #observer} 重画；没有视图时等下一次 {@link #buildContent} 读出来。描述、布局、音效和动画这几个小值另外存进 `onSaveInstanceState`，进程被杀后也能恢复；设计 JSON 只留在这里，不进 Bundle。
      */
     public static final class State extends ViewModel {
-        private final Handler main = new Handler(Looper.getMainLooper());
+        private final Handler main = MainThreadPolicy.mainHandler();
         final List<Result> results = new ArrayList<>(SkinJobsApi.MAX_DESIGNS);
         int chosen;
         boolean nineKey;
@@ -106,7 +106,7 @@ public final class AiSkinPage extends DetailPage {
             AtomicBoolean flag = new AtomicBoolean(false);
             cancelled = flag;
             // 一次生成可能要几分钟，不能占用设置页共用的那条 HostTask 线程。
-            Thread worker = new Thread(() -> {
+            Thread worker = ThreadPolicy.namedDaemonThread("msime-ai-skin-generate", () -> {
                 List<Result> generated = new ArrayList<>(SkinJobsApi.MAX_DESIGNS);
                 CloudApi.Failure failure = null;
                 try {
@@ -121,8 +121,7 @@ public final class AiSkinPage extends DetailPage {
                 }
                 CloudApi.Failure result = failure;
                 main.post(() -> complete(application, flag, text, generated, result));
-            }, "msime-ai-skin-generate");
-            worker.setDaemon(true);
+            });
             worker.start();
         }
 
@@ -283,8 +282,7 @@ public final class AiSkinPage extends DetailPage {
         LinearLayout header = Ui.row(context);
         ViewPolicy.setCenteredVertically(header);
         LinearLayout heading = Ui.column(context);
-        title = Ui.styledLabel(context, "", 17, 600, Ui.text(context));
-        ViewPolicy.setSingleLine(title);
+        title = Ui.singleLineLabel(context, "", 17, 600, Ui.text(context));
         heading.addView(title);
         subtitle = Ui.styledLabel(context, "", 13, 400, Ui.subText(context));
         heading.addView(subtitle);
@@ -301,11 +299,12 @@ public final class AiSkinPage extends DetailPage {
         FrameLayout stage = new FrameLayout(context);
         preview = new KeyboardPreview(context);
         preview.setContentDescription("皮肤预览");
-        stage.addView(preview, Ui.frameMatchWidthHeight(context, 200));
+        stage.addView(preview,
+            KeyboardGeometry.frameMatchWidthHeightPx(Ui.dp(context, 200)));
         LinearLayout overlay = Ui.column(context);
         ViewPolicy.setCentered(overlay);
         ProgressBar spinner = new ProgressBar(context);
-        spinner.setIndeterminateTintList(ColorStateList.valueOf(Ui.accent(context)));
+        ProgressBarPolicy.setIndeterminateTint(spinner, Ui.accent(context));
         overlay.addView(spinner, Ui.squareParams(context, 32));
         TextView designing = Ui.styledLabel(context, "正在设计…", 14, 500, Ui.text(context));
         overlay.addView(designing);
@@ -362,8 +361,7 @@ public final class AiSkinPage extends DetailPage {
         Ui.setPaddingDp(chips, context, 12, 4, 12, 12);
         List<TextView> chipViews = new ArrayList<>(SUGGESTIONS.length);
         for (String suggestion : SUGGESTIONS) {
-            TextView chip = Ui.styledLabel(context, suggestion, 13, 400, Ui.text(context));
-            ViewPolicy.setSingleLine(chip);
+            TextView chip = Ui.singleLineLabel(context, suggestion, 13, 400, Ui.text(context));
             Ui.setSymmetricPaddingDp(chip, context, 12, 6);
             ViewPolicy.setInteractive(chip, true);
             ViewPolicy.bindClick(chip, () -> {
@@ -421,15 +419,9 @@ public final class AiSkinPage extends DetailPage {
             bindEnabled(input, again);
             ViewPolicy.setEnabledWithAlpha(use, !s.busy && !saving, 0.38f);
         }
-        input.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
-
-            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
-
-            @Override public void afterTextChanged(Editable text) {
-                s.prompt = text.toString();
-                styleChips(context, chipViews);
-            }
+        Ui.afterTextChanged(input, text -> {
+            s.prompt = text.toString();
+            styleChips(context, chipViews);
         });
         refreshPreview();
     }
@@ -442,13 +434,7 @@ public final class AiSkinPage extends DetailPage {
             ViewPolicy.setEnabledWithAlpha(button, enabled, 0.38f);
         };
         update.run();
-        input.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
-
-            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
-
-            @Override public void afterTextChanged(Editable text) { update.run(); }
-        });
+        Ui.afterTextChanged(input, ignored -> update.run());
     }
 
     /** 和描述相同的 chip 填强调色，其余是 accentSoft 底。 */
@@ -487,7 +473,7 @@ public final class AiSkinPage extends DetailPage {
                     skin.keyForeground(), skin.returnBackground()};
                 for (String colour : colours) {
                     View dot = new View(context);
-                    android.graphics.drawable.GradientDrawable shape = Ui.outlined(
+                    android.graphics.drawable.GradientDrawable shape = DrawablePolicy.outlined(
                         ColorPolicy.parse(colour, Color.GRAY), 9999f,
                         KeyboardGeometry.atLeastOnePixel(context, 1), Ui.hairline(context));
                     ViewPolicy.setBackground(dot, shape);

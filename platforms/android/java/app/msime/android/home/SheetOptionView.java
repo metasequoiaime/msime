@@ -13,6 +13,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import app.msime.android.R;
 import app.msime.android.ViewPolicy;
+import app.msime.android.KeyboardGeometry;
 
 /** Shared option-row renderer used by the settings bottom sheets. */
 final class SheetOptionView {
@@ -24,10 +25,11 @@ final class SheetOptionView {
         Ui.setMinimumHeightDp(row, context, Ui.SHEET_OPTION_HEIGHT);
         Ui.makeClickable(row, context, action);
 
-        TextView text = Ui.styledLabel(context, nested ? label + " ›" : label,
+        TextView text = Ui.centeredLabel(context, nested ? label + " ›" : label,
             Ui.TEXT_SHEET_OPTION, bold ? 600 : 400, color);
-        ViewPolicy.setCentered(text);
-        FrameLayout.LayoutParams textParams = Ui.frameWrap(Gravity.CENTER);
+        FrameLayout.LayoutParams textParams = KeyboardGeometry.frameParamsPx(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER);
         textParams.leftMargin = Ui.dp(context, Ui.SHEET_OPTION_TEXT_INSET);
         textParams.rightMargin = Ui.dp(context, Ui.SHEET_OPTION_TEXT_INSET);
         textParams.topMargin = Ui.dp(context, Ui.SHEET_OPTION_TEXT_VERTICAL_INSET);

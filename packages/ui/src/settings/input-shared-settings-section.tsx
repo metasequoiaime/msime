@@ -119,7 +119,7 @@ export function InputSharedSettingsSection({
         )}
         {modeExtra}
       </GroupList>
-      {/* 没有翻页键时（手机的「候选栏」页有翻页键），这个分组只管选择。 */}
+      {/* 没有翻页键时（HarmonyOS 手机的翻页键在「外接键盘快捷键」页），这个分组只管选择。 */}
       <GroupList title={foldIntoMore && !paging ? "选词" : "选词与翻页"}>
         {wordCharacterRows}
         {paging}

@@ -33,6 +33,7 @@ int main() {
     assert(HostSmartPunctuation(representative) == HostSmartPunctuation(scheme));
     assert(ScriptConversionApplies(representative) == ScriptConversionApplies(scheme));
     assert(CommitsOnBlur(representative) == CommitsOnBlur(scheme));
+    assert(OpensTableModes(representative) == OpensTableModes(scheme));
     assert(LetterPassesWhileIdle(representative, false, L'x') == LetterPassesWhileIdle(scheme, false, L'x'));
   }
   for (int scheme = Quanpin; scheme <= Stroke; ++scheme)

@@ -1078,12 +1078,7 @@ struct TypingStatisticsStore {
 
   /// Native JSON must return a non-negative integral count that cannot exceed the submitted batch.
   static func strictRecordedCount(_ value: Any?, maximum: Int) -> Int? {
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID(),
-          let integer = Int(number.stringValue),
-          integer >= 0,
-          integer <= maximum,
-          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
+    guard let integer = SharedNumber.nonnegativeInt(value), integer <= maximum else { return nil }
     return integer
   }
 

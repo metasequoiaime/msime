@@ -181,6 +181,8 @@ pub fn has_single_link(_: &File) -> io::Result<bool> {
 }
 
 /// 以只读方式打开文件，并拒绝跟随最后一级符号链接。
+///
+/// 多链接文件只在所在目录只有 root 或当前用户能写时放行（`msime_path_trust::multi_link_is_trusted`）：Nix 的 store 去重、ostree 部署会把安装目录里的文件合并成硬链接（#6386），而在别人能写的目录里，链接可能是他们放进来的。读不会改到链接另一端；写入路径（锁文件等）继续只接受单链接。
 pub fn open_private_file(path: impl AsRef<Path>) -> io::Result<File> {
     let path = path.as_ref();
     let mut options = OpenOptions::new();
@@ -199,10 +201,12 @@ pub fn open_private_file(path: impl AsRef<Path>) -> io::Result<File> {
     }
     let file = options.open(path)?;
     let metadata = file.metadata()?;
-    if !metadata.is_file() || !has_single_link(&file)? {
+    if !metadata.is_file()
+        || !(has_single_link(&file)? || msime_path_trust::multi_link_is_trusted(&file, path)?)
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "private input is not a single-link regular file",
+            "private input is not a regular file with a trusted link count",
         ));
     }
     Ok(file)
@@ -406,8 +410,27 @@ mod tests {
         std::fs::write(&target, b"synthetic-private-target").unwrap();
         let linked = root.path().join("state.json");
         std::fs::hard_link(&target, &linked).unwrap();
+        msime_path_trust::open_to_other_users(root.path()).unwrap();
 
         assert!(open_private_file(&linked).is_err());
+    }
+
+    /// 只有属主能写的目录里，多链接文件是 root 或用户自己建的（Nix 的 store 去重、`cp -al` 备份），只读打开照常进行（#6386）。
+    #[cfg(unix)]
+    #[test]
+    fn reads_a_hard_linked_file_in_a_closed_directory() {
+        let root = tempfile::tempdir().unwrap();
+        msime_path_trust::close_to_other_users(root.path()).unwrap();
+        let original = root.path().join("edition.json");
+        std::fs::write(&original, b"synthetic-edition").unwrap();
+        std::fs::hard_link(&original, root.path().join("deduplicated.json")).unwrap();
+
+        let mut contents = Vec::new();
+        std::io::Read::read_to_end(&mut open_private_file(&original).unwrap(), &mut contents)
+            .unwrap();
+        assert_eq!(contents, b"synthetic-edition");
+        // 锁文件会被写，仍只接受单链接。
+        assert!(open_private_lock_file(root.path().join("deduplicated.json")).is_err());
     }
 
     #[cfg(unix)]

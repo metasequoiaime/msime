@@ -281,18 +281,13 @@ if rg -n 'optBoolean\("ok"' \
   echo "Android notice responses must require a typed boolean ok field" >&2
   exit 1
 fi
-# App theme resolution is another native envelope; only a JSON boolean can authorize caching
-# the returned palette and season.
+# App theme resolution is shared by the settings app and keyboard. Only a JSON boolean can
+# authorize caching the returned palette and season in either process.
 if rg -n 'optBoolean\("ok"' \
-    "$repo_root/platforms/android/java/app/msime/android/home/AppThemeController.java"; then
-  echo "Android app theme responses must require a typed boolean ok field" >&2
-  exit 1
-fi
-# The keyboard-side resolver has the same native envelope contract as the settings app. Keep its
-# fallback path from accepting string booleans and caching an untrusted palette.
-if rg -n 'optBoolean\("ok"' \
+    "$repo_root/platforms/android/java/app/msime/android/AppThemeResolver.java" \
+    "$repo_root/platforms/android/java/app/msime/android/home/AppThemeController.java" \
     "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java"; then
-  echo "Android keyboard theme responses must require a typed boolean ok field" >&2
+  echo "Android app theme responses must require a typed boolean ok field" >&2
   exit 1
 fi
 # Dictionary pinyin lookup is a native envelope too; a string status must fall back to no
@@ -727,14 +722,20 @@ if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^  
   echo "Android candidate strip must not start each editor from the factory-default preference copy" >&2
   exit 1
 fi
-# 键距、行距、语音快捷键和数字键顺序同理：按副本算，调过键距的用户每换一个输入框键盘都先按出厂间距排一帧。只有实时偏好重算键盘几何，冷启动的第一帧按皮肤片段算，片段里要记着这几个字段。
+# 键距、行距、语音快捷键、数字键顺序和双拼键位提示同理：按副本算，调过键距的用户每换一个输入框键盘都先按出厂间距排一帧。只有实时偏好重算键盘几何，冷启动的第一帧按皮肤片段算，片段里要记着这几个字段。
 if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^    }$/p' "$account_service" \
     | rg -q '^\s*if \(live\) applyTouchGeometry\(preferences\);' \
   || ! sed -n '/JSONObject hint = readSkinHint();/,/^        }$/p' "$account_service" \
     | rg -q 'applyTouchGeometry\(hint\);' \
   || ! rg -q '"touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",' "$account_service" \
-  || ! rg -q '"touch_voice_shortcut", NineKeyLayout\.NUMBER_KEYPAD_ORDER_KEY,' "$account_service"; then
+  || ! rg -q '"touch_voice_shortcut", NineKeyLayout\.NUMBER_KEYPAD_ORDER_KEY, ShuangpinKeyHintPolicy\.PREFERENCE_KEY,' "$account_service"; then
   echo "Android keyboard geometry must not start each editor from the factory-default preference copy" >&2
+  exit 1
+fi
+# 键盘开着时切换「双拼键位提示」：reloadPreferences 只在 touchGeometryKey() 变了时才 render()，开关不在这个键里，已经画好的字母键就一直留着旧提示，直到下次重建键盘。
+if ! sed -n '/private String touchGeometryKey() {$/,/^    }$/p' "$account_service" \
+    | rg -q 'shuangpinKeyHintsEnabled'; then
+  echo "Android touchGeometryKey must include the shuangpin key hint switch so a live change redraws the keys" >&2
   exit 1
 fi
 # 长按「中/英」弹出系统输入法选择框（#5615）。这个键在没有会话的输入框里也必须保持可用：禁用的按钮收不到长按，而密码框正是最需要换到密码管理器键盘的地方。没有会话时把键画淡，点按在反馈和计数之前就忽略。
@@ -780,9 +781,9 @@ for manifest in \
 done
 # 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，没开始聆听就被拒时转交识别窗口，系统识别服务不被 1.5 s 停顿截断，说完后收回音量光圈。
 voice_entry="$repo_root/platforms/android/java/app/msime/android/core/ImeVoiceEntry.java"
-if ! rg -qF 'fail(PlatformSpeechPolicy.message(error))' "$voice_activity" \
+if ! rg -qF 'fail(PlatformSpeechPolicy.message(error, recognizerLabel(VoiceRecognitionActivity.this)))' "$voice_activity" \
   || ! rg -qF 'fail(PlatformSpeechPolicy.emptyResult())' "$voice_activity" \
-  || ! rg -qF 'PlatformSpeechPolicy.message(error)' "$voice_entry" \
+  || ! rg -qF 'PlatformSpeechPolicy.message(error, VoiceRecognitionActivity.recognizerLabel(s))' "$voice_entry" \
   || ! rg -qF 'PlatformSpeechPolicy.emptyResult()' "$voice_entry" \
   || ! rg -qF 's.launchVoiceActivity();' "$voice_entry" \
   || ! rg -qF 'if (platform != null) return;' "$voice_entry" \

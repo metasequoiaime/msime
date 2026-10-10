@@ -108,7 +108,7 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 
 ### 资源与更新下载
 
-首次准备词库时从 GitHub Releases 拉取固定版本的资源，地址、长度和 SHA-256 全部写死在 `resources/desktop-dictionary.lock.json` 里，逐一校验，全部成功才发布到内容标识目录。下载的是公开发布物，不上传任何东西。检查更新只在点击「检查更新」时进行，向 `https://api.github.com/repos/metasequoiaime/msime/releases` 发起 GET 请求并在本地按平台标签前缀筛选（识别不出宿主平台时改为读取 `https://msime.app/update.json`）；请求除 IP 地址和防缓存时间戳外不携带标识，适用 GitHub 隐私条款。
+首次准备词库时从 GitHub Releases 拉取固定版本的资源，地址、长度和 SHA-256 全部写死在 `resources/desktop-dictionary.lock.json` 里，逐一校验，全部成功才发布到内容标识目录。下载的是公开发布物，不上传任何东西。检查更新只在点击「检查更新」时进行，由应用本身（不经网页）向 `https://api.github.com/repos/metasequoiaime/msime/releases` 发起 GET 请求，在本地按平台标签前缀、版本和架构筛选；请求除 IP 地址和固定的 User-Agent `msime-client` 外不携带标识，适用 GitHub 隐私条款。
 
 桌面和 Android 发布包不内置的几个资源包由设置应用在首次用到时下载，之后从本机读取。哪些平台下载哪些：
 

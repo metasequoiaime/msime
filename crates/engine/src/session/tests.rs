@@ -928,7 +928,7 @@ fn selecting_a_quanpin_candidate_clones_only_needed_request_fields() {
         crate::ime::personal_rerank::allocations::count(|| session.select(index));
 
     assert_eq!(result.commit.as_deref(), Some("你好"));
-    assert_eq!(allocations, 23, "selection allocations: {allocations}");
+    assert_eq!(allocations, 17, "候选选择分配次数：{allocations}");
 }
 
 #[test]
@@ -988,10 +988,7 @@ fn selecting_a_shuangpin_candidate_does_not_clone_the_full_request() {
         crate::ime::personal_rerank::allocations::count(|| session.select(index));
 
     assert_eq!(result.commit.as_deref(), Some("你好"));
-    assert_eq!(
-        allocations, 32,
-        "shuangpin selection allocations: {allocations}"
-    );
+    assert_eq!(allocations, 26, "双拼候选选择分配次数：{allocations}");
 }
 
 #[test]
@@ -3473,8 +3470,14 @@ fn expression_mode_needs_a_pinyin_scheme_and_an_empty_composition() {
     session.command(Command::Cancel);
     session.switch_scheme(SchemeType::Wubi).unwrap();
     assert!(!session.character(b'V', true).handled);
-    assert!(!session.character(b'/', false).handled);
-    assert!(session.snapshot().spelling_symbols.is_empty());
+    assert!(session.character(b'/', false).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Command);
+    session.command(Command::Cancel);
+    assert!(session.character(b'@', false).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Mention);
+    session.command(Command::Cancel);
+    assert!(session.character(b'K', true).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::QuickPhrase);
 }
 
 #[test]
@@ -3661,6 +3664,28 @@ fn mention_mode_offers_places_after_the_list_when_switched_on() {
     session.character(b'@', false);
     type_text(&mut session, "sz");
     assert_eq!(words(&session), ["深圳市"]);
+}
+
+#[test]
+fn mention_place_annotation_uses_the_shown_row_when_a_list_name_does_not_match() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = generated_modes_session(&fixture);
+    session.set_mention_entries(&[crate::types::MentionEntry {
+        text: "深圳市".to_owned(),
+        key: "other".to_owned(),
+    }]);
+    session.set_mention_places(true);
+    session.character(b'@', false);
+    type_text(&mut session, "shenzhenshi");
+
+    let snapshot = session.snapshot();
+    let shenzhen = snapshot
+        .candidates
+        .iter()
+        .position(|candidate| candidate.word == "深圳市")
+        .expect("embedded place should be offered");
+    assert_eq!(snapshot.candidates[shenzhen].pinyin, "shen'zhen'shi");
+    assert_eq!(snapshot.candidate_annotations[shenzhen], "广东省");
 }
 
 #[test]

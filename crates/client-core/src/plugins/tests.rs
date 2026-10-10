@@ -922,7 +922,7 @@ fn leftovers_are_swept_only_once_they_are_old() {
 #[cfg(unix)]
 #[test]
 fn leftover_sweep_does_not_follow_a_replaced_kind_root() {
-    use std::os::unix::fs::symlink;
+    use msime_path_trust::untrusted_symlink as symlink;
 
     let state = tempdir().unwrap();
     let root = state.path().join("plugins");

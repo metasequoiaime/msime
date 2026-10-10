@@ -104,6 +104,8 @@ App「词库」里的个人词典对应 Windows 的用户词编辑：编辑器�
 
 「键盘 → 布局」里的「数字键盘顺序」对应共享文档的 `touch_number_keypad_order`：「电话（123 在上）」是 `phone`（默认），「计算器（789 在上）」是 `calculator`。它只改九键切到数字层时的排列，7 8 9 换到第一排、1 2 3 换到最后一排，按键输入的和 VoiceOver 读的都是显示的数字；字母层仍是 1-2-3 的电话键位。键盘每次出现时把文档里的值抄进 App Group（`keyboard.numberKeypad.order`），按键时不再读。
 
+同一组的「双拼键位提示」对应共享文档的 `touch_shuangpin_key_hints`，缺省为开。关掉后双拼 26 键的字母键不画底部的声母/韵母提示，字母回到键面正中，VoiceOver 也不再读提示；全拼、英文和本地模式本来就不画。键盘每次出现时把文档里的值抄进 App Group（`keyboard.shuangpin.keyHints`）并重画键面。
+
 注音方案换成大千键盘：四排键对应标准键盘的数字行和三排字母（含 `- ; , . /`），键帽画注音符号或声调（3 ˇ、4 ˋ、6 ˊ、7 ˙），按下时发送键帽下面的 ASCII 键，由 Engine 的注音编辑器拼音、选字（`ZhuyinKeyLayout`），输出固定为繁体，不经过简繁转换。空格在有待定音节时是一声，没有待定音节时打开候选列表；列表打开时点选候选或按空格选字，选中的字留在转换结果里继续组字，回车随时把整段转换结果上屏；数字 1–9 在 Engine 里是选本页的行，所以键盘先关闭列表再发送，按键始终输入键帽上的符号；退格和取消先关闭列表。没有组字时单独按声调键，Engine 不处理，键盘照硬件键盘的做法输入键帽下面的 ASCII 键（3、4、6、7）。符号面板里的标点先把转换结果上屏，再由键盘直接写入：「中文标点」打开（或标点锁定为中文）时写中文标点，关闭（或锁定为英文）时写 ASCII 标点，键帽随之切换；注音方案下「中文标点」开关与快捷键可用。注音与越南语都是就地组字：正在转换的文字或正在拼的词总是作为标记文本写进输入框，不受「行内预编辑」影响，拼写里没有可移动的光标，按住退格逐键删除并继续删到文档里；回车把它原样上屏（注音不再换行，越南语随后换行并执行输入框的动作），空格、数字、光标移动和切换方案先上屏再做按键本来的事。越南语没有候选，字母的 Shift 与 Caps Lock 是大小写，不切英文，标点和全角开关都按半角处理；宿主移动光标后键盘连发两次取消，第一次 Engine 只是恢复原始按键。统计页把粤拼和注音计入中文模式，越南语单独一项。
 
 藏文是又一个默认不启用的方案（共享偏好里是 `tibetan`，「藏文 26 键」），在 App 的「输入方案」里打开后出现在键盘的方案选择里（「藏 26」），中/英键显示「藏」。它按威利转写（EWTS）输入，不读词库，是另一种语言而不是中文方案：从中文切到藏文再切回来，回到原来的中文方案。组字是当前音节的威利原文，输入框里就地标记的是 Engine 转出的藏文，没有候选；威利转写区分大小写，字母的 Shift 与 Caps Lock 是大小写（如 `T` `D` `N` `A` `I` `U` `M` `H`），不切英文，键面显示实际的大小写，也不跟随输入框的自动大写。「123」符号页的 `'`（achung，如 `'od`）、`.`（消歧，如 `g.yag`）和 `-` 在组字时作为字符交给 Engine 收进原文（`'` 在没有组字时也可以开头）；藏文方案下符号页第三排的 `=` 键换成 `+`（叠写，如 `pad+ma`），同样交给 Engine。符号面板会先上屏组字再插入符号，不能用来叠写。`/` 上屏藏文并加垂符「།」，没有组字时单独输入「།」。空格上屏藏文并加音节点「་」，回车只上屏藏文、不加音节点，也不换行，所以组字时回车键显示「确认」；数字保持原样，先上屏再输入。退格逐键删威利原文，宿主移动光标后键盘连发两次取消，第一次 Engine 把显示退回威利原文。标点和全角开关都按半角处理，繁体输出、中文标点开关、候选释义和本地输入都不作用于藏文。统计页里藏文单独一项。
@@ -273,7 +275,7 @@ xcodebuild test -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClient
 
 必须允许签名。测试宿主带 App Group entitlement，被测键盘要靠它读共享偏好；用 `CODE_SIGNING_ALLOWED=NO` 构建会剥掉 entitlement，宿主在套件中途被杀，后面的用例全部不报告。模拟器上 `CODE_SIGN_IDENTITY=-` 即 ad-hoc 签名，不需要任何开发者证书。
 
-当前结果为 **673 通过、1 跳过、0 失败**（`MSIMEKeyboardTests` 550 含 1 跳过、`MSIMESharedTests` 55、`MSIMEServiceTests` 69；Xcode 27 / iOS 27.0 模拟器）。**先 `xcodegen generate`**：提交在仓库里的工程会漏掉后加的源文件（实测漏过 `KeyboardAppLauncher.swift`，整套编译不过），所以它不是权威来源，`project.yml` 才是。
+当前结果为 **784 项、7 跳过、0 失败**（`MSIMEKeyboardTests` 640 含 7 跳过、`MSIMESharedTests` 73、`MSIMEServiceTests` 71；Xcode 27 / iOS 27.0 模拟器，未暂存可选的注音与笔画词库）。除下述释义用例外，另有 6 条依赖注音或笔画词库的用例在词库缺席时跳过；暂存对应词库后会执行。**先 `xcodegen generate`**：提交在仓库里的工程会漏掉后加的源文件（实测漏过 `KeyboardAppLauncher.swift`，整套编译不过），所以它不是权威来源，`project.yml` 才是。
 
 跑之前建一台干净模拟器再删掉，不要用手边那台：测试宿主带 App Group，读的是共享容器里的偏好，上一次运行留下的值会改变结果。
 
@@ -284,7 +286,7 @@ xcrun simctl boot "$device"
 # …在上面的 xcodebuild 命令里用 -destination "platform=iOS Simulator,id=$device"…
 xcrun simctl delete "$device"
 ```
-这个数字要跟着改动更新：该套件不接入 `verify-local.sh`，没有自动基线，所以这一行是它唯一的基线，写错了就没有别的东西会发现。唯一跳过的是 `CandidateTranslationTests.testCandidateLongPressOffersGlossInsertion` 的「开启释义」分支：固定词库发布里没有该候选的英文释义来源（`translation-glosses.db` 是用户编辑后的覆盖层），取不到释义时跳过而不是报成产品失败，一旦有释义就自动恢复断言。
+这个数字要跟着改动更新：该套件不接入 `verify-local.sh`，没有自动基线，所以这一行是它唯一的基线，写错了就没有别的东西会发现。`CandidateTranslationTests.testCandidateLongPressOffersGlossInsertion` 的「开启释义」分支在固定词库发布里没有该候选的英文释义来源（`translation-glosses.db` 是用户编辑后的覆盖层），取不到释义时跳过而不是报成产品失败，一旦有释义就自动恢复断言。
 
 该套件不接入 `scripts/verify-local.sh`：它需要模拟器和已暂存的词库资源，单次运行约十分钟。
 

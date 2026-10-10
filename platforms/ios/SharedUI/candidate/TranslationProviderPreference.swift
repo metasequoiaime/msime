@@ -186,7 +186,7 @@ struct TranslationProviderClient: Sendable {
     if descriptor["timeout_ms"] == nil {
       milliseconds = 2500
     } else {
-      guard let value = integer(descriptor["timeout_ms"]), value > 0 else { return nil }
+      guard let value = SharedNumber.nonnegativeInt(descriptor["timeout_ms"]), value > 0 else { return nil }
       milliseconds = value
     }
     let timeout = TimeInterval(min(10_000, max(1_000, milliseconds))) / 1000
@@ -194,18 +194,9 @@ struct TranslationProviderClient: Sendable {
     if descriptor["max_response_bytes"] == nil {
       maxBytes = 1_048_576
     } else {
-      guard let value = integer(descriptor["max_response_bytes"]), value > 0 else { return nil }
+      guard let value = SharedNumber.nonnegativeInt(descriptor["max_response_bytes"]), value > 0 else { return nil }
       maxBytes = min(1_048_576, value)
     }
     return OnlineCandidateRequest(urlRequest: request, connectTimeout: timeout, timeout: timeout, maxBytes: maxBytes)
-  }
-
-  private static func integer(_ value: Any?) -> Int? {
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID(),
-          let integer = Int(number.stringValue),
-          integer >= 0,
-          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
-    return integer
   }
 }

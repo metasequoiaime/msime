@@ -1,5 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.MainThreadPolicy;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardGeometry;
 import android.content.Context;
 import android.graphics.drawable.GradientDrawable;
@@ -8,6 +10,7 @@ import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.animation.AnimationUtils;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -25,6 +28,7 @@ import app.msime.android.KeyboardScheme;
 import app.msime.android.core.InputViewValuePolicy;
 import app.msime.android.R;
 import app.msime.android.SchemePreferences;
+import app.msime.android.ThreadPolicy;
 import app.msime.android.ViewPolicy;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.materialswitch.MaterialSwitch;
@@ -72,7 +76,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     /** 意外异常后自动重试保存的次数与间隔，见 {@link #syncChoices}。 */
     private static final int SYNC_RETRY_LIMIT = 3;
     private static final long SYNC_RETRY_DELAY_MS = 1500;
-    private final android.os.Handler retryHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final android.os.Handler retryHandler = MainThreadPolicy.mainHandler();
     private int syncRetries;
     /** What the last write on this page did, shown under the page's controls until the page changes. */
     @Nullable private String note;
@@ -279,7 +283,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         // A still of the candidate strip, drawn from the design's sample: what the switch below changes, before anyone has to open a text field to see it.
         LinearLayout strip = Ui.row(this);
         Ui.setSymmetricPaddingDp(strip, this, 10, 12);
-        ViewPolicy.setBackground(strip, Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 20)));
+        ViewPolicy.setBackground(strip, DrawablePolicy.rounded(Ui.accentSoft(this), Ui.dp(this, 20)));
         ViewPolicy.setImportantForAccessibility(strip,
             View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         String[][] samples = {{"候选", "candidate"}, {"后选", "choice"}, {"侯选", "option"}, {"候", "wait"}};
@@ -298,7 +302,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         LinearLayout row = Ui.row(this);
         ViewPolicy.setCenteredVertically(row);
         Ui.setSymmetricPaddingDp(row, this, 14, 12);
-        ViewPolicy.setBackground(row, Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
+        ViewPolicy.setBackground(row, DrawablePolicy.rounded(Ui.card(this), Ui.dp(this, 20)));
         TextView label = Ui.label(this, "显示译文", 16, Ui.text(this));
         row.addView(label, Ui.weightWrap(1f));
         MaterialSwitch toggle = new MaterialSwitch(this);
@@ -458,9 +462,8 @@ public final class OnboardingActivity extends AppCompatActivity {
         kick.setLetterSpacing(0.04f);
         column.addView(kick, Ui.matchWidth(this, 14 + 6));
 
-        TextView heading = Ui.label(this, title, 32, Ui.text(this));
+        TextView heading = Ui.headingLabel(this, title, 32, Ui.text(this));
         ViewPolicy.setLineSpacing(heading, 0, 1.1f);
-        heading.setAccessibilityHeading(true);
         column.addView(heading, Ui.matchWidth(this, 14));
 
         TextView line = Ui.label(this, body, 16, Ui.subText(this));
@@ -480,7 +483,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         if (divider) {
             View line = new View(this);
             ViewPolicy.setBackgroundColor(line, Ui.hairline(this));
-            card.addView(line, Ui.matchWidthHeightPx(
+            card.addView(line, KeyboardGeometry.matchWidthHeightPx(
                 BoundsPolicy.bounded(Ui.dp(this, 1) / 2, 1, Integer.MAX_VALUE)));
         }
         LinearLayout row = Ui.row(this);
@@ -488,12 +491,11 @@ public final class OnboardingActivity extends AppCompatActivity {
         Ui.setMinimumHeightDp(row, this, Ui.COMPACT_ROW_MIN_HEIGHT);
         Ui.setPaddingDp(row, this, 14, 6, 8, 6);
 
-        TextView mark = Ui.label(this, done ? "✓" : "!", 13,
+        TextView mark = Ui.centeredLabel(this, done ? "✓" : "!", 13,
             done ? Ui.onAccent(this) : 0xFFFFFFFF);
-        ViewPolicy.setCentered(mark);
         // 字形画在固定 dp 的圆里，跟圆一起按 dp 定大小；按 sp 时系统字体一调大，对勾就被圆的边界切掉。
         ViewPolicy.setTextSizeDp(mark, 13);
-        Ui.applyStatusMark(mark, this, done);
+        StatusMarkPolicy.apply(mark, this, done);
         row.addView(mark, Ui.squareParams(this, 24));
 
         TextView text = Ui.label(this, label, 16, Ui.text(this));
@@ -503,14 +505,12 @@ public final class OnboardingActivity extends AppCompatActivity {
         text.setContentDescription(label + (done ? "，已完成" : "，未完成"));
 
         if (!done) {
-            TextView button = Ui.label(this, action, 15, Ui.accent(this));
-            ViewPolicy.setCentered(button);
+            TextView button = Ui.centeredLabel(this, action, 15, Ui.accent(this));
             Ui.setHorizontalPaddingDp(button, this, 8);
-            android.util.TypedValue ripple = new android.util.TypedValue();
-            getTheme().resolveAttribute(android.R.attr.selectableItemBackground, ripple, true);
-            button.setBackgroundResource(ripple.resourceId);
+            ViewPolicy.setBackground(button, Ui.ripple(this));
             ViewPolicy.bindClick(button, fix);
-            row.addView(button, Ui.wrapHeight(this, 40));
+            row.addView(button, KeyboardGeometry.linearParamsPx(
+                ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 40)));
         }
         card.addView(row);
     }
@@ -521,8 +521,8 @@ public final class OnboardingActivity extends AppCompatActivity {
         ViewPolicy.setCenteredVertically(card);
         Ui.setSymmetricPaddingDp(card, this, 16, 14);
         GradientDrawable face = selected
-            ? Ui.outlined(Ui.card(this), Ui.dp(this, 20), Ui.dp(this, 2), Ui.accent(this))
-            : Ui.rounded(Ui.card(this), Ui.dp(this, 20));
+            ? DrawablePolicy.outlined(Ui.card(this), Ui.dp(this, 20), Ui.dp(this, 2), Ui.accent(this))
+            : DrawablePolicy.rounded(Ui.card(this), Ui.dp(this, 20));
         ViewPolicy.setBackground(card, face);
 
         LinearLayout text = Ui.column(this);
@@ -536,7 +536,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         card.addView(text, Ui.weightWrap(1f));
 
         View radio = new View(this);
-        GradientDrawable dot = Ui.circleOutlined(selected ? Ui.page(this) : 0,
+        GradientDrawable dot = DrawablePolicy.circleOutlined(selected ? Ui.page(this) : 0,
             selected ? Ui.dp(this, 6) : KeyboardGeometry.atLeastOnePixel(this, 1.5f),
             selected ? Ui.accent(this) : Ui.subText(this));
         ViewPolicy.setBackground(radio, dot);
@@ -556,10 +556,10 @@ public final class OnboardingActivity extends AppCompatActivity {
         LinearLayout row = Ui.row(this);
         ViewPolicy.setCenteredVertically(row);
         Ui.setSymmetricPaddingDp(row, this, 14, 12);
-        ViewPolicy.setBackground(row, Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
+        ViewPolicy.setBackground(row, DrawablePolicy.rounded(Ui.card(this), Ui.dp(this, 20)));
         ImageView badge = Ui.decorativeIcon(this, icon, Ui.accent(this));
         Ui.setSymmetricPaddingDp(badge, this, 7, 7);
-        ViewPolicy.setBackground(badge, Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 9)));
+        ViewPolicy.setBackground(badge, DrawablePolicy.rounded(Ui.accentSoft(this), Ui.dp(this, 9)));
         Ui.hideFromAccessibility(badge);
         row.addView(badge, Ui.squareParams(this, 32));
         TextView text = Ui.label(this, label, 15, Ui.text(this));
@@ -582,13 +582,13 @@ public final class OnboardingActivity extends AppCompatActivity {
      * <p>{@link HostTask} 只收 Fragment，而这是一个 Activity；这里要的只是「别在主线程上读盘」，所以起一条一次性的线程。A failure runs the fallback so the page never waits on a read that is not coming.
      */
     private void offMainThread(Runnable work, Runnable failed) {
-        new Thread(() -> {
+        ThreadPolicy.startNamedThread("msime-onboarding", () -> {
             try {
                 work.run();
             } catch (RuntimeException | LinkageError error) {
                 failed.run();
             }
-        }, "msime-onboarding").start();
+        });
     }
 
 }

@@ -14,16 +14,22 @@ extension BackendAccountClient: DesktopCloudClipboardAPI {}
 final class BackendCloudClipboardProvider: NSObject {
   private let client: any DesktopCloudClipboardAPI
   private let credentials: () async throws -> String
-  init(client: any DesktopCloudClipboardAPI, credentials: @escaping () async throws -> String) {
-    self.client = client; self.credentials = credentials
+  private let refreshCredentials: ((String) async throws -> String)?
+  init(client: any DesktopCloudClipboardAPI, credentials: @escaping () async throws -> String,
+       refreshCredentials: ((String) async throws -> String)? = nil) {
+    self.client = client; self.credentials = credentials; self.refreshCredentials = refreshCredentials
   }
 
   @objc static func prepare(completion: @escaping (BackendCloudClipboardProvider?) -> Void) {
     Task {
       do {
-        guard let user = try await BackendAccountSession.shared.user() else { completion(nil); return }
+        let identity = try await BackendAccountSession.shared.credentials()
         completion(BackendCloudClipboardProvider(client: BackendAccountClient(), credentials: {
-          try await BackendAccountSession.shared.credentials(matchingUserID: user.id).token
+          try await BackendAccountSession.shared.credentials(matchingUserID: identity.userID,
+                                                              matchingSessionID: identity.sessionID).token
+        }, refreshCredentials: { rejected in
+          try await BackendAccountSession.shared.credentials(retrying: rejected, matchingUserID: identity.userID,
+                                                              matchingSessionID: identity.sessionID).token
         }))
       } catch { completion(nil) }
     }
@@ -65,6 +71,21 @@ final class BackendCloudClipboardProvider: NSObject {
     let token = try await credentials()
     try Task.checkCancellation()
     let result: [String: Any]
+    do { result = try await executeOnce(action, token: token) }
+    catch let failure as BackendAccountClient.Failure where failure.status == 401 {
+      guard let refreshCredentials else { throw failure }
+      let fresh = try await refreshCredentials(token)
+      try Task.checkCancellation()
+      result = try await executeOnce(action, token: fresh)
+    }
+    // A request that succeeded before logout must not publish its old account's data.
+    _ = try await credentials()
+    try Task.checkCancellation()
+    return result
+  }
+
+  private func executeOnce(_ action: Action, token: String) async throws -> [String: Any] {
+    let result: [String: Any]
     switch action {
     case .list(let search):
       let page = try await client.clipboard(token: token, search: search)
@@ -74,9 +95,6 @@ final class BackendCloudClipboardProvider: NSObject {
     case .delete(let id): try await client.deleteClipboard(id: id, token: token); result = [:]
     case .enabled(let enabled): try await client.setClipboardEnabled(enabled, token: token); result = ["enabled":enabled]
     }
-    // An account switch/logout while I/O was pending cannot expose old data.
-    _ = try await credentials()
-    try Task.checkCancellation()
     return result
   }
 
@@ -93,7 +111,7 @@ final class BackendCloudClipboardProvider: NSObject {
     }
   }
 
-  /// Uploads one explicitly chosen text. The server's enabled flag is read first, so nothing leaves the device while the account has cloud clipboard switched off; the upload itself is never retried.
+  /// Uploads one explicitly chosen text. The server's enabled flag is read first, so nothing leaves the device while the account has cloud clipboard switched off. A rejected token is refreshed once before retrying.
   func send(_ text: String) async -> SendOutcome {
     do {
       let page = try await execute(["operation": "list", "search": ""])

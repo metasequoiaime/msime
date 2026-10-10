@@ -27,6 +27,18 @@ public final class KeyboardActionRowSmoke {
         check(nineKey.get(nineKey.size() - 2).slot() == KeyboardActionRow.DesignSlot.LANGUAGE
                 && nineKey.get(nineKey.size() - 1).slot() == KeyboardActionRow.DesignSlot.RETURN,
             "中/英 sits right before return on the nine-key row too");
+        // 中/英紧挨回车的两种底行，回车都把键帽左边让给中/英；没有底行时不让。
+        check(KeyboardActionRow.languageBesideReturn(design)
+                && KeyboardActionRow.languageBesideReturn(withGlobe)
+                && KeyboardActionRow.languageBesideReturn(nineKey),
+            "return yields to the language key wherever it sits right before return");
+        check(!KeyboardActionRow.languageBesideReturn(List.of())
+                && !KeyboardActionRow.languageBesideReturn(List.of(
+                    new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.SPACE, 4f),
+                    new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.RETURN, 1.9f))),
+            "a return key with something else on its left keeps its whole cap");
+        check(KeyboardActionRow.RETURN_YIELD_DP > 0 && KeyboardActionRow.RETURN_YIELD_DP < 10,
+            "the return key yields a few dp, not a large part of itself");
         check(KeyboardActionRow.designEntries(KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT, true).isEmpty(),
             "the kana grid takes no design row either");
         check(KeyboardActionRow.designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, false).stream()

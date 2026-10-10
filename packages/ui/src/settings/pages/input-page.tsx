@@ -83,7 +83,7 @@ export function InputSettingsPage() {
   const temporaryJapanese = host?.edition?.temporary_japanese ?? true;
   // 不带键盘神经模型的版本（host-api 也始终把它关掉）在触屏宿主上不列出神经联想开关。
   const neuralKeyboard = host?.edition?.neural_keyboard ?? true;
-  // HarmonyOS 手机像 Android 的 `TypingPage` 一样画设计稿的 输入 页：语言与方案、中文、辅助码 和 翻译 直接可见，其余都放进末尾的 更多 折叠区。翻页键在它的 候选栏 页，整句联想 在它的 表达 页，所以这里不画。
+  // HarmonyOS 手机像 Android 的 `TypingPage` 一样画设计稿的 输入 页：语言与方案、中文、辅助码 和 翻译 直接可见，其余都放进末尾的 更多 折叠区。翻页键在它的 外接键盘快捷键 页，整句联想 在它的 表达 页，所以这里不画。
   const harmonyPhone = harmonyPlatform && mobilePlatform;
   // 拼音纠错 是两项全拼纠错共用的一个开关，只有两项都开启时才显示为开；打开或关闭会同时设置两项，和 Android 的 `TypingPage` 一样。
   const autocorrect =

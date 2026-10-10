@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import app.msime.android.AppleWebSignIn;
+import app.msime.android.ThreadPolicy;
 
 /**
  * Apple 网页登录的回调 `<applicationId>://auth/apple?grant=…`（或 `?error=…`）。
@@ -31,7 +32,8 @@ public final class AuthRedirectActivity extends Activity {
         if (!AppleWebSignIn.acceptableCallback(grant, error)) return;
         Context context = getApplicationContext();
         if (AppleWebSignIn.peekPending(context) == null) return;
-        new Thread(() -> SignIn.completeApple(context, grant, error), "msime-apple-sign-in").start();
+        ThreadPolicy.startNamedThread("msime-apple-sign-in",
+            () -> SignIn.completeApple(context, grant, error));
         // 浏览器里的落地页跳回来时，这个透明的 Activity 可能落在浏览器的任务里；把本应用已有的任务带回前台，登录面板就在那里等结果。
         Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
         if (launch != null) {

@@ -1,6 +1,7 @@
-//! Romaji and kana conversion (schemes-lang.md §5.1-§5.3, `romaji_converter.cpp`).
+//! 罗马字与假名转换（schemes-lang.md §5.1-§5.3，`romaji_converter.cpp`）。
 //!
-//! The table, the `n` rules, the sokuon rules and the pending tail are IME behaviour the provider's dictionary lookups depend on, so they stay hand-written; `wana_kana` has its own table (じゃ is `ja`, a lone `n` is kept as a letter) and no notion of a pending tail. The plain hiragana-to-katakana shift is `wana_kana`'s.
+//! 罗马字表、`n`、促音与待定尾部规则供 provider 的词库查询共用，保留输入法专用实现。
+//! 平假名转片假名直接按 Unicode 位移写入；测试用固定版本 `wana_kana` 对照原行为。
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -191,6 +192,40 @@ static ROMAJI_LOOKUP: LazyLock<HashMap<&'static [u8], &'static str>> = LazyLock:
         .collect()
 });
 
+const MAX_ROMAJI_BYTES: usize = {
+    let mut maximum = 0;
+    let mut index = 0;
+    while index < ROMAJI_TABLE.len() {
+        let length = ROMAJI_TABLE[index].0.len();
+        if length > maximum {
+            maximum = length;
+        }
+        index += 1;
+    }
+    maximum
+};
+
+/// 只收录固定拼法表的非空前缀，假名列表排序去重后供所有查询借用。
+static ROMAJI_PREFIX_KANA: LazyLock<HashMap<&'static [u8], Vec<&'static str>>> =
+    LazyLock::new(build_romaji_prefix_kana);
+
+fn build_romaji_prefix_kana() -> HashMap<&'static [u8], Vec<&'static str>> {
+    let mut index: HashMap<&'static [u8], Vec<&'static str>> = HashMap::new();
+    for &(romaji, kana) in ROMAJI_TABLE {
+        for length in 1..=romaji.len() {
+            index
+                .entry(&romaji.as_bytes()[..length])
+                .or_default()
+                .push(kana);
+        }
+    }
+    for kana in index.values_mut() {
+        kana.sort_unstable();
+        kana.dedup();
+    }
+    index
+}
+
 /// The inverted table `(kana, romaji)`: longest kana first so きゃ beats き, then the longest spelling, then the spelling itself, one entry per kana (:154-180). The spelling tiebreak is what made the C++ choice independent of `unordered_map` bucket order: じ is `ji`, じゃ is `jya`, し is `shi`.
 static KANA_TO_ROMAJI: LazyLock<Vec<(&'static str, &'static str)>> = LazyLock::new(|| {
     let mut entries: Vec<(&'static str, &'static str)> = ROMAJI_TABLE
@@ -286,6 +321,16 @@ pub fn convert_romaji(input: &str) -> RomajiConversion {
     result
 }
 
+/// 按原扫描规则写回转换结果，复用平假名和待定尾部的容量。
+pub(crate) fn convert_romaji_into(input: &str, destination: &mut RomajiConversion) {
+    destination.hiragana.clear();
+    destination.pending.clear();
+    let normalized = normalized_romaji(input);
+    let pending = scan_romaji(&normalized, |kana| destination.hiragana.push_str(kana));
+    destination.pending.push_str(pending);
+    destination.complete = !destination.hiragana.is_empty() && destination.pending.is_empty();
+}
+
 /// 直接写入假名及待定尾部，复用目标容量；规范化的大写副本仅在本次调用中存活。
 pub(crate) fn romaji_reading_into(input: &str, destination: &mut String) {
     destination.clear();
@@ -361,9 +406,25 @@ fn scan_romaji(normalized: &str, mut emit: impl FnMut(&'static str)) -> &str {
     &normalized[index..]
 }
 
-/// Shifts U+3041..=U+3096 by 0x60; everything else, ー included, passes through.
+/// 将 `U+3041..=U+3096` 加 `0x60`；其余字符（包括ー）原样保留。
 pub fn hiragana_to_katakana(hiragana: &str) -> String {
-    wana_kana::utils::hiragana_to_katakana(hiragana)
+    let mut katakana = String::with_capacity(hiragana.len());
+    hiragana_to_katakana_into(hiragana, &mut katakana);
+    katakana
+}
+
+/// 直接写入片假名，输入输出字节数相同，已有容量不足时只按实际长度扩容。
+pub(crate) fn hiragana_to_katakana_into(hiragana: &str, destination: &mut String) {
+    destination.clear();
+    destination.reserve(hiragana.len());
+    for character in hiragana.chars() {
+        let katakana = if (HIRAGANA_FIRST..=HIRAGANA_LAST).contains(&character) {
+            char::from_u32(u32::from(character) + KATAKANA_OFFSET).unwrap_or(character)
+        } else {
+            character
+        };
+        destination.push(katakana);
+    }
 }
 
 /// Complete, one code point, in U+3041..=U+3096.
@@ -378,7 +439,22 @@ pub fn is_single_kana_conversion(conversion: &RomajiConversion) -> bool {
     )
 }
 
-/// Every table kana whose romaji starts with `pending`, sorted and deduplicated (:242-261).
+/// 借用与待定罗马字前缀匹配的排序去重假名；短键在栈上按 ASCII 小写规范化。
+pub fn kana_for_romaji_prefix_view(pending: &str) -> &'static [&'static str] {
+    if pending.is_empty() || pending.len() > MAX_ROMAJI_BYTES {
+        return &[];
+    }
+    let mut prefix = [0; MAX_ROMAJI_BYTES];
+    for (destination, byte) in prefix.iter_mut().zip(pending.bytes()) {
+        *destination = byte.to_ascii_lowercase();
+    }
+    ROMAJI_PREFIX_KANA
+        .get(&prefix[..pending.len()])
+        .map_or(&[], Vec::as_slice)
+}
+
+/// 固定旧扫描正文，用于独立行为和分配对照（:242-261）。
+#[cfg(test)]
 pub fn kana_for_romaji_prefix(pending: &str) -> Vec<&'static str> {
     if pending.is_empty() {
         return Vec::new();
@@ -474,6 +550,19 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn pending_prefix_warm_queries_do_not_allocate() {
+        for input in ["k", "SH", "z", "?", "あ", "toolong", ""] {
+            let expected = kana_for_romaji_prefix(input);
+            let _ = kana_for_romaji_prefix_view(input);
+            let (actual, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                kana_for_romaji_prefix_view(input)
+            });
+            assert_eq!(actual, expected);
+            assert_eq!(allocations, 0, "待定前缀热查询：{input}");
+        }
+    }
+
     #[track_caller]
     fn require_conversion(romaji: &str, hiragana: &str, pending: &str, complete: bool) {
         let conversion = convert_romaji(romaji);
@@ -502,9 +591,99 @@ mod tests {
         );
     }
 
+    #[test]
+    fn katakana_conversion_allocates_only_the_returned_string() {
+        for input in ["か", "かな", "ゔぁゕゖー", "a漢😀"] {
+            let expected = wana_kana::utils::hiragana_to_katakana(input);
+            let (actual, allocations) =
+                crate::ime::personal_rerank::allocations::count(|| hiragana_to_katakana(input));
+            assert_eq!(actual, expected);
+            eprintln!("片假名拥有型转换分配：{allocations}");
+            assert_eq!(allocations, 1, "非空转换只需分配返回字符串");
+        }
+    }
+
+    #[test]
+    fn katakana_conversion_matches_old_library_for_every_unicode_scalar() {
+        let input: String = (0..=0x10ffff).filter_map(char::from_u32).collect();
+        let expected = wana_kana::utils::hiragana_to_katakana(&input);
+        assert_eq!(hiragana_to_katakana(&input), expected);
+        assert_eq!(expected.len(), input.len());
+    }
+
+    #[test]
+    fn conversion_buffers_reuse_storage_across_shrinking_and_pending_edits() {
+        let long = "ka".repeat(32);
+        let pending = "漢".repeat(32);
+        let mut conversion = RomajiConversion::default();
+        convert_romaji_into(&long, &mut conversion);
+        convert_romaji_into(&pending, &mut conversion);
+        let hiragana_pointer = conversion.hiragana.as_ptr();
+        let pending_pointer = conversion.pending.as_ptr();
+        for input in [
+            long.as_str(),
+            "nihong",
+            "ka漢",
+            "n'a",
+            "k",
+            "",
+            pending.as_str(),
+            long.as_str(),
+        ] {
+            let expected = convert_romaji(input);
+            let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                convert_romaji_into(input, &mut conversion);
+            });
+            assert_eq!(conversion, expected, "{input}");
+            assert_eq!(conversion.hiragana.as_ptr(), hiragana_pointer);
+            assert_eq!(conversion.pending.as_ptr(), pending_pointer);
+            assert_eq!(allocations, 0, "转换编辑复用：{input}");
+        }
+        let long_kana = "か".repeat(32);
+        let mut katakana = String::new();
+        hiragana_to_katakana_into(&long_kana, &mut katakana);
+        let pointer = katakana.as_ptr();
+        for input in [
+            long_kana.as_str(),
+            "ゔぁゕゖー・ｰ",
+            "a漢😀",
+            "か",
+            "",
+            long_kana.as_str(),
+        ] {
+            let expected = wana_kana::utils::hiragana_to_katakana(input);
+            let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                hiragana_to_katakana_into(input, &mut katakana);
+            });
+            assert_eq!(katakana, expected);
+            assert_eq!(katakana.as_ptr(), pointer);
+            assert_eq!(allocations, 0, "片假名编辑复用");
+        }
+        let (empty, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| hiragana_to_katakana(""));
+        assert!(empty.is_empty());
+        assert_eq!(allocations, 0);
+    }
+
     fn assert_streamed_conversion_matches_owned(input: &str) {
         let expected = convert_romaji(input);
         let expected_reading = format!("{}{}", expected.hiragana, expected.pending);
+        let mut conversion = RomajiConversion::default();
+        convert_romaji_into(input, &mut conversion);
+        assert_eq!(conversion, expected, "{input}");
+        let hiragana_pointer = conversion.hiragana.as_ptr();
+        let pending_pointer = conversion.pending.as_ptr();
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            convert_romaji_into(input, &mut conversion);
+        });
+        assert_eq!(conversion, expected, "{input}");
+        assert_eq!(conversion.hiragana.as_ptr(), hiragana_pointer);
+        assert_eq!(conversion.pending.as_ptr(), pending_pointer);
+        assert_eq!(
+            allocations,
+            usize::from(input.bytes().any(|byte| byte.is_ascii_uppercase())),
+            "转换缓冲：{input}"
+        );
         let mut reading = String::new();
         romaji_reading_into(input, &mut reading);
         assert_eq!(reading, expected_reading, "{input}");
@@ -757,3 +936,7 @@ mod tests {
         assert_eq!(next_kana_variant("ん"), "ん");
     }
 }
+
+#[cfg(test)]
+#[path = "romaji/prefix_tests.rs"]
+mod prefix_tests;
