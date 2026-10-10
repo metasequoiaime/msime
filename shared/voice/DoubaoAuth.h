@@ -1,6 +1,6 @@
 #pragma once
 #include "msime_client.h"
-#include <memory>
+#include "../../platforms/common/HostApiString.h"
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
@@ -14,9 +14,8 @@ inline std::optional<std::string> doubao_auth_headers(
     std::string_view resource_id) {
   const auto request = nlohmann::json{{"auth_mode", mode}, {"app_id", app_id},
                                      {"token", token}, {"resource_id", resource_id}}.dump();
-  std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
-      msime_client_doubao_auth_headers(reinterpret_cast<const uint8_t *>(request.data()), request.size()),
-      msime_client_string_free);
+  auto raw = msime::host_api::own_string(msime_client_doubao_auth_headers(
+      reinterpret_cast<const uint8_t *>(request.data()), request.size()));
   if (!raw) return std::nullopt;
   const auto response = nlohmann::json::parse(raw.get(), nullptr, false);
   if (response.is_discarded() || !response.value("ok", false)) return std::nullopt;
