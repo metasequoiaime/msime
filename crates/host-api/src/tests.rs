@@ -6,6 +6,22 @@ use super::*;
 use msime_client_core::host_surface::compiled_input_schemes;
 use sha2::{Digest, Sha256};
 
+// Keep relative-path fixtures on the checkout's volume while allowing /source to be read-only in the Linux container.
+fn relative_fixture_dir(prefix: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+    let current = std::env::current_dir().unwrap();
+    for (parents, ancestor) in current.ancestors().enumerate() {
+        if let Ok(directory) = tempfile::Builder::new().prefix(prefix).tempdir_in(ancestor) {
+            let mut relative = std::path::PathBuf::from(".");
+            for _ in 0..parents {
+                relative.push("..");
+            }
+            relative.push(directory.path().file_name().unwrap());
+            return (directory, relative);
+        }
+    }
+    panic!("no writable ancestor for a relative-path fixture");
+}
+
 #[test]
 fn selection_statistics_use_the_candidate_id_absolute_index() {
     let action = Action::Select(CandidateId {
@@ -898,6 +914,36 @@ fn single_character_only_reaches_engine_after_composition() {
     assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
     SESSIONS.with(|sessions| {
         assert!(!sessions.borrow()[&handle].options.single_character_only);
+    });
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn wubi_auto_commit_unique_reaches_the_runtime_without_waiting_for_the_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle].runtime.wubi_auto_commit_unique());
+    });
+
+    // 组字进行中也立刻生效：它是宿主状态，不等 Engine 重建。
+    read(msime_client_character(handle, b'a', false));
+    let mut preferences = Preferences {
+        scheme: InputScheme::Wubi,
+        wubi_auto_commit_unique: false,
+        ..Preferences::default()
+    };
+    let queued = update(handle, 1, &preferences);
+    assert_eq!(queued["value"]["deferred"], true);
+    SESSIONS.with(|sessions| {
+        assert!(!sessions.borrow()[&handle].runtime.wubi_auto_commit_unique());
+    });
+
+    preferences.wubi_auto_commit_unique = true;
+    update(handle, 2, &preferences);
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle].runtime.wubi_auto_commit_unique());
     });
     read(msime_client_destroy(handle));
 }
@@ -5863,6 +5909,87 @@ fn an_ai_credential_handed_over_in_memory_signs_requests_without_being_stored() 
     assert_eq!(set("bad\ntoken")["ok"], false);
     assert_eq!(set("")["ok"], true);
     assert_ne!(request(handle)["ok"], true, "cleared");
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn an_in_memory_ai_credential_overrides_a_stored_origin_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        ..chinese_preferences()
+    };
+    preferences.ai_assistant.enabled = true;
+    preferences.ai_assistant.provider = "deepseek".into();
+    preferences.ai_assistant.model = "synthetic-model".into();
+    preferences.ai_assistant.endpoint = "https://api.deepseek.com/chat/completions".into();
+    preferences.ai_assistant.tokens.insert(
+        "https://api.deepseek.com:443".into(),
+        "synthetic-stored".into(),
+    );
+    let handle = test_host_preferences(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let query = read(msime_client_online_query(handle))["value"].to_string();
+    let token = b"synthetic-keychain";
+    assert_eq!(
+        read(unsafe { msime_client_set_ai_credential(handle, token.as_ptr(), token.len()) })["ok"],
+        true
+    );
+    let descriptor =
+        read(unsafe { msime_client_ai_request_for_query(handle, query.as_ptr(), query.len()) });
+    assert_eq!(descriptor["ok"], true);
+    assert_eq!(
+        descriptor["value"]["headers"]["Authorization"],
+        "Bearer synthetic-keychain"
+    );
+    assert_eq!(
+        read(unsafe { msime_client_set_ai_credential(handle, std::ptr::null(), 0) })["ok"],
+        true
+    );
+    let restored =
+        read(unsafe { msime_client_ai_request_for_query(handle, query.as_ptr(), query.len()) });
+    assert_eq!(
+        restored["value"]["headers"]["Authorization"],
+        "Bearer synthetic-stored"
+    );
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn an_in_memory_ai_credential_stays_bound_to_its_endpoint() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        ..chinese_preferences()
+    };
+    preferences.ai_assistant.enabled = true;
+    preferences.ai_assistant.provider = "deepseek".into();
+    preferences.ai_assistant.model = "synthetic-model".into();
+    preferences.ai_assistant.endpoint = "https://api.deepseek.com/chat/completions".into();
+    let handle = test_host_preferences(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let token = b"synthetic-deepseek-keychain";
+    assert_eq!(
+        read(unsafe { msime_client_set_ai_credential(handle, token.as_ptr(), token.len()) })["ok"],
+        true
+    );
+
+    preferences.ai_assistant.provider = "openai".into();
+    preferences.ai_assistant.endpoint = "https://api.openai.com/v1/chat/completions".into();
+    assert_eq!(update(handle, 1, &preferences)["ok"], true);
+    let query = read(msime_client_online_query(handle))["value"].to_string();
+    let descriptor =
+        read(unsafe { msime_client_ai_request_for_query(handle, query.as_ptr(), query.len()) });
+    assert_ne!(
+        descriptor["ok"], true,
+        "old keychain token reached a new endpoint"
+    );
     read(msime_client_destroy(handle));
 }
 
@@ -11316,11 +11443,7 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
 
 #[test]
 fn a_relative_recorded_language_dictionary_directory_is_ignored() {
-    let relative_root = tempfile::Builder::new()
-        .prefix("synthetic-language-dictionaries-")
-        .tempdir_in(".")
-        .unwrap();
-    let relative = std::path::Path::new(".").join(relative_root.path().file_name().unwrap());
+    let (_relative_root, relative) = relative_fixture_dir("synthetic-language-dictionaries-");
     for name in ["msime-cantonese.db", "msime-zhuyin.db", "msime-stroke.db"] {
         std::fs::write(relative.join(name), b"synthetic dictionary").unwrap();
     }
@@ -11654,13 +11777,8 @@ fn a_relative_recorded_settled_model_is_ignored() {
 
     // HostOptions promises an absolute path. A relative path must not be resolved
     // against whichever directory happened to launch the input method.
-    let relative_root = tempfile::Builder::new()
-        .prefix("synthetic-settled-model-")
-        .tempdir_in(".")
-        .unwrap();
-    let relative = std::path::Path::new(".")
-        .join(relative_root.path().file_name().unwrap())
-        .join("synthetic-model.safetensors");
+    let (_relative_root, relative_root) = relative_fixture_dir("synthetic-settled-model-");
+    let relative = relative_root.join("synthetic-model.safetensors");
     std::fs::write(&relative, b"synthetic model").unwrap();
     assert!(!relative.is_absolute());
     assert_eq!(

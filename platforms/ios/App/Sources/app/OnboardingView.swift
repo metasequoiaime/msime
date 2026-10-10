@@ -42,13 +42,9 @@ struct KeyboardSettingsView: View {
 
 /// 输入页：语言与方案、中文选项、辅助码、候选翻译和其余输入开关，对应 Android 的 `TypingPage`。
 ///
-/// 除了五笔的几个开关和「沿用上次的中英文」由键盘从 App Group 读取，这里其余各项都以共享偏好文档为准。每个控件都写这份文档，页面每次写完都重新读回，免得显示一个键盘其实没有的设置。
+/// 各项都以共享偏好文档为准，页面每次写完都重新读回，免得显示一个键盘其实没有的设置。只有「沿用上次的中英文」是例外，它由键盘从 App Group 的 `ImeModeMemoryPreference` 读取。
 struct InputSettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
-  @AppStorage(WubiMixedPinyinPreference.enabledKey, store: WubiMixedPinyinPreference.defaults)
-  private var wubiMixedPinyin = MSIMEAppEdition.wubiMixedPinyinDefault
-  @AppStorage(WubiCodeHintPreference.enabledKey, store: WubiCodeHintPreference.defaults)
-  private var wubiCodeHint = true
   /// 最近一次读到的共享文档；拼音纠错和辅助码两行直接读它。
   @State private var document: [String: Any]?
   @State private var inputScheme = InputSchemePreference.scheme
@@ -59,6 +55,9 @@ struct InputSettingsView: View {
   @State private var habits = InputHabitPreference.mirrored
   @State private var startsInEnglish = false
   @State private var remembersImeMode = false
+  @State private var wubiAutoCommitUnique = true
+  @State private var wubiMixedPinyin = MSIMEAppEdition.wubiMixedPinyinDefault
+  @State private var wubiCodeHint = true
   @State private var addingLanguage = false
   @State private var failedGroup: PageGroup?
 
@@ -393,11 +392,36 @@ struct InputSettingsView: View {
   private var moreGroup: some View {
     DesignGroup(title: "更多", footer: footer(.more)) {
       if enabledSchemes.contains(.wubi) {
-        DesignToggleRow(title: "五笔拼音混输", subtitle: "五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选", isOn: $wubiMixedPinyin)
+        DesignToggleRow(title: "五笔拼音混输", subtitle: "五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选",
+                        isOn: Binding(get: { wubiMixedPinyin }, set: { enabled in
+                          wubiMixedPinyin = enabled
+                          record(MetasequoiaInputSessionBridge.updateSharedPreferences {
+                            $0["wubi_mixed_pinyin"] = enabled
+                          }, .more)
+                          reloadPreferences()
+                        }))
           .accessibilityIdentifier("wubiMixedPinyin")
         DesignDivider()
-        DesignToggleRow(title: "候选显示剩余编码", subtitle: "在候选后标出还要输入的字母", isOn: $wubiCodeHint)
+        DesignToggleRow(title: "候选显示剩余编码", subtitle: "在候选后标出还要输入的字母",
+                        isOn: Binding(get: { wubiCodeHint }, set: { enabled in
+                          wubiCodeHint = enabled
+                          record(MetasequoiaInputSessionBridge.updateSharedPreferences {
+                            $0["wubi_code_hint"] = enabled
+                          }, .more)
+                          reloadPreferences()
+                        }))
           .accessibilityIdentifier("wubiCodeHint")
+        DesignDivider()
+        DesignToggleRow(title: "四码唯一候选自动上屏",
+                        subtitle: "五笔四码且只有一个候选时自动上屏，关闭后用空格或数字键选它",
+                        isOn: Binding(get: { wubiAutoCommitUnique }, set: { enabled in
+                          wubiAutoCommitUnique = enabled
+                          record(MetasequoiaInputSessionBridge.updateSharedPreferences {
+                            $0["wubi_auto_commit_unique"] = enabled
+                          }, .more)
+                          reloadPreferences()
+                        }))
+          .accessibilityIdentifier("wubiAutoCommitUnique")
         DesignDivider()
       }
       DesignSelectRow(title: "默认中英文", subtitle: "新打开的键盘从这里开始",
@@ -450,6 +474,9 @@ struct InputSettingsView: View {
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     if let document { WubiProfilePreference.mirror(document) }
     wubiProfile = WubiProfilePreference.profile
+    wubiAutoCommitUnique = document?["wubi_auto_commit_unique"] as? Bool ?? true
+    wubiMixedPinyin = WubiMixedPinyinPreference.isEnabled(in: document)
+    wubiCodeHint = WubiCodeHintPreference.isEnabled(in: document)
     fuzzy = FuzzyPinyinPreference.settings(in: document) ?? .pristine
     habits = InputHabitPreference.settings(in: document)
     startsInEnglish = document?["default_ime_mode"] as? String == "english"

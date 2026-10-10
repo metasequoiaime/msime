@@ -56,6 +56,29 @@ final class KeyGapRoutingTests: XCTestCase {
     XCTAssertEqual(KeyGapRouting.reach(spacing: 6, axis: .vertical, margins: margins), 4)
   }
 
+  func testReturnYieldsItsLeadingEdgeOnlyToAnAdjacentKey() {
+    let language = CGRect(x: 0, y: 0, width: 34, height: 44)
+    let enter = CGRect(x: 40, y: 0, width: 64, height: 44)
+    let yield = KeyGapRouting.returnYield
+    XCTAssertGreaterThan(yield, 0)
+    XCTAssertLessThan(yield, enter.width / 4, "回车只让出几 pt，不是自己的一大块")
+    func yields(_ x: CGFloat, receiver: CGRect = language, y: CGFloat = 20) -> Bool {
+      KeyGapRouting.yieldsToLeft(CGPoint(x: x, y: y), yielding: enter, receiver: receiver, spacing: 6, yield: yield)
+    }
+    XCTAssertTrue(yields(enter.minX))
+    XCTAssertTrue(yields(enter.minX + yield - 0.5))
+    XCTAssertFalse(yields(enter.minX + yield), "让出的那一段之外仍是回车")
+    XCTAssertTrue(yields(enter.minX - 1), "两键之间的键距整段归中/英，靠回车的那一半也是")
+    XCTAssertTrue(yields(language.maxX))
+    XCTAssertFalse(yields(language.maxX - 1), "中/英自己的键帽不归这里管")
+    XCTAssertFalse(yields(enter.minX + 1, y: enter.maxY + 1))
+    // 左边隔了不止一个键距，或不在同一行，就不是紧挨着的键。
+    XCTAssertFalse(yields(enter.minX + 1, receiver: CGRect(x: 0, y: 0, width: 20, height: 44)))
+    XCTAssertFalse(yields(enter.minX + 1, receiver: CGRect(x: 0, y: 50, width: 34, height: 44)))
+    XCTAssertFalse(
+      KeyGapRouting.yieldsToLeft(CGPoint(x: 41, y: 20), yielding: enter, receiver: language, spacing: 6, yield: 0))
+  }
+
   // MARK: - 真实键盘
 
   private func controller(_ scheme: ChineseInputScheme) -> KeyboardViewController {
@@ -125,6 +148,45 @@ final class KeyGapRoutingTests: XCTestCase {
     defer { w.transform = .identity }
     XCTAssertTrue(hit(CGPoint(x: wFrame.minX + 0.5, y: wFrame.midY), in: controller) === w)
     XCTAssertTrue(hit(CGPoint(x: wFrame.maxX - 0.5, y: wFrame.midY), in: controller) === w)
+  }
+
+  /// 手机和九键的底行里中/英紧挨回车：回车键帽左边 `returnYield` 以内的触摸交给中/英，再往右才是回车。
+  func testTheReturnKeyYieldsItsLeadingEdgeToTheLanguageKey() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    for scheme in [ChineseInputScheme.quanpin, .nineKey] {
+      let controller = self.controller(scheme)
+      let language = try key("bottomLanguageKey", in: controller), enter = try key("returnKey", in: controller)
+      let languageFrame = frame(language, in: controller), enterFrame = frame(enter, in: controller)
+      XCTAssertGreaterThan(enterFrame.minX, languageFrame.maxX, "\(scheme): 中/英在回车左边")
+      XCTAssertLessThanOrEqual(enterFrame.minX - languageFrame.maxX, 7, "\(scheme): 两键之间只隔一个键距")
+      let y = enterFrame.midY
+      XCTAssertTrue(hit(CGPoint(x: (languageFrame.maxX + enterFrame.minX) / 2 + 1, y: y), in: controller) === language,
+        "\(scheme): 键距里靠回车的那一半也归中/英")
+      XCTAssertTrue(hit(CGPoint(x: enterFrame.minX + 1, y: y), in: controller) === language, "\(scheme)")
+      XCTAssertTrue(
+        hit(CGPoint(x: enterFrame.minX + KeyGapRouting.returnYield - 1, y: y), in: controller) === language,
+        "\(scheme)")
+      XCTAssertTrue(
+        hit(CGPoint(x: enterFrame.minX + KeyGapRouting.returnYield + 1, y: y), in: controller) === enter,
+        "\(scheme)")
+      XCTAssertTrue(hit(CGPoint(x: enterFrame.midX, y: y), in: controller) === enter, "\(scheme)")
+      XCTAssertTrue(hit(CGPoint(x: languageFrame.midX, y: y), in: controller) === language, "\(scheme)")
+    }
+  }
+
+  /// 长按 123 打开符号面板的手势只在字母层开始；符号层里这个键是 ABC，长按仍当作点按。
+  func testHoldingTheLayoutToggleOpensSymbolsOnlyFromTheLetters() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    let controller = self.controller(.quanpin)
+    let toggle = try key("layoutToggleButton", in: controller)
+    let hold = try XCTUnwrap(toggle.gestureRecognizers?.first { $0.name == "layoutToggleSymbolsHold" })
+    XCTAssertTrue((hold as? UILongPressGestureRecognizer)?.cancelsTouchesInView ?? false, "长按会取消这次点按，不会再切层")
+    XCTAssertTrue(controller.gestureRecognizerShouldBegin(hold))
+    toggle.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(controller.gestureRecognizerShouldBegin(hold))
   }
 
   func testNineKeyGapsGoToTheNearestKey() throws {

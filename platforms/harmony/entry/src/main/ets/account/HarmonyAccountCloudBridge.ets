@@ -27,8 +27,8 @@ import {
   validLocalPreferenceDocument,
 } from './AccountPreferencePlan';
 import {
-  ACCOUNT_ORIGIN, AnonymousSessionStore, FileSessionStore, HarmonyAccountTransport, responseContentLength,
-  responseContentType
+  ACCOUNT_ORIGIN, AnonymousSessionStore, FileSessionStore, HarmonyAccountTransport,
+  cancelSnapshotQueueForAccount, responseContentLength, responseContentType
 } from './HarmonyAccountTransport';
 import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
 
@@ -425,17 +425,7 @@ export class HarmonyAccountCloudBridge {
   }
 
   private cancelQueueForAccount(accountId: string): boolean {
-    try {
-      const action: SnapshotQueueCancelAction = {
-        operation: 'cancel', directory: `${this.context.filesDir}/state/dictionary-snapshots`,
-        account_id: accountId
-      };
-      const reply: SnapshotQueueReply =
-        JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueReply;
-      return strictAccountOk(reply.ok);
-    } catch {
-      return false;
-    }
+    return cancelSnapshotQueueForAccount(`${this.context.filesDir}/state`, accountId);
   }
 
   /**

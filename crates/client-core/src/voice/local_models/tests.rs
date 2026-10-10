@@ -3,7 +3,7 @@ use super::*;
 #[cfg(unix)]
 #[test]
 fn interrupted_adoption_rejects_a_source_below_a_symlinked_ancestor() {
-    use std::os::unix::fs::symlink;
+    use msime_path_trust::untrusted_symlink as symlink;
 
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
@@ -438,7 +438,7 @@ fn tar_extraction_stays_in_the_open_model_directory() {
 #[cfg(unix)]
 #[test]
 fn leftover_file_cleanup_rejects_a_symlinked_parent() {
-    use std::os::unix::fs::symlink;
+    use msime_path_trust::untrusted_symlink as symlink;
 
     let state = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();

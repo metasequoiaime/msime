@@ -60,8 +60,8 @@ fn activation_receipt_rejects_a_symlinked_receipt() {
 #[cfg(unix)]
 #[test]
 fn activation_receipt_rejects_a_symlinked_parent() {
+    use msime_path_trust::untrusted_symlink as symlink;
     use std::fs;
-    use std::os::unix::fs::symlink;
 
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
@@ -213,8 +213,8 @@ fn inspection_rejects_a_snapshot_below_a_symlinked_parent() {
 #[cfg(unix)]
 #[test]
 fn snapshot_publication_rejects_a_symlinked_parent() {
+    use msime_path_trust::untrusted_symlink as symlink;
     use std::fs;
-    use std::os::unix::fs::symlink;
 
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();

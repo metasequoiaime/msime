@@ -85,6 +85,10 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) snapshot_valid: bool,
     pub(crate) character_width: CharacterWidth,
     pub(crate) touch_keyboard_layout: TouchKeyboardLayout,
+    /// 整个候选列表只给出一个词的完整五笔码，是否在第四键提交。
+    ///
+    /// *什么*算这种码由 Engine 判定（[`EngineSnapshot::wubi_unique_four_code`]）；提交它是宿主的事，因为提交要跨过平台自己的组字边界。只有用户要求时才关：关了以后词和其他候选一样留在候选列表里，由空格或数字键选走。
+    pub(crate) wubi_auto_commit_unique: bool,
     /// Whether the host draws a half-composed phrase itself instead of having it committed.
     ///
     /// Picking a candidate that consumes only part of the input leaves the Engine composing the
@@ -466,6 +470,17 @@ impl<E: InputEngine> Runtime<E> {
         self.refresh()
     }
 
+    /// 整个候选列表只回一个词的完整五笔码，是否在第四键提交。
+    ///
+    /// 这是宿主状态而不是 Engine 状态：它决定本 runtime 要不要执行提交，所以组字中途改也安全，不需要重建 Engine。下一键生效，因此已经打进组字的四码不会因为把开关关掉而自己上屏。
+    pub fn set_wubi_auto_commit_unique(&mut self, enabled: bool) {
+        self.wubi_auto_commit_unique = enabled;
+    }
+
+    pub fn wubi_auto_commit_unique(&self) -> bool {
+        self.wubi_auto_commit_unique
+    }
+
     /// Hand the Engine a new `/` command table. An open command list is rebuilt from it, so the view is refreshed.
     pub fn set_command_table(&mut self, table: &[CommandTableEntry]) -> Result<(), RuntimeError> {
         self.advance()?;
@@ -540,6 +555,7 @@ impl<E: InputEngine> Runtime<E> {
             snapshot_valid: true,
             character_width: CharacterWidth::Halfwidth,
             touch_keyboard_layout,
+            wubi_auto_commit_unique: true,
             phrase_preedit: false,
             phrase_prefix: String::new(),
             phrase_selections: Vec::new(),
@@ -1592,13 +1608,24 @@ impl<E: InputEngine> Runtime<E> {
             && !self.cached.dedicated_english
             && self.cached.local_mode == "none"
             && !self.cached.editing_text.is_empty();
+        let commit_context = self.output_context();
         let result = if commits_on_blur {
             self.engine.finish(0)
         } else {
             self.discard_composition()
         };
-        self.refresh()?;
+        let may_commit = result
+            .as_ref()
+            .is_ok_and(|result| result.has_commit || (!focused && !self.phrase_prefix.is_empty()));
+        let refresh_error = match self.refresh() {
+            Ok(()) => None,
+            Err(error) if may_commit => Some(error),
+            Err(error) => return Err(error),
+        };
         let mut result = result?;
+        if let Some(error) = refresh_error {
+            result.diagnostic = format!("Candidate refresh failed: {error}");
+        }
         // Leaving the client cancels the composition, but a phrase piece being held back is text
         // the user chose and, before it was held back, would already be in the document. Send it.
         self.hold_phrase_progress(false, false, false, "", &mut result);
@@ -1609,7 +1636,11 @@ impl<E: InputEngine> Runtime<E> {
         self.ai_context.clear();
         self.engine.set_rescoring_context("");
         self.engine.reset_context();
-        Ok(self.transition(result))
+        let mut transition = self.transition(result);
+        if transition.commit.is_some() {
+            transition.commit_context = Some(commit_context);
+        }
+        Ok(transition)
     }
 
     /// 丢弃组字。Cancel 对应用户按 Esc，有些方案里第一次 Cancel 会保留组字：开着可打开的候选列表（韩文汉字列表）时只关闭列表，越南文单词和藏文音节则退回原始按键。这时再发一次 Cancel 才把组字也丢掉。
@@ -1688,7 +1719,7 @@ impl<E: InputEngine> Runtime<E> {
         let spells = self.cached.local_mode != "none"
             || (self.phrase_prefix.is_empty()
                 && scheme_type(self.cached.scheme)
-                    .is_some_and(|scheme| !scheme.opens_local_modes()));
+                    .is_some_and(|scheme| !scheme.opens_table_modes()));
         // 字面标点路由刻意不进入网址模式：组字 `www` 时引擎在 `spelling_symbols` 里列出 `.`，但宿主在这条路由上要的是字面符号，所以这里不收，照常结束组字再接上 `.`（列出但不接受的例外）。
         if spells && self.cached.spelling_symbols.as_bytes().contains(&value) {
             return self.engine.character(value, false);
@@ -1859,8 +1890,20 @@ impl<E: InputEngine> Runtime<E> {
             Action::Character { value, shift } if wubi_top_commit => self
                 .engine
                 .select(self.engine_index(0))
-                .and_then(|committed| {
-                    self.engine.character(value, shift)?;
+                .and_then(|mut committed| {
+                    let next = self.engine.character(value, shift)?;
+                    let tail = if next.has_commit {
+                        next.commit
+                    } else if !next.handled {
+                        char::from(value).to_string()
+                    } else {
+                        String::new()
+                    };
+                    if !tail.is_empty() {
+                        committed.commit.push_str(&tail);
+                        committed.handled = true;
+                        committed.has_commit = true;
+                    }
                     Ok(committed)
                 }),
             // A symbol that would open a mode behind a held phrase piece ends the phrase as punctuation instead, as on the punctuation route.
@@ -1955,10 +1998,7 @@ impl<E: InputEngine> Runtime<E> {
         // says otherwise.
         let needs_commit_context = result.as_ref().is_ok_and(|result| result.has_commit)
             || !self.phrase_prefix.is_empty()
-            || (character_action
-                && self.snapshot_valid
-                && self.cached.wubi_unique_four_code
-                && self.phrase_prefix.is_empty());
+            || self.wubi_should_auto_commit(character_action);
         let commit_context = needs_commit_context.then(|| self.output_context());
         let refresh = self.refresh();
         let mut result = result?;
@@ -1970,11 +2010,7 @@ impl<E: InputEngine> Runtime<E> {
         // the same fourth-key behavior here; platform adapters only decide how that commit crosses
         // their native composition boundary. A held phrase is still being assembled and must stay
         // open, matching the reference's creating-word guard.
-        if character_action
-            && self.snapshot_valid
-            && self.cached.wubi_unique_four_code
-            && self.phrase_prefix.is_empty()
-        {
+        if self.wubi_should_auto_commit(character_action) {
             result = self.engine.select(self.engine_index(0))?;
             if let Err(error) = self.refresh() {
                 result.diagnostic = format!("Candidate refresh failed: {error}");
@@ -2005,6 +2041,15 @@ impl<E: InputEngine> Runtime<E> {
             }
         }
         Ok(transition)
+    }
+
+    /// 本次按键是否以唯一五笔候选被提交收尾。读缓存快照，所以 refresh 前后的两处调用会故意看到不同代。
+    fn wubi_should_auto_commit(&self, character_action: bool) -> bool {
+        self.wubi_auto_commit_unique
+            && character_action
+            && self.snapshot_valid
+            && self.cached.wubi_unique_four_code
+            && self.phrase_prefix.is_empty()
     }
 }
 

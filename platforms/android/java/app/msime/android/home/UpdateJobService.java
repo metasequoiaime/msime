@@ -14,14 +14,15 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.InstallSourceInfo;
-import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import androidx.core.content.FileProvider;
 import app.msime.android.AppEdition;
+import app.msime.android.AppVersionPolicy;
 import app.msime.android.FilePolicy;
 import app.msime.android.R;
+import app.msime.android.ThreadPolicy;
 import app.msime.android.UpdateApi;
 import java.io.File;
 import java.util.concurrent.TimeUnit;
@@ -48,7 +49,7 @@ public final class UpdateJobService extends JobService {
     @Override public boolean onStartJob(JobParameters params) {
         Context context = getApplicationContext();
         if (!autoUpdate(context) || installedFromPlay(context)) return false;
-        worker = new Thread(() -> {
+        worker = ThreadPolicy.namedThread("msime-update-job", () -> {
             boolean retry = false;
             try {
                 UpdateApi api = new UpdateApi();
@@ -73,7 +74,7 @@ public final class UpdateJobService extends JobService {
             } finally {
                 jobFinished(params, retry);
             }
-        }, "msime-update-job");
+        });
         worker.start();
         return true;
     }
@@ -139,12 +140,7 @@ public final class UpdateJobService extends JobService {
 
     /** 当前安装的版本名；读不到时是 `0`，任何发布都比它新。 */
     static String currentVersion(Context context) {
-        try {
-            PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
-            return info.versionName == null ? "0" : info.versionName;
-        } catch (PackageManager.NameNotFoundException missing) {
-            return "0";
-        }
+        return AppVersionPolicy.versionName(context, "0");
     }
 
     /** 把核对过的安装包交给系统安装器的 Intent。 */

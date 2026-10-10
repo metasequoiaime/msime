@@ -30,6 +30,7 @@ import app.msime.android.FirstRunPreparation;
 import app.msime.android.HostDeepLink;
 import app.msime.android.core.Telemetry;
 import app.msime.android.R;
+import app.msime.android.ThreadPolicy;
 import app.msime.android.ViewPolicy;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
@@ -60,9 +61,6 @@ public final class HomeActivity extends AppCompatActivity {
     /** 底部进度条走满的时长。 */
     private static final long INTRO_PROGRESS_MILLIS = 2400;
     private static final long INTRO_FADE_MILLIS = 260;
-    /** The design's msPop curve, cubic-bezier(.16, 1, .3, 1). */
-    private static final PathInterpolator POP = new PathInterpolator(0.16f, 1f, 0.3f, 1f);
-    private static final PathInterpolator EASE = new PathInterpolator(0.25f, 0.1f, 0.25f, 1f);
     private static final int[] TAB_IDS = {
         R.id.tab_settings, R.id.tab_community, R.id.tab_statistics, R.id.tab_account,
     };
@@ -82,7 +80,8 @@ public final class HomeActivity extends AppCompatActivity {
     /** 这个 activity 画出来时叠的季节（`AppMode.restore` 用的那份缓存）；没有缓存时是基础主题的秋杉。 */
     private String drawnSeason = "autumn";
     /** 回到前台时读共享偏好、解析应用主题用的工作线程。 */
-    private final ExecutorService themeWorker = Executors.newSingleThreadExecutor();
+    private final ExecutorService themeWorker = Executors.newSingleThreadExecutor(
+        ThreadPolicy.namedDaemonFactory("msime-home-theme"));
 
     @Override protected void onCreate(Bundle state) {
         AppMode.restore(this);
@@ -257,9 +256,9 @@ public final class HomeActivity extends AppCompatActivity {
 
         View glow = findViewById(R.id.home_intro_glow);
         stopBreath();
-        pop(glow, 800, 0, EASE);
+        pop(glow, 800, 0, MotionCurves.EASE);
         View disc = findViewById(R.id.home_intro_disc);
-        pop(disc, 650, 0, POP);
+        pop(disc, 650, 0, MotionCurves.POP);
         ImageView mark = findViewById(R.id.home_intro_mark);
         mark.animate().cancel();
         mark.setAlpha(0f);
@@ -267,7 +266,7 @@ public final class HomeActivity extends AppCompatActivity {
         mark.setScaleY(0.6f);
         mark.setRotation(-30f);
         mark.animate().alpha(1f).scaleX(1f).scaleY(1f).rotation(0f)
-            .setDuration(600).setStartDelay(250).setInterpolator(POP).start();
+            .setDuration(600).setStartDelay(250).setInterpolator(MotionCurves.POP).start();
         if (mark.getDrawable() instanceof Animatable animatable) {
             animatable.stop();
             animatable.start();
@@ -291,7 +290,7 @@ public final class HomeActivity extends AppCompatActivity {
         breath.setStartDelay(1400);
         breath.setRepeatCount(ValueAnimator.INFINITE);
         breath.setRepeatMode(ValueAnimator.REVERSE);
-        breath.setInterpolator(EASE);
+        breath.setInterpolator(MotionCurves.EASE);
         breath.addUpdateListener(animation -> {
             float t = (float) animation.getAnimatedValue();
             glow.setAlpha(1f - 0.45f * t);
@@ -319,7 +318,7 @@ public final class HomeActivity extends AppCompatActivity {
         ring.setScaleX(1f);
         ring.setScaleY(1f);
         ring.animate().alpha(0f).scaleX(1.2f).scaleY(1.2f).setStartDelay(0).setDuration(1200)
-            .setInterpolator(EASE).withEndAction(() -> rippleOnce(ring, remaining - 1)).start();
+            .setInterpolator(MotionCurves.EASE).withEndAction(() -> rippleOnce(ring, remaining - 1)).start();
     }
 
     private final Runnable dismissIntro = this::dismissIntro;
@@ -374,7 +373,7 @@ public final class HomeActivity extends AppCompatActivity {
         view.setAlpha(0f);
         view.setTranslationY(Ui.dp(this, 10));
         view.animate().alpha(1f).translationY(0f)
-            .setDuration(500).setStartDelay(delay).setInterpolator(EASE).start();
+            .setDuration(500).setStartDelay(delay).setInterpolator(MotionCurves.EASE).start();
     }
 
     @Override protected void onDestroy() {

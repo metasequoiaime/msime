@@ -203,7 +203,7 @@ private enum DeveloperDiagnostics {
     return true
   }
 
-  /// 「重置所有设置」还要覆盖只存在本设备 App Group、不在 `restoreDefaults` 替换的文档里的设置，与 Android 连同共享设置一起重置本机设置一样：按键反馈、隐私模式、单手模式、工具栏的常用语 / 输入方式按钮和显示方式、键盘几何尺寸的镜像、iPad 和手势开关（滑行输入、滑动输入符号、长按空格语音）、中英模式记忆、五笔开关、键盘每次按键都读的候选与组字开关、候选栏使用主题配色、手写和 App 主题。删掉一个键，读取方就回到它的默认值。在恢复成功之后运行；放在主 actor 上，因为其中一些类型隔离在主 actor。
+  /// 「重置所有设置」还要覆盖只存在本设备 App Group、不在 `restoreDefaults` 替换的文档里的设置，与 Android 连同共享设置一起重置本机设置一样：按键反馈、隐私模式、单手模式、工具栏的常用语 / 输入方式按钮和显示方式、键盘几何尺寸的镜像、iPad 和手势开关（滑行输入、滑动输入符号、长按空格语音）、中英模式记忆、键盘每次按键都读的候选与组字开关、候选栏使用主题配色、手写和 App 主题。删掉一个键，读取方就回到它的默认值。在恢复成功之后运行；放在主 actor 上，因为其中一些类型隔离在主 actor。
   @MainActor static func resetLocalPreferences() {
     KeyboardLayoutPreference.resetToDefaults()
     let local: [(UserDefaults, [String])] = [
@@ -215,8 +215,6 @@ private enum DeveloperDiagnostics {
       (KeyboardPrivacyPreference.defaults, [KeyboardPrivacyPreference.incognitoKey]),
       (TouchToolbarLocalPreference.defaults, TouchToolbarLocalPreference.keys),
       (ImeModeMemoryPreference.defaults, [ImeModeMemoryPreference.enabledKey, ImeModeMemoryPreference.lastChineseKey]),
-      (WubiMixedPinyinPreference.defaults, [WubiMixedPinyinPreference.enabledKey]),
-      (WubiCodeHintPreference.defaults, [WubiCodeHintPreference.enabledKey]),
       (EnglishSuggestionsPreference.defaults, [EnglishSuggestionsPreference.enabledKey]),
       (InlinePreeditPreference.defaults, [InlinePreeditPreference.styleKey, InlinePreeditPreference.key]),
       (CloudCandidatePreference.defaults, [CloudCandidatePreference.key]),

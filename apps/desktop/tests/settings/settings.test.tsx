@@ -160,41 +160,41 @@ test("macOS exposes the non-activating input-mode HUD preference", async () => {
   expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ input_mode_hud: false }));
 });
 
-test("macOS persists Wubi unique-candidate auto-commit outside shared preferences", async () => {
+test("Wubi unique-candidate auto-commit is a shared preference on every host", async () => {
   const wubiInitial = {
     ...initial,
-    preferences: { ...initial.preferences, scheme: "wubi" as const },
+    preferences: {
+      ...initial.preferences,
+      scheme: "wubi" as const,
+      wubi_auto_commit_unique: true,
+    },
   };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...wubiInitial,
     revision: 8,
     preferences,
   }));
-  const loadWubiAutoCommit = vi.fn().mockResolvedValue(false);
-  const saveWubiAutoCommit = vi.fn().mockResolvedValue(undefined);
-  render(
-    <SettingsPage
-      client={{
-        load: async () => wubiInitial,
-        save,
-        host: testHost({ platform: "macos" }),
-        loadMacosWubiAutoCommitUnique: loadWubiAutoCommit,
-        saveMacosWubiAutoCommitUnique: saveWubiAutoCommit,
-      }}
-    />,
-  );
-  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
-  const toggle = (await screen.findByRole("switch", {
-    name: "五笔四码唯一候选自动上屏",
-  })) as HTMLInputElement;
-  expect(toggle.checked).toBe(false);
-  fireEvent.click(toggle);
-  saveSettingsNow();
-  await screen.findByText("已保存");
-  // Only the native preference changed, so the shared document is left alone.
-  expect(save).not.toHaveBeenCalled();
-  expect(loadWubiAutoCommit).toHaveBeenCalled();
-  expect(saveWubiAutoCommit).toHaveBeenCalledWith(true);
+  for (const platform of ["macos", "windows"] as const) {
+    save.mockClear();
+    const mounted = render(
+      <SettingsPage
+        client={{ load: async () => wubiInitial, save, host: testHost({ platform }) }}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+    const toggle = (await screen.findByRole("switch", {
+      name: "五笔四码唯一候选自动上屏",
+    })) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    fireEvent.click(toggle);
+    saveSettingsNow();
+    await screen.findByText("已保存");
+    expect(save).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ wubi_auto_commit_unique: false }),
+    );
+    mounted.unmount();
+  }
 });
 
 test("titlebar sits above the shared sidebar and content body", async () => {
@@ -2588,13 +2588,222 @@ test("clipboard history exposes timestamps, pinning, deletion and two-step clear
     .closest("[data-clipboard-entry-row]") as HTMLElement;
   fireEvent.click(within(recentRow).getByRole("button", { name: "删除剪贴板记录" }));
   await waitFor(() => expect(remove).toHaveBeenCalledWith("synthetic recent"));
-  expect(screen.queryByText("synthetic recent")).toBeNull();
+  await waitFor(() => expect(screen.queryByText("synthetic recent")).toBeNull());
 
   fireEvent.click(screen.getByRole("button", { name: "清空历史" }));
   expect(clear).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "确认清空" }));
   await waitFor(() => expect(clear).toHaveBeenCalledTimes(1));
   expect(await screen.findByText("暂无历史记录")).toBeDefined();
+});
+
+test("clipboard history reloads when its page opens while an earlier list is pending", async () => {
+  const stale = deferred<Array<{ text: string; timestampMs: number; pinned: boolean }>>();
+  const list = vi
+    .fn()
+    .mockImplementationOnce(() => stale.promise)
+    .mockResolvedValue([
+      { text: "synthetic current", timestampMs: 1_789_000_000_000, pinned: false },
+    ]);
+  const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
+  render(
+    <SettingsPage
+      initialPage="tools"
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot),
+        save: vi.fn(),
+        clipboard: { list, clear: vi.fn() },
+      }}
+    />,
+  );
+  await settingsReady();
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  expect(await screen.findByText("synthetic current")).toBeDefined();
+  await act(async () =>
+    stale.resolve([{ text: "synthetic stale", timestampMs: 1_788_000_000_000, pinned: false }]),
+  );
+  expect(screen.queryByText("synthetic stale")).toBeNull();
+});
+
+test("clipboard history ignores an initial list that finishes after a manual sync", async () => {
+  const initialList = deferred<Array<{ text: string; timestampMs: number; pinned: boolean }>>();
+  const list = vi.fn().mockImplementation(() => initialList.promise);
+  const sync = vi
+    .fn()
+    .mockResolvedValue([
+      { text: "synthetic synced", timestampMs: 1_789_000_000_000, pinned: false },
+    ]);
+  const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot),
+        save: vi.fn(),
+        clipboard: { list, sync, clear: vi.fn() },
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole("button", { name: "从系统剪贴板同步" }));
+  expect(await screen.findByText("synthetic synced")).toBeDefined();
+
+  await act(async () =>
+    initialList.resolve([
+      { text: "synthetic stale", timestampMs: 1_788_000_000_000, pinned: false },
+    ]),
+  );
+  expect(screen.getByText("synthetic synced")).toBeDefined();
+  expect(screen.queryByText("synthetic stale")).toBeNull();
+});
+
+test("clipboard history waits for a sync before accepting deletion", async () => {
+  const pendingSync = deferred<Array<{ text: string; timestampMs: number; pinned: boolean }>>();
+  const entry = { text: "synthetic record", timestampMs: 1_789_000_000_000, pinned: false };
+  let entries = [entry];
+  const list = vi.fn().mockImplementation(async () => entries);
+  const remove = vi.fn().mockImplementation(async () => {
+    entries = [];
+  });
+  const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot),
+        save: vi.fn(),
+        clipboard: { list, sync: () => pendingSync.promise, remove, clear: vi.fn() },
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  const row = (await screen.findByText(entry.text)).closest(
+    "[data-clipboard-entry-row]",
+  ) as HTMLElement;
+  fireEvent.click(screen.getByRole("button", { name: "从系统剪贴板同步" }));
+  const deleteButton = within(row).getByRole("button", {
+    name: "删除剪贴板记录",
+  }) as HTMLButtonElement;
+  expect(deleteButton.disabled).toBe(true);
+  fireEvent.click(deleteButton);
+  expect(remove).not.toHaveBeenCalled();
+
+  await act(async () => pendingSync.resolve([entry]));
+  await waitFor(() => expect(deleteButton.disabled).toBe(false));
+  fireEvent.click(deleteButton);
+  await waitFor(() => expect(remove).toHaveBeenCalledWith(entry.text));
+  expect(await screen.findByText("暂无历史记录")).toBeDefined();
+});
+
+test("clipboard history refreshes a deletion that finishes after leaving and reopening the page", async () => {
+  const pendingDelete = deferred<void>();
+  const entry = { text: "synthetic record", timestampMs: 1_789_000_000_000, pinned: false };
+  let entries = [entry];
+  const list = vi.fn().mockImplementation(async () => [...entries]);
+  const remove = vi.fn().mockImplementation(async () => {
+    await pendingDelete.promise;
+    entries = [];
+  });
+  const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot),
+        save: vi.fn(),
+        clipboard: { list, remove, clear: vi.fn().mockResolvedValue(undefined) },
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  const row = (await screen.findByText(entry.text)).closest(
+    "[data-clipboard-entry-row]",
+  ) as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "删除剪贴板记录" }));
+  await waitFor(() => expect(remove).toHaveBeenCalledWith(entry.text));
+
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  expect(screen.getByText(entry.text)).toBeDefined();
+  const deleteButton = screen.getByRole("button", { name: "删除剪贴板记录" }) as HTMLButtonElement;
+  expect(deleteButton.disabled).toBe(true);
+  expect((screen.getByRole("switch", { name: "剪贴板历史" }) as HTMLInputElement).disabled).toBe(
+    true,
+  );
+
+  await act(async () => pendingDelete.resolve());
+  expect(screen.queryByText(entry.text)).toBeNull();
+});
+
+test("clipboard history applies a sync that finishes after leaving and reopening the page", async () => {
+  const pendingSync = deferred<Array<{ text: string; timestampMs: number; pinned: boolean }>>();
+  const oldEntry = { text: "synthetic old", timestampMs: 1_788_000_000_000, pinned: false };
+  const newEntry = { text: "synthetic new", timestampMs: 1_789_000_000_000, pinned: false };
+  const list = vi.fn().mockResolvedValue([oldEntry]);
+  const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot),
+        save: vi.fn(),
+        clipboard: {
+          list,
+          sync: () => pendingSync.promise,
+          clear: vi.fn().mockResolvedValue(undefined),
+        },
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  expect(await screen.findByText(oldEntry.text)).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "从系统剪贴板同步" }));
+
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  expect(
+    (screen.getByRole("button", { name: "从系统剪贴板同步" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+
+  await act(async () => pendingSync.resolve([newEntry]));
+  expect(screen.getByText(newEntry.text)).toBeDefined();
+  expect(screen.queryByText(oldEntry.text)).toBeNull();
+});
+
+test("clipboard history ignores a pending list after its switch is turned off and on", async () => {
+  const pendingList = deferred<Array<{ text: string; timestampMs: number; pinned: boolean }>>();
+  const list = vi
+    .fn()
+    .mockImplementationOnce(() => pendingList.promise)
+    .mockResolvedValue([]);
+  const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot),
+        save: vi.fn(),
+        clipboard: { list, clear: vi.fn().mockResolvedValue(undefined) },
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+  const history = screen.getByRole("switch", { name: "剪贴板历史" });
+  fireEvent.click(history);
+  fireEvent.click(history);
+  await act(async () =>
+    pendingList.resolve([
+      { text: "synthetic stale", timestampMs: 1_788_000_000_000, pinned: false },
+    ]),
+  );
+  expect(screen.queryByText("synthetic stale")).toBeNull();
 });
 
 test("iOS clipboard history follows keyboard permission instead of the desktop preference", async () => {
@@ -3234,11 +3443,8 @@ test.each(["windows", "linux", "macos", "android", "ios", "harmony", undefined])
     })) as HTMLInputElement;
     // A configuration that never mentioned usage reporting reports by default.
     expect(toggle.checked).toBe(true);
-    const description = screen.getByText(/^默认开启，可随时关闭。/).textContent ?? "";
-    expect(description).toContain("https://api.msime.app/v1/telemetry/events");
-    expect(description).toContain("安装 id");
-    expect(description).toContain("不含输入内容");
-    expect(description).toContain("清空尚未发送的记录");
+    // One line under the switch; what is sent lives on its own page, one fact per row.
+    expect(screen.getByText("不含输入内容、候选和剪贴板；关闭后不再发送。")).toBeTruthy();
     fireEvent.click(toggle);
     saveSettingsNow();
     await screen.findByText("已保存");
@@ -3246,6 +3452,13 @@ test.each(["windows", "linux", "macos", "android", "ios", "harmony", undefined])
       ...initial.preferences,
       usage_reporting: false,
     });
+    fireEvent.click(screen.getByRole("button", { name: "发送哪些内容" }));
+    const details = await screen.findByRole("group", { name: "发送哪些内容" });
+    const text = details.textContent ?? "";
+    expect(text).toContain("https://api.msime.app/v1/telemetry/events");
+    expect(text).toContain("安装 id");
+    expect(text).toContain("输入内容、候选和剪贴板");
+    expect(text).toContain("清空尚未发送的记录");
   },
 );
 

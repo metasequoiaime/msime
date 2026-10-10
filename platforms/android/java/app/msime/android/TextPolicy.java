@@ -133,6 +133,12 @@ public final class TextPolicy {
         return value == null ? "" : value;
     }
 
+    /** 返回文本的第一个 Unicode 码点；文本为空时返回调用方给出的后备值。 */
+    public static String initial(CharSequence value, String fallback) {
+        if (value == null || value.length() == 0) return fallback;
+        return new String(Character.toChars(Character.codePointAt(value, 0)));
+    }
+
     /** Return the number of Unicode code points in text, or zero for null. */
     public static int codePointLength(String value) {
         return value == null ? 0 : value.codePointCount(0, value.length());

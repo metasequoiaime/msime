@@ -592,9 +592,10 @@ char *msime_client_ai_request_for_query(uint64_t session,
                                         const uint8_t *query,
                                         size_t query_length);
 /* Hand the session an AI provider credential kept outside the preferences
- * (for example in the iOS Keychain). It overrides the active provider's
+ * (for example in the iOS Keychain). It overrides the current endpoint's
  * stored token for this session only and is never persisted or reported.
- * A zero length clears it. */
+ * It remains bound to that endpoint until replaced or cleared; a preference
+ * change to another endpoint cannot forward it. A zero length clears it. */
 char *msime_client_set_ai_credential(uint64_t session, const uint8_t *token,
                                      size_t token_length);
 /* Return null or {generation,target_language,candidates:[{text}], provider:"none"|"account"|"tencent"|"niutrans"|"custom", translation_account:bool, custom_translation:{enabled,endpoint,api_key}|null, tencent_tmt:{enabled,secret_id,secret_key,region}|null, niutrans:{enabled,app_id,apikey}|null} for visible candidates.

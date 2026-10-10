@@ -49,10 +49,6 @@ export interface UseSettingsPersistenceOptions {
   savedMacosShuangpinKeymap: boolean | undefined;
   saveMacosShuangpinKeymap?: (enabled: boolean) => Promise<void>;
   setSavedMacosShuangpinKeymap: (enabled: boolean) => void;
-  macosWubiAutoCommitUnique: boolean | undefined;
-  savedMacosWubiAutoCommitUnique: boolean | undefined;
-  saveMacosWubiAutoCommitUnique?: (enabled: boolean) => Promise<void>;
-  setSavedMacosWubiAutoCommitUnique: (enabled: boolean) => void;
 }
 
 /** Owns loading, automatic saving, and cross-window synchronization of shared preferences. */
@@ -73,10 +69,6 @@ export function useSettingsPersistence({
   savedMacosShuangpinKeymap,
   saveMacosShuangpinKeymap,
   setSavedMacosShuangpinKeymap,
-  macosWubiAutoCommitUnique,
-  savedMacosWubiAutoCommitUnique,
-  saveMacosWubiAutoCommitUnique,
-  setSavedMacosWubiAutoCommitUnique,
 }: UseSettingsPersistenceOptions) {
   const snapshotRef = useRef(snapshot);
   const draftRef = useRef(draft);
@@ -99,14 +91,10 @@ export function useSettingsPersistence({
   const nativeRef = useRef({
     shuangpin: macosShuangpinKeymap,
     savedShuangpin: savedMacosShuangpinKeymap,
-    wubi: macosWubiAutoCommitUnique,
-    savedWubi: savedMacosWubiAutoCommitUnique,
   });
   nativeRef.current = {
     shuangpin: macosShuangpinKeymap,
     savedShuangpin: savedMacosShuangpinKeymap,
-    wubi: macosWubiAutoCommitUnique,
-    savedWubi: savedMacosWubiAutoCommitUnique,
   };
   const shuangpinPending = () => {
     const native = nativeRef.current;
@@ -117,15 +105,6 @@ export function useSettingsPersistence({
       native.shuangpin !== native.savedShuangpin
     );
   };
-  const wubiPending = () => {
-    const native = nativeRef.current;
-    return (
-      macos &&
-      !!saveMacosWubiAutoCommitUnique &&
-      native.wubi !== undefined &&
-      native.wubi !== native.savedWubi
-    );
-  };
   const draftPending = () => {
     const currentSnapshot = snapshotRef.current;
     const currentDraft = draftRef.current;
@@ -133,7 +112,7 @@ export function useSettingsPersistence({
       !!currentSnapshot && !!currentDraft && !deepEqual(currentDraft, currentSnapshot.preferences)
     );
   };
-  const savePending = () => draftPending() || shuangpinPending() || wubiPending();
+  const savePending = () => draftPending() || shuangpinPending();
 
   // The refs are also written the moment a load or save resolves: the host's monitor echoes this
   // window's own save back as a change, and it can arrive before React commits the new snapshot.
@@ -372,13 +351,6 @@ export function useSettingsPersistence({
           nativeRef.current = { ...nativeRef.current, savedShuangpin: enabled };
           if (mounted.current) setSavedMacosShuangpinKeymap(enabled);
         }
-        if (wubiPending() && saveMacosWubiAutoCommitUnique) {
-          const enabled = nativeRef.current.wubi === true;
-          await saveMacosWubiAutoCommitUnique(enabled);
-          if (clientRef.current !== saveClient) break;
-          nativeRef.current = { ...nativeRef.current, savedWubi: enabled };
-          if (mounted.current) setSavedMacosWubiAutoCommitUnique(enabled);
-        }
       }
     } catch (reason) {
       failed = true;
@@ -451,14 +423,7 @@ export function useSettingsPersistence({
     }
     setSaveState((state) => (state === "saved" ? "idle" : state));
     if (!savingRef.current) scheduleAutosave();
-  }, [
-    draft,
-    snapshot,
-    macosShuangpinKeymap,
-    savedMacosShuangpinKeymap,
-    macosWubiAutoCommitUnique,
-    savedMacosWubiAutoCommitUnique,
-  ]);
+  }, [draft, snapshot, macosShuangpinKeymap, savedMacosShuangpinKeymap]);
 
   // Unmounting with an edit still counting down writes it without waiting for an answer: nothing is left on screen to show the result.
   useEffect(

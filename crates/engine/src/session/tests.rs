@@ -2563,6 +2563,28 @@ fn japanese_refresh_reuses_request_strings() {
 }
 
 #[test]
+fn japanese_completeness_check_does_not_materialize_conversion_strings() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (raw, expected) in [
+        ("nihongo", true),
+        ("nihong", false),
+        ("k", false),
+        ("", false),
+    ] {
+        let mut session =
+            fixture.session_with(|options| options.scheme = SchemeType::JapaneseRomaji);
+        type_text(&mut session, raw);
+        assert_eq!(session.input.is_all_complete_pure_pinyin(), expected);
+        let (complete, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            session.input.is_all_complete_pure_pinyin()
+        });
+        assert_eq!(complete, expected);
+        eprintln!("日文完整性 {raw} 检查分配：{allocations}");
+        assert_eq!(allocations, 0, "完整性检查只需扫描，不应物化转换结果");
+    }
+}
+
+#[test]
 fn temporary_japanese_refresh_reuses_candidate_buffer() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| options.scheme = SchemeType::Shuangpin);
@@ -3468,8 +3490,14 @@ fn expression_mode_needs_a_pinyin_scheme_and_an_empty_composition() {
     session.command(Command::Cancel);
     session.switch_scheme(SchemeType::Wubi).unwrap();
     assert!(!session.character(b'V', true).handled);
-    assert!(!session.character(b'/', false).handled);
-    assert!(session.snapshot().spelling_symbols.is_empty());
+    assert!(session.character(b'/', false).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Command);
+    session.command(Command::Cancel);
+    assert!(session.character(b'@', false).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Mention);
+    session.command(Command::Cancel);
+    assert!(session.character(b'K', true).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::QuickPhrase);
 }
 
 #[test]

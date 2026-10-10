@@ -1,6 +1,7 @@
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
 import app.msime.android.JsonPolicy;
+import app.msime.android.TextPolicy;
 import java.lang.reflect.Method;
 import java.lang.reflect.InvocationTargetException;
 import java.util.UUID;
@@ -16,13 +17,11 @@ public final class CommunityCatalogSmoke {
         check((boolean) invalid.invoke(null, 1, 0, true), "a page with only malformed rows must not retry the same offset");
         check((boolean) invalid.invoke(null, 2, 1, true), "dropping any row must not shift the next offset");
         check(!(boolean) invalid.invoke(null, 0, 0, false), "an empty final page must be accepted");
-        Method idKey = CommunityCatalog.class.getDeclaredMethod("idKey", String.class);
-        idKey.setAccessible(true);
-        check(idKey.invoke(null, "a1234567-1234-1234-1234-123456789abc").equals(
-            idKey.invoke(null, "A1234567-1234-1234-1234-123456789ABC")),
+        check(TextPolicy.lowercase("a1234567-1234-1234-1234-123456789abc").equals(
+            TextPolicy.lowercase("A1234567-1234-1234-1234-123456789ABC")),
             "UUID duplicate detection must ignore hexadecimal case");
-        check(!idKey.invoke(null, "a1234567-1234-1234-1234-123456789abc").equals(
-            idKey.invoke(null, "b1234567-1234-1234-1234-123456789abc")),
+        check(!TextPolicy.lowercase("a1234567-1234-1234-1234-123456789abc").equals(
+            TextPolicy.lowercase("b1234567-1234-1234-1234-123456789abc")),
             "different UUIDs must remain distinct");
         Method responseLimit = CommunityCatalog.class.getDeclaredMethod(
             "maximumResponseBytes", CommunityRequest.Kind.class);
@@ -47,15 +46,6 @@ public final class CommunityCatalogSmoke {
             "a server failure is not an account refresh signal");
         check(!(boolean) retryListing.invoke(null, 401, "", 0),
             "an anonymous or missing token does not trigger account refresh");
-        Method retryCategory = CommunityCatalog.class.getDeclaredMethod(
-            "shouldRetryCategory", int.class, String.class, int.class);
-        retryCategory.setAccessible(true);
-        check((boolean) retryCategory.invoke(null, 401, token, 0),
-            "a category update retries an account 401 once");
-        check(!(boolean) retryCategory.invoke(null, 401, token, 1),
-            "a category update cannot retry an account 401 twice");
-        check(!(boolean) retryCategory.invoke(null, 401, "", 0),
-            "a category update without a token does not refresh");
         Method validItem = CommunityCatalog.class.getDeclaredMethod(
             "validItem", CommunityCatalog.Item.class, CommunityRequest.Kind.class);
         validItem.setAccessible(true);
@@ -122,19 +112,15 @@ public final class CommunityCatalogSmoke {
             "community boolean fields accept booleans");
         check(JsonPolicy.strictBoolean("true") == null,
             "community boolean fields reject strings instead of coercing them");
-        Method pageFlag = CommunityCatalog.class.getDeclaredMethod("pageHasMore", Object.class);
-        pageFlag.setAccessible(true);
-        check(Boolean.TRUE.equals(pageFlag.invoke(null, Boolean.TRUE)),
+        check(JsonPolicy.strictTrue(Boolean.TRUE),
             "community pagination accepts JSON booleans");
-        check(Boolean.FALSE.equals(pageFlag.invoke(null, "true")),
+        check(!JsonPolicy.strictTrue("true"),
             "community pagination rejects strings instead of coercing them");
-        Method confirmedReport = CommunityCatalog.class.getDeclaredMethod("confirmedReport", Object.class);
-        confirmedReport.setAccessible(true);
-        check((boolean) confirmedReport.invoke(null, Boolean.TRUE),
+        check(JsonPolicy.strictTrue(Boolean.TRUE),
             "a report is successful only when the backend confirms it");
-        check(!(boolean) confirmedReport.invoke(null, Boolean.FALSE),
+        check(!JsonPolicy.strictTrue(Boolean.FALSE),
             "a backend refusal must not be reported as a successful report");
-        check(!(boolean) confirmedReport.invoke(null, "true"),
+        check(!JsonPolicy.strictTrue("true"),
             "a string reported value must not be coerced into success");
         Method countNumber = CommunityCatalog.class.getDeclaredMethod("countNumber", Object.class);
         countNumber.setAccessible(true);

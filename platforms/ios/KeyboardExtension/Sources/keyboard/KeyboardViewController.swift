@@ -910,6 +910,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     actionRow = makeActionRow()
     keyColumn.addArrangedSubview(actionRow)
+    // 中/英紧挨回车的底行（手机、九键），回车把键帽左边几 pt 让给中/英；别的排法里两者不相邻，不起作用。
+    root.yieldingKey = enterButton
+    root.yieldReceiver = bottomLanguageButton
     installSplitGaps(in: root)
     standardRowHeights = ([numberRow] + letterRowViews + zhuyinRowViews + symbolRowViews + symbolLayerRowViews).map {
       ($0, $0.heightAnchor.constraint(equalTo: actionRow.heightAnchor))
@@ -2383,6 +2386,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     layoutToggle.titleLabel?.minimumScaleFactor = 0.7
     layoutToggle.titleLabel?.lineBreakMode = .byClipping
     layoutToggle.accessibilityIdentifier = "layoutToggleButton"
+    // 长按字母层的 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是 ABC，手势不会开始（`gestureRecognizerShouldBegin`）。长按会取消这次触摸，所以不会再切层。
+    let symbolsHold = UILongPressGestureRecognizer(target: self, action: #selector(handleLayoutToggleHold(_:)))
+    symbolsHold.name = "layoutToggleSymbolsHold"
+    symbolsHold.minimumPressDuration = Self.nineKeyHoldDuration
+    symbolsHold.cancelsTouchesInView = true
+    symbolsHold.delegate = self
+    layoutToggle.addGestureRecognizer(symbolsHold)
+    layoutToggle.accessibilityCustomActions = [
+      UIAccessibilityCustomAction(name: "打开符号面板") { [weak self] _ in
+        guard let self, !self.showsSymbols else { return false }
+        self.openSymbolPanelFromLayoutToggle()
+        return true
+      }
+    ]
     layoutToggleButton = layoutToggle
     nineKeySymbolsButton = makeKey(title: "符", accessibilityLabel: "符号", function: true) { [weak self] in
       self?.countKeyPress(TypingKeyID.symbol)
@@ -3408,7 +3425,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if session.fuzzyPinyinRulesApplied != fuzzyRules {
       _ = session.setFuzzyPinyinRules(fuzzyRules)
     }
-    session.setWubiMixedPinyin(WubiMixedPinyinPreference.isEnabled)
     applyCandidateGlossLayout()
   }
 
@@ -3871,15 +3887,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     if let translationsEnabled = preferences["candidate_translations"] as? Bool {
       CandidateTranslationPreference.onlineEnabled = translationsEnabled
-    }
-    // The shared Tauri document is the source of truth for mobile settings. Keep the two Wubi
-    // switches in the App Group as well because candidate rendering and Engine fallback read
-    // these native preferences from the keyboard process.
-    if let mixedPinyin = preferences["wubi_mixed_pinyin"] as? Bool {
-      WubiMixedPinyinPreference.isEnabled = mixedPinyin
-    }
-    if let codeHint = preferences["wubi_code_hint"] as? Bool {
-      WubiCodeHintPreference.isEnabled = codeHint
     }
     // 五笔版本由会话直接从文档读取；这里只更新方案名和方案卡片角标读的 App Group 镜像。
     WubiProfilePreference.mirror(preferences)
@@ -4791,6 +4798,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
     if gestureRecognizer.name == "spaceVoiceHold" { return spaceVoiceArmed && !cursorMovement.isActive }
+    if gestureRecognizer.name == "layoutToggleSymbolsHold" { return !showsSymbols }
     guard gestureRecognizer.name == "spaceCursorPan", let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
     let velocity = pan.velocity(in: view)
     return abs(velocity.x) > abs(velocity.y)
@@ -5424,7 +5432,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func wubiCodeHint(code: String, typed: String) -> String {
     guard inputScheme == .wubi, !isInLocalMode,
-          WubiCodeHintPreference.isEnabled else { return "" }
+          WubiCodeHintPreference.isEnabled(in: session.sharedPreferences) else { return "" }
     return WubiCodeHintPreference.hint(
       code: code, typed: typed,
       answeredByPinyinFallback: visibleCandidatesAnsweredByPinyinFallback)
@@ -6343,6 +6351,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 表情面板是否透出键盘背景：面板跟随键盘（`.unspecified`）或与键盘明暗相同时透出，否则铺自己的底色。不是 private：测试会固定它。
   static func emojiPanelShowsKeyboardBackground(panel: UIUserInterfaceStyle, keyboard: UIUserInterfaceStyle) -> Bool {
     panel == .unspecified || panel == keyboard
+  }
+
+  /// 长按字母层的 123（见 `makeActionRow`）。
+  @objc private func handleLayoutToggleHold(_ gesture: UILongPressGestureRecognizer) {
+    guard gesture.state == .began, !showsSymbols else { return }
+    openSymbolPanelFromLayoutToggle()
+  }
+
+  /// 从 123 打开符号面板，记一次「符」键，与点 #+= 层的「符」相同。
+  private func openSymbolPanelFromLayoutToggle() {
+    countKeyPress(TypingKeyID.symbol)
+    showSymbolPanel()
   }
 
   /// Replace the keyboard with the categorized symbol surface, finishing any active composition

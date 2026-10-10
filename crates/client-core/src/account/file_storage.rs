@@ -30,6 +30,8 @@ struct AppleSavedSession {
     tokens: AccountTokens,
     #[serde(rename = "expiresAt")]
     expires_at: f64,
+    #[serde(rename = "sessionID", default, skip_serializing_if = "Option::is_none")]
+    session_id: Option<uuid::Uuid>,
 }
 
 #[derive(Clone)]
@@ -77,6 +79,7 @@ impl FileAccountSessionStorage {
                 tokens: session.tokens.clone(),
                 expires_at: session.expires_at_unix_ms as f64 / 1000.0
                     - APPLE_REFERENCE_DATE_UNIX_SECONDS,
+                session_id: session.session_id,
             }),
         }
         .map_err(|_| AccountError::Storage)
@@ -116,6 +119,7 @@ fn decode(bytes: &[u8]) -> Result<SavedAccountSession, AccountError> {
     Ok(SavedAccountSession {
         tokens: saved.tokens,
         expires_at_unix_ms: expires_at_unix_ms.round() as u64,
+        session_id: saved.session_id,
     })
 }
 
@@ -162,8 +166,11 @@ impl AccountSessionStorage for FileAccountSessionStorage {
     fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
         crate::storage::reject_symlink(&self.directory).map_err(|_| AccountError::Storage)?;
         #[cfg(unix)]
-        let directory = crate::storage::open_private_directory(&self.directory)
-            .map_err(|_| AccountError::Storage)?;
+        let directory = match crate::storage::open_private_directory(&self.directory) {
+            Ok(directory) => directory,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(AccountError::Storage),
+        };
         // symlink_metadata, not metadata: a symlink here is not a store this host wrote, and following it would read through a path chosen by whoever planted it. A file another user can read or write is likewise not one any host would have produced.
         #[cfg(unix)]
         let file = match crate::storage::open_private_file_at(
@@ -237,6 +244,16 @@ impl AccountSessionStorage for FileAccountSessionStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loading_before_first_save_returns_no_session_without_creating_a_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("account-not-created");
+        let storage = FileAccountSessionStorage::new(&directory, AccountSessionFileLayout::Native);
+
+        assert!(storage.load().unwrap().is_none());
+        assert!(!directory.exists());
+    }
 
     #[test]
     fn session_file_read_reserves_file_size() {

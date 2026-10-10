@@ -1,4 +1,6 @@
-//! Japanese romaji input (schemes-lang.md §5): romaji-to-kana conversion with pending letters, kana variants, the `msime-japanese.dat` (MSJPDT1) lemma dictionary and its matrix search, the provider and the scheme. The `japanese_lexicon` SQL stage is dropped: the shipped `msime-pinyin.db` has no such table. `wana_kana` covers the plain kana conversions; the romaji table with pending input and sokuon rules is IME-specific and stays hand-written.
+//! 日文罗马字输入（schemes-lang.md §5）：带待定尾部的假名转换、假名变体、
+//! `msime-japanese.dat`（MSJPDT1）词条与矩阵搜索、provider 及输入方案。
+//! 不查询不存在于 `msime-pinyin.db` 的 `japanese_lexicon`；转换规则共用输入法专用扫描。
 
 pub mod decoder;
 pub mod matrix;

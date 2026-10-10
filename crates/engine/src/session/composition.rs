@@ -4,7 +4,7 @@ use std::borrow::Cow;
 
 use super::input::{CreatingWordProgress, InputSession};
 use crate::helpcode::compute_helpcodes;
-use crate::japanese::romaji::convert_romaji;
+use crate::japanese::romaji::is_romaji_complete;
 use crate::pinyin::active_helpcode::{
     detect_active_helpcode_length, strip_active_helpcodes, strip_active_helpcodes_with_cases,
 };
@@ -538,7 +538,7 @@ impl InputSession {
         let request = self.engine.request();
         match self.engine.current_scheme_type() {
             SchemeType::Wubi => request.valid,
-            SchemeType::JapaneseRomaji => convert_romaji(&request.raw_input).complete,
+            SchemeType::JapaneseRomaji => is_romaji_complete(&request.raw_input),
             // 韩文、粤拼、注音、越南文、藏文和笔画都不是拼音。
             SchemeType::Korean
             | SchemeType::Cantonese

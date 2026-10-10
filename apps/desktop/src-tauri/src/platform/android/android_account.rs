@@ -991,7 +991,14 @@ pub async fn account_login(
     challenge_id: String,
     code: String,
 ) -> Result<StatusResponse, crate::CommandError> {
-    shared_account_login(state, challenge_id, code).await
+    let session = Arc::clone(&state.session);
+    let previews = Arc::clone(&state.snapshot_previews);
+    let platform = state.platform.clone();
+    let result = shared_account_login(state, challenge_id, code, move |account_id| {
+        cancel_queued_snapshot(&platform, Some(account_id));
+    })
+    .await;
+    clear_snapshot_previews_after(&session, &previews, result)
 }
 
 #[tauri::command]

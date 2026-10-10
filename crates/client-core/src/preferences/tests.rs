@@ -7,7 +7,7 @@ use super::*;
 #[cfg(unix)]
 #[test]
 fn stale_sweep_does_not_follow_a_replaced_directory() {
-    use std::os::unix::fs::symlink;
+    use msime_path_trust::untrusted_symlink as symlink;
     use std::time::{Duration, SystemTime};
 
     let root = tempfile::tempdir().unwrap();
@@ -36,7 +36,7 @@ fn stale_sweep_does_not_follow_a_replaced_directory() {
 #[cfg(unix)]
 #[test]
 fn recovery_backup_does_not_follow_a_symlinked_directory() {
-    use std::os::unix::fs::symlink;
+    use msime_path_trust::untrusted_symlink as symlink;
 
     let root = tempfile::tempdir().unwrap();
     let directory = root.path().join("preferences");
@@ -601,6 +601,34 @@ fn wubi_code_hint_defaults_on_and_roundtrips() {
         !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
             .unwrap()
             .wubi_code_hint
+    );
+}
+
+#[test]
+fn wubi_auto_commit_unique_defaults_on_and_roundtrips() {
+    let defaults = Preferences::default();
+    assert!(defaults.wubi_auto_commit_unique);
+
+    // 没有这个键的文档是本次之前写的，读出来仍然是开：那是当时唯一可能的实际行为。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("wubi_auto_commit_unique");
+    assert!(
+        serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .wubi_auto_commit_unique
+    );
+
+    let disabled = Preferences {
+        wubi_auto_commit_unique: false,
+        ..defaults
+    };
+    assert!(
+        !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
+            .unwrap()
+            .wubi_auto_commit_unique
     );
 }
 
@@ -2827,7 +2855,10 @@ fn default_ai_assistant_requests_carry_the_builtin_associative_prompt() {
     ai.enabled = true;
     ai.endpoint = "https://synthetic.invalid/chat".into();
     ai.model = "synthetic-model".into();
-    ai.token = "synthetic-token".into();
+    ai.tokens.insert(
+        "https://synthetic.invalid:443".into(),
+        "synthetic-token".into(),
+    );
     let request = crate::ai::AiSuggestionRequest {
         segmented_pinyin: vec!["shu".into(), "ru".into()],
         context: String::new(),

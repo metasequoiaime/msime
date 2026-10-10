@@ -167,6 +167,8 @@ interface KeyOptions {
   accentIcon?: boolean;
   /** 键面字重；不设即常规的 400。 */
   fontWeight?: number;
+  /** 触摸区；不设即 `keyHitRegion`，向四周空隙各扩出一半。紧挨的中/英键和回车键用它把两者的分界挪进回车键帽，见 `KeyboardGeometry.RETURN_YIELD_VP`。 */
+  hitRegion?: Rectangle[];
   action: () => void;
 }
 
@@ -1647,6 +1649,8 @@ struct KeyboardView {
     .justifyContent(FlexAlign.Center)
     .width('100%')
     .height('100%')
+    // 键面只负责画，不接收触摸：触摸归外层的键，由它的 `responseRegion` 决定。否则键面这一层按自己的键帽大小被命中，挡住伸进这块键帽的邻键（紧挨回车的中/英键），而外层的回车又不在自己的触摸区里，这一下就落空了。
+    .hitTestBehavior(HitTestMode.None)
   }
 
   /** A key that shares the row's spare width equally with its siblings. */
@@ -1696,7 +1700,7 @@ struct KeyboardView {
       offsetX: 0, offsetY: this.skin.shadowOffset })
     .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
     .animation({ duration: KEY_PRESS_MS })
-    .responseRegion(this.keyHitRegion())
+    .responseRegion($$.hitRegion ?? this.keyHitRegion())
     .onClick($$.action)
   }
 
@@ -2007,6 +2011,15 @@ struct KeyboardView {
       this.emojiRecents = KeyboardSession.shared.emojiRecents();
       this.showEmojiPanel(this.emojiPanel);
     }
+  }
+
+  /** 长按底行的 123：在字母层直接打开符号面板，与点「符」键相同；符号层里那个键是返回，不响应长按。 */
+  private openSymbolsFromLayerKey(): void {
+    if (this.symbols) {
+      return;
+    }
+    KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+    this.openSymbolSurface();
   }
 
   private openSymbolSurface(): void {
@@ -2791,6 +2804,23 @@ struct KeyboardView {
     const halfKey: number = this.keySpacing() / 2;
     const halfRow: number = this.rowSpacing() / 2;
     return this.hitRegion(halfKey, index === 0 ? halfRow : 0, halfKey, index === count - 1 ? halfRow : 0);
+  }
+
+  /** 紧挨回车的中/英键：右侧伸过整个键距，再伸进回车键帽 `RETURN_YIELD_VP`，与 `returnKeyHitRegion` 正好相接。 */
+  private languageKeyHitRegion(): Rectangle[] {
+    const halfKey: number = this.keySpacing() / 2;
+    const halfRow: number = this.rowSpacing() / 2;
+    return this.hitRegion(halfKey, halfRow, this.keySpacing() + KeyboardGeometry.RETURN_YIELD_VP, halfRow);
+  }
+
+  /** 紧挨中/英键的回车键：触摸区整体右移 `RETURN_YIELD_VP`，左边让给中/英（`KeyboardGeometry.shiftedHitOffsets`）。 */
+  private returnKeyHitRegion(): Rectangle[] {
+    const halfRow: number = this.rowSpacing() / 2;
+    return KeyboardGeometry.shiftedHitOffsets(KeyboardGeometry.RETURN_YIELD_VP, halfRow, halfRow)
+      .map((offset: HitOffset): Rectangle => {
+        const rectangle: Rectangle = { x: offset.x, y: offset.y, width: '100%', height: '100%' };
+        return rectangle;
+      });
   }
 
   private hitRegion(left: number, top: number, right: number, bottom: number): Rectangle[] {
@@ -4187,17 +4217,22 @@ struct KeyboardView {
   @Builder
   nineKeyActionRow() {
     Row({ space: this.keySpacing() }) {
-      this.fixedKey({
-        face: this.symbols ? '九键' : '123',
-        label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
-        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-        fontWeight: FUNCTION_LABEL_WEIGHT,
-        emphasized: false,
-        special: true,
-        width: 0,
-        share: LAYER_SHARE,
-        action: () => this.toggleSymbolLayer()
-      });
+      // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。
+      Column() {
+        this.fixedKey({
+          face: this.symbols ? '九键' : '123',
+          label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
+          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+          fontWeight: FUNCTION_LABEL_WEIGHT,
+          emphasized: false,
+          special: true,
+          width: '100%',
+          action: () => this.toggleSymbolLayer()
+        });
+      }
+      .layoutWeight(LAYER_SHARE)
+      .height('100%')
+      .gesture(LongPressGesture().onAction(() => this.openSymbolsFromLayerKey()))
       this.spaceKey(true, NINE_KEY_SPACE_SHARE);
       this.fixedKey({
         face: '0',
@@ -4217,12 +4252,13 @@ struct KeyboardView {
         special: true,
         width: 0,
         share: LANGUAGE_SHARE,
+        hitRegion: this.languageKeyHitRegion(),
         action: () => {
           KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_LANGUAGE);
           this.toggleTouchLanguage();
         }
       });
-      this.designReturnKey(NINE_KEY_RETURN_SHARE);
+      this.designReturnKey(NINE_KEY_RETURN_SHARE, true);
     }
     .width('100%')
     .height(this.rowHeight(3))
@@ -4498,17 +4534,22 @@ struct KeyboardView {
   @Builder
   designActionRow() {
     Row({ space: this.keySpacing() }) {
-      this.fixedKey({
-        face: this.symbols ? '返回' : '123',
-        label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
-        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-        fontWeight: FUNCTION_LABEL_WEIGHT,
-        emphasized: false,
-        special: true,
-        width: 0,
-        share: LAYER_SHARE,
-        action: () => this.toggleSymbolLayer()
-      });
+      // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。
+      Column() {
+        this.fixedKey({
+          face: this.symbols ? '返回' : '123',
+          label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
+          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+          fontWeight: FUNCTION_LABEL_WEIGHT,
+          emphasized: false,
+          special: true,
+          width: '100%',
+          action: () => this.toggleSymbolLayer()
+        });
+      }
+      .layoutWeight(LAYER_SHARE)
+      .height('100%')
+      .gesture(LongPressGesture().onAction(() => this.openSymbolsFromLayerKey()))
       Column() {
         this.fixedKey({
           face: this.chinesePunctuationFaces() ? '，' : ',',
@@ -4545,20 +4586,21 @@ struct KeyboardView {
         special: true,
         width: 0,
         share: LANGUAGE_SHARE,
+        hitRegion: this.languageKeyHitRegion(),
         action: () => {
           KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_LANGUAGE);
           this.toggleTouchLanguage();
         }
       });
-      this.designReturnKey(RETURN_SHARE);
+      this.designReturnKey(RETURN_SHARE, true);
     }
     .width('100%')
     .height(this.rowHeight(3))
   }
 
-  /** 触屏键盘的回车键，无论显示什么都用操作色：回车箭头、编辑框的动作词，或有组合时的「确认」。 */
+  /** 触屏键盘的回车键，无论显示什么都用操作色：回车箭头、编辑框的动作词，或有组合时的「确认」。`besideLanguage` 为真时它左边紧挨中/英键，两者的触摸分界挪进回车键帽（`returnKeyHitRegion`）。 */
   @Builder
-  designReturnKey(share: number) {
+  designReturnKey(share: number, besideLanguage: boolean) {
     this.fixedKey({
       face: this.returnFace(),
       label: KeyAccessibilityPolicy.returnKey(this.returnFace()),
@@ -4568,6 +4610,7 @@ struct KeyboardView {
       width: 0,
       share: share,
       icon: this.returnUsesIcon() ? KeyboardIconPaths.RETURN : '',
+      hitRegion: besideLanguage ? this.returnKeyHitRegion() : undefined,
       action: () => this.activateReturn()
     });
   }
@@ -8874,7 +8917,7 @@ struct KeyboardView {
         });
       }
       this.spaceKey(true, NumberSymbolLayout.SPACE_WEIGHT);
-      this.designReturnKey(NumberSymbolLayout.RETURN_WEIGHT);
+      this.designReturnKey(NumberSymbolLayout.RETURN_WEIGHT, false);
     }
     .width('100%')
     .height(this.rowHeight(3))

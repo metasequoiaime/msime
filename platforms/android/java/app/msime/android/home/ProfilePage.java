@@ -22,6 +22,7 @@ import androidx.core.content.FileProvider;
 import app.msime.android.BitmapPolicy;
 import app.msime.android.CloudApi;
 import app.msime.android.DeviceDataApi;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.FilePolicy;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.ListPolicy;
@@ -103,13 +104,15 @@ public final class ProfilePage extends DetailPage {
 
     /** 同步状态记着的账号与服务端说的不一致（登录时没读到用户 id，或换了账号）时重新绑定；绑定换账号时会关闭同步并清空游标。 */
     static void bindIfNeeded(Context context, DeviceDataApi.Profile profile) {
-        String kind = SyncSwitch.validLoginKind(SyncSwitch.loginKind(context)) ? SyncSwitch.loginKind(context)
-            : profile.loginKind();
-        if (kind.isEmpty()) return;
-        String previousAccount = SyncSwitch.accountId(context);
-        if (profile.id().equals(previousAccount) && kind.equals(SyncSwitch.loginKind(context))) return;
         synchronized (SyncSwitch.bindingLock()) {
-            SignIn.cancelPendingSnapshot(context, previousAccount);
+            String currentKind = SyncSwitch.loginKind(context);
+            String kind = SyncSwitch.validLoginKind(currentKind) ? currentKind : profile.loginKind();
+            if (kind.isEmpty()) return;
+            String previousAccount = SyncSwitch.accountId(context);
+            if (profile.id().equals(previousAccount) && kind.equals(currentKind)) return;
+            if (!previousAccount.equals(profile.id())) {
+                SignIn.cancelPendingSnapshot(context, previousAccount);
+            }
             SyncSwitch.bindAccount(context, profile.id(), kind);
         }
     }
@@ -151,7 +154,7 @@ public final class ProfilePage extends DetailPage {
     /** 圆形头像：有图片时画图片，否则是强调色底上的昵称首字。 */
     static FrameLayout avatarView(Context context, int sizeDp, String name, @Nullable Bitmap image) {
         FrameLayout frame = new FrameLayout(context);
-        GradientDrawable circle = Ui.circle(Ui.accent(context));
+        GradientDrawable circle = DrawablePolicy.circle(Ui.accent(context));
         if (image != null) {
             ImageView picture = new ImageView(context);
             picture.setImageBitmap(image);
@@ -161,9 +164,8 @@ public final class ProfilePage extends DetailPage {
             Ui.hideFromAccessibility(picture);
             frame.addView(picture, Ui.squareFrameParams(context, sizeDp));
         } else {
-            TextView letter = Ui.styledLabel(context, Ui.trimmedInitial(name, "?"), Math.round(sizeDp * 0.4f), 600,
-                Ui.onAccent(context));
-            ViewPolicy.setCentered(letter);
+            TextView letter = Ui.centeredLabel(context, Ui.trimmedInitial(name, "?"),
+                Math.round(sizeDp * 0.4f), 600, Ui.onAccent(context));
             ViewPolicy.setBackground(letter, circle);
             Ui.hideFromAccessibility(letter);
             frame.addView(letter, Ui.squareFrameParams(context, sizeDp));
@@ -234,7 +236,7 @@ public final class ProfilePage extends DetailPage {
         avatar.addView(avatarView(context, 88, profile.displayName(), image));
         ImageView camera = Ui.decorativeIcon(context, app.msime.android.R.drawable.ms_w5_me_camera,
             Ui.text(context));
-        GradientDrawable badge = Ui.circle(Ui.card(context));
+        GradientDrawable badge = DrawablePolicy.circle(Ui.card(context));
         ViewPolicy.setBackground(camera, badge);
         int pad = Ui.dp(context, 6);
         Ui.setSymmetricPaddingPx(camera, pad);

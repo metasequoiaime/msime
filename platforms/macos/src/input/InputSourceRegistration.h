@@ -17,6 +17,18 @@ using MSIMEInputSourceCopier = TISInputSourceRef (*)(void);
 @end
 
 bool MSIMEShouldRegisterInputSource(int argc, const char *argv[]);
+/// 本登录会话的输入源注册表里有没有这个 bundle 的可启用输入源。查法与 MSIMERegisterAndEnableInputSources 登记后的那次查找相同，Missing 正对应它返回的 fnfErr。
+typedef NS_ENUM(NSInteger, MSIMEInputSourceRegistryState) {
+    /// 没有 bundle 标识或查询函数，无从判断。
+    MSIMEInputSourceRegistryStateUnknown,
+    MSIMEInputSourceRegistryStateListed,
+    MSIMEInputSourceRegistryStateMissing,
+};
+/// `--input-source-registered`：只读地查注册表并以退出码报告，不登记、不启用任何东西。设置应用据此分辨「装好了但这次登录看不到」。
+bool MSIMEShouldReportInputSourceRegistration(int argc, const char *argv[]);
+MSIMEInputSourceRegistryState MSIMEInputSourceRegistryStateFor(NSString *bundleIdentifier, MSIMEInputSourceLister lister);
+/// `--input-source-registered` 的退出码：Listed 为 0，Missing 为 3，Unknown 为 1。apps/desktop/src-tauri 的 macos_input_source.rs 按同样的值解读，两边要一起改。
+int MSIMEInputSourceRegistryExitCode(MSIMEInputSourceRegistryState state);
 OSStatus MSIMERegisterInputSource(NSURL *bundleURL, MSIMEInputSourceRegistrar registrar);
 OSStatus MSIMERegisterAndEnableInputSources(NSURL *bundleURL, NSString *bundleIdentifier,
                                             MSIMEInputSourceRegistrar registrar,

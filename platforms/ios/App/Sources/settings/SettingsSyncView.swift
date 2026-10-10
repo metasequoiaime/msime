@@ -4,6 +4,7 @@ struct SettingsSyncView: View {
   let session: BackendAccountSession
   let client: BackendAccountClient
   @State private var loadedUserID: String?
+  @State private var loadedSessionID: UUID?
   @State private var cloud: BackendAccountClient.Preferences?
   @State private var schema: BackendAccountClient.PreferenceSchema?
   @State private var busy = false
@@ -65,15 +66,16 @@ struct SettingsSyncView: View {
       let identity = try await session.credentials()
       let fields = try await client.preferenceSchema(token: identity.token)
       let values = try await client.preferences(token: identity.token)
-      guard try await session.user()?.id == identity.userID else { throw CancellationError() }
+      try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
       try Task.checkCancellation()
-      schema = fields; cloud = values; loadedUserID = identity.userID
+      schema = fields; cloud = values; loadedUserID = identity.userID; loadedSessionID = identity.sessionID
     } catch is CancellationError { }
     catch { message = "无法读取云端设置，请稍后重试。" }
   }
   @MainActor private func apply() async {
     do {
-      guard let cloud, let loadedUserID, try await session.user()?.id == loadedUserID else { throw BackendAccountClient.Failure(status: 401) }
+      guard let cloud, let loadedUserID, let loadedSessionID else { throw BackendAccountClient.Failure(status: 401) }
+      try await session.requireSession(matchingUserID: loadedUserID, matchingSessionID: loadedSessionID)
       try Task.checkCancellation()
       try IOSCloudSettings.apply(cloud.settings)
       message = "已应用云端设置。"
@@ -81,15 +83,17 @@ struct SettingsSyncView: View {
     catch { message = "账号已变化或云端设置不兼容，本机设置未更改，请重新读取。" }
   }
   @MainActor private func upload() async {
-    guard !busy, let cloud, let schema else { return }
+    guard !busy, let cloud, let schema, let loadedUserID, let loadedSessionID else { return }
     busy = true; message = nil
     defer { busy = false }
     do {
       let values = try BackendAccountClient.mergedPreferences(cloud, replacing: IOSCloudSettings.snapshot(), schema: schema)
-      let identity = try await session.credentials()
-      guard identity.userID == loadedUserID else { throw BackendAccountClient.Failure(status: 401) }
+      let identity = try await session.credentials(matchingUserID: loadedUserID,
+                                                   matchingSessionID: loadedSessionID)
       try Task.checkCancellation()
-      self.cloud = try await client.putPreferences(values, token: identity.token)
+      let updated = try await client.putPreferences(values, token: identity.token)
+      try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+      self.cloud = updated
       message = "本机设置已上传。"
     } catch is CancellationError { }
     catch let error as BackendAccountClient.Failure {

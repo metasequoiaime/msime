@@ -25,24 +25,22 @@ test("Wubi section updates the mixed-pinyin preference", () => {
   expect(onChange).toHaveBeenCalledWith({ wubi_mixed_pinyin: true });
 });
 
-test("Wubi section renders the enabled defaults and optional macOS control", () => {
+test("Wubi section renders the enabled defaults", () => {
   const onChange = vi.fn();
-  const onAutoCommitUniqueChange = vi.fn();
-  render(
-    <WubiSection
-      preferences={{}}
-      autoCommitUnique={false}
-      onChange={onChange}
-      onAutoCommitUniqueChange={onAutoCommitUniqueChange}
-    />,
-  );
+  render(<WubiSection preferences={{}} onChange={onChange} />);
 
   expect((screen.getByLabelText("五笔拼音混输") as HTMLInputElement).checked).toBe(false);
   expect((screen.getByLabelText("候选显示剩余编码") as HTMLInputElement).checked).toBe(true);
+  // 没有开关的那段时间里四码唯一总是自动上屏，所以文档里没有它时开关显示为开。
   expect((screen.getByLabelText("五笔四码唯一候选自动上屏") as HTMLInputElement).checked).toBe(
-    false,
+    true,
   );
+});
+
+test("Wubi section writes the auto-commit preference through the shared patch", () => {
+  const onChange = vi.fn();
+  render(<WubiSection preferences={{ wubi_auto_commit_unique: true }} onChange={onChange} />);
 
   fireEvent.click(screen.getByLabelText("五笔四码唯一候选自动上屏"));
-  expect(onAutoCommitUniqueChange).toHaveBeenCalledWith(true);
+  expect(onChange).toHaveBeenCalledWith({ wubi_auto_commit_unique: false });
 });

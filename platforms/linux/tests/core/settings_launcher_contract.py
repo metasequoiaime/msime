@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Static contract checks for desktop settings panel aliases."""
+
 import os
 import subprocess
 import tempfile
@@ -17,19 +18,31 @@ assert '"--route=$route"' in launcher
 assert '"--route="' in engine
 # The host builds the route rather than spelling each one out, so the literal to look for is the prefix it prepends.
 assert 'std::string("settings:")' in engine
-for retired in ("MSIME_CLIENT_PANEL", "MSIME_CLIENT_SETTINGS_PAGE", "MSIME_CLIENT_ROUTE"):
+for retired in (
+    "MSIME_CLIENT_PANEL",
+    "MSIME_CLIENT_SETTINGS_PAGE",
+    "MSIME_CLIENT_ROUTE",
+):
     assert retired not in launcher and retired not in engine, retired
-for property_name in ("Learning", "FrequencyMode", "FrequencyTriggerCount", "FrequencyLinearStep"):
+for property_name in (
+    "Learning",
+    "FrequencyMode",
+    "FrequencyTriggerCount",
+    "FrequencyLinearStep",
+):
     assert f'"{property_name}"' in engine
 assert "MenuPreference::Learning" in engine
 assert "MenuPreference::FrequencyTriggerCount" in engine
 assert "MenuPreference::FrequencyLinearStep" in engine
 assert '"ShuangpinPreedit"' in engine
 assert "MenuPreference::ShuangpinPreedit" in engine
-assert 'shuangpin_preedit_uses_raw' in engine
+assert "shuangpin_preedit_uses_raw" in engine
 assert '"WubiCodeHint"' in engine
-assert 'wubi_code_hint' in engine
+assert "wubi_code_hint" in engine
 assert "MenuPreference::WubiCodeHint" in engine
+assert '"WubiAutoCommitUnique"' in engine
+assert "wubi_auto_commit_unique" in engine
+assert "MenuPreference::WubiAutoCommitUnique" in engine
 
 # Without a prepared file the launcher still opens the window, which shows the first-run page for the user locator; an installed system configuration keeps precedence over that page.
 with tempfile.TemporaryDirectory() as scratch:
@@ -54,7 +67,9 @@ with tempfile.TemporaryDirectory() as scratch:
     environment["XDG_CONFIG_HOME"] = str(scratch / "config")
 
     def launched() -> str:
-        return subprocess.run([str(script)], env=environment, check=True, capture_output=True, text=True).stdout
+        return subprocess.run(
+            [str(script)], env=environment, check=True, capture_output=True, text=True
+        ).stdout
 
     assert launched() == str(scratch / "config/msime-client/runtime-options.json")
     system_config.parent.mkdir()
@@ -65,25 +80,62 @@ with tempfile.TemporaryDirectory() as scratch:
     desktop_binary.write_text('#!/bin/sh\nprintf "%s" "$*"\n')
 
     def launched_panel(panel: str) -> str:
-        return subprocess.run([str(script), "--panel", panel], env=environment, check=True, capture_output=True, text=True).stdout
+        return subprocess.run(
+            [str(script), "--panel", panel],
+            env=environment,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
 
     for page in ("about", "help", "feedback", "dictionary"):
         assert launched_panel(page) == f"--route=settings:{page}", page
     assert launched_panel("handwriting") == "--route=handwriting"
     # A host's own --route argument reaches the shell untouched.
-    assert subprocess.run([str(script), "--route=emoji"], env=environment, check=True, capture_output=True, text=True).stdout == "--route=emoji"
-    usage = subprocess.run([str(script), "--help"], env=environment, check=True, capture_output=True, text=True).stdout
+    assert (
+        subprocess.run(
+            [str(script), "--route=emoji"],
+            env=environment,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        == "--route=emoji"
+    )
+    usage = subprocess.run(
+        [str(script), "--help"],
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
     assert "|help|feedback|" in usage
 
     # 所有窗口入口默认禁用 WebKit 合成与 DMA-BUF 渲染器，不改变调用方的 GTK 后端；显式值仍可用于排查上游问题。
-    desktop_binary.write_text('#!/bin/sh\nprintf "%s\\n" "$WEBKIT_DISABLE_COMPOSITING_MODE" "$WEBKIT_DISABLE_DMABUF_RENDERER" "$GDK_BACKEND" "$@"\n')
+    desktop_binary.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$WEBKIT_DISABLE_COMPOSITING_MODE" "$WEBKIT_DISABLE_DMABUF_RENDERER" "$GDK_BACKEND" "$@"\n'
+    )
     environment.pop("WEBKIT_DISABLE_COMPOSITING_MODE", None)
     environment.pop("WEBKIT_DISABLE_DMABUF_RENDERER", None)
     environment["GDK_BACKEND"] = "wayland"
-    for arguments in ([], ["--panel", "settings"], ["--panel", "voice"], ["--route=settings:about"]):
-        output = subprocess.run([str(script), *arguments], env=environment, check=True, capture_output=True, text=True).stdout
+    for arguments in (
+        [],
+        ["--panel", "settings"],
+        ["--panel", "voice"],
+        ["--route=settings:about"],
+    ):
+        output = subprocess.run(
+            [str(script), *arguments],
+            env=environment,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
         assert output.splitlines()[:3] == ["1", "1", "wayland"], (arguments, output)
-    for name, position in (("WEBKIT_DISABLE_COMPOSITING_MODE", 0), ("WEBKIT_DISABLE_DMABUF_RENDERER", 1)):
+    for name, position in (
+        ("WEBKIT_DISABLE_COMPOSITING_MODE", 0),
+        ("WEBKIT_DISABLE_DMABUF_RENDERER", 1),
+    ):
         for value, expected in (("", "1"), ("0", "0"), ("1", "1")):
             environment[name] = value
             output = launched()

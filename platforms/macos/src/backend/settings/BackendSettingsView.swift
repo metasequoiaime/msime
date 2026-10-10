@@ -37,6 +37,7 @@ final class MacSettingsModel: ObservableObject {
   private var schema: BackendAccountClient.PreferenceSchema?
   private var expectedLocal: MacSettingsAccess.Values?
   private let accountID: String
+  private var sessionID: UUID?
   private let client: BackendAccountClient
   private let account: BackendAccountSession
   private let local: MacSettingsAccess
@@ -45,9 +46,10 @@ final class MacSettingsModel: ObservableObject {
     self.accountID = accountID; self.client = client; self.account = account; self.local = local ?? .native
   }
   private func authorize() async throws -> String {
-    let identity = try await account.credentials(matchingUserID: accountID)
+    let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
     try Task.checkCancellation()
     guard identity.userID == accountID else { throw CancellationError() }
+    sessionID = identity.sessionID
     return identity.token
   }
   private func run(_ operation: @escaping @MainActor (String) async throws -> Void) {

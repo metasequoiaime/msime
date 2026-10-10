@@ -9,10 +9,7 @@ export const INPUT_SOURCE_RECHECK_MS = 3000;
 export interface UseMacosSettingsOptions {
   client: Pick<
     SettingsClient,
-    | "inputSourceStartup"
-    | "onDeviceTranslation"
-    | "loadMacosShuangpinKeymap"
-    | "loadMacosWubiAutoCommitUnique"
+    "inputSourceStartup" | "onDeviceTranslation" | "loadMacosShuangpinKeymap"
   >;
   macos: boolean;
   setError: (error: string) => void;
@@ -26,8 +23,6 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
   const [onDeviceDownloadable, setOnDeviceDownloadable] = useState<string[]>([]);
   const [shuangpinKeymap, setShuangpinKeymap] = useState<boolean>();
   const [savedShuangpinKeymap, setSavedShuangpinKeymap] = useState<boolean>();
-  const [wubiAutoCommitUnique, setWubiAutoCommitUnique] = useState<boolean>();
-  const [savedWubiAutoCommitUnique, setSavedWubiAutoCommitUnique] = useState<boolean>();
   const clientGeneration = useAsyncGeneration(client, macos);
 
   // Set once the user dismisses the notice, so a later focus refresh does not bring it back in this window.
@@ -125,37 +120,14 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
       });
   }, [client, clientGeneration, macos]);
 
-  useEffect(() => {
-    if (!macos || !client.loadMacosWubiAutoCommitUnique) {
-      setWubiAutoCommitUnique(undefined);
-      setSavedWubiAutoCommitUnique(undefined);
-      return;
-    }
-    const generation = clientGeneration.current;
-    void client
-      .loadMacosWubiAutoCommitUnique()
-      .then((value) => {
-        if (generation !== clientGeneration.current) return;
-        setWubiAutoCommitUnique(value);
-        setSavedWubiAutoCommitUnique(value);
-      })
-      .catch(() => {
-        if (generation === clientGeneration.current) setError("无法读取五笔自动上屏设置，请重试。");
-      });
-  }, [client, clientGeneration, macos]);
-
   return {
     dismissInputSourceStartup,
     inputSourceStartup,
     onDeviceDownloadable,
     refreshInputSourceStartup,
     savedShuangpinKeymap,
-    savedWubiAutoCommitUnique,
     setSavedShuangpinKeymap,
-    setSavedWubiAutoCommitUnique,
     setShuangpinKeymap,
-    setWubiAutoCommitUnique,
     shuangpinKeymap,
-    wubiAutoCommitUnique,
   } as const;
 }

@@ -6,6 +6,7 @@
 #include "../clipboard/ClipboardAtomicWrite.h"
 #include "../system/ChineseTextConversion.h"
 #include "HelpcodeDefaults.h"
+#include "HelpcodePack.h"
 #include "HelpcodeSchemaNames.h"
 #include "NavigationBindings.h"
 #include "NativeCompose.h"
@@ -248,7 +249,7 @@ msime::linux_host::CandidateTheme candidate_theme(const Json &preferences) {
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, GlobalTheme, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, CharacterWidth, VoiceEnabled };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, GlobalTheme, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, WubiAutoCommitUnique, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, CharacterWidth, VoiceEnabled };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 struct FailedMenuSave {
   MenuPreference preference;
@@ -365,6 +366,7 @@ struct State {
   std::optional<bool> learning_override;
   std::optional<bool> shuangpin_preedit_override;
   std::optional<bool> wubi_code_hint_override;
+  std::optional<bool> wubi_auto_commit_unique_override;
   std::optional<std::string> layout_override, preedit_override, theme_override;
   std::optional<std::string> scheme_override, shuangpin_profile_override;
   // A 主题 menu choice being saved, as theme_choice_change writes it.
@@ -382,6 +384,7 @@ struct State {
   uint8_t frequency_linear_step = 1;
   bool shuangpin_preedit_uses_raw = true;
   bool wubi_code_hint = true;
+  bool wubi_auto_commit_unique = true;
   bool smart_punctuation = true;
   bool smart_punctuation_repeat = true;
   bool smart_punctuation_space_convert = false;
@@ -723,10 +726,13 @@ struct State {
       preferences["shuangpin_preedit_uses_raw"] = *shuangpin_preedit_override;
     if (wubi_code_hint_override)
       preferences["wubi_code_hint"] = *wubi_code_hint_override;
+    if (wubi_auto_commit_unique_override)
+      preferences["wubi_auto_commit_unique"] = *wubi_auto_commit_unique_override;
     const auto active_scheme = preferences.value("scheme", "quanpin");
     if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
       if (helpcode_override) preferences[active_scheme + "_helpcode"]["enabled"] = *helpcode_override;
-      if (helpcode_schema_override) preferences[active_scheme + "_helpcode"]["schema"] = *helpcode_schema_override;
+      if (helpcode_schema_override)
+        msime::linux_host::apply_helpcode_schema_choice(preferences, active_scheme, *helpcode_schema_override);
       show_helpcode_in_candidate_window = preferences.value(
           active_scheme + "_helpcode", Json::object())
           .value("show_in_candidate_window",
@@ -858,6 +864,7 @@ struct State {
     shuangpin_preedit_uses_raw = options.at("preferences").value(
         "shuangpin_preedit_uses_raw", true);
     wubi_code_hint = options.at("preferences").value("wubi_code_hint", true);
+    wubi_auto_commit_unique = options.at("preferences").value("wubi_auto_commit_unique", true);
     view = response(
         msime_client_set_chinese_punctuation(session, chinese_punctuation));
     navigation = bindings;
@@ -993,6 +1000,8 @@ struct State {
         preferences.value("shuangpin_preedit_uses_raw", true));
     wubi_code_hint = wubi_code_hint_override.value_or(
         preferences.value("wubi_code_hint", true));
+    wubi_auto_commit_unique = wubi_auto_commit_unique_override.value_or(
+        preferences.value("wubi_auto_commit_unique", true));
     const auto voice = preferences.value("voice_input", Json::object());
     // The voice overlay's mode from voice_theme by its own rule, its colours from the theme the candidate window resolves (as the floating toolbar takes them), so the bar matches the panel's theme; a fixed-appearance theme overrides the mode.
     const auto voice_theme = theme_in_mode(
@@ -1090,12 +1099,14 @@ struct State {
       preferences["shuangpin_preedit_uses_raw"] = *shuangpin_preedit_override;
     if (wubi_code_hint_override)
       preferences["wubi_code_hint"] = *wubi_code_hint_override;
+    if (wubi_auto_commit_unique_override)
+      preferences["wubi_auto_commit_unique"] = *wubi_auto_commit_unique_override;
     const auto active_scheme = preferences.value("scheme", "quanpin");
     if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
       if (helpcode_override)
         preferences[active_scheme + "_helpcode"]["enabled"] = *helpcode_override;
       if (helpcode_schema_override)
-        preferences[active_scheme + "_helpcode"]["schema"] = *helpcode_schema_override;
+        msime::linux_host::apply_helpcode_schema_choice(preferences, active_scheme, *helpcode_schema_override);
     }
     if (english_override)
       preferences["mixed_input"]["english"] = *english_override;
@@ -2909,6 +2920,18 @@ void publish_mode(IBusEngine *engine, bool registration) {
       configured.at("preferences").value(active_scheme + "_helpcode", Json::object())
           .value("schema", std::string(msime::linux_host::default_helpcode_schema(
                                active_scheme))));
+  // 选了辅助码表包时生效的是包而不是 schema（core/HelpcodePack.h）。菜单里的方案选择本身就会停用包，所以有了这次选择（无存储时的 override）就不再看包。
+  const auto active_helpcode_pack = s.helpcode_schema_override
+      ? std::string{} : msime::linux_host::helpcode_pack(configured.at("preferences"), active_scheme);
+  // 这一项始终在列表里，只是没选包时隐藏：IBus 面板只按键更新已有的子项，增删子项要等下一次注册才看得到（见 update_menu_property）。它只表明插件在生效，不能点选；选下面任一内置方案即停用插件，与设置页一致。
+  auto helpcode_schema_pack = ibus_property_new(
+      "HelpcodeSchemaPack", PROP_TYPE_RADIO,
+      ibus_text_new_from_string(("插件：" + active_helpcode_pack).c_str()), "",
+      ibus_text_new_from_static_string("辅助码表插件正在生效，选择下面的内置方案即停用它"),
+      FALSE, !active_helpcode_pack.empty(),
+      active_helpcode_pack.empty() ? PROP_STATE_UNCHECKED : PROP_STATE_CHECKED, nullptr);
+  ibus_property_set_visible(helpcode_schema_pack, !active_helpcode_pack.empty());
+  ibus_prop_list_append(helpcode_schema_menu, helpcode_schema_pack);
   for (const auto &[value, label] : msime::linux_host::kHelpcodeSchemaNames) {
     auto item = ibus_property_new(
         (std::string("HelpcodeSchema/") + value).c_str(), PROP_TYPE_RADIO,
@@ -2918,7 +2941,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
             (active_scheme == "quanpin" || active_scheme == "shuangpin") &&
             !menu_save_pending,
         TRUE,
-        schema == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+        active_helpcode_pack.empty() && schema == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(helpcode_schema_menu, item);
   }
   ibus_property_set_sub_props(helpcode_schema, helpcode_schema_menu);
@@ -3207,6 +3230,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.focused && !s.blocked && s.input_enabled && active_scheme == "wubi" &&
           !menu_save_pending,
       msime::linux_host::edition_offers_scheme("wubi"), s.wubi_code_hint ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto wubi_auto_commit_unique_property = ibus_property_new(
+      "WubiAutoCommitUnique", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("五笔四码唯一自动上屏"), "",
+      ibus_text_new_from_static_string("五笔输入达到四码且只有一个候选时自动提交，关闭后用空格或数字键选它"),
+      s.focused && !s.blocked && s.input_enabled && active_scheme == "wubi" &&
+          !menu_save_pending,
+      msime::linux_host::edition_offers_scheme("wubi"),
+      s.wubi_auto_commit_unique ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto theme_property = ibus_property_new(
       "CandidateTheme", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选明暗"), "",
@@ -3347,7 +3378,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, menu_group(
         "Group/Candidate", "候选与词频", "候选窗口、编码显示与词频学习",
         {layout_property, page_size_property, theme_property, preedit_property, shuangpin_preedit_property,
-         wubi_code_hint_property, menu_separator("Group/Candidate/Separator"), learning_property,
+         wubi_code_hint_property, wubi_auto_commit_unique_property,
+         menu_separator("Group/Candidate/Separator"), learning_property,
          frequency_property, frequency_trigger_property, frequency_step_property}));
     ibus_prop_list_append(properties, toolbar);
     ibus_prop_list_append(properties, desktop_tools_property(engine));
@@ -3368,7 +3400,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, clipboard);
     ibus_engine_update_property(engine, profile);
     ibus_engine_update_property(engine, helpcode_property);
-    ibus_engine_update_property(engine, helpcode_schema);
+    update_menu_property(engine, helpcode_schema);
     ibus_engine_update_property(engine, traditional);
     ibus_engine_update_property(engine, english);
     ibus_engine_update_property(engine, emoji);
@@ -3390,6 +3422,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, shuangpin_preedit_property);
     ibus_engine_update_property(engine, wubi_code_hint_property);
+    ibus_engine_update_property(engine, wubi_auto_commit_unique_property);
     ibus_engine_update_property(engine, learning_property);
     ibus_engine_update_property(engine, frequency_property);
     ibus_engine_update_property(engine, frequency_trigger_property);
@@ -3726,11 +3759,16 @@ void render(IBusEngine *engine, const Json &view) {
     if (fixed_position >= 1 && fixed_position <= 5)
       tail += "  固定" + std::to_string(fixed_position);
     const auto annotation = candidate.value("annotation", std::string{});
+    // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so neither the helpcode switch nor the wubi code hint hides it; Wubi opens these modes too. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow both switches.
+    const auto local_mode = view.value("local_mode", std::string("none"));
+    const bool local_mode_annotation =
+        local_mode == "command" || local_mode == "mention";
     const bool wubi_annotation = view.value("scheme", 255) != 2 ||
                                  state(engine).wubi_code_hint;
     // A Hanja row's annotation is its 훈음, already drawn in the gloss above.
     if (!annotation.empty() && hanja_gloss.empty() &&
-        state(engine).show_helpcode_in_candidate_window && wubi_annotation) {
+        (local_mode_annotation ||
+         (state(engine).show_helpcode_in_candidate_window && wubi_annotation))) {
       tail += "  ";
       tail += annotation;
     }
@@ -5070,7 +5108,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       const auto active_scheme = effective_scheme(s);
       if (active_scheme != "quanpin" && active_scheme != "shuangpin")
         return;
-      if (s.helpcode_schema_override.value_or(
+      // 辅助码表包生效时，选回存着的那个方案也是一次切换：它要停用插件。
+      const bool pack_active = !s.helpcode_schema_override &&
+          !msime::linux_host::helpcode_pack(configured.at("preferences"), active_scheme).empty();
+      if (!pack_active &&
+          s.helpcode_schema_override.value_or(
               configured.at("preferences").value(active_scheme + "_helpcode", Json::object())
                   .value("schema", std::string(msime::linux_host::default_helpcode_schema(
                                        active_scheme)))) == selected)
@@ -5217,6 +5259,30 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.wubi_code_hint_override = enabled;
       s.wubi_code_hint = enabled;
       render(engine, s.view);
+      publish_mode(engine);
+      return;
+    }
+    if (property_name == "WubiAutoCommitUnique") {
+      const auto active_scheme = effective_scheme(s);
+      if (active_scheme != "wubi" || menu_save_pending)
+        return;
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (enabled == s.wubi_auto_commit_unique)
+        return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::WubiAutoCommitUnique, enabled);
+        return;
+      }
+      // 和上面的双拼原始预编辑一样：这个开关由 runtime 判定，没有偏好目录就不会重读，
+      // 只能重建会话把 override 交给它，否则菜单显示已关、四码唯一仍然自动上屏。
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.wubi_auto_commit_unique_override = enabled;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
       publish_mode(engine);
       return;
     }
@@ -7483,6 +7549,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->shuangpin_preedit_override.reset();
           if (request.preference == MenuPreference::WubiCodeHint)
             self->state->wubi_code_hint_override.reset();
+          if (request.preference == MenuPreference::WubiAutoCommitUnique)
+            self->state->wubi_auto_commit_unique_override.reset();
           if (request.preference == MenuPreference::SmartPunctuation)
             self->state->smart_punctuation_override.reset();
           if (request.preference == MenuPreference::SmartPunctuationRepeat)
@@ -7593,6 +7661,9 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
           case MenuPreference::WubiCodeHint:
             snapshot["preferences"]["wubi_code_hint"] = request.value;
             break;
+          case MenuPreference::WubiAutoCommitUnique:
+            snapshot["preferences"]["wubi_auto_commit_unique"] = request.value;
+            break;
           case MenuPreference::SmartPunctuation:
             snapshot["preferences"]["smart_punctuation"] = request.value;
             break;
@@ -7624,13 +7695,14 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             snapshot["preferences"]["quanpin_helpcode"]["enabled"] = request.value;
             break;
           case MenuPreference::QuanpinHelpcodeSchema:
-            snapshot["preferences"]["quanpin_helpcode"]["schema"] = request.value;
+            // 与设置页同一约定：选内置方案即停用这个方案的辅助码表插件（core/HelpcodePack.h）。
+            msime::linux_host::apply_helpcode_schema_choice(snapshot["preferences"], "quanpin", request.value.get<std::string>());
             break;
           case MenuPreference::ShuangpinHelpcode:
             snapshot["preferences"]["shuangpin_helpcode"]["enabled"] = request.value;
             break;
           case MenuPreference::ShuangpinHelpcodeSchema:
-            snapshot["preferences"]["shuangpin_helpcode"]["schema"] = request.value;
+            msime::linux_host::apply_helpcode_schema_choice(snapshot["preferences"], "shuangpin", request.value.get<std::string>());
             break;
           case MenuPreference::ShuangpinProfile:
             snapshot["preferences"]["shuangpin_profile"] = request.value;

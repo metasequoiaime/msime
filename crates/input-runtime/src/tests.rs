@@ -1029,6 +1029,51 @@ fn unique_complete_wubi_code_auto_commits_unless_a_phrase_is_being_built() {
     assert_eq!(phrase.view().editing_text, "wqaa");
     assert_eq!(phrase.view().phrase_prefix, "合成前缀");
 }
+
+#[test]
+fn turning_off_wubi_auto_commit_keeps_the_unique_four_code_in_the_candidate_list() {
+    let create = |fixture| {
+        let mut runtime = Runtime::new(fixture, 5).unwrap();
+        runtime.focus(true).unwrap();
+        runtime
+    };
+    let type_all = |runtime: &mut Runtime<Fixture>, keys: &[u8]| {
+        let mut last = None;
+        for value in keys {
+            last = Some(
+                runtime
+                    .dispatch(Action::Character {
+                        value: *value,
+                        shift: false,
+                    })
+                    .unwrap(),
+            );
+        }
+        last.unwrap()
+    };
+    let unique = || Fixture {
+        scheme: 2,
+        words: vec!["合成候选".into()],
+        ..Fixture::default()
+    };
+
+    let mut off = create(unique());
+    off.set_wubi_auto_commit_unique(false);
+    let last = type_all(&mut off, b"wqaa");
+    assert!(last.commit.is_none());
+    assert_eq!(last.view.editing_text, "wqaa");
+    // 词还在候选里，等用户自己选——和关掉之前唯一的差别。
+    assert_eq!(last.view.candidates.len(), 1);
+
+    // 换回开，同一个会话里的下一个四码照旧自动上屏。
+    off.set_wubi_auto_commit_unique(true);
+    off.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(
+        type_all(&mut off, b"wqaa").commit.as_deref(),
+        Some("合成候选")
+    );
+}
+
 #[test]
 fn a_letter_after_a_complete_wubi_code_commits_the_first_candidate_and_starts_the_next() {
     let create = |fixture| {
@@ -4077,6 +4122,89 @@ fn slash_and_at_open_their_modes_only_with_nothing_composed() {
     assert!(finished.commit_context.unwrap().typing_statistics);
 }
 
+#[test]
+fn wubi_literal_marks_do_not_open_table_modes() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = real_engine_options(directory.path());
+    options.scheme = 2;
+    options.local_command = true;
+    options.local_mention = true;
+    options.command_table = vec![msime_engine::host::CommandTableEntry {
+        trigger: "sig".into(),
+        title: "签名".into(),
+        template: "张三".into(),
+    }];
+    options.mention_entries = vec![msime_engine::host::MentionEntry {
+        text: "张三".into(),
+        key: "zhang'san".into(),
+    }];
+    let session = msime_engine::host::Session::new(&options).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    assert_eq!(runtime.view().spelling_symbols, "/@");
+
+    let literal = runtime.dispatch(Action::PunctuationAscii(b'/')).unwrap();
+    assert_eq!(literal.view.local_mode, "none");
+    let opened = runtime.dispatch(Action::Punctuation(b'/')).unwrap();
+    assert_eq!(opened.view.local_mode, "command");
+}
+
+#[test]
+fn a_capital_after_a_complete_wubi_code_commits_the_word_and_keeps_the_letter() {
+    let directory = tempfile::tempdir().unwrap();
+    let dictionaries = directory.path().join("dictionaries");
+    std::fs::create_dir_all(&dictionaries).unwrap();
+    rusqlite::Connection::open(dictionaries.join(msime_engine::assets::MAIN_DICTIONARY))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE wubi86(key TEXT, value TEXT, weight INTEGER);\
+             INSERT INTO wubi86 VALUES('gege','工',100),('gege','或',50);",
+        )
+        .unwrap();
+    let wubi = |quick_phrase: bool| {
+        let mut options = real_engine_options(directory.path());
+        options.scheme = 2;
+        options.local_quick_phrase = quick_phrase;
+        let mut runtime =
+            Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 5).unwrap();
+        runtime.focus(true).unwrap();
+        type_characters(&mut runtime, "gege");
+        assert_eq!(runtime.view().editing_text, "gege");
+        assert_eq!(texts(&runtime.view())[..2], ["工", "或"]);
+        runtime
+    };
+
+    let mut off = wubi(false);
+    for value in *b"AK" {
+        let topped = character(&mut off, value);
+        let letter = char::from(value);
+        assert!(topped.handled, "{letter}: {topped:?}");
+        assert_eq!(
+            topped.commit.as_deref(),
+            Some(format!("工{letter}").as_str()),
+            "{letter}"
+        );
+        assert_eq!(
+            topped.commit_context.as_ref().map(|context| context.scheme),
+            Some(2),
+            "{letter}"
+        );
+        assert!(topped.view.editing_text.is_empty(), "{letter}: {topped:?}");
+        assert_eq!(topped.view.local_mode, "none", "{letter}");
+        type_characters(&mut off, "gege");
+    }
+    let next = character(&mut off, b'g');
+    assert_eq!(next.commit.as_deref(), Some("工"));
+    assert_eq!(next.view.editing_text, "g");
+
+    let mut on = wubi(true);
+    let opened = character(&mut on, b'K');
+    assert!(opened.handled, "{opened:?}");
+    assert_eq!(opened.commit.as_deref(), Some("工"));
+    assert_eq!(opened.view.local_mode, "quick_phrase");
+    assert_eq!(opened.view.editing_text, "K");
+}
+
 /// Without a settled model attached, the settle call is inert.
 ///
 /// This is the shape every installation that ships one model is in, and the one where a mistake
@@ -4798,7 +4926,9 @@ impl InputEngine for FailsAfterCommit {
         self.inner.select_edge(index, edge)
     }
     fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
-        self.inner.finish(index)
+        let result = self.inner.finish(index)?;
+        self.committed = result.has_commit;
+        Ok(result)
     }
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
         self.inner.punctuation(value)
@@ -4834,6 +4964,45 @@ fn a_wubi_auto_commit_survives_a_failed_refresh() {
     let last = last.unwrap();
     assert_eq!(last.commit.as_deref(), Some("合成候选"));
     assert!(last
+        .diagnostic
+        .as_deref()
+        .is_some_and(|diagnostic| diagnostic.starts_with("Candidate refresh failed")));
+}
+
+#[test]
+fn a_blur_commit_survives_a_failed_refresh() {
+    let mut runtime = Runtime::new(
+        FailsAfterCommit {
+            inner: Fixture {
+                scheme: KOREAN_SCHEME,
+                words: vec!["合成音节".into()],
+                local_mode: "none".into(),
+                ..Fixture::default()
+            },
+            committed: false,
+        },
+        5,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    runtime
+        .dispatch(Action::Character {
+            value: b'k',
+            shift: false,
+        })
+        .unwrap();
+
+    let blurred = runtime.focus(false).unwrap();
+    assert_eq!(
+        blurred.commit.as_deref(),
+        Some("合成音节-remaining-segments")
+    );
+    assert_eq!(
+        blurred.commit_context.as_ref().unwrap().scheme,
+        KOREAN_SCHEME
+    );
+    assert!(!blurred.view.focused);
+    assert!(blurred
         .diagnostic
         .as_deref()
         .is_some_and(|diagnostic| diagnostic.starts_with("Candidate refresh failed")));

@@ -1,6 +1,47 @@
 import UIKit
 import XCTest
 
+private final class ClipboardAccountStorage: BackendSessionStorage, @unchecked Sendable {
+  private let lock = NSLock()
+  private var saved: BackendSavedSession?
+  init(_ saved: BackendSavedSession) { self.saved = saved }
+  func load() throws -> BackendSavedSession? { lock.withLock { saved } }
+  func save(_ value: BackendSavedSession) throws { lock.withLock { saved = value } }
+  func clear() throws { lock.withLock { saved = nil } }
+}
+
+private final class ClipboardAccountProtocol: URLProtocol, @unchecked Sendable {
+  static let oldToken = String(repeating: "a", count: 64)
+  static let newToken = String(repeating: "b", count: 64)
+  private static let lock = NSLock()
+  private static var recorded: [String] = []
+  private static var onRejection: (() -> Void)?
+  static var authorizations: [String] { lock.withLock { recorded } }
+  static func reset(onRejection: @escaping () -> Void) {
+    lock.withLock { recorded = []; Self.onRejection = onRejection }
+  }
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let authorization = request.value(forHTTPHeaderField: "Authorization") ?? ""
+    let onRejection = Self.lock.withLock { () -> (() -> Void)? in
+      Self.recorded.append(authorization)
+      defer { Self.onRejection = nil }
+      return Self.onRejection
+    }
+    let rejected = authorization == "Bearer \(Self.oldToken)"
+    if rejected { onRejection?() }
+    let response = HTTPURLResponse(url: request.url!, statusCode: rejected ? 401 : 201,
+                                   httpVersion: nil, headerFields: ["Content-Type":"application/json"])!
+    let body = rejected ? #"{"error":{"code":"invalid_credentials"}}"# :
+      "{\"id\":\"\(String(repeating: "c", count: 64))\",\"text\":\"合成剪贴板文本\",\"updated_at\":\"synthetic-time\"}"
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 /// A stand-in for the account's cloud clipboard: no request leaves the test process.
 private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecked Sendable {
   private let lock = NSLock()
@@ -66,6 +107,32 @@ private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecke
 
 @MainActor
 final class KeyboardCloudClipboardTests: XCTestCase {
+  func testRejectedUploadDoesNotRetryAsAnotherAccount() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ClipboardAccountProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let original = BackendAccountClient.Tokens(access_token: ClipboardAccountProtocol.oldToken,
+      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-user", display_name: "示例", created_at: "2026-09-08"))
+    let storage = ClipboardAccountStorage(try BackendSavedSession.forTokens(original))
+    let session = BackendAccountSession(api: client, storage: storage,
+                                        refreshLock: BackendProcessRefreshLock())
+    let replacement = BackendAccountClient.Tokens(access_token: ClipboardAccountProtocol.newToken,
+      refresh_token: String(repeating: "e", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "other-synthetic-user", display_name: "另一个账号", created_at: "2026-09-08"))
+    ClipboardAccountProtocol.reset(onRejection: {
+      try? storage.save(try BackendSavedSession.forTokens(replacement))
+    })
+    let service = BackendKeyboardCloudClipboardService(session: session, client: client)
+
+    do {
+      try await service.add("合成剪贴板文本")
+      XCTFail("old account clipboard text must not be retried as the new account")
+    } catch is CancellationError { }
+    XCTAssertEqual(ClipboardAccountProtocol.authorizations,
+                   ["Bearer \(ClipboardAccountProtocol.oldToken)"])
+  }
+
   private func temporaryStore() throws -> ClipboardHistoryStore {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
