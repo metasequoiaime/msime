@@ -129,7 +129,8 @@
   --animate-ms-wiggle: ms-wiggle 0.6s ease both;
   --animate-ms-sheet-up: ms-sheet-up 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   --animate-ms-fade-in: ms-fade-in 0.2s ease both;
-  --animate-ms-push-in: ms-push-in 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  /* `backwards`, not `both`: a transform animation still in effect after it ends makes the pushed page the containing block for every fixed descendant, so dialogs and their backdrops stopped at the content's height instead of covering the screen. The end state is the element's own style anyway. */
+  --animate-ms-push-in: ms-push-in 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 
   @keyframes splash-circ-in {
     0% {

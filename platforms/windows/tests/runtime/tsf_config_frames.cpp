@@ -42,7 +42,7 @@ int main() {
     auto frames = tsf_config_frames(config);
     // Every setting the TIP consumes gets a frame; it kept compiled defaults
     // because the Server encoded none of them.
-    require(frames.size() == 10);
+    require(frames.size() == 11);
     for (const auto &frame : frames)
       require(frame.size() == sizeof(FanyImeNamedpipeDataToTsfWorkerThread));
 
@@ -57,7 +57,8 @@ int main() {
         FanyImeWorkerReplyType::TsfDiagnosticLogChanged,
         FanyImeWorkerReplyType::PunctuationLockChanged,
         FanyImeWorkerReplyType::LocalModeTriggersChanged,
-        FanyImeWorkerReplyType::DedicatedEnglishChanged};
+        FanyImeWorkerReplyType::DedicatedEnglishChanged,
+        FanyImeWorkerReplyType::SecondThirdCandidateChanged};
     for (size_t i = 0; i < frames.size(); ++i)
       require(frame_type(frames[i]) == expected[i]);
 
@@ -179,7 +180,13 @@ int main() {
     config.dedicated_english = true;
     require(frame_text(tsf_config_frames(config)[9]) == L"1");
     config.dedicated_english = false;
-    require(FanyImeWorkerReplyType::DedicatedEnglishChanged == FanyImeWorkerReplyType::MaxKnown);
+    require(FanyImeWorkerReplyType::DedicatedEnglishChanged < FanyImeWorkerReplyType::MaxKnown);
+    // 二三候选单独一帧，排在所有旧帧之后：关着时是 "0"，TIP 据此把 ';' 和 '\'' 留作标点。
+    require(frame_text(tsf_config_frames(TsfLocalConfig{})[10]) == L"0");
+    config.second_third_candidate = true;
+    require(frame_text(tsf_config_frames(config)[10]) == L"1");
+    config.second_third_candidate = false;
+    require(FanyImeWorkerReplyType::SecondThirdCandidateChanged == FanyImeWorkerReplyType::MaxKnown);
 
     // Caps Lock travels on its own frame rather than in the configuration set:
     // the Server owns the indicator because the TIP only sampled GetKeyState at

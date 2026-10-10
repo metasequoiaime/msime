@@ -42,6 +42,8 @@ fn linux_release() -> Value {
             { "name": "msime-linux-wubi_1.2.0_amd64.deb", "digest": digest('c') },
             { "name": "msime-linux-wubi-1.2.0-linux-x86_64.tar.gz", "digest": digest('d') },
             { "name": "msime-linux-pinyin_1.2.0_amd64.deb", "digest": digest('e') },
+            // glibc 2.28 系统用的 legacy 包（#6311）：包名同样是 msime-linux，附件按 msime-linux-legacy_ 命名，full 和各版本都不能选中它。
+            { "name": "msime-linux-legacy_1.2.0_amd64.deb", "digest": digest('9') },
             { "name": "SHA256SUMS", "digest": digest('f') },
         ]),
     )
@@ -120,6 +122,7 @@ fn an_edition_picks_its_own_package_for_the_hosts_architecture() {
         json!({ "name": "msime-linux_1.2.0_arm64.deb", "digest": digest('1') }),
         json!({ "name": "msime-linux-wubi_1.2.0_arm64.deb", "digest": digest('2') }),
         json!({ "name": "msime-linux-wubi-1.2.0-linux-aarch64.tar.gz", "digest": digest('3') }),
+        json!({ "name": "msime-linux-legacy_1.2.0_arm64.deb", "digest": digest('8') }),
     ]);
     let both = [both];
     assert_eq!(

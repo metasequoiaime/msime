@@ -52,7 +52,7 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 
 ### 语音输入（默认凭据为空）
 
-`voice_input.enabled` 默认 `true`，但这只表示功能可用，录音要你主动触发。默认识别服务是豆包（`wss://openspeech.bytedance.com/...`），**`asr_token` 默认为空字符串**，不填就无法使用。可选的识别服务还有 SiliconFlow、OpenAI、Groq、EveryAPI、Mistral Voxtral，以及两种不出设备的选项：
+`voice_input.enabled` 默认 `true`，但这只表示功能可用，录音要你主动触发。默认识别服务是豆包（`wss://openspeech.bytedance.com/...`），**`asr_token` 默认为空字符串**，不填就无法使用。可选的识别服务还有 SiliconFlow、OpenAI、Groq、EveryAPI、Mistral Voxtral、阿里云百炼（`bailian`，默认 `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`，模型 `qwen3-asr-flash`，录音以 Base64 放进 Chat Completions 请求），以及两种不出设备的选项：
 
 - `local`：设备上的识别模型，`asr_model_path` 是一个绝对路径，指向设置页下载的 sherpa-onnx 模型目录（包含 `msime-model.json`）。不需要 Token，也没有端点。
 - `system`：调用操作系统自带的识别（macOS / iOS / HarmonyOS），数据流向由操作系统决定。macOS 与 iOS 26 起使用 SpeechAnalyzer（设备端）；更早的系统在识别器支持时设置 `requiresOnDeviceRecognition`，不支持时由系统决定是否上传。
@@ -61,7 +61,7 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 
 **本地模型**全程在设备上运行：录音、识别结果和热词都不离开设备，识别期间不发出任何网络请求。macOS 与 Linux 的输入法进程不自己加载模型，而是拉起本机的 `msime-voice-local` 辅助进程，经标准输入输出交换音频和文本（协议见 `shared/voice/README.md`），不经过网络套接字；Windows 在本机的 `msime-client-server` 进程内识别，Android、iOS 与 HarmonyOS 在应用进程内识别。热词取自你的个人词库（只取用户自己添加的拼音词条），在本机交给识别器，或在识别后于本机做近音替换（`crates/client-core/src/voice/hotwords.rs`）。
 
-唯一的联网发生在**下载模型**时，且只在你在设置页点「下载」后发生（Android 的 full 与拼音版在打开「离线识别」而本机还没有语音运行库时会下载它，见[资源与更新下载](#资源与更新下载)）：
+唯一的联网发生在**下载模型**时，且只在你在设置页点「下载」后发生。用「从文件导入」安装时完全不联网：选中的本地文件只在本机按长度和 SHA-256 校验后解压进模型目录；设置页里每个文件的下载链接用系统浏览器打开，输入法本身不发请求（Android 的 full 与拼音版在打开「离线识别」而本机还没有语音运行库时会下载它，见[资源与更新下载](#资源与更新下载)）：
 
 | | |
 | --- | --- |

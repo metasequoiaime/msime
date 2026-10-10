@@ -70,7 +70,8 @@
         // What the launcher draws. Without it the entry falls back to the application icon, which is
         // the same artwork today and so hid the omission; an ability that appears on the home screen
         // states its own.
-        "icon": "$media:app_icon",
+        // 分层图标：桌面按自己的遮罩裁圆角，背景层 #252525 与 Android 经典图标的 app_icon_field 同色；单张透明底的 app_icon 在桌面上会透出壁纸。
+        "icon": "$media:app_icon_layered",
         // The application's own icon, not the brand path the keyboard tints with fillColor: that one is a
         // single black shape at 24x24, and a start window scales its icon to fill, which opened the
         // settings on a window-sized black scrawl.

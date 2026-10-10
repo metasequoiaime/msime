@@ -194,6 +194,8 @@ public final class MSIMEInputService extends InputMethodService {
     String cloudClipboardAccountId = "";
     /** Binding lineage that owns the currently displayed cloud rows. */
     long cloudClipboardBindingGeneration = -1L;
+    /** Backend session that supplied the current cloud page; uploads stay on this session. */
+    String cloudClipboardSessionId = "";
     // Bumped whenever the field or the open panel changes; a cloud answer started under an older value is dropped rather than drawn into a field it was not fetched for.
     long cloudClipboardGeneration;
     private boolean candidateEnglishGloss;
@@ -203,6 +205,9 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean englishSuggestionsEnabled = true;
     private java.util.List<String> candidateTranslationTargets = java.util.List.of("en");
     private CandidateTranslationStore candidateTranslationStore;
+    private long candidateTranslationBindingEpoch;
+    private long candidateTranslationVerifiedGeneration = -1L;
+    private long candidateTranslationAppliedGeneration = -1L;
     private boolean wubiCodeHint = true;
     private boolean wubiMixedPinyin;
     // 五笔版本只决定方案卡片和工具栏上的「86」「98」字样；选表由引擎按同一份偏好里的 `wubi_profile` 决定。
@@ -342,6 +347,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 空闲时候选栏左侧显示的产品名，取自本版本的应用名（full 是「水杉输入法」，五笔版是「水杉五笔」）。 */
     private String productName = "";
     KeyboardScheme selectedScheme = KeyboardScheme.fallback(edition);
+    /** 最近一次用的中文入口（不是其他语言键盘的那个），中英键轮换回到中文时切回它（{@link LanguageKeyCyclePolicy#chineseReturn}）。 */
+    private KeyboardScheme lastChineseScheme;
     private java.util.List<KeyboardScheme> enabledSchemes =
         KeyboardScheme.enabledFromPreferenceIds(null, edition);
     // 「输入方式」面板列出的方案：词典已装好的全部方案，双拼只留用户设置的那一种（见 `schemeConfiguration` 和 `KeyboardScheme.pickerSchemes`）。`enabledSchemes` 仍是存下的列表，面板里的一次保存不会丢掉用户在词典到达之前打开的方案。
@@ -715,6 +722,7 @@ public final class MSIMEInputService extends InputMethodService {
         enabledSchemes = schemeConfiguration.enabled();
         visibleSchemes = schemeConfiguration.visible();
         selectedScheme = schemeConfiguration.selected();
+        rememberChineseScheme();
         // 只用真正读到的偏好重算皮肤：runtime-options.json 的副本（来源不是 LIVE）和缺主题字段的偏好都保留当前皮肤，也就是 onCreate 按上次换上的皮肤画好的那一份。
         if (live && preferences != null && preferences.has("global_theme")) {
             skin = keyboardSkin(preferences);
@@ -1527,6 +1535,9 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void stop(boolean finish) {
+        candidateTranslationBindingEpoch++;
+        candidateTranslationVerifiedGeneration = -1L;
+        candidateTranslationAppliedGeneration = -1L;
         imeLetterRows.cancelBackspaceRepeat();
         imeDebugOverlay.clearDiagnostic();
         clearSmartPunctuationSnapshots();
@@ -2017,6 +2028,44 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    private void verifyCandidateTranslationBinding(long generation,
+            java.util.function.Consumer<Boolean> onVerified) {
+        long epoch = ++candidateTranslationBindingEpoch;
+        long expectedSession = session;
+        candidateTranslationVerifiedGeneration = -1L;
+        try {
+            candidateTranslationWorker.execute(() -> {
+                app.msime.android.SyncSwitch.Binding binding = SyncSignals.binding(this);
+                main.post(() -> {
+                    if (epoch != candidateTranslationBindingEpoch || session != expectedSession
+                            || view == null || CandidateGlossPolicy.strictOr(view.opt("generation"), -1) != generation
+                            || candidateTranslationStore == null) return;
+                    // Signed-out users may use the anonymous translation endpoint, but an
+                    // unavailable provider cannot prove which account owns cached rows.
+                    String key = binding == null ? null
+                        : binding.accountId() == null ? null
+                        : binding.generation() + ":" + binding.accountId();
+                    boolean hadEntries = candidateTranslationStore.hasEntries();
+                    boolean same = candidateTranslationStore.bindTo(key);
+                    if (!same) candidateTranslationAppliedGeneration = -1L;
+                    if (key == null) {
+                        if (hadEntries) applyVerifiedCandidateTranslations(generation, true);
+                        onVerified.accept(null);
+                        return;
+                    }
+                    candidateTranslationVerifiedGeneration = generation;
+                    if (!same && hadEntries) {
+                        applyVerifiedCandidateTranslations(generation, true);
+                        return;
+                    }
+                    onVerified.accept(same);
+                });
+            });
+        } catch (RuntimeException ignored) {
+            candidateTranslationStore.bindTo(null);
+        }
+    }
+
     String chineseOutput(String text, JSONObject context) {
         int scheme = context == null
             ? (view == null ? -1 : InputViewValuePolicy.scheme(view, -1))
@@ -2261,6 +2310,7 @@ public final class MSIMEInputService extends InputMethodService {
         enabledSchemes = nextSchemeConfiguration.enabled();
         visibleSchemes = nextSchemeConfiguration.visible();
         selectedScheme = nextSchemeConfiguration.selected();
+        rememberChineseScheme();
         preferencesSnapshot = accepted;
         if (!clipboardHistoryEnabled && clipboardHistory != null) {
             clipboardHistory.clearQuietly();
@@ -2569,7 +2619,7 @@ public final class MSIMEInputService extends InputMethodService {
             candidateOfflineGlosses = offline;
             candidateOfflineGlossSession = token.session();
             candidateOfflineGlossGeneration = token.generation();
-            translations = mergedCandidateGlosses(token.generation()).toString();
+            translations = mergedCandidateGlosses(token.generation(), false).toString();
         }
         try {
             JSONObject applied = value(NativeClient.applyTranslations(
@@ -2579,6 +2629,7 @@ public final class MSIMEInputService extends InputMethodService {
             if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE) != token.session()
                     || CandidateGlossPolicy.strictOr(next.opt("generation"), -1) != token.generation()) return;
             view = next;
+            if (offline != null) candidateTranslationAppliedGeneration = -1L;
             if (candidatePanelOpen) {
                 JSONObject snapshot = value(NativeClient.allCandidates(token.session()));
                 if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) == token.session()
@@ -2613,16 +2664,35 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject candidate = entries.optJSONObject(index);
             if (candidate != null) words.add(InputViewValuePolicy.textOr(candidate, "text", ""));
         }
-        candidateTranslationStore.refresh(words, candidateTranslationTargets, generation);
+        verifyCandidateTranslationBinding(generation, same -> {
+            if (same != null) {
+                candidateTranslationStore.refresh(words, candidateTranslationTargets, generation);
+                if (same && candidateTranslationStore.hasEntries()
+                        && candidateTranslationAppliedGeneration != generation)
+                    applyVerifiedCandidateTranslations(generation);
+            }
+        });
     }
 
     private void applyCandidateTranslations(long generation) {
         if (!candidateTranslationAccount || session == 0 || view == null
                 || CandidateGlossPolicy.strictOr(view.opt("generation"), -1) != generation) return;
+        verifyCandidateTranslationBinding(generation, same -> {
+            if (same == null) return;
+            if (same) applyVerifiedCandidateTranslations(generation);
+            else scheduleCandidateTranslations();
+        });
+    }
+
+    private void applyVerifiedCandidateTranslations(long generation) {
+        applyVerifiedCandidateTranslations(generation, false);
+    }
+
+    private void applyVerifiedCandidateTranslations(long generation, boolean allowEmpty) {
         JSONArray entries = view.optJSONArray("candidates");
         if (entries == null || entries.length() == 0) return;
-        JSONArray translations = mergedCandidateGlosses(generation);
-        if (translations.length() == 0) return;
+        JSONArray translations = mergedCandidateGlosses(generation, true);
+        if (translations.length() == 0 && !allowEmpty) return;
         try {
             JSONObject applied = value(NativeClient.applyTranslations(session, generation,
                 translations.toString()));
@@ -2631,6 +2701,7 @@ public final class MSIMEInputService extends InputMethodService {
             if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE) != session
                     || CandidateGlossPolicy.strictOr(next.opt("generation"), -1) != generation) return;
             view = next;
+            candidateTranslationAppliedGeneration = generation;
             render();
         } catch (JSONException | RuntimeException | LinkageError ignored) {
             // Online translations are optional display state.
@@ -2642,7 +2713,7 @@ public final class MSIMEInputService extends InputMethodService {
      *
      * <p>Without an installed non-English dictionary this is the account translations of the first 32 candidates, as before; with one it also covers every candidate the offline dictionaries answered, since the payload replaces the one applied before it.
      */
-    private JSONArray mergedCandidateGlosses(long generation) {
+    private JSONArray mergedCandidateGlosses(long generation, boolean includeAccount) {
         java.util.Map<String, java.util.Map<String, String>> offline =
             candidateOfflineGlosses != null && candidateOfflineGlossSession == session
                 && candidateOfflineGlossGeneration == generation ? candidateOfflineGlosses : java.util.Map.of();
@@ -2655,7 +2726,8 @@ public final class MSIMEInputService extends InputMethodService {
             if (candidate != null) texts.add(InputViewValuePolicy.textOr(candidate, "text", ""));
         }
         for (java.util.Map<String, String> glosses : offline.values()) texts.addAll(glosses.keySet());
-        boolean account = candidateTranslationAccount && candidateTranslationStore != null;
+        boolean account = includeAccount && candidateTranslationAccount && candidateTranslationStore != null
+            && candidateTranslationVerifiedGeneration == generation;
         JSONArray translations = new JSONArray();
         for (String text : texts) {
             java.util.HashMap<String, String> offlineRows =
@@ -3595,6 +3667,44 @@ public final class MSIMEInputService extends InputMethodService {
         render();
     }
 
+    private void rememberChineseScheme() {
+        if (selectedScheme != null && !selectedScheme.otherLanguage()) lastChineseScheme = selectedScheme;
+    }
+
+    /** 设置「中英键轮换其他语言」是否打开（#6648），默认关。 */
+    private boolean languageKeyCycles() {
+        return localSettings.bool(AndroidLocalSettings.LANGUAGE_KEY_CYCLE);
+    }
+
+    /**
+     * 中英键的点按。轮换关着、或没有启用其他语言键盘时就是 {@link #toggleInputLanguage}；打开时按「中 → 英 → 其他语言键盘 → 中」轮换，见 {@link LanguageKeyCyclePolicy}。实体键盘的中英快捷键和 Shift 进英文仍只切中英。
+     */
+    void languageKeyTapped() {
+        if (session == 0) return;
+        LanguageKeyCyclePolicy.Target target = nextLanguageTarget();
+        if (target.kind() == LanguageKeyCyclePolicy.Kind.BUSY) return;
+        if (target.kind() == LanguageKeyCyclePolicy.Kind.SCHEME) selectKeyboardScheme(target.scheme());
+        else toggleInputLanguage();
+    }
+
+    /** 日语 9 键左列的语言键键面：轮换关着时是「英」（与原来相同），打开时是这一下要切到的语言。 */
+    String japaneseLanguageKeyLabel() {
+        return LanguageKeyCyclePolicy.targetLabel(nextLanguageTarget());
+    }
+
+    String japaneseLanguageKeyDescription() {
+        return LanguageKeyCyclePolicy.description(nextLanguageTarget());
+    }
+
+    private LanguageKeyCyclePolicy.Target nextLanguageTarget() {
+        JSONObject preferences = preferencesSnapshot == null ? null : preferencesSnapshot.optJSONObject("preferences");
+        KeyboardScheme chineseReturn = LanguageKeyCyclePolicy.chineseReturn(lastChineseScheme,
+            InputViewValuePolicy.textOr(preferences, "last_chinese_scheme", edition.defaultScheme()),
+            visibleSchemes, edition, KeyboardScheme.fallback(edition));
+        return LanguageKeyCyclePolicy.next(languageKeyCycles(), schemeSaving, selectedScheme, dedicatedEnglish,
+            visibleSchemes, chineseReturn);
+    }
+
     void toggleInputLanguage() {
         if (session == 0) return;
         boolean nextEnglish = !dedicatedEnglish;
@@ -4390,6 +4500,7 @@ public final class MSIMEInputService extends InputMethodService {
         cloudClipboardGeneration++;
         cloudClipboardAccountId = "";
         cloudClipboardBindingGeneration = -1L;
+        cloudClipboardSessionId = "";
         cloudClipboardItems = java.util.List.of();
         cloudClipboardStatus = CloudClipboardPanelPolicy.Status.LOADING;
     }
@@ -4706,7 +4817,7 @@ public final class MSIMEInputService extends InputMethodService {
     /**
      * Select one global theme from the keyboard's picker, or, with a `design`, store it as `custom_theme.keyboard` and select `custom`.
      *
-     * <p>This copies the settings page: when another theme was on screen it becomes `custom_theme.base` and `custom_theme.candidate_skin` is cleared, so the candidate strip keeps the theme the user was looking at; while `custom` is already selected only the keyboard changes.
+     * <p>与设置页的做法相同：原来显示的是别的主题时，它成为 `custom_theme.base`，浅色、深色两个槽位的皮肤包（`custom_theme.candidate_skin` 和 `candidate_skin_dark`）都清掉，候选栏保持用户正在看的主题；已经选着 `custom` 时只换键盘。
      */
     void saveKeyboardSkin(String identifier, JSONObject design) {
         if (skinSaving || traditionalOutputSaving || session == 0
@@ -4735,6 +4846,7 @@ public final class MSIMEInputService extends InputMethodService {
                 if (!"custom".equals(current)) {
                     customTheme.put("base", current);
                     customTheme.remove("candidate_skin");
+                    customTheme.remove("candidate_skin_dark");
                 }
                 customTheme.put("keyboard", new JSONObject(design.toString()));
                 preferences.put("custom_theme", customTheme);
@@ -5045,8 +5157,8 @@ public final class MSIMEInputService extends InputMethodService {
         closeVoiceResult();
         try {
             VoiceRecognitionActivity.launch(this, requestId, voiceLanguage,
-                configured.providerName(), configured.endpoint(), configured.model(),
-                configured.token(), configured.streaming(), configured.polish(),
+                configured.providerName(), configured.requestFormat(), configured.endpoint(),
+                configured.model(), configured.token(), configured.streaming(), configured.polish(),
                 configured.localModel());
         } catch (RuntimeException error) {
             VoiceRecognitionActivity.clearRequest(requestId);
@@ -6112,7 +6224,7 @@ public final class MSIMEInputService extends InputMethodService {
         // Touch candidates follow Apple's chip surface: the word itself is shown without a
         // numeric prefix. The slot remains available through contentDescription and the shared
         // session/generation/index identity for accessibility and hardware number-row selection.
-        // 实体键盘打字（候选条模式）时例外：候选前面标上数字行选词用的 1–9（#5584）。
+        // 实体键盘打字（候选条模式）时例外：候选前面标上数字行选词用的 1–9，每页十个时第十个标 0（#5584、#6679）。
         String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
             dedicatedEnglish, slot);
         button.setText(candidateLabel(number, text, annotation, highlighted));
@@ -6744,7 +6856,7 @@ public final class MSIMEInputService extends InputMethodService {
             if (session == 0) return;
             imeKeyFeedback.playFeedback(languageButton);
             countKey(languageButton);
-            toggleInputLanguage();
+            languageKeyTapped();
         });
         bindInputMethodPicker(languageButton);
         layerButton = button(controls, "123", () -> {
@@ -7748,16 +7860,18 @@ public final class MSIMEInputService extends InputMethodService {
             if (Build.VERSION.SDK_INT >= 30) shiftButton.setStateDescription(caseValue);
         }
         if (languageButton != null) {
-            languageButton.setText(dedicatedEnglish ? "英" : "中");
+            boolean cycles = languageKeyCycles();
+            languageButton.setText(LanguageKeyCyclePolicy.label(cycles, selectedScheme, dedicatedEnglish, visibleSchemes));
             // 没有会话（密码框、会话还在建）时点按切不了中英，但长按仍要能打开输入法选择框：换到密码管理器的键盘正是在密码框里最常用。禁用的按钮收不到长按，所以这个键始终可用，只把它画淡、读屏念成「暂不可用」，点按在点击监听里直接忽略。
             boolean canToggle = session != 0;
             ViewPolicy.setEnabled(languageButton, true);
             ViewPolicy.setActiveAlpha(languageButton, canToggle, .45f);
             languageButton.setContentDescription(!canToggle ? "中英切换暂不可用，长按切换输入法"
-                : dedicatedEnglish ? "切换到所选输入方案" : "切换到英文输入");
+                : LanguageKeyCyclePolicy.description(nextLanguageTarget()));
             if (Build.VERSION.SDK_INT >= 30) {
                 languageButton.setStateDescription(!canToggle ? "输入会话未就绪"
-                    : dedicatedEnglish ? "英文输入" : "中文输入");
+                    : LanguageKeyCyclePolicy.stateDescription(cycles, selectedScheme, dedicatedEnglish,
+                        visibleSchemes));
             }
         }
         if (floatingShortcutButton != null) {

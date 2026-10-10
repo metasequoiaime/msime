@@ -1,11 +1,11 @@
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 #include "../core/BoundedCliInput.h"
 #include "provider_response_cli.h"
 #include "provider_socket_cli.h"
 
 #include <array>
 #include <iostream>
-#include <memory>
 #include <string>
 
 int main(int argc, char **argv) {
@@ -17,11 +17,10 @@ int main(int argc, char **argv) {
   if (!request_length)
     return 2;
   const size_t length = *request_length;
-  std::unique_ptr<char, decltype(&msime_client_string_free)> result(
+  auto result = msime::host_api::own_string(
       msime_client_online_provider_request(
           reinterpret_cast<const uint8_t *>(buffer.data()), length,
           reinterpret_cast<const uint8_t *>(socket_path.data()),
-          socket_path.size()),
-      msime_client_string_free);
+          socket_path.size()));
   return msime_cli_write_provider_response(result.get(), std::cout);
 }

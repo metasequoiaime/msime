@@ -1801,13 +1801,13 @@ test("helpcode schemes save independently and retain disabled selections", async
   fireEvent.click(screen.getByRole("switch", { name: "全拼辅助码" }));
   expect(quanpin.disabled).toBe(true);
   expect(quanpin.textContent).toContain("小鹤");
-  fireEvent.change(shuangpin, { target: { value: "shouyou2_0" } });
+  fireEvent.change(shuangpin, { target: { value: "wubi86" } });
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
     quanpin_helpcode: { enabled: false, schema: "xiaohe", show_in_candidate_window: false },
-    shuangpin_helpcode: { enabled: true, schema: "shouyou2_0", show_in_candidate_window: true },
+    shuangpin_helpcode: { enabled: true, schema: "wubi86", show_in_candidate_window: true },
   });
 });
 
@@ -2288,7 +2288,7 @@ test("macOS 维护与诊断 page exposes reversible uninstall with explicit data
   expect(within(about).queryByText("卸载水杉输入法")).toBeNull();
   const groupTitles = (scope: HTMLElement) =>
     [...scope.querySelectorAll("[data-group-title]")].map((node) => node.textContent);
-  expect(groupTitles(about)).toEqual(["版本与更新", "许可与隐私"]);
+  expect(groupTitles(about)).toEqual(["版本与更新", "系统信息", "许可与隐私"]);
   fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   const developer = await screen.findByRole("group", { name: "维护与诊断" });
   expect(await within(developer).findByText("卸载水杉输入法")).toBeDefined();
@@ -4004,16 +4004,13 @@ test("the iOS skin page hands the candidate strip to the desktop candidate skin"
     home: { openKeyboard: vi.fn() },
     mobileKeyboardFeedback: { load, save: saveFeedback },
   };
-  const { unmount } = render(<SettingsPage initialPage="appearance" client={client} />);
-  expect(
-    await screen.findByText(/候选栏正在使用键盘皮肤的颜色/, undefined, { timeout: 3000 }),
-  ).toBeTruthy();
-  unmount();
-
   render(<SettingsPage initialPage="skin" client={client} />);
   const follow = (await screen.findByLabelText("候选栏使用主题配色")) as HTMLInputElement;
   expect(follow.checked).toBe(false);
+  // 候选栏跟随键盘皮肤时候选颜色不生效，取色器不显示；打开开关后才出现。
+  expect(screen.queryByLabelText("候选表面色")).toBeNull();
   fireEvent.click(follow);
+  expect(await screen.findByLabelText("候选表面色")).toBeTruthy();
   await waitFor(() =>
     expect(saveFeedback).toHaveBeenCalledWith(
       expect.objectContaining({ candidatePaletteFollowsDesktop: true, englishSuggestions: true }),
@@ -4408,7 +4405,12 @@ test("automatic color swatch follows candidate theme without persisting a color 
       expect.objectContaining({
         global_theme: "custom",
         // Picking from the system theme customizes that theme: it becomes the base and no package is layered over it.
-        custom_theme: { base: "system", candidate_skin: null, candidate_colors: { text: null } },
+        custom_theme: {
+          base: "system",
+          candidate_skin: null,
+          candidate_skin_dark: null,
+          candidate_colors: { text: null },
+        },
       }),
     ),
   );
@@ -5287,7 +5289,12 @@ test("a picker used over a built-in theme customizes that theme, and the package
   expect(save).toHaveBeenLastCalledWith(7, {
     ...saved.preferences,
     global_theme: "custom",
-    custom_theme: { base: "night", candidate_skin: null, candidate_colors: { text: "#ff0000" } },
+    custom_theme: {
+      base: "night",
+      candidate_skin: null,
+      candidate_skin_dark: null,
+      candidate_colors: { text: "#ff0000" },
+    },
   });
   fireEvent.click(screen.getByRole("button", { name: "主题" }));
   const card = screen.getByRole("article", { name: "自定义" });
@@ -5326,7 +5333,11 @@ test("choosing the custom theme card drops its package and keeps the rest of the
   expect(save).toHaveBeenLastCalledWith(7, {
     ...saved.preferences,
     global_theme: "custom",
-    custom_theme: { candidate_skin: null, candidate_colors: { text: "#123456" } },
+    custom_theme: {
+      candidate_skin: null,
+      candidate_skin_dark: null,
+      candidate_colors: { text: "#123456" },
+    },
   });
 });
 
@@ -6939,13 +6950,13 @@ const referenceOptions: {
     page: "input",
     button: "输入",
     control: "双拼辅助码方案",
-    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加"],
+    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加", "五笔 86"],
   },
   {
     page: "input",
     button: "输入",
     control: "全拼辅助码方案",
-    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加"],
+    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加", "五笔 86"],
   },
   {
     page: "floating-toolbar",
@@ -7508,7 +7519,9 @@ test("about page sends the packaged app version and reports the newest release a
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  expect(await screen.findByText("v1.2.0")).toBeDefined();
+  // 「系统信息」也列出应用版本，这里只看「当前版本」那一行。
+  const currentVersion = (await screen.findByText("当前版本")).parentElement as HTMLElement;
+  expect(await within(currentVersion).findByText("v1.2.0")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
   expect(await screen.findByText("已是最新版本")).toBeDefined();
   expect(checkUpdate).toHaveBeenCalledWith(

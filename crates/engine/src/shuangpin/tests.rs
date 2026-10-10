@@ -40,7 +40,7 @@ impl Fixture {
     }
 
     fn engine(&self, kind: ShuangpinProfileKind) -> ShuangpinEngine {
-        ShuangpinEngine::new(profile(kind), &self.paths)
+        ShuangpinEngine::new(profile(kind).unwrap(), &self.paths)
     }
 
     fn weight(&self, table: &str, key: &str, value: &str) -> Option<i64> {
@@ -92,7 +92,7 @@ fn prefix_groups_list_a_word_once() {
     let fixture = Fixture::new(
         "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_n VALUES('ni', 'n', '你', 10000),('ni', 'n', '拟', 9000);",
     );
-    let microsoft = profile(ShuangpinProfileKind::Microsoft);
+    let microsoft = profile(ShuangpinProfileKind::Microsoft).unwrap();
     let mut dictionary = super::dictionary::ShuangpinDictionary::new(microsoft, &fixture.paths);
     let segmentation = super::utils::pinyin_segmentation("ni'nni", microsoft);
     assert_eq!(segmentation, "ni'''nn'i");
@@ -114,11 +114,12 @@ fn prefix_groups_reserve_their_candidate_rows() {
     }
     let fixture = Fixture::new(&sql);
     let mut dictionary = super::dictionary::ShuangpinDictionary::new(
-        profile(ShuangpinProfileKind::Xiaohe),
+        profile(ShuangpinProfileKind::Xiaohe).unwrap(),
         &fixture.paths,
     );
 
-    let segmentation = super::query::segment_input("nihcma", profile(ShuangpinProfileKind::Xiaohe));
+    let segmentation =
+        super::query::segment_input("nihcma", profile(ShuangpinProfileKind::Xiaohe).unwrap());
     let rows = dictionary.generate_series("nihcma", &segmentation, "");
 
     assert_eq!(rows.len(), 20, "{rows:?}");
@@ -232,6 +233,46 @@ fn profiles_decode_their_own_codes() {
     assert!(semicolon.iter().all(|item| item.pinyin == "nihk"));
     let split = microsoft.query(&request("nihcb;", false), None);
     assert!(split.iter().all(|item| item.pinyin == "nih"));
+}
+
+/// 五笔 86 辅助码（`wubi86`）走的是同一套筛选：码表按方案名从资源目录载入，表头的 `#` 行被跳过；单字比整码，词比首字首码加末字首码。码表内容是合成的。
+#[test]
+fn wubi86_helpcodes_filter_by_the_first_two_letters() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_m(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_m VALUES('ma','m','吗',300),('ma','m','马',200),('ma','m','码',100);CREATE TABLE tbl_2_m(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_2_m VALUES('ma''ma','mm','妈妈',300),('ma''ma','mm','马码',200);CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);",
+    );
+    let helpcodes = fixture.paths.resources.join("helpcodes");
+    std::fs::create_dir_all(&helpcodes).unwrap();
+    std::fs::write(
+        helpcodes.join("wubi86_helpcode.txt"),
+        "# 合成表头\n吗=kc\n马=cn\n码=dc\n妈=vc\n",
+    )
+    .unwrap();
+    let codes = crate::helpcode::load_helpcode_keymap(&fixture.paths.resources, "wubi86").unwrap();
+    assert_eq!(codes.code("码"), Some("dc"));
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+
+    // 第一个字母小写、第二个大写时两码按输入顺序读。
+    assert_eq!(
+        words(&engine.query(&request("madC", true), Some(&codes))),
+        ["码"]
+    );
+    assert_eq!(
+        words(&engine.query(&request("macN", true), Some(&codes))),
+        ["马"]
+    );
+    // 单码把首码或末码相符的字提前。
+    let single = engine.query(&request("maD", true), Some(&codes));
+    assert_eq!(words(&single)[0], "码");
+    // 马码：首字马的首码 c，末字码的首码 d；妈妈是 v、v。
+    assert_eq!(
+        words(&engine.query(&request("mamacD", true), Some(&codes))),
+        ["马码"]
+    );
+    assert_eq!(
+        words(&engine.query(&request("mamavV", true), Some(&codes))),
+        ["妈妈"]
+    );
 }
 
 /// overlays.md §5.1: a double-helpcode entry is keyed by its codes, and an online row lands only under the combination it was inserted for.
@@ -433,7 +474,7 @@ fn missing_dictionary_answers_empty() {
         cache: directory.clone(),
         dictionaries: directory,
     };
-    let mut engine = ShuangpinEngine::new(profile(ShuangpinProfileKind::Xiaohe), &paths);
+    let mut engine = ShuangpinEngine::new(profile(ShuangpinProfileKind::Xiaohe).unwrap(), &paths);
     assert!(engine.query(&request("nihc", true), None).is_empty());
     assert!(engine.query(&request("u", true), None).is_empty());
     assert!(!paths.dictionary(assets::MAIN_DICTIONARY).exists());
@@ -458,7 +499,7 @@ fn real_dictionary_answers_common_readings() {
         cache: user.path().to_path_buf(),
         dictionaries: resources,
     };
-    let mut engine = ShuangpinEngine::new(profile(ShuangpinProfileKind::Xiaohe), &paths);
+    let mut engine = ShuangpinEngine::new(profile(ShuangpinProfileKind::Xiaohe).unwrap(), &paths);
     let nihao = engine.query(&request("nihc", false), None);
     assert!(
         words(&nihao).iter().take(3).any(|word| *word == "你好"),
@@ -526,7 +567,7 @@ fn a_changed_personal_model_drops_the_scored_series() {
     let fixture = Fixture::new(
         "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',10000),('ni','n','拟',9000);CREATE TABLE tbl_1_h(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_h VALUES('hao','h','好',10000),('hao','h','号',9000);",
     );
-    let xiaohe = profile(ShuangpinProfileKind::Xiaohe);
+    let xiaohe = profile(ShuangpinProfileKind::Xiaohe).unwrap();
     let mut dictionary = super::dictionary::ShuangpinDictionary::new(xiaohe, &fixture.paths);
     let segmentation = super::utils::pinyin_segmentation("nihc", xiaohe);
     let before = dictionary.generate_series("nihc", &segmentation, "");

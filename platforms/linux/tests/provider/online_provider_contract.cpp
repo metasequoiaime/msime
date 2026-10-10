@@ -1,4 +1,5 @@
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 #include "../../src/core/BoundedCliInput.h"
 #include "../../src/providers/provider_response_cli.h"
 #include <nlohmann/json.hpp>
@@ -11,7 +12,6 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -24,8 +24,7 @@ void require(bool value, const char *message) {
   if (!value) throw std::runtime_error(message);
 }
 Json response(char *raw) {
-  std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-      raw, msime_client_string_free);
+  auto owned = msime::host_api::own_string(raw);
   require(raw != nullptr, "provider response missing");
   return Json::parse(raw);
 }

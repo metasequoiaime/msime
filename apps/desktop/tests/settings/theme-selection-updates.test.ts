@@ -10,6 +10,7 @@ const preferences = (patch: Partial<Preferences> = {}): Preferences =>
     custom_theme: {
       base: "night",
       candidate_skin: "community-skin",
+      candidate_skin_dark: "community-dark",
       candidate_colors: { text: "#fff" },
     },
     ...patch,
@@ -22,6 +23,7 @@ test("choosing a candidate color selects custom while preserving the active base
   expect(next.custom_theme).toMatchObject({
     base: "night",
     candidate_skin: null,
+    candidate_skin_dark: null,
     candidate_colors: { text: "#fff", surface: "#123456" },
   });
 });
@@ -41,6 +43,7 @@ test("choosing a custom keyboard preserves a custom theme base and package state
   expect(next.custom_theme).toMatchObject({
     base: "night",
     candidate_skin: "community-skin",
+    candidate_skin_dark: "community-dark",
     keyboard: design,
   });
 });
@@ -53,4 +56,13 @@ test("customizing the native theme draws the custom theme over system", () => {
     defaultTouchKeyboardSkinDesign,
   );
   expect(keyboard.custom_theme?.base).toBe("system");
+});
+
+test("choosing a custom keyboard from another theme clears both skin slots", () => {
+  const next = updateCustomKeyboard(preferences(), defaultTouchKeyboardSkinDesign);
+  expect(next.custom_theme).toMatchObject({
+    base: "night",
+    candidate_skin: null,
+    candidate_skin_dark: null,
+  });
 });

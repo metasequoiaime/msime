@@ -1033,6 +1033,22 @@ interface PersonalDictionarySyncValue {
   pending_count: number;
 }
 
+interface DictionaryCollectionsFlushValue {
+  sent?: number;
+}
+
+interface DictionaryCollectionsFlushResponse {
+  ok: boolean;
+  value: DictionaryCollectionsFlushValue;
+  error?: string;
+}
+
+/** 命名词库接受的操作，与 client-core 的 `DictionaryCollectionsAction` 一致；别的一律在桥上拒绝。 */
+const DICTIONARY_COLLECTION_OPERATIONS: string[] = [
+  'load', 'create', 'rename', 'delete', 'set_enabled', 'add_words', 'remove_words', 'import',
+  'install_community', 'queue_words', 'flush',
+];
+
 interface PersonalDictionarySyncResponse {
   ok: boolean;
   value: PersonalDictionarySyncValue;
@@ -1515,9 +1531,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardSkin.resolveDark(surfaceTheme, appMode, this.systemDark));
   }
 
-  /** `light` or `dark` when the global theme fixes the mode; the answer is the same for both requested modes. */
+  /** 全局主题固定了明暗时为 `light` 或 `dark`：两种明暗的解析结果一致才算，见 `GlobalTheme.fixedAppearance`。 */
   private fixedAppearance(): string | null {
-    return this.themeLight === null ? null : this.themeLight.appearance;
+    return GlobalTheme.fixedAppearance(this.themeLight, this.themeDark);
   }
 
   private readThemeCatalog(): ThemeCatalogEntry[] {
@@ -1693,10 +1709,28 @@ export class KeyboardSession implements HardwareKeyTarget {
         KeyboardLog.error(`personal dictionary queue not applied; it will be retried: ${reply.error}`);
         return false;
       }
-      return reply.value.pending_count === 0;
+      // 命名词库的词分批交给个人词库队列（同时最多 128 条在途）。每处理完一批就送下一批，和 Android 键盘的 `flushSent` 一样，导入的大词库不用等用户回设置页刷新。
+      const sent: number = this.flushDictionaryCollections(options);
+      return reply.value.pending_count === 0 && sent === 0;
     } catch (error) {
       KeyboardLog.error(`personal dictionary queue unavailable: ${describeError(error)}`);
       return false;
+    }
+  }
+
+  /** 把命名词库里还没送出的增删再送一批，返回这次送出的条数；失败按 0 算，下次排空时再试。 */
+  private flushDictionaryCollections(options: string): number {
+    try {
+      const reply: DictionaryCollectionsFlushResponse = JSON.parse(client.dictionaryCollections(
+        `{"options":${options},"action":{"operation":"flush"}}`)) as DictionaryCollectionsFlushResponse;
+      if (reply.ok !== true) {
+        KeyboardLog.error(`dictionary collections not flushed: ${reply.error}`);
+        return 0;
+      }
+      return typeof reply.value.sent === 'number' ? reply.value.sent : 0;
+    } catch (error) {
+      KeyboardLog.error(`dictionary collections unavailable: ${describeError(error)}`);
+      return 0;
     }
   }
 
@@ -3296,6 +3330,33 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
     }
     return result;
+  }
+
+  /**
+   * 设置页的命名词库操作（`msime_client_dictionary_collections`），在原生工作线程上执行。
+   *
+   * 集合只是元数据，词条经由个人词库队列交给 Engine，所以这里不碰键盘的会话，也不需要维护锁。API 12 起设置应用和键盘各有自己的沙箱，在共享沙箱接上之前，这里写下的集合键盘看不到（platforms/harmony/README.md「输入法扩展的独立沙箱」）。
+   */
+  async dictionaryCollections(actionDocument: string, resources: string,
+    stateRoot: string): Promise<string> {
+    let action: DictionaryAction;
+    try {
+      const decoded: DictionaryAction | null = JSON.parse(actionDocument) as DictionaryAction | null;
+      if (decoded === null || !DICTIONARY_COLLECTION_OPERATIONS.includes(decoded.operation)) {
+        return JSON.stringify({ ok: false, error: 'collections_invalid' });
+      }
+      action = decoded;
+    } catch (error) {
+      return JSON.stringify({ ok: false, error: 'collections_invalid' });
+    }
+    const bootstrap: PrepareRequest = KeyboardSession.prepareRequest(resources, stateRoot);
+    const prepared: PrepareResponse =
+      JSON.parse(client.prepareHost(JSON.stringify(bootstrap))) as PrepareResponse;
+    if (prepared.ok !== true) {
+      return JSON.stringify(prepared);
+    }
+    const request: DictionaryRequest = { options: prepared.value, action: action };
+    return await client.dictionaryCollectionsAsync(JSON.stringify(request));
   }
 
   /** Whether the key did anything. The touch keyboard ignores the answer; the hardware path hands a declined letter back to the application. */

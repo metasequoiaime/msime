@@ -1,0 +1,80 @@
+name: Linux legacy package
+
+# 构建并验收给 glibc 2.28 基线（Debian 10、UOS 20 一类）用的 legacy .deb（#6311）：只含 IBus 宿主，没有设置窗口和 Fcitx5 插件。逻辑全在 platforms/linux/package-legacy-container.sh：在 buster 容器里编译、核对符号版本、到干净的 buster 里 apt 安装、跑 ctest 和 IBus 1.5.19 上的运行时验收。两个架构各在自己的原生 runner 上构建，不经模拟。
+#
+# 触发：Release Linux 经 workflow_call 调用它，把产物作为发布附件；每周一在 develop 上定时跑一次，主线用到 Python 3.8+、IBus 1.5.20+、glibc 2.29+ 或 GCC 9+ 才有的东西时，在下一次发版前就报出来；Pull Request 只在 legacy 构建线自己的文件变化时跑，这时打包本身就是被测对象（每个 Linux 改动都跑的话，一周一百多次 Linux 合并各要两台 runner 跑几十分钟，所以由定时运行兜底）；也可以手动触发，只构建不发布。
+# 上传前把包改名为 msime-linux-legacy_<版本>_<架构>.deb：包内的包名仍是 msime-linux，但发布页上已经有同名的 msime-linux_<版本>_<架构>.deb，合并附件时会互相覆盖；设置页的检查更新也按 msime-linux-<字母> 开头把它当作别的版本的包排除，不会让 full 的选择变得不唯一（crates/client-core/src/update_check.rs）。
+on:
+  workflow_call:
+    inputs:
+      ref: {description: Commit to build, required: true, type: string}
+      version: {description: Package version (defaults to platforms/linux/version.txt), required: false, type: string, default: ""}
+  pull_request:
+    paths:
+      - .github/workflows/build-linux-legacy.yml
+      - platforms/linux/package-legacy-container.sh
+      - platforms/linux/tests/tools/Dockerfile.legacy
+      - platforms/linux/tests/tools/legacy-runtime.sh
+      - platforms/linux/tests/tools/check-elf-symbol-versions.sh
+  schedule:
+    - cron: "23 2 * * 1"
+  workflow_dispatch:
+    inputs:
+      version: {description: Package version (defaults to platforms/linux/version.txt), required: false, type: string, default: ""}
+
+concurrency:
+  group: linux-legacy-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.ref || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-deb:
+    name: Legacy .deb (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: amd64, runner: depot-ubuntu-24.04-8}
+          - {arch: arm64, runner: depot-ubuntu-24.04-arm-8}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ inputs.ref || github.sha }}", persist-credentials: false}
+      - id: version
+        env: {REQUESTED: "${{ inputs.version }}"}
+        run: |
+          version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+      # 与发布页的包一样带离线释义和粤语、注音词库：package-legacy-container.sh 在暂存目录里有它们时才装。
+      - name: Fetch the locked offline candidate glosses
+        run: python3 scripts/fetch_offline_glosses.py
+      - name: Fetch the locked language dictionaries
+        run: python3 scripts/fetch_language_dictionaries.py
+      - name: Build and verify the legacy package in Debian 10
+        env: {VERSION: "${{ steps.version.outputs.value }}", MSIME_LEGACY_ARCH: "${{ matrix.arch }}"}
+        run: bash platforms/linux/package-legacy-container.sh "$VERSION"
+      # 构建脚本已经在容器里按 buster 的库核对过；这里对改名后、真正要上传的那个文件按 glibc 2.28 基线的固定上限再核一次，并确认包名、版本和架构。
+      - name: Name and check the release asset
+        env: {VERSION: "${{ steps.version.outputs.value }}", ARCH: "${{ matrix.arch }}"}
+        run: |
+          shopt -s nullglob
+          # arm64 的 runner 镜像预装的工具比 x64 少，readelf 不在时补装。
+          command -v readelf >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq binutils; }
+          dist=target/linux-package-legacy-$ARCH/dist
+          debs=("$dist"/*.deb)
+          [[ ${#debs[@]} -eq 1 && ${debs[0]} == "$dist/msime-linux_${VERSION}_${ARCH}.deb" ]] || { echo "expected only msime-linux_${VERSION}_${ARCH}.deb in $dist: ${debs[*]}" >&2; exit 1; }
+          [[ $(dpkg-deb -f "${debs[0]}" Package) == msime-linux && $(dpkg-deb -f "${debs[0]}" Version) == "$VERSION" && $(dpkg-deb -f "${debs[0]}" Architecture) == "$ARCH" ]] || { echo "${debs[0]} is not msime-linux $VERSION $ARCH" >&2; exit 1; }
+          out=target/linux-legacy-release
+          rm -rf "$out"; mkdir -p "$out"
+          asset="msime-linux-legacy_${VERSION}_${ARCH}.deb"
+          cp "${debs[0]}" "$out/$asset"
+          bash platforms/linux/tests/tools/check-elf-symbol-versions.sh "$out/$asset" GLIBC=2.28 GLIBCXX=3.4.25 CXXABI=1.3.11 GCC=7.0.0
+          (cd "$out" && sha256sum -- "$asset" > SHA256SUMS && cat SHA256SUMS)
+      # 名字以 msime-linux- 开头、以版本号结尾，Release Linux 的 publish 按 msime-linux-*-VERSION 取附件时会一并取到它。
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-linux-legacy-deb-${{ matrix.arch }}-${{ steps.version.outputs.value }}
+          path: target/linux-legacy-release/
+          if-no-files-found: error

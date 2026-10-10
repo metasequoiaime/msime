@@ -23,6 +23,11 @@ int main() {
     REQUIRE(voice_batch_sample_limit < batch_upload_sample_limit);
     const auto minute = voice_batch_capture(kRate * 60, 3200, voice_batch_sample_limit);
     REQUIRE(minute.keep == 3200 && !minute.full);
+    // 录音按服务的上传上限截取：阿里云百炼（chat_audio）约 218 秒，录到就结束并提交；其余整句服务仍是上面的上限。
+    REQUIRE(batch_capture_sample_limit_for("openai") == voice_batch_sample_limit);
+    const auto bailian = batch_capture_sample_limit_for("bailian");
+    REQUIRE(bailian * 2 + 44 <= chat_audio_max_wav_bytes && bailian > kRate * 210);
+    REQUIRE(voice_batch_capture(kRate * 240, 3200, bailian).full);
 
     // Below the limit everything is kept and the recording goes on.
     const auto early = voice_batch_capture(0, 3200, 10000);

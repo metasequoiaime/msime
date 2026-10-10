@@ -2660,6 +2660,23 @@ fn a_date_row_commits_and_leaves_date_time_mode() {
     assert_eq!(snapshot.local_mode, LocalInputMode::None);
     assert!(snapshot.preedit.is_empty());
 
+    // 农历关键词：首行是农历日期，后面是带星期的写法。
+    session.character(b'T', true);
+    type_text(&mut session, "nongli");
+    assert_eq!(
+        words(&session),
+        [
+            "丙午年六月二十七日",
+            "丙午年六月二十七日 星期日",
+            "丙午年六月二十七日 周日"
+        ]
+    );
+    assert_eq!(
+        session.select(1).commit.as_deref(),
+        Some("丙午年六月二十七日 星期日")
+    );
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+
     // The pinned clock reads 14:30:00, as the reference fixture's did.
     session.character(b'T', true);
     type_text(&mut session, "sj");
@@ -3491,11 +3508,17 @@ fn slash_opens_the_command_list_and_letters_filter_it() {
     assert!(snapshot.spelling_symbols.is_empty());
     assert_eq!(
         words(&session),
-        ["张三 2026-08-09", "2026年8月9日", "14:30", "星期日"]
+        [
+            "张三 2026-08-09",
+            "2026年8月9日",
+            "14:30",
+            "星期日",
+            "丙午年六月二十七日"
+        ]
     );
     assert_eq!(
         snapshot.candidate_annotations,
-        ["签名", "日期", "时间", "星期"]
+        ["签名", "日期", "时间", "星期", "农历"]
     );
 
     type_text(&mut session, "si");
@@ -3621,7 +3644,10 @@ fn at_lists_the_mention_list_and_letters_filter_it() {
     session.command(Command::Cancel);
     session.character(b'/', false);
     session.set_command_table(&[]);
-    assert_eq!(words(&session), ["2026年8月9日", "14:30", "星期日"]);
+    assert_eq!(
+        words(&session),
+        ["2026年8月9日", "14:30", "星期日", "丙午年六月二十七日"]
+    );
 }
 
 #[test]
@@ -5865,12 +5891,104 @@ fn single_character_only_offers_one_character_at_a_time() {
     assert_eq!(words(&session), ["GitHub", "你"]);
 }
 
+/// #6059：`SessionOptions` 的句子联想设置同样交给九宫格，关掉词网格时 26 键和九宫格都不出整句行，打开整句备选时两边都交回全部读法。
+#[test]
+fn nine_key_follows_the_sentence_options_like_the_full_keyboard() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_m VALUES('mi','m','米',100);\
+CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_h VALUES('hao','h','好',100),('hao','h','号',50);",
+    );
+    let sentences = |session: &Session| -> Vec<String> {
+        session
+            .snapshot()
+            .candidates
+            .into_iter()
+            .filter(|item| item.source == CandidateSource::Generated && item.sentence_association)
+            .map(|item| item.word)
+            .collect()
+    };
+    let cases = |session: &mut Session, expected: &[&str]| {
+        for nine_key in [false, true] {
+            session.set_nine_key_enabled(nine_key);
+            type_text(session, if nine_key { "64426" } else { "mihao" });
+            assert_eq!(sentences(session), expected, "nine key: {nine_key}");
+            session.command(Command::Cancel);
+        }
+    };
+    cases(&mut fixture.session(), &["米好"]);
+    cases(
+        &mut fixture.session_with(|options| options.sentence_association.word_lattice = false),
+        &[],
+    );
+    cases(
+        &mut fixture.session_with(|options| options.sentence_alternatives = true),
+        &["米好", "米号"],
+    );
+}
+
 /// 九宫格选中整句时存词的音节上限与全拼键盘相同（#5640）。
 #[test]
 fn nine_key_sentence_learning_shares_the_syllable_cap() {
     assert_eq!(
         crate::nine_key::MAX_LEARNED_SENTENCE_SYLLABLES,
         super::learning::MAX_LEARNED_SENTENCE_SYLLABLES
+    );
+}
+
+/// #6185：在 26 键上打过的词，九宫格按首字母分词输入时也排到前面；关掉个人上下文的会话不读模型里早先记下的使用，也就不挪。
+#[test]
+fn words_typed_on_the_full_keyboard_lead_the_nine_key_initials() {
+    let mut main = String::from(
+        "CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_y VALUES('yin','y','因',100);\
+CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_s VALUES('si','s','四',100);\
+CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_y VALUES('yin''si','ys','隐私',10);",
+    );
+    for index in 0..100 {
+        main.push_str(&format!(
+            "INSERT INTO tbl_2_y VALUES('ya''qi','yq','压{index}',{});",
+            100_000 - index
+        ));
+    }
+    let fixture = Fixture::new(&main);
+    let promote = |options: &mut SessionOptions| {
+        options.frequency = crate::types::FrequencyAdjustmentOptions {
+            mode: crate::types::FrequencyAdjustmentMode::Promote,
+            trigger_count: 1,
+            linear_step: 1,
+        };
+    };
+    let position_after_typing = |session: &mut Session| {
+        type_text(session, "yinsi");
+        assert_eq!(select_word(session, "隐私").commit.as_deref(), Some("隐私"));
+        session.set_nine_key_enabled(true);
+        for key in *b"9'7" {
+            session.character(key, false);
+        }
+        let position = words(session).iter().position(|word| word == "隐私");
+        session.command(Command::Cancel);
+        session.set_nine_key_enabled(false);
+        position
+    };
+    let mut session = fixture.session_with(promote);
+    assert_eq!(position_after_typing(&mut session), Some(4));
+    let mut quiet = fixture.session_with(|options| {
+        promote(options);
+        options.personal_context = false;
+    });
+    assert_eq!(position_after_typing(&mut quiet), None);
+}
+
+/// 九宫格选一个词记进个人上下文模型的次数与全拼键盘显式选词相同（#6185）。
+#[test]
+fn nine_key_personal_picks_count_like_the_full_keyboard() {
+    assert_eq!(
+        crate::nine_key::PERSONAL_PICK_TIMES,
+        super::learning::DICTIONARY_PICK_TIMES
     );
 }
 

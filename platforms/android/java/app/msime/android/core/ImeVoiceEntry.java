@@ -174,16 +174,7 @@ final class ImeVoiceEntry {
                         if (text == null) failure = "语音识别服务未响应，请稍后重试";
                     }
                 } catch (LocalAsrRecognizer.Refused refused) {
-                    failure = switch (refused.failure()) {
-                        case PERMISSION -> "语音识别需要麦克风权限";
-                        case UNAVAILABLE -> "麦克风被其他应用占用";
-                        case MODEL -> "本地语音模型未安装或已损坏，请在设置中重新下载";
-                        case RUNTIME -> refused.runtimeMissing()
-                            ? "本地语音识别组件尚未下载，请在设置中下载后再试"
-                            : "本地语音识别组件无法加载";
-                        case EMPTY -> "没有听到内容";
-                        case CANCELLED -> null;
-                    };
+                    failure = LocalAsrPolicy.failureMessage(refused.failure(), refused.runtimeMissing());
                 } catch (RuntimeException | LinkageError error) {
                     failure = "语音识别服务无法启动";
                 }

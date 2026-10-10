@@ -48,6 +48,8 @@ export function localModelStageLabel(stage: string): string {
   switch (stage) {
     case "download":
       return "下载中";
+    case "import":
+      return "导入中";
     case "verify":
       return "校验中";
     case "extract":
@@ -84,6 +86,24 @@ export function localModelErrorMessage(error: unknown): string | null {
       return "无法访问模型存放目录。";
     default:
       return "操作失败，请重试。";
+  }
+}
+
+/** 「从文件导入」失败时的提示：文件对不上的几种说法换成针对导入的，其余和下载相同。 */
+export function localModelImportErrorMessage(error: unknown): string | null {
+  switch (errorCode(error)) {
+    case "local_model_import_missing":
+      return "所选文件里缺少这个模型需要的文件，请对照上面列出的文件全部下载后一起选中。";
+    case "local_model_import_unreadable":
+      return "读取所选文件失败，请确认文件仍在原处、已完整下载到本机后重新选择。";
+    case "local_model_checksum_mismatch":
+      return "所选文件和模型目录里的校验值不符，可能没下载完整或版本不对，请重新下载后再导入。";
+    case "local_model_invalid_archive":
+      return "所选的模型压缩包内容不完整或不安全，已丢弃。请重新下载后再导入。";
+    case "busy":
+      return "该模型正在安装，请等待完成或先取消。";
+    default:
+      return localModelErrorMessage(error);
   }
 }
 

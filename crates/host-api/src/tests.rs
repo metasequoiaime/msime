@@ -160,6 +160,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         scheme: 0,
         enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
+        shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
@@ -966,6 +967,81 @@ fn wubi_profile_reaches_engine_options() {
         let session = &sessions.borrow()[&handle];
         assert_eq!(session.options.wubi_profile, 1);
         assert_eq!(session.applied.wubi_profile, WubiProfile::Wubi98);
+    });
+    read(msime_client_destroy(handle));
+}
+
+/// 小鹤的键位，只把 ing 从 k 挪到 `;`。
+fn custom_shuangpin_table() -> msime_client_core::preferences::ShuangpinCustomProfile {
+    serde_json::from_value(json!({
+        "initials": { "zh": "v", "ch": "i", "sh": "u" },
+        "finals": {
+            "iu": "q", "ei": "w", "e": "e", "uan": "r", "ue": "t", "ve": "t", "un": "y",
+            "u": "u", "i": "i", "uo": "o", "o": "o", "ie": "p", "a": "a", "ong": "s",
+            "iong": "s", "ai": "d", "en": "f", "eng": "g", "ang": "h", "an": "j", "uai": "k",
+            "ing": ";", "uang": "l", "iang": "l", "ou": "z", "ua": "x", "ia": "x", "ao": "c",
+            "ui": "v", "v": "v", "in": "b", "iao": "n", "ian": "m"
+        },
+        "zero_initials": {
+            "a": "aa", "ai": "ai", "an": "an", "ang": "ah", "ao": "ao", "e": "ee", "ei": "ei",
+            "en": "en", "eng": "eg", "er": "er", "o": "oo", "ou": "ou"
+        }
+    }))
+    .unwrap()
+}
+
+#[test]
+fn custom_shuangpin_profile_reaches_engine_options_or_falls_back_to_xiaohe() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    // 选了自定义方案却没有表：按小鹤运行，诊断里写明原因。
+    let mut preferences = Preferences {
+        scheme: InputScheme::Shuangpin,
+        shuangpin_profile: ShuangpinProfile::Custom,
+        ..chinese_preferences()
+    };
+    let response = update(handle, 1, &preferences);
+    let diagnostic = response["value"]["diagnostic"].as_str().unwrap_or_default();
+    assert!(
+        diagnostic.starts_with(
+            "Custom shuangpin profile unusable because initials unit \"zh\" has no key"
+        ),
+        "{response}"
+    );
+    assert_eq!(response["value"]["view"]["shuangpin_profile"], "xiaohe");
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert_eq!(session.options.shuangpin_profile, 0);
+        assert_eq!(session.options.shuangpin_custom_profile, None);
+    });
+
+    preferences.shuangpin_custom_profile = custom_shuangpin_table();
+    let response = update(handle, 2, &preferences);
+    assert!(response["value"].get("diagnostic").is_none(), "{response}");
+    assert_eq!(response["value"]["view"]["shuangpin_profile"], "custom");
+    assert_eq!(response["value"]["view"]["microsoft_shuangpin"], true);
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert_eq!(session.options.shuangpin_profile, 4);
+        assert_eq!(
+            session.options.shuangpin_custom_profile,
+            Some(engine_shuangpin_custom_table(&custom_shuangpin_table()))
+        );
+    });
+    read(msime_client_character(handle, b'x', false));
+    let typed = read(msime_client_character(handle, b';', false));
+    assert_eq!(typed["value"]["view"]["editing_text"], "x;", "{typed}");
+
+    // 换回内置方案时不再把表交给 Engine，但偏好里的表留着。
+    read(msime_client_command(handle, 3));
+    preferences.shuangpin_profile = ShuangpinProfile::Ziranma;
+    update(handle, 3, &preferences);
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert_eq!(session.options.shuangpin_profile, 1);
+        assert_eq!(session.options.shuangpin_custom_profile, None);
+        assert!(!session.applied.shuangpin_custom_profile.is_empty());
     });
     read(msime_client_destroy(handle));
 }
@@ -2450,7 +2526,7 @@ fn resolve_theme_reads_the_package_from_either_source() {
     let entry = msime_client_core::skin::catalog::host_candidate_catalog(
         &msime_client_core::skin::catalog::scan(&root),
         &root,
-        "sakura",
+        &["sakura"],
     )["packages"][0]
         .clone();
     let from_entry = call(json!({
@@ -2458,11 +2534,13 @@ fn resolve_theme_reads_the_package_from_either_source() {
     }));
     assert_eq!(from_entry["value"], from_root["value"]);
 
-    // Paper fixes the light mode, so a dark host still draws the package's light palette.
+    // paper 底的皮肤是浅色皮肤，只画在浅色模式：深色宿主没设深色槽位时不画它，自定义主题落回底和取色器。
     let dark = call(json!({
         "global_theme": "custom", "custom_theme": custom, "dark": true, "layout": "vertical", "skins_directory": root,
     }));
-    assert_eq!(dark["value"], from_root["value"]);
+    assert_eq!(dark["ok"], true, "{dark}");
+    assert_eq!(dark["value"]["candidate_skin"], Value::Null);
+    assert_eq!(dark["value"]["candidate"]["text"], "#010203");
 
     // A missing package leaves the theme to resolve over the platform tokens.
     let missing = call(json!({
@@ -4967,6 +5045,80 @@ fn chinese_punctuation_lock_holds_in_english_mode() {
     read(msime_client_destroy(handle));
 }
 
+/// 「大写锁定时使用英文标点」（#6370）：宿主报告大写锁定后，三个标点入口在没有组字时都把键留给宿主按 ASCII 输出；组字中和固定中文标点时照旧，开关关着或大写锁定关掉时也照旧。
+#[test]
+fn caps_lock_sends_idle_punctuation_to_ascii_when_the_switch_is_on() {
+    let left_to_host = |value: Value| {
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["value"]["handled"], false);
+        assert!(value["value"]["commit"].is_null());
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_preferences(
+        dir.path(),
+        Preferences {
+            caps_lock_ascii_punctuation: true,
+            ..chinese_preferences()
+        },
+    );
+    read(msime_client_focus(handle, true));
+    assert_eq!(
+        read(msime_client_character(handle, b',', false))["value"]["commit"],
+        "，"
+    );
+
+    assert_eq!(
+        read(msime_client_set_caps_lock(handle, true))["value"],
+        true
+    );
+    left_to_host(read(msime_client_character(handle, b',', false)));
+    left_to_host(read(msime_client_character(handle, b'?', true)));
+    left_to_host(read(msime_client_punctuation(handle, b';')));
+    left_to_host(read(msime_client_punctuation_with_context(
+        handle,
+        b'.',
+        u32::from('中'),
+    )));
+
+    // 组字中 Engine 照旧决定：候选连同中文标点一起上屏。
+    read(msime_client_character(handle, b'n', false));
+    read(msime_client_character(handle, b'i', false));
+    let composed = read(msime_client_character(handle, b',', false));
+    assert!(composed["value"]["commit"]
+        .as_str()
+        .is_some_and(|value| value.ends_with('，')));
+
+    // 固定中文标点优先于大写锁定。
+    read(msime_client_set_punctuation_lock(handle, 1));
+    assert_eq!(
+        read(msime_client_character(handle, b',', false))["value"]["commit"],
+        "，"
+    );
+    read(msime_client_set_punctuation_lock(handle, 0));
+
+    read(msime_client_set_caps_lock(handle, false));
+    assert_eq!(
+        read(msime_client_character(handle, b',', false))["value"]["commit"],
+        "，"
+    );
+    read(msime_client_destroy(handle));
+
+    // 开关关着（默认）时，大写锁定不改变标点。
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    read(msime_client_set_caps_lock(handle, true));
+    assert_eq!(
+        read(msime_client_character(handle, b',', false))["value"]["commit"],
+        "，"
+    );
+    assert_eq!(
+        read(msime_client_punctuation_with_context(handle, b',', 0))["value"]["commit"],
+        "，"
+    );
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn explicit_punctuation_finishes_unicode_and_rejects_invalid_bytes() {
     for enabled in [true, false] {
@@ -6135,7 +6287,7 @@ fn custom_translation_plan_preserves_direction_and_filters_visible_sources() {
     }
     for request in [
         json!({"target_language":"unknown","candidates":[]}),
-        json!({"target_language":"en","candidates":vec![json!({"text":"hello","source":0}); 10]}),
+        json!({"target_language":"en","candidates":vec![json!({"text":"hello","source":0}); 11]}),
         json!({"target_language":"en","candidates":[{"text":"hello","source":true}]}),
     ] {
         assert_eq!(plan(request)["ok"], false);
@@ -6245,7 +6397,7 @@ fn tencent_translation_buffers_are_bounded() {
         read(unsafe { msime_client_tencent_translation_http_request(b"x".as_ptr(), 65537) })["ok"],
         false
     );
-    for (length, expected) in [(1048577, 1), (1, 0), (1, 10)] {
+    for (length, expected) in [(1048577, 1), (1, 0), (1, 11)] {
         assert_eq!(
             read(unsafe {
                 msime_client_parse_tencent_translation_response(b"x".as_ptr(), length, expected)
@@ -9969,6 +10121,60 @@ fn voice_local_models_list_install_cancel_and_remove_validate_their_requests() {
         read(unsafe { msime_client_voice_local_model_cancel(std::ptr::null(), 0) })["ok"],
         true
     );
+}
+
+#[test]
+fn voice_local_model_install_from_files_validates_the_paths_and_names_what_is_missing() {
+    let root = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let unrelated = downloads.path().join("unrelated.bin");
+    std::fs::write(&unrelated, b"synthetic, matches no catalog file").unwrap();
+    let listed = read(unsafe {
+        let request = json!({ "root": root.path() }).to_string();
+        msime_client_voice_local_models(request.as_ptr(), request.len())
+    });
+    // 不用默认模型：别的测试会并行地对默认模型发起安装，同一个 id 的登记是进程内共享的。
+    let id = "sense-voice-small";
+    let model = listed["value"]["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|model| model["id"] == id)
+        .unwrap()
+        .clone();
+    let archive_name = model["import_files"][0]["name"].as_str().unwrap();
+    assert!(model["import_files"][0]["url"]
+        .as_str()
+        .unwrap()
+        .starts_with("https://"));
+
+    let install = |request: serde_json::Value| {
+        let request = request.to_string();
+        read(unsafe {
+            msime_client_voice_local_model_install(
+                request.as_ptr(),
+                request.len(),
+                None,
+                std::ptr::null_mut(),
+            )
+        })
+    };
+    let missing = install(json!({ "root": root.path(), "id": id, "files": [unrelated] }));
+    assert_eq!(missing["ok"], false, "{missing}");
+    assert_eq!(
+        missing["error"],
+        format!("local_model_import_missing: {archive_name}")
+    );
+    for files in [
+        json!(["relative/model.tar.bz2"]),
+        json!(vec![unrelated.to_str().unwrap(); 17]),
+    ] {
+        let refused = install(json!({ "root": root.path(), "id": id, "files": files }));
+        assert_eq!(refused["error"], "invalid local model import", "{refused}");
+    }
+    let unknown = install(json!({ "root": root.path(), "id": "no-such-model", "files": [] }));
+    assert_eq!(unknown["error"], "local_model_unknown", "{unknown}");
+    assert!(!root.path().join(id).exists());
 }
 
 #[test]

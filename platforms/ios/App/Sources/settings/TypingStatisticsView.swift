@@ -39,22 +39,10 @@ struct TypingStatisticsView: View {
     }
   }
 
-  // 旧文案无条件要求开启完全访问，不管问题是不是出在这个设置上都说同一句话，等于没有信息。这里每种情况都是对「为什么是空的」的不同回答，正常运行时则什么都不说。
+  // 旧文案无条件要求开启完全访问，不管问题是不是出在这个设置上都说同一句话，等于没有信息。每种情况都是对「为什么是空的」的不同回答，正常运行时则什么都不说；文案与取舍见 `TypingStatisticsStore.emptyStatisticsAdvice`。
   private var storageAdvice: String? {
-    // 记录关闭时（统计默认关闭）键盘本来就不写，「记录已关闭」那张卡已经说明了原因；这里再让人去开完全访问，会把人引到错误的地方。
-    if loaded && !statistics.enabled { return nil }
-    switch availability {
-    case .containerUnavailable:
-      return "无法访问共享存储，键盘与本 app 之间没有可用的数据通道。重装水杉输入法可以重建它。"
-    case .neverWritten:
-      return "键盘从未写入过统计。请在系统设置 → 通用 → 键盘 → 键盘 → 水杉输入法中开启“允许完全访问”，"
-        + "然后用水杉键盘输入几个字再回来刷新。未开启时仍可正常打字，只是不记录统计。"
-    case .ready(let lastWritten):
-      guard statistics.total == 0 else { return nil }
-      guard let lastWritten else { return "统计文件存在但还没有计数，请用水杉键盘输入几个字再刷新。" }
-      return "统计文件最后写入于 \(lastWritten.formatted(.dateTime.month().day().hour().minute()))，但计数为零。"
-        + "若此前清空过统计，这是正常的；否则请附上这条信息反馈。"
-    }
+    TypingStatisticsStore.emptyStatisticsAdvice(availability, recordingOff: loaded && !statistics.enabled,
+                                                total: statistics.total)
   }
 
   /// 最近七个本地日，今天排最后：按键热力图的时间窗口，和按键小卡片一致。

@@ -1,9 +1,9 @@
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 #include "../core/BoundedCliInput.h"
 #include "provider_response_cli.h"
 #include <iostream>
 #include <array>
-#include <memory>
 #include <string>
 
 int main(int argc, char **argv) {
@@ -18,9 +18,8 @@ int main(int argc, char **argv) {
   if (!request_length)
     return 2;
   const size_t length = *request_length;
-  std::unique_ptr<char, decltype(&msime_client_string_free)> result(
+  auto result = msime::host_api::own_string(
       msime_client_dictionary(reinterpret_cast<const uint8_t *>(buffer.data()),
-                              length),
-      msime_client_string_free);
+                              length));
   return msime_cli_write_provider_response(result.get(), std::cout);
 }

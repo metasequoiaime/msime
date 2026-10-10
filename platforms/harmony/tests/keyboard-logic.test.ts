@@ -209,7 +209,7 @@ import { ShuangpinKeyHintPolicy } from "../entry/src/main/ets/keyboard/input/Shu
 import { EditorPolicy, EditorTraits } from "../entry/src/main/ets/keyboard/input/EditorPolicy";
 import { EditEchoLedger } from "../entry/src/main/ets/keyboard/input/EditEchoLedger";
 import { KeyboardSkin } from "../entry/src/main/ets/keyboard/skin/KeyboardSkin";
-import { GlobalTheme, KeyboardThemePalette } from "../entry/src/main/ets/keyboard/skin/GlobalTheme";
+import { GlobalTheme, KeyboardThemePalette, ResolvedTheme } from "../entry/src/main/ets/keyboard/skin/GlobalTheme";
 import { AppThemePalette, AppThemeSeed } from "../entry/src/main/ets/keyboard/skin/AppThemePalette";
 import { AppThemeStore } from "../entry/src/main/ets/keyboard/skin/AppThemeStore";
 import {
@@ -2193,20 +2193,34 @@ group("输入方式面板里双拼只留用户设置的那一种（#6450）", ()
     actual.length === expected.length &&
     actual.every((value: SchemeDefinition, index: number): boolean => value === expected[index]);
   check(
-    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, undefined), only(KeyboardScheme.XIAOHE)) &&
-      same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, "future"), only(KeyboardScheme.XIAOHE)),
+    same(
+      KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, undefined),
+      only(KeyboardScheme.XIAOHE),
+    ) &&
+      same(
+        KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, "future"),
+        only(KeyboardScheme.XIAOHE),
+      ),
     "没设置过或值不认识时按小鹤",
   );
   check(
-    KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, null).indexOf(KeyboardScheme.HANDWRITING) < 7,
+    KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, null).indexOf(
+      KeyboardScheme.HANDWRITING,
+    ) < 7,
     "手写回到第一页的八格之内（英文占第三格）",
   );
   check(
-    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.WUBI, "microsoft"), only(KeyboardScheme.MICROSOFT)),
+    same(
+      KeyboardScheme.pickerSchemes(all, KeyboardScheme.WUBI, "microsoft"),
+      only(KeyboardScheme.MICROSOFT),
+    ),
     "设置的是哪一种就留哪一种，位置不变",
   );
   check(
-    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.SHOUDAO, "ziranma"), only(KeyboardScheme.SHOUDAO)),
+    same(
+      KeyboardScheme.pickerSchemes(all, KeyboardScheme.SHOUDAO, "ziranma"),
+      only(KeyboardScheme.SHOUDAO),
+    ),
     "选中的双拼总留在面板里",
   );
   const partial: SchemeDefinition[] = [
@@ -7344,7 +7358,7 @@ group("only a streaming provider gets the listening face, whose stop is a pause"
       `${provider || "the default"} streams words as they are heard`,
     );
   }
-  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral"]) {
+  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral", "bailian"]) {
     check(
       !VoiceRecordingBehaviourPolicy.streamsPartialResults({ ...base, asr_provider: provider }),
       `${provider} answers only after a stop, so it keeps 停止录音`,
@@ -7688,6 +7702,15 @@ group("a batch transcription reply is judged before it is parsed", () => {
   check(
     VoiceResponsePolicy.batchResult(200, JSON.stringify({ text: "" })).failure.length > 0,
     "an empty transcription says so rather than committing nothing",
+  );
+  const chat: VoiceOutcome = VoiceResponsePolicy.batchResult(
+    200,
+    JSON.stringify({ choices: [{ message: { role: "assistant", content: "百炼" } }] }),
+  );
+  check(chat.text === "百炼" && chat.failure === "", "a chat_audio reply is read from its message");
+  check(
+    VoiceResponsePolicy.batchResult(200, JSON.stringify({ choices: [] })).failure.length > 0,
+    "a chat reply without a choice is not a transcript",
   );
   // Judged on the raw body: a provider answering with a megabyte is not one to parse first.
   const huge: string = JSON.stringify({ text: "x".repeat(2 * 1024 * 1024) });
@@ -8279,6 +8302,32 @@ group("a fixed appearance decides every surface's mode", () => {
   check(GlobalTheme.surfaceDark("light", true) === false, "a light theme is light");
   check(GlobalTheme.surfaceDark(null, true) === true, "otherwise the surface's own rule");
   check(GlobalTheme.surfaceDark(null, false) === false, "in both directions");
+});
+
+group("两种明暗的解析一致时主题才固定明暗", () => {
+  const resolved = (appearance: string | null, skin: string | null): ResolvedTheme => ({
+    id: "custom",
+    source: "custom",
+    appearance: appearance,
+    candidate: null,
+    keyboard: null,
+    candidate_skin: skin,
+  });
+  check(
+    GlobalTheme.fixedAppearance(resolved("dark", null), resolved("dark", null)) === "dark",
+    "内置主题或固定底的自定义主题两次都是同一明暗，照旧固定",
+  );
+  // 浅色槽位放浅色底的皮肤、深色槽位放深色底的皮肤：浅色那次解析是 light，深色那次是 dark。
+  const light = resolved("light", "sakura");
+  const dark = resolved("dark", "dusk");
+  check(GlobalTheme.fixedAppearance(light, dark) === null, "两个槽位各画自己明暗的皮肤时不固定明暗");
+  const candidateDark = GlobalTheme.surfaceDark(GlobalTheme.fixedAppearance(light, dark), true);
+  check(candidateDark && (candidateDark ? dark : light).candidate_skin === "dusk", "系统深色时候选窗画深色槽位的皮肤");
+  check(
+    GlobalTheme.fixedAppearance(resolved("light", "sakura"), resolved(null, null)) === null,
+    "只设浅色皮肤时深色模式跟随系统，不被浅色皮肤钉成浅色",
+  );
+  check(GlobalTheme.fixedAppearance(null, resolved("dark", null)) === null, "解析被拒时不固定明暗");
 });
 
 group("the platform accent", () => {
@@ -11647,6 +11696,7 @@ function fullPreferenceSchema(): AccountPreferenceSchema {
       "platform.harmony.custom_keyboard_skin",
       "platform.harmony.theme",
       "platform.harmony.custom_candidate_skin",
+      "platform.harmony.custom_candidate_skin_dark",
       "platform.harmony.haptic_strength",
       "platform.harmony.number_keypad_order",
       "platform.harmony.twenty_six_key_number_layout",
@@ -11693,7 +11743,12 @@ group("the account settings sync maps this host's document, not another's", () =
     chinese_punctuation: false,
     touch_keyboard_layout: "nine_key",
     global_theme: "night",
-    custom_theme: { base: "paper", candidate_skin: "harbour", keyboard: { background: 1 } },
+    custom_theme: {
+      base: "paper",
+      candidate_skin: "harbour",
+      candidate_skin_dark: "dusk",
+      keyboard: { background: 1 },
+    },
     touch_key_spacing_tenths: 40,
   };
   const values = localAccountPreferences(local, syncFeedback);
@@ -11705,6 +11760,10 @@ group("the account settings sync maps this host's document, not another's", () =
   check(
     values["platform.harmony.custom_candidate_skin"] === "harbour",
     "and the custom theme's candidate package",
+  );
+  check(
+    values["platform.harmony.custom_candidate_skin_dark"] === "dusk",
+    "and the dark-mode package beside it",
   );
   // Not platform.android: the two are separate devices with separate keyboards, and sharing the
   // namespace would let a HarmonyOS phone overwrite the skin on the user's Android keyboard.
@@ -11741,6 +11800,7 @@ group("the account settings sync maps this host's document, not another's", () =
     "no design travels as an empty string",
   );
   check(sparse["platform.harmony.custom_candidate_skin"] === "", "and so does no package");
+  check(sparse["platform.harmony.custom_candidate_skin_dark"] === "", "and no dark-mode package");
   const retired = localAccountPreferences({ global_theme: "midnight" }, syncFeedback);
   check(
     retired["platform.harmony.global_theme"] === "system",
@@ -12002,6 +12062,7 @@ group("applying writes only what the schema declares", () => {
       "input.frequency_trigger_count": 5,
       "platform.harmony.global_theme": "paper",
       "platform.harmony.custom_candidate_skin": "harbour",
+      "platform.harmony.custom_candidate_skin_dark": "dusk",
     },
   };
   const applied = applyAccountPreferences(local, cloud, schema, syncFeedback);
@@ -12020,11 +12081,16 @@ group("applying writes only what the schema declares", () => {
     (applied.preferences.custom_theme as Record<string, unknown>).candidate_skin === "harbour",
     "and the package lands inside the custom theme",
   );
+  check(
+    (applied.preferences.custom_theme as Record<string, unknown>).candidate_skin_dark === "dusk",
+    "and so does the dark-mode package",
+  );
   const cleared = applyAccountPreferences(
     {
       custom_theme: {
         base: "ink",
         candidate_skin: "harbour",
+        candidate_skin_dark: "dusk",
         candidate_colors: { text: "#112233" },
       },
     },
@@ -12033,6 +12099,7 @@ group("applying writes only what the schema declares", () => {
       settings: {
         "platform.harmony.custom_theme_base": "system",
         "platform.harmony.custom_candidate_skin": "",
+        "platform.harmony.custom_candidate_skin_dark": "",
         "platform.harmony.custom_keyboard_skin": "",
       },
     },
@@ -12045,8 +12112,22 @@ group("applying writes only what the schema declares", () => {
     "a system base is written by omitting it, as the shared document does",
   );
   check(
-    !("candidate_skin" in clearedTheme) && !("keyboard" in clearedTheme),
-    "empty strings clear the package and the design",
+    !("candidate_skin" in clearedTheme) &&
+      !("candidate_skin_dark" in clearedTheme) &&
+      !("keyboard" in clearedTheme),
+    "empty strings clear both packages and the design",
+  );
+  // 只带浅色槽位的云端文档（上传它的设备还不认识深色槽位）不动本机的深色槽位。
+  const lightOnly = applyAccountPreferences(
+    { custom_theme: { candidate_skin: "harbour", candidate_skin_dark: "dusk" } },
+    { revision: 5, settings: { "platform.harmony.custom_candidate_skin": "sakura" } },
+    schema,
+    syncFeedback,
+  );
+  const lightOnlyTheme = lightOnly.preferences.custom_theme as Record<string, unknown>;
+  check(
+    lightOnlyTheme.candidate_skin === "sakura" && lightOnlyTheme.candidate_skin_dark === "dusk",
+    "a cloud document without the dark slot leaves the local dark slot alone",
   );
   check(
     (clearedTheme.candidate_colors as Record<string, unknown>).text === "#112233",
@@ -12057,6 +12138,8 @@ group("applying writes only what the schema declares", () => {
     ["platform.harmony.custom_theme_base", "custom"],
     ["platform.harmony.custom_candidate_skin", "ink"],
     ["platform.harmony.custom_candidate_skin", "../escape"],
+    ["platform.harmony.custom_candidate_skin_dark", "night"],
+    ["platform.harmony.custom_candidate_skin_dark", "../escape"],
   ]) {
     let refused = false;
     try {
@@ -14539,7 +14622,7 @@ group("a refused preferences write carries the code the page has a sentence for"
     "a stale revision is a conflict",
   );
   check(
-    PreferencesErrorCode.of("candidate page size must be between 1 and 9") === "invalid",
+    PreferencesErrorCode.of("candidate page size must be between 1 and 10") === "invalid",
     "an out-of-range page size is invalid",
   );
   check(
@@ -14802,6 +14885,51 @@ group("AI model catalogs filter capabilities and paginate safely", () => {
   check(
     AiModelCatalogPolicy.append([], { data: [{ id: "first" }, { id: "second" }] }, 1) === false,
     "the aggregate model bound is enforced across pages",
+  );
+});
+
+group("Harmony batch transcription picks the request by its format", () => {
+  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral"]) {
+    check(
+      HttpAsrConfigurationPolicy.requestFormat(provider) === "multipart",
+      `${provider} is a multipart upload`,
+    );
+  }
+  check(
+    HttpAsrConfigurationPolicy.requestFormat("bailian") === "chat_audio",
+    "Bailian is a chat completion with audio input",
+  );
+  check(
+    ["doubao", "local", "system", ""].every(
+      (provider: string) => HttpAsrConfigurationPolicy.requestFormat(provider) === "",
+    ),
+    "streaming, on-device and system recognition are not uploads",
+  );
+  const body = JSON.parse(HttpAsrConfigurationPolicy.chatAudioBody("qwen3-asr-flash", "UklGRg=="));
+  check(
+    body.model === "qwen3-asr-flash" &&
+      body.stream === false &&
+      body.messages.length === 1 &&
+      body.messages[0].role === "user" &&
+      body.messages[0].content[0].type === "input_audio" &&
+      body.messages[0].content[0].input_audio.data === "data:audio/wav;base64,UklGRg==",
+    "the chat body carries the recording as a data URL in one user message",
+  );
+  const bailian: VoiceInputConfiguration = {
+    ...DEFAULT_VOICE_INPUT_CONFIGURATION,
+    asr_provider: "bailian",
+    asr_endpoint: "",
+    asr_model: "",
+    asr_token: "",
+    asr_tokens: { bailian: "synthetic-bailian-key" },
+  };
+  check(
+    HttpAsrConfigurationPolicy.endpoint(bailian) ===
+      "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions" &&
+      HttpAsrConfigurationPolicy.model(bailian) === "qwen3-asr-flash" &&
+      HttpAsrConfigurationPolicy.token(bailian) === "synthetic-bailian-key" &&
+      HttpAsrConfigurationPolicy.valid(bailian),
+    "Bailian resolves to the DashScope compatible endpoint and can record",
   );
 });
 
@@ -16291,6 +16419,44 @@ group("LocalVoiceModelPolicy", () => {
     LocalVoiceModelPolicy.action('{"operation":"install","id":"sense-voice-small"}')?.id ===
       "sense-voice-small",
     "an install names its model",
+  );
+  check(
+    LocalVoiceModelPolicy.action('{"operation":"import","id":"sense-voice-small"}')?.operation ===
+      "import",
+    "an import names its model",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_import_missing: silero_vad.onnx") ===
+      "local_model_import_missing",
+    "a missing import file keeps its code and drops the file name",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_import_unreadable: permission denied") ===
+      "local_model_import_unreadable",
+    "an unreadable import file keeps its code",
+  );
+  const catalog = JSON.stringify({
+    ok: true,
+    value: {
+      models: [
+        { id: "x-asr-zh-en-streaming", import_files: [{ size: 133895136 }] },
+        { id: "sense-voice-small", import_files: [{ size: 163002883 }, { size: 643854 }, {}] },
+      ],
+    },
+  });
+  check(
+    LocalVoiceModelPolicy.importSizes(catalog, "sense-voice-small").join(",") ===
+      "163002883,643854",
+    "an import copies only files as long as one the model needs",
+  );
+  check(
+    LocalVoiceModelPolicy.importSizes(catalog, "unknown").length === 0 &&
+      LocalVoiceModelPolicy.importSizes("{", "sense-voice-small").length === 0 &&
+      LocalVoiceModelPolicy.importSizes(
+        JSON.stringify({ ok: false, error: "invalid local model root" }),
+        "sense-voice-small",
+      ).length === 0,
+    "an unknown model or an unreadable list copies nothing",
   );
   check(
     LocalVoiceModelPolicy.action('{"operation":"remove"}') === null &&
