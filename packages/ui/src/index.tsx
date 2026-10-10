@@ -1,3 +1,4 @@
+import type { DictionaryCollectionsClient } from "./dictionary/dictionary-collections";
 import { useConfirm } from "./core/confirm";
 import { NavItem } from "./core/platform-controls";
 import { ToastProvider } from "./core/toast";
@@ -2041,8 +2042,19 @@ export interface DictionaryClient {
   ): Promise<{ text: string; has_more: boolean }>;
   retry?(request_id: string): Promise<void>;
   dismissFailure?(request_id: string): Promise<void>;
+  /** 一种词库的词条总数，含内置词条；手机「词库」页的「拼音词库」行显示它。 */
+  count?(kind: LocalDictionaryKind): Promise<number>;
 }
 export { dictionaryKindKeyHint } from "./settings/pages/dictionary-page";
+export type {
+  DictionaryCollection,
+  DictionaryCollectionKind,
+  DictionaryCollectionSource,
+  DictionaryCollectionWord,
+  DictionaryCollectionImportReport,
+  DictionaryCollectionsView,
+  DictionaryCollectionsClient,
+} from "./dictionary/dictionary-collections";
 
 export type FloatingToolbarPreferences = {
   enabled: boolean;
@@ -2119,6 +2131,8 @@ export interface SettingsClient {
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
   dictionary?: DictionaryClient;
+  /** 命名词库：新建、导入、启用停用、装社区词库。提供它的宿主在手机的「词库」页按词库列出，而不是按种类查词条。 */
+  dictionaryCollections?: DictionaryCollectionsClient;
   /** 原子地恢复内置词库并清除全部学习数据；宿主只在真正能清除的平台（三个桌面宿主）上提供它。 */
   resetLearnedData?: () => Promise<void>;
   /**
@@ -3654,7 +3668,16 @@ export function SettingsPage(props: SettingsPageProps) {
                   initialMine={initialCommunityMine}
                   initialCategory={initialCommunityCategory}
                   initialScope={initialCommunityScope}
-                  localDictionary={client.dictionary}
+                  localDictionary={
+                    client.dictionaryCollections
+                      ? {
+                          ...client.dictionary,
+                          installCollection: async (resource) => {
+                            await client.dictionaryCollections?.installCommunity(resource);
+                          },
+                        }
+                      : client.dictionary
+                  }
                   localSkinLibrary={client.customSkinLibrary}
                   mobile={mobilePlatform}
                   onLogin={openAccountLogin}
