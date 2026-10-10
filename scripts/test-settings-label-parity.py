@@ -37,6 +37,9 @@ PARTIAL = "ui-html/webview2/settings/ime-settings/src/partials/helpcode.html"
 
 REFERENCE = reference_root(ROOT)
 
+# 本项目自己加的辅助码方案，参考实现没有：它们不和参考实现比对，只要求各处写法一致。
+OWN_SCHEMES = {"wubi86"}
+
 
 def reference_labels() -> tuple[dict[str, str], str, str] | None:
     """The reference's own dropdown, at the fixed migration source.
@@ -114,7 +117,8 @@ def macos_backend() -> dict[str, str]:
     source = (ROOT / "platforms/macos/src/backend/settings/BackendSettingsView.swift").read_text(
         encoding="utf-8"
     )
-    labels = re.search(r'helpcode_schema":\s*names = \[(.*)$', source, re.M)
+    # 标题列表放在 MacSettingsModel.helpcodeSchemeTitles，下载预览和显示共用它。
+    labels = re.search(r'static let helpcodeSchemeTitles = \[(.*)$', source, re.M)
     assert labels, "the macOS backend page no longer names the helpcode schemes"
     # The backend page indexes its names by the stored integer, and that order is the C++ one.
     identifiers = (ROOT / "platforms/macos/src/settings/HelpcodeSchemaPreference.h").read_text(
@@ -203,7 +207,7 @@ def main() -> int:
         truth, ref, sha = resolved
         source = f"the reference ({ref} {sha[:8]})"
         for name, found in identifiers.items():
-            unknown = sorted(found - set(truth))
+            unknown = sorted(found - set(truth) - OWN_SCHEMES)
             if unknown:
                 print(
                     f"FAIL {name} offers schemes the reference does not have: {unknown}",
@@ -214,6 +218,8 @@ def main() -> int:
     for name, labels in copies.items():
         for value, label in sorted(labels.items()):
             expected = truth.get(value)
+            if expected is None and value in OWN_SCHEMES:
+                expected = copies[first].get(value)
             if expected is not None and label != expected:
                 print(
                     f"FAIL {name} calls {value} 「{label}」 where {source} calls it 「{expected}」",

@@ -1,4 +1,6 @@
 //! `T` mode (date_time_query.cpp, core-session.md §10.2): `rq`/`riqi`/`date`, `sj`/`shijian`/`time`, `xq`/`xingqi`/`week`, formatted from an injected local time. The lunar date comes from `lunar-lite` rather than the hand-typed 1900-2100 table.
+//!
+//! `nl`/`nongli`/`yinli` 是参考实现之外新增的农历关键词（#5952）：农历原本只排在 `rq` 列表最后一行，单独的关键词让它不用翻页就能选到。
 
 use lunar_lite::{solar_to_lunar, SolarDate};
 use time::{Date, Month, OffsetDateTime};
@@ -102,6 +104,7 @@ pub fn query_date_time_with_limit(
         "rq" | "riqi" | "date" => date_candidates(now),
         "sj" | "shijian" | "time" => time_candidates(now),
         "xq" | "xingqi" | "week" => week_candidates(now),
+        "nl" | "nongli" | "yinli" => lunar_candidates(now),
         _ => return Vec::new(),
     };
     let count = texts.len().min(limit);
@@ -224,6 +227,17 @@ fn week_candidates(now: &LocalDateTime) -> Vec<String> {
     results.push(ENGLISH_FULL_WEEKDAYS[weekday].to_owned());
     results.push(ENGLISH_WEEKDAYS[weekday].to_owned());
     results
+}
+
+/// 农历日期，再加带星期的两种写法；日历换算不了的日期（超出 lunar-lite 覆盖范围或零时钟）没有任何行，和 `rq` 列表丢掉农历行的做法一致。
+fn lunar_candidates(now: &LocalDateTime) -> Vec<String> {
+    let Some(lunar) = lunar_date(now) else {
+        return Vec::new();
+    };
+    let weekday = weekday_index(now);
+    let full = format!("{lunar} {}", WEEKDAYS[weekday]);
+    let short = format!("{lunar} {}", SHORT_WEEKDAYS[weekday]);
+    vec![lunar, full, short]
 }
 
 pub(crate) fn year_digits(value: u32) -> String {
@@ -415,6 +429,37 @@ mod tests {
             &query_date_time("xq", &out_of_range),
             &["星期六", "Saturday", "Sat"],
         );
+    }
+
+    #[test]
+    fn lunar_aliases_with_weekday_variants() {
+        for keyword in ["nl", "nongli", "yinli"] {
+            assert_words(
+                &query_date_time(keyword, &sample_time()),
+                &[
+                    "丙午年六月二十七日",
+                    "丙午年六月二十七日 星期日",
+                    "丙午年六月二十七日 周日",
+                ],
+            );
+        }
+        // 闰月照样标出，星期取注入时钟的那一天。
+        assert_words(
+            &query_date_time("nongli", &at(2023, 3, 22, 3)),
+            &[
+                "癸卯年闰二月一日",
+                "癸卯年闰二月一日 星期三",
+                "癸卯年闰二月一日 周三",
+            ],
+        );
+        assert_words(
+            &query_date_time_with_limit("nl", &sample_time(), 1),
+            &["丙午年六月二十七日"],
+        );
+        // 日历换算不了的日期不给出空行或只有星期的行。
+        assert!(query_date_time("nl", &at(2200, 6, 15, 0)).is_empty());
+        assert!(query_date_time("yinli", &LocalDateTime::default()).is_empty());
+        assert!(query_date_time("NL", &sample_time()).is_empty());
     }
 
     /// test_local_modes.cpp:175-183.

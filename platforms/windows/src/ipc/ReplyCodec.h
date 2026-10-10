@@ -95,6 +95,8 @@ struct TsfLocalConfig {
   bool mention_mode = false;
   // The focused client's Engine is in its own English mode, where a capital is composed English and V is a letter rather than the expression mode. Not a preference: the Server follows the focused session and sends the V, "/" and "@" flags off while it holds, so the TIP keeps digits selecting and '-'/'.' paging in an English word that starts with V. It also travels on its own DedicatedEnglishChanged frame, so the TIP gives every letter to the Engine there rather than handing idle non-stroke letters to the application under Stroke.
   bool dedicated_english = false;
+  // 组字时 ';' 和 '\'' 选第二、第三个候选，TIP 据此把这两个键归为数字选词（SecondThirdCandidatePolicy.h）。
+  bool second_third_candidate = false;
 };
 // Set the V, "/" and "@" flags from the user's `local_modes` switches for `scheme`, the `SchemeType` number of the scheme the Engine runs (scheme::scheme_from_name; -1 for a name no build knows). A switch stays off where the Engine would not open its mode: V follows scheme::OpensLocalModes, "/" and "@" follow scheme::OpensTableModes.
 void apply_local_mode_switches(TsfLocalConfig &config, int scheme, bool expression, bool command, bool mention);

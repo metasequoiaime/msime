@@ -6,6 +6,7 @@ import { ActionButton } from "../core/action-button";
 import {
   formatModelBytes,
   localModelErrorMessage,
+  localModelImportErrorMessage,
   localModelInUse,
   localModelLanguages,
   localModelProgressPercent,
@@ -18,6 +19,7 @@ import { useMountedRef } from "../settings/use-mounted-ref";
 export {
   formatModelBytes,
   localModelErrorMessage,
+  localModelImportErrorMessage,
   localModelInUse,
   localModelLanguages,
   localModelProgressPercent,
@@ -49,11 +51,15 @@ export type LocalVoiceModel = {
   license_notice: string;
   /** `native` or `pinyin`: how the user's dictionary words reach the recognizer. */
   hotwords: string;
+  /** 不联网安装时要用户自己下载的文件：模型压缩包在前，带下载地址的附加文件在后。 */
+  import_files: LocalVoiceModelImportFile[];
 };
+/** 「从文件导入」需要的一个文件，`url` 是它在上游的下载地址。 */
+export type LocalVoiceModelImportFile = { name: string; url: string; size: number };
 export type LocalVoiceModelList = { models: LocalVoiceModel[]; default: string; root: string };
 export type LocalVoiceModelProgress = {
   id: string;
-  stage: "download" | "verify" | "extract" | "done" | string;
+  stage: "download" | "import" | "verify" | "extract" | "done" | string;
   downloaded: number;
   total: number;
 };
@@ -64,6 +70,10 @@ export type LocalVoiceModelClient = {
   install(id: string): Promise<string>;
   cancel(id: string): Promise<boolean>;
   remove(id: string): Promise<void>;
+  /**
+   * 让用户用宿主的文件选择器选自己下载好的文件来安装 `id`，不联网；安装好后解析为模型目录，用户关掉选择器时为 `null`。进度和下载一样经 `onProgress` 报告，阶段是 `import`。宿主不提供时页面不显示导入按钮。
+   */
+  import?(id: string): Promise<string | null>;
   onProgress(listener: (progress: LocalVoiceModelProgress) => void): Promise<() => void>;
 };
 
@@ -101,6 +111,7 @@ export function LocalModelManager({
   const [progress, setProgress] = useState<Record<string, LocalVoiceModelProgress>>({});
   const [installing, setInstalling] = useState<Record<string, boolean>>({});
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
+  const [importing, setImporting] = useState<Record<string, boolean>>({});
   const mounted = useMountedRef();
   const clientGeneration = useAsyncGeneration(client);
   const activeClient = useRef(client);
@@ -129,6 +140,7 @@ export function LocalModelManager({
     setProgress({});
     setInstalling({});
     setRemoving({});
+    setImporting({});
     void refresh();
     let unlisten: (() => void) | undefined;
     void client
@@ -169,6 +181,34 @@ export function LocalModelManager({
     } finally {
       if (mounted.current && activeClient.current === client) {
         setInstalling((current) => ({ ...current, [model.id]: false }));
+        setProgress((current) => {
+          const next = { ...current };
+          delete next[model.id];
+          return next;
+        });
+        await refresh();
+      }
+    }
+  };
+
+  const importFiles = async (model: LocalVoiceModel) => {
+    if (!client.import) return;
+    setNotice("");
+    setImporting((current) => ({ ...current, [model.id]: true }));
+    try {
+      const path = await client.import(model.id);
+      if (!mounted.current || activeClient.current !== client) return;
+      // 用户关掉了选择器，不算失败。
+      if (path === null) return;
+      setNotice(`「${model.title}」已导入。`);
+      // 和下载一样：第一个装上的模型直接用上，之后的等用户选。
+      if (!modelPathRef.current.trim()) onUseRef.current(path);
+    } catch (error) {
+      if (mounted.current && activeClient.current === client)
+        setNotice(localModelImportErrorMessage(error) ?? `已取消导入「${model.title}」。`);
+    } finally {
+      if (mounted.current && activeClient.current === client) {
+        setImporting((current) => ({ ...current, [model.id]: false }));
         setProgress((current) => {
           const next = { ...current };
           delete next[model.id];
@@ -220,6 +260,7 @@ export function LocalModelManager({
         {models.map((model) => {
           const inUse = localModelInUse(model, modelPath);
           const running = installing[model.id] === true;
+          const importRunning = importing[model.id] === true;
           const current = progress[model.id];
           const percent = localModelProgressPercent(current);
           return (
@@ -255,10 +296,32 @@ export function LocalModelManager({
                 )}
                 {model.license_terms && <span>（条款：{model.license_terms}）</span>}
               </p>
-              {running && (
+              {!model.installed && client.import && model.import_files.length > 0 && (
+                <p className="text-xs opacity-70">
+                  不联网安装：先下载{" "}
+                  {model.import_files.map((file, index) => (
+                    <span key={file.url}>
+                      {index > 0 && "、"}
+                      {openExternalUrl ? (
+                        <ActionButton
+                          action={() => void openExternalUrl(file.url).catch(() => undefined)}
+                          className="link"
+                          label={`${file.name}（${formatModelBytes(file.size)}）`}
+                        />
+                      ) : (
+                        <span>
+                          {file.name}（{formatModelBytes(file.size)}）：{file.url}
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                  ，再点“从文件导入”一起选中。文件改过名也能认出。
+                </p>
+              )}
+              {(running || (importRunning && current)) && (
                 <div className="flex items-center gap-2">
                   <progress
-                    aria-label={`${model.title} 下载进度`}
+                    aria-label={`${model.title} ${importRunning ? "导入" : "下载"}进度`}
                     max={100}
                     value={percent}
                     className="min-w-0 flex-1"
@@ -269,11 +332,11 @@ export function LocalModelManager({
                 </div>
               )}
               <div className="flex flex-wrap gap-2">
-                {running ? (
+                {running || importRunning ? (
                   <ActionButton
                     action={() => void client.cancel(model.id).catch(() => undefined)}
                     className="secondary"
-                    label="取消下载"
+                    label={importRunning ? "取消导入" : "取消下载"}
                   />
                 ) : model.installed ? (
                   <>
@@ -291,11 +354,20 @@ export function LocalModelManager({
                     />
                   </>
                 ) : (
-                  <ActionButton
-                    action={() => void install(model)}
-                    className=""
-                    label={`下载（${formatModelBytes(model.archive_size)}）`}
-                  />
+                  <>
+                    <ActionButton
+                      action={() => void install(model)}
+                      className=""
+                      label={`下载（${formatModelBytes(model.archive_size)}）`}
+                    />
+                    {client.import && (
+                      <ActionButton
+                        action={() => void importFiles(model)}
+                        className="secondary"
+                        label="从文件导入"
+                      />
+                    )}
+                  </>
                 )}
               </div>
             </li>

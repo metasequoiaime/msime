@@ -17,6 +17,8 @@ import org.json.JSONObject;
  */
 public final class VoiceConfiguration {
     private final String providerName;
+    /** 共享层给出的请求格式（`multipart`、`chat_audio` 等）；上传按它拼请求体。 */
+    private final String requestFormat;
     private final String endpoint;
     private final String model;
     private final String token;
@@ -27,13 +29,21 @@ public final class VoiceConfiguration {
     private VoiceConfiguration(String providerName, String endpoint, String model, String token,
                                VoiceRecognitionActivity.Streaming streaming,
                                VoiceRecognitionActivity.Polish polish) {
-        this(providerName, endpoint, model, token, streaming, polish, null);
+        this(providerName, null, endpoint, model, token, streaming, polish, null);
     }
 
     private VoiceConfiguration(String providerName, String endpoint, String model, String token,
                                VoiceRecognitionActivity.Streaming streaming,
                                VoiceRecognitionActivity.Polish polish, String localModel) {
+        this(providerName, null, endpoint, model, token, streaming, polish, localModel);
+    }
+
+    private VoiceConfiguration(String providerName, String requestFormat, String endpoint,
+                               String model, String token,
+                               VoiceRecognitionActivity.Streaming streaming,
+                               VoiceRecognitionActivity.Polish polish, String localModel) {
         this.providerName = providerName;
+        this.requestFormat = requestFormat;
         this.endpoint = endpoint;
         this.model = model;
         this.token = token;
@@ -54,6 +64,11 @@ public final class VoiceConfiguration {
 
     public String providerName() {
         return providerName;
+    }
+
+    /** 上传的请求格式；不是整句上传时为 null。 */
+    public String requestFormat() {
+        return requestFormat;
     }
 
     public String endpoint() {
@@ -109,6 +124,7 @@ public final class VoiceConfiguration {
             VoiceRecognitionActivity.Polish polish = polish(polishValue, requestId);
             if (provider == null) return new VoiceConfiguration(null, null, null, null, null, polish);
             String name = JsonPolicy.strictStringOrEmpty(provider.opt("provider"));
+            String requestFormat = JsonPolicy.strictStringOrEmpty(provider.opt("requestFormat"));
             String endpoint = JsonPolicy.strictStringOrEmpty(provider.opt("endpoint"));
             String model = JsonPolicy.strictStringOrEmpty(provider.opt("model"));
             String token = JsonPolicy.strictStringOrEmpty(provider.opt("token"));
@@ -129,8 +145,9 @@ public final class VoiceConfiguration {
                         JsonPolicy.strictStringOrEmpty(provider.opt("boostingTableId"))),
                     polish);
             }
-            if (HttpAsrPolicy.usable(name, endpoint, model, token)) {
-                return new VoiceConfiguration(name, endpoint, model, token, null, polish);
+            if (HttpAsrPolicy.usable(requestFormat, endpoint, model, token)) {
+                return new VoiceConfiguration(name, requestFormat, endpoint, model, token, null,
+                    polish, null);
             }
             return new VoiceConfiguration(null, null, null, null, null, polish);
         } catch (JSONException error) {

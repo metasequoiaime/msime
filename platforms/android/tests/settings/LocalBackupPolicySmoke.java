@@ -60,13 +60,54 @@ public final class LocalBackupPolicySmoke {
         for (int index = 0; index < 513; index++) many.put("key." + index, true);
         check(LocalBackupPolicy.fieldTypes(many) == null, "more fields than client-core accepts");
 
-        equal(LocalBackupPolicy.summary(new Restored(true, 2, 5, 120, 0, List.of())),
+        equal(LocalBackupPolicy.summary(new Restored(true, 2, 5, 120, 0, 0, 0, List.of())),
             "已恢复设置、2 个自定义皮肤、5 条常用语；120 个词会在键盘空闲时陆续写入词库。", "full restore");
-        equal(LocalBackupPolicy.summary(new Restored(false, 0, 0, 0, 0, List.of())),
+        equal(LocalBackupPolicy.summary(new Restored(true, 0, 0, 120, 0, 300, 40, List.of())),
+            "已恢复设置；120 个词会在键盘空闲时陆续写入词库；340 条输入记录会在键盘空闲时合并，本机已有的保留本机。",
+            "input records and habits are reported together with the words");
+        equal(LocalBackupPolicy.summary(new Restored(false, 0, 0, 0, 0, 0, 12, List.of())),
+            "12 条输入记录会在键盘空闲时合并，本机已有的保留本机。", "a backup that only adds input habits");
+        equal(LocalBackupPolicy.summary(new Restored(false, 0, 0, 0, 0, 0, 0, List.of())),
             "备份里没有需要恢复的新内容。", "nothing new");
-        equal(LocalBackupPolicy.summary(new Restored(true, 0, 0, 10, 2, List.of("常用语"))),
+        equal(LocalBackupPolicy.summary(new Restored(true, 0, 0, 10, 2, 0, 0, List.of("常用语"))),
             "已恢复设置；10 个词会在键盘空闲时陆续写入词库；2 个词无法导入，已跳过；常用语没有恢复，请重试。",
             "partial restore names what failed");
+        // 整份激活会替换本机的全部学习状态：只有备份有词、本机确定什么都没有时才用。
+        equal(LocalBackupPolicy.dictionaryRestore(120, 0, 0), LocalBackupPolicy.DictionaryRestore.ACTIVATE,
+            "a fresh device activates the whole snapshot");
+        equal(LocalBackupPolicy.dictionaryRestore(120, 0, 5), LocalBackupPolicy.DictionaryRestore.MERGE,
+            "an old backup on a device that has learned but has no words merges");
+        equal(LocalBackupPolicy.dictionaryRestore(120, 3, 0), LocalBackupPolicy.DictionaryRestore.MERGE,
+            "a device with its own words merges");
+        equal(LocalBackupPolicy.dictionaryRestore(0, 0, 0), LocalBackupPolicy.DictionaryRestore.MERGE,
+            "a backup with input records only merges");
+        equal(LocalBackupPolicy.dictionaryRestore(120, null, 0), LocalBackupPolicy.DictionaryRestore.MERGE,
+            "an unreadable word count merges");
+        equal(LocalBackupPolicy.dictionaryRestore(120, 0, null), LocalBackupPolicy.DictionaryRestore.MERGE,
+            "an unreadable input record count merges");
+        // 校验和（#5659）：旧包没有 checksums 时只靠解析；新包每个条目都要对上，多出、缺少、改过的都算损坏。
+        Map<String, String> actual = new LinkedHashMap<>();
+        actual.put(LocalBackupPolicy.SETTINGS, "aa");
+        actual.put(LocalBackupPolicy.DICTIONARY, "bb");
+        check(LocalBackupPolicy.checksumsMatch(null, actual), "an old backup without checksums is checked by parsing only");
+        Map<String, String> declared = new LinkedHashMap<>(actual);
+        declared.put("future.json", "cc");
+        check(LocalBackupPolicy.checksumsMatch(declared, actual), "matching entries pass; unknown declared names are ignored");
+        declared.put(LocalBackupPolicy.SETTINGS, "AA");
+        check(LocalBackupPolicy.checksumsMatch(declared, actual), "hex case does not matter");
+        declared.put(LocalBackupPolicy.DICTIONARY, "bc");
+        check(!LocalBackupPolicy.checksumsMatch(declared, actual), "a changed entry is damaged");
+        declared.put(LocalBackupPolicy.DICTIONARY, "bb");
+        declared.put(LocalBackupPolicy.HABITS, "dd");
+        check(!LocalBackupPolicy.checksumsMatch(declared, actual), "a declared entry that is missing is damaged");
+        declared.remove(LocalBackupPolicy.HABITS);
+        actual.put(LocalBackupPolicy.PHRASES, "ee");
+        check(!LocalBackupPolicy.checksumsMatch(declared, actual), "an entry nobody declared is damaged");
+        equal(LocalBackupPolicy.entryLimit(LocalBackupPolicy.HABITS), LocalBackupPolicy.MAX_HABITS_BYTES, "habits limit");
+        equal(LocalBackupPolicy.entryLimit("future.json"), -1L, "unknown entries have no limit");
+        equal(LocalBackupPolicy.rolledBack("常用语", true),
+            "常用语没能恢复，这次恢复已经全部撤销，本机保持恢复前的样子。请稍后重试。", "a failed part undoes the restore");
+        check(LocalBackupPolicy.rolledBack("设置", false).contains("撤销时也出了错"), "a failed undo is reported as such");
         System.out.println("Android local backup policy passed");
     }
 }

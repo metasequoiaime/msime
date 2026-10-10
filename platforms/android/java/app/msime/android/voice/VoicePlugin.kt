@@ -42,6 +42,9 @@ class VoicePolishArgs {
 @InvokeArg
 class VoiceProviderArgs {
     var provider: String = ""
+
+    /** 共享层给出的请求格式（`multipart`、`chat_audio`、`doubao_websocket` 或 `local`），上传按它拼请求体。 */
+    var requestFormat: String = ""
     var endpoint: String = ""
     var model: String = ""
     var token: String = ""
@@ -145,7 +148,7 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
             DoubaoAsrPolicy.usable(it.provider, it.endpoint, it.headers.map(VoiceHeaderArgs::name))
         }
         val provider = configured?.takeIf {
-            local == null && streaming == null && HttpAsrPolicy.usable(it.provider, it.endpoint, it.model, it.token)
+            local == null && streaming == null && HttpAsrPolicy.usable(it.requestFormat, it.endpoint, it.model, it.token)
         }
         if (configured?.provider == LocalAsrPolicy.PROVIDER && local == null) {
             // 明确选择本地识别却没有可用模型时拒绝请求，不能把音频静默交给系统识别服务。
@@ -163,7 +166,8 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
             VoiceRecognitionActivity.markLaunched(args.requestId)
             VoiceRecognitionActivity.launch(
                 hostActivity, args.requestId, args.language,
-                provider?.provider, provider?.endpoint, provider?.model, provider?.token,
+                provider?.provider, provider?.requestFormat, provider?.endpoint, provider?.model,
+                provider?.token,
                 streaming?.let {
                     VoiceRecognitionActivity.Streaming(
                         it.endpoint,

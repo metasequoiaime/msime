@@ -510,7 +510,8 @@ test("Linux candidate appearance offers the English face, which leads the panel'
   expect(screen.getByLabelText("主字体")).toBeTruthy();
 });
 
-test("Android candidate appearance exposes native font and color controls", async () => {
+// Android 的触屏候选栏画键盘皮肤的颜色，不读候选颜色：字体和字号照常给，候选颜色取色器不显示。
+test("Android candidate appearance exposes native font controls but no candidate colours", async () => {
   mount({
     host: capabilities({
       platform: "android",
@@ -525,9 +526,9 @@ test("Android candidate appearance exposes native font and color controls", asyn
   expect(screen.getByLabelText("英文字体")).toBeTruthy();
   expect(screen.getByLabelText("主字体")).toBeTruthy();
   expect(screen.getByLabelText("字号")).toBeTruthy();
-  expect(screen.getByLabelText("候选强调色")).toBeTruthy();
-  expect(screen.getByLabelText("候选悬停色")).toBeTruthy();
-  expect(screen.getByLabelText("候选边框色")).toBeTruthy();
+  expect(screen.queryByLabelText("候选强调色")).toBeNull();
+  expect(screen.queryByLabelText("候选悬停色")).toBeNull();
+  expect(screen.queryByLabelText("候选边框色")).toBeNull();
 });
 
 test("a host that does not place its own card hides the follow-cursor choice", async () => {
@@ -729,13 +730,18 @@ test("a host whose skin folder is unreachable is offered an import, not a folder
   // the application sandbox where no file manager reaches it, so the button has to say what it
   // actually does — it was disabled there, promising a folder that never appeared.
   mount({
-    host: capabilities({ platform: "harmony", skin_directory_import: true }),
+    // HarmonyOS 2in1：手机不显示外部皮肤这一行，桌面形态的 2in1 才有。
+    host: capabilities({
+      platform: "harmony",
+      mobile_settings: false,
+      skin_directory_import: true,
+    }),
     scanSkinCatalog: async () => ({ directory: "/skins", packages: [], issues: [] }),
     openSkinDirectory: async () => undefined,
   });
   await settingsFormReady();
-  // 触屏宿主把这个页面叫作 皮肤。
-  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  // 2in1 是桌面形态，这个页面叫 主题。
+  fireEvent.click(screen.getByRole("button", { name: "主题" }));
   expect(screen.getByRole("button", { name: "导入皮肤" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "打开目录" })).toBeNull();
 });

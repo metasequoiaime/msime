@@ -75,6 +75,7 @@ import {
   type McpFlag,
   type McpInstallOutcome,
   type McpServerStatus,
+  type LocalVoiceModelClient,
   type LocalVoiceModelList,
   type LocalVoiceModelProgress,
   type MentionEntry,
@@ -226,6 +227,17 @@ const resourcePacks: ResourcePackClient = {
 const macosInstallClient: MacosInstallClient = {
   install: () => invoke("run_first_input_source_install"),
 };
+const localVoiceModels: LocalVoiceModelClient = {
+  list: () => invoke<LocalVoiceModelList>("voice_local_models"),
+  install: (id) => invoke<string>("voice_local_model_install", { id }),
+  cancel: (id) => invoke<boolean>("voice_local_model_cancel", { id }),
+  remove: (id) => invoke<void>("voice_local_model_remove", { id }),
+  onProgress: (listener) =>
+    listen<LocalVoiceModelProgress>("voice-local-model-progress", (event) =>
+      listener(event.payload),
+    ),
+};
+
 const client: SettingsClient = {
   readAppVersion: getVersion,
   resolveFontFamilies: (names) => invoke("resolve_font_families", { names }),
@@ -283,16 +295,7 @@ const client: SettingsClient = {
     move: () => invoke("move_data_directory"),
   },
   pickVoiceModelPath: () => invoke("pick_voice_model_path"),
-  localVoiceModels: {
-    list: () => invoke<LocalVoiceModelList>("voice_local_models"),
-    install: (id) => invoke<string>("voice_local_model_install", { id }),
-    cancel: (id) => invoke<boolean>("voice_local_model_cancel", { id }),
-    remove: (id) => invoke<void>("voice_local_model_remove", { id }),
-    onProgress: (listener) =>
-      listen<LocalVoiceModelProgress>("voice-local-model-progress", (event) =>
-        listener(event.payload),
-      ),
-  },
+  localVoiceModels,
   windowControl: async (action) => {
     const window = getCurrentWindow();
     if (action === "minimize") return window.minimize();
@@ -719,6 +722,18 @@ function DesktopSettings() {
                     ),
                 }
               : {}),
+            // 「从文件导入」要用宿主的打开对话框选文件，只有三个桌面宿主注册了对话框插件。
+            ...(host.platform === "macos" ||
+            host.platform === "linux" ||
+            host.platform === "windows"
+              ? {
+                  localVoiceModels: {
+                    ...localVoiceModels,
+                    import: (id: string) =>
+                      invoke<string | null>("voice_local_model_import", { id }),
+                  },
+                }
+              : {}),
             // msime-mcp is packaged beside the settings app on the three desktop hosts only.
             ...(host.platform === "macos" ||
             host.platform === "linux" ||
@@ -973,7 +988,10 @@ function DesktopSettings() {
     );
   const cloudDictionary = {
     ...panelClients.cloudDictionary,
-    ...cloudDictionaryCapabilities(settingsClient.host?.platform, panelClients.cloudDictionary.request),
+    ...cloudDictionaryCapabilities(
+      settingsClient.host?.platform,
+      panelClients.cloudDictionary.request,
+    ),
     ...(isMobileHost(settingsClient.host?.platform)
       ? {
           downloadToLocal: (entry: CloudDictionaryEntry) =>
@@ -1089,7 +1107,10 @@ function DesktopCloudDictionarySurface() {
     };
   }, []);
   if (host === undefined) return <StatusMessage role="status">正在连接云词库…</StatusMessage>;
-  const capabilities = cloudDictionaryCapabilities(host?.platform, panelClients.cloudDictionary.request);
+  const capabilities = cloudDictionaryCapabilities(
+    host?.platform,
+    panelClients.cloudDictionary.request,
+  );
   const cloudDictionary = {
     ...panelClients.cloudDictionary,
     ...capabilities,

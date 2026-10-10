@@ -30,10 +30,10 @@ async function openVoice() {
 }
 
 // The Linux voice provider builds ASR_PROVIDERS = {openai, groq, siliconflow, everyapi,
-// mistral, doubao}. Anything else makes select_profile return None and every recording fail
+// mistral, bailian, doubao}. Anything else makes select_profile return None and every recording fail
 // with ok=false. Keep this list in step with that script, the shared C++ provider table and
 // the mobile transport's accepted set; an option no backend implements is a dead menu entry.
-const REACHABLE = ["doubao", "siliconflow", "openai", "groq", "everyapi", "mistral"];
+const REACHABLE = ["doubao", "siliconflow", "openai", "groq", "everyapi", "mistral", "bailian"];
 
 test("macOS system recognition is configurable without cloud ASR fields", async () => {
   const save = vi

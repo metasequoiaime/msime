@@ -20,7 +20,7 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
   static var omittedPreferenceKey: String?
   static var themeSchema = true
   private static var preferenceRevision = 1
-  private static var preferences: [String: Any] = ["platform.macos.candidate_font_size": 18, "platform.macos.candidate_learning": true, "platform.ios.nine_key": true]
+  private static var preferences: [String: Any] = ["platform.macos.candidate_font_size": 18, "platform.macos.candidate_learning": true, "platform.ios.nine_key": true, "platform.macos.quanpin_helpcode_schema": 6, "platform.macos.shuangpin_helpcode_schema": 9]
   private static var clipboardEnabled = false
   private static var clipboardText: String?
   override class func canInit(with request: URLRequest) -> Bool { true }
@@ -269,6 +269,13 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(settings.preview?["platform.macos.candidate_font_size"] == .integer(18))
     try require(settings.preview?["platform.macos.global_theme"] == .string("shuishan"))
     try require(settings.preview?["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(false))
+    // 云端的辅助码方案下标 9 是本机没有的方案，预览换成本机的选择；6（五笔 86）本机认得，照常进预览。
+    let helpcodeLocal: MacSettingsAccess.Values = ["platform.macos.candidate_font_size": .integer(16), "platform.macos.quanpin_helpcode_schema": .integer(0), "platform.macos.shuangpin_helpcode_schema": .integer(2)]
+    let helpcodeSettings = MacSettingsModel(accountID: "synthetic-user", client: client, account: session, local: .init(snapshot: { helpcodeLocal }, validate: { _ in }, apply: { _ in }))
+    helpcodeSettings.download(); try await finished(helpcodeSettings)
+    try require(helpcodeSettings.preview?["platform.macos.quanpin_helpcode_schema"] == .integer(6))
+    try require(helpcodeSettings.preview?["platform.macos.shuangpin_helpcode_schema"] == .integer(2))
+    helpcodeSettings.close()
     AccountFixture.omittedPreferenceKey = "platform.macos.candidate_font_size"
     settings.download(); try await finished(settings)
     try require(settings.preview == nil && settings.message != nil)

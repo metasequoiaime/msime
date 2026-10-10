@@ -7,13 +7,14 @@ use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::types::{PersonalDictionaryEntry, PersonalDictionaryKind};
 use crate::user_dictionary::journal::release_thread_journal;
-use crate::user_dictionary::{bundled, personal, replay, reset, state};
+use crate::user_dictionary::{bundled, habits, personal, replay, reset, state};
 
 pub type DictionaryKind = PersonalDictionaryKind;
 pub type DictionaryEntry = PersonalDictionaryEntry;
 pub use crate::user_dictionary::bundled::{DictionaryTableEntry, DictionaryTablePage};
+pub use crate::user_dictionary::habits::{habit_is_storable, LearningHabit, LearningHabitsMerge};
 pub use crate::user_dictionary::personal::PersonalDictionaryPage as DictionaryPage;
-pub use crate::user_dictionary::state::DictionaryStateRecord;
+pub use crate::user_dictionary::state::{DictionaryStateMerge, DictionaryStateRecord};
 
 /// A sanitised transport failure (cancellation, truncation, bad checksum).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -173,4 +174,62 @@ pub fn stage_dictionary_state(
 
 pub fn dictionary_state_revision(options: &EngineOptions) -> Result<String> {
     released(state::dictionary_state_revision(&runtime_paths(options)))
+}
+
+/// 在一个只读事务里依次读出日志的全部操作行（含学习调权和删除记录）、固定位置和选词计数，交给 `emit`；`emit` 返回假时停下并报 `INVALID_DICTIONARY_STATE`。本地备份导出输入记录用它。
+pub fn stream_dictionary_state(
+    options: &EngineOptions,
+    emit: &mut dyn FnMut(&DictionaryStateRecord) -> bool,
+) -> Result<()> {
+    released(state::stream_dictionary_state(
+        &runtime_paths(options),
+        emit,
+    ))
+}
+
+/// 把一串词库状态记录合并进本机正在用的日志和词库，本机已有的保留本机、选词计数取大（规则见 `state::merge_dictionary_state`）。读流失败与 [`stage_dictionary_state`] 一样报 `SNAPSHOT_STREAM_FAILED`，整体回滚。调用方必须持有独占维护权。
+pub fn merge_dictionary_state(
+    options: &EngineOptions,
+    maximum_records: usize,
+    records: impl Iterator<Item = std::result::Result<DictionaryStateRecord, SnapshotReadError>>,
+) -> Result<DictionaryStateMerge> {
+    let mut records = records
+        .map(|record| record.map_err(|_| EngineError::failed(diagnostics::SNAPSHOT_STREAM_FAILED)));
+    released(state::merge_dictionary_state(
+        &runtime_paths(options),
+        main_dictionary(options),
+        &mut records,
+        maximum_records,
+    ))
+}
+
+/// 在一个只读事务里依次读出日志里的六张输入习惯表（整句联想、选词对、拼写纠错、自动纠错抑制、置顶），交给 `emit`；`emit` 返回假时停下并报 `INVALID_DICTIONARY_STATE`。本地备份导出输入习惯用它，规则见 `habits::stream_learning_habits`。
+pub fn stream_learning_habits(
+    options: &EngineOptions,
+    emit: &mut dyn FnMut(&LearningHabit) -> bool,
+) -> Result<()> {
+    released(habits::stream_learning_habits(
+        &runtime_paths(options),
+        emit,
+    ))
+}
+
+/// 本机输入习惯的行数，只读。
+pub fn count_learning_habits(options: &EngineOptions) -> Result<usize> {
+    released(habits::count_learning_habits(&runtime_paths(options)))
+}
+
+/// 把一串输入习惯合并进本机正在用的日志，计数取大、置顶保留本机，写完压回各表的上限（规则见 `habits::merge_learning_habits`）。读流失败报 `SNAPSHOT_STREAM_FAILED`，整体回滚。调用方必须持有独占维护权。
+pub fn merge_learning_habits(
+    options: &EngineOptions,
+    maximum_records: usize,
+    records: impl Iterator<Item = std::result::Result<LearningHabit, SnapshotReadError>>,
+) -> Result<LearningHabitsMerge> {
+    let mut records = records
+        .map(|record| record.map_err(|_| EngineError::failed(diagnostics::SNAPSHOT_STREAM_FAILED)));
+    released(habits::merge_learning_habits(
+        &runtime_paths(options),
+        &mut records,
+        maximum_records,
+    ))
 }

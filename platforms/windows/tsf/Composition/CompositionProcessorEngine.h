@@ -84,6 +84,8 @@ class CCompositionProcessorEngine
     {
         return _urlMode;
     }
+    // 打开「二三候选」时，组字中的 ';' 或 '\'' 是否选第二、第三个候选（common/SecondThirdCandidatePolicy.h，与 Server 同一条规则）。
+    bool IsSecondThirdCandidateKey(UINT uCode, WCHAR wch) const;
 
     void GetReadingStrings(                                          //
         _Inout_ CMetasequoiaImeArray<CStringRange> *pReadingStrings, //

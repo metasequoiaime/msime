@@ -548,6 +548,8 @@ msime::windows::TsfLocalConfig tsf_local_config(
       local_modes.value("expression", false),
       local_modes.value("command", false),
       local_modes.value("mention", false));
+  // 与按键路由读同一个字段（InputState 经 preference_navigation），TIP 和 Server 对这两个键的归类才一致。
+  config.second_third_candidate = msime::windows::preference_second_third_candidate(preferences);
   return config;
 }
 

@@ -1674,8 +1674,8 @@ int main(int argc, char **argv) {
         for (auto *action : menu->actions())
           require(!action->name().empty(), "scheme and desktop tools entries are registered");
     }
-    require(engine.candidate_page_size_menu_.actions().size() == 9,
-            "candidate page-size menu attached");
+    require(engine.candidate_page_size_menu_.actions().size() == 10,
+            "candidate page-size menu attached, one to ten");
     engine.candidate_page_size3_.activate(&ic);
     require(state->preferences_.value("candidate_page_size", 0u) == 3,
             "candidate page-size action persists a larger page");

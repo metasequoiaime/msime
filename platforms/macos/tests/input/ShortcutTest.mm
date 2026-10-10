@@ -112,6 +112,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) BOOL failCancel;
 @property(nonatomic) NSUInteger focusCalls;
 @property(nonatomic) BOOL chinesePunctuation;
+@property(nonatomic) BOOL capsLock;
+@property(nonatomic) NSUInteger capsLockCalls;
 @property(nonatomic) NSUInteger punctuationCalls;
 @property(nonatomic, copy) NSDictionary *punctuationView;
 @property(nonatomic) BOOL pairedPunctuation;
@@ -167,6 +169,9 @@ static void CheckMenu(NSMenu *menu, id controller) {
 - (NSDictionary *)typingEffectSettingsWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
     (void)error; self.fullwidth = fullwidth; ++self.widthCalls; return nil;
+}
+- (BOOL)setCapsLockEnabled:(BOOL)enabled error:(NSError **)error {
+    (void)error; self.capsLock = enabled; ++self.capsLockCalls; return YES;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error;
@@ -827,11 +832,14 @@ static void TestIndependentAssistancePreferences() {
     assert(saves == 2 && [defaults objectForKey:@"MSIMEClientHelpcodeOptions"] == nil);
     assert([(NSPopUpButton *)schemaControls[@"quanpin"] indexOfSelectedItem] == 2);
     assert([(NSButton *)displayControls[@"quanpin"] state] == NSControlStateValueOff);
+    NSArray *identifiers = @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia", @"wubi86"];
+    // 下拉框的项数由内置方案数推出：没选插件时就是这些方案，选了插件再多一项，新增方案不必再改下面的断言。
+    const NSInteger builtInSchemas = (NSInteger)identifiers.count;
+    const NSInteger withPack = builtInSchemas + 1;
     for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
         NSPopUpButton *schemas = schemaControls[scheme];
         NSButton *display = displayControls[scheme];
-        NSArray *identifiers = @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia"];
-        assert(([schemas.itemTitles isEqual:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤", @"加加"]]));
+        assert(([schemas.itemTitles isEqual:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤", @"加加", @"五笔 86"]]));
         for (NSUInteger index = 0; index < identifiers.count; ++index) {
             [schemas selectItemAtIndex:index];
             [NSApp sendAction:schemas.action to:schemas.target from:schemas];
@@ -854,7 +862,7 @@ static void TestIndependentAssistancePreferences() {
     NSPopUpButton *quanpinSchemas = schemaControls[@"quanpin"];
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals", @"helpcode_pack_shuangpin": @"strokes"}}];
     assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && [[prefs helpcodePackForScheme:@"shuangpin"] isEqual:@"strokes"]);
-    assert(quanpinSchemas.numberOfItems == 7 && [quanpinSchemas.titleOfSelectedItem isEqual:@"radicals（插件）"]);
+    assert(quanpinSchemas.numberOfItems == withPack && [quanpinSchemas.titleOfSelectedItem isEqual:@"radicals（插件）"]);
     NSUInteger beforePack = saves;
     [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
     assert(saves == beforePack && [[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"]);
@@ -862,19 +870,19 @@ static void TestIndependentAssistancePreferences() {
     [quanpinSchemas selectItemAtIndex:1];
     [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
     assert(saves > beforePack && ![prefs helpcodePackForScheme:@"quanpin"]);
-    assert(quanpinSchemas.numberOfItems == 6 && quanpinSchemas.indexOfSelectedItem == 1);
+    assert(quanpinSchemas.numberOfItems == builtInSchemas && quanpinSchemas.indexOfSelectedItem == 1);
     NSDictionary *cleared = [prefs sharedPreferencesByMerging:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals", @"helpcode_pack_shuangpin": @"strokes", @"sound_pack": @"twinkle"}}];
     assert(([cleared[@"plugins"] isEqual:@{@"helpcode_pack_quanpin": @"", @"helpcode_pack_shuangpin": @"strokes", @"sound_pack": @"twinkle"}]));
     assert([cleared[@"quanpin_helpcode"][@"schema"] isEqual:@"ziranma"]);
     // 保存落盘之前读到的文档仍是旧插件，不能把它带回来；文档写进清空之后，别处再选的插件照常显示。
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
-    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == 6);
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == builtInSchemas);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @""}}];
     assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
-    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == 7);
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == withPack);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"", @"helpcode_pack_shuangpin": @""}}];
-    assert(quanpinSchemas.numberOfItems == 6 && [schemaControls[@"shuangpin"] numberOfItems] == 6);
+    assert(quanpinSchemas.numberOfItems == builtInSchemas && [schemaControls[@"shuangpin"] numberOfItems] == builtInSchemas);
     // 清空没能写进文档（保存失败）时，共享设置页另选的插件不是那个旧 id：照常显示，之后的保存也不把它写成空串。
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
     [quanpinSchemas selectItemAtIndex:1];
@@ -882,10 +890,10 @@ static void TestIndependentAssistancePreferences() {
     assert(![prefs helpcodePackForScheme:@"quanpin"]);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"strokes"}}];
     assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"strokes"]);
-    assert(quanpinSchemas.numberOfItems == 7 && [quanpinSchemas.titleOfSelectedItem isEqual:@"strokes（插件）"]);
+    assert(quanpinSchemas.numberOfItems == withPack && [quanpinSchemas.titleOfSelectedItem isEqual:@"strokes（插件）"]);
     assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @""}}];
-    assert(quanpinSchemas.numberOfItems == 6);
+    assert(quanpinSchemas.numberOfItems == builtInSchemas);
     // 共享偏好落盘时不写空的辅助码表包（空串的键省略，全为默认的 plugins 整个省略），所以清空写进文档后读回来的是没有 plugins 的文档：它与空串一样了结这次清空，之后在共享设置页再选同一个包照常显示，也不会被下一次保存写回空串。
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
     [quanpinSchemas selectItemAtIndex:1];
@@ -894,7 +902,7 @@ static void TestIndependentAssistancePreferences() {
     [prefs applySharedAssistancePreferences:@{}];
     assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
-    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == 7);
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == withPack);
     assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
     // plugins 还有别的设置、只是没有这个键时同样是空包；共享设置页清掉插件也是这样回来的，下拉框随之去掉插件项。
     [quanpinSchemas selectItemAtIndex:1];
@@ -902,12 +910,12 @@ static void TestIndependentAssistancePreferences() {
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"sound_pack": @"twinkle"}}];
     assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
-    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == 7);
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == withPack);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"sound_pack": @"twinkle"}}];
-    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == 6);
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == builtInSchemas);
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
     [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @7}}];
-    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == 6);
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == builtInSchemas);
     NSButton *neighbor = (id)PreferenceControl(prefs, @selector(neighborChanged:));
     [prefs applySharedAssistancePreferences:@{@"quanpin": @{@"autocorrect_transposition": @YES, @"autocorrect_neighbor": @NO}}];
     assert(autocorrect.state == NSControlStateValueOn && neighbor.state == NSControlStateValueOff);
@@ -2757,6 +2765,8 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
     NSEvent *capsA = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagCapsLock timestamp:0
                                   windowNumber:0 context:nil characters:@"A" charactersIgnoringModifiers:@"a" isARepeat:NO keyCode:0];
     session.nextTransition = @{@"handled": @YES, @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
+    session.capsLock = NO;
+    const NSUInteger capsLockReports = session.capsLockCalls;
     for (NSNumber *scheme in @[@0, @5, @6, @9, @4, @7, @8]) {
         const int value = scheme.intValue;
         [controller setValue:@{@"focused": @YES, @"scheme": scheme, @"local_mode": @"none", @"editing_text": @"", @"caret_position": @0,
@@ -2769,6 +2779,14 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
         if (value == 4) assert(session.lastASCII == 'a');
         if (value == 7 || value == 8) assert(session.lastASCII == 'A');
     }
+    // 大写锁定一变就报告给会话，只报告变化的那一次：「大写锁定时使用英文标点」由共享层按这个状态决定标点去向（#6370）。
+    assert(session.capsLock && session.capsLockCalls == capsLockReports + 1);
+    [controller setValue:@{@"focused": @YES, @"scheme": @0, @"local_mode": @"none", @"editing_text": @"", @"caret_position": @0,
+                           @"candidates": @[]} forKey:@"view"];
+    NSEvent *lowerA = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+                                   windowNumber:0 context:nil characters:@"a" charactersIgnoringModifiers:@"a" isARepeat:NO keyCode:0];
+    [controller handleEvent:lowerA client:client];
+    assert(!session.capsLock && session.capsLockCalls == capsLockReports + 2);
     session.nextTransition = nil;
 }
 
@@ -8396,8 +8414,8 @@ int main(int argc, char **argv) {
             appearance.globalTheme = invalid;
             assert([appearance.globalTheme isEqual:@"system"]);
         }
-        appearance.pageSize = 10;
-        assert(appearance.pageSize == 9);
+        appearance.pageSize = 11;
+        assert(appearance.pageSize == 10);
         appearance.pageSize = 4;
         assert(appearance.pageSize == 4);
         appearance.pageShortcut = 99;
@@ -8428,9 +8446,9 @@ int main(int argc, char **argv) {
             assert([loaded.globalTheme isEqual:skinIDs[option]]);
         }
         appearance.globalTheme = @"system";
-        // The reference's set, three through nine.
+        // 三到十：参考实现的三到九，加上 0 键选第十个的 10（#6679）。
         assert(sizeControl.numberOfItems == (NSInteger)msime::mac::kOfferedCandidatePageSizes);
-        NSArray *pageSizes = @[@3, @4, @5, @6, @7, @8, @9];
+        NSArray *pageSizes = @[@3, @4, @5, @6, @7, @8, @9, @10];
         for (NSInteger option = 0; option < (NSInteger)msime::mac::kOfferedCandidatePageSizes; ++option) {
             assert(([sizeControl.itemTitles[option] isEqual:[NSString stringWithFormat:@"%@ 个", pageSizes[option]]]));
             [sizeControl selectItemAtIndex:option];
@@ -8499,7 +8517,8 @@ int main(int argc, char **argv) {
         [controller setValue:appearance forKey:@"appearance"];
         [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientPinnedCandidates"];
         [controller syncPageSize];
-        assert(session.requestedPageSize == 9);
+        // 上面逐项点过每页候选的弹出菜单，停在最后一项 10。
+        assert(session.requestedPageSize == 10);
         appearance.pageSize = 5;
         [controller appearanceChanged:nil];
         assert(session.requestedPageSize == 5);

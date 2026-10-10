@@ -212,7 +212,7 @@ pub struct PreferencesView {
     pub revision: u64,
     pub scheme: Scheme,
     pub shuangpin_profile: Profile,
-    /// Candidates per page, 1 to 9.
+    /// 每页候选数，1 到 10，第十个用数字键 0 选；Windows、iOS 和鸿蒙最多显示 9 个。
     pub candidate_page_size: u8,
     /// Candidate font size in points, 12 to 32.
     pub candidate_font_size: u8,
@@ -303,7 +303,7 @@ pub struct PreferencesChange {
     pub expected_revision: u64,
     pub scheme: Option<ChineseSchemeChoice>,
     pub shuangpin_profile: Option<Profile>,
-    /// 1 to 9.
+    /// 1 到 10。无论存的是多少，Windows、iOS 和鸿蒙最多显示 9 个。
     pub candidate_page_size: Option<u8>,
     /// 12 to 32.
     pub candidate_font_size: Option<u8>,
@@ -705,7 +705,7 @@ mod tests {
         };
         assert!(update(directory.path(), &options, Edition::full(), &stale).is_err());
         let invalid = PreferencesChange {
-            candidate_page_size: Some(10),
+            candidate_page_size: Some(11),
             ..change(updated.revision)
         };
         assert!(update(directory.path(), &options, Edition::full(), &invalid).is_err());

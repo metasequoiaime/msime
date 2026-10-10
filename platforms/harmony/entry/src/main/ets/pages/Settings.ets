@@ -48,18 +48,23 @@ import { SettingsFormFactorCapabilities, SettingsFormFactorProjection }
   from '../keyboard/settings/SettingsFormFactorCapabilities';
 import { VocabularyAction, VocabularyReviewRequest } from '../keyboard/settings/VocabularyReviewRequest';
 import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settings/LocalVoiceModelPolicy';
+import { HTTP_ASR_CHAT_AUDIO, HttpAsrConfigurationPolicy } from '../keyboard/input/HttpAsrConfigurationPolicy';
 import { AiAuthenticationPolicy } from '../keyboard/settings/AiAuthenticationPolicy';
 import { AiEndpointPolicy } from '../keyboard/settings/AiEndpointPolicy';
 import { HarmonyTelemetry } from '../telemetry/Telemetry';
 import { TelemetryPolicy } from '../telemetry/TelemetryPolicy';
 import { NoticeItem, NoticePolicy } from '../notices/NoticePolicy';
 
-/** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id}` for a removal, `{id}` for a cancel. */
+/** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id, files}` for an import from local files, `{root, id}` for a removal, `{id}` for a cancel. */
 interface LocalVoiceModelRequest {
   root?: string;
   id?: string;
   mirror?: string;
+  files?: string[];
 }
+
+/** 「从文件导入」一次最多让用户选几个文件；目录里的模型最多要两个。 */
+const MAX_VOICE_MODEL_IMPORT_PICKS: number = 8;
 
 /** One key-feedback operation from the page: load, save or preview. */
 interface KeyboardFeedbackAction {
@@ -824,6 +829,9 @@ class SettingsBridge {
   private accountBridge: HarmonyAccountCloudBridge | undefined = undefined;
   private aiSkins: HarmonyAiSkins | undefined = undefined;
   private cloudDownloadRequest: number = 0;
+  // 「从文件导入」从打开选择器到安装结束的模型 id。复制进缓存的那段时间原生安装还没登记，原生取消找不到它，所以取消先记在 voiceImportsCancelled 里，由导入流程在复制每个文件前和开始安装前检查。
+  private voiceImportsPending: Set<string> = new Set<string>();
+  private voiceImportsCancelled: Set<string> = new Set<string>();
 
   useWebview(controller: web_webview.WebviewController): void {
     this.webview = controller;
@@ -1175,7 +1183,13 @@ class SettingsBridge {
     }
     if (action.operation === 'cancel') {
       const request: LocalVoiceModelRequest = { id: id };
-      return LocalVoiceModelPolicy.rewrite(client.voiceLocalModelCancel(JSON.stringify(request)));
+      const reply: string = LocalVoiceModelPolicy.rewrite(client.voiceLocalModelCancel(JSON.stringify(request)));
+      if (!this.voiceImportsPending.has(id)) {
+        return reply;
+      }
+      // 导入还在复制文件，原生安装没开始：记下取消，复制循环看到后不再安装。
+      this.voiceImportsCancelled.add(id);
+      return JSON.stringify({ ok: true, value: true } as FlagReply);
     }
     if (action.operation === 'remove') {
       const request: LocalVoiceModelRequest = { root: root, id: id };
@@ -1185,11 +1199,98 @@ class SettingsBridge {
     if (!fs.accessSync(root)) {
       fs.mkdirSync(root, true);
     }
+    if (action.operation === 'import') {
+      this.voiceImportsPending.add(id);
+      this.voiceImportsCancelled.delete(id);
+      try {
+        return await this.importVoiceModel(root, id);
+      } finally {
+        this.voiceImportsPending.delete(id);
+        this.voiceImportsCancelled.delete(id);
+      }
+    }
     const mirror: string = LocalVoiceModelPolicy.mirror(client.loadPreferences(this.stateDirectory));
     const request: LocalVoiceModelRequest = { root: root, id: id, mirror: mirror };
     const reply: string = await client.voiceLocalModelInstall(JSON.stringify(request),
       (progress: string): void => this.deliverVoiceModelProgress(progress));
     return LocalVoiceModelPolicy.installReply(reply);
+  }
+
+  /**
+   * 「从文件导入」：用系统选择器让用户多选自己下载好的模型文件，不联网安装。
+   *
+   * 选择器给的是原生库打不开的文档 URI，所以先把文件复制进私有缓存目录，用固定的序号作文件名，再把这些路径交给和下载同一个 `msime_client_voice_local_model_install`（带 `files`），由 client-core 按长度和 SHA-256 认文件、校验、解压并发布，和其他宿主完全相同。长度和目录里任何一个需要的文件都对不上的选择不复制。缓存副本不论成败都在安装结束后删掉。用户关掉选择器时回答 null，不算失败。
+   */
+  private async importVoiceModel(root: string, id: string): Promise<string> {
+    const context: common.UIAbilityContext | undefined = this.context;
+    if (context === undefined) {
+      return LocalVoiceModelPolicy.refusal('local_model_failed');
+    }
+    let picked: string[] = [];
+    try {
+      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      options.selectMode = picker.DocumentSelectMode.FILE;
+      options.maxSelectNumber = MAX_VOICE_MODEL_IMPORT_PICKS;
+      picked = await new picker.DocumentViewPicker(context).select(options);
+    } catch (error) {
+      KeyboardLog.error(`voice model picker refused: ${describeError(error)}`);
+      return LocalVoiceModelPolicy.refusal('local_model_failed');
+    }
+    if (picked.length === 0) {
+      return JSON.stringify({ ok: true, value: null, error: '' });
+    }
+    if (this.voiceImportsCancelled.has(id)) {
+      return LocalVoiceModelPolicy.refusal('local_model_cancelled');
+    }
+    const listRequest: LocalVoiceModelRequest = { root: root };
+    const sizes: number[] = LocalVoiceModelPolicy.importSizes(
+      client.voiceLocalModels(JSON.stringify(listRequest)), id);
+    const importRoot: string = `${context.cacheDir}/voice-model-import`;
+    const staging: string = `${importRoot}/${util.generateRandomUUID(false)}`;
+    try {
+      if (!this.safeDirectory(context.cacheDir)) {
+        return LocalVoiceModelPolicy.refusal('local_model_io');
+      }
+      if (!fs.accessSync(importRoot)) fs.mkdirSync(importRoot, true);
+      if (!this.safeDirectory(importRoot)) {
+        return LocalVoiceModelPolicy.refusal('local_model_io');
+      }
+      fs.mkdirSync(staging, true);
+      if (!this.safeDirectory(staging)) {
+        return LocalVoiceModelPolicy.refusal('local_model_io');
+      }
+      const files: string[] = [];
+      for (const uri of picked) {
+        if (this.voiceImportsCancelled.has(id)) {
+          return LocalVoiceModelPolicy.refusal('local_model_cancelled');
+        }
+        const file: fs.File = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+        try {
+          const opened: fs.Stat = fs.statSync(file.fd);
+          if (!opened.isFile() || !sizes.includes(opened.size)) {
+            continue;
+          }
+          const copy: string = `${staging}/${files.length}`;
+          await fs.copyFile(file.fd, copy);
+          files.push(copy);
+        } finally {
+          fs.closeSync(file);
+        }
+      }
+      if (this.voiceImportsCancelled.has(id)) {
+        return LocalVoiceModelPolicy.refusal('local_model_cancelled');
+      }
+      const request: LocalVoiceModelRequest = { root: root, id: id, files: files };
+      const reply: string = await client.voiceLocalModelInstall(JSON.stringify(request),
+        (progress: string): void => this.deliverVoiceModelProgress(progress));
+      return LocalVoiceModelPolicy.installReply(reply);
+    } finally {
+      try {
+        StagedResources.removeDirectory(staging);
+      } catch (error) {
+        KeyboardLog.error(`voice model import staging not removed: ${describeError(error)}`);
+      }
+    }
   }
 
   private deliverVoiceModelProgress(progress: string): void {
@@ -2284,20 +2385,26 @@ class SettingsBridge {
     const endpoint: string | null = this.validCredentialEndpoint(config.endpoint ?? '', false);
     const token: string = (config.token ?? '').trim();
     const model: string = (config.model ?? '').trim();
-    if (!['openai', 'siliconflow', 'groq', 'everyapi', 'mistral'].includes(provider) || endpoint === null
+    const format: string = HttpAsrConfigurationPolicy.requestFormat(provider);
+    if (format.length === 0 || endpoint === null
       || !this.validCredentialSecret(token, 8192) || model.length === 0
       || utf8Length(model) > 256 || TextPolicy.hasControl(model)) {
       return this.credentialReply(false, '请填写有效的 HTTPS 转写接口地址、API Key 和模型名。');
     }
     const boundary: string = '----MSIMEHarmonyCredentialProbe';
-    const body: ArrayBuffer = this.silentMultipart(boundary, model);
+    // 按请求格式拼一秒静音：chat_audio 是 JSON，其余是 multipart。
+    const chat: boolean = format === HTTP_ASR_CHAT_AUDIO;
+    const body: ArrayBuffer | string = chat
+      ? HttpAsrConfigurationPolicy.chatAudioBody(model,
+        new util.Base64Helper().encodeToStringSync(this.silentWav()))
+      : this.silentMultipart(boundary, model);
     const request = http.createHttp();
     installNoRedirectGuard(request);
     try {
       const response: http.HttpResponse = await request.request(endpoint, {
         method: http.RequestMethod.POST,
         header: { Accept: 'application/json', Authorization: `Bearer ${token}`,
-          'Content-Type': `multipart/form-data; boundary=${boundary}` },
+          'Content-Type': chat ? 'application/json' : `multipart/form-data; boundary=${boundary}` },
         connectTimeout: 5000,
         readTimeout: 15000,
         extraData: body
@@ -2434,6 +2541,19 @@ class SettingsBridge {
 
   private silentMultipart(boundary: string, model: string): ArrayBuffer {
     const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
+    const wav: Uint8Array = this.silentWav();
+    const prefix: Uint8Array = encoder.encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="credential-test.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
+    const modelPart: Uint8Array = encoder.encode(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n--${boundary}--\r\n`);
+    const output: ArrayBuffer = new ArrayBuffer(prefix.length + wav.length + modelPart.length);
+    const bytes: Uint8Array = new Uint8Array(output);
+    bytes.set(prefix, 0);
+    bytes.set(wav, prefix.length);
+    bytes.set(modelPart, prefix.length + wav.length);
+    return output;
+  }
+
+  /** 一秒 16 kHz 单声道 16 位静音 WAV，凭据测试用。 */
+  private silentWav(): Uint8Array {
     const wav: Uint8Array = new Uint8Array(44 + 32000);
     this.writeAscii(wav, 0, 'RIFF');
     this.writeU32(wav, 4, 32036);
@@ -2447,14 +2567,7 @@ class SettingsBridge {
     this.writeU16(wav, 34, 16);
     this.writeAscii(wav, 36, 'data');
     this.writeU32(wav, 40, 32000);
-    const prefix: Uint8Array = encoder.encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="credential-test.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
-    const modelPart: Uint8Array = encoder.encode(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n--${boundary}--\r\n`);
-    const output: ArrayBuffer = new ArrayBuffer(prefix.length + wav.length + modelPart.length);
-    const bytes: Uint8Array = new Uint8Array(output);
-    bytes.set(prefix, 0);
-    bytes.set(wav, prefix.length);
-    bytes.set(modelPart, prefix.length + wav.length);
-    return output;
+    return wav;
   }
 
   private writeAscii(bytes: Uint8Array, offset: number, value: string): void {

@@ -22,7 +22,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             return Err("unsupported host API version".into());
         }
         options.preferences.validate().map_err(|e| e.to_string())?;
-        let page_size = options.preferences.candidate_page_size;
+        let page_size = host_page_size(options.preferences.candidate_page_size);
         let applied = options.preferences.clone();
         let ai_provider_cache = {
             let ai = &applied.ai_assistant;
@@ -140,6 +140,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     paired_punctuation_override: None,
                     punctuation_lock_override: None,
                     english_mode: false,
+                    caps_lock: false,
                     page_size_override: None,
                     nine_key_override: None,
                     statistics_private: false,
