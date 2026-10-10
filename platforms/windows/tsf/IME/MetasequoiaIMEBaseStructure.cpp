@@ -7,6 +7,7 @@
 #endif // !UNICODE
 
 #include "Globals.h"
+#include "../../common/SecondThirdCandidatePolicy.h"
 
 //---------------------------------------------------------------------
 //
@@ -266,27 +267,12 @@ BOOL CCandidateRange::IsRange(UINT vKey)
     return FALSE;
 }
 
-int CCandidateRange::GetIndex(UINT vKey)
+int CCandidateRange::GetIndex(UINT vKey, WCHAR wch)
 {
-    return 0; // Always return 0(First candidate item), start from 0
-
-    DWORD value = vKey - L'0';
-
-    for (UINT i = 0; i < _CandidateListIndexRange.Count(); i++)
-    {
-        if (value == *_CandidateListIndexRange.GetAt(i))
-        {
-            return i;
-        }
-        else if ((VK_NUMPAD0 <= vKey) && (vKey <= VK_NUMPAD9))
-        {
-            if ((vKey - VK_NUMPAD0) == *_CandidateListIndexRange.GetAt(i))
-            {
-                return i;
-            }
-        }
-    }
-    return -1;
+    const auto slot = msime::windows::candidate_selection_slot(vKey, wch);
+    if (!slot || *slot >= static_cast<std::size_t>(_CandidateListIndexRange.Count()))
+        return -1;
+    return static_cast<int>(*slot);
 }
 
 CPunctuationPair::CPunctuationPair()

@@ -211,7 +211,7 @@ class CCandidateRange
     ~CCandidateRange(void);
 
     BOOL IsRange(UINT vKey);
-    int GetIndex(UINT vKey);
+    int GetIndex(UINT vKey, WCHAR wch);
 
     inline int Count() const
     {

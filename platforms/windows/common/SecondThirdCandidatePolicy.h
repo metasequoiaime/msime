@@ -28,6 +28,19 @@ inline std::optional<std::size_t> second_third_candidate_slot(std::uint32_t keyc
   return std::nullopt;
 }
 
+// TIP 的候选处理器还要把数字键和二三候选键映射到当前页下标。数字键按虚拟键码识别，以保留 V 模式和非美式布局下的既有规则；二三候选键同时校验字符。
+inline std::optional<std::size_t>
+candidate_selection_slot(std::uint32_t keycode, std::uint32_t text) {
+  if (const auto special = second_third_candidate_slot(keycode, text))
+    return special;
+  if (keycode >= static_cast<std::uint32_t>('1') &&
+      keycode <= static_cast<std::uint32_t>('9'))
+    return keycode - static_cast<std::uint32_t>('1');
+  if (keycode >= 0x61u && keycode <= 0x69u)
+    return keycode - 0x61u;
+  return std::nullopt;
+}
+
 // 微软双拼把 ';' 当作韵母 ing：光标前、上一个 '\'' 之后的字母数是奇数（刚打完声母）时，它是输入。与 EditPolicy.h 的 edit_kind 和 TIP 归类按键时的同一条判断相同。
 template <typename Text>
 bool microsoft_shuangpin_final_position(const Text &editing, std::size_t caret) {

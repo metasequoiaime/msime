@@ -451,9 +451,10 @@ HRESULT CMetasequoiaIME::_HandleCandidateArrowKey( //
 //----------------------------------------------------------------------------
 
 HRESULT CMetasequoiaIME::_HandleCandidateSelectByNumber(TfEditCookie ec, _In_ ITfContext *pContext, _In_ UINT uCode,
-                                                        uint64_t requestId, const std::wstring &prefetchedText)
+                                                        WCHAR wch, uint64_t requestId,
+                                                        const std::wstring &prefetchedText)
 {
-    int iSelectAsNumber = _pCompositionProcessorEngine->GetCandidateListIndexRange()->GetIndex(uCode);
+    int iSelectAsNumber = _pCompositionProcessorEngine->GetCandidateListIndexRange()->GetIndex(uCode, wch);
     if (iSelectAsNumber == -1)
     {
         return S_FALSE;
