@@ -142,7 +142,7 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 |---|---|
 | glibc 2.35 及以上的 Debian 系（Debian 12、Ubuntu 22.04 及更新的版本），有 IBus 1.5.20+ 或 Fcitx5 5.0.20+ | 发布页的 `msime-linux_<版本>_<架构>.deb`，带设置窗口 |
 | Fedora 等 RPM 系 | 发布页的 `.rpm`，或下文「包管理器」里的软件源 |
-| glibc 2.28 到 2.34 的 Debian 系（UOS 20 专业版、Debian 10 这一类） | 发布页的 `msime-linux-legacy_<版本>_<架构>.deb`：只有 IBus 宿主，没有设置窗口，先装 IBus |
+| glibc 2.28 到 2.34 的 Debian 系（UOS 20 专业版、Debian 10 这一类，Debian 11、Ubuntu 20.04 也是） | 发布页的 `msime-linux-legacy_<版本>_<架构>.deb`：只有 IBus 宿主，没有设置窗口，先装 IBus |
 | 只有 fcitx 4 的系统（UOS 20、麒麟 V10 等默认就是 fcitx 4） | 没有 fcitx 4 前端。改用 IBus 后，按 glibc 版本装上面对应的包 |
 | glibc 低于 2.28 | 没有能用的包 |
 
@@ -172,7 +172,7 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 - IBus 面板上的输入法菜单与发布页的包相同，中英文、全角、中文标点、简繁、输入方案、双拼方案、辅助码方案和主题都在那里切换。
 - 其余偏好用随包的 `msime` 命令（`msime-mcp` 的命令行形式，见上文「包管理器」）：`msime config` 列出当前偏好，`msime config get <键>` 读取，`msime config set <键>=<值> …` 修改，例如 `msime config set candidate_page_size=7 fuzzy_pinyin=true`，输入法在几秒内热重载。能改的键是 MCP 工具 `update_preferences` 接受的那一组（`crates/mcp-server/src/preferences.rs` 的 `PreferencesChange`），包括输入方案与双拼方案、候选个数、字号、缩放、透明度、圆角与排列、候选跟随光标、数字行选词、模式提示、模糊音、默认中英文、全半角、中文标点、智能标点、繁体输出、五笔方案、五笔混输拼音、五笔编码提示和诊断日志；`msime --help` 列出全部命令。
 
-验证范围：arm64 的构建、符号版本检查、apt 安装、ctest 和上面的运行时验收在 Docker 容器里跑过，IBus 引擎在 ibus-daemon 1.5.19 与 Xvfb 上的 GTK 3 程序里打字通过。amd64 只在 arm64 主机上经模拟构建过镜像、核对过预编译语音运行库要求的 glibc、libstdc++ 与 libgcc 符号版本（都不超过 buster），完整构建在模拟器里太慢，没有跑完，amd64 的包没有产出、安装或运行过。两种架构都没有在 UOS 20 真机或真实桌面会话里打过字，Qt 程序与 Wayland 下的行为也没有在 IBus 1.5.19 上测过。
+验证范围：amd64 与 arm64 的构建、符号版本检查、buster 里的 apt 安装、ctest 和上面的运行时验收都由 `build-linux-legacy.yml` 在各自架构的原生 runner 上跑过，IBus 引擎在 ibus-daemon 1.5.19 与 Xvfb 上的 GTK 3 程序里打字通过。arm64 的包另在 Debian 11、Ubuntu 20.04 和 Ubuntu 22.04 的容器里用 apt 装上过，`ldd` 没有缺库或缺符号版本，但没有在这些系统上跑运行时验收。两种架构都没有在 UOS 20 真机或真实桌面会话里打过字，Qt 程序与 Wayland 下的行为也没有在 IBus 1.5.19 上测过。
 
 ### Nix 与 NixOS
 
