@@ -149,23 +149,6 @@ native windows-session
 # shortcut-translations came off with it: it was recorded as load-dependent, "observed failing once in a
 # full parallel run alongside the aborting shortcut test", and the aborting shortcut test is gone.
 
-# Desktop frontend, recorded the first time the phase actually ran. This is the union of several runs, as the header asks: the settings and external-skins entries did not reproduce on two consecutive full runs afterwards, so they are timing-dependent rather than always-failing.
-#
-# 2026-09-23: keyboard-repeat and the four windows-doubao-probe cases, recorded as failing every time, are gone. They passed on three consecutive full runs of the suite on c3bcde034 and again with their two files run alone. The timing-dependent entries below also passed all three runs, which is what a 1-in-3 failure does often enough that it proves nothing, so they stay.
-#
-# The same runs found six failures this file did not list, all deterministic and all on origin/develop: android-helpcode and one settings case were jsdom history state leaking between tests once the mobile page began restoring itself from it (2cb75ca8b), and mobile-tab-bar was the sidebar still offering a page selectPage refuses on mobile (063e53740). Both were fixed rather than recorded.
-# Also timing-dependent: 1 of 3 consecutive runs of settings.test.tsx alone on an
-# unmodified develop, and the same 1-in-3 with a change that does not touch it.
-desktop tests/settings/settings.test.tsx > clipboard history exposes timestamps, pinning, deletion and two-step clearing
-desktop tests/candidate/external-skins.test.tsx > external selection enters the revisioned draft; preview toggles never save or select
-# Pre-existing, and recorded here only after it was shown to be: it failed on
-# three consecutive full runs, one of which was an unmodified checkout of this
-# branch's base with every change reverted. It passes when its file is run on
-# its own, so it is load-dependent like the entries above rather than a fixed
-# defect. It was missing from this baseline, which made the desktop suite look
-# red for an unrecorded reason.
-desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards and reset local overrides on candidate theme changes
-
 # The Windows suites, run under Wine by platforms/windows/run-tests-wine.sh.
 # 77 of 78 pass with MSIME_WINE_RESOURCES set, 76 without; these do not, and each was read rather than assumed. The
 # same two, for the same reasons, on x86 and x64 - the names are not repeated
@@ -224,8 +207,3 @@ wine msimeui-tests
 wine windows-voice-controller-connection
 wine windows-voice-controller-listener
 wine windows-session-smoke
-
-# fcitx5-native-ai 要求「点中的候选就是上屏的候选」，它是对的，坏的是产品：开启 AI 联想后，面板上显示「合成候选 🤖」的那一项带着 {generation:14,index:1}，而运行时在同一个代次下把 index 1 解析成引擎候选「你好解」，于是点它上屏的是另一个词。
-#
-# 2026-09-23：上面测到的现象是对的，「refresh 没推进代次」这个归因是错的。代次从头到尾没变，页内容也没变：normalize_online_slots 把 AI 候选排到了第 2 位，而 dispatch 把视图下标原样交给 Engine 的 select，Engine 按它自己的顺序在 1 号位上放的是「你好解」。rerank 与 demote_runner_up_readings 同样只重排运行时这一份。现在运行时随重排维护一份视图位到 Engine 下标的映射，所有按下标调用 Engine 的地方都经过它；input-runtime 的 selecting_a_reseated_candidate_commits_that_candidate 在修复前稳定失败（上屏「本地二」而不是「AI」）。这一行没有删，因为 fcitx5-native-ai 本身需要 Linux 与已校验词库，这次没有跑；下一个在 Linux 上跑到它的人确认通过后删掉这一行。
-fcitx5-native-ai

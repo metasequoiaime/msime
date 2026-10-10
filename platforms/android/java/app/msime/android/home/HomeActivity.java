@@ -30,6 +30,7 @@ import app.msime.android.FirstRunPreparation;
 import app.msime.android.HostDeepLink;
 import app.msime.android.core.Telemetry;
 import app.msime.android.R;
+import app.msime.android.ThreadPolicy;
 import app.msime.android.ViewPolicy;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
@@ -79,7 +80,8 @@ public final class HomeActivity extends AppCompatActivity {
     /** 这个 activity 画出来时叠的季节（`AppMode.restore` 用的那份缓存）；没有缓存时是基础主题的秋杉。 */
     private String drawnSeason = "autumn";
     /** 回到前台时读共享偏好、解析应用主题用的工作线程。 */
-    private final ExecutorService themeWorker = Executors.newSingleThreadExecutor();
+    private final ExecutorService themeWorker = Executors.newSingleThreadExecutor(
+        ThreadPolicy.namedDaemonFactory("msime-home-theme"));
 
     @Override protected void onCreate(Bundle state) {
         AppMode.restore(this);

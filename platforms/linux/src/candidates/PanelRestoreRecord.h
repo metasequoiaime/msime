@@ -111,4 +111,27 @@ inline bool record_panel_takeover(const std::filesystem::path &file, std::string
   return record_panel_takeover(file, host, key, current, written, current);
 }
 
+// `held` 只含当前值仍由水杉持有的面板项，恢复记录的 `prior`，没有原值则用 `stock`；`written` 不匹配时忽略旧原值，不覆盖用户后改的项。与卸载脚本 `restorable` 共用语义，在宿主内立即恢复。
+// 恢复不修改记录：这不是一次新的接管，把恢复写进去只会把用户自己的值换成被恢复的值。
+inline nlohmann::json panel_restore_values(const nlohmann::json &record, std::string_view host,
+                                          const nlohmann::json &held, const nlohmann::json &stock) {
+  nlohmann::json restore = nlohmann::json::object();
+  if (!held.is_object()) return restore;
+  const auto section = record.is_object() ? record.find(std::string(host)) : record.cend();
+  const bool have_section = record.is_object() && section != record.cend() && section->is_object();
+  for (const auto &item : held.items()) {
+    const auto &key = item.key();
+    nlohmann::json prior = nullptr;
+    if (have_section) {
+      const auto recorded = section->find(key);
+      if (recorded != section->cend() && recorded->is_object() && recorded->contains("prior") &&
+          recorded->contains("written") && recorded->at("written") == item.value())
+        prior = recorded->at("prior");
+    }
+    if (prior.is_string()) restore[key] = prior;
+    else if (stock.is_object() && stock.contains(key)) restore[key] = stock.at(key);
+  }
+  return restore;
+}
+
 }  // namespace msime::linux_host

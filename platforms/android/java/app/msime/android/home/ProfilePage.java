@@ -22,8 +22,10 @@ import androidx.core.content.FileProvider;
 import app.msime.android.BitmapPolicy;
 import app.msime.android.CloudApi;
 import app.msime.android.DeviceDataApi;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.FilePolicy;
 import app.msime.android.HttpBodyPolicy;
+import app.msime.android.HttpConnectionPolicy;
 import app.msime.android.ListPolicy;
 import app.msime.android.SyncSwitch;
 import app.msime.android.ViewPolicy;
@@ -122,9 +124,8 @@ public final class ProfilePage extends DetailPage {
         try {
             HttpsURLConnection connection = (HttpsURLConnection) new URL(url).openConnection();
             try {
-                connection.setInstanceFollowRedirects(false);
-                connection.setConnectTimeout(10_000);
-                connection.setReadTimeout(15_000);
+                HttpConnectionPolicy.rejectRedirects(connection);
+                HttpConnectionPolicy.setTimeouts(connection, 10_000, 15_000);
                 connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
                 if (connection.getResponseCode() / 100 != 2) return null;
                 try (InputStream input = connection.getInputStream()) {
@@ -153,7 +154,7 @@ public final class ProfilePage extends DetailPage {
     /** 圆形头像：有图片时画图片，否则是强调色底上的昵称首字。 */
     static FrameLayout avatarView(Context context, int sizeDp, String name, @Nullable Bitmap image) {
         FrameLayout frame = new FrameLayout(context);
-        GradientDrawable circle = Ui.circle(Ui.accent(context));
+        GradientDrawable circle = DrawablePolicy.circle(Ui.accent(context));
         if (image != null) {
             ImageView picture = new ImageView(context);
             picture.setImageBitmap(image);
@@ -163,9 +164,8 @@ public final class ProfilePage extends DetailPage {
             Ui.hideFromAccessibility(picture);
             frame.addView(picture, Ui.squareFrameParams(context, sizeDp));
         } else {
-            TextView letter = Ui.styledLabel(context, Ui.trimmedInitial(name, "?"), Math.round(sizeDp * 0.4f), 600,
-                Ui.onAccent(context));
-            ViewPolicy.setCentered(letter);
+            TextView letter = Ui.centeredLabel(context, Ui.trimmedInitial(name, "?"),
+                Math.round(sizeDp * 0.4f), 600, Ui.onAccent(context));
             ViewPolicy.setBackground(letter, circle);
             Ui.hideFromAccessibility(letter);
             frame.addView(letter, Ui.squareFrameParams(context, sizeDp));
@@ -236,7 +236,7 @@ public final class ProfilePage extends DetailPage {
         avatar.addView(avatarView(context, 88, profile.displayName(), image));
         ImageView camera = Ui.decorativeIcon(context, app.msime.android.R.drawable.ms_w5_me_camera,
             Ui.text(context));
-        GradientDrawable badge = Ui.circle(Ui.card(context));
+        GradientDrawable badge = DrawablePolicy.circle(Ui.card(context));
         ViewPolicy.setBackground(camera, badge);
         int pad = Ui.dp(context, 6);
         Ui.setSymmetricPaddingPx(camera, pad);

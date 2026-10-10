@@ -1,9 +1,9 @@
 package app.msime.android.home;
 
+import app.msime.android.MainThreadPolicy;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Handler;
-import android.os.Looper;
 import androidx.annotation.Nullable;
 import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
@@ -33,7 +33,7 @@ final class OnboardingChoices {
     private static final int ATTEMPTS = 3;
     private static final ExecutorService WORKER = Executors.newSingleThreadExecutor(
         ThreadPolicy.namedDaemonFactory("msime-onboarding-choices"));
-    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final Handler MAIN = MainThreadPolicy.mainHandler();
     private static final AtomicBoolean WATCHING = new AtomicBoolean();
     /** 记下选择与写成功后清掉选择互斥：清之前要确认它还是刚写进去的那个，用户在写入途中又改了就留着下一次写。 */
     private static final Object LOCK = new Object();

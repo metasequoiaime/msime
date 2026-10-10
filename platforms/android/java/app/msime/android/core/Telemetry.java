@@ -1,9 +1,9 @@
 package app.msime.android.core;
 
+import app.msime.android.AppVersionPolicy;
 import app.msime.android.TextPolicy;
 import app.msime.android.JsonPolicy;
 import android.content.Context;
-import android.content.pm.PackageInfo;
 import android.util.Log;
 import app.msime.android.NativeClient;
 import app.msime.android.ThreadPolicy;
@@ -194,7 +194,7 @@ public final class Telemetry {
 
     /** The record format the shared store reads: the summary line, '\n', then the frames. Java frames name classes and source files, never a path. */
     static String crashRecord(Throwable error) {
-        String summary = clipCodePoints(firstLine(String.valueOf(error)), MAX_MESSAGE_CODE_POINTS);
+        String summary = TextPolicy.clipCodePoints(firstLine(String.valueOf(error)), MAX_MESSAGE_CODE_POINTS);
         StringBuilder stack = new StringBuilder(MAX_STACK_CODE_POINTS);
         Throwable current = error;
         for (int depth = 0; current != null && depth <= MAX_CAUSES; depth++) {
@@ -213,14 +213,9 @@ public final class Telemetry {
         return line.endsWith("\r") ? line.substring(0, line.length() - 1) : line;
     }
 
-    /** At most `limit` code points, never splitting a surrogate pair. */
-    static String clipCodePoints(String value, int limit) {
-        return TextPolicy.clipCodePoints(value, limit);
-    }
-
     /** The stack within both the code-point limit and the byte cap, cut at the end of a line. */
     static String clipStack(String stack) {
-        String clipped = clipCodePoints(stack, MAX_STACK_CODE_POINTS);
+        String clipped = TextPolicy.clipCodePoints(stack, MAX_STACK_CODE_POINTS);
         if (TextPolicy.utf8Length(clipped) <= MAX_STACK_BYTES
                 && clipped.length() == stack.length()) return stack;
         int bytes = 0;
@@ -267,8 +262,7 @@ public final class Telemetry {
     /** The real versionName (the release version build-apk.sh stamps), not a constant: crash groups and the per-version crash-free rate are keyed by it. */
     static String version(Context app) {
         try {
-            PackageInfo info = app.getPackageManager().getPackageInfo(app.getPackageName(), 0);
-            String name = TextPolicy.trimmed(info.versionName);
+            String name = TextPolicy.trimmed(AppVersionPolicy.versionName(app));
             if (!name.isEmpty() && name.length() <= 64) return name;
         } catch (Exception error) {
             Log.i(TAG, "Package version unavailable", error);
