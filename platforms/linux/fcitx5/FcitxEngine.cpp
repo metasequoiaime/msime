@@ -1523,6 +1523,10 @@ public:
     translation_pending_.clear();
     translation_manual_sentence_ = false;
     translation_session_ = 0;
+    // Translation workers are detached and their results are fenced by the
+    // epoch. Drop the old handle so a slow provider cannot block the next
+    // session from starting a fresh translation request.
+    translation_job_ = {};
   }
   void clearCandidateTranslations() {
     if (session_ && view_.contains("generation")) {

@@ -2493,6 +2493,21 @@ int main(int argc, char **argv) {
               "invalidating online requests releases stale provider futures");
       release.set_value();
     }
+    {
+      // Translation has the same detached-worker lifetime as online
+      // candidates; invalidating it must release a stale provider future.
+      std::promise<void> release;
+      auto gate = release.get_future().share();
+      state->translation_job_ = detachedJob([gate] {
+        gate.wait();
+        return Json::object();
+      });
+      state->translation_query_ = "synthetic-stale-translation";
+      state->invalidateTranslationRequests();
+      require(!state->translation_job_.valid(),
+              "invalidating translation requests releases stale provider futures");
+      release.set_value();
+    }
     require(key(FcitxKey_n) && key(FcitxKey_i), "second composition keys");
     // Recreate a displayed answer in the same synthetic composition so disabling the provider checks a real candidate removal after the selection above committed the first answer.
     const auto secondQuery = response(msime_client_online_query(state->session_)).dump();
