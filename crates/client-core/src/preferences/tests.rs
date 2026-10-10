@@ -2136,7 +2136,7 @@ fn touch_keyboard_layout_defaults_and_roundtrips_without_rewriting_legacy_files(
         store.load().unwrap().preferences.touch_keyboard_layout,
         TouchKeyboardLayout::NineKey
     );
-    let saved = store
+    store
         .save(
             1,
             Preferences {
@@ -2148,6 +2148,23 @@ fn touch_keyboard_layout_defaults_and_roundtrips_without_rewriting_legacy_files(
     assert_eq!(
         store.load().unwrap().preferences.touch_keyboard_layout,
         TouchKeyboardLayout::Handwriting
+    );
+    let saved = store
+        .save(
+            2,
+            Preferences {
+                touch_keyboard_layout: TouchKeyboardLayout::FourteenKey,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&saved).unwrap()["preferences"]["touch_keyboard_layout"],
+        "fourteen_key"
+    );
+    assert_eq!(
+        store.load().unwrap().preferences.touch_keyboard_layout,
+        TouchKeyboardLayout::FourteenKey
     );
     let mut invalid = serde_json::to_value(saved).unwrap();
     invalid["preferences"]["touch_keyboard_layout"] = "future_layout".into();
@@ -2326,9 +2343,14 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
             TouchKeyboardScheme::Tibetan,
             TouchKeyboardScheme::Stroke,
             TouchKeyboardScheme::ZhuyinNineKey,
+            TouchKeyboardScheme::FourteenKey,
         ]
     );
-    assert_eq!(TouchKeyboardScheme::ALL.len(), 17);
+    assert_eq!(TouchKeyboardScheme::ALL.len(), 18);
+    // 全拼 14 键也不在以前的默认列表里，没存列表的旧文档不会凭空多出它。
+    assert!(
+        !TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED.contains(&TouchKeyboardScheme::FourteenKey)
+    );
     for (scheme, id) in [
         (TouchKeyboardScheme::Cantonese, "cantonese"),
         (TouchKeyboardScheme::Zhuyin, "zhuyin"),
@@ -2336,6 +2358,7 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
         (TouchKeyboardScheme::Tibetan, "tibetan"),
         (TouchKeyboardScheme::Stroke, "stroke"),
         (TouchKeyboardScheme::ZhuyinNineKey, "zhuyin_nine_key"),
+        (TouchKeyboardScheme::FourteenKey, "fourteen_key"),
     ] {
         assert_eq!(serde_json::to_value(scheme).unwrap(), id);
         assert_eq!(

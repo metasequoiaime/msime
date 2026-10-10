@@ -282,6 +282,26 @@ fn settings_sync_round_trips_every_exported_key() {
     assert!(applied.skipped.is_empty());
 }
 
+/// 全拼 14 键的布局按 `fourteen_key` 上传，读回来还是 14 键，不会落成 26 键。
+#[test]
+fn settings_sync_round_trips_the_fourteen_key_layout() {
+    let expected = Preferences {
+        touch_keyboard_layout: TouchKeyboardLayout::FourteenKey,
+        ..Preferences::default()
+    };
+    let exported = export_android_settings(&expected, None).unwrap();
+    assert_eq!(
+        exported.get("platform.android.keyboard_layout"),
+        Some(&AccountPreferenceValue::String("fourteen_key".into()))
+    );
+    let applied = apply(&Preferences::default(), exported, &full_schema());
+    assert_eq!(
+        applied.preferences.touch_keyboard_layout,
+        TouchKeyboardLayout::FourteenKey
+    );
+    assert!(applied.skipped.is_empty());
+}
+
 #[test]
 fn settings_sync_frequency_round_trips_and_unsupported_fields_are_ignored() {
     let expected = FrequencyPreferences {
@@ -377,7 +397,7 @@ fn settings_sync_unknown_enum_values_skip_only_their_key() {
         ("input.shuangpin_schema", "sogou"),
         ("input.wubi_schema", "wubi06"),
         ("input.frequency_mode", "random"),
-        ("platform.android.keyboard_layout", "fourteen_key"),
+        ("platform.android.keyboard_layout", "future_layout"),
         ("platform.android.theme", "sepia"),
         ("platform.android.global_theme", "aurora"),
         ("platform.android.custom_theme_base", "custom"),

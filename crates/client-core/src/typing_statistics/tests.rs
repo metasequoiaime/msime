@@ -115,6 +115,21 @@ fn cantonese_zhuyin_vietnamese_and_stroke_commits_count_under_their_own_sources(
     assert_eq!(value.detail.sources["stroke"], 1);
 }
 
+/// 全拼 14 键按自己的来源 `fourteenKey` 计数，不并进全拼或 9 键。
+#[test]
+fn fourteen_key_commits_count_under_their_own_source() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(directory.path());
+    store.set_enabled(true).unwrap();
+    let source: TypingSource = serde_json::from_str("\"fourteenKey\"").unwrap();
+    assert_eq!(source, TypingSource::FourteenKey);
+    store.record("你好", source, "2026-10-10", Some(9)).unwrap();
+    let value = store.load().unwrap();
+    assert_eq!(value.detail.sources["fourteenKey"], 2);
+    assert!(!value.detail.sources.contains_key("nineKey"));
+    assert!(!value.detail.sources.contains_key("quanpin"));
+}
+
 // 藏文按自己的来源计数，不算中文；藏文字母归为 otherLetter，音节点和垂符归为标点。
 #[test]
 fn tibetan_commits_count_under_their_own_source() {
