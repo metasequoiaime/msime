@@ -2291,7 +2291,7 @@ test("macOS 维护与诊断 page exposes reversible uninstall with explicit data
   expect(within(about).queryByText("卸载水杉输入法")).toBeNull();
   const groupTitles = (scope: HTMLElement) =>
     [...scope.querySelectorAll("[data-group-title]")].map((node) => node.textContent);
-  expect(groupTitles(about)).toEqual(["版本与更新", "许可与隐私"]);
+  expect(groupTitles(about)).toEqual(["版本与更新", "系统信息", "许可与隐私"]);
   fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   const developer = await screen.findByRole("group", { name: "维护与诊断" });
   expect(await within(developer).findByText("卸载水杉输入法")).toBeDefined();
@@ -7762,7 +7762,9 @@ test("about page uses the packaged app version for display and update comparison
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  expect(await screen.findByText("v1.2.0")).toBeDefined();
+  // 「系统信息」也列出应用版本，这里只看「当前版本」那一行。
+  const currentVersion = (await screen.findByText("当前版本")).parentElement as HTMLElement;
+  expect(await within(currentVersion).findByText("v1.2.0")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
   expect(await screen.findByText("已是最新版本")).toBeDefined();
   expect(screen.queryByRole("button", { name: "前往下载" })).toBeNull();
