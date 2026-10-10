@@ -435,6 +435,8 @@ const DESKTOP_EMOJI_PANEL_TABS: EmojiPanelTab[] = EMOJI_PANEL_TABS.concat([
 // reads for system applications and this is not one.
 const CLIPBOARD_NOT_PERMITTED: string =
   '系统未授予读取剪贴板的权限，第三方输入法无法保存剪贴板历史。';
+// 不说「已在设置中关闭」：API 12 起键盘读的是自己沙箱里那份偏好，设置页的开关传不过来（platforms/harmony/README.md「输入法扩展的独立沙箱」），设置页显示开着时这句话就是错的。开关因此放在面板里，见 enableClipboardHistory。
+const CLIPBOARD_HISTORY_OFF: string = '剪贴板历史未开启';
 
 const CHINESE_SYMBOL_FACES: Map<string, string> = new Map<string, string>([
   [',', '，'], ['.', '。'], ['?', '？'], ['!', '！'], [';', '；'], [':', '：'],
@@ -702,7 +704,12 @@ struct KeyboardView {
     this.english = KeyboardSession.shared.isEnglish();
     this.clipboardEnabled = KeyboardSession.shared.clipboardHistoryAllowed();
     KeyboardSession.shared.onClipboardHistoryChanged = (enabled: boolean): void => {
+      const wasEnabled: boolean = this.clipboardEnabled;
       this.clipboardEnabled = enabled;
+      if (enabled && !wasEnabled) {
+        this.clips = KeyboardSession.shared.clipboardHistory();
+        this.clipboardNotice = '';
+      }
       if (!enabled) {
         this.clips = [];
         this.confirmingClear = false;
@@ -1953,7 +1960,7 @@ struct KeyboardView {
     this.resetEmojiSearch();
     if (panel === CLIPBOARD_PANEL) {
       this.clips = this.clipboardEnabled ? KeyboardSession.shared.clipboardHistory() : [];
-      this.clipboardNotice = this.clipboardEnabled ? '' : '剪贴板历史已在设置中关闭';
+      this.clipboardNotice = this.clipboardEnabled ? '' : CLIPBOARD_HISTORY_OFF;
       this.confirmingClear = false;
       this.openCloudClipboard();
       return;
@@ -4886,7 +4893,7 @@ struct KeyboardView {
   private openClipboard(): void {
     this.show(SURFACE_CLIPBOARD);
     this.clips = this.clipboardEnabled ? KeyboardSession.shared.clipboardHistory() : [];
-    this.clipboardNotice = this.clipboardEnabled ? '' : '剪贴板历史已在设置中关闭';
+    this.clipboardNotice = this.clipboardEnabled ? '' : CLIPBOARD_HISTORY_OFF;
     this.confirmingClear = false;
     this.openCloudClipboard();
   }
@@ -5077,7 +5084,7 @@ struct KeyboardView {
    */
   private captureClipboard(): void {
     if (!this.clipboardEnabled) {
-      this.clipboardNotice = '剪贴板历史已在设置中关闭';
+      this.clipboardNotice = CLIPBOARD_HISTORY_OFF;
       return;
     }
     KeyboardSession.shared.canReadClipboard().then((allowed: boolean): void => {
@@ -5313,9 +5320,18 @@ struct KeyboardView {
     }.width('100%').height(this.surfaceHeight())
   }
 
+  /** 面板里的「开启」：写键盘自己的那份偏好。写成功后会话回调 onClipboardHistoryChanged，列表和提示在那里换上。 */
+  private enableClipboardHistory(): void {
+    const changes: Map<string, Object> = new Map<string, Object>();
+    changes.set('clipboard_history', true);
+    if (!KeyboardSession.shared.changePreferences(changes)) {
+      this.clipboardNotice = '没能开启剪贴板历史，请稍后再试';
+    }
+  }
+
   private storeClipboardText(): void {
     if (!this.clipboardEnabled) {
-      this.clipboardNotice = '剪贴板历史已在设置中关闭';
+      this.clipboardNotice = CLIPBOARD_HISTORY_OFF;
       return;
     }
     if (!KeyboardSession.shared.clipboardCaptureAllowed()) {
@@ -5510,7 +5526,7 @@ struct KeyboardView {
   private applyClipboardMutation(result: ClipboardHistoryMutation): void {
     if (!this.clipboardEnabled) {
       this.clips = [];
-      this.clipboardNotice = '剪贴板历史已在设置中关闭';
+      this.clipboardNotice = CLIPBOARD_HISTORY_OFF;
       this.show(SURFACE_NONE);
       return;
     }
@@ -7605,13 +7621,23 @@ struct KeyboardView {
         .layoutWeight(1)
       } else {
         if (this.clipboardNotice.length > 0) {
-          Text(this.clipboardNotice)
-            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(this.clipboardSkin().secondary)
-            .maxLines(2)
-            .width('100%')
-            .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-              right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+          Row({ space: CLIP_HEADER_ACTION_GAP_VP }) {
+            Text(this.clipboardNotice)
+              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+              .fontColor(this.clipboardSkin().secondary)
+              .maxLines(2)
+              .layoutWeight(1)
+            if (!this.clipboardEnabled) {
+              Text('开启')
+                .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+                .fontColor(this.clipboardSkin().accent)
+                .accessibilityText('开启剪贴板历史')
+                .onClick(() => this.enableClipboardHistory())
+            }
+          }
+          .width('100%')
+          .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+            right: KeyboardMetrics.CANDIDATE_PADDING_VP })
         }
 
         if (this.emojiQuery.length > 0 && this.visibleClips().length === 0) {
