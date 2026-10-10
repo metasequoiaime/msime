@@ -72,7 +72,7 @@ public final class SpaceKeyFace extends KeyboardPressButton {
         if (english) return "space";
         if (scheme == null) return "全拼";
         return switch (scheme) {
-            case QUANPIN, QUANPIN_NINE_KEY -> "全拼";
+            case QUANPIN, QUANPIN_FOURTEEN_KEY, QUANPIN_NINE_KEY -> "全拼";
             case HANDWRITING -> "手写";
             case XIAOHE -> "双拼 · 小鹤";
             case ZIRANMA -> "双拼 · 自然码";

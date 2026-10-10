@@ -110,6 +110,8 @@ public final class NineKeyLayoutSmoke {
         check(!NineKeyLayout.nineKeyNumberLayout("NINE_KEY"));
         check(NineKeyLayout.twentySixKeyDigits(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, true, false));
         check(NineKeyLayout.twentySixKeyDigits(KeyboardLayout.KOREAN_LAYOUT, true, true, false));
+        // 14 键的 123 与 26 键是同一套，偏好选了九宫格时同样借用九键数字键面。
+        check(NineKeyLayout.twentySixKeyDigits(KeyboardLayout.FOURTEEN_KEY_LAYOUT, true, true, false));
         check(!NineKeyLayout.twentySixKeyDigits(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false, true, false));
         check(!NineKeyLayout.twentySixKeyDigits(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, false, false));
         check(!NineKeyLayout.twentySixKeyDigits(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, true, true));

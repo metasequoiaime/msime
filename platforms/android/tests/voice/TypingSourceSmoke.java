@@ -7,6 +7,8 @@ public final class TypingSourceSmoke {
     public static void main(String[] args) {
         check(TypingSource.resolve(KeyboardScheme.QUANPIN, false, "none") == TypingSource.QUANPIN);
         check(TypingSource.resolve(KeyboardScheme.QUANPIN_NINE_KEY, false, "") == TypingSource.NINE_KEY);
+        check(TypingSource.resolve(KeyboardScheme.QUANPIN_FOURTEEN_KEY, false, "") == TypingSource.FOURTEEN_KEY
+            && TypingSource.FOURTEEN_KEY.id().equals("fourteenKey"));
         check(TypingSource.resolve(KeyboardScheme.XIAOHE, false, null) == TypingSource.SHUANGPIN);
         check(TypingSource.resolve(KeyboardScheme.ZIRANMA, false, null) == TypingSource.ZIRANMA);
         check(TypingSource.resolve(KeyboardScheme.MICROSOFT, false, null) == TypingSource.MICROSOFT);

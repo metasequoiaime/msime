@@ -78,6 +78,7 @@ public final class MSIMEInputService extends InputMethodService {
     static final int QUANPIN_NINE_KEY_LAYOUT = 1;
     static final int JAPANESE_NINE_KEY_LAYOUT = 2;
     static final int HANDWRITING_LAYOUT = 3;
+    static final int FOURTEEN_KEY_LAYOUT = KeyboardLayout.FOURTEEN_KEY_LAYOUT;
     private static final long HANDWRITING_DEBOUNCE_MILLIS = 550;
     static final long BACKSPACE_REPEAT_DELAY_MILLIS = 400;
     static final long BACKSPACE_REPEAT_INTERVAL_MILLIS = 75;
@@ -150,8 +151,10 @@ public final class MSIMEInputService extends InputMethodService {
     /** 漢 in the candidate header: converts the composing Korean syllable to Hanja, or closes its list. */
     Button hanjaButton;
     LinearLayout nineKeySpellings;
-    /** 拼音选择条的滚动容器：拼音九键侧栏里是纵向的 ScrollView，注音 9 键候选行上是横向的 HorizontalScrollView，由 ImeLayoutRows.attachSpellings 按位置换。 */
+    /** 拼音选择条的滚动容器：拼音九键侧栏里是纵向的 ScrollView，注音 9 键候选行上和 14 键读音行右侧是横向的 HorizontalScrollView，由 ImeLayoutRows.attachSpellings 按位置换。 */
     FrameLayout nineKeySpellingScroll;
+    /** 读音行里读音右边的位置，14 键的拼音选择条挂在这里；其他布局下收起。 */
+    FrameLayout readingSpellingSlot;
     final java.util.List<Button> nineKeySpellingButtons = new java.util.ArrayList<>();
     java.util.List<Integer> nineKeySpellingIndices = java.util.List.of();
     long nineKeySpellingGeneration = -1;
@@ -2406,9 +2409,10 @@ public final class MSIMEInputService extends InputMethodService {
             InputSchemeTraits.drawsReading(nextViewScheme) && !nextDedicatedEnglish,
             InputViewValuePolicy.textOr(next, "phrase_prefix", ""), next.getString("editing_text"),
             InputViewValuePolicy.textOr(next, "reading", ""));
-        // 九键的 editing_text 是按下的数字键（64426），写进输入框对用户没有意义；和 iOS 默认一样不在输入框里标记组词，组词只显示在键盘自己的预编辑栏上（选过的音节显示为拼音，如 ni'426）。注音 9 键例外：上面已经按大千的规则标记 reading（转换结果加未完成的数字），照常留在输入框里。
+        // 九键的 editing_text 是按下的数字键（64426），写进输入框对用户没有意义；和 iOS 默认一样不在输入框里标记组词，组词只显示在键盘自己的预编辑栏上（选过的音节显示为拼音，如 ni'426）。注音 9 键例外：上面已经按大千的规则标记 reading（转换结果加未完成的数字），照常留在输入框里。14 键同理，editing_text 是组码字母（bugao），也不写进输入框；英文和本地模式画的是 26 键，照常标记。
+        boolean fourteenKeyGrid = !nextDedicatedEnglish && touchLayout(next) == FOURTEEN_KEY_LAYOUT;
         if (ZhuyinInputPolicy.hidesNineKeyComposing(InputViewValuePolicy.booleanValue(
-                next, "nine_key", false),
+                next, "nine_key", false) || fourteenKeyGrid,
                 ZhuyinInputPolicy.active(nextViewScheme, nextDedicatedEnglish))) composing = "";
         if (connection != null
                 && !bridge.apply(sink(typingSource()), commit, composing)) {
@@ -3125,6 +3129,13 @@ public final class MSIMEInputService extends InputMethodService {
         catch (JSONException | LinkageError error) { fail(); return true; }
     }
 
+    /** 14 键的一键：送这一组的首字母（{@link FourteenKeyLayout.Key#input}），由引擎按 14 键网格组字。不走 {@link #type}：那里的辅助码、微软双拼 `;` 和英文直出分支都按单个确定的字母处理。引擎不收（26 键正在组字、本地模式等）时什么也不输入，同九键的数字键。 */
+    boolean gridKey(char letter) {
+        if (session == 0) return false;
+        try { return apply(NativeClient.gridKey(session, letter)); }
+        catch (JSONException | LinkageError error) { fail(); return true; }
+    }
+
     private boolean helpcodeCompositionEligible() {
         if (view == null) return false;
         return ChineseHelpcodePolicy.eligible(dedicatedEnglish,
@@ -3767,10 +3778,19 @@ public final class MSIMEInputService extends InputMethodService {
 
     private static int touchLayout(JSONObject value) {
         if (value == null) return STANDARD_TOUCH_LAYOUT;
+        // 14 键看引擎的 `key_grid`，不看 `nine_key`（14 键下它是假）；本地模式要逐个确定的字母，这时回落 26 键。
+        boolean fourteenKey = "fourteen_key".equals(InputViewValuePolicy.textOr(value, "key_grid", "none"))
+            && "none".equals(InputViewValuePolicy.textOr(value, "local_mode", "none"));
         return KeyboardLayout.resolveTouchLayout(
             "handwriting".equals(InputViewValuePolicy.textOr(value, "touch_keyboard_layout", "")),
-            InputViewValuePolicy.booleanValue(value, "nine_key", false), InputViewValuePolicy.scheme(value, -1),
+            InputViewValuePolicy.booleanValue(value, "nine_key", false), fourteenKey,
+            InputViewValuePolicy.scheme(value, -1),
             InputViewValuePolicy.textOr(value, "touch_keyboard_layout", ""));
+    }
+
+    /** 画着的是引擎组码网格的键面（拼音九键或 14 键）：读音行显示 `nine_key_reading`，组字不写进输入框。 */
+    static boolean drawsKeyGrid(int layout) {
+        return layout == QUANPIN_NINE_KEY_LAYOUT || layout == FOURTEEN_KEY_LAYOUT;
     }
 
     void enter() {
@@ -7663,6 +7683,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeLayoutRows.updateStrokeWildcardKey();
         imeCalculator.syncVisibility();
         imeLayoutRows.updateNineKeySymbolKey();
+        imeLetterRows.updateFourteenKeySeparator();
         String currentEditingText = view == null ? "" : InputViewValuePolicy.editingText(view);
         if (!japaneseSchemeActive() || currentEditingText.isEmpty()) {
             japaneseConversionIndex = null;
@@ -7718,10 +7739,10 @@ public final class MSIMEInputService extends InputMethodService {
             boolean offersLocalModes = idle && supportsLocalTools();
             String localModeKey = view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none");
                     String reading = InputViewValuePolicy.textOr(view, "reading", "");
-            // 九键的 editing_text 只是按下的数字。读音行显示引擎给的首选读法拼音（94'26 显示 xi'an），首行是英文词时退回 preedit（带拆分分界和选过的拼音，如 ni'426）。
+            // 九键的 editing_text 只是按下的数字。读音行显示引擎给的首选读法拼音（94'26 显示 xi'an），首行是英文词时退回 preedit（带拆分分界和选过的拼音，如 ni'426）。14 键同样显示 `nine_key_reading`，引擎在首行是英文词时也给出读音，不让组码字母（bugao）出现在读音行上。
             String nineKeyPreedit = "";
             if (view != null && "none".equals(localModeKey)
-                    && displayedTouchLayout(view) == QUANPIN_NINE_KEY_LAYOUT) {
+                    && drawsKeyGrid(displayedTouchLayout(view))) {
                 nineKeyPreedit = InputViewValuePolicy.textOr(view, "nine_key_reading", "");
                 if (nineKeyPreedit.isEmpty()) nineKeyPreedit = InputViewValuePolicy.textOr(view, "preedit", "");
             }
