@@ -20,6 +20,8 @@ Status: implemented
 
 设置页的镜像 `customCandidatePalette` 与 `resolve` 由 `apps/desktop/tests/candidate/custom-theme-parity.json` 对齐，TS 侧用 `candidateSkinFor`、`skinDrawsIn`、`customDrawnBase` 复现同一套选择。
 
+网页引擎（`packages/web-engine`，npm 包 `@msime/web-engine`）不跟随槽位规则：它的 `resolveSkin` 一次只画调用方给的一款皮肤，固定明暗的皮肤照旧画在它 base 的明暗下，这是已发布的接口语义，网站把一款深色皮肤嵌进浅色页面就是要看到它。它的一致性测试跳过「固定明暗的皮肤落在另一种明暗」的用例，其余用例仍与 `resolve` 逐项对照。
+
 ## 同步与兼容
 
 - 按键同步的平台各加一个键：`platform.android.custom_candidate_skin_dark`、`platform.harmony.custom_candidate_skin_dark`、`platform.macos.custom_candidate_skin_dark`，空串表示未设，与浅色槽位的键同样校验。客户端只上传账号服务 `/v1/users/me/preferences/schema` 声明过的字段，服务端的字段表在 msime-cloud 的 `internal/account/preferences_fields.json`：Android 的新键随 metasequoiaime/msime-cloud#95 声明；鸿蒙和 macOS 的候选窗皮肤键（包括浅色槽位的）在这次改动之前就不在字段表里，所以这两个平台的皮肤选择目前不跨设备同步，要同步得先在服务端声明。
