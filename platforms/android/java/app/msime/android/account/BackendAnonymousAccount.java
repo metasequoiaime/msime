@@ -5,7 +5,6 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -209,19 +208,7 @@ final class BackendAnonymousAccount {
         HttpsURLConnection connection = null;
         try {
             connection = (HttpsURLConnection) new URL(ORIGIN + path).openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod(method);
-            connection.setConnectTimeout(30_000);
-            connection.setReadTimeout(30_000);
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("User-Agent", "MSIME/Android");
-            if (token != null) connection.setRequestProperty("Authorization", "Bearer " + token);
-            if (payload != null) {
-                connection.setDoOutput(true);
-                connection.setFixedLengthStreamingMode(payload.length);
-                connection.setRequestProperty("Content-Type", "application/json");
-                try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
-            }
+            AccountHttpRequest.writeJson(connection, method, token, "MSIME/Android", payload);
             int status = connection.getResponseCode();
             if (status == 429) {
                 // 服务端给了重试时间就按它来；没给就退一分钟，别把这件事变成一个忙等的循环。
