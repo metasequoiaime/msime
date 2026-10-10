@@ -606,7 +606,10 @@ pub(crate) fn export_local_snapshot(
             .as_bytes(),
     );
     body.push(b'\n');
-    let mut temporary = tempfile::NamedTempFile::new().map_err(|_| "snapshot file unavailable")?;
+    // 自检用的临时文件建在目标文件旁边，不用系统临时目录：Android 9 的应用进程没有可写的系统临时目录（`std::env::temp_dir` 落到应用写不了的 /data/local/tmp），在那里建文件会让每一次导出都失败。
+    let directory = destination.parent().ok_or("invalid snapshot destination")?;
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(directory).map_err(|_| "snapshot file unavailable")?;
     temporary
         .write_all(&body)
         .and_then(|()| temporary.as_file().sync_all())
