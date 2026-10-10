@@ -714,29 +714,34 @@ fn append_helpcode_rows(
         }
         return;
     }
-    // 先把两组行移入同一缓冲，只建立一个重复索引列表；释放借用后再原地压缩。
+    // 先借用两组行计算唯一索引，释放借用后只为真正追加的行预留结果容量。
     let added = total.saturating_sub(result.len());
-    result.reserve(added);
-    let original_len = result.len();
-    result.extend(whole);
-    result.extend(unmatched);
-    let mut listed = HashSet::with_capacity(result.len());
-    listed.extend(result[..original_len].iter().map(|item| item.word.as_str()));
+    let mut listed = HashSet::with_capacity(total);
+    listed.extend(result.iter().map(|item| item.word.as_str()));
     let mut unique = Vec::with_capacity(added);
-    for (index, item) in result.iter().enumerate().skip(original_len) {
+    for (index, item) in whole.iter().chain(unmatched.iter()).enumerate() {
         if listed.insert(item.word.as_str()) {
             unique.push(index);
         }
     }
     drop(listed);
-    let mut write = original_len;
-    for read in unique {
-        if write != read {
-            result.swap(write, read);
-        }
-        write += 1;
-    }
-    result.truncate(write);
+    result.reserve(unique.len());
+    let mut unique = unique.into_iter().peekable();
+    result.extend(
+        whole
+            .into_iter()
+            .chain(unmatched)
+            .enumerate()
+            .filter_map(|(index, item)| {
+                if unique.peek() == Some(&index) {
+                    unique.next();
+                    Some(item)
+                } else {
+                    None
+                }
+            }),
+    );
+    debug_assert!(unique.peek().is_none());
 }
 
 /// 按首匹配、次匹配、未匹配的顺序原地排列单字辅助码候选，并把未匹配行移动到单独的尾部缓冲。
@@ -1041,6 +1046,25 @@ mod tests {
             allocations <= 2,
             "large helpcode merge allocated {allocations} temporary buffers"
         );
+    }
+
+    #[test]
+    fn large_helpcode_rows_reserve_only_unique_rows() {
+        let mut result = Vec::with_capacity(1);
+        result.push(row("已有"));
+        let whole = (0..100).map(|_| row("新增")).collect();
+
+        append_helpcode_rows(&mut result, whole, Vec::new());
+
+        assert_eq!(
+            result
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["已有", "新增"]
+        );
+        // `Vec` 会为极小的增长保留实现规定的最小余量，但不应按 100 行输入扩容。
+        assert!(result.capacity() <= 4);
     }
 
     #[test]
