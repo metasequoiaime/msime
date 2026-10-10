@@ -29,4 +29,5 @@ Status: implemented
 ## Verification
 
 - `MSIMESharedTests/TypingStatisticsTests/testZeroCountAdviceAfterEnablingInAppNamesFullAccessFirst` 在临时目录里复现「app 开启记录 → 文件存在、计数为零」，断言提示里「允许完全访问」排在「清空过统计」之前；`testEmptyStatisticsAdviceStaysQuietWhenItHasNothingToExplain` 守住有计数和记录关闭时不出声。
+- `MSIMEClientUITests/OnboardingUITests/testEnablingRecordingWithZeroCountNamesFullAccess` 在模拟器的真实 app 里点「开启记录」，断言「统计没有数据」卡里出现「允许完全访问」和「前往系统设置」；模拟器上已有计数时跳过。PR 上的 `iOS Simulator` 不跑界面用例，要本机跑，且需签名（`CODE_SIGN_IDENTITY=-`），`CODE_SIGNING_ALLOWED=NO` 时 app 拿不到 App Group，页面只会显示「无法访问共享存储」。
 - `apps/desktop/tests/settings/statistics-full-access.test.tsx` 覆盖共享页 iOS 有无写入时间两种零计数，以及其他平台不提完全访问。
