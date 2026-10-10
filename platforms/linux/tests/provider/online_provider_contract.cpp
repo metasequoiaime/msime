@@ -43,6 +43,9 @@ int main() {
   std::istringstream empty_request;
   require(!msime::linux_host::read_bounded_cli_input(empty_request, request_buffer),
           "empty provider request was accepted");
+  std::istringstream empty_history;
+  require(msime::linux_host::read_bounded_cli_input(empty_history, request_buffer, 0) == 0,
+          "empty no-op CLI input was rejected");
   std::istringstream failed_request("abc");
   failed_request.setstate(std::ios::badbit);
   require(!msime::linux_host::read_bounded_cli_input(failed_request, request_buffer),
