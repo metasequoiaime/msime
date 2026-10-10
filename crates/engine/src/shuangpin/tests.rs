@@ -773,3 +773,24 @@ fn a_manual_delimiter_disables_correction_with_a_helpcode() {
         assert!(typo_row(&engine.query(&autocorrect_request("mw'gfxi", true), None)).is_none());
     }
 }
+
+/// 模糊音关着时 `append_fuzzy` 不排序，辅助码的重排就是最后一道排序。自然码 `mzgrci` 的字面整句是没关词，纠错整句是没关系：大写单辅助码 `X` 按末字取系，只有纠错行匹配，会被排到最前；双辅助码 `mX`（首字取没、末字取系）滤掉了别的行，只剩纠错行。前者纠错行让到第二位，后者没有可让的位置，不给纠错行。
+#[test]
+fn a_helpcode_never_moves_the_typo_sentence_to_the_first_seat() {
+    let fixture = Fixture::new(TYPO_FIXTURE);
+    let codes = keymap(&[("没", "mb"), ("美", "mc"), ("关", "gd"), ("系", "xa")]);
+    let with_helpcode = |typed: &str| QueryRequest {
+        enable_shuangpin_helpcode: true,
+        ..autocorrect_request(typed, true)
+    };
+    let mut engine = fixture.engine(ShuangpinProfileKind::Ziranma);
+    // 同一个引擎来回查：命中辅助码缓存的答案同样要守住。
+    for _ in 0..2 {
+        let single = engine.query(&with_helpcode("mzgrciX"), Some(&codes));
+        assert_eq!(index_of(&single, "没关系"), 1, "{:?}", words(&single));
+        assert!(single[0].corrected_from.is_empty(), "{:?}", words(&single));
+
+        let double = engine.query(&with_helpcode("mzgrcimX"), Some(&codes));
+        assert!(double.is_empty(), "{:?}", words(&double));
+    }
+}
