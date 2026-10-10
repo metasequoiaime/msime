@@ -66,6 +66,15 @@ View 新增 `key_grid: "none" | "nine_key" | "fourteen_key"`，`nine_key: bool` 
 - iOS 云端只有布尔键 `platform.ios.nine_key`，这一版 14 键上传 false，在别的设备上落成全拼 26 键；`platform.ios.keyboard_layout` 是 msime-cloud 仓库之后的改动。
 - client-core 必须先于任何宿主认识 `fourteen_key`：偏好严格解析，未知值会让整份偏好读不出来。
 
+### iOS 宿主
+
+- 方案是 `ChineseInputScheme.fourteenKey`，追加在 `stroke` 之后，加入 `optInSchemes`；共享文档里写 `fourteen_key`，引擎方案是全拼。桥接层把 `nineKeyEnabled` 换成 `KeyGrid`（none、九键、14 键），重建会话时重放，切到别的方案时复位；按键经 `gridKey` 送组码。
+- 键盘扩展的三排键在 `FourteenKeyLayout.swift`，用 `makeKey` 建，不进 `letterButtons` 和滑行的 `glideLetterKeys`，所以 Shift、双拼键位提示、角标滑动和滑行都碰不到它们。第三排两端的分词键和 ⌫ 宽度沿用 26 键的 ⇧：手机 44pt，iPad 按 26 键第三排 ⇧ 占一排的比例。
+- 拼音选择条是读音行右侧的横向滚动条（`readingSpellingStrip`），显示时至少占读音行一半宽，读音更长时由读音截断让出；九键的拼音条仍在网格左侧的侧栏里。三栏展开面板与九键共用。
+- iPad 与九键一样提供 14 键：不分体，不画数字行；底行用手机 26 键底行，因为 iPad 26 键底行的回车在第二排字母末尾，14 键没有那个位置。
+- 14 键的组字是组码字母，不论「行内预编辑」怎么设都不写进输入框，与 Android 一致；iOS 九键仍按「行内预编辑」的设置标记。
+- 云端只有 `platform.ios.nine_key`：14 键上传 `input.schema=quanpin`、`nine_key=false`。在本机「应用云端设置」时，云端这两项会把本机的 14 键改回全拼 26 键，这是本版不同步 14 键的代价，`platform.ios.keyboard_layout` 加上之后消失。
+
 ### 评测决策点
 
 engine 加入 14 键网格后，`verify-local.sh` 加两个集合：`fourteen-key`（`quanpin-words-v1.tsv`，`--limit 3000`）和 `fourteen-key-sentences`（`sentences-nine-key-v1.tsv`），基线是 `resources/eval/baseline-fourteen-key*.json`。`convert_eval` 和 `rerank_latency` 加 `--grid nine|fourteen`，`--nine-key` 是 `--grid nine` 的别名。
@@ -98,6 +107,7 @@ engine 加入 14 键网格后，`verify-local.sh` 加两个集合：`fourteen-ke
 
 ## Risks
 
+- 真实词库下 bu 和 ni 同组码，iOS 实测 BN UI GH AS OP 的首选是「不好」，「你好」排第二；手工脚本的「你好」以候选里出现为准，首选顺序由引擎词频决定。
 - 九键回归：热路径上的拼写表单例和 `encode` 都改了，由 E1 的逐字节门禁兜底。
 - 14 键歧义仍高（86 种重码，另有 sha 对 a'ga 这类跨音节歧义），常量是按九键调的，以评测决策点为准。
 - 候选行的 `pinyin` 字段在 14 键下是组码字母，凡是把它当真拼音用的地方都会悄悄出错；宿主不能展示候选的 `pinyin`。
