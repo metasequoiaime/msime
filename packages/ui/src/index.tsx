@@ -3230,6 +3230,7 @@ function SettingsShell(props: SettingsPageProps) {
     client,
     confirmation,
     confirm,
+    host,
     androidPlatform,
     iosPlatform,
     harmonyPlatform,
@@ -3562,7 +3563,9 @@ function SettingsShell(props: SettingsPageProps) {
                 )}
               {harmonyPlatform && host?.harmony_shared_sandbox === false && (
                 <SettingsWarning role="alert">
-                  当前 HarmonyOS 构建未启用输入法共享沙箱；设置页的偏好、账号、插件和统计不会同步到键盘。请使用已配置 data-group-id 的签名版本。
+                  当前 HarmonyOS
+                  构建未启用输入法共享沙箱；设置页的偏好、账号、插件和统计不会同步到键盘。请使用已配置
+                  data-group-id 的签名版本。
                 </SettingsWarning>
               )}
               <SettingsPageStatus

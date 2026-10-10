@@ -7,6 +7,7 @@ import androidx.annotation.Nullable;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppEdition;
 import app.msime.android.BackupDestinationWriter;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.DictionaryCollectionsStore;
