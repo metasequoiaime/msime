@@ -159,7 +159,7 @@ impl InputSession {
                         && scheme == SchemeType::Shuangpin
                         && self.profile.uses_semicolon_key()
                     {
-                        // 放在 `;` 上的韵母（微软的 ing）只能补完一个奇数长度的片段。
+                        // `;`（微软的 ing，或自定义方案放在 `;` 上的韵母、零声母编码的第二个键）只能补完一个奇数长度的片段。
                         let start = text[..caret].rfind('\'').map_or(0, |at| at + 1);
                         accepted = (caret - start) % 2 == 1;
                     }

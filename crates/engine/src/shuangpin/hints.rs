@@ -28,7 +28,7 @@ fn units_on_key(mapping: &[(&str, &str)], key: &str) -> String {
     units.join(" ")
 }
 
-/// Keys in `QWERTYUIOPASDFGHJKLZXCVBNM;` order, each `"initials / finals"` or whichever side it has, units sorted, a leading `v` shown as `ü`. Only `xiaohe`, `ziranma`, `shoudao` and `microsoft`; anything else yields no hints, `custom` included: the name alone does not carry the user's table.
+/// 按 `QWERTYUIOPASDFGHJKLZXCVBNM;` 的顺序列出每个键，写成 `"声母 / 韵母"`，只有一边时只写那一边；单位排好序，开头的 `v` 显示成 `ü`。只认 `xiaohe`、`ziranma`、`shoudao` 和 `microsoft`，其他名字都不给提示，`custom` 也一样：光有名字拿不到用户的表。
 pub fn shuangpin_key_hints(profile_name: &str) -> Vec<ShuangpinKeyHint> {
     // An unknown name yields nothing rather than the default profile's face: labelling the keys with a scheme the session is not running is worse than labelling nothing.
     let Some(source) = ShuangpinProfileKind::from_name(profile_name).and_then(profile) else {
@@ -52,7 +52,7 @@ pub fn shuangpin_key_hints(profile_name: &str) -> Vec<ShuangpinKeyHint> {
     hints
 }
 
-/// Each whole zero-initial syllable of the profile with its two-key code, in table order. An unknown name (and `custom`) yields nothing, the same as `shuangpin_key_hints`.
+/// 方案里每个整个的零声母音节和它的两键编码，按表里的顺序。不认识的名字（以及 `custom`）什么也不给，与 `shuangpin_key_hints` 相同。
 pub fn shuangpin_zero_initials(profile_name: &str) -> Vec<(&'static str, &'static str)> {
     ShuangpinProfileKind::from_name(profile_name)
         .and_then(profile)

@@ -711,7 +711,11 @@ pub fn apply_android_settings(
         };
         Some(())
     })?;
+    // 本机选着自定义方案时不导出这个键（账号装不下这张表），账号里留着的是上次的内置方案；合并上传后再应用回来时不能拿它盖掉本机的自定义方案。
     applier.set_string("input.shuangpin_schema", |preferences, value| {
+        if preferences.shuangpin_profile == ShuangpinProfile::Custom {
+            return Some(());
+        }
         preferences.shuangpin_profile = match value {
             "xiaohe" => ShuangpinProfile::Xiaohe,
             "ziranma" => ShuangpinProfile::Ziranma,

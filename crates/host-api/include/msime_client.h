@@ -87,8 +87,8 @@ char *msime_client_google_loopback(const uint8_t *request, size_t length);
 /* options is a readable UTF-8 buffer of length bytes; maximum 1 MiB.
  * Object: api_version=1, resources/user_data/cache/dictionaries (absolute paths),
  * preferences={scheme, candidate_page_size, learning, chinese_punctuation,
- *              shuangpin_profile?, shuangpin_custom_profile?, wubi_profile?}. Missing profile defaults to xiaohe; allowed
- * profiles: xiaohe, ziranma, shoudao, microsoft, custom. custom 读 shuangpin_custom_profile（{initials, finals, zero_initials}，各是单位到键的对象），表缺失或不合法时按 xiaohe 建会话。缺省 wubi_profile 为 wubi86，可选 wubi86、wubi98。 Unknown values are rejected.
+ *              shuangpin_profile?, shuangpin_custom_profile?, wubi_profile?}。缺省 shuangpin_profile 为 xiaohe，
+ * 可选 xiaohe、ziranma、shoudao、microsoft、custom。custom 读 shuangpin_custom_profile（{initials, finals, zero_initials}，各是单位到键的对象），表缺失或不合法时按 xiaohe 建会话。缺省 wubi_profile 为 wubi86，可选 wubi86、wubi98。不认识的取值一律拒绝。
  * Optional preferences_directory is bootstrap metadata for host file monitoring;
  * session creation itself does not monitor or load it.
  * Optional phrase_preedit=true asks for a half-composed phrase to stay in the

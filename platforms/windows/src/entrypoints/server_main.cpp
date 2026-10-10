@@ -12,6 +12,7 @@
 #include "ComponentFailure.h"
 #include "DiagnosticListener.h"
 #include "DedicatedEnglishMailbox.h"
+#include "EditPolicy.h"
 #include "DiagnosticLog.h"
 #include "FloatingToolbarVisibilityPolicy.h"
 #include "FirstRun.h"
@@ -531,9 +532,9 @@ msime::windows::TsfLocalConfig tsf_local_config(
   config.smart_punctuation_direct_letter =
       preferences.value("smart_punctuation_direct_letter", false);
   config.paired_punctuation = preferences.value("paired_punctuation", true);
+  // 不只看方案名：自定义方案把韵母或零声母编码放在 `;` 上时，TIP 同样要把 `;` 当输入键。
   config.microsoft_shuangpin =
-      scheme == "shuangpin" &&
-      preferences.value("shuangpin_profile", std::string("xiaohe")) == "microsoft";
+      scheme == "shuangpin" && msime::windows::shuangpin_uses_semicolon_key(preferences);
   config.input_mode = msime::windows::scheme::input_mode(scheme);
   config.tsf_diagnostic_log =
       preferences.value("diagnostic_log", nlohmann::json::object())

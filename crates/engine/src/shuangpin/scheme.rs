@@ -1,4 +1,4 @@
-//! Shuangpin key handling (`R/schemes/shuangpin_scheme.cpp`, schemes-lang.md §1.8). A profile with a final or zero-initial code ending on `;` accepts `;` as a key when the chunk since the last `'` has odd length.
+//! 双拼的按键处理（`R/schemes/shuangpin_scheme.cpp`，schemes-lang.md §1.8）。方案用得到 `;` 键时（微软双拼把 ing 放在 `;` 上，自定义方案可以把韵母或零声母编码的第二个键放在 `;` 上，见 `ShuangpinProfile::uses_semicolon_key`），自上一个 `'` 以来的片段长度为奇数时把 `;` 当作按键接受。
 
 use super::query::{
     apply_segmentation_cases, effective_input_length, normalize_input, segment_input,

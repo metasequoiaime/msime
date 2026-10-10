@@ -211,6 +211,27 @@ fn settings_sync_leaves_a_custom_shuangpin_profile_on_the_device() {
         ShuangpinProfile::Xiaohe
     );
     assert_eq!(applied.skipped, ["input.shuangpin_schema"]);
+
+    // 反过来，本机选着自定义方案、账号里留着上次的内置方案：合并上传后应用回来时本机仍是自定义方案，表也还在。
+    let mut values = BTreeMap::new();
+    values.insert(
+        "input.shuangpin_schema".into(),
+        AccountPreferenceValue::String("xiaohe".into()),
+    );
+    let applied = apply(
+        &local,
+        values,
+        &schema_for(&[("input.shuangpin_schema", "string")]),
+    );
+    assert_eq!(
+        applied.preferences.shuangpin_profile,
+        ShuangpinProfile::Custom
+    );
+    assert_eq!(
+        applied.preferences.shuangpin_custom_profile,
+        local.shuangpin_custom_profile
+    );
+    assert!(applied.skipped.is_empty());
 }
 
 #[test]

@@ -919,6 +919,34 @@ fn custom_profile_runs_the_users_table() {
     assert_eq!(session.snapshot().unwrap().editing_text, "ah");
 }
 
+/// 韵母都不在 `;` 上、只有零声母编码用 `;` 做第二个键时，会话照样收 `;`，并告诉宿主把它当字母键送进来。
+#[test]
+fn custom_profile_accepts_semicolon_used_only_by_a_zero_initial_code() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut table = custom_table();
+    for (unit, key) in &mut table.finals {
+        if unit == "ing" {
+            *key = "k".to_owned();
+        }
+    }
+    for (unit, key) in &mut table.zero_initials {
+        if unit == "a" {
+            *key = "o;".to_owned();
+        }
+    }
+    let mut options = options(dir.path());
+    options.scheme = 1;
+    options.shuangpin_profile = 4;
+    options.shuangpin_custom_profile = Some(table);
+    options.shuangpin_preedit_uses_raw = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"xko;");
+    let snapshot = session.snapshot().unwrap();
+    assert!(snapshot.microsoft_shuangpin);
+    assert_eq!(snapshot.editing_text, "xko;");
+    assert_eq!(snapshot.preedit, "xing'a");
+}
+
 #[test]
 fn custom_profile_needs_a_valid_table_only_when_shuangpin_is_enabled() {
     let dir = tempfile::tempdir().unwrap();
