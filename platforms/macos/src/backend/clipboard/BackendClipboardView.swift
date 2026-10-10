@@ -11,6 +11,7 @@ final class MacClipboardModel: ObservableObject {
   @Published var busy = false
   @Published var message: String?
   private let accountID: String
+  private var sessionID: UUID?
   private let client: BackendAccountClient
   private let account: BackendAccountSession
   private var pending: Task<Void, Never>?
@@ -18,9 +19,10 @@ final class MacClipboardModel: ObservableObject {
     self.accountID = accountID; self.client = client; self.account = account
   }
   private func credentials() async throws -> String {
-    let identity = try await account.credentials(matchingUserID: accountID)
+    let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
     try Task.checkCancellation()
     guard identity.userID == accountID else { throw CancellationError() }
+    sessionID = identity.sessionID
     return identity.token
   }
   func run(_ action: @escaping @MainActor (String) async throws -> Void) {

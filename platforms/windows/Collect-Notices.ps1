@@ -22,6 +22,7 @@ foreach ($notice in @(
     @('resources/licenses/msime-engine-dictionary-NOTICE.md', 'Dictionary data (msime-pinyin.db, msime-wubi.db, msime-english.db, msime-others.db, msime-bigram.bin, msime-trigram.bin)'),
     @('resources/helpcodes/ENGINE-NOTICE.md', 'Helpcode tables (lantian, ziranma, shouyou2_0, shouyouplus, xiaohe)'),
     @('resources/helpcodes/NOTICE.md', 'Helpcode table (jiajia)'),
+    @('resources/helpcodes/NOTICE-wubi86.md', 'Helpcode table (wubi86), generated from KyleBing/rime-wubi86-jidian, Apache-2.0, with 16 characters from rime/rime-wubi, LGPL-3.0 distributed under GPL-3.0'),
     @('resources/licenses/Zinnia-LICENSE.txt', 'zinnia, whose recognizer the host library ports, BSD License'),
     @('resources/licenses/Administrative-divisions-of-China-WTFPL.txt', 'Chinese administrative divisions compiled into the host library for @ mode, modood/Administrative-divisions-of-China @ c49d495b40ac73eb1a66f6eeae5f8fd10696f035, WTFPL'),
     @('resources/licenses/libhangul-hanja-BSD-3-Clause.txt', 'Korean Hanja table compiled into the host library for Hanja conversion, libhangul data/hanja/hanja.txt @ 717409ce61524bb3d8426060a384822f21354c62, BSD-3-Clause'),
@@ -31,6 +32,7 @@ foreach ($notice in @(
     @('resources/licenses/vi-MIT.txt', 'vi crate behind the Vietnamese scheme in the host library, ZeroX-DG/vi-rs 0.8.0, MIT'),
     @('resources/licenses/ewts-MIT.txt', 'ewts crate behind the Tibetan scheme in the host library, emgyrz/ewts-rs 0.1.3, MIT OR Apache-2.0 used under MIT'),
     @('platforms/windows/third_party/miniaudio/LICENSE', 'miniaudio (Server microphone capture and cue sounds)'),
+    @('shared/voice/third_party/cppcodec/LICENSE', 'cppcodec 0.2, header-only, Base64 for Alibaba Cloud Bailian speech requests, tplgy/cppcodec, MIT'),
     @('crates/client-core/data/opencc/LICENSE', 'OpenCC dictionaries, BYVoid/OpenCC @ 26753884f1984add422f3b0249ccee8613deaff6'))) {
     $relative = $notice[0]
     $noticePath = Join-Path $RepoRoot $relative

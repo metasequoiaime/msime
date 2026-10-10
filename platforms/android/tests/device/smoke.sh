@@ -80,6 +80,7 @@ for entry in \
     "CandidatePanelDeviceSmoke|Candidate panel acceptance failed" \
     "MoreToolsDeviceSmoke|More tools acceptance failed" \
     "EmojiPickerDeviceSmoke|Emoji picker acceptance failed" \
+    "PairedPunctuationDeviceSmoke|Paired punctuation acceptance failed" \
     "PreferencesDeviceSmoke|Preferences acceptance failed" \
     "KeyboardHeightDeviceSmoke|Keyboard height acceptance failed" \
     "FuzzyPinyinDeviceSmoke|Fuzzy pinyin acceptance failed" \

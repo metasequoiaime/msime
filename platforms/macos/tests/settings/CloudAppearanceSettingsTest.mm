@@ -37,9 +37,9 @@ int main() {
       }
     }
     assert(MSIMEApplyCloudAppearance(initial, defaults));
-    for (NSString *key in @[@"autocorrect", @"helpcode", @"chinese_punctuation", @"input_mode_shortcut", @"floating_toolbar", @"candidate_learning"])
+    for (NSString *key in @[@"autocorrect", @"helpcode", @"chinese_punctuation", @"input_mode_shortcut", @"floating_toolbar", @"candidate_learning", @"wubi_auto_commit_unique"])
       assert([initial[[@"platform.macos." stringByAppendingString:key]] isEqual:@YES]);
-    for (NSString *key in @[@"english_input_mode", @"full_width_input", @"smart_punctuation", @"smart_punctuation_repeat", @"traditional_chinese_output", @"wubi_auto_commit_unique", @"shuangpin_keymap"])
+    for (NSString *key in @[@"english_input_mode", @"full_width_input", @"smart_punctuation", @"smart_punctuation_repeat", @"traditional_chinese_output", @"shuangpin_keymap"])
       assert([initial[[@"platform.macos." stringByAppendingString:key]] isEqual:@NO]);
     [defaults setObject:@"japanese" forKey:@"MSIMEClientInputScheme"];
     NSDictionary *japaneseNativeSnapshot = MSIMECloudAppearanceSnapshot(defaults);
@@ -118,9 +118,21 @@ int main() {
       }
     }
     for (NSString *key in @[@"platform.macos.quanpin_helpcode_schema", @"platform.macos.shuangpin_helpcode_schema"]) {
-      for (id invalid in @[@YES, @(MSIMECloudHelpcodeSchemas().count), @(-1), @1.5, @"1"]) {
+      for (id invalid in @[@YES, @(-1), @1.5, @"1"]) {
         NSMutableDictionary *bad = [saved mutableCopy]; bad[key] = invalid;
         assert(!MSIMEApplyCloudAppearance(bad, defaults));
+        assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
+      }
+      // 更新的版本追加的方案：本机不认识这个下标，这一项保留本机的选择，快照的其余部分照常应用。
+      for (NSNumber *unknown in @[@(MSIMECloudHelpcodeSchemas().count), @(MSIMECloudHelpcodeSchemas().count + 5)]) {
+        NSMutableDictionary *newer = [saved mutableCopy]; newer[key] = unknown;
+        newer[@"platform.macos.candidate_font_size"] = @([saved[@"platform.macos.candidate_font_size"] integerValue] == 20 ? 21 : 20);
+        assert(MSIMEValidateCloudAppearance(newer));
+        assert(MSIMEApplyCloudAppearance(newer, defaults));
+        NSDictionary *after = MSIMECloudAppearanceSnapshot(defaults);
+        assert([after[key] isEqual:saved[key]]);
+        assert([after[@"platform.macos.candidate_font_size"] isEqual:newer[@"platform.macos.candidate_font_size"]]);
+        assert(MSIMEApplyCloudAppearance(saved, defaults));
         assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
       }
     }
@@ -137,8 +149,8 @@ int main() {
       assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
     }
     // 1 and 6 are sizes the shared preferences accept, so a snapshot carrying either is applied rather
-    // than refused; what stays invalid is a non-number, a non-integer, and anything outside 1..9.
-    for (id invalid in @[@YES, @0, @10, @1.5,
+    // than refused; what stays invalid is a non-number, a non-integer, and anything outside 1..10.
+    for (id invalid in @[@YES, @0, @11, @1.5,
                          [NSDecimalNumber decimalNumberWithString:@"5.0000000000000001"],
                          @"5", NSNull.null]) {
       values = [saved mutableCopy];
@@ -146,7 +158,7 @@ int main() {
       assert(!MSIMEApplyCloudAppearance(values, defaults));
       assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
     }
-    for (NSNumber *accepted in @[@1, @4, @6, @9]) {
+    for (NSNumber *accepted in @[@1, @4, @6, @9, @10]) {
       values = [saved mutableCopy];
       values[@"platform.macos.candidate_page_size"] = accepted;
       assert(MSIMEApplyCloudAppearance(values, defaults));

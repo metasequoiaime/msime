@@ -306,6 +306,22 @@ test("添加 imports a dictionary into this device and settles on 已添加", as
   expect(screen.queryByText("词条预览 · 2 条")).toBeNull();
 });
 
+test("添加 installs a dictionary as its own dictionary when the host keeps named dictionaries", async () => {
+  const resources = resourceClient();
+  const importWords = vi.fn().mockResolvedValue({ applied: 2 });
+  const installCollection = vi.fn().mockResolvedValue(undefined);
+  renderHarmony({ resources, localDictionary: { import: importWords, installCollection } });
+  fireEvent.click(screen.getByRole("tab", { name: "词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "添加词库 网络流行语" }));
+
+  await screen.findByRole("button", { name: "已添加词库 网络流行语" });
+  // 装的是重新读到的详情，成为一个可以在「词库」里停用或删除的词库，而不是逐条导入主词库。
+  expect(installCollection).toHaveBeenCalledTimes(1);
+  expect(installCollection.mock.calls[0][0].name).toBe("网络流行语");
+  expect(importWords).not.toHaveBeenCalled();
+  expect(screen.getByText("已添加「网络流行语」，可以在「词库」里停用或删除")).toBeTruthy();
+});
+
 test("添加 keeps a reply template for the reply keyboard", async () => {
   const resources = resourceClient();
   renderHarmony({ resources });

@@ -7,3 +7,6 @@ WORKDIR /source
 # per-responsibility directories left them in tools/ and runtime/.
 COPY tools/virtual-keyboard-unstable-v1.xml runtime/wayland_keyboard.c /tmp/msime-wayland-driver/
 RUN cd /tmp/msime-wayland-driver && wayland-scanner client-header virtual-keyboard-unstable-v1.xml virtual-keyboard-client.h && wayland-scanner private-code virtual-keyboard-unstable-v1.xml virtual-keyboard-protocol.c && cc -Wall -Wextra -Werror wayland_keyboard.c virtual-keyboard-protocol.c $(pkg-config --cflags --libs wayland-client) -o /usr/local/bin/msime-test-wayland-keyboard && rm -rf /tmp/msime-wayland-driver
+
+# 仓库工具链要求这两个组件，预装后临时容器不再补装；保留系统包和 Wayland 驱动缓存。
+RUN rustup component add rustfmt clippy

@@ -2,27 +2,56 @@ package app.msime.android;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.Supplier;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 /** Runs snapshot preparation and activation only after the IME session is gone. */
 public final class DictionarySnapshotWorker {
     private DictionarySnapshotWorker() {}
 
-    public static void process(Path filesRoot, Path queueDirectory, Path stagingDirectory, String options)
+    /** 先处理排着的整份快照激活，再合并本地备份恢复时排下的输入记录。合并会改本机词库版本，放在激活前面会让排着的激活因版本不符被拒。 */
+    public static void process(Path filesRoot, Path queueDirectory, Path stagingDirectory, String options,
+            Supplier<String> currentAccountId)
             throws Exception {
+        try {
+            activate(filesRoot, queueDirectory, stagingDirectory, options, currentAccountId);
+        } finally {
+            mergePendingLearning(options);
+        }
+    }
+
+    /**
+     * 合并本地备份恢复时排下的输入记录（`merge_pending_learning`，#5659）。这里键盘已经没有会话，拿得到独占维护权；不放在建会话前的个人词库同步里，免得一份大备份拖慢恢复后第一次弹出键盘。没有待合并的文件时原生侧什么也不做；失败时原生侧保留文件、记下次数，下次空闲再试，连续失败几次后放弃，所以这里不看结果。
+     */
+    static void mergePendingLearning(String options) {
+        try {
+            NativeClient.dictionary(new JSONObject()
+                .put("options", new JSONObject(options))
+                .put("action", new JSONObject().put("operation", "merge_pending_learning"))
+                .toString());
+        } catch (JSONException | RuntimeException | LinkageError ignored) {
+            // 下次空闲再试；快照处理不能因为它失败。
+        }
+    }
+
+    private static void activate(Path filesRoot, Path queueDirectory, Path stagingDirectory, String options,
+            Supplier<String> currentAccountId) throws Exception {
         DictionarySnapshotQueue queue = new DictionarySnapshotQueue(filesRoot, queueDirectory);
         String current = version(options);
         queue.publishLocalVersion(current);
         try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
-            DictionarySnapshotQueue.Request request = queue.claim(lease);
+            DictionarySnapshotQueue.Request request = queue.claim(lease, currentAccountId);
             if (request == null) return;
             long handle = 0;
             try {
                 ensureSafeDirectory(stagingDirectory);
+                // 队列里记的是带前缀的本机版本，原生侧只认其中的摘要。
+                String expected = DictionarySnapshotQueue.nativeVersion(request.expectedLocalVersion());
                 String prepareRequest = new JSONObject()
                     .put("options", new JSONObject(options))
                     .put("staging_root", stagingDirectory.toAbsolutePath().normalize().toString())
-                    .put("expected_version", request.expectedLocalVersion())
+                    .put("expected_version", expected)
                     .put("activation_id", request.id().toString())
                     .put("records", 0)
                     .toString();
@@ -37,9 +66,9 @@ public final class DictionarySnapshotWorker {
                 if (preparedHandle == 0)
                     throw new IllegalStateException("snapshot handle invalid");
                 handle = preparedHandle;
-                boolean applied = queue.complete(request.id(), lease, current, false, () -> {
+                boolean applied = queue.complete(request.id(), lease, current, false, currentAccountId, () -> {
                     JSONObject activated = new JSONObject(NativeClient.snapshotActivate(
-                        preparedHandle, request.expectedLocalVersion()));
+                        preparedHandle, expected));
                     if (!JsonPolicy.strictTrue(activated.opt("ok")))
                         throw new IllegalStateException("snapshot activation rejected");
                     return version(options);

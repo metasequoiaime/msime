@@ -32,19 +32,12 @@ enum FrequencyAdjustmentPreference {
     if let number = stored as? Int {
       value = number
     } else if let number = stored as? NSNumber {
-      value = integer(number)
+      value = SharedNumber.strictInt(number)
     } else {
       value = nil
     }
     guard let value, countRange.contains(value) else { return 1 }
     return value
-  }
-
-  private static func integer(_ value: NSNumber) -> Int? {
-    guard CFGetTypeID(value) != CFBooleanGetTypeID(),
-          let integer = Int(value.stringValue),
-          NSNumber(value: integer).compare(value) == .orderedSame else { return nil }
-    return integer
   }
 
   static var mode: FrequencyAdjustmentMode {

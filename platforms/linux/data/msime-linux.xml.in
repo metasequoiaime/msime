@@ -17,7 +17,8 @@
       <license>GPL-3.0-only</license>
       <author>MSIME contributors</author>
       <icon>msime-client</icon>
-      <layout>us</layout>
+      <!-- default 表示切到本输入法时不改当前键盘布局：IBus 面板和 GNOME Shell 都会把引擎写的具体布局（例如 us）套到键盘上，Dvorak、Colemak 用户切过来就被换回 QWERTY（#6365）。按键按布局翻译后的 keyval 处理，不依赖 us。 -->
+      <layout>default</layout>
     </engine>
   </engines>
 </component>

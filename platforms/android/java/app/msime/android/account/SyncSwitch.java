@@ -98,6 +98,17 @@ public final class SyncSwitch {
         }
     }
 
+    /** A lock-free consistent snapshot for provider calls, which must not take bindingLock. */
+    public static Binding bindingSnapshot(Context context) {
+        SharedPreferences values = store(context);
+        long before = values.getLong(KEY_BINDING_GENERATION, 0L);
+        String accountId = values.getString(KEY_ACCOUNT_ID, "");
+        long after = values.getLong(KEY_BINDING_GENERATION, 0L);
+        return before == after ? new Binding(accountId, after) : null;
+    }
+
+    public record Binding(String accountId, long generation) {}
+
     /**
      * 记下这次登录的账号与方式。账号与已记录的不同（包括原来没有记录）时先 {@link #clear}，所以换账号后开关总是关闭、游标从头开始。
      *

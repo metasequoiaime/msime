@@ -5,7 +5,9 @@ import java.io.InputStream;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import javax.net.ssl.HttpsURLConnection;
@@ -26,7 +28,6 @@ import org.json.JSONObject;
  * <p>Every call blocks on the network and must not run on the main thread.
  */
 public final class CommunityCatalog {
-    private static final String ORIGIN = "https://api.msime.app";
     private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
     private static final int MAX_RESOURCE_RESPONSE_BYTES = 48 * 1024 * 1024;
     private static final int TIMEOUT_MILLIS = 30_000;
@@ -56,28 +57,52 @@ public final class CommunityCatalog {
         public boolean failed() { return !failure.isEmpty(); }
     }
 
-    private final Context context;
+    /** 设置页发现区的一次有界目录结果；失败时 `items` 为 null，`failure` 可直接展示。 */
+    public record Discovery(List<Item> items, String failure) {
+        public boolean failed() { return items == null; }
+    }
+
+    /** 把目录页转换成发现区使用的有界列表或失败状态。 */
+    public static Discovery discovery(Page page, int limit) {
+        if (page == null) return new Discovery(null, "暂时连不上社区，稍后再试。");
+        if (page.failed()) return new Discovery(null, page.failure());
+        return new Discovery(CommunityRequest.limitedCopy(page.items(), limit), null);
+    }
+
+    private final CloudApi cloud;
+    private final CloudApi.Tokens accountTokens;
+    private final CloudApi.Tokens anonymousTokens;
+    private final CloudApi.Transport listingTransport;
     private record PageResponse(Page page, int status) {}
-    private record ListingToken(String value, boolean anonymous) {}
+    private record ListingToken(String value, boolean anonymous, String sessionId) {}
 
     public CommunityCatalog(Context context) {
-        this.context = context.getApplicationContext();
+        this(context, new CloudApi(context));
+    }
+
+    CommunityCatalog(Context context, CloudApi cloud) {
+        this(context, cloud, CloudApi.accountTokens(context.getApplicationContext()),
+            rejected -> new BackendAnonymousAccount(context.getApplicationContext()).accessToken(rejected),
+            CommunityCatalog::httpListingExchange);
+    }
+
+    CommunityCatalog(Context context, CloudApi cloud, CloudApi.Tokens accountTokens,
+            CloudApi.Tokens anonymousTokens, CloudApi.Transport listingTransport) {
+        this.cloud = cloud;
+        this.accountTokens = accountTokens;
+        this.anonymousTokens = anonymousTokens;
+        this.listingTransport = listingTransport;
     }
 
     /** Open a catalogue request with the shared transport defaults. */
-    private static HttpsURLConnection open(URL url, String method, boolean output)
+    private static HttpsURLConnection open(URL url, String method)
             throws java.io.IOException {
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        connection.setInstanceFollowRedirects(false);
+        HttpConnectionPolicy.rejectRedirects(connection);
         connection.setRequestMethod(method);
-        connection.setConnectTimeout(TIMEOUT_MILLIS);
-        connection.setReadTimeout(TIMEOUT_MILLIS);
+        HttpConnectionPolicy.setTimeouts(connection, TIMEOUT_MILLIS, TIMEOUT_MILLIS);
         connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("User-Agent", "MSIME/Android");
-        if (output) {
-            connection.setDoOutput(true);
-            connection.setRequestProperty("Content-Type", "application/json");
-        }
+        connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
         return connection;
     }
 
@@ -94,14 +119,26 @@ public final class CommunityCatalog {
         ListingToken selected = listingToken();
         String token = selected.value();
         for (int attempt = 0; ; attempt++) {
+            Page stale = listingSessionFailure(selected);
+            if (stale != null) return stale;
             PageResponse response = requestPage(kind, search, offset, category, token);
+            stale = listingSessionFailure(selected);
+            if (stale != null) return stale;
             if (!shouldRetryListing(response.status(), token, attempt)) return response.page();
             try {
-                String fresh = selected.anonymous()
-                    ? new BackendAnonymousAccount(context).accessToken(token)
-                    : new BackendAccount(context).currentAccessToken(token);
-                if (fresh.isEmpty()) return response.page();
+                String fresh;
+                if (selected.anonymous()) {
+                    fresh = anonymousTokens.token(token);
+                } else {
+                    CloudApi.TokenSnapshot refreshed = accountTokens.snapshot(token);
+                    if (!selected.sessionId().equals(refreshed.sessionId()))
+                        return listingFailure("session_changed", 409);
+                    fresh = refreshed.token();
+                }
+                if (fresh == null || fresh.isEmpty() || fresh.equals(token)) return response.page();
                 token = fresh;
+            } catch (java.util.concurrent.CancellationException changed) {
+                return listingFailure("session_changed", 409);
             } catch (Exception | LinkageError error) {
                 android.util.Log.i("MSIMECommunity", "Account refresh for catalogue failed", error);
                 return response.page();
@@ -114,30 +151,79 @@ public final class CommunityCatalog {
         return status == 401 && token != null && !token.isEmpty() && attempt == 0;
     }
 
+    private Page listingSessionFailure(ListingToken selected) {
+        if (selected.anonymous()) return null;
+        if (selected.sessionId() == null || selected.sessionId().isEmpty())
+            return listingFailure("session_unavailable", 0);
+        try {
+            CloudApi.TokenSnapshot current = accountTokens.snapshot(null);
+            return selected.sessionId().equals(current.sessionId())
+                ? null : listingFailure("session_changed", 409);
+        } catch (java.util.concurrent.CancellationException changed) {
+            return listingFailure("session_changed", 409);
+        } catch (Exception | LinkageError unavailable) {
+            android.util.Log.i("MSIMECommunity", "Account session check for catalogue failed", unavailable);
+            return listingFailure("session_unavailable", 0);
+        }
+    }
+
+    private static Page listingFailure(String code, int status) {
+        return new Page(List.of(), false, CommunityRequest.message(code, status));
+    }
+
     private PageResponse requestPage(CommunityRequest.Kind kind, String search, int offset,
             CommunityRequest.Category category, String token) {
-        HttpsURLConnection connection = null;
         try {
-            connection = open(new URL(ORIGIN
-                + CommunityRequest.path(kind, "", search, offset, category)), "GET", false);
-            if (token != null) connection.setRequestProperty("Authorization", "Bearer " + token);
-            int status = connection.getResponseCode();
+            Map<String, String> headers = new LinkedHashMap<>();
+            headers.put("Accept", "application/json");
+            headers.put("User-Agent", CloudApi.USER_AGENT);
+            if (token != null) headers.put("Authorization", "Bearer " + token);
+            CloudApi.Exchange response = listingTransport.exchange("GET",
+                CommunityRequest.path(kind, "", search, offset, category), headers, null);
+            int status = response.status();
             if (status != 200) {
-                String code = errorCode(connection.getErrorStream());
+                String code = CloudApi.failure(response).code;
                 return new PageResponse(
                     new Page(List.of(), false, CommunityRequest.message(code, status)), status);
             }
-            try (InputStream input = connection.getInputStream()) {
-                byte[] body = HttpBodyPolicy.readRequired(input, maximumResponseBytes(kind));
-                return new PageResponse(parse(kind, new JSONObject(
-                    TextPolicy.utf8(body))), 200);
-            }
+            byte[] body = response.body();
+            if (body == null || body.length > maximumResponseBytes(kind))
+                throw new java.io.IOException("catalogue response too large");
+            return new PageResponse(parse(kind, new JSONObject(TextPolicy.utf8(body))), 200);
         } catch (Exception | LinkageError error) {
             // 说出是哪一步断的。界面上仍然只有那一句，但把原因扔掉，下一次就还得从头猜。
             android.util.Log.w("MSIMECommunity", "Catalogue request failed", error);
             return new PageResponse(new Page(List.of(), false, CommunityRequest.message(null, 0)), 0);
+        }
+    }
+
+    /** Catalogue pages may be larger than the shared cloud transport's 4 MiB default. */
+    private static CloudApi.Exchange httpListingExchange(String method, String path,
+            Map<String, String> headers, byte[] request) throws java.io.IOException {
+        HttpsURLConnection connection = open(new URL(CloudApi.ORIGIN + path), method);
+        try {
+            for (Map.Entry<String, String> header : headers.entrySet())
+                connection.setRequestProperty(header.getKey(), header.getValue());
+            int status = connection.getResponseCode();
+            InputStream stream = status == 200 ? connection.getInputStream() : connection.getErrorStream();
+            byte[] body = new byte[0];
+            if (stream != null) {
+                int limit = status == 200 && path.startsWith("/v1/community/resources?")
+                    ? MAX_RESOURCE_RESPONSE_BYTES : MAX_RESPONSE_BYTES;
+                try (InputStream input = stream) {
+                    if (status == 200) {
+                        body = HttpBodyPolicy.readRequired(input, limit);
+                    } else {
+                        // A malformed or oversized error body must not hide its HTTP status.
+                        try { body = HttpBodyPolicy.readRequired(input, limit); }
+                        catch (java.io.IOException unreadable) { body = new byte[0]; }
+                    }
+                }
+            }
+            return new CloudApi.Exchange(status, connection.getContentType(),
+                connection.getHeaderField("Retry-After"), body);
         } finally {
-            if (connection != null) connection.disconnect();
+            connection.disconnect();
         }
     }
 
@@ -153,74 +239,26 @@ public final class CommunityCatalog {
         if (!validReportItem(item) || !CommunityRequest.validReport(reason, text)) {
             return CommunityRequest.message("invalid_report_reason", 400);
         }
-        BackendAccount account = new BackendAccount(context);
-        String token = account.accessToken();
-        boolean anonymous = false;
-        if (token.isEmpty()) {
-            try {
-                token = new BackendAnonymousAccount(context).accessToken();
-                anonymous = true;
-            } catch (Exception | LinkageError error) {
-                android.util.Log.i("MSIMECommunity", "No identity to report with", error);
-                return CommunityRequest.message(null, error instanceof BackendAnonymousAccount.RateLimited ? 429 : 0);
-            }
-        }
-        HttpsURLConnection connection = null;
         try {
             JSONObject body = new JSONObject()
                 .put("kind", CommunityRequest.reportKind(item.kind()))
                 .put("item_id", item.id())
                 .put("reason", reason);
             if (!text.isEmpty()) body.put("detail", text);
-            connection = open(new URL(ORIGIN + CommunityRequest.REPORT_PATH), "POST", true);
-            connection.setRequestProperty("Authorization", "Bearer " + token);
-            try (java.io.OutputStream output = connection.getOutputStream()) {
-                output.write(TextPolicy.utf8Bytes(body.toString()));
-            }
-            int status = connection.getResponseCode();
-            if (status == 200 || status == 201) {
-                return confirmedReport(connection)
-                    ? "" : CommunityRequest.message(null, 502);
-            }
-            if (status == 401) {
-                String fresh = anonymous
-                    ? new BackendAnonymousAccount(context).accessToken(token)
-                    : account.currentAccessToken(token);
-                if (!fresh.isEmpty()) return reportWithToken(item, reason, text, fresh);
-            }
-            return CommunityRequest.message(errorCode(connection.getErrorStream()), status);
+            CloudApi.Response reply = cloud.send("POST", CommunityRequest.REPORT_PATH,
+                CloudApi.Body.json(body), CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
+            if (reply.status() != 200 && reply.status() != 201)
+                return CommunityRequest.message(null, reply.status());
+            if (reply.body() == null || reply.body().length > 16 * 1024)
+                return CommunityRequest.message(null, 502);
+            JSONObject response = reply.json();
+            return JsonPolicy.strictTrue(response.opt("reported"))
+                ? "" : CommunityRequest.message(null, 502);
+        } catch (CloudApi.Failure failure) {
+            return CommunityRequest.message(failure.code, failure.status);
         } catch (Exception | LinkageError error) {
             android.util.Log.w("MSIMECommunity", "Report failed", error);
             return CommunityRequest.message(null, 0);
-        } finally {
-            if (connection != null) connection.disconnect();
-        }
-    }
-
-    private String reportWithToken(Item item, String reason, String text, String token) {
-        HttpsURLConnection connection = null;
-        try {
-            JSONObject body = new JSONObject()
-                .put("kind", CommunityRequest.reportKind(item.kind()))
-                .put("item_id", item.id())
-                .put("reason", reason);
-            if (!text.isEmpty()) body.put("detail", text);
-            connection = open(new URL(ORIGIN + CommunityRequest.REPORT_PATH), "POST", true);
-            connection.setRequestProperty("Authorization", "Bearer " + token);
-            try (java.io.OutputStream output = connection.getOutputStream()) {
-                output.write(TextPolicy.utf8Bytes(body.toString()));
-            }
-            int status = connection.getResponseCode();
-            if (status == 200 || status == 201) {
-                return confirmedReport(connection)
-                    ? "" : CommunityRequest.message(null, 502);
-            }
-            return CommunityRequest.message(errorCode(connection.getErrorStream()), status);
-        } catch (Exception | LinkageError error) {
-            android.util.Log.w("MSIMECommunity", "Report retry failed", error);
-            return CommunityRequest.message(null, 0);
-        } finally {
-            if (connection != null) connection.disconnect();
         }
     }
 
@@ -229,18 +267,19 @@ public final class CommunityCatalog {
      */
     private ListingToken listingToken() {
         try {
-            String account = new BackendAccount(context).accessToken();
-            if (!account.isEmpty()) return new ListingToken(account, false);
+            CloudApi.TokenSnapshot account = accountTokens.snapshot(null);
+            if (account.token() != null && !account.token().isEmpty())
+                return new ListingToken(account.token(), false, account.sessionId());
         } catch (Exception | LinkageError error) {
             android.util.Log.i("MSIMECommunity", "Account session unavailable; trying anonymous",
                 error);
         }
         try {
-            return new ListingToken(new BackendAnonymousAccount(context).accessToken(), true);
+            return new ListingToken(anonymousTokens.token(null), true, null);
         } catch (Exception | LinkageError error) {
             android.util.Log.i("MSIMECommunity", "Anonymous identity unavailable; listing anyway",
                 error);
-            return new ListingToken(null, true);
+            return new ListingToken(null, true, null);
         }
     }
 
@@ -253,54 +292,24 @@ public final class CommunityCatalog {
         if (item == null || item.kind() != CommunityRequest.Kind.SKIN || category == null) {
             return new Update(null, "这类作品没有分类。");
         }
-        BackendAccount account = new BackendAccount(context);
-        String token = account.accessToken();
-        if (token.isEmpty()) return new Update(null, "请先登录水杉账号，再修改分类。");
-        for (int attempt = 0; ; attempt++) {
-            HttpsURLConnection connection = null;
-            try {
-                connection = open(new URL(
-                    ORIGIN + CommunityRequest.skinPath(item.id())), "PATCH", true);
-                connection.setRequestProperty("Authorization", "Bearer " + token);
-                byte[] body = TextPolicy.utf8Bytes(CommunityRequest.categoryBody(category));
-                connection.setFixedLengthStreamingMode(body.length);
-                try (java.io.OutputStream output = connection.getOutputStream()) {
-                    output.write(body);
-                }
-                int status = connection.getResponseCode();
-                if (shouldRetryCategory(status, token, attempt)) {
-                    String fresh = account.currentAccessToken(token);
-                    if (!fresh.isEmpty() && !fresh.equals(token)) {
-                        token = fresh;
-                        continue;
-                    }
-                }
-                if (status != 200) {
-                    String code = errorCode(connection.getErrorStream());
-                    return new Update(null, CommunityRequest.message(code, status));
-                }
-                Item updated;
-                try (InputStream input = connection.getInputStream()) {
-                    updated = item(CommunityRequest.Kind.SKIN, new JSONObject(TextPolicy.utf8(
-                        HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES))));
-                }
-                if (updated == null || !updated.id().equalsIgnoreCase(item.id())
-                        || updated.category() != category) {
-                    return new Update(null, CommunityRequest.message(null, 500));
-                }
-                return new Update(updated, "");
-            } catch (Exception | LinkageError error) {
-                android.util.Log.w("MSIMECommunity", "Category update failed", error);
-                return new Update(null, CommunityRequest.message(null, 0));
-            } finally {
-                if (connection != null) connection.disconnect();
+        try {
+            CloudApi.Response response = cloud.send("PATCH", CommunityRequest.skinPath(item.id()),
+                CloudApi.Body.json(new JSONObject(CommunityRequest.categoryBody(category))), CloudApi.Auth.ACCOUNT);
+            if (response.status() != 200) return new Update(null, CommunityRequest.message(null, 500));
+            Item updated = item(CommunityRequest.Kind.SKIN, response.json());
+            if (updated == null || !updated.id().equalsIgnoreCase(item.id())
+                    || updated.category() != category) {
+                return new Update(null, CommunityRequest.message(null, 500));
             }
+            return new Update(updated, "");
+        } catch (CloudApi.Failure failure) {
+            if ("signed_out".equals(failure.code))
+                return new Update(null, "请先登录水杉账号，再修改分类。");
+            return new Update(null, CommunityRequest.message(failure.code, failure.status));
+        } catch (Exception | LinkageError error) {
+            android.util.Log.w("MSIMECommunity", "Category update failed", error);
+            return new Update(null, CommunityRequest.message(null, 0));
         }
-    }
-
-    /** A category mutation may refresh its rejected account token exactly once. */
-    static boolean shouldRetryCategory(int status, String token, int attempt) {
-        return status == 401 && token != null && !token.isEmpty() && attempt == 0;
     }
 
     private static Page parse(CommunityRequest.Kind kind, JSONObject root) {
@@ -311,7 +320,7 @@ public final class CommunityCatalog {
         if (rawLength > CommunityRequest.PAGE_SIZE) {
             return new Page(List.of(), false, CommunityRequest.message(null, 500));
         }
-        boolean hasMore = pageHasMore(root.opt("has_more"));
+        boolean hasMore = JsonPolicy.strictTrue(root.opt("has_more"));
         List<Item> items = new ArrayList<>(rawLength);
         Set<String> ids = new HashSet<>(rawLength);
         for (int index = 0; index < rawLength; index++) {
@@ -320,7 +329,7 @@ public final class CommunityCatalog {
             if (item == null) {
                 return new Page(List.of(), false, CommunityRequest.message(null, 500));
             }
-            if (!ids.add(idKey(item.id()))) {
+            if (!ids.add(TextPolicy.lowercase(item.id()))) {
                 return new Page(List.of(), false, CommunityRequest.message(null, 500));
             }
             items.add(item);
@@ -329,10 +338,6 @@ public final class CommunityCatalog {
             return new Page(List.of(), false, CommunityRequest.message(null, 500));
         }
         return new Page(List.copyOf(items), hasMore, "");
-    }
-
-    static String idKey(String value) {
-        return TextPolicy.lowercase(value);
     }
 
     /** 一个条目，读不出或不合规时为 null。 */
@@ -379,16 +384,6 @@ public final class CommunityCatalog {
         return true;
     }
 
-    /** Pagination controls must be JSON booleans; malformed values mean there is no next page. */
-    static boolean pageHasMore(Object value) {
-        return JsonPolicy.strictTrue(value);
-    }
-
-    /** A successful HTTP status is not enough: the backend must confirm that it recorded the report. */
-    static boolean confirmedReport(Object value) {
-        return JsonPolicy.strictTrue(value);
-    }
-
     /** Keep the report endpoint safe even when a caller bypasses catalogue parsing. */
     static boolean validReportItem(Item item) {
         return item != null && validUuid(item.id());
@@ -397,14 +392,6 @@ public final class CommunityCatalog {
     /** Keep the download counter path safe even when a caller bypasses catalogue parsing. */
     static boolean validDownloadItem(Item item) {
         return item != null && item.kind() == CommunityRequest.Kind.SKIN && validUuid(item.id());
-    }
-
-    private static boolean confirmedReport(HttpsURLConnection connection) throws Exception {
-        try (InputStream input = connection.getInputStream()) {
-            byte[] body = HttpBodyPolicy.readRequired(input, 16 * 1024);
-            JSONObject response = new JSONObject(TextPolicy.utf8(body));
-            return confirmedReport(response.opt("reported"));
-        }
     }
 
     /** A malformed page is a backend fault, not more results to show. Kept apart from parse so the JVM smoke can check it: the smokes run against android.jar, whose org.json classes are stubs that throw. */
@@ -477,20 +464,6 @@ public final class CommunityCatalog {
         return Double.isFinite(result) ? result : null;
     }
 
-    /** The backend's own name for a failure, so the reader is told the specific thing. */
-    private static String errorCode(InputStream errors) {
-        if (errors == null) return "";
-        try (InputStream input = errors) {
-            byte[] body = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
-            JSONObject root = new JSONObject(
-                TextPolicy.utf8(body));
-            JSONObject error = root.optJSONObject("error");
-            return error == null ? "" : JsonPolicy.strictStringOrEmpty(error.opt("code"));
-        } catch (Exception error) {
-            return "";
-        }
-    }
-
     static int maximumResponseBytes(CommunityRequest.Kind kind) {
         return kind == CommunityRequest.Kind.SKIN ? MAX_RESPONSE_BYTES : MAX_RESOURCE_RESPONSE_BYTES;
     }
@@ -521,52 +494,13 @@ public final class CommunityCatalog {
      */
     public boolean recordDownload(Item item) {
         if (!validDownloadItem(item)) return false;
-        BackendAccount account = new BackendAccount(context);
-        String token = account.accessToken();
-        boolean anonymous = false;
         try {
-            if (token.isEmpty()) {
-                token = new BackendAnonymousAccount(context).accessToken();
-                anonymous = true;
-            }
-            for (int attempt = 0; attempt < 2; attempt++) {
-                int status = postDownload(item.id(), token);
-                if (status == 200) return true;
-                if (status != 401 || attempt > 0) return false;
-                String fresh = anonymous
-                    ? new BackendAnonymousAccount(context).accessToken(token)
-                    : account.currentAccessToken(token);
-                if (fresh.isEmpty() || fresh.equals(token)) return false;
-                token = fresh;
-            }
-            return false;
+            CloudApi.Response response = cloud.send("POST", CommunityRequest.skinDownloadPath(item.id()),
+                CloudApi.Body.json(new JSONObject()), CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
+            return response.status() == 200;
         } catch (Exception | LinkageError error) {
             android.util.Log.i("MSIMECommunity", "Skin download was not counted", error);
             return false;
-        }
-    }
-
-    private static int postDownload(String id, String token) throws java.io.IOException {
-        HttpsURLConnection connection = null;
-        try {
-            connection = open(new URL(
-                ORIGIN + CommunityRequest.skinDownloadPath(id)), "POST", true);
-            connection.setRequestProperty("Authorization", "Bearer " + token);
-            try (java.io.OutputStream output = connection.getOutputStream()) {
-                output.write(TextPolicy.utf8Bytes("{}"));
-            }
-            int status = connection.getResponseCode();
-            // 回来的是整份设计，本机已经有了，只读掉不用；读取有上限，免得一个异常大的回复占满内存。
-            if (status == 200) {
-                try (InputStream input = connection.getInputStream()) {
-                    HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
-                } catch (Exception error) {
-                    throw new java.io.IOException(error);
-                }
-            }
-            return status;
-        } finally {
-            if (connection != null) connection.disconnect();
         }
     }
 }

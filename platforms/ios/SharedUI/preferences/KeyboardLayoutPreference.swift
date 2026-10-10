@@ -117,6 +117,30 @@ enum KeyboardLayoutPreference {
     return true
   }
 
+  /// 「双拼键位提示」：双拼方案的 26 键在字母键底部画这个键代表的声母和韵母。共享文档里是 `touch_shuangpin_key_hints`，缺省为开；键盘从 App Group 镜像读。
+  static let shuangpinKeyHintsDocumentKey = "touch_shuangpin_key_hints"
+  static let shuangpinKeyHintsKey = "keyboard.shuangpin.keyHints"
+
+  /// 文档里缺这一项或不是布尔值时按开，与 client-core 的默认值一致。
+  static func sharedShuangpinKeyHints(in preferences: [String: Any]?) -> Bool {
+    preferences?[shuangpinKeyHintsDocumentKey] as? Bool ?? true
+  }
+
+  static var shuangpinKeyHints: Bool {
+    get { defaults.object(forKey: shuangpinKeyHintsKey) as? Bool ?? true }
+    set { defaults.set(newValue, forKey: shuangpinKeyHintsKey) }
+  }
+
+  /// 把双拼键位提示开关写进共享文档，只改这一项；文档接受了才更新 App Group 镜像。
+  @discardableResult
+  static func saveShuangpinKeyHints(_ enabled: Bool, stateRoot: URL? = nil) -> Bool {
+    guard MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, { document in
+      document[shuangpinKeyHintsDocumentKey] = enabled
+    }) else { return false }
+    shuangpinKeyHints = enabled
+    return true
+  }
+
   /// `resetToDefaults`, for the shared document as well.
   @discardableResult
   static func resetGeometry(stateRoot: URL? = nil) -> Bool {
@@ -170,31 +194,23 @@ enum KeyboardLayoutPreference {
 
   /// Values from the canonical document are integer tenths/points. Reject booleans and fractions before clamping so malformed synced data cannot silently become a valid geometry setting.
   static func sharedKeySpacing(_ value: Any?) -> Double? {
-    guard let integer = strictInteger(value) else { return nil }
+    guard let integer = SharedNumber.strictInt(value) else { return nil }
     return min(6, max(3, Double(integer) / 10))
   }
 
   static func sharedRowSpacing(_ value: Any?) -> Double? {
-    guard let integer = strictInteger(value) else { return nil }
+    guard let integer = SharedNumber.strictInt(value) else { return nil }
     return min(10, max(4, Double(integer) / 10))
   }
 
   static func sharedHeightAdjustment(_ value: Any?) -> Double? {
-    guard let integer = strictInteger(value) else { return nil }
+    guard let integer = SharedNumber.strictInt(value) else { return nil }
     return Double(min(48, max(-12, integer)))
   }
 
   private static func spacing(key: String, fallback: Double, range: ClosedRange<Double>) -> Double {
     guard let value = defaults.object(forKey: key) as? NSNumber, value.doubleValue.isFinite else { return fallback }
     return min(range.upperBound, max(range.lowerBound, value.doubleValue))
-  }
-
-  private static func strictInteger(_ value: Any?) -> Int? {
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID(),
-          let integer = Int(number.stringValue),
-          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
-    return integer
   }
 }
 

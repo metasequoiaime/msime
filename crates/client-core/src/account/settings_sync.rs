@@ -28,6 +28,8 @@ pub const ANDROID_FEEDBACK_KEYS: [&str; 3] = [
 const GLOBAL_THEME: &str = "platform.android.global_theme";
 /// 共享偏好 `touch_number_keypad_order`；账号字段表收录它之前上传时会被滤掉。
 const NUMBER_KEYPAD_ORDER: &str = "platform.android.number_keypad_order";
+/// 共享偏好 `touch_shuangpin_key_hints`；账号字段表收录它之前上传时会被滤掉。
+const SHUANGPIN_KEY_HINTS: &str = "platform.android.shuangpin_key_hints";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
@@ -423,6 +425,11 @@ pub fn export_android_settings(
         "input.wubi_code_hint",
         preferences.wubi_code_hint,
     );
+    insert_bool(
+        &mut settings,
+        "input.wubi_auto_commit_unique",
+        preferences.wubi_auto_commit_unique,
+    );
     insert_string(
         &mut settings,
         "platform.android.keyboard_layout",
@@ -458,6 +465,11 @@ pub fn export_android_settings(
         &mut settings,
         NUMBER_KEYPAD_ORDER,
         number_keypad_order(preferences.touch_number_keypad_order),
+    );
+    insert_bool(
+        &mut settings,
+        SHUANGPIN_KEY_HINTS,
+        preferences.touch_shuangpin_key_hints,
     );
     insert_new_android_settings(&mut settings, preferences);
     if let Some(feedback) = feedback {
@@ -751,6 +763,9 @@ pub fn apply_android_settings(
     applier.set_bool("input.wubi_code_hint", |preferences, value| {
         preferences.wubi_code_hint = value
     })?;
+    applier.set_bool("input.wubi_auto_commit_unique", |preferences, value| {
+        preferences.wubi_auto_commit_unique = value
+    })?;
     applier.set_string("platform.android.keyboard_layout", |preferences, value| {
         preferences.touch_keyboard_layout = match value {
             "twenty_six_key" => TouchKeyboardLayout::TwentySixKey,
@@ -826,6 +841,9 @@ pub fn apply_android_settings(
             _ => return None,
         };
         Some(())
+    })?;
+    applier.set_bool(SHUANGPIN_KEY_HINTS, |preferences, value| {
+        preferences.touch_shuangpin_key_hints = value
     })?;
 
     apply_new_android_settings(&mut applier)?;

@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <filesystem>
@@ -166,4 +167,23 @@ void msime_macos_diagnostic_writef(const char *format, ...) noexcept {
     return;
   log().write(std::string_view(
       buffer, std::min(static_cast<std::size_t>(length), kMaxEventBytes)));
+}
+
+void msime_macos_diagnostic_host_line(const char *line) noexcept {
+  if (!line || !msime_macos_diagnostic_enabled())
+    return;
+  // Only the category. msime_client.h words every line "<category>: <detail>" with a fixed category before the first colon, and the detail names the pack, the file and the error; this log is read back through the MCP server by an AI assistant and promises event names and error categories, never paths or error text. A line without a colon breaks that wording, so none of it is trusted and it is written as "host_api: uncategorized".
+  constexpr char kPrefix[] = "host_api: ";
+  constexpr char kUncategorized[] = "uncategorized";
+  char buffer[kMaxEventBytes]{};
+  std::size_t length = sizeof(kPrefix) - 1;
+  std::memcpy(buffer, kPrefix, length);
+  const char *colon = std::strchr(line, ':');
+  const char *category = colon ? line : kUncategorized;
+  const std::size_t categoryLength =
+      colon ? static_cast<std::size_t>(colon - line) : sizeof(kUncategorized) - 1;
+  const std::size_t copied = std::min(categoryLength, sizeof(buffer) - length);
+  std::memcpy(buffer + length, category, copied);
+  length += copied;
+  log().write(std::string_view(buffer, length));
 }

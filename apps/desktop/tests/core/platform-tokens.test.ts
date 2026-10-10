@@ -121,6 +121,21 @@ test("the iOS switch is system green while every other platform's follows its ac
   }
 });
 
+// Linux 设置窗口关掉了 WebKit 合成，内容区每滚一步整块重绘，分组阴影一带模糊滚动就卡（#6403）。每一层阴影的模糊半径（第三个长度）都必须是 0。
+test("the Linux group shadow carries no blur", () => {
+  for (const appearance of ["light", "dark"] as const) {
+    const layers = platformTokens.linux[appearance].group.shadow.split(/,(?![^(]*\))/);
+    expect(layers.length, appearance).toBeGreaterThan(0);
+    for (const layer of layers) {
+      const lengths = layer
+        .replace(/rgba?\([^)]*\)/g, "")
+        .trim()
+        .split(/\s+/);
+      expect(lengths[2] ?? "0", `${appearance}: ${layer}`).toMatch(/^0(px)?$/);
+    }
+  }
+});
+
 test("the host and viewport choose the settings platform", () => {
   const narrow = { wide: false };
   const wide = { wide: true };
@@ -222,6 +237,19 @@ test("without a resolved theme the platform layer is left alone", () => {
   expect(appThemeStyle(null, true, "harmony")).toEqual({});
   expect(seasonAttr(null)).toBeUndefined();
   expect(seasonAttr(autumnDark)).toBe("autumn");
+});
+
+// 手机 WebView 点按时默认盖一块蓝色或灰色高亮，原生应用里没有；页面根上把它关掉，子元素继承。
+test("tapping draws no WebView highlight", () => {
+  expect(styles).toMatch(/html,\s*body \{[^}]*-webkit-tap-highlight-color: transparent;/);
+});
+
+// 主按钮有自己的样式（迁移到 Tailwind 时 `primary` 只留下了引导页里的局部样式），手机上的次要按钮用平台按钮 token。
+test("primary and phone secondary buttons are styled", () => {
+  expect(styles).toMatch(/@utility primary \{[^}]*background: var\(--accent-strong\);/);
+  expect(styles).toMatch(
+    /:is\(\[data-platform="harmony"\], \[data-platform="android"\], \[data-platform="ios"\]\) & \{[^}]*background: var\(--p-btn-bg/,
+  );
 });
 
 test("white text on an accent fill follows the accent's on-colour on HarmonyOS", () => {

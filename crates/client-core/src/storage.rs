@@ -129,10 +129,14 @@ pub(crate) fn open_private_file_at(directory: &File, name: &OsStr) -> io::Result
     )?;
     let file: File = descriptor.into();
     let metadata = file.metadata()?;
-    if !metadata.is_file() || !crate::file_lock::has_single_link(&file)? {
+    // 只读打开：多链接文件在目录只有 root 或当前用户能写时也放行，见 `msime_path_trust::multi_link_is_trusted`（#6386）。
+    if !metadata.is_file()
+        || !(crate::file_lock::has_single_link(&file)?
+            || msime_path_trust::multi_link_in_directory_is_trusted(directory)?)
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "private input is not a single-link regular file",
+            "private input is not a regular file with a trusted link count",
         ));
     }
     Ok(file)
@@ -883,7 +887,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn private_file_remove_rejects_a_symlinked_parent() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let outside = tempfile::tempdir().unwrap();
         let root = tempfile::tempdir().unwrap();
@@ -899,7 +903,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn private_file_remove_rejects_a_symlinked_ancestor() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let root = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();

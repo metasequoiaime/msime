@@ -22,7 +22,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             return Err("unsupported host API version".into());
         }
         options.preferences.validate().map_err(|e| e.to_string())?;
-        let page_size = options.preferences.candidate_page_size;
+        let page_size = host_page_size(options.preferences.candidate_page_size);
         let applied = options.preferences.clone();
         let ai_provider_cache = {
             let ai = &applied.ai_assistant;
@@ -102,6 +102,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             Runtime::new_with_touch_layout(engine, page_size, applied.touch_keyboard_layout)
                 .map_err(|e| e.to_string())?;
         runtime.set_phrase_preedit(phrase_preedit);
+        runtime.set_wubi_auto_commit_unique(applied.wubi_auto_commit_unique);
         runtime.set_reranker(keyboard_reranker(&options, sentence_model_path.as_deref()));
 
         // The settled model is optional and independent: a resource set that ships only the small
@@ -139,6 +140,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     paired_punctuation_override: None,
                     punctuation_lock_override: None,
                     english_mode: false,
+                    caps_lock: false,
                     page_size_override: None,
                     nine_key_override: None,
                     statistics_private: false,

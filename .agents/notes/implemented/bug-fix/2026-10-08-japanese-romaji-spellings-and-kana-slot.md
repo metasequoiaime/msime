@@ -33,3 +33,5 @@ Status: implemented
 
 - `cargo test -p msime-engine`：1301 条单测和 31 条金样全部通过。新测试 `microsoft_and_google_spellings`、`a_complete_reading_keeps_its_hiragana_on_the_first_page`（去掉挪位时失败）；`doubled_n_rules` 按新规则改写，`kana_and_romaji_round_trips` 检查ん在元音、や行、な行前的反查能转回原读音。
 - 用 `MSIME_EVAL_RESOURCES` 指向的真实日文词库：`tyou`、`chou` 的ちょう在第二位；`real_model_answers_common_readings` 通过。`real_model_loads` 失败是因为它断言 dict-v2.0.1 的词条数（1,284,987），本地词库是更新的版本（1,285,198），与这次改动无关。
+
+待定假名前缀采用[固定拼法索引](../testing/2026-10-09-japanese-kana-prefix-index.md)借用排序去重结果；转换的规范化和全部别名边界保持。

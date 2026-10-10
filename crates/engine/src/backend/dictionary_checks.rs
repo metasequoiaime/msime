@@ -12,7 +12,7 @@ use crate::format;
 use crate::pinyin::segment::split_segments;
 
 pub(super) fn open_read_only(path: &Path) -> Result<Connection, BackendError> {
-    let path = crate::paths::sqlite_path_no_follow(path)
+    let path = crate::paths::sqlite_read_only_path_no_follow(path)
         .map_err(|_| BackendError::ResourcesUnavailable)?;
     Connection::open_with_flags(
         &path,
