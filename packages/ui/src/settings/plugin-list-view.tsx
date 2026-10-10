@@ -15,6 +15,7 @@ import {
   missingTitle,
   packMarker,
   type MissingSelection,
+  type PluginTableModes,
 } from "./plugin-catalog-helpers";
 import type { PluginCatalogResult, PluginKind } from "./plugin-types";
 import { ActionButton } from "./action-button";
@@ -77,6 +78,8 @@ export interface PluginListViewProps {
   /** The pack kinds the host acts on; a pack of another kind is listed but never marked as in use. */
   kinds: ReadonlySet<PluginKind>;
   preferences: PluginPreferences;
+  /** K 模式、/ 指令是否打开，以及当前方案能否打开它们（`schemeOpens`）：方案打不开时已启用的短语表、指令表先标「当前方案打不开」，开关关着时标未开，否则标排位。 */
+  modes: PluginTableModes;
   triggers: boolean;
   /** Whether the 声音与效果 entry has anything to open. */
   soundEffects: boolean;
@@ -99,6 +102,7 @@ export function PluginListView({
   missing,
   kinds,
   preferences,
+  modes,
   triggers,
   soundEffects,
   soundEffectsDescription,
@@ -186,7 +190,7 @@ export function PluginListView({
                     .filter(Boolean)
                     .join(" · ") || undefined
                 }
-                marker={packMarker(pack, preferences, kinds)}
+                marker={packMarker(pack, preferences, kinds, modes)}
                 rowKey={`pack/${pack.kind}/${pack.id}`}
                 onOpen={() => onOpenPack(pack.kind, pack.id)}
               />

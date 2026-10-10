@@ -83,10 +83,14 @@ def main() -> None:
     for path in HOME.glob("*.java"):
         if "Ui.setBottomPadding(" in path.read_text(encoding="utf-8"):
             raise AssertionError(f"{path} 没有直接调用共享底部内边距策略")
+    if "ViewPolicy.setBottomPadding(target, bottom);" not in ui:
+        raise AssertionError("Ui 页面避让监听没有调用共享底部内边距策略")
     for name in ("DetailPage.java", "KeyboardFragment.java"):
         source = (HOME / name).read_text(encoding="utf-8")
-        if "ViewPolicy.setBottomPadding(target, bottom);" not in source:
-            raise AssertionError(f"{name} 没有调用共享底部内边距策略")
+        if "Ui.bindPageBottomInsets(scroll);" not in source:
+            raise AssertionError(f"{name} 没有复用页面底部避让监听")
+        if "ViewPolicy.setBottomPadding(target, bottom);" in source:
+            raise AssertionError(f"{name} 仍重复应用底部内边距")
     if "public static View hairlineView(" in ui:
         raise AssertionError("Ui 仍保留发丝线视图工厂")
     for path in HOME.glob("*.java"):

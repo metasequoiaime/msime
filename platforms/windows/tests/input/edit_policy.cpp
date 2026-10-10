@@ -127,7 +127,7 @@ int main() {
     REQUIRE(spelled(key(0xBB, '=')) == EditKind::None);
     REQUIRE(spelled(key(0xBC, ',')) == EditKind::None);
     REQUIRE(spelled(key('4', '4', control)) == EditKind::None);
-    // On an empty pinyin composition the Engine lists "/" and "@" for the modes that are on; Shift+2's '@' is then the mode's key.
+    // On an empty composition in a scheme that opens the table modes (the pinyin schemes and Wubi, `opens_table_modes`) the Engine lists "/" and "@" for the modes that are on; Shift+2's '@' is then the mode's key.
     REQUIRE(edit_kind(key(0xBF, '/'), "none", false, false, {}, 0, false, "/@") ==
             EditKind::Character);
     REQUIRE(edit_kind(key('2', '@', shift), "none", false, false, {}, 0, false, "/@") ==

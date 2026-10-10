@@ -736,10 +736,9 @@ public final class BackendAccount {
         HttpsURLConnection connection = (HttpsURLConnection) new URL(ORIGIN + "/v1/chat/completions").openConnection();
         try {
             if (!call.attach(connection)) throw new CancellationException("chat cancelled");
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("POST");
-            connection.setConnectTimeout(30_000);
-            connection.setReadTimeout(30_000);
+            HttpConnectionPolicy.setTimeouts(connection, 30_000, 30_000);
             connection.setRequestProperty("Accept", "text/event-stream");
             connection.setRequestProperty("User-Agent", DEFAULT_USER_AGENT);
             connection.setRequestProperty("Authorization", "Bearer " + token);
@@ -990,19 +989,7 @@ public final class BackendAccount {
         HttpsURLConnection connection = null;
         try {
             connection = (HttpsURLConnection) new URL(ORIGIN + path).openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod(method);
-            connection.setConnectTimeout(30_000);
-            connection.setReadTimeout(30_000);
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("User-Agent", userAgent);
-            if (token != null) connection.setRequestProperty("Authorization", "Bearer " + token);
-            if (payload != null) {
-                connection.setDoOutput(true);
-                connection.setFixedLengthStreamingMode(payload.length);
-                connection.setRequestProperty("Content-Type", "application/json");
-                try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
-            }
+            AccountHttpRequest.writeJson(connection, method, token, userAgent, payload);
             int status = connection.getResponseCode();
             // 状态码带进消息里：503 是这个登录方式没配，401 是凭据不对，两件事不该长同一个样子。
             if (status / 100 != 2) throw new RequestException(status);

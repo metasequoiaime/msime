@@ -6,6 +6,7 @@
 #include "../clipboard/ClipboardAtomicWrite.h"
 #include "../system/ChineseTextConversion.h"
 #include "HelpcodeDefaults.h"
+#include "HelpcodePack.h"
 #include "HelpcodeSchemaNames.h"
 #include "NavigationBindings.h"
 #include "NativeCompose.h"
@@ -730,7 +731,8 @@ struct State {
     const auto active_scheme = preferences.value("scheme", "quanpin");
     if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
       if (helpcode_override) preferences[active_scheme + "_helpcode"]["enabled"] = *helpcode_override;
-      if (helpcode_schema_override) preferences[active_scheme + "_helpcode"]["schema"] = *helpcode_schema_override;
+      if (helpcode_schema_override)
+        msime::linux_host::apply_helpcode_schema_choice(preferences, active_scheme, *helpcode_schema_override);
       show_helpcode_in_candidate_window = preferences.value(
           active_scheme + "_helpcode", Json::object())
           .value("show_in_candidate_window",
@@ -1104,7 +1106,7 @@ struct State {
       if (helpcode_override)
         preferences[active_scheme + "_helpcode"]["enabled"] = *helpcode_override;
       if (helpcode_schema_override)
-        preferences[active_scheme + "_helpcode"]["schema"] = *helpcode_schema_override;
+        msime::linux_host::apply_helpcode_schema_choice(preferences, active_scheme, *helpcode_schema_override);
     }
     if (english_override)
       preferences["mixed_input"]["english"] = *english_override;
@@ -2918,6 +2920,18 @@ void publish_mode(IBusEngine *engine, bool registration) {
       configured.at("preferences").value(active_scheme + "_helpcode", Json::object())
           .value("schema", std::string(msime::linux_host::default_helpcode_schema(
                                active_scheme))));
+  // 选了辅助码表包时生效的是包而不是 schema（core/HelpcodePack.h）。菜单里的方案选择本身就会停用包，所以有了这次选择（无存储时的 override）就不再看包。
+  const auto active_helpcode_pack = s.helpcode_schema_override
+      ? std::string{} : msime::linux_host::helpcode_pack(configured.at("preferences"), active_scheme);
+  // 这一项始终在列表里，只是没选包时隐藏：IBus 面板只按键更新已有的子项，增删子项要等下一次注册才看得到（见 update_menu_property）。它只表明插件在生效，不能点选；选下面任一内置方案即停用插件，与设置页一致。
+  auto helpcode_schema_pack = ibus_property_new(
+      "HelpcodeSchemaPack", PROP_TYPE_RADIO,
+      ibus_text_new_from_string(("插件：" + active_helpcode_pack).c_str()), "",
+      ibus_text_new_from_static_string("辅助码表插件正在生效，选择下面的内置方案即停用它"),
+      FALSE, !active_helpcode_pack.empty(),
+      active_helpcode_pack.empty() ? PROP_STATE_UNCHECKED : PROP_STATE_CHECKED, nullptr);
+  ibus_property_set_visible(helpcode_schema_pack, !active_helpcode_pack.empty());
+  ibus_prop_list_append(helpcode_schema_menu, helpcode_schema_pack);
   for (const auto &[value, label] : msime::linux_host::kHelpcodeSchemaNames) {
     auto item = ibus_property_new(
         (std::string("HelpcodeSchema/") + value).c_str(), PROP_TYPE_RADIO,
@@ -2927,7 +2941,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
             (active_scheme == "quanpin" || active_scheme == "shuangpin") &&
             !menu_save_pending,
         TRUE,
-        schema == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+        active_helpcode_pack.empty() && schema == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(helpcode_schema_menu, item);
   }
   ibus_property_set_sub_props(helpcode_schema, helpcode_schema_menu);
@@ -3386,7 +3400,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, clipboard);
     ibus_engine_update_property(engine, profile);
     ibus_engine_update_property(engine, helpcode_property);
-    ibus_engine_update_property(engine, helpcode_schema);
+    update_menu_property(engine, helpcode_schema);
     ibus_engine_update_property(engine, traditional);
     ibus_engine_update_property(engine, english);
     ibus_engine_update_property(engine, emoji);
@@ -3745,11 +3759,16 @@ void render(IBusEngine *engine, const Json &view) {
     if (fixed_position >= 1 && fixed_position <= 5)
       tail += "  固定" + std::to_string(fixed_position);
     const auto annotation = candidate.value("annotation", std::string{});
+    // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so neither the helpcode switch nor the wubi code hint hides it; Wubi opens these modes too. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow both switches.
+    const auto local_mode = view.value("local_mode", std::string("none"));
+    const bool local_mode_annotation =
+        local_mode == "command" || local_mode == "mention";
     const bool wubi_annotation = view.value("scheme", 255) != 2 ||
                                  state(engine).wubi_code_hint;
     // A Hanja row's annotation is its 훈음, already drawn in the gloss above.
     if (!annotation.empty() && hanja_gloss.empty() &&
-        state(engine).show_helpcode_in_candidate_window && wubi_annotation) {
+        (local_mode_annotation ||
+         (state(engine).show_helpcode_in_candidate_window && wubi_annotation))) {
       tail += "  ";
       tail += annotation;
     }
@@ -5089,7 +5108,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       const auto active_scheme = effective_scheme(s);
       if (active_scheme != "quanpin" && active_scheme != "shuangpin")
         return;
-      if (s.helpcode_schema_override.value_or(
+      // 辅助码表包生效时，选回存着的那个方案也是一次切换：它要停用插件。
+      const bool pack_active = !s.helpcode_schema_override &&
+          !msime::linux_host::helpcode_pack(configured.at("preferences"), active_scheme).empty();
+      if (!pack_active &&
+          s.helpcode_schema_override.value_or(
               configured.at("preferences").value(active_scheme + "_helpcode", Json::object())
                   .value("schema", std::string(msime::linux_host::default_helpcode_schema(
                                        active_scheme)))) == selected)
@@ -7672,13 +7695,14 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             snapshot["preferences"]["quanpin_helpcode"]["enabled"] = request.value;
             break;
           case MenuPreference::QuanpinHelpcodeSchema:
-            snapshot["preferences"]["quanpin_helpcode"]["schema"] = request.value;
+            // 与设置页同一约定：选内置方案即停用这个方案的辅助码表插件（core/HelpcodePack.h）。
+            msime::linux_host::apply_helpcode_schema_choice(snapshot["preferences"], "quanpin", request.value.get<std::string>());
             break;
           case MenuPreference::ShuangpinHelpcode:
             snapshot["preferences"]["shuangpin_helpcode"]["enabled"] = request.value;
             break;
           case MenuPreference::ShuangpinHelpcodeSchema:
-            snapshot["preferences"]["shuangpin_helpcode"]["schema"] = request.value;
+            msime::linux_host::apply_helpcode_schema_choice(snapshot["preferences"], "shuangpin", request.value.get<std::string>());
             break;
           case MenuPreference::ShuangpinProfile:
             snapshot["preferences"]["shuangpin_profile"] = request.value;

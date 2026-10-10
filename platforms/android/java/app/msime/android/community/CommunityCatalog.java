@@ -58,6 +58,18 @@ public final class CommunityCatalog {
         public boolean failed() { return !failure.isEmpty(); }
     }
 
+    /** 设置页发现区的一次有界目录结果；失败时 `items` 为 null，`failure` 可直接展示。 */
+    public record Discovery(List<Item> items, String failure) {
+        public boolean failed() { return items == null; }
+    }
+
+    /** 把目录页转换成发现区使用的有界列表或失败状态。 */
+    public static Discovery discovery(Page page, int limit) {
+        if (page == null) return new Discovery(null, "暂时连不上社区，稍后再试。");
+        if (page.failed()) return new Discovery(null, page.failure());
+        return new Discovery(CommunityRequest.limitedCopy(page.items(), limit), null);
+    }
+
     private final CloudApi cloud;
     private final CloudApi.Tokens accountTokens;
     private final CloudApi.Tokens anonymousTokens;
@@ -87,10 +99,9 @@ public final class CommunityCatalog {
     private static HttpsURLConnection open(URL url, String method)
             throws java.io.IOException {
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        connection.setInstanceFollowRedirects(false);
+        HttpConnectionPolicy.rejectRedirects(connection);
         connection.setRequestMethod(method);
-        connection.setConnectTimeout(TIMEOUT_MILLIS);
-        connection.setReadTimeout(TIMEOUT_MILLIS);
+        HttpConnectionPolicy.setTimeouts(connection, TIMEOUT_MILLIS, TIMEOUT_MILLIS);
         connection.setRequestProperty("Accept", "application/json");
         connection.setRequestProperty("User-Agent", "MSIME/Android");
         return connection;

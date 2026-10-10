@@ -6,6 +6,8 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
@@ -19,11 +21,16 @@ import app.msime.android.ImageViewPolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
+import app.msime.android.WindowInsetsPolicy;
 import androidx.annotation.AttrRes;
 import androidx.annotation.ColorInt;
 import androidx.annotation.DrawableRes;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
+import java.util.function.Consumer;
 
 /**
  * 宿主界面共用的尺寸、时长和颜色读取。
@@ -217,6 +224,21 @@ public final class Ui {
                                     float rightDp, float bottomDp) {
         ViewPolicy.setPadding(view, dp(context, leftDp), dp(context, topDp),
             dp(context, rightDp), dp(context, bottomDp));
+    }
+
+    /** 让页面底部避开导航栏、底部标签栏和输入法，并保留标准内容留白。 */
+    public static void bindPageBottomInsets(View view) {
+        Context context = view.getContext();
+        int base = dp(context, PAGE_PADDING_BOTTOM);
+        int tabs = dp(context, TAB_BAR_HEIGHT);
+        ViewCompat.setOnApplyWindowInsetsListener(view, (target, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+            int bottom = WindowInsetsPolicy.bottomContentInset(bars.bottom, tabs, ime.bottom, base);
+            ViewPolicy.setBottomPadding(target, bottom);
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(view);
     }
 
     /** Exclude a decorative view from the accessibility tree. */
@@ -490,6 +512,17 @@ public final class Ui {
         EditText view = new EditText(context);
         style(view, sizeSp, weight, color);
         return view;
+    }
+
+    /** 只在文字修改完成后回调，省去不需要的另外两个 `TextWatcher` 方法。 */
+    public static void afterTextChanged(TextView view, Consumer<Editable> listener) {
+        view.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
+
+            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
+
+            @Override public void afterTextChanged(Editable text) { listener.accept(text); }
+        });
     }
 
     /** Create the standard accent-coloured group heading. */
