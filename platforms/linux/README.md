@@ -65,6 +65,19 @@ esac
 
 Qt 程序没有类似的做法：Qt5 不支持 text-input，只能靠 `QT_IM_MODULE=fcitx`，因此在 GNOME Wayland 下由客户端面板绘制，候选窗仍可能闪烁。
 
+### deepin 玲珑应用里只能输入字母
+
+在 deepin、统信 UOS 等带玲珑（Linglong，linyaps）的系统上，如果水杉输入法用的是 IBus，玲珑格式的应用（例如应用商店里的 Chrome、Firefox、文本编辑器）里切到中文也只能打出字母，非玲珑应用正常（#6410）。
+
+原因在玲珑运行时：玲珑应用跑在自己的运行时容器里，GTK、Qt 的输入法模块取自容器内的运行时，而运行时只带 Fcitx5 的 GTK2/3 和 Qt6 模块，没有任何 IBus 模块。会话 D-Bus 和 `~/.config` 都挂进了容器，所以输入法框架是 Fcitx5 时，玲珑应用能连上宿主的 Fcitx5，水杉照常工作；框架是 IBus 时，应用里的 `GTK_IM_MODULE=ibus` 找不到模块，GTK 退回自带的简单输入，于是只出字母。水杉这边改不了容器里有哪些模块，能做的是改用 Fcitx5：
+
+1. 确认装了 5.0.20 及以上的 Fcitx5（deepin 默认就是 Fcitx5，`fcitx5 --version` 查看版本；没有时 `sudo apt install fcitx5`）。水杉的安装包同时带 IBus 引擎和 Fcitx5 插件，不用重装水杉；更旧的 Fcitx5 会按插件声明的 `core:5.0.20` 依赖拒绝加载它。
+2. 把输入法框架切到 Fcitx5：`im-config -n fcitx5`，然后注销并重新登录。登录后 `echo $GTK_IM_MODULE $QT_IM_MODULE $XMODIFIERS` 应当显示 `fcitx fcitx @im=fcitx`。
+3. 运行 `msime-linux-setup --register`，把水杉输入法加进 Fcitx5 当前的输入法组；也可以在 deepin 的输入法设置或 `fcitx5-configtool` 里手动添加「水杉输入法」。
+4. 不再用 IBus 的话，可以把它从开机自启动里去掉，免得两个框架同时运行。
+
+`msime-linux-setup` 和 `--register` 注册进 IBus 时，如果系统是 deepin/UOS 或装了玲珑（有 `ll-cli` 或 `/var/lib/linglong`），会打印一句提示指向这一节，但不会替用户切换框架；其他系统的输出不变。设置窗口的首次配置页运行的是同一个脚本，提示也会显示在页面上。改用 Fcitx5 后玲珑应用里仍然只出字母的，请在 issue 里附上：玲珑应用里 `echo $GTK_IM_MODULE $QT_IM_MODULE $XMODIFIERS` 的输出、deepin 自带的拼音在同一个玲珑应用里能不能输入中文，以及焦点在那个玲珑应用里时 `busctl --user call org.fcitx.Fcitx5 /controller org.fcitx.Fcitx.Controller1 DebugInfo` 的输出里有没有它的输入上下文。
+
 ## 安装后首次使用
 
 安装包的 Debian `postinst` 会为当前已登录且可联系到的用户自动注册本机匿名水杉账号；网络暂时不可用时不影响安装，在线 provider 会在之后重试。安装本身仍不准备词库和运行配置，也不会替你选中输入法。其余首次配置由随装的 `msime-linux-setup` 补齐：

@@ -1103,6 +1103,7 @@ def register_again() -> int:
     else:
         print("Fcitx5 和 IBus 都没有在运行，输入法列表没有改动；启动其中一个后再运行 msime-linux-setup --register。")
     print_gnome_wayland_gtk_note(host)
+    print_linglong_ibus_note(host)
     return 0
 
 
@@ -1169,6 +1170,57 @@ def print_gnome_wayland_gtk_note(host: str | None) -> None:
         print(note)
 
 
+# 玲珑（Linglong，linyaps）应用跑在自己的运行时容器里，GTK/Qt 的输入法模块取自容器内的运行时，而运行时只带 Fcitx5 的 GTK2/3 与 Qt 模块，没有任何 IBus 模块（#6410）。会话 D-Bus 和 ~/.config 都挂进了容器，所以框架是 Fcitx5 时玲珑应用能连上它；框架是 IBus 时，应用里 `GTK_IM_MODULE=ibus` 找不到模块，退回 GTK 自带的简单输入，只能打出字母。这是玲珑运行时的限制，水杉这边只能提示改用 Fcitx5。见 README「deepin 玲珑应用里只能输入字母」。
+LINGLONG_IBUS_NOTE = (
+    "提示：这台机器上有玲珑（Linglong）应用环境，而水杉输入法注册在 IBus 里。玲珑应用（例如应用商店里的 Chrome、Firefox）"
+    "的运行时只带 Fcitx5 的输入法模块、没有 IBus 的，所以在玲珑应用里只能打出字母，非玲珑应用不受影响。"
+    "要在玲珑应用里输入中文，请改用 Fcitx5：im-config -n fcitx5，重新登录后运行 msime-linux-setup --register "
+    "把水杉输入法加进 Fcitx5。详细步骤见 platforms/linux/README.md 的「deepin 玲珑应用里只能输入字母」一节"
+    "（https://github.com/metasequoiaime/msime/blob/develop/platforms/linux/README.md）。"
+)
+
+# 带玲珑的发行版：deepin（含 deepin 23/25）和统信 UOS 默认装着玲珑。
+LINGLONG_DISTRIBUTIONS = {"deepin", "uos"}
+
+
+OS_RELEASE_FILES = (Path("/etc/os-release"), Path("/usr/lib/os-release"))
+
+
+def os_release(paths: tuple[Path, ...] = OS_RELEASE_FILES) -> dict[str, str]:
+    """第一份读得到的 os-release（先 /etc，再 /usr/lib）的键值；都读不到时为空。"""
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        pairs = (line.partition("=") for line in text.splitlines())
+        return {name.strip(): value.strip().strip("\"'") for name, separator, value in pairs if separator}
+    return {}
+
+
+def linglong_installed() -> bool:
+    """装了玲珑：有它的命令行 `ll-cli`，或者有它的数据目录。"""
+    return shutil.which("ll-cli") is not None or Path("/var/lib/linglong").is_dir()
+
+
+def linglong_ibus_note(host: str | None, release: dict[str, str], linglong: bool) -> str | None:
+    """输入法注册进 IBus、且这台机器是 deepin/UOS 或装了玲珑时，返回要打印的提示，否则 None。只提示，不替用户切换框架。"""
+    if host != "ibus":
+        return None
+    distributions = {release.get("ID", "").lower(), *release.get("ID_LIKE", "").lower().split()}
+    if not linglong and not distributions & LINGLONG_DISTRIBUTIONS:
+        return None
+    return LINGLONG_IBUS_NOTE
+
+
+def print_linglong_ibus_note(host: str | None) -> None:
+    if host != "ibus":
+        return
+    note = linglong_ibus_note(host, os_release(), linglong_installed())
+    if note:
+        print(note)
+
+
 def register_input_method(host: str | None) -> str | None:
     """Add the input method to the running host's list. Returns the line to print, or None when the manual steps should be printed instead."""
     if host is None:
@@ -1196,6 +1248,7 @@ def next_steps(state: Path, host: str | None, registered: str | None) -> None:
         print("  宿主；若发行版以 fcitx5 --disable notificationitem 启动，这些入口不会显示，")
         print("  但输入本身不受影响，设置也可以从应用列表里的「水杉输入法」打开。")
     print_gnome_wayland_gtk_note(host)
+    print_linglong_ibus_note(host)
     print("设置面板：msime-linux-settings（需要安装时提供了桌面二进制）")
 
 
