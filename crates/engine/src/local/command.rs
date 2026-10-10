@@ -83,7 +83,7 @@ pub fn takes_word_separator(code: &str) -> bool {
 
 /// The rows that are usable of a host table: valid triggers and templates, the first command of a trigger, at most `TABLE_LIMIT`.
 pub fn usable_command_table(table: &[CommandTableEntry]) -> Vec<CommandTableEntry> {
-    let mut usable: Vec<CommandTableEntry> = Vec::with_capacity(TABLE_LIMIT.min(table.len()));
+    let mut usable = Vec::new();
     if table.len() <= SMALL_COMMAND_TABLE {
         for (index, entry) in table.iter().enumerate() {
             if usable.len() == TABLE_LIMIT {
@@ -94,23 +94,33 @@ pub fn usable_command_table(table: &[CommandTableEntry]) -> Vec<CommandTableEntr
                 && fits(&entry.template)
                 && template_valid(&entry.template)
             {
+                if usable.capacity() == 0 {
+                    usable.reserve_exact(TABLE_LIMIT.min(table.len()));
+                }
                 usable.push(entry.clone());
             }
         }
         return usable;
     }
-    let mut triggers = HashSet::with_capacity(TABLE_LIMIT.min(table.len()));
+    let mut triggers = HashSet::new();
     for entry in table {
         if usable.len() == TABLE_LIMIT {
             break;
         }
         let trigger_valid = valid_trigger(&entry.trigger);
-        if trigger_valid
-            && triggers.insert(entry.trigger.as_str())
-            && fits(&entry.template)
-            && template_valid(&entry.template)
-        {
-            usable.push(entry.clone());
+        if trigger_valid {
+            if triggers.capacity() == 0 {
+                triggers.reserve(TABLE_LIMIT.min(table.len()));
+            }
+            if triggers.insert(entry.trigger.as_str())
+                && fits(&entry.template)
+                && template_valid(&entry.template)
+            {
+                if usable.capacity() == 0 {
+                    usable.reserve_exact(TABLE_LIMIT.min(table.len()));
+                }
+                usable.push(entry.clone());
+            }
         }
     }
     usable
@@ -432,6 +442,17 @@ mod tests {
             entry("c", "丙", "三"),
         ];
         assert_eq!(usable_command_table(&table).capacity(), table.len());
+    }
+
+    #[test]
+    fn all_invalid_command_rows_do_not_allocate_filter_state() {
+        let table: Vec<_> = (0..=SMALL_COMMAND_TABLE)
+            .map(|index| entry(&format!("Bad{index}"), "无效触发词", "文本"))
+            .collect();
+        let (usable, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| usable_command_table(&table));
+        assert!(usable.is_empty());
+        assert_eq!(allocations, 0);
     }
 
     #[test]
