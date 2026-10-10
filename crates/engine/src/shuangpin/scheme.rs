@@ -1,4 +1,4 @@
-//! Shuangpin key handling (`R/schemes/shuangpin_scheme.cpp`, schemes-lang.md §1.8). A profile with a final on `;` (Microsoft, or a custom profile laid out that way) accepts `;` as a key when the chunk since the last `'` has odd length.
+//! Shuangpin key handling (`R/schemes/shuangpin_scheme.cpp`, schemes-lang.md §1.8). A profile with a final or zero-initial code ending on `;` accepts `;` as a key when the chunk since the last `'` has odd length.
 
 use super::query::{
     apply_segmentation_cases, effective_input_length, normalize_input, segment_input,
@@ -54,7 +54,7 @@ impl ShuangpinScheme {
         }
     }
 
-    /// 放在 `;` 上的韵母（微软的 ing）只能是一个音节的第二个键，即接在奇数长度的片段之后（:12-22）。
+    /// `;` 只能是一个音节的第二个键，即接在奇数长度的片段之后（:12-22）。
     fn accepts_ing_key(&self) -> bool {
         if !self.profile.uses_semicolon_key() {
             return false;

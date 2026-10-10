@@ -372,7 +372,9 @@ fn check_codes(canonical: &Canonical) -> Result<(), CustomProfileError> {
 mod tests {
     use super::*;
     use crate::shuangpin::profile::profile;
+    use crate::shuangpin::scheme::ShuangpinScheme;
     use crate::shuangpin::utils::cvt_single_sp_to_pinyin;
+    use crate::types::SchemeKey;
 
     const BUILTIN: [ShuangpinProfileKind; 4] = [
         ShuangpinProfileKind::Xiaohe,
@@ -495,6 +497,20 @@ mod tests {
         assert_eq!(cvt_single_sp_to_pinyin("x;", custom), "xing");
         assert_eq!(cvt_single_sp_to_pinyin("xk", custom), "");
         assert_eq!(cvt_single_sp_to_pinyin("vh", custom), "");
+    }
+
+    #[test]
+    fn a_zero_initial_can_use_semicolon_without_a_final_on_semicolon() {
+        let mut table = table_of(ShuangpinProfileKind::Xiaohe);
+        replace(&mut table.zero_initials, "o", "o;");
+        let custom = custom_profile(&table).unwrap();
+        assert_eq!(cvt_single_sp_to_pinyin("o;", custom), "o");
+        assert!(custom.uses_semicolon_key());
+
+        let mut scheme = ShuangpinScheme::new(custom);
+        assert!(scheme.handle_key(SchemeKey::Letter(b'o')));
+        assert!(scheme.handle_key(SchemeKey::Semicolon));
+        assert_eq!(scheme.preedit(), "o;");
     }
 
     #[test]
