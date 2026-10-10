@@ -1024,6 +1024,11 @@ class SettingsBridge {
       this.customSkinLibrary(payload).then(deliver).catch(failed);
     } else if (kind === 'vocabulary_review') {
       this.vocabularyReview(payload).then(deliver).catch(failed);
+    } else if (kind === 'dictionary_collections') {
+      this.dictionaryCollections(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`dictionary collections request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'collections_io' }));
+      });
     } else if (kind === 'typing_statistics') {
       this.typingStatisticsOnWorker(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary_snapshot') {
@@ -1683,6 +1688,15 @@ class SettingsBridge {
       return JSON.stringify({ ok: false, error: 'settings context unavailable' });
     }
     return KeyboardSession.shared.dictionary(action, `${this.context.filesDir}/engine`,
+      this.stateDirectory);
+  }
+
+  /** 词库页的命名词库：建、删、启停、加词、导入、装社区词库。导入可达 16 MiB，所以走 startRequest 在原生工作线程上做。 */
+  private dictionaryCollections(action: string): Promise<string> {
+    if (this.context === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'collections_io' }));
+    }
+    return KeyboardSession.shared.dictionaryCollections(action, `${this.context.filesDir}/engine`,
       this.stateDirectory);
   }
 
