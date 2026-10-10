@@ -12,11 +12,9 @@ import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 import androidx.core.widget.NestedScrollView;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.KeyboardGeometry;
@@ -61,7 +59,7 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         View card = view.findViewById(R.id.keyboard_status_card);
-        ViewPolicy.setBackground(card, Ui.rounded(Ui.card(requireContext()),
+        ViewPolicy.setBackground(card, DrawablePolicy.rounded(Ui.card(requireContext()),
             Ui.dp(requireContext(), Ui.NAV_GROUP_RADIUS)));
 
         MaterialButton trial = view.findViewById(R.id.keyboard_try);
@@ -98,16 +96,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                 }
             });
         // 和 DetailPage 一样：底部留出 tab 栏加系统导航栏的高度，键盘弹出时改留键盘的高度，最后一组和搜索结果才能滚到可见处。
-        int base = Ui.dp(requireContext(), Ui.PAGE_PADDING_BOTTOM);
-        int tabs = Ui.dp(requireContext(), Ui.TAB_BAR_HEIGHT);
-        ViewCompat.setOnApplyWindowInsetsListener(scroll, (target, insets) -> {
-            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
-            int bottom = Ui.bottomContentInset(bars.bottom, tabs, ime.bottom, base);
-            Ui.setBottomPadding(target, bottom);
-            return insets;
-        });
-        ViewCompat.requestApplyInsets(scroll);
+        Ui.bindPageBottomInsets(scroll);
         buildRows(view);
         render();
         reload();
@@ -115,7 +104,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         // Preparation is silent while it works out and while it is done; it only takes the screen
         // when the keyboard cannot reach the Engine, which is the one case the user has to know.
         TextView preparation = view.findViewById(R.id.keyboard_preparation);
-        ViewPolicy.setBackground(preparation, Ui.rounded(Ui.page(requireContext()), Ui.dp(requireContext(), 12)));
+        ViewPolicy.setBackground(preparation, DrawablePolicy.rounded(Ui.page(requireContext()), Ui.dp(requireContext(), 12)));
         ViewPolicy.bindClick(preparation, () -> FirstRunPreparation.retry(requireContext()));
         preparationListener = status -> {
             if (!isAdded()) return;
@@ -340,7 +329,7 @@ public final class KeyboardFragment extends HomeTabFragment {
     private void check(View view, int rowId, int markId, int actionId, @StringRes int label,
             boolean done, Runnable action) {
         TextView mark = view.findViewById(markId);
-        Ui.applyStatusMark(mark, requireContext(), done);
+        StatusMarkPolicy.apply(mark, requireContext(), done);
         TextView button = view.findViewById(actionId);
         ViewPolicy.setVisible(button, !done);
         ViewPolicy.bindOptionalClick(button, done ? null : action);

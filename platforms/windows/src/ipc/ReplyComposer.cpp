@@ -63,7 +63,8 @@ ReplyComposer::ReplyComposer(uint64_t client, uint64_t epoch)
 }
 const PendingReply &
 ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
-                     std::optional<std::string> local_text) {
+                     std::optional<std::string> local_text,
+                     std::size_t continue_consumed) {
   if (pending_)
     throw std::logic_error(
         "Resolve the pending reply before dispatching another key");
@@ -200,7 +201,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       next.committed_text = output_delta;
     break;
   case ReplyPath::AutoCommitAndContinue: {
-    // Two Wubi commits take this path: the fourth letter of a unique code, which leaves nothing to compose, and a letter typed after a complete code (顶字), which commits the first candidate and leaves that letter composing. The worker frame tells the TIP to consume the four letters of the committed code from its own buffer and keep whatever follows, so the key reply only has to show the composition the Engine now holds.
+    // Two Wubi commits take this path: the fourth letter of a unique code, which leaves nothing to compose, and a letter typed after a complete code (顶字), which commits the first candidate and leaves that letter composing. The worker frame tells the TIP to consume the four letters of the committed code from its own buffer and keep whatever follows, so the key reply only has to show the composition the Engine now holds. `continue_consumed` is that count (wubi_continue_consumed): a capital the Engine does not take after a complete code goes out with the first candidate and leaves nothing composing, so the TIP drops it too.
     const auto &context = result.transition.at("commit_context");
     if (delta.empty() || context.is_null() ||
         context.value("scheme", 255u) != 2u) {
@@ -208,7 +209,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       break;
     }
     const auto total = prefix_ + output_delta;
-    next.worker = commit_candidate_and_continue_bytes(4, total);
+    next.worker = commit_candidate_and_continue_bytes(continue_consumed, total);
     if (!next.worker) {
       invalid();
       break;
@@ -450,7 +451,10 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                auto_wubi_commit ? ReplyPath::AutoCommitAndContinue
                : tip_commit     ? ReplyPath::SyllableCommit
                                 : path,
-               uiless);
+               uiless, std::nullopt,
+               wubi_continue_consumed(
+                   before.at("editing_text").get<std::string>().size(),
+                   !result.transition.at("view").at("editing_text").get<std::string>().empty()));
 }
 std::optional<PendingReply>
 ReplyComposer::navigate(ServerSession &session,

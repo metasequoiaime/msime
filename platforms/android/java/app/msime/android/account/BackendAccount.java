@@ -11,6 +11,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.FutureTask;
 import javax.net.ssl.HttpsURLConnection;
@@ -74,6 +75,10 @@ public final class BackendAccount {
         }
     }
 
+    interface StreamRequester {
+        String stream(JSONObject body, String token, ChatCall call, ChatStreamListener listener) throws Exception;
+    }
+
     /** 走 HTTPS 的默认实现；只有登录请求会传入详细 User-Agent。 */
     private static final class HttpRequester implements Requester {
         @Override public JSONObject request(String method, String path, JSONObject body, String token)
@@ -94,7 +99,14 @@ public final class BackendAccount {
         default String accessToken(String rejectedToken) throws Exception {
             return accessToken();
         }
+
+        default SessionCredential session(String rejectedToken) throws Exception {
+            throw new IllegalStateException("account session identity unavailable");
+        }
     }
+
+    record SessionCredential(String token, String sessionId) {}
+    private static final SessionCredential NO_SESSION = new SessionCredential("", "");
 
     static final class RequestException extends IllegalStateException {
         private static final long serialVersionUID = 1L;
@@ -109,6 +121,7 @@ public final class BackendAccount {
     private final SessionStore sessions;
     private final Requester requester;
     private final TokenSource ownerProcess;
+    private final StreamRequester streamer;
 
     /**
      * The account as this process may use it.
@@ -132,9 +145,14 @@ public final class BackendAccount {
     }
 
     BackendAccount(SessionStore sessions, Requester requester, TokenSource owner) {
+        this(sessions, requester, owner, BackendAccount::streamChat);
+    }
+
+    BackendAccount(SessionStore sessions, Requester requester, TokenSource owner, StreamRequester streamer) {
         this.sessions = sessions;
         this.requester = requester;
         this.ownerProcess = owner;
+        this.streamer = streamer;
     }
 
     private static TokenSource sessionOwner(Context context) {
@@ -146,12 +164,21 @@ public final class BackendAccount {
             }
 
             @Override public String accessToken(String rejectedToken) throws Exception {
+                return session(rejectedToken).token();
+            }
+
+            @Override public SessionCredential session(String rejectedToken) throws Exception {
                 Bundle reply = application.getContentResolver().call(
                     uri, AccountSessionRoutingPolicy.METHOD_ACCESS_TOKEN, rejectedToken, null);
                 if (reply == null) throw new IllegalStateException("account session unavailable");
-                return AccountSessionRoutingPolicy.tokenFromReply(
+                String token = AccountSessionRoutingPolicy.tokenFromReply(
                     reply.getString(AccountSessionRoutingPolicy.KEY_STATE),
                     reply.getString(AccountSessionRoutingPolicy.KEY_ACCESS_TOKEN));
+                if (token.isEmpty()) return NO_SESSION;
+                String sessionId = reply.getString(AccountSessionRoutingPolicy.KEY_SESSION_ID);
+                if (sessionId == null || sessionId.isEmpty())
+                    throw new IllegalStateException("account session unavailable");
+                return new SessionCredential(token, sessionId);
             }
         };
     }
@@ -283,12 +310,7 @@ public final class BackendAccount {
      * <p>只给登录请求用：后端只在登录时把它记进会话，刷新和其他请求都发 `MSIME/Android`。
      */
     public static String loginUserAgent(Context context, String editionId) {
-        String version;
-        try {
-            version = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
-        } catch (android.content.pm.PackageManager.NameNotFoundException absent) {
-            version = "";
-        }
+        String version = AppVersionPolicy.versionName(context, "");
         return loginUserAgent(version, android.os.Build.MODEL, android.os.Build.VERSION.RELEASE, editionId);
     }
 
@@ -328,6 +350,7 @@ public final class BackendAccount {
             throw new IllegalStateException("login refused");
         }
         String saved = new JSONObject().put("tokens", tokens)
+            .put("session_id", UUID.randomUUID().toString())
             .put("expires_at_unix_ms", expiration(expires)).toString();
         synchronized (SESSION_LOCK) {
             sessionGeneration++;
@@ -359,30 +382,48 @@ public final class BackendAccount {
             String token = ownerProcess.accessToken(rejectedToken);
             return AccountTokenPolicy.validToken(token) ? token : "";
         }
+        return currentSession(rejectedToken).token();
+    }
+
+    SessionCredential currentSession() throws Exception { return currentSession(null); }
+
+    SessionCredential currentSession(String rejectedToken) throws Exception {
+        if (ownerProcess != null) {
+            SessionCredential answer = ownerProcess.session(rejectedToken);
+            return AccountTokenPolicy.validToken(answer.token()) ? answer : NO_SESSION;
+        }
         FutureTask<String> flight;
         boolean owner = false;
+        String sessionId;
         synchronized (SESSION_LOCK) {
             String saved = sessions.load();
-            if (saved == null) return "";
+            if (saved == null) return NO_SESSION;
             JSONObject session = new JSONObject(saved);
             JSONObject tokens = session.getJSONObject("tokens");
             if (!AccountTokenPolicy.validSession(optionalStringField(tokens.opt("token_type"), ""),
                     optionalStringField(tokens.opt("access_token"), ""), optionalStringField(tokens.opt("refresh_token"), ""),
-                    AccountTokenPolicy.strictSeconds(tokens.opt("expires_in")))) return "";
+                    AccountTokenPolicy.strictSeconds(tokens.opt("expires_in")))) return NO_SESSION;
             long now = System.currentTimeMillis();
             long expiry = AccountTokenPolicy.strictLong(session.opt("expires_at_unix_ms"), 0);
-            if (expiry > now + MAX_SESSION_MILLISECONDS) return "";
+            if (expiry > now + MAX_SESSION_MILLISECONDS) return NO_SESSION;
+            sessionId = session.optString("session_id", "");
+            if (sessionId.isEmpty()) {
+                sessionId = UUID.randomUUID().toString();
+                session.put("session_id", sessionId);
+                sessions.save(session.toString());
+            }
             if (expiry > now + 30_000L
                     && !java.util.Objects.equals(rejectedToken,
                         optionalStringField(tokens.opt("access_token"), ""))) {
-                return optionalStringField(tokens.opt("access_token"), "");
+                return new SessionCredential(optionalStringField(tokens.opt("access_token"), ""), sessionId);
             }
             if (refreshFlight != null) {
                 flight = refreshFlight;
             } else {
                 long generation = sessionGeneration;
                 String refresh = optionalStringField(tokens.opt("refresh_token"), "");
-                flight = new FutureTask<>(() -> refresh(refresh, generation));
+                String refreshingSessionId = sessionId;
+                flight = new FutureTask<>(() -> refresh(refresh, generation, refreshingSessionId));
                 refreshFlight = flight;
                 owner = true;
             }
@@ -397,7 +438,17 @@ public final class BackendAccount {
             }
         }
         try {
-            return flight.get();
+            String token = flight.get();
+            if (token.isEmpty()) return NO_SESSION;
+            synchronized (SESSION_LOCK) {
+                String saved = sessions.load();
+                if (saved == null) throw new CancellationException("account session changed");
+                JSONObject session = new JSONObject(saved);
+                if (!sessionId.equals(session.optString("session_id", ""))
+                        || !token.equals(session.getJSONObject("tokens").optString("access_token", "")))
+                    throw new CancellationException("account session changed");
+            }
+            return new SessionCredential(token, sessionId);
         } catch (java.util.concurrent.ExecutionException error) {
             Throwable cause = error.getCause();
             if (cause instanceof Exception exception) throw exception;
@@ -416,9 +467,9 @@ public final class BackendAccount {
 
     /** Loads the bounded model catalogue used by the keyboard tryout chat. */
     public List<ChatModel> chatModels() throws Exception {
-        String token = accessToken();
-        if (token.isEmpty()) throw new IllegalStateException("HTTP 401");
-        JSONObject response = authorizedRequest("GET", "/v1/models", null, token);
+        SessionCredential session = currentSession();
+        if (session.token().isEmpty()) throw new IllegalStateException("HTTP 401");
+        JSONObject response = authorizedRequest("GET", "/v1/models", null, session);
         org.json.JSONArray data = response.optJSONArray("data");
         if (data == null || data.length() == 0 || data.length() > 64)
             throw new IllegalStateException("invalid model catalogue");
@@ -484,9 +535,9 @@ public final class BackendAccount {
 
     /** Sends one bounded non-streaming chat request; callers must run it off the UI thread. */
     public String chat(List<ChatMessage> messages, String model) throws Exception {
-        String token = accessToken();
-        JSONObject body = chatBody(messages, model, token).put("stream", false);
-        return chatContent(authorizedRequest("POST", "/v1/chat/completions", body, token));
+        SessionCredential session = currentSession();
+        JSONObject body = chatBody(messages, model, session.token()).put("stream", false);
+        return chatContent(authorizedRequest("POST", "/v1/chat/completions", body, session));
     }
 
     /**
@@ -496,24 +547,45 @@ public final class BackendAccount {
      */
     public String chatStream(List<ChatMessage> messages, String model, ChatCall call, ChatStreamListener listener)
             throws Exception {
-        String token = accessToken();
-        JSONObject body = chatBody(messages, model, token).put("stream", true);
+        SessionCredential session = currentSession();
+        JSONObject body = chatBody(messages, model, session.token()).put("stream", true);
+        ChatStreamListener guarded = delta -> {
+            try {
+                ensureCurrentSession(session);
+            } catch (Exception unavailable) {
+                throw new CancellationException("account session changed");
+            }
+            if (call.cancelled()) throw new CancellationException("chat cancelled");
+            listener.onDelta(delta);
+        };
         try {
             try {
-                return streamChat(body, token, call, listener);
+                ensureCurrentSession(session);
+                String reply = streamer.stream(body, session.token(), call, guarded);
+                ensureCurrentSession(session);
+                return reply;
             } catch (RequestException error) {
                 if (error.status != 401) throw error;
-                String fresh = currentAccessToken(token);
-                if (fresh.isEmpty() || fresh.equals(token)) throw error;
-                return streamChat(body, fresh, call, listener);
+                ensureCurrentSession(session);
+                SessionCredential fresh = currentSession(session.token());
+                if (!session.sessionId().equals(fresh.sessionId()))
+                    throw new CancellationException("account session changed");
+                if (fresh.token().isEmpty() || fresh.token().equals(session.token())) throw error;
+                ensureCurrentSession(session);
+                String reply = streamer.stream(body, fresh.token(), call, guarded);
+                ensureCurrentSession(session);
+                return reply;
             }
         } catch (RequestException error) {
             if (error.status != 400) throw error;
             // 旧后端不认识 stream：退回非流式请求，整段回复一次交出去。
+            ensureCurrentSession(session);
             if (call.cancelled()) throw new CancellationException("chat cancelled");
-            String reply = chat(messages, model);
+            String reply = chatContent(authorizedRequest("POST", "/v1/chat/completions",
+                body.put("stream", false), session));
+            ensureCurrentSession(session);
             if (call.cancelled()) throw new CancellationException("chat cancelled");
-            listener.onDelta(reply);
+            guarded.onDelta(reply);
             return reply;
         }
     }
@@ -540,7 +612,7 @@ public final class BackendAccount {
                 open = connection;
                 connection = null;
             }
-            if (open != null) new Thread(open::disconnect, "msime-chat-cancel").start();
+            if (open != null) ThreadPolicy.startNamedThread("msime-chat-cancel", open::disconnect);
         }
 
         public synchronized boolean cancelled() { return cancelled; }
@@ -664,10 +736,9 @@ public final class BackendAccount {
         HttpsURLConnection connection = (HttpsURLConnection) new URL(ORIGIN + "/v1/chat/completions").openConnection();
         try {
             if (!call.attach(connection)) throw new CancellationException("chat cancelled");
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("POST");
-            connection.setConnectTimeout(30_000);
-            connection.setReadTimeout(30_000);
+            HttpConnectionPolicy.setTimeouts(connection, 30_000, 30_000);
             connection.setRequestProperty("Accept", "text/event-stream");
             connection.setRequestProperty("User-Agent", DEFAULT_USER_AGENT);
             connection.setRequestProperty("Authorization", "Bearer " + token);
@@ -734,11 +805,11 @@ public final class BackendAccount {
     }
 
     public ClipboardPage clipboard(String search) throws Exception {
-        String token = accessToken();
-        if (token.isEmpty() || !validClipboardSearch(search))
+        SessionCredential session = currentSession();
+        if (session.token().isEmpty() || !validClipboardSearch(search))
             throw new IllegalStateException("invalid clipboard request");
         String encoded = java.net.URLEncoder.encode(search, StandardCharsets.UTF_8.name()).replace("+", "%20");
-        JSONObject response = authorizedRequest("GET", "/v1/users/me/clipboard?q=" + encoded, null, token);
+        JSONObject response = authorizedRequest("GET", "/v1/users/me/clipboard?q=" + encoded, null, session);
         org.json.JSONArray values = response.optJSONArray("items");
         if (values == null || values.length() > 50) throw new IllegalStateException("invalid clipboard response");
         List<ClipboardItem> items = new ArrayList<>(values.length());
@@ -776,16 +847,16 @@ public final class BackendAccount {
     }
 
     public void setClipboardEnabled(boolean enabled) throws Exception {
-        String token = accessToken();
-        if (token.isEmpty()) throw new IllegalStateException("HTTP 401");
-        authorizedRequest("PUT", "/v1/users/me/clipboard/settings", new JSONObject().put("enabled", enabled), token);
+        SessionCredential session = currentSession();
+        if (session.token().isEmpty()) throw new IllegalStateException("HTTP 401");
+        authorizedRequest("PUT", "/v1/users/me/clipboard/settings", new JSONObject().put("enabled", enabled), session);
     }
 
     public ClipboardItem addClipboard(String text) throws Exception {
-        String token = accessToken();
-        if (token.isEmpty() || !CloudClipboardTextPolicy.valid(text))
+        SessionCredential session = currentSession();
+        if (session.token().isEmpty() || !CloudClipboardTextPolicy.valid(text))
             throw new IllegalStateException("invalid clipboard request");
-        JSONObject item = authorizedRequest("POST", "/v1/users/me/clipboard", new JSONObject().put("text", text), token);
+        JSONObject item = authorizedRequest("POST", "/v1/users/me/clipboard", new JSONObject().put("text", text), session);
         String id = optionalStringField(item.opt("id"), "");
         String returnedText = optionalStringField(item.opt("text"), text);
         String updated = optionalStringField(item.opt("updated_at"), "");
@@ -804,11 +875,11 @@ public final class BackendAccount {
     }
 
     public void deleteClipboard(String id) throws Exception {
-        String token = accessToken();
-        if (token.isEmpty() || (id != null && !id.matches("[0-9a-f]{" + HEX_ID_LENGTH + "}")))
+        SessionCredential session = currentSession();
+        if (session.token().isEmpty() || (id != null && !id.matches("[0-9a-f]{" + HEX_ID_LENGTH + "}")))
             throw new IllegalStateException("invalid clipboard request");
         authorizedRequest("DELETE", id == null ? "/v1/users/me/clipboard" : "/v1/users/me/clipboard/" + id,
-            null, token);
+            null, session);
     }
 
     /** Forget the session on this device. The account itself is untouched. */
@@ -836,19 +907,41 @@ public final class BackendAccount {
     }
 
     /** Retry one request after the server rejects an otherwise unexpired access token. */
-    private JSONObject authorizedRequest(String method, String path, JSONObject body, String token)
+    private JSONObject authorizedRequest(String method, String path, JSONObject body, SessionCredential session)
             throws Exception {
+        ensureCurrentSession(session);
         try {
-            return request(method, path, body, token);
+            JSONObject response = request(method, path, body, session.token());
+            ensureCurrentSession(session);
+            return response;
         } catch (RequestException error) {
             if (error.status != 401) throw error;
-            String fresh = currentAccessToken(token);
-            if (fresh.isEmpty() || fresh.equals(token)) throw error;
-            return request(method, path, body, fresh);
+            ensureCurrentSession(session);
+            SessionCredential fresh = currentSession(session.token());
+            if (!session.sessionId().equals(fresh.sessionId()))
+                throw new CancellationException("account session changed");
+            if (fresh.token().isEmpty() || fresh.token().equals(session.token())) throw error;
+            JSONObject response = request(method, path, body, fresh.token());
+            ensureCurrentSession(session);
+            return response;
         }
     }
 
-    private String refresh(String refreshToken, long generation) throws Exception {
+    private void ensureCurrentSession(SessionCredential expected) throws Exception {
+        if (expected.sessionId().isEmpty()) throw new CancellationException("account session changed");
+        if (ownerProcess != null) {
+            if (!expected.sessionId().equals(ownerProcess.session(null).sessionId()))
+                throw new CancellationException("account session changed");
+            return;
+        }
+        synchronized (SESSION_LOCK) {
+            String saved = sessions.load();
+            if (saved == null || !expected.sessionId().equals(new JSONObject(saved).optString("session_id", "")))
+                throw new CancellationException("account session changed");
+        }
+    }
+
+    private String refresh(String refreshToken, long generation, String sessionId) throws Exception {
         JSONObject tokens;
         try {
             tokens = request("POST", "/v1/auth/refresh",
@@ -856,7 +949,9 @@ public final class BackendAccount {
         } catch (RequestException error) {
             if (error.status == 401 || error.status == 403) {
                 synchronized (SESSION_LOCK) {
-                    if (sessionGeneration == generation) {
+                    String current = sessions.load();
+                    if (sessionGeneration == generation && current != null
+                            && sessionId.equals(new JSONObject(current).optString("session_id", ""))) {
                         sessionGeneration++;
                         sessions.clear();
                     }
@@ -872,9 +967,13 @@ public final class BackendAccount {
             throw new IllegalStateException("refresh refused");
         }
         String saved = new JSONObject().put("tokens", tokens)
+            .put("session_id", sessionId)
             .put("expires_at_unix_ms", expiration(expires)).toString();
         synchronized (SESSION_LOCK) {
             if (sessionGeneration != generation) return "";
+            String current = sessions.load();
+            if (current == null || !sessionId.equals(new JSONObject(current).optString("session_id", "")))
+                return "";
             sessions.save(saved);
         }
         return access;
@@ -890,19 +989,7 @@ public final class BackendAccount {
         HttpsURLConnection connection = null;
         try {
             connection = (HttpsURLConnection) new URL(ORIGIN + path).openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod(method);
-            connection.setConnectTimeout(30_000);
-            connection.setReadTimeout(30_000);
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("User-Agent", userAgent);
-            if (token != null) connection.setRequestProperty("Authorization", "Bearer " + token);
-            if (payload != null) {
-                connection.setDoOutput(true);
-                connection.setFixedLengthStreamingMode(payload.length);
-                connection.setRequestProperty("Content-Type", "application/json");
-                try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
-            }
+            AccountHttpRequest.writeJson(connection, method, token, userAgent, payload);
             int status = connection.getResponseCode();
             // 状态码带进消息里：503 是这个登录方式没配，401 是凭据不对，两件事不该长同一个样子。
             if (status / 100 != 2) throw new RequestException(status);

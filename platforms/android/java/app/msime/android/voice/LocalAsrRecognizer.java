@@ -152,8 +152,8 @@ public final class LocalAsrRecognizer {
         BlockingQueue<short[]> audio = new LinkedBlockingQueue<>();
         AtomicBoolean captureFailed = new AtomicBoolean();
         AudioRecord recorder = openRecorder();
-        Thread capture = new Thread(() -> capture(recorder, audio, captureFailed),
-            "msime-local-asr-capture");
+        Thread capture = ThreadPolicy.namedThread("msime-local-asr-capture",
+            () -> capture(recorder, audio, captureFailed));
         long created = 0;
         boolean captureStarted = false;
         try {
@@ -410,11 +410,8 @@ public final class LocalAsrRecognizer {
         ScheduledExecutorService executor;
         synchronized (MEMORY_LOCK) {
             if (releaser == null) {
-                releaser = Executors.newSingleThreadScheduledExecutor(runnable -> {
-                    Thread thread = new Thread(runnable, "msime-local-asr-release");
-                    thread.setDaemon(true);
-                    return thread;
-                });
+                releaser = Executors.newSingleThreadScheduledExecutor(
+                    ThreadPolicy.namedDaemonFactory("msime-local-asr-release"));
             }
             executor = releaser;
         }

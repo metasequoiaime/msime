@@ -30,7 +30,6 @@ time = { workspace = true, features = ["formatting", "local-offset"] }
 unicode-segmentation.workspace = true
 # Vietnamese Telex and VNI transforms. MIT; pinned exactly because the uppercase workaround in vietnamese/scheme.rs is written against this version's output.
 vi = "=0.8.0"
-wana_kana = "5"
 
 # 翻译 sidecar 写入前在 Windows 上读硬链接数，见 host/options.rs 的 `has_single_link`；与 client-core 用的是同一版。
 [target.'cfg(windows)'.dependencies]
@@ -41,6 +40,8 @@ winapi-util = "0.1.11"
 rusqlite = { workspace = true, features = ["bundled", "backup", "ffi-sqlite-wasm-rs"] }
 
 [dev-dependencies]
+# 片假名逐字符转换的旧行为对照，固定版本以免测试基线漂移。
+wana_kana = "=5.0.0"
 tempfile.workspace = true
 
 [lints]

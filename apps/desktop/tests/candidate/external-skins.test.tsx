@@ -795,6 +795,7 @@ test("external selection enters the revisioned draft; preview toggles never save
       client={{ load: async () => initial, save, scanSkinCatalog: async () => catalog }}
     />,
   );
+  await settingsFormReady();
   fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   const card = await screen.findByRole("article", { name: "Sample skin" });
   fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
@@ -859,6 +860,7 @@ test("settings synchronize all cards and reset local overrides on candidate them
   const save = vi.fn(),
     scan = vi.fn().mockResolvedValue(catalog);
   render(<SettingsPage client={{ load: async () => initial, save, scanSkinCatalog: scan }} />);
+  await settingsFormReady();
   const mode = (name: string) =>
     fireEvent.click(
       within(screen.getByRole("radiogroup", { name: "颜色模式" })).getByRole("radio", { name }),
@@ -866,6 +868,7 @@ test("settings synchronize all cards and reset local overrides on candidate them
   fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   mode("浅色");
   await screen.findByRole("article", { name: "Sample skin" });
+  const scansBeforePreviewChanges = scan.mock.calls.length;
   expect(screen.getAllByRole("article")).toHaveLength(8);
   // The built-in themes are fixed palettes with no preview switch; the system card, the custom card over the system base and the external package follow the mode.
   const cards = ["跟随系统", "自定义", "Sample skin"].map((name) =>
@@ -886,7 +889,7 @@ test("settings synchronize all cards and reset local overrides on candidate them
     expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
       "light",
     );
-  expect(scan).toHaveBeenCalledTimes(1);
+  expect(scan).toHaveBeenCalledTimes(scansBeforePreviewChanges);
   expect(save).not.toHaveBeenCalled();
 });
 

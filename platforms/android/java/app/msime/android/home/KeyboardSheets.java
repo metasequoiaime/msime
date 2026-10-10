@@ -12,6 +12,7 @@ import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.R;
@@ -289,7 +290,7 @@ final class KeyboardSheets {
     static TextView badge(Context context, String text) {
         TextView badge = Ui.styledLabel(context, text, 15, 600, Ui.accent(context));
         ViewPolicy.setCentered(badge);
-        ViewPolicy.setBackground(badge, Ui.rounded(Ui.accentSoft(context), Ui.dp(context, 8)));
+        ViewPolicy.setBackground(badge, DrawablePolicy.rounded(Ui.accentSoft(context), Ui.dp(context, 8)));
             Ui.hideFromAccessibility(badge);
         LinearLayout.LayoutParams params = Ui.squareParams(context, 32);
         params.setMarginEnd(Ui.dp(context, Ui.ROW_GAP));

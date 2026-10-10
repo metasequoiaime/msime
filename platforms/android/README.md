@@ -99,7 +99,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 移动端智能标点消费共享 `smart_punctuation`、`chinese_punctuation` 和 `punctuation_lock`：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母/数字会保留 ASCII，锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。Android 每次只从 `InputConnection` 读取光标前最多两个 UTF-16 单元并向共享策略传一个 Unicode 标量，不保存或记录编辑器文字；缺失或异常上下文安全回退到 Engine 标点。
 
-共享偏好 `paired_punctuation`（设置「表达 › 标点」里的「自动补全成对标点」，默认开）打开时，Engine 上屏以（、【、《、〈、“、‘ 结尾，宿主就补上后半个并把光标留在中间；每按一次引号键都开一对新的（Engine 交替出的后引号改回前引号），没有组字时再按 `)`、`]`、`>`、`"`、`'` 会跨过光标右边自己补上的那个后半个而不是再写一个，删除、用户移动光标或换输入框后不再跨过。补的是书名号时经 `msime_client_balance_paired_punctuation_after_auto_close` 告诉 Engine 这一层已闭合。符号面板不经过 Engine：轻点中文和英文括号、书名号、中文引号的前半个时成对上屏，长按只上屏这半个；之后在面板里轻点同一个后半个会跨过已补好的那个，而不是再写一个；ASCII 的 `"`、`'` 和 `<` 不成对（`<` 绝大多数时候是小于号）。标点键的补全和跨过规则与 iOS 宿主相同（HarmonyOS 只有补全、没有跨过），集中在无 Android 依赖的 `PairedPunctuationPolicy`，由 `PairedPunctuationPolicySmoke` 验证。
+共享偏好 `paired_punctuation`（设置「表达 › 标点」里的「自动补全成对标点」，默认开）打开时，Engine 上屏以（、【、《、〈、“、‘ 结尾，宿主就补上后半个并把光标留在中间（后半个用 `commitText(closing, 0)` 写；个别应用不认这个 0、把光标放到后半个后面时，宿主写完立刻同步读光标两侧的文字，确认跑偏了才发左方向键退回去，见 #6458）；每按一次引号键都开一对新的（Engine 交替出的后引号改回前引号），没有组字时再按 `)`、`]`、`>`、`"`、`'` 会跨过光标右边自己补上的那个后半个而不是再写一个，删除、用户移动光标或换输入框后不再跨过。补的是书名号时经 `msime_client_balance_paired_punctuation_after_auto_close` 告诉 Engine 这一层已闭合。符号面板不经过 Engine：轻点中文和英文括号、书名号、中文引号的前半个时成对上屏，长按只上屏这半个；之后在面板里轻点同一个后半个会跨过已补好的那个，而不是再写一个；ASCII 的 `"`、`'` 和 `<` 不成对（`<` 绝大多数时候是小于号）。标点键的补全和跨过规则与 iOS 宿主相同（HarmonyOS 只有补全、没有跨过），集中在无 Android 依赖的 `PairedPunctuationPolicy`，由 `PairedPunctuationPolicySmoke` 验证。
 
 重复标点和标点后空格也由共享 Host API 决定：Android 只在当前编辑器会话内保存带 `editor_generation` 的有界 snapshot，按下下一个标点或空格时重新读取光标前标量并消费 `replace_with` / `space_ascii`；焦点、会话或编辑器变化会清空 snapshot，过期或上下文不一致时不改写文本。重复时间窗口、候选数量、组字状态和开关均不在 Android 重实现。
 

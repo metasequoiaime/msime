@@ -5,6 +5,7 @@ struct CloudClipboardView: View {
   let session: BackendAccountSession
   let client: BackendAccountClient
   @State private var accountID: String?
+  @State private var sessionID: UUID?
   @State private var enabled = false
   @State private var loaded = false
   @State private var retention: Int?
@@ -295,12 +296,12 @@ struct CloudClipboardView: View {
   @MainActor private func execute(_ action: (String) async throws -> Void) async {
     defer { busy = false }
     do {
-      let identity = try await session.credentials(matchingUserID: accountID)
+      let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
       try Task.checkCancellation()
-      accountID = identity.userID
+      accountID = identity.userID; sessionID = identity.sessionID
       try await action(identity.token)
       let page = try await client.clipboard(token: identity.token, search: search)
-      _ = try await session.credentials(matchingUserID: identity.userID)
+      try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
       try Task.checkCancellation()
       enabled = page.enabled; retention = page.retention_days; items = page.items; loaded = true
     } catch is CancellationError { items = []; text = ""; loaded = false }

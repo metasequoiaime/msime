@@ -3473,8 +3473,14 @@ fn expression_mode_needs_a_pinyin_scheme_and_an_empty_composition() {
     session.command(Command::Cancel);
     session.switch_scheme(SchemeType::Wubi).unwrap();
     assert!(!session.character(b'V', true).handled);
-    assert!(!session.character(b'/', false).handled);
-    assert!(session.snapshot().spelling_symbols.is_empty());
+    assert!(session.character(b'/', false).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Command);
+    session.command(Command::Cancel);
+    assert!(session.character(b'@', false).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Mention);
+    session.command(Command::Cancel);
+    assert!(session.character(b'K', true).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::QuickPhrase);
 }
 
 #[test]

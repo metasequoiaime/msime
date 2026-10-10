@@ -2,19 +2,21 @@ package app.msime.android;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.Supplier;
 import org.json.JSONObject;
 
 /** Runs snapshot preparation and activation only after the IME session is gone. */
 public final class DictionarySnapshotWorker {
     private DictionarySnapshotWorker() {}
 
-    public static void process(Path filesRoot, Path queueDirectory, Path stagingDirectory, String options)
+    public static void process(Path filesRoot, Path queueDirectory, Path stagingDirectory, String options,
+            Supplier<String> currentAccountId)
             throws Exception {
         DictionarySnapshotQueue queue = new DictionarySnapshotQueue(filesRoot, queueDirectory);
         String current = version(options);
         queue.publishLocalVersion(current);
         try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
-            DictionarySnapshotQueue.Request request = queue.claim(lease);
+            DictionarySnapshotQueue.Request request = queue.claim(lease, currentAccountId);
             if (request == null) return;
             long handle = 0;
             try {
@@ -37,7 +39,7 @@ public final class DictionarySnapshotWorker {
                 if (preparedHandle == 0)
                     throw new IllegalStateException("snapshot handle invalid");
                 handle = preparedHandle;
-                boolean applied = queue.complete(request.id(), lease, current, false, () -> {
+                boolean applied = queue.complete(request.id(), lease, current, false, currentAccountId, () -> {
                     JSONObject activated = new JSONObject(NativeClient.snapshotActivate(
                         preparedHandle, request.expectedLocalVersion()));
                     if (!JsonPolicy.strictTrue(activated.opt("ok")))

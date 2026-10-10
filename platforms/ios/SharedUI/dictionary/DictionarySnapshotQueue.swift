@@ -247,6 +247,13 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
       }
     }
   }
+
+  /// A test host may have no App Group container. No queue can exist there;
+  /// errors from an existing container, including inaccessible paths, still propagate.
+  func cancelIfPresent(accountID: String) throws {
+    guard directory != nil else { return }
+    try cancel(accountID: accountID)
+  }
   func fail(id: UUID) throws {
     let failed = try update { state -> DictionarySnapshotRequest? in
       guard state.request?.id == id, state.request?.status.active == true else { return nil }

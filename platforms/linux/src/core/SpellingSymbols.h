@@ -35,11 +35,11 @@ inline bool composing_spelling(const nlohmann::json &view, char32_t character) {
          !editing->get_ref<const std::string &>().empty() && spelling_symbol(view, character);
 }
 
-// Engine 拿来拼写、宿主要在自己的按键绑定之前交给 Engine 的字符：本地模式的全部符号（见 local_mode_spelling）、组字中列出的全部符号（见 composing_spelling，即打开网址模式的按键），以及不打开本地模式的方案列出的全部符号（那份列表就是该方案自己的按键）。这样注音的数字或 "," 是注音键而不是选候选、翻页键或中文标点，粤拼的撇号用来分隔音节。全拼和双拼空闲时打开模式的按键仍走标点路径，原因见 local_mode_spelling。
+// Engine 拿来拼写、宿主要在自己的按键绑定之前交给 Engine 的字符：本地模式的全部符号（见 local_mode_spelling）、组字中列出的全部符号（见 composing_spelling，即打开网址模式的按键），以及不打开本地模式的方案列出的全部符号（那份列表就是该方案自己的按键）。这样注音的数字或 "," 是注音键而不是选候选、翻页键或中文标点，粤拼的撇号用来分隔音节。全拼、双拼和五笔空闲时打开模式的按键仍走标点路径，原因见 local_mode_spelling。
 inline bool engine_spelling(const nlohmann::json &view, char32_t character) {
   if (local_mode_spelling(view, character) || composing_spelling(view, character)) return true;
   const int scheme = scheme_rules(view);
-  return scheme >= 0 && !scheme::OpensLocalModes(scheme) && spelling_symbol(view, character);
+  return scheme >= 0 && !scheme::OpensTableModes(scheme) && spelling_symbol(view, character);
 }
 
 // Space is spelling input, not a commit key: the Zhuyin keyboard's first tone while a syllable is composing. spelling_symbol leaves out the space itself, since in every other state it is the host's own key.

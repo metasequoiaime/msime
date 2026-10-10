@@ -42,8 +42,11 @@ constexpr bool ScriptConversionApplies(int scheme) { return scheme == Quanpin ||
 // `learns_into_main_dictionary`: a candidate may be removed from, or pinned in, the user dictionary of the main Chinese lexicon.
 constexpr bool LearnsIntoMainDictionary(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi; }
 
-// `opens_local_modes`: Shift+letter and the `/` and `@` keys open local modes while nothing is composed. In every other scheme the symbols a view lists outside a local mode are the scheme's own spelling.
+// `opens_local_modes`: Shift+letter opens the local modes other than K (U, T, E, M, J, Y, R, V) while nothing is composed. K and the `/` and `@` keys follow `opens_table_modes`.
 constexpr bool OpensLocalModes(int scheme) { return scheme == Quanpin || scheme == Shuangpin; }
+
+// `opens_table_modes`: Shift+K and the `/` and `@` keys open the quick phrase, command and mention modes while nothing is composed. In every other scheme the symbols a view lists outside a local mode are the scheme's own spelling.
+constexpr bool OpensTableModes(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi; }
 
 // `commits_on_blur`: leaving the composition (focus loss, a scheme or mode switch, a navigation key handed to the application) writes it out instead of discarding it.
 constexpr bool CommitsOnBlur(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese || scheme == Tibetan; }

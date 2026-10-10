@@ -140,12 +140,16 @@ impl PluginTables {
             Ok(codes) => return Some(Arc::new(HelpcodeKeymap::from_codes(codes))),
             Err(error) => error,
         };
-        eprintln!("msime: helpcode pack {id} unavailable, falling back to {schema}: {error}");
+        crate::diagnostics::report(
+            "helpcode pack unavailable, falling back to the scheme's schema",
+            &format!("{id} -> {schema}: {error}"),
+        );
         match load_helpcode_keymap(Path::new(&options.resources), schema) {
             Ok(_) => None,
             Err(error) => {
-                eprintln!(
-                    "msime: helpcode schema {schema} unavailable, using an empty table: {error}"
+                crate::diagnostics::report(
+                    "helpcode schema unavailable, using an empty table",
+                    &format!("{schema}: {error}"),
                 );
                 Some(Arc::new(HelpcodeKeymap::default()))
             }

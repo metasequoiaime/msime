@@ -111,6 +111,8 @@ pub use dictionary::{
     LookupCandidate, LookupScheme, NewWord, QuickPhrase, QuickPhraseEdit, QuickPhrasePage, Word,
     WordEdit, WordImport, WordKind, WordPage,
 };
+mod diagnostics;
+pub use diagnostics::{msime_client_set_diagnostic_sink, DiagnosticSink};
 mod dictionary_snapshot;
 mod key_sound;
 mod plugin_tables;
@@ -217,7 +219,7 @@ struct HostSession {
     /// 宿主经 `msime_client_set_private_session` 标出的隐私会话（Android 的隐私模式和不允许学习的输入框，鸿蒙和 iOS 的隐私模式）：不记选词位置和上屏效率。与用户自己关掉的「学习」无关。
     statistics_private: bool,
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
-    ai_credential: Option<String>,
+    ai_credential: Option<SessionAiCredential>,
     /// Cached copy used by every online query until preferences change.
     ai_provider_cache: Option<AiAssistantProviderConfig>,
     voice: VoiceSessionState,
@@ -249,6 +251,11 @@ struct HostSession {
     settled_model_loading: Option<SettledModelSlot>,
     // Declared after runtime so the Engine is dropped before releasing access.
     _dictionary_access: DictionaryAccess,
+}
+
+struct SessionAiCredential {
+    endpoint: String,
+    token: String,
 }
 
 /// 本地模式由偏好开关，但它们读的词典是不可变的运行时资源。可选资源不在时，触发键不能被吞掉：在资源齐全之前，Engine 看到的这个模式必须是关的。
@@ -630,7 +637,9 @@ impl HostSession {
             // 辅助码表换不上不算聚焦失败：报错会让这次和之后每一次聚焦都失败（戳没更新，下次又会重试）。记下来，保留当前的表，照常更新戳。
             match self.runtime.set_helpcode_table(table.clone()) {
                 Ok(()) => self.options.helpcode_table = table,
-                Err(error) => eprintln!("msime: helpcode table not replaced: {error}"),
+                Err(error) => {
+                    diagnostics::report("helpcode table not replaced", &error.to_string())
+                }
             }
         }
         self.plugin_tables = tables;

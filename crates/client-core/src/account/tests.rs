@@ -253,6 +253,37 @@ impl AccountSessionStorage for SharedMemoryStorage {
     }
 }
 
+#[derive(Clone)]
+struct ReplacingLockStorage {
+    inner: MemoryStorage,
+    replacement: SavedAccountSession,
+    replaced: Arc<AtomicBool>,
+}
+
+impl AccountSessionStorage for ReplacingLockStorage {
+    fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
+        self.inner.load()
+    }
+    fn save(&self, session: &SavedAccountSession) -> Result<(), AccountError> {
+        self.inner.save(session)
+    }
+    fn clear(&self) -> Result<(), AccountError> {
+        self.inner.clear()
+    }
+    fn shared_across_processes(&self) -> bool {
+        true
+    }
+    fn with_refresh_lock<T>(
+        &self,
+        body: impl FnOnce() -> Result<T, AccountError>,
+    ) -> Result<T, AccountError> {
+        if !self.replaced.swap(true, Ordering::SeqCst) {
+            self.inner.save(&self.replacement)?;
+        }
+        body()
+    }
+}
+
 #[derive(Clone, Default)]
 struct FailingLockStorage(MemoryStorage);
 
@@ -292,6 +323,7 @@ struct FakeApi {
     put_preferences_started: Arc<AtomicBool>,
     put_preferences_gate: Option<Arc<(Mutex<bool>, Condvar)>>,
     logins: Arc<Mutex<Vec<(String, String)>>>,
+    profile_calls: Arc<AtomicUsize>,
 }
 
 impl FakeApi {
@@ -306,6 +338,7 @@ impl FakeApi {
             put_preferences_started: Arc::new(AtomicBool::new(false)),
             put_preferences_gate: None,
             logins: Arc::new(Mutex::new(Vec::new())),
+            profile_calls: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -366,6 +399,7 @@ impl AccountApi for FakeApi {
     }
 
     fn profile(&self, _access_token: &str) -> Result<AccountProfile, AccountError> {
+        self.profile_calls.fetch_add(1, Ordering::SeqCst);
         Ok(AccountProfile {
             user: user(),
             identities: vec![AccountProfileIdentity {
@@ -473,6 +507,7 @@ fn installed(storage: &MemoryStorage, expires_at_unix_ms: u64) {
     *storage.0.lock().unwrap() = Some(SavedAccountSession {
         tokens: tokens(b'a', b'b', 900),
         expires_at_unix_ms,
+        session_id: None,
     });
 }
 
@@ -761,6 +796,7 @@ fn sign_out_does_not_clear_when_shared_lock_cannot_be_taken() {
         .save(&SavedAccountSession {
             tokens: tokens(b'a', b'b', 900),
             expires_at_unix_ms: valid_future_expiry(),
+            session_id: None,
         })
         .unwrap();
     let session = BackendAccountSession::new(FakeApi::new(), storage.clone());
@@ -848,6 +884,7 @@ fn switching_accounts_cancels_only_the_previous_snapshot_owner() {
         .save(&SavedAccountSession {
             tokens: previous,
             expires_at_unix_ms: valid_future_expiry(),
+            session_id: None,
         })
         .unwrap();
     let session = BackendAccountSession::new(FakeApi::new(), storage.clone());
@@ -1030,6 +1067,86 @@ fn account_request_is_cancelled_when_same_user_signs_in_again_before_completion(
     *lock.lock().unwrap() = true;
     ready.notify_all();
     assert_eq!(worker.join().unwrap(), Err(AccountError::Cancelled));
+}
+
+#[test]
+fn shared_account_request_does_not_retry_after_same_user_signs_in_again() {
+    let storage = SharedMemoryStorage::default();
+    installed(&storage.0, valid_future_expiry());
+    let stale = BackendAccountSession::new(FakeApi::new(), storage.clone());
+    let replacement = BackendAccountSession::new(FakeApi::new(), storage);
+    let attempts = AtomicUsize::new(0);
+
+    let result = request_with_account_session(&FakeApi::new(), &stale, true, |_, _| {
+        if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+            replacement
+                .sign_in("synthetic-challenge", "123456")
+                .unwrap();
+            Err(AccountError::Unauthorized)
+        } else {
+            Ok("stale retry")
+        }
+    });
+
+    assert_eq!(result, Err(AccountError::Cancelled));
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn shared_account_request_discards_success_after_same_user_signs_in_again() {
+    let storage = SharedMemoryStorage::default();
+    installed(&storage.0, valid_future_expiry());
+    let stale = BackendAccountSession::new(FakeApi::new(), storage.clone());
+    let replacement = BackendAccountSession::new(FakeApi::new(), storage);
+
+    let result = request_with_account_session(&FakeApi::new(), &stale, true, |_, _| {
+        replacement
+            .sign_in("synthetic-challenge", "123456")
+            .unwrap();
+        Ok("stale result")
+    });
+
+    assert_eq!(result, Err(AccountError::Cancelled));
+}
+
+#[test]
+fn profile_followup_rejects_same_users_new_login_before_request() {
+    let storage = SharedMemoryStorage::default();
+    installed(&storage.0, valid_future_expiry());
+    let api = FakeApi::new();
+    let profile_calls = Arc::clone(&api.profile_calls);
+    let stale = BackendAccountSession::new(api, storage.clone());
+    let (user_id, _, generation) = stale.credentials_with_generation(None, None).unwrap();
+    let replacement = BackendAccountSession::new(FakeApi::new(), storage);
+    replacement
+        .sign_in("synthetic-challenge", "123456")
+        .unwrap();
+
+    assert_eq!(
+        stale.profile_for_login(Some((&user_id, generation))),
+        Err(AccountError::Cancelled)
+    );
+    assert_eq!(profile_calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn shared_logout_does_not_clear_same_users_new_session_while_waiting_for_lock() {
+    let inner = MemoryStorage::default();
+    installed(&inner, valid_future_expiry());
+    let mut replacement = inner.load().unwrap().unwrap();
+    replacement.session_id = Some(uuid::Uuid::new_v4());
+    let storage = ReplacingLockStorage {
+        inner: inner.clone(),
+        replacement: replacement.clone(),
+        replaced: Arc::new(AtomicBool::new(false)),
+    };
+    let stale = BackendAccountSession::new(FakeApi::new(), storage);
+
+    assert_eq!(stale.logout(false), Err(AccountError::Cancelled));
+    assert_eq!(
+        inner.load().unwrap().unwrap().session_id,
+        replacement.session_id
+    );
 }
 
 #[test]
@@ -2308,6 +2425,7 @@ fn expired_session() -> SavedAccountSession {
     SavedAccountSession {
         tokens: tokens(b'a', b'b', 900),
         expires_at_unix_ms: 1,
+        session_id: None,
     }
 }
 
@@ -2351,6 +2469,7 @@ fn a_rejected_refresh_keeps_a_session_another_process_saved_meanwhile() {
             .save(&SavedAccountSession {
                 tokens: tokens(b'c', b'f', 900),
                 expires_at_unix_ms: valid_future_expiry(),
+                session_id: None,
             })
             .unwrap();
     }));
@@ -2386,6 +2505,7 @@ fn session_file_layouts_round_trip_and_read_each_other() {
     let session = SavedAccountSession {
         tokens: tokens(b'a', b'b', 900),
         expires_at_unix_ms: 1_790_000_000_123,
+        session_id: Some(uuid::Uuid::nil()),
     };
     let apple = session_file(directory.path());
     apple.save(&session).unwrap();
@@ -2393,17 +2513,46 @@ fn session_file_layouts_round_trip_and_read_each_other() {
     let value: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert!(value.get("expiresAt").is_some());
     assert!(value.get("expires_at_unix_ms").is_none());
+    assert_eq!(
+        value.get("sessionID").and_then(|id| id.as_str()),
+        Some("00000000-0000-0000-0000-000000000000")
+    );
 
     let native = FileAccountSessionStorage::new(directory.path(), AccountSessionFileLayout::Native);
+    let read_from_apple = native.load().unwrap().unwrap();
     assert_eq!(
-        native.load().unwrap().unwrap().expires_at_unix_ms,
+        read_from_apple.expires_at_unix_ms,
         session.expires_at_unix_ms
     );
+    assert_eq!(read_from_apple.session_id, session.session_id);
     native.save(&session).unwrap();
+    let read_from_native = apple.load().unwrap().unwrap();
     assert_eq!(
-        apple.load().unwrap().unwrap().expires_at_unix_ms,
+        read_from_native.expires_at_unix_ms,
         session.expires_at_unix_ms
     );
+    assert_eq!(read_from_native.session_id, session.session_id);
+}
+
+#[test]
+fn legacy_apple_session_gets_one_id_shared_by_both_processes() {
+    let directory = tempfile::tempdir().unwrap();
+    let storage = session_file(directory.path());
+    storage
+        .save(&SavedAccountSession {
+            tokens: tokens(b'a', b'b', 900),
+            expires_at_unix_ms: valid_future_expiry(),
+            session_id: None,
+        })
+        .unwrap();
+    let first = BackendAccountSession::new(FakeApi::new(), storage.clone());
+    let second = BackendAccountSession::new(FakeApi::new(), storage.clone());
+
+    let _ = first.credentials(None, None).unwrap();
+    let id = storage.load().unwrap().unwrap().session_id;
+    assert!(id.is_some());
+    let _ = second.credentials(None, None).unwrap();
+    assert_eq!(storage.load().unwrap().unwrap().session_id, id);
 }
 
 #[cfg(unix)]

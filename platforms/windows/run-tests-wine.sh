@@ -3,8 +3,8 @@
 #
 # These suites were built by build-cross.sh and then never run: executing a
 # Windows binary needs Windows, so every report about them said "linked".
-# Linking does not catch an assertion. Wine runs 72 of them as they are, which
-# is the difference between a suite that compiles and a suite that passes.
+# Linking does not catch an assertion. Wine runs the resulting executables,
+# which is the difference between a suite that compiles and one that passes.
 #
 # What it cannot run is recorded rather than hidden: anything that needs a
 # compositor, a real monitor, or the installed dictionary bundle fails here for
@@ -32,17 +32,18 @@ if [ ! -d "$build" ]; then
   exit 0
 fi
 
-# The MinGW runtime is not bundled beside the executables, so collect it from
-# the toolchain that produced them - which is not the same toolchain for both
-# architectures. x64 is built by this host. x86 cannot be: the i686 MinGW
-# usually installed on macOS uses SJLJ exceptions and Rust's target needs DWARF,
-# so build-cross-container.sh builds it inside the cross image. Taking the x86
-# runtime from this host would pair DWARF-built executables with an SJLJ
-# unwinder, and the unwinder is exactly what differs.
+# 新构建由实际生产编译器暂存运行时 DLL。旧目录没有这些文件时，
+# x86 沿用 Debian DWARF 工具链，x64 沿用本机工具链；不能把 Homebrew
+# i686 的 SJLJ 展开器配给 Rust 要求的 DWARF 产物。
 runtime="$(mktemp -d)"
 trap 'rm -rf "$runtime"' EXIT
 
-if [ "$arch" = x86 ]; then
+# 优先复用构建方按实际编译器暂存的 DLL，保留旧构建目录的工具链回退。
+unwind=libgcc_s_seh-1.dll
+[ "$arch" = x86 ] && unwind=libgcc_s_dw2-1.dll
+if [ -f "$build/libwinpthread-1.dll" ] && [ -f "$build/libstdc++-6.dll" ] && [ -f "$build/$unwind" ]; then
+  cp "$build/libwinpthread-1.dll" "$build/libstdc++-6.dll" "$build/$unwind" "$runtime/" || exit 1
+elif [ "$arch" = x86 ]; then
   cross=msime-cross:local
   docker build --platform linux/amd64 -t "$cross" "$root/platforms/windows/cross" >/dev/null 2>&1 || {
     echo "skipped: could not build the cross image"; exit 0; }
@@ -131,20 +132,57 @@ if [ -d "$installer" ]; then
   installer_argument='Z:\\installer\\msime_setup.iss'
 fi
 
+# CTest passes these checked-in dictionaries to the Stroke and Zhuyin suites.
+# Their executables assert that argv[1] exists, so the Wine runner must supply
+# the same inputs rather than counting an argument error as a product failure.
+fixtures="$root/platforms/windows/tests/input/fixtures"
+stroke_argument='Z:\\fixtures\\msime-stroke.db'
+zhuyin_argument='Z:\\fixtures\\msime-zhuyin.db'
+# CMake builds TSF tests in a subdirectory; its two wiring checks read source files.
+tsf_source="$root/platforms/windows/tsf"
+tsf_source_argument='Z:\\tsf-source'
+
 # The Rust host carries the Windows-only code the C++ suite never touches:
 # clipboard reads and writes, synthetic key strokes, the extended-key set. Its
 # tests build for the same target and run under the same Wine, but this runner
 # only ever globbed C++ executables, so none of them ran here. Build them into a
 # staging directory and let the loop below pick them up with the rest.
 rust_triple=x86_64-pc-windows-gnu
-[ "$arch" = x86 ] && rust_triple=i686-pc-windows-gnu
+rust_compiler=x86_64-w64-mingw32-gcc
+linker_var=CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER
+if [ "$arch" = x86 ]; then
+  rust_triple=i686-pc-windows-gnu
+  rust_compiler=i686-w64-mingw32-gcc
+  linker_var=CARGO_TARGET_I686_PC_WINDOWS_GNU_LINKER
+fi
 rust_stage="$root/target/wine-rust-tests/$arch"
 rm -rf "$rust_stage"
 mkdir -p "$rust_stage"
-if command -v cargo >/dev/null 2>&1; then
-  # --no-run builds the test binaries and prints where they landed; anything that
-  # fails to build is reported and skipped rather than failing the whole run,
-  # because the C++ suite below is still worth having.
+rust_build_log="$rust_stage/cargo.log"
+rust_command=()
+if command -v cargo >/dev/null 2>&1 && command -v "$rust_compiler" >/dev/null 2>&1; then
+  rust_command=(cargo)
+else
+  # The native tests and their runtime can come from build-cross-container.sh,
+  # while this host has no MinGW compiler. Use that same image and Cargo cache
+  # so the Rust tests are built for the Windows target as well.
+  daemon_platform=$(docker info --format '{{.OSType}}/{{.Architecture}}' 2>>"$rust_build_log")
+  case "$daemon_platform" in
+    linux/aarch64|linux/arm64) cross_platform=linux/arm64; cross_image=msime-cross:local-arm64 ;;
+    linux/*) cross_platform=linux/amd64; cross_image=msime-cross:local ;;
+    *) echo "Unsupported cross-build Docker platform: $daemon_platform" >>"$rust_build_log" ;;
+  esac
+  if [ -n "${cross_image:-}" ] &&
+     docker build --platform "$cross_platform" -t "$cross_image" "$root/platforms/windows/cross" >>"$rust_build_log" 2>&1; then
+    mkdir -p "$root/target/windows-cross/cargo-home"
+    rust_command=(docker run --rm --platform "$cross_platform" -v "$root":/repo -w /repo
+      -e CARGO_HOME=/repo/target/windows-cross/cargo-home
+      -e "$linker_var=$rust_compiler" "$cross_image" cargo)
+  fi
+fi
+if [ "${#rust_command[@]}" -gt 0 ]; then
+  # --no-run builds the test binaries and prints where they landed. Report a
+  # build failure as a test failure while still running the C++ suite below.
   # host-api is the DLL the Server links against, so its FFI boundary is worth exercising on the target it ships for; it needs no vcpkg prefix, since its C parts build with the same MinGW toolchain.
   # client-core carries the shared logic plus a few #[cfg(windows)] paths - the
   # file-replacement retry in the gloss store among them - that the host run can
@@ -154,9 +192,13 @@ if command -v cargo >/dev/null 2>&1; then
   # programs that expect arguments and would be counted as failures here.
   # --tests excludes examples, which are not tests and need not build for this
   # target.
-  rust_build_log="$rust_stage/cargo.log"
-  cargo test $rust_packages --target "$rust_triple" --no-run --tests \
-    --message-format=json 2>"$rust_build_log" \
+  # The workspace cargo suite runs the general library and golden tests. Under
+  # emulated Wine they exceed the per-program time limit and golden also needs
+  # source fixtures; keep the Windows host and bounded integration targets here.
+  echo "note: Rust library and golden suites are built for Windows; Wine runs the host and integration suites"
+  rust_build_ok=1
+  "${rust_command[@]}" test $rust_packages --target "$rust_triple" --no-run --tests \
+    --message-format=json 2>>"$rust_build_log" \
     | python3 -c 'import sys, json
 for line in sys.stdin:
     try:
@@ -164,32 +206,46 @@ for line in sys.stdin:
     except ValueError:
         continue
     executable = message.get("executable")
+    target = message.get("target", {}).get("name")
+    if target in {"msime_client_core", "msime_engine", "msime_host_api", "golden"}:
+        continue
     if executable and message.get("profile", {}).get("test"):
         print(executable)' \
     | while IFS= read -r exe; do
+        case "$exe" in /repo/*) exe="$root/${exe#/repo/}" ;; esac
         [ -f "$exe" ] || continue
         cp "$exe" "$rust_stage/rust-$(basename "$exe" .exe | sed 's/-[0-9a-f]\{16\}$//').exe"
-      done
+      done || rust_build_ok=0
   # Silence here would mean the Rust suites vanish without a word, which is how
   # the C++ side lost msimeui-tests for so long. Say so, and keep the log.
   if [ -z "$(ls -A "$rust_stage" 2>/dev/null | grep -v '^cargo\.log$')" ]; then
     echo "note: no Rust test binaries were staged; see $rust_build_log"
+    rust_build_ok=0
+  fi
+  if [ "$rust_build_ok" -eq 0 ]; then
     grep -E '^error' "$rust_build_log" | head -3
+    echo "FAIL rust-test-build"
   fi
 else
-  echo "skipped: cargo unavailable, the Rust host tests will not run under Wine"
+  echo "note: Rust test builder unavailable; see $rust_build_log"
+  echo "FAIL rust-test-build"
 fi
 
 docker run --rm --platform linux/amd64 \
   -v "$build":/bin-win:ro -v "$runtime":/rt:ro -v "$rust_stage":/bin-rust:ro ${resources_mount[@]+"${resources_mount[@]}"} \
-  ${installer_mount[@]+"${installer_mount[@]}"} \
+  ${installer_mount[@]+"${installer_mount[@]}"} -v "$fixtures":/fixtures:ro -v "$tsf_source":/tsf-source:ro \
   -e "MSIME_RESOURCES=$resources_argument" -e "MSIME_INSTALLER=$installer_argument" \
+  -e "MSIME_STROKE_FIXTURE=$stroke_argument" -e "MSIME_ZHUYIN_FIXTURE=$zhuyin_argument" \
+  -e "MSIME_TSF_SOURCE=$tsf_source_argument" \
   -e LANG=C.utf8 -e LC_ALL=C.utf8 "$image" sh -c '
 mkdir -p /run/t && cp /rt/*.dll /run/t/ && cp /bin-win/*.dll /run/t/ 2>/dev/null
+cp /bin-win/tsf/*MetasequoiaImeTsf.dll /run/t/ 2>/dev/null
 cd /run/t
-# msimeui puts its test executable in bin/ rather than beside the others, so a
-# top-level pattern silently matched nothing and that suite was never run here.
-for exe in /bin-win/windows-*.exe /bin-win/msime-tsf-*.exe /bin-win/msimeui-tests.exe \
+# CMake puts TSF tests in tsf/, its registration tests below tsf/tests/,
+# and msimeui tests in bin/.
+for exe in /bin-win/windows-*.exe /bin-win/tsf/msime-tsf-*.exe /bin-win/msimeui-tests.exe \
+           /bin-win/tsf/tests/registration_categories/msime-tsf-*.exe \
+           /bin-win/tsf/tests/registration_profiles/msime-tsf-*.exe \
            /bin-win/bin/msimeui-tests.exe /bin-rust/rust-*.exe; do
   [ -f "$exe" ] || continue
   name=$(basename "$exe" .exe)
@@ -197,11 +253,10 @@ for exe in /bin-win/windows-*.exe /bin-win/msime-tsf-*.exe /bin-win/msimeui-test
   argument=""
   [ "$name" = windows-session-smoke ] && argument="$MSIME_RESOURCES"
   [ "$name" = windows-installer-launch ] && argument="$MSIME_INSTALLER"
-  # That one walks the src/ directory of its own crate at run time to compare the
-  # C header against the Rust exports. Only the executable is copied in here, so
-  # it has nothing to walk, and it is a source-consistency check with no platform
-  # dimension that the host run already covers.
-  [ "$name" = rust-msime_host_api ] && argument="--skip the_c_header_and_the_rust_exports_agree"
+  [ "$name" = windows-stroke-keys ] && argument="$MSIME_STROKE_FIXTURE"
+  [ "$name" = windows-zhuyin-keys ] && argument="$MSIME_ZHUYIN_FIXTURE"
+  [ "$name" = msime-tsf-paired-punctuation-wiring-test ] && argument="$MSIME_TSF_SOURCE"
+  [ "$name" = msime-tsf-smart-punctuation-focus-wiring-test ] && argument="$MSIME_TSF_SOURCE"
   if timeout 120 xvfb-run -a wine "/run/t/$name.exe" $argument >/dev/null 2>&1; then
     echo "PASS $name"
   else

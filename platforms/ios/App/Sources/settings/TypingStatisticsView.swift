@@ -41,6 +41,8 @@ struct TypingStatisticsView: View {
 
   // 旧文案无条件要求开启完全访问，不管问题是不是出在这个设置上都说同一句话，等于没有信息。这里每种情况都是对「为什么是空的」的不同回答，正常运行时则什么都不说。
   private var storageAdvice: String? {
+    // 记录关闭时（统计默认关闭）键盘本来就不写，「记录已关闭」那张卡已经说明了原因；这里再让人去开完全访问，会把人引到错误的地方。
+    if loaded && !statistics.enabled { return nil }
     switch availability {
     case .containerUnavailable:
       return "无法访问共享存储，键盘与本 app 之间没有可用的数据通道。重装水杉输入法可以重建它。"

@@ -32,8 +32,8 @@ HOSTS = [
     (
         ROOT / "platforms/android/java/app/msime/android/candidate/OnlineCandidateTransport.java",
         [
-            "setConnectTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS)",
-            "setReadTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS)",
+            "HttpConnectionPolicy.setTimeouts(connection,",
+            "OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS, OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS)",
         ],
         (r"public static String cloud\(String url\)", r"\n    (?:public|private|protected) ", r"set(?:Connect|Read)Timeout\((\d+)"),
     ),

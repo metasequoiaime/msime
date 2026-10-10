@@ -156,6 +156,19 @@ int main() {
             top_commit.next_prefix.empty() &&
             top_commit.worker->at(4) == '4' && top_commit.worker->at(6) == '\t');
     confirm(auto_commit);
+    // The count covers the code the Engine held plus the key only when nothing is left composing, so a letter typed ahead into the TIP buffer is never dropped: the fourth letter of a unique code, a lowercase letter after a complete code, and a capital the Engine lets go.
+    require(wubi_continue_consumed(3, false) == 4 && wubi_continue_consumed(4, true) == 4 &&
+            wubi_continue_consumed(4, false) == 5);
+    // A capital the Engine does not take after a complete code goes out with the first candidate and leaves nothing composing, so the TIP drops its whole buffer, the capital included.
+    auto capital = result(4, "", "", "合成甲A");
+    capital.transition["commit_context"] = {{"scheme", 2}, {"local_mode", "none"}};
+    const auto &capital_commit = auto_commit.stage(
+        capital, ReplyPath::AutoCommitAndContinue, false, std::nullopt,
+        wubi_continue_consumed(4, false));
+    require(capital_commit.worker && capital_commit.committed_text == "合成甲A" &&
+            capital_commit.worker->at(4) == '5' &&
+            capital_commit.worker->at(6) == '\t');
+    confirm(auto_commit);
     // The commit must still be a Wubi one.
     topped.transition["commit_context"] = {{"scheme", 0}, {"local_mode", "none"}};
     const auto &invalid_continue =

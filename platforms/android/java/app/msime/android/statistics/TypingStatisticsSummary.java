@@ -151,11 +151,6 @@ public final class TypingStatisticsSummary {
 
     // ---- 文案 ----
 
-    /** 千分位：`12,846`。 */
-    public static String grouped(long value) {
-        return NumberPolicy.grouped(value);
-    }
-
     /** 英雄卡下的周环比；上周没有记录时不写（没有可比的基数），返回 null。 */
     public static String weekDelta(long current, long previous) {
         if (previous <= 0) return null;

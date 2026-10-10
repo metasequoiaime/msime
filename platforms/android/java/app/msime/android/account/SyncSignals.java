@@ -8,7 +8,7 @@ import android.os.Bundle;
 /**
  * 本机数据有改动时通知云同步，以及在任何进程里读同步开关。
  *
- * <p>主进程直接读写 {@link SyncSwitch}；`:ime` 键盘进程不碰那份存储，经 {@link AccountSessionProvider} 的 `sync_dirty` / `sync_state` 由主进程代为读写，和访问令牌的路由一样（{@link AccountSessionRoutingPolicy}）。provider 只回答开关与登录方式，绝不返回令牌。
+ * <p>主进程直接读写 {@link SyncSwitch}；`:ime` 键盘进程不碰那份存储，经 {@link AccountSessionProvider} 的 `sync_dirty` / `sync_state` 由主进程代为读写，和访问令牌的路由一样（{@link AccountSessionRoutingPolicy}）。同步状态回复含开关、登录方式和账号 ID，不含令牌。
  */
 public final class SyncSignals {
     /** `:ime` 进程读到的同步状态。 */
@@ -55,6 +55,22 @@ public final class SyncSignals {
                 reply.getString(AccountSessionRoutingPolicy.KEY_LOGIN_KIND));
         } catch (RuntimeException unavailable) {
             return State.OFF;
+        }
+    }
+
+    /** 当前主进程绑定的账号；null 表示 provider 暂不可达，空字符串表示账号已清除。不要在按键路径调用。 */
+    public static String accountId(Context context) {
+        Context application = context.getApplicationContext();
+        if (AccountSessionRoutingPolicy.ownsSession(
+                Application.getProcessName(), application.getPackageName())) {
+            return SyncSwitch.accountId(application);
+        }
+        try {
+            Bundle reply = application.getContentResolver().call(providerUri(application),
+                AccountSessionRoutingPolicy.METHOD_SYNC_STATE, null, null);
+            return reply == null ? null : reply.getString(AccountSessionRoutingPolicy.KEY_ACCOUNT_ID);
+        } catch (RuntimeException unavailable) {
+            return null;
         }
     }
 

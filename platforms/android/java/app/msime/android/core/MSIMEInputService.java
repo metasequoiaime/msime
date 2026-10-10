@@ -1100,6 +1100,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     /**
      * 补上一对的后半个：写在光标右边，光标留在两半之间。`commitText` 的第二个参数不大于 0 时按新文字的开头算，0 就是停在它前面；写成「整对一起上屏再左移一格」做不到，因为大于 0 的值从末尾减一算起，左移一个字符要的正是 0。
+     *
+     * <p>个别应用不认这个 0，光标照样落在后半个后面（#6458）。写完马上读一次光标两侧的文字（同步查询编辑器当前内容，不等异步的选区回报），确认光标跑到了后半个后面才发左方向键退回去；照规矩处理的编辑器里光标后面就是后半个，不发任何按键，行为和原来一样。
      */
     boolean commitClosingMark(String closing, TypingSource source) {
         if (connection == null || closing == null || closing.isEmpty()) return false;
@@ -1113,7 +1115,19 @@ public final class MSIMEInputService extends InputMethodService {
             selectionEcho.invalidate();
             return false;
         }
-        selectionEcho.commit(0);
+        CharSequence after = textAfterCursor(closing.length());
+        // 光标后面已经是后半个（正常情况）时不必再读光标前面，省一次跨进程调用。
+        CharSequence before = after == null || after.toString().startsWith(closing)
+            ? null : textBeforeCursor(closing.length());
+        if (PairedPunctuationPolicy.caretPassedClosing(closing, after, before)) {
+            selectionEcho.commit(closing.length());
+            selectionEcho.expect();
+            for (int index = closing.codePointCount(0, closing.length()); index > 0; index--)
+                sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_LEFT);
+            selectionEcho.caretLeft(closing.length());
+        } else {
+            selectionEcho.commit(0);
+        }
         selectionEcho.expect();
         recordTypingStatistics(closing, source);
         pairedPunctuationStack.push(closing, currentDocumentIdentifier);
@@ -1124,6 +1138,13 @@ public final class MSIMEInputService extends InputMethodService {
     private CharSequence textAfterCursor(int length) {
         if (connection == null) return null;
         try { return connection.getTextAfterCursor(length, 0); }
+        catch (RuntimeException ignored) { return null; }
+    }
+
+    /** 光标左边紧挨着的 `length` 个 UTF-16 单元；读不出来时为 null。 */
+    private CharSequence textBeforeCursor(int length) {
+        if (connection == null) return null;
+        try { return connection.getTextBeforeCursor(length, 0); }
         catch (RuntimeException ignored) { return null; }
     }
 
@@ -1702,9 +1723,11 @@ public final class MSIMEInputService extends InputMethodService {
         Path filesRoot = getFilesDir().toPath();
         Path root = filesRoot.resolve("bootstrap/state/dictionary-snapshots");
         Path staging = root.resolve("staging");
+        Context application = getApplicationContext();
         try {
             preferencesWorker.execute(() -> {
-                try { DictionarySnapshotWorker.process(filesRoot, root, staging, options); }
+                try { DictionarySnapshotWorker.process(filesRoot, root, staging, options,
+                    () -> SyncSignals.accountId(application)); }
                 catch (Exception | LinkageError ignored) { /* Retry at the next idle boundary. */ }
             });
         } catch (RuntimeException ignored) { /* Service shutdown owns the final worker state. */ }
@@ -4792,6 +4815,28 @@ public final class MSIMEInputService extends InputMethodService {
         });
     }
 
+    /**
+     * 长按字母层的 123 直接打开符号面板，不必再经过 #+= 层；记一次「符」键，与点 #+= 层的「符」相同。在符号层里这个键是 ABC / 九键，长按照常当作点按。
+     */
+    void bindSymbolPanelHold(Button button) {
+        button.setOnLongClickListener(ignored -> {
+            if (session == 0 || keyboardLayer != KeyboardLayout.Layer.LETTERS) return false;
+            imeKeyFeedback.playFeedback(button);
+            countKey("SoftSymbol");
+            imePanels.showSymbolPanel();
+            return true;
+        });
+        button.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(
+                    View host, android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                if (keyboardLayer == KeyboardLayout.Layer.LETTERS)
+                    info.addAction(new android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(
+                        android.view.accessibility.AccessibilityNodeInfo.ACTION_LONG_CLICK, "打开符号面板"));
+            }
+        });
+    }
+
     /** Finish the Engine composition before handing the input connection to another IME. */
     void switchToNextInputMethodAfterCommit() {
         if (session != 0) command(2);
@@ -6666,6 +6711,7 @@ public final class MSIMEInputService extends InputMethodService {
         });
         layerButton.setContentDescription("切换到数字和符号");
         keyId(layerButton, "SoftLayer");
+        bindSymbolPanelHold(layerButton);
         symbolPanelButton = keyId(button(controls, "符", imePanels::showSymbolPanel), "SoftSymbol");
         symbolPanelButton.setContentDescription("打开符号面板");
         quickPunctuationButton = keyId(button(controls, ",", this::insertQuickPunctuation), "Comma");

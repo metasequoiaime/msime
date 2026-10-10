@@ -30,6 +30,7 @@ final class ImeNineKeyPanel {
     private TextView strokeReading;
     private ScrollView candidateScroll;
     private FrameLayout candidateHolder;
+    private ImeCandidateGrid candidateGrid;
     private Button modeButton;
     private Button singleButton;
     private NineKeyPanelPolicy.Mode mode = NineKeyPanelPolicy.Mode.SPELLING;
@@ -76,6 +77,7 @@ final class ImeNineKeyPanel {
         candidateScroll = new ScrollView(s);
         candidateScroll.setFillViewport(true);
         candidateScroll.addView(candidateHolder, KeyboardGeometry.scrollMatchParentParams());
+        candidateGrid = new ImeCandidateGrid(s, candidateScroll, false);
         root.addView(candidateScroll, margined(3));
 
         LinearLayout actions = KeyboardGeometry.column(s);
@@ -165,7 +167,7 @@ final class ImeNineKeyPanel {
         boolean newGeneration = generation != renderedGeneration;
         renderedGeneration = generation;
         renderLeft(newGeneration);
-        renderCandidates(newGeneration);
+        renderCandidates();
         renderActions();
     }
 
@@ -195,7 +197,7 @@ final class ImeNineKeyPanel {
         if (newGeneration) spellingScroll.scrollTo(0, 0);
     }
 
-    private void renderCandidates(boolean newGeneration) {
+    private void renderCandidates() {
         candidateHolder.removeAllViews();
         JSONObject snapshot = s.candidatePanelSnapshot;
         JSONArray entries = snapshot == null ? null : snapshot.optJSONArray("candidates");
@@ -209,18 +211,11 @@ final class ImeNineKeyPanel {
             return;
         }
         String reading = InputViewValuePolicy.textOr(s.view, "nine_key_reading", "");
-        CandidateWrapLayout list = new CandidateWrapLayout(s, s.pixels(6));
-        list.setContentDescription("完整候选列表；" + reading + "；" + count + " 个候选");
-        for (int index = 0; index < count; index++) {
-            JSONObject candidate = entries.optJSONObject(index);
-            if (candidate == null) continue;
-            Button button = s.imeCandidates.expandedCandidateButton(candidate);
-            list.addView(button, new android.view.ViewGroup.LayoutParams(
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, s.pixels(44)));
-        }
+        // 格子分批建，滚到接近底部再追加；换了一代或面板收起后重开时，网格把滚动位置拉回顶部。
+        CandidateWrapLayout list = candidateGrid.build(snapshot, entries,
+            "完整候选列表；" + reading + "；" + count + " 个候选");
         KeyboardGeometry.setSymmetricPaddingDp(list, s, 4, 4);
         candidateHolder.addView(list, KeyboardGeometry.frameMatchWidthWrapParams());
-        if (newGeneration) candidateScroll.scrollTo(0, 0);
     }
 
     private void renderActions() {
@@ -261,6 +256,7 @@ final class ImeNineKeyPanel {
     void dismiss() {
         mode = NineKeyPanelPolicy.Mode.SPELLING;
         renderedGeneration = -1;
+        if (candidateGrid != null) candidateGrid.reset();
         if (root != null && root.getVisibility() != View.GONE) ViewPolicy.hide(root);
         if (filterResetPending || !filtered()) return;
         // 同一代只清一次：清除的响应会再走到这里，引擎万一没清掉也不会每次重画都再发一遍。

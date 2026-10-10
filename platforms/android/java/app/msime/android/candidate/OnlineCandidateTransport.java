@@ -28,11 +28,8 @@ public final class OnlineCandidateTransport {
 
     // 云候选的整体时限。readTimeout 只管两次读之间的空闲，到点由这个线程断开连接，阻塞中的读会立刻抛出 IOException；守护线程，不拖住进程退出。
     private static final ScheduledExecutorService CLOUD_DEADLINES =
-        Executors.newSingleThreadScheduledExecutor(task -> {
-            Thread thread = new Thread(task, "msime-cloud-deadline");
-            thread.setDaemon(true);
-            return thread;
-        });
+        Executors.newSingleThreadScheduledExecutor(
+            ThreadPolicy.namedDaemonFactory("msime-cloud-deadline"));
 
     private OnlineCandidateTransport() {}
 
@@ -46,10 +43,10 @@ public final class OnlineCandidateTransport {
             URL target = new URL(url);
             if (!OnlineCandidatePolicy.validURL(target)) return null;
             connection = (HttpsURLConnection) target.openConnection();
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("GET");
-            connection.setConnectTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
-            connection.setReadTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
+            HttpConnectionPolicy.setTimeouts(connection,
+                OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS, OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
             connection.setRequestProperty("Accept", "application/json");
             watchdog = CLOUD_DEADLINES.schedule(connection::disconnect,
                 OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
@@ -77,12 +74,11 @@ public final class OnlineCandidateTransport {
             URL target = AiEndpointPolicy.uri(rawUrl).toURL();
             byte[] payload = TextPolicy.utf8Bytes(descriptor.getJSONObject("body").toString());
             connection = (HttpURLConnection) AiEndpointPolicy.open(target);
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("POST");
-            connection.setConnectTimeout(KeyboardGeometry.bounded(
+            HttpConnectionPolicy.setTimeouts(connection, KeyboardGeometry.bounded(
                 KeyboardGeometry.strictInt(descriptor, "connect_timeout_ms", CONNECT_TIMEOUT_MILLIS),
-                1_000, 10_000));
-            connection.setReadTimeout(KeyboardGeometry.bounded(
+                1_000, 10_000), KeyboardGeometry.bounded(
                 KeyboardGeometry.strictInt(descriptor, "timeout_ms", READ_TIMEOUT_MILLIS),
                 1_000, 10_000));
             connection.setDoOutput(true);
