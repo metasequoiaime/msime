@@ -149,20 +149,25 @@ fn active_shuangpin_helpcode_length(request: &QueryRequest, profile: &ShuangpinP
 
 /// 所选词的规范读音：撇号段数等于字符数，且每段可完整切分（input_session_composition.cpp:76-96）。
 pub(super) fn normalize_canonical_pinyin_for_word(pinyin: &str, word: &str) -> String {
+    if canonical_pinyin_is_valid_for_word(pinyin, word) {
+        pinyin.to_owned()
+    } else {
+        String::new()
+    }
+}
+
+// 只读调用直接复用校验结论；需要保存读音的调用仍由拥有型接口复制结果。
+fn canonical_pinyin_is_valid_for_word(pinyin: &str, word: &str) -> bool {
     if pinyin.is_empty() {
-        return String::new();
+        return false;
     }
     let segment_count = pinyin.bytes().filter(|&byte| byte == b'\'').count() + 1;
     if segment_count != count_han_chars(word) {
-        return String::new();
+        return false;
     }
-    if pinyin
+    !pinyin
         .split('\'')
         .any(|segment| segment.is_empty() || !is_complete_pinyin_input(segment))
-    {
-        return String::new();
-    }
-    pinyin.to_owned()
 }
 
 /// An unknown reading anywhere makes the whole phrase unstorable, so an empty suffix empties the result.
@@ -470,19 +475,18 @@ impl InputSession {
                 can_store: false,
             };
         }
-        let selected_canonical = normalize_canonical_pinyin_for_word(
+        let selected_storable = canonical_pinyin_is_valid_for_word(
             &transition.selected_canonical_pinyin,
             selected_word,
         );
         let prior_parts_storable = current_word.is_empty() || !current_pinyin.is_empty();
-        let pinyin = if prior_parts_storable && !selected_canonical.is_empty() {
-            append_canonical_pinyin(current_pinyin, &selected_canonical)
+        let pinyin = if prior_parts_storable && selected_storable {
+            append_canonical_pinyin(current_pinyin, &transition.selected_canonical_pinyin)
         } else {
             String::new()
         };
         let completed = !transition.continues_composition;
-        let can_store =
-            completed && !normalize_canonical_pinyin_for_word(&pinyin, &word).is_empty();
+        let can_store = completed && canonical_pinyin_is_valid_for_word(&pinyin, &word);
         let mut preedit =
             String::with_capacity(word.len() + transition.current_segmentation_with_cases.len());
         preedit.push_str(&word);
@@ -705,6 +709,10 @@ impl InputSession {
 #[cfg(test)]
 #[path = "composition/canonical_reading_tests.rs"]
 mod canonical_reading_tests;
+
+#[cfg(test)]
+#[path = "composition/creating_word_reading_tests.rs"]
+mod creating_word_reading_tests;
 
 #[cfg(test)]
 mod tests {
