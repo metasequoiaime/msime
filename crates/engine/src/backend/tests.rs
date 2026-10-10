@@ -415,6 +415,48 @@ fn local_modes_read_the_shipped_catalogs() {
 }
 
 #[test]
+fn empty_catalog_page_does_not_reserve_result_page() {
+    let resources = resources();
+    let connection = Connection::open(resources.path().join(assets::OTHER_DICTIONARY)).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE emoji(emoji TEXT,category TEXT,keywords TEXT,sort_order INTEGER);
+             INSERT INTO emoji VALUES('😀','faces','smile',1);",
+        )
+        .unwrap();
+    let request = json!({
+        "operation": "catalog",
+        "kind": "emoji",
+        "text": "missing",
+        "limit": 200,
+    });
+    run(request.clone(), resources.path());
+    let (response, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| run(request.clone(), resources.path()));
+    assert_eq!(response["items"], json!([]));
+    assert_eq!(allocations, 50, "空 catalog 页申请了 {allocations} 个缓冲");
+}
+
+#[test]
+fn empty_dictionary_page_does_not_reserve_result_page() {
+    let resources = resources();
+    let request = json!({
+        "operation": "dictionary",
+        "kind": "quick",
+        "text": "zzz",
+        "limit": 200,
+    });
+    run(request.clone(), resources.path());
+    let (response, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| run(request.clone(), resources.path()));
+    assert_eq!(response["entries"], json!([]));
+    assert_eq!(
+        allocations, 42,
+        "空 dictionary 页申请了 {allocations} 个缓冲"
+    );
+}
+
+#[test]
 fn english_completes_prefixes_and_glosses_both_ways() {
     let resources = resources();
     let path = resources.path();
