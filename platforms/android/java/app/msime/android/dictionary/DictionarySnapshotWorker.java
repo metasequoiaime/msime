@@ -46,10 +46,12 @@ public final class DictionarySnapshotWorker {
             long handle = 0;
             try {
                 ensureSafeDirectory(stagingDirectory);
+                // 队列里记的是带前缀的本机版本，原生侧只认其中的摘要。
+                String expected = DictionarySnapshotQueue.nativeVersion(request.expectedLocalVersion());
                 String prepareRequest = new JSONObject()
                     .put("options", new JSONObject(options))
                     .put("staging_root", stagingDirectory.toAbsolutePath().normalize().toString())
-                    .put("expected_version", request.expectedLocalVersion())
+                    .put("expected_version", expected)
                     .put("activation_id", request.id().toString())
                     .put("records", 0)
                     .toString();
@@ -66,7 +68,7 @@ public final class DictionarySnapshotWorker {
                 handle = preparedHandle;
                 boolean applied = queue.complete(request.id(), lease, current, false, currentAccountId, () -> {
                     JSONObject activated = new JSONObject(NativeClient.snapshotActivate(
-                        preparedHandle, request.expectedLocalVersion()));
+                        preparedHandle, expected));
                     if (!JsonPolicy.strictTrue(activated.opt("ok")))
                         throw new IllegalStateException("snapshot activation rejected");
                     return version(options);

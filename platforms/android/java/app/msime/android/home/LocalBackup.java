@@ -69,8 +69,6 @@ final class LocalBackup {
     /** 应用缓存下的工作目录：导出时先在这里拼好整个包再写到用户选的位置，恢复时先把选中的文件复制到这里。 */
     private static final String WORK = "backup";
     private static final int COPY_BUFFER = 64 * 1024;
-    /** 本地恢复交给词库快照激活队列时的请求来源；云同步的请求用账号 id，退出登录时只取消自己的。 */
-    private static final String SNAPSHOT_OWNER = "local-backup";
     /** 导出页和导出结果里都要说的话：输入记录能看出打字习惯，备份文件没有加密。 */
     static final String PRIVACY_NOTICE = "备份文件里有你的输入记录，能看出你常打的字词和打字习惯。文件没有加密，请妥善保管，不要发给别人或传到公开的地方。";
 
@@ -636,7 +634,7 @@ final class LocalBackup {
                 : LocalBackupPolicy.dictionaryRestore(words.size(), localWordCount(context), localLearningCount(context));
             if (mode == LocalBackupPolicy.DictionaryRestore.ACTIVATE) {
                 try {
-                    CloudSync.enqueueDictionarySnapshot(context, file, SNAPSHOT_OWNER, 0);
+                    CloudSync.enqueueDictionarySnapshot(context, file, DictionarySnapshotQueue.LOCAL_RESTORE_OWNER, 0);
                     SyncSignals.markDirty(context, SyncSwitch.DICTIONARY);
                     return new int[] {words.size(), 0, manifestLearning(zip)};
                 } catch (IOException | DictionarySnapshotQueue.Failure unavailable) {
