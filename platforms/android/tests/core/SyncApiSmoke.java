@@ -99,6 +99,63 @@ public final class SyncApiSmoke {
             return new SyncApi.Exchange(fresh.equals(token) ? 200 : 401, null, new byte[0]);
         });
         check(ok.status() == 200 && tokens.equals(List.of(stale, fresh)), "refreshed once: " + tokens);
+        java.util.concurrent.atomic.AtomicReference<String> login =
+            new java.util.concurrent.atomic.AtomicReference<>("synthetic-login-a");
+        CloudApi.Tokens changing = new CloudApi.Tokens() {
+            @Override public String token(String rejected) {
+                return "synthetic-login-a".equals(login.get()) ? stale : fresh;
+            }
+            @Override public String sessionId() { return login.get(); }
+        };
+        java.util.concurrent.atomic.AtomicInteger oldCalls = new java.util.concurrent.atomic.AtomicInteger();
+        try {
+            new SyncApi(null, changing, null).streamed(token -> {
+                oldCalls.incrementAndGet();
+                login.set("synthetic-login-b");
+                return new SyncApi.Exchange(401, null, new byte[0]);
+            });
+            throw new AssertionError("old stream must not retry after a new login");
+        } catch (CloudApi.Failure failure) {
+            check("session_changed".equals(failure.code), "new login cancels rejected old stream");
+            check(oldCalls.get() == 1, "new login receives no old stream retry");
+        }
+        login.set("synthetic-login-a");
+        try {
+            new SyncApi(null, changing, null).streamed(token -> {
+                login.set("synthetic-login-b");
+                return new SyncApi.Exchange(200, null, new byte[0]);
+            });
+            throw new AssertionError("old stream response must not survive a new login");
+        } catch (CloudApi.Failure failure) {
+            check("session_changed".equals(failure.code), "new login discards successful old stream");
+        }
+        java.util.concurrent.atomic.AtomicReference<String> sameTokenLogin =
+            new java.util.concurrent.atomic.AtomicReference<>("synthetic-login-a");
+        CloudApi.Tokens reusedToken = new CloudApi.Tokens() {
+            @Override public String token(String rejected) { return stale; }
+            @Override public String sessionId() { return sameTokenLogin.get(); }
+        };
+        try {
+            new SyncApi(null, reusedToken, null).streamed(token -> {
+                sameTokenLogin.set("synthetic-login-b");
+                return new SyncApi.Exchange(200, null, new byte[0]);
+            });
+            throw new AssertionError("login identity must be checked even when stream tokens match");
+        } catch (CloudApi.Failure failure) {
+            check("session_changed".equals(failure.code), "new login with the same token cancels stream");
+        }
+        java.util.concurrent.atomic.AtomicReference<String> rotatingToken =
+            new java.util.concurrent.atomic.AtomicReference<>(stale);
+        CloudApi.Tokens rotatingLogin = new CloudApi.Tokens() {
+            @Override public String token(String rejected) {
+                if (rejected != null) rotatingToken.set(fresh);
+                return rotatingToken.get();
+            }
+            @Override public String sessionId() { return "synthetic-login-a"; }
+        };
+        SyncApi.Exchange sameLogin = new SyncApi(null, rotatingLogin, null).streamed(token ->
+            new SyncApi.Exchange(fresh.equals(token) ? 200 : 401, null, new byte[0]));
+        check(sameLogin.status() == 200, "same-login token refresh still retries a stream");
         try {
             new SyncApi(null, rejected -> stale, null).streamed(token -> new SyncApi.Exchange(401, null, new byte[0]));
             throw new AssertionError("repeated 401 must fail");

@@ -8,8 +8,7 @@
 # property of one machine, not of the architecture - Debian's i686 MinGW is
 # built `--disable-sjlj-exceptions --with-dwarf2`, so the same build works here.
 #
-# linux/amd64 because vcpkg's host tools are built for the container's own
-# architecture; on an arm64 host Docker emulates, which is slow but correct.
+# 编译器和 vcpkg 工具使用 Docker daemon 的原生 Linux 架构，输出仍为 x86/x64 PE。
 FROM debian:trixie-slim
 RUN apt-get update -qq \
  && apt-get install -y -qq --no-install-recommends \
@@ -32,7 +31,10 @@ RUN python3 /tmp/msime-add-header-aliases.py \
     && rm /tmp/msime-add-header-aliases.py
 
 # 与仓库声明使用同一固定工具链，避免临时容器另装编译器、组件和目标标准库。
-RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.97.1 --component rustfmt --component clippy
+# 先确认下载成功，避免 curl 失败被管线末端的空 sh 吞掉并缓存空安装层。
+RUN curl -sSf https://sh.rustup.rs -o /tmp/msime-rustup-init.sh \
+    && sh /tmp/msime-rustup-init.sh -y --profile minimal --default-toolchain 1.97.1 --component rustfmt --component clippy \
+    && rm /tmp/msime-rustup-init.sh
 ENV PATH=/root/.cargo/bin:$PATH
 RUN rustup target add i686-pc-windows-gnu x86_64-pc-windows-gnu
 ENV VCPKG_DISABLE_METRICS=1

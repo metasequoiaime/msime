@@ -10,19 +10,60 @@ enum class MaintenanceShortcutAction
     Terminate,
 };
 
-// InputMethodKit only receives events for the active input context.  Preserve
-// the Windows maintenance keys while replacing Alt with macOS Option and using
-// physical ANSI key codes so keyboard-layout characters cannot change them.
-constexpr MaintenanceShortcutAction PhysicalMaintenanceShortcut(unsigned short keyCode, bool control, bool shift,
-                                                                  bool option, bool command)
+// ANSI 字母键的 keyCode（kVK_ANSI_A…Z）在美式布局上打出的小写字母，不是字母键时为 '\0'。
+constexpr char PhysicalAnsiLetter(unsigned short keyCode)
+{
+    switch (keyCode)
+    {
+    case 0: return 'a';
+    case 11: return 'b';
+    case 8: return 'c';
+    case 2: return 'd';
+    case 14: return 'e';
+    case 3: return 'f';
+    case 5: return 'g';
+    case 4: return 'h';
+    case 34: return 'i';
+    case 38: return 'j';
+    case 40: return 'k';
+    case 37: return 'l';
+    case 46: return 'm';
+    case 45: return 'n';
+    case 31: return 'o';
+    case 35: return 'p';
+    case 12: return 'q';
+    case 15: return 'r';
+    case 1: return 's';
+    case 17: return 't';
+    case 32: return 'u';
+    case 9: return 'v';
+    case 13: return 'w';
+    case 7: return 'x';
+    case 16: return 'y';
+    case 6: return 'z';
+    default: return '\0';
+    }
+}
+
+// 字母快捷键（Control+Shift+F、Option+Shift+H、Control+Shift+E、Control+Shift+Command+K 和下面的维护快捷键）认的是当前键盘布局在这个键上打出的字母，而不是美式布局的物理位置：Dvorak、Colemak 用户按标着 F 的键就是 Control+Shift+F，和 Windows 宿主按随布局变化的虚拟键码匹配一致，也和组字时按布局字符取字母一致。`layoutCharacter` 是 `charactersIgnoringModifiers` 的唯一字符（没有时传 0），它只保留 Shift 的作用，Control、Option 不会把它变成控制字符或 ç 这类 Option 字符，所以大小写一律折成小写。布局在这个键上放的是 ASCII 标点或数字（Dvorak 的物理 E 键打出 '.'）时它不是任何字母快捷键，不能再按物理位置认成 E，否则同一个快捷键会有两个键都能触发。只有拿不到 ASCII 字符时才退回物理位置：没有字符的合成事件，或者布局在这个键上给的是非拉丁字母。
+constexpr char ShortcutLetter(unsigned short keyCode, unsigned short layoutCharacter)
+{
+    if (layoutCharacter >= 'A' && layoutCharacter <= 'Z') return static_cast<char>(layoutCharacter - 'A' + 'a');
+    if (layoutCharacter >= 'a' && layoutCharacter <= 'z') return static_cast<char>(layoutCharacter);
+    if (layoutCharacter > ' ' && layoutCharacter < 0x7f) return '\0';
+    return PhysicalAnsiLetter(keyCode);
+}
+
+// InputMethodKit 只把当前输入上下文的事件交给输入法。沿用 Windows 的维护快捷键，Alt 换成 macOS 的 Option；字母按当前键盘布局认（见 `ShortcutLetter`）。
+constexpr MaintenanceShortcutAction MaintenanceShortcut(char letter, bool control, bool shift, bool option, bool command)
 {
     if (!control || !shift || !option || command)
         return MaintenanceShortcutAction::None;
-    switch (keyCode)
+    switch (letter)
     {
-    case 8: return MaintenanceShortcutAction::ClearCache; // C
-    case 15: return MaintenanceShortcutAction::Restart;   // R
-    case 17: return MaintenanceShortcutAction::Terminate; // T
+    case 'c': return MaintenanceShortcutAction::ClearCache;
+    case 'r': return MaintenanceShortcutAction::Restart;
+    case 't': return MaintenanceShortcutAction::Terminate;
     default: return MaintenanceShortcutAction::None;
     }
 }

@@ -26,6 +26,7 @@ case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) host_triplet=arm64-osx ;;
   Darwin-x86_64) host_triplet=x64-osx ;;
   Linux-x86_64) host_triplet=x64-linux ;;
+  Linux-aarch64|Linux-arm64) host_triplet=arm64-linux ;;
   *) echo "Set up dependencies manually on this host" >&2; exit 1 ;;
 esac
 # Check compiler/host compatibility before any network preparation.
@@ -75,4 +76,6 @@ cmake -S platforms/windows -B "$output" \
   -DMSIME_HOST_LIBRARY="$host_library"
 cmake --build "$output" --parallel 4
 cmake -E copy_if_different "$repo_root/target/$triple/debug/msime_host_api.dll" "$output/$host_dll"
-echo "$arch $edition Windows GNU host/TSF DLLs, Server and native tests linked; SDK C++/WinRT handwriting demo excluded; Windows execution not performed; MinGW runtime DLLs are not bundled."
+# 在生产编译器还可用时暂存运行时，Wine 无需重新构建或猜测另一份工具链。
+bash "$repo_root/platforms/windows/stage-runtime.sh" "$arch" --runtime-only "$output"
+echo "$arch $edition Windows GNU host/TSF DLLs, Server and native tests linked; SDK C++/WinRT handwriting demo excluded; Windows execution not performed; matching MinGW runtime DLLs staged for local tests, not a release package."

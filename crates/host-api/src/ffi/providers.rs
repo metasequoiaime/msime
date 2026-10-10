@@ -69,8 +69,14 @@ pub unsafe extern "C" fn msime_client_ai_request_for_query(
             // limit disagrees with its config, and the query document's copy
             // can lag the pending preferences this call is meant to follow.
             let mut config = preferences.ai_assistant.clone();
-            if let Some(token) = &session.ai_credential {
-                config.tokens.insert(config.provider.clone(), token.clone());
+            if let Some(credential) = &session.ai_credential {
+                if credential.endpoint == config.endpoint {
+                    if let Some(origin) =
+                        msime_client_core::ai::endpoint::credential_origin(&config.endpoint)
+                    {
+                        config.tokens.insert(origin, credential.token.clone());
+                    }
+                }
             }
             let request = AiSuggestionRequest {
                 segmented_pinyin: query.pinyin_segments,
@@ -84,7 +90,7 @@ pub unsafe extern "C" fn msime_client_ai_request_for_query(
     })
 }
 
-/// Hand the session an AI provider credential kept outside the preferences. It is used for the active provider in place of any token the preferences carry, lives only as long as the session, and is never persisted or reported back. An empty token clears it.
+/// Hand the session an AI provider credential kept outside the preferences. It overrides tokens only for the current endpoint, lives only as long as the session, and is never persisted or reported back. An empty token clears it.
 /// # Safety
 /// `token` references `token_length` readable UTF-8 bytes; null is accepted only with a zero length. No buffers are retained.
 #[no_mangle]
@@ -109,7 +115,17 @@ pub unsafe extern "C" fn msime_client_set_ai_credential(
             Some(text.to_owned())
         };
         with_session(handle, |session| {
-            session.ai_credential = token;
+            session.ai_credential = token.map(|token| {
+                let preferences = session
+                    .requested
+                    .as_ref()
+                    .map(|snapshot| &snapshot.preferences)
+                    .unwrap_or(&session.applied);
+                SessionAiCredential {
+                    endpoint: preferences.ai_assistant.endpoint.clone(),
+                    token,
+                }
+            });
             Ok(Value::Bool(true))
         })
     })

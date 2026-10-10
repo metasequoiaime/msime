@@ -129,6 +129,17 @@ int main()
                 "Ordinary InputMethodKit startup was treated as registration.");
         require(!MSIMEShouldRegisterInputSource(2, unknownArguments),
                 "An unknown command was treated as registration.");
+        // 查注册表的参数只读：它不能被当成登记，登记的参数也不能被当成查询。
+        const char *probeArguments[] = {"MetasequoiaIME", "--input-source-registered"};
+        require(MSIMEShouldReportInputSourceRegistration(2, probeArguments),
+                "The registry probe command was not recognized.");
+        require(!MSIMEShouldRegisterInputSource(2, probeArguments),
+                "The registry probe was treated as registration.");
+        require(!MSIMEShouldReportInputSourceRegistration(2, registrationArguments) &&
+                    !MSIMEShouldReportInputSourceRegistration(1, ordinaryArguments) &&
+                    !MSIMEShouldReportInputSourceRegistration(2, unknownArguments) &&
+                    !MSIMEShouldReportInputSourceRegistration(1, nullptr),
+                "Another command was treated as the registry probe.");
 
         NSURL *bundleURL = [NSURL fileURLWithPath:@"/tmp/MetasequoiaIME.app" isDirectory:YES];
         RegistrationWorkspace *workspace = [RegistrationWorkspace new];
@@ -190,8 +201,33 @@ int main()
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == fnfErr,
                 "A registration with no discoverable input sources was accepted.");
+        // 登记后查不到源（首次安装时这次登录还看不到新的标识符）时，查询同样报 Missing，退出码 3，设置应用据此提示重新登录。
+        enabledSources.clear();
+        listedBundleIdentifier = nil;
+        includedAllInstalled = false;
+        enableCapableOnly = NO;
+        require(MSIMEInputSourceRegistryStateFor(bundleIdentifier, CopyInputSources) == MSIMEInputSourceRegistryStateMissing &&
+                    MSIMEInputSourceRegistryExitCode(MSIMEInputSourceRegistryStateMissing) == 3,
+                "An empty registry was not reported as missing.");
+        require([listedBundleIdentifier isEqualToString:bundleIdentifier] && enableCapableOnly && includedAllInstalled,
+                "The registry probe did not look the bundle up the way registration does.");
+        require(enabledSources.empty(), "The registry probe enabled an input source.");
         CFRelease(sourceList);
         sourceList = nullptr;
+        require(MSIMEInputSourceRegistryStateFor(bundleIdentifier, CopyInputSources) == MSIMEInputSourceRegistryStateMissing,
+                "A registry lookup that returned no list was not reported as missing.");
+        const void *listedSources[] = {modeSource};
+        sourceList = CFArrayCreate(nullptr, listedSources, 1, nullptr);
+        require(MSIMEInputSourceRegistryStateFor(bundleIdentifier, CopyInputSources) == MSIMEInputSourceRegistryStateListed &&
+                    MSIMEInputSourceRegistryExitCode(MSIMEInputSourceRegistryStateListed) == 0,
+                "A registered input source was not reported as listed.");
+        require(enabledSources.empty(), "The registry probe enabled a listed input source.");
+        CFRelease(sourceList);
+        sourceList = nullptr;
+        require(MSIMEInputSourceRegistryStateFor(nil, CopyInputSources) == MSIMEInputSourceRegistryStateUnknown &&
+                    MSIMEInputSourceRegistryStateFor(bundleIdentifier, nullptr) == MSIMEInputSourceRegistryStateUnknown &&
+                    MSIMEInputSourceRegistryExitCode(MSIMEInputSourceRegistryStateUnknown) == 1,
+                "A registry probe without an identifier or a lister was not reported as unknown.");
 
         const void *modeOnlySources[] = {modeSource};
         sourceList = CFArrayCreate(nullptr, modeOnlySources, 1, nullptr);

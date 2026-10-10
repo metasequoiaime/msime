@@ -62,6 +62,7 @@
 #include "../src/system/DiagnosticLog.h"
 #include "../src/system/PanelInputChannel.h"
 #include "../src/core/HelpcodeDefaults.h"
+#include "../src/core/HelpcodePack.h"
 #include "../src/core/HelpcodeSchemaNames.h"
 #include "../src/core/PhrasePreedit.h"
 #include "../src/core/ClientInputModeMemory.h"
@@ -126,6 +127,10 @@
 
 extern char **environ;
 
+#ifdef MSIME_FCITX5_HINT_FONT
+#include <pango/pangocairo.h>
+#endif
+
 namespace msime::fcitx_host {
 using Json = nlohmann::json;
 class FcitxEngine;
@@ -146,6 +151,8 @@ struct PendingPreferenceSave {
   Json value;
   // The value is a 主题 menu change (theme_choice_change): it writes global_theme and custom_theme together rather than one key.
   bool theme_choice = false;
+  // The value is a 辅助码方案 status-bar choice for `section` (quanpin_helpcode or shuangpin_helpcode): besides `section.schema` it clears that scheme's helpcode pack, as the settings page does, or the pack would keep overriding the schema just chosen (core/HelpcodePack.h).
+  bool helpcode_schema_choice = false;
 };
 
 // ABI buffers and errors never escape into diagnostics or the panel.
@@ -185,6 +192,10 @@ Json savePreference(const PendingPreferenceSave &request) {
       !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
     return Json::object();
   if (request.theme_choice) msime::linux_host::apply_theme_choice(snapshot["preferences"], request.value);
+  else if (request.helpcode_schema_choice)
+    msime::linux_host::apply_helpcode_schema_choice(
+        snapshot["preferences"], request.section == "shuangpin_helpcode" ? "shuangpin" : "quanpin",
+        request.value.get<std::string>());
   else if (request.section.empty()) snapshot["preferences"][request.key] = request.value;
   else snapshot["preferences"][request.section][request.key] = request.value;
   const auto encoded = snapshot.dump();
@@ -728,11 +739,13 @@ public:
     const auto current = preferences_.value(section, Json::object()).value(
         "schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
     const auto it = std::find(schemas.begin(), schemas.end(), current);
-    const auto next = it == schemas.end() || std::next(it) == schemas.end()
-        ? schemas.front() : *std::next(it);
+    // 辅助码表包生效时，第一次点按先回到存着的那个内置方案（停用插件），之后再按顺序轮换。存着的不是已知方案时回到第一个方案，不把无效值写回去。
+    const auto next = !msime::linux_host::helpcode_pack(preferences_, scheme == 1 ? "shuangpin" : "quanpin").empty()
+        ? (it == schemas.end() ? std::string(schemas.front()) : current)
+        : it == schemas.end() || std::next(it) == schemas.end() ? std::string(schemas.front()) : std::string(*std::next(it));
     if (!view_.value("editing_text", std::string{}).empty())
       command(MSIME_FINISH_COMPOSITION);
-    saveNestedStringPreference(section, "schema", next);
+    saveHelpcodeSchemaChoice(section, next);
     waitForPreferenceSave();
     helpcode_schema_override_ = next;
     helpcode_schema_unsaved_ = unsavedChoice(section, "schema");
@@ -967,7 +980,9 @@ public:
   void refreshToolbar();
   void refreshThemeMenu();
   void syncCandidatePanelFont();
-  void syncCandidatePanelTheme();
+  // `chosen` 只标记用户刚在菜单或设置页主动选主题；重读相同偏好不能夺回第三方 classicui 主题。
+  void syncCandidatePanelTheme(bool chosen);
+  bool candidateThemeSelectionChanged(const Json &preferences);
   void syncVoiceAction();
   // 中英文切换后在光标附近短暂显示「中」或「英」，由 Fcitx5 面板绘制；定义在
   // FcitxEngine 之后，它需要那个类型完整。
@@ -1103,6 +1118,10 @@ public:
   void saveNestedNumberPreference(const char *object, const char *key, uint8_t value) {
     if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
     startPreferenceSave({options_path_, object, key, value});
+  }
+  void saveHelpcodeSchemaChoice(const char *section, const std::string &schema) {
+    if (options_path_.empty() || private_) return;
+    startPreferenceSave({options_path_, section, "schema", schema, false, true});
   }
   bool setFrequencyNumber(const char *key, uint8_t value) {
     if (!session_ || restricted() || privateInput() || value < 1 || value > 10)
@@ -1283,7 +1302,8 @@ public:
     preferences_snapshot_ = std::move(snapshot);
     if (!options_path_.empty() && !private_)
       startPreferenceSave({options_path_, {}, {}, *change, true});
-    syncCandidatePanelTheme();
+    candidateThemeSelectionChanged(preferences_);
+    syncCandidatePanelTheme(true);
     render();
     return true;
   }
@@ -1361,11 +1381,10 @@ public:
   void applyContextOverrides(Json &preferences) const {
     if (scheme_override_) preferences["scheme"] = *scheme_override_;
     if (shuangpin_profile_override_) preferences["shuangpin_profile"] = *shuangpin_profile_override_;
-    if (helpcode_schema_override_) {
-      const auto section = preferences.value("scheme", std::string("quanpin")) == "shuangpin"
-          ? "shuangpin_helpcode" : "quanpin_helpcode";
-      preferences[section]["schema"] = *helpcode_schema_override_;
-    }
+    if (helpcode_schema_override_)
+      msime::linux_host::apply_helpcode_schema_choice(
+          preferences, preferences.value("scheme", std::string("quanpin")) == "shuangpin" ? "shuangpin" : "quanpin",
+          *helpcode_schema_override_);
   }
   // A status-bar save that has not landed: its retry is still pending for this very key.
   bool unsavedChoice(const char *section, const char *key) const {
@@ -1393,7 +1412,16 @@ public:
     // Checked against the section it would be written to, after the scheme above has settled, as applyContextOverrides picks it.
     const auto scheme = scheme_override_.value_or(stored.value("scheme", std::string("quanpin")));
     const auto section = scheme == "shuangpin" ? "shuangpin_helpcode" : "quanpin_helpcode";
-    expire(helpcode_schema_override_, helpcode_schema_unsaved_, stored.value(section, Json::object()), "schema");
+    // The status-bar choice clears this scheme's helpcode pack in the same save, so the store holds it only once the schema matches and the pack is gone: a choice made while a pack was active saves the schema the store already has, and its failed save must not read as landed. A pack in the store after a landed choice was chosen since, on the settings page, and outranks the schema override as it does there.
+    if (helpcode_schema_override_ &&
+        !msime::linux_host::helpcode_pack(stored, scheme == "shuangpin" ? "shuangpin" : "quanpin").empty()) {
+      if (!helpcode_schema_unsaved_) {
+        helpcode_schema_override_.reset();
+        dropped = true;
+      }
+    } else {
+      expire(helpcode_schema_override_, helpcode_schema_unsaved_, stored.value(section, Json::object()), "schema");
+    }
     return dropped;
   }
   // Every caller hands the result to the session. Store revisions belong to the
@@ -1425,10 +1453,11 @@ public:
     msime_linux_diagnostic_configure(
         options_path_, diagnostic.is_object() && diagnostic.value("server", false));
   }
-  // "在候选窗中显示辅助码" and the wubi code hint both decide whether the
-  // annotation belongs on the candidate row. This host appended it
-  // unconditionally, so turning either off changed nothing here.
+  // "在候选窗中显示辅助码" and the wubi code hint both decide whether the annotation belongs on the candidate row. This host appended it unconditionally, so turning either off changed nothing here.
+  // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so neither setting hides it; Wubi opens these modes too. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow both settings.
   bool showCandidateAnnotations() const {
+    const auto local_mode = view_.value("local_mode", std::string("none"));
+    if (local_mode == "command" || local_mode == "mention") return true;
     const auto scheme = msime::linux_host::strict_json_value(view_, "scheme", 0u);
     if (scheme == 2) return preferences_.value("wubi_code_hint", true);
     if (scheme != 0 && scheme != 1) return true;
@@ -1600,6 +1629,9 @@ public:
             if (stored.contains(section) && stored.at(section).is_object() &&
                 stored.at(section).contains("schema") && stored.at(section).at("schema").is_string())
               base[section]["schema"] = stored.at(section).at("schema");
+          // A 辅助码方案 choice clears the scheme's helpcode pack in the store alone, so the pack follows the store too.
+          for (const auto *scheme : {"quanpin", "shuangpin"})
+            msime::linux_host::set_helpcode_pack(base, scheme, msime::linux_host::helpcode_pack(stored, scheme));
           expireContextOverrides(stored);
           preferences_ = std::move(base);
           applyContextOverrides(preferences_);
@@ -1658,7 +1690,6 @@ public:
     // 一份 preferences_ 回填了。
     options["preferences"] = preferences_;
     syncCandidatePanelFont();
-    syncCandidatePanelTheme();
     // This front end draws view.phrase_prefix ahead of the reading, so a phrase assembled out of
     // several selections stays in the composition instead of reaching the document one piece at a
     // time. Requesting it and drawing it are one decision; see core/PhrasePreedit.h.
@@ -1682,6 +1713,10 @@ public:
     // A mode the focus restores is a Chinese/English switch like any other; resolved here, once the lock is read and the session exists.
     if (restore_changed_mode) resyncPunctuationForMode();
     view_ = response(msime_client_focus(session_, true)).at("view");
+    // 会话建立成功后处理尚未见过的存储选择；首次启动只建基线，已处理的选择不重复接管。
+    const auto chosen = preferences_snapshot_.is_object() &&
+        candidateThemeSelectionChanged(preferences_snapshot_.at("preferences"));
+    syncCandidatePanelTheme(chosen);
     return true;
   }
   void refreshPreferences() {
@@ -1725,6 +1760,8 @@ public:
             const auto encoded = effective.dump();
             view_ = response(msime_client_update_preferences(session_,
                 reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+            // 与插件共用的已见选择比较，失焦窗口补读同一份存储不能再次接管。
+            const auto chosen = candidateThemeSelectionChanged(snapshot.at("preferences"));
             preferences_ = std::move(effectivePreferences);
             configureDiagnostics();
             // A width chosen here that the store does not hold - its save failed, or a private window, which never saves - is not undone by the store, as a failed scheme choice is kept; the next session re-reads the store.
@@ -1750,7 +1787,7 @@ public:
             // next focus change, the way the IBus property menu does.
             refreshToolbar();
             syncCandidatePanelFont();
-            syncCandidatePanelTheme();
+            syncCandidatePanelTheme(chosen);
             const auto punctuationLock = preferences_.value("punctuation_lock", std::string("follow"));
             punctuation_lock_ = punctuationLock == "chinese" ? 1 : punctuationLock == "english" ? 2 : 0;
             navigation_ = preferences_.value("navigation", Json::object());
@@ -1809,7 +1846,8 @@ public:
       candidate_skin_document_ = options.value("candidate_skin_catalog", Json());
       refreshThemeMenu();
       noteSchemeOptions(options);
-      syncCandidatePanelTheme();
+      // 运行时选项的一次刷新（皮肤目录、提供方 socket）不是用户主动选主题。
+      syncCandidatePanelTheme(false);
       syncVoiceOverlayTheme();
       // Runtime options can move the shared clipboard history while this
       // input context remains focused. Keep the same path precedence as the
@@ -2512,13 +2550,13 @@ public:
     wave_overlay_.light_theme = !theme.dark;
     wave_overlay_.palette = msime::linux_host::floating_surface_colors(theme);
   }
-  // Called by FcitxEngine::applySystemTheme on the loop when its addon-wide probe sees the desktop appearance change.
+  // `FcitxEngine::applySystemTheme` 在主循环收到全插件明暗探测结果后调用；明暗变化不是主动选主题，不能接管第三方主题。
   void setSystemDark(bool dark) {
     if (dark == system_dark_) return;
     system_dark_ = dark;
     syncVoiceOverlayTheme();
     if (voice_loading_) updateVoiceOverlay();
-    syncCandidatePanelTheme();
+    syncCandidatePanelTheme(false);
   }
   void updateVoiceOverlay() {
     wave_overlay_.status = voice_phase_;
@@ -4081,10 +4119,8 @@ public:
     if (!ic) return "辅助码方案";
     const auto *state = ic->propertyFor(factory_);
     const auto scheme = msime::linux_host::strict_json_value(state->view_, "scheme", 0u);
-    const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
-    const auto value = state->preferences_.value(section, Json::object())
-        .value("schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
-    return std::string("辅助码：") + std::string(msime::linux_host::helpcode_schema_label(value));
+    // 选了辅助码表包时写明插件在生效，而不是那个只作回退的内置方案。
+    return msime::linux_host::helpcode_status_label(state->preferences_, scheme == 1 ? "shuangpin" : "quanpin");
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   void activate(fcitx::InputContext *ic) override {
@@ -5272,6 +5308,9 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+// Fcitx5 自带候选主题的恢复值，接管记录与退出接管共用；与 `msime-linux-setup --unregister` 一致。
+const Json kClassicuiStockThemes{{"Theme", "default"}, {"DarkTheme", "default-dark"}};
+
 // classicui's options are shared by every input method, so before one changes, the value it replaces is recorded for msime-linux-setup --unregister to put back (see PanelRestoreRecord.h). A failed record does not hold the change back.
 void record_classicui_takeover(const fcitx::RawConfig &current, const fcitx::RawConfig &written) {
   const auto file = msime::linux_host::panel_restore_file(std::getenv("XDG_STATE_HOME"), std::getenv("HOME"));
@@ -5281,10 +5320,10 @@ void record_classicui_takeover(const fcitx::RawConfig &current, const fcitx::Raw
     if (!value) continue;
     const auto *prior = current.valueByPath(key);
     const auto replaced = prior ? Json(*prior) : Json(nullptr);
-    // MSIME only takes the theme over from Fcitx5's stock ones and uninstall removes its own, so a theme option already naming it is recorded as the stock theme it stands in for.
+    // 水杉只从 Fcitx5 自带的主题手里接管，卸载时会删掉自己的主题，所以一项已经指向水杉时，记下它替代的那个自带主题。
     auto restore = replaced;
-    if (prior && *prior == msime::linux_host::kFcitxCandidateTheme && (key == "Theme" || key == "DarkTheme"))
-      restore = key == "Theme" ? "default" : "default-dark";
+    if (prior && *prior == msime::linux_host::kFcitxCandidateTheme && kClassicuiStockThemes.contains(key))
+      restore = kClassicuiStockThemes.at(key);
     msime::linux_host::record_panel_takeover(*file, "fcitx5", key, replaced, *value, restore);
   }
 }
@@ -5312,6 +5351,169 @@ ClassicUiThemeSelection read_classicui_theme_selection() {
   if (const auto *dark = config.valueByPath("DarkTheme")) selection.dark_theme = *dark;
   return selection;
 }
+// 无候选覆盖时，只恢复仍由水杉持有的 classicui 主题项：有记录用原值，否则用自带主题；直接写 addon，不经接管记录接口，避免污染原值。
+void restore_classicui_theme(fcitx::AddonInstance &classicui) {
+  // 没有候选覆盖是每一拍都会走到的状态（全局主题为「系统」是默认值），所以先按落盘的 classicui.conf 看有没有仍是水杉写的项：
+  // 没有就一次 `getConfig()` 都不调，后者每次都扫描并解析全部已装主题（#5988）。
+  const auto selection = read_classicui_theme_selection();
+  const bool holds_theme = selection.theme == msime::linux_host::kFcitxCandidateTheme;
+  const bool holds_dark = selection.dark_theme && *selection.dark_theme == msime::linux_host::kFcitxCandidateTheme;
+  if (!holds_theme && !holds_dark) return;
+  fcitx::RawConfig current;
+  if (const auto *existing = classicui.getConfig()) existing->save(current);
+  Json held = Json::object();
+  for (const auto &item : kClassicuiStockThemes.items()) {
+    const auto *value = current.valueByPath(item.key());
+    if (value && *value == msime::linux_host::kFcitxCandidateTheme) held[item.key()] = *value;
+  }
+  if (held.empty()) return;
+  Json record = Json::object();
+  if (const auto file = msime::linux_host::panel_restore_file(std::getenv("XDG_STATE_HOME"), std::getenv("HOME")))
+    if (const auto saved = msime::linux_host::read_panel_restore(*file)) record = *saved;
+  const auto restore = msime::linux_host::panel_restore_values(record, "fcitx5", held, kClassicuiStockThemes);
+  fcitx::RawConfig config;
+  for (const auto &item : restore.items()) config.setValueByPath(item.key(), item.value().get<std::string>());
+  classicui.setConfig(config);
+}
+
+#ifdef MSIME_FCITX5_HINT_FONT
+// classicui 的经典界面按自己的字体与 Pango 分辨率排版模式提示；这里用同一个分辨率测量，
+// 才能把「中」「英」补到装饰图完整显示所需的逻辑宽度。分辨率只在 Wayland 且设置了
+// ForceWaylandDPI 时改变——X11 的 Xft.dpi 与每屏 DPI 只改设备缩放（cairo device scale），
+// 不改变 yoga 布局用的逻辑尺寸，所以提示宽度不必跟着它们走。
+double fcitx_default_font_resolution() {
+  static const double resolution = [] {
+    auto *font_map = pango_cairo_font_map_new();
+    const double value = pango_cairo_font_map_get_resolution(PANGO_CAIRO_FONT_MAP(font_map));
+    g_object_unref(font_map);
+    return value;
+  }();
+  return resolution;
+}
+
+// 一段文字在同一字体与分辨率下的逻辑宽度（像素），与 classicui 的 pango_layout_get_pixel_size 一致。
+int fcitx_measure_text(const std::string &font, double resolution, const std::string &text) {
+  auto *font_map = pango_cairo_font_map_new();
+  pango_cairo_font_map_set_resolution(PANGO_CAIRO_FONT_MAP(font_map), resolution);
+  auto *context = pango_font_map_create_context(PANGO_FONT_MAP(font_map));
+  auto *layout = pango_layout_new(context);
+  auto *description = pango_font_description_from_string(font.c_str());
+  pango_layout_set_font_description(layout, description);
+  pango_layout_set_text(layout, text.c_str(), -1);
+  int width = 0;
+  pango_layout_get_pixel_size(layout, &width, nullptr);
+  pango_font_description_free(description);
+  g_object_unref(layout);
+  g_object_unref(context);
+  g_object_unref(font_map);
+  return width;
+}
+#endif
+
+// classicui 正在绘制的是不是水杉主题：UseDarkTheme 打开且桌面为深色时画 DarkTheme，
+// 否则画 Theme（与 classicui reloadTheme 的规则一致）。
+inline bool fcitx_draws_candidate_theme(const std::string &theme, const std::string &dark_theme,
+                                        bool use_dark_theme, bool system_dark) {
+  return (use_dark_theme && system_dark ? dark_theme : theme) == msime::linux_host::kFcitxCandidateTheme;
+}
+
+// 装饰图完整落在 OverlayClipMargin 之内所需的面板宽度（逻辑单位），与 classicui Theme::paint 的定位
+// 一致：居中时两边各留一份 clip 边距，靠边时从对齐边量 OverlayOffsetX，再留对面的 clip 边距。
+inline int fcitx_overlay_panel_width(int overlay_width, const std::string &gravity, int offset_x,
+                                     int clip_left, int clip_right) {
+  if (overlay_width <= 0) return 0;
+  if (gravity == "Top Center") return overlay_width + 2 * std::max(clip_left, clip_right);
+  return overlay_width + offset_x + (gravity == "Top Left" ? clip_right : clip_left);
+}
+
+// 提示文本要占的宽度：面板宽度减去主题在文字两侧留的边距，与 classicui 的 yoga 布局一致。
+inline int fcitx_hint_text_width(int panel_width, int content_left, int content_right, int text_left, int text_right) {
+  return panel_width - content_left - content_right - text_left - text_right;
+}
+
+// 读回刚写好的主题，得出提示文本至少要多宽才能让装饰完整显示。没有装饰、装饰宽度读不出来
+// （非 PNG、声明尺寸超限）时返回 0，提示保持原样。只在写主题时调用一次，热路径不读文件。
+inline int fcitx_hint_width_from_theme(const std::filesystem::path &theme_file) {
+  namespace host = msime::linux_host;
+  fcitx::RawConfig theme;
+  fcitx::readAsIni(theme, theme_file.string());
+  const auto *overlay = theme.valueByPath("InputPanel/Background/Overlay");
+  if (!overlay || overlay->empty()) return 0;
+  std::string header(24, '\0');
+  std::ifstream image(theme_file.parent_path() / *overlay, std::ios::binary);
+  if (!image.read(header.data(), static_cast<std::streamsize>(header.size()))) return 0;
+  const auto width = host::fcitx_png_width(header);
+  if (!width) return 0;
+  const auto number = [&theme](const char *path) {
+    const auto *value = theme.valueByPath(path);
+    if (!value) return 0;
+    try {
+      return std::stoi(*value);
+    } catch (...) {
+      return 0;
+    }
+  };
+  const auto *gravity = theme.valueByPath("InputPanel/Background/Gravity");
+  const int panel = fcitx_overlay_panel_width(*width, gravity ? *gravity : std::string(),
+                                              number("InputPanel/Background/OverlayOffsetX"),
+                                              number("InputPanel/Background/OverlayClipMargin/Left"),
+                                              number("InputPanel/Background/OverlayClipMargin/Right"));
+  const int text = fcitx_hint_text_width(panel, number("InputPanel/ContentMargin/Left"),
+                                         number("InputPanel/ContentMargin/Right"),
+                                         number("InputPanel/TextMargin/Left"),
+                                         number("InputPanel/TextMargin/Right"));
+  return text > 0 ? text : 0;
+}
+
+// 把提示补到至少 target 宽：按全角空格的数量一次算出，不逐字符排版。
+inline std::string fcitx_pad_hint_label(const std::string &label, int target, int natural, int space) {
+  if (target <= natural || space <= 0) return label;
+  const int count = (target - natural + space - 1) / space;
+  std::string message = label;
+  for (int index = 0; index < count; ++index) message += "\u3000";
+  return message;
+}
+
+// classicui 的主题选择与面板字体，在每次主题/字体同步时读一次；模式提示的中/英切换只用这份缓存，
+// 不再调 getConfig()——它会扫描主题目录并逐个解析 theme.conf，不能放在按键热路径上。
+struct FcitxHintInputs {
+  bool active = false;
+  std::string font;
+  int force_wayland_dpi = 0;
+};
+
+inline FcitxHintInputs fcitx_hint_inputs(const fcitx::RawConfig &config, bool system_dark) {
+  const auto value = [&config](const char *path) {
+    const auto *found = config.valueByPath(path);
+    return found ? *found : std::string();
+  };
+  int dpi = 0;
+  try {
+    dpi = std::stoi(value("ForceWaylandDPI"));
+  } catch (...) {
+    dpi = 0;
+  }
+  return FcitxHintInputs{
+      fcitx_draws_candidate_theme(value("Theme"), value("DarkTheme"), value("UseDarkTheme") == "True", system_dark),
+      value("Font"), dpi};
+}
+
+// 活动主题、跟随深色、字体与 Wayland 字体 DPI 任一变化都要刷新提示缓存。
+// 只读落盘的 `conf/classicui.conf`，不逐拍调会扫描全部已装主题的 `getConfig()`（#5988）；
+// 等于默认值的项 fcitx 写成注释，解析后缺失即默认，而提示本身在真正重读时取自经典界面的现值（见 FcitxHintInputs）。
+std::string read_classicui_hint_stamp() {
+  fcitx::RawConfig config;
+  fcitx::readAsIni(config, "conf/classicui.conf");
+  std::string stamp;
+  for (const auto *key : {"Theme", "DarkTheme", "UseDarkTheme", "Font", "ForceWaylandDPI"}) {
+    const auto *value = config.valueByPath(key);
+    stamp += key;
+    stamp += '=';
+    stamp += value ? *value : std::string();
+    stamp += '\n';
+  }
+  return stamp;
+}
 
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
 class FcitxEngine : public fcitx::InputMethodEngineV2 {
@@ -5335,18 +5537,29 @@ public:
     fcitx::RawConfig config;
     config.setValueByPath("Font", *description);
     set_classicui_config(*classicui, config);
+    // 写字体不经 applyCandidatePanelTheme，提示的字体缓存要在这里跟上。
+    hint_inputs_.font = *description;
   }
-  // The candidate colours reach the classic UI as a theme named "msime" in the user's Fcitx5 data directory (see candidates/CandidateFcitxTheme.h). The addon is pointed at it only while it shows one of Fcitx5's stock themes or MSIME's own; a theme the user chose is left in place and MSIME's colours simply don't apply. Setting the configuration also makes the addon read the theme file again, which is how a changed palette appears without a restart.
-  void applyCandidatePanelTheme(const Json &preferences, bool system_dark, const Json &catalog) {
-    applyCandidatePanelTheme(instance_->addonManager().addon("classicui", true), preferences, system_dark, catalog);
+  // 配色写入用户目录的 `msime` 主题：后台同步只替换自带或水杉主题，主动选择可接管第三方；无覆盖时恢复仍持有的项，写配置让 classicui 重载。
+  void applyCandidatePanelTheme(const Json &preferences, bool system_dark, const Json &catalog, bool chosen) {
+    applyCandidatePanelTheme(instance_->addonManager().addon("classicui", true), preferences, system_dark, catalog, chosen);
   }
-  // 每个有焦点的上下文每 250 ms 都会走到这里（refreshProviderSockets），所以只比廉价的输入：主题请求本身（全局主题、自定义主题、明暗与所画皮肤包的目录条目，颜色完全由它决定）、圆角和装饰图的戳。这些输入已经接管写好过一次就什么也不做，和原先按整份主题文本比较的语义相同：之后用户自己改了 classicui.conf，或卸载时 `msime-linux-setup --unregister` 把主题还原，都不会被这里再改回去。
+  // 每个有焦点的上下文每 250 ms 都会走到这里（refreshProviderSockets），所以只比廉价的输入：主题请求本身（全局主题、自定义主题、明暗与所画皮肤包的目录条目，颜色完全由它决定）、圆角和装饰图的戳。这些输入已经接管写好过一次就什么也不做，和原先按整份主题文本比较的语义相同：之后用户自己改了 classicui.conf，或卸载时 `msime-linux-setup --unregister` 把主题还原，都不会被这里再改回去。`chosen` 是唯一的例外：用户在主题菜单里重新选择水杉主题时，即使输入没变也要重新接管。
   //
   // 还没接管成功时（用户选了第三方主题、没有经典界面、写主题失败），原先每一拍都重新栅格化并调 `getConfig()`，后者每次都扫描并解析全部已装主题（#5988）。现在只在可能让结果不同的东西变了时才重试：上面的输入、经典界面是否存在，以及它落盘的 Theme/DarkTheme 选择（fcitx5-configtool 改回默认主题会写这个文件，接管随之恢复）。写主题失败另外每 10 秒重试一次，登录时数据目录暂时不可写之类的情况能自己恢复。「重启输入法服务」（resetSessions）清掉两份记录，下一拍无条件重做。
   void applyCandidatePanelTheme(fcitx::AddonInstance *classicui, const Json &preferences, bool system_dark,
-                                const Json &catalog) {
+                                const Json &catalog, bool chosen) {
     namespace host = msime::linux_host;
     const auto resolved = resolveCandidateTheme(preferences, system_dark, catalog);
+    // 无覆盖自定义主题或解析失败才退出；有效系统主题仍绘制水杉样式，只跟随原生配色。
+    // 只恢复仍是水杉自己写的项，用户在 fcitx5-configtool 选的主题不动。
+    if (!resolved.covers_candidates) {
+      if (classicui) restore_classicui_theme(*classicui);
+      candidate_theme_applied_.clear();
+      hint_text_width_ = 0;
+      hint_inputs_ = FcitxHintInputs{};
+      return;
+    }
     const auto &colors = resolved.colors;
     const auto decoration = host::candidate_skin_decoration(catalog, resolved.candidate_skin);
     const auto corner_radius = host::candidate_corner_radius(preferences, catalog, resolved.candidate_skin);
@@ -5358,8 +5571,11 @@ public:
         {"corner_radius", corner_radius ? Json(*corner_radius) : Json(nullptr)},
         {"user_radius", user_radius},
         {"overlay", host::fcitx_overlay_stamp(decoration)}}.dump();
-    if (inputs == candidate_theme_applied_) return;
-    auto attempt = Json{{"inputs", inputs}, {"classicui", classicui != nullptr}};
+    // 缓存只决定「同一份输入已经接管写好」这一件事：一拍不调 `getConfig()`，也不重写主题（#5988）；一次新的主动选择（chosen）仍然往下走，重新判断所有权。
+    // classicui 落盘的活动主题、跟随深色、字体与 Wayland 字体 DPI 变了时刷新提示（见 read_classicui_hint_stamp）。
+    const auto hint_stamp = read_classicui_hint_stamp();
+    if (inputs == candidate_theme_applied_ && !chosen && hint_stamp == classicui_hint_stamp_) return;
+    auto attempt = Json{{"inputs", inputs}, {"chosen", chosen}, {"classicui", classicui != nullptr}, {"hint", hint_stamp}};
     if (classicui) {
       const auto selection = read_classicui_theme_selection();
       attempt["theme"] = selection.theme;
@@ -5374,26 +5590,78 @@ public:
     if (!live) return;
     fcitx::RawConfig current;
     live->save(current);
+    // 模式提示的热路径不读 classicui 配置（getConfig() 会扫描主题目录并逐个解析 theme.conf），
+    // 每次同步在这里记下它画的主题、字体与 Wayland 字体 DPI。
+    hint_inputs_ = fcitx_hint_inputs(current, system_dark);
+    classicui_hint_stamp_ = hint_stamp;
+    // 同一份主题已接管过时，外部配置变化只刷新提示，不追回用户手改或卸载还原的主题。
+    if (inputs == candidate_theme_applied_ && !chosen) return;
     const auto *selected = current.valueByPath("Theme");
     const auto *selected_dark = current.valueByPath("DarkTheme");
-    if (!host::fcitx_theme_replaceable(selected ? *selected : std::string{})) return;
+    // 用户刚在主题菜单里选了水杉主题时（chosen）即使当前是第三方主题也接管；焦点进入、偏好同步、系统明暗变化都只是重读同一份偏好，绝不把用户选的主题换回来。
+    if (!chosen && !host::fcitx_theme_replaceable(selected ? *selected : std::string{})) return;
+    const bool replace_dark = selected_dark && (chosen || host::fcitx_theme_replaceable(*selected_dark));
     // Read once: the icon only changes with the package, and a reinstall restarts Fcitx5 with it.
     static const auto logo = host::load_fcitx_theme_logo(MSIME_ICON_DIR);
-    const auto file = host::fcitx_theme_file(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"));
-    if (!file || !host::write_fcitx_candidate_theme(*file, colors, resolved.dark, decoration, corner_radius, logo, user_radius,
-                                                       host::scale_fcitx_overlay_png)) {
-      candidate_theme_retry_at_ = now + kCandidateThemeRetry;
-      return;
+    // 同一份输入已经写过主题文件，就不必为一次重新接管再栅格化一遍；所有权与 classicui 配置仍照常处理。
+    if (inputs != candidate_theme_applied_) {
+      const auto file = host::fcitx_theme_file(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"));
+      if (!file || !host::write_fcitx_candidate_theme(*file, colors, resolved.dark, decoration, corner_radius, logo, user_radius,
+                                                      host::scale_fcitx_overlay_png)) {
+        candidate_theme_retry_at_ = now + kCandidateThemeRetry;
+        return;
+      }
+#ifdef MSIME_FCITX5_HINT_FONT
+      // 装饰图的宽度只在写主题时读一次，模式提示切换时直接用结果。
+      hint_text_width_ = fcitx_hint_width_from_theme(*file);
+#endif
     }
     fcitx::RawConfig config;
     config.setValueByPath("Theme", std::string(host::kFcitxCandidateTheme));
     // Fcitx5 releases with a separate dark-mode theme would otherwise switch to their stock dark theme; MSIME already resolves "follow" against the system appearance itself.
-    if (selected_dark && host::fcitx_theme_replaceable(*selected_dark))
-      config.setValueByPath("DarkTheme", std::string(host::kFcitxCandidateTheme));
+    if (replace_dark) config.setValueByPath("DarkTheme", std::string(host::kFcitxCandidateTheme));
     set_classicui_config(*classicui, current, config);
+    // 缓存的是写入后的活动主题，第一次模式提示不应继续沿用接管前的第三方主题。
+    current.setValueByPath("Theme", std::string(host::kFcitxCandidateTheme));
+    if (replace_dark) current.setValueByPath("DarkTheme", std::string(host::kFcitxCandidateTheme));
+    hint_inputs_ = fcitx_hint_inputs(current, system_dark);
+    classicui_hint_stamp_ = read_classicui_hint_stamp();
     candidate_theme_applied_ = std::move(inputs);
     candidate_theme_attempt_.clear();
   }
+#ifdef MSIME_FCITX5_HINT_FONT
+  // classicui 的面板只在画水杉主题时才有装饰图；此时把「中」「英」补到主题自己预留的宽度，
+  // 装饰就不会被 OverlayClipMargin 从两侧切掉。第三方主题、没有装饰、以及 kimpanel（不画
+  // classicui 主题）都保持原来的窄提示。宽度在写主题时算好，这里不读 theme.conf，也不逐字符
+  // 重排，只在字体或 DPI 变化时重测一次。
+  std::string modeHintLabel(const std::string &display, const std::string &label) {
+    if (instance_->currentUI() != "classicui" || !hint_inputs_.active || hint_text_width_ <= 0) return label;
+    const auto &font = hint_inputs_.font;
+    if (font.empty()) return label;
+    // Wayland 下 classicui 用 ForceWaylandDPI 排版；X11 与未设置时用 Pango 默认分辨率。
+    double resolution = 0;
+    if (display.rfind("wayland:", 0) == 0 && hint_inputs_.force_wayland_dpi > 0)
+      resolution = hint_inputs_.force_wayland_dpi;
+    if (resolution <= 0) resolution = fcitx_default_font_resolution();
+    if (font != hint_measured_font_ || resolution != hint_measured_resolution_ ||
+        hint_text_width_ != hint_measured_width_) {
+      const int space = fcitx_measure_text(font, resolution, "\u3000");
+      const std::array<std::string, 2> labels{{"中", "英"}};
+      for (std::size_t index = 0; index < labels.size(); ++index) {
+        const auto &text = labels[index];
+        auto message = fcitx_pad_hint_label(text, hint_text_width_, fcitx_measure_text(font, resolution, text), space);
+        // 一次最终校验：字体整形不保证空格严格线性，差一点就再补一个；结果也缓存。
+        if (message.size() != text.size() && fcitx_measure_text(font, resolution, message) < hint_text_width_)
+          message += "\u3000";
+        hint_labels_[index] = std::move(message);
+      }
+      hint_measured_font_ = font;
+      hint_measured_resolution_ = resolution;
+      hint_measured_width_ = hint_text_width_;
+    }
+    return label == "中" ? hint_labels_[0] : label == "英" ? hint_labels_[1] : label;
+  }
+#endif
   // 告诉设置页经典界面画不画候选字体、配色和皮肤（见 candidates/CandidatePanelStatus.h）。每次主题同步都问一遍，因为用户随时可能在 fcitx5-configtool 里换界面或主题；答案变了才重写文件。主题选择取自落盘的 classicui.conf（read_classicui_theme_selection），不调 `getConfig()`，后者每次都扫描全部已装主题（#5988）。
   void publishCandidatePanelStatus() {
     namespace host = msime::linux_host;
@@ -6091,12 +6359,26 @@ public:
       msime::linux_host::CandidateFontUnit::Pixels;
 #endif
   msime::linux_host::CandidateFontSync candidate_font_sync_{kClassicUiFontUnit};
+  // classicui 属于整个插件，已见的主题选择也共用；不随某个上下文关闭而清空。
+  Json candidate_theme_selection_;
   // applyCandidatePanelTheme 上一次接管写好时的主题输入。
   std::string candidate_theme_applied_;
   // 还没接管成功时，上一次尝试所见的主题输入与经典界面落盘的选择；写主题失败时到 candidate_theme_retry_at_ 再试一次，其他情况要等它们变化。
   std::string candidate_theme_attempt_;
   std::chrono::steady_clock::time_point candidate_theme_retry_at_;
   static constexpr auto kCandidateThemeRetry = std::chrono::seconds(10);
+  // 提示要撑到的文本宽度（逻辑单位），写主题时算好；0 表示不加宽。
+  int hint_text_width_ = 0;
+  FcitxHintInputs hint_inputs_;
+  // 上一次重读经典界面现值时落盘配置的样子（见 read_classicui_hint_stamp）：没变就不必再读一次完整配置。
+  std::string classicui_hint_stamp_;
+#ifdef MSIME_FCITX5_HINT_FONT
+  // 字体、分辨率或装饰宽度变化时测量并缓存完整提示，重复切换不再分配 Pango 对象。
+  std::string hint_measured_font_;
+  double hint_measured_resolution_ = 0;
+  int hint_measured_width_ = 0;
+  std::array<std::string, 2> hint_labels_;
+#endif
   msime::linux_host::CandidateWheelPagingSync candidate_wheel_paging_sync_;
   // Last appearance the addon-wide probe reported; see stepSystemTheme.
   bool system_dark_ = false;
@@ -6315,8 +6597,18 @@ void FcitxState::syncCandidatePanelFont() {
   engine_->applyCandidateWheelPaging(preferences_);
 }
 
-void FcitxState::syncCandidatePanelTheme() {
-  if (engine_ && session_) engine_->applyCandidatePanelTheme(preferences_, system_dark_, candidate_skin_document_);
+bool FcitxState::candidateThemeSelectionChanged(const Json &preferences) {
+  if (!engine_) return false;
+  const auto selection = msime::linux_host::candidate_theme_selection(preferences);
+  const bool changed = !engine_->candidate_theme_selection_.is_null() &&
+                       selection != engine_->candidate_theme_selection_;
+  engine_->candidate_theme_selection_ = selection;
+  return changed;
+}
+
+void FcitxState::syncCandidatePanelTheme(bool chosen) {
+  if (engine_ && session_)
+    engine_->applyCandidatePanelTheme(preferences_, system_dark_, candidate_skin_document_, chosen);
   if (engine_) engine_->publishCandidatePanelStatus();
 }
 
@@ -6474,8 +6766,13 @@ void FcitxState::showInputModeHud() {
           fcitx_mode_badge_theme(preferences_, system_dark_, candidate_skin_document_))};
   if (mode_badge_ && mode_badge_->show(label, MSIME_MODE_BADGE_ICON, style)) scheduleModeBadgeHide();
 #endif
-  if (auto *instance = engine_->instance())
+  if (auto *instance = engine_->instance()) {
+#ifdef MSIME_FCITX5_HINT_FONT
+    instance->showCustomInputMethodInformation(&ic_, engine_->modeHintLabel(ic_.display(), label));
+#else
     instance->showCustomInputMethodInformation(&ic_, label);
+#endif
+  }
 #endif
 }
 
@@ -6902,11 +7199,12 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
                           ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE);
       return true;
     }
-    // Tab pages the senses the way it pages an ordinary candidate list below; leaving the overlay first would page the Engine's hidden list instead. Fcitx normalises ISO_Left_Tab to Tab, so the raw key tells a Shift-less back-tab apart.
+    // Tab pages the senses the way it pages an ordinary candidate list below; leaving the overlay first would page the Engine's hidden list instead. Use the raw key because normalization can drop Shift and turn ISO_Left_Tab into Tab.
     if (!ctrl && !alt && navigation_.value("tab", true) &&
         !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper, fcitx::KeyState::Mod5}) &&
         (sym == FcitxKey_Tab || sym == FcitxKey_KP_Tab || sym == FcitxKey_ISO_Left_Tab)) {
-      translationPage(shift || event.rawKey().sym() == FcitxKey_ISO_Left_Tab
+      translationPage(event.rawKey().states().test(fcitx::KeyState::Shift) ||
+                              event.rawKey().sym() == FcitxKey_ISO_Left_Tab
                           ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE);
       return true;
     }
@@ -7103,10 +7401,11 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     case FcitxKey_End: case FcitxKey_KP_End:
       return command(MSIME_LAST_CANDIDATE);
     case FcitxKey_Tab: case FcitxKey_KP_Tab:
-      // Fcitx normalises ISO_Left_Tab to Tab, keeping Shift only when it was held, so a back-tab sent without Shift is recognised by its raw symbol.
+      // Normalization can drop Shift and turn ISO_Left_Tab into Tab; the raw key preserves both directions.
       if (navigation_.value("tab", true))
-        return command(shift || event.rawKey().sym() == FcitxKey_ISO_Left_Tab ? MSIME_PREVIOUS_PAGE
-                                                                              : MSIME_NEXT_PAGE);
+        return command(event.rawKey().states().test(fcitx::KeyState::Shift) ||
+                               event.rawKey().sym() == FcitxKey_ISO_Left_Tab
+                           ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE);
       break;
     case FcitxKey_ISO_Left_Tab:
       if (navigation_.value("tab", true)) return command(MSIME_PREVIOUS_PAGE);

@@ -11,6 +11,7 @@ import java.security.SecureRandom;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -67,11 +68,11 @@ public final class CloudApi {
         /** 响应体按 JSON 对象读；空响应（204 之类）读成空对象。 */
         public JSONObject json() throws JSONException {
             if (body == null || body.length == 0) return new JSONObject();
-            return new JSONObject(new String(body, StandardCharsets.UTF_8));
+            return new JSONObject(TextPolicy.utf8(body));
         }
 
         public String text() {
-            return body == null ? "" : new String(body, StandardCharsets.UTF_8);
+            return TextPolicy.utf8(body);
         }
     }
 
@@ -96,7 +97,7 @@ public final class CloudApi {
     /** 已编码好的请求体与它的 `Content-Type`。 */
     public record Body(String contentType, byte[] bytes) {
         public static Body json(JSONObject value) {
-            return new Body("application/json", value.toString().getBytes(StandardCharsets.UTF_8));
+            return new Body("application/json", TextPolicy.utf8Bytes(value.toString()));
         }
 
         public static Body multipart(List<Part> parts) {
@@ -121,7 +122,21 @@ public final class CloudApi {
     /** 取令牌：参数是刚被服务端拒绝的令牌（首次为 null），返回空字符串表示没有登录。 */
     public interface Tokens {
         String token(String rejected) throws Exception;
+
+        /** Stable login identity, when this source represents a signed-in account. */
+        default String sessionId() throws Exception { return null; }
+
+        /** Obtain a token and its login identity from one session snapshot. */
+        default TokenSnapshot snapshot(String rejected) throws Exception {
+            String before = sessionId();
+            String value = token(rejected);
+            String after = sessionId();
+            if (!Objects.equals(before, after)) throw new java.util.concurrent.CancellationException("account session changed");
+            return new TokenSnapshot(value, after);
+        }
     }
+
+    public record TokenSnapshot(String token, String sessionId) {}
 
     private final Transport transport;
     private final Tokens account;
@@ -130,7 +145,7 @@ public final class CloudApi {
     public CloudApi(Context context) {
         Context application = context.getApplicationContext();
         this.transport = CloudApi::httpExchange;
-        this.account = rejected -> new BackendAccount(application).currentAccessToken(rejected);
+        this.account = accountTokens(application);
         this.anonymous = rejected -> new BackendAnonymousAccount(application).accessToken(rejected);
     }
 
@@ -146,6 +161,19 @@ public final class CloudApi {
         this.transport = transport;
         this.account = account;
         this.anonymous = anonymous;
+    }
+
+    static Tokens accountTokens(Context application) {
+        return new Tokens() {
+            @Override public String token(String rejected) throws Exception {
+                return new BackendAccount(application).currentAccessToken(rejected);
+            }
+
+            @Override public TokenSnapshot snapshot(String rejected) throws Exception {
+                BackendAccount.SessionCredential session = new BackendAccount(application).currentSession(rejected);
+                return new TokenSnapshot(session.token(), session.sessionId());
+            }
+        };
     }
 
     /** 当前部署接受的登录方式。读不到时抛出，调用方按「都不提供」处理。 */
@@ -189,6 +217,7 @@ public final class CloudApi {
         }
         Credential credential = credential(auth, null);
         for (int attempt = 0; ; attempt++) {
+            ensureCurrentLogin(credential);
             Map<String, String> headers = new LinkedHashMap<>(4);
             headers.put("Accept", "application/json");
             headers.put("User-Agent", USER_AGENT);
@@ -200,11 +229,14 @@ public final class CloudApi {
             } catch (IOException offline) {
                 throw new Failure(0, "network", offline.getMessage(), 0);
             }
+            ensureCurrentLogin(credential);
             if (exchange.status() / 100 == 2) {
                 return new Response(exchange.status(), exchange.contentType(), exchange.body());
             }
             if (exchange.status() == 401 && credential.token() != null && attempt == 0) {
                 Credential fresh = credential(credential.auth(), credential.token());
+                if (credential.sessionId() != null
+                        && !credential.sessionId().equals(fresh.sessionId())) throw sessionChanged();
                 if (fresh.token() != null && !fresh.token().equals(credential.token())) {
                     credential = fresh;
                     continue;
@@ -214,7 +246,25 @@ public final class CloudApi {
         }
     }
 
-    private record Credential(Auth auth, String token) {}
+    private record Credential(Auth auth, String token, String sessionId) {}
+
+    private void ensureCurrentLogin(Credential expected) throws Failure {
+        if (expected.auth() != Auth.ACCOUNT || expected.sessionId() == null) return;
+        try {
+            TokenSnapshot now = account.snapshot(null);
+            if (!expected.sessionId().equals(now.sessionId())) throw sessionChanged();
+        } catch (Failure failure) {
+            throw failure;
+        } catch (java.util.concurrent.CancellationException changed) {
+            throw sessionChanged();
+        } catch (Exception unavailable) {
+            throw new Failure(0, "session_unavailable", unavailable.getMessage(), 0);
+        }
+    }
+
+    private static Failure sessionChanged() {
+        return new Failure(409, "session_changed", "account session changed", 0);
+    }
 
     private static boolean containsDotSegment(String path) {
         final String decoded;
@@ -236,25 +286,32 @@ public final class CloudApi {
         try {
             switch (auth) {
                 case NONE:
-                    return new Credential(Auth.NONE, null);
+                    return new Credential(Auth.NONE, null, null);
                 case ACCOUNT: {
-                    String token = account.token(rejected);
-                    if (token == null || token.isEmpty()) throw new Failure(401, "signed_out", "not signed in", 0);
-                    return new Credential(Auth.ACCOUNT, token);
+                    TokenSnapshot answer = account.snapshot(rejected);
+                    if (answer.token() == null || answer.token().isEmpty())
+                        throw new Failure(401, "signed_out", "not signed in", 0);
+                    return new Credential(Auth.ACCOUNT, answer.token(), answer.sessionId());
                 }
                 case ANONYMOUS: {
-                    String token = anonymous.token(rejected);
-                    if (token == null || token.isEmpty()) throw new Failure(401, "signed_out", "no anonymous session", 0);
-                    return new Credential(Auth.ANONYMOUS, token);
+                    TokenSnapshot answer = anonymous.snapshot(rejected);
+                    if (answer.token() == null || answer.token().isEmpty())
+                        throw new Failure(401, "signed_out", "no anonymous session", 0);
+                    return new Credential(Auth.ANONYMOUS, answer.token(), answer.sessionId());
                 }
                 default: {
-                    String token = account.token(rejected);
-                    if (token != null && !token.isEmpty()) return new Credential(Auth.ACCOUNT, token);
+                    TokenSnapshot answer = account.snapshot(rejected);
+                    if (answer.token() != null && !answer.token().isEmpty())
+                        return new Credential(Auth.ACCOUNT, answer.token(), answer.sessionId());
                     return credential(Auth.ANONYMOUS, rejected);
                 }
             }
         } catch (Failure failure) {
             throw failure;
+        } catch (java.util.concurrent.CancellationException changed) {
+            throw sessionChanged();
+        } catch (BackendAnonymousAccount.RateLimited limited) {
+            throw new Failure(429, "", limited.getMessage(), 0);
         } catch (Exception unavailable) {
             throw new Failure(0, "session_unavailable", unavailable.getMessage(), 0);
         }
@@ -272,7 +329,7 @@ public final class CloudApi {
         byte[] raw = exchange.body();
         if (raw != null && raw.length > 0) {
             try {
-                JSONObject error = new JSONObject(new String(raw, StandardCharsets.UTF_8)).optJSONObject("error");
+                JSONObject error = new JSONObject(TextPolicy.utf8(raw)).optJSONObject("error");
                 if (error != null) {
                     Object rawCode = error.opt("code");
                     Object rawMessage = error.opt("message");
@@ -335,7 +392,7 @@ public final class CloudApi {
             if (part.filename() != null) head.append("; filename=\"").append(headerToken(part.filename())).append('"');
             head.append("\r\n");
             head.append("Content-Type: ").append(headerToken(type)).append("\r\n\r\n");
-            write(output, head.toString().getBytes(StandardCharsets.UTF_8));
+            write(output, TextPolicy.utf8Bytes(head.toString()));
             write(output, part.content());
             write(output, "\r\n".getBytes(StandardCharsets.US_ASCII));
         }
@@ -392,10 +449,9 @@ public final class CloudApi {
             throws IOException {
         HttpsURLConnection connection = (HttpsURLConnection) new URL(ORIGIN + path).openConnection();
         try {
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod(method);
-            connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+            HttpConnectionPolicy.setTimeouts(connection, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS);
             for (Map.Entry<String, String> header : headers.entrySet()) {
                 connection.setRequestProperty(header.getKey(), header.getValue());
             }

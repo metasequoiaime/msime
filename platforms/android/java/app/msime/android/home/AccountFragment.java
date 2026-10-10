@@ -15,6 +15,7 @@ import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import app.msime.android.AppIconStyle;
+import app.msime.android.AppVersionPolicy;
 import app.msime.android.BackendAccount;
 import app.msime.android.CloudApi;
 import app.msime.android.DeviceDataApi;
@@ -308,13 +309,7 @@ public final class AccountFragment extends HomeTabFragment {
 
     /** 已安装的版本名；包管理器不肯说时是一道横线。 */
     private String version() {
-        try {
-            String name = requireContext().getPackageManager()
-                .getPackageInfo(requireContext().getPackageName(), 0).versionName;
-            return name == null ? "—" : name;
-        } catch (android.content.pm.PackageManager.NameNotFoundException error) {
-            return "—";
-        }
+        return AppVersionPolicy.versionName(requireContext(), "—");
     }
 
     private void showIcons() {

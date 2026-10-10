@@ -23,7 +23,7 @@ def main() -> int:
             errors.append(f"{POLICY}: 缺少 {snippet}")
 
     for path, call in (
-        (UI, "DrawablePolicy.ripple(pressed, rounded(fill, radiusPx),"),
+        (UI, "DrawablePolicy.ripple(pressed, DrawablePolicy.rounded(fill, radiusPx),"),
         (LOGIN, "DrawablePolicy.ripple(pressed, face, mask)"),
     ):
         source = path.read_text(encoding="utf-8")

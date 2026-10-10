@@ -2,6 +2,7 @@
 #include <windows.h>
 
 #include <shellapi.h>
+#include "../common/StateDirectory.h"
 #undef GetCurrentTime
 #undef GetObject
 
@@ -14,7 +15,9 @@
 #include <cstring>
 #include <cwctype>
 #include <filesystem>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -26,6 +29,7 @@
 #include "CandidateWindowStyle.h"
 #include "GameProcessList.h"
 #include "SettingsNavigation.h"
+#include "SettingsStateDirectory.h"
 #include "ShellLauncher.h"
 #include "msime_client.h"
 #include "../../../shared/contracts/msime_edition.h"
@@ -110,18 +114,41 @@ std::wstring environment(const wchar_t *name) {
   }
 }
 
+std::filesystem::path injected_state_directory() {
+  return std::filesystem::path(environment(L"MSIME_CLIENT_STATE_DIR"));
+}
+
+std::filesystem::path runtime_options_directory() {
+  if (auto injected = injected_state_directory(); injected.is_absolute())
+    return injected;
+  return msime::windows::resolve_state_directory();
+}
+
+std::filesystem::path configured_preferences_directory(
+    const std::filesystem::path &directory) {
+  if (directory.empty())
+    return {};
+  std::error_code error;
+  const auto file = directory / L"runtime-options.json";
+  if (!std::filesystem::is_regular_file(file, error))
+    return {};
+  std::ifstream stream(file, std::ios::binary);
+  const std::string content((std::istreambuf_iterator<char>(stream)),
+                            std::istreambuf_iterator<char>());
+  JsonObject options{nullptr};
+  if (!JsonObject::TryParse(text(content), options) ||
+      !options.HasKey(L"preferences_directory"))
+    return {};
+  const auto value = options.Lookup(L"preferences_directory");
+  if (value.ValueType() != JsonValueType::String)
+    return {};
+  return std::filesystem::path(std::wstring(value.GetString().c_str()));
+}
+
 std::filesystem::path state_directory() {
-  if (const auto raw = environment(L"MSIME_CLIENT_STATE_DIR"); !raw.empty()) {
-    std::filesystem::path path(raw);
-    if (path.is_absolute()) {
-      return path;
-    }
-  }
-  // 本版本的状态目录名（版本表 platforms.windows.state_directory），full 是 MSIME-Client。
-  if (const auto local = environment(L"LOCALAPPDATA"); !local.empty()) {
-    return std::filesystem::path(local) / MSIME_EDITION_STATE_DIRECTORY;
-  }
-  return {};
+  const auto root = msime::windows::resolve_state_directory();
+  return msime::settings::settings_state_directory(
+      injected_state_directory(), root, configured_preferences_directory(root));
 }
 
 std::string path_utf8(const std::filesystem::path &path) {
@@ -261,7 +288,7 @@ std::string route_page() {
   return std::string(nav::offered_page_for_route(page.value_or(std::string()), MSIME_EDITION_HANDWRITING != 0));
 }
 
-// The runtime options file the Server hands this window, or the one in the state directory when started from the Start menu. None before the input method is set up.
+// The runtime options file the Server hands this window, or the one the Server reads at startup when started from the Start menu. None before the input method is set up.
 std::optional<std::filesystem::path> runtime_options_file() {
   std::error_code error;
   if (const auto raw = environment(L"MSIME_CLIENT_HOST_OPTIONS"); !raw.empty()) {
@@ -269,7 +296,7 @@ std::optional<std::filesystem::path> runtime_options_file() {
     if (path.is_absolute() && std::filesystem::is_regular_file(path, error))
       return path;
   }
-  const auto directory = state_directory();
+  const auto directory = runtime_options_directory();
   if (directory.empty())
     return std::nullopt;
   auto path = directory / L"runtime-options.json";

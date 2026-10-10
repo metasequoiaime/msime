@@ -6,7 +6,7 @@ CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc \
   cargo check -p msime-desktop --target x86_64-pc-windows-gnu --locked
 ```
 
-The script uses the repository's pinned vcpkg manifest, builds the Rust host DLL, and compiles/links the native Server, TSF DLL, supported UI demos and tests. It sets `MSIMEUI_BUILD_HANDWRITING_DEMO=OFF` because that demo needs the Windows SDK's C++/WinRT headers, which MinGW does not carry; normal CMake builds default that option to ON. The script does not execute Windows binaries, register TSF, exercise audio hardware or bundle MinGW runtime DLLs — `../../run-tests-wine.sh` runs the resulting suites under Wine, and `../../stage-runtime.sh` assembles a directory that can be copied to a Windows machine.
+The script uses the repository's pinned vcpkg manifest, builds the Rust host DLL, and compiles/links the native Server, TSF DLL, supported UI demos and tests. It sets `MSIMEUI_BUILD_HANDWRITING_DEMO=OFF` because that demo needs the Windows SDK's C++/WinRT headers, which MinGW does not carry; normal CMake builds default that option to ON. 脚本在本地测试目录暂存实际生产编译器的三个 MinGW 运行时 DLL，并验证 PE 架构，不运行 Windows 程序、注册 TSF 或验收音频硬件；这些文件不是发行包。`../../run-tests-wine.sh` 优先使用已暂存的运行时执行 Wine 套件，`../../stage-runtime.sh` 无模式参数时补齐完整导入图与可复制到 Windows 的验证目录。
 
 The TSF dynamic thread-local strings have a single source definition while retaining per-thread storage. MinGW gets the two property GUID definitions absent from its UUID archive; values match Microsoft's windows-sys 0.61.2 bindings. MSVC continues to use the SDK UUID library. Unicode startup flags are applied to the UI demos, and Server Unicode macros apply to both compilers.
 

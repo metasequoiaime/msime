@@ -4,23 +4,42 @@ title: "[Feature]: "
 labels: [enhancement]
 body:
   - type: textarea
+    id: scenario
+    attributes:
+      label: 在什么情况下用到
+      description: 在哪个软件里、想打什么内容的时候遇到的。说得越具体，越容易判断这个需求该怎么做。
+      placeholder: 例如：在微信里回复长消息，一边看对方的话一边打字。
+    validations:
+      required: true
+  - type: textarea
     id: problem
     attributes:
-      label: 遇到了什么不便
-      description: 说说你在什么情况下觉得不方便。
-      placeholder: 例如：在手机上打长句时，候选字太小，经常点错。
+      label: 现在是怎么做的，哪里不方便
+      description: 说说你现在要怎样操作才能做到，或者为什么做不到。
+      placeholder: 例如：候选字太小，打长句时经常点错，要删掉重新选，一句话要返工好几次。
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
       label: 希望怎样改进
-      description: 描述你想要的效果就好，不用考虑怎么实现。
-      placeholder: 例如：希望能在设置里调大候选字。
+      description: 描述你想要的效果就好，不用考虑怎么实现。如果心里已经有具体的用法（点哪里、按哪个键、按什么顺序切换），也一起写上。
+      placeholder: 例如：希望能在设置里调大候选字，并且能实时预览调整后的样子。
     validations:
       required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: 其他输入法的做法（可选）
+      description: 如果别的输入法已经有类似功能，写下是哪个输入法、在哪里能找到、用起来是什么样子，有截图更好。
+  - type: input
+    id: version
+    attributes:
+      label: 输入法版本（可选）
+      description: 可以在输入法的设置或「关于」页面里找到，用来确认新版本里是不是已经有了。
+      placeholder: 例如：1.2.0
   - type: textarea
     id: additional
     attributes:
       label: 其他信息（可选）
-      description: 例如其他输入法的类似做法，或相关链接。
+      description: 例如相关链接，或者你还想补充的任何内容。

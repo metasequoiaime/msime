@@ -1201,12 +1201,14 @@ impl NineKeySession {
         self.digits.drain(..count);
         // 与全拼键盘相同（`session/commit.rs` 的 `commit`）：选中一行后光标回到末尾。改完中间的数字选掉前一个词，接着打的是下一个词，应接在剩下的数字后面，而不是插在它们中间。
         self.caret = None;
-        self.splits = self
-            .splits
-            .iter()
-            .filter(|&&split| split > count)
-            .map(|split| split - count)
-            .collect();
+        self.splits.retain_mut(|split| {
+            if *split > count {
+                *split -= count;
+                true
+            } else {
+                false
+            }
+        });
         let mut consumed = count;
         while let Some(front) = self.locked.first() {
             if consumed < front.len() {
@@ -2366,6 +2368,17 @@ mod tests {
         session.consume(10);
         assert!(session.digits.is_empty());
         assert!(session.locked.is_empty());
+    }
+
+    #[test]
+    fn consuming_digits_reuses_split_storage() {
+        let mut session = detached();
+        session.digits = "64426".into();
+        session.splits = vec![2, 4];
+        let (_, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.consume(2));
+        assert_eq!(session.splits, [2]);
+        assert_eq!(allocations, 0);
     }
 
     #[test]

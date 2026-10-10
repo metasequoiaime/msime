@@ -10,6 +10,8 @@ import android.os.Bundle;
 import android.os.Process;
 import org.json.JSONException;
 import org.json.JSONObject;
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 /**
  * 向本应用的其他进程提供登录账号或匿名账号的 access token，以及云同步的开关与改动标记（`sync_state` / `sync_dirty`）。
@@ -27,18 +29,27 @@ public final class AccountSessionProvider extends ContentProvider {
         if (AccountSessionRoutingPolicy.syncMethod(method)) return sync(context, method, arg);
         Bundle reply = new Bundle();
         String token = "";
+        String sessionId = "";
         String state;
         try {
             if (context == null) throw new IllegalStateException("account session");
-            token = AccountSessionRoutingPolicy.METHOD_ANONYMOUS_ACCESS_TOKEN.equals(method)
-                ? currentAnonymousToken(context, rejectedToken(extras)) : currentToken(context, arg);
+            if (AccountSessionRoutingPolicy.METHOD_ANONYMOUS_ACCESS_TOKEN.equals(method)) {
+                token = currentAnonymousToken(context, rejectedToken(extras));
+            } else {
+                BackendAccount.SessionCredential session = currentToken(context, arg);
+                token = session.token();
+                sessionId = session.sessionId();
+            }
             state = AccountSessionRoutingPolicy.stateFor(token);
         } catch (Exception | LinkageError error) {
             token = "";
+            sessionId = "";
             state = AccountSessionRoutingPolicy.STATE_UNAVAILABLE;
         }
         reply.putString(AccountSessionRoutingPolicy.KEY_STATE, state);
         reply.putString(AccountSessionRoutingPolicy.KEY_ACCESS_TOKEN, token);
+        if (AccountSessionRoutingPolicy.METHOD_ACCESS_TOKEN.equals(method))
+            reply.putString(AccountSessionRoutingPolicy.KEY_SESSION_ID, sessionId);
         return reply;
     }
 
@@ -60,12 +71,12 @@ public final class AccountSessionProvider extends ContentProvider {
         return reply;
     }
 
-    private static String currentToken(Context context, String rejectedToken) throws Exception {
+    private static BackendAccount.SessionCredential currentToken(Context context, String rejectedToken) throws Exception {
         BackendAccount own = BackendAccount.owningSession(context);
         boolean ownSession = own.hasSession();
         JSONObject legacy = ownSession ? null : legacySession(context);
         return switch (AccountSessionRoutingPolicy.source(ownSession, legacy != null)) {
-            case OWN -> own.currentAccessToken(rejectedToken);
+            case OWN -> own.currentSession(rejectedToken);
             case LEGACY_READ_ONLY -> {
                 String token = AccountSessionRoutingPolicy.legacyToken(
                     JsonPolicy.strictStringOrEmpty(
@@ -75,9 +86,19 @@ public final class AccountSessionProvider extends ContentProvider {
                 if (token.isEmpty() || token.equals(rejectedToken)) {
                     throw new IllegalStateException("account session needs the app");
                 }
-                yield token;
+                String sessionId = legacy.optString("session_id", legacy.optString("sessionID", ""));
+                if (sessionId.isEmpty()) {
+                    // Old Rust sessions have no ID yet. A refresh changes this derived ID, so
+                    // requests from the older token are conservatively cancelled.
+                    String refresh = legacy.getJSONObject("tokens").optString("refresh_token", "");
+                    if (!AccountTokenPolicy.validToken(refresh)) throw new IllegalStateException("account session unavailable");
+                    sessionId = UUID.nameUUIDFromBytes(refresh.getBytes(StandardCharsets.UTF_8)).toString();
+                } else {
+                    sessionId = UUID.fromString(sessionId).toString();
+                }
+                yield new BackendAccount.SessionCredential(token, sessionId);
             }
-            case NONE -> "";
+            case NONE -> new BackendAccount.SessionCredential("", "");
         };
     }
 
