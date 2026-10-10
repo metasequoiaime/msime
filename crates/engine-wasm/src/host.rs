@@ -29,8 +29,8 @@ const SLOW_ORDERING: Duration = Duration::from_millis(120);
 /// 连续这么多次慢帧后，本回合余下的时间关掉句子模型，保护低端设备。
 const SLOW_STREAK_LIMIT: u8 = 3;
 
-/// 一页最多几个候选：数字键 1-9 各选一个。
-pub const MAX_PAGE_SIZE: usize = 9;
+/// 一页最多几个候选：数字键 1-9 选前九个，0 选第十个。与共享偏好的 `MAX_CANDIDATE_PAGE_SIZE` 相同；网页引擎不依赖 client-core，`tests/routing.rs` 核对两边一致。
+pub const MAX_PAGE_SIZE: usize = 10;
 
 /// 五笔码表答出的完整码长。
 const WUBI_CODE_LENGTH: usize = 4;
@@ -683,17 +683,14 @@ impl WebHost {
             self.type_text(char::from(byte).to_string());
             return;
         }
-        // 先让引擎看数字（`Runtime::dispatch`），它不收时 1-9 才是选字。
+        // 先让引擎看数字（`Runtime::dispatch`），它不收时 1-9 选前九个、0 选第十个；页里没有那一格时吞掉。
         let result = self.session.character(byte, false);
         if result.handled || result.commit.is_some() {
             self.apply(result, -1);
             return;
         }
-        if byte == b'0' {
-            return;
-        }
         self.ensure_ordered();
-        let slot = usize::from(byte - b'1');
+        let slot = digit_slot(byte);
         let seat = self.page_start() + slot;
         if slot < self.page_size && seat < self.ordered.rows.len() {
             self.select_seat(seat, seat_number(seat));
@@ -1091,6 +1088,15 @@ impl WebHost {
             model_on: self.model_on(),
             rerank_ms: self.rerank_ms,
         }
+    }
+}
+
+/// 数字键对应的页内格子：`1`–`9` 是前九格，`0` 是第十格。
+fn digit_slot(byte: u8) -> usize {
+    if byte == b'0' {
+        9
+    } else {
+        usize::from(byte - b'1')
     }
 }
 

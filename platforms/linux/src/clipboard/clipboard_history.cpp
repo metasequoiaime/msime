@@ -1,4 +1,5 @@
 #include <nlohmann/json.hpp>
+#include "../core/BoundedCliInput.h"
 #include "ClipboardText.h"
 #include "ClipboardAtomicWrite.h"
 #include <algorithm>
@@ -87,11 +88,10 @@ int main(int argc, char **argv) {
     if (argc != 3) return 2;
     // Read before taking the history lock so a slow pipe cannot block readers.
     std::array<char, 1024 * 1024 + 1> input;
-    std::cin.read(input.data(), input.size());
-    const auto size = static_cast<size_t>(std::cin.gcount());
-    if (std::cin.bad() || size == input.size()) return 2;
-    added_text.assign(input.data(), size);
-    had_input = size != 0;
+    const auto size = msime::linux_host::read_bounded_cli_input(std::cin, input, 0);
+    if (!size) return 2;
+    added_text.assign(input.data(), *size);
+    had_input = *size != 0;
   } else if (op == "add" && argc == 4) {
     added_text = argv[3];
   }

@@ -17,10 +17,13 @@ extension BackendAccountClient {
     !prompt.isEmpty && prompt.unicodeScalars.count <= 500
   }
 
-  func skinArtwork(prompt: String, account: BackendAccountSession, userID: String) async throws -> SkinArtwork {
+  func skinArtwork(prompt: String, account: BackendAccountSession, userID: String,
+                   matchingSessionID expectedSessionID: UUID? = nil) async throws -> SkinArtwork {
     guard Self.validSkinArtworkPrompt(prompt) else { throw Failure(status: 400) }
     struct Body: Encodable { let prompt: String }
-    let credential = try await account.credentials(matchingUserID: userID)
+    let credential = try await account.credentials(matchingUserID: userID,
+                                                    matchingSessionID: expectedSessionID)
+    let sessionID = credential.sessionID
     try Task.checkCancellation()
     let job: SkinArtworkJob = try await json("POST", "/v1/skins/jobs", token: credential.token,
       body: JSONEncoder().encode(Body(prompt: prompt)))
@@ -38,7 +41,7 @@ extension BackendAccountClient {
     do {
       let deadline = ProcessInfo.processInfo.systemUptime + 200
       while ProcessInfo.processInfo.systemUptime < deadline {
-        let fresh = try await account.credentials(matchingUserID: userID)
+        let fresh = try await account.credentials(matchingUserID: userID, matchingSessionID: sessionID)
         try Task.checkCancellation()
         let result: SkinArtworkJob = try await json("GET", path, token: fresh.token,
           timeout: min(30, max(1, deadline - ProcessInfo.processInfo.systemUptime)), maximumResponseBytes: 12 * 1024 * 1024)
@@ -46,7 +49,7 @@ extension BackendAccountClient {
         switch result.state {
         case "succeeded":
           guard let artwork = result.artwork else { throw Failure(status: 0) }
-          _ = try await account.credentials(matchingUserID: userID)
+          try await account.requireSession(matchingUserID: userID, matchingSessionID: sessionID)
           try Task.checkCancellation()
           await release()
           return artwork

@@ -159,7 +159,7 @@ export function HelpSettingsPage({
             <SettingsGroupBlock className={doc.page}>
               <p>
                 支持全拼、双拼和五笔，在「输入」页切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右
-                2.0、首右 plus 和小鹤。
+                2.0、首右 plus、小鹤、拼音加加和五笔 86。
               </p>
               <p>{platformNetworkDescription}</p>
               <p>更多功能欢迎自由探索～</p>

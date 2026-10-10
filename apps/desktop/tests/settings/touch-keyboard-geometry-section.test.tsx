@@ -187,6 +187,40 @@ test("offers the number keypad order only where the host has a nine-key digit la
   expect(onNumberKeypadOrderChange).toHaveBeenCalledWith("calculator");
 });
 
+test("offers the 26-key number layout next to the keypad order when the host has it", () => {
+  const onTwentySixKeyNumberLayoutChange = vi.fn();
+  const { rerender } = render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
+      numberKeypadOrder="phone"
+      onNumberKeypadOrderChange={vi.fn()}
+    />,
+  );
+  expect(screen.queryByText("26 键数字键盘")).toBeNull();
+
+  rerender(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
+      numberKeypadOrder="phone"
+      onNumberKeypadOrderChange={vi.fn()}
+      twentySixKeyNumberLayout="row"
+      onTwentySixKeyNumberLayoutChange={onTwentySixKeyNumberLayoutChange}
+    />,
+  );
+  const layoutRow = screen.getByText("26 键数字键盘");
+  expect(
+    layoutRow.compareDocumentPosition(screen.getByText("数字键盘顺序")) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(screen.getByRole("radio", { name: "一行" })).toHaveProperty("checked", true);
+  fireEvent.click(screen.getByRole("radio", { name: "九宫格" }));
+  expect(onTwentySixKeyNumberLayoutChange).toHaveBeenCalledWith("nine_key");
+});
+
 test("puts the number keypad order after 中文键盘 when the size group is already 布局", () => {
   render(
     <TouchKeyboardGeometrySection
@@ -210,4 +244,50 @@ test("puts the number keypad order after 中文键盘 when the size group is alr
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
   expect(screen.getByRole("radio", { name: "计算器" })).toHaveProperty("checked", true);
+});
+
+test("offers the shuangpin key hint switch only where the host draws the hints", () => {
+  const onShuangpinKeyHintsChange = vi.fn();
+  const { rerender } = render(<TouchKeyboardGeometrySection {...baseProps} />);
+  expect(screen.queryByRole("switch", { name: "双拼键位提示" })).toBeNull();
+
+  rerender(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
+      shuangpinKeyHints
+      onShuangpinKeyHintsChange={onShuangpinKeyHintsChange}
+    />,
+  );
+  // 只有这一行时也要有「布局」分组来放它。
+  expect(screen.getAllByText("布局")).toHaveLength(1);
+  const hints = screen.getByRole("switch", { name: "双拼键位提示" }) as HTMLInputElement;
+  expect(hints.checked).toBe(true);
+  fireEvent.click(hints);
+  expect(onShuangpinKeyHintsChange).toHaveBeenCalledWith(false);
+});
+
+test("puts the shuangpin key hint switch in the size group when that group is already 布局", () => {
+  render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
+      numberKeypadOrder="phone"
+      shuangpinKeyHints={false}
+      onShuangpinKeyHintsChange={vi.fn()}
+      layoutRows={<div>中文键盘</div>}
+    />,
+  );
+  expect(screen.getAllByText("布局")).toHaveLength(1);
+  const hints = screen.getByRole("switch", { name: "双拼键位提示" }) as HTMLInputElement;
+  expect(hints.checked).toBe(false);
+  expect(
+    screen.getByText("数字键盘顺序").compareDocumentPosition(hints) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    hints.compareDocumentPosition(screen.getByText("键盘高度")) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
 });

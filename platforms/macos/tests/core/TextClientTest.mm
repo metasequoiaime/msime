@@ -75,7 +75,7 @@ static void TestTencentTranslationHTTPBridge() {
     assert(!error);
     assert(![MSIMEClientSession parseTencentTranslationResponse:response expectedCount:1 error:&error] && !error);
     assert(![MSIMEClientSession parseTencentTranslationResponse:NSData.data expectedCount:1 error:&error] && !error);
-    assert(![MSIMEClientSession parseTencentTranslationResponse:response expectedCount:10 error:&error] && error);
+    assert(![MSIMEClientSession parseTencentTranslationResponse:response expectedCount:11 error:&error] && error);
     error = nil;
     NSMutableDictionary *disabled = [request mutableCopy]; disabled[@"config"] = @{@"enabled":@NO};
     assert(![MSIMEClientSession tencentTranslationHTTPRequest:disabled error:&error] && !error);

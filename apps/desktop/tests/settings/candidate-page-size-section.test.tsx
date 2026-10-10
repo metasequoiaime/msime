@@ -33,6 +33,23 @@ test("a stored size below the offered range widens the slider instead of being r
   expect([slider.min, slider.max, slider.value]).toEqual(["1", "9", "1"]);
 });
 
+test("a host that picks a tenth candidate with 0 offers sizes up to ten", () => {
+  const onChange = vi.fn();
+  render(<CandidatePageSizeSection value={9} fixed={false} max={10} onChange={onChange} />);
+
+  const slider = screen.getByRole("slider", { name: "每页候选项数量" }) as HTMLInputElement;
+  expect([slider.min, slider.max, slider.value]).toEqual(["3", "10", "9"]);
+  fireEvent.change(slider, { target: { value: "10" } });
+  expect(onChange).toHaveBeenCalledWith(10);
+});
+
+test("a stored ten on a host that shows nine widens the slider instead of being rewritten", () => {
+  render(<CandidatePageSizeSection value={10} fixed={false} max={9} onChange={vi.fn()} />);
+
+  const slider = screen.getByRole("slider", { name: "每页候选项数量" }) as HTMLInputElement;
+  expect([slider.min, slider.max, slider.value]).toEqual(["3", "10", "10"]);
+});
+
 test("candidate page size hides when the host fixes the page", () => {
   render(<CandidatePageSizeSection value={5} fixed onChange={vi.fn()} />);
 

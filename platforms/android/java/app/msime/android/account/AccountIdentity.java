@@ -39,17 +39,16 @@ public final class AccountIdentity {
     public static void register(Context context) {
         if (!REGISTERING.compareAndSet(false, true)) return;
         Context application = context.getApplicationContext();
-        Thread registration = new Thread(() -> {
-            try {
-                new BackendAnonymousAccount(application).ensureRegistered();
-            } catch (Exception | LinkageError ignored) {
-                // Retried on the next start or by the first feature that needs a token.
-            } finally {
-                REGISTERING.set(false);
-            }
-        }, "msime-anonymous-account");
         try {
-            registration.start();
+            ThreadPolicy.startNamedThread("msime-anonymous-account", () -> {
+                try {
+                    new BackendAnonymousAccount(application).ensureRegistered();
+                } catch (Exception | LinkageError ignored) {
+                    // Retried on the next start or by the first feature that needs a token.
+                } finally {
+                    REGISTERING.set(false);
+                }
+            });
         } catch (RuntimeException error) {
             REGISTERING.set(false);
         }

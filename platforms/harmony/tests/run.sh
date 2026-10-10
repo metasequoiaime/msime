@@ -14,6 +14,13 @@ if ! grep -qF 'StagedResources.removeDirectory(this.cacheRoot)' \
   echo "key sound reloads must remove the rendered cache tree, not only the empty root" >&2
   exit 1
 fi
+# 字母键的 ForEach 按 faceKey() 判定子树是否重建。「双拼键位提示」不在这个键里时，键盘开着切换开关，已经画好的字母键会一直留着旧提示。
+if ! sed -n '/^  private faceKey(): string {$/,/^  }$/p' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+    | grep -qF 'this.shuangpinKeyHints'; then
+  echo "KeyboardView.faceKey must include the shuangpin key hint switch so a live change redraws the letter keys" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
 for source in "$here"/*.test.ts; do

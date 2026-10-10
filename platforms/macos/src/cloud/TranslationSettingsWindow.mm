@@ -1,15 +1,5 @@
 #import "TranslationSettingsWindow.h"
-#import "MSIMEClientSession.h"
-
-static BOOL MSIMETranslationStrictRevision(id value, uint64_t *result) {
-    if (![value isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || CFNumberIsFloatType((__bridge CFNumberRef)value)) return NO;
-    NSNumber *number = (NSNumber *)value;
-    if ([number compare:@0] == NSOrderedAscending) return NO;
-    uint64_t revision = number.unsignedLongLongValue;
-    if ([number compare:@(revision)] != NSOrderedSame) return NO;
-    if (result) *result = revision;
-    return YES;
-}
+#import "../core/PreferenceEditsSave.h"
 
 static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"ru", @"de", @"ko"]; }
 
@@ -28,23 +18,6 @@ static NSDictionary *TranslationPreferencesApplying(NSDictionary *preferences, N
         else result[key] = edits[key];
     }
     return result;
-}
-
-/// Writes `edits` over `snapshot`. When another writer saved first, the edits are moved onto its revision and written once more, so only the keys changed in this window replace what the other writer stored. Blocks on disk: call off the main thread.
-static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *snapshot, NSDictionary *edits) {
-    NSMutableDictionary *next = [snapshot mutableCopy];
-    next[@"preferences"] = TranslationPreferencesApplying(snapshot[@"preferences"], edits);
-    uint64_t revision = 0;
-    if (!MSIMETranslationStrictRevision(snapshot[@"revision"], &revision)) return nil;
-    NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:revision snapshot:next error:nil];
-    if (saved) return saved;
-    NSDictionary *latest = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
-    // The same revision means the document itself was refused (a malformed value), which another attempt cannot fix.
-    uint64_t latestRevision = 0;
-    if (!latest || !MSIMETranslationStrictRevision(latest[@"revision"], &latestRevision) || latestRevision == revision) return nil;
-    next = [latest mutableCopy];
-    next[@"preferences"] = TranslationPreferencesApplying(latest[@"preferences"], edits);
-    return [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:latestRevision snapshot:next error:nil];
 }
 
 @interface MSIMETranslationSettingsWindow () <NSTextFieldDelegate>
@@ -329,7 +302,7 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
     void (^savedHandler)(NSDictionary *) = _saved;
     __weak MSIMETranslationSettingsWindow *weakSelf = self;
     dispatch_async(_queue, ^{
-        NSDictionary *saved = SaveTranslationEdits(directory, snapshot, edits);
+        NSDictionary *saved = MSIMESavePreferenceEdits(directory, snapshot, edits, TranslationPreferencesApplying);
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMETranslationSettingsWindow *current = weakSelf;
             if (!current || current->_epoch != epoch) return;
@@ -357,7 +330,7 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
             NSUInteger callbackGeneration = _callbackGeneration;
             __weak MSIMETranslationSettingsWindow *weakSelf = self;
             dispatch_async(_queue, ^{
-                NSDictionary *saved = SaveTranslationEdits(directory, snapshot, edits);
+                NSDictionary *saved = MSIMESavePreferenceEdits(directory, snapshot, edits, TranslationPreferencesApplying);
                 if (saved && savedHandler) dispatch_async(dispatch_get_main_queue(), ^{
                     MSIMETranslationSettingsWindow *current = weakSelf;
                     if (current && current->_callbackGeneration == callbackGeneration) savedHandler(saved[@"preferences"]);

@@ -123,6 +123,19 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertEqual(service.calls.count, 2)
   }
 
+  func testMemoryPressureClearsGlossCache() async throws {
+    let service = StubTranslationService(answers: ["EN": ["你好": "hello"]])
+    let store = CandidateTranslationStore(service: service)
+    let arrived = expectation(description: "gloss arrived")
+    store.onArrival = { arrived.fulfill() }
+    store.refresh(words: ["你好"], codes: ["EN"])
+    await fulfillment(of: [arrived], timeout: 5)
+
+    store.clearCacheForMemoryPressure()
+
+    XCTAssertNil(store.gloss(word: "你好", code: "EN"))
+  }
+
   func testAResponseWithTheWrongCountIsDropped() async throws {
     let store = CandidateTranslationStore(service: TruncatingTranslationService())
     store.refresh(words: ["你好", "中国"], codes: ["EN"])

@@ -31,14 +31,15 @@ while IFS= read -r artifact; do
   cp "$source_dir/$artifact" "$destination/$artifact"
 done <<< "$artifacts"
 cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${verify_flags[@]+"${verify_flags[@]}"} ${edition_flags[@]+"${edition_flags[@]}"} "$destination" >/dev/null
-# Helpcode tables are not part of the dictionary release; the repository carries them in resources/helpcodes, and the Engine reads them from helpcodes/ under the resource directory (crates/engine/src/assets.rs names the six files). Without them the Engine has nothing to match: Shift letters are taken as helpcode and narrow nothing. The shared verifier lets a real helpcodes/ directory through.
+# 辅助码表不在词库发布里，由仓库自带在 resources/helpcodes，Engine 从资源目录下的 helpcodes/ 读它们（crates/engine/src/assets.rs 列出七个文件）。没有它们 Engine 就没有可匹配的码：Shift 字母被当作辅助码，却什么也筛不掉。共享校验放行真实的 helpcodes/ 目录。
 helpcodes="$repo_root/resources/helpcodes"
 mkdir -p "$destination/helpcodes"
-for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt; do
+for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt wubi86_helpcode.txt; do
   cp "$helpcodes/$table" "$destination/helpcodes/$table"
 done
 cp "$helpcodes/ENGINE-NOTICE.md" "$destination/helpcodes/NOTICE.md"
 cp "$helpcodes/NOTICE.md" "$destination/helpcodes/NOTICE-jiajia.md"
+cp "$helpcodes/NOTICE-wubi86.md" "$destination/helpcodes/NOTICE-wubi86.md"
 
 # The settled-rerank model, staged as a sibling of the bundle rather than a member of it.
 #

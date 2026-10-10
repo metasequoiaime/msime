@@ -9,7 +9,7 @@ int main() {
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         // Every provider offered as an HTTPS multipart preset must use the batch request path.
         // Falling through starts macOS Speech and silently ignores the selected endpoint and token.
-        for (NSString *provider in @[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral"])
+        for (NSString *provider in @[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral", @"bailian"])
             assert(MSIMEVoiceUsesNativeHTTPProvider(provider, NO));
         for (NSString *provider in @[@"doubao", @"system", @"unknown", @"", @"local", @"cloud"])
             assert(!MSIMEVoiceUsesNativeHTTPProvider(provider, NO));
@@ -26,7 +26,7 @@ int main() {
             assert(!MSIMEVoiceLocalModelMissing(provider, NO, NO));
         assert(!MSIMEVoiceUsesNativeHTTPProvider(@"local", NO) && !MSIMEVoiceUsesLocalModelHelper(@"local", NO, NO));
         // Every provider this host calls with the stored token asks for one before recording; an unset provider preference means Doubao.
-        for (NSString *provider in @[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral", @"doubao", @"Doubao"]) {
+        for (NSString *provider in @[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral", @"bailian", @"doubao", @"Doubao"]) {
             assert(MSIMEVoiceASRTokenMissing(provider, nil, NO) && MSIMEVoiceASRTokenMissing(provider, @"", NO));
             assert(!MSIMEVoiceASRTokenMissing(provider, @"synthetic-token", NO));
             assert(!MSIMEVoiceASRTokenMissing(provider, nil, YES));

@@ -14,6 +14,8 @@ final class KeyboardGeometrySettingsTests: XCTestCase {
   private var state: URL!
   private var previous: (Double, Double, Double, Bool) = (0, 0, 0, false)
   private var previousOrder = KeyboardLayoutPreference.NumberKeypadOrder.phone
+  private var previousNumberLayout = KeyboardLayoutPreference.TwentySixKeyNumberLayout.row
+  private var previousShuangpinKeyHints = true
 
   override func setUp() {
     super.setUp()
@@ -22,6 +24,8 @@ final class KeyboardGeometrySettingsTests: XCTestCase {
     previous = (KeyboardLayoutPreference.keySpacing, KeyboardLayoutPreference.rowSpacing,
                 KeyboardLayoutPreference.heightAdjustment, KeyboardLayoutPreference.voiceShortcutEnabled)
     previousOrder = KeyboardLayoutPreference.numberKeypadOrder
+    previousNumberLayout = KeyboardLayoutPreference.twentySixKeyNumberLayout
+    previousShuangpinKeyHints = KeyboardLayoutPreference.shuangpinKeyHints
   }
 
   override func tearDown() {
@@ -30,6 +34,8 @@ final class KeyboardGeometrySettingsTests: XCTestCase {
     KeyboardLayoutPreference.heightAdjustment = previous.2
     KeyboardLayoutPreference.voiceShortcutEnabled = previous.3
     KeyboardLayoutPreference.numberKeypadOrder = previousOrder
+    KeyboardLayoutPreference.twentySixKeyNumberLayout = previousNumberLayout
+    KeyboardLayoutPreference.shuangpinKeyHints = previousShuangpinKeyHints
     try? FileManager.default.removeItem(at: state)
     super.tearDown()
   }
@@ -129,5 +135,38 @@ final class KeyboardGeometrySettingsTests: XCTestCase {
     XCTAssertEqual(document["touch_number_keypad_order"] as? String, "calculator")
     XCTAssertEqual(document["touch_keyboard_height_adjustment"] as? Int, 12)
     XCTAssertEqual(KeyboardLayoutPreference.numberKeypadOrder, .calculator)
+  }
+
+  func testTwentySixKeyNumberLayoutIsSavedAsOneDocumentField() throws {
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(KeyboardLayoutPreference.saveNumberKeypadOrder(.calculator, stateRoot: state))
+    KeyboardLayoutPreference.twentySixKeyNumberLayout = .row
+
+    XCTAssertTrue(KeyboardLayoutPreference.saveTwentySixKeyNumberLayout(.nineKey, stateRoot: state))
+
+    let document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertEqual(document["touch_twenty_six_key_number_layout"] as? String, "nine_key")
+    XCTAssertEqual(document["touch_number_keypad_order"] as? String, "calculator")
+    XCTAssertEqual(KeyboardLayoutPreference.twentySixKeyNumberLayout, .nineKey)
+    XCTAssertEqual(KeyboardLayoutPreference.TwentySixKeyNumberLayout.shared(in: document), .nineKey)
+  }
+
+  /// 「双拼键位提示」缺省为开：旧文档没有这个键、或者值不是布尔时都按开；保存只写这一项，文档接受了才更新 App Group 镜像。
+  func testShuangpinKeyHintsDefaultOnAndAreSavedAsOneDocumentField() throws {
+    XCTAssertTrue(KeyboardLayoutPreference.sharedShuangpinKeyHints(in: nil))
+    XCTAssertTrue(KeyboardLayoutPreference.sharedShuangpinKeyHints(in: [:]))
+    XCTAssertTrue(KeyboardLayoutPreference.sharedShuangpinKeyHints(in: ["touch_shuangpin_key_hints": "off"]))
+    XCTAssertFalse(KeyboardLayoutPreference.sharedShuangpinKeyHints(in: ["touch_shuangpin_key_hints": false]))
+    KeyboardLayoutPreference.defaults.removeObject(forKey: KeyboardLayoutPreference.shuangpinKeyHintsKey)
+    XCTAssertTrue(KeyboardLayoutPreference.shuangpinKeyHints, "the App Group mirror also starts on")
+
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(heightAdjustment: 12, stateRoot: state))
+    XCTAssertTrue(KeyboardLayoutPreference.saveShuangpinKeyHints(false, stateRoot: state))
+
+    let document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertEqual(document["touch_shuangpin_key_hints"] as? Bool, false)
+    XCTAssertEqual(document["touch_keyboard_height_adjustment"] as? Int, 12)
+    XCTAssertFalse(KeyboardLayoutPreference.shuangpinKeyHints)
   }
 }

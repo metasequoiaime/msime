@@ -716,8 +716,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn adoption_rejects_a_source_below_a_symlinked_ancestor() {
+        use msime_path_trust::untrusted_symlink as symlink;
         use sha2::{Digest, Sha256};
-        use std::os::unix::fs::symlink;
 
         let root = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();

@@ -48,6 +48,8 @@
     <HostApiLibrary Condition="'$(HostApiLibrary)' == ''">msime_host_api.lib</HostApiLibrary>
     <!-- 本次构建的产品版本（shared/contracts/editions.json 的 id），选出 shared/contracts/msime_edition.h 里该版本的 CLSID、状态目录和方案；Build-Client.ps1 按 -Edition 传入，缺省是 full。 -->
     <MsimeEdition Condition="'$(MsimeEdition)' == ''">full</MsimeEdition>
+    <!-- 本次构建的版本号，「关于」页显示并拿来检查更新；Build-Client.ps1 传入 TargetVersion，开发构建取 platforms/windows/version.txt，与 CMake 给 Server 的 MSIME_WINDOWS_VERSION 相同。 -->
+    <MsimeVersion Condition="'$(MsimeVersion)' == ''">$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\..\version.txt').Trim())</MsimeVersion>
   </PropertyGroup>
   <!-- 优化构建只链接一次，不产生增量链接的 .ilk，并去掉未引用和相同的 COMDAT；只开 /DEBUG 时这两项都会被关掉。PDB 仍然生成，供符号发布资产使用。 -->
   <PropertyGroup Condition="'$(Configuration)' == 'RelWithDebInfo' or '$(Configuration)' == 'Release'">
@@ -61,11 +63,12 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(HostApiInclude);$(MSBuildProjectDirectory)\..\src\system;$(MSBuildProjectDirectory)\..\src\candidate;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /bigobj %(AdditionalOptions)</AdditionalOptions>
-      <PreprocessorDefinitions>UNICODE;_UNICODE;NOMINMAX;WIN32_LEAN_AND_MEAN;MSIME_EDITION_$(MsimeEdition.ToUpperInvariant());%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>UNICODE;_UNICODE;NOMINMAX;WIN32_LEAN_AND_MEAN;MSIME_EDITION_$(MsimeEdition.ToUpperInvariant());MSIME_WINDOWS_VERSION=&quot;$(MsimeVersion)&quot;;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>$(HostApiLibrary);windowsapp.lib;shell32.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- advapi32、ole32 和 uuid 给 common/StateDirectory.h：注册表里安装器的 DataDir（RegGetValueW）、SHGetKnownFolderPath 返回值的释放（CoTaskMemFree）和 FOLDERID_LocalAppData，与 CMake 的 windows-state-directory 测试链接的相同。 -->
+      <AdditionalDependencies>$(HostApiLibrary);windowsapp.lib;shell32.lib;user32.lib;advapi32.lib;ole32.lib;uuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)' == 'RelWithDebInfo' or '$(Configuration)' == 'Release'">

@@ -20,8 +20,8 @@ use crate::local::LocalQueryResult;
 use crate::LocalDateTime;
 
 /// The keywords the date and time mode answers.
-const DATE_TIME_KEYWORDS: [&str; 9] = [
-    "rq", "riqi", "date", "sj", "shijian", "time", "xq", "xingqi", "week",
+const DATE_TIME_KEYWORDS: [&str; 12] = [
+    "rq", "riqi", "date", "sj", "shijian", "time", "xq", "xingqi", "week", "nl", "nongli", "yinli",
 ];
 
 pub(super) fn unicode(request: &Request) -> Outcome {

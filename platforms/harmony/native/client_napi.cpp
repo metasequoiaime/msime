@@ -259,6 +259,8 @@ TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
 TEXT_ENTRY(MobileClipboardHistory, msime_client_mobile_clipboard_history)
 TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
 TEXT_ENTRY(PersonalDictionaryRequest, msime_client_personal_dictionary_request)
+// The keyboard's flush after each personal-dictionary drain: it moves at most one queue batch, so it stays synchronous on the keyboard's own thread like the drain it follows.
+TEXT_ENTRY(DictionaryCollections, msime_client_dictionary_collections)
 TEXT_ENTRY(PrepareHost, msime_client_prepare_host)
 TEXT_ENTRY(SnapshotVersion, msime_client_snapshot_version)
 TEXT_ENTRY(SnapshotInspect, msime_client_snapshot_inspect)
@@ -460,7 +462,7 @@ static napi_value EnsureAnonymousAccount(napi_env env, napi_callback_info info) 
     return promise;
 }
 
-// Slow one-document requests share a worker: telemetry and notices wait on the network, while
+// Slow one-document requests share a worker: telemetry, notices and the update check wait on the network, while
 // the custom skin library reads or writes a bounded multi-megabyte file under a lock.
 using RequestCall = char *(*)(const uint8_t *, size_t);
 
@@ -519,6 +521,11 @@ static napi_value Notices(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_notices, "MSIME notices");
 }
 
+// The about page's 检查更新: reads GitHub's release list for up to ten seconds, so never on the UI thread.
+static napi_value UpdateCheck(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_update_check, "MSIME update check");
+}
+
 // A named design can carry a photo, so both reading and mutating the library can parse and
 // serialize megabytes while holding its file lock. The settings page awaits this worker.
 static napi_value CustomSkinLibrary(napi_env env, napi_callback_info info) {
@@ -547,6 +554,17 @@ static napi_value TypingStatisticsAsync(napi_env env, napi_callback_info info) {
 // validation and replacement off the ArkTS thread so a large folder cannot freeze settings.
 static napi_value SkinImport(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_skin_import, "MSIME skin import");
+}
+
+// Named dictionaries: an import parses up to 16 MiB of text and every operation rewrites the collection files under their lock, so the settings page runs them on a worker and awaits the promise. The keyboard's small flush uses the synchronous `dictionaryCollections`.
+static napi_value DictionaryCollectionsAsync(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_dictionary_collections,
+        "MSIME dictionary collections");
+}
+
+// The settings page's 修复配置文件: copies the unreadable document aside and rewrites it under the preferences writer lock, so it runs on a worker like every other call that may wait on that lock.
+static napi_value RepairPreferences(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_repair_preferences, "MSIME repair preferences");
 }
 
 // 键盘的常用语存放在一个文件里，设置进程和键盘进程都会在锁下重写它，装上短语包后文档可达数 MB，所以每个操作都在 ArkTS 线程之外运行。
@@ -1453,6 +1471,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("plugins", Plugins),
         ENTRY("pluginsAsync", PluginsAsync),
         ENTRY("commonPhrases", CommonPhrases),
+        ENTRY("repairPreferences", RepairPreferences),
         ENTRY("ensureAnonymousAccount", EnsureAnonymousAccount),
         ENTRY("telemetryBegin", TelemetryBegin),
         ENTRY("telemetryEnd", TelemetryEnd),
@@ -1460,6 +1479,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("telemetryFlush", TelemetryFlush),
         ENTRY("telemetryClear", TelemetryClear),
         ENTRY("notices", Notices),
+        ENTRY("updateCheck", UpdateCheck),
         ENTRY("noticeDismiss", NoticeDismiss),
         ENTRY("keySoundRenderNotes", KeySoundRenderNotes),
         ENTRY("aiRequestForQuery", AiRequestForQuery),
@@ -1469,6 +1489,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("applyOnlineCandidates", ApplyOnlineCandidates),
         ENTRY("personalDictionarySync", PersonalDictionarySync),
         ENTRY("personalDictionaryRequest", PersonalDictionaryRequest),
+        ENTRY("dictionaryCollections", DictionaryCollections),
+        ENTRY("dictionaryCollectionsAsync", DictionaryCollectionsAsync),
         ENTRY("prepareHost", PrepareHost),
         ENTRY("snapshotVersion", SnapshotVersion),
         ENTRY("snapshotInspect", SnapshotInspect),

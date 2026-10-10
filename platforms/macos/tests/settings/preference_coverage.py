@@ -28,11 +28,14 @@ NOT_APPLICABLE = {
     "touch_keyboard_height_adjustment": "the touch keyboard",
     "touch_voice_shortcut": "the touch keyboard",
     "touch_number_keypad_order": "the touch keyboard's nine-key digit layer",
+    "touch_twenty_six_key_number_layout": "the touch keyboard's 26-key digit layer",
+    "touch_shuangpin_key_hints": "the touch keyboard's 26-key shuangpin letter keys",
     "touch_toolbar": "the touch keyboard's row above the keys",
     "number_row_selection": "releasing the number row back to the editor, offered only where the host advertises it - Linux and HarmonyOS; Windows and macOS both keep number selection",
     "english_suggestions": "the mobile suggestion strip; desktop hosts show English candidates through mixed_input instead",
     "game_compatibility": "Windows TSF only: whether the TIP skips ITfUIElementMgr for games that declare UI-less and draw nothing; macOS has no UI-less host contract",
     "show_candidate_page_number": "offered only where the host advertises candidate_page_number - Linux alone (7508f045e); the macOS candidate window always draws its page indicator and the shared page does not show the switch here",
+    "second_third_candidate": "';' and '\\'' picking the second and third candidate are routed only by the Windows TIP and Server so far (.agents/notes/implemented/feature/2026-10-09-second-third-candidate-keys.md); the shared page does not show the switch, so no macOS user can turn on something the host ignores",
 }
 
 

@@ -9,11 +9,10 @@ use crate::japanese::JapaneseRomajiScheme;
 use crate::korean::KoreanScheme;
 use crate::language_dictionary::LanguageDictionary;
 use crate::quanpin::QuanpinScheme;
-use crate::shuangpin::profile::profile;
-use crate::shuangpin::ShuangpinScheme;
+use crate::shuangpin::{ShuangpinProfile, ShuangpinScheme};
 use crate::stroke::StrokeScheme;
 use crate::tibetan::TibetanScheme;
-use crate::types::{QueryRequest, SchemeKey, SchemeType, ShuangpinProfileKind};
+use crate::types::{QueryRequest, SchemeKey, SchemeType};
 use crate::vietnamese::{InputMethod, ToneStyle, VietnameseScheme};
 use crate::wubi::scheme::WubiScheme;
 use crate::zhuyin::scheme::ZhuyinScheme;
@@ -36,7 +35,7 @@ impl Scheme {
     /// ime_session.cpp:371-386; the profile only matters for shuangpin, the input method and tone style only for Vietnamese, the syllable inventory only for Cantonese and the open `msime-zhuyin.db` only for Zhuyin. Neither can be built without its dictionary (`LANGUAGE_DICTIONARY_UNAVAILABLE`), which exists once the scheme has been activated.
     pub fn new(
         scheme: SchemeType,
-        profile_kind: ShuangpinProfileKind,
+        profile: &'static ShuangpinProfile,
         vietnamese_method: InputMethod,
         vietnamese_style: ToneStyle,
         cantonese_inventory: Option<Arc<Inventory>>,
@@ -45,7 +44,7 @@ impl Scheme {
         let unavailable = || EngineError::failed(diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE);
         Ok(match scheme {
             SchemeType::Quanpin => Self::Quanpin(QuanpinScheme::new()),
-            SchemeType::Shuangpin => Self::Shuangpin(ShuangpinScheme::new(profile(profile_kind))),
+            SchemeType::Shuangpin => Self::Shuangpin(ShuangpinScheme::new(profile)),
             SchemeType::Wubi => Self::Wubi(WubiScheme::new()),
             SchemeType::JapaneseRomaji => Self::Japanese(JapaneseRomajiScheme::new()),
             SchemeType::Korean => Self::Korean(KoreanScheme::new()),

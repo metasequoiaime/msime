@@ -33,7 +33,13 @@ int main() {
             "temporary Japanese keeps character fallback and ordinary input keeps paging");
     require(msime::mac::PhysicalCandidateDigitSlot(18) == 0 && msime::mac::PhysicalCandidateDigitSlot(25) == 8, "physical number row mapping");
     require(msime::mac::PhysicalCandidateDigitSlot(83) == 0 && msime::mac::PhysicalCandidateDigitSlot(92) == 8, "keypad digit mapping");
-    require(msime::mac::PhysicalCandidateDigitSlot(82) == -1 && msime::mac::PhysicalCandidateDigitSlot(29) == -1 && msime::mac::PhysicalCandidateDigitSlot(0) == -1, "non-candidate key codes rejected");
+    require(msime::mac::PhysicalCandidateDigitSlot(29) == 9 && msime::mac::PhysicalCandidateDigitSlot(82) == 9, "the 0 keys name the tenth slot");
+    require(msime::mac::PhysicalCandidateDigitSlot(0) == -1 && msime::mac::PhysicalCandidateDigitSlot(27) == -1, "non-candidate key codes rejected");
+    require(msime::mac::CandidateDigitSlotOnPage(9, 10) == 9, "0 picks the tenth candidate on a page of ten");
+    require(msime::mac::CandidateDigitSlotOnPage(9, 9) == -1 && msime::mac::CandidateDigitSlotOnPage(9, 6) == -1,
+            "below ten a page has no tenth slot, so 0 stays an ordinary key");
+    require(msime::mac::CandidateDigitSlotOnPage(8, 6) == 8 && msime::mac::CandidateDigitSlotOnPage(-1, 10) == -1,
+            "1-9 and non-digits are unchanged");
     require(msime::mac::ShouldRoutePhysicalCandidateDigit(true, false, false, false), "ordinary candidate digits route");
     require(!msime::mac::ShouldRoutePhysicalCandidateDigit(true, false, true, false), "digits a mode spells with reach the engine");
     require(!msime::mac::ShouldRoutePhysicalCandidateDigit(true, true, false, false), "nine-key digits reach the engine");
@@ -50,7 +56,8 @@ int main() {
     require(!msime::mac::ShouldRouteSpellingShiftCandidateDigit(true, true, true, true),
             "a shifted digit the mode spells with, such as ( in expression mode, stays input");
     require(msime::mac::PhysicalCandidateDigitCharacter(0) == '1' && msime::mac::PhysicalCandidateDigitCharacter(8) == '9' &&
-                msime::mac::PhysicalCandidateDigitCharacter(-1) == '\0' && msime::mac::PhysicalCandidateDigitCharacter(9) == '\0',
+                msime::mac::PhysicalCandidateDigitCharacter(-1) == '\0' && msime::mac::PhysicalCandidateDigitCharacter(9) == '0' &&
+                msime::mac::PhysicalCandidateDigitCharacter(10) == '\0',
             "candidate slots name the digit their key types");
     require(msime::mac::PhysicalKeySoundClass(49) == 1 && msime::mac::PhysicalKeySoundClass(36) == 2 &&
                 msime::mac::PhysicalKeySoundClass(76) == 2 && msime::mac::PhysicalKeySoundClass(51) == 3,

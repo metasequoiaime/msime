@@ -7,14 +7,15 @@
 
 namespace msime::mac
 {
-inline bool IsFullWidthInputToggle(unsigned short keyCode, NSEventModifierFlags modifiers)
+// `letter` 是按当前键盘布局认出的快捷键字母（见 InputControllerPhysicalKeys.h 的 `ShortcutLetter`），Option+Shift+H 按它匹配；空格在各布局上是同一个键，仍按 keyCode 认。
+inline bool IsFullWidthInputToggle(unsigned short keyCode, char letter, NSEventModifierFlags modifiers)
 {
     const NSEventModifierFlags allModifiers = NSEventModifierFlagCommand | NSEventModifierFlagControl |
         NSEventModifierFlagOption | NSEventModifierFlagShift;
     if (keyCode == kVK_Space && (modifiers & allModifiers) == (NSEventModifierFlagControl | NSEventModifierFlagShift)) return true;
     const NSEventModifierFlags competingModifiers =
         modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl);
-    return keyCode == kVK_ANSI_H && (modifiers & NSEventModifierFlagOption) != 0 &&
+    return letter == 'h' && (modifiers & NSEventModifierFlagOption) != 0 &&
            (modifiers & NSEventModifierFlagShift) != 0 && competingModifiers == 0;
 }
 

@@ -525,7 +525,7 @@ mod tests {
     fn shuangpin_merges_both_prefixes() {
         let dir = tempfile::tempdir().unwrap();
         let path = fixture(dir.path());
-        let xiaohe = crate::shuangpin::profile::profile(ShuangpinProfileKind::Xiaohe);
+        let xiaohe = crate::shuangpin::profile::profile(ShuangpinProfileKind::Xiaohe).unwrap();
         let emoji = query_emoji("xnlm", SchemeType::Shuangpin, &path, 10, xiaohe);
         assert_eq!(words(&emoji), ["😀", "😄", "raw shuangpin match"]);
         assert!(emoji.candidates.iter().all(|row| row.pinyin == "xnlm"));

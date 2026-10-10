@@ -9,8 +9,9 @@ namespace msime::mac {
 // by another host, or by hand - was silently rewritten rather than honoured. The reference this client
 // replicates offers three through nine, and the shared preferences accept one through nine, so the
 // range is theirs and out-of-range values are pulled to the nearest end instead of snapped to the top.
+// 共享偏好的上限后来放宽到 10（#6679），第十个候选用 0 键选，这里跟着放宽。
 constexpr size_t kMinimumCandidatePageSize = 1;
-constexpr size_t kMaximumCandidatePageSize = 9;
+constexpr size_t kMaximumCandidatePageSize = 10;
 // What the settings windows list, which is the reference's set rather than the whole accepted range:
 // one or two candidates a page is a document this host honours, not a choice it suggests.
 constexpr size_t kFirstOfferedCandidatePageSize = 3;

@@ -11,13 +11,15 @@ import { ActionButton } from "../action-button";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { downloadMirrorPrefix } from "../app-resources";
 import { mirrorDownloadUrl } from "../update-manifest";
+import { SystemInfoSection } from "../system-info-section";
+import { schemeTitle } from "../label-helpers";
 
 const privacyUrl = "https://msime.app/privacy/";
 const androidPrivacyUrl = "https://msime.app/privacy/";
 /** 当前运行的版本已是最新时 `useUpdateCheck` 报告的内容。 */
 const latestStatus = "已是最新版本";
 
-/** 设置表单的「关于」页：品牌头部、「版本与更新」（含原「其他平台下载」页的几行）和「许可与隐私」。卸载在「维护与诊断」。HarmonyOS（手机与 2in1）按新设计换成带版本行和检查更新胶囊的页首、「法律信息」组和单独的「隐私」组。 */
+/** 设置表单的「关于」页：品牌头部、「版本与更新」（含原「其他平台下载」页的几行）、「系统信息」（反馈问题时一键复制，#6644）和「许可与隐私」。卸载在「维护与诊断」。HarmonyOS（手机与 2in1）按新设计换成带版本行和检查更新胶囊的页首、「法律信息」组和单独的「隐私」组。 */
 export function AboutSettingsPage() {
   const {
     client,
@@ -35,6 +37,7 @@ export function AboutSettingsPage() {
     page,
     updateStatus,
     updateBusy,
+    updateCheckSupported,
     availableUpdate,
     currentAppVersion,
     openExternalUrl,
@@ -42,6 +45,7 @@ export function AboutSettingsPage() {
     installerTrust,
     chooseDataDirectory,
     selectPage,
+    host,
   } = useSettingsForm();
   const { onCheckForUpdate, onTelemetryChange } = createAboutSettingsActions({
     checkForUpdate,
@@ -88,7 +92,7 @@ export function AboutSettingsPage() {
             platformLabel={settingsPlatform === "hm2" ? "HarmonyOS 2in1" : "HarmonyOS"}
             update={updateBusy ? "checking" : latest ? "latest" : "idle"}
             updateStatus={updateBusy || latest ? undefined : updateStatus}
-            onCheckForUpdate={onCheckForUpdate}
+            onCheckForUpdate={updateCheckSupported ? onCheckForUpdate : undefined}
           />
         </GroupList>
         {(updateResult || !mobilePlatform) && (
@@ -115,7 +119,11 @@ export function AboutSettingsPage() {
             />
           </Row>
         </GroupList>
-        <TelemetrySection value={draft?.usage_reporting} onChange={onTelemetryChange} />
+        <TelemetrySection
+          value={draft?.usage_reporting}
+          onChange={onTelemetryChange}
+          onOpenDetails={() => selectPage("usage-reporting")}
+        />
       </SettingsPageFieldset>
     );
   }
@@ -135,16 +143,24 @@ export function AboutSettingsPage() {
               </p>
             )}
           </div>
-          <ActionButton
-            action={onCheckForUpdate}
-            className={`secondary ${doc.updateButton}`}
-            disabled={updateBusy}
-            label={updateBusy ? "正在检查…" : "检查更新"}
-          />
+          {updateCheckSupported && (
+            <ActionButton
+              action={onCheckForUpdate}
+              className={`secondary ${doc.updateButton}`}
+              disabled={updateBusy}
+              label={updateBusy ? "正在检查…" : "检查更新"}
+            />
+          )}
         </div>
         {updateResult}
         <OtherPlatformDownloadRows />
       </GroupList>
+      <SystemInfoSection
+        appVersion={currentAppVersion}
+        host={host}
+        scheme={schemeTitle(draft.scheme)}
+        copyText={client.copyText}
+      />
       <GroupList title="许可与隐私">
         <LinkRow
           title="开源许可协议"
@@ -153,7 +169,11 @@ export function AboutSettingsPage() {
         />
         {macosPlatform && <LicenseRows openThirdPartyLicenses={client.openThirdPartyLicenses} />}
         <LinkRow title="隐私政策" external onClick={openPrivacy} />
-        <TelemetryRow value={draft?.usage_reporting} onChange={onTelemetryChange} />
+        <TelemetryRow
+          value={draft?.usage_reporting}
+          onChange={onTelemetryChange}
+          onOpenDetails={() => selectPage("usage-reporting")}
+        />
       </GroupList>
     </SettingsPageFieldset>
   );

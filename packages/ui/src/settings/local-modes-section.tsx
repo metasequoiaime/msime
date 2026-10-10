@@ -49,7 +49,7 @@ const localModeRows: readonly [LocalModeKey, string, string][] = [
   [
     "date_time",
     "日期与时间快捷输入(T 模式)",
-    "中文模式下按 Shift+T，再输入 rq / riqi / date 输入日期，sj / shijian / time 输入时间，xq / xingqi / week 输入星期",
+    "中文模式下按 Shift+T，再输入 rq / riqi / date 输入日期，sj / shijian / time 输入时间，xq / xingqi / week 输入星期，nl / nongli / yinli 输入农历。打开时，拼音（含九键）直接输入 riqi / rq、shijian / sj、xingqi / xq、nongli / nl，日期、时间、星期、农历也会排在对应的词后面",
   ],
   [
     "unicode",
@@ -93,7 +93,7 @@ const triggerModeRows: readonly [LocalModeKey, string, string][] = [
   [
     "command",
     "指令(/ 模式)",
-    "中文标点下没有输入时按 /，再输入指令字母：rq 日期、sj 时间、xq 星期、fy 翻译（fy 后输入英文，' 分隔单词，首选为中文译文），以及「插件」页启用的指令表。空格上屏；数字选词",
+    "中文标点下没有输入时按 /，再输入指令字母：rq 日期、sj 时间、xq 星期、nl 农历、fy 翻译（fy 后输入英文，' 分隔单词，首选为中文译文），以及「插件」页启用的指令表。空格上屏；数字选词",
   ],
   [
     "mention",
@@ -115,7 +115,7 @@ const commandTranslationNotice =
 
 const iosLocalModeDescriptions: Partial<Record<LocalModeKey, string>> = {
   quick_phrase: `${iosLocalModeEntry("快捷短语")}再输入编码即可调用快捷短语`,
-  date_time: `${iosLocalModeEntry("日期时间")}再输入 rq / riqi / date 输入日期，sj / shijian / time 输入时间，xq / xingqi / week 输入星期`,
+  date_time: `${iosLocalModeEntry("日期时间")}再输入 rq / riqi / date 输入日期，sj / shijian / time 输入时间，xq / xingqi / week 输入星期，nl / nongli / yinli 输入农历。打开时，拼音（含九键）直接输入 riqi / rq、shijian / sj、xingqi / xq、nongli / nl，日期、时间、星期、农历也会排在对应的词后面`,
   unicode: `${iosLocalModeEntry("Unicode 码点")}再输入十六进制码位（如 4e00 / +1f600）。空格或点候选上屏`,
   emoji: `${iosLocalModeEntry("表情")}再输入全拼 / 简拼 / 双拼 / 英文关键词。空格或点候选上屏`,
   kaomoji: `${iosLocalModeEntry("颜文字")}再输入全拼 / 简拼 / 双拼 / 英文关键词。空格或点候选上屏`,

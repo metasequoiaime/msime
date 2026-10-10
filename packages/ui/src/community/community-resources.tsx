@@ -95,6 +95,8 @@ export type CommunityLocalDictionaryClient = {
     text: string,
     requestId: string,
   ): Promise<{ applied: number }>;
+  /** 宿主有命名词库时，把共享词库装成一个独立的词库（之后可以在「词库」里停用或删除），代替逐条导入本机词库。 */
+  installCollection?(resource: CommunityResource): Promise<void>;
 };
 
 export interface CommunityResourceClient {
@@ -128,18 +130,33 @@ export interface CommunityResourceClient {
   ): Promise<void>;
 }
 
-/** 宿主能否把词条导入本机词库。 */
+/** 宿主能否把共享词库装到本机：装成命名词库，或导入本机词库。 */
 function importsLocally(
   dictionary: CommunityLocalDictionaryClient | undefined,
-): dictionary is Required<CommunityLocalDictionaryClient> {
-  return Boolean(dictionary?.import);
+): dictionary is CommunityLocalDictionaryClient {
+  return Boolean(dictionary?.installCollection || dictionary?.import);
 }
 
-/**
- * 把共享词库的词条导入本机词库，每种词条类型发一次请求，返回实际应用的词条数。详情页的「导入这版词库到本机」和 HarmonyOS 行上的「添加」都走这里。
- */
+/** 把共享词库装到本机，返回要提示的话：有命名词库时装成一个词库，否则把词条导入本机词库。详情页的「导入这版词库到本机」和 HarmonyOS 行上的「添加」都走这里。 */
+async function installCommunityDictionaryLocally(
+  dictionary: CommunityLocalDictionaryClient,
+  item: CommunityResource,
+): Promise<string> {
+  if (dictionary.installCollection) {
+    await dictionary.installCollection(item);
+    return `已添加「${item.name}」，可以在「词库」里停用或删除`;
+  }
+  if (!dictionary.import) return "";
+  const applied = await importCommunityDictionary(
+    { import: dictionary.import.bind(dictionary) },
+    item.content.entries ?? [],
+  );
+  return `已添加「${item.name}」，本机词库应用 ${applied} 个词条`;
+}
+
+/** 把共享词库的词条导入本机词库，每种词条类型发一次请求，返回实际应用的词条数。 */
 async function importCommunityDictionary(
-  dictionary: Required<CommunityLocalDictionaryClient>,
+  dictionary: Required<Pick<CommunityLocalDictionaryClient, "import">>,
   entries: readonly CommunitySharedWord[],
 ): Promise<number> {
   const groups = new Map<CommunitySharedWord["kind"], CommunitySharedWord[]>();
@@ -451,8 +468,17 @@ function ResourceDetail({
     });
   const applyLocal = () =>
     void run(async (generation) => {
-      if (!importsLocally(localDictionary)) return;
-      const applied = await importCommunityDictionary(localDictionary, item.content.entries ?? []);
+      if (localDictionary?.installCollection) {
+        await localDictionary.installCollection(item);
+        if (!mounted.current || generation !== clientGeneration.current) return;
+        setNotice(`已添加为词库「${item.name}」，可以在「词库」里停用或删除。`);
+        return;
+      }
+      if (!localDictionary?.import) return;
+      const applied = await importCommunityDictionary(
+        { import: localDictionary.import.bind(localDictionary) },
+        item.content.entries ?? [],
+      );
       if (!mounted.current || generation !== clientGeneration.current) return;
       setNotice(`已导入本机词库，应用 ${applied} 个词条。`);
     });
@@ -762,11 +788,7 @@ export function CommunityResourcesPage({
         // 列表里的副本可能比服务器将导入的版本旧，所以词条取自重新获取的详情，与详情页的做法相同。
         const latest = await client.detail(item.id);
         if (importsLocally(localDictionary)) {
-          const applied = await importCommunityDictionary(
-            localDictionary,
-            latest.content.entries ?? [],
-          );
-          toast(`已添加「${item.name}」，本机词库应用 ${applied} 个词条`);
+          toast(await installCommunityDictionaryLocally(localDictionary, latest));
         } else {
           const result = await client.apply(latest.id, latest.revision);
           toast(`已添加「${item.name}」，云端词库新增或更新 ${result.imported} 个词条`);

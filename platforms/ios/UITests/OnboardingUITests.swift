@@ -1213,6 +1213,62 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["统计"].waitForExistence(timeout: 5))
   }
 
+  /// 统计默认关闭，关闭时键盘不写入。页面只用「记录已关闭」说明原因，不能同时让人去开完全访问。
+  @MainActor
+  func testStatisticsOffShowsOnlyTheRecordingNotice() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["统计"].tap()
+    XCTAssertTrue(app.buttons["statisticsTab-0"].waitForExistence(timeout: 5))
+    let enable = app.buttons["typingStatisticsEnableNotice"]
+    // 模拟器上可能有别的运行打开过记录：先从菜单关掉，结束时再恢复。
+    let wasEnabled = !enable.waitForExistence(timeout: 5)
+    if wasEnabled {
+      app.buttons["statisticsMenu"].tap()
+      app.buttons["typingStatisticsEnabled"].tap()
+      XCTAssertTrue(enable.waitForExistence(timeout: 5))
+    }
+    XCTAssertFalse(app.staticTexts["统计没有数据"].exists)
+    if wasEnabled {
+      enable.tap()
+      XCTAssertTrue(wait(enable, until: "exists == false"))
+    }
+  }
+
+  /// 在 app 里开启记录就会写出统计文件，而没有完全访问的键盘不记录，页面停在计数为零。这时的提示要先让人确认「允许完全访问」。
+  @MainActor
+  func testEnablingRecordingWithZeroCountNamesFullAccess() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["统计"].tap()
+    XCTAssertTrue(app.buttons["statisticsTab-0"].waitForExistence(timeout: 5))
+    let enable = app.buttons["typingStatisticsEnableNotice"]
+    // 模拟器上可能有别的运行打开过记录：先从菜单关掉，结束时恢复成原来的状态。
+    let wasEnabled = !enable.waitForExistence(timeout: 5)
+    if wasEnabled {
+      app.buttons["statisticsMenu"].tap()
+      app.buttons["typingStatisticsEnabled"].tap()
+      XCTAssertTrue(enable.waitForExistence(timeout: 5))
+    }
+    enable.tap()
+    XCTAssertTrue(wait(enable, until: "exists == false"))
+    defer {
+      if !wasEnabled {
+        app.buttons["statisticsMenu"].tap()
+        app.buttons["typingStatisticsEnabled"].tap()
+        XCTAssertTrue(enable.waitForExistence(timeout: 5))
+      }
+    }
+    guard app.staticTexts["统计没有数据"].waitForExistence(timeout: 5) else {
+      throw XCTSkip("这台模拟器上已有统计计数，到不了计数为零的提示。")
+    }
+    let fullAccess = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "允许完全访问")).firstMatch
+    XCTAssertTrue(fullAccess.exists)
+    XCTAssertTrue(app.buttons["前往系统设置"].exists)
+  }
+
   @MainActor
   func testFetchingModelsRequiresKeyButNotModel() {
     let app = XCUIApplication()

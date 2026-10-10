@@ -26,6 +26,10 @@ enum class ReplyPath {
   NextPage,
   IgnoredNavigation
 };
+// How many letters the TIP drops from its own buffer when a Wubi commit takes AutoCommitAndContinue: the code the Engine held before the key, plus the key itself when the Engine holds nothing afterwards. The fourth letter of a unique code gives 3 + 1, a lowercase letter after a complete code (顶字) gives 4 and stays composing, and a capital the Engine does not take after a complete code goes out with the first candidate, giving 4 + 1. A letter typed ahead into the TIP buffer is never counted, so it survives every case.
+inline std::size_t wubi_continue_consumed(std::size_t code_before, bool composing_after) {
+  return code_before + (composing_after ? 0 : 1);
+}
 struct PendingReply {
   KeyResult source;
   std::optional<EncodedReply> encoded;
@@ -64,7 +68,8 @@ public:
   ReplyComposer(uint64_t client, uint64_t epoch);
   const PendingReply &
   stage(const KeyResult &result, ReplyPath path, bool uiless = false,
-        std::optional<std::string> local_text = std::nullopt);
+        std::optional<std::string> local_text = std::nullopt,
+        std::size_t continue_consumed = 4);
   // Normal input entry: enforce the pending-reply gate BEFORE advancing Engine.
   // LocalCommit also requires an Enter/raw-commit key and caller-observed text
   // equal to selected_prefix + Engine editing_text BEFORE clearing composition.
@@ -113,6 +118,10 @@ public:
       uint64_t epoch);
   // 韩文、注音、越南文或藏文的光标或编辑键（回车、Tab、方向键、Home/End、Page Up/Down、Delete），因前面的键还在排队而被 TIP 吃掉，或是 TIP 据以上屏的键，会结束当前组字。其他按键和方案返回空。
   std::optional<PendingReply> korean_syllable_end(
+      ServerSession &session, const FanyImeNamedpipeData &packet,
+      uint64_t epoch);
+  // 组字时 ';' 或 '\'' 选当前页第二、第三个候选，走和数字键相同的选词回复。规则与 TIP 共用 SecondThirdCandidatePolicy.h；不归它管的键返回空，Engine 不动。
+  std::optional<PendingReply> second_third_candidate(
       ServerSession &session, const FanyImeNamedpipeData &packet,
       uint64_t epoch);
   // Null: not an editing key; no Engine action. Non-null may have no frame

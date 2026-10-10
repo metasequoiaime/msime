@@ -543,6 +543,8 @@ mod tests {
         .unwrap();
         fs::remove_file(library.book_path("user-1")).unwrap();
         fs::hard_link(&outside_book, library.book_path("user-1")).unwrap();
+        msime_path_trust::open_to_other_users(library.book_path("user-1").parent().unwrap())
+            .unwrap();
 
         assert!(matches!(
             library.load("user-1"),

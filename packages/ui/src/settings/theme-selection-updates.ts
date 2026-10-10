@@ -2,7 +2,7 @@ import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-de
 import { customThemeBase, type CustomCandidateColors } from "../theme/global-theme";
 import type { Preferences } from "../index";
 
-/** Applies one candidate colour while preserving the active theme's base and clearing its package. */
+/** 应用一个候选颜色：保留当前主题作底，并清掉浅色、深色两个槽位的皮肤包。 */
 export function updateCandidateColor(
   current: Preferences,
   slot: keyof CustomCandidateColors,
@@ -18,6 +18,7 @@ export function updateCandidateColor(
           ...current.custom_theme,
           base: customThemeBase(current.global_theme ?? "system", current.custom_theme),
           candidate_skin: null,
+          candidate_skin_dark: null,
           candidate_colors: colors,
         }
       : { ...current.custom_theme, candidate_colors: colors },
@@ -38,6 +39,7 @@ export function updateCustomKeyboard(
           ...current.custom_theme,
           base: customThemeBase(current.global_theme ?? "system", current.custom_theme),
           candidate_skin: null,
+          candidate_skin_dark: null,
           keyboard: design,
         }
       : { ...current.custom_theme, keyboard: design },

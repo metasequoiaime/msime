@@ -53,11 +53,11 @@ jobs:
           umask 077
           printf '[general]\napiurl = https://api.opensuse.org\n\n[https://api.opensuse.org]\nuser = %s\npass = %s\ncredentials_mgr_class = osc.credentials.PlaintextConfigFileCredentialsManager\n' "$OBS_USER" "$OBS_PASSWORD" > "$config"
           echo "OSC_CONFIG=$config" >> "$GITHUB_ENV"
-      # 渲染脚本对着 SHA256SUMS 核对 MSIME_RELEASE_DIR 里的文件，上传用的就是核对过的这两个 tarball。
+      # 渲染脚本对着 SHA256SUMS 核对 MSIME_RELEASE_DIR 里的文件，上传用的就是核对过的这两个 tarball。两个架构的 .rpm 给 Arch 仓库：OBS 的 Arch 配方会跑 makepkg --allsource，PKGBUILD 列出的每个架构的 source 都要在包里（见 publish.sh）。0.11.0 之前的发布没有 aarch64 的 .rpm，匹配不到的模式 gh 不报错。
       - name: Download the release's source tarballs
         if: ${{ steps.check.outputs.skip == 'false' }}
         env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}", VERSION: "${{ inputs.version }}"}
-        run: gh release download "linux-v$VERSION" --dir target/release --pattern SHA256SUMS --pattern "msime-$VERSION.tar.xz" --pattern "msime-$VERSION-vendor.tar.xz" --pattern "msime-linux-$VERSION-1.x86_64.rpm"
+        run: gh release download "linux-v$VERSION" --dir target/release --pattern SHA256SUMS --pattern "msime-$VERSION.tar.xz" --pattern "msime-$VERSION-vendor.tar.xz" --pattern "msime-linux-$VERSION-1.x86_64.rpm" --pattern "msime-linux-$VERSION-1.aarch64.rpm"
       - name: Render the RPM, Debian and Arch definitions
         if: ${{ steps.check.outputs.skip == 'false' }}
         env: {VERSION: "${{ inputs.version }}", MSIME_DEFINITIONS: "rpm,debian,arch", MSIME_RELEASE_DIR: target/release}

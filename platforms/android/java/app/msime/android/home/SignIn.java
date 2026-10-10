@@ -7,16 +7,17 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Handler;
-import android.os.Looper;
 import androidx.core.content.ContextCompat;
 import app.msime.android.AppEdition;
 import app.msime.android.AppleWebSignIn;
 import app.msime.android.BackendAccount;
 import app.msime.android.CloudApi;
 import app.msime.android.GoogleSignInFlow;
+import app.msime.android.MainThreadPolicy;
 import app.msime.android.R;
 import app.msime.android.SyncSwitch;
 import app.msime.android.DictionarySnapshotQueue;
+import app.msime.android.ThreadPolicy;
 import java.io.File;
 import app.msime.android.TextPolicy;
 import java.util.function.Consumer;
@@ -34,7 +35,7 @@ final class SignIn {
     /** 一次邮箱验证码请求的结果：成功时 `challenge` 非空，失败时 `failure` 是给人看的一句话。 */
     record EmailCode(BackendAccount.EmailChallenge challenge, String failure) {}
 
-    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final Handler MAIN = MainThreadPolicy.mainHandler();
     /** 等 Apple 回调的那个界面；回调到达时在主线程上收到空字符串（成功）或失败说明。只此一个，新流程覆盖旧流程。 */
     private static Consumer<String> appleWaiter;
 
@@ -294,6 +295,6 @@ final class SignIn {
     }
 
     private static void offMainThread(Runnable work) {
-        new Thread(work, "msime-sign-in").start();
+        ThreadPolicy.startNamedThread("msime-sign-in", work);
     }
 }

@@ -5,10 +5,14 @@ import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.WindowInsets;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputConnectionWrapper;
 import android.view.WindowInsetsController;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.content.Context;
 import android.view.inputmethod.InputMethodManager;
 import android.view.WindowManager;
 import app.msime.android.WindowLayout;
@@ -39,7 +43,30 @@ public final class EditorActivity extends Activity {
         password.setHint("Password editor");
         showImeOnFocus(password);
         layout.addView(password);
+        EditText cursorAtEnd = new CursorAtEndEditText(this);
+        cursorAtEnd.setInputType(InputType.TYPE_CLASS_TEXT);
+        cursorAtEnd.setContentDescription("msime-test-cursor-at-end");
+        cursorAtEnd.setHint("Editor that ignores newCursorPosition");
+        showImeOnFocus(cursorAtEnd);
+        layout.addView(cursorAtEnd);
         setContentView(layout);
+    }
+
+    /**
+     * 不认 `commitText` 第二个参数的编辑器：不管输入法传多少，都当作 1，光标落在新文字后面。#6458 里 vivo「信息」和系统设置的搜索框就是这样，输入法用 `commitText(closing, 0)` 补上的后半个把光标带到了括号外面；这个输入框在模拟器上重现那种行为。
+     */
+    private static final class CursorAtEndEditText extends EditText {
+        CursorAtEndEditText(Context context) { super(context); }
+
+        @Override public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+            InputConnection connection = super.onCreateInputConnection(outAttrs);
+            if (connection == null) return null;
+            return new InputConnectionWrapper(connection, false) {
+                @Override public boolean commitText(CharSequence text, int newCursorPosition) {
+                    return super.commitText(text, 1);
+                }
+            };
+        }
     }
 
     private void showImeOnFocus(EditText editor) {

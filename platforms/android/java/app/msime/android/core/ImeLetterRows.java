@@ -461,6 +461,12 @@ final class ImeLetterRows {
             s.imeStyler.applyKeyboardGeometry();
             return;
         }
+        // 26 键的「123」在偏好 `touch_twenty_six_key_number_layout` 选了九宫格时换成拼音九键的数字键面；底栏的 ABC（韩文是 한）回到 26 键字母层。
+        if (s.twentySixKeyDigitFace()) {
+            s.imeLayoutRows.rebuildNineKeyRows();
+            s.imeStyler.applyKeyboardGeometry();
+            return;
+        }
         if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
                 && drawsDesignLayer(s.displayedTouchLayout(s.view))) {
             rebuildDesignLayer();

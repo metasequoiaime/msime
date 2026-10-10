@@ -52,10 +52,10 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn('request.setValue("multipart/form-data; boundary=', swift)
         self.assertIn("willPerformHTTPRedirection", swift)
         self.assertIn("private static let maximumResponseBytes = 1024 * 1024", swift)
-        self.assertIn(
-            '["openai", "siliconflow", "groq", "everyapi", "mistral"].contains(args.provider)', swift
-        )
-        self.assertIn('args.provider == "doubao"', swift)
+        # 插件按共享层给出的请求格式挑请求构造，不再按 provider 名字判断（#6017）。
+        self.assertIn('["multipart", "chat_audio"].contains(args.requestFormat)', swift)
+        self.assertIn('args.requestFormat == "doubao_websocket", args.provider == "doubao"', swift)
+        self.assertIn('"input_audio": ["data": "data:audio/wav;base64,"', swift)
         self.assertIn('components.scheme?.lowercased() == "wss"', swift)
         self.assertIn('@_silgen_name("msime_client_doubao_start_frame")', doubao)
         self.assertIn('@_silgen_name("msime_client_doubao_audio_frame")', doubao)

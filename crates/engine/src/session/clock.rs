@@ -1,19 +1,24 @@
 //! Injectable clocks. The personal-learning windows (3 s context keep, 8 s chain pause, 10 s pick-pair gap) read the steady clock and the date/time mode reads the local wall clock; tests replace both.
 
+use std::sync::Arc;
+
 use crate::time::Instant;
 
 use crate::local::date_time::LocalDateTime;
 
+/// 本地墙钟。九宫格会话也读它（组字里的日期时间行），所以和输入会话共用一份。
+pub type LocalClock = Arc<dyn Fn() -> LocalDateTime + Send + Sync>;
+
 pub struct Clock {
     pub steady: Box<dyn Fn() -> Instant + Send>,
-    pub local: Box<dyn Fn() -> LocalDateTime + Send>,
+    pub local: LocalClock,
 }
 
 impl Default for Clock {
     fn default() -> Self {
         Self {
             steady: Box::new(Instant::now),
-            local: Box::new(default_local),
+            local: Arc::new(default_local),
         }
     }
 }

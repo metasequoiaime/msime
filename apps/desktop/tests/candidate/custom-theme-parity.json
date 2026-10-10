@@ -91,7 +91,7 @@
   {
     "base": "night",
     "colors": {},
-    "dark": false,
+    "dark": true,
     "expected": {
       "accent": "#4FD1C5",
       "border": "#0000001F",
@@ -189,7 +189,7 @@
   {
     "base": "ink",
     "colors": {},
-    "dark": false,
+    "dark": true,
     "expected": {
       "accent": "#FFFFFF",
       "border": "#0000001F",
@@ -203,7 +203,7 @@
       "surface": "#1A1A1A",
       "text": "#9A9A9A"
     },
-    "name": "a built-in base fixes the mode even when the package does not declare it",
+    "name": "a package that does not declare its base's mode leaves the base unchanged",
     "package": {
       "candidate": {
         "dark": {
@@ -403,6 +403,53 @@
         "light": {
           "accent": "#AA0000",
           "selected": "#11111180"
+        }
+      },
+      "themes": ["light"]
+    }
+  },
+  {
+    "base": "night",
+    "colors": {
+      "hover": "#010203"
+    },
+    "dark": false,
+    "expected": {
+      "accent": null,
+      "border": null,
+      "hover": "#010203",
+      "number": null,
+      "secondary": null,
+      "selected": null,
+      "selected_number": null,
+      "selected_text": null,
+      "show_selected_bar": null,
+      "surface": null,
+      "text": null
+    },
+    "name": "a dark package is not drawn in light mode and the base follows the host",
+    "package": {
+      "candidate": {
+        "dark": {
+          "accent": "#FF69B4",
+          "surface": "#102030"
+        },
+        "light": {}
+      },
+      "themes": ["dark"]
+    }
+  },
+  {
+    "base": "paper",
+    "colors": {},
+    "dark": true,
+    "expected": null,
+    "name": "a light package is not drawn in dark mode",
+    "package": {
+      "candidate": {
+        "dark": {},
+        "light": {
+          "surface": "#FFF0F5"
         }
       },
       "themes": ["light"]

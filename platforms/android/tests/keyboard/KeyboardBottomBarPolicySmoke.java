@@ -8,6 +8,7 @@ public final class KeyboardBottomBarPolicySmoke {
         navigationHeight();
         otherStates();
         bottomMargin();
+        bottomPadding();
         System.out.println("KeyboardBottomBarPolicySmoke ok");
     }
 
@@ -47,6 +48,18 @@ public final class KeyboardBottomBarPolicySmoke {
         // 隐藏手势条：导航栏 0，手势区仍在。
         check(KeyboardBottomBarPolicy.barBottomPx(0, 0, 60) == 60, "hidden gesture handle");
         check(KeyboardBottomBarPolicy.barBottomPx(-5, -5, -5) == 0, "negative values clamp to zero");
+    }
+
+    private static void bottomPadding() {
+        // #6392：开了就垫，不看导航方式；关着（默认）时什么都不变。
+        check(KeyboardBottomBarPolicy.paddingShown(true, false, false, false, false), "padding when enabled");
+        check(!KeyboardBottomBarPolicy.paddingShown(false, false, false, false, false), "off by default leaves the keyboard as is");
+        // 底栏画着时不叠加：底栏已经把键区抬高了同样的距离。
+        check(!KeyboardBottomBarPolicy.paddingShown(true, true, false, false, false), "not stacked under the bottom bar");
+        check(!KeyboardBottomBarPolicy.paddingShown(true, false, true, false, false), "not under a floating keyboard");
+        check(!KeyboardBottomBarPolicy.paddingShown(true, false, false, true, false),
+            "not while a hardware keyboard collapses the keys");
+        check(!KeyboardBottomBarPolicy.paddingShown(true, false, false, false, true), "not on a phone in landscape");
     }
 
     private static void check(boolean condition, String message) {

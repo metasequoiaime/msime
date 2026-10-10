@@ -313,6 +313,9 @@ pub struct AccountTokens {
 pub struct SavedAccountSession {
     pub tokens: AccountTokens,
     pub expires_at_unix_ms: u64,
+    /// 刷新时保持不变；每次登录都会取得新 ID，即使用户相同。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<uuid::Uuid>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]

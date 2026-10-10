@@ -1,10 +1,57 @@
 import UIKit
 import XCTest
 
+private final class ClipboardAccountStorage: BackendSessionStorage, @unchecked Sendable {
+  private let lock = NSLock()
+  private var saved: BackendSavedSession?
+  init(_ saved: BackendSavedSession) { self.saved = saved }
+  func load() throws -> BackendSavedSession? { lock.withLock { saved } }
+  func save(_ value: BackendSavedSession) throws { lock.withLock { saved = value } }
+  func clear() throws { lock.withLock { saved = nil } }
+}
+
+private struct ClipboardSharedRefreshLock: BackendRefreshLock {
+  var sharedAcrossProcesses: Bool { true }
+  func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T { try await body() }
+}
+
+private final class ClipboardAccountProtocol: URLProtocol, @unchecked Sendable {
+  static let oldToken = String(repeating: "a", count: 64)
+  static let newToken = String(repeating: "b", count: 64)
+  private static let lock = NSLock()
+  private static var recorded: [String] = []
+  private static var onRejection: (() -> Void)?
+  static var authorizations: [String] { lock.withLock { recorded } }
+  static func reset(onRejection: @escaping () -> Void) {
+    lock.withLock { recorded = []; Self.onRejection = onRejection }
+  }
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let authorization = request.value(forHTTPHeaderField: "Authorization") ?? ""
+    let onRejection = Self.lock.withLock { () -> (() -> Void)? in
+      Self.recorded.append(authorization)
+      defer { Self.onRejection = nil }
+      return Self.onRejection
+    }
+    let rejected = authorization == "Bearer \(Self.oldToken)"
+    if rejected { onRejection?() }
+    let response = HTTPURLResponse(url: request.url!, statusCode: rejected ? 401 : 201,
+                                   httpVersion: nil, headerFields: ["Content-Type":"application/json"])!
+    let body = rejected ? #"{"error":{"code":"invalid_credentials"}}"# :
+      "{\"id\":\"\(String(repeating: "c", count: 64))\",\"text\":\"合成剪贴板文本\",\"updated_at\":\"synthetic-time\"}"
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 /// A stand-in for the account's cloud clipboard: no request leaves the test process.
 private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecked Sendable {
   private let lock = NSLock()
   private var signedInValue: Bool
+  private var accountSessionID = UUID()
   private var enabledValue: Bool
   private var stored: [BackendAccountClient.ClipboardItem]
   private var failure: Error?
@@ -34,9 +81,20 @@ private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecke
   var isHolding: Bool { lock.withLock { gate != nil } }
   func holdPageAfterNextAdd() { lock.withLock { holdPageAfterAdd = true } }
   func replace(_ texts: [String]) { lock.withLock { stored = texts.enumerated().map { Self.item($0.element, index: $0.offset + 20) } } }
+  func switchAccount(items: [String]) {
+    lock.withLock {
+      accountSessionID = UUID()
+      stored = items.enumerated().map { Self.item($0.element, index: $0.offset + 40) }
+    }
+  }
 
-  func isSignedIn() async -> Bool { lock.withLock { signedInValue } }
-  func page() async throws -> BackendAccountClient.ClipboardPage {
+  func binding() async throws -> KeyboardCloudClipboardBinding? {
+    lock.withLock { signedInValue ? .init(userID: "synthetic-user", sessionID: accountSessionID) : nil }
+  }
+  func matches(_ binding: KeyboardCloudClipboardBinding) async -> Bool {
+    lock.withLock { signedInValue && binding.userID == "synthetic-user" && binding.sessionID == accountSessionID }
+  }
+  func page(matching binding: KeyboardCloudClipboardBinding) async throws -> BackendAccountClient.ClipboardPage {
     let shouldHold = lock.withLock { () -> Bool in
       pages += 1
       defer { holds = false }
@@ -51,8 +109,11 @@ private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecke
     let data = try JSONSerialization.data(withJSONObject: ["enabled": enabled, "items": rows])
     return try JSONDecoder().decode(BackendAccountClient.ClipboardPage.self, from: data)
   }
-  func add(_ text: String) async throws {
+  func add(_ text: String, matching binding: KeyboardCloudClipboardBinding) async throws {
     try lock.withLock {
+      guard signedInValue && binding.userID == "synthetic-user" && binding.sessionID == accountSessionID else {
+        throw CancellationError()
+      }
       if let failure { throw failure }
       uploadLog.append(text)
       stored.insert(Self.item(text, index: stored.count + 1), at: 0)
@@ -66,6 +127,59 @@ private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecke
 
 @MainActor
 final class KeyboardCloudClipboardTests: XCTestCase {
+  func testUploadNeverUsesTheReplacementAccountsToken() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ClipboardAccountProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let original = BackendAccountClient.Tokens(access_token: ClipboardAccountProtocol.oldToken,
+      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-user", display_name: "示例", created_at: "2026-09-08"))
+    let replacement = BackendAccountClient.Tokens(access_token: ClipboardAccountProtocol.newToken,
+      refresh_token: String(repeating: "e", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "other-synthetic-user", display_name: "另一个账号", created_at: "2026-09-08"))
+    let storage = ClipboardAccountStorage(try BackendSavedSession.forTokens(original))
+    let session = BackendAccountSession(api: client, storage: storage, refreshLock: ClipboardSharedRefreshLock())
+    let service = BackendKeyboardCloudClipboardService(session: session, client: client)
+    let captured = try await service.binding()
+    let binding = try XCTUnwrap(captured)
+    try storage.save(BackendSavedSession.forTokens(replacement))
+    ClipboardAccountProtocol.reset(onRejection: {})
+
+    do {
+      try await service.add("合成剪贴板文本", matching: binding)
+      XCTFail("the old panel must not upload through the replacement login")
+    } catch is CancellationError { }
+    XCTAssertTrue(ClipboardAccountProtocol.authorizations.isEmpty)
+  }
+
+  func testRejectedUploadDoesNotRetryAsAnotherAccount() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ClipboardAccountProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let original = BackendAccountClient.Tokens(access_token: ClipboardAccountProtocol.oldToken,
+      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-user", display_name: "示例", created_at: "2026-09-08"))
+    let storage = ClipboardAccountStorage(try BackendSavedSession.forTokens(original))
+    let session = BackendAccountSession(api: client, storage: storage,
+                                        refreshLock: BackendProcessRefreshLock())
+    let replacement = BackendAccountClient.Tokens(access_token: ClipboardAccountProtocol.newToken,
+      refresh_token: String(repeating: "e", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "other-synthetic-user", display_name: "另一个账号", created_at: "2026-09-08"))
+    ClipboardAccountProtocol.reset(onRejection: {
+      try? storage.save(try BackendSavedSession.forTokens(replacement))
+    })
+    let service = BackendKeyboardCloudClipboardService(session: session, client: client)
+
+    do {
+      let captured = try await service.binding()
+      let binding = try XCTUnwrap(captured)
+      try await service.add("合成剪贴板文本", matching: binding)
+      XCTFail("old account clipboard text must not be retried as the new account")
+    } catch is CancellationError { }
+    XCTAssertEqual(ClipboardAccountProtocol.authorizations,
+                   ["Bearer \(ClipboardAccountProtocol.oldToken)"])
+  }
+
   private func temporaryStore() throws -> ClipboardHistoryStore {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
@@ -107,6 +221,7 @@ final class KeyboardCloudClipboardTests: XCTestCase {
     let table = try XCTUnwrap(panel.subviews.compactMap { $0 as? UITableView }.first)
     XCTAssertEqual(table.numberOfRows(inSection: 0), 2)
     panel.tableView(table, didSelectRowAt: IndexPath(row: 1, section: 0))
+    await settle(cloud) { inserted.count == 1 }
     XCTAssertEqual(inserted, ["synthetic cloud two"])
 
     try control("refreshCloudClipboard", in: panel).sendActions(for: .primaryActionTriggered)
@@ -117,6 +232,46 @@ final class KeyboardCloudClipboardTests: XCTestCase {
     source.sendActions(for: .valueChanged)
     XCTAssertFalse(panel.showsCloud)
     XCTAssertFalse(try control("captureClipboard", in: panel).isHidden)
+  }
+
+  func testAccountSwitchCannotInsertACachedCloudRow() async throws {
+    let service = FakeCloudClipboard(items: ["账号 A 的合成文本"])
+    let cloud = KeyboardCloudClipboard(hasFullAccess: true, service: service)
+    var inserted: [String] = []
+    let panel = KeyboardClipboardView(hasFullAccess: true, store: try temporaryStore(), cloud: cloud,
+                                      onInsert: { inserted.append($0) }, onClose: {})
+    await settle(cloud) { cloud.items.count == 1 }
+    let source = try control("clipboardSource", in: panel, as: UISegmentedControl.self)
+    source.selectedSegmentIndex = 1
+    source.sendActions(for: .valueChanged)
+    let table = try XCTUnwrap(panel.subviews.compactMap { $0 as? UITableView }.first)
+    service.switchAccount(items: ["账号 B 的合成文本"])
+    panel.tableView(table, didSelectRowAt: IndexPath(row: 0, section: 0))
+    await settle(cloud) { cloud.items.first?.text == "账号 B 的合成文本" }
+    XCTAssertTrue(inserted.isEmpty, "a cached row from the previous account must not enter the editor")
+  }
+
+  func testAccountSwitchCannotUploadFromAnOldPanel() async {
+    let service = FakeCloudClipboard(items: [])
+    let cloud = KeyboardCloudClipboard(hasFullAccess: true, service: service)
+    cloud.refresh()
+    await settle(cloud) { cloud.canUpload }
+    service.switchAccount(items: [])
+    cloud.upload("账号 A 面板中的合成文本")
+    await settle(cloud) { !cloud.uploading && service.pageCount >= 2 }
+    XCTAssertTrue(service.uploads.isEmpty, "an old panel must not send to the new account")
+  }
+
+  func testAccountSwitchDropsALatePageFromTheOldAccount() async {
+    let service = FakeCloudClipboard(items: ["账号 A 的迟到文本"])
+    service.holdNextPage()
+    let cloud = KeyboardCloudClipboard(hasFullAccess: true, service: service)
+    cloud.refresh()
+    await settle(cloud) { service.isHolding }
+    service.switchAccount(items: ["账号 B 的文本"])
+    service.release()
+    await settle(cloud) { cloud.items.first?.text == "账号 B 的文本" }
+    XCTAssertEqual(cloud.items.map(\.text), ["账号 B 的文本"])
   }
 
   func testSignedOutDisabledAndNoFullAccessStates() async throws {

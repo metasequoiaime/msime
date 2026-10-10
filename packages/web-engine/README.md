@@ -18,7 +18,7 @@ attachInput(document.querySelector("textarea"), engine);
 | `assets/msime-wubi86.db.gz` | 约 3.6 MB | 五笔 86 词库 |
 | `assets/msime-japanese.dat.gz` | 约 5.3 MB | 日语模型（Mozc 词典裁剪版），只用于日语 |
 | `assets/sentence-model.safetensors.gz` | 约 4 MB | 整句模型，只用于拼音，可以不下载 |
-| `assets/helpcode-<方案>.txt.gz` | 每张 26–82 KB，六张共约 290 KB | 辅助码表，只在全拼或双拼打开辅助码时下载用到的那一张（见下文「辅助码」） |
+| `assets/helpcode-<方案>.txt.gz` | 每张 26–82 KB，七张共约 350 KB | 辅助码表，只在全拼或双拼打开辅助码时下载用到的那一张（见下文「辅助码」） |
 | `assets/NOTICE.md` | | 第三方许可声明，部署时请一并发布 |
 
 每个页面只下载用到的方案：全拼约 16 MB，不要整句模型约 12 MB，五笔约 8 MB，日语约 9 MB，韩文只要引擎约 4 MB；打开辅助码再多几十 KB。浏览器会按 HTTP 缓存规则缓存这些文件。
@@ -105,7 +105,7 @@ const engine = await createMsimeEngine({ scheme: "quanpin", assetBase: "/msime/a
 - `assetBase`：资源目录的 URL，相对地址按页面解析。
 - `model`：拼音方案是否下载整句模型，默认 `true`。
 - `helpcode`：辅助码方案（`HELPCODES` 里的一个名字），默认 `null`，即关闭。只对全拼和双拼起作用，其他方案忽略它、也不下载表。
-- `pageSize`：每页候选数，默认 9。
+- `pageSize`：每页候选数，1–10，默认 9。数字键 1–9 选前九个，0 选第十个。
 - `onProgress(loaded, total)`：下载进度。
 - `worker`：自定义 Worker，例如 CSP 不允许 `blob:` 时自己托管 `worker.js`。
 
@@ -149,7 +149,7 @@ attachInput(textarea, engine, { skin: "wechat", layout: "vertical", dark: "auto"
 
 帧里每个候选的 `hint` 是它的辅助码提示，例如 `(cD)`：单字是它的两码，词是首字和末字的首码；全拼全大写，双拼只大写第二码。关闭辅助码时为空串。默认候选栏有提示就显示在候选后（`::part(code)`）。
 
-内置六套辅助码表，`HELPCODES` 导出它们的名字。任何一套都能配全拼和任何一种双拼，通常按习惯配对：
+内置七套辅助码表，`HELPCODES` 导出它们的名字。任何一套都能配全拼和任何一种双拼，通常按习惯配对：
 
 | 名字 | 方案 | 常见搭配 |
 | --- | --- | --- |
@@ -159,6 +159,7 @@ attachInput(textarea, engine, { skin: "wechat", layout: "vertical", dark: "auto"
 | `shouyouplus` | 首右 plus | 不限双拼 |
 | `xiaohe` | 小鹤形码 | 小鹤双拼 |
 | `jiajia` | 加加辅助码 | 拼音加加的双拼（网页引擎没有这套键位，可配其他双拼） |
+| `wubi86` | 五笔 86：每字取 86 五笔全码的前两码 | 不限双拼，会五笔的人用 |
 
 ```js
 const engine = await createMsimeEngine({ scheme: "xiaohe", helpcode: "xiaohe" });
@@ -166,7 +167,7 @@ await engine.setHelpcode(null);       // 关闭
 await engine.setHelpcode("lantian");  // 换一套，首次下载这张表
 ```
 
-这些表复现的是各家已发表的辅助码方案，没有拿到明确的再分发授权，GPL-3.0 不覆盖它们，`jiajia` 还有一部分条目来自商业软件拼音加加的数据表；来源和限制见 `assets/NOTICE.md` 的「辅助码表」。部署到公开站点前请确认可以分发；不能分发时用 `copy --no-helpcode` 不复制它们，打开辅助码会以 `network` 失败，其余功能不受影响。
+除 `wubi86` 外，这些表复现的是各家已发表的辅助码方案，没有拿到明确的再分发授权，GPL-3.0 不覆盖它们，`jiajia` 还有一部分条目来自商业软件拼音加加的数据表；`wubi86` 由本项目从极点 86 五笔码表（Apache-2.0）生成，可以分发。来源和限制见 `assets/NOTICE.md` 的「辅助码表」。部署到公开站点前请确认可以分发；不能分发时用 `copy --no-helpcode` 不复制它们，打开辅助码会以 `network` 失败，其余功能不受影响。
 
 ## 候选框皮肤
 

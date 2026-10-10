@@ -55,7 +55,7 @@ import {
   COMBO_IDLE_RESET_MILLIS, TypingEffect, TypingEffectPolicy, TypingEffectSettings
 } from './TypingEffectPolicy';
 import { HitOffset, KeyboardGeometry } from './KeyboardGeometry';
-import { NineKeyLayout, NineKey } from './input/NineKeyLayout';
+import { NineKeyLayout, NineKey, TwentySixKeyNumberLayout } from './input/NineKeyLayout';
 import { LayerCharacterRoute, LayerKey, LayerKeyKind, NumberSymbolLayout } from './input/NumberSymbolLayout';
 import {
   NineKeyPanelBackspace, NineKeyPanelMode, NineKeyPanelPolicy, NineKeyStroke
@@ -82,9 +82,10 @@ import { SurfaceRoutingPolicy } from './SurfaceRoutingPolicy';
 import { ClipboardHistoryItem, ClipboardFailure } from './clipboard/ClipboardHistoryStore';
 import { ClipboardHistoryPolicy } from './clipboard/ClipboardHistoryPolicy';
 import {
-  CLOUD_CLIPBOARD_SEND, CLOUD_CLIPBOARD_TAB, CloudClipboardItem, CloudClipboardListing, CloudClipboardPolicy,
+  CLOUD_CLIPBOARD_SEND, CLOUD_CLIPBOARD_TAB, CloudClipboardItem, CloudClipboardPolicy,
   CloudClipboardSendOutcome, CloudClipboardState
 } from './clipboard/CloudClipboardPolicy';
+import { CloudClipboardBoundListing } from './clipboard/CloudClipboardClient';
 import componentSnapshot from '@ohos.arkui.componentSnapshot';
 import { image } from '@kit.ImageKit';
 import { textRecognition } from '@kit.CoreVisionKit';
@@ -435,6 +436,8 @@ const DESKTOP_EMOJI_PANEL_TABS: EmojiPanelTab[] = EMOJI_PANEL_TABS.concat([
 // reads for system applications and this is not one.
 const CLIPBOARD_NOT_PERMITTED: string =
   '系统未授予读取剪贴板的权限，第三方输入法无法保存剪贴板历史。';
+// 不说「已在设置中关闭」：API 12 起键盘读的是自己沙箱里那份偏好，设置页的开关传不过来（platforms/harmony/README.md「输入法扩展的独立沙箱」），设置页显示开着时这句话就是错的。开关因此放在面板里，见 enableClipboardHistory。
+const CLIPBOARD_HISTORY_OFF: string = '剪贴板历史未开启';
 
 const CHINESE_SYMBOL_FACES: Map<string, string> = new Map<string, string>([
   [',', '，'], ['.', '。'], ['?', '？'], ['!', '！'], [';', '；'], [':', '：'],
@@ -518,6 +521,8 @@ struct KeyboardView {
   private cloudSendRequest: number = 0;
   /** The editor the cloud listing on screen was fetched for. */
   private cloudEditor: number = -1;
+  /** Digest of the login that supplied the visible rows; never a credential. */
+  private cloudBinding: string = '';
   // Every item of a panel with its keywords, read once per panel the first time it is searched.
   private emojiSearchIndex: Map<string, EmojiItem[]> = new Map<string, EmojiItem[]>();
   // The keywords of every item the panel has read, so a 2in1 hover can name it; recents that were never read show no name.
@@ -617,6 +622,10 @@ struct KeyboardView {
   @State panelResetToken: number = 0;
   /** 九键数字层的排列，`NumberKeypadOrder` 的取值。 */
   @State numberKeypadOrder: string = KeyboardSession.shared.preferences().numberKeypadOrder;
+  /** 26 键按「123」切到的数字层，`TwentySixKeyNumberLayout` 的取值。 */
+  @State twentySixKeyNumberLayout: string = KeyboardSession.shared.preferences().twentySixKeyNumberLayout;
+  /** 共享偏好 `touch_shuangpin_key_hints`：关掉时 26 键双拼的字母键不画声母/韵母提示。 */
+  @State shuangpinKeyHints: boolean = KeyboardSession.shared.preferences().shuangpinKeyHints;
 
   /** 按下的键变暗和缩小的程度：触屏上是设计稿的 .86 和 .96；2in1 上保持不变，它的设备形态在进程存续期间不会改变。 */
   private readonly keyPressedBrightness: number = KeyboardFormFactor.isDesktop() ? 1 : KEY_PRESSED_BRIGHTNESS;
@@ -700,7 +709,12 @@ struct KeyboardView {
     this.english = KeyboardSession.shared.isEnglish();
     this.clipboardEnabled = KeyboardSession.shared.clipboardHistoryAllowed();
     KeyboardSession.shared.onClipboardHistoryChanged = (enabled: boolean): void => {
+      const wasEnabled: boolean = this.clipboardEnabled;
       this.clipboardEnabled = enabled;
+      if (enabled && !wasEnabled) {
+        this.clips = KeyboardSession.shared.clipboardHistory();
+        this.clipboardNotice = '';
+      }
       if (!enabled) {
         this.clips = [];
         this.confirmingClear = false;
@@ -1027,7 +1041,7 @@ struct KeyboardView {
   /** The double-pinyin unit a key stands for, printed along its bottom edge while it means one. */
   private letterHint(letter: string): string {
     return ShuangpinKeyHintPolicy.hint(this.shuangpinProfile, letter, this.english,
-      this.engineScheme, this.localMode);
+      this.engineScheme, this.localMode, this.shuangpinKeyHints);
   }
 
   /**
@@ -1164,10 +1178,24 @@ struct KeyboardView {
     };
   }
 
-  /** 底排是否用网格面板那一套（「符」代替逗号，逗号等标点在侧栏）：九键拼音，或不在符号层的笔画键盘。 */
+  /** 底排是否用网格面板那一套（「符」代替逗号，逗号等标点在侧栏）：九键拼音，不在符号层的笔画键盘，或 26 键借用的九宫格数字层。 */
   private gridActionRow(): boolean {
     return KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode)
-      || (this.strokeFace() && !this.symbols);
+      || (this.strokeFace() && !this.symbols) || this.twentySixKeyDigitGrid();
+  }
+
+  /** 26 键的数字层是否画成九宫格数字层（共享偏好 `touch_twenty_six_key_number_layout` 为 `nine_key`），判断见 `TwentySixKeyNumberLayout.opensNineKeyDigits`。 */
+  private twentySixKeyDigitGrid(): boolean {
+    return TwentySixKeyNumberLayout.opensNineKeyDigits(this.twentySixKeyNumberLayout, this.touchDesign(),
+      this.symbols, this.twentySixKeyLetterRows());
+  }
+
+  /** 字母层是否由 26 键字母行画成：`typingFace` 里排在字母行之前、各有自己数字层或符号行的键面（假名网格、手写板、九键、注音大千、笔画）都不是。 */
+  private twentySixKeyLetterRows(): boolean {
+    return !this.japanese
+      && !KeyboardScheme.usesHandwritingFace(this.scheme, this.english, false, this.localMode)
+      && !KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode)
+      && !this.zhuyinFace() && !this.strokeFace();
   }
 
   private tapLetter(letter: string): void {
@@ -1951,7 +1979,7 @@ struct KeyboardView {
     this.resetEmojiSearch();
     if (panel === CLIPBOARD_PANEL) {
       this.clips = this.clipboardEnabled ? KeyboardSession.shared.clipboardHistory() : [];
-      this.clipboardNotice = this.clipboardEnabled ? '' : '剪贴板历史已在设置中关闭';
+      this.clipboardNotice = this.clipboardEnabled ? '' : CLIPBOARD_HISTORY_OFF;
       this.confirmingClear = false;
       this.openCloudClipboard();
       return;
@@ -2671,6 +2699,8 @@ struct KeyboardView {
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
     this.numberKeypadOrder = this.settings.numberKeypadOrder;
+    this.twentySixKeyNumberLayout = this.settings.twentySixKeyNumberLayout;
+    this.shuangpinKeyHints = this.settings.shuangpinKeyHints;
     // 取会话持有的副本而不是再读一次磁盘：会话在构建和每次获得焦点时读取，读不到时保留上次的值，视图跟着它就不会因一次读取失败把隐私模式等显示成关闭。
     this.feedback = KeyboardSession.shared.feedbackSettings();
     this.traditional = KeyboardSession.shared.usesTraditional();
@@ -2893,7 +2923,7 @@ struct KeyboardView {
     // and the digit layer would go on reading ABC, DEF, GHI. The twenty-six key rows never needed it
     // because their two layers hold different characters.
     // 大小写不在这里：字母键的键面和读屏文字在绘制时按大小写现算（见 `KeyOptions.letter`），自动大写切换时键节点保持不变，正按着的键不会被重建。
-    return `${this.english}:${this.localMode}:${this.shuangpinProfile}:`
+    return `${this.english}:${this.localMode}:${this.shuangpinProfile}:${this.shuangpinKeyHints}:`
       + `${this.engineScheme}:${this.scheme.preferenceId}:${this.symbols}:${this.moreSymbols}:`
       + `${this.skin.key()}`;
   }
@@ -4196,23 +4226,41 @@ struct KeyboardView {
     };
   }
 
-  /** 到这里结束的键面是否为触屏键盘的九键网格，它有自己的底行（`nineKeyActionRow`）。假名网格也是九键布局，但保留共享底行。 */
+  /** 到这里结束的键面是否为触屏键盘的九键网格，它有自己的底行（`nineKeyActionRow`）；26 键借用的九宫格数字层也是。假名网格也是九键布局，但保留共享底行。 */
   private touchNineKeyRow(): boolean {
-    return this.touchDesign() && !this.japanese && KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode);
+    return this.touchDesign() && !this.japanese
+      && (KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode) || this.twentySixKeyDigitGrid());
   }
 
   /** 0 在字母层上参与拼写，由 Engine 读取；在数字层上与其他九个数字一样直接输入。 */
   private typeNineKeyZero(): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey('0'));
     if (this.symbols) {
-      KeyboardSession.shared.punctuation(0x30);
-    } else {
-      KeyboardSession.shared.press(0x30, false);
+      this.typeNineKeyDigit('0');
+      return;
     }
+    KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey('0'));
+    KeyboardSession.shared.press(0x30, false);
   }
 
   /**
-   * 触屏九键键面的底行，按设计稿：123 1.25 | space 4.2 | 0 1.05 | 中 1.05 | return 1.6，中/英键紧挨回车，与字母键面的底行一致。标点在网格两侧的列里，所以这里没有逗号和句号，与 Android 一致；旧控制列上的 0 移到这里，即设计稿放它的位置。123 把网格重新标注为数字，在数字层上该键显示「九键」，即 Android 中这个网格的 `KeyboardActionRow.layerTitle`。
+   * 数字层上的一格数字。九键直接输入数字，不交给 Engine 当候选序号，键位记九宫格的那一格；26 键借用这一层时走它 123 层数字的同一条路（`tapSymbol`），键位按输入的数字记，与一行的 123 页记到同一个键上，统计页不会给只用 26 键的人多出一块九宫格；韩文、越南语、藏文和组字中的网址对数字的处理也与一行数字时一样。
+   */
+  private typeNineKeyDigit(digit: string): void {
+    if (this.twentySixKeyDigitGrid()) {
+      this.tapSymbol(digit);
+      return;
+    }
+    KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(digit));
+    KeyboardSession.shared.punctuation(digit.charCodeAt(0));
+  }
+
+  /** 九键底行第一个键在数字层上的键面：九键的数字层回到九键字母（「九键」），26 键借用的数字层回到 26 键字母（「返回」）。 */
+  private nineKeyLayerTitle(): string {
+    return this.twentySixKeyDigitGrid() ? '返回' : '九键';
+  }
+
+  /**
+   * 触屏九键键面的底行，按设计稿：123 1.25 | space 4.2 | 0 1.05 | 中 1.05 | return 1.6，中/英键紧挨回车，与字母键面的底行一致。标点在网格两侧的列里，所以这里没有逗号和句号，与 Android 一致；旧控制列上的 0 移到这里，即设计稿放它的位置。123 把网格重新标注为数字，在数字层上该键显示「九键」，即 Android 中这个网格的 `KeyboardActionRow.layerTitle`；26 键借用这一层时它显示「返回」，回到 26 键字母。
    */
   @Builder
   nineKeyActionRow() {
@@ -4220,7 +4268,7 @@ struct KeyboardView {
       // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。
       Column() {
         this.fixedKey({
-          face: this.symbols ? '九键' : '123',
+          face: this.symbols ? this.nineKeyLayerTitle() : '123',
           label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
           size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
           fontWeight: FUNCTION_LABEL_WEIGHT,
@@ -4397,10 +4445,7 @@ struct KeyboardView {
       // A digit is inserted, not spelled: the same call the twenty-six key symbol row makes for
       // its own digit row, rather than handing it to the Engine as a candidate position.
       action: this.symbols
-        ? () => {
-          KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
-          KeyboardSession.shared.punctuation(key.input.charCodeAt(0));
-        }
+        ? () => this.typeNineKeyDigit(key.input)
         : NineKeyLayout.opensSymbols(key)
         ? () => {
           KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
@@ -4883,7 +4928,7 @@ struct KeyboardView {
   private openClipboard(): void {
     this.show(SURFACE_CLIPBOARD);
     this.clips = this.clipboardEnabled ? KeyboardSession.shared.clipboardHistory() : [];
-    this.clipboardNotice = this.clipboardEnabled ? '' : '剪贴板历史已在设置中关闭';
+    this.clipboardNotice = this.clipboardEnabled ? '' : CLIPBOARD_HISTORY_OFF;
     this.confirmingClear = false;
     this.openCloudClipboard();
   }
@@ -4921,20 +4966,35 @@ struct KeyboardView {
       return;
     }
     const request: number = ++this.cloudRequest;
+    const previousBinding: string = this.cloudBinding;
     this.cloudEditor = KeyboardSession.shared.cloudClipboardEditor();
+    this.cloudBinding = '';
+    this.cloudClips = [];
+    this.cloudStateKnown = false;
     this.cloudLoading = true;
-    KeyboardSession.shared.cloudClipboardItems().then((listing: CloudClipboardListing | null): void => {
+    KeyboardSession.shared.cloudClipboardItems().then((listing: CloudClipboardBoundListing | null): void => {
       if (request !== this.cloudRequest) {
         return;
       }
       this.cloudLoading = false;
       if (listing === null) {
-        // The field changed while the request was out; what came back was fetched for another one.
+        // The editor or login changed while the request was out; never show its rows here.
         this.cloudClips = [];
-        this.cloudStateKnown = false;
+        this.cloudState = CloudClipboardState.FAILED;
+        this.cloudStateKnown = this.cloudEditor === KeyboardSession.shared.cloudClipboardEditor()
+          && this.cloudVisible;
+        if (previousBinding.length > 0) {
+          this.clipSendTarget = '';
+          this.invalidateCloudSend();
+        }
         return;
       }
+      if (previousBinding.length > 0 && listing.binding !== previousBinding) {
+        this.clipSendTarget = '';
+        this.invalidateCloudSend();
+      }
       this.cloudClips = listing.items;
+      this.cloudBinding = listing.binding ?? '';
       this.cloudState = listing.state;
       this.cloudStateKnown = true;
     });
@@ -4944,6 +5004,7 @@ struct KeyboardView {
   private dropCloudClipboard(): void {
     this.cloudRequest++;
     this.invalidateCloudSend();
+    this.cloudBinding = '';
     this.cloudClips = [];
     this.cloudStateKnown = false;
     this.cloudLoading = false;
@@ -5002,17 +5063,18 @@ struct KeyboardView {
   }
 
   private insertCloudClip(text: string): void {
-    if (KeyboardSession.shared.insertCloudClipboard(text, this.cloudEditor)) {
-      return;
-    }
-    // The listing was fetched for a field that no longer has focus; fetch again for this one rather than paste into it.
-    this.cloudVisible = KeyboardSession.shared.cloudClipboardVisible();
-    this.dropCloudClipboard();
-    if (this.cloudVisible) {
-      this.refreshCloudClipboard();
-    } else {
-      this.clipboardTab = CLIPBOARD_TAB_LOCAL;
-    }
+    const request: number = this.cloudRequest;
+    const editor: number = this.cloudEditor;
+    const binding: string = this.cloudBinding;
+    KeyboardSession.shared.cloudClipboardBindingCurrent(binding).then((current: boolean): void => {
+      if (request !== this.cloudRequest || !this.clipboardShowing() || binding !== this.cloudBinding) return;
+      if (current && KeyboardSession.shared.insertCloudClipboard(text, editor)) return;
+      // The editor or account changed while the row was visible; replace the old listing.
+      this.cloudVisible = KeyboardSession.shared.cloudClipboardVisible();
+      this.dropCloudClipboard();
+      if (this.cloudVisible) this.refreshCloudClipboard();
+      else this.clipboardTab = CLIPBOARD_TAB_LOCAL;
+    });
   }
 
   /** A long press on a local entry offers it to the cloud clipboard; nothing is sent until the user taps the action. */
@@ -5045,16 +5107,18 @@ struct KeyboardView {
 
   private sendClipToCloud(): void {
     const text: string = this.clipSendTarget;
-    if (this.cloudSending || text.length === 0 || this.cloudSendBlock() !== null) {
+    const binding: string = this.cloudBinding;
+    if (this.cloudSending || text.length === 0 || binding.length === 0 || this.cloudSendBlock() !== null) {
       return;
     }
     const request: number = ++this.cloudSendRequest;
     this.cloudSending = true;
-    KeyboardSession.shared.sendToCloudClipboard(text).then((outcome: CloudClipboardSendOutcome): void => {
+    KeyboardSession.shared.sendToCloudClipboard(text, binding).then((outcome: CloudClipboardSendOutcome): void => {
       if (!CloudClipboardPolicy.sendCurrent(request, this.cloudSendRequest)) {
         return;
       }
       this.cloudSending = false;
+      if (binding !== this.cloudBinding) return;
       if (this.clipSendTarget === text) {
         this.clipSendTarget = '';
       }
@@ -5074,7 +5138,7 @@ struct KeyboardView {
    */
   private captureClipboard(): void {
     if (!this.clipboardEnabled) {
-      this.clipboardNotice = '剪贴板历史已在设置中关闭';
+      this.clipboardNotice = CLIPBOARD_HISTORY_OFF;
       return;
     }
     KeyboardSession.shared.canReadClipboard().then((allowed: boolean): void => {
@@ -5310,9 +5374,18 @@ struct KeyboardView {
     }.width('100%').height(this.surfaceHeight())
   }
 
+  /** 面板里的「开启」：写键盘自己的那份偏好。写成功后会话回调 onClipboardHistoryChanged，列表和提示在那里换上。 */
+  private enableClipboardHistory(): void {
+    const changes: Map<string, Object> = new Map<string, Object>();
+    changes.set('clipboard_history', true);
+    if (!KeyboardSession.shared.changePreferences(changes)) {
+      this.clipboardNotice = '没能开启剪贴板历史，请稍后再试';
+    }
+  }
+
   private storeClipboardText(): void {
     if (!this.clipboardEnabled) {
-      this.clipboardNotice = '剪贴板历史已在设置中关闭';
+      this.clipboardNotice = CLIPBOARD_HISTORY_OFF;
       return;
     }
     if (!KeyboardSession.shared.clipboardCaptureAllowed()) {
@@ -5429,6 +5502,8 @@ struct KeyboardView {
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
     this.numberKeypadOrder = this.settings.numberKeypadOrder;
+    this.twentySixKeyNumberLayout = this.settings.twentySixKeyNumberLayout;
+    this.shuangpinKeyHints = this.settings.shuangpinKeyHints;
     KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
       this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
       this.settings.candidateFontSize, this.settings.candidatePreeditFontSize));
@@ -5506,7 +5581,7 @@ struct KeyboardView {
   private applyClipboardMutation(result: ClipboardHistoryMutation): void {
     if (!this.clipboardEnabled) {
       this.clips = [];
-      this.clipboardNotice = '剪贴板历史已在设置中关闭';
+      this.clipboardNotice = CLIPBOARD_HISTORY_OFF;
       this.show(SURFACE_NONE);
       return;
     }
@@ -6303,7 +6378,9 @@ struct KeyboardView {
    * 「输入方式」选择器的条目顺序：用户启用的方案，两种英文模式排第三，与 iOS 的位置相同（启用的方案较少时排最后），末尾是「添加语言」。
    */
   private schemePickerEntries(): SchemePickerEntry[] {
-    const schemes: SchemeDefinition[] = this.offeredSchemes();
+    // 双拼只列用户设置的那一种（#6450）。
+    const schemes: SchemeDefinition[] = KeyboardScheme.pickerSchemes(this.offeredSchemes(), this.scheme,
+      this.settings.shuangpinProfile);
     const entries: SchemePickerEntry[] = [];
     const englishAt: number = Math.min(ENGLISH_CARD_POSITION, schemes.length);
     for (let index: number = 0; index <= schemes.length; index++) {
@@ -7599,13 +7676,23 @@ struct KeyboardView {
         .layoutWeight(1)
       } else {
         if (this.clipboardNotice.length > 0) {
-          Text(this.clipboardNotice)
-            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(this.clipboardSkin().secondary)
-            .maxLines(2)
-            .width('100%')
-            .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-              right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+          Row({ space: CLIP_HEADER_ACTION_GAP_VP }) {
+            Text(this.clipboardNotice)
+              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+              .fontColor(this.clipboardSkin().secondary)
+              .maxLines(2)
+              .layoutWeight(1)
+            if (!this.clipboardEnabled) {
+              Text('开启')
+                .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+                .fontColor(this.clipboardSkin().accent)
+                .accessibilityText('开启剪贴板历史')
+                .onClick(() => this.enableClipboardHistory())
+            }
+          }
+          .width('100%')
+          .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+            right: KeyboardMetrics.CANDIDATE_PADDING_VP })
         }
 
         if (this.emojiQuery.length > 0 && this.visibleClips().length === 0) {
@@ -8714,6 +8801,9 @@ struct KeyboardView {
         this.dachenFace()
       } else if (this.strokeFace() && !this.symbols) {
         this.strokeKeypadFace()
+      } else if (this.twentySixKeyDigitGrid()) {
+        // 26 键的 123 换成九宫格数字层；它的返回键回到 26 键字母，不是九键字母。
+        this.nineKeyFace()
       } else if (this.designLayerShowing()) {
         this.designLayerFace()
       } else {

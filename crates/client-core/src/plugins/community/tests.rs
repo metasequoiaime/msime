@@ -45,6 +45,19 @@ fn installed_commands(root: &Path, id: &str, version: &str) -> PathBuf {
     pack
 }
 
+/// An installed effect pack under `root`: a manifest and a notice, since an effect names no files of its own.
+fn installed_effect(root: &Path, id: &str) -> PathBuf {
+    let pack = kind_directory(root, PluginKind::Effect).join(id);
+    fs::create_dir_all(&pack).unwrap();
+    fs::write(
+        pack.join(MANIFEST_FILE),
+        format!("schema_version = 1\nkind = 'effect'\nid = '{id}'\nname = '霓虹'\nversion = '1'\nlicense = 'CC0-1.0'\ndescription = '粉橙火花'\n[effect]\nstyle = 'sparks'\nintensity = 70\ncolors = ['#FFB000', '#FF4060']\n"),
+    )
+    .unwrap();
+    fs::write(pack.join("LICENSE.txt"), "CC0-1.0\n").unwrap();
+    pack
+}
+
 fn publication() -> Uuid {
     Uuid::parse_str("10000000-0000-4000-8000-000000000001").unwrap()
 }
@@ -97,13 +110,33 @@ fn pack_builds_the_same_top_level_archive_every_time() {
 }
 
 #[test]
-fn pack_refuses_effects_built_in_and_invalid_packs() {
+fn pack_builds_an_effect_pack_from_its_manifest_and_notices() {
+    let root = tempfile::tempdir().unwrap();
+    installed_effect(root.path(), "neon");
+    let packed = pack(root.path(), PluginKind::Effect, "neon").unwrap();
+    assert_eq!(packed.kind, PluginKind::Effect);
+    assert_eq!(packed.plugin_id, "neon");
+    assert_eq!(packed.version, "1");
+    assert_eq!(
+        member_names(&packed.archive),
+        ["LICENSE.txt", MANIFEST_FILE]
+    );
+    assert_eq!(packed.suggested_name, "霓虹");
+    assert_eq!(packed.suggested_description, "粉橙火花");
+    let request =
+        CommunityPluginPublishRequest::new(publication(), "霓虹".into(), String::new(), &packed);
+    assert!(validate_publish(&request).is_ok());
+    assert_eq!(request.kind, PluginKind::Effect);
+}
+
+#[test]
+fn pack_refuses_built_in_and_invalid_packs() {
     let root = tempfile::tempdir().unwrap();
     assert_eq!(
-        pack(root.path(), PluginKind::Effect, "glow")
+        pack(root.path(), PluginKind::Effect, "missing")
             .unwrap_err()
             .code,
-        KIND
+        "plugin_invalid"
     );
     assert_eq!(
         pack(root.path(), PluginKind::Sound, "default")
@@ -170,6 +203,26 @@ fn install_imports_a_verified_download() {
 }
 
 #[test]
+fn install_imports_a_downloaded_effect_pack() {
+    let source = tempfile::tempdir().unwrap();
+    installed_effect(source.path(), "neon");
+    let packed = pack(source.path(), PluginKind::Effect, "neon").unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let summary = install(
+        root.path(),
+        &download_of(&packed),
+        PluginKind::Effect,
+        "neon",
+    )
+    .unwrap();
+    assert_eq!(summary.id, "neon");
+    assert_eq!(summary.kind(), PluginKind::Effect);
+    let loaded = load_package(root.path(), None, PluginKind::Effect, "neon").unwrap();
+    assert_eq!(loaded.version, "1");
+    assert!(loaded.directory.join("LICENSE.txt").is_file());
+}
+
+#[test]
 fn install_refuses_a_download_that_does_not_match_its_listing() {
     let packed = packed_signature();
     let root = tempfile::tempdir().unwrap();
@@ -202,9 +255,10 @@ fn install_refuses_a_download_that_does_not_match_its_listing() {
     wrong_id.plugin_id = "other".into();
     let mut wrong_kind = download_of(&packed);
     wrong_kind.kind = PluginKind::Sound;
-    let mut effect = download_of(&packed);
-    effect.kind = PluginKind::Effect;
-    for download in [wrong_version, wrong_id, wrong_kind, effect] {
+    // An effect is publishable now, but a command table archive that claims to be one is still refused.
+    let mut claims_effect = download_of(&packed);
+    claims_effect.kind = PluginKind::Effect;
+    for download in [wrong_version, wrong_id, wrong_kind, claims_effect] {
         assert_eq!(
             install(root.path(), &download, download.kind, &download.plugin_id)
                 .unwrap_err()
@@ -303,6 +357,7 @@ fn saved(access: u8) -> SavedAccountSession {
             .unwrap()
             .as_millis() as u64
             + 60_000,
+        session_id: None,
     }
 }
 
@@ -484,10 +539,6 @@ fn service_refuses_bad_requests_and_anonymous_writes_before_any_transport_call()
         service.list(0, &"a".repeat(129), None, false),
         Err(AccountError::Invalid)
     );
-    assert_eq!(
-        service.list(0, "", Some(PluginKind::Effect), false),
-        Err(AccountError::Invalid)
-    );
     let mut request = publish_request();
     request.name = " 签名".into();
     assert_eq!(service.publish(&request), Err(AccountError::Invalid));
@@ -525,6 +576,9 @@ fn service_reads_anonymously_and_writes_refresh_once() {
     let storage = MemoryStorage::default();
     let anonymous = service(&api, storage.clone());
     assert_eq!(anonymous.list(0, "", None, false).unwrap().plugins.len(), 1);
+    assert!(anonymous
+        .list(0, "", Some(PluginKind::Effect), false)
+        .is_ok());
     assert_eq!(
         anonymous.detail(publication()).unwrap().plugin_id,
         "signature"
@@ -553,6 +607,8 @@ fn responses_are_validated() {
     assert!(validate_item(&item()).is_ok());
     let mut effect = item();
     effect.kind = PluginKind::Effect;
+    effect.plugin_id = "neon".into();
+    assert!(validate_item(&effect).is_ok());
     let mut builtin = item();
     builtin.kind = PluginKind::Music;
     builtin.plugin_id = "msime-music-lofi".into();
@@ -566,7 +622,7 @@ fn responses_are_validated() {
     rating.my_rating = 6;
     let mut license = item();
     license.license = String::new();
-    for bad in [effect, builtin, oversized, empty, sum, rating, license] {
+    for bad in [builtin, oversized, empty, sum, rating, license] {
         assert_eq!(validate_item(&bad), Err(AccountError::Unavailable));
     }
 
@@ -670,41 +726,41 @@ fn transport_lists_by_kind_with_an_encoded_search() {
 }
 
 #[test]
-fn transport_lists_the_installable_items_of_a_page_that_also_holds_effect_packs() {
-    // The server lists effect packs too, which this client cannot install; they are left out and counted, and the rest of the page still reads.
-    let mut effect = serde_json::to_value(item()).unwrap();
-    effect["id"] = "10000000-0000-4000-8000-000000000002".into();
-    effect["kind"] = "effect".into();
-    effect["plugin_id"] = "sparkle".into();
+fn transport_lists_effect_packs_alongside_the_other_kinds() {
+    // Effect packs are shareable: the server lists them as one of its legacy kinds and the page keeps them, so nothing is skipped.
+    let mut effect = item();
+    effect.id = Uuid::parse_str("10000000-0000-4000-8000-000000000002").unwrap();
+    effect.kind = PluginKind::Effect;
+    effect.plugin_id = "sparkle".into();
     let mut sound = item();
     sound.kind = PluginKind::Sound;
     sound.plugin_id = "rain".into();
     let response = serde_json::to_vec(&serde_json::json!({
-        "plugins": [effect, serde_json::to_value(&sound).unwrap()],
+        "plugins": [serde_json::to_value(&effect).unwrap(), serde_json::to_value(&sound).unwrap()],
         "has_more": true,
     }))
     .unwrap();
-    let (origin, _received) = serve_once(response);
+    let (origin, received) = serve_once(response);
     let client = BackendAccountClient::loopback(&origin).unwrap();
     let page = client.community_plugins(0, "", None, false, None).unwrap();
-    assert_eq!(page.plugins, vec![sound]);
+    assert_eq!(page.plugins, vec![effect.clone(), sound]);
     assert!(page.has_more);
-    assert_eq!(page.skipped, 1);
-}
+    assert_eq!(page.skipped, 0);
+    let _ = received.recv().unwrap();
 
-#[test]
-fn a_page_of_only_effect_packs_still_pages_on() {
-    let mut effect = item();
-    effect.kind = PluginKind::Effect;
-    let page = validate_page(CommunityPluginPage {
-        plugins: vec![effect],
-        has_more: true,
-        skipped: 0,
-    })
-    .unwrap();
-    assert!(page.plugins.is_empty());
-    assert!(page.has_more);
-    assert_eq!(page.skipped, 1);
+    // The gallery's 特效包 filter asks for them by kind.
+    let response =
+        serde_json::to_vec(&serde_json::json!({ "plugins": [effect], "has_more": false })).unwrap();
+    let (origin, received) = serve_once(response);
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    let page = client
+        .community_plugins(0, "", Some(PluginKind::Effect), false, None)
+        .unwrap();
+    assert_eq!(page.plugins.len(), 1);
+    let (head, _) = received.recv().unwrap();
+    assert!(head.starts_with(&format!(
+        "GET /v1/community/plugins?offset=0&q=&kind=effect&{KINDS_DECLARATION} HTTP/1.1"
+    )));
 }
 
 #[test]
