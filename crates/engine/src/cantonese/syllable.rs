@@ -128,7 +128,7 @@ pub fn segment(input: &str, inventory: &Inventory) -> Vec<Segmentation> {
 
 /// `segment`, with `allow_prefix` saying whether the last piece may be an incomplete syllable.
 fn segment_with(input: &str, inventory: &Inventory, allow_prefix: bool) -> Vec<Segmentation> {
-    let mut found = Vec::with_capacity(MAX_SEGMENTATIONS);
+    let mut found = Vec::new();
     let mut dead = vec![false; input.len() + 1];
     let mut path = Vec::with_capacity(input.len());
     walk(
@@ -207,6 +207,9 @@ fn walk(
         position += 1;
     }
     if position == input.len() {
+        if found.is_empty() {
+            found.reserve_exact(MAX_SEGMENTATIONS);
+        }
         found.push(Segmentation {
             syllables: path.clone(),
         });
@@ -361,7 +364,9 @@ pub(crate) mod tests {
         assert_eq!(readings.len(), 1);
         assert_eq!(read("abcd", &readings[0]), ["ab", "cd"]);
         // Greedy `hoeng` leaves `ong`, and no shorter first piece reads either: there is no full reading.
-        assert!(segment("hoengong", &inventory()).is_empty());
+        let empty = segment("hoengong", &inventory());
+        assert!(empty.is_empty());
+        assert_eq!(empty.capacity(), 0);
         assert_eq!(first("hoenggong"), ["hoeng", "gong"]);
     }
 
