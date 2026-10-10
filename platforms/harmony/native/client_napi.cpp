@@ -1,4 +1,5 @@
 #include "msime_client.h"
+#include "../../common/HostApiString.h"
 #include "key_sound_render.h"
 #include <napi/native_api.h>
 #include <zlib.h>
@@ -107,11 +108,11 @@ static intptr_t snapshotNext(void *context, uint8_t *buffer, size_t capacity) no
 
 // The Rust side owns the response buffer until it is handed back, so every exit path frees it.
 static napi_value response(napi_env env, char *value) {
-    if (!value) return nullptr;
-    const size_t length = std::strlen(value);
+    auto owned = msime::host_api::own_string(value);
+    if (!owned) return nullptr;
+    const size_t length = std::strlen(owned.get());
     napi_value output = nullptr;
-    const napi_status status = napi_create_string_utf8(env, value, length, &output);
-    msime_client_string_free(value);
+    const napi_status status = napi_create_string_utf8(env, owned.get(), length, &output);
     return status == napi_ok ? output : nullptr;
 }
 
@@ -294,10 +295,10 @@ static void executeSnapshotRestore(napi_env, void *data) {
 
 static void completeSnapshotRestore(napi_env env, napi_status status, void *data) {
     auto *work = static_cast<SnapshotRestoreWork *>(data);
+    auto owned = msime::host_api::own_string(work->result);
     napi_value value = nullptr;
-    bool resolved = status == napi_ok && work->result != nullptr
-        && napi_create_string_utf8(env, work->result, std::strlen(work->result), &value) == napi_ok;
-    if (work->result) msime_client_string_free(work->result);
+    bool resolved = status == napi_ok && owned
+        && napi_create_string_utf8(env, owned.get(), std::strlen(owned.get()), &value) == napi_ok;
     if (resolved) {
         napi_resolve_deferred(env, work->deferred, value);
     } else {
@@ -359,10 +360,10 @@ static void rejectWith(napi_env env, napi_deferred deferred, const char *text) {
 // Settles a voice promise with the Rust response and frees it; a missing response is the only rejection, every refusal arrives as {"ok":false} like the synchronous calls.
 static void settleVoicePromise(napi_env env, napi_status status, napi_deferred deferred, char *result,
                                const char *failure) {
+    auto owned = msime::host_api::own_string(result);
     napi_value value = nullptr;
-    const bool resolved = status == napi_ok && result != nullptr
-        && napi_create_string_utf8(env, result, std::strlen(result), &value) == napi_ok;
-    if (result) msime_client_string_free(result);
+    const bool resolved = status == napi_ok && owned
+        && napi_create_string_utf8(env, owned.get(), std::strlen(owned.get()), &value) == napi_ok;
     if (resolved) {
         napi_resolve_deferred(env, deferred, value);
     } else {

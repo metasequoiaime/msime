@@ -1,5 +1,6 @@
 #include <jni.h>
 #include "msime_client.h"
+#include "../../common/HostApiString.h"
 // The polish presets carry their own prompt-injection wording, and there are already four copies
 // of that text in this repository. This host reads the shared one rather than adding a fifth.
 #include "voice/PolishPrompt.h"
@@ -113,16 +114,15 @@ static intptr_t snapshotNext(void *context, uint8_t *buffer, size_t capacity) no
 // Use UTF-8 byte arrays, not JNI modified UTF-8: supplementary characters in
 // candidates and resource paths must survive the Java/native boundary unchanged.
 static jbyteArray response(JNIEnv *env, char *value) {
-    if (!value) return nullptr;
-    size_t length = std::strlen(value);
+    auto owned = msime::host_api::own_string(value);
+    if (!owned) return nullptr;
+    size_t length = std::strlen(owned.get());
     if (length > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
-        msime_client_string_free(value);
         env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Native response too large");
         return nullptr;
     }
     jbyteArray output = env->NewByteArray(static_cast<jsize>(length));
-    if (output) env->SetByteArrayRegion(output, 0, static_cast<jsize>(length), reinterpret_cast<const jbyte *>(value));
-    msime_client_string_free(value);
+    if (output) env->SetByteArrayRegion(output, 0, static_cast<jsize>(length), reinterpret_cast<const jbyte *>(owned.get()));
     return output;
 }
 
@@ -1018,7 +1018,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePackIns
     char *result = install(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
     env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
     if (env->ExceptionCheck()) {
-        msime_client_string_free(result);
+        msime::host_api::discard_string(result);
         return nullptr;
     }
     return response(env, result);
