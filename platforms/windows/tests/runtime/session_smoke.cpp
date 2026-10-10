@@ -1,4 +1,5 @@
 #include "FocusRouter.h"
+#include "../../../common/HostApiString.h"
 #include "FocusedSession.h"
 #include "InputQueue.h"
 #include "KeyEvent.h"
@@ -247,10 +248,8 @@ int main(int argc, char **argv) {
       auto input = Json{{"resources", resources.u8string()},
                         {"state_root", (root / "prepared").u8string()}}
                        .dump();
-      std::unique_ptr<char, decltype(&msime_client_string_free)> prepared(
-          msime_client_prepare_host(
-              reinterpret_cast<const uint8_t *>(input.data()), input.size()),
-          msime_client_string_free);
+      auto prepared = msime::host_api::own_string(msime_client_prepare_host(
+          reinterpret_cast<const uint8_t *>(input.data()), input.size()));
       auto document = Json::parse(prepared.get());
       if (!document.at("ok").get<bool>()) {
         // The reply carries why. Asserting only on `ok` throws that away and

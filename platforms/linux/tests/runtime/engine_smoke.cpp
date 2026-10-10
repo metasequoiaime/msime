@@ -1,4 +1,5 @@
 #include "../src/core/ClientEngine.h"
+#include "../../../common/HostApiString.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <cstdlib>
@@ -379,11 +380,8 @@ int main(int argc, char **argv) {
         {"resources", argv[1]},
         {"state_root",
          root.string()}}.dump();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> prepared(
-        msime_client_prepare_host(
-            reinterpret_cast<const uint8_t *>(bootstrap.data()),
-            bootstrap.size()),
-        msime_client_string_free);
+    auto prepared = msime::host_api::own_string(msime_client_prepare_host(
+        reinterpret_cast<const uint8_t *>(bootstrap.data()), bootstrap.size()));
     auto result = nlohmann::json::parse(prepared.get());
     require(result.at("ok").get<bool>(), "Locked dictionary bootstrap failed");
     auto options = result.at("value");

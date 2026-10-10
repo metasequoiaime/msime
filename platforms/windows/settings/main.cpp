@@ -32,6 +32,7 @@
 #include "SettingsStateDirectory.h"
 #include "ShellLauncher.h"
 #include "msime_client.h"
+#include "../../common/HostApiString.h"
 #include "../../../shared/contracts/msime_edition.h"
 
 #include <winrt/base.h>
@@ -85,11 +86,11 @@ std::string utf8(hstring value) { return to_string(value); }
 hstring text(std::string_view value) { return to_hstring(std::string(value)); }
 
 Response take_response(char *raw) {
-  if (!raw) {
+  auto owned = msime::host_api::own_string(raw);
+  if (!owned) {
     return {"{\"ok\":false,\"error\":\"empty host response\"}", false};
   }
-  std::string value(raw);
-  msime_client_string_free(raw);
+  std::string value(owned.get());
   try {
     const auto object = JsonObject::Parse(text(value));
     return {std::move(value), object.GetNamedBoolean(L"ok", false)};
