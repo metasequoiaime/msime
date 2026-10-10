@@ -1,8 +1,9 @@
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
+#include "../core/BoundedCliInput.h"
+#include "provider_response_cli.h"
 #include <iostream>
 #include <array>
-#include <memory>
-#include <nlohmann/json.hpp>
 #include <string>
 
 int main(int argc, char **argv) {
@@ -13,25 +14,12 @@ int main(int argc, char **argv) {
   if (argc != 1)
     return 2;
   std::array<char, 65537> buffer;
-  std::cin.read(buffer.data(), buffer.size());
-  const auto length = static_cast<size_t>(std::cin.gcount());
-  if (std::cin.bad() || length == 0 || length > 65536)
+  const auto request_length = msime::linux_host::read_bounded_cli_input(std::cin, buffer);
+  if (!request_length)
     return 2;
-  std::unique_ptr<char, decltype(&msime_client_string_free)> result(
+  const size_t length = *request_length;
+  auto result = msime::host_api::own_string(
       msime_client_dictionary(reinterpret_cast<const uint8_t *>(buffer.data()),
-                              length),
-      msime_client_string_free);
-  if (!result)
-    return 1;
-  try {
-    auto document = nlohmann::json::parse(result.get());
-    const bool ok = document.at("ok").get<bool>();
-    std::cout << document.dump() << '\n';
-    if (!std::cout)
-      return 1;
-    return ok ? 0 : 1;
-  } catch (...) {
-    // Never print parser errors or request data; they can contain user entries.
-    return 1;
-  }
+                              length));
+  return msime_cli_write_provider_response(result.get(), std::cout);
 }

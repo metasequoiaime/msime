@@ -1,4 +1,5 @@
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 #include "../core/LinuxEdition.h"
 #include "../core/PreparePaths.h"
 #include "../core/PrepareState.h"
@@ -10,7 +11,6 @@
 #include <filesystem>
 #include <fcntl.h>
 #include <iostream>
-#include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <stdexcept>
@@ -79,9 +79,7 @@ bool installer_account_state(const std::filesystem::path &state) {
   return !error && found;
 }
 
-using Owned = std::unique_ptr<char, decltype(&msime_client_string_free)>;
-
-nlohmann::json value_of(Owned raw) {
+nlohmann::json value_of(msime::host_api::OwnedString raw) {
   if (!raw) throw std::runtime_error("host call failed");
   auto result = nlohmann::json::parse(raw.get());
   if (!result.value("ok", false)) throw std::runtime_error("host call failed");
@@ -112,16 +110,14 @@ int refresh(const std::filesystem::path &options) {
 // 云候选新装默认关闭；首次配置时用户的选择（与 Windows 安装器的「联网功能」页相同）在输入法第一次启动前写进偏好。
 void record_cloud_candidates(const std::filesystem::path &state, nlohmann::json &options, bool enabled) {
   const auto directory = state.string();
-  auto snapshot = value_of(Owned(
-      msime_client_load_preferences(reinterpret_cast<const uint8_t *>(directory.data()), directory.size()),
-      msime_client_string_free));
+  auto snapshot = value_of(msime::host_api::own_string(
+      msime_client_load_preferences(reinterpret_cast<const uint8_t *>(directory.data()), directory.size())));
   snapshot.at("preferences")["cloud_candidates"] = enabled;
   const auto revision = snapshot.at("revision").get<uint64_t>();
   const auto document = snapshot.dump();
-  const auto saved = value_of(Owned(
+  const auto saved = value_of(msime::host_api::own_string(
       msime_client_save_preferences(reinterpret_cast<const uint8_t *>(directory.data()), directory.size(), revision,
-                                    reinterpret_cast<const uint8_t *>(document.data()), document.size()),
-      msime_client_string_free));
+                                    reinterpret_cast<const uint8_t *>(document.data()), document.size())));
   options["preferences"] = saved.at("preferences");
 }
 } // namespace
@@ -207,9 +203,8 @@ int main(int argc, char **argv) {
         return 1;
       }
     }
-    std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
-        msime_client_prepare_host(reinterpret_cast<const uint8_t *>(request.data()), request.size()),
-        msime_client_string_free);
+    auto raw = msime::host_api::own_string(
+        msime_client_prepare_host(reinterpret_cast<const uint8_t *>(request.data()), request.size()));
     if (!raw) throw std::runtime_error("prepare failed");
     const auto result = nlohmann::json::parse(raw.get());
     if (!result.value("ok", false) || !result.at("value").is_object()) {

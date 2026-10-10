@@ -37,6 +37,7 @@ private actor RefreshAPI: BackendSessionAPI {
 private final class SharedStoreAPI: BackendSessionAPI, @unchecked Sendable {
   private let lock = NSLock()
   private var calls = 0
+  private var logouts: [Bool] = []
   private let onRefresh: @Sendable (String) throws -> BackendAccountClient.Tokens
   private let loginResult: BackendAccountClient.Tokens
   init(_ onRefresh: @escaping @Sendable (String) throws -> BackendAccountClient.Tokens,
@@ -44,13 +45,15 @@ private final class SharedStoreAPI: BackendSessionAPI, @unchecked Sendable {
     self.onRefresh = onRefresh; self.loginResult = loginResult
   }
   var refreshCount: Int { lock.lock(); defer { lock.unlock() }; return calls }
+  /// 每次远端退出请求的 `all` 参数。
+  var logoutScopes: [Bool] { lock.lock(); defer { lock.unlock() }; return logouts }
   static func tokens(_ access: String, _ refresh: String) -> BackendAccountClient.Tokens {
     .init(access_token: String(repeating: access, count: 64), refresh_token: String(repeating: refresh, count: 64),
           token_type: "Bearer", expires_in: 900,
           user: .init(id: "synthetic-user", display_name: "测试", created_at: "2026-09-08"))
   }
   func login(challenge: String, credential: String, linkToken: String?) async throws -> BackendAccountClient.Tokens { loginResult }
-  func logout(token: String, all: Bool) async throws { }
+  func logout(token: String, all: Bool) async throws { lock.withLock { logouts.append(all) } }
   func refresh(_ token: String) async throws -> BackendAccountClient.Tokens {
     lock.lock(); calls += 1; lock.unlock()
     return try onRefresh(token)
@@ -103,25 +106,48 @@ final class BackendAccountSessionTests: XCTestCase {
       user: .init(id: "replacement-user", display_name: "Replacement", created_at: "2026-09-08"))
     let api = SharedStoreAPI({ _ in SharedStoreAPI.tokens("a", "f") }, loginResult: new)
     let session = BackendAccountSession(api: api, storage: storage, refreshLock: BackendProcessRefreshLock())
+    let cleanup = AttemptCounter()
 
     try await session.signIn(challenge: "challenge", credential: "synthetic", replacingAccount: { accountID in
+      _ = cleanup.increment()
       XCTAssertEqual(accountID, "synthetic-user")
       XCTAssertEqual(try? storage.load()?.tokens.user.id, "synthetic-user")
     })
 
+    XCTAssertEqual(cleanup.count, 1)
     XCTAssertEqual(try storage.load()?.tokens.user.id, "replacement-user")
   }
 
   func testForgettingAccountCancelsOldWorkBeforeRemovingIdentity() async throws {
     let storage = MemorySessions(try BackendSavedSession.forTokens(RefreshAPI.tokens()))
     let session = BackendAccountSession(api: RefreshAPI(), storage: storage, refreshLock: BackendProcessRefreshLock())
+    let cleanup = AttemptCounter()
 
     try await session.forget(removingAccount: { accountID in
+      _ = cleanup.increment()
       XCTAssertEqual(accountID, "synthetic-user")
       XCTAssertEqual(try? storage.load()?.tokens.user.id, "synthetic-user")
     })
 
+    XCTAssertEqual(cleanup.count, 1)
     XCTAssertNil(try storage.load())
+  }
+
+  func testLogoutAllCancelsOldWorkBeforeClearingAndRevokesEverySession() async throws {
+    let storage = MemorySessions(try BackendSavedSession.forTokens(SharedStoreAPI.tokens("a", "f")))
+    let api = SharedStoreAPI { _ in SharedStoreAPI.tokens("b", "c") }
+    let session = BackendAccountSession(api: api, storage: storage, refreshLock: BackendProcessRefreshLock())
+    let cleanup = AttemptCounter()
+
+    try await session.logout(all: true, removingAccount: { accountID in
+      _ = cleanup.increment()
+      XCTAssertEqual(accountID, "synthetic-user")
+      XCTAssertEqual(try? storage.load()?.tokens.user.id, "synthetic-user")
+    })
+
+    XCTAssertEqual(cleanup.count, 1)
+    XCTAssertNil(try storage.load())
+    XCTAssertEqual(api.logoutScopes, [true])
   }
 
   func testStaleForgetCannotRemoveReplacementAccount() async throws {
@@ -257,18 +283,6 @@ final class BackendAccountSessionTests: XCTestCase {
         throw CleanupRefused.busy
       })
       XCTFail("replacement must stop when old work cannot be cancelled")
-    } catch CleanupRefused.busy { }
-
-    XCTAssertEqual(try storage.load()?.tokens.user.id, "synthetic-user")
-  }
-
-  func testFailedForgetCleanupKeepsOldIdentity() async throws {
-    let storage = MemorySessions(try BackendSavedSession.forTokens(RefreshAPI.tokens()))
-    let session = BackendAccountSession(api: RefreshAPI(), storage: storage, refreshLock: BackendProcessRefreshLock())
-
-    do {
-      try await session.forget(removingAccount: { _ in throw CleanupRefused.busy })
-      XCTFail("forget must stop when old work cannot be cancelled")
     } catch CleanupRefused.busy { }
 
     XCTAssertEqual(try storage.load()?.tokens.user.id, "synthetic-user")

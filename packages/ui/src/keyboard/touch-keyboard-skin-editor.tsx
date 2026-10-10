@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
 import { StatusMessage } from "../core/status-message";
 import { ErrorAlert } from "../core/error-alert";
@@ -85,6 +85,11 @@ export function AiSkinGeneration({
   const [publishCategory, setPublishCategory] = useState<CommunitySkinCategory>("other");
   const [publishBusy, setPublishBusy] = useState(false);
   const publishRunning = useRef(false);
+  const surface = useRef<HTMLElement>(null);
+  // 全屏视图叠在皮肤页上，共用外壳的滚动容器：不滚回顶部的话，它会停在皮肤页原来的滚动位置，标题和返回按钮都在屏幕外。
+  useLayoutEffect(() => {
+    if (fullScreen) surface.current?.scrollIntoView?.({ block: "start" });
+  }, [fullScreen]);
   const generateRunning = useRef(false);
   const saveRunning = useRef(false);
   const requestRef = useRef("");
@@ -219,6 +224,7 @@ export function AiSkinGeneration({
   return (
     <div className={fullScreen ? fullScreenSurface : community.backdrop}>
       <section
+        ref={surface}
         className={fullScreen ? fullScreenColumn : `${community.dialog} ${doc.generation}`}
         role="dialog"
         aria-modal="true"
@@ -264,7 +270,8 @@ export function AiSkinGeneration({
         )}
         <ActionButton
           action={() => generate()}
-          className="primary"
+          // 全屏时这是整页唯一的主操作，铺满宽度。
+          className={fullScreen ? "primary w-full py-3 text-[15px]" : "primary"}
           disabled={busy}
           ariaLabel="抽三张皮肤"
           label={proposals.length ? "再抽三张" : "抽三张皮肤"}
@@ -393,9 +400,12 @@ export function AiSkinGeneration({
             />
           </div>
         )}
-        <div className={community.dialogActions}>
-          <ActionButton action={onClose} className="secondary" disabled={busy} label="完成" />
-        </div>
+        {/* 全屏时标题前已有返回按钮，再放一个「完成」是重复的出口。 */}
+        {!fullScreen && (
+          <div className={community.dialogActions}>
+            <ActionButton action={onClose} className="secondary" disabled={busy} label="完成" />
+          </div>
+        )}
       </section>
     </div>
   );

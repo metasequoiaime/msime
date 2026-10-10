@@ -28,7 +28,6 @@ import org.json.JSONObject;
  * <p>Every call blocks on the network and must not run on the main thread.
  */
 public final class CommunityCatalog {
-    private static final String ORIGIN = "https://api.msime.app";
     private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
     private static final int MAX_RESOURCE_RESPONSE_BYTES = 48 * 1024 * 1024;
     private static final int TIMEOUT_MILLIS = 30_000;
@@ -56,6 +55,18 @@ public final class CommunityCatalog {
     /** A page of results, or a failure the caller can show verbatim. */
     public record Page(List<Item> items, boolean hasMore, String failure) {
         public boolean failed() { return !failure.isEmpty(); }
+    }
+
+    /** 设置页发现区的一次有界目录结果；失败时 `items` 为 null，`failure` 可直接展示。 */
+    public record Discovery(List<Item> items, String failure) {
+        public boolean failed() { return items == null; }
+    }
+
+    /** 把目录页转换成发现区使用的有界列表或失败状态。 */
+    public static Discovery discovery(Page page, int limit) {
+        if (page == null) return new Discovery(null, "暂时连不上社区，稍后再试。");
+        if (page.failed()) return new Discovery(null, page.failure());
+        return new Discovery(CommunityRequest.limitedCopy(page.items(), limit), null);
     }
 
     private final CloudApi cloud;
@@ -87,12 +98,11 @@ public final class CommunityCatalog {
     private static HttpsURLConnection open(URL url, String method)
             throws java.io.IOException {
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        connection.setInstanceFollowRedirects(false);
+        HttpConnectionPolicy.rejectRedirects(connection);
         connection.setRequestMethod(method);
-        connection.setConnectTimeout(TIMEOUT_MILLIS);
-        connection.setReadTimeout(TIMEOUT_MILLIS);
+        HttpConnectionPolicy.setTimeouts(connection, TIMEOUT_MILLIS, TIMEOUT_MILLIS);
         connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("User-Agent", "MSIME/Android");
+        connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
         return connection;
     }
 
@@ -166,7 +176,7 @@ public final class CommunityCatalog {
         try {
             Map<String, String> headers = new LinkedHashMap<>();
             headers.put("Accept", "application/json");
-            headers.put("User-Agent", "MSIME/Android");
+            headers.put("User-Agent", CloudApi.USER_AGENT);
             if (token != null) headers.put("Authorization", "Bearer " + token);
             CloudApi.Exchange response = listingTransport.exchange("GET",
                 CommunityRequest.path(kind, "", search, offset, category), headers, null);
@@ -190,7 +200,7 @@ public final class CommunityCatalog {
     /** Catalogue pages may be larger than the shared cloud transport's 4 MiB default. */
     private static CloudApi.Exchange httpListingExchange(String method, String path,
             Map<String, String> headers, byte[] request) throws java.io.IOException {
-        HttpsURLConnection connection = open(new URL(ORIGIN + path), method);
+        HttpsURLConnection connection = open(new URL(CloudApi.ORIGIN + path), method);
         try {
             for (Map.Entry<String, String> header : headers.entrySet())
                 connection.setRequestProperty(header.getKey(), header.getValue());

@@ -30,15 +30,12 @@ import {
   type HostCapabilities,
   type SavedTouchKeyboardSkin,
   type SettingsClient,
+  type UpdateCheckResult,
   type Snapshot,
   type TouchKeyboardSkinDesign,
   themeEntry,
 } from "@msime/ui";
-import {
-  describeInstallerTrust,
-  selectPlatformRelease,
-  validateGitHubRelease,
-} from "../../../../packages/ui/src/settings/update-manifest";
+import { describeInstallerTrust } from "../../../../packages/ui/src/settings/update-manifest";
 import { answerConfirm } from "../support/confirm";
 
 afterEach(cleanup);
@@ -3856,6 +3853,64 @@ test("the touch toolbar switches appear only on a host that reads them and save 
   });
 });
 
+test("the shuangpin key hint switch appears only on touch hosts and saves into the document", async () => {
+  const desktop = render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }}
+    />,
+  );
+  await screen.findByLabelText("键盘高度", undefined, { timeout: 3000 });
+  expect(screen.queryByRole("switch", { name: "双拼键位提示" })).toBeNull();
+  desktop.unmount();
+
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: testHost({ platform: "android" }),
+      }}
+    />,
+  );
+  const hints = (await screen.findByRole(
+    "switch",
+    { name: "双拼键位提示" },
+    { timeout: 3000 },
+  )) as HTMLInputElement;
+  // 文档里没有这个键时按开，和以前的键盘一样画提示。
+  expect(hints.checked).toBe(true);
+  fireEvent.click(hints);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    touch_shuangpin_key_hints: false,
+  });
+});
+
+test("the shuangpin key hint switch is not listed on an edition without double pinyin", async () => {
+  render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        // 五笔版收窄后的宿主：input_schemes 里没有 shuangpin。
+        host: testHost({ platform: "android", input_schemes: ["wubi"] }),
+      }}
+    />,
+  );
+  await screen.findByLabelText("键盘高度", undefined, { timeout: 3000 });
+  expect(screen.queryByRole("switch", { name: "双拼键位提示" })).toBeNull();
+});
+
 test("the theme page runs from the colour mode to the per-surface overrides", async () => {
   render(
     <SettingsPage
@@ -7258,94 +7313,37 @@ test("macOS sidebar uses the same six groups", async () => {
   ]);
 });
 
-test("about page validates a newer release before offering its URL", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        version: "v1.2.0",
-        releaseUrl: "https://github.com/metasequoiaime/msime/releases",
-        signed: true,
-      }),
-    }),
-  );
-  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
-  const client: SettingsClient = {
-    load: vi.fn().mockResolvedValue(initial),
-    save: vi.fn(),
-    openExternalUrl,
+// Which release and which package the host offers is decided in Rust (crates/client-core/src/update_check.rs); these cover what the about page asks the host and does with its answer.
+const releasesPage = "https://github.com/metasequoiaime/msime/releases";
+
+function hostRelease(
+  tag: string,
+  fields: Partial<Extract<UpdateCheckResult, { update: unknown }>["update"]> = {},
+): Extract<UpdateCheckResult, { update: unknown }>["update"] {
+  const display = tag.replace(/^[a-z]+-v/, "");
+  return {
+    version: { display, parts: display.split(".").map(Number) },
+    release_url: `${releasesPage}/tag/${tag}`,
+    installer_name: null,
+    installer_sha256: null,
+    signed: null,
+    ...fields,
   };
-  render(<SettingsPage client={client} />);
+}
+
+test("about page offers no update check without a host to ask", async () => {
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
-  expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
-  await waitFor(() =>
-    expect(openExternalUrl).toHaveBeenCalledWith(
-      "https://github.com/metasequoiaime/msime/releases",
-    ),
-  );
-  vi.unstubAllGlobals();
+  expect(await screen.findByText("当前版本")).toBeDefined();
+  expect(screen.queryByRole("button", { name: "检查更新" })).toBeNull();
 });
 
-test("Linux checks the client release feed and treats no release as a normal result", async () => {
-  const fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    json: async () => [
-      {
-        tag_name: "macos-v9.0.0",
-        html_url: "https://github.com/metasequoiaime/msime/releases/tag/macos-v9.0.0",
-      },
-    ],
-  });
-  vi.stubGlobal("fetch", fetch);
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(initial),
-        save: vi.fn(),
-        host: testHost({ platform: "linux" }),
-      }}
-    />,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
-  expect(await screen.findByText("暂无可用发行版")).toBeDefined();
-  expect(fetch).toHaveBeenCalledWith(
-    expect.stringMatching(
-      /^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\?per_page=100&t=\d+$/,
-    ),
-    expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
-  );
-  vi.unstubAllGlobals();
-});
-
-test("Linux offers its own newest published release, not another platform's", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => [
-        {
-          tag_name: "macos-v9.0.0",
-          html_url: "https://github.com/metasequoiaime/msime/releases/tag/macos-v9.0.0",
-        },
-        {
-          tag_name: "linux-v1.3.0",
-          html_url: "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.3.0",
-          prerelease: true,
-        },
-        {
-          tag_name: "linux-v1.2.0",
-          html_url: "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0",
-        },
-      ],
-    }),
-  );
+test("about page offers the release the host found and opens its page", async () => {
+  const checkUpdate = vi.fn().mockResolvedValue({
+    status: "available",
+    update: hostRelease("windows-v1.2.0", { signed: true }),
+  } satisfies UpdateCheckResult);
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
   render(
     <SettingsPage
@@ -7353,6 +7351,50 @@ test("Linux offers its own newest published release, not another platform's", as
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         openExternalUrl,
+        checkUpdate,
+        host: testHost({ platform: "windows" }),
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
+  expect(checkUpdate).toHaveBeenCalledWith(
+    expect.objectContaining({ platform: "windows", currentVersion: expect.any(String) }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith(`${releasesPage}/tag/windows-v1.2.0`),
+  );
+});
+
+test("a platform without a published release is a normal result", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        checkUpdate: vi.fn().mockResolvedValue({ status: "none" } satisfies UpdateCheckResult),
+        host: testHost({ platform: "linux" }),
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("暂无可用发行版")).toBeDefined();
+  expect(screen.queryByRole("button", { name: "前往下载" })).toBeNull();
+});
+
+test("a Linux release without a chosen package points at SHA256SUMS instead of inventing a digest", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        checkUpdate: vi.fn().mockResolvedValue({
+          status: "available",
+          update: hostRelease("linux-v1.2.0", { signed: false }),
+        } satisfies UpdateCheckResult),
         host: testHost({ platform: "linux" }),
       }}
     />,
@@ -7360,56 +7402,28 @@ test("Linux offers its own newest published release, not another platform's", as
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
   expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
-  await waitFor(() =>
-    expect(openExternalUrl).toHaveBeenCalledWith(
-      "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0",
-    ),
-  );
-  // A release without assets has no digest to show, so the notice falls back to SHA256SUMS instead of inventing one.
   expect(screen.queryByText(/下载后请核对 SHA256/)).toBeNull();
   expect(
     screen.getByText(/该软件包未签名。.*sha256sum -c SHA256SUMS --ignore-missing/),
   ).toBeDefined();
-  vi.unstubAllGlobals();
 });
 
-test("Linux update notice shows the .deb digest GitHub computed and the sha256sum command", async () => {
+test("Linux update notice shows the .deb digest and the sha256sum command", async () => {
   const digest = "0123456789abcdef".repeat(4);
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => [
-        {
-          tag_name: "linux-v1.2.0",
-          html_url: "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0",
-          assets: [
-            {
-              name: "msime-linux-1.2.0-linux-x86_64.tar.gz",
-              digest: `sha256:${"f".repeat(64)}`,
-              browser_download_url:
-                "https://github.com/metasequoiaime/msime/releases/download/linux-v1.2.0/msime-linux-1.2.0-linux-x86_64.tar.gz",
-            },
-            {
-              name: "msime-linux_1.2.0_amd64.deb",
-              digest: `sha256:${digest}`,
-              browser_download_url:
-                "https://github.com/metasequoiaime/msime/releases/download/linux-v1.2.0/msime-linux_1.2.0_amd64.deb",
-            },
-            { name: "SHA256SUMS", digest: `sha256:${"e".repeat(64)}` },
-          ],
-        },
-      ],
-    }),
-  );
   render(
     <SettingsPage
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: testHost({ platform: "linux" }),
+        checkUpdate: vi.fn().mockResolvedValue({
+          status: "available",
+          update: hostRelease("linux-v1.2.0", {
+            installer_name: "msime-linux_1.2.0_amd64.deb",
+            installer_sha256: digest,
+            signed: false,
+          }),
+        } satisfies UpdateCheckResult),
+        host: testHost({ platform: "linux", arch: "x86_64" }),
       }}
     />,
   );
@@ -7420,172 +7434,84 @@ test("Linux update notice shows the .deb digest GitHub computed and the sha256su
   expect(screen.getByText(digest)).toBeDefined();
   expect(screen.getByText("sha256sum msime-linux_1.2.0_amd64.deb")).toBeDefined();
   expect(screen.queryByText(/Get-FileHash/)).toBeNull();
-  vi.unstubAllGlobals();
 });
 
-test("Linux release assets yield a digest only when it is well-formed and unambiguous", () => {
-  const page = "https://github.com/metasequoiaime/msime/releases";
-  const digest = "a".repeat(64);
-  const release = (assets: unknown) => [
-    { tag_name: "linux-v1.2.0", html_url: `${page}/tag/linux-v1.2.0`, assets },
-  ];
-  const pick = (assets: unknown) => {
-    const update = selectPlatformRelease(release(assets), "linux", page);
-    return (
-      update && {
-        name: update.installerName,
-        sha256: update.installerSha256,
-        signed: update.signed,
-      }
-    );
-  };
-  expect(pick([{ name: "msime-linux_1.2.0_amd64.deb", digest: `sha256:${digest}` }])).toEqual({
-    name: "msime-linux_1.2.0_amd64.deb",
-    sha256: digest,
-    signed: false,
-  });
-  // The tarball is the fallback when no .deb was uploaded.
-  expect(
-    pick([{ name: "msime-linux-1.2.0-linux-x86_64.tar.gz", digest: `sha256:${digest}` }]),
-  ).toEqual({ name: "msime-linux-1.2.0-linux-x86_64.tar.gz", sha256: digest, signed: false });
-  // Older API responses omit the digest or return null; a wrong algorithm, uppercase hex or a short value is not trusted either.
-  for (const bad of [
-    undefined,
-    null,
-    `sha512:${digest}`,
-    `sha256:${digest.toUpperCase()}`,
-    `sha256:${digest.slice(1)}`,
-    digest,
-    42,
-  ]) {
-    expect(pick([{ name: "msime-linux_1.2.0_amd64.deb", digest: bad }])).toEqual({
-      name: "msime-linux_1.2.0_amd64.deb",
-      sha256: null,
+test("Windows update notice shows the installer digest and the unsigned warning", async () => {
+  const checkUpdate = vi.fn().mockResolvedValue({
+    status: "available",
+    update: hostRelease("windows-v1.2.0", {
+      installer_name: "MetasequoiaIME-Full_Setup_v1.2.0.exe",
+      installer_sha256: "b".repeat(64),
       signed: false,
-    });
-  }
-  // Without the host's architecture, two architectures would make any single digest wrong for someone.
-  const bothArchitectures = [
-    { name: "msime-linux_1.2.0_amd64.deb", digest: `sha256:${digest}` },
-    { name: "msime-linux_1.2.0_arm64.deb", digest: `sha256:${"b".repeat(64)}` },
-    { name: "msime-linux-1.2.0-1.x86_64.rpm", digest: `sha256:${"c".repeat(64)}` },
-    { name: "msime-linux-1.2.0-1.aarch64.rpm", digest: `sha256:${"d".repeat(64)}` },
-    { name: "msime-linux-1.2.0-linux-x86_64.tar.gz", digest: `sha256:${"e".repeat(64)}` },
-    { name: "msime-linux-1.2.0-linux-aarch64.tar.gz", digest: `sha256:${"f".repeat(64)}` },
-  ];
-  expect(pick(bothArchitectures)).toEqual({ name: null, sha256: null, signed: false });
-  // The host reports its architecture (`HostCapabilities.arch`, Rust's name), and only that architecture's package is offered: dpkg names it in the .deb and CMake in the tarball.
-  const pickFor = (assets: unknown, arch: string) => {
-    const update = selectPlatformRelease(release(assets), "linux", page, undefined, arch);
-    return update && { name: update.installerName, sha256: update.installerSha256 };
-  };
-  expect(pickFor(bothArchitectures, "x86_64")).toEqual({
-    name: "msime-linux_1.2.0_amd64.deb",
-    sha256: digest,
-  });
-  expect(pickFor(bothArchitectures, "aarch64")).toEqual({
-    name: "msime-linux_1.2.0_arm64.deb",
-    sha256: "b".repeat(64),
-  });
-  // Each architecture falls back to its own tarball, never another architecture's .deb.
-  const tarballsOnly = bothArchitectures.filter((asset) => asset.name.endsWith(".tar.gz"));
-  expect(pickFor([...tarballsOnly, bothArchitectures[0]], "aarch64")).toEqual({
-    name: "msime-linux-1.2.0-linux-aarch64.tar.gz",
-    sha256: "f".repeat(64),
-  });
-  // A release from before aarch64 packages offers an aarch64 host nothing rather than the x86_64 package.
-  expect(pickFor([bothArchitectures[0], bothArchitectures[4]], "aarch64")).toEqual({
-    name: null,
-    sha256: null,
-  });
-  // An architecture no package is built for keeps every asset, and two of them still offer nothing.
-  expect(pickFor(bothArchitectures, "riscv64")).toEqual({ name: null, sha256: null });
-  expect(pickFor([bothArchitectures[0]], "riscv64")).toEqual({
-    name: "msime-linux_1.2.0_amd64.deb",
-    sha256: digest,
-  });
-  // A name that would need shell quoting is never put into the copyable command.
-  expect(pick([{ name: "--x;rm -rf ~.deb", digest: `sha256:${digest}` }])).toEqual({
-    name: null,
-    sha256: null,
-    signed: false,
-  });
-  for (const assets of [undefined, null, "x", [null, 3, { digest: `sha256:${digest}` }]]) {
-    expect(pick(assets)).toEqual({ name: null, sha256: null, signed: false });
-  }
-  // Windows never takes a Linux package for its installer.
+    }),
+  } satisfies UpdateCheckResult);
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        openExternalUrl,
+        checkUpdate,
+        host: testHost({ platform: "windows" }),
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
+  // The installer's digest and the unsigned warning reach the notice, as on the shipped settings page.
+  expect(screen.getByText(/SmartScreen 会拦截，且 uiAccess 失效/)).toBeDefined();
+  expect(screen.getByText("b".repeat(64))).toBeDefined();
   expect(
-    selectPlatformRelease(
-      [
-        {
-          tag_name: "windows-v1.2.0",
-          html_url: `${page}/tag/windows-v1.2.0`,
-          assets: [{ name: "msime-linux_1.2.0_amd64.deb", digest: `sha256:${digest}` }],
-        },
-      ],
-      "windows",
-      page,
-    ),
-  ).toMatchObject({ installerName: null, installerSha256: null, signed: false });
-  // Other platforms keep ignoring assets.
-  expect(
-    selectPlatformRelease(
-      [
-        {
-          tag_name: "macos-v1.2.0",
-          html_url: `${page}/tag/macos-v1.2.0`,
-          assets: [{ name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${digest}` }],
-        },
-      ],
-      "macos",
-      page,
-    ),
-  ).toMatchObject({ installerName: null, installerSha256: null, signed: null });
+    screen.getByText("Get-FileHash .\\MetasequoiaIME-Full_Setup_v1.2.0.exe -Algorithm SHA256"),
+  ).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith(`${releasesPage}/tag/windows-v1.2.0`),
+  );
 });
 
-test("Windows release assets yield the installer digest and mark the build unsigned", () => {
-  const page = "https://github.com/metasequoiaime/msime/releases";
-  const digest = "d".repeat(64);
-  const pick = (assets: unknown) => {
-    const update = selectPlatformRelease(
-      [{ tag_name: "windows-v1.2.0", html_url: `${page}/tag/windows-v1.2.0`, assets }],
-      "windows",
-      page,
-    );
-    return (
-      update && {
-        name: update.installerName,
-        sha256: update.installerSha256,
-        signed: update.signed,
-      }
-    );
-  };
-  // What release-windows.yml uploads: the installer and its .sha256 file.
-  expect(
-    pick([
-      { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
-      { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe.sha256", digest: `sha256:${"e".repeat(64)}` },
-    ]),
-  ).toEqual({ name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", sha256: digest, signed: false });
-  // An older API response without digests keeps the name, so the notice can point at the .sha256 file.
-  expect(pick([{ name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", digest: null }])).toEqual({
-    name: "MetasequoiaIME-Full_Setup_v1.2.0.exe",
-    sha256: null,
-    signed: false,
-  });
-  // Two installers are ambiguous; a name needing quoting never reaches the command.
-  expect(
-    pick([
-      { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
-      { name: "MetasequoiaIME-Full_Setup_v1.2.0-x86.exe", digest: `sha256:${digest}` },
-    ]),
-  ).toEqual({ name: null, sha256: null, signed: false });
-  expect(pick([{ name: "Setup v1.2.0;calc.exe", digest: `sha256:${digest}` }])).toEqual({
-    name: null,
-    sha256: null,
-    signed: false,
-  });
-  expect(pick(undefined)).toEqual({ name: null, sha256: null, signed: false });
+test("a check the host could not complete says so", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        checkUpdate: vi.fn().mockRejectedValue({ code: "update_check_unavailable" }),
+        host: testHost({ platform: "windows" }),
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("检查失败，请稍后重试")).toBeDefined();
+});
+
+test("about page sends the packaged app version and reports the newest release as current", async () => {
+  const checkUpdate = vi.fn().mockResolvedValue({
+    status: "current",
+    update: hostRelease("linux-v1.2.0"),
+  } satisfies UpdateCheckResult);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        readAppVersion: vi.fn().mockResolvedValue("v1.2.0"),
+        checkUpdate,
+        host: testHost({ platform: "linux" }),
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByText("v1.2.0")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("已是最新版本")).toBeDefined();
+  expect(checkUpdate).toHaveBeenCalledWith(
+    expect.objectContaining({ platform: "linux", currentVersion: "1.2.0" }),
+  );
+  expect(screen.queryByRole("button", { name: "前往下载" })).toBeNull();
 });
 
 test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows", () => {
@@ -7636,163 +7562,6 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
       "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。请从发行页一并下载 MetasequoiaIME-Full_Setup_v1.2.0.exe.sha256，用 Get-FileHash .\\MetasequoiaIME-Full_Setup_v1.2.0.exe -Algorithm SHA256 核对。",
     verify: null,
   });
-});
-
-test("Windows checks this repository's Windows releases rather than the reference manifest", async () => {
-  const fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    json: async () => [
-      {
-        tag_name: "linux-v9.0.0",
-        html_url: "https://github.com/metasequoiaime/msime/releases/tag/linux-v9.0.0",
-      },
-      {
-        tag_name: "windows-v1.2.0",
-        html_url: "https://github.com/metasequoiaime/msime/releases/tag/windows-v1.2.0",
-        assets: [
-          { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", digest: `sha256:${"b".repeat(64)}` },
-          {
-            name: "MetasequoiaIME-Full_Setup_v1.2.0.exe.sha256",
-            digest: `sha256:${"c".repeat(64)}`,
-          },
-        ],
-      },
-    ],
-  });
-  vi.stubGlobal("fetch", fetch);
-  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(initial),
-        save: vi.fn(),
-        openExternalUrl,
-        host: testHost({ platform: "windows" }),
-      }}
-    />,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
-  expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
-  // The installer's digest and the unsigned warning reach the notice, as on the shipped settings page.
-  expect(screen.getByText(/SmartScreen 会拦截，且 uiAccess 失效/)).toBeDefined();
-  expect(screen.getByText("b".repeat(64))).toBeDefined();
-  expect(
-    screen.getByText("Get-FileHash .\\MetasequoiaIME-Full_Setup_v1.2.0.exe -Algorithm SHA256"),
-  ).toBeDefined();
-  expect(fetch).toHaveBeenCalledWith(
-    expect.stringMatching(/^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\?/),
-    expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
-  await waitFor(() =>
-    expect(openExternalUrl).toHaveBeenCalledWith(
-      "https://github.com/metasequoiaime/msime/releases/tag/windows-v1.2.0",
-    ),
-  );
-  vi.unstubAllGlobals();
-});
-
-test("an update check that never answers gives up after ten seconds", async () => {
-  vi.useFakeTimers({ shouldAdvanceTime: true });
-  let signal: AbortSignal | undefined;
-  vi.stubGlobal(
-    "fetch",
-    vi.fn((_url: string, init?: RequestInit) => {
-      signal = init?.signal ?? undefined;
-      return new Promise((_resolve, reject) =>
-        signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))),
-      );
-    }),
-  );
-  try {
-    render(
-      <SettingsPage
-        client={{
-          load: vi.fn().mockResolvedValue(initial),
-          save: vi.fn(),
-          host: testHost({ platform: "windows" }),
-        }}
-      />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "关于" }));
-    fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
-    await waitFor(() => expect(signal).toBeDefined());
-    await act(async () => {
-      vi.advanceTimersByTime(9_000);
-    });
-    expect(signal?.aborted).toBe(false);
-    await act(async () => {
-      vi.advanceTimersByTime(1_000);
-    });
-    expect(signal?.aborted).toBe(true);
-    expect(await screen.findByText("检查失败，请稍后重试")).toBeDefined();
-  } finally {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-  }
-});
-
-test("about page uses the packaged app version for display and update comparison", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => [
-        {
-          tag_name: "linux-v1.2.0",
-          html_url: "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0",
-        },
-      ],
-    }),
-  );
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(initial),
-        save: vi.fn(),
-        readAppVersion: vi.fn().mockResolvedValue("v1.2.0"),
-        host: testHost({ platform: "linux" }),
-      }}
-    />,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  expect(await screen.findByText("v1.2.0")).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
-  expect(await screen.findByText("已是最新版本")).toBeDefined();
-  expect(screen.queryByRole("button", { name: "前往下载" })).toBeNull();
-  vi.unstubAllGlobals();
-});
-
-test("platform release selection compares versions rather than trusting list order", () => {
-  const page = "https://github.com/metasequoiaime/msime/releases";
-  expect(
-    selectPlatformRelease(
-      [
-        { tag_name: "windows-v0.9.0", html_url: `${page}/tag/windows-v0.9.0` },
-        { tag_name: "windows-v0.10.0", html_url: `${page}/tag/windows-v0.10.0` },
-        { tag_name: "windows-v2.0.0", html_url: `${page}/tag/windows-v2.0.0`, draft: true },
-        { tag_name: "windowsx-v3.0.0", html_url: `${page}/tag/windowsx-v3.0.0` },
-      ],
-      "windows",
-      page,
-    )?.version.display,
-  ).toBe("0.10.0");
-  expect(selectPlatformRelease([], "windows", page)).toBeNull();
-});
-
-test("client release validation rejects a release URL outside the shared repository", () => {
-  expect(
-    validateGitHubRelease(
-      {
-        tag_name: "v1.2.0",
-        html_url: "https://github.com/metasequoiaime/MSIME-Windows/releases/tag/v1.2.0",
-      },
-      "https://github.com/metasequoiaime/msime/releases",
-    ),
-  ).toBeNull();
 });
 
 test("screen keyboard and handwriting pages expose the native panel actions", async () => {

@@ -353,6 +353,7 @@ actor BackendAccountSession {
                                        version: Int, cleanup: @Sendable (String) throws -> Void) throws {
     guard generation == version else { throw CancellationError() }
     let previous = try? storage.load().map { try BackendSavedSession.validated($0) }
+    // 切换账号必须先取消旧账号的待处理工作，取消失败就保留旧会话、不发布新身份，避免旧账号的快照落进新账号。
     try install(tokens) {
       if let accountID = previous?.tokens.user.id, accountID != tokens.user.id { try cleanup(accountID) }
     }
@@ -531,15 +532,15 @@ actor BackendAccountSession {
     try Task.checkCancellation()
     return (value, identity.token)
   }
-  func forget(removingAccount cleanup: @Sendable (String) throws -> Void = { _ in }) async throws {
+  func forget(removingAccount cleanup: @Sendable (String) -> Void = { _ in }) async throws {
     try await forget(removingAccount: cleanup, fallbackAccountID: nil)
   }
   func forget(matchingUserID expected: String, matchingSessionID expectedSessionID: UUID? = nil,
-              removingAccount cleanup: @Sendable (String) throws -> Void = { _ in }) async throws {
+              removingAccount cleanup: @Sendable (String) -> Void = { _ in }) async throws {
     try await forget(removingAccount: cleanup, fallbackAccountID: expected, matchingUserID: expected,
                      matchingSessionID: expectedSessionID)
   }
-  private func forget(removingAccount cleanup: @Sendable (String) throws -> Void,
+  private func forget(removingAccount cleanup: @Sendable (String) -> Void,
                       fallbackAccountID: String?, matchingUserID expectedUserID: String? = nil,
                       matchingSessionID expectedSessionID: UUID? = nil,
                       allowMissingExpected: Bool = false) async throws {
@@ -571,7 +572,7 @@ actor BackendAccountSession {
                             matchingUserID expectedUserID: String?,
                             matchingSessionID expectedSessionID: UUID?,
                             allowMissingExpected: Bool,
-                            cleanup: @Sendable (String) throws -> Void) throws {
+                            cleanup: @Sendable (String) -> Void) throws {
     guard generation == version else { throw CancellationError() }
     let current = try storage.load()
     if let expectedUserID, current?.tokens.user.id != expectedUserID,
@@ -579,10 +580,11 @@ actor BackendAccountSession {
     if let expectedSessionID, current?.sessionID != expectedSessionID,
        !(allowMissingExpected && current == nil) { throw CancellationError() }
     if let current, current.tokens.user.id != accountID { throw CancellationError() }
-    if let accountID = current?.tokens.user.id ?? accountID { try cleanup(accountID) }
+    // 先取消旧账号的待处理工作再清除身份，缩小键盘按旧身份领取的窗口。回调不能抛错：退出登录是用户明确要离开这个账号，注销账号时远端已删除，清除失效登录时身份已不可用，清理失败也必须让本地会话清掉，失败由调用方自行记录；切换账号的 `replacingAccount` 才允许失败并阻止切换。
+    if let accountID = current?.tokens.user.id ?? accountID { cleanup(accountID) }
     try storage.clear()
   }
-  func logout(all: Bool = false, removingAccount cleanup: @Sendable (String) throws -> Void = { _ in }) async throws {
+  func logout(all: Bool = false, removingAccount cleanup: @Sendable (String) -> Void = { _ in }) async throws {
     try await ensureSessionID()
     guard let owner = try user()?.id, let sessionID = saved?.sessionID else {
       throw BackendAccountClient.Failure(status: 401)

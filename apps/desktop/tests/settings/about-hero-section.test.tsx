@@ -110,7 +110,21 @@ const initial: Snapshot = {
   },
 };
 
-function renderAbout(host: Record<string, unknown>, openExternalUrl = vi.fn()) {
+function release(display: string) {
+  return {
+    version: { display, parts: display.split(".").map(Number) },
+    release_url: `https://github.com/metasequoiaime/msime/releases/tag/harmony-v${display}`,
+    installer_name: null,
+    installer_sha256: null,
+    signed: null,
+  };
+}
+
+function renderAbout(
+  host: Record<string, unknown>,
+  openExternalUrl = vi.fn(),
+  checkUpdate = vi.fn().mockResolvedValue({ status: "current", update: release("1.4.2") }),
+) {
   render(
     <SettingsPage
       initialPage="about"
@@ -119,6 +133,7 @@ function renderAbout(host: Record<string, unknown>, openExternalUrl = vi.fn()) {
         save: vi.fn(),
         readAppVersion: vi.fn().mockResolvedValue("1.4.2"),
         openExternalUrl,
+        checkUpdate,
         host: testHost({ platform: "harmony", ...host }),
       }}
     />,
@@ -157,14 +172,16 @@ test("the 2in1 names its form factor in the version line and keeps its download 
 });
 
 test("the hero pill runs the release check and reports an outcome that is not current", async () => {
-  const fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => [] });
-  vi.stubGlobal("fetch", fetch);
-  renderAbout({});
+  const checkUpdate = vi.fn().mockResolvedValue({ status: "none" });
+  renderAbout({}, vi.fn(), checkUpdate);
   const about = await screen.findByRole("group", { name: "关于" });
 
   fireEvent.click(within(about).getByRole("button", { name: "检查更新" }));
   expect(await within(about).findByText("暂无可用发行版")).toBeTruthy();
-  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(checkUpdate).toHaveBeenCalledTimes(1);
+  expect(checkUpdate).toHaveBeenCalledWith(
+    expect.objectContaining({ platform: "harmony", currentVersion: "1.4.2" }),
+  );
   // 并非最新，所以胶囊按钮再次提供检查，而不是声称当前已是最新版本。
   expect(within(about).getByRole("button", { name: "检查更新" })).toBeTruthy();
 });

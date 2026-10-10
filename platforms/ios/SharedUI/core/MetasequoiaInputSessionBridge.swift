@@ -1459,10 +1459,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   private static func strictInt(_ value: Any?, fallback: Int, range: ClosedRange<Int>) throws -> Int {
     guard let value else { return fallback }
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID(),
-          let integer = Int(number.stringValue),
-          NSNumber(value: integer).compare(number) == .orderedSame,
+    guard let integer = SharedNumber.strictInt(value),
           range.contains(integer) else { throw InputBridgeFailure.invalidResponse }
     return integer
   }

@@ -106,7 +106,7 @@ pub fn collect_typo_edges(
     edges
 }
 
-/// Every span key the typo decode may use, weak positions first, deduplicated, at most `TYPO_KEY_BUDGET`.
+/// 按弱位置优先规划并去重纠错跨度键，最多保留 `TYPO_KEY_BUDGET` 项。
 fn plan_keys(
     profile: &PersonalTypoProfile,
     segments: &[String],
@@ -135,7 +135,7 @@ fn plan_keys(
         .filter(|&i| weak.get(i))
         .chain((0..n).filter(|&i| !weak.get(i)));
 
-    let mut planned = Vec::with_capacity(TYPO_KEY_BUDGET);
+    let mut planned = Vec::new();
     let mut variants = Vec::new();
     'positions: for position in positions {
         if planned.len() >= TYPO_KEY_BUDGET {
@@ -169,6 +169,9 @@ fn plan_keys(
                     );
                     if planned_key_seen(&planned, &key) {
                         continue;
+                    }
+                    if planned.is_empty() {
+                        planned = Vec::with_capacity(TYPO_KEY_BUDGET);
                     }
                     planned.push(PlannedKey {
                         start,
@@ -216,6 +219,10 @@ fn typo_span_key(
     }
     key
 }
+
+#[cfg(test)]
+#[path = "typo_edges/lazy_plan_tests.rs"]
+mod lazy_plan_tests;
 
 #[cfg(test)]
 #[path = "typo_edges/lazy_buffer_tests.rs"]

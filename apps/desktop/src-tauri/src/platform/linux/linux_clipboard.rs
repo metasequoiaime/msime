@@ -1,5 +1,6 @@
 //! Bounded transfers through the Linux session's clipboard tools.
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use msime_client_core::clipboard::{normalize_text, MAX_TEXT_BYTES};
@@ -12,6 +13,18 @@ pub fn read_text(program: &str, arguments: &[&str]) -> Option<String> {
         Duration::from_secs(1),
     )
     .map(|text| normalize_text(&text))
+}
+
+/// 能否用 `wl-paste` 读剪贴板而不抢焦点。合成器提供 data-control 协议（wlroots 系、KWin）时，`wl-paste` 经它在后台读取；不提供时（GNOME/Mutter），`wl-paste` 只能临时建一个窗口拿到键盘焦点才读得到，每读一次都会打断前台应用里输入法的预编辑，并让 gnome-shell 刷 `meta_window_set_stack_position_no_sync` 断言（#6514）。`wl-paste --watch` 只走 data-control，没有它就立即以非零状态退出，借此判断；没装 `wl-paste` 也算不能用。结果在进程内缓存：会话中途合成器不会换，`--watch` 本身不建窗口，探测一次不抢焦点。
+pub fn wayland_paste_is_background() -> bool {
+    static BACKGROUND: OnceLock<bool> = OnceLock::new();
+    *BACKGROUND.get_or_init(|| {
+        super::linux_process::stays_running(
+            "wl-paste",
+            &["--type", "text", "--watch", "true"],
+            Duration::from_secs(1),
+        )
+    })
 }
 
 pub fn write_text(program: &str, arguments: &[&str], text: &str) -> bool {
