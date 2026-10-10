@@ -687,13 +687,13 @@ if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^  
   echo "Android candidate strip must not start each editor from the factory-default preference copy" >&2
   exit 1
 fi
-# 键距、行距、语音快捷键和数字键顺序同理：按副本算，调过键距的用户每换一个输入框键盘都先按出厂间距排一帧。只有实时偏好重算键盘几何，冷启动的第一帧按皮肤片段算，片段里要记着这几个字段。
+# 键距、行距、语音快捷键、数字键顺序和 26 键数字键盘同理：按副本算，调过键距的用户每换一个输入框键盘都先按出厂间距排一帧。只有实时偏好重算键盘几何，冷启动的第一帧按皮肤片段算，片段里要记着这几个字段。
 if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^    }$/p' "$account_service" \
     | rg -q '^\s*if \(live\) applyTouchGeometry\(preferences\);' \
   || ! sed -n '/JSONObject hint = readSkinHint();/,/^        }$/p' "$account_service" \
     | rg -q 'applyTouchGeometry\(hint\);' \
   || ! rg -q '"touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",' "$account_service" \
-  || ! rg -q '"touch_voice_shortcut", NineKeyLayout\.NUMBER_KEYPAD_ORDER_KEY,' "$account_service"; then
+  || ! rg -q '"touch_voice_shortcut", NineKeyLayout\.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout\.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY,' "$account_service"; then
   echo "Android keyboard geometry must not start each editor from the factory-default preference copy" >&2
   exit 1
 fi

@@ -235,6 +235,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean touchVoiceShortcutEnabled;
     /** 九键数字键面用计算器顺序（7 8 9 在上），来自共享偏好 `touch_number_keypad_order`。 */
     boolean numberKeypadCalculator;
+    /** 26 键按「123」画九键数字键面，来自共享偏好 `touch_twenty_six_key_number_layout`；什么时候真的画见 {@link #twentySixKeyDigitFace}。 */
+    private boolean twentySixKeyNineKeyDigits;
     private boolean voiceInputEnabled = true;
     private String voiceLanguage = "zh-CN";
     KeyboardSkin skin = KeyboardSkin.system(false);
@@ -1758,6 +1760,7 @@ public final class MSIMEInputService extends InputMethodService {
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
         numberKeypadCalculator = numberKeypadCalculatorFrom(preferences);
+        twentySixKeyNineKeyDigits = twentySixKeyNineKeyDigitsFrom(preferences);
     }
 
     /** 用上保存的键高。键盘里正在拖动高度时（应用 `restartInput` 同一个输入框时会走到这里，不经过 onFinishInputView）不动预览，只改「取消」要回到的值，与 applyPreferencesSnapshot 一致；否则预览跳回保存值，按「完成」什么也存不下。 */
@@ -1769,6 +1772,17 @@ public final class MSIMEInputService extends InputMethodService {
     private static boolean numberKeypadCalculatorFrom(JSONObject preferences) {
         return preferences != null && NineKeyLayout.calculatorOrder(preferences.optString(
             NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER));
+    }
+
+    private static boolean twentySixKeyNineKeyDigitsFrom(JSONObject preferences) {
+        return preferences != null && NineKeyLayout.nineKeyNumberLayout(preferences.optString(
+            NineKeyLayout.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY, NineKeyLayout.ROW_NUMBER_LAYOUT));
+    }
+
+    /** 26 键的「123」此刻是否画成九键数字键面（{@link NineKeyLayout#twentySixKeyDigits}）；键行、删除键和底栏都按它判断。 */
+    boolean twentySixKeyDigitFace() {
+        return NineKeyLayout.twentySixKeyDigits(displayedTouchLayout(view),
+            keyboardLayer == KeyboardLayout.Layer.SYMBOLS, twentySixKeyNineKeyDigits, splitKeyboardDrawn());
     }
 
     /** 日语九键侧列的 ☺：顶部工具栏有表情按钮时两处入口重复，不放；工具栏关掉表情或整条隐藏时才放回来。 */
@@ -2004,7 +2018,7 @@ public final class MSIMEInputService extends InputMethodService {
         return touchKeySpacingTenths + ":" + touchRowSpacingTenths + ":"
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
-            + numberKeypadCalculator;
+            + numberKeypadCalculator + ":" + twentySixKeyNineKeyDigits;
     }
 
     private void reloadPreferences(String response) {
@@ -2089,6 +2103,7 @@ public final class MSIMEInputService extends InputMethodService {
         int nextHeightAdjustment = inlineHeightActive ? touchKeyboardHeightAdjustment : savedHeightAdjustment;
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         boolean nextNumberKeypadCalculator = numberKeypadCalculatorFrom(preferences);
+        boolean nextTwentySixKeyNineKeyDigits = twentySixKeyNineKeyDigitsFrom(preferences);
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
         boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
         String nextVoiceLanguage = nextVoice == null ? "zh-CN"
@@ -2159,10 +2174,12 @@ public final class MSIMEInputService extends InputMethodService {
         touchKeyboardHeightAdjustment = nextHeightAdjustment;
         if (inlineHeightActive) inlineHeightOriginal = savedHeightAdjustment;
         touchVoiceShortcutEnabled = nextVoiceShortcut;
-        // 只有九键数字键面画的是这个顺序；正画着它时要重建键行。
-        boolean numberKeypadRebuild = numberKeypadCalculator != nextNumberKeypadCalculator
+        // 数字键盘顺序和 26 键数字键盘都只影响数字层；正画着它时要重建键行。
+        boolean numberKeypadRebuild = (numberKeypadCalculator != nextNumberKeypadCalculator
+                || twentySixKeyNineKeyDigits != nextTwentySixKeyNineKeyDigits)
             && keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         numberKeypadCalculator = nextNumberKeypadCalculator;
+        twentySixKeyNineKeyDigits = nextTwentySixKeyNineKeyDigits;
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
         applyAiPreferences(preferences);
@@ -3562,6 +3579,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (session == 0) return;
         int previousLayout = displayedTouchLayout(view);
         boolean previousUppercase = letterCase.usesUppercase();
+        // 26 键的九键数字键面底栏有中/英；切换后回到字母层，布局常量却还是 26 键，要按它重建键行。
+        boolean previousDigitFace = twentySixKeyDigitFace();
         try {
             JSONObject nextView = value(NativeClient.setEnglishMode(session, nextEnglish));
             dedicatedEnglish = nextEnglish;
@@ -3571,7 +3590,8 @@ public final class MSIMEInputService extends InputMethodService {
             view = nextView;
             keyboardLayer = KeyboardLayout.Layer.LETTERS;
             letterCase.reset();
-            if (previousLayout != displayedTouchLayout(view) || previousUppercase) imeLetterRows.rebuildKeyRows();
+            if (previousLayout != displayedTouchLayout(view) || previousUppercase || previousDigitFace)
+                imeLetterRows.rebuildKeyRows();
             updateAutomaticCapitalization();
             if (directEnglishActive()) refreshEnglishSuggestions();
             else { clearEnglishSuggestions(); render(); }
@@ -4103,7 +4123,7 @@ public final class MSIMEInputService extends InputMethodService {
         "candidate_theme", "candidate_font_family", "candidate_english_font", "candidate_fallback_fonts",
         "candidate_font_size", "candidate_preedit_font_size",
         "touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
-        "touch_voice_shortcut", NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY,
+        "touch_voice_shortcut", NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY,
         "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
     /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
     private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";
