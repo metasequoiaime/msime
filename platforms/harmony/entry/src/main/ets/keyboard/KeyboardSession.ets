@@ -2703,7 +2703,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** 告诉引擎键面现在是哪种网格（`KeyGrid`），只在组字结束后调用。 */
   setKeyGrid(grid: number): void {
-    // This keyboard only offers the Engine's grids for quanpin — Japanese has its own kana grid, the Zhuyin keypad is Android-only, and the Engine refuses a grid for the rest. Asking anyway put a refusal in the log on every Japanese focus.
+    // 这个键盘只给全拼开引擎的组码网格：日文有自己的假名九宫格，注音九键只有 Android 有，其余方案引擎会拒绝。照样去开的话，每次日文获得焦点都会在日志里留一条拒绝。
     const wanted: number = this.schemeName === 'quanpin' ? grid : KeyGrid.NONE;
     if (this.handle === 0 || this.keyGrid === wanted) {
       return;

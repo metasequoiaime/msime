@@ -1981,7 +1981,7 @@ impl<E: InputEngine> Runtime<E> {
             }
             Action::Character { value, shift } => {
                 self.engine.character(value, shift).and_then(|result| {
-                    // The nine-key separator is a layout action, not Chinese quote punctuation. 14 键的分词键也是这样。
+                    // 九键和 14 键的分词键 `'` 是键面上的切分动作，不是中文引号标点。
                     if !result.handled && self.cached.key_grid.is_some() && value == b'\'' {
                         return Ok(result);
                     }

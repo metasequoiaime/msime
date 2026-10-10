@@ -752,7 +752,7 @@ impl NineKeySession {
         self.phrase_storable = true;
     }
 
-    /// Out of range commits the digits（走 `CommitRaw`，14 键因此取首选）。与全拼键盘的 `finish_composition` 相同，余下各段逐个按 `select` 选首选，造词也一样：用户先选掉的段和替他选的余下各段连成一个词存起来（选了「我滴」再打标点，存的是「我滴个天呐」），首选是整句行时存整句。
+    /// `first_index` 越界时与 `CommitRaw` 相同：九键上屏数字，14 键因此取首选。与全拼键盘的 `finish_composition` 相同，余下各段逐个按 `select` 选首选，造词也一样：用户先选掉的段和替他选的余下各段连成一个词存起来（选了「我滴」再打标点，存的是「我滴个天呐」），首选是整句行时存整句。
     pub fn finish(&mut self, first_index: usize) -> KeyResult {
         if !self.active() {
             return KeyResult::unhandled();
@@ -1494,7 +1494,7 @@ impl NineKeySession {
         )
     }
 
-    /// The leading row's pinyin cut to the digits it covers, then the uncovered digits with their splits: `xi'an` for 西安 over `94'26`, `yi'c` for 遗产 over `942`. 首行不是从拼音读出来的（英文词、emoji、日期时间行）或者没有首行时为空；14 键的首行是英文词时是这个词覆盖已打键数的那段小写字母，一键一个字母，没有歧义。
+    /// 读音行：首行的拼音截到它覆盖的那几个键，后面接上没覆盖的键码和切分，例如 `94'26` 上的 西安 是 `xi'an`，`942` 上的 遗产 是 `yi'c`。首行不是从拼音读出来的（英文词、emoji、日期时间行）或者没有首行时为空；14 键的首行是英文词时是这个词覆盖已打键数的那段小写字母，一键一个字母，没有歧义。
     fn reading_for(&self, front: Option<&WordItem>) -> String {
         let Some(front) = front else {
             return String::new();

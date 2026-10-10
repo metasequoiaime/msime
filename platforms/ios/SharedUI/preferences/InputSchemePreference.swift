@@ -49,7 +49,7 @@ enum ChineseInputScheme: String, CaseIterable {
   /// Whether the scheme reads a dictionary that ships apart from the resource set, and so is offered only where it is installed.
   var needsLanguageDictionary: Bool { isCantonese || isZhuyin || isStroke }
 
-  /// Whether a held backspace and a quick space-bar flick edit the spelling a syllable at a time. Only a lettered pinyin spelling has syllables to step over: a nine-key digit run is still ambiguous, and a wubi code is not made of syllables, so those keep a hold that clears the composition. 全拼 14 键的组字是组码，同样有歧义，与九键一样整段清除。
+  /// 长按退格和空格键快速轻扫是否按音节编辑拼写。只有用字母写的拼音才有音节可跳：九键的一串数字仍有歧义，五笔码不由音节组成，所以它们长按时整段清除组字。全拼 14 键的组字是组码，同样有歧义，与九键一样整段清除。
   var editsBySyllable: Bool { self == .quanpin || shuangpinProfile != nil }
 
   /// 这个入口背后的输入方案，即版本表和共享偏好 `scheme` 里的方案名。手写的识别由平台识别器完成，不属于任何一个方案，这里的 `quanpin` 只用来归类；它写进偏好的方案见 `MetasequoiaInputSessionBridge.schemeMapping`。

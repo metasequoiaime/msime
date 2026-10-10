@@ -20,7 +20,7 @@ public final class KeyPressCountingSmoke {
     }
 
     private static void ids() {
-        // The same 141 ids as KEY_IDS in crates/client-core/src/typing_statistics.rs.
+        // 与 crates/client-core/src/typing_statistics.rs 的 KEY_IDS 是同样的 141 个 id。
         check(KeyPressIds.KEY_IDS.size() == 141, "the whitelist has the store's 141 ids");
         check(new HashSet<>(KeyPressIds.KEY_IDS).size() == 141, "the whitelist has no duplicate");
         // 14 键的十四个键按键面字母命名，与 Rust 的 KEY_IDS 末尾逐字相同。

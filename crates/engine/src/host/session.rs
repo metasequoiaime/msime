@@ -615,7 +615,7 @@ impl Session {
         result_for(KeyResult::committed(raw))
     }
 
-    /// Windows learns an entered word only on Enter: letters committed raw in dedicated English, a local mode, or pinyin that is not a complete syllable sequence are learned as an English word (bridge.cpp:1332-1359). 九宫格（九键、14 键）组字时上屏的不是用户逐个打出的字母：九键是数字，14 键是结束组字后的首选，都不学成英文词。
+    /// Windows 只在回车时学词：专用英文、本地模式里原样上屏的字母，以及不是完整音节序列的拼音，学成英文词（bridge.cpp:1332-1359）。九宫格（九键、14 键）组字时上屏的不是用户逐个打出的字母：九键是数字，14 键是结束组字后的首选，都不学成英文词。
     fn commit_raw_with_policy(&mut self) -> EngineResult {
         let grid_composing = self.inner.grid_composing();
         let before = self.inner.snapshot();
