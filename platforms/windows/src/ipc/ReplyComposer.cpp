@@ -4,6 +4,7 @@
 #include "InputSchemeTraits.h"
 #include "KoreanHanjaKey.h"
 #include "PunctuationPolicy.h"
+#include "SecondThirdCandidatePolicy.h"
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
@@ -63,7 +64,8 @@ ReplyComposer::ReplyComposer(uint64_t client, uint64_t epoch)
 }
 const PendingReply &
 ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
-                     std::optional<std::string> local_text) {
+                     std::optional<std::string> local_text,
+                     std::size_t continue_consumed) {
   if (pending_)
     throw std::logic_error(
         "Resolve the pending reply before dispatching another key");
@@ -199,8 +201,18 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
     if (!output_delta.empty())
       next.committed_text = output_delta;
     break;
+  case ReplyPath::ConversionCommit:
+    // 改好的整句已经由 TIP 写进文档，和本地回车（LocalCommit）一样不发回复帧，这里只清掉前缀并计数；整句上屏后没有剩下的组字。
+    if (!raw.empty()) {
+      invalid();
+      break;
+    }
+    next.next_prefix.clear();
+    if (!output_delta.empty())
+      next.committed_text = output_delta;
+    break;
   case ReplyPath::AutoCommitAndContinue: {
-    // Two Wubi commits take this path: the fourth letter of a unique code, which leaves nothing to compose, and a letter typed after a complete code (顶字), which commits the first candidate and leaves that letter composing. The worker frame tells the TIP to consume the four letters of the committed code from its own buffer and keep whatever follows, so the key reply only has to show the composition the Engine now holds.
+    // Two Wubi commits take this path: the fourth letter of a unique code, which leaves nothing to compose, and a letter typed after a complete code (顶字), which commits the first candidate and leaves that letter composing. The worker frame tells the TIP to consume the four letters of the committed code from its own buffer and keep whatever follows, so the key reply only has to show the composition the Engine now holds. `continue_consumed` is that count (wubi_continue_consumed): a capital the Engine does not take after a complete code goes out with the first candidate and leaves nothing composing, so the TIP drops it too.
     const auto &context = result.transition.at("commit_context");
     if (delta.empty() || context.is_null() ||
         context.value("scheme", 255u) != 2u) {
@@ -208,7 +220,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       break;
     }
     const auto total = prefix_ + output_delta;
-    next.worker = commit_candidate_and_continue_bytes(4, total);
+    next.worker = commit_candidate_and_continue_bytes(continue_consumed, total);
     if (!next.worker) {
       invalid();
       break;
@@ -319,8 +331,10 @@ std::optional<PendingReply> ReplyComposer::basic_key(
   if (action.kind == KeyKind::LocalReset) {
     // 越南文词或藏文音节串上的第一次 Esc 重新显示原文并继续组字，所以没有被清空的组字要报告；TIP 带着同样的按键继续组字。
     const auto current = session.view();
+    // 整句改字时的 Esc 同样只退出改字、拼音继续组字。
     const bool restores_raw = packet.keycode == kVirtualKeyEscape && session.input_enabled() &&
-                              scheme::CancelRestoresRaw(view_scheme(current)) &&
+                              (scheme::CancelRestoresRaw(view_scheme(current)) ||
+                               !current.value("conversion", std::string{}).empty()) &&
                               !current.at("editing_text").get<std::string>().empty();
     return dispatch(session, packet, epoch, restores_raw ? ReplyPath::NoReply : ReplyPath::LocalCancel, uiless);
   }
@@ -353,6 +367,9 @@ std::optional<PendingReply> ReplyComposer::basic_key(
                          // cancel.
   if (action.kind == KeyKind::Command && action.value == MSIME_COMMIT_RAW) {
     const auto current = session.view();
+    // 整句改字时回车上屏改好的整句：不选高亮的候选，也不按 TIP 本地的拼音核对。
+    if (session.input_enabled() && !current.value("conversion", std::string{}).empty())
+      return dispatch(session, packet, epoch, ReplyPath::ConversionCommit, uiless);
     const bool candidate_active =
         (packet.modifiers_down & PipeMetadata::CandidateActive) != 0;
     const bool has_candidates = candidate_active && !current.at("candidates").empty();
@@ -450,7 +467,10 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                auto_wubi_commit ? ReplyPath::AutoCommitAndContinue
                : tip_commit     ? ReplyPath::SyllableCommit
                                 : path,
-               uiless);
+               uiless, std::nullopt,
+               wubi_continue_consumed(
+                   before.at("editing_text").get<std::string>().size(),
+                   !result.transition.at("view").at("editing_text").get<std::string>().empty()));
 }
 std::optional<PendingReply>
 ReplyComposer::navigate(ServerSession &session,
@@ -845,6 +865,47 @@ std::optional<PendingReply> ReplyComposer::translation_page_key(
   return *pending_;
 }
 
+std::optional<PendingReply> ReplyComposer::second_third_candidate(
+    ServerSession &session, const FanyImeNamedpipeData &packet,
+    uint64_t epoch) {
+  if (packet.event_type != FanyImePipeEventType::KeyEvent ||
+      !second_third_candidate_slot(packet.keycode, static_cast<uint32_t>(packet.wch)) ||
+      !session.input_enabled())
+    return std::nullopt;
+  if (!packet.request_id || packet.request_id == FANY_IME_NO_REQUEST_ID ||
+      packet.pinyin_length < 0 || packet.pinyin_length >= 128)
+    throw std::invalid_argument("Invalid second or third candidate request");
+  const auto current = session.view();
+  const auto mode = current.at("local_mode").get<std::string>();
+  if (mode == "unknown")
+    return std::nullopt;
+  const auto editing = current.at("editing_text").get<std::string>();
+  const auto text = static_cast<uint32_t>(packet.wch);
+  // 当前状态下 Engine 拼写这个键（网址模式的 ';' 和 '\''），或者它是微软双拼声母后的韵母 ing，就是输入，交给后面的编辑路由。韵母 ing 和 TIP 一样只看光标前的字母数，不看本地模式，两边才不会对同一个键归类不同。
+  const bool engine_input = second_third_candidate_engine_input(
+      current.value("spelling_symbols", std::string{}), text,
+      current.value("microsoft_shuangpin", false), editing,
+      current.at("caret_position").get<size_t>());
+  const auto slot = second_third_candidate_selection(
+      true, packet.keycode, text, PipeMetadata::key_modifiers(packet.modifiers_down),
+      !editing.empty(), view_scheme(current), current.value("dedicated_english", false),
+      engine_input);
+  if (!slot)
+    return std::nullopt;
+  // 和数字键一样：超出当前页的位置什么也不选，键照样吃掉，因为 TIP 已经把它当作选词。
+  const auto &page = current.at("candidates");
+  nlohmann::json transition;
+  if (*slot < page.size()) {
+    const auto &id = page.at(*slot).at("id");
+    transition = session.select(epoch, id.at("generation").get<uint64_t>(),
+                                id.at("index").get<size_t>());
+  } else {
+    transition = {{"handled", true}, {"commit", nullptr}, {"diagnostic", nullptr}, {"view", current}};
+  }
+  return stage({client_, epoch_, packet.request_id, true, std::move(transition)},
+               ReplyPath::Selection,
+               (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
+}
 void ReplyComposer::confirm_ui_delivery(uint64_t client, uint64_t epoch,
                                         uint64_t generation) {
   const auto &current = pending();
@@ -885,6 +946,10 @@ std::optional<PendingReply> ReplyComposer::configured_key(
     return stage(word->key, word->exact
                                 ? ReplyPath::Punctuation
                                 : ReplyPath::CandidatePunctuationFallback);
+  // 排在 basic_key 前面：那里会把组字中的 '\'' 当作音节分隔符交给 Engine。
+  if (bindings.second_third_candidate)
+    if (auto selected = second_third_candidate(session, packet, epoch))
+      return selected;
   if (auto basic =
           basic_key(session, packet, epoch, style, std::move(local_text)))
     return basic;

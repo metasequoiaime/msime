@@ -7,8 +7,8 @@ use crate::paths::RuntimePaths;
 use crate::types::{
     CandidateSource, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
     FuzzyPinyinOptions, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,
-    QuickPhraseEntry, SchemeSet, SchemeType, SentenceAssociationOptions, ShuangpinProfileKind,
-    WordItem, WubiInputOptions,
+    QuickPhraseEntry, SchemeSet, SchemeType, SentenceAssociationOptions, ShuangpinCustomTable,
+    ShuangpinProfileKind, WordItem, WubiInputOptions,
 };
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
 
@@ -20,6 +20,8 @@ pub struct SessionOptions {
     /// 会话允许运行的方案，缺省全部。`scheme` 和之后的 `switch_scheme` 都必须在其中；只为其中的方案构造 provider（见 [`SchemeSet`]）。
     pub enabled_schemes: SchemeSet,
     pub shuangpin_profile: ShuangpinProfileKind,
+    /// `shuangpin_profile` 为 `Custom` 时的键位表。没有它或它不合法时，会话里有双拼就建不起来（`INVALID_CUSTOM_SHUANGPIN_PROFILE`），没有双拼就按小鹤；内置方案不读它。
+    pub shuangpin_custom_profile: Option<ShuangpinCustomTable>,
     /// Shuangpin preedit shows the typed keys rather than the decoded quanpin.
     pub shuangpin_preedit_uses_raw: bool,
     /// How the Vietnamese scheme spells marks: Telex letters or VNI digits.
@@ -76,6 +78,7 @@ impl SessionOptions {
             scheme: SchemeType::Quanpin,
             enabled_schemes: SchemeSet::ALL,
             shuangpin_profile: ShuangpinProfileKind::Xiaohe,
+            shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: true,
             vietnamese_input_method: VietnameseInputMethod::Telex,
             vietnamese_tone_style: VietnameseToneStyle::Modern,
@@ -142,4 +145,8 @@ pub struct SessionSnapshot {
     pub candidate_answers_key: Vec<bool>,
     /// The scheme's openable candidate list is showing (the Korean Hanja list). Hosts read this instead of inferring it from the scheme and a non-empty list.
     pub candidate_list_open: bool,
+    /// 整句改字时改好的整句，否则为空。宿主在它非空时把它画在行内代替拼音。
+    pub conversion: String,
+    /// 整句改字的光标和光标处那一段，按 `conversion` 的字（Unicode 标量）计：光标在第 `.0` 个字之前，`.0..1` 是候选所替换的那一段；光标在句末时两者都等于字数。不在改字时为 `(0, 0)`。
+    pub conversion_focus: (usize, usize),
 }

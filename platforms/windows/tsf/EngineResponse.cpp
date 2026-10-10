@@ -29,6 +29,11 @@ bool EngineSessionAdapter::parse_result(const std::string &text,
       parsed.view.caret = view.value("caret_position", std::size_t{0});
       parsed.view.scheme = view.value("scheme", uint32_t{0});
       parsed.view.spelling_symbols = view.value("spelling_symbols", "");
+      parsed.view.local_mode = view.value("local_mode", "none");
+      parsed.view.dedicated_english = view.value("dedicated_english", false);
+      parsed.view.conversion = view.value("conversion", "");
+      parsed.view.conversion_focus_start = view.value("conversion_focus_start", std::size_t{0});
+      parsed.view.conversion_focus_end = view.value("conversion_focus_end", std::size_t{0});
       for (const auto &candidate : view.value("candidates", json::array())) {
         std::string id;
         std::size_t index = candidate.value("index", std::size_t{0});

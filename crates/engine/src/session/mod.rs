@@ -7,6 +7,7 @@ mod chain;
 mod clock;
 mod commit;
 mod composition;
+mod conversion;
 mod editing;
 mod glide;
 mod input;
@@ -15,6 +16,8 @@ mod online;
 pub mod options;
 #[cfg(test)]
 mod tests;
+
+use std::sync::Arc;
 
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
@@ -25,7 +28,7 @@ use crate::types::{
     LocalInputMode, MentionEntry, OnlineQuery, QuickPhraseEntry, SchemeType,
 };
 
-pub use clock::Clock;
+pub use clock::{Clock, LocalClock};
 use input::InputSession;
 pub use options::{SessionOptions, SessionSnapshot};
 
@@ -52,6 +55,17 @@ impl Session {
         );
         nine_key.set_stroke_dictionary(options.stroke_dictionary.clone());
         nine_key.set_mixed_expressive(options.expressive);
+        nine_key.set_inline_date_time(
+            options
+                .local_modes
+                .date_time
+                .then(|| Arc::clone(&input.clock.local)),
+        );
+        // 九键的整句与 26 键遵守同一组句子联想设置（#6059）。
+        nine_key.set_sentence_options(options.sentence_association, options.sentence_alternatives);
+        nine_key.set_rescoring_context(&options.rescoring_context);
+        // 九键选中的词记进同一个个人上下文模型，开关与 26 键相同（#6185）。
+        nine_key.set_personal_context_enabled(options.personal_context);
         Ok(Session {
             input,
             nine_key,
@@ -60,8 +74,17 @@ impl Session {
         })
     }
 
+    /// 会话建立时定下的双拼方案（内置的表，或校验过的用户表）。
+    pub(crate) fn shuangpin_layout(&self) -> &'static crate::shuangpin::ShuangpinProfile {
+        self.input.profile
+    }
+
     /// Replace the steady and local clocks, so tests can cross the 3 s / 8 s / 10 s personal-learning windows and the date/time mode can be pinned.
     pub fn set_clock(&mut self, clock: Clock) {
+        if self.input.local_mode_options.date_time {
+            self.nine_key
+                .set_inline_date_time(Some(Arc::clone(&clock.local)));
+        }
         self.input.clock = clock;
     }
 
@@ -124,10 +147,24 @@ impl Session {
 
     pub fn command(&mut self, command: Command) -> KeyResult {
         if self.nine_key.active() {
+            // 九宫格没有整句改字，改字的光标键就是它的光标键。
+            let command = match command {
+                Command::ConversionLeft => Command::MoveLeft,
+                Command::ConversionRight => Command::MoveRight,
+                other => other,
+            };
             let result = self.nine_key.command(command);
             return self.after_nine_key(result);
         }
         self.input.handle_command(command)
+    }
+
+    /// 整句改字的左移，进入改字时从第 `index` 个候选（宿主高亮的那一行）开始；已在改字里时与 `command(ConversionLeft)` 相同。九宫格和进不了改字时按 `MoveLeft` 处理。
+    pub fn conversion_left_from(&mut self, index: usize) -> KeyResult {
+        if self.nine_key.active() {
+            return self.command(Command::MoveLeft);
+        }
+        self.input.conversion_left_from(index)
     }
 
     /// `1`..`9` select the first nine candidates.
@@ -315,11 +352,13 @@ impl Session {
     /// Disabling also ends the current context.
     pub fn set_personal_context_enabled(&mut self, enabled: bool) {
         self.input.set_personal_context_enabled(enabled);
+        self.nine_key.set_personal_context_enabled(enabled);
     }
 
     /// The committed text the neural sentence models condition on, updated without rebuilding the session. Only the last 64 characters matter.
     pub fn set_rescoring_context(&mut self, context: &str) {
         self.input.set_rescoring_context(context);
+        self.nine_key.set_rescoring_context(context);
     }
 
     /// Hand over the candidates withheld from a single-letter query; whether the list grew.
@@ -386,7 +425,7 @@ impl Session {
             nine_key_strokes: String::new(),
             answered_by_pinyin_fallback: input.answered_by_pinyin_fallback(),
             wubi_unique_four_code: input.wubi_unique_four_code(),
-            shuangpin_profile: input.profile.name().to_owned(),
+            shuangpin_profile: input.profile.kind.name().to_owned(),
             candidate_sources: candidates.iter().map(|item| item.source).collect(),
             candidate_annotations: input.candidate_annotations(),
             // `pinyin` rather than `canonical_pinyin`: the former is what composition advancement consumes, which is the question being asked.
@@ -397,6 +436,15 @@ impl Session {
                 })
                 .collect(),
             candidate_list_open: input.candidate_list_open(),
+            conversion: input
+                .conversion
+                .as_ref()
+                .map(|edit| edit.text())
+                .unwrap_or_default(),
+            conversion_focus: input
+                .conversion
+                .as_ref()
+                .map_or((0, 0), |edit| edit.focus_span()),
             candidates,
         }
     }

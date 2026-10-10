@@ -60,8 +60,8 @@ fn activation_receipt_rejects_a_symlinked_receipt() {
 #[cfg(unix)]
 #[test]
 fn activation_receipt_rejects_a_symlinked_parent() {
+    use msime_path_trust::untrusted_symlink as symlink;
     use std::fs;
-    use std::os::unix::fs::symlink;
 
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
@@ -213,8 +213,8 @@ fn inspection_rejects_a_snapshot_below_a_symlinked_parent() {
 #[cfg(unix)]
 #[test]
 fn snapshot_publication_rejects_a_symlinked_parent() {
+    use msime_path_trust::untrusted_symlink as symlink;
     use std::fs;
-    use std::os::unix::fs::symlink;
 
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
@@ -355,6 +355,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
         scheme: 0,
         enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
+        shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
@@ -462,6 +463,7 @@ fn activation_case(
         scheme: 0,
         enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
+        shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
@@ -728,6 +730,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
         scheme: 0,
         enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
+        shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: true,
@@ -880,4 +883,647 @@ fn snapshot_preparation_accepts_resources_shipped_without_the_on_demand_pair() {
     };
     assert!(rejected(&[]));
     assert!(!rejected(&ON_DEMAND_JAPANESE_ARTIFACTS));
+}
+
+/// 输入记录（#5659）用例共用的一台「设备」：随包词库只有空表，日志里有一个用户自己的词，以及一条学习调权、一条删除记录、一个固定位置和一条选词计数。
+struct LearningDevice {
+    root: tempfile::TempDir,
+    host: serde_json::Value,
+    options: msime_engine::host::EngineOptions,
+}
+
+impl LearningDevice {
+    fn new() -> Self {
+        let root = tempfile::tempdir().unwrap();
+        for name in ["resources", "user", "cache", "dictionaries"] {
+            std::fs::create_dir_all(root.path().join(name)).unwrap();
+        }
+        for name in ["resources", "dictionaries"] {
+            rusqlite::Connection::open(root.path().join(name).join("msime-pinyin.db"))
+                .unwrap()
+                .execute_batch(
+                    "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                     CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                     CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                     CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);",
+                )
+                .unwrap();
+            msime_engine::ensure_english_schema(&root.path().join(name).join("msime-english.db"))
+                .unwrap();
+        }
+        let host = serde_json::json!({
+            "api_version": 1,
+            "resources": root.path().join("resources"),
+            "user_data": root.path().join("user"),
+            "cache": root.path().join("cache"),
+            "dictionaries": root.path().join("dictionaries"),
+            "preferences": crate::Preferences::default(),
+            "preferences_directory": root.path(),
+        });
+        let options = super::parse_options(host.to_string().as_bytes()).unwrap();
+        Self {
+            root,
+            host,
+            options,
+        }
+    }
+
+    fn with_learning() -> Self {
+        let device = Self::new();
+        msime_engine::host::dictionary_edit(
+            &device.options,
+            None,
+            Some(&msime_engine::host::DictionaryEntry {
+                kind: msime_engine::host::DictionaryKind::Pinyin,
+                key: "ni'hao".into(),
+                value: "你好".into(),
+                weight: 100,
+            }),
+            "seed-own-word",
+        )
+        .unwrap();
+        device.sql(
+            "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES('pinyin','ni''hao','拟好','upsert',200,'',0),('pinyin','ni''hao','泥好','delete',0,'',1);
+             INSERT INTO fixed_candidate_positions(context_key,entry_key,value,position) VALUES('ni''hao','ni''hao','拟好',2);
+             INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count) VALUES('ni''hao','ni''hao','你好',7);",
+        );
+        device
+    }
+
+    fn journal(&self) -> std::path::PathBuf {
+        self.root.path().join("user").join("msime_user.db")
+    }
+
+    fn sql(&self, statements: &str) {
+        rusqlite::Connection::open(self.journal())
+            .unwrap()
+            .execute_batch(statements)
+            .unwrap();
+    }
+
+    fn number(&self, query: &str) -> Option<i64> {
+        use rusqlite::OptionalExtension;
+        rusqlite::Connection::open(self.journal())
+            .unwrap()
+            .query_row(query, [], |row| row.get(0))
+            .optional()
+            .unwrap()
+    }
+
+    fn request(&self, action: serde_json::Value) -> Result<serde_json::Value, String> {
+        crate::dictionary::dictionary_request_json(
+            serde_json::json!({"options": self.host, "action": action})
+                .to_string()
+                .as_bytes(),
+        )
+    }
+
+    fn merge_pending(&self) -> Result<serde_json::Value, String> {
+        self.request(serde_json::json!({"operation": "merge_pending_learning"}))
+    }
+
+    fn export(&self, name: &str, action: serde_json::Value) -> std::path::PathBuf {
+        let destination = self.root.path().join(name);
+        let mut action = action;
+        action["operation"] = serde_json::json!("export_snapshot");
+        action["destination"] = serde_json::json!(destination);
+        self.request(action).unwrap();
+        destination
+    }
+}
+
+/// 加这个参数之前的导出算法原样抄在这里，作为云同步快照不变的基准。
+fn legacy_snapshot(rows: &[(&str, &str, &str, i64)], updated_at: &str) -> Vec<u8> {
+    use serde_json::json;
+    use sha2::{Digest, Sha256};
+    let mut body = Vec::new();
+    let mut push = |line: serde_json::Value| {
+        body.extend_from_slice(line.to_string().as_bytes());
+        body.push(b'\n');
+    };
+    push(json!({
+        "type": "header",
+        "format": "msime-dictionary-snapshot",
+        "version": 1,
+        "revision": 1,
+    }));
+    let id = |kind: &str, code: &str, word: &str| {
+        let mut digest = Sha256::new();
+        digest.update(kind.as_bytes());
+        digest.update(b"\t");
+        digest.update(code.as_bytes());
+        digest.update(b"\t");
+        digest.update(word.as_bytes());
+        hex::encode(&digest.finalize()[..16])
+    };
+    for (kind, code, word, weight) in rows {
+        push(json!({"type": "entry", "data": {
+            "id": id(kind, code, word),
+            "kind": kind,
+            "code": code,
+            "word": word,
+            "weight": weight,
+            "revision": 1,
+            "updated_at": updated_at,
+        }}));
+    }
+    for (kind, code, word, weight) in rows {
+        push(json!({"type": "overlay", "deleted": false, "data": {
+            "id": id(kind, code, word),
+            "kind": kind,
+            "code": code,
+            "word": word,
+            "weight": weight,
+            "revision": 1,
+            "updated_at": updated_at,
+            "user_inserted": true,
+        }}));
+    }
+    let records = 1 + rows.len() * 2;
+    let checksum = hex::encode(Sha256::digest(&body));
+    body.extend_from_slice(
+        json!({"type": "footer", "records": records, "sha256": checksum})
+            .to_string()
+            .as_bytes(),
+    );
+    body.push(b'\n');
+    body
+}
+
+#[test]
+fn an_export_without_learning_is_byte_for_byte_the_cloud_snapshot() {
+    let device = LearningDevice::with_learning();
+    for (name, action) in [
+        ("omitted.ndjson", serde_json::json!({})),
+        (
+            "explicit.ndjson",
+            serde_json::json!({"include_learning": false}),
+        ),
+    ] {
+        let path = device.export(name, action);
+        let bytes = std::fs::read(&path).unwrap();
+        let text = std::str::from_utf8(&bytes).unwrap();
+        let entry: serde_json::Value = serde_json::from_str(text.lines().nth(1).unwrap()).unwrap();
+        let updated_at = entry["data"]["updated_at"].as_str().unwrap();
+        assert_eq!(
+            bytes,
+            legacy_snapshot(&[("pinyin", "ni'hao", "你好", 100)], updated_at),
+            "{name}"
+        );
+    }
+    let exported = device
+        .request(serde_json::json!({"operation": "export_snapshot", "destination": device.root.path().join("again.ndjson")}))
+        .unwrap();
+    assert!(exported.get("learning").is_none(), "{exported}");
+}
+
+#[test]
+fn a_learning_export_carries_the_journal_and_restages_to_the_same_revision() {
+    let device = LearningDevice::with_learning();
+    let destination = device.root.path().join("learning.ndjson");
+    let exported = device
+        .request(serde_json::json!({"operation": "export_snapshot", "destination": destination, "include_learning": true}))
+        .unwrap();
+    assert_eq!(exported["entries"], 1, "{exported}");
+    assert_eq!(exported["overlays"], 3, "{exported}");
+    assert_eq!(exported["positions"], 1, "{exported}");
+    assert_eq!(exported["selections"], 1, "{exported}");
+    assert_eq!(exported["learning"], 4, "{exported}");
+    assert_eq!(exported["learning_skipped"], 0, "{exported}");
+    let metadata = super::inspect_snapshot(&destination).unwrap();
+    let text = std::fs::read_to_string(&destination).unwrap();
+    assert!(text.contains("\"user_inserted\":false"), "{text}");
+    assert!(text.contains("\"deleted\":true"), "{text}");
+
+    // 整份激活走的路：把快照读成记录、另建一代，日志与导出的那台一模一样。
+    let generation = device.root.path().join("restaged");
+    let staged = msime_engine::host::stage_dictionary_state(
+        &device.options,
+        generation.to_str().unwrap(),
+        "fixture",
+        metadata.engine_records,
+        super::SnapshotFileRecords::open(&destination).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        msime_engine::host::dictionary_state_revision(&staged).unwrap(),
+        msime_engine::host::dictionary_state_revision(&device.options).unwrap()
+    );
+    assert_eq!(
+        device
+            .request(serde_json::json!({"operation": "learning_count"}))
+            .unwrap()["count"],
+        4
+    );
+}
+
+/// 快照格式装不下的输入记录跳过，选词计数截到 10，导出照样通过自检。
+#[test]
+fn a_learning_export_leaves_out_what_the_format_cannot_carry() {
+    let device = LearningDevice::with_learning();
+    device.sql(
+        "UPDATE candidate_selection_state SET selection_count=12;
+         INSERT INTO fixed_candidate_positions(context_key,entry_key,value,position) VALUES('a'||char(9)||'b','ni''hao','你好',1);",
+    );
+    let destination = device.root.path().join("learning.ndjson");
+    let exported = device
+        .request(serde_json::json!({"operation": "export_snapshot", "destination": destination, "include_learning": true}))
+        .unwrap();
+    assert_eq!(exported["learning"], 4, "{exported}");
+    assert_eq!(exported["learning_skipped"], 1, "{exported}");
+    let text = std::fs::read_to_string(&destination).unwrap();
+    assert!(text.contains("\"count\":10"), "{text}");
+}
+
+#[test]
+fn queued_learning_merges_when_idle_keeping_local_rows_and_the_larger_count() {
+    let source = LearningDevice::with_learning();
+    let backup = source.export(
+        "backup.ndjson",
+        serde_json::json!({"include_learning": true}),
+    );
+
+    // 新设备上已经学过一些：拟好有自己的调权，位置 2 固定了拟蒿，你好选过 9 次。
+    let device = LearningDevice::new();
+    device.sql(
+        "CREATE TABLE IF NOT EXISTS user_dictionary_operations(dictionary TEXT NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,operation TEXT NOT NULL CHECK(operation IN ('upsert','delete')),weight INTEGER NOT NULL DEFAULT 0,display TEXT NOT NULL DEFAULT '',user_inserted INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL DEFAULT(unixepoch()),PRIMARY KEY(dictionary,key,value));
+         CREATE TABLE IF NOT EXISTS candidate_selection_state(context_key TEXT NOT NULL,entry_key TEXT NOT NULL,value TEXT NOT NULL,selection_count INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(context_key,entry_key,value));
+         CREATE TABLE IF NOT EXISTS fixed_candidate_positions(context_key TEXT NOT NULL,entry_key TEXT NOT NULL,value TEXT NOT NULL,position INTEGER NOT NULL CHECK(position BETWEEN 1 AND 5),PRIMARY KEY(context_key,entry_key,value),UNIQUE(context_key,position));
+         INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES('pinyin','ni''hao','拟好','upsert',50,'',0);
+         INSERT INTO fixed_candidate_positions(context_key,entry_key,value,position) VALUES('ni''hao','ni''hao','拟蒿',2);
+         INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count) VALUES('ni''hao','ni''hao','你好',9);",
+    );
+    let queued = device
+        .request(serde_json::json!({"operation": "queue_learning_merge", "source": backup}))
+        .unwrap();
+    assert_eq!(queued, serde_json::json!({"queued": true, "learning": 4}));
+    let pending = device.root.path().join(super::PENDING_LEARNING_NAME);
+    let metadata = super::inspect_snapshot(&pending).unwrap();
+    assert_eq!(
+        (
+            metadata.entries,
+            metadata.overlays,
+            metadata.positions,
+            metadata.selections
+        ),
+        (0, 2, 1, 1)
+    );
+
+    // 还有会话开着时拿不到独占访问，文件留着下次再试。
+    let session = msime_client_core::dictionary::access::DictionaryAccess::try_session(
+        &device.root.path().join("user"),
+        &device.root.path().join("dictionaries"),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        device.merge_pending().unwrap_err(),
+        "dictionary maintenance busy"
+    );
+    assert!(pending.exists());
+    drop(session);
+
+    // 建会话前的个人词库同步不碰它：一份大备份不能拖慢恢复后第一次弹出键盘。
+    let synced =
+        crate::dictionary::personal_dictionary_sync_json(device.host.to_string().as_bytes())
+            .unwrap();
+    assert!(synced.get("learning_merged").is_none(), "{synced}");
+    assert!(pending.exists());
+
+    assert_eq!(
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": true, "entries": 1, "positions": 0, "selections": 0, "kept": 3, "skipped": 0})
+    );
+    assert!(!pending.exists());
+    assert!(!device
+        .root
+        .path()
+        .join(super::CLAIMED_LEARNING_NAME)
+        .exists());
+    assert_eq!(
+        device.number("SELECT weight FROM user_dictionary_operations WHERE value='拟好'"),
+        Some(50)
+    );
+    assert_eq!(
+        device.number("SELECT user_inserted FROM user_dictionary_operations WHERE value='泥好' AND operation='delete'"),
+        Some(1)
+    );
+    // 用户自己的词走个人词库队列，不在待合并的文件里。
+    assert_eq!(
+        device.number("SELECT count(*) FROM user_dictionary_operations WHERE value='你好'"),
+        Some(0)
+    );
+    assert_eq!(
+        device.number("SELECT count(*) FROM fixed_candidate_positions WHERE value='拟好'"),
+        Some(0)
+    );
+    assert_eq!(
+        device.number("SELECT selection_count FROM candidate_selection_state WHERE value='你好'"),
+        Some(9)
+    );
+    assert_eq!(
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": false})
+    );
+}
+
+/// 合并期间设置页又排了一份：只删认领的那份，新排的留到下一次。
+#[test]
+fn a_queue_made_while_a_claimed_merge_runs_survives_it() {
+    let source = LearningDevice::with_learning();
+    let first = source.export(
+        "first.ndjson",
+        serde_json::json!({"include_learning": true}),
+    );
+    source.sql("INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count) VALUES('ni','ni','泥',3);");
+    let second = source.export(
+        "second.ndjson",
+        serde_json::json!({"include_learning": true}),
+    );
+
+    let device = LearningDevice::new();
+    let pending = device.root.path().join(super::PENDING_LEARNING_NAME);
+    let claimed = device.root.path().join(super::CLAIMED_LEARNING_NAME);
+    let queue = |backup: &std::path::Path| {
+        device
+            .request(serde_json::json!({"operation": "queue_learning_merge", "source": backup}))
+            .unwrap()
+    };
+    queue(&first);
+    // 键盘已经认领了第一份、正在合并时，用户又从另一份备份恢复。
+    std::fs::rename(&pending, &claimed).unwrap();
+    assert_eq!(queue(&second)["learning"], 5);
+
+    assert_eq!(device.merge_pending().unwrap()["selections"], 1);
+    assert!(!claimed.exists());
+    assert!(pending.exists(), "the newer queue must survive");
+    assert_eq!(
+        device.number("SELECT count(*) FROM candidate_selection_state WHERE value='泥'"),
+        Some(0)
+    );
+
+    assert_eq!(device.merge_pending().unwrap()["selections"], 1);
+    assert!(!pending.exists());
+    assert_eq!(
+        device.number("SELECT selection_count FROM candidate_selection_state WHERE value='泥'"),
+        Some(3)
+    );
+}
+
+/// 写库一直出错时保留文件重试，连续三次后放弃；格式不对的文件直接删掉。
+#[test]
+fn a_failing_merge_is_retried_then_abandoned() {
+    let source = LearningDevice::with_learning();
+    let backup = source.export(
+        "backup.ndjson",
+        serde_json::json!({"include_learning": true}),
+    );
+    let device = LearningDevice::new();
+    // 模拟磁盘满一类的写库错误：往拼音表里插行一律失败。
+    rusqlite::Connection::open(device.root.path().join("dictionaries").join("msime-pinyin.db"))
+        .unwrap()
+        .execute_batch("CREATE TRIGGER synthetic_failure BEFORE INSERT ON tbl_2_n BEGIN SELECT RAISE(ABORT,'synthetic write failure'); END;")
+        .unwrap();
+    device
+        .request(serde_json::json!({"operation": "queue_learning_merge", "source": backup}))
+        .unwrap();
+    let claimed = device.root.path().join(super::CLAIMED_LEARNING_NAME);
+    for _ in 0..2 {
+        assert_eq!(
+            device.merge_pending().unwrap_err(),
+            "learning merge rejected"
+        );
+        assert!(claimed.exists());
+    }
+    // 同一事务里的选词计数也没有写进去。
+    assert_eq!(
+        device.number("SELECT count(*) FROM candidate_selection_state"),
+        Some(0)
+    );
+    assert_eq!(
+        device.merge_pending().unwrap_err(),
+        "learning merge abandoned"
+    );
+    assert!(!claimed.exists());
+    assert!(!device
+        .root
+        .path()
+        .join(super::LEARNING_ATTEMPTS_NAME)
+        .exists());
+    assert_eq!(
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": false})
+    );
+
+    std::fs::write(
+        device.root.path().join(super::PENDING_LEARNING_NAME),
+        b"not a snapshot\n",
+    )
+    .unwrap();
+    assert_eq!(
+        device.merge_pending().unwrap_err(),
+        "invalid snapshot document"
+    );
+    assert!(!claimed.exists());
+}
+
+/// 日志整体读不出来（这里是一行不是 UTF-8 的学习调权）时备份照样导出词，告诉宿主输入记录没带上。
+#[test]
+fn a_learning_export_falls_back_to_words_when_the_journal_cannot_be_read() {
+    let device = LearningDevice::with_learning();
+    device.sql(
+        "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES('pinyin','ni''hao',CAST(x'ff' AS TEXT),'upsert',90,'',0);",
+    );
+    let destination = device.root.path().join("learning.ndjson");
+    let exported = device
+        .request(serde_json::json!({"operation": "export_snapshot", "destination": destination, "include_learning": true}))
+        .unwrap();
+    assert_eq!(exported["entries"], 1, "{exported}");
+    assert_eq!(exported["learning"], 0, "{exported}");
+    assert_eq!(
+        exported["learning_error"], "dictionary read rejected",
+        "{exported}"
+    );
+    super::inspect_snapshot(&destination).unwrap();
+}
+
+/// 旧版本导出的备份（快照里只有词）照样能恢复：没有输入记录可排，什么也不写。
+#[test]
+fn a_backup_without_learning_queues_nothing() {
+    let source = LearningDevice::with_learning();
+    let backup = source.export("legacy.ndjson", serde_json::json!({}));
+    let device = LearningDevice::new();
+    assert_eq!(
+        device
+            .request(serde_json::json!({"operation": "queue_learning_merge", "source": backup}))
+            .unwrap(),
+        serde_json::json!({"queued": false, "learning": 0})
+    );
+    assert!(!device
+        .root
+        .path()
+        .join(super::PENDING_LEARNING_NAME)
+        .exists());
+    assert_eq!(
+        device
+            .request(serde_json::json!({"operation": "learning_count"}))
+            .unwrap()["count"],
+        0
+    );
+    assert!(device
+        .request(
+            serde_json::json!({"operation": "queue_learning_merge", "source": "relative.ndjson"})
+        )
+        .is_err());
+}
+
+/// 输入习惯（#5659）：导出、校验、排队，键盘空闲时随输入记录一起合并，计数取大、置顶保留本机；计数也让整份激活的判断知道本机学过东西。
+#[test]
+fn learning_habits_export_queue_and_merge_when_idle() {
+    let source = LearningDevice::with_learning();
+    source.sql(
+        "INSERT INTO personal_bigram(previous,word,count) VALUES(char(1),'我',4),('我','想',2);
+         INSERT INTO pick_transitions(previous_key,previous_value,key,value,count,updated_at) VALUES('wo','我','xiang','想',3,100);
+         INSERT INTO pinyin_typo_counts(typed,intended,accepted,updated_at) VALUES('jai','jia',5,100);
+         INSERT INTO pinned_candidates(context_key,value,updated_at) VALUES('ni','你',100),('hao','好',100);",
+    );
+    let file = source.root.path().join("habits.ndjson");
+    let exported = source
+        .request(serde_json::json!({"operation": "export_habits", "destination": file}))
+        .unwrap();
+    assert_eq!(exported["habits"], 6);
+    assert_eq!(exported["skipped"], 0);
+    assert_eq!(
+        source
+            .request(serde_json::json!({"operation": "inspect_habits", "source": file}))
+            .unwrap(),
+        serde_json::json!({"habits": 6})
+    );
+    assert_eq!(
+        source
+            .request(serde_json::json!({"operation": "learning_count"}))
+            .unwrap()["habits"],
+        6
+    );
+
+    let device = LearningDevice::new();
+    assert_eq!(
+        device
+            .request(serde_json::json!({"operation": "learning_count"}))
+            .unwrap(),
+        serde_json::json!({"count": 0, "habits": 0})
+    );
+    device.sql(
+        "CREATE TABLE IF NOT EXISTS personal_bigram(previous TEXT NOT NULL,word TEXT NOT NULL,count INTEGER NOT NULL CHECK(count>0),PRIMARY KEY(previous,word)) WITHOUT ROWID;
+         CREATE TABLE IF NOT EXISTS pinned_candidates(context_key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL DEFAULT(unixepoch()));
+         INSERT INTO personal_bigram(previous,word,count) VALUES('我','想',5);
+         INSERT INTO pinned_candidates(context_key,value,updated_at) VALUES('ni','泥',200);",
+    );
+    assert_eq!(
+        device
+            .request(serde_json::json!({"operation": "queue_habits_merge", "source": file}))
+            .unwrap(),
+        serde_json::json!({"queued": true, "habits": 6})
+    );
+    let pending = device.root.path().join(super::habits::HABITS_FILES.pending);
+    assert!(pending.exists());
+
+    let session = msime_client_core::dictionary::access::DictionaryAccess::try_session(
+        &device.root.path().join("user"),
+        &device.root.path().join("dictionaries"),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": false, "habits": {"merged": false, "error": "dictionary maintenance busy"}})
+    );
+    assert!(pending.exists());
+    drop(session);
+
+    assert_eq!(
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": false, "habits": {"merged": true, "written": 4, "kept": 2, "trimmed": 0}})
+    );
+    assert!(!pending.exists());
+    assert_eq!(
+        device.number("SELECT count FROM personal_bigram WHERE previous='我' AND word='想'"),
+        Some(5)
+    );
+    assert_eq!(
+        device.number("SELECT count FROM personal_bigram WHERE previous=char(1) AND word='我'"),
+        Some(4)
+    );
+    assert_eq!(
+        device
+            .number("SELECT count(*) FROM pinned_candidates WHERE context_key='ni' AND value='泥'"),
+        Some(1)
+    );
+    assert_eq!(
+        device.number("SELECT accepted FROM pinyin_typo_counts WHERE typed='jai'"),
+        Some(5)
+    );
+    assert_eq!(
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": false})
+    );
+}
+
+/// 坏掉的输入习惯文件在排队时就被拒，什么也不写；已经排下却坏了的文件在合并时直接删掉。
+#[test]
+fn a_damaged_habits_file_is_refused_and_a_damaged_queue_is_dropped() {
+    let source = LearningDevice::new();
+    source.sql(
+        "CREATE TABLE IF NOT EXISTS personal_bigram(previous TEXT NOT NULL,word TEXT NOT NULL,count INTEGER NOT NULL CHECK(count>0),PRIMARY KEY(previous,word)) WITHOUT ROWID;
+         INSERT INTO personal_bigram(previous,word,count) VALUES('我','想',2);",
+    );
+    let file = source.root.path().join("habits.ndjson");
+    source
+        .request(serde_json::json!({"operation": "export_habits", "destination": file}))
+        .unwrap();
+    let text = std::fs::read_to_string(&file)
+        .unwrap()
+        .replace("\"count\":2", "\"count\":3");
+    std::fs::write(&file, text).unwrap();
+
+    let device = LearningDevice::new();
+    assert_eq!(
+        device
+            .request(serde_json::json!({"operation": "queue_habits_merge", "source": file}))
+            .unwrap_err(),
+        "invalid habits document"
+    );
+    let pending = device.root.path().join(super::habits::HABITS_FILES.pending);
+    assert!(!pending.exists());
+
+    std::fs::write(&pending, b"not habits\n").unwrap();
+    assert_eq!(
+        device.merge_pending().unwrap(),
+        serde_json::json!({"merged": false, "habits": {"merged": false, "error": "invalid habits document"}})
+    );
+    assert!(!pending.exists());
+    assert!(!device
+        .root
+        .path()
+        .join(super::habits::HABITS_FILES.claimed)
+        .exists());
+}
+
+/// 恢复前的只读校验：完整的快照返回元数据，截断的报错。
+#[test]
+fn a_snapshot_is_inspected_without_side_effects() {
+    let source = LearningDevice::with_learning();
+    let backup = source.export(
+        "backup.ndjson",
+        serde_json::json!({"include_learning": true}),
+    );
+    let inspected = source
+        .request(serde_json::json!({"operation": "inspect_snapshot", "source": backup}))
+        .unwrap();
+    assert_eq!(inspected["entries"], 1);
+    let bytes = std::fs::read(&backup).unwrap();
+    std::fs::write(&backup, &bytes[..bytes.len() / 2]).unwrap();
+    assert!(source
+        .request(serde_json::json!({"operation": "inspect_snapshot", "source": backup}))
+        .is_err());
 }

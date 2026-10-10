@@ -15,6 +15,7 @@ mod panel_input;
 mod panel_window;
 mod platform;
 mod shared;
+mod update_check;
 mod vocabulary;
 mod voice;
 
@@ -221,6 +222,7 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
     capabilities.os_version = macos_product_version();
     capabilities.arch = Some(std::env::consts::ARCH.to_owned());
     capabilities.candidate_panel_limit = linux_candidate_panel_limit();
+    fill_linux_environment(&mut capabilities);
     let host_options = app
         .try_state::<DictionaryHostOptions>()
         .and_then(|options| options.snapshot().ok());
@@ -322,10 +324,46 @@ fn drop_unpinned_language_schemes(capabilities: &mut HostCapabilities) {
 /// What the running Linux host found about the desktop's candidate panel. Only the host knows which panel draws its list - GNOME Shell's popup, a Fcitx5 theme the user picked, the desktop's Kimpanel - so it writes that finding to a per-session file and the page reads it here instead of guessing from the desktop name.
 #[cfg(target_os = "linux")]
 fn linux_candidate_panel_limit() -> Option<msime_client_core::host_surface::CandidatePanelLimit> {
+    msime_client_core::host_surface::CandidatePanelLimit::from_host_status(
+        &linux_candidate_panel_status_document()?,
+    )
+}
+
+/// 运行中的 Linux 宿主写的候选面板状态文件（`{"host": ..., "limit": ...}`）的内容；宿主没在运行或还没写过时为 `None`。
+#[cfg(target_os = "linux")]
+fn linux_candidate_panel_status_document() -> Option<String> {
     use msime_client_core::host_surface::CandidatePanelLimit;
     let file = CandidatePanelLimit::status_file(std::env::var_os("XDG_RUNTIME_DIR").as_deref())?;
-    CandidatePanelLimit::from_host_status(&read_candidate_panel_status(&file)?)
+    read_candidate_panel_status(&file)
 }
+
+/// 「关于」页系统信息里 Linux 才有的几项：发行版、内核、桌面会话、输入法框架和设备型号。都是几个小文件和环境变量，不起进程；读不到的项留空，页面就不列它。解析与清洗在 `host_surface::environment`。
+#[cfg(target_os = "linux")]
+fn fill_linux_environment(capabilities: &mut HostCapabilities) {
+    use msime_client_core::host_surface::environment;
+    let read = |path: &str| std::fs::read_to_string(path).ok();
+    capabilities.os_version = read("/etc/os-release")
+        .or_else(|| read("/usr/lib/os-release"))
+        .as_deref()
+        .and_then(environment::os_release_name);
+    capabilities.kernel_version = read("/proc/sys/kernel/osrelease")
+        .as_deref()
+        .and_then(environment::kernel_release);
+    capabilities.desktop_session = environment::desktop_session(
+        std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref(),
+        std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+    );
+    capabilities.input_method_framework = linux_candidate_panel_status_document()
+        .as_deref()
+        .and_then(environment::input_method_framework_from_host_status);
+    capabilities.device_model = environment::device_model(
+        read("/sys/class/dmi/id/sys_vendor").as_deref(),
+        read("/sys/class/dmi/id/product_name").as_deref(),
+    );
+}
+
+#[cfg(not(target_os = "linux"))]
+fn fill_linux_environment(_capabilities: &mut HostCapabilities) {}
 
 #[cfg(any(target_os = "linux", test))]
 const CANDIDATE_PANEL_STATUS_READ_LIMIT: u64 = 4096;
@@ -1038,10 +1076,10 @@ fn resolve_theme_at(
     use msime_client_core::skin::theme::{self, GlobalTheme, ThemePackage};
     request.custom_theme.validate()?;
     let global_theme = request.global_theme;
+    // 按请求的明暗取槽位：深色模式先取 `candidate_skin_dark`，与 `msime_client_resolve_theme` 相同。
     let package = request
         .custom_theme
-        .candidate_skin
-        .as_deref()
+        .candidate_skin_for(request.dark)
         .filter(|_| global_theme == GlobalTheme::Custom)
         .and_then(|id| msime_client_core::skin::catalog::load_package(root, id).ok())
         .map(|summary| ThemePackage::from(&summary));
@@ -1474,17 +1512,9 @@ fn ios_keyboard_ai_preferences(
         _ => "custom",
     }
     .to_owned();
-    let endpoint = preferences.endpoint.trim();
     // 来源键与设置页一致：https 不限主机，http 只认本机或局域网（`ai::endpoint`）。
-    let token = msime_client_core::ai::endpoint::credential_origin(endpoint)
-        .and_then(|origin| {
-            preferences
-                .tokens
-                .get(&preferences.provider)
-                .or_else(|| preferences.tokens.get(&origin))
-                .or_else(|| (!preferences.token.is_empty()).then_some(&preferences.token))
-                .cloned()
-        })
+    let token = msime_client_core::ai::credential_for_endpoint(preferences)
+        .map(str::to_owned)
         .unwrap_or_default();
     let enabled = preferences.enabled
         && !preferences.endpoint.trim().is_empty()
@@ -1858,9 +1888,9 @@ fn linux_runtime_options_bytes(document: &Value) -> Result<Vec<u8>, RuntimeOptio
     Ok(bytes)
 }
 
-/// Serialize `document` with the installed skins, scanned from `root`, as `candidate_skin_catalog`, dropping packages from the end until the document fits within `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET`.
+/// 把 `document` 连同从 `root` 扫描到的已安装皮肤一起序列化，皮肤目录写在 `candidate_skin_catalog` 里；放不进 `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET` 时从末尾逐个丢掉皮肤包，直到放得下。
 ///
-/// The currently selected skin is dropped last, since its colours are the ones on screen. When not even an empty catalog fits, the key is left out, so the catalog never becomes the reason a document the hosts could read no longer loads; a document too large for the hosts even without it is refused.
+/// 自定义主题选中的皮肤（浅色、深色两个槽位）最后才丢，因为屏幕上画的是它们的颜色。连空目录都放不下时整个键不写，免得宿主原本能读的文档因为皮肤目录读不了；去掉目录后仍超出宿主上限的文档直接拒绝。
 #[cfg(target_os = "linux")]
 fn runtime_options_with_skin_catalog(
     document: &mut Value,
@@ -1871,10 +1901,14 @@ fn runtime_options_with_skin_catalog(
         serde_json::to_vec_pretty(document)
             .map_err(|error| std::io::Error::other(error.to_string()))
     };
-    let selected = document["preferences"]["custom_theme"]["candidate_skin"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
+    let custom_theme = &document["preferences"]["custom_theme"];
+    let selected: Vec<String> = ["candidate_skin", "candidate_skin_dark"]
+        .into_iter()
+        .filter_map(|slot| custom_theme[slot].as_str())
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect();
+    let selected: Vec<&str> = selected.iter().map(String::as_str).collect();
     let mut published =
         msime_client_core::skin::catalog::host_candidate_catalog(catalog, root, &selected);
     loop {
@@ -1891,7 +1925,11 @@ fn runtime_options_with_skin_catalog(
         }
         let dropped = packages
             .iter()
-            .rposition(|package| package["id"] != selected.as_str())
+            .rposition(|package| {
+                !package["id"]
+                    .as_str()
+                    .is_some_and(|id| selected.contains(&id))
+            })
             .unwrap_or(packages.len() - 1);
         packages.remove(dropped);
     }
@@ -2759,7 +2797,7 @@ async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionErr
 #[cfg(target_os = "macos")]
 #[derive(Debug, Clone, serde::Serialize)]
 struct InputSourceStartupStatus {
-    /// `installed`, `updated`, `up_to_date`, `not_installed` (a first install, left for the user to start from the install window), `login_required` (installed, but the source list only picks it up after the next login) or `failed`.
+    /// `installed`, `updated`, `up_to_date`, `not_installed` (a first install, left for the user to start from the install window), `login_required` (installed, but the source list only picks it up after the next login; reported by a first install whose registration found nothing, and by a later launch in the same login session that finds the input method missing from the registry, see `input_source_status_now`) or `failed`.
     action: &'static str,
     /// Whether the input source is in the System Settings list at the time of the request (see `input_source_status_now`); absent when that list could not be read.
     enabled: Option<bool>,
@@ -2777,6 +2815,19 @@ struct InputSourceStartupState {
     finished: std::sync::Condvar,
     /// Whether the main window opened as the first-install window and the user has not left it yet.
     first_install_window: std::sync::atomic::AtomicBool,
+    /// 本次运行里已经查明的「输入法在不在本登录会话的输入源注册表里」，见 `input_source_status_now`。一个登录会话里它不会自己变（进了注册表就一直在，新标识符要到下次登录才进），而设置页等用户添加时每 3 秒问一次状态，所以只查一次；`finish` 换了启动结果时清掉。
+    registered: Mutex<RegistryAnswer>,
+    /// 同一时刻只让一个状态请求去拉起输入法查注册表。设置页挂载时的 `refresh()` 和窗口 `focus` 几乎同时发请求，不串行的话两个请求都看到缓存为空、各拉起最多 3 次输入法。单独用一把锁而不是在查询期间一直拿着 `registered`，是为了不让 `finish` 等一次最长十几秒的查询。
+    registry_probe: Mutex<()>,
+}
+
+/// `InputSourceStartupState::registered` 的内容：查明的结论，以及它属于第几个启动结果。
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct RegistryAnswer {
+    /// 每次 `finish` 加一。查询开始前记下它，写回时不一致就丢掉结论：查询期间安装窗口换了启动结果，旧结论不能挂到新结果上。
+    generation: u64,
+    registered: Option<bool>,
 }
 
 #[cfg(target_os = "macos")]
@@ -2786,6 +2837,14 @@ impl InputSourceStartupState {
             .result
             .lock()
             .unwrap_or_else(|poison| poison.into_inner()) = Some(status);
+        {
+            let mut answer = self
+                .registered
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            answer.generation = answer.generation.wrapping_add(1);
+            answer.registered = None;
+        }
         self.finished.notify_all();
     }
 
@@ -2827,7 +2886,7 @@ fn run_input_source_startup(
                 .map(|version| version.label().to_string()),
         },
         Err(macos_input_source::InstallError::SourceUnavailable) => return None,
-        // A failed install or registration has already restored the previous bundle, so the installed version reported is the one still in place; a first install whose registration waits for the next login keeps the new bundle, so that is the one reported.
+        // A failed install or registration has already restored the previous bundle, so the installed version reported is the one still in place; a first install whose registration waits for the next login keeps the new bundle, so that is the one reported. 更新时替换前就查到这次登录的注册表里没有它（首次安装后还没重新登录），同样留下新版本、报 `login_required`。
         Err(error) => InputSourceStartupStatus {
             action: if matches!(error, macos_input_source::InstallError::RegistrationPending) {
                 "login_required"
@@ -2850,15 +2909,48 @@ fn run_input_source_startup(
 }
 
 /// The start-time result with `enabled` and `system_bundles` read at the time of the call rather than when that check ran. The settings page may ask again at any time, so this must stay cheap: it never copies or registers anything, only waits for the one start-time check, reads the input source list and looks for a few paths.
+///
+/// `up_to_date` 而输入法不在输入法列表里时，再用 `registered` 查一次它在不在本登录会话的输入源注册表里，不在就改报 `login_required`：首次安装后同一次登录里重新打开设置应用就是这样，启动检查看到已装版本与内嵌版本相同，只能报 `up_to_date`，而设置页对 `up_to_date` 会叫用户去系统设置添加一个这次登录根本列不出来的输入法。`installed`、`updated` 不查：这次启动刚替换过 bundle，登记后有一段分钟级的注册表空窗（platforms/macos/README.md），这时查不到不说明什么。查明的结果在本次运行里只查一次。
 #[cfg(target_os = "macos")]
 fn input_source_status_now(
     state: &InputSourceStartupState,
     timeout: std::time::Duration,
     enabled: impl FnOnce() -> Option<bool>,
     system_bundles: impl FnOnce() -> Vec<std::path::PathBuf>,
+    registered: impl FnOnce() -> Option<bool>,
 ) -> Option<InputSourceStartupStatus> {
     let mut status = state.wait(timeout)?;
     status.enabled = enabled();
+    if status.action == "up_to_date" && status.enabled == Some(false) {
+        // 后来的请求在这里等前一个查完，再读它存下的结论，不重复拉起输入法。
+        let _probe = state
+            .registry_probe
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let (generation, known) = {
+            let answer = state
+                .registered
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            (answer.generation, answer.registered)
+        };
+        let answer = known.or_else(|| {
+            let answer = registered();
+            if answer.is_some() {
+                let mut stored = state
+                    .registered
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                if stored.generation == generation {
+                    stored.registered = answer;
+                }
+            }
+            answer
+        });
+        if answer == Some(false) {
+            status.action = "login_required";
+        }
+    }
     status.system_bundles = system_bundles()
         .into_iter()
         .map(|path| path.display().to_string())
@@ -2879,6 +2971,7 @@ async fn input_source_startup_status(
             std::time::Duration::from_secs(120),
             macos_input_source::input_source_enabled,
             macos_input_source::system_bundles,
+            macos_input_source::input_source_registered,
         )
     })
     .await
@@ -2906,6 +2999,7 @@ async fn run_first_input_source_install(
             std::time::Duration::ZERO,
             macos_input_source::input_source_enabled,
             macos_input_source::system_bundles,
+            macos_input_source::input_source_registered,
         )
     })
     .await
@@ -5211,6 +5305,7 @@ pub fn run() {
             host_capabilities,
             notices::notices_list,
             notices::notice_dismiss,
+            update_check::update_check,
             list_voice_capture_devices,
             capture_voice_pcm,
             supports_font_catalog,
@@ -5311,6 +5406,8 @@ pub fn run() {
             voice::stop_voice,
             voice::local_models::voice_local_models,
             voice::local_models::voice_local_model_install,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            voice::local_models::voice_local_model_import,
             voice::local_models::voice_local_model_cancel,
             voice::local_models::voice_local_model_remove,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]

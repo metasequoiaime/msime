@@ -78,6 +78,33 @@ struct EscapeHost {
     }
 };
 
+// 全拼宿主会话：整句改字时视图带着改好的整句，第一次 MSIME_CANCEL 只退出改字，拼音还在；第二次清空。
+struct ConversionHost {
+    std::string keys = "woqubeijing";
+    std::string conversion = "我去北京";
+    unsigned cancels = 0;
+
+    std::string reply() const {
+        return R"({"ok":true,"value":{"handled":true,"commit":null,"view":{"preedit":")" + keys +
+               R"(","editing_text":")" + keys + R"(","scheme":0,"local_mode":"none","dedicated_english":false,"conversion":")" +
+               conversion + R"(","conversion_focus_start":2,"conversion_focus_end":4}}})";
+    }
+    bool view(std::string *raw, std::string *) const {
+        *raw = reply();
+        return true;
+    }
+    bool command(uint32_t command, std::string *raw, std::string *) {
+        if (command != MSIME_CANCEL) std::abort();
+        ++cancels;
+        if (!conversion.empty())
+            conversion.clear();
+        else
+            keys.clear();
+        *raw = reply();
+        return true;
+    }
+};
+
 bool check(bool condition) {
     if (!condition) std::exit(EXIT_FAILURE);
     return condition;
@@ -175,6 +202,44 @@ int main() {
         const auto ended = EndHostComposition(host, scheme::Tibetan, L'\r', &error);
         check(ended.commit == "བཀྲ" && !ended.keyFollows && !ended.hostLetGo);
         check(host.calls == std::vector<std::string>{"finish"});
+    }
+
+    // 整句改字：第一次 Esc 只退出改字，拼音继续组字；第二次像平常一样丢弃组字。
+    {
+        ConversionHost host;
+        msime::tsf::EngineResult current;
+        check(msime::tsf::HostView(host, &current));
+        check(current.view.conversion == "我去北京" && current.view.conversion_focus_start == 2 &&
+              current.view.conversion_focus_end == 4 && current.view.local_mode == "none");
+        check(msime::tsf::HostEditsSentence(current.view) && msime::tsf::HostConversionActive(host));
+        check(msime::tsf::RestoreHostRawOnEscape(host, &error));
+        check(host.keys == "woqubeijing" && host.conversion.empty() && host.cancels == 1);
+        check(!msime::tsf::HostConversionActive(host));
+        check(!msime::tsf::RestoreHostRawOnEscape(host, &error) && host.cancels == 1);
+    }
+    // 整句改字的方向键只在全拼、双拼的普通组字里换算，与 Server 同一条件。
+    {
+        msime::tsf::EngineView view;
+        check(msime::tsf::HostEditsSentence(view));
+        view.scheme = scheme::Shuangpin;
+        check(msime::tsf::HostEditsSentence(view));
+        view.local_mode = "unicode";
+        check(!msime::tsf::HostEditsSentence(view));
+        view.local_mode = "none";
+        view.dedicated_english = true;
+        check(!msime::tsf::HostEditsSentence(view));
+        view.dedicated_english = false;
+        view.scheme = scheme::Wubi;
+        check(!msime::tsf::HostEditsSentence(view));
+    }
+    // 光标位置按 Unicode 标量计，换成 UTF-8 字节偏移；扩展区汉字占四个字节，超出时取末尾。
+    {
+        const std::string text = "我\xF0\xA0\xAE\xB7去";
+        check(msime::tsf::Utf8ScalarOffset(text, 0) == 0);
+        check(msime::tsf::Utf8ScalarOffset(text, 1) == 3);
+        check(msime::tsf::Utf8ScalarOffset(text, 2) == 7);
+        check(msime::tsf::Utf8ScalarOffset(text, 3) == 10);
+        check(msime::tsf::Utf8ScalarOffset(text, 9) == 10);
     }
 
     // Every other host-composed scheme discards on Escape as before, so the helper leaves its session alone.

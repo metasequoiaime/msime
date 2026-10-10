@@ -13,6 +13,7 @@ import android.util.DisplayMetrics;
 import android.webkit.WebView;
 import androidx.fragment.app.Fragment;
 import app.msime.android.AppEdition;
+import app.msime.android.AppVersionPolicy;
 import app.msime.android.DeviceInfoReport;
 import app.msime.android.DeviceInfoReport.Entry;
 import app.msime.android.R;
@@ -95,8 +96,8 @@ final class DeviceInfo {
 
     private static String appVersion(Context context) {
         try {
-            PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
-            return DeviceInfoReport.appVersion(info.versionName, info.getLongVersionCode(), AppEdition.current().id());
+            AppVersionPolicy.Version version = AppVersionPolicy.current(context);
+            return DeviceInfoReport.appVersion(version.name(), version.code(), AppEdition.current().id());
         } catch (PackageManager.NameNotFoundException missing) {
             return DeviceInfoReport.UNKNOWN;
         }

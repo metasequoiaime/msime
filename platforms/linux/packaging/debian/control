@@ -44,9 +44,8 @@ Package: msime
 Architecture: amd64 arm64
 Depends: ${misc:Depends},
  ${shlibs:Depends},
- fcitx5 (>= 5.0.20),
  hicolor-icon-theme,
- ibus (>= 1.5.20),
+ ibus (>= 1.5.20) | fcitx5 (>= 5.0.20),
  procps,
  python3 (>= 3.9),
 Recommends: pulseaudio-utils | pipewire-bin | alsa-utils,

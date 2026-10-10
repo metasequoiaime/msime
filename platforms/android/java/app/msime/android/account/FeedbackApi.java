@@ -53,15 +53,10 @@ public final class FeedbackApi {
         this.api = api;
     }
 
-    /** 描述的字符数（按 Unicode 码点计，和服务端一致）。 */
-    public static int length(String text) {
-        return TextPolicy.codePointLength(text);
-    }
-
     /** 描述去掉首尾空白后非空、不超过 500 个字符、不含换行和制表以外的控制字符时可以提交。 */
     public static boolean validText(String text) {
         if (text == null || TextPolicy.trimmed(text).isEmpty()) return false;
-        if (length(text) > MAX_TEXT) return false;
+        if (TextPolicy.codePointLength(text) > MAX_TEXT) return false;
         return !TextPolicy.hasControlExceptWhitespace(text) && TextPolicy.validUnicode(text);
     }
 

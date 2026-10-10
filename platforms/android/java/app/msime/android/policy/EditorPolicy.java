@@ -48,6 +48,14 @@ public final class EditorPolicy {
             || variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;
     }
 
+    /** 系统标记为邮箱的输入框（`EMAIL_ADDRESS` / `WEB_EMAIL_ADDRESS`）：只在这里打到 `xxx@` 时给邮箱后缀（{@link EmailSuffixPolicy}，#6147），聊天框、搜索框里的 `@` 不触发。 */
+    public static boolean emailAddress(int type) {
+        if ((type & InputType.TYPE_MASK_CLASS) != InputType.TYPE_CLASS_TEXT) return false;
+        int variation = type & InputType.TYPE_MASK_VARIATION;
+        return variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            || variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS;
+    }
+
     public static EnglishCapitalizationPolicy.Mode capitalizationMode(int type) {
         if ((type & InputType.TYPE_MASK_CLASS) != InputType.TYPE_CLASS_TEXT) {
             return EnglishCapitalizationPolicy.Mode.NONE;

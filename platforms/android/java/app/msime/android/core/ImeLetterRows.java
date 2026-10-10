@@ -39,6 +39,8 @@ final class ImeLetterRows {
     private View secondRowTrailingIndent;
     /** 当前键行是不是按分离式键盘建的；与 {@link MSIMEInputService#splitKeyboardDrawn} 不一致时要重建（{@link #splitStale}）。 */
     private boolean builtSplit;
+    /** 当前键行有没有画数字行；与 {@link MSIMEInputService#numberRowDrawn} 不一致时要重建（{@link #numberRowStale}）。 */
+    private boolean builtNumberRow;
     /** 123 / #+= 层建的时候用的标点：全角中文或半角英文。中文标点开关变了要重建，否则键面和上屏的还是旧的。 */
     private Boolean builtLayerPunctuation;
 
@@ -216,6 +218,11 @@ final class ImeLetterRows {
         return s.keyRows != null && builtSplit != s.splitKeyboardDrawn();
     }
 
+    /** 键行是否需要按「数字行」的新状态重建：设置页改了开关、或旋转让窗口高度跨过了 {@link KeyboardLayout#NUMBER_ROW_MIN_WINDOW_HEIGHT_DP} 之后。 */
+    boolean numberRowStale() {
+        return s.keyRows != null && builtNumberRow != s.numberRowDrawn();
+    }
+
     /** 正显示着 123 / #+= 层，而中文标点开关和建层时不一样了。 */
     boolean layerPunctuationStale() {
         return s.keyRows != null && builtLayerPunctuation != null
@@ -251,9 +258,14 @@ final class ImeLetterRows {
 
     /** 在键边界上把一行分成左右两半，中间插入占整行 25% 的空隙（断点规则见 {@link SplitKeyboardPolicy#cutIndex}）。 */
     void splitRow(LinearLayout row) {
+        splitRow(row, 0f);
+    }
+
+    /** 同 {@link #splitRow(LinearLayout)}，空隙里要再放一个份额为 {@code duplicateWeight} 的重复键（{@link SplitKeyboardPolicy#gapWeight(float, float)}）。 */
+    private void splitRow(LinearLayout row, float duplicateWeight) {
         float[] weights = splitWeights(row);
-        row.addView(splitGap(), SplitKeyboardPolicy.cutIndex(weights),
-            KeyboardGeometry.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(sum(weights))));
+        row.addView(splitGap(), SplitKeyboardPolicy.cutIndex(weights), KeyboardGeometry.weightedMatchParentParams(
+            SplitKeyboardPolicy.gapWeight(sum(weights), duplicateWeight)));
     }
 
     /**
@@ -401,6 +413,8 @@ final class ImeLetterRows {
     void rebuildKeyRows() {
         if (s.keyRows == null) return;
         builtLayerPunctuation = null;
+        // 九键、手写、123 层等提前返回的分支都不画数字行；画的时候在下面再记上。
+        builtNumberRow = false;
         boolean split = s.splitKeyboardDrawn();
         if (split != builtSplit) {
             builtSplit = split;
@@ -461,6 +475,12 @@ final class ImeLetterRows {
             s.imeStyler.applyKeyboardGeometry();
             return;
         }
+        // 26 键的「123」在偏好 `touch_twenty_six_key_number_layout` 选了九宫格时换成拼音九键的数字键面；底栏的 ABC（韩文是 한）回到 26 键字母层。
+        if (s.twentySixKeyDigitFace()) {
+            s.imeLayoutRows.rebuildNineKeyRows();
+            s.imeStyler.applyKeyboardGeometry();
+            return;
+        }
         if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
                 && drawsDesignLayer(s.displayedTouchLayout(s.view))) {
             rebuildDesignLayer();
@@ -491,6 +511,68 @@ final class ImeLetterRows {
             s.keyRows.addView(block, KeyboardGeometry.matchWidthHeightPx(
                 s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
         }
+        boolean tibetanSymbols = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
+            && s.tibetanSchemeActive();
+        // 一行里的一个字符键。分离式键盘在右半边重复的 G、V（#6022）也从这里建，和左半边那个是同一种键。
+        java.util.function.Function<String, Button> characterKey = rowKey -> {
+            // 藏文的符号页把 `=` 换成叠写用的 `+`。
+            final String key = KeyboardLayout.symbolRowKey(rowKey, tibetanSymbols);
+            final String input = key;
+            String face = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
+                ? ChineseSymbolFaces.face(key, s.sendsChinesePunctuation())
+                : koreanKeycaps ? KoreanKeyboardLayout.face(key, shifted)
+                : zhuyinKeycaps ? ZhuyinKeyboardLayout.face(key)
+                : LetterKeyFacePolicy.face(key, chineseMode, localMode, shifted);
+            Button keyButton;
+            if (zhuyinKeycaps) {
+                // Bopomofo keycaps over the Dachen keys: type() sends the ASCII key, and the Engine spells and converts.
+                keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
+                keyButton.setContentDescription(ZhuyinKeyboardLayout.accessibilityLabel(key));
+                if (keyButton instanceof KeyboardPressButton press)
+                    press.setKeyboardRole(KeyboardKeyRole.KEY);
+            } else if (zhuyinLayout && ZhuyinKeyboardLayout.claimsSymbol(key)) {
+                // Dachen reads these digits and marks as bopomofo and tone keys, so the symbol page writes what its key shows instead of handing the key to the Engine.
+                keyButton = s.keyboardKey(face, face, () -> s.imeLayoutRows.commitNineKeyLiteral(
+                    ChineseSymbolFaces.face(input, s.sendsChinesePunctuation())));
+            } else if (koreanKeycaps) {
+                // Jamo keycaps over the same QWERTY letters: type() sends the letter, and the Engine composes the syllable.
+                keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
+                keyButton.setContentDescription(
+                    KoreanKeyboardLayout.accessibilityLabel(key, shifted));
+                if (keyButton instanceof KeyboardPressButton press)
+                    press.setKeyboardRole(KeyboardKeyRole.KEY);
+            } else if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS) {
+                ShuangpinHintButton hintButton = s.shuangpinKeyboardKey(
+                    face, face, () -> s.type(input.charAt(0)));
+                keyButton = hintButton;
+                s.shuangpinKeyButtons.add(hintButton);
+                s.shuangpinKeyInputs.add(input);
+                String hint = standardLetters ? LetterHintTable.hint(input) : null;
+                hintButton.setCornerHint(hint);
+                KeyboardGeometry.setKeyTextSize(hintButton, 22);
+                bindLetterGestures(hintButton, face, hint);
+            } else {
+                keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
+            }
+            s.keyId(keyButton, KeyPressIds.forCharacter(input.charAt(0)));
+            if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS && !koreanKeycaps && !zhuyinKeycaps) {
+                keyButton.setContentDescription(LetterKeyFacePolicy.accessibilityLabel(
+                    input, chineseMode, localMode, shifted));
+                // 字母键读作「字母 Q」而不是「按键 Q」，所以描述推导一直把它判成 action 面，
+                // 26 键的字母因此是实心深绿的。角色说了算之后就不必靠描述去猜。
+                if (keyButton instanceof KeyboardPressButton press)
+                    press.setKeyboardRole(KeyboardKeyRole.KEY);
+            }
+            if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
+                s.symbolKeyButtons.add(keyButton);
+                s.symbolKeyInputs.add(input);
+            }
+            return keyButton;
+        };
+        // 数字行（#6022）：设置打开时在 26 键和韩文键盘的字母上方加一行 1–0，键盘整体高出一行。
+        // 只在三行字母的 26 键和韩文键盘上画（KeyboardLayout.drawsNumberRow），这时没有四行挤三行的 block。
+        builtNumberRow = s.numberRowDrawn();
+        if (builtNumberRow) addNumberRow(rows.size());
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             java.util.List<String> keys = rows.get(rowIndex);
             LinearLayout row = KeyboardGeometry.row(s);
@@ -501,66 +583,15 @@ final class ImeLetterRows {
                     rows.size(), rowIndex, true));
                 s.keyRows.addView(row, KeyboardGeometry.matchWidthWrapParams());
             }
-            boolean tibetanSymbols = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-                && s.tibetanSchemeActive();
             // 第二行（a–l）两侧各缩进 5%：9 个键加两侧各 0.5 的占位正好是第一行 10 个键的宽度。
             if (standardLetters && rowIndex == 1) {
                 secondRowLeadingIndent = indent();
                 row.addView(secondRowLeadingIndent, KeyboardGeometry.weightedMatchParentParams(.5f));
             }
+            java.util.List<View> rowKeys = new java.util.ArrayList<>(keys.size());
             for (String rowKey : keys) {
-                // 藏文的符号页把 `=` 换成叠写用的 `+`。
-                final String key = KeyboardLayout.symbolRowKey(rowKey, tibetanSymbols);
-                final String input = key;
-                String face = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-                    ? ChineseSymbolFaces.face(key, s.sendsChinesePunctuation())
-                    : koreanKeycaps ? KoreanKeyboardLayout.face(key, shifted)
-                    : zhuyinKeycaps ? ZhuyinKeyboardLayout.face(key)
-                    : LetterKeyFacePolicy.face(key, chineseMode, localMode, shifted);
-                Button keyButton;
-                if (zhuyinKeycaps) {
-                    // Bopomofo keycaps over the Dachen keys: type() sends the ASCII key, and the Engine spells and converts.
-                    keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
-                    keyButton.setContentDescription(ZhuyinKeyboardLayout.accessibilityLabel(key));
-                    if (keyButton instanceof KeyboardPressButton press)
-                        press.setKeyboardRole(KeyboardKeyRole.KEY);
-                } else if (zhuyinLayout && ZhuyinKeyboardLayout.claimsSymbol(key)) {
-                    // Dachen reads these digits and marks as bopomofo and tone keys, so the symbol page writes what its key shows instead of handing the key to the Engine.
-                    keyButton = s.keyboardKey(face, face, () -> s.imeLayoutRows.commitNineKeyLiteral(
-                        ChineseSymbolFaces.face(input, s.sendsChinesePunctuation())));
-                } else if (koreanKeycaps) {
-                    // Jamo keycaps over the same QWERTY letters: type() sends the letter, and the Engine composes the syllable.
-                    keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
-                    keyButton.setContentDescription(
-                        KoreanKeyboardLayout.accessibilityLabel(key, shifted));
-                    if (keyButton instanceof KeyboardPressButton press)
-                        press.setKeyboardRole(KeyboardKeyRole.KEY);
-                } else if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS) {
-                    ShuangpinHintButton hintButton = s.shuangpinKeyboardKey(
-                        face, face, () -> s.type(input.charAt(0)));
-                    keyButton = hintButton;
-                    s.shuangpinKeyButtons.add(hintButton);
-                    s.shuangpinKeyInputs.add(input);
-                    String hint = standardLetters ? LetterHintTable.hint(input) : null;
-                    hintButton.setCornerHint(hint);
-                    KeyboardGeometry.setKeyTextSize(hintButton, 22);
-                    bindLetterGestures(hintButton, face, hint);
-                } else {
-                    keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
-                }
-                s.keyId(keyButton, KeyPressIds.forCharacter(input.charAt(0)));
-                if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS && !koreanKeycaps && !zhuyinKeycaps) {
-                    keyButton.setContentDescription(LetterKeyFacePolicy.accessibilityLabel(
-                        input, chineseMode, localMode, shifted));
-                    // 字母键读作「字母 Q」而不是「按键 Q」，所以描述推导一直把它判成 action 面，
-                    // 26 键的字母因此是实心深绿的。角色说了算之后就不必靠描述去猜。
-                    if (keyButton instanceof KeyboardPressButton press)
-                        press.setKeyboardRole(KeyboardKeyRole.KEY);
-                }
-                if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
-                    s.symbolKeyButtons.add(keyButton);
-                    s.symbolKeyInputs.add(input);
-                }
+                Button keyButton = characterKey.apply(rowKey);
+                rowKeys.add(keyButton);
                 row.addView(keyButton, KeyboardGeometry.weightedMatchParentParams(1));
             }
             // The Dachen rows carry their own ; key (ㄤ), and no double-pinyin final.
@@ -591,9 +622,39 @@ final class ImeLetterRows {
                 if (KeyboardActionRow.rowsCarryDelete(layout, symbols))
                     addLetterRowEdgeKey(row, s.deleteButton, row.getChildCount(), edge);
             }
-            if (builtSplit && block == null) splitRow(row);
+            if (builtSplit && block == null) {
+                // 字母层的第二、三行在右半边内侧重复左半边最内侧的那个字母（G、V，#6022），重复的键占掉空隙的一个键宽，三行的键宽不变；重复后两半不等宽时（微软双拼显示 ; 的第二行）不重复。
+                float[] weights = splitWeights(row);
+                boolean duplicate = s.keyboardLayer == KeyboardLayout.Layer.LETTERS
+                    && SplitKeyboardPolicy.duplicatesInnerKey(rowIndex, rows.size(), weights);
+                int cut = SplitKeyboardPolicy.cutIndex(weights);
+                int inner = duplicate && cut > 0 ? rowKeys.indexOf(row.getChildAt(cut - 1)) : -1;
+                splitRow(row, inner >= 0 ? 1f : 0f);
+                if (inner >= 0) row.addView(characterKey.apply(keys.get(inner)), cut + 1,
+                    KeyboardGeometry.weightedMatchParentParams(1));
+            }
         }
         s.imeStyler.applyKeyboardGeometry();
+    }
+
+    /**
+     * 数字行（#6022）：本地设置「数字行」打开时画在字母上方的 1–0（{@link KeyboardLayout#NUMBER_ROW}）。高度和分摊键盘高度调整的方式都与第一行字母相同，所以键盘整体高出一行。数字键和字母一样经 {@link MSIMEInputService#type} 交给 Engine：没有组字时 Engine 不收、由宿主上屏这个数字；组字中当前页有对应候选的 1–9 由 runtime 选词，Engine 不收的 `0` 和没有候选时的 1–9 先按首选结束组合再上屏（{@link DeclinedKeyPolicy}）。分离式键盘时同样从中间分开。
+     *
+     * @param letterRows 字母行数，数字行按其中第一行的份额分摊高度调整
+     */
+    private void addNumberRow(int letterRows) {
+        LinearLayout row = KeyboardGeometry.row(s);
+        row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, letterRows, 0, true));
+        s.keyRows.addView(row, KeyboardGeometry.matchWidthWrapParams());
+        for (String digit : KeyboardLayout.NUMBER_ROW) {
+            char input = digit.charAt(0);
+            Button key = s.keyboardKey(digit, digit, () -> s.type(input));
+            KeyboardGeometry.setKeyTextSize(key, 20);
+            if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+            s.keyId(key, KeyPressIds.forCharacter(input));
+            row.addView(key, KeyboardGeometry.weightedMatchParentParams(1));
+        }
+        if (builtSplit) splitRow(row);
     }
 
     /** Re-parent a long-lived control into one end of the last letter row. */
@@ -620,12 +681,11 @@ final class ImeLetterRows {
             : KeyboardLayout.numberLayer(chinese, chinesePunctuation);
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             LinearLayout row = KeyboardGeometry.row(s);
-            // 最后一行是这一层自带的底栏，和功能行一样固定 46 dp、不加行距、不分摊高度调整；前三行和字母键一样分摊高度调整。否则整层比其他布局高出一份行距。底栏原先也挂了高度角色，整份调整量又加了一遍：调高时这一层比字母层高出一截，调到 75% 时底栏被压成 0 高。
+            // 最后一行是这一层自带的底栏，和功能行一样按底栏角色固定高度（默认 46 dp、不加行距，「加高底行」开着时和一行键同高）、不分摊高度调整；前三行和字母键一样分摊高度调整。否则整层比其他布局高出一份行距。底栏原先也挂了高度角色，整份调整量又加了一遍：调高时这一层比字母层高出一截，调到 75% 时底栏被压成 0 高。
             boolean bottomRow = rowIndex == rows.size() - 1;
-            if (!bottomRow) {
-                row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
+            row.setTag(bottomRow ? MSIMEInputService.KeyboardHeightRole.bottomRow()
+                : new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                     rows.size() - 1, rowIndex, true));
-            }
             s.keyRows.addView(row, bottomRow
                 ? KeyboardGeometry.matchWidthHeightPx(s.pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP))
                 : KeyboardGeometry.matchWidthWrapParams());

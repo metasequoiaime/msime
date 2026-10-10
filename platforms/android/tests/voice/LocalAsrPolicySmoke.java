@@ -1,4 +1,5 @@
 import app.msime.android.LocalAsrPolicy;
+import app.msime.android.LocalAsrRecognizer;
 import app.msime.android.JsonPolicy;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -157,6 +158,26 @@ public final class LocalAsrPolicySmoke {
         } catch (ReflectiveOperationException error) {
             throw new AssertionError("local ASR response parser unavailable", error);
         }
+        check("语音识别需要麦克风权限".equals(LocalAsrPolicy.failureMessage(
+                LocalAsrRecognizer.Failure.PERMISSION, false)),
+            "permission failure has one shared message");
+        check("麦克风被其他应用占用".equals(LocalAsrPolicy.failureMessage(
+                LocalAsrRecognizer.Failure.UNAVAILABLE, false)),
+            "unavailable microphone has one shared message");
+        check("本地语音模型未安装或已损坏，请在设置中重新下载".equals(LocalAsrPolicy.failureMessage(
+                LocalAsrRecognizer.Failure.MODEL, false)),
+            "model failure has one shared message");
+        check("本地语音识别组件尚未下载，请在设置中下载后再试".equals(LocalAsrPolicy.failureMessage(
+                LocalAsrRecognizer.Failure.RUNTIME, true)),
+            "missing runtime has one shared message");
+        check("本地语音识别组件无法加载".equals(LocalAsrPolicy.failureMessage(
+                LocalAsrRecognizer.Failure.RUNTIME, false)),
+            "broken runtime has one shared message");
+        check("没有听到内容".equals(LocalAsrPolicy.failureMessage(
+                LocalAsrRecognizer.Failure.EMPTY, false)),
+            "empty recording has one shared message");
+        check(LocalAsrPolicy.failureMessage(LocalAsrRecognizer.Failure.CANCELLED, false) == null,
+            "cancelled recognition stays silent");
         System.out.println("LocalAsrPolicySmoke passed");
     }
 }

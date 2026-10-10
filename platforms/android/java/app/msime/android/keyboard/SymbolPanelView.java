@@ -198,7 +198,9 @@ public final class SymbolPanelView extends LinearLayout {
                     insert(symbol, false, remember);
                     return true;
                 });
-                ViewPolicy.setCenteredKeyTextSizeSp(button, category.kaomoji() ? 14 : 18);
+                ViewPolicy.setCenteredKeyTextSizeSp(button, SymbolPanelModel.cellTextSizeSp(category, symbol));
+                // 邮箱后缀这类长条目缩小字号后仍可能放不下，单行省略，不折成两行（#6147）。
+                if (SymbolPanelModel.singleLineCell(category, symbol)) ViewPolicy.setSingleLineEllipsized(button);
                 ViewPolicy.clearPadding(button);
                 GridLayout.Spec row = GridLayout.spec(start / columns);
                 GridLayout.Spec column = GridLayout.spec(index - start, 1f);

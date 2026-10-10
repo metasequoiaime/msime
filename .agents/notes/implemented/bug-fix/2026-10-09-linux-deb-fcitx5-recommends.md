@@ -41,7 +41,7 @@ apt 默认安装推荐包。Debian 12 上安装改写后的包，fcitx5 5.0.21 �
 
 - 绕开 `package-container.sh` 手工跑 `cpack` 打出的 `.deb`，Depends 里仍有 `libfcitx5*`。这样的依赖更严格，但不会装出坏的包；发布只走 `package-container.sh`。
 - 用 `--no-install-recommends` 安装的 Debian 12 用户不会再被自动装上 Fcitx5，只能用 IBus，除非自己装 Fcitx5。
-- 22.04 上只有 IBus 可用。Debian 11、UOS 20 这类 glibc 更旧、没有 WebKitGTK 4.1 的系统仍然装不上（#6311），这次没有改变构建基线。
+- 22.04 上只有 IBus 可用。Debian 11、UOS 20 这类 glibc 更旧、没有 WebKitGTK 4.1 的系统仍然装不上发布页的包（#6311），这次没有改变构建基线；Debian 10 基线另有一条只含 IBus 的构建线，见 [legacy .deb](../feature/2026-10-09-linux-legacy-glibc228-deb.md)。
 
 验证：
 

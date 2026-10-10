@@ -20,6 +20,18 @@ public final class KeyboardGeometry {
     public static final int STANDARD_ROW_HEIGHT_DP = 46;
     /** 所有布局的键行高（26 键字母行、九键网格、笔画、手写区、大千四行整块……）：按 46 dp 排九宫格的键像横条，所有布局一起加到 56 dp，彼此切换时键盘总高不变。底栏仍是 {@link #STANDARD_ROW_HEIGHT_DP}。 */
     public static final int KEY_ROW_HEIGHT_DP = 56;
+    /**
+     * 底栏这一行的高度（dp）。默认是 {@link #STANDARD_ROW_HEIGHT_DP}，而且不加行距：底栏的键帽扣掉上下各半份行距后比上面的字母键、九宫格键矮一截（默认 39 dp 对 56 dp，#6354）。本地设置「加高底行」开着时和一行键同高（{@link #KEY_ROW_HEIGHT_DP}），并像键行一样另加一份行距（{@link #bottomRowSpacings}），键帽就和上面的键一样高。两种都不分摊键盘高度调整：底栏固定高度，调矮键盘时换行键不被压扁。
+     */
+    public static int bottomRowHeightDp(boolean tall) {
+        return tall ? KEY_ROW_HEIGHT_DP : STANDARD_ROW_HEIGHT_DP;
+    }
+
+    /** 底栏这一行要加上的行距份数，见 {@link #bottomRowHeightDp}。 */
+    public static int bottomRowSpacings(boolean tall) {
+        return tall ? 1 : 0;
+    }
+
     /** Fixed candidate/shortcut row; swapping its contents must not move the key rows. */
     public static final int CANDIDATE_ROW_HEIGHT_DP = 48;
     public static final int NINE_KEY_HEIGHT_DP = 180;
@@ -322,11 +334,6 @@ public final class KeyboardGeometry {
     /** Create full-width linear layout parameters with an already pixel-sized height. */
     public static LinearLayout.LayoutParams matchWidthHeightPx(int heightPixels) {
         return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, heightPixels);
-    }
-
-    /** 创建像素尺寸的线性布局正方形参数。 */
-    public static LinearLayout.LayoutParams squareParamsPx(int size) {
-        return ViewPolicy.newSquareParamsPx(size);
     }
 
     /** Create linear layout parameters with content-sized width and parent-sized height. */

@@ -119,7 +119,7 @@ public:
 private:
   void check_thread() const;
   void check_active(uint64_t epoch) const;
-  // 取消结果让韩文、注音、越南文或藏文的组字仍然打开时（列表关闭、原文重新显示），再发第二次 MSIME_CANCEL 丢弃它；其他结果不变。
+  // 取消结果让组字仍然打开时（韩文、注音的列表关闭，越南文、藏文的原文重新显示，全拼、双拼退出整句改字），再发第二次 MSIME_CANCEL 丢弃它；其他结果不变。
   nlohmann::json cancel_again(nlohmann::json result);
   const std::thread::id thread_ = std::this_thread::get_id();
   uint64_t client_;

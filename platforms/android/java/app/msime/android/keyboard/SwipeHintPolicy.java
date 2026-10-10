@@ -19,8 +19,17 @@ public final class SwipeHintPolicy {
      * @param currentYDp 当前纵坐标（dp）
      */
     public static boolean swiped(String direction, float downYDp, float currentYDp) {
+        return swiped(direction, THRESHOLD_DP, downYDp, currentYDp);
+    }
+
+    /**
+     * 同 {@link #swiped(String, float, float)}，阈值由调用方给出：拼音九键的滑动用自己的「九键滑动距离」（{@link NineKeySwipePolicy}），26 键仍用 {@link #THRESHOLD_DP}。
+     *
+     * @param thresholdDp 滑动判定阈值（dp），严格大于才算
+     */
+    public static boolean swiped(String direction, float thresholdDp, float downYDp, float currentYDp) {
         float moved = UP.equals(direction) ? downYDp - currentYDp : currentYDp - downYDp;
-        return moved > THRESHOLD_DP;
+        return moved > thresholdDp;
     }
 
     /**

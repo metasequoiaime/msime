@@ -317,6 +317,10 @@ HRESULT CKeyStateComposing::HandleKeyConvert(KeyHandlerEditSessionDTO dto)
 {
     if (dto.code == VK_SPACE)
     {
+        bool conversion = false;
+        const HRESULT hr = _pTextService->_HandleConversionKey(dto.ec, dto.pContext, false, dto.requestId, &conversion);
+        if (conversion)
+            return hr;
         return _pTextService->_HandleCandidateFinalize(dto.ec, dto.pContext, dto.requestId, dto.prefetchedText);
     }
     // VK_SPACE
@@ -375,6 +379,14 @@ CKeyStateCandidate::CKeyStateCandidate(_In_ CMetasequoiaIME *pTextService) : CKe
 // _HandleCandidateInput
 HRESULT CKeyStateCandidate::HandleKeyFinalizeCandidatelist(KeyHandlerEditSessionDTO dto)
 {
+    // 整句改字时回车上屏改好的整句，而不是选中高亮的候选。
+    if (dto.code == VK_RETURN)
+    {
+        bool conversion = false;
+        const HRESULT hr = _pTextService->_HandleConversionKey(dto.ec, dto.pContext, true, dto.requestId, &conversion);
+        if (conversion)
+            return hr;
+    }
     return _pTextService->_HandleCandidateFinalize(dto.ec, dto.pContext, dto.requestId, dto.prefetchedText);
 }
 
@@ -396,6 +408,10 @@ HRESULT CKeyStateCandidate::HandleKeyConvert(KeyHandlerEditSessionDTO dto)
 {
     if (dto.code == VK_SPACE)
     {
+        bool conversion = false;
+        const HRESULT hr = _pTextService->_HandleConversionKey(dto.ec, dto.pContext, false, dto.requestId, &conversion);
+        if (conversion)
+            return hr;
         return _pTextService->_HandleCandidateFinalize(dto.ec, dto.pContext, dto.requestId, dto.prefetchedText);
     }
     // Send candidate string to client when pressing VK_SPACE
@@ -418,6 +434,6 @@ HRESULT CKeyStateCandidate::HandleKeyArrow(KeyHandlerEditSessionDTO dto)
 //_HandleCandidateSelectByNumber
 HRESULT CKeyStateCandidate::HandleKeySelectByNumber(KeyHandlerEditSessionDTO dto)
 {
-    return _pTextService->_HandleCandidateSelectByNumber(dto.ec, dto.pContext, dto.code, dto.requestId,
+    return _pTextService->_HandleCandidateSelectByNumber(dto.ec, dto.pContext, dto.code, dto.wch, dto.requestId,
                                                          dto.prefetchedText);
 }

@@ -596,21 +596,30 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
         const std::string id = _previewSkinId.UTF8String ?: "system";
         std::string theme = id;
         msime::mac::CustomTheme custom;
+        // 外部包只在它 base 的明暗下画：固定明暗的包两种预览都按那一种明暗解析，否则卡片在另一种明暗下预览到的是没有包的底色。
+        std::optional<bool> packageDark;
         if (id == "custom" && _preferences != nil) {
             custom = [_preferences customTheme];
         } else if (!msime::mac::IsGlobalThemeId(id)) {
             theme = "custom";
+            // 两个槽位都放这个包，深色模式不会回落到别的包。
             custom.candidateSkin = id;
-            if (const auto package = msime::mac::LoadSkinPackage(root, id)) custom.base = package->base;
+            custom.candidateSkinDark = id;
+            if (const auto package = msime::mac::LoadSkinPackage(root, id)) {
+                custom.base = package->base;
+                const msime::mac::SkinSlot slot = msime::mac::SkinSlotOfBase(package->base);
+                if (slot == msime::mac::SkinSlot::light || slot == msime::mac::SkinSlot::dark)
+                    packageDark = slot == msime::mac::SkinSlot::dark;
+            }
         }
-        _lightSkin = msime::mac::ResolveSkin(theme, custom, false, layout, root);
-        _darkSkin = msime::mac::ResolveSkin(theme, custom, true, layout, root);
+        _lightSkin = msime::mac::ResolveSkin(theme, custom, packageDark.value_or(false), layout, root);
+        _darkSkin = msime::mac::ResolveSkin(theme, custom, packageDark.value_or(true), layout, root);
         _lightToolbar = msime::mac::ToolbarSkinTokens(_lightSkin, root);
         _darkToolbar = msime::mac::ToolbarSkinTokens(_darkSkin, root);
     }
     self.themeButton.title = [self forcedThemeButtonTitle];
     // A theme with a fixed mode looks the same in both, so there is nothing to preview in the other.
-    self.themeButton.hidden = _lightSkin.fixedDark.has_value();
+    self.themeButton.hidden = [self previewHasFixedMode];
     _heightConstraint.constant = [self previewContentHeight];
     self.needsDisplay = YES;
 }
@@ -682,12 +691,17 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     [self reloadPreview];
 }
 
+- (BOOL)previewHasFixedMode
+{
+    return msime::mac::FixedThemeMode(_lightSkin, _darkSkin).has_value();
+}
+
 - (BOOL)previewUsesDark
 {
     // A theme that fixes its mode is drawn in it whatever the system or the preview toggle says.
-    if (_lightSkin.fixedDark)
+    if (const auto fixed = msime::mac::FixedThemeMode(_lightSkin, _darkSkin))
     {
-        return *_lightSkin.fixedDark;
+        return *fixed;
     }
     if (_forcedDark != nil)
     {
@@ -875,7 +889,7 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
 {
     // A theme with a mode of its own draws the toolbar in that mode, as InputController tells the panel.
     if (self.preferences != nil)
-        if (const auto fixed = [self.preferences resolvedSkinForDark:NO].fixedDark) return *fixed;
+        if (const auto fixed = [self.preferences fixedThemeMode]) return *fixed;
     NSString *surface = self.preferences.toolbarTheme;
     NSString *resolved = [surface isEqual:@"dark"] || [surface isEqual:@"light"] ? surface : self.preferences.themeMode;
     if ([resolved isEqual:@"dark"]) return YES;

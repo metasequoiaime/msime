@@ -16,7 +16,6 @@ import android.graphics.PixelFormat;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.text.InputFilter;
 import android.text.InputType;
@@ -37,7 +36,9 @@ import app.msime.android.BackendAccount;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.CloudApi;
 import app.msime.android.ColorPolicy;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardGeometry;
+import app.msime.android.ThreadPolicy;
 import app.msime.android.ViewPolicy;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import java.util.function.Consumer;
@@ -83,7 +84,7 @@ final class LoginSheet {
      */
     static void show(Activity activity, String purpose, Consumer<String> finished) {
         Context context = activity.getApplicationContext();
-        new Thread(() -> {
+        ThreadPolicy.startNamedThread("msime-login-sheet", () -> {
             CloudApi.Providers providers = SignIn.providers(context);
             boolean google = SignIn.google(context, providers);
             activity.runOnUiThread(() -> {
@@ -94,7 +95,7 @@ final class LoginSheet {
                 }
                 new LoginSheet(activity, purpose, providers, google, finished).dialog.show();
             });
-        }, "msime-login-sheet").start();
+        });
     }
 
     private LoginSheet(Activity activity, String purpose, CloudApi.Providers providers, boolean google,
@@ -111,9 +112,8 @@ final class LoginSheet {
 
         LinearLayout header = Ui.row(activity);
         ViewPolicy.setCenteredVertically(header);
-        TextView title = Ui.styledLabel(activity, "link".equals(purpose) ? "添加登录方式" : "登录水杉",
+        TextView title = Ui.headingLabel(activity, "link".equals(purpose) ? "添加登录方式" : "登录水杉",
             22, 700, Ui.text(activity));
-        title.setAccessibilityHeading(true);
         header.addView(title, Ui.weightWrap(1f));
         ImageView close = Ui.iconButton(activity,
             new PathIcon(24, new String[] {CLOSE_PATH}, new int[] {Ui.text(activity)}),
@@ -148,9 +148,8 @@ final class LoginSheet {
         }
             root.addView(options, Ui.matchWidth(activity, 0));
 
-        status = Ui.styledLabel(activity, "", 13, 400, Ui.subText(activity));
+        status = Ui.liveStatus(activity, 13);
         ViewPolicy.setCenteredHorizontally(status);
-        ViewPolicy.setPoliteLiveRegion(status);
         ViewPolicy.hide(status);
         root.addView(status, Ui.matchWidth(activity, 12));
 
@@ -205,7 +204,7 @@ final class LoginSheet {
     private void sendCode(String address) {
         if (!begin("正在发送验证码…")) return;
         Context context = activity.getApplicationContext();
-        new Thread(() -> {
+        ThreadPolicy.startNamedThread("msime-email-code", () -> {
             SignIn.EmailCode result = SignIn.requestEmailCode(context, address, purpose);
             activity.runOnUiThread(() -> {
                 if (done || activity.isFinishing() || activity.isDestroyed()) return;
@@ -219,7 +218,7 @@ final class LoginSheet {
                 challenge = result.challenge();
                 showCodeEntry();
             });
-        }, "msime-email-code").start();
+        });
     }
 
     private void showCodeEntry() {
@@ -255,10 +254,10 @@ final class LoginSheet {
         BackendAccount.EmailChallenge current = challenge;
         if (current == null || !begin("正在登录…")) return;
         Context context = activity.getApplicationContext();
-        new Thread(() -> {
+        ThreadPolicy.startNamedThread("msime-email-login", () -> {
             String failure = SignIn.verifyEmailCode(context, current, code);
             activity.runOnUiThread(() -> finishWith(failure));
-        }, "msime-email-login").start();
+        });
     }
 
     // ---- 状态 ----
@@ -302,11 +301,11 @@ final class LoginSheet {
         ViewPolicy.setCentered(button);
         Ui.setMinimumHeightDp(button, activity, 50);
         GradientDrawable face = stroke == 0
-            ? Ui.rounded(fill, Ui.dp(activity, 12))
-            : Ui.outlined(fill, Ui.dp(activity, 12), KeyboardGeometry.atLeastOnePixel(activity, 1), stroke);
-        GradientDrawable mask = Ui.rounded(Color.WHITE, Ui.dp(activity, 12));
+            ? DrawablePolicy.rounded(fill, Ui.dp(activity, 12))
+            : DrawablePolicy.outlined(fill, Ui.dp(activity, 12), KeyboardGeometry.atLeastOnePixel(activity, 1), stroke);
+        GradientDrawable mask = DrawablePolicy.rounded(Color.WHITE, Ui.dp(activity, 12));
         int pressed = ColorPolicy.withAlpha(fill == Color.BLACK ? Color.WHITE : Ui.text(activity), 0.12f);
-        ViewPolicy.setBackground(button, new RippleDrawable(android.content.res.ColorStateList.valueOf(pressed), face, mask));
+        ViewPolicy.setBackground(button, DrawablePolicy.ripple(pressed, face, mask));
         if (icon != null) {
             ImageView glyph = Ui.decorativeIcon(activity, icon);
             LinearLayout.LayoutParams params = Ui.squareParams(activity, 20);
@@ -328,7 +327,7 @@ final class LoginSheet {
         ViewPolicy.setSingleLine(field);
         field.setFilters(new InputFilter[] {new InputFilter.LengthFilter(maxLength)});
         field.setHintTextColor(Ui.subText(activity));
-        GradientDrawable face = Ui.outlined(Ui.rowBackground(activity), Ui.dp(activity, 12),
+        GradientDrawable face = DrawablePolicy.outlined(Ui.rowBackground(activity), Ui.dp(activity, 12),
             KeyboardGeometry.atLeastOnePixel(activity, 1), Ui.hairline(activity));
         ViewPolicy.setBackground(field, face);
         Ui.setHorizontalPaddingDp(field, activity, 14);

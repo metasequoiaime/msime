@@ -3,7 +3,7 @@ import app.msime.android.WavAudio;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 
-/** Which providers this host can talk to, and the exact bytes it uploads. */
+/** Which request formats this host can send, and the exact bytes it uploads. */
 public final class HttpAsrPolicySmoke {
     static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
@@ -15,46 +15,47 @@ public final class HttpAsrPolicySmoke {
     }
 
     public static void main(String[] args) {
-        for (String provider : new String[] {"openai", "siliconflow", "groq", "everyapi", "mistral"}) {
-            check(HttpAsrPolicy.supported(provider), provider + " is an OpenAI-compatible upload");
-        }
+        // 按共享层给出的请求格式判断，不再看 provider 名字（#6017）。
+        check(HttpAsrPolicy.supported("multipart"), "multipart is the OpenAI-compatible upload");
+        check(HttpAsrPolicy.supported("chat_audio"), "chat_audio is the Bailian chat upload");
         // Doubao is the streaming WebSocket protocol. Reporting it unsupported is what sends the
         // caller to the platform recognizer, so a user who configured it still has voice input.
-        check(!HttpAsrPolicy.supported("doubao"), "doubao is not an upload provider");
+        check(!HttpAsrPolicy.supported("doubao") && !HttpAsrPolicy.supported("doubao_websocket"),
+            "doubao is not an upload format");
         check(!HttpAsrPolicy.supported("") && !HttpAsrPolicy.supported(null)
-                && !HttpAsrPolicy.supported("whisper"),
-            "an unset or unknown provider is unsupported");
+                && !HttpAsrPolicy.supported("openai") && !HttpAsrPolicy.supported("local"),
+            "an unset format or a provider name is unsupported");
 
         String endpoint = "https://api.openai.com/v1/audio/transcriptions";
-        check(HttpAsrPolicy.usable("openai", endpoint, "whisper-1", "token"),
+        check(HttpAsrPolicy.usable("multipart", endpoint, "whisper-1", "token"),
             "a complete configuration is usable");
         // This host opens the connection, so the scheme is its responsibility: http would put the
         // user's token on the wire in clear text.
-        check(!HttpAsrPolicy.usable("openai", "http://api.openai.com/v1/audio/transcriptions",
+        check(!HttpAsrPolicy.usable("multipart", "http://api.openai.com/v1/audio/transcriptions",
             "whisper-1", "token"),
             "a plaintext endpoint is refused");
-        check(!HttpAsrPolicy.usable("openai", "https:///audio/transcriptions",
+        check(!HttpAsrPolicy.usable("multipart", "https:///audio/transcriptions",
             "whisper-1", "token"), "an endpoint without an authority is refused");
-        check(!HttpAsrPolicy.usable("openai", endpoint, "", "token")
-                && !HttpAsrPolicy.usable("openai", endpoint, "   ", "token"),
+        check(!HttpAsrPolicy.usable("multipart", endpoint, "", "token")
+                && !HttpAsrPolicy.usable("multipart", endpoint, "   ", "token"),
             "an empty model is refused");
-        check(!HttpAsrPolicy.usable("openai", endpoint, "whisper-1", "")
-                && !HttpAsrPolicy.usable("openai", endpoint, "whisper-1", "  "),
+        check(!HttpAsrPolicy.usable("multipart", endpoint, "whisper-1", "")
+                && !HttpAsrPolicy.usable("multipart", endpoint, "whisper-1", "  "),
             "an empty token is refused");
-        check(!HttpAsrPolicy.usable("openai", endpoint, "whisper\n1", "token")
-                && !HttpAsrPolicy.usable("openai", endpoint + "\r", "whisper-1", "token"),
+        check(!HttpAsrPolicy.usable("multipart", endpoint, "whisper\n1", "token")
+                && !HttpAsrPolicy.usable("multipart", endpoint + "\r", "whisper-1", "token"),
             "a control character is refused rather than smuggled into a header");
-        check(!HttpAsrPolicy.usable("openai", endpoint + "\uD800", "whisper-1", "token"),
+        check(!HttpAsrPolicy.usable("multipart", endpoint + "\uD800", "whisper-1", "token"),
             "malformed Unicode in an endpoint is refused");
-        check(!HttpAsrPolicy.usable("openai", endpoint, "whisper-1\uD800", "token")
-                && !HttpAsrPolicy.usable("openai", endpoint, "whisper-1", "token\uD800"),
+        check(!HttpAsrPolicy.usable("multipart", endpoint, "whisper-1\uD800", "token")
+                && !HttpAsrPolicy.usable("multipart", endpoint, "whisper-1", "token\uD800"),
             "malformed Unicode in model and token is refused");
-        check(!HttpAsrPolicy.usable("doubao", endpoint, "whisper-1", "token"),
+        check(!HttpAsrPolicy.usable("doubao_websocket", endpoint, "whisper-1", "token"),
             "an unsupported provider is not usable however complete it looks");
-        check(!HttpAsrPolicy.usable("openai", null, "whisper-1", "token"),
+        check(!HttpAsrPolicy.usable("multipart", null, "whisper-1", "token"),
             "a missing endpoint is refused rather than throwing");
-        check(!HttpAsrPolicy.usable("openai", endpoint, "😀".repeat(200), "token")
-                && !HttpAsrPolicy.usable("openai", endpoint, "whisper-1", "😀".repeat(5_000)),
+        check(!HttpAsrPolicy.usable("multipart", endpoint, "😀".repeat(200), "token")
+                && !HttpAsrPolicy.usable("multipart", endpoint, "whisper-1", "😀".repeat(5_000)),
             "model and token use UTF-8 byte bounds");
 
         // zh-CN and zh-TW are both zh to these APIs; which script comes back is this client's own
@@ -107,6 +108,17 @@ public final class HttpAsrPolicySmoke {
             "the recording is the file part");
         check(text.endsWith("\r\n--" + boundary + "--\r\n"), "the body closes the multipart");
         check(body.length > wav.length, "the audio is carried whole inside the body");
+
+        check(HttpAsrPolicy.contentType("multipart", boundary)
+                .equals("multipart/form-data; boundary=" + boundary)
+                && HttpAsrPolicy.contentType("chat_audio", boundary).equals("application/json"),
+            "each format declares its own content type");
+        String chat = new String(HttpAsrPolicy.chatAudioBody("qwen3-asr-flash", new byte[] {'R', 'I', 'F', 'F'}),
+            StandardCharsets.UTF_8);
+        check(chat.equals("{\"model\":\"qwen3-asr-flash\",\"stream\":false,\"messages\":[{\"role\":\"user\","
+                + "\"content\":[{\"type\":\"input_audio\",\"input_audio\":{\"data\":"
+                + "\"data:audio/wav;base64,UklGRg==\"}}]}]}"),
+            "the chat body carries the recording as a base64 data URL in one user message");
 
         byte[] without = HttpAsrPolicy.multipartBody(boundary, "whisper-1", "  ", wav);
         check(!new String(without, StandardCharsets.ISO_8859_1).contains("name=\"language\""),

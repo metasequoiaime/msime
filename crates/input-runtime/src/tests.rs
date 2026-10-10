@@ -903,6 +903,7 @@ impl InputEngine for Fixture {
             } else {
                 self.words.clone()
             },
+            ..EngineSnapshot::default()
         })
     }
     fn character(&mut self, value: u8, _shift: bool) -> Result<EngineResult, RuntimeError> {
@@ -1719,6 +1720,7 @@ impl InputEngine for PhraseEngine {
             } else {
                 self.words.clone()
             },
+            ..EngineSnapshot::default()
         })
     }
     fn character(&mut self, value: u8, _shift: bool) -> Result<EngineResult, RuntimeError> {
@@ -3177,6 +3179,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         scheme: 0,
         enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
+        shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
@@ -3716,6 +3719,7 @@ impl InputEngine for DigitCommitsEngine {
             caret_position: self.reading.len(),
             segment_raw_boundaries: Vec::new(),
             candidates: words,
+            ..EngineSnapshot::default()
         })
     }
     fn character(&mut self, value: u8, _shift: bool) -> Result<EngineResult, RuntimeError> {
@@ -3756,6 +3760,79 @@ impl InputEngine for DigitCommitsEngine {
     ) -> Result<EngineResult, RuntimeError> {
         self.select(index)
     }
+}
+
+/// 每页十个时数字键 0 选第十个；每页不到十个时 0 不是选词键，照旧交回宿主，和改动前一样。#6679
+#[test]
+fn zero_picks_the_tenth_candidate_only_on_a_page_of_ten() {
+    let words: Vec<String> = (1..=12).map(|index| format!("词{index}")).collect();
+    let type_h = |runtime: &mut Runtime<Fixture>| {
+        runtime
+            .dispatch(Action::Character {
+                value: b'h',
+                shift: false,
+            })
+            .unwrap();
+    };
+    let zero = Action::Character {
+        value: b'0',
+        shift: false,
+    };
+
+    let mut runtime = Runtime::new(
+        Fixture {
+            local_mode: "none".into(),
+            words: words.clone(),
+            ..Fixture::default()
+        },
+        10,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    type_h(&mut runtime);
+    assert_eq!(runtime.view().candidates.len(), 10);
+    let picked = runtime.dispatch(zero).unwrap();
+    assert!(picked.handled);
+    assert_eq!(picked.commit.as_deref(), Some("词10"));
+
+    let mut runtime = Runtime::new(
+        Fixture {
+            local_mode: "none".into(),
+            words,
+            ..Fixture::default()
+        },
+        9,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    type_h(&mut runtime);
+    let passed = runtime
+        .dispatch(Action::Character {
+            value: b'0',
+            shift: false,
+        })
+        .unwrap();
+    assert!(!passed.handled);
+    assert!(passed.commit.is_none());
+    assert_eq!(runtime.view().candidates.len(), 9);
+}
+
+#[test]
+fn page_size_accepts_one_to_ten() {
+    assert!(matches!(
+        Runtime::new(Fixture::default(), 0),
+        Err(RuntimeError::InvalidPageSize)
+    ));
+    assert!(matches!(
+        Runtime::new(Fixture::default(), 11),
+        Err(RuntimeError::InvalidPageSize)
+    ));
+    let mut runtime = Runtime::new(Fixture::default(), 10).unwrap();
+    assert!(runtime.set_page_size(10).is_ok());
+    assert!(matches!(
+        runtime.set_page_size(11),
+        Err(RuntimeError::InvalidPageSize)
+    ));
 }
 
 /// A digit the Engine already answered with a commit is not also a page selection: selecting would replace the commit, and the text it carried - a Korean syllable - would be lost.
@@ -4021,6 +4098,26 @@ fn the_translate_command_round_trips_through_the_runtime() {
     );
 }
 
+#[test]
+fn command_translation_does_not_change_engine_after_generation_exhaustion() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = generated_mode_runtime(directory.path());
+    character(&mut runtime, b'/');
+    for value in *b"fyhello" {
+        character(&mut runtime, value);
+    }
+    let mut query = runtime.command_translation().unwrap();
+    runtime.generation = u64::MAX;
+    query.generation = u64::MAX;
+    let before = runtime.engine.snapshot().unwrap().candidates;
+
+    assert!(matches!(
+        runtime.apply_command_translation(&query, "合成译文"),
+        Err(RuntimeError::IdentityExhausted)
+    ));
+    assert_eq!(runtime.engine.snapshot().unwrap().candidates, before);
+}
+
 // A mark on a bare `/` or `@` is punctuation on every route: the mode ends and nothing from its list is committed.
 #[test]
 fn a_mark_on_a_bare_slash_or_at_is_not_a_pick() {
@@ -4120,6 +4217,89 @@ fn slash_and_at_open_their_modes_only_with_nothing_composed() {
     assert!(commit.ends_with('/'), "{commit:?}");
     assert_eq!(finished.view.local_mode, "none");
     assert!(finished.commit_context.unwrap().typing_statistics);
+}
+
+#[test]
+fn wubi_literal_marks_do_not_open_table_modes() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = real_engine_options(directory.path());
+    options.scheme = 2;
+    options.local_command = true;
+    options.local_mention = true;
+    options.command_table = vec![msime_engine::host::CommandTableEntry {
+        trigger: "sig".into(),
+        title: "签名".into(),
+        template: "张三".into(),
+    }];
+    options.mention_entries = vec![msime_engine::host::MentionEntry {
+        text: "张三".into(),
+        key: "zhang'san".into(),
+    }];
+    let session = msime_engine::host::Session::new(&options).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    assert_eq!(runtime.view().spelling_symbols, "/@");
+
+    let literal = runtime.dispatch(Action::PunctuationAscii(b'/')).unwrap();
+    assert_eq!(literal.view.local_mode, "none");
+    let opened = runtime.dispatch(Action::Punctuation(b'/')).unwrap();
+    assert_eq!(opened.view.local_mode, "command");
+}
+
+#[test]
+fn a_capital_after_a_complete_wubi_code_commits_the_word_and_keeps_the_letter() {
+    let directory = tempfile::tempdir().unwrap();
+    let dictionaries = directory.path().join("dictionaries");
+    std::fs::create_dir_all(&dictionaries).unwrap();
+    rusqlite::Connection::open(dictionaries.join(msime_engine::assets::MAIN_DICTIONARY))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE wubi86(key TEXT, value TEXT, weight INTEGER);\
+             INSERT INTO wubi86 VALUES('gege','工',100),('gege','或',50);",
+        )
+        .unwrap();
+    let wubi = |quick_phrase: bool| {
+        let mut options = real_engine_options(directory.path());
+        options.scheme = 2;
+        options.local_quick_phrase = quick_phrase;
+        let mut runtime =
+            Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 5).unwrap();
+        runtime.focus(true).unwrap();
+        type_characters(&mut runtime, "gege");
+        assert_eq!(runtime.view().editing_text, "gege");
+        assert_eq!(texts(&runtime.view())[..2], ["工", "或"]);
+        runtime
+    };
+
+    let mut off = wubi(false);
+    for value in *b"AK" {
+        let topped = character(&mut off, value);
+        let letter = char::from(value);
+        assert!(topped.handled, "{letter}: {topped:?}");
+        assert_eq!(
+            topped.commit.as_deref(),
+            Some(format!("工{letter}").as_str()),
+            "{letter}"
+        );
+        assert_eq!(
+            topped.commit_context.as_ref().map(|context| context.scheme),
+            Some(2),
+            "{letter}"
+        );
+        assert!(topped.view.editing_text.is_empty(), "{letter}: {topped:?}");
+        assert_eq!(topped.view.local_mode, "none", "{letter}");
+        type_characters(&mut off, "gege");
+    }
+    let next = character(&mut off, b'g');
+    assert_eq!(next.commit.as_deref(), Some("工"));
+    assert_eq!(next.view.editing_text, "g");
+
+    let mut on = wubi(true);
+    let opened = character(&mut on, b'K');
+    assert!(opened.handled, "{opened:?}");
+    assert_eq!(opened.commit.as_deref(), Some("工"));
+    assert_eq!(opened.view.local_mode, "quick_phrase");
+    assert_eq!(opened.view.editing_text, "K");
 }
 
 /// Without a settled model attached, the settle call is inert.
@@ -4379,6 +4559,7 @@ impl InputEngine for WubiMixedEngine {
             caret_position: self.reading.len(),
             segment_raw_boundaries: Vec::new(),
             candidates: words,
+            ..EngineSnapshot::default()
         })
     }
     fn character(&mut self, value: u8, _shift: bool) -> Result<EngineResult, RuntimeError> {
@@ -4618,6 +4799,54 @@ fn full_list_does_not_reorder_after_generation_identity_is_exhausted() {
             .map(|candidate| candidate.text.as_str())
             .collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn clearing_online_candidates_does_not_change_engine_after_generation_exhaustion() {
+    let directory = tempfile::tempdir().unwrap();
+    let session = msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    type_characters(&mut runtime, "ni");
+    let query = runtime.online_query().unwrap().unwrap();
+    assert!(query.ai_eligible);
+    assert!(runtime
+        .apply_online_candidate(&query, "合成候选", 1)
+        .unwrap());
+    runtime.generation = u64::MAX;
+    let before = runtime.engine.snapshot().unwrap().candidates;
+    assert!(before.iter().any(|candidate| candidate == "合成候选"));
+
+    assert!(matches!(
+        runtime.clear_online_candidates(1),
+        Err(RuntimeError::IdentityExhausted)
+    ));
+    assert_eq!(runtime.engine.snapshot().unwrap().candidates, before);
+}
+
+#[test]
+fn online_candidates_do_not_change_engine_after_generation_exhaustion() {
+    for batch in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        let session =
+            msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        type_characters(&mut runtime, "ni");
+        let mut query = runtime.online_query().unwrap().unwrap();
+        query.ai_assistant =
+            Some(serde_json::from_value(json!({"enabled": true, "candidate_limit": 1})).unwrap());
+        runtime.generation = u64::MAX;
+        let before = runtime.engine.snapshot().unwrap().candidates;
+
+        let result = if batch {
+            runtime.apply_online_candidates(&query, &["合成候选".into()], 1)
+        } else {
+            runtime.apply_online_candidate(&query, "合成候选", 1)
+        };
+        assert!(matches!(result, Err(RuntimeError::IdentityExhausted)));
+        assert_eq!(runtime.engine.snapshot().unwrap().candidates, before);
+    }
 }
 
 #[test]
@@ -4868,7 +5097,9 @@ impl InputEngine for FailsAfterCommit {
         self.inner.select_edge(index, edge)
     }
     fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
-        self.inner.finish(index)
+        let result = self.inner.finish(index)?;
+        self.committed = result.has_commit;
+        Ok(result)
     }
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
         self.inner.punctuation(value)
@@ -4904,6 +5135,45 @@ fn a_wubi_auto_commit_survives_a_failed_refresh() {
     let last = last.unwrap();
     assert_eq!(last.commit.as_deref(), Some("合成候选"));
     assert!(last
+        .diagnostic
+        .as_deref()
+        .is_some_and(|diagnostic| diagnostic.starts_with("Candidate refresh failed")));
+}
+
+#[test]
+fn a_blur_commit_survives_a_failed_refresh() {
+    let mut runtime = Runtime::new(
+        FailsAfterCommit {
+            inner: Fixture {
+                scheme: KOREAN_SCHEME,
+                words: vec!["合成音节".into()],
+                local_mode: "none".into(),
+                ..Fixture::default()
+            },
+            committed: false,
+        },
+        5,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    runtime
+        .dispatch(Action::Character {
+            value: b'k',
+            shift: false,
+        })
+        .unwrap();
+
+    let blurred = runtime.focus(false).unwrap();
+    assert_eq!(
+        blurred.commit.as_deref(),
+        Some("合成音节-remaining-segments")
+    );
+    assert_eq!(
+        blurred.commit_context.as_ref().unwrap().scheme,
+        KOREAN_SCHEME
+    );
+    assert!(!blurred.view.focused);
+    assert!(blurred
         .diagnostic
         .as_deref()
         .is_some_and(|diagnostic| diagnostic.starts_with("Candidate refresh failed")));
@@ -5177,6 +5447,7 @@ impl InputEngine for SpellingMarksEngine {
             caret_position: self.text.len(),
             segment_raw_boundaries: Vec::new(),
             candidates: Vec::new(),
+            ..EngineSnapshot::default()
         })
     }
     fn character(&mut self, value: u8, _shift: bool) -> Result<EngineResult, RuntimeError> {
@@ -6657,4 +6928,83 @@ fn url_space_commits_the_url_alone_and_escape_discards_it() {
     assert!(escape.commit.is_none(), "{escape:?}");
     assert_eq!(escape.view.local_mode, "none");
     assert!(escape.view.editing_text.is_empty());
+}
+
+/// 整句改字：左右键在整句的汉字之间移动，选中的候选替换光标处那一段，确认后上屏改好的整句。
+#[test]
+fn the_sentence_is_corrected_in_place_and_committed_whole() {
+    let directory = tempfile::tempdir().unwrap();
+    let dictionaries = directory.path().join("dictionaries");
+    std::fs::create_dir_all(&dictionaries).unwrap();
+    rusqlite::Connection::open(dictionaries.join(msime_engine::assets::MAIN_DICTIONARY))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_1_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO tbl_1_w VALUES('wo','w','我',9000);\
+             CREATE TABLE tbl_1_q(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO tbl_1_q VALUES('qu','q','去',9000);\
+             CREATE TABLE tbl_1_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO tbl_1_b VALUES('bei','b','被',9000),('bei','b','北',5000);\
+             CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO tbl_1_j VALUES('jing','j','经',9000),('jing','j','京',3000);\
+             CREATE TABLE tbl_2_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO tbl_2_b VALUES('bei''jing','bj','背景',30000),('bei''jing','bj','北京',20000);",
+        )
+        .unwrap();
+    let options = real_engine_options(directory.path());
+    let mut runtime = Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 5).unwrap();
+    runtime.focus(true).unwrap();
+    type_characters(&mut runtime, "woqubeijing");
+    assert_eq!(texts(&runtime.view())[0], "我去背景");
+    assert!(runtime.view().conversion.is_empty());
+
+    let entered = runtime
+        .dispatch(Action::Command(Command::ConversionLeft))
+        .unwrap();
+    assert_eq!(entered.view.conversion, "我去背景");
+    assert_eq!(
+        (
+            entered.view.conversion_focus_start,
+            entered.view.conversion_focus_end
+        ),
+        (3, 4)
+    );
+    let json = serde_json::to_value(&entered.view).unwrap();
+    assert_eq!(json["conversion"], "我去背景");
+    assert_eq!(json["conversion_focus_start"], 3);
+
+    // 换了焦点，高亮回到第一个候选。
+    runtime.dispatch(Action::NextCandidate).unwrap();
+    let moved = runtime
+        .dispatch(Action::Command(Command::ConversionLeft))
+        .unwrap();
+    assert_eq!(texts(&moved.view)[..2], ["背景", "北京"]);
+    assert_eq!(moved.view.candidates[0].id.index, 0);
+    assert_eq!(runtime.highlighted, 0);
+
+    // 数字 2 选「北京」：替换这一段，不上屏。
+    let picked = character(&mut runtime, b'2');
+    assert!(picked.commit.is_none());
+    assert_eq!(picked.view.conversion, "我去北京");
+    assert_eq!(picked.view.conversion_focus_start, 4);
+    assert!(picked.view.candidates.is_empty());
+    let committed = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert_eq!(committed.commit.as_deref(), Some("我去北京"));
+    assert!(committed.view.conversion.is_empty());
+    assert!(committed.view.editing_text.is_empty());
+
+    // 回车上屏改好的汉字；它不是拼出来的英文单词，不去学英文词库（这里没有英文词库，学了就会报诊断）。
+    type_characters(&mut runtime, "woqubeijing");
+    runtime
+        .dispatch(Action::Command(Command::ConversionLeft))
+        .unwrap();
+    runtime
+        .dispatch(Action::Command(Command::ConversionLeft))
+        .unwrap();
+    character(&mut runtime, b'2');
+    let entered = runtime
+        .dispatch(Action::Command(Command::CommitRaw))
+        .unwrap();
+    assert_eq!(entered.commit.as_deref(), Some("我去北京"));
+    assert_eq!(entered.diagnostic, None);
 }

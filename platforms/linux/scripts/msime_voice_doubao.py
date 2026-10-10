@@ -58,8 +58,9 @@ CONNECT_ARGUMENTS = frozenset((
 def websocket_dependency():
     """Return the synchronous client, or raise RuntimeError when the installed websockets cannot run the Doubao transport."""
     import inspect
-    from importlib.metadata import version
     try:
+        # importlib.metadata 从 Python 3.8 起才有；3.7 上（legacy 包）与缺少 websockets 一样报告依赖不满足。
+        from importlib.metadata import version
         major = int(version("websockets").split(".")[0])
         from websockets.sync.client import ClientConnection, connect
         accepted = inspect.signature(connect).parameters

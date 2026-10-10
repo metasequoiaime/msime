@@ -76,7 +76,7 @@ final class CodeLoginModel: ObservableObject {
   func signInWithCode(challenge: String, code: String, channel: CodeLoginChannel) async {
     await perform {
       try await self.session.signIn(challenge: challenge, credential: code, replacingAccount: { accountID in
-        try? DictionarySnapshotQueue().cancel(accountID: accountID)
+        try DictionarySnapshotQueue().cancelIfPresent(accountID: accountID)
       })
       self.user = try await self.session.user()
       if self.user != nil { self.signedInVia = channel.via }
@@ -126,7 +126,7 @@ final class CodeLoginModel: ObservableObject {
         return
       }
       try await self.session.signIn(challenge: challenge.challenge_id, credential: token, replacingAccount: { accountID in
-        try? DictionarySnapshotQueue().cancel(accountID: accountID)
+        try DictionarySnapshotQueue().cancelIfPresent(accountID: accountID)
       })
       self.user = try await self.session.user()
       if self.user != nil { self.signedInVia = "Google" }

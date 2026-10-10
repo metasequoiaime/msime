@@ -340,6 +340,7 @@ final class ImeLayoutRows {
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
 
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+        boolean borrowed = s.twentySixKeyDigitFace();
         // 左列是可以上下滚动的符号栏，字母键面默认 ，。？、：；……～@，！ 仍放在右列最下面，和 3×3 网格逐行对齐；数字键面默认是 + - * / = 等算式符号，！ 挪到它们后面（#5590），右列是删除、小数点和 0。两张表都可在设置里自定义。
         FrameLayout sidebar = symbolSidebar(digits);
         attachSpellings(sidebar, false);
@@ -359,7 +360,9 @@ final class ImeLayoutRows {
                         : NineKeyLayout.opensSymbols(key, false) ? () -> symbolKey(key)
                         : () -> s.character(key.input()));
                 if (NineKeyLayout.opensSymbols(key, digits)) s.nineKeySymbolKey = keyButton;
-                s.keyId(keyButton, KeyPressIds.forNineKeyDigit(key.digit()));
+                // 26 键借用这个数字键面时按输入的数字记键位，与一行的 123 层记到同一个键上，统计页不会给只用 26 键的人多出一块九宫格。
+                s.keyId(keyButton, borrowed ? KeyPressIds.forCharacter(NineKeyLayout.digitInput(key).charAt(0))
+                    : KeyPressIds.forNineKeyDigit(key.digit()));
                 // 字母键面上印着它送进引擎的数字；数字键面本身就是那个数字，不必再印一次。
                 // 1 键在拼音键面上是「@#」，打开符号面板而不是送 1，所以它没有可印的数字。
                 keyButton.setDigitText(digits || !Character.isDigit(key.input())
@@ -381,7 +384,8 @@ final class ImeLayoutRows {
         container.addView(grid, KeyboardGeometry.weightedMatchParentParams(3));
 
         LinearLayout actions = KeyboardGeometry.column(s);
-        Runnable deleteAction = () -> {
+        // 26 键借用这个数字键面时，删除和 26 键其他键面的 ⌫ 同一个动作：英文直输时还要清掉并刷新英文联想。
+        Runnable deleteAction = s.twentySixKeyDigitFace() ? s::deleteFromHandwriting : () -> {
             if (s.connection != null && !s.command(0)) s.deleteCodePointBeforeCursor();
         };
         Button delete = s.keyId(s.backspaceKey(deleteAction), "Backspace");
@@ -391,7 +395,8 @@ final class ImeLayoutRows {
         if (digits) {
             // 数字键面的 3×3 只有 1–9，右列下面两格换成小数点和 0（与 iOS、HarmonyOS 的九键右列一致），否则这一面打不出 0。这一面的点按都直接上屏、不进组字，重输在这里没有作用；小数点按字面上屏，不随中文标点模式变成「。」。
             Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
-            Button zero = s.keyId(s.keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")), "Nine0");
+            Button zero = s.keyId(s.keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")),
+                borrowed ? KeyPressIds.forCharacter('0') : "Nine0");
             for (Button key : java.util.List.of(period, zero)) {
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
                 addNineKey(actions, key);
@@ -667,7 +672,7 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 拼音九键网格键的滑动（#5580，规则见 {@link NineKeySwipePolicy}）：沿「九键滑动输入数字」选的方向滑过阈值，键面换成数字、松手上屏这个数字；往反方向滑，弹出和长按一样的数字与字母选项。按下时不拦截，没滑过阈值时点按和长按照常由按钮自己处理；滑过阈值的那一刻给按钮补一个 CANCEL，它就不会再点按或长按。长按选项已经弹出时不再判定滑动。
+     * 拼音九键网格键的滑动（#5580，规则见 {@link NineKeySwipePolicy}）：沿「九键滑动输入数字」选的方向滑过「九键滑动距离」，键面换成数字、松手上屏这个数字；往反方向滑，弹出和长按一样的数字与字母选项。按下时不拦截，没滑过阈值时点按和长按照常由按钮自己处理；滑过阈值的那一刻给按钮补一个 CANCEL，它就不会再点按或长按。长按选项已经弹出时不再判定滑动。
      */
     private void bindNineKeySwipe(NineKeyDigitButton keyButton, NineKeyLayout.Key key) {
         final float[] downY = new float[1];
@@ -692,7 +697,8 @@ final class ImeLayoutRows {
                     if (s.nineKeyHoldPopup != null) return false;
                     NineKeySwipePolicy.Gesture next = NineKeySwipePolicy.gesture(
                         s.localSettings.choice(AndroidLocalSettings.NINE_KEY_SWIPE), downY[0],
-                        KeyboardGeometry.fromPixels(s, event.getY()), hasLetters);
+                        KeyboardGeometry.fromPixels(s, event.getY()), hasLetters,
+                        s.localSettings.integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE));
                     if (next == NineKeySwipePolicy.Gesture.NONE) return false;
                     gesture[0] = next;
                     MotionEvent cancel = MotionEvent.obtain(event);
@@ -1095,8 +1101,9 @@ final class ImeLayoutRows {
             addJapaneseSideKey(modeColumn, s.keyId(s.keyboardKey("☺", "打开表情浏览", s.imePanels::showEmojiPicker),
                 "SoftEmoji"), 1);
         }
-        Button language = s.keyId(s.keyboardKey("英", "切换到英文输入", s::toggleInputLanguage),
-            "SoftLanguage");
+        // 打开「中英键轮换其他语言」时这个键也按轮换走（日语之后是下一种其他语言或回到中文），键面写它要切到的语言；否则从日语只能到英文、英文再轮回日语，回不到中文。
+        Button language = s.keyId(s.keyboardKey(s.japaneseLanguageKeyLabel(), s.japaneseLanguageKeyDescription(),
+            s::languageKeyTapped), "SoftLanguage");
         s.bindInputMethodPicker(language);
         addJapaneseSideKey(modeColumn, language, 1);
         if (s.offersGlobeKey()) {

@@ -2,11 +2,13 @@
 
 use std::collections::HashMap;
 
+use crate::dictionary::DictRow;
 use crate::error::Result;
 use crate::helpcode::{
     filter_candidates_with_double_helpcodes, reorder_candidates_with_single_helpcode,
     HelpcodeKeymap,
 };
+use crate::lattice::decode::PinnedSpan;
 use crate::paths::RuntimePaths;
 use crate::pinyin::active_helpcode::{detect_active_helpcode_length, strip_active_helpcodes};
 use crate::pinyin::segment::{cut_pinyin_by_mode, join_segments, split_segments, CutMode};
@@ -148,6 +150,14 @@ impl QuanpinEngine {
     pub fn create_word_from_canonical_pinyin(&mut self, pinyin: &str, word: &str) -> Result<()> {
         self.dictionary
             .create_word_from_canonical_pinyin(pinyin, word)
+    }
+
+    pub fn conversion_rows(&mut self, span: &[String], limit: usize) -> Vec<DictRow> {
+        self.dictionary.conversion_rows(span, limit)
+    }
+
+    pub fn convert_pinned(&mut self, syllables: &[String], pins: &[PinnedSpan]) -> Vec<PinnedSpan> {
+        self.dictionary.convert_pinned(syllables, pins)
     }
 
     pub fn reset_cache(&mut self) {

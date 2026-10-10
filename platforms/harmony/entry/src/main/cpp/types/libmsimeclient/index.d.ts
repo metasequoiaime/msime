@@ -101,6 +101,10 @@ export const pluginsAsync: (request: string) => Promise<string>;
  */
 export const commonPhrases: (request: string) => Promise<string>;
 /**
+ * The settings page's explicit 修复配置文件 for the absolute preferences `directory`, on a worker thread: a document load refuses, a newer build's included, is copied aside as `preferences.json.corrupt-<time>` and replaced by the settings this schema still accepts over the defaults. Resolves with `{ok,value:{recovered,snapshot,backup_path?,backup_name?,salvaged?}}` or `{ok:false,error}`; a readable or missing document is left untouched (`recovered:false`).
+ */
+export const repairPreferences: (directory: string) => Promise<string>;
+/**
  * Registers the device's anonymous MSIME account under `directory` (an absolute path; `anonymous-account.json` and `anonymous-session.json`) unless a session is already there, on a worker thread. Resolves with `{ok,value}` or `{ok:false,error}`; rejects only when the worker produced no answer.
  */
 export const ensureAnonymousAccount: (directory: string) => Promise<string>;
@@ -122,6 +126,10 @@ export const telemetryClear: (request: string) => string;
 export const notices: (request: string) => Promise<string>;
 /** `{directory,id}`: remembers that the user dismissed notice `id`. */
 export const noticeDismiss: (request: string) => string;
+/**
+ * `{platform,current_version,edition?,arch?}` in; on a worker thread, `{ok,value:{status:"available"|"current",update:{version:{display,parts},release_url,installer_name,installer_sha256,signed}}}` or `{ok,value:{status:"none"}}` out, from the newest published release of `platform` on GitHub. Waits up to ten seconds for the network.
+ */
+export const updateCheck: (request: string) => Promise<string>;
 /**
  * Decodes the WAV sample at `sample` once per semitone and writes each note to `<directory>/note-<index>.wav` at 48 kHz, pitched as a playback rate. Resolves with the files in semitone order; rejects a sample that is not WAV, lasts longer than `maxMillis`, or decodes past its declared length.
  */
@@ -174,6 +182,12 @@ export const personalDictionarySync: (options: string) => string;
  * file, where "maintenance busy" is not an answer to "add these words".
  */
 export const personalDictionaryRequest: (request: string) => string;
+/**
+ * `{options,action}` against the named dictionaries under `<preferences_directory>/DictionaryCollections`: `action.operation` is `load`, `create`, `rename`, `delete`, `set_enabled`, `add_words`, `remove_words`, `import`, `install_community`, `queue_words` or `flush`. Answers `{ok,value}` with the collections view, or `{ok:false,error}` with a stable code. Synchronous; the keyboard uses it only for the small `flush` after each personal-dictionary drain.
+ */
+export const dictionaryCollections: (request: string) => string;
+/** The same request on a worker thread, for the settings page: an import parses up to 16 MiB and every operation rewrites files under a lock. */
+export const dictionaryCollectionsAsync: (request: string) => Promise<string>;
 export const prepareHost: (options: string) => string;
 
 export const snapshotVersion: (options: string) => string;

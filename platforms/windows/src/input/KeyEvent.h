@@ -7,6 +7,12 @@
 #include <string>
 
 namespace msime::windows {
+static_assert(kCommandMoveLeft == MSIME_MOVE_LEFT && kCommandMoveRight == MSIME_MOVE_RIGHT &&
+                  kCommandMoveLeftSegment == MSIME_MOVE_LEFT_SEGMENT &&
+                  kCommandMoveRightSegment == MSIME_MOVE_RIGHT_SEGMENT &&
+                  kCommandConversionLeft == MSIME_CONVERSION_LEFT &&
+                  kCommandConversionRight == MSIME_CONVERSION_RIGHT,
+              "sentence_edit_command mirrors msime_client.h");
 enum class KeyKind { Ignore, LocalReset, CancelAndForward, Character, Command };
 struct KeyAction {
   KeyKind kind = KeyKind::Ignore;

@@ -6,6 +6,8 @@ import {
   SettingsStartupPage,
   WelcomeFlowPage,
   type DictionaryClient,
+  type DictionaryCollectionsClient,
+  type DictionaryCollectionsView,
   type DictionaryEntry,
   type DictionaryManifest,
   type DictionaryImportResult,
@@ -48,6 +50,9 @@ import {
   type CloudDictionaryPanelClient,
   type SettingsClient,
   type Snapshot,
+  type PreferencesRecovery,
+  type UpdateCheckRequest,
+  type UpdateCheckResult,
   type StatisticsRetention,
   type TypingStatisticsClient,
   type VocabularyReviewClient,
@@ -578,10 +583,19 @@ const GOOGLE_SIGN_IN_TIMEOUT_MS = 6 * 60 * 1000;
 function accountClient(native: NativeBridge): AccountClient {
   const request = <T,>(action: Record<string, unknown>): Promise<T> =>
     bridgeRequest(native, "account", JSON.stringify(action)).then(unwrap<T>);
-  const user = (value: { id: string; display_name: string; created_at: string }) => ({
+  // 头像地址原样交给页面，页面据此决定何时重新取头像；图片本身由宿主的 `avatar` 下载（页面只放行 `data:` 图片），不认可的地址在宿主那边被拒绝。
+  const user = (value: {
+    id: string;
+    display_name: string;
+    created_at: string;
+    avatar_url?: string | null;
+  }) => ({
     id: value.id,
     displayName: value.display_name,
     createdAt: value.created_at,
+    ...(typeof value.avatar_url === "string" && value.avatar_url.startsWith("https://")
+      ? { avatarUrl: value.avatar_url }
+      : {}),
   });
   const profile = (value: {
     user: { id: string; display_name: string; created_at: string };
@@ -653,6 +667,9 @@ function accountClient(native: NativeBridge): AccountClient {
           identities: { provider: string }[];
         }>({ operation: "rename", display_name: displayName }),
       ),
+    // 头像的 `data:` 地址：宿主按 client-core 的头像规则从会话用户的地址下载并校验，没有头像或取不到时为 null，页面显示名字首字。
+    avatar: async () =>
+      (await request<{ data_url: string | null }>({ operation: "avatar" })).data_url ?? null,
     logout: async (all) => {
       await request({ operation: "logout", all });
     },
@@ -938,6 +955,8 @@ function localVoiceModelClient(native: NativeBridge): LocalVoiceModelClient {
   return {
     list: () => request<LocalVoiceModelList>({ operation: "list" }),
     install: (id) => request<string>({ operation: "install", id }, 6 * 60 * 60 * 1000),
+    // 等用户在系统选择器里选文件，再复制和解压几百 MB，期限和下载一样放宽。
+    import: (id) => request<string | null>({ operation: "import", id }, 6 * 60 * 60 * 1000),
     cancel: (id) => request<boolean>({ operation: "cancel", id }),
     remove: async (id) => {
       await request<null>({ operation: "remove", id });
@@ -1088,12 +1107,30 @@ function makeClient(
         offset,
         limit,
       }),
+    count: async (kind: LocalDictionaryKind) =>
+      dictionaryReply<{ count: number }>({ operation: "count", kind }).count,
     retry: async (request_id: string) => {
       dictionaryReply<{ applied: boolean }>({ operation: "retry", request_id });
     },
     dismissFailure: async (request_id: string) => {
       dictionaryReply<{ applied: boolean }>({ operation: "dismiss_failure", request_id });
     },
+  };
+  // 命名词库。导入要解析最多 16 MiB 的文本，所以走 startRequest 在原生工作线程上执行，并给足两分钟；其余操作只改几个小文件。
+  const collectionsReply = async (action: Record<string, unknown>) =>
+    unwrap<DictionaryCollectionsView>(
+      await bridgeRequest(native, "dictionary_collections", JSON.stringify(action), 120000),
+    );
+  const dictionaryCollections: DictionaryCollectionsClient = {
+    load: () => collectionsReply({ operation: "load" }),
+    flush: () => collectionsReply({ operation: "flush" }),
+    create: (name) => collectionsReply({ operation: "create", name, kind: "pinyin" }),
+    delete: (id) => collectionsReply({ operation: "delete", id }),
+    setEnabled: (id, enabled) => collectionsReply({ operation: "set_enabled", id, enabled }),
+    addWords: (id, entries) => collectionsReply({ operation: "add_words", id, entries }),
+    importFile: (name, format, text) =>
+      collectionsReply({ operation: "import", name, kind: "pinyin", format, text }),
+    installCommunity: (resource) => collectionsReply({ operation: "install_community", resource }),
   };
   const userWordCount = (): number | undefined => {
     try {
@@ -1265,7 +1302,34 @@ function makeClient(
       const document = JSON.stringify({ format_version: 1, revision: revision + 1, preferences });
       return unwrap<Snapshot>(native.savePreferences(revision, document));
     },
+    // 「修复配置文件…」：只在页面报「配置文件无法读取或版本较新」并且用户点了之后才调用。旧版本读不懂新版本写的文件时，原文件备份在旁边，能认的设置保留，其余恢复默认。
+    recoverPreferences: async (): Promise<PreferencesRecovery> => {
+      const value = unwrap<{
+        recovered: boolean;
+        snapshot: Snapshot;
+        backup_path?: string;
+        salvaged?: boolean;
+      }>(await bridgeRequest(native, "repair_preferences", ""));
+      return {
+        snapshot: value.snapshot,
+        backupPath: value.recovered ? (value.backup_path ?? null) : null,
+        salvaged: value.salvaged ?? false,
+      };
+    },
     readAppVersion: async () => native.appVersion(),
+    // GitHub's release list is read and compared in Rust on a native worker (msime_client_update_check); ArkTS fills in the platform.
+    checkUpdate: async (request: UpdateCheckRequest) =>
+      unwrap<UpdateCheckResult>(
+        await bridgeRequest(
+          native,
+          "update_check",
+          JSON.stringify({
+            current_version: request.currentVersion,
+            ...(request.edition === undefined ? {} : { edition: request.edition }),
+            ...(request.arch === undefined ? {} : { arch: request.arch }),
+          }),
+        ),
+      ),
     scanSkinCatalog: async () => unwrap<SkinCatalog>(native.scanSkinCatalog()),
     readSkinImage: async (id: string, relative: string) =>
       unwrap<SkinImage>(native.readSkinImage(id, relative)),
@@ -1316,6 +1380,7 @@ function makeClient(
       },
     },
     dictionary,
+    dictionaryCollections,
     typingStatistics,
     vocabularyReview,
     aiAssistant,

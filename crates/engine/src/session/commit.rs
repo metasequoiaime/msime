@@ -32,6 +32,9 @@ fn clone_selected_candidate(item: &WordItem, copy_sentence_words: bool) -> WordI
 
 impl InputSession {
     pub(super) fn select_candidate(&mut self, index: usize) -> KeyResult {
+        if self.conversion.is_some() {
+            return self.select_conversion_row(index);
+        }
         if let Some(result) = self.select_in_open_list(index) {
             return result;
         }
@@ -42,6 +45,10 @@ impl InputSession {
     }
 
     pub(super) fn select_candidate_edge(&mut self, index: usize, edge: CandidateEdge) -> KeyResult {
+        // 改字的候选是光标处一段的替换，不是可以单独上屏的词。
+        if self.conversion.is_some() {
+            return KeyResult::unhandled();
+        }
         // A row of an editor-owned list is a choice for the conversion, not text to commit, so its edge characters are not either.
         if let Some(result) = self.select_in_open_list(index) {
             return result;
@@ -88,6 +95,11 @@ impl InputSession {
         self.close_korean_hanja();
         let mut result = KeyResult::unhandled();
         let mut index = first_index;
+        // 改字时上屏的是改好的整句，不是光标处的候选。
+        if self.conversion.is_some() {
+            result = self.commit_conversion();
+            index = 0;
+        }
         while self.has_composition() {
             let part = self.commit(index);
             index = 0;
@@ -188,10 +200,24 @@ impl InputSession {
             }
             None => Some(self.preedit()),
         };
-        let mut diagnostic = self
+        let diagnostic = self
             .ranking_index(index)
             .and_then(|learn_index| self.learn_candidate(learn_index));
+        self.commit_selection(selected, text, diagnostic)
+    }
 
+    /// 拼音组字里上屏选中的行（`None` 是上屏 `text` 本身）之后的事：记个人上下文、推进组字或者结束组字、造词。`diagnostic` 是已经做过的学习留下的诊断。整句改字上屏改好的整句时也走这里。
+    pub(super) fn commit_selection(
+        &mut self,
+        selected: Option<WordItem>,
+        text: Option<String>,
+        mut diagnostic: Option<String>,
+    ) -> KeyResult {
+        let committed = |text: Option<String>, diagnostic: Option<String>| KeyResult {
+            handled: true,
+            commit: text,
+            diagnostic,
+        };
         let Some(selected) = selected else {
             self.record_context_into(&mut diagnostic, None, false, false);
             self.chain.last_pick = None;

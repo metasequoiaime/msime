@@ -42,7 +42,8 @@ fn is_leap_year(year: u32) -> bool {
     year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
-/// `day` moved by `days`, negative for earlier. `None` when `day` is not a day.
+/// `day` moved by `days`, negative for earlier. `None` when the input or result
+/// is outside the supported four-digit calendar.
 ///
 /// Days-since-epoch arithmetic on the calendar fields, so it stays correct across months, years
 /// and leap days without pulling a timezone into a pure function.
@@ -54,6 +55,9 @@ pub(crate) fn shift_day(day: &str, days: i64) -> Option<String> {
     let month: i64 = day.get(5..7)?.parse().ok()?;
     let date: i64 = day.get(8..10)?.parse().ok()?;
     let shifted = days_from_civil(year, month, date).checked_add(days)?;
+    if shifted < days_from_civil(0, 1, 1) || shifted > days_from_civil(9999, 12, 31) {
+        return None;
+    }
     let (year, month, date) = civil_from_days(shifted);
     Some(format!("{year:04}-{month:02}-{date:02}"))
 }
@@ -126,5 +130,19 @@ mod tests {
         assert!(!is_valid_day("2026-02-31"));
         assert!(is_valid_day("2028-02-29"));
         assert!(!is_valid_day("2026-04-31"));
+    }
+
+    #[test]
+    fn shifts_do_not_leave_the_four_digit_year_range() {
+        assert_eq!(shift_day("9999-12-31", 1), None);
+        assert_eq!(shift_day("0000-01-01", -1), None);
+        assert_eq!(shift_day("9999-12-30", 1).as_deref(), Some("9999-12-31"));
+        assert_eq!(shift_day("0000-01-02", -1).as_deref(), Some("0000-01-01"));
+    }
+
+    #[test]
+    fn huge_offsets_fail_without_overflowing() {
+        assert_eq!(shift_day("2026-01-01", i64::MAX - 100_000), None);
+        assert_eq!(shift_day("2026-01-01", i64::MIN + 100_000), None);
     }
 }

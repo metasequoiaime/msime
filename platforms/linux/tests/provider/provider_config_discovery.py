@@ -58,7 +58,11 @@ class ConfigDiscovery(unittest.TestCase):
     def stop(process):
         if process.poll() is None:
             process.terminate()
-        process.communicate(timeout=5)
+        if process.stderr.closed:
+            # 测试本身已经 communicate 过、stderr 已关闭。Python 3.7（legacy 包的基线）上再调 communicate 会抛 ValueError，3.8 起才容忍（bpo-35182）。
+            process.wait(timeout=5)
+        else:
+            process.communicate(timeout=5)
 
     def request(self, kind, query):
         with socket.socket(socket.AF_UNIX) as client:

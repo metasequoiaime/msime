@@ -46,19 +46,25 @@ import {
 } from '../keyboard/settings/AiModelCatalogPolicy';
 import { SettingsFormFactorCapabilities, SettingsFormFactorProjection }
   from '../keyboard/settings/SettingsFormFactorCapabilities';
+import { VocabularyAction, VocabularyReviewRequest } from '../keyboard/settings/VocabularyReviewRequest';
 import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settings/LocalVoiceModelPolicy';
+import { HTTP_ASR_CHAT_AUDIO, HttpAsrConfigurationPolicy } from '../keyboard/input/HttpAsrConfigurationPolicy';
 import { AiAuthenticationPolicy } from '../keyboard/settings/AiAuthenticationPolicy';
 import { AiEndpointPolicy } from '../keyboard/settings/AiEndpointPolicy';
 import { HarmonyTelemetry } from '../telemetry/Telemetry';
 import { TelemetryPolicy } from '../telemetry/TelemetryPolicy';
 import { NoticeItem, NoticePolicy } from '../notices/NoticePolicy';
 
-/** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id}` for a removal, `{id}` for a cancel. */
+/** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id, files}` for an import from local files, `{root, id}` for a removal, `{id}` for a cancel. */
 interface LocalVoiceModelRequest {
   root?: string;
   id?: string;
   mirror?: string;
+  files?: string[];
 }
+
+/** 「从文件导入」一次最多让用户选几个文件；目录里的模型最多要两个。 */
+const MAX_VOICE_MODEL_IMPORT_PICKS: number = 8;
 
 /** One key-feedback operation from the page: load, save or preview. */
 interface KeyboardFeedbackAction {
@@ -78,6 +84,21 @@ interface ExportSaveRequest {
   contents: string;
 }
 
+/** What the about page sends with `update_check`: the running version and, when the page knows them, the edition and architecture. */
+interface UpdateCheckPayload {
+  current_version: string;
+  edition?: string;
+  arch?: string;
+}
+
+/** `msime_client_update_check`'s request; the platform is always this host's. */
+interface UpdateCheckRequest {
+  platform: string;
+  current_version: string;
+  edition?: string;
+  arch?: string;
+}
+
 interface TextReply {
   ok: boolean;
   value: string;
@@ -91,6 +112,16 @@ interface RevisionValue {
 interface RevisionReply {
   ok: boolean;
   value?: RevisionValue;
+}
+
+/** What `repairPreferences` answers; only the repaired snapshot's revision is read here. */
+interface RepairValue {
+  snapshot: RevisionValue;
+}
+
+interface RepairReply {
+  ok: boolean;
+  value?: RepairValue;
 }
 
 interface OnboardingReply {
@@ -325,26 +356,6 @@ interface PluginImportCall {
   state_root: string;
   sound_packs: string;
   action: PluginImportAction;
-}
-
-/** 背单词 request, as `msime_client_vocabulary_review` reads it. */
-interface VocabularyRequest {
-  directory: string;
-  day: string;
-  action: VocabularyAction;
-  /** 插件目录：其中的单词本插件列进书目。只在声明了 `wordbook_packs` 的形态（2in1）上传，手机不传。 */
-  plugins?: string;
-}
-
-interface VocabularyAction {
-  operation: string;
-  word?: string;
-  known?: boolean;
-  wordbook?: string;
-  new_per_day?: number;
-  session_limit?: number;
-  name?: string;
-  text?: string;
 }
 
 interface TypingStatisticsDocument {
@@ -828,6 +839,9 @@ class SettingsBridge {
   private accountBridge: HarmonyAccountCloudBridge | undefined = undefined;
   private aiSkins: HarmonyAiSkins | undefined = undefined;
   private cloudDownloadRequest: number = 0;
+  // 「从文件导入」从打开选择器到安装结束的模型 id。复制进缓存的那段时间原生安装还没登记，原生取消找不到它，所以取消先记在 voiceImportsCancelled 里，由导入流程在复制每个文件前和开始安装前检查。
+  private voiceImportsPending: Set<string> = new Set<string>();
+  private voiceImportsCancelled: Set<string> = new Set<string>();
 
   useWebview(controller: web_webview.WebviewController): void {
     this.webview = controller;
@@ -1028,6 +1042,13 @@ class SettingsBridge {
       this.customSkinLibrary(payload).then(deliver).catch(failed);
     } else if (kind === 'vocabulary_review') {
       this.vocabularyReview(payload).then(deliver).catch(failed);
+    } else if (kind === 'repair_preferences') {
+      this.repairPreferences().then(deliver).catch(failed);
+    } else if (kind === 'dictionary_collections') {
+      this.dictionaryCollections(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`dictionary collections request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'collections_io' }));
+      });
     } else if (kind === 'typing_statistics') {
       this.typingStatisticsOnWorker(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary_snapshot') {
@@ -1048,6 +1069,11 @@ class SettingsBridge {
         KeyboardLog.error(`plugin import failed: ${describeError(error)}`);
         deliver(JSON.stringify({ ok: false, error: 'storage' }));
       });
+    } else if (kind === 'update_check') {
+      this.updateCheck(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`update check failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'update_check_unavailable' }));
+      });
     } else if (kind === 'save_export') {
       this.saveExport(payload).then(deliver).catch((error: Object): void => {
         KeyboardLog.error(`export save failed: ${describeError(error)}`);
@@ -1058,6 +1084,29 @@ class SettingsBridge {
       this.deliverReply(id, JSON.stringify({ ok: false, error: 'unknown_request' }));
     }
     return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
+  }
+
+  /**
+   * 「关于」页的检查更新，由原生工作线程上的 `msime_client_update_check` 回答，最多等 GitHub 十秒。平台在这里填，不取页面传来的值，页面只能问本宿主的发行版。
+   */
+  private async updateCheck(document: string): Promise<string> {
+    let payload: UpdateCheckPayload;
+    try {
+      payload = JSON.parse(document) as UpdateCheckPayload;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'update_check_invalid' });
+    }
+    if (typeof payload.current_version !== 'string') {
+      return JSON.stringify({ ok: false, error: 'update_check_invalid' });
+    }
+    const request: UpdateCheckRequest = { platform: 'harmony', current_version: payload.current_version };
+    if (typeof payload.edition === 'string') {
+      request.edition = payload.edition;
+    }
+    if (typeof payload.arch === 'string') {
+      request.arch = payload.arch;
+    }
+    return await client.updateCheck(JSON.stringify(request));
   }
 
   /**
@@ -1146,7 +1195,13 @@ class SettingsBridge {
     }
     if (action.operation === 'cancel') {
       const request: LocalVoiceModelRequest = { id: id };
-      return LocalVoiceModelPolicy.rewrite(client.voiceLocalModelCancel(JSON.stringify(request)));
+      const reply: string = LocalVoiceModelPolicy.rewrite(client.voiceLocalModelCancel(JSON.stringify(request)));
+      if (!this.voiceImportsPending.has(id)) {
+        return reply;
+      }
+      // 导入还在复制文件，原生安装没开始：记下取消，复制循环看到后不再安装。
+      this.voiceImportsCancelled.add(id);
+      return JSON.stringify({ ok: true, value: true } as FlagReply);
     }
     if (action.operation === 'remove') {
       const request: LocalVoiceModelRequest = { root: root, id: id };
@@ -1156,11 +1211,98 @@ class SettingsBridge {
     if (!fs.accessSync(root)) {
       fs.mkdirSync(root, true);
     }
+    if (action.operation === 'import') {
+      this.voiceImportsPending.add(id);
+      this.voiceImportsCancelled.delete(id);
+      try {
+        return await this.importVoiceModel(root, id);
+      } finally {
+        this.voiceImportsPending.delete(id);
+        this.voiceImportsCancelled.delete(id);
+      }
+    }
     const mirror: string = LocalVoiceModelPolicy.mirror(client.loadPreferences(this.stateDirectory));
     const request: LocalVoiceModelRequest = { root: root, id: id, mirror: mirror };
     const reply: string = await client.voiceLocalModelInstall(JSON.stringify(request),
       (progress: string): void => this.deliverVoiceModelProgress(progress));
     return LocalVoiceModelPolicy.installReply(reply);
+  }
+
+  /**
+   * 「从文件导入」：用系统选择器让用户多选自己下载好的模型文件，不联网安装。
+   *
+   * 选择器给的是原生库打不开的文档 URI，所以先把文件复制进私有缓存目录，用固定的序号作文件名，再把这些路径交给和下载同一个 `msime_client_voice_local_model_install`（带 `files`），由 client-core 按长度和 SHA-256 认文件、校验、解压并发布，和其他宿主完全相同。长度和目录里任何一个需要的文件都对不上的选择不复制。缓存副本不论成败都在安装结束后删掉。用户关掉选择器时回答 null，不算失败。
+   */
+  private async importVoiceModel(root: string, id: string): Promise<string> {
+    const context: common.UIAbilityContext | undefined = this.context;
+    if (context === undefined) {
+      return LocalVoiceModelPolicy.refusal('local_model_failed');
+    }
+    let picked: string[] = [];
+    try {
+      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      options.selectMode = picker.DocumentSelectMode.FILE;
+      options.maxSelectNumber = MAX_VOICE_MODEL_IMPORT_PICKS;
+      picked = await new picker.DocumentViewPicker(context).select(options);
+    } catch (error) {
+      KeyboardLog.error(`voice model picker refused: ${describeError(error)}`);
+      return LocalVoiceModelPolicy.refusal('local_model_failed');
+    }
+    if (picked.length === 0) {
+      return JSON.stringify({ ok: true, value: null, error: '' });
+    }
+    if (this.voiceImportsCancelled.has(id)) {
+      return LocalVoiceModelPolicy.refusal('local_model_cancelled');
+    }
+    const listRequest: LocalVoiceModelRequest = { root: root };
+    const sizes: number[] = LocalVoiceModelPolicy.importSizes(
+      client.voiceLocalModels(JSON.stringify(listRequest)), id);
+    const importRoot: string = `${context.cacheDir}/voice-model-import`;
+    const staging: string = `${importRoot}/${util.generateRandomUUID(false)}`;
+    try {
+      if (!this.safeDirectory(context.cacheDir)) {
+        return LocalVoiceModelPolicy.refusal('local_model_io');
+      }
+      if (!fs.accessSync(importRoot)) fs.mkdirSync(importRoot, true);
+      if (!this.safeDirectory(importRoot)) {
+        return LocalVoiceModelPolicy.refusal('local_model_io');
+      }
+      fs.mkdirSync(staging, true);
+      if (!this.safeDirectory(staging)) {
+        return LocalVoiceModelPolicy.refusal('local_model_io');
+      }
+      const files: string[] = [];
+      for (const uri of picked) {
+        if (this.voiceImportsCancelled.has(id)) {
+          return LocalVoiceModelPolicy.refusal('local_model_cancelled');
+        }
+        const file: fs.File = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+        try {
+          const opened: fs.Stat = fs.statSync(file.fd);
+          if (!opened.isFile() || !sizes.includes(opened.size)) {
+            continue;
+          }
+          const copy: string = `${staging}/${files.length}`;
+          await fs.copyFile(file.fd, copy);
+          files.push(copy);
+        } finally {
+          fs.closeSync(file);
+        }
+      }
+      if (this.voiceImportsCancelled.has(id)) {
+        return LocalVoiceModelPolicy.refusal('local_model_cancelled');
+      }
+      const request: LocalVoiceModelRequest = { root: root, id: id, files: files };
+      const reply: string = await client.voiceLocalModelInstall(JSON.stringify(request),
+        (progress: string): void => this.deliverVoiceModelProgress(progress));
+      return LocalVoiceModelPolicy.installReply(reply);
+    } finally {
+      try {
+        StagedResources.removeDirectory(staging);
+      } catch (error) {
+        KeyboardLog.error(`voice model import staging not removed: ${describeError(error)}`);
+      }
+    }
   }
 
   private deliverVoiceModelProgress(progress: string): void {
@@ -1573,6 +1715,23 @@ class SettingsBridge {
    * is on disk and refuses the save if the keyboard changed something in between, which is the whole
    * point of having one.
    */
+  /**
+   * 设置页的「修复配置文件…」：只在用户点了之后才做。读不了的文件（多半是更新的版本写的）先原样备份在旁边，再按本版本认得的设置重写，其余取默认。修复后的文档和读取一样记下版本号，页面拿到的就是新的那份。
+   */
+  private async repairPreferences(): Promise<string> {
+    const reply: string = await client.repairPreferences(this.stateDirectory);
+    try {
+      const parsed: RepairReply = JSON.parse(reply) as RepairReply;
+      if (parsed.ok === true && parsed.value !== undefined) {
+        this.observedRevision = PreferenceRevisionPolicy.observe(this.observedRevision,
+          parsed.value.snapshot.revision);
+      }
+    } catch (error) {
+      KeyboardLog.error(`preference repair reply unreadable: ${describeError(error)}`);
+    }
+    return PreferencesErrorCode.rewrite(reply);
+  }
+
   savePreferences(expectedRevision: number, document: string): string {
     const reply: string = client.savePreferences(this.stateDirectory, expectedRevision, document);
     this.rememberRevision(reply);
@@ -1659,6 +1818,15 @@ class SettingsBridge {
       return JSON.stringify({ ok: false, error: 'settings context unavailable' });
     }
     return KeyboardSession.shared.dictionary(action, `${this.context.filesDir}/engine`,
+      this.stateDirectory);
+  }
+
+  /** 词库页的命名词库：建、删、启停、加词、导入、装社区词库。导入可达 16 MiB，所以走 startRequest 在原生工作线程上做。 */
+  private dictionaryCollections(action: string): Promise<string> {
+    if (this.context === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'collections_io' }));
+    }
+    return KeyboardSession.shared.dictionaryCollections(action, `${this.context.filesDir}/engine`,
       this.stateDirectory);
   }
 
@@ -1763,18 +1931,19 @@ class SettingsBridge {
       if (!['load', 'answer', 'set_settings', 'import', 'remove', 'reset'].includes(action.operation)) {
         return JSON.stringify({ ok: false, error: 'invalid vocabulary review request' });
       }
+      if (this.context === undefined) {
+        return JSON.stringify({ ok: false, error: 'vocabulary review failed' });
+      }
       const now: Date = new Date();
       const month: string = `${now.getMonth() + 1}`.padStart(2, '0');
       const date: string = `${now.getDate()}`.padStart(2, '0');
-      const request: VocabularyRequest = {
-        directory: this.stateDirectory,
-        day: `${now.getFullYear()}-${month}-${date}`,
-        action: action,
-      };
-      // 与设置页拿到的 `wordbook_packs` 能力同一个来源：没有这项能力的形态不列单词本插件。
-      if (SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType).wordbookPacks) {
-        request.plugins = `${this.stateDirectory}/plugins`;
-      }
+      const request = VocabularyReviewRequest.build(
+        this.stateDirectory,
+        this.context.resourceDir,
+        `${now.getFullYear()}-${month}-${date}`,
+        action,
+        SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType).wordbookPacks,
+      );
       return await client.vocabularyReview(JSON.stringify(request));
     } catch (error) {
       KeyboardLog.error(`vocabulary review failed: ${describeError(error)}`);
@@ -2245,20 +2414,26 @@ class SettingsBridge {
     const endpoint: string | null = this.validCredentialEndpoint(config.endpoint ?? '', false);
     const token: string = (config.token ?? '').trim();
     const model: string = (config.model ?? '').trim();
-    if (!['openai', 'siliconflow', 'groq', 'everyapi', 'mistral'].includes(provider) || endpoint === null
+    const format: string = HttpAsrConfigurationPolicy.requestFormat(provider);
+    if (format.length === 0 || endpoint === null
       || !this.validCredentialSecret(token, 8192) || model.length === 0
       || utf8Length(model) > 256 || TextPolicy.hasControl(model)) {
       return this.credentialReply(false, '请填写有效的 HTTPS 转写接口地址、API Key 和模型名。');
     }
     const boundary: string = '----MSIMEHarmonyCredentialProbe';
-    const body: ArrayBuffer = this.silentMultipart(boundary, model);
+    // 按请求格式拼一秒静音：chat_audio 是 JSON，其余是 multipart。
+    const chat: boolean = format === HTTP_ASR_CHAT_AUDIO;
+    const body: ArrayBuffer | string = chat
+      ? HttpAsrConfigurationPolicy.chatAudioBody(model,
+        new util.Base64Helper().encodeToStringSync(this.silentWav()))
+      : this.silentMultipart(boundary, model);
     const request = http.createHttp();
     installNoRedirectGuard(request);
     try {
       const response: http.HttpResponse = await request.request(endpoint, {
         method: http.RequestMethod.POST,
         header: { Accept: 'application/json', Authorization: `Bearer ${token}`,
-          'Content-Type': `multipart/form-data; boundary=${boundary}` },
+          'Content-Type': chat ? 'application/json' : `multipart/form-data; boundary=${boundary}` },
         connectTimeout: 5000,
         readTimeout: 15000,
         extraData: body
@@ -2395,6 +2570,19 @@ class SettingsBridge {
 
   private silentMultipart(boundary: string, model: string): ArrayBuffer {
     const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
+    const wav: Uint8Array = this.silentWav();
+    const prefix: Uint8Array = encoder.encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="credential-test.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
+    const modelPart: Uint8Array = encoder.encode(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n--${boundary}--\r\n`);
+    const output: ArrayBuffer = new ArrayBuffer(prefix.length + wav.length + modelPart.length);
+    const bytes: Uint8Array = new Uint8Array(output);
+    bytes.set(prefix, 0);
+    bytes.set(wav, prefix.length);
+    bytes.set(modelPart, prefix.length + wav.length);
+    return output;
+  }
+
+  /** 一秒 16 kHz 单声道 16 位静音 WAV，凭据测试用。 */
+  private silentWav(): Uint8Array {
     const wav: Uint8Array = new Uint8Array(44 + 32000);
     this.writeAscii(wav, 0, 'RIFF');
     this.writeU32(wav, 4, 32036);
@@ -2408,14 +2596,7 @@ class SettingsBridge {
     this.writeU16(wav, 34, 16);
     this.writeAscii(wav, 36, 'data');
     this.writeU32(wav, 40, 32000);
-    const prefix: Uint8Array = encoder.encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="credential-test.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
-    const modelPart: Uint8Array = encoder.encode(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n--${boundary}--\r\n`);
-    const output: ArrayBuffer = new ArrayBuffer(prefix.length + wav.length + modelPart.length);
-    const bytes: Uint8Array = new Uint8Array(output);
-    bytes.set(prefix, 0);
-    bytes.set(wav, prefix.length);
-    bytes.set(modelPart, prefix.length + wav.length);
-    return output;
+    return wav;
   }
 
   private writeAscii(bytes: Uint8Array, offset: number, value: string): void {

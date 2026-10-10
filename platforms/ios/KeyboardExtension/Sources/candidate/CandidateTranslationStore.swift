@@ -8,7 +8,8 @@ struct BackendCandidateTranslationService: CandidateTranslationService {
   private static let client = BackendAccountClient()
   private static let session = BackendAccountSession(storage: BackendAnonymousAccount.sessionStorage())
   func translate(words: [String], target: String) async throws -> [String] {
-    try await Self.client.translate(texts: words, target: target, token: token())
+    _ = try await token()
+    return try await Self.client.translate(texts: words, target: target, session: Self.session)
   }
   private func token() async throws -> String {
     if let value = try? await Self.session.accessToken() { return value }
@@ -76,6 +77,13 @@ final class CandidateTranslationStore {
     for task in tasks.values { task.cancel() }
     tasks.removeAll()
     signature = nil
+  }
+
+  /// Release candidate glosses when the keyboard extension is under memory pressure. The visible
+  /// page will request them again after the warning has passed.
+  func clearCacheForMemoryPressure() {
+    cancel()
+    cache.removeAll(keepingCapacity: false)
   }
   private static func signature(_ values: [String]) -> String {
      values.reduce(into: "\(values.count):") { result, value in

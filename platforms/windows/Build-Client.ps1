@@ -111,11 +111,13 @@ try {
             $settingsIntermediate = Join-Path $output 'settings-obj'
             # -restore rather than /t:Restore,Build: restore writes obj\*.nuget.g.targets, where the CppWinRT and Windows App SDK build logic lives, and only a separate evaluation after it imports them. In one evaluation the build skips header generation, which only a previously restored obj directory hides.
             # Built under the name the Server launcher, PE checks and packaging expect. Renaming the output afterwards would leave its resource index behind as MSIME.Settings.pri, which MRT Core looks up by the executable's name.
-            Invoke-ClientBuild msbuild @($settingsProject, '-restore', '/t:Build',
+            # The about page shows this version and checks for updates against it; without TargetVersion the project reads version.txt, as CMake does for the Server.
+            $settingsVersion = if ($TargetVersion -ne '') { @("/p:MsimeVersion=$TargetVersion") } else { @() }
+            Invoke-ClientBuild msbuild (@($settingsProject, '-restore', '/t:Build',
                 '/p:Configuration=RelWithDebInfo', '/p:Platform=x64',
                 '/p:TargetName=msime-client-settings',
                 "/p:HostApiLibrary=$hostLibrary", "/p:MsimeEdition=$Edition",
-                "/p:OutDir=$bin\", "/p:IntDir=$settingsIntermediate\")
+                "/p:OutDir=$bin\", "/p:IntDir=$settingsIntermediate\") + $settingsVersion)
             $settingsPdb = Join-Path $bin 'msime-client-settings.pdb'
             if (-not (Test-Path -LiteralPath $settingsPdb -PathType Leaf)) {
                 throw "Expected one WinUI settings PDB output: $settingsPdb"

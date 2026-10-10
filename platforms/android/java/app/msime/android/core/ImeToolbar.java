@@ -14,8 +14,10 @@ import android.widget.TextView;
  * 键盘顶部一行（设计 50 dp）：空闲时是工具栏（品牌、表情、常用语、剪贴板、皮肤、输入方式、收起），组词时是候选条（读音 + 候选 chip + 分隔线 + 展开键），调整键盘高度时是内联高度条。状态仍在服务里。
  */
 final class ImeToolbar {
-    /** 组词时读音那一行的设计高度：12 sp 的读音加一点留白；与候选行合计 56 dp，空闲时的工具栏取同一高度，打字时键盘不变高。系统字体放大或厂商字体更高时按读音实际高度加高，见 ReadingRowPolicy。 */
+    /** 组词时读音那一行的最小高度（设计稿按 12 sp 的读音排的 14 dp）。读音字号跟设置「预编辑字号」（`candidate_preedit_font_size`）按比例缩放（ReadingRowPolicy.textSizeSp，默认仍是 12 sp），字号变大、系统字体放大或厂商字体更高时按读音实际高度加上 {@link #READING_GAP_DP} 加高，见 ReadingRowPolicy；空闲时的工具栏取读音行加候选行的同一高度，打字时键盘不变高。 */
     static final int READING_ROW_DP = 14;
+    /** 读音和下面候选行之间固定留的间距（#6107），是读音行的下内边距，计入读音行高度，所以键盘总高随之多出这几 dp。 */
+    static final int READING_GAP_DP = 3;
     /** 候选 chip 那一行的高度：候选字加一行 0.62 倍的释义和选中 chip 的上下留白。设计是 34 dp，实测 34、36 dp 时选中的 chip 和释义都会伸出候选行压到下面的键，所以取 42 dp。 */
     static final int CANDIDATE_LINE_DP = 42;
     /** 多出一行释义时每行加的高度。 */
@@ -43,14 +45,16 @@ final class ImeToolbar {
         this.s = s;
     }
 
-    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、浮动键盘、收起，等分整行宽度；哪些显示由 render 按 `touch_toolbar` 与本地设置决定。数字键面上有算式结果时，品牌键右边多一个结果胶囊（{@link ImeCalculator}）。 */
+    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、浮动键盘、文本编辑、收起，等分整行宽度；哪些显示由 render 按 `touch_toolbar` 与本地设置决定。数字键面上有算式结果时，品牌键右边多一个结果胶囊（{@link ImeCalculator}）。 */
     void installShortcutBar(Button dismissButton) {
         s.shortcutBar.removeAllViews();
         s.dismissShortcutButton = dismissButton;
         Button[] buttons = {s.moreButton, s.emojiShortcutButton, s.phraseShortcutButton,
-            s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton, dismissButton};
+            s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
+            s.textEditShortcutButton, dismissButton};
         shortcutButtons = new Button[] {s.emojiShortcutButton, s.phraseShortcutButton,
-            s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton};
+            s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
+            s.textEditShortcutButton};
         for (Button button : buttons) {
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
@@ -78,7 +82,7 @@ final class ImeToolbar {
     void buildCandidateHeader(LinearLayout candidateRegion) {
         LinearLayout candidateHeader = KeyboardGeometry.row(s);
         ViewPolicy.setCenteredVertically(candidateHeader);
-        KeyboardGeometry.setPaddingDp(candidateHeader, s, 10, 0, 6, 0);
+        KeyboardGeometry.setPaddingDp(candidateHeader, s, 10, 0, 6, READING_GAP_DP);
         s.candidateHeader = candidateHeader;
         s.preedit = toolbarText(12);
         ViewPolicy.setMaxLinesEllipsized(s.preedit, 1);
@@ -144,6 +148,11 @@ final class ImeToolbar {
         s.floatingShortcutButton = s.shortcutButton(s.shortcutBar, "浮动键盘",
             KeyboardShortcutIconPolicy.Icon.FLOATING, s::toggleFloatingKeyboard);
         s.floatingShortcutButton.setContentDescription("浮动键盘");
+        // 文本编辑按钮同样默认不在工具栏上（#6351），点按开关文本编辑面板，与功能面板里的「文本编辑」是同一个面板。
+        s.textEditShortcutButton = s.shortcutButton(s.shortcutBar, "文本编辑",
+            KeyboardShortcutIconPolicy.Icon.TEXT_EDIT,
+            panelToggle(() -> s.textEditPanel, s.imeTextEditPanel::show));
+        s.textEditShortcutButton.setContentDescription("文本编辑");
         s.voiceShortcutButton = s.shortcutButton(s.shortcutBar, "语音",
             KeyboardShortcutIconPolicy.Icon.VOICE, s::showVoiceResult);
         s.voiceShortcutButton.setContentDescription("打开语音结果");
@@ -347,10 +356,10 @@ final class ImeToolbar {
         s.imeBottomBar.style(iconColor, activeIconColor, activeBackgroundColor);
         if (s.preedit != null) {
             ViewPolicy.setTextColor(s.preedit, hintColor);
-            KeyboardGeometry.setKeyTextSize(s.preedit, 12);
+            // 读音的字号只归 ImeStyler.applySkin 管（设置「预编辑字号」按比例缩放，见 ReadingRowPolicy.textSizeSp）。这里原来又写死成 12sp，排在 applySkin 之后，设置怎么改读音都是 12sp（#6107）。
             ViewPolicy.clearBackground(s.preedit);
             ViewPolicy.clearPadding(s.preedit);
-            // 读音的最终字号和内边距在这里才定下来（系统字体放大时 12sp 最多放大到 1.15 倍，厂商字体的度量也各不相同），读音行的高度要按这一份重新量，见 ReadingRowPolicy。
+            // 读音的最终字号和内边距在这里才定下来（字号按系统字体缩放，最多放大到 1.15 倍，厂商字体的度量也各不相同），读音行的高度要按这一份重新量，见 ReadingRowPolicy。
             s.updateCandidateViewportHeight();
         }
     }

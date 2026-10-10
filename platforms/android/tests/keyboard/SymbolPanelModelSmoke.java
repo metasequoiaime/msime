@@ -17,6 +17,7 @@ public final class SymbolPanelModelSmoke {
             check(category.symbols().size() == new java.util.HashSet<>(category.symbols()).size(),
                 category.title() + " has no duplicates");
         catalogCategories(empty);
+        networkSuffixes(empty.get(4));
 
         check(SymbolPanelModel.initialCategory(List.of()) == 1, "no history opens on 中文");
         check(SymbolPanelModel.initialCategory(List.of("＞")) == 0, "history opens on 常用");
@@ -52,6 +53,33 @@ public final class SymbolPanelModelSmoke {
 
         check(SymbolPanelModel.closesAfterInsert(false) && !SymbolPanelModel.closesAfterInsert(true), "lock");
         System.out.println("SymbolPanelModelSmoke: PASS");
+    }
+
+    /** #6147：「网络」接上全部邮箱后缀，国内常用的在前；长条目缩小字号并单行省略。 */
+    private static void networkSuffixes(SymbolPanelModel.Category network) {
+        check(network.title().equals("网络"), "network is the fifth category");
+        List<String> symbols = network.symbols();
+        check(symbols.size() == 48, "network has 28 shortcuts and 20 suffixes: " + symbols.size());
+        for (String suffix : List.of("@163.com", "@126.com", "@139.com", "@189.cn", "@aliyun.com", "@foxmail.com",
+                "@outlook.com", "@hotmail.com", "@live.com", "@icloud.com", "@yahoo.com", "@proton.me",
+                "@protonmail.com", "@aol.com", "@mail.com", "@gmx.com", "@naver.com", "@yahoo.co.jp",
+                "@qq.com", "@gmail.com"))
+            check(symbols.contains(suffix), "network offers " + suffix);
+        check(symbols.indexOf("@foxmail.com") < symbols.indexOf("@gmail.com")
+            && symbols.indexOf("@aliyun.com") < symbols.indexOf("@outlook.com"), "domestic suffixes come first");
+        check(symbols.subList(28, 48).equals(app.msime.android.EmailSuffixPolicy.SUFFIXES),
+            "the panel and the candidate bar share one suffix list");
+        for (String symbol : symbols)
+            check(symbol.codePointCount(0, symbol.length()) <= SymbolPanelModel.MAX_SYMBOL_CODE_POINTS,
+                symbol + " fits in 常用");
+        check(SymbolPanelModel.cellTextSizeSp(network, "@") == 18 && !SymbolPanelModel.singleLineCell(network, "@"),
+            "a single symbol keeps the normal size");
+        check(SymbolPanelModel.cellTextSizeSp(network, ".com") == 18 && !SymbolPanelModel.singleLineCell(network, ".com"),
+            "four characters still fit");
+        check(SymbolPanelModel.cellTextSizeSp(network, "@163.com") == 13 && SymbolPanelModel.singleLineCell(network, "@163.com"),
+            "a short suffix shrinks and stays on one line");
+        check(SymbolPanelModel.cellTextSizeSp(network, "@protonmail.com") == 11
+            && SymbolPanelModel.singleLineCell(network, "@protonmail.com"), "a long suffix shrinks further");
     }
 
     /** #5667：颜文字和 Engine 符号目录接在写死的分类后面。 */

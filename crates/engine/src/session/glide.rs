@@ -15,6 +15,8 @@ impl InputSession {
         {
             return KeyResult::unhandled();
         }
+        // 一笔滑行写进组字，与键入字母一样先退出整句改字。
+        self.leave_conversion();
         let hypotheses = decode_glide(keyboard, points, GLIDE_HYPOTHESES);
         let engine = &self.engine;
         let ranked = rank_by_dictionary(hypotheses, |keys| engine.quanpin_best_weights(keys));

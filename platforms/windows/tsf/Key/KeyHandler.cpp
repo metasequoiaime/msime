@@ -252,6 +252,48 @@ HRESULT CMetasequoiaIME::_HandleHostRawCommit(TfEditCookie ec, _In_ ITfContext *
     return FAILED(writeResult) ? writeResult : E_FAIL;
 }
 
+HRESULT CMetasequoiaIME::_HandleConversionKey(TfEditCookie ec, _In_ ITfContext *pContext, bool enter,
+                                              uint64_t requestId, bool *handled)
+{
+    *handled = false;
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (!host || !host->valid() || !_IsComposing() || !msime::tsf::HostConversionActive(*host))
+        return S_OK;
+    *handled = true;
+    // 回车在 Server 那边走 ConversionCommit，不发回复帧。
+    if (enter)
+        return _HandleHostRawCommit(ec, pContext);
+    // 空格在 Server 那边是一次选择，有回复（选中或上屏），内容由 TIP 自己的宿主会话给出，这里只把它读掉，免得留在待取的回复里。
+    if (requestId != FANY_IME_NO_REQUEST_ID)
+        (void)TryReadDataFromServerPipeWithTimeout(requestId, /*abortTransportOnTimeout=*/false);
+    std::string raw, error;
+    msime::tsf::EngineResult result;
+    if (!host->command(MSIME_COMMIT_CANDIDATE, &raw, &error) ||
+        !msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error))
+        return E_FAIL;
+    if (result.has_commit && !result.commit.empty())
+    {
+        if (result.commit.size() > static_cast<size_t>((std::numeric_limits<int>::max)())) return E_FAIL;
+        const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, result.commit.data(),
+                                               static_cast<int>(result.commit.size()), nullptr, 0);
+        if (length <= 0) return E_FAIL;
+        std::wstring commit(static_cast<size_t>(length), L'\0');
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, result.commit.data(),
+                                static_cast<int>(result.commit.size()), commit.data(), length) != length)
+            return E_FAIL;
+        commit = GlobalIme::word_for_creating_word + commit;
+        GlobalIme::word_for_creating_word.clear();
+        GlobalIme::pending_create_word_preedit.clear();
+        CStringRange range;
+        range.Set(commit.c_str(), commit.size());
+        const HRESULT hr = _AddCharAndFinalize(ec, pContext, &range);
+        _DeleteCandidateList(FALSE, pContext);
+        return hr;
+    }
+    // 选中的段钉住后组字还在，按引擎视图重画整句和光标处的候选。
+    return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, FANY_IME_NO_REQUEST_ID);
+}
+
 HRESULT CMetasequoiaIME::_HandleSyllableCommit(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch,
                                                bool replayKey)
 {
@@ -544,10 +586,9 @@ bool CMetasequoiaIME::_CancelHostComposition()
     if (!host || !host->valid()) return true;
     std::string raw, error;
     if (!host->command(MSIME_CANCEL, &raw, &error)) return false;
-    // 韩文汉字列表或注音列表打开时，MSIME_CANCEL 只关闭列表、组字保留（msime_client.h）；越南文词和藏文音节串上的第一次 MSIME_CANCEL 只把原文重新显示出来，所以再发一次来丢弃它。
+    // 韩文汉字列表或注音列表打开时，MSIME_CANCEL 只关闭列表、组字保留（msime_client.h）；越南文词和藏文音节串上的第一次 MSIME_CANCEL 只把原文重新显示出来；全拼、双拼整句改字时的第一次只退出改字回到拼音。组字还在就再发一次来丢弃它，与 Server 的 cancel_again 相同。
     msime::tsf::EngineResult result;
     if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) &&
-        msime::windows::scheme::AlwaysInlinePreedit(static_cast<int>(result.view.scheme)) &&
         !result.has_commit && !result.view.editing_text.empty())
         return host->command(MSIME_CANCEL, &raw, &error);
     return true;
@@ -963,6 +1004,9 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
     CMetasequoiaImeArray<CStringRange> readingStrings;
     // CStringRange borrows its buffer; retain the host text through rendering.
     std::wstring hostPreedit;
+    // 整句改字时改好的整句和光标（UTF-16 下标），不改字时为空。
+    std::wstring hostConversion;
+    size_t hostConversionCaret = 0;
     BOOL isWildcardIncluded = FALSE;
 
     //
@@ -995,6 +1039,22 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
             {
                 auto *reading = readingStrings.Append();
                 if (reading) reading->Set(hostPreedit.c_str(), hostPreedit.size());
+            }
+            const std::string &conversion = result.view.conversion;
+            const auto toWide = [](const char *data, size_t size) {
+                const int length = size == 0 ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data,
+                                                                        static_cast<int>(size), nullptr, 0);
+                std::wstring wide(static_cast<size_t>(length > 0 ? length : 0), L'\0');
+                if (length > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, static_cast<int>(size),
+                                                    wide.data(), length);
+                return wide;
+            };
+            if (!conversion.empty() && conversion.size() <= static_cast<size_t>((std::numeric_limits<int>::max)()))
+            {
+                hostConversion = toWide(conversion.data(), conversion.size());
+                const size_t focusBytes =
+                    msime::tsf::Utf8ScalarOffset(conversion, result.view.conversion_focus_start);
+                hostConversionCaret = (std::min)(toWide(conversion.data(), focusBytes).size(), hostConversion.size());
             }
         }
     }
@@ -1123,11 +1183,20 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
             curReadingStr.Set(readingStr.c_str(), readingStr.length());
         }
 
+        // 整句改字：行内画已选前缀加改好的整句，不管预编辑样式选的是什么，光标在焦点字前。
+        if (!hostConversion.empty())
+        {
+            readingStr = GlobalIme::word_for_creating_word + hostConversion;
+            curReadingStr.Set(readingStr.c_str(), readingStr.length());
+        }
         const size_t preeditPrefixLength =
-            preeditStyle == GlobalSettings::TsfPreeditStyle::Empty ? 0 : GlobalIme::word_for_creating_word.size();
+            preeditStyle == GlobalSettings::TsfPreeditStyle::Empty && hostConversion.empty()
+                ? 0
+                : GlobalIme::word_for_creating_word.size();
         // A Korean syllable, a Zhuyin conversion and a Vietnamese word have no caret inside them: the Engine ignores caret moves there, so the caret always follows the last key (scheme::LocksCaret).
         const DWORD_PTR displayCaret =
-            msime::windows::scheme::LocksCaret(Global::InputModeScheme.load(std::memory_order_relaxed))
+            !hostConversion.empty() ? preeditPrefixLength + hostConversionCaret
+            : msime::windows::scheme::LocksCaret(Global::InputModeScheme.load(std::memory_order_relaxed))
                 ? curReadingStr.GetLength()
                 : MapRawCaretToPreedit(pCompositionProcessorEngine->GetKeystrokeBuffer(),
                                        pCompositionProcessorEngine->GetCaretPosition(), curReadingStr.ToWString(),
@@ -1568,6 +1637,16 @@ HRESULT CMetasequoiaIME::_HandleCompositionSegmentEdit(TfEditCookie ec, _In_ ITf
     auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter();
     if (!host || !host->valid())
         return fallback();
+    // 全拼和双拼的左右键是整句改字，Ctrl+左右就逐个字母地编辑拼音（Server 的 sentence_edit_command 同样换算）。
+    if (!isBackspace)
+    {
+        msime::tsf::EngineResult current;
+        if (msime::tsf::HostView(*host, &current) && msime::tsf::HostEditsSentence(current.view))
+            return _HandleCompositionArrowKey(ec, pContext,
+                                              keyFunction == FUNCTION_MOVE_LEFT_SEGMENT ? FUNCTION_MOVE_LEFT
+                                                                                         : FUNCTION_MOVE_RIGHT,
+                                              requestId, true);
+    }
 
     std::string raw, error;
     msime::tsf::EngineResult result;
@@ -1720,7 +1799,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionDelete(TfEditCookie ec, _In_ ITfConte
 //----------------------------------------------------------------------------
 
 HRESULT CMetasequoiaIME::_HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfContext *pContext,
-                                                    KEYSTROKE_FUNCTION keyFunction, uint64_t requestId)
+                                                    KEYSTROKE_FUNCTION keyFunction, uint64_t requestId,
+                                                    bool letterCaret)
 {
     if (keyFunction == FUNCTION_MOVE_LEFT || keyFunction == FUNCTION_MOVE_RIGHT)
     {
@@ -1729,11 +1809,20 @@ HRESULT CMetasequoiaIME::_HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfCon
         if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
         {
             std::string raw, error;
-            const uint32_t command = keyFunction == FUNCTION_MOVE_LEFT ? MSIME_MOVE_LEFT : MSIME_MOVE_RIGHT;
+            // 全拼和双拼的左右键交给整句改字（引擎进不了改字时按字母移光标）。改字前后预编辑在拼音和汉字之间换、候选也换成光标处那一段的，所以只要改字在进行或刚结束，就按引擎视图整个重画，而不是只移选区。
+            msime::tsf::EngineResult before;
+            const bool viewed = msime::tsf::HostView(*host, &before);
+            const bool sentence = !letterCaret && viewed && msime::tsf::HostEditsSentence(before.view);
+            const uint32_t command = keyFunction == FUNCTION_MOVE_LEFT
+                                         ? (sentence ? MSIME_CONVERSION_LEFT : MSIME_MOVE_LEFT)
+                                         : (sentence ? MSIME_CONVERSION_RIGHT : MSIME_MOVE_RIGHT);
             msime::tsf::EngineResult result;
             if (!host->command(command, &raw, &error) ||
                 !msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error)) return E_FAIL;
             if (!result.handled) return S_OK;
+            if ((viewed && !before.view.conversion.empty()) || !result.view.conversion.empty())
+                return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext,
+                                                     FANY_IME_NO_REQUEST_ID);
             // The runtime caret is a byte offset in ASCII editing_text, not a
             // preedit prefix length. Map it against the text already rendered.
             for (unsigned char byte : result.view.editing_text)

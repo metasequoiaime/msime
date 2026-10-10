@@ -12,6 +12,7 @@ export interface PunctuationPreferences {
   smart_punctuation_direct_letter?: boolean;
   paired_punctuation?: boolean;
   punctuation_lock?: "follow" | "chinese" | "english";
+  caps_lock_ascii_punctuation?: boolean;
 }
 
 type PunctuationSwitch =
@@ -20,7 +21,8 @@ type PunctuationSwitch =
   | "smart_punctuation_space_convert"
   | "smart_punctuation_direct_digit"
   | "smart_punctuation_direct_letter"
-  | "paired_punctuation";
+  | "paired_punctuation"
+  | "caps_lock_ascii_punctuation";
 
 type PunctuationSwitchCopy = readonly [PunctuationSwitch, string, string];
 
@@ -52,6 +54,13 @@ const pairedPunctuation: PunctuationSwitchCopy = [
   "输入左侧符号时自动补全右侧符号，并将光标置于中间",
 ];
 
+/** 只在报告大写锁定状态的宿主上显示（`HostCapabilities.caps_lock_punctuation`）。 */
+const capsLockPunctuation: PunctuationSwitchCopy = [
+  "caps_lock_ascii_punctuation",
+  "大写锁定时使用英文标点",
+  "大写锁定打开时，中文输入下的标点使用英文标点；正在组字或固定中文标点时不变",
+];
+
 const switches: readonly PunctuationSwitchCopy[] = [
   smartPunctuation,
   ...smartPunctuationRefinements,
@@ -62,6 +71,8 @@ export interface PunctuationSectionProps {
   preferences: PunctuationPreferences;
   /** Draws the 全角输入 row after 中文标点. The settings form keeps that row with the other output settings on the 输入 page, so its 标点 group leaves this off and renders `CharacterWidthRow` there instead. */
   showCharacterWidth: boolean;
+  /** 显示「大写锁定时使用英文标点」一行；只有向会话报告大写锁定的宿主（`HostCapabilities.caps_lock_punctuation`）才用得上。 */
+  showCapsLockPunctuation?: boolean;
   onChange: (patch: Partial<PunctuationPreferences>) => void;
 }
 
@@ -84,6 +95,7 @@ export function CharacterWidthRow({
 export function PunctuationSection({
   preferences,
   showCharacterWidth,
+  showCapsLockPunctuation = false,
   onChange,
 }: PunctuationSectionProps) {
   return (
@@ -105,6 +117,15 @@ export function PunctuationSection({
           onChange={onChange}
         />
       ))}
+      {showCapsLockPunctuation && (
+        <PunctuationSwitchRow
+          preference={capsLockPunctuation[0]}
+          title={capsLockPunctuation[1]}
+          description={capsLockPunctuation[2]}
+          preferences={preferences}
+          onChange={onChange}
+        />
+      )}
       <PunctuationLockRow preferences={preferences} onChange={onChange} />
     </>
   );

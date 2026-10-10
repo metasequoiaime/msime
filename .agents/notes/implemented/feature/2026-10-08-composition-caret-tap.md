@@ -14,21 +14,24 @@ Status: implemented
 - 与九宫格左列的首字母、锁定撤销和换选（#5829）合在一起：退格只在光标在末尾时「撤销最后一步」（先撤刚选的首字母，数字全部锁定时撤最后一次锁定），光标在中间时退格就是删光标前的切分或数字，不撤首字母也不撤锁定；光标处的编辑解除的锁定连同撤销记录一起丢掉，数字保持锁定时的样子，不换回键入的数字；插在选了首字母的那一位前面、删掉那一位、或者解除了锁定时首字母一起丢掉，删它后面的数字时首字母留着；换选先撤销最后一次锁定，光标在键入的数字上时位置不变，落在拼写补齐的数字里时回到末尾；左列的数字直接上屏第一位，与选中候选一样光标回到末尾；取消把锁定、撤销记录、切分、首字母、光标和正在拼的词一起清掉，用光标删光数字时也一样。
 - Android 读音行：组字可以移光标时（`CompositionCaretPolicy.editable`：全拼含九键、双拼、五笔、粤拼，没有本地模式和专用英文，`editing_text` 是 ASCII）读音可点。点中位置由 `TextView.getOffsetForPosition` 给出，`CompositionCaretPolicy.tapTarget` 把它换成 `editing_text` 里的光标位置：读音行和按键按顺序对齐，显示用的 `'` 和空格跳过，九键的拼音字母按键位对上数字（`xi'an` 对 `9426`），画在前面的已选词点上去算开头；再由 `moves` 换成引擎命令（移到两头各一条 6、7，其余连发 4 或 5），只把最后一次结果交给 `apply`。
 - 光标不在末尾时把 `|` 画进读音行（「候选栏预编辑」选了不显示也画，与 iOS 相同）；同一个光标位置隔着分隔对应两处时画在分隔后面（`94'|26`），因为引擎的退格先删光标前的切分。读音对不上按键时退回画原始按键再画光标，点击照常换算。
+- 画法（#6110）：`|` 用 `CompositionCaretSpan`（`ReplacementSpan`）画成一条 2 dp 宽、从读音字体 ascent 到 descent 的皮肤强调色竖条，左右各留 2 dp。原来它和拼音同色同字号，夹在字母中间分辨不出来。字符本身仍留在文本里，`getOffsetForPosition` 的下标和 `tapTarget` 的换算都不变；竖条在整段标题里的下标由 `CompositionCaretPolicy.markInTitle` 按 `PhrasePreeditPolicy.title` 的规则（已选的词在前，本地模式不加）算出。颜色在 `render` 里按当前皮肤给，`ImeStyler.applySkin` 每次再刷成主题处理后的 `skin.accent()`。
 
 ## Alternatives considered
 
 - **在宿主里记一个自己的光标，退格时由宿主重新拼出整串再交给引擎**：不用改引擎，九宫格也能做。但光标处的插入、删除、切分和锁定拼写的关系是组字状态机的事，ARCHITECTURE.md 要求它们只在引擎里；iOS 和鸿蒙的九宫格也要同样的能力，宿主各写一份必然漂移。
 - **给 host-api 加一条「把光标移到第 n 个字符」的命令**：一次 JNI 调用就到位，不用连发。但现有的 4、5、6、7 已经是各宿主共用的契约，连发二三十次在 UI 线程上也只是微秒级的 JNI 往返；为一个宿主的点击加一条 ABI，还要同步改 C 头文件、iOS、鸿蒙的桥，代价比收益大。
 - **只做全拼 26 键，九宫格不支持**：引擎改动为零。但提 issue 的用户主要用九宫格（同一个人的另外两个 issue 都是九宫格截图），九宫格里打长句改中间的数字恰恰更难；而且 iOS 的空格拖动和编辑拼写菜单对九宫格也会生效，只是之前引擎不接。
+- **光标用 `ForegroundColorSpan` 加 `StyleSpan(BOLD)` 只给 `|` 换色加粗** — 不用自定义 span；但 `|` 本身是一根细线，加粗后仍只有一两个像素宽，高度也只是字形的竖线，在 15sp 的读音里依旧不显眼。
+- **按住读音行时临时放大读音（#6110 的「自动放大」）** — 点不准时最直接的帮助；但放大条盖在候选行上、要处理拖动和长按的冲突，是一项单独的交互设计，这次只把光标画清楚。
 - **点读音行时弹出 iOS 那样的「光标移到开头 / 末尾 / 删除光标后的字母」菜单**：与 iOS 一致。但 issue 要的是点到哪里光标就到哪里，菜单多一步，而且到不了中间的位置。
 
 ## Consequences
 
 - **收益**：Android 上点读音行就能把光标放到中间的字母或数字前，退格、打字作用在那里；硬件方向键移过的光标也看得见。九宫格引擎的光标对所有宿主生效：iOS 的空格拖动和「编辑拼写」菜单在九宫格里从无效变成有效。
-- **代价**：读音行 12sp，字母之间只有几个像素，点准一个字母要靠落点换算；点歪一格时用户再点一次或用退格修正。读音很长被截掉的那一截点不到。九宫格的光标移动不重查候选，候选一直是整串数字的；锁定的拼写一旦被光标处的编辑碰到就整段解除，需要重新在拼音列里选。没有在真机或模拟器上点过，只有引擎单测和 JVM 冒烟覆盖。
+- **代价**：读音行默认 15sp（「预编辑字号」，#6107 之前一直是 12sp），字母之间只有几个像素，点准一个字母要靠落点换算；光标竖条比原来的 `|` 宽几个像素，读音很长时会早一点被截断；点歪一格时用户再点一次或用退格修正。读音很长被截掉的那一截点不到。九宫格的光标移动不重查候选，候选一直是整串数字的；锁定的拼写一旦被光标处的编辑碰到就整段解除，需要重新在拼音列里选。没有在真机或模拟器上点过，只有引擎单测和 JVM 冒烟覆盖。
 
 ## Verification
 
 - `cargo test -p msime-engine --lib nine_key`：`the_caret_edits_digits_in_the_middle`（中间改数字、两头停住、切分和退格、锁定拼写里改数字、选中候选后光标回到末尾、切在锁定边界上不解除锁定），`the_caret_meets_key_letters_and_taking_back_locks`（光标在中间时退格不撤首字母和锁定、首字母那一位前插入或删掉它、光标处编辑丢掉撤销记录、换选时光标的去处、左列数字上屏后光标回到末尾、取消一起复位），`commands_edit_commit_and_cancel_the_digits` 改为断言 `MoveLeft` 已处理。
 - `cargo test -p msime-engine -p msime-input-runtime -p msime-host-api`，`cargo clippy -p msime-engine --all-targets -- -D warnings`。
-- `ANDROID_SDK_ROOT=… bash platforms/android/check-host.sh`：`tests/core/CompositionCaretPolicySmoke.java`（可点的方案、全拼与九键的点击换算、光标符位置、对不上时不动、引擎命令序列）。
+- `ANDROID_SDK_ROOT=… bash platforms/android/check-host.sh`：`tests/core/CompositionCaretPolicySmoke.java`（可点的方案、全拼与九键的点击换算、光标符位置、竖条在带已选词的标题里正落在光标符上、点在竖条两侧光标不动、对不上时不动、引擎命令序列）。`CompositionCaretSpan` 继承 `ReplacementSpan`，check-host 的 android.jar 只有桩，画法没有 JVM 覆盖。

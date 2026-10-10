@@ -156,6 +156,19 @@ int main() {
             top_commit.next_prefix.empty() &&
             top_commit.worker->at(4) == '4' && top_commit.worker->at(6) == '\t');
     confirm(auto_commit);
+    // The count covers the code the Engine held plus the key only when nothing is left composing, so a letter typed ahead into the TIP buffer is never dropped: the fourth letter of a unique code, a lowercase letter after a complete code, and a capital the Engine lets go.
+    require(wubi_continue_consumed(3, false) == 4 && wubi_continue_consumed(4, true) == 4 &&
+            wubi_continue_consumed(4, false) == 5);
+    // A capital the Engine does not take after a complete code goes out with the first candidate and leaves nothing composing, so the TIP drops its whole buffer, the capital included.
+    auto capital = result(4, "", "", "合成甲A");
+    capital.transition["commit_context"] = {{"scheme", 2}, {"local_mode", "none"}};
+    const auto &capital_commit = auto_commit.stage(
+        capital, ReplyPath::AutoCommitAndContinue, false, std::nullopt,
+        wubi_continue_consumed(4, false));
+    require(capital_commit.worker && capital_commit.committed_text == "合成甲A" &&
+            capital_commit.worker->at(4) == '5' &&
+            capital_commit.worker->at(6) == '\t');
+    confirm(auto_commit);
     // The commit must still be a Wubi one.
     topped.transition["commit_context"] = {{"scheme", 0}, {"local_mode", "none"}};
     const auto &invalid_continue =
@@ -183,6 +196,18 @@ int main() {
       require(reply.committed_text == (fallback ? "你A" : "你好"));
       confirm(prefixed);
       require(prefixed.selected_prefix().empty());
+    }
+    {
+      // 整句改字的回车：TIP 已经从自己的宿主会话写出改好的整句，这里不发回复帧，只清前缀并按写进文档的那句计数；还剩组字就是坏的回复。
+      ReplyComposer conversion(42, 7);
+      const auto &reply = conversion.stage(result(1, "", "", "我去北京"), ReplyPath::ConversionCommit);
+      require(!reply.encoded && reply.next_prefix.empty());
+      require(reply.committed_text == "我去北京");
+      confirm(conversion);
+      const auto &invalid_reply =
+          conversion.stage(result(2, "jing", "jing", "北"), ReplyPath::ConversionCommit);
+      require(invalid_reply.encoded && !*invalid_reply.encoded);
+      conversion.cancel();
     }
     ReplyComposer composer(42, 7);
     auto first = result(1, "haoma", "hao ma", "你");

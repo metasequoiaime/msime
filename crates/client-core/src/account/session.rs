@@ -93,7 +93,11 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     /// A store other processes share is read every time: another process may have refreshed, signed out or switched accounts, and the copy held here would then be stale. A refresh from a stale copy presents a refresh token the backend has already rotated, and the backend answers that by revoking the session for every process.
     fn load_locked(&self, state: &mut SessionState) -> Result<(), AccountError> {
         if !state.loaded || self.storage.shared_across_processes() {
-            state.saved = self.stored()?;
+            let stored = self.stored()?;
+            if state.loaded && !same_login_option(state.saved.as_ref(), stored.as_ref()) {
+                Self::next_generation(state)?;
+            }
+            state.saved = stored;
             state.loaded = true;
         }
         Ok(())
@@ -292,7 +296,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         };
         let tokens = self.api.login(challenge, credential)?;
         validate_tokens(&tokens)?;
-        let value = saved_session(tokens)?;
+        let value = saved_session(tokens, Some(uuid::Uuid::new_v4()))?;
         let user = value.tokens.user.clone();
         self.storage.with_refresh_lock(|| {
             let mut state = self.lock()?;
@@ -307,6 +311,9 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             } else {
                 None
             };
+            if state.generation != version {
+                return Err(AccountError::Cancelled);
+            }
             self.storage.save(&value)?;
             state.saved = Some(value);
             state.loaded = true;
@@ -382,6 +389,13 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                 }
                 // Another process refreshed while this one waited; refreshing from the token it already spent would revoke the session.
                 Some(stored) if stored.tokens.refresh_token != expected => {
+                    let changed = !same_login_option(state.saved.as_ref(), Some(&stored));
+                    if changed {
+                        state.saved = Some(stored);
+                        state.loaded = true;
+                        Self::next_generation(&mut state)?;
+                        return Err(AccountError::Cancelled);
+                    }
                     let usable = usable_session(&stored, rejected_token);
                     let access_token = stored.tokens.access_token.clone();
                     refresh_token = stored.tokens.refresh_token.clone();
@@ -395,6 +409,11 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             }
         }
 
+        let session_id = self
+            .lock()?
+            .saved
+            .as_ref()
+            .and_then(|saved| saved.session_id);
         let api_result = self.api.refresh(&refresh_token);
         let mut state = self.lock()?;
         if state.generation != version {
@@ -403,7 +422,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         match api_result {
             Ok(tokens) => {
                 validate_tokens(&tokens)?;
-                let value = saved_session(tokens)?;
+                let value = saved_session(tokens, session_id)?;
                 if shared {
                     // A writer that does not take the lock can still change the store. Tokens for a session that is no longer the stored one are discarded rather than resurrecting it.
                     match self.stored()? {
@@ -414,7 +433,8 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                         }
                         Some(current)
                             if current.tokens.refresh_token != refresh_token
-                                || current.tokens.user.id != value.tokens.user.id =>
+                                || current.tokens.user.id != value.tokens.user.id
+                                || current.session_id != session_id =>
                         {
                             state.saved = Some(current);
                             state.loaded = true;
@@ -434,6 +454,13 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                 if shared {
                     if let Ok(Some(stored)) = self.stored() {
                         if stored.tokens.refresh_token != refresh_token {
+                            let changed = !same_login_option(state.saved.as_ref(), Some(&stored));
+                            if changed {
+                                state.saved = Some(stored);
+                                state.loaded = true;
+                                Self::next_generation(&mut state)?;
+                                return Err(AccountError::Cancelled);
+                            }
                             let usable = usable_session(&stored, rejected_token);
                             let access_token = stored.tokens.access_token.clone();
                             state.saved = Some(stored);
@@ -473,6 +500,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         rejected_token: Option<&str>,
         expected_user_id: Option<&str>,
     ) -> Result<(String, String, u64), AccountError> {
+        self.ensure_session_id()?;
         {
             let mut state = self.lock()?;
             self.load_locked(&mut state)?;
@@ -496,6 +524,36 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             return Err(AccountError::Cancelled);
         }
         Ok((saved.tokens.user.id.clone(), token, state.generation))
+    }
+
+    /// 请求开始前在共享写锁内迁移旧会话，让两个进程使用同一个 ID，并保留旧文件的正常刷新行为。
+    fn ensure_session_id(&self) -> Result<(), AccountError> {
+        let missing = {
+            let mut state = self.lock()?;
+            self.load_locked(&mut state)?;
+            state
+                .saved
+                .as_ref()
+                .is_some_and(|saved| saved.session_id.is_none())
+        };
+        if missing {
+            self.storage.with_refresh_lock(|| {
+                let mut state = self.lock()?;
+                self.load_locked(&mut state)?;
+                if let Some(saved) = state
+                    .saved
+                    .as_ref()
+                    .filter(|saved| saved.session_id.is_none())
+                {
+                    let mut migrated = saved.clone();
+                    migrated.session_id = Some(uuid::Uuid::new_v4());
+                    self.storage.save(&migrated)?;
+                    state.saved = Some(migrated);
+                }
+                Ok(())
+            })?;
+        }
+        Ok(())
     }
 
     /// Runs a local side effect while the account generation is held stable.
@@ -544,8 +602,15 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     }
 
     pub fn profile(&self) -> Result<AccountProfile, AccountError> {
+        self.profile_for_login(None)
+    }
+
+    pub(super) fn profile_for_login(
+        &self,
+        expected: Option<(&str, u64)>,
+    ) -> Result<AccountProfile, AccountError> {
         let (user_id, profile, generation) =
-            self.authenticated_with_user(|api, token| api.profile(token))?;
+            self.authenticated_with_user_at(expected, |api, token| api.profile(token))?;
         validate_profile(&profile)?;
         if profile.user.id != user_id {
             return Err(AccountError::Cancelled);
@@ -556,21 +621,24 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
 
     pub fn rename(&self, display_name: &str) -> Result<AccountProfile, AccountError> {
         validate_display_name(display_name)?;
-        self.authenticated(|api, token| api.rename(display_name, token))?;
-        self.profile()
+        let (user_id, _, generation) =
+            self.authenticated_with_user(|api, token| api.rename(display_name, token))?;
+        self.profile_for_login(Some((&user_id, generation)))
     }
 
     /// Uploads the PNG or JPEG at `path` as the user's avatar and returns the refreshed profile, whose `avatar_url` now names it.
     pub fn upload_avatar(&self, path: &Path) -> Result<AccountProfile, AccountError> {
         let image = read_account_avatar_upload(path)?;
-        self.authenticated(|api, token| api.upload_avatar(&image, token))?;
-        self.profile()
+        let (user_id, _, generation) =
+            self.authenticated_with_user(|api, token| api.upload_avatar(&image, token))?;
+        self.profile_for_login(Some((&user_id, generation)))
     }
 
     /// Removes the user's uploaded avatar and returns the refreshed profile.
     pub fn remove_avatar(&self) -> Result<AccountProfile, AccountError> {
-        self.authenticated(|api, token| api.delete_avatar(token))?;
-        self.profile()
+        let (user_id, _, generation) =
+            self.authenticated_with_user(|api, token| api.delete_avatar(token))?;
+        self.profile_for_login(Some((&user_id, generation)))
     }
 
     /// The signed-in user's avatar, or `None` when they are signed out or have none. Reads the saved user, so it needs no backend round trip beyond the image itself.
@@ -640,10 +708,29 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     where
         F: Fn(&A, &str) -> Result<T, AccountError>,
     {
-        let (user_id, token, generation) = self.credentials_with_generation(None, None)?;
+        self.authenticated_with_user_at(None, operation)
+    }
+
+    fn authenticated_with_user_at<T, F>(
+        &self,
+        expected: Option<(&str, u64)>,
+        operation: F,
+    ) -> Result<(String, T, u64), AccountError>
+    where
+        F: Fn(&A, &str) -> Result<T, AccountError>,
+    {
+        let (user_id, token, generation) =
+            self.credentials_with_generation(None, expected.map(|(user, _)| user))?;
+        if expected.is_some_and(|(_, prior)| prior != generation) {
+            return Err(AccountError::Cancelled);
+        }
         let result = match operation(&self.api, &token) {
             Err(AccountError::Unauthorized) => {
-                let (_, replacement) = self.credentials(Some(&token), Some(&user_id))?;
+                let (_, replacement, replacement_generation) =
+                    self.credentials_with_generation(Some(&token), Some(&user_id))?;
+                if replacement_generation != generation {
+                    return Err(AccountError::Cancelled);
+                }
                 operation(&self.api, &replacement)
             }
             result => result,
@@ -969,6 +1056,9 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             } else {
                 None
             };
+            if state.generation != generation {
+                return Err(AccountError::Cancelled);
+            }
             if let (Some(expected), Some(current)) = (expected_user_id, owner.as_deref()) {
                 if current != expected {
                     return Err(AccountError::Cancelled);
@@ -1027,7 +1117,14 @@ where
     let result = match operation(api, active_token.as_deref()) {
         Err(AccountError::Unauthorized) if identity.is_some() => {
             let expected = identity.as_ref().map(|value| value.0.as_str());
-            let (_, replacement) = session.credentials(active_token.as_deref(), expected)?;
+            let (_, replacement, replacement_generation) =
+                session.credentials_with_generation(active_token.as_deref(), expected)?;
+            if identity
+                .as_ref()
+                .is_some_and(|value| replacement_generation != value.2)
+            {
+                return Err(AccountError::Cancelled);
+            }
             active_token = Some(replacement);
             operation(api, active_token.as_deref())
         }
@@ -1047,7 +1144,10 @@ where
     Ok(result)
 }
 
-fn saved_session(tokens: AccountTokens) -> Result<SavedAccountSession, AccountError> {
+fn saved_session(
+    tokens: AccountTokens,
+    session_id: Option<uuid::Uuid>,
+) -> Result<SavedAccountSession, AccountError> {
     let now = unix_ms()?;
     let duration = tokens
         .expires_in
@@ -1057,7 +1157,23 @@ fn saved_session(tokens: AccountTokens) -> Result<SavedAccountSession, AccountEr
     Ok(SavedAccountSession {
         tokens,
         expires_at_unix_ms,
+        session_id,
     })
+}
+
+fn same_login_option(a: Option<&SavedAccountSession>, b: Option<&SavedAccountSession>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) if a.tokens.user.id == b.tokens.user.id => {
+            match (a.session_id, b.session_id) {
+                (Some(a), Some(b)) => a == b,
+                // 旧文件没有登录 ID；认证请求会先迁移，直接刷新仍可接收另一进程的正常轮换。
+                (None, None) => true,
+                _ => false,
+            }
+        }
+        _ => false,
+    }
 }
 
 pub(super) fn validate_saved_session(session: &SavedAccountSession) -> Result<(), AccountError> {

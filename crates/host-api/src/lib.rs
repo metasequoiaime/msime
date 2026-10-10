@@ -19,9 +19,9 @@ pub mod cloud_dictionary;
 pub mod mcp_clients;
 pub mod system_fonts;
 use msime_client_core::preferences::{
-    InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
-    TouchKeyboardLayout, TouchKeyboardScheme, VietnameseInputMethod, VietnamesePreferences,
-    VietnameseToneStyle, WubiProfile,
+    InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinCustomProfile,
+    ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme, VietnameseInputMethod,
+    VietnamesePreferences, VietnameseToneStyle, WubiProfile,
 };
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
@@ -35,7 +35,10 @@ use msime_client_core::voice::doubao_frame::{
     audio_frame, decode_error_code, decode_json_frame, start_frame,
 };
 use msime_client_core::voice::VoiceSessionState;
-use msime_engine::host::{CandidateEdge, Command, EngineOptions, Session};
+use msime_engine::host::{
+    validate_shuangpin_custom_profile, CandidateEdge, Command, EngineOptions, Session,
+    ShuangpinCustomTable,
+};
 use msime_engine::{SchemeSet, SchemeType};
 use msime_input_runtime::HandwritingQuery;
 #[cfg(unix)]
@@ -92,6 +95,11 @@ pub(crate) fn valid_uuid_string(value: &str) -> bool {
 
 mod ffi;
 pub use ffi::*;
+
+/// 会话实际用的每页候选数：偏好或宿主覆盖的值，按本库编译到的平台能排的上限截断（`HostPlatform::max_candidate_page_size`）。共享文档在别的设备上存了 10 时，只排得下九个的宿主仍拿到 9。
+fn host_page_size(requested: u8) -> u8 {
+    requested.min(ffi::host::compiled_platform().max_candidate_page_size())
+}
 mod doubao_auth;
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 mod handwriting_cells;
@@ -111,6 +119,8 @@ pub use dictionary::{
     LookupCandidate, LookupScheme, NewWord, QuickPhrase, QuickPhraseEdit, QuickPhrasePage, Word,
     WordEdit, WordImport, WordKind, WordPage,
 };
+mod diagnostics;
+pub use diagnostics::{msime_client_set_diagnostic_sink, DiagnosticSink};
 mod dictionary_snapshot;
 mod key_sound;
 mod plugin_tables;
@@ -212,12 +222,14 @@ struct HostSession {
     paired_punctuation_override: Option<bool>,
     punctuation_lock_override: Option<u8>,
     english_mode: bool,
+    /// 宿主经 `msime_client_set_caps_lock` 报告的大写锁定状态。不报告的宿主一直是 `false`，`caps_lock_ascii_punctuation` 对它不起作用。
+    caps_lock: bool,
     page_size_override: Option<u8>,
     nine_key_override: Option<bool>,
     /// 宿主经 `msime_client_set_private_session` 标出的隐私会话（Android 的隐私模式和不允许学习的输入框，鸿蒙和 iOS 的隐私模式）：不记选词位置和上屏效率。与用户自己关掉的「学习」无关。
     statistics_private: bool,
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
-    ai_credential: Option<String>,
+    ai_credential: Option<SessionAiCredential>,
     /// Cached copy used by every online query until preferences change.
     ai_provider_cache: Option<AiAssistantProviderConfig>,
     voice: VoiceSessionState,
@@ -249,6 +261,11 @@ struct HostSession {
     settled_model_loading: Option<SettledModelSlot>,
     // Declared after runtime so the Engine is dropped before releasing access.
     _dictionary_access: DictionaryAccess,
+}
+
+struct SessionAiCredential {
+    endpoint: String,
+    token: String,
 }
 
 /// 本地模式由偏好开关，但它们读的词典是不可变的运行时资源。可选资源不在时，触发键不能被吞掉：在资源齐全之前，Engine 看到的这个模式必须是关的。
@@ -297,6 +314,53 @@ fn engine_chinese_punctuation(enabled: bool, lock: u8) -> bool {
 }
 
 impl HostSession {
+    /// 判断一个标点键去向所用的上下文。`msime_client_punctuation_with_context` 和大写锁定改道（[`Self::caps_lock_punctuation`]）用的是同一份。
+    fn punctuation_context(&self, character: u8, preceding: Option<char>) -> PunctuationContext {
+        let lock = match self.punctuation_lock_override {
+            Some(1) => msime_client_core::preferences::PunctuationLock::Chinese,
+            Some(2) => msime_client_core::preferences::PunctuationLock::English,
+            Some(_) => msime_client_core::preferences::PunctuationLock::Follow,
+            None => self.applied.punctuation_lock,
+        };
+        PunctuationContext {
+            character,
+            preceding,
+            host_context_available: self
+                .runtime
+                .punctuation_host_context_available(self.english_mode),
+            has_composition: !self.runtime.is_idle(),
+            chinese_punctuation: self
+                .punctuation_override
+                .unwrap_or(self.applied.chinese_punctuation),
+            smart_punctuation: self.applied.smart_punctuation,
+            direct_digit: self.applied.smart_punctuation_direct_digit,
+            direct_letter: self.applied.smart_punctuation_direct_letter,
+            lock,
+            caps_lock_ascii: self.caps_lock && self.applied.caps_lock_ascii_punctuation,
+        }
+    }
+
+    /// 大写锁定时，把经字符或标点入口送来的标点键改走字面 ASCII 路线（#6370）。宿主大多把标点键当普通字符交给 `msime_client_character`，这条路线上没有标点判断，所以在分发前统一改道，每个报告了大写锁定的宿主都不用再写一份。只看大写锁定这一条：智能标点要读前文，不在这里判断。不改道时原样返回。
+    fn caps_lock_punctuation(&self, action: Action) -> Action {
+        if !(self.caps_lock && self.applied.caps_lock_ascii_punctuation) {
+            return action;
+        }
+        let ascii = match action {
+            Action::Character { value, .. } | Action::Punctuation(value)
+                if value.is_ascii_punctuation() =>
+            {
+                value
+            }
+            _ => return action,
+        };
+        let mut context = self.punctuation_context(ascii, None);
+        context.smart_punctuation = false;
+        match punctuation_route(context) {
+            PunctuationRoute::Ascii => Action::PunctuationAscii(ascii),
+            PunctuationRoute::Engine => action,
+        }
+    }
+
     /// `engine_chinese_punctuation` for the live overrides over the applied preferences.
     fn live_engine_chinese_punctuation(&self) -> bool {
         engine_chinese_punctuation(
@@ -446,7 +510,7 @@ impl HostSession {
         if self.runtime.is_idle() {
             if let Some(size) = self.page_size_override {
                 self.runtime
-                    .set_page_size(size)
+                    .set_page_size(host_page_size(size))
                     .map_err(|e| e.to_string())?;
             }
             // 落定重排模型不属于 Engine，换模型不用重建 Engine。约 25 MB 的权重由 `refresh_resource_packs` 起的后台线程加载，这里只在加载完之后、输入空闲时换上，不在输入线程上读文件；还没加载完就留到下一次。
@@ -470,7 +534,7 @@ impl HostSession {
             .unwrap_or(&self.applied)
             .clone();
         let mut options = self.options.clone();
-        let (scheme, fallback) = effective_scheme(
+        let (scheme, scheme_fallback) = effective_scheme(
             &preferences,
             &offered_input_schemes(self.edition),
             &LanguageDictionaries::of_options(&self.options),
@@ -479,7 +543,10 @@ impl HostSession {
         options.scheme = scheme_code(scheme);
         options.vietnamese_input_method = vietnamese_input_method_code(preferences.vietnamese);
         options.vietnamese_tone_style = vietnamese_tone_style_code(preferences.vietnamese);
-        options.shuangpin_profile = profile_code(preferences.shuangpin_profile);
+        let profile_fallback = apply_shuangpin_profile(&mut options, &preferences);
+        // 自定义双拼表不能用的原因只在真的跑双拼时才值得报告。
+        let fallback =
+            scheme_fallback.or(profile_fallback.filter(|_| scheme == InputScheme::Shuangpin));
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
         options.single_character_only = preferences.single_character_only;
         options.learning = preferences.learning;
@@ -577,8 +644,10 @@ impl HostSession {
         self.runtime
             .replace_engine_with_touch_layout(
                 engine,
-                self.page_size_override
-                    .unwrap_or(preferences.candidate_page_size),
+                host_page_size(
+                    self.page_size_override
+                        .unwrap_or(preferences.candidate_page_size),
+                ),
                 preferences.touch_keyboard_layout,
             )
             .map_err(|e| e.to_string())?;
@@ -630,7 +699,9 @@ impl HostSession {
             // 辅助码表换不上不算聚焦失败：报错会让这次和之后每一次聚焦都失败（戳没更新，下次又会重试）。记下来，保留当前的表，照常更新戳。
             match self.runtime.set_helpcode_table(table.clone()) {
                 Ok(()) => self.options.helpcode_table = table,
-                Err(error) => eprintln!("msime: helpcode table not replaced: {error}"),
+                Err(error) => {
+                    diagnostics::report("helpcode table not replaced", &error.to_string())
+                }
             }
         }
         self.plugin_tables = tables;
@@ -767,6 +838,53 @@ fn profile_code(profile: ShuangpinProfile) -> u8 {
         ShuangpinProfile::Ziranma => 1,
         ShuangpinProfile::Shoudao => 2,
         ShuangpinProfile::Microsoft => 3,
+        ShuangpinProfile::Custom => 4,
+    }
+}
+
+/// 偏好里的自定义双拼表换成 Engine 的表。
+fn engine_shuangpin_custom_table(profile: &ShuangpinCustomProfile) -> ShuangpinCustomTable {
+    let pairs = |part: &std::collections::BTreeMap<String, String>| {
+        part.iter()
+            .map(|(unit, key)| (unit.clone(), key.clone()))
+            .collect()
+    };
+    ShuangpinCustomTable {
+        initials: pairs(&profile.initials),
+        finals: pairs(&profile.finals),
+        zero_initials: pairs(&profile.zero_initials),
+    }
+}
+
+/// 偏好里的自定义双拼表能不能用，由 Engine 判定；不能用时是给日志和代理看的英文原因。设置页、MCP 等写偏好的一方保存之前用它校验。
+pub fn validate_custom_shuangpin_profile(profile: &ShuangpinCustomProfile) -> Result<(), String> {
+    validate_shuangpin_custom_profile(&engine_shuangpin_custom_table(profile))
+        .map_err(|error| error.to_string())
+}
+
+/// 把双拼方案写进 Engine 选项。选的是自定义方案时先让 Engine 校验用户的表：表是空的或不合法时按小鹤运行，返回原因，免得一张写坏的表让 Engine 建不起来、整个输入法停在旧会话上。
+fn apply_shuangpin_profile(
+    options: &mut EngineOptions,
+    preferences: &Preferences,
+) -> Option<String> {
+    options.shuangpin_custom_profile = None;
+    options.shuangpin_profile = profile_code(preferences.shuangpin_profile);
+    if preferences.shuangpin_profile != ShuangpinProfile::Custom {
+        return None;
+    }
+    match validate_custom_shuangpin_profile(&preferences.shuangpin_custom_profile) {
+        Ok(()) => {
+            options.shuangpin_custom_profile = Some(engine_shuangpin_custom_table(
+                &preferences.shuangpin_custom_profile,
+            ));
+            None
+        }
+        Err(error) => {
+            options.shuangpin_profile = profile_code(ShuangpinProfile::Xiaohe);
+            Some(format!(
+                "Custom shuangpin profile unusable because {error}; using Xiaohe."
+            ))
+        }
     }
 }
 
@@ -1089,6 +1207,7 @@ impl HostOptions {
             scheme: scheme_code(scheme),
             enabled_schemes: engine_schemes(edition),
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
+            shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
             single_character_only: self.preferences.single_character_only,
             learning: self.preferences.learning,
@@ -1140,6 +1259,8 @@ impl HostOptions {
             paired_punctuation: self.preferences.paired_punctuation,
             punctuation_lock: punctuation_lock_code(self.preferences.punctuation_lock),
         };
+        // 建会话没有地方带原因，表不能用时按小鹤建起来就够了；之后的偏好变更会在诊断里报告原因。
+        let _ = apply_shuangpin_profile(&mut options, &self.preferences);
         apply_local_mode_resource_gates(&mut options, edition);
         options
     }
@@ -1987,6 +2108,8 @@ fn with_session(
 fn dispatch(handle: u64, action: Action) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
+            // 大写锁定改道先于其余处理，后面看到的都是改道后的动作。
+            let action = session.caps_lock_punctuation(action);
             // Which row the user reached for, read before dispatching because the view it is
             // relative to is gone afterwards. Every platform host routes candidate selection
             // through here, so counting it here covers all of them without a line of platform

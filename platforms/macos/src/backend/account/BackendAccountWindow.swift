@@ -94,13 +94,16 @@ final class MacAccountModel: NSObject, ObservableObject {
     perform {
       let session = self.currentSession
       let identity = try await session.credentials()
-      _ = try await session.authenticated(matchingUserID: identity.userID) { token in
+      _ = try await session.authenticated(matchingUserID: identity.userID,
+                                          matchingSessionID: identity.sessionID) { token in
         try await self.client.rename(value, token: token)
       }
-      let profile = try await session.authenticated(matchingUserID: identity.userID) { token in
+      let profile = try await session.authenticated(matchingUserID: identity.userID,
+                                                    matchingSessionID: identity.sessionID) { token in
         try await self.client.profile(token: token)
       }
-      try await session.updateUser(profile.value.user, matching: profile.token)
+      try await session.updateUser(profile.value.user, matching: profile.token,
+                                   matchingSessionID: identity.sessionID)
       try Task.checkCancellation()
       self.user = profile.value.user; self.name = profile.value.user.preferredDisplayName
     }
@@ -110,11 +113,12 @@ final class MacAccountModel: NSObject, ObservableObject {
       let session = self.currentSession
       if delete {
         let identity = try await session.credentials()
-        _ = try await session.authenticated(matchingUserID: identity.userID) { token in
+        _ = try await session.authenticated(matchingUserID: identity.userID,
+                                            matchingSessionID: identity.sessionID) { token in
           try await self.client.deleteAccount(token: token)
         }
+        try await session.forget(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
         self.closeAccountWindows()
-        try await session.forget()
         if self.anonymous { try await self.discardAnonymous() }
       } else {
         // Hide private views before awaiting logout, including offline failures.

@@ -733,6 +733,9 @@ test("choosing a package makes it the custom theme's skin, and the 自定义 car
   expect(within(custom).getByRole("switch").getAttribute("aria-checked")).toBe("false");
   expect(within(custom).queryByText("使用中")).toBeNull();
   expect(within(custom).getByText("外部皮肤、候选颜色与自定义键盘")).toBeTruthy();
+  // paper 底的皮肤放进浅色槽位；页面说明两种明暗各用哪款。
+  expect(within(card).getByText("浅色皮肤，用在浅色模式")).toBeTruthy();
+  expect(screen.getByText("浅色模式用「Sample skin」，深色模式不用皮肤。")).toBeTruthy();
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(save).toHaveBeenLastCalledWith(3, {
@@ -748,7 +751,54 @@ test("choosing a package makes it the custom theme's skin, and the 自定义 car
     expect(save).toHaveBeenLastCalledWith(4, {
       ...initial.preferences,
       global_theme: "custom",
-      custom_theme: { base: "paper", candidate_skin: null },
+      custom_theme: { base: "paper", candidate_skin: null, candidate_skin_dark: null },
+    }),
+  );
+  expect(screen.queryByText(/模式用「/)).toBeNull();
+});
+
+// 浅色皮肤放进浅色槽位，深色皮肤放进深色槽位，两张卡片同时打开；再点一次开关只把那款从自己的槽位取下。
+test("a light and a dark skin are in use together, each in its own slot", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 4,
+    preferences,
+  }));
+  openSkinPage({
+    save,
+    scanSkinCatalog: async () => ({
+      ...catalog,
+      packages: [
+        { ...sample, base: "paper" },
+        { ...sample, id: "midnight", name: "Midnight skin", base: "night" },
+      ],
+    }),
+  });
+  const light = await screen.findByRole("article", { name: "Sample skin" });
+  const dark = screen.getByRole("article", { name: "Midnight skin" });
+  expect(within(dark).getByText("深色皮肤，用在深色模式")).toBeTruthy();
+  fireEvent.click(within(light).getByRole("switch"));
+  fireEvent.click(within(dark).getByRole("switch"));
+  for (const card of [light, dark])
+    expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("true");
+  expect(screen.getByText("浅色模式用「Sample skin」，深色模式用「Midnight skin」。")).toBeTruthy();
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenLastCalledWith(3, {
+    ...initial.preferences,
+    global_theme: "custom",
+    custom_theme: { base: "night", candidate_skin: "sample", candidate_skin_dark: "midnight" },
+  });
+  fireEvent.click(within(dark).getByRole("switch"));
+  expect(within(dark).getByRole("switch").getAttribute("aria-checked")).toBe("false");
+  expect(within(light).getByRole("switch").getAttribute("aria-checked")).toBe("true");
+  expect(screen.getByText("浅色模式用「Sample skin」，深色模式不用皮肤。")).toBeTruthy();
+  saveSettingsNow();
+  await waitFor(() =>
+    expect(save).toHaveBeenLastCalledWith(4, {
+      ...initial.preferences,
+      global_theme: "custom",
+      custom_theme: { base: "night", candidate_skin: "sample", candidate_skin_dark: null },
     }),
   );
 });
@@ -795,13 +845,17 @@ test("external selection enters the revisioned draft; preview toggles never save
       client={{ load: async () => initial, save, scanSkinCatalog: async () => catalog }}
     />,
   );
+  await settingsFormReady();
   fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   const card = await screen.findByRole("article", { name: "Sample skin" });
   fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("false");
   expect(drawn(card, "--cand-bg")).toBe("#ABCDEF");
   expect(save).not.toHaveBeenCalled();
+  // 再点一次已打开的开关会取下皮肤，第三次重新选上。
   fireEvent.click(within(card).getByRole("switch"));
+  fireEvent.click(within(card).getByRole("switch"));
+  expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("false");
   fireEvent.click(within(card).getByRole("switch"));
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("true");
   expect(save).not.toHaveBeenCalled();
@@ -859,6 +913,7 @@ test("settings synchronize all cards and reset local overrides on candidate them
   const save = vi.fn(),
     scan = vi.fn().mockResolvedValue(catalog);
   render(<SettingsPage client={{ load: async () => initial, save, scanSkinCatalog: scan }} />);
+  await settingsFormReady();
   const mode = (name: string) =>
     fireEvent.click(
       within(screen.getByRole("radiogroup", { name: "颜色模式" })).getByRole("radio", { name }),
@@ -866,6 +921,7 @@ test("settings synchronize all cards and reset local overrides on candidate them
   fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   mode("浅色");
   await screen.findByRole("article", { name: "Sample skin" });
+  const scansBeforePreviewChanges = scan.mock.calls.length;
   expect(screen.getAllByRole("article")).toHaveLength(8);
   // The built-in themes are fixed palettes with no preview switch; the system card, the custom card over the system base and the external package follow the mode.
   const cards = ["跟随系统", "自定义", "Sample skin"].map((name) =>
@@ -886,7 +942,7 @@ test("settings synchronize all cards and reset local overrides on candidate them
     expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
       "light",
     );
-  expect(scan).toHaveBeenCalledTimes(1);
+  expect(scan).toHaveBeenCalledTimes(scansBeforePreviewChanges);
   expect(save).not.toHaveBeenCalled();
 });
 
@@ -1014,11 +1070,48 @@ test("manifest text is escaped and palette cannot inject CSS or resource URLs", 
   expect(css).not.toContain("url(");
 });
 
+// 手机上不会有人备好 skin.toml 皮肤文件夹：外部皮肤这一行（导入、刷新、目录）只在桌面形态的宿主上出现，手机的皮肤从社区获取。
+test.each(["harmony", "android", "ios"])("a %s phone has no 外部皮肤 row", async (platform) => {
+  openSkinPage({
+    host: testHost({ platform, skin_directory_import: platform === "harmony" }),
+    openSkinDirectory: vi.fn(),
+    scanSkinCatalog: vi.fn().mockResolvedValue({ directory: "/skins", packages: [], issues: [] }),
+  });
+  await screen.findByRole("heading", { level: 1 });
+  expect(screen.queryByText("外部皮肤", { selector: "[data-row-title]" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "导入皮肤" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "刷新皮肤" })).toBeNull();
+});
+
+// 手机的候选栏默认跟随键盘皮肤，候选颜色要打开「候选栏使用主题配色」才生效：开关关着时不显示取色器，打开后才显示。
+test("a phone shows the candidate colours only while the strip follows the theme", async () => {
+  for (const follows of [false, true]) {
+    const mounted = openSkinPage({
+      host: testHost({ platform: "harmony", candidate_row_colors: true }),
+      mobileKeyboardFeedback: {
+        load: vi.fn().mockResolvedValue({
+          soundEnabled: true,
+          hapticsEnabled: false,
+          hapticStrength: "medium",
+          englishSuggestions: true,
+          candidatePaletteFollowsDesktop: follows,
+        }),
+        save: vi.fn().mockImplementation(async (settings) => settings),
+      } as unknown as SettingsClient["mobileKeyboardFeedback"],
+    });
+    const follow = (await screen.findByLabelText("候选栏使用主题配色")) as HTMLInputElement;
+    expect(follow.checked).toBe(follows);
+    if (follows) expect(await screen.findByLabelText("候选表面色")).toBeTruthy();
+    else expect(screen.queryByLabelText("候选表面色")).toBeNull();
+    mounted.unmount();
+  }
+});
+
 test("an import host lists the imported skin without a manual refresh", async () => {
   const scan = vi.fn().mockResolvedValue({ directory: "/skins", packages: [], issues: [] });
   const openDirectory = vi.fn().mockResolvedValue(undefined);
   openSkinPage({
-    host: testHost({ platform: "harmony", skin_directory_import: true }),
+    host: testHost({ platform: "harmony", mobile_settings: false, skin_directory_import: true }),
     openSkinDirectory: openDirectory,
     scanSkinCatalog: scan,
   });
@@ -1026,6 +1119,8 @@ test("an import host lists the imported skin without a manual refresh", async ()
   expect(within(row).getByText(/选中包含 skin.toml 的皮肤文件夹/)).toBeTruthy();
   expect(within(row).queryByText(/复制到下面的目录/)).toBeNull();
   await within(row).findByText("没有发现外部皮肤。");
+  // 皮肤目录在应用沙箱里，用户用不上，导入型宿主不显示它。
+  expect(within(row).queryByText("/skins")).toBeNull();
   expect(scan).toHaveBeenCalledTimes(1);
   fireEvent.click(within(row).getByRole("button", { name: "导入皮肤" }));
   await waitFor(() => expect(scan).toHaveBeenCalledTimes(2));
@@ -1036,7 +1131,7 @@ test("an import that fails does not rescan", async () => {
   const scan = vi.fn().mockResolvedValue({ directory: "/skins", packages: [], issues: [] });
   const openDirectory = vi.fn().mockRejectedValue(new Error("synthetic"));
   openSkinPage({
-    host: testHost({ platform: "harmony", skin_directory_import: true }),
+    host: testHost({ platform: "harmony", mobile_settings: false, skin_directory_import: true }),
     openSkinDirectory: openDirectory,
     scanSkinCatalog: scan,
   });

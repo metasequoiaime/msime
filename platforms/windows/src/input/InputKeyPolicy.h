@@ -36,6 +36,30 @@ constexpr bool is_segment_backspace_key(uint32_t keycode, uint32_t modifiers) {
          (modifiers & kKeyModifierMask) == kModifierControl;
 }
 
+// 整句改字的方向键（msime_client.h）：`edits_sentence`（全拼、双拼，不在本地模式和专用英文里）时，不带修饰键的左右键换成改字命令，Ctrl+左右换成逐个字母的光标命令；其他命令和其他方案原样返回。数值与 msime_client.h 的 MsimeCommand 相同。
+inline constexpr uint32_t kCommandMoveLeft = 4;
+inline constexpr uint32_t kCommandMoveRight = 5;
+inline constexpr uint32_t kCommandMoveLeftSegment = 13;
+inline constexpr uint32_t kCommandMoveRightSegment = 14;
+inline constexpr uint32_t kCommandConversionLeft = 17;
+inline constexpr uint32_t kCommandConversionRight = 18;
+constexpr uint32_t sentence_edit_command(uint32_t command, bool edits_sentence) {
+  if (!edits_sentence)
+    return command;
+  switch (command) {
+  case kCommandMoveLeft:
+    return kCommandConversionLeft;
+  case kCommandMoveRight:
+    return kCommandConversionRight;
+  case kCommandMoveLeftSegment:
+    return kCommandMoveLeft;
+  case kCommandMoveRightSegment:
+    return kCommandMoveRight;
+  default:
+    return command;
+  }
+}
+
 constexpr bool is_segment_caret_key(uint32_t keycode, uint32_t modifiers) {
   return (keycode == kVirtualKeyLeft || keycode == kVirtualKeyRight) &&
          (modifiers & kKeyModifierMask) == kModifierControl;

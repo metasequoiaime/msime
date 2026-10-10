@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The on-device model catalog on the voice page: what can be downloaded, what is installed, and which model `voice_input.asr_model_path` names. Downloads, verification and removal go through the shared host-api, as on the desktops.
 @MainActor
@@ -6,6 +7,16 @@ final class LocalSpeechModelManager: ObservableObject {
   @Published private(set) var models: [LocalSpeechModelInfo] = []
   @Published private(set) var progress: [String: LocalSpeechInstallProgress] = [:]
   @Published private(set) var installing: Set<String> = []
+  /// 正在从本地文件安装的模型，是 `installing` 的子集。
+  @Published private(set) var importing: Set<String> = []
+  /// 「从文件导入」的文件选择器是否开着，以及它在为哪个模型选文件。选择器关掉时只清前者：用户取消时不会有回调。
+  @Published var importPickerShown = false
+  @Published private(set) var importTarget: LocalSpeechModelInfo?
+
+  func chooseImportFiles(for model: LocalSpeechModelInfo) {
+    importTarget = model
+    importPickerShown = true
+  }
   @Published private(set) var selectedPath = ""
   @Published private(set) var savedMirror = ""
   @Published var mirror = ""
@@ -74,6 +85,55 @@ final class LocalSpeechModelManager: ObservableObject {
         status = error.localizedDescription
       }
       refresh()
+    }
+  }
+
+  /// 用用户在文件选择器里选中的文件安装 `model`，不联网。文件按长度和 SHA-256 对上目录，不看文件名；选择器给的是带安全范围的 URL，整个安装期间都保持访问权。
+  func importFiles(_ model: LocalSpeechModelInfo, from urls: [URL]) {
+    guard let root, !installing.contains(model.id), !urls.isEmpty else { return }
+    installing.insert(model.id)
+    importing.insert(model.id)
+    progress[model.id] = nil
+    status = ""
+    Task {
+      do {
+        let id = model.id
+        let path = try await Task.detached(priority: .userInitiated) {
+          let accessed = urls.map { $0.startAccessingSecurityScopedResource() }
+          defer { for (url, granted) in zip(urls, accessed) where granted { url.stopAccessingSecurityScopedResource() } }
+          return try LocalSpeechModelStore.install(root: root, id: id, mirror: "", files: urls) { update in
+            Task { @MainActor [weak self] in
+              if self?.installing.contains(id) == true { self?.progress[id] = update }
+            }
+          }
+        }.value
+        finishImport(model.id)
+        if selectedDirectory == nil { writeSelection(path.path) }
+        status = "已导入“\(model.title)”。"
+      } catch let failure as LocalSpeechModelStore.HostFailure {
+        finishImport(model.id)
+        status = Self.importMessage(for: failure)
+      } catch {
+        finishImport(model.id)
+        status = error.localizedDescription
+      }
+      refresh()
+    }
+  }
+
+  private func finishImport(_ id: String) {
+    installing.remove(id)
+    importing.remove(id)
+    progress[id] = nil
+  }
+
+  /// 导入失败的提示：文件对不上时说清楚是所选文件的问题，其余和下载相同。
+  static func importMessage(for failure: LocalSpeechModelStore.HostFailure) -> String {
+    switch failure.code.split(separator: ":", maxSplits: 1).first.map(String.init) ?? failure.code {
+    case "local_model_cancelled": "已取消导入。"
+    case "local_model_size_mismatch", "local_model_checksum_mismatch":
+      "所选文件和模型目录里的校验值不符，可能没下载完整或版本不对，请重新下载后再导入。"
+    default: failure.errorDescription ?? failure.code
     }
   }
 
@@ -169,6 +229,18 @@ struct LocalSpeechModelsSection: View {
       Text("模型在本机运行，录音不会离开设备。下载模型时只连接 GitHub；访问不畅时可以填写镜像地址，它会加在每个下载地址前面。模型较大，建议在 Wi-Fi 下下载。")
     }
     .disabled(disabled)
+    .fileImporter(
+      isPresented: $manager.importPickerShown,
+      allowedContentTypes: [.item],
+      allowsMultipleSelection: true
+    ) { result in
+      guard let model = manager.importTarget else { return }
+      // 用户关掉选择器不算失败；选择器自己报错时照实显示。
+      switch result {
+      case .success(let urls): manager.importFiles(model, from: urls)
+      case .failure(let error): manager.status = error.localizedDescription
+      }
+    }
     .onAppear { manager.refresh() }
     .flushesAutosave(manager.mirrorAutosave)
   }
@@ -205,6 +277,16 @@ private struct LocalSpeechModelRow: View {
           }
         }.foregroundStyle(.secondary)
       }
+      if !model.installed && !model.importFiles.isEmpty && !manager.installing.contains(model.id) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("不联网安装：先下载下面的文件，再点“从文件导入”一起选中。文件改过名也能认出。").font(.caption2)
+          ForEach(model.importFiles, id: \.self) { file in
+            if let url = URL(string: file.url), url.scheme == "https" {
+              Link("\(file.name)（\(Self.bytes(file.size))）", destination: url).font(.caption2)
+            }
+          }
+        }.foregroundStyle(.secondary)
+      }
       actions
     }
     .padding(.vertical, 4)
@@ -223,7 +305,7 @@ private struct LocalSpeechModelRow: View {
         HStack {
           Text(stageText(update)).font(.caption).foregroundStyle(.secondary)
           Spacer()
-          Button("取消") { manager.cancel(model) }.buttonStyle(.borderless)
+          Button(manager.importing.contains(model.id) ? "取消导入" : "取消") { manager.cancel(model) }.buttonStyle(.borderless)
             .accessibilityIdentifier("cancelLocalModel_\(model.id)")
         }
       }
@@ -238,8 +320,13 @@ private struct LocalSpeechModelRow: View {
           .accessibilityIdentifier("removeLocalModel_\(model.id)")
       }
     } else {
-      Button("下载（\(Self.bytes(model.archiveSize))）") { manager.install(model) }.buttonStyle(.borderless)
-        .accessibilityIdentifier("downloadLocalModel_\(model.id)")
+      HStack {
+        Button("下载（\(Self.bytes(model.archiveSize))）") { manager.install(model) }.buttonStyle(.borderless)
+          .accessibilityIdentifier("downloadLocalModel_\(model.id)")
+        Spacer()
+        Button("从文件导入") { manager.chooseImportFiles(for: model) }.buttonStyle(.borderless)
+          .accessibilityIdentifier("importLocalModel_\(model.id)")
+      }
     }
   }
 
@@ -252,8 +339,10 @@ private struct LocalSpeechModelRow: View {
   }
 
   private func stageText(_ update: LocalSpeechInstallProgress?) -> String {
-    guard let update else { return "准备下载…" }
+    guard let update else { return manager.importing.contains(model.id) ? "准备导入…" : "准备下载…" }
     switch update.stage {
+    case "import": return update.total > 0
+      ? "正在导入 \(Self.bytes(update.downloaded)) / \(Self.bytes(update.total))" : "正在导入 \(Self.bytes(update.downloaded))"
     case "download": return update.total > 0
       ? "正在下载 \(Self.bytes(update.downloaded)) / \(Self.bytes(update.total))" : "正在下载 \(Self.bytes(update.downloaded))"
     case "verify": return "正在校验…"

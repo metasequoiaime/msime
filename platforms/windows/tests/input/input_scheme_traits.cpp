@@ -33,6 +33,7 @@ int main() {
     assert(HostSmartPunctuation(representative) == HostSmartPunctuation(scheme));
     assert(ScriptConversionApplies(representative) == ScriptConversionApplies(scheme));
     assert(CommitsOnBlur(representative) == CommitsOnBlur(scheme));
+    assert(OpensTableModes(representative) == OpensTableModes(scheme));
     assert(LetterPassesWhileIdle(representative, false, L'x') == LetterPassesWhileIdle(scheme, false, L'x'));
   }
   for (int scheme = Quanpin; scheme <= Stroke; ++scheme)
@@ -141,6 +142,9 @@ int main() {
   // 只有越南文词和藏文音节串在 Esc 之后继续组字；其他组字（包括方案 0-4 和笔画）都被 Esc 丢弃。
   for (int scheme = Quanpin; scheme <= Stroke; ++scheme)
     assert(CancelRestoresRaw(scheme) == (scheme == Vietnamese || scheme == Tibetan));
+  // 整句改字只在全拼和双拼里有；未知的方案号也没有。
+  for (int scheme = Quanpin; scheme <= Stroke + 1; ++scheme)
+    assert(EditsSentence(scheme) == (scheme == Quanpin || scheme == Shuangpin));
   // Only the Zhuyin list refuses the mouse; the Korean Hanja list and every Chinese list stay clickable, and an unknown number keeps the mouse too.
   for (int scheme = Quanpin; scheme <= Stroke + 1; ++scheme)
     assert(KeyboardOnlyCandidateList(scheme) == (scheme == Zhuyin));

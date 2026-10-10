@@ -24,9 +24,11 @@ pub struct PunctuationContext {
     pub direct_digit: bool,
     pub direct_letter: bool,
     pub lock: PunctuationLock,
+    /// 大写锁定打开、且用户打开了 `caps_lock_ascii_punctuation`。为真时没有组字的标点和英文模式一样走 ASCII，`lock` 为 `Chinese` 时仍归 Engine。
+    pub caps_lock_ascii: bool,
 }
 
-/// Select the explicit ASCII route only when a host document decision is safe. Engine remains authoritative for composition, local/Japanese/English modes, Korean (whose punctuation is always half-width ASCII), and all punctuation not covered by the shared smart-punctuation contract.
+/// 只在宿主能安全按文档上下文决定时才选显式 ASCII 路线。组字中、本地/日文/英文模式、韩文（标点总是半角 ASCII），以及共享智能标点约定和大写锁定开关都不管的标点，仍由 Engine 决定。
 pub fn route(context: PunctuationContext) -> PunctuationRoute {
     if context.has_composition || !context.host_context_available {
         return PunctuationRoute::Engine;
@@ -35,6 +37,9 @@ pub fn route(context: PunctuationContext) -> PunctuationRoute {
         PunctuationLock::Chinese => return PunctuationRoute::Engine,
         PunctuationLock::English => return PunctuationRoute::Ascii,
         PunctuationLock::Follow => {}
+    }
+    if context.caps_lock_ascii {
+        return PunctuationRoute::Ascii;
     }
     let direct = context.preceding.is_some_and(|value| {
         (value.is_ascii_digit() && context.direct_digit)
@@ -249,7 +254,43 @@ mod tests {
             direct_digit: true,
             direct_letter: true,
             lock: PunctuationLock::Follow,
+            caps_lock_ascii: false,
         }
+    }
+
+    #[test]
+    fn caps_lock_switch_sends_every_idle_mark_to_ascii() {
+        for character in *b",.:;?!\\'\"()[]<>^_$~`/@{}" {
+            for preceding in [None, Some('中'), Some('A')] {
+                let mut value = context(character, preceding);
+                value.smart_punctuation = false;
+                value.caps_lock_ascii = true;
+                assert_eq!(
+                    route(value),
+                    PunctuationRoute::Ascii,
+                    "{}",
+                    character as char
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn caps_lock_switch_leaves_composition_chinese_lock_and_other_modes_alone() {
+        let mut value = context(b',', None);
+        value.caps_lock_ascii = true;
+        value.has_composition = true;
+        assert_eq!(route(value), PunctuationRoute::Engine);
+        value.has_composition = false;
+        value.host_context_available = false;
+        assert_eq!(route(value), PunctuationRoute::Engine);
+        value.host_context_available = true;
+        value.lock = PunctuationLock::Chinese;
+        assert_eq!(route(value), PunctuationRoute::Engine);
+        // 开关关着时，大写锁定不影响原来的判断：汉字后的逗号仍交给 Engine。
+        let mut off = context(b',', Some('中'));
+        off.caps_lock_ascii = false;
+        assert_eq!(route(off), PunctuationRoute::Engine);
     }
 
     #[test]

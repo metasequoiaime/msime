@@ -14,6 +14,7 @@ public final class SplitKeyboardPolicySmoke {
         whichLayoutsSplit();
         gapWidth();
         letterRowCuts();
+        duplicatedInnerKeys();
         designLayerCuts();
         spaceSplit();
         deadGap();
@@ -94,6 +95,52 @@ public final class SplitKeyboardPolicySmoke {
         check(cut == 5, "shift zxcv | bnm delete, got " + cut);
         check(cut > 0 && cut < third.length, "shift and delete end up on opposite halves");
         check(SplitKeyboardPolicy.cutIndex(new float[0]) == 0, "an empty row cuts at zero");
+    }
+
+    /** #6022：字母层第二、三行在右半边内侧重复 G、V，重复的键从空隙里占一个键宽，两半等宽、键宽不变。 */
+    private static void duplicatedInnerKeys() {
+        float[] standardSecond = new float[12];
+        standardSecond[0] = .5f;
+        for (int index = 1; index <= 9; index++) standardSecond[index] = 1f;
+        standardSecond[11] = .5f;
+        float letterEdge = KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT;
+        float[] standardThird = {letterEdge, 1, 1, 1, 1, 1, 1, 1, letterEdge};
+        check(!SplitKeyboardPolicy.duplicatesInnerKey(0, 3, ones(10)), "qwert | yuiop is already even");
+        check(SplitKeyboardPolicy.duplicatesInnerKey(1, 3, standardSecond), "the a-l row repeats g");
+        check(SplitKeyboardPolicy.duplicatesInnerKey(2, 3, standardThird), "the z-m row repeats v");
+        check(!SplitKeyboardPolicy.duplicatesInnerKey(1, 4, standardSecond)
+                && !SplitKeyboardPolicy.duplicatesInnerKey(3, 3, standardThird),
+            "other row sets repeat nothing");
+        // 微软双拼显示 ; 时第二行两侧缩进隐藏（记 0）：0 + asdfg | hjkl; + 0 本来五对五，重复 G 会变成五对六、空隙偏开半个键，所以不重复。
+        float[] microsoftSecond = new float[12];
+        for (int index = 1; index <= 10; index++) microsoftSecond[index] = 1f;
+        check(SplitKeyboardPolicy.cutIndex(microsoftSecond) == 6, "asdfg | hjkl; with the hidden indent on the left");
+        check(!SplitKeyboardPolicy.duplicatesInnerKey(1, 3, microsoftSecond), "the Microsoft ten-key row repeats nothing");
+        // 韩文两套式第二行九个键、不带缩进：ㅁㄴㅇㄹㅎ | ㅗㅓㅏㅣ，重复后五对五。
+        check(SplitKeyboardPolicy.duplicatesInnerKey(1, 3, ones(9)), "a nine-key row without indents repeats its inner key");
+        check(!SplitKeyboardPolicy.duplicatesInnerKey(1, 3, new float[0]), "an empty row repeats nothing");
+        close(SplitKeyboardPolicy.gapWeight(10f, 0f), SplitKeyboardPolicy.gapWeight(10f), "no duplicate, same gap");
+        close(SplitKeyboardPolicy.gapWeight(10f, 1f), SplitKeyboardPolicy.gapWeight(10f) - 1f, "the duplicate takes one key from the gap");
+        check(SplitKeyboardPolicy.gapWeight(1f, 5f) == 0f, "the gap never goes negative");
+
+        // 第二行：0.5 + asdfg | g + hjkl + 0.5，两半都是 5.5；整行总份额和不重复时一样，所以键和第一行一样宽。
+        float[] secondRow = new float[12];
+        secondRow[0] = .5f;
+        for (int index = 1; index <= 9; index++) secondRow[index] = 1f;
+        secondRow[11] = .5f;
+        int cut = SplitKeyboardPolicy.cutIndex(secondRow);
+        float total = sum(secondRow, 0, secondRow.length);
+        float gap = SplitKeyboardPolicy.gapWeight(total, 1f);
+        close(sum(secondRow, 0, cut), sum(secondRow, cut, secondRow.length) + 1f, "asdfg | ghjkl are even");
+        close(total + gap + 1f, 10f + SplitKeyboardPolicy.gapWeight(10f), "the second row keeps the top row's total");
+        check(secondRow[cut - 1] == 1f, "the repeated key is a letter, not the indent");
+
+        // 第三行：⇧ zxcv | v bnm ⌫，两半都是 ⇧ + 4。
+        float edge = KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT;
+        float[] third = {edge, 1, 1, 1, 1, 1, 1, 1, edge};
+        cut = SplitKeyboardPolicy.cutIndex(third);
+        close(sum(third, 0, cut), sum(third, cut, third.length) + 1f, "shift zxcv | vbnm delete are even");
+        check(cut - 1 > 0 && third[cut - 1] == 1f, "the repeated key is v, not shift");
     }
 
     private static void designLayerCuts() {

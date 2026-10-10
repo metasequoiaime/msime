@@ -599,7 +599,7 @@ note "compile: linux desktop shell"
 # the host's own and the two would rebuild each other on every run.
 #
 # The build dependencies live in an image (platforms/linux/tests/tools/Dockerfile.desktop-check) rather than being installed with apt in a throwaway container: that reinstall of the whole webkit2gtk closure ran on every --quick and so on every push, and it is the part of this phase that does not change. The image is tagged per checkout the same way platforms/linux/build-container.sh tags its gate image, so concurrent worktrees never run each other's Dockerfile; the README says how to prune the tags old worktrees leave behind.
-linux_desktop_note="image=msime-linux-desktop-check:\$(printf %s \"\$PWD\" | shasum | cut -c1-12); docker build -t \"\$image\" -f platforms/linux/tests/tools/Dockerfile.desktop-check platforms/linux/tests && docker run --rm -v \"\$PWD\":/source -w /source \"\$image\" cargo check -p msime-desktop --locked --all-targets"
+linux_desktop_note="image=msime-linux-desktop-check:\$(printf %s \"\$PWD\" | shasum | cut -c1-12); docker build -t \"\$image\" -f platforms/linux/tests/tools/Dockerfile.desktop-check platforms/linux/tests && docker run --rm -v \"\$PWD\":/source -v \"\$PWD/target/linux-desktop-check\":/ctarget -w /source -e CARGO_TARGET_DIR=/ctarget -e CARGO_HOME=/ctarget/cargo-home \"\$image\" cargo check -p msime-desktop --locked --all-targets"
 if ! scoped desktop linux; then
   :
 elif [ "$(uname -s 2>/dev/null)" = "Linux" ]; then
@@ -617,6 +617,7 @@ elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
       -v "$root/target/linux-desktop-check":/ctarget \
       -w /source \
       -e CARGO_TARGET_DIR=/ctarget \
+      -e CARGO_HOME=/ctarget/cargo-home \
       "$linux_desktop_image" \
       cargo check -p msime-desktop --locked --all-targets --message-format short \
       > "$root/target/linux-desktop-check/check.log" 2>&1
@@ -1055,13 +1056,16 @@ if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; the
   # 1104 cases where the hand-written set produced three disagreements and McNemar p = 0.25.
   #
   # `nine-key` is the words set typed on the phone grid: each letter becomes the digit printed beside it, so readings that share digits (xi'an and yi'an) compete for one input. The full-keyboard numbers say nothing about it, and nine-key ranking had no gate before.
-  for set in sentences harvested neutral words nine-key; do
+  #
+  # `nine-key-sentences` 是九键长句：4 到 12 个字的整句在九宫格上打，每条都在 32 个数字以内。词级集量不到整句，而整句集的长句大多超过九键的数字上限（#6059）。
+  for set in sentences harvested neutral words nine-key nine-key-sentences; do
     case "$set" in
       sentences) args="--set resources/eval/sentences-v1.tsv" ;;
       harvested) args="--set resources/eval/sentences-v2.tsv" ;;
       neutral) args="--set resources/eval/sentences-neutral-v1.tsv" ;;
       words) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000" ;;
       nine-key) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000 --nine-key" ;;
+      nine-key-sentences) args="--set resources/eval/sentences-nine-key-v1.tsv --nine-key" ;;
     esac
     # shellcheck disable=SC2086
     if cargo run --release -q -p msime-input-runtime --example convert_eval --locked -- \

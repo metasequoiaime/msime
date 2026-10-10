@@ -288,6 +288,7 @@ mod tests {
                 },
             },
             expires_at_unix_ms: now + 3_600_000,
+            session_id: None,
         };
         let session = BackendAccountSession::new(
             BackendAccountClient::new().unwrap(),

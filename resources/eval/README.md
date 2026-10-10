@@ -25,7 +25,7 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
   --set resources/eval/sentences-v1.tsv
 ```
 
-需要资源目录里有 `sentence-model.safetensors`——它量的就是重排的开销，没有模型就没有可量的东西。`--budget-ms` 默认 16（一帧），p95 超出即以非零码退出；`--warmup N` 丢弃前 N 条用例的样本（默认 5）。
+需要资源目录里有 `sentence-model.safetensors`——它量的就是重排的开销，没有模型就没有可量的东西。`--budget-ms` 默认 16（一帧），p95 超出即以非零码退出；`--warmup N` 丢弃前 N 条用例的样本（默认 5）。`--nine-key` 在九宫格上打（字母换成键上的数字，同 `convert_eval --nine-key`），量九键长串每次按键的开销。
 
 同进程里开两个 runtime，一个挂重排一个不挂，逐条交替先后顺序，按键**配对**相减。配对是必须的：真正要问的不是一次按键多久，而是**因为重排**多了多久，两次独立运行的差值里混着散热状态和页缓存。
 
@@ -48,6 +48,12 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 `convert_eval --nine-key` 打开 Runtime 的九键模式，把每条用例的字母换成键盘上印在旁边的数字（a–c 是 2，w–z 是 9）再逐键输入，金标准不变。全键盘上 xi'an 和 yi'an 是两个输入，九键上是同一串 9426，所以权重口径不一致的词在这里才暴露出来（一按 压过 西安）；全拼的数字测不到这一层。
 
 `verify-local.sh` 以 `--limit 3000 --nine-key` 跑它，对照 `baseline-nine-key.json`。完整 25,119 条上，九键 top-1 0.552、top-5 0.826，全拼是 0.753 / 0.941（同一份锁定词库，挂着重排模型）：九键比全键盘少对两成，这个差距就是九键排序要追的东西。
+
+### `sentences-nine-key-v1.tsv` — 81 条九键长句
+
+手写的合成短句，4 到 12 个字每档 9 条，`verify-local.sh` 以 `--nine-key` 跑它，对照 `baseline-nine-key-sentences.json`。九键一次最多 32 个数字（`DIGIT_LIMIT`），超出的键被丢掉，而 `sentences-v1.tsv` 11 个音节以上的 7 条里有 6 条超过 32 个字母，`sentences-neutral-v1.tsv` 1105 条里也有 279 条超过，在九键上金标准根本打不出来；这份每条都在 32 个字母以内，12 个字的句子也能整串打完。金标准的取舍与 `sentences-v1.tsv` 相同，另外不收 ta 开头或句中带 他/她 的句子（#6059）。
+
+同一份集合在全键盘上打（不带 `--nine-key`）是九键要追的参照：按切分路径各自解码时（#6377），九键 top-1 0.457、found 0.556，全键盘 0.691 / 0.716。九键按键延迟用 `rerank_latency --nine-key` 在这份集合上量，见上文的「延迟基准」。
 
 ### `sentences-v2.tsv` — 310 条收割，带上文
 
@@ -168,4 +174,4 @@ TYPESAFE_API_KEY=... scripts/review-harvested-cases.py target/harvest.jsonl targ
 
 ## 已知测不到的东西
 
-词表覆盖（词级集的金标准 99.94% 本来就在词典里）、用户学习与调频（harness 强制关闭，否则前一条会污染后一条）、双拼路径、九宫格、语言模型困惑度（没有语料）。
+词表覆盖（词级集的金标准 99.94% 本来就在词典里）、用户学习与调频（harness 强制关闭，否则前一条会污染后一条）、双拼路径、语言模型困惑度（没有语料）。九宫格由 `--nine-key` 的两份集合覆盖，见上文。

@@ -10,8 +10,10 @@ public final class SymbolPanelModel {
     public static final int COLUMNS = 5;
     /** 「常用」最多记这么多个，正好六行。 */
     public static final int RECENTS_LIMIT = 30;
-    /** 最长的内置条目是「@gmail.com」这类网络后缀；存储里超长的条目当作损坏丢掉。 */
+    /** 最长的内置条目是「@protonmail.com」这类邮箱后缀（15 个码位）；存储里超长的条目当作损坏丢掉。 */
     public static final int MAX_SYMBOL_CODE_POINTS = 32;
+    /** 不超过这么多码位的条目在五列格里用正常字号；更长的（`http://`、邮箱后缀）缩小字号并单行省略，见 {@link #cellTextSizeSp}。 */
+    public static final int SHORT_SYMBOL_CODE_POINTS = 4;
     public static final String RECENTS_TITLE = "常用";
     public static final String RECENTS_EMPTY_HINT = "点过的符号会出现在这里";
     /** Engine 目录（`msime-others.db` 的 `kaomoji_catalog`、`symbol_catalog`）里的两种分类，就是 `msime_client_emoji_catalog_request` 的 `category`。 */
@@ -78,10 +80,7 @@ public final class SymbolPanelModel {
             "一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
             "Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ", "Ⅸ", "Ⅹ",
             "½", "⅓", "¼", "‰", "′", "″", "㎡", "㎏", "㎝", "№")),
-        new Category("网络", List.of(
-            "@", "#", "/", "\\", ":", "_", "-", "+", "=", "&",
-            "?", "%", "~", "^", "*", "|", "<", ">", "$", "€",
-            "http://", "https://", "www.", ".com", ".cn", ".net", ".org", ".io", "@qq.com", "@gmail.com")));
+        new Category("网络", network()));
 
     /**
      * 写死的分类之后，是 Engine 目录里的颜文字和各类符号（#5667「文本符号过少」）。数据随词库 `msime-others.db` 发布，与 iOS 键盘和桌面面板读的是同一份；上级分类的中文名与 iOS 的 `KeyboardEmojiCatalog.symbolParentTitles` 相同，顺序按目录里的顺序。
@@ -102,6 +101,32 @@ public final class SymbolPanelModel {
         new Category("更多", List.of(), SYMBOLS_CATALOG, "More"));
 
     private SymbolPanelModel() { }
+
+    /** 「网络」分类：网址和常用符号，后面接全部邮箱后缀（{@link EmailSuffixPolicy#SUFFIXES}，#6147），和邮箱输入框里候选栏给的是同一份。 */
+    private static List<String> network() {
+        ArrayList<String> values = new ArrayList<>(List.of(
+            "@", "#", "/", "\\", ":", "_", "-", "+", "=", "&",
+            "?", "%", "~", "^", "*", "|", "<", ">", "$", "€",
+            "http://", "https://", "www.", ".com", ".cn", ".net", ".org", ".io"));
+        values.addAll(EmailSuffixPolicy.SUFFIXES);
+        return values;
+    }
+
+    /**
+     * 符号格里一个条目的字号（sp）：颜文字 14；不超过 {@link #SHORT_SYMBOL_CODE_POINTS} 个码位的 18；更长的在五列格里放不下，9 个码位以内 13，再长 11，并由面板设成单行、放不下时末尾省略，不折行（#6147）。
+     */
+    public static float cellTextSizeSp(Category category, String symbol) {
+        if (category.kaomoji()) return 14;
+        int length = symbol == null ? 0 : symbol.codePointCount(0, symbol.length());
+        if (length <= SHORT_SYMBOL_CODE_POINTS) return 18;
+        return length <= 9 ? 13 : 11;
+    }
+
+    /** 这个条目要不要单行省略：比 {@link #SHORT_SYMBOL_CODE_POINTS} 长的非颜文字条目。 */
+    public static boolean singleLineCell(Category category, String symbol) {
+        return !category.kaomoji() && symbol != null
+            && symbol.codePointCount(0, symbol.length()) > SHORT_SYMBOL_CODE_POINTS;
+    }
 
     /** 左列的全部分类：第一个是「常用」，内容就是 `recents`（最近点的在前），然后是写死的分类，最后是 Engine 目录里的分类。 */
     public static List<Category> categories(List<String> recents) {

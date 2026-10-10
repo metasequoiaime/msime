@@ -34,6 +34,11 @@ public final class CloudClipboardApi {
         this.api = api;
     }
 
+    /** Recheck the page's login before copying one of its rows to the system clipboard. */
+    public void requireCurrentSession() throws CloudApi.Failure {
+        api.currentAccountSessionId();
+    }
+
     public static boolean validId(String id) {
         return id != null && ID.matcher(id).matches();
     }

@@ -3,12 +3,14 @@
 #include "CandidateHttpPolicy.h"
 
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -75,11 +77,10 @@ std::optional<nlohmann::json> ai_descriptor(const std::string &query,
     const auto serialized = request.dump();
     if (serialized.size() > 65536)
       return std::nullopt;
-    std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+    auto raw = msime::host_api::own_string(
         msime_client_ai_http_request(
             reinterpret_cast<const uint8_t *>(serialized.data()),
-            serialized.size()),
-        msime_client_string_free);
+            serialized.size()));
     if (!raw)
       return std::nullopt;
     const auto response = nlohmann::json::parse(raw.get(), nullptr, false);
@@ -110,11 +111,11 @@ std::optional<std::string> ai_cache_key(const std::string &query) {
     const auto candidate_limit = configured_limit >= 1 && configured_limit <= 10
                                      ? configured_limit
                                      : 3;
-    // Match the source worker's cache identity. Deliberately omit token,
-    // context, session, and generation so no secrets are retained and an
-    // unchanged prefix can be reused after a candidate refresh. Prompt
-    // settings stay in the identity because they change the provider's answer
-    // even when the provider, model, and input prefix do not.
+    // Context and prompt settings change the model's answer. Keep a digest
+    // of the context rather than retaining the private text in the cache key.
+    // Session and generation stay out so an unchanged request can be reused
+    // after a candidate refresh.
+    const auto context = parsed.value("ai_context", std::string{});
     return nlohmann::json{{"provider", config.value("provider", std::string{})},
                           {"endpoint", config.value("endpoint", std::string{})},
                           {"model", config.value("model", std::string{})},
@@ -126,6 +127,7 @@ std::optional<std::string> ai_cache_key(const std::string &query) {
                            config.value("prompt_custom_2", std::string{})},
                           {"prompt_custom_3",
                            config.value("prompt_custom_3", std::string{})},
+                          {"ai_context_hash", std::hash<std::string>{}(context)},
                           {"pinyin_segments", segments}}
         .dump();
   } catch (...) {
@@ -278,10 +280,9 @@ AiCandidateWorker::fetch(const std::string &query,
   const auto body = https_post(*descriptor, is_cancelled);
   if (!body || body->empty() || (is_cancelled && is_cancelled()))
     return {};
-  std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+  auto raw = msime::host_api::own_string(
       msime_client_parse_ai_response(
-          reinterpret_cast<const uint8_t *>(body->data()), body->size(), limit),
-      msime_client_string_free);
+          reinterpret_cast<const uint8_t *>(body->data()), body->size(), limit));
   if (!raw)
     return {};
   try {

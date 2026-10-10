@@ -12,8 +12,32 @@ inline TsfPreeditStyle preference_tsf_preedit_style(const nlohmann::json &p) {
   if (value == "empty") return TsfPreeditStyle::Empty;
   throw std::invalid_argument("Invalid TSF preedit style preference");
 }
+// 偏好里选的双拼方案用不用得到 `;` 键，与 Engine 的 `ShuangpinProfile::uses_semicolon_key` 同一条规则：微软双拼（ing 在 `;` 上），或者自定义方案的表里有韵母放在 `;` 上、有零声母编码的第二个键是 `;`。TIP 只在这个开关打开时把组字中的 `;` 当输入键（MicrosoftShuangpinChanged），所以不能只看方案名，否则自定义方案里放在 `;` 上的音节打不出来。表不合法时 Engine 按小鹤运行而这里仍按表回答；这种表经 MCP 存不进来（保存前同样校验），只会来自手改的偏好文件，那时 Server 按 View.microsoft_shuangpin 判断，与延迟应用期间新旧方案不一致的情形相同。
+inline bool shuangpin_uses_semicolon_key(const nlohmann::json &preferences) {
+  const auto profile = preferences.value("shuangpin_profile", std::string("xiaohe"));
+  if (profile == "microsoft")
+    return true;
+  if (profile != "custom")
+    return false;
+  const auto table = preferences.find("shuangpin_custom_profile");
+  if (table == preferences.end() || !table->is_object())
+    return false;
+  const auto keys_use_semicolon = [&](const char *part) {
+    const auto entries = table->find(part);
+    if (entries == table->end() || !entries->is_object())
+      return false;
+    for (const auto &key : *entries)
+      if (key.is_string()) {
+        const auto &text = key.get_ref<const std::string &>();
+        if (!text.empty() && text.back() == ';')
+          return true;
+      }
+    return false;
+  };
+  return keys_use_semicolon("finals") || keys_use_semicolon("zero_initials");
+}
 enum class EditKind { None, Character, Erase, Caret };
-// Whether the Engine takes this key's text as input in its current state: View.spelling_symbols, which lists V's digits and operators, U's digits, and on an empty pinyin composition the "/" and "@" that open their modes.
+// Whether the Engine takes this key's text as input in its current state: View.spelling_symbols, which lists V's digits and operators, U's digits, and on an empty composition in a scheme that opens the table modes (the pinyin schemes and Wubi, `opens_table_modes`) the "/" and "@" that open their modes.
 inline bool spelled_by_engine(std::string_view spelling_symbols, uint32_t text) {
   return text >= 0x21 && text <= 0x7E &&
          spelling_symbols.find(static_cast<char>(text)) != std::string_view::npos;
@@ -90,7 +114,7 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
       return EditKind::Character;
     return EditKind::None;
   }
-  // V's digits and operators, and on an empty pinyin composition the "/" or "@" that opens its mode.
+  // V's digits and operators, and on an empty composition in a scheme that opens the table modes (the pinyin schemes and Wubi, `opens_table_modes`) the "/" or "@" that opens its mode.
   if (spelled_by_engine(spelling_symbols, text))
     return EditKind::Character;
   return EditKind::None;

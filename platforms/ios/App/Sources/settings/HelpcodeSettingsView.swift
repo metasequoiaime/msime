@@ -20,7 +20,7 @@ struct HelpcodeSettingsView: View {
   /// 引擎自带的辅助码表，形式为 (schema id, title)。「输入」页的「辅助码方案」一行列出的是同一批。
   static let schemas: [(String, String)] = [
     ("lantian", "蓝天小雨点"), ("ziranma", "自然码"), ("shouyou2_0", "首右2.0"),
-    ("shouyouplus", "首右plus"), ("xiaohe", "小鹤"), ("jiajia", "加加"),
+    ("shouyouplus", "首右plus"), ("xiaohe", "小鹤"), ("jiajia", "加加"), ("wubi86", "五笔 86"),
   ]
 
   @Environment(\.scenePhase) private var scenePhase

@@ -55,10 +55,7 @@ struct ClipboardHistoryStore {
 
   /// The shared store writes a non-negative JSON `u64`; reject NSNumber's boolean and lossy conversions.
   static func strictTimestampMilliseconds(_ value: NSNumber) -> UInt64? {
-    guard CFGetTypeID(value) != CFBooleanGetTypeID(),
-          let integer = UInt64(value.stringValue),
-          NSNumber(value: integer).compare(value) == .orderedSame else { return nil }
-    return integer
+    SharedNumber.strictUInt64(value)
   }
 
   func add(_ text: String) throws {

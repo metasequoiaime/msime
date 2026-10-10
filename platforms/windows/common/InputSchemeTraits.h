@@ -44,6 +44,9 @@ constexpr bool CancelRestoresRaw(int scheme) { return scheme == Vietnamese || sc
 // A choice from the list fixes one reading and keeps the conversion composing in the TIP's own host session, which a row picked or a page turned by the mouse in the Server's candidate window would leave behind, so the list is driven from the keyboard only. A Korean Hanja click ends the syllable on both sides and stays clickable.
 constexpr bool KeyboardOnlyCandidateList(int scheme) { return scheme == Zhuyin; }
 
+// 整句改字（MSIME_CONVERSION_LEFT / MSIME_CONVERSION_RIGHT）只在全拼和双拼里有：不带修饰键的左右键交给引擎的改字命令，Ctrl+左右一个字母一个字母地编辑拼音（MSIME_MOVE_LEFT / MSIME_MOVE_RIGHT），其他方案里 Ctrl+左右照旧按分段移动。引擎在进不了改字时把改字命令当作字母光标命令，所以宿主只按方案区分。
+constexpr bool EditsSentence(int scheme) { return scheme == Quanpin || scheme == Shuangpin; }
+
 // Stroke's five stroke keys, the Engine's STROKES (crates/engine/src/stroke/mod.rs): h 横, s 竖, p 撇, n 点, z 折. Only they start a composition; the wildcard x only extends one.
 inline constexpr std::string_view kStrokeKeys = "hspnz";
 inline constexpr wchar_t kStrokeWildcard = L'x';
@@ -112,6 +115,12 @@ constexpr bool ShowsGlosses(int scheme) { return scheme == Quanpin || scheme == 
 
 // `detects_urls`：组字中键入 `www.`、`http:` 这类触发词会进入网址模式。TIP 把全拼、双拼、五笔都记成 quanpin（mode_scheme），三者都检测网址，所以 TIP 用 InputModeScheme 判断不会看错。
 constexpr bool DetectsUrls(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi; }
+
+// `opens_local_modes`: Shift+letter opens the local modes other than K (U, T, E, M, J, Y, R, V) while nothing is composed; of them the TIP routes only V's keys, as the expression flag of LocalModeTriggersChanged. K and the `/` and `@` keys follow `opens_table_modes`. The Server decides it from the scheme that runs (apply_local_mode_switches in src/ipc/ReplyCodec.h); the TIP must not, because it keys Wubi as quanpin (mode_scheme) and this is false for Wubi.
+constexpr bool OpensLocalModes(int scheme) { return scheme == Quanpin || scheme == Shuangpin; }
+
+// `opens_table_modes`: Shift+K and the `/` and `@` keys open the quick phrase, command and mention modes while nothing is composed, so the Server sends the command and mention flags of LocalModeTriggersChanged on only here. In every other scheme the symbols a view lists outside a local mode are the scheme's own spelling.
+constexpr bool OpensTableModes(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi; }
 
 // ---- The input mode the Server tells the TIP about ----
 
@@ -339,7 +348,7 @@ constexpr bool is_input_mode_payload(const wchar_t *data, std::size_t size)
     return size >= 2 && data[0] != L'\0' && data[1] == L'\0';
 }
 
-// The representative scheme number of a mode, for the scheme traits above. Chinese stands for quanpin: the three schemes it covers answer every trait alike.
+// The representative scheme number of a mode, for the scheme traits above. Chinese stands for quanpin: the three schemes it covers answer every trait alike except OpensLocalModes, which only the Server reads, from the scheme that runs.
 constexpr int mode_scheme(InputMode mode)
 {
     switch (mode)

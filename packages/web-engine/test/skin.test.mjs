@@ -65,6 +65,8 @@ test("every custom-theme-parity case gives exactly its expected palette", () => 
   assert.ok(parity.length > 0);
   for (const entry of parity) {
     const base = catalog.find((theme) => theme.id === entry.base);
+    // 桌面和手机的自定义主题有浅色、深色两个皮肤槽位，固定明暗的皮肤落在另一种明暗时 resolve() 不画它（这类用例的 expected 为该明暗下的底）。网页引擎一次只画调用方给的一款皮肤，没有槽位，这款皮肤照旧画在它 base 的明暗下（见 `resolveSkin` 的说明），所以跳过这类用例。
+    if (base?.appearance && (base.appearance === "dark") !== entry.dark && entry.package) continue;
     const mode = base?.appearance ?? (entry.dark ? "dark" : "light");
     const palette = entry.package ? drawnPackagePalette(entry.package, mode) : null;
     assert.deepEqual(customCandidatePalette(entry.base, entry.colors, palette), entry.expected, entry.name);

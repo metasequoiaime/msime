@@ -7,7 +7,7 @@ use crate::assets;
 use crate::diagnostics;
 use crate::ime::personal_rerank::personal_context_rerank_order;
 use crate::ime::queries::MODE_ENGLISH_LIMIT;
-use crate::local::date_time::LocalDateTime;
+use crate::local::date_time::{inline_date_time_keyword, insert_inline_date_time, LocalDateTime};
 use crate::local::jianpin::jianpin_ranking_context;
 use crate::pinyin::segment::{cut_pinyin_by_mode, join_segments, CutMode};
 use crate::text::{count_utf8_chars, is_han_phrase};
@@ -344,6 +344,10 @@ impl InputSession {
 
     /// 0 clears.
     pub(super) fn set_candidate_position(&mut self, index: usize, position: i32) -> KeyResult {
+        // 改字的候选是光标处一段的替换，不是这串拼音的候选，不能固定、置顶或删除。
+        if self.conversion.is_some() {
+            return KeyResult::unhandled();
+        }
         if !(0..=5).contains(&position) {
             return KeyResult::unhandled();
         }
@@ -379,6 +383,9 @@ impl InputSession {
     }
 
     pub(super) fn pin_candidate(&mut self, index: usize) -> KeyResult {
+        if self.conversion.is_some() {
+            return KeyResult::unhandled();
+        }
         let Some(index) = self.ranking_index(index) else {
             return KeyResult::unhandled();
         };
@@ -418,6 +425,9 @@ impl InputSession {
     }
 
     pub(super) fn remove_candidate(&mut self, index: usize) -> KeyResult {
+        if self.conversion.is_some() {
+            return KeyResult::unhandled();
+        }
         let Some(selected) = self.candidates().get(index) else {
             return KeyResult::unhandled();
         };
@@ -490,12 +500,35 @@ impl InputSession {
             self.dedicated_english,
             self.local_mode,
         );
+        self.insert_inline_date_time(&mut mixed);
         self.apply_candidate_positions(&mut mixed);
         // 放在固定位置之后：单字母输入时固定位置会补回列表里没有的词。
         if self.single_character_only && scheme.filters_to_single_characters() {
             mixed.retain(|item| !is_han_phrase(&item.word));
         }
         mixed
+    }
+
+    /// 全拼组字正好是 `riqi`、`sj` 这类关键词时，把当前日期、时间、星期或农历接在对应的词后面（#5952）。跟日期时间模式（T 模式）同一个开关；光标前缀解码、只出单字、专用英文和本地模式里不加。
+    fn insert_inline_date_time(&self, items: &mut Vec<WordItem>) {
+        if !self.local_mode_options.date_time
+            || self.prefix_active
+            || self.single_character_only
+            || self.dedicated_english
+            || self.local_mode != LocalInputMode::None
+            || self.scheme() != SchemeType::Quanpin
+        {
+            return;
+        }
+        let raw = self.engine.request().raw_input.as_str();
+        let Some((anchor, kind)) = inline_date_time_keyword(|keyword| {
+            raw.bytes()
+                .filter(|&byte| byte != b'\'')
+                .eq(keyword.bytes())
+        }) else {
+            return;
+        };
+        insert_inline_date_time(items, anchor, kind, raw, || self.local_now());
     }
 }
 

@@ -143,6 +143,20 @@ public final class KeyboardActionRow {
         return List.copyOf(entries);
     }
 
+    /**
+     * 紧挨在中/英右边的回车让给中/英的那几 dp。两键之间拿不准的按下算成中/英：误按中/英，再按一下就回来了；误按回车，消息就发出去了。回车约是中/英的两倍宽，让出这一点不影响正常按它。鸿蒙的 `KeyboardGeometry.RETURN_YIELD_VP` 与 iOS 的 `KeyGapRouting.returnYield` 是同一个值。
+     */
+    public static final float RETURN_YIELD_DP = 6f;
+
+    /** 底行里中/英是否紧挨在回车左边，这时回车让出 {@link #RETURN_YIELD_DP}。 */
+    public static boolean languageBesideReturn(List<DesignEntry> entries) {
+        for (int index = 1; index < entries.size(); index++) {
+            if (entries.get(index).slot() == DesignSlot.RETURN)
+                return entries.get(index - 1).slot() == DesignSlot.LANGUAGE;
+        }
+        return false;
+    }
+
     /** 新设计底行逗号 / 句号键的键面：中文标点模式 `，` `。`，否则 `,` `.`。 */
     public static String punctuationFace(DesignSlot slot, boolean chinesePunctuation) {
         if (slot == DesignSlot.COMMA) return chinesePunctuation ? "，" : ",";

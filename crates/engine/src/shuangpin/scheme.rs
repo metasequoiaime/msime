@@ -1,11 +1,11 @@
-//! Shuangpin key handling (`R/schemes/shuangpin_scheme.cpp`, schemes-lang.md §1.8). Microsoft accepts `;` as a key when the chunk since the last `'` has odd length.
+//! 双拼的按键处理（`R/schemes/shuangpin_scheme.cpp`，schemes-lang.md §1.8）。方案用得到 `;` 键时（微软双拼把 ing 放在 `;` 上，自定义方案可以把韵母或零声母编码的第二个键放在 `;` 上，见 `ShuangpinProfile::uses_semicolon_key`），自上一个 `'` 以来的片段长度为奇数时把 `;` 当作按键接受。
 
 use super::query::{
     apply_segmentation_cases, effective_input_length, normalize_input, segment_input,
     to_quanpin_segmentation,
 };
 use super::ShuangpinProfile;
-use crate::types::{QueryRequest, SchemeKey, SchemeType, ShuangpinProfileKind};
+use crate::types::{QueryRequest, SchemeKey, SchemeType};
 
 pub struct ShuangpinScheme {
     profile: &'static ShuangpinProfile,
@@ -54,9 +54,9 @@ impl ShuangpinScheme {
         }
     }
 
-    /// Microsoft's `ing` key can only be the second key of a syllable, i.e. follow an odd-length chunk (:12-22).
+    /// `;` 只能是一个音节的第二个键，即接在奇数长度的片段之后（:12-22）。
     fn accepts_ing_key(&self) -> bool {
-        if self.profile.kind != ShuangpinProfileKind::Microsoft {
+        if !self.profile.uses_semicolon_key() {
             return false;
         }
         let chunk = self.raw.rsplit('\'').next().unwrap_or_default();
@@ -138,9 +138,10 @@ impl ShuangpinScheme {
 mod tests {
     use super::*;
     use crate::shuangpin::profile::profile;
+    use crate::types::ShuangpinProfileKind;
 
     fn scheme(kind: ShuangpinProfileKind) -> ShuangpinScheme {
-        ShuangpinScheme::new(profile(kind))
+        ShuangpinScheme::new(profile(kind).unwrap())
     }
 
     fn type_text(scheme: &mut ShuangpinScheme, text: &str) {

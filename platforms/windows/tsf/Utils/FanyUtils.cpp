@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
-#include <memory>
 #include <optional>
 #include <string>
 #include "Define.h"
@@ -10,6 +9,7 @@
 #include "Ipc.h"
 #include "../HostOptionsPaths.h"
 #include "../../common/InputSchemeTraits.h"
+#include "../../../common/HostApiString.h"
 #include <msime_client.h>
 #include <nlohmann/json.hpp>
 #include <utf8cpp/utf8.h>
@@ -33,9 +33,8 @@ std::optional<nlohmann::json> ReadSharedPreferences()
     {
         return std::nullopt;
     }
-    std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
-        msime_client_load_preferences(reinterpret_cast<const uint8_t *>(directory.data()), directory.size()),
-        msime_client_string_free);
+    auto raw = msime::host_api::own_string(
+        msime_client_load_preferences(reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
     if (!raw)
     {
         return std::nullopt;

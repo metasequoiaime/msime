@@ -24,6 +24,15 @@ int main() {
   assert(is_segment_caret_key(kVirtualKeyLeft, kModifierControl));
   assert(is_segment_caret_key(kVirtualKeyRight, kModifierControl));
   assert(!is_segment_caret_key(kVirtualKeyRight, kModifierControl | kModifierShift));
+  // 整句改字：全拼、双拼里左右键换成改字命令，Ctrl+左右换成逐个字母的光标命令；其他方案原样。
+  using msime::windows::sentence_edit_command;
+  static_assert(sentence_edit_command(4, true) == 17);
+  static_assert(sentence_edit_command(5, true) == 18);
+  static_assert(sentence_edit_command(13, true) == 4);
+  static_assert(sentence_edit_command(14, true) == 5);
+  static_assert(sentence_edit_command(12, true) == 12);
+  static_assert(sentence_edit_command(4, false) == 4);
+  static_assert(sentence_edit_command(13, false) == 13);
   using msime::windows::should_send_composition_reply;
   assert(should_send_composition_reply(false, false, false, false, false,
                                         true));

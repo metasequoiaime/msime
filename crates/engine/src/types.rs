@@ -217,12 +217,26 @@ impl SchemeType {
         }
     }
 
-    /// Shift+letter and the `/` and `@` keys open local modes while nothing is composed.
+    /// Shift+字母打开除 K 以外的本地模式；K、`/` 和 `@` 由 `opens_table_modes` 单独判断。
     pub const fn opens_local_modes(self) -> bool {
         match self {
             Self::Quanpin | Self::Shuangpin => true,
             Self::Wubi
             | Self::JapaneseRomaji
+            | Self::Korean
+            | Self::Vietnamese
+            | Self::Tibetan
+            | Self::Cantonese
+            | Self::Stroke
+            | Self::Zhuyin => false,
+        }
+    }
+
+    /// 没有组字时，Shift+K 打开短语模式，`/` 和 `@` 打开指令和提及模式；五笔也提供这些只查本地表的入口。
+    pub const fn opens_table_modes(self) -> bool {
+        match self {
+            Self::Quanpin | Self::Shuangpin | Self::Wubi => true,
+            Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese
             | Self::Tibetan
@@ -565,6 +579,8 @@ pub enum ShuangpinProfileKind {
     Ziranma = 1,
     Shoudao = 2,
     Microsoft = 3,
+    /// 用户自定义的键位，表在 [`ShuangpinCustomTable`] 里（`EngineOptions::shuangpin_custom_profile`、`SessionOptions::shuangpin_custom_profile`），没有内置的表。
+    Custom = 4,
 }
 
 impl ShuangpinProfileKind {
@@ -574,6 +590,7 @@ impl ShuangpinProfileKind {
             1 => Self::Ziranma,
             2 => Self::Shoudao,
             3 => Self::Microsoft,
+            4 => Self::Custom,
             _ => return None,
         })
     }
@@ -585,6 +602,7 @@ impl ShuangpinProfileKind {
             "ziranma" => Self::Ziranma,
             "shoudao" => Self::Shoudao,
             "microsoft" => Self::Microsoft,
+            "custom" => Self::Custom,
             _ => return None,
         })
     }
@@ -595,8 +613,17 @@ impl ShuangpinProfileKind {
             Self::Ziranma => "ziranma",
             Self::Shoudao => "shoudao",
             Self::Microsoft => "microsoft",
+            Self::Custom => "custom",
         }
     }
+}
+
+/// 用户自定义双拼方案的键位表（共享偏好 `shuangpin_custom_profile`）。三张表与内置方案同构：`initials` 只写三个多字母声母 `zh` `ch` `sh`，单字母声母仍在自己的字母键上；`finals` 把 33 个韵母各放到一个键上；`zero_initials` 给 12 个零声母音节各一个两键编码。键是小写字母或 `;`，`ü` 写作 `v`。表合不合法由 Engine 判定（见 `shuangpin::custom`），顺序无关。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ShuangpinCustomTable {
+    pub initials: Vec<(String, String)>,
+    pub finals: Vec<(String, String)>,
+    pub zero_initials: Vec<(String, String)>,
 }
 
 /// 五笔码表版本。序号即宿主 ABI 值（`EngineOptions::wubi_profile`）。
@@ -828,6 +855,10 @@ pub enum Command {
     CommitReading = 10,
     /// Open the active scheme's candidate list, or close it when it is open: the composing syllable's Hanja in Korean, the conversion's alternatives in Zhuyin. Schemes without an openable list leave it unhandled. The name stays for the wire and the goldens.
     ConvertHanja = 11,
+    /// 整句改字的光标左移一个字：组字的首选是一个字对一个音节的全拼或双拼整句时，第一次进入改字、光标停在最后一个字前，之后每次左移一个字；进不了改字时与 `MoveLeft` 相同。
+    ConversionLeft = 12,
+    /// 整句改字的光标右移一个字，最远到句末；不在改字里时与 `MoveRight` 相同。
+    ConversionRight = 13,
 }
 
 impl Command {
@@ -845,6 +876,8 @@ impl Command {
             9 => Self::CycleKanaVariant,
             10 => Self::CommitReading,
             11 => Self::ConvertHanja,
+            12 => Self::ConversionLeft,
+            13 => Self::ConversionRight,
             _ => return None,
         })
     }
@@ -863,11 +896,13 @@ impl Command {
             Self::CycleKanaVariant => "CycleKanaVariant",
             Self::CommitReading => "CommitReading",
             Self::ConvertHanja => "ConvertHanja",
+            Self::ConversionLeft => "ConversionLeft",
+            Self::ConversionRight => "ConversionRight",
         }
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
-        (0..=11)
+        (0..=13)
             .filter_map(Self::from_u8)
             .find(|command| command.name() == name)
     }

@@ -5,6 +5,7 @@ on:
       version: {description: Semantic version (defaults to platforms/linux/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as a linux-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
+      legacy: {description: "Also build the IBus-only legacy .deb for glibc 2.28 systems (Debian 10, UOS 20) and attach it as msime-linux-legacy_VERSION_ARCH.deb", required: false, default: true, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-linux, cancel-in-progress: false}
 jobs:
@@ -85,9 +86,10 @@ jobs:
             # CPack 写出的是 data.tar.xz 加 control.tar.gz；出现 control.tar.xz 说明 package-container.sh 已经用 xz -9 重新打包了这个 .deb。
             members=$(ar t "${deb[0]}" | tr '\n' ' ')
             [[ $members == "debian-binary control.tar.xz data.tar.xz " ]] || { echo "edition $edition: ${deb[0]} has members $members, not the xz -9 repack" >&2; exit 1; }
-            # Fcitx5 只在 Recommends 里：Depends 里出现 fcitx5 或 libfcitx5*，Ubuntu 22.04 这类 Fcitx5 低于 5.0.20 的系统就整包装不上，连 IBus 也用不了（#6305）。
+            # IBus 和 Fcitx5 二选一（#6401）：Depends 里只能以 `ibus (>= 1.5.20) | fcitx5 (>= 5.0.20)` 出现。单独依赖 IBus 会把它拉进 deepin 这类 Fcitx5 系统；Depends 里另有 fcitx5 或 libfcitx5*，Ubuntu 22.04 这类 Fcitx5 低于 5.0.20 的系统就整包装不上（#6305）；Recommends 里有 fcitx5，apt 会把它拉进 IBus 系统。
             depends=$(dpkg-deb -f "${deb[0]}" Depends); recommends=$(dpkg-deb -f "${deb[0]}" Recommends)
-            [[ $depends != *fcitx5* && $recommends == *"fcitx5 (>= 5.0.20)"* ]] || { echo "edition $edition: ${deb[0]} must recommend fcitx5 (>= 5.0.20) and not depend on Fcitx5; Depends: $depends; Recommends: $recommends" >&2; exit 1; }
+            framework="ibus (>= 1.5.20) | fcitx5 (>= 5.0.20)"; others=${depends//"$framework"/}
+            [[ $depends == *"$framework"* && $others != *fcitx5* && $others != *"ibus ("* && $recommends != *fcitx5* ]] || { echo "edition $edition: ${deb[0]} must depend on '$framework' and on neither framework otherwise; Depends: $depends; Recommends: $recommends" >&2; exit 1; }
             # 除了预编译的 sherpa-onnx 和 ONNX Runtime 库按上游构建原样发布外，每个 ELF 文件都已 strip（CMake 目标靠 CPACK_STRIP_FILES，Rust 目标靠 CARGO_PROFILE_RELEASE_STRIP）。
             unpacked=$(mktemp -d)
             dpkg-deb -x "${deb[0]}" "$unpacked"
@@ -165,6 +167,15 @@ jobs:
           name: msime-linux-rpm-${{ matrix.arch }}-${{ steps.version.outputs.value }}
           path: target/linux-package-rpm/dist/
           if-no-files-found: error
+  # glibc 2.28 基线（Debian 10、UOS 20 一类）用的 legacy .deb（#6311），在 buster 容器里构建，两个架构各在原生 runner 上；逻辑在 build-linux-legacy.yml。它的产物名也是 msime-linux-*-VERSION，publish 一并取到并作为附件发布。取消勾选 legacy 时跳过，发布照常进行。
+  legacy:
+    needs: source
+    if: ${{ inputs.legacy }}
+    permissions: {contents: read}
+    uses: ./.github/workflows/build-linux-legacy.yml
+    with:
+      ref: ${{ needs.source.outputs.sha }}
+      version: ${{ inputs.version }}
   # 发行版源码构建要的 tarball（COPR、OBS 与 PPA 用源码与 vendor 包，Gentoo 只用前端包；AUR 的 msime 从 GitHub 的标签归档构建，不用这些）：当前提交的源码、离线构建用的 vendor 包（crate、构建好的前端、按锁文件取回的数据）和单独的前端包，见 platforms/linux/packaging/make-source-tarballs.sh。随发布一起上传，各包定义按发布页地址引用它们。只打 full。
   distro-sources:
     needs: source
@@ -190,14 +201,14 @@ jobs:
           path: target/distro-sources/
           if-no-files-found: error
   publish:
-    needs: [source, deb, rpm, distro-sources]
-    # distro-sources 被跳过时照样发布（见 source 的说明），它失败时不发布。
-    if: ${{ !cancelled() && inputs.publish && needs.deb.result == 'success' && needs.rpm.result == 'success' && (needs.distro-sources.result == 'success' || needs.distro-sources.result == 'skipped') }}
+    needs: [source, deb, rpm, distro-sources, legacy]
+    # distro-sources 被跳过时照样发布（见 source 的说明），它失败时不发布；legacy 同理，没勾选时跳过，勾选了却失败时不发布。
+    if: ${{ !cancelled() && inputs.publish && needs.deb.result == 'success' && needs.rpm.result == 'success' && (needs.distro-sources.result == 'success' || needs.distro-sources.result == 'skipped') && (needs.legacy.result == 'success' || needs.legacy.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
-      # 只取要发布的产物：两个架构各自的 msime-linux-deb/rpm-ARCH-VERSION 与 msime-linux-sources-VERSION。
+      # 只取要发布的产物：两个架构各自的 msime-linux-deb/rpm/legacy-deb-ARCH-VERSION 与 msime-linux-sources-VERSION。
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: msime-linux-*-${{ needs.deb.outputs.version }}

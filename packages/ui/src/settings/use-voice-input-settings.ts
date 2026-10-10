@@ -29,9 +29,16 @@ export function useVoiceInputSettings({
   const serviceVoice = !systemVoice && !localVoice;
   const harmonyUnsupportedAsr =
     harmony &&
-    !["doubao", "system", "openai", "siliconflow", "groq", "everyapi", "mistral"].includes(
-      String(voiceInput.asr_provider),
-    );
+    ![
+      "doubao",
+      "system",
+      "openai",
+      "siliconflow",
+      "groq",
+      "everyapi",
+      "mistral",
+      "bailian",
+    ].includes(String(voiceInput.asr_provider));
   const doubaoAuthMode = voiceInput.doubao_auth_mode || "api_key";
   const updateVoice = (patch: Partial<VoiceInputPreferences>) => onChange(patch);
 

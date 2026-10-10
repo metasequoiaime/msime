@@ -41,7 +41,7 @@ public final class TypingPage extends DetailPage {
 
     private static final String[][] HELPCODE_DEFAULTS = {
         {"ziranma", "自然码"}, {"xiaohe", "小鹤"}, {"lantian", "蓝天小雨点"}, {"shouyou2_0", "首右2.0"},
-        {"shouyouplus", "首右plus"}, {"jiajia", "加加"},
+        {"shouyouplus", "首右plus"}, {"jiajia", "加加"}, {"wubi86", "五笔 86"},
     };
     private static final String[][] TARGET_LANGUAGES = {
         {"en", "英语"}, {"ja", "日语"}, {"ko", "韩语"}, {"fr", "法语"}, {"de", "德语"}, {"es", "西班牙语"}, {"ru", "俄语"},

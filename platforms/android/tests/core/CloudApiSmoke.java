@@ -5,6 +5,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class CloudApiSmoke {
     public static void main(String[] arguments) throws Exception {
@@ -69,6 +71,93 @@ public final class CloudApiSmoke {
         CloudApi.Response response = api.send("GET", "/v1/users/me", null, CloudApi.Auth.ACCOUNT);
         check(response.status() == 204 && seen.size() == 2, "a rejected token is refreshed and retried once");
         check("MSIME/Android".equals(seen.get(0).get("User-Agent")), "plain User-Agent on every request");
+
+        AtomicReference<String> login = new AtomicReference<>("synthetic-login-a");
+        CloudApi.Tokens changing = new CloudApi.Tokens() {
+            @Override public String token(String rejected) { return "synthetic-login-a".equals(login.get()) ? stale : fresh; }
+            public String sessionId() { return login.get(); }
+        };
+        AtomicInteger oldCalls = new AtomicInteger();
+        CloudApi oldRequest = new CloudApi((method, path, headers, body) -> {
+            oldCalls.incrementAndGet();
+            login.set("synthetic-login-b");
+            return new CloudApi.Exchange(401, null, null, new byte[0]);
+        }, changing, rejected -> "");
+        try {
+            oldRequest.send("GET", "/v1/users/me", null, CloudApi.Auth.ACCOUNT);
+            throw new AssertionError("an old request must not retry after a new login");
+        } catch (CloudApi.Failure failure) {
+            check("session_changed".equals(failure.code), "new login cancels a rejected old request");
+            check(oldCalls.get() == 1, "new login receives no old request retry");
+        }
+        login.set("synthetic-login-a");
+        CloudApi successfulOldRequest = new CloudApi((method, path, headers, body) -> {
+            login.set("synthetic-login-b");
+            return new CloudApi.Exchange(200, null, null, new byte[0]);
+        }, changing, rejected -> "");
+        try {
+            successfulOldRequest.send("GET", "/v1/users/me", null, CloudApi.Auth.ACCOUNT);
+            throw new AssertionError("an old response must not survive a new login");
+        } catch (CloudApi.Failure failure) {
+            check("session_changed".equals(failure.code), "new login discards a successful old response");
+        }
+        AtomicReference<String> sameTokenLogin = new AtomicReference<>("synthetic-login-a");
+        CloudApi.Tokens reusedToken = new CloudApi.Tokens() {
+            @Override public String token(String rejected) { return stale; }
+            @Override public String sessionId() { return sameTokenLogin.get(); }
+        };
+        CloudApi sameTokenRequest = new CloudApi((method, path, headers, body) -> {
+            sameTokenLogin.set("synthetic-login-b");
+            return new CloudApi.Exchange(200, null, null, new byte[0]);
+        }, reusedToken, rejected -> "");
+        try {
+            sameTokenRequest.send("GET", "/v1/users/me", null, CloudApi.Auth.ACCOUNT);
+            throw new AssertionError("login identity must be checked even when tokens match");
+        } catch (CloudApi.Failure failure) {
+            check("session_changed".equals(failure.code), "new login with the same token is cancelled");
+        }
+        AtomicReference<String> rotatingToken = new AtomicReference<>(stale);
+        CloudApi.Tokens rotatingLogin = new CloudApi.Tokens() {
+            @Override public String token(String rejected) {
+                if (rejected != null) rotatingToken.set(fresh);
+                return rotatingToken.get();
+            }
+            @Override public String sessionId() { return "synthetic-login-a"; }
+        };
+        CloudApi sameLoginRetry = new CloudApi((method, path, headers, body) ->
+            new CloudApi.Exchange(("Bearer " + fresh).equals(headers.get("Authorization")) ? 204 : 401,
+                null, null, new byte[0]), rotatingLogin, rejected -> "");
+        check(sameLoginRetry.send("GET", "/v1/users/me", null, CloudApi.Auth.ACCOUNT).status() == 204,
+            "a token refresh in the same login still retries");
+
+        AtomicReference<String> clipboardLogin = new AtomicReference<>("synthetic-login-a");
+        AtomicInteger clipboardDeletes = new AtomicInteger();
+        CloudApi.Tokens clipboardTokens = new CloudApi.Tokens() {
+            @Override public String token(String rejected) { return stale; }
+            @Override public String sessionId() { return clipboardLogin.get(); }
+        };
+        CloudApi clipboardTransport = new CloudApi((method, path, headers, body) -> {
+            if ("DELETE".equals(method)) clipboardDeletes.incrementAndGet();
+            return new CloudApi.Exchange(204, null, null, new byte[0]);
+        }, clipboardTokens, rejected -> "");
+        CloudApi boundClipboard = clipboardTransport.forAccountSession(
+            clipboardTransport.currentAccountSessionId());
+        CloudClipboardApi clipboardPage = new CloudClipboardApi(boundClipboard);
+        boundClipboard.send("GET", CloudClipboardApi.PATH + "?q=", null, CloudApi.Auth.ACCOUNT);
+        clipboardLogin.set("synthetic-login-b");
+        try {
+            clipboardPage.requireCurrentSession();
+            throw new AssertionError("an old clipboard row must not be copied after a new login");
+        } catch (CloudApi.Failure failure) {
+            check("session_changed".equals(failure.code), "old clipboard row rejects a new login");
+        }
+        try {
+            clipboardPage.clear();
+            throw new AssertionError("an old clipboard page must not clear the new account");
+        } catch (CloudApi.Failure failure) {
+            check("session_changed".equals(failure.code), "old clipboard page rejects a new login");
+            check(clipboardDeletes.get() == 0, "the new account receives no old-page delete");
+        }
 
         CloudApi denied = new CloudApi((method, path, headers, body) ->
             new CloudApi.Exchange(401, null, null, new byte[0]), rejected -> stale, rejected -> "");

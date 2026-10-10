@@ -198,7 +198,10 @@ def main() -> int:
         # 配置已就绪：直接交给 msime-linux-ibus，不引导。
         system_options.parent.mkdir(parents=True)
         system_options.write_text("{}")
-        (runtime / "msime-client/first-run-guide.stamp").unlink(missing_ok=True)
+        try:
+            (runtime / "msime-client/first-run-guide.stamp").unlink()
+        except FileNotFoundError:
+            pass
         result = launch(graphical)
         assert result.returncode == 0, result
         wait_for(lambda: len(calls(log, "ibus")) == 1, "prepared configuration did not reach the engine")

@@ -1,8 +1,6 @@
 package app.msime.android.home;
 
-import app.msime.android.TextPolicy;
 import android.content.Context;
-import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
@@ -20,6 +18,7 @@ import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.ListPolicy;
+import app.msime.android.NumberPolicy;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import java.io.IOException;
@@ -107,14 +106,9 @@ public final class LexiconPage extends DetailPage {
     private void loadDiscover() {
         HostTask.runNetwork(this, context -> new CommunityCatalog(context).list(CommunityRequest.Kind.DICTIONARY, "", 0, null),
             page -> {
-                if (page == null || page.failed()) {
-                    discover = null;
-                    discoverFailure = page == null ? "暂时连不上社区，稍后再试。" : page.failure();
-                } else {
-                    List<CommunityCatalog.Item> items = page.items();
-                    discover = CommunityRequest.limitedCopy(items, DISCOVER_LIMIT);
-                    discoverFailure = null;
-                }
+                CommunityCatalog.Discovery result = CommunityCatalog.discovery(page, DISCOVER_LIMIT);
+                discover = result.items();
+                discoverFailure = result.failure();
                 render();
             });
     }
@@ -130,13 +124,13 @@ public final class LexiconPage extends DetailPage {
 
         GroupCard installed = GroupCard.add(target, "已安装").withDividers(58);
         String builtinCount = current.builtinCount() < 0 ? null
-            : DictionaryCollectionsStore.countLabel(current.builtinCount());
+            : NumberPolicy.groupedCount(current.builtinCount());
         installed.addView(KeyboardSheets.badgeNavRow(context, "汉", "拼音词库", builtinCount, "已启用",
             Ui.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_PINYIN, "拼音词库")));
         for (DictionaryCollectionsStore.Collection collection : current.view().collections()) {
-            String subtitle = DictionaryCollectionsStore.countLabel(collection.entryCount())
+            String subtitle = NumberPolicy.groupedCount(collection.entryCount())
                 + ("community".equals(collection.sourceType()) ? " · 社区" : "");
-            installed.addView(KeyboardSheets.badgeNavRow(context, Ui.initial(collection.name(), "词"), collection.name(),
+            installed.addView(KeyboardSheets.badgeNavRow(context, TextPolicy.initial(collection.name(), "词"), collection.name(),
                 subtitle, collection.enabled() ? "已启用" : "已停用",
                 collection.enabled() ? Ui.accent(context) : Ui.subText(context),
                 () -> openDetail(collection.id(), collection.name())));
@@ -168,7 +162,7 @@ public final class LexiconPage extends DetailPage {
         InputFeatureToggle toggle = InputFeatureToggle.LEARNING;
         learning.toggle(toggle.title(), toggle.description(), current.learning(), this::saveLearning);
 
-        if (Ui.tauriAvailable()) {
+        if (ManagementUi.available()) {
             GroupCard more = GroupCard.add(target, "更多");
             more.nav("背单词", "在管理界面里复习收藏的单词", null, this::openVocabularyReview);
             more.nav("云词库", "在管理界面里管理云端词库", null, this::openCloudDictionary);
@@ -190,11 +184,11 @@ public final class LexiconPage extends DetailPage {
     private View discoverRow(CommunityCatalog.Item item, DictionaryCollectionsStore.View view) {
         Context context = requireContext();
         LinearLayout row = KeyboardSheets.baseRow(context);
-        row.addView(KeyboardSheets.badge(context, Ui.initial(item.name(), "词")));
+        row.addView(KeyboardSheets.badge(context, TextPolicy.initial(item.name(), "词")));
         List<String> parts = new ArrayList<>(2);
         if (!item.author().isEmpty()) parts.add("@" + item.author());
         JSONArray words = item.payload() == null ? null : item.payload().optJSONArray("words");
-        if (words != null) parts.add(DictionaryCollectionsStore.countLabel(words.length()));
+        if (words != null) parts.add(NumberPolicy.groupedCount(words.length()));
         if (parts.isEmpty() && !item.description().isEmpty()) parts.add(item.description());
         row.addView(KeyboardSheets.texts(context, item.name(), parts.isEmpty() ? null : String.join(" · ", parts),
                 Ui.text(context)),
@@ -208,10 +202,8 @@ public final class LexiconPage extends DetailPage {
                 Ui.accentSoft(context), Ui.accent(context), Ui.BUTTON_PADDING_H, Ui.BUTTON_PADDING_V,
                 Ui.COMPACT_BUTTON_MIN_HEIGHT, 0, () -> install(item));
         } else {
-            button = Ui.styledLabel(context, added ? "已添加" : "添加中",
+            button = Ui.centeredSingleLineLabel(context, added ? "已添加" : "添加中",
                 Ui.TEXT_BUTTON_SMALL, 500, Ui.subText(context));
-            ViewPolicy.setCentered(button);
-            ViewPolicy.setSingleLine(button);
             ViewPolicy.setBackground(button, Ui.pillRipple(context,
                 added ? Ui.rowBackground(context) : Ui.accentSoft(context)));
             Ui.setButtonPadding(button, context);
@@ -304,7 +296,7 @@ public final class LexiconPage extends DetailPage {
         DictionaryCollectionsStore.ImportReport report = result.value().importReport();
         if (report == null) return "已导入「" + name + "」";
         StringBuilder message = new StringBuilder("已导入「").append(name).append("」，")
-            .append(DictionaryCollectionsStore.countLabel(report.imported()));
+            .append(NumberPolicy.groupedCount(report.imported()));
         if (report.duplicates() > 0) message.append("，跳过重复 ").append(report.duplicates()).append(" 条");
         if (report.failed() > 0) message.append("，").append(report.failed()).append(" 行无法识别");
         if (report.truncated()) message.append("，词库已满");
@@ -384,25 +376,19 @@ public final class LexiconPage extends DetailPage {
     // ---- 只在 Tauri 合包里有用的入口（P21），跳转写法与原 KeyboardFragment / AccountFragment 一致 ----
 
     private void openVocabularyReview() {
-        if (!Ui.tauriAvailable()) {
+        if (!ManagementUi.available()) {
             MsToast.show(requireContext(), "背单词需要管理界面合包，请使用 Tauri 合包打开。");
             return;
         }
-        Intent intent = new Intent();
-        intent.setClassName(requireContext(), "app.msime.android.MainActivity");
-        intent.putExtra("msime_settings_page", "vocabulary");
-        startActivity(intent);
+        startActivity(ManagementUi.settingsPage(requireContext(), "vocabulary"));
     }
 
     private void openCloudDictionary() {
-        if (!Ui.tauriAvailable()) {
+        if (!ManagementUi.available()) {
             MsToast.show(requireContext(), "云词库需要管理界面合包，请使用 Tauri 合包打开。您仍可在本机使用词库设置。");
             return;
         }
-        Intent intent = new Intent();
-        intent.setClassName(requireContext(), "app.msime.android.MainActivity");
-        intent.putExtra("msime_mobile_panel", "cloud-dictionary");
-        startActivity(intent);
+        startActivity(ManagementUi.mobilePanel(requireContext(), "cloud-dictionary"));
     }
 
 }

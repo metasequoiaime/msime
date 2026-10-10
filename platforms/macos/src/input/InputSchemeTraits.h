@@ -32,6 +32,9 @@ constexpr bool OpensCandidateList(int scheme) { return scheme == Korean || schem
 // The composition is always drawn inline whatever the preedit display preference says: until a list is opened there is no candidate window to show it in, and hidden it would be text the user cannot see being written.
 constexpr bool AlwaysInlinePreedit(int scheme) { return LetterComposition(scheme) || OpensCandidateList(scheme); }
 
+// 整句改字（MSIME_CONVERSION_LEFT / MSIME_CONVERSION_RIGHT）只在全拼和双拼里有：左右键交给引擎的改字命令，Ctrl+左右一个字母一个字母地编辑拼音，横排候选的高亮改由上下键移动。
+constexpr bool EditsSentence(int scheme) { return scheme == Quanpin || scheme == Shuangpin; }
+
 // ---- Engine traits the view does not publish; each mirrors the `SchemeType` predicate of the same name ----
 
 // `commits_on_blur`: 离开组字（失去焦点、切换方案或模式、把导航键交给应用）时把组字写出去，而不是丢弃。

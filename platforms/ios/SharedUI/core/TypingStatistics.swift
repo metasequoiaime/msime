@@ -996,6 +996,28 @@ struct TypingStatisticsStore {
     return .neverWritten
   }
 
+  /// 原生统计页「统计没有数据」那张卡的正文，nil 表示不需要这张卡。`recordingOff` 只在确实读到了统计文档且其中记录关闭时为真：此时键盘本来就不写，「记录已关闭」那张卡已经说明了原因，这里再让人去开完全访问，会把人引到错误的地方。
+  ///
+  /// 文件存在不能说明键盘写过：在 app 里开启记录时，`client-core` 的 `set_enabled` 会无条件写出 `typing-statistics.json`，而键盘没有完全访问权限时不记录任何东西，数字会一直是零。app 读不到键盘是否有完全访问（iOS 没有公开 API，键盘没有完全访问时也写不了 App Group，留下的标记在权限收回后会过期），所以计数为零时始终先提醒这一项，再说其他可能。
+  static func emptyStatisticsAdvice(_ availability: Availability, recordingOff: Bool, total: Int) -> String? {
+    if recordingOff { return nil }
+    switch availability {
+    case .containerUnavailable:
+      return "无法访问共享存储，键盘与本 app 之间没有可用的数据通道。重装水杉输入法可以重建它。"
+    case .neverWritten:
+      return "键盘从未写入过统计。请在系统设置 → 通用 → 键盘 → 键盘 → 水杉输入法中开启“允许完全访问”，"
+        + "然后用水杉键盘输入几个字再回来刷新。未开启时仍可正常打字，只是不记录统计。"
+    case .ready(let lastWritten):
+      guard total == 0 else { return nil }
+      let fullAccess = "请先确认已在系统设置 → 通用 → 键盘 → 键盘 → 水杉输入法中为水杉键盘开启“允许完全访问”，未开启时键盘不记录统计。"
+      guard let lastWritten else {
+        return "统计文件存在但还没有计数。" + fullAccess + "已开启的话，用水杉键盘输入几个字再刷新。"
+      }
+      return "统计文件最后写入于 \(lastWritten.formatted(.dateTime.month().day().hour().minute()))，但计数为零。"
+        + fullAccess + "已开启的话，若此前清空过统计，这是正常的；否则请附上这条信息反馈。"
+    }
+  }
+
   /// Count one commit. `date` places it on a day and an hour; the active time between commits is measured by the shared store against its own clock.
   func record(_ text: String, source: TypingSource = .unknown, at date: Date = Date(), calendar: Calendar = .current) throws {
     guard text.contains(where: { !$0.isWhitespace }) else { return }
@@ -1078,12 +1100,7 @@ struct TypingStatisticsStore {
 
   /// Native JSON must return a non-negative integral count that cannot exceed the submitted batch.
   static func strictRecordedCount(_ value: Any?, maximum: Int) -> Int? {
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID(),
-          let integer = Int(number.stringValue),
-          integer >= 0,
-          integer <= maximum,
-          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
+    guard let integer = SharedNumber.nonnegativeInt(value), integer <= maximum else { return nil }
     return integer
   }
 

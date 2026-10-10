@@ -30,10 +30,13 @@ import java.util.concurrent.Callable;
 public final class CloudClipboardPage extends DetailPage {
     private static final String DESCRIPTION = "在你登录的设备之间同步，经 HTTPS 传输，保存在水杉云，关闭即删除";
     private static final List<String> RETENTION_LABELS = List.of("1 天", "7 天", "30 天", "一直");
+    private record Loaded(CloudClipboardApi api, CloudClipboardApi.Page page) {}
 
     @Nullable private CloudClipboardApi.Page page;
+    @Nullable private CloudClipboardApi loadedApi;
     private boolean busy;
     private boolean signedOut;
+    private long generation;
     @Nullable private LinearLayout column;
 
     @Override protected void buildContent(LinearLayout column, Bundle args) {
@@ -43,29 +46,41 @@ public final class CloudClipboardPage extends DetailPage {
     }
 
     @Override public void onDestroyView() {
+        generation++;
+        page = null;
+        loadedApi = null;
+        busy = false;
+        signedOut = false;
         column = null;
         super.onDestroyView();
     }
 
     @Override protected void onBecameVisible() {
-        if (getView() != null && !busy) reload();
-    }
-
-    private CloudClipboardApi api() {
-        return new CloudClipboardApi(new CloudApi(requireContext().getApplicationContext()));
+        if (getView() != null) reload();
     }
 
     private void reload() {
-        CloudClipboardApi api = api();
+        Context application = requireContext().getApplicationContext();
+        long request = ++generation;
         busy = true;
-        AboutPage.network(this, api::load, outcome -> {
+        page = null;
+        loadedApi = null;
+        signedOut = false;
+        render();
+        AboutPage.network(this, () -> {
+            CloudApi cloud = new CloudApi(application);
+            CloudClipboardApi api = new CloudClipboardApi(
+                cloud.forAccountSession(cloud.currentAccountSessionId()));
+            return new Loaded(api, api.load());
+        }, outcome -> {
+            if (request != generation) return;
             busy = false;
             if (outcome.error() instanceof CloudApi.Failure failure && failure.signedOut()) {
                 signedOut = true;
-                page = null;
             } else if (outcome.value() != null) {
                 signedOut = false;
-                page = outcome.value();
+                loadedApi = outcome.value().api();
+                page = outcome.value().page();
             } else {
                 MsToast.show(requireContext(), "云剪贴板没有读出来，请稍后再试");
             }
@@ -73,7 +88,7 @@ public final class CloudClipboardPage extends DetailPage {
         });
     }
 
-    /** 先做一次写入，成功后重新读一遍；失败只提示，界面保持上一次读到的状态。 */
+    /** Write through the login that supplied this page, then reload; a failed write discards the old rows. */
     private void mutate(Callable<Void> work, @Nullable String done) {
         if (busy) {
             // 上一次读写还没回来：这次不发，但开关和分段已经被拨过去了，重画一遍让界面回到真实状态，并说一声。
@@ -82,11 +97,15 @@ public final class CloudClipboardPage extends DetailPage {
             return;
         }
         busy = true;
+        long request = ++generation;
         AboutPage.network(this, work, outcome -> {
+            if (request != generation) return;
             busy = false;
             if (outcome.error() != null) {
                 MsToast.show(requireContext(), outcome.error() instanceof CloudApi.Failure failure && failure.network()
                     ? "连不上服务器，请检查网络后重试" : "没有完成，请稍后再试");
+                page = null;
+                loadedApi = null;
                 render();
                 return;
             }
@@ -158,9 +177,8 @@ public final class CloudClipboardPage extends DetailPage {
             Ui.setSymmetricPaddingDp(empty, context, 16, 32);
             TextView title = Ui.styledLabel(context, "还没有同步内容", Ui.TEXT_ROW_TITLE, 500, Ui.text(context));
             empty.addView(title);
-            TextView hint = Ui.styledLabel(context, "在任一设备上复制文字，这里就会出现",
+            TextView hint = Ui.centeredLabel(context, "在任一设备上复制文字，这里就会出现",
                 Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
-            ViewPolicy.setCentered(hint);
             LinearLayout.LayoutParams hintParams = Ui.wrap();
             hintParams.topMargin = Ui.dp(context, 4);
             empty.addView(hint, hintParams);
@@ -188,19 +206,36 @@ public final class CloudClipboardPage extends DetailPage {
         row.addView(Ui.iconButton(context, R.drawable.ic_ms_keep,
             item.pinned() ? Ui.accent(context) : Ui.subText(context),
             item.pinned() ? "取消置顶" : "置顶", 40, () -> {
-                CloudClipboardApi api = api();
+                CloudClipboardApi api = loadedApi;
+                if (api == null) return;
                 mutate(() -> { api.setPinned(item.id(), !item.pinned()); return null; }, null);
             }));
         row.addView(Ui.iconButton(context, R.drawable.ic_ms_delete, Ui.subText(context), "删除", 40, () -> {
-            CloudClipboardApi api = api();
+            CloudClipboardApi api = loadedApi;
+            if (api == null) return;
             mutate(() -> { api.delete(item.id()); return null; }, "已删除");
         }));
 
         row.setContentDescription(item.text() + "，" + meta(item) + "，点按复制");
-        Ui.makeClickable(row, context, () -> {
-            ClipboardActions.copyText(context, "水杉云剪贴板", item.text(), "已复制");
-        });
+        Ui.makeClickable(row, context, () -> copy(item));
         return row;
+    }
+
+    private void copy(CloudClipboardApi.Item item) {
+        CloudClipboardApi source = loadedApi;
+        if (source == null) return;
+        long request = generation;
+        AboutPage.network(this, () -> {
+            source.requireCurrentSession();
+            return item.text();
+        }, outcome -> {
+            if (request != generation || loadedApi != source) return;
+            if (outcome.error() != null) {
+                reload();
+                return;
+            }
+            ClipboardActions.copyText(requireContext(), "水杉云剪贴板", outcome.value(), "已复制");
+        });
     }
 
     /** 「已置顶 · 设备 · 时间」，没有的部分省掉。 */
@@ -242,7 +277,8 @@ public final class CloudClipboardPage extends DetailPage {
     }
 
     private void setEnabled(boolean enabled) {
-        CloudClipboardApi api = api();
+        CloudClipboardApi api = loadedApi;
+        if (api == null) return;
         if (enabled) {
             mutate(() -> { api.setEnabled(true); return null; }, null);
             return;
@@ -259,12 +295,14 @@ public final class CloudClipboardPage extends DetailPage {
     private void setRetention(int days) {
         CloudClipboardApi.Page current = page;
         if (current == null || current.retentionDays() == days) return;
-        CloudClipboardApi api = api();
+        CloudClipboardApi api = loadedApi;
+        if (api == null) return;
         mutate(() -> { api.setRetention(days); return null; }, null);
     }
 
     private void confirmClear() {
-        CloudClipboardApi api = api();
+        CloudClipboardApi api = loadedApi;
+        if (api == null) return;
         new MaterialAlertDialogBuilder(requireContext())
             .setTitle("清空云剪贴板？")
             .setMessage("所有设备上同步的记录都会删除，置顶的也不例外。")

@@ -22,11 +22,11 @@ enum BackendCandidateGloss {
   // The network round trip for one page. A variable so BackendAccountTests can count what is sent without a server or an account.
   static var perform: @MainActor (Request) async -> Void = { await translate($0) }
 
-  private nonisolated static func token() async throws -> String {
-    if let value = try? await account.accessToken() { return value }
-    if let value = try? await anonymous.accessToken() { return value }
+  private nonisolated static func translationSession() async throws -> BackendAccountSession {
+    if (try? await account.accessToken()) != nil { return account }
+    if (try? await anonymous.accessToken()) != nil { return anonymous }
     _ = try await BackendAnonymousAccount.ensureSignedIn(session: anonymous, client: client)
-    return try await anonymous.accessToken()
+    return anonymous
   }
 
   static func fetch(words: [String], primary: String, secondary: String, generation: UInt64) {
@@ -52,12 +52,12 @@ enum BackendCandidateGloss {
 
   private nonisolated static func translate(_ request: Request) async {
     let words = request.words, generation = request.generation
-    guard let token = try? await token() else { return }
+    guard let session = try? await translationSession() else { return }
     await withTaskGroup(of: Void.self) { group in
       for code in [request.primary, request.secondary] where !code.isEmpty {
         group.addTask {
           // A request that failed (offline, rate limited) posts nothing, so the words stay unknown and are asked about again.
-          guard let values = try? await client.translate(texts: words, target: code, token: token) else { return }
+          guard let values = try? await client.translate(texts: words, target: code, session: session) else { return }
           await MainActor.run {
             NotificationCenter.default.post(name: notification, object: nil,
                                             userInfo: payload(words: words, values: values, code: code, generation: generation))

@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
-    #[error("candidate page size must be between 1 and 9")]
+    #[error("candidate page size must be between 1 and 10")]
     InvalidPageSize,
     #[error("candidate belongs to an expired view or another session")]
     StaleCandidate,
@@ -180,6 +180,10 @@ pub trait InputEngine {
         Ok(result)
     }
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
+    /// 整句改字的左移，进入改字时从引擎的第 `index` 个候选开始。没有整句改字的引擎当作普通的改字命令。
+    fn conversion_left_from(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
+        self.command(Command::ConversionLeft)
+    }
     fn pin_candidate(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
         Err(RuntimeError::Engine(
             "Candidate pinning is unsupported".into(),
@@ -332,6 +336,10 @@ impl InputEngine for Session {
     }
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::select(self, index).map_err(|error| RuntimeError::Engine(error.to_string()))
+    }
+    fn conversion_left_from(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        Session::conversion_left_from(self, index)
+            .map_err(|error| RuntimeError::Engine(error.to_string()))
     }
     fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::pin_candidate(self, index).map_err(|e| RuntimeError::Engine(e.to_string()))

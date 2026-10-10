@@ -7,6 +7,7 @@ use std::sync::Arc;
 use super::candidates::clone_candidate_rows;
 use super::chain::CommitChain;
 use super::clock::Clock;
+use super::conversion::ConversionEdit;
 use super::online::OnlineRequestGuard;
 use super::options::SessionOptions;
 use crate::assets;
@@ -22,7 +23,7 @@ use crate::local::GENERATED_MODE_INPUT_LIMIT;
 use crate::paths::RuntimePaths;
 use crate::punctuation::PunctuationPolicy;
 use crate::quanpin::QuanpinEngine;
-use crate::shuangpin::profile::profile;
+use crate::shuangpin::custom::session_profile;
 use crate::shuangpin::ShuangpinProfile;
 use crate::stroke;
 use crate::tibetan::{SHAD, TSHEG};
@@ -30,7 +31,7 @@ use crate::time::Instant;
 use crate::types::{
     CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
     KeyResult, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,
-    QuickPhraseEntry, SchemeKey, SchemeType, ShuangpinProfileKind, WordItem, WubiInputOptions,
+    QuickPhraseEntry, SchemeKey, SchemeType, WordItem, WubiInputOptions,
 };
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::removal::learn_entered_english_word;
@@ -57,7 +58,7 @@ pub(super) struct InputSession {
     pub engine: ImeSession,
     pub queries: CandidateQueries,
     pub clock: Clock,
-    pub profile: ShuangpinProfileKind,
+    pub profile: &'static ShuangpinProfile,
     pub caret: Option<usize>,
     pub phrase_progress: CreatingWordProgress,
     pub pending_sequence: Option<String>,
@@ -99,6 +100,8 @@ pub(super) struct InputSession {
     pub single_character_only: bool,
     /// Writes phrases under complete quanpin keys whatever the active scheme is, so a shuangpin session never feeds a canonical key back through its profile; opened on first use.
     pub canonical_phrase_engine: Option<QuanpinEngine>,
+    /// 整句改字（`conversion`）进行中时的状态；改字期间候选是光标处那一段的字和词。
+    pub conversion: Option<ConversionEdit>,
 }
 
 impl InputSession {
@@ -106,10 +109,15 @@ impl InputSession {
     pub fn new(options: &SessionOptions) -> Result<Self> {
         let paths = options.paths.clone();
         let journal = paths.user(assets::USER_JOURNAL);
+        let profile = session_profile(
+            options.shuangpin_profile,
+            options.shuangpin_custom_profile.as_ref(),
+            options.enabled_schemes.contains(SchemeType::Shuangpin),
+        )?;
         let mut engine = ImeSession::new(
             options.scheme,
             options.enabled_schemes,
-            options.shuangpin_profile,
+            profile,
             &paths,
             options.cantonese_dictionary.clone(),
             options.zhuyin_dictionary.clone(),
@@ -124,10 +132,10 @@ impl InputSession {
             options.vietnamese_tone_style,
         );
         let mut session = Self {
-            queries: CandidateQueries::new(&paths, options.shuangpin_profile),
+            queries: CandidateQueries::new(&paths, profile),
             engine,
             clock: Clock::default(),
-            profile: options.shuangpin_profile,
+            profile,
             caret: None,
             phrase_progress: CreatingWordProgress::default(),
             pending_sequence: None,
@@ -165,6 +173,7 @@ impl InputSession {
             shuangpin_preedit_uses_raw: true,
             single_character_only: options.single_character_only,
             canonical_phrase_engine: None,
+            conversion: None,
             journal_path: journal,
             paths,
         };
@@ -223,6 +232,13 @@ impl InputSession {
 
     /// input_session.cpp:88-245: caret insertion, dedicated English, local modes and their Shift entries, the acceptance gate, then the scheme. Handled iff the preedit changed.
     pub fn handle_character(&mut self, value: u8, shift_only: bool) -> KeyResult {
+        // 改字时能写进组字的键先退出改字再照常键入；数字和空格等留给候选选择，宿主或 runtime 再按选择处理。
+        if self.conversion.is_some() {
+            if !(value.is_ascii_alphabetic() || value == b'\'' || value == b';') {
+                return KeyResult::unhandled();
+            }
+            self.leave_conversion();
+        }
         if self
             .caret
             .is_some_and(|caret| caret < self.editing_text_len())
@@ -256,7 +272,7 @@ impl InputSession {
         if self.is_stroke() {
             return self.handle_stroke_character(value);
         }
-        if !self.has_composition() && self.scheme().opens_local_modes() {
+        if !self.has_composition() {
             let entry = if shift_only {
                 self.local_mode_for_entry(value)
             } else {
@@ -275,9 +291,8 @@ impl InputSession {
 
         let scheme = self.scheme();
         let lowercase_letter = value.is_ascii_lowercase();
-        let microsoft_final = value == b';'
-            && scheme == SchemeType::Shuangpin
-            && self.profile == ShuangpinProfileKind::Microsoft;
+        let microsoft_final =
+            value == b';' && scheme == SchemeType::Shuangpin && self.profile.uses_semicolon_key();
         let japanese_long_vowel = value == b'-' && scheme == SchemeType::JapaneseRomaji;
         let active_helpcode = value.is_ascii_uppercase()
             && self.has_composition()
@@ -698,7 +713,9 @@ impl InputSession {
             | Command::MoveRight
             | Command::MoveHome
             | Command::MoveEnd
-            | Command::DeleteForward => return Some(self.commit_zhuyin_composition()),
+            | Command::DeleteForward
+            | Command::ConversionLeft
+            | Command::ConversionRight => return Some(self.commit_zhuyin_composition()),
             Command::CommitReading | Command::CycleKanaVariant => return None,
         };
         let claimed = self.engine.handle_zhuyin_key(key);
@@ -728,6 +745,25 @@ impl InputSession {
             self.chain.reset();
             return KeyResult::unhandled();
         }
+        if self.conversion.is_some() {
+            if let Some(result) = self.handle_conversion_command(command) {
+                return result;
+            }
+        }
+        // 进不了整句改字时，改字的光标键就是字母光标键，各方案照常处理。
+        let command = match command {
+            Command::ConversionLeft | Command::ConversionRight => {
+                if let Some(result) = self.move_conversion(command) {
+                    return result;
+                }
+                if command == Command::ConversionLeft {
+                    Command::MoveLeft
+                } else {
+                    Command::MoveRight
+                }
+            }
+            other => other,
+        };
         if self.zhuyin_rules_apply() {
             if let Some(result) = self.handle_zhuyin_command(command) {
                 return result;
@@ -827,7 +863,21 @@ impl InputSession {
             }
             // Only a Korean syllable converts to Hanja and only a Zhuyin conversion opens its list; the host keeps the key.
             Command::ConvertHanja => KeyResult::unhandled(),
+            // 上面已经换成了字母光标命令。
+            Command::ConversionLeft | Command::ConversionRight => KeyResult::unhandled(),
         }
+    }
+
+    /// `Session::conversion_left_from`。
+    pub fn conversion_left_from(&mut self, index: usize) -> KeyResult {
+        if self.conversion.is_none() && self.has_composition() {
+            if let Some(result) = self.move_conversion_from(Command::ConversionLeft, index) {
+                return result;
+            }
+            // 高亮的那一行进不了改字时不换成首选去改，按字母光标左移。
+            return self.handle_command(Command::MoveLeft);
+        }
+        self.handle_command(Command::ConversionLeft)
     }
 
     /// The Hanja list of the composing Korean syllable. The trigger opens it, or closes it when it is open, and is unhandled when the syllable has no Hanja (a lone jamo), so the host keeps the key. With the list open, Cancel and Backspace only close it and leave the syllable composing, and CommitCandidate chooses the first Hanja. `None` leaves the command to the Korean rules.
@@ -1065,7 +1115,7 @@ impl InputSession {
         if let Some(keys) = self.url_entry_keys() {
             return keys.to_owned();
         }
-        if self.has_composition() || !self.scheme().opens_local_modes() {
+        if self.has_composition() || !self.scheme().opens_table_modes() {
             return String::new();
         }
         (*b"/@")
@@ -1154,6 +1204,9 @@ impl InputSession {
 
     /// The displayed list of whichever view is active.
     pub fn candidates(&self) -> &[WordItem] {
+        if let Some(edit) = &self.conversion {
+            return edit.rows();
+        }
         if self.dedicated_english {
             return &self.dedicated_english_candidates;
         }
@@ -1227,6 +1280,7 @@ impl InputSession {
     /// Clears caret, phrase progress, pending sequence, local mode, dedicated preedit and caches; returns from temporary Japanese.
     pub fn reset_composition(&mut self) {
         self.caret = None;
+        self.conversion = None;
         self.prefix_candidates.clear();
         self.prefix_query_input.clear();
         self.prefix_active = false;
@@ -1279,6 +1333,9 @@ impl InputSession {
 
     /// input_session_composition.cpp:379-385. While a caret prefix is decoded the prefix list is the one on screen, so it is the one widened; the reference's caret-prefix overlay widened only the hidden whole-input list and reported growth the host could not see.
     pub(super) fn expand_initial_candidates(&mut self) -> bool {
+        if self.conversion.is_some() {
+            return false;
+        }
         self.refresh_prefix_candidates();
         let grew = if self.prefix_active {
             self.engine.expand_current_raw_prefix_initial_candidates(
@@ -1306,7 +1363,7 @@ impl InputSession {
     }
 
     pub(super) fn shuangpin_profile(&self) -> &'static ShuangpinProfile {
-        profile(self.profile)
+        self.profile
     }
 
     pub(super) fn journal_path(&self) -> &Path {
@@ -1508,12 +1565,20 @@ impl InputSession {
             b'V' => (LocalInputMode::Expression, options.expression),
             _ => return None,
         };
-        enabled.then_some(mode)
+        let scheme_opens = if mode == LocalInputMode::QuickPhrase {
+            self.scheme().opens_table_modes()
+        } else {
+            self.scheme().opens_local_modes()
+        };
+        (enabled && scheme_opens).then_some(mode)
     }
 
-    /// The symbol keys that open a mode with nothing composed. Only while Chinese punctuation is in force: with ASCII punctuation the key is the literal character the user chose.
+    /// 没有组字时，`/` 和 `@` 只在支持本地表入口且启用中文标点时打开模式；英文标点下它们是字面字符。
     fn local_mode_for_symbol(&self, value: u8) -> Option<LocalInputMode> {
-        if !self.chinese_punctuation_enabled || self.punctuation_lock == 2 {
+        if !self.scheme().opens_table_modes()
+            || !self.chinese_punctuation_enabled
+            || self.punctuation_lock == 2
+        {
             return None;
         }
         let options = self.local_mode_options;

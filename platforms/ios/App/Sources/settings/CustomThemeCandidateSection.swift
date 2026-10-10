@@ -13,8 +13,6 @@ struct CustomThemeCandidateSection: View {
   private var followsDesktopPalette = false
   @AppStorage(GlobalThemePreference.key, store: KeyboardFeedbackPreference.defaults)
   private var selectedTheme = GlobalThemeCatalog.systemId
-  /// `custom_theme.candidate_skin`, empty when the custom theme uses no package.
-  @State private var candidateSkin = ""
   @State private var candidateTheme = "follow"
   @State private var appMode = "system"
   @State private var themeId = GlobalThemeCatalog.systemId
@@ -35,17 +33,23 @@ struct CustomThemeCandidateSection: View {
         }
       }.accessibilityIdentifier("candidatePaletteFollowsDesktop")
       if followsDesktopPalette {
-        Picker("外部皮肤", selection: packageBinding) {
+        Picker("浅色模式皮肤", selection: packageBinding(dark: false)) {
           Text("不使用外部皮肤").tag("")
-          ForEach(installedSkins.filter { $0.skin.horizontal }, id: \.id) { package in
+          ForEach(offeredSkins(dark: false), id: \.id) { package in
             Text(Self.title(package.skin)).tag(package.id)
           }
         }.accessibilityIdentifier("candidateSkin")
+        Picker("深色模式皮肤", selection: packageBinding(dark: true)) {
+          Text("不使用外部皮肤").tag("")
+          ForEach(offeredSkins(dark: true), id: \.id) { package in
+            Text(Self.title(package.skin)).tag(package.id)
+          }
+        }.accessibilityIdentifier("candidateSkinDark")
         Button("导入皮肤…") { importingSkin = true }
           .accessibilityIdentifier("candidateSkinImport")
-        if let selected = installedSkins.first(where: { $0.id == candidateSkin }) {
+        ForEach(selectedSkins, id: \.id) { selected in
           Button("删除「\(selected.skin.name)」", role: .destructive) { removeSkin(selected.id) }
-            .accessibilityIdentifier("candidateSkinRemove")
+            .accessibilityIdentifier("candidateSkinRemove-\(selected.id)")
         }
         if !skinStatus.isEmpty {
           Text(skinStatus).font(.footnote).foregroundStyle(.secondary)
@@ -75,7 +79,7 @@ struct CustomThemeCandidateSection: View {
       Text(saveFailed
         ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
         : followsDesktopPalette
-        ? "候选栏使用全局主题的候选配色，与电脑版的候选窗同步；首选候选使用主题的高亮色。选外部皮肤或改颜色会切换到「自定义」主题，并以当前主题为底。“明暗”选跟随系统时，先看共享的主题设置。\n\n“导入皮肤”从“文件”里选一个含 skin.toml 的皮肤文件夹，复制进键盘能读到的共享目录，同名皮肤整个替换。候选栏是横排的，只列出支持横排的皮肤；皮肤没声明的明暗下使用它所基于的主题。"
+        ? "候选栏使用全局主题的候选配色，与电脑版的候选窗同步；首选候选使用主题的高亮色。选外部皮肤或改颜色会切换到「自定义」主题，并以当前主题为底。“明暗”选跟随系统时，先看共享的主题设置。\n\n浅色和深色模式各选一款皮肤。皮肤只在它所基于的主题的明暗下使用：基于浅色主题的列在“浅色模式皮肤”，基于深色主题的列在“深色模式皮肤”，基于“跟随系统”的两边都列出，选它会同时用在两种模式，取消也一起取消。\n\n“导入皮肤”从“文件”里选一个含 skin.toml 的皮肤文件夹，复制进键盘能读到的共享目录，同名皮肤整个替换，并放进它所属的模式。候选栏是横排的，只列出支持横排的皮肤。"
         : "默认关闭，候选栏和按键一起使用键盘主题的颜色。打开后可以导入电脑版的外部候选皮肤、调整候选颜色。")
     }
     .fileImporter(isPresented: $importingSkin, allowedContentTypes: [.folder]) { importSkin($0) }
@@ -85,15 +89,43 @@ struct CustomThemeCandidateSection: View {
     .onChange(of: followsDesktopPalette) { onThemeChange() }
   }
 
-  /// The package the custom theme draws; picking one selects the custom theme over the package's base, and 不使用外部皮肤 drops it from the custom theme.
-  private var packageBinding: Binding<String> {
-    Binding(get: { themeId == GlobalThemeCatalog.customId ? candidateSkin : "" }, set: { id in
+  /// 自定义主题在浅色或深色模式下画的皮肤包。选一款就切到自定义主题、以包的底为底，并按包的底放进它所属的槽位（`system` 底的两个模式一起）；选“不使用外部皮肤”取消这一模式正在用的那款，同一款也放在另一个槽位时一起取消。
+  private func packageBinding(dark: Bool) -> Binding<String> {
+    Binding(get: { shownSkin(dark: dark) ?? "" }, set: { id in
       if id.isEmpty {
-        themeWrite(GlobalThemePreference.clearingPackage)
+        if let shown = shownSkin(dark: dark) { themeWrite(GlobalThemePreference.removingPackage(shown)) }
       } else if let package = installedSkins.first(where: { $0.id == id }) {
-        themeWrite(GlobalThemePreference.applyingPackage(id, base: package.skin.base))
+        apply(package)
       }
     })
+  }
+
+  /// 这一模式的选择器里能选的皮肤：支持横排、底属于这一模式或跟随系统的。
+  private func offeredSkins(dark: Bool) -> [(id: String, skin: ExternalCandidateSkin)] {
+    installedSkins.filter { package in
+      guard package.skin.horizontal else { return false }
+      let slot = CandidateSkinSlot(base: package.skin.base)
+      return slot == .both || slot == (dark ? .dark : .light)
+    }
+  }
+
+  /// 这一模式正在用、并且列在它选择器里的皮肤包；没有自定义主题、槽位空着，或者槽位里的皮肤不属于这一模式（只设过一款深色皮肤的旧文档把它放在 `candidate_skin` 里）时为 nil。
+  private func shownSkin(dark: Bool) -> String? {
+    guard themeId == GlobalThemeCatalog.customId,
+          let id = GlobalThemePreference.candidateSkin(in: customTheme, dark: dark) else { return nil }
+    return offeredSkins(dark: dark).contains { $0.id == id } ? id : nil
+  }
+
+  /// 两个槽位里已装的皮肤，每款一个删除按钮。
+  private var selectedSkins: [(id: String, skin: ExternalCandidateSkin)] {
+    GlobalThemePreference.candidateSkins(in: customTheme).compactMap { id in installedSkins.first { $0.id == id } }
+  }
+
+  private func apply(_ package: (id: String, skin: ExternalCandidateSkin)) {
+    let installed = installedSkins
+    themeWrite(GlobalThemePreference.applyingPackage(package.id, base: package.skin.base, slotOf: { id in
+      installed.first { $0.id == id }.map { CandidateSkinSlot(base: $0.skin.base) }
+    }))
   }
 
   /// A package that declares one appearance says so, since the other falls back to the default skin.
@@ -129,7 +161,7 @@ struct CustomThemeCandidateSection: View {
         skinStatus = "已导入「\(package.skin.name)」，但它只支持竖排候选窗，iOS 的横排候选栏用不了。"
         return
       }
-      themeWrite(GlobalThemePreference.applyingPackage(id, base: package.skin.base))
+      apply(package)
       skinStatus = saveFailed ? "" : "已导入并选用「\(package.skin.name)」。"
     case .failure(.name):
       skinStatus = "文件夹名只能用小写英文字母、数字、点、下划线和连字符，并以字母或数字开头，也不能和内置皮肤同名。"
@@ -147,7 +179,8 @@ struct CustomThemeCandidateSection: View {
       return
     }
     installedSkins = ExternalCandidateSkin.scan(root) ?? []
-    if id == candidateSkin { themeWrite(GlobalThemePreference.clearingPackage) }
+    // 删掉的皮肤从放着它的槽位里清掉，另一个模式的皮肤不动。
+    if GlobalThemePreference.candidateSkins(in: customTheme).contains(id) { themeWrite(GlobalThemePreference.removingPackage(id)) }
     skinStatus = ""
   }
 
@@ -214,7 +247,6 @@ struct CustomThemeCandidateSection: View {
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
     themeId = GlobalThemePreference.theme(in: preferences)
     customTheme = GlobalThemePreference.customTheme(in: preferences)
-    candidateSkin = customTheme["candidate_skin"] as? String ?? ""
     installedSkins = ExternalCandidateSkin.defaultRoot.flatMap(ExternalCandidateSkin.scan) ?? []
     candidateTheme = preferences["candidate_theme"] as? String ?? "follow"
     appMode = preferences["theme"] as? String ?? "system"

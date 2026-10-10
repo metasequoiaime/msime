@@ -10,6 +10,8 @@
 #import "../core/UsageReporting.h"
 #import "../candidate/CandidateSkin.h"
 #import "../voice/VoiceAudioMuter.h"
+#include "../core/DiagnosticLog.h"
+#include "msime_client.h"
 #include <cstring>
 #include <dlfcn.h>
 
@@ -47,7 +49,13 @@ int main(int argc, const char *argv[]) {
                 }, TISEnableInputSource);
             return status == noErr ? 0 : 1;
         }
+        if (MSIMEShouldReportInputSourceRegistration(argc, argv)) {
+            return MSIMEInputSourceRegistryExitCode(
+                MSIMEInputSourceRegistryStateFor(NSBundle.mainBundle.bundleIdentifier, TISCreateInputSourceList));
+        }
         [NSApplication sharedApplication];
+        // Host API reports failures it recovers from by itself (a sound, music or helpcode pack that does not load, an audio device that does not open) as one line on stderr, which launchd points at /dev/null for an input method; this sends them to diagnostic.log instead. Before the first session, whose creation reports the helpcode fallback; lines that arrive before the log is configured or while it is off are dropped, not kept for later (DiagnosticLog.h).
+        msime_client_set_diagnostic_sink(msime_macos_diagnostic_host_line);
         // After an app upgrade the options still point at the previous dictionary generation; bring them to the installed one (replaying the user dictionary) before any session, including the standalone preferences window's, reads them.
         // A missing file is the not-yet-configured state, which is not a refresh failure.
         NSString *optionsPath = MSIMERuntimeOptionsPath();

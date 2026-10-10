@@ -25,6 +25,13 @@ struct EngineView {
   uint32_t scheme = 0;
   // The non-letter keys that spell the composition rather than end it (Zhuyin's digit and punctuation keys, VNI's tone digits); empty when every such key is punctuation.
   std::string spelling_symbols;
+  // 本地模式名（"none" 是普通组字）和引擎自己的英文模式，决定整句改字的方向键是否适用（HostEditsSentence）。
+  std::string local_mode = "none";
+  bool dedicated_english = false;
+  // 整句改字时改好的整句（UTF-8），否则为空；光标在第 conversion_focus_start 个字之前，conversion_focus_start..conversion_focus_end 是候选所替换的那一段，都按 Unicode 标量计（msime_client.h）。
+  std::string conversion;
+  std::size_t conversion_focus_start = 0;
+  std::size_t conversion_focus_end = 0;
 };
 struct EngineResult {
   bool handled = false;

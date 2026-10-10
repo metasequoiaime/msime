@@ -2,13 +2,13 @@ package app.msime.android.home;
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageInfo;
 import android.net.Uri;
 import android.os.Bundle;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.AppVersionPolicy;
 import app.msime.android.CloudApi;
 import app.msime.android.DiagnosticsApi;
 import app.msime.android.FilePolicy;
@@ -238,7 +238,8 @@ public final class DeveloperPage extends DetailPage {
                 if (path == null) return new UploadResult(null, null, "诊断包生成失败，请重试");
                 DiagnosticsApi.Sections sections = DiagnosticsApi.readBundle(new File(path), include);
                 DiagnosticsApi api = new DiagnosticsApi(new CloudApi(context));
-                DiagnosticsApi.Created created = api.upload(PLATFORM, appVersion(context), sections, retention);
+                DiagnosticsApi.Created created = api.upload(
+                    PLATFORM, AppVersionPolicy.versionName(context, ""), sections, retention);
                 DiagnosticsApi.State state;
                 try {
                     state = api.state();
@@ -544,15 +545,6 @@ public final class DeveloperPage extends DetailPage {
                 ? root.optJSONObject("value") : null;
         } catch (JSONException malformed) {
             return null;
-        }
-    }
-
-    private static String appVersion(Context context) {
-        try {
-            PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
-            return info.versionName == null ? "" : info.versionName;
-        } catch (android.content.pm.PackageManager.NameNotFoundException missing) {
-            return "";
         }
     }
 

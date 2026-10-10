@@ -75,7 +75,7 @@ static void TestTencentTranslationHTTPBridge() {
     assert(!error);
     assert(![MSIMEClientSession parseTencentTranslationResponse:response expectedCount:1 error:&error] && !error);
     assert(![MSIMEClientSession parseTencentTranslationResponse:NSData.data expectedCount:1 error:&error] && !error);
-    assert(![MSIMEClientSession parseTencentTranslationResponse:response expectedCount:10 error:&error] && error);
+    assert(![MSIMEClientSession parseTencentTranslationResponse:response expectedCount:11 error:&error] && error);
     error = nil;
     NSMutableDictionary *disabled = [request mutableCopy]; disabled[@"config"] = @{@"enabled":@NO};
     assert(![MSIMEClientSession tencentTranslationHTTPRequest:disabled error:&error] && !error);
@@ -609,6 +609,32 @@ int main() {
         MSIMEApplyTransition(@{@"commit": @"海滩跑步", @"view": @{@"editing_text": @"", @"caret_position": @0}},
                              client);
         assert([client.committed isEqual:@"海滩跑步"] && [client.markedString length] == 0);
+
+        // 整句改字：行内画改好的整句而不是拼音，不管预编辑样式；光标在焦点字前，焦点那一段是粗下划线的子句。
+        // 位置按 Unicode 标量计，扩展区汉字（𠮷）占两个 UTF-16 单位。
+        for (NSNumber *style in @[@(MSIMEInlinePreeditStylePinyin), @(MSIMEInlinePreeditStyleRaw), @(MSIMEInlinePreeditStyleEmpty)]) {
+            MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"woqubeijing", @"caret_position": @11,
+                                                              @"phrase_prefix": @"𠮷",
+                                                              @"conversion": @"我去背景",
+                                                              @"conversion_focus_start": @2, @"conversion_focus_end": @4}},
+                                                 client, (MSIMEInlinePreeditStyle)style.integerValue);
+            assert([client.markedString isEqual:@"𠮷我去背景"] && client.selection.location == 4);
+            NSAttributedString *clauses = client.marked;
+            assert([clauses isKindOfClass:NSAttributedString.class]);
+            NSRange before = NSMakeRange(0, 0);
+            NSRange focused = NSMakeRange(0, 0);
+            NSDictionary *first = [clauses attributesAtIndex:0 effectiveRange:&before];
+            NSDictionary *focus = [clauses attributesAtIndex:4 effectiveRange:&focused];
+            assert(NSEqualRanges(before, NSMakeRange(0, 4)) && NSEqualRanges(focused, NSMakeRange(4, 2)));
+            assert([first[NSUnderlineStyleAttributeName] isEqual:@(NSUnderlineStyleSingle)]);
+            assert([focus[NSUnderlineStyleAttributeName] isEqual:@(NSUnderlineStyleThick)]);
+            assert([focus[NSMarkedClauseSegmentAttributeName] isEqual:@1]);
+        }
+        // 光标在句末：没有焦点段，整句一个子句，光标在最后。
+        MSIMEApplyTransition(@{@"view": @{@"editing_text": @"woqubeijing", @"caret_position": @11,
+                                          @"conversion": @"我去北京",
+                                          @"conversion_focus_start": @4, @"conversion_focus_end": @4}}, client);
+        assert([client.markedString isEqual:@"我去北京"] && client.selection.location == 4);
 
         // Shuangpin full-pinyin display must not expose the raw key sequence.
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"b;", @"preedit": @"bing", @"caret_position": @2}}, client);

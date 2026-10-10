@@ -1,4 +1,4 @@
-//! `/` mode: the built-in date, time and weekday commands, whose rows are the date/time mode's, the translate command, and the command table the host supplies. Letters after `/` filter commands by trigger; a trigger typed out in full lists every reading of its command first. Templates are data: literal text and a closed set of clock placeholders, formatted by `time`, with nothing a table could use to reach anything else.
+//! `/` mode: the built-in date, time, weekday and lunar date commands, whose rows are the date/time mode's, the translate command, and the command table the host supplies. Letters after `/` filter commands by trigger; a trigger typed out in full lists every reading of its command first. Templates are data: literal text and a closed set of clock placeholders, formatted by `time`, with nothing a table could use to reach anything else.
 //!
 //! `/fy hello'world` (typed `/fyhello'world`) is the one local input that may leave the machine: the words after the trigger are English for the user's translation service, through `translation_source`, and the answer comes back as a row of its own (`InputSession::apply_command_translation`). Until it does, and whenever no service answers, the row is the English as typed.
 
@@ -23,10 +23,11 @@ const DEFAULT_DATE_FORMAT: &str = "%Y-%m-%d";
 const DEFAULT_TIME_FORMAT: &str = "%H:%M";
 
 /// The built-in commands: the date/time mode's keywords, the translate command, and the title shown beside their rows.
-const BUILTINS: [(&[&str], &str); 4] = [
+const BUILTINS: [(&[&str], &str); 5] = [
     (&["rq", "riqi", "date"], "日期"),
     (&["sj", "shijian", "time"], "时间"),
     (&["xq", "xingqi", "week"], "星期"),
+    (&["nl", "nongli", "yinli"], "农历"),
     (TRANSLATE_TRIGGERS, "翻译"),
 ];
 
@@ -302,10 +303,16 @@ mod tests {
         let rows = query_command("", &now(), &table);
         assert_eq!(
             words(&rows),
-            ["张三 2026-10-01", "2026年10月1日", "09:05", "星期四"]
+            [
+                "张三 2026-10-01",
+                "2026年10月1日",
+                "09:05",
+                "星期四",
+                "丙午年八月二十一日"
+            ]
         );
         let triggers: Vec<&str> = rows.iter().map(|row| row.pinyin.as_str()).collect();
-        assert_eq!(triggers, ["sig", "rq", "sj", "xq"]);
+        assert_eq!(triggers, ["sig", "rq", "sj", "xq", "nl"]);
         for (index, row) in rows.iter().enumerate() {
             assert_eq!(row.source, CandidateSource::Generated);
             assert_eq!(row.weight, (rows.len() - index) as i64);
@@ -319,6 +326,20 @@ mod tests {
         assert_eq!(rows[0].word, "2026年10月1日");
         assert!(rows.iter().all(|row| row.pinyin == "rq"));
         assert_eq!(query_command("week", &now(), &[])[0].word, "星期四");
+        let lunar = query_command("nongli", &now(), &[]);
+        assert_eq!(
+            words(&lunar),
+            [
+                "丙午年八月二十一日",
+                "丙午年八月二十一日 星期四",
+                "丙午年八月二十一日 周四"
+            ]
+        );
+        assert!(lunar.iter().all(|row| row.pinyin == "nongli"));
+        // 只打了开头几个字母时，农历命令也按前缀列出它的首行。
+        let partial = query_command("yin", &now(), &[]);
+        assert_eq!(words(&partial), ["丙午年八月二十一日"]);
+        assert_eq!(partial[0].pinyin, "yinli");
     }
 
     #[test]
@@ -454,6 +475,7 @@ mod tests {
         let table = [entry("sig", "签名", "x")];
         assert_eq!(command_title("sig", &table), Some("签名"));
         assert_eq!(command_title("riqi", &table), Some("日期"));
+        assert_eq!(command_title("nl", &table), Some("农历"));
         assert_eq!(command_title("fanyi", &table), Some("翻译"));
         assert_eq!(command_title("nope", &table), None);
     }

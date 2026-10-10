@@ -17,6 +17,11 @@ public final class KeyboardGeometrySmoke {
         check(KeyboardGeometry.DESIGN_PADDING_TOP_DP == 8
             && KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP == 6
             && KeyboardGeometry.DESIGN_PADDING_BOTTOM_DP == 6);
+        // 底栏（#6354）：默认 46 dp 不加行距，键帽比键行矮一截；「加高底行」开着时和一行键同高、另加一份行距。
+        check(KeyboardGeometry.bottomRowHeightDp(false) == KeyboardGeometry.STANDARD_ROW_HEIGHT_DP
+            && KeyboardGeometry.bottomRowSpacings(false) == 0, "bottom row keeps 46 dp by default");
+        check(KeyboardGeometry.bottomRowHeightDp(true) == KeyboardGeometry.KEY_ROW_HEIGHT_DP
+            && KeyboardGeometry.bottomRowSpacings(true) == 1, "tall bottom row matches a key row");
         // 百分比换算 round(184 × (p − 100) / 100)：逐档钉住，往返不变。
         int[] percents = {75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 140, 150, 160};
         int[] adjustments = {-46, -37, -28, -18, -9, 0, 9, 18, 28, 37, 46, 55, 74, 92, 110};
@@ -87,6 +92,14 @@ public final class KeyboardGeometrySmoke {
         check(KeyboardGapPolicy.gapDistance(50, 60, 100, 50, 9, 10, 9, 10) < 0);
         // 没有外边距的控件（工具栏图标、方案胶囊）不认领任何空隙。
         check(KeyboardGapPolicy.gapDistance(-1, 25, 100, 50, 0, 0, 0, 0) < 0);
+        // 回车让给中/英的那一段：左侧整段外边距（9px）加键帽左侧 [0, yield)；不让时（0）哪里都不算。
+        check(KeyboardGapPolicy.yieldsToLeft(0f, 9, 18f));
+        check(KeyboardGapPolicy.yieldsToLeft(17.9f, 9, 18f));
+        check(!KeyboardGapPolicy.yieldsToLeft(18f, 9, 18f));
+        check(KeyboardGapPolicy.yieldsToLeft(-1f, 9, 18f));
+        check(KeyboardGapPolicy.yieldsToLeft(-9f, 9, 18f));
+        check(!KeyboardGapPolicy.yieldsToLeft(-9.5f, 9, 18f));
+        check(!KeyboardGapPolicy.yieldsToLeft(0f, 9, 0f));
         // 挪进键帽时离边缘留 1px，键帽里的点不动。
         check(KeyboardGapPolicy.inside(-4, 100) == 1f);
         check(KeyboardGapPolicy.inside(104, 100) == 99f);

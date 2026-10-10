@@ -1,6 +1,6 @@
 # msime-pack-tool
 
-`msime-pack` checks extension packs (sound, music, command table, effect) by exactly the rules the input method imports them by, for pack authors and for the CI of the community pack repository [metasequoiaime/msime-plugins](https://github.com/metasequoiaime/msime-plugins).
+`msime-pack` checks extension packs of every kind by exactly the rules the input method imports them by, so a pack author can check a pack before importing it or publishing it to the in-app community library.
 
 ```sh
 cargo build -p msime-pack-tool --bin msime-pack

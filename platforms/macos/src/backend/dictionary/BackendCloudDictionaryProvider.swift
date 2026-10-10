@@ -23,22 +23,28 @@ extension BackendAccountClient: DesktopCloudDictionaryAPI {}
 final class BackendCloudDictionaryProvider: NSObject {
   private let client: any DesktopCloudDictionaryAPI
   private let credentials: () async throws -> String
+  private let refreshCredentials: ((String) async throws -> String)?
   private lazy var snapshots: BackendDesktopSnapshots? = {
     guard let client = client as? any DesktopSnapshotAPI else { return nil }
-    return BackendDesktopSnapshots(client: client, credentials: credentials)
+    return BackendDesktopSnapshots(client: client, credentials: credentials, refreshCredentials: refreshCredentials)
   }()
   private var exported: URL?
-  init(client: any DesktopCloudDictionaryAPI, credentials: @escaping () async throws -> String) {
-    self.client = client; self.credentials = credentials
+  init(client: any DesktopCloudDictionaryAPI, credentials: @escaping () async throws -> String,
+       refreshCredentials: ((String) async throws -> String)? = nil) {
+    self.client = client; self.credentials = credentials; self.refreshCredentials = refreshCredentials
   }
   deinit { if let exported { try? FileManager.default.removeItem(at: exported.deletingLastPathComponent()) } }
 
   @objc static func prepare(completion: @escaping (BackendCloudDictionaryProvider?) -> Void) {
     Task {
       do {
-        guard let user = try await BackendAccountSession.shared.user() else { completion(nil); return }
+        let identity = try await BackendAccountSession.shared.credentials()
         completion(BackendCloudDictionaryProvider(client: BackendAccountClient(), credentials: {
-          try await BackendAccountSession.shared.credentials(matchingUserID: user.id).token
+          try await BackendAccountSession.shared.credentials(matchingUserID: identity.userID,
+                                                              matchingSessionID: identity.sessionID).token
+        }, refreshCredentials: { rejected in
+          try await BackendAccountSession.shared.credentials(retrying: rejected, matchingUserID: identity.userID,
+                                                              matchingSessionID: identity.sessionID).token
         }))
       } catch { completion(nil) }
     }
@@ -150,8 +156,33 @@ final class BackendCloudDictionaryProvider: NSObject {
     let action = try Action(request)
     let token = try await credentials()
     try Task.checkCancellation()
-    var pendingExport: URL?
+    let outcome: (result: [String: Any], export: URL?)
+    do { outcome = try await executeOnce(action, token: token) }
+    catch let failure as BackendAccountClient.Failure where failure.status == 401 {
+      guard let refreshCredentials else { throw failure }
+      let fresh = try await refreshCredentials(token)
+      try Task.checkCancellation()
+      outcome = try await executeOnce(action, token: fresh)
+    }
+    var pendingExport = outcome.export
     defer { if let pendingExport { try? FileManager.default.removeItem(at: pendingExport.deletingLastPathComponent()) } }
+    _ = try await credentials()
+    try Task.checkCancellation()
+    if let file = pendingExport {
+      if let exported { try? FileManager.default.removeItem(at: exported.deletingLastPathComponent()) }
+      exported = file; pendingExport = nil
+    }
+    return outcome.result
+  }
+
+  private func executeOnce(_ action: Action, token: String) async throws -> (result: [String: Any], export: URL?) {
+    var pendingExport: URL?
+    var returned = false
+    defer {
+      if !returned, let pendingExport {
+        try? FileManager.default.removeItem(at: pendingExport.deletingLastPathComponent())
+      }
+    }
     let result: [String: Any]
     switch action {
     case .catalog(let kind, let code, let offset, let scheme, let profile):
@@ -204,13 +235,8 @@ final class BackendCloudDictionaryProvider: NSObject {
       guard let bytes = attributes[.size] as? NSNumber, bytes.int64Value <= 384 * 1024 * 1024 else { throw BackendAccountClient.Failure(status: 0) }
       result = ["export_file":["path":file.path, "bytes":bytes], "filename":file.lastPathComponent]
     }
-    _ = try await credentials()
-    try Task.checkCancellation()
-    if let file = pendingExport {
-      if let exported { try? FileManager.default.removeItem(at: exported.deletingLastPathComponent()) }
-      exported = file; pendingExport = nil
-    }
-    return result
+    returned = true
+    return (result, pendingExport)
   }
   @objc func request(_ request: NSDictionary, completion: @escaping (NSDictionary) -> Void) -> Progress {
     let progress = Progress(totalUnitCount: 1)

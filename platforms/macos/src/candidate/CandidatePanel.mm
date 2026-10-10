@@ -321,7 +321,8 @@
     NSDictionary *numberMeasure = @{NSFontAttributeName : numberFont};
     for (NSUInteger index = 0; index < _data.count; ++index)
     {
-        NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
+        // 序号与选它的数字键一致：第十个由 0 键选，标 0。
+        NSString *number = index == 9 ? @"0" : [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
         NSString *word = _data[index].string;
         NSString *title = [NSString stringWithFormat:@"%@  %@", number, word];
         const CGFloat itemWidth = ceil(leftPad + [number sizeWithAttributes:numberMeasure].width + MSIMECandidateNumberGap +

@@ -185,6 +185,9 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     // key event handlers for composition/candidate/phrase common objects.
     HRESULT _HandleComplete(TfEditCookie ec, _In_ ITfContext *pContext);
     HRESULT _HandleHostRawCommit(TfEditCookie ec, _In_ ITfContext *pContext);
+    // 整句改字时的空格和回车：宿主会话没有在改字时 `*handled` 为假，什么都不做。空格选中高亮的候选（光标在句末时上屏整句），回车上屏改好的整句；都由 TIP 自己的宿主会话完成，Server 的会话对同一个键发同一条命令，空格的回复读掉不用，回车没有回复。
+    HRESULT _HandleConversionKey(TfEditCookie ec, _In_ ITfContext *pContext, bool enter, uint64_t requestId,
+                                 bool *handled);
     // 韩文、注音、越南文和藏文：上屏当前组字，`wch` 是可打印 ASCII 时再插入它；注音的标点键改为连同组字一起走中文标点表。`code` 是结束组字的按键，没有按键结束时（焦点或方案切换）为 0。
     HRESULT _HandleSyllableCommit(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch,
                                   bool replayKey = false);
@@ -202,7 +205,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HostComposedView _ReadHostComposedView() const;
     // A lone right Ctrl tap while a Korean syllable composes converts it as the Hanja key does: on the release the tap is queued as that key and true is returned. Checked ahead of the single-Ctrl language toggle, which it takes precedence over only in that state.
     bool _QueueKoreanHanjaTap(_In_ ITfContext *pContext, WPARAM wParam, LPARAM lParam);
-    // 向宿主会话发 MSIME_CANCEL；第一次只关闭了韩文或注音的列表、或只把越南文词或藏文音节串重新显示为原文时再发一次，所以组字无论如何都会被丢弃。没有宿主会话时返回 true。
+    // 向宿主会话发 MSIME_CANCEL；第一次只关闭了韩文或注音的列表、只把越南文词或藏文音节串重新显示为原文、或只退出了整句改字时再发一次，所以组字无论如何都会被丢弃。没有宿主会话时返回 true。
     bool _CancelHostComposition();
     // A caret or editing key that ended a Korean syllable behind the deferred-key barrier was eaten to keep its place in the queue; once the syllable is committed it is sent again through the input queue so the application still does its own work with it.
     void _QueueKoreanSyllableKeyReplay(UINT virtualKey);
@@ -226,8 +229,9 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HRESULT _HandleCompositionConvert(TfEditCookie ec, _In_ ITfContext *pContext, BOOL isWildcardSearch);
     HRESULT _HandleCompositionBackspace(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId);
     HRESULT _HandleCompositionDelete(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId);
+    // `letterCaret`：全拼、双拼里 Ctrl+左右逐个字母地移拼音光标，不是整句改字。
     HRESULT _HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfContext *pContext, KEYSTROKE_FUNCTION keyFunction,
-                                       uint64_t requestId = FANY_IME_NO_REQUEST_ID);
+                                       uint64_t requestId = FANY_IME_NO_REQUEST_ID, bool letterCaret = false);
     HRESULT _HandleCompositionSegmentEdit(TfEditCookie ec, _In_ ITfContext *pContext,
                                            KEYSTROKE_FUNCTION keyFunction, uint64_t requestId);
     HRESULT _HandleCompositionPunctuation(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch,
@@ -288,7 +292,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
                                     const std::wstring &prefetchedText);
     HRESULT _HandleCandidateArrowKey(TfEditCookie ec, _In_ ITfContext *pContext, _In_ KEYSTROKE_FUNCTION keyFunction,
                                      uint64_t requestId = FANY_IME_NO_REQUEST_ID);
-    HRESULT _HandleCandidateSelectByNumber(TfEditCookie ec, _In_ ITfContext *pContext, _In_ UINT uCode,
+    HRESULT _HandleCandidateSelectByNumber(TfEditCookie ec, _In_ ITfContext *pContext, _In_ UINT uCode, WCHAR wch,
                                            uint64_t requestId, const std::wstring &prefetchedText);
 
     BOOL _IsSecureMode(void)

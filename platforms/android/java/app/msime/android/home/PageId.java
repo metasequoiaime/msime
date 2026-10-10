@@ -14,7 +14,7 @@ import java.util.List;
  *
  * <p>页面类的约束见 {@link DetailPage}：必须是 public 类、有 public 无参构造器、参数只放在 arguments Bundle 里。
  *
- * <p>关键词取自对应设计图上的行标题，搜索时与标题一起匹配；{@link #LEXICON_DETAIL} 需要参数才能打开，所以没有关键词，不出现在搜索结果里。页面里新加的开关、导航和滑块行要同时把行标题加进这里，否则设置首页搜不到它（#6132 的「浮动键盘」就是这样漏掉的）；`tests/home/SettingsSearchIndexSmoke.java` 逐页核对。
+ * <p>关键词取自对应设计图上的行标题，搜索时与标题一起匹配；{@link #LEXICON_DETAIL} 和 {@link #CLIPBOARD_EDIT} 需要参数才能打开，所以没有关键词，不出现在搜索结果里。页面里新加的开关、导航和滑块行要同时把行标题加进这里，否则设置首页搜不到它（#6132 的「浮动键盘」就是这样漏掉的）；`tests/home/SettingsSearchIndexSmoke.java` 逐页核对。
  */
 public enum PageId {
     SKINS("SkinsPage", "皮肤", HostDeepLink.TAB_SETTINGS,
@@ -22,10 +22,10 @@ public enum PageId {
     AI_SKIN("AiSkinPage", "AI 设计皮肤", HostDeepLink.TAB_SETTINGS,
         "描述一句话生成", "配色", "按键音效", "按键动画", "生成皮肤"),
     KEYBOARD_OPTIONS("KeyboardOptionsPage", "键盘", HostDeepLink.TAB_SETTINGS,
-        "布局", "中文键盘", "九键左侧符号", "九键数字键盘左侧符号", "数字键盘顺序", "键盘高度", "横屏分离式键盘",
-        "浮动键盘", "键盘底栏", "按键反馈", "按键音", "按键振动", "按键弹出预览", "按键动画", "手势",
-        "滑动输入符号", "滑动方向", "下滑", "上滑", "九键滑动输入数字", "滑行输入", "空格键滑动移动光标", "长按空格语音输入", "键盘工具栏", "显示方式", "表情", "常用语",
-        "皮肤", "剪贴板", "输入方式", "按键间距", "行间距", "剪贴板排列", "单列", "双列", "工具栏显示最近复制", "最近复制"),
+        "布局", "中文键盘", "中英键轮换其他语言", "九键左侧符号", "九键数字键盘左侧符号", "26 键数字键盘", "九宫格", "数字键盘顺序", "双拼键位提示", "键盘高度", "数字行", "横屏分离式键盘",
+        "浮动键盘", "键盘底栏", "底部留白", "加高底行", "按键反馈", "按键音", "按键振动", "按键弹出预览", "按键动画", "手势",
+        "滑动输入符号", "滑动方向", "下滑", "上滑", "九键滑动输入数字", "九键滑动距离", "滑行输入", "空格键滑动移动光标", "长按空格语音输入", "键盘工具栏", "显示方式", "表情", "常用语",
+        "皮肤", "剪贴板", "输入方式", "文本编辑", "按键间距", "行间距", "剪贴板排列", "单列", "双列", "工具栏显示最近复制", "最近复制"),
     AI_SETTINGS("AiSettingsPage", "AI 润色与回复", HostDeepLink.TAB_SETTINGS,
         "启用 AI 入口", "端点 URL", "模型", "凭据", "润色提示词"),
     TYPING("TypingPage", "输入", HostDeepLink.TAB_SETTINGS,
@@ -60,6 +60,9 @@ public enum PageId {
         "iOS", "iPadOS", "Android"),
     CLOUD_CLIPBOARD("CloudClipboardPage", "云剪贴板", HostDeepLink.TAB_ACCOUNT,
         "保留时长", "最近", "清空"),
+    CLIPBOARD_EDIT("ClipboardEditPage", "编辑剪贴板记录", HostDeepLink.TAB_SETTINGS),
+    CLIPBOARD_SEARCH("ClipboardSearchPage", "剪贴板历史", HostDeepLink.TAB_SETTINGS,
+        "搜索剪贴板", "剪贴板记录", "复制过的文字"),
     PROFILE("ProfilePage", "个人资料", HostDeepLink.TAB_ACCOUNT,
         "账号", "昵称", "水杉 ID", "邮箱", "登录方式", "关联", "云端数据", "导出我的数据", "退出登录", "注销账号"),
     BACKUP("BackupPage", "备份与恢复", HostDeepLink.TAB_ACCOUNT,

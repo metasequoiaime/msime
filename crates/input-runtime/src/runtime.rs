@@ -305,6 +305,9 @@ impl Runtime<Session> {
         {
             return Ok(false);
         }
+        if self.generation == u64::MAX {
+            return Err(RuntimeError::IdentityExhausted);
+        }
         let applied = self
             .engine
             .apply_online_candidate(&query, candidate, source)
@@ -395,6 +398,9 @@ impl Runtime<Session> {
                 "invalid online candidate source".into(),
             ));
         }
+        if self.generation == u64::MAX {
+            return Err(RuntimeError::IdentityExhausted);
+        }
         self.engine
             .clear_online_candidates(source)
             .map_err(|error| RuntimeError::Engine(error.to_string()))?;
@@ -421,6 +427,9 @@ impl Runtime<Session> {
             || (source == 1 && !query.ai_eligible)
         {
             return Ok(false);
+        }
+        if self.generation == u64::MAX {
+            return Err(RuntimeError::IdentityExhausted);
         }
         let applied = self
             .engine
@@ -528,7 +537,7 @@ impl<E: InputEngine> Runtime<E> {
         page_size: u8,
         touch_keyboard_layout: TouchKeyboardLayout,
     ) -> Result<Self, RuntimeError> {
-        if !(1..=9).contains(&page_size) {
+        if !(1..=MAX_CANDIDATE_PAGE_SIZE).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
         }
         let session = NEXT_SESSION
@@ -737,6 +746,9 @@ impl<E: InputEngine> Runtime<E> {
             reading: self.cached.reading.clone(),
             editing_text: self.cached.editing_text.clone(),
             caret_position: self.cached.caret_position,
+            conversion: self.cached.conversion.clone(),
+            conversion_focus_start: self.cached.conversion_focus_start,
+            conversion_focus_end: self.cached.conversion_focus_end,
             page,
             page_size: self.page_size,
             page_count: self.cached.candidates.len().div_ceil(self.page_size),
@@ -932,6 +944,9 @@ impl<E: InputEngine> Runtime<E> {
         {
             return Ok(false);
         }
+        if self.generation == u64::MAX {
+            return Err(RuntimeError::IdentityExhausted);
+        }
         let request = CommandTranslationQuery {
             session_id: query.session_id,
             text: query.text.clone(),
@@ -970,7 +985,7 @@ impl<E: InputEngine> Runtime<E> {
 
     /// Presentation-only resize; a live composition keeps its numeric key map.
     pub fn set_page_size(&mut self, page_size: u8) -> Result<(), RuntimeError> {
-        if !(1..=9).contains(&page_size) {
+        if !(1..=MAX_CANDIDATE_PAGE_SIZE).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
         }
         if self.page_size == usize::from(page_size) {
@@ -996,7 +1011,7 @@ impl<E: InputEngine> Runtime<E> {
         page_size: u8,
         touch_keyboard_layout: TouchKeyboardLayout,
     ) -> Result<(), RuntimeError> {
-        if !(1..=9).contains(&page_size) {
+        if !(1..=MAX_CANDIDATE_PAGE_SIZE).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
         }
         if !self.is_idle() {
@@ -1462,6 +1477,10 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     fn rerank(&mut self) -> bool {
+        // 整句改字的候选是光标处一段的替换，按读音长短排好，不参与整句的重排。
+        if !self.cached.conversion.is_empty() {
+            return false;
+        }
         let Some(reranker) = self.reranker.as_mut() else {
             return false;
         };
@@ -1505,6 +1524,9 @@ impl<E: InputEngine> Runtime<E> {
     ///
     /// 规则本身（保留几条整句读法、哪些算整句、为什么挪而不删）见 `msime_engine::ordering::runner_up_order`；这里只把它给出的排列同步应用到八个并行数组上。
     pub(crate) fn demote_runner_up_readings(&mut self) -> bool {
+        if !self.cached.conversion.is_empty() {
+            return false;
+        }
         let snapshot = &self.cached;
         let count = snapshot.candidates.len();
         if count < 2
@@ -1570,6 +1592,9 @@ impl<E: InputEngine> Runtime<E> {
                     caret_position: 0,
                     segment_raw_boundaries: vec![],
                     candidates: Vec::new(),
+                    conversion: String::new(),
+                    conversion_focus_start: 0,
+                    conversion_focus_end: 0,
                 };
                 return Err(error);
             }
@@ -1591,6 +1616,8 @@ impl<E: InputEngine> Runtime<E> {
             && self.cached.candidate_positions == previous.candidate_positions
             && self.cached.candidate_corrected == previous.candidate_corrected
             && self.cached.candidate_answers_key == previous.candidate_answers_key
+            && self.cached.conversion == previous.conversion
+            && self.cached.conversion_focus_start == previous.conversion_focus_start
         {
             self.highlighted =
                 previous_highlight.min(self.cached.candidates.len().saturating_sub(1));
@@ -1608,13 +1635,24 @@ impl<E: InputEngine> Runtime<E> {
             && !self.cached.dedicated_english
             && self.cached.local_mode == "none"
             && !self.cached.editing_text.is_empty();
+        let commit_context = self.output_context();
         let result = if commits_on_blur {
             self.engine.finish(0)
         } else {
             self.discard_composition()
         };
-        self.refresh()?;
+        let may_commit = result
+            .as_ref()
+            .is_ok_and(|result| result.has_commit || (!focused && !self.phrase_prefix.is_empty()));
+        let refresh_error = match self.refresh() {
+            Ok(()) => None,
+            Err(error) if may_commit => Some(error),
+            Err(error) => return Err(error),
+        };
         let mut result = result?;
+        if let Some(error) = refresh_error {
+            result.diagnostic = format!("Candidate refresh failed: {error}");
+        }
         // Leaving the client cancels the composition, but a phrase piece being held back is text
         // the user chose and, before it was held back, would already be in the document. Send it.
         self.hold_phrase_progress(false, false, false, "", &mut result);
@@ -1625,7 +1663,11 @@ impl<E: InputEngine> Runtime<E> {
         self.ai_context.clear();
         self.engine.set_rescoring_context("");
         self.engine.reset_context();
-        Ok(self.transition(result))
+        let mut transition = self.transition(result);
+        if transition.commit.is_some() {
+            transition.commit_context = Some(commit_context);
+        }
+        Ok(transition)
     }
 
     /// 丢弃组字。Cancel 对应用户按 Esc，有些方案里第一次 Cancel 会保留组字：开着可打开的候选列表（韩文汉字列表）时只关闭列表，越南文单词和藏文音节则退回原始按键。这时再发一次 Cancel 才把组字也丢掉。
@@ -1704,7 +1746,7 @@ impl<E: InputEngine> Runtime<E> {
         let spells = self.cached.local_mode != "none"
             || (self.phrase_prefix.is_empty()
                 && scheme_type(self.cached.scheme)
-                    .is_some_and(|scheme| !scheme.opens_local_modes()));
+                    .is_some_and(|scheme| !scheme.opens_table_modes()));
         // 字面标点路由刻意不进入网址模式：组字 `www` 时引擎在 `spelling_symbols` 里列出 `.`，但宿主在这条路由上要的是字面符号，所以这里不收，照常结束组字再接上 `.`（列出但不接受的例外）。
         if spells && self.cached.spelling_symbols.as_bytes().contains(&value) {
             return self.engine.character(value, false);
@@ -1872,11 +1914,24 @@ impl<E: InputEngine> Runtime<E> {
             // A bare `/` or `@` flushes as the literal prefix, as on the punctuation routes; finishing would commit the list's first row.
             Action::Finish if self.bare_mode_prefix() => self.engine.command(Command::CommitRaw),
             Action::Finish => self.engine.finish(self.engine_index(self.highlighted)),
+            // The key that tops the code is never lost: what the Engine commits for it goes out after the word, and a key it lets go (a capital that opens no mode, Shift+K with the K mode off) goes out as the literal letter, as `literal_mark` sends a mark behind a held phrase, since the host has already been told the key was handled.
             Action::Character { value, shift } if wubi_top_commit => self
                 .engine
                 .select(self.engine_index(0))
-                .and_then(|committed| {
-                    self.engine.character(value, shift)?;
+                .and_then(|mut committed| {
+                    let next = self.engine.character(value, shift)?;
+                    let tail = if next.has_commit {
+                        next.commit
+                    } else if !next.handled {
+                        char::from(value).to_string()
+                    } else {
+                        String::new()
+                    };
+                    if !tail.is_empty() {
+                        committed.commit.push_str(&tail);
+                        committed.handled = true;
+                        committed.has_commit = true;
+                    }
                     Ok(committed)
                 }),
             // A symbol that would open a mode behind a held phrase piece ends the phrase as punctuation instead, as on the punctuation route.
@@ -1906,18 +1961,19 @@ impl<E: InputEngine> Runtime<E> {
                         return self.engine.select(self.engine_index(self.highlighted));
                     }
                     // Let Engine consume numeric input (Unicode mode, nine-key, etc.) first. A result that already committed (a Korean syllable the digit ended) is final: selecting now would replace that commit and lose the text. A digit the scheme spells with (a Zhuyin tone or phonetic key) is never a pick, even one the Engine let go: Zhuyin leaves 1-9 to selection only while its list is open, when they are not spelling symbols, so `0` there stays ㄢ.
+                    let Some(slot) = candidate_digit_slot(value, self.page_size) else {
+                        return Ok(result);
+                    };
                     if result.handled
                         || result.has_commit
                         || (self.cached.local_mode == "none"
                             && self.cached.spelling_symbols.as_bytes().contains(&value))
                         || self.cached.nine_key
-                        || !(b'1'..=b'9').contains(&value)
                         || len == 0
                     {
                         return Ok(result);
                     }
                     let page_start = (self.highlighted / self.page_size) * self.page_size;
-                    let slot = usize::from(value - b'1');
                     if slot >= self.page_size || page_start + slot >= len {
                         return Ok(empty_result(true));
                     }
@@ -1925,6 +1981,10 @@ impl<E: InputEngine> Runtime<E> {
                     self.engine.select(self.engine_index(page_start + slot))
                 })
             }
+            // 进入整句改字时改的是用户高亮着的那一句，它可能被重排过，不在引擎的首位。
+            Action::Command(Command::ConversionLeft) if self.cached.conversion.is_empty() => self
+                .engine
+                .conversion_left_from(self.engine_index(self.highlighted)),
             Action::Command(command) => self.engine.command(command),
             Action::SegmentBackspace => self.engine.segment_command(SegmentCommand::Backspace),
             Action::SegmentMoveLeft => self.engine.segment_command(SegmentCommand::MoveLeft),
@@ -2033,6 +2093,15 @@ fn literal_mark(value: u8, diagnostic: String) -> EngineResult {
         has_commit: true,
         commit: char::from(value).to_string(),
         diagnostic,
+    }
+}
+
+/// 数字键在当前页里选的格子：`1`–`9` 是前九格；`0` 只在每页十个时选第十格，每页不到十个时它不是选词键，照旧交回去。
+fn candidate_digit_slot(value: u8, page_size: usize) -> Option<usize> {
+    match value {
+        b'1'..=b'9' => Some(usize::from(value - b'1')),
+        b'0' if page_size >= usize::from(MAX_CANDIDATE_PAGE_SIZE) => Some(9),
+        _ => None,
     }
 }
 

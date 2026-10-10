@@ -27,7 +27,7 @@ struct LocalSpeechHotword: Codable, Equatable, Sendable {
   let pinyin: String
 }
 
-/// Install progress as the host reports it: `stage` is download, verify, extract or done.
+/// 宿主报告的安装进度：`stage` 是 download、verify、extract 或 done；从本地文件安装时用 import 代替 download。
 struct LocalSpeechInstallProgress: Decodable, Equatable, Sendable {
   let id: String
   let stage: String
@@ -55,10 +55,12 @@ enum LocalSpeechModelStore {
     return try JSONDecoder().decode(Catalog.self, from: data)
   }
 
-  /// Downloads, verifies and installs `id` under `root`, returning the model directory. `progress` is called on the calling thread.
-  static func install(root: URL, id: String, mirror: String,
+  /// 下载、校验并把 `id` 安装到 `root` 下，返回模型目录。`progress` 在调用线程上回调。给了 `files` 时不联网，改用这些本地文件安装（按长度和 SHA-256 认文件，`mirror` 不用）；调用方要在整个调用期间保持对它们的访问权。
+  static func install(root: URL, id: String, mirror: String, files: [URL]? = nil,
                       progress: @escaping (LocalSpeechInstallProgress) -> Void) throws -> URL {
-    let request = try JSONSerialization.data(withJSONObject: ["root": root.path, "id": id, "mirror": mirror])
+    var object: [String: Any] = ["root": root.path, "id": id, "mirror": mirror]
+    if let files { object["files"] = files.map(\.path) }
+    let request = try JSONSerialization.data(withJSONObject: object)
     let box = Unmanaged.passRetained(ProgressBox(progress))
     defer { box.release() }
     let callback: LocalSpeechProgress = { bytes, length, context in
@@ -117,6 +119,8 @@ enum LocalSpeechModelStore {
     case "local_model_size_mismatch", "local_model_checksum_mismatch": "下载的文件校验失败，请重试。"
     case "local_model_unsafe_archive": "模型压缩包内容不安全，已拒绝安装。"
     case "local_model_missing_file": "模型压缩包缺少必要文件。"
+    case "local_model_import_missing": "所选文件里缺少这个模型需要的文件，请对照列出的文件全部下载后一起选中。"
+    case "local_model_import_unreadable": "读取所选文件失败，请确认文件仍在原处、已完整下载到本机后重新选择。"
     case "local_model_io": "无法写入模型文件，请检查剩余存储空间。"
     case "local_model_invalid_mirror": "镜像地址无效，请填写 https:// 开头的地址或留空。"
     case "local_model_invalid_root": "无法使用模型目录。"

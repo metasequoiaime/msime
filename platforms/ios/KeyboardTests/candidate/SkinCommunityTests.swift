@@ -21,9 +21,122 @@ private final class AccountReplacementRecorder: @unchecked Sendable {
   }
 }
 
+private actor FirstRefreshLockGate {
+  private var calls = 0
+  private var entered = false
+  private var entering: CheckedContinuation<Void, Never>?
+  private var blocked: CheckedContinuation<Void, Never>?
+
+  func waitOnFirstRun() async {
+    calls += 1
+    guard calls == 1 else { return }
+    entered = true
+    entering?.resume()
+    entering = nil
+    await withCheckedContinuation { blocked = $0 }
+  }
+
+  func untilFirstRun() async {
+    if entered { return }
+    await withCheckedContinuation { entering = $0 }
+  }
+
+  func release() {
+    blocked?.resume()
+    blocked = nil
+  }
+}
+
+private struct FirstRunGatedRefreshLock: BackendRefreshLock {
+  let gate: FirstRefreshLockGate
+  var sharedAcrossProcesses: Bool { false }
+  func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T {
+    await gate.waitOnFirstRun()
+    return try await body()
+  }
+}
+
 /// 需要登录的用例用这个会话。内存存储只属于本进程，所以配进程内的刷新锁；默认的 App Group 文件锁在未签名的测试宿主里拿不到共享容器，`login` 会被它直接拒绝成 `Failure(status: 0)`。
 private func communitySession(_ client: BackendAccountClient, _ storage: CommunityMemoryCredentials) -> BackendAccountSession {
   BackendAccountSession(api: client, storage: storage, refreshLock: BackendProcessRefreshLock())
+}
+
+private struct SharedCommunityTestLock: BackendRefreshLock {
+  var sharedAcrossProcesses: Bool { true }
+  func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T { try await body() }
+}
+
+private func switchingCommunitySession(_ client: BackendAccountClient, _ storage: CommunityMemoryCredentials) -> BackendAccountSession {
+  BackendAccountSession(api: client, storage: storage, refreshLock: SharedCommunityTestLock())
+}
+
+private final class AccountSwitchProtocol: URLProtocol, @unchecked Sendable {
+  static let oldToken = String(repeating: "a", count: 64)
+  static let newToken = String(repeating: "b", count: 64)
+  private static let lock = NSLock()
+  private static var recorded: [String] = []
+  private static var onRejection: (() -> Void)?
+  private static var rejectOld = true
+  static var authorizations: [String] { lock.withLock { recorded } }
+  static func reset(rejectOld: Bool = true, onRejection: @escaping () -> Void) {
+    lock.withLock { recorded = []; Self.rejectOld = rejectOld; Self.onRejection = onRejection }
+  }
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let authorization = request.value(forHTTPHeaderField: "Authorization") ?? ""
+    let (rejectOld, onRejection) = Self.lock.withLock { () -> (Bool, (() -> Void)?) in
+      Self.recorded.append(authorization)
+      defer { Self.onRejection = nil }
+      return (Self.rejectOld, Self.onRejection)
+    }
+    let oldRequest = authorization == "Bearer \(Self.oldToken)"
+    let rejected = rejectOld && oldRequest
+    if oldRequest { onRejection?() }
+    let response = HTTPURLResponse(url: request.url!, statusCode: rejected ? 401 : 204,
+                                   httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    if rejected { client?.urlProtocol(self, didLoad: Data(#"{"error":{"code":"invalid_credentials"}}"#.utf8)) }
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
+private final class AnonymousSwitchProtocol: URLProtocol, @unchecked Sendable {
+  static let oldToken = String(repeating: "c", count: 64)
+  static let newToken = String(repeating: "d", count: 64)
+  private static let lock = NSLock()
+  private static var recorded: [String] = []
+  private static var onOldRequest: (() -> Void)?
+  private static var rejectOld = true
+  static var authorizations: [String] { lock.withLock { recorded } }
+  static func reset(rejectOld: Bool, onOldRequest: @escaping () -> Void) {
+    lock.withLock { recorded = []; Self.rejectOld = rejectOld; Self.onOldRequest = onOldRequest }
+  }
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let authorization = request.value(forHTTPHeaderField: "Authorization") ?? ""
+    let (rejectOld, onOldRequest) = Self.lock.withLock { () -> (Bool, (() -> Void)?) in
+      Self.recorded.append(authorization)
+      defer { Self.onOldRequest = nil }
+      return (Self.rejectOld, Self.onOldRequest)
+    }
+    let oldRequest = authorization == "Bearer \(Self.oldToken)"
+    if oldRequest { onOldRequest?() }
+    let rejected = rejectOld && oldRequest
+    let isDownload = request.url!.path.hasSuffix("/download")
+    let body = rejected ? #"{"error":{"code":"invalid_credentials"}}"# :
+      (isDownload
+        ? #"{"design":{"background":15266027,"keyBackground":16777215,"keyForeground":1516829,"accent":1596487,"actionBackground":1596487,"cornerRadius":8,"borderWidth":0,"shadow":0,"pattern":0,"monospaced":false}}"#
+        : #"{"reported":true}"#)
+    let status = rejected ? 401 : (isDownload ? 200 : 201)
+    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status,
+      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
 }
 
 private final class RetryReportProtocol: URLProtocol, @unchecked Sendable {
@@ -142,6 +255,98 @@ private final class AnonymousDownloadProtocol: URLProtocol, @unchecked Sendable 
 }
 
 final class SkinCommunityTests: XCTestCase {
+  private func assertAnonymousOperationStopsAfterReplacement(download: Bool, rejectOld: Bool) async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [AnonymousSwitchProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let storage = CommunityMemoryCredentials()
+    let old = BackendAccountClient.Tokens(access_token: AnonymousSwitchProtocol.oldToken,
+      refresh_token: String(repeating: "e", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-anonymous-old", display_name: "旧匿名用户", created_at: "2026-09-08"))
+    let replacement = BackendAccountClient.Tokens(access_token: AnonymousSwitchProtocol.newToken,
+      refresh_token: String(repeating: "f", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-anonymous-new", display_name: "新匿名用户", created_at: "2026-09-08"))
+    try storage.save(BackendSavedSession.forTokens(old))
+    let replacementSession = try BackendSavedSession.forTokens(replacement)
+    AnonymousSwitchProtocol.reset(rejectOld: rejectOld, onOldRequest: { try? storage.save(replacementSession) })
+    let api = SkinCommunityAPI(client: client, account: communitySession(client, CommunityMemoryCredentials()),
+                               anonymous: switchingCommunitySession(client, storage))
+    do {
+      if download { _ = try await api.download("a1234567-1234-1234-1234-123456789abc") }
+      else { try await api.report(kind: "skins", itemID: "a1234567-1234-1234-1234-123456789abc",
+                                  reason: "其他", detail: "合成说明") }
+      XCTFail("the old anonymous request must stop after the identity changes")
+    } catch is CancellationError { }
+    catch { XCTFail("expected cancellation, got \(error)") }
+    XCTAssertEqual(AnonymousSwitchProtocol.authorizations, ["Bearer \(AnonymousSwitchProtocol.oldToken)"])
+    XCTAssertEqual(try storage.load()?.tokens.user.id, "synthetic-anonymous-new")
+  }
+
+  func testAnonymousDownloadDoesNotRetryAsReplacementAccount() async throws {
+    try await assertAnonymousOperationStopsAfterReplacement(download: true, rejectOld: true)
+  }
+  func testAnonymousReportDoesNotRetryAsReplacementAccount() async throws {
+    try await assertAnonymousOperationStopsAfterReplacement(download: false, rejectOld: true)
+  }
+  func testAnonymousDownloadDoesNotReturnReplacedAccountsSuccess() async throws {
+    try await assertAnonymousOperationStopsAfterReplacement(download: true, rejectOld: false)
+  }
+  func testAnonymousReportDoesNotReturnReplacedAccountsSuccess() async throws {
+    try await assertAnonymousOperationStopsAfterReplacement(download: false, rejectOld: false)
+  }
+
+  func testAccountMutationDoesNotRetryAsReplacementAccount() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [AccountSwitchProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let old = BackendAccountClient.Tokens(access_token: AccountSwitchProtocol.oldToken,
+      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-old-user", display_name: "旧账号", created_at: "2026-09-08"))
+    let replacement = BackendAccountClient.Tokens(access_token: AccountSwitchProtocol.newToken,
+      refresh_token: String(repeating: "e", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-new-user", display_name: "新账号", created_at: "2026-09-08"))
+    let replacementSession = try BackendSavedSession.forTokens(replacement)
+    for deleting in [false, true] {
+      let storage = CommunityMemoryCredentials()
+      try storage.save(BackendSavedSession.forTokens(old))
+      AccountSwitchProtocol.reset(onRejection: { try? storage.save(replacementSession) })
+      let api = SkinCommunityAPI(client: client, account: switchingCommunitySession(client, storage))
+
+      do {
+        if deleting { try await api.logout(deleteAccount: true) }
+        else { _ = try await api.updateProfile(name: "合成昵称") }
+        XCTFail("old account mutation must stop after the account changes")
+      } catch is CancellationError { }
+      catch { XCTFail("expected cancellation, got \(error)") }
+      XCTAssertEqual(AccountSwitchProtocol.authorizations, ["Bearer \(AccountSwitchProtocol.oldToken)"])
+      XCTAssertEqual(try storage.load()?.tokens.user.id, "synthetic-new-user")
+    }
+  }
+
+  func testSuccessfulDeleteDoesNotForgetReplacementAccount() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [AccountSwitchProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let storage = CommunityMemoryCredentials()
+    let old = BackendAccountClient.Tokens(access_token: AccountSwitchProtocol.oldToken,
+      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-old-user", display_name: "旧账号", created_at: "2026-09-08"))
+    let replacement = BackendAccountClient.Tokens(access_token: AccountSwitchProtocol.newToken,
+      refresh_token: String(repeating: "e", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-new-user", display_name: "新账号", created_at: "2026-09-08"))
+    try storage.save(BackendSavedSession.forTokens(old))
+    let replacementSession = try BackendSavedSession.forTokens(replacement)
+    AccountSwitchProtocol.reset(rejectOld: false, onRejection: { try? storage.save(replacementSession) })
+    let api = SkinCommunityAPI(client: client, account: switchingCommunitySession(client, storage))
+
+    do {
+      try await api.logout(deleteAccount: true)
+      XCTFail("successful old-account deletion must not forget the replacement account")
+    } catch is CancellationError { }
+    XCTAssertEqual(AccountSwitchProtocol.authorizations, ["Bearer \(AccountSwitchProtocol.oldToken)"])
+    XCTAssertEqual(try storage.load()?.tokens.user.id, "synthetic-new-user")
+  }
+
   func testCommunityWireFormatAndErrors() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [CommunityFixtureProtocol.self]
@@ -179,7 +384,7 @@ final class SkinCommunityTests: XCTestCase {
     let profileAfterLogout = try await api.currentUser()
     XCTAssertNil(profileAfterLogout)
   }
-  func testNativeLoginCancelsOnlyThePreviousAccountAfterSavingNewSession() async throws {
+  func testNativeLoginCancelsOnlyThePreviousAccountBeforeSavingNewSession() async throws {
     let memory = CommunityMemoryCredentials()
     let oldTokens = BackendAccountClient.Tokens(
       access_token: String(repeating: "a", count: 64), refresh_token: String(repeating: "f", count: 64),
@@ -197,12 +402,111 @@ final class SkinCommunityTests: XCTestCase {
     })
     XCTAssertEqual(recorder.events.count, 1)
     XCTAssertEqual(recorder.events.first?.old, "previous-user")
-    XCTAssertEqual(recorder.events.first?.stored, "fixture-user")
+    XCTAssertEqual(recorder.events.first?.stored, "previous-user")
 
     try await session.signIn(challenge: "fixture", credential: "synthetic", replacingAccount: {
       recorder.record($0, storage: memory)
     })
     XCTAssertEqual(recorder.events.count, 1, "same-account login keeps its pending snapshot")
+  }
+  func testNativeForgetCancelsTheOldQueueBeforeClearingTheSession() async throws {
+    let memory = CommunityMemoryCredentials()
+    let oldTokens = BackendAccountClient.Tokens(
+      access_token: String(repeating: "a", count: 64), refresh_token: String(repeating: "f", count: 64),
+      token_type: "Bearer", expires_in: 900,
+      user: .init(id: "previous-user", display_name: "Previous", created_at: "2026-01-01T00:00:00Z"))
+    try memory.save(BackendSavedSession.forTokens(oldTokens))
+    let session = BackendAccountSession(storage: memory, refreshLock: BackendProcessRefreshLock())
+    let recorder = AccountReplacementRecorder()
+
+    try await session.forget(removingAccount: { recorder.record($0, storage: memory) })
+
+    XCTAssertNil(try memory.load())
+    XCTAssertEqual(recorder.events.count, 1)
+    XCTAssertEqual(recorder.events.first?.old, "previous-user")
+    XCTAssertEqual(recorder.events.first?.stored, "previous-user")
+  }
+
+  func testFailedSnapshotCancelDoesNotBlockSignOutDeletionOrExpiredClear() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CommunityFixtureProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let operations: [(String, @Sendable (SkinCommunityAPI) async throws -> Void)] = [
+      ("logout", { try await $0.logout() }),
+      ("logout_all", { try await $0.logout(all: true) }),
+      ("delete_account", { try await $0.logout(deleteAccount: true) }),
+      ("clear_expired_login", { try await $0.clearExpiredLogin() }),
+    ]
+    for (name, operation) in operations {
+      let memory = CommunityMemoryCredentials()
+      let recorder = AccountReplacementRecorder()
+      let api = SkinCommunityAPI(client: client, account: communitySession(client, memory), cancelSnapshot: {
+        recorder.record($0, storage: memory)
+        throw DictionarySnapshotQueue.Failure.busy
+      })
+      try await api.login(challenge: "fixture", identityToken: "synthetic")
+      XCTAssertTrue(recorder.events.isEmpty, name)
+
+      try await operation(api)
+
+      XCTAssertNil(try memory.load(), "\(name) 在取消快照失败后仍须清除本地会话")
+      XCTAssertEqual(recorder.events.count, 1, name)
+      XCTAssertEqual(recorder.events.first?.old, "fixture-user", name)
+      XCTAssertEqual(recorder.events.first?.stored, "fixture-user", "\(name) 应在清除会话前取消快照")
+    }
+  }
+  func testFailedSnapshotCancelKeepsPreviousAccountWhenSwitching() async throws {
+    let memory = CommunityMemoryCredentials()
+    let oldTokens = BackendAccountClient.Tokens(
+      access_token: String(repeating: "a", count: 64), refresh_token: String(repeating: "f", count: 64),
+      token_type: "Bearer", expires_in: 900,
+      user: .init(id: "previous-user", display_name: "Previous", created_at: "2026-01-01T00:00:00Z"))
+    try memory.save(BackendSavedSession.forTokens(oldTokens))
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CommunityFixtureProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let recorder = AccountReplacementRecorder()
+    let api = SkinCommunityAPI(client: client, account: communitySession(client, memory), cancelSnapshot: {
+      recorder.record($0, storage: memory)
+      throw DictionarySnapshotQueue.Failure.busy
+    })
+
+    do {
+      try await api.login(challenge: "fixture", identityToken: "synthetic")
+      XCTFail("取消旧账号快照失败时不得切换账号")
+    } catch DictionarySnapshotQueue.Failure.busy { }
+
+    XCTAssertEqual(try memory.load()?.tokens.user.id, "previous-user")
+    XCTAssertEqual(recorder.events.map { $0.old }, ["previous-user"])
+  }
+
+  func testDelayedNativeForgetKeepsAnotherSessionsNewLoginAndSnapshot() async throws {
+    let memory = CommunityMemoryCredentials()
+    let oldTokens = BackendAccountClient.Tokens(
+      access_token: String(repeating: "a", count: 64), refresh_token: String(repeating: "f", count: 64),
+      token_type: "Bearer", expires_in: 900,
+      user: .init(id: "previous-user", display_name: "Previous", created_at: "2026-01-01T00:00:00Z"))
+    try memory.save(BackendSavedSession.forTokens(oldTokens))
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CommunityFixtureProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let gate = FirstRefreshLockGate()
+    let session = BackendAccountSession(api: client, storage: memory,
+                                        refreshLock: FirstRunGatedRefreshLock(gate: gate))
+    let replacement = communitySession(client, memory)
+    let recorder = AccountReplacementRecorder()
+    let oldForget = Task {
+      try await session.forget(removingAccount: { recorder.record($0, storage: memory) })
+    }
+    await gate.untilFirstRun()
+
+    try await replacement.signIn(challenge: "fixture", credential: "synthetic")
+    await gate.release()
+    do { try await oldForget.value; XCTFail("stale forget cleared the new account") }
+    catch is CancellationError { }
+
+    XCTAssertEqual(try memory.load()?.tokens.user.id, "fixture-user")
+    XCTAssertTrue(recorder.events.isEmpty)
   }
   func testProfileFetchUpdateAndValidation() async throws {
     let memory = CommunityMemoryCredentials()

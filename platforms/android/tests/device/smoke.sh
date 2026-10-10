@@ -80,6 +80,7 @@ for entry in \
     "CandidatePanelDeviceSmoke|Candidate panel acceptance failed" \
     "MoreToolsDeviceSmoke|More tools acceptance failed" \
     "EmojiPickerDeviceSmoke|Emoji picker acceptance failed" \
+    "PairedPunctuationDeviceSmoke|Paired punctuation acceptance failed" \
     "PreferencesDeviceSmoke|Preferences acceptance failed" \
     "KeyboardHeightDeviceSmoke|Keyboard height acceptance failed" \
     "FuzzyPinyinDeviceSmoke|Fuzzy pinyin acceptance failed" \
@@ -87,7 +88,9 @@ for entry in \
     "NineKeyEnglishDeviceSmoke|Nine-key English acceptance failed" \
     "NineKeyPanelDeviceSmoke|Nine-key panel acceptance failed" \
     "ChineseHelpcodeDeviceSmoke|Chinese helpcode acceptance failed" \
-    "MicrosoftShuangpinDeviceSmoke|Microsoft double-pinyin acceptance failed"
+    "MicrosoftShuangpinDeviceSmoke|Microsoft double-pinyin acceptance failed" \
+    "EmailSuffixDeviceSmoke|Email suffix acceptance failed" \
+    "NumberRowDeviceSmoke|Number row acceptance failed"
 do
   suite=${entry%%|*}
   if [[ " ${MSIME_DEVICE_SMOKE_SKIP:-} " == *" $suite "* ]]; then

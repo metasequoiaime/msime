@@ -652,6 +652,72 @@ pub(super) fn decode_typo_on_graph(
     })
 }
 
+/// 整句改字里的一段：音节 `start..end` 转换成 `word`，`key` 是它的读音（音节以 `'` 连接）。改字只处理一个汉字对应一个音节的句子，所以 `word` 的字数等于 `end - start`。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PinnedSpan {
+    pub start: usize,
+    pub end: usize,
+    pub word: String,
+    pub key: String,
+}
+
+/// 在 `pins` 的约束下重新转换 `syllables`：钉住的段原样出现，其余音节由词网格解出，不能跨过任何钉住的段。只用一个汉字对应一个音节的词，结果按音节切成首尾相接、覆盖全部音节的段。`pins` 须互不重叠且落在音节范围内；某个钉住的词不在词库里时按最低权重补一条边。解不出路径时为空。
+pub fn decode_pinned(
+    syllables: &[String],
+    lookup: &mut LatticeLookup<'_>,
+    options: &LatticeOptions<'_>,
+    pins: &[PinnedSpan],
+) -> Vec<PinnedSpan> {
+    let n = syllables.len();
+    if n == 0 || pins.iter().any(|pin| pin.start >= pin.end || pin.end > n) {
+        return Vec::new();
+    }
+    let mut graph = build_graph(syllables, lookup, options);
+    for (start, edges) in graph.iter_mut().enumerate() {
+        edges.retain(|edge| {
+            if edge.word.chars().count() != edge.end - start {
+                return false;
+            }
+            pins.iter().all(|pin| {
+                let overlaps = start < pin.end && pin.start < edge.end;
+                !overlaps || (start == pin.start && edge.end == pin.end && edge.word == pin.word)
+            })
+        });
+    }
+    for pin in pins {
+        let column = &mut graph[pin.start];
+        if !column.iter().any(|edge| edge.end == pin.end) {
+            column.push(Edge {
+                end: pin.end,
+                word: pin.word.clone(),
+                key: pin.key.clone(),
+                log_prob: edge_log_prob(1, pin.end - pin.start, options),
+                typo: false,
+            });
+        }
+    }
+    let Some(best) = decode_graph(&graph, options, None).into_iter().next() else {
+        return Vec::new();
+    };
+    let keys: Vec<&str> = best.key.split('\'').collect();
+    if keys.len() != n {
+        return Vec::new();
+    }
+    let mut spans = Vec::with_capacity(best.words.len());
+    let mut start = 0;
+    for word in best.words {
+        let end = start + word.chars().count();
+        spans.push(PinnedSpan {
+            start,
+            end,
+            key: keys[start..end].join("'"),
+            word,
+        });
+        start = end;
+    }
+    spans
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use std::collections::HashSet;
@@ -1163,5 +1229,71 @@ pub(super) mod tests {
             literal_score: 0.0,
         };
         assert!(!typo.leads(0.0));
+    }
+
+    fn pinned(start: usize, end: usize, word: &str, key: &str) -> PinnedSpan {
+        PinnedSpan {
+            start,
+            end,
+            word: word.to_owned(),
+            key: key.to_owned(),
+        }
+    }
+
+    fn pinned_words(spans: &[PinnedSpan]) -> Vec<&str> {
+        spans.iter().map(|span| span.word.as_str()).collect()
+    }
+
+    #[test]
+    fn pinned_decode_keeps_the_pin_and_reconverts_around_it() {
+        let rows = table(&[
+            ("bei", &[("被", 9000), ("北", 5000), ("背", 4000)]),
+            ("jing", &[("经", 9000), ("京", 3000), ("景", 2000)]),
+            ("bei'jing", &[("背景", 30000), ("北京", 20000)]),
+            ("qu", &[("去", 9000)]),
+        ]);
+        let options = LatticeOptions::default();
+        let text = syllables("qu'bei'jing");
+        let free = decode_pinned(&text, &mut lookup(&rows), &options, &[]);
+        assert_eq!(pinned_words(&free), ["去", "背景"]);
+        assert_eq!(free[1], pinned(1, 3, "背景", "bei'jing"));
+
+        // 钉住一个两字词：它原样出现，左边照常解码。
+        let word = decode_pinned(
+            &text,
+            &mut lookup(&rows),
+            &options,
+            &[pinned(1, 3, "北京", "bei'jing")],
+        );
+        assert_eq!(pinned_words(&word), ["去", "北京"]);
+
+        // 钉住词中间的一个字：跨过它的词不能再用，左边那个音节单独解码。
+        let character = decode_pinned(
+            &text,
+            &mut lookup(&rows),
+            &options,
+            &[pinned(2, 3, "京", "jing")],
+        );
+        assert_eq!(pinned_words(&character), ["去", "被", "京"]);
+        assert_eq!(character[2], pinned(2, 3, "京", "jing"));
+    }
+
+    #[test]
+    fn a_pin_missing_from_the_dictionary_still_decodes() {
+        let rows = table(&[("qu", &[("去", 9000)]), ("bei", &[("被", 9000)])]);
+        let spans = decode_pinned(
+            &syllables("qu'bei"),
+            &mut lookup(&rows),
+            &LatticeOptions::default(),
+            &[pinned(1, 2, "贝", "bei")],
+        );
+        assert_eq!(pinned_words(&spans), ["去", "贝"]);
+        assert!(decode_pinned(
+            &syllables("qu'bei"),
+            &mut lookup(&rows),
+            &LatticeOptions::default(),
+            &[pinned(1, 3, "贝", "bei")],
+        )
+        .is_empty());
     }
 }

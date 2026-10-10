@@ -21,6 +21,19 @@ static BOOL MSIMEStrictCaretPosition(id value, NSUInteger *result) {
     return YES;
 }
 
+// 把按 Unicode 标量计的位置换成 UTF-16 下标；不是非负整数或超出范围时取末尾。
+static NSUInteger MSIMEScalarOffset(NSString *text, id value) {
+    NSUInteger scalars = 0;
+    if (!MSIMEStrictCaretPosition(value, &scalars)) return text.length;
+    NSUInteger offset = 0;
+    while (offset < text.length && scalars > 0) {
+        const unichar high = [text characterAtIndex:offset];
+        offset += (high >= 0xD800 && high <= 0xDBFF && offset + 1 < text.length) ? 2 : 1;
+        --scalars;
+    }
+    return offset;
+}
+
 static NSString *MSIMEPreeditLetters(NSString *text) {
     NSMutableString *letters = [NSMutableString string];
     for (NSUInteger i = 0; i < text.length; ++i) {
@@ -142,7 +155,16 @@ void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETe
     }
     NSString *marked = preedit;
     NSUInteger caret = MSIMEPreeditCaretPosition(editing, preedit, position);
-    if (style == MSIMEInlinePreeditStyleRaw) {
+    // 整句改字：行内画改好的整句，不管预编辑样式选的是什么，光标在焦点字前，焦点那一段单独成一个子句。
+    NSString *conversion = view[@"conversion"];
+    NSRange focus = NSMakeRange(NSNotFound, 0);
+    if ([conversion isKindOfClass:NSString.class] && conversion.length) {
+        const NSUInteger start = MSIMEScalarOffset(conversion, view[@"conversion_focus_start"]);
+        const NSUInteger end = MAX(start, MSIMEScalarOffset(conversion, view[@"conversion_focus_end"]));
+        marked = conversion;
+        caret = start;
+        focus = NSMakeRange(start, end - start);
+    } else if (style == MSIMEInlinePreeditStyleRaw) {
         marked = editing;
         caret = validCaret ? MIN(rawCaret, editing.length) : editing.length;
     } else if (style == MSIMEInlinePreeditStyleEmpty) {
@@ -156,10 +178,12 @@ void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETe
     // caret_position is an offset into the editing text in this host's own string unit.
     NSString *phrase = view[@"phrase_prefix"];
     NSUInteger phraseLength = 0;
-    if ([phrase isKindOfClass:NSString.class] && phrase.length && style != MSIMEInlinePreeditStyleEmpty) {
+    if ([phrase isKindOfClass:NSString.class] && phrase.length &&
+        (style != MSIMEInlinePreeditStyleEmpty || focus.location != NSNotFound)) {
         marked = [phrase stringByAppendingString:marked];
         caret += phrase.length;
         phraseLength = phrase.length;
+        if (focus.location != NSNotFound) focus.location += phrase.length;
     }
     // While the pair is open the closing mark is the tail of the marked text, so it stays visible and
     // stays after the caret. A commit above has already consumed it.
@@ -175,7 +199,23 @@ void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETe
     // stretch of underlined text and nothing says where what the user already chose ends.
     //
     // AppKit only; UIKit's document proxy takes a plain string, and no UIKit host holds a phrase.
-    if (phraseLength > 0 && phraseLength < marked.length) {
+    // 整句改字时焦点那一段是正在改的子句（粗下划线），其余是已经转换好的（细下划线），与日文输入法改文节时一样。
+    if (focus.location != NSNotFound && focus.length > 0 && NSMaxRange(focus) <= marked.length) {
+        NSMutableAttributedString *clauses = [[NSMutableAttributedString alloc] initWithString:marked];
+        NSInteger segment = 0;
+        if (focus.location > 0)
+            [clauses addAttributes:@{NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle),
+                                     NSMarkedClauseSegmentAttributeName: @(segment++)}
+                             range:NSMakeRange(0, focus.location)];
+        [clauses addAttributes:@{NSUnderlineStyleAttributeName: @(NSUnderlineStyleThick),
+                                 NSMarkedClauseSegmentAttributeName: @(segment++)}
+                         range:focus];
+        if (NSMaxRange(focus) < marked.length)
+            [clauses addAttributes:@{NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle),
+                                     NSMarkedClauseSegmentAttributeName: @(segment)}
+                             range:NSMakeRange(NSMaxRange(focus), marked.length - NSMaxRange(focus))];
+        displayed = clauses;
+    } else if (phraseLength > 0 && phraseLength < marked.length) {
         NSMutableAttributedString *clauses = [[NSMutableAttributedString alloc] initWithString:marked];
         [clauses addAttributes:@{NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle),
                                  NSMarkedClauseSegmentAttributeName: @0}

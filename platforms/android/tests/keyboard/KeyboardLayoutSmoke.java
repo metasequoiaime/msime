@@ -22,6 +22,23 @@ public final class KeyboardLayoutSmoke {
             }
         }
 
+        // #6022：数字行是 1–0，只画在 26 键和韩文键盘的字母层，设置关着时不画。
+        check(KeyboardLayout.NUMBER_ROW.equals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")));
+        int portrait = 760;
+        check(KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, portrait));
+        check(KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, KeyboardLayout.KOREAN_LAYOUT, portrait));
+        check(!KeyboardLayout.drawsNumberRow(false, KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, portrait));
+        check(!KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.SYMBOLS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, portrait));
+        for (int grid : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT,
+                KeyboardLayout.HANDWRITING_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT, KeyboardLayout.STROKE_LAYOUT,
+                KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT})
+            check(!KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, grid, portrait));
+        // 横屏手机（360 / 411 / 440 dp 宽的手机横过来，窗口约 336–416 dp 高）不画，免得工具栏或底行被挤出窗口；平板横屏（约 552 dp 起）照画；窗口高度未知时不按高度拦。
+        for (int landscapePhone : new int[] {336, 387, 416, KeyboardLayout.NUMBER_ROW_MIN_WINDOW_HEIGHT_DP - 1})
+            check(!KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, landscapePhone));
+        for (int tall : new int[] {KeyboardLayout.NUMBER_ROW_MIN_WINDOW_HEIGHT_DP, 552, 0})
+            check(KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, tall));
+
         // 新设计的 123 层（中文）。
         List<List<KeyboardLayout.LayerKey>> number = KeyboardLayout.numberLayer(true);
         check(number.size() == 4);

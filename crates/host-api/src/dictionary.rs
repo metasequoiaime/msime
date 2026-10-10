@@ -203,9 +203,35 @@ enum Operation {
         #[serde(default)]
         user_only: bool,
     },
-    /// 把用户词库导出成与 `/v1/users/me/dictionary/snapshot` 相同的 NDJSON 文件，`destination` 是绝对路径。
+    /// 把用户词库导出成与 `/v1/users/me/dictionary/snapshot` 相同的 NDJSON 文件，`destination` 是绝对路径。`include_learning` 为真时再写上输入记录（本地备份用；云同步不传，输出与原来逐字节相同）。
     ExportSnapshot {
         destination: String,
+        #[serde(default)]
+        include_learning: bool,
+    },
+    /// 本机输入记录的条数，只读（`dictionary_snapshot::learning_count`）。
+    LearningCount,
+    /// 把快照文件 `source` 里的输入记录存成待合并的文件，键盘收起后空闲时合并进本机（`dictionary_snapshot::queue_learning_merge`）。要求 `preferences_directory` 是绝对路径。
+    QueueLearningMerge {
+        source: String,
+    },
+    /// 合并 `QueueLearningMerge` 排下的输入记录和 `QueueHabitsMerge` 排下的输入习惯（`dictionary_snapshot::merge_pending_learning`），要独占维护权。要求 `preferences_directory` 是绝对路径。
+    MergePendingLearning,
+    /// 只读地完整校验一份词库快照文件 `source`（本地备份恢复前先查一遍），返回它的元数据（`dictionary_snapshot::inspect_snapshot`）。
+    InspectSnapshot {
+        source: String,
+    },
+    /// 把本机的输入习惯（整句联想、选词对、拼写纠错、自动纠错抑制、置顶）写成 `destination`（`dictionary_snapshot::habits::export_learning_habits`），本地备份用。
+    ExportHabits {
+        destination: String,
+    },
+    /// 只读地完整校验一份输入习惯文件 `source`，返回 `{habits}`。
+    InspectHabits {
+        source: String,
+    },
+    /// 把输入习惯文件 `source` 存成待合并的文件，键盘收起后空闲时与输入记录一起合并（`dictionary_snapshot::habits::queue_habits_merge`）。要求 `preferences_directory` 是绝对路径。
+    QueueHabitsMerge {
+        source: String,
     },
 }
 
@@ -530,6 +556,12 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
         .preferences
         .validate()
         .map_err(|_| "invalid dictionary options".to_owned())?;
+    // 只有 `queue_learning_merge` 和 `merge_pending_learning` 用到：待合并的输入记录放在它下面。
+    let preferences_directory = request
+        .options
+        .preferences_directory
+        .clone()
+        .filter(|path| Path::new(path).is_absolute());
     let options = request.options.into_engine_options();
     match request.action {
         Operation::List {
@@ -772,15 +804,86 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             .ok_or("dictionary maintenance busy")?;
             count_entries(&options, kind, user_only)
         }
-        Operation::ExportSnapshot { destination } => {
+        Operation::ExportSnapshot {
+            destination,
+            include_learning,
+        } => {
             let _access = DictionaryAccess::try_session(
                 Path::new(&options.user_data),
                 Path::new(&options.dictionaries),
             )
             .map_err(|_| "dictionary access unavailable")?
             .ok_or("dictionary maintenance busy")?;
-            crate::dictionary_snapshot::export_local_snapshot(&options, Path::new(&destination))
+            crate::dictionary_snapshot::export_local_snapshot(
+                &options,
+                Path::new(&destination),
+                include_learning,
+            )
+            .map_err(str::to_owned)
+        }
+        Operation::LearningCount => {
+            let _access = DictionaryAccess::try_session(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            crate::dictionary_snapshot::learning_count(&options).map_err(str::to_owned)
+        }
+        Operation::QueueLearningMerge { source } => {
+            let preferences =
+                preferences_directory.ok_or("personal dictionary shared directory unavailable")?;
+            crate::dictionary_snapshot::queue_learning_merge(
+                Path::new(&preferences),
+                Path::new(&source),
+            )
+            .map_err(str::to_owned)
+        }
+        Operation::MergePendingLearning => {
+            let preferences =
+                preferences_directory.ok_or("personal dictionary shared directory unavailable")?;
+            crate::dictionary_snapshot::merge_pending_learning(&options, Path::new(&preferences))
                 .map_err(str::to_owned)
+        }
+        Operation::InspectSnapshot { source } => {
+            let source = Path::new(&source);
+            if !source.is_absolute() {
+                return Err("invalid snapshot path".into());
+            }
+            let metadata =
+                crate::dictionary_snapshot::inspect_snapshot(source).map_err(str::to_owned)?;
+            serde_json::to_value(metadata).map_err(|_| "invalid snapshot file".to_owned())
+        }
+        Operation::ExportHabits { destination } => {
+            let _access = DictionaryAccess::try_session(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            crate::dictionary_snapshot::habits::export_learning_habits(
+                &options,
+                Path::new(&destination),
+            )
+            .map_err(str::to_owned)
+        }
+        Operation::InspectHabits { source } => {
+            let source = Path::new(&source);
+            if !source.is_absolute() {
+                return Err("invalid habits path".into());
+            }
+            crate::dictionary_snapshot::habits::inspect_learning_habits(source)
+                .map(|habits| json!({ "habits": habits }))
+                .map_err(str::to_owned)
+        }
+        Operation::QueueHabitsMerge { source } => {
+            let preferences =
+                preferences_directory.ok_or("personal dictionary shared directory unavailable")?;
+            crate::dictionary_snapshot::habits::queue_habits_merge(
+                Path::new(&preferences),
+                Path::new(&source),
+            )
+            .map_err(str::to_owned)
         }
     }
 }
@@ -1024,7 +1127,15 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
             let state = store.read().map_err(personal_dictionary_error)?;
             Ok(json!({ "pending_count": state.pending_count() }))
         }
-        Operation::Count { .. } | Operation::ExportSnapshot { .. } => {
+        Operation::Count { .. }
+        | Operation::ExportSnapshot { .. }
+        | Operation::LearningCount
+        | Operation::QueueLearningMerge { .. }
+        | Operation::MergePendingLearning
+        | Operation::InspectSnapshot { .. }
+        | Operation::ExportHabits { .. }
+        | Operation::InspectHabits { .. }
+        | Operation::QueueHabitsMerge { .. } => {
             Err("dictionary read operations require msime_client_dictionary".into())
         }
         Operation::DismissFailure { request_id } => {
