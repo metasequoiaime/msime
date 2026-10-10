@@ -6,7 +6,6 @@
 
 - 想直接开始：复制 [plugin-template](plugin-template/)，这是一个能通过校验的最小按键音效包。
 - 想分享自己的包：在 Windows、macOS 或 Linux 上登录账号，打开设置里的「插件 → 社区插件」，点「发布我的插件」，选一个自己导入的包即可。八种类型都能发布，特效包也一样；内置包不能发布。压缩后的包不超过 8 MB，每个账号最多发布 20 个、合计 32 MB，每小时最多发布 10 次。别人发布的包也在这一页浏览、安装和评分。
-- [metasequoiaime/msime-plugins](https://github.com/metasequoiaime/msime-plugins) 的 `templates/` 里有各类型的模板，可以从那里起步。
 
 ## 平台支持
 

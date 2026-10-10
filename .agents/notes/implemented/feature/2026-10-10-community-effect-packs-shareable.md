@@ -18,7 +18,7 @@ Status: implemented
 - `pack` 把特效包的清单和说明文件打成归档，`install` 按同样的校验装回去；`validate_page` 不再去掉特效包条目。`validate_page` 里按 `PUBLISHABLE_KINDS` 过滤的那一步保留，现在什么也不去掉，留给将来旧类型集合与可发布类型不一致的情况。
 - `packages/ui/src/community/community-plugins.tsx` 的 `CommunityPluginKind` 等于 `PluginKind`，`communityPluginKinds` 加入 `effect`，社区页多一个「特效包」筛选，发布对话框列出所有非内置的已装包；`community-helpers.ts` 里不会再出现的「特效包暂不支持分享。」删掉。
 
-插件库只放在 msime-cloud 数据库，不同步到 GitHub 仓库。`docs/plugins.md` 改为指向应用内「插件 → 社区插件 → 发布我的插件」，并写明服务端的配额：压缩后 8 MB、每个账号 20 个、合计 32 MB、每小时 10 次。`metasequoiaime/msime-plugins` 只作为作者模板（`templates/`）的出处被引用，`docs/plugin-template/README.md` 原有的引用不变。
+插件库只放在 msime-cloud 数据库，不同步到 GitHub 仓库。`docs/plugins.md` 改为指向应用内「插件 → 社区插件 → 发布我的插件」，并写明服务端的配额：压缩后 8 MB、每个账号 20 个、合计 32 MB、每小时 10 次。GitHub 仓库 `metasequoiaime/msime-plugins` 已于 2026-10-10 由维护者删除：其中 17 个精选包由 msime-cloud 的种子一次性导入数据库，文档里所有指向它的链接（作者模板、`msime-pack` 的用途说明）一并去掉；每种类型的清单写法都在 `docs/plugins.md` 里，能通过校验的完整例子在 `crates/client-core/tests/fixtures/plugin-packs/valid/`。
 
 ## Alternatives considered
 
