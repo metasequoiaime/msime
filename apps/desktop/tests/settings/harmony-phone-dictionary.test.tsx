@@ -198,7 +198,7 @@ test("a dictionary opens in place, turns on with its switch, and back returns to
   expect(window.history.state?.dictionaryDetail).toBe("work");
   fireEvent.click(toggle);
   await waitFor(() => expect(collections.setEnabled).toHaveBeenCalledWith("work", true));
-  expect(await screen.findByText("已启用，键盘下次启动时生效")).toBeTruthy();
+  expect(await screen.findByText("已启用")).toBeTruthy();
   await waitFor(() =>
     expect(screen.getByRole("switch", { name: "启用此词库" })).toHaveProperty("checked", true),
   );

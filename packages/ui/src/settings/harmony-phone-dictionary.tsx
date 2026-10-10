@@ -139,10 +139,7 @@ export function HarmonyPhoneDictionary() {
         collection={opened}
         busy={busy}
         onEnabled={(enabled) =>
-          void run(
-            () => collections.setEnabled(opened.id, enabled),
-            enabled ? "已启用，键盘下次启动时生效" : "已停用",
-          )
+          void run(() => collections.setEnabled(opened.id, enabled), enabled ? "已启用" : "已停用")
         }
         onAddWord={(word, code) =>
           run(
@@ -150,7 +147,7 @@ export function HarmonyPhoneDictionary() {
               collections.addWords(opened.id, [
                 { kind: "pinyin", key: code, value: word, weight: 10 },
               ]),
-            "已添加，键盘下次启动时生效",
+            "已添加",
           )
         }
         onDelete={async () => {
@@ -707,7 +704,7 @@ function BuiltinDictionaryDetail({
                 `phone-dictionary-${Date.now()}`,
               );
               setAdding(false);
-              toast("已添加，键盘下次启动时生效");
+              toast("已添加");
               void load(query, 0);
             } catch {
               toast("添加失败，请稍后重试。");
