@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.BoundsPolicy;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardGeometry;
 import android.content.Context;
