@@ -94,7 +94,7 @@ enum TabletLetterLayout {
 ///
 /// 只有平板形态（regular 宽度的 iPad）横屏且开关打开时才分。iPad 的浮动键盘、Slide Over 和台前调度里的窄窗口已经是手机形态，竖屏的平板键盘也不分，它们都保持原样。
 ///
-/// 分的是 26 键字母布局（全拼、各种双拼含微软双拼的 `;` 键、五笔、英文、日文罗马字、韩文和其他字母方案）、它们的 123 符号页，以及 iPad 的数字行和 Tab 那一排；九键、笔画、手写、注音大千和日文假名九键不分，符号、表情、剪贴板等面板也不分。每一排（包括底部功能键那一排）在中间插入一段不接触摸的中缝，键盘高度不变。
+/// 分的是 26 键字母布局（全拼、各种双拼含微软双拼的 `;` 键、五笔、英文、日文罗马字、韩文和其他字母方案）、它们的 123 符号页，以及 iPad 的数字行和 Tab 那一排；九键、全拼 14 键、笔画、手写、注音大千和日文假名九键不分，符号、表情、剪贴板等面板也不分。每一排（包括底部功能键那一排）在中间插入一段不接触摸的中缝，键盘高度不变。
 enum KeyboardSplitLayout {
   /// 中缝占键区宽度的比例：左右两半最里面的两个键之间空出这么宽。
   static let gapRatio: CGFloat = 0.25
@@ -104,11 +104,11 @@ enum KeyboardSplitLayout {
     formFactor == .tablet && landscape && enabled()
   }
 
-  /// 当前显示的键区是不是会分开的字母布局。英文和本地输入模式总是画 26 键字母；九键、笔画、假名九键、注音大千和手写画的是各自的键区，不分。
+  /// 当前显示的键区是不是会分开的字母布局。英文和本地输入模式总是画 26 键字母；九键、全拼 14 键、笔画、假名九键、注音大千和手写画的是各自的键区，不分。
   static func splitsLayout(scheme: ChineseInputScheme, chinese: Bool, localMode: Bool) -> Bool {
     guard chinese, !localMode else { return true }
     switch scheme {
-    case .nineKey, .stroke, .japaneseNineKey, .zhuyin, .handwriting: return false
+    case .nineKey, .fourteenKey, .stroke, .japaneseNineKey, .zhuyin, .handwriting: return false
     default: return true
     }
   }

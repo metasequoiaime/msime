@@ -28,6 +28,7 @@ enum IOSCloudSettings {
     // A scheme the cloud cannot carry (Cantonese, Zhuyin, Vietnamese, Tibetan, Stroke) leaves the account's scheme as it is: every other device would reject the whole document over an `input.schema` it does not know.
     if let name = scheme.cloudSchema {
       settings["input.schema"] = .string(name)
+      // 全拼 14 键在云端还没有自己的键，按全拼、不是九键上传，在别的设备上落成全拼 26 键。
       settings["platform.ios.nine_key"] = .boolean(scheme == .nineKey || scheme == .japaneseNineKey)
     }
     if let profile = scheme.shuangpinProfile { settings["input.shuangpin_schema"] = .string(profile) }

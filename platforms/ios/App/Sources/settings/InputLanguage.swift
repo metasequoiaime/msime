@@ -31,7 +31,8 @@ enum InputLanguage: String, CaseIterable, Identifiable {
 
   var schemes: [ChineseInputScheme] {
     switch self {
-    case .mandarin: [.quanpin, .nineKey, .shuangpin, .ziranma, .microsoft, .shoudao, .wubi, .zhuyin, .stroke, .handwriting]
+    // 全拼的三种键盘按 26 键、14 键、9 键排列，与共享界面的普通话方案列表一致。
+    case .mandarin: [.quanpin, .fourteenKey, .nineKey, .shuangpin, .ziranma, .microsoft, .shoudao, .wubi, .zhuyin, .stroke, .handwriting]
     case .cantonese: [.cantonese]
     case .japanese: [.japanese, .japaneseNineKey]
     case .korean: [.korean]
