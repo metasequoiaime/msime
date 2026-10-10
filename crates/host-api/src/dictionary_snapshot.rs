@@ -1280,8 +1280,7 @@ fn snapshot_queue_process(
     queue
         .publish_local_version(&current)
         .map_err(snapshot_queue_error)?;
-    // The keyboard could not read the shared session right now. Keep the request for a
-    // later idle pass rather than applying it under an unknown account.
+    // 键盘这次读不到共享的会话文件（读取失败或未登录），不知道当前账号是谁。请求留到下一次空闲时再处理，不在未知账号下应用。
     let Some(account_id) = account_id else {
         return serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
             .map_err(|_| "snapshot_unavailable".to_owned());

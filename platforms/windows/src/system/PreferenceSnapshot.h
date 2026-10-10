@@ -1,6 +1,6 @@
 #pragma once
 #include "msime_client.h"
-#include <memory>
+#include "../../../common/HostApiString.h"
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <stdexcept>
@@ -27,10 +27,9 @@ private:
                                                 bool try_only) {
     const auto load = try_only ? msime_client_try_load_preferences
                                : msime_client_load_preferences;
-    std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+    auto raw = msime::host_api::own_string(
         load(reinterpret_cast<const uint8_t *>(directory.data()),
-             directory.size()),
-        msime_client_string_free);
+             directory.size()));
     if (!raw)
       throw std::runtime_error("Missing shared preferences response");
     auto response = nlohmann::json::parse(raw.get());

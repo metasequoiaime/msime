@@ -6,7 +6,6 @@ import { CandidateFollowCursorSection } from "../candidate-follow-cursor-section
 import { CandidatePageNumberSection } from "../candidate-page-number-section";
 import { CandidateAppLogoSection } from "../candidate-app-logo-section";
 import { CandidateFontSizeSliderRow, CandidateSizingSection } from "../candidate-sizing-section";
-import { NavigationSection, defaultNavigation } from "../navigation-section";
 import { CandidatePageSizeSection } from "../candidate-page-size-section";
 import { offeredCandidatePageSizes } from "../candidate-page-size";
 import { CandidateLayoutSection } from "../candidate-layout-section";
@@ -200,7 +199,7 @@ export function AppearanceSettingsPage() {
 }
 
 /**
- * HarmonyOS 手机的「候选栏」页，按设计布局：没有预览（键盘本身就是预览），没有通往主题页的链接；「候选栏」组以「候选字号」滑块开头；「翻页」组放硬件翻页键，在手机上它们放在这里而不在「输入」页。字体、预设、预编辑字号和预编辑这几行仍可在「更多选项」里找到。不提供每页候选数这一行：手机候选栏按宽度翻页，从不读取 `candidate_page_size`。
+ * HarmonyOS 手机的「候选栏」页，按设计布局：没有预览（键盘本身就是预览），没有通往主题页的链接；「候选栏」组以「候选字号」滑块开头。外接键盘的翻页键不在这里，在「外接键盘快捷键」页：它们只对接了实体键盘的人有用，放在候选栏页像是把电脑的设置搬上了手机。字体、预设、预编辑字号和预编辑这几行仍可在「更多选项」里找到。不提供每页候选数这一行：手机候选栏按宽度翻页，从不读取 `candidate_page_size`。
  */
 function HarmonyPhoneCandidateGroups() {
   const {
@@ -219,14 +218,12 @@ function HarmonyPhoneCandidateGroups() {
     mobileKeyboardFeedback,
     mobileKeyboardFeedbackBusy,
     saveMobileKeyboardFeedback,
-    wordCharacter,
   } = useSettingsForm();
   const appearanceActions = createAppearanceSettingsActions({
     mobileKeyboardFeedback,
     saveMobileKeyboardFeedback,
     setDraft,
   });
-  const navigation = draft.navigation ?? defaultNavigation;
   return (
     <>
       {host?.candidate_panel_limit && (
@@ -305,23 +302,6 @@ function HarmonyPhoneCandidateGroups() {
             onInlinePreeditChange={appearanceActions.onInlinePreeditChange}
           />
         </MoreOptions>
-      </GroupList>
-      <GroupList title="翻页">
-        <NavigationSection
-          navigation={navigation}
-          wordCharacter={wordCharacter}
-          linux={false}
-          harmonyPhone
-          onChange={(next) =>
-            appearanceActions.onPreferencesChange({
-              // 只有占用了「以词定字」按键的翻页键才会改动它；否则未设置的值保持未设置。
-              ...(next.wordCharacter !== wordCharacter
-                ? { word_character: next.wordCharacter }
-                : {}),
-              navigation: next.navigation,
-            })
-          }
-        />
       </GroupList>
       {/* 手机候选栏有自己的底色和圆角，所以这些只在某个宿主在手机上声明支持时才出现；设计里这一页不放通往主题页的链接。 */}
       {(showCandidateWindowOpacity || showCandidateCornerRadius) && (

@@ -683,15 +683,14 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
            [identifier[@"index"] compare:@(NSUIntegerMax)] != NSOrderedDescending;
 }
 
-// Background readers borrow the controller strongly. Its last release must not
-// land on their queue, where -dealloc would tear down AppKit objects off main.
-// Takes the caller's reference and clears it before main can drop the handoff.
+// 后台读取会强引用控制器。它的最后一次释放不能落在后台队列上，否则 -dealloc 会在主线程之外收起 AppKit 对象。这里接过调用方的引用并把它清空，再到主线程释放。
+// 主线程上用 CFRelease 当场释放，不用 CFBridgingRelease：后者的返回值在未优化的构建里会进主线程 run loop 的自动释放池，控制器要活到这一轮回调结束，排在后面、按弱引用取控制器的完成块就会取到一个 IMK 早已放掉的控制器。
 static void MSIMEReleaseControllerOnMain(__strong id *controller) {
     if (!*controller) return;
     CFTypeRef owner = CFBridgingRetain(*controller);
     *controller = nil;
     dispatch_async(dispatch_get_main_queue(), ^{
-        (void)CFBridgingRelease(owner);
+        CFRelease(owner);
     });
 }
 
@@ -3277,11 +3276,18 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         [self showSharedTextTool:@"cloud-clipboard" options:[self runtimeOptions] bridge:nil];
         return;
     }
+    // 打开设置应用的完成回调在 NSWorkspace 的并发队列上执行并释放，这里的块随它一起被持有：只捕获弱引用，控制器的最后一次释放才不会落在那条队列上（见 reloadPreferences）。
+    __weak MSIMEInputController *weakSelf = self;
     MSIMEOpenDesktopCloudClipboard(MSIMERuntimeOptionsPath(), NSWorkspace.sharedWorkspace, ^{
-        if (!MSIMEOpenBackendClipboard(NSClassFromString(@"MSIMEBackendAccountWindow"))) [self showAccount:sender];
+        if (!MSIMEOpenBackendClipboard(NSClassFromString(@"MSIMEBackendAccountWindow"))) [weakSelf showAccount:sender];
     });
 }
-- (void)showCloudDictionary:(id)sender { (void)sender; MSIMEOpenDesktopCloudDictionary(MSIMERuntimeOptionsPath(), NSWorkspace.sharedWorkspace, ^{ [self showAccount:nil]; }); }
+- (void)showCloudDictionary:(id)sender {
+    (void)sender;
+    // 只捕获弱引用，理由同 showCloudClipboard:。
+    __weak MSIMEInputController *weakSelf = self;
+    MSIMEOpenDesktopCloudDictionary(MSIMERuntimeOptionsPath(), NSWorkspace.sharedWorkspace, ^{ [weakSelf showAccount:nil]; });
+}
 - (void)showHandwriting:(id)sender {
     (void)sender;
     if (!MSIMEEditionOffersHandwriting()) return;
@@ -4263,7 +4269,20 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         [[MSIMEPreferencesWindowController sharedController] showAndActivateWithPageIdentifier:@"appearance"];
     });
 }
-- (void)showDictionary:(id)sender { (void)sender; MSIMEOpenDesktopRoute(@"settings:dictionary", NSWorkspace.sharedWorkspace, ^{ if (!self->_session) [self prepareSession]; if (!self->_session) return; self->_dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:self->_session.hostOptions]; [self->_dictionaryWindow showWindow:nil]; MSIMEPresentWindow(self->_dictionaryWindow.window); }); }
+- (void)showDictionary:(id)sender {
+    (void)sender;
+    // 只捕获弱引用，理由同 showCloudClipboard:；回退在主线程执行，在那里再取强引用。
+    __weak MSIMEInputController *weakSelf = self;
+    MSIMEOpenDesktopRoute(@"settings:dictionary", NSWorkspace.sharedWorkspace, ^{
+        MSIMEInputController *controller = weakSelf;
+        if (!controller) return;
+        if (!controller->_session) [controller prepareSession];
+        if (!controller->_session) return;
+        controller->_dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:controller->_session.hostOptions];
+        [controller->_dictionaryWindow showWindow:nil];
+        MSIMEPresentWindow(controller->_dictionaryWindow.window);
+    });
+}
 - (void)prepareDictionary:(id)sender {
     (void)sender;
     if (_session && _activeClient) {
@@ -4782,7 +4801,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     NSString *directory = [_preferencesDirectory copy];
     __weak MSIMEInputController *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        MSIMEInputController *current = weakSelf;
+        id current = weakSelf; // 用 id：要交给 MSIMEReleaseControllerOnMain
         if (!current) return;
         NSError *error = nil;
         NSDictionary *snapshot = [current readPreferencesSnapshotInDirectory:directory error:&error];
@@ -4801,6 +4820,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                 error = recoveryError;
             }
         }
+        // 读取期间 IMK 可能已放掉控制器，这里的强引用就成了最后一个；交回主线程释放，dealloc 收起浮动工具栏时才不会在本线程触碰 AppKit。释放先于下面的完成块入队，完成块仍按弱引用取到控制器，时机与此前相同。
+        MSIMEReleaseControllerOnMain(&current);
         dispatch_async(dispatch_get_main_queue(), ^{
             [weakSelf completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
             // After the completion, which is what configures the diagnostic log from the repaired document.
@@ -4930,11 +4951,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [[MSIMETypingEffectPanel sharedPanel] settle];
     // Every focus loss writes the key heatmap counts, including a late one for a previous client: they are this controller's presses either way.
     [self flushKeyPresses];
+    // 上一个客户端迟到的回调不能拆掉当前客户端的组字、面板、监视和尚未松开的修饰键。成对标点也一样：activateServer: 已丢掉上一个客户端欠着的闭合符，此刻待补的闭合符和跳过记录都属于当前客户端，替它补上会把这一对提前合上、把组字中的 marked text 整段替换掉，所以迟到判断必须先于补闭合符。
+    if (!sender || sender != _activeClient) return;
     [self flushPendingPairedClosing];
     _pairedPunctuation.clear();
-    // A delayed callback from the previous client must not tear down the
-    // active client's composition, panels, monitoring or pending modifier tap.
-    if (!sender || sender != _activeClient) return;
     _backspaceHoldArmed = NO;
     [self clearSmartPunctuationSpaceConversion];
     [self clearSmartPunctuationSpaceRevert];
@@ -5062,13 +5082,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 - (void)restartCurrentInputMethod {
+    // 完成块也被 NSWorkspace 并发队列上的回调持有，那边可能最后才释放它：只捕获弱引用，理由同 showCloudClipboard:。
+    __weak MSIMEInputController *weakSelf = self;
     MSIMELaunchInputSourceReregistration(NSBundle.mainBundle.bundleURL, NSWorkspace.sharedWorkspace,
         ^(BOOL launched) {
             if (!launched) {
                 NSBeep();
                 return;
             }
-            [self flushKeyPressesWaitingUntilWritten:YES];
+            [weakSelf flushKeyPressesWaitingUntilWritten:YES];
             [NSApp terminate:nil];
         });
 }

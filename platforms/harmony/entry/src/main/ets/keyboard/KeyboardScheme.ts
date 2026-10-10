@@ -388,6 +388,40 @@ export class KeyboardScheme {
     return enabled.length === 0 ? [KeyboardScheme.fallback(edition)] : enabled;
   }
 
+  /**
+   * 键盘「输入方式」面板里列出的方案：`schemes` 里的双拼只留一种，其余方案原样、按原顺序保留。
+   *
+   * 留下的那一种依次取：`selected` 本身是双拼且在 `schemes` 里时就是它；否则是偏好 `shuangpin_profile`（`profile`，缺省或不认识时按小鹤，与 `mapping` 的规整相同）对应的那一种；它不在 `schemes` 里时取 `schemes` 里第一种双拼。大多数人只用一种双拼，四种都列出来会把手写挤到第二页（#6450）；换双拼方案在设置的「双拼」子菜单里。与 Android 的 `KeyboardScheme.pickerSchemes`、iOS 的 `InputSchemePreference.pickerSchemes` 一致。
+   */
+  static pickerSchemes(
+    schemes: SchemeDefinition[],
+    selected: SchemeDefinition | null,
+    profile: string | null | undefined,
+  ): SchemeDefinition[] {
+    let kept: SchemeDefinition | null = null;
+    if (selected !== null && selected.shuangpinProfile !== null && schemes.includes(selected)) {
+      kept = selected;
+    } else {
+      const configured: string = KeyboardScheme.normalizedProfile(profile ?? null);
+      for (const candidate of schemes) {
+        if (candidate.shuangpinProfile === null) {
+          continue;
+        }
+        if (kept === null) {
+          kept = candidate;
+        }
+        if (candidate.shuangpinProfile === configured) {
+          kept = candidate;
+          break;
+        }
+      }
+    }
+    return schemes.filter(
+      (candidate: SchemeDefinition): boolean =>
+        candidate.shuangpinProfile === null || candidate === kept,
+    );
+  }
+
   /** Shared selection is authoritative; otherwise preserve the applied scheme or use first enabled. */
   static resolveEnabledSelection(
     applied: SchemeDefinition | null,

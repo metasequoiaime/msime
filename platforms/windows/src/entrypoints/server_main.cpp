@@ -1,4 +1,5 @@
 #include "../../../shared/contracts/windows_ipc.h"
+#include "../../../common/HostApiString.h"
 #include "AuxListener.h"
 #include "VoiceTheme.h"
 #include "CandidateAppearance.h"
@@ -98,10 +99,9 @@ msime::windows::CandidateThemeResolution
 resolve_theme(const nlohmann::json &request) {
   try {
     const auto body = request.dump();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+    auto owned = msime::host_api::own_string(
         msime_client_resolve_theme(
-            reinterpret_cast<const uint8_t *>(body.data()), body.size()),
-        msime_client_string_free);
+            reinterpret_cast<const uint8_t *>(body.data()), body.size()));
     if (!owned)
       return {};
     const auto document = nlohmann::json::parse(owned.get(), nullptr, false);
@@ -118,8 +118,7 @@ resolve_theme(const nlohmann::json &request) {
 // The global theme picker's ids and titles. The catalog is built into the shared layer and cannot change while the Server runs, so it is read once; an unreadable answer leaves the tray's 主题 row without a title.
 nlohmann::json theme_catalog() {
   try {
-    std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-        msime_client_theme_catalog(), msime_client_string_free);
+    auto owned = msime::host_api::own_string(msime_client_theme_catalog());
     if (owned)
       return nlohmann::json::parse(owned.get(), nullptr, false);
   } catch (const std::exception &) {
@@ -133,11 +132,10 @@ resolve_skin_assets(const std::filesystem::path &root, const std::string &id) {
     return {};
   try {
     const auto directory = root.u8string();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+    auto owned = msime::host_api::own_string(
         msime_client_skin_catalog(
             reinterpret_cast<const uint8_t *>(directory.data()),
-            directory.size()),
-        msime_client_string_free);
+            directory.size()));
     if (owned) {
       const auto catalog = nlohmann::json::parse(owned.get(), nullptr, false);
       if (!catalog.is_discarded() && catalog.value("ok", false))
@@ -266,10 +264,9 @@ bool persist_traditional_output(const std::filesystem::path &directory,
                                 std::optional<bool> desired = std::nullopt) {
   try {
     const auto root = directory.u8string();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> loaded(
+    auto loaded = msime::host_api::own_string(
         msime_client_load_preferences(
-            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
-        msime_client_string_free);
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()));
     if (!loaded)
       return false;
     const auto response = nlohmann::json::parse(loaded.get());
@@ -286,13 +283,12 @@ bool persist_traditional_output(const std::filesystem::path &directory,
     }
     preferences["traditional_chinese_output"] = next;
     const auto serialized = snapshot.dump();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> saved(
+    auto saved = msime::host_api::own_string(
         msime_client_save_preferences(
             reinterpret_cast<const uint8_t *>(root.data()), root.size(),
             revision,
             reinterpret_cast<const uint8_t *>(serialized.data()),
-            serialized.size()),
-        msime_client_string_free);
+            serialized.size()));
     if (!saved)
       return false;
     const auto saved_response = nlohmann::json::parse(saved.get());
@@ -309,10 +305,9 @@ bool persist_traditional_output(const std::filesystem::path &directory,
 void record_installer_cloud_choice(const std::filesystem::path &directory, bool enabled) {
   try {
     const auto root = directory.u8string();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> loaded(
+    auto loaded = msime::host_api::own_string(
         msime_client_load_preferences(
-            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
-        msime_client_string_free);
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()));
     if (!loaded)
       return;
     const auto response = nlohmann::json::parse(loaded.get());
@@ -322,13 +317,12 @@ void record_installer_cloud_choice(const std::filesystem::path &directory, bool 
     const auto revision = snapshot.at("revision").get<uint64_t>();
     snapshot.at("preferences")["cloud_candidates"] = enabled;
     const auto serialized = snapshot.dump();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> saved(
+    auto saved = msime::host_api::own_string(
         msime_client_save_preferences(
             reinterpret_cast<const uint8_t *>(root.data()), root.size(),
             revision,
             reinterpret_cast<const uint8_t *>(serialized.data()),
-            serialized.size()),
-        msime_client_string_free);
+            serialized.size()));
   } catch (...) {
   }
 }
@@ -339,10 +333,9 @@ std::optional<nlohmann::json>
 load_preference_block(const std::filesystem::path &directory) {
   try {
     const auto root = directory.u8string();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> loaded(
+    auto loaded = msime::host_api::own_string(
         msime_client_load_preferences(
-            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
-        msime_client_string_free);
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()));
     if (!loaded)
       return std::nullopt;
     const auto response = nlohmann::json::parse(loaded.get());
@@ -378,10 +371,9 @@ bool toggle_stored_flag(const std::filesystem::path &directory,
                         bool &result) {
   try {
     const auto root = directory.u8string();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> loaded(
+    auto loaded = msime::host_api::own_string(
         msime_client_load_preferences(
-            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
-        msime_client_string_free);
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()));
     if (!loaded)
       return false;
     const auto response = nlohmann::json::parse(loaded.get());
@@ -401,12 +393,11 @@ bool toggle_stored_flag(const std::filesystem::path &directory,
       preferences[field] = !current;
     }
     const auto serialized = snapshot.dump();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> saved(
+    auto saved = msime::host_api::own_string(
         msime_client_save_preferences(
             reinterpret_cast<const uint8_t *>(root.data()), root.size(),
             revision, reinterpret_cast<const uint8_t *>(serialized.data()),
-            serialized.size()),
-        msime_client_string_free);
+            serialized.size()));
     if (!saved)
       return false;
     const auto saved_response = nlohmann::json::parse(saved.get());
@@ -424,10 +415,9 @@ bool store_input_scheme(const std::filesystem::path &directory,
                         const std::string &scheme) {
   try {
     const auto root = directory.u8string();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> loaded(
+    auto loaded = msime::host_api::own_string(
         msime_client_load_preferences(
-            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
-        msime_client_string_free);
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()));
     if (!loaded)
       return false;
     const auto response = nlohmann::json::parse(loaded.get());
@@ -449,12 +439,11 @@ bool store_input_scheme(const std::filesystem::path &directory,
       preferences["last_chinese_scheme"] = current;
     preferences["scheme"] = scheme;
     const auto serialized = snapshot.dump();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> saved(
+    auto saved = msime::host_api::own_string(
         msime_client_save_preferences(
             reinterpret_cast<const uint8_t *>(root.data()), root.size(),
             revision, reinterpret_cast<const uint8_t *>(serialized.data()),
-            serialized.size()),
-        msime_client_string_free);
+            serialized.size()));
     if (!saved)
       return false;
     const auto saved_response = nlohmann::json::parse(saved.get());
@@ -783,10 +772,9 @@ int wmain(int argc, wchar_t **argv) {
         start_watchdog(executable_directory());
       const bool prepared_now = prepare_first_run(executable_directory(), default_state,
                        [](const std::string &request) {
-        std::unique_ptr<char, decltype(&msime_client_string_free)> response(
+        auto response = msime::host_api::own_string(
             msime_client_prepare_host(
-                reinterpret_cast<const uint8_t *>(request.data()), request.size()),
-            msime_client_string_free);
+                reinterpret_cast<const uint8_t *>(request.data()), request.size()));
         if (!response)
           throw std::runtime_error("Host preparation failed");
         return std::string(response.get());
@@ -825,11 +813,10 @@ int wmain(int argc, wchar_t **argv) {
     if constexpr (!MSIME_EDITION_IS_FULL)
       bootstrap_document["edition"] = MSIME_EDITION_ID;
     const auto bootstrap = bootstrap_document.dump();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> response(
+    auto response = msime::host_api::own_string(
         msime_client_prepare_host(
             reinterpret_cast<const uint8_t *>(bootstrap.data()),
-            bootstrap.size()),
-        msime_client_string_free);
+            bootstrap.size()));
     if (!response)
       throw std::runtime_error("Host preparation failed");
     const auto prepared = nlohmann::json::parse(response.get());
@@ -847,10 +834,9 @@ int wmain(int argc, wchar_t **argv) {
     // The user's anonymous MSIME account is registered on the first run after install, as on every other platform; once anonymous-session.json exists this is a file read. It runs off the main thread for the same reason as the telemetry event, and a failure (offline, rate limited) is simply retried on the next start.
     if (const auto account = anonymous_account_directory(); production && !account.empty()) {
       std::thread([directory = account.u8string()] {
-        std::unique_ptr<char, decltype(&msime_client_string_free)> result(
+        auto result = msime::host_api::own_string(
             msime_client_ensure_anonymous_account(
-                reinterpret_cast<const uint8_t *>(directory.data()), directory.size()),
-            msime_client_string_free);
+                reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
       }).detach();
     }
     diagnostic_log.server(std::string(production ? "Production" : "Preview") +
@@ -1170,10 +1156,9 @@ int wmain(int argc, wchar_t **argv) {
               {"text", normalize_clipboard_text(std::move(text))}}.dump();
           // The shared writer preserves pinned entries, timestamps and the
           // preference/history locking used by the Tauri panel.
-          std::unique_ptr<char, decltype(&msime_client_string_free)> reply(
+          auto reply = msime::host_api::own_string(
               msime_client_capture_clipboard_history(
-                  reinterpret_cast<const uint8_t *>(request.data()), request.size()),
-              msime_client_string_free);
+                  reinterpret_cast<const uint8_t *>(request.data()), request.size()));
         });
     // Clipboard history is an optional convenience, so a monitor that cannot
     // start leaves it inert rather than taking the IME down with it. Failing

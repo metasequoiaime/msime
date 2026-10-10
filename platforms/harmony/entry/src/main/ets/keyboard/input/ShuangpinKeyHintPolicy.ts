@@ -249,8 +249,14 @@ const PROFILES: Map<string, Map<string, string>> = new Map<string, Map<string, s
 ]);
 
 export class ShuangpinKeyHintPolicy {
-  static visible(dedicatedEnglish: boolean, scheme: number, localMode: string): boolean {
-    return !dedicatedEnglish && scheme === 1 && localMode === "none";
+  /** `enabled` 是共享偏好 `touch_shuangpin_key_hints`：用户关掉后双拼也不画提示，其余条件与它无关。 */
+  static visible(
+    dedicatedEnglish: boolean,
+    scheme: number,
+    localMode: string,
+    enabled: boolean,
+  ): boolean {
+    return enabled && !dedicatedEnglish && scheme === 1 && localMode === "none";
   }
 
   static hint(
@@ -259,8 +265,12 @@ export class ShuangpinKeyHintPolicy {
     dedicatedEnglish: boolean,
     scheme: number,
     localMode: string,
+    enabled: boolean,
   ): string {
-    if (!ShuangpinKeyHintPolicy.visible(dedicatedEnglish, scheme, localMode) || key === null) {
+    if (
+      !ShuangpinKeyHintPolicy.visible(dedicatedEnglish, scheme, localMode, enabled) ||
+      key === null
+    ) {
       return "";
     }
     const hints: Map<string, string> | undefined = PROFILES.get(profileName);
