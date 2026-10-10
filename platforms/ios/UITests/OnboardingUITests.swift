@@ -122,6 +122,43 @@ final class OnboardingUITests: XCTestCase {
     restore.done = true
   }
 
+  /// 键盘页的「中文键盘」在全拼下是 26 键、14 键、9 键三选一：选 14 键即启用并切换，离开这一页再回来仍是 14 键，再切到 9 键、回到 26 键，每一步都存下来。
+  @MainActor
+  func testChineseKeyboardOffersTwentySixFourteenAndNineKeys() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    func openPicker() -> XCUIElement {
+      reachSettingsLink("keyboardLayoutLink", in: app)
+      settingsEntry("keyboardLayoutLink", in: app).tap()
+      let picker = app.buttons["chineseKeyboardPicker"]
+      XCTAssertTrue(picker.waitForExistence(timeout: 5), "the 中文键盘 row is missing: \(visible(app))")
+      revealBelowKeyboardPreview(picker, in: app)
+      return picker
+    }
+    var picker = openPicker()
+    let original = picker.value as? String ?? ""
+    guard ["26 键", "14 键", "9 键"].contains(original) else {
+      throw XCTSkip("the selected scheme is not a pinyin layout, so the row offers no 14 keys: \(original)")
+    }
+    let identifiers = ["26 键": "chineseKeyboard26Key", "14 键": "chineseKeyboard14Key", "9 键": "chineseKeyboard9Key"]
+    for title in ["14 键", "9 键", "26 键"] {
+      picker.tap()
+      for id in identifiers.values {
+        XCTAssertTrue(app.buttons[id].waitForExistence(timeout: 5), "\(id) is not offered: \(visible(app))")
+      }
+      app.buttons[try XCTUnwrap(identifiers[title])].tap()
+      XCTAssertTrue(wait(picker, until: "value == '\(title)'"), "the row still reads \(picker.value ?? "")")
+      // 离开这一页再回来，读到的是存下的布局，而不是这一页上留着的值。
+      picker = openPicker()
+      XCTAssertEqual(picker.value as? String, title)
+    }
+    if original != "26 键" {
+      picker.tap()
+      app.buttons[try XCTUnwrap(identifiers[original])].tap()
+    }
+  }
+
   /// `testKeyboardSpacingSettingsPersist` 是否已经把间距还原，与它的 teardown block 共享，测试通过时就不必再重新启动 app。
   private final class SpacingRestore: @unchecked Sendable {
     var done = false

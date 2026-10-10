@@ -82,7 +82,7 @@ struct SettingsView: View {
     default: chinesePunctuation = preferences?["chinese_punctuation"] as? Bool ?? true
     }
     let learning = InputHabitPreference.settings(in: preferences).learning
-    let keys = scheme == .nineKey || scheme == .japaneseNineKey ? "9 键" : "26 键"
+    let keys = scheme == .nineKey || scheme == .japaneseNineKey ? "9 键" : scheme == .fourteenKey ? "14 键" : "26 键"
     let height = KeyboardLayoutPreference.sharedHeightAdjustment(preferences?["touch_keyboard_height_adjustment"])
       ?? KeyboardLayoutPreference.heightAdjustment
     let language = VoicePolishSettings(preferences).language
