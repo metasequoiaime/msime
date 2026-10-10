@@ -4552,6 +4552,44 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions, NSString 
     return requested;
 }
 
+// The current preferences are available before the first HostSession is
+// constructed. Configure the log from them so failures emitted while that
+// constructor loads plugin tables are not lost before the asynchronous
+// preferences reload catches up.
+static BOOL MSIMEConfigureDiagnosticLog(NSString *directory,
+                                        NSDictionary *preferences) {
+    NSDictionary *diagnostic = [preferences isKindOfClass:NSDictionary.class]
+        ? preferences[@"diagnostic_log"] : nil;
+    const BOOL enabled = [diagnostic isKindOfClass:NSDictionary.class] &&
+        [diagnostic[@"server"] isKindOfClass:NSNumber.class] &&
+        CFGetTypeID((__bridge CFTypeRef)diagnostic[@"server"]) == CFBooleanGetTypeID() &&
+        [diagnostic[@"server"] boolValue];
+    const std::string path = [directory isKindOfClass:NSString.class] && directory.isAbsolutePath
+        ? std::string(directory.UTF8String ?: "") : std::string();
+    msime_macos_diagnostic_configure(path, enabled);
+    return enabled;
+}
+
+static void MSIMEConfigureDiagnosticLogFromRuntimeOptions(NSDictionary *options) {
+    if (![options isKindOfClass:NSDictionary.class]) return;
+    MSIMEConfigureDiagnosticLog(options[@"preferences_directory"], options[@"preferences"]);
+}
+
+static void MSIMEConfigureDiagnosticLogBeforeSession(NSDictionary *options) {
+    if (![options isKindOfClass:NSDictionary.class]) return;
+    NSString *directory = [options[@"preferences_directory"] isKindOfClass:NSString.class] &&
+        [options[@"preferences_directory"] isAbsolutePath] ? options[@"preferences_directory"] : nil;
+    if (directory) {
+        NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
+        NSDictionary *preferences = [snapshot isKindOfClass:NSDictionary.class] ? snapshot[@"preferences"] : nil;
+        if ([preferences isKindOfClass:NSDictionary.class]) {
+            MSIMEConfigureDiagnosticLog(directory, preferences);
+            return;
+        }
+    }
+    MSIMEConfigureDiagnosticLogFromRuntimeOptions(options);
+}
+
 // Resources/sound-packs of this bundle, where CMakeLists.txt stages the built-in packs; nil when it is not there.
 static NSString *MSIMEBundleSoundPacks(NSBundle *bundle) {
     NSString *directory = [bundle.resourcePath stringByAppendingPathComponent:@"sound-packs"];
@@ -4580,10 +4618,14 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
     msime_macos_diagnostic_writef("session_unavailable reason=%s", reason.UTF8String);
 }
 
+// Background music plays while one controller of this process is the active input method. IMK does not promise that the previous client's deactivateServer: comes before the next one's activateServer:, so only the controller that last let music play may stop it. Declared ahead of prepareSession, which reads it too.
+static __weak MSIMEInputController *MSIMEMusicOwner;
+
 - (void)prepareSession {
     // The device's anonymous MSIME account is registered the first time the input method activates, so a new install has one before any feature asks for it. It runs once per process and returns at once when a signed-in or anonymous session is already saved; only the random identity is sent, never input.
     if (MSIMEEnsureAnonymousAccount != nullptr) MSIMEEnsureAnonymousAccount();
     BOOL reopened = NO;
+    BOOL created = NO;
     if (!_session) {
         NSDictionary *options = MSIMESessionOptions([self runtimeOptions], MSIMEBundleSoundPacks(NSBundle.mainBundle));
         // Dictionary maintenance is running: open nothing, so keys pass through to the application until the lease is gone. The preferences timer keeps running, so settings still apply meanwhile.
@@ -4594,12 +4636,14 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
         // Before the session exists, so nothing this process writes can be mistaken for an earlier install.
         [self resolveCloudCandidatesConsentWithOptions:options];
         if (options) {
+            MSIMEConfigureDiagnosticLogBeforeSession(options);
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             _requestedPageSize = 0;
             id directory = options[@"preferences_directory"];
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
             if (_session) {
                 [MSIMEInputController holdDictionarySession:self];
+                created = YES;
                 reopened = _resumeDedicatedEnglish;
                 _resumeDedicatedEnglish = NO;
             }
@@ -4618,6 +4662,8 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
         [self apply:[_session setFocused:YES error:nil]];
         _focusPending = NO;
         [self refreshTypingEffectSettings];
+        // 激活时若处于英文模式就还没有会话，那次 claimBackgroundMusic 发给的是 nil，播放器从没被告知输入法处于活动状态；会话在之后切回中文、按键或菜单操作时才建好，这里补上，否则背景音乐要等下一次偏好变化才响。
+        if (created && MSIMEMusicOwner == self) [self claimBackgroundMusic];
     }
     [self startPreferencesMonitoring];
 }
@@ -4759,14 +4805,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
-    NSDictionary *diagnostic = [preferences isKindOfClass:NSDictionary.class] ? preferences[@"diagnostic_log"] : nil;
-    const BOOL diagnosticEnabled = [diagnostic isKindOfClass:NSDictionary.class] &&
-        [diagnostic[@"server"] isKindOfClass:NSNumber.class] &&
-        CFGetTypeID((__bridge CFTypeRef)diagnostic[@"server"]) == CFBooleanGetTypeID() &&
-        [diagnostic[@"server"] boolValue];
-    const std::string directory = _preferencesDirectory.UTF8String ? _preferencesDirectory.UTF8String : "";
-    msime_macos_diagnostic_configure(directory, diagnosticEnabled);
-    if (diagnosticEnabled) msime_macos_diagnostic_write("preferences_applied");
+    if (MSIMEConfigureDiagnosticLog(_preferencesDirectory, preferences))
+        msime_macos_diagnostic_write("preferences_applied");
     if ([preferences isKindOfClass:NSDictionary.class]) {
         id wubiCodeHint = preferences[@"wubi_code_hint"];
         if ([wubiCodeHint isKindOfClass:NSNumber.class] &&
@@ -5070,9 +5110,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     for (NSUInteger line = 0; line < lines; ++line) [placeholder addObject:@"X"];
     return MSIMETranslationTextSize([placeholder componentsJoinedByString:@"\n"], glossFont).height + MSIMECandidateGlossPadding * MSIMECandidateScale(_appearance);
 }
-
-// Background music plays while one controller of this process is the active input method. IMK does not promise that the previous client's deactivateServer: comes before the next one's activateServer:, so only the controller that last let music play may stop it.
-static __weak MSIMEInputController *MSIMEMusicOwner;
 
 // Secure event input is on while a password field, or a terminal's secure keyboard entry, has the keyboard. It is window-server state shared by every process, so an application that leaves it on also silences this one; that errs the right way, because a click per keystroke tells anyone listening how long a password is.
 - (BOOL)secureEventInputActive { return IsSecureEventInputEnabled(); }

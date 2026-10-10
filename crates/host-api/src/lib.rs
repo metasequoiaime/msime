@@ -111,6 +111,8 @@ pub use dictionary::{
     LookupCandidate, LookupScheme, NewWord, QuickPhrase, QuickPhraseEdit, QuickPhrasePage, Word,
     WordEdit, WordImport, WordKind, WordPage,
 };
+mod diagnostics;
+pub use diagnostics::{msime_client_set_diagnostic_sink, DiagnosticSink};
 mod dictionary_snapshot;
 mod key_sound;
 mod plugin_tables;
@@ -635,7 +637,9 @@ impl HostSession {
             // 辅助码表换不上不算聚焦失败：报错会让这次和之后每一次聚焦都失败（戳没更新，下次又会重试）。记下来，保留当前的表，照常更新戳。
             match self.runtime.set_helpcode_table(table.clone()) {
                 Ok(()) => self.options.helpcode_table = table,
-                Err(error) => eprintln!("msime: helpcode table not replaced: {error}"),
+                Err(error) => {
+                    diagnostics::report("helpcode table not replaced", &error.to_string())
+                }
             }
         }
         self.plugin_tables = tables;
