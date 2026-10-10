@@ -434,7 +434,7 @@ public final class AiSkinPage extends DetailPage {
     private void bindEnabled(EditText input, TextView button) {
         State s = state();
         Runnable update = () -> {
-            boolean enabled = !s.busy && TextPolicy.hasText(input.getText().toString());
+            boolean enabled = !s.busy && !TextPolicy.blank(input.getText().toString());
             ViewPolicy.setEnabledWithAlpha(button, enabled, 0.38f);
         };
         update.run();
