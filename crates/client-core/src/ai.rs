@@ -180,7 +180,7 @@ pub fn parse_chat_completion_response(body: &[u8], limit: u8) -> Option<AiSugges
         .as_str()?;
     let inner: serde_json::Value = serde_json::from_str(content).ok()?;
     let entries = inner.get("candidates")?.as_array()?;
-    let mut candidates: Vec<AiSuggestion> = Vec::with_capacity(usize::from(limit));
+    let mut candidates: Vec<AiSuggestion> = Vec::new();
     for entry in entries {
         let Some(text) = entry.get("text").and_then(serde_json::Value::as_str) else {
             continue;
@@ -190,6 +190,9 @@ pub fn parse_chat_completion_response(body: &[u8], limit: u8) -> Option<AiSugges
             || candidates.iter().any(|candidate| candidate.text == text)
         {
             continue;
+        }
+        if candidates.is_empty() {
+            candidates.reserve_exact(usize::from(limit));
         }
         candidates.push(AiSuggestion { text: text.into() });
         if candidates.len() == usize::from(limit) {
@@ -357,13 +360,13 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["甲", "乙"]
         );
+        assert_eq!(response.candidates.capacity(), 2);
         response.validate(2).unwrap();
-        assert!(
+        let empty =
             parse_chat_completion_response(&envelope(serde_json::json!({"candidates":[]})), 1)
-                .unwrap()
-                .candidates
-                .is_empty()
-        );
+                .unwrap();
+        assert!(empty.candidates.is_empty());
+        assert_eq!(empty.candidates.capacity(), 0);
     }
     #[test]
     fn response_rejects_malformed_envelopes_and_bounds() {
