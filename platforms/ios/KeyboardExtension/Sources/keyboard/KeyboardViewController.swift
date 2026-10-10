@@ -2195,7 +2195,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.handleFourteenKey(key)
       }
       button.accessibilityIdentifier = "fourteenKey\(key.face)"
-      (button as? KeyboardKeyButton)?.showsPressPreview = true
+      // 不画按键预览气泡，与九键和 Android、鸿蒙的 14 键相同：一键是一组字母，气泡里放大的键面说不出这一下打的是哪个字母。
       applyLetterFont(to: button)
       if !key.holdLetters.isEmpty {
         let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleFourteenKeyHold(_:)))
@@ -2244,11 +2244,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 14 键第三排的分词键，照搬九键的 1 键：组字时送 `'`，在已打的组码末尾定一个音节分界，只定在哪里断、不定是哪个拼音；空闲时打开符号面板。
   private func handleFourteenKeySeparator() {
+    // 一个键一个键位 id：不论组字与否都记作符号键，与 Android、鸿蒙的 14 键相同。
+    countKeyPress(TypingKeyID.symbol)
     if hasComposition {
-      countKeyPress(TypingKeyID.character("'"))
       handleCharacter("'")
     } else {
-      countKeyPress(TypingKeyID.symbol)
       showSymbolPanel()
     }
   }

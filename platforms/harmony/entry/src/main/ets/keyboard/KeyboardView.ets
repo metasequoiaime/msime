@@ -233,8 +233,8 @@ const PREEDIT_FONT_SIZE: number = 12;
 const PREEDIT_LETTER_SPACING: number = 0.24;
 const PREEDIT_INDENT_VP: number = 10;
 const PREEDIT_LINE_VP: number = 14;
-// 14 键的拼音选择条与读音同一行：读音最多占这一行的六成，其余留给选择条；拼音比读音大一号、用强调色，两侧各留 6vp 当触摸余量。
-const READING_WITH_SPELLINGS_MAX_WIDTH: string = '60%';
+// 14 键的拼音选择条与读音同一行：读音最多占这一行的一半，其余留给选择条，与 Android、iOS 相同；拼音比读音大一号、用强调色，两侧各留 6vp 当触摸余量。
+const READING_WITH_SPELLINGS_MAX_WIDTH: string = '50%';
 const READING_SPELLING_FONT_SIZE: number = 13;
 const READING_SPELLING_PADDING_VP: number = 6;
 const READING_SPELLING_GAP_VP: number = 8;
@@ -2483,10 +2483,9 @@ struct KeyboardView {
     }
   }
 
-  /** 读音行右侧是否画 14 键的拼音选择条：14 键键面上有可选的拼音时。三栏面板开着时拼音在面板左栏，这里不再重复。 */
+  /** 读音行右侧是否画 14 键的拼音选择条：14 键组字、有可选的拼音时。在 123 层和三栏面板开着时照样画，与 Android、iOS 相同：读音行一直在，选择条跟着它。 */
   private readingRowSpellings(): boolean {
-    return this.drawsFourteenKey() && !this.symbols && this.spellings.length > 0
-      && !(this.surface === SURFACE_EXPANDED && this.nineKeyPanel());
+    return this.drawsFourteenKey() && this.spellings.length > 0;
   }
 
   /** 展开面板是否画成全拼九键的三栏；14 键用同一个面板。 */
@@ -4645,12 +4644,12 @@ struct KeyboardView {
 
   /** 第三行左端键：组字中送分词符 '，空闲时打开符号面板，同九键的 1 键（Android `ImeLayoutRows.symbolKey`）。 */
   private tapFourteenKeySeparator(): void {
+    // 一个键一个键位 id：不论组字与否都记作符号键，与 Android、iOS 的 14 键相同。
+    KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
     if (KeyboardSession.shared.composing()) {
-      KeyboardSession.shared.recordKey(KeyIdPolicy.character(NineKeyLayout.separator().input));
       KeyboardSession.shared.press(NineKeyLayout.separator().input.charCodeAt(0), false);
       return;
     }
-    KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
     this.openSymbolSurface();
   }
 
