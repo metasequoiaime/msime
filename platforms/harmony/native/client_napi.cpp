@@ -460,7 +460,7 @@ static napi_value EnsureAnonymousAccount(napi_env env, napi_callback_info info) 
     return promise;
 }
 
-// Slow one-document requests share a worker: telemetry and notices wait on the network, while
+// Slow one-document requests share a worker: telemetry, notices and the update check wait on the network, while
 // the custom skin library reads or writes a bounded multi-megabyte file under a lock.
 using RequestCall = char *(*)(const uint8_t *, size_t);
 
@@ -517,6 +517,11 @@ static napi_value TelemetryFlush(napi_env env, napi_callback_info info) {
 
 static napi_value Notices(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_notices, "MSIME notices");
+}
+
+// The about page's 检查更新: reads GitHub's release list for up to ten seconds, so never on the UI thread.
+static napi_value UpdateCheck(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_update_check, "MSIME update check");
 }
 
 // A named design can carry a photo, so both reading and mutating the library can parse and
@@ -1460,6 +1465,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("telemetryFlush", TelemetryFlush),
         ENTRY("telemetryClear", TelemetryClear),
         ENTRY("notices", Notices),
+        ENTRY("updateCheck", UpdateCheck),
         ENTRY("noticeDismiss", NoticeDismiss),
         ENTRY("keySoundRenderNotes", KeySoundRenderNotes),
         ENTRY("aiRequestForQuery", AiRequestForQuery),

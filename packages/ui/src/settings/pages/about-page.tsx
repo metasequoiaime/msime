@@ -37,6 +37,7 @@ export function AboutSettingsPage() {
     page,
     updateStatus,
     updateBusy,
+    updateCheckSupported,
     availableUpdate,
     currentAppVersion,
     openExternalUrl,
@@ -91,7 +92,7 @@ export function AboutSettingsPage() {
             platformLabel={settingsPlatform === "hm2" ? "HarmonyOS 2in1" : "HarmonyOS"}
             update={updateBusy ? "checking" : latest ? "latest" : "idle"}
             updateStatus={updateBusy || latest ? undefined : updateStatus}
-            onCheckForUpdate={onCheckForUpdate}
+            onCheckForUpdate={updateCheckSupported ? onCheckForUpdate : undefined}
           />
         </GroupList>
         {(updateResult || !mobilePlatform) && (
@@ -142,12 +143,14 @@ export function AboutSettingsPage() {
               </p>
             )}
           </div>
-          <ActionButton
-            action={onCheckForUpdate}
-            className={`secondary ${doc.updateButton}`}
-            disabled={updateBusy}
-            label={updateBusy ? "正在检查…" : "检查更新"}
-          />
+          {updateCheckSupported && (
+            <ActionButton
+              action={onCheckForUpdate}
+              className={`secondary ${doc.updateButton}`}
+              disabled={updateBusy}
+              label={updateBusy ? "正在检查…" : "检查更新"}
+            />
+          )}
         </div>
         {updateResult}
         <OtherPlatformDownloadRows />

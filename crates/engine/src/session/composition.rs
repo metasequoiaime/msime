@@ -613,9 +613,10 @@ impl InputSession {
                         .command_title(&item.pinyin)
                         .unwrap_or_default()
                         .to_owned(),
-                    LocalInputMode::Mention => {
-                        self.queries.mention_annotation(&item.word).to_owned()
-                    }
+                    LocalInputMode::Mention => self
+                        .queries
+                        .mention_annotation(&item.word, &item.pinyin)
+                        .to_owned(),
                     _ => String::new(),
                 })
                 .collect();

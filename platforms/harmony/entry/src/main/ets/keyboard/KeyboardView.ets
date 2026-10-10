@@ -617,6 +617,8 @@ struct KeyboardView {
   @State panelResetToken: number = 0;
   /** 九键数字层的排列，`NumberKeypadOrder` 的取值。 */
   @State numberKeypadOrder: string = KeyboardSession.shared.preferences().numberKeypadOrder;
+  /** 共享偏好 `touch_shuangpin_key_hints`：关掉时 26 键双拼的字母键不画声母/韵母提示。 */
+  @State shuangpinKeyHints: boolean = KeyboardSession.shared.preferences().shuangpinKeyHints;
 
   /** 按下的键变暗和缩小的程度：触屏上是设计稿的 .86 和 .96；2in1 上保持不变，它的设备形态在进程存续期间不会改变。 */
   private readonly keyPressedBrightness: number = KeyboardFormFactor.isDesktop() ? 1 : KEY_PRESSED_BRIGHTNESS;
@@ -1027,7 +1029,7 @@ struct KeyboardView {
   /** The double-pinyin unit a key stands for, printed along its bottom edge while it means one. */
   private letterHint(letter: string): string {
     return ShuangpinKeyHintPolicy.hint(this.shuangpinProfile, letter, this.english,
-      this.engineScheme, this.localMode);
+      this.engineScheme, this.localMode, this.shuangpinKeyHints);
   }
 
   /**
@@ -2671,6 +2673,7 @@ struct KeyboardView {
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
     this.numberKeypadOrder = this.settings.numberKeypadOrder;
+    this.shuangpinKeyHints = this.settings.shuangpinKeyHints;
     // 取会话持有的副本而不是再读一次磁盘：会话在构建和每次获得焦点时读取，读不到时保留上次的值，视图跟着它就不会因一次读取失败把隐私模式等显示成关闭。
     this.feedback = KeyboardSession.shared.feedbackSettings();
     this.traditional = KeyboardSession.shared.usesTraditional();
@@ -2893,7 +2896,7 @@ struct KeyboardView {
     // and the digit layer would go on reading ABC, DEF, GHI. The twenty-six key rows never needed it
     // because their two layers hold different characters.
     // 大小写不在这里：字母键的键面和读屏文字在绘制时按大小写现算（见 `KeyOptions.letter`），自动大写切换时键节点保持不变，正按着的键不会被重建。
-    return `${this.english}:${this.localMode}:${this.shuangpinProfile}:`
+    return `${this.english}:${this.localMode}:${this.shuangpinProfile}:${this.shuangpinKeyHints}:`
       + `${this.engineScheme}:${this.scheme.preferenceId}:${this.symbols}:${this.moreSymbols}:`
       + `${this.skin.key()}`;
   }
@@ -5429,6 +5432,7 @@ struct KeyboardView {
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
     this.numberKeypadOrder = this.settings.numberKeypadOrder;
+    this.shuangpinKeyHints = this.settings.shuangpinKeyHints;
     KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
       this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
       this.settings.candidateFontSize, this.settings.candidatePreeditFontSize));
@@ -6303,7 +6307,9 @@ struct KeyboardView {
    * 「输入方式」选择器的条目顺序：用户启用的方案，两种英文模式排第三，与 iOS 的位置相同（启用的方案较少时排最后），末尾是「添加语言」。
    */
   private schemePickerEntries(): SchemePickerEntry[] {
-    const schemes: SchemeDefinition[] = this.offeredSchemes();
+    // 双拼只列用户设置的那一种（#6450）。
+    const schemes: SchemeDefinition[] = KeyboardScheme.pickerSchemes(this.offeredSchemes(), this.scheme,
+      this.settings.shuangpinProfile);
     const entries: SchemePickerEntry[] = [];
     const englishAt: number = Math.min(ENGLISH_CARD_POSITION, schemes.length);
     for (let index: number = 0; index <= schemes.length; index++) {

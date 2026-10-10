@@ -123,6 +123,10 @@ export const notices: (request: string) => Promise<string>;
 /** `{directory,id}`: remembers that the user dismissed notice `id`. */
 export const noticeDismiss: (request: string) => string;
 /**
+ * `{platform,current_version,edition?,arch?}` in; on a worker thread, `{ok,value:{status:"available"|"current",update:{version:{display,parts},release_url,installer_name,installer_sha256,signed}}}` or `{ok,value:{status:"none"}}` out, from the newest published release of `platform` on GitHub. Waits up to ten seconds for the network.
+ */
+export const updateCheck: (request: string) => Promise<string>;
+/**
  * Decodes the WAV sample at `sample` once per semitone and writes each note to `<directory>/note-<index>.wav` at 48 kHz, pitched as a playback rate. Resolves with the files in semitone order; rejects a sample that is not WAV, lasts longer than `maxMillis`, or decodes past its declared length.
  */
 export const keySoundRenderNotes: (

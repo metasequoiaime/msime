@@ -1,4 +1,5 @@
 #include "msime_client.h"
+#include "../../src/providers/provider_response_cli.h"
 #include <nlohmann/json.hpp>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -9,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -28,6 +30,26 @@ Json response(char *raw) {
 } // namespace
 
 int main() {
+  std::ostringstream output;
+  require(msime_cli_write_provider_response(nullptr, output) == 1 && output.str().empty(),
+          "null provider response was accepted");
+  require(msime_cli_write_provider_response("{", output) == 1 && output.str().empty(),
+          "malformed provider response was printed");
+  require(msime_cli_write_provider_response("{}", output) == 1 && output.str().empty(),
+          "missing response status was accepted");
+  require(msime_cli_write_provider_response("{\"ok\":1}", output) == 1 && output.str().empty(),
+          "non-boolean response status was accepted");
+  require(msime_cli_write_provider_response("{\"z\":2,\"ok\":true}", output) == 0 &&
+              output.str() == "{\"ok\":true,\"z\":2}\n",
+          "successful response was not normalized");
+  output.str("");
+  require(msime_cli_write_provider_response("{\"ok\":false}", output) == 1 &&
+              output.str() == "{\"ok\":false}\n",
+          "failed response was not printed");
+  output.setstate(std::ios::badbit);
+  require(msime_cli_write_provider_response("{\"ok\":true}", output) == 1,
+          "output failure was ignored");
+
   // Use a unique private subdirectory so CTest and direct invocations work
   // even when the source tree is mounted read-only.
   const auto directory = std::filesystem::temp_directory_path() /

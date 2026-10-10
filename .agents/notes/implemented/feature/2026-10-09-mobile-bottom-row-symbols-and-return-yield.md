@@ -60,4 +60,5 @@ Status: implemented
     - 另有一条真实键盘的命中测试，手机和九键各测一遍：键距靠回车的一半、回车键帽左边 5pt 归中/英，7pt 以后归回车。
     - 还断言了长按手势只在字母层开始。
     - 这些和 `NineKeyKeyboardTests` 在 Studio 上的 iPhone 18 Pro 模拟器里跑过，全部通过（共 98 个，1 个原本就跳过）。
+  - **三个平台的常量相等**由 `scripts/test-mobile-return-yield-parity.py` 核对，改了其中一个而没改另外两个时，契约检查失败。
   - 都没有在真机上验证。

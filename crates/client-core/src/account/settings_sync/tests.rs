@@ -135,6 +135,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.keyboard_height_adjustment",
             "platform.android.keyboard_layout",
             "platform.android.number_keypad_order",
+            "platform.android.shuangpin_key_hints",
             "platform.android.sound_enabled",
             "platform.android.theme",
             "platform.android.toolbar_ai",
@@ -200,6 +201,7 @@ fn settings_sync_round_trips_every_exported_key() {
         touch_keyboard_height_adjustment: 10,
         touch_voice_shortcut: !Preferences::default().touch_voice_shortcut,
         touch_number_keypad_order: NumberKeypadOrder::Calculator,
+        touch_shuangpin_key_hints: !Preferences::default().touch_shuangpin_key_hints,
         ..Preferences::default()
     };
     expected.frequency = FrequencyPreferences {

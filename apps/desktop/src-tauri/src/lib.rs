@@ -15,6 +15,7 @@ mod panel_input;
 mod panel_window;
 mod platform;
 mod shared;
+mod update_check;
 mod vocabulary;
 mod voice;
 
@@ -5296,6 +5297,7 @@ pub fn run() {
             host_capabilities,
             notices::notices_list,
             notices::notice_dismiss,
+            update_check::update_check,
             list_voice_capture_devices,
             capture_voice_pcm,
             supports_font_catalog,

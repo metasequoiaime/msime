@@ -226,6 +226,17 @@ enum InputSchemePreference {
     return offered.isEmpty ? [.editionFallback] : offered
   }
 
+  /// 键盘「输入方式」面板里列出的方案：`schemes` 里的双拼只留一种，其余方案原样、按原顺序保留。
+  ///
+  /// 留下的那一种依次取：`selected` 本身是双拼且在 `schemes` 里时就是它；否则是共享文档 `shuangpin_profile`（`profile`，缺省或不认识时按小鹤，与 client-core 的缺省相同）对应的那一种；它不在 `schemes` 里时取 `schemes` 里第一种双拼。大多数人只用一种双拼，四种都列出来会把手写挤到第二页（#6450）；换双拼方案在 App 的「双拼」子菜单里。与 Android、鸿蒙的 `KeyboardScheme.pickerSchemes` 一致。
+  static func pickerSchemes(_ schemes: [ChineseInputScheme], selected: ChineseInputScheme?, shuangpinProfile profile: String?) -> [ChineseInputScheme] {
+    let shuangpin = schemes.filter { $0.shuangpinProfile != nil }
+    let configured = ["ziranma", "microsoft", "shoudao"].contains(profile ?? "") ? profile : "xiaohe"
+    let kept = selected.flatMap { $0.shuangpinProfile != nil && schemes.contains($0) ? $0 : nil }
+      ?? shuangpin.first { $0.shuangpinProfile == configured } ?? shuangpin.first
+    return schemes.filter { $0.shuangpinProfile == nil || $0 == kept }
+  }
+
   /// The language dictionary directory host-api reads: `language-dictionaries/` beside the bundle's EngineResources, or nil for a bundle without EngineResources. Only the keyboard extension and its test host carry them; the App bundle runs no Engine.
   static func languageDictionaryDirectory(in bundle: Bundle) -> URL? {
     guard let resources = bundle.resourceURL,

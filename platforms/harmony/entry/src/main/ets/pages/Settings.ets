@@ -79,6 +79,21 @@ interface ExportSaveRequest {
   contents: string;
 }
 
+/** What the about page sends with `update_check`: the running version and, when the page knows them, the edition and architecture. */
+interface UpdateCheckPayload {
+  current_version: string;
+  edition?: string;
+  arch?: string;
+}
+
+/** `msime_client_update_check`'s request; the platform is always this host's. */
+interface UpdateCheckRequest {
+  platform: string;
+  current_version: string;
+  edition?: string;
+  arch?: string;
+}
+
 interface TextReply {
   ok: boolean;
   value: string;
@@ -1029,6 +1044,11 @@ class SettingsBridge {
         KeyboardLog.error(`plugin import failed: ${describeError(error)}`);
         deliver(JSON.stringify({ ok: false, error: 'storage' }));
       });
+    } else if (kind === 'update_check') {
+      this.updateCheck(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`update check failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'update_check_unavailable' }));
+      });
     } else if (kind === 'save_export') {
       this.saveExport(payload).then(deliver).catch((error: Object): void => {
         KeyboardLog.error(`export save failed: ${describeError(error)}`);
@@ -1039,6 +1059,29 @@ class SettingsBridge {
       this.deliverReply(id, JSON.stringify({ ok: false, error: 'unknown_request' }));
     }
     return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
+  }
+
+  /**
+   * 「关于」页的检查更新，由原生工作线程上的 `msime_client_update_check` 回答，最多等 GitHub 十秒。平台在这里填，不取页面传来的值，页面只能问本宿主的发行版。
+   */
+  private async updateCheck(document: string): Promise<string> {
+    let payload: UpdateCheckPayload;
+    try {
+      payload = JSON.parse(document) as UpdateCheckPayload;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'update_check_invalid' });
+    }
+    if (typeof payload.current_version !== 'string') {
+      return JSON.stringify({ ok: false, error: 'update_check_invalid' });
+    }
+    const request: UpdateCheckRequest = { platform: 'harmony', current_version: payload.current_version };
+    if (typeof payload.edition === 'string') {
+      request.edition = payload.edition;
+    }
+    if (typeof payload.arch === 'string') {
+      request.arch = payload.arch;
+    }
+    return await client.updateCheck(JSON.stringify(request));
   }
 
   /**
