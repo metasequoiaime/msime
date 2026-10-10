@@ -130,7 +130,7 @@ pub fn segment(input: &str, inventory: &Inventory) -> Vec<Segmentation> {
 fn segment_with(input: &str, inventory: &Inventory, allow_prefix: bool) -> Vec<Segmentation> {
     let mut found = Vec::new();
     let mut dead = vec![false; input.len() + 1];
-    let mut path = Vec::with_capacity(input.len());
+    let mut path = Vec::new();
     walk(
         input,
         inventory,
@@ -150,7 +150,7 @@ fn first_segmentation(
     allow_prefix: bool,
 ) -> Option<Segmentation> {
     let mut dead = vec![false; input.len() + 1];
-    let mut path = Vec::with_capacity(input.len());
+    let mut path = Vec::new();
     walk_first(input, inventory, allow_prefix, 0, &mut path, &mut dead)
 }
 
@@ -193,6 +193,13 @@ fn chunk_end(input: &str, position: usize) -> usize {
         .map_or(input.len(), |offset| position + offset)
 }
 
+fn push_path(path: &mut Vec<Syllable>, syllable: Syllable, input_length: usize) {
+    if path.capacity() == 0 {
+        path.reserve_exact(input_length);
+    }
+    path.push(syllable);
+}
+
 /// Extends `path` from `position`; `dead` marks positions already shown to admit no reading of the rest.
 fn walk(
     input: &str,
@@ -226,11 +233,15 @@ fn walk(
     // 按结束位置倒序直接遍历；相同范围内完整音节先于尾部前缀。
     for end in (position + 1..=max_end).rev() {
         if inventory.contains(&input[position..end]) {
-            path.push(Syllable {
-                start: position,
-                end,
-                complete: true,
-            });
+            push_path(
+                path,
+                Syllable {
+                    start: position,
+                    end,
+                    complete: true,
+                },
+                input.len(),
+            );
             any |= walk(input, inventory, allow_prefix, end, path, dead, found);
             path.pop();
             if found.len() >= MAX_SEGMENTATIONS {
@@ -238,11 +249,15 @@ fn walk(
             }
         }
         if has_prefix && end == input.len() {
-            path.push(Syllable {
-                start: position,
-                end,
-                complete: false,
-            });
+            push_path(
+                path,
+                Syllable {
+                    start: position,
+                    end,
+                    complete: false,
+                },
+                input.len(),
+            );
             any |= walk(input, inventory, allow_prefix, end, path, dead, found);
             path.pop();
             if found.len() >= MAX_SEGMENTATIONS {
@@ -282,22 +297,30 @@ fn walk_first(
         allow_prefix && chunk_end == input.len() && inventory.is_prefix(&input[position..]);
     for end in (position + 1..=max_end).rev() {
         if inventory.contains(&input[position..end]) {
-            path.push(Syllable {
-                start: position,
-                end,
-                complete: true,
-            });
+            push_path(
+                path,
+                Syllable {
+                    start: position,
+                    end,
+                    complete: true,
+                },
+                input.len(),
+            );
             if let Some(found) = walk_first(input, inventory, allow_prefix, end, path, dead) {
                 return Some(found);
             }
             path.pop();
         }
         if has_prefix && end == input.len() {
-            path.push(Syllable {
-                start: position,
-                end,
-                complete: false,
-            });
+            push_path(
+                path,
+                Syllable {
+                    start: position,
+                    end,
+                    complete: false,
+                },
+                input.len(),
+            );
             if let Some(found) = walk_first(input, inventory, allow_prefix, end, path, dead) {
                 return Some(found);
             }
@@ -448,6 +471,17 @@ pub(crate) mod tests {
         assert!(!readable);
         assert!(found.is_empty());
         assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn unreadable_segmentation_does_not_allocate_path_storage() {
+        let input = "x".repeat(200);
+        let inventory = inventory();
+        let (readings, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| segment(&input, &inventory));
+
+        assert!(readings.is_empty());
+        assert_eq!(allocations, 1, "只应为死路表分配存储: {allocations}");
     }
 
     #[test]
