@@ -141,7 +141,10 @@ class Harness:
             path.parent.mkdir(parents=True, exist_ok=True)
         self.classicui.write_text(classicui)
         if record is None:
-            self.record.unlink(missing_ok=True)
+            try:
+                self.record.unlink()
+            except FileNotFoundError:
+                pass
         else:
             self.record.write_text(json.dumps(record))
         (self.theme / "theme.conf").write_text("[Metadata]\nName=MSIME\n")

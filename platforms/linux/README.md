@@ -65,6 +65,19 @@ esac
 
 Qt 程序没有类似的做法：Qt5 不支持 text-input，只能靠 `QT_IM_MODULE=fcitx`，因此在 GNOME Wayland 下由客户端面板绘制，候选窗仍可能闪烁。
 
+### deepin 玲珑应用里只能输入字母
+
+在 deepin、统信 UOS 等带玲珑（Linglong，linyaps）的系统上，如果水杉输入法用的是 IBus，玲珑格式的应用（例如应用商店里的 Chrome、Firefox、文本编辑器）里切到中文也只能打出字母，非玲珑应用正常（#6410）。
+
+原因在玲珑运行时：玲珑应用跑在自己的运行时容器里，GTK、Qt 的输入法模块取自容器内的运行时，而运行时只带 Fcitx5 的 GTK2/3 和 Qt6 模块，没有任何 IBus 模块。会话 D-Bus 和 `~/.config` 都挂进了容器，所以输入法框架是 Fcitx5 时，玲珑应用能连上宿主的 Fcitx5，水杉照常工作；框架是 IBus 时，应用里的 `GTK_IM_MODULE=ibus` 找不到模块，GTK 退回自带的简单输入，于是只出字母。水杉这边改不了容器里有哪些模块，能做的是改用 Fcitx5：
+
+1. 确认装了 5.0.20 及以上的 Fcitx5（deepin 默认就是 Fcitx5，`fcitx5 --version` 查看版本；没有时 `sudo apt install fcitx5`）。水杉的安装包同时带 IBus 引擎和 Fcitx5 插件，不用重装水杉；更旧的 Fcitx5 会按插件声明的 `core:5.0.20` 依赖拒绝加载它。
+2. 把输入法框架切到 Fcitx5：`im-config -n fcitx5`，然后注销并重新登录。登录后 `echo $GTK_IM_MODULE $QT_IM_MODULE $XMODIFIERS` 应当显示 `fcitx fcitx @im=fcitx`。
+3. 运行 `msime-linux-setup --register`，把水杉输入法加进 Fcitx5 当前的输入法组；也可以在 deepin 的输入法设置或 `fcitx5-configtool` 里手动添加「水杉输入法」。
+4. 不再用 IBus 的话，可以把它从开机自启动里去掉，免得两个框架同时运行。
+
+`msime-linux-setup` 和 `--register` 注册进 IBus 时，如果系统是 deepin/UOS 或装了玲珑（有 `ll-cli` 或 `/var/lib/linglong`），会打印一句提示指向这一节，但不会替用户切换框架；其他系统的输出不变。设置窗口的首次配置页运行的是同一个脚本，提示也会显示在页面上。改用 Fcitx5 后玲珑应用里仍然只出字母的，请在 issue 里附上：玲珑应用里 `echo $GTK_IM_MODULE $QT_IM_MODULE $XMODIFIERS` 的输出、deepin 自带的拼音在同一个玲珑应用里能不能输入中文，以及焦点在那个玲珑应用里时 `busctl --user call org.fcitx.Fcitx5 /controller org.fcitx.Fcitx.Controller1 DebugInfo` 的输出里有没有它的输入上下文。
+
 ## 安装后首次使用
 
 安装包的 Debian `postinst` 会为当前已登录且可联系到的用户自动注册本机匿名水杉账号；网络暂时不可用时不影响安装，在线 provider 会在之后重试。安装本身仍不准备词库和运行配置，也不会替你选中输入法。其余首次配置由随装的 `msime-linux-setup` 补齐：
@@ -118,11 +131,11 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 ## 生成 Linux 安装包
 
-发行版由 `.github/workflows/release-linux.yml` 手动触发，标签为 `linux-v<版本>`（版本默认取 `platforms/linux/version.txt`），附件按 x86_64 与 aarch64 两个架构各有一套（两者分别在 GitHub 的 x64 与 arm64 runner 上原生构建）：一个 Debian 包 `msime-linux_<版本>_<架构>.deb`（架构是 dpkg 的 `amd64`/`arm64`）、一个与它同一套文件、按 `/usr` 布局的归档 `msime-linux-<版本>-linux-<架构>.tar.gz`（`x86_64`/`aarch64`）、一个 Fedora 包 `msime-linux-<版本>-1.<架构>.rpm`（`x86_64`/`aarch64`），另有发行版源码构建用的三个 tarball `msime-<版本>.tar.xz`、`msime-<版本>-vendor.tar.xz` 与 `msime-<版本>-frontend.tar.xz`（见下文「包管理器」），以及覆盖全部附件的 `SHA256SUMS`。设置页的检查更新按 `linux-v` 标签前缀挑选发行版并打开发行页；附件只用来显示校验值，按扩展名 `.deb`（没有时取 `.tar.gz`）识别，并按宿主报告的架构（`HostCapabilities.arch`）只看本机架构的那一份；宿主没报告架构时，一个发行版里有两份就不显示校验值。同一个标签下其他版本（见下文「多版本」）各有同样的一组附件，包名换成 `msime-linux-<id>`，设置页按本版本的包名挑选自己的那一份。
+发行版由 `.github/workflows/release-linux.yml` 手动触发，标签为 `linux-v<版本>`（版本默认取 `platforms/linux/version.txt`），附件按 x86_64 与 aarch64 两个架构各有一套（两者分别在 GitHub 的 x64 与 arm64 runner 上原生构建）：一个 Debian 包 `msime-linux_<版本>_<架构>.deb`（架构是 dpkg 的 `amd64`/`arm64`）、一个与它同一套文件、按 `/usr` 布局的归档 `msime-linux-<版本>-linux-<架构>.tar.gz`（`x86_64`/`aarch64`）、一个 Fedora 包 `msime-linux-<版本>-1.<架构>.rpm`（`x86_64`/`aarch64`），另有发行版源码构建用的三个 tarball `msime-<版本>.tar.xz`、`msime-<版本>-vendor.tar.xz` 与 `msime-<版本>-frontend.tar.xz`（见下文「包管理器」），以及覆盖全部附件的 `SHA256SUMS`。设置页的检查更新按 `linux-v` 标签前缀挑选发行版并打开发行页；附件只用来显示校验值，按扩展名 `.deb`（没有时取 `.tar.gz`）识别，并按宿主报告的架构（`HostCapabilities.arch`）只看本机架构的那一份；宿主没报告架构时，一个发行版里有两份就不显示校验值。同一个标签下其他版本（见下文「多版本」）各有同样的一组附件，包名换成 `msime-linux-<id>`，设置页按本版本的包名挑选自己的那一份。两个架构另各有一个给 glibc 2.28 基线系统用的 `msime-linux-legacy_<版本>_<架构>.deb`（见下文「旧发行版的 legacy 包」），包内的包名仍是 `msime-linux`，附件名带 `legacy` 是为了不和上面那个 `.deb` 撞名，设置页挑 full 的包时也按 `msime-linux-<字母>` 开头把它排除。
 
 安装前先核对校验值：`sha256sum -c SHA256SUMS --ignore-missing`。Debian/Ubuntu 用 `sudo apt install ./msime-linux_<版本>_<架构>.deb`，依赖由 apt 一并装好，卸载用 `sudo apt remove msime-linux`。对应 Windows 安装程序在卸载和升级时停止输入法进程：`apt remove` 删除文件前，包的 prerm 在每个已登录（或启用了 linger）用户的 systemd 用户实例里逐个 `disable --now` 与 CMake 卸载相同的那组在线、语音和剪贴板单元，免得它们指着已删除的程序反复重启，再在同一实例里以临时单元运行 `msime-linux-setup --unregister`，把本输入法从该用户的输入法列表里移除（见「卸载 CMake 安装」）；升级后 postinst 让这些实例重读单元文件，并重启其中正在运行的服务，使其换到新程序，socket 单元保持监听，输入法宿主自己换到新程序（见上文「安装后首次使用」里的升级一段）。联系不上的用户实例只打印该用户需要执行的命令；未登录的用户没有运行中的服务，但启用链接仍留在各自的 `~/.config/systemd/user`，需要时自行执行 `systemctl --user disable …`。没有 systemd 的环境（例如容器）两步都跳过，也都不会让 apt 失败。包里唯一不在 `/usr` 下的文件是剪贴板服务的 XDG 自启动项 `/etc/xdg/autostart/msime-linux-clipboard.desktop`（见「独立剪贴板采集」），它是 conffile：管理员修改或删除它之后，升级不会把它改回来；`apt remove` 留下它、`apt purge` 才删除，留下的自启动项在服务已被 prerm 停用后什么也不做。归档给不经 apt 安装的 Debian 系系统用，不是跨发行版的通用包：库目录是 Debian 的多架构布局 `usr/lib/<三元组>/`（例如 `usr/lib/x86_64-linux-gnu/`），Fcitx5 插件因此在 `usr/lib/<三元组>/fcitx5/`，Arch（`/usr/lib/fcitx5`）和 Fedora（`/usr/lib64/fcitx5`）上的 Fcitx5 不会去那里加载它。用法：`sudo tar -xzf msime-linux-<版本>-linux-<架构>.tar.gz --strip-components=1 -C /`，再执行 `sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor`；归档没有依赖声明，需由发行版提供 IBus 1.5.20+ 或 Fcitx5 5.0.20+、Python 3.9+，以及二进制链接的共享库（WebKitGTK 4.1、GTK 3、libsoup 3、ICU、libcurl、SQLite、D-Bus、Wayland、X11、xkbcommon 等，完整列表以同版本 `.deb` 的 Depends 为准）；它也没有卸载入口，删除时按归档内的文件列表（`tar -tzf`）逐个移除。两种方式装完都按上面的「安装后首次使用」执行 `msime-linux-setup`。
 
-`.deb` 与归档在 Debian 12（bookworm）容器里构建，链接的是 bookworm 的库版本，Depends 因此要求 glibc 2.35、libstdc++ 11、WebKitGTK 4.1 与 libsoup 3 及以上，只能装在提供这些包的发行版上：Debian 12、Ubuntu 22.04 与更新的版本可以，Debian 11、UOS 20 这类 glibc 更旧或没有 WebKitGTK 4.1 的系统不行（#6311）。输入法框架在 Depends 里写成二选一 `ibus (>= 1.5.20) | fcitx5 (>= 5.0.20)`（#6401）：系统里已有哪个就算满足哪个，deepin 这类用 Fcitx5 的系统不会被拉进 IBus 守护进程和它的 GTK 模块，用 IBus 的系统也不会被拉进 Fcitx5；两个都没有时 apt 装写在前面的 IBus。Fcitx5 不进 Recommends，因为 apt 默认安装推荐包，那样 IBus 系统会被拉进 Fcitx5。Ubuntu 22.04 只有 Fcitx5 5.0.14，在那里由 IBus 满足这一项，整包照样装得上（#6305）；即使另装了系统的 Fcitx5 5.0.14，它也会按插件条目的 `core:5.0.20` 依赖拒绝加载插件。辅助程序链接 libibus，所以 `dpkg-shlibdeps` 仍会带上 `libibus-1.0-5`，那只是一个库，不会启动 IBus。`dpkg-shlibdeps` 从插件推出的 `libfcitx5*` 依赖由 `package-container.sh` 重新打包时从 Depends 去掉，`release-linux.yml` 逐包核对 Depends 里只以这个二选一提到两个框架。`.rpm` 同样写成 `(ibus >= 1.5.20 or fcitx5 >= 5.0.20)`，插件链接的 `libFcitx5*` 不进自动生成的 Requires；Arch 的两个 PKGBUILD 把 `ibus`、`fcitx5` 都放在 optdepends。
+`.deb` 与归档在 Debian 12（bookworm）容器里构建，链接的是 bookworm 的库版本，Depends 因此要求 glibc 2.35、libstdc++ 11、WebKitGTK 4.1 与 libsoup 3 及以上，只能装在提供这些包的发行版上：Debian 12、Ubuntu 22.04 与更新的版本可以，Debian 11、UOS 20 这类 glibc 更旧或没有 WebKitGTK 4.1 的系统不行（#6311）；Debian 10 基线的系统装发布页上只含 IBus 的 legacy 包，见下文「旧发行版的 legacy 包（glibc 2.28）」。输入法框架在 Depends 里写成二选一 `ibus (>= 1.5.20) | fcitx5 (>= 5.0.20)`（#6401）：系统里已有哪个就算满足哪个，deepin 这类用 Fcitx5 的系统不会被拉进 IBus 守护进程和它的 GTK 模块，用 IBus 的系统也不会被拉进 Fcitx5；两个都没有时 apt 装写在前面的 IBus。Fcitx5 不进 Recommends，因为 apt 默认安装推荐包，那样 IBus 系统会被拉进 Fcitx5。Ubuntu 22.04 只有 Fcitx5 5.0.14，在那里由 IBus 满足这一项，整包照样装得上（#6305）；即使另装了系统的 Fcitx5 5.0.14，它也会按插件条目的 `core:5.0.20` 依赖拒绝加载插件。辅助程序链接 libibus，所以 `dpkg-shlibdeps` 仍会带上 `libibus-1.0-5`，那只是一个库，不会启动 IBus。`dpkg-shlibdeps` 从插件推出的 `libfcitx5*` 依赖由 `package-container.sh` 重新打包时从 Depends 去掉，`release-linux.yml` 逐包核对 Depends 里只以这个二选一提到两个框架。`.rpm` 同样写成 `(ibus >= 1.5.20 or fcitx5 >= 5.0.20)`，插件链接的 `libFcitx5*` 不进自动生成的 Requires；Arch 的两个 PKGBUILD 把 `ibus`、`fcitx5` 都放在 optdepends。
 
 `.rpm` 在 Fedora 44 容器里单独构建（`tests/tools/Dockerfile.package-rpm`），不是由 `.deb` 转换来的：rpmbuild 按二进制实际链接的库生成 Requires，在 Debian 上链接的二进制会带上 Debian 独有的 soname 与符号版本（例如 libcurl 的 `CURL_OPENSSL_4`），Fedora 上没有包提供它们，已归档的 MSIME-Linux 0.9.1 的 rpm 就是因此装不上（#2095）。它面向 Fedora 44 及提供同样库版本的 DNF 系统，用 `sudo dnf install ./msime-linux-<版本>-1.<架构>.rpm` 安装，`sudo dnf remove msime-linux` 卸载；维护脚本就是 `.deb` 的 prerm 与 postinst，前面加一段把 RPM 的实例计数换算成对应的 dpkg 参数，所以卸载与升级的行为与上面 `.deb` 的描述相同，自启动项是 `%config(noreplace)`。包自带的 Host API 库与 sherpa-onnx 运行库既不作为依赖要求、也不对系统声明提供。发行流程在构建后把它装进一个干净的 Fedora 容器再卸掉（`tests/tools/check-rpm-install.sh`），依赖解析不了就在那一步失败。支持更多发行版仍需按目标发行版分别构建。
 
@@ -133,6 +146,46 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 许可证与第三方声明装在 `${CMAKE_INSTALL_DATADIR}/doc/msime-client/`，普通 `cmake --install` 与安装包相同：`copyright`（本项目 GPL-3.0）、`THIRD_PARTY_NOTICES.txt`（本平台随附组件总览，源文件 `data/THIRD_PARTY_NOTICES.txt`），词库来源声明 `msime-engine-dictionary-NOTICE.md`（从 msime-engine 原样带过来，固定副本在 `resources/licenses/`）、辅助码声明 `msime-engine-helpcode-NOTICE.md`（`resources/helpcodes/ENGINE-NOTICE.md`）、`msime-helpcode-jiajia-NOTICE.md`（`resources/helpcodes/NOTICE.md`）与 `msime-helpcode-wubi86-NOTICE.md`（`resources/helpcodes/NOTICE-wubi86.md`）、离线手写识别所移植的 zinnia 的许可证 `Zinnia-LICENSE.txt`（`resources/licenses/`）、`@` 模式内置地名所取自的 modood/Administrative-divisions-of-China 的许可证 `Administrative-divisions-of-China-WTFPL.txt`（`resources/licenses/`）、韩语汉字转换内置汉字表所取自的 libhangul `data/hanja/hanja.txt` 的许可证 `libhangul-hanja-BSD-3-Clause.txt`（`resources/licenses/`）、引擎粤语与注音方案的数据所取自的 rime-cantonese 与 libchewing-data 的许可证 `rime-cantonese-CC-BY-4.0.txt` 与 `libchewing-data-LGPL-2.1.txt`、笔画方案的笔顺数据所取自的 rime-stroke 的许可证 `rime-stroke-LGPL-3.0.txt`（`resources/licenses/`；装了这些词库时，词库旁还有随数据发布的 `msime-rime_cantonese_LICENSE.txt`、`msime-libchewing_data_LICENSE.txt` 与 `msime-rime_stroke_LICENSE.txt`）、藏文方案所用 ewts crate 的许可证 `ewts-MIT.txt`（`resources/licenses/`；这个 crate 没有附许可证文件，按包元数据收集的 `rust-crates-NOTICES.txt` 里只有它声明的许可证表达式）、装了手写模型时随模型的 `HandwritingModel-LICENSE.txt`、OpenCC 词典的许可证，编进原生宿主与 Fcitx5 插件的 nlohmann/json（`nlohmann_json-MIT.txt`，固定副本在 `data/licenses/`）与 Wayland 协议代码（配置时从实际编译的 `wlr-layer-shell-unstable-v1.xml`、`xdg-shell.xml` 取出 `<copyright>` 段，只在找到 `xdg-shell.xml`、协议代码确实编入时安装），以及打包时收集的 `rust-crates-NOTICES.txt` 与 `frontend-npm-NOTICES.txt`。输入引擎是本项目自己的 Rust 代码（`crates/engine`），由同为 GPL-3.0 的 msime-engine 移植而来，由 `copyright` 覆盖，不再单独附 Engine 的许可证；录音采集走 cpal，其许可证在 Rust 汇总里。本项目许可证在这里按 Debian 的要求叫 `copyright`（macOS 是 `GPL-3.0.txt`）。打包配置时任何一份声明的来源缺失（通常是没有传入 Rust/npm 汇总，或要随包却没有手写模型）都会直接失败；普通开发配置不要求 Rust/npm 汇总，其余缺失只给出警告并安装剩下的部分。
 
 安装包不包含用户状态，不自动启用 provider 服务或切换输入法。首次使用由随装的 `msime-linux-setup` 备齐词库并准备运行配置（见上面的「安装后首次使用」）；语音录音、剪贴板、Wayland/X11 输入工具及可选模型按对应功能章节配置。包的内容取决于配置阶段传入了什么：没有传入桌面二进制或资源的构建只打包实际配置的部分，完整包需要同时提供二者。
+
+### 旧发行版的 legacy 包（glibc 2.28）
+
+该装哪个包，先看系统的 C 库版本（`ldd --version` 的第一行）和输入法框架：
+
+| 系统 | 装哪个包 |
+|---|---|
+| glibc 2.35 及以上的 Debian 系（Debian 12、Ubuntu 22.04 及更新的版本），有 IBus 1.5.20+ 或 Fcitx5 5.0.20+ | 发布页的 `msime-linux_<版本>_<架构>.deb`，带设置窗口 |
+| Fedora 等 RPM 系 | 发布页的 `.rpm`，或下文「包管理器」里的软件源 |
+| glibc 2.28 到 2.34 的 Debian 系（UOS 20 专业版、Debian 10 这一类，Debian 11、Ubuntu 20.04 也是） | 发布页的 `msime-linux-legacy_<版本>_<架构>.deb`：只有 IBus 宿主，没有设置窗口，先装 IBus |
+| 只有 fcitx 4 的系统（UOS 20、麒麟 V10 等默认就是 fcitx 4） | 没有 fcitx 4 前端。改用 IBus 后，按 glibc 版本装上面对应的包 |
+| glibc 低于 2.28 | 没有能用的包 |
+
+两个架构（`amd64`、`arm64`）都有 legacy 包。它由 `release-linux.yml` 调用 `.github/workflows/build-linux-legacy.yml` 在各自架构的原生 runner 上构建，发版时取消勾选 `legacy` 可以不带它；同一个 workflow 每周一在 develop 上定时跑一次，legacy 构建线自己的文件有改动的 Pull Request 上也会跑。
+
+`package-legacy-container.sh` 在 Debian 10（buster）容器里构建这个只含 IBus 宿主的 `.deb`，给 UOS 20 专业版、Debian 10 这类 glibc 2.28 基线、装不上发布页 `.deb` 的系统用（#6311）。也可以在装有 Docker 的机器上自己构建：`bash platforms/linux/package-legacy-container.sh [版本]`，产物是 `target/linux-package-legacy-<架构>/dist/msime-linux_<版本>_<架构>.deb` 和它的 `SHA256SUMS`；发布工作流上传前把它改名为 `msime-linux-legacy_<版本>_<架构>.deb`，内容不变。`MSIME_LEGACY_ARCH=amd64|arm64` 选择架构，缺省是本机架构；另一种架构经 Docker 的 `--platform` 在模拟器里构建，要求 Docker 能运行该平台的容器（binfmt/qemu 或 Rosetta），比原生慢得多。
+
+构建镜像是 `tests/tools/Dockerfile.legacy`：buster 自带的 GCC 8.3、IBus 1.5.19、Python 3.7 与 glibc 2.28，加上按 SHA-256 固定的 Kitware CMake 3.25.1、nlohmann-json 3.11.2 源码和 Rust 1.97.1（buster 的 CMake 3.13 与 nlohmann-json 3.5 低于 `CMakeLists.txt` 的要求，两者的版本与 bookworm 门禁镜像相同）。Host API 库、`msime-mcp` 和原生宿主都在这个容器里编译，所以只引用 glibc 2.28 及以下的符号版本；打包后脚本用 `tests/tools/check-elf-symbol-versions.sh` 逐个核对包里的 ELF 文件（含预编译的 sherpa-onnx 与 ONNX Runtime 库），任何一个要求的 glibc、libstdc++（`GLIBCXX`、`CXXABI`）或 libgcc（`GCC`）符号版本高于 buster 提供的就失败，上限从构建镜像里的库读出；发布工作流对改名后要上传的那个文件按固定上限 `GLIBC=2.28 GLIBCXX=3.4.25 CXXABI=1.3.11 GCC=7.0.0` 再核一次。这个脚本也可以单独拿来查任何一个 `.deb` 或解开的目录，例如 `bash platforms/linux/tests/tools/check-elf-symbol-versions.sh msime-linux_<版本>_arm64.deb GLIBC=2.28`，超出时逐个列出文件和它要求的版本。随后它在一个只有基础系统的 `debian:buster` 容器里用 apt 安装这个包，确认每个 ELF 文件的共享库和符号版本都能解析、没有设置窗口的文件，再在装好包的容器里跑构建树的 ctest：测试程序链接的库只能由包的 Depends 带进来。最后由 `tests/tools/legacy-runtime.sh` 做运行时验收：在 Python 3.7 上跑随包 Python 脚本的合约测试（与 `tests/tools/in-container.sh` 同一份清单 `python-contracts.list`，跳过只与设置窗口和豆包有关的两项），用第 1 步按词库锁取回的词库跑 `ibus-engine-smoke --page-number`，并让已安装的 `/usr/bin/msime-linux-ibus` 在 buster 自带的 ibus-daemon 1.5.19 下经合成输入上下文（`daemon_smoke.py`：打字、切换输入源、宿主崩溃后由监护进程重启、`ibus exit`）和 GTK 3 文本框（`gtk_smoke.py`）打字。词库只用于验收，不进包。
+
+这个包与发布页的 `.deb` 包名相同（`msime-linux`），安装路径也相同，装上一个就替换掉另一个。区别是：
+
+- **没有设置窗口。** 不带 Tauri 桌面二进制：它要 WebKitGTK 4.1 和 libsoup 3，buster 没有，Tauri 2 也不支持更旧的 WebKitGTK 4.0。于是没有 `msime-linux-settings`、应用列表里的「水杉输入法」和首次配置页；IBus 菜单里打开设置窗口的那些项（设置、词库、手写识别板、屏幕键盘、表情与符号、本地剪贴板、语音面板、云词库、云剪贴板、关于、帮助、反馈）点了没有反应。只能在设置窗口里做的事（词库管理、皮肤、账号与云同步、手写模型下载、检查更新）在这个包里没有替代入口。
+- **没有 Fcitx5 插件。** buster 没有 5.0.20 以上的 Fcitx5；UOS 20 默认的 fcitx 4 也没有水杉的前端，只能走 IBus。
+- **只有 full（水杉拼音）一个版本。** 其他版本配置时要用 `scripts/edition_linux.py` 改写脚本，它需要 Python 3.10。
+- **依赖更低。** Depends 是 `ibus (>= 1.5.19), python3 (>= 3.7), procps`，加上 `dpkg-shlibdeps` 按 buster 的库算出的共享库依赖（`libc6 (>= 2.28)` 等）。这两个下限来自 CMake 缓存变量 `MSIME_IBUS_MIN_VERSION` 和 `MSIME_PYTHON_MIN_VERSION`，它们同时决定配置时检查的 IBus 版本和 `.deb`/`.rpm` 的依赖声明，发布页的包用缺省值 1.5.20 和 3.9。宿主用到的 IBus 接口里只有 `IBUS_INPUT_HINT_PRIVATE` 晚于 1.5.19（1.5.26 才进头文件），旧头文件上按协议的固定值补上（`src/core/ClientEngine.h`）；1.5.27 的 `focus_in_id` 与 `has-focus-id` 原本就按 `IBUS_CHECK_VERSION` 条件编译，旧版 IBus 不报告客户端身份，`ime_mode_scope = app` 因此退化为所有窗口共用一个中英文状态（`src/core/ClientInputModeMemory.h`）。
+- **豆包实时识别不可用。** 它要 `websockets` 15，而 `websockets` 15 需要 Python 3.9；语音服务照常启动，选用豆包时报告依赖不满足。Recommends 里的 `python3-websockets (>= 15)` 在 buster 上满足不了，apt 会跳过它。
+- **升级和卸载时不会替已登录用户处理用户服务。** postinst 和 prerm 用 `systemctl --user -M <uid>@` 联系每个用户的 systemd 管理器，这要 systemd 248，buster 是 241；联系不上时它们只打印该用户要执行的命令，安装和卸载本身不受影响。postinst 顺带为每个用户注册匿名账号的那一步也因此跳过，由在线服务之后重试。
+
+在 UOS 20 上的用法：
+
+1. UOS 20 默认的输入法框架是 fcitx 4，系统里没有 IBus。先装 IBus，再装这个包：`sudo apt install ibus`，然后 `sudo apt install ./msime-linux-legacy_<版本>_<架构>.deb`。卸载时包名仍是 `msime-linux`：`sudo apt remove msime-linux`。
+2. 把输入法框架切到 IBus 并重新登录。Debian 10 上是 `im-config -n ibus`；UOS 20 上的切换方式我们没有在真机上验证过。
+3. 在终端运行 `msime-linux-setup --download`，按上面「安装后首次使用」取回词库、准备状态并把输入法加进 IBus 的列表；加不上时执行 `ibus restart`，再在 `ibus-setup` 的「输入法」页添加「Metasequoia 水杉输入法」。没有设置窗口，所以先选中输入法、还没做首次配置时不会打开首次配置页，装有 `notify-send` 时桌面通知直接指向 `msime-linux-setup`。
+
+没有设置窗口时改偏好有两条路：
+
+- IBus 面板上的输入法菜单与发布页的包相同，中英文、全角、中文标点、简繁、输入方案、双拼方案、辅助码方案和主题都在那里切换。
+- 其余偏好用随包的 `msime` 命令（`msime-mcp` 的命令行形式，见上文「包管理器」）：`msime config` 列出当前偏好，`msime config get <键>` 读取，`msime config set <键>=<值> …` 修改，例如 `msime config set candidate_page_size=7 fuzzy_pinyin=true`，输入法在几秒内热重载。能改的键是 MCP 工具 `update_preferences` 接受的那一组（`crates/mcp-server/src/preferences.rs` 的 `PreferencesChange`），包括输入方案与双拼方案、候选个数、字号、缩放、透明度、圆角与排列、候选跟随光标、数字行选词、模式提示、模糊音、默认中英文、全半角、中文标点、智能标点、繁体输出、五笔方案、五笔混输拼音、五笔编码提示和诊断日志；`msime --help` 列出全部命令。
+
+验证范围：amd64 与 arm64 的构建、符号版本检查、buster 里的 apt 安装、ctest 和上面的运行时验收都由 `build-linux-legacy.yml` 在各自架构的原生 runner 上跑过，IBus 引擎在 ibus-daemon 1.5.19 与 Xvfb 上的 GTK 3 程序里打字通过。arm64 的包另在 Debian 11、Ubuntu 20.04 和 Ubuntu 22.04 的容器里用 apt 装上过，`ldd` 没有缺库或缺符号版本，但没有在这些系统上跑运行时验收。两种架构都没有在 UOS 20 真机或真实桌面会话里打过字，Qt 程序与 Wayland 下的行为也没有在 IBus 1.5.19 上测过。
 
 ### Nix 与 NixOS
 
