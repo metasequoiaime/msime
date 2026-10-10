@@ -77,6 +77,17 @@ int main(void)
         assert([merged[@"last_chinese_scheme"] isEqual:@"stroke"] && [preferences.lastChineseScheme isEqual:@"stroke"]);
         preferences.inputScheme = @"quanpin";
 
+        // 共享偏好选了自定义双拼后，原生设置保存其它字段不能把它悄悄改回旧的本机方案。
+        preferences.shuangpinProfile = @"ziranma";
+        [preferences applySharedInputPreferences:@{@"shuangpin_profile": @"custom"}];
+        assert([preferences.shuangpinProfile isEqual:@"custom"]);
+        merged = [preferences sharedPreferencesByMerging:@{@"shuangpin_profile": @"custom"}];
+        assert([merged[@"shuangpin_profile"] isEqual:@"custom"]);
+        // 用户明确选回内置方案时，仍以本机刚做的选择为准。
+        preferences.shuangpinProfile = @"microsoft";
+        merged = [preferences sharedPreferencesByMerging:@{@"shuangpin_profile": @"custom"}];
+        assert([merged[@"shuangpin_profile"] isEqual:@"microsoft"]);
+
         // removePersistentDomainForName: empties the domain and leaves the plist on disk, so every
         // run left one behind: 185 of them had piled up on the machine this was found on.
         MSIMERemoveTestPreferenceSuite(defaults, suite);
