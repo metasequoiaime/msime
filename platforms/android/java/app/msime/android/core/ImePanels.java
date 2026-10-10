@@ -1152,23 +1152,37 @@ final class ImePanels {
      */
     void refreshCloudClipboard() {
         if (!cloudClipboardAllowed()) return;
+        app.msime.android.SyncSwitch.Binding binding = SyncSignals.binding(s);
+        String accountId = binding == null ? "" : binding.accountId();
+        long bindingGeneration = binding == null ? -1L : binding.generation();
+        s.cloudClipboardAccountId = accountId;
+        s.cloudClipboardBindingGeneration = bindingGeneration;
         long generation = ++s.cloudClipboardGeneration;
         s.cloudClipboardStatus = CloudClipboardPanelPolicy.Status.LOADING;
         s.cloudClipboardItems = java.util.List.of();
+        s.cloudClipboardSessionId = "";
         if (s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD) renderClipboardHistory();
+        if (binding == null || accountId.isEmpty()) {
+            s.cloudClipboardStatus = CloudClipboardPanelPolicy.Status.SIGNED_OUT;
+            if (s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD) renderClipboardHistory();
+            return;
+        }
         try {
             s.cloudClipboardWorker.execute(() -> {
                 CloudClipboardPanelPolicy.Status status;
                 java.util.List<BackendAccount.ClipboardItem> items = java.util.List.of();
+                String sessionId = "";
                 try {
                     BackendAccount account = new BackendAccount(s);
                     // Throws when the session owner cannot tell right now, which is a retry, not a sign-in.
-                    if (account.currentAccessToken().isEmpty()) {
+                    BackendAccount.SessionCredential session = account.currentSession();
+                    if (session.token().isEmpty()) {
                         status = CloudClipboardPanelPolicy.Status.SIGNED_OUT;
                     } else {
-                        BackendAccount.ClipboardPage page = account.clipboard("");
+                        BackendAccount.ClipboardPage page = account.clipboard("", session.sessionId());
                         status = CloudClipboardPanelPolicy.loaded(page.enabled(), page.items().size());
                         if (CloudClipboardPanelPolicy.showsItems(status)) items = page.items();
+                        sessionId = session.sessionId();
                     }
                 } catch (BackendAccount.RequestException error) {
                     status = CloudClipboardPanelPolicy.failed(error.status);
@@ -1177,11 +1191,14 @@ final class ImePanels {
                 }
                 CloudClipboardPanelPolicy.Status answer = status;
                 java.util.List<BackendAccount.ClipboardItem> answered = items;
+                String answeredSessionId = sessionId;
                 s.main.post(() -> {
                     if (!CloudClipboardPanelPolicy.accepts(generation, s.cloudClipboardGeneration)
+                            || !acceptsCurrentBinding(accountId, bindingGeneration)
                             || !clipboardPanelOpen() || !cloudClipboardAllowed()) return;
                     s.cloudClipboardStatus = answer;
                     s.cloudClipboardItems = answered;
+                    s.cloudClipboardSessionId = answeredSessionId;
                     if (s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD) renderClipboardHistory();
                 });
             });
@@ -1193,6 +1210,18 @@ final class ImePanels {
     /** Send one local entry to the account's cloud clipboard, because the user asked for exactly this one. */
     void uploadClipboardText(String text) {
         boolean cloudAllowed = cloudClipboardAllowed();
+        app.msime.android.SyncSwitch.Binding binding = SyncSignals.binding(s);
+        String accountId = binding == null ? "" : binding.accountId();
+        long bindingGeneration = binding == null ? -1L : binding.generation();
+        if (!CloudClipboardPanelPolicy.acceptsBinding(
+                s.cloudClipboardAccountId, s.cloudClipboardBindingGeneration,
+                accountId, bindingGeneration) || s.cloudClipboardSessionId.isEmpty()) {
+            s.cloudClipboardStatus = CloudClipboardPanelPolicy.Status.SIGNED_OUT;
+            s.cloudClipboardItems = java.util.List.of();
+            s.cloudClipboardSessionId = "";
+            renderClipboardHistory();
+            return;
+        }
         if (!CloudClipboardPanelPolicy.canUpload(cloudAllowed, s.cloudClipboardStatus, text)) {
             s.notice(s.cloudClipboardStatus == CloudClipboardPanelPolicy.Status.SIGNED_OUT
                     || s.cloudClipboardStatus == CloudClipboardPanelPolicy.Status.DISABLED
@@ -1201,11 +1230,12 @@ final class ImePanels {
             return;
         }
         long generation = s.cloudClipboardGeneration;
+        String sessionId = s.cloudClipboardSessionId;
         try {
             s.cloudClipboardWorker.execute(() -> {
                 CloudClipboardPanelPolicy.Status failure = null;
                 try {
-                    new BackendAccount(s).addClipboard(text);
+                    new BackendAccount(s).addClipboard(text, sessionId);
                 } catch (BackendAccount.RequestException error) {
                     failure = CloudClipboardPanelPolicy.failed(error.status);
                 } catch (Exception | LinkageError error) {
@@ -1214,7 +1244,9 @@ final class ImePanels {
                 CloudClipboardPanelPolicy.Status result = failure;
                 s.main.post(() -> {
                     if (!CloudClipboardPanelPolicy.acceptsUploadResult(
-                            generation, s.cloudClipboardGeneration) || !clipboardPanelOpen()) return;
+                            generation, s.cloudClipboardGeneration)
+                            || !acceptsCurrentBinding(accountId, bindingGeneration)
+                            || !clipboardPanelOpen()) return;
                     s.notice(result == null ? "已发到云剪贴板"
                         : result == CloudClipboardPanelPolicy.Status.SIGNED_OUT
                             ? CloudClipboardPanelPolicy.SIGNED_OUT_MESSAGE
@@ -1230,8 +1262,19 @@ final class ImePanels {
 
     void insertCloudClipboardText(String text) {
         // Re-checked at the tap: the list was drawn for this field, but a field never gets cloud text once it has turned sensitive.
-        if (!cloudClipboardAllowed()) return;
+        app.msime.android.SyncSwitch.Binding binding = SyncSignals.binding(s);
+        if (!cloudClipboardAllowed()
+                || binding == null
+                || !CloudClipboardPanelPolicy.acceptsBinding(
+                    s.cloudClipboardAccountId, s.cloudClipboardBindingGeneration,
+                    binding.accountId(), binding.generation())) return;
         s.insertClipboardText(text);
+    }
+
+    private boolean acceptsCurrentBinding(String accountId, long bindingGeneration) {
+        app.msime.android.SyncSwitch.Binding current = SyncSignals.binding(s);
+        return current != null && CloudClipboardPanelPolicy.acceptsBinding(
+            accountId, bindingGeneration, current.accountId(), current.generation());
     }
 
     /** 顶行的「清空」点过一次、正在等用户确认；换分段、重开面板都会撤销。 */

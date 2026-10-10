@@ -62,13 +62,16 @@ pub fn merge_lattice_candidates(
     let block = if rerankers.is_empty() {
         // Searching several paths and showing fewer is the point of `emit`: the alternatives exist so the trigram has something to reorder, not so the page fills with near-duplicate sentences.
         if let Some(already) = already.as_mut() {
-            let mut block = Vec::with_capacity(paths.len());
-            block.extend(
-                paths
-                    .iter()
-                    .filter(|path| already.insert(path.sentence.as_str()))
-                    .map(|path| sentence_row(typed_pinyin, path, CandidateSource::Generated)),
-            );
+            let mut block = Vec::new();
+            for path in &paths {
+                if !already.insert(path.sentence.as_str()) {
+                    continue;
+                }
+                if block.is_empty() {
+                    block = Vec::with_capacity(paths.len());
+                }
+                block.push(sentence_row(typed_pinyin, path, CandidateSource::Generated));
+            }
             block
         } else {
             generated_block_linear(candidates, &paths, typed_pinyin)
@@ -128,10 +131,14 @@ fn generated_block_linear(
     paths: &[SentencePath],
     typed_pinyin: &str,
 ) -> Vec<WordItem> {
-    let mut block = Vec::with_capacity(paths.len());
+    let mut block = Vec::new();
     for path in paths {
         if sentence_seen_linear(candidates, &block, &path.sentence) {
             continue;
+        }
+        // 全部重复时不分配；首条保留句子沿用原容量，避免非空块新增扩容。
+        if block.is_empty() {
+            block = Vec::with_capacity(paths.len());
         }
         block.push(sentence_row(typed_pinyin, path, CandidateSource::Generated));
     }
@@ -164,7 +171,7 @@ fn reranked_block_linear(
     options: &LatticeOptions<'_>,
     typed_pinyin: &str,
 ) -> Vec<WordItem> {
-    let mut block = Vec::with_capacity(2);
+    let mut block = Vec::new();
     if options.include_lattice_best {
         if let Some(row) = take_linear_sentence(
             candidates,
@@ -174,6 +181,7 @@ fn reranked_block_linear(
             options,
             typed_pinyin,
         ) {
+            block = Vec::with_capacity(2);
             block.push(row);
         }
     }
@@ -186,6 +194,9 @@ fn reranked_block_linear(
             options,
             typed_pinyin,
         ) {
+            if block.is_empty() {
+                block = Vec::with_capacity(2);
+            }
             block.push(row);
         }
     }
@@ -226,7 +237,11 @@ fn reranked_block<'a>(
     };
     let pick =
         keyboard.and_then(|keyboard| take(keyboard, CandidateSource::NeuralKeyboard, already));
-    let mut block = Vec::with_capacity(2);
+    let mut block = if lattice.is_some() || pick.is_some() {
+        Vec::with_capacity(2)
+    } else {
+        Vec::new()
+    };
     if let Some(row) = lattice {
         block.push(row);
     }
@@ -760,3 +775,11 @@ mod tests {
         assert_eq!(words(&block(&lattice, None, &options, &[])), []);
     }
 }
+
+#[cfg(test)]
+#[path = "merge_block_frozen.rs"]
+mod block_frozen;
+
+#[cfg(test)]
+#[path = "merge_block_buffer_tests.rs"]
+mod block_buffer_tests;

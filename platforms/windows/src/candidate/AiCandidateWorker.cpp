@@ -3,6 +3,7 @@
 #include "CandidateHttpPolicy.h"
 
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -76,11 +77,10 @@ std::optional<nlohmann::json> ai_descriptor(const std::string &query,
     const auto serialized = request.dump();
     if (serialized.size() > 65536)
       return std::nullopt;
-    std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+    auto raw = msime::host_api::own_string(
         msime_client_ai_http_request(
             reinterpret_cast<const uint8_t *>(serialized.data()),
-            serialized.size()),
-        msime_client_string_free);
+            serialized.size()));
     if (!raw)
       return std::nullopt;
     const auto response = nlohmann::json::parse(raw.get(), nullptr, false);
@@ -280,10 +280,9 @@ AiCandidateWorker::fetch(const std::string &query,
   const auto body = https_post(*descriptor, is_cancelled);
   if (!body || body->empty() || (is_cancelled && is_cancelled()))
     return {};
-  std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+  auto raw = msime::host_api::own_string(
       msime_client_parse_ai_response(
-          reinterpret_cast<const uint8_t *>(body->data()), body->size(), limit),
-      msime_client_string_free);
+          reinterpret_cast<const uint8_t *>(body->data()), body->size(), limit));
   if (!raw)
     return {};
   try {

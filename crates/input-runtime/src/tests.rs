@@ -4021,6 +4021,26 @@ fn the_translate_command_round_trips_through_the_runtime() {
     );
 }
 
+#[test]
+fn command_translation_does_not_change_engine_after_generation_exhaustion() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = generated_mode_runtime(directory.path());
+    character(&mut runtime, b'/');
+    for value in *b"fyhello" {
+        character(&mut runtime, value);
+    }
+    let mut query = runtime.command_translation().unwrap();
+    runtime.generation = u64::MAX;
+    query.generation = u64::MAX;
+    let before = runtime.engine.snapshot().unwrap().candidates;
+
+    assert!(matches!(
+        runtime.apply_command_translation(&query, "合成译文"),
+        Err(RuntimeError::IdentityExhausted)
+    ));
+    assert_eq!(runtime.engine.snapshot().unwrap().candidates, before);
+}
+
 // A mark on a bare `/` or `@` is punctuation on every route: the mode ends and nothing from its list is committed.
 #[test]
 fn a_mark_on_a_bare_slash_or_at_is_not_a_pick() {
@@ -4679,6 +4699,54 @@ fn full_list_does_not_reorder_after_generation_identity_is_exhausted() {
 }
 
 #[test]
+fn clearing_online_candidates_does_not_change_engine_after_generation_exhaustion() {
+    let directory = tempfile::tempdir().unwrap();
+    let session = msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    type_characters(&mut runtime, "ni");
+    let query = runtime.online_query().unwrap().unwrap();
+    assert!(query.ai_eligible);
+    assert!(runtime
+        .apply_online_candidate(&query, "合成候选", 1)
+        .unwrap());
+    runtime.generation = u64::MAX;
+    let before = runtime.engine.snapshot().unwrap().candidates;
+    assert!(before.iter().any(|candidate| candidate == "合成候选"));
+
+    assert!(matches!(
+        runtime.clear_online_candidates(1),
+        Err(RuntimeError::IdentityExhausted)
+    ));
+    assert_eq!(runtime.engine.snapshot().unwrap().candidates, before);
+}
+
+#[test]
+fn online_candidates_do_not_change_engine_after_generation_exhaustion() {
+    for batch in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        let session =
+            msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        type_characters(&mut runtime, "ni");
+        let mut query = runtime.online_query().unwrap().unwrap();
+        query.ai_assistant =
+            Some(serde_json::from_value(json!({"enabled": true, "candidate_limit": 1})).unwrap());
+        runtime.generation = u64::MAX;
+        let before = runtime.engine.snapshot().unwrap().candidates;
+
+        let result = if batch {
+            runtime.apply_online_candidates(&query, &["合成候选".into()], 1)
+        } else {
+            runtime.apply_online_candidate(&query, "合成候选", 1)
+        };
+        assert!(matches!(result, Err(RuntimeError::IdentityExhausted)));
+        assert_eq!(runtime.engine.snapshot().unwrap().candidates, before);
+    }
+}
+
+#[test]
 fn expansion_that_fills_the_current_page_does_not_advance_past_it() {
     // Three offered is a single short page. Asking for the next one has nowhere to go, so the
     // arrivals fill this page instead - advancing would step straight over them.
@@ -4926,7 +4994,9 @@ impl InputEngine for FailsAfterCommit {
         self.inner.select_edge(index, edge)
     }
     fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
-        self.inner.finish(index)
+        let result = self.inner.finish(index)?;
+        self.committed = result.has_commit;
+        Ok(result)
     }
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
         self.inner.punctuation(value)
@@ -4962,6 +5032,45 @@ fn a_wubi_auto_commit_survives_a_failed_refresh() {
     let last = last.unwrap();
     assert_eq!(last.commit.as_deref(), Some("合成候选"));
     assert!(last
+        .diagnostic
+        .as_deref()
+        .is_some_and(|diagnostic| diagnostic.starts_with("Candidate refresh failed")));
+}
+
+#[test]
+fn a_blur_commit_survives_a_failed_refresh() {
+    let mut runtime = Runtime::new(
+        FailsAfterCommit {
+            inner: Fixture {
+                scheme: KOREAN_SCHEME,
+                words: vec!["合成音节".into()],
+                local_mode: "none".into(),
+                ..Fixture::default()
+            },
+            committed: false,
+        },
+        5,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    runtime
+        .dispatch(Action::Character {
+            value: b'k',
+            shift: false,
+        })
+        .unwrap();
+
+    let blurred = runtime.focus(false).unwrap();
+    assert_eq!(
+        blurred.commit.as_deref(),
+        Some("合成音节-remaining-segments")
+    );
+    assert_eq!(
+        blurred.commit_context.as_ref().unwrap().scheme,
+        KOREAN_SCHEME
+    );
+    assert!(!blurred.view.focused);
+    assert!(blurred
         .diagnostic
         .as_deref()
         .is_some_and(|diagnostic| diagnostic.starts_with("Candidate refresh failed")));

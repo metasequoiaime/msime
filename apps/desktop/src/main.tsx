@@ -57,6 +57,7 @@ import {
   type Preferences,
   type PreferencesRecovery,
   type AppNotice,
+  type UpdateCheckResult,
   type SettingsClient,
   type Snapshot,
   type DictionaryClient,
@@ -253,6 +254,8 @@ const client: SettingsClient = {
     list: () => invoke<AppNotice[]>("notices_list"),
     dismiss: (id) => invoke<void>("notice_dismiss", { id }),
   },
+  // The release list is read and compared in Rust (msime_client_core::update_check), as on every other host.
+  checkUpdate: (request) => invoke<UpdateCheckResult>("update_check", request),
   openThirdPartyLicenses: () => invoke("open_third_party_licenses"),
   loadMacosShuangpinKeymap: () => invoke<boolean>("load_macos_shuangpin_keymap"),
   saveMacosShuangpinKeymap: (enabled) => invoke("save_macos_shuangpin_keymap", { enabled }),

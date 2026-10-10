@@ -20,7 +20,7 @@ Status: implemented
   - `workflow_dispatch`：只构建不发布。
 - 附件名用 `msime-linux-legacy_<版本>_<架构>.deb`，包内的 `Package` 仍是 `msime-linux`：
   - 不改名的话，legacy 与发布页的包同为 `msime-linux_<版本>_<架构>.deb`，`download-artifact` 的 `merge-multiple` 会让后到的覆盖先到的。
-  - 设置页的检查更新（`packages/ui/src/settings/update-manifest.ts`）给 full 挑包前先用 `^msime-linux-[a-z]` 去掉别的版本的包，`msime-linux-legacy_` 正好被它排除；各版本的模式是 `^msime-linux-<id>_`，也不会匹配。`apps/desktop/tests/settings/update-manifest-edition.test.ts` 的发布夹具里加了两个架构的 legacy 附件，钉住这一点。版本表里将来不能有 id 为 `legacy` 的版本。
+  - 检查更新挑包已移到 Rust（`crates/client-core/src/update_check.rs`）：给 full 挑包前先由 `is_other_edition_linux_package` 去掉 `msime-linux-<字母>` 开头的别的版本的包，`msime-linux-legacy_` 正好被它排除；各版本按 `msime-linux-<id>_` 前缀匹配，也不会匹配。`crates/client-core/src/update_check/tests.rs` 的发布夹具里加了两个架构的 legacy 附件，钉住这一点。版本表里将来不能有 id 为 `legacy` 的版本。
 - 符号版本核对从 `package-legacy-container.sh` 的内联循环抽成 `platforms/linux/tests/tools/check-elf-symbol-versions.sh <deb 或目录> PREFIX=VERSION…`：容器里第 1 步照旧从 buster 的库读出上限后调用它，发布工作流对改名后的文件用固定上限调用它，人也可以拿它查任意一个包。ELF 判断改用文件头前四个字节，不依赖 `file`。
 
 ## Alternatives considered
@@ -39,6 +39,6 @@ Status: implemented
 
 ## Verification
 
-- 本机：`actionlint .github/workflows/build-linux-legacy.yml .github/workflows/release-linux.yml` 通过；`shellcheck platforms/linux/tests/tools/check-elf-symbol-versions.sh` 通过；`apps/desktop` 的 `vitest run tests/settings/update-manifest-edition.test.ts` 5 项通过。
+- 本机：`actionlint .github/workflows/build-linux-legacy.yml .github/workflows/release-linux.yml` 通过；`shellcheck platforms/linux/tests/tools/check-elf-symbol-versions.sh` 通过；`cargo test -p msime-client-core update_check` 通过（夹具含两个架构的 legacy 附件）。
 - PR #6639 上的 `Linux legacy package`（run 38009996039）：amd64 与 arm64 都通过。两边的 Depends 都是 `ibus (>= 1.5.19), python3 (>= 3.7), procps, libasound2 (>= 1.1.0), libc6 (>= 2.28), libgcc1 (>= 1:4.2), …`，读出的上限都是 `GLIBC_2.28 GLIBCXX_3.4.25 CXXABI_1.3.11 GCC_7.0.0`，18 个 ELF 文件都不超出；干净 buster 里 apt 安装、ctest 73 项全部通过，ibus-daemon 1.5.19-4+deb10u1 与 Python 3.7.3 上的运行时验收通过。改名后的 `msime-linux-legacy_0.11.0_<架构>.deb` 按固定上限再核一次，同样通过。amd64 这是第一次完整产出。
 - 本机 Docker：`check-elf-symbol-versions.sh` 对 buster 自己的 `ibus`、`libibus-1.0-5`、`python3.7-minimal` 报告不超出；对 `linux-v0.11.0` 发布页的 `msime-linux_0.11.0_arm64.deb` 列出 `msime-voice-local` 要的 `GLIBC_2.32`–`2.34` 和 `GLIBCXX_3.4.26`/`3.4.29` 并以 1 退出。CI 产出的 arm64 legacy 包在 `debian:bullseye`（glibc 2.31）、`ubuntu:20.04`（2.31）和 `ubuntu:22.04` 里 apt 安装成功，`ldd` 无缺库、无缺符号版本，`msime-mcp --version` 能运行；这几个系统上没有跑运行时验收。

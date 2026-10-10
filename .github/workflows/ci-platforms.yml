@@ -69,6 +69,9 @@ jobs:
               # 网页引擎只给浏览器用，四个原生宿主都不链接它，所以这几条路径只触发 web-engine 作业，排在下面的共享路径之前。
               crates/engine-wasm/*|packages/web-engine/*|scripts/build-web-engine.sh|scripts/web-engine-notice.sh|resources/licenses/web-engine-NOTICE.md)
                 web=true ;;
+              # web-engine-NOTICE.md 逐字复制这几份许可证与来源说明（见 scripts/web-engine-notice.sh 的 repo 段），改了它们却不重新生成，NOTICE 就过期了；#6696 只改 LICENSE，没有任何作业被触发，过期的 NOTICE 进了 develop。
+              LICENSE|resources/licenses/*|resources/helpcodes/ENGINE-NOTICE.md|resources/helpcodes/NOTICE.md)
+                web=true ;;
               shared/*|crates/*|packages/*|apps/*|scripts/*|.github/workflows/ci-platforms.yml)
                 shared=true ;;
               # The workspace manifests, the toolchain pin and the JS workspace: a Dependabot bump touches only these.

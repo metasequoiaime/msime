@@ -30,6 +30,8 @@ export interface PluginSoundEffectsViewProps {
   typingEffects: boolean;
   effectStyles: boolean;
   effectPacks: boolean;
+  /** The host draws every style as a flash of the candidate card, brighter for the stronger styles, and no sparks (Windows, HarmonyOS). */
+  effectFlashOnly?: boolean;
   onChange: (preferences: PluginPreferences) => void;
   onBack: () => void;
 }
@@ -45,6 +47,7 @@ export function PluginSoundEffectsView({
   typingEffects,
   effectStyles,
   effectPacks,
+  effectFlashOnly = false,
   onChange,
   onBack,
 }: PluginSoundEffectsViewProps) {
@@ -132,7 +135,11 @@ export function PluginSoundEffectsView({
               )}
               <SegmentedRow
                 title="效果样式"
-                description="闪光：按键时候选栏闪一下；火花：按键和上屏时迸出火花；Power Mode：火花随连击变大。"
+                description={
+                  effectFlashOnly
+                    ? "这台设备上各样式都只让候选栏闪一下，不迸出火花：闪光最淡，火花更亮，Power Mode 最亮，连击升档时再亮一些。"
+                    : "闪光：按键时候选栏闪一下；火花：按键和上屏时迸出火花；Power Mode：火花随连击变大。"
+                }
                 options={effectStyleOptions}
                 value={preferences.effect_style}
                 disabled={effectPackSelected}

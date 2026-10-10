@@ -322,6 +322,10 @@ assert (
 )
 assert "msime-helpcode-schema" in source
 assert "cycleHelpcodeSchema" in source
+# The fixed IBus menu entry for the active helpcode-pack marker must be hidden
+# when no pack is selected; sensitivity only disables an entry and still leaves
+# the empty marker visible.
+assert "ibus_property_set_visible(helpcode_schema_pack" in ibus_source
 assert "toggleLocalMode" in source
 assert "msime-local-unicode" in source
 assert "msime-local-temporary-japanese" in source
