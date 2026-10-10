@@ -1,4 +1,4 @@
-import { SecretSettingField } from "./secret-setting-field";
+import { SecretSettingRow } from "./secret-setting-row";
 
 export interface VoiceCredentialFieldsSectionProps {
   showAppKey: boolean;
@@ -21,16 +21,18 @@ export function VoiceCredentialFieldsSection({
   return (
     <>
       {showAppKey && (
-        <SecretSettingField
-          label="Doubao App Key"
+        <SecretSettingRow
+          title="Doubao App Key"
           description="旧版控制台鉴权使用"
+          label="Doubao App Key"
           value={appKey}
           onChange={onAppKeyChange}
         />
       )}
-      <SecretSettingField
-        label={tokenLabel}
+      <SecretSettingRow
+        title={tokenLabel}
         description="仅保存在本机设置中"
+        label={tokenLabel}
         value={token}
         onChange={onTokenChange}
       />

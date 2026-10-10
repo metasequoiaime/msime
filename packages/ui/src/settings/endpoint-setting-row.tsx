@@ -23,7 +23,7 @@ export function EndpointSettingRow({
   onChange,
 }: EndpointSettingRowProps) {
   return (
-    <Row title={title} description={description}>
+    <Row title={title} description={description} wideControl>
       <EndpointInput
         label={inputLabel}
         value={value}

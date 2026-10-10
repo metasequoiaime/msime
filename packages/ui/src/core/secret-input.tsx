@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import * as style from "./platform-controls-style";
 
 /** A credential field whose value can be revealed to check a pasted key. */
 export function SecretInput({
@@ -17,8 +18,9 @@ export function SecretInput({
   const [revealed, setRevealed] = useState(false);
   const describedBy = useId();
   return (
-    <span className="secret-input">
+    <span className={`secret-input ${style.secretInput}`}>
       <input
+        className={style.textInput}
         aria-label={label}
         type={revealed ? "text" : "password"}
         value={value}
@@ -29,7 +31,7 @@ export function SecretInput({
       />
       <button
         type="button"
-        className="secret-input-toggle"
+        className={`secret-input-toggle ${style.secretToggle}`}
         id={describedBy}
         aria-pressed={revealed}
         aria-label={revealed ? `隐藏${label}` : `显示${label}`}

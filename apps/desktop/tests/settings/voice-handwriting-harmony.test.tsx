@@ -41,11 +41,14 @@ function renderSettings({
   preferences,
   mobile = true,
   feedback,
+  devices = false,
 }: {
   page: string;
   preferences?: Record<string, unknown>;
   mobile?: boolean;
   feedback?: MobileKeyboardFeedback;
+  /** 宿主能列出录音设备，语音页显示「录音设备」分组。 */
+  devices?: boolean;
 }) {
   const save = vi.fn().mockImplementation(async (_revision: number, next: unknown) => ({
     ...snapshot(),
@@ -63,7 +66,9 @@ function renderSettings({
           platform: "harmony",
           mobile_settings: mobile,
           panel_windows: !mobile,
+          voice_capture_devices: devices,
         }),
+        ...(devices ? { listVoiceCaptureDevices: vi.fn().mockResolvedValue([]) } : {}),
         openSystemKeyboardSettings: vi.fn(),
         home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
         ...(feedback
@@ -194,6 +199,69 @@ test("the system recognizer only offers Mandarin and is given it as a locale", a
   expect(voice.asr_provider).toBe("system");
   expect(voice.language).toBe("zh-CN");
   expect(save).not.toHaveBeenCalled();
+});
+
+test("the phone voice page picks the service and the stream endpoint from sheets", async () => {
+  const { save } = renderSettings({
+    page: "voice",
+    preferences: {
+      voice_input: {
+        enabled: true,
+        language: "",
+        asr_provider: "doubao",
+        asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+      },
+    },
+  });
+  await settingsFormReady();
+  // 两行原本是行尾的原生下拉框，手机上会把说明挤成几个字一行；现在和其他选择行一样点开面板。
+  expect(within(openSheet("识别服务")).getByRole("button", { name: "豆包" })).toBeTruthy();
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  expect(shownValue("流式接口").textContent).toContain("双向流式（增量结果）");
+  fireEvent.click(
+    within(openSheet("流式接口")).getByRole("button", { name: "整句流式（准确率更高）" }),
+  );
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  expect(save.mock.calls.at(-1)?.[1].voice_input.asr_endpoint).toBe(
+    "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
+  );
+});
+
+test("the phone voice page lays credentials and devices out as rows of their groups", async () => {
+  renderSettings({
+    page: "voice",
+    preferences: { voice_input: { enabled: true, language: "", asr_provider: "doubao" } },
+    devices: true,
+  });
+  await settingsFormReady();
+  const service = screen.getByRole("region", { name: "识别服务" });
+  // API Key 原本是旧的 `label.section-header` 字段，放在分组里缺了行的内边距，贴着卡片左边。
+  expect(within(service).getByText("Doubao API Key").hasAttribute("data-row-title")).toBe(true);
+  expect(within(service).getByLabelText("Doubao API Key")).toBeTruthy();
+  const devices = screen.getByRole("region", { name: "录音设备" });
+  expect(within(devices).getByText("读取录音设备").hasAttribute("data-row-title")).toBe(true);
+  expect(within(devices).getByRole("button", { name: "刷新设备" })).toBeTruthy();
+  expect(
+    within(devices)
+      .getAllByRole("button")
+      .some(
+        (button) =>
+          button.getAttribute("aria-haspopup") === "dialog" &&
+          button.querySelector("[data-row-title]")?.textContent === "可用录音设备",
+      ),
+  ).toBe(true);
+});
+
+test("the settings scroller contains the hidden controls behind picker rows", async () => {
+  renderSettings({
+    page: "voice",
+    preferences: { voice_input: { enabled: true, language: "", asr_provider: "doubao" } },
+  });
+  await settingsFormReady();
+  // 选择行背后的原生控件是 `sr-only`（绝对定位）。滚动容器不是定位元素时，它们相对文档定位、把文档撑得比窗口高，长页面滚到底再上滑会把整个应用滑出屏幕。jsdom 不做布局，只能检查容器是定位元素。
+  const scroller = screen.getByRole("group", { name: "语音输入" }).closest("main");
+  expect(scroller?.classList.contains("relative")).toBe(true);
 });
 
 test("automatic punctuation is Doubao's and is greyed out with the reason elsewhere", async () => {

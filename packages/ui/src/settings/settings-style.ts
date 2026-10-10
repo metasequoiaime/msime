@@ -282,10 +282,12 @@ export const body =
   "flex min-h-0 min-w-0 flex-1 overflow-hidden max-phone:flex-col ipad:grid ipad:grid-cols-[320px_minmax(0,1fr)] ipad:grid-rows-[minmax(0,1fr)_auto]";
 
 /*
- * Windows 11 seats the pages on a lighter layer inset from the Mica, rounded at its top-left corner where the caption and sidebar meet it; macOS fills behind the toolbar; GNOME uses the window background; HarmonyOS 2-in-1 continues the sidebar's tone with no seam.
+ * Windows 11 把页面放在比 Mica 略亮、四周内缩的一层上，在标题栏与侧栏交汇的左上角做圆角；macOS 在工具栏下方铺底色；GNOME 用窗口背景；HarmonyOS 2-in-1 延续侧栏的色调，不留接缝。
+ *
+ * `relative` 让这个滚动容器成为页面里绝对定位元素的包含块（HarmonyOS 选择行背后 `sr-only` 的原生控件、视觉隐藏的单选框）。没有它，这些元素按它们在滚动内容里的位置相对文档定位，文档被撑得比窗口高；在「语音输入」这样的长页面上，滚到这个容器底部后继续上滑会接着滚动文档，把整个应用滑出屏幕，只剩下 body 的底色。
  */
 export const content =
-  "min-h-0 min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] win:rounded-tl-lg win:border-t win:border-l win:border-[rgba(0,0,0,0.1)] win:bg-[#1c1c1c] win:light-theme:border-[rgba(0,0,0,0.06)] win:light-theme:bg-[rgba(255,255,255,0.5)] mac:bg-[#1f1f21] mac:light-theme:bg-[#f2f2f4] linux:bg-[var(--p-bg)] hm2:bg-[#121212] hm2:light-theme:bg-[#f1f3f5] max-phone:win:rounded-none max-phone:win:border-l-0";
+  "relative min-h-0 min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] win:rounded-tl-lg win:border-t win:border-l win:border-[rgba(0,0,0,0.1)] win:bg-[#1c1c1c] win:light-theme:border-[rgba(0,0,0,0.06)] win:light-theme:bg-[rgba(255,255,255,0.5)] mac:bg-[#1f1f21] mac:light-theme:bg-[#f2f2f4] linux:bg-[var(--p-bg)] hm2:bg-[#121212] hm2:light-theme:bg-[#f1f3f5] max-phone:win:rounded-none max-phone:win:border-l-0";
 /** 页面列：Windows 在图层内 36/56/48，macOS 24/48/44 且不限宽，GNOME 24/32/28 最宽 680，HarmonyOS 2-in-1 8/28/28 最宽 760，iPad 详情页 16/28/28 最宽 720，HarmonyOS 手机 4/16/24。 */
 export const contentColumn =
   "mx-auto w-full max-w-[900px] px-7 pt-3.5 pb-6 max-phone:px-3 max-phone:py-3 win:px-14 win:pt-9 win:pb-12 mac:max-w-none mac:px-12 mac:pt-6 mac:pb-11 linux:max-w-[680px] linux:px-8 linux:pt-6 linux:pb-7 hm2:max-w-[760px] hm2:px-7 hm2:pt-2 hm2:pb-7 ipad:max-w-[720px] ipad:px-7 ipad:pt-4 ipad:pb-7 max-phone:win:px-4 max-phone:win:pt-5 max-phone:mac:px-4 max-phone:linux:px-4 max-phone:hm2:px-4 max-phone:harmony:px-4 max-phone:harmony:pt-1 max-phone:harmony:pb-6";

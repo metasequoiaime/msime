@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { StatusMessage } from "../core/status-message";
 import { useAsyncActionRunner } from "../core/use-async-action";
-import { ActionButton } from "../core/action-button";
-import { SettingActionHeader } from "../settings/setting-action-header";
+import { ActionRow } from "../settings/action-row";
+import { SelectRow } from "../settings/select-row";
 
 export type VoiceCaptureDevice = {
   backend: "pulse" | "pipewire" | "alsa" | "windows" | "macos" | "harmony";
@@ -50,36 +49,37 @@ export function VoiceDevicePicker({
     );
   }
   const selected = devices.findIndex((item) => item.backend === backend && item.id === device);
+  // 「录音设备」分组里的两行：先读取设备列表，再从中选择。HarmonyOS 手机上选择行与其他选择行一样点开选择面板。
   return (
-    <div>
-      <SettingActionHeader as="label" title="可用录音设备">
-        <select
-          aria-label="可用录音设备"
-          value={selected < 0 ? "" : String(selected)}
-          disabled={!devices.length || busy}
-          onChange={(event) => {
-            const item = devices[Number(event.target.value)];
-            if (item) choose(item.backend, item.id);
-          }}
-        >
-          <option value="" disabled>
-            选择设备
+    <>
+      <ActionRow
+        title="读取录音设备"
+        description={<span role="status">{notice}</span>}
+        action={() => void refresh()}
+        ariaBusy={busy}
+        className="secondary m-0"
+        disabled={busy}
+        label={busy ? "读取中…" : "刷新设备"}
+      />
+      <SelectRow
+        title="可用录音设备"
+        aria-label="可用录音设备"
+        value={selected < 0 ? "" : String(selected)}
+        disabled={!devices.length || busy}
+        onChange={(event) => {
+          const item = devices[Number(event.target.value)];
+          if (item) choose(item.backend, item.id);
+        }}
+      >
+        <option value="" disabled hidden>
+          选择设备
+        </option>
+        {devices.map((item, index) => (
+          <option key={`${item.backend}:${item.id}`} value={index}>
+            {item.label} ({item.backend})
           </option>
-          {devices.map((item, index) => (
-            <option key={`${item.backend}:${item.id}`} value={index}>
-              {item.label} ({item.backend})
-            </option>
-          ))}
-        </select>
-        <ActionButton
-          action={() => void refresh()}
-          ariaBusy={busy}
-          className=""
-          disabled={busy}
-          label={busy ? "读取中…" : "刷新设备"}
-        />
-      </SettingActionHeader>
-      <StatusMessage role="status">{notice}</StatusMessage>
-    </div>
+        ))}
+      </SelectRow>
+    </>
   );
 }

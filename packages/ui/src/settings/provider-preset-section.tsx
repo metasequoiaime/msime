@@ -1,5 +1,6 @@
 import { ModelSettingField } from "./model-setting-field";
 import { ActionButton } from "./action-button";
+import { useOptionalSettingsForm } from "./settings-form-context";
 
 export interface ProviderPreset {
   models?: readonly string[];
@@ -24,29 +25,40 @@ export function ProviderPresetSection({
   openExternalUrl,
   className = "section provider-preset-section",
 }: ProviderPresetSectionProps) {
+  const harmony = useOptionalSettingsForm()?.settingsPlatform === "harmony";
   const models = preset?.models ?? [];
   const documentation = preset?.documentation;
   const linkable = Boolean(documentation && openExternalUrl);
   if (models.length === 0 && !linkable) return null;
+  const modelField = models.length > 0 && (
+    <ModelSettingField
+      label="预置模型"
+      inputLabel={`${label}预置模型`}
+      description="服务商已知支持的模型；也可以在模型框中自行填写"
+      models={models}
+      model={model}
+      emptyLabel="自定义模型…"
+      onSelect={onSelectModel}
+    />
+  );
+  const documentationButton = linkable && (
+    <ActionButton
+      action={() => openExternalUrl?.(documentation!)}
+      label={`${label}接入说明与 API Key`}
+    />
+  );
+  // 在 HarmonyOS 手机上预置模型是分组里的一行（见 `ModelSettingField`），自带行内边距，所以放在容器外面，只有按钮留在容器里。
+  if (harmony)
+    return (
+      <>
+        {modelField}
+        {documentationButton && <div className={className}>{documentationButton}</div>}
+      </>
+    );
   return (
     <div className={className}>
-      {models.length > 0 && (
-        <ModelSettingField
-          label="预置模型"
-          inputLabel={`${label}预置模型`}
-          description="服务商已知支持的模型；也可以在模型框中自行填写"
-          models={models}
-          model={model}
-          emptyLabel="自定义模型…"
-          onSelect={onSelectModel}
-        />
-      )}
-      {linkable && (
-        <ActionButton
-          action={() => openExternalUrl?.(documentation!)}
-          label={`${label}接入说明与 API Key`}
-        />
-      )}
+      {modelField}
+      {documentationButton}
     </div>
   );
 }

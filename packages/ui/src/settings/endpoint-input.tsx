@@ -1,3 +1,5 @@
+import { textInput } from "../core/platform-controls-style";
+
 export interface EndpointInputProps {
   label: string;
   value: string;
@@ -16,6 +18,7 @@ export function EndpointInput({
 }: EndpointInputProps) {
   return (
     <input
+      className={textInput}
       aria-label={label}
       type="url"
       value={value}

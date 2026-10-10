@@ -21,7 +21,7 @@ export function SecretSettingRow({
   onChange,
 }: SecretSettingRowProps) {
   return (
-    <Row title={title} description={description}>
+    <Row title={title} description={description} wideControl>
       <SecretInput label={label} value={value} disabled={disabled} onChange={onChange} />
     </Row>
   );

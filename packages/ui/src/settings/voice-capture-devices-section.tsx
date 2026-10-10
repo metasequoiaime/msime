@@ -3,7 +3,6 @@ import { VoiceDevicePicker, type VoiceDeviceReader } from "../voice/voice-device
 import { GroupList } from "../core/platform-controls";
 import { SelectRow } from "./select-row";
 import { TextInputRow } from "./text-input-row";
-import { SettingsGroupBlock } from "./settings-group-block";
 
 export type VoiceCaptureBackendOption = readonly [string, string];
 export type VoiceCaptureBackend =
@@ -59,14 +58,12 @@ export function VoiceCaptureDevicesSection({
           </option>
         )}
       </SelectRow>
-      <SettingsGroupBlock>
-        <VoiceDevicePicker
-          read={readDevices}
-          backend={backend}
-          device={device}
-          choose={onBackendChange}
-        />
-      </SettingsGroupBlock>
+      <VoiceDevicePicker
+        read={readDevices}
+        backend={backend}
+        device={device}
+        choose={onBackendChange}
+      />
       <TextInputRow
         title="麦克风设备"
         description={

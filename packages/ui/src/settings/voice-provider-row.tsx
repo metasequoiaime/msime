@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
-import { Row } from "../core/platform-controls";
-import { VoiceProviderSelect } from "./voice-provider-select";
-import type { VoiceProviderOption } from "../voice/voice-provider-options";
+import { SelectRow } from "./select-row";
+import { VoiceProviderOptions, type VoiceProviderOption } from "../voice/voice-provider-options";
 
 export interface VoiceProviderRowProps {
   title: ReactNode;
@@ -14,7 +13,7 @@ export interface VoiceProviderRowProps {
   onChange: (provider: string) => void;
 }
 
-/** A settings row for a provider selector shared by voice features. */
+/** 语音功能共用的服务选择行。HarmonyOS 手机上整行点开选择面板，与其他 `SelectRow` 一致。 */
 export function VoiceProviderRow({
   title,
   description,
@@ -26,16 +25,17 @@ export function VoiceProviderRow({
   onChange,
 }: VoiceProviderRowProps) {
   return (
-    <Row title={title} description={description}>
-      <VoiceProviderSelect
-        options={options}
-        ariaLabel={ariaLabel}
-        value={value}
-        disabled={disabled}
-        onChange={onChange}
-      >
-        {children}
-      </VoiceProviderSelect>
-    </Row>
+    <SelectRow
+      title={title}
+      description={description}
+      aria-label={ariaLabel}
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {/* 直接调用而不是作为组件渲染：HarmonyOS 的选择面板只读取直接的 `<option>` 子元素。 */}
+      {VoiceProviderOptions({ options })}
+      {children}
+    </SelectRow>
   );
 }

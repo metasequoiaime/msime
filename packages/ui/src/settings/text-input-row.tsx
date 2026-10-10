@@ -1,5 +1,6 @@
 import type { InputHTMLAttributes, ReactNode } from "react";
 import { Row } from "../core/platform-controls";
+import { textInput } from "../core/platform-controls-style";
 
 export interface TextInputRowProps extends Omit<
   InputHTMLAttributes<HTMLInputElement>,
@@ -23,12 +24,14 @@ export function TextInputRow({
   value,
   onChange,
   children,
+  className = textInput,
   ...inputProps
 }: TextInputRowProps) {
   return (
-    <Row title={title} description={description} hidden={hidden}>
+    <Row title={title} description={description} hidden={hidden} wideControl>
       <input
         {...inputProps}
+        className={className}
         aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
