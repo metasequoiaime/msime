@@ -249,6 +249,17 @@ fn capabilities_describe_each_host() {
     assert!(macos.app_logo);
     assert!(!windows.app_logo);
     assert!(!linux.app_logo);
+    // 只有向会话报告大写锁定的宿主提供「大写锁定时使用英文标点」，目前是 macOS。
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).caps_lock_punctuation);
+    }
+    assert!(macos.caps_lock_punctuation);
     // Only the two hosts that can put a badge beside the caret claim it; a touch keyboard says
     // the mode on its own key faces, and Windows/Linux draw nothing of the kind.
     assert!(macos.input_mode_hud);
@@ -290,6 +301,7 @@ fn capabilities_describe_each_host() {
     assert!(ios.skin_directory_import);
     // The strip pages in nines and is always a horizontal row, whatever the shared document says.
     assert_eq!(ios.fixed_candidate_page_size, Some(9));
+    assert_eq!(ios.max_candidate_page_size, 9);
     assert_eq!(
         ios.fixed_candidate_layout,
         Some(crate::preferences::CandidateLayout::Horizontal)
@@ -303,6 +315,18 @@ fn capabilities_describe_each_host() {
     ] {
         let other = HostCapabilities::for_platform(platform);
         assert_eq!(other.fixed_candidate_page_size, None);
+        // 第十个候选要靠 0 键选，只开给已经接好 0 键的宿主。
+        assert_eq!(
+            other.max_candidate_page_size,
+            if matches!(
+                platform,
+                HostPlatform::Macos | HostPlatform::Linux | HostPlatform::Android
+            ) {
+                10
+            } else {
+                9
+            }
+        );
         assert_eq!(other.fixed_candidate_layout, None);
         // 只有 iOS 和 Android 的键盘工具栏按 `touch_toolbar` 选按钮。
         assert_eq!(
@@ -638,6 +662,16 @@ fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {
         .helpcode_schemas
         .iter()
         .any(|schema| schema == "zhengma"));
+    // 列出的每一项都是共享偏好认得的方案 id，包括五笔 86。
+    assert!(android
+        .helpcode_schemas
+        .iter()
+        .any(|schema| schema == "wubi86"));
+    for schema in &android.helpcode_schemas {
+        let parsed: crate::preferences::HelpcodeSchema =
+            serde_json::from_value(serde_json::Value::String(schema.clone())).unwrap();
+        assert_eq!(parsed.as_str(), schema);
+    }
     let windows =
         serde_json::to_value(HostCapabilities::for_platform(HostPlatform::Windows)).unwrap();
     assert!(windows.get("helpcode_schemas").is_none());

@@ -7,6 +7,7 @@
 #endif // !UNICODE
 
 #include "Globals.h"
+#include "../../common/SecondThirdCandidatePolicy.h"
 
 //---------------------------------------------------------------------
 //
@@ -266,27 +267,12 @@ BOOL CCandidateRange::IsRange(UINT vKey)
     return FALSE;
 }
 
-int CCandidateRange::GetIndex(UINT vKey)
+int CCandidateRange::GetIndex(UINT vKey, WCHAR wch, bool enginePage)
 {
-    return 0; // Always return 0(First candidate item), start from 0
-
-    DWORD value = vKey - L'0';
-
-    for (UINT i = 0; i < _CandidateListIndexRange.Count(); i++)
-    {
-        if (value == *_CandidateListIndexRange.GetAt(i))
-        {
-            return i;
-        }
-        else if ((VK_NUMPAD0 <= vKey) && (vKey <= VK_NUMPAD9))
-        {
-            if ((vKey - VK_NUMPAD0) == *_CandidateListIndexRange.GetAt(i))
-            {
-                return i;
-            }
-        }
-    }
-    return -1;
+    // 规则见 tip_candidate_selection_index：只有 presenter 持有宿主会话的真实一页时才按键的位置选，最小镜像一律选第一项，靠 Server 的选词回复上屏。
+    const auto index = msime::windows::tip_candidate_selection_index(
+        vKey, wch, enginePage, static_cast<std::size_t>(_CandidateListIndexRange.Count()));
+    return index ? static_cast<int>(*index) : -1;
 }
 
 CPunctuationPair::CPunctuationPair()

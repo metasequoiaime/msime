@@ -29,6 +29,7 @@ export const ASR_SERVICE_PROVIDER_IDS: readonly string[] = [
   "groq",
   "everyapi",
   "mistral",
+  "bailian",
   "doubao",
 ];
 
@@ -85,6 +86,13 @@ export const ASR_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
     model: "voxtral-mini-latest",
     models: ["voxtral-mini-latest"],
     documentation: "https://docs.mistral.ai/studio/audio/speech_to_text/offline_transcription",
+  },
+  // 阿里云百炼的 Qwen3-ASR 整句识别：OpenAI 兼容的 Chat Completions，录音作为 input_audio 上传（请求格式 chat_audio）。地址也可以换成控制台给出的业务空间专属地址。
+  bailian: {
+    endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    model: "qwen3-asr-flash",
+    models: ["qwen3-asr-flash", "qwen3-asr-flash-2026-02-10"],
+    documentation: "https://help.aliyun.com/zh/model-studio/qwen-speech-recognition",
   },
 };
 

@@ -17,13 +17,23 @@ struct Fixture {
 }
 
 fn open(scheme: Scheme, only_wubi86: bool) -> Fixture {
+    open_with_page_size(scheme, only_wubi86, 9)
+}
+
+fn open_with_page_size(scheme: Scheme, only_wubi86: bool, page_size: usize) -> Fixture {
     let resources = tempfile::tempdir().expect("resource directory");
     fixture::write(&resources.path().join("msime.db"), only_wubi86).expect("fixture db");
     let user = tempfile::tempdir().expect("user directory");
     let cache = tempfile::tempdir().expect("cache directory");
-    let host =
-        WebHost::new_with_paths(scheme, 9, None, resources.path(), user.path(), cache.path())
-            .expect("session on the fixture");
+    let host = WebHost::new_with_paths(
+        scheme,
+        page_size,
+        None,
+        resources.path(),
+        user.path(),
+        cache.path(),
+    )
+    .expect("session on the fixture");
     Fixture {
         host,
         resources,
@@ -85,10 +95,21 @@ fn a_digit_picks_its_seat() {
     let second = frame.page[1].text.clone();
     let frame = type_text(&mut fixture.host, "2");
     assert_eq!(frame.out, vec![commit(&second, 1)]);
-    // 0 不选字，组字中也不打出来。
+    // 每页九个时 0 不选字，组字中也不打出来。
     let frame = type_text(&mut fixture.host, "nihao0");
     assert!(frame.out.is_empty());
     assert!(frame.composing);
+}
+
+#[test]
+fn zero_picks_the_tenth_seat_on_a_page_of_ten() {
+    let mut fixture = open_with_page_size(Scheme::Quanpin, false, 10);
+    let frame = type_text(&mut fixture.host, "a");
+    assert_eq!(frame.page.len(), 10, "{:?}", texts(&frame.page));
+    let tenth = frame.page[9].text.clone();
+    let frame = type_text(&mut fixture.host, "0");
+    assert_eq!(frame.out, vec![commit(&tenth, 9)]);
+    assert!(!frame.composing);
 }
 
 #[test]
@@ -573,12 +594,20 @@ fn a_batch_reports_every_output_in_order() {
 }
 
 #[test]
+fn page_size_limit_matches_the_shared_preferences() {
+    assert_eq!(
+        msime_engine_wasm::host::MAX_PAGE_SIZE,
+        usize::from(msime_input_runtime::MAX_CANDIDATE_PAGE_SIZE)
+    );
+}
+
+#[test]
 fn page_size_is_bounded() {
     let resources = tempfile::tempdir().unwrap();
     fixture::write(&resources.path().join("msime.db"), false).unwrap();
     let user = tempfile::tempdir().unwrap();
     let cache = tempfile::tempdir().unwrap();
-    for size in [0, 10] {
+    for size in [0, 11] {
         assert!(WebHost::new_with_paths(
             Scheme::Quanpin,
             size,
@@ -589,6 +618,15 @@ fn page_size_is_bounded() {
         )
         .is_err());
     }
+    assert!(WebHost::new_with_paths(
+        Scheme::Quanpin,
+        10,
+        None,
+        resources.path(),
+        user.path(),
+        cache.path()
+    )
+    .is_ok());
 }
 
 // ---- 韩文 ----

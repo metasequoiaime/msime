@@ -95,6 +95,13 @@ public final class KeyboardOptionsPage extends DetailPage {
             : pair == null ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘";
         layout.nav("中文键盘", note, nineKey ? "9 键" : "26 键",
             pairOffered ? () -> pickLayout(current, pair, nineKey) : null);
+        // 本版本没有任何其他语言键盘（五笔版、拼音版）时不列这一项。
+        if (offersOtherLanguage(edition)) {
+            layout.toggle("中英键轮换其他语言",
+                "中英键依次切换中文、英文和已添加的日语、韩语等键盘，再回到中文；没有添加其他语言时仍只切中英",
+                settings.bool(AndroidLocalSettings.LANGUAGE_KEY_CYCLE),
+                checked -> saveLocal(AndroidLocalSettings.LANGUAGE_KEY_CYCLE, checked));
+        }
         // 左侧符号栏只属于拼音九键和笔画键盘；本版本两者都没有（例如五笔版）时不列这两行。
         boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
         if (quanpinNineKey || KeyboardScheme.STROKE.offeredBy(edition)) {
@@ -254,6 +261,13 @@ public final class KeyboardOptionsPage extends DetailPage {
      * 当前方案的 26 键与 9 键那一对：全拼是全拼 26 键和全拼 9 键，注音是大千和注音 9 键，日语是日语 26 键和日语 9 键。双拼、五笔、手写这类只有一种排法的方案没有这一对，返回 null：原来一律给全拼的那一对，小鹤双拼用户在这里点哪一项都会被改成全拼，注音 9 键用户点「26 键」会切到全拼而不是大千。
      */
     @Nullable
+    private static boolean offersOtherLanguage(AppEdition edition) {
+        for (KeyboardScheme scheme : KeyboardScheme.values()) {
+            if (scheme.otherLanguage() && scheme.offeredBy(edition)) return true;
+        }
+        return false;
+    }
+
     private static KeyboardScheme[] layoutPair(KeyboardScheme current) {
         return switch (current) {
             case QUANPIN, QUANPIN_NINE_KEY -> new KeyboardScheme[] {KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_NINE_KEY};

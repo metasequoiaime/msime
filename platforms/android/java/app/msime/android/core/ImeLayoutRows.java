@@ -1095,8 +1095,9 @@ final class ImeLayoutRows {
             addJapaneseSideKey(modeColumn, s.keyId(s.keyboardKey("☺", "打开表情浏览", s.imePanels::showEmojiPicker),
                 "SoftEmoji"), 1);
         }
-        Button language = s.keyId(s.keyboardKey("英", "切换到英文输入", s::toggleInputLanguage),
-            "SoftLanguage");
+        // 打开「中英键轮换其他语言」时这个键也按轮换走（日语之后是下一种其他语言或回到中文），键面写它要切到的语言；否则从日语只能到英文、英文再轮回日语，回不到中文。
+        Button language = s.keyId(s.keyboardKey(s.japaneseLanguageKeyLabel(), s.japaneseLanguageKeyDescription(),
+            s::languageKeyTapped), "SoftLanguage");
         s.bindInputMethodPicker(language);
         addJapaneseSideKey(modeColumn, language, 1);
         if (s.offersGlobeKey()) {

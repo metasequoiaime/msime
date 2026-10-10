@@ -179,6 +179,8 @@ fn ai_assistant_without_a_provider_key_loads_with_the_default_provider() {
 
 #[test]
 fn every_reachable_voice_provider_validates_and_others_are_rejected_on_save() {
+    // 阿里云百炼（#6017）走整句识别，id 是 `bailian`。
+    assert!(ASR_PROVIDERS.contains(&"bailian"));
     for provider in ASR_PROVIDERS {
         let preferences = Preferences {
             voice_input: VoiceInputPreferences {
@@ -1772,6 +1774,55 @@ fn word_character_legacy_roundtrip_and_conflict_protection() {
 }
 
 #[test]
+fn second_third_candidate_defaults_off_and_stays_out_of_default_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let defaults = Preferences::default();
+    assert!(!defaults.second_third_candidate.enabled);
+    assert_eq!(
+        defaults.second_third_candidate.keys,
+        SecondThirdCandidateKeys::SemicolonQuote
+    );
+    // 关闭时不写进文档：不认识这个键的旧版本（`deny_unknown_fields`）照样能读。
+    let document = serde_json::to_value(&defaults).unwrap();
+    assert!(document.get("second_third_candidate").is_none());
+    let saved = store.save(0, defaults.clone()).unwrap();
+    assert_eq!(
+        saved.preferences.second_third_candidate,
+        defaults.second_third_candidate
+    );
+
+    let enabled = Preferences {
+        second_third_candidate: SecondThirdCandidatePreferences {
+            enabled: true,
+            keys: SecondThirdCandidateKeys::SemicolonQuote,
+        },
+        ..Preferences::default()
+    };
+    assert_eq!(
+        serde_json::to_value(&enabled).unwrap()["second_third_candidate"],
+        serde_json::json!({"enabled": true, "keys": "semicolon_quote"})
+    );
+    let saved = store.save(saved.revision, enabled.clone()).unwrap();
+    assert_eq!(store.load().unwrap(), saved);
+    assert!(saved.preferences.second_third_candidate.enabled);
+
+    // 只写了 `enabled` 的对象按默认键位读。
+    let partial: SecondThirdCandidatePreferences =
+        serde_json::from_value(serde_json::json!({"enabled": true})).unwrap();
+    assert!(partial.enabled);
+    assert_eq!(partial.keys, SecondThirdCandidateKeys::SemicolonQuote);
+
+    // 未知的键位名和多余字段都拒绝，不会被悄悄读成某个默认键位。
+    for invalid in [
+        serde_json::json!({"enabled": true, "keys": "shift"}),
+        serde_json::json!({"enabled": true, "keys": "semicolon_quote", "extra": 1}),
+    ] {
+        assert!(serde_json::from_value::<SecondThirdCandidatePreferences>(invalid).is_err());
+    }
+}
+
+#[test]
 fn navigation_accepts_windows_candidate_arrow_alias() {
     let value = serde_json::json!({"minus_equal": true, "comma_period": true, "brackets": false, "tab": true, "page_up_down": true, "mouse_wheel": true, "candidate_arrow_navigation": false});
     let parsed: NavigationPreferences = serde_json::from_value(value).unwrap();
@@ -2611,6 +2662,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
         HelpcodeSchema::Ziranma,
         HelpcodeSchema::Shouyou2,
         HelpcodeSchema::Shouyouplus,
+        HelpcodeSchema::Wubi86,
         HelpcodeSchema::Xiaohe,
     ]
     .into_iter()
@@ -2635,7 +2687,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
         .unwrap()
         .replace("xiaohe", "unknown");
     fs::write(store.path(), &unknown).unwrap();
-    assert!(store.save(5, Preferences::default()).is_err());
+    assert!(store.save(6, Preferences::default()).is_err());
     assert_eq!(fs::read_to_string(store.path()).unwrap(), unknown);
 }
 
@@ -2877,7 +2929,7 @@ fn invalid_values_do_not_change_disk() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
     let initial = store.save(0, Preferences::default()).unwrap();
-    for size in [0, 10, 255] {
+    for size in [0, 11, 255] {
         assert!(matches!(
             store.save(
                 1,
@@ -3412,6 +3464,41 @@ fn smart_punctuation_sub_switches_survive_a_save() {
     }
 }
 
+// 「大写锁定时使用英文标点」默认关：新装和缺这个键的旧文档都按关读入，打开后保存能读回。
+#[test]
+fn caps_lock_ascii_punctuation_defaults_off_and_survives_a_save() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    assert!(!Preferences::default().caps_lock_ascii_punctuation);
+
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    legacy["preferences"]
+        .as_object_mut()
+        .unwrap()
+        .remove("caps_lock_ascii_punctuation")
+        .unwrap();
+    fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert!(
+        !store
+            .load()
+            .unwrap()
+            .preferences
+            .caps_lock_ascii_punctuation
+    );
+
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                caps_lock_ascii_punctuation: true,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    assert!(saved.preferences.caps_lock_ascii_punctuation);
+    assert_eq!(store.load().unwrap(), saved);
+}
+
 // The source ships every smart-punctuation switch disabled, and the running host reads this document rather than the installed template. A fresh Windows or macOS profile must therefore start with the family off, macOS following the desktop product it ports; Linux, Android, iOS and HarmonyOS keep what they have shipped. A stored value is never reinterpreted either way.
 #[test]
 fn smart_punctuation_first_run_follows_the_source_on_desktop_ports() {
@@ -3583,7 +3670,7 @@ fn error_wordings_the_harmony_host_matches_on() {
     );
     assert_eq!(
         PreferencesError::InvalidPageSize.to_string(),
-        "candidate page size must be between 1 and 9"
+        "candidate page size must be between 1 and 10"
     );
     assert_eq!(
         PreferencesError::InvalidFrequency.to_string(),
@@ -4499,6 +4586,7 @@ const NOT_CREDENTIALS: &[&str] = &[
     "floating_toolbar.screen_keyboard",
     "keybindings",
     "screen_keyboard_theme",
+    "second_third_candidate.keys",
     "sentence_association.neural_keyboard",
     "touch_key_spacing_tenths",
     "touch_keyboard_height_adjustment",
@@ -4560,6 +4648,8 @@ fn every_credential_like_preference_field_is_listed() {
     // 默认值里没有键盘皮肤（`None`），填上一份，扫描才覆盖得到这一段字段。
     let mut scanned = Preferences::default();
     scanned.custom_theme.keyboard = Some(TouchKeyboardSkinDesign::mint_morning());
+    // 二三候选键位关着时不写进文档，打开它，扫描才看得到 `keys`。
+    scanned.second_third_candidate.enabled = true;
     let document = serde_json::to_value(with_every_credential(scanned)).unwrap();
     let mut paths = Vec::new();
     credential_like_paths(&document, "", &mut paths);

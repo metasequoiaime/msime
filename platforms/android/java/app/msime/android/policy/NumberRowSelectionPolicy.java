@@ -45,14 +45,26 @@ public final class NumberRowSelectionPolicy {
     public static int slotForKeyCode(int keyCode, boolean shift, boolean enabled, String localMode,
             String spellingSymbols, int unicode) {
         if (!enabled) return NONE;
-        if (keyCode < KeyEvent.KEYCODE_1 || keyCode > KeyEvent.KEYCODE_9) return NONE;
-        int slot = keyCode - KeyEvent.KEYCODE_1;
+        int slot = slotOfDigitKey(keyCode);
+        if (slot == NONE) return NONE;
         // 逐键判断：U 模式裸数字是十六进制，只有 Shift+数字选词；V、网址模式里 Engine 列为拼写的字符（裸数字、网址里 Shift+1 的 `!` 等）是输入，这个键的数字被列为拼写时打出别的字符的数字键带不带 Shift 都选词；其余状态裸数字选词，Shift+数字打出数字上方的符号。
         if (UNICODE_MODE.equals(localMode)) return shift ? slot : NONE;
         String symbols = TextPolicy.emptyIfNull(spellingSymbols);
         if (unicode > 0x20 && unicode < 0x7f && symbols.indexOf((char) unicode) >= 0) return NONE;
         // 只看这个键自己的数字是否被列为拼写，与 macOS 的 ShouldRouteSpellingShiftCandidateDigit 一致：注音选单打开时只列出 `0`，Shift+1..9 仍打出全角符号。
-        if (symbols.indexOf((char) ('1' + slot)) >= 0) return slot;
+        if (symbols.indexOf(digitOfSlot(slot)) >= 0) return slot;
         return shift ? NONE : slot;
+    }
+
+    /** 数字行的键对应的槽位：1–9 是前九个，0 是第十个（每页十个候选时由它选，页里没有第十个时调用方照旧把键交出去）。 */
+    private static int slotOfDigitKey(int keyCode) {
+        if (keyCode == KeyEvent.KEYCODE_0) return 9;
+        if (keyCode < KeyEvent.KEYCODE_1 || keyCode > KeyEvent.KEYCODE_9) return NONE;
+        return keyCode - KeyEvent.KEYCODE_1;
+    }
+
+    /** 槽位对应的数字字符：第十个槽位是 `0`。 */
+    public static char digitOfSlot(int slot) {
+        return slot == 9 ? '0' : (char) ('1' + slot);
     }
 }

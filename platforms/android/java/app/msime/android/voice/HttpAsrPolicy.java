@@ -4,20 +4,19 @@ package app.msime.android;
 /**
  * Whether a configured transcription provider can be used here, and what to send it.
  *
- * <p>The shared layer resolves the provider, endpoint, model and token from the settings document
- * and validates them before they reach this host, so nothing here re-derives a default. What is
- * left is the part that belongs to the transport: which providers this host can actually talk to,
- * and how the OpenAI-compatible multipart upload is assembled.
+ * <p>共享层从设置文档解析出 provider、接口地址、模型和密钥，并在交给本宿主之前校验过，所以这里不再推导任何默认值。剩下的是属于传输层的部分：本宿主实际能发哪些请求格式，以及每种请求体怎么拼。共享层随配置给出请求格式（`requestFormat`），这里只按格式挑请求构造，不按 provider 名字判断。
  *
  * <p>`doubao` is the streaming WebSocket protocol and is not implemented here yet. It is reported
  * as unsupported rather than failed, because the caller's answer to "unsupported" is to use the
  * platform recognizer — a user who configured Doubao still gets voice input, just not that one.
  */
 public final class HttpAsrPolicy {
-    /** Each of these is the same OpenAI-compatible `/audio/transcriptions` upload. */
-    private static final String[] SUPPORTED = {
-        "openai", "siliconflow", "groq", "everyapi", "mistral",
-    };
+    /** OpenAI 兼容的 `/audio/transcriptions` multipart 上传。 */
+    public static final String MULTIPART = "multipart";
+    /** Chat Completions 带 `input_audio` 的 JSON 请求（阿里云百炼），回答在 `choices[0].message.content`。 */
+    public static final String CHAT_AUDIO = "chat_audio";
+    /** 本宿主能发的整句上传格式；豆包的流式协议另走 {@link DoubaoAsrPolicy}。 */
+    private static final String[] SUPPORTED = {MULTIPART, CHAT_AUDIO};
     /** Anything beyond this is a runaway recording rather than a sentence. */
     public static final int MAX_AUDIO_BYTES = 24 * 1024 * 1024;
     /** A provider response must fit the same transcript bound used by contribution uploads. */
@@ -25,10 +24,11 @@ public final class HttpAsrPolicy {
 
     private HttpAsrPolicy() {}
 
-    public static boolean supported(String provider) {
-        if (provider == null) return false;
+    /** 共享层给出的请求格式是不是本宿主能发的整句上传。 */
+    public static boolean supported(String requestFormat) {
+        if (requestFormat == null) return false;
         for (String candidate : SUPPORTED) {
-            if (candidate.equals(provider)) return true;
+            if (candidate.equals(requestFormat)) return true;
         }
         return false;
     }
@@ -45,8 +45,8 @@ public final class HttpAsrPolicy {
      * host's to check is the scheme, because an `http://` endpoint would put the user's token on
      * the wire in clear text and this host is the one opening the connection.
      */
-    public static boolean usable(String provider, String endpoint, String model, String token) {
-        return supported(provider)
+    public static boolean usable(String requestFormat, String endpoint, String model, String token) {
+        return supported(requestFormat)
             && TextPolicy.validAuthority(endpoint, "https://", AiPolishConfiguration.MAX_ENDPOINT_LENGTH)
             && model != null && !TextPolicy.trimmed(model).isEmpty() && TextPolicy.utf8Length(model) <= 512
             && !TextPolicy.hasControl(model) && TextPolicy.validUnicode(model)
@@ -91,6 +91,24 @@ public final class HttpAsrPolicy {
         System.arraycopy(wav, 0, body, prefix.length, wav.length);
         System.arraycopy(suffix, 0, body, prefix.length + wav.length, suffix.length);
         return body;
+    }
+
+    /**
+     * {@link #CHAT_AUDIO} 的请求体：唯一一条 user 消息，内容是录音的 Base64 数据 URL。不带语种，交给模型自动识别。
+     */
+    public static byte[] chatAudioBody(String model, byte[] wav) {
+        String data = "data:audio/wav;base64," + java.util.Base64.getEncoder().encodeToString(wav);
+        String body = "{\"model\":" + JsonPolicy.quote(model)
+            + ",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_audio\","
+            + "\"input_audio\":{\"data\":" + JsonPolicy.quote(data) + "}}]}]}";
+        return TextPolicy.utf8Bytes(body);
+    }
+
+    /** 请求体的 Content-Type。 */
+    public static String contentType(String requestFormat, String boundary) {
+        return CHAT_AUDIO.equals(requestFormat)
+            ? "application/json"
+            : "multipart/form-data; boundary=" + boundary;
     }
 
     /**

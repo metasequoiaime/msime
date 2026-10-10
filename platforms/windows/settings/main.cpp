@@ -3119,6 +3119,19 @@ private:
                                doc.SetBoolean(L"navigation." + value, false);
                              }, true);
                            }));
+    const bool second_third_enabled = document_.Boolean(L"second_third_candidate.enabled", false);
+    add_row(word, 0xE8C1, L"二三候选",
+            L"开启后，输入时按 ; 选第二个候选，按 ' 选第三个候选。组字中的 ' 不再作为音节分隔符。",
+            select_control(L"二三候选",
+                           {{L"off", L"关闭"}, {L"semicolon_quote", L"; / '"}},
+                           second_third_enabled ? L"semicolon_quote" : L"off",
+                           [this](std::wstring const &value) {
+                             change([&](PreferencesDocument &doc) {
+                               // 两个字段一起写，关闭时也写上键位，偏好里不会留下缺字段的对象。
+                               doc.SetString(L"second_third_candidate.keys", L"semicolon_quote");
+                               doc.SetBoolean(L"second_third_candidate.enabled", value != L"off");
+                             }, false);
+                           }));
 
     const std::array<std::pair<const wchar_t *, const wchar_t *>, 7> paging_keys{{
         {L"minus_equal", L"- / ="},
@@ -3273,7 +3286,7 @@ private:
     select_row(group, 0xE8D2, label + L"辅助码方案", L"", prefix + L".schema",
                {{L"lantian", L"蓝天小雨点"}, {L"ziranma", L"自然码"},
                 {L"shouyou2_0", L"首右2.0"}, {L"shouyouplus", L"首右plus"},
-                {L"xiaohe", L"小鹤"}, {L"jiajia", L"加加"}},
+                {L"xiaohe", L"小鹤"}, {L"jiajia", L"加加"}, {L"wubi86", L"五笔 86"}},
                L"lantian", false, enabled);
     bool_row(group, 0xE8FD, L"在候选窗口中显示" + label + L"辅助码", L"",
              prefix + L".show_in_candidate_window", false, false, enabled);

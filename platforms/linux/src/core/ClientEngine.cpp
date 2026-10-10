@@ -3068,7 +3068,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto page_size_menu = ibus_prop_list_new();
   const auto page_size = s.candidate_page_size_override.value_or(
       configured.at("preferences").value("candidate_page_size", 6));
-  for (uint8_t value = 1; value <= 9; ++value) {
+  // 1–10：第十个候选由 0 键选（candidate_digit_slot）。
+  for (uint8_t value = 1; value <= 10; ++value) {
     auto item = ibus_property_new(
         (std::string("CandidatePageSize/") + std::to_string(value)).c_str(),
         PROP_TYPE_RADIO, ibus_text_new_from_string(std::to_string(value).c_str()),
@@ -3809,7 +3810,8 @@ void render(IBusEngine *engine, const Json &view) {
       ibus_text_append_attribute(
           text, IBUS_ATTR_TYPE_BACKGROUND, *row_background, 0, G_MAXUINT);
     ibus_lookup_table_append_candidate(table, text);
-    auto label = std::to_string(index + 1);
+    // 序号与选它的数字键一致：第十个由 0 键选，标 0。
+    auto label = index == 9 ? std::string("0") : std::to_string(index + 1);
     auto label_text = ibus_text_new_from_string(label.c_str());
     const auto row_number_color =
         highlighted && state(engine).candidate_selected_number_color
@@ -5099,7 +5101,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (property_name.rfind("HelpcodeSchema/", 0) == 0) {
       const auto selected = property_name.substr(std::string("HelpcodeSchema/").size());
       if (selected != "lantian" && selected != "ziranma" && selected != "shouyou2_0" &&
-          selected != "shouyouplus" && selected != "xiaohe" && selected != "jiajia")
+          selected != "shouyouplus" && selected != "xiaohe" && selected != "jiajia" &&
+          selected != "wubi86")
         return;
       const auto active_scheme = effective_scheme(s);
       if (active_scheme != "quanpin" && active_scheme != "shuangpin")
@@ -5286,8 +5289,13 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       try {
         if (value != PROP_STATE_CHECKED || menu_save_pending) return;
         const auto suffix = property_name.substr(std::string("CandidatePageSize/").size());
-        if (suffix.size() != 1 || suffix.front() < '1' || suffix.front() > '9') return;
-        const auto selected = static_cast<uint8_t>(suffix.front() - '0');
+        uint8_t selected = 0;
+        if (suffix == "10")
+          selected = 10;
+        else if (suffix.size() == 1 && suffix.front() >= '1' && suffix.front() <= '9')
+          selected = static_cast<uint8_t>(suffix.front() - '0');
+        else
+          return;
         if (s.candidate_page_size_override.value_or(
                 configured.at("preferences").value("candidate_page_size", 6)) == selected)
           return;

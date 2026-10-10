@@ -133,7 +133,9 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * List returns {entries,has_more} and sets source on every entry; edit returns {applied:true}. Errors are redacted.
  * A bundled entry passed back as previous can only be re-weighted (replacement with the same kind, key and value) or deleted (replacement null); anything else fails with "bundled dictionary entry is read-only". Export of pinyin also carries the weights set or learned for bundled words and omits single characters; the other kinds export user words only.
  * 计数（只读）：action:{operation:"count",kind?,user_only?:bool} 返回 {count,kinds:{kind:n},complete}；user_only:true 只数用户自己的词，否则拼音还会数上学到或设过权重的随包词（也就是导出的那些行）。扫描在 1,000,000 行处停下时 complete 为 false。
- * 快照导出：action:{operation:"export_snapshot",destination:绝对路径} 把用户的词写成与 GET /v1/users/me/dictionary/snapshot 相同的 NDJSON msime-dictionary-snapshot v1 文档（header、每个词一条 entry 和一条 overlay、带正文 SHA-256 的 footer；revision 为 1，不含位置和选择），用云端格式自己的校验器检查后返回那份元数据加上 path。不需要账号。
+ * 快照导出：action:{operation:"export_snapshot",destination:绝对路径,include_learning?:bool} 把用户的词写成与 GET /v1/users/me/dictionary/snapshot 相同的 NDJSON msime-dictionary-snapshot v1 文档（header、每个词一条 entry 和一条 overlay、带正文 SHA-256 的 footer；revision 为 1），用云端格式自己的校验器检查后返回那份元数据加上 path。不需要账号。include_learning 缺省为 false，这时不含位置和选择，输出与这个参数加入之前逐字节相同，云同步上传用的就是它；为 true 时（本地备份用）在用户的词之后再写输入记录：学习调权写成 user_inserted:false 的 overlay、删除记录写成 deleted:true 的 overlay、固定位置写成 position、选词计数写成 selection（截到 0..10），格式装不下的行跳过，返回值多出 learning 和 learning_skipped 两个计数；日志整体读不出来时照样导出词，learning 为 0，原因在 learning_error。
+ * 输入记录：action:{operation:"learning_count"} 只读，返回 {count}，即本机日志里学习调权、删除记录、固定位置和选词计数的条数（不含用户自己的词）。action:{operation:"queue_learning_merge",source:绝对路径} 校验快照文件 source，把其中的输入记录另存成 <preferences_directory>/pending-learning-merge.ndjson（替换已有的一份），返回 {queued,learning}；没有输入记录时 queued 为 false、什么也不写。action:{operation:"merge_pending_learning"} 在没有会话时合并这份文件（要独占维护权，忙时报 dictionary maintenance busy、文件留着）：本机已有的词、固定的词和被占用的位置保留本机，选词计数取较大的那个，返回 {merged:false}（没有待合并的）或 {merged:true,entries,positions,selections,kept,skipped}；合并期间新排的一份不受影响，连续失败三次放弃并删掉文件（learning merge abandoned）。
+ * 本地备份的校验与输入习惯：action:{operation:"inspect_snapshot",source:绝对路径} 只读地按云端格式完整校验一份词库快照并返回它的元数据。action:{operation:"export_habits",destination:绝对路径} 把日志里的输入习惯（整句联想的二元/三元计数、连续选词对、拼写纠错计数、自动纠错抑制、置顶的候选）写成 NDJSON（header format:"msime-learning-habits" version:1、每条一行、footer 带条数和正文 SHA-256），装不下的行跳过，返回 {path,habits,skipped}。action:{operation:"inspect_habits",source} 只读校验，返回 {habits}。action:{operation:"queue_habits_merge",source} 校验后存成 <preferences_directory>/pending-habits-merge.ndjson，返回 {queued,habits}；merge_pending_learning 随后在空闲时一并合并它（计数取大、置顶保留本机，写完压回各表上限），结果多一个 habits 字段。learning_count 另返回 habits（输入习惯行数，读不出来时为 null）。
  * Native host owns/authorizes paths; never accept arbitrary webview paths or log payloads.
  * Run on a worker thread. Edit returns busy until all participating sessions are
  * destroyed, then holds exclusive access; recreate sessions after success.
@@ -202,7 +204,7 @@ char *msime_client_restore_default_preferences(const uint8_t *directory, size_t 
 /* The transcription provider and optional rewrite this device is configured for, read from an
  * absolute preferences directory. Response value: {provider:{...}|null, polish:{...}|null}; both
  * absent means nothing is configured and the host uses whatever it falls back to. Contains
- * credentials: never log the response; release with msime_client_string_free. */
+ * credentials: never log the response; release with msime_client_string_free. provider.requestFormat 是请求格式："multipart"（OpenAI 兼容的 /audio/transcriptions）、"chat_audio"（Chat Completions 带 input_audio，阿里云百炼）、"doubao_websocket" 或 "local"；宿主按它挑请求构造，不按 provider 名字判断。 */
 char *msime_client_mobile_voice_configuration(const uint8_t *directory, size_t length);
 /* 全局主题选择器：{themes:[{id,title,platforms,appearance,preview,candidate,keyboard},...],default:"system"}。只列出本库编译到的平台提供的主题，按选择器顺序：system, native（仅 iOS）, shuishan, light, paper, night, ink, custom。platforms 为提供该主题的宿主（如 ["ios"]），null 表示所有宿主。appearance is "light"|"dark"|null; preview {background,panel,accent,text}, candidate and keyboard are the built-in palettes and are null for system, native and custom. Keys are snake_case. Hosts keep no copy of the ids, titles or colours. */
 char *msime_client_theme_catalog(void);
@@ -391,8 +393,8 @@ char *msime_client_voice_apply(uint64_t session, uint64_t generation,
 /* On-device speech models and user-dictionary hotwords. JSON request buffers of length bytes; standard responses. Error text of the model calls is a stable code beginning with "local_model_".
  * voice_hotwords: {options: HostOptions as msime_client_dictionary, limit?: 200} -> {hotwords:[{text,pinyin}]}, the user's own pinyin words (two or more Chinese characters), heaviest first. Worker thread; fails with "dictionary maintenance busy" while maintenance holds the store. <=1 MiB.
  * voice_hotword_correct: {text, hotwords:[{text,pinyin}]} -> {text}. Pinyin-similarity replacement for models whose msime-model.json has "hotwords":"pinyin". Pure. The transcript is limited to 10000 Unicode scalar values, with at most 1000 hotwords; each hotword text is <=256 bytes and pinyin <=1024 bytes. The JSON request is <=1048576 bytes.
- * voice_local_models: {root: absolute dir} -> {models:[{id,title,description,languages,streaming,default,desktop_only,installed,path,installed_size,archive_size,memory,license_spdx,license_source,license_terms,license_notice,hotwords}], default: id}. path is <root>/<id>, the value for voice_input.asr_model_path.
- * voice_local_model_install: {root, id, mirror?: "https://..." prefix} -> {path}. Blocks for the whole download: worker thread only. progress (nullable) gets {id,stage:"download"|"verify"|"extract"|"done",downloaded,total} on the calling thread; copy the buffer before returning. One install per id at a time ("local_model_install_running").
+ * voice_local_models: {root: absolute dir} -> {models:[{id,title,description,languages,streaming,default,desktop_only,installed,path,installed_size,archive_size,memory,license_spdx,license_source,license_terms,license_notice,hotwords,import_files:[{name,url,size}]}], default: id}. path is <root>/<id>, the value for voice_input.asr_model_path. import_files 是不联网安装时要用户自己下载的文件（压缩包和带地址的附加文件），url 是上游下载地址。
+ * voice_local_model_install: {root, id, mirror?: "https://..." prefix, files?: [absolute path]} -> {path}. Blocks for the whole download: worker thread only. progress (nullable) gets {id,stage:"download"|"verify"|"extract"|"done",downloaded,total} on the calling thread; copy the buffer before returning. One install per id at a time ("local_model_install_running"). 带 files（至多 16 个）时不联网，用这些本地文件安装：按长度和 SHA-256 认文件、不看文件名，进度阶段 download 报成 "import"，缺文件时失败为 "local_model_import_missing: <name>"，所选文件打不开或读出错时为 "local_model_import_unreadable: <detail>"。
  * voice_local_model_cancel: {id} cancels that install, NULL/0 or {} cancels all; value is whether one was running. Any thread.
  * voice_local_model_remove: {root, id} -> null. Only catalog ids; refused while that id is installing. */
 typedef void (*msime_client_voice_local_model_progress_callback)(const uint8_t *json, size_t length,
@@ -494,8 +496,11 @@ char *msime_client_set_english_mode(uint64_t session, bool enabled);
 char *msime_client_set_nine_key_mode(uint64_t session, bool enabled);
 /* 标出隐私会话（隐私模式、不允许学习的输入框）：这个会话的选词位置和上屏效率不记入打字统计。用户在设置里关掉学习不算隐私会话。学习本身仍由偏好里的 learning 决定。Value 是设下的布尔值。 */
 char *msime_client_set_private_session(uint64_t session, bool enabled);
+/* 报告大写锁定状态：偏好 caps_lock_ascii_punctuation 打开时，大写锁定期间没有组字的标点键（经 msime_client_character、msime_client_punctuation 或 msime_client_punctuation_with_context 送来）改走字面 ASCII 路线，和英文模式一样；punctuation_lock 为 chinese 时仍是中文标点。会话状态而非偏好，会话重建后由宿主重新报告。Value 是设下的布尔值。接上这个调用的宿主在 HostCapabilities.caps_lock_punctuation 里声明。 */
+char *msime_client_set_caps_lock(uint64_t session, bool enabled);
 char *msime_client_set_paired_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_punctuation_lock(uint64_t session, uint8_t lock);
+/* 每页候选数的会话内覆盖，size 为 1–10；本平台排不下那么多时（Windows、iOS、鸿蒙最多 9）按平台上限截断，view.page_size 是实际值。组字中调用时等组字结束才生效。 */
 char *msime_client_set_candidate_page_size(uint64_t session, uint8_t size);
 char *msime_client_character(uint64_t session, uint8_t ascii, bool shift);
 // Explicit native punctuation: finish the highlighted composition, then translate.

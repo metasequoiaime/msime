@@ -52,6 +52,11 @@ bool CCandidateSessionState::GetSelectedCandidate(CCandidateListItem *item) cons
     return true;
 }
 
+bool CCandidateSessionState::HoldsEnginePage() const
+{
+    return _candidateList.Count() != 0 && _candidateList.GetAt(0)->_EngineSession != 0;
+}
+
 void CCandidateSessionState::SetScrollInfo(_In_ int nMax, _In_ int nPage)
 {
     nMax;

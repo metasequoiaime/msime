@@ -34,6 +34,7 @@ NOT_APPLICABLE = {
     "english_suggestions": "the mobile suggestion strip; desktop hosts show English candidates through mixed_input instead",
     "game_compatibility": "Windows TSF only: whether the TIP skips ITfUIElementMgr for games that declare UI-less and draw nothing; macOS has no UI-less host contract",
     "show_candidate_page_number": "offered only where the host advertises candidate_page_number - Linux alone (7508f045e); the macOS candidate window always draws its page indicator and the shared page does not show the switch here",
+    "second_third_candidate": "';' and '\\'' picking the second and third candidate are routed only by the Windows TIP and Server so far (.agents/notes/implemented/feature/2026-10-09-second-third-candidate-keys.md); the shared page does not show the switch, so no macOS user can turn on something the host ignores",
 }
 
 

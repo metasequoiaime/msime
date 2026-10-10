@@ -41,6 +41,24 @@ int main() {
                default_asr_endpoint(provider));
         assert(transcription_language(provider, "zh-CN") == "zh");
     }
+    // 阿里云百炼（#6017）：整句识别走 Chat Completions 带音频输入，请求格式与 client-core 相同。
+    assert(default_asr_endpoint("bailian") ==
+           "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions");
+    assert(default_asr_model("bailian") == "qwen3-asr-flash");
+    assert(!is_doubao_asr_provider("bailian"));
+    assert(resolved_asr_endpoint("bailian", default_asr_endpoint("doubao")) ==
+           default_asr_endpoint("bailian"));
+    assert(asr_request_format("BAILIAN") == "chat_audio");
+    for (const auto *provider : {"openai", "groq", "siliconflow", "everyapi", "mistral"})
+        assert(asr_request_format(provider) == "multipart");
+    assert(asr_request_format("doubao") == "doubao_websocket");
+    assert(asr_request_format("local") == "local");
+    assert(asr_request_format("system").empty());
+    // 百炼的录音按 chat_audio 上限截取，录满的录音编码后正好不超过上限；其余服务仍是整句上传的上限。
+    assert(batch_capture_sample_limit_for("bailian") == (chat_audio_max_wav_bytes - 44u) / 2u);
+    assert(batch_capture_sample_limit_for("bailian") * 2u + 44u <= chat_audio_max_wav_bytes);
+    assert(batch_capture_sample_limit_for("openai") == batch_capture_sample_limit);
+    assert(batch_capture_sample_limit_for("siliconflow") == batch_capture_sample_limit);
     assert(default_polish_model("openai") == "gpt-4o-mini");
     auto cancelled = std::make_shared<std::atomic_bool>(true);
     bool rejected = false;

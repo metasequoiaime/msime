@@ -5361,6 +5361,8 @@ pub fn run() {
             voice::stop_voice,
             voice::local_models::voice_local_models,
             voice::local_models::voice_local_model_install,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            voice::local_models::voice_local_model_import,
             voice::local_models::voice_local_model_cancel,
             voice::local_models::voice_local_model_remove,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
