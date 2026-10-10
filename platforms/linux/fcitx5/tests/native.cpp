@@ -2400,6 +2400,38 @@ int main(int argc, char **argv) {
     require(ic.committed == beforeCloudSecond + "云剪贴板第二条",
             "cloud clipboard menu commits selected provider entry");
     {
+      // Moving the preferences store must release both the read and save
+      // futures that still target the previous directory; otherwise the next
+      // refresh remains blocked behind an old store operation.
+      auto switched = options;
+      const auto switchedPreferencesDirectory = std::filesystem::path(directory) / "preferences-switch";
+      switched["preferences_directory"] = switchedPreferencesDirectory.string();
+      std::ofstream(path) << switched.dump();
+      std::promise<void> releaseRead;
+      std::promise<void> releaseSave;
+      auto readGate = releaseRead.get_future().share();
+      auto saveGate = releaseSave.get_future().share();
+      state->preferences_job_ = detachedJob([readGate] {
+        readGate.wait();
+        return Json::object();
+      });
+      state->preferences_save_job_ = detachedJob([saveGate] {
+        saveGate.wait();
+        return Json::object();
+      });
+      state->preferences_save_retry_ = PendingPreferenceSave{
+          state->options_path_, {}, "synthetic", true};
+      state->refreshProviderSockets();
+      require(state->options_path_ == switchedPreferencesDirectory.string() &&
+                  !state->preferences_job_.valid() && !state->preferences_save_job_.valid() &&
+                  !state->preferences_save_retry_,
+              "switching preference stores releases stale futures");
+      releaseRead.set_value();
+      releaseSave.set_value();
+      std::ofstream(path) << options.dump();
+      state->refreshProviderSockets();
+    }
+    {
       // Moving the local history store must release reads and mutations that
       // still belong to the previous directory; otherwise refreshClipboard()
       // waits on an old future forever and never starts the new read.

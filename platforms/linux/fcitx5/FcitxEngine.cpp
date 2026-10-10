@@ -1875,6 +1875,8 @@ public:
         options_path_ = nextPreferencesDirectory;
         preferences_job_session_ = 0;
         preferences_snapshot_ = Json();
+        preferences_job_ = {};
+        preferences_save_job_ = {};
         preferences_save_retry_.reset();
       }
       candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
