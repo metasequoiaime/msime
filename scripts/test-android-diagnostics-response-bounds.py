@@ -10,7 +10,7 @@ start = text.index("JSONArray list = root.optJSONArray(\"accesses\");")
 end = text.index("return new State(snapshot", start)
 body = text[start:end]
 assert "BoundsPolicy.atMost(accessCount, MAX_EVENTS)" in body, (
-    "diagnostics access parsing must cap list allocation"
+    "diagnostics access parsing must cap list allocation through the shared policy"
 )
 assert "BoundsPolicy.nonNegative(accessCount - MAX_EVENTS)" in body, (
     "diagnostics access parsing must retain only the newest bounded entries"
