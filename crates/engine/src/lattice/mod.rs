@@ -12,5 +12,5 @@ pub use decode::{LatticeLexeme, SentencePath, TypoEdge};
 /// Span lookup: the rows whose key is exactly the given syllables.
 pub type LatticeLookup<'a> = dyn FnMut(&[String]) -> Vec<LatticeLexeme> + 'a;
 
-/// Plans the typo edges for one input from its literal best path; quanpin passes `quanpin::typo_edges::collect_typo_edges` bound to its database and caches, shuangpin `shuangpin::typo_edges::collect_shuangpin_typo_edges`.
+/// 按一次输入的字面最优路径规划纠错边。全拼传入绑定了自己词库和缓存的 `quanpin::typo_edges::collect_typo_edges`，双拼传入 `shuangpin::typo_edges::collect_shuangpin_typo_edges`。
 pub type TypoEdgeSource<'a> = dyn FnMut(&SentencePath) -> Vec<TypoEdge> + 'a;

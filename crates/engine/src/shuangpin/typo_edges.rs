@@ -1,7 +1,7 @@
 //! 双拼的纠错整句边。双拼每个音节两键，按错一个键多半仍是合法编码（小鹤 `hc` 是 hao，`hv` 是 hui），全拼那张按非法拼写生成的纠错表用不上，只能像全拼的纠错整句那样，让语言模型在合法音节之间比较。变体按当前方案的两键编码生成：一个键换成 QWERTY 邻键，或两键对调，再用同一方案解码成音节；之后的弱位置优先、跨度、预算、查词和罚分都走 `quanpin::typo_edges` 的同一套。
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Mutex, PoisonError};
 
 use super::utils::cvt_single_sp_to_pinyin;
 use super::ShuangpinProfile;
@@ -31,35 +31,49 @@ pub fn collect_shuangpin_typo_edges(
     autocorrect_types: u32,
 ) -> Vec<TypoEdge> {
     debug_assert_eq!(codes.len(), segments.len());
+    let table = typo_table(profile);
     collect_span_typo_edges(
         database,
         span_cache,
         segments,
         literal_best,
         autocorrect_types & SHUANGPIN_TYPO_TYPES,
-        |position| code_typos(profile, codes[position]),
+        |position| table_typos(table, codes[position]),
         |_, _| 0,
     )
 }
 
-/// 一个两键编码在当前方案下可能想打的音节，便宜的类型在前；不是合法编码时为空。每个方案第一次用到时整表算好。
-pub fn code_typos(profile: &'static ShuangpinProfile, code: &str) -> &'static [SyllableTypo] {
-    static TABLES: [OnceLock<HashMap<String, Vec<SyllableTypo>>>; 4] =
-        [const { OnceLock::new() }; 4];
-    let table = TABLES[profile.kind as usize].get_or_init(|| {
-        let mut table = HashMap::new();
-        for &first in CODE_KEYS {
-            for &second in CODE_KEYS {
-                let code = [first, second];
-                let typos = compute_code_typos(profile, &code);
-                if !typos.is_empty() {
-                    table.insert(String::from_utf8_lossy(&code).into_owned(), typos);
-                }
+type TypoTable = HashMap<String, Vec<SyllableTypo>>;
+
+/// 一个两键编码在方案下可能想打的音节，便宜的类型在前；不是合法编码时为空。
+fn table_typos(table: &'static TypoTable, code: &str) -> &'static [SyllableTypo] {
+    table.get(code).map_or(&[], Vec::as_slice)
+}
+
+/// 方案的变体表，第一次用到时整表算好。按方案的地址区分而不是按 `kind`：自定义方案的 `kind` 都是 `Custom`，键位却各不相同；`custom::custom_profile` 让同一张表总是同一个地址、换了键位就是另一个地址，所以每张表只算一次，改了键位也不会拿到旧键位算出的变体。表和自定义方案一样留到进程结束，数量不超过进程里实际用来打字的方案数。
+fn typo_table(profile: &'static ShuangpinProfile) -> &'static TypoTable {
+    static TABLES: Mutex<Vec<(&'static ShuangpinProfile, &'static TypoTable)>> =
+        Mutex::new(Vec::new());
+    let mut tables = TABLES.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(&(_, table)) = tables
+        .iter()
+        .find(|(known, _)| std::ptr::eq(*known, profile))
+    {
+        return table;
+    }
+    let mut table = HashMap::new();
+    for &first in CODE_KEYS {
+        for &second in CODE_KEYS {
+            let code = [first, second];
+            let typos = compute_code_typos(profile, &code);
+            if !typos.is_empty() {
+                table.insert(String::from_utf8_lossy(&code).into_owned(), typos);
             }
         }
-        table
-    });
-    table.get(code).map_or(&[], Vec::as_slice)
+    }
+    let table: &'static TypoTable = Box::leak(Box::new(table));
+    tables.push((profile, table));
+    table
 }
 
 fn compute_code_typos(profile: &ShuangpinProfile, code: &[u8; 2]) -> Vec<SyllableTypo> {
@@ -133,11 +147,16 @@ fn add_variant(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shuangpin::custom::custom_profile;
     use crate::shuangpin::profile::profile;
-    use crate::types::ShuangpinProfileKind;
+    use crate::types::{ShuangpinCustomTable, ShuangpinProfileKind};
+
+    fn code_typos(profile: &'static ShuangpinProfile, code: &str) -> &'static [SyllableTypo] {
+        table_typos(typo_table(profile), code)
+    }
 
     fn syllables(kind: ShuangpinProfileKind, code: &str) -> Vec<(&'static str, SyllableTypoKind)> {
-        code_typos(profile(kind), code)
+        code_typos(profile(kind).unwrap(), code)
             .iter()
             .map(|typo| (typo.syllable.as_str(), typo.kind))
             .collect()
@@ -190,7 +209,7 @@ mod tests {
             ShuangpinProfileKind::Shoudao,
             ShuangpinProfileKind::Microsoft,
         ] {
-            let selected = profile(kind);
+            let selected = profile(kind).unwrap();
             for &first in CODE_KEYS {
                 for &second in CODE_KEYS {
                     let code = String::from_utf8(vec![first, second]).unwrap();
@@ -213,5 +232,67 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// 小鹤的表，把 zh 换到 a 键，零声母改用 o 引导；`ing_on_semicolon` 时再把 ing 换到 `;`。
+    fn custom_xiaohe(ing_on_semicolon: bool) -> &'static ShuangpinProfile {
+        fn owned(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(unit, key)| ((*unit).to_owned(), (*key).to_owned()))
+                .collect()
+        }
+        let xiaohe = profile(ShuangpinProfileKind::Xiaohe).unwrap();
+        let mut table = ShuangpinCustomTable {
+            initials: owned(&[("zh", "a"), ("ch", "i"), ("sh", "u")]),
+            finals: owned(xiaohe.finals),
+            zero_initials: owned(&[
+                ("a", "oa"),
+                ("ai", "od"),
+                ("an", "oj"),
+                ("ang", "oh"),
+                ("ao", "oc"),
+                ("e", "oe"),
+                ("ei", "ow"),
+                ("en", "of"),
+                ("eng", "og"),
+                ("er", "or"),
+                ("o", "oo"),
+                ("ou", "oz"),
+            ]),
+        };
+        if ing_on_semicolon {
+            table
+                .finals
+                .iter_mut()
+                .find(|(unit, _)| unit == "ing")
+                .unwrap()
+                .1 = ";".to_owned();
+        }
+        custom_profile(&table).unwrap()
+    }
+
+    #[test]
+    fn a_custom_profile_gets_variants_for_its_own_layout() {
+        // zh 在 a 键上：ag 是 zheng，g 的邻键 h 得到 zhang，对调成 ga；原来 zh 所在的 v 键不再是声母，vh 没有变体。
+        let moved = custom_xiaohe(false);
+        assert_eq!(moved.kind, ShuangpinProfileKind::Custom);
+        let typos = code_typos(moved, "ag");
+        assert!(typos
+            .iter()
+            .any(|typo| typo.syllable == "zhang" && typo.kind == SyllableTypoKind::Neighbor));
+        assert!(typos
+            .iter()
+            .any(|typo| typo.syllable == "ga" && typo.kind == SyllableTypoKind::Transposition));
+        assert!(code_typos(moved, "vh").is_empty());
+        assert!(code_typos(moved, "x;").is_empty());
+
+        // 再换一张表：同是 `Custom`，变体按这张表的键位算，不沿用上一张表的。ing 在 `;` 上，x; 是 xing，x 的邻键 d 得到 ding（`;` 不在字母区，没有邻键）。
+        let semicolon = custom_xiaohe(true);
+        assert!(!std::ptr::eq(moved, semicolon));
+        assert!(code_typos(semicolon, "x;")
+            .iter()
+            .any(|typo| typo.syllable == "ding" && typo.kind == SyllableTypoKind::Neighbor));
+        assert!(code_typos(moved, "x;").is_empty());
     }
 }

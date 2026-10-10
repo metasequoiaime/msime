@@ -274,7 +274,7 @@ impl ShuangpinDictionary {
         candidates
     }
 
-    /// The lattice block (SD:261-269 without the Google sentence and its reordering, overlays.md §1.6.2): the lattice best as Generated when `word_lattice` is on, and one row per enabled neural reranker, inserted by the merge itself. 纠错开着时再接一条纠错整句，排在整句块之后。
+    /// 整句块（SD:261-269，去掉了 Google 整句和它的重排，overlays.md §1.6.2）：`word_lattice` 开着时放词网格最优句（Generated），每个启用的神经重排器各一行，由合并本身插入。纠错开着时再接一条纠错整句，排在整句块之后。
     fn merge_sentences(
         &mut self,
         candidates: &mut Vec<WordItem>,

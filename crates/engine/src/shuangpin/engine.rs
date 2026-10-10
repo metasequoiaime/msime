@@ -199,11 +199,11 @@ impl ShuangpinEngine {
             _ => fuzzy,
         };
         if fuzzy.is_empty() {
-            exact.sort_by_key(|item| std::cmp::Reverse(item.pinyin.len()));
+            sort_by_coverage(&mut exact);
             return exact;
         }
         append_fuzzy_rows(&mut exact, fuzzy);
-        exact.sort_by_key(|item| std::cmp::Reverse(item.pinyin.len()));
+        sort_by_coverage(&mut exact);
         exact
     }
 
@@ -289,6 +289,14 @@ fn request_autocorrect_types(request: &QueryRequest) -> u32 {
     transposition | neighbor
 }
 
+/// 按覆盖的按键长度稳定排序。纠错整句覆盖全部按键，整句块为空、全码又没有词条时它是唯一最长的一行，会被排到第一位；纠错整句不抢首选（见 `dictionary::typo_sentence_seat`），所以这时把它和第二行对调。
+fn sort_by_coverage(rows: &mut [WordItem]) {
+    rows.sort_by_key(|item| std::cmp::Reverse(item.pinyin.len()));
+    if rows.len() > 1 && !rows[0].corrected_from.is_empty() {
+        rows.swap(0, 1);
+    }
+}
+
 /// 只需段数时直接统计分隔符，避免为每个模糊候选复制音节字符串。
 fn segment_count(segmentation: &str) -> usize {
     if segmentation.is_empty() {
@@ -332,7 +340,7 @@ fn append_fuzzy_rows(exact: &mut Vec<WordItem>, fuzzy: Vec<WordItem>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_fuzzy_rows, segment_count};
+    use super::{append_fuzzy_rows, segment_count, sort_by_coverage};
     use crate::types::{CandidateSource, WordItem};
 
     fn row(word: &str) -> WordItem {
@@ -392,5 +400,47 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["已有", "模糊"]
         );
+    }
+
+    /// 整句块为空、全码没有词条时，纠错整句是唯一覆盖全部按键的一行，按长度排序后也不能坐第一位。
+    #[test]
+    fn sorting_by_coverage_keeps_the_typo_sentence_off_the_first_seat() {
+        let prefix =
+            |word: &str| WordItem::new("mwgf", word, 1, CandidateSource::Database, "mei'gen");
+        let mut typo = WordItem::new(
+            "mwgfxi",
+            "没关系",
+            1,
+            CandidateSource::Generated,
+            "mei'guan'xi",
+        );
+        typo.sentence_association = true;
+        typo.corrected_from = "mwgfxi".to_owned();
+        let words = |rows: &[WordItem]| {
+            rows.iter()
+                .map(|item| item.word.clone())
+                .collect::<Vec<_>>()
+        };
+
+        let mut rows = vec![prefix("没跟"), typo.clone(), prefix("没")];
+        sort_by_coverage(&mut rows);
+        assert_eq!(words(&rows), ["没跟", "没关系", "没"]);
+
+        // 有同样覆盖全部按键的字面行时，稳定排序本来就让它留在纠错行前面。
+        let literal = WordItem::new(
+            "mwgfxi",
+            "没跟系",
+            1,
+            CandidateSource::Generated,
+            "mei'gen'xi",
+        );
+        let mut rows = vec![literal, typo.clone(), prefix("没跟")];
+        sort_by_coverage(&mut rows);
+        assert_eq!(words(&rows), ["没跟系", "没关系", "没跟"]);
+
+        // 只有它一行时没有可让的位置。
+        let mut rows = vec![typo];
+        sort_by_coverage(&mut rows);
+        assert_eq!(words(&rows), ["没关系"]);
     }
 }
