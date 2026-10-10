@@ -26,7 +26,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：多了一个对中文表现好的云端识别服务；宿主选择请求构造的依据从「provider 名字」变成共享层给出的字段，Android 与 iOS Tauri 插件不再各自维护名字白名单，格式与 provider 不一致的请求会在 `MobileVoiceTranscriptionRequest::is_valid` 被拒。
-- **代价与已知上限**：Base64 让上传体积变成 4/3；超过约 218 秒的录音在 Windows 和 Linux 上会被整段拒绝而不是截断。不经过共享配置的宿主（C++、Linux 脚本、HarmonyOS、iOS 原生）仍各有一份格式映射，靠各自的测试和本笔记保持一致。默认地址用旧域名，百炼若停用它，需要把默认值换成业务空间专属地址并引导用户填 WorkspaceId。没有用真实的百炼 API Key 在任何平台上听写过。
+- **代价与已知上限**：Base64 让上传体积变成 4/3；选百炼时 macOS、Windows、Linux 的单次录音最长约 218 秒，录到上限就结束录音并识别已录下的部分，上传前的长度检查只作兜底。不经过共享配置的宿主（C++、Linux 脚本、HarmonyOS、iOS 原生）仍各有一份格式映射，靠各自的测试和本笔记保持一致。默认地址用旧域名，百炼若停用它，需要把默认值换成业务空间专属地址并引导用户填 WorkspaceId。没有用真实的百炼 API Key 在任何平台上听写过。
 
 ## Verification
 
