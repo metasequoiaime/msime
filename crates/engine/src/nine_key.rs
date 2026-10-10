@@ -40,6 +40,15 @@ use crate::user_dictionary::removal;
 pub const PATH_LIMIT: usize = 48;
 pub const DIGIT_LIMIT: usize = 32;
 pub const CANDIDATE_LIMIT: usize = 128;
+/// 每次刷新从排在前面、覆盖全部数字的行里取几条切分当种子，见 `seeded_paths`。
+const SENTENCE_SEED_LIMIT: usize = 4;
+/// 上一次的种子仍对得上数字时一起留着，合计最多这么多条。只留这一次的种子时，末尾几个数字的噪声会把前面已经拼对的切分挤掉。
+const SEED_RETAIN_LIMIT: usize = 8;
+/// 每条种子接几条余下数字的切分。
+const SEED_TAIL_LIMIT: usize = 3;
+/// 有种子时，数字至少这么长才把按音节频度留的切分截到 `SEEDED_PATH_LIMIT` 条：长串的好切分主要靠种子补，频度切分截短省下的查询抵掉种子的开销；短串（词级输入）照旧留满 `PATH_LIMIT` 条。
+const SEEDED_TRUNCATE_DIGITS: usize = 12;
+const SEEDED_PATH_LIMIT: usize = 24;
 // 少量查询键直接扫描已有切分路径，避免刷新时为临时哈希表分配堆内存。
 const SMALL_QUERY_KEY_BATCH: usize = 64;
 // 少量九宫格候选直接扫描已保留词，避免排序后为一次去重分配哈希表。
@@ -102,6 +111,10 @@ pub struct NineKeySession {
     /// `SessionSnapshot::nine_key_reading`，随候选一起重建。
     reading: String,
     candidates: Vec<WordItem>,
+    /// 前几次刷新排在前面、覆盖全部数字的几行的全拼（`'` 连接）。下一次刷新把它们去掉最后一个音节，接上余下数字的切分一起查，见 `seeded_paths`。
+    sentence_seeds: Vec<String>,
+    /// 算下一批种子用的空缓冲，和 `sentence_seeds` 轮换，刷新时不再分配。
+    seed_buffer: Vec<String>,
     english_only: bool,
     /// 部分选择正在拼的词：已经选掉的各段的全拼（`'` 连接）和文字。整串数字选完时把它们连同最后一段存成用户词，下次打简拼就能出来（#5640）；有一段读不出一字一音节的全拼（英文词、模糊音行）时 `phrase_storable` 为假，这个词不存。
     phrase_pinyin: String,
@@ -200,6 +213,9 @@ impl NineKeySession {
             spellings: Vec::new(),
             reading: String::new(),
             candidates: Vec::new(),
+            // 两个缓冲一开始就留够容量，按键时轮换着用，不再分配。
+            sentence_seeds: Vec::with_capacity(SEED_RETAIN_LIMIT),
+            seed_buffer: Vec::with_capacity(SEED_RETAIN_LIMIT),
             english_only: false,
             phrase_pinyin: String::new(),
             phrase_word: String::new(),
@@ -874,6 +890,7 @@ impl NineKeySession {
         self.reading.clear();
         if !self.active() {
             // 筛选和撤销记录只属于这一次组字。
+            self.sentence_seeds.clear();
             self.lock_undo.clear();
             self.initial = None;
             self.single_character = false;
@@ -912,6 +929,19 @@ impl NineKeySession {
                 .get_or_insert_with(|| SyllablePrior::from_dictionary(dictionary, table));
             let mut alternatives = table.split_paths(remaining, splits, prior);
             alternatives.retain(|path| path.first().is_none_or(|piece| starts_right(piece)));
+            // 种子只在用户没锁定拼写、没打切分、没选首字母时用：那些情况下切分已经被用户限定，种子未必守得住这些限定。
+            if self.locked.is_empty() && splits.is_empty() && initial.is_none() {
+                if !self.sentence_seeds.is_empty() && remaining.len() >= SEEDED_TRUNCATE_DIGITS {
+                    alternatives.truncate(SEEDED_PATH_LIMIT);
+                }
+                seeded_paths(
+                    &mut alternatives,
+                    &self.sentence_seeds,
+                    remaining,
+                    table,
+                    prior,
+                );
+            }
             // Even an unfinished or invalid tail must still offer the leading syllable for partial selection.
             alternatives.extend(
                 syllables
@@ -1058,6 +1088,14 @@ impl NineKeySession {
         rank_candidates(&mut candidates, prefer_exact, initials_lead, boost.as_ref());
         let remaining_length = remaining.len();
         self.rerank_sentences(&mut candidates);
+        let mut seeds = std::mem::take(&mut self.seed_buffer);
+        next_seeds(
+            &candidates,
+            &self.digits,
+            &mut self.sentence_seeds,
+            &mut seeds,
+        );
+        self.seed_buffer = std::mem::replace(&mut self.sentence_seeds, seeds);
         // emoji、颜文字按拼音查，读法的先后要参照排好的拼音候选，所以在插入英文行之前查；插入在英文行之后，它们也可以接在英文词后面。单字、笔画筛选针对的是汉字，筛选时不混入。
         let (emoji, kaomoji) = if filtering {
             (Vec::new(), Vec::new())
@@ -1575,6 +1613,113 @@ fn place_keyboard_pick(
     }
 }
 
+/// 种子真正用到的部分：去掉最后一个音节，它可能被后面的数字续长，或者本来只拼了一半。
+fn seed_prefix(seed: &str) -> &str {
+    seed.rfind('\'').map_or("", |end| &seed[..end])
+}
+
+/// `prefix` 开头有几个音节按键盘依次拼得出 `digits` 的开头：(音节数, 用掉的数字数, 是否全部拼得出)。不分配。
+fn fitting_syllables(prefix: &str, digits: &str) -> (usize, usize, bool) {
+    let mut syllables = 0;
+    let mut covered = 0;
+    if prefix.is_empty() {
+        return (0, 0, true);
+    }
+    for syllable in prefix.split('\'') {
+        let end = covered + syllable.len();
+        if !digits
+            .get(covered..end)
+            .is_some_and(|code| letters_spell_code(syllable, code))
+        {
+            return (syllables, covered, false);
+        }
+        syllables += 1;
+        covered = end;
+    }
+    (syllables, covered, true)
+}
+
+/// 小写字母串按键盘上印的字母正好拼出同样长的 `code`。
+fn letters_spell_code(letters: &str, code: &str) -> bool {
+    letters.len() == code.len()
+        && letters.bytes().zip(code.bytes()).all(|(letter, digit)| {
+            letter.is_ascii_lowercase() && KEYPAD[usize::from(letter - b'a')] == digit
+        })
+}
+
+/// 把这次刷新之后的种子写进 `seeds`（先清空），`previous` 用完清空：先取排好的候选里覆盖全部数字、不是模糊音的前 `SENTENCE_SEED_LIMIT` 条全拼（`seed_prefix` 相同的只留一条，免得几条种子只差在最后一个音节上），再接上 `previous` 里 `seed_prefix` 仍拼得出数字开头的，合计最多 `SEED_RETAIN_LIMIT` 条。末尾只按了下一个音节的头一两个数字时没有覆盖全部数字的行，这时全靠留下来的种子，否则每隔一键就丢一次。`previous` 里已有的同一条直接挪过来，不再复制字符串。
+fn next_seeds(
+    candidates: &[WordItem],
+    digits: &str,
+    previous: &mut Vec<String>,
+    seeds: &mut Vec<String>,
+) {
+    seeds.clear();
+    let is_new = |seeds: &[String], seed: &str| {
+        seeds
+            .iter()
+            .all(|existing| seed_prefix(existing) != seed_prefix(seed))
+    };
+    for item in candidates {
+        if seeds.len() == SENTENCE_SEED_LIMIT {
+            break;
+        }
+        if item.pinyin.len() != digits.len()
+            || item.canonical_pinyin.is_empty()
+            || item.fuzzy
+            || !is_new(seeds, &item.canonical_pinyin)
+        {
+            continue;
+        }
+        let seed = match previous
+            .iter()
+            .position(|old| *old == item.canonical_pinyin)
+        {
+            Some(index) => previous.remove(index),
+            None => item.canonical_pinyin.clone(),
+        };
+        seeds.push(seed);
+    }
+    for seed in previous.drain(..) {
+        if seeds.len() < SEED_RETAIN_LIMIT
+            && fitting_syllables(seed_prefix(&seed), digits).2
+            && is_new(seeds, &seed)
+        {
+            seeds.push(seed);
+        }
+    }
+}
+
+/// 按数字切分路径只看音节频度，长串里正确的切分常常排不进每个位置的 `PATH_LIMIT` 条（#6059）；而词网格看得懂词，前几次刷新排在前面的整句的切分多半就是这一次的前半截。所以取每条种子的 `seed_prefix` 里仍拼得出 `remaining` 开头的那几个音节，接上余下数字的前 `SEED_TAIL_LIMIT` 条切分，补进 `alternatives`。等于在按键之间做一次宽度为 `SEED_RETAIN_LIMIT` 的束搜索，每次按键只把束里的切分往后接一两个音节。
+fn seeded_paths(
+    alternatives: &mut Vec<Path>,
+    seeds: &[String],
+    remaining: &str,
+    table: &SpellingTable,
+    prior: &SyllablePrior,
+) {
+    for seed in seeds {
+        let (kept, covered, _) = fitting_syllables(seed_prefix(seed), remaining);
+        if kept == 0 {
+            continue;
+        }
+        let tail = &remaining[covered..];
+        let tails = if tail.is_empty() {
+            vec![Vec::new()]
+        } else {
+            table.split_paths(tail, &[], prior)
+        };
+        for tail_path in tails.into_iter().take(SEED_TAIL_LIMIT) {
+            let mut path: Path = Vec::with_capacity(kept + tail_path.len());
+            path.extend(seed.split('\'').take(kept).map(str::to_owned));
+            path.extend(tail_path);
+            if !alternatives.contains(&path) {
+                alternatives.push(path);
+            }
+        }
+    }
+}
+
 fn remaining_digits(digits: &str, locked_length: usize) -> &str {
     &digits[locked_length..]
 }
@@ -1688,8 +1833,14 @@ fn comparable_weight(item: &WordItem) -> i64 {
     if item.source != CandidateSource::Generated || item.canonical_pinyin.is_empty() {
         return item.weight;
     }
-    let syllables = item.canonical_pinyin.split('\'').count() as f64;
-    item.weight - (PHRASE_LENGTH_BONUS * 1000.0 * syllables) as i64
+    let syllables = item.canonical_pinyin.split('\'').count();
+    // 每个多字词再扣一份奖励（#6059）：只按音节扣时，一个词组的分只剩它的词频，比单字的分高得多，把读法切成更多词组反而得分，`ni'ming'tian'you'long'ma`（匿名天佑龙马）就压过了 `ni'ming'tian'you'kong'ma`（你明天有空吗）。每个词扣一份，等于给每个词一份插入代价，切得越碎越吃亏；单字本来就按 `unigram_z` 扣过，不再加扣。
+    let phrases = item
+        .sentence_words
+        .iter()
+        .filter(|word| word.chars().nth(1).is_some())
+        .count();
+    item.weight - (PHRASE_LENGTH_BONUS * 1000.0 * (syllables + phrases) as f64) as i64
 }
 
 /// 九键记进个人上下文模型的词：两个字以上的纯汉字词，单字和夹着英文、符号的不记（#6185）。
@@ -2429,6 +2580,148 @@ mod tests {
         let mut word = item("西安", "9426", 500, CandidateSource::Database);
         word.canonical_pinyin = "xi'an".into();
         assert_eq!(comparable_weight(&word), 500);
+    }
+
+    /// #6059：每个多字词再扣一份奖励，切成更多词组的读法不再因此得分。
+    #[test]
+    fn each_phrase_costs_one_more_bonus_across_paths() {
+        let bonus = (PHRASE_LENGTH_BONUS * 1000.0) as i64;
+        let sentence = |word: &str, pinyin: &str, words: &[&str], weight: i64| {
+            let mut row = item(
+                word,
+                "64646484268966566262",
+                weight,
+                CandidateSource::Generated,
+            );
+            row.canonical_pinyin = pinyin.into();
+            row.sentence_words = words.iter().map(|word| (*word).to_owned()).collect();
+            row
+        };
+        // 两句都是六个音节；三个词组的那句原始分高出半份奖励，两个词组加两个单字的那句扣掉多出来的一份词组奖励后反超。
+        let phrases = sentence(
+            "匿名天佑龙马",
+            "ni'ming'tian'you'long'ma",
+            &["匿名", "天佑", "龙马"],
+            40_000,
+        );
+        let plain = sentence(
+            "你明天有空吗",
+            "ni'ming'tian'you'kong'ma",
+            &["你", "明天", "有空", "吗"],
+            30_000,
+        );
+        assert_eq!(comparable_weight(&phrases), 40_000 - 9 * bonus);
+        assert_eq!(comparable_weight(&plain), 30_000 - 8 * bonus);
+        assert_eq!(
+            ranked(vec![phrases, plain], false),
+            ["你明天有空吗", "匿名天佑龙马"]
+        );
+    }
+
+    fn path(syllables: &[&str]) -> Path {
+        syllables
+            .iter()
+            .map(|syllable| (*syllable).to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn seeds_take_distinct_prefixes_then_keep_old_ones_that_still_fit() {
+        let digits = encode("wo'men'yi'qi");
+        let full = |word: &str, pinyin: &str| {
+            let mut row = item(word, &digits, 100, CandidateSource::Generated);
+            row.canonical_pinyin = pinyin.into();
+            row
+        };
+        let mut fuzzy = full("我们一起", "wo'men'yi'qi");
+        fuzzy.fuzzy = true;
+        let candidates = vec![
+            fuzzy,
+            full("我们一起", "wo'men'yi'qi"),
+            // 和上一行只差最后一个音节，前半截相同，不再当一条种子。
+            full("我们一批", "wo'men'yi'pi"),
+            // 只覆盖一部分数字的行不算。
+            item("我们", "96636", 100, CandidateSource::Database),
+            full("我们洗漆", "wo'men'xi'qi"),
+        ];
+        let previous = vec![
+            // 和这次的第一条完全相同：直接挪过来，不复制。
+            "wo'men'yi'qi".to_owned(),
+            // 前半截对不上数字。
+            "ni'men".to_owned(),
+            "wo'men'yi'pi'a".to_owned(),
+        ];
+        let mut previous = previous;
+        let reused = previous[0].as_ptr();
+        let mut seeds = vec!["stale".to_owned()];
+        next_seeds(&candidates, &digits, &mut previous, &mut seeds);
+        assert_eq!(seeds, ["wo'men'yi'qi", "wo'men'xi'qi", "wo'men'yi'pi'a"]);
+        assert_eq!(seeds[0].as_ptr(), reused);
+        assert!(previous.is_empty());
+        // 没有覆盖全部数字的行时全靠留下来的种子。
+        next_seeds(&[], &digits, &mut vec!["wo'men'yi".to_owned()], &mut seeds);
+        assert_eq!(seeds, ["wo'men'yi"]);
+    }
+
+    #[test]
+    fn seed_prefixes_fit_digits_syllable_by_syllable() {
+        assert_eq!(seed_prefix("wo'men'yi"), "wo'men");
+        assert_eq!(seed_prefix("wo"), "");
+        let digits = encode("wo'men'yi'qi");
+        assert_eq!(fitting_syllables("wo'men", &digits), (2, 5, true));
+        // ne 的 63 也是 men 的开头，接下来的 yi 就对不上了。
+        assert_eq!(fitting_syllables("wo'ne'yi", &digits), (2, 4, false));
+        assert_eq!(fitting_syllables("wo'mo", &digits), (1, 2, false));
+        assert_eq!(fitting_syllables("", &digits), (0, 0, true));
+        assert_eq!(fitting_syllables("wo'men'yi'qi'a", &digits), (4, 9, false));
+    }
+
+    #[test]
+    fn seeded_paths_extend_the_fitting_prefix_with_tail_splits() {
+        let table = SpellingTable::new(&["wo", "men", "yi", "qi", "xi", "pi"]);
+        let prior = SyllablePrior::default();
+        let remaining = encode("wo'men'yi'qi");
+        let mut alternatives = vec![path(&["wo", "men", "xi", "pi"])];
+        seeded_paths(
+            &mut alternatives,
+            // 第二条的前半截对不上数字，不加。
+            &["wo'men'yi".to_owned(), "xi'men'yi".to_owned()],
+            &remaining,
+            &table,
+            &prior,
+        );
+        // 种子去掉最后一个音节剩 wo'men，余下的 9474 按切分先后取前三条，已经在的不重复。
+        assert_eq!(
+            alternatives,
+            [
+                path(&["wo", "men", "xi", "pi"]),
+                path(&["wo", "men", "xi", "qi"]),
+                path(&["wo", "men", "yi", "pi"]),
+            ]
+        );
+        // 前半截正好拼完全部数字时加它自己。
+        let mut whole = Vec::new();
+        seeded_paths(
+            &mut whole,
+            &["wo'men'yi'qi'a".to_owned()],
+            &remaining,
+            &table,
+            &prior,
+        );
+        assert_eq!(whole, [path(&["wo", "men", "yi", "qi"])]);
+    }
+
+    /// 末尾只按了一个音节开头的数字、没有覆盖全部数字的行时，种子留着；组字结束时清空。
+    #[test]
+    fn seeds_survive_a_partial_syllable_and_end_with_the_composition() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut session, "64426");
+        assert!(session.sentence_seeds.contains(&"ni'hao".to_owned()));
+        type_digits(&mut session, "3");
+        assert!(session.sentence_seeds.contains(&"ni'hao".to_owned()));
+        session.command(Command::Cancel);
+        assert!(session.sentence_seeds.is_empty());
     }
 
     #[test]
