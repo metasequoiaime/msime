@@ -40,7 +40,7 @@ import { FullWidthInputPolicy } from './input/FullWidthInputPolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { ChineseOutputPolicy } from './input/ChineseOutputPolicy';
 import { KeyboardFeedback, FeedbackSettings, HapticPlan, HapticStrength } from './KeyboardFeedback';
-import { NumberKeypadOrder } from './input/NineKeyLayout';
+import { NumberKeypadOrder, TwentySixKeyNumberLayout } from './input/NineKeyLayout';
 import { HardwareKeyRouter, HardwareNavigationPreferences, HardwareSpelling } from './HardwareKeyRouter';
 import vibrator from '@ohos.vibrator';
 import common from '@ohos.app.ability.common';
@@ -847,6 +847,8 @@ interface PreparedPreferences {
   touch_voice_shortcut: boolean;
   /** 九键数字层的排列：`phone`（1 2 3 在上）或 `calculator`（7 8 9 在上）；旧文档没有这个键，按 `phone`。 */
   touch_number_keypad_order?: string;
+  /** 26 键按「123」切到的数字层：`row`（一行 1 到 0）或 `nine_key`（九宫格数字层）；旧文档没有这个键，按 `row`。 */
+  touch_twenty_six_key_number_layout?: string;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
   clipboard_history: boolean;
   voice_input: VoiceInputConfiguration;
@@ -982,6 +984,8 @@ export interface KeyboardPreferences {
   readonly heightAdjustment: number;
   /** `NumberKeypadOrder` 归一后的九键数字层排列。 */
   readonly numberKeypadOrder: string;
+  /** `TwentySixKeyNumberLayout` 归一后的 26 键数字层。 */
+  readonly twentySixKeyNumberLayout: string;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1220,7 +1224,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
-    numberKeypadOrder: NumberKeypadOrder.PHONE
+    numberKeypadOrder: NumberKeypadOrder.PHONE,
+    twentySixKeyNumberLayout: TwentySixKeyNumberLayout.ROW
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1486,7 +1491,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       rowSpacingTenths: KeyboardGeometry.rowSpacing(preferences.touch_row_spacing_tenths),
       heightAdjustment:
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
-      numberKeypadOrder: NumberKeypadOrder.normalized(preferences.touch_number_keypad_order)
+      numberKeypadOrder: NumberKeypadOrder.normalized(preferences.touch_number_keypad_order),
+      twentySixKeyNumberLayout:
+        TwentySixKeyNumberLayout.normalized(preferences.touch_twenty_six_key_number_layout)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(
