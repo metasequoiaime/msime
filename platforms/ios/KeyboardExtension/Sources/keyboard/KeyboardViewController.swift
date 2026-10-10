@@ -3947,10 +3947,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   static func sharedPreferenceInt(_ value: Any?, range: ClosedRange<Int> = 1...6) -> Int? {
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID(),
-          let integer = Int(number.stringValue),
-          NSNumber(value: integer).compare(number) == .orderedSame,
+    guard let integer = SharedNumber.strictInt(value),
           range.contains(integer) else { return nil }
     return integer
   }

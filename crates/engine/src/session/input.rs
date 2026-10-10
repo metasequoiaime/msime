@@ -256,7 +256,7 @@ impl InputSession {
         if self.is_stroke() {
             return self.handle_stroke_character(value);
         }
-        if !self.has_composition() && self.scheme().opens_local_modes() {
+        if !self.has_composition() {
             let entry = if shift_only {
                 self.local_mode_for_entry(value)
             } else {
@@ -1065,7 +1065,7 @@ impl InputSession {
         if let Some(keys) = self.url_entry_keys() {
             return keys.to_owned();
         }
-        if self.has_composition() || !self.scheme().opens_local_modes() {
+        if self.has_composition() || !self.scheme().opens_table_modes() {
             return String::new();
         }
         (*b"/@")
@@ -1508,12 +1508,20 @@ impl InputSession {
             b'V' => (LocalInputMode::Expression, options.expression),
             _ => return None,
         };
-        enabled.then_some(mode)
+        let scheme_opens = if mode == LocalInputMode::QuickPhrase {
+            self.scheme().opens_table_modes()
+        } else {
+            self.scheme().opens_local_modes()
+        };
+        (enabled && scheme_opens).then_some(mode)
     }
 
-    /// The symbol keys that open a mode with nothing composed. Only while Chinese punctuation is in force: with ASCII punctuation the key is the literal character the user chose.
+    /// 没有组字时，`/` 和 `@` 只在支持本地表入口且启用中文标点时打开模式；英文标点下它们是字面字符。
     fn local_mode_for_symbol(&self, value: u8) -> Option<LocalInputMode> {
-        if !self.chinese_punctuation_enabled || self.punctuation_lock == 2 {
+        if !self.scheme().opens_table_modes()
+            || !self.chinese_punctuation_enabled
+            || self.punctuation_lock == 2
+        {
             return None;
         }
         let options = self.local_mode_options;

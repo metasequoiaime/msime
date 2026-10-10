@@ -185,19 +185,19 @@ struct VocabularyReviewStore {
         return VocabularyWordbook(
           id: id,
           name: book["name"] as? String ?? id,
-          total: integer(book["total"]) ?? 0,
+          total: SharedNumber.nonnegativeInt(book["total"]) ?? 0,
           builtin: book["builtin"] as? Bool ?? false)
       }
     }
     if let settings = value["settings"] as? [String: Any] {
       status.wordbook = settings["wordbook"] as? String ?? ""
-      status.newPerDay = integer(settings["newPerDay"]) ?? 0
-      status.sessionLimit = integer(settings["sessionLimit"]) ?? 0
+      status.newPerDay = SharedNumber.nonnegativeInt(settings["newPerDay"]) ?? 0
+      status.sessionLimit = SharedNumber.nonnegativeInt(settings["sessionLimit"]) ?? 0
     }
-    status.due = integer(value["due"]) ?? 0
-    status.answeredToday = integer(value["answeredToday"]) ?? 0
-    status.introducing = integer(value["introducing"]) ?? 0
-    status.remaining = integer(value["remaining"]) ?? 0
+    status.due = SharedNumber.nonnegativeInt(value["due"]) ?? 0
+    status.answeredToday = SharedNumber.nonnegativeInt(value["answeredToday"]) ?? 0
+    status.introducing = SharedNumber.nonnegativeInt(value["introducing"]) ?? 0
+    status.remaining = SharedNumber.nonnegativeInt(value["remaining"]) ?? 0
     if let cards = value["queue"] as? [[String: Any]] {
       status.queue = cards.compactMap { card in
         // A card with no word could never be answered: the answer is keyed by it.
@@ -209,15 +209,6 @@ struct VocabularyReviewStore {
       }
     }
     return status
-  }
-
-  private static func integer(_ value: Any?) -> Int? {
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID(),
-          let integer = Int(number.stringValue),
-          integer >= 0,
-          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
-    return integer
   }
 
   private func protectSharedState() {

@@ -76,21 +76,16 @@ public final class CommunitySkinCache {
             for (int index = 0; index < array.length() && entries.size() < MAX_ENTRIES; index++) {
                 JSONObject value = array.optJSONObject(index);
                 if (value == null) continue;
-                String id = text(value, "id");
-                String name = text(value, "name");
+                String id = JsonPolicy.strictStringOrEmpty(value.opt("id"));
+                String name = JsonPolicy.strictStringOrEmpty(value.opt("name"));
                 JSONObject design = value.isNull("design") ? null : value.optJSONObject("design");
                 if (id.isEmpty() || name.isEmpty() || design == null) continue;
-                entries.add(new Entry(id, name, text(value, "author"), design));
+                entries.add(new Entry(id, name, JsonPolicy.strictStringOrEmpty(value.opt("author")), design));
             }
             return entries;
         } catch (IOException | JSONException | RuntimeException error) {
             return List.of();
         }
-    }
-
-    private static String text(JSONObject value, String key) {
-        String text = JsonPolicy.strictString(value.opt(key));
-        return text == null ? "" : text;
     }
 
 }

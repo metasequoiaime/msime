@@ -1,6 +1,7 @@
 package app.msime.android.core;
 
 import app.msime.android.JsonPolicy;
+import app.msime.android.TextPolicy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,10 +29,10 @@ public final class TelemetryHandlerSmoke {
 
         // The server counts the message in Unicode scalars; cutting at a char index can split a surrogate pair and leave invalid UTF-16.
         String emoji = "😀".repeat(1001);
-        String clipped = Telemetry.clipCodePoints(emoji, Telemetry.MAX_MESSAGE_CODE_POINTS);
+        String clipped = TextPolicy.clipCodePoints(emoji, Telemetry.MAX_MESSAGE_CODE_POINTS);
         check(clipped.codePointCount(0, clipped.length()) == 1000, "message is clipped to 1000 code points");
         check(!Character.isHighSurrogate(clipped.charAt(clipped.length() - 1)), "no split surrogate pair");
-        check(Telemetry.clipCodePoints("short", 1000).equals("short"), "short text is kept");
+        check(TextPolicy.clipCodePoints("short", 1000).equals("short"), "short text is kept");
 
         StringBuilder frames = new StringBuilder();
         for (int index = 0; index < 2000; index++) frames.append("at app.msime.Frame").append(index).append("(Frame.java:1)\n");

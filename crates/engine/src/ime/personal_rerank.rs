@@ -308,6 +308,22 @@ pub(crate) mod allocations {
 
     thread_local! {
         static COUNT: Cell<Option<usize>> = const { Cell::new(None) };
+        static HEAP: Cell<Option<HeapUsage>> = const { Cell::new(None) };
+    }
+
+    #[derive(Clone, Copy, Default)]
+    struct HeapUsage {
+        live_bytes: i128,
+        peak_bytes: usize,
+        minimum_bytes: i128,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) struct Measurement {
+        pub allocations: usize,
+        pub peak_bytes: usize,
+        pub remaining_bytes: i128,
+        pub minimum_bytes: i128,
     }
 
     struct CountingAllocator;
@@ -323,15 +339,33 @@ pub(crate) mod allocations {
         });
     }
 
-    // 只记录当前测试线程的分配次数，布局、指针和内存管理全部委托给 System。
+    fn record_bytes(change: i128) {
+        let _ = HEAP.try_with(|heap| {
+            if let Some(mut value) = heap.get() {
+                value.live_bytes += change;
+                value.minimum_bytes = value.minimum_bytes.min(value.live_bytes);
+                if value.live_bytes > 0 {
+                    value.peak_bytes = value.peak_bytes.max(value.live_bytes as usize);
+                }
+                heap.set(Some(value));
+            }
+        });
+    }
+
+    // 只观测当前测试线程，布局、指针和内存管理全部委托给 System。
     unsafe impl GlobalAlloc for CountingAllocator {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
             record();
             // 安全：原样传递调用方提供的合法布局。
-            unsafe { System.alloc(layout) }
+            let pointer = unsafe { System.alloc(layout) };
+            if !pointer.is_null() {
+                record_bytes(layout.size() as i128);
+            }
+            pointer
         }
 
         unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            record_bytes(-(layout.size() as i128));
             // 安全：原样传递 System 分配的指针及其原始布局。
             unsafe { System.dealloc(ptr, layout) }
         }
@@ -339,7 +373,11 @@ pub(crate) mod allocations {
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
             record();
             // 安全：原样传递 System 分配的指针、原始布局及调用方要求的大小。
-            unsafe { System.realloc(ptr, layout, new_size) }
+            let pointer = unsafe { System.realloc(ptr, layout, new_size) };
+            if !pointer.is_null() {
+                record_bytes(new_size as i128 - layout.size() as i128);
+            }
+            pointer
         }
     }
 
@@ -348,18 +386,46 @@ pub(crate) mod allocations {
     impl Drop for Scope {
         fn drop(&mut self) {
             COUNT.with(|count| count.set(None));
+            HEAP.with(|heap| heap.set(None));
         }
     }
 
     pub(crate) fn count<T>(operation: impl FnOnce() -> T) -> (T, usize) {
+        let (result, measurement) = measure_inner(operation, false);
+        (result, measurement.allocations)
+    }
+
+    /// 量化区间内的逻辑请求字节；峰值不含 System 内部暂存，不等于进程 RSS。
+    /// 精确比较时，闭包不得释放进入区间前已存在的堆对象。
+    pub(crate) fn measure<T>(operation: impl FnOnce() -> T) -> (T, Measurement) {
+        measure_inner(operation, true)
+    }
+
+    fn measure_inner<T>(operation: impl FnOnce() -> T, track_heap: bool) -> (T, Measurement) {
         COUNT.with(|count| {
             assert!(count.get().is_none());
             count.set(Some(0));
         });
         let scope = Scope;
+        if track_heap {
+            HEAP.with(|heap| heap.set(Some(HeapUsage::default())));
+        }
         let result = operation();
         let allocations = COUNT.with(|count| count.get().unwrap());
+        let heap = HEAP.with(|heap| heap.get().unwrap_or_default());
         drop(scope);
-        (result, allocations)
+        (
+            result,
+            Measurement {
+                allocations,
+                peak_bytes: heap.peak_bytes,
+                remaining_bytes: heap.live_bytes,
+                minimum_bytes: heap.minimum_bytes,
+            },
+        )
     }
 }
+
+#[cfg(test)]
+#[path = "personal_rerank/heap_measurement_tests.rs"]
+mod heap_measurement_tests;

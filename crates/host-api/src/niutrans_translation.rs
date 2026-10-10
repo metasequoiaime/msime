@@ -99,6 +99,7 @@ pub fn parse(bytes: &[u8]) -> Option<Value> {
     root.get("tgtText")
         .and_then(Value::as_str)
         .and_then(translation::format_translation_gloss)
+        .filter(|text| text.len() <= 4096)
         .map(Value::String)
 }
 
@@ -151,5 +152,16 @@ mod tests {
         );
         assert!(parse(br#"{"errorCode":"401","tgtText":"hello"}"#).is_none());
         assert!(parse(br#"{"tgtText":42}"#).is_none());
+    }
+
+    #[test]
+    fn parsed_glosses_obey_the_apply_translations_byte_limit() {
+        let at_limit = "x".repeat(4096);
+        let response = serde_json::to_vec(&json!({"tgtText": at_limit})).unwrap();
+        assert_eq!(parse(&response), Some(json!(at_limit)));
+
+        let beyond_limit = "好".repeat(1366);
+        let response = serde_json::to_vec(&json!({"tgtText": beyond_limit})).unwrap();
+        assert!(parse(&response).is_none());
     }
 }

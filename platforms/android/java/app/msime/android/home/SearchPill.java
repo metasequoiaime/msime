@@ -1,9 +1,7 @@
 package app.msime.android.home;
 
 import android.content.Context;
-import android.text.Editable;
 import android.text.InputType;
-import android.text.TextWatcher;
 import android.util.AttributeSet;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
@@ -65,12 +63,6 @@ public final class SearchPill extends LinearLayout {
 
     /** 每次输入变化回调去掉首尾空白后的查询。 */
     public void setOnQueryChange(Consumer<String> listener) {
-        field.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
-
-            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
-
-            @Override public void afterTextChanged(Editable text) { listener.accept(query()); }
-        });
+        Ui.afterTextChanged(field, ignored -> listener.accept(query()));
     }
 }

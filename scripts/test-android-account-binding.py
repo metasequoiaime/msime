@@ -33,7 +33,7 @@ def main() -> int:
     sync_api = SYNC_API.read_text(encoding="utf-8")
     sign_in = SIGN_IN.read_text(encoding="utf-8")
     ok = True
-    if not inside_lock(sync_api, "String token = new BackendAccount(application).currentAccessToken(rejected)"):
+    if not inside_lock(sync_api, "BackendAccount.SessionCredential session = new BackendAccount(application).currentSession(rejected)"):
         print("SyncApi 的同步令牌读取没有绑定账号锁", file=sys.stderr)
         ok = False
     for expression, description in (

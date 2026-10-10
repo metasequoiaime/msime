@@ -88,11 +88,7 @@ enum DictionarySnapshotBridge {
   }
 
   static func unsignedIntegerValue(_ value: Any?) -> UInt64? {
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID(),
-          let integer = UInt64(number.stringValue),
-          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
-    return integer
+    SharedNumber.strictUInt64(value)
   }
 
   private static func snapshotOptions(resources: URL, user: URL) -> [String: Any] {

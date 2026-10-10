@@ -64,8 +64,8 @@ inline std::string fcitx_overlay_2x_name(const std::string &file) {
   return file.substr(0, file.size() - png.size()) + "@2x.png";
 }
 
-// Resamples a PNG to `width` pixels wide, keeping its aspect ratio, and returns the new PNG bytes; nullopt when it cannot. The classic UI draws an overlay at the image's own pixel size, so the decoration has to arrive already at the width the skin declares. Decoding takes cairo, which the Fcitx5 addon links and this header does not, so the addon passes it in (see FcitxThemeOverlayScale.h).
-using FcitxOverlayScaler = std::function<std::optional<std::string>(const std::string &png, int width)>;
+// PNG 保持比例缩放到 `width` 宽、至多 `room` 高，失败返回 `nullopt`；classicui 按图片像素绘制，缩放器由链接 cairo 的 addon 传入，见 `FcitxThemeOverlayScale.h`。
+using FcitxOverlayScaler = std::function<std::optional<std::string>(const std::string &png, int width, int room)>;
 
 // An image the theme draws with, generated from the colours: its file name in the theme directory and its PNG bytes.
 struct FcitxThemeImage {
@@ -108,6 +108,11 @@ struct FcitxPanelGeometry {
   static constexpr int logo_side = 16;
   static constexpr int logo_gap = 6;
 };
+
+// 卡片内边距含至少 1 px 发丝线与内容留白；装饰底边定位和可用高度共用 `fcitx_card_padding`，避免缩放后越界或偏移。
+inline int fcitx_card_padding(const CandidateColors &colors) {
+  return std::max(1, colors.border ? std::max(0, colors.border_width) : 0) + FcitxPanelGeometry::padding;
+}
 
 // The brand mark as the theme draws it: the installed application icon at 1x (logo_side square) and 2x (twice that), read by load_fcitx_theme_logo.
 struct FcitxThemeLogo {
@@ -195,7 +200,7 @@ inline std::string fcitx_margin(int left, int right, int top, int bottom) {
 //
 // The brand mark leads the header row as on every other host, but the classic UI lays every row out with the same content margin and has no slot for an image beside the preedit. So the mark is painted into the card image's top-left corner slice, which is never stretched, at the content's top-left corner and the text margin's top, and the content margin grows by the mark and its gap: the preedit follows the mark as the design's header does, and the candidate rows below keep the same left edge as the preedit. Without the mark the theme is unchanged.
 //
-// A decoration is drawn as the background's overlay, with the geometry every host shares: the panel is top_inset_dip (the band) taller than the card, the band is transparent, and the image sits in it with its bottom one card padding below the card's top edge, over the card, aligned left, centre or right with the same padding in from the card's side. The panel image carries the band as fully transparent rows above the card (the shadow keeps the margin above the card it has without a decoration) and counts them in the nine-slice top margin, so they are never stretched; the shadow margin and the content margin both grow by the band, so X11 places the card, not the band, at the cursor and the candidates start below the card's top edge as they do without a decoration. The classic UI paints the overlay while it paints the background, before the candidates, so the part over the card is under the preedit and the highlight; it ends where the content starts, so nothing is covered. The classic UI draws an overlay at its own pixel size, so stage_fcitx_overlay resamples a PNG decoration to width_dip (and an @2x copy) the way Windows and macOS scale it, and it fits the band; an image whose height is known is placed by its bottom edge, one still taller than the band (a format the host cannot resample) is cut at the band's top, and an image of unknown height starts at the band's top and is drawn at full length.
+// 装饰作为背景 Overlay：透明顶带增加面板与九宫格顶部固定切片高度，阴影和内容边距同步增加，让 X11 卡片仍贴光标；装饰底边伸入卡片一个内边距，画在候选前但止于内容起点。PNG 按 `width_dip` 缩放并生成 @2x，过高则继续等比缩小；无法缩放但已知高度的图按底边定位，过高会裁顶部，高度未知则从预留区顶部按原尺寸绘制。
 //
 // `user_radius` says whether `corner_radius` is the user's own setting rather than the skin package's: only then does the highlight follow a card tighter than its 6 px, so a package's radius leaves the rows as they were drawn before the setting existed.
 inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors, bool dark,
@@ -215,6 +220,7 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
   const auto border = border_width > 0 ? fcitx_theme_color(*colors.border) : fcitx_theme_color(surface, true);
   // The content keeps the design's 1 px hairline plus 6 px padding even without a border, and grows with a wider one, so the highlight never covers the outline.
   const int inset = std::max(1, border_width);
+  const int pad = fcitx_card_padding(colors);
   const int band = overlay ? std::max(0, overlay->band) : 0;
   // The user's or the skin's radius (0-32, resolved by the caller) replaces the design's; the corner slices grow and shrink with it. The highlight keeps its 6 px unless the user's card corners are tighter than that, so a square card the user chose gets square rows.
   const int radius = corner_radius ? std::clamp(static_cast<int>(std::lround(*corner_radius)), 0, 32) : G::radius;
@@ -222,14 +228,15 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
 
   // The card: the corner slices hold the rounded corners and the part of the shadow that varies along the edge, so the stretched middle slices are exact. A decoration's band is the transparent top of the top slices.
   const int shadow_top = G::shadow_top + band;
-  const int content_left = G::shadow_left + inset + G::padding;
-  const int logo_top = shadow_top + inset + G::padding + G::item_vertical;
+  const int content_left = G::shadow_left + pad;
+  const int logo_top = shadow_top + pad + G::item_vertical;
   const int lead = logo ? G::logo_side + G::logo_gap : 0;
-  // The top-left corner slice also holds the whole mark when there is one.
-  const int slice_left = std::max(G::shadow_left + radius, logo ? content_left + G::logo_side : 0);
-  const int slice_right = G::shadow_right + radius;
-  const int slice_top = std::max(shadow_top + G::shadow_offset + radius, logo ? logo_top + G::logo_side : 0);
-  const int slice_bottom = G::shadow_bottom + radius;
+  // 固定切片必须容下整条描边，否则边框色会进入可拉伸的中心，被拉成整片卡片；左上切片在有关标志时还要容下标志。
+  const int edge = std::max(radius, border_width);
+  const int slice_left = std::max(G::shadow_left + edge, logo ? content_left + G::logo_side : 0);
+  const int slice_right = G::shadow_right + edge;
+  const int slice_top = std::max(shadow_top + G::shadow_offset + edge, logo ? logo_top + G::logo_side : 0);
+  const int slice_bottom = G::shadow_bottom + edge;
   const int panel_width = slice_left + 2 + slice_right;
   const int panel_height = slice_top + 2 + slice_bottom;
   const FcitxRect card{G::shadow_left, static_cast<double>(shadow_top), static_cast<double>(panel_width - G::shadow_right),
@@ -290,7 +297,6 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
   std::string decoration;
   if (overlay) {
     // The card's padding, where the content starts inside the outline: the image's bottom edge is this far below the card's top edge, and its side this far in from the card's side, as Windows places it with pad_y and pad_x.
-    const int pad = inset + G::padding;
     // With Top gravity the classic UI measures the offset down from the panel's top edge. An image of known height ends `pad` below the card's top (a negative offset is cut by the clip margin below); one of unknown height starts at the band's top.
     const int offset = overlay->height ? shadow_top + pad - *overlay->height : G::shadow_top;
     // Measured from the gravity's edge: `pad` inside the card on the side the skin aligns to, none when centred (the card is centred in the panel, its shadow margins being equal).
@@ -431,22 +437,47 @@ inline constexpr std::string_view kFcitxOverlayPrefix = "decoration-";
 // The largest decoration image copied, the same limit the shared layer puts on any skin asset (skin::catalog::MAX_RESOURCE_BYTES).
 inline constexpr std::uintmax_t kFcitxOverlayMaxBytes = 8u * 1024u * 1024u;
 
-// The height recorded in a PNG header, which is all this host reads of an image. Other formats are drawn without it.
-inline std::optional<int> fcitx_png_height(const std::string &bytes) {
+// 解码边长上限与共享层 `skin::catalog::MAX_IMAGE_SIDE` 一致，拒绝仅靠文件头声明巨幅尺寸的图片。
+inline constexpr int kFcitxOverlayMaxSide = 2048;
+
+// 不解码读取 PNG 尺寸：签名、IHDR 和两边的 1..kFcitxOverlayMaxSide 范围都有效才接受；其他格式、截断或超限返回 `nullopt`。
+struct FcitxPngSize {
+  int width;
+  int height;
+};
+
+inline std::optional<FcitxPngSize> fcitx_png_size(const std::string &bytes) {
   static constexpr char signature[] = "\x89PNG\r\n\x1a\n";
   if (bytes.size() < 24 || bytes.compare(0, 8, signature, 8) != 0 || bytes.compare(12, 4, "IHDR") != 0)
     return std::nullopt;
-  std::uint32_t height = 0;
-  for (std::size_t index = 20; index < 24; ++index) height = (height << 8) | static_cast<unsigned char>(bytes[index]);
-  if (height == 0 || height > 0x7fffffffu) return std::nullopt;
-  return static_cast<int>(height);
+  const auto side = [&bytes](std::size_t at) {
+    std::uint32_t value = 0;
+    for (std::size_t index = at; index < at + 4; ++index) value = (value << 8) | static_cast<unsigned char>(bytes[index]);
+    return value > 0 && value <= static_cast<std::uint32_t>(kFcitxOverlayMaxSide) ? static_cast<int>(value) : 0;
+  };
+  const int width = side(16);
+  const int height = side(20);
+  if (width == 0 || height == 0) return std::nullopt;
+  return FcitxPngSize{width, height};
+}
+
+// 只需宽度的调用方从 PNG 头取值，供模式提示预留装饰宽度。
+inline std::optional<int> fcitx_png_width(const std::string &bytes) {
+  const auto size = fcitx_png_size(bytes);
+  return size ? std::optional<int>(size->width) : std::nullopt;
+}
+
+// PNG 头的高度用于无法缩放时的原图定位，其他格式不提供高度。
+inline std::optional<int> fcitx_png_height(const std::string &bytes) {
+  const auto size = fcitx_png_size(bytes);
+  return size ? std::optional<int>(size->height) : std::nullopt;
 }
 
 // Copy the decoration image into the theme directory, where the classic UI looks for an overlay (themes/<theme>/<Overlay>), with the same policy as theme.conf: atomically, and only when the copy does not already hold the same bytes. Only the image types a skin package may ship are taken, keeping their extension, which is how the classic UI picks a loader. Nothing is staged for a file that is missing, empty or over kFcitxOverlayMaxBytes.
 //
-// With a `scale` and a PNG, the copy is the image resampled to the skin's width_dip, with an @2x copy at twice that, as every other host draws it: the classic UI draws an overlay at its own pixel size, and a picture wider than declared is also taller than the band reserved for it, so its top would be cut. A non-PNG image, or one the scaler refuses, is copied as it is.
+// 有 `scale` 且是文件头可读、尺寸在上限内的 PNG 时，副本是缩放到皮肤声明的 width_dip 的图（@2x 副本是它的两倍），如果那样会超过预留高度加 `padding`（classicui 在卡片上方留给装饰图的空间），就继续等比缩小，保证整张图都能画出来；尺寸超限、缩放失败以及非 PNG 都退回原图，装饰不丢，只是按原尺寸放置。
 inline std::optional<FcitxThemeOverlay> stage_fcitx_overlay(const std::filesystem::path &directory,
-                                                            const CandidateSkinDecoration &decoration,
+                                                            const CandidateSkinDecoration &decoration, int padding,
                                                             const FcitxOverlayScaler &scale = {}) {
   const std::filesystem::path source(decoration.image);
   auto extension = source.extension().string();
@@ -484,9 +515,10 @@ inline std::optional<FcitxThemeOverlay> stage_fcitx_overlay(const std::filesyste
   }
   if (bytes.empty() || bytes.size() > kFcitxOverlayMaxBytes) return std::nullopt;
   const int width = static_cast<int>(std::lround(decoration.width_dip));
-  if (scale && extension == ".png" && width > 0 && fcitx_png_height(bytes)) {
-    auto one = scale(bytes, width);
-    auto two = one ? scale(bytes, 2 * width) : std::nullopt;
+  if (scale && extension == ".png" && width > 0 && fcitx_png_size(bytes)) {
+    const int room = static_cast<int>(std::ceil(decoration.top_dip)) + std::max(0, padding);
+    auto one = scale(bytes, width, room);
+    auto two = one ? scale(bytes, 2 * width, 2 * room) : std::nullopt;
     const auto height = one ? fcitx_png_height(*one) : std::nullopt;
     if (one && two && height) {
       auto file = std::string(kFcitxOverlayPrefix) + fcitx_content_hash(*one + *two) + ".png";
@@ -537,7 +569,8 @@ inline bool write_fcitx_candidate_theme(const std::filesystem::path &file, const
                                         bool user_radius = false, const FcitxOverlayScaler &scale = {}) {
   const auto directory = file.parent_path();
   if (!prepare_candidate_directory(directory)) return false;
-  const auto overlay = decoration ? stage_fcitx_overlay(directory, *decoration, scale) : std::nullopt;
+  const auto overlay =
+      decoration ? stage_fcitx_overlay(directory, *decoration, fcitx_card_padding(colors), scale) : std::nullopt;
   const auto theme = fcitx_candidate_theme_files(colors, dark, overlay, corner_radius, logo, user_radius);
   std::vector<std::string> shapes;
   fcitx_collect_shape_names(theme, shapes);

@@ -26,6 +26,10 @@ enum class ReplyPath {
   NextPage,
   IgnoredNavigation
 };
+// How many letters the TIP drops from its own buffer when a Wubi commit takes AutoCommitAndContinue: the code the Engine held before the key, plus the key itself when the Engine holds nothing afterwards. The fourth letter of a unique code gives 3 + 1, a lowercase letter after a complete code (顶字) gives 4 and stays composing, and a capital the Engine does not take after a complete code goes out with the first candidate, giving 4 + 1. A letter typed ahead into the TIP buffer is never counted, so it survives every case.
+inline std::size_t wubi_continue_consumed(std::size_t code_before, bool composing_after) {
+  return code_before + (composing_after ? 0 : 1);
+}
 struct PendingReply {
   KeyResult source;
   std::optional<EncodedReply> encoded;
@@ -64,7 +68,8 @@ public:
   ReplyComposer(uint64_t client, uint64_t epoch);
   const PendingReply &
   stage(const KeyResult &result, ReplyPath path, bool uiless = false,
-        std::optional<std::string> local_text = std::nullopt);
+        std::optional<std::string> local_text = std::nullopt,
+        std::size_t continue_consumed = 4);
   // Normal input entry: enforce the pending-reply gate BEFORE advancing Engine.
   // LocalCommit also requires an Enter/raw-commit key and caller-observed text
   // equal to selected_prefix + Engine editing_text BEFORE clearing composition.

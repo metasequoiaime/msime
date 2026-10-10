@@ -194,11 +194,6 @@ public final class CommunityRequest {
         return value + " 万 次使用";
     }
 
-    /** 条数按千位分隔，如「4,812 条」。 */
-    public static String entriesLabel(int count) {
-        return NumberPolicy.groupedCount(count);
-    }
-
     /**
      * 一个词库或短语包里的条数：词库数 `content.entries`，短语包数 `content.phrases`；回复模板和读不出的内容为 -1，界面上不写条数。
      */
@@ -233,7 +228,7 @@ public final class CommunityRequest {
     public static String resourceSubtitle(String author, int entries, boolean updatedThisWeek) {
         List<String> parts = new java.util.ArrayList<>(3);
         if (author != null && !author.isEmpty()) parts.add("@" + author);
-        if (entries >= 0) parts.add(entriesLabel(entries));
+        if (entries >= 0) parts.add(NumberPolicy.groupedCount(entries));
         if (updatedThisWeek) parts.add("本周更新");
         return String.join(" · ", parts);
     }
@@ -286,6 +281,7 @@ public final class CommunityRequest {
             case "blocked_content" -> "内容包含不允许发布的词语，请修改后再提交";
             case "screening_unavailable" -> "审核服务暂时不可用，请稍后重试";
             case "account_banned" -> "该账号已被封禁，暂时无法使用账号相关功能";
+            case "session_changed" -> "登录已切换，请重试。";
             case "item_not_found" -> "作品不存在或已下架。";
             case "unsupported_kind" -> "这类作品需要在本机添加，请更新到最新版本后重试。";
             case "invalid_report_reason", "invalid_report_detail", "invalid_report_kind" ->

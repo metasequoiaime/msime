@@ -4,6 +4,7 @@
     <instrumentation android:name="app.msime.android.test.CandidatePanelDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.MoreToolsDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.EmojiPickerDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.PairedPunctuationDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.HandwritingDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.PreferencesDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.KeyboardHeightDeviceSmoke" android:targetPackage="app.msime.android" />

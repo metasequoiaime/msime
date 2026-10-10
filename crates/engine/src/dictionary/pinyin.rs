@@ -13,7 +13,9 @@ use crate::pinyin::jianpin::{
     build_key_like_pattern, build_mixed_jianpin_scan_limit, can_match_exact_key, is_pure_jianpin,
     key_prefix_upper_bound, matches_mixed_segments, needs_mixed_jianpin_query, QuerySource,
 };
-use crate::pinyin::segment::{join_segments, segments_to_jianpin, split_segments};
+#[cfg(test)]
+use crate::pinyin::segment::split_segments;
+use crate::pinyin::segment::{join_segments, segments_to_jianpin};
 use crate::pinyin::syllables::{
     canonical_lattice_syllable, has_only_complete_pinyin_segments, intact_pinyin_set,
     prefix_pinyin_set,
@@ -164,16 +166,33 @@ impl PinyinDatabase {
         let prefix = longer_phrase_prefix(segments);
         let upper_bound = key_prefix_upper_bound(&prefix);
         let initial = segments[0].as_bytes()[0];
-        let mut rows = Vec::with_capacity(extra_syllables.saturating_mul(limit));
+        let mut rows = Vec::new();
         for extra in 1..=extra_syllables {
             let Some(table) = quanpin_table(segments.len() + extra, initial) else {
                 continue;
             };
-            rows.extend(self.rows(
+            let page = self.rows(
                 &range_sql(&table, sql_limit(limit)),
                 [prefix.as_str(), upper_bound.as_str()],
                 query_capacity(limit),
-            ));
+            );
+            if !page.is_empty() {
+                // 短页只按实际行数预留，满页才按剩余页的上限一次性预留。
+                let remaining_pages = extra_syllables - extra + 1;
+                let planned = if page.len() == limit {
+                    remaining_pages.saturating_mul(limit)
+                } else {
+                    page.len()
+                };
+                let required = rows
+                    .len()
+                    .saturating_add(planned)
+                    .saturating_sub(rows.capacity());
+                if required != 0 {
+                    rows.reserve_exact(required);
+                }
+            }
+            rows.extend(page);
         }
         deduplicate_by_value(&mut rows);
         rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
@@ -191,9 +210,34 @@ impl PinyinDatabase {
             return Vec::new();
         }
         let keys_by_table = exact_segmentations_by_table(segmentations);
-        let mut rows = Vec::with_capacity(segmentations.len().saturating_mul(limit));
-        for (table, keys) in &keys_by_table {
-            rows.extend(self.batch_rows(table, keys, limit));
+        let mut rows = Vec::new();
+        for (index, (table, keys)) in keys_by_table.iter().enumerate() {
+            let page = self.batch_rows(table, keys, limit);
+            if page.is_empty() {
+                continue;
+            }
+            if rows.is_empty() {
+                // 首个非空页直接接管，不再分配并搬移一份相同的行存储。
+                rows = page;
+                continue;
+            }
+            // 满页按剩余有效表数规划，短页仅补实际行数；不可表示的提示退回本页。
+            let planned = if page.len() == limit {
+                (keys_by_table.len() - index)
+                    .checked_mul(limit)
+                    .filter(|additional| {
+                        rows.len().checked_add(*additional).is_some_and(|total| {
+                            total <= isize::MAX as usize / size_of::<DictRow>()
+                        })
+                    })
+                    .unwrap_or(page.len())
+            } else {
+                page.len()
+            };
+            if planned > rows.capacity() - rows.len() {
+                rows.reserve_exact(planned);
+            }
+            rows.extend(page);
         }
         rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
         rows
@@ -205,44 +249,52 @@ impl PinyinDatabase {
         keys: &[String],
         per_key_limit: usize,
     ) -> HashMap<String, Vec<DictRow>> {
-        let mut result: HashMap<String, Vec<DictRow>> = HashMap::with_capacity(keys.len());
+        let mut result: HashMap<String, Vec<DictRow>> = HashMap::new();
         if self.connection.is_none() || keys.is_empty() || per_key_limit == 0 {
             return result;
         }
-        let mut keys_by_table: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut keys_by_table: BTreeMap<String, Vec<&str>> = BTreeMap::new();
         let mut seen =
             (keys.len() > SMALL_QUERY_KEY_BATCH).then(|| HashSet::with_capacity(keys.len()));
         for (index, key) in keys.iter().enumerate() {
-            let segments = split_segments(key);
-            if !query_key_is_new(keys, index, &mut seen)
-                || !has_only_complete_pinyin_segments(&segments)
-            {
+            if !query_key_is_new(keys, index, &mut seen) {
                 continue;
             }
-            let Some(table) = build_table_name(&segments) else {
+            let Some((table, syllables)) = complete_key_table(key) else {
                 continue;
             };
-            if segments.len() == 1 {
+            if syllables == 1 {
                 let rows = self.rows(
                     &exact_sql(&table, sql_limit(per_key_limit)),
                     [key.as_str()],
                     query_capacity(per_key_limit),
                 );
                 if !rows.is_empty() {
+                    if result.capacity() == 0 {
+                        result.reserve(keys.len());
+                    }
                     result.insert(key.clone(), rows);
                 }
                 continue;
             }
-            keys_by_table.entry(table).or_default().push(key.clone());
+            keys_by_table.entry(table).or_default().push(key.as_str());
         }
         for (table, table_keys) in &keys_by_table {
-            // Ordered by weight, so the first rows of each key are its best.
-            for row in self.batch_rows(table, table_keys, usize::MAX) {
-                let slot = result
-                    .entry(row.key.clone())
-                    .or_insert_with(|| Vec::with_capacity(per_key_limit));
-                if slot.len() < per_key_limit {
+            let rows = self.batch_rows(table, table_keys, usize::MAX);
+            if !rows.is_empty() && result.capacity() == 0 {
+                result.reserve(keys.len());
+            }
+            // 按权重读取，每个键最先出现的是它的最高权重行；已有槽只借用键查找。
+            for row in rows {
+                if let Some(slot) = result.get_mut(row.key.as_str()) {
+                    if slot.len() < per_key_limit {
+                        slot.push(row);
+                    }
+                } else {
+                    let key = row.key.clone();
+                    let mut slot = Vec::with_capacity(per_key_limit);
                     slot.push(row);
+                    result.insert(key, slot);
                 }
             }
         }
@@ -278,13 +330,37 @@ impl PinyinDatabase {
         rows
     }
 
-    /// The lattice's span lookup: each syllable canonicalised with `canonical_lattice_syllable`, then an exact-key lookup only, so `gun'qi` never borrows `gun'qiu`'s rows (QQ:1398-1418).
+    /// 词网格跨度逐音节规范化后只查精确键，`gun'qi` 不会借用 `gun'qiu` 的行（QQ:1398-1418）。
     pub fn query_lattice_span(&self, span: &[String], span_limit: usize) -> Vec<DictRow> {
-        let normalized: Vec<String> = span
+        if self.connection.is_none() || span.is_empty() || span_limit == 0 {
+            return Vec::new();
+        }
+        let normalized = span
             .iter()
-            .map(|syllable| canonical_lattice_syllable(syllable).to_owned())
-            .collect();
-        self.query_exact_segmentations_keyed_flat(&[normalized], span_limit)
+            .map(|syllable| canonical_lattice_syllable(syllable));
+        let intact = intact_pinyin_set();
+        if !normalized.clone().all(|syllable| intact.contains(syllable)) {
+            return Vec::new();
+        }
+        let initial = normalized
+            .clone()
+            .next()
+            .and_then(|first| first.as_bytes().first());
+        let Some(table) = initial.and_then(|first| quanpin_table(span.len(), *first)) else {
+            return Vec::new();
+        };
+        let capacity = normalized.clone().map(str::len).sum::<usize>() + span.len() - 1;
+        let mut key = String::with_capacity(capacity);
+        for (index, syllable) in normalized.enumerate() {
+            if index > 0 {
+                key.push('\'');
+            }
+            key.push_str(syllable);
+        }
+        // 唯一跨度没有分组与去重需求，直接接管 SQL 页，避免复制同一份行存储。
+        let mut rows = self.batch_rows(&table, &[key.as_str()], span_limit);
+        rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
+        rows
     }
 
     /// Whether any shipped single-character table holds `han` (QQ:1017-1050).
@@ -308,24 +384,28 @@ impl PinyinDatabase {
         })
     }
 
-    /// `SELECT weight FROM <t> WHERE key=?1 AND value=?2 LIMIT 1`, table from the key's segments (QD:484-499).
+    /// 按原键的段数选表，查询 `key` 与 `value` 的首行权重（QD:484-499）。
     pub fn find_weight(&self, key: &str, value: &str) -> Option<i64> {
         let connection = self.connection.as_ref()?;
-        let table = build_table_name(&split_segments(key))?;
-        // A missing table or a failed step is "not found" in the reference (QD:490-497).
+        let (table, _) = word_key_table(key)?;
+        // 缺表或首步失败沿用参考实现的未找到结果（QD:490-497）。
         let mut statement = connection.prepare_cached(&find_weight_sql(&table)).ok()?;
         let mut rows = statement.query((key, value)).ok()?;
         let row = rows.next().ok()??;
         column_i64(row, 0).ok()
     }
 
-    /// Insert `(key, jp, value, INSERTED_WEIGHT)` into the key's table; `jp` is the first letter of each syllable. The caller has checked the row is absent and validated the key.
+    /// 插入原键、各非空段的首个字符、词值及 `INSERTED_WEIGHT`；调用方负责查重和键校验。
     pub fn insert_word(&self, key: &str, value: &str) -> Result<()> {
         let connection = self.writable()?;
-        let segments = split_segments(key);
-        let table = build_table_name(&segments)
-            .ok_or_else(|| EngineError::invalid(INVALID_DICTIONARY_KEY))?;
-        let jp = segments_to_jianpin(&segments);
+        let (table, syllables) =
+            word_key_table(key).ok_or_else(|| EngineError::invalid(INVALID_DICTIONARY_KEY))?;
+        let mut jp = String::with_capacity(syllables);
+        for segment in key.split('\'') {
+            if let Some(initial) = segment.chars().next() {
+                jp.push(initial);
+            }
+        }
         connection
             .prepare_cached(&insert_word_sql(&table))?
             .execute((key, jp.as_str(), value, INSERTED_WEIGHT))?;
@@ -408,13 +488,17 @@ impl PinyinDatabase {
         )
     }
 
-    /// QQ:686-740: one `IN (...)` statement per key count, which `prepare_cached` keeps apart by its text.
-    fn batch_rows(&self, table: &str, keys: &[String], limit: usize) -> Vec<DictRow> {
+    /// QQ:686-740：按键数生成 `IN (...)` 语句，`prepare_cached` 按语句文本分别缓存。
+    fn batch_rows<K: AsRef<str>>(&self, table: &str, keys: &[K], limit: usize) -> Vec<DictRow> {
         if table.is_empty() || keys.is_empty() || limit == 0 {
             return Vec::new();
         }
         let sql = batch_sql(table, keys.len(), sql_limit(limit));
-        self.rows(&sql, params_from_iter(keys), query_capacity(limit))
+        self.rows(
+            &sql,
+            params_from_iter(keys.iter().map(AsRef::as_ref)),
+            query_capacity(limit),
+        )
     }
 
     /// Runs a `"key", "value", "weight"` statement. A statement that fails to prepare (the table does not exist) yields no rows, and a failed step ends the rows read so far, exactly as the reference's `while (sqlite3_step(...) == SQLITE_ROW)` loops did (QQ:584-605).
@@ -433,10 +517,15 @@ impl PinyinDatabase {
         let Ok(mut rows) = statement.query(params) else {
             return Vec::new();
         };
-        let mut result = capacity.map_or_else(Vec::new, Vec::with_capacity);
+        let mut result = Vec::new();
         while let Ok(Some(row)) = rows.next() {
             match dict_row(row) {
-                Ok(item) => result.push(item),
+                Ok(item) => {
+                    if let (Some(capacity), 0) = (capacity, result.capacity()) {
+                        result.reserve_exact(capacity);
+                    }
+                    result.push(item);
+                }
                 Err(_) => break,
             }
         }
@@ -717,6 +806,27 @@ fn exact_segmentations_by_table(segmentations: &[Vec<String>]) -> BTreeMap<Strin
 
 fn query_capacity(limit: usize) -> Option<usize> {
     (limit < i32::MAX as usize).then_some(limit)
+}
+
+/// 词条入口只按段数和首字节规划，保留空段计数且不增加完整音节校验。
+fn word_key_table(key: &str) -> Option<(String, usize)> {
+    let initial = *key.as_bytes().first()?;
+    let syllables = key.bytes().filter(|&byte| byte == b'\'').count() + 1;
+    quanpin_table(syllables, initial).map(|table| (table, syllables))
+}
+
+/// 借用完整键的音节切片校验并计数，表名仍遵循共享格式规则。
+fn complete_key_table(key: &str) -> Option<(String, usize)> {
+    let initial = *key.as_bytes().first()?;
+    let intact = intact_pinyin_set();
+    let mut syllables = 0;
+    for segment in key.split('\'') {
+        if !intact.contains(segment) {
+            return None;
+        }
+        syllables += 1;
+    }
+    quanpin_table(syllables, initial).map(|table| (table, syllables))
 }
 
 fn query_key_is_new<'a>(
@@ -1415,3 +1525,43 @@ mod tests {
         assert!(database.find_weight("ni'hao", "你好").is_some());
     }
 }
+
+#[cfg(test)]
+#[path = "pinyin/empty_page_tests.rs"]
+mod empty_page_tests;
+
+#[cfg(test)]
+#[path = "pinyin/empty_aggregate_tests.rs"]
+mod empty_aggregate_tests;
+
+#[cfg(test)]
+#[path = "pinyin/empty_key_map_tests.rs"]
+mod empty_key_map_tests;
+
+#[cfg(test)]
+#[path = "pinyin/dedup_before_split_tests.rs"]
+mod dedup_before_split_tests;
+
+#[cfg(test)]
+#[path = "pinyin/borrowed_key_plan_tests.rs"]
+mod borrowed_key_plan_tests;
+
+#[cfg(test)]
+#[path = "pinyin/borrowed_key_groups_tests.rs"]
+mod borrowed_key_groups_tests;
+
+#[cfg(test)]
+#[path = "pinyin/result_key_reuse_tests.rs"]
+mod result_key_reuse_tests;
+
+#[cfg(test)]
+#[path = "pinyin/lattice_span_key_plan_tests.rs"]
+mod lattice_span_key_plan_tests;
+
+#[cfg(test)]
+#[path = "pinyin/aggregate_page_reuse_tests.rs"]
+mod aggregate_page_reuse_tests;
+
+#[cfg(test)]
+#[path = "pinyin/word_key_plan_tests.rs"]
+mod word_key_plan_tests;

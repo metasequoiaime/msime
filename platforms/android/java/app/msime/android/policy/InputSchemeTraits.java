@@ -35,7 +35,7 @@ public final class InputSchemeTraits {
     // `widens_full_width`: commits and direct characters are widened when the full-width switch is on.
     public static boolean widensFullWidth(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI || scheme == JAPANESE || scheme == CANTONESE || scheme == ZHUYIN || scheme == STROKE; }
 
-    // `opens_local_modes`: the local modes (`/` commands, `@` mentions, the tools that start them) are offered.
+    // `opens_local_modes`: Shift+letter opens the local modes other than K while nothing is composed (the pinyin schemes). The Engine opens K, `/` and `@` under `opens_table_modes`, which adds Wubi, but the toolbar entry for the local modes that this gates stays pinyin-only by choice (.agents/notes/implemented/bug-fix/2026-10-09-plugin-gates-and-wubi-table-modes.md).
     public static boolean opensLocalModes(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN; }
 
     // `shows_glosses`: candidates may carry translation glosses.
