@@ -244,6 +244,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean touchVoiceShortcutEnabled;
     /** 九键数字键面用计算器顺序（7 8 9 在上），来自共享偏好 `touch_number_keypad_order`。 */
     boolean numberKeypadCalculator;
+    /** 26 键按「123」画九键数字键面，来自共享偏好 `touch_twenty_six_key_number_layout`；什么时候真的画见 {@link #twentySixKeyDigitFace}。 */
+    private boolean twentySixKeyNineKeyDigits;
     /** 26 键双拼的字母键画不画声母/韵母提示，来自共享偏好 `touch_shuangpin_key_hints`，缺省为开。 */
     private boolean shuangpinKeyHintsEnabled = true;
     private boolean voiceInputEnabled = true;
@@ -1782,6 +1784,7 @@ public final class MSIMEInputService extends InputMethodService {
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
         numberKeypadCalculator = numberKeypadCalculatorFrom(preferences);
+        twentySixKeyNineKeyDigits = twentySixKeyNineKeyDigitsFrom(preferences);
         shuangpinKeyHintsEnabled = shuangpinKeyHintsFrom(preferences);
     }
 
@@ -1794,6 +1797,17 @@ public final class MSIMEInputService extends InputMethodService {
     private static boolean numberKeypadCalculatorFrom(JSONObject preferences) {
         return preferences != null && NineKeyLayout.calculatorOrder(preferences.optString(
             NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER));
+    }
+
+    private static boolean twentySixKeyNineKeyDigitsFrom(JSONObject preferences) {
+        return preferences != null && NineKeyLayout.nineKeyNumberLayout(preferences.optString(
+            NineKeyLayout.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY, NineKeyLayout.ROW_NUMBER_LAYOUT));
+    }
+
+    /** 26 键的「123」此刻是否画成九键数字键面（{@link NineKeyLayout#twentySixKeyDigits}）；键行、删除键和底栏都按它判断。 */
+    boolean twentySixKeyDigitFace() {
+        return NineKeyLayout.twentySixKeyDigits(displayedTouchLayout(view),
+            keyboardLayer == KeyboardLayout.Layer.SYMBOLS, twentySixKeyNineKeyDigits, splitKeyboardDrawn());
     }
 
     /** 没有偏好或旧文档里没有这个键时按开，与 client-core 的默认值一致。 */
@@ -2073,7 +2087,7 @@ public final class MSIMEInputService extends InputMethodService {
         return touchKeySpacingTenths + ":" + touchRowSpacingTenths + ":"
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
-            + numberKeypadCalculator + ":" + shuangpinKeyHintsEnabled;
+            + numberKeypadCalculator + ":" + shuangpinKeyHintsEnabled + ":" + twentySixKeyNineKeyDigits;
     }
 
     private void reloadPreferences(String response) {
@@ -2158,6 +2172,7 @@ public final class MSIMEInputService extends InputMethodService {
         int nextHeightAdjustment = inlineHeightActive ? touchKeyboardHeightAdjustment : savedHeightAdjustment;
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         boolean nextNumberKeypadCalculator = numberKeypadCalculatorFrom(preferences);
+        boolean nextTwentySixKeyNineKeyDigits = twentySixKeyNineKeyDigitsFrom(preferences);
         boolean nextShuangpinKeyHints = shuangpinKeyHintsFrom(preferences);
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
         boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
@@ -2229,10 +2244,12 @@ public final class MSIMEInputService extends InputMethodService {
         touchKeyboardHeightAdjustment = nextHeightAdjustment;
         if (inlineHeightActive) inlineHeightOriginal = savedHeightAdjustment;
         touchVoiceShortcutEnabled = nextVoiceShortcut;
-        // 只有九键数字键面画的是这个顺序；正画着它时要重建键行。
-        boolean numberKeypadRebuild = numberKeypadCalculator != nextNumberKeypadCalculator
+        // 数字键盘顺序和 26 键数字键盘都只影响数字层；正画着它时要重建键行。
+        boolean numberKeypadRebuild = (numberKeypadCalculator != nextNumberKeypadCalculator
+                || twentySixKeyNineKeyDigits != nextTwentySixKeyNineKeyDigits)
             && keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         numberKeypadCalculator = nextNumberKeypadCalculator;
+        twentySixKeyNineKeyDigits = nextTwentySixKeyNineKeyDigits;
         // 键面提示在 render() 的 updateShuangpinKeyHints 里按它重画；它进了 touchGeometryKey，变了就会触发 render()。
         shuangpinKeyHintsEnabled = nextShuangpinKeyHints;
         voiceInputEnabled = nextVoiceEnabled;
@@ -3695,6 +3712,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (session == 0) return;
         int previousLayout = displayedTouchLayout(view);
         boolean previousUppercase = letterCase.usesUppercase();
+        // 26 键的九键数字键面底栏有中/英；切换后回到字母层，布局常量却还是 26 键，要按它重建键行。
+        boolean previousDigitFace = twentySixKeyDigitFace();
         try {
             JSONObject nextView = value(NativeClient.setEnglishMode(session, nextEnglish));
             dedicatedEnglish = nextEnglish;
@@ -3704,7 +3723,8 @@ public final class MSIMEInputService extends InputMethodService {
             view = nextView;
             keyboardLayer = KeyboardLayout.Layer.LETTERS;
             letterCase.reset();
-            if (previousLayout != displayedTouchLayout(view) || previousUppercase) imeLetterRows.rebuildKeyRows();
+            if (previousLayout != displayedTouchLayout(view) || previousUppercase || previousDigitFace)
+                imeLetterRows.rebuildKeyRows();
             updateAutomaticCapitalization();
             if (directEnglishActive()) refreshEnglishSuggestions();
             else { clearEnglishSuggestions(); render(); }
@@ -4236,7 +4256,7 @@ public final class MSIMEInputService extends InputMethodService {
         "candidate_theme", "candidate_font_family", "candidate_english_font", "candidate_fallback_fonts",
         "candidate_font_size", "candidate_preedit_font_size",
         "touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
-        "touch_voice_shortcut", NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, ShuangpinKeyHintPolicy.PREFERENCE_KEY,
+        "touch_voice_shortcut", NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, ShuangpinKeyHintPolicy.PREFERENCE_KEY, NineKeyLayout.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY,
         "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
     /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
     private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";
@@ -5812,8 +5832,29 @@ public final class MSIMEInputService extends InputMethodService {
         android.os.Bundle args = new android.os.Bundle();
         args.putString(ClipboardHistoryPolicy.EDIT_ENTRY_ARG,
             ClipboardHistoryPolicy.editKey(item.timestamp(), item.text()));
+        putReturnToCaller(args);
         closeClipboardHistory();
         openHostPage(ClipboardHistoryPolicy.EDIT_PAGE, args);
+    }
+
+    /**
+     * 面板顶行的「搜索」（#5973）：打开应用里可搜索的剪贴板历史页，在那里输入查询、复制、编辑或删除。键盘里没有可输入的文本框，查询框放在应用里，和编辑（#5971）一样；页面读的是同一份共享存储。
+     *
+     * <p>打开之前和「编辑」一样把系统剪贴板当前那一条记为已处理：用户可能在那一页把它删掉或改掉，已处理身份存在本进程（`:ime`）的 SharedPreferences 里，应用进程写不了；不记的话回来一打开面板，补读又把它记了回来。
+     */
+    void openClipboardSearch() {
+        forgetCurrentClip();
+        android.os.Bundle args = new android.os.Bundle();
+        putReturnToCaller(args);
+        closeClipboardHistory();
+        openHostPage(ClipboardSearchPolicy.SEARCH_PAGE, args);
+    }
+
+    /** 编辑页、剪贴板历史页做完之后要不要回到原来的应用：当前输入框属于别的应用才要；在水杉自己的输入框里打开时留在应用里（{@link ClipboardHistoryPolicy#RETURN_TO_CALLER_ARG}）。 */
+    private void putReturnToCaller(android.os.Bundle args) {
+        EditorInfo info = getCurrentInputEditorInfo();
+        if (ClipboardHistoryPolicy.returnsToCaller(info == null ? null : info.packageName, getPackageName()))
+            args.putBoolean(ClipboardHistoryPolicy.RETURN_TO_CALLER_ARG, true);
     }
 
     /**

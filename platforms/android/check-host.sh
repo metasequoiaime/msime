@@ -610,6 +610,22 @@ if ! printf '%s\n' "$edit_body" | rg -q 'forgetCurrentClip\(\);' \
   echo "Android clipboard edit must open the app's CLIPBOARD_EDIT page with the entry's key after forgetting the current clip, never a dialog in the input method (#5971)" >&2
   exit 1
 fi
+# 「搜索」打开应用里可搜索的剪贴板历史页，不在键盘里放查询框（#5973）。打开之前同样把系统剪贴板当前那一条记为已处理，用户可能在那一页删掉或改掉它。页面名必须和 PageId 一致，入口要在面板顶行里。
+search_body=$(rg -A 6 'void openClipboardSearch\(' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
+if ! printf '%s\n' "$search_body" | rg -q 'forgetCurrentClip\(\);' \
+  || ! printf '%s\n' "$search_body" | rg -q 'putReturnToCaller\(args\);' \
+  || ! printf '%s\n' "$search_body" | rg -q 'openHostPage\(ClipboardSearchPolicy\.SEARCH_PAGE, args\)' \
+  || printf '%s\n' "$search_body" | rg -q 'new (AlertDialog|PopupMenu|EditText)' \
+  || ! rg -q 'public static final String SEARCH_PAGE = "CLIPBOARD_SEARCH";' \
+    "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardSearchPolicy.java" \
+  || ! rg -q '^    CLIPBOARD_SEARCH\("ClipboardSearchPage", ' \
+    "$repo_root/platforms/android/java/app/msime/android/home/PageId.java" \
+  || ! rg -q 'clipboardAction\(header, "搜索", s::openClipboardSearch\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java"; then
+  echo "Android clipboard search must open the app's CLIPBOARD_SEARCH page from the panel header after forgetting the current clip, never a query field in the input method (#5973)" >&2
+  exit 1
+fi
 if rg -q 'void manageClipboardItem|new PopupMenu\(this, anchor\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android clipboard entries must not be managed through a PopupMenu (#5653)" >&2
@@ -722,13 +738,13 @@ if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^  
   echo "Android candidate strip must not start each editor from the factory-default preference copy" >&2
   exit 1
 fi
-# 键距、行距、语音快捷键、数字键顺序和双拼键位提示同理：按副本算，调过键距的用户每换一个输入框键盘都先按出厂间距排一帧。只有实时偏好重算键盘几何，冷启动的第一帧按皮肤片段算，片段里要记着这几个字段。
+# 键距、行距、语音快捷键、数字键顺序、双拼键位提示和 26 键数字键盘同理：按副本算，调过键距的用户每换一个输入框键盘都先按出厂间距排一帧。只有实时偏好重算键盘几何，冷启动的第一帧按皮肤片段算，片段里要记着这几个字段。
 if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^    }$/p' "$account_service" \
     | rg -q '^\s*if \(live\) applyTouchGeometry\(preferences\);' \
   || ! sed -n '/JSONObject hint = readSkinHint();/,/^        }$/p' "$account_service" \
     | rg -q 'applyTouchGeometry\(hint\);' \
   || ! rg -q '"touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",' "$account_service" \
-  || ! rg -q '"touch_voice_shortcut", NineKeyLayout\.NUMBER_KEYPAD_ORDER_KEY, ShuangpinKeyHintPolicy\.PREFERENCE_KEY,' "$account_service"; then
+  || ! rg -q '"touch_voice_shortcut", NineKeyLayout\.NUMBER_KEYPAD_ORDER_KEY, ShuangpinKeyHintPolicy\.PREFERENCE_KEY, NineKeyLayout\.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY,' "$account_service"; then
   echo "Android keyboard geometry must not start each editor from the factory-default preference copy" >&2
   exit 1
 fi

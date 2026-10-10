@@ -114,6 +114,16 @@ interface RevisionReply {
   value?: RevisionValue;
 }
 
+/** What `repairPreferences` answers; only the repaired snapshot's revision is read here. */
+interface RepairValue {
+  snapshot: RevisionValue;
+}
+
+interface RepairReply {
+  ok: boolean;
+  value?: RepairValue;
+}
+
 interface OnboardingReply {
   ok: boolean;
   value: boolean;
@@ -1032,6 +1042,8 @@ class SettingsBridge {
       this.customSkinLibrary(payload).then(deliver).catch(failed);
     } else if (kind === 'vocabulary_review') {
       this.vocabularyReview(payload).then(deliver).catch(failed);
+    } else if (kind === 'repair_preferences') {
+      this.repairPreferences().then(deliver).catch(failed);
     } else if (kind === 'dictionary_collections') {
       this.dictionaryCollections(payload).then(deliver).catch((error: Object): void => {
         KeyboardLog.error(`dictionary collections request failed: ${describeError(error)}`);
@@ -1703,6 +1715,23 @@ class SettingsBridge {
    * is on disk and refuses the save if the keyboard changed something in between, which is the whole
    * point of having one.
    */
+  /**
+   * 设置页的「修复配置文件…」：只在用户点了之后才做。读不了的文件（多半是更新的版本写的）先原样备份在旁边，再按本版本认得的设置重写，其余取默认。修复后的文档和读取一样记下版本号，页面拿到的就是新的那份。
+   */
+  private async repairPreferences(): Promise<string> {
+    const reply: string = await client.repairPreferences(this.stateDirectory);
+    try {
+      const parsed: RepairReply = JSON.parse(reply) as RepairReply;
+      if (parsed.ok === true && parsed.value !== undefined) {
+        this.observedRevision = PreferenceRevisionPolicy.observe(this.observedRevision,
+          parsed.value.snapshot.revision);
+      }
+    } catch (error) {
+      KeyboardLog.error(`preference repair reply unreadable: ${describeError(error)}`);
+    }
+    return PreferencesErrorCode.rewrite(reply);
+  }
+
   savePreferences(expectedRevision: number, document: string): string {
     const reply: string = client.savePreferences(this.stateDirectory, expectedRevision, document);
     this.rememberRevision(reply);

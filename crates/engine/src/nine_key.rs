@@ -19,12 +19,13 @@ use crate::lattice::neural::{
 };
 use crate::lattice::personal::PersonalTransition;
 use crate::lattice::SentencePath;
+use crate::local::date_time::{inline_date_time_keyword, insert_inline_date_time};
 use crate::local::emoji::{query_emoji_readings, query_kaomoji_readings, ExpressiveRow};
 use crate::paths::RuntimePaths;
 use crate::pinyin::segment::{cut_one_piece_min_segments, split_segments};
 use crate::pinyin::syllables::intact_pinyin_list;
 use crate::quanpin::QuanpinDictionary;
-use crate::session::SessionSnapshot;
+use crate::session::{LocalClock, SessionSnapshot};
 use crate::stroke;
 use crate::text::{count_utf8_chars, is_all_han, is_han_phrase, last_characters};
 use crate::types::{
@@ -82,6 +83,8 @@ pub struct NineKeySession {
     english_options: EnglishInputOptions,
     /// 候选里混入 emoji、颜文字（共享偏好 `mixed_input.emoji` / `mixed_input.kaomoji`），默认都关。
     expressive: MixedExpressiveOptions,
+    /// 组字里的日期时间行（#5952）读的墙钟；`None` 时不出这些行。跟日期时间模式同一个开关。
+    inline_date_time: Option<LocalClock>,
     /// 句子联想设置（`SessionOptions::sentence_association`），与 26 键相同：`word_lattice` 关掉时不出词网格整句行，`neural_keyboard` 打开时用键盘模型给整句重排（#6059）。
     sentence_association: SentenceAssociationOptions,
     /// `SessionOptions::sentence_alternatives`：每条切分交回全部整句读法，而不是只交回最好的一条。
@@ -188,6 +191,7 @@ impl NineKeySession {
             fuzzy,
             english_options: english,
             expressive: MixedExpressiveOptions::default(),
+            inline_date_time: None,
             sentence_association: SentenceAssociationOptions::default(),
             sentence_alternatives: false,
             rescoring_context: String::new(),
@@ -231,6 +235,11 @@ impl NineKeySession {
     /// 和 26 键共用的 emoji、颜文字混排开关；与英文选项一样只在建会话时设置。
     pub fn set_mixed_expressive(&mut self, options: MixedExpressiveOptions) {
         self.expressive = options;
+    }
+
+    /// 数字正好拼出 `riqi`、`sj` 这类关键词时，把当前日期、时间、星期或农历接在对应的词后面，见 `local::date_time::insert_inline_date_time`；`None` 关掉。与 emoji 选项一样只在建会话时设置，测试换时钟时再设一次。
+    pub fn set_inline_date_time(&mut self, clock: Option<LocalClock>) {
+        self.inline_date_time = clock;
     }
 
     /// 和 26 键共用的句子联想设置（#6059）。与英文选项一样只在建会话时设置；词库已经打开时同步给它，组字中则按新设置重排候选。
@@ -1088,6 +1097,19 @@ impl NineKeySession {
             candidates.extend(english);
         }
         let mut candidates = insert_expressive_rows(candidates, emoji, kaomoji);
+        // 选了首字母或在筛选时用户是在逐字拼，不加日期时间行。
+        if let Some(clock) = self
+            .inline_date_time
+            .as_ref()
+            .filter(|_| initial.is_none() && !filtering)
+        {
+            let digits = self.digits.as_str();
+            if let Some((anchor, kind)) =
+                inline_date_time_keyword(|keyword| keyword_spells_digits(keyword, digits))
+            {
+                insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock());
+            }
+        }
         positions::apply_fixed_positions(
             &self.paths.user(assets::USER_JOURNAL),
             &self.ranking_context(),
@@ -2057,6 +2079,14 @@ fn word_matches_digits(word: &str, digits: &str) -> bool {
         }
     }
     matched == digits.len()
+}
+
+/// `keyword`（小写字母）按键盘上的字母正好拼出 `digits`，不分配。
+fn keyword_spells_digits(keyword: &str, digits: &str) -> bool {
+    keyword.len() == digits.len()
+        && keyword.bytes().zip(digits.bytes()).all(|(letter, digit)| {
+            letter.is_ascii_lowercase() && KEYPAD[usize::from(letter - b'a')] == digit
+        })
 }
 
 fn letters_for_digit(digit: u8) -> &'static str {

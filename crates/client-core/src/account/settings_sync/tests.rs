@@ -149,6 +149,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.toolbar_skin",
             "platform.android.touch_key_spacing_tenths",
             "platform.android.touch_row_spacing_tenths",
+            "platform.android.twenty_six_key_number_layout",
             "platform.android.voice_language",
             "platform.android.voice_shortcut",
         ]
@@ -255,6 +256,7 @@ fn settings_sync_round_trips_every_exported_key() {
         touch_keyboard_height_adjustment: 10,
         touch_voice_shortcut: !Preferences::default().touch_voice_shortcut,
         touch_number_keypad_order: NumberKeypadOrder::Calculator,
+        touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::NineKey,
         touch_shuangpin_key_hints: !Preferences::default().touch_shuangpin_key_hints,
         ..Preferences::default()
     };

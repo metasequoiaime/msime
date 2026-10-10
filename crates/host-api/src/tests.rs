@@ -3225,6 +3225,54 @@ fn recover_preferences_backs_up_malformed_documents_only() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn repair_preferences_keeps_what_an_older_build_knows_of_a_newer_document() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_str().unwrap();
+    let repair = || read(unsafe { msime_client_repair_preferences(path.as_ptr(), path.len()) });
+    let document = directory.path().join("preferences.json");
+
+    // Missing: nothing is written.
+    assert_eq!(repair()["value"]["recovered"], false);
+    assert!(!document.exists());
+
+    // A newer build added a setting this one does not know. Loading refuses the whole document, and the malformed-only recovery leaves it alone; the explicit repair backs it up verbatim and keeps the settings this schema accepts.
+    let newer = json!({
+        "format_version": 1,
+        "revision": 7,
+        "preferences": {"learning": false, "a_setting_from_a_newer_build": true},
+    })
+    .to_string();
+    std::fs::write(&document, &newer).unwrap();
+    assert_eq!(
+        read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_recover_preferences(path.as_ptr(), path.len()) })["ok"],
+        false
+    );
+    let repaired = repair();
+    assert_eq!(repaired["ok"], true, "{repaired}");
+    let value = &repaired["value"];
+    assert_eq!(value["recovered"], true);
+    assert_eq!(value["salvaged"], true);
+    assert_eq!(value["snapshot"]["preferences"]["learning"], false);
+    let backup = std::path::PathBuf::from(value["backup_path"].as_str().unwrap());
+    assert_eq!(std::fs::read_to_string(&backup).unwrap(), newer);
+    let loaded = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(loaded["value"], value["snapshot"]);
+
+    // Readable now: a second call is a no-op.
+    assert_eq!(repair()["value"]["recovered"], false);
+
+    assert_eq!(
+        read(unsafe { msime_client_repair_preferences(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn save_preferences_uses_compare_and_swap_and_rejects_invalid_snapshots() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().to_string_lossy().into_owned();

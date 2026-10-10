@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-- **编辑在应用里做，不在键盘里放文本框**，沿用常用语 #5673 的约定。长按操作行在「删除」后面加「编辑」（`ImePanels.renderClipboardItemActions`），点了由 `MSIMEInputService.editClipboardItem` 打开应用里的 `ClipboardEditPage`（`PageId.CLIPBOARD_EDIT`，需要参数才能打开，不进设置搜索）。页面上是预填原文的多行输入框，能用系统的选择手柄精确删字，下面是「取消」「保存」；保存或取消后弹出这一页并 `moveTaskToBack`，回到原来的应用。
+- **编辑在应用里做，不在键盘里放文本框**，沿用常用语 #5673 的约定。长按操作行在「删除」后面加「编辑」（`ImePanels.renderClipboardItemActions`），点了由 `MSIMEInputService.editClipboardItem` 打开应用里的 `ClipboardEditPage`（`PageId.CLIPBOARD_EDIT`，需要参数才能打开，不进设置搜索）。页面上是预填原文的多行输入框，能用系统的选择手柄精确删字，下面是「取消」「保存」；保存或取消后弹出这一页；键盘在别的应用的输入框里打开的（深链参数带 `HostDeepLink.ARG_EXTERNAL`，并且键盘带了 `ClipboardHistoryPolicy.RETURN_TO_CALLER_ARG`）再 `moveTaskToBack` 回到原来的应用，从应用里的剪贴板历史页打开、或键盘在水杉自己的输入框里打开的只弹回上一页（见 [android-clipboard-search](2026-10-09-android-clipboard-search.md)）。
 - **共享存储新增 `ClipboardHistoryStore::replace`**（`crates/client-core/src/clipboard.rs`），写法同 `remove` / `set_pinned`：拿写锁、重新读最新的历史、按原文找条目，不信任宿主手里的行号。
   - 改完的条目留在原位：时间戳和固定状态都不变，编辑不会让它跳到最前。
   - 新文字和另一条已有的历史相同时两条合并成一条，留在被编辑那条的位置，固定状态取两者之或（`Merged`）。

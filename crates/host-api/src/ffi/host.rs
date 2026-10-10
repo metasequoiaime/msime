@@ -1703,6 +1703,38 @@ pub unsafe extern "C" fn msime_client_recover_preferences(
     directory: *const u8,
     length: usize,
 ) -> *mut c_char {
+    // SAFETY: forwarded under the same caller contract.
+    unsafe { recover_preferences_in(directory, length, RecoveryScope::Malformed) }
+}
+
+/// The settings page's explicit 修复配置文件: repair a preferences document `load` rejects for any reason, a newer build's included, backing it up first.
+/// See `PreferencesStore::recover`; a valid or missing document is left untouched. Only call it on the user's request: a document an older build cannot read is usually a newer build's, and the repair keeps only what this schema accepts.
+/// # Safety
+/// `directory` must point to `length` readable bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_repair_preferences(
+    directory: *const u8,
+    length: usize,
+) -> *mut c_char {
+    // SAFETY: forwarded under the same caller contract.
+    unsafe { recover_preferences_in(directory, length, RecoveryScope::Unreadable) }
+}
+
+#[derive(Clone, Copy)]
+enum RecoveryScope {
+    /// Only a document that is not well-formed JSON; what input method hosts may do on their own.
+    Malformed,
+    /// Anything `load` rejects; only on the user's request.
+    Unreadable,
+}
+
+/// # Safety
+/// `directory` must point to `length` readable bytes. Null is rejected.
+unsafe fn recover_preferences_in(
+    directory: *const u8,
+    length: usize,
+    scope: RecoveryScope,
+) -> *mut c_char {
     response(|| {
         if directory.is_null() || length > 16384 {
             return Err("invalid preferences directory buffer".into());
@@ -1714,9 +1746,12 @@ pub unsafe extern "C" fn msime_client_recover_preferences(
             "invalid preferences directory encoding",
             "preferences directory must be absolute",
         )?;
-        let outcome = PreferencesStore::new(directory)
-            .recover_malformed()
-            .map_err(|e| e.to_string())?;
+        let store = PreferencesStore::new(directory);
+        let outcome = match scope {
+            RecoveryScope::Malformed => store.recover_malformed(),
+            RecoveryScope::Unreadable => store.recover(),
+        }
+        .map_err(|e| e.to_string())?;
         Ok(match outcome {
             msime_client_core::preferences::RecoveryOutcome::NotNeeded(snapshot) => json!({
                 "recovered": false,

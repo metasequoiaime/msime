@@ -15,7 +15,8 @@ final class NineKeyKeyboardTests: XCTestCase {
   private var savedKeyboardPreferences: [String: Any] = [:]
   private let preferenceKeys = [KeyboardLayoutPreference.keySpacingKey,
     KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.heightAdjustmentKey,
-    KeyboardLayoutPreference.voiceShortcutKey, KeyboardLayoutPreference.numberKeypadOrderKey]
+    KeyboardLayoutPreference.voiceShortcutKey, KeyboardLayoutPreference.numberKeypadOrderKey,
+    KeyboardLayoutPreference.twentySixKeyNumberLayoutKey]
   override func tearDown() {
     for key in preferenceKeys {
       if let value = savedKeyboardPreferences[key] { KeyboardLayoutPreference.defaults.set(value, forKey: key) }
@@ -3140,6 +3141,135 @@ final class NineKeyKeyboardTests: XCTestCase {
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(try button("nineKey7", in: controller).configuration?.title, "PQRS")
     XCTAssertEqual(try button("nineKey7", in: controller).accessibilityLabel, "7 PQRS")
+  }
+
+  // MARK: - 26 键数字键盘
+
+  func testTwentySixKeyNumberLayoutReadsTheDocumentAndOnlyAppliesToPhoneLetterKeys() {
+    typealias Layout = KeyboardLayoutPreference.TwentySixKeyNumberLayout
+    XCTAssertEqual(Layout.shared(in: nil), .row)
+    XCTAssertEqual(Layout.shared(in: ["touch_twenty_six_key_number_layout": "abacus"]), .row)
+    XCTAssertEqual(Layout.shared(in: ["touch_twenty_six_key_number_layout": "nine_key"]), .nineKey)
+    XCTAssertEqual(Layout.allCases.map(\.title), ["一行", "九宫格"])
+    XCTAssertTrue(KeyboardViewController.opensNineKeyDigitPad(layout: .nineKey, formFactor: .phone, letterKeys: true))
+    XCTAssertFalse(KeyboardViewController.opensNineKeyDigitPad(layout: .row, formFactor: .phone, letterKeys: true))
+    // iPad 全尺寸键盘保留一行的 123 页；九键、笔画、手写、假名和大千的字母层不是 26 键字母。
+    XCTAssertFalse(KeyboardViewController.opensNineKeyDigitPad(layout: .nineKey, formFactor: .tablet, letterKeys: true))
+    XCTAssertFalse(KeyboardViewController.opensNineKeyDigitPad(layout: .nineKey, formFactor: .phone, letterKeys: false))
+  }
+
+  /// 选了九宫格后，全拼 26 键的 123 换成九键的数字层：标点栏、按数字键盘顺序排的 3×3、⌫ . ！ 和底行的 0；返回键回到 26 键字母，组字不受影响。
+  func testNineKeyNumberLayoutTurnsTheTwentySixKey123IntoTheDigitGrid() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .quanpin
+    KeyboardLayoutPreference.twentySixKeyNumberLayout = .nineKey
+    KeyboardLayoutPreference.numberKeypadOrder = .calculator
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.layoutIfNeeded()
+    func shown(_ view: UIView) -> Bool { sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden } }
+    func view(_ id: String) throws -> UIView {
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == id }, id)
+    }
+    let letterN = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 N" } as? UIButton)
+    let letterI = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 I" } as? UIButton)
+    XCTAssertFalse(shown(try view("nineKeySidebar")), "the letter layer is still the 26 keys")
+    letterN.sendActions(for: .primaryActionTriggered)
+    letterI.sendActions(for: .primaryActionTriggered)
+    let composing = try button("preeditButton", in: controller).configuration?.title
+
+    let toggle = try button("layoutToggleButton", in: controller)
+    toggle.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, composing,
+                   "tapping 123 keeps the composition, as the row page does")
+    XCTAssertTrue(shown(try view("nineKeySidebar")))
+    XCTAssertFalse(shown(try view("symbolLayerRow0")), "the row-of-digits page is not drawn")
+    XCTAssertFalse(shown(letterN))
+    let faces = try (1...9).map { try XCTUnwrap(button("nineKey\($0)", in: controller).configuration?.title) }
+    XCTAssertEqual(faces, ["7", "8", "9", "4", "5", "6", "1", "2", "3"])
+    XCTAssertEqual(try button("nineKey1", in: controller).accessibilityLabel, "数字 7")
+    XCTAssertNil(try button("nineKey5", in: controller).accessibilityHint)
+    XCTAssertEqual(try button("nineKey5", in: controller).gestureRecognizers?
+      .compactMap { $0 as? UILongPressGestureRecognizer }.filter(\.isEnabled).count, 0,
+                   "no pinyin letters to offer on a 26-key digit pad")
+    XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, ".")
+    XCTAssertTrue(shown(try button("nineKeyZero", in: controller)))
+    XCTAssertTrue(shown(try button("nineKeyDelete", in: controller)))
+    XCTAssertEqual(try button("nineKeyClosingMark", in: controller).configuration?.title, "！")
+    XCTAssertEqual(toggle.configuration?.title, "拼音")
+    XCTAssertEqual(toggle.accessibilityLabel, "切换到字母键盘")
+    XCTAssertTrue(shown(try button("bottomLanguageKey", in: controller)))
+    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant,
+                   KeyboardViewController.defaultKeyboardHeight, "the digit pad is as tall as the letters")
+
+    // 返回键回到 26 键字母，不是九键的字母层。
+    toggle.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(shown(letterN))
+    XCTAssertFalse(shown(try view("nineKeySidebar")))
+    XCTAssertEqual(toggle.configuration?.title, "123")
+    XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, composing)
+    XCTAssertEqual(try button("nineKey5", in: controller).gestureRecognizers?
+      .compactMap { $0 as? UILongPressGestureRecognizer }.filter(\.isEnabled).count, 1)
+
+    // 英文的数字层与一行的 123 页一样用 ASCII 标点，返回键标为 ABC。
+    try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+    toggle.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(shown(try view("nineKeySidebar")))
+    XCTAssertNotNil(shownSymbolKey(",", in: controller))
+    XCTAssertNotNil(shownSymbolKey("?", in: controller))
+    XCTAssertNil(shownSymbolKey("，", in: controller))
+    XCTAssertEqual(try button("nineKeyClosingMark", in: controller).configuration?.title, "!")
+    XCTAssertEqual(toggle.configuration?.title, "ABC")
+    // 在数字层上切回中文，标点跟着换回中文。
+    try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNotNil(shownSymbolKey("，", in: controller))
+    XCTAssertEqual(try button("nineKeyClosingMark", in: controller).configuration?.title, "！")
+
+    let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
+      controller.view.layer.render(in: context.cgContext)
+    })
+    attachment.name = "26-key nine-key digit pad"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+
+  /// 默认的一行、九键方案和 iPad 全尺寸键盘都不受这个设置影响。
+  func testNineKeyNumberLayoutLeavesOtherKeyboardsAlone() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    func shown(_ view: UIView) -> Bool { sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden } }
+    func layer(after scheme: ChineseInputScheme, layout: KeyboardLayoutPreference.TwentySixKeyNumberLayout,
+               tablet: Bool = false) throws -> KeyboardViewController {
+      InputSchemePreference.scheme = scheme
+      KeyboardLayoutPreference.twentySixKeyNumberLayout = layout
+      let controller = KeyboardViewController()
+      if tablet {
+        controller.traitOverrides.userInterfaceIdiom = .pad
+        controller.traitOverrides.horizontalSizeClass = .regular
+      }
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: tablet ? 834 : 390, height: 320)
+      try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      return controller
+    }
+    func symbolRow(_ controller: KeyboardViewController) throws -> UIView {
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "symbolLayerRow0" })
+    }
+
+    XCTAssertTrue(shown(try symbolRow(try layer(after: .quanpin, layout: .row))), "row stays the default")
+    XCTAssertTrue(shown(try symbolRow(try layer(after: .quanpin, layout: .nineKey, tablet: true))),
+                  "the full-size iPad keyboard keeps its row page")
+    XCTAssertTrue(shown(try symbolRow(try layer(after: .handwriting, layout: .nineKey))))
+    let nineKey = try layer(after: .nineKey, layout: .nineKey)
+    XCTAssertEqual(try button("layoutToggleButton", in: nineKey).configuration?.title, "九键")
+    XCTAssertEqual(try button("nineKey2", in: nineKey).configuration?.title, "2")
   }
 
 }

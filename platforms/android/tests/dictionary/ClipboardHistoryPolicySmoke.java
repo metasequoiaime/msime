@@ -91,6 +91,15 @@ public final class ClipboardHistoryPolicySmoke {
             "the key fits a deep link argument however long the entry is");
         check(app.msime.android.HostDeepLink.isAllowedArgKey(ClipboardHistoryPolicy.EDIT_ENTRY_ARG),
             "the argument name survives the deep link filter");
+        check(app.msime.android.HostDeepLink.isAllowedArgKey(ClipboardHistoryPolicy.RETURN_TO_CALLER_ARG),
+            "the return argument survives the deep link filter");
+        // #5973：在别的应用的输入框里打开就回到那个应用；在水杉自己的输入框里打开时不能把水杉送到后台。
+        check(ClipboardHistoryPolicy.returnsToCaller("com.example.synthetic", "app.msime.android"),
+            "another app's field returns to that app");
+        check(!ClipboardHistoryPolicy.returnsToCaller("app.msime.android", "app.msime.android"),
+            "the app's own field stays in the app");
+        check(ClipboardHistoryPolicy.returnsToCaller(null, "app.msime.android"),
+            "an unknown field keeps the old return");
         check(ClipboardHistoryPolicy.EDIT_PAGE.equals(app.msime.android.HostDeepLink.pageName(ClipboardHistoryPolicy.EDIT_PAGE)),
             "the page name survives the deep link filter");
         System.out.println("Android clipboard history: policy, dedupe, pinning, removal and bounds passed");

@@ -297,10 +297,11 @@ final class ImeBottomRow {
         return periodButton;
     }
 
-    /** 新设计的 123 / #+= 层自带底行，这时功能行整行不显示。 */
+    /** 新设计的 123 / #+= 层自带底行，这时功能行整行不显示。26 键换成九键数字键面时画的不是这一层，底栏照常显示。 */
     boolean layerOwnsBottomRow() {
         return s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-            && ImeLetterRows.drawsDesignLayer(s.displayedTouchLayout(s.view));
+            && ImeLetterRows.drawsDesignLayer(s.displayedTouchLayout(s.view))
+            && !s.twentySixKeyDigitFace();
     }
 
     /**
@@ -316,6 +317,8 @@ final class ImeBottomRow {
         s.imeStyler.refreshSeasonIfNeeded();
         s.imeLetterRows.updateSecondRowIndent();
         int layout = s.displayedTouchLayout(s.view);
+        // 26 键的九键数字键面和拼音九键一样，标点在左侧符号栏、小数点在右列，底栏按拼音九键排，不再放逗号句号。
+        boolean digitFace = s.twentySixKeyDigitFace();
         boolean globe = s.offersGlobeKey();
         boolean ownBottom = layerOwnsBottomRow();
         boolean chinesePunctuation = s.sendsChinesePunctuation();
@@ -335,10 +338,10 @@ final class ImeBottomRow {
         // relayout the user can see. The row only changes when the surface does.
         // 分离时空格拆成两半、空隙按可见键居中，所以常用标点键显示与否也会改变排布。
         boolean split = !ownBottom && s.splitKeyboardDrawn();
-        String signature = layout + ":" + globe + ":" + ownBottom + ":" + split
+        String signature = layout + ":" + digitFace + ":" + globe + ":" + ownBottom + ":" + split
             + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
-            : KeyboardActionRow.designEntries(layout, globe);
+            : KeyboardActionRow.designEntries(digitFace ? KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT : layout, globe);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());

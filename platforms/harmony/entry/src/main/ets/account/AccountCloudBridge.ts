@@ -938,6 +938,7 @@ export class AccountCloudBridge {
   private session: Session | null = null;
   private generation = 0;
   private refreshing: Promise<CredentialReply> | null = null;
+  private adoptedStoredSession = false;
   private readonly anonymousStore: AccountSessionStore | undefined;
   private anonymous: AccountCloudBridge | null = null;
 
@@ -1029,6 +1030,36 @@ export class AccountCloudBridge {
   currentUserId(): string | null {
     const session = this.session;
     return session?.user.id ?? null;
+  }
+
+  /** Whether this bridge's login is still the one in the shared store. A token rotation by another process conservatively invalidates a keyboard listing. */
+  matchesStoredSession(): boolean {
+    const current: Session | null = this.session;
+    const stored: Session | null = this.storedSession();
+    return (
+      current !== null &&
+      stored !== null &&
+      current.user.id === stored.user.id &&
+      current.refresh_token === stored.refresh_token
+    );
+  }
+
+  /** A keyboard send may refresh its own token, but must not follow a different process's login or rotation. */
+  async addClipboardForCurrentSession(text: string): Promise<string> {
+    if (!CloudClipboardPolicy.validText(text) || !this.matchesStoredSession())
+      return error("account_cancelled");
+    const guard = (): boolean => !this.adoptedStoredSession && this.matchesStoredSession();
+    const result = await this.authorizedResponse(
+      "POST",
+      "/v1/users/me/clipboard",
+      { text },
+      undefined,
+      undefined,
+      guard,
+    );
+    return result.response === undefined
+      ? error(result.error ?? "account_unavailable")
+      : this.response(result.response);
   }
 
   /** A marker for native operations that may write after several asynchronous account calls. */
@@ -2170,8 +2201,10 @@ export class AccountCloudBridge {
       stored.user.id === current.user.id &&
       stored.refresh_token !== current.refresh_token &&
       stored.expires_at > current.expires_at
-    )
+    ) {
+      this.adoptedStoredSession = true;
       this.session = stored;
+    }
   }
 
   /** Whether the store now holds a valid session for a different account from the one in memory. */
@@ -2243,6 +2276,7 @@ export class AccountCloudBridge {
     }
     if (stored.refresh_token !== refreshToken && stored.expires_at > from.expires_at) {
       // A newer session for this account was saved meanwhile, a fresh sign-in; it stays, and this process uses it.
+      this.adoptedStoredSession = true;
       this.session = stored;
       return { token: stored.access_token };
     }
@@ -2272,12 +2306,14 @@ export class AccountCloudBridge {
     body?: Record<string, unknown>,
     timeoutMs?: number,
     requestTag?: string,
+    sessionGuard?: () => boolean,
   ): Promise<AuthorizedReply> {
     const currentToken: string | null = this.usableToken();
     let credential: CredentialReply =
       currentToken === null ? await this.credential() : { token: currentToken };
     if (credential.token === undefined)
       return { error: credential.error ?? "account_unauthorized" };
+    if (sessionGuard !== undefined && !sessionGuard()) return { error: "account_cancelled" };
     let token: string = credential.token;
     let generation: number = this.generation;
     let response: AccountTransportResponse = await this.transport.request(
@@ -2297,6 +2333,7 @@ export class AccountCloudBridge {
     credential = await this.credential(token);
     if (credential.token === undefined)
       return { error: credential.error ?? "account_unauthorized" };
+    if (sessionGuard !== undefined && !sessionGuard()) return { error: "account_cancelled" };
     token = credential.token;
     generation = this.generation;
     response = await this.transport.request(method, path, token, body, timeoutMs, requestTag);

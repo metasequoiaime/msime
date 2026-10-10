@@ -40,7 +40,7 @@ import { FullWidthInputPolicy } from './input/FullWidthInputPolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { ChineseOutputPolicy } from './input/ChineseOutputPolicy';
 import { KeyboardFeedback, FeedbackSettings, HapticPlan, HapticStrength } from './KeyboardFeedback';
-import { NumberKeypadOrder } from './input/NineKeyLayout';
+import { NumberKeypadOrder, TwentySixKeyNumberLayout } from './input/NineKeyLayout';
 import { HardwareKeyRouter, HardwareNavigationPreferences, HardwareSpelling } from './HardwareKeyRouter';
 import vibrator from '@ohos.vibrator';
 import common from '@ohos.app.ability.common';
@@ -100,9 +100,9 @@ import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure
 } from './clipboard/ClipboardHistoryStore';
 import { ClipboardHistoryPreferencePolicy } from './clipboard/ClipboardHistoryPreferencePolicy';
-import { CloudClipboardClient } from './clipboard/CloudClipboardClient';
+import { CloudClipboardBoundListing, CloudClipboardClient } from './clipboard/CloudClipboardClient';
 import {
-  CloudClipboardListing, CloudClipboardPolicy, CloudClipboardSendOutcome
+  CloudClipboardPolicy, CloudClipboardSendOutcome
 } from './clipboard/CloudClipboardPolicy';
 import {
   DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration, VoiceInputConfigurationPolicy
@@ -847,6 +847,8 @@ interface PreparedPreferences {
   touch_voice_shortcut: boolean;
   /** 九键数字层的排列：`phone`（1 2 3 在上）或 `calculator`（7 8 9 在上）；旧文档没有这个键，按 `phone`。 */
   touch_number_keypad_order?: string;
+  /** 26 键按「123」切到的数字层：`row`（一行 1 到 0）或 `nine_key`（九宫格数字层）；旧文档没有这个键，按 `row`。 */
+  touch_twenty_six_key_number_layout?: string;
   /** 26 键双拼字母键底部的声母/韵母提示；旧文档没有这个键，按开。 */
   touch_shuangpin_key_hints?: boolean;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -984,6 +986,8 @@ export interface KeyboardPreferences {
   readonly heightAdjustment: number;
   /** `NumberKeypadOrder` 归一后的九键数字层排列。 */
   readonly numberKeypadOrder: string;
+  /** `TwentySixKeyNumberLayout` 归一后的 26 键数字层。 */
+  readonly twentySixKeyNumberLayout: string;
   /** `touch_shuangpin_key_hints`：关掉时 26 键双拼不画键位提示。 */
   readonly shuangpinKeyHints: boolean;
 }
@@ -1241,6 +1245,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
     numberKeypadOrder: NumberKeypadOrder.PHONE,
+    twentySixKeyNumberLayout: TwentySixKeyNumberLayout.ROW,
     shuangpinKeyHints: true
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
@@ -1508,6 +1513,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       heightAdjustment:
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
       numberKeypadOrder: NumberKeypadOrder.normalized(preferences.touch_number_keypad_order),
+      twentySixKeyNumberLayout:
+        TwentySixKeyNumberLayout.normalized(preferences.touch_twenty_six_key_number_layout),
       shuangpinKeyHints: preferences.touch_shuangpin_key_hints !== false
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
@@ -5113,14 +5120,20 @@ export class KeyboardSession implements HardwareKeyTarget {
    *
    * Null when the listing no longer belongs to the focused editor: the field changed while the request was out, or it is one that may not see cloud items. A late answer for another field is dropped rather than shown, since tapping one of its items would paste into a field it was never fetched for.
    */
-  async cloudClipboardItems(): Promise<CloudClipboardListing | null> {
+  async cloudClipboardItems(): Promise<CloudClipboardBoundListing | null> {
     const editor: number = this.attributeGeneration;
     if (!this.cloudClipboardVisible()) return null;
-    const listing: CloudClipboardListing = await this.cloudClipboard().list();
+    const client: CloudClipboardClient = this.cloudClipboard();
+    const listing: CloudClipboardBoundListing | null = await client.list();
+    if (listing === null || (listing.binding !== null && !(await client.matches(listing.binding)))) return null;
     if (!CloudClipboardPolicy.current(editor, this.attributeGeneration) || !this.cloudClipboardVisible()) {
       return null;
     }
     return listing;
+  }
+
+  async cloudClipboardBindingCurrent(binding: string): Promise<boolean> {
+    return await this.cloudClipboard().matches(binding);
   }
 
   /** Inserts a cloud item the way a local history entry is inserted, but only into the editor its listing was fetched for. */
@@ -5133,12 +5146,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /** Uploads one local history entry the user chose; nothing reaches the cloud clipboard any other way. */
-  async sendToCloudClipboard(text: string): Promise<CloudClipboardSendOutcome> {
+  async sendToCloudClipboard(text: string, binding: string): Promise<CloudClipboardSendOutcome> {
     // 面板只在云端那一半可见时提供「发到云剪贴板」；如果隐私模式在提供之后才开启，这里守住这条线。
     if (!this.cloudClipboardVisible()) {
       return CloudClipboardSendOutcome.FAILED;
     }
-    return await this.cloudClipboard().add(text);
+    return await this.cloudClipboard().add(text, binding);
   }
 
   private cloudClipboard(): CloudClipboardClient {

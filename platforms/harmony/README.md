@@ -83,6 +83,8 @@ Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平�
 
 云剪贴板在键盘里也有一份：剪贴板面板（手机的剪贴板键面、2in1 表情面板的剪贴板页）分「本机」与「云端」两栏。云端只在面板打开和点「刷新」时读取一次，没有轮询，复制时不上传，也不读系统剪贴板；点一条就插入当前编辑器。本机历史长按一条出现「发到云剪贴板」，只有已登录且云剪贴板已开启时可用。密码框里没有「云端」这一栏，读取期间换了编辑器的结果直接丢弃，判断都在 `keyboard/clipboard/CloudClipboardPolicy.ts`。键盘不持有凭据：两个进程同属 `entry` 模块，`files/state/account-session.json` 是同一个文件，键盘每次操作都按它新建一个 `AccountCloudBridge`，所以设置页里的登出、换号对键盘立即生效（API 12 起两个进程的 `files/state` 不是同一个目录，键盘看不到这份会话，见上文「输入法扩展的独立沙箱」）。设置应用和键盘扩展是两个进程，而服务端每次刷新都轮换刷新令牌，有人出示已用过的刷新令牌就吊销整个会话——两个进程同时刷新，或一个进程拿着另一个已经轮换掉的旧令牌去刷新，都会把用户在所有地方登出。所以每一次刷新都在 `files/state/account-session.lock` 的排他文件锁（`fs.File.lock`）里进行：`AccountCloudBridge` 进锁后先重读会话文件，另一个进程已为同一账号存下更新的会话就直接接过来用，只有磁盘上没有更好的令牌时才刷新；写回前再读一次，会话已被登出或换号就丢弃这次轮换。登录、登出、资料回写和令牌被拒后的清除也走同一把锁，被拒时只清除仍是被拒那份的会话，不会误删刚登录的新会话。拿不到锁就不刷新，报暂时不可用而不是去冒吊销的险。会话文件改为写临时文件再原子改名，读的一方不会读到写了一半的文档并把它当作损坏清掉。
 
+面板只保存当前会话文件的 SHA-256 摘要。列表返回、点按插入和发送前都会重新核对；账号切换、退出登录、同账号重新登录或另一个进程轮换令牌后，旧列表和待发送项作废，用户点刷新后再读取新会话。
+
 使用情况上报、公告与社区审核走 client-core 的共享实现，本宿主只决定何时调用。上报开关是共享偏好 `usage_reporting`（默认开启，设置页关闭后立即清空本地队列）；队列、随机安装 id、每日一次的 `active` 和会话记录都在 `files/state/telemetry`，设置应用和键盘扩展两个进程共用、由 client-core 加锁（API 12 起两个进程的 `files/state` 不是同一个目录，见上文「输入法扩展的独立沙箱」）。一次会话就是一个键盘进程：`KeyboardExtensionAbility` 创建时开始、被正常销毁时结束；设置应用只发送已排队的事件，不再在每次启动时发 `download`。崩溃不装自己的处理器，而是用 HiAppEvent 在下次启动时收系统上报的 `APP_CRASH`（JavaScript 与原生都有），所以崩溃仍按原来的方式结束进程。键盘在开始新会话前等两秒：这期间收到的、属于上一个键盘进程的崩溃写成那次会话的崩溃记录，于是计为 `session_crash`；其余崩溃（设置应用的、或来得太晚的）写成独立记录，只计为 `crash`。原生帧只留文件名加 pc 和符号，信号只留名称和 code，不带地址；`TelemetryPolicy.ts` 里的这些决定由 `tests/run.sh` 覆盖，HiAppEvent 的实际投递时机只能在设备上确认。
 
 公告在设置窗口打开或回到前台时取（client-core 一分钟内直接用缓存），显示为设置页上方一张可关闭的卡片，关闭按公告 id 记在本地。正文是 client-core 用 pulldown-cmark 渲染、原始 HTML 已转义的 HTML，放进一个禁用脚本、CSP 为 `default-src 'none'` 的小 Web 组件里；点链接一律交给系统浏览器或邮件应用。这里没有用 RichText：它没有拦截链接点击的入口，链接会在卡片里打开，而 Web 组件的 `onLoadIntercept` 可以把它拦下来交出去。
@@ -232,6 +234,8 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 ## 九键数字层的计算器顺序与「跟随系统」振动
 
 共享偏好 `touch_number_keypad_order` 为 `calculator` 时，九键数字层排成 7 8 9 在上、1 2 3 在下（`NineKeyLayout.digits(order)`），字母层不变；账号同步键是 `platform.harmony.number_keypad_order`。
+
+共享偏好 `touch_twenty_six_key_number_layout` 为 `nine_key` 时，触屏 26 键按 123 不再出一行 1–0 的 123 / #+= 双层，而是九键的数字层：左列 ，。？、3×3 数字（排列同样跟 `touch_number_keypad_order` 走）、右列删除／分词／！，底行 `返回 空格 0 中 回车`。`返回` 回到 26 键字母而不是九键字母，长按字母层的 123 照旧打开符号面板；这一层没有 #+=，更多符号走符号面板。判断在 `TwentySixKeyNumberLayout.opensNineKeyDigits`：只换触屏上由 26 键字母行画的键面（全拼、双拼、五笔、英文，以及韩文、越南语、藏文），九键、假名网格、注音大千、笔画和手写板的数字层不变，2in1 屏幕键盘也不变；平板与手机同用触屏键面，九键在平板上本来就画这一层，所以平板也换。数字格走 26 键 123 层数字的同一条路（`tapSymbol`）：键位按输入的数字记，与一行的 123 页相同，统计页不会给只用 26 键的人多出一块九宫格，韩文、越南语的 VNI 声调、藏文和组字中的网址对数字的处理不变；按 123 时已有的组字与一行数字时一样保留。缺省、旧文档或认不出的值按 `row`。账号同步键是 `platform.harmony.twenty_six_key_number_layout`（`row`／`nine_key`）。以上由 `tests/run.sh` 的逻辑测试和 `hvigorw assembleHap` 的 ArkTS 编译覆盖。
 
 共享偏好 `touch_shuangpin_key_hints` 为 `false` 时（设置页「屏幕键盘 › 布局」的「双拼键位提示」），26 键双拼的字母键不再画底部的声母/韵母提示，提示行不占高度；缺省和旧文档都按开。账号同步键是 `platform.harmony.shuangpin_key_hints`。
 

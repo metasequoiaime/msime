@@ -61,6 +61,7 @@ import {
   NineKeyLayout,
   NineKey,
   NumberKeypadOrder,
+  TwentySixKeyNumberLayout,
 } from "../entry/src/main/ets/keyboard/input/NineKeyLayout";
 import {
   NineKeyPanelBackspace,
@@ -2565,6 +2566,42 @@ group("the digit layer can be laid out like a calculator", () => {
       NumberKeypadOrder.normalized(null) === NumberKeypadOrder.PHONE &&
       NumberKeypadOrder.normalized("calculator") === NumberKeypadOrder.CALCULATOR,
     "an older document without the key reads as the phone order",
+  );
+});
+
+group("the twenty-six key 123 can open the nine-key digit layer", () => {
+  const NINE = TwentySixKeyNumberLayout.NINE_KEY;
+  check(
+    TwentySixKeyNumberLayout.opensNineKeyDigits(NINE, true, true, true),
+    "nine_key on a touch 26-key digit layer draws the nine-key digits",
+  );
+  check(
+    !TwentySixKeyNumberLayout.opensNineKeyDigits(TwentySixKeyNumberLayout.ROW, true, true, true),
+    "row keeps the 1–0 page",
+  );
+  check(
+    !TwentySixKeyNumberLayout.opensNineKeyDigits(undefined, true, true, true) &&
+      !TwentySixKeyNumberLayout.opensNineKeyDigits(null, true, true, true) &&
+      !TwentySixKeyNumberLayout.opensNineKeyDigits("grid", true, true, true),
+    "an older document or an unknown value keeps the 1–0 page",
+  );
+  check(
+    !TwentySixKeyNumberLayout.opensNineKeyDigits(NINE, true, false, true),
+    "the letter layer is never replaced",
+  );
+  check(
+    !TwentySixKeyNumberLayout.opensNineKeyDigits(NINE, false, true, true),
+    "the 2in1 screen keyboard keeps its own symbol rows",
+  );
+  check(
+    !TwentySixKeyNumberLayout.opensNineKeyDigits(NINE, true, true, false),
+    "faces that are not the 26-key letter rows (nine-key, kana, zhuyin, stroke, handwriting) are left alone",
+  );
+  check(
+    TwentySixKeyNumberLayout.normalized("nine_key") === NINE &&
+      TwentySixKeyNumberLayout.normalized(undefined) === TwentySixKeyNumberLayout.ROW &&
+      TwentySixKeyNumberLayout.normalized("calculator") === TwentySixKeyNumberLayout.ROW,
+    "only nine_key reads as the grid; everything else is the row",
   );
 });
 
@@ -11207,6 +11244,76 @@ group("the account bridge sends multi-line clipboard text the shared client acce
     });
 });
 
+group("a keyboard bridge rejects a replaced stored login", () => {
+  const session = (user: string, refresh: string): string =>
+    JSON.stringify({
+      access_token: "a".repeat(64),
+      refresh_token: refresh.repeat(64),
+      token_type: "Bearer",
+      expires_at: Date.now() + 600_000,
+      user: { id: user, display_name: "Test", created_at: "2026-01-01" },
+    });
+  let stored: string | null = session("synthetic-A", "b");
+  const store: AccountSessionStore = {
+    load: () => stored,
+    save: (value) => {
+      stored = value;
+    },
+    clear: () => {
+      stored = null;
+    },
+  };
+  const bridge = new AccountCloudBridge(
+    { request: async () => ({ status: 200, body: "{}" }) },
+    store,
+  );
+  check(bridge.matchesStoredSession(), "the bridge initially matches its stored login");
+  stored = session("synthetic-B", "c");
+  check(!bridge.matchesStoredSession(), "a different account invalidates the bridge");
+  stored = session("synthetic-A", "d");
+  check(!bridge.matchesStoredSession(), "relogging into the same account also invalidates it");
+  stored = null;
+  check(!bridge.matchesStoredSession(), "signing out invalidates it");
+});
+
+group("a keyboard send refuses a same-account login adopted during refresh", () => {
+  const session = (refresh: string, expires: number): string =>
+    JSON.stringify({
+      access_token: "a".repeat(64),
+      refresh_token: refresh.repeat(64),
+      token_type: "Bearer",
+      expires_at: expires,
+      user: { id: "synthetic-A", display_name: "Test", created_at: "2026-01-01" },
+    });
+  let stored: string | null = session("b", Date.now() - 1);
+  const paths: string[] = [];
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (_method, path) => {
+        paths.push(path);
+        return { status: 200, body: "{}" };
+      },
+    },
+    {
+      load: () => stored,
+      save: (value) => {
+        stored = value;
+      },
+      clear: () => {
+        stored = null;
+      },
+      exclusive: async (body) => {
+        stored = session("c", Date.now() + 600_000);
+        return await body();
+      },
+    },
+  );
+  void bridge.addClipboardForCurrentSession("synthetic clipboard text").then((reply) => {
+    check(JSON.parse(reply).error === "account_cancelled", "the adopted login cancels the send");
+    check(paths.length === 0, "no clipboard upload reaches the transport");
+  });
+});
+
 group("the account bridge accepts the shared clipboard search bound", () => {
   let stored: string | null = JSON.stringify({
     access_token: "a".repeat(64),
@@ -11672,6 +11779,7 @@ function fullPreferenceSchema(): AccountPreferenceSchema {
       "platform.harmony.custom_candidate_skin_dark",
       "platform.harmony.haptic_strength",
       "platform.harmony.number_keypad_order",
+      "platform.harmony.twenty_six_key_number_layout",
     ],
     "string",
   );
@@ -11952,6 +12060,52 @@ group("the digit order and 跟随系统 travel with the account", () => {
     refused = error instanceof AccountPreferenceError && error.message === "account_invalid";
   }
   check(refused, "an order nobody defined is refused rather than mapped");
+});
+
+group("the 26-key digit layer choice travels with the account", () => {
+  const schema = fullPreferenceSchema();
+  const uploaded = localAccountPreferences(
+    { touch_twenty_six_key_number_layout: "nine_key" },
+    syncFeedback,
+  );
+  check(
+    uploaded["platform.harmony.twenty_six_key_number_layout"] === "nine_key",
+    "the nine-key digit layer is uploaded",
+  );
+  check(
+    localAccountPreferences({}, syncFeedback)["platform.harmony.twenty_six_key_number_layout"] ===
+      "row",
+    "a document from before the setting uploads the row",
+  );
+  check(
+    localAccountPreferences({ touch_twenty_six_key_number_layout: "grid" }, syncFeedback)[
+      "platform.harmony.twenty_six_key_number_layout"
+    ] === "row",
+    "an unknown local layout is never uploaded",
+  );
+  const applied = applyAccountPreferences(
+    {},
+    { revision: 2, settings: { "platform.harmony.twenty_six_key_number_layout": "nine_key" } },
+    schema,
+    syncFeedback,
+  );
+  check(
+    applied.preferences.touch_twenty_six_key_number_layout === "nine_key",
+    "the layout is written into the document",
+  );
+  check(applied.feedback === null, "and the feedback file is left alone");
+  let refused = false;
+  try {
+    applyAccountPreferences(
+      {},
+      { revision: 3, settings: { "platform.harmony.twenty_six_key_number_layout": "grid" } },
+      schema,
+      syncFeedback,
+    );
+  } catch (error) {
+    refused = error instanceof AccountPreferenceError && error.message === "account_invalid";
+  }
+  check(refused, "a layout nobody defined is refused rather than mapped");
 });
 
 group("the shuangpin key hint switch travels with the account", () => {
