@@ -496,6 +496,14 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_focusRaw(JNIEnv
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_setNineKeyModeRaw(JNIEnv *env, jclass, jlong handle, jboolean enabled) {
     return response(env, msime_client_set_nine_key_mode(static_cast<uint64_t>(handle), enabled == JNI_TRUE));
 }
+// 组码网格：0 关，1 九键，2 全拼 14 键；其他取值在这里就拒绝，不截断成 uint8 后变成另一种网格。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_setKeyGridRaw(JNIEnv *env, jclass, jlong handle, jint grid) {
+    if (grid < 0 || grid > 2) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Key grid must be 0, 1 or 2");
+        return nullptr;
+    }
+    return response(env, msime_client_set_key_grid(static_cast<uint64_t>(handle), static_cast<uint8_t>(grid)));
+}
 
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_setPrivateSessionRaw(JNIEnv *env, jclass, jlong handle, jboolean enabled) {
     return response(env, msime_client_set_private_session(static_cast<uint64_t>(handle), enabled == JNI_TRUE));
@@ -536,6 +544,14 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_characterRaw(JN
         return nullptr;
     }
     return response(env, msime_client_character(static_cast<uint64_t>(handle), static_cast<uint8_t>(ascii), shift == JNI_TRUE));
+}
+// 14 键的一键：送这一组的首字母，组外的字母由引擎回 handled=false。只拦非 ASCII，免得截断成 uint8 后变成另一个字母。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_gridKeyRaw(JNIEnv *env, jclass, jlong handle, jint letter) {
+    if (letter < 0 || letter > 127) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Grid key must be ASCII");
+        return nullptr;
+    }
+    return response(env, msime_client_grid_key(static_cast<uint64_t>(handle), static_cast<uint8_t>(letter)));
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_punctuationWithContextRaw(JNIEnv *env, jclass, jlong handle, jint ascii, jint preceding) {
     if (ascii < 0 || ascii > 127 || preceding < 0) {
