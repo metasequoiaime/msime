@@ -29,6 +29,7 @@ jobs:
       harmonyos: ${{ steps.decide.outputs.harmonyos }}
       windows: ${{ steps.decide.outputs.windows }}
       web: ${{ steps.decide.outputs.web }}
+      engine: ${{ steps.decide.outputs.engine }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,12 +43,12 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" != push && "$GITHUB_EVENT_NAME" != pull_request ]] ||
              [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null || ! git cat-file -e "$HEAD_SHA" 2>/dev/null; then
-            printf 'android=true\nlinux=true\nharmonyos=true\nwindows=true\nweb=true\n' >> "$GITHUB_OUTPUT"
+            printf 'android=true\nlinux=true\nharmonyos=true\nwindows=true\nweb=true\nengine=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # PR 合并或关闭后合并引用被删，签出拿不到 head 提交，下面三个点的 diff 会直接报错（2026-10-02 #3118 合并 13 秒后才开跑的 iOS CI 就红在这里）。PR 已经不在了，不必构建。
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]] && ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
-            printf 'android=false\nlinux=false\nharmonyos=false\nwindows=false\nweb=false\n' >> "$GITHUB_OUTPUT"; echo "PR 的 head 提交已取不到（PR 已关闭），跳过。"; exit 0
+            printf 'android=false\nlinux=false\nharmonyos=false\nwindows=false\nweb=false\nengine=false\n' >> "$GITHUB_OUTPUT"; echo "PR 的 head 提交已取不到（PR 已关闭），跳过。"; exit 0
           fi
           # PR 要比的是它自己从分叉点起改了什么（三个点）。base.sha 是事件发生时目标分支的最新提交，PR 分支往往从更早的 develop 切出；两个点的 diff 比的是两棵树，会把分叉之后 develop 合进来的改动也算成本 PR 的，于是只改一个 workflow 的 PR 也被判成要编译全部平台（2026-10-02 #2902）。push 的 BASE_SHA 是推送前的提交，两个点正好是这次推送带来的改动。
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
@@ -82,8 +83,9 @@ jobs:
           if [[ "$shared" == true ]]; then
             android=true; linux=true; harmonyos=true; windows=true; web=true
           fi
-          printf 'android=%s\nlinux=%s\nharmonyos=%s\nwindows=%s\nweb=%s\n' \
-            "$android" "$linux" "$harmonyos" "$windows" "$web" >> "$GITHUB_OUTPUT"
+          # 引擎作业跟着共享路径走（crates/、工作区清单、工具链等），只改平台目录时不跑。
+          printf 'android=%s\nlinux=%s\nharmonyos=%s\nwindows=%s\nweb=%s\nengine=%s\n' \
+            "$android" "$linux" "$harmonyos" "$windows" "$web" "$shared" >> "$GITHUB_OUTPUT"
 
   android:
     needs: changes
@@ -211,6 +213,33 @@ jobs:
       - name: Linux platform unchanged
         if: ${{ needs.changes.outputs.linux != 'true' }}
         run: echo 'No Linux or shared-platform changes; platform gate skipped.'
+
+  # msime-engine 的单元测试和 golden 基准此前没有任何 CI 作业运行：上面的 Linux 容器只测 client-core、input-runtime 和 host-api，提交前的 `verify-local.sh --quick` 不跑 Rust 测试，只有很少有人跑的全量 `verify-local.sh` 才跑。引擎里钉死精确次数的分配预算测试因此在 develop 上红了好几个 PR 都没人发现（见 .agents/notes/implemented/testing/2026-10-10-engine-tests-in-ci.md）。这里以 runner 的普通用户运行；整句模型不在仓库里，依赖它的测试会自行跳过并说明原因。
+  engine:
+    needs: changes
+    name: Rust engine
+    runs-on: depot-ubuntu-24.04-8
+    timeout-minutes: 30
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install sccache
+        if: ${{ needs.changes.outputs.engine == 'true' }}
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Unit and golden tests for msime-engine
+        if: ${{ needs.changes.outputs.engine == 'true' }}
+        run: |
+          set -euo pipefail
+          # 安装 rust-toolchain.toml 钉住的工具链。
+          rustup toolchain install
+          cargo test --locked -p msime-engine
+      - name: Engine unchanged
+        if: ${{ needs.changes.outputs.engine != 'true' }}
+        run: echo 'No engine or shared changes; engine tests skipped.'
 
   harmonyos:
     needs: changes

@@ -20,7 +20,7 @@ Status: implemented
 
 冻结旧级联的完整查询正文，与当前 `query_single_cut_keyed` 对照真实 SQLite 数据。新增 7 项测试覆盖全 miss、唯一高权重命中、limit 1/2/64/128、扫描页内达到 limit、`usize::MAX`、首步 SQLite 转换错误、双拼 `sh` 初始 token 和纯简拼回退；比较字段、顺序、容量和返回非空/空语义。冷测量在区间外调用 `intact_pinyin_set()` 预热，闭包包含数据库打开、查询和显式析构，只返回结果；双方剩余存储和最低 signed 差值一致。
 
-在固定 arm64 debug 与 160 行真实 SQLite 扫描页上，热分配从 268 降到 13；冷峰值从 9603 降到 911 字节，分配从 292 降到 37，命中结果剩余存储均为 68 字节。全 miss 返回零容量；密集命中和各 `limit` 返回容量与冻结旧级联一致。engine 测试排除独立复现的既有分配基线失败 `session::tests::typing_at_a_caret_reuses_the_editing_text_length` 后，1690 项通过、13 项忽略；该失败断言为 expected 207、actual 206，未加入豁免基线。golden 31 项、clippy、fmt 与 notes 校验通过，提交前另跑 quick 门禁。
+在固定 arm64 debug 与 160 行真实 SQLite 扫描页上，热分配从 268 降到 13；冷峰值从 9603 降到 911 字节，分配从 292 降到 37，命中结果剩余存储均为 68 字节。全 miss 返回零容量；密集命中和各 `limit` 返回容量与冻结旧级联一致。engine 测试中 `session::tests::typing_at_a_caret_reuses_the_editing_text_length` 断言 expected 207、actual 206，当时被当成既有基线失败排除，其余 1690 项通过、13 项忽略。事后二分确认少掉的这一次分配正来自本改动（父提交 `ca7367b208` 为 207，本提交 `a8b0b24f87` 为 206）：光标处插入会经过混合简拼查询，这是本篇要的分配收益，不是回退，预算由 #6755 同步为 206，见 [msime-engine 测试进 CI](2026-10-10-engine-tests-in-ci.md)。golden 31 项、clippy、fmt 与 notes 校验通过，提交前另跑 quick 门禁。
 
 ## Consequences
 
