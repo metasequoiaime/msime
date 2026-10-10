@@ -132,8 +132,8 @@ public final class AndroidLocalSettingsSmoke {
         check(fresh.bool(AndroidLocalSettings.BOTTOM_BAR), "bottom bar on by default");
         // 底部留白（#6392）：默认关，老用户的键盘高度不变；只在本机。
         check(!fresh.bool(AndroidLocalSettings.BOTTOM_PADDING), "bottom padding off by default");
-        // 加高底行（#6354）：默认关，键盘高度不变；只在本机。
-        check(!fresh.bool(AndroidLocalSettings.TALL_BOTTOM_ROW), "tall bottom row off by default");
+        // 「加高底行」（#6354）已移除，底行默认就和键行同高：不再是一个设置项，存着的旧值读取时丢掉。
+        check(!AndroidLocalSettings.specs().containsKey("platform.android.tall_bottom_row"), "tall bottom row is no longer a setting");
         AndroidLocalSettings.Spec floatingX = AndroidLocalSettings.spec(AndroidLocalSettings.FLOATING_KEYBOARD_X);
         check(Integer.valueOf(0).equals(floatingX.accept(0)) && Integer.valueOf(1000).equals(floatingX.accept(1000))
             && floatingX.accept(-1) == null && floatingX.accept(1001) == null, "floating position range");
@@ -143,6 +143,8 @@ public final class AndroidLocalSettingsSmoke {
         raw.put(AndroidLocalSettings.ONE_HANDED, "middle");
         raw.put(AndroidLocalSettings.HANDWRITING_STROKE_WIDTH, 5L);
         raw.put("platform.android.future_setting", true);
+        // 本机或备份里留着的已移除设置（#6354 的「加高底行」）和不认识的键一样丢掉，不让整份读取失败。
+        raw.put("platform.android.tall_bottom_row", true);
         Map<String, Object> accepted = AndroidLocalSettings.accepted(raw);
         check(accepted.size() == 2, "unknown and invalid keys are dropped: " + accepted);
         check("dongxue".equals(accepted.get(AndroidLocalSettings.APP_THEME)), "valid choice kept");
@@ -161,7 +163,6 @@ public final class AndroidLocalSettingsSmoke {
                 AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, AndroidLocalSettings.FLOATING_KEYBOARD,
                 AndroidLocalSettings.FLOATING_KEYBOARD_X, AndroidLocalSettings.FLOATING_KEYBOARD_Y,
                 AndroidLocalSettings.TOOLBAR_FLOATING, AndroidLocalSettings.TOOLBAR_TEXT_EDIT, AndroidLocalSettings.BOTTOM_BAR, AndroidLocalSettings.BOTTOM_PADDING,
-                AndroidLocalSettings.TALL_BOTTOM_ROW,
                 AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY,
                 AndroidLocalSettings.DEVELOPER_LOG_LEVEL, AndroidLocalSettings.DEVELOPER_INPUT_LOG,
                 AndroidLocalSettings.MCP_RETENTION, AndroidLocalSettings.MCP_INPUT_EVENTS}) {

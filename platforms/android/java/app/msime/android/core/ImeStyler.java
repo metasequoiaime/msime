@@ -133,7 +133,7 @@ final class ImeStyler {
         if (s.keyRows == null) return;
         applyKeyboardGeometry(s.keyRows);
         applyKeyboardHeight(s.keyRows);
-        // 功能行是键行的兄弟而不是其中一行：它的高度固定，键盘调矮时换行键不被压扁；键帽照样带键距。高度按底栏角色算，「加高底行」开着时和一行键同高（#6354）。
+        // 功能行是键行的兄弟而不是其中一行，按底行角色算高度：和一行键同高，分摊四分之一的键盘高度调整；键帽照样带键距。
         if (s.actionRow != null) {
             applyKeyboardGeometry(s.actionRow);
             applyKeyboardHeight(s.actionRow);
@@ -163,19 +163,16 @@ final class ImeStyler {
         Object tag = node.getTag();
         if (tag instanceof MSIMEInputService.KeyboardHeightRole) {
             MSIMEInputService.KeyboardHeightRole role = (MSIMEInputService.KeyboardHeightRole) tag;
-            int bottomRow = KeyboardGeometry.bottomRowHeightDp(s.tallBottomRow);
-            int spacings = role.rowSpacings;
+            // 调整量由键区四行均分：底行拿它那一份，底行以上的键行和三行高的键块分摊其余部分，连底行一起占四行的整块（日语、注音九键）拿整份，各布局的总高都等于四行键高加整份调整。
             int heightDp;
             if (role.bottomRow) {
-                heightDp = bottomRow;
-                spacings = KeyboardGeometry.bottomRowSpacings(s.tallBottomRow);
+                heightDp = role.baseHeight + KeyboardGeometry.bottomRowAdjustment(adjustment);
             } else {
-                heightDp = KeyboardGeometry.adjustedRowHeight(
-                    role.baseHeight + (role.withBottomRow ? bottomRow : 0), adjustment, role.rowCount, role.rowIndex);
-                if (role.withBottomRow) spacings += KeyboardGeometry.bottomRowSpacings(s.tallBottomRow);
+                int share = role.withBottomRow ? adjustment : KeyboardGeometry.keyRowsAdjustment(adjustment);
+                heightDp = KeyboardGeometry.adjustedRowHeight(role.baseHeight, share, role.rowCount, role.rowIndex);
             }
             int height = s.pixels(heightDp);
-            height += s.halfSpacingPixels(s.touchRowSpacingTenths) * 2 * spacings;
+            height += s.halfSpacingPixels(s.touchRowSpacingTenths) * 2 * role.rowSpacings;
             if (node.getLayoutParams() != null) {
                 android.view.ViewGroup.LayoutParams params = node.getLayoutParams();
                 params.height = height;
@@ -194,19 +191,19 @@ final class ImeStyler {
     }
 
     /**
-     * 九键、笔画、手写、大千四行的三行键块：与 26 键的三行字母键同高（3 × {@link KeyboardGeometry#KEY_ROW_HEIGHT_DP} + 整份键高调整 + 三份行距）。
+     * 九键、笔画、手写、大千四行的三行键块：与 26 键的三行字母键同高（3 × {@link KeyboardGeometry#KEY_ROW_HEIGHT_DP} + 底行以外的那部分键高调整 + 三份行距）。
      */
     void adjustThreeRowBlockHeight(View view) {
         adjustRowBlockHeight(view, 3);
     }
 
-    /** 占 {@code rows} 行键高的整块（九键网格连同侧栏），按键盘高度偏好缩放，并按行数加上行距。 */
+    /** 占 {@code rows} 行键高的整块（九键网格连同侧栏），分摊底行以外的键盘高度调整，并按行数加上行距。 */
     void adjustRowBlockHeight(View view, int rows) {
         view.setTag(new MSIMEInputService.KeyboardHeightRole(
             KeyboardGeometry.KEY_ROW_HEIGHT_DP * rows, 1, 0, rows));
     }
 
-    /** 连同底栏位置一起占用的整块（日语九键、注音九键没有底栏，四行都在块里）：三行键高加一条底栏高（{@link KeyboardGeometry#bottomRowHeightDp}，及它的行距），与其他布局总高相同。 */
+    /** 连同底行位置一起占用的整块（日语九键、注音九键没有底行，四行都在块里）：四行键高、四份行距，拿整份键盘高度调整，与其他布局总高相同。 */
     void adjustBottomRowBlockHeight(View view) {
         view.setTag(MSIMEInputService.KeyboardHeightRole.threeRowsWithBottomRow());
     }

@@ -7,6 +7,19 @@ public final class KeyboardGeometrySmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
     static void check(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
 
+    /** 某个调整量下三行键（第 0–2 行）和底行各自的高度（dp）。 */
+    static void checkRows(int adjustment, int first, int second, int third, int bottom) {
+        int keys = KeyboardGeometry.keyRowsAdjustment(adjustment);
+        int[] rows = {
+            KeyboardGeometry.adjustedRowHeight(KeyboardGeometry.KEY_ROW_HEIGHT_DP, keys, 3, 0),
+            KeyboardGeometry.adjustedRowHeight(KeyboardGeometry.KEY_ROW_HEIGHT_DP, keys, 3, 1),
+            KeyboardGeometry.adjustedRowHeight(KeyboardGeometry.KEY_ROW_HEIGHT_DP, keys, 3, 2),
+            KeyboardGeometry.KEY_ROW_HEIGHT_DP + KeyboardGeometry.bottomRowAdjustment(adjustment),
+        };
+        check(rows[0] == first && rows[1] == second && rows[2] == third && rows[3] == bottom,
+            "rows at " + adjustment + ": " + java.util.Arrays.toString(rows));
+    }
+
     public static void main(String[] args) {
         // 与 crates/client-core 的 default_touch_key_spacing_tenths / default_touch_row_spacing_tenths 同值。
         check(KeyboardGeometry.keySpacing(-1) == 60);
@@ -17,11 +30,41 @@ public final class KeyboardGeometrySmoke {
         check(KeyboardGeometry.DESIGN_PADDING_TOP_DP == 8
             && KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP == 6
             && KeyboardGeometry.DESIGN_PADDING_BOTTOM_DP == 6);
-        // 底栏（#6354）：默认 46 dp 不加行距，键帽比键行矮一截；「加高底行」开着时和一行键同高、另加一份行距。
-        check(KeyboardGeometry.bottomRowHeightDp(false) == KeyboardGeometry.STANDARD_ROW_HEIGHT_DP
-            && KeyboardGeometry.bottomRowSpacings(false) == 0, "bottom row keeps 46 dp by default");
-        check(KeyboardGeometry.bottomRowHeightDp(true) == KeyboardGeometry.KEY_ROW_HEIGHT_DP
-            && KeyboardGeometry.bottomRowSpacings(true) == 1, "tall bottom row matches a key row");
+        // 底行与上面的键行同高（#6354、#6472）：四行都是 52 dp 加一份行距，默认行距下键区 4 × 59 = 236 dp，与原来 3 × 63 + 46 = 235 dp 只差 1 dp。
+        check(KeyboardGeometry.KEY_ROW_HEIGHT_DP == 52 && KeyboardGeometry.KEYBOARD_ROW_COUNT == 4, "four 52 dp rows");
+        check(KeyboardGeometry.KEYBOARD_ROW_COUNT * (KeyboardGeometry.KEY_ROW_HEIGHT_DP
+            + KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS / 10) == 236, "default key area stays 236 dp");
+        // 键盘高度调整由四行均分：底行拿 floorDiv(调整量, 4)，三行键分其余部分，余数给前面的行。
+        checkRows(0, 52, 52, 52, 52);       // 100%
+        checkRows(-46, 41, 41, 40, 40);     // 75%
+        checkRows(55, 66, 66, 66, 65);      // 130%
+        checkRows(110, 80, 80, 79, 79);     // 160%
+        check(KeyboardGeometry.bottomRowAdjustment(Integer.MIN_VALUE) == 0
+            && KeyboardGeometry.keyRowsAdjustment(Integer.MIN_VALUE) == 0, "missing adjustment is zero");
+        check(KeyboardGeometry.bottomRowAdjustment(500) == 27 && KeyboardGeometry.keyRowsAdjustment(500) == 83,
+            "shares clamp to the design range");
+        for (int adjustment = KeyboardGeometry.MIN_DESIGN_HEIGHT_ADJUSTMENT_DP;
+                adjustment <= KeyboardGeometry.MAX_DESIGN_HEIGHT_ADJUSTMENT_DP; adjustment++) {
+            int bottom = KeyboardGeometry.KEY_ROW_HEIGHT_DP + KeyboardGeometry.bottomRowAdjustment(adjustment);
+            int total = bottom;
+            int shortest = bottom;
+            int tallest = bottom;
+            for (int row = 0; row < 3; row++) {
+                int height = KeyboardGeometry.adjustedRowHeight(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
+                    KeyboardGeometry.keyRowsAdjustment(adjustment), 3, row);
+                total += height;
+                shortest = Math.min(shortest, height);
+                tallest = Math.max(tallest, height);
+            }
+            // 三行字母加底行、三行高的键块加底行、连底行一起占四行的整块（日语、注音九键），总高都等于四行键高加整份调整。
+            int expected = KeyboardGeometry.KEY_ROW_HEIGHT_DP * KeyboardGeometry.KEYBOARD_ROW_COUNT + adjustment;
+            check(total == expected, "four rows sum to the whole adjustment at " + adjustment);
+            check(KeyboardGeometry.adjustedRowHeight(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3,
+                KeyboardGeometry.keyRowsAdjustment(adjustment), 1, 0) + bottom == expected, "three-row block at " + adjustment);
+            check(KeyboardGeometry.adjustedRowHeight(KeyboardGeometry.KEY_ROW_HEIGHT_DP * KeyboardGeometry.KEYBOARD_ROW_COUNT,
+                adjustment, 1, 0) == expected, "block with the bottom row at " + adjustment);
+            check(tallest - shortest <= 1, "rows differ by at most 1 dp at " + adjustment);
+        }
         // 百分比换算 round(184 × (p − 100) / 100)：逐档钉住，往返不变。
         int[] percents = {75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 140, 150, 160};
         int[] adjustments = {-46, -37, -28, -18, -9, 0, 9, 18, 28, 37, 46, 55, 74, 92, 110};

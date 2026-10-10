@@ -337,8 +337,6 @@ public final class MSIMEInputService extends InputMethodService {
     boolean splitKeyboardEnabled;
     /** 本地设置「数字行」；实际画不画还要看键面和布局，见 {@link #numberRowDrawn}。 */
     boolean numberRowEnabled;
-    /** 本地设置「加高底行」（#6354）：底栏和一行键同高，见 {@link KeyboardGeometry#bottomRowHeightDp}。 */
-    boolean tallBottomRow;
     boolean incognitoEnabled;
     boolean panelPreferenceSaving;
     Button microsoftFinalKey;
@@ -512,9 +510,9 @@ public final class MSIMEInputService extends InputMethodService {
         final boolean includesRowSpacing;
         /** 要加上的行距份数：一行键加一份；一个占三行的九键块加三份。 */
         final int rowSpacings;
-        /** 底栏这一行（功能行、123 / #+= 层自带的底栏）：高度取 {@link KeyboardGeometry#bottomRowHeightDp}，不分摊高度调整，`baseHeight` 不用。 */
+        /** 底行（功能行、123 / #+= 层自带的底行）：和一行键同高、带一份行距，分到四行均分后底行的那一份调整（{@link KeyboardGeometry#bottomRowAdjustment}）。 */
         final boolean bottomRow;
-        /** 整块里还包着一条底栏（日语九键、注音九键）：在 `baseHeight` 之外再加上底栏的高度和行距，块的总高和其他布局保持一致。 */
+        /** 整块里还包着底行（日语九键、注音九键没有单独的底行，四行都在块里）：`baseHeight` 已经是四行，块拿整份调整。其余的键行和键块分摊底行以外的那部分（{@link KeyboardGeometry#keyRowsAdjustment}）。 */
         final boolean withBottomRow;
 
         KeyboardHeightRole(int baseHeight, int rowCount, int rowIndex,
@@ -537,14 +535,15 @@ public final class MSIMEInputService extends InputMethodService {
             this.withBottomRow = withBottomRow;
         }
 
-        /** 底栏这一行。 */
+        /** 底行这一行。 */
         static KeyboardHeightRole bottomRow() {
-            return new KeyboardHeightRole(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP, 1, 0, 0, true, false);
+            return new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, 1, 0, 1, true, false);
         }
 
-        /** 三行键加一条底栏的整块：三行键分摊整份高度调整并各带一份行距，底栏的那部分按 {@link KeyboardGeometry#bottomRowHeightDp}。 */
+        /** 三行键加底行的整块：四行键高、四份行距，拿整份高度调整，总高和三行键加一条底行的布局相同。 */
         static KeyboardHeightRole threeRowsWithBottomRow() {
-            return new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3, 1, 0, 3, false, true);
+            return new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP * KeyboardGeometry.KEYBOARD_ROW_COUNT,
+                1, 0, KeyboardGeometry.KEYBOARD_ROW_COUNT, false, true);
         }
     }
     private ScrollView voiceResultScroll;
@@ -1890,12 +1889,6 @@ public final class MSIMEInputService extends InputMethodService {
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         numberRowEnabled = localSettings.bool(AndroidLocalSettings.NUMBER_ROW);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
-        boolean nextTallBottomRow = localSettings.bool(AndroidLocalSettings.TALL_BOTTOM_ROW);
-        if (nextTallBottomRow != tallBottomRow) {
-            tallBottomRow = nextTallBottomRow;
-            // 底栏的高度在套用几何时按角色算，设置页改了这一项后要重新套一次；键盘视图还没建好时，建好后自然会套。
-            if (keyRows != null) imeStyler.applyKeyboardGeometry();
-        }
     }
 
     /** 键盘高度：本地设置里有设计范围（-46..110）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
@@ -6908,7 +6901,7 @@ public final class MSIMEInputService extends InputMethodService {
         actionRow.setContentDescription("键盘功能行");
         actionRowSignature = "";
         imeFrame.wrap(actionRow, KeyboardGeometry.matchWidthHeightPx(
-            pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP)));
+            pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP)));
         actionRow.setTag(KeyboardHeightRole.bottomRow());
         // Staging only: every control below is created here and then moved to the row that owns it.
         // The case and delete keys go to the last of the 26 key rows, the shortcut glyphs to the

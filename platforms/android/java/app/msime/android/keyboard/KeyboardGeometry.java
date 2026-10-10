@@ -16,20 +16,24 @@ public final class KeyboardGeometry {
     public static final int DEFAULT_HEIGHT_ADJUSTMENT_DP = 0;
     public static final int MIN_HEIGHT_ADJUSTMENT_DP = -12;
     public static final int MAX_HEIGHT_ADJUSTMENT_DP = 48;
-    /** 底栏（123、中/英、空格、换行那一行）的高度，也是高度百分比换算的那个 46 dp 设计键高。 */
-    public static final int STANDARD_ROW_HEIGHT_DP = 46;
-    /** 所有布局的键行高（26 键字母行、九键网格、笔画、手写区、大千四行整块……）：按 46 dp 排九宫格的键像横条，所有布局一起加到 56 dp，彼此切换时键盘总高不变。底栏仍是 {@link #STANDARD_ROW_HEIGHT_DP}。 */
-    public static final int KEY_ROW_HEIGHT_DP = 56;
+    /** 所有布局的每一行键高，包括底行（123、中/英、空格、换行那一行）：26 键字母行、九键网格、笔画、手写区、大千四行整块和底行都按它排，每行另加一份行距，彼此切换时键盘总高不变。默认行距下四行共 4 × (52 + 7) = 236 dp，与原来三行 56 dp 键行加 46 dp 不带行距的底栏（235 dp）差 1 dp；底行和上面的键一样高，与 iOS、HarmonyOS 相同（#6354、#6472）。 */
+    public static final int KEY_ROW_HEIGHT_DP = 52;
+    /** 键区的行数：三行键（或一块占三行高的键块）加底行。键盘高度调整由这四行均分，见 {@link #bottomRowAdjustment}。 */
+    public static final int KEYBOARD_ROW_COUNT = 4;
+
     /**
-     * 底栏这一行的高度（dp）。默认是 {@link #STANDARD_ROW_HEIGHT_DP}，而且不加行距：底栏的键帽扣掉上下各半份行距后比上面的字母键、九宫格键矮一截（默认 39 dp 对 56 dp，#6354）。本地设置「加高底行」开着时和一行键同高（{@link #KEY_ROW_HEIGHT_DP}），并像键行一样另加一份行距（{@link #bottomRowSpacings}），键帽就和上面的键一样高。两种都不分摊键盘高度调整：底栏固定高度，调矮键盘时换行键不被压扁。
+     * 底行分到的键盘高度调整（dp）：底行和上面三行一起均分调整量，余数按 {@link #adjustedRowHeight} 的规则给前面的行，底行是第四行，所以是 `floorDiv(调整量, 4)`。调整量先按 {@link #designHeightAdjustment} 钳制。
+     *
+     * <p>和 {@link #keyRowsAdjustment} 相加恰好是整份调整量，键盘总高与百分比的换算不变。
      */
-    public static int bottomRowHeightDp(boolean tall) {
-        return tall ? KEY_ROW_HEIGHT_DP : STANDARD_ROW_HEIGHT_DP;
+    public static int bottomRowAdjustment(int adjustment) {
+        return Math.floorDiv(designHeightAdjustment(adjustment), KEYBOARD_ROW_COUNT);
     }
 
-    /** 底栏这一行要加上的行距份数，见 {@link #bottomRowHeightDp}。 */
-    public static int bottomRowSpacings(boolean tall) {
-        return tall ? 1 : 0;
+    /** 底行以上的键行（三行字母、数字层的前三行、九键 / 笔画 / 手写这类三行高的键块）合起来分到的高度调整：整份调整量减去底行那一份（{@link #bottomRowAdjustment}）。 */
+    public static int keyRowsAdjustment(int adjustment) {
+        int value = designHeightAdjustment(adjustment);
+        return value - bottomRowAdjustment(value);
     }
 
     /** Fixed candidate/shortcut row; swapping its contents must not move the key rows. */
@@ -61,7 +65,7 @@ public final class KeyboardGeometry {
     public static final int MIN_HEIGHT_PERCENT = 75;
     public static final int MAX_HEIGHT_PERCENT = 160;
     public static final int DEFAULT_HEIGHT_PERCENT = 100;
-    /** 百分比换算的基准：四行标准键高 4 × 46 dp。 */
+    /** 百分比换算的基准：四行设计键高 4 × 46 dp。这是换算用的常数，不是此刻画出的键区高度（键行是 {@link #KEY_ROW_HEIGHT_DP} 另加行距）；调整量按它换算，所以 1% 仍是 1.84 dp。 */
     public static final int HEIGHT_PERCENT_BASE_DP = 184;
     /** 触屏键盘高度调整在新设计下的范围（dp）：75%–160% 换算为 −46…110。存在 Android 本地设置里，共享偏好的 `touch_keyboard_height_adjustment` 仍是 −12…48。 */
     public static final int MIN_DESIGN_HEIGHT_ADJUSTMENT_DP = -46;
@@ -460,7 +464,7 @@ public final class KeyboardGeometry {
     /**
      * 键盘里文字实际用的字体缩放：系统设置调小时照样跟随，调大时封顶在 {@link #MAX_KEYBOARD_FONT_SCALE}。
      *
-     * <p>键高、候选行高和工具栏都是固定 dp，而国产机出厂常把字体设成「大」甚至「超大」（1.3–2.0 倍）。不封顶时 22 sp 的字母在 56 dp 的键里放不下：文字超出内边距框时 TextView 不再居中，而是从上内边距处往下排，字母被挤到键底被裁掉，`123` 折成两行，「中」只剩顶上一截。系统键盘（Gboard、iOS）的键面同样不随系统字号无限放大。
+     * <p>键高、候选行高和工具栏都是固定 dp，而国产机出厂常把字体设成「大」甚至「超大」（1.3–2.0 倍）。不封顶时 22 sp 的字母在 52 dp 的键里放不下：文字超出内边距框时 TextView 不再居中，而是从上内边距处往下排，字母被挤到键底被裁掉，`123` 折成两行，「中」只剩顶上一截。系统键盘（Gboard、iOS）的键面同样不随系统字号无限放大。
      */
     public static float keyboardFontScale(float systemFontScale) {
         if (!(systemFontScale > 0) || Float.isInfinite(systemFontScale)) return 1f;

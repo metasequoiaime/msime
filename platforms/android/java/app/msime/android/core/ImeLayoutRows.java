@@ -512,7 +512,7 @@ final class ImeLayoutRows {
         // 和日语九键一样不要底栏，四行都在这一块里，总高度是三行九键加一条底栏，与其他九键键盘一样高：四行挤进三行高时键太扁。底栏的 123、中/英、空格、换行挪进两侧的列。
         s.imeStyler.adjustBottomRowBlockHeight(container);
         s.keyRows.addView(container, KeyboardGeometry.matchWidthHeightPx(
-            s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3 + KeyboardGeometry.STANDARD_ROW_HEIGHT_DP)));
+            s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * KeyboardGeometry.KEYBOARD_ROW_COUNT)));
 
         LinearLayout tones = KeyboardGeometry.column(s);
         for (ZhuyinNineKeyLayout.Tone tone : ZhuyinNineKeyLayout.tones()) {
@@ -1081,7 +1081,7 @@ final class ImeLayoutRows {
         // 日语九键没有底栏，四行（あ行到わ行加 小゛゜ 那一行）都在这一块里：按三行算高度时每行只剩三十来 dp，假名被裁掉下半截，底栏的位置又空着。
         s.imeStyler.adjustBottomRowBlockHeight(container);
         s.keyRows.addView(container, KeyboardGeometry.matchWidthHeightPx(
-            s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3 + KeyboardGeometry.STANDARD_ROW_HEIGHT_DP)));
+            s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * KeyboardGeometry.KEYBOARD_ROW_COUNT)));
 
         LinearLayout modeColumn = KeyboardGeometry.column(s);
         s.japaneseSymbolsKey = s.keyId(s.keyboardKey("123", "切换到数字和符号", () -> {
