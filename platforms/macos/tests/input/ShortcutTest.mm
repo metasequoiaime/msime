@@ -4559,7 +4559,7 @@ static void TestRealSessionComposition() {
     assert([controller handleEvent:enter client:client]);
     assert(client.insertions.count == 1 && [client.insertions[0] isEqual:@"韓"] && client.marked.length == 0 && !panel.isVisible);
 
-    // In a horizontal list Right moves the highlight, and a digit chooses from the page.
+    // Right moves the highlight in the list, and a digit chooses from the page.
     const BOOL savedVertical = prefs.vertical;
     prefs.vertical = NO;
     typeHan();
@@ -4574,15 +4574,16 @@ static void TestRealSessionComposition() {
     assert([controller handleEvent:KeypadKey(19, @"2", 0, NO) client:client]);
     assert(client.insertions.count == 3 && [client.insertions[2] isEqual:@"漢"] && client.marked.length == 0);
 
-    // A vertical list leaves Left and Right to the composition caret in other schemes; a Hanja list has no caret, so they turn the page and the syllable stays.
+    // 竖排列表也一样：汉字列表里没有光标，与 Windows 的 korean_hanja_key 相同，←↑ 移到上一个、→↓ 移到下一个，不翻页，音节保留。
     prefs.vertical = YES;
     typeHan();
     assert([controller handleEvent:hanja client:client]);
     assert([currentView()[@"page"] isEqual:@0]);
     assert([controller handleEvent:KeypadKey(124, @"\uF703", NSEventModifierFlagFunction | NSEventModifierFlagNumericPad, NO) client:client]);
-    assert([currentView()[@"page"] isEqual:@1] && [client.marked isEqual:@"한"] && client.insertions.count == 3);
+    assert([currentView()[@"page"] isEqual:@0] && [currentView()[@"candidates"][1][@"highlighted"] isEqual:@YES] &&
+           [client.marked isEqual:@"한"] && client.insertions.count == 3);
     assert([controller handleEvent:KeypadKey(123, @"\uF702", NSEventModifierFlagFunction | NSEventModifierFlagNumericPad, NO) client:client]);
-    assert([currentView()[@"page"] isEqual:@0] && MSIMECandidateListOpen(currentView()));
+    assert([currentView()[@"candidates"][0][@"highlighted"] isEqual:@YES] && MSIMECandidateListOpen(currentView()));
     assert([controller handleEvent:KeypadKey(125, @"\uF701", NSEventModifierFlagFunction | NSEventModifierFlagNumericPad, NO) client:client]);
     assert([currentView()[@"candidates"][1][@"highlighted"] isEqual:@YES]);
     prefs.vertical = savedVertical;
@@ -9308,19 +9309,36 @@ int main(int argc, char **argv) {
             assert(session.lastCommand == expected);
         }
         {
-            // 没有整句改字的方案（五笔）照旧：横排候选的左右键移动高亮，上下键被吞掉。
+            // 方向键与 Windows、Linux 同一套规则，不看方案和候选窗朝向：五笔的横排候选也是 ↑/↓ 移高亮、←/→ 移光标。
             NSDictionary *saved = [controller valueForKey:@"view"];
             NSMutableDictionary *wubi = [saved mutableCopy];
             wubi[@"scheme"] = @2;
-            for (NSNumber *key in @[@123, @124, @125, @126]) {
-                [controller setValue:wubi forKey:@"view"];
-                layoutPanel.requestedVisible = YES;
-                session.lastCommand = UINT32_MAX;
-                NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key.unsignedShortValue];
-                assert([controller handleEvent:event client:client]);
-                uint32_t expected = key.unsignedShortValue == 123 ? MSIME_PREVIOUS_CANDIDATE : key.unsignedShortValue == 124 ? MSIME_NEXT_CANDIDATE : UINT32_MAX;
-                assert(session.lastCommand == expected);
+            // 候选列表打开时（韩文汉字列表）组字里没有光标，四个方向键都移高亮，横排竖排都一样。
+            NSMutableDictionary *hanja = [saved mutableCopy];
+            hanja[@"scheme"] = @4;
+            hanja[@"candidate_list_open"] = @YES;
+            const BOOL savedVertical = appearance.vertical;
+            for (NSNumber *vertical in @[@NO, @YES]) {
+                appearance.vertical = vertical.boolValue;
+                for (NSNumber *key in @[@123, @124, @125, @126]) {
+                    const unsigned short code = key.unsignedShortValue;
+                    NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:code];
+                    [controller setValue:wubi forKey:@"view"];
+                    layoutPanel.requestedVisible = YES;
+                    session.lastCommand = UINT32_MAX;
+                    assert([controller handleEvent:event client:client]);
+                    uint32_t expected = code == 123 ? MSIME_MOVE_LEFT : code == 124 ? MSIME_MOVE_RIGHT
+                                        : code == 126 ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE;
+                    assert(session.lastCommand == expected);
+                    [controller setValue:hanja forKey:@"view"];
+                    layoutPanel.requestedVisible = YES;
+                    session.lastCommand = UINT32_MAX;
+                    assert([controller handleEvent:event client:client]);
+                    expected = code == 123 || code == 126 ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE;
+                    assert(session.lastCommand == expected);
+                }
             }
+            appearance.vertical = savedVertical;
             [controller setValue:saved forKey:@"view"];
         }
         CheckMenu([controller menu], controller);

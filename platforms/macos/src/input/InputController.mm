@@ -5828,20 +5828,12 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             }
         }
     }
-    if (_panel.isVisible && [_appearance navigationEnabled:@"arrows"] && event.keyCode >= 123 && event.keyCode <= 126) {
+    // 方向键在所有桌面平台上是同一套规则（与 Windows 的 korean_hanja_key、NavigationPolicy 和 Linux 前端一致），不看候选窗是横排还是竖排：组字时 ↑/↓ 移候选高亮（受「方向键选择候选」开关控制），←/→ 交给下面的 switch 移光标或进入整句改字；候选列表打开时（韩文汉字列表、注音列表）组字里没有光标，四个方向键都移高亮，←↑ 上一个、→↓ 下一个，与 Windows 一样不看导航开关。
+    if (_panel.isVisible && event.keyCode >= 123 && event.keyCode <= 126) {
         const BOOL horizontal = event.keyCode == 123 || event.keyCode == 124;
-        // A vertical panel leaves Left/Right to the composition caret below, as Windows maps VK_LEFT/VK_RIGHT to FUNCTION_MOVE_LEFT/RIGHT while candidates are shown; the Engine answers the move with candidates for the new caret. Up/Down in a horizontal panel are still consumed so they never reach the host.
-        // 全拼和双拼里左右键不论候选横排竖排都留给下面的整句改字，高亮一律由上下键移动，与 Windows 和 Linux 相同。
-        const BOOL highlightKey = MSIMESchemeTrait(_view, msime::mac::scheme::EditsSentence) ? !horizontal : horizontal != _appearance.vertical;
-        if (highlightKey) {
+        if (MSIMECandidateListOpen(_view) || (!horizontal && [_appearance navigationEnabled:@"arrows"])) {
             const BOOL backwards = event.keyCode == 123 || event.keyCode == 126;
             [self apply:[_session command:backwards ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE error:nil]];
-            return YES;
-        }
-        if (!horizontal) return YES;
-        // An opened candidate list (the Korean Hanja list) belongs to a composition with no caret inside it, so the caret move would only write the composition out and leave the key to the application. Across a vertical list Left and Right turn the page instead.
-        if (MSIMECandidateListOpen(_view)) {
-            [self apply:[_session command:event.keyCode == 123 ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
             return YES;
         }
     }
