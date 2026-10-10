@@ -18,6 +18,7 @@ platforms/android/tests/device/keyboard/FuzzyPinyinDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateGlossDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyEnglishDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyPanelDeviceSmoke.java
+platforms/android/tests/device/keyboard/FourteenKeyDeviceSmoke.java
 platforms/android/tests/device/settings/SettingsDeviceSmoke.java
 platforms/android/tests/device/settings/SettingsLifecycleSmoke.java
 platforms/android/tests/device/voice/TypingStatisticsDeviceSmoke.java
