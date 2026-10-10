@@ -28,18 +28,19 @@ Android、iOS、HarmonyOS 提供触屏方案「全拼 14 键」。解码复用�
 | 组码 | 每组首字母的小写：`q e t u o a d g j l z c b m`。`a`–`z` 依次落在 `abcdedggujjlmbooqeatucqztz` |
 | 左端键 | 照搬九键 1 键：组字中是「分词」，送 `'`；空闲时是「符」，打开符号面板。两种状态都记作键位 `SoftSymbol`。中文 14 键没有 Shift |
 | 组字 | 点一下输入的是一组字母，不是某个字母。组码不写进编辑框（不论 iOS 的「行内预编辑」怎么设），读音行显示 `nine_key_reading` |
-| 拼音选择条 | 放在读音行右侧，横向滚动，出现时读音最多占读音行的一半，不盖住候选行；在 123 层和三栏面板开着时照样画。内容与九键左列相同：先完整音节，再列下一键上能作声母的大写字母；没有「原样上屏」那一项。点音节锁定，退格先撤销锁定 |
+| 拼音选择条 | 放在读音行右侧，横向滚动，出现时读音最多占读音行的一半，不盖住候选行；在 123 层和三栏面板开着时照样画。「26 键数字键盘」选了九宫格时 123 层借九键的数字层，选择条仍在读音行，侧栏照常是标点（符号栏），不让给拼音。内容与九键左列相同：先完整音节，再列下一键上能作声母的大写字母；没有「原样上屏」那一项。点音节锁定，退格先撤销锁定 |
 | 展开候选 | 九键的三栏面板，单字和笔画筛选照常可用 |
 | 长按 | 弹出这一键的两个字母（L、M 不弹）；选中后与九键相同：先结束组字，再上屏这个字母 |
 | 按键气泡 | 不画，同九键 |
-| 原样上屏 | 组字中走原样上屏的路径（Android 的回车、123 层字符、各种面板）由引擎结束组字、逐段取首选；iOS 的回车和切换模式按 `CompositionBoundaryPolicy` 本来就结束组字 |
+| 原样上屏 | 组字中走原样上屏的路径（Android 的回车、123 层字符、各种面板）结束组字，从宿主高亮的那一行开始、其余各段取首选，与 `Finish` 相同；iOS 的回车和切换模式按 `CompositionBoundaryPolicy` 本来就结束组字 |
 | 英文 | 英文模式画 26 键 QWERTY，切回中文恢复 14 键；英文模式不改写 `touch_keyboard_layout`；没有「英文 14」 |
 | 英文混入 | 中文组字时，拼音读不通的组码照样混入英文词，由引擎按网格计算 |
 | 123 | 打开与 26 键相同的设计层，跟随 `touch_twenty_six_key_number_layout` |
-| 回落 26 键 | 密码框、URL 框、本地模式，同九键的 prefersFullFace 和门控 |
+| 回落 26 键 | 密码框、URL 框、本地模式，同九键的 prefersFullFace 和门控；本地模式画 26 键时组字照常按「行内预编辑」标记 |
+| 不组字的编辑框 | 数字、电话、日期这类没有引擎会话的编辑框里，14 键的点按不输入：一下是一组字母，照字面只能写这一组的首字母 |
 | 关闭 | 滑行输入、分体、数字行、双拼键位提示、角标滑动 |
 | 硬件键盘 | 物理字母照常走全拼 26 键路径；14 键组字进行中，字母返回 unhandled，同九键 |
-| 统计 | 来源 `fourteenKey`（「全拼 14 键」），「输入方式」有自己的「14 键」一档；键位 id `FourteenQW` 到 `FourteenM` 共 14 个，不记到 26 键的 `KeyQ` 上 |
+| 统计 | 来源 `fourteenKey`（「全拼 14 键」），「输入方式」有自己的「14 键」一档；键位 id `FourteenQW` 到 `FourteenM` 共 14 个，不记到 26 键的 `KeyQ` 上，三端统计页都写成「14 键 QW」 |
 
 ### 引擎：`KeyGrid` 泛化九宫格
 
@@ -66,6 +67,10 @@ View 的 `key_grid` 是 `"none" | "nine_key" | "fourteen_key"`，`nine_key: bool
 ### 原样上屏与学词
 
 九键的数字本身是可上屏的文字，14 键的组码不是：按「你好」的键是 `bugao`。`NineKeySession` 的 `CommitRaw` 在 14 键下（`!offers_raw_key()`）有候选时与 `finish(0)` 相同，结束组字、逐段取首选，锁定的音节照样算数；没有候选时只剩组码可上屏。宿主有多条路在组字中发原样上屏——Android 的回车和 `commitNineKeyLiteral`，鸿蒙在 123 层点字符、打开符号或表情面板——修在引擎里，三端一次对齐。
+
+引擎的首位不一定是用户看到的首位：runtime 会按键盘模型重排（`sentence_association.neural_keyboard`）或把次选读音往后放，宿主还可能高亮着另一行。所以 runtime 在 14 键网格组字时把 `CommitRaw` 换成 `finish(engine_index(highlighted))`，与 `Finish` 和标点那两条路相同；iOS 本来就发 `Finish`，三端上屏的都是屏幕上高亮的那一行。九键的 `CommitRaw` 仍交给引擎上屏数字。引擎快照为此多了 `grid_composing`：14 键布局下硬件键盘打的是 26 键组字，它的原样上屏照旧是字母。
+
+三端都开着 `phrase_preedit`。退格收回一次选词时，runtime 把这次选词吃掉的读音重新打回去；14 键的读音是组码字母，原来经 `character` 打回去就进了全拼 26 键，之后 14 键的键全都不处理。`PhraseSelection` 记下选词时正在组字的网格，14 键的组码改从 `grid_key` 打回去，分词键 `'` 和九键的数字仍从 `character` 进。
 
 宿主层的回车学词策略（`commit_raw_with_policy`）不学九宫格组字时上屏的文字（`Session::grid_composing`）：那不是用户逐个打出的字母。否则 14 键的 `bugao` 全是字母，会被学进英文词库；九键的数字学不进去，每次回车都报「English word could not be learned.」。
 
@@ -147,6 +152,7 @@ View 的 `key_grid` 是 `"none" | "nine_key" | "fourteen_key"`，`nine_key: bool
 
 ## Verification
 
+- 评审后的修复：runtime 的 `retreating_a_fourteen_key_selection_types_the_codes_back_on_the_grid`、`fourteen_key_commit_raw_finishes_from_the_highlighted_row` 和 host-api 用真实引擎的 `retreating_a_fourteen_key_selection_keeps_composing_on_the_grid`（去掉修复时失败）；iOS 的 `testTheBorrowedDigitPadKeepsItsPunctuationWhileComposing` 和 `testInlinePreeditSkipsTheCodesButMarksALocalMode`（去掉修复时失败），`FourteenKeyKeyboardTests` 12 项与 `NineKeyKeyboardTests` 共 104 项在 iOS 27.0 模拟器上通过；Android 的三栏面板判断改为按布局（`NineKeyPanelPolicy.threeColumn(layout, …)`），`FourteenKeyLayoutSmoke` 用 `FOURTEEN_KEY_LAYOUT` 断言，`FourteenKeyDeviceSmoke` 加了展开三栏面板和借九键数字层两段；共享统计页的 `keyLabel` 与 `softKey` 认识 `Fourteen*`。 Android 在 API 35 模拟器上 `smoke.sh` 全部 16 组通过，API 28 上 `smoke.sh --core` 通过；鸿蒙的 `pressGridKey` 改动跑了 `tests/run.sh` 和 `scripts/test-harmony-*.py`，`hvigorw assembleHap` 这次没有重跑（本机没有暂存的原生库和 `sherpa_onnx.har`）。
 - 共享层：`cargo test -p msime-engine -p msime-client-core -p msime-input-runtime -p msime-host-api` 全部通过，其中 `nine_key::tests::fourteen_key_*`、`fourteen_key_commit_raw_finishes_instead_of_writing_the_codes`、`host::tests::grid_raw_commit_is_not_learned_as_an_english_word` 钉住原样上屏和学词；`msime-desktop` 的 `applying_cloud_quanpin_keeps_a_local_fourteen_key_choice` 与 `shared/backend` 的 `testCloudQuanpinKeepsALocalFourteenKeyChoice` 钉住 iOS 应用云端的规则。`scripts/test-fourteen-key-table.py` 在四处一致时通过，人为改错某一端的一个键、一个键位 id 或引擎的编码表时失败。
 - Android：`check-host.sh`（198 个 JVM smoke）、162 个 `scripts/test-android-*.py`；API 35 模拟器上 `smoke.sh` 全部 16 组通过，含 `FourteenKeyDeviceSmoke`（你好、shi/shu 锁定与撤销、分词得西安、长按 QW 选 w、英文与密码框画 26 键、123 是设计层）和 `KeyboardHeightDeviceSmoke` 的 14 键一轮；API 28 上 `smoke.sh --core` 通过，14 键用 `adb input tap` 实打。UiAutomation 的无障碍点击在 API 30 以下送不到输入法，所以 `FourteenKeyDeviceSmoke` 只在 API 35 跑。
 - iOS：iOS 27.0 模拟器上 `MSIMEClientTests` 836 项、7 跳过、0 失败（链接的是含原样上屏修复的原生库），`FourteenKeyKeyboardTests` 10 项覆盖键表、你好、西安、shi/shu、长按、英文与 123、过期点按和 iPad；`OnboardingUITests.testChineseKeyboardOffersTwentySixFourteenAndNineKeys` 通过；`MSIMEApp` 编译通过。`KeyboardExtensionEditorUITests` 的 14 键用例在模拟器上因键盘没有加进系统键盘列表而跳过。
