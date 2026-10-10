@@ -2389,7 +2389,7 @@ impl SpellingTable {
         let mut suffix: Vec<Vec<(f64, Path)>> = vec![Vec::new(); length + 1];
         suffix[length].push((0.0, Vec::new()));
         for offset in (0..length).rev() {
-            let mut result = Vec::with_capacity(PATH_LIMIT);
+            let mut result = Vec::new();
             for end in offset + 1..=length.min(offset + self.longest_code) {
                 if splits.iter().any(|&split| offset < split && split < end) {
                     break;
@@ -2407,6 +2407,9 @@ impl SpellingTable {
                         let mut path = Vec::with_capacity(tail.len() + 1);
                         path.push(piece.clone());
                         path.extend(tail.iter().cloned());
+                        if result.is_empty() {
+                            result.reserve_exact(PATH_LIMIT);
+                        }
                         result.push((score + tail_score, path));
                     }
                 }
@@ -2577,6 +2580,19 @@ mod tests {
         // A piece may only end the path: `ni'ha'o` would need `ha`, which is not a syllable here.
         assert_eq!(paths.len(), 4);
         assert!(table.paths("11").is_empty());
+    }
+
+    #[test]
+    fn unreadable_paths_do_not_reserve_each_offset_page() {
+        let table = SpellingTable::new(&["ni", "mi", "o"]);
+        let digits = "1".repeat(32);
+        let (paths, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| table.paths(&digits));
+        assert!(paths.is_empty());
+        assert!(
+            allocations <= 2,
+            "死路偏移不应逐偏移申请路径页：{allocations}"
+        );
     }
 
     #[test]
