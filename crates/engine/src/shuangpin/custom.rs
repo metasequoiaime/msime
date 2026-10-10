@@ -1,6 +1,6 @@
 //! 用户自定义双拼方案：校验 [`ShuangpinCustomTable`]，把合法的表变成与内置方案同样的 `&'static ShuangpinProfile`，之后的切分、转换、辅助码和 `;` 键都走内置方案那一套，不另写一份解码。
 //!
-//! 合法的表按内容只留一份：同一张表反复应用（每次偏好变更都会重建 Engine）拿到的是同一个引用，进程里只为用户实际用过的每一张不同的表各留一份（几 KB）。不合法的表不留任何东西。
+//! 合法的表按内容只留一份：同一张表反复校验、反复应用（每次偏好变更都会校验并重建 Engine）拿到的是同一个引用，只有第一次逐个检查编码；进程里只为用户实际用过的每一张不同的表各留一份（几 KB）。不合法的表不留任何东西。
 
 use std::collections::HashSet;
 use std::fmt;
@@ -163,9 +163,9 @@ pub fn session_profile(
     }
 }
 
-/// 只校验，不留下方案。
+/// 只回答表能不能用。合法的表同样按内容留下一份，随后用它建会话（每次偏好变更都会先校验再重建）时直接复用，不再逐个编码检查一遍。
 pub fn validate_custom_profile(table: &ShuangpinCustomTable) -> Result<(), CustomProfileError> {
-    check_codes(&canonicalize(table)?)
+    custom_profile(table).map(|_| ())
 }
 
 fn leak_pairs(pairs: Vec<(&'static str, String)>) -> &'static [(&'static str, &'static str)] {
@@ -204,8 +204,14 @@ impl Canonical {
     }
 
     /// 声母键加韵母键解出的音节，与 `utils::cvt_single_sp_to_pinyin` 跳过零声母表之后的那一步相同；同一个编码解出两个不同的音节时报错。
-    fn decode_pair(&self, first: u8, second: u8) -> Result<Option<String>, CustomProfileError> {
-        let initial = self.initial_for_key(first);
+    /// `initial` 是 `first` 读作的声母（`initial_for_key`），由调用方算好；`buffer` 是拼音节用的临时存储，逐个编码复用。
+    fn decode_pair(
+        &self,
+        initial: &str,
+        first: u8,
+        second: u8,
+        buffer: &mut String,
+    ) -> Result<Option<String>, CustomProfileError> {
         let accepted = accepted_syllables();
         let mut found: Option<String> = None;
         for (unit, _) in self
@@ -213,24 +219,27 @@ impl Canonical {
             .iter()
             .filter(|(_, key)| key.as_bytes() == [second])
         {
-            let normalized = if *unit == "v" && matches!(initial.as_str(), "j" | "q" | "x" | "y") {
+            let normalized = if *unit == "v" && matches!(initial, "j" | "q" | "x" | "y") {
                 "u"
             } else {
                 unit
             };
-            let syllable = format!("{initial}{normalized}");
-            if !accepted.contains(syllable.as_str()) {
+            buffer.clear();
+            buffer.push_str(initial);
+            buffer.push_str(normalized);
+            if !accepted.contains(buffer.as_str()) {
                 continue;
             }
             match &found {
-                Some(previous) if *previous != syllable => {
+                Some(previous) if previous != buffer => {
                     return Err(CustomProfileError::AmbiguousCode {
                         code: code_text(first, second),
                         first: previous.clone(),
-                        second: syllable,
+                        second: buffer.clone(),
                     });
                 }
-                _ => found = Some(syllable),
+                Some(_) => {}
+                None => found = Some(buffer.clone()),
             }
         }
         Ok(found)
@@ -326,9 +335,11 @@ fn check_codes(canonical: &Canonical) -> Result<(), CustomProfileError> {
         .collect();
     final_keys.sort_unstable();
     final_keys.dedup();
+    let mut buffer = String::with_capacity(8);
     for first in b'a'..=b'z' {
+        let initial = canonical.initial_for_key(first);
         for &second in &final_keys {
-            canonical.decode_pair(first, second)?;
+            canonical.decode_pair(&initial, first, second, &mut buffer)?;
         }
     }
     let mut zero_codes: Vec<(&str, &str)> = Vec::with_capacity(canonical.zero_initials.len());
@@ -342,7 +353,8 @@ fn check_codes(canonical: &Canonical) -> Result<(), CustomProfileError> {
             });
         }
         let bytes = code.as_bytes();
-        if let Some(decoded) = canonical.decode_pair(bytes[0], bytes[1])? {
+        let initial = canonical.initial_for_key(bytes[0]);
+        if let Some(decoded) = canonical.decode_pair(&initial, bytes[0], bytes[1], &mut buffer)? {
             if decoded != *syllable {
                 return Err(CustomProfileError::AmbiguousCode {
                     code: code.clone(),
