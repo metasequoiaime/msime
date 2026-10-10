@@ -27,7 +27,6 @@ use crate::types::{
 pub(super) struct SelectionTransition {
     pub continues_composition: bool,
     pub full_pure_pinyin: String,
-    pub current_segmentation: String,
     pub current_segmentation_with_cases: String,
     pub selected_canonical_pinyin: String,
     pub wubi_native: bool,
@@ -336,14 +335,12 @@ impl InputSession {
         if self.is_japanese() {
             let request = self.engine.request();
             transition.full_pure_pinyin = request.raw_input.clone();
-            transition.current_segmentation = request.segmentation.clone();
             transition.current_segmentation_with_cases = request.raw_input_with_cases.clone();
             return transition;
         }
         if transition.wubi_native {
             let request = self.engine.request();
             transition.full_pure_pinyin = request.normalized_input.clone();
-            transition.current_segmentation = request.normalized_input.clone();
             transition.current_segmentation_with_cases = request.raw_input.clone();
             return transition;
         }
@@ -401,7 +398,6 @@ impl InputSession {
                 self.online_requests.invalidate();
                 self.update_mixed_candidates();
             }
-            transition.current_segmentation = self.pinyin_segmentation();
             transition.current_segmentation_with_cases =
                 self.pinyin_segmentation_with_cases().into_owned();
             return transition;
@@ -434,18 +430,12 @@ impl InputSession {
             self.engine.replace_active_raw_input(rest, rest_with_cases);
             self.online_requests.invalidate();
             self.update_mixed_candidates();
-            transition.current_segmentation = self.pinyin_segmentation();
             transition.current_segmentation_with_cases =
                 self.pinyin_segmentation_with_cases().into_owned();
             return transition;
         }
         let request = self.engine.request();
         transition.full_pure_pinyin = request.normalized_input.clone();
-        transition.current_segmentation = if request.normalized_segmentation.is_empty() {
-            request.segmentation.clone()
-        } else {
-            request.normalized_segmentation.clone()
-        };
         transition.current_segmentation_with_cases =
             self.pinyin_segmentation_with_cases().into_owned();
         transition

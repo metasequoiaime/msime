@@ -137,7 +137,6 @@ fn creating_word_progress_preserves_gaps_unicode_invalid_readings_and_wubi() {
             current_segmentation_with_cases: tail.into(),
             continues_composition: continuing,
             wubi_native: wubi,
-            ..SelectionTransition::default()
         };
         let (old, old_count) =
             count(|| original_update_creating_word_progress(prior, prior_word, word, &transition));
@@ -240,7 +239,6 @@ fn cold_creating_word_progress_releases_validation_outputs_and_owns_returned_fie
             current_segmentation_with_cases: "ma".into(),
             continues_composition: continuing,
             wubi_native: wubi,
-            ..SelectionTransition::default()
         };
         let (old, old_heap) = measure(|| {
             original_update_creating_word_progress(prior, prior_word, word, &transition)
