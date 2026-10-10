@@ -113,6 +113,12 @@ constexpr bool ShowsGlosses(int scheme) { return scheme == Quanpin || scheme == 
 // `detects_urls`：组字中键入 `www.`、`http:` 这类触发词会进入网址模式。TIP 把全拼、双拼、五笔都记成 quanpin（mode_scheme），三者都检测网址，所以 TIP 用 InputModeScheme 判断不会看错。
 constexpr bool DetectsUrls(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi; }
 
+// `opens_local_modes`: Shift+letter opens the local modes other than K (U, T, E, M, J, Y, R, V) while nothing is composed; of them the TIP routes only V's keys, as the expression flag of LocalModeTriggersChanged. K and the `/` and `@` keys follow `opens_table_modes`. The Server decides it from the scheme that runs (apply_local_mode_switches in src/ipc/ReplyCodec.h); the TIP must not, because it keys Wubi as quanpin (mode_scheme) and this is false for Wubi.
+constexpr bool OpensLocalModes(int scheme) { return scheme == Quanpin || scheme == Shuangpin; }
+
+// `opens_table_modes`: Shift+K and the `/` and `@` keys open the quick phrase, command and mention modes while nothing is composed, so the Server sends the command and mention flags of LocalModeTriggersChanged on only here. In every other scheme the symbols a view lists outside a local mode are the scheme's own spelling.
+constexpr bool OpensTableModes(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi; }
+
 // ---- The input mode the Server tells the TIP about ----
 
 // The scheme family the TIP has to know before its host session answers a key, carried as one character in FanyImeWorkerReplyType::InputModeChanged (shared/contracts/windows_ipc.h). The three pinyin and shape schemes share Chinese: the TIP keys them alike. Stroke has a code of its own: its traits are not quanpin's (ScriptConversionApplies, ShowsGlosses) and the TIP hands most letters to the application while it is idle (LetterPassesWhileIdle). The values are the wire codes and never change; a DLL that predates a mode compares against '1' and '2' only, so it reads a newer code as Chinese.
@@ -339,7 +345,7 @@ constexpr bool is_input_mode_payload(const wchar_t *data, std::size_t size)
     return size >= 2 && data[0] != L'\0' && data[1] == L'\0';
 }
 
-// The representative scheme number of a mode, for the scheme traits above. Chinese stands for quanpin: the three schemes it covers answer every trait alike.
+// The representative scheme number of a mode, for the scheme traits above. Chinese stands for quanpin: the three schemes it covers answer every trait alike except OpensLocalModes, which only the Server reads, from the scheme that runs.
 constexpr int mode_scheme(InputMode mode)
 {
     switch (mode)

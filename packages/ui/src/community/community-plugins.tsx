@@ -54,13 +54,14 @@ import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
 import { useCommunityInstallState } from "./community-install-state";
 
-/** The kinds a pack can be shared as; effect packs stay local for now. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
-export type CommunityPluginKind = Exclude<PluginKind, "effect">;
+/** The kinds a pack can be shared as, which is every kind, effect packs included. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
+export type CommunityPluginKind = PluginKind;
 
 export const communityPluginKinds: readonly CommunityPluginKind[] = [
   "sound",
   "music",
   "command_table",
+  "effect",
   "phrase_table",
   "helpcode",
   "wordbook",
@@ -93,7 +94,7 @@ export type CommunityPlugin = {
 export type CommunityPluginPage = {
   plugins: CommunityPlugin[];
   has_more: boolean;
-  /** Listed packs of a kind this client cannot install (effect packs), left out by the host but still counted toward the next offset. */
+  /** Listed packs of a kind this client cannot install (one newer than this client), left out by the host but still counted toward the next offset. */
   skipped?: number;
 };
 
@@ -139,10 +140,6 @@ const archiveLimit = "8 MB";
 
 const publishWarning =
   "上传的是插件目录中的全部文件（不含隐藏文件），压缩后不超过 8 MB；每个账号最多发布 20 个、合计 32 MB，每小时最多发布 10 次。其他用户下载后会按原样安装。";
-
-function isCommunityKind(kind: PluginKind): kind is CommunityPluginKind {
-  return kind !== "effect";
-}
 
 function CommunityPluginCard({ plugin, open }: { plugin: CommunityPlugin; open: () => void }) {
   return (
@@ -381,7 +378,7 @@ export function CommunityPluginsPage({
       />
       <CommunityGalleryHeading
         title="社区插件"
-        note="音效、音乐、指令表、短语表、辅助码表、单词本与符号集，安装后在「我的插件」中选用"
+        note="音效、音乐、指令表、特效、短语表、辅助码表、单词本与符号集，安装后在「我的插件」中选用"
       >
         <CommunityScopeButtons
           ariaLabel="插件范围"
@@ -536,7 +533,7 @@ export function CommunityPluginPublishDialog({
         if (generation !== clientGeneration.current) return;
         const loaded: LocalPluginOption[] = [];
         for (const item of catalog.packages) {
-          if (item.builtin || !isCommunityKind(item.kind)) continue;
+          if (item.builtin) continue;
           loaded.push({
             key: optionKey(item.kind, item.id),
             kind: item.kind,
@@ -633,7 +630,7 @@ export function CommunityPluginPublishDialog({
       {optionsLoading && <StatusMessage role="status">正在读取本地插件…</StatusMessage>}
       {!optionsLoading && options.length === 0 && (
         <CommunityNotice>
-          还没有可发布的插件。内置插件和特效包不能发布，请先在「我的插件」中导入自己的音效包、音乐包、指令表、短语表、辅助码表、单词本或符号集。
+          还没有可发布的插件。内置插件不能发布，请先在「我的插件」中导入自己的音效包、音乐包、指令表、特效包、短语表、辅助码表、单词本或符号集。
         </CommunityNotice>
       )}
       {options.length > 0 && (

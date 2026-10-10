@@ -156,6 +156,43 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertNotNil(lastWritten)
   }
 
+  /// 在 app 里开启记录就会写出统计文件，而没有完全访问的键盘一个字也不记，于是页面停在「计数为零」。这条提示必须先让人确认完全访问，再说清空过统计之类的其他可能。
+  func testZeroCountAdviceAfterEnablingInAppNamesFullAccessFirst() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("stats-zero-advice-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let store = TypingStatisticsStore(directory: directory)
+    try store.setEnabled(true)
+    let availability = store.availability()
+    guard case .ready(let lastWritten) = availability else {
+      return XCTFail("开启记录后统计文件应当已经写出，实际为 \(availability)。")
+    }
+    XCTAssertNotNil(lastWritten)
+    let statistics = try store.load()
+    XCTAssertEqual(statistics.total, 0)
+
+    let advice = try XCTUnwrap(TypingStatisticsStore.emptyStatisticsAdvice(
+      availability, recordingOff: !statistics.enabled, total: statistics.total))
+    let fullAccess = try XCTUnwrap(advice.range(of: "允许完全访问"))
+    let cleared = try XCTUnwrap(advice.range(of: "清空过统计"))
+    XCTAssertLessThan(fullAccess.lowerBound, cleared.lowerBound, advice)
+
+    let undated = try XCTUnwrap(TypingStatisticsStore.emptyStatisticsAdvice(
+      .ready(lastWritten: nil), recordingOff: false, total: 0))
+    XCTAssertTrue(undated.contains("允许完全访问"), undated)
+  }
+
+  func testEmptyStatisticsAdviceStaysQuietWhenItHasNothingToExplain() {
+    // 有计数时什么都不说；记录关闭时由「记录已关闭」那张卡说明原因，这里也不出声。
+    XCTAssertNil(TypingStatisticsStore.emptyStatisticsAdvice(.ready(lastWritten: Date()), recordingOff: false, total: 3))
+    XCTAssertNil(TypingStatisticsStore.emptyStatisticsAdvice(.neverWritten, recordingOff: true, total: 0))
+    XCTAssertNil(TypingStatisticsStore.emptyStatisticsAdvice(.ready(lastWritten: Date()), recordingOff: true, total: 0))
+    let unreachable = TypingStatisticsStore.emptyStatisticsAdvice(.containerUnavailable, recordingOff: false, total: 0)
+    XCTAssertEqual(unreachable?.contains("允许完全访问"), false)
+  }
+
   /// 按 `crates/client-core/src/typing_statistics/metrics.rs` 的序列化方式给出的 `summary` 应答，包含 null 字段。
   private static let summaryFixture = """
   {"overview":{"week_total":12846,"previous_week_total":10886,

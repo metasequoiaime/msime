@@ -234,6 +234,8 @@ struct LocalSpeechModelInfo: Decodable, Identifiable, Equatable {
   let licenseTerms: String
   let licenseNotice: String
   let hotwords: String
+  /// 不联网安装时要用户自己下载的文件：模型压缩包在前，带下载地址的附加文件在后。
+  let importFiles: [LocalSpeechModelImportFile]
 
   enum CodingKeys: String, CodingKey {
     case id, title, description, languages, streaming, installed, path, memory, hotwords
@@ -245,6 +247,7 @@ struct LocalSpeechModelInfo: Decodable, Identifiable, Equatable {
     case licenseSource = "license_source"
     case licenseTerms = "license_terms"
     case licenseNotice = "license_notice"
+    case importFiles = "import_files"
   }
 
   init(from decoder: Decoder) throws {
@@ -266,7 +269,15 @@ struct LocalSpeechModelInfo: Decodable, Identifiable, Equatable {
     licenseTerms = try values.decodeIfPresent(String.self, forKey: .licenseTerms) ?? ""
     licenseNotice = try values.decodeIfPresent(String.self, forKey: .licenseNotice) ?? ""
     hotwords = try values.decodeIfPresent(String.self, forKey: .hotwords) ?? ""
+    importFiles = try values.decodeIfPresent([LocalSpeechModelImportFile].self, forKey: .importFiles) ?? []
   }
+}
+
+/// 「从文件导入」需要的一个文件：上游文件名、下载地址和大小。导入时按大小和 SHA-256 认文件，不看文件名。
+struct LocalSpeechModelImportFile: Decodable, Equatable, Hashable {
+  let name: String
+  let url: String
+  let size: UInt64
 }
 
 /// Where the phone keeps on-device models and which one `voice_input.asr_model_path` names.

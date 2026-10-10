@@ -144,7 +144,7 @@ public final class KeyboardActionRow {
     }
 
     /**
-     * 紧挨在中/英右边的回车让给中/英的那几 dp。两键之间拿不准的按下算成中/英：误按中/英，再按一下就回来了；误按回车，消息就发出去了。回车约是中/英的两倍宽，让出这一点不影响正常按它。鸿蒙的 `KeyboardGeometry.RETURN_YIELD_VP` 与 iOS 的 `KeyAreaStackView.returnYield` 是同一个值。
+     * 紧挨在中/英右边的回车让给中/英的那几 dp。两键之间拿不准的按下算成中/英：误按中/英，再按一下就回来了；误按回车，消息就发出去了。回车约是中/英的两倍宽，让出这一点不影响正常按它。鸿蒙的 `KeyboardGeometry.RETURN_YIELD_VP` 与 iOS 的 `KeyGapRouting.returnYield` 是同一个值。
      */
     public static final float RETURN_YIELD_DP = 6f;
 

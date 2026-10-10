@@ -41,6 +41,7 @@ public final class VoiceRecognitionActivity extends Activity {
     private static final String EXTRA_LANGUAGE = "app.msime.android.voice.LANGUAGE";
     private static final String EXTRA_REQUEST_ID = "app.msime.android.voice.REQUEST_ID";
     private static final String EXTRA_PROVIDER = "app.msime.android.voice.PROVIDER";
+    private static final String EXTRA_REQUEST_FORMAT = "app.msime.android.voice.REQUEST_FORMAT";
     private static final String EXTRA_ENDPOINT = "app.msime.android.voice.ENDPOINT";
     private static final String EXTRA_MODEL = "app.msime.android.voice.MODEL";
     private static final String EXTRA_TOKEN = "app.msime.android.voice.TOKEN";
@@ -124,37 +125,37 @@ public final class VoiceRecognitionActivity extends Activity {
                             boolean ddc, String boostingTableId) {}
 
     public static void launch(Context context, String requestId, String language) {
-        launch(context, requestId, language, null, null, null, null, null, null);
+        launch(context, requestId, language, null, null, null, null, null, null, null);
     }
 
     /**
      * Launch with a configured transcription provider, or without one to use the platform
      * recognizer. The three provider values are resolved and validated by the shared layer; this
-     * activity only checks that it can speak that protocol before using them.
+     * activity only checks that it can speak that protocol before using them. `requestFormat` 是共享层给出的请求格式，上传按它拼请求体。
      */
     public static void launch(Context context, String requestId, String language,
-                              String provider, String endpoint, String model, String token,
-                              Streaming streaming, Polish polish) {
-        launch(context, requestId, language, provider, endpoint, model, token, streaming, polish,
-            null);
+                              String provider, String requestFormat, String endpoint, String model,
+                              String token, Streaming streaming, Polish polish) {
+        launch(context, requestId, language, provider, requestFormat, endpoint, model, token,
+            streaming, polish, null);
     }
 
     /**
      * Launch with every engine this activity has. `localModel` is the installed model directory for on-device recognition, already resolved by the shared layer; when present it wins over the network settings, which the shared resolution leaves empty for provider `local` anyway.
      */
     public static void launch(Context context, String requestId, String language,
-                              String provider, String endpoint, String model, String token,
-                              Streaming streaming, Polish polish, String localModel) {
-        launch(context, requestId, language, provider, endpoint, model, token, streaming, polish,
-            localModel, null, null);
+                              String provider, String requestFormat, String endpoint, String model,
+                              String token, Streaming streaming, Polish polish, String localModel) {
+        launch(context, requestId, language, provider, requestFormat, endpoint, model, token,
+            streaming, polish, localModel, null, null);
     }
 
     /**
-     * {@link #launch(Context, String, String, String, String, String, String, Streaming, Polish, String)} with the hotwords the shared layer already resolved for `localModel`: the Tauri request carries them as parallel `text` / `pinyin` arrays. Null reads them from the user's dictionary when the dictation starts.
+     * {@link #launch(Context, String, String, String, String, String, String, String, Streaming, Polish, String)} with the hotwords the shared layer already resolved for `localModel`: the Tauri request carries them as parallel `text` / `pinyin` arrays. Null reads them from the user's dictionary when the dictation starts.
      */
     public static void launch(Context context, String requestId, String language,
-                              String provider, String endpoint, String model, String token,
-                              Streaming streaming, Polish polish, String localModel,
+                              String provider, String requestFormat, String endpoint, String model,
+                              String token, Streaming streaming, Polish polish, String localModel,
                               String[] localHotwordTexts, String[] localHotwordPinyin) {
         markLaunched(requestId);
         Intent intent = new Intent(context, VoiceRecognitionActivity.class);
@@ -162,6 +163,7 @@ public final class VoiceRecognitionActivity extends Activity {
         intent.putExtra(EXTRA_REQUEST_ID, requestId);
         intent.putExtra(EXTRA_LANGUAGE, safeLanguage(language));
         if (provider != null) intent.putExtra(EXTRA_PROVIDER, provider);
+        if (requestFormat != null) intent.putExtra(EXTRA_REQUEST_FORMAT, requestFormat);
         if (endpoint != null) intent.putExtra(EXTRA_ENDPOINT, endpoint);
         if (model != null) intent.putExtra(EXTRA_MODEL, model);
         if (token != null) intent.putExtra(EXTRA_TOKEN, token);
@@ -298,7 +300,7 @@ public final class VoiceRecognitionActivity extends Activity {
     /** Whether this request carries a provider configuration this host can actually speak. */
     private boolean usesProvider() {
         Intent intent = getIntent();
-        return HttpAsrPolicy.usable(intent.getStringExtra(EXTRA_PROVIDER),
+        return HttpAsrPolicy.usable(intent.getStringExtra(EXTRA_REQUEST_FORMAT),
             intent.getStringExtra(EXTRA_ENDPOINT), intent.getStringExtra(EXTRA_MODEL),
             intent.getStringExtra(EXTRA_TOKEN));
     }
@@ -367,6 +369,7 @@ public final class VoiceRecognitionActivity extends Activity {
         Intent intent = getIntent();
         String requestId = intent.getStringExtra(EXTRA_REQUEST_ID);
         String language = intent.getStringExtra(EXTRA_LANGUAGE);
+        String requestFormat = intent.getStringExtra(EXTRA_REQUEST_FORMAT);
         String endpoint = intent.getStringExtra(EXTRA_ENDPOINT);
         String model = intent.getStringExtra(EXTRA_MODEL);
         String token = intent.getStringExtra(EXTRA_TOKEN);
@@ -377,7 +380,7 @@ public final class VoiceRecognitionActivity extends Activity {
             String text = null;
             String message = null;
             try {
-                text = running.recognize(requestId, language, endpoint, model, token);
+                text = running.recognize(requestId, language, requestFormat, endpoint, model, token);
             } catch (HttpAsrRecognizer.Refused refused) {
                 message = switch (refused.failure()) {
                     case PERMISSION -> "语音识别需要麦克风权限";

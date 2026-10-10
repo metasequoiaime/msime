@@ -30,6 +30,12 @@ int main() {
     assert(scheme::IsChinese(number));
   for (int number : {3, 4, 7, 8, 10, -1})
     assert(!scheme::IsChinese(number));
+  // K、"/"、"@" 只查自己的表，五笔也打开（`opens_table_modes`）；其余 Shift+字母模式只在全拼和双拼里（`opens_local_modes`）。
+  for (int number : {0, 1, 2})
+    assert(scheme::OpensTableModes(number));
+  for (int number : {3, 4, 5, 6, 7, 8, 9, -1})
+    assert(!scheme::OpensTableModes(number));
+  assert(!scheme::OpensLocalModes(scheme::Wubi));
   // 藏文的宿主特性和越南文相同：字母直接组成文字，CapsLock 的大写字母照样组字，离开时上屏，光标锁在末尾，不转繁体，不用中文标点，不变全角，没有宿主的智能标点，也没有要打开的候选列表。
   static_assert(scheme::LetterComposition(scheme::Tibetan) && scheme::CapsLockBypassExempt(scheme::Tibetan) &&
                 scheme::AlwaysInlinePreedit(scheme::Tibetan) && scheme::CommitsOnBlur(scheme::Tibetan) &&

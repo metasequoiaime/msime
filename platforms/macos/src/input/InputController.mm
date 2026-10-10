@@ -45,6 +45,7 @@
 #include "../candidate/CandidateSkin.h"
 #include "../settings/ShuangpinProfileNames.h"
 #include "../candidate/CandidateWheelRouting.h"
+#include "../candidate/CandidatePageSize.h"
 #import "../core/ChineseTextConversion.h"
 #include "../core/FullWidthInput.h"
 #include "InputControllerPhysicalKeys.h"
@@ -683,15 +684,14 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
            [identifier[@"index"] compare:@(NSUIntegerMax)] != NSOrderedDescending;
 }
 
-// Background readers borrow the controller strongly. Its last release must not
-// land on their queue, where -dealloc would tear down AppKit objects off main.
-// Takes the caller's reference and clears it before main can drop the handoff.
+// 后台读取会强引用控制器。它的最后一次释放不能落在后台队列上，否则 -dealloc 会在主线程之外收起 AppKit 对象。这里接过调用方的引用并把它清空，再到主线程释放。
+// 主线程上用 CFRelease 当场释放，不用 CFBridgingRelease：后者的返回值在未优化的构建里会进主线程 run loop 的自动释放池，控制器要活到这一轮回调结束，排在后面、按弱引用取控制器的完成块就会取到一个 IMK 早已放掉的控制器。
 static void MSIMEReleaseControllerOnMain(__strong id *controller) {
     if (!*controller) return;
     CFTypeRef owner = CFBridgingRetain(*controller);
     *controller = nil;
     dispatch_async(dispatch_get_main_queue(), ^{
-        (void)CFBridgingRelease(owner);
+        CFRelease(owner);
     });
 }
 
@@ -1756,7 +1756,7 @@ static NSImage *MSIMECandidateLogoImage() {
     const NSUInteger pageSize = MAX((NSUInteger)1, (NSUInteger)_appearance.pageSize);
     const NSUInteger count = _glossSenses.count;
     if (modifiers == 0) {
-        const int slot = msime::mac::PhysicalCandidateDigitSlot(event.keyCode);
+        const int slot = msime::mac::CandidateDigitSlotOnPage(msime::mac::PhysicalCandidateDigitSlot(event.keyCode), pageSize);
         if (slot >= 0) {
             const NSUInteger index = (_glossSenseCursor / pageSize) * pageSize + (NSUInteger)slot;
             if (index < count && (NSUInteger)slot < pageSize) return [self commitGlossSenseAtIndex:index client:sender];
@@ -3108,6 +3108,10 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     view = [_session setPunctuationLock:_appearance.punctuationLock error:nil];
     if (view) [self apply:@{@"view":view}];
 }
+// 把大写锁定状态交给会话：「大写锁定时使用英文标点」（`caps_lock_ascii_punctuation`）由共享层按它决定标点去向，宿主只负责报告。
+- (void)syncCapsLock {
+    if (_session) [_session setCapsLockEnabled:_capsLock error:nil];
+}
 - (void)syncCharacterWidth {
     if (!_session) return;
     NSDictionary *view = [_session setCharacterWidthFull:_appearance.runtimeFullWidthInput error:nil];
@@ -3273,11 +3277,18 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         [self showSharedTextTool:@"cloud-clipboard" options:[self runtimeOptions] bridge:nil];
         return;
     }
+    // 打开设置应用的完成回调在 NSWorkspace 的并发队列上执行并释放，这里的块随它一起被持有：只捕获弱引用，控制器的最后一次释放才不会落在那条队列上（见 reloadPreferences）。
+    __weak MSIMEInputController *weakSelf = self;
     MSIMEOpenDesktopCloudClipboard(MSIMERuntimeOptionsPath(), NSWorkspace.sharedWorkspace, ^{
-        if (!MSIMEOpenBackendClipboard(NSClassFromString(@"MSIMEBackendAccountWindow"))) [self showAccount:sender];
+        if (!MSIMEOpenBackendClipboard(NSClassFromString(@"MSIMEBackendAccountWindow"))) [weakSelf showAccount:sender];
     });
 }
-- (void)showCloudDictionary:(id)sender { (void)sender; MSIMEOpenDesktopCloudDictionary(MSIMERuntimeOptionsPath(), NSWorkspace.sharedWorkspace, ^{ [self showAccount:nil]; }); }
+- (void)showCloudDictionary:(id)sender {
+    (void)sender;
+    // 只捕获弱引用，理由同 showCloudClipboard:。
+    __weak MSIMEInputController *weakSelf = self;
+    MSIMEOpenDesktopCloudDictionary(MSIMERuntimeOptionsPath(), NSWorkspace.sharedWorkspace, ^{ [weakSelf showAccount:nil]; });
+}
 - (void)showHandwriting:(id)sender {
     (void)sender;
     if (!MSIMEEditionOffersHandwriting()) return;
@@ -4259,7 +4270,20 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         [[MSIMEPreferencesWindowController sharedController] showAndActivateWithPageIdentifier:@"appearance"];
     });
 }
-- (void)showDictionary:(id)sender { (void)sender; MSIMEOpenDesktopRoute(@"settings:dictionary", NSWorkspace.sharedWorkspace, ^{ if (!self->_session) [self prepareSession]; if (!self->_session) return; self->_dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:self->_session.hostOptions]; [self->_dictionaryWindow showWindow:nil]; MSIMEPresentWindow(self->_dictionaryWindow.window); }); }
+- (void)showDictionary:(id)sender {
+    (void)sender;
+    // 只捕获弱引用，理由同 showCloudClipboard:；回退在主线程执行，在那里再取强引用。
+    __weak MSIMEInputController *weakSelf = self;
+    MSIMEOpenDesktopRoute(@"settings:dictionary", NSWorkspace.sharedWorkspace, ^{
+        MSIMEInputController *controller = weakSelf;
+        if (!controller) return;
+        if (!controller->_session) [controller prepareSession];
+        if (!controller->_session) return;
+        controller->_dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:controller->_session.hostOptions];
+        [controller->_dictionaryWindow showWindow:nil];
+        MSIMEPresentWindow(controller->_dictionaryWindow.window);
+    });
+}
 - (void)prepareDictionary:(id)sender {
     (void)sender;
     if (_session && _activeClient) {
@@ -4371,6 +4395,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     // The Chinese/English state is remembered per application and survives a restart, while the menu bar shows whichever mode was selected last; align the two as this client takes focus. That also covers a toggle made while no client could be asked to switch.
     [self syncSystemInputModeForClient:sender];
     _capsLock = ([NSEvent modifierFlags] & NSEventModifierFlagCapsLock) != 0;
+    [self syncCapsLock];
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
@@ -4552,6 +4577,44 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions, NSString 
     return requested;
 }
 
+// The current preferences are available before the first HostSession is
+// constructed. Configure the log from them so failures emitted while that
+// constructor loads plugin tables are not lost before the asynchronous
+// preferences reload catches up.
+static BOOL MSIMEConfigureDiagnosticLog(NSString *directory,
+                                        NSDictionary *preferences) {
+    NSDictionary *diagnostic = [preferences isKindOfClass:NSDictionary.class]
+        ? preferences[@"diagnostic_log"] : nil;
+    const BOOL enabled = [diagnostic isKindOfClass:NSDictionary.class] &&
+        [diagnostic[@"server"] isKindOfClass:NSNumber.class] &&
+        CFGetTypeID((__bridge CFTypeRef)diagnostic[@"server"]) == CFBooleanGetTypeID() &&
+        [diagnostic[@"server"] boolValue];
+    const std::string path = [directory isKindOfClass:NSString.class] && directory.isAbsolutePath
+        ? std::string(directory.UTF8String ?: "") : std::string();
+    msime_macos_diagnostic_configure(path, enabled);
+    return enabled;
+}
+
+static void MSIMEConfigureDiagnosticLogFromRuntimeOptions(NSDictionary *options) {
+    if (![options isKindOfClass:NSDictionary.class]) return;
+    MSIMEConfigureDiagnosticLog(options[@"preferences_directory"], options[@"preferences"]);
+}
+
+static void MSIMEConfigureDiagnosticLogBeforeSession(NSDictionary *options) {
+    if (![options isKindOfClass:NSDictionary.class]) return;
+    NSString *directory = [options[@"preferences_directory"] isKindOfClass:NSString.class] &&
+        [options[@"preferences_directory"] isAbsolutePath] ? options[@"preferences_directory"] : nil;
+    if (directory) {
+        NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
+        NSDictionary *preferences = [snapshot isKindOfClass:NSDictionary.class] ? snapshot[@"preferences"] : nil;
+        if ([preferences isKindOfClass:NSDictionary.class]) {
+            MSIMEConfigureDiagnosticLog(directory, preferences);
+            return;
+        }
+    }
+    MSIMEConfigureDiagnosticLogFromRuntimeOptions(options);
+}
+
 // Resources/sound-packs of this bundle, where CMakeLists.txt stages the built-in packs; nil when it is not there.
 static NSString *MSIMEBundleSoundPacks(NSBundle *bundle) {
     NSString *directory = [bundle.resourcePath stringByAppendingPathComponent:@"sound-packs"];
@@ -4580,10 +4643,14 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
     msime_macos_diagnostic_writef("session_unavailable reason=%s", reason.UTF8String);
 }
 
+// Background music plays while one controller of this process is the active input method. IMK does not promise that the previous client's deactivateServer: comes before the next one's activateServer:, so only the controller that last let music play may stop it. Declared ahead of prepareSession, which reads it too.
+static __weak MSIMEInputController *MSIMEMusicOwner;
+
 - (void)prepareSession {
     // The device's anonymous MSIME account is registered the first time the input method activates, so a new install has one before any feature asks for it. It runs once per process and returns at once when a signed-in or anonymous session is already saved; only the random identity is sent, never input.
     if (MSIMEEnsureAnonymousAccount != nullptr) MSIMEEnsureAnonymousAccount();
     BOOL reopened = NO;
+    BOOL created = NO;
     if (!_session) {
         NSDictionary *options = MSIMESessionOptions([self runtimeOptions], MSIMEBundleSoundPacks(NSBundle.mainBundle));
         // Dictionary maintenance is running: open nothing, so keys pass through to the application until the lease is gone. The preferences timer keeps running, so settings still apply meanwhile.
@@ -4594,12 +4661,14 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
         // Before the session exists, so nothing this process writes can be mistaken for an earlier install.
         [self resolveCloudCandidatesConsentWithOptions:options];
         if (options) {
+            MSIMEConfigureDiagnosticLogBeforeSession(options);
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             _requestedPageSize = 0;
             id directory = options[@"preferences_directory"];
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
             if (_session) {
                 [MSIMEInputController holdDictionarySession:self];
+                created = YES;
                 reopened = _resumeDedicatedEnglish;
                 _resumeDedicatedEnglish = NO;
             }
@@ -4611,6 +4680,7 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
     if (_session) {
         [self syncPunctuation];
         [self syncCharacterWidth];
+        [self syncCapsLock];
         if (reopened) {
             NSDictionary *view = [_session setDedicatedEnglishEnabled:YES error:nil];
             if (view) _view = view;
@@ -4618,6 +4688,8 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
         [self apply:[_session setFocused:YES error:nil]];
         _focusPending = NO;
         [self refreshTypingEffectSettings];
+        // 激活时若处于英文模式就还没有会话，那次 claimBackgroundMusic 发给的是 nil，播放器从没被告知输入法处于活动状态；会话在之后切回中文、按键或菜单操作时才建好，这里补上，否则背景音乐要等下一次偏好变化才响。
+        if (created && MSIMEMusicOwner == self) [self claimBackgroundMusic];
     }
     [self startPreferencesMonitoring];
 }
@@ -4730,7 +4802,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     NSString *directory = [_preferencesDirectory copy];
     __weak MSIMEInputController *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        MSIMEInputController *current = weakSelf;
+        id current = weakSelf; // 用 id：要交给 MSIMEReleaseControllerOnMain
         if (!current) return;
         NSError *error = nil;
         NSDictionary *snapshot = [current readPreferencesSnapshotInDirectory:directory error:&error];
@@ -4749,6 +4821,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                 error = recoveryError;
             }
         }
+        // 读取期间 IMK 可能已放掉控制器，这里的强引用就成了最后一个；交回主线程释放，dealloc 收起浮动工具栏时才不会在本线程触碰 AppKit。释放先于下面的完成块入队，完成块仍按弱引用取到控制器，时机与此前相同。
+        MSIMEReleaseControllerOnMain(&current);
         dispatch_async(dispatch_get_main_queue(), ^{
             [weakSelf completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
             // After the completion, which is what configures the diagnostic log from the repaired document.
@@ -4759,14 +4833,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
-    NSDictionary *diagnostic = [preferences isKindOfClass:NSDictionary.class] ? preferences[@"diagnostic_log"] : nil;
-    const BOOL diagnosticEnabled = [diagnostic isKindOfClass:NSDictionary.class] &&
-        [diagnostic[@"server"] isKindOfClass:NSNumber.class] &&
-        CFGetTypeID((__bridge CFTypeRef)diagnostic[@"server"]) == CFBooleanGetTypeID() &&
-        [diagnostic[@"server"] boolValue];
-    const std::string directory = _preferencesDirectory.UTF8String ? _preferencesDirectory.UTF8String : "";
-    msime_macos_diagnostic_configure(directory, diagnosticEnabled);
-    if (diagnosticEnabled) msime_macos_diagnostic_write("preferences_applied");
+    if (MSIMEConfigureDiagnosticLog(_preferencesDirectory, preferences))
+        msime_macos_diagnostic_write("preferences_applied");
     if ([preferences isKindOfClass:NSDictionary.class]) {
         id wubiCodeHint = preferences[@"wubi_code_hint"];
         if ([wubiCodeHint isKindOfClass:NSNumber.class] &&
@@ -4836,7 +4904,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     id pageSize = preferences[@"candidate_page_size"];
     NSUInteger strictPageSize = 0;
-    if (MSIMEStrictUnsignedIntegerValue(pageSize, &strictPageSize) && strictPageSize >= 1 && strictPageSize <= 9 && strictPageSize != _requestedPageSize) _requestedPageSize = 0;
+    if (MSIMEStrictUnsignedIntegerValue(pageSize, &strictPageSize) && strictPageSize >= msime::mac::kMinimumCandidatePageSize && strictPageSize <= msime::mac::kMaximumCandidatePageSize && strictPageSize != _requestedPageSize) _requestedPageSize = 0;
     [_appearance applySharedInputPreferences:preferences];
     [_appearance applySharedCandidatePreferences:preferences];
     if (!_appearance.inputModeHUD) [[MSIMEInputModeHUDPanel sharedPanel] orderOut:nil];
@@ -4884,11 +4952,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [[MSIMETypingEffectPanel sharedPanel] settle];
     // Every focus loss writes the key heatmap counts, including a late one for a previous client: they are this controller's presses either way.
     [self flushKeyPresses];
+    // 上一个客户端迟到的回调不能拆掉当前客户端的组字、面板、监视和尚未松开的修饰键。成对标点也一样：activateServer: 已丢掉上一个客户端欠着的闭合符，此刻待补的闭合符和跳过记录都属于当前客户端，替它补上会把这一对提前合上、把组字中的 marked text 整段替换掉，所以迟到判断必须先于补闭合符。
+    if (!sender || sender != _activeClient) return;
     [self flushPendingPairedClosing];
     _pairedPunctuation.clear();
-    // A delayed callback from the previous client must not tear down the
-    // active client's composition, panels, monitoring or pending modifier tap.
-    if (!sender || sender != _activeClient) return;
     _backspaceHoldArmed = NO;
     [self clearSmartPunctuationSpaceConversion];
     [self clearSmartPunctuationSpaceRevert];
@@ -5016,13 +5083,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 - (void)restartCurrentInputMethod {
+    // 完成块也被 NSWorkspace 并发队列上的回调持有，那边可能最后才释放它：只捕获弱引用，理由同 showCloudClipboard:。
+    __weak MSIMEInputController *weakSelf = self;
     MSIMELaunchInputSourceReregistration(NSBundle.mainBundle.bundleURL, NSWorkspace.sharedWorkspace,
         ^(BOOL launched) {
             if (!launched) {
                 NSBeep();
                 return;
             }
-            [self flushKeyPressesWaitingUntilWritten:YES];
+            [weakSelf flushKeyPressesWaitingUntilWritten:YES];
             [NSApp terminate:nil];
         });
 }
@@ -5070,9 +5139,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     for (NSUInteger line = 0; line < lines; ++line) [placeholder addObject:@"X"];
     return MSIMETranslationTextSize([placeholder componentsJoinedByString:@"\n"], glossFont).height + MSIMECandidateGlossPadding * MSIMECandidateScale(_appearance);
 }
-
-// Background music plays while one controller of this process is the active input method. IMK does not promise that the previous client's deactivateServer: comes before the next one's activateServer:, so only the controller that last let music play may stop it.
-static __weak MSIMEInputController *MSIMEMusicOwner;
 
 // Secure event input is on while a password field, or a terminal's secure keyboard entry, has the keyboard. It is window-server state shared by every process, so an application that leaves it on also silences this one; that errs the right way, because a click per keystroke tells anyone listening how long a password is.
 - (BOOL)secureEventInputActive { return IsSecureEventInputEnabled(); }
@@ -5280,6 +5346,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     const BOOL capsLock = (event.modifierFlags & NSEventModifierFlagCapsLock) != 0;
     if (_capsLock != capsLock) {
         _capsLock = capsLock;
+        [self syncCapsLock];
         [self refreshFloatingToolbarState];
     }
     if (!sender) {
@@ -5525,7 +5592,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     // characters.  Let nine-key mode and modified chords reach the Engine.
     const NSEventModifierFlags candidateDigitModifiers = NSEventModifierFlagShift | NSEventModifierFlagControl |
                                                           NSEventModifierFlagOption | NSEventModifierFlagCommand;
-    const int physicalDigit = msime::mac::PhysicalCandidateDigitSlot(event.keyCode);
+    const int physicalDigit = msime::mac::CandidateDigitSlotOnPage(msime::mac::PhysicalCandidateDigitSlot(event.keyCode), _appearance.pageSize);
     NSArray *visibleCandidates = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[];
     const NSEventModifierFlags glossModifiers = event.modifierFlags &
         (NSEventModifierFlagShift | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand);
@@ -5551,7 +5618,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
             _panel.isVisible, digitIsSpelling,
             (event.modifierFlags & candidateDigitModifiers) == NSEventModifierFlagShift,
             MSIMESpellingSymbolString(_view, event.characters))) {
-        const int slot = msime::mac::PhysicalCandidateDigitSlot(event.keyCode);
+        const int slot = physicalDigit;
         if (slot >= 0) {
             // The panel owns the rendered snapshot. If it is from an older
             // generation, consume the key until the new page is visible instead

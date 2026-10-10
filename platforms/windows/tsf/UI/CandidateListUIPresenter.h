@@ -99,6 +99,10 @@ class CCandidateListUIPresenter : public CTfTextLayoutSink,
     bool _GetSelectedEngineCandidate(CCandidateListItem *item) const {
         return _candidateState.GetSelectedCandidate(item);
     }
+    bool _HoldsEnginePage() const
+    {
+        return _candidateState.HoldsEnginePage();
+    }
     BOOL _SetSelectionInPage(int nPos)
     {
         return _candidateState.SetSelectionInPage(nPos);

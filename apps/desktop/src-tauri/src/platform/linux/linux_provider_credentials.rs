@@ -28,12 +28,13 @@ const VOICE_FILE: &str = "voice-provider.json";
 /// The voice provider's `LOCAL_PROVIDER`: on-device recognition, whose file entry, when a user writes one, carries only the provider name.
 const LOCAL_ASR_PROVIDER: &str = "local";
 /// The voice provider's `ASR_PROVIDERS` and `POLISH_PROVIDERS`.
-const ASR_PROVIDERS: [&str; 6] = [
+const ASR_PROVIDERS: [&str; 7] = [
     "openai",
     "groq",
     "siliconflow",
     "everyapi",
     "mistral",
+    "bailian",
     "doubao",
 ];
 const POLISH_PROVIDERS: [&str; 4] = ["openai", "groq", "siliconflow", "deepseek"];

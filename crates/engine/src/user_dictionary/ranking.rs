@@ -94,8 +94,8 @@ fn reset_selection(transaction: &Transaction<'_>, request: &RankingRequest<'_>) 
     Ok(())
 }
 
-/// J:284-295. Promote always moves at least one slot and at most to the fifth.
-fn ranking_target(
+/// J:284-295。Promote 至少挪一位，最多挪到第五位。九键简拼行按用户用过的次数挪位时也按它算目标位置（#6185）。
+pub(crate) fn ranking_target(
     rank: usize,
     mode: FrequencyAdjustmentMode,
     linear_step: i32,

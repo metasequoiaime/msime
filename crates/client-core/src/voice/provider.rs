@@ -19,10 +19,52 @@ pub struct VoiceRequestHeader {
     pub value: String,
 }
 
+/// 豆包的流式 WebSocket 协议。
+pub const ASR_REQUEST_DOUBAO_WEBSOCKET: &str = "doubao_websocket";
+/// OpenAI 兼容的 `/audio/transcriptions`：multipart 上传 `model`、`language` 和 `file`（16 kHz 单声道 16 位 WAV），回答里取 `text`。
+pub const ASR_REQUEST_MULTIPART: &str = "multipart";
+/// Chat Completions 带音频输入（阿里云百炼的 qwen3-asr-flash）：JSON 请求体，唯一一条 user 消息的 content 是 `{"type":"input_audio","input_audio":{"data":"data:audio/wav;base64,..."}}`，回答里取 `choices[0].message.content`。
+pub const ASR_REQUEST_CHAT_AUDIO: &str = "chat_audio";
+/// 设备上的本地模型，没有网络请求。
+pub const ASR_REQUEST_LOCAL: &str = "local";
+
+/// [`ASR_REQUEST_CHAT_AUDIO`] 一次最多上传的 WAV 字节数。百炼限制请求里的音频（含 Base64 编码）不超过 10 MB，Base64 让体积变成 4/3，再给数据 URL 前缀留出余量；16 kHz 单声道 16 位约 218 秒。
+pub const CHAT_AUDIO_MAX_WAV_BYTES: usize = 7_000_000;
+
+/// 各识别服务的请求格式。宿主按这个字段挑请求构造，不再按 provider 名字各自判断；不认识的 provider 为 `None`。
+pub fn asr_request_format(provider: &str) -> Option<&'static str> {
+    match provider {
+        "doubao" => Some(ASR_REQUEST_DOUBAO_WEBSOCKET),
+        "openai" | "siliconflow" | "groq" | "everyapi" | "mistral" => Some(ASR_REQUEST_MULTIPART),
+        "bailian" => Some(ASR_REQUEST_CHAT_AUDIO),
+        "local" => Some(ASR_REQUEST_LOCAL),
+        _ => None,
+    }
+}
+
+/// [`ASR_REQUEST_CHAT_AUDIO`] 的请求体。不带 `asr_options`：语种交给模型自动识别，和其他服务不传语种时一样。
+pub fn chat_audio_request_body(model: &str, wav: &[u8]) -> serde_json::Value {
+    use base64::Engine as _;
+    let data = format!(
+        "data:audio/wav;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(wav)
+    );
+    serde_json::json!({
+        "model": model,
+        "stream": false,
+        "messages": [{
+            "role": "user",
+            "content": [{ "type": "input_audio", "input_audio": { "data": data } }],
+        }],
+    })
+}
+
 /// The transcription provider a mobile host should use, resolved from the settings document.
 #[derive(Debug, PartialEq, Eq)]
 pub struct MobileVoiceProviderConfiguration {
     pub provider: String,
+    /// 请求格式，[`asr_request_format`] 的取值之一。
+    pub request_format: String,
     pub endpoint: String,
     pub model: String,
     pub token: String,
@@ -210,10 +252,15 @@ pub fn mobile_voice_provider_configuration(
             "https://api.mistral.ai/v1/audio/transcriptions",
             "voxtral-mini-latest",
         ),
+        "bailian" => (
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            "qwen3-asr-flash",
+        ),
         _ => {
             return None;
         }
     };
+    let request_format = asr_request_format(&voice.asr_provider)?;
     let fields = resolve_voice_fields(
         &voice.asr_provider,
         &voice.asr_endpoint,
@@ -252,6 +299,7 @@ pub fn mobile_voice_provider_configuration(
     };
     Some(MobileVoiceProviderConfiguration {
         provider: voice.asr_provider.clone(),
+        request_format: request_format.to_owned(),
         endpoint: fields.endpoint,
         model: fields.model,
         token: if voice.asr_provider == "doubao" {
@@ -282,6 +330,7 @@ fn local_provider_configuration(
     }
     Some(MobileVoiceProviderConfiguration {
         provider: voice.asr_provider.clone(),
+        request_format: ASR_REQUEST_LOCAL.to_owned(),
         endpoint: String::new(),
         model: String::new(),
         token: String::new(),
@@ -310,6 +359,7 @@ mod tests {
             "/data/user/0/app/files/voice-models/x-asr-zh-en-streaming".into();
         let configuration = mobile_voice_provider_configuration(&preferences).unwrap();
         assert_eq!(configuration.provider, "local");
+        assert_eq!(configuration.request_format, ASR_REQUEST_LOCAL);
         assert_eq!(
             configuration.model_path,
             "/data/user/0/app/files/voice-models/x-asr-zh-en-streaming"
@@ -332,6 +382,70 @@ mod tests {
         preferences.voice_input.asr_model_path = "/models/x-asr-zh-en-streaming".into();
         let configuration = mobile_voice_provider_configuration(&preferences).unwrap();
         assert!(configuration.model_path.is_empty());
+    }
+
+    #[test]
+    fn each_provider_names_its_request_format() {
+        let mut preferences = Preferences::default();
+        preferences.voice_input.asr_token = "synthetic-token".into();
+        // 默认偏好里的地址是豆包的 wss；清空后每家用自己的默认地址。
+        preferences.voice_input.asr_endpoint = String::new();
+        for (provider, format) in [
+            ("openai", ASR_REQUEST_MULTIPART),
+            ("siliconflow", ASR_REQUEST_MULTIPART),
+            ("groq", ASR_REQUEST_MULTIPART),
+            ("everyapi", ASR_REQUEST_MULTIPART),
+            ("mistral", ASR_REQUEST_MULTIPART),
+            ("bailian", ASR_REQUEST_CHAT_AUDIO),
+        ] {
+            preferences.voice_input.asr_provider = provider.into();
+            let configuration = mobile_voice_provider_configuration(&preferences)
+                .unwrap_or_else(|| panic!("{provider} resolves"));
+            assert_eq!(configuration.request_format, format, "{provider}");
+            assert_eq!(asr_request_format(provider), Some(format));
+        }
+        assert_eq!(
+            asr_request_format("doubao"),
+            Some(ASR_REQUEST_DOUBAO_WEBSOCKET)
+        );
+        assert_eq!(asr_request_format("system"), None);
+        assert_eq!(asr_request_format("whisper"), None);
+    }
+
+    #[test]
+    fn bailian_resolves_to_the_dashscope_chat_endpoint() {
+        let mut preferences = Preferences::default();
+        preferences.voice_input.asr_provider = "bailian".into();
+        preferences.voice_input.asr_endpoint = String::new();
+        preferences.voice_input.asr_model = String::new();
+        preferences
+            .voice_input
+            .asr_tokens
+            .insert("bailian".into(), "synthetic-bailian-key".into());
+        let configuration = mobile_voice_provider_configuration(&preferences).unwrap();
+        assert_eq!(
+            configuration.endpoint,
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+        );
+        assert_eq!(configuration.model, "qwen3-asr-flash");
+        assert_eq!(configuration.token, "synthetic-bailian-key");
+        assert!(configuration.headers.is_empty());
+    }
+
+    #[test]
+    fn chat_audio_body_carries_the_wav_as_a_data_url() {
+        let body = chat_audio_request_body("qwen3-asr-flash", b"RIFF");
+        assert_eq!(body["model"], "qwen3-asr-flash");
+        assert_eq!(body["stream"], false);
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["role"], "user");
+        let content = &messages[0]["content"][0];
+        assert_eq!(content["type"], "input_audio");
+        assert_eq!(
+            content["input_audio"]["data"],
+            "data:audio/wav;base64,UklGRg=="
+        );
     }
 
     #[test]

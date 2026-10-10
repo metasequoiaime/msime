@@ -1,5 +1,6 @@
 // The reporter wrapper against the real Host API: sessions, the sigaction crash path, the terminate path, chaining to a crash handler the process had before, and the switch. Linux only (fork and signals); nothing here reaches the network.
 #include "Telemetry.h"
+#include "HostApiString.h"
 #include "msime_client.h"
 
 #include <nlohmann/json.hpp>
@@ -9,7 +10,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <memory>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -177,16 +177,15 @@ int main() {
   assert(msime::telemetry::begin({"linux", "1.2.3", shared, std::nullopt, preferences}));
   assert(of_kind(shared, "active").size() == 1);
   {
-    std::unique_ptr<char, decltype(&msime_client_string_free)> defaults(msime_client_default_preferences(), msime_client_string_free);
+    auto defaults = msime::host_api::own_string(msime_client_default_preferences());
     auto value = nlohmann::json::parse(defaults.get()).at("value");
     auto snapshot = value.contains("preferences") ? value : nlohmann::json{{"format_version", 1}, {"revision", 0}, {"preferences", value}};
     snapshot["preferences"]["usage_reporting"] = false;
     const auto body = snapshot.dump();
     const auto path = preferences.string();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> saved(
+    auto saved = msime::host_api::own_string(
         msime_client_save_preferences(reinterpret_cast<const uint8_t *>(path.data()), path.size(), snapshot.value("revision", 0ull),
-                                      reinterpret_cast<const uint8_t *>(body.data()), body.size()),
-        msime_client_string_free);
+                                      reinterpret_cast<const uint8_t *>(body.data()), body.size()));
     assert(nlohmann::json::parse(saved.get()).value("ok", false));
   }
   assert(!msime::telemetry::begin({"linux", "1.2.3", shared, std::nullopt, preferences}));

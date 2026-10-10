@@ -66,6 +66,10 @@ export const updatePill = (latest: boolean) =>
 export const rowButton =
   "shrink-0 cursor-pointer rounded-[var(--p-r-ctl)] px-3.5 py-[5px] text-[13px] whitespace-nowrap [background:var(--p-btn-bg)] [border:var(--p-btn-border)] [color:var(--p-btn-fg)] [font-family:inherit] active:opacity-60 disabled:cursor-default disabled:opacity-50";
 
+/** 「系统信息」行尾的值：次要文字色，右对齐，长的发行版名或设备型号在行内折行，可以选中复制。 */
+export const systemInfoValue =
+  "max-w-[60%] text-right break-anywhere select-text [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
+
 /** 「描述」卡片：用分组的底色和圆角包住一个无边框的 textarea。 */
 export const feedbackTextCard = "overflow-hidden rounded-[20px] bg-[var(--p-group-bg)]";
 export const feedbackTextarea =

@@ -156,6 +156,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) BOOL shuangpinHelpcodeEnabled;
 - (void)applySharedAssistancePreferences:(NSDictionary *)preferences;
 - (NSDictionary *)helpcodeOptionsForScheme:(NSString *)scheme;
+/// 共享偏好里这个方案（quanpin 或 shuangpin）选中的辅助码表插件 id（`plugins.helpcode_pack_<方案>`），没选时为 nil。选了插件时 Engine 用插件的码表替代辅助码方案，所以方案下拉框显示的是插件；在这里选一个方案就不再使用该插件，与共享设置页的「辅助码方案」一致。
+- (NSString *)helpcodePackForScheme:(NSString *)scheme;
 @property(nonatomic) BOOL shuangpinKeymap;
 /// 四码唯一候选自动上屏：值随共享偏好 `wubi_auto_commit_unique` 进 Engine，本键只是本机的存储位置；从没设置过时是开。
 @property(nonatomic) BOOL wubiAutoCommitUnique;

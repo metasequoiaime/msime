@@ -11,7 +11,7 @@
 - 桌面端没有社区页：社区皮肤在共享应用「主题」页的「社区皮肤」标签里，本窗口「主题」页的「社区皮肤」一行打开它，`community` 路由打开本窗口的「主题」页。AI 对话是 AI 辅助的子页，`chat` 路由打开「AI 辅助」。
 - 其他平台下载不单独成页：「关于」页的「版本与更新」组可以打开产品下载页或复制链接。
 
-原生页面不绘制的部分（候选字体选择、皮肤与自定义主题编辑、词库管理、背单词、辅助码插件、语音识别服务、屏幕键盘与手写的详细设置、帮助、反馈表单、检查更新）以按钮的形式跳到共享应用的对应路由，路由 id 与托盘和其他启动方使用的相同。
+原生页面不绘制的部分（候选字体选择、皮肤与自定义主题编辑、词库管理、背单词、辅助码插件、语音识别服务、屏幕键盘与手写的详细设置、帮助、反馈表单）以按钮的形式跳到共享应用的对应路由，路由 id 与托盘和其他启动方使用的相同。
 
 「输入」页的辅助码方案和共享设置的辅助码下拉框（`packages/ui/src/settings/pages/helpcode-page.tsx`）规则相同：该方案选用了辅助码插件（`plugins.helpcode_pack_quanpin` / `helpcode_pack_shuangpin`）时，输入引擎用插件替换内置方案，这一行把插件列为当前项并说明已被替换，选内置方案会同时清掉插件。本窗口不扫描插件目录，只显示插件 id，选用插件仍在共享应用里。
 
@@ -32,6 +32,10 @@
 设置窗口通过 `msime_client_load_preferences` 和 `msime_client_save_preferences` 读取、校验并以 compare-and-swap 方式保存共享偏好。每个控件改动后立即保存，滑块停止拖动后保存；保存被拒绝（其他窗口已更新或与其他设置冲突）时重新读取并在页面顶部说明。窗口重新获得焦点时重新读取，以反映托盘、共享应用或同步带来的变化。数据目录必须与 Server 的状态根相同：Server 启动它时注入 `MSIME_CLIENT_STATE_DIR`，直接用这个目录；从开始菜单直接启动时没有这个变量，就按 Server 的方式自己解析，先用 `common/StateDirectory.h` 的 `resolve_state_directory()`（本版本的数据目录环境变量、安装器在 HKLM 记下的 `DataDir`、`%LOCALAPPDATA%\<本版本的状态目录>`），那里的 `runtime-options.json` 写了绝对路径的 `preferences_directory` 时再改用它，与 `server_main.cpp` 的 `production_preview_document` 和 Tauri 外壳的 `windows_server_preferences_directory` 一致。以前开始菜单启动直接回落到 `%LOCALAPPDATA%\MSIME-Client`，而默认安装的 Server 用的是安装器的 `DataDir`（`%LOCALAPPDATA%\metasequoiaime-full`），这个窗口里改的开关（包括 `/`、`@` 和 K 模式、辅助码）就都写进了 Server 不读的文件。顺序在 `SettingsStateDirectory.h`，由 `tests/ui/settings_state_directory.cpp` 核对。
 
 「候选窗口」页「游戏」组的两张程序列表（`game_compatibility.overlay_processes`、`excluded_processes`）在写入前先按偏好库的规则规范化和校验（`GameProcessList.h`）：去掉首尾空白、ASCII 字母转小写，要求以 `.exe` 结尾、不超过 64 个字符、不带路径和 `\ / : * ? " < > |` 及控制字符，两张表之间不重复、合计不超过 32 条。不合法时在列表下方说明具体原因，不写入文档：保存被拒时窗口只能给出上面那句笼统的说明，用户看不出是哪一项出了问题。这组设置只由 TSF DLL 在每次激活时读取，对已打开的游戏要切换一次输入法才生效，取舍见 [决策笔记](../../../.agents/notes/implemented/feature/2026-10-08-windows-game-candidate-overlay.md)。
+
+## 检查更新
+
+「关于」页的「检查更新」在本窗口中完成，不再打开共享应用：工作线程调用 `msime_client_update_check`（`crates/client-core/src/update_check.rs`，与共享设置页、鸿蒙走同一份 Rust 逻辑），请求带 `platform: windows`、本版本 id 和当前版本，结果写在该行下方：「已是最新版本」「暂无可用发行版」「检查失败，请稍后重试」，或「发现新版本 vX」加未签名提示与安装包的 SHA256，按钮随之变成「前往下载」，打开该版本在 GitHub 上的发布页。只接受本仓库的 tag 页地址。当前版本是编译期宏 `MSIME_WINDOWS_VERSION`：`Build-Client.ps1` 用 `/p:MsimeVersion=<TargetVersion>` 传入，开发构建取 `platforms/windows/version.txt`，与 Server 上报的版本相同。
 
 ## 连接 AI 助手
 

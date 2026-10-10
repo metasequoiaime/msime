@@ -57,7 +57,9 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
                 },
             )?
         };
-        if request.candidates.len() > 9
+        // 一次翻译一页候选，上限与每页候选数相同。
+        if request.candidates.len()
+            > usize::from(msime_client_core::preferences::MAX_CANDIDATE_PAGE_SIZE)
             || request.target_language == "zh"
             || !msime_client_core::translation::is_supported_translation_language(
                 &request.target_language,
@@ -222,7 +224,11 @@ pub unsafe extern "C" fn msime_client_parse_tencent_translation_response(
     expected: usize,
 ) -> *mut c_char {
     response(|| {
-        if body.is_null() || length > 1048576 || !(1..=9).contains(&expected) {
+        if body.is_null()
+            || length > 1048576
+            || !(1..=usize::from(msime_client_core::preferences::MAX_CANDIDATE_PAGE_SIZE))
+                .contains(&expected)
+        {
             return Err("invalid Tencent response buffer".into());
         }
         Ok(tencent_translation::parse(
@@ -472,7 +478,8 @@ pub unsafe extern "C" fn msime_client_translation_gloss_save(
         {
             return Err("user data requires an existing absolute directory".into());
         }
-        if request.translations.len() > 9
+        if request.translations.len()
+            > usize::from(msime_client_core::preferences::MAX_CANDIDATE_PAGE_SIZE)
             || request
                 .translations
                 .iter()

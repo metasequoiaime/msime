@@ -106,14 +106,9 @@ public final class LexiconPage extends DetailPage {
     private void loadDiscover() {
         HostTask.runNetwork(this, context -> new CommunityCatalog(context).list(CommunityRequest.Kind.DICTIONARY, "", 0, null),
             page -> {
-                if (page == null || page.failed()) {
-                    discover = null;
-                    discoverFailure = page == null ? "暂时连不上社区，稍后再试。" : page.failure();
-                } else {
-                    List<CommunityCatalog.Item> items = page.items();
-                    discover = CommunityRequest.limitedCopy(items, DISCOVER_LIMIT);
-                    discoverFailure = null;
-                }
+                CommunityCatalog.Discovery result = CommunityCatalog.discovery(page, DISCOVER_LIMIT);
+                discover = result.items();
+                discoverFailure = result.failure();
                 render();
             });
     }

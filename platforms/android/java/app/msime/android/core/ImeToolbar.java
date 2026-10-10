@@ -43,14 +43,16 @@ final class ImeToolbar {
         this.s = s;
     }
 
-    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、浮动键盘、收起，等分整行宽度；哪些显示由 render 按 `touch_toolbar` 与本地设置决定。数字键面上有算式结果时，品牌键右边多一个结果胶囊（{@link ImeCalculator}）。 */
+    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、浮动键盘、文本编辑、收起，等分整行宽度；哪些显示由 render 按 `touch_toolbar` 与本地设置决定。数字键面上有算式结果时，品牌键右边多一个结果胶囊（{@link ImeCalculator}）。 */
     void installShortcutBar(Button dismissButton) {
         s.shortcutBar.removeAllViews();
         s.dismissShortcutButton = dismissButton;
         Button[] buttons = {s.moreButton, s.emojiShortcutButton, s.phraseShortcutButton,
-            s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton, dismissButton};
+            s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
+            s.textEditShortcutButton, dismissButton};
         shortcutButtons = new Button[] {s.emojiShortcutButton, s.phraseShortcutButton,
-            s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton};
+            s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
+            s.textEditShortcutButton};
         for (Button button : buttons) {
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
@@ -144,6 +146,11 @@ final class ImeToolbar {
         s.floatingShortcutButton = s.shortcutButton(s.shortcutBar, "浮动键盘",
             KeyboardShortcutIconPolicy.Icon.FLOATING, s::toggleFloatingKeyboard);
         s.floatingShortcutButton.setContentDescription("浮动键盘");
+        // 文本编辑按钮同样默认不在工具栏上（#6351），点按开关文本编辑面板，与功能面板里的「文本编辑」是同一个面板。
+        s.textEditShortcutButton = s.shortcutButton(s.shortcutBar, "文本编辑",
+            KeyboardShortcutIconPolicy.Icon.TEXT_EDIT,
+            panelToggle(() -> s.textEditPanel, s.imeTextEditPanel::show));
+        s.textEditShortcutButton.setContentDescription("文本编辑");
         s.voiceShortcutButton = s.shortcutButton(s.shortcutBar, "语音",
             KeyboardShortcutIconPolicy.Icon.VOICE, s::showVoiceResult);
         s.voiceShortcutButton.setContentDescription("打开语音结果");

@@ -8,8 +8,15 @@
 
 /** One catalog row, reduced to the fields this reads; everything else passes through untouched. */
 export interface LocalVoiceModelRow {
+  id?: string;
   desktop_only?: boolean;
   installed?: boolean;
+  import_files?: LocalVoiceModelImportFile[];
+}
+
+/** 「从文件导入」需要的一个文件，只读它的大小。 */
+export interface LocalVoiceModelImportFile {
+  size?: number;
 }
 
 interface LocalVoiceModelsValue {
@@ -84,6 +91,8 @@ export class LocalVoiceModelPolicy {
       case "local_model_network":
       case "local_model_http_status":
       case "local_model_checksum_mismatch":
+      case "local_model_import_missing":
+      case "local_model_import_unreadable":
       case "local_model_io":
         return head;
       case "local_model_size_mismatch":
@@ -158,6 +167,31 @@ export class LocalVoiceModelPolicy {
     return JSON.stringify({ ok: true, value: path, error: "" } as InstallPathReply);
   }
 
+  /**
+   * 「从文件导入」时值得复制进缓存的文件大小：目录里这个模型要的每个文件的长度。选择器给的是文档 URI，原生库打不开，要先复制一份；长度对不上的文件反正认不出来，不复制，免得用户多选了一个大文件时白占一份空间。列表读不出来或没有这个模型时为空。
+   */
+  static importSizes(listReply: string, id: string): number[] {
+    let parsed: LocalVoiceModelsReply;
+    try {
+      parsed = JSON.parse(listReply) as LocalVoiceModelsReply;
+    } catch {
+      return [];
+    }
+    if (parsed === null || typeof parsed !== "object" || parsed.ok !== true) return [];
+    const models: LocalVoiceModelRow[] = Array.isArray(parsed.value?.models)
+      ? (parsed.value?.models ?? [])
+      : [];
+    const model: LocalVoiceModelRow | undefined = models.find(
+      (row: LocalVoiceModelRow): boolean => row.id === id,
+    );
+    const files: LocalVoiceModelImportFile[] = Array.isArray(model?.import_files)
+      ? (model?.import_files ?? [])
+      : [];
+    return files
+      .map((file: LocalVoiceModelImportFile): number => file.size ?? 0)
+      .filter((size: number): boolean => Number.isSafeInteger(size) && size > 0);
+  }
+
   /** Whether this host offers a model: anything not desktop-only, and a desktop-only one only once installed. */
   static offered(model: LocalVoiceModelRow): boolean {
     return model.desktop_only !== true || model.installed === true;
@@ -186,6 +220,7 @@ export class LocalVoiceModelPolicy {
     if (action.operation === "list") return action;
     if (
       action.operation !== "install" &&
+      action.operation !== "import" &&
       action.operation !== "cancel" &&
       action.operation !== "remove"
     ) {

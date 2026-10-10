@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 
 namespace msime::mac
 {
@@ -84,9 +85,10 @@ constexpr int PhysicalCandidateDigitSlot(unsigned short keyCode)
     case 26: return 6; // 7
     case 28: return 7; // 8
     case 25: return 8; // 9
+    case 29: return 9; // 0：第十个候选，只在每页十个时是选词键，见 CandidateDigitSlotOnPage
     // AppKit reports the physical ANSI keypad digits separately from the
     // number row. Windows normalizes VK_NUMPAD1..9 before candidate routing;
-    // keep the same selection contract on macOS without accepting keypad 0.
+    // keep the same selection contract on macOS. 小键盘 0 与数字行 0 一样选第十个。
     case 83: return 0; // kVK_ANSI_Keypad1
     case 84: return 1; // kVK_ANSI_Keypad2
     case 85: return 2; // kVK_ANSI_Keypad3
@@ -96,8 +98,15 @@ constexpr int PhysicalCandidateDigitSlot(unsigned short keyCode)
     case 89: return 6; // kVK_ANSI_Keypad7
     case 91: return 7; // kVK_ANSI_Keypad8
     case 92: return 8; // kVK_ANSI_Keypad9
+    case 82: return 9; // kVK_ANSI_Keypad0
     default: return -1;
     }
+}
+
+// 0 键对应的第十格只在每页排得下十个候选时才是选词键；每页不到十个时它照旧是普通按键（交给 Engine 或应用），和放宽上限之前一样。1–9 不受影响。
+constexpr int CandidateDigitSlotOnPage(int slot, size_t pageSize)
+{
+    return slot == 9 && pageSize < 10 ? -1 : slot;
 }
 
 // Candidate digits are a controller shortcut only for an ordinary candidate panel. A digit the Engine lists in the view's spelling_symbols is input - the code point being typed in Unicode mode, the number in expression mode - while nine-key mode and modified chords belong to the Engine.
@@ -119,7 +128,7 @@ constexpr bool ShouldRouteSpellingShiftCandidateDigit(bool candidatePanelVisible
 // The digit a candidate slot's physical key types, so it can be looked up in spelling_symbols whatever the keyboard layout puts on that key.
 constexpr char PhysicalCandidateDigitCharacter(int slot)
 {
-    return slot >= 0 && slot <= 8 ? static_cast<char>('1' + slot) : '\0';
+    return slot >= 0 && slot <= 8 ? static_cast<char>('1' + slot) : slot == 9 ? '0' : '\0';
 }
 
 // The key class msime_client_key_sound takes: 1 space, 2 enter (main or keypad), 3 backspace, 0 any other key.
