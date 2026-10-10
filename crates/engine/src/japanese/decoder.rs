@@ -9,6 +9,7 @@ use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 use memmap2::Mmap;
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JapaneseLemma {
     pub reading: String,
@@ -17,6 +18,31 @@ pub struct JapaneseLemma {
     pub right_id: u16,
     pub word_cost: i32,
     pub token_id: u32,
+}
+
+/// 文本借用词库已验证的字节；生命周期仅取决于词库，不依赖查询字符串。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct JapaneseLemmaRef<'a> {
+    pub reading: &'a str,
+    pub surface: &'a str,
+    pub left_id: u16,
+    pub right_id: u16,
+    pub word_cost: i32,
+    pub token_id: u32,
+}
+
+#[cfg(test)]
+impl JapaneseLemmaRef<'_> {
+    fn into_owned(self) -> JapaneseLemma {
+        JapaneseLemma {
+            reading: self.reading.to_owned(),
+            surface: self.surface.to_owned(),
+            left_id: self.left_id,
+            right_id: self.right_id,
+            word_cost: self.word_cost,
+            token_id: self.token_id,
+        }
+    }
 }
 
 const MAGIC: &[u8; 8] = b"MSJPDT1\0";
@@ -110,8 +136,8 @@ fn best_ids(mut ids: Vec<u32>, limit: usize, cost: impl Fn(u32) -> i32) -> Vec<u
     ids
 }
 
-/// Keep only the cheapest IDs while scanning a potentially large reading range. The heap holds
-/// the current worst selected item at its root, so memory is bounded by the requested result page.
+/// 扫描大读音范围时只保留成本最低的 ID；堆顶保存当前最差项，容量受结果限额约束。
+/// 空范围在申请排名存储前返回。
 fn best_ids_from_iter<I>(ids: I, limit: usize, cost: impl Fn(u32) -> i32) -> Vec<u32>
 where
     I: IntoIterator<Item = u32>,
@@ -119,19 +145,24 @@ where
     if limit == 0 {
         return Vec::new();
     }
-    let mut best: BinaryHeap<((i32, u32), u32)> = BinaryHeap::with_capacity(limit);
-    for id in ids {
+    let mut ids = ids.into_iter();
+    let Some(first) = ids.next() else {
+        return Vec::new();
+    };
+    let mut best: BinaryHeap<(i32, u32)> = BinaryHeap::with_capacity(limit);
+    for id in std::iter::once(first).chain(ids) {
         let key = (cost(id), id);
         if best.len() < limit {
-            best.push((key, id));
-        } else if key < best.peek().expect("non-empty bounded heap").0 {
+            best.push(key);
+        } else if key < *best.peek().expect("non-empty bounded heap") {
             best.pop();
-            best.push((key, id));
+            best.push(key);
         }
     }
-    let mut ids: Vec<u32> = best.into_iter().map(|(_, id)| id).collect();
-    ids.sort_unstable_by_key(|id| (cost(*id), *id));
-    ids
+    // 成本已随 ID 保存，按已有键排序，不再次读取模型成本。
+    let mut keys = best.into_vec();
+    keys.sort_unstable();
+    keys.into_iter().map(|(_, id)| id).collect()
 }
 
 impl JapaneseDictionary {
@@ -300,8 +331,38 @@ impl JapaneseDictionary {
         Some(model)
     }
 
-    /// Tokens whose reading equals `reading`, the `limit` cheapest by (cost, id).
+    /// 读音等于 `reading` 的词条，按 `(cost, id)` 取最便宜的 `limit` 条。
+    #[cfg(test)]
     pub fn exact_lemmas(&self, reading: &str, limit: usize) -> Vec<JapaneseLemma> {
+        self.exact_lemmas_with(reading, limit, |id| self.lemma(id))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn exact_lemma_views(
+        &self,
+        reading: &str,
+        limit: usize,
+    ) -> Vec<JapaneseLemmaRef<'_>> {
+        self.exact_lemmas_with(reading, limit, |id| self.lemma_ref(id))
+    }
+
+    /// 按原成本顺序同步访问精确词条，视图只借用词库，不收集结果向量。
+    pub(crate) fn for_each_exact_lemma_view<'a>(
+        &'a self,
+        reading: &str,
+        limit: usize,
+        mut visit: impl FnMut(JapaneseLemmaRef<'a>),
+    ) {
+        // 复用原筛选和排序，映射为零大小的 `()` 不申请结果元素存储。
+        self.exact_lemmas_with(reading, limit, |id| visit(self.lemma_ref(id)));
+    }
+
+    fn exact_lemmas_with<T>(
+        &self,
+        reading: &str,
+        limit: usize,
+        build: impl FnMut(u32) -> T,
+    ) -> Vec<T> {
         if reading.is_empty() || limit == 0 {
             return Vec::new();
         }
@@ -311,22 +372,48 @@ impl JapaneseDictionary {
             .map(|index| index as u32);
         best_ids_from_iter(ids, limit, |id| self.cost_of(id))
             .into_iter()
-            .map(|id| self.lemma(id))
+            .map(build)
             .collect()
     }
 
-    /// Tokens whose reading starts with `prefix`, the `limit` cheapest; single-code-point prefixes come from a precomputed index.
+    /// 读音以 `prefix` 开头的最便宜词条；单码点前缀优先使用预计算索引。
+    #[cfg(test)]
     pub fn prefix_lemmas(&self, prefix: &str, limit: usize) -> Vec<JapaneseLemma> {
+        self.prefix_lemmas_with(prefix, limit, |id| self.lemma(id))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn prefix_lemma_views(
+        &self,
+        prefix: &str,
+        limit: usize,
+    ) -> Vec<JapaneseLemmaRef<'_>> {
+        self.prefix_lemmas_with(prefix, limit, |id| self.lemma_ref(id))
+    }
+
+    /// 按成本顺序访问前缀词条，避免为只消费一次的结果建立视图向量。
+    pub(crate) fn for_each_prefix_lemma_view<'a>(
+        &'a self,
+        prefix: &str,
+        limit: usize,
+        mut visit: impl FnMut(JapaneseLemmaRef<'a>),
+    ) {
+        // 复用同一套筛选与排序；闭包返回的 `()` 是零大小类型，`Vec<()>` 不申请结果存储。
+        self.prefix_lemmas_with(prefix, limit, |id| visit(self.lemma_ref(id)));
+    }
+
+    fn prefix_lemmas_with<T>(
+        &self,
+        prefix: &str,
+        limit: usize,
+        mut build: impl FnMut(u32) -> T,
+    ) -> Vec<T> {
         if prefix.is_empty() || limit == 0 {
             return Vec::new();
         }
         if let Some(cached) = self.short_prefix_index.get(prefix) {
             if limit <= SHORT_PREFIX_CANDIDATE_COUNT {
-                return cached
-                    .iter()
-                    .take(limit)
-                    .map(|&id| self.lemma(id))
-                    .collect();
+                return cached.iter().take(limit).map(|&id| build(id)).collect();
             }
         }
         let start = self.lower_bound(prefix);
@@ -335,7 +422,7 @@ impl JapaneseDictionary {
             .map(|index| index as u32);
         best_ids_from_iter(ids, limit, |id| self.cost_of(id))
             .into_iter()
-            .map(|id| self.lemma(id))
+            .map(build)
             .collect()
     }
 
@@ -375,28 +462,67 @@ impl JapaneseDictionary {
         matches
     }
 
-    /// Tokens strictly longer than `prefix` whose remainder starts with one of `next_kana`.
+    /// 读音严格长于 `prefix`，剩余部分以 `next_kana` 中任一项开头。
     ///
-    /// The reference ended its scan at the first reading that was not longer than the prefix, and a reading equal to the prefix sorts first, so any prefix that was itself a word returned nothing. Equal readings are skipped instead, as the contract says.
+    /// 原参考实现在等于前缀的读音处结束扫描，导致前缀本身是词时无结果；这里跳过等长读音继续扫描。
+    #[cfg(test)]
     pub fn prefix_lemmas_continuing(
         &self,
         prefix: &str,
         next_kana: &[&str],
         limit: usize,
     ) -> Vec<JapaneseLemma> {
+        self.prefix_lemmas_continuing_with(prefix, next_kana, limit, |id| self.lemma(id))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn continuing_lemma_views(
+        &self,
+        prefix: &str,
+        next_kana: &[&str],
+        limit: usize,
+    ) -> Vec<JapaneseLemmaRef<'_>> {
+        self.prefix_lemmas_continuing_with(prefix, next_kana, limit, |id| self.lemma_ref(id))
+    }
+
+    /// 按原排名顺序消费继续补全词条，不为单次消费建立视图结果向量。
+    pub(crate) fn for_each_continuing_lemma_view<'a>(
+        &'a self,
+        prefix: &str,
+        next_kana: &[&str],
+        limit: usize,
+        mut visit: impl FnMut(JapaneseLemmaRef<'a>),
+    ) {
+        // 与前缀访问共用零大小结果模式，拼接键、排名与重复 ID 仍由原查询处理。
+        self.prefix_lemmas_continuing_with(prefix, next_kana, limit, |id| {
+            visit(self.lemma_ref(id))
+        });
+    }
+
+    fn prefix_lemmas_continuing_with<T>(
+        &self,
+        prefix: &str,
+        next_kana: &[&str],
+        limit: usize,
+        build: impl FnMut(u32) -> T,
+    ) -> Vec<T> {
         if prefix.is_empty() || next_kana.is_empty() || limit == 0 {
             return Vec::new();
         }
-        let mut best: BinaryHeap<((i32, u32), u32)> = BinaryHeap::with_capacity(limit);
+        let mut best: BinaryHeap<(i32, u32)> = BinaryHeap::new();
         let mut consider = |id: u32| {
             let key = (self.cost_of(id), id);
             if best.len() < limit {
-                best.push((key, id));
-            } else if key < best.peek().expect("non-empty bounded heap").0 {
+                if best.is_empty() {
+                    best.reserve_exact(limit);
+                }
+                best.push(key);
+            } else if key < *best.peek().expect("non-empty bounded heap") {
                 best.pop();
-                best.push((key, id));
+                best.push(key);
             }
         };
+        let mut query = String::new();
         for kana in next_kana {
             if kana.is_empty() {
                 for index in self.lower_bound(prefix)..self.token_count {
@@ -410,8 +536,21 @@ impl JapaneseDictionary {
                 }
                 continue;
             }
-            let mut query = String::with_capacity(prefix.len() + kana.len());
-            query.push_str(prefix);
+            if query.is_empty() {
+                // 只在首个非空后缀预留最长键容量，公共前缀在整个查询中保留。
+                let suffix_capacity = if next_kana.len() == 1 {
+                    kana.len()
+                } else {
+                    next_kana
+                        .iter()
+                        .map(|suffix| suffix.len())
+                        .max()
+                        .unwrap_or(0)
+                };
+                query.reserve_exact(prefix.len() + suffix_capacity);
+                query.push_str(prefix);
+            }
+            query.truncate(prefix.len());
             query.push_str(kana);
             let start = self.lower_bound(&query);
             for index in start..self.token_count {
@@ -421,9 +560,10 @@ impl JapaneseDictionary {
                 consider(index as u32);
             }
         }
-        let mut ids: Vec<u32> = best.into_iter().map(|(_, id)| id).collect();
-        ids.sort_unstable_by_key(|id| (self.cost_of(*id), *id));
-        ids.into_iter().map(|id| self.lemma(id)).collect()
+        // 已保存的键同时决定筛选和输出顺序；保留重叠后缀产生的重复 ID。
+        let mut keys = best.into_vec();
+        keys.sort_unstable();
+        keys.into_iter().map(|(_, id)| id).map(build).collect()
     }
 
     /// 10000 for an out-of-range id.
@@ -479,13 +619,16 @@ impl JapaneseDictionary {
         first
     }
 
+    #[cfg(test)]
     fn lemma(&self, id: u32) -> JapaneseLemma {
+        self.lemma_ref(id).into_owned()
+    }
+
+    fn lemma_ref(&self, id: u32) -> JapaneseLemmaRef<'_> {
         let token = self.token_at(id as usize);
-        JapaneseLemma {
-            reading: self.reading(&token).to_owned(),
-            surface: self
-                .text(token.surface_offset, token.surface_length)
-                .to_owned(),
+        JapaneseLemmaRef {
+            reading: self.reading(&token),
+            surface: self.text(token.surface_offset, token.surface_length),
             left_id: token.left_id,
             right_id: token.right_id,
             word_cost: token.word_cost,
@@ -586,6 +729,334 @@ mod tests {
         lemmas.iter().map(|lemma| lemma.surface.as_str()).collect()
     }
 
+    fn assert_borrowed_lemmas(
+        dictionary: &JapaneseDictionary,
+        views: &[JapaneseLemmaRef<'_>],
+        owned: &[JapaneseLemma],
+        view_allocations: usize,
+        owned_allocations: usize,
+    ) {
+        assert_eq!(views.len(), owned.len());
+        let start = dictionary.bytes.as_ptr() as usize;
+        let end = start + dictionary.bytes.len();
+        for (view, owned) in views.iter().zip(owned) {
+            assert_eq!(view.into_owned(), *owned);
+            for text in [view.reading, view.surface] {
+                let pointer = text.as_ptr() as usize;
+                assert!(pointer >= start && pointer + text.len() <= end);
+            }
+        }
+        assert_eq!(owned_allocations, view_allocations + 2 * views.len());
+    }
+
+    #[test]
+    fn borrowed_lemma_queries_preserve_cost_order_without_text_allocations() {
+        let surfaces: Vec<_> = (0..70).map(|index| format!("語{index:02}")).collect();
+        let entries: Vec<_> = surfaces
+            .iter()
+            .enumerate()
+            .map(|(index, surface)| ("かな", surface.as_str(), 0, 0, (index % 7) as i32))
+            .collect();
+        let dictionary = parsed(test_model::bytes(&entries, 1, &[0]));
+        let mut expected_ids: Vec<u32> = (0..70).collect();
+        expected_ids.sort_unstable_by_key(|id| (id % 7, *id));
+        for limit in [0, 1, 2, 24, 64, 65, 70, 100] {
+            let (views, view_allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                dictionary.exact_lemma_views("かな", limit)
+            });
+            let (owned, owned_allocations) =
+                crate::ime::personal_rerank::allocations::count(|| {
+                    dictionary.exact_lemmas("かな", limit)
+                });
+            assert_borrowed_lemmas(
+                &dictionary,
+                &views,
+                &owned,
+                view_allocations,
+                owned_allocations,
+            );
+            assert_eq!(
+                views.iter().map(|view| view.token_id).collect::<Vec<_>>(),
+                expected_ids[..limit.min(70)]
+            );
+            assert_eq!(view_allocations, if limit == 0 { 0 } else { 2 });
+            for prefix in ["か", "かな"] {
+                let (views, view_allocations) =
+                    crate::ime::personal_rerank::allocations::count(|| {
+                        dictionary.prefix_lemma_views(prefix, limit)
+                    });
+                let (owned, owned_allocations) =
+                    crate::ime::personal_rerank::allocations::count(|| {
+                        dictionary.prefix_lemmas(prefix, limit)
+                    });
+                assert_borrowed_lemmas(
+                    &dictionary,
+                    &views,
+                    &owned,
+                    view_allocations,
+                    owned_allocations,
+                );
+                assert_eq!(
+                    views.iter().map(|view| view.token_id).collect::<Vec<_>>(),
+                    expected_ids[..limit.min(70)]
+                );
+                assert_eq!(
+                    view_allocations,
+                    if limit == 0 {
+                        0
+                    } else if prefix == "か" && limit <= 64 {
+                        1
+                    } else {
+                        2
+                    }
+                );
+            }
+            for next in ["な", ""] {
+                let (views, view_allocations) =
+                    crate::ime::personal_rerank::allocations::count(|| {
+                        dictionary.continuing_lemma_views("か", &[next], limit)
+                    });
+                let (owned, owned_allocations) =
+                    crate::ime::personal_rerank::allocations::count(|| {
+                        dictionary.prefix_lemmas_continuing("か", &[next], limit)
+                    });
+                assert_borrowed_lemmas(
+                    &dictionary,
+                    &views,
+                    &owned,
+                    view_allocations,
+                    owned_allocations,
+                );
+                assert_eq!(
+                    views.iter().map(|view| view.token_id).collect::<Vec<_>>(),
+                    expected_ids[..limit.min(70)]
+                );
+                assert_eq!(
+                    view_allocations,
+                    if limit == 0 {
+                        0
+                    } else {
+                        2 + usize::from(!next.is_empty())
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn prefix_lemma_views_can_be_consumed_without_result_vector() {
+        let dictionary = parsed(test_model::bytes(
+            &[
+                ("かな", "仮名", 0, 0, 500),
+                ("かなこ", "加奈子", 0, 0, 600),
+                ("かなで", "奏で", 0, 0, 700),
+            ],
+            1,
+            &[0],
+        ));
+        let visits = std::cell::Cell::new(0);
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            dictionary.for_each_prefix_lemma_view("かな", 16, |_| {
+                visits.set(visits.get() + 1);
+            });
+        });
+        assert_eq!(visits.get(), 3);
+        assert_eq!(allocations, 1);
+    }
+
+    #[test]
+    fn streamed_prefixes_keep_ties_limits_missing_queries_and_dictionary_borrows() {
+        let surfaces: Vec<_> = (0..70).map(|index| format!("語{index:02}")).collect();
+        let entries: Vec<_> = surfaces
+            .iter()
+            .enumerate()
+            .map(|(index, surface)| ("かな", surface.as_str(), 0, 0, index as i32 % 7 - 3))
+            .collect();
+        let dictionary = parsed(test_model::bytes(&entries, 1, &[0]));
+        let mut expected: Vec<u32> = (0..70).collect();
+        expected.sort_unstable_by_key(|id| (id % 7, *id));
+        for prefix in ["", "く", "か", "かな"] {
+            for limit in [0, 1, 2, 24, 64, 65, 70, 100] {
+                let mut views = [None; 70];
+                let mut used = 0;
+                let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                    dictionary.for_each_prefix_lemma_view(prefix, limit, |view| {
+                        views[used] = Some(view);
+                        used += 1;
+                    });
+                });
+                let missing = prefix.is_empty() || prefix == "く" || limit == 0;
+                let ids = if missing {
+                    &[][..]
+                } else {
+                    &expected[..limit.min(70)]
+                };
+                assert_eq!(used, ids.len());
+                for (view, &id) in views[..used].iter().zip(ids) {
+                    assert_eq!(view.unwrap(), dictionary.lemma_ref(id));
+                }
+                assert_eq!(
+                    allocations,
+                    usize::from(!missing && (prefix != "か" || limit > 64))
+                );
+            }
+        }
+        let mut saved = None;
+        {
+            // 查询文本释放后，保存的视图仍只依赖词库。
+            let query = String::from("かな");
+            dictionary.for_each_prefix_lemma_view(&query, 1, |view| saved = Some(view));
+        }
+        assert_eq!(saved.unwrap(), dictionary.lemma_ref(expected[0]));
+    }
+
+    #[test]
+    fn borrowed_queries_keep_empty_missing_and_overlapping_suffix_behavior() {
+        let dictionary = parsed(test_model::bytes(
+            &[
+                ("か", "蚊", 0, 0, 1),
+                ("かな", "仮名", 0, 0, 10),
+                ("かない", "家内", 0, 0, 20),
+                ("かん", "漢", 0, 0, 30),
+            ],
+            1,
+            &[0],
+        ));
+        for query in ["", "く"] {
+            assert!(dictionary.exact_lemma_views(query, 8).is_empty());
+            assert!(dictionary.prefix_lemma_views(query, 8).is_empty());
+            assert!(dictionary
+                .continuing_lemma_views(query, &["な"], 8)
+                .is_empty());
+        }
+        assert!(dictionary.continuing_lemma_views("か", &[], 8).is_empty());
+        let next = ["な", "ない", "ん"];
+        let views = dictionary.continuing_lemma_views("か", &next, 8);
+        let owned = dictionary.prefix_lemmas_continuing("か", &next, 8);
+        assert_eq!(
+            views.iter().map(|view| view.token_id).collect::<Vec<_>>(),
+            [1, 2, 2, 3]
+        );
+        assert_eq!(
+            views
+                .iter()
+                .map(|view| view.into_owned())
+                .collect::<Vec<_>>(),
+            owned
+        );
+        let from_temporary_query = {
+            let query = String::from("かな");
+            dictionary.exact_lemma_views(&query, 8)
+        };
+        assert_eq!(from_temporary_query[0].surface, "仮名");
+        assert_eq!(
+            dictionary
+                .continuing_lemma_views("か", &[""], 8)
+                .iter()
+                .map(|view| view.token_id)
+                .collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn empty_ranked_lookups_do_not_allocate_heap_storage() {
+        let dictionary = parsed(test_model::bytes(&[("かな", "仮名", 0, 0, 500)], 1, &[0]));
+        for query in ["あ", "か", "かに", "漢", "😀", "ん"] {
+            let (exact, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                dictionary.exact_lemma_views(query, 24)
+            });
+            assert!(exact.is_empty());
+            eprintln!("日文 exact 未命中排名分配：{allocations}");
+            assert_eq!(allocations, 0, "未命中不应分配排名堆");
+        }
+    }
+
+    #[test]
+    fn empty_prefix_lookups_do_not_allocate_heap_storage() {
+        let dictionary = parsed(test_model::bytes(&[("かな", "仮名", 0, 0, 500)], 1, &[0]));
+        for prefix in ["あ", "かに", "漢", "😀", "ん"] {
+            let (views, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                dictionary.prefix_lemma_views(prefix, 24)
+            });
+            assert!(views.is_empty());
+            eprintln!("日文 prefix 未命中排名分配：{allocations}");
+            assert_eq!(allocations, 0, "未命中不应分配排名堆");
+        }
+    }
+
+    #[test]
+    fn empty_continuing_lookups_do_not_allocate_heap_storage() {
+        let dictionary = parsed(test_model::bytes(&[("かな", "仮名", 0, 0, 500)], 1, &[0]));
+        for (prefix, next) in [("か", "に"), ("あ", "な"), ("かな", "")] {
+            let (views, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                dictionary.continuing_lemma_views(prefix, &[next], 24)
+            });
+            assert!(views.is_empty());
+            eprintln!("日文 continuing 未命中分配：{allocations}");
+            assert_eq!(
+                allocations,
+                usize::from(!next.is_empty()),
+                "只应保留非空后缀的查询字符串分配"
+            );
+        }
+    }
+
+    #[test]
+    fn ranked_lookup_skips_zero_limit_and_empty_costs() {
+        let ids = std::iter::from_fn(|| panic!("零限额不应读取候选"));
+        let (result, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            best_ids_from_iter(ids, 0, |_| panic!("零限额不应读取成本"))
+        });
+        assert!(result.is_empty());
+        assert_eq!(allocations, 0);
+        let (result, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            best_ids_from_iter([], 24, |_| panic!("空候选不应读取成本"))
+        });
+        assert!(result.is_empty());
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn ranked_lookup_preserves_first_item_ties_and_replacement() {
+        let costs = [-10, 30, -10, -20, 50, 0];
+        let expected = [3, 0, 2, 5, 1, 4];
+        for limit in [1, 2, 3, 6, 24] {
+            let visited = std::cell::RefCell::new(Vec::new());
+            let ids = [0, 4, 1, 2, 5, 3]
+                .into_iter()
+                .inspect(|id| visited.borrow_mut().push(*id));
+            let result = best_ids_from_iter(ids, limit, |id| costs[id as usize]);
+            assert_eq!(result, expected[..limit.min(expected.len())]);
+            assert_eq!(*visited.borrow(), [0, 4, 1, 2, 5, 3]);
+        }
+        assert_eq!(best_ids_from_iter([0], 24, |_| -10), [0]);
+    }
+
+    #[test]
+    fn continuing_lookup_reserves_after_an_initial_suffix_miss() {
+        let dictionary = parsed(test_model::bytes(
+            &[
+                ("かな", "仮名", 0, 0, 500),
+                ("かに", "蟹", 0, 0, -10),
+                ("かに", "下荷", 0, 0, -10),
+            ],
+            1,
+            &[0],
+        ));
+        for limit in [1, 2, 24] {
+            let (views, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                dictionary.continuing_lemma_views("か", &["ん", "に", "な"], limit)
+            });
+            assert_eq!(
+                views.iter().map(|view| view.token_id).collect::<Vec<_>>(),
+                [1, 2, 0][..limit.min(3)]
+            );
+            eprintln!("日文三个后缀 continuing 命中分配：{allocations}");
+            assert_eq!(allocations, 3, "一份查询键、排名堆及结果向量");
+        }
+    }
+
     #[test]
     fn scanned_query_ids_reserve_the_lookup_limit() {
         let ids = collect_query_ids([1_u32, 2, 3], 8);
@@ -601,6 +1072,8 @@ mod tests {
         std::fs::write(&path, test_model::single("甲")).expect("write model");
         let original = JapaneseDictionary::load(&path).expect("original loads");
         assert_eq!(original.exact_lemmas("かな", 8)[0].surface, "甲");
+        let original_views = original.exact_lemma_views("かな", 8);
+        let original_pointer = original_views[0].surface.as_ptr();
 
         let replacement = root.path().join("replacement-japanese.dat");
         std::fs::write(&replacement, test_model::single("乙")).expect("write replacement");
@@ -609,6 +1082,8 @@ mod tests {
         let updated = JapaneseDictionary::load(&path).expect("updated loads");
         assert_eq!(updated.exact_lemmas("かな", 8)[0].surface, "乙");
         assert_eq!(original.exact_lemmas("かな", 8)[0].surface, "甲");
+        assert_eq!(original_views[0].surface, "甲");
+        assert_eq!(original_views[0].surface.as_ptr(), original_pointer);
     }
 
     #[test]
@@ -827,6 +1302,8 @@ mod tests {
         ));
         let first = JapaneseDictionary::shared(path).expect("preloaded");
         assert_eq!(surfaces(&first.exact_lemmas("かな", 1)), ["甲"]);
+        let original_views = first.exact_lemma_views("かな", 1);
+        let original_pointer = original_views[0].surface.as_ptr();
         assert!(Arc::ptr_eq(
             &first,
             &JapaneseDictionary::shared(path).expect("again")
@@ -847,6 +1324,8 @@ mod tests {
         assert_eq!(surfaces(&first.exact_lemmas("かな", 1)), ["甲"]);
         JapaneseDictionary::unload(path);
         assert!(JapaneseDictionary::shared(path).is_none());
+        assert_eq!(original_views[0].surface, "甲");
+        assert_eq!(original_views[0].surface.as_ptr(), original_pointer);
     }
 
     /// The shipped `dict-v2.0.1` model (data-formats.md §8): header values and a few lookups.
@@ -866,3 +1345,22 @@ mod tests {
         assert!(!dictionary.prefix_lemmas("か", 24).is_empty());
     }
 }
+
+#[cfg(test)]
+mod continuing_tests;
+
+#[cfg(test)]
+#[path = "decoder/exact_stream_tests.rs"]
+mod exact_stream_tests;
+
+#[cfg(test)]
+#[path = "decoder/ranking_reference.rs"]
+mod ranking_reference;
+
+#[cfg(test)]
+#[path = "decoder/ranking_tests.rs"]
+mod ranking_tests;
+
+#[cfg(test)]
+#[path = "decoder/ranking_heap_sort.rs"]
+mod ranking_heap_sort;

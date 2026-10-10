@@ -511,8 +511,29 @@ fn english_phonetics_rejects_a_hard_linked_database() {
     pronunciation_database(&external, "en_phonetic", 1);
     let linked = directory.path().join("en-phonetic.db");
     std::fs::hard_link(&external, &linked).unwrap();
+    // 别的用户也能写的目录里，多链接文件可能是他们放的；Windows 上多链接一律拒绝。
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
+    }
 
     assert!(english_phonetics(linked.to_str().unwrap(), &["love".to_owned()]).is_err());
+}
+
+/// 发音库是只读的随包资源；Nix 的 store 去重把它合并成硬链接后，所在目录只有属主能写，照常查询（#6386）。
+#[cfg(unix)]
+#[test]
+fn english_phonetics_reads_a_hard_linked_database_in_a_closed_directory() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    // 只有属主能写；临时目录的权限取决于 umask。
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let original = directory.path().join("en-phonetic.db");
+    pronunciation_database(&original, "en_phonetic", 1);
+    std::fs::hard_link(&original, directory.path().join("deduplicated.db")).unwrap();
+
+    assert!(english_phonetics(original.to_str().unwrap(), &["love".to_owned()]).is_ok());
 }
 
 #[test]

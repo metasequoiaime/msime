@@ -46,6 +46,7 @@ import {
 } from '../keyboard/settings/AiModelCatalogPolicy';
 import { SettingsFormFactorCapabilities, SettingsFormFactorProjection }
   from '../keyboard/settings/SettingsFormFactorCapabilities';
+import { VocabularyAction, VocabularyReviewRequest } from '../keyboard/settings/VocabularyReviewRequest';
 import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settings/LocalVoiceModelPolicy';
 import { AiAuthenticationPolicy } from '../keyboard/settings/AiAuthenticationPolicy';
 import { AiEndpointPolicy } from '../keyboard/settings/AiEndpointPolicy';
@@ -325,26 +326,6 @@ interface PluginImportCall {
   state_root: string;
   sound_packs: string;
   action: PluginImportAction;
-}
-
-/** 背单词 request, as `msime_client_vocabulary_review` reads it. */
-interface VocabularyRequest {
-  directory: string;
-  day: string;
-  action: VocabularyAction;
-  /** 插件目录：其中的单词本插件列进书目。只在声明了 `wordbook_packs` 的形态（2in1）上传，手机不传。 */
-  plugins?: string;
-}
-
-interface VocabularyAction {
-  operation: string;
-  word?: string;
-  known?: boolean;
-  wordbook?: string;
-  new_per_day?: number;
-  session_limit?: number;
-  name?: string;
-  text?: string;
 }
 
 interface TypingStatisticsDocument {
@@ -1763,18 +1744,19 @@ class SettingsBridge {
       if (!['load', 'answer', 'set_settings', 'import', 'remove', 'reset'].includes(action.operation)) {
         return JSON.stringify({ ok: false, error: 'invalid vocabulary review request' });
       }
+      if (this.context === undefined) {
+        return JSON.stringify({ ok: false, error: 'vocabulary review failed' });
+      }
       const now: Date = new Date();
       const month: string = `${now.getMonth() + 1}`.padStart(2, '0');
       const date: string = `${now.getDate()}`.padStart(2, '0');
-      const request: VocabularyRequest = {
-        directory: this.stateDirectory,
-        day: `${now.getFullYear()}-${month}-${date}`,
-        action: action,
-      };
-      // 与设置页拿到的 `wordbook_packs` 能力同一个来源：没有这项能力的形态不列单词本插件。
-      if (SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType).wordbookPacks) {
-        request.plugins = `${this.stateDirectory}/plugins`;
-      }
+      const request = VocabularyReviewRequest.build(
+        this.stateDirectory,
+        this.context.resourceDir,
+        `${now.getFullYear()}-${month}-${date}`,
+        action,
+        SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType).wordbookPacks,
+      );
       return await client.vocabularyReview(JSON.stringify(request));
     } catch (error) {
       KeyboardLog.error(`vocabulary review failed: ${describeError(error)}`);

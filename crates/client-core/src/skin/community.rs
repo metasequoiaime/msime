@@ -643,6 +643,7 @@ mod tests {
         *storage.0.lock().unwrap() = Some(SavedAccountSession {
             tokens: tokens(b'a', b'b'),
             expires_at_unix_ms: valid_future_expiry(),
+            session_id: None,
         });
         let api = FakeApi::default();
         let calls = Arc::clone(&api.skin_calls);
@@ -684,6 +685,7 @@ mod tests {
         *storage.0.lock().unwrap() = Some(SavedAccountSession {
             tokens: tokens(b'a', b'b'),
             expires_at_unix_ms: valid_future_expiry(),
+            session_id: None,
         });
         let session = Arc::new(BackendAccountSession::new(api.clone(), storage));
         let service = BackendCommunitySkinService::new(api.clone(), session);
@@ -966,6 +968,7 @@ mod tests {
         *storage.0.lock().unwrap() = Some(SavedAccountSession {
             tokens: tokens(b'a', b'b'),
             expires_at_unix_ms: valid_future_expiry(),
+            session_id: None,
         });
         let session = Arc::new(BackendAccountSession::new(api.clone(), storage));
         let service = BackendCommunitySkinService::new(api.clone(), session);

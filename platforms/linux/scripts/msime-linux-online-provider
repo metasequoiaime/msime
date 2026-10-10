@@ -266,14 +266,18 @@ def ai_cache_key(query):
                                     else 3)
     # Prompt settings change the model request, so they partition the cache.
     # Store only digests: custom prompts can contain private text and must not
-    # be retained in a cache key. Credentials, context, session and generation
-    # remain excluded so a successful result survives view refreshes without
-    # retaining request secrets.
+    # be retained in a cache key. Context changes the model request too, so
+    # keep only its digest; session and generation remain excluded so a result
+    # survives view refreshes without retaining private text.
     for key in ("prompt_id", "prompt_custom_1", "prompt_custom_2", "prompt_custom_3"):
         value = options.get(key, "")
         if not isinstance(value, str):
             return None
         identity[key + "_sha256"] = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    context = query.get("ai_context", "")
+    if not isinstance(context, str):
+        return None
+    identity["ai_context_sha256"] = hashlib.sha256(context.encode("utf-8")).hexdigest()
     identity["pinyin_segments"] = segments
     return json.dumps(identity, ensure_ascii=False, sort_keys=True,
                       separators=(",", ":"))

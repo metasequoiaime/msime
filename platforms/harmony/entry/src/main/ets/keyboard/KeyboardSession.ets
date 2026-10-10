@@ -2,6 +2,8 @@ import inputMethodEngine from '@ohos.inputMethodEngine';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
 import client from 'libmsimeclient.so';
+import { FileSessionStore } from '../account/HarmonyAccountTransport';
+import { storedSessionUserId } from '../account/AccountCloudBridge';
 import { utf8Length, utf8WriteComplete } from './Utf8';
 import { TextPolicy } from './TextPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
@@ -732,6 +734,7 @@ interface SnapshotQueueProcessAction {
   directory: string;
   staging_root: string;
   options: Object;
+  account_id: string | null;
 }
 
 interface SnapshotQueueProcessReply {
@@ -3196,9 +3199,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     const staging: string = `${stateRoot}/dictionary-snapshot-staging`;
     try {
       if (!fs.accessSync(staging)) fs.mkdirSync(staging, true);
+      // Read the shared file for each idle pass; this process may outlive a settings-side account switch.
+      const accountId: string | null = storedSessionUserId(new FileSessionStore(stateRoot).load());
       const action: SnapshotQueueProcessAction = {
         operation: 'process', directory: `${stateRoot}/dictionary-snapshots`,
-        staging_root: staging, options: options
+        staging_root: staging, options: options, account_id: accountId
       };
       const reply: SnapshotQueueProcessReply =
         JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueProcessReply;
@@ -5203,8 +5208,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Reads only the bounded, app-private reply templates explicitly shared by the settings app. */
   communityReplyTemplates(): CommunityReplyTemplate[] {
-    // KeyboardExtensionAbility passes files/state as stateDirectory; the settings process shares
-    // its explicit library one level above, at files/CommunityLibrary.json.
+    // KeyboardExtensionAbility passes files/state as stateDirectory, and the settings app writes its explicit library one level above, at files/CommunityLibrary.json. From API 12 the input method extension has its own sandbox (see platforms/harmony/README.md), so this is the settings app's file only once both sides use the shared group directory; until then the keyboard's own files/ holds no library and no template is offered.
     const file: string = `${this.stateDirectory}/../CommunityLibrary.json`;
     try {
       const parent: string = this.stateDirectory.substring(0, this.stateDirectory.lastIndexOf('/'));
@@ -5716,7 +5720,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
-   * 已安装符号集插件的组，读自 `<stateDirectory>/plugins`，与设置页交给插件管理的是同一个目录。
+   * 已安装符号集插件的组，读自 `<stateDirectory>/plugins`，即键盘自己沙箱里的插件目录。设置页把包装进设置应用的 `files/state/plugins`；API 12 起输入法扩展使用独立沙箱（见 platforms/harmony/README.md），要等两边都改用共享沙箱目录之后，这里才读得到设置页装的包，在那之前通常是空的。
    *
    * 不依赖 `msime-others.db`；读不出来时返回空表，表情面板照旧只显示内置内容。
    */

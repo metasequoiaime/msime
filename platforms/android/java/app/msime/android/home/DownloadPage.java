@@ -12,6 +12,7 @@ import android.widget.TextView;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 import app.msime.android.CloudApi;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.DownloadLinkApi;
 import app.msime.android.R;
 import app.msime.android.ViewPolicy;
@@ -57,17 +58,17 @@ public final class DownloadPage extends DetailPage {
     private View hero(Context context) {
         LinearLayout card = Ui.row(context);
         ViewPolicy.setCenteredVertically(card);
-        ViewPolicy.setBackground(card, Ui.rounded(Ui.accentSoft(context), Ui.dp(context, 20)));
+        ViewPolicy.setBackground(card, DrawablePolicy.rounded(Ui.accentSoft(context), Ui.dp(context, 20)));
         int pad = Ui.dp(context, 16);
         Ui.setSymmetricPaddingPx(card, pad);
 
         FrameLayout tile = new FrameLayout(context);
-        ViewPolicy.setBackground(tile, Ui.rounded(Ui.accent(context), Ui.dp(context, 12)));
+        ViewPolicy.setBackground(tile, DrawablePolicy.rounded(Ui.accent(context), Ui.dp(context, 12)));
         ImageView icon = Ui.decorativeIcon(context, R.drawable.ic_ms_link, Ui.onAccent(context));
         int iconSize = Ui.dp(context, 24);
         tile.addView(icon, Ui.squareFrameParamsPx(iconSize, Gravity.CENTER));
         int tileSize = Ui.dp(context, 44);
-        card.addView(tile, Ui.squareParamsPx(tileSize));
+        card.addView(tile, ViewPolicy.newSquareParamsPx(tileSize));
 
         LinearLayout texts = Ui.column(context);
         TextView title = Ui.styledLabel(context, "在电脑上打开", Ui.TEXT_ROW_TITLE, 600, Ui.text(context));
@@ -97,7 +98,7 @@ public final class DownloadPage extends DetailPage {
         Context context = row.view().getContext();
         ImageView image = Ui.decorativeIcon(context, icon, Ui.text(context));
         int size = Ui.dp(context, 24);
-        LinearLayout.LayoutParams params = Ui.squareParamsPx(size);
+        LinearLayout.LayoutParams params = ViewPolicy.newSquareParamsPx(size);
         params.setMarginEnd(Ui.dp(context, 18));
         ((LinearLayout) row.view()).addView(image, 0, params);
         return row;

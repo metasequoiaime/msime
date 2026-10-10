@@ -521,6 +521,7 @@ mod tests {
         let outside_file = outside.path().join("lease");
         std::fs::write(&outside_file, b"synthetic\n").unwrap();
         std::fs::hard_link(&outside_file, directory.path().join(LEASE_NAME)).unwrap();
+        msime_path_trust::open_to_other_users(directory.path()).unwrap();
 
         assert_eq!(read_lease(&directory.path().join(LEASE_NAME)), None);
     }

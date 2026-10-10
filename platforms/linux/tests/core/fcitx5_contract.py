@@ -18,6 +18,8 @@ entry = configparser.ConfigParser()
 entry.read(root / "fcitx5/msime-inputmethod.conf")
 assert entry["InputMethod"]["Addon"] == "msime"
 assert entry["InputMethod"]["LangCode"] == "zh_CN"
+# 不写 LayoutHint：Fcitx5 按输入法组的默认布局（或用户给本输入法单独选的布局）翻译按键，Dvorak、Colemak 用户在 fcitx5-configtool 里选好布局即可（#6365）。
+assert "LayoutHint" not in entry["InputMethod"]
 cmake = (root / "CMakeLists.txt").read_text()
 assert "MSIME_ENABLE_FCITX5" in cmake
 # 默认值跟着环境走而不是跟着打包开关：装了 Fcitx5 开发包的机器就构建这个并列入口，
@@ -30,11 +32,19 @@ assert cmake.index("option(MSIME_ENABLE_FCITX5") < cmake.index(
 packaging = (root / "cmake/packaging.cmake").read_text()
 assert "if(MSIME_ENABLE_FCITX5)" in packaging
 assert "fcitx5 (>= 5.0.20)" in packaging
-# Fcitx5 写进 Depends 会让 Ubuntu 22.04 整包装不上，连 IBus 也用不了（#6305）：手写的 fcitx5 只进 Recommends，dpkg-shlibdeps 从插件推出的 libfcitx5* 由 package-container.sh 重新打包时去掉。
-assert 'string(APPEND CPACK_DEBIAN_PACKAGE_RECOMMENDS ", fcitx5 (>= 5.0.20)")' in packaging
-assert not re.search(r"CPACK_DEBIAN_PACKAGE_DEPENDS[^\n]*fcitx5", packaging)
+# IBus 和 Fcitx5 二选一（#6401）：Fcitx5 只能作为 IBus 的备选出现在 Depends 里。单独写进 Depends 会让 Ubuntu 22.04 整包装不上（#6305），写进 Recommends 会把 Fcitx5 拉进 IBus 系统；IBus 写成硬依赖则把 IBus 拉进 deepin 这类 Fcitx5 系统。dpkg-shlibdeps 从插件推出的 libfcitx5* 由 package-container.sh 重新打包时去掉。
+assert 'set(MSIME_DEBIAN_INPUT_FRAMEWORK "ibus (>= 1.5.20) | fcitx5 (>= 5.0.20)")' in packaging
+assert 'set(CPACK_DEBIAN_PACKAGE_DEPENDS "${MSIME_DEBIAN_INPUT_FRAMEWORK}, ' in packaging
+assert not re.search(r"CPACK_DEBIAN_PACKAGE_RECOMMENDS[^\n]*fcitx5", packaging)
+assert '"(ibus >= 1.5.20 or fcitx5 >= 5.0.20), ' in packaging
+assert "onnxruntime|Fcitx5[A-Za-z]+)" in packaging
 package_container = (root / "package-container.sh").read_text()
 assert 'sed -E -i "/^Depends:/s/, libfcitx5' in package_container
+assert 'grep -E "^Depends:.*libfcitx5"' in package_container
+# PPA 与 OBS 的源码包不经过 package-container.sh，由 debian/rules 在 dh_shlibdeps 之后同样去掉 libfcitx5*。
+debian_rules = (root / "packaging/debian/rules").read_text()
+assert "sed -E -i '/^shlibs:Depends=/s/, libfcitx5" in debian_rules
+assert "! grep -E '^shlibs:Depends=.*libfcitx5' debian/msime.substvars" in debian_rules
 
 cmake_fcitx5 = (root / "fcitx5/CMakeLists.txt").read_text()
 # 徽章浮层用的是 wayland-scanner 生成的 C 代码。这个子工程声明 LANGUAGES CXX，不打开 C
@@ -312,6 +322,10 @@ assert (
 )
 assert "msime-helpcode-schema" in source
 assert "cycleHelpcodeSchema" in source
+# The fixed IBus menu entry for the active helpcode-pack marker must be hidden
+# when no pack is selected; sensitivity only disables an entry and still leaves
+# the empty marker visible.
+assert "ibus_property_set_visible(helpcode_schema_pack" in ibus_source
 assert "toggleLocalMode" in source
 assert "msime-local-unicode" in source
 assert "msime-local-temporary-japanese" in source
@@ -591,21 +605,24 @@ assert 'std::tuple{"stroke", "Scheme/Stroke", "笔画"}' in ibus_source
 assert 'property_name != "Scheme/Stroke"' in ibus_source
 assert 'property_name == "Scheme/Stroke" ? std::string("stroke")' in ibus_source
 
-# #5988：主题同步每 250 ms 跑一拍。经典界面的 getConfig() 每次都扫描并解析全部已装主题，所以状态页只读落盘的 classicui.conf；主题同步先比主题输入，已接管写好就返回，不读磁盘也不调 getConfig()，于是卸载还原或用户手改的主题不会被接管回去；还没接管成功时只在输入或落盘选择变化、或写失败到了重试时间时才调一次 getConfig()，比较时不栅格化主题；「重启输入法服务」清掉两份记录。拍子本身仍要同步主题，否则在 fcitx5-configtool 里改回默认主题后不会恢复接管。
+# #5988：主题同步每 250 ms 跑一拍。经典界面的 getConfig() 每次都扫描并解析全部已装主题，所以状态页只读落盘的 classicui.conf；主题同步先比主题输入，已接管写好（且不是一次新的主动选择、落盘的活动主题、跟随深色、字体与 Wayland 字体 DPI 也没变）就不重写主题、也不调 getConfig()，于是卸载还原或用户手改的主题不会被接管回去；还没接管成功时只在输入或落盘选择变化、或写失败到了重试时间时才调一次 getConfig()，比较时不栅格化主题；「重启输入法服务」清掉两份记录。拍子本身仍要同步主题，否则在 fcitx5-configtool 里改回默认主题后不会恢复接管。
 def body(text, start, end):
     begin = text.index(start)
     return text[begin:text.index(end, begin + len(start))]
 publish = body(source, "  void publishCandidatePanelStatus() {", "\n  }\n")
 assert "getConfig" not in publish and "read_classicui_theme_selection()" in publish
 apply_theme = body(source, "  void applyCandidatePanelTheme(fcitx::AddonInstance *classicui,", "\n  }\n")
-assert apply_theme.count("getConfig()") == 1
-assert apply_theme.index("if (inputs == candidate_theme_applied_) return;") < apply_theme.index("read_classicui_theme_selection()") < apply_theme.index("if (attempt_key == candidate_theme_attempt_ && now < candidate_theme_retry_at_) return;") < apply_theme.index("getConfig()")
+# 一次主动选择（chosen）时即使输入没变也重新接管，所以返回条件多了它；主题输入与落盘选择不变时仍不调 getConfig()。
+assert apply_theme.count("classicui->getConfig()") == 1
+assert apply_theme.index("if (inputs == candidate_theme_applied_ && !chosen && hint_stamp == classicui_hint_stamp_) return;") < apply_theme.index("read_classicui_theme_selection()") < apply_theme.index("if (attempt_key == candidate_theme_attempt_ && now < candidate_theme_retry_at_) return;") < apply_theme.index("classicui->getConfig()")
+assert apply_theme.index("hint_inputs_ = fcitx_hint_inputs(current, system_dark);") < apply_theme.index("if (inputs == candidate_theme_applied_ && !chosen) return;") < apply_theme.index("if (!chosen && !host::fcitx_theme_replaceable")
+assert '{"hint", hint_stamp}' in apply_theme
 assert "candidate_theme_retry_at_ = now + kCandidateThemeRetry;" in apply_theme
 assert "host::fcitx_candidate_theme(" not in apply_theme
 assert "set_classicui_config(*classicui, current, config);" in apply_theme
 reset = body(source, "  void resetSessions() {", "\n  }\n")
 assert "candidate_theme_applied_.clear();" in reset and "candidate_theme_attempt_.clear();" in reset
-assert "syncCandidatePanelTheme();" in body(source, "  void refreshProviderSockets() {", "\n  }\n")
+assert "syncCandidatePanelTheme(false);" in body(source, "  void refreshProviderSockets() {", "\n  }\n")
 assert 'fcitx::readAsIni(config, "conf/classicui.conf");' in source
 
 print("Fcitx5 addon metadata passed")

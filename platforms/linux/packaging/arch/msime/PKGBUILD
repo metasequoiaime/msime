@@ -27,18 +27,16 @@ license=(
   'ISC'
   'Zlib'
 )
-# depends 里：ibus 是因为 IBus 守护进程负责拉起 IBus engine，libibus 只是它链接的库；procps-ng 是因为 msime-linux-setup 切换词库前用 pgrep 确认宿主进程。注释不写在数组里面：OBS 自己解析 PKGBUILD 求依赖时会把数组里的注释逐词当成包名。
+# depends 里：libibus 是 IBus engine 和各个辅助程序链接的库，它不会启动 IBus；procps-ng 是因为 msime-linux-setup 切换词库前用 pgrep 确认宿主进程。输入法框架 ibus 和 fcitx5 有一个就够用，所以都放在 optdepends，不把另一个拉进系统（#6401）。注释不写在数组里面：OBS 自己解析 PKGBUILD 求依赖时会把数组里的注释逐词当成包名。
 depends=(
   'alsa-lib'
   'cairo'
   'dbus'
-  'fcitx5'
   'gdk-pixbuf2'
   'glib2'
   'glibc'
   'gtk3'
   'hicolor-icon-theme'
-  'ibus'
   'libgcc'
   'libibus'
   'libsoup3'
@@ -56,6 +54,8 @@ depends=(
 )
 # 与 .deb 的 Recommends 相同：语音服务没有它们也能启动，只有用到的那部分请求会失败。
 optdepends=(
+  'fcitx5: 在 Fcitx5 里使用（与 ibus 有一个即可）'
+  'ibus: 在 IBus 里使用（与 fcitx5 有一个即可）'
   'python-websockets: 豆包流式语音识别'
   'libpulse: 用 parec 录音'
   'pipewire: 用 pw-cat 录音'
@@ -64,6 +64,7 @@ optdepends=(
 makedepends=(
   'cmake'
   'curl'
+  'fcitx5'
   'git'
   'ninja'
   'nlohmann-json'
@@ -74,7 +75,7 @@ makedepends=(
   'wayland-protocols'
 )
 # msime-linux-setup 的测试要 pgrep（procps-ng 已在 depends 里），IBus 遥测与翻页测试要起 dbus-daemon。
-checkdepends=('dbus')
+checkdepends=('dbus' 'ibus')
 conflicts=('msime-bin')
 # 唯一不在 /usr 下的文件，对应 .deb 的 conffile 与 .rpm 的 %config(noreplace)。
 backup=('etc/xdg/autostart/msime-linux-clipboard.desktop')

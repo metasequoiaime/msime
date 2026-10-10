@@ -65,7 +65,8 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>$(HostApiLibrary);windowsapp.lib;shell32.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- advapi32、ole32 和 uuid 给 common/StateDirectory.h：注册表里安装器的 DataDir（RegGetValueW）、SHGetKnownFolderPath 返回值的释放（CoTaskMemFree）和 FOLDERID_LocalAppData，与 CMake 的 windows-state-directory 测试链接的相同。 -->
+      <AdditionalDependencies>$(HostApiLibrary);windowsapp.lib;shell32.lib;user32.lib;advapi32.lib;ole32.lib;uuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)' == 'RelWithDebInfo' or '$(Configuration)' == 'Release'">

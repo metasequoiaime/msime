@@ -158,9 +158,8 @@ public final class CloudClipboardPage extends DetailPage {
             Ui.setSymmetricPaddingDp(empty, context, 16, 32);
             TextView title = Ui.styledLabel(context, "还没有同步内容", Ui.TEXT_ROW_TITLE, 500, Ui.text(context));
             empty.addView(title);
-            TextView hint = Ui.styledLabel(context, "在任一设备上复制文字，这里就会出现",
+            TextView hint = Ui.centeredLabel(context, "在任一设备上复制文字，这里就会出现",
                 Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
-            ViewPolicy.setCentered(hint);
             LinearLayout.LayoutParams hintParams = Ui.wrap();
             hintParams.topMargin = Ui.dp(context, 4);
             empty.addView(hint, hintParams);

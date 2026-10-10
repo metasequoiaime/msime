@@ -5,7 +5,6 @@ import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Typeface;
@@ -838,7 +837,7 @@ final class ImePanels {
             ViewPolicy.clearElevation(action);
         }
         ViewPolicy.setTextColor(s.replyStatus, ImeStyler.fade(s.skin.keyForeground(), .7));
-        s.replyProgress.setIndeterminateTintList(ColorStateList.valueOf(accent));
+        ProgressBarPolicy.setIndeterminateTint(s.replyProgress, accent);
     }
 
     void showAiPolish() {

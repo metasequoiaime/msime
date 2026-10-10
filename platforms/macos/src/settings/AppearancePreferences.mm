@@ -925,6 +925,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_sharedFullWidthShortcut;
     NSSwitch *_characterSetShortcutToggle;
     NSMutableDictionary *_sharedHelpcodeOptions;
+    // 共享文档里每个方案选中的辅助码表插件 id，空串是没有选；文档没读过时没有这一项。
+    NSMutableDictionary<NSString *, NSString *> *_sharedHelpcodePacks;
+    // 在这个窗口里选了方案、因而不再使用插件，而共享文档还没写进去的方案，值是清掉的那个插件 id：保存时把空串写出去，在文档写好之前读到的正是这个旧 id 时不采用，免得下拉框又跳回插件。读到空串或别的 id（共享设置页另选了插件）就以文档为准并撤销这一项，否则保存失败后这一项一直留着，会把另一处新选的插件挡在下拉框外，还在下次保存时把它写成空串。
+    NSMutableDictionary<NSString *, NSString *> *_clearedHelpcodePacks;
     NSMutableDictionary<NSString *, NSPopUpButton *> *_helpcodeSchemaButtons;
     NSMutableDictionary<NSString *, NSSwitch *> *_helpcodeDisplayToggles;
     NSNumber *_sharedChinesePunctuation;
@@ -1241,6 +1245,12 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         NSDictionary *effective = [self helpcodeOptionsForScheme:scheme];
         for (NSString *key in @[@"schema", @"show_in_candidate_window"])
             if (ValidHelpcodeOption(key, stored[key])) target[key] = effective[key];
+    }
+    // 只写在这个窗口里清掉的插件，其余的插件选择原样留给文档：这个窗口不选插件，写回读到的值只会在共享设置页刚选了插件时把它改回去。
+    if (_clearedHelpcodePacks.count) {
+        NSMutableDictionary *plugins = [merged[@"plugins"] isKindOfClass:NSDictionary.class] ? [merged[@"plugins"] mutableCopy] : [NSMutableDictionary dictionary];
+        for (NSString *scheme in _clearedHelpcodePacks) plugins[[@"helpcode_pack_" stringByAppendingString:scheme]] = @"";
+        merged[@"plugins"] = plugins;
     }
     merged[@"candidate_page_size"] = @(self.pageSize);
     if ([_defaults dictionaryForKey:WordCharacterKey]) merged[@"word_character"] = [self wordCharacterOptions];
@@ -1682,7 +1692,24 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
             if (ValidHelpcodeOption(key, shared[key])) values[key] = shared[key];
         _sharedHelpcodeOptions[scheme] = values;
     }
+    // The Rust store never writes an empty pack (crates/client-core/src/preferences.rs skips an empty helpcode_pack_<scheme> and a default plugins object), so a document without plugins, or whose plugins lacks the key, is the empty pack: that is how a saved clear comes back.
+    id plugins = [preferences[@"plugins"] isKindOfClass:NSDictionary.class] ? preferences[@"plugins"] : @{};
+    if (!_sharedHelpcodePacks) _sharedHelpcodePacks = [NSMutableDictionary dictionary];
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        id raw = plugins[[@"helpcode_pack_" stringByAppendingString:scheme]];
+        NSString *pack = [raw isKindOfClass:NSString.class] ? raw : @"";
+        if (_clearedHelpcodePacks[scheme]) {
+            // 这里清掉的插件还没写进文档。
+            if ([pack isEqualToString:_clearedHelpcodePacks[scheme]]) continue;
+            [_clearedHelpcodePacks removeObjectForKey:scheme];
+        }
+        _sharedHelpcodePacks[scheme] = [pack copy];
+    }
     [self refreshControls];
+}
+- (NSString *)helpcodePackForScheme:(NSString *)scheme {
+    NSString *pack = _sharedHelpcodePacks[scheme];
+    return pack.length ? pack : nil;
 }
 - (NSDictionary *)helpcodeOptionsForScheme:(NSString *)scheme {
     BOOL shuangpin = [scheme isEqualToString:@"shuangpin"];
@@ -1709,7 +1736,17 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [self preferencesChanged];
 }
 - (void)helpcodeSchemaChanged:(NSPopUpButton *)sender {
-    [self setHelpcodeOption:@"schema" value:sender.selectedItem.representedObject scheme:sender.identifier];
+    NSString *scheme = sender.identifier;
+    id schema = sender.selectedItem.representedObject;
+    // 选的是代表插件的那一项：插件本来就在用，没有要改的。
+    if (!ValidHelpcodeOption(@"schema", schema)) return;
+    // 选内置方案时不再使用辅助码表插件，与共享设置页一致；清掉要在保存之前，这次保存才会把它写出去。
+    if (NSString *pack = [self helpcodePackForScheme:scheme]) {
+        if (!_clearedHelpcodePacks) _clearedHelpcodePacks = [NSMutableDictionary dictionary];
+        _clearedHelpcodePacks[scheme] = pack;
+        _sharedHelpcodePacks[scheme] = @"";
+    }
+    [self setHelpcodeOption:@"schema" value:schema scheme:scheme];
 }
 - (void)helpcodeDisplayChanged:(NSSwitch *)sender {
     [self setHelpcodeOption:@"show_in_candidate_window" value:@(sender.state == NSControlStateValueOn) scheme:sender.identifier];
@@ -2761,7 +2798,18 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         button.state = [self navigationEnabled:button.identifier] ? NSControlStateValueOn : NSControlStateValueOff;
     for (NSString *scheme in _helpcodeSchemaButtons) {
         NSDictionary *values = [self helpcodeOptionsForScheme:scheme];
-        [_helpcodeSchemaButtons[scheme] selectItemAtIndex:[HelpcodeSchemas() indexOfObject:values[@"schema"]]];
+        NSPopUpButton *schemas = _helpcodeSchemaButtons[scheme];
+        // 选了辅助码表插件时，下拉框末尾多一项代表它并选中：Engine 用的是插件的码表，上面的方案此时不起作用。
+        while (schemas.numberOfItems > (NSInteger)HelpcodeSchemas().count) [schemas removeItemAtIndex:schemas.numberOfItems - 1];
+        NSString *pack = [self helpcodePackForScheme:scheme];
+        if (pack) {
+            [schemas addItemWithTitle:[pack stringByAppendingString:@"（插件）"]];
+            [schemas selectItem:schemas.lastItem];
+            schemas.toolTip = [NSString stringWithFormat:@"辅助码表插件「%@」替代了辅助码方案；选一个方案就不再使用该插件。", pack];
+        } else {
+            [schemas selectItemAtIndex:[HelpcodeSchemas() indexOfObject:values[@"schema"]]];
+            schemas.toolTip = nil;
+        }
         _helpcodeDisplayToggles[scheme].state = [values[@"show_in_candidate_window"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
     }
     _fullWidthToggle.state = self.fullWidthInput ? NSControlStateValueOn : NSControlStateValueOff;

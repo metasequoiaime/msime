@@ -85,9 +85,10 @@ jobs:
             # CPack 写出的是 data.tar.xz 加 control.tar.gz；出现 control.tar.xz 说明 package-container.sh 已经用 xz -9 重新打包了这个 .deb。
             members=$(ar t "${deb[0]}" | tr '\n' ' ')
             [[ $members == "debian-binary control.tar.xz data.tar.xz " ]] || { echo "edition $edition: ${deb[0]} has members $members, not the xz -9 repack" >&2; exit 1; }
-            # Fcitx5 只在 Recommends 里：Depends 里出现 fcitx5 或 libfcitx5*，Ubuntu 22.04 这类 Fcitx5 低于 5.0.20 的系统就整包装不上，连 IBus 也用不了（#6305）。
+            # IBus 和 Fcitx5 二选一（#6401）：Depends 里只能以 `ibus (>= 1.5.20) | fcitx5 (>= 5.0.20)` 出现。单独依赖 IBus 会把它拉进 deepin 这类 Fcitx5 系统；Depends 里另有 fcitx5 或 libfcitx5*，Ubuntu 22.04 这类 Fcitx5 低于 5.0.20 的系统就整包装不上（#6305）；Recommends 里有 fcitx5，apt 会把它拉进 IBus 系统。
             depends=$(dpkg-deb -f "${deb[0]}" Depends); recommends=$(dpkg-deb -f "${deb[0]}" Recommends)
-            [[ $depends != *fcitx5* && $recommends == *"fcitx5 (>= 5.0.20)"* ]] || { echo "edition $edition: ${deb[0]} must recommend fcitx5 (>= 5.0.20) and not depend on Fcitx5; Depends: $depends; Recommends: $recommends" >&2; exit 1; }
+            framework="ibus (>= 1.5.20) | fcitx5 (>= 5.0.20)"; others=${depends//"$framework"/}
+            [[ $depends == *"$framework"* && $others != *fcitx5* && $others != *"ibus ("* && $recommends != *fcitx5* ]] || { echo "edition $edition: ${deb[0]} must depend on '$framework' and on neither framework otherwise; Depends: $depends; Recommends: $recommends" >&2; exit 1; }
             # 除了预编译的 sherpa-onnx 和 ONNX Runtime 库按上游构建原样发布外，每个 ELF 文件都已 strip（CMake 目标靠 CPACK_STRIP_FILES，Rust 目标靠 CARGO_PROFILE_RELEASE_STRIP）。
             unpacked=$(mktemp -d)
             dpkg-deb -x "${deb[0]}" "$unpacked"

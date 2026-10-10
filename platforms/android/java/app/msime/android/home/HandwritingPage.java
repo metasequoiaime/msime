@@ -1,8 +1,6 @@
 package app.msime.android.home;
 
-import android.os.Bundle;
 import android.widget.LinearLayout;
-import androidx.annotation.Nullable;
 import app.msime.android.AndroidLocalSettings;
 
 /**
@@ -10,36 +8,21 @@ import app.msime.android.AndroidLocalSettings;
  *
  * <p>范围与步长（等待 200–1500 ms 步长 100，粗细 1–8 px）由本地设置的校验给出，与同步时 client-core 接受的范围相同。
  */
-public final class HandwritingPage extends DetailPage {
+public final class HandwritingPage extends ReloadingDetailPage {
     private static final String[] MODES = {"single", "overlap", "line"};
     private static final String[] MODE_LABELS = {"单字", "叠写", "行写"};
     private static final String[] COLORS = {"follow_skin", "black", "white", "blue"};
     private static final String[] COLOR_LABELS = {"跟随皮肤", "黑色", "白色", "蓝色"};
 
-    @Nullable private LinearLayout column;
     /** 当前页面显示的设置，选择面板据此打 ✓。 */
     private AndroidLocalSettings.Snapshot shown = AndroidLocalSettings.defaults();
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
-        reload();
-    }
-
-    @Override protected void onBecameVisible() {
-        if (column != null) reload();
-    }
-
-    @Override public void onDestroyView() {
-        column = null;
-        super.onDestroyView();
-    }
-
-    private void reload() {
+    @Override protected void reload() {
         HostTask.run(this, AndroidLocalSettings::load, this::render);
     }
 
     private void render(AndroidLocalSettings.Snapshot settings) {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         if (target == null) return;
         target.removeAllViews();
         shown = settings;

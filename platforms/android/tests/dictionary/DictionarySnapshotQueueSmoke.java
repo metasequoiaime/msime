@@ -8,6 +8,8 @@ import java.security.MessageDigest;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 public final class DictionarySnapshotQueueSmoke {
@@ -137,9 +139,9 @@ public final class DictionarySnapshotQueueSmoke {
                 && queued.request().status() == DictionarySnapshotQueue.Status.QUEUED);
             check(Files.exists(queue.filePath(id)));
             try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
-                DictionarySnapshotQueue.Request claimed = queue.claim(lease);
+                DictionarySnapshotQueue.Request claimed = queue.claim(lease, () -> account);
                 check(claimed.status() == DictionarySnapshotQueue.Status.PREPARING);
-                check(queue.complete(id, lease, version, false,
+                check(queue.complete(id, lease, version, false, () -> account,
                     () -> "local-v1:" + id + ":" + "b".repeat(64)));
             }
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.APPLIED);
@@ -147,14 +149,14 @@ public final class DictionarySnapshotQueueSmoke {
             String preparingVersion = "local-v1:" + id + ":" + "b".repeat(64);
             queue.enqueue(source, account, 42, preparingVersion, digest);
             try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
-                check(queue.claim(lease).status() == DictionarySnapshotQueue.Status.PREPARING);
+                check(queue.claim(lease, () -> account).status() == DictionarySnapshotQueue.Status.PREPARING);
                 queue.cancel(account);
             }
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.CANCELLED);
             String appliedVersion = preparingVersion;
             UUID recovered = queue.enqueue(source, account, 43, appliedVersion, digest);
             try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
-                check(queue.claim(lease).status() == DictionarySnapshotQueue.Status.PREPARING);
+                check(queue.claim(lease, () -> account).status() == DictionarySnapshotQueue.Status.PREPARING);
                 queue.publishLocalVersion("local-v1:" + recovered + ":" + "c".repeat(64));
             }
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.APPLIED);
@@ -164,15 +166,15 @@ public final class DictionarySnapshotQueueSmoke {
             String recoveredVersion = "local-v1:" + recovered + ":" + "c".repeat(64);
             UUID failed = queue.enqueue(source, account, 43, recoveredVersion, digest);
             try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
-                queue.claim(lease);
+                queue.claim(lease, () -> account);
                 queue.fail(failed, lease);
             }
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.FAILED);
             check(!Files.exists(queue.filePath(failed)));
             UUID second = queue.enqueue(source, account, 43, recoveredVersion, digest);
             try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
-                queue.claim(lease);
-                check(!queue.complete(second, lease, "local-v1:legacy:" + "d".repeat(64), false,
+                queue.claim(lease, () -> account);
+                check(!queue.complete(second, lease, "local-v1:legacy:" + "d".repeat(64), false, () -> account,
                     () -> "local-v1:legacy:" + "e".repeat(64)));
             }
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.CONFLICT);
@@ -191,6 +193,48 @@ public final class DictionarySnapshotQueueSmoke {
             queue.publishLocalVersion(lateReceipt);
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.CANCELLED);
             check(lateReceipt.equals(queue.read().localVersion()));
+
+            UUID stale = queue.enqueue(source, account, 45, lateReceipt, digest);
+            try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
+                check(queue.claim(lease, () -> null) == null);
+                check(queue.read().request().status() == DictionarySnapshotQueue.Status.QUEUED);
+                check(Files.exists(queue.filePath(stale)));
+                check(queue.claim(lease, () -> "") == null);
+            }
+            check(queue.read().request().status() == DictionarySnapshotQueue.Status.CANCELLED);
+            check(!Files.exists(queue.filePath(stale)));
+
+            UUID replaced = queue.enqueue(source, account, 46, lateReceipt, digest);
+            try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
+                check(queue.claim(lease, () -> "replacement-account") == null);
+            }
+            check(queue.read().request().status() == DictionarySnapshotQueue.Status.CANCELLED);
+            check(!Files.exists(queue.filePath(replaced)));
+
+            UUID switchedDuringPreparation = queue.enqueue(source, account, 47, lateReceipt, digest);
+            AtomicReference<String> currentAccount = new AtomicReference<>(account);
+            AtomicBoolean activated = new AtomicBoolean();
+            try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
+                check(queue.claim(lease, currentAccount::get).status() == DictionarySnapshotQueue.Status.PREPARING);
+                currentAccount.set(null);
+                check(!queue.complete(switchedDuringPreparation, lease, lateReceipt, false,
+                    currentAccount::get, () -> {
+                        activated.set(true);
+                        return "local-v1:" + switchedDuringPreparation + ":" + "e".repeat(64);
+                    }));
+                check(!activated.get());
+                check(queue.read().request().status() == DictionarySnapshotQueue.Status.PREPARING);
+                check(Files.exists(queue.filePath(switchedDuringPreparation)));
+                currentAccount.set("");
+                check(!queue.complete(switchedDuringPreparation, lease, lateReceipt, false,
+                    currentAccount::get, () -> {
+                        activated.set(true);
+                        return "local-v1:" + switchedDuringPreparation + ":" + "e".repeat(64);
+                    }));
+            }
+            check(!activated.get());
+            check(queue.read().request().status() == DictionarySnapshotQueue.Status.CANCELLED);
+            check(!Files.exists(queue.filePath(switchedDuringPreparation)));
             System.out.println("Android dictionary snapshot queue: atomic files, hash bounds, lease and conflict guards passed");
         } finally {
             try (Stream<Path> paths = Files.walk(root)) {

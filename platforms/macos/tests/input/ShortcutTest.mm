@@ -536,7 +536,44 @@ static void TestKeyLatencyIsLoggedWithoutTheKey() {
 @end
 
 static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL repeat) {
-    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:code == 49 ? @" " : @"a" charactersIgnoringModifiers:code == 49 ? @" " : @"a" isARepeat:repeat keyCode:code];
+    // 字母键带上它在美式布局上打出的字母，和真实事件一样：字母快捷键按这个字符认键。
+    const char letter = msime::mac::PhysicalAnsiLetter(code);
+    NSString *characters = code == 49 ? @" " : letter ? [NSString stringWithFormat:@"%c", letter] : @"a";
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:repeat keyCode:code];
+}
+
+// 非美式键盘布局上的按键：`code` 是物理位置，`characters` 是当前布局在这个键上打出的字符。
+static NSEvent *LayoutKey(unsigned short code, NSString *characters, NSEventModifierFlags flags) {
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
+}
+
+// 字母快捷键按当前键盘布局在这个键上打出的字母认键（#5552）。
+static void TestShortcutLetterFollowsKeyboardLayout(void) {
+    for (unsigned short code = 0; code < 128; ++code) {
+        const char letter = msime::mac::PhysicalAnsiLetter(code);
+        if (!letter) continue;
+        // 美式布局：字符和物理位置一致，大写（Shift）折成小写。
+        assert(msime::mac::ShortcutLetter(code, static_cast<unsigned short>(letter)) == letter);
+        assert(msime::mac::ShortcutLetter(code, static_cast<unsigned short>(letter - 'a' + 'A')) == letter);
+        // 没有字符的合成事件、布局给出非拉丁字母时按物理位置认。
+        assert(msime::mac::ShortcutLetter(code, 0) == letter);
+        assert(msime::mac::ShortcutLetter(code, 0x0430) == letter);
+    }
+    // Dvorak：物理 Y 键打出 f，物理 F 键打出 u。
+    assert(msime::mac::ShortcutLetter(16, 'f') == 'f' && msime::mac::ShortcutLetter(16, 'F') == 'f');
+    assert(msime::mac::ShortcutLetter(3, 'u') == 'u');
+    // 布局在字母位置上放的是 ASCII 标点或数字时它不是字母快捷键，不能再按物理位置认成 E。
+    assert(msime::mac::ShortcutLetter(14, '.') == '\0');
+    assert(msime::mac::ShortcutLetter(12, '\'') == '\0');
+    assert(msime::mac::ShortcutLetter(49, ' ') == '\0');
+    assert(msime::mac::ShortcutLetter(18, '1') == '\0');
+    const NSEventModifierFlags optionShift = NSEventModifierFlagOption | NSEventModifierFlagShift;
+    assert(msime::mac::IsFullWidthInputToggle(38, msime::mac::ShortcutLetter(38, 'H'), optionShift));
+    assert(!msime::mac::IsFullWidthInputToggle(4, msime::mac::ShortcutLetter(4, 'D'), optionShift));
+    assert(msime::mac::MaintenanceShortcut(msime::mac::ShortcutLetter(34, 'C'), true, true, true, false) ==
+           msime::mac::MaintenanceShortcutAction::ClearCache);
+    assert(msime::mac::MaintenanceShortcut(msime::mac::ShortcutLetter(8, 'J'), true, true, true, false) ==
+           msime::mac::MaintenanceShortcutAction::None);
 }
 
 static NSEvent *KeypadKey(unsigned short code, NSString *characters, NSEventModifierFlags flags, BOOL repeat) {
@@ -813,6 +850,64 @@ static void TestIndependentAssistancePreferences() {
     assert(saves == beforeRefresh);
     assert([[prefs helpcodeOptionsForScheme:@"quanpin"] isEqual:options[@"quanpin_helpcode"]]);
     assert([[prefs helpcodeOptionsForScheme:@"shuangpin"] isEqual:options[@"shuangpin_helpcode"]]);
+    // 选了辅助码表插件时，方案下拉框末尾多一项代表插件并选中它；再选这一项什么都不改，选一个方案就不再使用插件并把清空写进共享文档，与共享设置页一致。另一族的插件和其他插件设置原样保留。
+    NSPopUpButton *quanpinSchemas = schemaControls[@"quanpin"];
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals", @"helpcode_pack_shuangpin": @"strokes"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && [[prefs helpcodePackForScheme:@"shuangpin"] isEqual:@"strokes"]);
+    assert(quanpinSchemas.numberOfItems == 7 && [quanpinSchemas.titleOfSelectedItem isEqual:@"radicals（插件）"]);
+    NSUInteger beforePack = saves;
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    assert(saves == beforePack && [[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"]);
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [quanpinSchemas selectItemAtIndex:1];
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    assert(saves > beforePack && ![prefs helpcodePackForScheme:@"quanpin"]);
+    assert(quanpinSchemas.numberOfItems == 6 && quanpinSchemas.indexOfSelectedItem == 1);
+    NSDictionary *cleared = [prefs sharedPreferencesByMerging:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals", @"helpcode_pack_shuangpin": @"strokes", @"sound_pack": @"twinkle"}}];
+    assert(([cleared[@"plugins"] isEqual:@{@"helpcode_pack_quanpin": @"", @"helpcode_pack_shuangpin": @"strokes", @"sound_pack": @"twinkle"}]));
+    assert([cleared[@"quanpin_helpcode"][@"schema"] isEqual:@"ziranma"]);
+    // 保存落盘之前读到的文档仍是旧插件，不能把它带回来；文档写进清空之后，别处再选的插件照常显示。
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == 6);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @""}}];
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == 7);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"", @"helpcode_pack_shuangpin": @""}}];
+    assert(quanpinSchemas.numberOfItems == 6 && [schemaControls[@"shuangpin"] numberOfItems] == 6);
+    // 清空没能写进文档（保存失败）时，共享设置页另选的插件不是那个旧 id：照常显示，之后的保存也不把它写成空串。
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    [quanpinSchemas selectItemAtIndex:1];
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    assert(![prefs helpcodePackForScheme:@"quanpin"]);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"strokes"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"strokes"]);
+    assert(quanpinSchemas.numberOfItems == 7 && [quanpinSchemas.titleOfSelectedItem isEqual:@"strokes（插件）"]);
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @""}}];
+    assert(quanpinSchemas.numberOfItems == 6);
+    // 共享偏好落盘时不写空的辅助码表包（空串的键省略，全为默认的 plugins 整个省略），所以清空写进文档后读回来的是没有 plugins 的文档：它与空串一样了结这次清空，之后在共享设置页再选同一个包照常显示，也不会被下一次保存写回空串。
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    [quanpinSchemas selectItemAtIndex:1];
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    assert(![prefs helpcodePackForScheme:@"quanpin"]);
+    [prefs applySharedAssistancePreferences:@{}];
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == 7);
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    // plugins 还有别的设置、只是没有这个键时同样是空包；共享设置页清掉插件也是这样回来的，下拉框随之去掉插件项。
+    [quanpinSchemas selectItemAtIndex:1];
+    [NSApp sendAction:quanpinSchemas.action to:quanpinSchemas.target from:quanpinSchemas];
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"sound_pack": @"twinkle"}}];
+    assert([prefs sharedPreferencesByMerging:@{}][@"plugins"] == nil);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    assert([[prefs helpcodePackForScheme:@"quanpin"] isEqual:@"radicals"] && quanpinSchemas.numberOfItems == 7);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"sound_pack": @"twinkle"}}];
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == 6);
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @"radicals"}}];
+    [prefs applySharedAssistancePreferences:@{@"plugins": @{@"helpcode_pack_quanpin": @7}}];
+    assert(![prefs helpcodePackForScheme:@"quanpin"] && quanpinSchemas.numberOfItems == 6);
     NSButton *neighbor = (id)PreferenceControl(prefs, @selector(neighborChanged:));
     [prefs applySharedAssistancePreferences:@{@"quanpin": @{@"autocorrect_transposition": @YES, @"autocorrect_neighbor": @NO}}];
     assert(autocorrect.state == NSControlStateValueOn && neighbor.state == NSControlStateValueOff);
@@ -1497,6 +1592,21 @@ static void TestCharacterSetShortcut(void) {
         assert(appearance.traditionalOutput == traditional);
     }
     assert(![controller handleEvent:ModeKey(2, flags, NO) client:client]);
+    // Dvorak：标着 F 的键在美式布局的 Y 位置（keyCode 16），物理 F 键打出 u。英文模式下只占用不切换。
+    assert([controller handleEvent:LayoutKey(16, @"F", flags) client:client]);
+    assert(appearance.traditionalOutput == traditional);
+    assert(![controller handleEvent:LayoutKey(3, @"U", flags) client:client]);
+    appearance.englishMode = NO;
+    assert([controller handleEvent:LayoutKey(16, @"F", flags) client:client]);
+    assert(appearance.traditionalOutput != traditional);
+    assert([controller handleEvent:LayoutKey(16, @"f", flags) client:client]);
+    assert(appearance.traditionalOutput == traditional);
+    // 没有字符的合成事件、给出非拉丁字母的布局仍按物理位置认键。
+    assert([controller handleEvent:LayoutKey(3, @"", flags) client:client]);
+    assert(appearance.traditionalOutput != traditional);
+    assert([controller handleEvent:LayoutKey(3, @"\u0430", flags) client:client]);
+    assert(appearance.traditionalOutput == traditional);
+    appearance.englishMode = YES;
     [appearance applySharedInputPreferences:@{@"keybindings":keys}];
     assert(![controller handleEvent:ModeKey(3, flags, NO) client:client]);
     appearance.characterSetShortcut = NO;
@@ -1572,6 +1682,14 @@ static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
         [controller handleEvent:ModeKey(14, flags | extra.unsignedIntegerValue, NO) client:client];
         assert(session.englishCandidateCalls == calls);
     }
+    // Dvorak：E 在美式布局的 D 位置（keyCode 2），物理 E 键打出句点，不再切换。
+    const BOOL dedicated = session.dedicatedEnglish;
+    [controller handleEvent:LayoutKey(14, @".", flags) client:client];
+    assert(session.dedicatedEnglish == dedicated && session.englishCandidateCalls == calls);
+    assert([controller handleEvent:LayoutKey(2, @"E", flags) client:client]);
+    assert(session.dedicatedEnglish != dedicated);
+    assert([controller handleEvent:LayoutKey(2, @"E", flags) client:client]);
+    assert(session.dedicatedEnglish == dedicated);
 }
 
 static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
@@ -1611,7 +1729,7 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     [controller appearanceChanged:nil];
     assert(appearance.runtimeFullWidthInput && session.fullwidth);
     for (NSEventModifierFlags extra : {NSEventModifierFlagCommand, NSEventModifierFlagOption})
-        assert(!msime::mac::IsFullWidthInputToggle(49, windowsChord | extra));
+        assert(!msime::mac::IsFullWidthInputToggle(49, '\0', windowsChord | extra));
     for (NSEventModifierFlags extra : {NSEventModifierFlagCommand, NSEventModifierFlagControl}) {
         assert(![controller handleEvent:ModeKey(4, chord | extra, NO) client:client]);
         assert(appearance.runtimeFullWidthInput);
@@ -1631,6 +1749,11 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
     assert(appearance.runtimeFullWidthInput != fullWidthBefore);
     assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
+    assert(appearance.runtimeFullWidthInput == fullWidthBefore);
+    // Dvorak：H 在美式布局的 J 位置（keyCode 38）。
+    assert([controller handleEvent:LayoutKey(38, @"H", chord) client:client]);
+    assert(appearance.runtimeFullWidthInput != fullWidthBefore);
+    assert([controller handleEvent:LayoutKey(38, @"H", chord) client:client]);
     assert(appearance.runtimeFullWidthInput == fullWidthBefore);
     appearance.englishMode = YES;
     assert(![controller handleEvent:ModeKey(4, chord, NO) client:client]);
@@ -1731,6 +1854,43 @@ static void TestSessionOptions() {
     assert([NSFileManager.defaultManager createDirectoryAtPath:[resources stringByAppendingPathComponent:@"sound-packs"] withIntermediateDirectories:NO attributes:nil error:nil]);
     NSString *found = MSIMEBundleSoundPacks([NSBundle bundleWithPath:bundlePath]);
     assert([found.lastPathComponent isEqual:@"sound-packs"] && found.isAbsolutePath);
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
+// A helpcode or sound failure can be reported while the first HostSession is
+// being constructed. The live preference document is authoritative, so the
+// log must be configured before that construction rather than only after the
+// first asynchronous preference reload.
+static void TestDiagnosticLogConfiguredBeforeSession() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSError *error = nil;
+    NSDictionary *initial = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(initial && !error);
+    NSMutableDictionary *preferences = [initial[@"preferences"] mutableCopy];
+    NSMutableDictionary *diagnostic = [preferences[@"diagnostic_log"] mutableCopy];
+    diagnostic[@"server"] = @YES;
+    preferences[@"diagnostic_log"] = diagnostic;
+    NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:root
+        expectedRevision:[initial[@"revision"] unsignedLongLongValue]
+        snapshot:@{ @"format_version": @1, @"revision": initial[@"revision"], @"preferences": preferences }
+        error:&error];
+    assert(saved && !error);
+    NSDictionary *options = @{
+        @"preferences_directory": root,
+        // The runtime-options copy is stale and still says diagnostics are off;
+        // the live preferences document above is authoritative at startup.
+        @"preferences": @{ @"diagnostic_log": @{ @"server": @NO } },
+    };
+    msime_macos_diagnostic_configure(std::string(), false);
+    assert(!msime_macos_diagnostic_enabled());
+    MSIMEConfigureDiagnosticLogBeforeSession(options);
+    assert(msime_macos_diagnostic_enabled());
+    msime_macos_diagnostic_write("startup_failure");
+    NSString *contents = [NSString stringWithContentsOfFile:[root stringByAppendingPathComponent:@"diagnostic.log"]
+                                                    encoding:NSUTF8StringEncoding error:nil];
+    assert([contents containsString:@"startup_failure"]);
+    msime_macos_diagnostic_configure(std::string(), false);
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
 }
 
@@ -2973,6 +3133,11 @@ static void TestScreenKeyboardShortcut(MSIMEAppearancePreferences *appearance) {
     }
     assert(![controller handleEvent:ModeKey(39, chord, NO) client:client]);
     assert(controller.screenKeyboardCalls == 3);
+    // Dvorak：K 在美式布局的 V 位置（keyCode 9），物理 K 键打出 t。
+    assert([controller handleEvent:LayoutKey(9, @"K", chord) client:client]);
+    assert(controller.screenKeyboardCalls == 4);
+    assert(![controller handleEvent:LayoutKey(40, @"T", chord) client:client]);
+    assert(controller.screenKeyboardCalls == 4);
     appearance.englishMode = previousEnglishMode;
 }
 
@@ -3018,6 +3183,12 @@ static void TestMaintenanceShortcuts(MSIMEAppearancePreferences *appearance) {
     }
     assert(![controller handleEvent:ModeKey(9, chord, NO) client:client]);
     assert(session.resetCacheCalls == 2 && controller.restartCalls == 2 && controller.terminationCalls == 1);
+    // Dvorak：C、R、T 分别在美式布局的 I、O、K 位置，物理 C 键打出 j。
+    assert([controller handleEvent:LayoutKey(34, @"C", chord) client:client]);
+    assert([controller handleEvent:LayoutKey(31, @"R", chord) client:client]);
+    assert([controller handleEvent:LayoutKey(40, @"T", chord) client:client]);
+    assert(![controller handleEvent:LayoutKey(8, @"J", chord) client:client]);
+    assert(session.resetCacheCalls == 3 && controller.restartCalls == 3 && controller.terminationCalls == 2);
     appearance.englishMode = previousEnglishMode;
 }
 
@@ -3198,6 +3369,66 @@ static void TestSoundsFollowKeysCommitsAndActivation() {
     assert(([nextSession.musicStates isEqual:@[@YES, @NO]]));
     method_setImplementation(base, original);
 
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
+// Opens a real session from its own options and records, for every music claim, whether a session was there to hear it.
+@interface MusicClaimController : MSIMEInputController
+@property(nonatomic, copy) NSDictionary *options;
+@property(nonatomic, strong) NSMutableArray<NSNumber *> *claims;
+@end
+@implementation MusicClaimController
+- (NSDictionary *)runtimeOptions { return self.options; }
+- (BOOL)secureEventInputActive { return NO; }
+- (void)claimBackgroundMusic {
+    if (!self.claims) self.claims = [NSMutableArray array];
+    [self.claims addObject:@([self valueForKey:@"session"] != nil)];
+    [super claimBackgroundMusic];
+}
+@end
+
+// 在英文模式下激活的控制器还没有会话，激活时那次 claimBackgroundMusic 发给的是 nil，播放器从没听到「输入法处于活动状态」。之后切回中文、按键或重新打开会话时建好会话，音乐的归属者要在那时补报一次；不是归属者的控制器、以及已经有会话的再次准备都不报。
+static void TestMusicIsClaimedOnceTheSessionOpens() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSMutableDictionary *options = [@{@"api_version": @1,
+        @"preferences": @{@"scheme": @"quanpin", @"default_ime_mode": @"chinese", @"candidate_page_size": @5,
+                          @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    NSString *suite = [@"msime.music-claim." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.englishMode = YES;
+    auto controllerFor = ^MusicClaimController *(ShortcutClient *client) {
+        MusicClaimController *controller = [MusicClaimController alloc];
+        controller.options = options;
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+        return controller;
+    };
+    MusicClaimController *owner = controllerFor([ShortcutClient new]);
+    MusicClaimController *other = controllerFor([ShortcutClient new]);
+
+    // activateServer: in English mode: the claim finds no session.
+    [owner claimBackgroundMusic];
+    assert(([owner.claims isEqual:@[@NO]]));
+    // The session opens later (back to Chinese, a key, a menu action): the owner claims again, now with a session to tell.
+    [owner prepareSession];
+    assert([owner valueForKey:@"session"]);
+    assert(([owner.claims isEqual:@[@NO, @YES]]));
+    // Preparing a session that is already open claims nothing more.
+    [owner prepareSession];
+    assert(owner.claims.count == 2);
+    // A controller music does not follow opens its session without taking music over.
+    [other prepareSession];
+    assert([other valueForKey:@"session"] && other.claims.count == 0);
+
+    [owner releaseBackgroundMusic];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
 }
@@ -5378,9 +5609,18 @@ static void TestAiCandidateEngineDelivery() {
     NSError *bridgeError = nil;
     NSDictionary *descriptor = [MSIMEClientSession aiHTTPRequest:@{
         @"config":@{@"enabled":@YES, @"provider":@"deepseek", @"endpoint":@"https://synthetic.invalid/chat", @"model":@"synthetic",
-            @"token":@"synthetic-secret", @"candidate_limit":@3, @"prompt_id":@"custom_2", @"prompt_custom_2":@"synthetic prompt"},
+            @"tokens":@{@"https://synthetic.invalid:443":@"synthetic-secret"}, @"candidate_limit":@3,
+            @"prompt_id":@"custom_2", @"prompt_custom_2":@"synthetic prompt"},
         @"input":@{@"segmented_pinyin":@[@"ni", @"hao"], @"context":@"", @"candidate_limit":@3}} error:&bridgeError];
-    assert(descriptor && !bridgeError && [descriptor[@"timeout_ms"] isEqual:@8000]);
+    if (!descriptor || bridgeError || ![descriptor[@"timeout_ms"] isEqual:@8000]) {
+        // Only report the fixed-shape outcome. The descriptor also contains a bearer token.
+        fprintf(stderr, "AI descriptor present=%d error=%s timeout=%s\n", descriptor != nil,
+            (bridgeError.localizedDescription ?: @"").UTF8String,
+            ([descriptor[@"timeout_ms"] description] ?: @"").UTF8String);
+    }
+    assert(descriptor);
+    assert(!bridgeError);
+    assert([descriptor[@"timeout_ms"] isEqual:@8000]);
     assert([descriptor[@"headers"][@"Authorization"] isEqual:@"Bearer synthetic-secret"]);
     assert([descriptor[@"body"][@"thinking"][@"type"] isEqual:@"disabled"]);
     NSData *response = [NSJSONSerialization dataWithJSONObject:@{@"choices":@[@{@"message":@{@"content":
@@ -5391,7 +5631,8 @@ static void TestAiCandidateEngineDelivery() {
     NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"learning":@NO,
         @"candidate_page_size":@5, @"chinese_punctuation":@YES, @"default_ime_mode":@"chinese",
         @"ai_assistant":@{@"enabled":@YES, @"provider":@"openai", @"endpoint":@"https://synthetic.invalid/chat",
-            @"model":@"synthetic", @"token":@"synthetic-private", @"candidate_limit":@3}}} mutableCopy];
+            @"model":@"synthetic", @"tokens":@{@"https://synthetic.invalid:443":@"synthetic-private"},
+            @"candidate_limit":@3}}} mutableCopy];
     for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
         NSString *path = [root stringByAppendingPathComponent:name];
         assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
@@ -5405,6 +5646,7 @@ static void TestAiCandidateEngineDelivery() {
     NSDictionary *query = [session onlineQueryWithError:&error];
     assert(!error && [query[@"ai_eligible"] boolValue]);
     assert(!query[@"ai_assistant"][@"token"]); // Copied queries never expose credentials.
+    assert(!query[@"ai_assistant"][@"tokens"]);
     NSDictionary *sessionDescriptor = [session aiRequestForQuery:query error:&error];
     assert(sessionDescriptor && !error &&
         [sessionDescriptor[@"headers"][@"Authorization"] isEqual:@"Bearer synthetic-private"]);
@@ -6116,6 +6358,16 @@ static void TestAiCandidateCacheAcrossGenerations() {
     [controller setValue:@{ @"candidates": @[@{ @"text": @"普通候选", @"source": @0 }] } forKey:@"view"];
     [controller synchronizeAITranslations];
     assert(session.applications == 2 && session.descriptorRequests == 1 && controller.aiBatches.count == 1);
+    NSMutableDictionary *changedContext = [session.query mutableCopy];
+    changedContext[@"generation"] = @([changedContext[@"generation"] unsignedLongLongValue] + 1);
+    changedContext[@"ai_context"] = @"另一个上下文";
+    session.query = changedContext;
+    [controller setValue:@{ @"candidates": @[@{ @"text": @"普通候选", @"source": @0 }] } forKey:@"view"];
+    [controller synchronizeAITranslations];
+    timer = [controller valueForKey:@"aiTimer"];
+    assert(timer && controller.aiBatches.count == 1);
+    [timer fire];
+    assert(controller.aiBatches.count == 2 && session.descriptorRequests == 2);
     [controller cancelAITranslations];
 }
 
@@ -6455,10 +6707,10 @@ static void TestTencentCandidateScheduling() {
     assert(fallback.tencentConfig && fallback.items.count == 1 && [fallback.items[0][@"text"] isEqual:@"测试"]);
     fallback.reply(@[@{@"text":@"测试", @"translation":@"test"}]);
     assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"test"}]]));
-    NSArray *(^identity)(NSDictionary *) = ^NSArray *(NSDictionary *item) {
-        return @[@"tencent", session.targetLanguage, item[@"source_language"], item[@"target_language"], item[@"key"]];
-    };
-    assert([[[MSIMETranslationCache sharedCache] valueForIdentity:identity(fallback.items[0])] isEqual:@"test"]);
+    NSUInteger cachedBatchCount = controller.batches.count;
+    session.generation++;
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == cachedBatchCount && [session.delivered.lastObject[@"translation"] isEqual:@"test"]);
     [controller cancelCandidateTranslations]; [[MSIMETranslationCache sharedCache] clear];
     session.offline = NO;
     [controller synchronizeCandidateGloss];
@@ -6469,13 +6721,15 @@ static void TestTencentCandidateScheduling() {
     [controller applySharedToolbarPreferences:@{@"tencent_tmt":disabled}];
     assert(pending.cancelled && ![controller currentCustomTranslationRequest] && session.delivered.count == 0);
     pending.reply(online); assert(session.delivered.count == 0);
-    // The provider changed while the request was in flight, and the cache identity carries no credentials: the late reply must leave neither a gloss nor a negative entry behind.
-    for (NSDictionary *item in pending.items) assert(![[MSIMETranslationCache sharedCache] valueForIdentity:identity(item)]);
+    // The provider changed while the request was in flight. Its late reply must
+    // leave neither a gloss nor a negative entry behind.
     session.tencent = disabled; assert(![controller currentCustomTranslationRequest]);
     session.tencent = TencentConfig();
     [controller applySharedToolbarPreferences:@{@"tencent_tmt":session.tencent}];
     [controller synchronizeCandidateGloss];
+    NSUInteger beforeReenable = controller.batches.count;
     [controller synchronizeCustomTranslations]; pending = controller.batches.lastObject;
+    assert(controller.batches.count == beforeReenable + 1);
     // Pending custom enablement must block Tencent even before the query updates.
     NSDictionary *custom = @{@"enabled":@YES, @"endpoint":@"https://provider.invalid", @"api_key":@""};
     [controller applySharedToolbarPreferences:@{@"custom_translation":custom}];
@@ -7420,6 +7674,37 @@ static void TestCustomTranslationCacheDelivery() {
     [controller cancelCandidateTranslations];
     [[MSIMETranslationCache sharedCache] clear];
 }
+static void TestCustomTranslationCacheSeparatesCredentialsAcrossControllers() {
+    [[MSIMETranslationCache sharedCache] clear];
+    CustomTranslationController *first = [CustomTranslationController alloc];
+    first.batches = [NSMutableArray array];
+    CustomTranslationSession *oldSession = [CustomTranslationSession new];
+    oldSession.enabled = YES; oldSession.generation = 1; oldSession.targetLanguage = @"fr";
+    oldSession.custom = @{@"enabled":@YES, @"endpoint":@"https://cache-source.invalid/api", @"api_key":@"synthetic-old"};
+    oldSession.page = @[@{@"text":@"Hello", @"source":@4}];
+    [first setValue:oldSession forKey:@"session"];
+    [first setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [first applySharedToolbarPreferences:@{@"custom_translation":oldSession.custom}];
+    [first synchronizeCustomTranslations];
+    assert(first.batches.count == 1);
+    first.batches[0].reply(@[@{@"text":@"Hello", @"translation":@"旧译文"}]);
+    [first cancelCandidateTranslations];
+    first = nil;
+
+    CustomTranslationController *second = [CustomTranslationController alloc];
+    second.batches = [NSMutableArray array];
+    CustomTranslationSession *newSession = [CustomTranslationSession new];
+    newSession.enabled = YES; newSession.generation = 1; newSession.targetLanguage = @"fr";
+    newSession.custom = @{@"enabled":@YES, @"endpoint":@"https://cache-source.invalid/api", @"api_key":@"synthetic-new"};
+    newSession.page = @[@{@"text":@"Hello", @"source":@4}];
+    [second setValue:newSession forKey:@"session"];
+    [second setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [second applySharedToolbarPreferences:@{@"custom_translation":newSession.custom}];
+    [second synchronizeCustomTranslations];
+    assert(second.batches.count == 1 && newSession.delivered.count == 0);
+    [second cancelCandidateTranslations];
+    [[MSIMETranslationCache sharedCache] clear];
+}
 static void TestCustomTranslationIdleDelay(BOOL tencent) {
     [[MSIMETranslationCache sharedCache] clear];
     CustomTranslationController *controller = [CustomTranslationController alloc];
@@ -7880,6 +8165,7 @@ int main(int argc, char **argv) {
             @autoreleasepool { TestGlossLinesSurviveSession(); }
             @autoreleasepool { TestSecondaryTranslationScheduling(); }
             @autoreleasepool { TestCustomTranslationCacheDelivery(); }
+            @autoreleasepool { TestCustomTranslationCacheSeparatesCredentialsAcrossControllers(); }
             @autoreleasepool { TestCustomTranslationIdleDelay(NO); }
             @autoreleasepool { TestCustomTranslationIdleDelay(YES); }
             @autoreleasepool { TestTencentCandidateScheduling(); }
@@ -7921,6 +8207,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestGlossLinesSurviveSession(); }
         @autoreleasepool { TestSecondaryTranslationScheduling(); }
         @autoreleasepool { TestCustomTranslationCacheDelivery(); }
+        @autoreleasepool { TestCustomTranslationCacheSeparatesCredentialsAcrossControllers(); }
         @autoreleasepool { TestCustomTranslationIdleDelay(NO); }
         @autoreleasepool { TestCustomTranslationIdleDelay(YES); }
         @autoreleasepool { TestTencentCandidateScheduling(); }
@@ -9318,6 +9605,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
         @autoreleasepool { TestStaleClientDeactivation(); }
         @autoreleasepool { TestSoundsFollowKeysCommitsAndActivation(); }
+        @autoreleasepool { TestMusicIsClaimedOnceTheSessionOpens(); }
         @autoreleasepool { TestPreferenceClientGeneration(); }
         @autoreleasepool { TestSavedPreferencesReachTheFocusedController(); }
         @autoreleasepool { TestModeSwitchReachesTheSessionBeforeTheNextKey(); }
@@ -9328,6 +9616,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestInputModeSwitchDoesNotSaveSharedPreferences(); }
         @autoreleasepool { TestFullWidth(defaults, appearance); }
         @autoreleasepool { TestSessionOptions(); }
+        @autoreleasepool { TestDiagnosticLogConfiguredBeforeSession(); }
         @autoreleasepool { TestKeypadDecimal(appearance); }
         @autoreleasepool { TestFloatingToolbarMenuToggle(appearance); }
         @autoreleasepool { TestCandidatePanelSingleOwner(); }
@@ -9347,6 +9636,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestSharedCharacterWidth(); }
         @autoreleasepool { TestScreenKeyboardShortcut(appearance); }
         @autoreleasepool { TestMaintenanceShortcuts(appearance); }
+        @autoreleasepool { TestShortcutLetterFollowsKeyboardLayout(); }
         @autoreleasepool { TestPunctuation(defaults, appearance); }
         @autoreleasepool { TestPairedPunctuationPreferences(); }
         @autoreleasepool { TestPairedPunctuationHostExclusion(); }

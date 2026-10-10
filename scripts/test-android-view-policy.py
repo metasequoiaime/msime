@@ -9,6 +9,8 @@ LOGIN_SHEET = ROOT / "platforms/android/java/app/msime/android/home/LoginSheet.j
 INPUT_SERVICE = ROOT / "platforms/android/java/app/msime/android/core/MSIMEInputService.java"
 BOTTOM_BAR = ROOT / "platforms/android/java/app/msime/android/core/ImeBottomBar.java"
 UI = ROOT / "platforms/android/java/app/msime/android/home/Ui.java"
+HOME = ROOT / "platforms/android/java/app/msime/android/home"
+ANDROID_JAVA = ROOT / "platforms/android/java"
 KEYBOARD_GEOMETRY = ROOT / "platforms/android/java/app/msime/android/keyboard/KeyboardGeometry.java"
 
 
@@ -30,6 +32,8 @@ def main() -> None:
         "return view != null && view.getVisibility() == View.VISIBLE;",
         "public static void setPaddingIfChanged(View view, int left, int top, int right, int bottom)",
         "if (view.getPaddingLeft() == left && view.getPaddingTop() == top",
+        "public static void setBottomPadding(View view, int bottom)",
+        "setPadding(view, view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(), bottom);",
         "public static void setVisibleIfChanged(View view, boolean visible)",
         "if (view.getVisibility() == visibility) return;",
         "public static LinearLayout newRow(Context context)",
@@ -38,6 +42,8 @@ def main() -> None:
         "view.setOrientation(LinearLayout.VERTICAL);",
         "public static LinearLayout.LayoutParams newSquareParamsPx(int size)",
         "return new LinearLayout.LayoutParams(size, size);",
+        "public static View newColorView(Context context, int color)",
+        "setBackgroundColor(view, color);",
     )
     missing = [snippet for snippet in required if snippet not in view_policy]
     if missing:
@@ -66,10 +72,43 @@ def main() -> None:
         raise AssertionError("Ui 仍直接实现文本最小高度策略")
     if "ViewPolicy.setTextMinHeight(view, dp(context, heightDp));" not in ui:
         raise AssertionError("Ui 没有调用共享文本最小高度策略")
-    if "view.setMinWidth(dp(context, widthDp));" in ui:
-        raise AssertionError("Ui 仍直接实现文本最小宽度策略")
-    if "ViewPolicy.setTextMinWidth(view, dp(context, widthDp));" not in ui:
-        raise AssertionError("Ui 没有调用共享文本最小宽度策略")
+    if "public static void setTextMinWidthDp(" in ui:
+        raise AssertionError("Ui 仍保留文本最小宽度转发方法")
+    if "ViewPolicy.setTextMinWidth(button, dp(context, minWidthDp));" not in ui:
+        raise AssertionError("Ui 按钮没有直接调用共享文本最小宽度策略")
+    if "public static void setEnabledLook(" in ui:
+        raise AssertionError("Ui 仍保留无调用方的启用状态转发方法")
+    if "public static void setBottomPadding(" in ui:
+        raise AssertionError("Ui 仍保留底部内边距转发方法")
+    for path in HOME.glob("*.java"):
+        if "Ui.setBottomPadding(" in path.read_text(encoding="utf-8"):
+            raise AssertionError(f"{path} 没有直接调用共享底部内边距策略")
+    if "ViewPolicy.setBottomPadding(target, bottom);" not in ui:
+        raise AssertionError("Ui 页面避让监听没有调用共享底部内边距策略")
+    for name in ("DetailPage.java", "KeyboardFragment.java"):
+        source = (HOME / name).read_text(encoding="utf-8")
+        if "Ui.bindPageBottomInsets(scroll);" not in source:
+            raise AssertionError(f"{name} 没有复用页面底部避让监听")
+        if "ViewPolicy.setBottomPadding(target, bottom);" in source:
+            raise AssertionError(f"{name} 仍重复应用底部内边距")
+    if "public static View hairlineView(" in ui:
+        raise AssertionError("Ui 仍保留发丝线视图工厂")
+    for path in HOME.glob("*.java"):
+        if "Ui.hairlineView(" in path.read_text(encoding="utf-8"):
+            raise AssertionError(f"{path} 没有直接调用共享着色视图工厂")
+    if "ViewPolicy.newColorView(context, hairline(context));" not in ui:
+        raise AssertionError("Ui 分隔线没有调用共享着色视图工厂")
+    feedback = (HOME / "FeedbackPage.java").read_text(encoding="utf-8")
+    if "ViewPolicy.newColorView(context, Ui.hairline(context));" not in feedback:
+        raise AssertionError("FeedbackPage 没有调用共享着色视图工厂")
+    if "public static void setHorizontalPaddingPx(" in ui:
+        raise AssertionError("Ui 仍保留水平像素内边距转发方法")
+    for path in HOME.glob("*.java"):
+        if "Ui.setHorizontalPaddingPx(" in path.read_text(encoding="utf-8"):
+            raise AssertionError(f"{path} 没有直接调用共享水平内边距策略")
+    slider = (HOME / "MsSlider.java").read_text(encoding="utf-8")
+    if "ViewPolicy.setHorizontalPadding(this, inset);" not in slider:
+        raise AssertionError("MsSlider 没有直接调用共享水平内边距策略")
     if "return ViewPolicy.newRow(context);" not in ui:
         raise AssertionError("Ui 没有调用共享横向容器工厂")
     if "return ViewPolicy.newRow(context);" not in keyboard_geometry:
@@ -84,13 +123,21 @@ def main() -> None:
     vertical_factory = "LinearLayout view = new LinearLayout(context);\n        view.setOrientation(LinearLayout.VERTICAL);"
     if vertical_factory in ui or vertical_factory in keyboard_geometry:
         raise AssertionError("页面工具类仍保留重复的纵向容器实现")
-    if "return ViewPolicy.newSquareParamsPx(size);" not in ui:
-        raise AssertionError("Ui 没有调用共享正方形布局参数工厂")
-    if "return ViewPolicy.newSquareParamsPx(size);" not in keyboard_geometry:
-        raise AssertionError("KeyboardGeometry 没有调用共享正方形布局参数工厂")
-    square_factory = "public static LinearLayout.LayoutParams squareParamsPx(int size) {\n        return new LinearLayout.LayoutParams(size, size);"
-    if square_factory in ui or square_factory in keyboard_geometry:
-        raise AssertionError("页面工具类仍保留重复的正方形布局参数实现")
+    square_forwarder = "public static LinearLayout.LayoutParams squareParamsPx(int size)"
+    if square_forwarder in ui or square_forwarder in keyboard_geometry:
+        raise AssertionError("页面工具类仍保留正方形布局参数转发方法")
+    for path in HOME.glob("*.java"):
+        source = path.read_text(encoding="utf-8")
+        if "Ui.squareParamsPx(" in source:
+            raise AssertionError(f"{path} 没有直接调用共享正方形布局参数工厂")
+    for path in ANDROID_JAVA.rglob("*.java"):
+        source = path.read_text(encoding="utf-8")
+        if "KeyboardGeometry.squareParamsPx(" in source:
+            raise AssertionError(f"{path} 没有直接调用共享正方形布局参数工厂")
+    for name in ("AboutPage.java", "DownloadPage.java", "Ui.java"):
+        source = (HOME / name).read_text(encoding="utf-8")
+        if "ViewPolicy.newSquareParamsPx(" not in source:
+            raise AssertionError(f"{name} 没有调用共享正方形布局参数工厂")
     print("android view policy: recursive enabled state is shared")
 
 
