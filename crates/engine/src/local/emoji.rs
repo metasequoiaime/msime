@@ -231,7 +231,7 @@ where
     I: IntoIterator<Item = &'a str>,
 {
     let mut statement = connection.prepare_cached(sql)?;
-    let mut entries: Vec<ExpressiveRow> = Vec::with_capacity(MIXED_FETCH_PER_READING);
+    let mut entries: Vec<ExpressiveRow> = Vec::new();
     for reading in readings {
         let upper_bound = prefix_upper_bound(reading);
         let mut rows = statement.query(rusqlite::params![reading, upper_bound])?;
@@ -257,6 +257,9 @@ where
                 continue;
             }
             let keywords = row.get::<_, Option<String>>(3)?.unwrap_or_default();
+            if entries.is_empty() {
+                entries.reserve_exact(MIXED_FETCH_PER_READING);
+            }
             entries.push(ExpressiveRow {
                 item: WordItem::new(reading, text, 0, source, ""),
                 keywords,
@@ -671,6 +674,23 @@ mod tests {
         assert_eq!(rows, expected);
         assert_eq!(mixed_words(&rows), ["🇺🇸", "🇺🇲"]);
         assert!(allocations <= 11, "混排读取分配了 {allocations} 次");
+    }
+
+    #[test]
+    fn empty_mixed_readings_do_not_reserve_result_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = mixed_fixture(dir.path());
+        let connection = Connection::open(path).unwrap();
+        let rows = read_readings(
+            &connection,
+            EMOJI.mixed_sql,
+            std::iter::once("missing"),
+            &|_| true,
+            CandidateSource::Emoji,
+        )
+        .unwrap();
+        assert!(rows.is_empty());
+        assert_eq!(rows.capacity(), 0);
     }
 
     /// 合计最多取 `MIXED_FETCH_LIMIT` 行。
