@@ -152,7 +152,8 @@ test("the HarmonyOS phone 词库 page lists dictionaries the way Android does, w
   setup();
 
   await screen.findByText("工作");
-  expect(groupTitles()).toEqual(["已安装", "管理", "发现词库", "学习", "更多"]);
+  // 与 Android 一样，操作那张卡片没有标题。
+  expect(groupTitles()).toEqual(["已安装", "发现词库", "学习", "更多"]);
   for (const desktop of [
     "编码前缀",
     "文件格式",
@@ -172,11 +173,17 @@ test("the HarmonyOS phone 词库 page lists dictionaries the way Android does, w
   expect(within(installed).getByText("已停用")).toBeTruthy();
   expect(within(installed).getByText("4,812 条 · 社区")).toBeTruthy();
 
-  expect(
-    within(group("管理"))
-      .getAllByRole("button")
-      .map((button) => button.querySelector("[data-row-title]")?.textContent),
-  ).toEqual(["新建词库", "导入词库", "导出词库", "刷新词库"]);
+  // 「管理」的几行是直接执行的操作：没有副标题，也没有通往下一页的箭头。
+  const actions = ["新建词库", "导入词库", "导出词库", "刷新词库"].map(
+    (title) => screen.getByText(title).closest("button") as HTMLButtonElement,
+  );
+  expect(new Set(actions.map((button) => button.parentElement)).size).toBe(1);
+  for (const button of actions) {
+    expect(button.querySelector("svg")).toBeNull();
+  }
+  // 说明在卡片下面，不在卡片里。
+  const note = screen.getByText("点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。");
+  expect(group("已安装").contains(note)).toBe(false);
 });
 
 test("the list flushes queued words when it opens and on 刷新词库", async () => {
@@ -326,7 +333,7 @@ test("the built-in dictionary searches by pinyin and is always on", async () => 
 test("学习 writes the preference and 更多 opens 背单词 and 云词库", async () => {
   const { setDraft, selectPage } = setup();
   await screen.findByText("工作");
-  fireEvent.click(screen.getByRole("switch", { name: "学习选词习惯" }));
+  fireEvent.click(screen.getByRole("switch", { name: "记忆新词" }));
   const update = setDraft.mock.calls.at(-1)?.[0] as (value: { learning: boolean }) => {
     learning: boolean;
   };
