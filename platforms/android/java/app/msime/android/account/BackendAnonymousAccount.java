@@ -6,7 +6,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import java.io.InputStream;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Locale;
 import javax.net.ssl.HttpsURLConnection;
@@ -204,7 +203,7 @@ final class BackendAnonymousAccount {
     }
 
     private static JSONObject request(String method, String path, JSONObject body, String token) throws Exception {
-        byte[] payload = body == null ? null : body.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] payload = body == null ? null : TextPolicy.utf8Bytes(body.toString());
         HttpsURLConnection connection = null;
         try {
             connection = (HttpsURLConnection) new URL(ORIGIN + path).openConnection();
@@ -223,7 +222,7 @@ final class BackendAnonymousAccount {
                 "anonymous account unavailable: HTTP " + status);
             try (InputStream input = connection.getInputStream()) {
                 byte[] response = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
-                return new JSONObject(new String(response, StandardCharsets.UTF_8));
+                return new JSONObject(TextPolicy.utf8(response));
             }
         } finally { if (connection != null) connection.disconnect(); }
     }

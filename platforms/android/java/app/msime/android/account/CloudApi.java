@@ -68,11 +68,11 @@ public final class CloudApi {
         /** 响应体按 JSON 对象读；空响应（204 之类）读成空对象。 */
         public JSONObject json() throws JSONException {
             if (body == null || body.length == 0) return new JSONObject();
-            return new JSONObject(new String(body, StandardCharsets.UTF_8));
+            return new JSONObject(TextPolicy.utf8(body));
         }
 
         public String text() {
-            return body == null ? "" : new String(body, StandardCharsets.UTF_8);
+            return TextPolicy.utf8(body);
         }
     }
 
@@ -97,7 +97,7 @@ public final class CloudApi {
     /** 已编码好的请求体与它的 `Content-Type`。 */
     public record Body(String contentType, byte[] bytes) {
         public static Body json(JSONObject value) {
-            return new Body("application/json", value.toString().getBytes(StandardCharsets.UTF_8));
+            return new Body("application/json", TextPolicy.utf8Bytes(value.toString()));
         }
 
         public static Body multipart(List<Part> parts) {
@@ -329,7 +329,7 @@ public final class CloudApi {
         byte[] raw = exchange.body();
         if (raw != null && raw.length > 0) {
             try {
-                JSONObject error = new JSONObject(new String(raw, StandardCharsets.UTF_8)).optJSONObject("error");
+                JSONObject error = new JSONObject(TextPolicy.utf8(raw)).optJSONObject("error");
                 if (error != null) {
                     Object rawCode = error.opt("code");
                     Object rawMessage = error.opt("message");
@@ -392,7 +392,7 @@ public final class CloudApi {
             if (part.filename() != null) head.append("; filename=\"").append(headerToken(part.filename())).append('"');
             head.append("\r\n");
             head.append("Content-Type: ").append(headerToken(type)).append("\r\n\r\n");
-            write(output, head.toString().getBytes(StandardCharsets.UTF_8));
+            write(output, TextPolicy.utf8Bytes(head.toString()));
             write(output, part.content());
             write(output, "\r\n".getBytes(StandardCharsets.US_ASCII));
         }

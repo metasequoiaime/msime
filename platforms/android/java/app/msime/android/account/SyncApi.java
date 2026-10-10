@@ -309,7 +309,7 @@ public final class SyncApi {
         String path = restorePath(revision);
         Exchange exchange = streamed(token -> streams.upload(path, token, file, NDJSON));
         try {
-            JSONObject root = new JSONObject(new String(exchange.body(), StandardCharsets.UTF_8));
+            JSONObject root = new JSONObject(TextPolicy.utf8(exchange.body()));
             Object next = root.opt("revision");
             long nextRevision = preferenceRevision(next);
             if (nextRevision <= revision) throw invalid("snapshot revision");
