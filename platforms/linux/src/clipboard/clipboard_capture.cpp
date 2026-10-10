@@ -1,4 +1,5 @@
 #include "msime_client.h"
+#include "../core/BoundedCliInput.h"
 #include <array>
 #include <iostream>
 #include <memory>
@@ -8,9 +9,9 @@
 int main(int argc, char **argv) {
   if (argc != 2 || argv[1][0] != '/') return 2;
   std::array<char, 12001> input;
-  std::cin.read(input.data(), input.size());
-  const auto size = static_cast<size_t>(std::cin.gcount());
-  if (std::cin.bad() || size == 0 || size == input.size()) return 2;
+  const auto input_size = msime::linux_host::read_bounded_cli_input(std::cin, input);
+  if (!input_size) return 2;
+  const size_t size = *input_size;
   try {
     const auto request = nlohmann::json{
         {"directory", argv[1]}, {"text", std::string(input.data(), size)}}.dump();

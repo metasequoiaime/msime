@@ -1,5 +1,5 @@
 #include "msime_client.h"
-#include "provider_request_cli.h"
+#include "../core/BoundedCliInput.h"
 #include "provider_response_cli.h"
 #include "../core/LocalResourcePaths.h"
 #include "provider_socket_cli.h"
@@ -44,7 +44,7 @@ int main(int argc, char **argv) {
   if (endpoint.empty() || endpoint[0] != '/')
     return 2;
   std::array<char, 262145> buffer;
-  const auto request_length = msime_cli_read_provider_request(std::cin, buffer);
+  const auto request_length = msime::linux_host::read_bounded_cli_input(std::cin, buffer);
   if (!request_length)
     return 2;
   const size_t length = *request_length;

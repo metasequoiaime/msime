@@ -1,5 +1,5 @@
 #include "msime_client.h"
-#include "provider_request_cli.h"
+#include "../core/BoundedCliInput.h"
 #include "provider_response_cli.h"
 #include "provider_socket_cli.h"
 
@@ -17,7 +17,7 @@ int main(int argc, char **argv) {
       argc, argv, "MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET", "cloud-dictionary.sock");
   if (socket_path.empty()) return 2;
   std::array<char, 65537> buffer;
-  const auto request_length = msime_cli_read_provider_request(std::cin, buffer);
+  const auto request_length = msime::linux_host::read_bounded_cli_input(std::cin, buffer);
   if (!request_length)
     return 2;
   const size_t length = *request_length;
