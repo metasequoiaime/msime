@@ -5,8 +5,11 @@
 #include <istream>
 #include <optional>
 
+namespace msime::linux_host {
+
+// Read one byte beyond the accepted limit so oversized input is rejected.
 template <std::size_t N>
-inline std::optional<std::size_t> msime_cli_read_provider_request(
+inline std::optional<std::size_t> read_bounded_cli_input(
     std::istream &input, std::array<char, N> &buffer) {
   static_assert(N > 1);
   input.read(buffer.data(), buffer.size());
@@ -15,3 +18,5 @@ inline std::optional<std::size_t> msime_cli_read_provider_request(
     return std::nullopt;
   return length;
 }
+
+} // namespace msime::linux_host
