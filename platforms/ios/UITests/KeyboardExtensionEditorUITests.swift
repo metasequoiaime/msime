@@ -169,7 +169,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
                   "the editor holds \(value) but the chip that was tapped said \(candidate)")
   }
 
-  /// 全拼 14 键当成系统键盘来用：点方案卡片切到 14 键，按 BN UI GH AS OP 打出「你好」，首选上屏到别人的编辑框里。14 键要用户自己打开，没打开时跳过。
+  /// 全拼 14 键当成系统键盘来用：点方案卡片切到 14 键，按 BN UI GH AS OP 打出「你好」，从候选条上选它上屏到别人的编辑框里。bu 和 ni 同组码，锁定词库里「不好」的权重高于「你好」，所以只要求「你好」在前几个候选里，与 Android 设备验收和 FourteenKeyKeyboardTests 相同。14 键要用户自己打开，没打开时跳过。
   func testFourteenKeysTypeNihaoIntoTheHostEditor() throws {
     let app = XCUIApplication()
     let field = try focusedTryoutKeyboard(app)
@@ -188,10 +188,11 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       XCTAssertTrue(key.waitForExistence(timeout: 5), "\(label) is missing from the 14-key face")
       key.tap()
     }
-    let leading = app.buttons["candidate-1"]
-    XCTAssertTrue(leading.waitForExistence(timeout: 8), "the candidate strip stayed empty for the 14-key nihao")
-    XCTAssertTrue(leading.label.contains("你好"), "the leading candidate is \(leading.label)")
-    leading.tap()
+    XCTAssertTrue(app.buttons["candidate-1"].waitForExistence(timeout: 8), "the candidate strip stayed empty for the 14-key nihao")
+    let shown = (1...3).map { app.buttons["candidate-\($0)"] }.filter(\.exists)
+    let nihao = try XCTUnwrap(shown.first { $0.label.contains("你好") },
+                              "你好 is not among the first candidates: \(shown.map(\.label))")
+    nihao.tap()
     let value = (field.value as? String) ?? ""
     XCTAssertTrue(value.contains("你好"), "the editor holds \(value)")
   }
