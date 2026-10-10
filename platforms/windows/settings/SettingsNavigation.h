@@ -51,7 +51,7 @@ inline constexpr std::array<Page, 18> pages{{
 
 inline constexpr std::string_view default_page = "typing";
 
-// The shared app's surfaces that native pages link to for what they do not draw themselves: the candidate font pickers; the skin editor, colour pickers, theme packages and the community skin gallery; dictionary management; the helpcode plugins on 输入; the panel settings; help and feedback; the about page's update check; and the screen keyboard and handwriting panels themselves.
+// The shared app's surfaces that native pages link to for what they do not draw themselves: the candidate font pickers; the skin editor, colour pickers, theme packages and the community skin gallery; dictionary management; the helpcode plugins on 输入; the panel settings; help and feedback; and the screen keyboard and handwriting panels themselves.
 namespace shell_links {
 inline constexpr ShellTarget appearance{"", "appearance"};
 inline constexpr ShellTarget skin{"", "skin"};
@@ -63,12 +63,11 @@ inline constexpr ShellTarget voice{"", "voice"};
 inline constexpr ShellTarget handwriting{"", "handwriting"};
 inline constexpr ShellTarget help{"", "help"};
 inline constexpr ShellTarget feedback{"", "feedback"};
-inline constexpr ShellTarget about{"", "about"};
 inline constexpr ShellTarget keyboard_panel{"keyboard", ""};
 inline constexpr ShellTarget handwriting_panel{"handwriting", ""};
-inline constexpr std::array<ShellTarget, 13> all{
+inline constexpr std::array<ShellTarget, 12> all{
     {appearance, skin, dictionary, vocabulary, input, screen_keyboard, voice,
-     handwriting, help, feedback, about, keyboard_panel, handwriting_panel}};
+     handwriting, help, feedback, keyboard_panel, handwriting_panel}};
 } // namespace shell_links
 
 struct RouteAlias {

@@ -1,4 +1,5 @@
-import { defaultNavigation } from "../navigation-section";
+import { NavigationSection, defaultNavigation } from "../navigation-section";
+import { createSettingsDraftActions } from "../settings-draft-actions";
 import { useSettingsForm } from "../settings-form-context";
 import { ShortcutsSettingsSection } from "../shortcuts-settings-section";
 import { createShortcutsSettingsActions } from "../shortcuts-settings-actions";
@@ -28,6 +29,7 @@ export function ShortcutSettingsPage() {
   const { onKeybindingsChange, onNumberRowSelectionChange } = createShortcutsSettingsActions({
     setDraft,
   });
+  const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   return (
     <ShortcutsSettingsSection
       disabled={busy}
@@ -49,6 +51,26 @@ export function ShortcutSettingsPage() {
       onNumberRowSelectionChange={onNumberRowSelectionChange}
       showPanelShortcuts={showPanelShortcuts}
       harmony={harmonyPlatform}
+      paging={
+        harmonyPlatform &&
+        mobilePlatform && (
+          <NavigationSection
+            navigation={navigation}
+            wordCharacter={wordCharacter}
+            linux={false}
+            harmonyPhone
+            onChange={(next) =>
+              onPreferencesChange({
+                // 只有占用了「以词定字」按键的翻页键才会改动它；否则未设置的值保持未设置。
+                ...(next.wordCharacter !== wordCharacter
+                  ? { word_character: next.wordCharacter }
+                  : {}),
+                navigation: next.navigation,
+              })
+            }
+          />
+        )
+      }
     />
   );
 }

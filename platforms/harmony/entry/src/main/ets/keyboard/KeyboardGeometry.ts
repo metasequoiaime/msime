@@ -102,6 +102,19 @@ export class KeyboardGeometry {
     return offsets;
   }
 
+  /**
+   * 紧挨在中/英键右边的回车键让给中/英的那几 vp。两键之间拿不准的点击算成中/英：误按中/英，再按一下就回来了；误按回车，消息就发出去了。回车键宽约是中/英的两倍，让出这一点不影响正常按它。
+   */
+  static readonly RETURN_YIELD_VP: number = 6;
+
+  /**
+   * 触摸区整体向右平移 `shift` vp 的那组偏移：区域是 `[shift, width + shift] x [-top, height + bottom]`。给紧挨中/英键的回车键用，左边让出 `shift`（见 `RETURN_YIELD_VP`），右边多出的部分落在键盘边缘的留白里。它左边的中/英键要相应地向右扩出一个键距再加 `shift`，两键的触摸区才在回车键帽里 `shift` 处相接。`shift` 为负或不是有限数时按 0 处理；它应小于键宽，否则键帽左侧会有一段不归任何键。
+   */
+  static shiftedHitOffsets(shift: number, top: number, bottom: number): HitOffset[] {
+    const x: number = Number.isFinite(shift) ? Math.max(0, shift) : 0;
+    return KeyboardGeometry.shifts(top, bottom).map((y: number): HitOffset => ({ x: x, y: y }));
+  }
+
   private static shifts(before: number, after: number): number[] {
     const lead: number = -Math.max(0, before);
     const trail: number = Math.max(0, after);

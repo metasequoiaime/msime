@@ -1,10 +1,10 @@
 package app.msime.android.home;
 
+import app.msime.android.MainThreadPolicy;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.Looper;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -12,6 +12,7 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import app.msime.android.DictionaryCollectionsStore;
+import app.msime.android.NumberPolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,7 +36,7 @@ public final class LexiconDetailPage extends DetailPage {
     private record Model(@Nullable DictionaryCollectionsStore.Collection collection, long count,
                          List<DictionaryCollectionsStore.Word> words, String failure) {}
 
-    private final Handler main = new Handler(Looper.getMainLooper());
+    private final Handler main = MainThreadPolicy.mainHandler();
     private final ActivityResultLauncher<String> createDocument =
         registerForActivityResult(new ActivityResultContracts.CreateDocument("text/plain"), this::onExportPicked);
     @Nullable private LinearLayout column;
@@ -125,7 +126,7 @@ public final class LexiconDetailPage extends DetailPage {
         if (collection != null) setTitle(collection.name());
 
         GroupCard header = GroupCard.add(target, null);
-        String count = current.count() < 0 ? null : DictionaryCollectionsStore.countLabel(current.count());
+        String count = current.count() < 0 ? null : NumberPolicy.groupedCount(current.count());
         GroupCard.Row toggle = header.toggle("启用此词库", builtin ? (count == null ? "内置词库始终启用" : count + " · 内置词库始终启用") : count,
             builtin || collection.enabled(), this::setEnabled);
         if (builtin) toggle.setEnabled(false);
@@ -170,7 +171,7 @@ public final class LexiconDetailPage extends DetailPage {
         } else {
             DictionaryCollectionsStore.Collection collection = current.collection();
             if (collection != null) {
-                String total = "这个词库有 " + DictionaryCollectionsStore.countLabel(collection.entryCount());
+                String total = "这个词库有 " + NumberPolicy.groupedCount(collection.entryCount());
                 // 待写入的词由键盘在每次收起后自动分批写完（MSIMEInputService 的空闲同步），这里只告诉用户正在进行、不用做什么。
                 card.note(collection.pending() > 0
                     ? total + "，其中 " + collection.pending() + " 条正在写入键盘。每次用完键盘、收起后会自动接着写，不需要手动操作。"

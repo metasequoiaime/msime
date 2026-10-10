@@ -10,6 +10,8 @@ import android.os.Bundle;
 import android.os.Process;
 import org.json.JSONException;
 import org.json.JSONObject;
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 /**
  * 向本应用的其他进程提供登录账号或匿名账号的 access token，以及云同步的开关与改动标记（`sync_state` / `sync_dirty`）。
@@ -27,28 +29,44 @@ public final class AccountSessionProvider extends ContentProvider {
         if (AccountSessionRoutingPolicy.syncMethod(method)) return sync(context, method, arg);
         Bundle reply = new Bundle();
         String token = "";
+        String sessionId = "";
         String state;
         try {
             if (context == null) throw new IllegalStateException("account session");
-            token = AccountSessionRoutingPolicy.METHOD_ANONYMOUS_ACCESS_TOKEN.equals(method)
-                ? currentAnonymousToken(context, rejectedToken(extras)) : currentToken(context, arg);
+            if (AccountSessionRoutingPolicy.METHOD_ANONYMOUS_ACCESS_TOKEN.equals(method)) {
+                token = currentAnonymousToken(context, rejectedToken(extras));
+            } else {
+                BackendAccount.SessionCredential session = currentToken(context, arg);
+                token = session.token();
+                sessionId = session.sessionId();
+            }
             state = AccountSessionRoutingPolicy.stateFor(token);
         } catch (Exception | LinkageError error) {
             token = "";
+            sessionId = "";
             state = AccountSessionRoutingPolicy.STATE_UNAVAILABLE;
         }
         reply.putString(AccountSessionRoutingPolicy.KEY_STATE, state);
         reply.putString(AccountSessionRoutingPolicy.KEY_ACCESS_TOKEN, token);
+        if (AccountSessionRoutingPolicy.METHOD_ACCESS_TOKEN.equals(method))
+            reply.putString(AccountSessionRoutingPolicy.KEY_SESSION_ID, sessionId);
         return reply;
     }
 
-    /** 同步开关与改动标记由主进程代 `:ime` 读写；回复里只有开关、登录方式和「已记下」，没有任何令牌。 */
+    /** 同步状态与改动标记由主进程代 `:ime` 读写；回复里只有开关、登录方式、账号 ID 和「已记下」，没有令牌。 */
     private static Bundle sync(Context context, String method, String section) {
         Bundle reply = new Bundle();
         if (context == null) return reply;
         if (AccountSessionRoutingPolicy.METHOD_SYNC_STATE.equals(method)) {
             reply.putBoolean(AccountSessionRoutingPolicy.KEY_SYNC_ENABLED, SyncSwitch.enabled(context));
             reply.putString(AccountSessionRoutingPolicy.KEY_LOGIN_KIND, SyncSwitch.loginKind(context));
+            // Do not acquire bindingLock here: the snapshot worker may hold the queue lock
+            // while calling us, and sign-out holds bindingLock while cancelling that queue.
+            SyncSwitch.Binding binding = SyncSwitch.bindingSnapshot(context);
+            if (binding != null) {
+                reply.putString(AccountSessionRoutingPolicy.KEY_ACCOUNT_ID, binding.accountId());
+                reply.putLong(AccountSessionRoutingPolicy.KEY_BINDING_GENERATION, binding.generation());
+            }
             return reply;
         }
         if (!SyncSwitch.validSection(section)) throw new IllegalArgumentException("unknown sync section");
@@ -57,12 +75,12 @@ public final class AccountSessionProvider extends ContentProvider {
         return reply;
     }
 
-    private static String currentToken(Context context, String rejectedToken) throws Exception {
+    private static BackendAccount.SessionCredential currentToken(Context context, String rejectedToken) throws Exception {
         BackendAccount own = BackendAccount.owningSession(context);
         boolean ownSession = own.hasSession();
         JSONObject legacy = ownSession ? null : legacySession(context);
         return switch (AccountSessionRoutingPolicy.source(ownSession, legacy != null)) {
-            case OWN -> own.currentAccessToken(rejectedToken);
+            case OWN -> own.currentSession(rejectedToken);
             case LEGACY_READ_ONLY -> {
                 String token = AccountSessionRoutingPolicy.legacyToken(
                     JsonPolicy.strictStringOrEmpty(
@@ -72,9 +90,19 @@ public final class AccountSessionProvider extends ContentProvider {
                 if (token.isEmpty() || token.equals(rejectedToken)) {
                     throw new IllegalStateException("account session needs the app");
                 }
-                yield token;
+                String sessionId = legacy.optString("session_id", legacy.optString("sessionID", ""));
+                if (sessionId.isEmpty()) {
+                    // Old Rust sessions have no ID yet. A refresh changes this derived ID, so
+                    // requests from the older token are conservatively cancelled.
+                    String refresh = legacy.getJSONObject("tokens").optString("refresh_token", "");
+                    if (!AccountTokenPolicy.validToken(refresh)) throw new IllegalStateException("account session unavailable");
+                    sessionId = UUID.nameUUIDFromBytes(refresh.getBytes(StandardCharsets.UTF_8)).toString();
+                } else {
+                    sessionId = UUID.fromString(sessionId).toString();
+                }
+                yield new BackendAccount.SessionCredential(token, sessionId);
             }
-            case NONE -> "";
+            case NONE -> new BackendAccount.SessionCredential("", "");
         };
     }
 

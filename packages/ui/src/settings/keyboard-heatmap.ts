@@ -4,6 +4,7 @@ import {
   touchKeyboardRows,
   type PreviewKey,
 } from "../keyboard/keyboard-layouts";
+import { clamp } from "../core/number";
 
 /** Per-key press counts per local day, as the statistics store keeps them: `{ "YYYY-MM-DD": { keyId: count } }`. */
 export type DailyKeyCounts = Record<string, Record<string, number>>;
@@ -229,7 +230,7 @@ export function keyboardHeatmapModel(
 
 /** The shade a count takes, 0 (never pressed) to 4, on the same scale as the calendar heatmap. */
 export function keyHeatLevel(count: number, maximum: number): number {
-  return count <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((count / maximum) * 4)));
+  return count <= 0 ? 0 : clamp(Math.ceil((count / maximum) * 4), 1, 4);
 }
 
 /** 统计概览的按键热力图画哪种屏幕键盘。 */

@@ -58,7 +58,7 @@ static DISABLED: AtomicBool = AtomicBool::new(false);
 /// Turn sound off for the rest of the process, saying why once.
 fn disable(reason: &str) {
     if !DISABLED.swap(true, Ordering::AcqRel) {
-        eprintln!("msime: sound is off for the rest of this process: {reason}");
+        crate::diagnostics::report("sound is off for the rest of this process", reason);
     }
 }
 
@@ -425,7 +425,7 @@ where
         }
         match *result {
             Ok(Ok(samples)) => self.samples = Some(samples),
-            Ok(Err(reason)) => eprintln!("msime: sound pack not loaded: {reason}"),
+            Ok(Err(reason)) => crate::diagnostics::report("sound pack not loaded", &reason),
             Err(_) => disable("decoding a sound pack panicked"),
         }
     }
@@ -501,7 +501,10 @@ where
                 }
                 Err(error) => {
                     if !std::mem::replace(&mut self.open_failing, true) {
-                        eprintln!("msime: no audio output, trying again later: {error:?}");
+                        crate::diagnostics::report(
+                            "no audio output, trying again later",
+                            &format!("{error:?}"),
+                        );
                     }
                     self.open_retry = Some(now + OPEN_RETRY);
                     return None;
@@ -614,7 +617,7 @@ where
                     ..
                 }) => self.music.tracks = Some((directory, pack.tracks)),
                 Ok(_) => {}
-                Err(reason) => eprintln!("msime: music not played: {reason}"),
+                Err(reason) => crate::diagnostics::report("music not played", &reason),
             }
         }
         let Some((directory, tracks)) = self.music.tracks.clone() else {
@@ -638,9 +641,12 @@ where
             }
             self.music.track = (self.music.track + 1) % tracks.len();
         }
-        eprintln!(
-            "msime: music not played: music pack {}: no track could be played",
-            self.settings.music_pack
+        crate::diagnostics::report(
+            "music not played",
+            &format!(
+                "music pack {}: no track could be played",
+                self.settings.music_pack
+            ),
         );
         self.music.tracks = None;
     }

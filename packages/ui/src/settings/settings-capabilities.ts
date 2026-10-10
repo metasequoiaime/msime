@@ -76,6 +76,8 @@ export function settingsCapabilities({
   const showTypingEffectStyles = showTypingEffects && !linux;
   // An effect pack only sets a drawn style's parameters, so it is offered wherever a style is.
   const showTypingEffectPacks = showTypingEffectStyles;
+  // Windows and HarmonyOS have no particle overlay: every style is a flash of the candidate card, brighter for sparks and Power Mode, so the style descriptions must not promise sparks there.
+  const typingEffectsFlashOnly = showTypingEffectStyles && (windows || harmony);
   const showWordbookPacks = host ? host.wordbook_packs : false;
   const showSymbolSetPacks = host ? host.symbol_set_packs : false;
   return {
@@ -120,6 +122,7 @@ export function settingsCapabilities({
     showTypingEffects,
     showTypingEffectStyles,
     showTypingEffectPacks,
+    typingEffectsFlashOnly,
     showWordbookPacks,
     showSymbolSetPacks,
   } as const;

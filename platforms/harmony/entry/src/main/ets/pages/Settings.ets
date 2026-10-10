@@ -46,6 +46,7 @@ import {
 } from '../keyboard/settings/AiModelCatalogPolicy';
 import { SettingsFormFactorCapabilities, SettingsFormFactorProjection }
   from '../keyboard/settings/SettingsFormFactorCapabilities';
+import { VocabularyAction, VocabularyReviewRequest } from '../keyboard/settings/VocabularyReviewRequest';
 import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settings/LocalVoiceModelPolicy';
 import { AiAuthenticationPolicy } from '../keyboard/settings/AiAuthenticationPolicy';
 import { AiEndpointPolicy } from '../keyboard/settings/AiEndpointPolicy';
@@ -76,6 +77,21 @@ interface KeyboardFeedbackReply {
 interface ExportSaveRequest {
   name: string;
   contents: string;
+}
+
+/** What the about page sends with `update_check`: the running version and, when the page knows them, the edition and architecture. */
+interface UpdateCheckPayload {
+  current_version: string;
+  edition?: string;
+  arch?: string;
+}
+
+/** `msime_client_update_check`'s request; the platform is always this host's. */
+interface UpdateCheckRequest {
+  platform: string;
+  current_version: string;
+  edition?: string;
+  arch?: string;
 }
 
 interface TextReply {
@@ -325,26 +341,6 @@ interface PluginImportCall {
   state_root: string;
   sound_packs: string;
   action: PluginImportAction;
-}
-
-/** 背单词 request, as `msime_client_vocabulary_review` reads it. */
-interface VocabularyRequest {
-  directory: string;
-  day: string;
-  action: VocabularyAction;
-  /** 插件目录：其中的单词本插件列进书目。只在声明了 `wordbook_packs` 的形态（2in1）上传，手机不传。 */
-  plugins?: string;
-}
-
-interface VocabularyAction {
-  operation: string;
-  word?: string;
-  known?: boolean;
-  wordbook?: string;
-  new_per_day?: number;
-  session_limit?: number;
-  name?: string;
-  text?: string;
 }
 
 interface TypingStatisticsDocument {
@@ -1028,6 +1024,11 @@ class SettingsBridge {
       this.customSkinLibrary(payload).then(deliver).catch(failed);
     } else if (kind === 'vocabulary_review') {
       this.vocabularyReview(payload).then(deliver).catch(failed);
+    } else if (kind === 'dictionary_collections') {
+      this.dictionaryCollections(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`dictionary collections request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'collections_io' }));
+      });
     } else if (kind === 'typing_statistics') {
       this.typingStatisticsOnWorker(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary_snapshot') {
@@ -1048,6 +1049,11 @@ class SettingsBridge {
         KeyboardLog.error(`plugin import failed: ${describeError(error)}`);
         deliver(JSON.stringify({ ok: false, error: 'storage' }));
       });
+    } else if (kind === 'update_check') {
+      this.updateCheck(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`update check failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'update_check_unavailable' }));
+      });
     } else if (kind === 'save_export') {
       this.saveExport(payload).then(deliver).catch((error: Object): void => {
         KeyboardLog.error(`export save failed: ${describeError(error)}`);
@@ -1058,6 +1064,29 @@ class SettingsBridge {
       this.deliverReply(id, JSON.stringify({ ok: false, error: 'unknown_request' }));
     }
     return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
+  }
+
+  /**
+   * 「关于」页的检查更新，由原生工作线程上的 `msime_client_update_check` 回答，最多等 GitHub 十秒。平台在这里填，不取页面传来的值，页面只能问本宿主的发行版。
+   */
+  private async updateCheck(document: string): Promise<string> {
+    let payload: UpdateCheckPayload;
+    try {
+      payload = JSON.parse(document) as UpdateCheckPayload;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'update_check_invalid' });
+    }
+    if (typeof payload.current_version !== 'string') {
+      return JSON.stringify({ ok: false, error: 'update_check_invalid' });
+    }
+    const request: UpdateCheckRequest = { platform: 'harmony', current_version: payload.current_version };
+    if (typeof payload.edition === 'string') {
+      request.edition = payload.edition;
+    }
+    if (typeof payload.arch === 'string') {
+      request.arch = payload.arch;
+    }
+    return await client.updateCheck(JSON.stringify(request));
   }
 
   /**
@@ -1662,6 +1691,15 @@ class SettingsBridge {
       this.stateDirectory);
   }
 
+  /** 词库页的命名词库：建、删、启停、加词、导入、装社区词库。导入可达 16 MiB，所以走 startRequest 在原生工作线程上做。 */
+  private dictionaryCollections(action: string): Promise<string> {
+    if (this.context === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'collections_io' }));
+    }
+    return KeyboardSession.shared.dictionaryCollections(action, `${this.context.filesDir}/engine`,
+      this.stateDirectory);
+  }
+
   /** Account and cloud clipboard requests stay native; the WebView sees only safe JSON DTOs. */
   account(action: string): Promise<string> {
     if (this.accountBridge === undefined) {
@@ -1763,18 +1801,19 @@ class SettingsBridge {
       if (!['load', 'answer', 'set_settings', 'import', 'remove', 'reset'].includes(action.operation)) {
         return JSON.stringify({ ok: false, error: 'invalid vocabulary review request' });
       }
+      if (this.context === undefined) {
+        return JSON.stringify({ ok: false, error: 'vocabulary review failed' });
+      }
       const now: Date = new Date();
       const month: string = `${now.getMonth() + 1}`.padStart(2, '0');
       const date: string = `${now.getDate()}`.padStart(2, '0');
-      const request: VocabularyRequest = {
-        directory: this.stateDirectory,
-        day: `${now.getFullYear()}-${month}-${date}`,
-        action: action,
-      };
-      // 与设置页拿到的 `wordbook_packs` 能力同一个来源：没有这项能力的形态不列单词本插件。
-      if (SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType).wordbookPacks) {
-        request.plugins = `${this.stateDirectory}/plugins`;
-      }
+      const request = VocabularyReviewRequest.build(
+        this.stateDirectory,
+        this.context.resourceDir,
+        `${now.getFullYear()}-${month}-${date}`,
+        action,
+        SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType).wordbookPacks,
+      );
       return await client.vocabularyReview(JSON.stringify(request));
     } catch (error) {
       KeyboardLog.error(`vocabulary review failed: ${describeError(error)}`);

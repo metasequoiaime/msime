@@ -12,6 +12,12 @@ SMOKE = ROOT / "platforms/android/tests/community/CommunitySkinCacheSmoke.java"
 def main() -> int:
     source = SOURCE.read_text(encoding="utf-8")
     smoke = SMOKE.read_text(encoding="utf-8")
+    if "private static String text(JSONObject value, String key)" in source:
+        print(f"{SOURCE}: 不应保留 JSON 字符串转发方法", file=sys.stderr)
+        return 1
+    if source.count("JsonPolicy.strictStringOrEmpty(value.opt(") < 3:
+        print(f"{SOURCE}: 社区皮肤字段应直接使用 strictStringOrEmpty", file=sys.stderr)
+        return 1
     if "strictString(Object value)" in source:
         print(f"{SOURCE}: 不应保留 strictString 转发方法", file=sys.stderr)
         return 1

@@ -1,6 +1,7 @@
 import app.msime.android.CommunityRequest;
 import app.msime.android.CommunityRequest.Category;
 import app.msime.android.CommunityRequest.Kind;
+import app.msime.android.NumberPolicy;
 import java.util.List;
 
 public final class CommunityRequestSmoke {
@@ -85,6 +86,8 @@ public final class CommunityRequestSmoke {
             "a named code answers before the status");
         check("登录已过期，请重新登录。".equals(CommunityRequest.message("", 401)),
             "an unnamed 401 falls back to the status");
+        check("登录已切换，请重试。".equals(CommunityRequest.message("session_changed", 409)),
+            "a replaced login asks for retry under the current account");
         check("连不上社区，请检查网络后重试。".equals(CommunityRequest.message(null, 0)),
             "a request that never reached the server says so");
         check(!CommunityRequest.message("something new", 599).isEmpty(),
@@ -123,7 +126,7 @@ public final class CommunityRequestSmoke {
         check("15.8 万 次使用".equals(CommunityRequest.usesLabel(158_000))
             && "1 万 次使用".equals(CommunityRequest.usesLabel(10_000))
             && "2.9 万 次使用".equals(CommunityRequest.usesLabel(29_049)), "large use counts are in 万 with one decimal");
-        check("4,812 条".equals(CommunityRequest.entriesLabel(4_812)), "entry counts are grouped by thousands");
+        check("4,812 条".equals(NumberPolicy.groupedCount(4_812)), "entry counts are grouped by thousands");
         check("@水杉词库组 · 4,812 条 · 本周更新".equals(CommunityRequest.resourceSubtitle("水杉词库组", 4_812, true))
             && "18 条".equals(CommunityRequest.resourceSubtitle("", 18, false))
             && "@寻章".equals(CommunityRequest.resourceSubtitle("寻章", -1, false)),

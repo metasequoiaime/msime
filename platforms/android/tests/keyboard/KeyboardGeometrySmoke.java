@@ -87,6 +87,14 @@ public final class KeyboardGeometrySmoke {
         check(KeyboardGapPolicy.gapDistance(50, 60, 100, 50, 9, 10, 9, 10) < 0);
         // 没有外边距的控件（工具栏图标、方案胶囊）不认领任何空隙。
         check(KeyboardGapPolicy.gapDistance(-1, 25, 100, 50, 0, 0, 0, 0) < 0);
+        // 回车让给中/英的那一段：左侧整段外边距（9px）加键帽左侧 [0, yield)；不让时（0）哪里都不算。
+        check(KeyboardGapPolicy.yieldsToLeft(0f, 9, 18f));
+        check(KeyboardGapPolicy.yieldsToLeft(17.9f, 9, 18f));
+        check(!KeyboardGapPolicy.yieldsToLeft(18f, 9, 18f));
+        check(KeyboardGapPolicy.yieldsToLeft(-1f, 9, 18f));
+        check(KeyboardGapPolicy.yieldsToLeft(-9f, 9, 18f));
+        check(!KeyboardGapPolicy.yieldsToLeft(-9.5f, 9, 18f));
+        check(!KeyboardGapPolicy.yieldsToLeft(0f, 9, 0f));
         // 挪进键帽时离边缘留 1px，键帽里的点不动。
         check(KeyboardGapPolicy.inside(-4, 100) == 1f);
         check(KeyboardGapPolicy.inside(104, 100) == 99f);

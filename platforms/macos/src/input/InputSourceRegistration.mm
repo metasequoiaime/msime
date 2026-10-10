@@ -58,6 +58,30 @@ bool MSIMEShouldRegisterInputSource(int argc, const char *argv[]) {
          std::strcmp(argv[1], "--reregister-input-source") == 0);
 }
 
+bool MSIMEShouldReportInputSourceRegistration(int argc, const char *argv[]) {
+    return argc == 2 && argv && argv[1] && std::strcmp(argv[1], "--input-source-registered") == 0;
+}
+
+MSIMEInputSourceRegistryState MSIMEInputSourceRegistryStateFor(NSString *bundleIdentifier, MSIMEInputSourceLister lister) {
+    if (!bundleIdentifier.length || !lister) return MSIMEInputSourceRegistryStateUnknown;
+    NSDictionary *filter = @{(__bridge NSString *)kTISPropertyBundleID: bundleIdentifier,
+                             (__bridge NSString *)kTISPropertyInputSourceIsEnableCapable: @YES};
+    CFArrayRef sources = lister((__bridge CFDictionaryRef)filter, true);
+    // 与登记后的查找一样，NULL 和空列表都算没有。
+    const bool listed = sources && CFArrayGetCount(sources) > 0;
+    if (sources) CFRelease(sources);
+    return listed ? MSIMEInputSourceRegistryStateListed : MSIMEInputSourceRegistryStateMissing;
+}
+
+int MSIMEInputSourceRegistryExitCode(MSIMEInputSourceRegistryState state) {
+    switch (state) {
+    case MSIMEInputSourceRegistryStateListed: return 0;
+    case MSIMEInputSourceRegistryStateMissing: return 3;
+    case MSIMEInputSourceRegistryStateUnknown: return 1;
+    }
+    return 1;
+}
+
 OSStatus MSIMERegisterInputSource(NSURL *bundleURL, MSIMEInputSourceRegistrar registrar) {
     if (!bundleURL || !registrar) return paramErr;
     return registrar((__bridge CFURLRef)bundleURL);

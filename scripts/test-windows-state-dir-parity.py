@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Keep the Windows state-directory names in step between C++ and Rust.
 
-The TSF DLL and the Server resolve their state root through `platforms/windows/common/StateDirectory.h`. The Rust host (`crates/host-windows`, `server_state_directory`) keeps its own copy of the same order, and the shell it serves has to land on the directory the Server chose. A renamed environment variable, registry key, value or folder on one side would split state silently, so this compares the two lookups and fails on any drift. It also fails when the TSF or the Server grows its own copy of the lookup again instead of calling the shared header.
+The TSF DLL and the Server resolve their state root through `platforms/windows/common/StateDirectory.h`. The Rust host (`crates/host-windows`, `server_state_directory`) keeps its own copy of the same order, and the shell it serves has to land on the directory the Server chose. A renamed environment variable, registry key, value or folder on one side would split state silently, so this compares the two lookups and fails on any drift. It also fails when the TSF, the Server or the native settings window grows its own copy of the lookup again instead of calling the shared header.
 
 环境变量名、注册表键和目录名按版本取：C++ 侧来自 `shared/contracts/msime_edition.h` 的宏，Rust 侧来自版本表 `platforms.windows` 解析出的 `WindowsIdentity`，两边都从 `shared/contracts/editions.json` 生成或读取。所以这里核对的是两边各自读的是版本表里的哪个字段，再核对生成的头文件里每个版本的宏值就是版本表里那个字段的值。
 """
@@ -21,6 +21,7 @@ RUST = ROOT / "crates/host-windows/src/lib.rs"
 CALLERS = [
     ROOT / "platforms/windows/tsf/HostOptionsPaths.cpp",
     ROOT / "platforms/windows/src/entrypoints/server_main.cpp",
+    ROOT / "platforms/windows/settings/main.cpp",
 ]
 # StateDirectory.h 的常量、它取值的宏，以及这个宏对应的版本表字段和 Rust 侧 `WindowsIdentity` 的字段（两者同名）。
 NAMES = {

@@ -20,6 +20,7 @@ final class DictionarySnapshotWorker {
   }
   private let session: MetasequoiaInputSessionBridge
   private let queue: DictionarySnapshotQueue
+  private let currentAccountID: () throws -> String?
   private var task: Task<Void, Never>?
   private var prepared: Prepared?
   private var lease: DictionarySnapshotQueue.WorkerLease?
@@ -28,16 +29,27 @@ final class DictionarySnapshotWorker {
   var report: ((String) -> Void)?
   var applied: (() -> Void)?
 
-  init(session: MetasequoiaInputSessionBridge, queue: DictionarySnapshotQueue = .init()) {
-    self.session = session; self.queue = queue
+  init(session: MetasequoiaInputSessionBridge, queue: DictionarySnapshotQueue = .init(),
+       currentAccountID: @escaping () throws -> String? = { try BackendKeychain().load()?.tokens.user.id }) {
+    self.session = session; self.queue = queue; self.currentAccountID = currentAccountID
   }
   func stop() { task?.cancel(); prepared = nil; lease = nil }
   func tick(idle: Bool, fullAccess: Bool, force: Bool = false) {
     guard fullAccess else { stop(); prepared = nil; lease = nil; return }
     guard idle, task == nil else { return }
     do {
+      let state = try queue.read()
+      if let request = state.request, request.status.active {
+        // Queue cancellation can lose a race with another holder of state.lock. Never prepare
+        // or activate that request for a different signed-in account on a later tick.
+        guard let owner = try? currentAccountID() else { return }
+        if owner != request.accountID {
+          try queue.cancel(accountID: request.accountID)
+          prepared = nil; lease = nil
+          return
+        }
+      }
       if let prepared {
-        let state = try queue.read()
         guard state.request?.id == prepared.request.id, state.request?.status.active == true else {
           self.prepared = nil; lease = nil; return
         }
@@ -53,7 +65,6 @@ final class DictionarySnapshotWorker {
         else { report?("本地词库已变化，本次快照未应用。请重新确认。") }
         return
       }
-      let state = try queue.read()
       guard force || state.request?.status.active == true || state.localVersion == nil || Date().timeIntervalSince(lastVersionCheck) >= 10 else { return }
       let current = try session.localDictionaryStateVersion()
       try queue.publishLocalVersion(current)

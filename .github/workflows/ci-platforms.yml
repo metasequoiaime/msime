@@ -69,6 +69,9 @@ jobs:
               # 网页引擎只给浏览器用，四个原生宿主都不链接它，所以这几条路径只触发 web-engine 作业，排在下面的共享路径之前。
               crates/engine-wasm/*|packages/web-engine/*|scripts/build-web-engine.sh|scripts/web-engine-notice.sh|resources/licenses/web-engine-NOTICE.md)
                 web=true ;;
+              # web-engine-NOTICE.md 逐字复制这几份许可证与来源说明（见 scripts/web-engine-notice.sh 的 repo 段），改了它们却不重新生成，NOTICE 就过期了；#6696 只改 LICENSE，没有任何作业被触发，过期的 NOTICE 进了 develop。
+              LICENSE|resources/licenses/*|resources/helpcodes/ENGINE-NOTICE.md|resources/helpcodes/NOTICE.md)
+                web=true ;;
               shared/*|crates/*|packages/*|apps/*|scripts/*|.github/workflows/ci-platforms.yml)
                 shared=true ;;
               # The workspace manifests, the toolchain pin and the JS workspace: a Dependabot bump touches only these.
@@ -243,7 +246,7 @@ jobs:
     needs: changes
     name: Windows GNU cross build
     runs-on: depot-ubuntu-24.04-16
-    # Ubuntu 24.04's MinGW headers predate d2d1_3.h, which msimeui includes for ID2D1DeviceContext5 and SVG rendering, so the build runs in the Debian release platforms/windows/cross/Dockerfile is based on. The steps below mirror that Dockerfile.
+    # Ubuntu 24.04 的 MinGW 缺少 `msimeui` 使用的 `d2d1_3.h`，因此沿用交叉镜像的 Debian 系统依赖与线程模型，`checkout` 后复用同一别名脚本。
     container: debian:trixie-slim
     timeout-minutes: 90
     steps:
@@ -255,22 +258,17 @@ jobs:
           # The unsuffixed compiler defaults to the win32 thread model, whose C++ library has no std::thread.
           update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
           update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
-          # Windows and macOS resolve `#include <Windows.h>` against the lowercase windows.h; this filesystem is case-sensitive, so supply the initial-capital spellings the sources use.
-          for dir in /usr/share/mingw-w64/include /usr/x86_64-w64-mingw32/include; do
-            [ -d "$dir" ] || continue
-            for header in "$dir"/[a-z]*.h; do
-              [ -e "$header" ] || continue
-              name=$(basename "$header")
-              capital="$(printf '%s' "$name" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$name" | cut -c2-)"
-              [ -e "$dir/$capital" ] || ln -s "$name" "$dir/$capital"
-            done
-          done
           curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       # Checked out after git is installed, so the tree is a real repository rather than an API download.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Prepare MinGW header aliases
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        run: |
+          python3 platforms/windows/cross/add-header-aliases.py \
+            /usr/share/mingw-w64/include /usr/x86_64-w64-mingw32/include
       - name: Build Windows host, TSF DLL and native tests
         if: ${{ needs.changes.outputs.windows == 'true' }}
         run: |

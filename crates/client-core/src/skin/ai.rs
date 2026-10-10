@@ -878,6 +878,7 @@ mod tests {
                 .unwrap()
                 .as_millis() as u64
                 + 60_000,
+            session_id: None,
         });
     }
 

@@ -172,11 +172,9 @@ public final class SkinJobsApi {
         if (plans == null || !validPlanCount(plans.length())) throw invalid("ai_skin_response");
         check(cancelled);
 
-        ExecutorService pool = Executors.newFixedThreadPool(BoundsPolicy.atMost(plans.length(), MAX_DESIGNS), runnable -> {
-            Thread thread = new Thread(runnable, "msime-ai-skin");
-            thread.setDaemon(true);
-            return thread;
-        });
+        ExecutorService pool = Executors.newFixedThreadPool(
+            BoundsPolicy.atMost(plans.length(), MAX_DESIGNS),
+            ThreadPolicy.namedDaemonFactory("msime-ai-skin"));
         try {
             List<Future<Proposal>> futures = new ArrayList<>(plans.length());
             try {

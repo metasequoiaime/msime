@@ -6,6 +6,8 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class DeviceDataApiSmoke {
     public static void main(String[] arguments) throws Exception {
@@ -102,7 +104,13 @@ public final class DeviceDataApiSmoke {
         String fresh = "f".repeat(64);
         byte[] zip = "PK\u0003\u0004zip".getBytes(StandardCharsets.ISO_8859_1);
         List<String> bearers = new ArrayList<>();
-        DeviceDataApi exporter = new DeviceDataApi(cloud, rejected -> rejected == null ? stale : fresh,
+        CloudApi.Tokens sameLogin = new CloudApi.Tokens() {
+            @Override public String token(String rejected) {
+                return rejected == null ? stale : fresh;
+            }
+            @Override public String sessionId() { return "synthetic-login-a"; }
+        };
+        DeviceDataApi exporter = new DeviceDataApi(cloud, sameLogin,
             (path, bearer, out) -> {
                 check("/v1/users/me/data/export".equals(path), "export path");
                 bearers.add(bearer);
@@ -115,7 +123,11 @@ public final class DeviceDataApiSmoke {
         check(bearers.equals(List.of(stale, fresh)), "export retries once with a fresh token");
         check(written == zip.length && java.util.Arrays.equals(exported.toByteArray(), zip), "export bytes");
 
-        DeviceDataApi limited = new DeviceDataApi(cloud, rejected -> token,
+        CloudApi.Tokens limitedLogin = new CloudApi.Tokens() {
+            @Override public String token(String rejected) { return token; }
+            @Override public String sessionId() { return "synthetic-login-a"; }
+        };
+        DeviceDataApi limited = new DeviceDataApi(cloud, limitedLogin,
             (path, bearer, out) -> new DeviceDataApi.Download(429, "3600", new byte[0]));
         try {
             limited.exportData(new ByteArrayOutputStream());
@@ -132,6 +144,39 @@ public final class DeviceDataApiSmoke {
             throw new AssertionError("export needs a session");
         } catch (CloudApi.Failure failure) {
             check(failure.signedOut(), "signed out");
+        }
+        DeviceDataApi unidentified = new DeviceDataApi(cloud, rejected -> token,
+            (path, bearer, out) -> { throw new AssertionError("no export without login identity"); });
+        try {
+            unidentified.exportData(new ByteArrayOutputStream());
+            throw new AssertionError("export needs a stable login identity");
+        } catch (CloudApi.Failure failure) {
+            check("session_unavailable".equals(failure.code), "missing login identity is refused");
+        }
+
+        for (int status : new int[] {401, 200}) {
+            AtomicReference<String> login = new AtomicReference<>("synthetic-login-a");
+            CloudApi.Tokens changing = new CloudApi.Tokens() {
+                @Override public String token(String rejected) {
+                    return "synthetic-login-a".equals(login.get()) ? stale : fresh;
+                }
+                @Override public String sessionId() { return login.get(); }
+            };
+            AtomicInteger calls = new AtomicInteger();
+            DeviceDataApi oldExport = new DeviceDataApi(cloud, changing, (path, bearer, out) -> {
+                calls.incrementAndGet();
+                login.set("synthetic-login-b");
+                if (status == 200) out.write(zip);
+                return new DeviceDataApi.Download(status, null, new byte[0]);
+            });
+            boolean changed = false;
+            try {
+                oldExport.exportData(new ByteArrayOutputStream());
+            } catch (CloudApi.Failure failure) {
+                changed = "session_changed".equals(failure.code);
+            }
+            check(changed && calls.get() == 1,
+                "old data export must not retry or succeed after a new login: " + status);
         }
         System.out.println("Android device data API passed");
     }

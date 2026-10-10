@@ -63,6 +63,8 @@ export interface TouchKeyboardGeometrySectionProps {
   swipeSymbolsDirection?: SwipeSymbolsDirection;
   /** 宿主有触屏九宫格数字层时给出它的排列；没有时不画这一行。 */
   numberKeypadOrder?: "phone" | "calculator";
+  /** 宿主的触屏 26 键双拼会在字母键底部画键位提示时给出这个开关；没有时不画这一行。 */
+  shuangpinKeyHints?: boolean;
   /** 键盘本机设置正在保存时为 true，「数字行与 Tab 键」「横屏分离式键盘」和「滑行输入」都暂不可点。 */
   tabletFullKeysBusy: boolean;
   onHeightAdjustmentChange: (value: number) => void;
@@ -76,6 +78,7 @@ export interface TouchKeyboardGeometrySectionProps {
   onSwipeSymbolsChange?: (enabled: boolean) => void;
   onSwipeSymbolsDirectionChange?: (direction: SwipeSymbolsDirection) => void;
   onNumberKeypadOrderChange?: (value: "phone" | "calculator") => void;
+  onShuangpinKeyHintsChange?: (enabled: boolean) => void;
   onReset: () => void;
   /** HarmonyOS 手机：放在尺寸组开头的行，此时该组按手机设计稿命名为「布局」。 */
   layoutRows?: ReactNode;
@@ -103,6 +106,7 @@ export function TouchKeyboardGeometrySection({
   swipeSymbols,
   swipeSymbolsDirection = "down",
   numberKeypadOrder,
+  shuangpinKeyHints,
   tabletFullKeysBusy,
   onHeightAdjustmentChange,
   onKeySpacingChange,
@@ -115,6 +119,7 @@ export function TouchKeyboardGeometrySection({
   onSwipeSymbolsChange,
   onSwipeSymbolsDirectionChange,
   onNumberKeypadOrderChange,
+  onShuangpinKeyHintsChange,
   onReset,
   layoutRows,
   preview,
@@ -130,14 +135,24 @@ export function TouchKeyboardGeometrySection({
       onChange={(value) => onNumberKeypadOrderChange?.(value)}
     />
   );
-  // HarmonyOS 手机的尺寸组本身就叫「布局」，数字键盘顺序跟 Android 一样紧跟在「中文键盘」之后，不再另起一个同名分组。
+  const shuangpinKeyHintsRow = shuangpinKeyHints !== undefined && (
+    <SwitchRow
+      title="双拼键位提示"
+      description="双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母。"
+      checked={shuangpinKeyHints}
+      onChange={(enabled) => onShuangpinKeyHintsChange?.(enabled)}
+    />
+  );
+  // HarmonyOS 手机的尺寸组本身就叫「布局」，数字键盘顺序和双拼键位提示跟 Android 一样紧跟在「中文键盘」之后，不再另起一个同名分组。
   const numberKeypadInLayoutRows = Boolean(layoutRows) && numberKeypadRow;
+  const shuangpinKeyHintsInLayoutRows = Boolean(layoutRows) && shuangpinKeyHintsRow;
 
   return (
     <>
       <GroupList title={layoutRows ? "布局" : "尺寸"}>
         {layoutRows}
         {numberKeypadInLayoutRows}
+        {shuangpinKeyHintsInLayoutRows}
         <SettingsGroupNote>
           {layoutRows
             ? `高度和间距只改变触屏键位的外观；也可以直接在${preview ? "下方" : "上方"}预览上左右拖动调节键距、上下拖动调节行距。`
@@ -220,9 +235,10 @@ export function TouchKeyboardGeometrySection({
       )}
       {(tabletFullKeys !== undefined ||
         tabletSplitKeyboard !== undefined ||
-        (numberKeypadOrder !== undefined && !layoutRows)) && (
+        ((numberKeypadOrder !== undefined || shuangpinKeyHints !== undefined) && !layoutRows)) && (
         <GroupList title="布局">
           {!layoutRows && numberKeypadRow}
+          {!layoutRows && shuangpinKeyHintsRow}
           {tabletFullKeys !== undefined && (
             <SwitchRow
               title="数字行与 Tab 键"

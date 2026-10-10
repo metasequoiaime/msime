@@ -25,15 +25,18 @@ export function nextSimulatedProgress(current: number, finished: boolean, random
 
 type Phase = "ready" | "installing" | "done";
 
+/** `login_required` 不说「安装完成」：这次登录里系统设置的「添加」对话框列不出它，用户看到「完成」会直接去系统设置找，找不到就以为没装上。 */
 function resultTitle(status: InputSourceStartupStatus): string {
-  return status.action === "failed" ? "安装没有完成" : "安装完成";
+  if (status.action === "failed") return "安装没有完成";
+  if (status.action === "login_required") return "还差一步：注销并重新登录";
+  return "安装完成";
 }
 
 /** Adding the input source to the System Settings list is left to the settings page's status notice, which also covers a login that has to come first; this only points there. */
 function resultLead(status: InputSourceStartupStatus): string {
   if (status.action === "failed") return "没能把输入法安装到本机，可以再试一次。";
   if (status.action === "login_required")
-    return "注销并重新登录后才能在系统设置里添加它，设置页里有具体步骤。";
+    return "输入法已复制到本机，但 macOS 要到下次登录才会把新装的输入法列进系统设置。请先注销并重新登录，再按设置页的提示在系统设置里添加它。";
   if (status.enabled === true)
     return "按 Control+空格 或在菜单栏的输入法菜单中切换到水杉输入法即可开始输入。";
   return "进入设置后，按页面上的提示把它添加到系统的输入法列表。";

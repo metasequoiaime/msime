@@ -20,10 +20,13 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import app.msime.android.NativeClient;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.JsonPolicy;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.KeyPressIds;
+import app.msime.android.KeyboardGeometry;
+import app.msime.android.NumberPolicy;
 import app.msime.android.R;
 import app.msime.android.TypingStatisticsModel;
 import app.msime.android.TypingStatisticsSummary;
@@ -229,7 +232,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         LinearLayout hero = card(context, content, 18);
         hero.addView(Ui.label(context, "近 7 天共输入", 13, Ui.subText(context)));
         TextView total = Ui.label(context,
-            figure(context, TypingStatisticsSummary.grouped(overview.weekTotal()), 40, "字"),
+            figure(context, NumberPolicy.grouped(overview.weekTotal()), 40, "字"),
             40, Ui.text(context));
         Ui.setPaddingDp(total, context, 0, 4, 0, 0);
         hero.addView(total);
@@ -297,7 +300,8 @@ public final class StatisticsFragment extends HomeTabFragment {
         SegmentedControl layout = new SegmentedControl(context);
         layout.setOptions(List.of("26 键", "9 键"), nine ? 1 : 0);
         ViewPolicy.setMinimumHeight(layout, Ui.dp(context, 32));
-        row.addView(layout, Ui.wrapHeight(context, 32));
+        row.addView(layout, KeyboardGeometry.linearParamsPx(
+            ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(context, 32)));
         LinearLayout board = card(context, content, 12);
         KeyHeatmapView heatmap = new KeyHeatmapView(context);
         heatmap.setNineKey(nine);
@@ -423,8 +427,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         LinearLayout row = Ui.row(context);
         ViewPolicy.setCenteredVertically(row);
         Ui.setHorizontalPaddingDp(row, context, 4);
-        TextView heading = Ui.label(context, title, 13, Ui.subText(context));
-        heading.setAccessibilityHeading(true);
+        TextView heading = Ui.headingLabel(context, title, 13, Ui.subText(context));
         row.addView(heading, Ui.weightWrap(1f));
         if (trailing != null) row.addView(Ui.label(context, trailing, 13, Ui.subText(context)));
         LinearLayout.LayoutParams params = Ui.matchWidth();
@@ -438,8 +441,8 @@ public final class StatisticsFragment extends HomeTabFragment {
     /** 并排两张 KPI 卡。 */
     private static void tiles(Context context, LinearLayout parent, View left, View right) {
         LinearLayout row = Ui.row(context);
-        LinearLayout.LayoutParams leftParams = Ui.weightedMatchParent(1f);
-        LinearLayout.LayoutParams rightParams = Ui.weightedMatchParent(1f);
+        LinearLayout.LayoutParams leftParams = KeyboardGeometry.weightedMatchParentParams(1f);
+        LinearLayout.LayoutParams rightParams = KeyboardGeometry.weightedMatchParentParams(1f);
         rightParams.setMarginStart(Ui.dp(context, 10));
         row.addView(left, leftParams);
         row.addView(right, rightParams);
@@ -454,7 +457,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         LinearLayout tile = Ui.column(context);
         int pad = Ui.dp(context, 14);
         Ui.setSymmetricPaddingPx(tile, pad);
-        ViewPolicy.setBackground(tile, Ui.rounded(Ui.card(context), Ui.dp(context, 20)));
+        ViewPolicy.setBackground(tile, DrawablePolicy.rounded(Ui.card(context), Ui.dp(context, 20)));
         tile.addView(Ui.label(context, title, 13, Ui.text(context)));
         TextView number = Ui.label(context, figure(context, value, 24,
             "—".equals(value) ? "" : unit), 24, Ui.text(context));

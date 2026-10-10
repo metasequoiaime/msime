@@ -97,6 +97,13 @@ impl NgramTable {
             })
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
+        Self::shared_cached(&mut loaded, path)
+    }
+
+    fn shared_cached(
+        loaded: &mut LruCache<PathBuf, Option<Arc<NgramTable>>>,
+        path: &Path,
+    ) -> Option<Arc<NgramTable>> {
         if let Some(cached) = loaded.get(path) {
             return cached.clone();
         }
@@ -477,19 +484,21 @@ pub(super) mod tests {
 
     #[test]
     fn shared_remembers_the_table_and_a_missing_file() {
+        // Other tests use the process-wide cache concurrently and can evict either entry.
+        let mut loaded = LruCache::new(NonZeroUsize::new(SHARED_CACHE_CAPACITY).unwrap());
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("shared.bin");
-        assert!(NgramTable::shared(&path).is_none());
+        assert!(NgramTable::shared_cached(&mut loaded, &path).is_none());
         write_table(&path, &[(1, 1.0)], MAGIC, 1);
         assert!(
-            NgramTable::shared(&path).is_none(),
+            NgramTable::shared_cached(&mut loaded, &path).is_none(),
             "a remembered miss is not re-probed"
         );
 
         let present = directory.path().join("present.bin");
         write_table(&present, &[(1, 1.0)], MAGIC, 1);
-        let first = NgramTable::shared(&present).expect("loads");
-        let second = NgramTable::shared(&present).expect("cached");
+        let first = NgramTable::shared_cached(&mut loaded, &present).expect("loads");
+        let second = NgramTable::shared_cached(&mut loaded, &present).expect("cached");
         assert!(Arc::ptr_eq(&first, &second));
     }
 
