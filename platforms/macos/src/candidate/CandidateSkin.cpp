@@ -561,8 +561,11 @@ CustomTheme ApplyCandidateSkin(CustomTheme custom, const std::string &id, const 
 
 CustomTheme RemoveCandidateSkin(CustomTheme custom, const std::string &id)
 {
+    if (id.empty() || (custom.candidateSkin != id && custom.candidateSkinDark != id)) return custom;
     if (custom.candidateSkin == id) custom.candidateSkin.clear();
     if (custom.candidateSkinDark == id) custom.candidateSkinDark.clear();
+    // 取下的是最后一款皮肤：底是应用皮肤时写进来的包 base，两个槽位都空以后 resolve 在两种明暗下都用它，留着深色皮肤的 night 会让浅色模式变成深色，所以改回 system。
+    if (custom.candidateSkin.empty() && custom.candidateSkinDark.empty()) custom.base = "system";
     return custom;
 }
 

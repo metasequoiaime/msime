@@ -16,7 +16,9 @@ Status: implemented
 
 槽位选择在 client-core 里完成：`msime_client_resolve_theme` 带 `skins_directory` 时按 `dark` 加载对应槽位的包，所以扫描皮肤根目录的宿主只需把 `custom_theme` 原样带上；Linux 宿主带 `package`，由宿主按同一规则挑当前模式槽位的那一项，Tauri 发布 `candidate_skin_catalog` 时两个槽位的皮肤都保留在上限之内。
 
-应用皮肤的规则在设置页（`applyCandidateSkin` / `removeCandidateSkin`，packages/ui/src/theme/global-theme.ts）和各原生设置界面保持一致：深色皮肤写深色槽位，并清掉旧文档放在 `candidate_skin` 里的深色皮肤；浅色皮肤写浅色槽位，深色槽位空着而原来的 `candidate_skin` 不是浅色皮肤时，先把它挪进深色槽位；`system` 底的皮肤写两个槽位；`base` 照旧写成包的 base。取消使用只清放着它的槽位，清空皮肤的路径两个槽位一起清。
+应用皮肤的规则在设置页（`applyCandidateSkin` / `removeCandidateSkin`，packages/ui/src/theme/global-theme.ts）和各原生设置界面保持一致：深色皮肤写深色槽位，并清掉旧文档放在 `candidate_skin` 里的深色皮肤；浅色皮肤写浅色槽位，深色槽位空着而原来的 `candidate_skin` 不是浅色皮肤时，先把它挪进深色槽位；`system` 底的皮肤写两个槽位；`base` 照旧写成包的 base。取消使用只清放着它的槽位，清空皮肤的路径两个槽位一起清。取消使用的是最后一款皮肤时，`base` 改回 `system`（TS `removeCandidateSkin`、macOS `RemoveCandidateSkin`、iOS `removingPackage`）：两个槽位都空以后 `resolve` 回到「没设皮肤」的分支，在两种明暗下都用 `custom.base`，留着深色皮肤写进来的 `night` 会让浅色模式变成深色，这是单槽位时不会出现的。「自定义」卡片和 Linux 的「自定义」菜单项不改底：它们按原样选中自定义主题，卡片预览画的就是那个底。
+
+「主题是否固定明暗」各宿主都按同一条规则判断：浅色、深色两次解析给出同一个固定明暗才算（macOS `FixedThemeMode`、鸿蒙 `GlobalTheme.fixedAppearance`、iOS `KeyboardTheme.resolve`）。两个槽位的皮肤明暗不同、或只有一种明暗有固定的底时两次不同，候选窗、工具栏、键盘和菜单都跟随宿主自己的明暗；只看浅色那次解析会让浅色皮肤把整个键盘钉成浅色，深色槽位永远画不出来。iOS 键盘这时保存两套键盘配色，每个颜色按 trait 的明暗取。
 
 设置页的镜像 `customCandidatePalette` 与 `resolve` 由 `apps/desktop/tests/candidate/custom-theme-parity.json` 对齐，TS 侧用 `candidateSkinFor`、`skinDrawsIn`、`customDrawnBase` 复现同一套选择。
 
@@ -46,4 +48,6 @@ Status: implemented
 
 - `crates/client-core/src/skin/theme/tests.rs`：`a_package_is_drawn_only_in_the_mode_of_its_base`、`the_dark_slot_is_used_in_dark_mode`、`a_skin_base_left_from_another_mode_follows_the_host`，以及 `web_custom_theme_mirror_cases_match_resolve` 写出的两条新用例（深色包在浅色模式不画、浅色包在深色模式不画）。
 - `apps/desktop/tests/candidate/candidate-skin-slots.test.ts` 覆盖槽位归属、按模式取槽位、应用与取消的规则和旧深色皮肤的保留；`custom-theme-parity.test.ts` 让设置页镜像跑同一份用例。
+- 固定明暗的判断：`platforms/harmony/tests/keyboard-logic.test.ts` 的「两种明暗的解析一致时主题才固定明暗」，iOS `CandidatePaletteTests.testTheKeyboardFollowsTheModeWhenTheSlotsHoldSkinsOfDifferentModes`，macOS `ExternalSkinTest` 的 `FixedThemeMode` 用例。
+- 取下最后一款皮肤时底回到 `system`：`candidate-skin-slots.test.ts`、iOS `testRemovingTheLastSkinDoesNotLeaveItsBaseFixingBothModes`、macOS `ExternalSkinTest`。
 - 各平台的宿主测试见对应 PR 说明。

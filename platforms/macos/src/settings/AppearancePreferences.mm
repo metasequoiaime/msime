@@ -2378,7 +2378,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 }
 - (void)removeCustomCandidateSkin:(NSString *)skinId {
     if (!ValidCustomCandidateSkin(skinId)) return;
-    [self storeCustomCandidateSkins:msime::mac::RemoveCandidateSkin([self customTheme], skinId.UTF8String)];
+    const msime::mac::CustomTheme custom = msime::mac::RemoveCandidateSkin([self customTheme], skinId.UTF8String);
+    _sharedCustomThemeBase = nil;
+    [_defaults setObject:@(custom.base.c_str()) forKey:CustomThemeBaseKey];
+    [self storeCustomCandidateSkins:custom];
     [self preferencesChanged];
 }
 - (void)clearCustomCandidateSkin {

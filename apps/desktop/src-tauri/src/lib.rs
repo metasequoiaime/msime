@@ -1851,9 +1851,9 @@ fn linux_runtime_options_bytes(document: &Value) -> Result<Vec<u8>, RuntimeOptio
     Ok(bytes)
 }
 
-/// Serialize `document` with the installed skins, scanned from `root`, as `candidate_skin_catalog`, dropping packages from the end until the document fits within `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET`.
+/// 把 `document` 连同从 `root` 扫描到的已安装皮肤一起序列化，皮肤目录写在 `candidate_skin_catalog` 里；放不进 `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET` 时从末尾逐个丢掉皮肤包，直到放得下。
 ///
-/// 自定义主题选中的皮肤（浅色、深色两个槽位）最后才丢，因为屏幕上画的是它们的颜色。 When not even an empty catalog fits, the key is left out, so the catalog never becomes the reason a document the hosts could read no longer loads; a document too large for the hosts even without it is refused.
+/// 自定义主题选中的皮肤（浅色、深色两个槽位）最后才丢，因为屏幕上画的是它们的颜色。连空目录都放不下时整个键不写，免得宿主原本能读的文档因为皮肤目录读不了；去掉目录后仍超出宿主上限的文档直接拒绝。
 #[cfg(target_os = "linux")]
 fn runtime_options_with_skin_catalog(
     document: &mut Value,

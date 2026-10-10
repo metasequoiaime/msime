@@ -202,6 +202,37 @@ final class CandidatePaletteTests: XCTestCase {
     XCTAssertEqual(hex(CandidatePalette.resolve(preferences, systemDark: true, skinsRoot: root).surface), "#203040")
   }
 
+  /// 浅色槽位放浅色底的皮肤、深色槽位放深色底的皮肤时，键盘不被浅色那次解析钉成浅色：不固定明暗，深色 trait 下画深色槽位那款皮肤的底。
+  func testTheKeyboardFollowsTheModeWhenTheSlotsHoldSkinsOfDifferentModes() throws {
+    let root = try skinsRoot([
+      "sakura": manifest("sakura", colors: "surface = '#fff0f5'"),
+      "dusk": manifest("dusk", base: "night", themes: "'dark'", palette: "dark", colors: "surface = '#101820'"),
+    ])
+    let document = custom(["base": "night", "candidate_skin": "sakura", "candidate_skin_dark": "dusk"])
+    let theme = KeyboardTheme.resolve(GlobalThemeCatalog.customId, document: document, skinsRoot: root)
+    XCTAssertNil(theme.appearance)
+    let light = UITraitCollection(userInterfaceStyle: .light), dark = UITraitCollection(userInterfaceStyle: .dark)
+    let paper = KeyboardTheme.resolve("paper", document: ["global_theme": "paper"], skinsRoot: root)
+    let night = KeyboardTheme.resolve("night", document: ["global_theme": "night"], skinsRoot: root)
+    XCTAssertEqual(paper.appearance, .light)
+    XCTAssertEqual(night.appearance, .dark)
+    XCTAssertEqual(hex(theme.background.resolvedColor(with: light)), hex(paper.background.resolvedColor(with: light)))
+    XCTAssertEqual(hex(theme.background.resolvedColor(with: dark)), hex(night.background.resolvedColor(with: dark)))
+    XCTAssertEqual(hex(theme.accent.resolvedColor(with: dark)), hex(night.accent.resolvedColor(with: dark)))
+    // 键盘跟随深色时，候选栏解析出深色槽位的皮肤。
+    XCTAssertEqual(CandidatePalette.resolveTheme(document, systemDark: true, skinsRoot: root)?.candidateSkin, "dusk")
+
+    // 只设浅色皮肤：深色模式没有能画的包，跟随系统，键盘同样不固定明暗。
+    let lightOnly = KeyboardTheme.resolve(GlobalThemeCatalog.customId,
+                                          document: custom(["base": "paper", "candidate_skin": "sakura"]), skinsRoot: root)
+    XCTAssertNil(lightOnly.appearance)
+    XCTAssertEqual(hex(lightOnly.background.resolvedColor(with: light)), hex(paper.background.resolvedColor(with: light)))
+    // 两种明暗画同一个固定底时照旧固定明暗。
+    XCTAssertEqual(KeyboardTheme.resolve(GlobalThemeCatalog.customId, document: custom(["base": "night"]), skinsRoot: root).appearance,
+                   .dark)
+    XCTAssertEqual(night, KeyboardTheme.resolve("night", document: ["global_theme": "night"], skinsRoot: root))
+  }
+
   /// 只设过一款皮肤的旧文档：深色槽位没设时深色模式也取 `candidate_skin`。
   func testDarkModeFallsBackToTheLightSlot() {
     XCTAssertEqual(GlobalThemePreference.candidateSkin(in: ["candidate_skin": "sakura", "candidate_skin_dark": "dusk"], dark: true), "dusk")
@@ -287,7 +318,22 @@ final class CandidatePaletteTests: XCTestCase {
     let both = removing("mist", from: ["candidate_skin": "mist", "candidate_skin_dark": "mist", "base": "ink"])
     XCTAssertNil(both["candidate_skin"])
     XCTAssertNil(both["candidate_skin_dark"])
-    XCTAssertEqual(both["base"] as? String, "ink")
+    // 最后一款皮肤取下后底回到跟随系统，留下的固定明暗的底不会在两种明暗下都生效。
+    XCTAssertNil(both["base"])
+    // 没放在任何槽位里的包，取下时什么都不改。
+    XCTAssertEqual(removing("dusk", from: ["base": "ink"])["base"] as? String, "ink")
+  }
+
+  /// 先用浅色皮肤再用深色皮肤，底是 night：取下浅色那款时底不动，两款都取下后底回到跟随系统。
+  func testRemovingTheLastSkinDoesNotLeaveItsBaseFixingBothModes() {
+    let both = applying("starry", base: "night", to: applying("sakura", base: "paper", to: [:]))
+    XCTAssertEqual(both["base"] as? String, "night")
+    let darkLeft = removing("sakura", from: both)
+    XCTAssertEqual(darkLeft["base"] as? String, "night")
+    XCTAssertEqual(darkLeft["candidate_skin_dark"] as? String, "starry")
+    let none = removing("starry", from: darkLeft)
+    XCTAssertNil(none["base"])
+    XCTAssertTrue(GlobalThemePreference.candidateSkins(in: none).isEmpty)
   }
 
   /// 从别的主题开始自定义时两个槽位一起清，深色槽位的皮肤不会留在新的自定义主题里。

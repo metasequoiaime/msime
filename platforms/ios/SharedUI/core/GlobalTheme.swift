@@ -484,7 +484,7 @@ enum GlobalThemePreference {
     }
   }
 
-  /// 不再使用皮肤包 `id`：只清掉放着它的槽位，另一个槽位、底、取色器和键盘设计都不动（共享设置页的 `removeCandidateSkin`）。
+  /// 不再使用皮肤包 `id`：只清掉放着它的槽位，另一个槽位、取色器和键盘设计都不动（共享设置页的 `removeCandidateSkin`）。取下的是最后一款皮肤时底改回跟随系统（不写 `base`）：底是应用皮肤时写进来的包 base，两个槽位都空以后 client-core 在两种明暗下都用它，留着深色皮肤的 `night` 会让浅色模式变成深色。
   static func removingPackage(_ id: String) -> (inout [String: Any]) -> Void {
     { document in
       var custom = customTheme(in: document)
@@ -493,7 +493,9 @@ enum GlobalThemePreference {
         custom.removeValue(forKey: key)
         changed = true
       }
-      if changed { document["custom_theme"] = custom }
+      guard changed else { return }
+      if candidateSkins(in: custom).isEmpty { custom.removeValue(forKey: "base") }
+      document["custom_theme"] = custom
     }
   }
 

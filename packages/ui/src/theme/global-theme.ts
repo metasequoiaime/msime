@@ -127,11 +127,13 @@ export function applyCandidateSkin(
   return next;
 }
 
-/** 取消使用皮肤包 `id`：清掉放着它的槽位，另一个槽位不动。 */
+/** 取消使用皮肤包 `id`：清掉放着它的槽位，另一个槽位不动。取下的是最后一款皮肤时底改回 `system`：应用皮肤时底被写成包的 base，两个槽位都空了以后 `resolve` 会在两种明暗下都用这个底，留着深色皮肤的 `night` 会让浅色模式变成深色。 */
 export function removeCandidateSkin(custom: CustomTheme | undefined, id: string): CustomTheme {
+  if (custom?.candidate_skin !== id && custom?.candidate_skin_dark !== id) return { ...custom };
   const next: CustomTheme = { ...custom };
   if (next.candidate_skin === id) next.candidate_skin = null;
   if (next.candidate_skin_dark === id) next.candidate_skin_dark = null;
+  if (!next.candidate_skin && !next.candidate_skin_dark) next.base = "system";
   return next;
 }
 

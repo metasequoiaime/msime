@@ -114,6 +114,36 @@ test("removing a skin clears only the slots that hold it", () => {
   });
 });
 
+test("removing the last skin does not leave its base fixing both modes", () => {
+  // 先用浅色皮肤、再用深色皮肤，底是深色皮肤的 night。
+  const both = applyCandidateSkin(
+    applyCandidateSkin(undefined, "sakura", "paper", slotOf),
+    "starry",
+    "night",
+    slotOf,
+  );
+  expect(both).toMatchObject({
+    base: "night",
+    candidate_skin: "sakura",
+    candidate_skin_dark: "starry",
+  });
+  // 还剩一款时底不动：深色模式没有能画的包时仍画 night，浅色模式照旧画 sakura。
+  const darkOnly = removeCandidateSkin(both, "sakura");
+  expect(darkOnly).toMatchObject({
+    base: "night",
+    candidate_skin: null,
+    candidate_skin_dark: "starry",
+  });
+  expect(customDrawnBase(darkOnly, null, false)).toBe("system");
+  // 最后一款取下后底回到 system，浅色模式不会变成深色的 night。
+  const none = removeCandidateSkin(darkOnly, "starry");
+  expect(none).toMatchObject({ base: "system", candidate_skin: null, candidate_skin_dark: null });
+  expect(customDrawnBase(none, null, false)).toBe("system");
+  expect(customDrawnBase(none, null, true)).toBe("system");
+  // 没放在任何槽位里的包，取下时什么都不改，取色器用的底也不动。
+  expect(removeCandidateSkin({ base: "ink" }, "starry")).toEqual({ base: "ink" });
+});
+
 test("a base left by a skin of the other mode follows the host", () => {
   expect(customDrawnBase({ base: "night", candidate_skin: "starry" }, null, false)).toBe("system");
   expect(customDrawnBase({ base: "night", candidate_skin: "starry" }, null, true)).toBe("night");

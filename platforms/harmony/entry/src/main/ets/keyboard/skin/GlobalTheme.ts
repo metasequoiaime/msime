@@ -239,6 +239,14 @@ export class GlobalTheme {
     return "#" + (scaled.length === 1 ? "0" + scaled : scaled) + rgb.toUpperCase();
   }
 
+  /** 浅色、深色两次解析给出同一个固定明暗时，主题才算固定了明暗（内置主题、没设皮肤的自定义主题叠在固定明暗的底上）。自定义主题的浅色、深色槽位各放一款皮肤时两次解析的明暗不同，这时返回 `null`，各个界面跟随自己的明暗规则，不能被浅色那次解析钉住。与 macOS 的 `FixedThemeMode` 同一条规则。 */
+  static fixedAppearance(light: ResolvedTheme | null, dark: ResolvedTheme | null): string | null {
+    if (light === null || dark === null || light.appearance !== dark.appearance) {
+      return null;
+    }
+    return light.appearance;
+  }
+
   /** A non-null appearance fixes the mode for every surface; otherwise the surface's own mode rule decides. */
   static surfaceDark(appearance: string | null, fallbackDark: boolean): boolean {
     if (appearance === "dark") {

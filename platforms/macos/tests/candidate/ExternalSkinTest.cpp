@@ -269,11 +269,25 @@ accent = "#00ff00"
     const auto removedDark = msime::mac::RemoveCandidateSkin(twoSkins, "dusk");
     Require(removedDark.candidateSkin == "sakura" && removedDark.candidateSkinDark.empty(),
             "Removing a skin cleared the other slot.");
+    Require(removedDark.base == twoSkins.base, "Removing one of two skins changed the base.");
     msime::mac::CustomTheme mist = withSkin("mist");
     mist.candidateSkinDark = "mist";
     const auto removedMist = msime::mac::RemoveCandidateSkin(mist, "mist");
     Require(removedMist.candidateSkin.empty() && removedMist.candidateSkinDark.empty(),
             "Removing a skin in both slots left one of them.");
+    // 先用浅色皮肤再用深色皮肤，底是 night；两款都取下后底回到 system，浅色模式不会被 night 钉成深色。
+    const auto lightThenDark =
+        msime::mac::ApplyCandidateSkin(msime::mac::ApplyCandidateSkin({}, "sakura", "paper", slotOf), "dusk", "night", slotOf);
+    Require(lightThenDark.base == "night", "Applying a dark skin did not take its base.");
+    const auto darkLeft = msime::mac::RemoveCandidateSkin(lightThenDark, "sakura");
+    Require(darkLeft.base == "night" && darkLeft.candidateSkinDark == "dusk", "Removing the light skin changed the base.");
+    const auto noneLeft = msime::mac::RemoveCandidateSkin(darkLeft, "dusk");
+    Require(noneLeft.base == "system" && noneLeft.candidateSkin.empty() && noneLeft.candidateSkinDark.empty(),
+            "Removing the last skin kept a base that fixes both modes.");
+    msime::mac::CustomTheme picked;
+    picked.base = "ink";
+    Require(msime::mac::RemoveCandidateSkin(picked, "dusk").base == "ink",
+            "Removing a skin that is not in use changed the base.");
     std::filesystem::remove_all(root / "paper-based");
 
     WriteFile(root / "wechat-based" / "skin.toml", R"toml(

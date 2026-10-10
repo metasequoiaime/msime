@@ -208,7 +208,7 @@ import { ShuangpinKeyHintPolicy } from "../entry/src/main/ets/keyboard/input/Shu
 import { EditorPolicy, EditorTraits } from "../entry/src/main/ets/keyboard/input/EditorPolicy";
 import { EditEchoLedger } from "../entry/src/main/ets/keyboard/input/EditEchoLedger";
 import { KeyboardSkin } from "../entry/src/main/ets/keyboard/skin/KeyboardSkin";
-import { GlobalTheme, KeyboardThemePalette } from "../entry/src/main/ets/keyboard/skin/GlobalTheme";
+import { GlobalTheme, KeyboardThemePalette, ResolvedTheme } from "../entry/src/main/ets/keyboard/skin/GlobalTheme";
 import { AppThemePalette, AppThemeSeed } from "../entry/src/main/ets/keyboard/skin/AppThemePalette";
 import { AppThemeStore } from "../entry/src/main/ets/keyboard/skin/AppThemeStore";
 import {
@@ -8251,6 +8251,32 @@ group("a fixed appearance decides every surface's mode", () => {
   check(GlobalTheme.surfaceDark("light", true) === false, "a light theme is light");
   check(GlobalTheme.surfaceDark(null, true) === true, "otherwise the surface's own rule");
   check(GlobalTheme.surfaceDark(null, false) === false, "in both directions");
+});
+
+group("两种明暗的解析一致时主题才固定明暗", () => {
+  const resolved = (appearance: string | null, skin: string | null): ResolvedTheme => ({
+    id: "custom",
+    source: "custom",
+    appearance: appearance,
+    candidate: null,
+    keyboard: null,
+    candidate_skin: skin,
+  });
+  check(
+    GlobalTheme.fixedAppearance(resolved("dark", null), resolved("dark", null)) === "dark",
+    "内置主题或固定底的自定义主题两次都是同一明暗，照旧固定",
+  );
+  // 浅色槽位放浅色底的皮肤、深色槽位放深色底的皮肤：浅色那次解析是 light，深色那次是 dark。
+  const light = resolved("light", "sakura");
+  const dark = resolved("dark", "dusk");
+  check(GlobalTheme.fixedAppearance(light, dark) === null, "两个槽位各画自己明暗的皮肤时不固定明暗");
+  const candidateDark = GlobalTheme.surfaceDark(GlobalTheme.fixedAppearance(light, dark), true);
+  check(candidateDark && (candidateDark ? dark : light).candidate_skin === "dusk", "系统深色时候选窗画深色槽位的皮肤");
+  check(
+    GlobalTheme.fixedAppearance(resolved("light", "sakura"), resolved(null, null)) === null,
+    "只设浅色皮肤时深色模式跟随系统，不被浅色皮肤钉成浅色",
+  );
+  check(GlobalTheme.fixedAppearance(null, resolved("dark", null)) === null, "解析被拒时不固定明暗");
 });
 
 group("the platform accent", () => {

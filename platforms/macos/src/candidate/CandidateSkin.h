@@ -344,7 +344,7 @@ SkinSlot SkinSlotOfBase(std::string_view base);
 // 把皮肤包 `id`（清单 base 为 `base`）放进它所属的槽位，规则与 packages/ui/src/theme/global-theme.ts 的 `applyCandidateSkin` 相同：深色皮肤写深色槽位，并清掉旧文档放在浅色槽位里的深色皮肤；浅色皮肤写浅色槽位，深色槽位空着而原来浅色槽位里的是深色或 system 底的皮肤（`slotOf` 给出 dark 或 both）时先把它挪进深色槽位，unknown 的直接覆盖；system 底的写两个槽位。`base` 照旧写成包的 base，取色器不动。
 CustomTheme ApplyCandidateSkin(CustomTheme custom, const std::string &id, const std::string &base,
                                const std::function<SkinSlot(const std::string &)> &slotOf);
-// 取消使用皮肤包 `id`：只清放着它的槽位，另一个槽位不动（`removeCandidateSkin`）。
+// 取消使用皮肤包 `id`：只清放着它的槽位，另一个槽位不动（`removeCandidateSkin`）。取下的是最后一款皮肤时底改回 system，免得包留下的固定明暗的底在两种明暗下都生效；`id` 不在任何槽位里时原样返回。
 CustomTheme RemoveCandidateSkin(CustomTheme custom, const std::string &id);
 // 主题是否固定了明暗：浅色、深色两次解析给出同一个固定明暗时才算（内置主题、没设皮肤的自定义主题叠在固定明暗的底上）。两个槽位各自画自己明暗的皮肤包时两次解析的明暗不同，候选窗、悬浮工具栏和菜单要跟随宿主的明暗，不能被浅色那次解析钉住。
 std::optional<bool> FixedThemeMode(const ResolvedSkin &light, const ResolvedSkin &dark);
