@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+# geteuid 和 fstatat：判断多链接文件所在的目录是否只有 root 或当前用户能写（`multi_link_is_trusted`）。
+libc.workspace = true
+
 [features]
 # 给检查本 crate 拒绝行为的其他 crate 的测试用，只在它们的 dev-dependencies 里打开。
 test-support = []

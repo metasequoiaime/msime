@@ -5,6 +5,7 @@
 #include "FloatingToolbarWindow.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
+#include "../core/MaterializedSymlink.h"
 #include "../core/TestHostOptions.h"
 #include "TrayMenuWindow.h"
 #include "WaveOverlay.h"
@@ -453,7 +454,8 @@ int main() {
       require(handle_is_trusted_file(plain));
       CloseHandle(plain);
       const auto leaf_link = root / L"leaf-link.lock";
-      if (CreateSymbolicLinkW(leaf_link.c_str(), lock_file.c_str(), 0)) {
+      if (msime::windows::tests::create_materialized_symlink(
+              leaf_link, lock_file, 0)) {
         HANDLE linked_leaf = open_leaf(leaf_link);
         require(linked_leaf != INVALID_HANDLE_VALUE);
         require(!handle_is_trusted_file(linked_leaf));
@@ -471,7 +473,8 @@ int main() {
     const auto outside = root.parent_path() / (root.filename().wstring() + L"-outside");
     require(std::filesystem::create_directory(outside));
     const auto linked = root.parent_path() / (root.filename().wstring() + L"-linked");
-    if (CreateSymbolicLinkW(linked.c_str(), outside.c_str(), SYMBOLIC_LINK_FLAG_DIRECTORY)) {
+    if (msime::windows::tests::create_materialized_symlink(
+            linked, outside, SYMBOLIC_LINK_FLAG_DIRECTORY)) {
       bool rejected = false;
       try {
         reject_reparse_ancestors(linked / L"nested");

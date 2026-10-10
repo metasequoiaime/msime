@@ -25,10 +25,15 @@ public final class JsonPolicy {
         return value instanceof String ? (String) value : null;
     }
 
+    /** 只接受 JSON 字符串，其他值返回指定的回退值。 */
+    public static String strictString(Object value, String fallback) {
+        String text = strictString(value);
+        return text == null ? fallback : text;
+    }
+
     /** Accept only a JSON string, using an empty string for every other value. */
     public static String strictStringOrEmpty(Object value) {
-        String text = strictString(value);
-        return text == null ? "" : text;
+        return strictString(value, "");
     }
 
     /** Accept only a JSON integer that fits in a Java int. */

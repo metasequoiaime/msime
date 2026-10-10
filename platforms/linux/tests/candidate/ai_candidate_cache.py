@@ -55,7 +55,7 @@ class AiCandidateCache(unittest.TestCase):
             request, Path("/private/synthetic.json"), self.state.cache,
             self.state.lock)
 
-    def test_prompt_settings_partition_cache_but_context_does_not(self):
+    def test_prompt_and_context_partition_cache(self):
         rows = [{"text": "你好", "source": 1}]
         changed_prompt = query(prompt="changed")
         changed_prompt["generation"] = 9
@@ -66,7 +66,7 @@ class AiCandidateCache(unittest.TestCase):
             self.assertEqual(
                 self.configured(query(generation=9, context="private context")), rows)
             self.assertEqual(self.configured(changed_prompt), rows)
-        self.assertEqual(ai.call_count, 2)
+        self.assertEqual(ai.call_count, 3)
 
     def test_provider_identity_and_segments_partition_cache(self):
         rows = [{"text": "你好", "source": 1}]

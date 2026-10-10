@@ -112,5 +112,8 @@ override_dh_strip:
 	dh_strip -Xlibonnxruntime.so -Xlibsherpa-onnx-c-api.so
 
 # Host API 与 sherpa-onnx 运行库装在包内私有目录，不是系统库，dpkg-shlibdeps 要在那里找它们。
+# 随后把 dpkg-shlibdeps 从 Fcitx5 插件推出的 libfcitx5* 从 shlibs:Depends 里去掉，与 package-container.sh 重新打包发布页 .deb 时的处理相同：输入法框架在 control 里写成 `ibus | fcitx5` 二选一（#6401），插件只由 Fcitx5 加载，那时这些库一定在；留着它们，IBus 系统装这个包会被拉进 Fcitx5 的库。
 override_dh_shlibdeps:
 	dh_shlibdeps -l$(PRIVATE_LIB)
+	sed -E -i '/^shlibs:Depends=/s/, libfcitx5[a-z0-9]+( \([^)]*\))?//g' debian/msime.substvars
+	! grep -E '^shlibs:Depends=.*libfcitx5' debian/msime.substvars

@@ -192,6 +192,40 @@ static ROMAJI_LOOKUP: LazyLock<HashMap<&'static [u8], &'static str>> = LazyLock:
         .collect()
 });
 
+const MAX_ROMAJI_BYTES: usize = {
+    let mut maximum = 0;
+    let mut index = 0;
+    while index < ROMAJI_TABLE.len() {
+        let length = ROMAJI_TABLE[index].0.len();
+        if length > maximum {
+            maximum = length;
+        }
+        index += 1;
+    }
+    maximum
+};
+
+/// 只收录固定拼法表的非空前缀，假名列表排序去重后供所有查询借用。
+static ROMAJI_PREFIX_KANA: LazyLock<HashMap<&'static [u8], Vec<&'static str>>> =
+    LazyLock::new(build_romaji_prefix_kana);
+
+fn build_romaji_prefix_kana() -> HashMap<&'static [u8], Vec<&'static str>> {
+    let mut index: HashMap<&'static [u8], Vec<&'static str>> = HashMap::new();
+    for &(romaji, kana) in ROMAJI_TABLE {
+        for length in 1..=romaji.len() {
+            index
+                .entry(&romaji.as_bytes()[..length])
+                .or_default()
+                .push(kana);
+        }
+    }
+    for kana in index.values_mut() {
+        kana.sort_unstable();
+        kana.dedup();
+    }
+    index
+}
+
 /// The inverted table `(kana, romaji)`: longest kana first so きゃ beats き, then the longest spelling, then the spelling itself, one entry per kana (:154-180). The spelling tiebreak is what made the C++ choice independent of `unordered_map` bucket order: じ is `ji`, じゃ is `jya`, し is `shi`.
 static KANA_TO_ROMAJI: LazyLock<Vec<(&'static str, &'static str)>> = LazyLock::new(|| {
     let mut entries: Vec<(&'static str, &'static str)> = ROMAJI_TABLE
@@ -405,7 +439,22 @@ pub fn is_single_kana_conversion(conversion: &RomajiConversion) -> bool {
     )
 }
 
-/// Every table kana whose romaji starts with `pending`, sorted and deduplicated (:242-261).
+/// 借用与待定罗马字前缀匹配的排序去重假名；短键在栈上按 ASCII 小写规范化。
+pub fn kana_for_romaji_prefix_view(pending: &str) -> &'static [&'static str] {
+    if pending.is_empty() || pending.len() > MAX_ROMAJI_BYTES {
+        return &[];
+    }
+    let mut prefix = [0; MAX_ROMAJI_BYTES];
+    for (destination, byte) in prefix.iter_mut().zip(pending.bytes()) {
+        *destination = byte.to_ascii_lowercase();
+    }
+    ROMAJI_PREFIX_KANA
+        .get(&prefix[..pending.len()])
+        .map_or(&[], Vec::as_slice)
+}
+
+/// 固定旧扫描正文，用于独立行为和分配对照（:242-261）。
+#[cfg(test)]
 pub fn kana_for_romaji_prefix(pending: &str) -> Vec<&'static str> {
     if pending.is_empty() {
         return Vec::new();
@@ -500,6 +549,19 @@ mod tests {
     use std::borrow::Cow;
 
     use super::*;
+
+    #[test]
+    fn pending_prefix_warm_queries_do_not_allocate() {
+        for input in ["k", "SH", "z", "?", "あ", "toolong", ""] {
+            let expected = kana_for_romaji_prefix(input);
+            let _ = kana_for_romaji_prefix_view(input);
+            let (actual, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                kana_for_romaji_prefix_view(input)
+            });
+            assert_eq!(actual, expected);
+            assert_eq!(allocations, 0, "待定前缀热查询：{input}");
+        }
+    }
 
     #[track_caller]
     fn require_conversion(romaji: &str, hiragana: &str, pending: &str, complete: bool) {
@@ -874,3 +936,7 @@ mod tests {
         assert_eq!(next_kana_variant("ん"), "ん");
     }
 }
+
+#[cfg(test)]
+#[path = "romaji/prefix_tests.rs"]
+mod prefix_tests;

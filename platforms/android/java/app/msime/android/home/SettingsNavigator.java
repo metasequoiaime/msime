@@ -6,6 +6,7 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
+import app.msime.android.ContextPolicy;
 import app.msime.android.HostDeepLink;
 import app.msime.android.R;
 import java.util.List;
@@ -30,7 +31,7 @@ public final class SettingsNavigator {
      * @param args 页面参数，可空；会原样成为页面的 arguments，所以只放 Bundle 能保存的值
      */
     public static void open(Context context, PageId page, @Nullable Bundle args) {
-        if (!(Ui.activityOf(context) instanceof HomeActivity home)) {
+        if (!(ContextPolicy.activity(context) instanceof HomeActivity home)) {
             context.startActivity(HostDeepLink.page(context, page.name(), args));
             return;
         }

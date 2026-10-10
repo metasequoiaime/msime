@@ -101,6 +101,8 @@ test("an install the session cannot see yet says a login comes first", async () 
   );
   fireEvent.click(screen.getByRole("button", { name: "立即安装" }));
   await advance(6000);
-  expect(screen.getByText(/注销并重新登录后/)).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toBe("还差一步：注销并重新登录");
+  expect(screen.queryByText("安装完成")).toBeNull();
+  expect(screen.getByText(/请先注销并重新登录/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "进入设置" })).toBeTruthy();
 });

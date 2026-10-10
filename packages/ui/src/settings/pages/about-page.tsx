@@ -115,7 +115,11 @@ export function AboutSettingsPage() {
             />
           </Row>
         </GroupList>
-        <TelemetrySection value={draft?.usage_reporting} onChange={onTelemetryChange} />
+        <TelemetrySection
+          value={draft?.usage_reporting}
+          onChange={onTelemetryChange}
+          onOpenDetails={() => selectPage("usage-reporting")}
+        />
       </SettingsPageFieldset>
     );
   }
@@ -153,7 +157,11 @@ export function AboutSettingsPage() {
         />
         {macosPlatform && <LicenseRows openThirdPartyLicenses={client.openThirdPartyLicenses} />}
         <LinkRow title="隐私政策" external onClick={openPrivacy} />
-        <TelemetryRow value={draft?.usage_reporting} onChange={onTelemetryChange} />
+        <TelemetryRow
+          value={draft?.usage_reporting}
+          onChange={onTelemetryChange}
+          onOpenDetails={() => selectPage("usage-reporting")}
+        />
       </GroupList>
     </SettingsPageFieldset>
   );

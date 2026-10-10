@@ -1,7 +1,9 @@
 import type { Dispatch, SetStateAction } from "react";
+import type { InputScheme } from "../index";
 import { GroupList } from "../core/platform-controls";
+import { schemeTableModeNote } from "./plugin-catalog-helpers";
 import { PluginViewHeader } from "./plugin-view-header";
-import type { MentionEntry } from "./plugin-types";
+import type { MentionEntry, PluginSettingsPage } from "./plugin-types";
 import { ActionButton } from "./action-button";
 import { SettingsInputField } from "./settings-input-field";
 import { SettingsManagerNote } from "./settings-manager-note";
@@ -44,13 +46,17 @@ export function mentionListIssue(entries: readonly MentionEntry[]): string | nul
   return null;
 }
 
-/** The @ mode's name list. Its rows live in `PluginsSection`, so edits survive leaving this view until they are saved. */
+/** The @ mode's name list. Its rows live in `PluginsSection`, so edits survive leaving this view until they are saved. While the @ mode (`local_modes.mention`) is off, or the scheme cannot open it, a note above the list says the names give no candidates. */
 export function PluginMentionsView({
   mentions,
   setMentions,
   issue,
   dirty,
   working,
+  mode,
+  scheme,
+  onEnableMode,
+  onOpenPage,
   onSave,
   onBack,
 }: {
@@ -59,9 +65,17 @@ export function PluginMentionsView({
   issue: string | null;
   dirty: boolean;
   working: boolean;
+  /** @ 模式是否打开：`local_modes.mention`。 */
+  mode: boolean;
+  /** 当前输入方案；打不开 @ 模式的方案下会说明。缺省时不提示。 */
+  scheme?: InputScheme;
+  /** 就地打开 @ 模式；没有时改为提供跳到输入页的链接。 */
+  onEnableMode?: () => void;
+  onOpenPage?: (page: PluginSettingsPage) => void;
   onSave: () => void;
   onBack: () => void;
 }) {
+  const schemeNote = schemeTableModeNote(scheme, "名字与地点（@ 模式）");
   const updateMention = (index: number, patch: Partial<MentionEntry>) =>
     setMentions((current) =>
       current.map((entry, position) => (position === index ? { ...entry, ...patch } : entry)),
@@ -69,6 +83,33 @@ export function PluginMentionsView({
   return (
     <>
       <PluginViewHeader title="@ 名单" onBack={onBack} />
+      {(!mode || schemeNote) && (
+        <GroupList>
+          {!mode && (
+            <SettingsManagerBlock>
+              <SettingsManagerNote>
+                @ 名字与地点（「输入 → 快捷模式」里的开关）已关闭，名单里的名字不会出候选。
+              </SettingsManagerNote>
+              {onEnableMode ? (
+                <SettingsManagerActions>
+                  <ActionButton action={onEnableMode} label="打开 @ 模式" />
+                </SettingsManagerActions>
+              ) : (
+                onOpenPage && (
+                  <SettingsManagerActions>
+                    <ActionButton action={() => onOpenPage("input")} label="前往输入设置" />
+                  </SettingsManagerActions>
+                )
+              )}
+            </SettingsManagerBlock>
+          )}
+          {schemeNote && (
+            <SettingsManagerBlock>
+              <SettingsManagerNote>{schemeNote}</SettingsManagerNote>
+            </SettingsManagerBlock>
+          )}
+        </GroupList>
+      )}
       <GroupList>
         <SettingsManagerBlock>
           <SettingsManagerNote>

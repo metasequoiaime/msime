@@ -97,6 +97,17 @@ std::string image_in(const std::string &theme, const std::string &section) {
   return theme.substr(value, theme.find('\n', value) - value);
 }
 
+// 读取 Margin 块的键值，即 classicui 九宫格不参与中心拉伸的边距。
+int margin_in(const std::string &theme, const std::string &section, const std::string &key) {
+  const auto header = "[" + section + "]\n";
+  const auto start = theme.find(header);
+  assert(start != std::string::npos);
+  const auto at = theme.find(key + "=", start);
+  assert(at != std::string::npos && at < theme.find("\n\n", start));
+  const auto value = at + key.size() + 1;
+  return std::stoi(theme.substr(value, theme.find('\n', value) - value));
+}
+
 std::uint32_t be32(const std::string &bytes, std::size_t at) {
   std::uint32_t value = 0;
   for (std::size_t index = at; index < at + 4; ++index) value = (value << 8) | static_cast<unsigned char>(bytes[index]);
@@ -222,6 +233,12 @@ int main() {
   const auto wide_theme = host::fcitx_candidate_theme(wide, true);
   assert(contains(wide_theme, "BorderWidth=3\n\n[InputPanel/Background/Margin]\nLeft=22\nRight=22\nTop=22\nBottom=26\n"));
   assert(contains(wide_theme, "[InputPanel/ContentMargin]\nLeft=21\nRight=21\nTop=17\nBottom=25\n"));
+  // 负的描边宽度按 0 处理：内边距和固定切片与宽度 0 时一致，不会凭空变宽。
+  auto no_border = wechat_dark;
+  no_border.border_width = 0;
+  auto negative_border = wechat_dark;
+  negative_border.border_width = -3;
+  assert(host::fcitx_candidate_theme(negative_border, true) == host::fcitx_candidate_theme(no_border, true));
 
   const auto unfilled = host::fcitx_candidate_theme(plain, false);
   assert(contains(unfilled, "[InputPanel/Highlight]\nColor=#fbfbfc00\n"));
@@ -290,6 +307,31 @@ int main() {
   assert(panel.alpha(23, 49) <= 1 && panel.alpha(0, 25) <= 1);
   const auto doubled = image_of(panel_name.substr(0, panel_name.size() - 4) + "@2x.png");
   assert(doubled.width == 92 && doubled.height == 100 && doubled.rgb(46, 50) == 0x151515u);
+  // 九宫格的固定切片必须容下整条描边：描边比圆角宽时（用户选的直角卡片、宽边框），边框色不能落进被拉伸的中心，否则整块卡片都会铺上边框色。直角卡片的角还要照常画满。
+  {
+    const auto stretched_center = [&](const host::CandidateColors &palette, int corner) {
+      const auto card_files =
+          host::fcitx_candidate_theme_files(palette, true, std::nullopt, static_cast<double>(corner));
+      const auto name = image_in(card_files.conf, "InputPanel/Background");
+      Decoded card;
+      for (const auto &image : card_files.images)
+        if (image.file == name) card = decode(image.bytes);
+      const auto fill = palette.background.value_or(0xffffffu);
+      const auto slice = [&](const char *key) { return margin_in(card_files.conf, "InputPanel/Background/Margin", key); };
+      // 拉伸中心的每一格都只是填充色。
+      for (int y = slice("Top"); y < static_cast<int>(card.height) - slice("Bottom"); ++y)
+        for (int x = slice("Left"); x < static_cast<int>(card.width) - slice("Right"); ++x)
+          assert(card.alpha(static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y)) == 255 &&
+                 card.rgb(static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y)) == fill);
+      // 描边仍在卡片最外侧的一行一列里，直角卡片的左上角也照常画满。
+      assert(card.rgb(12, 12) == *palette.border);
+      assert(card.rgb(static_cast<std::uint32_t>(card.width / 2), 8) == *palette.border);
+      if (corner == 0) assert(card.alpha(12, 8) == 255 && card.rgb(12, 8) == *palette.border);
+    };
+    stretched_center(wide, 0);
+    stretched_center(wide, 3);
+    stretched_center(wechat_dark, 0);
+  }
   // A decoration's band makes the panel image taller by its height: those rows are fully transparent, and below them the shadow margin and the card are the same as without a decoration.
   {
     const auto banded = host::fcitx_candidate_theme_files(wechat_dark, true, host::FcitxThemeOverlay{"decoration-ab.png", 25, 15});
@@ -471,8 +513,9 @@ int main() {
   // A skin's corner radius replaces the design's 10 px in the card's corner slices; none keeps it.
   assert(contains(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 16.0),
                   "[InputPanel/Background/Margin]\nLeft=28\nRight=28\nTop=28\nBottom=32\n"));
+  // 直角卡片的固定切片要各留出 1 px 描边，否则描边色会被拉伸进卡片中心。
   assert(contains(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 0.0),
-                  "[InputPanel/Background/Margin]\nLeft=12\nRight=12\nTop=12\nBottom=16\n"));
+                  "[InputPanel/Background/Margin]\nLeft=13\nRight=13\nTop=13\nBottom=17\n"));
   assert(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, std::nullopt) ==
          host::fcitx_candidate_theme(wechat_dark, true));
   assert(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 16.0) != host::fcitx_candidate_theme(wechat_dark, true));
@@ -488,6 +531,11 @@ int main() {
   assert(host::fcitx_png_height(png(48)) == 48);
   assert(!host::fcitx_png_height("GIF89a" + std::string(32, '\0')));
   assert(!host::fcitx_png_height(png(0)));
+  // 宽高从同一处解析：放置用得到高度，暂存时还要知道图片是否允许解码。任一边超出共享层的上限就当作无法读取，退回原图。
+  assert(host::fcitx_png_width(png(48)) == 16 && host::fcitx_png_size(png(48))->height == 48);
+  assert(!host::fcitx_png_width("GIF89a" + std::string(32, '\0')));
+  assert(!host::fcitx_png_width(png(4800)) && !host::fcitx_png_height(png(4800)));
+  assert(!host::fcitx_png_size(png(0)) && !host::fcitx_png_size(png(48).substr(0, 20)));
 
   // Writing the theme writes the images it names beside it, and a theme in other colours replaces them.
   const auto directory = file.parent_path();

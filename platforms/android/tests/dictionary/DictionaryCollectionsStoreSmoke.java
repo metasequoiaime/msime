@@ -1,5 +1,6 @@
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.JsonPolicy;
+import app.msime.android.NumberPolicy;
 import java.util.List;
 
 public final class DictionaryCollectionsStoreSmoke {
@@ -25,8 +26,8 @@ public final class DictionaryCollectionsStoreSmoke {
         check(DictionaryCollectionsStore.normalizePinyin("hou’xuan").equals("hou'xuan"));
         check(DictionaryCollectionsStore.displayCode("hou'xuan'xiang").equals("hou’xuan’xiang"));
 
-        check(DictionaryCollectionsStore.countLabel(128406).equals("128,406 条"));
-        check(DictionaryCollectionsStore.countLabel(-3).equals("0 条"));
+        check(NumberPolicy.groupedCount(128406).equals("128,406 条"));
+        check(NumberPolicy.groupedCount(-3).equals("0 条"));
 
         check(DictionaryCollectionsStore.nameFromFile("网络流行语.txt").equals("网络流行语"));
         check(DictionaryCollectionsStore.nameFromFile("luna_pinyin.dict.yaml").equals("luna_pinyin"));

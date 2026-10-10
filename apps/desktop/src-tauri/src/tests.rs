@@ -718,6 +718,14 @@ fn ios_keyboard_ai_preferences_resolve_origin_tokens_and_disable_incomplete_draf
     assert!(native.enabled);
     assert_eq!(native.provider, "deepSeek");
     assert_eq!(native.token, "fixture-origin-token");
+    preferences
+        .ai_assistant
+        .tokens
+        .insert("deepseek".into(), "fixture-provider-legacy".into());
+    assert_eq!(
+        super::ios_keyboard_ai_preferences(&preferences.ai_assistant).token,
+        "fixture-origin-token"
+    );
     assert_eq!(
         native.prompt,
         "请润色以下文字，保持原意，只返回修改后的文字。"
@@ -735,6 +743,12 @@ fn ios_keyboard_ai_preferences_resolve_origin_tokens_and_disable_incomplete_draf
         super::ios_keyboard_ai_preferences(&preferences.ai_assistant).prompt,
         "请润色以下文字，保持原意，只返回修改后的文字。"
     );
+
+    preferences
+        .ai_assistant
+        .tokens
+        .remove("https://api.example.invalid:443");
+    assert!(!super::ios_keyboard_ai_preferences(&preferences.ai_assistant).enabled);
 
     preferences.ai_assistant.tokens.clear();
     assert!(!super::ios_keyboard_ai_preferences(&preferences.ai_assistant).enabled);
@@ -1527,6 +1541,16 @@ fn linux_input_method_reply_separates_delivery_from_refusal() {
         parse_ime_reply("{\"error\":\"no_focus\",\"ok\":false}\n"),
         Some(ImeReply::Declined)
     );
+    // A host refusal must not be treated as permission to replay through a tool.
+    assert_eq!(
+        parse_ime_reply("{\"error\":\"restricted\",\"ok\":false}\n"),
+        Some(ImeReply::Rejected)
+    );
+    assert_eq!(
+        parse_ime_reply("{\"error\":\"invalid\",\"ok\":false}\n"),
+        Some(ImeReply::Rejected)
+    );
+    assert_eq!(parse_ime_reply("{\"ok\":false}"), None);
     // A missing or garbled answer is not a refusal: the host may already have typed the text.
     assert_eq!(parse_ime_reply(""), None);
     assert_eq!(parse_ime_reply("{\"ok\":\"yes\"}"), None);
@@ -2187,6 +2211,7 @@ fn desktop_account_storage_round_trips_an_owner_only_session() {
             },
         },
         expires_at_unix_ms: 1_700_000_000_000,
+        session_id: None,
     };
     storage.save(&session).expect("save");
     let path = directory.path().join("account-session.json");
@@ -2330,19 +2355,27 @@ fn input_source_status_rereads_only_what_the_user_can_change() {
         )]
     };
 
-    let before =
-        super::input_source_status_now(&state, timeout, || Some(false), system_copy).unwrap();
+    let before = super::input_source_status_now(
+        &state,
+        timeout,
+        || Some(false),
+        system_copy,
+        || panic!("an install made by this launch is not looked up in the registry"),
+    )
+    .unwrap();
     assert_eq!(before.enabled, Some(false));
     assert_eq!(
         before.system_bundles,
         vec!["/Library/Input Methods/MetasequoiaIME.app".to_string()]
     );
-    let after = super::input_source_status_now(&state, timeout, || Some(true), Vec::new).unwrap();
+    let after =
+        super::input_source_status_now(&state, timeout, || Some(true), Vec::new, || None).unwrap();
     assert_eq!(after.action, "installed");
     assert_eq!(after.enabled, Some(true));
     assert!(after.system_bundles.is_empty());
     assert_eq!(after.installed_version.as_deref(), Some("0.50.0 (1)"));
-    let unreadable = super::input_source_status_now(&state, timeout, || None, Vec::new).unwrap();
+    let unreadable =
+        super::input_source_status_now(&state, timeout, || None, Vec::new, || None).unwrap();
     assert_eq!(unreadable.enabled, None);
 }
 
@@ -2357,8 +2390,186 @@ fn input_source_status_is_absent_when_no_start_time_check_ran() {
         std::time::Duration::ZERO,
         || panic!("the input source list is not read without a start-time result"),
         || panic!("the system directory is not read without a start-time result"),
+        || panic!("the registry is not read without a start-time result"),
     );
     assert!(status.is_none());
+}
+
+/// 首次安装后同一次登录里再打开设置应用：启动检查只能报 `up_to_date`，输入法不在输入法列表里、也不在本登录会话的注册表里时改报 `login_required`，而不是叫用户去添加一个这次登录列不出来的输入法。
+#[cfg(target_os = "macos")]
+#[test]
+fn an_up_to_date_input_method_missing_from_the_registry_needs_a_login() {
+    let up_to_date = || super::InputSourceStartupStatus {
+        action: "up_to_date",
+        enabled: Some(false),
+        bundled_version: Some("0.50.0 (1)".into()),
+        installed_version: Some("0.50.0 (1)".into()),
+        system_bundles: Vec::new(),
+    };
+    let timeout = std::time::Duration::ZERO;
+    let state = super::InputSourceStartupState::default();
+    state.finish(Some(up_to_date()));
+
+    let missing =
+        super::input_source_status_now(&state, timeout, || Some(false), Vec::new, || Some(false))
+            .unwrap();
+    assert_eq!(missing.action, "login_required");
+    // 查明的结果只查一次，设置页反复询问时不再拉起输入法。
+    let again = super::input_source_status_now(
+        &state,
+        timeout,
+        || Some(false),
+        Vec::new,
+        || panic!("the registry is looked up once per start-time result"),
+    )
+    .unwrap();
+    assert_eq!(again.action, "login_required");
+
+    // 在注册表里：照常是 up_to_date，设置页给出添加步骤。
+    let state = super::InputSourceStartupState::default();
+    state.finish(Some(up_to_date()));
+    let listed =
+        super::input_source_status_now(&state, timeout, || Some(false), Vec::new, || Some(true))
+            .unwrap();
+    assert_eq!(listed.action, "up_to_date");
+
+    // 无从判断时不改结论，下次询问再查。
+    let state = super::InputSourceStartupState::default();
+    state.finish(Some(up_to_date()));
+    let unknown =
+        super::input_source_status_now(&state, timeout, || Some(false), Vec::new, || None).unwrap();
+    assert_eq!(unknown.action, "up_to_date");
+    let retried =
+        super::input_source_status_now(&state, timeout, || Some(false), Vec::new, || Some(false))
+            .unwrap();
+    assert_eq!(retried.action, "login_required");
+
+    // 已经在输入法列表里，或列表读不到时不查注册表。
+    for enabled in [Some(true), None] {
+        let status = super::input_source_status_now(
+            &state,
+            timeout,
+            move || enabled,
+            Vec::new,
+            || panic!("the registry is only looked up while the input method is not in the list"),
+        )
+        .unwrap();
+        assert_eq!(status.action, "up_to_date");
+    }
+
+    // 启动结果换了（安装窗口重新跑了一次）就重新查。
+    state.finish(Some(up_to_date()));
+    let fresh =
+        super::input_source_status_now(&state, timeout, || Some(false), Vec::new, || Some(true))
+            .unwrap();
+    assert_eq!(fresh.action, "up_to_date");
+}
+
+/// 这次启动刚装好或刚更新时不查注册表：登记后有一段分钟级的空窗，查不到不说明什么。
+#[cfg(target_os = "macos")]
+#[test]
+fn a_fresh_install_or_update_is_not_looked_up_in_the_registry() {
+    for action in ["installed", "updated"] {
+        let state = super::InputSourceStartupState::default();
+        state.finish(Some(super::InputSourceStartupStatus {
+            action,
+            enabled: Some(false),
+            bundled_version: Some("0.50.0 (1)".into()),
+            installed_version: Some("0.50.0 (1)".into()),
+            system_bundles: Vec::new(),
+        }));
+        let status = super::input_source_status_now(
+            &state,
+            std::time::Duration::ZERO,
+            || Some(false),
+            Vec::new,
+            || panic!("a bundle this launch replaced is not looked up in the registry"),
+        )
+        .unwrap();
+        assert_eq!(status.action, action);
+    }
+}
+
+/// 设置页挂载时和窗口获得焦点时几乎同时问状态：后到的请求等前一个查完，用它存下的结论，不再拉起一次输入法。
+#[cfg(target_os = "macos")]
+#[test]
+fn concurrent_status_requests_look_up_the_registry_once() {
+    let state = std::sync::Arc::new(super::InputSourceStartupState::default());
+    state.finish(Some(super::InputSourceStartupStatus {
+        action: "up_to_date",
+        enabled: Some(false),
+        bundled_version: Some("0.50.0 (1)".into()),
+        installed_version: Some("0.50.0 (1)".into()),
+        system_bundles: Vec::new(),
+    }));
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let first = {
+        let state = std::sync::Arc::clone(&state);
+        std::thread::spawn(move || {
+            super::input_source_status_now(
+                &state,
+                std::time::Duration::ZERO,
+                || Some(false),
+                Vec::new,
+                move || {
+                    started_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    Some(false)
+                },
+            )
+            .unwrap()
+        })
+    };
+    started_rx.recv().unwrap();
+    let second = {
+        let state = std::sync::Arc::clone(&state);
+        std::thread::spawn(move || {
+            super::input_source_status_now(
+                &state,
+                std::time::Duration::ZERO,
+                || Some(false),
+                Vec::new,
+                || panic!("a request arriving during a lookup waits for its answer"),
+            )
+            .unwrap()
+        })
+    };
+    release_tx.send(()).unwrap();
+    assert_eq!(first.join().unwrap().action, "login_required");
+    assert_eq!(second.join().unwrap().action, "login_required");
+}
+
+/// 查询期间安装窗口换了启动结果：旧查询的结论不写进新结果的缓存，下次询问重新查。
+#[cfg(target_os = "macos")]
+#[test]
+fn a_lookup_overtaken_by_a_new_start_time_result_is_not_kept() {
+    let up_to_date = || super::InputSourceStartupStatus {
+        action: "up_to_date",
+        enabled: Some(false),
+        bundled_version: Some("0.50.0 (1)".into()),
+        installed_version: Some("0.50.0 (1)".into()),
+        system_bundles: Vec::new(),
+    };
+    let timeout = std::time::Duration::ZERO;
+    let state = super::InputSourceStartupState::default();
+    state.finish(Some(up_to_date()));
+    let stale = super::input_source_status_now(
+        &state,
+        timeout,
+        || Some(false),
+        Vec::new,
+        || {
+            state.finish(Some(up_to_date()));
+            Some(false)
+        },
+    )
+    .unwrap();
+    assert_eq!(stale.action, "login_required");
+    let fresh =
+        super::input_source_status_now(&state, timeout, || Some(false), Vec::new, || Some(true))
+            .unwrap();
+    assert_eq!(fresh.action, "up_to_date");
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

@@ -7,6 +7,7 @@ public final class PairedPunctuationPolicySmoke {
         symbolPanelPairs();
         stepOver();
         symbolStepOver();
+        caretAfterClosingCommit();
         System.out.println("PairedPunctuationPolicySmoke: PASS");
     }
 
@@ -113,6 +114,22 @@ public final class PairedPunctuationPolicySmoke {
         check(stack.stepOverSymbol("」", 2, "」") == null && stack.isEmpty(), "another editor");
         stack.push("」", 1);
         check(stack.stepOverSymbol(null, 1, "」") == null && !stack.isEmpty(), "no symbol");
+    }
+
+    private static void caretAfterClosingCommit() {
+        // 照规矩处理 commitText(closing, 0) 的编辑器：光标后面正是后半个，不补发方向键。
+        check(!PairedPunctuationPolicy.caretPassedClosing("）", "）", "（"), "caret already between the pair");
+        check(!PairedPunctuationPolicy.caretPassedClosing("）", "）后文", null), "honoured editor needs no read before the caret");
+        // #6458：应用不认 0，光标落在后半个后面，前面是它、后面不是它，要左移一格。
+        check(PairedPunctuationPolicy.caretPassedClosing("）", "", "）"), "caret at the end after the closing half");
+        check(PairedPunctuationPolicy.caretPassedClosing("】", "后文", "】"), "caret after the closing half before other text");
+        check(PairedPunctuationPolicy.caretPassedClosing("”", "x", "”"), "quotes too");
+        // 读不出光标后的文字、或两侧都不是后半个（应用改写或拒绝了写入）：不知道光标在哪，保持原来的行为。
+        check(!PairedPunctuationPolicy.caretPassedClosing("）", null, "）"), "unknown text after the caret");
+        check(!PairedPunctuationPolicy.caretPassedClosing("）", "", null), "unknown text before the caret");
+        check(!PairedPunctuationPolicy.caretPassedClosing("）", "", "（"), "closing half filtered out by the editor");
+        check(!PairedPunctuationPolicy.caretPassedClosing("", "", ""), "nothing was committed");
+        check(!PairedPunctuationPolicy.caretPassedClosing(null, "", "）"), "no closing half");
     }
 
     private static void check(boolean condition, String message) {
