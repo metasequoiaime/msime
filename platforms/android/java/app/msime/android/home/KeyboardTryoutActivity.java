@@ -428,7 +428,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
 
     /** AI 与水杉的气泡按 Markdown 渲染（加粗、列表、标题、引用、代码、链接）；自己发的那句原样显示。 */
     private void setBubbleText(TextView bubble, String text, boolean markdown) {
-        String shown = TextPolicy.clip(text, 8_000);
+        String shown = TextPolicy.clipSurrogateSafe(text, 8_000);
         if (markdown) markwon().setMarkdown(bubble, shown);
         else bubble.setText(shown);
     }

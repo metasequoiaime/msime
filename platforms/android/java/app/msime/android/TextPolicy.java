@@ -234,6 +234,9 @@ public final class TextPolicy {
     /** Truncate text and append an ellipsis only when the character limit is exceeded. */
     public static String clipWithEllipsis(String value, int maxChars) {
         if (value == null || maxChars <= 0) return "";
-        return value.length() <= maxChars ? value : value.substring(0, maxChars) + "\n…";
+        if (value.length() <= maxChars) return value;
+        int end = maxChars;
+        if (Character.isHighSurrogate(value.charAt(end - 1))) end--;
+        return value.substring(0, end) + "\n…";
     }
 }

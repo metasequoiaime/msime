@@ -45,6 +45,10 @@ public final class TextPolicySmoke {
         check(TextPolicy.stripSpaceChars(null) == null
                 && TextPolicy.stripSpaceChars("\u2003").isEmpty(),
             "space-character trimming preserves null and removes all-space text");
+        String emojiBoundary = "a".repeat(1023) + "\ud83d\ude42";
+        String clipped = TextPolicy.clipWithEllipsis(emojiBoundary, 1024);
+        check(!Character.isHighSurrogate(clipped.charAt(1023)),
+            "display clipping must not leave an isolated high surrogate");
         System.out.println("Android shared text policy passed");
     }
 }
