@@ -55,7 +55,7 @@ export function HarmonyPhoneDictionary() {
   const [builtinCount, setBuiltinCount] = useState<number | null>(null);
   const [detail, setDetail] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [addingDictionary, setAddingDictionary] = useState(false);
   const [busy, setBusy] = useState(false);
   const mounted = useRef(true);
   useEffect(
@@ -185,41 +185,25 @@ export function HarmonyPhoneDictionary() {
               onClick={() => openDetail(item.id)}
             />
           ))}
+          {collections && (
+            <NavRow
+              variant="me"
+              icon={
+                <Badge>
+                  <PlusGlyph />
+                </Badge>
+              }
+              title="添加词库"
+              description="新建一个空词库，或从文件导入"
+              disabled={busy}
+              onClick={() => setAddingDictionary(true)}
+            />
+          )}
         </GroupList>
         <p className={footnote} role={loadFailure ? "alert" : undefined}>
           {loadFailure || "点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。"}
         </p>
       </div>
-      {/* 与 Android 的词库页一样：这张卡片没有标题，每行是一个直接执行的操作，不是通往下一页的入口。 */}
-      {collections && (
-        <GroupList>
-          <ActionRow glyph="+" title="新建词库" disabled={busy} onClick={() => setCreating(true)} />
-          <ActionRow
-            glyph="⇪"
-            title="导入词库"
-            disabled={busy || importSources.length === 0}
-            onClick={() => setImporting(true)}
-          />
-          {dictionary?.export && (
-            <ActionRow
-              glyph="↦"
-              title="导出词库"
-              disabled={busy}
-              onClick={() =>
-                void exportUserPinyin(dictionary, client.saveExport).then(
-                  (message) => message && toast(message),
-                )
-              }
-            />
-          )}
-          <ActionRow
-            glyph="↻"
-            title="刷新词库"
-            disabled={busy}
-            onClick={() => void reload(true).then(() => mounted.current && toast("已刷新"))}
-          />
-        </GroupList>
-      )}
       {collections && client.communityResources && (
         <DiscoverDictionaries
           community={client.communityResources}
@@ -279,12 +263,16 @@ export function HarmonyPhoneDictionary() {
         />
       )}
       {collections && (
-        <ImportPicker
-          open={importing}
+        <AddDictionarySheet
+          open={addingDictionary}
           sources={importSources}
-          onClose={() => setImporting(false)}
+          onClose={() => setAddingDictionary(false)}
+          onCreate={() => {
+            setAddingDictionary(false);
+            setCreating(true);
+          }}
           onFile={async (source, file) => {
-            setImporting(false);
+            setAddingDictionary(false);
             let text: string;
             try {
               text = await readDictionaryFile(file, MAX_COLLECTION_IMPORT_BYTES);
@@ -306,22 +294,16 @@ export function HarmonyPhoneDictionary() {
 /** 卡片下方的小字说明，与 Android 词库页「已安装」卡片的脚注一样放在卡片外面。 */
 const footnote = "m-0 px-4 text-[13px] leading-relaxed [color:var(--p-sub)]";
 
-/** 一个直接执行的操作：强调色的符号和文字，没有副标题和箭头，与 Android 词库页的操作行相同。`danger` 用于删除。 */
-function ActionRow({
-  glyph,
+/** 删除这类危险操作：一行红字，没有图标和箭头。 */
+function DangerRow({
   title,
-  danger = false,
   disabled,
   onClick,
 }: {
-  glyph?: string;
   title: string;
-  danger?: boolean;
   disabled?: boolean;
   onClick: () => void;
 }) {
-  // 颜色给到符号和文字上：行本身的样式固定用正文色。
-  const tone = danger ? "text-danger" : "[color:var(--p-accent-text)]";
   return (
     <button
       type="button"
@@ -329,21 +311,23 @@ function ActionRow({
       disabled={disabled}
       onClick={onClick}
     >
-      {glyph && (
-        <span
-          className={`flex size-7 shrink-0 items-center justify-center self-center text-[20px] ${tone}`}
-          aria-hidden="true"
-        >
-          {glyph}
-        </span>
-      )}
+      {/* 颜色给到文字上：行本身的样式固定用正文色。 */}
       <span
-        className={`flex min-h-[52px] min-w-0 flex-1 items-center text-[16px] ${tone}`}
+        className="flex min-h-[52px] min-w-0 flex-1 items-center text-[16px] text-danger"
         data-row-title=""
       >
         {title}
       </span>
     </button>
+  );
+}
+
+/** 「添加」的加号，画在和词库行同样的字标方块里，看上去就是往列表里再加一项。图标库没有加号，这里直接画两条居中的线。 */
+function PlusGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M8 2.5v11M2.5 8h11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
   );
 }
 
@@ -399,16 +383,18 @@ async function exportUserPinyin(
   }
 }
 
-/** 「导入词库」：先从底部面板选来源格式，再打开系统的文件选择器。 */
-function ImportPicker({
+/** 「添加词库」：底部面板里先是「新建空词库」，再是各种导入来源；选了来源就打开系统的文件选择器，导入的词条成为一个新词库。 */
+function AddDictionarySheet({
   open,
   sources,
   onClose,
+  onCreate,
   onFile,
 }: {
   open: boolean;
   sources: CollectionImportSource[];
   onClose: () => void;
+  onCreate: () => void;
   onFile: (source: CollectionImportSource, file: File) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
@@ -417,11 +403,18 @@ function ImportPicker({
     <>
       <ActionSheet
         open={open}
-        title="导入来源"
+        title="添加词库"
         subtitle="导入的词条会成为一个新的词库"
-        options={sources.map((source) => ({ value: source.format, label: source.title }))}
-        onSelect={(format) => {
-          const source = sources.find((item) => item.format === format);
+        options={[
+          { value: "create", label: "新建空词库" },
+          ...sources.map((source) => ({ value: source.format, label: source.title })),
+        ]}
+        onSelect={(value) => {
+          if (value === "create") {
+            onCreate();
+            return;
+          }
+          const source = sources.find((item) => item.format === value);
           if (!source || !input.current) return;
           chosen.current = source;
           input.current.accept = source.accept;
@@ -559,12 +552,21 @@ function CollectionDetail({
         />
       </GroupList>
       <GroupList>
-        <ActionRow glyph="+" title="添加词条" disabled={busy} onClick={() => setAdding(true)} />
+        <NavRow
+          variant="me"
+          icon={
+            <Badge>
+              <PlusGlyph />
+            </Badge>
+          }
+          title="添加词条"
+          disabled={busy}
+          onClick={() => setAdding(true)}
+        />
       </GroupList>
       <GroupList>
-        <ActionRow
+        <DangerRow
           title="删除此词库"
-          danger
           disabled={busy}
           onClick={async () => {
             const confirmed = await confirm({
@@ -694,12 +696,23 @@ function BuiltinDictionaryDetail({
             onClick={() => void load(query, entries.length)}
           />
         )}
-        <ActionRow glyph="+" title="添加词条" onClick={() => setAdding(true)} />
+        <NavRow
+          variant="me"
+          icon={
+            <Badge>
+              <PlusGlyph />
+            </Badge>
+          }
+          title="添加词条"
+          onClick={() => setAdding(true)}
+        />
       </GroupList>
       {dictionary.export && (
         <GroupList>
-          <ActionRow
+          <NavRow
+            variant="me"
             title="导出词库"
+            description="导出自己加过的拼音词条"
             onClick={() =>
               void exportUserPinyin(dictionary, saveExport).then(
                 (message) => message && toast(message),

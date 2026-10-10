@@ -49,7 +49,7 @@ test("the import sources list only what client-core accepts, text first", () => 
   expect(
     collectionImportSources(["txt", "standard", "windows", "hans", "rime"]).map((s) => s.format),
   ).toEqual(["txt", "rime", "hans"]);
-  expect(collectionImportSources(["txt"]).map((s) => s.title)).toEqual(["文本文件（.txt）"]);
+  expect(collectionImportSources(["txt"]).map((s) => s.title)).toEqual(["导入文本文件"]);
 });
 
 test("the import toast says what happened to the rows", () => {

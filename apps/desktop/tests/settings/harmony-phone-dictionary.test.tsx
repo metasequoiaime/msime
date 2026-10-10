@@ -144,6 +144,12 @@ function groupTitles(): string[] {
   );
 }
 
+/** 「添加词库」→ 底部面板的「新建空词库」。 */
+async function openCreateDialog() {
+  fireEvent.click(await screen.findByText("添加词库"));
+  fireEvent.click(await screen.findByRole("button", { name: "新建空词库" }));
+}
+
 function group(name: string): HTMLElement {
   return screen.getByRole("region", { name });
 }
@@ -152,7 +158,6 @@ test("the HarmonyOS phone 词库 page lists dictionaries the way Android does, w
   setup();
 
   await screen.findByText("工作");
-  // 与 Android 一样，操作那张卡片没有标题。
   expect(groupTitles()).toEqual(["已安装", "发现词库", "学习", "更多"]);
   for (const desktop of [
     "编码前缀",
@@ -173,26 +178,32 @@ test("the HarmonyOS phone 词库 page lists dictionaries the way Android does, w
   expect(within(installed).getByText("已停用")).toBeTruthy();
   expect(within(installed).getByText("4,812 条 · 社区")).toBeTruthy();
 
-  // 「管理」的几行是直接执行的操作：没有副标题，也没有通往下一页的箭头。
-  const actions = ["新建词库", "导入词库", "导出词库", "刷新词库"].map(
-    (title) => screen.getByText(title).closest("button") as HTMLButtonElement,
-  );
-  expect(new Set(actions.map((button) => button.parentElement)).size).toBe(1);
-  for (const button of actions) {
-    expect(button.querySelector("svg")).toBeNull();
+  // 新建和导入合成「已安装」末尾的一行「添加词库」；没有单独一张操作卡片，也没有「刷新词库」（打开时已自动同步），导出在拼音词库的详情里。
+  expect(within(installed).getByText("添加词库")).toBeTruthy();
+  for (const gone of ["新建词库", "导入词库", "导出词库", "刷新词库"]) {
+    expect(screen.queryByText(gone)).toBeNull();
   }
   // 说明在卡片下面，不在卡片里。
   const note = screen.getByText("点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。");
   expect(group("已安装").contains(note)).toBe(false);
 });
 
-test("the list flushes queued words when it opens and on 刷新词库", async () => {
+test("the list flushes queued words when it opens", async () => {
   const { collections } = setup();
   await screen.findByText("工作");
   expect(collections.flush).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByText("刷新词库"));
-  await waitFor(() => expect(collections.flush).toHaveBeenCalledTimes(2));
-  expect(await screen.findByText("已刷新")).toBeTruthy();
+});
+
+test("添加词库 offers a new empty dictionary first, then the import sources client-core accepts", async () => {
+  setup();
+  fireEvent.click(await screen.findByText("添加词库"));
+  const sheet = await screen.findByRole("dialog", { name: "添加词库" });
+  expect(
+    within(sheet)
+      .getAllByRole("button")
+      .map((button) => button.textContent)
+      .filter((text) => text !== "取消"),
+  ).toEqual(["新建空词库", "导入文本文件", "导入 Rime 词典", "导入纯汉字词表"]);
 });
 
 test("a dictionary opens in place, turns on with its switch, and back returns to the list", async () => {
@@ -215,7 +226,7 @@ test("a dictionary opens in place, turns on with its switch, and back returns to
     window.history.replaceState(null, "");
     window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
   });
-  expect(await screen.findByText("新建词库")).toBeTruthy();
+  expect(await screen.findByText("添加词库")).toBeTruthy();
 });
 
 test("a word added to a dictionary needs a word and valid pinyin", async () => {
@@ -256,13 +267,13 @@ test("deleting a dictionary asks first and returns to the list", async () => {
   act(() => {
     window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
   });
-  expect(await screen.findByText("新建词库")).toBeTruthy();
+  expect(await screen.findByText("添加词库")).toBeTruthy();
   expect(screen.queryByText("3 条 · 2 条待同步")).toBeNull();
 });
 
 test("新建词库 checks the name, creates the dictionary and opens it", async () => {
   const { collections } = setup();
-  fireEvent.click(await screen.findByText("新建词库"));
+  await openCreateDialog();
   const dialog = screen.getByRole("dialog", { name: "新建词库" });
   fireEvent.click(within(dialog).getByRole("button", { name: "创建" }));
   expect((await within(dialog).findByRole("alert")).textContent).toBe("词库名需要 1–32 个字。");
@@ -280,7 +291,7 @@ test("新建词库 checks the name, creates the dictionary and opens it", async 
 // 整个设置页在一个 <form aria-label="设置"> 里；对话框若自己再是一个表单，WebView 会把提交当成外层表单的，整页重新加载回首页（jsdom 不会这样，只能直接看结构）。回车由输入框确认。
 test("the dialogs are not nested forms, and Enter in a field confirms", async () => {
   const { collections } = setup();
-  fireEvent.click(await screen.findByText("新建词库"));
+  await openCreateDialog();
   const dialog = screen.getByRole("dialog", { name: "新建词库" });
   expect(dialog.tagName).not.toBe("FORM");
   expect(dialog.querySelector("form")).toBeNull();
@@ -346,5 +357,5 @@ test("学习 writes the preference and 更多 opens 背单词 and 云词库", as
 test("other hosts keep the desktop dictionary form", () => {
   setup({ harmonyPhone: false });
   expect(screen.getByText("编码前缀")).toBeTruthy();
-  expect(screen.queryByText("新建词库")).toBeNull();
+  expect(screen.queryByText("添加词库")).toBeNull();
 });

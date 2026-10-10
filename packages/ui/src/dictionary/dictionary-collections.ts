@@ -122,17 +122,17 @@ export interface CollectionImportSource {
 export function collectionImportSources(formats: readonly string[]): CollectionImportSource[] {
   const sources: CollectionImportSource[] = [];
   if (formats.includes("txt")) {
-    sources.push({ format: "txt", title: "文本文件（.txt）", accept: ".txt,text/plain" });
+    sources.push({ format: "txt", title: "导入文本文件", accept: ".txt,text/plain" });
   }
   if (formats.includes("rime")) {
     sources.push({
       format: "rime",
-      title: "Rime 词典（.dict.yaml）",
+      title: "导入 Rime 词典",
       accept: ".yaml,.yml,text/plain",
     });
   }
   if (formats.includes("hans")) {
-    sources.push({ format: "hans", title: "纯汉字词表（每行一个词）", accept: ".txt,text/plain" });
+    sources.push({ format: "hans", title: "导入纯汉字词表", accept: ".txt,text/plain" });
   }
   return sources;
 }
