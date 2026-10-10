@@ -50,3 +50,4 @@ Status: implemented
 - `cargo test -p msime-engine --lib user_dictionary::habits`：流与合并的往返（新日志里合并后流出相同的记录，再合并一次什么也不改）、本机优先和计数取大、不合规记录/读流失败/超出条数整体回滚、触发器模拟的写库错误整体回滚、选词对和抑制记录压回上限、整句联想超过 20 万行时减半到四分之三以下。
 - `cargo test -p msime-host-api --lib dictionary`：`learning_habits_export_queue_and_merge_when_idle`（导出、校验、排队，会话开着时留着文件，空闲时合并并删掉，计数取大、置顶保留本机，`learning_count` 带上 `habits`）、`a_damaged_habits_file_is_refused_and_a_damaged_queue_is_dropped`、`a_snapshot_is_inspected_without_side_effects`，以及原有输入记录合并的用例。
 - `bash platforms/android/check-host.sh`：`LocalBackupPolicySmoke` 覆盖校验和核对（旧包、对上、大小写、改过、缺少、多出）、条目上限、撤销提示和带输入习惯的恢复结果。
+- API 35 模拟器（`msime-client-test`，arm64，`build-apk.sh` 出的 full 包）：在「试用键盘」里打几句话后经「备份与恢复」导出，SAF 存到 Downloads，拉回的包里 `checksums` 与各条目的 SHA-256 全部一致，`habits.ndjson` 有 26 条（二元、三元、选词对）。把其中一条计数改掉重新打包，恢复时提示文件已损坏；去掉 `checksums` 模拟旧格式再改同一条，原生校验同样拒绝；截断的 zip 提示读不出文件。`pm clear` 后重新准备、恢复原来那份，键盘弹出再收起一次后再导出，输入习惯与原来的逐行相同，设置文档也相同。撤销路径（设置、皮肤或常用语写到一半失败）没有在设备上制造出来，只有代码路径和 JVM 冒烟。
