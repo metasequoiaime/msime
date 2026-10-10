@@ -1,4 +1,5 @@
 #include "ServerSession.h"
+#include "../../../common/HostApiString.h"
 #include "CandidateCompletionPolicy.h"
 #include "EditPolicy.h"
 #include "InputSchemeTraits.h"
@@ -6,14 +7,12 @@
 #include "KeyEvent.h"
 #include "PunctuationPolicy.h"
 #include <algorithm>
-#include <memory>
 #include <stdexcept>
 
 namespace msime::windows {
 namespace {
 nlohmann::json response(char *raw) {
-  std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-      raw, msime_client_string_free);
+  auto owned = msime::host_api::own_string(raw);
   if (!raw)
     throw std::runtime_error("Missing shared host response");
   auto document = nlohmann::json::parse(raw);
