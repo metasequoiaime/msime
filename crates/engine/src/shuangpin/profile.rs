@@ -236,9 +236,13 @@ static MICROSOFT: ShuangpinProfile = ShuangpinProfile {
 };
 
 impl ShuangpinProfile {
-    /// 有韵母放在 `;` 上（微软双拼的 ing，或者这样排的自定义方案）。这时方案在奇数长度的片段之后接受 `;`，宿主把 `;` 当字母键送进来（`EngineSnapshot::microsoft_shuangpin`）。
+    /// 有韵母放在 `;` 上，或零声母编码以 `;` 结尾。这时方案在奇数长度的片段之后接受 `;`，宿主把 `;` 当字母键送进来（`EngineSnapshot::microsoft_shuangpin`）。
     pub fn uses_semicolon_key(&self) -> bool {
         self.finals.iter().any(|(_, key)| *key == ";")
+            || self
+                .zero_initials
+                .iter()
+                .any(|(_, code)| code.ends_with(';'))
     }
 }
 
