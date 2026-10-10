@@ -32,8 +32,9 @@ pub(crate) fn local_account_preferences(
     }
     let mut settings = BTreeMap::new();
     // 云端的 `input.schema` 装不下粤拼、注音、越南文、藏文和笔画（旧设备会拒收整份文档），所以这几个方案不写方案和九键开关，云端保留原有的值。
+    // 全拼 14 键在云端还没有自己的键，按全拼、不是九键上传，在别的设备上落成全拼 26 键。
     let scheme = match native.input_scheme.as_str() {
-        "quanpin" | "handwriting" => Some(("quanpin", None, false)),
+        "quanpin" | "handwriting" | "fourteenKey" => Some(("quanpin", None, false)),
         "nineKey" => Some(("quanpin", None, true)),
         "shuangpin" => Some(("shuangpin", Some("xiaohe"), false)),
         "ziranma" => Some(("shuangpin", Some("ziranma"), false)),
@@ -392,6 +393,7 @@ fn touch_scheme(value: &str) -> Result<TouchKeyboardScheme, AccountError> {
         "vietnamese" => Ok(TouchKeyboardScheme::Vietnamese),
         "tibetan" => Ok(TouchKeyboardScheme::Tibetan),
         "stroke" => Ok(TouchKeyboardScheme::Stroke),
+        "fourteenKey" => Ok(TouchKeyboardScheme::FourteenKey),
         _ => Err(AccountError::Invalid),
     }
 }
@@ -634,6 +636,63 @@ mod tests {
                 "{native}"
             );
         }
+    }
+
+    /// 全拼 14 键：原生 id `fourteenKey` 选中全拼的 14 键布局；上传时按全拼、不是九键，云端还没有 14 键自己的键。
+    #[test]
+    fn the_fourteen_key_scheme_selects_quanpin_on_the_fourteen_key_layout_and_uploads_as_quanpin() {
+        use msime_client_core::preferences::ChineseScheme;
+        assert_eq!(
+            super::touch_scheme("fourteenKey"),
+            Ok(TouchKeyboardScheme::FourteenKey)
+        );
+        let mut preferences = Preferences {
+            scheme: InputScheme::Wubi,
+            last_chinese_scheme: Some(ChineseScheme::Wubi),
+            ..Preferences::default()
+        };
+        preferences
+            .touch_keyboard_schemes
+            .enabled
+            .insert(TouchKeyboardScheme::FourteenKey);
+        super::select_touch_scheme(&mut preferences, TouchKeyboardScheme::FourteenKey);
+        assert_eq!(
+            preferences.touch_keyboard_schemes.selected,
+            Some(TouchKeyboardScheme::FourteenKey)
+        );
+        assert_eq!(preferences.scheme, InputScheme::Quanpin);
+        assert_eq!(
+            preferences.last_chinese_scheme,
+            Some(ChineseScheme::Quanpin)
+        );
+        assert_eq!(
+            preferences.touch_keyboard_layout,
+            TouchKeyboardLayout::FourteenKey
+        );
+        // 没有打开 14 键时退回第一个启用的方案，与其他需要用户打开的方案一样。
+        let mut fallback = Preferences::default();
+        super::select_touch_scheme(&mut fallback, TouchKeyboardScheme::FourteenKey);
+        assert_eq!(
+            fallback.touch_keyboard_schemes.selected,
+            Some(TouchKeyboardScheme::Quanpin)
+        );
+        assert_eq!(
+            fallback.touch_keyboard_layout,
+            TouchKeyboardLayout::TwentySixKey
+        );
+
+        let mut native = native();
+        native.input_scheme = "fourteenKey".into();
+        assert!(native.is_valid());
+        let settings = local_account_preferences(&native, &Preferences::default(), None).unwrap();
+        assert_eq!(
+            settings["input.schema"],
+            AccountPreferenceValue::String("quanpin".into())
+        );
+        assert_eq!(
+            settings["platform.ios.nine_key"],
+            AccountPreferenceValue::Boolean(false)
+        );
     }
 
     #[test]

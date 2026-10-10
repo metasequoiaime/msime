@@ -13,14 +13,32 @@ import { SelectRow } from "../select-row";
 import type { TouchKeyboardScheme } from "../touch-keyboard-scheme-helpers";
 import { supportedInputSchemes } from "../input-scheme-options";
 
-/** 同一方案在 HarmonyOS 键盘上同时画出的 26 键和 9 键两种键盘。其他方案在那里都只有一种键盘。 */
-const harmonyLayoutPairs: readonly (readonly [TouchKeyboardScheme, TouchKeyboardScheme])[] = [
-  ["quanpin", "nine_key"],
-  ["japanese", "japanese_nine_key"],
+type HarmonyKeyboardLayout = "twenty_six_key" | "fourteen_key" | "nine_key";
+
+/** 同一方案在 HarmonyOS 键盘上画出的几种键盘：全拼有 26 键、14 键和 9 键，日语有 26 键和 9 键。其他方案在那里都只有一种键盘。 */
+const harmonyLayoutGroups: readonly (readonly (readonly [
+  HarmonyKeyboardLayout,
+  TouchKeyboardScheme,
+])[])[] = [
+  [
+    ["twenty_six_key", "quanpin"],
+    ["fourteen_key", "fourteen_key"],
+    ["nine_key", "nine_key"],
+  ],
+  [
+    ["twenty_six_key", "japanese"],
+    ["nine_key", "japanese_nine_key"],
+  ],
 ];
 
+const harmonyLayoutTitles: Record<HarmonyKeyboardLayout, string> = {
+  twenty_six_key: "26 键",
+  fourteen_key: "14 键",
+  nine_key: "9 键",
+};
+
 /**
- * HarmonyOS 手机的 中文键盘 行：当前方案的 26 键或 9 键，和 Android 的 `KeyboardOptionsPage` 提供 `touch_keyboard_layout` 的方式一致。选择时像键盘自己的方案选择器那样切到这一对中的另一个键盘，把 `touch_keyboard_layout` 与 `scheme`、`touch_keyboard_schemes.selected` 一起写入（并启用它），因为键盘先读取选中的方案再读布局，只改布局不会让键盘切换。
+ * HarmonyOS 手机的 中文键盘 行：当前方案的 26 键、14 键或 9 键，和 Android 的 `KeyboardOptionsPage` 提供 `touch_keyboard_layout` 的方式一致。选择时像键盘自己的方案选择器那样切到这一组中的另一个键盘，把 `touch_keyboard_layout` 与 `scheme`、`touch_keyboard_schemes.selected` 一起写入（并启用它），因为键盘先读取选中的方案再读布局，只改布局不会让键盘切换。
  */
 function HarmonyChineseKeyboardRow({
   selected,
@@ -29,21 +47,27 @@ function HarmonyChineseKeyboardRow({
   selected: TouchKeyboardScheme;
   onSelect: (scheme: TouchKeyboardScheme) => void;
 }) {
-  const pair = harmonyLayoutPairs.find((schemes) => schemes.includes(selected));
-  const nineKey = pair ? selected === pair[1] : false;
+  const group = harmonyLayoutGroups.find((layouts) =>
+    layouts.some(([, scheme]) => scheme === selected),
+  );
+  const current = group?.find(([, scheme]) => scheme === selected)?.[0] ?? "twenty_six_key";
   return (
     <SelectRow
       title="中文键盘"
       aria-label="中文键盘"
-      description={pair ? undefined : "当前方案只有一种键盘，在「输入」里换方案"}
-      disabled={!pair}
-      value={nineKey ? "nine_key" : "twenty_six_key"}
+      description={group ? undefined : "当前方案只有一种键盘，在「输入」里换方案"}
+      disabled={!group}
+      value={current}
       onChange={(event) => {
-        if (pair) onSelect(event.target.value === "nine_key" ? pair[1] : pair[0]);
+        const scheme = group?.find(([layout]) => layout === event.target.value)?.[1];
+        if (scheme) onSelect(scheme);
       }}
     >
-      <option value="twenty_six_key">26 键</option>
-      <option value="nine_key">9 键</option>
+      {(group ?? harmonyLayoutGroups[0]).map(([layout]) => (
+        <option key={layout} value={layout}>
+          {harmonyLayoutTitles[layout]}
+        </option>
+      ))}
     </SelectRow>
   );
 }

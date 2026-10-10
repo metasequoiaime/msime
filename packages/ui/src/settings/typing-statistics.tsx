@@ -232,6 +232,7 @@ const characterKinds = [
 const sources = [
   ["quanpin", "全拼 26 键"],
   ["nineKey", "全拼 9 键"],
+  ["fourteenKey", "全拼 14 键"],
   ["shuangpin", "小鹤双拼"],
   ["ziranma", "自然码双拼"],
   ["microsoft", "微软双拼"],
@@ -265,6 +266,7 @@ const characterSymbols: Record<string, string> = {
 const sourceSymbols: Record<string, string> = {
   quanpin: "全",
   nineKey: "9",
+  fourteenKey: "14",
   shuangpin: "鹤",
   ziranma: "自",
   microsoft: "微",
@@ -1574,6 +1576,7 @@ export function TypingStatisticsPage({
       count: sumStatisticValues(breakdown.sources, [
         "quanpin",
         "nineKey",
+        "fourteenKey",
         "shuangpin",
         "ziranma",
         "microsoft",

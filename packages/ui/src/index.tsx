@@ -1775,7 +1775,8 @@ export type Preferences = {
   wubi_code_hint?: boolean;
   /** 五笔四码唯一候选自动上屏；缺省为开。 */
   wubi_auto_commit_unique?: boolean;
-  touch_keyboard_layout?: "twenty_six_key" | "nine_key" | "handwriting";
+  /** 触屏键盘的布局；`fourteen_key` 是全拼 14 键，只配全拼。 */
+  touch_keyboard_layout?: "twenty_six_key" | "nine_key" | "handwriting" | "fourteen_key";
   touch_keyboard_schemes?: TouchKeyboardSchemePreferences;
   touch_key_spacing_tenths?: number;
   touch_row_spacing_tenths?: number;

@@ -99,6 +99,7 @@ test("the helper exposes the complete stable scheme order", () => {
     "tibetan",
     "stroke",
     "zhuyin_nine_key",
+    "fourteen_key",
   ]);
   // 高情商回复是键盘工具栏上的工具，不再是输入方案。
   expect(allTouchKeyboardSchemes as string[]).not.toContain("thoughtful_reply");
@@ -184,7 +185,7 @@ test("selecting Japanese from Vietnamese keeps the remembered Chinese scheme", (
 });
 
 test("Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke are appended after Korean and are opt-in", () => {
-  expect(allTouchKeyboardSchemes).toHaveLength(17);
+  expect(allTouchKeyboardSchemes).toHaveLength(18);
   expect(allTouchKeyboardSchemes.slice(10)).toEqual([
     "korean",
     "cantonese",
@@ -193,6 +194,7 @@ test("Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke are appended after Korea
     "tibetan",
     "stroke",
     "zhuyin_nine_key",
+    "fourteen_key",
   ]);
   expect(defaultTouchKeyboardSchemes).toEqual(allTouchKeyboardSchemes.slice(0, 11));
   // 没有列表的文档出自默认值改成只有中文之前的版本，按那时的默认列表回退（client-core 的 `LEGACY_DEFAULT_ENABLED`），日语和韩语不会在升级后消失。
@@ -224,6 +226,43 @@ test("Zhuyin nine-key writes the zhuyin scheme on the nine-key layout and is onl
       touch_keyboard_schemes: { enabled: ["quanpin", "zhuyin", "zhuyin_nine_key"] },
     }),
   ).toBe("zhuyin_nine_key");
+});
+
+test("Quanpin 14-key writes quanpin on the 14-key layout, is opt-in and is inferred only for quanpin", () => {
+  expect(defaultTouchKeyboardSchemes).not.toContain("fourteen_key");
+  const next = selectHomeTouchKeyboardScheme(preferences, "fourteen_key");
+  expect(next.scheme).toBe("quanpin");
+  expect(next.last_chinese_scheme).toBe("quanpin");
+  expect(next.touch_keyboard_layout).toBe("fourteen_key");
+  expect(next.touch_keyboard_schemes).toEqual({
+    enabled: ["quanpin", "xiaohe", "wubi", "fourteen_key"],
+    selected: "fourteen_key",
+  });
+  expect(touchKeyboardSchemeTitle(next)).toBe("全拼 14 键");
+  // 没有选中项时按布局推断，标题的回退也认得 14 键。
+  const unselected: Preferences = {
+    ...next,
+    touch_keyboard_schemes: { enabled: ["quanpin", "fourteen_key"] },
+  };
+  expect(inferredTouchKeyboardScheme(unselected)).toBe("fourteen_key");
+  expect(touchKeyboardSchemeTitle(unselected)).toBe("全拼 14 键");
+  // 14 键只配全拼：双拼记着这个布局时仍是双拼；14 键没打开时退回全拼 26 键。
+  expect(
+    inferredTouchKeyboardScheme({
+      ...unselected,
+      scheme: "shuangpin",
+      touch_keyboard_schemes: { enabled: ["quanpin", "xiaohe", "fourteen_key"] },
+    }),
+  ).toBe("xiaohe");
+  expect(
+    inferredTouchKeyboardScheme({
+      ...unselected,
+      touch_keyboard_schemes: { enabled: ["quanpin", "nine_key"] },
+    }),
+  ).toBe("quanpin");
+  // 从 14 键换回 26 键或 9 键时布局跟着换。
+  expect(selectTouchKeyboardScheme(next, "quanpin").touch_keyboard_layout).toBe("twenty_six_key");
+  expect(selectTouchKeyboardScheme(next, "nine_key").touch_keyboard_layout).toBe("nine_key");
 });
 
 test("a document without a stored list does not show the opt-in schemes", () => {

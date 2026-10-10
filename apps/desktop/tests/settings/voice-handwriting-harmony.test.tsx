@@ -368,6 +368,40 @@ test("the phone keyboard page opens with 布局 and its Chinese keyboard choice"
   expect(saved.touch_keyboard_schemes.enabled).toContain("nine_key");
 });
 
+test("the Chinese keyboard row offers 26, 14 and 9 keys for 全拼 and 26 and 9 for 日语", async () => {
+  const { save } = renderSettings({ page: "screen-keyboard", feedback: padFeedback });
+  await settingsFormReady();
+  const quanpin = openSheet("中文键盘");
+  expect(
+    within(quanpin)
+      .getAllByRole("button")
+      .filter((button) => button.hasAttribute("data-sheet-option"))
+      .map((button) => button.textContent),
+  ).toEqual(["26 键", "14 键", "9 键"]);
+  fireEvent.click(within(quanpin).getByRole("button", { name: "14 键" }));
+  expect(shownValue("中文键盘").textContent).toContain("14 键");
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  const saved = save.mock.calls.at(-1)?.[1];
+  expect(saved.scheme).toBe("quanpin");
+  expect(saved.touch_keyboard_layout).toBe("fourteen_key");
+  expect(saved.touch_keyboard_schemes.selected).toBe("fourteen_key");
+  expect(saved.touch_keyboard_schemes.enabled).toContain("fourteen_key");
+  cleanup();
+
+  renderSettings({
+    page: "screen-keyboard",
+    preferences: { scheme: "japanese", touch_keyboard_layout: "twenty_six_key" },
+  });
+  await settingsFormReady();
+  expect(
+    within(openSheet("中文键盘"))
+      .getAllByRole("button")
+      .filter((button) => button.hasAttribute("data-sheet-option"))
+      .map((button) => button.textContent),
+  ).toEqual(["26 键", "9 键"]);
+});
+
 test("a scheme with one keyboard says where to change it", async () => {
   renderSettings({
     page: "screen-keyboard",
