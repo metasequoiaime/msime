@@ -1,5 +1,6 @@
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
+#include "../../common/HostApiString.h"
 #ifdef MSIME_FCITX5_TELEMETRY
 #include "Telemetry.h"
 #endif
@@ -158,9 +159,9 @@ struct PendingPreferenceSave {
 
 // ABI buffers and errors never escape into diagnostics or the panel.
 Json response(char *raw) {
-  std::unique_ptr<char, decltype(&msime_client_string_free)> owned(raw, msime_client_string_free);
-  if (!raw) throw std::runtime_error("MSIME request failed");
-  auto value = Json::parse(raw);
+  auto owned = msime::host_api::own_string(raw);
+  if (!owned) throw std::runtime_error("MSIME request failed");
+  auto value = Json::parse(owned.get());
   if (!value.value("ok", false)) throw std::runtime_error("MSIME request failed");
   return value.at("value");
 }
@@ -2791,12 +2792,11 @@ public:
       auto request = msime::linux_host::voice_query(language, generation, options, host_options);
       request["stream"] = true;
       const auto query = request.dump();
-      std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+      auto raw = msime::host_api::own_string(
           msime_client_voice_provider_stream_feedback(
               reinterpret_cast<const uint8_t *>(query.data()), query.size(),
               reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
-              fcitxVoiceUpdate, fcitxVoiceStatus, fcitxVoiceLevel, mailbox.get()),
-          msime_client_string_free);
+              fcitxVoiceUpdate, fcitxVoiceStatus, fcitxVoiceLevel, mailbox.get()));
       if (!raw) throw std::runtime_error("MSIME request failed");
       // A provider that gave no result (value null) or named a missing dependency (ok:false) is a provider failure, as in the IBus host, not an empty recognition.
       const auto document = Json::parse(raw.get());
