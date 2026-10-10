@@ -417,6 +417,10 @@ import {
 } from "./account/account-page";
 import { ChatPage, type ChatClient } from "./chat/chat-page";
 import { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/home-page";
+import {
+  ScreenKeyboardLayoutContext,
+  screenKeyboardLayoutFor,
+} from "./keyboard/screen-keyboard-preview";
 import { useSettingsPlatform } from "./theme/settings-platform";
 import { SettingsFormContext } from "./settings/settings-form-context";
 import { createSettingsReloadAction } from "./settings/settings-reload-action";
@@ -1665,6 +1669,14 @@ export interface HostCapabilities {
   os_version?: string;
   /** The CPU architecture the host was built for (Rust's `std::env::consts::ARCH`, e.g. `x86_64`, `aarch64`); the update check picks this machine's Linux package by it. */
   arch?: string;
+  /** 内核版本（Linux 的 `/proc/sys/kernel/osrelease`），「关于」页系统信息用；宿主读不到时缺省。 */
+  kernel_version?: string;
+  /** 桌面会话（Linux 的 `XDG_CURRENT_DESKTOP` 与 `XDG_SESSION_TYPE`，如 `ubuntu:GNOME (wayland)`）。 */
+  desktop_session?: string;
+  /** 水杉实际挂在哪个输入法框架上（Linux 的 `IBus` / `Fcitx5`），取自运行中的宿主写的状态。 */
+  input_method_framework?: string;
+  /** 设备型号（Linux 的 DMI 厂商与产品名）。 */
+  device_model?: string;
   /** Why the Linux desktop panel drawing the candidate list ignores the candidate font, colours and skin, as the running host reported it. Absent when the panel honours them. */
   candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel";
   /** The host plays the sound packs in `plugins`: key sounds, the melody, the commit sound and the achievement jingle. */
@@ -1771,6 +1783,8 @@ export type Preferences = {
   touch_voice_shortcut?: boolean;
   /** 九宫格数字层的排列：电话（1 2 3 在上）或计算器（7 8 9 在上）。 */
   touch_number_keypad_order?: "phone" | "calculator";
+  /** 26 键按「123」时的数字层：一行 1 到 0，或九宫格那样的 3×3 数字键。 */
+  touch_twenty_six_key_number_layout?: "row" | "nine_key";
   /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为开。 */
   touch_shuangpin_key_hints?: boolean;
   touch_toolbar?: Partial<TouchToolbarPreferences>;
@@ -3188,6 +3202,17 @@ function ShellToasts({ enabled, children }: { enabled: boolean; children: ReactN
 export type SettingsPageModel = ReturnType<typeof useSettingsPageModel>;
 
 export function SettingsPage(props: SettingsPageProps) {
+  // 宿主自己的屏幕键盘布局：没写 `layout` 的键盘预览按它画，手机上不画桌面键盘。
+  return (
+    <ScreenKeyboardLayoutContext.Provider
+      value={screenKeyboardLayoutFor(props.client.host?.platform)}
+    >
+      <SettingsShell {...props} />
+    </ScreenKeyboardLayoutContext.Provider>
+  );
+}
+
+function SettingsShell(props: SettingsPageProps) {
   const { onReplayOnboarding } = props;
   const model = useSettingsPageModel(props);
   // The 插件 page shows either the installed packs (a page of the settings form) or the community gallery, which has its own search form and so is drawn outside the settings one.

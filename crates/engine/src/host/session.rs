@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use super::options::{runtime_paths, session_options, shuangpin_profile, EngineOptions};
+use super::options::{runtime_paths, session_options, EngineOptions};
 use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
@@ -15,7 +15,7 @@ use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::pinyin::segment::is_complete_pinyin_input;
 use crate::types::{
     CandidateEdge, CandidateSource, CommandTableEntry, CommandTranslationQuery, KeyResult,
-    LocalInputMode, MentionEntry, OnlineQuery, QuickPhraseEntry, SchemeType, ShuangpinProfileKind,
+    LocalInputMode, MentionEntry, OnlineQuery, QuickPhraseEntry, SchemeType,
 };
 use crate::user_dictionary::ngram_store::flush_journal;
 use crate::user_dictionary::removal::learn_entered_english_word;
@@ -67,6 +67,7 @@ pub struct EngineSnapshot {
     pub nine_key_single_character: bool,
     /// `SessionSnapshot::nine_key_strokes`.
     pub nine_key_strokes: String,
+    /// 当前方案是双拼，且韵母或零声母编码用 `;` 作第二键：宿主把 `;` 当作字母键送给 Engine。字段名沿用微软双拼，是宿主已经在读的契约。
     pub microsoft_shuangpin: bool,
     pub shuangpin_profile: String,
     pub preedit: String,
@@ -130,7 +131,7 @@ impl Session {
     pub fn new(options: &EngineOptions) -> Result<Session> {
         // The C++ ran `options_for` a second time only to read the profile name back (bridge.cpp:430); that rerun recopied the same sidecar, so one mapping is enough.
         let inner = crate::session::Session::new(session_options(options)?)?;
-        let profile = shuangpin_profile(options)?;
+        let profile = inner.shuangpin_layout();
         // The engine loads its own copy for filtering; this one only annotates, and exists only while helpcode is on (bridge.cpp:431-435).
         let helpcode_keymap = if options.helpcode {
             match &options.helpcode_table {
@@ -148,8 +149,8 @@ impl Session {
             options: options.clone(),
             nine_key: false,
             microsoft_shuangpin: options.scheme == SchemeType::Shuangpin as u8
-                && profile == ShuangpinProfileKind::Microsoft,
-            shuangpin_profile: profile.name().to_owned(),
+                && profile.uses_semicolon_key(),
+            shuangpin_profile: profile.kind.name().to_owned(),
             helpcode_keymap,
             helpcode_enabled: options.helpcode,
             show_helpcode: options.show_helpcode,

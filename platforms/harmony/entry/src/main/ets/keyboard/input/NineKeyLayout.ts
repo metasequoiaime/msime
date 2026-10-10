@@ -52,6 +52,40 @@ export class NumberKeypadOrder {
   }
 }
 
+/** 26 键按「123」切到的数字层，取值与共享偏好 `touch_twenty_six_key_number_layout` 相同。 */
+export class TwentySixKeyNumberLayout {
+  /** 一行 1 到 0 的 123 / #+= 双层（`NumberSymbolLayout`），默认。 */
+  static readonly ROW: string = "row";
+  /** 九宫格的数字层：两侧的列、3×3 数字（排列跟 `NumberKeypadOrder` 走）和九键底行。 */
+  static readonly NINE_KEY: string = "nine_key";
+
+  /** 文档里的值归一：缺省、旧文档没有这个键或认不出的值都按一行数字。 */
+  static normalized(value: string | null | undefined): string {
+    return value === TwentySixKeyNumberLayout.NINE_KEY
+      ? TwentySixKeyNumberLayout.NINE_KEY
+      : TwentySixKeyNumberLayout.ROW;
+  }
+
+  /**
+   * 数字层是否画成九宫格数字层，而不是一行 1–0 的 123 / #+= 双层。
+   *
+   * 只有触屏键盘（`touch`，2in1 屏幕键盘没有设计稿的 123 层）在数字层上（`symbols`），而且字母层是 26 键字母行（`letterRows`：全拼、双拼、五笔、英文，以及同样画字母行的韩文、越南语和藏文）时才换。九键、假名网格、注音大千、笔画和手写板各有自己的数字层或符号行，这个偏好不管它们，所以由视图在 `letterRows` 里排除。
+   */
+  static opensNineKeyDigits(
+    layout: string | null | undefined,
+    touch: boolean,
+    symbols: boolean,
+    letterRows: boolean,
+  ): boolean {
+    return (
+      touch &&
+      symbols &&
+      letterRows &&
+      TwentySixKeyNumberLayout.normalized(layout) === TwentySixKeyNumberLayout.NINE_KEY
+    );
+  }
+}
+
 // ASCII, as the twenty-six key face sends: the Engine decides whether a comma arrives as , or as ，,
 // and it is the only thing that knows, since the answer depends on the composing language and on the
 // punctuation lock. iOS hard-codes the Chinese forms here because its grid only ever spells Chinese.

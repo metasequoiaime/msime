@@ -11,7 +11,7 @@ private func msimeSkinCatalogStringFree(_ value: UnsafeMutablePointer<CChar>?)
 
 /// A candidate skin package the user imported into `<App Group>/MSIME/skins`, as the Rust catalog scan lists it, so a package the settings page reports as an issue is never offered.
 ///
-/// Drawing one is client-core's job: the custom theme names it (`custom_theme.candidate_skin`) and `msime_client_resolve_theme` reads it from this directory. Like the Windows candidate window, a package is drawn only for a layout and mode it declares; the strip is horizontal.
+/// 绘制归 client-core：自定义主题在浅色槽位 `custom_theme.candidate_skin` 或深色槽位 `custom_theme.candidate_skin_dark` 里指名它，`msime_client_resolve_theme` 从这个目录读取。与 Windows 候选窗一样，皮肤包只在清单声明的排列和明暗下绘制，并且只在它的底所属的明暗下绘制；候选栏是横排的。
 struct ExternalCandidateSkin: Equatable {
   var name = ""
   /// The global theme the package is drawn over (`base` in skin.toml), which becomes the custom theme's base when it is picked.

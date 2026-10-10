@@ -106,16 +106,24 @@ static inline NSDictionary *MSIMENarrowCloudAppearance(NSDictionary *values, NSA
     return narrowed;
 }
 
-// 别处来的快照（另一个版本导出的设置文件）收窄到本版本：去掉本版本不带的键；`input_scheme` 是本版本没有的方案时保留本机的选择 `local`。full 原样返回。
+// 别处来的快照（另一个版本导出的设置文件）收窄到本版本：去掉本版本不带的键；`input_scheme` 是本版本没有的方案时保留本机的选择 `local`。full 除了补上缺的深色槽位外原样返回。
+// 深色槽位 `platform.macos.custom_candidate_skin_dark` 比其他键晚加入：早先导出的文件里没有它，这时保留本机的深色槽位，而不是让整份文件因为少一项被拒。
 static inline NSDictionary *MSIMEAdoptCloudAppearance(NSDictionary *values, NSDictionary *local, NSArray<NSString *> *offered) {
-    if (!offered || ![values isKindOfClass:NSDictionary.class]) return values;
+    if (![values isKindOfClass:NSDictionary.class]) return values;
+    NSString *darkSkin = @"platform.macos.custom_candidate_skin_dark";
+    if (!values[darkSkin] && local[darkSkin]) {
+        NSMutableDictionary *filled = [values mutableCopy];
+        filled[darkSkin] = local[darkSkin];
+        values = filled;
+    }
+    if (!offered) return values;
     NSMutableDictionary *adopted = [MSIMENarrowCloudAppearance(values, offered) mutableCopy];
     id scheme = adopted[@"platform.macos.input_scheme"];
     if (scheme && ![MSIMECloudInputSchemeValues(offered) containsObject:scheme]) adopted[@"platform.macos.input_scheme"] = local[@"platform.macos.input_scheme"];
     return adopted;
 }
 
-// The global theme replaced the per-host candidate skin: `global_theme` is one of the catalog ids, and the custom theme's base and package travel beside it. The package is "" for none.
+// 全局主题取代了各宿主自己的候选皮肤：`global_theme` 是主题目录里的 id，自定义主题的底色和两个槽位的皮肤包随它一起同步。浅色槽位 `custom_candidate_skin` 和深色槽位 `custom_candidate_skin_dark` 同样校验，空串表示没有。
 static inline BOOL MSIMECloudCustomCandidateSkin(id value) {
     if (![value isKindOfClass:NSString.class] || [value length] > 64) return NO;
     return [value length] == 0 || (msime::mac::IsSafeSkinId([value UTF8String]) && !msime::mac::IsGlobalThemeId([value UTF8String]));
@@ -127,9 +135,11 @@ static inline NSDictionary *MSIMECloudAppearanceSnapshot(NSUserDefaults *default
     NSString *theme = [defaults stringForKey:@"MSIMEClientGlobalTheme"];
     NSString *base = [defaults stringForKey:@"MSIMEClientCustomThemeBase"];
     NSString *package = [defaults stringForKey:@"MSIMEClientCustomCandidateSkin"];
+    NSString *darkPackage = [defaults stringForKey:@"MSIMEClientCustomCandidateSkinDark"];
     NSMutableDictionary *snapshot = [@{@"platform.macos.global_theme": msime::mac::IsGlobalThemeId(theme.UTF8String ?: "") ? theme : @"system",
              @"platform.macos.custom_theme_base": msime::mac::IsThemeBaseId(base.UTF8String ?: "") ? base : @"system",
              @"platform.macos.custom_candidate_skin": MSIMECloudCustomCandidateSkin(package) ? package : @"",
+             @"platform.macos.custom_candidate_skin_dark": MSIMECloudCustomCandidateSkin(darkPackage) ? darkPackage : @"",
              @"platform.macos.candidate_panel_style": @([defaults integerForKey:@"MSIMEClientCandidatePanelStyle"] == 1 ? 1 : 0),
              @"platform.macos.candidate_font_size": MSIMECloudAppearanceIntegerInRange(font, 12, 32) ? font : @18,
              @"platform.macos.candidate_page_size": MSIMECloudAppearanceCandidatePageSize(page) ? page : @9} mutableCopy];
@@ -157,12 +167,13 @@ static inline BOOL MSIMEValidateCloudAppearanceForSchemes(NSDictionary *values, 
             if (values[key]) return NO;
             ++omitted;
         }
-    if (![values isKindOfClass:NSDictionary.class] || values.count != 11 + MSIMECloudBooleanPreferences().count - omitted) return NO;
+    if (![values isKindOfClass:NSDictionary.class] || values.count != 12 + MSIMECloudBooleanPreferences().count - omitted) return NO;
     id theme = values[@"platform.macos.global_theme"];
     if (![theme isKindOfClass:NSString.class] || !msime::mac::IsGlobalThemeId([theme UTF8String])) return NO;
     id base = values[@"platform.macos.custom_theme_base"];
     if (![base isKindOfClass:NSString.class] || !msime::mac::IsThemeBaseId([base UTF8String])) return NO;
-    if (!MSIMECloudCustomCandidateSkin(values[@"platform.macos.custom_candidate_skin"])) return NO;
+    if (!MSIMECloudCustomCandidateSkin(values[@"platform.macos.custom_candidate_skin"]) ||
+        !MSIMECloudCustomCandidateSkin(values[@"platform.macos.custom_candidate_skin_dark"])) return NO;
     if (!MSIMECloudAppearanceIntegerInRange(values[@"platform.macos.candidate_font_size"], 12, 32) ||
         !MSIMECloudAppearanceCandidatePageSize(values[@"platform.macos.candidate_page_size"])) return NO;
     // 辅助码方案的下标只要求是非负整数：超出本机方案目录的下标是更新的版本追加的方案，应用时保留本机的选择，而不是让整份快照失效。
@@ -198,6 +209,7 @@ static inline BOOL MSIMEApplyCloudAppearanceForSchemes(NSDictionary *values, NSU
     [defaults setObject:values[@"platform.macos.global_theme"] forKey:@"MSIMEClientGlobalTheme"];
     [defaults setObject:values[@"platform.macos.custom_theme_base"] forKey:@"MSIMEClientCustomThemeBase"];
     [defaults setObject:values[@"platform.macos.custom_candidate_skin"] forKey:@"MSIMEClientCustomCandidateSkin"];
+    [defaults setObject:values[@"platform.macos.custom_candidate_skin_dark"] forKey:@"MSIMEClientCustomCandidateSkinDark"];
     [defaults setObject:values[@"platform.macos.candidate_panel_style"] forKey:@"MSIMEClientCandidatePanelStyle"];
     [defaults setObject:values[@"platform.macos.candidate_font_size"] forKey:@"MSIMEClientCandidateFontSize"];
     [defaults setObject:values[@"platform.macos.candidate_page_size"] forKey:@"MSIMEClientCandidatePageSize"];

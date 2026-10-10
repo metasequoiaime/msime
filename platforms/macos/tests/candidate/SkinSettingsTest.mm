@@ -81,7 +81,7 @@ int main(int argc, const char **argv) {
             NSDictionary *before = [defaults persistentDomainForName:suite];
             NSUInteger count = changes;
             BOOL dark = previews[index].previewUsesDark;
-            const BOOL fixed = previews[index].previewSkin.fixedDark.has_value();
+            const BOOL fixed = [previews[index] previewHasFixedMode];
             // The five built-in themes fix their mode, so only 跟随系统 and 自定义 offer the other mode to preview.
             assert(fixed == (index >= 1 && index <= 5) && themes[index].hidden == fixed);
             [NSApp sendAction:themes[index].action to:themes[index].target from:themes[index]];
@@ -141,6 +141,36 @@ int main(int argc, const char **argv) {
             assert(false);
             return nil;
         };
+        // 浅色、深色两个槽位：跟随系统的包放两个槽位；浅色底的包进浅色槽位，深色底的进深色槽位，可以同时启用；页面写出两种明暗各用哪一款；再点一次已启用的包只停用它那个槽位。
+        NSTextField *slotSummary = [cards valueForKey:@"slotSummaryLabel"];
+        assert([preferences.customCandidateSkin isEqual:@"synthetic"] && [preferences.customCandidateSkinDark isEqual:@"synthetic"]);
+        assert(!slotSummary.hidden && [slotSummary.stringValue isEqual:@"浅色模式使用「Synthetic Card」，深色模式使用「Synthetic Card」。"]);
+        WriteSingleModePackage(root, "d-paper-light", "paper", "light");
+        WriteSingleModePackage(root, "e-night-dark", "night", "dark");
+        [cards reload];
+        [NSApp sendAction:card(@"d-paper-light").action to:card(@"d-paper-light").target from:card(@"d-paper-light")];
+        assert([preferences.customCandidateSkin isEqual:@"d-paper-light"] && [preferences.customCandidateSkinDark isEqual:@"synthetic"] &&
+               [preferences.customThemeBase isEqual:@"paper"]);
+        [NSApp sendAction:card(@"e-night-dark").action to:card(@"e-night-dark").target from:card(@"e-night-dark")];
+        assert([preferences.customCandidateSkin isEqual:@"d-paper-light"] && [preferences.customCandidateSkinDark isEqual:@"e-night-dark"] &&
+               [preferences.customThemeBase isEqual:@"night"]);
+        assert(card(@"d-paper-light").state == NSControlStateValueOn && card(@"e-night-dark").state == NSControlStateValueOn &&
+               card(@"synthetic").state == NSControlStateValueOff && switches[6].state == NSControlStateValueOn);
+        assert([slotSummary.stringValue isEqual:@"浅色模式使用「d-paper-light」，深色模式使用「e-night-dark」。"]);
+        // 停用深色皮肤：深色槽位清空，深色模式回落到浅色槽位，但浅色底的包不画在深色模式。
+        [NSApp sendAction:card(@"e-night-dark").action to:card(@"e-night-dark").target from:card(@"e-night-dark")];
+        assert([preferences.customCandidateSkin isEqual:@"d-paper-light"] && preferences.customCandidateSkinDark == nil);
+        assert(card(@"e-night-dark").state == NSControlStateValueOff && card(@"d-paper-light").state == NSControlStateValueOn);
+        assert([slotSummary.stringValue isEqual:@"浅色模式使用「d-paper-light」，深色模式不使用外部皮肤。"]);
+        // 不使用外部皮肤两个槽位一起清。
+        [NSApp sendAction:card(@"e-night-dark").action to:card(@"e-night-dark").target from:card(@"e-night-dark")];
+        [NSApp sendAction:detach.action to:detach.target from:detach];
+        assert(preferences.customCandidateSkin == nil && preferences.customCandidateSkinDark == nil && !detach.enabled && slotSummary.hidden);
+        std::filesystem::remove_all(root / "d-paper-light");
+        std::filesystem::remove_all(root / "e-night-dark");
+        [cards reload];
+        [NSApp sendAction:card(@"synthetic").action to:card(@"synthetic").target from:card(@"synthetic")];
+        assert([preferences.customCandidateSkin isEqual:@"synthetic"] && [preferences.customCandidateSkinDark isEqual:@"synthetic"]);
         WriteSingleModePackage(root, "a-night-light", "night", "light");
         WriteSingleModePackage(root, "b-system-light", "system", "light");
         for (NSString *host in @[NSAppearanceNameDarkAqua, NSAppearanceNameAqua]) {

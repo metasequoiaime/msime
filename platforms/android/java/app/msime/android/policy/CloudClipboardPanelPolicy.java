@@ -106,6 +106,33 @@ public final class CloudClipboardPanelPolicy {
         return loaded && !busy;
     }
 
+    /**
+     * 云端分段在顶行显示的条数：只有这次拉取有了答复、账号开着云剪贴板（{@link Status#READY} 或 {@link Status#EMPTY}）时才有，读取中、未登录、未开启和失败时为 null，不显示。
+     */
+    public static Integer cloudCount(Status status, int itemCount) {
+        return status == Status.READY || status == Status.EMPTY ? Math.max(0, itemCount) : null;
+    }
+
+    /** 这一分段的条数上限：本机历史由共享存储限定（{@link ClipboardHistoryPolicy#LIMIT}），云端由服务端限定（{@link CloudClipboardApi#MAX_ITEMS}）。 */
+    public static int limit(Tab tab) {
+        if (tab == null) throw new IllegalArgumentException("No clipboard tab");
+        return tab == Tab.CLOUD ? CloudClipboardApi.MAX_ITEMS : ClipboardHistoryPolicy.LIMIT;
+    }
+
+    /**
+     * 顶行「本机 / 云端」与「清空」之间居中的「已存条数/上限」（#5905），例如「10/50」。`count` 为 null 表示这一分段现在没有可数的内容（历史未开启、读取失败、云端不可用），返回空串，那块地方照旧留白。
+     */
+    public static String countLabel(Tab tab, Integer count) {
+        if (count == null) return "";
+        return count + "/" + limit(tab);
+    }
+
+    /** 同一个计数给读屏的说法，例如「本机已存 10 条，最多 50 条」；不显示时为空串。 */
+    public static String countDescription(Tab tab, Integer count) {
+        if (count == null) return "";
+        return (tab == Tab.CLOUD ? TAB_CLOUD : TAB_LOCAL) + "已存 " + count + " 条，最多 " + limit(tab) + " 条";
+    }
+
     /** The status line drawn above the cloud list. */
     public static String message(Status status, int itemCount) {
         if (status == null) throw new IllegalArgumentException("No cloud clipboard status");

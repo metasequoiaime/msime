@@ -16,7 +16,7 @@ Status: implemented
 ## Alternatives considered
 
 - **存成宿主本机设置（Android 的 `AndroidLocalSettings`、iOS 的 App Group）**：不必改 client-core。但三端各存一份，共享设置页（HarmonyOS 用的就是它）读不到，以后同步也要三端各接一次；它和 `touch_voice_shortcut` 一样是触屏键盘的共享偏好，放在共享文档里最自然。
-- **26 键的「123」页也做成计算器样的 3×3 小键盘**：这已经是另一种键盘布局，不是排列顺序的选择，用户提的也不是这个。
+- **26 键的「123」页也做成计算器样的 3×3 小键盘**：这已经是另一种键盘布局，不是排列顺序的选择，用户提的也不是这个。后来用户确实提了，作为独立选项另行落地，见 [26 键的九宫格数字层](2026-10-10-twenty-six-key-nine-key-digits.md)。
 
 ## Consequences
 

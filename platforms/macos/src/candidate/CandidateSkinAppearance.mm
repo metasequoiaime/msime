@@ -67,6 +67,7 @@ metasequoia::mac::CustomTheme MetasequoiaStoredCustomTheme(void)
     const std::string base = read(@"MSIMEClientCustomThemeBase");
     custom.base = metasequoia::mac::IsThemeBaseId(base) ? base : "system";
     custom.candidateSkin = read(@"MSIMEClientCustomCandidateSkin");
+    custom.candidateSkinDark = read(@"MSIMEClientCustomCandidateSkinDark");
     custom.candidateColors.text = read(@"MSIMEClientCandidateTextColor");
     custom.candidateColors.number = read(@"MSIMEClientCandidateNumberColor");
     custom.candidateColors.accent = read(@"MSIMEClientCandidateAccentColor");

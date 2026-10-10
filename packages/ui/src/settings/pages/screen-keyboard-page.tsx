@@ -146,6 +146,9 @@ export function ScreenKeyboardSettingsPage() {
         numberKeypadOrder={
           mobilePlatform ? (draft.touch_number_keypad_order ?? "phone") : undefined
         }
+        twentySixKeyNumberLayout={
+          mobilePlatform ? (draft.touch_twenty_six_key_number_layout ?? "row") : undefined
+        }
         // 只有触屏宿主的 26 键双拼画键位提示；不含双拼的版本（五笔、日文、越南文、藏文等）里不存在双拼键盘，和 Android、iOS 原生设置页一样不列出。缺省为开，与 client-core 的默认值一致。
         shuangpinKeyHints={
           mobilePlatform && supportedInputSchemes(host).includes("shuangpin")
@@ -167,6 +170,9 @@ export function ScreenKeyboardSettingsPage() {
         }
         onNumberKeypadOrderChange={(touch_number_keypad_order) =>
           onPreferencesChange({ touch_number_keypad_order })
+        }
+        onTwentySixKeyNumberLayoutChange={(touch_twenty_six_key_number_layout) =>
+          onPreferencesChange({ touch_twenty_six_key_number_layout })
         }
         onShuangpinKeyHintsChange={(touch_shuangpin_key_hints) =>
           onPreferencesChange({ touch_shuangpin_key_hints })

@@ -81,7 +81,7 @@ final class KeyboardSheets {
     }
 
     /**
-     * 选中一个自定义设计：与键盘自己的皮肤面板（`MSIMEInputService.saveKeyboardSkin`）写法相同——原来显示的主题记进 `custom_theme.base` 并清掉 `candidate_skin`，设计写进 `custom_theme.keyboard`，`global_theme` 改成 `custom`；另外按 P23 写设计带的按键音包（静音不改音包）。按键动画和本地按键音开关不在共享偏好里，由 {@link #applyLocalFeedback} 另写。
+     * 选中一个自定义设计：与键盘自己的皮肤面板（`MSIMEInputService.saveKeyboardSkin`）写法相同——原来显示的主题记进 `custom_theme.base` 并清掉浅色、深色两个槽位的皮肤包（`candidate_skin` 和 `candidate_skin_dark`），设计写进 `custom_theme.keyboard`，`global_theme` 改成 `custom`；另外按 P23 写设计带的按键音包（静音不改音包）。按键动画和本地按键音开关不在共享偏好里，由 {@link #applyLocalFeedback} 另写。
      */
     static void applyDesign(JSONObject preferences, JSONObject design) throws JSONException {
         String current = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
@@ -89,6 +89,7 @@ final class KeyboardSheets {
         if (!"custom".equals(current)) {
             customTheme.put("base", current);
             customTheme.remove("candidate_skin");
+            customTheme.remove("candidate_skin_dark");
         }
         customTheme.put("keyboard", new JSONObject(design.toString()));
         preferences.put("global_theme", "custom");

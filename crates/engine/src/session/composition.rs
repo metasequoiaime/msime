@@ -858,7 +858,7 @@ mod tests {
     #[test]
     fn helpcode_length_matches_the_composition_base() {
         let profile =
-            crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Xiaohe);
+            crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Xiaohe).unwrap();
         for (raw, raw_with_cases, enabled) in [
             ("nihcAB", "nihcAB", true),
             ("uiu", "uiu", true),
@@ -887,7 +887,7 @@ mod tests {
             ..QueryRequest::default()
         };
         let profile =
-            crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Xiaohe);
+            crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Xiaohe).unwrap();
         let base = resolve_shuangpin_composition_base(&request, profile);
         assert!(matches!(base.raw_input, std::borrow::Cow::Borrowed(_)));
         assert!(matches!(

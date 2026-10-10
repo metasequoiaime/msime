@@ -655,7 +655,10 @@ class AudioMuteJournal:
                 os.close(directory)
         finally:
             if temporary is not None:
-                temporary.unlink(missing_ok=True)
+                try:
+                    temporary.unlink()
+                except FileNotFoundError:
+                    pass
 
     def record(self, backend, stream):
         if not self.available:

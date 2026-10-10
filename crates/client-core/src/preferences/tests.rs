@@ -1476,6 +1476,7 @@ fn custom_theme_round_trips_every_part() {
     let custom_theme = CustomTheme {
         base: crate::skin::theme::GlobalTheme::Paper,
         candidate_skin: Some("sakura.v2".into()),
+        candidate_skin_dark: Some("night-sakura".into()),
         candidate_colors: CustomCandidateColors {
             text: Some("#101010".into()),
             number: Some("#202020".into()),
@@ -2569,6 +2570,7 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
         "touch_keyboard_height_adjustment",
         "touch_voice_shortcut",
         "touch_number_keypad_order",
+        "touch_twenty_six_key_number_layout",
         "touch_shuangpin_key_hints",
     ] {
         legacy["preferences"].as_object_mut().unwrap().remove(key);
@@ -2584,6 +2586,10 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
         loaded.preferences.touch_number_keypad_order,
         NumberKeypadOrder::Phone
     );
+    assert_eq!(
+        loaded.preferences.touch_twenty_six_key_number_layout,
+        TwentySixKeyNumberLayout::Row
+    );
     // 旧文档没有这个键：双拼键位提示照旧显示。
     assert!(loaded.preferences.touch_shuangpin_key_hints);
     assert!(Preferences::default().touch_shuangpin_key_hints);
@@ -2598,6 +2604,7 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
                 touch_keyboard_height_adjustment: 24,
                 touch_voice_shortcut: true,
                 touch_number_keypad_order: NumberKeypadOrder::Calculator,
+                touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::NineKey,
                 touch_shuangpin_key_hints: false,
                 ..Preferences::default()
             },
@@ -2612,6 +2619,14 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
     assert_eq!(
         serde_json::to_value(NumberKeypadOrder::Calculator).unwrap(),
         "calculator"
+    );
+    assert_eq!(
+        saved.preferences.touch_twenty_six_key_number_layout,
+        TwentySixKeyNumberLayout::NineKey
+    );
+    assert_eq!(
+        serde_json::to_value(TwentySixKeyNumberLayout::NineKey).unwrap(),
+        "nine_key"
     );
     assert_eq!(saved.preferences.touch_key_spacing_tenths, 35);
     assert_eq!(saved.preferences.touch_row_spacing_tenths, 95);
@@ -2797,6 +2812,67 @@ fn shuangpin_profiles_preserve_legacy_files_and_reject_unknown_values() {
     assert!(store.load().is_err());
     assert!(store.save(revision, Preferences::default()).is_err());
     assert_eq!(fs::read_to_string(store.path()).unwrap(), unknown);
+}
+
+#[test]
+fn custom_shuangpin_profile_round_trips_and_stays_out_of_documents_without_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let saved = store.save(0, Preferences::default()).unwrap();
+    assert!(!fs::read_to_string(store.path())
+        .unwrap()
+        .contains("shuangpin_custom_profile"));
+    let mut preferences = Preferences {
+        scheme: InputScheme::Shuangpin,
+        shuangpin_profile: ShuangpinProfile::Custom,
+        ..Preferences::default()
+    };
+    let table = &mut preferences.shuangpin_custom_profile;
+    table.initials.insert("zh".into(), "a".into());
+    table.finals.insert("ing".into(), ";".into());
+    table.zero_initials.insert("a".into(), "oa".into());
+    let saved = store.save(saved.revision, preferences.clone()).unwrap();
+    let document: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(store.path()).unwrap()).unwrap();
+    assert_eq!(document["preferences"]["shuangpin_profile"], "custom");
+    assert_eq!(
+        document["preferences"]["shuangpin_custom_profile"],
+        serde_json::json!({
+            "initials": { "zh": "a" },
+            "finals": { "ing": ";" },
+            "zero_initials": { "a": "oa" }
+        })
+    );
+    assert_eq!(store.load().unwrap(), saved);
+    // 结构上的限制：单位只能是小写字母，键是可见 ASCII，大小有上限。合不合法是 Engine 的事，这里不判断。
+    for (unit, key) in [("Zh", "a"), ("zh", "é"), ("zh", "a b"), ("zhzhzhzhz", "a")] {
+        let mut invalid = preferences.clone();
+        invalid.shuangpin_custom_profile.initials = [(unit.to_owned(), key.to_owned())].into();
+        assert!(
+            matches!(
+                invalid.validate(),
+                Err(PreferencesError::InvalidShuangpinCustomProfile)
+            ),
+            "{unit:?} {key:?}"
+        );
+    }
+    let mut oversized = preferences.clone();
+    oversized.shuangpin_custom_profile.finals = (0..65u8)
+        .map(|index| {
+            (
+                format!(
+                    "{}{}",
+                    char::from(b'a' + index / 26),
+                    char::from(b'a' + index % 26)
+                ),
+                "q".to_owned(),
+            )
+        })
+        .collect();
+    assert!(matches!(
+        oversized.validate(),
+        Err(PreferencesError::InvalidShuangpinCustomProfile)
+    ));
 }
 
 #[test]
@@ -4533,6 +4609,7 @@ const NOT_CREDENTIALS: &[&str] = &[
     "touch_keyboard_schemes",
     "touch_number_keypad_order",
     "touch_shuangpin_key_hints",
+    "touch_twenty_six_key_number_layout",
     "voice_input.hotkey_ctrl_f9",
     "voice_input.hotkey_ctrl_win",
     "voice_input.hotkey_hold_space_lock",

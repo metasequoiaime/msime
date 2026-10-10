@@ -1,9 +1,9 @@
 #import "DoubaoVoiceRequest.h"
 #import "VoiceFailureMessages.h"
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 #include <cmath>
 #include <cstring>
-#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -79,9 +79,8 @@ static BOOL MSIMEStrictBoolean(id value) {
 // One complete WebSocket binary message. NO when it is not a valid Doubao response; an error frame's code is reported and its body never becomes text.
 BOOL ParseResponse(NSData *message, DoubaoResponse *response) {
     if (!message.length || message.length > kDoubaoResponseLimit) return NO;
-    std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
-        msime_client_doubao_decode_frame(static_cast<const uint8_t *>(message.bytes), message.length),
-        msime_client_string_free);
+    auto raw = msime::host_api::own_string(
+        msime_client_doubao_decode_frame(static_cast<const uint8_t *>(message.bytes), message.length));
     if (!raw) return NO;
     id envelope = [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:raw.get() length:std::strlen(raw.get())]
                                                   options:0 error:nil];
@@ -170,9 +169,8 @@ BOOL ParseResponse(NSData *message, DoubaoResponse *response) {
         @"auth_mode":snapshot[@"doubao_auth_mode"] ?: @"", @"app_id":snapshot[@"asr_app_key"] ?: @"",
         @"token":snapshot[@"asr_token"] ?: @"", @"resource_id":[snapshot[@"asr_resource_id"] length]
             ? snapshot[@"asr_resource_id"] : @"volc.bigasr.sauc.duration"} options:0 error:nil];
-    std::unique_ptr<char, decltype(&msime_client_string_free)> authRaw(
-        msime_client_doubao_auth_headers(static_cast<const uint8_t *>(authInput.bytes), authInput.length),
-        msime_client_string_free);
+    auto authRaw = msime::host_api::own_string(
+        msime_client_doubao_auth_headers(static_cast<const uint8_t *>(authInput.bytes), authInput.length));
     id auth = authRaw ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:authRaw.get()
         length:std::strlen(authRaw.get())] options:0 error:nil] : nil;
     if (![auth isKindOfClass:NSDictionary.class] || ![auth[@"ok"] isEqual:@YES] ||

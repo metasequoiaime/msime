@@ -136,7 +136,8 @@ export function useConfirm(): {
           <button
             type="button"
             ref={confirmButton}
-            className={pending.danger ? style.destructive : ""}
+            // The answer the dialog asks for is its main action: without a class it fell back to the web view's own grey button on the phone hosts, beside a styled 取消.
+            className={pending.danger ? style.destructive : "primary"}
             onClick={() => settle(true)}
           >
             {pending.confirmLabel ?? "确定"}

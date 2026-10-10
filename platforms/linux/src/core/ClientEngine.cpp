@@ -2713,12 +2713,16 @@ void publish_mode(IBusEngine *engine, bool registration) {
     return;
   }
   const auto themes = theme_choices();
-  // A choice made while no store was writable lives only here; drop it once the package it draws is no longer listed.
+  // 没有可写的偏好存储时，菜单的选择只存在这里；它写进任一槽位（`candidate_skin` 或 `candidate_skin_dark`）的皮肤包不再列出时就丢掉它。
   if (s.theme_choice_override) {
     const auto custom = s.theme_choice_override->value("custom_theme", Json::object());
-    const auto package = custom.value("candidate_skin", Json(nullptr));
-    if (package.is_string() && !msime::linux_host::find_theme_choice(themes, package.get<std::string>()))
-      s.theme_choice_override.reset();
+    for (const char *slot : {"candidate_skin", "candidate_skin_dark"}) {
+      const auto package = custom.value(slot, Json(nullptr));
+      if (package.is_string() && !msime::linux_host::find_theme_choice(themes, package.get<std::string>())) {
+        s.theme_choice_override.reset();
+        break;
+      }
+    }
   }
   clipboard_schedule(engine);
   auto toolbar = toolbar_property(engine);
@@ -2758,7 +2762,10 @@ void publish_mode(IBusEngine *engine, bool registration) {
       configured.at("preferences").value("candidate_theme", "follow"));
   auto theme_preferences = configured.at("preferences");
   if (s.theme_choice_override) msime::linux_host::apply_theme_choice(theme_preferences, *s.theme_choice_override);
-  const auto global_theme = msime::linux_host::current_theme_choice(theme_preferences, themes);
+  // 两个槽位各放一款皮肤时，菜单勾选候选窗当前明暗下画的那款，所以这里带上会话的候选明暗覆盖。
+  theme_preferences["candidate_theme"] = theme;
+  const auto global_theme = msime::linux_host::current_theme_choice(
+      theme_preferences, themes, msime::linux_host::candidate_dark_theme(theme_preferences, system_dark));
   auto property = input_mode_property(engine);
   const auto voice_label = s.voice_active
       ? (s.voice_space_locked && !s.voice_stopping
@@ -5494,10 +5501,14 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         return;
       auto preferences = configured.at("preferences");
       if (s.theme_choice_override) msime::linux_host::apply_theme_choice(preferences, *s.theme_choice_override);
-      // Only an entry the menu lists can be chosen, and choosing the one already shown changes nothing.
+      // 只能选菜单列出的条目，选中已经勾着的那项什么也不改。勾选按候选窗当前的明暗判断，与 publish_mode 发布菜单时一致。
       const auto themes = theme_choices();
-      if (msime::linux_host::current_theme_choice(preferences, themes) == selected) return;
-      auto change = msime::linux_host::theme_choice_change(themes, selected);
+      auto mode_preferences = preferences;
+      if (s.theme_override) mode_preferences["candidate_theme"] = *s.theme_override;
+      if (msime::linux_host::current_theme_choice(
+              preferences, themes, msime::linux_host::candidate_dark_theme(mode_preferences, system_dark)) == selected)
+        return;
+      auto change = msime::linux_host::theme_choice_change(preferences, themes, selected);
       if (!change) return;
       // 自定义 while the custom theme is drawn over a listed package changes no preference; republish so the panel checks the package entry again rather than the radio just clicked.
       auto chosen = preferences;

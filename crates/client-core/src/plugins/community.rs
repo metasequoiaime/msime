@@ -28,11 +28,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
-/// The kinds the library accepts. An effect pack is a few parameters for a style built into every host, so there is nothing in it worth sharing as a file.
-pub const PUBLISHABLE_KINDS: [PluginKind; 7] = [
+/// The kinds the library accepts, which is every kind a pack can be today. An effect pack carries no files besides its manifest, but the style, colours and timing it picks are still someone's work worth handing on, and the server already accepts and validates `effect`; a kind added to [`PluginKind`] later is shared only once it is listed here and declared in [`KINDS_DECLARATION`].
+pub const PUBLISHABLE_KINDS: [PluginKind; 8] = [
     PluginKind::Sound,
     PluginKind::Music,
     PluginKind::CommandTable,
+    PluginKind::Effect,
     PluginKind::PhraseTable,
     PluginKind::Helpcode,
     PluginKind::Wordbook,
@@ -114,7 +115,7 @@ pub struct CommunityPlugin {
 pub struct CommunityPluginPage {
     pub plugins: Vec<CommunityPlugin>,
     pub has_more: bool,
-    /// How many items of a kind this client cannot install (an effect pack) the server listed on this page and [`validate_page`] left out. The gallery adds them to the next offset so 加载更多 resumes after them. Only the client sets it: a server response that carries it is refused.
+    /// How many items of a kind this client cannot install (one newer than this client, or a legacy one it no longer lists in [`PUBLISHABLE_KINDS`]) the server listed on this page and [`decode_page`] or [`validate_page`] left out. The gallery adds them to the next offset so 加载更多 resumes after them. Only the client sets it: a server response that carries it is refused.
     #[serde(default, skip_deserializing)]
     pub skipped: usize,
 }
@@ -503,7 +504,7 @@ fn validate_publish(request: &CommunityPluginPublishRequest) -> Result<(), Accou
     Ok(())
 }
 
-/// 检查一页列表，去掉本客户端不能安装的类型（特效包）。服务端会列出它接受的每种类型，所以这样的一条不能让整页读不出来；去掉的条目连同 [`decode_page`] 已跳过的未知类型一起计入 `skipped`，让翻页与服务端的 offset 对齐。
+/// 检查一页列表，去掉本客户端认识却不在 [`PUBLISHABLE_KINDS`] 里的类型。现在每种已知类型都可以发布，这一步什么也不去掉；留着它，是因为服务端不论声明与否总会返回冻结的旧类型集合，哪天其中一种从 [`PUBLISHABLE_KINDS`] 里拿掉，这样的条目也只会被跳过，不会让整页读不出来。去掉的条目连同 [`decode_page`] 已跳过的未知类型一起计入 `skipped`，让翻页与服务端的 offset 对齐。
 fn validate_page(mut page: CommunityPluginPage) -> Result<CommunityPluginPage, AccountError> {
     let listed = page.plugins.len() + page.skipped;
     if listed > MAXIMUM_PAGE_ITEMS || (page.has_more && listed == 0) {

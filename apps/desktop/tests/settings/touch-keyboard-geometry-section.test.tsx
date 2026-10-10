@@ -187,6 +187,40 @@ test("offers the number keypad order only where the host has a nine-key digit la
   expect(onNumberKeypadOrderChange).toHaveBeenCalledWith("calculator");
 });
 
+test("offers the 26-key number layout next to the keypad order when the host has it", () => {
+  const onTwentySixKeyNumberLayoutChange = vi.fn();
+  const { rerender } = render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
+      numberKeypadOrder="phone"
+      onNumberKeypadOrderChange={vi.fn()}
+    />,
+  );
+  expect(screen.queryByText("26 键数字键盘")).toBeNull();
+
+  rerender(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
+      numberKeypadOrder="phone"
+      onNumberKeypadOrderChange={vi.fn()}
+      twentySixKeyNumberLayout="row"
+      onTwentySixKeyNumberLayoutChange={onTwentySixKeyNumberLayoutChange}
+    />,
+  );
+  const layoutRow = screen.getByText("26 键数字键盘");
+  expect(
+    layoutRow.compareDocumentPosition(screen.getByText("数字键盘顺序")) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(screen.getByRole("radio", { name: "一行" })).toHaveProperty("checked", true);
+  fireEvent.click(screen.getByRole("radio", { name: "九宫格" }));
+  expect(onTwentySixKeyNumberLayoutChange).toHaveBeenCalledWith("nine_key");
+});
+
 test("puts the number keypad order after 中文键盘 when the size group is already 布局", () => {
   render(
     <TouchKeyboardGeometrySection

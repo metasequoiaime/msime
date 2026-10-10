@@ -311,7 +311,7 @@ impl TestClock {
         let steady = clock.now.clone();
         session.set_clock(Clock {
             steady: Box::new(move || *steady.lock().expect("clock")),
-            local: Box::new(|| LocalDateTime {
+            local: Arc::new(|| LocalDateTime {
                 year: 2026,
                 month: 8,
                 day: 9,
@@ -2685,6 +2685,148 @@ fn a_date_row_commits_and_leaves_date_time_mode() {
         "{:?}",
         words(&session)
     );
+}
+
+/// 组字里的日期时间行（#5952）用的词：每个关键词的锚定词，加上同一串字母、数字的其他读法。
+const INLINE_DATE_TIME_FIXTURE: &str = "CREATE TABLE tbl_1_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_r VALUES('ri','r','日',100);\
+CREATE TABLE tbl_2_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_r VALUES('ri''qi','rq','日期',500);\
+CREATE TABLE tbl_2_p(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_p VALUES('pi''qi','pq','脾气',900);\
+CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_s VALUES('shou''ji','sj','手机',900),('shi''jian','sj','时间',800),('shi''jie','sj','世界',700);\
+CREATE TABLE tbl_2_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_x VALUES('xing''qi','xq','星期',500);\
+CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_n VALUES('nong''li','nl','农历',500);";
+
+/// 26 键打 `riqi`、`ri'qi`、`sj`、`xingqi`、`nongli`：当前日期、时间、星期、农历接在对应的词后面，词前后的其他候选不动。
+#[test]
+fn date_time_keywords_add_rows_after_their_word() {
+    let fixture = Fixture::new(INLINE_DATE_TIME_FIXTURE);
+    let mut session = fixture.session();
+    TestClock::install(&mut session);
+    let date = ["日期", "2026年8月9日", "2026-08-09", "2026年8月9日 星期日"];
+    for keyword in ["riqi", "ri'qi"] {
+        type_text(&mut session, keyword);
+        assert_eq!(words(&session)[..4], date, "{keyword}");
+        let snapshot = session.snapshot();
+        assert_eq!(snapshot.candidates[1].source, CandidateSource::Generated);
+        assert_eq!(snapshot.candidates[1].pinyin, keyword);
+        assert!(snapshot.candidate_answers_key[1]);
+        session.command(Command::Cancel);
+    }
+
+    type_text(&mut session, "sj");
+    let sj = words(&session);
+    let at = sj.iter().position(|word| word == "时间").expect("时间");
+    assert_eq!(sj[..at], ["手机"]);
+    assert_eq!(sj[at + 1..at + 4], ["14:30", "14:30:00", "下午2:30"]);
+    session.command(Command::Cancel);
+
+    type_text(&mut session, "xingqi");
+    assert_eq!(words(&session)[..3], ["星期", "星期日", "周日"]);
+    session.command(Command::Cancel);
+
+    type_text(&mut session, "nongli");
+    assert_eq!(words(&session)[..2], ["农历", "丙午年六月二十七日"]);
+    session.command(Command::Cancel);
+
+    // 不是关键词的组字、关键词的一部分都不加。
+    for typed in ["ri", "riq", "shou"] {
+        type_text(&mut session, typed);
+        assert!(
+            words(&session).iter().all(|word| !word.contains("2026")
+                && !word.contains("14:30")
+                && !word.starts_with("星期日")),
+            "{typed}: {:?}",
+            words(&session)
+        );
+        session.command(Command::Cancel);
+    }
+}
+
+/// 选中日期行上屏它的文字并结束组字；它不是拼音读出的词，打开学习时也不写进词库和日志。
+#[test]
+fn a_date_time_row_commits_without_learning() {
+    let fixture = Fixture::new(INLINE_DATE_TIME_FIXTURE);
+    let mut session = fixture.session_with(|options| options.learning = true);
+    TestClock::install(&mut session);
+    type_text(&mut session, "riqi");
+    let result = select_word(&mut session, "2026-08-09");
+    assert_eq!(result.commit.as_deref(), Some("2026-08-09"));
+    assert!(session.snapshot().preedit.is_empty());
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT count(*) FROM user_dictionary_operations"
+        ),
+        0
+    );
+    assert_eq!(count(&fixture.main_db(), "SELECT count(*) FROM tbl_2_r"), 1);
+}
+
+/// 词库里没有锚定词时什么都不加；关掉日期时间模式（T 模式）时 26 键、九宫格都不加。
+#[test]
+fn date_time_rows_need_their_word_and_the_date_time_switch() {
+    let fixture = Fixture::new(&INLINE_DATE_TIME_FIXTURE.replace(
+        "INSERT INTO tbl_2_x VALUES('xing''qi','xq','星期',500);",
+        "",
+    ));
+    let mut session = fixture.session();
+    TestClock::install(&mut session);
+    type_text(&mut session, "xingqi");
+    assert!(!words(&session).contains(&"星期日".to_owned()));
+    session.command(Command::Cancel);
+
+    let mut session = fixture.session_with(|options| options.local_modes.date_time = false);
+    TestClock::install(&mut session);
+    type_text(&mut session, "riqi");
+    assert_eq!(words(&session)[..1], ["日期"]);
+    assert!(!words(&session).contains(&"2026年8月9日".to_owned()));
+    session.command(Command::Cancel);
+    session.set_nine_key_enabled(true);
+    type_text(&mut session, "7474");
+    assert!(words(&session).contains(&"日期".to_owned()));
+    assert!(!words(&session).contains(&"2026年8月9日".to_owned()));
+}
+
+/// 九宫格打出关键词的数字（`7474` 是 riqi，`75` 是 sj 的简拼）时同样接在词后面，选中后吃掉全部数字。
+#[test]
+fn nine_key_digits_of_a_keyword_add_date_time_rows() {
+    let fixture = Fixture::new(INLINE_DATE_TIME_FIXTURE);
+    let mut session = fixture.session();
+    TestClock::install(&mut session);
+    session.set_nine_key_enabled(true);
+
+    type_text(&mut session, "7474");
+    let rows = words(&session);
+    let at = rows.iter().position(|word| word == "日期").expect("日期");
+    assert_eq!(
+        rows[at + 1..at + 4],
+        ["2026年8月9日", "2026-08-09", "2026年8月9日 星期日"]
+    );
+    assert!(rows.contains(&"脾气".to_owned()));
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.candidates[at + 1].pinyin, "7474");
+    assert_eq!(
+        snapshot.candidates[at + 1].source,
+        CandidateSource::Generated
+    );
+    let result = session.select(at + 1);
+    assert_eq!(result.commit.as_deref(), Some("2026年8月9日"));
+    assert!(session.snapshot().candidates.is_empty());
+
+    type_text(&mut session, "75");
+    let rows = words(&session);
+    let at = rows.iter().position(|word| word == "时间").expect("时间");
+    assert_eq!(rows[at + 1], "14:30");
+    session.command(Command::Cancel);
+
+    // `74` 是 ri 也是 pi，不是关键词。
+    type_text(&mut session, "74");
+    assert!(!words(&session).iter().any(|word| word.contains("2026")));
 }
 
 #[test]
