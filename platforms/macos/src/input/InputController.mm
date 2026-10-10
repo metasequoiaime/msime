@@ -6,6 +6,7 @@
 #import "../settings/RuntimeOptions.h"
 #import "../../../../shared/apple/TextClient.h"
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 #import "../candidate/CandidatePlacement.h"
 #import "../candidate/CandidateGlossSenses.h"
 #import "InputSourceRegistration.h"
@@ -153,21 +154,21 @@ static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msi
         return;
     }
     dispatch_async(MSIMETypingStatisticsQueue(), ^{
-        char *response = msime_client_typing_statistics(static_cast<const uint8_t *>(data.bytes), data.length);
+        auto response = msime::host_api::own_string(
+            msime_client_typing_statistics(static_cast<const uint8_t *>(data.bytes), data.length));
         // Statistics are best effort and must never affect text commitment, so the response carries no UI state. A failure is logged as a label only, like the source's stats open/persist/retention lines: the error string can name files, and the log never carries it.
         if (!response) {
             msime_macos_diagnostic_write("stats: record_failed reason=no_response");
             return;
         }
         if (msime_macos_diagnostic_enabled()) {
-            NSData *body = [NSData dataWithBytesNoCopy:response length:strlen(response) freeWhenDone:NO];
+            NSData *body = [NSData dataWithBytesNoCopy:response.get() length:strlen(response.get()) freeWhenDone:NO];
             NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:body options:0 error:nil];
             if (![envelope isKindOfClass:NSDictionary.class])
                 msime_macos_diagnostic_write("stats: record_failed reason=malformed_response");
             else if (!MSIMEStrictBoolean(envelope[@"ok"]))
                 msime_macos_diagnostic_write("stats: record_failed reason=store");
         }
-        msime_client_string_free(response);
     });
 }
 
@@ -196,21 +197,21 @@ static void MSIMERecordKeyPresses(NSString *directory, msime::mac::KeyPressFlush
             msime_macos_diagnostic_write("stats: record_keys_failed reason=encode");
             return;
         }
-        char *response = msime_client_typing_statistics(static_cast<const uint8_t *>(data.bytes), data.length);
+        auto response = msime::host_api::own_string(
+            msime_client_typing_statistics(static_cast<const uint8_t *>(data.bytes), data.length));
         // Like the text path, a failure is logged as a label only and never reaches the key path.
         if (!response) {
             msime_macos_diagnostic_write("stats: record_keys_failed reason=no_response");
             return;
         }
         if (msime_macos_diagnostic_enabled()) {
-            NSData *body = [NSData dataWithBytesNoCopy:response length:strlen(response) freeWhenDone:NO];
+            NSData *body = [NSData dataWithBytesNoCopy:response.get() length:strlen(response.get()) freeWhenDone:NO];
             NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:body options:0 error:nil];
             if (![envelope isKindOfClass:NSDictionary.class])
                 msime_macos_diagnostic_write("stats: record_keys_failed reason=malformed_response");
             else if (!MSIMEStrictBoolean(envelope[@"ok"]))
                 msime_macos_diagnostic_write("stats: record_keys_failed reason=store");
         }
-        msime_client_string_free(response);
     });
 }
 
