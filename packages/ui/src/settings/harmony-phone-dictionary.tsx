@@ -58,6 +58,7 @@ export function HarmonyPhoneDictionary() {
   const [addingDictionary, setAddingDictionary] = useState(false);
   const [busy, setBusy] = useState(false);
   const mounted = useRef(true);
+  const reloadGeneration = useRef(0);
   useEffect(
     () => () => {
       mounted.current = false;
@@ -66,21 +67,26 @@ export function HarmonyPhoneDictionary() {
   );
 
   const reload = async (flush: boolean) => {
+    const current = ++reloadGeneration.current;
     if (dictionary?.count) {
       dictionary
         .count("pinyin")
-        .then((count) => mounted.current && setBuiltinCount(count))
+        .then(
+          (count) =>
+            mounted.current && current === reloadGeneration.current && setBuiltinCount(count),
+        )
         .catch(() => undefined);
     }
     if (!collections) return;
     try {
       // 读列表时顺手把还没送出的增删再送一批，与 Android 打开词库页时相同。
       const next = flush ? await collections.flush() : await collections.load();
-      if (!mounted.current) return;
+      if (!mounted.current || current !== reloadGeneration.current) return;
       setView(next);
       setLoadFailure("");
     } catch (error) {
-      if (mounted.current) setLoadFailure(collectionFailureMessage(error));
+      if (mounted.current && current === reloadGeneration.current)
+        setLoadFailure(collectionFailureMessage(error));
     }
   };
   useEffect(() => {
@@ -89,6 +95,8 @@ export function HarmonyPhoneDictionary() {
 
   const run = async (action: () => Promise<DictionaryCollectionsView>, done?: string) => {
     if (busy) return undefined;
+    // A mutation owns the next view; an older flush/load must not overwrite it when it settles.
+    reloadGeneration.current++;
     setBusy(true);
     try {
       const next = await action();
