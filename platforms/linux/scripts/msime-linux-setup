@@ -1210,9 +1210,18 @@ def linglong_installed() -> bool:
     return shutil.which("ll-cli") is not None or Path("/var/lib/linglong").is_dir()
 
 
-def linglong_ibus_note(host: str | None, release: dict[str, str], linglong: bool) -> str | None:
-    """输入法注册进 IBus、且这台机器是 deepin/UOS 或装了玲珑时，返回要打印的提示，否则 None。只提示，不替用户切换框架。"""
-    if host != "ibus":
+def fcitx5_addon_installed(prefix: Path) -> bool:
+    """本安装带不带 Fcitx5 插件：插件条目 fcitx5/addon/<插件名>.conf 在不在。full 和自定义前缀的安装把它装在前缀的 share 下，装在 /opt 下的版本装在 /usr/share 下（fcitx5/CMakeLists.txt）。不带插件的构建（-DMSIME_ENABLE_FCITX5=OFF，例如 UOS 20、Debian 10 用的 legacy 包）没有这个文件。"""
+    entry = Path("fcitx5/addon") / f"{FCITX5_INPUT_METHOD}.conf"
+    return any((directory / entry).is_file() for directory in (prefix / "share", Path("/usr/share")))
+
+
+def linglong_ibus_note(host: str | None, release: dict[str, str], linglong: bool, fcitx5_addon: bool) -> str | None:
+    """输入法注册进 IBus、本安装带 Fcitx5 插件、且这台机器是 deepin/UOS 或装了玲珑时，返回要打印的提示，否则 None。只提示，不替用户切换框架。
+
+    不带 Fcitx5 插件的安装不提示：提示让用户切到 Fcitx5 并把水杉注册进去，而那里没有水杉的插件，照做之后所有应用里都用不了水杉，不只是玲珑应用。
+    """
+    if host != "ibus" or not fcitx5_addon:
         return None
     distributions = {release.get("ID", "").lower(), *release.get("ID_LIKE", "").lower().split()}
     if not linglong and not distributions & LINGLONG_DISTRIBUTIONS:
@@ -1223,7 +1232,7 @@ def linglong_ibus_note(host: str | None, release: dict[str, str], linglong: bool
 def print_linglong_ibus_note(host: str | None) -> None:
     if host != "ibus":
         return
-    note = linglong_ibus_note(host, os_release(), linglong_installed())
+    note = linglong_ibus_note(host, os_release(), linglong_installed(), fcitx5_addon_installed(install_prefix()))
     if note:
         print(note)
 
