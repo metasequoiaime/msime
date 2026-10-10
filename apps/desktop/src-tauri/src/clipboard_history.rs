@@ -38,7 +38,10 @@ pub(crate) fn clipboard_enabled(
 pub(crate) fn linux_clipboard_text() -> Result<Option<String>, HostActionError> {
     type Arguments = &'static [&'static str];
     let mut commands: Vec<(&str, Arguments, Option<Arguments>)> = Vec::with_capacity(3);
-    if std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty()) {
+    // 合成器不提供 data-control 时 `wl-paste` 要抢焦点才能读，改经 XWayland 的 X11 剪贴板读取，见 `wayland_paste_is_background`。
+    if std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty())
+        && linux_clipboard::wayland_paste_is_background()
+    {
         commands.push((
             "wl-paste",
             &["--no-newline", "--type", "text"],

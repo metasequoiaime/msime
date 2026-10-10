@@ -835,6 +835,9 @@ pub struct Preferences {
     /// 九宫格数字层按电话还是计算器排列；字母层不受影响。
     #[serde(default)]
     pub touch_number_keypad_order: NumberKeypadOrder,
+    /// 触屏 26 键双拼时在字母键底部画当前方案的声母/韵母提示，读屏也读它。默认开；全拼、独立英文和本地模式本来就不画，不受它影响。桌面宿主原样保留、不使用。
+    #[serde(default = "enabled_by_default")]
+    pub touch_shuangpin_key_hints: bool,
     /// The optional buttons on the touch keyboard's toolbar, the counterpart of the floating toolbar's component switches. The voice entry stays under `touch_voice_shortcut`.
     #[serde(default)]
     pub touch_toolbar: TouchToolbarPreferences,
@@ -917,12 +920,21 @@ pub struct Preferences {
     pub paired_punctuation: bool,
     #[serde(default)]
     pub punctuation_lock: PunctuationLock,
+    /// 大写锁定打开时，中文模式下没有组字时的标点按英文标点输出，和切到英文模式时一样（`punctuation_lock` 为 `chinese` 时仍是中文标点）。只有向会话报告大写锁定状态的宿主（`HostCapabilities::caps_lock_punctuation`）会用到它。默认关，打开前的行为不变。
+    #[serde(default)]
+    pub caps_lock_ascii_punctuation: bool,
     #[serde(default)]
     pub navigation: NavigationPreferences,
     #[serde(default)]
     pub keybindings: KeybindingPreferences,
     #[serde(default)]
     pub word_character: WordCharacterPreferences,
+    /// 用两个专用键直接选当前页的第二、第三个候选。等于默认值（关闭）时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(
+        default,
+        skip_serializing_if = "SecondThirdCandidatePreferences::is_default"
+    )]
+    pub second_third_candidate: SecondThirdCandidatePreferences,
     #[serde(default)]
     pub frequency: FrequencyPreferences,
     #[serde(default)]
@@ -1718,6 +1730,29 @@ impl Default for WordCharacterPreferences {
     }
 }
 
+/// 选第二、第三个候选的那一对键。目前只有分号和单引号一种；留成枚举，是为了以后加左右 Shift 之类的键位时不必改文档格式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SecondThirdCandidateKeys {
+    /// `;` 选第二个候选，`'` 选第三个候选。
+    #[default]
+    SemicolonQuote,
+}
+
+/// 缺哪个字段就取默认值，宿主的设置页只写 `enabled` 也能读。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct SecondThirdCandidatePreferences {
+    pub enabled: bool,
+    pub keys: SecondThirdCandidateKeys,
+}
+
+impl SecondThirdCandidatePreferences {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NavigationPreferences {
@@ -1925,6 +1960,7 @@ impl Default for Preferences {
             touch_keyboard_height_adjustment: 0,
             touch_voice_shortcut: false,
             touch_number_keypad_order: NumberKeypadOrder::default(),
+            touch_shuangpin_key_hints: true,
             touch_toolbar: TouchToolbarPreferences::default(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
@@ -1955,9 +1991,11 @@ impl Default for Preferences {
             smart_punctuation_direct_letter: smart_punctuation_default(),
             paired_punctuation: true,
             punctuation_lock: PunctuationLock::Follow,
+            caps_lock_ascii_punctuation: false,
             navigation: NavigationPreferences::default(),
             keybindings: KeybindingPreferences::default(),
             word_character: WordCharacterPreferences::default(),
+            second_third_candidate: SecondThirdCandidatePreferences::default(),
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),
@@ -2097,6 +2135,8 @@ pub enum HelpcodeSchema {
     Shouyouplus,
     Xiaohe,
     Jiajia,
+    /// 五笔 86：每个字取 86 五笔全码的前两码（`resources/helpcodes/wubi86_helpcode.txt`）。
+    Wubi86,
     /// A user table under the resource set's `helpcodes/custom` directory.
     Custom(String),
 }
@@ -2110,6 +2150,7 @@ impl HelpcodeSchema {
             Self::Shouyouplus => "shouyouplus",
             Self::Xiaohe => "xiaohe",
             Self::Jiajia => "jiajia",
+            Self::Wubi86 => "wubi86",
             Self::Custom(value) => value,
         }
     }
@@ -2137,6 +2178,7 @@ impl<'de> Deserialize<'de> for HelpcodeSchema {
             "shouyouplus" => Ok(Self::Shouyouplus),
             "xiaohe" => Ok(Self::Xiaohe),
             "jiajia" => Ok(Self::Jiajia),
+            "wubi86" => Ok(Self::Wubi86),
             value if crate::helpcode::is_custom_schema(value) => Ok(Self::Custom(value.into())),
             _ => Err(serde::de::Error::custom("unknown helpcode schema")),
         }
@@ -2223,13 +2265,14 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
 }
 
 /// Persisted recognition provider identifiers. Hosts expose only the providers they implement: `system` is the platform speech adapter, not a cloud profile, and `local` is an installed on-device sherpa-onnx model directory named by `asr_model_path`, which needs a host built with the recognizer behind it.
-pub const ASR_PROVIDERS: [&str; 8] = [
+pub const ASR_PROVIDERS: [&str; 9] = [
     "doubao",
     "siliconflow",
     "openai",
     "groq",
     "everyapi",
     "mistral",
+    "bailian",
     "system",
     "local",
 ];
@@ -2486,7 +2529,7 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidFrequency);
         }
-        if !(1..=9).contains(&self.candidate_page_size) {
+        if !(1..=MAX_CANDIDATE_PAGE_SIZE).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
         }
         if !(30..=60).contains(&self.touch_key_spacing_tenths)
@@ -2592,7 +2635,7 @@ pub enum PreferencesError {
     InvalidTencentTmt,
     #[error("NiuTrans translation credentials are invalid")]
     InvalidNiuTrans,
-    #[error("candidate page size must be between 1 and 9")]
+    #[error("candidate page size must be between 1 and 10")]
     InvalidPageSize,
     #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
     InvalidTouchKeyboardSpacing,
@@ -3247,6 +3290,9 @@ fn sweep_stale_temporaries(directory: &Path) {
 
 /// 诊断快照里替换凭据的值，与服务端校验要求的写法相同。
 pub const REDACTED: &str = "<redacted>";
+
+/// 每页候选数的上限。数字键 1–9 选前九个，第十个由 0 键选（宿主各自按键位映射）。
+pub const MAX_CANDIDATE_PAGE_SIZE: u8 = 10;
 
 /// [`Preferences::credential_slots`] 里的一个凭据字段。
 pub enum CredentialSlot<'a> {

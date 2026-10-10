@@ -64,10 +64,11 @@ public final class HardwareKeyboardModePolicySmoke {
         check(!HardwareKeyboardModePolicy.keysCollapsed(true, true), "panel needs the key area");
         check(!HardwareKeyboardModePolicy.keysCollapsed(false, false), "soft keyboard mode");
 
-        // 序号：1–9，与数字行选词对应。
+        // 序号：1–9 和 0，与数字行选词对应。
         check("1 ".equals(HardwareKeyboardModePolicy.candidatePrefix(true, true, false, 0)), "first slot");
         check("9 ".equals(HardwareKeyboardModePolicy.candidatePrefix(true, true, false, 8)), "ninth slot");
-        check(HardwareKeyboardModePolicy.candidatePrefix(true, true, false, 9).isEmpty(), "no tenth digit");
+        check("0 ".equals(HardwareKeyboardModePolicy.candidatePrefix(true, true, false, 9)), "tenth slot is 0");
+        check(HardwareKeyboardModePolicy.candidatePrefix(true, true, false, 10).isEmpty(), "no eleventh digit");
         check(HardwareKeyboardModePolicy.candidatePrefix(true, true, false, -1).isEmpty(), "invalid slot");
         check(HardwareKeyboardModePolicy.candidatePrefix(false, true, false, 0).isEmpty(), "touch typing");
         check(HardwareKeyboardModePolicy.candidatePrefix(true, false, false, 0).isEmpty(),

@@ -168,6 +168,8 @@ inline std::atomic_bool SmartPunctuationDirectLetterEnabled{false};
 // Default on until the Server sends the persisted setting.
 inline std::atomic_bool PairedPunctuationEnabled{true};
 inline std::atomic_bool MicrosoftShuangpinEnabled{false};
+// 组字时 ';' 和 '\'' 选第二、第三个候选。Server 用 SecondThirdCandidateChanged 推送之前保持关闭，两个键照常是标点。
+inline std::atomic_bool SecondThirdCandidateEnabled{false};
 // The scheme the TIP keys before its host session answers a key: scheme::mode_scheme of the mode the Server last announced in InputModeChanged, or of the scheme the preferences run before it has (common/InputSchemeTraits.h). The pinyin and shape schemes all read as quanpin, which they key alike.
 inline std::atomic_int InputModeScheme{0};
 // The V, "/" and "@" local modes, off until the Server sends LocalModeTriggersChanged: while off their keys route exactly as before the modes existed.

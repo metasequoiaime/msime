@@ -12,7 +12,16 @@ public final class NumberRowSelectionPolicySmoke {
         // shows up when somebody presses the key.
         check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_1, false, true, "none", "", '1') == 0, "1");
         check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_9, false, true, "none", "", '9') == 8, "9");
-        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_0, false, true, "none", "", '0') == -1, "zero");
+        // 0 是第十个槽位，页里有没有第十个候选由调用方按 view 判断。
+        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_0, false, true, "none", "", '0') == 9, "zero");
+        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_0, false, true, "unicode", "0123456789", '0') == -1,
+            "U mode plain 0 is a hex digit");
+        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_0, true, true, "unicode", "0123456789", ')') == 9,
+            "U mode Shift+0 picks the tenth");
+        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_0, false, true, "none", "0,./;-", '0') == -1,
+            "Zhuyin list open: 0 is its ㄢ key");
+        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_MINUS, false, true, "none", "", '-') == -1,
+            "minus is not a digit");
         check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_1, false, false, "none", "", '1') == -1, "disabled");
 
         // The four quadrants of the mode/shift split. In U mode the plain digits are the code point

@@ -2,6 +2,7 @@
 #include "LocalAsr.h"
 // Shared implementation; the historical namespace is retained for ABI compatibility.
 
+#include <cppcodec/base64_rfc4648.hpp>
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
@@ -66,6 +67,8 @@ std::string default_asr_endpoint(std::string_view provider) {
     return "https://api.everyapi.ai/v1/audio/transcriptions";
   if (id == "mistral")
     return "https://api.mistral.ai/v1/audio/transcriptions";
+  if (id == "bailian")
+    return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
   if (id == "doubao")
     return "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async";
   // Keep unknown legacy values on the HTTP provider fallback used by the
@@ -85,9 +88,31 @@ std::string default_asr_model(std::string_view provider) {
     return "openai/whisper-large-v3-turbo";
   if (id == "mistral")
     return "voxtral-mini-latest";
+  if (id == "bailian")
+    return "qwen3-asr-flash";
   if (id == "doubao")
     return {};
   return "FunAudioLLM/SenseVoiceSmall";
+}
+
+std::string asr_request_format(std::string_view provider) {
+  const auto id = normalize_voice_provider(provider);
+  if (id == "doubao")
+    return "doubao_websocket";
+  if (id == "openai" || id == "groq" || id == "siliconflow" || id == "everyapi" ||
+      id == "mistral")
+    return "multipart";
+  if (id == "bailian")
+    return "chat_audio";
+  if (id == "local")
+    return "local";
+  return {};
+}
+
+std::size_t batch_capture_sample_limit_for(std::string_view provider) {
+  if (asr_request_format(provider) == "chat_audio")
+    return (chat_audio_max_wav_bytes - 44u) / 2u;
+  return batch_capture_sample_limit;
 }
 
 std::string default_polish_endpoint(std::string_view provider) {
@@ -243,7 +268,7 @@ std::string encode_wav(const std::vector<float> &samples) {
   return wav;
 }
 
-// The transcript in an OpenAI-style answer: `text`, then `transcription`, then `result.text`, whichever is a non-empty string first. write_response has already bounded the body to 1 MiB.
+// 从 OpenAI 风格的回答里取识别文字：依次看 `text`、`transcription`、`result.text`、`choices[0].message.content`（chat_audio），取第一个非空字符串。write_response 已把回答体限制在 1 MiB 以内。
 std::string parse_transcription(const std::string &response) {
   nlohmann::json json;
   try {
@@ -262,6 +287,11 @@ std::string parse_transcription(const std::string &response) {
       return text;
   if (json.is_object() && json.contains("result"))
     if (auto text = member(json["result"], "text"); !text.empty())
+      return text;
+  if (json.is_object() && json.contains("choices") && json["choices"].is_array() &&
+      !json["choices"].empty() && json["choices"][0].is_object() &&
+      json["choices"][0].contains("message"))
+    if (auto text = member(json["choices"][0]["message"], "content"); !text.empty())
       return text;
   throw VoiceError("Missing transcription text");
 }
@@ -349,6 +379,25 @@ std::string recognize_cloud_asr(
   }
   const std::string model_value(model);
   const std::string language_value = transcription_language(id, language);
+  // 按请求格式挑请求构造：chat_audio（阿里云百炼）是带 Base64 录音的 JSON，其余是 multipart。
+  const bool chat = asr_request_format(id) == "chat_audio";
+  std::string chat_payload;
+  if (chat) {
+    if (wav.size() > chat_audio_max_wav_bytes)
+      throw CloudAsrError("Audio exceeds the chat audio upload limit",
+                          "录音超过阿里云百炼的上传上限（约 3 分半钟），请分段说。");
+    const nlohmann::json part = {
+        {"type", "input_audio"},
+        {"input_audio",
+         {{"data", "data:audio/wav;base64," +
+                       cppcodec::base64_rfc4648::encode<std::string>(wav.data(), wav.size())}}}};
+    const nlohmann::json message = {{"role", "user"},
+                                    {"content", nlohmann::json::array({part})}};
+    chat_payload = nlohmann::json{{"model", model_value},
+                                  {"stream", false},
+                                  {"messages", nlohmann::json::array({message})}}
+                       .dump();
+  }
   initialize_curl();
   const std::string endpoint_value(endpoint);
 
@@ -383,9 +432,10 @@ std::string recognize_cloud_asr(
              (!filename || curl_mime_filename(part, filename) == CURLE_OK) &&
              (!type || curl_mime_type(part, type) == CURLE_OK);
     };
-    if (!add_part("model", model_value, nullptr, nullptr) ||
-        (!language_value.empty() && !add_part("language", language_value, nullptr, nullptr)) ||
-        !add_part("file", wav, "audio.wav", "audio/wav"))
+    if (!chat && (!add_part("model", model_value, nullptr, nullptr) ||
+                  (!language_value.empty() &&
+                   !add_part("language", language_value, nullptr, nullptr)) ||
+                  !add_part("file", wav, "audio.wav", "audio/wav")))
       throw VoiceError("Cannot create HTTP request");
     std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> headers(
         curl_slist_append(nullptr, ("Authorization: Bearer " +
@@ -399,9 +449,23 @@ std::string recognize_cloud_asr(
       throw VoiceError("Cannot create HTTP headers");
     headers.release();
     headers.reset(next);
+    if (chat) {
+      next = curl_slist_append(headers.get(), "Content-Type: application/json");
+      if (!next)
+        throw VoiceError("Cannot create HTTP headers");
+      headers.release();
+      headers.reset(next);
+    }
     curl_easy_setopt(curl.get(), CURLOPT_URL, endpoint_value.c_str());
     curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.get());
-    curl_easy_setopt(curl.get(), CURLOPT_MIMEPOST, form.get());
+    if (chat) {
+      curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
+      curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, chat_payload.data());
+      curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE_LARGE,
+                       static_cast<curl_off_t>(chat_payload.size()));
+    } else {
+      curl_easy_setopt(curl.get(), CURLOPT_MIMEPOST, form.get());
+    }
     curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, write_response);
     curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &response_data);
     curl_easy_setopt(curl.get(), CURLOPT_HEADERFUNCTION, write_trace_header);

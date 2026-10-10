@@ -53,4 +53,5 @@ words 集没有任何音节档回退，`baseline-nine-key.json` 随本次更新�
 - 用户关掉了中英混输，九键打出拼不成音节的数字时仍会看到英文词；这只在列表本来为空时发生。
 - Android 九键右列的「拆分」没有了，习惯了它的用户要改用组字时的 1 键「分词」。iOS、HarmonyOS 九键这次没改。
 - 相关：同一个刷新函数的两次性能改动见 [九宫格查询键有界去重](../testing/2026-10-08-nine-key-query-dedup.md) 和 [九宫格候选去重](../testing/2026-10-08-nine-key-candidate-dedup.md)，本次不改变它们的结论。
+- 相关：九键此后遵守句子联想设置、键盘模型跨切分统一重排一次，见 [九键遵守句子联想设置](../feature/2026-10-09-nine-key-sentence-options.md)；本篇说的切分解码上限不变。
 - 相关：全拼在模糊音下沿用同一方向（覆盖整个输入的词库行先于整句、精确先于模糊），见 [全拼模糊整词排在替补整句之前](2026-10-08-fuzzy-whole-input-before-stand-in-sentence.md)。

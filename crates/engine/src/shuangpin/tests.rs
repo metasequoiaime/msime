@@ -234,6 +234,46 @@ fn profiles_decode_their_own_codes() {
     assert!(split.iter().all(|item| item.pinyin == "nih"));
 }
 
+/// 五笔 86 辅助码（`wubi86`）走的是同一套筛选：码表按方案名从资源目录载入，表头的 `#` 行被跳过；单字比整码，词比首字首码加末字首码。码表内容是合成的。
+#[test]
+fn wubi86_helpcodes_filter_by_the_first_two_letters() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_m(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_m VALUES('ma','m','吗',300),('ma','m','马',200),('ma','m','码',100);CREATE TABLE tbl_2_m(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_2_m VALUES('ma''ma','mm','妈妈',300),('ma''ma','mm','马码',200);CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);",
+    );
+    let helpcodes = fixture.paths.resources.join("helpcodes");
+    std::fs::create_dir_all(&helpcodes).unwrap();
+    std::fs::write(
+        helpcodes.join("wubi86_helpcode.txt"),
+        "# 合成表头\n吗=kc\n马=cn\n码=dc\n妈=vc\n",
+    )
+    .unwrap();
+    let codes = crate::helpcode::load_helpcode_keymap(&fixture.paths.resources, "wubi86").unwrap();
+    assert_eq!(codes.code("码"), Some("dc"));
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+
+    // 第一个字母小写、第二个大写时两码按输入顺序读。
+    assert_eq!(
+        words(&engine.query(&request("madC", true), Some(&codes))),
+        ["码"]
+    );
+    assert_eq!(
+        words(&engine.query(&request("macN", true), Some(&codes))),
+        ["马"]
+    );
+    // 单码把首码或末码相符的字提前。
+    let single = engine.query(&request("maD", true), Some(&codes));
+    assert_eq!(words(&single)[0], "码");
+    // 马码：首字马的首码 c，末字码的首码 d；妈妈是 v、v。
+    assert_eq!(
+        words(&engine.query(&request("mamacD", true), Some(&codes))),
+        ["马码"]
+    );
+    assert_eq!(
+        words(&engine.query(&request("mamavV", true), Some(&codes))),
+        ["妈妈"]
+    );
+}
+
 /// overlays.md §5.1: a double-helpcode entry is keyed by its codes, and an online row lands only under the combination it was inserted for.
 #[test]
 fn online_rows_follow_the_query_cache() {

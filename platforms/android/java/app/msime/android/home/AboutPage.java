@@ -386,7 +386,7 @@ public final class AboutPage extends DetailPage {
             }
         }
         for (String fixed : new String[] {"client-LICENSE.txt", "helpcodes/NOTICE.md", "helpcodes/NOTICE-jiajia.md",
-                "offline-glosses/offline-glosses-NOTICE.txt"}) {
+                "helpcodes/NOTICE-wubi86.md", "offline-glosses/offline-glosses-NOTICE.txt"}) {
             if (exists(assets, fixed)) found.add(fixed);
         }
         String[] languages = assets.list("language-dictionaries");

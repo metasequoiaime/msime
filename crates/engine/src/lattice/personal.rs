@@ -242,6 +242,14 @@ impl PersonalNgram {
         self.total == 0
     }
 
+    /// `word` 作为后继被提交过的计数之和，不论前一个词是什么（显式选词每次记两次，见 `session::learning`）。只读；九键按它判断用户用过哪些简拼词（#6185）。
+    pub fn word_count(&self, word: &str) -> u32 {
+        if word.is_empty() {
+            return 0;
+        }
+        self.word_counts.get(key_of(word))
+    }
+
     /// Sum of every pair count.
     #[cfg(test)]
     pub fn total(&self) -> u64 {

@@ -43,7 +43,7 @@ export interface NavigationSectionProps {
   navigation: NavigationPreferences;
   wordCharacter: WordCharacterPreferences;
   linux: boolean;
-  /** HarmonyOS 手机的「候选栏」页以「外接键盘翻页键」承载翻页键：用设计的标签，没有鼠标滚轮，在只有标题的一行下面排成两列网格。 */
+  /** HarmonyOS 手机的「外接键盘快捷键」页以「外接键盘翻页键」承载翻页键：用设计的标签，没有鼠标滚轮，在只有标题的一行下面排成两列网格。 */
   harmonyPhone?: boolean;
   onChange: (next: {
     navigation: NavigationPreferences;
@@ -51,7 +51,7 @@ export interface NavigationSectionProps {
   }) => void;
 }
 
-/** 共用的候选翻页设置及其与以词定字的互斥：输入页「选词与翻页」组里以词定字之后的部分；HarmonyOS 手机上放在候选栏页的「翻页」组。 */
+/** 共用的候选翻页设置及其与以词定字的互斥：输入页「选词与翻页」组里以词定字之后的部分；HarmonyOS 手机上放在「外接键盘快捷键」页的「翻页」组。 */
 export function NavigationSection({
   navigation,
   wordCharacter,

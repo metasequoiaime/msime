@@ -8,6 +8,7 @@ import {
   SettingsPage,
   formatModelBytes,
   localModelErrorMessage,
+  localModelImportErrorMessage,
   localModelInUse,
   localModelProgressPercent,
   validModelMirror,
@@ -45,6 +46,13 @@ function model(overrides: Partial<LocalVoiceModel>): LocalVoiceModel {
     license_terms: "",
     license_notice: "模型按 Apache-2.0 许可分发。",
     hotwords: "native",
+    import_files: [
+      {
+        name: `${id}.tar.bz2`,
+        url: `https://example.com/releases/${id}.tar.bz2`,
+        size: overrides.archive_size ?? 133_895_136,
+      },
+    ],
     ...overrides,
   };
 }
@@ -434,6 +442,114 @@ test("declining the removal keeps the model", async () => {
   await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
   expect(fake.client.remove).not.toHaveBeenCalled();
   expect(onRemoved).not.toHaveBeenCalled();
+});
+
+/** 带「从文件导入」的宿主：`picked` 是用户在选择器里的结果，`null` 表示关掉了选择器。 */
+function importingClient(models: LocalVoiceModel[]) {
+  const fake = fakeClient(models);
+  let finishImport: ((path: string | null) => void) | undefined;
+  let failImport: ((error: unknown) => void) | undefined;
+  const importModel = vi.fn(
+    (_id: string) =>
+      new Promise<string | null>((resolve, reject) => {
+        finishImport = resolve;
+        failImport = reject;
+      }),
+  );
+  const client: LocalVoiceModelClient = { ...fake.client, import: importModel };
+  return {
+    ...fake,
+    client,
+    importModel,
+    picked: (path: string | null) => act(async () => finishImport?.(path)),
+    failed: (error: unknown) => act(async () => failImport?.(error)),
+  };
+}
+
+test("a host without a file picker offers no import", async () => {
+  const fake = fakeClient([streaming]);
+  renderManager(fake.client);
+
+  const card = within(await screen.findByRole("listitem", { name: "中英流式" }));
+  expect(card.queryByRole("button", { name: "从文件导入" })).toBeNull();
+  expect(card.queryByText(/不联网安装/)).toBeNull();
+});
+
+test("importing lists the files to download, links them and puts a first model to use", async () => {
+  const sensePack = {
+    ...sense,
+    import_files: [
+      {
+        name: "sense.tar.bz2",
+        url: "https://example.com/releases/sense.tar.bz2",
+        size: 163_002_883,
+      },
+      {
+        name: "silero_vad.onnx",
+        url: "https://example.com/releases/silero_vad.onnx",
+        size: 643_854,
+      },
+    ],
+  };
+  const fake = importingClient([sensePack]);
+  const { onUse, openExternalUrl } = renderManager(fake.client);
+
+  const card = within(await screen.findByRole("listitem", { name: "快速整句" }));
+  expect(card.getByText(/不联网安装/)).toBeTruthy();
+  fireEvent.click(card.getByRole("button", { name: "silero_vad.onnx（644 KB）" }));
+  expect(openExternalUrl).toHaveBeenCalledWith("https://example.com/releases/silero_vad.onnx");
+
+  fireEvent.click(card.getByRole("button", { name: "从文件导入" }));
+  expect(fake.importModel).toHaveBeenCalledWith(sense.id);
+  // 选择器还开着时没有进度条，只有取消。
+  expect(card.queryByRole("progressbar")).toBeNull();
+  expect(card.getByRole("button", { name: "取消导入" })).toBeTruthy();
+
+  fake.emit({ id: sense.id, stage: "import", downloaded: 81_501_442, total: 163_002_884 });
+  expect(card.getByRole("progressbar", { name: "快速整句 导入进度" })).toBeTruthy();
+  expect(card.getByText("导入中 50%")).toBeTruthy();
+
+  await fake.picked(sense.path);
+  expect(onUse).toHaveBeenCalledWith(sense.path);
+  expect(await screen.findByText("「快速整句」已导入。")).toBeTruthy();
+  expect(card.queryByRole("progressbar")).toBeNull();
+});
+
+test("closing the file picker changes nothing", async () => {
+  const fake = importingClient([streaming]);
+  const { onUse } = renderManager(fake.client);
+
+  const card = within(await screen.findByRole("listitem", { name: "中英流式" }));
+  fireEvent.click(card.getByRole("button", { name: "从文件导入" }));
+  await fake.picked(null);
+
+  await waitFor(() => expect(card.getByRole("button", { name: "从文件导入" })).toBeTruthy());
+  expect(onUse).not.toHaveBeenCalled();
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
+test("an import missing a file says what to do", async () => {
+  const fake = importingClient([streaming]);
+  renderManager(fake.client);
+
+  const card = within(await screen.findByRole("listitem", { name: "中英流式" }));
+  fireEvent.click(card.getByRole("button", { name: "从文件导入" }));
+  await fake.failed({ code: "local_model_import_missing" });
+
+  expect(await screen.findByText(/缺少这个模型需要的文件/)).toBeTruthy();
+});
+
+test("import failures have their own wording and fall back to the download ones", () => {
+  expect(localModelImportErrorMessage({ code: "local_model_checksum_mismatch" })).toContain(
+    "重新下载后再导入",
+  );
+  expect(localModelImportErrorMessage({ code: "local_model_cancelled" })).toBeNull();
+  expect(localModelImportErrorMessage({ code: "local_model_import_unreadable" })).toContain(
+    "读取所选文件失败",
+  );
+  expect(localModelImportErrorMessage({ code: "local_model_io" })).toBe(
+    localModelErrorMessage({ code: "local_model_io" }),
+  );
 });
 
 const snapshot: Snapshot = {

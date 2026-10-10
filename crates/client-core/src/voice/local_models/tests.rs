@@ -1239,6 +1239,250 @@ fn listing_reports_installed_models_and_removal_accepts_catalog_ids_only() {
     remove(root.path(), id).unwrap();
 }
 
+#[test]
+fn listing_names_the_files_an_offline_install_needs() {
+    let root = tempfile::tempdir().unwrap();
+    let models = list(root.path());
+    let files = |id: &str| {
+        models
+            .iter()
+            .find(|model| model.id == id)
+            .unwrap()
+            .import_files
+            .clone()
+    };
+    // 内嵌的 bpe.vocab 不用下载，所以默认模型只要压缩包。
+    let default = catalog()
+        .models
+        .iter()
+        .find(|model| model.id == default_model_id())
+        .unwrap();
+    assert_eq!(
+        files(default_model_id()),
+        vec![LocalModelImportFile {
+            name: default.archive.name.clone(),
+            url: default.archive.url.clone(),
+            size: default.archive.size,
+        }]
+    );
+    let sense_voice = files("sense-voice-small");
+    assert_eq!(sense_voice.len(), 2);
+    assert_eq!(sense_voice[1].name, "silero_vad.onnx");
+    assert!(sense_voice
+        .iter()
+        .all(|file| file.url.starts_with("https://github.com/") && file.size > 0));
+}
+
+/// 把 `contents` 以给定的文件名写进 `directory`，返回绝对路径。
+fn picked(directory: &Path, name: &str, contents: &[u8]) -> PathBuf {
+    let path = directory.join(name);
+    fs::write(&path, contents).unwrap();
+    path
+}
+
+fn run_import(
+    root: &Path,
+    model: &CatalogModel,
+    files: &[PathBuf],
+    cancel: &AtomicBool,
+) -> (Result<PathBuf, LocalModelError>, Vec<InstallProgress>) {
+    let mut events = Vec::new();
+    let result = import_model(root, model, files, &mut |event| events.push(event), cancel);
+    (result, events)
+}
+
+#[test]
+fn importing_renamed_local_files_installs_the_model() {
+    let root = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    // 下载工具改了名，还多选了一个无关文件。
+    let files = vec![
+        picked(downloads.path(), "unrelated.txt", b"not a model file"),
+        picked(downloads.path(), "vad (1).bin", EXTRA),
+        picked(downloads.path(), "download.tmp", &archive),
+    ];
+
+    let (result, events) = run_import(root.path(), &model, &files, &AtomicBool::new(false));
+
+    let installed = result.unwrap();
+    assert_eq!(installed, root.path().join("fixture"));
+    assert_eq!(
+        fs::read(installed.join("encoder.onnx")).unwrap(),
+        b"encoder"
+    );
+    assert_eq!(fs::read(installed.join("vad.onnx")).unwrap(), EXTRA);
+    assert!(installed.join("bpe.vocab").is_file());
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(installed.join(MANIFEST_FILE)).unwrap()).unwrap();
+    assert_eq!(manifest, model.manifest);
+    assert_eq!(root_entries(root.path()), vec!["fixture"]);
+    // 用户的文件原样留着。
+    assert_eq!(fs::read(&files[2]).unwrap(), archive);
+    let stages: Vec<_> = events.iter().map(|event| event.stage).collect();
+    assert_eq!(stages.first(), Some(&"import"));
+    assert_eq!(stages.last(), Some(&"done"));
+    assert!(!stages.contains(&"download"));
+}
+
+#[test]
+fn importing_without_a_needed_file_names_it_and_installs_nothing() {
+    let root = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let files = vec![
+        picked(downloads.path(), "model.tar.bz2", &archive),
+        // 不是绝对路径的条目不算数。
+        PathBuf::from("vad.onnx"),
+    ];
+
+    let (result, _) = run_import(root.path(), &model, &files, &AtomicBool::new(false));
+
+    assert!(
+        matches!(&result, Err(LocalModelError::MissingImportFile(name)) if name == "vad.onnx"),
+        "{result:?}"
+    );
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "local_model_import_missing: vad.onnx"
+    );
+    assert!(!root.path().join("fixture").exists());
+}
+
+#[test]
+fn importing_a_tampered_file_fails_the_checksum_and_installs_nothing() {
+    let root = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let mut tampered = archive.clone();
+    let last = tampered.len() - 1;
+    tampered[last] ^= 0xff;
+    let files = vec![
+        picked(downloads.path(), "model.tar.bz2", &tampered),
+        picked(downloads.path(), "vad.onnx", EXTRA),
+    ];
+
+    let (result, _) = run_import(root.path(), &model, &files, &AtomicBool::new(false));
+
+    assert!(
+        matches!(result, Err(LocalModelError::ChecksumMismatch(_))),
+        "{result:?}"
+    );
+    assert!(root_entries(root.path()).is_empty());
+}
+
+#[test]
+fn importing_picks_the_right_file_among_same_sized_ones_by_checksum() {
+    let root = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let mut decoy = archive.clone();
+    decoy[0] ^= 0xff;
+    let files = vec![
+        picked(downloads.path(), "a.tar.bz2", &decoy),
+        picked(downloads.path(), "b.tar.bz2", &archive),
+        picked(downloads.path(), "vad.onnx", EXTRA),
+    ];
+
+    let (result, _) = run_import(root.path(), &model, &files, &AtomicBool::new(false));
+    assert!(result.unwrap().join(MANIFEST_FILE).is_file());
+
+    // 长度相同的几个都不对时报校验失败，而不是缺文件。
+    let root = tempfile::tempdir().unwrap();
+    let files = vec![
+        picked(downloads.path(), "c.tar.bz2", &decoy),
+        files[0].clone(),
+        files[2].clone(),
+    ];
+    let (result, _) = run_import(root.path(), &model, &files, &AtomicBool::new(false));
+    assert!(
+        matches!(result, Err(LocalModelError::ChecksumMismatch(_))),
+        "{result:?}"
+    );
+    assert!(!root.path().join("fixture").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn importing_an_unreadable_file_says_so_and_installs_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let files = vec![
+        picked(downloads.path(), "model.tar.bz2", &archive),
+        picked(downloads.path(), "vad.onnx", EXTRA),
+    ];
+    fs::set_permissions(&files[0], fs::Permissions::from_mode(0o000)).unwrap();
+    // 以 root 运行时权限拦不住读取，这个场景造不出来。
+    if File::open(&files[0]).is_ok() {
+        return;
+    }
+
+    let (result, _) = run_import(root.path(), &model, &files, &AtomicBool::new(false));
+
+    assert!(
+        matches!(&result, Err(LocalModelError::UnreadableImportFile(_))),
+        "{result:?}"
+    );
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .starts_with("local_model_import_unreadable"));
+    assert!(root_entries(root.path()).is_empty());
+}
+
+#[test]
+fn cancelling_an_import_leaves_nothing_behind() {
+    let root = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let files = vec![
+        picked(downloads.path(), "model.tar.bz2", &archive),
+        picked(downloads.path(), "vad.onnx", EXTRA),
+    ];
+
+    let (result, _) = run_import(root.path(), &model, &files, &AtomicBool::new(true));
+
+    assert!(matches!(result, Err(LocalModelError::Cancelled)));
+    assert!(root_entries(root.path()).is_empty());
+}
+
+#[test]
+fn importing_accepts_catalog_ids_only() {
+    let root = tempfile::tempdir().unwrap();
+    for rejected in ["../outside", "", "unknown"] {
+        assert!(matches!(
+            import(
+                root.path(),
+                rejected,
+                &[],
+                &mut |_| {},
+                &AtomicBool::new(false)
+            ),
+            Err(LocalModelError::UnknownModel)
+        ));
+    }
+    assert!(matches!(
+        import(
+            root.path(),
+            default_model_id(),
+            &[],
+            &mut |_| {},
+            &AtomicBool::new(false)
+        ),
+        Err(LocalModelError::MissingImportFile(_))
+    ));
+    assert!(root_entries(root.path()).is_empty());
+}
+
 #[cfg(unix)]
 #[test]
 fn listing_rejects_symlinked_model_directories_and_manifests() {

@@ -83,6 +83,12 @@ final class MacSettingsModel: ObservableObject {
           values["platform.macos.input_scheme"] = before["platform.macos.input_scheme"]
         }
       }
+      // 云端的辅助码方案下标超出本机方案目录（更新的版本追加的方案）：预览里换成本机的选择，与原生层应用时保留本机选择的做法一致，预览不会显示一个替换后并不会生效的值。
+      for key in ["platform.macos.quanpin_helpcode_schema", "platform.macos.shuangpin_helpcode_schema"] {
+        if case .integer(let index)? = values[key], index >= Int64(Self.helpcodeSchemeTitles.count) {
+          values[key] = before[key]
+        }
+      }
       guard values.count == before.count else {
         self.message = "云端还没有完整的 macOS 设置，可以先上传本机设置。"; return
       }
@@ -90,6 +96,8 @@ final class MacSettingsModel: ObservableObject {
       self.preview = values; self.expectedLocal = before
     }
   }
+  /// 辅助码方案按云端下标排列的标题，顺序与 CloudAppearanceSettings.h 的 MSIMECloudHelpcodeSchemas 相同。
+  static let helpcodeSchemeTitles = ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加", "五笔 86"]
   /// The global theme travels with the custom theme's base and package, so the three are uploaded together or not at all: a cloud copy with a theme but without its base or package would restore a different look elsewhere.
   static let themeKeys = ["platform.macos.global_theme", "platform.macos.custom_theme_base", "platform.macos.custom_candidate_skin"]
   func upload() {
@@ -177,7 +185,7 @@ struct MacCloudSettingsView: View {
       let names: [String]?
       switch key {
       case "platform.macos.input_scheme": names = ["全拼", "双拼", "五笔"]
-      case "platform.macos.quanpin_helpcode_schema", "platform.macos.shuangpin_helpcode_schema": names = ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加"]
+      case "platform.macos.quanpin_helpcode_schema", "platform.macos.shuangpin_helpcode_schema": names = MacSettingsModel.helpcodeSchemeTitles
       case "platform.macos.candidate_panel_style": names = ["横排", "竖排"]
       // The keys themselves, the way the settings window and the reference's shortcut page write
       // them. This page and that window show one setting, and a reader comparing them should not

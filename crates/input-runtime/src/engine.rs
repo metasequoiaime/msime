@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
-    #[error("candidate page size must be between 1 and 9")]
+    #[error("candidate page size must be between 1 and 10")]
     InvalidPageSize,
     #[error("candidate belongs to an expired view or another session")]
     StaleCandidate,

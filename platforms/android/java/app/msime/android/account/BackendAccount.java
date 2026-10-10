@@ -803,7 +803,13 @@ public final class BackendAccount {
     }
 
     public ClipboardPage clipboard(String search) throws Exception {
+        return clipboard(search, null);
+    }
+
+    /** Read only from the session that opened the keyboard panel. */
+    ClipboardPage clipboard(String search, String expectedSessionId) throws Exception {
         SessionCredential session = currentSession();
+        requireSession(session, expectedSessionId);
         if (session.token().isEmpty() || !validClipboardSearch(search))
             throw new IllegalStateException("invalid clipboard request");
         String encoded = java.net.URLEncoder.encode(search, StandardCharsets.UTF_8.name()).replace("+", "%20");
@@ -851,7 +857,13 @@ public final class BackendAccount {
     }
 
     public ClipboardItem addClipboard(String text) throws Exception {
+        return addClipboard(text, null);
+    }
+
+    /** Prevent a queued keyboard upload from switching to a newly signed-in account. */
+    ClipboardItem addClipboard(String text, String expectedSessionId) throws Exception {
         SessionCredential session = currentSession();
+        requireSession(session, expectedSessionId);
         if (session.token().isEmpty() || !CloudClipboardTextPolicy.valid(text))
             throw new IllegalStateException("invalid clipboard request");
         JSONObject item = authorizedRequest("POST", "/v1/users/me/clipboard", new JSONObject().put("text", text), session);
@@ -862,6 +874,12 @@ public final class BackendAccount {
         if (!validClipboardItem(result))
             throw new IllegalStateException("invalid clipboard response");
         return result;
+    }
+
+    private static void requireSession(SessionCredential session, String expectedSessionId) {
+        if (expectedSessionId != null && (expectedSessionId.isEmpty()
+                || !expectedSessionId.equals(session.sessionId())))
+            throw new CancellationException("account session changed");
     }
 
     static boolean validClipboardItem(ClipboardItem item) {

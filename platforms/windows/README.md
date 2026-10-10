@@ -419,6 +419,8 @@ Microsoft 双拼分号在 edit/basic_key 中先于标点处理：读取 View.mic
 
 以词定字依据共享视图中的高亮候选 ID 调用 Engine 首／尾汉字选择，成功发送 CommitExactText；无汉字或没有候选时清理组合并发送 Normal 高亮文本（可为空），交给 TSF 补本地智能标点，不在 Server 再转换一次，也不完成剩余分段。两条路径都带已有已选前缀，保留焦点、待回复及投递确认门禁。配置持久化监听和生产 KeyHandler 分别由 `PreferenceMonitor` 和 `production_key_handler()` 提供。
 
+二三候选（共享偏好 `second_third_candidate`，默认关闭，目前只有 `semicolon_quote` 一种键位）：打开后组字时 `;` 选当前页第二个候选、`'` 选第三个，与数字键 2、3 走同一条选词回复；组字中的 `'` 因此不再是音节分隔符。TIP 和 Server 用同一条规则归类这两个键（`common/SecondThirdCandidatePolicy.h`）：日文、由 TIP 自己组字的方案（韩文、注音、越南文、藏文）、Engine 自己的英文模式、网址与 V 模式拼写的符号以及微软双拼声母后的韵母 ing 都不接管。Server 从偏好快照读开关（随 `NavigationBindings` 进入 `configured_key`，排在以词定字之后、`basic_key` 之前），TIP 从 Worker 帧 SecondThirdCandidateChanged（30，载荷 `0`/`1`）读；推送到达前 TIP 视为关闭。设置页在「输入 › 选词与翻页」。
+
 ABI 1 的附加符号 msime_client_punctuation，适配器与宿主库必须成套更新。它显式复用共享运行时的高亮候选完成与 Engine 标点转换，避免 Unicode 等局部模式把普通 character 调用标记为已处理却未完成标点提交。非 ASCII 标点参数在状态推进前拒绝；普通/UILess 标点完成均发送 CommitExactText，保留已有焦点、待回复与投递确认门禁。
 
 ### TSF 标点开关同步

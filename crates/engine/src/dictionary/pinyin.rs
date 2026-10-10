@@ -303,7 +303,18 @@ impl PinyinDatabase {
 
     /// 按简拼查词：`codes` 是同样长度的简拼（每个音节的首字母，`mt`、`cflm`），一个字母一个音节，词条的 `jp` 等于其中任何一个就算。按首字母分表，每张表一条 `jp IN (...)` 语句（`jp` 有索引），合起来按权重从高到低取前 `limit` 行；同一个词按不同的码出现时只留第一行。九宫格用它把每个数字当成一个音节的声母来查（#5640）。
     pub fn query_jianpin_codes(&self, codes: &[String], limit: usize) -> Vec<DictRow> {
-        if self.connection.is_none() || codes.is_empty() || limit == 0 {
+        let mut rows = self.query_jianpin_codes_per_table(codes, limit);
+        rows.truncate(limit);
+        rows
+    }
+
+    /// 同 `query_jianpin_codes`，但只截每张首字母表（各取权重最高的 `table_limit` 行），合起来按权重排、去重之后不再截断，最多是表数乘 `table_limit` 行。出货词库里大量词的权重相同（默认的 100），合起来再截时同权重的行按表的先后取舍，排在后面的表里的词会被整批截掉；九宫格要从中找出用户用过的词，所以先拿到每张表各自的前 `table_limit` 行（#6185）。
+    pub fn query_jianpin_codes_per_table(
+        &self,
+        codes: &[String],
+        table_limit: usize,
+    ) -> Vec<DictRow> {
+        if self.connection.is_none() || codes.is_empty() || table_limit == 0 {
             return Vec::new();
         }
         let mut codes_by_table: BTreeMap<String, Vec<&str>> = BTreeMap::new();
@@ -319,14 +330,17 @@ impl PinyinDatabase {
                 table_codes.push(code.as_str());
             }
         }
-        let mut rows = Vec::with_capacity(limit.min(128));
+        let mut rows = Vec::with_capacity(table_limit.min(128));
         for (table, table_codes) in &codes_by_table {
-            let sql = jianpin_batch_sql(table, table_codes.len(), sql_limit(limit));
-            rows.extend(self.rows(&sql, params_from_iter(table_codes), query_capacity(limit)));
+            let sql = jianpin_batch_sql(table, table_codes.len(), sql_limit(table_limit));
+            rows.extend(self.rows(
+                &sql,
+                params_from_iter(table_codes),
+                query_capacity(table_limit),
+            ));
         }
         rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
         deduplicate_by_value(&mut rows);
-        rows.truncate(limit);
         rows
     }
 
@@ -1181,6 +1195,13 @@ mod tests {
         );
         assert!(database.query_jianpin_codes(&codes, 0).is_empty());
         assert!(database.query_jianpin_codes(&[], 10).is_empty());
+
+        // 只截每张表：n 表的前两行和 s 表的前两行都在，合起来不再截到两行（#6185）。
+        assert_eq!(
+            values(&database.query_jianpin_codes_per_table(&codes, 2)),
+            ["你好", "时间", "拟好", "世界"]
+        );
+        assert!(database.query_jianpin_codes_per_table(&codes, 0).is_empty());
     }
 
     #[test]

@@ -2,12 +2,12 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <string>
 
 #include <nlohmann/json.hpp>
 
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 #include "VoiceProviderOptions.h"
 
 namespace msime::linux_host {
@@ -20,9 +20,8 @@ inline nlohmann::json voice_hotwords(const nlohmann::json &host_options, std::si
   const auto request = nlohmann::json{{"options", host_options}, {"limit", limit}}.dump();
   if (request.size() > 65536)
     return empty;
-  std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
-      msime_client_voice_hotwords(reinterpret_cast<const uint8_t *>(request.data()), request.size()),
-      msime_client_string_free);
+  auto raw = msime::host_api::own_string(
+      msime_client_voice_hotwords(reinterpret_cast<const uint8_t *>(request.data()), request.size()));
   if (!raw)
     return empty;
   const auto document = nlohmann::json::parse(raw.get(), nullptr, false);

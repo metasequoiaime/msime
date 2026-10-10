@@ -1,3 +1,4 @@
+import type { DictionaryCollectionsClient } from "./dictionary/dictionary-collections";
 import { useConfirm } from "./core/confirm";
 import { NavItem } from "./core/platform-controls";
 import { ToastProvider } from "./core/toast";
@@ -171,6 +172,11 @@ export {
 } from "./settings/use-settings-navigation";
 export { useSettingsContentScrollReset } from "./settings/use-settings-content-scroll-reset";
 export { useUpdateCheck, type UseUpdateCheckOptions } from "./settings/use-update-check";
+export type {
+  HostReleaseUpdate,
+  UpdateCheckRequest,
+  UpdateCheckResult,
+} from "./settings/update-manifest";
 export {
   aiSettingsPreferences,
   type AiSettingsPreferences,
@@ -1443,7 +1449,11 @@ export {
   type CandidateAppearance,
   type CandidateOrientation,
 } from "./candidate/candidate-themes";
-import { describeInstallerTrust } from "./settings/update-manifest";
+import {
+  describeInstallerTrust,
+  type UpdateCheckRequest,
+  type UpdateCheckResult,
+} from "./settings/update-manifest";
 import { editionUsesHelpcode } from "./settings/input-scheme-options";
 export {
   serializeWindowHostMessage,
@@ -1527,12 +1537,14 @@ export {
   LocalModelManager,
   formatModelBytes,
   localModelErrorMessage,
+  localModelImportErrorMessage,
   localModelInUse,
   localModelProgressPercent,
   validModelMirror,
   visibleLocalModels,
   type LocalVoiceModel,
   type LocalVoiceModelClient,
+  type LocalVoiceModelImportFile,
   type LocalVoiceModelList,
   type LocalVoiceModelProgress,
 } from "./voice/local-models";
@@ -1630,6 +1642,8 @@ export interface HostCapabilities {
   skin_directory_import: boolean;
   /** The one candidate page size the host draws; set when the host offers no choice. */
   fixed_candidate_page_size?: number;
+  /** 宿主能排的最大每页候选数：macOS、Linux、Android 为 10（第十个用 0 键选），其余为 9。 */
+  max_candidate_page_size?: number;
   /** The one candidate layout the host draws; set when the host offers no choice. */
   fixed_candidate_layout?: "horizontal" | "vertical";
   /** The touch keyboard picks its toolbar buttons from `touch_toolbar`. */
@@ -1661,6 +1675,8 @@ export interface HostCapabilities {
   music: boolean;
   /** The host draws the typing effects and the combo count `msime_client_typing_effect` answers with. */
   typing_effects: boolean;
+  /** 宿主向会话报告大写锁定状态，「大写锁定时使用英文标点」在这里有效（目前只有 macOS）。 */
+  caps_lock_punctuation?: boolean;
   /** 背单词书目列出单词本插件（`pack-<插件 id>` 词书）。 */
   wordbook_packs: boolean;
   /** 符号面板显示已安装的符号集插件。 */
@@ -1737,6 +1753,8 @@ export type Preferences = {
   fuzzy_pinyin?: FuzzyPinyinPreferences;
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
+  /** 组字时 `;` 选第二个候选、`'` 选第三个。关闭时不写进文档；目前只有 Windows 接入，本页不显示这一项。 */
+  second_third_candidate?: { enabled: boolean; keys: "semicolon_quote" };
   navigation?: NavigationPreferences;
   keybindings?: KeybindingPreferences;
   scheme: InputScheme;
@@ -1753,6 +1771,8 @@ export type Preferences = {
   touch_voice_shortcut?: boolean;
   /** 九宫格数字层的排列：电话（1 2 3 在上）或计算器（7 8 9 在上）。 */
   touch_number_keypad_order?: "phone" | "calculator";
+  /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为开。 */
+  touch_shuangpin_key_hints?: boolean;
   touch_toolbar?: Partial<TouchToolbarPreferences>;
   default_ime_mode?: "chinese" | "english";
   ime_mode_scope?: "app" | "global";
@@ -1815,6 +1835,7 @@ export type Preferences = {
   smart_punctuation_direct_letter?: boolean;
   paired_punctuation?: boolean;
   punctuation_lock?: "follow" | "chinese" | "english";
+  caps_lock_ascii_punctuation?: boolean;
   traditional_chinese_output?: boolean;
   /** Sound packs, music and command tables; the document leaves it out while every value is the default. */
   plugins?: PluginPreferences;
@@ -2030,8 +2051,19 @@ export interface DictionaryClient {
   ): Promise<{ text: string; has_more: boolean }>;
   retry?(request_id: string): Promise<void>;
   dismissFailure?(request_id: string): Promise<void>;
+  /** 一种词库的词条总数，含内置词条；手机「词库」页的「拼音词库」行显示它。 */
+  count?(kind: LocalDictionaryKind): Promise<number>;
 }
 export { dictionaryKindKeyHint } from "./settings/pages/dictionary-page";
+export type {
+  DictionaryCollection,
+  DictionaryCollectionKind,
+  DictionaryCollectionSource,
+  DictionaryCollectionWord,
+  DictionaryCollectionImportReport,
+  DictionaryCollectionsView,
+  DictionaryCollectionsClient,
+} from "./dictionary/dictionary-collections";
 
 export type FloatingToolbarPreferences = {
   enabled: boolean;
@@ -2108,6 +2140,8 @@ export interface SettingsClient {
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
   dictionary?: DictionaryClient;
+  /** 命名词库：新建、导入、启用停用、装社区词库。提供它的宿主在手机的「词库」页按词库列出，而不是按种类查词条。 */
+  dictionaryCollections?: DictionaryCollectionsClient;
   /** 原子地恢复内置词库并清除全部学习数据；宿主只在真正能清除的平台（三个桌面宿主）上提供它。 */
   resetLearnedData?: () => Promise<void>;
   /**
@@ -2123,6 +2157,8 @@ export interface SettingsClient {
   /** Open the folder holding the preferences document, where a repair leaves its backup. */
   openPreferencesDirectory?: () => Promise<void>;
   readAppVersion?: () => Promise<string>;
+  /** Compares the newest published release of this platform and edition with the running version, through `msime_client_core::update_check` (the Tauri `update_check` command, or `msime_client_update_check` on a native host). Absent, the about page offers no update check. */
+  checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
   openExternalUrl?: (url: string) => Promise<void>;
   /** The console's app notices; the host fetches and caches the feed and remembers dismissals. Absent shows none. */
   notices?: NoticesClient;
@@ -2641,12 +2677,12 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     busy: updateBusy,
     checkForUpdate,
     status: updateStatus,
+    supported: updateCheckSupported,
   } = useUpdateCheck({
-    clientHostedPlatform,
-    releasePlatform: client.host?.platform ?? null,
+    checkUpdate: client.checkUpdate,
+    platform: client.host?.platform ?? null,
     edition: client.host?.edition?.id,
     arch: client.host?.arch,
-    releasePageUrl: platformReleasesPageUrl,
     currentAppVersion,
   });
 
@@ -2969,6 +3005,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     communityDestination,
     updateStatus,
     updateBusy,
+    updateCheckSupported,
     availableUpdate,
     currentAppVersion,
     copyFeedbackGroup,
@@ -3640,7 +3677,16 @@ export function SettingsPage(props: SettingsPageProps) {
                   initialMine={initialCommunityMine}
                   initialCategory={initialCommunityCategory}
                   initialScope={initialCommunityScope}
-                  localDictionary={client.dictionary}
+                  localDictionary={
+                    client.dictionaryCollections
+                      ? {
+                          ...client.dictionary,
+                          installCollection: async (resource) => {
+                            await client.dictionaryCollections?.installCommunity(resource);
+                          },
+                        }
+                      : client.dictionary
+                  }
                   localSkinLibrary={client.customSkinLibrary}
                   mobile={mobilePlatform}
                   onLogin={openAccountLogin}

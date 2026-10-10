@@ -148,6 +148,61 @@ public final class CandidateTranslationStoreSmoke {
             capacityWorker.shutdownNow();
         }
         check(capacityCalls.get() == 2, "translation cache evicts old entries");
+
+        FakeScheduler lineageScheduler = new FakeScheduler();
+        ExecutorService lineageWorker = Executors.newSingleThreadExecutor();
+        CandidateTranslationStore lineageStore = new CandidateTranslationStore(
+            (texts, target) -> texts.stream().map(text -> "account A translation").toList(),
+            lineageWorker, lineageScheduler, generation -> { });
+        try {
+            lineageStore.bindTo("account-a#1");
+            lineageStore.refresh(List.of("你好"), List.of("en"), 1);
+            lineageScheduler.runDelayed();
+            lineageWorker.shutdown();
+            check(lineageWorker.awaitTermination(2, TimeUnit.SECONDS),
+                "lineage worker stopped");
+            lineageScheduler.runPosted();
+            check("account A translation".equals(lineageStore.gloss("你好", "en")),
+                "translation is cached for the first account binding");
+            lineageStore.bindTo("account-a#2");
+            check(lineageStore.gloss("你好", "en") == null,
+                "re-login to the same account clears the old translation cache");
+            lineageStore.bindTo(null);
+            check(lineageStore.gloss("你好", "en") == null,
+                "an unavailable account binding keeps old translations cleared");
+        } finally {
+            lineageWorker.shutdownNow();
+        }
+
+
+        FakeScheduler pendingLineageScheduler = new FakeScheduler();
+        ExecutorService pendingLineageWorker = Executors.newSingleThreadExecutor();
+        CountDownLatch pendingLineageStarted = new CountDownLatch(1);
+        CountDownLatch releasePendingLineage = new CountDownLatch(1);
+        CandidateTranslationStore pendingLineageStore = new CandidateTranslationStore(
+            (texts, target) -> {
+                pendingLineageStarted.countDown();
+                releasePendingLineage.await(2, TimeUnit.SECONDS);
+                return List.of("old account translation");
+            }, pendingLineageWorker, pendingLineageScheduler, generation -> { });
+        try {
+            pendingLineageStore.bindTo("account-a#1");
+            pendingLineageStore.refresh(List.of("你好"), List.of("en"), 1);
+            pendingLineageScheduler.runDelayed();
+            check(pendingLineageStarted.await(2, TimeUnit.SECONDS),
+                "old account translation request started");
+            pendingLineageStore.bindTo("account-b#2");
+            releasePendingLineage.countDown();
+            pendingLineageWorker.shutdown();
+            check(pendingLineageWorker.awaitTermination(2, TimeUnit.SECONDS),
+                "pending lineage worker stopped");
+            pendingLineageScheduler.runPosted();
+            check(pendingLineageStore.gloss("你好", "en") == null,
+                "old account response cannot populate the new binding's cache");
+        } finally {
+            releasePendingLineage.countDown();
+            pendingLineageWorker.shutdownNow();
+        }
         System.out.println("Android candidate translation store: stale request fencing passed");
     }
 

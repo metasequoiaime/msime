@@ -37,6 +37,22 @@ public final class CloudClipboardPanelPolicySmoke {
 
         check(CloudClipboardPanelPolicy.accepts(4, 4), "a result for the same field is drawn");
         check(!CloudClipboardPanelPolicy.accepts(4, 5), "a result for a previous field is discarded");
+        check(CloudClipboardPanelPolicy.acceptsAccount("account-a", "account-a"),
+            "a result for the current account is drawn");
+        check(!CloudClipboardPanelPolicy.acceptsAccount("account-a", "account-b"),
+            "a result from a previous account is discarded");
+        check(!CloudClipboardPanelPolicy.acceptsAccount("account-a", ""),
+            "a result is discarded after sign-out");
+        check(CloudClipboardPanelPolicy.acceptsBinding("account-a", 7, "account-a", 7),
+            "a result for the same account binding is drawn");
+        check(!CloudClipboardPanelPolicy.acceptsBinding("account-a", 7, "account-a", 8),
+            "a result from a previous sign-in lineage is discarded");
+        check(!CloudClipboardPanelPolicy.acceptsBinding("account-a", 7, "account-b", 7),
+            "a result from another account is discarded even with the same generation");
+        check(!CloudClipboardPanelPolicy.acceptsBinding("", 7, "", 7),
+            "an empty account binding is never accepted");
+        check(!CloudClipboardPanelPolicy.acceptsBinding("account-a", -1, "account-a", -1),
+            "an unavailable binding generation is never accepted");
         check(CloudClipboardPanelPolicy.acceptsUploadResult(4, 4),
             "an upload result for the same panel may show its status");
         check(!CloudClipboardPanelPolicy.acceptsUploadResult(4, 5),

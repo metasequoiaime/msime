@@ -1,4 +1,5 @@
 #include "Telemetry.h"
+#include "HostApiString.h"
 #include "msime_client.h"
 #include <nlohmann/json.hpp>
 #include <atomic>
@@ -50,8 +51,8 @@ char record_path[4096];
 std::optional<nlohmann::json> call(Request function, const nlohmann::json &request) {
   try {
     const auto body = request.dump();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> response(
-        function(reinterpret_cast<const uint8_t *>(body.data()), body.size()), msime_client_string_free);
+    auto response = msime::host_api::own_string(
+        function(reinterpret_cast<const uint8_t *>(body.data()), body.size()));
     if (!response)
       return std::nullopt;
     auto parsed = nlohmann::json::parse(response.get(), nullptr, false);

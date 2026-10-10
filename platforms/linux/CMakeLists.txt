@@ -360,6 +360,11 @@ if(BUILD_TESTING)
   target_compile_options(linux-input-mode-indicator-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-input-mode-indicator-test PRIVATE src)
   add_test(NAME linux-input-mode-indicator COMMAND linux-input-mode-indicator-test)
+  add_executable(linux-view-composition-test tests/core/view_composition.cpp)
+  target_compile_options(linux-view-composition-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-view-composition-test PRIVATE src)
+  target_link_libraries(linux-view-composition-test PRIVATE nlohmann_json::nlohmann_json)
+  add_test(NAME linux-view-composition COMMAND linux-view-composition-test)
   add_executable(linux-voice-provider-options-test tests/voice/voice_provider_options.cpp)
   target_compile_options(linux-voice-provider-options-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-voice-provider-options-test PRIVATE src)
@@ -681,7 +686,7 @@ if(MSIME_ENGINE_RESOURCES)
     install(FILES "${MSIME_ENGINE_RESOURCE_FILE}"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/resources")
   endforeach()
-  # The helpcode tables are not part of the dictionary release; the repository carries them in resources/helpcodes, and the Engine reads them from helpcodes/ under the resource directory (crates/engine/src/assets.rs names the six files). The hosts' verification lets a real helpcodes/ directory through. Their notices are installed with the others below.
+  # 辅助码表不在词库发布里，由仓库自带在 resources/helpcodes，Engine 从资源目录下的 helpcodes/ 读它们（crates/engine/src/assets.rs 列出七个文件）。宿主的校验放行真实的 helpcodes/ 目录。它们的来源声明与下面其他声明一起安装。
   install(FILES
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/helpcode.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/zrm_helpcode_big_unique.txt"
@@ -689,6 +694,7 @@ if(MSIME_ENGINE_RESOURCES)
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/shouyouplus_helpcode.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/xiaohe_helpcode.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/jiajia_helpcode.txt"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/wubi86_helpcode.txt"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/resources/helpcodes")
   # Keep the reviewed lock beside the installed bundle as provenance metadata;
   # it is not copied into the runtime directory because the Engine verifier
@@ -1018,6 +1024,8 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/msime-engine-dictionary-NOTICE.md"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/ENGINE-NOTICE.md"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE.md"
+  # 五笔 86 辅助码表的来源与生成方法，附它所派生的极点码表的 Apache-2.0 全文。
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE-wubi86.md"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Zinnia-LICENSE.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Administrative-divisions-of-China-WTFPL.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt"
@@ -1033,6 +1041,7 @@ set(MSIME_NOTICE_NAMES
   msime-engine-dictionary-NOTICE.md
   msime-engine-helpcode-NOTICE.md
   msime-helpcode-jiajia-NOTICE.md
+  msime-helpcode-wubi86-NOTICE.md
   Zinnia-LICENSE.txt
   Administrative-divisions-of-China-WTFPL.txt
   libhangul-hanja-BSD-3-Clause.txt

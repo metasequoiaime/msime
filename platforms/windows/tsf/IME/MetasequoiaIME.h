@@ -288,7 +288,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
                                     const std::wstring &prefetchedText);
     HRESULT _HandleCandidateArrowKey(TfEditCookie ec, _In_ ITfContext *pContext, _In_ KEYSTROKE_FUNCTION keyFunction,
                                      uint64_t requestId = FANY_IME_NO_REQUEST_ID);
-    HRESULT _HandleCandidateSelectByNumber(TfEditCookie ec, _In_ ITfContext *pContext, _In_ UINT uCode,
+    HRESULT _HandleCandidateSelectByNumber(TfEditCookie ec, _In_ ITfContext *pContext, _In_ UINT uCode, WCHAR wch,
                                            uint64_t requestId, const std::wstring &prefetchedText);
 
     BOOL _IsSecureMode(void)

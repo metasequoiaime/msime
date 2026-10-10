@@ -253,6 +253,8 @@ pub struct MobileVoiceRequestHeader {
 pub struct MobileVoiceTranscriptionRequest {
     pub request_id: String,
     pub provider: String,
+    /// 请求格式（`msime_client_core::voice::provider::asr_request_format`）：`multipart`、`chat_audio`、`doubao_websocket` 或 `local`。原生插件按它挑请求构造，不按 provider 名字判断。
+    pub request_format: String,
     pub endpoint: String,
     pub model: String,
     pub token: String,
@@ -301,7 +303,11 @@ impl MobileVoiceTranscriptionRequest {
             )
             && is_bounded_text(&self.model_path, MAX_MOBILE_VOICE_MODEL_PATH_BYTES)
             && valid_mobile_voice_hotwords(&self.hotwords);
-        if !common {
+        // 格式必须就是这个 provider 的格式，插件只看格式，所以两者不一致的请求一律拒绝。
+        if !common
+            || msime_client_core::voice::provider::asr_request_format(&self.provider)
+                != Some(self.request_format.as_str())
+        {
             return false;
         }
         // On-device recognition: nothing is sent anywhere, so no endpoint, token, header or boosting table may ride along, and the model has to be an absolute path in the app's own storage.
@@ -316,11 +322,11 @@ impl MobileVoiceTranscriptionRequest {
         if !self.model_path.is_empty() || !self.hotwords.is_empty() {
             return false;
         }
-        // Every one of these is the same OpenAI-compatible multipart upload, so they share one
-        // shape check; Doubao below is the streaming websocket and validates separately.
+        // multipart 和 chat_audio 都是带 Bearer 密钥的 HTTPS 整句上传，形状检查相同；豆包是流式 WebSocket，在下面单独检查。
         if matches!(
-            self.provider.as_str(),
-            "openai" | "siliconflow" | "groq" | "everyapi" | "mistral"
+            self.request_format.as_str(),
+            msime_client_core::voice::provider::ASR_REQUEST_MULTIPART
+                | msime_client_core::voice::provider::ASR_REQUEST_CHAT_AUDIO
         ) {
             return msime_client_core::voice::provider::valid_mobile_voice_endpoint(
                 &self.endpoint,
@@ -900,6 +906,7 @@ mod tests {
         let request = MobileVoiceTranscriptionRequest {
             request_id: "fixture-request-1".into(),
             provider: "openai".into(),
+            request_format: "multipart".into(),
             endpoint: "https://fixture.invalid/v1/audio/transcriptions".into(),
             model: "fixture-model".into(),
             token: "synthetic-token".into(),
@@ -912,9 +919,29 @@ mod tests {
             hotwords: Vec::new(),
         };
         assert!(request.is_valid());
-        for provider in ["openai", "siliconflow", "groq", "everyapi", "mistral"] {
+        for (provider, format) in [
+            ("openai", "multipart"),
+            ("siliconflow", "multipart"),
+            ("groq", "multipart"),
+            ("everyapi", "multipart"),
+            ("mistral", "multipart"),
+            ("bailian", "chat_audio"),
+        ] {
             assert!(MobileVoiceTranscriptionRequest {
                 provider: provider.into(),
+                request_format: format.into(),
+                ..request.clone()
+            }
+            .is_valid());
+            // 格式和 provider 对不上时拒绝，插件不会按错的格式发请求。
+            assert!(!MobileVoiceTranscriptionRequest {
+                provider: provider.into(),
+                request_format: if format == "multipart" {
+                    "chat_audio"
+                } else {
+                    "multipart"
+                }
+                .into(),
                 ..request.clone()
             }
             .is_valid());
@@ -955,6 +982,7 @@ mod tests {
         let request = MobileVoiceTranscriptionRequest {
             request_id: "fixture-request-1".into(),
             provider: "local".into(),
+            request_format: "local".into(),
             endpoint: String::new(),
             model: String::new(),
             token: String::new(),
@@ -1022,6 +1050,7 @@ mod tests {
         // A network provider never carries the on-device fields, and an older serialisation without them still reads.
         let network = MobileVoiceTranscriptionRequest {
             provider: "openai".into(),
+            request_format: "multipart".into(),
             endpoint: "https://fixture.invalid/v1/audio/transcriptions".into(),
             model: "fixture-model".into(),
             token: "synthetic-token".into(),
@@ -1066,6 +1095,7 @@ mod tests {
         let request = MobileVoiceTranscriptionRequest {
             request_id: "fixture-request-1".into(),
             provider: "doubao".into(),
+            request_format: "doubao_websocket".into(),
             endpoint: "wss://fixture.invalid/asr".into(),
             model: String::new(),
             token: String::new(),
@@ -1127,6 +1157,7 @@ mod tests {
         let request = MobileVoiceTranscriptionRequest {
             request_id: "fixture-request-1".into(),
             provider: "doubao".into(),
+            request_format: "doubao_websocket".into(),
             endpoint: "wss://fixture.invalid/asr".into(),
             model: String::new(),
             token: String::new(),
