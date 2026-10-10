@@ -140,11 +140,15 @@ fn type_case(
         None => input.bytes().collect(),
     };
     for byte in keys {
+        let action = match grid {
+            Some(KeyGrid::FourteenKey) => Action::GridKey(byte),
+            Some(KeyGrid::NineKey) | None => Action::Character {
+                value: byte,
+                shift: false,
+            },
+        };
         let started = Instant::now();
-        runtime.dispatch(Action::Character {
-            value: byte,
-            shift: false,
-        })?;
+        runtime.dispatch(action)?;
         into.samples.push(started.elapsed());
     }
     Ok(())
@@ -180,7 +184,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         index += 1;
     }
     let resources = resources.ok_or(
-        "usage: rerank_latency --resources <verified-dir> --set <file.tsv> [--budget-ms 16] [--warmup 5] [--limit N] [--grid nine]",
+        "usage: rerank_latency --resources <verified-dir> --set <file.tsv> [--budget-ms 16] [--warmup 5] [--limit N] [--grid nine|fourteen]",
     )?;
     if sets.is_empty() {
         return Err("at least one --set is required".into());
@@ -238,13 +242,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut ranked = Runtime::new(Session::new(&options)?, 9)?;
     ranked.focus(true)?;
     ranked.set_reranker(Some(Reranker::new(model)));
-    // 九键的长串数字每次按键都要重新解一遍整句，量它的按键延迟要在九宫格上打（#6059）。
-    match grid {
-        Some(KeyGrid::NineKey) => {
-            plain.set_nine_key_enabled(true)?;
-            ranked.set_nine_key_enabled(true)?;
-        }
-        None => {}
+    // 九键和 14 键的长串组码每次按键都要重新解一遍整句，量它们的按键延迟要在网格上打（#6059）。
+    if grid.is_some() {
+        plain.set_key_grid(grid)?;
+        ranked.set_key_grid(grid)?;
     }
 
     // The first keystrokes of a process pay for lazily-opened dictionaries and a cold allocator.
@@ -348,6 +349,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn parse_grid(name: &str) -> Result<KeyGrid, String> {
     match name {
         "nine" => Ok(KeyGrid::NineKey),
-        other => Err(format!("unknown grid: {other} (expected nine)")),
+        "fourteen" => Ok(KeyGrid::FourteenKey),
+        other => Err(format!("unknown grid: {other} (expected nine or fourteen)")),
     }
 }

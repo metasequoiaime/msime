@@ -1,0 +1,341 @@
+{
+  "by_syllables": {
+    "2": {
+      "cases": 1860,
+      "found": 0.995,
+      "mrr": 0.688,
+      "top1": 0.535,
+      "top1_char_prefix": 0.569,
+      "top5": 0.892,
+      "top9": 0.952
+    },
+    "3": {
+      "cases": 365,
+      "found": 0.995,
+      "mrr": 0.96,
+      "top1": 0.934,
+      "top1_char_prefix": 0.954,
+      "top5": 0.989,
+      "top9": 0.992
+    },
+    "4": {
+      "cases": 556,
+      "found": 0.91,
+      "mrr": 0.907,
+      "top1": 0.905,
+      "top1_char_prefix": 0.932,
+      "top5": 0.91,
+      "top9": 0.91
+    },
+    "5": {
+      "cases": 10,
+      "found": 0.2,
+      "mrr": 0.2,
+      "top1": 0.2,
+      "top1_char_prefix": 0.64,
+      "top5": 0.2,
+      "top9": 0.2
+    }
+  },
+  "by_tag": {},
+  "cases": 2791,
+  "gold_source": {
+    "database": 2718,
+    "generated": 3
+  },
+  "overall": {
+    "cases": 2791,
+    "found": 0.975,
+    "mrr": 0.766,
+    "top1": 0.66,
+    "top1_char_prefix": 0.692,
+    "top5": 0.906,
+    "top9": 0.946
+  },
+  "sample_failures": [
+    {
+      "gold": "阿爸",
+      "id": "w-00001",
+      "input": "aba",
+      "rank": 44,
+      "top1": "按时"
+    },
+    {
+      "gold": "挨个",
+      "id": "w-00010",
+      "input": "aige",
+      "rank": 5,
+      "top1": "四个"
+    },
+    {
+      "gold": "爱慕",
+      "id": "w-00028",
+      "input": "aimu",
+      "rank": 2,
+      "top1": "私密"
+    },
+    {
+      "gold": "爱惜",
+      "id": "w-00037",
+      "input": "aixi",
+      "rank": 3,
+      "top1": "思绪"
+    },
+    {
+      "gold": "按理",
+      "id": "w-00100",
+      "input": "anli",
+      "rank": 4,
+      "top1": "案例"
+    },
+    {
+      "gold": "安息",
+      "id": "w-00154",
+      "input": "anxi",
+      "rank": 4,
+      "top1": "案子"
+    },
+    {
+      "gold": "摆渡",
+      "id": "w-00217",
+      "input": "baidu",
+      "rank": 4,
+      "top1": "百度"
+    },
+    {
+      "gold": "败露",
+      "id": "w-00244",
+      "input": "bailu",
+      "rank": 6,
+      "top1": "耐力"
+    },
+    {
+      "gold": "半圆",
+      "id": "w-00379",
+      "input": "banyuan",
+      "rank": 2,
+      "top1": "半天"
+    },
+    {
+      "gold": "搬走",
+      "id": "w-00388",
+      "input": "banzou",
+      "rank": 2,
+      "top1": "伴奏"
+    },
+    {
+      "gold": "胞弟",
+      "id": "w-00424",
+      "input": "baodi",
+      "rank": 10,
+      "top1": "报复"
+    },
+    {
+      "gold": "褒奖",
+      "id": "w-00469",
+      "input": "baojiang",
+      "rank": 2,
+      "top1": "保监会"
+    },
+    {
+      "gold": "抱歉",
+      "id": "w-00505",
+      "input": "baoqian",
+      "rank": 2,
+      "top1": "保全"
+    },
+    {
+      "gold": "褒义",
+      "id": "w-00550",
+      "input": "baoyi",
+      "rank": 6,
+      "top1": "暴雨"
+    },
+    {
+      "gold": "保质",
+      "id": "w-00568",
+      "input": "baozhi",
+      "rank": 6,
+      "top1": "报纸"
+    },
+    {
+      "gold": "把守",
+      "id": "w-00586",
+      "input": "bashou",
+      "rank": 3,
+      "top1": "把手"
+    },
+    {
+      "gold": "备查",
+      "id": "w-00613",
+      "input": "beicha",
+      "rank": 6,
+      "top1": "被查"
+    },
+    {
+      "gold": "备荒",
+      "id": "w-00640",
+      "input": "beihuang",
+      "rank": 4,
+      "top1": "背光"
+    },
+    {
+      "gold": "本市",
+      "id": "w-00739",
+      "input": "benshi",
+      "rank": 7,
+      "top1": "本书"
+    },
+    {
+      "gold": "本县",
+      "id": "w-00748",
+      "input": "benxian",
+      "rank": 4,
+      "top1": "本想"
+    },
+    {
+      "gold": "彼岸",
+      "id": "w-00766",
+      "input": "bian",
+      "rank": 13,
+      "top1": "年"
+    },
+    {
+      "gold": "贬义",
+      "id": "w-00847",
+      "input": "bianyi",
+      "rank": 10,
+      "top1": "便于"
+    },
+    {
+      "gold": "编著",
+      "id": "w-00865",
+      "input": "bianzhu",
+      "rank": 4,
+      "top1": "编制"
+    },
+    {
+      "gold": "标语",
+      "id": "w-00910",
+      "input": "biaoyu",
+      "rank": 2,
+      "top1": "标题"
+    },
+    {
+      "gold": "比分",
+      "id": "w-00955",
+      "input": "bifen",
+      "rank": 5,
+      "top1": "部分"
+    },
+    {
+      "gold": "壁画",
+      "id": "w-00964",
+      "input": "bihua",
+      "rank": 9,
+      "top1": "壁挂"
+    },
+    {
+      "gold": "冰柜",
+      "id": "w-01036",
+      "input": "binggui",
+      "rank": 3,
+      "top1": "并会"
+    },
+    {
+      "gold": "兵力",
+      "id": "w-01045",
+      "input": "bingli",
+      "rank": 2,
+      "top1": "病例"
+    },
+    {
+      "gold": "病员",
+      "id": "w-01090",
+      "input": "bingyuan",
+      "rank": 4,
+      "top1": "兵团"
+    },
+    {
+      "gold": "必需",
+      "id": "w-01135",
+      "input": "bixu",
+      "rank": 5,
+      "top1": "必须"
+    },
+    {
+      "gold": "笔直",
+      "id": "w-01162",
+      "input": "bizhi",
+      "rank": 10,
+      "top1": "不知"
+    },
+    {
+      "gold": "波浪",
+      "id": "w-01189",
+      "input": "bolang",
+      "rank": 2,
+      "top1": "博览会"
+    },
+    {
+      "gold": "不安",
+      "id": "w-01225",
+      "input": "buan",
+      "rank": 8,
+      "top1": "年"
+    },
+    {
+      "gold": "部队",
+      "id": "w-01288",
+      "input": "budui",
+      "rank": 2,
+      "top1": "不对"
+    },
+    {
+      "gold": "不凡",
+      "id": "w-01297",
+      "input": "bufan",
+      "rank": 3,
+      "top1": "不但"
+    },
+    {
+      "gold": "不和",
+      "id": "w-01333",
+      "input": "buhe",
+      "rank": 3,
+      "top1": "你和"
+    },
+    {
+      "gold": "不久",
+      "id": "w-01378",
+      "input": "bujiu",
+      "rank": 2,
+      "top1": "你就"
+    },
+    {
+      "gold": "不明",
+      "id": "w-01450",
+      "input": "buming",
+      "rank": 2,
+      "top1": "匿名"
+    },
+    {
+      "gold": "补缺",
+      "id": "w-01477",
+      "input": "buque",
+      "rank": 3,
+      "top1": "你却"
+    },
+    {
+      "gold": "哺乳",
+      "id": "w-01486",
+      "input": "buru",
+      "rank": 4,
+      "top1": "比如"
+    }
+  ],
+  "top1_source": {
+    "database": 2747,
+    "generated": 44
+  }
+}

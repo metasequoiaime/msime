@@ -70,6 +70,15 @@ engine 加入 14 键网格后，`verify-local.sh` 加两个集合：`fourteen-ke
 
 在同一 limit、同一词库下，14 键的词级 top-1、top-5 和长句 top-1 都不低于九键基线，`rerank_latency --grid fourteen` 的 p95 不高于九键，才开始做宿主。达不到先调常量（按网格分值的常量挂成 `KeyGrid` 的方法），调了仍不行就停在引擎这一层。
 
+评测要经 Runtime 才量得到挂着重排模型的结果，所以 `Session::set_key_grid` / `grid_key`、input-runtime 的 `set_key_grid` / `grid_key` 和 `Action::GridKey` 随 14 键网格一起落地；`View.key_grid`、两道门的调整和 host-api 的入口另行跟进。实测（锁定资源 dict-v2.0.14 加 `sentence-model.safetensors`，同一次构建，常量沿用九键的，没有调）：
+
+| 集合 | 九键 top-1 / top-5 | 14 键 top-1 / top-5 |
+|---|---|---|
+| `quanpin-words-v1` `--limit 3000`（实取 2791 条） | 0.575 / 0.851 | 0.660 / 0.906 |
+| `sentences-nine-key-v1` 81 条 | 0.506 / 0.519 | 0.568 / 0.568 |
+
+`rerank_latency` 在 `sentences-nine-key-v1` 上交替各跑两轮，挂重排模型的 p95 九键 22.34 / 22.29 ms、14 键 20.80 / 20.78 ms。三项都过了决策点。
+
 ## Alternatives considered
 
 - **14 键复用 `character` 送组码。** 最强的理由是改动最小：九键就是这样接的，宿主、C ABI、runtime 都不用加入口。但硬件键盘的字母也走 `character`（Android `onKeyDown` 之后的分支），用 `character` 送组码会让物理 q 变成有歧义的 QW 组，而物理 w 仍是确切字母；九键能复用 `character`，是因为拼音里没有数字。另开 `grid_key` 后，组码只能由触屏键面送进来。

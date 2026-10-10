@@ -1058,7 +1058,9 @@ if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; the
   # `nine-key` is the words set typed on the phone grid: each letter becomes the digit printed beside it, so readings that share digits (xi'an and yi'an) compete for one input. The full-keyboard numbers say nothing about it, and nine-key ranking had no gate before.
   #
   # `nine-key-sentences` 是九键长句：4 到 12 个字的整句在九宫格上打，每条都在 32 个数字以内。词级集量不到整句，而整句集的长句大多超过九键的数字上限（#6059）。
-  for set in sentences harvested neutral words nine-key nine-key-sentences; do
+  #
+  # `fourteen-key` 和 `fourteen-key-sentences` 是同样两份集合在全拼 14 键上打：每个字母换成它所在键的组码（这一组的首字母），从 `GridKey` 送进去。14 键与九键共用一套解码，只换码表，所以两者的数字可以直接比。
+  for set in sentences harvested neutral words nine-key nine-key-sentences fourteen-key fourteen-key-sentences; do
     case "$set" in
       sentences) args="--set resources/eval/sentences-v1.tsv" ;;
       harvested) args="--set resources/eval/sentences-v2.tsv" ;;
@@ -1066,6 +1068,8 @@ if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; the
       words) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000" ;;
       nine-key) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000 --nine-key" ;;
       nine-key-sentences) args="--set resources/eval/sentences-nine-key-v1.tsv --nine-key" ;;
+      fourteen-key) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000 --grid fourteen" ;;
+      fourteen-key-sentences) args="--set resources/eval/sentences-nine-key-v1.tsv --grid fourteen" ;;
     esac
     # shellcheck disable=SC2086
     if cargo run --release -q -p msime-input-runtime --example convert_eval --locked -- \
