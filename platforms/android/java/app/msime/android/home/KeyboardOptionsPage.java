@@ -2,6 +2,7 @@ package app.msime.android.home;
 
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.KeyboardSpacingPolicy;
+import app.msime.android.KeyboardHeightPolicy;
 import app.msime.android.KeyboardTypographyPolicy;
 import app.msime.android.NumberPolicy;
 
@@ -22,7 +23,6 @@ import app.msime.android.ClipboardLayoutPolicy;
 import app.msime.android.ColorPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
-import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NineKeyLayout;
@@ -40,7 +40,7 @@ import org.json.JSONObject;
 /**
  * 键盘页：布局（中文键盘 26 / 9 键、九键字母与数字键盘的左侧符号、26 键数字键盘（一行 / 九宫格）、九宫格数字键盘顺序、双拼键位提示、键盘高度、按键间距、行间距、横屏分离式键盘、浮动键盘、键盘底栏）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）、剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距、26 键数字键盘、数字键盘顺序、双拼键位提示和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_twenty_six_key_number_layout`、`touch_number_keypad_order`、`touch_shuangpin_key_hints`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
+ * <p>键盘与本页读同一批存储：按键间距、行间距、26 键数字键盘、数字键盘顺序、双拼键位提示和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_twenty_six_key_number_layout`、`touch_number_keypad_order`、`touch_shuangpin_key_hints`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
 public final class KeyboardOptionsPage extends DetailPage {
     private static final String[] ANIMATIONS = {"bounce", "ripple", "glow", "lift", "none"};
@@ -145,15 +145,15 @@ public final class KeyboardOptionsPage extends DetailPage {
                 ? settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
                 : NumberPolicy.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
         layout.slider("键盘高度", KeyboardHeightPolicy.MIN_HEIGHT_PERCENT, KeyboardHeightPolicy.MAX_HEIGHT_PERCENT, 1, height,
-            KeyboardGeometry::displayPercent,
+            KeyboardHeightPolicy::displayPercent,
             percent -> saveLocal(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT,
                 KeyboardHeightPolicy.heightPercentToAdjustment(percent)));
         layout.slider("按键间距", KeyboardSpacingPolicy.MIN_KEY_SPACING_TENTHS, KeyboardSpacingPolicy.MAX_KEY_SPACING_TENTHS, 1,
             KeyboardSpacingPolicy.keySpacing(NumberPolicy.strictInt(preferences, "touch_key_spacing_tenths", -1)),
-            KeyboardGeometry::display, value -> savePreference("touch_key_spacing_tenths", value));
+            KeyboardSpacingPolicy::display, value -> savePreference("touch_key_spacing_tenths", value));
         layout.slider("行间距", KeyboardSpacingPolicy.MIN_ROW_SPACING_TENTHS, KeyboardSpacingPolicy.MAX_ROW_SPACING_TENTHS, 1,
             KeyboardSpacingPolicy.rowSpacing(NumberPolicy.strictInt(preferences, "touch_row_spacing_tenths", -1)),
-            KeyboardGeometry::display, value -> savePreference("touch_row_spacing_tenths", value));
+            KeyboardSpacingPolicy::display, value -> savePreference("touch_row_spacing_tenths", value));
         layout.toggle("数字行", "26 键和韩文键盘的字母上方多一行 1–0，键盘整体高出一行；手机横屏时放不下，不显示",
             settings.bool(AndroidLocalSettings.NUMBER_ROW),
             checked -> saveLocal(AndroidLocalSettings.NUMBER_ROW, checked));

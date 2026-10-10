@@ -27,6 +27,7 @@ import app.msime.android.TextPolicy;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ViewPolicy;
 import app.msime.android.WindowInsetsPolicy;
+import androidx.annotation.ColorInt;
 import androidx.annotation.DrawableRes;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;

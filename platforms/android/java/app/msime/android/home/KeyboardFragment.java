@@ -20,7 +20,7 @@ import app.msime.android.AndroidLocalSettings;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
-import app.msime.android.KeyboardGeometry;
+import app.msime.android.KeyboardHeightPolicy;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
