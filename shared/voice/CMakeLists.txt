@@ -19,6 +19,8 @@ target_link_libraries(msime-voice-local PRIVATE msime-voice-local-asr nlohmann_j
 add_library(msime-voice-providers STATIC VoiceProviders.cpp)
 target_compile_features(msime-voice-providers PUBLIC cxx_std_17)
 target_include_directories(msime-voice-providers PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+# 百炼请求把录音编成 Base64 数据 URL，编码用原样放在 third_party/cppcodec 的 tplgy/cppcodec v0.2（MIT，只有头文件），见 docs/third-party.md。
+target_include_directories(msime-voice-providers SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/cppcodec")
 target_link_libraries(msime-voice-providers PUBLIC msime-voice-local-asr PRIVATE CURL::libcurl nlohmann_json::nlohmann_json)
 foreach(voice_target msime-voice-providers msime-voice-local-asr msime-voice-local)
   if(MSVC)

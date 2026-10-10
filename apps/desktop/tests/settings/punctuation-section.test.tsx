@@ -52,3 +52,30 @@ test("fullwidth control appears only when the host supports it", () => {
   fireEvent.click(fullwidth);
   expect(onChange).toHaveBeenLastCalledWith({ character_width: "halfwidth" });
 });
+
+test("caps lock punctuation switch appears only on a host that reports caps lock and starts off", () => {
+  const onChange = vi.fn();
+  const { rerender } = render(
+    <PunctuationSection
+      preferences={{ chinese_punctuation: true }}
+      showCharacterWidth={false}
+      onChange={onChange}
+    />,
+  );
+  expect(screen.queryByRole("switch", { name: /^大写锁定时使用英文标点/ })).toBeNull();
+
+  rerender(
+    <PunctuationSection
+      preferences={{ chinese_punctuation: true }}
+      showCharacterWidth={false}
+      showCapsLockPunctuation
+      onChange={onChange}
+    />,
+  );
+  const capsLock = screen.getByRole("switch", {
+    name: /^大写锁定时使用英文标点/,
+  }) as HTMLInputElement;
+  expect(capsLock.checked).toBe(false);
+  fireEvent.click(capsLock);
+  expect(onChange).toHaveBeenLastCalledWith({ caps_lock_ascii_punctuation: true });
+});

@@ -48,7 +48,7 @@ const EXAMPLES = {
 };
 
 // 辅助码方案的中文名，与 SDK README 的「辅助码」表一致。
-const HELPCODE_NAMES = { lantian: "蓝天小雨点", ziranma: "自然码", shouyou2_0: "首右 2.0", shouyouplus: "首右 plus", xiaohe: "小鹤形码", jiajia: "加加" };
+const HELPCODE_NAMES = { lantian: "蓝天小雨点", ziranma: "自然码", shouyou2_0: "首右 2.0", shouyouplus: "首右 plus", xiaohe: "小鹤形码", jiajia: "加加", wubi86: "五笔 86" };
 
 // 内置皮肤的中文名，与 SDK README 的「内置皮肤」表一致。
 const SKIN_NAMES = { system: "跟随系统", shuishan: "水杉", light: "浅色", paper: "纸白", night: "夜青", ink: "墨", wechat: "微信绿", graphite: "石墨", willow_green: "杨柳青", autumn_osmanthus: "秋桂", microsoft: "微软" };

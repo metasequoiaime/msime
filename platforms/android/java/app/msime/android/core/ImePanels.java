@@ -1160,6 +1160,7 @@ final class ImePanels {
         long generation = ++s.cloudClipboardGeneration;
         s.cloudClipboardStatus = CloudClipboardPanelPolicy.Status.LOADING;
         s.cloudClipboardItems = java.util.List.of();
+        s.cloudClipboardSessionId = "";
         if (s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD) renderClipboardHistory();
         if (binding == null || accountId.isEmpty()) {
             s.cloudClipboardStatus = CloudClipboardPanelPolicy.Status.SIGNED_OUT;
@@ -1170,15 +1171,18 @@ final class ImePanels {
             s.cloudClipboardWorker.execute(() -> {
                 CloudClipboardPanelPolicy.Status status;
                 java.util.List<BackendAccount.ClipboardItem> items = java.util.List.of();
+                String sessionId = "";
                 try {
                     BackendAccount account = new BackendAccount(s);
                     // Throws when the session owner cannot tell right now, which is a retry, not a sign-in.
-                    if (account.currentAccessToken().isEmpty()) {
+                    BackendAccount.SessionCredential session = account.currentSession();
+                    if (session.token().isEmpty()) {
                         status = CloudClipboardPanelPolicy.Status.SIGNED_OUT;
                     } else {
-                        BackendAccount.ClipboardPage page = account.clipboard("");
+                        BackendAccount.ClipboardPage page = account.clipboard("", session.sessionId());
                         status = CloudClipboardPanelPolicy.loaded(page.enabled(), page.items().size());
                         if (CloudClipboardPanelPolicy.showsItems(status)) items = page.items();
+                        sessionId = session.sessionId();
                     }
                 } catch (BackendAccount.RequestException error) {
                     status = CloudClipboardPanelPolicy.failed(error.status);
@@ -1187,12 +1191,14 @@ final class ImePanels {
                 }
                 CloudClipboardPanelPolicy.Status answer = status;
                 java.util.List<BackendAccount.ClipboardItem> answered = items;
+                String answeredSessionId = sessionId;
                 s.main.post(() -> {
                     if (!CloudClipboardPanelPolicy.accepts(generation, s.cloudClipboardGeneration)
                             || !acceptsCurrentBinding(accountId, bindingGeneration)
                             || !clipboardPanelOpen() || !cloudClipboardAllowed()) return;
                     s.cloudClipboardStatus = answer;
                     s.cloudClipboardItems = answered;
+                    s.cloudClipboardSessionId = answeredSessionId;
                     if (s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD) renderClipboardHistory();
                 });
             });
@@ -1209,9 +1215,10 @@ final class ImePanels {
         long bindingGeneration = binding == null ? -1L : binding.generation();
         if (!CloudClipboardPanelPolicy.acceptsBinding(
                 s.cloudClipboardAccountId, s.cloudClipboardBindingGeneration,
-                accountId, bindingGeneration)) {
+                accountId, bindingGeneration) || s.cloudClipboardSessionId.isEmpty()) {
             s.cloudClipboardStatus = CloudClipboardPanelPolicy.Status.SIGNED_OUT;
             s.cloudClipboardItems = java.util.List.of();
+            s.cloudClipboardSessionId = "";
             renderClipboardHistory();
             return;
         }
@@ -1223,11 +1230,12 @@ final class ImePanels {
             return;
         }
         long generation = s.cloudClipboardGeneration;
+        String sessionId = s.cloudClipboardSessionId;
         try {
             s.cloudClipboardWorker.execute(() -> {
                 CloudClipboardPanelPolicy.Status failure = null;
                 try {
-                    new BackendAccount(s).addClipboard(text);
+                    new BackendAccount(s).addClipboard(text, sessionId);
                 } catch (BackendAccount.RequestException error) {
                     failure = CloudClipboardPanelPolicy.failed(error.status);
                 } catch (Exception | LinkageError error) {

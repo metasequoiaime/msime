@@ -259,6 +259,8 @@ TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
 TEXT_ENTRY(MobileClipboardHistory, msime_client_mobile_clipboard_history)
 TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
 TEXT_ENTRY(PersonalDictionaryRequest, msime_client_personal_dictionary_request)
+// The keyboard's flush after each personal-dictionary drain: it moves at most one queue batch, so it stays synchronous on the keyboard's own thread like the drain it follows.
+TEXT_ENTRY(DictionaryCollections, msime_client_dictionary_collections)
 TEXT_ENTRY(PrepareHost, msime_client_prepare_host)
 TEXT_ENTRY(SnapshotVersion, msime_client_snapshot_version)
 TEXT_ENTRY(SnapshotInspect, msime_client_snapshot_inspect)
@@ -552,6 +554,12 @@ static napi_value TypingStatisticsAsync(napi_env env, napi_callback_info info) {
 // validation and replacement off the ArkTS thread so a large folder cannot freeze settings.
 static napi_value SkinImport(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_skin_import, "MSIME skin import");
+}
+
+// Named dictionaries: an import parses up to 16 MiB of text and every operation rewrites the collection files under their lock, so the settings page runs them on a worker and awaits the promise. The keyboard's small flush uses the synchronous `dictionaryCollections`.
+static napi_value DictionaryCollectionsAsync(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_dictionary_collections,
+        "MSIME dictionary collections");
 }
 
 // 键盘的常用语存放在一个文件里，设置进程和键盘进程都会在锁下重写它，装上短语包后文档可达数 MB，所以每个操作都在 ArkTS 线程之外运行。
@@ -1475,6 +1483,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("applyOnlineCandidates", ApplyOnlineCandidates),
         ENTRY("personalDictionarySync", PersonalDictionarySync),
         ENTRY("personalDictionaryRequest", PersonalDictionaryRequest),
+        ENTRY("dictionaryCollections", DictionaryCollections),
+        ENTRY("dictionaryCollectionsAsync", DictionaryCollectionsAsync),
         ENTRY("prepareHost", PrepareHost),
         ENTRY("snapshotVersion", SnapshotVersion),
         ENTRY("snapshotInspect", SnapshotInspect),

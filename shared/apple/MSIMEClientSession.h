@@ -34,6 +34,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary *)setEnglishMode:(BOOL)enabled error:(NSError **)error;
 /// Returns a View; remembers an explicit live width override across recreation.
 - (nullable NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error;
+/// 报告大写锁定状态（`msime_client_set_caps_lock`）。会话重建后自动恢复。
+- (BOOL)setCapsLockEnabled:(BOOL)enabled error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)typeASCII:(uint8_t)character shift:(BOOL)shift error:(NSError **)error;
 /// Finish the highlighted composition and append a literal ASCII punctuation mark.
 - (nullable NSDictionary<NSString *, id> *)punctuationASCII:(uint8_t)ascii error:(NSError **)error;

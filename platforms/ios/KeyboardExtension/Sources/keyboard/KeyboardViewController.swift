@@ -685,6 +685,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   override func didReceiveMemoryWarning() {
     super.didReceiveMemoryWarning()
     DiagnosticLog.shared.write("memory_warning")
+    // Keyboard extensions are terminated shortly after a warning if they keep their optional
+    // panels, translation results, or Engine candidate caches. Drop everything that can be
+    // recreated while keeping the active composition and session alive.
+    closeKeyboardPicker()
+    closeKeyboardService()
+    handwriting.deactivate()
+    snapshotWorker.stop()
+    candidateGlossEpoch &+= 1
+    candidateGlossRequestedGeneration = nil
+    translations.clearCacheForMemoryPressure()
+    onlineCandidates.cancel()
+    session.resetCache()
+    ResolvedTheme.clearCacheForMemoryPressure()
   }
 
   /// `diagnostic_log.server` 开着时让诊断日志写到共享目录，关掉后停写；隐私模式和凭据输入框里同样停写（`KeyboardPrivacyGate` 的 `diagnosticLog`）。

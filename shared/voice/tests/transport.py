@@ -1,4 +1,5 @@
 """Exercise the real shared curl adapter against synthetic loopback responses."""
+import base64
 import collections
 import http.server
 import json
@@ -32,7 +33,8 @@ class SharedVoiceHandler(http.server.BaseHTTPRequestHandler):
         self.bodies[self.path] = (self.headers.get("Content-Type", ""), request)
         mode, scenario = self.path.strip("/").split("/")
         status = 200
-        payload = {"text": "synthetic result"} if mode == "asr" else {
+        # chat 场景是阿里云百炼的回答形状：文字在 choices[0].message.content。
+        payload = {"text": "synthetic result"} if mode == "asr" and scenario != "chat" else {
             "choices": [{"message": {"content": "synthetic result"}}]}
         body = json.dumps(payload).encode()
         if scenario == "reject":
@@ -84,6 +86,20 @@ with LoopbackHTTPServer(("127.0.0.1", 0), SharedVoiceHandler) as server:
         assert b'name="file"; filename="audio.wav"\r\nContent-Type: audio/wav\r\n\r\nRIFF' in body
         assert b"WAVEfmt " in body
         assert b'name="language"' not in SharedVoiceHandler.bodies["/asr/retry"][1]
+        # 阿里云百炼：JSON 请求体，录音是唯一一条 user 消息里的 Base64 数据 URL。
+        url = f"http://127.0.0.1:{server.server_port}/asr/chat"
+        subprocess.run([sys.argv[1], "asr", "bailian", url, "success"],
+                       check=True, timeout=10, env=environment)
+        content_type, body = SharedVoiceHandler.bodies["/asr/chat"]
+        assert content_type == "application/json", content_type
+        request = json.loads(body)
+        assert request["model"] == "fixture" and request["stream"] is False
+        assert len(request["messages"]) == 1 and request["messages"][0]["role"] == "user"
+        part = request["messages"][0]["content"][0]
+        assert part["type"] == "input_audio"
+        data = part["input_audio"]["data"]
+        assert data.startswith("data:audio/wav;base64,UklGR"), data[:40]
+        assert base64.b64decode(data.split(",", 1)[1])[8:16] == b"WAVEfmt "
     finally:
         server.shutdown()
         worker.join(timeout=5)

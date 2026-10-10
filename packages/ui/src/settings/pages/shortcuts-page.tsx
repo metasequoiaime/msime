@@ -1,4 +1,5 @@
 import { NavigationSection, defaultNavigation } from "../navigation-section";
+import type { NavigationPreferences, WordCharacterPreferences } from "../word-character-section";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { useSettingsForm } from "../settings-form-context";
 import { ShortcutsSettingsSection } from "../shortcuts-settings-section";
@@ -30,6 +31,16 @@ export function ShortcutSettingsPage() {
     setDraft,
   });
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
+  const harmonyPhone = harmonyPlatform && mobilePlatform;
+  const onPagingChange = (next: {
+    navigation: NavigationPreferences;
+    wordCharacter: WordCharacterPreferences;
+  }) =>
+    onPreferencesChange({
+      // 只有占用了「以词定字」按键的翻页键才会改动它；否则未设置的值保持未设置。
+      ...(next.wordCharacter !== wordCharacter ? { word_character: next.wordCharacter } : {}),
+      navigation: next.navigation,
+    });
   return (
     <ShortcutsSettingsSection
       disabled={busy}
@@ -52,24 +63,28 @@ export function ShortcutSettingsPage() {
       showPanelShortcuts={showPanelShortcuts}
       harmony={harmonyPlatform}
       paging={
-        harmonyPlatform &&
-        mobilePlatform && (
+        harmonyPhone && (
           <NavigationSection
             navigation={navigation}
             wordCharacter={wordCharacter}
             linux={false}
             harmonyPhone
-            onChange={(next) =>
-              onPreferencesChange({
-                // 只有占用了「以词定字」按键的翻页键才会改动它；否则未设置的值保持未设置。
-                ...(next.wordCharacter !== wordCharacter
-                  ? { word_character: next.wordCharacter }
-                  : {}),
-                navigation: next.navigation,
-              })
-            }
+            onChange={onPagingChange}
           />
         )
+      }
+      // 默认翻页键里有 - / =，以词定字正占着这一对时照勾选时的规矩让出来。
+      onRestorePaging={
+        harmonyPhone
+          ? () =>
+              onPagingChange({
+                navigation: defaultNavigation,
+                wordCharacter:
+                  wordCharacter.enabled && defaultNavigation[wordCharacter.keys]
+                    ? { ...wordCharacter, enabled: false }
+                    : wordCharacter,
+              })
+          : undefined
       }
     />
   );

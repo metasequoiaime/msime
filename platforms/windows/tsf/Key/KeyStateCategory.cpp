@@ -418,6 +418,6 @@ HRESULT CKeyStateCandidate::HandleKeyArrow(KeyHandlerEditSessionDTO dto)
 //_HandleCandidateSelectByNumber
 HRESULT CKeyStateCandidate::HandleKeySelectByNumber(KeyHandlerEditSessionDTO dto)
 {
-    return _pTextService->_HandleCandidateSelectByNumber(dto.ec, dto.pContext, dto.code, dto.requestId,
+    return _pTextService->_HandleCandidateSelectByNumber(dto.ec, dto.pContext, dto.code, dto.wch, dto.requestId,
                                                          dto.prefetchedText);
 }

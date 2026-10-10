@@ -200,12 +200,20 @@ if call[:2] == ["info", "--format"]:
                 self.assertIn("PASS windows-synthetic-runtime", result.stdout)
 
     def test_wine_stages_rust_tests_with_cross_container_when_host_lacks_mingw(self):
-        # 这条测的是主机没有 MinGW 的路径：装了 mingw-w64 的开发机（Homebrew 放在 /opt/homebrew/bin）会让脚本改用本机 cargo，所以把含有 MinGW 编译器的 PATH 目录挡在外面。
-        self.env["PATH"] = os.pathsep.join(
-            entry for entry in self.env["PATH"].split(os.pathsep)
-            if not (Path(entry) / "x86_64-w64-mingw32-gcc").exists()
-            or Path(entry) == self.bin
-        )
+        # 这条测的是主机没有 MinGW 的路径：装了 mingw-w64 的开发机会让脚本改用本机 cargo，所以要让主机的 MinGW 编译器在 PATH 上找不到。只挡编译器本身，不挡整个目录：apt 的 mingw-w64 装在 /usr/bin，整个目录挡掉会连 bash、python3 一起丢。含有编译器的目录换成一个影子目录，里面链接同目录除 MinGW 工具以外的所有命令。
+        path = []
+        for index, entry in enumerate(self.env["PATH"].split(os.pathsep)):
+            folder = Path(entry)
+            if folder == self.bin or not (folder / "x86_64-w64-mingw32-gcc").exists():
+                path.append(entry)
+                continue
+            shadow = self.root / f"path-without-mingw-{index}"
+            shadow.mkdir()
+            for tool in folder.iterdir():
+                if "-w64-mingw32-" not in tool.name:
+                    (shadow / tool.name).symlink_to(tool)
+            path.append(str(shadow))
+        self.env["PATH"] = os.pathsep.join(path)
         build = self.root / "target/windows-full/x64"
         build.mkdir(parents=True)
         for name in self.names("x64"):

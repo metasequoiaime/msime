@@ -14,6 +14,7 @@ import {
   type TouchKeyboardSkinDesign,
 } from "@msime/ui";
 import { communityResourceSubtitle } from "../../../../packages/ui/src/community/community-resources";
+import { ScreenKeyboardLayoutContext } from "../../../../packages/ui/src/keyboard/screen-keyboard-preview";
 
 afterEach(() => {
   cleanup();
@@ -284,6 +285,35 @@ test("tapping a card outside its pill still opens the detail", async () => {
   expect(await screen.findByRole("button", { name: "下载并试用" })).toBeTruthy();
 });
 
+// 手机上的社区皮肤详情画触屏键盘：设置页根部按宿主提供 `touch`，详情预览不再画 Windows 屏幕键盘的 Win、Alt、Caps Lock。
+test("the skin detail on a touch host previews the touch keyboard", async () => {
+  render(
+    <ScreenKeyboardLayoutContext.Provider value="touch">
+      <ToastProvider>
+        <CommunityPage
+          theme="light"
+          skins={skinClient()}
+          resources={resourceClient()}
+          localSkinLibrary={library()}
+          preferences={preferences}
+          onApplyPreferences={vi.fn()}
+          onSkinApplied={vi.fn()}
+          look="harmony"
+          mobile
+        />
+      </ToastProvider>
+    </ScreenKeyboardLayoutContext.Provider>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "查看皮肤 春芽" }));
+  await screen.findByRole("button", { name: "下载并试用" });
+  const keys = Array.from(document.querySelectorAll("[data-keyboard-key]")).map((key) =>
+    key.getAttribute("data-keyboard-key"),
+  );
+  expect(keys.length).toBeGreaterThan(0);
+  expect(keys).not.toContain("Caps Lock");
+  expect(keys).not.toContain("Win");
+});
+
 test("添加 imports a dictionary into this device and settles on 已添加", async () => {
   const resources = resourceClient();
   const importWords = vi.fn().mockResolvedValue({ applied: 2 });
@@ -304,6 +334,22 @@ test("添加 imports a dictionary into this device and settles on 已添加", as
   expect(screen.getByText("已添加「网络流行语」，本机词库应用 2 个词条")).toBeTruthy();
   // 胶囊按钮直接执行操作，没有打开详情。
   expect(screen.queryByText("词条预览 · 2 条")).toBeNull();
+});
+
+test("添加 installs a dictionary as its own dictionary when the host keeps named dictionaries", async () => {
+  const resources = resourceClient();
+  const importWords = vi.fn().mockResolvedValue({ applied: 2 });
+  const installCollection = vi.fn().mockResolvedValue(undefined);
+  renderHarmony({ resources, localDictionary: { import: importWords, installCollection } });
+  fireEvent.click(screen.getByRole("tab", { name: "词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "添加词库 网络流行语" }));
+
+  await screen.findByRole("button", { name: "已添加词库 网络流行语" });
+  // 装的是重新读到的详情，成为一个可以在「词库」里停用或删除的词库，而不是逐条导入主词库。
+  expect(installCollection).toHaveBeenCalledTimes(1);
+  expect(installCollection.mock.calls[0][0].name).toBe("网络流行语");
+  expect(importWords).not.toHaveBeenCalled();
+  expect(screen.getByText("已添加「网络流行语」，可以在「词库」里停用或删除")).toBeTruthy();
 });
 
 test("添加 keeps a reply template for the reply keyboard", async () => {

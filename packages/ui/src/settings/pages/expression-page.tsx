@@ -138,6 +138,7 @@ export function ExpressionSettingsPage() {
         <PunctuationSection
           preferences={draft}
           showCharacterWidth={false}
+          showCapsLockPunctuation={host?.caps_lock_punctuation ?? false}
           onChange={onPreferencesChange}
         />
       </GroupList>

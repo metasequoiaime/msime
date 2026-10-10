@@ -268,6 +268,8 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 验证看的是打出来的包而不是源文件——`$media:` 解析不到时会被丢掉而不是报错。解包 `module.json` 后两个元素都带着 `"iconId": 16777217`，说明引用真的解析到了资源。`scripts/test-harmony-manifest.py` 现在查这三件事：模块级重复键、mainElement 有没有 icon、桌面入口有没有 icon，外加包里 `icon` 有没有对应的 `iconId`。对着改之前的清单跑，三条全报。
 
+桌面图标用分层图标 `$media:app_icon_layered`（`AppScope/resources/base/media/app_icon_layered.json`）：背景层 `app_icon_background.png` 是 1024×1024 的 `#252525`，与 Android 经典图标的 `app_icon_field` 同色；前景层 `app_icon_foreground.png` 是 `app_icon.png` 缩到 640 居中，四周留给桌面的圆角遮罩。只有 `app.json5` 和桌面入口 `EntryAbility` 用它；`app_icon.png` 本身是透明底，直接给桌面时圆角方块外透出壁纸，看起来没有底板，而键盘里的品牌键、输入模式提示和启动窗仍按普通图片用它，输入法列表那枚也照旧。
+
 ## 日语数字层的第十二格：从死键变成括号键
 
 假名格的第十二格是 `小゛゜`（把刚输入的假名变成小写／浊音／半浊音）。切到数字层之后键不再产生假名，这个后置修饰符就没有东西可修饰——`JapaneseVariantPolicy.enabled` 里那个 `!symbols` 让它在整个数字层恒为停用，于是那一格是死的。来源把这个空出来的格子给了括号：`setDigits(true)` 时键面变 `（）`、读作 `括弧`、始终可用，按下给出八个括号。这些括号在这套布局上没有别的落点。
@@ -468,6 +470,8 @@ Windows 文档里的“自定义候选窗翻译”在 Harmony 上没有设置入
 
 设置页的本地词库管理复用共享设置 UI 和 `msime_client_dictionary`：可分页查看、编辑、导入、导出和处理失败队列。ArkTS 设置桥只接受操作 JSON；引擎资源和状态目录始终由宿主从应用沙盒准备，WebView 不能提交路径。词库写操作需要 Engine 独占维护窗口：空闲时会短暂重建会话并恢复语言、九键和焦点状态；正在组合输入时会返回忙碌错误，不会替用户取消输入。读取操作可与活动会话并行。
 
+手机的「词库」页按 Android 的 `LexiconPage` 布局，不再是那张按种类查词条的桌面表单（`packages/ui/src/settings/harmony-phone-dictionary.tsx`，只在 HarmonyOS 手机上出现，2in1 仍用桌面表单）：「已安装」列出拼音词库和命名词库，点进去启用、停用、加词或删除；「管理」新建、导入（导入成一个新词库）、导出和刷新；「发现词库」把社区词库装成一个独立的词库，社区页的「添加」也走同一条路，之后可以停用或删除。命名词库走 `msime_client_dictionary_collections`：设置页经 `startRequest` 的 `dictionary_collections` 调 NAPI `dictionaryCollectionsAsync`，导入最多 16 MiB，在原生工作线程上执行；词条由 client-core 经个人词库队列分批送进 Engine，键盘每排空一批个人词库队列就用同步的 `dictionaryCollections` 送下一批（`flush`），和 Android 键盘的 `flushSent` 一样，大词库不用等用户回词库页刷新。`scripts/test-harmony-dictionary-collections.py` 守着这条接线。API 12 起设置应用与键盘不共用 `files/state`（见上文「输入法扩展的独立沙箱」），在共享沙箱接上之前，设置页建的命名词库和个人词库队列都只在设置应用这边，键盘看不到。
+
 ## 设置页打包
 
 设置页是 `entry/src/main/resources/rawfile/settings/index.html`，由 `apps/harmony` 从共享设置 UI（`packages/ui`）构建，**不提交进仓库**（已加入 `.gitignore`）。每次打 HAP 之前运行：
@@ -497,7 +501,7 @@ ohpm install
 hvigorw assembleHap
 ```
 
-`stage-resources.sh` 还把仓库自带的六套辅助码表（`resources/helpcodes`，不在词库发布里）连同来源声明放进 `resfile/engine/helpcodes/`：Engine 从资源目录下的 `helpcodes/` 读辅助码表，共享校验放行这个真实目录。`StagedResources` 按相对路径列出其中的文件，所以辅助码表跟其他资源一起复制到 `files/engine`，表有变化时同样重新暂存。
+`stage-resources.sh` 还把仓库自带的七套辅助码表（`resources/helpcodes`，不在词库发布里）连同来源声明放进 `resfile/engine/helpcodes/`：Engine 从资源目录下的 `helpcodes/` 读辅助码表，共享校验放行这个真实目录。`StagedResources` 按相对路径列出其中的文件，所以辅助码表跟其他资源一起复制到 `files/engine`，表有变化时同样重新暂存。
 
 引擎编进了取自 libhangul `data/hanja/hanja.txt` 的韩语汉字表，其 BSD-3-Clause 许可第 2 条要求二进制分发附带声明；引擎的粤语与注音方案所用的粤拼、注音音节与词条分别取自 rime-cantonese（CC BY 4.0，要求署名）与 libchewing-data（LGPL-2.1-or-later，要求附许可证全文与源码位置），笔画方案的笔顺取自 rime-stroke（LGPL-3.0，另含 CNS11643 全字库的署名要求），鸿蒙版的这些方案只在词库随包时提供（见上文「粤语、注音与越南语」），但声明随每一份引擎走，各平台共用一份清单，所以 `stage-resources.sh` 把 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`、`rime-cantonese-CC-BY-4.0.txt`、`libchewing-data-LGPL-2.1.txt` 与 `rime-stroke-LGPL-3.0.txt` 暂存到与 `resfile/engine` 相邻的 `resfile/licenses/`，随 HAP 一起分发；放在 `engine` 里会被锁文件校验拒绝。
 

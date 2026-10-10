@@ -87,13 +87,14 @@ cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${
 mkdir -p "$assets/native-notices"
 cp -R target/android/notices/. "$assets/native-notices/"
 cp LICENSE "$assets/client-LICENSE.txt"
-# Helpcode tables are not part of the dictionary release; the repository carries them in resources/helpcodes. Bootstrap extracts them into helpcodes/ under the resource directory, where the Engine reads them (crates/engine/src/assets.rs names the six files), and replaces them whenever the package changes.
+# 辅助码表不在词库发布里，由仓库自带在 resources/helpcodes。Bootstrap 把它们解到资源目录下的 helpcodes/，Engine 从那里读（crates/engine/src/assets.rs 列出七个文件），安装包每次变化都会替换它们。
 mkdir -p "$assets/helpcodes"
-for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt; do
+for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt wubi86_helpcode.txt; do
   cp "resources/helpcodes/$table" "$assets/helpcodes/$table"
 done
 cp resources/helpcodes/ENGINE-NOTICE.md "$assets/helpcodes/NOTICE.md"
 cp resources/helpcodes/NOTICE.md "$assets/helpcodes/NOTICE-jiajia.md"
+cp resources/helpcodes/NOTICE-wubi86.md "$assets/helpcodes/NOTICE-wubi86.md"
 # 内置按键音包：resources/sound-packs 里 `mode = "keys"` 的包整目录打进 assets/sound-packs（样本连同写着许可的 plugin.toml），Bootstrap 解到 files/sound-packs，键盘经 NativeClient.keySoundPack 校验后播放。旋律包和音乐包 Android 不播，不打包。
 mkdir -p "$assets/sound-packs"
 for pack_dir in resources/sound-packs/*/; do

@@ -1801,13 +1801,13 @@ test("helpcode schemes save independently and retain disabled selections", async
   fireEvent.click(screen.getByRole("switch", { name: "全拼辅助码" }));
   expect(quanpin.disabled).toBe(true);
   expect(quanpin.textContent).toContain("小鹤");
-  fireEvent.change(shuangpin, { target: { value: "shouyou2_0" } });
+  fireEvent.change(shuangpin, { target: { value: "wubi86" } });
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
     quanpin_helpcode: { enabled: false, schema: "xiaohe", show_in_candidate_window: false },
-    shuangpin_helpcode: { enabled: true, schema: "shouyou2_0", show_in_candidate_window: true },
+    shuangpin_helpcode: { enabled: true, schema: "wubi86", show_in_candidate_window: true },
   });
 });
 
@@ -4004,16 +4004,13 @@ test("the iOS skin page hands the candidate strip to the desktop candidate skin"
     home: { openKeyboard: vi.fn() },
     mobileKeyboardFeedback: { load, save: saveFeedback },
   };
-  const { unmount } = render(<SettingsPage initialPage="appearance" client={client} />);
-  expect(
-    await screen.findByText(/候选栏正在使用键盘皮肤的颜色/, undefined, { timeout: 3000 }),
-  ).toBeTruthy();
-  unmount();
-
   render(<SettingsPage initialPage="skin" client={client} />);
   const follow = (await screen.findByLabelText("候选栏使用主题配色")) as HTMLInputElement;
   expect(follow.checked).toBe(false);
+  // 候选栏跟随键盘皮肤时候选颜色不生效，取色器不显示；打开开关后才出现。
+  expect(screen.queryByLabelText("候选表面色")).toBeNull();
   fireEvent.click(follow);
+  expect(await screen.findByLabelText("候选表面色")).toBeTruthy();
   await waitFor(() =>
     expect(saveFeedback).toHaveBeenCalledWith(
       expect.objectContaining({ candidatePaletteFollowsDesktop: true, englishSuggestions: true }),
@@ -6939,13 +6936,13 @@ const referenceOptions: {
     page: "input",
     button: "输入",
     control: "双拼辅助码方案",
-    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加"],
+    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加", "五笔 86"],
   },
   {
     page: "input",
     button: "输入",
     control: "全拼辅助码方案",
-    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加"],
+    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加", "五笔 86"],
   },
   {
     page: "floating-toolbar",

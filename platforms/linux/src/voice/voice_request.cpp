@@ -1,11 +1,11 @@
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 #include "../core/BoundedCliInput.h"
 #include "../providers/provider_response_cli.h"
 #include "../providers/provider_socket_cli.h"
 
 #include <array>
 #include <iostream>
-#include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
 
@@ -38,12 +38,11 @@ int main(int argc, char **argv) {
     return 2;
   const size_t length = *request_length;
   if (stream) {
-    std::unique_ptr<char, decltype(&msime_client_string_free)> result(
+    auto result = msime::host_api::own_string(
         msime_client_voice_provider_stream(
             reinterpret_cast<const uint8_t *>(buffer.data()), length,
             reinterpret_cast<const uint8_t *>(socket_path.data()),
-            socket_path.size(), print_stream_update, nullptr),
-        msime_client_string_free);
+            socket_path.size(), print_stream_update, nullptr));
     if (!result)
       return 1;
     try {
@@ -53,11 +52,10 @@ int main(int argc, char **argv) {
       return 1;
     }
   }
-  std::unique_ptr<char, decltype(&msime_client_string_free)> result(
+  auto result = msime::host_api::own_string(
       msime_client_voice_provider_request(
           reinterpret_cast<const uint8_t *>(buffer.data()), length,
           reinterpret_cast<const uint8_t *>(socket_path.data()),
-          socket_path.size()),
-      msime_client_string_free);
+          socket_path.size()));
   return msime_cli_write_provider_response(result.get(), std::cout);
 }

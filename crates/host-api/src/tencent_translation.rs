@@ -42,7 +42,8 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
             &request.target_language,
         )
         || request.texts.is_empty()
-        || request.texts.len() > 9
+        || request.texts.len()
+            > usize::from(msime_client_core::preferences::MAX_CANDIDATE_PAGE_SIZE)
         || request
             .texts
             .iter()
@@ -86,7 +87,10 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
 }
 
 pub fn parse(bytes: &[u8], expected: usize) -> Option<Value> {
-    if bytes.len() > 1048576 || !(1..=9).contains(&expected) {
+    if bytes.len() > 1048576
+        || !(1..=usize::from(msime_client_core::preferences::MAX_CANDIDATE_PAGE_SIZE))
+            .contains(&expected)
+    {
         return None;
     }
     let text = std::str::from_utf8(bytes).ok()?;
@@ -163,7 +167,7 @@ mod tests {
         for (field, value) in [
             ("texts", json!(["x".repeat(41)])),
             ("texts", json!([])),
-            ("texts", json!(vec!["x"; 10])),
+            ("texts", json!(vec!["x"; 11])),
             ("timestamp", json!(-1)),
             ("timestamp", json!(i64::MAX)),
             ("source_language", json!("unknown")),

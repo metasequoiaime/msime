@@ -163,8 +163,6 @@ export function communityPluginMessage(error: unknown, publishing = false): stri
   const moderation = communityModerationMessage(error);
   if (moderation) return moderation;
   switch (errorCode(error)) {
-    case "plugin_community_kind":
-      return "特效包暂不支持分享。";
     case "plugin_community_too_large":
       return "插件压缩后不能超过 8 MB。";
     case "plugin_community_checksum":
