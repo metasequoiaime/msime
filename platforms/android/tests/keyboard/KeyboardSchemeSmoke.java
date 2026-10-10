@@ -80,6 +80,13 @@ public final class KeyboardSchemeSmoke {
             .touchKeyboardLayout().equals("nine_key"));
         check(KeyboardScheme.mappingForRuntimeSelection(
             KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN, "quanpin", "xiaohe", FULL) == null);
+        // 运行期回退到其它入口时，自定义双拼表仍归用户所有，不能把方案名写成小鹤。
+        check(KeyboardScheme.mappingForRuntimeSelection(
+            KeyboardScheme.JAPANESE, KeyboardScheme.QUANPIN, "japanese", "custom", FULL)
+            .shuangpinProfile().equals("custom"));
+        // 明确点选内置双拼入口时，才由该入口替换当前自定义方案。
+        check(KeyboardScheme.ZIRANMA.mapping("shuangpin", "custom", FULL)
+            .shuangpinProfile().equals("ziranma"));
         check(KeyboardScheme.fromPreferences("quanpin", "xiaohe", "handwriting", FULL) == KeyboardScheme.HANDWRITING);
         check(KeyboardScheme.fromPreferences("quanpin", "xiaohe", "nine_key", FULL) == KeyboardScheme.QUANPIN_NINE_KEY);
         check(KeyboardScheme.fromPreferences("japanese", "xiaohe", "nine_key", FULL) == KeyboardScheme.JAPANESE_NINE_KEY);
