@@ -78,6 +78,9 @@ pub fn enumerate_complete_segmentations(
             return;
         }
         for edge in &graph.edges[position] {
+            if current.capacity() == 0 {
+                current.reserve_exact(graph.input_length);
+            }
             current.push(edge.syllable);
             visit(graph, edge.end, path_limit, current, result);
             current.pop();
@@ -91,13 +94,7 @@ pub fn enumerate_complete_segmentations(
     if path_limit == 0 || graph.input_length == 0 || graph.edges.len() != graph.input_length + 1 {
         return result;
     }
-    visit(
-        graph,
-        0,
-        path_limit,
-        &mut Vec::with_capacity(graph.input_length),
-        &mut result,
-    );
+    visit(graph, 0, path_limit, &mut Vec::new(), &mut result);
     result
 }
 
@@ -180,6 +177,20 @@ mod tests {
         let graph = build_syllable_graph(&"z".repeat(256));
 
         assert!(graph.edges.iter().all(|edges| edges.capacity() == 0));
+    }
+
+    #[test]
+    fn unreadable_graph_does_not_allocate_path_storage() {
+        let graph = build_syllable_graph(&"z".repeat(256));
+        let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            enumerate_complete_segmentations(&graph, SYLLABLE_GRAPH_PATH_LIMIT)
+        });
+
+        assert!(paths.is_empty());
+        assert_eq!(
+            allocations, 0,
+            "无路径时不应申请遍历工作缓冲: {allocations}"
+        );
     }
 
     #[test]
