@@ -4,6 +4,7 @@ import app.msime.android.JsonPolicy;
 import app.msime.android.TextPolicy;
 import java.lang.reflect.Method;
 import java.lang.reflect.InvocationTargetException;
+import java.util.List;
 import java.util.UUID;
 
 public final class CommunityCatalogSmoke {
@@ -54,6 +55,21 @@ public final class CommunityCatalogSmoke {
             CommunityRequest.Category.OTHER, false, 0, null);
         check(!(boolean) validItem.invoke(null, malformed, CommunityRequest.Kind.SKIN),
             "malformed community items must be rejected");
+        CommunityCatalog.Discovery unavailable = CommunityCatalog.discovery(null, 8);
+        check(unavailable.failed() && unavailable.items() == null && !unavailable.failure().isEmpty(),
+            "a missing discovery page becomes a displayable failure");
+        CommunityCatalog.Discovery failed = CommunityCatalog.discovery(
+            new CommunityCatalog.Page(List.of(), false, "合成失败"), 8);
+        check(failed.failed() && failed.items() == null && "合成失败".equals(failed.failure()),
+            "a discovery page preserves the catalogue failure");
+        CommunityCatalog.Page source = new CommunityCatalog.Page(List.of(malformed, malformed), true, "");
+        CommunityCatalog.Discovery bounded = CommunityCatalog.discovery(source, 1);
+        check(!bounded.failed() && bounded.failure() == null && bounded.items().size() == 1
+                && bounded.items().get(0) == malformed && source.items().size() == 2,
+            "a successful discovery page is copied and bounded without changing its source");
+        CommunityCatalog.Discovery empty = CommunityCatalog.discovery(source, 0);
+        check(!empty.failed() && empty.items().isEmpty(),
+            "a non-positive discovery limit returns a successful empty list");
         CommunityCatalog.Item nilId = new CommunityCatalog.Item(
             "00000000-0000-0000-0000-000000000000", CommunityRequest.Kind.SKIN, "名称", "说明", "作者",
             0, 0, 0, null, CommunityRequest.Category.OTHER, false, 0, null);

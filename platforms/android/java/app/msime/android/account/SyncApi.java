@@ -309,7 +309,7 @@ public final class SyncApi {
         String path = restorePath(revision);
         Exchange exchange = streamed(token -> streams.upload(path, token, file, NDJSON));
         try {
-            JSONObject root = new JSONObject(new String(exchange.body(), StandardCharsets.UTF_8));
+            JSONObject root = new JSONObject(TextPolicy.utf8(exchange.body()));
             Object next = root.opt("revision");
             long nextRevision = preferenceRevision(next);
             if (nextRevision <= revision) throw invalid("snapshot revision");
@@ -552,11 +552,10 @@ public final class SyncApi {
         private static HttpsURLConnection open(String path, String method, String token, String accept)
                 throws IOException {
             HttpsURLConnection connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + path).openConnection();
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod(method);
-            connection.setConnectTimeout(CloudApi.CONNECT_TIMEOUT_MILLIS);
             // 快照在服务端整份导出或原子恢复，读超时和 client-core 一样放宽到两分钟以上。
-            connection.setReadTimeout(130_000);
+            HttpConnectionPolicy.setTimeouts(connection, CloudApi.CONNECT_TIMEOUT_MILLIS, 130_000);
             connection.setRequestProperty("Accept", accept);
             connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
             connection.setRequestProperty("Authorization", "Bearer " + token);

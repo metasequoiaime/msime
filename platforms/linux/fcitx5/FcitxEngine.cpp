@@ -739,9 +739,9 @@ public:
     const auto current = preferences_.value(section, Json::object()).value(
         "schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
     const auto it = std::find(schemas.begin(), schemas.end(), current);
-    // 辅助码表包生效时，第一次点按先回到存着的那个内置方案（停用插件），之后再按顺序轮换。
+    // 辅助码表包生效时，第一次点按先回到存着的那个内置方案（停用插件），之后再按顺序轮换。存着的不是已知方案时回到第一个方案，不把无效值写回去。
     const auto next = !msime::linux_host::helpcode_pack(preferences_, scheme == 1 ? "shuangpin" : "quanpin").empty()
-        ? current
+        ? (it == schemas.end() ? std::string(schemas.front()) : current)
         : it == schemas.end() || std::next(it) == schemas.end() ? std::string(schemas.front()) : std::string(*std::next(it));
     if (!view_.value("editing_text", std::string{}).empty())
       command(MSIME_FINISH_COMPOSITION);

@@ -10311,6 +10311,66 @@ fn a_broken_helpcode_pack_with_a_missing_fallback_never_fails_the_session() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
+/// 插件载入失败（这里是选中的辅助码表包不在）经宿主注册的诊断回调报出来，而不是只写 stderr：macOS 输入法的 stderr 指向 /dev/null，原先这些失败在哪儿都留不下痕迹。清掉回调后回到 stderr。
+///
+/// The sink is process-wide, so this is the only test that registers one; reports from tests running alongside land in it too, which is why the assertions look for this test's own pack id.
+#[test]
+fn plugin_failures_reach_the_registered_diagnostic_sink() {
+    static LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    unsafe extern "C" fn sink(line: *const c_char) {
+        let line = unsafe { std::ffi::CStr::from_ptr(line) };
+        LINES
+            .lock()
+            .unwrap()
+            .push(line.to_string_lossy().into_owned());
+    }
+    let captured = |needle: &str| -> Vec<String> {
+        LINES
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|line| line.contains(needle))
+            .cloned()
+            .collect()
+    };
+
+    msime_client_set_diagnostic_sink(Some(sink));
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = chinese_preferences();
+    preferences.scheme = msime_client_core::preferences::InputScheme::Quanpin;
+    preferences.plugins.helpcode_pack_quanpin = "diagnostic-sink-probe".into();
+    let handle = plugin_host(dir.path(), preferences);
+    let reported = captured("diagnostic-sink-probe");
+    assert!(
+        reported.iter().any(|line| line.starts_with(
+            "helpcode pack unavailable, falling back to the scheme's schema: diagnostic-sink-probe -> "
+        )),
+        "{reported:?}"
+    );
+    assert!(reported.iter().all(|line| !line.starts_with("msime: ")));
+    // 第一个冒号之前只有固定的类别：macOS 的诊断日志只记这一段，包名、路径和错误原文都在它后面。
+    for line in &reported {
+        let (category, _) = line.split_once(": ").expect("a category before a colon");
+        assert!(!category.contains("diagnostic-sink-probe"), "{line}");
+        assert!(!category.contains('/'), "{line}");
+    }
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    // 原因里带 NUL 也不会截断或出错。
+    diagnostics::report("diagnostic sink probe", "diagnostic-sink-probe nul\0after");
+    assert_eq!(
+        captured("diagnostic-sink-probe nul"),
+        ["diagnostic sink probe: diagnostic-sink-probe nul?after"]
+    );
+
+    msime_client_set_diagnostic_sink(None);
+    diagnostics::report(
+        "diagnostic sink probe",
+        "diagnostic-sink-probe after clearing",
+    );
+    assert!(captured("after clearing").is_empty());
+}
+
 /// Switching the `/` mode on, or enabling another table, goes through the ordinary preference update and reads the tables then.
 #[test]
 fn preference_updates_load_the_enabled_command_tables() {

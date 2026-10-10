@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-两个聚合向量从零容量开始，第一张非空页到来后先按原提示 `reserve_exact` 再执行原 `extend`。保留长词续接的首次词值去重、稳定权重排序和截断，以及精确分段的按表顺序、稳定排序和同值行保留。只改变聚合存储的申请时间，不改变底层查询或容量公式。
+两个聚合向量从零容量开始，第一张非空页到来后先按原提示 `reserve_exact` 再执行原 `extend`。保留长词续接的首次词值去重、稳定权重排序和截断，以及精确分段的按表顺序、稳定排序和同值行保留。此片选择只改变聚合存储的申请时间，保留当时的容量公式。空页零容量约束仍有效；非空长词续接由[按页预留](2026-10-10-pinyin-longer-rows-reserve.md)接管，精确聚合由[首个页复用](2026-10-10-pinyin-aggregate-page-reuse.md)接管，后者翻转这里保留原非空容量的取舍。
 
 ## 既有笔记审计
 
@@ -28,6 +28,8 @@ Status: implemented
 
 ## Consequences
 
-全部页为空时省去一次聚合容器分配，返回零容量；命中仍按原容量提示预留一次。每页增加非空及容量分支，尚不保证命中延迟改善。原乘积容量公式和非空时的大提示风险保持原状；不把此片收益当作所有拼音查询零分配，不宣称 SQLite C 堆或 RSS 收益。[Vec::reserve_exact 官方契约](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.reserve_exact)保证至少所需容量，不保证物理分配精确大小。
+全部页为空时省去一次聚合容器分配，返回零容量；当时命中仍按原容量提示预留一次，当前两种非空策略见上述后续笔记。每页增加非空及容量分支，尚不保证命中延迟改善。此片留下的乘积容量公式和非空大提示风险由上述后续策略分别处理；不把此片收益当作所有拼音查询零分配，不宣称 SQLite C 堆或 RSS 收益。[Vec::reserve_exact 官方契约](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.reserve_exact)保证至少所需容量，不保证物理分配精确大小。
 
 按键分组查询的空结果 `HashMap` 由[结果表延后预留](../../implemented/testing/2026-10-10-pinyin-empty-key-map-storage.md)单独处理；两侧共用已合并的底层查询函数，结果表收益独立计量。
+
+固定单跨度通过[直接规范化查询键规划](2026-10-10-pinyin-lattice-span-key-plan.md)绕过临时音节与单项表分组，当时保留本篇非空聚合容量提示和空页零容量；当前单跨度与精确切分批次的非空策略均由[首个页复用](2026-10-10-pinyin-aggregate-page-reuse.md)接管。

@@ -149,6 +149,28 @@ int main() {
     require(frame_text(tsf_config_frames(config)[8]) == L"000");
     config.dedicated_english = false;
     require(frame_text(tsf_config_frames(config)[8]) == L"111");
+    // The switches reach the flags only where the Engine opens the mode: V in the pinyin schemes (`opens_local_modes`), "/" and "@" in the pinyin schemes and Wubi too (`opens_table_modes`). A Wubi user with "/" and "@" on gets them; the TIP would otherwise send "/" as punctuation while the Engine waits to open the command mode.
+    {
+      const auto switched = [](std::string_view name, bool expression, bool command, bool mention) {
+        TsfLocalConfig local;
+        apply_local_mode_switches(local, scheme::scheme_from_name(name), expression, command, mention);
+        return frame_text(tsf_config_frames(local)[8]);
+      };
+      require(switched("quanpin", true, true, true) == L"111");
+      require(switched("shuangpin", true, true, true) == L"111");
+      require(switched("wubi", true, true, true) == L"011");
+      require(switched("wubi", false, true, false) == L"010");
+      require(switched("wubi", false, false, true) == L"001");
+      require(switched("wubi", false, false, false) == L"000");
+      require(switched("quanpin", false, false, false) == L"000");
+      for (const auto name : {"japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan", "stroke", "unknown"})
+        require(switched(name, true, true, true) == L"000");
+      // A switch the scheme does not open never leaves a stale flag on from an earlier scheme.
+      TsfLocalConfig reused;
+      apply_local_mode_switches(reused, scheme::Quanpin, true, true, true);
+      apply_local_mode_switches(reused, scheme::Korean, true, true, true);
+      require(!reused.expression_mode && !reused.command_mode && !reused.mention_mode);
+    }
     // The TIP drops every type above MaxKnown, so the new type has to be inside it.
     require(FanyImeWorkerReplyType::LocalModeTriggersChanged <=
             FanyImeWorkerReplyType::MaxKnown);

@@ -23,9 +23,11 @@ HEIGHT_PX_CALLERS = (
     "SkinsPage.java",
 )
 BOTTOM_INSET_CALLERS = (
+    "KeyboardTryoutActivity.java",
+)
+PAGE_BOTTOM_INSET_CALLERS = (
     "DetailPage.java",
     "KeyboardFragment.java",
-    "KeyboardTryoutActivity.java",
 )
 
 
@@ -40,6 +42,10 @@ def main() -> int:
         errors.append(f"{UI}: 不应保留 hairlinePx 转发方法")
     if "public static int bottomContentInset(" in ui:
         errors.append(f"{UI}: 不应保留 bottomContentInset 转发方法")
+    if "public static void bindPageBottomInsets(View view)" not in ui:
+        errors.append(f"{UI}: 缺少页面底部避让监听绑定方法")
+    if "WindowInsetsPolicy.bottomContentInset(" not in ui:
+        errors.append(f"{UI}: 页面底部避让监听未复用 WindowInsetsPolicy")
     if "public static LinearLayout.LayoutParams matchWidthHeightPx(" in ui:
         errors.append(f"{UI}: 不应保留 matchWidthHeightPx 转发方法")
     if re.search(r"(?<![.\w])matchWidthHeightPx\(", ui):
@@ -110,6 +116,14 @@ def main() -> int:
         path = HOME / name
         if "WindowInsetsPolicy.bottomContentInset(" not in path.read_text(encoding="utf-8"):
             errors.append(f"{path}: 未直接复用 WindowInsetsPolicy.bottomContentInset")
+
+    for name in PAGE_BOTTOM_INSET_CALLERS:
+        path = HOME / name
+        source = path.read_text(encoding="utf-8")
+        if "Ui.bindPageBottomInsets(scroll);" not in source:
+            errors.append(f"{path}: 未复用页面底部避让监听绑定方法")
+        if "ViewCompat.setOnApplyWindowInsetsListener(" in source:
+            errors.append(f"{path}: 不应重复绑定页面底部避让监听")
 
     option_sheet = HOME / "OptionSheet.java"
     if "KeyboardGeometry.weightedWidthParams(" not in option_sheet.read_text(encoding="utf-8"):

@@ -19,6 +19,7 @@ import {
 } from "react";
 import { ActionSheet, type SheetOption } from "./action-sheet";
 import { FluentIcon } from "./fluent-icons";
+import { clamp } from "./number";
 import * as style from "./platform-controls-style";
 
 type RowLabels = { labelId: string; descriptionId?: string };
@@ -271,7 +272,7 @@ export function Slider({
   ticks?: boolean;
 } & Labelled) {
   const names = useRowLabels(labels);
-  const fill = max > min ? ((Math.min(Math.max(value, min), max) - min) / (max - min)) * 100 : 0;
+  const fill = max > min ? ((clamp(value, min, max) - min) / (max - min)) * 100 : 0;
   const steps = ticks && max > min && step > 0 ? Math.round((max - min) / step) : 0;
   const input = (
     <input

@@ -3,6 +3,7 @@ import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import type { ReactNode } from "react";
+import type { InputScheme } from "../index";
 import { GroupList, Row } from "../core/platform-controls";
 import {
   MAX_COMMAND_TABLES,
@@ -16,10 +17,12 @@ import {
 import {
   effectStyleLabel,
   kindLabels,
+  melodyPlays,
   missingReason,
   missingTitle,
   packKindLabel,
   PHRASE_PREVIEW_ROWS,
+  schemeTableModeNote,
   WORDBOOK_PREVIEW_WORDS,
   SYMBOL_PREVIEW_ITEMS,
   wordbookPackBookId,
@@ -48,8 +51,14 @@ export interface PluginDetailViewProps {
   triggers: boolean;
   /** The host draws an installed effect pack: `typingEffects && effectStyles && effectPacks`. */
   effectPacks: boolean;
+  /** The host draws every effect style as a flash of the candidate card and no sparks (Windows, HarmonyOS). */
+  effectFlashOnly?: boolean;
   /** 快捷短语（K 模式）是否打开：`local_modes.quick_phrase`。 */
   quickPhraseMode: boolean;
+  /** / 指令是否打开：`local_modes.command`。 */
+  commandMode: boolean;
+  /** 当前输入方案；打不开 K 和 / 模式的方案下，短语表和指令表详情会说明。缺省时不提示。 */
+  scheme?: InputScheme;
   /** 宿主使用辅助码（设置里有辅助码这一组）。 */
   helpcode: boolean;
   /** 宿主的背单词书目列出单词本插件。 */
@@ -62,6 +71,8 @@ export interface PluginDetailViewProps {
   onChange: (preferences: PluginPreferences) => void;
   onCommandTable: (id: string, enabled: boolean) => void;
   onPhraseTable: (id: string, enabled: boolean) => void;
+  /** 就地打开「输入 → 快捷模式」里的 / 指令；没有时改为提供跳到输入页的链接。 */
+  onLocalMode?: (mode: "command" | "mention") => void;
   /** 打开设置里的另一页；宿主没有页面导航时为空，链接不显示。 */
   onOpenPage?: (page: PluginSettingsPage) => void;
   onRemove: (pack: PluginPackage) => void;
@@ -76,7 +87,10 @@ export function PluginDetailView({
   music,
   triggers,
   effectPacks,
+  effectFlashOnly = false,
   quickPhraseMode,
+  commandMode,
+  scheme,
   helpcode,
   wordbookPacks,
   symbolSetPacks,
@@ -85,6 +99,7 @@ export function PluginDetailView({
   onChange,
   onCommandTable,
   onPhraseTable,
+  onLocalMode,
   onOpenPage,
   onRemove,
   onBack,
@@ -124,7 +139,10 @@ export function PluginDetailView({
           music={music}
           triggers={triggers}
           effectPacks={effectPacks}
+          effectFlashOnly={effectFlashOnly}
           quickPhraseMode={quickPhraseMode}
+          commandMode={commandMode}
+          scheme={scheme}
           helpcode={helpcode}
           wordbookPacks={wordbookPacks}
           symbolSetPacks={symbolSetPacks}
@@ -133,6 +151,7 @@ export function PluginDetailView({
           onChange={onChange}
           onCommandTable={onCommandTable}
           onPhraseTable={onPhraseTable}
+          onLocalMode={onLocalMode}
           onOpenPage={onOpenPage}
         />
       </GroupList>
@@ -290,7 +309,10 @@ function PackActions({
   music,
   triggers,
   effectPacks,
+  effectFlashOnly,
   quickPhraseMode,
+  commandMode,
+  scheme,
   helpcode,
   wordbookPacks,
   symbolSetPacks,
@@ -299,6 +321,7 @@ function PackActions({
   onChange,
   onCommandTable,
   onPhraseTable,
+  onLocalMode,
   onOpenPage,
 }: {
   pack: PluginPackage;
@@ -307,7 +330,10 @@ function PackActions({
   music: boolean;
   triggers: boolean;
   effectPacks: boolean;
+  effectFlashOnly: boolean;
   quickPhraseMode: boolean;
+  commandMode: boolean;
+  scheme?: InputScheme;
   helpcode: boolean;
   wordbookPacks: boolean;
   symbolSetPacks: boolean;
@@ -316,36 +342,50 @@ function PackActions({
   onChange: (preferences: PluginPreferences) => void;
   onCommandTable: (id: string, enabled: boolean) => void;
   onPhraseTable: (id: string, enabled: boolean) => void;
+  onLocalMode?: (mode: "command" | "mention") => void;
   onOpenPage?: (page: PluginSettingsPage) => void;
 }) {
   switch (pack.kind) {
     case "sound": {
       if (!keySound) return <ActionBlock note="这台设备不播放音效。" />;
+      // 选用即使用：按钮在包已选中但开关没开（之后在「声音与效果」关掉了按键音或换了发声方式）时仍可点，点了会把开关重新打开。
       if (pack.mode === "sequence") {
-        const current = preferences.melody.pack === pack.id;
+        const selected = preferences.melody.pack === pack.id;
+        const playing = melodyPlays(preferences);
         return (
           <ActionBlock
             note={
-              preferences.key_sound.mode === "melody"
+              playing
                 ? "按键旋律每按一键弹出旋律的下一个音，停顿 3 秒后从头开始。"
-                : "在「声音与效果」把发声方式设为按键旋律后，打字时就会弹这段旋律。"
+                : "按键旋律现在没有打开。设为按键旋律会同时打开按键音，并把发声方式改为按键旋律。"
             }
           >
             <ActionButton
               action={onSelect}
-              disabled={current}
-              label={current ? "使用中" : "设为按键旋律"}
+              disabled={selected && playing}
+              label={selected ? (playing ? "使用中" : "打开按键旋律") : "设为按键旋律"}
             />
           </ActionBlock>
         );
       }
-      const current = preferences.key_sound.pack === pack.id;
+      const selected = preferences.key_sound.pack === pack.id;
+      const keysEnabled = preferences.key_sound.enabled;
+      const playing = keysEnabled && preferences.key_sound.mode === "keys";
+      const resume = keysEnabled ? "改用按键音效" : "打开按键音";
       return (
-        <ActionBlock note="按键、上屏和成就音效都取自当前音效包；开关和音量在「声音与效果」里。">
+        <ActionBlock
+          note={
+            playing
+              ? "按键、上屏和成就音效都取自当前音效包；开关和音量在「声音与效果」里。"
+              : keysEnabled
+                ? "发声方式现在是按键旋律。设为当前音效包会改回按键音效；上屏和成就音效也取自当前音效包，开关在「声音与效果」里。"
+                : "按键音现在没有打开。设为当前音效包会同时打开按键音；上屏和成就音效也取自当前音效包，开关在「声音与效果」里。"
+          }
+        >
           <ActionButton
             action={onSelect}
-            disabled={current}
-            label={current ? "使用中" : "设为当前音效包"}
+            disabled={selected && playing}
+            label={selected ? (playing ? "使用中" : resume) : "设为当前音效包"}
           />
         </ActionBlock>
       );
@@ -354,7 +394,13 @@ function PackActions({
       if (!effectPacks) return <ActionBlock note="这台设备不绘制特效包。" />;
       const current = preferences.effect_pack === pack.id;
       return (
-        <ActionBlock note="特效包决定样式、强度、颜色和时长，使用后「声音与效果」里的样式和强度不再生效。">
+        <ActionBlock
+          note={
+            effectFlashOnly
+              ? "特效包决定样式、强度、颜色和时长，使用后「声音与效果」里的样式和强度不再生效。这台设备只让候选栏闪光，不绘制火花：火花和 Power Mode 闪得更亮，粒子数不起作用。"
+              : "特效包决定样式、强度、颜色和时长，使用后「声音与效果」里的样式和强度不再生效。"
+          }
+        >
           {current ? (
             <ActionButton
               action={() => onChange({ ...preferences, effect_pack: "" })}
@@ -368,21 +414,22 @@ function PackActions({
     }
     case "music": {
       if (!music) return <ActionBlock note="这台设备不播放背景音乐。" />;
-      const current = preferences.music.pack === pack.id;
+      const selected = preferences.music.pack === pack.id;
+      const playing = preferences.music.enabled;
       return (
         <ActionBlock
           note={
-            preferences.music.enabled
+            playing
               ? "背景音乐只在输入法处于活动状态时播放。"
-              : "在「声音与效果」打开背景音乐后播放。"
+              : "背景音乐现在没有打开。设为当前音乐包会同时打开它，只在输入法处于活动状态时播放。"
           }
         >
           <ActionButton
             action={onSelect}
-            disabled={current}
-            label={current ? "使用中" : "设为当前音乐包"}
+            disabled={selected && playing}
+            label={selected ? (playing ? "使用中" : "打开背景音乐") : "设为当前音乐包"}
           />
-          {current && (
+          {selected && (
             <ActionButton
               action={() => onChange({ ...preferences, music: { ...preferences.music, pack: "" } })}
               label="不再使用"
@@ -395,20 +442,35 @@ function PackActions({
       if (!triggers) return <ActionBlock note="这台设备不支持 / 指令。" />;
       const position = preferences.command_tables.indexOf(pack.id);
       const full = position < 0 && preferences.command_tables.length >= MAX_COMMAND_TABLES;
+      const schemeNote = schemeTableModeNote(scheme, "指令（/ 模式）");
       return (
-        <SwitchRow
-          title="启用"
-          description={
-            position >= 0
-              ? `第 ${position + 1} 位。同一指令以靠前的表为准。`
-              : full
-                ? `最多启用 ${MAX_COMMAND_TABLES} 个指令表。`
-                : "启用后排在已启用的指令表之后。"
-          }
-          checked={position >= 0}
-          disabled={full}
-          onChange={(enabled) => onCommandTable(pack.id, enabled)}
-        />
+        <>
+          <SwitchRow
+            title="启用"
+            description={
+              position >= 0
+                ? `第 ${position + 1} 位。同一指令以靠前的表为准。`
+                : full
+                  ? `最多启用 ${MAX_COMMAND_TABLES} 个指令表。`
+                  : "启用后排在已启用的指令表之后。"
+            }
+            checked={position >= 0}
+            disabled={full}
+            onChange={(enabled) => onCommandTable(pack.id, enabled)}
+          />
+          {!commandMode && (
+            <ActionBlock note="/ 指令（「输入 → 快捷模式」里的开关）已关闭，启用的指令表不会生效。打开后，在中文标点下没有输入时按 / 再输入指令字母即可使用。">
+              {onLocalMode ? (
+                <ActionButton action={() => onLocalMode("command")} label="打开 / 指令" />
+              ) : (
+                onOpenPage && (
+                  <ActionButton action={() => onOpenPage("input")} label="前往输入设置" />
+                )
+              )}
+            </ActionBlock>
+          )}
+          {schemeNote && <ActionBlock note={schemeNote} />}
+        </>
       );
     }
     case "symbol_set":
@@ -463,6 +525,7 @@ function PackActions({
       if (!triggers) return <ActionBlock note="这台设备不支持快捷短语插件。" />;
       const position = preferences.phrase_tables.indexOf(pack.id);
       const full = position < 0 && preferences.phrase_tables.length >= MAX_PHRASE_TABLES;
+      const schemeNote = schemeTableModeNote(scheme, "快捷短语（K 模式）");
       return (
         <>
           <SwitchRow
@@ -485,6 +548,7 @@ function PackActions({
               )}
             </ActionBlock>
           )}
+          {schemeNote && <ActionBlock note={schemeNote} />}
         </>
       );
     }

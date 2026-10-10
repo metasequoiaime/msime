@@ -4021,6 +4021,26 @@ fn the_translate_command_round_trips_through_the_runtime() {
     );
 }
 
+#[test]
+fn command_translation_does_not_change_engine_after_generation_exhaustion() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = generated_mode_runtime(directory.path());
+    character(&mut runtime, b'/');
+    for value in *b"fyhello" {
+        character(&mut runtime, value);
+    }
+    let mut query = runtime.command_translation().unwrap();
+    runtime.generation = u64::MAX;
+    query.generation = u64::MAX;
+    let before = runtime.engine.snapshot().unwrap().candidates;
+
+    assert!(matches!(
+        runtime.apply_command_translation(&query, "合成译文"),
+        Err(RuntimeError::IdentityExhausted)
+    ));
+    assert_eq!(runtime.engine.snapshot().unwrap().candidates, before);
+}
+
 // A mark on a bare `/` or `@` is punctuation on every route: the mode ends and nothing from its list is committed.
 #[test]
 fn a_mark_on_a_bare_slash_or_at_is_not_a_pick() {
@@ -4676,6 +4696,54 @@ fn full_list_does_not_reorder_after_generation_identity_is_exhausted() {
             .map(|candidate| candidate.text.as_str())
             .collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn clearing_online_candidates_does_not_change_engine_after_generation_exhaustion() {
+    let directory = tempfile::tempdir().unwrap();
+    let session = msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    type_characters(&mut runtime, "ni");
+    let query = runtime.online_query().unwrap().unwrap();
+    assert!(query.ai_eligible);
+    assert!(runtime
+        .apply_online_candidate(&query, "合成候选", 1)
+        .unwrap());
+    runtime.generation = u64::MAX;
+    let before = runtime.engine.snapshot().unwrap().candidates;
+    assert!(before.iter().any(|candidate| candidate == "合成候选"));
+
+    assert!(matches!(
+        runtime.clear_online_candidates(1),
+        Err(RuntimeError::IdentityExhausted)
+    ));
+    assert_eq!(runtime.engine.snapshot().unwrap().candidates, before);
+}
+
+#[test]
+fn online_candidates_do_not_change_engine_after_generation_exhaustion() {
+    for batch in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        let session =
+            msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        type_characters(&mut runtime, "ni");
+        let mut query = runtime.online_query().unwrap().unwrap();
+        query.ai_assistant =
+            Some(serde_json::from_value(json!({"enabled": true, "candidate_limit": 1})).unwrap());
+        runtime.generation = u64::MAX;
+        let before = runtime.engine.snapshot().unwrap().candidates;
+
+        let result = if batch {
+            runtime.apply_online_candidates(&query, &["合成候选".into()], 1)
+        } else {
+            runtime.apply_online_candidate(&query, "合成候选", 1)
+        };
+        assert!(matches!(result, Err(RuntimeError::IdentityExhausted)));
+        assert_eq!(runtime.engine.snapshot().unwrap().candidates, before);
+    }
 }
 
 #[test]

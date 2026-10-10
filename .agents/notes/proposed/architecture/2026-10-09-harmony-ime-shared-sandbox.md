@@ -19,7 +19,7 @@ Status: proposed
 
 1. 在 AppGallery Connect「开放能力管理」申请「输入法应用内数据共享」，拿到 `data-group-id`。这需要包名能在 AGC 建应用，所以先把 bundleName 改成 `app.msime.hmos`，原来的 `app.msime.harmony` 含保留字被拒。
 2. 重新生成带这个 ID 的调试和发布 profile（手动签名，自动签名不支持这项能力），键盘扩展在 `module.json5` 的 `dataGroupIds` 里声明同一个 ID。
-3. 两个进程都用 `context.getGroupDir(id)` 得到共享目录，原先放在 `files/state` 里、需要两边都看到的东西改放到那里：偏好、登录会话、按键反馈、自定义皮肤库、打字统计、遥测队列、社区回复库。只属于键盘自己的数据（常用语、个人词库、表情记录、剪贴板历史）留在键盘自己的沙箱。
+3. 两个进程都用 `context.getGroupDir(id)` 得到共享目录，原先放在 `files/state` 里、需要两边都看到的东西改放到那里：偏好、登录会话、按键反馈、自定义皮肤库、打字统计、遥测队列、社区回复库，以及插件目录 `plugins/`（含 `@` 名单 `mentions.json`）：设置应用导入的音效包、指令表、短语表、辅助码表、特效包和符号集只有放在这里，键盘才读得到。只属于键盘自己的数据（常用语、个人词库、表情记录、剪贴板历史）留在键盘自己的沙箱。
 4. 基础访问模式下键盘对共享沙箱只读，完整体验模式下可读写。用 `inputMethodEngine` 的 `getSecurityMode()` 判断当前模式、监听 `securityModeChange`；只读时，键盘需要写的数据（统计计数、遥测）不写，统计页如实提示需要完整体验模式。
 5. `getGroupDir` 返回空（没有 ID 的开发包、签名不带 ID）时退回各自的 `files/state`，行为与现在相同，并在设置页说明键盘无法同步设置。
 

@@ -12,9 +12,6 @@ import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 import androidx.core.widget.NestedScrollView;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.DrawablePolicy;
@@ -27,7 +24,6 @@ import app.msime.android.R;
 import app.msime.android.SchemePreferences;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
-import app.msime.android.WindowInsetsPolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import com.google.android.material.button.MaterialButton;
@@ -100,16 +96,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                 }
             });
         // 和 DetailPage 一样：底部留出 tab 栏加系统导航栏的高度，键盘弹出时改留键盘的高度，最后一组和搜索结果才能滚到可见处。
-        int base = Ui.dp(requireContext(), Ui.PAGE_PADDING_BOTTOM);
-        int tabs = Ui.dp(requireContext(), Ui.TAB_BAR_HEIGHT);
-        ViewCompat.setOnApplyWindowInsetsListener(scroll, (target, insets) -> {
-            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
-            int bottom = WindowInsetsPolicy.bottomContentInset(bars.bottom, tabs, ime.bottom, base);
-            ViewPolicy.setBottomPadding(target, bottom);
-            return insets;
-        });
-        ViewCompat.requestApplyInsets(scroll);
+        Ui.bindPageBottomInsets(scroll);
         buildRows(view);
         render();
         reload();
