@@ -1857,6 +1857,43 @@ static void TestSessionOptions() {
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
 }
 
+// A helpcode or sound failure can be reported while the first HostSession is
+// being constructed. The live preference document is authoritative, so the
+// log must be configured before that construction rather than only after the
+// first asynchronous preference reload.
+static void TestDiagnosticLogConfiguredBeforeSession() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSError *error = nil;
+    NSDictionary *initial = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(initial && !error);
+    NSMutableDictionary *preferences = [initial[@"preferences"] mutableCopy];
+    NSMutableDictionary *diagnostic = [preferences[@"diagnostic_log"] mutableCopy];
+    diagnostic[@"server"] = @YES;
+    preferences[@"diagnostic_log"] = diagnostic;
+    NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:root
+        expectedRevision:[initial[@"revision"] unsignedLongLongValue]
+        snapshot:@{ @"format_version": @1, @"revision": initial[@"revision"], @"preferences": preferences }
+        error:&error];
+    assert(saved && !error);
+    NSDictionary *options = @{
+        @"preferences_directory": root,
+        // The runtime-options copy is stale and still says diagnostics are off;
+        // the live preferences document above is authoritative at startup.
+        @"preferences": @{ @"diagnostic_log": @{ @"server": @NO } },
+    };
+    msime_macos_diagnostic_configure(std::string(), false);
+    assert(!msime_macos_diagnostic_enabled());
+    MSIMEConfigureDiagnosticLogBeforeSession(options);
+    assert(msime_macos_diagnostic_enabled());
+    msime_macos_diagnostic_write("startup_failure");
+    NSString *contents = [NSString stringWithContentsOfFile:[root stringByAppendingPathComponent:@"diagnostic.log"]
+                                                    encoding:NSUTF8StringEncoding error:nil];
+    assert([contents containsString:@"startup_failure"]);
+    msime_macos_diagnostic_configure(std::string(), false);
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
 static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutSession *session = [ShortcutSession new];
@@ -9579,6 +9616,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestInputModeSwitchDoesNotSaveSharedPreferences(); }
         @autoreleasepool { TestFullWidth(defaults, appearance); }
         @autoreleasepool { TestSessionOptions(); }
+        @autoreleasepool { TestDiagnosticLogConfiguredBeforeSession(); }
         @autoreleasepool { TestKeypadDecimal(appearance); }
         @autoreleasepool { TestFloatingToolbarMenuToggle(appearance); }
         @autoreleasepool { TestCandidatePanelSingleOwner(); }

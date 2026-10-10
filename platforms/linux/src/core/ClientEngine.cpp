@@ -2924,12 +2924,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
   const auto active_helpcode_pack = s.helpcode_schema_override
       ? std::string{} : msime::linux_host::helpcode_pack(configured.at("preferences"), active_scheme);
   // 这一项始终在列表里，只是没选包时隐藏：IBus 面板只按键更新已有的子项，增删子项要等下一次注册才看得到（见 update_menu_property）。它只表明插件在生效，不能点选；选下面任一内置方案即停用插件，与设置页一致。
-  ibus_prop_list_append(helpcode_schema_menu, ibus_property_new(
+  auto helpcode_schema_pack = ibus_property_new(
       "HelpcodeSchemaPack", PROP_TYPE_RADIO,
       ibus_text_new_from_string(("插件：" + active_helpcode_pack).c_str()), "",
       ibus_text_new_from_static_string("辅助码表插件正在生效，选择下面的内置方案即停用它"),
       FALSE, !active_helpcode_pack.empty(),
-      active_helpcode_pack.empty() ? PROP_STATE_UNCHECKED : PROP_STATE_CHECKED, nullptr));
+      active_helpcode_pack.empty() ? PROP_STATE_UNCHECKED : PROP_STATE_CHECKED, nullptr);
+  ibus_property_set_visible(helpcode_schema_pack, !active_helpcode_pack.empty());
+  ibus_prop_list_append(helpcode_schema_menu, helpcode_schema_pack);
   for (const auto &[value, label] : msime::linux_host::kHelpcodeSchemaNames) {
     auto item = ibus_property_new(
         (std::string("HelpcodeSchema/") + value).c_str(), PROP_TYPE_RADIO,
