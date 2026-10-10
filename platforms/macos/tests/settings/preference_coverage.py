@@ -28,6 +28,7 @@ NOT_APPLICABLE = {
     "touch_keyboard_height_adjustment": "the touch keyboard",
     "touch_voice_shortcut": "the touch keyboard",
     "touch_number_keypad_order": "the touch keyboard's nine-key digit layer",
+    "touch_shuangpin_key_hints": "the touch keyboard's 26-key shuangpin letter keys",
     "touch_toolbar": "the touch keyboard's row above the keys",
     "number_row_selection": "releasing the number row back to the editor, offered only where the host advertises it - Linux and HarmonyOS; Windows and macOS both keep number selection",
     "english_suggestions": "the mobile suggestion strip; desktop hosts show English candidates through mixed_input instead",

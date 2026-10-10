@@ -361,7 +361,7 @@ Linux 独立手写面板使用同一类用户管理 Unix socket，不把 GTK、W
 
 Fcitx5 插件状态栏里的表情菜单同样显示已安装的符号集插件：在切换表情类别、开始表情搜索和读取分组列表时，经 `msime_client_emoji_catalog_request` 的 `list_plugin_symbol_groups` 读取 `<preferences_directory>/plugins` 下的符号集。符号组排在内置符号之后，分组循环里显示为「插件名 / 组名」；颜文字组排在内置的 All 之后。「全部」和搜索结果在内置条目读完后接上插件条目，搜索匹配组关键词或条目原文；不与内置目录去重。插件读取失败时菜单只显示内置目录。合并与分页规则在 `src/core/EmojiPluginGroups.h`，由 `tests/core/emoji_plugin_groups.cpp` 钉住。
 
-桌面 Tauri 面板的系统剪贴板按 Linux 会话能力选择后端：优先使用 Wayland 的 `wl-paste` / `wl-copy`，不可用时回退到 X11 的 `xclip`；剪贴板历史仍只在用户开启设置后写入本地受限存储。桌面宿主运行期间以低频轮询捕获新的文本剪贴板内容，设置关闭后立即停止记录并清除本轮监视状态，读取失败不会伪造同步结果。
+桌面 Tauri 面板的系统剪贴板按 Linux 会话能力选择后端：优先使用 Wayland 的 `wl-paste` / `wl-copy`，不可用时回退到 X11 的 `xclip`；合成器不提供 data-control 协议时（GNOME/Mutter，进程内用 `wl-paste --watch` 是否立即退出探测一次），读取不用 `wl-paste`，直接经 XWayland 的 `xclip`，避免每次轮询都抢焦点打断输入法；剪贴板历史仍只在用户开启设置后写入本地受限存储。桌面宿主运行期间以低频轮询捕获新的文本剪贴板内容，设置关闭后立即停止记录并清除本轮监视状态，读取失败不会伪造同步结果。
 
 桌面 Tauri 面板在 Linux 上也接入了屏幕键盘、手写和语音提交。打开面板时宿主先保存当前输入目标：X11 使用 `xdotool getactivewindow`，Sway 使用 `swaymsg -t get_tree`；按键通过目标窗口的 `xdotool key`、Sway 的 `wtype` 或通用 Wayland 的 `ydotool` 发送。`ydotool` 仅在其 daemon 可用时启用，以 `/dev/uinput` 注入，不依赖面板重新夺取焦点；没有全局注入能力时回退到 `wtype`。手写候选和语音识别结果通过同一目标提交文本，语音面板消费 provider 的 partial/final 事件并实时显示转写，关闭面板时发送当前 generation 的取消消息。手写识别服务的绝对 Unix socket 由 `MSIME_HANDWRITING_PROVIDER_SOCKET` 提供，语音服务使用 HostOptions 的 `voice_provider_socket` 或 `MSIME_VOICE_PROVIDER_SOCKET`；服务仍负责录音、模型和凭据。缺少注入工具或服务时面板保留可见状态并返回宿主错误，不伪造提交。
 
@@ -741,7 +741,7 @@ systemctl --user enable --now msime-linux-voice.socket
 
 `msime-linux-clipboard-monitor /absolute/runtime-options.json` 在没有 Tauri 设置窗口时也可采集文本历史。它读取 runtime-options 的 `preferences_directory`，仅在该目录已保存的 `preferences.json` 中明确开启 `clipboard_history` 时工作；如果指定 `clipboard_history_path`，它必须指向同目录的 `clipboard_history.json`。配置读取失败或关闭开关时停止采集并忘记本轮去重状态。
 
-Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和 `xfixes` pkg-config 模块时，安装 `msime-linux-clipboard-watch-x11`，通过 XFixes 监听 CLIPBOARD 所有权变化，并优先使用同一工具的 `--read` 原生读取路径，无需额外安装 `xclip`/`xsel`。读取支持 UTF8_STRING、STRING 编码回退和 INCR 分块传输，限制累计数据量并使用统一超时；原生读取不可用时仍可回退 `xclip` 或 `xsel`。再次复制相同文本也会触发捕获。监听模式只输出事件标记；读取模式将有界文本经标准输出管道交给监控器，不写日志。不支持事件监听的环境继续以 750ms 间隔轮询；Wayland 的 `wl-paste --watch` 启动后以非零状态退出时，回退读取节流为每 5 秒一次，避免反复读取剪贴板造成桌面焦点抖动。每次文本读取限时 1 秒、最多 12000 个 UTF-8 字节，并保留最多 4000 个完整 UTF-16 单元。文本经标准输入交给 `msime-linux-clipboard-capture`，由 Host API 在偏好锁内重新检查开关并持有历史锁写入，避免关闭设置与写入竞态。监视器不打印剪贴板文本。
+Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和 `xfixes` pkg-config 模块时，安装 `msime-linux-clipboard-watch-x11`，通过 XFixes 监听 CLIPBOARD 所有权变化，并优先使用同一工具的 `--read` 原生读取路径，无需额外安装 `xclip`/`xsel`。读取支持 UTF8_STRING、STRING 编码回退和 INCR 分块传输，限制累计数据量并使用统一超时；原生读取不可用时仍可回退 `xclip` 或 `xsel`。再次复制相同文本也会触发捕获。监听模式只输出事件标记；读取模式将有界文本经标准输出管道交给监控器，不写日志。不支持事件监听的环境继续以 750ms 间隔轮询，轮询只经 X11 读取，从不调用 `wl-paste`。Wayland 的 `wl-paste --watch` 启动后以非零状态退出，说明合成器不提供 data-control 协议（GNOME/Mutter 就是这样）：在这种合成器上 `wl-paste` 只能临时建窗口抢走键盘焦点才读得到剪贴板，每读一次都会打断前台应用里的拼音预编辑，并让 gnome-shell 刷 `meta_window_set_stack_position_no_sync` 断言。监视器因此改用 `msime-linux-clipboard-watch-x11` 经 XWayland 监听和读取（Mutter 会把 Wayland 剪贴板同步到 XWayland），在日志里记一行原因，关闭再开启剪贴板历史前不再尝试 `wl-paste --watch`；没有 `DISPLAY` 时暂停采集。每次文本读取限时 1 秒、最多 12000 个 UTF-8 字节，并保留最多 4000 个完整 UTF-16 单元。文本经标准输入交给 `msime-linux-clipboard-capture`，由 Host API 在偏好锁内重新检查开关并持有历史锁写入，避免关闭设置与写入竞态。监视器不打印剪贴板文本。
 
 可按需执行 `systemctl --user enable --now msime-linux-clipboard.service`，使用默认 XDG runtime-options 路径。`make install` 本身不启用服务，由 `msime-linux-setup` 在首次配置时启用；语音和在线服务不依赖它。启用后服务随 `graphical-session.target` 启动，桌面会话需向用户服务管理器提供 `WAYLAND_DISPLAY` 或 `DISPLAY`。没有这个 target 的会话（Sway、i3、未用 uwsm 的 Hyprland 等）由随包安装的 XDG 自启动项 `msime-linux-clipboard.desktop` 在登录时启动，这对应 Windows 上剪贴板监视随输入法在每次登录时启动：它先把本次会话的 `WAYLAND_DISPLAY`、`DISPLAY`、`XAUTHORITY` 导入用户服务管理器，再重启服务，使 linger 下遗留的旧实例也换到本次会话的显示。从未启用服务的用户不受影响，自启动项什么都不做；`graphical-session.target` 已在运行时也交给它，不重复启动。安装包把它放在 `/etc/xdg/autostart/`；CMake 安装在前缀为 `/usr` 时同样放在那里，其他前缀放在 `<前缀>/etc/xdg/autostart/`，随 `cmake --install --prefix` 一起移动，但只有这个目录在会话的 `XDG_CONFIG_DIRS` 里时才会被读到。安装位置、卸载与启动条件由 `tests/core/clipboard_autostart.py` 钉住。
 
@@ -849,7 +849,7 @@ Linux 安装包包含 Windows 固定提交中的开始、结束录音提示音�
 
 ### Wayland 剪贴板变更通知
 
-启用剪贴板历史时，监视服务优先使用 `wl-paste --watch` 接收复制事件，减少快速连续复制被轮询漏掉的情况。每个事件通过标准输入读取最多 4096 字节并重新读取历史开关；空、清除或标记为敏感的选择不保存。关闭历史或停止服务会结束监听及其子进程。缺少工具、不支持 data-control 或监听退出时回退到原有有界轮询，失败后至少间隔 30 秒再尝试监听。协议依据 [wl-clipboard 官方手册](https://github.com/bugaevc/wl-clipboard/blob/master/data/wl-clipboard.1)。
+启用剪贴板历史时，监视服务优先使用 `wl-paste --watch` 接收复制事件，减少快速连续复制被轮询漏掉的情况。每个事件通过标准输入读取最多 4096 字节并重新读取历史开关；空、清除或标记为敏感的选择不保存。关闭历史或停止服务会结束监听及其子进程。缺少工具或监听异常退出时回退到有界轮询，失败后至少间隔 30 秒再尝试监听；不支持 data-control 时改经 XWayland 监听，见上文。协议依据 [wl-clipboard 官方手册](https://github.com/bugaevc/wl-clipboard/blob/master/data/wl-clipboard.1)。
 
 剪贴板监视读取完整 runtime options 和偏好文件时允许最多 1 MiB，容纳自定义语音提示词等设置，不再因为超过 16 KiB 而停用历史。读取只接受普通文件，使用非阻塞打开并核对读取前后的文件信息；遇到写入中的不完整配置会跳过本轮，后续重新读取。剪贴板文本自身仍保持 4096 字节上限。
 

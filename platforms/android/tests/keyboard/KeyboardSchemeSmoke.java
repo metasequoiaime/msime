@@ -306,6 +306,35 @@ public final class KeyboardSchemeSmoke {
         check(KeyboardScheme.mappingForRuntimeSelection(
             KeyboardScheme.WUBI, KeyboardScheme.HANDWRITING, "wubi", "xiaohe", WUBI).scheme().equals("wubi"));
         languageEditions();
+        pickerSchemes();
+    }
+
+    /** 「输入方式」面板里双拼只留一种（#6450）：选中的双拼优先，其次是 `shuangpin_profile`，都不在列表里时取列表里第一种双拼；其余方案原样保留。 */
+    static void pickerSchemes() {
+        List<KeyboardScheme> all = List.of(KeyboardScheme.values());
+        List<KeyboardScheme> withXiaohe = all.stream()
+            .filter(value -> value.shuangpinProfile() == null || value == KeyboardScheme.XIAOHE).toList();
+        // 没设置过（偏好缺省或值不认识）按小鹤，与 `mapping` 的规整相同；手写因此回到第一页的八格之内。
+        check(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, null).equals(withXiaohe));
+        check(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, "future").equals(withXiaohe));
+        check(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, "xiaohe").equals(withXiaohe));
+        check(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, null).indexOf(KeyboardScheme.HANDWRITING) < 7);
+        // 设置的是哪一种就留哪一种，位置不变。
+        check(KeyboardScheme.pickerSchemes(all, KeyboardScheme.WUBI, "microsoft").equals(all.stream()
+            .filter(value -> value.shuangpinProfile() == null || value == KeyboardScheme.MICROSOFT).toList()));
+        // 选中的双拼总留在面板里，哪怕偏好里记的是另一种。
+        check(KeyboardScheme.pickerSchemes(all, KeyboardScheme.SHOUDAO, "ziranma").equals(all.stream()
+            .filter(value -> value.shuangpinProfile() == null || value == KeyboardScheme.SHOUDAO).toList()));
+        // 设置的那一种不在列表里时，留列表里第一种双拼，双拼不会从面板上消失。
+        List<KeyboardScheme> partial = List.of(KeyboardScheme.QUANPIN, KeyboardScheme.ZIRANMA,
+            KeyboardScheme.SHOUDAO, KeyboardScheme.HANDWRITING);
+        check(KeyboardScheme.pickerSchemes(partial, KeyboardScheme.QUANPIN, "xiaohe").equals(
+            List.of(KeyboardScheme.QUANPIN, KeyboardScheme.ZIRANMA, KeyboardScheme.HANDWRITING)));
+        check(KeyboardScheme.pickerSchemes(partial, KeyboardScheme.XIAOHE, "xiaohe").equals(
+            List.of(KeyboardScheme.QUANPIN, KeyboardScheme.ZIRANMA, KeyboardScheme.HANDWRITING)));
+        // 没有双拼的列表原样返回。
+        List<KeyboardScheme> none = List.of(KeyboardScheme.QUANPIN, KeyboardScheme.WUBI);
+        check(KeyboardScheme.pickerSchemes(none, null, "microsoft").equals(none));
     }
 
     /** 日文、越南文和藏文版只有本版本方案的入口：手写识别器只认汉字，这三个版本没有手写；越南文和藏文在 full 里要用户自己打开，单独成为一个版本时没存过列表也启用。 */

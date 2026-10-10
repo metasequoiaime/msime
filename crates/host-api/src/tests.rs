@@ -11281,6 +11281,24 @@ fn notice_abi_serves_the_cached_feed_with_rendered_html_and_dismissals() {
 }
 
 #[test]
+fn update_check_abi_refuses_a_bad_request_before_reaching_the_network() {
+    use crate::ffi::reporting::*;
+    // Each of these is refused while the request is read or validated, so the test never reaches GitHub.
+    for request in [
+        json!({"platform": "windows", "current_version": "unknown"}),
+        json!({"platform": "", "current_version": "1.0.0"}),
+        json!({"platform": "windows"}),
+        json!({"platform": "windows", "current_version": "1.0.0", "url": "https://example.com"}),
+    ] {
+        let refused = reporting_call(msime_client_update_check, request.clone());
+        assert_eq!(refused["ok"], false, "{request} -> {refused}");
+    }
+    // SAFETY: a null pointer is part of the documented refusal contract.
+    let null = read(unsafe { msime_client_update_check(std::ptr::null(), 0) });
+    assert_eq!(null["ok"], false);
+}
+
+#[test]
 fn community_moderation_abi_lists_reasons_builds_reports_and_words_refusals() {
     use crate::ffi::moderation::msime_client_community_moderation;
     let reasons = reporting_call(

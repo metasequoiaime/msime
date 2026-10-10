@@ -2,6 +2,7 @@
 #include "DoubaoTranscript.h"
 #include "../../../../shared/voice/DoubaoAuth.h"
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 
 #include <nlohmann/json.hpp>
 #include <windows.h>
@@ -10,7 +11,6 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
-#include <memory>
 #include <utility>
 
 namespace
@@ -97,8 +97,8 @@ ParsedResponse ParseResponse(const std::vector<std::uint8_t> &message)
     ParsedResponse response;
     if (message.empty())
         return response;
-    const std::unique_ptr<char, decltype(&msime_client_string_free)> decoded(
-        msime_client_doubao_decode_frame(message.data(), message.size()), msime_client_string_free);
+    const auto decoded = msime::host_api::own_string(
+        msime_client_doubao_decode_frame(message.data(), message.size()));
     if (!decoded)
         return response;
     try
