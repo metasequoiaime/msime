@@ -38,7 +38,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
             Map<String, String> headers, byte[] request) throws IOException {
         HttpsURLConnection connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + path).openConnection();
         try {
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod(method);
             connection.setConnectTimeout(30_000);
             connection.setReadTimeout(30_000);

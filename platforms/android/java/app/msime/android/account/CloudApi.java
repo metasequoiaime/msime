@@ -449,7 +449,7 @@ public final class CloudApi {
             throws IOException {
         HttpsURLConnection connection = (HttpsURLConnection) new URL(ORIGIN + path).openConnection();
         try {
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod(method);
             connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
             connection.setReadTimeout(READ_TIMEOUT_MILLIS);

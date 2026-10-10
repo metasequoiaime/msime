@@ -98,7 +98,7 @@ public final class AiPolishModelCatalog {
             if (!AiEndpointPolicy.allowed(uri.toString()))
                 throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             connection = (HttpURLConnection) AiEndpointPolicy.open(uri.toURL());
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(30_000);
             connection.setReadTimeout(30_000);

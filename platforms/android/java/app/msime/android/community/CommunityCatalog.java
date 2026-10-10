@@ -87,7 +87,7 @@ public final class CommunityCatalog {
     private static HttpsURLConnection open(URL url, String method)
             throws java.io.IOException {
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        connection.setInstanceFollowRedirects(false);
+        HttpConnectionPolicy.rejectRedirects(connection);
         connection.setRequestMethod(method);
         connection.setConnectTimeout(TIMEOUT_MILLIS);
         connection.setReadTimeout(TIMEOUT_MILLIS);

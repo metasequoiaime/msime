@@ -26,7 +26,7 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
             HttpURLConnection target = connection;
             cancellation.attach(target::disconnect);
             if (cancellation.cancelled()) throw new AiPolishClient.Failure(AiPolishClient.Reason.CANCELLED);
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(60_000);
             connection.setReadTimeout(60_000);

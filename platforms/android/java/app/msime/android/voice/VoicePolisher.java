@@ -52,7 +52,7 @@ public final class VoicePolisher {
             connection.setDoOutput(true);
             // The bearer token belongs to this configured origin. Never let HttpURLConnection
             // replay it after a redirect to another host or protocol.
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setFixedLengthStreamingMode(body.length);
             for (Map.Entry<String, String> header : authenticationHeaders(
                     endpoint, token).entrySet()) {

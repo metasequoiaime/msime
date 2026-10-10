@@ -10,7 +10,7 @@ final class AccountHttpRequest {
 
     static void writeJson(HttpsURLConnection connection, String method, String token,
             String userAgent, byte[] payload) throws IOException {
-        connection.setInstanceFollowRedirects(false);
+        HttpConnectionPolicy.rejectRedirects(connection);
         connection.setRequestMethod(method);
         connection.setConnectTimeout(30_000);
         connection.setReadTimeout(30_000);

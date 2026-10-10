@@ -147,7 +147,7 @@ public final class HttpAsrRecognizer {
             if (cancelled.get()) throw new Refused(Failure.CANCELLED);
             // The bearer token belongs to this configured origin. Never let HttpURLConnection
             // replay it after a redirect to another host or protocol.
-            opened.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(opened);
             opened.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
             opened.setReadTimeout(READ_TIMEOUT_MILLIS);
             opened.setRequestMethod("POST");

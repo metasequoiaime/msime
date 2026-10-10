@@ -43,7 +43,7 @@ public final class OnlineCandidateTransport {
             URL target = new URL(url);
             if (!OnlineCandidatePolicy.validURL(target)) return null;
             connection = (HttpsURLConnection) target.openConnection();
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
             connection.setReadTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
@@ -74,7 +74,7 @@ public final class OnlineCandidateTransport {
             URL target = AiEndpointPolicy.uri(rawUrl).toURL();
             byte[] payload = TextPolicy.utf8Bytes(descriptor.getJSONObject("body").toString());
             connection = (HttpURLConnection) AiEndpointPolicy.open(target);
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(KeyboardGeometry.bounded(
                 KeyboardGeometry.strictInt(descriptor, "connect_timeout_ms", CONNECT_TIMEOUT_MILLIS),

@@ -552,7 +552,7 @@ public final class SyncApi {
         private static HttpsURLConnection open(String path, String method, String token, String accept)
                 throws IOException {
             HttpsURLConnection connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + path).openConnection();
-            connection.setInstanceFollowRedirects(false);
+            HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod(method);
             connection.setConnectTimeout(CloudApi.CONNECT_TIMEOUT_MILLIS);
             // 快照在服务端整份导出或原子恢复，读超时和 client-core 一样放宽到两分钟以上。
