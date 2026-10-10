@@ -1524,9 +1524,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardSkin.resolveDark(surfaceTheme, appMode, this.systemDark));
   }
 
-  /** `light` or `dark` when the global theme fixes the mode; the answer is the same for both requested modes. */
+  /** 全局主题固定了明暗时为 `light` 或 `dark`：两种明暗的解析结果一致才算，见 `GlobalTheme.fixedAppearance`。 */
   private fixedAppearance(): string | null {
-    return this.themeLight === null ? null : this.themeLight.appearance;
+    return GlobalTheme.fixedAppearance(this.themeLight, this.themeDark);
   }
 
   private readThemeCatalog(): ThemeCatalogEntry[] {

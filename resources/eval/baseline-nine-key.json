@@ -6,24 +6,24 @@
       "mrr": 0.59,
       "top1": 0.42,
       "top1_char_prefix": 0.455,
-      "top5": 0.821,
-      "top9": 0.903
+      "top5": 0.82,
+      "top9": 0.902
     },
     "3": {
       "cases": 365,
-      "found": 0.986,
-      "mrr": 0.948,
+      "found": 0.989,
+      "mrr": 0.949,
       "top1": 0.915,
       "top1_char_prefix": 0.936,
       "top5": 0.984,
-      "top9": 0.986
+      "top9": 0.989
     },
     "4": {
       "cases": 556,
       "found": 0.876,
       "mrr": 0.872,
       "top1": 0.871,
-      "top1_char_prefix": 0.893,
+      "top1_char_prefix": 0.889,
       "top5": 0.874,
       "top9": 0.874
     },
@@ -40,15 +40,15 @@
   "by_tag": {},
   "cases": 2791,
   "gold_source": {
-    "database": 2697,
-    "generated": 1
+    "database": 2696,
+    "generated": 3
   },
   "overall": {
     "cases": 2791,
     "found": 0.967,
     "mrr": 0.691,
     "top1": 0.573,
-    "top1_char_prefix": 0.605,
+    "top1_char_prefix": 0.604,
     "top5": 0.85,
     "top9": 0.905
   },
@@ -57,14 +57,14 @@
       "gold": "阿爸",
       "id": "w-00001",
       "input": "aba",
-      "rank": 26,
+      "rank": 44,
       "top1": "爸爸"
     },
     {
       "gold": "挨个",
       "id": "w-00010",
       "input": "aige",
-      "rank": 16,
+      "rank": 22,
       "top1": "吃饭"
     },
     {
@@ -78,7 +78,7 @@
       "gold": "爱惜",
       "id": "w-00037",
       "input": "aixi",
-      "rank": 19,
+      "rank": 20,
       "top1": "笔者"
     },
     {
@@ -120,7 +120,7 @@
       "gold": "安息",
       "id": "w-00154",
       "input": "anxi",
-      "rank": 16,
+      "rank": 18,
       "top1": "按照"
     },
     {

@@ -1,9 +1,13 @@
 import { expect, test } from "vitest";
 import {
   customCandidatePalette,
+  customDrawnBase,
+  skinDrawsIn,
   themeEntry,
+  type BaseGlobalTheme,
   type CandidateThemePalette,
   type CustomCandidateColors,
+  type CustomTheme,
   type GlobalTheme,
   type PackageCandidatePalette,
 } from "../../../../packages/ui/src/theme/global-theme";
@@ -24,9 +28,16 @@ type Case = {
 };
 
 test.each(cases as Case[])("the page mirror draws what resolve() draws: $name", (entry) => {
-  const mode = themeEntry(entry.base).appearance ?? (entry.dark ? "dark" : "light");
-  const palette = entry.package ? drawnPackagePalette(entry.package, mode) : null;
-  expect(customCandidatePalette(entry.base, entry.colors, palette)).toEqual(entry.expected);
+  // 与 Rust 用例同一个形状：`custom.base` 与包的 base 都是 `entry.base`，有包时 `candidate_skin` 就是它。
+  const custom: CustomTheme = {
+    base: entry.base as BaseGlobalTheme,
+    candidate_skin: entry.package ? "sample" : null,
+  };
+  const drawn = entry.package !== null && skinDrawsIn(entry.base, entry.dark);
+  const base = customDrawnBase(custom, drawn ? (entry.base as BaseGlobalTheme) : null, entry.dark);
+  const mode = themeEntry(base).appearance ?? (entry.dark ? "dark" : "light");
+  const palette = drawn && entry.package ? drawnPackagePalette(entry.package, mode) : null;
+  expect(customCandidatePalette(base, entry.colors, palette)).toEqual(entry.expected);
 });
 
 test("the parity cases cover both preview regressions", () => {

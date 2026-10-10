@@ -33,10 +33,10 @@ packaging = (root / "cmake/packaging.cmake").read_text()
 assert "if(MSIME_ENABLE_FCITX5)" in packaging
 assert "fcitx5 (>= 5.0.20)" in packaging
 # IBus 和 Fcitx5 二选一（#6401）：Fcitx5 只能作为 IBus 的备选出现在 Depends 里。单独写进 Depends 会让 Ubuntu 22.04 整包装不上（#6305），写进 Recommends 会把 Fcitx5 拉进 IBus 系统；IBus 写成硬依赖则把 IBus 拉进 deepin 这类 Fcitx5 系统。dpkg-shlibdeps 从插件推出的 libfcitx5* 由 package-container.sh 重新打包时去掉。
-assert 'set(MSIME_DEBIAN_INPUT_FRAMEWORK "ibus (>= 1.5.20) | fcitx5 (>= 5.0.20)")' in packaging
+assert 'set(MSIME_DEBIAN_INPUT_FRAMEWORK "ibus (>= ${MSIME_IBUS_MIN_VERSION}) | fcitx5 (>= 5.0.20)")' in packaging
 assert 'set(CPACK_DEBIAN_PACKAGE_DEPENDS "${MSIME_DEBIAN_INPUT_FRAMEWORK}, ' in packaging
 assert not re.search(r"CPACK_DEBIAN_PACKAGE_RECOMMENDS[^\n]*fcitx5", packaging)
-assert '"(ibus >= 1.5.20 or fcitx5 >= 5.0.20), ' in packaging
+assert '"(ibus >= ${MSIME_IBUS_MIN_VERSION} or fcitx5 >= 5.0.20), ' in packaging
 assert "onnxruntime|Fcitx5[A-Za-z]+)" in packaging
 package_container = (root / "package-container.sh").read_text()
 assert 'sed -E -i "/^Depends:/s/, libfcitx5' in package_container

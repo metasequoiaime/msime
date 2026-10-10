@@ -160,6 +160,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         scheme: 0,
         enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
+        shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
@@ -966,6 +967,81 @@ fn wubi_profile_reaches_engine_options() {
         let session = &sessions.borrow()[&handle];
         assert_eq!(session.options.wubi_profile, 1);
         assert_eq!(session.applied.wubi_profile, WubiProfile::Wubi98);
+    });
+    read(msime_client_destroy(handle));
+}
+
+/// 小鹤的键位，只把 ing 从 k 挪到 `;`。
+fn custom_shuangpin_table() -> msime_client_core::preferences::ShuangpinCustomProfile {
+    serde_json::from_value(json!({
+        "initials": { "zh": "v", "ch": "i", "sh": "u" },
+        "finals": {
+            "iu": "q", "ei": "w", "e": "e", "uan": "r", "ue": "t", "ve": "t", "un": "y",
+            "u": "u", "i": "i", "uo": "o", "o": "o", "ie": "p", "a": "a", "ong": "s",
+            "iong": "s", "ai": "d", "en": "f", "eng": "g", "ang": "h", "an": "j", "uai": "k",
+            "ing": ";", "uang": "l", "iang": "l", "ou": "z", "ua": "x", "ia": "x", "ao": "c",
+            "ui": "v", "v": "v", "in": "b", "iao": "n", "ian": "m"
+        },
+        "zero_initials": {
+            "a": "aa", "ai": "ai", "an": "an", "ang": "ah", "ao": "ao", "e": "ee", "ei": "ei",
+            "en": "en", "eng": "eg", "er": "er", "o": "oo", "ou": "ou"
+        }
+    }))
+    .unwrap()
+}
+
+#[test]
+fn custom_shuangpin_profile_reaches_engine_options_or_falls_back_to_xiaohe() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    // 选了自定义方案却没有表：按小鹤运行，诊断里写明原因。
+    let mut preferences = Preferences {
+        scheme: InputScheme::Shuangpin,
+        shuangpin_profile: ShuangpinProfile::Custom,
+        ..chinese_preferences()
+    };
+    let response = update(handle, 1, &preferences);
+    let diagnostic = response["value"]["diagnostic"].as_str().unwrap_or_default();
+    assert!(
+        diagnostic.starts_with(
+            "Custom shuangpin profile unusable because initials unit \"zh\" has no key"
+        ),
+        "{response}"
+    );
+    assert_eq!(response["value"]["view"]["shuangpin_profile"], "xiaohe");
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert_eq!(session.options.shuangpin_profile, 0);
+        assert_eq!(session.options.shuangpin_custom_profile, None);
+    });
+
+    preferences.shuangpin_custom_profile = custom_shuangpin_table();
+    let response = update(handle, 2, &preferences);
+    assert!(response["value"].get("diagnostic").is_none(), "{response}");
+    assert_eq!(response["value"]["view"]["shuangpin_profile"], "custom");
+    assert_eq!(response["value"]["view"]["microsoft_shuangpin"], true);
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert_eq!(session.options.shuangpin_profile, 4);
+        assert_eq!(
+            session.options.shuangpin_custom_profile,
+            Some(engine_shuangpin_custom_table(&custom_shuangpin_table()))
+        );
+    });
+    read(msime_client_character(handle, b'x', false));
+    let typed = read(msime_client_character(handle, b';', false));
+    assert_eq!(typed["value"]["view"]["editing_text"], "x;", "{typed}");
+
+    // 换回内置方案时不再把表交给 Engine，但偏好里的表留着。
+    read(msime_client_command(handle, 3));
+    preferences.shuangpin_profile = ShuangpinProfile::Ziranma;
+    update(handle, 3, &preferences);
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert_eq!(session.options.shuangpin_profile, 1);
+        assert_eq!(session.options.shuangpin_custom_profile, None);
+        assert!(!session.applied.shuangpin_custom_profile.is_empty());
     });
     read(msime_client_destroy(handle));
 }
@@ -2450,7 +2526,7 @@ fn resolve_theme_reads_the_package_from_either_source() {
     let entry = msime_client_core::skin::catalog::host_candidate_catalog(
         &msime_client_core::skin::catalog::scan(&root),
         &root,
-        "sakura",
+        &["sakura"],
     )["packages"][0]
         .clone();
     let from_entry = call(json!({
@@ -2458,11 +2534,13 @@ fn resolve_theme_reads_the_package_from_either_source() {
     }));
     assert_eq!(from_entry["value"], from_root["value"]);
 
-    // Paper fixes the light mode, so a dark host still draws the package's light palette.
+    // paper 底的皮肤是浅色皮肤，只画在浅色模式：深色宿主没设深色槽位时不画它，自定义主题落回底和取色器。
     let dark = call(json!({
         "global_theme": "custom", "custom_theme": custom, "dark": true, "layout": "vertical", "skins_directory": root,
     }));
-    assert_eq!(dark["value"], from_root["value"]);
+    assert_eq!(dark["ok"], true, "{dark}");
+    assert_eq!(dark["value"]["candidate_skin"], Value::Null);
+    assert_eq!(dark["value"]["candidate"]["text"], "#010203");
 
     // A missing package leaves the theme to resolve over the platform tokens.
     let missing = call(json!({

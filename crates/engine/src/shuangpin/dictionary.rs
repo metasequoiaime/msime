@@ -810,7 +810,7 @@ mod tests {
     #[test]
     fn single_helpcode_filter_uses_only_result_and_unmatched_buffers() {
         let mut dictionary = ShuangpinDictionary::new(
-            profile(crate::types::ShuangpinProfileKind::Xiaohe),
+            profile(crate::types::ShuangpinProfileKind::Xiaohe).unwrap(),
             &RuntimePaths::default(),
         );
         let keymap = HelpcodeKeymap::from_codes(

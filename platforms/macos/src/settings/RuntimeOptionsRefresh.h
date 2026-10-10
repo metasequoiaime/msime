@@ -3,6 +3,7 @@
 #import <Foundation/Foundation.h>
 
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -31,10 +32,10 @@ static inline MSIMERuntimeOptionsRefreshResult MSIMERefreshRuntimeOptionsWith(
     if (path.length == 0 || !path.isAbsolutePath) return MSIMERuntimeOptionsRefreshFailed;
     if (MSIMEPathIsInsideBundle(path, bundlePath)) return MSIMERuntimeOptionsRefreshCurrent;
     const char *text = path.fileSystemRepresentation;
-    char *raw = refresh(reinterpret_cast<const uint8_t *>(text), strlen(text));
-    if (raw == nullptr) return MSIMERuntimeOptionsRefreshFailed;
-    NSData *data = [NSData dataWithBytes:raw length:strlen(raw)];
-    msime_client_string_free(raw);
+    auto raw = msime::host_api::own_string(
+        refresh(reinterpret_cast<const uint8_t *>(text), strlen(text)));
+    if (!raw) return MSIMERuntimeOptionsRefreshFailed;
+    NSData *data = [NSData dataWithBytes:raw.get() length:strlen(raw.get())];
     id result = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
     if (![result isKindOfClass:NSDictionary.class] || result[@"ok"] != (__bridge id)kCFBooleanTrue) return MSIMERuntimeOptionsRefreshFailed;
     id value = result[@"value"];

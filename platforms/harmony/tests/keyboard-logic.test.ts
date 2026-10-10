@@ -208,7 +208,7 @@ import { ShuangpinKeyHintPolicy } from "../entry/src/main/ets/keyboard/input/Shu
 import { EditorPolicy, EditorTraits } from "../entry/src/main/ets/keyboard/input/EditorPolicy";
 import { EditEchoLedger } from "../entry/src/main/ets/keyboard/input/EditEchoLedger";
 import { KeyboardSkin } from "../entry/src/main/ets/keyboard/skin/KeyboardSkin";
-import { GlobalTheme, KeyboardThemePalette } from "../entry/src/main/ets/keyboard/skin/GlobalTheme";
+import { GlobalTheme, KeyboardThemePalette, ResolvedTheme } from "../entry/src/main/ets/keyboard/skin/GlobalTheme";
 import { AppThemePalette, AppThemeSeed } from "../entry/src/main/ets/keyboard/skin/AppThemePalette";
 import { AppThemeStore } from "../entry/src/main/ets/keyboard/skin/AppThemeStore";
 import {
@@ -2192,20 +2192,34 @@ group("输入方式面板里双拼只留用户设置的那一种（#6450）", ()
     actual.length === expected.length &&
     actual.every((value: SchemeDefinition, index: number): boolean => value === expected[index]);
   check(
-    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, undefined), only(KeyboardScheme.XIAOHE)) &&
-      same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, "future"), only(KeyboardScheme.XIAOHE)),
+    same(
+      KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, undefined),
+      only(KeyboardScheme.XIAOHE),
+    ) &&
+      same(
+        KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, "future"),
+        only(KeyboardScheme.XIAOHE),
+      ),
     "没设置过或值不认识时按小鹤",
   );
   check(
-    KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, null).indexOf(KeyboardScheme.HANDWRITING) < 7,
+    KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, null).indexOf(
+      KeyboardScheme.HANDWRITING,
+    ) < 7,
     "手写回到第一页的八格之内（英文占第三格）",
   );
   check(
-    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.WUBI, "microsoft"), only(KeyboardScheme.MICROSOFT)),
+    same(
+      KeyboardScheme.pickerSchemes(all, KeyboardScheme.WUBI, "microsoft"),
+      only(KeyboardScheme.MICROSOFT),
+    ),
     "设置的是哪一种就留哪一种，位置不变",
   );
   check(
-    same(KeyboardScheme.pickerSchemes(all, KeyboardScheme.SHOUDAO, "ziranma"), only(KeyboardScheme.SHOUDAO)),
+    same(
+      KeyboardScheme.pickerSchemes(all, KeyboardScheme.SHOUDAO, "ziranma"),
+      only(KeyboardScheme.SHOUDAO),
+    ),
     "选中的双拼总留在面板里",
   );
   const partial: SchemeDefinition[] = [
@@ -8253,6 +8267,32 @@ group("a fixed appearance decides every surface's mode", () => {
   check(GlobalTheme.surfaceDark(null, false) === false, "in both directions");
 });
 
+group("两种明暗的解析一致时主题才固定明暗", () => {
+  const resolved = (appearance: string | null, skin: string | null): ResolvedTheme => ({
+    id: "custom",
+    source: "custom",
+    appearance: appearance,
+    candidate: null,
+    keyboard: null,
+    candidate_skin: skin,
+  });
+  check(
+    GlobalTheme.fixedAppearance(resolved("dark", null), resolved("dark", null)) === "dark",
+    "内置主题或固定底的自定义主题两次都是同一明暗，照旧固定",
+  );
+  // 浅色槽位放浅色底的皮肤、深色槽位放深色底的皮肤：浅色那次解析是 light，深色那次是 dark。
+  const light = resolved("light", "sakura");
+  const dark = resolved("dark", "dusk");
+  check(GlobalTheme.fixedAppearance(light, dark) === null, "两个槽位各画自己明暗的皮肤时不固定明暗");
+  const candidateDark = GlobalTheme.surfaceDark(GlobalTheme.fixedAppearance(light, dark), true);
+  check(candidateDark && (candidateDark ? dark : light).candidate_skin === "dusk", "系统深色时候选窗画深色槽位的皮肤");
+  check(
+    GlobalTheme.fixedAppearance(resolved("light", "sakura"), resolved(null, null)) === null,
+    "只设浅色皮肤时深色模式跟随系统，不被浅色皮肤钉成浅色",
+  );
+  check(GlobalTheme.fixedAppearance(null, resolved("dark", null)) === null, "解析被拒时不固定明暗");
+});
+
 group("the platform accent", () => {
   check(
     GlobalTheme.accent(false) === "#2C7A4B" && GlobalTheme.accent(true) === "#5FBF84",
@@ -11619,6 +11659,7 @@ function fullPreferenceSchema(): AccountPreferenceSchema {
       "platform.harmony.custom_keyboard_skin",
       "platform.harmony.theme",
       "platform.harmony.custom_candidate_skin",
+      "platform.harmony.custom_candidate_skin_dark",
       "platform.harmony.haptic_strength",
       "platform.harmony.number_keypad_order",
     ],
@@ -11664,7 +11705,12 @@ group("the account settings sync maps this host's document, not another's", () =
     chinese_punctuation: false,
     touch_keyboard_layout: "nine_key",
     global_theme: "night",
-    custom_theme: { base: "paper", candidate_skin: "harbour", keyboard: { background: 1 } },
+    custom_theme: {
+      base: "paper",
+      candidate_skin: "harbour",
+      candidate_skin_dark: "dusk",
+      keyboard: { background: 1 },
+    },
     touch_key_spacing_tenths: 40,
   };
   const values = localAccountPreferences(local, syncFeedback);
@@ -11676,6 +11722,10 @@ group("the account settings sync maps this host's document, not another's", () =
   check(
     values["platform.harmony.custom_candidate_skin"] === "harbour",
     "and the custom theme's candidate package",
+  );
+  check(
+    values["platform.harmony.custom_candidate_skin_dark"] === "dusk",
+    "and the dark-mode package beside it",
   );
   // Not platform.android: the two are separate devices with separate keyboards, and sharing the
   // namespace would let a HarmonyOS phone overwrite the skin on the user's Android keyboard.
@@ -11712,6 +11762,7 @@ group("the account settings sync maps this host's document, not another's", () =
     "no design travels as an empty string",
   );
   check(sparse["platform.harmony.custom_candidate_skin"] === "", "and so does no package");
+  check(sparse["platform.harmony.custom_candidate_skin_dark"] === "", "and no dark-mode package");
   const retired = localAccountPreferences({ global_theme: "midnight" }, syncFeedback);
   check(
     retired["platform.harmony.global_theme"] === "system",
@@ -11927,6 +11978,7 @@ group("applying writes only what the schema declares", () => {
       "input.frequency_trigger_count": 5,
       "platform.harmony.global_theme": "paper",
       "platform.harmony.custom_candidate_skin": "harbour",
+      "platform.harmony.custom_candidate_skin_dark": "dusk",
     },
   };
   const applied = applyAccountPreferences(local, cloud, schema, syncFeedback);
@@ -11945,11 +11997,16 @@ group("applying writes only what the schema declares", () => {
     (applied.preferences.custom_theme as Record<string, unknown>).candidate_skin === "harbour",
     "and the package lands inside the custom theme",
   );
+  check(
+    (applied.preferences.custom_theme as Record<string, unknown>).candidate_skin_dark === "dusk",
+    "and so does the dark-mode package",
+  );
   const cleared = applyAccountPreferences(
     {
       custom_theme: {
         base: "ink",
         candidate_skin: "harbour",
+        candidate_skin_dark: "dusk",
         candidate_colors: { text: "#112233" },
       },
     },
@@ -11958,6 +12015,7 @@ group("applying writes only what the schema declares", () => {
       settings: {
         "platform.harmony.custom_theme_base": "system",
         "platform.harmony.custom_candidate_skin": "",
+        "platform.harmony.custom_candidate_skin_dark": "",
         "platform.harmony.custom_keyboard_skin": "",
       },
     },
@@ -11970,8 +12028,22 @@ group("applying writes only what the schema declares", () => {
     "a system base is written by omitting it, as the shared document does",
   );
   check(
-    !("candidate_skin" in clearedTheme) && !("keyboard" in clearedTheme),
-    "empty strings clear the package and the design",
+    !("candidate_skin" in clearedTheme) &&
+      !("candidate_skin_dark" in clearedTheme) &&
+      !("keyboard" in clearedTheme),
+    "empty strings clear both packages and the design",
+  );
+  // 只带浅色槽位的云端文档（上传它的设备还不认识深色槽位）不动本机的深色槽位。
+  const lightOnly = applyAccountPreferences(
+    { custom_theme: { candidate_skin: "harbour", candidate_skin_dark: "dusk" } },
+    { revision: 5, settings: { "platform.harmony.custom_candidate_skin": "sakura" } },
+    schema,
+    syncFeedback,
+  );
+  const lightOnlyTheme = lightOnly.preferences.custom_theme as Record<string, unknown>;
+  check(
+    lightOnlyTheme.candidate_skin === "sakura" && lightOnlyTheme.candidate_skin_dark === "dusk",
+    "a cloud document without the dark slot leaves the local dark slot alone",
   );
   check(
     (clearedTheme.candidate_colors as Record<string, unknown>).text === "#112233",
@@ -11982,6 +12054,8 @@ group("applying writes only what the schema declares", () => {
     ["platform.harmony.custom_theme_base", "custom"],
     ["platform.harmony.custom_candidate_skin", "ink"],
     ["platform.harmony.custom_candidate_skin", "../escape"],
+    ["platform.harmony.custom_candidate_skin_dark", "night"],
+    ["platform.harmony.custom_candidate_skin_dark", "../escape"],
   ]) {
     let refused = false;
     try {

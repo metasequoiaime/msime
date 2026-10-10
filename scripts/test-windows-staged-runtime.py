@@ -93,6 +93,26 @@ if call[:2] == ["info", "--format"]:
         path.write_text(text, encoding="utf-8")
         path.chmod(0o755)
 
+    def hide_host_mingw_gcc(self):
+        """从 PATH 里拿掉宿主自带的 MinGW gcc，其余命令照常可用。
+
+        run-tests-wine.sh 用 `command -v x86_64-w64-mingw32-gcc` 判断宿主能不能自己编 Rust 测试。装了 MinGW 的机器（例如用 Homebrew 装过 mingw-w64 的 Mac）上，这个命令在 /opt/homebrew/bin 里，测试不藏掉它就走不到交叉容器那条路。那个目录里还有 python3、git 这些别的命令，不能整个移出 PATH，所以给它建一个不含 MinGW gcc 的符号链接镜像来替换。
+        """
+        hidden = {"x86_64-w64-mingw32-gcc", "i686-w64-mingw32-gcc"}
+        entries = []
+        for index, directory in enumerate(self.env["PATH"].split(os.pathsep)):
+            folder = Path(directory)
+            if folder == self.bin or not any((folder / name).exists() for name in hidden):
+                entries.append(directory)
+                continue
+            mirror = self.root / f"host-path-{index}"
+            mirror.mkdir()
+            for item in folder.iterdir():
+                if item.name not in hidden:
+                    (mirror / item.name).symlink_to(item)
+            entries.append(str(mirror))
+        self.env["PATH"] = os.pathsep.join(entries)
+
     def names(self, arch):
         return ("libstdc++-6.dll", "libwinpthread-1.dll",
                 "libgcc_s_dw2-1.dll" if arch == "x86" else "libgcc_s_seh-1.dll")
@@ -218,6 +238,7 @@ if call[:2] == ["info", "--format"]:
         build.mkdir(parents=True)
         for name in self.names("x64"):
             (build / name).write_text(name)
+        self.hide_host_mingw_gcc()
         result = subprocess.run(["bash", str(self.windows / "run-tests-wine.sh"), "x64"],
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)

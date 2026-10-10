@@ -5423,7 +5423,7 @@ show_selected_bar = true
     // Seven global themes, then the package.
     assert(pickerSwitches.count == 8 && [pickerSwitches.lastObject.identifier isEqual:@"synthetic"]);
     [NSApp sendAction:pickerSwitches.lastObject.action to:pickerSwitches.lastObject.target from:pickerSwitches.lastObject];
-    assert([external.globalTheme isEqual:@"custom"] && [external.customCandidateSkin isEqual:@"synthetic"] && external.decorationImage);
+    assert([external.globalTheme isEqual:@"custom"] && [external.customCandidateSkin isEqual:@"synthetic"] && [external decorationImageForDark:NO]);
     MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:external.skinsRoot];
     assert([loaded.customCandidateSkin isEqual:@"synthetic"] && [loaded resolvedSkinForDark:NO].candidateSkin == "synthetic");
     NSDictionary *before = [[controller valueForKey:@"view"] copy];
@@ -5437,9 +5437,9 @@ show_selected_bar = true
     [NSNotificationCenter.defaultCenter addObserver:controller selector:@selector(appearanceChanged:)
                                               name:MSIMEAppearanceDidChangeNotification object:external];
     [NSApp sendAction:skinSwitches.firstObject.action to:skinSwitches.firstObject.target from:skinSwitches.firstObject];
-    assert([external.globalTheme isEqual:@"system"] && !external.decorationImage);
+    assert([external.globalTheme isEqual:@"system"] && ![external decorationImageForDark:NO]);
     [NSApp sendAction:skinSwitches.lastObject.action to:skinSwitches.lastObject.target from:skinSwitches.lastObject];
-    assert([external.globalTheme isEqual:@"custom"] && [external.customCandidateSkin isEqual:@"synthetic"] && external.decorationImage);
+    assert([external.globalTheme isEqual:@"custom"] && [external.customCandidateSkin isEqual:@"synthetic"] && [external decorationImageForDark:NO]);
     assert(skinSwitches.lastObject.state == NSControlStateValueOn);
     assert([panel.contentView.subviews.lastObject isKindOfClass:NSImageView.class]);
     assert([[controller valueForKey:@"view"] isEqual:before]);
@@ -5481,14 +5481,14 @@ show_selected_bar = true
     // No disk reads while typing/rendering: removal takes effect only on explicit reload.
     std::filesystem::remove_all(root / "synthetic");
     [controller renderCandidates];
-    assert([external resolvedSkinForDark:NO].candidateSkin == "synthetic" && external.decorationImage);
+    assert([external resolvedSkinForDark:NO].candidateSkin == "synthetic" && [external decorationImageForDark:NO]);
     // Rescanning is 刷新皮肤 on the skin page, which rebuilds the cards from the directory; the
     // accessor performs the same reload the button does.
     MetasequoiaSkinSettingsView *rescanned = (id)[external skinSettingsView];
     // The choice is kept for when the package comes back; meanwhile the custom theme is drawn without it.
     assert([external.customCandidateSkin isEqual:@"synthetic"]);
     assert([external resolvedSkinForDark:NO].id == "custom" && [external resolvedSkinForDark:NO].candidateSkin.empty() &&
-           !external.decorationImage);
+           ![external decorationImageForDark:NO]);
     NSArray<NSSwitch *> *rescannedSwitches = [rescanned valueForKey:@"switches"];
     assert(rescannedSwitches.count == 7 && [rescannedSwitches.firstObject.identifier isEqual:@"system"]);
     [controller appearanceChanged:nil];
@@ -5557,7 +5557,7 @@ background = "#F4F8FF"
     WriteSolidPNG(root / "styled" / "assets" / "background.png", 0, 0, 255);
     MSIMEAppearancePreferences *styled = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
     [styled selectExternalSkin:@"styled" base:@"system"];
-    assert([styled resolvedSkinForDark:NO].candidateSkin == "styled" && styled.decorationImage && styled.backgroundImage);
+    assert([styled resolvedSkinForDark:NO].candidateSkin == "styled" && [styled decorationImageForDark:NO] && [styled backgroundImageForDark:NO] && [styled decorationImageForDark:YES] == [styled decorationImageForDark:NO]);
     assert([styled resolvedSkinForDark:YES].decorationPath.find("character.png") != std::string::npos);
     NSDictionary *before = [[controller valueForKey:@"view"] copy];
     [controller setValue:styled forKey:@"appearance"];
@@ -5572,9 +5572,9 @@ background = "#F4F8FF"
         const auto skin = [styled resolvedSkinForDark:dark];
         MSIMECandidateChromeView *chrome = (id)panel.contentView;
         assert(chrome.cornerRadius == 30.0 && skin.tokens.radius == 30.0f);
-        assert(chrome.backgroundImage == styled.backgroundImage && chrome.backgroundFit == msime::mac::BackgroundFit::stretch && chrome.backgroundOpacity == 1.0);
+        assert(chrome.backgroundImage == [styled backgroundImageForDark:dark] && chrome.backgroundFit == msime::mac::BackgroundFit::stretch && chrome.backgroundOpacity == 1.0);
         NSImageView *decoration = (id)chrome.subviews.lastObject;
-        assert([decoration isKindOfClass:NSImageView.class] && decoration.image == styled.decorationImage);
+        assert([decoration isKindOfClass:NSImageView.class] && decoration.image == [styled decorationImageForDark:dark]);
         // Left-aligned: in from the card's left edge by the same inset its bottom overhangs the card's top edge (the card starts 48pt down, under the band).
         const CGFloat overhang = NSHeight(chrome.bounds) - 48 - NSMinY(decoration.frame);
         assert(overhang > 0 && NSMinX(decoration.frame) == overhang && decoration.frame.size.width == decoration.frame.size.height);
@@ -5614,6 +5614,82 @@ background = "#F4F8FF"
     NSImageView *decoration = (id)chrome.subviews.lastObject;
     assert([decoration isKindOfClass:NSImageView.class]);
     assert(std::abs(NSMidX(decoration.frame) - NSWidth(chrome.bounds) / 2) < 0.01);
+    panel.appearance = nil;
+    std::filesystem::remove_all(root);
+}
+
+// 浅色、深色两个槽位放两个包：每种明暗画自己那个包的装饰图和背景图，明暗切换时候选窗换成另一个包的图，而不是一张图两种明暗共用。
+static void TestSkinSlotsPerMode(MSIMEInputController *controller, HiddenCandidatePanel *panel, NSUserDefaults *defaults) {
+    char temporary[] = "/tmp/msime-native-slot-skins-XXXXXX";
+    assert(mkdtemp(temporary));
+    const std::filesystem::path root(temporary);
+    auto writePackage = [&](const char *id, const char *base, const char *mode, const char *surface) {
+        std::filesystem::create_directories(root / id / "assets");
+        std::ofstream manifest(root / id / "skin.toml");
+        manifest << "schema_version = 1\nid = \"" << id << "\"\nname = \"" << id << "\"\nversion = \"1.0\"\nbase = \"" << base
+                 << "\"\n[supports]\nlayouts = [\"horizontal\", \"vertical\"]\nthemes = [\"" << mode
+                 << "\"]\n[candidate_window.decoration]\nimage = \"assets/character.png\"\ntop_inset_dip = 48\nwidth_dip = 60\n"
+                 << "[candidate_window.background]\nimage = \"assets/background.png\"\nfit = \"stretch\"\n[candidate." << mode
+                 << "]\nsurface = \"" << surface << "\"\n";
+        assert(manifest.good());
+    };
+    writePackage("dawn", "paper", "light", "#FFF7FA");
+    writePackage("dusk", "night", "dark", "#121314");
+    WriteSolidPNG(root / "dawn" / "assets" / "character.png", 255, 0, 0);
+    WriteSolidPNG(root / "dawn" / "assets" / "background.png", 255, 255, 0);
+    WriteSolidPNG(root / "dusk" / "assets" / "character.png", 0, 0, 255);
+    WriteSolidPNG(root / "dusk" / "assets" / "background.png", 0, 255, 255);
+    MSIMEAppearancePreferences *slots = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+    // 旧文档的浅色槽位里放着一款已经不在目录里的皮肤：应用浅色皮肤时直接覆盖，不挪进深色槽位。
+    [slots clearCustomCandidateSkin];
+    [defaults setObject:@"gone" forKey:@"MSIMEClientCustomCandidateSkin"];
+    [slots selectExternalSkin:@"dawn" base:@"paper"];
+    assert([slots.customCandidateSkin isEqual:@"dawn"] && slots.customCandidateSkinDark == nil);
+    // 旧文档只有一款深色皮肤、存在浅色槽位里：应用浅色皮肤时它挪进深色槽位，两款都留着。
+    [slots clearCustomCandidateSkin];
+    [defaults setObject:@"dusk" forKey:@"MSIMEClientCustomCandidateSkin"];
+    [slots selectExternalSkin:@"dawn" base:@"paper"];
+    assert([slots.customCandidateSkin isEqual:@"dawn"] && [slots.customCandidateSkinDark isEqual:@"dusk"] &&
+           [slots.customThemeBase isEqual:@"paper"]);
+    [slots selectExternalSkin:@"dusk" base:@"night"];
+    assert([slots.customCandidateSkin isEqual:@"dawn"] && [slots.customCandidateSkinDark isEqual:@"dusk"] &&
+           [slots.customThemeBase isEqual:@"night"]);
+    assert([slots resolvedSkinForDark:NO].candidateSkin == "dawn" && [slots resolvedSkinForDark:YES].candidateSkin == "dusk");
+    // 两个槽位各画各自明暗的包：主题不固定明暗，候选窗跟随宿主。
+    assert(![slots fixedThemeMode]);
+    NSImage *lightDecoration = [slots decorationImageForDark:NO], *darkDecoration = [slots decorationImageForDark:YES];
+    NSImage *lightBackground = [slots backgroundImageForDark:NO], *darkBackground = [slots backgroundImageForDark:YES];
+    assert(lightDecoration && darkDecoration && lightDecoration != darkDecoration);
+    assert(lightBackground && darkBackground && lightBackground != darkBackground);
+    [controller setValue:slots forKey:@"appearance"];
+    MSIMEFloatingToolbarPanel *toolbar = [MSIMEFloatingToolbarPanel new];
+    [toolbar setFrameAutosaveName:@""];
+    [controller setValue:toolbar forKey:@"toolbar"];
+    slots.vertical = NO;
+    for (NSString *theme in @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]) {
+        const BOOL dark = [theme isEqual:NSAppearanceNameDarkAqua];
+        panel.appearance = [NSAppearance appearanceNamed:theme];
+        [controller appearanceChanged:nil];
+        MSIMECandidateChromeView *chrome = (id)panel.contentView;
+        NSImageView *decoration = (id)chrome.subviews.lastObject;
+        assert([decoration isKindOfClass:NSImageView.class] && decoration.image == [slots decorationImageForDark:dark]);
+        assert(chrome.backgroundImage == [slots backgroundImageForDark:dark]);
+        assert([chrome.fillColor isEqual:SkinColor([slots resolvedSkinForDark:dark].tokens.surface)]);
+    }
+    // 只是外观变了、没有整页重排：画的包换了，候选窗也要重排成另一个包的装饰。
+    panel.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    [controller appearanceChanged:nil];
+    assert(((NSImageView *)panel.contentView.subviews.lastObject).image == lightDecoration);
+    panel.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    [controller refreshCandidateSkin];
+    MSIMECandidateChromeView *switched = (id)panel.contentView;
+    assert(((NSImageView *)switched.subviews.lastObject).image == darkDecoration && switched.backgroundImage == darkBackground);
+    // 停用深色皮肤只清深色槽位；深色模式回落到浅色槽位，但浅色底的包不在深色模式画。
+    [slots removeCustomCandidateSkin:@"dusk"];
+    assert([slots.customCandidateSkin isEqual:@"dawn"] && slots.customCandidateSkinDark == nil);
+    assert([slots resolvedSkinForDark:YES].candidateSkin.empty() && ![slots decorationImageForDark:YES] && [slots decorationImageForDark:NO]);
+    [slots clearCustomCandidateSkin];
+    assert(slots.customCandidateSkin == nil && slots.customCandidateSkinDark == nil);
     panel.appearance = nil;
     std::filesystem::remove_all(root);
 }
@@ -9204,6 +9280,7 @@ int main(int argc, char **argv) {
         }
         @autoreleasepool { TestExternalSkin(controller, layoutPanel, defaults); }
         @autoreleasepool { TestStyledExternalSkin(controller, layoutPanel, defaults); }
+        @autoreleasepool { TestSkinSlotsPerMode(controller, layoutPanel, defaults); }
         [controller setValue:appearance forKey:@"appearance"];
         appearance.vertical = NO;
         appearance.globalTheme = @"system";

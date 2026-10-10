@@ -197,6 +197,28 @@ int main() {
     }
     REQUIRE(refused);
 
+    // TIP 的 `;` 开关按 Engine 的规则从偏好算出：微软双拼，或者自定义表里有韵母、零声母编码用到 `;`。
+    REQUIRE(shuangpin_uses_semicolon_key({{"shuangpin_profile", "microsoft"}}));
+    REQUIRE(!shuangpin_uses_semicolon_key(nlohmann::json::object()));
+    REQUIRE(!shuangpin_uses_semicolon_key({{"shuangpin_profile", "xiaohe"}}));
+    REQUIRE(!shuangpin_uses_semicolon_key({{"shuangpin_profile", "custom"}}));
+    REQUIRE(shuangpin_uses_semicolon_key(
+        {{"shuangpin_profile", "custom"},
+         {"shuangpin_custom_profile",
+          {{"finals", {{"ing", ";"}, {"iu", "q"}}}}}}));
+    REQUIRE(shuangpin_uses_semicolon_key(
+        {{"shuangpin_profile", "custom"},
+         {"shuangpin_custom_profile",
+          {{"finals", {{"ing", "k"}}}, {"zero_initials", {{"a", "o;"}}}}}}));
+    REQUIRE(!shuangpin_uses_semicolon_key(
+        {{"shuangpin_profile", "custom"},
+         {"shuangpin_custom_profile",
+          {{"finals", {{"ing", "k"}}}, {"zero_initials", {{"a", "oa"}}}}}}));
+    // 表留着但选的是内置方案时，按内置方案回答。
+    REQUIRE(!shuangpin_uses_semicolon_key(
+        {{"shuangpin_profile", "xiaohe"},
+         {"shuangpin_custom_profile", {{"finals", {{"ing", ";"}}}}}}));
+
     std::cout << "Windows edit policy checks passed\n";
     return 0;
   } catch (const std::exception &error) {

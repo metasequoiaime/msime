@@ -162,6 +162,26 @@ int main() {
   auto unlisted = with_package;
   unlisted["custom_theme"]["candidate_skin"] = "absent";
   assert(!host::candidate_theme_request(unlisted, false, catalog).contains("package"));
+  // 两个槽位：请求带的是这个明暗下槽位指名的那一项。深色取 candidate_skin_dark，没设时取 candidate_skin；浅色只取 candidate_skin。
+  const Json slotted_catalog = Json::parse(
+      R"({"packages":[{"id":"sakura","title":"樱花","base":"light","layouts":["vertical"],"candidate":{"light":{}}},)"
+      R"({"id":"dusk","title":"黄昏","base":"night","layouts":["vertical"],"candidate":{"dark":{}}}]})");
+  const Json both_slots = {{"global_theme", "custom"},
+                           {"custom_theme", {{"candidate_skin", "sakura"}, {"candidate_skin_dark", "dusk"}}}};
+  assert(host::candidate_theme_request(both_slots, true, slotted_catalog).at("package") ==
+         slotted_catalog.at("packages").at(1));
+  assert(host::candidate_theme_request(both_slots, false, slotted_catalog).at("package") ==
+         slotted_catalog.at("packages").at(0));
+  assert(host::candidate_theme_request(with_package, true, slotted_catalog).at("package") ==
+         slotted_catalog.at("packages").at(0));
+  const Json dark_only = {{"global_theme", "custom"}, {"custom_theme", {{"candidate_skin_dark", "dusk"}}}};
+  assert(!host::candidate_theme_request(dark_only, false, slotted_catalog).contains("package"));
+  assert(host::candidate_theme_request(dark_only, true, slotted_catalog).at("package") ==
+         slotted_catalog.at("packages").at(1));
+  // 深色槽位指名的包不在目录里时不退回浅色槽位：共享层只认当前模式槽位指名的那一项。
+  auto dark_absent = both_slots;
+  dark_absent["custom_theme"]["candidate_skin_dark"] = "absent";
+  assert(!host::candidate_theme_request(dark_absent, true, slotted_catalog).contains("package"));
 
   // 主题选择：只有 global_theme 与 custom_theme 参与比较；缺失或非字符串的 global_theme 与 system 等价，其他偏好字段的变化不算选主题。
   using host::candidate_theme_selection;

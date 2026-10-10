@@ -4797,7 +4797,7 @@ public final class MSIMEInputService extends InputMethodService {
     /**
      * Select one global theme from the keyboard's picker, or, with a `design`, store it as `custom_theme.keyboard` and select `custom`.
      *
-     * <p>This copies the settings page: when another theme was on screen it becomes `custom_theme.base` and `custom_theme.candidate_skin` is cleared, so the candidate strip keeps the theme the user was looking at; while `custom` is already selected only the keyboard changes.
+     * <p>与设置页的做法相同：原来显示的是别的主题时，它成为 `custom_theme.base`，浅色、深色两个槽位的皮肤包（`custom_theme.candidate_skin` 和 `candidate_skin_dark`）都清掉，候选栏保持用户正在看的主题；已经选着 `custom` 时只换键盘。
      */
     void saveKeyboardSkin(String identifier, JSONObject design) {
         if (skinSaving || traditionalOutputSaving || session == 0
@@ -4826,6 +4826,7 @@ public final class MSIMEInputService extends InputMethodService {
                 if (!"custom".equals(current)) {
                     customTheme.put("base", current);
                     customTheme.remove("candidate_skin");
+                    customTheme.remove("candidate_skin_dark");
                 }
                 customTheme.put("keyboard", new JSONObject(design.toString()));
                 preferences.put("custom_theme", customTheme);

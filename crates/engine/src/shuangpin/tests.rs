@@ -40,7 +40,7 @@ impl Fixture {
     }
 
     fn engine(&self, kind: ShuangpinProfileKind) -> ShuangpinEngine {
-        ShuangpinEngine::new(profile(kind), &self.paths)
+        ShuangpinEngine::new(profile(kind).unwrap(), &self.paths)
     }
 
     fn weight(&self, table: &str, key: &str, value: &str) -> Option<i64> {
@@ -92,7 +92,7 @@ fn prefix_groups_list_a_word_once() {
     let fixture = Fixture::new(
         "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_n VALUES('ni', 'n', '你', 10000),('ni', 'n', '拟', 9000);",
     );
-    let microsoft = profile(ShuangpinProfileKind::Microsoft);
+    let microsoft = profile(ShuangpinProfileKind::Microsoft).unwrap();
     let mut dictionary = super::dictionary::ShuangpinDictionary::new(microsoft, &fixture.paths);
     let segmentation = super::utils::pinyin_segmentation("ni'nni", microsoft);
     assert_eq!(segmentation, "ni'''nn'i");
@@ -114,11 +114,12 @@ fn prefix_groups_reserve_their_candidate_rows() {
     }
     let fixture = Fixture::new(&sql);
     let mut dictionary = super::dictionary::ShuangpinDictionary::new(
-        profile(ShuangpinProfileKind::Xiaohe),
+        profile(ShuangpinProfileKind::Xiaohe).unwrap(),
         &fixture.paths,
     );
 
-    let segmentation = super::query::segment_input("nihcma", profile(ShuangpinProfileKind::Xiaohe));
+    let segmentation =
+        super::query::segment_input("nihcma", profile(ShuangpinProfileKind::Xiaohe).unwrap());
     let rows = dictionary.generate_series("nihcma", &segmentation, "");
 
     assert_eq!(rows.len(), 20, "{rows:?}");
@@ -473,7 +474,7 @@ fn missing_dictionary_answers_empty() {
         cache: directory.clone(),
         dictionaries: directory,
     };
-    let mut engine = ShuangpinEngine::new(profile(ShuangpinProfileKind::Xiaohe), &paths);
+    let mut engine = ShuangpinEngine::new(profile(ShuangpinProfileKind::Xiaohe).unwrap(), &paths);
     assert!(engine.query(&request("nihc", true), None).is_empty());
     assert!(engine.query(&request("u", true), None).is_empty());
     assert!(!paths.dictionary(assets::MAIN_DICTIONARY).exists());
@@ -498,7 +499,7 @@ fn real_dictionary_answers_common_readings() {
         cache: user.path().to_path_buf(),
         dictionaries: resources,
     };
-    let mut engine = ShuangpinEngine::new(profile(ShuangpinProfileKind::Xiaohe), &paths);
+    let mut engine = ShuangpinEngine::new(profile(ShuangpinProfileKind::Xiaohe).unwrap(), &paths);
     let nihao = engine.query(&request("nihc", false), None);
     assert!(
         words(&nihao).iter().take(3).any(|word| *word == "你好"),
@@ -566,7 +567,7 @@ fn a_changed_personal_model_drops_the_scored_series() {
     let fixture = Fixture::new(
         "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',10000),('ni','n','拟',9000);CREATE TABLE tbl_1_h(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_h VALUES('hao','h','好',10000),('hao','h','号',9000);",
     );
-    let xiaohe = profile(ShuangpinProfileKind::Xiaohe);
+    let xiaohe = profile(ShuangpinProfileKind::Xiaohe).unwrap();
     let mut dictionary = super::dictionary::ShuangpinDictionary::new(xiaohe, &fixture.paths);
     let segmentation = super::utils::pinyin_segmentation("nihc", xiaohe);
     let before = dictionary.generate_series("nihc", &segmentation, "");

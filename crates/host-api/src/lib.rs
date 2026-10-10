@@ -19,9 +19,9 @@ pub mod cloud_dictionary;
 pub mod mcp_clients;
 pub mod system_fonts;
 use msime_client_core::preferences::{
-    InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
-    TouchKeyboardLayout, TouchKeyboardScheme, VietnameseInputMethod, VietnamesePreferences,
-    VietnameseToneStyle, WubiProfile,
+    InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinCustomProfile,
+    ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme, VietnameseInputMethod,
+    VietnamesePreferences, VietnameseToneStyle, WubiProfile,
 };
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
@@ -35,7 +35,10 @@ use msime_client_core::voice::doubao_frame::{
     audio_frame, decode_error_code, decode_json_frame, start_frame,
 };
 use msime_client_core::voice::VoiceSessionState;
-use msime_engine::host::{CandidateEdge, Command, EngineOptions, Session};
+use msime_engine::host::{
+    validate_shuangpin_custom_profile, CandidateEdge, Command, EngineOptions, Session,
+    ShuangpinCustomTable,
+};
 use msime_engine::{SchemeSet, SchemeType};
 use msime_input_runtime::HandwritingQuery;
 #[cfg(unix)]
@@ -531,7 +534,7 @@ impl HostSession {
             .unwrap_or(&self.applied)
             .clone();
         let mut options = self.options.clone();
-        let (scheme, fallback) = effective_scheme(
+        let (scheme, scheme_fallback) = effective_scheme(
             &preferences,
             &offered_input_schemes(self.edition),
             &LanguageDictionaries::of_options(&self.options),
@@ -540,7 +543,10 @@ impl HostSession {
         options.scheme = scheme_code(scheme);
         options.vietnamese_input_method = vietnamese_input_method_code(preferences.vietnamese);
         options.vietnamese_tone_style = vietnamese_tone_style_code(preferences.vietnamese);
-        options.shuangpin_profile = profile_code(preferences.shuangpin_profile);
+        let profile_fallback = apply_shuangpin_profile(&mut options, &preferences);
+        // 自定义双拼表不能用的原因只在真的跑双拼时才值得报告。
+        let fallback =
+            scheme_fallback.or(profile_fallback.filter(|_| scheme == InputScheme::Shuangpin));
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
         options.single_character_only = preferences.single_character_only;
         options.learning = preferences.learning;
@@ -832,6 +838,53 @@ fn profile_code(profile: ShuangpinProfile) -> u8 {
         ShuangpinProfile::Ziranma => 1,
         ShuangpinProfile::Shoudao => 2,
         ShuangpinProfile::Microsoft => 3,
+        ShuangpinProfile::Custom => 4,
+    }
+}
+
+/// 偏好里的自定义双拼表换成 Engine 的表。
+fn engine_shuangpin_custom_table(profile: &ShuangpinCustomProfile) -> ShuangpinCustomTable {
+    let pairs = |part: &std::collections::BTreeMap<String, String>| {
+        part.iter()
+            .map(|(unit, key)| (unit.clone(), key.clone()))
+            .collect()
+    };
+    ShuangpinCustomTable {
+        initials: pairs(&profile.initials),
+        finals: pairs(&profile.finals),
+        zero_initials: pairs(&profile.zero_initials),
+    }
+}
+
+/// 偏好里的自定义双拼表能不能用，由 Engine 判定；不能用时是给日志和代理看的英文原因。设置页、MCP 等写偏好的一方保存之前用它校验。
+pub fn validate_custom_shuangpin_profile(profile: &ShuangpinCustomProfile) -> Result<(), String> {
+    validate_shuangpin_custom_profile(&engine_shuangpin_custom_table(profile))
+        .map_err(|error| error.to_string())
+}
+
+/// 把双拼方案写进 Engine 选项。选的是自定义方案时先让 Engine 校验用户的表：表是空的或不合法时按小鹤运行，返回原因，免得一张写坏的表让 Engine 建不起来、整个输入法停在旧会话上。
+fn apply_shuangpin_profile(
+    options: &mut EngineOptions,
+    preferences: &Preferences,
+) -> Option<String> {
+    options.shuangpin_custom_profile = None;
+    options.shuangpin_profile = profile_code(preferences.shuangpin_profile);
+    if preferences.shuangpin_profile != ShuangpinProfile::Custom {
+        return None;
+    }
+    match validate_custom_shuangpin_profile(&preferences.shuangpin_custom_profile) {
+        Ok(()) => {
+            options.shuangpin_custom_profile = Some(engine_shuangpin_custom_table(
+                &preferences.shuangpin_custom_profile,
+            ));
+            None
+        }
+        Err(error) => {
+            options.shuangpin_profile = profile_code(ShuangpinProfile::Xiaohe);
+            Some(format!(
+                "Custom shuangpin profile unusable because {error}; using Xiaohe."
+            ))
+        }
     }
 }
 
@@ -1154,6 +1207,7 @@ impl HostOptions {
             scheme: scheme_code(scheme),
             enabled_schemes: engine_schemes(edition),
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
+            shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
             single_character_only: self.preferences.single_character_only,
             learning: self.preferences.learning,
@@ -1205,6 +1259,8 @@ impl HostOptions {
             paired_punctuation: self.preferences.paired_punctuation,
             punctuation_lock: punctuation_lock_code(self.preferences.punctuation_lock),
         };
+        // 建会话没有地方带原因，表不能用时按小鹤建起来就够了；之后的偏好变更会在诊断里报告原因。
+        let _ = apply_shuangpin_profile(&mut options, &self.preferences);
         apply_local_mode_resource_gates(&mut options, edition);
         options
     }

@@ -5,19 +5,57 @@ import UIKit
 /// A design is drawn in full (photo, gradient, pattern, key shape and material); every other theme draws flat keys in the design's native geometry (dc.html L1555-1558).
 struct KeyboardTheme: Equatable {
   let id: String
-  /// 解析出的 `keyboard` 配色；主题没有解析出配色时为季节配色（原生皮肤除外，它不跟季节）；为 nil 时绘制原生 token。
+  /// 解析出的 `keyboard` 配色；主题没有解析出配色时为季节配色（原生皮肤除外，它不跟季节）；为 nil 时绘制原生 token。有 `darkPalette` 时它只是浅色模式的配色。
   let palette: ThemeKeyboardPalette?
+  /// 深色模式的键盘配色，只在浅色、深色两次解析的固定明暗不同时才有：自定义主题的浅色槽位、深色槽位各放一款不同明暗的皮肤，两种明暗各画各自的底。这时 `appearance` 为 nil，键盘跟随自己的明暗，颜色按 trait 在 `palette` 和它之间取。其余情况为 nil，`palette` 两种明暗通用。
+  let darkPalette: ThemeKeyboardPalette?
   /// The fixed mode of the theme's surfaces, nil to follow the keyboard's mode.
   let appearance: UIUserInterfaceStyle?
   /// `custom_theme.keyboard`, only while the custom theme is the one drawn.
   let design: CustomKeyboardSkin?
 
   init(id: String, palette: ThemeKeyboardPalette?, appearance: UIUserInterfaceStyle?, design: CustomKeyboardSkin?) {
+    self.init(id: id, palette: palette, darkPalette: nil, appearance: appearance, design: design)
+  }
+
+  private init(id: String, palette: ThemeKeyboardPalette?, darkPalette: ThemeKeyboardPalette?,
+               appearance: UIUserInterfaceStyle?, design: CustomKeyboardSkin?) {
     self.id = id
     self.appearance = appearance
     self.design = id == GlobalThemeCatalog.customId ? design?.normalized : nil
-    self.palette = palette ?? (self.design == nil && id != GlobalThemeCatalog.nativeId && SeasonKeyboardTokens.isAvailable
-      ? SeasonKeyboardTokens.palette : nil)
+    let fallback = Self.fallbackPalette(id: id, design: self.design)
+    if let darkPalette {
+      // 两种明暗各有配色时，没解析出配色的那一边也要有具体颜色才能按 trait 取：季节配色，应用主题也解析不了时为原生 token。
+      self.palette = palette ?? fallback ?? Self.nativePalette
+      self.darkPalette = darkPalette
+    } else {
+      self.palette = palette ?? fallback
+      self.darkPalette = nil
+    }
+  }
+
+  /// 主题没有解析出键盘配色时画的季节配色；原生皮肤、键盘设计或应用主题解析不了时为 nil，即原生 token。
+  private static func fallbackPalette(id: String, design: CustomKeyboardSkin?) -> ThemeKeyboardPalette? {
+    design == nil && id != GlobalThemeCatalog.nativeId && SeasonKeyboardTokens.isAvailable ? SeasonKeyboardTokens.palette : nil
+  }
+
+  /// 原生 token 拼成的配色，只用于两种明暗各有配色、其中一边什么都没解析出来的时候。
+  private static let nativePalette = ThemeKeyboardPalette(
+    background: NativeKeyboardTokens.background, key: NativeKeyboardTokens.key, functionKey: NativeKeyboardTokens.functionKey,
+    text: NativeKeyboardTokens.text, secondary: NativeKeyboardTokens.secondary, accent: NativeKeyboardTokens.accent,
+    onAccent: UIColor { $0.userInterfaceStyle == .dark ? .black : .white })
+
+  /// 实际绘制的配色：没有 `darkPalette` 时就是 `palette`；有时每个颜色按 trait 的明暗在两者之间取。
+  private var drawnPalette: ThemeKeyboardPalette? {
+    guard let palette, let darkPalette else { return palette }
+    func byMode(_ light: UIColor, _ dark: UIColor) -> UIColor {
+      UIColor { traits in (traits.userInterfaceStyle == .dark ? dark : light).resolvedColor(with: traits) }
+    }
+    return ThemeKeyboardPalette(
+      background: byMode(palette.background, darkPalette.background), key: byMode(palette.key, darkPalette.key),
+      functionKey: byMode(palette.functionKey, darkPalette.functionKey), text: byMode(palette.text, darkPalette.text),
+      secondary: byMode(palette.secondary, darkPalette.secondary), accent: byMode(palette.accent, darkPalette.accent),
+      onAccent: byMode(palette.onAccent, darkPalette.onAccent))
   }
 
   /// The custom theme drawn from `design` alone, for previews of a design that is not applied yet.
@@ -27,8 +65,9 @@ struct KeyboardTheme: Equatable {
 
   static let system = KeyboardTheme(id: GlobalThemeCatalog.systemId, palette: nil, appearance: nil, design: nil)
 
-  /// Theme `id` as `document` configures it. The keyboard palette does not depend on the mode, so this resolves once for both. Without a document the App Group design stands in for `custom_theme`, as the keyboard sees it before its session loads.
-  static func resolve(_ id: String, document: [String: Any]?) -> KeyboardTheme {
+  /// 按 `document` 的设置解析主题 `id`。浅色、深色各解析一次：两次的固定明暗相同时（内置主题、跟随系统、没设皮肤的自定义主题）键盘配色与明暗无关，用浅色那次；自定义主题的两个槽位放了不同明暗的皮肤时两次不同，这时不固定明暗，键盘按自己的明暗在两套配色之间取，深色槽位的皮肤才画得出来。没有文档时用 App Group 里的设计代替 `custom_theme`，即键盘在会话加载前看到的样子。
+  static func resolve(_ id: String, document: [String: Any]?,
+                      skinsRoot: URL? = ExternalCandidateSkin.defaultRoot) -> KeyboardTheme {
     var custom = GlobalThemePreference.customTheme(in: document)
     let design: CustomKeyboardSkin?
     if document == nil {
@@ -37,10 +76,16 @@ struct KeyboardTheme: Equatable {
     } else {
       design = GlobalThemePreference.design(in: document)
     }
-    guard let resolved = ResolvedTheme.resolve(globalTheme: id, customTheme: custom, dark: false) else {
+    guard let light = ResolvedTheme.resolve(globalTheme: id, customTheme: custom, dark: false, skinsRoot: skinsRoot) else {
       return KeyboardTheme(id: id, palette: nil, appearance: nil, design: design)
     }
-    return KeyboardTheme(id: resolved.id, palette: resolved.keyboard, appearance: resolved.appearance, design: design)
+    guard let dark = ResolvedTheme.resolve(globalTheme: id, customTheme: custom, dark: true, skinsRoot: skinsRoot),
+          dark.appearance != light.appearance else {
+      return KeyboardTheme(id: light.id, palette: light.keyboard, appearance: light.appearance, design: design)
+    }
+    let normalized = light.id == GlobalThemeCatalog.customId ? design?.normalized : nil
+    let darkPalette = dark.keyboard ?? fallbackPalette(id: light.id, design: normalized) ?? nativePalette
+    return KeyboardTheme(id: light.id, palette: light.keyboard, darkPalette: darkPalette, appearance: nil, design: design)
   }
 
   /// The selected theme of `document`, or of the App Group without one.
@@ -85,54 +130,54 @@ struct KeyboardTheme: Equatable {
 
   var background: UIColor {
     if let design { return CustomKeyboardSkin.color(design.background) }
-    return palette?.background ?? (isNative ? SystemKeyboardTokens.background : NativeKeyboardTokens.background)
+    return drawnPalette?.background ?? (isNative ? SystemKeyboardTokens.background : NativeKeyboardTokens.background)
   }
   /// Letter keys and the space bar (`kb.key`).
   var keyBackground: UIColor {
     if let design { return CustomKeyboardSkin.color(design.keyBackground).withAlphaComponent(CGFloat(design.keyOpacity ?? 1)) }
-    return palette?.key ?? (isNative ? SystemKeyboardTokens.key : NativeKeyboardTokens.key)
+    return drawnPalette?.key ?? (isNative ? SystemKeyboardTokens.key : NativeKeyboardTokens.key)
   }
   /// Shift, delete, 123, the symbol and language keys (`kb.spec`).
   var functionKeyBackground: UIColor {
     if design != nil { return keyBackground }
-    return palette?.functionKey ?? (isNative ? SystemKeyboardTokens.functionKey : NativeKeyboardTokens.functionKey)
+    return drawnPalette?.functionKey ?? (isNative ? SystemKeyboardTokens.functionKey : NativeKeyboardTokens.functionKey)
   }
   var keyForeground: UIColor {
     if let design { return CustomKeyboardSkin.color(design.keyForeground) }
-    return palette?.text ?? NativeKeyboardTokens.text
+    return drawnPalette?.text ?? NativeKeyboardTokens.text
   }
   /// Key hints, the space bar label, candidate numbers (`kb.sub`).
   var secondary: UIColor {
-    palette?.secondary ?? (design.map { CustomKeyboardSkin.color($0.keyForeground).withAlphaComponent(0.6) } ?? NativeKeyboardTokens.secondary)
+    drawnPalette?.secondary ?? (design.map { CustomKeyboardSkin.color($0.keyForeground).withAlphaComponent(0.6) } ?? NativeKeyboardTokens.secondary)
   }
   /// The selected candidate, hints and toggled marks.
   var accent: UIColor {
     if let design { return CustomKeyboardSkin.color(design.accent) }
-    return palette?.accent ?? (isNative ? SystemKeyboardTokens.accent : NativeKeyboardTokens.accent)
+    return drawnPalette?.accent ?? (isNative ? SystemKeyboardTokens.accent : NativeKeyboardTokens.accent)
   }
   /// 强调键（组字时的回车）：主题自己的主色；跟随系统配色时为季节主色；原生皮肤为系统蓝；键盘设计时为它的操作色；什么都没解析出来时为经典绿色。
   var actionBackground: UIColor {
     if let design { return CustomKeyboardSkin.color(design.actionBackground) }
-    return palette?.accent ?? (isNative ? SystemKeyboardTokens.accent : NativeKeyboardTokens.accent)
+    return drawnPalette?.accent ?? (isNative ? SystemKeyboardTokens.accent : NativeKeyboardTokens.accent)
   }
   /// `actionBackground` 上的文字：配色自己的 `on_accent`，跟随系统配色在浅色下为白色、深色下为 Rust 算出的 mix(accent 25%, #000)。经典兜底在深色主色 `#5FBF84` 上用黑字，因为设计稿的白字在那里对比度只有 2.3:1。
   var actionForeground: UIColor {
     if let design { return CustomKeyboardSkin.color(CustomKeyboardSkin.readableText(on: design.actionBackground)) }
-    if let palette { return palette.onAccent }
+    if let palette = drawnPalette { return palette.onAccent }
     if isNative { return SystemKeyboardTokens.onAccent }
     return UIColor { $0.userInterfaceStyle == .dark ? .black : .white }
   }
   /// 画在 `accent` 填充上的图形，例如语音面板的麦克风：配色自己的 `on_accent`；键盘设计时为其主色上可读的文字色；经典主色上与 `actionForeground` 一样用白或黑。
   var onAccent: UIColor {
     if let design { return CustomKeyboardSkin.color(CustomKeyboardSkin.readableText(on: design.accent)) }
-    if let palette { return palette.onAccent }
+    if let palette = drawnPalette { return palette.onAccent }
     if isNative { return SystemKeyboardTokens.onAccent }
     return UIColor { $0.userInterfaceStyle == .dark ? .black : .white }
   }
   /// 作为浅色调的主题主色：凡是有配色的主题，浅色下透明度 `22`、深色下 `40`（即设计稿的 `accentSoft`，与 Android 的 `KeyboardSkin` 一致）；什么都没解析出来时为经典的 `.14` / `.26` 绿色；键盘设计时为其主色的 20%。它是候选栏 `selected` 槽位的兜底。
   var accentSoft: UIColor {
     if design != nil { return accent.withAlphaComponent(0.2) }
-    guard let palette else { return isNative ? SystemKeyboardTokens.accentSoft : NativeKeyboardTokens.accentSoft }
+    guard let palette = drawnPalette else { return isNative ? SystemKeyboardTokens.accentSoft : NativeKeyboardTokens.accentSoft }
     // 尽量用共享或静态颜色：候选栏配色会做相等比较，而新建的动态颜色永远不等于另一个颜色。
     if palette == SeasonKeyboardTokens.palette { return SeasonKeyboardTokens.accentSoft }
     let soft = { (dark: Bool) in palette.accent.withAlphaComponent(dark ? 0x40 / 255 : 0x22 / 255) }

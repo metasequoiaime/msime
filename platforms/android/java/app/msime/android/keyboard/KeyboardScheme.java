@@ -340,7 +340,8 @@ public enum KeyboardScheme {
     }
 
     private static String normalizedProfile(String value) {
-        if ("ziranma".equals(value) || "microsoft".equals(value) || "shoudao".equals(value)) {
+        if ("ziranma".equals(value) || "microsoft".equals(value) || "shoudao".equals(value)
+                || "custom".equals(value)) {
             return value;
         }
         return "xiaohe";

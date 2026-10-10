@@ -1277,15 +1277,19 @@ public:
   std::vector<msime::linux_host::ThemeChoice> themeChoices() const {
     return msime::linux_host::theme_choices(themeCatalog(), candidate_skin_catalog_);
   }
+  // 两个槽位各放一款皮肤时，勾选候选窗当前明暗下画的那款。
   std::string currentThemeChoice() const {
-    return msime::linux_host::current_theme_choice(preferences_, themeChoices());
+    return msime::linux_host::current_theme_choice(
+        preferences_, themeChoices(), msime::linux_host::candidate_dark_theme(preferences_, system_dark_));
   }
   // Choose one 主题 menu entry: the session takes the new theme at once and the store is written behind it, as the other status-bar choices are.
   bool setThemeChoice(const std::string &id) {
     if (!session_ || restricted() || privateInput()) return false;
     const auto choices = themeChoices();
-    if (msime::linux_host::current_theme_choice(preferences_, choices) == id) return false;
-    const auto change = msime::linux_host::theme_choice_change(choices, id);
+    if (msime::linux_host::current_theme_choice(
+            preferences_, choices, msime::linux_host::candidate_dark_theme(preferences_, system_dark_)) == id)
+      return false;
+    const auto change = msime::linux_host::theme_choice_change(preferences_, choices, id);
     if (!change) return false;
     auto snapshot = preferences_snapshot_;
     if (!snapshot.is_object() || !snapshot.contains("revision") ||

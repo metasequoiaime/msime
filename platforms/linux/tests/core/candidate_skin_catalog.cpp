@@ -63,67 +63,124 @@ int main() {
 
   // The menu: the shared catalogue's themes in its order, then the packages; one named like a theme, or drawn over a base that is not a catalogue theme other than 自定义, is refused by the shared layer and left out.
   const auto theme_catalog = Json::parse(
-      R"({"themes":[{"id":"system","title":"跟随系统"},{"id":"shuishan","title":"水杉"},{"id":"light","title":"浅色"},)"
-      R"({"id":"paper","title":"纸白"},{"id":"night","title":"夜青"},{"id":"ink","title":"墨"},{"id":"custom","title":"自定义"}],)"
+      R"({"themes":[{"id":"system","title":"跟随系统","appearance":null},{"id":"shuishan","title":"水杉","appearance":"dark"},)"
+      R"({"id":"light","title":"浅色","appearance":"light"},{"id":"paper","title":"纸白","appearance":"light"},)"
+      R"({"id":"night","title":"夜青","appearance":"dark"},{"id":"ink","title":"墨","appearance":"dark"},)"
+      R"({"id":"custom","title":"自定义","appearance":null}],)"
       R"("default":"system"})");
   const auto choices = theme_choices(theme_catalog, packages);
   assert(choices.size() == 9);
   assert(choices.front().id == "system" && choices.front().title == "跟随系统" && !choices.front().package_base);
   assert(choices[6].id == "custom" && !choices[6].package_base);
-  assert(choices[7].id == "solarized" && choices[7].package_base == "system");
-  assert(choices[8].id == "sakura" && choices[8].title == "樱花" && choices[8].package_base == "light");
+  assert(choices[7].id == "solarized" && choices[7].package_base == "system" && choices[7].package_slot.empty());
+  assert(choices[8].id == "sakura" && choices[8].title == "樱花" && choices[8].package_base == "light" &&
+         choices[8].package_slot == "light");
   assert(!find_theme_choice(choices, "retired"));
   // Without the shared catalogue nothing is listed: the host keeps no list of its own, so it cannot tell a package's base is one the shared layer draws over either.
   assert(theme_choices(Json::object(), packages).empty());
 
   // The selected entry: the global theme, or the package a custom theme is drawn over.
-  assert(current_theme_choice(Json::object(), choices) == "system");
-  assert(current_theme_choice(Json{{"global_theme", "night"}}, choices) == "night");
+  assert(current_theme_choice(Json::object(), choices, false) == "system");
+  assert(current_theme_choice(Json{{"global_theme", "night"}}, choices, false) == "night");
   const Json over_sakura = {{"global_theme", "custom"}, {"custom_theme", {{"candidate_skin", "sakura"}, {"base", "light"}}}};
-  assert(current_theme_choice(over_sakura, choices) == "sakura");
+  assert(current_theme_choice(over_sakura, choices, false) == "sakura");
   auto uninstalled = over_sakura;
   uninstalled["custom_theme"]["candidate_skin"] = "gone";
-  assert(current_theme_choice(uninstalled, choices) == "custom");
+  assert(current_theme_choice(uninstalled, choices, false) == "custom");
   auto shown_elsewhere = over_sakura;
   shown_elsewhere["global_theme"] = "ink";
-  assert(current_theme_choice(shown_elsewhere, choices) == "ink");
+  assert(current_theme_choice(shown_elsewhere, choices, false) == "ink");
 
   // A built-in theme only selects itself; the custom theme is kept for when it comes back.
   const Json keyboard = {{"background", "#000000"}};
   Json preferences = {{"global_theme", "custom"},
                       {"custom_theme", {{"candidate_skin", "sakura"}, {"base", "light"}, {"keyboard", keyboard}}}};
-  auto change = theme_choice_change(choices, "night");
+  auto change = theme_choice_change(preferences, choices, "night");
   assert(change && *change == Json({{"global_theme", "night"}}));
   apply_theme_choice(preferences, *change);
   assert(preferences.at("global_theme") == "night" && preferences.at("custom_theme").at("candidate_skin") == "sakura");
   // A package selects the custom theme over it and its manifest base, as the settings page's package card does, and keeps the rest.
-  change = theme_choice_change(choices, "solarized");
+  change = theme_choice_change(preferences, choices, "solarized");
   assert(change && change->at("global_theme") == "custom");
   apply_theme_choice(preferences, *change);
   assert(preferences.at("custom_theme").at("candidate_skin") == "solarized");
   assert(preferences.at("custom_theme").at("base") == "system");
   assert(preferences.at("custom_theme").at("keyboard") == keyboard);
-  assert(current_theme_choice(preferences, choices) == "solarized");
+  assert(current_theme_choice(preferences, choices, false) == "solarized");
   // 自定义 selects the custom theme as it stands, as the settings page's 自定义 card does: the stored package, base and keyboard are not edited, so a custom theme over a listed package shows that package as chosen.
-  change = theme_choice_change(choices, "custom");
+  change = theme_choice_change(preferences, choices, "custom");
   assert(change && *change == Json({{"global_theme", "custom"}}));
   const auto before_custom = preferences;
   apply_theme_choice(preferences, *change);
   assert(preferences == before_custom);
-  assert(current_theme_choice(preferences, choices) == "solarized");
+  assert(current_theme_choice(preferences, choices, false) == "solarized");
   Json stored_package = {{"global_theme", "ink"}, {"custom_theme", {{"candidate_skin", "sakura"}, {"base", "light"}}}};
-  apply_theme_choice(stored_package, *theme_choice_change(choices, "custom"));
+  apply_theme_choice(stored_package, *theme_choice_change(stored_package, choices, "custom"));
   assert(stored_package == Json({{"global_theme", "custom"}, {"custom_theme", {{"candidate_skin", "sakura"}, {"base", "light"}}}}));
-  assert(current_theme_choice(stored_package, choices) == "sakura");
+  assert(current_theme_choice(stored_package, choices, false) == "sakura");
   // Without a listed package the menu shows 自定义 itself.
-  assert(current_theme_choice(uninstalled, choices) == "custom");
+  assert(current_theme_choice(uninstalled, choices, false) == "custom");
   // A preferences document without a custom theme gets one.
   Json bare = Json::object();
-  apply_theme_choice(bare, *theme_choice_change(choices, "sakura"));
+  apply_theme_choice(bare, *theme_choice_change(bare, choices, "sakura"));
   assert(bare.at("custom_theme") == Json({{"candidate_skin", "sakura"}, {"base", "light"}}));
   // Retired skin ids and anything else the menu does not list change nothing.
-  assert(!theme_choice_change(choices, "willow_green"));
-  assert(!theme_choice_change(choices, "unsafe/id"));
+  assert(!theme_choice_change(bare, choices, "willow_green"));
+  assert(!theme_choice_change(bare, choices, "unsafe/id"));
+
+  // 两个槽位：皮肤包的槽位是它清单 base 在主题目录里的明暗。合成的皮肤 dusk、starry 以深色主题为底，paper-notes 以浅色为底，mist 跟随系统；规则与设置页的 applyCandidateSkin 及其测试 apps/desktop/tests/candidate/candidate-skin-slots.test.ts 一一对应。
+  auto slot_packages = packages;
+  slot_packages.push_back({"dusk", "黄昏", "night"});
+  slot_packages.push_back({"starry", "星空", "ink"});
+  slot_packages.push_back({"paper-notes", "便笺", "paper"});
+  slot_packages.push_back({"mist", "雾", "system"});
+  const auto slotted = theme_choices(theme_catalog, slot_packages);
+  assert(find_theme_choice(slotted, "dusk")->package_slot == "dark");
+  assert(find_theme_choice(slotted, "starry")->package_slot == "dark");
+  assert(find_theme_choice(slotted, "paper-notes")->package_slot == "light");
+  assert(find_theme_choice(slotted, "mist")->package_slot.empty());
+  const auto choose = [&](Json preferences, std::string_view id) {
+    const auto made = theme_choice_change(preferences, slotted, id);
+    assert(made && made->at("global_theme") == "custom");
+    apply_theme_choice(preferences, *made);
+    return preferences;
+  };
+  // 每款皮肤只填自己的槽位，base 照旧写成包的 base。
+  auto slots = choose(Json{{"custom_theme", {{"candidate_skin_dark", "dusk"}}}}, "sakura");
+  assert(slots.at("custom_theme") == Json({{"base", "light"}, {"candidate_skin", "sakura"}, {"candidate_skin_dark", "dusk"}}));
+  slots = choose(slots, "starry");
+  assert(slots.at("custom_theme") == Json({{"base", "ink"}, {"candidate_skin", "sakura"}, {"candidate_skin_dark", "starry"}}));
+  slots = choose(slots, "mist");
+  assert(slots.at("custom_theme") == Json({{"base", "system"}, {"candidate_skin", "mist"}, {"candidate_skin_dark", "mist"}}));
+  // 只设过一款深色皮肤的旧文档把它存在 candidate_skin 里：选浅色皮肤时先把它挪进深色槽位。
+  const Json legacy_dark = {{"global_theme", "custom"}, {"custom_theme", {{"base", "ink"}, {"candidate_skin", "starry"}}}};
+  assert(choose(legacy_dark, "sakura").at("custom_theme") ==
+         Json({{"base", "light"}, {"candidate_skin", "sakura"}, {"candidate_skin_dark", "starry"}}));
+  // 原来是浅色皮肤时不挪，深色槽位保持空着；不在菜单里、不知道明暗的旧皮肤直接覆盖，也不挪。
+  const auto replaced = choose(Json{{"custom_theme", {{"candidate_skin", "paper-notes"}}}}, "sakura");
+  assert(replaced.at("custom_theme").at("candidate_skin") == "sakura" &&
+         !replaced.at("custom_theme").contains("candidate_skin_dark"));
+  assert(!choose(Json{{"custom_theme", {{"candidate_skin", "gone"}}}}, "sakura").at("custom_theme").contains("candidate_skin_dark"));
+  // 跟随系统的旧皮肤确知能在深色模式画，照样挪过去。
+  assert(choose(Json{{"custom_theme", {{"candidate_skin", "mist"}}}}, "sakura").at("custom_theme").at("candidate_skin_dark") == "mist");
+  // 新的深色皮肤取代旧文档放在 candidate_skin 里的深色皮肤，那个键随之删掉。
+  assert(choose(legacy_dark, "dusk").at("custom_theme") == Json({{"base", "night"}, {"candidate_skin_dark", "dusk"}}));
+  // 浅色皮肤留在 candidate_skin 里不动。
+  assert(choose(Json{{"custom_theme", {{"candidate_skin", "sakura"}}}}, "dusk").at("custom_theme") ==
+         Json({{"base", "night"}, {"candidate_skin", "sakura"}, {"candidate_skin_dark", "dusk"}}));
+
+  // 勾选：任一槽位的皮肤都算当前，先取候选窗当前明暗下的那款，这个模式的槽位没有可列出的包时再取另一个槽位的。
+  const Json both = {{"global_theme", "custom"}, {"custom_theme", {{"candidate_skin", "sakura"}, {"candidate_skin_dark", "dusk"}}}};
+  assert(current_theme_choice(both, slotted, false) == "sakura");
+  assert(current_theme_choice(both, slotted, true) == "dusk");
+  const Json dark_only = {{"global_theme", "custom"}, {"custom_theme", {{"candidate_skin_dark", "dusk"}}}};
+  assert(current_theme_choice(dark_only, slotted, false) == "dusk");
+  assert(current_theme_choice(dark_only, slotted, true) == "dusk");
+  auto dark_gone = both;
+  dark_gone["custom_theme"]["candidate_skin_dark"] = "gone";
+  assert(current_theme_choice(dark_gone, slotted, true) == "sakura");
+  // 深色模式没设 candidate_skin_dark 时与浅色模式一样取 candidate_skin。
+  assert(current_theme_choice(legacy_dark, slotted, true) == "starry");
 
   // A decoration comes with its bounds and an absolute image path, as the shared host catalog publishes it; IBus reads the same package and simply has no use for it.
   using msime::linux_host::candidate_skin_decoration;

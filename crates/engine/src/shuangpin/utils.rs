@@ -194,7 +194,7 @@ mod tests {
     ];
 
     fn xiaohe() -> &'static ShuangpinProfile {
-        profile(ShuangpinProfileKind::Xiaohe)
+        profile(ShuangpinProfileKind::Xiaohe).unwrap()
     }
 
     #[test]
@@ -210,14 +210,14 @@ mod tests {
         assert_eq!(cvt_single_sp_to_pinyin("jv", xiaohe()), "ju");
         assert_eq!(cvt_single_sp_to_pinyin("lv", xiaohe()), "lv");
         assert_eq!(cvt_single_sp_to_pinyin("n", xiaohe()), "");
-        let microsoft = profile(ShuangpinProfileKind::Microsoft);
+        let microsoft = profile(ShuangpinProfileKind::Microsoft).unwrap();
         assert_eq!(cvt_single_sp_to_pinyin("n;", microsoft), "ning");
         assert_eq!(cvt_single_sp_to_pinyin("oa", microsoft), "a");
         assert_eq!(cvt_single_sp_to_pinyin("lv", microsoft), "lve");
-        let shoudao = profile(ShuangpinProfileKind::Shoudao);
+        let shoudao = profile(ShuangpinProfileKind::Shoudao).unwrap();
         assert_eq!(cvt_single_sp_to_pinyin("ei", shoudao), "shi");
         assert_eq!(cvt_single_sp_to_pinyin("ue", shoudao), "e");
-        let ziranma = profile(ShuangpinProfileKind::Ziranma);
+        let ziranma = profile(ShuangpinProfileKind::Ziranma).unwrap();
         assert_eq!(cvt_single_sp_to_pinyin("hk", ziranma), "hao");
     }
 
@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn every_profile_accepts_yo_as_one_syllable() {
         for kind in ALL {
-            let selected = profile(kind);
+            let selected = profile(kind).unwrap();
             assert!(is_accepted_syllable_code("yo", selected), "{kind:?}");
             assert_eq!(pinyin_segmentation("yo", selected), "yo", "{kind:?}");
         }

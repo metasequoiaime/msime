@@ -339,7 +339,7 @@ fn requested_season(
 
 /// Resolve the colours a host draws for a global theme.
 ///
-/// The request carries the two preference fields as the host read them, so this takes no preferences directory and does no preference I/O: `global_theme`（`GlobalTheme::ALL` 的八个 id 之一，本平台目录里没有的 `native` 也接受，解析结果与 `system` 相同、只是 `id` 为 `native`；其他 id，包括已停用的皮肤 id，都以 `invalid theme request` 失败） and `custom_theme` (optional, validated as strictly as the preference itself). `dark` is the host's effective mode for the surface being drawn, and `layout` (`horizontal` or `vertical`) its candidate layout: a package is drawn only in a layout and a mode its manifest declares, so no host keeps a gate of its own. For `custom` with a `custom_theme.candidate_skin`, the host names where that package comes from with at most one of `skins_directory` (an absolute skin root; the package is loaded and validated as `msime_client_skin_package` does; every host that scans the root, which is every host but Linux) or `package` (one entry of the published `candidate_skin_catalog`, which only the Linux hosts read). A `package` that is not such an entry, a `SkinSummary` from `msime_client_skin_catalog` included, fails the call: that is a host bug, and reading it anyway would drop its declared modes and selection bar without a word. A package that is missing from the root, invalid on disk or not the one `candidate_skin` names is left out rather than failing the call: the theme still resolves, over its base.
+/// 请求带着宿主读到的两个偏好字段，所以这里不需要偏好目录，也不做偏好 I/O：`global_theme`（`GlobalTheme::ALL` 的八个 id 之一，本平台目录里没有的 `native` 也接受，解析结果与 `system` 相同、只是 `id` 为 `native`；其他 id，包括已停用的皮肤 id，都以 `invalid theme request` 失败）和 `custom_theme`（可省略，按偏好本身同样严格地校验）。`dark` 是宿主正在绘制的界面当前的明暗模式，`layout`（`horizontal` 或 `vertical`）是它的候选排列：皮肤包只在清单声明的排列和模式下绘制，宿主不另设一道关卡。`dark` 同时决定取哪个槽位：深色模式取 `custom_theme.candidate_skin_dark`，没设时与浅色模式一样取 `custom_theme.candidate_skin`；选中的包只在它清单 `base` 的明暗下绘制（见 `theme::resolve`）。`custom` 主题要用皮肤包时，宿主最多用下面两者之一说明包从哪里来：`skins_directory`（皮肤根目录的绝对路径；包按 `msime_client_skin_package` 的规则加载和校验；除 Linux 外的宿主都扫描根目录）或 `package`（已发布的 `candidate_skin_catalog` 中的一项，只有 Linux 宿主读它，宿主要传当前模式槽位指名的那一项）。`package` 不是这样的一项时（包括 `msime_client_skin_catalog` 给出的 `SkinSummary`）调用失败：那是宿主的缺陷，照读会悄悄丢掉它声明的模式和选中条。根目录里没有、磁盘上无效、或不是当前槽位指名的那个包会被略过而不是让调用失败：主题照常在它的底上解析。
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.
@@ -371,10 +371,10 @@ pub unsafe extern "C" fn msime_client_resolve_theme(
             return Err("skin directory must be absolute".into());
         }
         let theme = request.global_theme;
+        // 按当前明暗取槽位：深色模式先取 `candidate_skin_dark`。
         let wanted = request
             .custom_theme
-            .candidate_skin
-            .as_deref()
+            .candidate_skin_for(request.dark)
             .filter(|_| theme == msime_client_core::skin::theme::GlobalTheme::Custom);
         let entry = request
             .package
