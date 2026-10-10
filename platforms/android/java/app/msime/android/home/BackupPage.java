@@ -7,11 +7,7 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
-import java.util.Locale;
+import app.msime.android.TimestampDisplayPolicy;
 
 /**
  * 备份与恢复（#5659）：把设置、自定义皮肤、常用语、个人词库和输入记录导出成本机的一个 zip，换手机、重装或降级后再从它恢复。全程只在本机，不经过云端，也不需要登录；文件存到用户在系统文件选择器里选的位置（SAF），不申请存储权限。输入记录能看出打字习惯，文件又是明文的，所以页面和导出结果都提醒用户妥善保管。打包与恢复在 {@link LocalBackup}，包的格式在 {@code LocalBackupPolicy}。
@@ -19,7 +15,6 @@ import java.util.Locale;
  * <p>恢复前先整份校验（校验和、各条目的格式），再读出备份的说明让用户确认；损坏或不完整的文件不进入恢复。恢复是合并：设置按备份改写，皮肤、常用语、词和输入记录合并进来，本机已有的不会删除；设置、皮肤或常用语有一部分写不进去时整次撤销，本机保持恢复前的样子。
  */
 public final class BackupPage extends DetailPage {
-    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT);
 
     private boolean busy;
     @Nullable private GroupCard.Row exportRow;
@@ -167,10 +162,6 @@ public final class BackupPage extends DetailPage {
     /** manifest 里的 ISO 时间显示成本地的「2026-10-08 09:15」；读不出来时不显示。 */
     private static String created(String iso) {
         if (iso == null || iso.isEmpty()) return "";
-        try {
-            return DAY.format(Instant.parse(iso).atZone(ZoneId.systemDefault()));
-        } catch (DateTimeParseException unreadable) {
-            return "";
-        }
+        return TimestampDisplayPolicy.formatLocal(iso);
     }
 }

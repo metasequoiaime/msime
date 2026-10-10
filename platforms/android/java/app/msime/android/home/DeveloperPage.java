@@ -20,6 +20,7 @@ import app.msime.android.NumberPolicy;
 import app.msime.android.PreferencesRevisionPolicy;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
+import app.msime.android.TimestampDisplayPolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.io.File;
 import java.time.Instant;
@@ -27,7 +28,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -672,14 +672,6 @@ public final class DeveloperPage extends DetailPage {
 
     @Nullable private static ZonedDateTime parse(String iso) {
         if (iso == null || iso.isEmpty()) return null;
-        try {
-            return Instant.parse(iso).atZone(ZoneId.systemDefault());
-        } catch (DateTimeParseException notInstant) {
-            try {
-                return ZonedDateTime.parse(iso).withZoneSameInstant(ZoneId.systemDefault());
-            } catch (DateTimeParseException unreadable) {
-                return null;
-            }
-        }
+        return TimestampDisplayPolicy.parse(iso);
     }
 }
