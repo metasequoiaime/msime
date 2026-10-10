@@ -1,9 +1,11 @@
 #include "msime_client.h"
+#include "../../src/providers/provider_request_cli.h"
 #include "../../src/providers/provider_response_cli.h"
 #include <nlohmann/json.hpp>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -30,6 +32,22 @@ Json response(char *raw) {
 } // namespace
 
 int main() {
+  std::array<char, 4> request_buffer{};
+  std::istringstream accepted_request("abc");
+  require(msime_cli_read_provider_request(accepted_request, request_buffer) == 3 &&
+              std::string(request_buffer.data(), 3) == "abc",
+          "bounded provider request was rejected");
+  std::istringstream oversized_request("abcd");
+  require(!msime_cli_read_provider_request(oversized_request, request_buffer),
+          "oversized provider request was accepted");
+  std::istringstream empty_request;
+  require(!msime_cli_read_provider_request(empty_request, request_buffer),
+          "empty provider request was accepted");
+  std::istringstream failed_request("abc");
+  failed_request.setstate(std::ios::badbit);
+  require(!msime_cli_read_provider_request(failed_request, request_buffer),
+          "failed provider input stream was accepted");
+
   std::ostringstream output;
   require(msime_cli_write_provider_response(nullptr, output) == 1 && output.str().empty(),
           "null provider response was accepted");

@@ -1,4 +1,6 @@
 #include "msime_client.h"
+#include "provider_request_cli.h"
+#include "provider_response_cli.h"
 #include "../core/LocalResourcePaths.h"
 #include "provider_socket_cli.h"
 
@@ -7,7 +9,6 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
-#include "provider_response_cli.h"
 #include <string>
 
 // 我们自己发布的 deb/rpm 不带手写模型，由设置应用下载到默认数据目录 $XDG_CONFIG_HOME/<客户端目录>/resource-packs/handwriting/。安装前缀和环境变量里都找不到时，--local 再到这里找；用户把数据目录移到别处后，要用参数或 MSIME_HANDWRITING_MODEL 指定模型。
@@ -43,10 +44,10 @@ int main(int argc, char **argv) {
   if (endpoint.empty() || endpoint[0] != '/')
     return 2;
   std::array<char, 262145> buffer;
-  std::cin.read(buffer.data(), buffer.size());
-  const auto length = static_cast<size_t>(std::cin.gcount());
-  if (std::cin.bad() || length == 0 || length > 262144)
+  const auto request_length = msime_cli_read_provider_request(std::cin, buffer);
+  if (!request_length)
     return 2;
+  const size_t length = *request_length;
   std::unique_ptr<char, decltype(&msime_client_string_free)> result(
       local ? msime_client_handwriting_local_request(
                   reinterpret_cast<const uint8_t *>(buffer.data()), length,

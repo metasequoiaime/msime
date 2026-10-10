@@ -1,8 +1,9 @@
 #include "msime_client.h"
+#include "provider_request_cli.h"
+#include "provider_response_cli.h"
 #include <iostream>
 #include <array>
 #include <memory>
-#include "provider_response_cli.h"
 #include <string>
 
 int main(int argc, char **argv) {
@@ -13,10 +14,10 @@ int main(int argc, char **argv) {
   if (argc != 1)
     return 2;
   std::array<char, 65537> buffer;
-  std::cin.read(buffer.data(), buffer.size());
-  const auto length = static_cast<size_t>(std::cin.gcount());
-  if (std::cin.bad() || length == 0 || length > 65536)
+  const auto request_length = msime_cli_read_provider_request(std::cin, buffer);
+  if (!request_length)
     return 2;
+  const size_t length = *request_length;
   std::unique_ptr<char, decltype(&msime_client_string_free)> result(
       msime_client_dictionary(reinterpret_cast<const uint8_t *>(buffer.data()),
                               length),
