@@ -180,6 +180,38 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
     assert_eq!(without.len(), exported.len() - 3);
 }
 
+/// 账号既没有 `custom` 这个取值也装不下用户的键位表：选着自定义方案时不上传双拼方案，账号里的值保留；账号里出现 `custom`（例如更新的客户端写的）也不应用，本机的表不会被一个空表的 `custom` 顶掉。
+#[test]
+fn settings_sync_leaves_a_custom_shuangpin_profile_on_the_device() {
+    let mut local = Preferences {
+        shuangpin_profile: ShuangpinProfile::Custom,
+        ..Preferences::default()
+    };
+    local
+        .shuangpin_custom_profile
+        .finals
+        .insert("ing".into(), ";".into());
+    let exported = export_android_settings(&local, None).unwrap();
+    assert!(!exported.contains_key("input.shuangpin_schema"));
+    assert!(exported.contains_key("input.character_set"));
+
+    let mut values = BTreeMap::new();
+    values.insert(
+        "input.shuangpin_schema".into(),
+        AccountPreferenceValue::String("custom".into()),
+    );
+    let applied = apply(
+        &Preferences::default(),
+        values,
+        &schema_for(&[("input.shuangpin_schema", "string")]),
+    );
+    assert_eq!(
+        applied.preferences.shuangpin_profile,
+        ShuangpinProfile::Xiaohe
+    );
+    assert_eq!(applied.skipped, ["input.shuangpin_schema"]);
+}
+
 #[test]
 fn settings_sync_round_trips_every_exported_key() {
     let mut expected = Preferences {

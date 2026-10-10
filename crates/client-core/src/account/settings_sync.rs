@@ -309,12 +309,14 @@ pub fn account_wubi_schema(profile: WubiProfile) -> &'static str {
     }
 }
 
-fn shuangpin_schema(profile: ShuangpinProfile) -> &'static str {
+/// 双拼方案在账号里的取值。自定义方案为空：账号 schema 既没有 `custom` 也装不下用户的表，不写它，账号保留上次记录的方案，与 `account_input_schema` 对待账号还没有收录的方案相同。
+fn shuangpin_schema(profile: ShuangpinProfile) -> Option<&'static str> {
     match profile {
-        ShuangpinProfile::Xiaohe => "xiaohe",
-        ShuangpinProfile::Ziranma => "ziranma",
-        ShuangpinProfile::Shoudao => "shoudao",
-        ShuangpinProfile::Microsoft => "microsoft",
+        ShuangpinProfile::Xiaohe => Some("xiaohe"),
+        ShuangpinProfile::Ziranma => Some("ziranma"),
+        ShuangpinProfile::Shoudao => Some("shoudao"),
+        ShuangpinProfile::Microsoft => Some("microsoft"),
+        ShuangpinProfile::Custom => None,
     }
 }
 
@@ -374,11 +376,9 @@ pub fn export_android_settings(
             "simplified"
         },
     );
-    insert_string(
-        &mut settings,
-        "input.shuangpin_schema",
-        shuangpin_schema(preferences.shuangpin_profile),
-    );
+    if let Some(schema) = shuangpin_schema(preferences.shuangpin_profile) {
+        insert_string(&mut settings, "input.shuangpin_schema", schema);
+    }
     // 五笔版本只随五笔方案上传（与 iOS、鸿蒙一致）：上传是合并进账号文档的，不在五笔上时本机的缺省 86 不该盖掉账号里别的设备选的 98。
     if preferences.scheme == InputScheme::Wubi {
         insert_string(

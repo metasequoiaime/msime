@@ -843,6 +843,9 @@ pub struct Preferences {
     pub last_chinese_scheme: Option<ChineseScheme>,
     #[serde(default)]
     pub shuangpin_profile: ShuangpinProfile,
+    /// `shuangpin_profile` 为 `custom` 时用的键位表。这里只限制大小，合不合法由 Engine 判定（`msime_engine::host::validate_shuangpin_custom_profile`）；表缺失或不合法时宿主按小鹤运行。选别的方案时保留，切回 `custom` 还能用。
+    #[serde(default, skip_serializing_if = "ShuangpinCustomProfile::is_empty")]
+    pub shuangpin_custom_profile: ShuangpinCustomProfile,
     #[serde(default = "enabled_by_default")]
     pub shuangpin_preedit_uses_raw: bool,
     /// The Vietnamese input method and tone placement.
@@ -1928,6 +1931,7 @@ impl Default for Preferences {
             touch_toolbar: TouchToolbarPreferences::default(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
+            shuangpin_custom_profile: ShuangpinCustomProfile::default(),
             shuangpin_preedit_uses_raw: true,
             vietnamese: VietnamesePreferences::default(),
             single_character_only: false,
@@ -2076,6 +2080,46 @@ pub enum ShuangpinProfile {
     Ziranma,
     Shoudao,
     Microsoft,
+    /// 用户自己的键位表，见 `Preferences::shuangpin_custom_profile`。
+    Custom,
+}
+
+/// 自定义双拼方案的键位表，与 Engine 的 `ShuangpinCustomTable` 一一对应：`initials` 只放 `zh` `ch` `sh`，`finals` 放 33 个韵母，`zero_initials` 放 12 个零声母音节的两键编码；键是小写字母或 `;`，`ü` 写作 `v`。导入导出用的也是这个 JSON 形状。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShuangpinCustomProfile {
+    #[serde(default)]
+    pub initials: BTreeMap<String, String>,
+    #[serde(default)]
+    pub finals: BTreeMap<String, String>,
+    #[serde(default)]
+    pub zero_initials: BTreeMap<String, String>,
+}
+
+impl ShuangpinCustomProfile {
+    /// 一张合法的表最多有 3 + 33 + 12 个单位；留出余量，只挡住明显不是键位表的东西。
+    const MAX_UNITS_PER_PART: usize = 64;
+    const MAX_UNIT_BYTES: usize = 8;
+    const MAX_KEY_BYTES: usize = 4;
+
+    pub fn is_empty(&self) -> bool {
+        self.initials.is_empty() && self.finals.is_empty() && self.zero_initials.is_empty()
+    }
+
+    /// 只看大小和字符，不看键位合不合法。
+    fn validate(&self) -> bool {
+        [&self.initials, &self.finals, &self.zero_initials]
+            .into_iter()
+            .all(|part| {
+                part.len() <= Self::MAX_UNITS_PER_PART
+                    && part.iter().all(|(unit, key)| {
+                        unit.len() <= Self::MAX_UNIT_BYTES
+                            && key.len() <= Self::MAX_KEY_BYTES
+                            && unit.bytes().all(|byte| byte.is_ascii_lowercase())
+                            && key.bytes().all(|byte| byte.is_ascii_graphic())
+                    })
+            })
+    }
 }
 
 /// 五笔码表版本。Engine 的编码是声明顺序（`wubi_profile`）。
@@ -2478,6 +2522,9 @@ impl Preferences {
         if !self.plugins.validate() {
             return Err(PreferencesError::InvalidPlugins);
         }
+        if !self.shuangpin_custom_profile.validate() {
+            return Err(PreferencesError::InvalidShuangpinCustomProfile);
+        }
         if !self.game_compatibility.validate() {
             return Err(PreferencesError::InvalidGameCompatibility);
         }
@@ -2600,6 +2647,8 @@ pub enum PreferencesError {
         "at least one touch keyboard scheme must be enabled and the selection must be visible"
     )]
     InvalidTouchKeyboardSchemes,
+    #[error("custom shuangpin profile table is too large or has non-ASCII units or keys")]
+    InvalidShuangpinCustomProfile,
     #[error("custom theme keyboard design is invalid")]
     InvalidTouchKeyboardSkinDesign,
     #[error("custom theme base must be system or a built-in theme")]
