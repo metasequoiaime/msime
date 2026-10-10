@@ -12,7 +12,7 @@ use super::{AccountError, AccountPreferenceSchema, AccountPreferenceValue, Accou
 use crate::host_surface::HostPlatform;
 use crate::preferences::{
     FrequencyMode, InputScheme, NumberKeypadOrder, Preferences, ShuangpinProfile, ThemeMode,
-    TouchKeyboardLayout, WubiProfile,
+    TouchKeyboardLayout, TwentySixKeyNumberLayout, WubiProfile,
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,8 @@ pub const ANDROID_FEEDBACK_KEYS: [&str; 3] = [
 const GLOBAL_THEME: &str = "platform.android.global_theme";
 /// 共享偏好 `touch_number_keypad_order`；账号字段表收录它之前上传时会被滤掉。
 const NUMBER_KEYPAD_ORDER: &str = "platform.android.number_keypad_order";
+/// 共享偏好 `touch_twenty_six_key_number_layout`；账号字段表收录它之前上传时会被滤掉。
+const TWENTY_SIX_KEY_NUMBER_LAYOUT: &str = "platform.android.twenty_six_key_number_layout";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
@@ -325,6 +327,13 @@ fn number_keypad_order(order: NumberKeypadOrder) -> &'static str {
     }
 }
 
+fn twenty_six_key_number_layout(layout: TwentySixKeyNumberLayout) -> &'static str {
+    match layout {
+        TwentySixKeyNumberLayout::Row => "row",
+        TwentySixKeyNumberLayout::NineKey => "nine_key",
+    }
+}
+
 fn keyboard_layout(layout: TouchKeyboardLayout) -> &'static str {
     match layout {
         TouchKeyboardLayout::TwentySixKey => "twenty_six_key",
@@ -463,6 +472,11 @@ pub fn export_android_settings(
         &mut settings,
         NUMBER_KEYPAD_ORDER,
         number_keypad_order(preferences.touch_number_keypad_order),
+    );
+    insert_string(
+        &mut settings,
+        TWENTY_SIX_KEY_NUMBER_LAYOUT,
+        twenty_six_key_number_layout(preferences.touch_twenty_six_key_number_layout),
     );
     insert_new_android_settings(&mut settings, preferences);
     if let Some(feedback) = feedback {
@@ -831,6 +845,14 @@ pub fn apply_android_settings(
         preferences.touch_number_keypad_order = match value {
             "phone" => NumberKeypadOrder::Phone,
             "calculator" => NumberKeypadOrder::Calculator,
+            _ => return None,
+        };
+        Some(())
+    })?;
+    applier.set_string(TWENTY_SIX_KEY_NUMBER_LAYOUT, |preferences, value| {
+        preferences.touch_twenty_six_key_number_layout = match value {
+            "row" => TwentySixKeyNumberLayout::Row,
+            "nine_key" => TwentySixKeyNumberLayout::NineKey,
             _ => return None,
         };
         Some(())

@@ -64,6 +64,17 @@ pub enum NumberKeypadOrder {
     Calculator,
 }
 
+/// 触屏 26 键按「123」切到的数字层。桌面宿主原样保留、不使用。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TwentySixKeyNumberLayout {
+    /// 1 到 0 排成一行，下面是符号行。
+    #[default]
+    Row,
+    /// 九宫格数字层：3×3 数字键，排列跟 [`NumberKeypadOrder`] 走。
+    NineKey,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchSkinKeyShape {
@@ -835,6 +846,9 @@ pub struct Preferences {
     /// 九宫格数字层按电话还是计算器排列；字母层不受影响。
     #[serde(default)]
     pub touch_number_keypad_order: NumberKeypadOrder,
+    /// 26 键按「123」时出一行 1 到 0 的数字符号页，还是九宫格那样的 3×3 数字层。
+    #[serde(default)]
+    pub touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout,
     /// The optional buttons on the touch keyboard's toolbar, the counterpart of the floating toolbar's component switches. The voice entry stays under `touch_voice_shortcut`.
     #[serde(default)]
     pub touch_toolbar: TouchToolbarPreferences,
@@ -1925,6 +1939,7 @@ impl Default for Preferences {
             touch_keyboard_height_adjustment: 0,
             touch_voice_shortcut: false,
             touch_number_keypad_order: NumberKeypadOrder::default(),
+            touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::default(),
             touch_toolbar: TouchToolbarPreferences::default(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),

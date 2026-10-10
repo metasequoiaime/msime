@@ -145,6 +145,9 @@ export function ScreenKeyboardSettingsPage() {
         numberKeypadOrder={
           mobilePlatform ? (draft.touch_number_keypad_order ?? "phone") : undefined
         }
+        twentySixKeyNumberLayout={
+          mobilePlatform ? (draft.touch_twenty_six_key_number_layout ?? "row") : undefined
+        }
         tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
         onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
           onPreferencesChange({ touch_keyboard_height_adjustment })
@@ -160,6 +163,9 @@ export function ScreenKeyboardSettingsPage() {
         }
         onNumberKeypadOrderChange={(touch_number_keypad_order) =>
           onPreferencesChange({ touch_number_keypad_order })
+        }
+        onTwentySixKeyNumberLayoutChange={(touch_twenty_six_key_number_layout) =>
+          onPreferencesChange({ touch_twenty_six_key_number_layout })
         }
         onToolbarChange={(touch_toolbar) => onPreferencesChange({ touch_toolbar })}
         onTabletFullKeysChange={(tabletFullKeys) => {

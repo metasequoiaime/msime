@@ -63,6 +63,8 @@ export interface TouchKeyboardGeometrySectionProps {
   swipeSymbolsDirection?: SwipeSymbolsDirection;
   /** 宿主有触屏九宫格数字层时给出它的排列；没有时不画这一行。 */
   numberKeypadOrder?: "phone" | "calculator";
+  /** 宿主的 26 键能把「123」换成九宫格数字层时给出当前选择；没有时不画这一行。 */
+  twentySixKeyNumberLayout?: "row" | "nine_key";
   /** 键盘本机设置正在保存时为 true，「数字行与 Tab 键」「横屏分离式键盘」和「滑行输入」都暂不可点。 */
   tabletFullKeysBusy: boolean;
   onHeightAdjustmentChange: (value: number) => void;
@@ -76,6 +78,7 @@ export interface TouchKeyboardGeometrySectionProps {
   onSwipeSymbolsChange?: (enabled: boolean) => void;
   onSwipeSymbolsDirectionChange?: (direction: SwipeSymbolsDirection) => void;
   onNumberKeypadOrderChange?: (value: "phone" | "calculator") => void;
+  onTwentySixKeyNumberLayoutChange?: (value: "row" | "nine_key") => void;
   onReset: () => void;
   /** HarmonyOS 手机：放在尺寸组开头的行，此时该组按手机设计稿命名为「布局」。 */
   layoutRows?: ReactNode;
@@ -86,6 +89,11 @@ export interface TouchKeyboardGeometrySectionProps {
 const NUMBER_KEYPAD_ORDERS: readonly SegmentedOption<"phone" | "calculator">[] = [
   { value: "phone", label: "电话" },
   { value: "calculator", label: "计算器" },
+];
+
+const TWENTY_SIX_KEY_NUMBER_LAYOUTS: readonly SegmentedOption<"row" | "nine_key">[] = [
+  { value: "row", label: "一行" },
+  { value: "nine_key", label: "九宫格" },
 ];
 
 /** 「屏幕键盘」页共用的触屏键盘控件，即预览之后的各组：「尺寸」（高度、间距和重置）、「工具栏」，宿主有 iPad 数字行和 Tab 键或横屏分离式键盘时的「布局」，以及宿主有滑行输入时的「手势」。 */
@@ -103,6 +111,7 @@ export function TouchKeyboardGeometrySection({
   swipeSymbols,
   swipeSymbolsDirection = "down",
   numberKeypadOrder,
+  twentySixKeyNumberLayout,
   tabletFullKeysBusy,
   onHeightAdjustmentChange,
   onKeySpacingChange,
@@ -115,6 +124,7 @@ export function TouchKeyboardGeometrySection({
   onSwipeSymbolsChange,
   onSwipeSymbolsDirectionChange,
   onNumberKeypadOrderChange,
+  onTwentySixKeyNumberLayoutChange,
   onReset,
   layoutRows,
   preview,
@@ -122,13 +132,24 @@ export function TouchKeyboardGeometrySection({
   const toolbarValues = { ...defaultTouchToolbar, ...toolbar };
   const showVoiceShortcut = voiceShortcutKind !== "hidden";
   const numberKeypadRow = numberKeypadOrder !== undefined && (
-    <SegmentedRow
-      title="数字键盘顺序"
-      description="九宫格切到数字时的排列：电话把 1 2 3 放在最上面，计算器把 7 8 9 放在最上面。"
-      options={NUMBER_KEYPAD_ORDERS}
-      value={numberKeypadOrder}
-      onChange={(value) => onNumberKeypadOrderChange?.(value)}
-    />
+    <>
+      {twentySixKeyNumberLayout !== undefined && (
+        <SegmentedRow
+          title="26 键数字键盘"
+          description="26 键按 123 时的数字键盘：一行把 1 到 0 排在符号上面，九宫格换成和九键一样的 3×3 数字键。"
+          options={TWENTY_SIX_KEY_NUMBER_LAYOUTS}
+          value={twentySixKeyNumberLayout}
+          onChange={(value) => onTwentySixKeyNumberLayoutChange?.(value)}
+        />
+      )}
+      <SegmentedRow
+        title="数字键盘顺序"
+        description="九宫格数字键盘的排列：电话把 1 2 3 放在最上面，计算器把 7 8 9 放在最上面。"
+        options={NUMBER_KEYPAD_ORDERS}
+        value={numberKeypadOrder}
+        onChange={(value) => onNumberKeypadOrderChange?.(value)}
+      />
+    </>
   );
   // HarmonyOS 手机的尺寸组本身就叫「布局」，数字键盘顺序跟 Android 一样紧跟在「中文键盘」之后，不再另起一个同名分组。
   const numberKeypadInLayoutRows = Boolean(layoutRows) && numberKeypadRow;

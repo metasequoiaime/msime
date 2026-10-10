@@ -2518,6 +2518,7 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
         "touch_keyboard_height_adjustment",
         "touch_voice_shortcut",
         "touch_number_keypad_order",
+        "touch_twenty_six_key_number_layout",
     ] {
         legacy["preferences"].as_object_mut().unwrap().remove(key);
     }
@@ -2532,6 +2533,10 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
         loaded.preferences.touch_number_keypad_order,
         NumberKeypadOrder::Phone
     );
+    assert_eq!(
+        loaded.preferences.touch_twenty_six_key_number_layout,
+        TwentySixKeyNumberLayout::Row
+    );
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
 
     let saved = store
@@ -2543,6 +2548,7 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
                 touch_keyboard_height_adjustment: 24,
                 touch_voice_shortcut: true,
                 touch_number_keypad_order: NumberKeypadOrder::Calculator,
+                touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::NineKey,
                 ..Preferences::default()
             },
         )
@@ -2554,6 +2560,14 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
     assert_eq!(
         serde_json::to_value(NumberKeypadOrder::Calculator).unwrap(),
         "calculator"
+    );
+    assert_eq!(
+        saved.preferences.touch_twenty_six_key_number_layout,
+        TwentySixKeyNumberLayout::NineKey
+    );
+    assert_eq!(
+        serde_json::to_value(TwentySixKeyNumberLayout::NineKey).unwrap(),
+        "nine_key"
     );
     assert_eq!(saved.preferences.touch_key_spacing_tenths, 35);
     assert_eq!(saved.preferences.touch_row_spacing_tenths, 95);
@@ -4437,6 +4451,7 @@ const NOT_CREDENTIALS: &[&str] = &[
     "touch_keyboard_layout",
     "touch_keyboard_schemes",
     "touch_number_keypad_order",
+    "touch_twenty_six_key_number_layout",
     "voice_input.hotkey_ctrl_f9",
     "voice_input.hotkey_ctrl_win",
     "voice_input.hotkey_hold_space_lock",
