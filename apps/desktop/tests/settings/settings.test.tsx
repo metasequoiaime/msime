@@ -3949,16 +3949,13 @@ test("the iOS skin page hands the candidate strip to the desktop candidate skin"
     home: { openKeyboard: vi.fn() },
     mobileKeyboardFeedback: { load, save: saveFeedback },
   };
-  const { unmount } = render(<SettingsPage initialPage="appearance" client={client} />);
-  expect(
-    await screen.findByText(/候选栏正在使用键盘皮肤的颜色/, undefined, { timeout: 3000 }),
-  ).toBeTruthy();
-  unmount();
-
   render(<SettingsPage initialPage="skin" client={client} />);
   const follow = (await screen.findByLabelText("候选栏使用主题配色")) as HTMLInputElement;
   expect(follow.checked).toBe(false);
+  // 候选栏跟随键盘皮肤时候选颜色不生效，取色器不显示；打开开关后才出现。
+  expect(screen.queryByLabelText("候选表面色")).toBeNull();
   fireEvent.click(follow);
+  expect(await screen.findByLabelText("候选表面色")).toBeTruthy();
   await waitFor(() =>
     expect(saveFeedback).toHaveBeenCalledWith(
       expect.objectContaining({ candidatePaletteFollowsDesktop: true, englishSuggestions: true }),
