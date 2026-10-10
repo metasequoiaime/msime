@@ -1,4 +1,5 @@
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 #include "../core/BoundedCliInput.h"
 #include "provider_response_cli.h"
 #include "../core/LocalResourcePaths.h"
@@ -6,7 +7,6 @@
 
 #include <array>
 #include <iostream>
-#include <memory>
 #include <string>
 
 std::string local_resources(int argc, char **argv, bool *local) {
@@ -35,13 +35,12 @@ int main(int argc, char **argv) {
   if (!request_length)
     return 2;
   const size_t length = *request_length;
-  std::unique_ptr<char, decltype(&msime_client_string_free)> result(
+  auto result = msime::host_api::own_string(
       local ? msime_client_emoji_catalog_request(
                   reinterpret_cast<const uint8_t *>(buffer.data()), length,
                   reinterpret_cast<const uint8_t *>(target.data()), target.size())
             : msime_client_emoji_provider_request(
                   reinterpret_cast<const uint8_t *>(buffer.data()), length,
-                  reinterpret_cast<const uint8_t *>(target.data()), target.size()),
-      msime_client_string_free);
+                  reinterpret_cast<const uint8_t *>(target.data()), target.size()));
   return msime_cli_write_provider_response(result.get(), std::cout);
 }

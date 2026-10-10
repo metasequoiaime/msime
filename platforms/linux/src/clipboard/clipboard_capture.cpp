@@ -1,8 +1,8 @@
 #include "msime_client.h"
+#include "../../../common/HostApiString.h"
 #include "../core/BoundedCliInput.h"
 #include <array>
 #include <iostream>
-#include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
 
@@ -15,10 +15,9 @@ int main(int argc, char **argv) {
   try {
     const auto request = nlohmann::json{
         {"directory", argv[1]}, {"text", std::string(input.data(), size)}}.dump();
-    std::unique_ptr<char, decltype(&msime_client_string_free)> result(
+    auto result = msime::host_api::own_string(
         msime_client_capture_clipboard_history(
-            reinterpret_cast<const uint8_t *>(request.data()), request.size()),
-        msime_client_string_free);
+            reinterpret_cast<const uint8_t *>(request.data()), request.size()));
     if (!result) return 1;
     const auto document = nlohmann::json::parse(result.get());
     if (!document.value("ok", false)) return 1;
