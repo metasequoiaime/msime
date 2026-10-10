@@ -178,6 +178,17 @@ const STROKE: SchemeDefinition = {
   glyph: "笔",
   badge: "5",
 };
+// 全拼 14 键：QWERTY 上相邻两个字母一个键，点一下输入一组，由引擎按网格消歧（`msime_client_set_key_grid` 的 2）。只给全拼，按 append-only 排在最后，默认不启用。
+const QUANPIN_FOURTEEN_KEY: SchemeDefinition = {
+  id: "QUANPIN_FOURTEEN_KEY",
+  preferenceId: "fourteen_key",
+  engineScheme: "quanpin",
+  shuangpinProfile: null,
+  touchKeyboardLayout: "fourteen_key",
+  title: "全拼 14 键",
+  glyph: "拼",
+  badge: "14",
+};
 const HANDWRITING: SchemeDefinition = {
   id: "HANDWRITING",
   preferenceId: "handwriting",
@@ -198,6 +209,13 @@ const CHINESE_ENGINE_SCHEMES: string[] = [
   "stroke",
 ];
 
+/** 引擎的组码网格，取值与 C ABI `msime_client_set_key_grid` 相同：0 关，1 九键，2 全拼 14 键。 */
+export class KeyGrid {
+  static readonly NONE: number = 0;
+  static readonly NINE_KEY: number = 1;
+  static readonly FOURTEEN_KEY: number = 2;
+}
+
 export class KeyboardScheme {
   static readonly QUANPIN: SchemeDefinition = QUANPIN;
   static readonly QUANPIN_NINE_KEY: SchemeDefinition = QUANPIN_NINE_KEY;
@@ -215,6 +233,7 @@ export class KeyboardScheme {
   static readonly VIETNAMESE: SchemeDefinition = VIETNAMESE;
   static readonly TIBETAN: SchemeDefinition = TIBETAN;
   static readonly STROKE: SchemeDefinition = STROKE;
+  static readonly QUANPIN_FOURTEEN_KEY: SchemeDefinition = QUANPIN_FOURTEEN_KEY;
 
   /** Declaration order is the fixed order the pickers render. */
   static readonly SCHEMES: SchemeDefinition[] = [
@@ -235,6 +254,7 @@ export class KeyboardScheme {
     VIETNAMESE,
     TIBETAN,
     STROKE,
+    QUANPIN_FOURTEEN_KEY,
   ];
 
   /** 26 键符号层按键实际发出的字符：藏文方案下第三排的 `=` 换成威利叠写用的 `+`，让组字中的叠写（如 `pad+ma`）走标点路由交给引擎；符号面板直接写入编辑框，不能用来叠写。其他方案原样发出。 */
@@ -311,7 +331,7 @@ export class KeyboardScheme {
     return offered.length > 0 ? offered[0] : HANDWRITING;
   }
 
-  /** 文档里没有启用列表时键盘显示的方案，与共享的 `TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED` 一致：粤语、注音、越南语、藏文和笔画由用户自己打开，所以没有存过列表的设备仍是原来那套键盘。新装只启用中文方案（`TouchKeyboardScheme::DEFAULT_ENABLED`），由 client-core 显式写进文档，不经过这里。本版本不提供的入口不在里面。只有一个方案的版本例外：越南文版、藏文版的入口就是这个版本本身，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 和 Android 的 `KeyboardScheme.enabledFromPreferenceIds` 一致。 */
+  /** 文档里没有启用列表时键盘显示的方案，与共享的 `TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED` 一致：粤语、注音、越南语、藏文、笔画和全拼 14 键由用户自己打开，所以没有存过列表的设备仍是原来那套键盘。新装只启用中文方案（`TouchKeyboardScheme::DEFAULT_ENABLED`），由 client-core 显式写进文档，不经过这里。本版本不提供的入口不在里面。只有一个方案的版本例外：越南文版、藏文版的入口就是这个版本本身，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 和 Android 的 `KeyboardScheme.enabledFromPreferenceIds` 一致。 */
   static defaultEnabled(edition: AppEdition): SchemeDefinition[] {
     const optInEnabled: boolean = !edition.offersSchemeChoice();
     return KeyboardScheme.SCHEMES.filter(
@@ -321,7 +341,8 @@ export class KeyboardScheme {
             candidate !== ZHUYIN &&
             candidate !== VIETNAMESE &&
             candidate !== TIBETAN &&
-            candidate !== STROKE)) &&
+            candidate !== STROKE &&
+            candidate !== QUANPIN_FOURTEEN_KEY)) &&
         KeyboardScheme.offeredBy(candidate, edition),
     );
   }
@@ -470,6 +491,9 @@ export class KeyboardScheme {
     if (scheme === "quanpin" && touchLayout === "nine_key") {
       return QUANPIN_NINE_KEY;
     }
+    if (scheme === "quanpin" && touchLayout === "fourteen_key") {
+      return QUANPIN_FOURTEEN_KEY;
+    }
     if (scheme === "japanese" && touchLayout === "nine_key") {
       return JAPANESE_NINE_KEY;
     }
@@ -485,7 +509,8 @@ export class KeyboardScheme {
       if (
         candidate.shuangpinProfile === null &&
         candidate.engineScheme === scheme &&
-        candidate.touchKeyboardLayout !== "nine_key"
+        candidate.touchKeyboardLayout !== "nine_key" &&
+        candidate.touchKeyboardLayout !== "fourteen_key"
       ) {
         return candidate;
       }
@@ -569,6 +594,26 @@ export class KeyboardScheme {
   /** Local utilities take literal alphabetic keys even when the saved touch layout is nine-key. */
   static usesNineKeyFace(nineKey: boolean, localMode: string): boolean {
     return nineKey && localMode === "none";
+  }
+
+  /** 是否画 14 键键面：布局是 14 键（视图已按形态和编辑框排除了 2in1、密码框和网址框），且英文和本地模式都没有接管按键。英文画 26 键 QWERTY，切回中文恢复 14 键，布局偏好不变。 */
+  static usesFourteenKeyFace(fourteenKey: boolean, english: boolean, localMode: string): boolean {
+    return fourteenKey && !english && localMode === "none";
+  }
+
+  /**
+   * 这个布局要引擎开哪种网格：全拼的九键和 14 键各开各的，其余（含日语九键，它有自己的假名网格）不开。
+   *
+   * 2in1 有实体键盘，不提供 14 键（`offeredSchemes` 把它滤掉），同步过来的 `fourteen_key` 在 2in1 上画 26 键，所以也不开 14 键网格；九键在 2in1 上的行为不在这里改变。
+   */
+  static keyGrid(layout: string, engineScheme: string, desktop: boolean): number {
+    if (engineScheme !== "quanpin") {
+      return KeyGrid.NONE;
+    }
+    if (layout === "nine_key") {
+      return KeyGrid.NINE_KEY;
+    }
+    return layout === "fourteen_key" && !desktop ? KeyGrid.FOURTEEN_KEY : KeyGrid.NONE;
   }
 
   private static isChineseScheme(value: string | null): boolean {

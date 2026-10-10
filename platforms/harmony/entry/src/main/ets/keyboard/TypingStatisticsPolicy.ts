@@ -1,3 +1,5 @@
+import { KeyGrid } from "./KeyboardScheme";
+
 /** Source labels shared by the native aggregate typing-statistics store. */
 export class TypingStatisticsPolicy {
   static isCurrentGeneration(requestGeneration: number, currentGeneration: number): boolean {
@@ -8,13 +10,17 @@ export class TypingStatisticsPolicy {
     scheme: string,
     profile: string,
     english: boolean,
-    nineKey: boolean,
+    keyGrid: number,
     localMode: string,
   ): string {
     if (localMode === "temporary_japanese") return "japanese";
     if (localMode !== "none" && localMode.length > 0) return "local";
     if (english) return "english";
-    if (scheme === "quanpin") return nineKey ? "nineKey" : "quanpin";
+    // 全拼按引擎当前的网格分九键、14 键和 26 键；`keyGrid` 取值见 `KeyGrid`。
+    if (scheme === "quanpin") {
+      if (keyGrid === KeyGrid.NINE_KEY) return "nineKey";
+      return keyGrid === KeyGrid.FOURTEEN_KEY ? "fourteenKey" : "quanpin";
+    }
     if (scheme === "wubi") return "wubi";
     if (scheme === "japanese") return "japanese";
     if (scheme === "korean") return "korean";
