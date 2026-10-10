@@ -299,9 +299,9 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertFalse(KeyboardSplitLayout.isActive(formFactor: .tablet, landscape: false, enabled: { XCTFail("read"); return true }()))
   }
 
-  /// 26 键字母方案分，九键、笔画、假名九键、注音大千和手写不分；英文和本地输入模式画的是字母，照样分。
+  /// 26 键字母方案分，九键、全拼 14 键、笔画、假名九键、注音大千和手写不分；英文和本地输入模式画的是字母，照样分。
   func testOnlyTheLetterLayoutsSplit() {
-    let unsplit: Set<ChineseInputScheme> = [.nineKey, .stroke, .japaneseNineKey, .zhuyin, .handwriting]
+    let unsplit: Set<ChineseInputScheme> = [.nineKey, .fourteenKey, .stroke, .japaneseNineKey, .zhuyin, .handwriting]
     for scheme in ChineseInputScheme.allCases {
       XCTAssertEqual(KeyboardSplitLayout.splitsLayout(scheme: scheme, chinese: true, localMode: false),
                      !unsplit.contains(scheme), scheme.rawValue)
@@ -409,10 +409,10 @@ final class KeyboardFormFactorTests: XCTestCase {
     }
   }
 
-  /// 九键、笔画、手写、注音大千和假名九键横屏也不分。注音和笔画要有各自的语言词库才会出现，没有暂存词库的运行跳过这两个。
+  /// 九键、全拼 14 键、笔画、手写、注音大千和假名九键横屏也不分。注音和笔画要有各自的语言词库才会出现，没有暂存词库的运行跳过这两个。
   @MainActor
   func testNonLetterLayoutsStayWhole() throws {
-    for scheme in [ChineseInputScheme.nineKey, .stroke, .handwriting, .zhuyin, .japaneseNineKey] {
+    for scheme in [ChineseInputScheme.nineKey, .fourteenKey, .stroke, .handwriting, .zhuyin, .japaneseNineKey] {
       try withSplitPreferences(scheme: scheme) {
         guard InputSchemePreference.scheme == scheme else { return }
         KeyboardLayoutPreference.tabletSplit = true

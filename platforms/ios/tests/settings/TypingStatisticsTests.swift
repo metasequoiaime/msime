@@ -306,6 +306,10 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertEqual(methods, [.init(title: "26 键", count: 680), .init(title: "9 键", count: 190),
                              .init(title: "语音", count: 90), .init(title: "手写", count: 40)])
     XCTAssertEqual(TypingSummaryText.methods(["quanpin": 10]).map(\.title), ["26 键"])
+    // 全拼 14 键自成一档，不并进 26 键，排在 26 键和 9 键之间，与共享界面的 `summaryMethods` 一致。
+    XCTAssertEqual(TypingSummaryText.methods(["quanpin": 10, "fourteenKey": 6, "nineKey": 3]),
+                   [.init(title: "26 键", count: 10), .init(title: "14 键", count: 6), .init(title: "9 键", count: 3)])
+    XCTAssertEqual(TypingSource(rawValue: "fourteenKey")?.title, "全拼 14 键")
     XCTAssertEqual(TypingSummaryText.share(680, of: 1000), 68)
     XCTAssertEqual(TypingSummaryText.share(1, of: 0), 0)
   }

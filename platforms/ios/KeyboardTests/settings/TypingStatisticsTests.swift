@@ -290,8 +290,8 @@ final class TypingStatisticsTests: XCTestCase {
 
   /// The ids are a copy of the shared store's whitelist, which rejects a whole batch for one id it does not know, so every one of them has to be accepted.
   func testKeyIDsAreTheSharedWhitelist() throws {
-    XCTAssertEqual(TypingKeyID.all.count, 127)
-    XCTAssertEqual(TypingKeyID.known.count, 127)
+    XCTAssertEqual(TypingKeyID.all.count, 141)
+    XCTAssertEqual(TypingKeyID.known.count, 141)
     for id in TypingKeyID.all {
       XCTAssertTrue(id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }, id)
     }
@@ -301,7 +301,7 @@ final class TypingStatisticsTests: XCTestCase {
     let store = TypingStatisticsStore(directory: directory)
     try store.setEnabled(true)
     let everyKey = Dictionary(uniqueKeysWithValues: TypingKeyID.all.map { ($0, 1) })
-    XCTAssertEqual(try store.recordKeys(everyKey, day: "2026-09-30"), 127)
+    XCTAssertEqual(try store.recordKeys(everyKey, day: "2026-09-30"), 141)
     XCTAssertThrowsError(try store.recordKeys(["KeyA": 1, "NineComma": 1], day: "2026-09-30"))
     XCTAssertEqual(try store.load().dailyKeys["2026-09-30"]?["KeyA"], 1)
   }
@@ -326,6 +326,11 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertEqual(TypingKeyID.nineKey(1), "Nine1")
     XCTAssertEqual(TypingKeyID.nineKey(0), "Nine0")
     XCTAssertNil(TypingKeyID.nineKey(10))
+    // 全拼 14 键按键面上的字母记，不记到 26 键的字母上。
+    XCTAssertEqual(TypingKeyID.fourteenKey("QW"), "FourteenQW")
+    XCTAssertEqual(TypingKeyID.fourteenKey("L"), "FourteenL")
+    XCTAssertNil(TypingKeyID.fourteenKey("Q"))
+    XCTAssertEqual(TypingKeyID.label("FourteenBN"), "14 键 BN")
     // The quick punctuation key counts as the comma key it sits on, whatever mark it types.
     XCTAssertEqual(TypingKeyID.quickPunctuation, "Comma")
     XCTAssertTrue(TypingKeyID.known.contains(TypingKeyID.quickPunctuation))

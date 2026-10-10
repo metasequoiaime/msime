@@ -35,7 +35,8 @@ final class LanguageSchemesTests: XCTestCase {
     defer { defaults.set(previous, forKey: InputSchemePreference.enabledSchemesKey) }
     defaults.removeObject(forKey: InputSchemePreference.enabledSchemesKey)
     let enabled = InputSchemePreference.enabledSchemes
-    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke].contains($0) })
+    // 全拼 14 键同样要用户自己打开，与 client-core 的 `DEFAULT_ENABLED` 一致。
+    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey].contains($0) })
   }
 
   func testAMissingDictionaryHidesOnlyItsScheme() {
@@ -92,7 +93,32 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(ChineseInputScheme.stroke.sharedIdentifier, "stroke")
     XCTAssertEqual(ChineseInputScheme(rawValue: "stroke"), .stroke, "the App Group value is the shared one")
     XCTAssertEqual(ChineseInputScheme.stroke.title, "笔画")
-    XCTAssertEqual(ChineseInputScheme.allCases.last, .stroke, "the scheme order is persisted, so new schemes go last")
+    XCTAssertEqual(ChineseInputScheme.allCases.last, .fourteenKey, "the scheme order is persisted, so new schemes go last")
+  }
+
+  /// 全拼 14 键：引擎方案是全拼，共享文档里的 id 和布局都是 `fourteen_key`，云端按全拼上传，默认不启用，空格键和方案简称写「全拼」，统计来源是 `fourteenKey`。
+  func testTheFourteenKeySchemeIsQuanpinOnItsOwnLayout() {
+    let scheme = ChineseInputScheme.fourteenKey
+    XCTAssertEqual(scheme.engineScheme, "quanpin")
+    XCTAssertEqual(scheme.sharedIdentifier, "fourteen_key")
+    XCTAssertEqual(ChineseInputScheme.scheme(sharedIdentifier: "fourteen_key"), .fourteenKey)
+    XCTAssertEqual(scheme.cloudSchema, "quanpin")
+    XCTAssertEqual(scheme.title, "全拼 14 键")
+    XCTAssertEqual(scheme.shortLabel, "全拼")
+    XCTAssertTrue(ChineseInputScheme.optInSchemes.contains(.fourteenKey))
+    XCTAssertTrue(scheme.writesChinese)
+    XCTAssertFalse(scheme.editsBySyllable, "a run of group codes is as ambiguous as nine-key digits")
+    XCTAssertNil(scheme.shuangpinProfile)
+    XCTAssertEqual(KeyboardViewController.languageKeyTitle(scheme), "中")
+    XCTAssertEqual(TypingSource(rawValue: scheme.rawValue), .fourteenKey)
+    var document: [String: Any] = ["last_chinese_scheme": "wubi"]
+    MetasequoiaInputSessionBridge.schemeMapping(scheme, enabledSchemes: ChineseInputScheme.allCases)?(&document)
+    XCTAssertEqual(document["scheme"] as? String, "quanpin")
+    XCTAssertEqual(document["last_chinese_scheme"] as? String, "quanpin")
+    XCTAssertEqual(document["touch_keyboard_layout"] as? String, "fourteen_key")
+    XCTAssertEqual((document["touch_keyboard_schemes"] as? [String: Any])?["selected"] as? String, "fourteen_key")
+    XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: scheme, boundary: .returnKey), .finishComposition,
+                   "the raw keys are group codes, so every boundary converts as nine-key does")
   }
 
   /// The cloud settings document knows quanpin, shuangpin, wubi, japanese and korean only; a device that uploaded any other `input.schema` would make every other device reject the whole document.
@@ -102,6 +128,7 @@ final class LanguageSchemesTests: XCTestCase {
     }
     XCTAssertEqual(ChineseInputScheme.quanpin.cloudSchema, "quanpin")
     XCTAssertEqual(ChineseInputScheme.nineKey.cloudSchema, "quanpin")
+    XCTAssertEqual(ChineseInputScheme.fourteenKey.cloudSchema, "quanpin")
     XCTAssertEqual(ChineseInputScheme.handwriting.cloudSchema, "quanpin")
     XCTAssertEqual(ChineseInputScheme.microsoft.cloudSchema, "shuangpin")
     XCTAssertEqual(ChineseInputScheme.wubi.cloudSchema, "wubi")
