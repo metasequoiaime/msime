@@ -30,19 +30,17 @@ license=(
   'ISC'
   'Zlib'
 )
-# depends 里：ibus 是因为 IBus 守护进程负责拉起 IBus engine，libibus 只是它链接的库；procps-ng 是因为 msime-linux-setup 切换词库前用 pgrep 确认宿主进程。注释不写在数组里面：OBS 自己解析 PKGBUILD 求依赖时会把数组里的注释逐词当成包名。
+# depends 里：libibus 是 IBus engine 和各个辅助程序链接的库，它不会启动 IBus；procps-ng 是因为 msime-linux-setup 切换词库前用 pgrep 确认宿主进程。输入法框架 ibus 和 fcitx5 有一个就够用，所以都放在 optdepends，不把另一个拉进系统（#6401）。注释不写在数组里面：OBS 自己解析 PKGBUILD 求依赖时会把数组里的注释逐词当成包名。
 depends=(
   'alsa-lib'
   'cairo'
   'dbus'
-  'fcitx5'
   'gdk-pixbuf2'
   'glib2'
   'glibc'
   'gtk3'
   'harfbuzz'
   'hicolor-icon-theme'
-  'ibus'
   'libgcc'
   'libibus'
   'libsoup3'
@@ -59,6 +57,8 @@ depends=(
   'webkit2gtk-4.1'
 )
 optdepends=(
+  'fcitx5: 在 Fcitx5 里使用（与 ibus 有一个即可）'
+  'ibus: 在 IBus 里使用（与 fcitx5 有一个即可）'
   'python-websockets: 豆包流式语音识别'
   'libpulse: 用 parec 录音'
   'pipewire: 用 pw-cat 录音'
@@ -66,7 +66,7 @@ optdepends=(
 )
 provides=("$_pkgname=$pkgver")
 conflicts=("$_pkgname")
-makedepends=('patchelf')
+makedepends=('fcitx5' 'patchelf')
 backup=('etc/xdg/autostart/msime-linux-clipboard.desktop')
 install=msime.install
 # 发布的二进制已经剥离过符号，再剥一遍只会白白改动文件。

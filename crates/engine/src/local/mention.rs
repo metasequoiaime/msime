@@ -276,8 +276,11 @@ mod place_match_tests {
 }
 
 /// The annotation of an `@` row: a place's parent division, empty for the user's own entries (which may name a place too) and for a province.
-pub fn mention_annotation(text: &str, entries: &[MentionEntry]) -> &'static str {
-    if entries.iter().any(|entry| entry.text == text) {
+pub fn mention_annotation(text: &str, key: &str, entries: &[MentionEntry]) -> &'static str {
+    if entries
+        .iter()
+        .any(|entry| entry.text == text && entry.key == key)
+    {
         return "";
     }
     places().parent(text).unwrap_or_default()
@@ -467,10 +470,10 @@ mod tests {
 
     #[test]
     fn a_place_is_annotated_with_its_parent() {
-        assert_eq!(mention_annotation("深圳市", &[]), "广东省");
-        assert_eq!(mention_annotation("深圳市", &list()), "");
-        assert_eq!(mention_annotation("广东省", &[]), "");
-        assert_eq!(mention_annotation("张三", &list()), "");
+        assert_eq!(mention_annotation("深圳市", "shen'zhen'shi", &[]), "广东省");
+        assert_eq!(mention_annotation("深圳市", "shen'zhen'shi", &list()), "");
+        assert_eq!(mention_annotation("广东省", "guang'dong'sheng", &[]), "");
+        assert_eq!(mention_annotation("张三", "zhang'san", &list()), "");
     }
 
     #[test]

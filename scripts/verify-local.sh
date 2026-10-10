@@ -599,7 +599,7 @@ note "compile: linux desktop shell"
 # the host's own and the two would rebuild each other on every run.
 #
 # The build dependencies live in an image (platforms/linux/tests/tools/Dockerfile.desktop-check) rather than being installed with apt in a throwaway container: that reinstall of the whole webkit2gtk closure ran on every --quick and so on every push, and it is the part of this phase that does not change. The image is tagged per checkout the same way platforms/linux/build-container.sh tags its gate image, so concurrent worktrees never run each other's Dockerfile; the README says how to prune the tags old worktrees leave behind.
-linux_desktop_note="image=msime-linux-desktop-check:\$(printf %s \"\$PWD\" | shasum | cut -c1-12); docker build -t \"\$image\" -f platforms/linux/tests/tools/Dockerfile.desktop-check platforms/linux/tests && docker run --rm -v \"\$PWD\":/source -w /source \"\$image\" cargo check -p msime-desktop --locked --all-targets"
+linux_desktop_note="image=msime-linux-desktop-check:\$(printf %s \"\$PWD\" | shasum | cut -c1-12); docker build -t \"\$image\" -f platforms/linux/tests/tools/Dockerfile.desktop-check platforms/linux/tests && docker run --rm -v \"\$PWD\":/source -v \"\$PWD/target/linux-desktop-check\":/ctarget -w /source -e CARGO_TARGET_DIR=/ctarget -e CARGO_HOME=/ctarget/cargo-home \"\$image\" cargo check -p msime-desktop --locked --all-targets"
 if ! scoped desktop linux; then
   :
 elif [ "$(uname -s 2>/dev/null)" = "Linux" ]; then
@@ -617,6 +617,7 @@ elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
       -v "$root/target/linux-desktop-check":/ctarget \
       -w /source \
       -e CARGO_TARGET_DIR=/ctarget \
+      -e CARGO_HOME=/ctarget/cargo-home \
       "$linux_desktop_image" \
       cargo check -p msime-desktop --locked --all-targets --message-format short \
       > "$root/target/linux-desktop-check/check.log" 2>&1

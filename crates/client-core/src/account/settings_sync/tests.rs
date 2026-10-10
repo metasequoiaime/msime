@@ -122,6 +122,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "input.schema",
             "input.shuangpin_schema",
             "input.smart_punctuation",
+            "input.wubi_auto_commit_unique",
             "input.wubi_code_hint",
             "input.wubi_schema",
             "platform.android.custom_candidate_skin",
@@ -134,6 +135,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.keyboard_height_adjustment",
             "platform.android.keyboard_layout",
             "platform.android.number_keypad_order",
+            "platform.android.shuangpin_key_hints",
             "platform.android.sound_enabled",
             "platform.android.theme",
             "platform.android.toolbar_ai",
@@ -191,6 +193,7 @@ fn settings_sync_round_trips_every_exported_key() {
         smart_punctuation: !Preferences::default().smart_punctuation,
         paired_punctuation: !Preferences::default().paired_punctuation,
         wubi_code_hint: !Preferences::default().wubi_code_hint,
+        wubi_auto_commit_unique: !Preferences::default().wubi_auto_commit_unique,
         touch_keyboard_layout: TouchKeyboardLayout::NineKey,
         theme: ThemeMode::Dark,
         touch_key_spacing_tenths: 40,
@@ -198,6 +201,7 @@ fn settings_sync_round_trips_every_exported_key() {
         touch_keyboard_height_adjustment: 10,
         touch_voice_shortcut: !Preferences::default().touch_voice_shortcut,
         touch_number_keypad_order: NumberKeypadOrder::Calculator,
+        touch_shuangpin_key_hints: !Preferences::default().touch_shuangpin_key_hints,
         ..Preferences::default()
     };
     expected.frequency = FrequencyPreferences {

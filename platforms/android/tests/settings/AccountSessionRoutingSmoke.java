@@ -151,6 +151,34 @@ public final class AccountSessionRoutingSmoke {
         check(storeTouches.get() == 0, "a non-owning process never touches the session store");
         check(requests.get() == 0, "a non-owning process never refreshes");
 
+        AtomicInteger clipboardRequests = new AtomicInteger();
+        BackendAccount.TokenSource switchedOwner = new BackendAccount.TokenSource() {
+            @Override public String accessToken() { return TOKEN; }
+            @Override public BackendAccount.SessionCredential session(String rejected) {
+                return new BackendAccount.SessionCredential(TOKEN, "session-b");
+            }
+        };
+        BackendAccount clipboard = new BackendAccount(store, (method, path, body, token) -> {
+            clipboardRequests.incrementAndGet();
+            throw new AssertionError("old session must not send a clipboard request");
+        }, switchedOwner);
+        boolean oldUploadCancelled = false;
+        try {
+            clipboard.addClipboard("synthetic note", "session-a");
+        } catch (java.util.concurrent.CancellationException expected) {
+            oldUploadCancelled = true;
+        }
+        check(oldUploadCancelled && clipboardRequests.get() == 0,
+            "an upload queued by the old session cannot send using the new session");
+        boolean oldListCancelled = false;
+        try {
+            clipboard.clipboard("", "session-a");
+        } catch (java.util.concurrent.CancellationException expected) {
+            oldListCancelled = true;
+        }
+        check(oldListCancelled && clipboardRequests.get() == 0,
+            "a queued list fetch cannot switch to the new session");
+
         BackendAccount.TokenSource rotatingOwner = new BackendAccount.TokenSource() {
             @Override public String accessToken() { return TOKEN; }
             @Override public String accessToken(String rejectedToken) {

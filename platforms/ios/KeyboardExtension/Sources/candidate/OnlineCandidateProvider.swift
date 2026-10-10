@@ -115,7 +115,7 @@ final class OnlineCandidateProvider {
 
   /// The assistant's candidate limit, or nil when it is outside what the shared parser accepts.
   static func aiCandidateLimit(_ query: [String: Any]) -> Int? {
-    let limit = integer((query["ai_assistant"] as? [String: Any])?["candidate_limit"]) ?? 0
+    let limit = SharedNumber.strictInt((query["ai_assistant"] as? [String: Any])?["candidate_limit"]) ?? 0
     return (1...10).contains(limit) ? limit : nil
   }
 
@@ -159,7 +159,7 @@ final class OnlineCandidateProvider {
     if descriptor["max_response_bytes"] == nil {
       maxBytes = maxAIResponseBytes
     } else {
-      guard let value = integer(descriptor["max_response_bytes"]), value > 0 else { return nil }
+      guard let value = SharedNumber.strictInt(descriptor["max_response_bytes"]), value > 0 else { return nil }
       maxBytes = min(maxAIResponseBytes, value)
     }
     guard let connectTimeout = seconds(descriptor["connect_timeout_ms"], fallback: 2500),
@@ -173,17 +173,9 @@ final class OnlineCandidateProvider {
 
   /// Milliseconds from the descriptor, held to the 1-10 s the Android host allows.
   private static func seconds(_ value: Any?, fallback: Int) -> TimeInterval? {
-    let milliseconds = value == nil ? fallback : integer(value)
+    let milliseconds = value == nil ? fallback : SharedNumber.strictInt(value)
     guard let milliseconds, milliseconds > 0 else { return nil }
     return TimeInterval(min(10_000, max(1_000, milliseconds))) / 1000
-  }
-
-  private static func integer(_ value: Any?) -> Int? {
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID(),
-          let integer = Int(number.stringValue),
-          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
-    return integer
   }
 
   private static func object(_ document: Data) -> [String: Any]? {

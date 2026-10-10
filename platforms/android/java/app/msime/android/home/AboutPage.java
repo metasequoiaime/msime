@@ -31,6 +31,7 @@ import app.msime.android.HttpBodyPolicy;
 import app.msime.android.TextPolicy;
 import app.msime.android.R;
 import app.msime.android.ResourcePacks;
+import app.msime.android.ThreadPolicy;
 import app.msime.android.UpdateApi;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.io.File;
@@ -58,11 +59,8 @@ public final class AboutPage extends DetailPage {
     private static final String REPOSITORY = "https://github.com/metasequoiaime/msime";
     private static final int MAX_NOTICE_CHARS = 200_000;
     /** 按需开线程：几十兆的更新下载不能让云剪贴板、反馈这些短请求排在它后面。 */
-    private static final ExecutorService NETWORK = Executors.newCachedThreadPool(runnable -> {
-        Thread thread = new Thread(runnable, "msime-home-network");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private static final ExecutorService NETWORK = Executors.newCachedThreadPool(
+        ThreadPolicy.namedDaemonFactory("msime-home-network"));
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     /** 检查更新药丸的几种状态。 */
@@ -147,7 +145,7 @@ public final class AboutPage extends DetailPage {
             links.nav("给我们评分", null, null, () -> openLink(context,
                 "market://details?id=" + context.getPackageName()));
         }
-        if (Ui.tauriAvailable()) {
+        if (ManagementUi.available()) {
             links.nav("在管理界面中查看", "更新日志、致谢与更多信息", null, this::openTauriAbout);
         }
 
@@ -201,7 +199,7 @@ public final class AboutPage extends DetailPage {
         int markSize = Ui.dp(context, 60);
         disc.addView(mark, Ui.squareFrameParamsPx(markSize, Gravity.CENTER));
         int discSize = Ui.dp(context, 116);
-        header.addView(disc, Ui.squareParamsPx(discSize));
+        header.addView(disc, ViewPolicy.newSquareParamsPx(discSize));
 
         TextView name = Ui.styledLabel(context, getString(R.string.app_name), 22, 700, Ui.text(context));
         ViewPolicy.setCentered(name);
@@ -388,7 +386,7 @@ public final class AboutPage extends DetailPage {
             }
         }
         for (String fixed : new String[] {"client-LICENSE.txt", "helpcodes/NOTICE.md", "helpcodes/NOTICE-jiajia.md",
-                "offline-glosses/offline-glosses-NOTICE.txt"}) {
+                "helpcodes/NOTICE-wubi86.md", "offline-glosses/offline-glosses-NOTICE.txt"}) {
             if (exists(assets, fixed)) found.add(fixed);
         }
         String[] languages = assets.list("language-dictionaries");
@@ -480,9 +478,7 @@ public final class AboutPage extends DetailPage {
     // ---- P21：只在 Tauri 合包下有用的入口 ----
 
     private void openTauriAbout() {
-        Intent intent = new Intent();
-        intent.setClassName(requireContext(), "app.msime.android.MainActivity");
-        intent.putExtra("msime_settings_page", "about");
+        Intent intent = ManagementUi.settingsPage(requireContext(), "about");
         try {
             startActivity(intent);
         } catch (RuntimeException unavailable) {

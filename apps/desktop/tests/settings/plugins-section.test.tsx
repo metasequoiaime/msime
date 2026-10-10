@@ -273,7 +273,7 @@ test("offers the melody only in melody mode, and the mode only while key sounds 
   ).toBe(true);
 });
 
-test("a melody pack is chosen on its own detail, which says where the mode is switched", async () => {
+test("a melody pack is chosen on its own detail, which also enables melody playback", async () => {
   const melodies = fakeClient({
     catalog: vi.fn(async () => ({
       packages: [
@@ -285,18 +285,90 @@ test("a melody pack is chosen on its own detail, which says where the mode is sw
   });
   const { onChange } = renderSection({ client: melodies });
   await openPack("卡农");
-  expect(screen.getByText(/把发声方式设为按键旋律后/)).toBeTruthy();
+  expect(screen.getByText(/按键旋律现在没有打开。设为按键旋律会同时打开按键音/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "设为按键旋律" }));
-  // The mode is left as it was: choosing a melody does not start playing it.
+  // 选择旋律会打开按键音，并切换到按键旋律。
   expect(onChange).toHaveBeenLastCalledWith({
     ...defaultPluginPreferences,
+    key_sound: { ...defaultPluginPreferences.key_sound, enabled: true, mode: "melody" },
     melody: { pack: "canon" },
   });
 
+  // The selected melody, with key sounds off, is not shown as playing: its button turns the melody back on.
   backToList();
+  await openPack("小星星");
+  expect(screen.queryByRole("button", { name: "使用中" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "打开按键旋律" }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    ...defaultPluginPreferences,
+    key_sound: { ...defaultPluginPreferences.key_sound, enabled: true, mode: "melody" },
+  });
+
+  cleanup();
+  renderSection(
+    { client: melodies },
+    {
+      ...defaultPluginPreferences,
+      key_sound: { ...defaultPluginPreferences.key_sound, enabled: true, mode: "melody" },
+    },
+  );
+  expect((await screen.findByRole("button", { name: "小星星" })).textContent).toContain("当前旋律");
   await openPack("小星星");
   const current = screen.getByRole("button", { name: "使用中" }) as HTMLButtonElement;
   expect(current.disabled).toBe(true);
+});
+
+test("a key sound pack is marked in use only while something plays from it, and choosing it turns key sounds on", async () => {
+  const selected = {
+    ...defaultPluginPreferences,
+    key_sound: { ...defaultPluginPreferences.key_sound, pack: "typewriter" },
+  };
+  const { onChange } = renderSection({}, selected);
+  const row = await screen.findByRole("button", { name: "打字机" });
+  expect(row.textContent).toContain("已选 · 按键音未开");
+  expect(row.textContent).not.toContain("使用中");
+  await openPack("打字机");
+  expect(screen.getByText(/按键音现在没有打开。设为当前音效包会同时打开按键音/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "打开按键音" }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    ...selected,
+    key_sound: { ...selected.key_sound, enabled: true },
+  });
+  backToList();
+  await openPack("默认");
+  fireEvent.click(screen.getByRole("button", { name: "设为当前音效包" }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    ...selected,
+    key_sound: { ...selected.key_sound, enabled: true, pack: "default" },
+  });
+
+  // In melody mode the key samples are not played, so choosing the pack switches the mode back.
+  cleanup();
+  const melody = {
+    ...selected,
+    key_sound: { ...selected.key_sound, enabled: true, mode: "melody" as const },
+  };
+  const next = renderSection({}, melody);
+  expect((await screen.findByRole("button", { name: "打字机" })).textContent).toContain(
+    "已选 · 发声方式是按键旋律",
+  );
+  await openPack("打字机");
+  fireEvent.click(screen.getByRole("button", { name: "改用按键音效" }));
+  expect(next.onChange).toHaveBeenLastCalledWith({
+    ...melody,
+    key_sound: { ...melody.key_sound, mode: "keys" },
+  });
+
+  // The commit sound plays from the same pack, so it counts as in use with key sounds off.
+  cleanup();
+  renderSection({}, { ...selected, commit_sound: { enabled: true } });
+  expect((await screen.findByRole("button", { name: "打字机" })).textContent).toContain("使用中");
+
+  cleanup();
+  renderSection({}, { ...selected, key_sound: { ...selected.key_sound, enabled: true } });
+  expect((await screen.findByRole("button", { name: "打字机" })).textContent).toContain("使用中");
+  await openPack("打字机");
+  expect((screen.getByRole("button", { name: "使用中" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 test("lists a selected pack that is no longer installed, and drops it from its own view", async () => {
@@ -460,10 +532,28 @@ test("chooses a music pack on its detail, which starts unselected", async () => 
 
   await openPack("雨声");
   expect(screen.getByText("a.ogg")).toBeTruthy();
+  expect(screen.getByText(/背景音乐现在没有打开。设为当前音乐包会同时打开它/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "设为当前音乐包" }));
   expect(onChange).toHaveBeenLastCalledWith({
     ...defaultPluginPreferences,
+    music: { ...defaultPluginPreferences.music, enabled: true, pack: "rain" },
+  });
+
+  // Selected while the music is switched off: not marked in use, and its button turns the music on.
+  cleanup();
+  const chosen = {
+    ...defaultPluginPreferences,
     music: { ...defaultPluginPreferences.music, pack: "rain" },
+  };
+  const off = renderSection({}, chosen);
+  expect((await screen.findByRole("button", { name: "雨声" })).textContent).toContain(
+    "已选 · 背景音乐未开",
+  );
+  await openPack("雨声");
+  fireEvent.click(screen.getByRole("button", { name: "打开背景音乐" }));
+  expect(off.onChange).toHaveBeenLastCalledWith({
+    ...chosen,
+    music: { ...chosen.music, enabled: true },
   });
 
   cleanup();
@@ -472,6 +562,7 @@ test("chooses a music pack on its detail, which starts unselected", async () => 
     music: { enabled: true, pack: "rain", volume: 30 },
   };
   const next = renderSection({}, playing);
+  expect((await screen.findByRole("button", { name: "雨声" })).textContent).toContain("使用中");
   await openPack("雨声");
   expect((screen.getByRole("button", { name: "使用中" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "不再使用" }));
@@ -534,8 +625,9 @@ test("lists the installed packs by kind with what each is used as, and removes o
   expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual(["默认", "小星星", "打字机"]);
   expect(rows.every((row) => row.getAttribute("type") === "button")).toBe(true);
   expect(rows[0].textContent).toBe("默认›");
-  expect(rows[1].textContent).toBe("小星星按键旋律当前旋律›");
-  expect(rows[2].textContent).toBe("打字机1.0.0 · 作者 测试者使用中›");
+  // Key sounds are off in these preferences, so the selections are marked as chosen, not as playing.
+  expect(rows[1].textContent).toBe("小星星按键旋律已选 · 按键旋律未开›");
+  expect(rows[2].textContent).toBe("打字机1.0.0 · 作者 测试者已选 · 按键音未开›");
   // 导入是少见的操作，所以这一行放在已安装的插件之后，而不是夹在上面的设置入口和插件列表之间。
   const importGroup = screen.getByRole("region", { name: "导入插件" });
   expect(list.compareDocumentPosition(importGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -754,11 +846,102 @@ test("enables a command table on its detail and drops an enabled table that is g
 });
 
 test("marks an enabled command table with its place", async () => {
-  renderSection({}, { ...defaultPluginPreferences, command_tables: ["signature"] });
+  renderSection(
+    { commandMode: true },
+    { ...defaultPluginPreferences, command_tables: ["signature"] },
+  );
   const row = await screen.findByRole("button", { name: "签名" });
   expect(row.textContent).toContain("已启用 · 第 1 位");
   await openPack("签名");
   expect((screen.getByRole("switch", { name: "启用" }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.queryByText(/\/ 指令（「输入 → 快捷模式」里的开关）已关闭/)).toBeNull();
+});
+
+test("an enabled command table is not marked as working while the / mode is off, and its detail turns the mode on in place", async () => {
+  const onLocalMode = vi.fn();
+  renderSection({ onLocalMode }, { ...defaultPluginPreferences, command_tables: ["signature"] });
+  const row = await screen.findByRole("button", { name: "签名" });
+  expect(row.textContent).toContain("已启用 · / 指令未开");
+  expect(row.textContent).not.toContain("第 1 位");
+  await openPack("签名");
+  expect(
+    screen.getByText(/\/ 指令（「输入 → 快捷模式」里的开关）已关闭，启用的指令表不会生效/),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "打开 / 指令" }));
+  expect(onLocalMode).toHaveBeenCalledWith("command");
+
+  cleanup();
+  // A host that cannot patch the mode from here links to the input page instead.
+  const onOpenPage = vi.fn();
+  renderSection({ onOpenPage }, { ...defaultPluginPreferences, command_tables: ["signature"] });
+  await openPack("签名");
+  fireEvent.click(screen.getByRole("button", { name: "前往输入设置" }));
+  expect(onOpenPage).toHaveBeenCalledWith("input");
+});
+
+test("a phrase or command table says when the scheme cannot open its mode", async () => {
+  const tables = fakeClient({
+    catalog: vi.fn(async () => ({
+      packages: [
+        ...catalog.packages,
+        pack({ id: "office", kind: "phrase_table", name: "办公", phrases: [] }),
+      ],
+      issues: [],
+    })),
+  });
+  const enabled = {
+    ...defaultPluginPreferences,
+    command_tables: ["signature"],
+    phrase_tables: ["office"],
+  };
+  // Both mode switches are on, so only the scheme keeps the tables from working, and the list names it rather than a place.
+  renderSection({ client: tables, commandMode: true, scheme: "cantonese" }, enabled);
+  const commandRow = await screen.findByRole("button", { name: "签名" });
+  expect(commandRow.textContent).toContain("已启用 · 当前方案打不开 / 指令");
+  expect(commandRow.textContent).not.toContain("第 1 位");
+  const phraseRow = await screen.findByRole("button", { name: "办公" });
+  expect(phraseRow.textContent).toContain("已启用 · 当前方案打不开 K 模式");
+  expect(phraseRow.textContent).not.toContain("第 1 位");
+
+  // With the switches off as well, the scheme is still what is named: turning a switch on would not help.
+  cleanup();
+  renderSection(
+    { client: tables, quickPhraseMode: false, commandMode: false, scheme: "cantonese" },
+    enabled,
+  );
+  expect((await screen.findByRole("button", { name: "签名" })).textContent).toContain(
+    "已启用 · 当前方案打不开 / 指令",
+  );
+  expect((await screen.findByRole("button", { name: "办公" })).textContent).toContain(
+    "已启用 · 当前方案打不开 K 模式",
+  );
+
+  cleanup();
+  renderSection({ client: tables, commandMode: true, scheme: "cantonese" });
+  await openPack("签名");
+  expect(
+    screen.getByText("当前输入方案「粤拼」打不开指令（/ 模式），切换到全拼、双拼或五笔后才能用。"),
+  ).toBeTruthy();
+  backToList();
+  await openPack("办公");
+  expect(
+    screen.getByText(
+      "当前输入方案「粤拼」打不开快捷短语（K 模式），切换到全拼、双拼或五笔后才能用。",
+    ),
+  ).toBeTruthy();
+
+  for (const scheme of ["quanpin", "shuangpin", "wubi"] as const) {
+    cleanup();
+    renderSection({ client: tables, commandMode: true, scheme }, enabled);
+    expect((await screen.findByRole("button", { name: "签名" })).textContent).toContain(
+      "已启用 · 第 1 位",
+    );
+    expect((await screen.findByRole("button", { name: "办公" })).textContent).toContain(
+      "已启用 · 第 1 位",
+    );
+    await openPack("签名");
+    expect(screen.queryByText(/打不开/)).toBeNull();
+  }
 });
 
 test("edits the local @ list and refuses a malformed reading before saving", async () => {
@@ -799,6 +982,54 @@ test("edits the local @ list and refuses a malformed reading before saving", asy
   expect(screen.getByRole("button", { name: "@ 名单" }).textContent).toContain("有未保存的修改");
   openMentions();
   expect(screen.getByDisplayValue("北京")).toBeTruthy();
+});
+
+test("the @ list says the @ mode is off and turns it on in place", async () => {
+  const onLocalMode = vi.fn();
+  renderSection({ onLocalMode });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "@ 名单" }).textContent).toContain(
+      "1 条，只保存在本机；@ 模式未开",
+    ),
+  );
+  openMentions();
+  expect(screen.getByText(/@ 名字与地点（「输入 → 快捷模式」里的开关）已关闭/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "打开 @ 模式" }));
+  expect(onLocalMode).toHaveBeenCalledWith("mention");
+
+  cleanup();
+  // A scheme that cannot open @ is named on the list row before the switch, whether or not the switch is on.
+  renderSection({ scheme: "zhuyin" });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "@ 名单" }).textContent).toContain(
+      "1 条，只保存在本机；当前方案打不开 @ 模式",
+    ),
+  );
+  expect(screen.getByRole("button", { name: "@ 名单" }).textContent).not.toContain("@ 模式未开");
+
+  cleanup();
+  renderSection({ mentionMode: true, scheme: "quanpin" });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "@ 名单" }).textContent).toContain(
+      "1 条，只保存在本机",
+    ),
+  );
+  expect(screen.getByRole("button", { name: "@ 名单" }).textContent).not.toContain("；");
+
+  cleanup();
+  renderSection({ mentionMode: true, scheme: "zhuyin" });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "@ 名单" }).textContent).toContain(
+      "1 条，只保存在本机；当前方案打不开 @ 模式",
+    ),
+  );
+  openMentions();
+  expect(screen.queryByText(/已关闭，名单里的名字不会出候选/)).toBeNull();
+  expect(
+    screen.getByText(
+      "当前输入方案「注音」打不开名字与地点（@ 模式），切换到全拼、双拼或五笔后才能用。",
+    ),
+  ).toBeTruthy();
 });
 
 test("checks a name list the way the host does", () => {
@@ -1068,20 +1299,29 @@ test("fills the defaults the document leaves out and forgets removed packs", () 
   // A removed sound pack of the same id leaves the effect selection alone.
   expect(withoutRemovedPack(selected, "sound", "neon").effect_pack).toBe("neon");
 
+  // Choosing a pack means using it: the switch that plays it is turned on with the choice, or the pack would be marked as chosen while the input method stays silent.
   expect(withPackSelected(selected, { kind: "sound", id: "piano", mode: "keys" })).toEqual({
     ...selected,
-    key_sound: { ...selected.key_sound, pack: "piano" },
+    key_sound: { ...selected.key_sound, enabled: true, mode: "keys", pack: "piano" },
   });
+  const melodyOn: PluginPreferences = {
+    ...selected,
+    key_sound: { ...selected.key_sound, enabled: true, mode: "melody" },
+  };
+  expect(
+    withPackSelected(melodyOn, { kind: "sound", id: "piano", mode: "keys" }).key_sound,
+  ).toEqual({ ...selected.key_sound, enabled: true, mode: "keys", pack: "piano" });
   expect(withPackSelected(selected, { kind: "sound", id: "canon", mode: "sequence" })).toEqual({
     ...selected,
+    key_sound: { ...selected.key_sound, enabled: true, mode: "melody" },
     melody: { pack: "canon" },
   });
-  // Choosing music leaves whether it plays as it was.
-  expect(withPackSelected(selected, { kind: "music", id: "sea" }).music).toEqual({
-    enabled: true,
-    pack: "sea",
-    volume: 40,
-  });
+  expect(
+    withPackSelected(
+      { ...selected, music: { ...selected.music, enabled: false } },
+      { kind: "music", id: "sea" },
+    ).music,
+  ).toEqual({ enabled: true, pack: "sea", volume: 40 });
   expect(withPackSelected(selected, { kind: "effect", id: "fire" }).effect_pack).toBe("fire");
   expect(withPackSelected(selected, { kind: "command_table", id: "c" }).command_tables).toEqual([
     "a",
@@ -1216,6 +1456,113 @@ test("the 插件 page saves plugin settings into the preferences document", asyn
   expect(save.mock.calls.at(-1)?.[1].plugins?.key_sound.enabled).toBe(true);
 });
 
+test("the 插件 page turns the / and @ modes on from a command table and the @ list, keeping the other modes", async () => {
+  const save = vi.fn(async (_revision: number, preferences: Preferences) => ({
+    ...snapshot,
+    revision: 4,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      client={{
+        load: async () => ({
+          ...snapshot,
+          preferences: {
+            ...snapshot.preferences,
+            local_modes: { ...defaultLocalModes, emoji: false },
+            plugins: { command_tables: ["signature"] } as unknown as Preferences["plugins"],
+          },
+        }),
+        save,
+        host: testHost({ platform: "macos", plugin_triggers: true }),
+        plugins: fakeClient(),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  const form = screen.getByRole("group", { name: "插件" });
+  const row = await within(form).findByRole("button", { name: "签名" });
+  expect(row.textContent).toContain("已启用 · / 指令未开");
+  fireEvent.click(row);
+  fireEvent.click(within(form).getByRole("button", { name: "打开 / 指令" }));
+  expect(within(form).queryByRole("button", { name: "打开 / 指令" })).toBeNull();
+  fireEvent.click(within(form).getByRole("button", { name: "返回我的插件" }));
+  expect((await within(form).findByRole("button", { name: "签名" })).textContent).toContain(
+    "已启用 · 第 1 位",
+  );
+  fireEvent.click(within(form).getByRole("button", { name: "@ 名单" }));
+  fireEvent.click(within(form).getByRole("button", { name: "打开 @ 模式" }));
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  expect(save.mock.calls.at(-1)?.[1].local_modes).toEqual({
+    ...defaultLocalModes,
+    emoji: false,
+    command: true,
+    mention: true,
+  });
+});
+
+test("the 插件 page tells a user whose scheme cannot open / or @ so on the list and the detail", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => ({
+          ...snapshot,
+          preferences: {
+            ...snapshot.preferences,
+            scheme: "cantonese",
+            local_modes: { ...defaultLocalModes, command: true, mention: true },
+            plugins: { command_tables: ["signature"] } as unknown as Preferences["plugins"],
+          },
+        }),
+        save: vi.fn(),
+        host: testHost({ platform: "macos", plugin_triggers: true }),
+        plugins: fakeClient(),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  const form = screen.getByRole("group", { name: "插件" });
+  const row = await within(form).findByRole("button", { name: "签名" });
+  expect(row.textContent).toContain("已启用 · 当前方案打不开 / 指令");
+  await waitFor(() =>
+    expect(within(form).getByRole("button", { name: "@ 名单" }).textContent).toContain(
+      "当前方案打不开 @ 模式",
+    ),
+  );
+  fireEvent.click(row);
+  expect(
+    within(form).getByText(
+      "当前输入方案「粤拼」打不开指令（/ 模式），切换到全拼、双拼或五笔后才能用。",
+    ),
+  ).toBeTruthy();
+});
+
+test("the 插件 page on Windows describes every effect style as a flash of the candidate card", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: testHost({ platform: "windows", typing_effects: true }),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  const form = screen.getByRole("group", { name: "插件" });
+  fireEvent.click(within(form).getByRole("button", { name: "声音与效果" }));
+  expect(within(form).getByRole("radiogroup", { name: "效果样式" })).toBeTruthy();
+  expect(
+    within(form).getByText(
+      "这台设备上各样式都只让候选栏闪一下，不迸出火花：闪光最淡，火花更亮，Power Mode 最亮，连击升档时再亮一些。",
+    ),
+  ).toBeTruthy();
+  expect(within(form).queryByText(/火花：按键和上屏时迸出火花/)).toBeNull();
+});
+
 test("the 插件 page offers the typing effects where the host draws them, and only the combo count on Linux", async () => {
   const save = vi.fn(async (_revision: number, preferences: Preferences) => ({
     ...snapshot,
@@ -1281,6 +1628,51 @@ test("effect packs are offered where the host draws a style, not on Linux", () =
   expect(capabilities("harmony").showTypingEffectStyles).toBe(true);
   expect(capabilities("harmony").showTypingEffectPacks).toBe(true);
   expect(capabilities("linux").showTypingEffectPacks).toBe(false);
+  // Windows and HarmonyOS draw every style as a flash of the candidate card, so the style text must not promise sparks there.
+  expect(capabilities("windows").typingEffectsFlashOnly).toBe(true);
+  expect(capabilities("harmony").typingEffectsFlashOnly).toBe(true);
+  expect(capabilities("macos").typingEffectsFlashOnly).toBe(false);
+  expect(capabilities("linux").typingEffectsFlashOnly).toBe(false);
+});
+
+test("where every effect style is a flash, the style and effect-pack text do not promise sparks", async () => {
+  const effects = fakeClient({
+    catalog: vi.fn(async () => ({
+      packages: [
+        ...catalog.packages,
+        pack({ id: "neon", kind: "effect", name: "霓虹", style: "sparks" }),
+      ],
+      issues: [],
+    })),
+  });
+  renderSection({
+    client: effects,
+    typingEffects: true,
+    effectStyles: true,
+    effectPacks: true,
+    effectFlashOnly: true,
+  });
+  await screen.findByRole("button", { name: "霓虹" });
+  openSoundEffects();
+  expect(screen.getByRole("radiogroup", { name: "效果样式" })).toBeTruthy();
+  expect(
+    screen.getByText(
+      "这台设备上各样式都只让候选栏闪一下，不迸出火花：闪光最淡，火花更亮，Power Mode 最亮，连击升档时再亮一些。",
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByText(/迸出火花；/)).toBeNull();
+  backToList();
+  await openPack("霓虹");
+  expect(screen.getByText(/这台设备只让候选栏闪光，不绘制火花/)).toBeTruthy();
+
+  cleanup();
+  renderSection({ client: effects, typingEffects: true, effectStyles: true, effectPacks: true });
+  await screen.findByRole("button", { name: "霓虹" });
+  openSoundEffects();
+  expect(screen.getByText(/火花：按键和上屏时迸出火花/)).toBeTruthy();
+  backToList();
+  await openPack("霓虹");
+  expect(screen.queryByText(/这台设备只让候选栏闪光/)).toBeNull();
 });
 
 test("the @ switch is offered only where the host can edit the name list", async () => {

@@ -7,10 +7,41 @@ export interface HttpAsrDefaults {
   model: string;
 }
 
-/** Resolves and validates every OpenAI-compatible batch transcription preset. */
+/** OpenAI 兼容的 `/audio/transcriptions` multipart 上传。 */
+export const HTTP_ASR_MULTIPART: string = "multipart";
+/** Chat Completions 带 `input_audio` 的 JSON 请求（阿里云百炼），回答在 `choices[0].message.content`。 */
+export const HTTP_ASR_CHAT_AUDIO: string = "chat_audio";
+
+/** 解析并校验所有整句识别预设。 */
 export class HttpAsrConfigurationPolicy {
   static supported(provider: string): boolean {
-    return ["openai", "siliconflow", "groq", "everyapi", "mistral"].includes(provider);
+    return HttpAsrConfigurationPolicy.requestFormat(provider).length > 0;
+  }
+
+  /**
+   * 整句上传的请求格式，取值与 client-core 的 `asr_request_format` 相同；不是整句上传的 provider 为空串。本宿主的语音设置不经过共享层的 `MobileVoiceProviderConfiguration`，所以在这里留一份同样的对应，识别器和凭据测试只按格式挑请求构造。
+   */
+  static requestFormat(provider: string): string {
+    if (["openai", "siliconflow", "groq", "everyapi", "mistral"].includes(provider)) {
+      return HTTP_ASR_MULTIPART;
+    }
+    return provider === "bailian" ? HTTP_ASR_CHAT_AUDIO : "";
+  }
+
+  /** chat_audio 的请求体：唯一一条 user 消息，内容是录音的 Base64 数据 URL。不带语种，交给模型自动识别。 */
+  static chatAudioBody(model: string, wavBase64: string): string {
+    return JSON.stringify({
+      model: model,
+      stream: false,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "input_audio", input_audio: { data: `data:audio/wav;base64,${wavBase64}` } },
+          ],
+        },
+      ],
+    });
   }
 
   static defaults(provider: string): HttpAsrDefaults | null {
@@ -39,6 +70,12 @@ export class HttpAsrConfigurationPolicy {
       return {
         endpoint: "https://api.mistral.ai/v1/audio/transcriptions",
         model: "voxtral-mini-latest",
+      };
+    }
+    if (provider === "bailian") {
+      return {
+        endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        model: "qwen3-asr-flash",
       };
     }
     return null;
@@ -92,7 +129,7 @@ export class HttpAsrConfigurationPolicy {
     if (provider === "groq") return (tokens.groq ?? "").trim();
     if (provider === "everyapi") return (tokens.everyapi ?? "").trim();
     if (provider === "mistral") return (tokens.mistral ?? "").trim();
+    if (provider === "bailian") return (tokens.bailian ?? "").trim();
     return "";
   }
-
 }

@@ -26,7 +26,7 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 | `appIcon` | 本平台无公开 API，见下文「不迁移的」 |
 | `windowControl`、`beginWindowDrag`、`resizeWindow`、`onWindowStateChanged` | 共享页自绘标题栏与缩放把手，由 `window_chrome` 能力门控，仅桌面 |
 | `restartInputMethod`、`installInputSource`、`uninstallInputSource` | 重启输入法与安装输入源；`restart_input_method` 能力对鸿蒙为 false，后两个是 macOS 的 IMK bundle |
-| `loadMacosShuangpinKeymap`/`save…`、`loadMacosWubiAutoCommitUnique`/`save…` | macOS 存在原生 defaults 域里的四个开关 |
+| `loadMacosShuangpinKeymap`/`save…` | macOS 存在原生 defaults 域里的两个开关（双拼键位提示；五笔四码唯一自动上屏已并入共享偏好 `wubi_auto_commit_unique`） |
 | `openScreenKeyboard`、`openHandwriting`、`openVoice` | 桌面把这三个开成独立面板窗口；本宿主它们是键盘自己的面（`SURFACE_*`） |
 | `pickVoiceModelPath` | 按路径加载本地语音模型；本宿主用系统识别器或 HTTP provider |
 | `resetLearnedData` | 共享 C ABI 对移动端明确返回 `learned-data reset is unavailable on mobile` |

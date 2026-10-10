@@ -167,6 +167,8 @@ interface KeyOptions {
   accentIcon?: boolean;
   /** 键面字重；不设即常规的 400。 */
   fontWeight?: number;
+  /** 触摸区；不设即 `keyHitRegion`，向四周空隙各扩出一半。紧挨的中/英键和回车键用它把两者的分界挪进回车键帽，见 `KeyboardGeometry.RETURN_YIELD_VP`。 */
+  hitRegion?: Rectangle[];
   action: () => void;
 }
 
@@ -433,6 +435,8 @@ const DESKTOP_EMOJI_PANEL_TABS: EmojiPanelTab[] = EMOJI_PANEL_TABS.concat([
 // reads for system applications and this is not one.
 const CLIPBOARD_NOT_PERMITTED: string =
   '系统未授予读取剪贴板的权限，第三方输入法无法保存剪贴板历史。';
+// 不说「已在设置中关闭」：API 12 起键盘读的是自己沙箱里那份偏好，设置页的开关传不过来（platforms/harmony/README.md「输入法扩展的独立沙箱」），设置页显示开着时这句话就是错的。开关因此放在面板里，见 enableClipboardHistory。
+const CLIPBOARD_HISTORY_OFF: string = '剪贴板历史未开启';
 
 const CHINESE_SYMBOL_FACES: Map<string, string> = new Map<string, string>([
   [',', '，'], ['.', '。'], ['?', '？'], ['!', '！'], [';', '；'], [':', '：'],
@@ -615,6 +619,8 @@ struct KeyboardView {
   @State panelResetToken: number = 0;
   /** 九键数字层的排列，`NumberKeypadOrder` 的取值。 */
   @State numberKeypadOrder: string = KeyboardSession.shared.preferences().numberKeypadOrder;
+  /** 共享偏好 `touch_shuangpin_key_hints`：关掉时 26 键双拼的字母键不画声母/韵母提示。 */
+  @State shuangpinKeyHints: boolean = KeyboardSession.shared.preferences().shuangpinKeyHints;
 
   /** 按下的键变暗和缩小的程度：触屏上是设计稿的 .86 和 .96；2in1 上保持不变，它的设备形态在进程存续期间不会改变。 */
   private readonly keyPressedBrightness: number = KeyboardFormFactor.isDesktop() ? 1 : KEY_PRESSED_BRIGHTNESS;
@@ -698,7 +704,12 @@ struct KeyboardView {
     this.english = KeyboardSession.shared.isEnglish();
     this.clipboardEnabled = KeyboardSession.shared.clipboardHistoryAllowed();
     KeyboardSession.shared.onClipboardHistoryChanged = (enabled: boolean): void => {
+      const wasEnabled: boolean = this.clipboardEnabled;
       this.clipboardEnabled = enabled;
+      if (enabled && !wasEnabled) {
+        this.clips = KeyboardSession.shared.clipboardHistory();
+        this.clipboardNotice = '';
+      }
       if (!enabled) {
         this.clips = [];
         this.confirmingClear = false;
@@ -1025,7 +1036,7 @@ struct KeyboardView {
   /** The double-pinyin unit a key stands for, printed along its bottom edge while it means one. */
   private letterHint(letter: string): string {
     return ShuangpinKeyHintPolicy.hint(this.shuangpinProfile, letter, this.english,
-      this.engineScheme, this.localMode);
+      this.engineScheme, this.localMode, this.shuangpinKeyHints);
   }
 
   /**
@@ -1647,6 +1658,8 @@ struct KeyboardView {
     .justifyContent(FlexAlign.Center)
     .width('100%')
     .height('100%')
+    // 键面只负责画，不接收触摸：触摸归外层的键，由它的 `responseRegion` 决定。否则键面这一层按自己的键帽大小被命中，挡住伸进这块键帽的邻键（紧挨回车的中/英键），而外层的回车又不在自己的触摸区里，这一下就落空了。
+    .hitTestBehavior(HitTestMode.None)
   }
 
   /** A key that shares the row's spare width equally with its siblings. */
@@ -1696,7 +1709,7 @@ struct KeyboardView {
       offsetX: 0, offsetY: this.skin.shadowOffset })
     .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
     .animation({ duration: KEY_PRESS_MS })
-    .responseRegion(this.keyHitRegion())
+    .responseRegion($$.hitRegion ?? this.keyHitRegion())
     .onClick($$.action)
   }
 
@@ -1947,7 +1960,7 @@ struct KeyboardView {
     this.resetEmojiSearch();
     if (panel === CLIPBOARD_PANEL) {
       this.clips = this.clipboardEnabled ? KeyboardSession.shared.clipboardHistory() : [];
-      this.clipboardNotice = this.clipboardEnabled ? '' : '剪贴板历史已在设置中关闭';
+      this.clipboardNotice = this.clipboardEnabled ? '' : CLIPBOARD_HISTORY_OFF;
       this.confirmingClear = false;
       this.openCloudClipboard();
       return;
@@ -2007,6 +2020,15 @@ struct KeyboardView {
       this.emojiRecents = KeyboardSession.shared.emojiRecents();
       this.showEmojiPanel(this.emojiPanel);
     }
+  }
+
+  /** 长按底行的 123：在字母层直接打开符号面板，与点「符」键相同；符号层里那个键是返回，不响应长按。 */
+  private openSymbolsFromLayerKey(): void {
+    if (this.symbols) {
+      return;
+    }
+    KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+    this.openSymbolSurface();
   }
 
   private openSymbolSurface(): void {
@@ -2658,6 +2680,7 @@ struct KeyboardView {
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
     this.numberKeypadOrder = this.settings.numberKeypadOrder;
+    this.shuangpinKeyHints = this.settings.shuangpinKeyHints;
     // 取会话持有的副本而不是再读一次磁盘：会话在构建和每次获得焦点时读取，读不到时保留上次的值，视图跟着它就不会因一次读取失败把隐私模式等显示成关闭。
     this.feedback = KeyboardSession.shared.feedbackSettings();
     this.traditional = KeyboardSession.shared.usesTraditional();
@@ -2793,6 +2816,23 @@ struct KeyboardView {
     return this.hitRegion(halfKey, index === 0 ? halfRow : 0, halfKey, index === count - 1 ? halfRow : 0);
   }
 
+  /** 紧挨回车的中/英键：右侧伸过整个键距，再伸进回车键帽 `RETURN_YIELD_VP`，与 `returnKeyHitRegion` 正好相接。 */
+  private languageKeyHitRegion(): Rectangle[] {
+    const halfKey: number = this.keySpacing() / 2;
+    const halfRow: number = this.rowSpacing() / 2;
+    return this.hitRegion(halfKey, halfRow, this.keySpacing() + KeyboardGeometry.RETURN_YIELD_VP, halfRow);
+  }
+
+  /** 紧挨中/英键的回车键：触摸区整体右移 `RETURN_YIELD_VP`，左边让给中/英（`KeyboardGeometry.shiftedHitOffsets`）。 */
+  private returnKeyHitRegion(): Rectangle[] {
+    const halfRow: number = this.rowSpacing() / 2;
+    return KeyboardGeometry.shiftedHitOffsets(KeyboardGeometry.RETURN_YIELD_VP, halfRow, halfRow)
+      .map((offset: HitOffset): Rectangle => {
+        const rectangle: Rectangle = { x: offset.x, y: offset.y, width: '100%', height: '100%' };
+        return rectangle;
+      });
+  }
+
   private hitRegion(left: number, top: number, right: number, bottom: number): Rectangle[] {
     return KeyboardGeometry.hitOffsets(left, top, right, bottom).map((offset: HitOffset): Rectangle => {
       const rectangle: Rectangle = { x: offset.x, y: offset.y, width: '100%', height: '100%' };
@@ -2863,7 +2903,7 @@ struct KeyboardView {
     // and the digit layer would go on reading ABC, DEF, GHI. The twenty-six key rows never needed it
     // because their two layers hold different characters.
     // 大小写不在这里：字母键的键面和读屏文字在绘制时按大小写现算（见 `KeyOptions.letter`），自动大写切换时键节点保持不变，正按着的键不会被重建。
-    return `${this.english}:${this.localMode}:${this.shuangpinProfile}:`
+    return `${this.english}:${this.localMode}:${this.shuangpinProfile}:${this.shuangpinKeyHints}:`
       + `${this.engineScheme}:${this.scheme.preferenceId}:${this.symbols}:${this.moreSymbols}:`
       + `${this.skin.key()}`;
   }
@@ -4187,17 +4227,22 @@ struct KeyboardView {
   @Builder
   nineKeyActionRow() {
     Row({ space: this.keySpacing() }) {
-      this.fixedKey({
-        face: this.symbols ? '九键' : '123',
-        label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
-        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-        fontWeight: FUNCTION_LABEL_WEIGHT,
-        emphasized: false,
-        special: true,
-        width: 0,
-        share: LAYER_SHARE,
-        action: () => this.toggleSymbolLayer()
-      });
+      // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。
+      Column() {
+        this.fixedKey({
+          face: this.symbols ? '九键' : '123',
+          label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
+          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+          fontWeight: FUNCTION_LABEL_WEIGHT,
+          emphasized: false,
+          special: true,
+          width: '100%',
+          action: () => this.toggleSymbolLayer()
+        });
+      }
+      .layoutWeight(LAYER_SHARE)
+      .height('100%')
+      .gesture(LongPressGesture().onAction(() => this.openSymbolsFromLayerKey()))
       this.spaceKey(true, NINE_KEY_SPACE_SHARE);
       this.fixedKey({
         face: '0',
@@ -4217,12 +4262,13 @@ struct KeyboardView {
         special: true,
         width: 0,
         share: LANGUAGE_SHARE,
+        hitRegion: this.languageKeyHitRegion(),
         action: () => {
           KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_LANGUAGE);
           this.toggleTouchLanguage();
         }
       });
-      this.designReturnKey(NINE_KEY_RETURN_SHARE);
+      this.designReturnKey(NINE_KEY_RETURN_SHARE, true);
     }
     .width('100%')
     .height(this.rowHeight(3))
@@ -4498,17 +4544,22 @@ struct KeyboardView {
   @Builder
   designActionRow() {
     Row({ space: this.keySpacing() }) {
-      this.fixedKey({
-        face: this.symbols ? '返回' : '123',
-        label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
-        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-        fontWeight: FUNCTION_LABEL_WEIGHT,
-        emphasized: false,
-        special: true,
-        width: 0,
-        share: LAYER_SHARE,
-        action: () => this.toggleSymbolLayer()
-      });
+      // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。
+      Column() {
+        this.fixedKey({
+          face: this.symbols ? '返回' : '123',
+          label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
+          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+          fontWeight: FUNCTION_LABEL_WEIGHT,
+          emphasized: false,
+          special: true,
+          width: '100%',
+          action: () => this.toggleSymbolLayer()
+        });
+      }
+      .layoutWeight(LAYER_SHARE)
+      .height('100%')
+      .gesture(LongPressGesture().onAction(() => this.openSymbolsFromLayerKey()))
       Column() {
         this.fixedKey({
           face: this.chinesePunctuationFaces() ? '，' : ',',
@@ -4545,20 +4596,21 @@ struct KeyboardView {
         special: true,
         width: 0,
         share: LANGUAGE_SHARE,
+        hitRegion: this.languageKeyHitRegion(),
         action: () => {
           KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_LANGUAGE);
           this.toggleTouchLanguage();
         }
       });
-      this.designReturnKey(RETURN_SHARE);
+      this.designReturnKey(RETURN_SHARE, true);
     }
     .width('100%')
     .height(this.rowHeight(3))
   }
 
-  /** 触屏键盘的回车键，无论显示什么都用操作色：回车箭头、编辑框的动作词，或有组合时的「确认」。 */
+  /** 触屏键盘的回车键，无论显示什么都用操作色：回车箭头、编辑框的动作词，或有组合时的「确认」。`besideLanguage` 为真时它左边紧挨中/英键，两者的触摸分界挪进回车键帽（`returnKeyHitRegion`）。 */
   @Builder
-  designReturnKey(share: number) {
+  designReturnKey(share: number, besideLanguage: boolean) {
     this.fixedKey({
       face: this.returnFace(),
       label: KeyAccessibilityPolicy.returnKey(this.returnFace()),
@@ -4568,6 +4620,7 @@ struct KeyboardView {
       width: 0,
       share: share,
       icon: this.returnUsesIcon() ? KeyboardIconPaths.RETURN : '',
+      hitRegion: besideLanguage ? this.returnKeyHitRegion() : undefined,
       action: () => this.activateReturn()
     });
   }
@@ -4840,7 +4893,7 @@ struct KeyboardView {
   private openClipboard(): void {
     this.show(SURFACE_CLIPBOARD);
     this.clips = this.clipboardEnabled ? KeyboardSession.shared.clipboardHistory() : [];
-    this.clipboardNotice = this.clipboardEnabled ? '' : '剪贴板历史已在设置中关闭';
+    this.clipboardNotice = this.clipboardEnabled ? '' : CLIPBOARD_HISTORY_OFF;
     this.confirmingClear = false;
     this.openCloudClipboard();
   }
@@ -5031,7 +5084,7 @@ struct KeyboardView {
    */
   private captureClipboard(): void {
     if (!this.clipboardEnabled) {
-      this.clipboardNotice = '剪贴板历史已在设置中关闭';
+      this.clipboardNotice = CLIPBOARD_HISTORY_OFF;
       return;
     }
     KeyboardSession.shared.canReadClipboard().then((allowed: boolean): void => {
@@ -5267,9 +5320,18 @@ struct KeyboardView {
     }.width('100%').height(this.surfaceHeight())
   }
 
+  /** 面板里的「开启」：写键盘自己的那份偏好。写成功后会话回调 onClipboardHistoryChanged，列表和提示在那里换上。 */
+  private enableClipboardHistory(): void {
+    const changes: Map<string, Object> = new Map<string, Object>();
+    changes.set('clipboard_history', true);
+    if (!KeyboardSession.shared.changePreferences(changes)) {
+      this.clipboardNotice = '没能开启剪贴板历史，请稍后再试';
+    }
+  }
+
   private storeClipboardText(): void {
     if (!this.clipboardEnabled) {
-      this.clipboardNotice = '剪贴板历史已在设置中关闭';
+      this.clipboardNotice = CLIPBOARD_HISTORY_OFF;
       return;
     }
     if (!KeyboardSession.shared.clipboardCaptureAllowed()) {
@@ -5386,6 +5448,7 @@ struct KeyboardView {
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
     this.numberKeypadOrder = this.settings.numberKeypadOrder;
+    this.shuangpinKeyHints = this.settings.shuangpinKeyHints;
     KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
       this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
       this.settings.candidateFontSize, this.settings.candidatePreeditFontSize));
@@ -5463,7 +5526,7 @@ struct KeyboardView {
   private applyClipboardMutation(result: ClipboardHistoryMutation): void {
     if (!this.clipboardEnabled) {
       this.clips = [];
-      this.clipboardNotice = '剪贴板历史已在设置中关闭';
+      this.clipboardNotice = CLIPBOARD_HISTORY_OFF;
       this.show(SURFACE_NONE);
       return;
     }
@@ -6260,7 +6323,9 @@ struct KeyboardView {
    * 「输入方式」选择器的条目顺序：用户启用的方案，两种英文模式排第三，与 iOS 的位置相同（启用的方案较少时排最后），末尾是「添加语言」。
    */
   private schemePickerEntries(): SchemePickerEntry[] {
-    const schemes: SchemeDefinition[] = this.offeredSchemes();
+    // 双拼只列用户设置的那一种（#6450）。
+    const schemes: SchemeDefinition[] = KeyboardScheme.pickerSchemes(this.offeredSchemes(), this.scheme,
+      this.settings.shuangpinProfile);
     const entries: SchemePickerEntry[] = [];
     const englishAt: number = Math.min(ENGLISH_CARD_POSITION, schemes.length);
     for (let index: number = 0; index <= schemes.length; index++) {
@@ -7556,13 +7621,23 @@ struct KeyboardView {
         .layoutWeight(1)
       } else {
         if (this.clipboardNotice.length > 0) {
-          Text(this.clipboardNotice)
-            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(this.clipboardSkin().secondary)
-            .maxLines(2)
-            .width('100%')
-            .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-              right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+          Row({ space: CLIP_HEADER_ACTION_GAP_VP }) {
+            Text(this.clipboardNotice)
+              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+              .fontColor(this.clipboardSkin().secondary)
+              .maxLines(2)
+              .layoutWeight(1)
+            if (!this.clipboardEnabled) {
+              Text('开启')
+                .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+                .fontColor(this.clipboardSkin().accent)
+                .accessibilityText('开启剪贴板历史')
+                .onClick(() => this.enableClipboardHistory())
+            }
+          }
+          .width('100%')
+          .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+            right: KeyboardMetrics.CANDIDATE_PADDING_VP })
         }
 
         if (this.emojiQuery.length > 0 && this.visibleClips().length === 0) {
@@ -8874,7 +8949,7 @@ struct KeyboardView {
         });
       }
       this.spaceKey(true, NumberSymbolLayout.SPACE_WEIGHT);
-      this.designReturnKey(NumberSymbolLayout.RETURN_WEIGHT);
+      this.designReturnKey(NumberSymbolLayout.RETURN_WEIGHT, false);
     }
     .width('100%')
     .height(this.rowHeight(3))

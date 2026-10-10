@@ -211,7 +211,7 @@ fn copy_database(source: &Path, target: &Path) -> Result<()> {
         )));
     }
     let copied = (|| -> rusqlite::Result<StepResult> {
-        let source = crate::paths::sqlite_path_no_follow(source)
+        let source = crate::paths::sqlite_read_only_path_no_follow(source)
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
         let target = crate::paths::sqlite_path_no_follow(target)
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
@@ -283,7 +283,7 @@ pub(crate) fn merge_split_wubi(resources: &Path, main_db: &Path) -> Result<()> {
         return Ok(());
     }
     let merged = (|| -> rusqlite::Result<()> {
-        let source = crate::paths::sqlite_path_no_follow(&source)
+        let source = crate::paths::sqlite_read_only_path_no_follow(&source)
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
         let main_db = crate::paths::sqlite_path_no_follow(main_db)
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;

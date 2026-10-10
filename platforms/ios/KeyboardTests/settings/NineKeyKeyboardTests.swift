@@ -1088,6 +1088,29 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  /// 面板里的双拼只列一种（#6450）：选中的双拼优先，其次是文档里的 `shuangpin_profile`，都不在列表里时取列表里第一种双拼；其余方案原样保留，与 Android、鸿蒙相同。
+  func testSchemePickerListsOnlyTheConfiguredShuangpin() {
+    let all = ChineseInputScheme.allCases
+    func only(_ kept: ChineseInputScheme) -> [ChineseInputScheme] { all.filter { $0.shuangpinProfile == nil || $0 == kept } }
+    XCTAssertEqual(InputSchemePreference.pickerSchemes(all, selected: .quanpin, shuangpinProfile: nil), only(.shuangpin))
+    XCTAssertEqual(InputSchemePreference.pickerSchemes(all, selected: .quanpin, shuangpinProfile: "future"), only(.shuangpin))
+    XCTAssertEqual(InputSchemePreference.pickerSchemes(all, selected: .wubi, shuangpinProfile: "microsoft"), only(.microsoft))
+    XCTAssertEqual(InputSchemePreference.pickerSchemes(all, selected: .shoudao, shuangpinProfile: "ziranma"), only(.shoudao))
+    let partial: [ChineseInputScheme] = [.quanpin, .ziranma, .shoudao, .handwriting]
+    XCTAssertEqual(InputSchemePreference.pickerSchemes(partial, selected: .quanpin, shuangpinProfile: "xiaohe"), [.quanpin, .ziranma, .handwriting])
+    XCTAssertEqual(InputSchemePreference.pickerSchemes(partial, selected: .shuangpin, shuangpinProfile: "xiaohe"), [.quanpin, .ziranma, .handwriting])
+    XCTAssertEqual(InputSchemePreference.pickerSchemes([.quanpin, .wubi], selected: nil, shuangpinProfile: "microsoft"), [.quanpin, .wubi])
+
+    // 默认启用的方案下只剩五张方案卡片，键盘里再加英文和「添加语言」共七格，手机一页 4 × 2 放得下，手写不再被挤到第二页。
+    let enabled = InputSchemePreference.enabledSchemes
+    defer { InputSchemePreference.enabledSchemes = enabled }
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey, .shuangpin, .ziranma, .microsoft, .shoudao, .wubi, .handwriting]
+    let picker = KeyboardSchemePickerView(selected: .quanpin, shuangpinProfile: "ziranma", onSelect: { _ in }, onClose: {})
+    let cards = descendants(picker).compactMap(\.accessibilityIdentifier).filter { $0.hasPrefix("schemeCard-") }
+    XCTAssertEqual(Set(cards), ["schemeCard-quanpin", "schemeCard-nineKey", "schemeCard-ziranma", "schemeCard-wubi", "schemeCard-handwriting"])
+    XCTAssertLessThanOrEqual(cards.count + 2, 8)
+  }
+
   func testSchemeCardsSelectAndKeepKeyboardHeight() throws {
     let enabled = InputSchemePreference.enabledSchemes
     defer { InputSchemePreference.enabledSchemes = enabled }
@@ -1098,6 +1121,9 @@ final class NineKeyKeyboardTests: XCTestCase {
     let offered = InputSchemePreference.offeredSchemes
     let withheld = ChineseInputScheme.allCases.filter { !offered.contains($0) }
     XCTAssertTrue(withheld.allSatisfy(\.needsLanguageDictionary), "only a scheme whose dictionary is missing may be left off: \(withheld)")
+    // 双拼只列一种（#6450），由上面的 `testSchemePickerListsOnlyTheConfiguredShuangpin` 检查是哪一种；这里只数张数。
+    let shuangpin = offered.filter { $0.shuangpinProfile != nil }
+    let listed = offered.filter { $0.shuangpinProfile == nil }
     for width in [320.0, 414.0] {
       // 上一轮点全拼卡片时键盘把选择记进了共享文档，新建的键盘按文档行事，所以从 9 键开始要像设置页那样写进文档，只改镜像不够。
       XCTAssertTrue(InputSchemePreference.select(.nineKey))
@@ -1110,7 +1136,11 @@ final class NineKeyKeyboardTests: XCTestCase {
       let picker = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSchemePicker" } as? KeyboardSchemePickerView)
       try assertInKeyArea(picker, of: controller)
       XCTAssertTrue(try XCTUnwrap(try button("schemeButton", in: controller) as? KeyboardToolbarButton).isActive)
-      for scheme in offered {
+      let shownShuangpin = shuangpin.filter { scheme in
+        descendants(controller.view).contains { $0.accessibilityIdentifier == "schemeCard-\(scheme.rawValue)" }
+      }
+      XCTAssertEqual(shownShuangpin.count, shuangpin.isEmpty ? 0 : 1)
+      for scheme in listed + shownShuangpin {
         let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
         XCTAssertGreaterThanOrEqual(card.bounds.width, 60)
         XCTAssertEqual(card.bounds.height, KeyboardSchemeTileView.height, accuracy: 0.5)
@@ -1119,7 +1149,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "schemeCard-\(scheme.rawValue)" }, scheme.rawValue)
       }
       // 每张卡片都在选择器的高度之内，落在其中某一页上。
-      for scheme in offered {
+      for scheme in listed + shownShuangpin {
         let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
         XCTAssertLessThanOrEqual(card.convert(card.bounds, to: picker).maxY, picker.bounds.height + 0.5, scheme.rawValue)
       }
@@ -2233,6 +2263,99 @@ final class NineKeyKeyboardTests: XCTestCase {
     _ = bridge.cancel()
   }
 
+  /// 「双拼键位提示」关掉后，双拼 26 键的字母键不画提示：提示行隐藏、字母不再为它让出下边距，读屏也不再读它。
+  func testTheShuangpinKeyHintSwitchDropsTheHintLineAndItsReading() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousHints = KeyboardLayoutPreference.shuangpinKeyHints
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      KeyboardLayoutPreference.shuangpinKeyHints = previousHints
+    }
+    InputSchemePreference.scheme = .shuangpin
+
+    func letterU(hints: Bool) throws -> (button: UIButton, controller: KeyboardViewController) {
+      KeyboardLayoutPreference.shuangpinKeyHints = hints
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.view.layoutIfNeeded()
+      let button = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 U" } as? UIButton)
+      return (button, controller)
+    }
+    // 提示行是直接加在按键上的 9pt 标签，见 `attachHintLabel`。
+    func hintLabel(of button: UIButton) throws -> UILabel {
+      try XCTUnwrap(button.subviews.compactMap { $0 as? UILabel }.first { $0.font.pointSize == 9 })
+    }
+
+    let shown = try letterU(hints: true)
+    let reading = try XCTUnwrap(shown.button.accessibilityValue, "shuangpin labels U by default")
+    XCTAssertFalse(reading.isEmpty)
+    XCTAssertEqual(try hintLabel(of: shown.button).text, reading)
+    XCTAssertFalse(try hintLabel(of: shown.button).isHidden)
+    XCTAssertEqual(shown.button.configuration?.contentInsets.bottom, 11)
+
+    let hidden = try letterU(hints: false)
+    XCTAssertNil(hidden.button.accessibilityValue, "VoiceOver no longer reads the hint")
+    XCTAssertTrue(try hintLabel(of: hidden.button).isHidden)
+    XCTAssertEqual(hidden.button.configuration?.contentInsets.bottom, 0, "the letter drops back to the centre")
+    XCTAssertEqual(hidden.button.accessibilityLabel, "字母 U")
+  }
+
+  /// 键盘开着时在设置里切换「双拼键位提示」：键盘再次出现时从共享文档同步，已经画好的字母键当场跟着收回或画回提示，不必重建键盘。这里只改共享文档、不动 App Group 镜像，走的是 `synchronizeSharedTouchPreferences` 这条路。
+  func testTheShuangpinKeyHintSwitchReachesAKeyboardThatIsAlreadyShown() throws {
+    let key = KeyboardLayoutPreference.shuangpinKeyHintsDocumentKey
+    let previousScheme = InputSchemePreference.scheme
+    let previousHints = KeyboardLayoutPreference.shuangpinKeyHints
+    let previousDocument = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences())
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = previousDocument }
+      KeyboardLayoutPreference.shuangpinKeyHints = previousHints
+    }
+    InputSchemePreference.scheme = .shuangpin
+    KeyboardLayoutPreference.shuangpinKeyHints = true
+    // 文档里的方案要和键盘一致：会话重读文档后按 Engine 视图里的方案取提示表，文档还写着全拼时表是空的，开关打开也画不出提示。真实使用中用户选了双拼，文档里就是双拼。
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { document in
+      document["scheme"] = "shuangpin"
+      document["last_chinese_scheme"] = "shuangpin"
+      document["shuangpin_profile"] = "xiaohe"
+      document[key] = true
+    })
+
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.layoutIfNeeded()
+    let letterU = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 U" } as? UIButton)
+    // 提示行是直接加在按键上的 9pt 标签，见 `attachHintLabel`。
+    let hintLine = try XCTUnwrap(letterU.subviews.compactMap { $0 as? UILabel }.first { $0.font.pointSize == 9 })
+    XCTAssertFalse(hintLine.isHidden)
+    XCTAssertNotNil(letterU.accessibilityValue)
+
+    // 共享文档在后台线程读入、回到主线程应用，所以按条件轮询，不按固定时长等待。
+    func appear(until done: () -> Bool) {
+      controller.viewWillAppear(false)
+      let deadline = Date().addingTimeInterval(15)
+      while !done() && Date() < deadline {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+      }
+    }
+
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = false })
+    appear { hintLine.isHidden }
+    XCTAssertTrue(hintLine.isHidden, "the keyboard kept drawing hints after the switch was turned off")
+    XCTAssertNil(letterU.accessibilityValue, "VoiceOver still reads the hint")
+    XCTAssertEqual(letterU.configuration?.contentInsets.bottom, 0)
+    XCTAssertFalse(KeyboardLayoutPreference.shuangpinKeyHints, "the App Group mirror follows the document")
+
+    // 再打开：同一个键盘画回提示。这一步也确认上面收回提示不是因为方案被同步成了全拼。
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = true })
+    appear { !hintLine.isHidden }
+    XCTAssertFalse(hintLine.isHidden, "the keyboard did not draw the hints again after the switch was turned on")
+    XCTAssertNotNil(letterU.accessibilityValue)
+    XCTAssertEqual(letterU.configuration?.contentInsets.bottom, 11)
+  }
+
   func testAdditionalShuangpinProfilesAndKeyHints() throws {
     let bridge = MetasequoiaInputSessionBridge()
     for (profile, input) in [("ziranma", "nihk"), ("microsoft", "nihk"), ("shoudao", "nihd"), ("xiaohe", "nihc")] {
@@ -2380,7 +2503,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     let nine = try button("nineKey6", in: controller)
     XCTAssertFalse(try XCTUnwrap(nine.superview).isHidden)
     try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(descendants(controller.view).filter { $0.accessibilityIdentifier?.hasPrefix("schemeCard-") == true }.count, InputSchemePreference.offeredSchemes.count)
+    // 双拼只列一种（#6450）。
+    let offered = InputSchemePreference.offeredSchemes
+    let extraShuangpin = max(0, offered.filter { $0.shuangpinProfile != nil }.count - 1)
+    XCTAssertEqual(descendants(controller.view).filter { $0.accessibilityIdentifier?.hasPrefix("schemeCard-") == true }.count, offered.count - extraShuangpin)
     // 高亮的 输入方式 图标关闭它自己的选择器。
     try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
     for digit in "64426" {

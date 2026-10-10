@@ -4,6 +4,8 @@ import { SliderRow } from "./slider-row";
 export interface CandidatePageSizeSectionProps {
   value: number;
   fixed: boolean;
+  /** 宿主能排的最大每页候选数（`HostCapabilities.max_candidate_page_size`），缺省为 9。 */
+  max?: number;
   onChange: (value: number) => void;
 }
 
@@ -11,10 +13,11 @@ export interface CandidatePageSizeSectionProps {
 export function CandidatePageSizeSection({
   value,
   fixed,
+  max,
   onChange,
 }: CandidatePageSizeSectionProps) {
   if (fixed) return null;
-  const sizes = offeredCandidatePageSizes(value);
+  const sizes = offeredCandidatePageSizes(value, max);
   return (
     <SliderRow
       title="每页候选项数量"

@@ -13,6 +13,7 @@ export type HelpcodeSchema =
   | "shouyouplus"
   | "xiaohe"
   | "jiajia"
+  | "wubi86"
   | `custom/${string}`;
 
 /** Metadata for a helper-code table discovered below the host's resource directory. */
@@ -67,6 +68,7 @@ const helpcodeSchemas: readonly (readonly [HelpcodeSchema, string])[] = [
   ["shouyouplus", "首右plus"],
   ["xiaohe", "小鹤"],
   ["jiajia", "加加"],
+  ["wubi86", "五笔 86"],
 ];
 
 function customSchemaLabel(schema: CustomHelpcodeSchema): string {

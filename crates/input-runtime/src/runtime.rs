@@ -85,6 +85,10 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) snapshot_valid: bool,
     pub(crate) character_width: CharacterWidth,
     pub(crate) touch_keyboard_layout: TouchKeyboardLayout,
+    /// 整个候选列表只给出一个词的完整五笔码，是否在第四键提交。
+    ///
+    /// *什么*算这种码由 Engine 判定（[`EngineSnapshot::wubi_unique_four_code`]）；提交它是宿主的事，因为提交要跨过平台自己的组字边界。只有用户要求时才关：关了以后词和其他候选一样留在候选列表里，由空格或数字键选走。
+    pub(crate) wubi_auto_commit_unique: bool,
     /// Whether the host draws a half-composed phrase itself instead of having it committed.
     ///
     /// Picking a candidate that consumes only part of the input leaves the Engine composing the
@@ -301,6 +305,9 @@ impl Runtime<Session> {
         {
             return Ok(false);
         }
+        if self.generation == u64::MAX {
+            return Err(RuntimeError::IdentityExhausted);
+        }
         let applied = self
             .engine
             .apply_online_candidate(&query, candidate, source)
@@ -391,6 +398,9 @@ impl Runtime<Session> {
                 "invalid online candidate source".into(),
             ));
         }
+        if self.generation == u64::MAX {
+            return Err(RuntimeError::IdentityExhausted);
+        }
         self.engine
             .clear_online_candidates(source)
             .map_err(|error| RuntimeError::Engine(error.to_string()))?;
@@ -417,6 +427,9 @@ impl Runtime<Session> {
             || (source == 1 && !query.ai_eligible)
         {
             return Ok(false);
+        }
+        if self.generation == u64::MAX {
+            return Err(RuntimeError::IdentityExhausted);
         }
         let applied = self
             .engine
@@ -466,6 +479,17 @@ impl<E: InputEngine> Runtime<E> {
         self.refresh()
     }
 
+    /// 整个候选列表只回一个词的完整五笔码，是否在第四键提交。
+    ///
+    /// 这是宿主状态而不是 Engine 状态：它决定本 runtime 要不要执行提交，所以组字中途改也安全，不需要重建 Engine。下一键生效，因此已经打进组字的四码不会因为把开关关掉而自己上屏。
+    pub fn set_wubi_auto_commit_unique(&mut self, enabled: bool) {
+        self.wubi_auto_commit_unique = enabled;
+    }
+
+    pub fn wubi_auto_commit_unique(&self) -> bool {
+        self.wubi_auto_commit_unique
+    }
+
     /// Hand the Engine a new `/` command table. An open command list is rebuilt from it, so the view is refreshed.
     pub fn set_command_table(&mut self, table: &[CommandTableEntry]) -> Result<(), RuntimeError> {
         self.advance()?;
@@ -513,7 +537,7 @@ impl<E: InputEngine> Runtime<E> {
         page_size: u8,
         touch_keyboard_layout: TouchKeyboardLayout,
     ) -> Result<Self, RuntimeError> {
-        if !(1..=9).contains(&page_size) {
+        if !(1..=MAX_CANDIDATE_PAGE_SIZE).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
         }
         let session = NEXT_SESSION
@@ -540,6 +564,7 @@ impl<E: InputEngine> Runtime<E> {
             snapshot_valid: true,
             character_width: CharacterWidth::Halfwidth,
             touch_keyboard_layout,
+            wubi_auto_commit_unique: true,
             phrase_preedit: false,
             phrase_prefix: String::new(),
             phrase_selections: Vec::new(),
@@ -916,6 +941,9 @@ impl<E: InputEngine> Runtime<E> {
         {
             return Ok(false);
         }
+        if self.generation == u64::MAX {
+            return Err(RuntimeError::IdentityExhausted);
+        }
         let request = CommandTranslationQuery {
             session_id: query.session_id,
             text: query.text.clone(),
@@ -954,7 +982,7 @@ impl<E: InputEngine> Runtime<E> {
 
     /// Presentation-only resize; a live composition keeps its numeric key map.
     pub fn set_page_size(&mut self, page_size: u8) -> Result<(), RuntimeError> {
-        if !(1..=9).contains(&page_size) {
+        if !(1..=MAX_CANDIDATE_PAGE_SIZE).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
         }
         if self.page_size == usize::from(page_size) {
@@ -980,7 +1008,7 @@ impl<E: InputEngine> Runtime<E> {
         page_size: u8,
         touch_keyboard_layout: TouchKeyboardLayout,
     ) -> Result<(), RuntimeError> {
-        if !(1..=9).contains(&page_size) {
+        if !(1..=MAX_CANDIDATE_PAGE_SIZE).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
         }
         if !self.is_idle() {
@@ -1592,13 +1620,24 @@ impl<E: InputEngine> Runtime<E> {
             && !self.cached.dedicated_english
             && self.cached.local_mode == "none"
             && !self.cached.editing_text.is_empty();
+        let commit_context = self.output_context();
         let result = if commits_on_blur {
             self.engine.finish(0)
         } else {
             self.discard_composition()
         };
-        self.refresh()?;
+        let may_commit = result
+            .as_ref()
+            .is_ok_and(|result| result.has_commit || (!focused && !self.phrase_prefix.is_empty()));
+        let refresh_error = match self.refresh() {
+            Ok(()) => None,
+            Err(error) if may_commit => Some(error),
+            Err(error) => return Err(error),
+        };
         let mut result = result?;
+        if let Some(error) = refresh_error {
+            result.diagnostic = format!("Candidate refresh failed: {error}");
+        }
         // Leaving the client cancels the composition, but a phrase piece being held back is text
         // the user chose and, before it was held back, would already be in the document. Send it.
         self.hold_phrase_progress(false, false, false, "", &mut result);
@@ -1609,7 +1648,11 @@ impl<E: InputEngine> Runtime<E> {
         self.ai_context.clear();
         self.engine.set_rescoring_context("");
         self.engine.reset_context();
-        Ok(self.transition(result))
+        let mut transition = self.transition(result);
+        if transition.commit.is_some() {
+            transition.commit_context = Some(commit_context);
+        }
+        Ok(transition)
     }
 
     /// 丢弃组字。Cancel 对应用户按 Esc，有些方案里第一次 Cancel 会保留组字：开着可打开的候选列表（韩文汉字列表）时只关闭列表，越南文单词和藏文音节则退回原始按键。这时再发一次 Cancel 才把组字也丢掉。
@@ -1688,7 +1731,7 @@ impl<E: InputEngine> Runtime<E> {
         let spells = self.cached.local_mode != "none"
             || (self.phrase_prefix.is_empty()
                 && scheme_type(self.cached.scheme)
-                    .is_some_and(|scheme| !scheme.opens_local_modes()));
+                    .is_some_and(|scheme| !scheme.opens_table_modes()));
         // 字面标点路由刻意不进入网址模式：组字 `www` 时引擎在 `spelling_symbols` 里列出 `.`，但宿主在这条路由上要的是字面符号，所以这里不收，照常结束组字再接上 `.`（列出但不接受的例外）。
         if spells && self.cached.spelling_symbols.as_bytes().contains(&value) {
             return self.engine.character(value, false);
@@ -1856,11 +1899,24 @@ impl<E: InputEngine> Runtime<E> {
             // A bare `/` or `@` flushes as the literal prefix, as on the punctuation routes; finishing would commit the list's first row.
             Action::Finish if self.bare_mode_prefix() => self.engine.command(Command::CommitRaw),
             Action::Finish => self.engine.finish(self.engine_index(self.highlighted)),
+            // The key that tops the code is never lost: what the Engine commits for it goes out after the word, and a key it lets go (a capital that opens no mode, Shift+K with the K mode off) goes out as the literal letter, as `literal_mark` sends a mark behind a held phrase, since the host has already been told the key was handled.
             Action::Character { value, shift } if wubi_top_commit => self
                 .engine
                 .select(self.engine_index(0))
-                .and_then(|committed| {
-                    self.engine.character(value, shift)?;
+                .and_then(|mut committed| {
+                    let next = self.engine.character(value, shift)?;
+                    let tail = if next.has_commit {
+                        next.commit
+                    } else if !next.handled {
+                        char::from(value).to_string()
+                    } else {
+                        String::new()
+                    };
+                    if !tail.is_empty() {
+                        committed.commit.push_str(&tail);
+                        committed.handled = true;
+                        committed.has_commit = true;
+                    }
                     Ok(committed)
                 }),
             // A symbol that would open a mode behind a held phrase piece ends the phrase as punctuation instead, as on the punctuation route.
@@ -1890,18 +1946,19 @@ impl<E: InputEngine> Runtime<E> {
                         return self.engine.select(self.engine_index(self.highlighted));
                     }
                     // Let Engine consume numeric input (Unicode mode, nine-key, etc.) first. A result that already committed (a Korean syllable the digit ended) is final: selecting now would replace that commit and lose the text. A digit the scheme spells with (a Zhuyin tone or phonetic key) is never a pick, even one the Engine let go: Zhuyin leaves 1-9 to selection only while its list is open, when they are not spelling symbols, so `0` there stays ㄢ.
+                    let Some(slot) = candidate_digit_slot(value, self.page_size) else {
+                        return Ok(result);
+                    };
                     if result.handled
                         || result.has_commit
                         || (self.cached.local_mode == "none"
                             && self.cached.spelling_symbols.as_bytes().contains(&value))
                         || self.cached.nine_key
-                        || !(b'1'..=b'9').contains(&value)
                         || len == 0
                     {
                         return Ok(result);
                     }
                     let page_start = (self.highlighted / self.page_size) * self.page_size;
-                    let slot = usize::from(value - b'1');
                     if slot >= self.page_size || page_start + slot >= len {
                         return Ok(empty_result(true));
                     }
@@ -1955,10 +2012,7 @@ impl<E: InputEngine> Runtime<E> {
         // says otherwise.
         let needs_commit_context = result.as_ref().is_ok_and(|result| result.has_commit)
             || !self.phrase_prefix.is_empty()
-            || (character_action
-                && self.snapshot_valid
-                && self.cached.wubi_unique_four_code
-                && self.phrase_prefix.is_empty());
+            || self.wubi_should_auto_commit(character_action);
         let commit_context = needs_commit_context.then(|| self.output_context());
         let refresh = self.refresh();
         let mut result = result?;
@@ -1970,11 +2024,7 @@ impl<E: InputEngine> Runtime<E> {
         // the same fourth-key behavior here; platform adapters only decide how that commit crosses
         // their native composition boundary. A held phrase is still being assembled and must stay
         // open, matching the reference's creating-word guard.
-        if character_action
-            && self.snapshot_valid
-            && self.cached.wubi_unique_four_code
-            && self.phrase_prefix.is_empty()
-        {
+        if self.wubi_should_auto_commit(character_action) {
             result = self.engine.select(self.engine_index(0))?;
             if let Err(error) = self.refresh() {
                 result.diagnostic = format!("Candidate refresh failed: {error}");
@@ -2006,6 +2056,15 @@ impl<E: InputEngine> Runtime<E> {
         }
         Ok(transition)
     }
+
+    /// 本次按键是否以唯一五笔候选被提交收尾。读缓存快照，所以 refresh 前后的两处调用会故意看到不同代。
+    fn wubi_should_auto_commit(&self, character_action: bool) -> bool {
+        self.wubi_auto_commit_unique
+            && character_action
+            && self.snapshot_valid
+            && self.cached.wubi_unique_four_code
+            && self.phrase_prefix.is_empty()
+    }
 }
 
 /// `value` committed as it is, for a mark that has to leave together with a held phrase piece.
@@ -2015,6 +2074,15 @@ fn literal_mark(value: u8, diagnostic: String) -> EngineResult {
         has_commit: true,
         commit: char::from(value).to_string(),
         diagnostic,
+    }
+}
+
+/// 数字键在当前页里选的格子：`1`–`9` 是前九格；`0` 只在每页十个时选第十格，每页不到十个时它不是选词键，照旧交回去。
+fn candidate_digit_slot(value: u8, page_size: usize) -> Option<usize> {
+    match value {
+        b'1'..=b'9' => Some(usize::from(value - b'1')),
+        b'0' if page_size >= usize::from(MAX_CANDIDATE_PAGE_SIZE) => Some(9),
+        _ => None,
     }
 }
 

@@ -281,6 +281,15 @@ struct ResolvedTheme: Equatable {
   private static let lock = NSLock()
   private static var cache: [Data: ResolvedTheme] = [:]
 
+  /// Theme responses can retain custom skin metadata and photo bytes. A keyboard extension has a
+  /// much smaller memory budget than the containing app, so discard reusable resolutions when UIKit
+  /// reports pressure; the next appearance resolves the active theme again.
+  static func clearCacheForMemoryPressure() {
+    lock.lock()
+    cache.removeAll(keepingCapacity: false)
+    lock.unlock()
+  }
+
   /// Resolve `globalTheme` over `customTheme` (the document's `custom_theme` object) for the horizontal strip. Reads the package from disk when the custom theme names one, so call it when the theme, the mode or the package changes and keep the answer, never while drawing.
   static func resolve(globalTheme: String, customTheme: [String: Any]?, dark: Bool,
                       skinsRoot: URL? = ExternalCandidateSkin.defaultRoot) -> ResolvedTheme? {

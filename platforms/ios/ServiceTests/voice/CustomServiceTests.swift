@@ -320,6 +320,34 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertThrowsError(try AppServicesBridge.parseResponse(Data("{\"error\":\"private\"}".utf8), voice: false))
   }
 
+  func testBailianSendsTheRecordingAsChatAudioAndReadsTheMessage() throws {
+    XCTAssertTrue(VoiceProviderPreset.bailian.usesChatAudio)
+    XCTAssertFalse(VoiceProviderPreset.openAI.usesChatAudio)
+    XCTAssertEqual(VoiceProviderPreset.bailian.endpoint,
+                   "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+    XCTAssertEqual(VoiceProviderPreset.bailian.models.first, "qwen3-asr-flash")
+    let wav = Data([0x52, 0x49, 0x46, 0x46])
+    let body = try AppServicesBridge.chatAudioBody(wav, model: "qwen3-asr-flash")
+    let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    XCTAssertEqual(json["model"] as? String, "qwen3-asr-flash")
+    XCTAssertEqual(json["stream"] as? Bool, false)
+    let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
+    XCTAssertEqual(messages.count, 1)
+    let part = try XCTUnwrap((messages[0]["content"] as? [[String: Any]])?.first)
+    XCTAssertEqual(part["type"] as? String, "input_audio")
+    XCTAssertEqual((part["input_audio"] as? [String: String])?["data"], "data:audio/wav;base64,UklGRg==")
+    var configuration = CustomServiceConfiguration.loadVoicePreset(.bailian, defaults: UserDefaults(suiteName: "msime-bailian-\(UUID().uuidString)")!)
+    configuration.model = "qwen3-asr-flash"
+    let request = try CustomServiceClient.makeRequest(kind: .voice, configuration: configuration, prompt: "",
+                                                      text: "", wav: wav, token: "synthetic-token")
+    XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+    // JSONSerialization 输出字典键的顺序随实例而变，两次编码的字节不一定相同，所以比较解析后的内容。
+    let sent = try XCTUnwrap(request.httpBody)
+    XCTAssertEqual(try JSONSerialization.jsonObject(with: sent) as? NSDictionary, json as NSDictionary)
+    let answer = Data("{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"百炼\"}}]}".utf8)
+    XCTAssertEqual(try AppServicesBridge.parseResponse(answer, voice: true), "百炼")
+  }
+
   func testEngineCodecsRejectOversizedRecognitionAndPolishText() throws {
     let oversized = String(repeating: "字", count: 20_000)
     let voice = try JSONSerialization.data(withJSONObject: ["text": oversized])

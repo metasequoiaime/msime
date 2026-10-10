@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-/// The largest progress document that will be read.
+/// The largest progress document that will be read or written.
 ///
 /// A studied card serialises to roughly 120 bytes. Four mebibytes is tens of thousands of cards —
 /// past any real study history, and small enough that a damaged file cannot exhaust memory on a
@@ -186,16 +186,27 @@ impl VocabularyProgress {
         Ok(())
     }
 
-    /// Drop day counts older than `MAX_RETAINED_DAYS` before `today`.
+    /// Drop old counts and keep at most `MAX_RETAINED_DAYS` recorded days, including `today`.
     ///
     /// Card schedules are never pruned. A card the user studied two years ago and has not seen
     /// since is exactly the card the schedule exists to bring back.
     fn prune(&mut self, today: &str) {
-        let Some(boundary) = crate::calendar::shift_day(today, -(MAX_RETAINED_DAYS as i64)) else {
-            return;
-        };
-        self.daily
-            .retain(|day, _| day.as_str() >= boundary.as_str());
+        if let Some(boundary) = crate::calendar::shift_day(today, -((MAX_RETAINED_DAYS - 1) as i64))
+        {
+            self.daily
+                .retain(|day, _| day.as_str() >= boundary.as_str());
+        }
+        // A clock rewind can leave future records in the window. Keep today's answer and the
+        // newest other records if their combined count exceeds the document's fixed limit.
+        let mut excess = self.daily.len().saturating_sub(MAX_RETAINED_DAYS);
+        self.daily.retain(|day, _| {
+            if day != today && excess > 0 {
+                excess -= 1;
+                false
+            } else {
+                true
+            }
+        });
     }
 }
 
@@ -362,6 +373,9 @@ impl VocabularyProgressStore {
     ) -> Result<(), VocabularyProgressError> {
         value.validate()?;
         let bytes = serde_json::to_vec(value)?;
+        if bytes.len() > MAX_DOCUMENT_BYTES as usize {
+            return Err(VocabularyProgressError::InvalidDocument);
+        }
         crate::file_lock::write_private_file_at(
             &lock.directory,
             std::ffi::OsStr::new(PROGRESS_FILE),
@@ -399,8 +413,6 @@ impl VocabularyProgressStore {
 
         let lock = self.lock()?;
         let mut document = self.read_locked(&lock)?;
-        document.prune(today);
-
         let words = document.cards.entry(book.id.clone()).or_default();
         if words.len() >= wordbook::MAX_ENTRIES && !words.contains_key(word) {
             return Err(VocabularyProgressError::InvalidDocument);
@@ -432,6 +444,8 @@ impl VocabularyProgressStore {
         if counts.answered > MAX_REVIEWS_PER_DAY {
             return Err(VocabularyProgressError::CountExhausted);
         }
+
+        document.prune(today);
 
         self.write_locked(&lock, &document)?;
         Ok(next)
@@ -614,6 +628,36 @@ mod tests {
     }
 
     #[test]
+    fn writing_an_oversized_document_does_not_make_progress_unreadable() {
+        let (_directory, store) = store();
+        let state = CardState {
+            interval_days: 1,
+            reviews: 1,
+            last_reviewed: TODAY.to_owned(),
+            ..CardState::new(TODAY)
+        };
+        let words = (0..wordbook::MAX_ENTRIES)
+            .map(|index| (format!("word{index:05}"), state.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let document = VocabularyProgress {
+            cards: BTreeMap::from([
+                ("book-one".to_owned(), words.clone()),
+                ("book-two".to_owned(), words),
+            ]),
+            ..VocabularyProgress::default()
+        };
+        assert!(serde_json::to_vec(&document).unwrap().len() as u64 > MAX_DOCUMENT_BYTES);
+
+        let lock = store.lock().unwrap();
+        assert!(matches!(
+            store.write_locked(&lock, &document),
+            Err(VocabularyProgressError::InvalidDocument)
+        ));
+        drop(lock);
+        assert_eq!(store.load().unwrap(), VocabularyProgress::default());
+    }
+
+    #[test]
     fn a_document_with_an_out_of_range_card_is_rejected() {
         let (directory, store) = store();
         let path = directory.path().join("vocabulary-progress.json");
@@ -663,10 +707,92 @@ mod tests {
     }
 
     #[test]
+    fn a_new_answer_after_366_recorded_days_remains_writable() {
+        let (_directory, store) = store();
+        let start = "2025-01-01";
+        let mut document = VocabularyProgress::default();
+        for offset in 0..MAX_RETAINED_DAYS {
+            let day = crate::calendar::shift_day(start, offset as i64).unwrap();
+            document.daily.insert(
+                day,
+                DailyReviewCounts {
+                    answered: 1,
+                    introduced: 0,
+                },
+            );
+        }
+        fs::write(
+            store.directory().join(PROGRESS_FILE),
+            serde_json::to_vec(&document).unwrap(),
+        )
+        .unwrap();
+
+        let next_day = crate::calendar::shift_day(start, MAX_RETAINED_DAYS as i64).unwrap();
+        store
+            .answer(
+                &book_of(&["synthetic"]),
+                "synthetic",
+                ReviewGrade::Unknown,
+                &next_day,
+            )
+            .unwrap();
+        let saved = store.load().unwrap();
+        assert_eq!(saved.daily.len(), MAX_RETAINED_DAYS);
+        assert_eq!(saved.answered_on(start), 0);
+        assert_eq!(saved.answered_on(&next_day), 1);
+    }
+
+    #[test]
+    fn a_clock_rewind_keeps_new_answers_writable_with_a_future_day() {
+        let (_directory, store) = store();
+        let boundary =
+            crate::calendar::shift_day(TODAY, -((MAX_RETAINED_DAYS - 1) as i64)).unwrap();
+        let tomorrow = crate::calendar::shift_day(TODAY, 1).unwrap();
+        let mut document = VocabularyProgress::default();
+        for offset in 0..MAX_RETAINED_DAYS - 1 {
+            let day = crate::calendar::shift_day(&boundary, offset as i64).unwrap();
+            document.daily.insert(
+                day,
+                DailyReviewCounts {
+                    answered: 1,
+                    introduced: 0,
+                },
+            );
+        }
+        document.daily.insert(
+            tomorrow.clone(),
+            DailyReviewCounts {
+                answered: 1,
+                introduced: 0,
+            },
+        );
+        fs::write(
+            store.directory().join(PROGRESS_FILE),
+            serde_json::to_vec(&document).unwrap(),
+        )
+        .unwrap();
+
+        store
+            .answer(
+                &book_of(&["synthetic"]),
+                "synthetic",
+                ReviewGrade::Unknown,
+                TODAY,
+            )
+            .unwrap();
+        let saved = store.load().unwrap();
+        assert_eq!(saved.daily.len(), MAX_RETAINED_DAYS);
+        assert_eq!(saved.answered_on(TODAY), 1);
+        assert_eq!(saved.answered_on(&tomorrow), 1);
+        assert_eq!(saved.answered_on(&boundary), 0);
+    }
+
+    #[test]
     fn retention_keeps_the_exact_boundary_day() {
         let (_directory, store) = store();
         let book = book_of(&["ubiquitous", "ephemeral"]);
-        let boundary = crate::calendar::shift_day(TODAY, -(MAX_RETAINED_DAYS as i64)).unwrap();
+        let boundary =
+            crate::calendar::shift_day(TODAY, -((MAX_RETAINED_DAYS - 1) as i64)).unwrap();
 
         store
             .answer(&book, "ubiquitous", ReviewGrade::Known, &boundary)
@@ -971,6 +1097,7 @@ mod tests {
             store.directory().join("vocabulary-progress.json"),
         )
         .unwrap();
+        msime_path_trust::open_to_other_users(store.directory()).unwrap();
 
         assert!(matches!(
             store.load(),

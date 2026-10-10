@@ -72,11 +72,8 @@ public final class AiPolishClient implements AutoCloseable {
     public AiPolishClient(Transport transport) {
         this.transport = Objects.requireNonNull(transport);
         worker = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
-            new ArrayBlockingQueue<>(1), runnable -> {
-                Thread thread = new Thread(runnable, "msime-ai-polish");
-                thread.setDaemon(true);
-                return thread;
-            }, new ThreadPoolExecutor.AbortPolicy());
+            new ArrayBlockingQueue<>(1), ThreadPolicy.namedDaemonFactory("msime-ai-polish"),
+            new ThreadPoolExecutor.AbortPolicy());
     }
 
     public synchronized Operation request(AiPolishConfiguration configuration, String text,

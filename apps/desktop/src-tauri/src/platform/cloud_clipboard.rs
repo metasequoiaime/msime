@@ -202,6 +202,7 @@ mod tests {
                 .unwrap()
                 .as_millis() as u64
                 + 3_600_000,
+            session_id: None,
         })
     }
 

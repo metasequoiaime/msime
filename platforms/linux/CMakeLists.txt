@@ -34,6 +34,8 @@ if(BUILD_TESTING)
   find_package(Python3 COMPONENTS Interpreter REQUIRED)
   add_test(NAME linux-fcitx5-contract
            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/fcitx5_contract.py")
+  add_test(NAME linux-ibus-component-contract
+           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/ibus_component_contract.py")
 endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -358,6 +360,11 @@ if(BUILD_TESTING)
   target_compile_options(linux-input-mode-indicator-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-input-mode-indicator-test PRIVATE src)
   add_test(NAME linux-input-mode-indicator COMMAND linux-input-mode-indicator-test)
+  add_executable(linux-view-composition-test tests/core/view_composition.cpp)
+  target_compile_options(linux-view-composition-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-view-composition-test PRIVATE src)
+  target_link_libraries(linux-view-composition-test PRIVATE nlohmann_json::nlohmann_json)
+  add_test(NAME linux-view-composition COMMAND linux-view-composition-test)
   add_executable(linux-voice-provider-options-test tests/voice/voice_provider_options.cpp)
   target_compile_options(linux-voice-provider-options-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-voice-provider-options-test PRIVATE src)
@@ -400,6 +407,12 @@ if(BUILD_TESTING)
   target_compile_options(linux-helpcode-schema-names-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-helpcode-schema-names-test PRIVATE src)
   add_test(NAME linux-helpcode-schema-names COMMAND linux-helpcode-schema-names-test)
+  # 选了辅助码表包时两个菜单显示插件，在菜单里选内置方案时停用插件，与共享设置页同一约定。
+  add_executable(linux-helpcode-pack-test tests/core/helpcode_pack.cpp)
+  target_compile_options(linux-helpcode-pack-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-helpcode-pack-test PRIVATE src)
+  target_link_libraries(linux-helpcode-pack-test PRIVATE nlohmann_json::nlohmann_json)
+  add_test(NAME linux-helpcode-pack COMMAND linux-helpcode-pack-test)
   add_executable(linux-phrase-preedit-test tests/core/phrase_preedit.cpp)
   target_compile_options(linux-phrase-preedit-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-phrase-preedit-test PRIVATE src)
@@ -626,10 +639,15 @@ elseif(MSIME_ENABLE_PACKAGING AND MSIME_EDITION_HANDWRITING AND MSIME_BUNDLE_HAN
   message(FATAL_ERROR "Packaging requires the handwriting model; fetch it with scripts/fetch_handwriting_model.py, or configure with -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF to leave it to the on-demand download")
 endif()
 # 上面只按锁核对模型的字节；这里用构建出的识别入口真正加载它并识别一笔，各打包路线的 ctest 都会跑到。
+# 识别的是复制到构建目录里的一份，不是模型目录里的原件：Nix 的 store 去重会把原件合并成硬链接，而构建沙箱里 store 的属主显示为 nobody，引擎不会信任那个目录里的多链接文件（#6386）。复制出来的是新的单链接文件。
 if(BUILD_TESTING AND MSIME_HANDWRITING_MODEL_DIR)
+  set(MSIME_HANDWRITING_TEST_MODEL "${CMAKE_CURRENT_BINARY_DIR}/handwriting-test/handwriting-zh_CN.model")
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/handwriting-test")
+  file(COPY_FILE "${MSIME_HANDWRITING_MODEL_DIR}/handwriting-zh_CN.model" "${MSIME_HANDWRITING_TEST_MODEL}"
+       ONLY_IF_DIFFERENT)
   add_test(NAME linux-handwriting-local-model
            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/provider/handwriting_local_model.py"
-                   $<TARGET_FILE:msime-linux-handwriting> "${MSIME_HANDWRITING_MODEL_DIR}/handwriting-zh_CN.model")
+                   $<TARGET_FILE:msime-linux-handwriting> "${MSIME_HANDWRITING_TEST_MODEL}")
 endif()
 if(MSIME_EMOJI_RESOURCES)
   if(NOT IS_DIRECTORY "${MSIME_EMOJI_RESOURCES}")
@@ -668,7 +686,7 @@ if(MSIME_ENGINE_RESOURCES)
     install(FILES "${MSIME_ENGINE_RESOURCE_FILE}"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/resources")
   endforeach()
-  # The helpcode tables are not part of the dictionary release; the repository carries them in resources/helpcodes, and the Engine reads them from helpcodes/ under the resource directory (crates/engine/src/assets.rs names the six files). The hosts' verification lets a real helpcodes/ directory through. Their notices are installed with the others below.
+  # 辅助码表不在词库发布里，由仓库自带在 resources/helpcodes，Engine 从资源目录下的 helpcodes/ 读它们（crates/engine/src/assets.rs 列出七个文件）。宿主的校验放行真实的 helpcodes/ 目录。它们的来源声明与下面其他声明一起安装。
   install(FILES
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/helpcode.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/zrm_helpcode_big_unique.txt"
@@ -676,6 +694,7 @@ if(MSIME_ENGINE_RESOURCES)
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/shouyouplus_helpcode.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/xiaohe_helpcode.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/jiajia_helpcode.txt"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/wubi86_helpcode.txt"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/resources/helpcodes")
   # Keep the reviewed lock beside the installed bundle as provenance metadata;
   # it is not copied into the runtime directory because the Engine verifier
@@ -1005,6 +1024,8 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/msime-engine-dictionary-NOTICE.md"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/ENGINE-NOTICE.md"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE.md"
+  # 五笔 86 辅助码表的来源与生成方法，附它所派生的极点码表的 Apache-2.0 全文。
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE-wubi86.md"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Zinnia-LICENSE.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Administrative-divisions-of-China-WTFPL.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt"
@@ -1020,6 +1041,7 @@ set(MSIME_NOTICE_NAMES
   msime-engine-dictionary-NOTICE.md
   msime-engine-helpcode-NOTICE.md
   msime-helpcode-jiajia-NOTICE.md
+  msime-helpcode-wubi86-NOTICE.md
   Zinnia-LICENSE.txt
   Administrative-divisions-of-China-WTFPL.txt
   libhangul-hanja-BSD-3-Clause.txt

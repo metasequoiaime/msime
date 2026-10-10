@@ -22,7 +22,7 @@ iOS 云剪贴板复用共享账号会话和 Tauri `CloudClipboardPanel`，只上
 
 “关于水杉 → 诊断日志”对应共享偏好中的 `diagnostic_log.server`，与 macOS、Linux 的宿主日志同一个字段，随设置同步。开启后，键盘扩展在 App Group 的偏好目录写入仅所有者可读的 `diagnostic.log`，记录键盘加载（是否有完全访问、手机还是 iPad）、出现与收起、共享设置是否应用、运行时初始化或词库恢复失败，以及系统内存警告——iOS 会结束占用内存过多的键盘扩展，“键盘突然消失”的反馈最需要这一行。每条记录只有事件名，截到 192 字节的可打印 ASCII，不含按键、输入文字、候选、凭据、路径或服务响应；文件超过 1 MiB 时保留一个 `.1` 副本。键盘没有完全访问时无法写入 App Group，此时静默不写，不影响输入。App 的这一页可以开关、分享和清空日志；iPad 在同一页直接显示最近的记录，iPhone 另开一页查看。Windows 专用的 `diagnostic_log.tsf` 不在 iOS 显示，原值保留以便跨平台同步。反馈页同样链到这一页，并和 Windows、macOS 的反馈页一样列出 QQ 交流群（点一下复制群号）和 Telegram 群组。
 
-“输入设置”页的「默认中英文」读写共享文档的 `default_ime_mode`，与桌面端同一个字段。新打开的键盘从这个模式开始；按中/英键切换后，这次打开的键盘一直保持用户的选择，设置页的修改也不会在输入途中翻转模式。以前桥接层在建立会话时把它强制覆盖成 `chinese`，现在不再覆盖。桌面端用 `ime_mode_scope` 按应用记住中英文，但 iOS 不告诉键盘扩展正在哪个应用里输入，没有可以作为键的应用标识，所以 iOS 不使用这个字段（共享层的 `HostCapabilities::ime_mode_scope` 也把 iOS 排除在外）。网址、邮箱等字段带来的临时英文仍按原来的规则处理，离开字段后恢复。同一节的「沿用上次的中英文」是 iOS 上唯一能做的记忆：它对应桌面端 `ime_mode_scope` 的全局记忆，按应用的那一种在 iOS 上没有可用的键。打开后，新键盘从用户上次按中/英键（或 Shift）选的模式开始，还没切换过时仍从「默认中英文」开始；网址、邮箱字段临时切到的英文不记录。键盘进程在两次出现之间会被销毁，所以记录放在 App Group（`ImeModeMemoryPreference`），不进共享文档，也不随设置同步到其它设备；开关变化时清掉旧记录。
+“输入设置”页的「默认中英文」读写共享文档的 `default_ime_mode`，与桌面端同一个字段。新打开的键盘从这个模式开始；按中/英键切换后，这次打开的键盘一直保持用户的选择，设置页的修改也不会在输入途中翻转模式。以前桥接层在建立会话时把它强制覆盖成 `chinese`，现在不再覆盖。桌面端用 `ime_mode_scope` 按应用记住中英文，但 iOS 不告诉键盘扩展正在哪个应用里输入，没有可以作为键的应用标识，所以 iOS 不使用这个字段（共享层的 `HostCapabilities::ime_mode_scope` 也把 iOS 排除在外）。网址、邮箱等字段带来的临时英文仍按原来的规则处理，离开字段后恢复。同一节的「沿用上次的中英文」是 iOS 上唯一能做的记忆：它对应桌面端 `ime_mode_scope` 的全局记忆，按应用的那一种在 iOS 上没有可用的键。打开后，新键盘从用户上次按中/英键（或 Shift）选的模式开始，还没切换过时仍从「默认中英文」开始；网址、邮箱字段临时切到的英文不记录。键盘进程在两次出现之间会被销毁，所以记录放在 App Group（`ImeModeMemoryPreference`），不进共享文档，也不随设置同步到其它设备；开关变化时清掉旧记录。同一页五笔组的三个开关——五笔混拼（`wubi_mixed_pinyin`）、候选显示剩余编码（`wubi_code_hint`）、四码唯一候选自动上屏（`wubi_auto_commit_unique`）——都直接读写共享文档，没有 App Group 兼容键：页面写文档，键盘把同一份文档交给 host-api，候选的剩余编码、引擎的混拼回退和四码上屏都从它读。四码上屏关闭后，四码唯一的词留在候选列表里等空格或数字键选它。
 
 键盘扩展、原生统计页与共享 Tauri 统计页都从 App Group 的 `MSIME/typing-statistics.json` 读取聚合计数，所有读写都经 `msime_client_typing_statistics` 交给 `client-core` 的共享统计存储，与 macOS 同一条路径，并以同一锁文件串行更新。键盘为每次上屏带上本地日期和小时，共享存储据此记下每日活跃时长（两次上屏间隔不超过 10 秒计入）和每小时字数；原生统计页新增「节奏」标签，显示今日与平均速度、今日活跃、连续天数、日均、最多与最快的一天和今日时段分布，算法与共享统计页的 `activityMetrics` 一致，iPad 宽窗口一行放四格，手机两列。「趋势」标签下的「按日明细」对应 Windows 统计页的同名表格，列最近 30 个有记录的日子（日期、字数、中文、英文、数字、标点、其他、活跃、速度，「其他」收下其他文字、表情、符号和旧记录里未分类的部分，各列相加等于字数）；iPad 宽窗口照原样画九列，手机每天一行字数加一行分类小字。右上角可把全部保留的日子导出为带 BOM 的 UTF-8 CSV（活跃时长以分钟计），交给分享面板。与共享存储一致，新装时统计默认关闭，需在统计页右上角菜单里打开；已有统计文件里写着的开关状态保持不变。统计只包含分类计数，不保存实际输入文本。统计打开且有完全访问权限时，键盘还为每个软键记按下次数：26 键字母记作 `KeyA`…`KeyZ`，九键格位按格上的数字记作 `Nine0`…`Nine9`（日文假名格同样按手机键位映射），符号层的键记到产生该字符的 ANSI 键（如「！」记 `Digit1`），123、符、中/英、地球、表情、语音记作 `Soft*`，没有对应键位的键不计；按住删除连删只算一次，密码框不计，统计关闭时连内存里也不攒。计数在内存里按本地日期攒批，满 256 次、跨日（先写旧日期）、每 30 秒、键盘收起或宿主转入后台时经 `record_keys` 在统计队列里写入共享存储的 `dailyKeys`，只保存每个键每天被按下的次数，不保存顺序、时间和内容；清空统计会一并删除，保留期也同样裁剪。统计页的「按键」标签按选中的日期或累计画出 26 键键盘热力图，有九键记录时加画九宫格，另列最常按的五个键和键盘图上没有位置的「其他键」。键盘扩展收不到硬件键盘的按键事件，所以 iOS 只统计软键。
 
@@ -60,7 +60,7 @@ App 的“输入设置 → 标点”页直接读写共享 `PreferencesStore`：�
 
 设置里不提供「自定义候选释义」编辑入口。键盘 Engine 仍会在建会话时读取其用户目录（`MSIME/user`）里的 `custom_translations.txt`（每行「源词 Tab 译文」，`#` 开头为注释，同一源词以最后一次为准，优先于内置词库、学到的释义和在线翻译），但 App 不再提供编辑或从“文件”导入的界面。
 
-“输入设置 → 辅助码”页分别设置双拼和全拼的辅助码：开关、方案（蓝天小雨点、自然码、首右2.0、首右plus、小鹤、加加）以及是否在候选栏显示辅助码，默认值与 Windows 相同（双拼蓝天小雨点并显示，全拼自然码不显示）。全拼或双拼组字时点一下 Shift，下一个字母作为辅助码交给 Engine，用于缩小候选；五笔、九宫格、日语和本地模式不使用辅助码。辅助码表不在词库发布里，由仓库自带在 `resources/helpcodes/`：`stage-resources.sh` 把六个方案的表按 Engine 读取的文件名（`crates/engine/src/assets.rs`）复制到 `EngineResources/helpcodes/`，资源校验只放行这一个目录，钉住的词库文件仍逐个校验。缺了这些表，Shift 字母会被当作辅助码吃掉却不缩小任何候选。候选栏显示的辅助码来自 Engine 给每个候选的注释，桌面版把它加括号接在词后，iOS 放在候选下方，与五笔编码提示一致，不带括号。
+“输入设置 → 辅助码”页分别设置双拼和全拼的辅助码：开关、方案（蓝天小雨点、自然码、首右2.0、首右plus、小鹤、加加、五笔 86）以及是否在候选栏显示辅助码，默认值与 Windows 相同（双拼蓝天小雨点并显示，全拼自然码不显示）。全拼或双拼组字时点一下 Shift，下一个字母作为辅助码交给 Engine，用于缩小候选；五笔、九宫格、日语和本地模式不使用辅助码。辅助码表不在词库发布里，由仓库自带在 `resources/helpcodes/`：`stage-resources.sh` 把七个方案的表按 Engine 读取的文件名（`crates/engine/src/assets.rs`）复制到 `EngineResources/helpcodes/`，资源校验只放行这一个目录，钉住的词库文件仍逐个校验。缺了这些表，Shift 字母会被当作辅助码吃掉却不缩小任何候选。候选栏显示的辅助码来自 Engine 给每个候选的注释，桌面版把它加括号接在词后，iOS 放在候选下方，与五笔编码提示一致，不带括号。
 
 全拼和双拼组字时可以按音节编辑拼写，对应 Windows 组字里的 Ctrl+Backspace 和 Ctrl+←/→（共享 C ABI 的 `SegmentBackspace` / `SegmentMoveLeft` / `SegmentMoveRight` 三个命令，macOS 用的是同一组）。手机上没有 Ctrl，所以按住删除键时每一下退掉光标前的一个音节，拼到一半发现哪个音节错了，可以退回那里重拼，而不是整串丢掉；拼写删空后连按随即停止，不会继续删进文档。拖动空格移动组字光标时，慢拖仍按字母移动，快速一甩（横向速度不低于每秒 900 点）按音节跳。九键的数字串在选出拼音前还没有确定的音节，五笔编码不由音节组成，所以九键、五笔和其他方案保持原来的行为：按住删除键清空整个组字，拖动空格只按字符移动。Windows 组字里还有 Home、End 和 Delete，手机键盘没有这几个键，所以组字时轻点候选栏左侧的拼写，会弹出系统菜单“编辑拼写”：光标移到开头、光标移到末尾、删除光标后的字母（共享 C ABI 的 `MoveHome` / `MoveEnd` / `DeleteForward`）。当前位置做不了的项会置灰而不是消失，菜单形状不变；空闲时同一个位置仍是本地输入模式菜单，日语读音和本地输入模式不提供这个菜单。VoiceOver 把组字中的拼写读作按钮并提示“轻点编辑拼写”。
 
@@ -103,6 +103,8 @@ App「词库」里的个人词典对应 Windows 的用户词编辑：编辑器�
 全拼九键组字时，候选栏的读音行显示 Engine 给的拼音读音（View 的 `nine_key_reading`，例如 `ning'bai`），不再是数字串；没有读音时才显示数字。键区旁的拼音栏依次列出完整音节、下一个数字键上能起头一个音节的大写字母（选它限定下一个音节的首字母）和数字本身（选它直接上屏这个数字），VoiceOver 分别读作「选择拼音」「选择字母」「输入数字」。点候选栏的展开按钮打开的是三栏的九键面板：它只盖住键区，候选栏和读音留在上面，被盖住的键藏起来、皮肤背景照常透出；左栏是同一组拼音（点了锁定音节），中间是可以上下滚动的全部候选，右栏是「返回」「⌫」「重输」「笔画/拼音」「单字/全部」。在面板里选拼音、退格都会换一代候选，面板按新的一代重建而不关；数字全部锁定后退格先撤销最后一次锁定。「单字」只留单字，「笔画」把左栏换成五个笔画键（横 竖 撇 点 折），按下的笔画以 一丨丿丶乛 显示在笔画栏顶上，候选按首字的笔顺前缀筛选（`msime_client_set_nine_key_filter`），笔画模式下 ⌫ 先删笔画；没带 `msime-stroke.db` 的版本不显示「笔画」。面板在组字结束、点「返回」或再点一下展开按钮、或选了候选时收起，组字还在的话同时清掉两种筛选。其他方案、本地模式仍是盖住整个键盘、带标题行的候选面板。
 
 「键盘 → 布局」里的「数字键盘顺序」对应共享文档的 `touch_number_keypad_order`：「电话（123 在上）」是 `phone`（默认），「计算器（789 在上）」是 `calculator`。它只改九键切到数字层时的排列，7 8 9 换到第一排、1 2 3 换到最后一排，按键输入的和 VoiceOver 读的都是显示的数字；字母层仍是 1-2-3 的电话键位。键盘每次出现时把文档里的值抄进 App Group（`keyboard.numberKeypad.order`），按键时不再读。
+
+同一组的「双拼键位提示」对应共享文档的 `touch_shuangpin_key_hints`，缺省为开。关掉后双拼 26 键的字母键不画底部的声母/韵母提示，字母回到键面正中，VoiceOver 也不再读提示；全拼、英文和本地模式本来就不画。键盘每次出现时把文档里的值抄进 App Group（`keyboard.shuangpin.keyHints`）并重画键面。
 
 注音方案换成大千键盘：四排键对应标准键盘的数字行和三排字母（含 `- ; , . /`），键帽画注音符号或声调（3 ˇ、4 ˋ、6 ˊ、7 ˙），按下时发送键帽下面的 ASCII 键，由 Engine 的注音编辑器拼音、选字（`ZhuyinKeyLayout`），输出固定为繁体，不经过简繁转换。空格在有待定音节时是一声，没有待定音节时打开候选列表；列表打开时点选候选或按空格选字，选中的字留在转换结果里继续组字，回车随时把整段转换结果上屏；数字 1–9 在 Engine 里是选本页的行，所以键盘先关闭列表再发送，按键始终输入键帽上的符号；退格和取消先关闭列表。没有组字时单独按声调键，Engine 不处理，键盘照硬件键盘的做法输入键帽下面的 ASCII 键（3、4、6、7）。符号面板里的标点先把转换结果上屏，再由键盘直接写入：「中文标点」打开（或标点锁定为中文）时写中文标点，关闭（或锁定为英文）时写 ASCII 标点，键帽随之切换；注音方案下「中文标点」开关与快捷键可用。注音与越南语都是就地组字：正在转换的文字或正在拼的词总是作为标记文本写进输入框，不受「行内预编辑」影响，拼写里没有可移动的光标，按住退格逐键删除并继续删到文档里；回车把它原样上屏（注音不再换行，越南语随后换行并执行输入框的动作），空格、数字、光标移动和切换方案先上屏再做按键本来的事。越南语没有候选，字母的 Shift 与 Caps Lock 是大小写，不切英文，标点和全角开关都按半角处理；宿主移动光标后键盘连发两次取消，第一次 Engine 只是恢复原始按键。统计页把粤拼和注音计入中文模式，越南语单独一项。
 
@@ -231,7 +233,7 @@ Tauri CLI 只把 `APPLE_DEVELOPMENT_TEAM` 应用到它自己的 App target，内
 - 版本身份：`MSIMEAppEdition`（`shared/backend/account/BackendAccountClient.swift`）读 App 和键盘扩展各自 Info.plist 里的 `MSIMEEdition`（版本 id）、`MSIMEInputSchemes`（方案）、`MSIMEDefaultScheme`（默认方案）和 `MSIMEWubiMixedPinyinDefault`（五笔混拼的默认值），键名与 macOS 的 `EditionIdentity.h` 相同。没有 `MSIMEEdition` 就是 full。键盘扩展进程读的是扩展自己的 bundle，所以两份 Info.plist 都要写。
 - App Group：标识只写在 `MSIMEAppEdition.appGroupIdentifier` 一处，full 是 `group.app.msime.ios`，其他版本是 `group.app.msime.ios.<版本 id>`。共享容器里的一切（偏好镜像、状态根 `MSIME/`、个人词库与云词库队列、使用统计、剪贴板、语音交接、账号的刷新锁和匿名会话）以及账号会话所在的钥匙串访问组都跟着它走，两个版本装在同一台设备上互不读写。`tests/settings/ProjectConfigurationTests.py` 检查 App、键盘扩展、`SharedUI` 和 `shared/backend` 的 Swift 源码里没有别处再写死这个标识。
 - URL scheme：键盘拉起 App（「应用设置」和语音录音）用的自定义 scheme 只写在 `MSIMEAppEdition.urlScheme` 一处，full 是 `msime`，其他版本是 `msime-<版本 id>`；`KeyboardAppLauncher` 和 App 的 `onOpenURL` 都读它。多个 App 注册同一个 scheme 时系统任选一个打开，共用 `msime` 会让五笔版的语音交接落到 full 的 App Group 里。`tests/settings/ProjectConfigurationTests.py` 检查别处没有再写死 `msime://`。
-- 方案：方案页和首次引导只列本版本的入口，写共享文档的 `schemeMapping` 也丢掉本版本没有的入口；启用列表、选中方案和偏好里认不出的方案都回退到本版本的默认方案（`ChineseInputScheme.editionFallback`，full 是全拼 26 键）；手写不属于任何方案，写出的是汉字，所以只在提供中文方案的版本里有（full、拼音版、五笔版），日文、越南文和藏文版没有，背后跑本版本的默认方案；只有一个方案的版本没存过启用列表时，默认要用户自己打开的入口（越南语、藏文）也启用，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 一致。五笔混拼开关没被用户动过时取版本的默认值（五笔版是开）：键盘每次重载都把 App Group 里的这个开关写回共享文档，按 `bool(forKey:)` 的缺省 false 读会让五笔版首次启动就关掉混拼。非 full 版本准备宿主（`msime_client_prepare_host`）和词库快照会话时把版本 id 交给 host-api，由它按版本收窄方案、按本版本的资源锁校验词库。
+- 方案：方案页和首次引导只列本版本的入口，写共享文档的 `schemeMapping` 也丢掉本版本没有的入口；启用列表、选中方案和偏好里认不出的方案都回退到本版本的默认方案（`ChineseInputScheme.editionFallback`，full 是全拼 26 键）；手写不属于任何方案，写出的是汉字，所以只在提供中文方案的版本里有（full、拼音版、五笔版），日文、越南文和藏文版没有，背后跑本版本的默认方案；只有一个方案的版本没存过启用列表时，默认要用户自己打开的入口（越南语、藏文）也启用，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 一致。五笔混拼开关没被用户动过时取版本的默认值（五笔版是开）：`Preferences::for_edition` 在准备宿主（`msime_client_prepare_host`）时把它写进状态目录的第一份共享文档，设置页和引擎都从这份文档读它，App Group 里不再存这个开关。非 full 版本准备宿主（`msime_client_prepare_host`）和词库快照会话时把版本 id 交给 host-api，由它按版本收窄方案、按本版本的资源锁校验词库。
 - 设置同步：原生「设置同步」上传和应用前分别经 `IOSPreferencePlan.filterUploaded`、`filterDownloaded` 过滤，规则与 client-core 的 `filter_uploaded_account_settings`、`filter_downloaded_account_settings` 相同：只有一个方案的版本既不上传也不应用 `input.schema` 和随它的九键开关；多方案版本把本版本没有的方案当作缺失；不提供双拼、五笔的版本不上传对应的方案细项。Tauri 公共组件的 iOS 工程走的就是 client-core 那两个函数。
 
 要发一个版本（以五笔版为例）还差这些，全部在仓库之外或需要签名身份，本分支没有做：
@@ -273,7 +275,7 @@ xcodebuild test -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClient
 
 必须允许签名。测试宿主带 App Group entitlement，被测键盘要靠它读共享偏好；用 `CODE_SIGNING_ALLOWED=NO` 构建会剥掉 entitlement，宿主在套件中途被杀，后面的用例全部不报告。模拟器上 `CODE_SIGN_IDENTITY=-` 即 ad-hoc 签名，不需要任何开发者证书。
 
-当前结果为 **673 通过、1 跳过、0 失败**（`MSIMEKeyboardTests` 550 含 1 跳过、`MSIMESharedTests` 55、`MSIMEServiceTests` 69；Xcode 27 / iOS 27.0 模拟器）。**先 `xcodegen generate`**：提交在仓库里的工程会漏掉后加的源文件（实测漏过 `KeyboardAppLauncher.swift`，整套编译不过），所以它不是权威来源，`project.yml` 才是。
+当前结果为 **784 项、7 跳过、0 失败**（`MSIMEKeyboardTests` 640 含 7 跳过、`MSIMESharedTests` 73、`MSIMEServiceTests` 71；Xcode 27 / iOS 27.0 模拟器，未暂存可选的注音与笔画词库）。除下述释义用例外，另有 6 条依赖注音或笔画词库的用例在词库缺席时跳过；暂存对应词库后会执行。**先 `xcodegen generate`**：提交在仓库里的工程会漏掉后加的源文件（实测漏过 `KeyboardAppLauncher.swift`，整套编译不过），所以它不是权威来源，`project.yml` 才是。
 
 跑之前建一台干净模拟器再删掉，不要用手边那台：测试宿主带 App Group，读的是共享容器里的偏好，上一次运行留下的值会改变结果。
 
@@ -284,7 +286,7 @@ xcrun simctl boot "$device"
 # …在上面的 xcodebuild 命令里用 -destination "platform=iOS Simulator,id=$device"…
 xcrun simctl delete "$device"
 ```
-这个数字要跟着改动更新：该套件不接入 `verify-local.sh`，没有自动基线，所以这一行是它唯一的基线，写错了就没有别的东西会发现。唯一跳过的是 `CandidateTranslationTests.testCandidateLongPressOffersGlossInsertion` 的「开启释义」分支：固定词库发布里没有该候选的英文释义来源（`translation-glosses.db` 是用户编辑后的覆盖层），取不到释义时跳过而不是报成产品失败，一旦有释义就自动恢复断言。
+这个数字要跟着改动更新：该套件不接入 `verify-local.sh`，没有自动基线，所以这一行是它唯一的基线，写错了就没有别的东西会发现。`CandidateTranslationTests.testCandidateLongPressOffersGlossInsertion` 的「开启释义」分支在固定词库发布里没有该候选的英文释义来源（`translation-glosses.db` 是用户编辑后的覆盖层），取不到释义时跳过而不是报成产品失败，一旦有释义就自动恢复断言。
 
 该套件不接入 `scripts/verify-local.sh`：它需要模拟器和已暂存的词库资源，单次运行约十分钟。
 

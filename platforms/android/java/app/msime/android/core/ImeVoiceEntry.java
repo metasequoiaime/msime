@@ -361,7 +361,7 @@ final class ImeVoiceEntry {
             s.launchVoiceActivity();
             return;
         }
-        s.notice(PlatformSpeechPolicy.message(error));
+        s.notice(PlatformSpeechPolicy.message(error, VoiceRecognitionActivity.recognizerLabel(s)));
     }
 
     private void releasePlatform() {

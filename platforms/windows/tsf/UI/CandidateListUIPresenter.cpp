@@ -451,16 +451,19 @@ HRESULT CMetasequoiaIME::_HandleCandidateArrowKey( //
 //----------------------------------------------------------------------------
 
 HRESULT CMetasequoiaIME::_HandleCandidateSelectByNumber(TfEditCookie ec, _In_ ITfContext *pContext, _In_ UINT uCode,
-                                                        uint64_t requestId, const std::wstring &prefetchedText)
+                                                        WCHAR wch, uint64_t requestId,
+                                                        const std::wstring &prefetchedText)
 {
-    int iSelectAsNumber = _pCompositionProcessorEngine->GetCandidateListIndexRange()->GetIndex(uCode);
-    if (iSelectAsNumber == -1)
-    {
-        return S_FALSE;
-    }
-
     if (_pCandidateListUIPresenter)
     {
+        // 宿主会话的真实一页按键的位置选，再由 _HandleCandidateWorker 向宿主会话选词；最小镜像只选第一项，上屏的候选来自 Server 的选词回复。
+        const int iSelectAsNumber = _pCompositionProcessorEngine->GetCandidateListIndexRange()->GetIndex(
+            uCode, wch, _pCandidateListUIPresenter->_HoldsEnginePage());
+        if (iSelectAsNumber == -1)
+        {
+            return S_FALSE;
+        }
+
         if (_pCandidateListUIPresenter->_SetSelectionInPage(iSelectAsNumber))
         {
             return _HandleCandidateConvert(ec, pContext, requestId, prefetchedText);

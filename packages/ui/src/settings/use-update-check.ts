@@ -1,105 +1,79 @@
 import { useEffect, useState } from "react";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import {
-  compareVersions,
-  parseVersion,
-  selectPlatformRelease,
-  validateManifest,
-  type GitHubRelease,
-  type UpdateManifest,
+  fromHostUpdate,
+  type UpdateCheckRequest,
+  type UpdateCheckResult,
   type ValidatedUpdate,
 } from "./update-manifest";
-import { UPDATE_CHECK_TIMEOUT_MS, clientReleasesUrl, updateManifestUrl } from "./app-resources";
 
 export interface UseUpdateCheckOptions {
-  clientHostedPlatform: boolean;
-  releasePlatform: string | null;
+  /** The host's update check (`SettingsClient.checkUpdate`), which asks GitHub through `msime_client_core::update_check`. Absent, the page offers no check. */
+  checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
+  /** The host's platform (`HostCapabilities.platform`), which is also its release tag prefix. */
+  platform: string | null;
   /** 运行中的版本 id（`HostCapabilities.edition.id`），缺省是 full：只选本版本的安装包。 */
   edition?: string;
   /** The host's architecture (`HostCapabilities.arch`): a Linux release carries one package per architecture. */
   arch?: string;
-  releasePageUrl: string;
   currentAppVersion: string;
 }
 
-/** Owns release-feed fetching, validation, timeout handling, and update status. */
+/** Asks the host whether a newer release of this platform and edition is published, and keeps the status the about page shows. */
 export function useUpdateCheck({
-  clientHostedPlatform,
-  releasePlatform,
+  checkUpdate,
+  platform,
   edition,
   arch,
-  releasePageUrl,
   currentAppVersion,
 }: UseUpdateCheckOptions) {
   const [status, setStatus] = useState("");
   const [available, setAvailable] = useState<ValidatedUpdate | null>(null);
+  const supported = !!checkUpdate && !!platform;
   const { busy, run } = useAsyncActionRunner(
     setStatus,
     undefined,
-    clientHostedPlatform,
+    checkUpdate,
     currentAppVersion,
     edition,
     arch,
-    releasePageUrl,
-    releasePlatform,
+    platform,
   );
 
   useEffect(() => {
     setStatus("");
     setAvailable(null);
-  }, [arch, clientHostedPlatform, currentAppVersion, edition, releasePageUrl, releasePlatform]);
+  }, [arch, checkUpdate, currentAppVersion, edition, platform]);
 
   async function checkForUpdate() {
-    if (busy) return;
+    if (busy || !checkUpdate || !platform) return;
     setAvailable(null);
     await run(
       async (isCurrent) => {
-        const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS);
-        try {
-          const endpoint =
-            clientHostedPlatform && releasePlatform
-              ? `${clientReleasesUrl}?per_page=100&t=${Date.now()}`
-              : `${updateManifestUrl}?t=${Date.now()}`;
-          const response = await fetch(endpoint, {
-            cache: "no-store",
-            signal: controller.signal,
-          });
-          if (!response.ok) throw new Error(`update manifest returned ${response.status}`);
-          const manifest = (await response.json()) as UpdateManifest | GitHubRelease[];
-          let update: ValidatedUpdate | null;
-          if (clientHostedPlatform && releasePlatform) {
-            if (!Array.isArray(manifest)) throw new Error("invalid release list");
-            update = selectPlatformRelease(
-              manifest,
-              releasePlatform,
-              releasePageUrl,
-              edition,
-              arch,
-            );
-            if (!update) {
-              if (isCurrent()) setStatus("暂无可用发行版");
-              return;
-            }
-          } else {
-            update = validateManifest(manifest as UpdateManifest, releasePageUrl);
-          }
-          const current = parseVersion(currentAppVersion);
-          if (!update || !current) throw new Error("invalid update manifest");
-          if (!isCurrent()) return;
-          if (compareVersions(update.version, current) > 0) {
-            setAvailable(update);
-            setStatus(`发现新版本 v${update.version.display}`);
-          } else {
-            setStatus("已是最新版本");
-          }
-        } finally {
-          window.clearTimeout(timeout);
+        const result = await checkUpdate({
+          platform,
+          currentVersion: currentAppVersion,
+          ...(edition === undefined ? {} : { edition }),
+          ...(arch === undefined ? {} : { arch }),
+        });
+        if (!isCurrent()) return;
+        if (result.status === "none") {
+          setStatus("暂无可用发行版");
+          return;
+        }
+        const update = fromHostUpdate(result.update);
+        if (!update || (result.status !== "available" && result.status !== "current"))
+          throw new Error("invalid update check result");
+        if (result.status === "available") {
+          setAvailable(update);
+          setStatus(`发现新版本 v${update.version.display}`);
+        } else {
+          setStatus("已是最新版本");
         }
       },
       { formatError: () => "检查失败，请稍后重试" },
     );
   }
 
-  return { available, busy, checkForUpdate, status } as const;
+  return { available, busy, checkForUpdate, status, supported } as const;
 }

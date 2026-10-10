@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { SettingsGroupNote } from "./settings-group-note";
 import * as settings from "./settings-style";
 import { GroupList, MoreOptions, Row } from "../core/platform-controls";
@@ -14,10 +15,12 @@ export interface CandidateShortcutsSectionProps {
   showNumberRowSelection: boolean;
   mobile: boolean;
   onNumberRowSelectionChange: (value: boolean) => void;
-  /** HarmonyOS 手机的「候选」分组：数字行开关和一行「恢复默认快捷键」，参考行收在「按键速查」分组下。 */
+  /** HarmonyOS 手机的「候选」分组只有数字行开关，参考行收在「按键速查」分组下，「恢复默认快捷键」单独成组排在页末。 */
   harmonyPhone?: boolean;
-  /** 把本页的所有快捷键恢复为默认值；由「恢复默认」按钮调用，该按钮只在 HarmonyOS 手机上显示。 */
+  /** 把本页的所有快捷键（含翻页键）恢复为默认值；由「恢复默认」按钮调用，该按钮只在 HarmonyOS 手机上显示。 */
   onRestoreDefaults?: () => void;
+  /** HarmonyOS 手机的「翻页」分组内容（外接键盘翻页键），排在「候选」和「按键速查」之间。 */
+  paging?: ReactNode;
 }
 
 /** 「向前 / 向后翻页」的各组按键，顺序与输入页的翻页方式一致。 */
@@ -48,6 +51,7 @@ export function CandidateShortcutsSection({
   onNumberRowSelectionChange,
   harmonyPhone = false,
   onRestoreDefaults,
+  paging,
 }: CandidateShortcutsSectionProps) {
   const numberRowSwitch = showNumberRowSelection && (
     <SwitchRow
@@ -72,19 +76,21 @@ export function CandidateShortcutsSection({
   if (harmonyPhone) {
     return (
       <>
-        <GroupList title="候选">
-          {numberRowSwitch}
-          {onRestoreDefaults && (
+        <GroupList title="候选">{numberRowSwitch}</GroupList>
+        {paging && <GroupList title="翻页">{paging}</GroupList>}
+        <GroupList title="按键速查">
+          <MoreOptions>{reference}</MoreOptions>
+        </GroupList>
+        {/* 恢复的是整页（通用、候选和翻页），所以不放进其中任何一组，单独排在页末。 */}
+        {onRestoreDefaults && (
+          <GroupList>
             <Row title="恢复默认快捷键">
               <button type="button" className={rowButton} onClick={onRestoreDefaults}>
                 恢复默认
               </button>
             </Row>
-          )}
-        </GroupList>
-        <GroupList title="按键速查">
-          <MoreOptions>{reference}</MoreOptions>
-        </GroupList>
+          </GroupList>
+        )}
       </>
     );
   }

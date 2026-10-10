@@ -19,6 +19,7 @@ import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.UUID;
+import java.util.function.Supplier;
 /** Cross-process, crash-safe handoff for one cloud dictionary snapshot.
  * Native code owns snapshot decoding, staging, and activation. This class
  * owns only bounded metadata and the downloaded NDJSON file.
@@ -30,6 +31,8 @@ public final class DictionarySnapshotQueue {
     private static final String LOCK_NAME = "state.lock";
     private static final String WORKER_LOCK_NAME = "worker.lock";
     private static final String PREFIX = "local-v1:";
+    /** 本地备份恢复排进来的请求的所有者。这份快照来自用户自己选的备份文件，不属于任何账号，所以认领和激活时不做账号比对：未登录时当前账号是空字符串、登录后是真实账号 id，都不会等于它，比对的话恢复的词和输入记录会被当成别的账号的请求丢掉。退出登录只取消该账号自己的请求（{@link #cancel}），也碰不到它。磁盘上已经排着的请求用的就是这个值，不能改。 */
+    public static final String LOCAL_RESTORE_OWNER = "local-backup";
 
     public enum Status {
         QUEUED("queued"), PREPARING("preparing"), APPLIED("applied"),
@@ -127,6 +130,12 @@ public final class DictionarySnapshotQueue {
         String[] fields = value.split(":", -1);
         if (fields.length != 3 || !validOwner(fields[1])) return false;
         return validDigest(fields[2]);
+    }
+
+    /** 本机词库版本 `local-v1:<代次>:<摘要>` 里交给原生快照准备（`expected_version`）和激活的那段摘要，64 位小写十六进制。原生侧只认这段摘要，整串传过去会被当成越界请求拒绝，整份激活永远失败；iOS 的 `activateDictionarySnapshot` 也是先拆出这一段。 */
+    public static String nativeVersion(String version) throws Failure {
+        if (!validVersion(version)) throw new Failure(Reason.INVALID);
+        return version.split(":", -1)[2];
     }
 
     private static boolean validOwner(String value) {
@@ -236,24 +245,38 @@ public final class DictionarySnapshotQueue {
         catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
     }
 
-    public Request claim(WorkerLease lease) throws Failure {
+    public Request claim(WorkerLease lease, Supplier<String> currentAccountId) throws Failure {
         checkLease(lease);
-        return locked(() -> {
+        if (currentAccountId == null) throw new Failure(Reason.INVALID);
+        Request result = locked(() -> {
             State state = readUnlocked();
             Request request = state.request();
             if (request == null || !request.status().active()) return null;
+            Boolean owned = owned(request, currentAccountId);
+            if (owned == null) return null;
+            if (!owned) {
+                Request cancelled = copy(request, Status.CANCELLED);
+                writeState(new State(state.localVersion(), cancelled));
+                return cancelled;
+            }
             Request claimed = copy(request, Status.PREPARING);
             writeState(new State(state.localVersion(), claimed));
             return claimed;
         });
+        if (result != null && result.status() == Status.CANCELLED) {
+            deleteSnapshot(result.id());
+            return null;
+        }
+        return result;
     }
 
     public boolean complete(UUID id, WorkerLease lease, String currentVersion,
-            boolean alreadyApplied, Activation activation) throws Failure {
+            boolean alreadyApplied, Supplier<String> currentAccountId,
+            Activation activation) throws Failure {
         checkLease(lease);
-        if (id == null || !validVersion(currentVersion) || activation == null)
+        if (id == null || !validVersion(currentVersion) || currentAccountId == null || activation == null)
             throw new Failure(Reason.INVALID);
-        boolean applied = locked(() -> {
+        Status result = locked(() -> {
             State state = readUnlocked();
             Request request = state.request();
             if (request == null || !id.equals(request.id())
@@ -261,11 +284,17 @@ public final class DictionarySnapshotQueue {
                 throw new Failure(Reason.CONFLICT);
             if (alreadyApplied) {
                 writeState(new State(currentVersion, copy(request, Status.APPLIED)));
-                return true;
+                return Status.APPLIED;
+            }
+            Boolean owned = owned(request, currentAccountId);
+            if (owned == null) return request.status();
+            if (!owned) {
+                writeState(new State(state.localVersion(), copy(request, Status.CANCELLED)));
+                return Status.CANCELLED;
             }
             if (!request.expectedLocalVersion().equals(currentVersion)) {
                 writeState(new State(currentVersion, copy(request, Status.CONFLICT)));
-                return false;
+                return Status.CONFLICT;
             }
             final String next;
             try { next = activation.apply(); }
@@ -273,10 +302,17 @@ public final class DictionarySnapshotQueue {
             catch (Exception error) { throw new Failure(Reason.UNAVAILABLE, error); }
             if (!validVersion(next)) throw new Failure(Reason.INVALID);
             writeState(new State(next, copy(request, Status.APPLIED)));
-            return true;
+            return Status.APPLIED;
         });
-        if (applied) deleteSnapshot(id);
-        return applied;
+        if (result == Status.APPLIED || result == Status.CANCELLED) deleteSnapshot(id);
+        return result == Status.APPLIED;
+    }
+
+    /** 请求是否仍归当前账号：本地备份恢复的请求不属于任何账号，总是成立，也不去问账号；其余请求的所有者必须等于当前账号。账号暂时读不到（provider 不可达）时返回 null，调用方原样保留请求，下次空闲再试。 */
+    private static Boolean owned(Request request, Supplier<String> currentAccountId) {
+        if (LOCAL_RESTORE_OWNER.equals(request.accountId())) return Boolean.TRUE;
+        String owner = currentAccountId.get();
+        return owner == null ? null : owner.equals(request.accountId());
     }
 
     public void fail(UUID id, WorkerLease lease) throws Failure {

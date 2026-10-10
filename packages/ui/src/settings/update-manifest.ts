@@ -1,27 +1,28 @@
+import { releasesPageUrl } from "./app-resources";
+
 export type Version = { display: string; parts: number[] };
 
-export type UpdateManifest = {
-  version?: unknown;
-  releaseUrl?: unknown;
-  installerName?: unknown;
-  installerSha256?: unknown;
-  signed?: unknown;
+/** What the settings page asks its host: the release tag prefix of this platform, the running version, and the edition id and architecture when the host reports them. */
+export type UpdateCheckRequest = {
+  platform: string;
+  currentVersion: string;
+  edition?: string;
+  arch?: string;
 };
 
-export type GitHubReleaseAsset = {
-  name?: unknown;
-  /** `sha256:<hex>` on responses since GitHub started computing asset digests; older responses and some assets carry `null` or omit it. */
-  digest?: unknown;
-  browser_download_url?: unknown;
+/** A release as `msime_client_core::update_check::ReleaseUpdate` serialises it. */
+export type HostReleaseUpdate = {
+  version: { display: string; parts: number[] };
+  release_url: string;
+  installer_name: string | null;
+  installer_sha256: string | null;
+  signed: boolean | null;
 };
 
-export type GitHubRelease = {
-  tag_name?: unknown;
-  html_url?: unknown;
-  draft?: unknown;
-  prerelease?: unknown;
-  assets?: unknown;
-};
+/** What the host's update check found (`msime_client_core::update_check::UpdateCheck`): a newer release, the running version already being the newest, or no release of this platform yet. */
+export type UpdateCheckResult =
+  | { status: "available" | "current"; update: HostReleaseUpdate }
+  | { status: "none" };
 
 const projectReleaseTagUrl =
   /^https:\/\/github\.com\/metasequoiaime\/([\w.-]+)\/releases\/tag\/([\w.+-]+)$/;
@@ -42,202 +43,55 @@ export type ValidatedUpdate = {
   installerSha256: string | null;
   signed: boolean | null;
 };
-import { selectUniqueReleaseAsset } from "./release-assets";
 
+/** Normalises the version string a host reports (`v1.2.0`, `1.2.0-beta`) to the dotted numbers the page shows. */
 export function parseVersion(value: string): Version | null {
   const match = value.trim().match(/^v?(\d+(?:\.\d+)*)(?:[-+].*)?$/i);
   if (!match?.[1]) return null;
   return { display: match[1], parts: match[1].split(".").map(Number) };
 }
 
-export function compareVersions(left: Version, right: Version): number {
-  const length = Math.max(left.parts.length, right.parts.length);
-  for (let index = 0; index < length; index += 1) {
-    const difference = (left.parts[index] ?? 0) - (right.parts[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return 0;
+const sha256Pattern = /^[0-9a-f]{64}$/;
+// The name is shown inside a shell command the user may copy; the host only reports names of this shape.
+const installerNamePattern = /^[A-Za-z0-9][\w.+~-]*$/;
+
+/**
+ * The host's release in the page's shape, or null when it is not one the page can show safely: the release page must be a tag page of the shared repository, and an installer name or digest that does not look like one is dropped. The host's Rust check already guarantees all of this; the page does not take a URL it will open on trust.
+ */
+export function fromHostUpdate(update: HostReleaseUpdate): ValidatedUpdate | null {
+  if (!update || typeof update !== "object") return null;
+  const { version, release_url: releaseUrl } = update;
+  if (
+    typeof releaseUrl !== "string" ||
+    !releaseUrl.startsWith(`${releasesPageUrl}/tag/`) ||
+    /[\s"'`<>\\|&]/.test(releaseUrl)
+  )
+    return null;
+  const parsed =
+    version && typeof version.display === "string" ? parseVersion(version.display) : null;
+  if (!parsed) return null;
+  return {
+    version: parsed,
+    releaseUrl,
+    installerName:
+      typeof update.installer_name === "string" && installerNamePattern.test(update.installer_name)
+        ? update.installer_name
+        : null,
+    installerSha256:
+      typeof update.installer_sha256 === "string" && sha256Pattern.test(update.installer_sha256)
+        ? update.installer_sha256
+        : null,
+    signed: typeof update.signed === "boolean" ? update.signed : null,
+  };
 }
 
-// msime.app 更新清单（`validateManifest`）认的安装包名。不带版本名的 `MetasequoiaIME_Setup_v` 是 msime-windows 的安装包；本仓库在 GitHub 发布的 Windows 安装包（包括 full）都按版本命名，见 `editionInstallerPrefix`。
-const installerNamePattern = /^MetasequoiaIME_Setup_v[\w.-]+\.exe$/i;
-const sha256Pattern = /^[0-9a-f]{64}$/i;
-
-// The asset name is shown inside a shell command the user may copy, so it is limited to characters that need no quoting and cannot start with an option dash. CPack names the Linux packages `msime-linux_VERSION_ARCH.deb` and `msime-linux-VERSION-linux-ARCH.tar.gz` (platforms/linux/cmake/packaging.cmake).
-const linuxPackagePatterns = [/^[a-z0-9][\w.+~-]*\.deb$/i, /^[a-z0-9][\w.+~-]*\.tar\.gz$/i];
-
-// 不是 full 的版本和 full 发布在同一个平台标签下（例如都在 `linux-v1.2.0` 里），靠资产名区分：Linux 包名是 `msime-linux-<id>`，Windows 安装包是 `MetasequoiaIME-<Id>_Setup_v<版本>.exe`（`<Id>` 是首字母大写的版本 id）。各平台的打包脚本要按这个名字产出。full 的 Linux 资产名不变；Windows 上 full 也按这个形式命名（`MetasequoiaIME-Full_Setup_v`），不带版本名的 `MetasequoiaIME_Setup_v` 是 msime-windows 的安装包。
 const editionIdPattern = /^[a-z][a-z0-9]*$/;
-/** full 的 Linux 资产模式也认得出其他版本的包（`msime-linux-wubi_…`），选 full 的资产之前先去掉它们：full 的包名在 `msime-linux` 之后紧跟 `_` 或版本号。 */
-const otherEditionLinuxPackagePattern = /^msime-linux-[a-z]/i;
 
-function isFullEdition(edition: string | undefined): boolean {
-  return edition === undefined || edition === "full";
-}
-
-/** 版本的 Linux 资产模式；不是合法的版本 id 时为 null，不选任何资产。 */
-function editionLinuxPackagePatterns(edition: string | undefined): readonly RegExp[] | null {
-  if (isFullEdition(edition)) return linuxPackagePatterns;
-  if (!edition || !editionIdPattern.test(edition)) return null;
-  return [
-    new RegExp(`^msime-linux-${edition}_[\\w.+~-]+\\.deb$`, "i"),
-    new RegExp(`^msime-linux-${edition}-\\d[\\w.+~-]*\\.tar\\.gz$`, "i"),
-  ];
-}
-
-/** 版本的 Windows 安装包名前缀，例如 full（也是没有版本时）是 `MetasequoiaIME-Full_Setup_v`，五笔版是 `MetasequoiaIME-Wubi_Setup_v`；不是合法的版本 id 时为 null。 */
+/** 版本的 Windows 安装包名前缀，例如 full（也是没有版本时）是 `MetasequoiaIME-Full_Setup_v`，五笔版是 `MetasequoiaIME-Wubi_Setup_v`；不是合法的版本 id 时为 null。与 `crates/client-core/src/update_check.rs` 的 `edition_installer_prefix` 相同。 */
 function editionInstallerPrefix(edition: string | undefined): string | null {
   const id = edition ?? "full";
   if (!editionIdPattern.test(id)) return null;
   return `MetasequoiaIME-${id.charAt(0).toUpperCase()}${id.slice(1)}_Setup_v`;
-}
-
-function editionInstallerPattern(edition: string | undefined): RegExp | null {
-  const prefix = editionInstallerPrefix(edition);
-  return prefix ? new RegExp(`^${prefix}[\\w.-]+\\.exe$`, "i") : null;
-}
-
-/** 去掉其他版本的 Linux 包，让 full 只在自己的包里选。不是数组时原样返回，交给 `selectUniqueReleaseAsset` 处理。 */
-/** The architecture parts CPack puts in the Linux package names (dpkg's for the `.deb`, `CMAKE_SYSTEM_PROCESSOR` for the `.tar.gz`), keyed by Rust's name for the host's architecture (`HostCapabilities.arch`). */
-const linuxPackageArchitectures: Readonly<Record<string, { deb: string; tarball: string }>> = {
-  x86_64: { deb: "amd64", tarball: "x86_64" },
-  aarch64: { deb: "arm64", tarball: "aarch64" },
-};
-
-/** A release carries one `.deb` and one `.tar.gz` per architecture; keep this machine's. An unknown or unreported architecture keeps them all, and the selection then offers a package only when there is a single one. */
-function onlyLinuxPackagesFor(assets: unknown, arch: string | undefined): unknown {
-  const names = arch === undefined ? undefined : linuxPackageArchitectures[arch];
-  if (!names || !Array.isArray(assets)) return assets;
-  return assets.filter(
-    (asset: { name?: unknown } | null) =>
-      !!asset &&
-      typeof asset === "object" &&
-      typeof asset.name === "string" &&
-      (asset.name.endsWith(`_${names.deb}.deb`) ||
-        asset.name.endsWith(`-linux-${names.tarball}.tar.gz`)),
-  );
-}
-
-function withoutOtherEditionLinuxPackages(assets: unknown): unknown {
-  return Array.isArray(assets)
-    ? assets.filter(
-        (asset: { name?: unknown } | null) =>
-          !(
-            asset &&
-            typeof asset === "object" &&
-            typeof asset.name === "string" &&
-            otherEditionLinuxPackagePattern.test(asset.name)
-          ),
-      )
-    : assets;
-}
-
-function isHttpsUrl(value: string): boolean {
-  return value.startsWith("https://") && !/[\s"'`<>\\|&]/.test(value);
-}
-
-export function validateManifest(
-  manifest: UpdateManifest,
-  releasesPageUrl: string,
-): ValidatedUpdate | null {
-  if (typeof manifest.version !== "string" || typeof manifest.releaseUrl !== "string") return null;
-  if (!isHttpsUrl(releasesPageUrl) || !isHttpsUrl(manifest.releaseUrl)) return null;
-  if (
-    manifest.releaseUrl !== releasesPageUrl &&
-    !manifest.releaseUrl.startsWith(`${releasesPageUrl}/`)
-  )
-    return null;
-  const version = parseVersion(manifest.version);
-  if (!version) return null;
-  return {
-    version,
-    releaseUrl: manifest.releaseUrl,
-    installerName:
-      typeof manifest.installerName === "string" &&
-      installerNamePattern.test(manifest.installerName)
-        ? manifest.installerName
-        : null,
-    installerSha256:
-      typeof manifest.installerSha256 === "string" && sha256Pattern.test(manifest.installerSha256)
-        ? manifest.installerSha256
-        : null,
-    signed: typeof manifest.signed === "boolean" ? manifest.signed : null,
-  };
-}
-
-export function validateGitHubRelease(
-  release: GitHubRelease,
-  releasesPageUrl: string,
-): ValidatedUpdate | null {
-  if (typeof release.tag_name !== "string" || typeof release.html_url !== "string") return null;
-  if (!isHttpsUrl(releasesPageUrl) || !isHttpsUrl(release.html_url)) return null;
-  if (!release.html_url.startsWith(`${releasesPageUrl}/tag/`)) return null;
-  const version = parseVersion(release.tag_name);
-  if (!version) return null;
-  return {
-    version,
-    releaseUrl: release.html_url,
-    installerName: null,
-    installerSha256: null,
-    signed: null,
-  };
-}
-
-/**
- * The newest published release of one platform, from the repository's release list.
- *
- * Every platform publishes to the same repository under its own tag prefix (`windows-v1.2.0`, `linux-v1.2.0`; see `.github/workflows/release-*.yml`), so the repository's single "latest" release usually belongs to another platform, and its prefixed tag is not a version. Drafts and prereleases are not offered.
- *
- * `edition` 是运行中的版本 id（`HostCapabilities.edition.id`），缺省是 full。各版本共用同一个平台标签，只按资产名选本版本的安装包，full 的选择结果不变。
- *
- * `arch` is the host's architecture (`HostCapabilities.arch`); on Linux only this architecture's package is offered.
- */
-export function selectPlatformRelease(
-  releases: readonly GitHubRelease[],
-  platform: string,
-  releasesPageUrl: string,
-  edition?: string,
-  arch?: string,
-): ValidatedUpdate | null {
-  const prefix = `${platform}-`;
-  let newest: ValidatedUpdate | null = null;
-  for (const release of releases) {
-    if (!release || typeof release !== "object") continue;
-    if (release.draft === true || release.prerelease === true) continue;
-    if (typeof release.tag_name !== "string" || !release.tag_name.startsWith(prefix)) continue;
-    const update = validateGitHubRelease(
-      { tag_name: release.tag_name.slice(prefix.length), html_url: release.html_url },
-      releasesPageUrl,
-    );
-    if (update && platform === "linux") {
-      // No Linux artifact is signed (neither the .deb nor a detached GPG signature), so the notice says so and offers the digest in its place.
-      const patterns = editionLinuxPackagePatterns(edition);
-      const linuxPackage = patterns
-        ? selectUniqueReleaseAsset(
-            onlyLinuxPackagesFor(
-              isFullEdition(edition)
-                ? withoutOtherEditionLinuxPackages(release.assets)
-                : release.assets,
-              arch,
-            ),
-            patterns,
-          )
-        : null;
-      update.installerName = linuxPackage?.name ?? null;
-      update.installerSha256 = linuxPackage?.sha256 ?? null;
-      update.signed = false;
-    }
-    if (update && platform === "windows") {
-      // The release workflow publishes the installer unsigned (signing is a local, manual step), so the notice warns, as the shipped settings page does, and shows the digest GitHub computed.
-      const pattern = editionInstallerPattern(edition);
-      const installer = pattern ? selectUniqueReleaseAsset(release.assets, [pattern]) : null;
-      update.installerName = installer?.name ?? null;
-      update.installerSha256 = installer?.sha256 ?? null;
-      update.signed = false;
-    }
-    if (update && (!newest || compareVersions(update.version, newest.version) > 0)) newest = update;
-  }
-  return newest;
 }
 
 export function describeInstallerTrust(

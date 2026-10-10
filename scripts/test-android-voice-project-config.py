@@ -116,7 +116,9 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         # The plugin passes the provider through and decides nothing about which providers exist.
         self.assertIn("var provider: VoiceProviderArgs? = null", plugin)
         self.assertIn("HttpAsrPolicy.usable(", plugin)
-        self.assertIn("provider?.provider, provider?.endpoint, provider?.model, provider?.token", plugin)
+        # 请求格式随 provider 一起交给录音页，上传按格式拼请求体（#6017）。
+        self.assertIn("provider?.provider, provider?.requestFormat, provider?.endpoint, provider?.model", plugin)
+        self.assertIn("HttpAsrPolicy.usable(it.requestFormat,", plugin)
         # Absent or unusable provider must still reach the platform recognizer: that is the
         # default this host shipped with and it needs no account of any kind.
         self.assertIn("provider == null && streaming == null", plugin)
@@ -161,7 +163,11 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         # HttpURLConnection follows redirects by default. The polish request carries a bearer
         # token, so following one could replay that credential to an endpoint outside the user's
         # configured origin before the response is parsed.
-        self.assertIn("connection.setInstanceFollowRedirects(false);", polisher)
+        policy = (
+            ROOT / "platforms/android/java/app/msime/android/HttpConnectionPolicy.java"
+        ).read_text()
+        self.assertIn("HttpConnectionPolicy.rejectRedirects(connection);", polisher)
+        self.assertIn("connection.setInstanceFollowRedirects(false);", policy)
 
     def test_keyboard_voice_releases_recognizer_when_worker_submission_is_rejected(self):
         entry = (
@@ -261,7 +267,7 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
 
         # The keyboard asks for it and passes the answer to its own voice entry.
         self.assertIn("VoiceConfiguration.read(preferencesDirectory, requestId)", service)
-        self.assertIn("configured.providerName(), configured.endpoint(), configured.model()",
+        self.assertIn("configured.providerName(), configured.requestFormat(), configured.endpoint()",
                       service)
         self.assertIn("configured.streaming(), configured.polish()", service)
         # A configured provider must not be refused for want of the platform recogniser.
@@ -332,7 +338,11 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         # HttpURLConnection follows redirects by default. The upload carries a bearer token, so
         # following one could replay that credential to an endpoint outside the user's configured
         # origin before the response is parsed.
-        self.assertIn("opened.setInstanceFollowRedirects(false);", recognizer)
+        policy = (
+            ROOT / "platforms/android/java/app/msime/android/HttpConnectionPolicy.java"
+        ).read_text()
+        self.assertIn("HttpConnectionPolicy.rejectRedirects(opened);", recognizer)
+        self.assertIn("connection.setInstanceFollowRedirects(false);", policy)
 
     def test_stopping_the_voice_activity_cancels_active_capture(self):
         activity = (

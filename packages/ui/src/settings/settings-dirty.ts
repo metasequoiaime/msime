@@ -4,20 +4,19 @@ import type { Preferences, Snapshot } from "../index";
 export interface SettingsDirtyOptions {
   draft?: Preferences;
   snapshot?: Snapshot;
-  macosWubiAutoCommitUnique?: boolean;
-  savedMacosWubiAutoCommitUnique?: boolean;
+  macosShuangpinKeymap?: boolean;
+  savedMacosShuangpinKeymap?: boolean;
 }
 
-/** Reports whether shared settings or the macOS native Wubi preference changed. */
+/** 判断共享设置或某项 macOS 原生偏好是否发生了变化。 */
 export function settingsDirty({
   draft,
   snapshot,
-  macosWubiAutoCommitUnique,
-  savedMacosWubiAutoCommitUnique,
+  macosShuangpinKeymap,
+  savedMacosShuangpinKeymap,
 }: SettingsDirtyOptions): boolean {
   return (
     (!!draft && !!snapshot && !deepEqual(draft, snapshot.preferences)) ||
-    (macosWubiAutoCommitUnique !== undefined &&
-      macosWubiAutoCommitUnique !== savedMacosWubiAutoCommitUnique)
+    (macosShuangpinKeymap !== undefined && macosShuangpinKeymap !== savedMacosShuangpinKeymap)
   );
 }

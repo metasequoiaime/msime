@@ -1,4 +1,5 @@
 import app.msime.android.AppThemePalette;
+import app.msime.android.ColorPolicy;
 import app.msime.android.AppThemePalette.Mode;
 import app.msime.android.AppThemePalette.Seed;
 import java.util.ArrayList;
@@ -27,7 +28,7 @@ public final class AppThemePaletteSmoke {
 
     static void expect(String label, int actual, int expected) {
         if (actual != expected) {
-            failures.add(label + ": " + AppThemePalette.hex(actual) + " != " + AppThemePalette.hex(expected));
+            failures.add(label + ": " + ColorPolicy.hexArgb(actual) + " != " + ColorPolicy.hexArgb(expected));
         }
     }
 

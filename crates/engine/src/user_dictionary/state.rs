@@ -432,6 +432,201 @@ fn build_generation(
     )
 }
 
+/// [`merge_dictionary_state`] 的结果：各类记录写进本机的条数，以及没写的条数和原因。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DictionaryStateMerge {
+    /// 写进来的学习调权（`user_inserted = 0` 的 upsert）和删除记录。
+    pub entries: usize,
+    /// 写进来的固定位置。
+    pub positions: usize,
+    /// 新增或调大的选词计数。
+    pub selections: usize,
+    /// 本机已有、按规则保留本机的记录：同一个词本机已有日志行，同一个词或同一个位置本机已固定，本机的选词计数不小于记录里的。
+    pub kept: usize,
+    /// 用户自己的词（`user_inserted = 1` 的 upsert）。这里不写，由调用方经个人词库队列合并。
+    pub words: usize,
+    /// 这一代存不下的记录：没有中文词库的版本里的非英文行、编码拼不出拼音表名或词库里没有那张表的行、权重低于 1 的拼音调权（回放同样跳过它）。
+    pub skipped: usize,
+}
+
+/// 把 `records`（一份词库状态，通常是本地备份里的快照）合并进本机正在用的日志和词库，而不是像 [`stage_dictionary_state`] 那样另建一代整份替换。全部在一个 IMMEDIATE 事务里完成，任何一条记录不合规、读流失败或写库出错（磁盘满、I/O 失败等）都整体回滚。
+///
+/// 合并规则是本机优先：学习调权和删除记录只在本机日志里还没有这个词（同一 `dictionary,key,value`）时写入，写法与个人词库编辑相同（先改工作词库，再记日志，`user_inserted` 照记录保留）；固定位置在本机既没有固定这个词、这个位置也没被占用时才写入；选词计数取两边较大的那个。用户自己的词不在这里写，只计数。`main_dictionary` 为假（代次里没有 `msime-pinyin.db`）时只写英文行，其余跳过。
+///
+/// 调用方必须持有词库的独占维护权：这里直接改工作词库，与会话的写入不能并发。
+pub fn merge_dictionary_state(
+    paths: &RuntimePaths,
+    main_dictionary: bool,
+    records: &mut dyn Iterator<Item = Result<DictionaryStateRecord>>,
+    maximum_records: usize,
+) -> Result<DictionaryStateMerge> {
+    use super::personal::open_edit_connection;
+    use super::replay::{apply_english, apply_pinyin, apply_simple};
+    use rusqlite::OptionalExtension;
+
+    paths.validate()?;
+    let mut connection = open_edit_connection(paths, main_dictionary)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let mut merge = DictionaryStateMerge::default();
+    {
+        let mut existing = transaction.prepare(
+            "SELECT 1 FROM personal_journal.user_dictionary_operations WHERE dictionary=?1 AND key=?2 AND value=?3",
+        )?;
+        let mut journal = transaction.prepare(
+            "INSERT INTO personal_journal.user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        )?;
+        // 同一个词已固定，或同一个位置已被占用，都由主键和 `UNIQUE(context_key,position)` 拒绝，`OR IGNORE` 让本机的那条留下。
+        let mut position = transaction.prepare(
+            "INSERT OR IGNORE INTO personal_journal.fixed_candidate_positions(context_key,entry_key,value,position) VALUES(?1,?2,?3,?4)",
+        )?;
+        let mut selection = transaction.prepare(
+            "INSERT INTO personal_journal.candidate_selection_state(context_key,entry_key,value,selection_count) VALUES(?1,?2,?3,?4) ON CONFLICT(context_key,entry_key,value) DO UPDATE SET selection_count=excluded.selection_count WHERE excluded.selection_count>selection_count",
+        )?;
+        let mut count = 0usize;
+        for record in records {
+            let record = record?;
+            count += 1;
+            require(count <= maximum_records)?;
+            match &record {
+                DictionaryStateRecord::Entry {
+                    kind,
+                    key,
+                    value,
+                    weight,
+                    display,
+                    deleted,
+                    user_inserted,
+                } => {
+                    require(
+                        bounded(key, MAX_KEY_BYTES, false)
+                            && bounded(value, MAX_VALUE_BYTES, false)
+                            && bounded(display, MAX_VALUE_BYTES, true)
+                            && (0..=MAX_STAGED_WEIGHT).contains(weight),
+                    )?;
+                    if *user_inserted && !*deleted {
+                        merge.words += 1;
+                        continue;
+                    }
+                    if (!main_dictionary && *kind != PersonalDictionaryKind::English)
+                        || (!*deleted && *kind == PersonalDictionaryKind::Pinyin && *weight < 1)
+                    {
+                        merge.skipped += 1;
+                        continue;
+                    }
+                    let name = kind.journal_name();
+                    if existing
+                        .query_row(params![name, key, value], |_| Ok(()))
+                        .optional()?
+                        .is_some()
+                    {
+                        merge.kept += 1;
+                        continue;
+                    }
+                    let (key_bytes, value_bytes) = (key.as_bytes(), value.as_bytes());
+                    // 编码拼不出表名（`Ok(false)`），或这一代词库里没有那张表（准备语句时报 no such table，什么也没执行），这一行就存不下，计入 skipped。别的 SQL 错误（磁盘满、I/O 失败、库损坏、约束）照常上抛，整个合并回滚，调用方留着待合并的文件下次再试，而不是把没写进去的记录当成跳过。
+                    let applied = match kind {
+                        PersonalDictionaryKind::Pinyin => {
+                            apply_pinyin(&transaction, key_bytes, value_bytes, *deleted, *weight)
+                        }
+                        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => {
+                            apply_simple(
+                                &transaction,
+                                kind.wubi_table().unwrap_or_default(),
+                                key_bytes,
+                                value_bytes,
+                                *deleted,
+                                *weight,
+                            )
+                        }
+                        PersonalDictionaryKind::QuickPhrase => apply_simple(
+                            &transaction,
+                            "quick_parases",
+                            key_bytes,
+                            value_bytes,
+                            *deleted,
+                            *weight,
+                        ),
+                        PersonalDictionaryKind::English => apply_english(
+                            &transaction,
+                            key_bytes,
+                            value_bytes,
+                            *deleted,
+                            *weight,
+                            display.as_bytes(),
+                        ),
+                    };
+                    let applied = match applied {
+                        Ok(applied) => applied,
+                        Err(error) if missing_table(&error) => false,
+                        Err(error) => return Err(error.into()),
+                    };
+                    if !applied {
+                        merge.skipped += 1;
+                        continue;
+                    }
+                    journal.execute(params![
+                        name,
+                        key,
+                        value,
+                        if *deleted { "delete" } else { "upsert" },
+                        weight,
+                        display,
+                        i64::from(*user_inserted),
+                    ])?;
+                    merge.entries += 1;
+                }
+                DictionaryStateRecord::Position {
+                    context,
+                    key,
+                    value,
+                    position: slot,
+                } => {
+                    require(
+                        bounded(context, MAX_KEY_BYTES, false)
+                            && bounded(key, MAX_KEY_BYTES, false)
+                            && bounded(value, MAX_VALUE_BYTES, false)
+                            && (1..=5).contains(slot),
+                    )?;
+                    if position.execute(params![context, key, value, slot])? == 1 {
+                        merge.positions += 1;
+                    } else {
+                        merge.kept += 1;
+                    }
+                }
+                DictionaryStateRecord::Selection {
+                    context,
+                    key,
+                    value,
+                    count: selections,
+                } => {
+                    require(
+                        bounded(context, MAX_KEY_BYTES, false)
+                            && bounded(key, MAX_KEY_BYTES, false)
+                            && bounded(value, MAX_VALUE_BYTES, false)
+                            && (0..=MAX_STAGED_SELECTION_COUNT).contains(selections),
+                    )?;
+                    if selection.execute(params![context, key, value, selections])? == 1 {
+                        merge.selections += 1;
+                    } else {
+                        merge.kept += 1;
+                    }
+                }
+            }
+        }
+    }
+    transaction.commit()?;
+    Ok(merge)
+}
+
+/// 语句准备时报「没有这张表」：SQLite 对它用通用的 `SQLITE_ERROR`，只能看消息区分。这时语句一条也没执行，跳过这一行不会留下半截修改。
+fn missing_table(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(failure, Some(message))
+            if failure.code == rusqlite::ErrorCode::Unknown && message.starts_with("no such table")
+    )
+}
+
 /// Non-empty unless `allow_empty`, at most `maximum` bytes and free of NUL (DS:82-86); `String` already guarantees UTF-8.
 fn bounded(text: &str, maximum: usize, allow_empty: bool) -> bool {
     (allow_empty || !text.is_empty()) && text.len() <= maximum && !text.contains('\0')
@@ -1080,6 +1275,298 @@ mod tests {
         assert!(stage(&missing, &target, records()).is_err());
         assert!(!target.exists());
         assert!(missing.is_dir());
+    }
+
+    fn position(context: &str, key: &str, value: &str, slot: i64) -> DictionaryStateRecord {
+        DictionaryStateRecord::Position {
+            context: context.into(),
+            key: key.into(),
+            value: value.into(),
+            position: slot,
+        }
+    }
+
+    fn selection(context: &str, key: &str, value: &str, count: i64) -> DictionaryStateRecord {
+        DictionaryStateRecord::Selection {
+            context: context.into(),
+            key: key.into(),
+            value: value.into(),
+            count,
+        }
+    }
+
+    fn merge(
+        paths: &RuntimePaths,
+        records: Vec<DictionaryStateRecord>,
+    ) -> Result<DictionaryStateMerge> {
+        merge_dictionary_state(paths, true, &mut records.into_iter().map(Ok), 100)
+    }
+
+    /// 本机已有拟好的学习调权、拟蒿这个自造词和它的固定位置，以及两条选词计数。
+    fn local_state(resources: &Path, generation: &Path) -> RuntimePaths {
+        use PersonalDictionaryKind::*;
+        stage(
+            resources,
+            generation,
+            vec![
+                entry(Pinyin, "ni'hao", "拟好", 200, "", false, false),
+                entry(Pinyin, "ni'hao", "拟蒿", 150, "", false, true),
+                position("ni'hao", "ni'hao", "拟蒿", 1),
+                selection("ni'hao", "ni'hao", "拟好", 7),
+                selection("ni'hao", "ni'hao", "你好", 2),
+            ],
+        )
+        .unwrap()
+    }
+
+    fn backup_records() -> Vec<DictionaryStateRecord> {
+        use PersonalDictionaryKind::*;
+        vec![
+            // 本机已有这个词的日志行：保留本机的 200。
+            entry(Pinyin, "ni'hao", "拟好", 999, "", false, false),
+            // 用户在旧设备上删掉的随包词。
+            entry(Pinyin, "ni'hao", "你好", 0, "", true, true),
+            // 旧设备学到的一条调权，本机还没有。
+            entry(Pinyin, "ni'hao", "泥好", 120, "", false, false),
+            // 用户自己的词由个人词库队列合并，这里只计数。
+            entry(Pinyin, "ni'hao", "拟蒿", 150, "", false, true),
+            // 编码里有空音节，拼不出表名。
+            entry(Pinyin, "ni''hao", "坏键", 120, "", false, false),
+            // 同一个词本机已固定在 1。
+            position("ni'hao", "ni'hao", "拟蒿", 3),
+            // 位置 1 已被本机占用。
+            position("ni'hao", "ni'hao", "泥好", 1),
+            position("ni'hao", "ni'hao", "泥好", 2),
+            // 本机是 7，取大保留本机。
+            selection("ni'hao", "ni'hao", "拟好", 3),
+            // 本机是 2，取大调成 5。
+            selection("ni'hao", "ni'hao", "你好", 5),
+            selection("ni", "ni", "你", 4),
+        ]
+    }
+
+    #[test]
+    fn a_merge_keeps_local_rows_takes_the_larger_count_and_writes_the_rest() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let local = local_state(&resources, &root.path().join("local"));
+        let merged = merge(&local, backup_records()).unwrap();
+        assert_eq!(
+            merged,
+            DictionaryStateMerge {
+                entries: 2,
+                positions: 1,
+                selections: 2,
+                kept: 4,
+                words: 1,
+                skipped: 1,
+            }
+        );
+        let journal = local.user(assets::USER_JOURNAL);
+        let main = local.dictionary(assets::MAIN_DICTIONARY);
+        assert_eq!(
+            weight(&main, "SELECT weight FROM tbl_2_n WHERE value='拟好'"),
+            Some(200)
+        );
+        assert_eq!(
+            weight(&main, "SELECT count(*) FROM tbl_2_n WHERE value='你好'"),
+            Some(0)
+        );
+        assert_eq!(
+            weight(&main, "SELECT weight FROM tbl_2_n WHERE value='泥好'"),
+            Some(120)
+        );
+        assert_eq!(
+            weight(
+                &journal,
+                "SELECT weight FROM user_dictionary_operations WHERE value='拟好'"
+            ),
+            Some(200)
+        );
+        let rows: Vec<(String, String, i64)> = Connection::open(&journal)
+            .unwrap()
+            .prepare("SELECT value,operation,user_inserted FROM user_dictionary_operations WHERE value IN ('你好','泥好') ORDER BY value")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("你好".into(), "delete".into(), 1),
+                ("泥好".into(), "upsert".into(), 0),
+            ]
+        );
+        assert_eq!(
+            weight(
+                &journal,
+                "SELECT count(*) FROM user_dictionary_operations WHERE key='ni''''hao'"
+            ),
+            Some(0)
+        );
+        assert_eq!(
+            weight(
+                &journal,
+                "SELECT position FROM fixed_candidate_positions WHERE value='拟蒿'"
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            weight(
+                &journal,
+                "SELECT position FROM fixed_candidate_positions WHERE value='泥好'"
+            ),
+            Some(2)
+        );
+        for (value, count) in [("拟好", 7), ("你好", 5), ("你", 4)] {
+            assert_eq!(
+                weight(
+                    &journal,
+                    &format!(
+                        "SELECT selection_count FROM candidate_selection_state WHERE value='{value}'"
+                    )
+                ),
+                Some(count),
+                "{value}"
+            );
+        }
+
+        // 再合并一次什么也不改：上一次写进来的都成了本机已有的。
+        let revision = dictionary_state_revision(&local).unwrap();
+        let again = merge(&local, backup_records()).unwrap();
+        assert_eq!(
+            again,
+            DictionaryStateMerge {
+                entries: 0,
+                positions: 0,
+                selections: 0,
+                kept: 9,
+                words: 1,
+                skipped: 1,
+            }
+        );
+        assert_eq!(dictionary_state_revision(&local).unwrap(), revision);
+    }
+
+    #[test]
+    fn a_failed_merge_changes_nothing() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let local = local_state(&resources, &root.path().join("local"));
+        let main = local.dictionary(assets::MAIN_DICTIONARY);
+        let revision = dictionary_state_revision(&local).unwrap();
+        let dictionary = fs::read(&main).unwrap();
+        let mut invalid = backup_records();
+        invalid.push(position("ni", "ni", "你", 6));
+        assert_eq!(
+            merge(&local, invalid).unwrap_err().to_string(),
+            diagnostics::INVALID_DICTIONARY_STATE
+        );
+        let mut stream = backup_records()
+            .into_iter()
+            .map(Ok)
+            .chain(std::iter::once(Err(EngineError::failed(
+                diagnostics::SNAPSHOT_STREAM_FAILED,
+            ))));
+        assert_eq!(
+            merge_dictionary_state(&local, true, &mut stream, 100)
+                .unwrap_err()
+                .to_string(),
+            diagnostics::SNAPSHOT_STREAM_FAILED
+        );
+        assert!(
+            merge_dictionary_state(&local, true, &mut backup_records().into_iter().map(Ok), 2)
+                .is_err()
+        );
+        assert_eq!(dictionary_state_revision(&local).unwrap(), revision);
+        assert_eq!(fs::read(&main).unwrap(), dictionary);
+    }
+
+    /// 词库里没有那张表的行跳过，合并照常提交；写库时别的 SQL 错误整体回滚，不当成跳过。
+    #[test]
+    fn a_missing_table_is_skipped_but_a_write_failure_rolls_back() {
+        use PersonalDictionaryKind::*;
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let local = local_state(&resources, &root.path().join("local"));
+        // 测试词库里没有 wubi98 这张表。
+        let merged = merge(
+            &local,
+            vec![
+                entry(Wubi98, "wqvb", "你好", 120, "", false, false),
+                selection("ni", "ni", "你", 4),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            (merged.entries, merged.selections, merged.skipped),
+            (0, 1, 1)
+        );
+
+        // 写词库时出错（这里用触发器模拟，真实情况是磁盘满或 I/O 失败）：前面已经调大的选词计数也一起撤销。
+        sql(
+            &local.dictionary(assets::MAIN_DICTIONARY),
+            "CREATE TRIGGER synthetic_failure BEFORE INSERT ON tbl_2_n BEGIN SELECT RAISE(ABORT,'synthetic write failure'); END;",
+        );
+        let revision = dictionary_state_revision(&local).unwrap();
+        assert!(merge(
+            &local,
+            vec![
+                selection("ni", "ni", "你", 9),
+                entry(Pinyin, "ni'hao", "泥好", 120, "", false, false),
+            ],
+        )
+        .is_err());
+        assert_eq!(dictionary_state_revision(&local).unwrap(), revision);
+        assert_eq!(
+            weight(
+                &local.user(assets::USER_JOURNAL),
+                "SELECT selection_count FROM candidate_selection_state WHERE value='你'"
+            ),
+            Some(4)
+        );
+    }
+
+    /// 没有中文词库的代次只收英文行，其余计入 skipped，日志不动。
+    #[test]
+    fn a_generation_without_the_main_dictionary_merges_english_rows_only() {
+        use PersonalDictionaryKind::*;
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let local = stage(&resources, &root.path().join("local"), vec![]).unwrap();
+        let merged = merge_dictionary_state(
+            &local,
+            false,
+            &mut vec![
+                entry(Pinyin, "ni'hao", "泥好", 120, "", false, false),
+                entry(
+                    English,
+                    "cloudfixture",
+                    "Cloudfixture",
+                    300,
+                    "Cloudfixture",
+                    false,
+                    false,
+                ),
+            ]
+            .into_iter()
+            .map(Ok),
+            100,
+        )
+        .unwrap();
+        assert_eq!((merged.entries, merged.skipped), (1, 1));
+        assert_eq!(
+            weight(&local.dictionary(assets::ENGLISH_DICTIONARY), "SELECT weight FROM english_words WHERE word='cloudfixture' AND display='Cloudfixture'"),
+            Some(300)
+        );
+        assert_eq!(
+            weight(
+                &local.user(assets::USER_JOURNAL),
+                "SELECT count(*) FROM user_dictionary_operations"
+            ),
+            Some(1)
+        );
     }
 
     // test_dictionary_state.cpp `--capacity`: a large state stages and streams back whole.

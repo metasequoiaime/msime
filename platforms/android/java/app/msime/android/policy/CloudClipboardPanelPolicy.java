@@ -67,6 +67,20 @@ public final class CloudClipboardPanelPolicy {
         return requestGeneration == currentGeneration;
     }
 
+    /** A cloud result or insertion is valid only while the same non-empty account owns the panel. */
+    public static boolean acceptsAccount(String requestedAccount, String currentAccount) {
+        return requestedAccount != null && !requestedAccount.isEmpty()
+            && requestedAccount.equals(currentAccount);
+    }
+
+    /** A cloud result belongs to the same account binding, including sign-out and re-login lineage. */
+    public static boolean acceptsBinding(String requestedAccount, long requestedGeneration,
+            String currentAccount, long currentGeneration) {
+        return requestedGeneration >= 0L && currentGeneration >= 0L
+            && acceptsAccount(requestedAccount, currentAccount)
+            && requestedGeneration == currentGeneration;
+    }
+
     /** Whether an upload completion still belongs to the visible panel that started it. */
     public static boolean acceptsUploadResult(long requestGeneration, long currentGeneration) {
         return accepts(requestGeneration, currentGeneration);
