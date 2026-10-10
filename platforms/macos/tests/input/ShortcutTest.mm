@@ -3279,6 +3279,66 @@ static void TestStaleClientDeactivation() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// IMK 不保证上一个客户端的 deactivateServer: 先于下一个客户端的 activateServer: 到达。activateServer: 已经丢掉了上一个客户端欠着的闭合符，所以迟到的那次回调到来时，控制器里待补的闭合符和跳过记录都属于当前客户端：它们既不能被提前写进当前客户端（成对标点被提前合上，组字中的 marked text 也会被整段替换掉），也不能被清掉。正常的 deactivate 仍在自己的客户端里补上闭合符。
+static void TestStaleDeactivationLeavesTheCurrentPairOpen() {
+    NSString *suite = [@"msime.stale-deactivation-pair." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(appearance.pairedPunctuation && appearance.runtimeChinesePunctuation && !appearance.runtimeFullWidthInput);
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *previous = [ShortcutClient new], *current = [ShortcutClient new];
+    previous.document = current.document = @"";
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:current forKey:@"activeClient"];
+    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] };
+    [controller setValue:idle forKey:@"view"];
+    NSEvent *brace = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift
+                                      timestamp:0 windowNumber:0 context:nil characters:@"{" charactersIgnoringModifiers:@"["
+                                      isARepeat:NO keyCode:33];
+    NSEvent *closeBrace = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift
+                                           timestamp:0 windowNumber:0 context:nil characters:@"}" charactersIgnoringModifiers:@"]"
+                                           isARepeat:NO keyCode:30];
+    Method base = class_getInstanceMethod(IMKInputController.class, @selector(deactivateServer:));
+    assert(base);
+    baseDeactivationCalls = 0;
+    IMP original = method_setImplementation(base, (IMP)RecordBaseDeactivation);
+
+    // 当前客户端打开了一对 `{}`，`}` 作为 marked text 的尾巴等着补上。
+    session.punctuationASCIITransition = @{ @"handled": @NO, @"commit": NSNull.null, @"view": idle };
+    assert([controller handleEvent:brace client:current]);
+    assert([current.committed isEqual:@"{"] && [current.marked isEqual:@"}"]);
+    for (id stale in @[previous, NSNull.null]) {
+        [controller deactivateServer:stale == NSNull.null ? nil : stale];
+        assert([current.committed isEqual:@"{"] && [current.marked isEqual:@"}"] && current.insertions.count == 1);
+        assert(previous.insertions.count == 0 && previous.marked == nil);
+        assert([[controller valueForKey:@"pendingPairedClosing"] isEqual:@"}"]);
+        assert([controller valueForKey:@"activeClient"] == current && baseDeactivationCalls == 0);
+    }
+
+    // 这一对仍归当前客户端：下一次上屏把 `}` 一起带走，之后在它前面敲的 `}` 被跨过去。
+    [controller apply:@{ @"commit": @"a", @"view": idle }];
+    assert([current.committed isEqual:@"a}"] && [current.document isEqual:@"{a}"]);
+    for (id stale in @[previous, NSNull.null]) [controller deactivateServer:stale == NSNull.null ? nil : stale];
+    current.selection = NSMakeRange(2, 0);
+    const NSUInteger asciiBeforeStep = session.asciiCalls;
+    assert([controller handleEvent:closeBrace client:current]);
+    assert(session.asciiCalls == asciiBeforeStep && [current.document isEqual:@"{a}"] && current.selection.location == 3);
+    assert(previous.insertions.count == 0 && previous.marked == nil);
+
+    // 正常的 deactivate 照旧在自己的客户端里把这一对合上。
+    current.selection = NSMakeRange(current.document.length, 0);
+    assert([controller handleEvent:brace client:current]);
+    assert([current.committed isEqual:@"{"] && [current.marked isEqual:@"}"]);
+    [controller deactivateServer:current];
+    assert([current.committed isEqual:@"}"] && [current.document isEqual:@"{a}{}"]);
+    assert([controller valueForKey:@"pendingPairedClosing"] == nil && [controller valueForKey:@"activeClient"] == nil);
+    assert(baseDeactivationCalls == 1 && previous.insertions.count == 0);
+    method_setImplementation(base, original);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // Key sounds, the commit sound and background music, as the controller asks the session for them. The session decides whether anything is switched on; what is pinned here is which key class each key reports, that auto-repeat, key-up and secure event input stay silent, that dictated text and results the Engine computed are kept out of what counts as typing, and that music follows the controller that is actually active.
 static void TestSoundsFollowKeysCommitsAndActivation() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
@@ -3545,6 +3605,106 @@ static void TestPreferenceClientGeneration() {
         assert(session.updates == (session ? 2 : 0));
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
+}
+
+// 记录控制器释放时在哪个线程收起浮动工具栏。真实的工具栏是 NSPanel，在后台线程 orderOut: 会让 AppKit 直接终止进程。
+@interface ThreadRecordingToolbar : NSObject
+@property(atomic) NSUInteger deactivations;
+@property(atomic) BOOL deactivatedOffMain;
+@property(atomic) NSUInteger completions;
+@end
+@implementation ThreadRecordingToolbar
+- (void)deactivateForDelegate:(id)delegate {
+    (void)delegate;
+    if (!NSThread.isMainThread) self.deactivatedOffMain = YES;
+    self.deactivations = self.deactivations + 1;
+}
+@end
+
+// 偏好读取完成时把次数记到工具栏桩上：控制器释放后它自己的计数读不到。
+@interface DroppedPreferencesController : AsyncPreferencesController
+@end
+@implementation DroppedPreferencesController
+- (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
+                       session:(MSIMEClientSession *)session client:(id)client {
+    (void)snapshot; (void)error; (void)generation; (void)session; (void)client;
+    ThreadRecordingToolbar *toolbar = [self valueForKey:@"toolbar"];
+    toolbar.completions = toolbar.completions + 1;
+}
+@end
+
+// IMK 放掉控制器时，后台的偏好读取可能还握着它。最后一个强引用若在读取线程上释放，dealloc 就在那条线程上收起浮动工具栏，AppKit 以「Must only be used from the main thread」终止输入法进程（0.52.0 的崩溃报告，#6667）。
+static void DrainMainQueue();
+static void TestPreferenceReadDoesNotDeallocControllerOffMain() {
+    ThreadRecordingToolbar *toolbar = [ThreadRecordingToolbar new];
+    ControlledPreferenceRead *read = [ControlledPreferenceRead new];
+    read.snapshot = @{@"preferences":@{}};
+    @autoreleasepool {
+        DroppedPreferencesController *controller = [DroppedPreferencesController alloc];
+        controller.reads = @[read];
+        controller.appliedPreferences = [NSMutableArray array];
+        [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+        [controller setValue:@"/synthetic-preferences" forKey:@"preferencesDirectory"];
+        [controller setValue:toolbar forKey:@"toolbar"];
+        [controller reloadPreferences];
+        assert(dispatch_semaphore_wait(read.started, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+    }
+    // 主线程这一侧的引用已全部放掉，读取还在进行：此后控制器只由后台读取持有。这里不再碰控制器本身，免得主线程上多出一个自动释放的引用把它留到读取之后。
+    assert(toolbar.deactivations == 0);
+    dispatch_semaphore_signal(read.released);
+    SettleWindowLayout();
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    while (toolbar.deactivations == 0 && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    assert(toolbar.deactivations == 1);
+    assert(!toolbar.deactivatedOffMain);
+    // 释放排在完成块之前：完成块按弱引用取控制器，取不到就不应用这份偏好，和读取开始前控制器就已释放时一样。
+    DrainMainQueue();
+    assert(toolbar.completions == 0);
+}
+
+// 打开设置应用的完成回调由 NSWorkspace 在并发队列上调用并释放。它持有的回退块若强引用控制器，IMK 在设置应用启动期间放掉控制器时，最后一次释放就落在那条队列上。这里把 NSWorkspace 换成只收下完成回调的桩，再在后台队列上放掉它。
+static void TestDesktopLaunchDoesNotDeallocControllerOffMain() {
+    Method locate = class_getInstanceMethod(NSWorkspace.class, @selector(URLForApplicationWithBundleIdentifier:));
+    Method open = class_getInstanceMethod(NSWorkspace.class, @selector(openApplicationAtURL:configuration:completionHandler:));
+    __block id pendingHandler = nil;
+    IMP originalLocate = method_setImplementation(locate, imp_implementationWithBlock(^NSURL *(id workspace, NSString *identifier) {
+        (void)workspace; (void)identifier;
+        return [NSURL fileURLWithPath:@"/Applications/synthetic.app"];
+    }));
+    IMP originalOpen = method_setImplementation(open, imp_implementationWithBlock(^(id workspace, NSURL *url, id configuration, id handler) {
+        (void)workspace; (void)url; (void)configuration;
+        // 调用方传进来的是栈上的块，按 id 收下只会 retain 不会拷贝，要显式 copy。
+        pendingHandler = [handler copy];
+    }));
+    void (^launches[])(MSIMEInputController *) = {
+        ^(MSIMEInputController *controller) { [controller showDictionary:nil]; },
+        ^(MSIMEInputController *controller) { [controller restartCurrentInputMethod]; },
+    };
+    for (auto launch : launches) {
+        ThreadRecordingToolbar *toolbar = [ThreadRecordingToolbar new];
+        @autoreleasepool {
+            MSIMEInputController *controller = [MSIMEInputController alloc];
+            [controller setValue:toolbar forKey:@"toolbar"];
+            launch(controller);
+        }
+        assert(pendingHandler);
+        // 设置应用还在启动，主线程这一侧已经放掉控制器，再转一圈主队列，让主线程上自动释放的引用都先放掉。
+        DrainMainQueue();
+        dispatch_semaphore_t released = dispatch_semaphore_create(0);
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            pendingHandler = nil;
+            dispatch_semaphore_signal(released);
+        });
+        assert(dispatch_semaphore_wait(released, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+        while (toolbar.deactivations == 0 && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+        assert(toolbar.deactivations == 1);
+        assert(!toolbar.deactivatedOffMain);
+    }
+    method_setImplementation(locate, originalLocate);
+    method_setImplementation(open, originalOpen);
 }
 
 @interface ReloadCountingController : ModeController
@@ -5613,7 +5773,7 @@ static void TestAiCandidateEngineDelivery() {
             @"prompt_id":@"custom_2", @"prompt_custom_2":@"synthetic prompt"},
         @"input":@{@"segmented_pinyin":@[@"ni", @"hao"], @"context":@"", @"candidate_limit":@3}} error:&bridgeError];
     if (!descriptor || bridgeError || ![descriptor[@"timeout_ms"] isEqual:@8000]) {
-        // Only report the fixed-shape outcome. The descriptor also contains a bearer token.
+        // 只打印固定格式的结果：描述符里还带着 bearer token，不能整个打出来。
         fprintf(stderr, "AI descriptor present=%d error=%s timeout=%s\n", descriptor != nil,
             (bridgeError.localizedDescription ?: @"").UTF8String,
             ([descriptor[@"timeout_ms"] description] ?: @"").UTF8String);
@@ -9604,9 +9764,12 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestModifierTaps(); }
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
         @autoreleasepool { TestStaleClientDeactivation(); }
+        @autoreleasepool { TestStaleDeactivationLeavesTheCurrentPairOpen(); }
         @autoreleasepool { TestSoundsFollowKeysCommitsAndActivation(); }
         @autoreleasepool { TestMusicIsClaimedOnceTheSessionOpens(); }
         @autoreleasepool { TestPreferenceClientGeneration(); }
+        @autoreleasepool { TestPreferenceReadDoesNotDeallocControllerOffMain(); }
+        @autoreleasepool { TestDesktopLaunchDoesNotDeallocControllerOffMain(); }
         @autoreleasepool { TestSavedPreferencesReachTheFocusedController(); }
         @autoreleasepool { TestModeSwitchReachesTheSessionBeforeTheNextKey(); }
         @autoreleasepool { TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne(); }
