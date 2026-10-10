@@ -2842,6 +2842,8 @@ int main(int argc, char **argv) {
     require(state->cancelVoice(), "voice cancellation accepts an active delayed provider");
     require(std::chrono::steady_clock::now() - cancelStarted < std::chrono::milliseconds(100),
             "voice cancellation does not wait for the provider future");
+    require(!state->voice_job_.valid(),
+            "voice cancellation releases the stale provider future");
     const auto cancelDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (state->voice_job_.valid() && std::chrono::steady_clock::now() < cancelDeadline) {
       state->refreshVoice();

@@ -2873,6 +2873,10 @@ public:
           reinterpret_cast<const uint8_t *>(socket.data()), socket.size(), generation));
     voice_cancelled_ = true;
     voice_mailbox_.reset();
+    // The worker is detached and owns its mailbox; dropping this handle lets
+    // a new recording start even if the cancelled provider takes a long time
+    // to acknowledge cancellation.
+    voice_job_ = {};
     voice_loading_ = false;
     voice_space_consumed_ = false;
     voice_space_locked_ = false;
