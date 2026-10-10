@@ -41,7 +41,7 @@ def main() -> int:
         "composition and local-mode guard": "this.composing() || this.localMode !== 'none'" in scheduler,
         "Engine session release": "this.restartIdleSession('personal dictionary queue')" in scheduler,
         "mode restoration": "client.setEnglishMode" in scheduler
-        and "client.setNineKeyMode" in scheduler,
+        and "client.setKeyGrid" in scheduler,
         "remaining work rescheduled": "this.schedulePersonalDictionaryDrain();" in scheduler,
         "new queue work noticed": "this.personalDictionarySettled = false" in queued
         and "this.schedulePersonalDictionaryDrain();" in queued,
