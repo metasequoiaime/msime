@@ -57,9 +57,16 @@ inline CandidateColor parse_css_color(const std::string &text,
     float r = 0.0f, g = 0.0f, b = 0.0f, a = 1.0f;
     if (!(stream >> r >> g >> b))
       return fallback;
-    stream >> a;
-    std::string trailing;
-    if (stream >> trailing)
+    stream >> std::ws;
+    if (!stream.eof()) {
+      if (!(stream >> a))
+        return fallback;
+      stream >> std::ws;
+    }
+    if (!stream.eof() || !std::isfinite(r) || !std::isfinite(g) ||
+        !std::isfinite(b) || !std::isfinite(a) || r < 0.0f || r > 255.0f ||
+        g < 0.0f || g > 255.0f || b < 0.0f || b > 255.0f || a < 0.0f ||
+        a > 1.0f)
       return fallback;
     return {r / 255.0f, g / 255.0f, b / 255.0f, a};
   }

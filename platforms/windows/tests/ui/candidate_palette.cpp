@@ -50,6 +50,14 @@ int main() {
         "rgb(255 128 0", "var(--accent)", "#"})
     require(parse_css_color(unsupported, fallback) == fallback);
 
+  // 异常数字通道不能把 NaN、无穷大或越界值传给原生绘制层。
+  for (const char *unsupported : {"rgb(-1, 0, 0)", "rgb(256, 0, 0)",
+                                  "rgba(0, 0, 0, -0.1)",
+                                  "rgba(0, 0, 0, 1.1)",
+                                  "rgba(nan, 0, 0, 1)",
+                                  "rgba(inf, 0, 0, 1)"})
+    require(parse_css_color(unsupported, fallback) == fallback);
+
   // Defaults are the Fluent dark tokens the system theme draws.
   const CandidatePalette defaults;
   require(same(defaults.surface, 0x2C / 255.0f, 0x2C / 255.0f, 0x2C / 255.0f,
