@@ -636,11 +636,16 @@ fn enabled_command_tables_merge_in_priority_order() {
             pair("mail", "a@example.com")
         ]
     );
+    let first = vec!["first".to_owned()];
+    assert_eq!(
+        command_table::enabled_commands(root.path(), &first).capacity(),
+        command_table::MAX_COMMANDS
+    );
     assert!(enabled(&[]).is_empty());
     assert!(enabled(&["../first"]).is_empty());
     assert_eq!(
         command_table::enabled_commands(root.path(), &[]).capacity(),
-        command_table::MAX_COMMANDS
+        0
     );
 
     // The merged table stops where the Engine would.

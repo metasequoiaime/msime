@@ -167,8 +167,8 @@ fn expand_at(template: &str, instant: PrimitiveDateTime) -> Option<String> {
 
 /// The rows of the enabled command-table packs under `root`, in the order the ids are listed, keeping the first command of each trigger and at most `MAX_COMMANDS`: the table a host hands to the Engine. A pack that is missing or does not load contributes nothing; the settings page reports it.
 pub fn enabled_commands(root: &std::path::Path, enabled: &[String]) -> Vec<CommandRow> {
-    let mut rows: Vec<CommandRow> = Vec::with_capacity(MAX_COMMANDS);
-    let mut triggers = HashSet::with_capacity(MAX_COMMANDS);
+    let mut rows = Vec::new();
+    let mut triggers = HashSet::new();
     for id in enabled {
         let Ok(package) = super::load_package(root, None, PluginKind::CommandTable, id) else {
             continue;
@@ -179,6 +179,10 @@ pub fn enabled_commands(root: &std::path::Path, enabled: &[String]) -> Vec<Comma
         for row in table.commands {
             if rows.len() == MAX_COMMANDS {
                 return rows;
+            }
+            if rows.is_empty() {
+                rows.reserve_exact(MAX_COMMANDS);
+                triggers.reserve(MAX_COMMANDS);
             }
             if triggers.insert(row.trigger.clone()) {
                 rows.push(row);
