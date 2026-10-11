@@ -5949,8 +5949,7 @@ background = "#F4F8FF"
     assert([decoration isKindOfClass:NSImageView.class]);
     assert(std::abs(NSMidX(decoration.frame) - NSWidth(chrome.bounds) / 2) < 0.01);
     for (NSView *child in chrome.subviews) assert(![child isKindOfClass:NSVisualEffectView.class]);
-    // A package with an intrinsically translucent card needs a real behind-window
-    // material inside its rounded card. The decoration band remains transparent.
+    // 旧版皮肤格式没有材质字段；半透明表面只改变颜色的 alpha，不能隐式开启模糊。
     writeManifest("center", "#D9D9DB99");
     panel.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
     [styled reloadSkins];
@@ -5959,12 +5958,8 @@ background = "#F4F8FF"
     NSVisualEffectView *material = nil;
     for (NSView *child in chrome.subviews)
         if ([child isKindOfClass:NSVisualEffectView.class]) material = (id)child;
-    assert(material != nil);
-    assert(material.blendingMode == NSVisualEffectBlendingModeBehindWindow);
-    assert(material.state == NSVisualEffectStateActive);
-    assert(NSMinY(material.frame) == 0 && NSHeight(material.frame) == NSHeight(chrome.bounds) - chrome.cardTopInset);
-    assert(material.maskImage != nil);
-    // A fully clear card stays clear, even though the same package is selected.
+    assert(material == nil);
+    // 纯透明表面同样不创建材质视图。
     writeManifest("center", "#D9D9DB00");
     [styled reloadSkins];
     [controller appearanceChanged:nil];

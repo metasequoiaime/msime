@@ -6934,12 +6934,6 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     content.backgroundImage = skin.backgroundPath.empty() ? nil : [_appearance backgroundImageForDark:dark];
     content.backgroundFit = skin.backgroundFit;
     content.backgroundOpacity = skin.backgroundOpacity;
-    // The package's own translucent surface asks for frosted glass. Inspect the
-    // unstyled skin so the opacity slider alone never turns an opaque skin into
-    // a material, and leave fully clear package surfaces transparent.
-    const auto originalSkin = [_appearance resolvedSkinForDark:dark];
-    content.frostedMaterialEnabled = !originalSkin.candidateSkin.empty() &&
-        originalSkin.tokens.surface.a > 0.0f && originalSkin.tokens.surface.a < 1.0f;
     NSArray<MSIMECandidateButton *> *candidateButtons = [content.subviews filteredArrayUsingPredicate:
         [NSPredicate predicateWithBlock:^BOOL(NSView *view, NSDictionary *_) {
             return ([view isKindOfClass:MSIMECandidateButton.class] ||

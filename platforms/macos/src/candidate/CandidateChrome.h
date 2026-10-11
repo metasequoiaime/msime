@@ -323,11 +323,6 @@ static inline NSString *MSIMECandidateGlossRun(NSString *reading, NSString *tran
 }
 @end
 
-@class MSIMECandidateChromeView;
-@interface MSIMECandidateSurfaceView : NSView
-@property(nonatomic, weak) MSIMECandidateChromeView *chrome;
-@end
-
 @interface MSIMECandidateChromeView : NSView
 @property(nonatomic, weak) id appearanceTarget;
 @property(nonatomic) SEL appearanceAction;
@@ -341,21 +336,8 @@ static inline NSString *MSIMECandidateGlossRun(NSString *reading, NSString *tran
 @property(nonatomic) CGFloat backgroundOpacity;
 // The transparent band above the card that a skin's decoration stands in. The fill, background image and stroke cover only the card below it.
 @property(nonatomic) CGFloat cardTopInset;
-// A skin package's translucent surface uses the system's behind-window material.
-// The user's opacity slider alone does not enable it.
-@property(nonatomic) BOOL frostedMaterialEnabled;
-@end
-@interface MSIMECandidateChromeView ()
-- (void)updateFrostedBackdrop;
-- (void)drawCard;
 @end
 @implementation MSIMECandidateChromeView
-{
-    NSVisualEffectView *_frostedBackdrop;
-    MSIMECandidateSurfaceView *_frostedSurface;
-    BOOL _frostedMaterialEnabled;
-    CGFloat _frostedMaskRadius;
-}
 - (BOOL)isOpaque { return NO; }
 - (void)viewDidMoveToWindow
 {
@@ -374,64 +356,9 @@ static inline NSString *MSIMECandidateGlossRun(NSString *reading, NSString *tran
 #pragma clang diagnostic pop
     }
 }
-- (void)layout
-{
-    [super layout];
-    if (_frostedMaterialEnabled) [self updateFrostedBackdrop];
-}
-- (BOOL)frostedMaterialEnabled { return _frostedMaterialEnabled; }
-- (void)setFrostedMaterialEnabled:(BOOL)enabled
-{
-    _frostedMaterialEnabled = enabled;
-    if (enabled)
-    {
-        if (_frostedBackdrop == nil)
-        {
-            _frostedBackdrop = [[NSVisualEffectView alloc] initWithFrame:NSZeroRect];
-            _frostedBackdrop.identifier = @"candidate-frosted-material";
-            _frostedBackdrop.material = NSVisualEffectMaterialPopover;
-            _frostedBackdrop.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-            _frostedBackdrop.state = NSVisualEffectStateActive;
-            [self addSubview:_frostedBackdrop positioned:NSWindowBelow relativeTo:nil];
-            _frostedSurface = [[MSIMECandidateSurfaceView alloc] initWithFrame:self.bounds];
-            _frostedSurface.chrome = self;
-            [self addSubview:_frostedSurface positioned:NSWindowAbove relativeTo:_frostedBackdrop];
-        }
-        [self updateFrostedBackdrop];
-        _frostedSurface.needsDisplay = YES;
-    }
-    else
-    {
-        [_frostedSurface removeFromSuperview];
-        [_frostedBackdrop removeFromSuperview];
-        _frostedSurface = nil;
-        _frostedBackdrop = nil;
-    }
-    self.needsDisplay = YES;
-}
-- (void)updateFrostedBackdrop
-{
-    const NSSize cardSize = NSMakeSize(NSWidth(self.bounds), MAX(0.0, NSHeight(self.bounds) - MAX(0.0, self.cardTopInset)));
-    const CGFloat radius = self.cornerRadius;
-    const BOOL maskNeedsUpdate = !NSEqualSizes(_frostedBackdrop.frame.size, cardSize) ||
-        _frostedMaskRadius != radius || _frostedBackdrop.maskImage == nil;
-    _frostedBackdrop.frame = NSMakeRect(0, 0, cardSize.width, cardSize.height);
-    _frostedSurface.frame = self.bounds;
-    if (!maskNeedsUpdate) return;
-    _frostedMaskRadius = radius;
-    _frostedBackdrop.maskImage = [NSImage imageWithSize:cardSize flipped:NO drawingHandler:^BOOL(NSRect rect) {
-        [NSColor.whiteColor setFill];
-        [[NSBezierPath bezierPathWithRoundedRect:rect xRadius:radius yRadius:radius] fill];
-        return YES;
-    }];
-}
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
-    if (!_frostedMaterialEnabled) [self drawCard];
-}
-- (void)drawCard
-{
     // Not flipped: the band is the top of the bounds, the card everything under it.
     const NSRect bounds = NSMakeRect(NSMinX(self.bounds), NSMinY(self.bounds), NSWidth(self.bounds),
                                      MAX(0.0, NSHeight(self.bounds) - MAX(0.0, self.cardTopInset)));
@@ -463,14 +390,5 @@ static inline NSString *MSIMECandidateGlossRun(NSString *reading, NSString *tran
         [self.strokeColor setStroke];
         [path stroke];
     }
-}
-@end
-@implementation MSIMECandidateSurfaceView
-- (BOOL)isOpaque { return NO; }
-- (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
-- (void)drawRect:(NSRect)dirtyRect
-{
-    (void)dirtyRect;
-    [self.chrome drawCard];
 }
 @end
