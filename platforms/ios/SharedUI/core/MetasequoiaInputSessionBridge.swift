@@ -1279,6 +1279,17 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard (result["applied"] as? Bool) == true else { throw InputBridgeFailure.response("个人词条未能应用") }
   }
 
+  /// 五笔查码（#6789）：`text` 里每个不同汉字（以及整段作为一个词）在 86 和 98 码表里的编码。给设置 App 用，不建输入会话：经 `msime_client_prepare_host` 解析出选项后发词库请求 `wubi_codes`，host-api 只读打开会话用的同一份五笔码表，不拿词库维护租约，键盘开着也能查。
+  ///
+  /// `resources` 默认是 `PersonalDictionaryBridge.packagedResources`：App 自己不带词库，它找到的是键盘扩展包里的 `EngineResources`，和键盘准备宿主时是同一个目录，所以状态目录里的资源校验标记两边一致，查一次码不会让键盘下次启动重新哈希整套词库。在磁盘上读码表，调用方放到主线程之外。
+  static func wubiCodes(_ text: String, resources: URL? = PersonalDictionaryBridge.packagedResources,
+                        stateRoot: URL? = nil) throws -> WubiCodeLookup {
+    guard let resources else { throw InputBridgeFailure.unavailable }
+    let options = try callOptions(msimeClientPrepareHost, bootstrapOptions(resources: resources, stateRoot: stateRoot))
+    let action: [String: Any] = ["operation": "wubi_codes", "text": text]
+    return try WubiCodeLookup.decode(callOptions(msimeClientDictionary, ["options": options, "action": action]))
+  }
+
   /// One page of the dictionary. Without a kind it is the user's own words; a code prefix within one kind, or the quick phrases, is looked up in the dictionary itself, so bundled rows come back marked `source: bundled` and can be re-weighted or deleted through the queue.
   func personalEntries(atOffset offset: UInt, kind: PersonalWordKind? = nil, query: String = "") throws -> [String: Any] {
     var action: [String: Any] = ["operation": "list", "offset": offset, "limit": 100]

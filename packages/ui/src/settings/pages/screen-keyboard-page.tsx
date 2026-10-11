@@ -106,8 +106,34 @@ export function ScreenKeyboardSettingsPage() {
   } = useSettingsForm();
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   const harmonyPhone = harmonyPlatform && mobilePlatform;
-  // 预览放在它所展示的尺寸控件上方；在预览上拖动调的是同一个间距。启动按钮只在宿主能唤出自己的屏幕键盘面板时才存在。
-  // HarmonyOS 手机设计稿把控件放在前面，所以那里的预览排在 布局 分组之后。
+  // 在预览上拖动调的是同一个间距。
+  const draggablePreview = (
+    <div
+      aria-label="拖动预览调整键盘间距"
+      onPointerDown={beginTouchGeometryDrag}
+      onPointerMove={updateTouchGeometryDrag}
+      onPointerUp={endTouchGeometryDrag}
+      onPointerCancel={endTouchGeometryDrag}
+      style={{ touchAction: "none" }}
+    >
+      <ScreenKeyboardPreview
+        theme={keyboardPreviewTheme}
+        skin={keyboardThemeId(globalTheme, draft.custom_theme)}
+        customDesign={customTouchKeyboardSkin}
+        keySpacingTenths={touchKeySpacingTenths}
+        rowSpacingTenths={touchRowSpacingTenths}
+        heightAdjustment={touchKeyboardHeightAdjustment}
+      />
+    </div>
+  );
+  // HarmonyOS 手机上预览是「尺寸」卡片的第一行，下面就是它调的滑块，底下一行说明可以直接拖。
+  const phonePreview = (
+    <div className={settings.phoneKeyboardPreview} role="group" aria-label="屏幕键盘预览">
+      {draggablePreview}
+      <p className={settings.phoneKeyboardPreviewHint}>在预览上左右拖动调键距，上下拖动调行距</p>
+    </div>
+  );
+  // 其他宿主的预览放在它所展示的尺寸控件上方。启动按钮只在宿主能唤出自己的屏幕键盘面板时才存在。
   const keyboardPreview = (
     <GroupList title="屏幕键盘">
       {client.openScreenKeyboard && (
@@ -118,25 +144,7 @@ export function ScreenKeyboardSettingsPage() {
           className={`secondary ${settings.openButton}`}
         />
       )}
-      <SettingsPreviewBlock aria-label="屏幕键盘预览">
-        <div
-          aria-label="拖动预览调整键盘间距"
-          onPointerDown={beginTouchGeometryDrag}
-          onPointerMove={updateTouchGeometryDrag}
-          onPointerUp={endTouchGeometryDrag}
-          onPointerCancel={endTouchGeometryDrag}
-          style={{ touchAction: "none" }}
-        >
-          <ScreenKeyboardPreview
-            theme={keyboardPreviewTheme}
-            skin={keyboardThemeId(globalTheme, draft.custom_theme)}
-            customDesign={customTouchKeyboardSkin}
-            keySpacingTenths={touchKeySpacingTenths}
-            rowSpacingTenths={touchRowSpacingTenths}
-            heightAdjustment={touchKeyboardHeightAdjustment}
-          />
-        </div>
-      </SettingsPreviewBlock>
+      <SettingsPreviewBlock aria-label="屏幕键盘预览">{draggablePreview}</SettingsPreviewBlock>
     </GroupList>
   );
   return (
@@ -151,7 +159,7 @@ export function ScreenKeyboardSettingsPage() {
             />
           )
         }
-        preview={harmonyPhone && keyboardPreview}
+        preview={harmonyPhone && phonePreview}
         heightAdjustment={touchKeyboardHeightAdjustment}
         keySpacingTenths={touchKeySpacingTenths}
         rowSpacingTenths={touchRowSpacingTenths}

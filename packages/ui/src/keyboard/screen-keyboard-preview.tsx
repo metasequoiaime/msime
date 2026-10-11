@@ -9,6 +9,7 @@ import {
 import { actionKeyboardLabels, desktopKeyboardRows, touchKeyboardRows } from "./keyboard-layouts";
 import { keyboardKeyPath } from "./keyboard-shape";
 import { msimeFramePath, msimeStrokePath } from "../core/brand-logo";
+import { readableKeyboardText } from "./keyboard-colors";
 
 type Palette = {
   background: string;
@@ -163,7 +164,7 @@ const thumbnailToolbarGlyphs = [
   "m6 9 6 6 6-6",
 ];
 
-/** 缩略图的工具栏条：水杉标志用皮肤的强调色，其后的工具栏图标用它的按键文字色，每个占一个等宽列。 */
+/** 缩略图的工具栏条：水杉标志用皮肤的强调色，笔画按强调色取黑或白（强调色是白色时标志不至于变成一块白方块），其后的工具栏图标用它的按键文字色，每个占一个等宽列。 */
 function ThumbnailToolbar({ accent, foreground }: { accent: string; foreground: string }) {
   const column = (thumbnailWidth - thumbnailInset * 2) / (thumbnailToolbarGlyphs.length + 1);
   const centre = (index: number) => thumbnailInset + column * (index + 0.5);
@@ -175,7 +176,7 @@ function ThumbnailToolbar({ accent, foreground }: { accent: string; foreground: 
         <path
           d={msimeStrokePath}
           fill="none"
-          stroke="#FFFFFF"
+          stroke={readableKeyboardText(accent)}
           strokeWidth="9"
           strokeLinecap="round"
           strokeLinejoin="round"

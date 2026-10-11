@@ -601,9 +601,14 @@ final class NineKeyKeyboardTests: XCTestCase {
       try assertInKeyArea(picker, of: controller)
       XCTAssertTrue(skinShortcut.isActive)
       XCTAssertNil(descendants(picker).first { $0.accessibilityIdentifier == "closeSkinPicker" && !$0.isHidden })
-      for id in GlobalThemeCatalog.ids {
+      // 只列键盘当前明暗下的主题。
+      let dark = controller.traitCollection.userInterfaceStyle == .dark
+      for id in GlobalThemeCatalog.ids(offeredIn: dark) {
         let card = try button("skinCard-\(id)", in: controller)
         XCTAssertNotNil(descendants(card).compactMap { $0 as? KeyboardSkinMiniature }.first, id)
+      }
+      for id in GlobalThemeCatalog.ids where !GlobalThemeCatalog.fits(id, dark: dark) {
+        XCTAssertNil(descendants(picker).first { $0.accessibilityIdentifier == "skinCard-\(id)" }, id)
       }
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
         controller.view.layer.render(in: context.cgContext)
@@ -611,14 +616,15 @@ final class NineKeyKeyboardTests: XCTestCase {
       attachment.name = "Skin cards \(Int(width))pt"
       attachment.lifetime = .keepAlways
       add(attachment)
-      try button("skinCard-night", in: controller).sendActions(for: .primaryActionTriggered)
-      XCTAssertEqual(GlobalThemePreference.selected, "night")
-      XCTAssertEqual(MetasequoiaInputSessionBridge.loadSharedPreferences()?["global_theme"] as? String, "night")
+      // 浅色键盘里只有浅色主题，所以选纸白。
+      try button("skinCard-paper", in: controller).sendActions(for: .primaryActionTriggered)
+      XCTAssertEqual(GlobalThemePreference.selected, "paper")
+      XCTAssertEqual(MetasequoiaInputSessionBridge.loadSharedPreferences()?["global_theme"] as? String, "paper")
       XCTAssertNil(picker.superview)
       XCTAssertFalse(skinShortcut.isActive)
       XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, KeyboardViewController.defaultKeyboardHeight)
       skinShortcut.sendActions(for: .primaryActionTriggered)
-      XCTAssertEqual(try button("skinCard-night", in: controller).accessibilityValue, "已选中")
+      XCTAssertEqual(try button("skinCard-paper", in: controller).accessibilityValue, "已选中")
       // 再点一次高亮图标会关闭选择器，按键回来。
       skinShortcut.sendActions(for: .primaryActionTriggered)
       XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardSkinPicker" })
@@ -1035,6 +1041,8 @@ final class NineKeyKeyboardTests: XCTestCase {
 
   func testSchemePickerUsesCurrentSkinPalette() throws {
     preserveSharedTheme()
+    // 没有键盘控制器，不按明暗换主题：三种主题都原样生效。
+    KeyboardTheme.reload(MetasequoiaInputSessionBridge.loadSharedPreferences(), dark: nil)
     for id in ["system", "paper", "night"] {
       XCTAssertTrue(GlobalThemePreference.save(id), id)
       let skin = KeyboardTheme.current

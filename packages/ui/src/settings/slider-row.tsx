@@ -15,6 +15,8 @@ export interface SliderRowProps {
   /** Optional value rendered after the track, while the slider remains the accessible control. */
   displayValue?: ReactNode;
   ticks?: boolean;
+  /** 轨道铺满整行：HarmonyOS 手机上放到标题下方，数值在轨道右侧；其余平台与默认相同。 */
+  wide?: boolean;
   "aria-label"?: string;
   "aria-labelledby"?: string;
   "aria-describedby"?: string;
@@ -34,9 +36,11 @@ export function SliderRow({
   valueText,
   displayValue,
   ticks,
+  wide,
   onChange,
   ...labels
 }: SliderRowProps) {
+  const control = wide ? settings.sliderControlWide : settings.sliderControl;
   const slider = (
     <Slider
       value={value}
@@ -51,12 +55,12 @@ export function SliderRow({
     />
   );
   return (
-    <Row title={title} description={description} hidden={hidden}>
+    <Row title={title} description={description} hidden={hidden} wideControl={wide}>
       {displayValue === undefined ? (
-        <span className={settings.sliderControl}>{slider}</span>
+        <span className={control}>{slider}</span>
       ) : (
-        <span className={settings.sliderWithValue}>
-          <span className={settings.sliderControl}>{slider}</span>
+        <span className={wide ? settings.sliderWithValueWide : settings.sliderWithValue}>
+          <span className={control}>{slider}</span>
           <span className={settings.sliderValue} aria-hidden="true">
             {displayValue}
           </span>

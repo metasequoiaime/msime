@@ -58,11 +58,14 @@ export function TryKeyboardPage({
   chat,
   onLogin,
   onOpenUrl,
+  switchAway = true,
 }: {
   actions?: SetupActions;
   chat?: ChatClient;
   onLogin?: () => void;
   onOpenUrl?: (url: string) => void;
+  /** 水杉已启用且是当前输入法时，是否还提供「切换输入法」去换别的输入法。HarmonyOS 手机不提供：它打开的是系统的选择输入法弹窗，样子粗糙，键盘下方本来就有系统的切换键。 */
+  switchAway?: boolean;
 }) {
   const state = useImeSetupState(actions?.setup);
   const toast = useToast();
@@ -215,7 +218,12 @@ export function TryKeyboardPage({
   };
 
   const notReady = state?.enabled === false || state?.current === false;
-  const switchAction = makeDefaultAction(actions, state) ?? actions?.showInputMethodPicker;
+  // 没启用或不是当前输入法时，这个按钮带用户把设置补完；都好了以后它只剩换走水杉这一个用处。
+  const switchAction = notReady
+    ? (makeDefaultAction(actions, state) ?? actions?.showInputMethodPicker)
+    : switchAway
+      ? actions?.showInputMethodPicker
+      : undefined;
   const runHostAction = (action: () => Promise<void>) =>
     void action().catch((error: unknown) => toast(errorMessage(error)));
 

@@ -16,7 +16,8 @@ extension XCTestCase {
       }
       if let selection { defaults.set(selection, forKey: GlobalThemePreference.key) } else { defaults.removeObject(forKey: GlobalThemePreference.key) }
       if let design { defaults.set(design, forKey: CustomKeyboardSkinStore.key) } else { defaults.removeObject(forKey: CustomKeyboardSkinStore.key) }
-      KeyboardTheme.reload(MetasequoiaInputSessionBridge.loadSharedPreferences())
+      // 键盘控制器记下的明暗是进程级的，清掉它，后面的测试不受这次的明暗影响。
+      KeyboardTheme.reload(MetasequoiaInputSessionBridge.loadSharedPreferences(), dark: nil)
     }
   }
 }

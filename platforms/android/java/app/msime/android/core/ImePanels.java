@@ -430,6 +430,8 @@ final class ImePanels {
             if (entry == null) continue;
             String id = InputViewValuePolicy.textOr(entry, "id", "");
             if (id.isEmpty()) continue;
+            // 只列当前明暗下的主题：浅色键盘里不出现深色主题，反之亦然。
+            if (!KeyboardSkin.fitsMode(JsonPolicy.strictString(entry.opt("appearance")), hostDark)) continue;
             String themeName = InputViewValuePolicy.textOr(entry, "title", id);
             KeyboardSkin choice = "custom".equals(id) ? s.themeSkin(id, customTheme, hostDark)
                 : KeyboardSkin.resolved(entry, themeName, hostDark, null);
@@ -461,7 +463,9 @@ final class ImePanels {
         }
         choices.removeIf(choice -> "custom".equals(choice.id()) && choice.design() == null
             && namedKeys.contains(choice.skin().key()));
-        String globalTheme = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
+        // 所选主题属于另一种明暗时键盘按跟随系统画，选中态也落在跟随系统上。
+        String globalTheme = KeyboardSkin.effectiveTheme(themes,
+            InputViewValuePolicy.textOr(preferences, "global_theme", "system"), hostDark);
         PagedTileGrid grid = new PagedTileGrid(s);
         grid.setGrid(4, 2);
         // 行高容下按 390:292 的迷你键盘（约 86 dp 宽时 65 dp 高）、描边和下方的名字；行距、列距取设计的 6 / 10。

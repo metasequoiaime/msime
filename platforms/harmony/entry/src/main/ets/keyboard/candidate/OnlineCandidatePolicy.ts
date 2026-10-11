@@ -61,7 +61,8 @@ export class OnlineCandidatePolicy {
     const assistant: OnlineAssistantConfig | null | undefined = query.ai_assistant;
     return (
       `${query.session_id}:${query.cache_key}:${query.identity}:` +
-      `${query.cloud_candidates}:${assistant?.enabled === true ? JSON.stringify(assistant) : ""}`
+      `${query.cloud_candidates}:${query.cloud_eligible}:${query.ai_eligible}:` +
+      `${assistant?.enabled === true ? JSON.stringify(assistant) : ""}`
     );
   }
 
@@ -83,11 +84,7 @@ export class OnlineCandidatePolicy {
   }
 
   /** A replaced or vanished query must invalidate any timer or request for the old composition. */
-  static hasActiveWork(
-    signature: string,
-    timerActive: boolean,
-    requestCount: number,
-  ): boolean {
+  static hasActiveWork(signature: string, timerActive: boolean, requestCount: number): boolean {
     return signature.length > 0 || timerActive || requestCount > 0;
   }
 

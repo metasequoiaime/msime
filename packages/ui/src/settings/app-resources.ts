@@ -16,7 +16,7 @@ export const androidPrivacyUrl = "https://msime.app/privacy/";
 export const linuxLicenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
 export const linuxIssuesUrl = "https://github.com/metasequoiaime/msime/issues";
 export const desktopDownloadUrl = "https://msime.app/download/";
-/** 国内镜像（阿里云 OSS 香港，见 msime-web README「国内镜像」）：`<前缀><GitHub 原地址>`，没缓存过的发布资产由 OSS 回源 GitHub。 */
+/** 国内镜像（Cloudflare R2，见 msime-web README「国内镜像」）：`<前缀><GitHub 原地址>`，没缓存过的发布资产由镜像从 GitHub 取一次后留存。 */
 export const downloadMirrorPrefix = "https://dl.msime.app/gh/";
 export const documentationUrl = "https://msime.app/docs/";
 export const handwritingSdkPrivacyUrl = "https://developers.google.com/ml-kit/terms";

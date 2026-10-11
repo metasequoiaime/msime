@@ -172,6 +172,15 @@ public final class KeyboardSkinSmoke {
         check("#8FD5A6".equals(night.accent()) && "#000000".equals(night.onAccent()));
         check(!KeyboardSkin.resolved("paper", "纸", "light", true, shuishanSlots, null).dark());
         check(KeyboardSkin.resolved("paper", "纸", null, true, shuishanSlots, null).dark());
+        // 固定明暗的主题只在那一种明暗下提供；所选主题属于另一种明暗时按跟随系统画。
+        check(KeyboardSkin.fitsMode(null, true) && KeyboardSkin.fitsMode(null, false));
+        check(KeyboardSkin.fitsMode("dark", true) && !KeyboardSkin.fitsMode("dark", false));
+        check(KeyboardSkin.fitsMode("light", false) && !KeyboardSkin.fitsMode("light", true));
+        check("night".equals(KeyboardSkin.effectiveTheme("night", "dark", true)));
+        check("system".equals(KeyboardSkin.effectiveTheme("night", "dark", false)));
+        check("system".equals(KeyboardSkin.effectiveTheme("paper", "light", true)));
+        check("paper".equals(KeyboardSkin.effectiveTheme("paper", "light", false)));
+        check("custom".equals(KeyboardSkin.effectiveTheme("custom", null, false)));
         // No keyboard in the answer: `system` is the Material 3 keyboard, anything else keeps its own id and title over the same tokens.
         KeyboardSkin bare = KeyboardSkin.resolved("system", "跟随系统", null, true, null, null);
         check("system".equals(bare.id()) && "跟随系统".equals(bare.title()) && bare.dark());

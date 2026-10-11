@@ -14,6 +14,8 @@ struct SkinSettingsView: View {
   /// 目录里的每个主题都按共享文档的配置给出，好让自定义那一格显示自定义主题的基础主题和设计。
   @State private var themeCards: [KeyboardTheme] = GlobalThemeCatalog.ids.map { KeyboardTheme.resolve($0, document: nil) }
   @State private var customBase = GlobalThemeCatalog.systemId
+  /// 「键盘明暗」偏好；跟随时键盘的明暗取应用外观，与 `CandidatePreviewCard` 相同。
+  @State private var keyboardStyle = UIUserInterfaceStyle.unspecified
   @State private var savedDesigns = CustomSkinLibrary.designs.count
   @State private var skinSaveFailed = false
 
@@ -29,7 +31,8 @@ struct SkinSettingsView: View {
             .padding(.horizontal, 20)
             .accessibilityAddTraits(.isHeader)
           LazyVGrid(columns: Self.columns, spacing: 18) {
-            ForEach(themeCards, id: \.id) { themeTile($0) }
+            // 只列键盘当前明暗下的主题：浅色键盘不提供深色主题，反之亦然。
+            ForEach(themeCards.filter { GlobalThemeCatalog.fits($0.id, dark: keyboardDark) }, id: \.id) { themeTile($0) }
             aiTile
           }
           .padding(4)
@@ -73,7 +76,8 @@ struct SkinSettingsView: View {
 
   /// 一格：主题的键盘缩略图（带空闲状态的工具栏），选中时外圈描强调色，名字在下方。
   private func themeTile(_ option: KeyboardTheme) -> some View {
-    let selected = skin == option.id
+    // 所选主题属于另一种明暗时键盘按跟随系统画，选中态也落在跟随系统上。
+    let selected = GlobalThemeCatalog.effectiveId(skin, dark: keyboardDark) == option.id
     let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
     return Button {
       skinSaveFailed = !GlobalThemePreference.save(option.id)
@@ -145,6 +149,8 @@ struct SkinSettingsView: View {
     .accessibilityIdentifier("aiSkinDesignTile")
   }
 
+  private var keyboardDark: Bool { keyboardStyle == .unspecified ? colorScheme == .dark : keyboardStyle == .dark }
+
   /// 固定模式的主题按该模式预览；`system` 和没有基础主题的自定义主题跟随应用外观。
   private func tileScheme(_ option: KeyboardTheme) -> ColorScheme {
     switch option.appearance {
@@ -168,6 +174,7 @@ struct SkinSettingsView: View {
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
     themeCards = GlobalThemeCatalog.ids.map { KeyboardTheme.resolve($0, document: preferences) }
     customBase = GlobalThemePreference.base(in: preferences)
+    keyboardStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.keyboardKey, in: preferences)
   }
 }
 

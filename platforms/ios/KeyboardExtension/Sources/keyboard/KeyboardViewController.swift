@@ -4170,7 +4170,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     GlobalThemePreference.mirror(preferences)
     let previousTheme = KeyboardTheme.current
-    let skinChanged = KeyboardTheme.reload(preferences) != previousTheme
+    let skinChanged = KeyboardTheme.reload(preferences, dark: drawsDark) != previousTheme
     // 高度也抄进 App Group：原先只抄键距、行距和语音入口，高度只进了这个控制器，于是布局面板打开时显示、提交时写回的都是 App Group 里可能过时的高度。
     KeyboardLayoutPreference.mirrorGeometry(preferences)
     if let adjustment = KeyboardLayoutPreference.sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
@@ -6738,7 +6738,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardService()
     closeKeyboardPicker()
     let picker = KeyboardSkinPickerView(
-      selected: KeyboardTheme.current.id, document: session.sharedPreferences, showsHeader: false, formFactor: formFactor,
+      selected: KeyboardTheme.current.id, document: session.sharedPreferences, dark: drawsDark, showsHeader: false,
+      formFactor: formFactor,
       onSelect: { [weak self] id in
         self?.selectTheme(GlobalThemePreference.selecting(id), statisticsID: id)
       }, onSelectDesign: { [weak self] design in
@@ -6756,7 +6757,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if let document = session.sharedPreferences { GlobalThemePreference.mirror(document) }
       if hasFullAccess && privacyGate.allows(.typing) { TypingStatisticsExtras.recordSkin(statisticsID) }
     }
-    KeyboardTheme.reload(session.sharedPreferences)
+    KeyboardTheme.reload(session.sharedPreferences, dark: drawsDark)
     closeKeyboardPicker()
     applyKeyboardAppearance()
     applyKeyboardSkin()
@@ -6884,13 +6885,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     view.tintColor = skin.accent
   }
 
+  /// 键盘画在深色下：「键盘明暗」设成深色，或者跟随时宿主是深色。
+  private var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
+
   /// Draw the keyboard and its panels in the light or dark form the shared themes ask for (see KeyboardAppearancePreference). A changed style reaches `traitCollectionDidChange`, which redraws the skin.
   private func applyKeyboardAppearance() {
     let preferences = session.sharedPreferences
-    // A built-in theme draws its surfaces in its own mode (dc.html L1551-1558); only `system` and a custom theme without a base follow the keyboard's mode setting.
-    let keyboard = KeyboardTheme.current.appearance
-      ?? KeyboardAppearancePreference.style(KeyboardAppearancePreference.keyboardKey, in: preferences)
+    // 明暗只由「键盘明暗」决定，主题不再把键盘拉到自己的明暗：属于另一种明暗的主题在这里按跟随系统画（`KeyboardTheme.reload(_:dark:)`），所以 `traitCollection` 始终是键盘真正的明暗。
+    let keyboard = KeyboardAppearancePreference.style(KeyboardAppearancePreference.keyboardKey, in: preferences)
     if overrideUserInterfaceStyle != keyboard { overrideUserInterfaceStyle = keyboard }
+    // 第一次出现时把键盘的明暗告诉 `KeyboardTheme`，之后的变化由 `traitCollectionDidChange` 跟上。明暗没变时不在这里重新解析，免得抢在 `synchronizeSharedTouchPreferences` 前面，让它以为皮肤没变而漏掉重画。
+    if KeyboardTheme.mode != drawsDark { KeyboardTheme.reload(preferences, dark: drawsDark) }
     handwriting.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.handwritingKey, in: preferences)
     if let emojiPicker { applyEmojiPickerAppearance(emojiPicker) }
   }
@@ -6916,6 +6921,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     super.traitCollectionDidChange(previousTraitCollection)
     if isViewLoaded, actionRow != nil,
        previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle {
+      // 明暗变了，实际生效的主题可能跟着变：所选主题属于另一种明暗时换成跟随系统，切回来时换回所选主题。
+      KeyboardTheme.reload(session.sharedPreferences, dark: drawsDark)
       applyKeyboardSkin()
       // 键盘的明暗变了，表情面板是否与它一致也要重新判断。
       if let emojiPicker { applyEmojiPickerAppearance(emojiPicker) }

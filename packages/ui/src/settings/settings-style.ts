@@ -37,6 +37,17 @@ export const sliderControl =
   "block w-40 max-phone:w-32 harmony:flex harmony:h-[30px] harmony:w-[110px] harmony:items-center";
 /** A slider row's track with its current value read out after it, as the reference window's slider rows show it. */
 export const sliderWithValue = "flex items-center gap-3 harmony:gap-2.5";
+/** 整行宽的滑块（`SliderRow` 的 `wide`）：HarmonyOS 手机上标题独占一行，轨道在下一行铺满，数值跟在轨道右侧。 */
+export const sliderControlWide =
+  "block min-w-0 flex-1 harmony:flex harmony:h-[30px] harmony:items-center";
+export const sliderWithValueWide = `${sliderWithValue} w-full`;
+/** HarmonyOS 手机键盘页「尺寸」组顶部的预览：不带「预览」标签，底下一行拖动提示，和它调的滑块在同一张卡片里。 */
+export const phoneKeyboardPreview = "min-w-0 [padding:var(--p-row-pad)]";
+export const phoneKeyboardPreviewHint =
+  "m-0 mt-2.5 text-center [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
+/** 一张卡片末尾整行居中的警示文字按钮，例如「恢复默认」：不再另写标题和说明。 */
+export const centeredDangerRow =
+  "flex min-h-[var(--p-row-h)] w-full cursor-pointer items-center justify-center border-0 bg-transparent [padding:var(--p-row-pad)] [font-size:var(--p-row-fs)] text-[var(--danger-text)] active:bg-[var(--p-hover)] disabled:cursor-default disabled:opacity-50";
 /** 滑块后的数值：宽到能放下两位数字，数值变化时轨道不会移动。HarmonyOS 用次要颜色以 13px 显示在固定 46px 宽的列中，足以放下 18px 这样带单位的值。 */
 export const sliderValue =
   "min-w-[2ch] text-right tabular-nums harmony:w-[46px] harmony:shrink-0 harmony:text-[13px] harmony:text-[var(--p-sub)]";

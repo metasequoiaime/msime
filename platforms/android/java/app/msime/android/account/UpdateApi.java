@@ -45,7 +45,7 @@ public final class UpdateApi {
     public static final String RELEASES_URL = "https://msime.app/api/releases?platform=android";
     /** 发布页下载地址的前缀，后面接 `<tag>/<资产名>`。 */
     public static final String DOWNLOAD_PREFIX = "https://github.com/metasequoiaime/msime/releases/download/";
-    /** 国内镜像（阿里云 OSS 香港，见 msime-web README「国内镜像」）：`<前缀><原地址>`，没缓存过的文件由 OSS 回源 GitHub 取一次后留存。国内连 GitHub 发布页常常只有几十 KB/s。 */
+    /** 国内镜像（Cloudflare R2，见 msime-web README「国内镜像」）：`<前缀><原地址>`，没缓存过的文件由镜像从 GitHub 取一次后留存。国内连 GitHub 发布页常常只有几十 KB/s。 */
     public static final String MIRROR_PREFIX = "https://dl.msime.app/gh/";
     /** 允许连接的主机：msime.app 的发行版列表，国内镜像，GitHub 发布页和它重定向到的两个资产域名。 */
     public static final Set<String> HOSTS = Set.of(

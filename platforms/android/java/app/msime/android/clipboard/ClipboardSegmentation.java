@@ -51,10 +51,7 @@ public final class ClipboardSegmentation {
         if (words == null) throw new IllegalArgumentException("No word iterator");
         String source = text;
         if (truncated(source)) {
-            int end = MAX_CHARS;
-            // 不把一个代理对从中间切开。
-            if (Character.isHighSurrogate(source.charAt(end - 1))) end--;
-            source = source.substring(0, end);
+            source = TextPolicy.clipSurrogateSafe(source, MAX_CHARS);
         }
         List<Segment> segments = new ArrayList<>();
         words.setText(source);

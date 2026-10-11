@@ -49,15 +49,19 @@ public final class OnlineCandidatePolicy {
     /**
      * Identity of one online request.
      *
-     * <p>{@code assistant} is the AI configuration document when the assistant is enabled and
-     * empty otherwise: changing model or prompt has to ask again for the same composition, while a
+     * <p>The eligibility flags are part of the identity too: when one provider becomes eligible
+     * or ineligible while the other remains available, the host must invalidate an in-flight
+     * request and schedule the new provider state. {@code assistant} is the AI configuration
+     * document when the assistant is enabled and empty otherwise: changing model or prompt has to
+     * ask again for the same composition, while a
      * query that only advanced its generation without changing the cache key must not, and a
      * disabled assistant's settings are not going to be consulted either way.
      */
     public static String signature(long sessionId, String cacheKey, String identity,
-            boolean cloudCandidates, String assistant) {
+            boolean cloudCandidates, boolean cloudEligible, boolean aiEligible, String assistant) {
         return "session=" + sessionId + "|cache=" + field(cacheKey)
             + "|identity=" + field(identity) + "|cloud=" + cloudCandidates
+            + "|cloud_eligible=" + cloudEligible + "|ai_eligible=" + aiEligible
             + "|assistant=" + field(assistant);
     }
 

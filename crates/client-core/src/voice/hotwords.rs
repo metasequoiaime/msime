@@ -57,8 +57,8 @@ pub fn hotwords_from_entries<'a>(
     entries: impl IntoIterator<Item = (&'a str, &'a str)>,
     limit: usize,
 ) -> Vec<Hotword> {
-    let mut seen = HashSet::with_capacity(limit);
-    let mut hotwords = Vec::with_capacity(limit);
+    let mut seen = HashSet::new();
+    let mut hotwords = Vec::new();
     for (text, stored) in entries {
         if hotwords.len() >= limit {
             break;
@@ -79,6 +79,10 @@ pub fn hotwords_from_entries<'a>(
                 None => continue,
             },
         };
+        if seen.is_empty() {
+            seen.reserve(limit);
+            hotwords.reserve(limit);
+        }
         if seen.insert(text.to_owned()) {
             hotwords.push(Hotword {
                 text: text.to_owned(),
@@ -338,6 +342,15 @@ mod tests {
         );
         let capped = hotwords_from_entries(entries.iter().map(|(t, p)| (*t, *p)), 2);
         assert_eq!(capped.len(), 2);
+    }
+
+    #[test]
+    fn invalid_entries_do_not_reserve_hotword_capacity() {
+        let entries = [("我", "wo"), ("GitHub", "github"), ("A股", "a'gu")];
+        let hotwords =
+            hotwords_from_entries(entries.iter().map(|(text, pinyin)| (*text, *pinyin)), 200);
+        assert!(hotwords.is_empty());
+        assert_eq!(hotwords.capacity(), 0);
     }
 
     #[test]

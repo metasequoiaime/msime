@@ -36,10 +36,10 @@ Status: implemented
 页面只经 `DictionaryClient.wubiCodes` 拿结果；宿主没有提供它时整组不画。各宿主的接法：
 
 - macOS、Linux：Tauri 设置应用的 `dictionary` 客户端（`apps/desktop/src/main.tsx`）发 `dictionary_request`，到 `dictionary_request_json`。
-- Android：同一个 Tauri 前端，`mobileDictionary` 展开 `dictionary` 带上 `wubiCodes`，`dictionary_request` 进 `personal_dictionary_request_json`，那里直接回答。
+- Android：分发的产品是 `build-apk.sh` 打的原生宿主（`release-android.yml`），没有 WebView，共享设置页那一组到不了用户手里，所以原生设置的「输入」页（`TypingPage`）在启用了五笔时加一组「五笔」，里面一行「五笔查码」打开原生的 `WubiLookupPage`：文本框、「查码」按钮和结果卡片，每行是文字和 86、98 两列编码，文字与排法照共享设置页（`WubiCodeLookupPolicy`）。查码在设置应用进程里经 `NativeClient.personalDictionaryRequest` 发 `wubi_codes`，`personal_dictionary_request_json` 在入口直接回答、不排队，只读打开安装时解出来的 `msime-wubi.db`。Tauri 合包（`build-client-apk.sh`）的共享前端仍经 `mobileDictionary` 带上 `wubiCodes`，走同一个入口。
 - HarmonyOS：`apps/harmony/src/main.tsx` 的 `dictionary` 客户端经桥方法 `dictionary` 到 `KeyboardSession.dictionary`，再到 `msime_client_dictionary`。
 - Windows：设置窗口是原生 WinUI 的 `msime-client-settings.exe`（`platforms/windows/settings/main.cpp`），自己不画查码组，但同目录的共享应用 `MSIME.exe` 画「输入」页，它用的就是上面 macOS、Linux 那个 `dictionary` 客户端，`dictionary_request` 在 Windows 上同样到 `dictionary_request_json`。所以 WinUI「输入」页的五笔组末尾加一行「五笔查码」，和辅助码插件那一行一样用 `nav::shell_links::input` 打开共享应用的「输入」页。这一行不能省：五笔版只提供五笔，辅助码组不显示，原来本窗口没有任何一行通到共享应用的「输入」页。
-- iOS：分发的产品是原生 `MSIMEApp`（`platforms/ios/README.md`），它的「输入设置」是 SwiftUI 的 `InputSettingsView`（`platforms/ios/App/Sources/app/OnboardingView.swift`），五笔组只有混输、剩余编码和四码自动上屏三个开关；App 里没有 WebView，承载不了共享设置页，所以 **iOS 用户在设置里目前没有「五笔查码」**。共享前端的 iOS 工程（`apps/desktop/src-tauri/gen/apple`）虽然经 `mobileDictionary` 带上了 `wubiCodes`（`ios_personal_dictionary_action` 不认 `wubi_codes`，于是走 App 进程里的 `dictionary_request_json`），但那个工程只是公共组件，不作为产品分发，不能算 iOS 有这个功能。补法是在 `InputSettingsView` 的五笔组里加一个原生查码页，从 App 进程经 `msime_client_dictionary` 发 `{operation:"wubi_codes",text}`，App 本来就打包了引擎词库；这要一次 iOS 构建和模拟器上的验证，这次没有做，作为已知缺口留着，不靠这条笔记假装已经覆盖。`z` 反查在 iOS 键盘上照常可用，它在共享引擎里。
+- iOS：分发的产品是原生 `MSIMEApp`（`platforms/ios/README.md`），没有 WebView，承载不了共享设置页。「输入设置」（`InputSettingsView`，`platforms/ios/App/Sources/app/OnboardingView.swift`）的「更多」组在启用了五笔时，三个五笔开关后面加一行「五笔查码」，打开原生的 `WubiCodeLookupView`，文字和排法照共享设置页（`WubiCodeLookup`）。查码在 App 进程里经 `MetasequoiaInputSessionBridge.wubiCodes`：先 `msime_client_prepare_host` 解析选项，再 `msime_client_dictionary` 发 `{operation:"wubi_codes",text}`；资源目录取 `PersonalDictionaryBridge.packagedResources`。App 包里只有词库清单，找到的是键盘扩展包里的 `EngineResources`，和键盘准备宿主用的是同一个目录：状态目录里的资源校验标记（`verified-resources.json`）记着目录路径，App 若用别的路径准备，键盘下次启动会把整套词库重新哈希一遍。共享前端的 iOS 工程（`apps/desktop/src-tauri/gen/apple`）仍经 `mobileDictionary` 带上 `wubiCodes`，但那个工程只是公共组件，不作为产品分发。`z` 反查在 iOS 键盘上照常可用，它在共享引擎里。
 
 字根拆分不做：仓库里没有授权清楚的 86/98 拆分数据（`resources/helpcodes` 里只有拼音辅助码用的字根数据），而且很多字根不是 Unicode 字符，要另配字体或图片。
 
@@ -60,7 +60,7 @@ Status: implemented
 - 混输关闭的五笔用户按 `z` 加拼音就能看到候选和它们的五笔编码，跟随所选的 86/98 码表；混输打开的用户行为不变。
 - 代价：混输关闭时，五笔里单独按 `z` 不再原样输入 `z`，而是开始一个反查组字。反查的预编辑显示键入的原文（`znihao`），没有拼音分词。反查不支持撇号分隔，这一点与混输相同。
 - 反查的拼音候选按拼音词库原有的顺序排列，不受个人学习影响，也不留下学习记录。
-- iOS 产品 App 的设置里还没有「五笔查码」（见上文 iOS 一条），iOS 用户目前只能在键盘里用 `z` 反查；Windows 经 WinUI「输入」页的一行跳到共享应用里查。
+- iOS 和 Android 的产品设置里各有一个原生的「五笔查码」页（见上文两条），文字和排法照共享设置页，改一处要同时改三处：`wubi-code-lookup-section.tsx`、`WubiCodeLookupPolicy.java`、`WubiCodeLookup.swift`。Windows 经 WinUI「输入」页的一行跳到共享应用里查。
 
 ## Verification
 
@@ -71,3 +71,4 @@ Status: implemented
 - Windows 那一行（`platforms/windows/settings/main.cpp`）没有在本机构建：WinUI 设置窗口只能用 MSVC 编译，交给 CI 的 Windows 构建；它照搬同一文件里辅助码插件那一行的 `shell_row(..., nav::shell_links::input)`。
 - `platforms/harmony/tests/run.sh`：`DictionaryMaintenancePolicy` 把 `wubi_codes` 当读操作（组字时允许、不要维护、不进队列）。
 - `cargo test -p msime-host-api --lib -- dictionary::tests::wubi`：两个入口对同一请求给出相同回答，个人词库队列不建目录、用户数据目录不变；超长文字两个入口都拒绝。
+- 后续（Android、iOS 原生查码页）：Android 在专用 AVD 的 API 35 和 API 28 上跑了新增的 `WubiLookupDeviceSmoke`：启用五笔、选 98 码表后「输入」页出现「五笔查码」，查「段舞」两个字的 86、98 编码与随包词库一致（段 `wdm wdmc` / `th thdc`，舞 `rlg rlgh` / `tgl tglg`，98 列标「（当前）」），「输入法」整段有一行，没有汉字时提示；API 35 上 `smoke.sh` 全套另外跑过（`CaretCandidatesDeviceSmoke` 在机器负载高时丢了第一个键，重跑通过，与本改动无关），API 28 上 `smoke.sh --core`。`WubiCodeLookupPolicySmoke` 在 `check-host.sh` 里钉住排法和文字。iOS 在 iOS 27 模拟器上跑了 `WubiCodeLookupTests`（App 进程的同一条调用读测试宿主里的随包词库，段、舞、输入法与 Android 相同）和 `OnboardingUITests.testWubiCodeLookupListsBothTables`（真 App：选 98 五笔、打开「五笔查码」、查「段舞」，读屏标签与上面一致）；`MSIMEClientUITests` 不在 CI 里跑，只在本机跑过这一条。

@@ -382,7 +382,7 @@ public final class CloudApi {
         String value = TextPolicy.trimmed(header);
         if (value.isEmpty() || value.length() > 9) return 0L;
         for (int index = 0; index < value.length(); index++) {
-            if (value.charAt(index) < '0' || value.charAt(index) > '9') return 0L;
+            if (!TextPolicy.isAsciiDigit(value.charAt(index))) return 0L;
         }
         return Long.parseLong(value);
     }

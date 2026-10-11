@@ -144,27 +144,14 @@ public final class SymbolPanelModel {
 
     /** 读回存储的记录：丢掉空串、超长条目和重复项，最多保留 {@link #RECENTS_LIMIT} 个。 */
     public static List<String> normalizeRecents(List<String> stored) {
-        LinkedHashSet<String> unique = new LinkedHashSet<>(RECENTS_LIMIT);
-        if (stored != null) {
-            for (String symbol : stored) {
-                if (!validSymbol(symbol)) continue;
-                unique.add(symbol);
-                if (unique.size() == RECENTS_LIMIT) break;
-            }
-        }
-        return List.copyOf(unique);
+        return ListPolicy.normalizeRecents(stored, RECENTS_LIMIT, SymbolPanelModel::validSymbol);
     }
 
     /** 点了 `selected` 之后的记录：它排到最前，原来的位置去掉，超出上限的最旧一个被挤掉。 */
     public static List<String> recordRecent(List<String> stored, String selected) {
         if (!validSymbol(selected)) throw new IllegalArgumentException("Invalid recent symbol");
-        ArrayList<String> reordered = new ArrayList<>(RECENTS_LIMIT);
-        reordered.add(selected);
-        for (String symbol : normalizeRecents(stored)) {
-            if (reordered.size() == RECENTS_LIMIT) break;
-            if (!selected.equals(symbol)) reordered.add(symbol);
-        }
-        return List.copyOf(reordered);
+        return ListPolicy.recordRecent(stored, selected, RECENTS_LIMIT,
+            SymbolPanelModel::validSymbol);
     }
 
     /** 能不能记进「常用」：空串和超过 {@link #MAX_SYMBOL_CODE_POINTS} 个码位的不记。 */
@@ -178,9 +165,8 @@ public final class SymbolPanelModel {
 
     /** 一页的游标是否自洽：条数不超过页大小，下一页从本页之后开始、前进不超过页大小，没读完时必须前进。与表情目录的规则相同。 */
     public static boolean validCatalogCursor(int requestedOffset, int count, long nextOffset, boolean complete) {
-        return requestedOffset >= 0 && count >= 0 && count <= CATALOG_PAGE_SIZE
-            && nextOffset >= requestedOffset && nextOffset <= (long) requestedOffset + CATALOG_PAGE_SIZE
-            && (complete || nextOffset > requestedOffset);
+        return BoundsPolicy.validPageCursor(requestedOffset, count, CATALOG_PAGE_SIZE,
+            nextOffset, complete);
     }
 
     /** 把新一页接在已显示的后面：同一个符号在目录里可能属于好几个小类（`symbol_catalog` 的主键是符号加小类），只显示第一次；总数不超过 {@link #MAX_CATALOG_ITEMS}。 */

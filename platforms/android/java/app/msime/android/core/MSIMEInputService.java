@@ -2225,7 +2225,9 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousPreferencesReady = preferencesSnapshot != null;
         String previousView = view == null ? "" : view.toString();
         String previousNotice = preferencesNotice;
-        String previousSkin = skin.key();
+        // 比的是实际画出来的皮肤（经应用主题着色后），不是 `skin.key()`：渲染时 `skin` 被换成当季配色，重读时又按偏好重建回 classic 基础色，两者永远不等（见 KeyboardSkin#displayKey）。
+        String previousSkin = skin.displayKey(imeStyler.appThemeSeed());
+        AndroidLocalSettings.Snapshot previousLocalSettings = localSettings;
         String previousAppearance = candidateAppearanceKey();
         String previousGeometry = touchGeometryKey();
         AiPolishConfiguration previousAi = aiPolishConfiguration;
@@ -2250,7 +2252,9 @@ public final class MSIMEInputService extends InputMethodService {
         }
         offerRecentClipOnHistoryEnabled(previousClipboard);
         if (previousPreferencesReady != (preferencesSnapshot != null)
-                || !previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.key())
+                || !previousNotice.equals(preferencesNotice)
+                || !previousSkin.equals(skin.displayKey(imeStyler.appThemeSeed()))
+                || !previousLocalSettings.equals(localSettings)
                 || !previousAppearance.equals(candidateAppearanceKey())
                 || !previousGeometry.equals(touchGeometryKey())
                 || (previousAi == null ? aiPolishConfiguration != null
@@ -2271,6 +2275,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void applyPreferencesSnapshot(JSONObject snapshot) throws JSONException {
         refreshLocalSettings();
+        // 应用主题在本地设置里，季节随月份变：每次重读都按刚读到的本地设置重新解析种子，下面的候选条外观和 reloadPreferences 的皮肤比较才用的是同一个当前种子。渲染时的 refreshSeasonIfNeeded 一分钟才查一次，只靠它的话设置页换了应用主题，键盘最多要等一分钟。
+        imeStyler.refreshAppTheme(true);
         JSONObject previousPreferences = preferencesSnapshot == null
             ? null : preferencesSnapshot.optJSONObject("preferences");
         boolean previousCloudCandidates = previousPreferences == null
@@ -3034,6 +3040,8 @@ public final class MSIMEInputService extends InputMethodService {
         String signature = OnlineCandidatePolicy.signature(querySession,
             query.optString("cache_key", ""), query.optString("identity", ""),
             InputViewValuePolicy.booleanValue(query, "cloud_candidates", false),
+            InputViewValuePolicy.booleanValue(query, "cloud_eligible", false),
+            InputViewValuePolicy.booleanValue(query, "ai_eligible", false),
             InputViewValuePolicy.booleanValue(assistant, "enabled", false) ? assistant.toString() : "");
         if (signature.equals(onlineSignature)) return;
         onlineSignature = signature;
@@ -4499,7 +4507,7 @@ public final class MSIMEInputService extends InputMethodService {
     /**
      * The global theme's keyboard resolved for one panel's own light/dark setting.
      *
-     * <p>An explicit `dark` or `light` on the surface wins; `follow` inherits the app mode (`theme`), and a `system` app mode follows the Android night mode. A missing or unknown value is `follow`, so an older snapshot keeps the keyboard's appearance rather than jumping to light. A theme with a fixed appearance then overrides that mode, which is what the shared resolver's `appearance` says.
+     * <p>面板自己的 `dark` 或 `light` 优先；`follow` 跟随应用的明暗（`theme`），应用为 `system` 时跟随 Android 的夜间模式。缺失或不认识的值按 `follow` 处理，旧快照因此保持键盘原来的明暗，不会跳回浅色。所选主题属于另一种明暗时按 `system` 画（{@link KeyboardSkin#effectiveTheme}），键盘因此始终和这块面板的明暗一致。
      */
     private KeyboardSkin surfaceSkin(JSONObject preferences, String key) {
         String surfaceMode = preferences == null ? "follow" : preferences.optString(key, "follow");
@@ -4510,7 +4518,7 @@ public final class MSIMEInputService extends InputMethodService {
             : InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONObject customTheme = preferences == null ? null
             : preferences.optJSONObject("custom_theme");
-        return themeSkin(globalTheme, customTheme, dark);
+        return themeSkin(KeyboardSkin.effectiveTheme(themeCatalog(), globalTheme, dark), customTheme, dark);
     }
 
     /**

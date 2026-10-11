@@ -30,6 +30,15 @@ public final class TextPolicySmoke {
                 && !TextPolicy.boundedNonBlank("bad\u0000", 20)
                 && !TextPolicy.boundedNonBlank("bad\uD800", 20),
             "bounded non-blank text enforces all shared boundaries");
+        check(TextPolicy.boundedNonEmpty("  ", 2)
+                && !TextPolicy.boundedNonBlank("  ", 2),
+            "non-empty metadata permits spaces without weakening non-blank fields");
+        check(!TextPolicy.boundedNonEmpty(null, 2)
+                && !TextPolicy.boundedNonEmpty("", 2)
+                && !TextPolicy.boundedNonEmpty("😀", 3)
+                && !TextPolicy.boundedNonEmpty("x\u0000", 2)
+                && !TextPolicy.boundedNonEmpty("x\uD800", 2),
+            "bounded non-empty text enforces byte, control and Unicode boundaries");
         check(TextPolicy.initial("词库", "?").equals("词"),
             "initial must return the first basic-plane code point");
         check(TextPolicy.initial("\ud840\udc00字", "?").equals("\ud840\udc00"),

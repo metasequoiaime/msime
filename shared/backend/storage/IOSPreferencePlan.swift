@@ -2,7 +2,12 @@ import Foundation
 
 /// Validated values only; the platform applies this plan through its existing setters.
 struct IOSPreferencePlan {
+  /// `platform.ios.keyboard_layout` 认得的取值，与 Android 的 `platform.android.keyboard_layout` 同一套词：方案用哪种触屏键盘（26 键、九键、14 键、手写）。服务端只限它是不超过 32 字节的字符串，以后可能多出别的取值，所以不认识的取值当作没有这一项。
+  static let keyboardLayouts: Set<String> = ["twenty_six_key", "nine_key", "fourteen_key", "handwriting"]
+
   let scheme: String?
+  /// 云端写着认得的 `platform.ios.keyboard_layout`：方案的键盘布局由它说了算，见 `scheme(keeping:)`。
+  let hasKeyboardLayout: Bool
   /// `input.wubi_schema`：`wubi86` 或 `wubi98`，只在 `input.schema` 是 `wubi` 时读取。云端没有这一项时为 nil：那份设置来自还不认识 98 五笔的设备，本机的五笔版本保持不变。
   let wubiProfile: String?
   let traditional: Bool?
@@ -30,10 +35,19 @@ struct IOSPreferencePlan {
       return value
     }
     let nineKey = try bool("platform.ios.nine_key")
+    // 有 `keyboard_layout` 时以它为准，没有（旧版本上传的文档、服务端还不认识这个键）时退回 `nine_key`。
+    let layout = try string("platform.ios.keyboard_layout").flatMap { Self.keyboardLayouts.contains($0) ? $0 : nil }
+    hasKeyboardLayout = layout != nil
+    let usesNineKey = layout.map { $0 == "nine_key" } ?? (nineKey == true)
     var wubiProfile: String?
     if let value = try string("input.schema") {
       switch value {
-      case "quanpin": scheme = nineKey == true ? "nineKey" : "quanpin"
+      case "quanpin":
+        switch layout {
+        case "fourteen_key": scheme = "fourteenKey"
+        case "handwriting": scheme = "handwriting"
+        default: scheme = usesNineKey ? "nineKey" : "quanpin"
+        }
       case "shuangpin":
         let profile = try string("input.shuangpin_schema") ?? "xiaohe"
         guard ["xiaohe", "ziranma", "microsoft", "shoudao"].contains(profile) else { throw BackendAccountClient.Failure(status: 400) }
@@ -44,7 +58,7 @@ struct IOSPreferencePlan {
         scheme = "wubi"
       case "japanese":
         guard try string("input.japanese_schema") ?? "romaji" == "romaji" else { throw BackendAccountClient.Failure(status: 400) }
-        scheme = nineKey == true ? "japaneseNineKey" : "japanese"
+        scheme = usesNineKey ? "japaneseNineKey" : "japanese"
       case "korean": scheme = "korean"
       default: throw BackendAccountClient.Failure(status: 400)
       }
@@ -70,9 +84,9 @@ struct IOSPreferencePlan {
     customSkinJSON = try string("platform.ios.custom_keyboard_skin")
   }
 
-  /// 落到本机的方案，`local` 是本机当前的方案（`ChineseInputScheme` 的原始值）。云端还没有 14 键自己的键，本机的 14 键上传成全拼、不是九键（`IOSCloudSettings`）；云端是这一组值时保留本机的 14 键，返回 nil，免得在本机「应用云端设置」把 14 键改回 26 键。云端是九键或别的方案时照常切换。与 Tauri 公共组件 iOS 工程的 `IosPreferencePlan::requested_native` 是同一条规则。
+  /// 落到本机的方案，`local` 是本机当前的方案（`ChineseInputScheme` 的原始值）。云端写着 `platform.ios.keyboard_layout` 时它就是那台设备选的布局，照常切换，26 键也会把本机的 14 键换掉。没有这一项的文档来自还不上传它的版本，那时 14 键上传成全拼、不是九键：云端是这一组值时保留本机的 14 键，返回 nil，免得在本机「应用云端设置」把 14 键改回 26 键；云端是九键或别的方案时照常切换。与 Tauri 公共组件 iOS 工程的 `IosPreferencePlan::requested_native` 是同一条规则。
   func scheme(keeping local: String) -> String? {
-    scheme == "quanpin" && local == "fourteenKey" ? nil : scheme
+    scheme == "quanpin" && local == "fourteenKey" && !hasKeyboardLayout ? nil : scheme
   }
 }
 
@@ -82,7 +96,7 @@ extension IOSPreferencePlan {
   static let accountSchemes: Set<String> = ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"]
 
   /// 上传前过滤本机整理出的账号设置：
-  /// - 只有一个方案的版本不上传 `input.schema` 和随它的 iOS 九键开关、Android 触屏布局，否则会把 full 等其他版本记在账号里的方案盖掉；
+  /// - 只有一个方案的版本不上传 `input.schema` 和随它的 iOS 九键开关、iOS 与 Android 的触屏布局，否则会把 full 等其他版本记在账号里的方案盖掉；
   /// - 有多个方案的版本只上传本版本提供的方案；
   /// - 不提供双拼、五笔的版本不上传双拼方案、五笔版本这两项。
   static func filterUploaded(_ settings: inout [String: BackendPreferenceValue], offered: [String]?) {
@@ -92,7 +106,7 @@ extension IOSPreferencePlan {
     if !offered.contains("wubi") { settings.removeValue(forKey: "input.wubi_schema") }
   }
 
-  /// 应用前过滤从账号下载的设置：只有一个方案的版本忽略 `input.schema` 和随它的九键开关、触屏布局；有多个方案的版本把本版本不提供的方案当作账号里没有这一项，本机方案保持不变，其余设置照常应用。
+  /// 应用前过滤从账号下载的设置：只有一个方案的版本忽略 `input.schema` 和随它的九键开关、两个平台的触屏布局；有多个方案的版本把本版本不提供的方案当作账号里没有这一项，本机方案保持不变，其余设置照常应用。
   static func filterDownloaded(_ settings: inout [String: BackendPreferenceValue], offered: [String]?) {
     dropUnsyncedScheme(&settings, offered: offered)
   }
@@ -104,7 +118,7 @@ extension IOSPreferencePlan {
       keeps = offered.contains(scheme)
     }
     guard !keeps else { return }
-    for key in ["input.schema", "platform.ios.nine_key", "platform.android.keyboard_layout"] {
+    for key in ["input.schema", "platform.ios.nine_key", "platform.ios.keyboard_layout", "platform.android.keyboard_layout"] {
       settings.removeValue(forKey: key)
     }
   }
