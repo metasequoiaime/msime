@@ -635,6 +635,8 @@ enum MsimeCommand {
     MSIME_CONVERSION_LEFT = 17, MSIME_CONVERSION_RIGHT = 18,
     /* 宿主已经自己把文本写进了文档，再丢弃组字：对会话的作用同 MSIME_CANCEL（一次，组字没结束时照旧再发一次），区别只在生命周期里结束原因记 HostCommit、不出取消音。 */
     MSIME_CANCEL_AFTER_HOST_COMMIT = 19,
+    /* 焦点即将离开或会话即将关闭，宿主替用户结束组字并按失焦上屏处理：不可改写、不出提交音、不画上屏特效。 */
+    MSIME_FINISH_ON_FOCUS_LOSS = 20,
     MSIME_NEXT_PAGE = 100, MSIME_PREVIOUS_PAGE = 101,
     MSIME_NEXT_CANDIDATE = 102, MSIME_PREVIOUS_CANDIDATE = 103,
     MSIME_FIRST_CANDIDATE = 104, MSIME_LAST_CANDIDATE = 105
