@@ -299,6 +299,7 @@ pub fn personal_dictionary_entries_with(
         offset,
         limit,
         include_learned_pinyin,
+        true,
         None,
     )
 }
@@ -317,6 +318,26 @@ pub fn personal_dictionary_export_entries_for_kind(
         offset,
         limit,
         kind == PersonalDictionaryKind::Pinyin,
+        true,
+        Some(kind),
+    )
+}
+
+/// 只查询指定词库的用户词条；列表保留拼音单字，不带学习权重。
+pub fn personal_dictionary_entries_for_kind(
+    paths: &RuntimePaths,
+    main_dictionary: bool,
+    kind: PersonalDictionaryKind,
+    offset: usize,
+    limit: usize,
+) -> Result<PersonalDictionaryPage> {
+    read_personal_dictionary_page(
+        paths,
+        main_dictionary,
+        offset,
+        limit,
+        false,
+        false,
         Some(kind),
     )
 }
@@ -327,6 +348,7 @@ fn read_personal_dictionary_page(
     offset: usize,
     limit: usize,
     include_learned_pinyin: bool,
+    exclude_single_pinyin: bool,
     kind: Option<PersonalDictionaryKind>,
 ) -> Result<PersonalDictionaryPage> {
     if limit == 0 || limit > MAX_PAGE_LIMIT || offset > MAX_PAGE_OFFSET {
@@ -341,9 +363,9 @@ fn read_personal_dictionary_page(
     let connection = open_database(&journal, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|_| failed(DICTIONARY_NOT_READ))?;
     let sql = if kind.is_some() {
-        "SELECT dictionary,key,value,weight FROM user_dictionary_operations WHERE operation='upsert' AND (user_inserted=1 OR (?3 AND dictionary='pinyin')) AND NOT (?3 AND dictionary='pinyin' AND length(value)<=1) AND (?4 OR dictionary='english') AND dictionary=?5 ORDER BY dictionary,key,value LIMIT ?1 OFFSET ?2"
+        "SELECT dictionary,key,value,weight FROM user_dictionary_operations WHERE operation='upsert' AND (user_inserted=1 OR (?3 AND dictionary='pinyin')) AND NOT (?3 AND ?5 AND dictionary='pinyin' AND length(value)<=1) AND (?4 OR dictionary='english') AND dictionary=?6 ORDER BY dictionary,key,value LIMIT ?1 OFFSET ?2"
     } else {
-        "SELECT dictionary,key,value,weight FROM user_dictionary_operations WHERE operation='upsert' AND (user_inserted=1 OR (?3 AND dictionary='pinyin')) AND NOT (?3 AND dictionary='pinyin' AND length(value)<=1) AND (?4 OR dictionary='english') ORDER BY dictionary,key,value LIMIT ?1 OFFSET ?2"
+        "SELECT dictionary,key,value,weight FROM user_dictionary_operations WHERE operation='upsert' AND (user_inserted=1 OR (?3 AND dictionary='pinyin')) AND NOT (?3 AND ?5 AND dictionary='pinyin' AND length(value)<=1) AND (?4 OR dictionary='english') ORDER BY dictionary,key,value LIMIT ?1 OFFSET ?2"
     };
     let mut statement = connection
         .prepare(sql)
@@ -356,6 +378,7 @@ fn read_personal_dictionary_page(
                 page_bind(offset),
                 i64::from(include_learned_pinyin),
                 i64::from(main_dictionary),
+                i64::from(exclude_single_pinyin),
                 kind.journal_name()
             ])?
         } else {
@@ -363,7 +386,8 @@ fn read_personal_dictionary_page(
                 page_bind(limit + 1),
                 page_bind(offset),
                 i64::from(include_learned_pinyin),
-                i64::from(main_dictionary)
+                i64::from(main_dictionary),
+                i64::from(exclude_single_pinyin)
             ])?
         };
         while let Some(row) = rows.next()? {

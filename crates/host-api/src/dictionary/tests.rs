@@ -1215,3 +1215,52 @@ fn journal_export_pages_only_the_requested_kind() {
         );
     }
 }
+
+#[test]
+fn journal_list_kind_does_not_truncate_after_other_dictionaries() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    for name in ["user", "resources", "dictionaries", "cache"] {
+        std::fs::create_dir(root.join(name)).unwrap();
+    }
+    let connection = rusqlite::Connection::open(root.join("user/msime_user.db")).unwrap();
+    connection.execute_batch(
+        "CREATE TABLE user_dictionary_operations(dictionary TEXT NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,operation TEXT NOT NULL,weight INTEGER NOT NULL,user_inserted INTEGER NOT NULL,PRIMARY KEY(dictionary,key,value));",
+    ).unwrap();
+    let transaction = connection.unchecked_transaction().unwrap();
+    for index in 0..20_001 {
+        transaction
+            .execute(
+                "INSERT INTO user_dictionary_operations VALUES('english',?1,?2,'upsert',1,1)",
+                rusqlite::params![format!("english{index:05}"), format!("合成英文{index:05}")],
+            )
+            .unwrap();
+    }
+    transaction
+        .execute(
+            "INSERT INTO user_dictionary_operations VALUES('wubi','aaaa','合成五笔','upsert',7,1)",
+            [],
+        )
+        .unwrap();
+    transaction.commit().unwrap();
+    drop(connection);
+    let options = json!({
+        "api_version": 1,
+        "resources": root.join("resources"),
+        "user_data": root.join("user"),
+        "cache": root.join("cache"),
+        "dictionaries": root.join("dictionaries"),
+        "preferences": msime_client_core::preferences::Preferences::default(),
+    });
+    let response = dictionary_request_json(&serde_json::to_vec(&json!({
+        "options": options,
+        "action": {"operation": "list", "offset": 0, "limit": 1000, "kind": "wubi", "user_only": false},
+    })).unwrap()).unwrap();
+    assert_eq!(
+        response,
+        json!({
+            "entries": [{"kind": "wubi", "key": "aaaa", "value": "合成五笔", "weight": 7, "source": "user"}],
+            "has_more": false,
+        })
+    );
+}

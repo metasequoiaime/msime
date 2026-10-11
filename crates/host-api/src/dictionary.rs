@@ -1235,6 +1235,23 @@ fn user_entries_page(
             .collect::<Result<_, _>>()?;
         return Ok((entries, page.has_more));
     }
+    if prefix.is_empty() {
+        if let Some(kind) = kind {
+            let page = msime_engine::host::dictionary_entries_for_kind(
+                options,
+                kind.into(),
+                offset,
+                limit,
+            )
+            .map_err(|_| "dictionary read rejected")?;
+            let entries: Vec<Entry> = page
+                .entries
+                .into_iter()
+                .map(|entry| Entry::try_from(entry).map(|entry| entry.with_source(Source::User)))
+                .collect::<Result<_, _>>()?;
+            return Ok((entries, page.has_more));
+        }
+    }
     // The Engine pages the whole store in one sequence with no kind or prefix filter, so the selection happens here. Doing it on the client meant asking for 100 rows and discarding most of them: a user with more than a page of pinyin words who selected 五笔 saw an empty page 1 even though wubi entries existed.
     let mut selector = PageSelector::new(offset, limit);
     let mut entries: Vec<Entry> = Vec::with_capacity(limit);
