@@ -335,19 +335,23 @@ impl LanguageDictionary {
                 push_glob_literal(&mut glob, reading);
                 glob.push(' ');
                 glob.push_str(&tail);
-                let rows = statement.query_map((lower, upper, glob), |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        LanguageEntry {
-                            text: row.get(1)?,
-                            weight: row.get(2)?,
-                        },
-                    ))
-                })?;
-                for row in rows {
-                    let (key, entry) = row?;
-                    if key_matches(&key, positions) {
-                        result.push((key, entry));
+                let mut rows = statement.query((lower, upper, glob))?;
+                while let Some(row) = rows.next()? {
+                    let key = row.get_ref(0)?.as_str().map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(error))
+                    })?;
+                    let text = row.get_ref(1)?.as_str().map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(error))
+                    })?;
+                    let weight = row.get(2)?;
+                    if key_matches(key, positions) {
+                        result.push((
+                            key.to_owned(),
+                            LanguageEntry {
+                                text: text.to_owned(),
+                                weight,
+                            },
+                        ));
                     }
                 }
             }
@@ -943,6 +947,45 @@ mod tests {
         assert!(
             allocations <= 10,
             "多个读音查询不应为每个读音建立临时结果向量：{allocations}"
+        );
+    }
+
+    #[test]
+    fn reading_glob_rejects_rows_before_allocating_their_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msime-zhuyin.db");
+        build(&path, &FORMAT_VERSION.to_string());
+        let connection = Connection::open(&path).unwrap();
+        for (key, text, weight) in [
+            ("ㄋㄧˇ ㄏㄠˇ", "你好", 1000),
+            ("ㄋㄧˇ ㄏㄠˇ ㄇㄚ˙", "你好嗎", 900),
+            ("ㄋㄧˇ ㄏㄠˇ ㄉㄜ˙", "你的", 800),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                    (key, text, weight),
+                )
+                .unwrap();
+        }
+        drop(connection);
+
+        let dictionary = open_read_only(&path).unwrap();
+        let first = readings(&["ㄋㄧˇ"]);
+        let rest = readings(&["ㄏㄠˇ", "ㄏㄠˇ ㄇㄚ˙"]);
+        let expected = dictionary
+            .lookup_readings(&[&first, &rest], usize::MAX)
+            .unwrap();
+        let (actual, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            dictionary
+                .lookup_readings(&[&first, &rest], usize::MAX)
+                .unwrap()
+        });
+
+        assert_eq!(actual, expected);
+        assert!(
+            allocations <= 11,
+            "粗筛淘汰行不应分配键字符串：{allocations}"
         );
     }
 
