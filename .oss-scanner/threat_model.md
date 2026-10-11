@@ -2,7 +2,7 @@
 
 ## What this project does and where untrusted input enters
 
-MSIME is a cross-platform Chinese input method. Its native hosts (`platforms/<os>`) are loaded by the operating system into, or alongside, every application the user types into; they all link one Rust core through a versioned C ABI (`crates/host-api`). Layering is described in `ARCHITECTURE.md`.
+MSIME is a cross-platform Chinese input method. Its native hosts (`platforms/<os>`) are loaded by the operating system into, or alongside, every application the user types into; they all link one Rust core through a versioned C ABI (`crates/host-api`). Layering is described in `docs/ARCHITECTURE.md`.
 
 Treat these as untrusted:
 

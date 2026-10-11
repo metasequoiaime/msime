@@ -152,6 +152,13 @@ pub struct CandidateSkinPreview {
     pub data: String,
 }
 
+impl CandidateSkinPreview {
+    /// The preview as a `data:` URL, the form every settings page draws it from. Built only from an image whose type and leading bytes were checked when it was received.
+    pub fn data_url(&self) -> String {
+        format!("data:{};base64,{}", self.content_type, self.data)
+    }
+}
+
 /// A downloaded package: the manifest verbatim and each image, keyed by its package-relative path, in standard base64. [`install`] checks it before writing anything.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1008,6 +1015,30 @@ fn shared_preview(summary: &SkinSummary) -> Result<&str, &'static str> {
         return Err(FILE_TYPE);
     }
     Ok(preview)
+}
+
+/// What [`pack_as`] made of an installed package before anything is uploaded, so a publish dialog can show a refusal, or the size against the limit, before the user fills in the form. Serialized in the page's camelCase.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateSkinPackPreview {
+    pub suggested_name: String,
+    pub license: SkinLicense,
+    pub file_count: usize,
+    pub size: usize,
+}
+
+/// Check the installed package `id` under `root` against the sharing rules for `visibility` without uploading it.
+pub fn pack_preview(
+    root: &Path,
+    id: &str,
+    visibility: CandidateSkinVisibility,
+) -> Result<CandidateSkinPackPreview, &'static str> {
+    pack_as(root, id, visibility).map(|packed| CandidateSkinPackPreview {
+        suggested_name: packed.suggested_name,
+        license: packed.license,
+        file_count: packed.file_count,
+        size: packed.size,
+    })
 }
 
 /// 为 `root` 下已安装的包 `id` 生成发布内容：原样的 `skin.toml` 加上它引用的那几张图，不多不少。服务端的规则凡是客户端能检查的都在这里检查，各有各的错误码，服务端会拒收的包在上传前就被拒绝。每张图都按扩展名完整解码一遍，尺寸和整包像素合计也按服务端的上限检查；服务端重新编码之后的大小仍由服务端判断。

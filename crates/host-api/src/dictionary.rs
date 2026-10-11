@@ -318,6 +318,34 @@ pub unsafe extern "C" fn msime_client_dictionary(request: *const u8, length: usi
     })
 }
 
+/// The largest `msime_client_settings_dictionary` request: an import carries the whole file, up to `settings_dictionary::MAX_IMPORT_TEXT_BYTES` of text, which JSON escaping can at most double, plus the host options.
+const SETTINGS_DICTIONARY_REQUEST_LIMIT: usize =
+    2 * crate::settings_dictionary::MAX_IMPORT_TEXT_BYTES + 1024 * 1024;
+
+/// A settings-page dictionary request, `{options, action}` as `msime_client_dictionary` takes it, through `settings_dictionary::request`: an edit, import or reset first has the input hosts let go of the dictionaries, an import of a whole file is sent in batches and answered with one report, and a refusal comes back as the settings pages' code (`dictionary_busy`, `dictionary_invalid_entry`, ...). Blocks until the hosts have let go: call off the UI thread.
+/// # Safety
+/// `request` must point to `length` readable bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_settings_dictionary(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > SETTINGS_DICTIONARY_REQUEST_LIMIT {
+            return Err("dictionary_too_large".into());
+        }
+        // SAFETY: guaranteed by the caller contract above.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let document: serde_json::Value =
+            serde_json::from_slice(bytes).map_err(|_| "storage".to_owned())?;
+        let (Some(options), Some(action)) = (document.get("options"), document.get("action"))
+        else {
+            return Err("storage".into());
+        };
+        crate::settings_dictionary::request(options, action, || {}).map_err(|code| code.to_owned())
+    })
+}
+
 /// The queued personal dictionary, for a host that cannot take the Engine's
 /// maintenance lock when the request arrives.
 ///

@@ -63,51 +63,45 @@ int main() {
     // 窗口打开时显示侧栏的第一个页面。
     require(pages.front().id == default_page);
 
-    // 跨平台的服务页面在共享应用里以它接受的路由打开；原生页面没有路由。
+    // 每个页面都在本窗口里原生绘制，没有交给共享应用的设置页；万一再有，它必须是共享应用接受的路由，原生页面没有路由。
     for (const auto &page : pages) {
       if (page.host == PageHost::Shell)
         require(launchable(page.shell));
       else
         require(page.shell.panel.empty() && page.shell.page.empty());
     }
-    require(find_page("account")->shell.page == "account");
-    require(find_page("clip")->shell.page == "tools");
-    require(find_page("stats")->shell.page == "typing-statistics");
-    // 插件和 AI 辅助打开共享应用的对应页面，和剪贴板、打字统计同在「工具」组。
-    require(find_page("plugins")->shell.page == "plugins" &&
+    // AI 辅助和剪贴板、打字统计、插件同在「工具」组，都在本窗口里原生绘制。
+    require(find_page("plugins")->host == PageHost::Native &&
             find_page("plugins")->group == find_page("clip")->group &&
             find_page("plugins")->group == find_page("stats")->group);
-    require(find_page("ai")->shell.page == "ai" &&
+    require(find_page("ai")->host == PageHost::Native &&
             find_page("ai")->group == find_page("plugins")->group);
+    for (const auto &page : pages)
+      require(page.host == PageHost::Native);
     // 桌面端没有社区页：社区皮肤在共享应用的主题页上，从本窗口的主题页打开。
     require(find_page("community") == nullptr);
     // 下载链接已移到关于页，所以不再有下载页。
     require(find_page("download") == nullptr);
     // MCP stays in this window's developer page and the core pages stay native.
-    for (auto id : {"themes", "candidate", "typing", "expression", "shortcuts",
-                    "lexicon", "dev", "about"})
+    for (auto id : {"themes", "candidate", "typing", "expression", "shortcuts", "lexicon",
+                    "clip", "stats", "plugins", "ai", "account", "dev", "feedback", "about"})
       require(find_page(id)->host == PageHost::Native);
-    for (const auto &target : shell_links::all)
+    // 本窗口不再打开共享应用的任何设置页：留下的都是输入工具的面板。
+    for (const auto &target : shell_links::all) {
       require(launchable(target));
+      require(target.page.empty() && !target.panel.empty());
+    }
+    // 剪贴板页在本窗口里原生绘制，只有云剪贴板面板仍由共享应用打开。
     require(msime::windows::shell_route_argument(
-                request_for(find_page("clip")->shell)) == L"settings:tools");
-    require(msime::windows::shell_route_argument(
-                request_for(shell_links::appearance)) == L"settings:appearance");
+                request_for(shell_links::cloud_clipboard)) == L"cloud-clipboard");
     require(msime::windows::shell_route_argument(
                 request_for(shell_links::keyboard_panel)) == L"keyboard");
     require(msime::windows::shell_route_argument(request_for(
                 shell_links::handwriting_panel)) == L"handwriting");
-    require(msime::windows::shell_route_argument(request_for(
-                find_page("stats")->shell)) == L"settings:typing-statistics");
-    require(msime::windows::shell_route_argument(request_for(
-                find_page("plugins")->shell)) == L"settings:plugins");
-    require(msime::windows::shell_route_argument(request_for(
-                find_page("ai")->shell)) == L"settings:ai");
+    // 语音页的识别服务与润色在本窗口里原生绘制，只有语音面板仍由共享应用打开，路由与托盘的「语音输入」相同。
+    require(msime::windows::shell_route_argument(request_for(shell_links::voice_panel)) == L"voice");
     require(msime::windows::shell_route_argument(
-                request_for(shell_links::input)) == L"settings:input");
-    // 翻译服务和凭据在共享应用的「标点与翻译」页编辑。
-    require(msime::windows::shell_route_argument(
-                request_for(shell_links::expression)) == L"settings:expression");
+                request_for(shell_links::cloud_dictionary)) == L"cloud-dictionary");
 
     // Every settings category the shared routes know still opens a page here, and the ids the tray sends land where the features moved.
     const std::set<std::string_view> categories{
@@ -137,6 +131,7 @@ int main() {
     require(page_for_route("expression") == "expression");
     require(page_for_route("developer") == "dev");
     require(page_for_route("plugins") == "plugins");
+    require(page_for_route("typing-statistics") == "stats");
     // A page id of this window opens itself; anything unknown falls back to the default page.
     for (const auto &page : pages)
       if (categories.count(page.id) == 0)

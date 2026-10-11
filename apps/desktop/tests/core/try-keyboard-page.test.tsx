@@ -6,6 +6,7 @@ import type {
   ImeSetupState,
 } from "../../../../packages/ui/src/core/host-contracts";
 import type { ChatClient } from "../../../../packages/ui/src/chat/chat-page";
+import { CHAT_SYSTEM_PROMPT } from "../../../../packages/ui/src/chat/chat-prompt";
 import { ToastProvider } from "../../../../packages/ui/src/core/toast";
 import { TryKeyboardPage } from "../../../../packages/ui/src/keyboard/try-keyboard-page";
 
@@ -83,7 +84,7 @@ test("Enter sends the draft as an AI chat and shows the reply as Markdown", asyn
   expect(bubbles(page).slice(1)).toEqual(["你好", "你好，我在。"]);
   expect(chat.complete).toHaveBeenCalledWith(
     [
-      { role: "system", content: expect.stringContaining("水杉输入法里的 AI 助手") },
+      { role: "system", content: CHAT_SYSTEM_PROMPT },
       { role: "user", content: "你好" },
     ],
     "model-a",

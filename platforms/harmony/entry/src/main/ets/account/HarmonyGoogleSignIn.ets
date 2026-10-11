@@ -32,7 +32,11 @@ interface ReplyRequest {
   operation: string;
   head: string | null;
   state: string;
+  return_link: string;
 }
+
+/** 浏览器回跳页上「回到水杉输入法」按钮的链接。手机上浏览器占满屏幕，用户得自己找回应用；这个链接由 module.json5 里 EntryAbility 的 `msime://auth` 技能接住，`onNewWant` 不带页面参数，应用只是回到前台，登录在这里接着完成。 */
+const RETURN_LINK: string = 'msime://auth/google';
 
 interface TargetValue {
   target: string;
@@ -232,7 +236,9 @@ export class HarmonyGoogleSignIn {
       }
       answered = true;
       clearTimeout(slow);
-      const replyRequest: ReplyRequest = { operation: 'reply', head: head.head(), state: plan.state };
+      const replyRequest: ReplyRequest = {
+        operation: 'reply', head: head.head(), state: plan.state, return_link: RETURN_LINK
+      };
       const decision: CallbackValue | null = this.native<CallbackValue>(replyRequest);
       if (decision === null) {
         connection.close().catch((): void => {});

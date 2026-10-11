@@ -1,6 +1,6 @@
 # 实现说明
 
-这份文档描述水杉输入法客户端的最终形态：共享层与各平台宿主分别承担什么、边界画在哪里、为什么这么画。功能对照与逐项覆盖情况见 [windows-parity](windows-parity.md)、[macos-parity](macos-parity.md)、[ios-parity](ios-parity.md)、[harmony-parity](harmony-parity.md) 以及对应的 feature inventory；构建与验证命令见 [ARCHITECTURE](../ARCHITECTURE.md) 和各平台 README。
+这份文档描述水杉输入法客户端的最终形态：共享层与各平台宿主分别承担什么、边界画在哪里、为什么这么画。功能对照与逐项覆盖情况见 [windows-parity](windows-parity.md)、[macos-parity](macos-parity.md)、[ios-parity](ios-parity.md)、[harmony-parity](harmony-parity.md) 以及对应的 feature inventory；构建与验证命令见 [ARCHITECTURE](ARCHITECTURE.md) 和各平台 README。
 
 ## 一、目标与范围
 

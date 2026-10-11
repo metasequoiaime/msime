@@ -39,14 +39,9 @@ impl CommunityResourceState {
 }
 
 fn resource_scope(value: &str) -> Result<CommunityResourceScope, crate::CommandError> {
-    match value {
-        "" => Ok(CommunityResourceScope::All),
-        "mine" => Ok(CommunityResourceScope::Mine),
-        "saved" => Ok(CommunityResourceScope::Saved),
-        _ => Err(crate::CommandError {
-            code: "community_invalid",
-        }),
-    }
+    CommunityResourceScope::from_name(value).ok_or(crate::CommandError {
+        code: "community_invalid",
+    })
 }
 
 #[tauri::command]

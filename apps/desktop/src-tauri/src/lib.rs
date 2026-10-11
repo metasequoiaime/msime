@@ -5,8 +5,6 @@
 ))]
 mod ai;
 mod clipboard_history;
-#[cfg(not(target_os = "android"))]
-mod dictionary_import;
 // Only the two hosts that have to replay input into another window build this.
 // macOS delivers through the input method itself and needs none of it.
 mod notices;
@@ -84,7 +82,9 @@ use msime_client_core::skin::custom_library::{
 use msime_client_core::skin::keyboard_trial::KeyboardSkinTrialStore;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use msime_client_core::typing_statistics::TypingSource;
-use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsStore};
+use msime_client_core::typing_statistics::{
+    TypingStatistics, TypingStatisticsStatus, TypingStatisticsStore,
+};
 #[cfg(target_os = "android")]
 use msime_tauri_mobile_platform::{AndroidVoicePlatform, AndroidVoicePolishRequest};
 // Both mobile hosts build the same transcription request; only the transport differs.
@@ -496,21 +496,9 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
             .map_err(|_| CommandError {
                 code: "audio_devices",
             })?;
-        serde_json::to_value(
-            devices
-                .into_iter()
-                .map(|(id, label)| {
-                    serde_json::json!({
-                        "backend": "windows",
-                        "id": id,
-                        "label": label
-                    })
-                })
-                .collect::<Vec<_>>(),
-        )
-        .map_err(|_| CommandError {
-            code: "audio_devices",
-        })
+        Ok(Value::Array(msime_host_api::voice_capture_device_values(
+            "windows", devices,
+        )))
     }
     #[cfg(target_os = "macos")]
     {
@@ -519,21 +507,9 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
             .map_err(|_| CommandError {
                 code: "audio_devices",
             })?;
-        serde_json::to_value(
-            devices
-                .into_iter()
-                .map(|(id, label)| {
-                    serde_json::json!({
-                        "backend": "macos",
-                        "id": id,
-                        "label": label
-                    })
-                })
-                .collect::<Vec<_>>(),
-        )
-        .map_err(|_| CommandError {
-            code: "audio_devices",
-        })
+        Ok(Value::Array(msime_host_api::voice_capture_device_values(
+            "macos", devices,
+        )))
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     Err(CommandError {
@@ -598,34 +574,14 @@ struct VocabularyState(
     Option<std::path::PathBuf>,
 );
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct TypingStatisticsStatus {
-    statistics: TypingStatistics,
-    availability: &'static str,
-    last_written_ms: Option<u64>,
-}
-
+// 状态的组装在 client-core（`TypingStatisticsStore::status`），Windows 原生设置窗口经 host-api 读到同样的字段。
 fn typing_statistics_status(
     store: &TypingStatisticsStore,
     statistics: TypingStatistics,
 ) -> Result<TypingStatisticsStatus, CommandError> {
-    let last_written = store
-        .last_written()
-        .map_err(|_| CommandError { code: "storage" })?;
-    Ok(TypingStatisticsStatus {
-        statistics,
-        availability: if last_written.is_some() {
-            "ready"
-        } else {
-            "neverWritten"
-        },
-        last_written_ms: last_written.and_then(|time| {
-            time.duration_since(std::time::UNIX_EPOCH)
-                .ok()
-                .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
-        }),
-    })
+    store
+        .status(statistics)
+        .map_err(|_| CommandError { code: "storage" })
 }
 
 #[tauri::command]
@@ -1696,36 +1652,9 @@ async fn test_api_credential(
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
         let _ = runtime;
+        // The same checks the native Windows settings window runs through `msime_client_test_api_credential`.
         let result = tauri::async_runtime::spawn_blocking(move || {
-            if service == "voice.asr" {
-                if config.get("provider").and_then(Value::as_str) == Some("doubao") {
-                    return msime_client_core::credential::doubao::test(
-                        &config,
-                        &msime_client_core::credential::doubao::WebSocketTransport,
-                    );
-                }
-                return msime_client_core::credential::asr::test(
-                    &config,
-                    &msime_client_core::credential::asr::HttpTransport,
-                );
-            }
-            if service.starts_with("translation.") {
-                let milliseconds = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|duration| duration.as_millis().min(u64::MAX as u128) as u64)
-                    .unwrap_or(0);
-                return msime_client_core::credential::translation::test(
-                    &service,
-                    &config,
-                    milliseconds,
-                    &msime_client_core::credential::translation::HttpTransport,
-                );
-            }
-            msime_client_core::credential::probe::test_chat(
-                &service,
-                &config,
-                &msime_client_core::credential::probe::ChatProbeTransport,
-            )
+            msime_client_core::credential::test_service(&service, &config)
         })
         .await
         .map_err(|_| CommandError {
@@ -2034,51 +1963,6 @@ fn start_desktop_preferences_monitor(
         });
 }
 
-/// Keep the host's reason instead of flattening every failure to "storage".
-///
-/// The host distinguishes three things the user can actually act on - the
-/// dictionary is locked by another process, the edit itself was refused, and
-/// the store could not be opened - and the page used to print one identical
-/// sentence for all of them.
-fn dictionary_error_code(reason: &str) -> &'static str {
-    match reason {
-        "dictionary maintenance busy" => "dictionary_busy",
-        // A request over the host's 64 KiB, which the batched desktop import only gives for a file over its own bound or a single line too long for any request. The shared parser's own "dictionary import is too large" is deliberately not mapped here: only Android, which sends the whole file in one request, reaches it, and there the limit is 64 KiB rather than the 32 MB this code's message names.
-        "invalid dictionary buffer" => "dictionary_too_large",
-        "dictionary import rejected" => "dictionary_import_rejected",
-        "dictionary read rejected" => "dictionary_read_rejected",
-        "dictionary pinyin unavailable" => "dictionary_pinyin_unavailable",
-        "dictionary access unavailable" => "dictionary_unavailable",
-        "learned-data reset rejected" => "dictionary_reset_rejected",
-        "bundled dictionary entry is read-only" => "dictionary_bundled_readonly",
-        // The host appends which rule the entry broke. The page words a code refusal per dictionary kind, so a word or weight refusal must not share that code, or it would send the user to fix a code that is already valid.
-        reason if reason == msime_host_api::INVALID_DICTIONARY_ENTRY => "dictionary_invalid_entry",
-        reason => match reason
-            .strip_prefix(msime_host_api::INVALID_DICTIONARY_ENTRY)
-            .and_then(|rest| rest.strip_prefix(": "))
-        {
-            Some(rule) if invalid_entry_rule_is_about_word(rule) => "dictionary_invalid_word",
-            Some(_) => "dictionary_invalid_entry",
-            None => "storage",
-        },
-    }
-}
-
-/// Does a refusal reason name the word or the weight rather than the code? These are the host's `validate_entry` rules (`word ...`, `weight ...`) and the Engine's own sentences for the same rules in `validate_personal_dictionary_entry`.
-fn invalid_entry_rule_is_about_word(rule: &str) -> bool {
-    rule.starts_with("word ")
-        || rule.starts_with("weight ")
-        || rule == "Weight must be between 1 and 100000000"
-        || rule == "The word contains an unsupported control character"
-}
-
-fn dictionary_action_requires_quiesce(action: &Value) -> bool {
-    matches!(
-        action.get("operation").and_then(Value::as_str),
-        Some("edit" | "import" | "reset")
-    )
-}
-
 #[cfg(any(target_os = "ios", test))]
 fn ios_personal_dictionary_action(action: &Value) -> bool {
     matches!(
@@ -2129,11 +2013,6 @@ async fn dictionary_request(
     let options = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let options = options.snapshot()?;
-        let requires_quiesce = dictionary_action_requires_quiesce(&action);
-        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-        let _ = requires_quiesce;
-        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
-        let user_data = options["user_data"].as_str().map(str::to_owned);
         let request = serde_json::json!({ "options": options, "action": action });
         #[cfg(target_os = "ios")]
         if ios_personal_dictionary_action(&request["action"]) {
@@ -2145,41 +2024,22 @@ async fn dictionary_request(
                 serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
             return msime_host_api::personal_dictionary_request_json(&bytes).map_err(|reason| {
                 CommandError {
-                    code: dictionary_error_code(&reason),
+                    code: msime_host_api::settings_dictionary::error_code(&reason),
                 }
             });
         }
+        // The input hosts are released before a write, an import is batched and a refusal becomes the page's code in the host API, where the native Windows settings window gets the same through msime_client_settings_dictionary. The macOS input method is also told at once over a distributed notification when the release first goes up.
         #[cfg(not(target_os = "android"))]
         {
-            // One request to the host. An import too large for one request is several, each through this, so whatever releases the input sessions below stays in force until the last of them.
-            let host = |bytes: &[u8]| msime_host_api::dictionary_request_json(bytes);
-            // The input hosts are asked to let go and the lock failure is retried until they have. On Linux and macOS that is a lease the hosts find on their timers, with the macOS input method also told at once over a distributed notification when the lease first goes up; on Windows the Server is asked over its pipe and answers once its sessions are gone. Either is renewed before each later request, so a large import that runs past the 30 second bound keeps the hosts released, and let go when `hosts` goes, after the last request, whatever the outcome.
-            #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
-            let mut hosts = msime_client_core::dictionary::quiesce::QuiescedHosts::new(
-                user_data.as_deref(),
+            msime_host_api::settings_dictionary::request(
+                &request["options"],
+                &request["action"],
                 || {
                     #[cfg(target_os = "macos")]
                     msime_host_macos::quiesce_input_sessions();
                 },
-            );
-            #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
-            let send = |bytes: &[u8]| {
-                if requires_quiesce {
-                    hosts.run(|| host(bytes))
-                } else {
-                    host(bytes)
-                }
-            };
-            #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-            let send = host;
-            let result = dictionary_import::send_dictionary_action(
-                &request["options"],
-                &request["action"],
-                send,
-            );
-            result.map_err(|reason| CommandError {
-                code: dictionary_error_code(&reason),
-            })
+            )
+            .map_err(|code| CommandError { code })
         }
     })
     .await

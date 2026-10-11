@@ -27,7 +27,6 @@ import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
-import app.msime.android.NineKeyLayout;
 import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.NineKeySwipePolicy;
 import app.msime.android.SchemePreferences;
@@ -40,9 +39,9 @@ import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键、九键字母与数字键盘的左侧符号、26 键按 123（数字一行 / 九宫格）、九宫格数字顺序、双拼键位提示、键盘高度、按键间距、行间距、横屏分离式键盘、浮动键盘、键盘底栏）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）、剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键、九键字母与数字键盘的左侧符号、双拼键位提示、键盘高度、按键间距、行间距、横屏分离式键盘、浮动键盘、键盘底栏）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）、剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距、26 键按 123、九宫格数字顺序、双拼键位提示和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_twenty_six_key_number_layout`、`touch_number_keypad_order`、`touch_shuangpin_key_hints`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
+ * <p>键盘与本页读同一批存储：按键间距、行间距、双拼键位提示和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_shuangpin_key_hints`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
 public final class KeyboardOptionsPage extends DetailPage {
     private static final String[] ANIMATIONS = {"bounce", "ripple", "glow", "lift", "none"};
@@ -111,7 +110,7 @@ public final class KeyboardOptionsPage extends DetailPage {
                 settings.bool(AndroidLocalSettings.LANGUAGE_KEY_CYCLE),
                 checked -> saveLocal(AndroidLocalSettings.LANGUAGE_KEY_CYCLE, checked));
         }
-        // 左侧符号栏只属于拼音九键和笔画键盘；本版本两者都没有（例如五笔版）时不列这一行，数字键面那一行另看下面的条件。
+        // 左侧符号栏只属于拼音九键和笔画键盘；本版本两者都没有（例如五笔版）时不列这一行，数字键面那一行只看拼音九键。
         boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
         if (quanpinNineKey || KeyboardScheme.STROKE.offeredBy(edition)) {
             java.util.List<String> sidebar = NineKeySidebarPolicy.letterSymbols(
@@ -120,22 +119,13 @@ public final class KeyboardOptionsPage extends DetailPage {
                 NineKeySidebarPolicy.summary(sidebar, 4),
                 () -> editSidebarSymbols("九键左侧符号", AndroidLocalSettings.NINE_KEY_SYMBOLS, sidebar));
         }
-        boolean nineKeyDigits = NineKeyLayout.nineKeyNumberLayout(preferences.optString(
-            NineKeyLayout.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY, NineKeyLayout.ROW_NUMBER_LAYOUT));
-        // 26 键选了九宫格数字键盘时用的是同一张数字键面符号表，本版本没有拼音九键也要能改它。
-        if (quanpinNineKey || nineKeyDigits) {
+        if (quanpinNineKey) {
             java.util.List<String> digitSidebar = NineKeySidebarPolicy.digitSymbols(
                 settings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
-            layout.nav("九键数字键盘左侧符号", "九宫格数字键盘（9 键和选了九宫格的 26 键）左侧的符号栏",
+            layout.nav("九键数字键盘左侧符号", "拼音九键按 123 切到数字键盘后左侧的符号栏",
                 NineKeySidebarPolicy.summary(digitSidebar, 4),
                 () -> editSidebarSymbols("九键数字键盘左侧符号", AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS, digitSidebar));
         }
-        layout.nav("26 键按 123", "26 键和 14 键按 123 时出来的数字键盘", twentySixKeyNumberLabel(nineKeyDigits),
-            () -> pickTwentySixKeyNumberLayout(nineKeyDigits));
-        boolean calculator = NineKeyLayout.calculatorOrder(
-            preferences.optString(NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER));
-        layout.nav("九宫格数字顺序", "九宫格数字键的排列（9 键，以及选了九宫格的 26 键）", numberKeypadLabel(calculator),
-            () -> pickNumberKeypadOrder(calculator));
         // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。缺省为开，与键盘和 client-core 一致。
         if (KeyboardScheme.XIAOHE.offeredBy(edition)) {
             layout.toggle("双拼键位提示", "双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母",
@@ -404,40 +394,6 @@ public final class KeyboardOptionsPage extends DetailPage {
     private static String nineKeySwipeOption(String value) {
         return SwipeHintPolicy.UP.equals(value) ? "上滑输入数字，下滑弹出字母"
             : SwipeHintPolicy.DOWN.equals(value) ? "下滑输入数字，上滑弹出字母" : "关闭";
-    }
-
-    /** 九键数字键面的排列写进共享偏好 `touch_number_keypad_order`，与其他平台和云同步共用。 */
-    private void pickNumberKeypadOrder(boolean calculator) {
-        OptionSheet sheet = new OptionSheet(requireContext(), "九宫格数字顺序",
-            "123 在上和电话拨号盘一样；789 在上和计算器、电脑小键盘一样");
-        sheet.option(numberKeypadLabel(false), !calculator, () -> {
-            if (calculator) savePreference(NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER);
-        });
-        sheet.option(numberKeypadLabel(true), calculator, () -> {
-            if (!calculator) savePreference(NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.CALCULATOR_ORDER);
-        });
-        sheet.show();
-    }
-
-    private static String numberKeypadLabel(boolean calculator) {
-        return calculator ? "789 在上" : "123 在上";
-    }
-
-    /** 26 键按 123 切到的数字层写进共享偏好 `touch_twenty_six_key_number_layout`，与其他平台和云同步共用。 */
-    private void pickTwentySixKeyNumberLayout(boolean nineKey) {
-        OptionSheet sheet = new OptionSheet(requireContext(), "26 键按 123",
-            "数字一行把 1 到 0 排在符号上面；九宫格换成和 9 键一样的 3×3 大数字键");
-        sheet.option(twentySixKeyNumberLabel(false), !nineKey, () -> {
-            if (nineKey) savePreference(NineKeyLayout.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY, NineKeyLayout.ROW_NUMBER_LAYOUT);
-        });
-        sheet.option(twentySixKeyNumberLabel(true), nineKey, () -> {
-            if (!nineKey) savePreference(NineKeyLayout.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY, NineKeyLayout.NINE_KEY_NUMBER_LAYOUT);
-        });
-        sheet.show();
-    }
-
-    private static String twentySixKeyNumberLabel(boolean nineKey) {
-        return nineKey ? "九宫格" : "数字一行";
     }
 
     private static String swipeDirectionLabel(String value) {

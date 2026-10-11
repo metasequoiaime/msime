@@ -10,14 +10,16 @@ on:
       - develop
       - main
     paths-ignore:
-      - CHANGELOG.md
       - PRIVACY.md
       - README.md
+      - docs/CHANGELOG.md
+      - docs/readme/*.md
   pull_request:
     paths-ignore:
-      - CHANGELOG.md
       - PRIVACY.md
       - README.md
+      - docs/CHANGELOG.md
+      - docs/readme/*.md
   workflow_dispatch:
 
   merge_group:

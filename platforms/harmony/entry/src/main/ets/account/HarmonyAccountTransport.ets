@@ -8,6 +8,7 @@ import {
 } from './AccountCloudBridge';
 import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
 import { KeyboardLog } from '../keyboard/KeyboardLog';
+import { retryAccountRequest } from './AccountRetryPolicy';
 import {
   anonymousSessionForBridge, anonymousSessionForStorage, MAX_SESSION_BYTES, sessionFitsStorage, sessionWriteComplete
 } from './AccountSessionPolicy';
@@ -253,6 +254,10 @@ interface BackendError {
   error?: BackendErrorBody;
 }
 
+interface PendingCall {
+  cancelled: boolean;
+}
+
 interface BackendErrorBody {
   code?: string;
 }
@@ -260,10 +265,41 @@ interface BackendErrorBody {
 export class HarmonyAccountTransport implements AccountTransport {
   private readonly activeRequests: Map<string, Set<http.HttpRequest>> =
     new Map<string, Set<http.HttpRequest>>();
+  // 带标签、还没结束的调用。`cancelRequests` 把它们标成已取消，重试前看一眼，取消之后不再替调用方发第二次。
+  private readonly pendingCalls: Map<string, Set<PendingCall>> = new Map<string, Set<PendingCall>>();
 
+  /** 发一个账号请求。落在已经失效的复用连接上时，幂等的请求换新连接再发一次，见 `AccountRetryPolicy`。 */
   async request(method: string, path: string, token?: string, body?: Object,
     timeoutMs?: number, requestTag?: string): Promise<AccountTransportResponse> {
     if (!path.startsWith('/v1/') || path.includes('\\')) throw new Error('account_invalid');
+    const call: PendingCall = { cancelled: false };
+    const tag: string = requestTag ?? '';
+    if (tag.length > 0) {
+      let calls: Set<PendingCall> | undefined = this.pendingCalls.get(tag);
+      if (calls === undefined) {
+        calls = new Set<PendingCall>();
+        this.pendingCalls.set(tag, calls);
+      }
+      calls.add(call);
+    }
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await this.attemptRequest(method, path, token, body, timeoutMs, requestTag);
+        } catch (cause) {
+          if (call.cancelled || !retryAccountRequest(method, attempt, cause)) throw cause as Error;
+          KeyboardLog.warn(`account ${method} ${path.split('?')[0]} retried on a fresh connection`);
+        }
+      }
+    } finally {
+      const calls: Set<PendingCall> | undefined = this.pendingCalls.get(tag);
+      calls?.delete(call);
+      if (calls !== undefined && calls.size === 0) this.pendingCalls.delete(tag);
+    }
+  }
+
+  private async attemptRequest(method: string, path: string, token?: string, body?: Object,
+    timeoutMs?: number, requestTag?: string): Promise<AccountTransportResponse> {
     const request = http.createHttp();
     installNoRedirectGuard(request);
     if (requestTag !== undefined && requestTag.length > 0) {
@@ -307,6 +343,10 @@ export class HarmonyAccountTransport implements AccountTransport {
   }
 
   cancelRequests(requestTag: string): void {
+    this.pendingCalls.get(requestTag)?.forEach((call: PendingCall): void => {
+      call.cancelled = true;
+    });
+    this.pendingCalls.delete(requestTag);
     const requests: Set<http.HttpRequest> | undefined = this.activeRequests.get(requestTag);
     if (requests === undefined) return;
     for (const request of requests) request.destroy();

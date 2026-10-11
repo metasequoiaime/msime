@@ -678,6 +678,34 @@ fn traditional_conversion_boundary_returns_text_or_null() {
 }
 
 #[test]
+fn font_catalog_boundary_lists_sorted_bounded_families() {
+    let result = read(msime_client_list_font_families());
+    if !system_fonts::supported() {
+        assert_eq!(result, json!({ "ok": false, "error": "unsupported" }));
+        return;
+    }
+    // A Linux machine without fontconfig cannot list anything; that is a failure response, never a panic or a partial list.
+    if result["ok"] == false {
+        assert!(
+            !cfg!(windows),
+            "Windows always has a system font collection"
+        );
+        assert!(matches!(
+            result["error"].as_str(),
+            Some("font_catalog" | "font_catalog_limit")
+        ));
+        return;
+    }
+    let names: Vec<String> = serde_json::from_value(result["value"].clone()).unwrap();
+    assert!(!names.is_empty());
+    assert!(names.len() <= 16_384);
+    assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(names
+        .iter()
+        .all(|name| !name.is_empty() && msime_client_core::is_bounded_text(name, 128)));
+}
+
+#[test]
 fn abi_version_reports_the_theme_revision() {
     assert_eq!(msime_client_abi_version(), 3);
 }
@@ -743,6 +771,104 @@ fn native_preference_save_clears_history_only_after_successful_disable() {
     assert!(!store.load().unwrap().preferences.clipboard_history);
     assert_eq!(store.load().unwrap().revision, disabled.revision + 1);
     assert!(history.is_dir());
+}
+
+#[test]
+fn desktop_clipboard_history_lists_pins_removes_and_clears_the_shared_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_str().unwrap();
+    let call = |action: serde_json::Value| {
+        let body = serde_json::to_vec(&json!({ "directory": path, "action": action })).unwrap();
+        read(unsafe { msime_client_desktop_clipboard_history(body.as_ptr(), body.len()) })
+    };
+    let store = PreferencesStore::new(directory.path());
+    store
+        .save(
+            0,
+            Preferences {
+                clipboard_history: true,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    for text in ["synthetic first", "synthetic second"] {
+        assert!(store.capture_clipboard_text(text.into()).unwrap());
+    }
+    let listed = call(json!({ "operation": "list" }));
+    assert_eq!(listed["value"]["enabled"], true);
+    let entries = listed["value"]["entries"].as_array().unwrap();
+    assert_eq!(entries[0]["text"], "synthetic second");
+    assert_eq!(entries[1]["text"], "synthetic first");
+    assert!(entries[0]["timestampMs"].as_u64().unwrap() > 0);
+    assert_eq!(entries[0]["pinned"], false);
+
+    // A pinned entry sorts first and the answer is the history after the change.
+    let pinned =
+        call(json!({ "operation": "set_pinned", "text": "synthetic first", "pinned": true }));
+    assert_eq!(pinned["value"]["entries"][0]["text"], "synthetic first");
+    assert_eq!(pinned["value"]["entries"][0]["pinned"], true);
+    let removed = call(json!({ "operation": "remove", "text": "synthetic second" }));
+    assert_eq!(removed["value"]["entries"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        call(json!({ "operation": "remove", "text": "" }))["error"],
+        "clipboard_history_invalid"
+    );
+    assert_eq!(
+        call(json!({ "operation": "unknown" }))["error"],
+        "clipboard_history_invalid"
+    );
+    let cleared = call(json!({ "operation": "clear" }));
+    assert_eq!(cleared["value"]["entries"], json!([]));
+    assert!(!directory.path().join("clipboard_history.json").exists());
+
+    // Switched off: the list is empty and sync is refused before the clipboard is read.
+    assert!(store
+        .capture_clipboard_text("synthetic third".into())
+        .unwrap());
+    let mut disabled = store.load().unwrap();
+    disabled.preferences.clipboard_history = false;
+    store.save(disabled.revision, disabled.preferences).unwrap();
+    let listed = call(json!({ "operation": "list" }));
+    assert_eq!(listed["value"]["enabled"], false);
+    assert_eq!(listed["value"]["entries"], json!([]));
+    assert_eq!(
+        call(json!({ "operation": "sync" }))["error"],
+        "clipboard_history_disabled"
+    );
+    let relative = br#"{"directory":"relative","action":{"operation":"list"}}"#;
+    assert_eq!(
+        read(unsafe { msime_client_desktop_clipboard_history(relative.as_ptr(), relative.len()) })
+            ["error"],
+        "clipboard_history_invalid"
+    );
+}
+
+#[test]
+fn account_cloud_clipboard_refuses_without_a_signed_in_session_or_a_valid_action() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_str().unwrap();
+    let call = |action: serde_json::Value| {
+        let body = serde_json::to_vec(&json!({ "directory": path, "action": action })).unwrap();
+        read(unsafe { msime_client_account_cloud_clipboard(body.as_ptr(), body.len()) })
+    };
+    // No account-session.json: every action stops at the session, before the network.
+    for action in [
+        json!({ "operation": "list", "search": "" }),
+        json!({ "operation": "add", "text": "synthetic upload" }),
+    ] {
+        let result = call(action);
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["error"], "account_unauthorized");
+    }
+    for action in [
+        json!({ "operation": "add", "text": "" }),
+        json!({ "operation": "add", "text": "界".repeat(4001) }),
+        json!({ "operation": "clear" }),
+        json!({}),
+    ] {
+        assert_eq!(call(action)["error"], "invalid_cloud_clipboard");
+    }
+    assert!(!directory.path().join("account-session.json").exists());
 }
 
 #[test]
@@ -3713,6 +3839,52 @@ fn typing_statistics_boundary_persists_only_aggregate_counts() {
     assert_eq!(
         read(unsafe { msime_client_typing_statistics(std::ptr::null(), 0) })["ok"],
         false
+    );
+}
+#[test]
+fn typing_statistics_boundary_answers_the_settings_status() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |action: Value, status: bool| {
+        let request = serde_json::to_vec(&json!({
+            "directory": directory.path(),
+            "action": action,
+            "status": status,
+        }))
+        .unwrap();
+        read(unsafe { msime_client_typing_statistics(request.as_ptr(), request.len()) })
+    };
+    let fresh = call(json!({"operation": "load"}), true);
+    assert_eq!(fresh["value"]["availability"], "neverWritten");
+    assert_eq!(fresh["value"]["lastWrittenMs"], Value::Null);
+    assert_eq!(fresh["value"]["statistics"]["enabled"], false);
+    let enabled = call(json!({"operation": "set_enabled", "enabled": true}), true);
+    assert_eq!(enabled["value"]["availability"], "ready");
+    assert!(enabled["value"]["lastWrittenMs"]
+        .as_u64()
+        .is_some_and(|ms| ms > 0));
+    assert_eq!(enabled["value"]["statistics"]["enabled"], true);
+    let retention = call(
+        json!({"operation": "set_retention", "retention": "30d", "day": "2026-10-11"}),
+        true,
+    );
+    assert_eq!(retention["value"]["statistics"]["retention"], "30d");
+    let reset = call(json!({"operation": "reset"}), true);
+    assert_eq!(reset["value"]["statistics"]["total"], 0);
+    assert_eq!(reset["value"]["availability"], "ready");
+    // 不带 status 时回答与以前一样，只有统计本身。
+    assert_eq!(
+        call(json!({"operation": "load"}), false)["value"]["enabled"],
+        true
+    );
+    // 记录类操作没有状态可答，整个请求被拒绝，也不写入。
+    let rejected = call(
+        json!({"operation": "record_keys", "day": "2026-10-11", "keys": {"KeyA": 1}}),
+        true,
+    );
+    assert_eq!(rejected["ok"], false);
+    assert_eq!(
+        call(json!({"operation": "load"}), false)["value"]["dailyKeys"],
+        json!({})
     );
 }
 #[test]
@@ -10650,6 +10822,64 @@ fn voice_local_models_list_install_cancel_and_remove_validate_their_requests() {
 }
 
 #[test]
+fn voice_model_setting_check_answers_what_the_preferences_store_accepts() {
+    let check = |request: Value| {
+        let body = request.to_string();
+        read(unsafe { msime_client_voice_model_setting_check(body.as_ptr(), body.len()) })
+    };
+    for (mirror, accepted) in [
+        ("", true),
+        ("https://mirror.example.test/gh/", true),
+        ("https://", false),
+        ("http://mirror.example.test", false),
+        ("https://user:pass@mirror.example.test", false),
+        ("https://mirror.example.test?query", false),
+        ("https://mirror example.test", false),
+    ] {
+        assert_eq!(
+            check(json!({ "asr_model_mirror": mirror })),
+            json!({"ok": true, "value": {"asr_model_mirror": accepted}}),
+            "{mirror:?}"
+        );
+    }
+    for (path, accepted) in [
+        ("", true),
+        (r"C:\Users\someone\voice-models\model", true),
+        (r"\\server\share\model", true),
+        ("/home/someone/model", true),
+        ("voice-models/model", false),
+        ("C:\\models\u{7}", false),
+    ] {
+        assert_eq!(
+            check(json!({ "asr_model_path": path })),
+            json!({"ok": true, "value": {"asr_model_path": accepted}}),
+            "{path:?}"
+        );
+    }
+    assert_eq!(
+        check(json!({ "asr_model_path": format!("/{}", "a".repeat(4096)) }))["value"]
+            ["asr_model_path"],
+        false
+    );
+    // 两项一起问时各自回答；什么都没问时是空对象。
+    assert_eq!(
+        check(json!({ "asr_model_mirror": "https://m.example.test", "asr_model_path": "rel" })),
+        json!({"ok": true, "value": {"asr_model_mirror": true, "asr_model_path": false}})
+    );
+    assert_eq!(check(json!({})), json!({"ok": true, "value": {}}));
+    assert_eq!(
+        read(unsafe { msime_client_voice_model_setting_check(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    let not_json = b"{";
+    assert_eq!(
+        read(unsafe { msime_client_voice_model_setting_check(not_json.as_ptr(), not_json.len()) })
+            ["ok"],
+        false
+    );
+}
+
+#[test]
 fn voice_local_model_install_from_files_validates_the_paths_and_names_what_is_missing() {
     let root = tempfile::tempdir().unwrap();
     let downloads = tempfile::tempdir().unwrap();
@@ -11791,9 +12021,9 @@ fn gloss_breakdown_request_lines_sentences_up_with_english_words() {
             )
         })
     };
-    // Nothing installed: an empty answer.
+    // Nothing installed: an empty answer, even for a sentence the learner phrases alone would half gloss (别 and 问 are listed, 我 is not).
     assert_eq!(
-        call(json!(["我喜欢你"]))["value"],
+        call(json!(["我喜欢你", "别问我"]))["value"],
         json!({"generation": 3, "breakdowns": []})
     );
 
@@ -13105,4 +13335,277 @@ fn account_settings_export_and_apply_round_trip_without_credentials() {
         preferences.touch_toolbar.ai
     );
     assert!(saved.preferences.voice_input.asr_token.is_empty());
+}
+
+// Only configurations the check answers before sending anything, so the test never reaches the network.
+#[test]
+fn credential_test_export_answers_incomplete_configurations_offline() {
+    let call = |request: Value| {
+        let bytes = request.to_string();
+        read(unsafe { msime_client_test_api_credential(bytes.as_ptr(), bytes.len()) })
+    };
+    for service in [
+        "translation.tencent",
+        "translation.niutrans",
+        "translation.custom",
+    ] {
+        let reply = call(json!({"service": service, "config": {}}));
+        assert_eq!(reply["ok"], true, "{service}");
+        assert_eq!(reply["value"]["ok"], false, "{service}");
+        assert_eq!(
+            reply["value"]["message"],
+            "请填写有效的翻译服务凭据和接口地址。"
+        );
+    }
+    let remote_http = call(json!({
+        "service": "translation.custom",
+        "config": {"endpoint": "http://translate.example/api", "api_key": "synthetic"},
+    }));
+    assert_eq!(remote_http["value"]["ok"], false);
+    let unknown = call(json!({"service": "unknown", "config": {}}));
+    assert_eq!(unknown["value"]["message"], "此配置测试类型尚未接入。");
+    // The voice page's checks: Doubao goes to its WebSocket check, other services to the upload one, polishing to the chat one.
+    let voice = |service: &str, config: Value| {
+        let reply = call(json!({"service": service, "config": config}));
+        assert_eq!(reply["ok"], true, "{service}");
+        assert_eq!(reply["value"]["ok"], false, "{service}");
+        reply["value"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    assert_eq!(
+        voice(
+            "voice.asr",
+            json!({"provider": "doubao", "auth_mode": "api_key", "endpoint": "https://doubao.example/asr", "token": "synthetic", "resource_id": "volc.bigasr.sauc.duration"}),
+        ),
+        "请填写有效的 WSS 接口、资源 ID 及对应鉴权方式的凭据。"
+    );
+    assert_eq!(
+        voice("voice.asr", json!({"provider": "openai", "token": ""})),
+        "请先填写有效的 API Key。"
+    );
+    assert_eq!(
+        voice(
+            "voice.asr",
+            json!({"provider": "openai", "token": "synthetic", "endpoint": "http://asr.example/v1", "model": "whisper-1"}),
+        ),
+        "请填写有效的 HTTPS 转写接口地址和模型名。"
+    );
+    assert_eq!(
+        voice("voice.asr", json!({"provider": "local"})),
+        "此识别服务的凭据测试尚未接入。"
+    );
+    // The AI page's check accepts local-network http, so only a missing token or model stops it offline.
+    assert_eq!(
+        voice(
+            "ai.assistant",
+            json!({"token": "", "endpoint": "https://ai.example/v1", "model": "m"})
+        ),
+        "请先填写有效的 API Key。"
+    );
+    assert_eq!(
+        voice(
+            "ai.assistant",
+            json!({"token": "synthetic", "endpoint": "http://ai.example/v1", "model": "m"}),
+        ),
+        "请填写有效的接口地址（https://，或本机、局域网的 http://）和模型名。"
+    );
+    assert_eq!(
+        voice(
+            "voice.polish",
+            json!({"token": "synthetic", "endpoint": "http://polish.example/v1", "model": "m"}),
+        ),
+        "请填写有效的 HTTPS 接口地址和模型名。"
+    );
+    for invalid in [
+        json!({"config": {}}),
+        json!({"service": "translation.custom"}),
+        json!({"service": "translation.custom", "config": "endpoint"}),
+    ] {
+        assert_eq!(call(invalid)["ok"], false);
+    }
+    assert_eq!(
+        read(unsafe { msime_client_test_api_credential(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    let oversized = "x".repeat(64 * 1024 + 1);
+    assert_eq!(
+        read(unsafe { msime_client_test_api_credential(oversized.as_ptr(), oversized.len()) })
+            ["ok"],
+        false
+    );
+}
+
+// Only requests the checks reject before building a client, so nothing reaches the network.
+#[test]
+fn ai_settings_exports_reject_invalid_requests_offline() {
+    let models =
+        |request: &str| read(unsafe { msime_client_ai_models(request.as_ptr(), request.len()) });
+    let polish =
+        |request: &str| read(unsafe { msime_client_ai_test(request.as_ptr(), request.len()) });
+    for request in [
+        json!({"endpoint": "http://ai.example/v1/chat/completions", "token": "synthetic"}),
+        json!({"endpoint": "https://ai.example/v1/chat/completions", "token": ""}),
+        json!({"endpoint": "https://ai.example/v1/chat/completions"}),
+        json!({"endpoint": "https://ai.example/v1/chat/completions", "token": 7}),
+    ] {
+        let reply = models(&request.to_string());
+        assert_eq!(reply["ok"], false, "{request}");
+        assert_eq!(reply["error"], "ai_invalid", "{request}");
+    }
+    let valid = json!({
+        "endpoint": "https://ai.example/v1/chat/completions",
+        "model": "m",
+        "prompt": "",
+        "token": "synthetic",
+        "text": "文字",
+    });
+    for (field, value) in [
+        ("endpoint", json!("https://user:secret@ai.example/v1")),
+        ("model", json!("")),
+        ("prompt", json!("bad\0prompt")),
+        ("token", json!("")),
+        ("text", json!("")),
+        ("text", Value::Null),
+    ] {
+        let mut request = valid.clone();
+        request[field] = value;
+        let reply = polish(&request.to_string());
+        assert_eq!(reply["ok"], false, "{field}");
+        assert_eq!(reply["error"], "ai_invalid", "{field}");
+    }
+    for call in [models as fn(&str) -> Value, polish] {
+        assert_eq!(call("not json")["error"], "ai_invalid");
+        let oversized = "x".repeat(256 * 1024 + 1);
+        assert_eq!(call(&oversized)["error"], "ai_invalid");
+    }
+    assert_eq!(
+        read(unsafe { msime_client_ai_models(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_ai_test(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+fn ai_endpoint_check_export_reports_the_origin_problem_and_hint() {
+    let check = |endpoint: &str| {
+        read(unsafe { msime_client_ai_endpoint_check(endpoint.as_ptr(), endpoint.len()) })["value"]
+            .clone()
+    };
+    assert_eq!(
+        check("https://API.example.test/v1/chat/completions"),
+        json!({"origin": "https://api.example.test:443", "problem": null, "hint": ""})
+    );
+    assert_eq!(
+        check("http://192.168.1.20:1234/v1")["origin"],
+        "http://192.168.1.20:1234"
+    );
+    let public = check("http://api.example.test/v1");
+    assert_eq!(public["origin"], Value::Null);
+    assert_eq!(public["problem"], "cleartext_public");
+    assert_eq!(
+        public["hint"],
+        "http:// 只能用于本机或局域网地址（如 localhost、127.0.0.1、192.168.x.x、10.x.x.x、*.local）；公网服务请使用 https://，以免 API Token 明文经过互联网。"
+    );
+    let empty = check("");
+    assert_eq!(empty["problem"], "invalid");
+    assert_eq!(
+        empty["hint"],
+        "请填写完整的接口地址：https://，或本机、局域网的 http://，且不能包含用户名、密码或 # 片段。"
+    );
+    assert_eq!(
+        read(unsafe { msime_client_ai_endpoint_check(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    let invalid_utf8 = [0xff_u8];
+    assert_eq!(
+        read(unsafe { msime_client_ai_endpoint_check(invalid_utf8.as_ptr(), 1) })["ok"],
+        false
+    );
+}
+
+#[test]
+fn translation_endpoint_issue_export_reports_the_hint_and_what_the_store_saves() {
+    let check = |endpoint: &str| {
+        read(unsafe { msime_client_translation_endpoint_issue(endpoint.as_ptr(), endpoint.len()) })
+            ["value"]
+            .clone()
+    };
+    assert_eq!(
+        check(""),
+        json!({"issue": "请填写完整的接口地址。", "accepted": true})
+    );
+    assert_eq!(
+        check("https://translate.example/api"),
+        json!({"issue": "", "accepted": true})
+    );
+    assert_eq!(
+        check("http://translate.example/api"),
+        json!({
+            "issue": "远程翻译服务必须使用 HTTPS；HTTP 仅支持本机回环地址。",
+            "accepted": false,
+        })
+    );
+    // The page's parser takes `https:///api` as host `api`; the store still refuses it.
+    assert_eq!(
+        check("https:///api"),
+        json!({"issue": "", "accepted": false})
+    );
+    let invalid_utf8 = [0xff_u8];
+    assert_eq!(
+        read(unsafe {
+            msime_client_translation_endpoint_issue(invalid_utf8.as_ptr(), invalid_utf8.len())
+        })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_translation_endpoint_issue(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+fn voice_capture_device_values_keep_the_listing_order_and_backend() {
+    assert_eq!(
+        voice_capture_device_values(
+            "windows",
+            vec![
+                ("wasapi:0061".to_owned(), "麦克风".to_owned()),
+                ("wasapi:0062".to_owned(), "耳机".to_owned()),
+            ],
+        ),
+        vec![
+            json!({"backend": "windows", "id": "wasapi:0061", "label": "麦克风"}),
+            json!({"backend": "windows", "id": "wasapi:0062", "label": "耳机"}),
+        ]
+    );
+    assert!(voice_capture_device_values("windows", Vec::new()).is_empty());
+}
+
+// Lists whatever capture endpoints this machine has (none on a headless runner); it never opens one.
+#[test]
+fn voice_capture_device_export_lists_wasapi_endpoints_on_windows_only() {
+    let reply = read(msime_client_voice_capture_devices());
+    if cfg!(target_os = "windows") {
+        assert_eq!(reply["ok"], true);
+        let devices = reply["value"].as_array().expect("device array");
+        assert!(devices.len() <= 128);
+        for device in devices {
+            assert_eq!(device["backend"], "windows");
+            let id = device["id"].as_str().expect("id");
+            let digits = id.strip_prefix("wasapi:").expect("wasapi id");
+            assert!(!digits.is_empty() && digits.len() % 4 == 0);
+            assert!(digits
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
+            assert!(!device["label"].as_str().unwrap_or_default().is_empty());
+        }
+    } else {
+        assert_eq!(reply["ok"], false);
+        assert_eq!(reply["error"], "voice capture devices unavailable");
+    }
 }

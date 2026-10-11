@@ -223,4 +223,4 @@ sed -n '/fn build_google_url/,/^}/p' crates/client-core/src/cloud/candidates.rs
 grep -n 'enabled_by_default' crates/client-core/src/preferences.rs
 ```
 
-发现本文档与代码不符，请按[贡献指南](CONTRIBUTING.md)提 issue；若涉及数据泄露或凭据问题，走[安全策略](SECURITY.md)的私下报告入口，不要开公开 issue。
+发现本文档与代码不符，请按[贡献指南](.github/CONTRIBUTING.md)提 issue；若涉及数据泄露或凭据问题，走[安全策略](.github/SECURITY.md)的私下报告入口，不要开公开 issue。

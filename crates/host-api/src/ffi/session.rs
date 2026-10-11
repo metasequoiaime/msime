@@ -236,6 +236,24 @@ pub extern "C" fn msime_client_voice_capture(milliseconds: u32) -> *mut c_char {
     })
 }
 
+/// The microphones the settings page offers under 「可用录音设备」, the listing the Tauri settings shell's `list_voice_capture_devices` gives on Windows: value `[{backend:"windows", id, label}]`, `id` being `wasapi:` and the WASAPI endpoint id as four lowercase hex digits per UTF-16 unit, at most 128 entries, `[]` when no capture endpoint is available. Other targets fail with "voice capture devices unavailable": their hosts list devices their own way. Enumerates through COM: call off the UI thread. Ids and labels may identify the user's hardware: never log them.
+#[no_mangle]
+pub extern "C" fn msime_client_voice_capture_devices() -> *mut c_char {
+    response(|| {
+        #[cfg(target_os = "windows")]
+        {
+            Ok(Value::Array(crate::voice_capture_device_values(
+                "windows",
+                crate::voice_capture::capture_devices(),
+            )))
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Err("voice capture devices unavailable".into())
+        }
+    })
+}
+
 /// Apply asynchronous ASR text only for the active voice token.
 ///
 /// # Safety

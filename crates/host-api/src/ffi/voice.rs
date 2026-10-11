@@ -720,3 +720,40 @@ pub unsafe extern "C" fn msime_client_voice_local_model_remove(
         Ok(Value::Null)
     })
 }
+
+/// 偏好库会不会接受本地识别的两个字段，与 `Preferences::validate` 的判断相同：`asr_model_mirror` 按 [`msime_client_core::preferences::valid_model_mirror`]，`asr_model_path` 按 [`msime_client_core::preferences::valid_model_path`]。原生设置窗口边输入边保存，只把这里认可的值写进设置，免得一个半截的镜像地址让整份偏好保存失败。
+///
+/// Request `{"asr_model_mirror"?: string, "asr_model_path"?: string}`（至多 64 KiB）；value 只含请求里给出的键，各为一个布尔值。纯函数，不读任何状态。
+///
+/// # Safety
+/// `request` must point to `length` readable bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_model_setting_check(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        #[derive(Deserialize)]
+        struct CheckRequest {
+            #[serde(default)]
+            asr_model_mirror: Option<String>,
+            #[serde(default)]
+            asr_model_path: Option<String>,
+        }
+        let request: CheckRequest = local_voice_request(request, length, 64 * 1024)?;
+        let mut value = serde_json::Map::new();
+        if let Some(mirror) = &request.asr_model_mirror {
+            value.insert(
+                "asr_model_mirror".into(),
+                Value::Bool(msime_client_core::preferences::valid_model_mirror(mirror)),
+            );
+        }
+        if let Some(path) = &request.asr_model_path {
+            value.insert(
+                "asr_model_path".into(),
+                Value::Bool(msime_client_core::preferences::valid_model_path(path)),
+            );
+        }
+        Ok(Value::Object(value))
+    })
+}

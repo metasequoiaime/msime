@@ -58,6 +58,20 @@ pub unsafe extern "C" fn msime_client_resolve_font_families(
     })
 }
 
+/// The installed font family names, from the same catalog the shared app's 刷新字体列表 reads
+/// (`list_font_families` in the Tauri shell): sorted, without repeats, each a bounded display name.
+/// Fails with `unsupported` on a host without a catalog and `font_catalog` / `font_catalog_limit`
+/// when enumeration fails or exceeds its bound. Enumerates the system's fonts, so call it off a
+/// UI thread.
+#[no_mangle]
+pub extern "C" fn msime_client_list_font_families() -> *mut c_char {
+    response(|| {
+        system_fonts::list()
+            .map(|names| json!(names))
+            .map_err(str::to_owned)
+    })
+}
+
 /// Resolve a shared surface route so a native host launches the shared shell by
 /// name instead of hardcoding window labels. Returns the canonical route plus
 /// the panel label, query and geometry, or an error for an unknown route.
@@ -706,6 +720,9 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
     struct Request {
         directory: String,
         action: StatisticsAction,
+        /// 设置页要的是状态：load、set_enabled、set_retention 和 reset 回答 `{statistics, availability, lastWrittenMs}`（client-core 的 `TypingStatisticsStatus`），而不只是统计本身。
+        #[serde(default)]
+        status: bool,
     }
     #[derive(Deserialize)]
     #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
@@ -769,11 +786,36 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
             return Err("invalid typing statistics directory".into());
         }
         let store = TypingStatisticsStore::new(request.directory);
-        match request.action {
-            StatisticsAction::Load => {
-                serde_json::to_value(store.load().map_err(|error| error.to_string())?)
-                    .map_err(|_| "typing statistics response failed".to_owned())
+        let status = request.status;
+        if status
+            && !matches!(
+                request.action,
+                StatisticsAction::Load
+                    | StatisticsAction::SetEnabled { .. }
+                    | StatisticsAction::SetRetention { .. }
+                    | StatisticsAction::Reset
+            )
+        {
+            return Err(
+                "typing statistics status applies to load, set_enabled, set_retention and reset"
+                    .into(),
+            );
+        }
+        // 统计本身，或者设置页要的状态。
+        let answer = |statistics: msime_client_core::typing_statistics::TypingStatistics| {
+            if status {
+                serde_json::to_value(
+                    store
+                        .status(statistics)
+                        .map_err(|error| error.to_string())?,
+                )
+            } else {
+                serde_json::to_value(statistics)
             }
+            .map_err(|_| "typing statistics response failed".to_owned())
+        };
+        match request.action {
+            StatisticsAction::Load => answer(store.load().map_err(|error| error.to_string())?),
             StatisticsAction::Record {
                 text,
                 source,
@@ -824,13 +866,12 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
                 let recorded = store.record_skin(&id).map_err(|error| error.to_string())?;
                 Ok(json!({"recorded": recorded}))
             }
-            StatisticsAction::SetEnabled { enabled } => serde_json::to_value(
+            StatisticsAction::SetEnabled { enabled } => answer(
                 store
                     .set_enabled(enabled)
                     .map_err(|error| error.to_string())?,
-            )
-            .map_err(|_| "typing statistics response failed".to_owned()),
-            StatisticsAction::SetRetention { retention, day } => serde_json::to_value(
+            ),
+            StatisticsAction::SetRetention { retention, day } => answer(
                 store
                     .set_retention(
                         msime_client_core::typing_statistics::StatisticsRetention::parse(
@@ -839,12 +880,8 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
                         &day,
                     )
                     .map_err(|error| error.to_string())?,
-            )
-            .map_err(|_| "typing statistics response failed".to_owned()),
-            StatisticsAction::Reset => {
-                serde_json::to_value(store.reset().map_err(|error| error.to_string())?)
-                    .map_err(|_| "typing statistics response failed".to_owned())
-            }
+            ),
+            StatisticsAction::Reset => answer(store.reset().map_err(|error| error.to_string())?),
         }
     })
 }
@@ -1781,6 +1818,132 @@ pub unsafe extern "C" fn msime_client_remove_clipboard_history(
             .remove(&removal.text)
             .map_err(|_| "clipboard history removal failed")?;
         Ok(json!({"removed": removed}))
+    })
+}
+
+const MAX_DESKTOP_CLIPBOARD_REQUEST_BYTES: usize = 131_072;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DesktopClipboardRequest {
+    directory: String,
+    action: DesktopClipboardAction,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+enum DesktopClipboardAction {
+    List,
+    Sync,
+    Clear,
+    SetPinned { text: String, pinned: bool },
+    Remove { text: String },
+}
+
+/// The desktop clipboard history as the 剪贴板 settings page manages it, with the timestamps and pins `msime_client_load_clipboard_history` leaves out. Every operation answers with the history as it now stands, empty while the preference is off; see the header for the operations and codes.
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_desktop_clipboard_history(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use crate::clipboard_history::{self, ClipboardHistoryError};
+    use msime_client_core::clipboard::{ClipboardHistoryStore, MAX_TEXT_BYTES};
+    response(|| {
+        const INVALID: &str = "clipboard_history_invalid";
+        const UNAVAILABLE: &str = "clipboard_history_unavailable";
+        if request.is_null() || length > MAX_DESKTOP_CLIPBOARD_REQUEST_BYTES {
+            return Err(INVALID.into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: DesktopClipboardRequest =
+            serde_json::from_slice(bytes).map_err(|_| INVALID)?;
+        let directory = std::path::Path::new(&request.directory);
+        if !directory.is_absolute() || request.directory.len() > 16384 {
+            return Err(INVALID.into());
+        }
+        let failed = |error: ClipboardHistoryError| match error {
+            ClipboardHistoryError::Disabled => "clipboard_history_disabled".to_owned(),
+            ClipboardHistoryError::Unavailable => UNAVAILABLE.to_owned(),
+        };
+        let entry = |text: &str| {
+            if text.is_empty() || text.len() > MAX_TEXT_BYTES {
+                Err(INVALID.to_owned())
+            } else {
+                Ok(())
+            }
+        };
+        let preferences = PreferencesStore::new(directory);
+        let mut history = ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
+        match &request.action {
+            DesktopClipboardAction::List => {}
+            DesktopClipboardAction::Sync => {
+                #[cfg(windows)]
+                let read = clipboard_history::windows_clipboard_text;
+                // Only Windows reads its clipboard here; the other desktops sync in their own shells.
+                #[cfg(not(windows))]
+                let read = || Err::<Option<String>, ()>(());
+                clipboard_history::capture_clipboard(&preferences, read).map_err(failed)?;
+            }
+            DesktopClipboardAction::Clear => history.clear().map_err(|_| UNAVAILABLE)?,
+            DesktopClipboardAction::SetPinned { text, pinned } => {
+                entry(text)?;
+                history.set_pinned(text, *pinned).map_err(|_| UNAVAILABLE)?;
+            }
+            DesktopClipboardAction::Remove { text } => {
+                entry(text)?;
+                history.remove(text).map_err(|_| UNAVAILABLE)?;
+            }
+        }
+        let enabled = clipboard_history::enabled(&preferences).map_err(failed)?;
+        let entries = if enabled {
+            clipboard_history::entries(&mut history).map_err(failed)?
+        } else {
+            Vec::new()
+        };
+        Ok(json!({ "enabled": enabled, "entries": entries }))
+    })
+}
+
+/// One cloud clipboard action over the signed-in account session stored in `directory`, for a settings window that holds no session of its own. Blocks on the network; see the header.
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_core::account::{
+        AccountSessionFileLayout, BackendAccountClient, BackendAccountSession,
+        FileAccountSessionStorage,
+    };
+    response(|| {
+        const INVALID: &str = "invalid_cloud_clipboard";
+        if request.is_null() || length > MAX_DESKTOP_CLIPBOARD_REQUEST_BYTES {
+            return Err(INVALID.into());
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct CloudRequest {
+            directory: String,
+            action: Value,
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: CloudRequest = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
+        let directory = std::path::Path::new(&request.directory);
+        if !directory.is_absolute() || request.directory.len() > 16384 {
+            return Err(INVALID.into());
+        }
+        crate::cloud_clipboard::validate_request(&request.action).map_err(|_| INVALID)?;
+        let client = BackendAccountClient::new().map_err(|error| error.code().to_owned())?;
+        let session = BackendAccountSession::new(
+            client,
+            FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native),
+        );
+        crate::cloud_clipboard::account_request(&session, &request.action).map_err(str::to_owned)
     })
 }
 

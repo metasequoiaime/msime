@@ -231,7 +231,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 触屏方案 `QUANPIN_FOURTEEN_KEY`（preferenceId 和 layout 都是 `fourteen_key`，卡片「拼 14」，追加在方案表末尾，默认不启用），把 QWERTY 上相邻两个字母合成一键：`QW ER TY UI OP` / `AS DF GH JK L`（不缩进）/ `[符/分词] ZX CV BN M [⌫]`，四行与 26 键等高，底行就是 26 键的 `actionRow`。键表在 `keyboard/input/FourteenKeyLayout.ts`，与 Android、iOS 和引擎 `KeyGrid::FourteenKey` 是同一张表，`scripts/test-fourteen-key-table.py` 核对。手机和平板提供，2in1 与九键一样不提供：选择器里过滤掉，同步过来的 `fourteen_key` 在 2in1 上画 26 键、不开网格。
 
-点一下经 `pressGridKey`（NAPI `gridKey`，`msime_client_grid_key`）送这一组的首字母；会话的网格是 `keyGrid`（`KeyGrid` 的 0 / 1 / 2，与 C ABI 一致），建会话、获得焦点、词库维护后重建这三处都重发 `setKeyGrid`。组字不写进输入框，读音行显示 `nine_key_reading`；拼音选择条在读音右侧横向滚动（读音最多占半行），不盖住候选，在 123 层和三栏面板开着时照样画；展开候选用九键的三栏面板（`NineKeyPanelPolicy.threeColumn` 放宽到 14 键）。第三排左端键组字时是「分词」（送 `'`），空闲时是「符」（打开符号面板），两种状态都记作 `SoftSymbol`。两个字母的键长按弹出这两个字母（复用 `SURFACE_NINE_KEY_HOLD`），选中后先结束组字再上屏，L、M 不弹。`qwertyLettersShowing` 不含 14 键，所以没有滑行；没有 Shift、按键气泡、双拼提示和角标。英文画 26 键，`selectEnglish` 不改写 `touch_keyboard_layout`，切回中文恢复 14 键；密码框、网址框（`prefersFullFace`）和本地模式画 26 键；123 跟随 `touch_twenty_six_key_number_layout`。组字中在 123 层点字符、打开符号或表情面板这些走 `commitRaw` 的路径，Engine 对 14 键结束组字取首选，不会把组码原样上屏。
+点一下经 `pressGridKey`（NAPI `gridKey`，`msime_client_grid_key`）送这一组的首字母；会话的网格是 `keyGrid`（`KeyGrid` 的 0 / 1 / 2，与 C ABI 一致），建会话、获得焦点、词库维护后重建这三处都重发 `setKeyGrid`。组字不写进输入框，读音行显示 `nine_key_reading`；拼音选择条在读音右侧横向滚动（读音最多占半行），不盖住候选，在 123 层和三栏面板开着时照样画；展开候选用九键的三栏面板（`NineKeyPanelPolicy.threeColumn` 放宽到 14 键）。第三排左端键组字时是「分词」（送 `'`），空闲时是「符」（打开符号面板），两种状态都记作 `SoftSymbol`。两个字母的键长按弹出这两个字母（复用 `SURFACE_NINE_KEY_HOLD`），选中后先结束组字再上屏，L、M 不弹。`qwertyLettersShowing` 不含 14 键，所以没有滑行；没有 Shift、按键气泡、双拼提示和角标。英文画 26 键，`selectEnglish` 不改写 `touch_keyboard_layout`，切回中文恢复 14 键；密码框、网址框（`prefersFullFace`）和本地模式画 26 键；123 与 26 键相同，是一行数字。组字中在 123 层点字符、打开符号或表情面板这些走 `commitRaw` 的路径，Engine 对 14 键结束组字取首选，不会把组码原样上屏。
 
 同步：导入端认识 `fourteen_key`，这个键的未知值只跳过、不再整份拒收；本版导出时本机是 `fourteen_key` 就省略这个键，上传按 merge 合到云端快照上，等于保留云端旧值。打字统计的来源是 `fourteenKey`，键位 id 是 `FourteenQW` 到 `FourteenM`（`KeyIdPolicy.fourteenKey`）。逻辑测试在 `tests/keyboard-logic.test.ts` 的 14 键三组。
 
@@ -239,11 +239,9 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 `changePreferences` 存好文档、记下版本号，却不更新缓存的偏好，`preferences()` 一直返回准备会话时的那份。视图存完立刻读回旧高度：拖动弹回原位，± 不累加，拖间距时把旧高度一起写回，面板尺寸也按旧值算；下次聚焦时版本号已经一致，不会重建，旧值就留到进程重启。现在存完按存下的整份文档重算外观（`refreshPreparedPreferences`），`selectGlobalTheme` 原来自己补的那一步也并进去了。设置页的改动仍按版本号在下次聚焦时重建会话。
 
-## 九键数字层的计算器顺序与「跟随系统」振动
+## 数字层与「跟随系统」振动
 
-共享偏好 `touch_number_keypad_order` 为 `calculator` 时，九键数字层排成 7 8 9 在上、1 2 3 在下（`NineKeyLayout.digits(order)`），字母层不变；账号同步键是 `platform.harmony.number_keypad_order`。
-
-共享偏好 `touch_twenty_six_key_number_layout` 为 `nine_key` 时，触屏 26 键按 123 不再出一行 1–0 的 123 / #+= 双层，而是九键的数字层：左列 ，。？、3×3 数字（排列同样跟 `touch_number_keypad_order` 走）、右列删除／分词／！，底行 `返回 空格 0 中 回车`。`返回` 回到 26 键字母而不是九键字母，长按字母层的 123 照旧打开符号面板；这一层没有 #+=，更多符号走符号面板。判断在 `TwentySixKeyNumberLayout.opensNineKeyDigits`：只换触屏上由 26 键字母行画的键面（全拼、双拼、五笔、英文，以及韩文、越南语、藏文），九键、假名网格、注音大千、笔画和手写板的数字层不变，2in1 屏幕键盘也不变；平板与手机同用触屏键面，九键在平板上本来就画这一层，所以平板也换。数字格走 26 键 123 层数字的同一条路（`tapSymbol`）：键位按输入的数字记，与一行的 123 页相同，统计页不会给只用 26 键的人多出一块九宫格，韩文、越南语的 VNI 声调、藏文和组字中的网址对数字的处理不变；按 123 时已有的组字与一行数字时一样保留。缺省、旧文档或认不出的值按 `row`。账号同步键是 `platform.harmony.twenty_six_key_number_layout`（`row`／`nine_key`）。以上由 `tests/run.sh` 的逻辑测试和 `hvigorw assembleHap` 的 ArkTS 编译覆盖。
+数字层的排列是固定的：九键的数字层按电话拨号盘排，1 2 3 在上（`NineKeyLayout.digits()`）；触屏 26 键和 14 键按 123 出的是一行 1–0 的 123 / #+= 双层。共享偏好 `touch_number_keypad_order` 和 `touch_twenty_six_key_number_layout` 仍随账号同步（`platform.harmony.number_keypad_order`、`platform.harmony.twenty_six_key_number_layout`），但设置页不再列出它们，键盘也不读取。
 
 共享偏好 `touch_shuangpin_key_hints` 为 `false` 时（设置页「屏幕键盘 › 布局」的「双拼键位提示」），26 键双拼的字母键不再画底部的声母/韵母提示，提示行不占高度；缺省和旧文档都按开。账号同步键是 `platform.harmony.shuangpin_key_hints`。
 

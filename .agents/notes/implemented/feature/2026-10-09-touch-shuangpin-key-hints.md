@@ -19,7 +19,7 @@ Status: implemented
 
 ## Alternatives considered
 
-- **存成宿主本机设置（Android 的 `AndroidLocalSettings`、iOS 的 App Group）**：不用动 client-core，也不用碰同步字段表。但 HarmonyOS 的设置页就是共享设置页，读不到宿主本机设置；三端各存一份，以后要同步还得三端各接一次。它和 `touch_number_keypad_order`、`touch_voice_shortcut` 一样是触屏键盘的显示偏好，放共享文档最自然，见 [数字键盘顺序](2026-10-08-number-keypad-order.md)。
+- **存成宿主本机设置（Android 的 `AndroidLocalSettings`、iOS 的 App Group）**：不用动 client-core，也不用碰同步字段表。但 HarmonyOS 的设置页就是共享设置页，读不到宿主本机设置；三端各存一份，以后要同步还得三端各接一次。它和 `touch_number_keypad_order`、`touch_voice_shortcut` 一样是触屏键盘的显示偏好，放共享文档最自然，见 [数字键盘顺序](../../archived/feature/2026-10-08-number-keypad-order.md)。
 - **在宿主里把提示表过滤成空表，不改 `ShuangpinKeyHintPolicy`**：Android 和 HarmonyOS 的改动更小，但开关就只活在调用处，策略类的单测（`ShuangpinKeyHintPolicySmoke`、`keyboard-logic.test.ts`）覆盖不到它。把它做成策略的显式参数，「关掉时双拼也不画」和「打开时全拼也不画」都能在纯逻辑测试里锁住。
 - **放进「恢复默认」的清单**：重置后提示一定回来，看起来更彻底。但这一行的说明和确认框都逐项列出恢复什么，加进去要同时改文案；而布局类的选择（数字键盘顺序）一直不在其中，用户也不会把「恢复键盘尺寸」理解成「把键面提示打开」。
 

@@ -9,14 +9,13 @@ use msime_client_core::account::AccountError;
 use msime_client_core::account::BackendAccountClient;
 use msime_client_core::skin::candidate_community::{
     self, BackendCandidateSkinCommunityService, CandidateSkinCategory, CandidateSkinItem,
-    CandidateSkinPackage, CandidateSkinPage, CandidateSkinVisibility,
+    CandidateSkinPackPreview, CandidateSkinPackage, CandidateSkinPage, CandidateSkinVisibility,
 };
 use msime_client_core::skin::candidate_sync::{
     self, CandidateSkinPublishError, CandidateSkinSyncReport,
 };
-use msime_client_core::skin::catalog::SkinLicense;
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{Manager, State};
 
@@ -34,15 +33,6 @@ pub struct CandidateSkinPreviewResponse {
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CandidateSkinPackPreview {
-    suggested_name: String,
-    license: SkinLicense,
-    file_count: usize,
-    size: usize,
-}
-
-#[derive(Serialize)]
 pub struct CandidateSkinRatingResponse {
     stars: u8,
 }
@@ -56,11 +46,6 @@ fn package_error(code: &'static str) -> CommandError {
     CommandError { code }
 }
 
-/// Where sync remembers what it last saw of the skin root `root`: a sibling of it, so the root itself holds only packages.
-fn sync_state(root: &Path) -> PathBuf {
-    root.with_file_name(candidate_sync::STATE_FILE)
-}
-
 /// Install a downloaded package into `root` and rescan it, so the page and (on Linux) the input method see the new list at once.
 fn install_and_rescan(
     package: &CandidateSkinPackage,
@@ -68,10 +53,8 @@ fn install_and_rescan(
     root: PathBuf,
     runtime: &RuntimeOptionsState,
 ) -> Result<SkinCatalogResponse, CommandError> {
-    candidate_community::install(&root, package, replace).map_err(package_error)?;
-    // Sync then knows where the package came from: someone else's publication stays out of the user's library.
-    candidate_sync::record_install(&sync_state(&root), &package.package_id, package.id)
-        .map_err(package_error)?;
+    // Recorded as installed, so sync keeps someone else's publication out of the user's library.
+    candidate_sync::install_downloaded(&root, package, replace).map_err(package_error)?;
     Ok(crate::rescan_skin_catalog(root, runtime))
 }
 
@@ -114,7 +97,7 @@ pub async fn candidate_skin_community_preview(
     })
     .await?;
     Ok(CandidateSkinPreviewResponse {
-        data_url: format!("data:{};base64,{}", preview.content_type, preview.data),
+        data_url: preview.data_url(),
     })
 }
 
@@ -151,13 +134,7 @@ pub async fn candidate_skin_community_pack_preview(
 ) -> Result<CandidateSkinPackPreview, CommandError> {
     let root = directory.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        candidate_community::pack_as(&root, &skin_id, visibility.unwrap_or_default())
-            .map(|packed| CandidateSkinPackPreview {
-                suggested_name: packed.suggested_name,
-                license: packed.license,
-                file_count: packed.file_count,
-                size: packed.size,
-            })
+        candidate_community::pack_preview(&root, &skin_id, visibility.unwrap_or_default())
             .map_err(package_error)
     })
     .await
@@ -221,7 +198,7 @@ pub async fn candidate_skin_community_publish(
     tauri::async_runtime::spawn_blocking(move || {
         candidate_sync::publish(
             &root,
-            &sync_state(&root),
+            &candidate_sync::state_path(&root),
             service.as_ref(),
             &skin_id,
             id,
@@ -289,7 +266,7 @@ pub async fn candidate_skin_community_unpublish(
     id: String,
 ) -> Result<CandidateSkinUnpublishResponse, CommandError> {
     let id = community_id(&id)?;
-    let state_path = sync_state(&directory.0);
+    let state_path = candidate_sync::state_path(&directory.0);
     community_service_call(Arc::clone(&state.service), move |service| {
         candidate_sync::unpublish(&state_path, service, id)
     })
@@ -303,7 +280,8 @@ fn sync_and_rescan(
     root: PathBuf,
     runtime: &RuntimeOptionsState,
 ) -> Result<CandidateSkinSyncReport, AccountError> {
-    let report = candidate_sync::sync_candidate_skins(&root, &sync_state(&root), service)?;
+    let report =
+        candidate_sync::sync_candidate_skins(&root, &candidate_sync::state_path(&root), service)?;
     if report.changed_local() {
         crate::rescan_skin_catalog(root, runtime);
     }

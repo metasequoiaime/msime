@@ -16,7 +16,7 @@
 
 ## 验证
 
-<!-- 列出实际执行的命令和平台检查，写清楚跑在哪个平台、哪个环境上。各平台的验证入口见 ARCHITECTURE.md。 -->
+<!-- 列出实际执行的命令和平台检查，写清楚跑在哪个平台、哪个环境上。各平台的验证入口见 docs/ARCHITECTURE.md。 -->
 
 - [ ] `bash scripts/verify-local.sh --quick`
 - [ ] `git diff --check`

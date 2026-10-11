@@ -155,7 +155,7 @@ bash platforms/windows/build-cross.sh x64    # MinGW 交叉编译，不需要 Wi
 
 ## 证据分级
 
-[ARCHITECTURE.md](../../../ARCHITECTURE.md) 的五级，报告时不能跨级：
+[ARCHITECTURE.md](../../../docs/ARCHITECTURE.md) 的五级，报告时不能跨级：
 
 1. 源码与单元测试
 2. 跨目标编译或容器构建

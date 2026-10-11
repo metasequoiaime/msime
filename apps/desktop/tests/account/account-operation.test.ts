@@ -67,3 +67,15 @@ test("ignores a failure and busy cleanup after the client changes", async () => 
   expect(setBusy.mock.calls).toEqual([[true]]);
   expect(setError).toHaveBeenCalledExactlyOnceWith("");
 });
+
+// 传输层的失败（断网、连接被重置）报的是网络，不说账号服务坏了。
+test("a network failure reads as the network, not as the account service", async () => {
+  const setError = vi.fn();
+  await runAccountOperation(
+    { busy: false, isCurrent: () => true, setBusy: vi.fn(), setError, setNotice: vi.fn() },
+    async () => {
+      throw { code: "account_network" };
+    },
+  );
+  expect(setError).toHaveBeenLastCalledWith("网络连接失败，请检查网络后重试。");
+});

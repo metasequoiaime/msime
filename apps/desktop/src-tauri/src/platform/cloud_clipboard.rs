@@ -1,82 +1,24 @@
-//! Cloud clipboard requests over the account session, written once for every host that holds one.
+//! Cloud clipboard requests over the account session, for every Tauri host that holds one.
 //!
-//! iOS and Android serve the page through their account session alone; the three desktop shells fall back to theirs when no provider socket or native input-method session answers. The body is generic over the session's backend and storage so each target passes the session its own `AccountState` holds, and so the tests can drive it against a synthetic backend.
+//! iOS and Android serve the page through their account session alone; the three desktop shells fall back to theirs when no provider socket or native input-method session answers. The dispatch itself is `msime_host_api::cloud_clipboard::account_request`, which the native Windows settings window reaches through the C ABI as well; this only moves it off the async runtime with the session this target's `AccountState` holds.
 
 use msime_client_core::account::{AccountApi, AccountSessionStorage, BackendAccountSession};
 use serde_json::Value;
 use std::sync::Arc;
 
-use super::account_helpers::{account_value, call_session};
-
 pub(crate) async fn cloud_clipboard_request<A: AccountApi, S: AccountSessionStorage>(
     session: &Arc<BackendAccountSession<A, S>>,
     action: Value,
 ) -> Result<Value, crate::CommandError> {
-    let operation = action
-        .get("operation")
-        .and_then(Value::as_str)
-        .ok_or(crate::CommandError {
-            code: "invalid_cloud_clipboard",
-        })?;
-    match operation {
-        "list" => {
-            let search = action
-                .get("search")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned();
-            call_session(session, move |session| {
-                session.clipboard(&search).and_then(account_value)
-            })
-            .await
-        }
-        "set_enabled" => {
-            let enabled =
-                action
-                    .get("enabled")
-                    .and_then(Value::as_bool)
-                    .ok_or(crate::CommandError {
-                        code: "invalid_cloud_clipboard",
-                    })?;
-            call_session(session, move |session| {
-                session
-                    .set_clipboard_enabled(enabled)
-                    .map(|()| serde_json::json!({ "enabled": enabled }))
-            })
-            .await
-        }
-        "add" => {
-            let text = action
-                .get("text")
-                .and_then(Value::as_str)
-                .ok_or(crate::CommandError {
-                    code: "invalid_cloud_clipboard",
-                })?
-                .to_owned();
-            call_session(session, move |session| {
-                session.add_clipboard(&text).and_then(account_value)
-            })
-            .await
-        }
-        "delete" => {
-            let id = action
-                .get("id")
-                .and_then(Value::as_str)
-                .ok_or(crate::CommandError {
-                    code: "invalid_cloud_clipboard",
-                })?
-                .to_owned();
-            call_session(session, move |session| {
-                session
-                    .delete_clipboard(Some(&id))
-                    .map(|()| serde_json::json!({}))
-            })
-            .await
-        }
-        _ => Err(crate::CommandError {
-            code: "invalid_cloud_clipboard",
-        }),
-    }
+    let session = Arc::clone(session);
+    tauri::async_runtime::spawn_blocking(move || {
+        msime_host_api::cloud_clipboard::account_request(&session, &action)
+    })
+    .await
+    .map_err(|_| crate::CommandError {
+        code: "account_unavailable",
+    })?
+    .map_err(|code| crate::CommandError { code })
 }
 
 #[cfg(test)]

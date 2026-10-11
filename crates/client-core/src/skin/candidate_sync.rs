@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ffi::OsString;
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
 
@@ -311,6 +311,21 @@ fn local_packages(root: &Path) -> std::io::Result<BTreeSet<String>> {
         }
     }
     Ok(packages)
+}
+
+/// Where sync remembers what it last saw of the skin root `root`: [`STATE_FILE`] beside it, so the root itself holds only packages.
+pub fn state_path(root: &Path) -> PathBuf {
+    root.with_file_name(STATE_FILE)
+}
+
+/// Install a package downloaded from the gallery into `root` ([`candidate_community::install`]) and record where it came from ([`record_install`]), so the next run keeps someone else's publication out of the user's library. Without `replace` an installed folder of the same name is left alone and `candidate_skin_exists` returned. The caller rescans the root afterwards.
+pub fn install_downloaded(
+    root: &Path,
+    package: &CandidateSkinPackage,
+    replace: bool,
+) -> Result<(), &'static str> {
+    candidate_community::install(root, package, replace)?;
+    record_install(&state_path(root), &package.package_id, package.id)
 }
 
 /// Record that `package_id` was just installed from the gallery publication `publication`. A later run leaves the package alone unless that publication is one of the user's own, and compares it afresh if it is, since the install replaced whatever was synced before.

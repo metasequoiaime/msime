@@ -36,6 +36,8 @@ export function accountMessage(error: unknown): string {
       return "无法安全读取登录状态，请检查设备安全设置。";
     case "account_cancelled":
       return "操作已取消，请重试。";
+    case "account_network":
+      return "网络连接失败，请检查网络后重试。";
   }
   return "账号服务暂不可用，请稍后再试。";
 }

@@ -602,6 +602,7 @@ export {
   type ChatModel,
   type ChatModels,
 } from "./chat/chat-page";
+export { CHAT_SYSTEM_PROMPT } from "./chat/chat-prompt";
 export {
   HomePage,
   MoreSettingsPage,

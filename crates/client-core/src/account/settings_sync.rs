@@ -843,6 +843,47 @@ pub fn apply_desktop_settings(
     })
 }
 
+/// Windows「设置同步」的上传：本机的 `input.*` 设置按版本过滤（单方案版本不上传方案，多方案版本只上传本版本提供的方案）、只留服务端字段表收录的键，合并进云端文档，再按读到云端文档时的会话代次上传，期间退出或换号就取消。一个键都没有时报告服务不可用。共享应用（`windows_settings_sync.rs`）和原生设置窗口（host-api 的 `msime_client_account`）都调这里。
+pub fn upload_desktop_settings<A: super::AccountApi, S: super::AccountSessionStorage>(
+    session: &super::BackendAccountSession<A, S>,
+    store: &crate::preferences::PreferencesStore,
+    edition: Option<&crate::edition::Edition>,
+) -> Result<AccountPreferences, AccountError> {
+    let (user_id, _, generation) = session.credentials_with_generation(None, None)?;
+    let schema = session.preference_schema()?;
+    let cloud = session.preferences()?;
+    let local = store.load().map_err(|_| AccountError::Storage)?;
+    let mut values = export_desktop_settings(&local.preferences);
+    crate::edition::filter_uploaded_account_settings(edition, &mut values);
+    let values = values
+        .into_iter()
+        .filter(|(key, _)| schema.fields.contains_key(key))
+        .collect::<BTreeMap<_, _>>();
+    if values.is_empty() {
+        return Err(AccountError::Unavailable);
+    }
+    let merged = super::merge_account_preferences(&cloud, &values, &schema)?;
+    session.put_preferences_with_generation(&merged, generation, &user_id)
+}
+
+/// Windows「设置同步」的应用：把页面刚下载的账号设置（`preferences`）按版本过滤（单方案版本不应用方案，多方案版本把本版本没有的方案当作缺失）后应用到本机偏好，返回读到本机偏好时的修订号和应用后的偏好，由调用方按这个修订号比较并交换写回。`user_id` 是页面下载时的账号，期间退出、换号或重新登录就以 `Cancelled` 失败。共享应用和原生设置窗口都调这里。
+pub fn prepare_desktop_settings_apply<A: super::AccountApi, S: super::AccountSessionStorage>(
+    session: &super::BackendAccountSession<A, S>,
+    store: &crate::preferences::PreferencesStore,
+    edition: Option<&crate::edition::Edition>,
+    user_id: &str,
+    mut preferences: AccountPreferences,
+) -> Result<(u64, Preferences), AccountError> {
+    crate::edition::filter_downloaded_account_settings(edition, &mut preferences.settings);
+    let (_, _, generation) = session.credentials_with_generation(None, Some(user_id))?;
+    let schema = session.preference_schema()?;
+    let local = store.load().map_err(|_| AccountError::Storage)?;
+    let applied = apply_desktop_settings(&local.preferences, &preferences, &schema)?;
+    session.with_generation(generation, Some(user_id), || {
+        Ok((local.revision, applied.preferences))
+    })
+}
+
 /// 把云端文档应用到本机偏好。`feedback` 是宿主当前的按键反馈，[`needs_host_feedback`] 为真时必须传入，否则返回 `Storage`。调用方之前应当已经按版本过滤过文档（`edition::filter_downloaded_account_settings`）。
 pub fn apply_android_settings(
     local: &Preferences,

@@ -61,9 +61,9 @@ fn valid_token(token: &str) -> Result<String, Error> {
     Ok(value.to_owned())
 }
 
-// Keep in step with the desktop `ai::ai_models_url`.
+// The same listing address the desktop hosts use (`ai::settings::fetch_models`), keeping the endpoint's query.
 fn models_url(endpoint: &str) -> Result<reqwest::Url, Error> {
-    Ok(crate::shared::ai_url::models_url(
+    Ok(msime_client_core::ai::endpoint::models_url(
         valid_endpoint(endpoint)?,
         false,
     ))

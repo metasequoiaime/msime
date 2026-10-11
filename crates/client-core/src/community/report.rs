@@ -108,6 +108,18 @@ impl CommunityReport {
         Ok(report)
     }
 
+    /// The report a page or host asked for: the item id as text and the reason by its label ([`CommunityReportReason::label`]). A malformed or nil id, an unknown reason, or a detail [`Self::new`] refuses is `Invalid`.
+    pub fn from_labels(
+        kind: CommunityReportKind,
+        item_id: &str,
+        reason: &str,
+        detail: &str,
+    ) -> Result<Self, AccountError> {
+        let item_id = Uuid::parse_str(item_id).map_err(|_| AccountError::Invalid)?;
+        let reason = CommunityReportReason::from_label(reason).ok_or(AccountError::Invalid)?;
+        Self::new(kind, item_id, reason, detail)
+    }
+
     fn validate(&self) -> Result<(), AccountError> {
         if self.item_id.is_nil() || !valid_text(&self.detail, 0, MAX_REPORT_DETAIL_CHARS, true) {
             return Err(AccountError::Invalid);
@@ -222,6 +234,37 @@ mod tests {
 
     fn token() -> String {
         "a".repeat(43)
+    }
+
+    #[test]
+    fn a_report_by_labels_checks_the_id_and_the_reason() {
+        let id = item().to_string();
+        let report =
+            CommunityReport::from_labels(CommunityReportKind::Plugins, &id, "恶意插件", " 细节 ")
+                .unwrap();
+        assert_eq!(report.item_id, item());
+        assert_eq!(report.reason, CommunityReportReason::MaliciousPlugin);
+        assert_eq!(report.detail, "细节");
+        for (id, reason) in [
+            ("not-a-uuid", "其他"),
+            ("00000000-0000-0000-0000-000000000000", "其他"),
+            (id.as_str(), "Other"),
+        ] {
+            assert_eq!(
+                CommunityReport::from_labels(CommunityReportKind::Skins, id, reason, ""),
+                Err(AccountError::Invalid),
+                "{id} {reason}"
+            );
+        }
+        assert_eq!(
+            CommunityReport::from_labels(
+                CommunityReportKind::Skins,
+                &id,
+                "其他",
+                &"长".repeat(MAX_REPORT_DETAIL_CHARS + 1)
+            ),
+            Err(AccountError::Invalid)
+        );
     }
 
     #[test]

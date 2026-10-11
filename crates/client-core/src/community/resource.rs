@@ -140,6 +140,13 @@ impl CommunityResourceScope {
             Self::Saved => "saved",
         }
     }
+
+    /// The scope a page names: `""` for every item, `"mine"` or `"saved"`; anything else is `None`.
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Self::All, Self::Mine, Self::Saved]
+            .into_iter()
+            .find(|scope| scope.query() == name)
+    }
 }
 
 pub trait CommunityResourceApi: Send + Sync + 'static {

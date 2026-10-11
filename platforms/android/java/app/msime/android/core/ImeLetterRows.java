@@ -438,7 +438,7 @@ final class ImeLetterRows {
         if (s.keyRows == null || builtLetterLayout < 0
                 || s.keyboardLayer != KeyboardLayout.Layer.LETTERS
                 || s.displayedTouchLayout(s.view) != builtLetterLayout
-                || s.twentySixKeyDigitFace() || splitStale() || numberRowStale()
+                || splitStale() || numberRowStale()
                 || builtSplit && microsoftTenKeys() != builtMicrosoftTenKeys) return false;
         // 与 rebuildKeyRows 通用分支里算键面的三项相同；中英和本地模式变了也只影响键面。
         boolean chineseMode = !s.dedicatedEnglish && !s.letterCaseSchemeActive();
@@ -531,16 +531,10 @@ final class ImeLetterRows {
             s.imeStyler.applyKeyboardGeometry();
             return;
         }
-        // 14 键只在字母层画自己的三行；123 层与 26 键相同（新设计层，或偏好选了九宫格时借用拼音九键的数字键面）。
+        // 14 键只在字母层画自己的三行；123 层与 26 键相同，是新设计层。
         if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS
             && s.displayedTouchLayout(s.view) == KeyboardLayout.FOURTEEN_KEY_LAYOUT) {
             rebuildFourteenKeyRows();
-            s.imeStyler.applyKeyboardGeometry();
-            return;
-        }
-        // 26 键的「123」在偏好 `touch_twenty_six_key_number_layout` 选了九宫格时换成拼音九键的数字键面；底栏的 ABC（韩文是 한）回到 26 键字母层。
-        if (s.twentySixKeyDigitFace()) {
-            s.imeLayoutRows.rebuildNineKeyRows();
             s.imeStyler.applyKeyboardGeometry();
             return;
         }

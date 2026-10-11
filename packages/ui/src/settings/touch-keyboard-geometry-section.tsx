@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
 import { SettingsGroupNote } from "./settings-group-note";
-import { Checks, GroupList, type SegmentedOption } from "../core/platform-controls";
+import { Checks, GroupList } from "../core/platform-controls";
 import { SliderRow } from "./slider-row";
 import { SwitchRow } from "./switch-row";
 import { ActionRow } from "./action-row";
 import { SettingsGroupBlock } from "./settings-group-block";
 import type { SwipeSymbolsDirection } from "./mobile-keyboard-feedback-section";
-import { SegmentedRow } from "./segmented-row";
 import { SelectRow } from "./select-row";
 import * as settings from "./settings-style";
 
@@ -63,10 +62,6 @@ export interface TouchKeyboardGeometrySectionProps {
   /** 「滑动输入符号」开关及其方向，在宿主键盘实现了它们时传入；不传则两行都不绘制。 */
   swipeSymbols?: boolean;
   swipeSymbolsDirection?: SwipeSymbolsDirection;
-  /** 宿主有触屏九宫格数字层时给出它的排列；没有时不画这一行。 */
-  numberKeypadOrder?: "phone" | "calculator";
-  /** 宿主的 26 键能把「123」换成九宫格数字层时给出当前选择；没有时不画这一行。 */
-  twentySixKeyNumberLayout?: "row" | "nine_key";
   /** 宿主的触屏 26 键双拼会在字母键底部画键位提示时给出这个开关；没有时不画这一行。 */
   shuangpinKeyHints?: boolean;
   /** 键盘本机设置正在保存时为 true，「数字行与 Tab 键」「横屏分离式键盘」和「滑行输入」都暂不可点。 */
@@ -81,8 +76,6 @@ export interface TouchKeyboardGeometrySectionProps {
   onGlideTypingChange: (enabled: boolean) => void;
   onSwipeSymbolsChange?: (enabled: boolean) => void;
   onSwipeSymbolsDirectionChange?: (direction: SwipeSymbolsDirection) => void;
-  onNumberKeypadOrderChange?: (value: "phone" | "calculator") => void;
-  onTwentySixKeyNumberLayoutChange?: (value: "row" | "nine_key") => void;
   onShuangpinKeyHintsChange?: (enabled: boolean) => void;
   onReset: () => void;
   /** HarmonyOS 手机：「布局」组开头的行。给出时按手机的排法：「布局」只放键盘的选择，「尺寸」把预览、三个滑块和「恢复默认」放进同一张卡片，各行不带长说明。 */
@@ -90,17 +83,6 @@ export interface TouchKeyboardGeometrySectionProps {
   /** HarmonyOS 手机：「尺寸」卡片顶部的键盘预览（不带分组），在它上面拖动调的就是下面的间距。 */
   preview?: ReactNode;
 }
-
-// 标题和选项自己就要说清楚：HarmonyOS 手机上这两行不带说明，「数字键盘顺序：电话」这样的叫法要靠联想才懂。所以直接说哪一排在上面、按 123 出来的是什么。
-const NUMBER_KEYPAD_ORDERS: readonly SegmentedOption<"phone" | "calculator">[] = [
-  { value: "phone", label: "123 在上" },
-  { value: "calculator", label: "789 在上" },
-];
-
-const TWENTY_SIX_KEY_NUMBER_LAYOUTS: readonly SegmentedOption<"row" | "nine_key">[] = [
-  { value: "row", label: "数字一行" },
-  { value: "nine_key", label: "九宫格" },
-];
 
 /** 间距以十分之一 dp 存，手机上显示成不带单位的数：6、6.5。 */
 const spacingText = (tenths: number) => String(tenths / 10);
@@ -121,8 +103,6 @@ export function TouchKeyboardGeometrySection({
   glideTyping,
   swipeSymbols,
   swipeSymbolsDirection = "down",
-  numberKeypadOrder,
-  twentySixKeyNumberLayout,
   shuangpinKeyHints,
   tabletFullKeysBusy,
   onHeightAdjustmentChange,
@@ -135,8 +115,6 @@ export function TouchKeyboardGeometrySection({
   onGlideTypingChange,
   onSwipeSymbolsChange,
   onSwipeSymbolsDirectionChange,
-  onNumberKeypadOrderChange,
-  onTwentySixKeyNumberLayoutChange,
   onShuangpinKeyHintsChange,
   onReset,
   layoutRows,
@@ -146,34 +124,6 @@ export function TouchKeyboardGeometrySection({
   const showVoiceShortcut = voiceShortcutKind !== "hidden";
   // HarmonyOS 手机一屏只有约 360px 宽，每行挂两三行说明会把页面撑得又长又乱，所以那里的行只留标题和取值。
   const phone = Boolean(layoutRows);
-  const numberKeypadRow = numberKeypadOrder !== undefined && (
-    <>
-      {twentySixKeyNumberLayout !== undefined && (
-        <SegmentedRow
-          title="26 键按 123"
-          description={
-            phone
-              ? undefined
-              : "26 键和 14 键按 123 时出来的数字键盘：数字一行把 1 到 0 排在符号上面，九宫格换成和九键一样的 3×3 大数字键。"
-          }
-          options={TWENTY_SIX_KEY_NUMBER_LAYOUTS}
-          value={twentySixKeyNumberLayout}
-          onChange={(value) => onTwentySixKeyNumberLayoutChange?.(value)}
-        />
-      )}
-      <SegmentedRow
-        title="九宫格数字顺序"
-        description={
-          phone
-            ? undefined
-            : "九宫格数字键的排列：123 在上和电话拨号盘一样，789 在上和计算器、电脑小键盘一样。"
-        }
-        options={NUMBER_KEYPAD_ORDERS}
-        value={numberKeypadOrder}
-        onChange={(value) => onNumberKeypadOrderChange?.(value)}
-      />
-    </>
-  );
   const shuangpinKeyHintsRow = shuangpinKeyHints !== undefined && (
     <SwitchRow
       title="双拼键位提示"
@@ -194,10 +144,9 @@ export function TouchKeyboardGeometrySection({
     <>
       {phone ? (
         <>
-          {/* 数字键盘和双拼键位提示跟 Android 一样紧跟在「中文键盘」之后。 */}
+          {/* 双拼键位提示跟 Android 一样紧跟在「中文键盘」之后。 */}
           <GroupList title="布局">
             {layoutRows}
-            {numberKeypadRow}
             {shuangpinKeyHintsRow}
           </GroupList>
           {/* 预览和它调的三个滑块在同一张卡片里；「恢复默认」是卡片末尾的一行文字按钮，它也照旧重置工具栏按钮。 */}
@@ -321,9 +270,8 @@ export function TouchKeyboardGeometrySection({
       )}
       {(tabletFullKeys !== undefined ||
         tabletSplitKeyboard !== undefined ||
-        ((numberKeypadOrder !== undefined || shuangpinKeyHints !== undefined) && !phone)) && (
+        (shuangpinKeyHints !== undefined && !phone)) && (
         <GroupList title="布局">
-          {!phone && numberKeypadRow}
           {!phone && shuangpinKeyHintsRow}
           {tabletFullKeys !== undefined && (
             <SwitchRow

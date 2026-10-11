@@ -1015,9 +1015,9 @@ export class AccountCloudBridge {
       if (operation === "community_skin" || operation === "community_resource") {
         return error("community_unavailable");
       }
-      // 对话请求在传输层就失败了（断网、连接被重置）：鸿蒙抛出的是 BusinessError 而不是 Error，原来落到 account_unavailable，页面写「聊天服务暂不可用」，让人以为是服务坏了。给它一个页面不认识的码，对话页按默认文案写「连接失败，请检查网络后重试」。
-      if (operation === "chat") return error("account_network");
-      return error(cause instanceof Error ? cause.message : "account_unavailable");
+      // 请求在传输层就失败了（断网、连接被重置）：鸿蒙抛出的是 BusinessError 而不是 Error，原来落到 account_unavailable，页面写「账号服务暂不可用」「聊天服务暂不可用」，让人以为是服务坏了。改报 account_network，账号页写「网络连接失败」，对话页按默认文案写「连接失败，请检查网络后重试」。对话请求连 Error 也这样报：它的 Error 都来自传输层。
+      if (operation === "chat" || !(cause instanceof Error)) return error("account_network");
+      return error(cause.message);
     }
   }
 

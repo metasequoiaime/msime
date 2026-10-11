@@ -251,39 +251,25 @@ pub(crate) fn sync_clipboard_history_blocking(
     state: &ClipboardHistoryState,
     store: &Arc<PreferencesStore>,
 ) -> Result<Vec<ClipboardHistoryEntry>, HostActionError> {
-    if !clipboard_enabled(store)? {
-        return Err(HostActionError { code: "disabled" });
-    }
     // `None` is a clipboard with nothing capturable, such as a password
     // manager's secret copy: the panel still gets the current history.
     // The native macOS read is the monitor's: bounded, and it refuses concealed,
     // transient and password-manager pasteboards, which pbpaste would not.
     #[cfg(target_os = "macos")]
-    let text = msime_host_macos::clipboard_snapshot(true)
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })?
-        .text;
+    let read = || {
+        msime_host_macos::clipboard_snapshot(true)
+            .map(|snapshot| snapshot.text)
+            .ok_or(())
+    };
     #[cfg(target_os = "linux")]
-    let text = linux_clipboard_text()?;
-    // Windows 的读取同样拒收带 ExcludeClipboardContentFromMonitorProcessing、CanIncludeInClipboardHistory=0 等隐私标记的剪贴板，与 Server 的采集用同一份名单。
+    let read = linux_clipboard_text;
+    // Windows 的读取同样拒收带 ExcludeClipboardContentFromMonitorProcessing、CanIncludeInClipboardHistory=0 等隐私标记的剪贴板，与 Server 的采集用同一份名单；原生设置窗口的同步走同一个函数。
     #[cfg(target_os = "windows")]
-    let text = msime_host_windows::read_clipboard_text()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .map(|text| text.trim_end_matches(['\r', '\n']).to_owned());
+    let read = msime_host_api::clipboard_history::windows_clipboard_text;
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    let text: Option<String> = Err(HostActionError {
-        code: "unavailable",
-    })?;
-    if let Some(text) = text {
-        store
-            .capture_clipboard_text(text)
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-    }
+    let read = || Err::<Option<String>, ()>(());
+    msime_host_api::clipboard_history::capture_clipboard(store, read)
+        .map_err(|error| HostActionError { code: error.code() })?;
     let mut history = state.0.lock().map_err(|_| HostActionError {
         code: "unavailable",
     })?;

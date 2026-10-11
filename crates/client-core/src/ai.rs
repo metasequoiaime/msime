@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::preferences::AI_PROVIDERS;
 
 pub mod endpoint;
+pub mod settings;
 
 #[derive(Debug, Clone, Error, Eq, PartialEq)]
 pub enum AiError {

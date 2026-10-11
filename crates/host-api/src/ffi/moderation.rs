@@ -8,7 +8,6 @@ use msime_client_core::account::AccountError;
 use msime_client_core::community::report::{
     CommunityReport, CommunityReportKind, CommunityReportReason,
 };
-use msime_client_core::uuid::Uuid;
 
 const MAX_REQUEST_BYTES: usize = 64 * 1024;
 
@@ -65,10 +64,7 @@ pub unsafe extern "C" fn msime_client_community_moderation(
                 reason,
                 detail,
             } => {
-                let item_id = Uuid::parse_str(&item_id).map_err(|_| "community_invalid")?;
-                let reason =
-                    CommunityReportReason::from_label(&reason).ok_or("community_invalid")?;
-                let report = CommunityReport::new(kind, item_id, reason, &detail)
+                let report = CommunityReport::from_labels(kind, &item_id, &reason, &detail)
                     .map_err(|_| "community_invalid")?;
                 Ok(json!({
                     "method": "POST",

@@ -14,9 +14,11 @@ use msime_client_core::edition::Edition;
 use msime_client_core::host_surface::{
     offered_input_schemes, HostCapabilities, HostPlatform, SurfaceRoute,
 };
+pub mod clipboard_history;
 pub mod cloud_clipboard;
 pub mod cloud_dictionary;
 pub mod mcp_clients;
+pub mod settings_dictionary;
 pub mod system_fonts;
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinCustomProfile,
@@ -134,6 +136,14 @@ pub use dictionary_snapshot::{
 /// Capture endpoint identities paired with labels. Neither belongs in logs.
 pub fn voice_capture_devices() -> Vec<(String, String)> {
     voice_capture::capture_devices()
+}
+
+/// A device listing as the shared settings page's 「可用录音设备」 reads it: `[{backend, id, label}]` in listing order, `backend` the value `voice_input.capture_backend` takes when the user picks the device and `id` the one `voice_input.capture_device` takes. The Tauri settings shell (Windows and macOS) and `msime_client_voice_capture_devices` both shape their listing here.
+pub fn voice_capture_device_values(backend: &str, devices: Vec<(String, String)>) -> Vec<Value> {
+    devices
+        .into_iter()
+        .map(|(id, label)| json!({"backend": backend, "id": id, "label": label}))
+        .collect()
 }
 
 /// Capture bounded mono 16 kHz PCM for a platform host.

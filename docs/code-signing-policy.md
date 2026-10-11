@@ -44,4 +44,4 @@ Some features of the program send data over the network. What each feature sends
 
 ## Reporting a problem
 
-To report a signed binary that you believe was not built by this process, or any other security issue, see the [security policy](../SECURITY.md).
+To report a signed binary that you believe was not built by this process, or any other security issue, see the [security policy](../.github/SECURITY.md).

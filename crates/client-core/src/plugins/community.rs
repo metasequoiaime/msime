@@ -447,6 +447,66 @@ where
             api.delete_community_plugin(id, token.ok_or(AccountError::Unauthorized)?)
         })
     }
+
+    /// Pack the pack `plugin_id` of `kind` installed under the plugins root `root` and publish it as the publication `id`. The archive is deterministic, so a retry with the same id after a lost response carries identical content and the server answers with the item it already stored. Pack rules fail with their own codes and details, account failures with [`AccountError::community_code`].
+    pub fn publish_installed(
+        &self,
+        root: &Path,
+        kind: PluginKind,
+        plugin_id: &str,
+        id: Uuid,
+        name: String,
+        description: String,
+    ) -> Result<CommunityPlugin, PluginFailure> {
+        let packed = pack(root, kind, plugin_id)?;
+        let request = CommunityPluginPublishRequest::new(id, name, description, &packed);
+        self.publish(&request).map_err(community_failure)
+    }
+
+    /// Download the publication `id` and [`install`] it under the plugins root `root`, replacing an installed pack of the same kind and id whole. `kind` and `plugin_id` are the listing's, the pack the user confirmed; a download naming any other pack is refused.
+    pub fn install_publication(
+        &self,
+        root: &Path,
+        id: Uuid,
+        kind: PluginKind,
+        plugin_id: &str,
+    ) -> Result<PluginSummary, PluginFailure> {
+        let download = self.download(id).map_err(community_failure)?;
+        install(root, &download, kind, plugin_id)
+    }
+}
+
+/// An account or request failure in the vocabulary the pack operations answer with.
+fn community_failure(error: AccountError) -> PluginFailure {
+    PluginFailure::code(error.community_code())
+}
+
+/// What [`pack`] made of an installed pack before anything is uploaded, so a publish dialog can show a refusal, or the archive's size against the limit, before the user fills in the form. Serialized in the page's camelCase.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommunityPluginPackPreview {
+    pub suggested_name: String,
+    pub suggested_description: String,
+    pub version: String,
+    pub license: String,
+    pub file_count: usize,
+    pub size: usize,
+}
+
+/// Check the pack `id` of `kind` installed under `root` against the sharing rules without uploading it.
+pub fn pack_preview(
+    root: &Path,
+    kind: PluginKind,
+    id: &str,
+) -> Result<CommunityPluginPackPreview, PluginFailure> {
+    pack(root, kind, id).map(|packed| CommunityPluginPackPreview {
+        size: packed.archive.len(),
+        file_count: packed.file_count,
+        version: packed.version,
+        license: packed.license,
+        suggested_name: packed.suggested_name,
+        suggested_description: packed.suggested_description,
+    })
 }
 
 fn publishable(kind: PluginKind) -> bool {

@@ -119,11 +119,18 @@ pub struct GoogleLoopbackReply {
 }
 
 /// 解析一次回环请求的请求头（没读到完整请求头时传 `None`），给出结果和回应。桌面端的监听和鸿蒙的 ArkTS 监听共用它，回跳的判定和浏览器上看到的页面因此只有一份。
-pub fn google_loopback_reply(head: Option<&str>, expected_state: &str) -> GoogleLoopbackReply {
+///
+/// `return_link` 是宿主能把应用拉回前台的链接，回跳页据此多一个「回到水杉输入法」按钮；桌面端传 `None`，窗口就在旁边。不合 [`valid_return_link`] 的链接不画按钮，页面照常写回：它只是顺带的，不能因此丢掉这次登录。
+pub fn google_loopback_reply(
+    head: Option<&str>,
+    expected_state: &str,
+    return_link: Option<&str>,
+) -> GoogleLoopbackReply {
     let outcome = head.map_or(GoogleCallback::Ignored, |head| {
         parse_google_callback(head, expected_state)
     });
-    let response = callback_response(&outcome);
+    let return_link = return_link.filter(|link| valid_return_link(link));
+    let response = callback_response(&outcome, return_link);
     GoogleLoopbackReply { outcome, response }
 }
 
@@ -244,13 +251,50 @@ const DASH_ICON: &str = "M4 8h8";
 const ALERT_ICON: &str = "M8 3.5v5.5M8 12.25v.25";
 
 impl CallbackPage {
-    fn render(&self) -> String {
+    /// `return_link` 已经过 [`valid_return_link`]，可以原样写进 `href`。
+    fn render(&self, return_link: Option<&str>) -> String {
+        let back = return_link.map_or(String::new(), |link| {
+            format!("<a class=\"return\" href=\"{link}\">回到水杉输入法</a>")
+        });
         CALLBACK_TEMPLATE
             .replace("{{tone}}", self.tone)
             .replace("{{icon}}", self.icon)
             .replace("{{title}}", self.title)
             .replace("{{message}}", self.message)
+            .replace("{{return}}", &back)
     }
+}
+
+/// 回跳页上「回到水杉输入法」按钮的链接：宿主注册的、能把应用拉回前台的自定义 scheme 链接，例如鸿蒙的 `msime://auth/google`。手机上浏览器占满屏幕，用户得自己找回应用，有了这个按钮点一下就回去。只收 `scheme://路径` 的形状：scheme 是小写字母开头的 `[a-z0-9+.-]`，不是网页用的协议，路径只有字母、数字和 `/-_.`，总长不超过 128。这样的链接原样写进 `href` 不需要转义，也不会把浏览器引到网页上。
+fn valid_return_link(link: &str) -> bool {
+    const WEB_SCHEMES: [&str; 9] = [
+        "http",
+        "https",
+        "javascript",
+        "data",
+        "file",
+        "about",
+        "blob",
+        "ws",
+        "wss",
+    ];
+    let Some((scheme, path)) = link.split_once("://") else {
+        return false;
+    };
+    let mut scheme_chars = scheme.chars();
+    link.len() <= 128
+        && scheme_chars
+            .next()
+            .is_some_and(|first| first.is_ascii_lowercase())
+        && scheme_chars.all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || matches!(character, '+' | '-' | '.')
+        })
+        && !WEB_SCHEMES.contains(&scheme)
+        && path.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '/' | '-' | '_' | '.')
+        })
 }
 
 fn answer_callback(
@@ -260,15 +304,15 @@ fn answer_callback(
     cancelled: &AtomicBool,
 ) -> GoogleCallback {
     let head = read_request_head(&mut stream, deadline, cancelled);
-    let reply = google_loopback_reply(head.as_deref(), state);
+    let reply = google_loopback_reply(head.as_deref(), state, None);
     // The browser page is a courtesy; the outcome stands even if the browser already went away.
     let _ = stream.write_all(reply.response.as_bytes());
     let _ = stream.flush();
     reply.outcome
 }
 
-/// The HTTP response the browser is left on for `outcome`.
-fn callback_response(outcome: &GoogleCallback) -> String {
+/// The HTTP response the browser is left on for `outcome`. `return_link` has passed [`valid_return_link`]; the 404 page for a stray request never offers it.
+fn callback_response(outcome: &GoogleCallback, return_link: Option<&str>) -> String {
     let (status, page) = match outcome {
         // The backend has not exchanged the code yet, so the page cannot claim the sign-in succeeded; the app reports the outcome.
         GoogleCallback::Code(_) => (
@@ -308,8 +352,9 @@ fn callback_response(outcome: &GoogleCallback) -> String {
             },
         ),
     };
-    let body = page.render();
-    // The page carries its own styles and an inline SVG and nothing else, so the policy allows exactly that: no script, no request off the loopback.
+    let return_link = return_link.filter(|_| !matches!(outcome, GoogleCallback::Ignored));
+    let body = page.render(return_link);
+    // The page carries its own styles and an inline SVG and nothing else, so the policy allows exactly that: no script, no request off the loopback. The optional return link is a navigation the user starts, which the policy does not govern.
     format!(
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n{body}",
         body.len()

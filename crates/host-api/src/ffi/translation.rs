@@ -840,15 +840,19 @@ pub unsafe extern "C" fn msime_client_gloss_breakdown_request(
             .into_iter()
             .filter(|text| crate::word_breakdown::eligible(text))
             .collect::<Vec<_>>();
-        let known = crate::word_breakdown::known_pieces(std::path::Path::new(resources), &texts);
-        let breakdowns = texts
-            .iter()
-            .filter_map(|text| {
-                let pieces = crate::word_breakdown::segment(text, &known);
-                crate::word_breakdown::render(&pieces)
-                    .map(|breakdown| json!({"text": text, "breakdown": breakdown}))
-            })
-            .collect::<Vec<_>>();
+        let breakdowns =
+            crate::word_breakdown::known_pieces(std::path::Path::new(resources), &texts)
+                .map(|known| {
+                    texts
+                        .iter()
+                        .filter_map(|text| {
+                            let pieces = crate::word_breakdown::segment(text, &known);
+                            crate::word_breakdown::render(&pieces)
+                                .map(|breakdown| json!({"text": text, "breakdown": breakdown}))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
         Ok(json!({"generation": request.generation, "breakdowns": breakdowns}))
     })
 }

@@ -6,7 +6,8 @@ import { errorMessage } from "../core/error-message";
 import { useToast } from "../core/toast";
 import { ActionButton } from "../core/action-button";
 import * as chat from "./chat-style";
-import { boundedHistory, chatMessageByteLength, MAX_MESSAGE_BYTES } from "./chat-history";
+import { chatMessageByteLength, MAX_MESSAGE_BYTES } from "./chat-history";
+import { chatRequest } from "./chat-prompt";
 import { chatError } from "./chat-errors";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 import { useMountedRef } from "../settings/use-mounted-ref";
@@ -143,7 +144,7 @@ export function ChatPage({
     setSending(true);
     setError("");
     try {
-      const reply = await client.complete(boundedHistory(history), selectedModel);
+      const reply = await client.complete(chatRequest(history), selectedModel);
       if (generation.current !== version) return;
       setMessages((current) => [
         ...current,

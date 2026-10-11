@@ -7,17 +7,19 @@ name: CI (documentation)
 on:
   pull_request:
     paths:
-      - CHANGELOG.md
       - PRIVACY.md
       - README.md
+      - docs/CHANGELOG.md
+      - docs/readme/*.md
   push:
     branches:
       - develop
       - main
     paths:
-      - CHANGELOG.md
       - PRIVACY.md
       - README.md
+      - docs/CHANGELOG.md
+      - docs/readme/*.md
 
 # merge_group is absent on purpose: ci.yml takes that event with no path filter at all, so the merge queue always gets the real matrix and never two workflows reporting one check name.
 

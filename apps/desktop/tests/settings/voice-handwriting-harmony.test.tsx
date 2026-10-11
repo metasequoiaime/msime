@@ -426,8 +426,10 @@ test("the phone keyboard page opens with 布局 and its Chinese keyboard choice"
   const preview = within(size).getByRole("group", { name: "屏幕键盘预览" });
   expect(within(preview).getByText(/在预览上左右拖动/)).toBeTruthy();
   // 手机上的行只留标题和取值，没有长说明。
-  expect(within(page).queryByText(/26 键按 123 时的数字键盘/)).toBeNull();
   expect(within(page).queryByText(/高度和间距只改变触屏键位的外观/)).toBeNull();
+  // 26 键按 123 固定是数字一行、九宫格数字层固定 123 在上，这两项不再可设置。
+  expect(within(page).queryByText("26 键按 123")).toBeNull();
+  expect(within(page).queryByText("九宫格数字顺序")).toBeNull();
   // 高度为 0 时显示「标准」，不显示 dp。
   expect(within(size).getByText("标准")).toBeTruthy();
   // HarmonyOS 键盘的工具栏上没有语音按钮可供这个开关显示。

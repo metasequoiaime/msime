@@ -16,7 +16,7 @@ void shipped_size_matches_the_struct_defaults() {
   const auto metrics = toolbar_metrics(24.0, false);
   const ToolbarMetrics fallback;
   assert(near(metrics.icon, 24.0));
-  assert(near(metrics.cell, 48.0));
+  assert(near(metrics.cell, 34.0));
   assert(near(metrics.height, 52.0));
   assert(near(metrics.handle, 8.0));
   assert(near(metrics.logo, 36.0));
@@ -24,22 +24,21 @@ void shipped_size_matches_the_struct_defaults() {
   assert(near(metrics.cell, fallback.cell));
   assert(near(metrics.height, fallback.height));
   assert(near(metrics.logo, fallback.logo));
-  // Eight buttons - the shipped set - at 36 + 16 + 48 * n.
-  assert(near(toolbar_content_width(8, metrics), 436.0));
-  assert(near(toolbar_content_width(3, metrics), 196.0));
+  // Eight buttons - the shipped set - at 36 + 16 + 34 * n.
+  assert(near(toolbar_content_width(8, metrics), 324.0));
+  assert(near(toolbar_content_width(3, metrics), 154.0));
 }
 
 // What the user sees as the gap between two buttons is the cell minus the
-// glyph in it. Three icon widths per cell left two thirds of the bar empty and
-// read as scattered marks rather than a row of controls; the pitch was cut to
-// two. Bounded on both sides: below roughly 1.5 the hover pills touch and the
-// icons run together, above 2.5 the spacing is back to where it started.
-void the_gap_around_an_icon_stays_proportionate() {
+// glyph in it: 10 DIP at every icon size, the macOS toolbar's 4 pt a side plus
+// its 2 pt between buttons. Twice the icon, as it was, left 24 DIP between two
+// shipped glyphs and the buttons read as scattered marks. The hover pill, inset
+// 2 DIP a side, must still leave a gap between neighbours.
+void the_gap_between_icons_matches_macos() {
   for (double size : {12.0, 16.0, 24.0, 48.0, 64.0}) {
     const auto metrics = toolbar_metrics(size, false);
-    const double padding = metrics.cell - size; // Both sides together.
-    assert(padding > size * 0.4);
-    assert(padding < size * 1.5);
+    assert(near(metrics.cell - size, 10.0)); // Both sides together.
+    assert(metrics.cell - 4.0 > size);       // The pill still clears the glyph.
   }
 }
 
@@ -239,7 +238,7 @@ void the_grip_replaces_the_logo_when_it_is_off() {
 
 int main() {
   shipped_size_matches_the_struct_defaults();
-  the_gap_around_an_icon_stays_proportionate();
+  the_gap_between_icons_matches_macos();
   the_logo_sits_at_the_left_end_of_the_bar();
   bar_follows_icon_size();
   out_of_range_size_keeps_shipped_geometry();

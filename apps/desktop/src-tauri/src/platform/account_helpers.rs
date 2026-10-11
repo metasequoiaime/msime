@@ -163,6 +163,7 @@ pub(crate) fn account_command_error(error: AccountError) -> crate::CommandError 
 }
 
 /// Serializes an account response for the page. A value that cannot be serialized is reported as the service being unavailable, the code the page already handles for a failed call.
+#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
 pub(crate) fn account_value<T: serde::Serialize>(
     value: T,
 ) -> Result<serde_json::Value, AccountError> {
@@ -172,20 +173,7 @@ pub(crate) fn account_value<T: serde::Serialize>(
 /// Maps an account error from a community service to the `community_*` codes the community pages translate. It is the mapping `mobile_community` uses, so a page reads the same code on every host.
 pub(crate) fn community_error(error: AccountError) -> crate::CommandError {
     crate::CommandError {
-        code: match error {
-            AccountError::Invalid => "community_invalid",
-            AccountError::Unauthorized => "community_unauthorized",
-            AccountError::Forbidden => "community_forbidden",
-            AccountError::NotFound => "community_not_found",
-            AccountError::RateLimited => "community_rate_limited",
-            AccountError::Cancelled => "community_cancelled",
-            AccountError::Storage => "community_storage",
-            AccountError::Conflict => "community_conflict",
-            AccountError::Unavailable => "community_unavailable",
-            AccountError::BlockedContent => "community_blocked_content",
-            AccountError::ScreeningUnavailable => "community_screening_unavailable",
-            AccountError::Banned => "community_account_banned",
-        },
+        code: error.community_code(),
     }
 }
 

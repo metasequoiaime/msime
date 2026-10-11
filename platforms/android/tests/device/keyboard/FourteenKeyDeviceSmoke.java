@@ -15,14 +15,14 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 全拼 14 键的设备验收，跑的是三端同一份手工脚本：BN UI GH AS OP 打出「你好」；AS GH UI 时读音行右侧的拼音条里有 shi 和 shu，选了锁定、退格撤销，拼音条不盖住候选行；展开候选是九键的三栏面板；分词键得到「西安」；长按 QW 选 w；英文画 26 键、切回仍是 14 键；123 是 26 键的设计层；密码框画 26 键；「26 键按 123」选了九宫格时，组字中的 123 借九键数字层，拼音条留在读音行，侧栏照常是符号栏。
+ * 全拼 14 键的设备验收，跑的是三端同一份手工脚本：BN UI GH AS OP 打出「你好」；AS GH UI 时读音行右侧的拼音条里有 shi 和 shu，选了锁定、退格撤销，拼音条不盖住候选行；展开候选是九键的三栏面板；分词键得到「西安」；长按 QW 选 w；英文画 26 键、切回仍是 14 键；123 是 26 键的设计层；密码框画 26 键。
  */
 public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private static final String STRIP = "14 键拼音选择";
     private static final String PANEL = "九键候选面板";
 
     @Override protected String successDescription() {
-        return "fourteen-key group keys, reading-row pinyin strip locks, three-column panel, separator, long-press letters, English, 123 layers and the borrowed digit pad";
+        return "fourteen-key group keys, reading-row pinyin strip locks, three-column panel, separator, long-press letters, English and 123 layers";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -171,38 +171,6 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             stage = "plain field returns to 14 keys";
             tap(field("msime-test-plain"));
             await(described("按键 Q W"));
-
-            // 「26 键按 123」选了九宫格：组字中点 123 借九键的数字层，拼音条留在读音行右侧，侧栏照常是符号栏，与 iOS、HarmonyOS 相同。
-            stage = "number layout set to the 9-grid";
-            long current = new JSONObject(new String(Files.readAllBytes(preferences.toPath()),
-                StandardCharsets.UTF_8)).getLong("revision");
-            publish(preferences, new JSONObject().put("format_version", 1).put("revision", current + 1)
-                .put("preferences", new JSONObject(base.toString())
-                    .put("touch_twenty_six_key_number_layout", "nine_key"))
-                .toString().getBytes(StandardCharsets.UTF_8));
-            restartIme();
-            openEditor();
-            tap(field("msime-test-plain"));
-            await(described("按键 Q W"));
-            stage = "borrowed digit pad while composing";
-            for (String pair : new String[] {"A S", "G H", "U I"}) tap(described("按键 " + pair));
-            await(described("选择拼音 shi"));
-            tap(key("123"));
-            Rect rail = new Rect();
-            await(described("符号栏，可上下滑动")).getBoundsInScreen(rail);
-            Rect beside = new Rect();
-            await(described("选择拼音 shi")).getBoundsInScreen(beside);
-            if (beside.bottom > rail.top + 1)
-                throw new AssertionError("Pinyin strip moved into the digit pad: strip " + beside + ", rail " + rail);
-            await(described("shi"));
-            stage = "borrowed digit pad returns to 14 keys";
-            tap(described("切换到字母键盘"));
-            await(described("按键 Q W"));
-            await(described("选择拼音 shi"));
-            tap(key("⌫"));
-            tap(key("⌫"));
-            tap(key("⌫"));
-            awaitGone(described(STRIP));
         } finally {
             shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());

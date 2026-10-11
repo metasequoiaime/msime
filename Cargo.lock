@@ -2868,6 +2868,7 @@ dependencies = [
 name = "msime-host-api"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "cpal",
  "hex",
  "kira",
@@ -2875,6 +2876,7 @@ dependencies = [
  "lru",
  "msime-client-core",
  "msime-engine",
+ "msime-host-windows",
  "msime-input-runtime",
  "msime-path-trust",
  "rubato",

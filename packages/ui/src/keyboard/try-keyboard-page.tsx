@@ -8,7 +8,7 @@ import {
   type MouseEvent,
 } from "react";
 import type { ChatClient, ChatMessage } from "../chat/chat-page";
-import { boundedHistory } from "../chat/chat-history";
+import { chatRequest } from "../chat/chat-prompt";
 import { chatError } from "../chat/chat-errors";
 import { errorCode } from "../core/error-code";
 import { errorMessage } from "../core/error-message";
@@ -19,12 +19,8 @@ import { makeDefaultAction, useImeSetupState, type SetupActions } from "./setup-
 const DRAFT_LIMIT = 2000;
 /** 对话区最多保留的气泡数，超过时从最早的开始丢，与 Android 相同。 */
 const BUBBLE_LIMIT = 60;
-/** 一次请求最多带的对话条数：加上开头的系统约定正好是 client-core 允许的 14 条。 */
-const CONTEXT_LIMIT = 13;
 const GREETING = "你好，我是水杉输入法。打几个字发给我试试，比如 shuishan。";
 const GREETING_WITHOUT_CHAT = "你好，我是水杉输入法。在下面打几个字试试，比如 shuishan。";
-const SYSTEM_PROMPT =
-  "你是水杉输入法里的 AI 助手。除非用户明确要求使用其他语言，一律用简体中文回答，回答简洁。";
 /** 输入框最多长到 4 行，之后在框内滚动。 */
 const FIELD_MAX_LINES = 4;
 const FIELD_LINE_HEIGHT = 22;
@@ -168,11 +164,7 @@ export function TryKeyboardPage({
       if (generation.current !== version) return;
       const selected = model.current;
       if (!selected) throw catalogError.current ?? new Error("no chat model");
-      const history = boundedHistory(conversation).slice(-CONTEXT_LIMIT);
-      const reply = await chat.complete(
-        [{ role: "system", content: SYSTEM_PROMPT }, ...history],
-        selected,
-      );
+      const reply = await chat.complete(chatRequest(conversation), selected);
       if (generation.current !== version) return;
       append("assistant", reply);
     } catch (cause) {

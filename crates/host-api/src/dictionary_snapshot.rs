@@ -300,7 +300,7 @@ pub(crate) fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static
     }
     let file = open_snapshot_file(path).map_err(|_| "snapshot file unavailable")?;
     let mut reader = BufReader::with_capacity(MAX_SNAPSHOT_LINE_BYTES, file);
-    let mut line = Vec::with_capacity(MAX_SNAPSHOT_LINE_BYTES);
+    let mut line = Vec::new();
     let mut body_digest = Sha256::new();
     let mut file_digest = Sha256::new();
     let mut total_bytes = 0u64;
@@ -1596,7 +1596,7 @@ impl SnapshotFileRecords {
         let file = open_snapshot_file(path).map_err(|_| "snapshot file unavailable")?;
         Ok(Self {
             reader: BufReader::with_capacity(MAX_SNAPSHOT_LINE_BYTES, file),
-            line: Vec::with_capacity(MAX_SNAPSHOT_LINE_BYTES),
+            line: Vec::new(),
             failed: false,
         })
     }

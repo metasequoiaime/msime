@@ -365,6 +365,8 @@ class IOSProjectConfigTests(unittest.TestCase):
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
         account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
         clipboard = (TAURI_ROOT / "src/platform/cloud_clipboard.rs").read_text()
+        # The dispatch moved into host-api so the native Windows settings window shares it through the C ABI; the Tauri module only forwards the session and action to it.
+        dispatch = (TAURI_ROOT / "../../../crates/host-api/src/cloud_clipboard.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
 
         self.assertIn(
@@ -373,10 +375,12 @@ class IOSProjectConfigTests(unittest.TestCase):
         )
         self.assertIn("pub(crate) fn session(&self) -> &Arc<Session>", account)
         self.assertIn("pub(crate) async fn cloud_clipboard_request<", clipboard)
-        self.assertIn("session.clipboard(&search)", clipboard)
-        self.assertIn(".set_clipboard_enabled(enabled)", clipboard)
-        self.assertIn("session.add_clipboard(&text)", clipboard)
-        self.assertIn(".delete_clipboard(Some(&id))", clipboard)
+        self.assertIn("msime_host_api::cloud_clipboard::account_request(&session, &action)", clipboard)
+        self.assertIn("pub fn account_request<", dispatch)
+        self.assertIn("session.clipboard(search)", dispatch)
+        self.assertIn(".set_clipboard_enabled(enabled)", dispatch)
+        self.assertIn("session.add_clipboard(text)", dispatch)
+        self.assertIn(".delete_clipboard(Some(id))", dispatch)
         self.assertIn('run_mobile_plugin("copyText", CopyTextRequest { text })', plugin_rust)
         self.assertIn("@objc public func copyText", swift)
         self.assertIn("UIPasteboard.general.string = args.text", swift)

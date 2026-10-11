@@ -1,248 +1,23 @@
-//! The bring-your-own-endpoint AI assistant: URL and token validation, the
-//! model listing, and the one-shot polish request.
+//! The bring-your-own-endpoint AI assistant's two settings-page requests: the
+//! model listing and the one-shot polish test.
+//!
+//! The validation, the requests and the response parsing live in client-core's
+//! `ai::settings`, which the native Windows settings window reaches through
+//! `msime_client_ai_models` and `msime_client_ai_test`; these commands only move
+//! the blocking call off the async runtime and turn its error into a code.
 //!
 //! Only the two desktop hosts that expose it build this. Android and iOS answer
 //! the same two commands from their own platform modules, because those requests
 //! go out through the platform's HTTP stack rather than reqwest.
 
+#[cfg(not(target_os = "linux"))]
 use crate::CommandError;
-use reqwest::Url;
 #[cfg(not(target_os = "linux"))]
-use serde_json::Value;
-use std::io::Read;
-
-pub(crate) const MAX_RESPONSE_BYTES: usize = 1_024 * 1_024;
-#[cfg(not(target_os = "linux"))]
-const MAX_MODELS: usize = 128;
-
-#[derive(Debug, Eq, PartialEq)]
-pub(crate) enum AiResponseBodyError {
-    TooLarge,
-    Read,
-}
-
-/// Read at most one byte past the response limit so streams without a reliable
-/// Content-Length cannot grow the settings process without bound.
-pub(crate) fn read_ai_response_body(reader: impl Read) -> Result<Vec<u8>, AiResponseBodyError> {
-    crate::shared::bounded_body::read_bounded(reader, MAX_RESPONSE_BYTES).map_err(|error| {
-        match error {
-            crate::shared::bounded_body::BoundedReadError::TooLarge => {
-                AiResponseBodyError::TooLarge
-            }
-            crate::shared::bounded_body::BoundedReadError::Read(_) => AiResponseBodyError::Read,
-        }
-    })
-}
-
-/// 接口地址的规则在 client-core 的 `ai::endpoint`：https 不限主机，http 只能指向本机或局域网。
-pub(crate) fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {
-    msime_client_core::ai::endpoint::validate(value)
-        .map_err(|_| CommandError { code: "ai_invalid" })
-}
-
-pub(crate) fn validate_ai_token(token: &str) -> Result<(), CommandError> {
-    if token.is_empty() || !msime_client_core::is_bounded_text_with_options(token, 16 * 1024, false)
-    {
-        return Err(CommandError { code: "ai_invalid" });
-    }
-    Ok(())
-}
-
-pub(crate) fn ai_text_is_valid(value: &str, allow_empty: bool) -> bool {
-    (allow_empty || !value.is_empty())
-        && msime_client_core::is_bounded_text_with_options(value, 16 * 1024, true)
-}
-
-/// The listing sits next to the chat endpoint, whatever its version prefix
-/// (`/v1`, `/v1beta/openai`, `/api/paas/v4`). Keep in step with
-/// `mobile_ai::models_url`.
-#[cfg(any(not(target_os = "linux"), test))]
-pub(crate) fn ai_models_url(endpoint: &Url) -> Url {
-    crate::shared::ai_url::models_url(endpoint.clone(), true)
-}
+use msime_client_core::ai::settings::AiSettingsError;
 
 #[cfg(not(target_os = "linux"))]
-pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<String>, CommandError> {
-    let endpoint = validate_ai_endpoint(endpoint)?;
-    validate_ai_token(token)?;
-    // 不跟随重定向（Token 不会被转发到别的主机）；局域网的 http 接口直连、不走代理。
-    let client = msime_client_core::ai::endpoint::blocking_client_builder(&endpoint)
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|_| CommandError {
-            code: "ai_models_unavailable",
-        })?;
-    let response = client
-        .get(ai_models_url(&endpoint))
-        .bearer_auth(token)
-        .send()
-        .map_err(|_| CommandError {
-            code: "ai_models_unavailable",
-        })?
-        .error_for_status()
-        .map_err(|_| CommandError {
-            code: "ai_models_unavailable",
-        })?;
-    let body = read_ai_response_body(response).map_err(|error| match error {
-        AiResponseBodyError::TooLarge => CommandError {
-            code: "ai_models_invalid",
-        },
-        AiResponseBodyError::Read => CommandError {
-            code: "ai_models_unavailable",
-        },
-    })?;
-    let models = parse_ai_models_response(&body)?;
-    if models.is_empty() {
-        return Err(CommandError {
-            code: "ai_models_invalid",
-        });
-    }
-    Ok(models)
-}
-
-#[cfg(not(target_os = "linux"))]
-fn parse_ai_models_response(body: &[u8]) -> Result<Vec<String>, CommandError> {
-    let document: Value = serde_json::from_slice(body).map_err(|_| CommandError {
-        code: "ai_models_invalid",
-    })?;
-    let data = document
-        .get("data")
-        .and_then(Value::as_array)
-        .ok_or(CommandError {
-            code: "ai_models_invalid",
-        })?;
-    let mut models = Vec::new();
-    for id in data
-        .iter()
-        .filter_map(|item| item.get("id").and_then(Value::as_str))
-        .filter(|id| {
-            !id.is_empty() && msime_client_core::is_bounded_text_with_options(id, 256, false)
-        })
-        .take(MAX_MODELS)
-    {
-        if models.is_empty() {
-            models.reserve_exact(MAX_MODELS);
-        }
-        models.push(id.to_owned());
-    }
-    Ok(models)
-}
-
-#[cfg(all(test, not(target_os = "linux")))]
-mod model_tests {
-    use super::*;
-
-    #[test]
-    fn empty_and_filtered_model_lists_do_not_reserve_capacity() {
-        for body in [
-            br#"{"data":[]}"#.as_slice(),
-            br#"{"data":[{}, {"id":null}, {"id":""}, {"id":"bad\nmodel"}]}"#.as_slice(),
-        ] {
-            let empty = parse_ai_models_response(body).unwrap();
-            assert!(empty.is_empty());
-            assert_eq!(empty.capacity(), 0);
-        }
-    }
-
-    #[test]
-    fn valid_model_lists_keep_order_and_capacity() {
-        let valid = parse_ai_models_response(
-            br#"{"data":[{"id":"fixture-model"}, {}, {"id":"fixture-next"}]}"#,
-        )
-        .unwrap();
-        assert_eq!(valid, ["fixture-model", "fixture-next"]);
-        assert_eq!(valid.capacity(), MAX_MODELS);
-    }
-
-    #[test]
-    fn model_lists_keep_the_limit_and_reject_malformed_envelopes() {
-        let data: Vec<_> = (0..=MAX_MODELS)
-            .map(|index| serde_json::json!({ "id": format!("fixture-{index}") }))
-            .collect();
-        let body = serde_json::to_vec(&serde_json::json!({ "data": data })).unwrap();
-        let models = parse_ai_models_response(&body).unwrap();
-        assert_eq!(models.len(), MAX_MODELS);
-        assert_eq!(models.first().unwrap(), "fixture-0");
-        assert_eq!(
-            models.last().unwrap(),
-            &format!("fixture-{}", MAX_MODELS - 1)
-        );
-        for body in [b"{invalid".as_slice(), br#"{}"#, br#"{"data":null}"#] {
-            assert_eq!(
-                parse_ai_models_response(body).unwrap_err().code,
-                "ai_models_invalid"
-            );
-        }
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-pub(crate) fn ai_test_request(
-    endpoint: &str,
-    model: &str,
-    prompt: &str,
-    token: &str,
-    text: &str,
-) -> Result<String, CommandError> {
-    let endpoint = validate_ai_endpoint(endpoint)?;
-    validate_ai_token(token)?;
-    if model.is_empty()
-        || !msime_client_core::is_bounded_text_with_options(model, 256, false)
-        || !ai_text_is_valid(prompt, true)
-        || !ai_text_is_valid(text, false)
-    {
-        return Err(CommandError { code: "ai_invalid" });
-    }
-    let body = serde_json::json!({
-        "model": model,
-        "stream": false,
-        "temperature": 0.2,
-        "messages": [
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": text}
-        ]
-    });
-    // 不跟随重定向（Token 不会被转发到别的主机）；局域网的 http 接口直连、不走代理。
-    let client = msime_client_core::ai::endpoint::blocking_client_builder(&endpoint)
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|_| CommandError {
-            code: "ai_test_unavailable",
-        })?;
-    let response = client
-        .post(endpoint)
-        .bearer_auth(token)
-        .json(&body)
-        .send()
-        .map_err(|_| CommandError {
-            code: "ai_test_unavailable",
-        })?
-        .error_for_status()
-        .map_err(|_| CommandError {
-            code: "ai_test_unavailable",
-        })?;
-    let body = read_ai_response_body(response).map_err(|error| match error {
-        AiResponseBodyError::TooLarge => CommandError {
-            code: "ai_test_invalid",
-        },
-        AiResponseBodyError::Read => CommandError {
-            code: "ai_test_unavailable",
-        },
-    })?;
-    let document: Value = serde_json::from_slice(&body).map_err(|_| CommandError {
-        code: "ai_test_invalid",
-    })?;
-    let output = document
-        .pointer("/choices/0/message/content")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty() && value.len() <= 16 * 1024)
-        .ok_or(CommandError {
-            code: "ai_test_invalid",
-        })?;
-    Ok(output.to_owned())
+fn command_error(error: AiSettingsError) -> CommandError {
+    CommandError { code: error.code() }
 }
 
 // Linux routes these two through the provider socket instead - see the
@@ -256,11 +31,11 @@ pub(crate) async fn ai_models(
     endpoint: String,
     token: String,
 ) -> Result<Vec<String>, CommandError> {
-    tauri::async_runtime::spawn_blocking(move || ai_models_request(&endpoint, &token))
-        .await
-        .map_err(|_| CommandError {
-            code: "ai_models_unavailable",
-        })?
+    tauri::async_runtime::spawn_blocking(move || {
+        msime_client_core::ai::settings::fetch_models(&endpoint, &token).map_err(command_error)
+    })
+    .await
+    .map_err(|_| command_error(AiSettingsError::ModelsUnavailable))?
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -273,10 +48,9 @@ pub(crate) async fn ai_test(
     text: String,
 ) -> Result<String, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
-        ai_test_request(&endpoint, &model, &prompt, &token, &text)
+        msime_client_core::ai::settings::test_polish(&endpoint, &model, &prompt, &token, &text)
+            .map_err(command_error)
     })
     .await
-    .map_err(|_| CommandError {
-        code: "ai_test_unavailable",
-    })?
+    .map_err(|_| command_error(AiSettingsError::TestUnavailable))?
 }

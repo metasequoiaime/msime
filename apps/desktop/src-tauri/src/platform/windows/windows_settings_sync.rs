@@ -5,13 +5,11 @@
 use crate::platform::account_helpers::call_session;
 use crate::platform::desktop::desktop_account::AccountState;
 use crate::shared::account_dto::PreferenceSchemaResponse;
-use msime_client_core::account::settings_sync::{apply_desktop_settings, export_desktop_settings};
-use msime_client_core::account::{merge_account_preferences, AccountError, AccountPreferences};
-use msime_client_core::edition::{
-    filter_downloaded_account_settings, filter_uploaded_account_settings,
+use msime_client_core::account::settings_sync::{
+    prepare_desktop_settings_apply, upload_desktop_settings,
 };
+use msime_client_core::account::AccountPreferences;
 use msime_client_core::preferences::PreferencesStore;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use tauri::State;
 
@@ -32,7 +30,7 @@ pub async fn account_preferences_load(
     call_session(&state.session, |session| session.preferences()).await
 }
 
-/// 本机的 `input.*` 设置合并进账号文档上传，其他平台的设置原样保留。字段表里没有的键不上传；一个都没有时报告服务不可用。
+/// 本机的 `input.*` 设置合并进账号文档上传，其他平台的设置原样保留。字段表里没有的键不上传；一个都没有时报告服务不可用。逻辑在 client-core（[`upload_desktop_settings`]），原生设置窗口也用它。
 #[tauri::command]
 pub async fn account_preferences_upload(
     app: tauri::AppHandle,
@@ -42,27 +40,12 @@ pub async fn account_preferences_upload(
     let store = store.inner().clone();
     let edition = crate::host_edition(&app);
     call_session(&state.session, move |session| {
-        let (user_id, _, generation) = session.credentials_with_generation(None, None)?;
-        let schema = session.preference_schema()?;
-        let cloud = session.preferences()?;
-        let local = store.load().map_err(|_| AccountError::Storage)?;
-        let mut values = export_desktop_settings(&local.preferences);
-        // 单方案版本不上传方案，多方案版本只上传本版本提供的方案。
-        filter_uploaded_account_settings(edition, &mut values);
-        let values = values
-            .into_iter()
-            .filter(|(key, _)| schema.fields.contains_key(key))
-            .collect::<BTreeMap<_, _>>();
-        if values.is_empty() {
-            return Err(AccountError::Unavailable);
-        }
-        let merged = merge_account_preferences(&cloud, &values, &schema)?;
-        session.put_preferences_with_generation(&merged, generation, &user_id)
+        upload_desktop_settings(session, &store, edition)
     })
     .await
 }
 
-/// 把页面刚下载的账号设置应用到本机。`user_id` 是页面下载时的账号，期间退出或换号就取消。
+/// 把页面刚下载的账号设置应用到本机。`user_id` 是页面下载时的账号，期间退出或换号就取消。应用的逻辑在 client-core（[`prepare_desktop_settings_apply`]），原生设置窗口也用它。
 #[tauri::command]
 pub async fn account_preferences_apply(
     app: tauri::AppHandle,
@@ -70,19 +53,12 @@ pub async fn account_preferences_apply(
     store: State<'_, Arc<PreferencesStore>>,
     runtime: State<'_, crate::RuntimeOptionsState>,
     user_id: String,
-    mut preferences: AccountPreferences,
+    preferences: AccountPreferences,
 ) -> Result<(), crate::CommandError> {
-    // 单方案版本不应用账号里的方案，多方案版本把本版本没有的方案当作缺失。
-    filter_downloaded_account_settings(crate::host_edition(&app), &mut preferences.settings);
+    let edition = crate::host_edition(&app);
     let local_store = store.inner().clone();
     let (revision, next) = call_session(&state.session, move |session| {
-        let (_, _, generation) = session.credentials_with_generation(None, Some(&user_id))?;
-        let schema = session.preference_schema()?;
-        let local = local_store.load().map_err(|_| AccountError::Storage)?;
-        let applied = apply_desktop_settings(&local.preferences, &preferences, &schema)?;
-        session.with_generation(generation, Some(&user_id), || {
-            Ok((local.revision, applied.preferences))
-        })
+        prepare_desktop_settings_apply(session, &local_store, edition, &user_id, preferences)
     })
     .await?;
     crate::save_preferences_impl(

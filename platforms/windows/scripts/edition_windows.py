@@ -192,6 +192,8 @@ def header_text(table: dict) -> str:
             ("MSIME_EDITION_DATA_DIR_ENVIRONMENT_VARIABLE", wide(windows["data_dir_environment_variable"])),
             ("MSIME_EDITION_WATCHDOG_TASK", wide(windows["watchdog_task"])),
             ("MSIME_EDITION_HOST_DLL", wide(windows["host_dll"])),
+            # 共享设置应用（Tauri）的应用数据目录 %APPDATA%\<identifier>：原生设置窗口的语音页在它下面的 voice-models 管理本地识别模型，与 Tauri 的语音页管的是同一批。
+            ("MSIME_EDITION_TAURI_IDENTIFIER", wide(windows["tauri_identifier"])),
             ("MSIME_EDITION_DATA_DIR_MARKER", wide(data_dir_marker(entry))),
             ("MSIME_EDITION_DEFAULT_SCHEME", narrow(entry["default_scheme"])),
             ("MSIME_EDITION_DEFAULT_SCHEME_W", wide(entry["default_scheme"])),

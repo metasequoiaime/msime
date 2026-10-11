@@ -11,14 +11,16 @@ on:
     #
     # LICENSE and THIRD_PARTY_NOTICES.txt stay off the list on purpose: CMake installs them into the bundle, so they are build inputs rather than prose. A new documentation file is not ignored until someone adds it here, which fails toward running CI.
     paths-ignore:
-      - CHANGELOG.md
       - PRIVACY.md
       - README.md
+      - docs/CHANGELOG.md
+      - docs/readme/*.md
   pull_request:
     paths-ignore:
-      - CHANGELOG.md
       - PRIVACY.md
       - README.md
+      - docs/CHANGELOG.md
+      - docs/readme/*.md
   workflow_dispatch:
 
   merge_group:

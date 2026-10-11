@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ChatPage, type ChatClient, type ChatMessage } from "@msime/ui";
+import { CHAT_SYSTEM_PROMPT, ChatPage, type ChatClient, type ChatMessage } from "@msime/ui";
 import { answerConfirm } from "../support/confirm";
 
 afterEach(cleanup);
@@ -35,7 +35,10 @@ function deferred<T>() {
 // 产品上不让用户选模型：页面没有模型下拉框和「刷新模型」，发送时固定用目录给的默认模型，它失败时由服务端换备用模型。
 test("sends with the catalog's default model, offers no model choice, and starts a new conversation", async () => {
   const complete = vi.fn(async (messages: ChatMessage[], model: string) => {
-    expect(messages).toEqual([{ role: "user", content: "fixture prompt" }]);
+    expect(messages).toEqual([
+      { role: "system", content: CHAT_SYSTEM_PROMPT },
+      { role: "user", content: "fixture prompt" },
+    ]);
     expect(model).toBe("fixture-chat");
     return "fixture reply";
   });

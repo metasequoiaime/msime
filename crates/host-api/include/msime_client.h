@@ -57,6 +57,8 @@ char *msime_client_refresh_host(const uint8_t *path, size_t length);
 char *msime_client_ensure_anonymous_account(const uint8_t *directory, size_t length);
 /* 输入法进程取账号服务的访问令牌。request 是 length 字节的 UTF-8 JSON {"directory": 绝对路径, "rejected_token": 可选}，最多 16384 字节；directory 是设置应用和输入法共用的账号目录（Windows 是 %LOCALAPPDATA%\<本版本的用户目录>\account，与 msime_client_ensure_anonymous_account 相同）。设置应用登录的 account-session.json 优先，刷新时与设置应用共用 account-refresh.lock；没有登录时用 anonymous-session.json。rejected_token 是服务端刚以 401 拒绝的令牌，传入后强制刷新。每次调用都重新读文件，登录、退出和换号下一次调用即生效。Value {access_token, user_id, anonymous}；没有任何会话时 error 是 account_unauthorized。响应含凭据，不要写进日志。刷新会阻塞网络：不要在输入线程调用。 */
 char *msime_client_account_access_token(const uint8_t *request, size_t length);
+/* 设置窗口自己的云剪贴板请求，与云剪贴板面板发的相同。request 是 length 字节（最多 131072）的 UTF-8 JSON {directory: 账号目录的绝对路径, action}；directory 是共享应用登录时写 account-session.json 的目录（Windows 是 %LOCALAPPDATA%\<本版本的用户目录>\account），只用登录的会话，不退回匿名账号。action 是 {operation:"list",search} → {enabled, items:[{id,text,updated_at}]}、{operation:"add",text}（非空、不超过 4000 个 UTF-16 单元、不含控制字符，换行除外）→ 新条目、{operation:"delete",id} → {} 或 {operation:"set_enabled",enabled} → {enabled}。action 不合法时 error 是 invalid_cloud_clipboard；没有登录或会话已失效时是 account_unauthorized，其他失败是相应的 account_* 代码。刷新令牌时与共享应用共用 account-refresh.lock。阻塞网络：放在工作线程上调用。 */
+char *msime_client_account_cloud_clipboard(const uint8_t *request, size_t length);
 /* Anonymous usage reporting to https://api.msime.app/v1/telemetry/events (no credentials). Every request is UTF-8 JSON of length bytes; maximum 16 KiB (256 KiB for record_crash). directory is an absolute directory the host owns for its telemetry files (the queue telemetry.json, telemetry-state.json with the random install id, the session marker and telemetry-crashes/). platform is windows, macos, linux, android, ios or harmony (aliases such as win, darwin, ohos are mapped); version is the real app version. Consent: enabled (the usage_reporting switch, default on) or, for hosts on the shared preferences, preferences_directory to read usage_reporting from; with reporting off, begin and flush clear everything and send nothing.
  * begin {directory, platform, version, enabled?|preferences_directory?}: call once at host start. Closes the previous session (session_crash only when it left a crash record; a leftover marker alone is no crash), queues crash records as crash events with paths reduced to file names, queues today's active, writes a new marker. Value {enabled, crash_record_path?, previous_session_crashed?, crashes?}. No network.
  * end {directory}: the host is exiting normally; queues the session event. Value true when a session was running. No network.
@@ -84,8 +86,26 @@ char *msime_client_community_moderation(const uint8_t *request, size_t length);
 /* Google 登录：由宿主自己监听回环端口、打开系统浏览器、经自己的 HTTPS 栈申请 challenge 并提交授权码（鸿蒙）。这里给出与桌面端相同的判定。Request 是 UTF-8 JSON，最多 32 KiB。
  * {operation:"target",port}: port 是宿主在 127.0.0.1 上监听的端口（>=1024）。Value {target}: 向 POST /v1/auth/challenges 发 {provider:"google",target,purpose:"login"} 时用的回跳地址。
  * {operation:"plan",authorization_url,target,expires_in}: 后端返回的 authorization_url 与 expires_in。Value {state,wait_ms,max_request_bytes,io_timeout_ms}: 链接通过校验，可以用系统浏览器打开；最多等 wait_ms 毫秒；每个连接最多读 max_request_bytes 字节、最多 io_timeout_ms 毫秒拿到请求头，超出就以 head:null 回复并关掉。链接不是指向这个监听的 Google 授权链接、或 challenge 太短时返回 account_unavailable，不要打开它。
- * {operation:"reply",head,state}: head 是一个连接读到的请求头（到第一个空行为止，含），没读到完整请求头时为 null；state 是 plan 给的。Value {outcome,code?,error?,response}: 把 response 原样写回这个连接再关闭。outcome 为 ignored 时继续等下一个连接；code 时用 POST /v1/auth/login {challenge_id,credential:code} 完成登录；failed 时结束登录，error 是 account_cancelled（用户在 Google 页面拒绝）或 account_unavailable。 */
+ * {operation:"reply",head,state,return_link?}: head 是一个连接读到的请求头（到第一个空行为止，含），没读到完整请求头时为 null；state 是 plan 给的；return_link 可省略，是宿主注册的、能把应用拉回前台的 `scheme://路径` 链接（如鸿蒙的 msime://auth/google），回跳页据此画「回到水杉输入法」按钮，形状不合格时不画，回复照常。Value {outcome,code?,error?,response}: 把 response 原样写回这个连接再关闭。outcome 为 ignored 时继续等下一个连接；code 时用 POST /v1/auth/login {challenge_id,credential:code} 完成登录；failed 时结束登录，error 是 account_cancelled（用户在 Google 页面拒绝）或 account_unavailable。 */
 char *msime_client_google_loopback(const uint8_t *request, size_t length);
+/* 原生设置窗口的账号操作，与共享应用（Tauri）的十四个 account_* 命令和 Windows 的四个 account_preferences_* 设置同步命令相同，用同一份本用户会话文件。Request 是 length 字节（最多 4 MiB）的 UTF-8 JSON {directory, legacy_directory?, action}：directory 是共享应用登录时写 account-session.json 的目录的绝对路径（Windows 是 %LOCALAPPDATA%\<本版本的用户目录>\account，与 msime_client_account_access_token 相同）；legacy_directory 可选，是旧版本放会话的目录（Windows 是 %LOCALAPPDATA%\<tauri identifier>），本进程第一次用到 directory 时，directory 还没有会话而这里有，就把它搬过去。每个 directory 在进程里只有一个会话对象，会话文件每次都重新读，刷新令牌时与共享应用和输入法共用 account-refresh.lock。响应不含令牌。
+ * action 是下列之一，value 与共享账号页（packages/ui/src/account/account-page.tsx）读到的形状相同；user 是 {id,displayName,createdAt,email?,avatarUrl?,avatarUploaded?}，avatarUrl 只在是本客户端会去取的头像地址时出现，avatarUploaded 只在头像是用户上传的（可以移除）时为 true：
+ * {operation:"status"} → {user|null}，只读本地文件。{operation:"providers"} → {email,phone,apple,google}。
+ * {operation:"request_code",provider:"email"|"phone",target} → {challengeId,expiresIn}。{operation:"login",challenge_id,code}（code 是 6 位数字）→ {user}。
+ * {operation:"google_login"} → {user}：在 127.0.0.1 上监听回环端口、申请 Google challenge、用系统浏览器打开校验过的授权链接（只在 Windows 上；其他平台是 account_unavailable），等浏览器回跳后登录。最多阻塞约 5 分钟；用户在 Google 页面拒绝或调用了 google_cancel 时是 account_cancelled。{operation:"google_cancel"} → null，立即返回，结束同一 directory 上进行中的 google_login。
+ * {operation:"profile"} → {user,providers:[...]}（providers 是已绑定的登录方式，去重）。{operation:"rename",display_name}（非空、首尾无空白、最多 64 个字符）→ 同 profile。
+ * {operation:"avatar"} → null 或 "data:<image/png|image/jpeg>;base64,<...>"（未登录或没有头像时为 null）。{operation:"upload_avatar",path}：path 是宿主自己的文件对话框选中的 PNG 或 JPEG 的绝对路径，最多 1 MiB → 同 profile；不是这样的文件时是 account_invalid。{operation:"remove_avatar"} → 同 profile。
+ * {operation:"logout",all} → null（all 为 true 时退出所有设备；本地会话总会先清掉）。{operation:"delete"} → null（注销账号，成功后清掉本地会话）。{operation:"forget"} → null（只清掉本地会话，用于会话已失效时）。
+ * 设置同步（共享账号页的设置同步卡片）：{operation:"preferences_schema"} → {fields,maximumBytes,updateMode,revisionRequired}。{operation:"preferences_load"} → 云端设置文档 {revision,settings}。{operation:"preferences_upload",preferences_directory}：preferences_directory 是偏好目录的绝对路径；本机各平台共有的 input.* 设置按本目录所属的版本过滤、只留字段表收录的键，合并进云端文档后上传，返回上传后的云端文档；一个键都没有时是 account_unavailable，云端文档已被别处更新时是 account_conflict。{operation:"preferences_apply",preferences_directory,user_id,preferences}：preferences 是刚由 preferences_load 下载的文档，user_id 是下载时的账号（期间退出、换号或重新登录时是 account_cancelled）；按版本过滤后把其中的 input.* 键应用到本机偏好，按读到时的修订号比较并交换写回（关掉剪贴板历史时与 msime_client_save_preferences 一样清掉已存的历史），返回保存后的 PreferencesSnapshot。写回失败时 error 是 conflict（本机设置已在别处更新）或 storage，与共享应用相同。
+ * 其余失败时 error 是账号错误码：account_invalid（请求或参数不合法）、account_unauthorized（未登录或会话失效）、account_rate_limited、account_storage、account_cancelled、account_conflict、account_unavailable、account_blocked_content、account_screening_unavailable、account_banned。除 status、google_cancel、forget 外都会阻塞网络：放在工作线程上调用。 */
+char *msime_client_account(const uint8_t *request, size_t length);
+/* 原生设置窗口的社区操作，与共享应用（Tauri）在 Windows 上的社区命令相同：候选窗皮肤社区（candidate_skin_community_* 十四个）、插件社区（plugin_community_* 七个）、社区词包与回复模板（community_resource_* 七个）和举报（community_report）。经 msime_client_account 里同一个账号会话对象认证（同一份 account-session.json，刷新时共用 account-refresh.lock）。Request 是 length 字节（最多 4 MiB）的 UTF-8 JSON {directory, legacy_directory?, skins_directory?, state_root?, action}：directory 与 legacy_directory 同 msime_client_account；skins_directory 是候选窗皮肤根目录的绝对路径（Windows 是 <状态目录>\skins，与共享应用相同），下面标了「要 skins_directory」的操作必需；state_root 是放 plugins\ 的状态根目录的绝对路径（与 msime_client_plugins 的 state_root 相同），标了「要 state_root」的操作必需。id 都是 UUID 字符串；发布时的 id 由宿主随机生成，同一次发布重试时沿用，服务端据此去重。
+ * 候选窗皮肤：{operation:"candidate_skin_list",offset,search,mine,category?} → {skins:[...],has_more}（category 不给时列出全部分类；mine 要登录）。{operation:"candidate_skin_detail",id} → 一项。{operation:"candidate_skin_preview",id} → {dataUrl}（PNG 或 JPEG 的 data: URL，类型和文件头已校验）。{operation:"candidate_skin_install",id,replace}（要 skins_directory）→ 下载、装进皮肤根目录并记下来源（同步不会把别人的作品传进自己的库），返回重新扫描的 {directory,packages,issues}；replace 为 false 而同名文件夹已存在时 error 是 candidate_skin_exists，先问用户再以 true 重试。{operation:"candidate_skin_pack_preview",skin_id,visibility?:"public"|"private"}（要 skins_directory，visibility 缺省 public；私有的可以没有素材许可）→ {suggestedName,license:{code,assets,source},fileCount,size}，不上传。{operation:"candidate_skin_add_preview",skin_id,image}（要 skins_directory）：image 是宿主为没有预览图的已装皮肤画好的 PNG 或 JPEG（最多 256 KiB）的标准 base64，写进包并加进清单 → 重新扫描的目录。{operation:"candidate_skin_add_license",skin_id,assets}（要 skins_directory）：把用户选的素材许可写进清单 → 重新扫描的目录。{operation:"candidate_skin_publish",skin_id,id,name,description,visibility?,category?}（要 skins_directory）→ 发布后的一项；同步已放进库里的同一个包就地更新，不会留下第二行。{operation:"candidate_skin_rate",id,stars:1..5} → {stars}。{operation:"candidate_skin_set_visibility",id,visibility} / {operation:"candidate_skin_set_category",id,category} → 更新后的一项。{operation:"candidate_skin_unpublish",id}（要 skins_directory）→ {deleted:true}，本地文件夹保留，同步状态里忘掉这一行。{operation:"candidate_skin_sync"}（要 skins_directory）→ {uploaded,downloaded,deleted_local,deleted_cloud,skipped:[{package_id,code}],stopped}；downloaded 或 deleted_local 非空时皮肤根目录变了，宿主用 msime_client_skin_catalog 重新扫描。未登录时 sync 在读本地会话这一步就以 community_unauthorized 结束，不发请求。
+ * 插件：{operation:"plugin_list",offset,search,kind?,mine?} → {plugins:[...],has_more,skipped}。{operation:"plugin_detail",id} → 一项。{operation:"plugin_pack_preview",kind,plugin_id}（要 state_root）→ {suggestedName,suggestedDescription,version,license,fileCount,size}，不上传。{operation:"plugin_publish",kind,plugin_id,id,name,description}（要 state_root）→ 发布后的一项；归档是确定的，同一 id 重试时内容相同。{operation:"plugin_install",id,kind,plugin_id}（要 state_root）：kind 与 plugin_id 是列表里那一项的，下载到的若是别的包就拒绝；整个替换已装的同 kind 同 id 的包（先问用户）→ 装好的 PluginSummary，与 msime_client_plugins 的 catalog 里一项相同。{operation:"plugin_rate",id,stars} → {stars}。{operation:"plugin_delete",id} → {deleted:true}，已装的包保留。
+ * 词包与回复模板：{operation:"resource_list",kind:"dictionary"|"reply"|"phrase",scope:""|"mine"|"saved",search,offset} → {items:[...],has_more}。{operation:"resource_detail",id} → 一项。{operation:"resource_publish",id,kind,name,description,content,revision} → {id,revision}。{operation:"resource_apply",id,resource_revision} → {revision,imported,resource_revision}（把词包导入账号云端词库）。{operation:"resource_save",id,saved}、{operation:"resource_rate",id,stars}、{operation:"resource_unpublish",id} → null。
+ * 举报：{operation:"report",kind:"skins"|"candidate-skins"|"plugins"|"dictionaries"|"replies"|"phrases",id,reason,detail?} → null；reason 是 msime_client_community_moderation 的 reasons 之一，detail 最多 1000 个字符。
+ * 失败时 error 是社区错误码：community_invalid（请求或参数不合法、缺了要的目录）、community_unauthorized、community_forbidden、community_not_found、community_rate_limited、community_cancelled、community_storage、community_conflict、community_unavailable、community_blocked_content、community_screening_unavailable、community_account_banned；本机打包、安装、补图、补许可的规则失败是 candidate_skin_* 或 storage（皮肤），或插件的码（插件），插件失败时可能另有 detail，是违反的那条规则的中文说明。除 pack_preview、add_preview、add_license 外都会阻塞网络；全部放在工作线程上调用。 */
+char *msime_client_community(const uint8_t *request, size_t length);
 /* options is a readable UTF-8 buffer of length bytes; maximum 1 MiB.
  * Object: api_version=1, resources/user_data/cache/dictionaries (absolute paths),
  * preferences={scheme, candidate_page_size, learning, chinese_punctuation,
@@ -146,6 +166,16 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * with the identical nonempty request ID and content.
  */
 char *msime_client_dictionary(const uint8_t *request, size_t length);
+/* The same {options, action} as msime_client_dictionary, as a settings page sends it: an edit,
+ * import or reset first has the input hosts let go of the dictionaries (the Windows Server
+ * over its auxiliary pipe) and is retried until they have; an import of a whole file (up to
+ * 48 MiB of text) is sent in batches and answered with one report; and a refusal's error is
+ * the settings pages' code: dictionary_busy, dictionary_too_large, dictionary_import_rejected,
+ * dictionary_read_rejected, dictionary_pinyin_unavailable, dictionary_unavailable,
+ * dictionary_reset_rejected, dictionary_bundled_readonly, dictionary_invalid_entry,
+ * dictionary_invalid_word or storage. {operation:"reset"} restores the bundled dictionaries
+ * and clears all learned data, returning {reset:true}. Blocks: call off the UI thread. */
+char *msime_client_settings_dictionary(const uint8_t *request, size_t length);
 /* Smart punctuation follow-up gestures. The host holds the snapshots: they belong
  * to its editor, not to Engine, and a session rebuilt while the keyboard was away
  * must not carry a gesture across the gap. The switches that gate them live in the
@@ -263,6 +293,7 @@ char *msime_client_load_preferences(const uint8_t *directory, size_t length);
  *   Hosts batch in memory and call this from a worker, never per key.
  * {directory,action:{operation:"summary",day:"YYYY-MM-DD",user_words?:n}} 返回调用方本地 `day` 的派生指标（总览、习惯、按键、成就）；统计开着时，新解锁的成就在锁内写下。user_words 是词库 "count" 加 user_only:true 的结果。隐私模式不影响它：它只读。
  * {directory,action:{operation:"record_voice",day,milliseconds}} 记一次语音输入的时长；{directory,action:{operation:"record_skin",id}} 记一次用到的皮肤。两者都返回 {recorded}。
+ * 请求顶层可加 status:true（只用于 load、set_enabled、set_retention 和 reset，用于别的操作时整个请求被拒绝）：回答换成设置页读的状态 {statistics,availability:"ready"|"neverWritten",lastWrittenMs:n|null}，availability 和 lastWrittenMs 来自统计文件的修改时间，与 Tauri 外壳的 load_typing_statistics 相同。
  */
 char *msime_client_typing_statistics(const uint8_t *request, size_t length);
 /* Read only the aggregate-statistics master switch from an absolute UTF-8
@@ -368,6 +399,8 @@ char *msime_client_load_clipboard_history(const uint8_t *directory, size_t lengt
 char *msime_client_remove_clipboard_history(const uint8_t *request, size_t length);
 /* JSON {directory,text}; capture under the shared preference/history locks. */
 char *msime_client_capture_clipboard_history(const uint8_t *request, size_t length);
+/* 桌面剪贴板历史，供「剪贴板」设置页使用：与 Tauri 外壳的剪贴板命令读写同一个 directory/clipboard_history.json。request 是 length 字节（最多 131072）的 UTF-8 JSON {directory: 偏好目录的绝对路径, action}，action 是 {operation:"list"|"sync"|"clear"}、{operation:"set_pinned",text,pinned} 或 {operation:"remove",text}；text 按内容找条目，非空且不超过 12000 字节。sync 只在 clipboard_history 开着时读系统剪贴板（只有 Windows 读，带密码管理器等隐私标记的内容不记录，末尾换行去掉），关着时 error 是 clipboard_history_disabled，其他平台读不到时是 clipboard_history_unavailable。clear、set_pinned 和 remove 不看开关。每个操作都返回 {enabled, entries:[{text,timestampMs,pinned}]}，是操作后的历史，先固定的、再按时间从新到旧；开关关着时 entries 为空。请求不合法时 error 是 clipboard_history_invalid，读写失败时是 clipboard_history_unavailable。读写磁盘、sync 还要打开剪贴板：放在工作线程上调用。 */
+char *msime_client_desktop_clipboard_history(const uint8_t *request, size_t length);
 /* 移动端的结构化剪贴板历史，与桌面的自动记录偏好无关。请求 JSON 为 {directory: App Group 根的绝对路径, action}，action 是 {operation:"load"|"clear"}、{operation:"capture"|"remove",text}、{operation:"set_pinned",text,pinned} 或 {operation:"replace",text,replacement}。replace 按内容找到原条目原地改字，时间戳和固定状态不变；新文字与另一条相同时两条合并，固定状态取两者之或；返回 replaced、merged 和 reason（"not_found"|"invalid"|null）。历史存在 directory/MSIME/clipboard_history.json。 */
 char *msime_client_mobile_clipboard_history(const uint8_t *request, size_t length);
 /* Same validation as load_preferences; ok:true,value:null means lock busy.
@@ -396,6 +429,13 @@ char *msime_client_voice_cancel(uint64_t session);
 /* Capture bounded mono 16 kHz samples. The JSON result is transient audio and
  * must never be logged or persisted. */
 char *msime_client_voice_capture(uint32_t milliseconds);
+/* The microphones a settings page offers under 「可用录音设备」 (the Tauri settings shell's
+ * list_voice_capture_devices on Windows). Value [{backend:"windows",id,label}], at most 128,
+ * [] when there is none: id is "wasapi:" then the WASAPI endpoint id as four lowercase hex
+ * digits per UTF-16 unit, the value voice_input.capture_device holds with capture_backend
+ * "windows". Other targets fail with "voice capture devices unavailable". Enumerates through
+ * COM: call off the UI thread. Ids and labels may identify the user's hardware: never log them. */
+char *msime_client_voice_capture_devices(void);
 char *msime_client_voice_apply(uint64_t session, uint64_t generation,
                                const uint8_t *text, size_t length);
 /* On-device speech models and user-dictionary hotwords. JSON request buffers of length bytes; standard responses. Error text of the model calls is a stable code beginning with "local_model_".
@@ -404,7 +444,8 @@ char *msime_client_voice_apply(uint64_t session, uint64_t generation,
  * voice_local_models: {root: absolute dir} -> {models:[{id,title,description,languages,streaming,default,desktop_only,installed,path,installed_size,archive_size,memory,license_spdx,license_source,license_terms,license_notice,hotwords,import_files:[{name,url,size}]}], default: id}. path is <root>/<id>, the value for voice_input.asr_model_path. import_files 是不联网安装时要用户自己下载的文件（压缩包和带地址的附加文件），url 是上游下载地址。
  * voice_local_model_install: {root, id, mirror?: "https://..." prefix, files?: [absolute path]} -> {path}. Blocks for the whole download: worker thread only. progress (nullable) gets {id,stage:"download"|"verify"|"extract"|"done",downloaded,total} on the calling thread; copy the buffer before returning. One install per id at a time ("local_model_install_running"). 带 files（至多 16 个）时不联网，用这些本地文件安装：按长度和 SHA-256 认文件、不看文件名，进度阶段 download 报成 "import"，缺文件时失败为 "local_model_import_missing: <name>"，所选文件打不开或读出错时为 "local_model_import_unreadable: <detail>"。
  * voice_local_model_cancel: {id} cancels that install, NULL/0 or {} cancels all; value is whether one was running. Any thread.
- * voice_local_model_remove: {root, id} -> null. Only catalog ids; refused while that id is installing. */
+ * voice_local_model_remove: {root, id} -> null. Only catalog ids; refused while that id is installing.
+ * voice_model_setting_check: {asr_model_mirror?, asr_model_path?} (<=64 KiB) -> {asr_model_mirror?: bool, asr_model_path?: bool}, one key per field asked: whether the preferences store accepts that value (the same checks as saving). Pure. */
 typedef void (*msime_client_voice_local_model_progress_callback)(const uint8_t *json, size_t length,
                                                                  void *context);
 char *msime_client_voice_hotwords(const uint8_t *request, size_t length);
@@ -415,6 +456,7 @@ char *msime_client_voice_local_model_install(
     msime_client_voice_local_model_progress_callback progress, void *context);
 char *msime_client_voice_local_model_cancel(const uint8_t *request, size_t length);
 char *msime_client_voice_local_model_remove(const uint8_t *request, size_t length);
+char *msime_client_voice_model_setting_check(const uint8_t *request, size_t length);
 /* On-demand resource packs under <state_root>/resource-packs/<id>/, where state_root is the HostOptions preferences_directory (Android: files/bootstrap/state); a session picks up a newly published pack at its next focus. Pack ids: japanese, language-dictionaries, handwriting, settled-model, offline-glosses, voice-runtime. JSON request buffers of length bytes (<=16384); standard responses. Install and adopt block: worker thread only. Errors are "invalid resource pack request", "invalid state root", "invalid source", "resource_pack_unknown", "resource_pack_busy" (that pack is already installing or adopting in this process) or a "local_model_*" code.
  * resource_packs: {state_root} -> [{id, state:"missing"|"installed"|"outdated", size, schemes:[...]}], one entry per pack; size is the download size in bytes.
  * resource_pack_install: {state_root, pack, sources?:["https://mirror/", ...]} -> {path}. Sources are mirror prefixes tried in order (at most 8, empty ones skipped), then the project's mirrors, then the URL in the compiled lock; integrity is always the compiled size and SHA-256. An unfinished file is resumed with an HTTP Range request next time. progress (nullable) gets (context, phase "download"|"verify"|"done", done, total) on the calling thread; the phase string is valid only during the call. Cancelled installs fail with "local_model_cancelled".
@@ -444,6 +486,44 @@ char *msime_client_tencent_translation_http_request(const uint8_t *request, size
 /* Pure NiuTrans v2 descriptor <=64 KiB. Input: {config:{enabled,app_id,apikey},
  * text,source_language,target_language,timestamp}. */
 char *msime_client_niutrans_translation_http_request(const uint8_t *request, size_t length);
+/* A settings page's 「测试配置」 check, the one the Tauri settings shell runs on Windows and
+ * macOS. Request <=64 KiB: {service,config}, service one of translation.tencent ({secret_id,
+ * secret_key,region}), translation.niutrans ({app_id,apikey}), translation.custom ({endpoint,
+ * api_key}), voice.asr, voice.polish or ai.assistant, config the object the shared page sends.
+ * Value {ok,message}: message is the Chinese result line to show; it never carries the
+ * provider's reply or the credential. An incomplete config is answered without the network;
+ * otherwise this sends one request and blocks up to about 15 s: call off the UI thread.
+ * The request carries credentials: never log it. */
+char *msime_client_test_api_credential(const uint8_t *request, size_t length);
+/* Pure check of a custom translation endpoint (UTF-8, <=64 KiB), for the settings page. Value
+ * {issue,accepted}: issue is the Chinese hint the shared page shows under the endpoint field
+ * (translationEndpointIssue: empty endpoint, too long, control characters, not a URL,
+ * credentials or fragment, remote http), "" when there is none; accepted is whether the
+ * preferences store saves it (empty, https, or http to localhost/127.0.0.1/[::1]). No I/O. */
+char *msime_client_translation_endpoint_issue(const uint8_t *endpoint, size_t length);
+/* Pure check of an AI assistant endpoint (UTF-8, <=64 KiB), for the AI settings page. Value
+ * {origin,problem,hint}: origin is the "scheme://host:port" key ai_assistant.tokens stores the
+ * token under (aiCredentialOrigin), null when the endpoint is not usable; problem is null,
+ * "invalid" or "cleartext_public" (http to a host that is not this machine or the local network);
+ * hint is the Chinese line the shared page shows under the field (aiEndpointHint), "" when usable.
+ * No I/O. */
+char *msime_client_ai_endpoint_check(const uint8_t *endpoint, size_t length);
+/* The AI settings page's 「获取模型」, the Tauri settings shell's ai_models. Request <=256 KiB:
+ * {endpoint,token}, the token being ai_assistant.tokens[origin]. GETs the /models sibling of the
+ * endpoint without following redirects (http only to this machine or the local network, never
+ * through a proxy). Value: up to 128 model ids, in the service's order. Error: a stable code,
+ * ai_invalid (request or endpoint/token rejected, nothing sent), ai_models_unavailable (no
+ * connection, timeout or error status) or ai_models_invalid (reply too large or no ids). Blocks
+ * up to about 15 s: call off the UI thread. The request carries the token: never log it. */
+char *msime_client_ai_models(const uint8_t *request, size_t length);
+/* The AI settings page's 「测试」, the Tauri settings shell's ai_test. Request <=256 KiB:
+ * {endpoint,model,prompt,token,text}: model non-empty <=256 bytes; prompt (may be empty) and
+ * text (non-empty) <=16 KiB each, newlines and tabs allowed. POSTs one non-streaming chat
+ * request (prompt as system, text as user) to the endpoint without following redirects. Value:
+ * the trimmed reply text. Error: ai_invalid, ai_test_unavailable or ai_test_invalid, as for
+ * msime_client_ai_models. Blocks up to about 15 s: call off the UI thread. The request carries
+ * the token and the user's text: never log it or the reply. */
+char *msime_client_ai_test(const uint8_t *request, size_t length);
 // Pure AI descriptor from {config:AI preferences,input:{segmented_pinyin,context,candidate_limit}}.
 // Input <=64KiB. Result contains credentials; never log it. Host must forbid redirects.
 char *msime_client_ai_http_request(const uint8_t *request, size_t length);
@@ -837,6 +917,14 @@ char *msime_client_simplified_to_traditional(const uint8_t *text, size_t length)
  * Returns the standard response with an array value. Free with string_free.
  * Resolution failure retains the corresponding original family name. */
 char *msime_client_resolve_font_families(const uint8_t *value, size_t length);
+/* Installed font family names, the catalog the shared app's 刷新字体列表 reads.
+ * Returns the standard response with a sorted array of distinct names, each
+ * non-empty, at most 128 UTF-8 bytes and free of control characters; error
+ * "unsupported" on a host without a catalog, "font_catalog" or
+ * "font_catalog_limit" (over 16384 families) when enumeration fails.
+ * Enumerates the system's fonts: call it off the UI thread. Free with
+ * string_free. */
+char *msime_client_list_font_families(void);
 /* Describe what the named host ("windows"/"macos"/"linux"/"android"/"ios") can
  * do, so the shared UI renders from capabilities rather than the user agent. */
 char *msime_client_host_capabilities(const uint8_t *platform, size_t length);

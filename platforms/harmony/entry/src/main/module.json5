@@ -72,7 +72,7 @@
         // states its own.
         // 分层图标：桌面按自己的遮罩裁圆角，背景层 #252525 与 Android 经典图标的 app_icon_field 同色；单张透明底的 app_icon 在桌面上会透出壁纸。
         "icon": "$media:app_icon_layered",
-        // 启动屏图标和桌面图标同一个样子：分层图标的前景叠在 #252525 背景上、裁成圆角方形（start_window_icon.png，256×256）。原来用透明底的 app_icon，启动时屏幕中间只有一块带毛边的黑色 logo，没有底板。也不能用键盘那个按 fillColor 着色的品牌路径：它是 24×24 的单色图形，启动窗口会把图标拉满，结果是一整窗黑色笔画。
+        // 启动屏图标是网页开屏的第一帧：浅色圆盘上一个还没描笔画的标志方块（start_window_icon.png，585×621，顶上留 36px 透明），启动窗、原生盖板和开屏因此是同一个画面，见 .agents/notes/implemented/feature/2026-10-11-harmony-launch-one-picture.md 和 scripts/test-harmony-launch-continuity.py。
         "startWindowIcon": "$media:start_window_icon",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
@@ -80,6 +80,17 @@
           {
             "entities": ["entity.system.home"],
             "actions": ["action.system.home"]
+          },
+          // Google 登录回跳页上的「回到水杉输入法」按钮（msime://auth/google）。浏览器打开它就把本应用拉回前台；want 不带页面参数，onNewWant 什么也不做。
+          {
+            "entities": ["entity.system.browsable"],
+            "actions": ["ohos.want.action.viewData"],
+            "uris": [
+              {
+                "scheme": "msime",
+                "host": "auth"
+              }
+            ]
           }
         ]
       }

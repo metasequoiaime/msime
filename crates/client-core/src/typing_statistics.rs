@@ -866,6 +866,19 @@ pub enum TypingStatisticsError {
     InvalidSkinId,
 }
 
+/// 设置页读到的统计状态：统计本身，加上统计文件写过没有、最后一次写在什么时候。
+///
+/// 共享设置页（`typing-statistics.tsx` 的 `TypingStatisticsStatus`）靠后两项说明「统计没有数据」的原因：文件从未写过是键盘还没记过，写过却是零多半是刚清空。Tauri 外壳和 Windows 原生设置窗口都由 [`TypingStatisticsStore::status`] 给出它，字段名与页面读的相同。
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TypingStatisticsStatus {
+    pub statistics: TypingStatistics,
+    /// `ready`：统计文件存在；`neverWritten`：还没有写过。
+    pub availability: &'static str,
+    /// 统计文件的修改时间，Unix 毫秒；文件不存在或读不到修改时间时为 `None`。
+    pub last_written_ms: Option<u64>,
+}
+
 #[derive(Clone, Debug)]
 pub struct TypingStatisticsStore {
     directory: PathBuf,
@@ -964,6 +977,27 @@ impl TypingStatisticsStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error.into()),
         }
+    }
+
+    /// 把刚读到或刚写下的 `statistics` 连同统计文件的写入状态交给设置页。
+    pub fn status(
+        &self,
+        statistics: TypingStatistics,
+    ) -> Result<TypingStatisticsStatus, TypingStatisticsError> {
+        let last_written = self.last_written()?;
+        Ok(TypingStatisticsStatus {
+            statistics,
+            availability: if last_written.is_some() {
+                "ready"
+            } else {
+                "neverWritten"
+            },
+            last_written_ms: last_written.and_then(|time| {
+                time.duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
+            }),
+        })
     }
 
     /// Count one commit's characters against `day`, and the gap since the previous commit as

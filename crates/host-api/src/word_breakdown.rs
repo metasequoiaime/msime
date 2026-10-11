@@ -270,10 +270,16 @@ pub(crate) fn eligible(text: &str) -> bool {
     (2..=MAX_CANDIDATE_CHARS).contains(&count) && text.chars().all(is_han)
 }
 
-/// Look every possible piece of `texts` up in the installed tables: Unihan for single characters first (CC-CEDICT
-/// orders a character's readings by pinyin, not by use), then CC-CEDICT. An absent or unreadable table contributes
-/// nothing.
-pub(crate) fn known_pieces(resources: &Path, texts: &[String]) -> HashMap<String, String> {
+/// Look every possible piece of `texts` up in the installed tables: Unihan for single characters first (CC-CEDICT orders a character's readings by pinyin, not by use), then CC-CEDICT. An absent or unreadable table contributes nothing. None when neither table is installed: `LEARNER_PHRASES` alone glosses only the words it lists, so a breakdown from it would leave most of a sentence bare (别问我 read "别 do not · 问 to ask · 我").
+pub(crate) fn known_pieces(resources: &Path, texts: &[String]) -> Option<HashMap<String, String>> {
+    if ["character-glosses", "word-glosses"]
+        .iter()
+        .all(|directory| {
+            crate::supplementary_glosses::database_beside(resources, directory).is_none()
+        })
+    {
+        return None;
+    }
     let pieces = pieces_to_ask(texts);
     let mut known = HashMap::new();
     let lookup = |directory: &str, asked: &[String]| -> Vec<(String, String)> {
@@ -308,7 +314,7 @@ pub(crate) fn known_pieces(resources: &Path, texts: &[String]) -> HashMap<String
     for (piece, gloss) in lookup("word-glosses", &pieces) {
         known.entry(piece).or_insert(gloss);
     }
-    known
+    Some(known)
 }
 
 #[cfg(test)]

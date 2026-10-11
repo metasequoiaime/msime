@@ -23,8 +23,13 @@ enum GoogleLoopbackRequest {
         target: String,
         expires_in: u64,
     },
-    /// 一次回环连接读到的请求头（没读到完整请求头时为 null）。
-    Reply { head: Option<String>, state: String },
+    /// 一次回环连接读到的请求头（没读到完整请求头时为 null）；`return_link` 是能把应用拉回前台的链接，回跳页据此画「回到水杉输入法」按钮，可省略。
+    Reply {
+        head: Option<String>,
+        state: String,
+        #[serde(default)]
+        return_link: Option<String>,
+    },
 }
 
 /// Google 登录的回环判定，供自己读写 socket 的宿主使用。操作：`target`、`plan`、`reply`，各自的请求与返回值见头文件。
@@ -69,8 +74,12 @@ pub unsafe extern "C" fn msime_client_google_loopback(
                     "io_timeout_ms": u64::try_from(GOOGLE_CALLBACK_IO_TIMEOUT.as_millis()).unwrap_or(u64::MAX),
                 }))
             }
-            GoogleLoopbackRequest::Reply { head, state } => {
-                let reply = google_loopback_reply(head.as_deref(), &state);
+            GoogleLoopbackRequest::Reply {
+                head,
+                state,
+                return_link,
+            } => {
+                let reply = google_loopback_reply(head.as_deref(), &state, return_link.as_deref());
                 let outcome = match &reply.outcome {
                     GoogleCallback::Ignored => json!({ "outcome": "ignored" }),
                     GoogleCallback::Code(code) => json!({ "outcome": "code", "code": code }),
@@ -159,6 +168,22 @@ mod tests {
         }));
         assert_eq!(denied["value"]["outcome"], "failed");
         assert_eq!(denied["value"]["error"], "account_cancelled");
+        assert!(!code["value"]["response"]
+            .as_str()
+            .unwrap()
+            .contains("class=\"return\""));
+        // 宿主给了能拉回应用的链接，回跳页多一个回到应用的按钮。
+        let back = call(json!({
+            "operation": "reply",
+            "head": "GET /callback?state=fixture-state&code=4%2F0Afixture HTTP/1.1\r\n\r\n",
+            "state": "fixture-state",
+            "return_link": "msime://auth/google",
+        }));
+        assert_eq!(back["value"]["outcome"], "code");
+        assert!(back["value"]["response"]
+            .as_str()
+            .unwrap()
+            .contains("href=\"msime://auth/google\""));
         let other = call(json!({ "operation": "reply", "head": null, "state": "fixture-state" }));
         assert_eq!(other["value"]["outcome"], "ignored");
         assert!(other["value"]["response"]

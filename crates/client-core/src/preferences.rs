@@ -2349,6 +2349,11 @@ pub fn is_absolute_model_path(path: &str) -> bool {
     bytes.len() > 2 && bytes[0] == b'\\' && bytes[1] == b'\\' && bytes[2] != b'\\'
 }
 
+/// 判断 `voice_input.asr_model_path` 能否保存：空字符串，或不超过 4096 字节、不含控制字符的绝对路径（[`is_absolute_model_path`]）。
+pub fn valid_model_path(path: &str) -> bool {
+    crate::text::is_bounded_text(path, 4096) && (path.is_empty() || is_absolute_model_path(path))
+}
+
 /// 判断本地模型镜像：空字符串，或不带凭据、查询和片段的 HTTPS 前缀。
 pub fn valid_model_mirror(mirror: &str) -> bool {
     if mirror.is_empty() {
@@ -2620,11 +2625,9 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidAiAssistant);
         }
-        let model_path = &self.voice_input.asr_model_path;
         if !ASR_PROVIDERS.contains(&self.voice_input.asr_provider.as_str())
             || !POLISH_PROVIDERS.contains(&self.voice_input.polish_provider.as_str())
-            || !crate::text::is_bounded_text(model_path, 4096)
-            || (!model_path.is_empty() && !is_absolute_model_path(model_path))
+            || !valid_model_path(&self.voice_input.asr_model_path)
             || !valid_model_mirror(&self.voice_input.asr_model_mirror)
         {
             return Err(PreferencesError::InvalidVoiceInput);

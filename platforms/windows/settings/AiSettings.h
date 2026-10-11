@@ -1,0 +1,152 @@
+#pragma once
+#include "TranslationServiceSettings.h"
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <string>
+#include <string_view>
+#include <vector>
+
+// 「AI 辅助」页的规则，平台固定为 Windows：服务商列表和各服务商的默认地址、模型、已知模型与接入文档（`packages/ui/src/settings/ai-provider-options.ts`），换服务商时改哪些字段（`ai-provider-update.ts`），「测试 AI 辅助配置」何时可用（`ai-credential-test-config.ts` 的 aiServiceCredentialTestDisabled），候选数量怎么取值、提示词槽位（`ai-settings-page-section.tsx`），以及获取模型和润色测试的提示文字（`use-ai-assistant.ts`、`ai-assistant-defaults.ts`）。接口地址的规则和说明在 Rust（msime_client_ai_endpoint_check），不在这里。不依赖 Windows 和 WinRT 头文件，方便单独测试。
+namespace msime::settings::ai {
+
+// 一个服务商（AI_PROVIDER_OPTIONS 的一项）。models 和 documentation 只用来显示，请求总是用设置里保存的值。
+struct Provider {
+  std::wstring_view id;
+  std::wstring_view title;
+  std::wstring_view endpoint;
+  std::wstring_view model;
+  std::vector<std::wstring_view> models;
+  std::wstring_view documentation;
+};
+
+// 按共享页的顺序；最后一项「自定义」没有默认值，也是不认识的服务商换过去时落到的那一项。id 与偏好库的 AI_PROVIDERS 一致。
+inline std::vector<Provider> const &providers() {
+  static const std::vector<Provider> table{
+      {L"everyapi", L"EveryAPI", L"https://api.everyapi.ai/v1/chat/completions",
+       L"deepseek-v4-flash",
+       {L"deepseek-v4-flash", L"deepseek-v4-pro", L"claude-sonnet-5", L"glm-5.3-flash"},
+       L"https://everyapi.ai/models"},
+      {L"openai", L"OpenAI", L"https://api.openai.com/v1/chat/completions", L"gpt-4.1-mini",
+       {L"gpt-4.1-mini"}, L"https://developers.openai.com/api/docs/models/gpt-4.1-mini"},
+      {L"anthropic", L"Anthropic · Claude", L"https://api.anthropic.com/v1/chat/completions",
+       L"claude-sonnet-4-6", {L"claude-sonnet-4-6", L"claude-opus-5"},
+       L"https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk"},
+      {L"gemini", L"Google · Gemini",
+       L"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+       L"gemini-3.8-flash", {L"gemini-3.8-flash", L"gemini-2.5-flash"},
+       L"https://ai.google.dev/gemini-api/docs/openai"},
+      {L"deepseek", L"DeepSeek", L"https://api.deepseek.com/chat/completions",
+       L"deepseek-v4-flash", {L"deepseek-v4-flash", L"deepseek-v4-pro"},
+       L"https://api-docs.deepseek.com/"},
+      {L"qwen", L"通义千问 · 阿里云百炼",
+       L"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", L"qwen-plus",
+       {L"qwen-plus"},
+       L"https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope"},
+      {L"kimi", L"Kimi · 月之暗面", L"https://api.moonshot.cn/v1/chat/completions", L"kimi-k2.6",
+       {L"kimi-k2.6", L"kimi-k2.5"}, L"https://platform.kimi.com/docs/api/chat"},
+      {L"zhipu", L"智谱 · GLM", L"https://open.bigmodel.cn/api/paas/v4/chat/completions",
+       L"glm-4.7", {L"glm-4.7", L"glm-4.7-flashx"},
+       L"https://docs.bigmodel.cn/cn/guide/models/text/glm-4.7"},
+      {L"siliconflow", L"硅基流动", L"https://api.siliconflow.cn/v1/chat/completions",
+       L"Qwen/Qwen3.6-27B", {L"Qwen/Qwen3.6-27B"},
+       L"https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation"},
+      {L"groq", L"Groq", L"https://api.groq.com/openai/v1/chat/completions",
+       L"llama-3.3-70b-versatile", {L"llama-3.3-70b-versatile", L"llama-3.1-8b-instant"},
+       L"https://console.groq.com/docs/quickstart"},
+      {L"openrouter", L"OpenRouter", L"https://openrouter.ai/api/v1/chat/completions",
+       L"openrouter/auto", {L"openrouter/auto"}, L"https://openrouter.ai/docs/quickstart"},
+      {L"custom", L"自定义", L"", L"", {}, L""},
+  };
+  return table;
+}
+
+// aiProviderOption：不认识的服务商为空。
+inline Provider const *find_provider(std::wstring_view id) {
+  for (auto const &entry : providers())
+    if (entry.id == id)
+      return &entry;
+  return nullptr;
+}
+
+// 换服务商时读写的三项。
+struct ProviderFields {
+  std::wstring provider;
+  std::wstring endpoint;
+  std::wstring model;
+};
+
+// aiProviderUpdate（updateAiProvider）：换上新服务商；接口地址和模型为空（去掉首尾空白后）或还是原服务商的默认值时换成新服务商的默认值，否则是用户自己填的，保留。不认识的服务商按「自定义」处理。
+inline ProviderFields provider_update(std::wstring_view provider, ProviderFields const &current) {
+  auto const &table = providers();
+  const auto *next = find_provider(provider);
+  if (!next)
+    next = &table.back();
+  const auto *previous = find_provider(current.provider);
+  ProviderFields update;
+  update.provider = std::wstring(next->id);
+  update.endpoint = js_trim(current.endpoint).empty() ||
+                            (previous && current.endpoint == previous->endpoint)
+                        ? std::wstring(next->endpoint)
+                        : current.endpoint;
+  update.model = js_trim(current.model).empty() || (previous && current.model == previous->model)
+                     ? std::wstring(next->model)
+                     : current.model;
+  return update;
+}
+
+// 「测试 AI 辅助配置」不可用：AI 辅助关着、接口地址不能用、没填模型或没填 API Token（aiServiceCredentialTestDisabled）。
+inline bool credential_test_disabled(bool enabled, bool has_origin, std::wstring_view model,
+                                     std::wstring_view token) {
+  return !enabled || !has_origin || js_trim(model).empty() || js_trim(token).empty();
+}
+
+// 候选数量输入框（type=number，1 到 10）：clamp(Number(value) || 3, 1, 10)。读不出数（NaN）或是 0 时取 3。偏好里存的是整数，所以小数四舍五入，共享页会原样存下小数而被偏好库拒绝。
+inline int candidate_limit(double value) {
+  if (std::isnan(value) || value == 0)
+    return 3;
+  return static_cast<int>(std::clamp(std::round(value), 1.0, 10.0));
+}
+
+struct PromptSlot {
+  std::wstring_view id;
+  std::wstring_view option;
+  std::wstring_view label;
+};
+
+// 三个提示词槽位（customPromptSlotOptions 的选项和 slotPrompts 的标签），提示词存在 ai_assistant.prompt_<id>。
+inline constexpr std::array<PromptSlot, 3> prompt_slots{{
+    {L"custom_1", L"自定义一", L"自定义提示词一"},
+    {L"custom_2", L"自定义二", L"自定义提示词二"},
+    {L"custom_3", L"自定义三", L"自定义提示词三"},
+}};
+
+// 所选的槽位：prompt_id 为空或不是三个槽位之一时用第一个（`promptId || "custom_1"`，slotPrompts 找不到时退回 custom_1）。
+inline PromptSlot const &prompt_slot(std::wstring_view prompt_id) {
+  for (auto const &slot : prompt_slots)
+    if (slot.id == prompt_id)
+      return slot;
+  return prompt_slots[0];
+}
+
+// 「AI 润色测试」发给服务的指令，与联想提示词无关（aiPolishTestPrompt）。
+inline constexpr std::wstring_view polish_test_prompt =
+    L"请润色以下文字，保持原意，只返回修改后的文字。";
+
+// 获取模型成功后的提示。
+inline std::wstring models_status(std::size_t count) {
+  return L"已获取 " + std::to_wstring(count) + L" 个可用模型。";
+}
+
+// 获取到模型列表后要换上的模型：列表不空且不含当前模型时取第一个，否则为空（不改）。
+inline std::wstring fetched_model(std::vector<std::wstring> const &models, std::wstring_view model) {
+  if (models.empty() || std::find(models.begin(), models.end(), model) != models.end())
+    return {};
+  return models.front();
+}
+
+// 宿主返回的是错误码而不是 Error，共享页只显示它自己的兜底文字。
+inline constexpr std::wstring_view models_failure = L"获取模型失败，请检查地址、密钥和网络。";
+inline constexpr std::wstring_view test_failure = L"AI 请求失败，请检查地址、模型、密钥和网络。";
+
+} // namespace msime::settings::ai

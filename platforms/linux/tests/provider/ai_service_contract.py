@@ -61,8 +61,8 @@ class AiServiceContract(unittest.TestCase):
 
     def test_model_catalogue_sits_beside_the_configured_endpoint(self):
         # The endpoint's own API prefix is reused rather than assumed, which is
-        # what the desktop shell's ai_models_url does for the hosts that hold the
-        # token themselves.
+        # what client-core's ai::endpoint::models_url does for the hosts that
+        # hold the token themselves.
         self.assertEqual(
             online.ai_models_url(PRIVATE["endpoint"]),
             "https://service.example.invalid/openai/v1/models",

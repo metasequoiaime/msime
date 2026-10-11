@@ -1,0 +1,160 @@
+# Metasequoia IME (水杉输入法)
+
+[简体中文](../../README.md) · **English** · [日本語](README.ja.md) · [한국어](README.ko.md) · [繁體中文](README.zh-Hant.md)
+
+> This is a translation of the [Simplified Chinese README](../../README.md), which is authoritative. Linked documents are mostly in Chinese.
+
+[![Core CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci.yml?branch=develop&label=Core%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci.yml?query=branch%3Adevelop)
+[![Native Platform CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci-platforms.yml?branch=develop&label=Platform%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci-platforms.yml?query=branch%3Adevelop)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/codeql.yml?branch=develop&event=schedule&label=CodeQL&logo=github)](https://github.com/metasequoiaime/msime/actions/workflows/codeql.yml)
+[![Cargo audit](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/cargo-audit.yml?branch=develop&event=schedule&label=cargo%20audit&logo=rust)](https://github.com/metasequoiaime/msime/actions/workflows/cargo-audit.yml)
+
+[![Android version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fandroid%2Fversion.txt&query=%24&prefix=v&label=Android&logo=android&logoColor=white&color=34A853)](../../platforms/android/README.md)
+[![iOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fios%2Fversion.txt&query=%24&prefix=v&label=iOS&logo=apple&logoColor=white&color=147EFB)](../../platforms/ios/README.md)
+[![macOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fmacos%2Fversion.txt&query=%24&prefix=v&label=macOS&logo=apple&logoColor=white&color=000000)](../../platforms/macos/README.md)
+[![Linux version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Flinux%2Fversion.txt&query=%24&prefix=v&label=Linux&logo=linux&logoColor=white&color=D97706)](../../platforms/linux/README.md)
+[![Windows version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fwindows%2Fversion.txt&query=%24&prefix=v&label=Windows&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuMzc3djExLjM3Mkgwem0xMi42MjMgMEgyNHYxMS4zNzJIMTIuNjIzek0wIDEyLjYyM2gxMS4zNzdWMjRIMHptMTIuNjIzIDBIMjRWMjRIMTIuNjIzeiIvPjwvc3ZnPg%3D%3D&logoColor=white&color=0078D4)](../../platforms/windows/README.md)
+[![HarmonyOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fharmony%2Fversion.txt&query=%24&prefix=v&label=HarmonyOS&logo=harmonyos&logoColor=white&color=CF0A2C)](../../platforms/harmony/README.md)
+[![npm @msime/web-engine](https://img.shields.io/npm/v/@msime/web-engine?label=%40msime%2Fweb-engine&logo=npm)](https://www.npmjs.com/package/@msime/web-engine)
+
+[![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](../../LICENSE)
+[![Rust 1.89+](https://img.shields.io/badge/rust-1.89%2B-orange?logo=rust)](../../Cargo.toml)
+[![Website](https://img.shields.io/badge/website-msime.app-2E7D32)](https://msime.app/)
+[![GitHub stars](https://img.shields.io/github/stars/metasequoiaime/msime?style=flat&logo=github)](https://github.com/metasequoiaime/msime/stargazers)
+[![Contributors](https://img.shields.io/github/contributors/metasequoiaime/msime)](https://github.com/metasequoiaime/msime/graphs/contributors)
+[![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/develop)](https://github.com/metasequoiaime/msime/commits/develop)
+<a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
+
+Metasequoia IME (MSIME) is a multi-platform Chinese input method for Android, iOS, macOS, Linux, Windows and HarmonyOS. Each of the six platforms has its own native input method host, and all of them connect to the same shared input runtime and the same React settings UI; the React management UI calls ordinary Rust business libraries through Tauri; the input algorithms are provided by msime-engine.
+
+Project home: [msime.app](https://msime.app/) · [GitHub repository](https://github.com/metasequoiaime/msime) · [Contributors](https://github.com/metasequoiaime/msime/graphs/contributors) · [Issues](https://github.com/metasequoiaime/msime/issues) · [Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=metasequoiaime/msime&type=Date)](https://star-history.com/#metasequoiaime/msime&Date)
+
+> **About the name**: MSIME is short for Metasequoia IME (水杉输入法). It is unrelated to Microsoft IME and has no affiliation with Microsoft whatsoever. Every occurrence of `msime` in code, package names and repository names has this meaning. `shuangpin_profile: microsoft` in the settings is the "Microsoft Shuangpin" scheme, one of four key layouts alongside Xiaohe, Ziranma and Shoudao, offered for users accustomed to that layout; it likewise implies no affiliation.
+
+**An input method sees everything you type, so this question deserves an answer you can check item by item: [what data leaves the device](../../PRIVACY.md).** The short version: with the default configuration of a fresh install, no feature sends what you type off the device; cloud suggestions (sending the pinyin being composed to Google Input Tools) have to be turned on by you, at the first prompt or in settings, and every other networked feature only works after you enter your own credentials or choose a service. Separately, there is a first-party anonymous usage statistic that carries no input content: all six platforms send daily-active, session and crash (error summary and call stack with directories stripped) records to `api.msime.app`. It is on by default and can be turned off under "Anonymous usage statistics" in settings — the fields, per-platform differences and on-disk locations are listed item by item in [PRIVACY.md](../../PRIVACY.md#使用统计与崩溃上报默认开启可关闭). The repository does not integrate any third-party analytics or crash-reporting SDK.
+
+## Module boundaries
+
+- `crates/client-core`: host-independent client business logic — local configuration, generational installation of pinned resources, accounts and sessions, cloud and AI, skins, dictionaries, clipboard, voice, translation, typing statistics; does not depend on Tauri, UI or platform hosts.
+- `crates/input-runtime`: session orchestration, focus cancellation, candidate paging and generation-tagged selection; does not duplicate the engine's composition state machine.
+- `crates/engine` (`msime-engine`): pure Rust input engine — composition state, the input schemes, dictionary lookup and learning replay; ported from the original C++ MSIME-Engine.
+- `crates/host-api`: versioned C interface, thread-bound session handles and explicit response freeing; the hosts on all six platforms link against it.
+- `packages/ui`, `apps/desktop`: the shared React settings pages and the Tauri hosting layer; every platform uses the same Rust entry library, commands and React pages; the directory name keeps "desktop". The Rust entry is layered into `platform/{android,ios,linux,macos,windows,desktop}`, `shared/` and `tests/`. **Tauri is a shared component, not the product itself on any platform**: what is ultimately installed, launched and recognized by the system as an input method is always the native host under `platforms/<os>`, which hosts Tauri/React on demand.
+- `shared/apple/`: Foundation / Objective-C++ bridging shared by macOS and iOS; contains no system input method entry point.
+- `platforms/`: per-system entry points and adaptation layers. Each of the six platforms — Android, iOS, macOS, Linux, Windows and HarmonyOS — maintains its own host boundary, and each host is recognized as an input method in that system's native way: the input method service on Android, the keyboard extension on iOS, the InputMethodKit bundle on macOS, the IBus and Fcitx5 entry points on Linux, the TSF DLL and Server on Windows, and the InputMethodExtensionAbility on HarmonyOS. The shared input algorithms and composition state are owned by `crates/engine`; hosts do not duplicate them.
+
+## Platform directories and host forms
+
+| Platform | Entry directory | Host form and integration |
+| --- | --- | --- |
+| [Android](../../platforms/android/README.md) | `platforms/android/` | The input method service `app.msime.android.MSIMEInputService` runs in a separate `:ime` process, and the Java host calls host-api through `platforms/android/native/client_jni.cpp`; the Tauri/React settings are in the same package as the input method but a different process, sharing private files/bootstrap/state; handwriting uses ML Kit Digital Ink |
+| [iOS](../../platforms/ios/README.md) | `platforms/ios/` | A native app generated by XcodeGen from `project.yml` embeds the keyboard extension `MSIMEKeyboardExtension`, and the two share state through the App Group `group.app.msime.ios`; the Swift keyboard calls host-api directly, and handwriting uses ML Kit Digital Ink |
+| [macOS](../../platforms/macos/README.md) | `platforms/macos/` | InputMethodKit bundle (product name `水杉输入法.app`, bundle id `app.msime.inputmethod.MetasequoiaIME`); the Swift backend is compiled into `MSIMEBackend.dylib` and distributed with the bundle, and Sparkle handles automatic updates |
+| [Linux](../../platforms/linux/README.md) | `platforms/linux/` | IBus and Fcitx5 are two parallel system entry points linking the same host-api ABI; online suggestions, voice, clipboard and similar capabilities are carried by a separate provider process plus systemd user units; CPack produces TGZ and DEB |
+| [Windows](../../platforms/windows/README.md) | `platforms/windows/`, `platforms/windows/tsf/` | The in-process TSF DLL (`MetasequoiaImeTsf`) communicates with the out-of-process `MetasequoiaImeServer` over a named pipe, alongside a watchdog and a runtime-configuration preparation tool; the candidate window, floating toolbar and tray menu are drawn by `msimeui` with Direct2D/DirectWrite; the Inno Setup installer registers the TIP and bundles the dictionaries |
+| [HarmonyOS](../../platforms/harmony/README.md) | `platforms/harmony/` | The ArkTS `KeyboardExtensionAbility` (`module.json5` declares `type: "inputMethod"`) hosts the keyboard and calls host-api through the NAPI module `libmsimeclient.so`; the settings page is the same shared React page, inlined and packaged into `entry/src/main/resources/rawfile/settings/index.html` |
+
+The shared libraries can be loaded into different host processes; typing does not require launching Tauri. All six platforms are consistent: the product is the native host in `platforms/<os>`, and Tauri only provides the cross-platform shared features and UI and is never launched on its own as the product. Cross-process settings changes go through explicit persistence and notification mechanisms and do not rely on in-process shared memory.
+
+## CI and releases
+
+Baseline checks on `develop` are handled by `Core CI`, which in practice runs actionlint workflow validation and dependency review; the repository's text contracts are the set of `test-*.py` files under `scripts/`, which `scripts/run-checks.sh` discovers by file name and runs. The contracts job of `Core CI` runs it on Linux, and `scripts/verify-local.sh` runs the same script locally; checks that lack the required tools or reference repositories print skipped on CI and pass. Builds and tests for iOS and macOS are handled by their respective native host workflows. Android, Linux, HarmonyOS and Windows are run by Native Platform CI when the corresponding platform or the shared layer has changed, and are explicitly skipped otherwise; this layer covers host contracts, JVM smoke tests, container builds and cross-compilation. Device-level input acceptance is covered by the device suites and manual steps recorded in each platform's README, not replaced by CI. See [GitHub Actions](https://github.com/metasequoiaime/msime/actions) for the status of each workflow; develop is merged frequently and queued runs are often cancelled by later pushes, so when reading results, go by the most recent run that finished and was not cancelled.
+
+Releases of the six platforms are fully independent: each platform has its own manual release workflow, version file, concurrency group, build artifacts and GitHub Release tag. The release workflows only create GitHub Releases; they do not upload to app stores automatically or use signing credentials.
+
+| Platform | Release workflow | Version file | Tag |
+| --- | --- | --- | --- |
+| Android | [![Android Release](https://github.com/metasequoiaime/msime/actions/workflows/release-android.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-android.yml) | `platforms/android/version.txt` | `android-vX.Y.Z` |
+| iOS | [![iOS Release](https://github.com/metasequoiaime/msime/actions/workflows/release-ios.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-ios.yml) | `platforms/ios/version.txt` | `ios-vX.Y.Z` |
+| macOS | [![macOS Release](https://github.com/metasequoiaime/msime/actions/workflows/release-macos.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-macos.yml) | `platforms/macos/version.txt` | `macos-vX.Y.Z` |
+| Linux | [![Linux Release](https://github.com/metasequoiaime/msime/actions/workflows/release-linux.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-linux.yml) | `platforms/linux/version.txt` | `linux-vX.Y.Z` |
+| Windows | [![Windows Release](https://github.com/metasequoiaime/msime/actions/workflows/release-windows.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-windows.yml) | `platforms/windows/version.txt` | `windows-vX.Y.Z` |
+| HarmonyOS | [![HarmonyOS Release](https://github.com/metasequoiaime/msime/actions/workflows/release-harmony.yml/badge.svg)](https://github.com/metasequoiaime/msime/actions/workflows/release-harmony.yml) | `platforms/harmony/version.txt` | `harmony-vX.Y.Z` |
+
+## Development
+
+Before contributing code, read the [architecture overview](../ARCHITECTURE.md), [contributing guide](../../.github/CONTRIBUTING.md), [security policy](../../.github/SECURITY.md), [network requests and data flows](../../PRIVACY.md) and [code of conduct](../../.github/CODE_OF_CONDUCT.md). When preparing to publish source code or platform build artifacts, also read the [open-source release checklist](../open-source-release.md) and the [third-party component inventory](../third-party.md); they list third-party notices, resource licenses, sensitive-file checks and verification boundaries. For build, test and installation details of each platform host, the corresponding `platforms/<os>/README.md` is authoritative. To make sound packs, music packs, command tables, effect packs, phrase tables, auxiliary code tables, word books or symbol sets, see the [plugin author guide](../plugins.md).
+
+The cross-platform local verification entry point is `bash scripts/verify-local.sh`: `--quick` runs only the build stage and is the pre-merge gate; with no arguments it runs the full suite, including Rust tests, fmt, clippy, dependency audit, frontend lint and type checks, ctest for each native host, and the whole-sentence conversion and per-keystroke latency benchmarks. Each stage compares the names of failing tests against `scripts/known-failures.txt` and fails only on names not on that list. `git config core.hooksPath .githooks` hooks `--quick` into pre-push.
+
+```sh
+cargo test -p msime-client-core --locked
+cargo fmt --all --check
+cargo clippy -p msime-client-core --all-targets --locked -- -D warnings
+pnpm install --frozen-lockfile
+pnpm --filter @msime/desktop test
+pnpm build
+pnpm tauri dev
+```
+
+Desktop builds require the [Tauri platform prerequisites](https://tauri.app/start/prerequisites/). `pnpm tauri build --debug --no-bundle` builds an unbundled development binary; user-facing installers are produced by each platform's own packaging chain — the CMake bundle on macOS, `platforms/windows/installer/msime_setup.iss` on Windows, CPack (`-DMSIME_ENABLE_PACKAGING=ON`) on Linux, `platforms/android/build-apk.sh` on Android, `hvigorw assembleHap` on HarmonyOS, and the Xcode project on iOS. In an ordinary browser, only a notice that local configuration cannot be accessed is shown; a successful save is not simulated.
+
+The application identifier and default app data directory of the desktop settings are named per platform: `app.msime.macos` on macOS, `app.msime.windows` on Windows and `app.msime.linux` on Linux. Preferences are stored in `preferences.json` inside that directory. The environment variable `MSIME_CLIENT_STATE_DIR`, set to an absolute path, can also point to an isolated development directory. The macOS native host reads the same configuration and applies updates after the current composition ends; when several settings windows save at the same time, conflicts are detected through a revision, and the user must explicitly reload before deciding whether to overwrite.
+
+For the Android combined-package build and device testing, see [Android host](../../platforms/android/README.md#tauri--react-共享设置合包). The Tauri settings and the native `:ime` service are in the same package but different processes, sharing private files/bootstrap/state; closing the settings window does not end the input method process. The product host on iOS is the native app in `platforms/ios`, which embeds the native keyboard extension and shares state through the App Group; on iOS, Tauri/React serves only as a shared component for the common features and UI and is not launched as a standalone app. For signing and device installation steps, see [iOS host](../../platforms/ios/README.md).
+
+The shared settings support shuangpin_profile: xiaohe (Xiaohe), ziranma (Ziranma), shoudao (Shoudao), microsoft (Microsoft). When the value is absent it is read as Xiaohe, and unknown values are rejected; the settings page disables this selection under non-shuangpin schemes but keeps the selected value. Scheme changes follow the same rule of replacing the Engine after the composition ends.
+
+For local Linux builds, isolated D-Bus / IBus tests and first-time setup after installation, see [Linux host](../../platforms/linux/README.md). The host supports automatic reloading of the settings file; after installation, the bundled `msime-linux-setup` provisions the dictionaries and prepares the runtime configuration. `msime-linux-setup --download` fetches missing dictionaries according to `resources/desktop-dictionary.lock.json`, and the graphical entry point opens the same first-time setup page when `runtime-options.json` is missing.
+
+Feature parity takes the complete feature set of MSIME-Windows as the behavioral baseline: the shared business logic and UI are wired into the shared layer and Tauri item by item. Windows keeps the split-process structure of TSF DLL and Server, but the protocol between them only serves same-version builds of this repository and is no longer compatible with MSIME-Windows's old configuration, shared memory, unversioned handshake or old voice pipe; Android, iOS, macOS, Linux and HarmonyOS adapt according to their own system capabilities. `scripts/test-reference-*.py` turns this baseline into a rerunnable gate — the reference implementation's factory configuration keys, the machine-readable capability inventories of its four UIs, every feature in its changelog, and every source file under `windows/`, `server/` and `ui/src` must each map to an implementation in this repository or to an absence record that states the reason.
+
+## Input engine
+
+```sh
+cargo test -p msime-engine --locked
+```
+
+The input engine is `crates/engine` in the workspace and is built together with the other crates; it needs no extra source checkout and no C++ toolchain, and SQLite is compiled in through the `bundled` feature of `rusqlite`. The behavioral baseline is `crates/engine/tests/golden/`, recorded from the original C++ Engine; see `tools/engine-golden/README.md` for how it is recorded. Paths are supplied explicitly by the host, and character input consists of ASCII actions supported by the engine. Engine and runtime tests use the real engine rather than test doubles; among them, the group of local Unicode mode cases covers the decision of whether a bare digit key goes to the engine or to candidate selection.
+
+## Native host interface
+
+`cargo build -p msime-host-api --locked` produces a static library and a dynamic library. The header is `crates/host-api/include/msime_client.h`, and the C consumer example is `crates/host-api/native/native_smoke.c`. The call chain is C host → host-api → input-runtime → engine, with no dependency on the Tauri runtime.
+
+After creating a session, the host must pass in the focus state explicitly, map `handled` to the system consuming the key, commit `commit` to the text field through the system API, and render the value snapshot as candidates. Candidate selection carries the returned generation and the global index. All session operations run on the thread that created the session; expired, destroyed or wrong-thread handles return errors. Each UTF-8 JSON response must be freed exactly once with `msime_client_string_free`. Per-keystroke latency is measured against a frame budget by the `rerank_latency` example in `crates/input-runtime`, and `scripts/verify-local.sh` runs it as a gate stage.
+
+`msime_client_select_edge(session, generation, index, edge)` is an ABI 1 addition; adapters and host libraries must be updated together. Directions use `MSIME_FIRST_HAN` / `MSIME_LAST_HAN`; the shared layer checks the session, generation and current page the candidate belongs to, and the engine extracts the first/last Han character and clears the entire composition on success. When the candidate contains no Han character, it returns not-handled and keeps the composition, without selecting a word automatically or appending punctuation; such valid calls still advance the view generation, and the host must use the new snapshot for subsequent operations. Invalid directions and stale identities are rejected before any state advances. The Windows adapter library's config-key routing, no-Han fallback and TSF reply encoding are all wired into the production KeyHandler, and tests such as `msime-tsf-client-key-router`, `msime-tsf-character-result` and `msime-tsf-engine-response` in the `platforms/windows/tsf` ctest cover this path.
+
+## Pinned dictionary resources
+
+`resources/desktop-dictionary.lock.json` pins the source, length and SHA-256 of the published `dict-v2.0.14` release of `metasequoiaime/msime-dictionary`. Of these files, `msime-mozc_dictionary_oss_README.txt` and `msime-mozc_LICENSE.txt` are the full license texts for the Japanese dictionary (the former contains the IPAdic and ICOT terms, the latter Mozc's three-clause BSD license), and `msime-scowl_Copyright.txt` is the copyright and license notice for the SCOWL word list in `msime-english.db`; their terms all require them to be distributed together with the data, so they must not be omitted when repackaging; see the [third-party component inventory](../third-party.md#日文词库的分发义务) for details. The first download is about 189 MB. The lock's `source_commit` records which commit of this repository produced this batch of dictionaries with `msime-dict-build`; among them, `msime-bigram.bin` and `msime-trigram.bin` are the language model tables used for whole-sentence lattice arbitration. When the tables are missing, the engine does not report an error; the whole-sentence path is simply unweighted — candidates still appear, in a worse order — so when changing dictionary versions, confirm that `crates/engine` can still read the new tables and rerun the sentence conversion benchmark. Development setup command:
+
+```sh
+cargo run -p msime-client-core --example install_resources -- target/resources
+```
+
+The installer reads resources through an injected stream, limits their length and verifies their digests; only after everything succeeds are they published to a content-addressed directory. On reuse, the cached bytes are checked; a corrupted cache reports an error, and a failed installation does not replace the previous generation. This step only prepares immutable release resources; it does not activate the existing input method or migrate user learning data. Resources are downloaded as individual files; no whole-package archive is extracted.
+
+`msime_engine::host::prepare_options` is the authoritative entry point for working-dictionary preparation and learning replay; callers must verify the resources and pause the affected sessions first. The following probe uses a temporary user directory and cache to verify the `nihao` lookup, candidate commit, and first/last Han character selection against the published dictionary:
+
+```sh
+cargo run -p msime-engine --example query_dictionary -- <上一步返回的资源目录>
+```
+
+The whole-sentence neural reranking model has its own `resources/neural-model.lock.json`, which locks the small model used by keyboards and the large model used by the desktop for settling to the same release version. To prepare the two models separately, run:
+
+```sh
+python3 scripts/fetch_neural_model.py --out target/neural-model
+```
+
+Downloads accept only HTTPS and are first written to a temporary file; each file is published by rename only after its locked length and SHA-256 have been verified, and existing files whose digest already matches are skipped. None of the released installers include the desktop model; when the user turns on "Desktop neural suggestions", the settings app downloads it on demand (resource pack `settled-model`). Local builds and distribution packaging can still bundle it; in that case resource packaging prefers the legacy `target/settled-model` directory and, if it is missing, automatically uses the desktop model in this `target/neural-model` directory, and the bundled copy takes precedence over a downloaded one. The keyboard model is still verified and copied into EngineResources by the dictionary resource installer driven by `desktop-dictionary.lock.json`; both locks are kept as provenance records.
+
+The language dictionaries for Jyutping, Zhuyin and stroke input are pinned separately by `resources/language-dictionaries.lock.json`; the three dictionaries, together with their respective license texts, form a single resource pack, `language-dictionaries`. The macOS release package and Android's full and Pinyin-edition release APKs bundle only the core dictionaries needed for typing Chinese: the Japanese dictionary group (`msime-japanese.dat` and the two Mozc license texts) and the language dictionaries are not bundled, and are downloaded according to the lock file into `resource-packs/` in the preferences directory only when the user selects the Japanese, Jyutping, Zhuyin or stroke scheme (on Android, when the user adds these languages under "Add language"; the Pinyin edition does not offer Jyutping, Zhuyin or stroke, and only downloads the Japanese dictionary for temporary Japanese input). Downloaded files are verified against the locked length and SHA-256 just like bundled files. These two Android editions also leave non-English offline glosses (`resources/offline-glosses.lock.json`, downloaded when offline glosses are turned on) and the local voice runtime (`resources/voice-runtime-android.lock.json`, downloaded when "Offline recognition" is turned on) to on-demand download, and no resource pack is downloaded automatically at startup; when upgrading from an older version that bundled these files, files already extracted on the device are converted directly into resource packs once they pass verification. Windows, Linux, iOS, HarmonyOS, the other Android editions and the Tauri development combined package still bundle them as before. For download URLs, mirrors and privacy notes, see [PRIVACY.md](../../PRIVACY.md#资源与更新下载).
+
+For building the macOS native IMK bundle, isolated state directories and installation, see [macOS host](../../platforms/macos/README.md). `platforms/macos/scripts/install.sh` re-signs with Developer ID and atomically replaces the bundle in `~/Library/Input Methods`, rolling back on failure; `platforms/macos/scripts/check_input_source.swift` checks the result of the input source registration.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+Official Windows releases are currently built, signed and published by [msime-windows](https://github.com/metasequoiaime/msime-windows), and signing there is governed by that repository's [Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md). This repository's Windows installer is built by `release-windows.yml`; SignPath signing is not yet enabled (it is waiting for SignPath Foundation to add this repository to the same project), and until it is enabled, the published installers are unsigned. The signing scope, roles and process once it is enabled are described in this repository's [Code signing policy](../code-signing-policy.md). The other platforms are signed through their own platform mechanisms and do not go through SignPath. For privacy information, see [PRIVACY.md](../../PRIVACY.md).
+
+## License
+
+The source code is licensed under **GPL-3.0-only**; see [LICENSE](../../LICENSE) for the full text.
+
+Upstream code, dictionaries, models and platform SDKs are governed by their own licenses and notices; in particular, handwriting recognition on Android and iOS uses Google ML Kit, which is licensed under its terms of service rather than an open-source license. For the complete mapping, see the [third-party component inventory](../third-party.md).

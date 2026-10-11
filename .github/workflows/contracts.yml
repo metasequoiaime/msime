@@ -23,6 +23,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Nothing is installed with apt: apt-get update on a runner once spent 10m22s refreshing indexes for a step whose tests then ran in 0.042s, more than this whole job is meant to cost. A discovered check whose tool the image lacks (ripgrep for android-preference-keys) or whose input is absent (the MSIME-Windows reference checkout) prints "skipped" and passes, as CONTRIBUTING.md requires of every check; verify-local.sh still runs them where the tool or input exists.
+      # Nothing is installed with apt: apt-get update on a runner once spent 10m22s refreshing indexes for a step whose tests then ran in 0.042s, more than this whole job is meant to cost. A discovered check whose tool the image lacks (ripgrep for android-preference-keys) or whose input is absent (the MSIME-Windows reference checkout) prints "skipped" and passes, as .github/CONTRIBUTING.md requires of every check; verify-local.sh still runs them where the tool or input exists.
       - name: Check the repository contracts
         run: bash scripts/run-checks.sh

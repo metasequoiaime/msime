@@ -64,8 +64,8 @@ final class KeyboardChatModel: ObservableObject {
     error = nil; sending = true
     generation += 1
     let version = generation
-    // Bound context to the service contract while retaining the newest complete messages.
-    let context = KeyboardChatHistoryPolicy.bounded(messages.map { (role: $0.role, text: $0.text) })
+    // The system prompt first, then the newest complete messages that still fit the service contract.
+    let context = KeyboardChatHistoryPolicy.request(messages.map { (role: $0.role, text: $0.text) })
       .map { BackendAccountClient.ChatMessage(role: $0.role, content: $0.text) }
     let history = context
     request = Task { [weak self] in

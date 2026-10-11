@@ -17,7 +17,7 @@ pub fn setup(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .join(&identity.user_data_directory)
         .join("account");
     let local = app.path().app_local_data_dir()?;
-    desktop_account::adopt_legacy_session(&local, &directory);
+    msime_client_core::account::adopt_legacy_account_session(&local, &directory);
     app.manage(desktop_cloud_dictionary::CloudDictionaryState::new(
         local.join("dictionary-snapshots"),
     ));

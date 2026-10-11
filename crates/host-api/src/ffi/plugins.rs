@@ -219,7 +219,9 @@ pub unsafe extern "C" fn msime_client_plugins(request: *const u8, length: usize)
 }
 
 /// `response` with the page's failure record: `error` is the code, and `detail`, when client-core gave one, the rule that was broken.
-fn plugin_response(operation: impl FnOnce() -> Result<Value, PluginFailure>) -> *mut c_char {
+pub(super) fn plugin_response(
+    operation: impl FnOnce() -> Result<Value, PluginFailure>,
+) -> *mut c_char {
     let value = match catch_unwind(AssertUnwindSafe(operation)) {
         Ok(Ok(value)) => json!({ "ok": true, "value": value }),
         Ok(Err(PluginFailure {
