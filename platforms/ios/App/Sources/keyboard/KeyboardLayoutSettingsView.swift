@@ -208,11 +208,11 @@ struct KeyboardLayoutSettingsView: View {
     DesignGroup(title: "按键反馈", footer: KeyboardFeedbackPreference.hapticsAvailable
       ? "按键音受系统静音设置控制；振动效果取决于设备与系统支持。"
       : "按键音受系统静音设置控制。") {
-      DesignToggleRow(title: "按键音", isOn: $soundEnabled)
+      DesignToggleRow(title: "按键音", isOn: $soundEnabled.markingSettingsChange())
         .accessibilityIdentifier("keyboardSoundToggle")
       if KeyboardFeedbackPreference.hapticsAvailable {
         DesignDivider()
-        DesignToggleRow(title: "按键振动", isOn: $hapticsEnabled)
+        DesignToggleRow(title: "按键振动", isOn: $hapticsEnabled.markingSettingsChange())
           .accessibilityIdentifier("keyboardHapticsToggle")
           .onChange(of: hapticsEnabled) { _, enabled in if enabled { previewHaptics() } }
         if hapticsEnabled {
@@ -220,7 +220,7 @@ struct KeyboardLayoutSettingsView: View {
           DesignSelectRow(
             title: "振动强度",
             options: KeyboardHapticStrength.allCases.map { DesignOption(title: $0.title, value: $0.rawValue) },
-            selection: $hapticStrength, sheetTitle: "振动强度", identifier: "keyboardHapticStrengthPicker",
+            selection: $hapticStrength.markingSettingsChange(), sheetTitle: "振动强度", identifier: "keyboardHapticStrengthPicker",
             onSelect: { _ in previewHaptics() })
           DesignDivider()
           DesignInlineButtonRow(title: "振动预览", buttonTitle: "试一下振动", identifier: "previewKeyboardHaptics",

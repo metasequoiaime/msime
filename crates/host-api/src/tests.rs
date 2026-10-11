@@ -1582,12 +1582,12 @@ fn korean_hanja_conversion_crosses_the_host_boundary() {
     assert!(refused["value"]["commit"].is_null());
     assert_eq!(refused["value"]["view"]["preedit"], "ㄱ");
 
-    // 17 和 18 是整句改字的光标键，韩文里进不了改字，与字母光标键一样写出音节；19 是宿主自己上屏后的取消（MSIME_CANCEL_AFTER_HOST_COMMIT），是导航命令前的最后一个，下一个编号仍未定义。
+    // 17 和 18 是整句改字的光标键，韩文里进不了改字，与字母光标键一样写出音节；19 是宿主自己上屏后的取消（MSIME_CANCEL_AFTER_HOST_COMMIT），20 是宿主替失焦结束组字（MSIME_FINISH_ON_FOCUS_LOSS），是导航命令前的最后一个，下一个编号仍未定义。
     let left = read(msime_client_command(handle, 17));
     assert_eq!(left["value"]["handled"], false);
     assert_eq!(left["value"]["commit"], "ㄱ");
     assert_eq!(
-        read(msime_client_command(handle, 20))["error"],
+        read(msime_client_command(handle, 21))["error"],
         "unknown input command"
     );
     read(msime_client_destroy(handle));
@@ -13565,6 +13565,68 @@ fn credential_test_export_answers_incomplete_configurations_offline() {
             ["ok"],
         false
     );
+}
+
+// Resolved from stored preferences, and only configurations answered before anything is sent.
+#[test]
+fn voice_credential_test_resolves_preferences_and_answers_offline() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let save = |edit: &dyn Fn(&mut msime_client_core::preferences::Preferences)| {
+        let snapshot = store.load().unwrap();
+        let mut preferences = snapshot.preferences;
+        edit(&mut preferences);
+        store.save(snapshot.revision, preferences).unwrap();
+    };
+    let call = |service: &str| {
+        let bytes = json!({
+            "preferences_directory": directory.path().to_str().unwrap(),
+            "service": service,
+        })
+        .to_string();
+        read(unsafe { msime_client_test_voice_credential(bytes.as_ptr(), bytes.len()) })
+    };
+    save(&|preferences| {
+        preferences.voice_input.asr_provider = "openai".into();
+        preferences.voice_input.asr_endpoint.clear();
+        preferences.voice_input.asr_token.clear();
+        preferences.voice_input.polish_provider = "openai".into();
+        preferences.voice_input.polish_token.clear();
+    });
+    for service in ["voice.asr", "voice.polish"] {
+        let reply = call(service);
+        assert_eq!(reply["ok"], true, "{service}");
+        assert_eq!(reply["value"]["ok"], false, "{service}");
+        assert_eq!(
+            reply["value"]["message"], "请先填写有效的 API Key。",
+            "{service}"
+        );
+    }
+    // A stored plaintext endpoint is what the keyboard would use, so the check refuses it before sending.
+    save(&|preferences| {
+        preferences.voice_input.asr_token = "synthetic".into();
+        preferences.voice_input.asr_endpoint = "http://asr.example/v1".into();
+    });
+    assert_eq!(
+        call("voice.asr")["value"]["message"],
+        "请填写有效的 HTTPS 转写接口地址和模型名。"
+    );
+    save(&|preferences| preferences.voice_input.asr_provider = "system".into());
+    assert_eq!(
+        call("voice.asr")["value"]["message"],
+        "当前服务不需要测试。"
+    );
+    for invalid in [
+        json!({"service": "voice.asr"}),
+        json!({"service": "voice.asr", "preferences_directory": "relative"}),
+        json!({"service": "translation.custom", "preferences_directory": "/tmp"}),
+    ] {
+        let bytes = invalid.to_string();
+        assert_eq!(
+            read(unsafe { msime_client_test_voice_credential(bytes.as_ptr(), bytes.len()) })["ok"],
+            false
+        );
+    }
 }
 
 // Only requests the checks reject before building a client, so nothing reaches the network.

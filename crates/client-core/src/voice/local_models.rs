@@ -414,15 +414,21 @@ pub(crate) fn import_model(
         },
         cancel,
     );
-    // 导入不联网：共用的 download() 把读取来源时的错误都报成 Network，在这里只可能是读用户所选的文件出错。
-    installed.map_err(|error| match error {
+    imported(installed)
+}
+
+/// 导入不联网：共用的 download() 把读取来源时的错误都报成 Network，导入时只可能是读用户所选的文件出错。资源包的导入（`resource_packs::import`）也用它。
+pub(crate) fn imported(
+    result: Result<PathBuf, LocalModelError>,
+) -> Result<PathBuf, LocalModelError> {
+    result.map_err(|error| match error {
         LocalModelError::Network(detail) => LocalModelError::UnreadableImportFile(detail),
         other => other,
     })
 }
 
 /// 安装一个模型要从外面取得的文件：压缩包，以及目录里给了下载地址的附加文件。
-struct ImportSource<'a> {
+pub(crate) struct ImportSource<'a> {
     name: &'a str,
     url: &'a str,
     sha256: &'a str,
@@ -446,15 +452,35 @@ fn import_sources(model: &CatalogModel) -> impl Iterator<Item = ImportSource<'_>
     }))
 }
 
-/// 把目录里的下载地址对应到用户选的本地文件，交给 [`install_model`] 代替网络来源。
-struct LocalFileFetcher {
+impl<'a> ImportSource<'a> {
+    /// 锁文件里钉住的一个文件（资源包的文件或归档）。
+    pub(crate) fn artifact(artifact: &'a crate::resources::Artifact) -> Self {
+        Self {
+            name: &artifact.name,
+            url: &artifact.url,
+            sha256: &artifact.sha256,
+            size: artifact.size,
+        }
+    }
+}
+
+/// 把目录里的下载地址对应到用户选的本地文件，交给 [`install_model`] 或资源包的安装代替网络来源。
+pub(crate) struct LocalFileFetcher {
     files: BTreeMap<String, PathBuf>,
 }
 
 impl LocalFileFetcher {
-    /// 为 `model` 需要的每个文件在 `files` 里找出对应的那个。只有一个长度对得上时直接用它，摘要留给安装时的校验；有几个时逐个算 SHA-256。一个都没有时报 [`LocalModelError::MissingImportFile`]，有长度相同但摘要都不对的报 [`LocalModelError::ChecksumMismatch`]。
     fn matching(
         model: &CatalogModel,
+        files: &[PathBuf],
+        cancel: &AtomicBool,
+    ) -> Result<Self, LocalModelError> {
+        Self::matching_sources(import_sources(model), files, cancel)
+    }
+
+    /// 为每个需要的文件在 `files` 里找出对应的那个。只有一个长度对得上时直接用它，摘要留给安装时的校验；有几个时逐个算 SHA-256。一个都没有时报 [`LocalModelError::MissingImportFile`]，有长度相同但摘要都不对的报 [`LocalModelError::ChecksumMismatch`]。
+    pub(crate) fn matching_sources<'s>(
+        sources: impl IntoIterator<Item = ImportSource<'s>>,
         files: &[PathBuf],
         cancel: &AtomicBool,
     ) -> Result<Self, LocalModelError> {
@@ -471,7 +497,7 @@ impl LocalFileFetcher {
             }
         }
         let mut matched = BTreeMap::new();
-        for source in import_sources(model) {
+        for source in sources {
             let candidates: Vec<&PathBuf> = sized
                 .iter()
                 .filter(|(_, size)| *size == source.size)
@@ -633,7 +659,9 @@ fn check_root(root: &Path) -> Result<(), LocalModelError> {
 /// host processes. The lock lives in the root and is deliberately kept after the operation so a
 /// later process cannot create a different inode while an earlier process still owns the lock.
 fn acquire_model_lock(root: &Path) -> Result<File, LocalModelError> {
-    fs::create_dir_all(root)?;
+    // `create_dir_all` follows an existing symlink in a missing path component.
+    // Use the storage helper that checks the nearest existing ancestor first.
+    crate::storage::create_directory_and_check(root)?;
     check_root(root)?;
     let lock = crate::file_lock::open_private_lock_file(root.join(MODEL_LOCK_FILE))?;
     crate::file_lock::exclusive(&lock)?;

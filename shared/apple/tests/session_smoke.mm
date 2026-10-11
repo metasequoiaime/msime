@@ -225,7 +225,71 @@ int main() {
         assert([[local command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:@"R"]);
         assert([local closeWithError:&error]);
         [[NSFileManager defaultManager] removeItemAtPath:localRoot error:nil];
-        puts("Apple Foundation consumer: input, commit, thread and lifetime checks passed");
+
+        // 生命周期核心经包装层的往返：选择加入 FEEDBACK 之后，按键特效来自 lifecycleKey:，上屏特效写进派发回复的 feedback，失焦回复不带它，旧的声音和特效调用（事件 0-4）都成了空操作。按键音和上屏音开着、音量为 0：旧调用在选择加入之前真的把请求排进播放器队列（答 YES），之后答 NO，断言才分得出 FEEDBACK 的过滤；音量 0 不会发出任何声音。
+        NSString *lifecycleRoot = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        NSMutableDictionary *lifecycleOptions = [options mutableCopy];
+        for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+            NSString *path = [lifecycleRoot stringByAppendingPathComponent:name];
+            BOOL created = [[NSFileManager defaultManager] createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil];
+            assert(created);
+            lifecycleOptions[name] = path;
+        }
+        NSMutableDictionary *lifecyclePreferences = [options[@"preferences"] mutableCopy];
+        lifecyclePreferences[@"plugins"] = @{@"effect_style": @"flash", @"combo_counter": @YES,
+                                             @"key_sound": @{@"enabled": @YES, @"volume": @0}, @"commit_sound": @{@"enabled": @YES}};
+        lifecycleOptions[@"preferences"] = lifecyclePreferences;
+        error = nil;
+        MSIMEClientSession *lifecycle = [[MSIMEClientSession alloc] initWithOptions:lifecycleOptions error:&error];
+        assert(lifecycle && !error);
+        assert([lifecycle setFocused:YES error:&error]);
+        const uint32_t flash = 1u << 17;
+        assert(lifecycle.lifecycleFlags == 0 && [lifecycle lifecycleKey:0] == 0 && [lifecycle setFieldTraits:MSIME_TRAIT_KNOWN] == 0);
+        assert([lifecycle typingEffect:0] == (flash | 1));
+        // 选择加入之前旧的声音调用照常排队。
+        assert([lifecycle keySound:0] && [lifecycle commitSound] && [lifecycle setMusicActive:YES]);
+        assert([lifecycle setLifecycle:MSIME_LIFECYCLE_FEEDBACK | 0x40000000u] == MSIME_LIFECYCLE_FEEDBACK);
+        assert(lifecycle.lifecycleFlags == MSIME_LIFECYCLE_FEEDBACK);
+        assert([lifecycle setFieldTraits:MSIME_TRAIT_KNOWN] == MSIME_TRAIT_KNOWN);
+        assert([lifecycle setLifecycleActive:YES]);
+        for (uint32_t event = 0; event <= 4; ++event) assert([lifecycle typingEffect:event] == 0);
+        assert(![lifecycle keySound:0] && ![lifecycle commitSound] && ![lifecycle setMusicActive:YES]);
+        // 事件 5（绕过按键音的删除）仍由宿主调用：它结束连击，只报告样式。
+        assert([lifecycle typingEffect:5] == flash);
+        assert([lifecycle lifecycleKey:0] == (flash | 1));
+        NSDictionary *typed = [lifecycle typeASCII:'U' shift:YES error:&error];
+        assert([typed[@"feedback"][@"typing_effect"] isEqual:@0]);
+        uint32_t combo = 1;
+        for (uint8_t character : {'4', 'e', '2', 'd'}) {
+            assert([lifecycle lifecycleKey:0] == (flash | ++combo));
+            typed = [lifecycle typeASCII:character shift:NO error:&error];
+            assert(typed && [typed[@"feedback"][@"typing_effect"] isEqual:@0]);
+        }
+        assert([lifecycle lifecycleKey:1] == (flash | 6));
+        NSDictionary *committed = [lifecycle command:MSIME_COMMIT_CANDIDATE error:&error];
+        assert([committed[@"commit"] isEqual:@"中"]);
+        assert([committed[@"feedback"][@"typing_effect"] isEqual:@(flash | 6)]);
+        // 指针调用不出声不画；SECURE 字段里什么都不出，上屏的 feedback 也是 0。
+        assert([lifecycle lifecycleKey:MSIME_KEY_POINTER] == 0);
+        assert([lifecycle setFieldTraits:MSIME_TRAIT_KNOWN | MSIME_TRAIT_SECURE] == (MSIME_TRAIT_KNOWN | MSIME_TRAIT_SECURE));
+        assert([lifecycle lifecycleKey:0] == 0);
+        assert([lifecycle typeASCII:'U' shift:YES error:&error]);
+        for (uint8_t character : {'4', 'e', '2', 'd'}) assert([lifecycle typeASCII:character shift:NO error:&error]);
+        assert([[lifecycle command:MSIME_COMMIT_CANDIDATE error:&error][@"feedback"][@"typing_effect"] isEqual:@0]);
+        assert([lifecycle setFieldTraits:MSIME_TRAIT_KNOWN] == MSIME_TRAIT_KNOWN);
+        // 宿主自己写进文档之后丢弃组字用命令 19，对会话同 MSIME_CANCEL。
+        assert([lifecycle typeASCII:'U' shift:YES error:&error]);
+        NSDictionary *hostCommitted = [lifecycle command:MSIME_CANCEL_AFTER_HOST_COMMIT error:&error];
+        assert(hostCommitted && ![hostCommitted[@"commit"] isKindOfClass:NSString.class] && [hostCommitted[@"view"][@"editing_text"] length] == 0);
+        assert([hostCommitted[@"feedback"][@"typing_effect"] isEqual:@0]);
+        // 失焦的回复不带 feedback：失焦上屏不出声也不画。
+        NSDictionary *blurred = [lifecycle setFocused:NO error:&error];
+        assert(blurred && blurred[@"feedback"] == nil);
+        assert([lifecycle setLifecycleActive:NO]);
+        assert([lifecycle closeWithError:&error]);
+        assert([lifecycle lifecycleKey:0] == 0 && ![lifecycle setLifecycleActive:YES] && [lifecycle setFieldTraits:MSIME_TRAIT_KNOWN] == 0 && [lifecycle setLifecycle:MSIME_LIFECYCLE_FEEDBACK] == 0);
+        [[NSFileManager defaultManager] removeItemAtPath:lifecycleRoot error:nil];
+        puts("Apple Foundation consumer: input, commit, lifecycle, thread and lifetime checks passed");
     }
     return 0;
 }

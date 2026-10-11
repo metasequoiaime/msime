@@ -1,0 +1,14 @@
+schema_version = 2
+kind = "script"
+id = "pangu-spacing"
+name = "中英文之间加空格"
+version = "1.0.0"
+license = "MIT"
+description = "在中文和英文字母、数字之间加一个空格"
+permissions = ["read_commit", "rewrite_commit"]
+
+[script]
+abi = 1
+module = "pangu.wasm"
+hooks = ["before_commit"]
+memory_pages = 4

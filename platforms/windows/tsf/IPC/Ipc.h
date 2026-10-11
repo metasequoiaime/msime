@@ -39,6 +39,10 @@ bool EnsureNamedpipeFocusSessionActivated();
 bool SupportsCharacterSetShortcut();
 bool SupportsGameHostCandidate();
 bool SupportsKeyboardCompositionCancel(_In_ const void *owner);
+// Server 认得 FieldTraits 事件（协商到 FanyImeProtocol::FieldTraits）。
+bool SupportsFieldTraits();
+// 记下本线程当前字段的属性（FanyImeFieldTraits::Observe 的值）。下一次发按键、状态快照或 FocusRestored 时，属性和这条连接上报过的不同、或者这条连接还没报过，就先发一个 FieldTraits 事件；Server 没协商到时什么都不发。
+void NoteFieldTraitsForServer(uint32_t traits);
 bool FlushNamedpipeFocusSessionReset();
 bool FlushNamedpipeImeDeactivation(uint64_t focusToken = 0);
 // 本线程当前的焦点令牌，也就是 ClientActivated 交给 Server 的那个；线程没有焦点时为 0。Aux 管道上的 KeySound 带着它，Server 只让正持有这个焦点的会话出声。

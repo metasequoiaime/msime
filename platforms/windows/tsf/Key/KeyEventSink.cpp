@@ -27,6 +27,7 @@
 #include "../HostKoreanKey.h"
 #include "../../common/PipeMetadata.h"
 #include "../../common/SecondThirdCandidatePolicy.h"
+#include <atomic>
 #include <chrono>
 #include "../../../../shared/contracts/ipc_negotiation.h"
 
@@ -2131,6 +2132,46 @@ void CMetasequoiaIME::_NotePassthroughKeySound(WPARAM wParam, LPARAM lParam, WCH
     }
 }
 
+namespace
+{
+// 客户端进程是否以管理员身份运行。进程的令牌在它的一生里不会变，查一次就够；查不到时当作提权（FanyImeFieldTraits::ProcessElevated）。这个 DLL 用 /Zc:threadSafeInit- 编译，函数内的静态变量没有线程安全的初始化，所以缓存放在常量初始化的原子量里（0 没查过，1 没有提权，2 提权）：几个线程同时第一次查，各自算出同一个值，不会有数据竞争。
+bool CurrentProcessIsElevated()
+{
+    static std::atomic<int> cached{0};
+    int value = cached.load(std::memory_order_relaxed);
+    if (value == 0)
+    {
+        bool queried = false;
+        bool tokenElevated = false;
+        HANDLE token = nullptr;
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+        {
+            TOKEN_ELEVATION elevation = {};
+            DWORD size = 0;
+            queried = GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size) != FALSE;
+            tokenElevated = queried && elevation.TokenIsElevated != 0;
+            CloseHandle(token);
+        }
+        value = FanyImeFieldTraits::ProcessElevated(queried, tokenElevated) ? 2 : 1;
+        cached.store(value, std::memory_order_relaxed);
+    }
+    return value == 2;
+}
+} // namespace
+
+//+---------------------------------------------------------------------------
+//
+// _NoteFieldTraitsForServer
+//
+// 密码框以「键盘停用或空上下文」的形式到达 TIP，和按键统计、交给应用的按键音用的是同一个判据；安全桌面（登录、UAC）同样按密码框算。Server 据此让生命周期核心在这里不出声、不画、停掉背景音乐。
+//----------------------------------------------------------------------------
+
+void CMetasequoiaIME::_NoteFieldTraitsForServer()
+{
+    NoteFieldTraitsForServer(FanyImeFieldTraits::Observe(_IsKeyboardDisabled() != FALSE, _IsSecureMode() != FALSE,
+                                                         CurrentProcessIsElevated()));
+}
+
 //+---------------------------------------------------------------------------
 //
 // ITfKeyEventSink::OnTestKeyDown
@@ -2587,6 +2628,8 @@ void CMetasequoiaIME::_DrainOneDeferredKeyDown()
         PostOwnerMessageWithSyncFallback(_msgWndHandle, WM_IpcReconnect);
         return;
     }
+    // 补发的键之前可能要先发 ClientActivated：先记下字段属性，让它排在激活前面。
+    _NoteFieldTraitsForServer();
     if (_serverUnavailableFallbackActive)
     {
         // Every key typed into the offline lane is one more request for the
@@ -3040,6 +3083,8 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
                                  ? 0b110111
                                  : 0b000111);
 
+        // 每个键之前比较一次字段属性，变了就排在这个键前面报给 Server。
+        _NoteFieldTraitsForServer();
         PerfTimer sendKeyEventTimer;
         const KeyEventSendResult sendResult = SendKeyEventToUIProcess(&requestId);
         if (KeystrokeState.Function == FUNCTION_TOGGLE_CHARACTER_SET)

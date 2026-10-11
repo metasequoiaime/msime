@@ -1,0 +1,4 @@
+{"event":"before_commit","key":true,"origin":"selection","body":"用Rust写插件"}
+{"event":"before_commit","key":true,"origin":"selection","body":"今天是2026年","tail":"。"}
+{"event":"before_commit","key":true,"origin":"selection","body":"已经有空格的 text 不变"}
+{"event":"before_commit","key":true,"origin":"raw","local_mode":"url","body":"example.com"}

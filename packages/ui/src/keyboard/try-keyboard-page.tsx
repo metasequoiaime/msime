@@ -1,3 +1,4 @@
+import { SendStopButton } from "../core/send-stop-button";
 import MarkdownIt from "markdown-it";
 import {
   useEffect,
@@ -9,6 +10,7 @@ import {
 } from "react";
 import type { ChatClient, ChatMessage } from "../chat/chat-page";
 import { chatRequest } from "../chat/chat-prompt";
+import { resizeChatComposer } from "../chat/chat-composer-size";
 import { chatError } from "../chat/chat-errors";
 import { errorCode } from "../core/error-code";
 import { errorMessage } from "../core/error-message";
@@ -21,10 +23,6 @@ const DRAFT_LIMIT = 2000;
 const BUBBLE_LIMIT = 60;
 const GREETING = "你好，我是水杉输入法。打几个字发给我试试，比如 shuishan。";
 const GREETING_WITHOUT_CHAT = "你好，我是水杉输入法。在下面打几个字试试，比如 shuishan。";
-/** 输入框最多长到 4 行，之后在框内滚动。 */
-const FIELD_MAX_LINES = 4;
-const FIELD_LINE_HEIGHT = 22;
-
 // 回复按 Markdown 显示：原始 HTML 当文字、不渲染图片，所以一条回复不会去网络上加载任何东西；链接由下面的点按处理交给外部浏览器。
 const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true }).disable("image");
 const openableLink = /^(https?:|mailto:)/i;
@@ -135,11 +133,7 @@ export function TryKeyboardPage({
   }, [bubbles, sending]);
 
   const resizeField = () => {
-    const element = field.current;
-    if (!element) return;
-    element.style.height = "auto";
-    const max = FIELD_LINE_HEIGHT * FIELD_MAX_LINES + 16;
-    element.style.height = `${Math.min(element.scrollHeight, max)}px`;
+    resizeChatComposer(field.current);
   };
   useLayoutEffect(resizeField, [draft]);
 
@@ -325,29 +319,13 @@ export function TryKeyboardPage({
           onBlur={() => setFocused(false)}
         />
         {chat && (
-          <button
-            type="button"
+          <SendStopButton
             className={sendButton}
-            aria-label={sending ? "停止" : "发送"}
-            disabled={!sending && !draft.trim()}
-            // 发送后键盘留着，接着打下一句。
-            onPointerDown={(event) => event.preventDefault()}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => (sending ? stop() : void send())}
-          >
-            {sending ? (
-              <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-                <rect width="14" height="14" rx="2" fill="currentColor" />
-              </svg>
-            ) : (
-              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M11 20V7.83l-5.59 5.59L4 12l8-8 8 8-1.41 1.41L13 7.83V20h-2Z"
-                  fill="currentColor"
-                />
-              </svg>
-            )}
-          </button>
+            sending={sending}
+            sendDisabled={!draft.trim()}
+            onStop={stop}
+            onSend={() => void send()}
+          />
         )}
       </div>
     </section>

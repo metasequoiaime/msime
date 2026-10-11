@@ -752,6 +752,15 @@ if ! rg -q 'HardwareMaintenancePolicy\.action' \
   echo "Android maintenance chords must route through HardwareMaintenancePolicy and the shared API" >&2
   exit 1
 fi
+# The Japanese model is process-cached across Android input sessions. The host must release that
+# cache on system memory pressure even after the current session has already been destroyed.
+if ! rg -q '@Override public void onTrimMemory\(int level\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'NativeClient\.releaseProcessCache\(\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android IME must release process-level model caches on memory pressure" >&2
+  exit 1
+fi
 # Simplified/Traditional output is the shared OpenCC s2t tables, phrase-level, and the same
 # conversion Windows and Linux use. This host converted one character at a time through
 # android.icu.Transliterator, which turns 头发 into 頭發 and is silently unavailable below API 29.

@@ -25,8 +25,11 @@ public final class ResourcePacks {
     public static final String OFFLINE_GLOSSES = "offline-glosses";
     public static final String VOICE_RUNTIME = "voice-runtime";
 
-    /** 一个资源包的状态。{@code state} 是 "missing"、"installed" 或 "outdated"；{@code size} 是下载字节数；{@code schemes} 是它提供数据的输入方案 id。 */
-    public record Pack(String id, String state, long size, List<String> schemes) {
+    /** 不联网安装时用户要自己下载的一个文件：上游文件名、下载地址和长度。资源包和本地语音模型共用。 */
+    public record ImportFile(String name, String url, long size) {}
+
+    /** 一个资源包的状态。{@code state} 是 "missing"、"installed" 或 "outdated"；{@code size} 是下载字节数；{@code schemes} 是它提供数据的输入方案 id；{@code importFiles} 是不联网安装时要自己下载的文件。 */
+    public record Pack(String id, String state, long size, List<String> schemes, List<ImportFile> importFiles) {
         public boolean installed() {
             return "installed".equals(state);
         }
@@ -73,12 +76,26 @@ public final class ResourcePacks {
                 for (int scheme = 0; schemes != null && scheme < schemes.length(); scheme++)
                     ids.add(schemes.getString(scheme));
                 result.add(new Pack(pack.getString("id"), pack.getString("state"),
-                    pack.optLong("size", 0), ListPolicy.copyOrEmpty(ids)));
+                    pack.optLong("size", 0), ListPolicy.copyOrEmpty(ids), importFiles(pack.optJSONArray("import_files"))));
             }
             return ListPolicy.copyOrEmpty(result);
         } catch (JSONException error) {
             throw new Failure("invalid resource pack response");
         }
+    }
+
+    /** 共享层给出的 {@code import_files}；缺了或读不懂的项跳过。 */
+    static List<ImportFile> importFiles(JSONArray files) {
+        ArrayList<ImportFile> result = new ArrayList<>(files == null ? 0 : files.length());
+        for (int index = 0; files != null && index < files.length(); index++) {
+            JSONObject file = files.optJSONObject(index);
+            if (file == null) continue;
+            String name = JsonPolicy.strictStringOrEmpty(file.opt("name"));
+            String url = JsonPolicy.strictStringOrEmpty(file.opt("url"));
+            long size = file.optLong("size", 0);
+            if (!name.isEmpty() && size > 0) result.add(new ImportFile(name, url, size));
+        }
+        return ListPolicy.copyOrEmpty(result);
     }
 
     public static List<Pack> list(Context context) throws Failure {
@@ -130,6 +147,12 @@ public final class ResourcePacks {
      */
     public static File install(Context context, String id, List<String> sources,
             NativeClient.ResourcePackProgress progress) throws Failure {
+        return install(context, id, sources, null, progress);
+    }
+
+    /** 同上；{@code files} 不为 null 时不联网（空列表报缺文件），用这些本地文件（绝对路径，至多 16 个）安装，按长度和 SHA-256 认文件，{@code sources} 不用，进度阶段报 "import"。 */
+    public static File install(Context context, String id, List<String> sources, List<String> files,
+            NativeClient.ResourcePackProgress progress) throws Failure {
         requireInstallerThread(context);
         try {
             JSONObject request = new JSONObject()
@@ -142,6 +165,7 @@ public final class ResourcePacks {
                 }
             }
             if (mirrors.length() > 0) request.put("sources", mirrors);
+            if (files != null) request.put("files", new JSONArray(files));
             return new File(value(NativeClient.resourcePackInstall(request.toString(), progress))
                 .getJSONObject("value").getString("path"));
         } catch (JSONException error) {

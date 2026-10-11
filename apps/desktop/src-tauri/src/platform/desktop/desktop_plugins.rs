@@ -156,7 +156,7 @@ pub async fn import_plugin_pack(
 }
 
 fn import_pack_at(source: &Path, root: &Path) -> Result<PluginSummary, PluginFailure> {
-    Ok(plugins::import(source, root)?)
+    Ok(plugins::import_from_settings(source, root)?)
 }
 
 /// Remove an installed pack. A built-in sound pack cannot be removed.

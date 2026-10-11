@@ -5,8 +5,10 @@
 #include "InputSchemeTraits.h"
 #include "input/CandidateTextPolicy.h"
 #include "KeyEvent.h"
+#include "LifecyclePolicy.h"
 #include "PunctuationPolicy.h"
 #include <algorithm>
+#include <optional>
 #include <stdexcept>
 
 namespace msime::windows {
@@ -35,6 +37,24 @@ bool translation_preferences_changed(const nlohmann::json &before,
   }
   return false;
 }
+
+// 一次选词期间去掉 HOST_HOLDS_PIECES、保留 COMMIT_OBSERVE_ONLY 的当前状态，离开作用域时恢复成平时的位。
+class PiecesReachDocument final {
+public:
+  PiecesReachDocument(uint64_t session, bool commit_observe_only)
+      : session_(session), commit_observe_only_(commit_observe_only) {
+    (void)msime_client_set_lifecycle(session_, lifecycle_flags(commit_observe_only_, false));
+  }
+  ~PiecesReachDocument() {
+    (void)msime_client_set_lifecycle(session_, lifecycle_flags(commit_observe_only_));
+  }
+  PiecesReachDocument(const PiecesReachDocument &) = delete;
+  PiecesReachDocument &operator=(const PiecesReachDocument &) = delete;
+
+private:
+  uint64_t session_;
+  bool commit_observe_only_;
+};
 } // namespace
 ServerSession::ServerSession(uint64_t client_id, const std::string &options)
     : client_(client_id) {
@@ -47,15 +67,15 @@ ServerSession::ServerSession(uint64_t client_id, const std::string &options)
   auto created = response(msime_client_create(
       reinterpret_cast<const uint8_t *>(options.data()), options.size()));
   session_ = created.at("session").get<uint64_t>();
+  // 选择加入生命周期核心：按键音、上屏音、打字特效和背景音乐从此由核心驱动，旧的 key_sound、commit_sound、music_set_active 对这个会话变成空操作。宿主 DLL 和 Server 同版本发布（上面的 ABI 检查），所以 FEEDBACK 总会被接受。
+  (void)msime_client_set_lifecycle(session_, lifecycle_flags());
 }
 ServerSession::~ServerSession() {
   // Silently destroying on another thread would leak the thread-local Rust
   // session. Ownership cannot be transferred to a pipe I/O worker.
   if (std::this_thread::get_id() != thread_)
     std::terminate();
-  // The player outlives every session, so music this session let play would otherwise go on with no input method in front of it.
-  if (music_active_)
-    (void)msime_client_music_set_active(session_, false);
+  // 播放器比每个会话都活得久；这个会话是背景音乐的所有者时，核心在销毁时自己关掉音乐，不会在没有输入法的前台接着放。
   msime::host_api::discard_string(msime_client_destroy(session_));
 }
 void ServerSession::check_thread() const {
@@ -73,6 +93,8 @@ nlohmann::json ServerSession::activate(uint64_t epoch) {
     throw std::logic_error("Expired Windows activation");
   if (active_ && epoch != epoch_)
     response(msime_client_focus(session_, false));
+  if (input_enabled_)
+    confirm_field_traits_before_focus();
   auto result = response(msime_client_focus(session_, input_enabled_));
   epoch_ = epoch;
   active_ = true;
@@ -88,25 +110,34 @@ nlohmann::json ServerSession::deactivate(uint64_t epoch) {
 void ServerSession::set_input_enabled(uint64_t epoch, bool enabled) {
   check_active(epoch);
   if (input_enabled_ != enabled) {
+    if (enabled)
+      confirm_field_traits_before_focus();
     response(msime_client_focus(session_, enabled));
     input_enabled_ = enabled;
   }
 }
-nlohmann::json ServerSession::cancel_again(nlohmann::json result) {
+nlohmann::json ServerSession::cancel_again(nlohmann::json result,
+                                           uint32_t command) {
   // 韩文汉字列表或注音列表打开时，MSIME_CANCEL 只关闭列表、组字保留（msime_client.h）；越南文词和藏文音节串上的第一次只把原文重新显示出来；全拼、双拼整句改字时的第一次只退出改字回到拼音；第二次才丢弃它。
   if (result.at("commit").is_null() &&
       !result.at("view").at("editing_text").get<std::string>().empty())
-    return response(msime_client_command(session_, MSIME_CANCEL));
+    return response(msime_client_command(session_, command));
   return result;
 }
-void ServerSession::cancel_composition(uint64_t epoch) {
+void ServerSession::discard_composition(uint64_t epoch, uint32_t command) {
   check_active(epoch);
-  auto result = response(msime_client_command(session_, MSIME_CANCEL));
-  result = cancel_again(std::move(result));
+  auto result = response(msime_client_command(session_, command));
+  result = cancel_again(std::move(result), command);
   if (!result.at("commit").is_null() ||
       !result.at("view").at("editing_text").get<std::string>().empty() ||
       !result.at("view").at("candidates").empty())
     throw std::logic_error("Shared host did not cancel composition");
+}
+void ServerSession::cancel_composition(uint64_t epoch) {
+  discard_composition(epoch, MSIME_CANCEL);
+}
+void ServerSession::cancel_after_host_commit(uint64_t epoch) {
+  discard_composition(epoch, MSIME_CANCEL_AFTER_HOST_COMMIT);
 }
 nlohmann::json ServerSession::finish_composition(uint64_t epoch) {
   check_active(epoch);
@@ -241,7 +272,7 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
         !(packet.keycode == kVirtualKeyEscape &&
           (scheme::CancelRestoresRaw(static_cast<int>(result.at("view").value("scheme", 0u))) ||
            !current.value("conversion", std::string{}).empty())))
-      result = cancel_again(std::move(result));
+      result = cancel_again(std::move(result), MSIME_CANCEL);
     if (action.kind == KeyKind::CancelAndForward ||
         action.kind == KeyKind::LocalReset)
       result["handled"] = false;
@@ -320,7 +351,14 @@ nlohmann::json ServerSession::select(uint64_t epoch, uint64_t generation,
       }
     }
   }
-  auto result = response(msime_client_select(session_, generation, index));
+  nlohmann::json result;
+  {
+    // 这几类候选整段送进文档，剩下的读音随后由下面的 MSIME_CANCEL 丢掉，选中的这一段不进 Server 的前缀。核心却只看到「上屏了、读音还剩」，按 HOST_HOLDS_PIECES 当作暂存的一段：不出上屏音，回复的 feedback 为 0，之后的 MSIME_CANCEL 又没有上屏，整段上屏就既不响也不画，还会用 0 把连击徽标清零。所以这次选词不带这一位，离开作用域时恢复，选词抛出也一样。
+    std::optional<PiecesReachDocument> whole;
+    if (completes_composition)
+      whole.emplace(session_, commit_observe_only_);
+    result = response(msime_client_select(session_, generation, index));
+  }
   if (completes_composition && !result.at("commit").is_null()) {
     const auto cleared = response(msime_client_command(session_, MSIME_CANCEL));
     result["view"] = cleared.at("view");
@@ -546,9 +584,9 @@ nlohmann::json ServerSession::update_preferences(uint64_t epoch,
     if (cleared.contains("view") && cleared.at("view").is_object())
       result["view"] = std::move(cleared.at("view"));
   }
-  // With nothing switched on the library starts no player, so it has not kept the earlier "active". Say it again, so music switched on while this client holds the focus starts now rather than at the next focus change.
-  if (music_active_)
-    (void)msime_client_music_set_active(session_, true);
+  // 什么都没打开时共享库不启动播放器，也就没有记住先前的「激活」。这里再说一次，让焦点还在这个客户端时打开的音乐现在就开始放，而不是等到下一次焦点变化。
+  if (lifecycle_active_)
+    (void)msime_client_set_active(session_, true);
   refresh_typing_effect_settings();
   return result;
 }
@@ -577,13 +615,25 @@ nlohmann::json ServerSession::view() const {
   check_thread();
   return response(msime_client_view(session_));
 }
-bool ServerSession::key_sound(uint32_t key_class) {
+uint32_t ServerSession::key(uint32_t key) {
   check_thread();
-  return msime_client_key_sound(session_, key_class);
+  return msime_client_key(session_, key);
 }
-bool ServerSession::commit_sound() {
+void ServerSession::set_field_traits(uint32_t traits) {
   check_thread();
-  return msime_client_commit_sound(session_);
+  if (traits == field_traits_)
+    return;
+  (void)msime_client_set_field_traits(session_, traits);
+  field_traits_ = traits;
+}
+void ServerSession::confirm_field_traits_before_focus() {
+  // 脚本运行时只在获得焦点之后字段属性经过确认时才把 focus_in 交给脚本：确认是获得焦点之前的一次 set_field_traits（值相同也算），或者获得焦点之后的第一个键。只靠后者的话，Windows 激活之后要等第一个键，focus_in 几乎永远到不了脚本；靠前者又不能去重，属性没变时就不会有这次调用。所以每次 msime_client_focus(true) 之前都原样再报一次。核心只在属性变了时发 traits_changed，多报一次不改变别的。
+  (void)msime_client_set_field_traits(session_, field_traits_);
+}
+void ServerSession::set_commit_observe_only(bool observe_only) noexcept {
+  // 错线程时 FFI 自己返回 0、什么都不改，这里不再抛出：清标志的一方在析构里调用。
+  (void)msime_client_set_lifecycle(session_, lifecycle_flags(observe_only));
+  commit_observe_only_ = observe_only;
 }
 uint32_t ServerSession::typing_effect(uint32_t event) {
   check_thread();
@@ -625,10 +675,10 @@ void ServerSession::refresh_typing_effect_settings() {
   typing_effect_settings_ = settings;
   typing_effect_palette_ = palette;
 }
-void ServerSession::set_music_active(bool active) {
+void ServerSession::set_active(bool active) {
   check_thread();
-  (void)msime_client_music_set_active(session_, active);
-  music_active_ = active;
+  (void)msime_client_set_active(session_, active);
+  lifecycle_active_ = active;
 }
 KeyResult ServerSession::punctuation(const FanyImeNamedpipeData &packet,
                                      uint64_t epoch) {
@@ -697,12 +747,15 @@ ServerSession::word_character(const FanyImeNamedpipeData &packet,
     fallback = *character;
   // Legacy Normal delegates smart punctuation to TSF. Do not finish remaining
   // segments or translate punctuation here; only the highlighted text is sent.
-  auto cancelled = response(msime_client_command(session_, MSIME_CANCEL));
+  // 这段文字由宿主合成、写进文档，引擎只丢弃组字：命令 19 对会话同 MSIME_CANCEL，生命周期里组字的结束原因记成 HostCommit。它不是核心的上屏事件，所以不出上屏音。
+  auto cancelled = response(msime_client_command(session_, MSIME_CANCEL_AFTER_HOST_COMMIT));
   if (!cancelled.at("commit").is_null() ||
       !cancelled.at("view").at("editing_text").get<std::string>().empty())
     throw std::logic_error("Engine did not cancel word-to-character fallback");
   cancelled["handled"] = true;
   cancelled["commit"] = fallback;
+  // 核心给这次丢弃组字的派发写的 feedback 是「没有上屏」的特效（0），挂在合成的上屏上会被当成一次上屏去画，把连击徽标清零。
+  cancelled.erase("feedback");
   return WordCharacterResult{
       {client_, epoch_, packet.request_id, true, std::move(cancelled)}, false};
 }

@@ -375,7 +375,7 @@ public final class NativeClient {
         localSpeechRuntimeRaw(utf8(sherpaLibrary));
     }
 
-    /** 资源包安装的进度。在调用 {@link #resourcePackInstall} 的工作线程上调用；phase 是 "download"、"verify" 或 "done"。不要在这里抛异常或做耗时的事。 */
+    /** 资源包安装的进度。在调用 {@link #resourcePackInstall} 的工作线程上调用；phase 是 "download"（从本地文件安装时是 "import"）、"verify" 或 "done"。不要在这里抛异常或做耗时的事。 */
     public interface ResourcePackProgress {
         void onProgress(String phase, long done, long total);
     }
@@ -399,7 +399,7 @@ public final class NativeClient {
         resourcePackCancelRaw(pack == null ? null : pack.getBytes(StandardCharsets.UTF_8));
     }
 
-    /** 本地语音模型安装的进度：{@code {id, stage, downloaded, total}} 的 JSON 字节，stage 是 "download"、"verify"、"extract" 或 "done"。在调用 {@link #voiceLocalModelInstall} 的工作线程上调用；不要在这里抛异常或做耗时的事。 */
+    /** 本地语音模型安装的进度：{@code {id, stage, downloaded, total}} 的 JSON 字节，stage 是 "download"（从本地文件安装时是 "import"）、"verify"、"extract" 或 "done"。在调用 {@link #voiceLocalModelInstall} 的工作线程上调用；不要在这里抛异常或做耗时的事。 */
     public interface LocalModelProgress {
         void onProgress(byte[] json);
     }
@@ -422,6 +422,11 @@ public final class NativeClient {
     /** 删除一个已装的模型：请求 {@code {"root","id"}}；正在安装的模型拒绝删除。 */
     public static String voiceLocalModelRemove(String requestJson) {
         return TextPolicy.utf8(voiceLocalModelRemoveRaw(utf8(requestJson)));
+    }
+
+    /** 语音设置页的「测试」：请求 {@code {"preferences_directory","service"}}（service 是 voice.asr 或 voice.polish），按存着的配置发一次请求，返回 {@code {ok, value:{ok, message}}}，message 是给用户看的一句话，不含凭据。阻塞到约 15 秒，只在工作线程上调用。 */
+    public static String testVoiceCredential(String requestJson) {
+        return TextPolicy.utf8(testVoiceCredentialRaw(utf8(requestJson)));
     }
 
     /** 把升级前已解压在本机的文件收编为资源包：请求 {@code {"state_root","pack","source"}}。要哈希整组文件，只在主进程的工作线程上调用。 */
@@ -491,6 +496,8 @@ public final class NativeClient {
     public static String resetCache(long session) {
         return TextPolicy.utf8(resetCacheRaw(session));
     }
+    /** Release process-level model caches after Android reports memory pressure. */
+    public static void releaseProcessCache() { releaseProcessCacheRaw(); }
     /**
      * Route punctuation through the runtime so Engine commits match the keyboard state.
      *
@@ -718,6 +725,7 @@ public final class NativeClient {
     private static native byte[] mobileVoiceConfigurationRaw(byte[] directory);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);
     private static native byte[] resetCacheRaw(long session);
+    private static native void releaseProcessCacheRaw();
     private static native byte[] setChinesePunctuationRaw(long session, boolean enabled);
     private static native byte[] setCharacterWidthRaw(long session, boolean fullwidth);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
@@ -760,6 +768,7 @@ public final class NativeClient {
     private static native byte[] resourcePackInstallRaw(byte[] request, ResourcePackProgress listener);
     private static native void resourcePackCancelRaw(byte[] pack);
     private static native byte[] resourcePackAdoptRaw(byte[] request);
+    private static native byte[] testVoiceCredentialRaw(byte[] request);
     private static native byte[] voiceLocalModelsRaw(byte[] request);
     private static native byte[] voiceLocalModelInstallRaw(byte[] request, LocalModelProgress listener);
     private static native byte[] voiceLocalModelCancelRaw(byte[] request);

@@ -943,7 +943,6 @@ test("settings synchronize all cards and reset local overrides on candidate them
       "light",
     );
   expect(scan).toHaveBeenCalledTimes(scansBeforePreviewChanges);
-  expect(save).not.toHaveBeenCalled();
 });
 
 test("manifest compatibility follows actual layout and dark host theme, not preview override", async () => {

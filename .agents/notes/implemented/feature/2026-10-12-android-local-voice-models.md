@@ -30,5 +30,5 @@ Android 键盘的本机识别早就接好了：识别服务是 `local`，或打�
 
 - 收益：正式包用户可以装上本地模型，选「本地模型」做识别服务，或打开离线识别作为没网时的后备；键盘失败提示里说的「在设置中下载」现在有对应的入口。
 - 代价：`ResourcePackService` 不再只管资源包，`runningPacks` 改成遍历状态表，结果通知让所有模型共用一个位置（同一时间通常只下一个模型）。
-- 仍缺：从文件导入模型和运行库；模型许可证的展示；下载镜像的设置入口。
+- 仍缺：模型许可证的展示；下载镜像的设置入口。从文件导入模型和运行库后来由[不联网安装那篇](2026-10-12-android-offline-voice-import.md)补上。
 - 验证：`platforms/android/check-host.sh`（含 `LocalVoiceModelPolicySmoke`、`VoiceProviderPolicySmoke`、`SettingsSearchIndexSmoke`）；`gradlew compileFullReleaseJavaWithJavac`；`client_jni.cpp` 用 NDK 28.2 的 clang 在 `-Wall -Wextra -Werror` 下做 `-fsyntax-only` 编译。没有做完整的 native 链接，也没有在真机上下载模型、做一次本地识别。

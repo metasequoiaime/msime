@@ -31,7 +31,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：不联网也能装上目录里的模型，校验和发布与下载完全一致，没有第二条信任路径；新 ABI 只是 install 请求上的一个可选字段，老宿主不受影响。
-- **代价与已知上限**：导入时同一个文件最多读两遍（长度相同的候选有几个时先算摘要，安装时再校验一遍），842 MB 的 Fun-ASR-Nano 归档在慢盘上要多花几秒；HarmonyOS 先复制进缓存，峰值占用是原文件、缓存副本和解压结果三份。所选文件打不开或读到一半出错（权限、文件被移走、可移动磁盘拔掉、iCloud 占位文件）报 `local_model_import_unreadable`：`LocalFileFetcher` 打开和定位失败、算摘要时读失败直接报它；复用的 `download()` 把来源读错误都归成 `Network`，而导入根本不联网，所以 `import_model` 把结果里的 `Network` 改成它。最初的版本把前者报成 `local_model_io`（页面说「无法写入，请检查存储空间」）、后者报成 `local_model_network`，都把问题指向了别处。Android 原生应用要补模型管理和 `voice-runtime` 离线导入时，需要重新拆一期；其中下载、选用和删除已由 [Android 本地语音模型](2026-10-12-android-local-voice-models.md)补上，从文件导入仍未做。
+- **代价与已知上限**：导入时同一个文件最多读两遍（长度相同的候选有几个时先算摘要，安装时再校验一遍），842 MB 的 Fun-ASR-Nano 归档在慢盘上要多花几秒；HarmonyOS 先复制进缓存，峰值占用是原文件、缓存副本和解压结果三份。所选文件打不开或读到一半出错（权限、文件被移走、可移动磁盘拔掉、iCloud 占位文件）报 `local_model_import_unreadable`：`LocalFileFetcher` 打开和定位失败、算摘要时读失败直接报它；复用的 `download()` 把来源读错误都归成 `Network`，而导入根本不联网，所以 `import_model` 把结果里的 `Network` 改成它。最初的版本把前者报成 `local_model_io`（页面说「无法写入，请检查存储空间」）、后者报成 `local_model_network`，都把问题指向了别处。Android 原生应用要补模型管理和 `voice-runtime` 离线导入时，需要重新拆一期；其中下载、选用和删除已由 [Android 本地语音模型](2026-10-12-android-local-voice-models.md)补上，从文件导入模型和运行库由 [Android 不联网安装](2026-10-12-android-offline-voice-import.md)补上。
 
 ## Verification
 

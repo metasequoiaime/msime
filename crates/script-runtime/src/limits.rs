@@ -37,7 +37,7 @@ pub const PAGE_BYTES: usize = 65_536;
 pub const DEFAULT_MEMORY_PAGES: u32 = 16;
 /// `memory_pages` 的上限：64 页，4 MiB。
 pub const MAX_MEMORY_PAGES: u32 = 64;
-/// 每个实例的表元素总数上限。
+/// 每张表的元素上限。wasmi 的 `StoreLimits::table_elements` 按张分别限制，不是全部表的合计：一个实例最多 [`MAX_TABLES`] 张，合计至多 40 000 个元素。wasmi 每个元素 4 字节，最坏约 160 KiB，不计入内存总账。
 pub const MAX_TABLE_ELEMENTS: usize = 10_000;
 /// 每个实例最多几张表（reference-types 允许多张）。
 pub const MAX_TABLES: usize = 4;

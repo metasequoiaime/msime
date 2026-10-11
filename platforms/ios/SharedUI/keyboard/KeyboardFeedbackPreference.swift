@@ -44,4 +44,11 @@ enum KeyboardFeedbackPreference {
   static var hapticStrength: KeyboardHapticStrength {
     KeyboardHapticStrength(rawValue: defaults.string(forKey: strengthKey) ?? "") ?? .medium
   }
+
+  /// 键盘菜单改按键反馈时经这里写：值真的变了才记一次设置改动，云同步下一轮上传（`CloudSyncState`）。应用的设置页经 `markingSettingsChange` 绑定记。
+  static func set(_ value: Any, forKey key: String) {
+    let previous = defaults.object(forKey: key) as? NSObject
+    defaults.set(value, forKey: key)
+    if previous?.isEqual(value) != true { CloudSyncState.shared.markDirty(.settings) }
+  }
 }

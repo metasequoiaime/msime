@@ -79,6 +79,8 @@ struct MetasequoiaImeApp: App {
       applyAppearance()
       // Sends what the keyboard queued, which it cannot send itself without Full Access.
       Task.detached(priority: .utility) { UsageReporting.flush() }
+      // 与 Android 的 `HomeActivity.onResume` 相同：回到前台时按节流决定要不要跑一轮云同步。
+      CloudSync.shared.onActive()
     }
   }
 
@@ -144,6 +146,7 @@ struct MetasequoiaImeApp: App {
       .toggleStyle(GreenSwitchToggleStyle())
       .id(paletteVersion)
       .overlay(alignment: .bottom) { ToastOverlay() }
+      .modifier(CloudSyncFirstRunPrompt(sync: .shared))
       .onAppear(perform: applyAppearance)
     .onReceive(NotificationCenter.default.publisher(for: AppAppearancePreference.didChange)) { _ in applyAppearance() }
     .onReceive(NotificationCenter.default.publisher(for: AppThemePalette.didChange)) { _ in

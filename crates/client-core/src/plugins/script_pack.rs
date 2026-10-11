@@ -136,8 +136,8 @@ pub(crate) fn parse_permissions(
     Ok(permissions)
 }
 
-/// 能力组合规则的中文说明，清单校验和授权写入共用。
-pub(crate) fn rule_message(error: CapabilityRuleError) -> String {
+/// 能力组合规则的中文说明，清单校验、授权写入和 `msime-pack run --grant` 共用。
+pub fn rule_message(error: CapabilityRuleError) -> String {
     match error {
         CapabilityRuleError::MissingDependency {
             capability,

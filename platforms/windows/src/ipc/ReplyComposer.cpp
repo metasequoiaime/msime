@@ -266,6 +266,11 @@ const PendingReply &ReplyComposer::dispatch(
         !local_text || *local_text != prefix_ + raw)
       throw std::invalid_argument("Invalid local commit observation");
   }
+  // 这几条路径的上屏 TIP 已经从自己的宿主会话写进了文档（本地回车、整句改字的回车、韩文音节），派发前后打开 COMMIT_OBSERVE_ONLY：只能观察、不能改写。FocusedSession 按方案和整句改字已经打开时，这里什么都不做。
+  const CommitObserveOnly observe(
+      session, session.input_enabled() &&
+                   (path == ReplyPath::LocalCommit || path == ReplyPath::ConversionCommit ||
+                    path == ReplyPath::SyllableCommit));
   const auto action = translate_key(packet);
   const bool candidate_enter =
       path == ReplyPath::Selection && action.kind == KeyKind::Command &&
@@ -589,7 +594,7 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
       return std::nullopt;
     const auto text = simplified_to_traditional(translation_page_items_[index],
                                                 traditional_output_);
-    session.cancel_composition(epoch_);
+    session.cancel_after_host_commit(epoch_);
     // 送达后候选窗和 confirm_ui_delivery 都读 transition 的 view，所以和 Engine 的转换一样包成 {commit, view}。
     nlohmann::json transition{{"commit", nullptr}, {"view", session.view()}};
     PendingReply next;
@@ -709,7 +714,7 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
   // Like the reference HandleTranslationCommitKey, a single sense is committed as exact text and the composition is dropped: the gloss is not a candidate the user picked, so it must not go through selection and teach the Engine.
   const auto output = simplified_to_traditional(
       first_translation_sense(translation), traditional_output_);
-  session.cancel_composition(epoch);
+  session.cancel_after_host_commit(epoch);
   // 送达后候选窗从 transition 的 view 收起（candidate_presentation），所以和 Engine 的转换一样包成 {commit, view}。
   const nlohmann::json transition{{"commit", nullptr}, {"view", session.view()}};
   PendingReply next;
@@ -778,7 +783,7 @@ std::optional<PendingReply> ReplyComposer::gloss_column_key(
   const auto commit = [&](const std::string &gloss) {
     const auto output = simplified_to_traditional(gloss, traditional_output_);
     const auto expected_session = view.at("session").get<uint64_t>();
-    session.cancel_composition(epoch);
+    session.cancel_after_host_commit(epoch);
     // 送达后候选窗从 transition 的 view 收起（candidate_presentation），所以和 Engine 的转换一样包成 {commit, view}。
     const nlohmann::json transition{{"commit", nullptr}, {"view", session.view()}};
     PendingReply next;
@@ -1009,7 +1014,7 @@ std::optional<PendingReply> ReplyComposer::translation_page_key(
     return translation_page_reply(packet, epoch, translation_page_view_);
   const auto text = simplified_to_traditional(translation_page_items_[index],
                                               traditional_output_);
-  session.cancel_composition(epoch);
+  session.cancel_after_host_commit(epoch);
   // 送达后候选窗从 transition 的 view 收起（candidate_presentation），所以和 Engine 的转换一样包成 {commit, view}。
   const nlohmann::json transition{{"commit", nullptr}, {"view", session.view()}};
   PendingReply next;

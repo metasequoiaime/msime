@@ -116,6 +116,8 @@ constexpr std::uint32_t ClientSuspended = 14;   // temporary focus route reset; 
 constexpr std::uint32_t FocusRestored = 15;
 // The TSF auto-closed a paired punctuation whose opening half the Server may have resolved, so the Engine's nesting count must be paid back as if the closing key had been typed. keycode: the opening key, always '<'. No reply.
 constexpr std::uint32_t PairedPunctuationAutoClosed = 16;
+// TIP 报告当前字段的属性，keycode 是 FanyImeFieldTraits 的位，没有回复。属性属于这个客户端而不是哪一次焦点：Server 不管它此刻是否持有焦点都收下，下一次激活和之后的每个键都按它算。只在协商到 FanyImeProtocol::FieldTraits 之后发送，旧 Server 不认这个事件，会把它当作非法帧断开连接；旧 TIP 不发，Server 那边的属性保持未知。TIP 在按键、状态快照和 FocusRestored 之前比较一次，变了才发，换了 Main 连接后重发。
+constexpr std::uint32_t FieldTraits = 17;
 constexpr std::uint32_t IMESwitch = 7;
 constexpr std::uint32_t PuncSwitch = 8;
 constexpr std::uint32_t DoubleSingleByteSwitch = 9;
@@ -128,6 +130,26 @@ constexpr bool IsTerminalDeactivation(std::uint32_t event_type)
     return event_type == ClientDeactivated;
 }
 } // namespace FanyImePipeEventType
+
+// FieldTraits 事件的载荷。位值和 crates/host-api/include/msime_client.h 的 MSIME_TRAIT_SECURE、MSIME_TRAIT_ELEVATED 相同（platforms/windows/src/input/LifecyclePolicy.h 里有静态断言），这个头不依赖那份 C 头。
+namespace FanyImeFieldTraits
+{
+// 密码框：TIP 只能从「键盘停用或空上下文」认出它（KeyPressStatistics.h 的 ShouldCountKeyPress 用同一个判据），安全桌面（登录、UAC）也算。
+constexpr std::uint32_t Secure = 0x01u;
+// 客户端进程以管理员身份运行（TokenElevation），或者查不出来（见 ProcessElevated）。
+constexpr std::uint32_t Elevated = 0x40u;
+// TIP 会报的全部位；其余位的 FieldTraits 帧是非法帧。
+constexpr std::uint32_t Reported = Secure | Elevated;
+// TIP 查进程令牌的结果：`queried` 是 OpenProcessToken 和 GetTokenInformation(TokenElevation) 都成功了，`tokenElevated` 是查到的 TokenIsElevated。查不出来时当作提权：「提权窗口里不运行脚本」靠的就是这一位，少报会让它落空；ELEVATED 不让声音和特效静音，多报一次用户察觉不到。
+constexpr bool ProcessElevated(bool queried, bool tokenElevated)
+{
+    return !queried || tokenElevated;
+}
+constexpr std::uint32_t Observe(bool keyboardDisabled, bool secureMode, bool elevated)
+{
+    return (keyboardDisabled || secureMode ? Secure : 0u) | (elevated ? Elevated : 0u);
+}
+} // namespace FanyImeFieldTraits
 
 // OR'd into modifiers_down on Main-pipe packets. Server strips it before any
 // key-modifier policy runs. Used so UILess hosts (games) never get an HWND.

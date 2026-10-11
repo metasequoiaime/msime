@@ -335,6 +335,7 @@ import {
   applyAccountPreferences,
   localAccountPreferences,
   mergeAccountPreferences,
+  snapshotWithPreferences,
 } from "../entry/src/main/ets/account/AccountPreferencePlan";
 import { TypingStatisticsPolicy } from "../entry/src/main/ets/keyboard/TypingStatisticsPolicy";
 import {
@@ -19408,4 +19409,27 @@ group("community reports, moderation state and refusals reach the page by name",
       result = await skins({ community_operation: "list", scope: "saved", offset: 0, search: "" });
       check(JSON.parse(result).error === "community_invalid", "skins have no other scope");
     });
+});
+
+// 「下载并应用云端设置」写回本机时交给 savePreferences 的是整份快照：只给里面那层偏好会被原生接口当成格式不对的快照拒掉，应用一直报存储失败。
+group("applying cloud settings saves a whole preferences snapshot", () => {
+  const local = {
+    format_version: 1,
+    revision: 7,
+    preferences: { scheme: "quanpin", learning: true },
+  };
+  const saved = JSON.parse(
+    snapshotWithPreferences(local, { scheme: "shuangpin", learning: false }),
+  ) as Record<string, unknown>;
+  check(saved["format_version"] === 1, "the format version is kept");
+  check(saved["revision"] === 7, "and so is the revision the save is checked against");
+  check(
+    JSON.stringify(saved["preferences"]) ===
+      JSON.stringify({ scheme: "shuangpin", learning: false }),
+    "the preferences are the applied ones",
+  );
+  check(
+    JSON.stringify(local.preferences) === JSON.stringify({ scheme: "quanpin", learning: true }),
+    "the local snapshot is not changed in place",
+  );
 });

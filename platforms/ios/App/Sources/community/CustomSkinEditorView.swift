@@ -195,10 +195,10 @@ struct CustomSkinEditorView: View {
 
   private var soundControls: some View {
     Section {
-      Toggle("按键音", isOn: $soundEnabled).accessibilityIdentifier("skinEditorSound")
+      Toggle("按键音", isOn: $soundEnabled.markingSettingsChange()).accessibilityIdentifier("skinEditorSound")
       if KeyboardFeedbackPreference.hapticsAvailable {
-        Toggle("按键振动", isOn: $hapticsEnabled).accessibilityIdentifier("skinEditorHaptics")
-        Picker("振动强度", selection: $hapticStrength) {
+        Toggle("按键振动", isOn: $hapticsEnabled.markingSettingsChange()).accessibilityIdentifier("skinEditorHaptics")
+        Picker("振动强度", selection: $hapticStrength.markingSettingsChange()) {
           ForEach(KeyboardHapticStrength.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
         }.disabled(!hapticsEnabled)
         Button("试一下振动") {

@@ -553,26 +553,14 @@ function AppIconSettingsCard({
 }
 
 /**
- * 上传本机设置、应用云端设置。除鸿蒙手机外都是一张带按钮和行内状态的卡片；鸿蒙手机上改由 `rows` 画设计里的「同步」组：每个操作一行，确认用操作面板（action sheet），结果用 toast。
+ * 上传本机设置、应用云端设置：一张带按钮和行内状态的卡片。鸿蒙手机的「我的」不画它：键盘扩展有独立沙箱，设置应用里上传、应用的只是它自己那份偏好，键盘读不到，两行按钮只是摆设。
  */
-function SettingsSyncCard({
-  client,
-  userId,
-  rows = false,
-}: {
-  client: SettingsSyncClient;
-  userId: string;
-  rows?: boolean;
-}) {
+function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; userId: string }) {
   const [schema, setSchema] = useState<AccountPreferenceSchema | null>(null);
   const [cloud, setCloud] = useState<AccountPreferences | null>(null);
   const [message, setMessage] = useState("");
   const [confirmation, setConfirmation] = useState<"upload" | "apply" | null>(null);
-  const showToast = useToast();
-  const report = (text: string) => {
-    setMessage(text);
-    if (rows && text) showToast(toastText(text));
-  };
+  const report = (text: string) => setMessage(text);
   const { busy, mounted, clientGeneration, perform } = useAccountAction(
     client,
     report,
@@ -630,42 +618,6 @@ function SettingsSyncCard({
   };
 
   const hasCloudSettings = Boolean(cloud && Object.keys(cloud.settings).length > 0);
-  if (rows)
-    return (
-      <MeGroup title="同步">
-        <NavRow
-          variant="me"
-          icon={<FluentIcon name="arrow_upload" size={18} />}
-          title="上传本机设置"
-          disabled={busy || !cloud || !schema}
-          onClick={() => setConfirmation("upload")}
-        />
-        <NavRow
-          variant="me"
-          icon={<FluentIcon name="arrow_sync_circle" size={18} />}
-          title="下载并应用云端设置"
-          disabled={busy || !cloud || !schema || !hasCloudSettings}
-          onClick={() => setConfirmation("apply")}
-        />
-        <ActionSheet
-          open={confirmation !== null}
-          title={confirmation === "upload" ? "上传本机设置" : "下载并应用云端设置"}
-          subtitle={
-            confirmation === "upload"
-              ? "将更新云端对应设置，并保留其他平台专属设置。版本冲突时不会自动覆盖。"
-              : "将替换本机对应设置，不会下载词库或开启数据上传。"
-          }
-          options={[
-            {
-              value: confirmation ?? "upload",
-              label: confirmation === "upload" ? "确认上传" : "确认应用",
-            },
-          ]}
-          onSelect={() => runConfirmed(confirmation)}
-          onClose={() => setConfirmation(null)}
-        />
-      </MeGroup>
-    );
   return (
     <section className={`${account.section} ${account.stack}`}>
       <h2 className={account.heading}>设置同步</h2>
@@ -1377,9 +1329,6 @@ function AccountDetailsPage({
             )}
           </MeGroup>
         )}
-        {user && client.settingsSync && (
-          <SettingsSyncCard client={client.settingsSync} userId={user.id} rows />
-        )}
         {(appTheme || onOpenPage || onOpenUrl) && (
           <MeGroup title="通用">
             {appTheme && <AppThemeRow client={appTheme} disabled={busy} />}
@@ -1438,9 +1387,6 @@ function AccountDetailsPage({
             )}
           </MeGroup>
         )}
-        <p className={account.meFooter}>
-          皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；账号登录不会自动上传本地设计或输入记录。
-        </p>
         {loginShown && (
           <LoginSheet
             client={client}
@@ -1871,18 +1817,6 @@ function AccountDetailsPage({
             <MeRow title="重新查看新手引导" disabled={busy} onClick={onReplayOnboarding} />
           )}
         </GroupList>
-      )}
-      {mobile ? (
-        <section className={`${account.section} ${account.stack}`}>
-          <h2 className={account.heading}>本地数据与云端作品</h2>
-          <p className={account.note}>
-            皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；账号登录不会自动上传本地设计或输入记录。
-          </p>
-        </section>
-      ) : (
-        <p className={account.footnote}>
-          皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；账号登录不会自动上传本地设计或输入记录。
-        </p>
       )}
     </div>
   );

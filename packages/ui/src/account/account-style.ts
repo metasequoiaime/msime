@@ -91,7 +91,6 @@ export const dangerButton =
   "cursor-pointer whitespace-nowrap rounded-lg border border-danger bg-danger px-3.5 py-[7px] text-white disabled:cursor-default disabled:opacity-60";
 /** Something that belongs to a group but is not a row of its own, such as a confirmation, given the row's surface and padding. */
 export const rowBlock = "bg-[var(--p-row-bg)] [padding:var(--p-row-pad)]";
-export const footnote = "m-0 px-1 text-xs leading-relaxed [color:var(--p-sub)]";
 export const confirmation = "rounded-lg border border-edge bg-subtle p-3.5 [&>p]:mt-0 [&>p]:mb-3";
 
 export const communityActions =
@@ -134,7 +133,6 @@ export const meCardSubtitle = "truncate text-[13px] [color:var(--p-sub)]";
 export const meCardChevron = "shrink-0 opacity-55 [color:var(--p-sub)]";
 export const meGroup = "flex min-w-0 flex-col gap-[7px]";
 export const meGroupTitle = "m-0 px-1 text-[14px] font-medium [color:var(--p-sub)]";
-export const meFooter = "m-0 px-4 text-center text-xs leading-relaxed [color:var(--p-sub)]";
 
 // ---- 我的 的子页面（个人资料、其他平台下载） ----
 

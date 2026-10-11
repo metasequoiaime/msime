@@ -41,7 +41,7 @@ use msime_engine::host::{
     validate_shuangpin_custom_profile, CandidateEdge, Command, EngineOptions, Session,
     ShuangpinCustomTable,
 };
-use msime_engine::{SchemeSet, SchemeType};
+use msime_engine::{release_japanese_dictionary_cache, SchemeSet, SchemeType};
 use msime_input_runtime::HandwritingQuery;
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
@@ -2145,18 +2145,18 @@ fn with_session(
 }
 
 fn dispatch(handle: u64, action: Action) -> *mut c_char {
-    dispatch_call(handle, action, false)
+    dispatch_call(handle, action, None)
 }
 
-/// 派发一个动作。`host_commit` 只对命令 19 为真：动作同 Cancel，生命周期里结束原因记 HostCommit。
+/// 派发一个动作。`host` 只对命令 19、20 有值：动作同 Cancel、Finish，生命周期里的类别是 `HostCommit`（结束原因记 HostCommit）或 `FocusLoss`（上屏来源记 FocusLoss，不出声不画）。
 ///
 /// 选择加入生命周期的会话按这个顺序：调用前采样并发 `input` → `runtime.dispatch` → 统计 → 读派发事实 → `complete_transition`（全角转换在这里，之后才是宿主拿到的字节）→ `before_commit` 发出点（本阶段不改写）→ 其余事件和内置消费者 → 序列化，FEEDBACK 开着时插入 `feedback`。没选择加入的会话只走原来的几步。
-fn dispatch_call(handle: u64, action: Action, host_commit: bool) -> *mut c_char {
+fn dispatch_call(handle: u64, action: Action, host: Option<lifecycle::InputClass>) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
             // 大写锁定改道先于其余处理，后面看到的都是改道后的动作。
             let action = session.caps_lock_punctuation(action);
-            let pending = session.lifecycle_input(&action, host_commit);
+            let pending = session.lifecycle_input(&action, host);
             // Which row the user reached for, read before dispatching because the view it is
             // relative to is gone afterwards. Every platform host routes candidate selection
             // through here, so counting it here covers all of them without a line of platform

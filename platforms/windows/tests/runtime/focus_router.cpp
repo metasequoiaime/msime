@@ -23,6 +23,13 @@ int main() {
   require(!router.connected({44, {7, 8, 9}}).accepted);
   require(!router.connected({44, {0, 8, 9}}).accepted);
   require(router.dispatch(a, packet(42, ClientHello)).accepted);
+  // 字段属性不论有没有焦点都收下，但不认领焦点、不带路由，之后的按键照旧要先激活。
+  {
+    const auto traits = router.dispatch(a, packet(42, FieldTraits));
+    require(traits.accepted && !traits.route && !traits.activation &&
+            !traits.fence && !traits.cleanup);
+    require(!router.dispatch(a, packet(43, FieldTraits)).accepted);
+  }
   require(!router.dispatch(a, packet(42, KeyEvent)).accepted);
   require(!router.dispatch(a, packet(42, FocusRestored)).accepted);
   require(!router.dispatch(a, packet(42, StatusSnapshot)).accepted);

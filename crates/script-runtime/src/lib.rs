@@ -24,8 +24,8 @@ mod tests;
 
 pub use abi::{Capability, CapabilityRuleError, CapabilitySet, Hook, HookSet};
 pub use instance::{
-    CandidateRow, Candidates, CommitTexts, Composition, Event, Failure, InitFailure, LogSink,
-    Outcome, Scalars, ScriptInstance,
+    ActionSink, CandidateRow, Candidates, CommitTexts, Composition, DebugSinks, Event, Failure,
+    InitFailure, LogSink, Outcome, Scalars, ScriptInstance,
 };
 #[cfg(feature = "test-support")]
 #[doc(hidden)]

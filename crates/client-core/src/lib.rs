@@ -29,6 +29,7 @@ pub mod credential;
 pub mod diagnostics;
 pub mod dictionary;
 pub mod edition;
+mod endpoint;
 pub mod file_lock;
 pub mod helpcode;
 pub mod host_surface;

@@ -111,6 +111,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 /// Apply on the originating session/thread only. A stale generation is ignored.
 - (nullable NSDictionary *)applyTranslations:(NSArray<NSDictionary *> *)translations generation:(uint64_t)generation error:(NSError **)error;
 /// Effect sounds and background music from this session's preferences.plugins, played by the host library on macOS (see msime_client_key_sound). These sit on the key path: they only queue a request, never block or read files, and answer whether one was queued. NO when nothing is switched on, the session is closed, or the platform does not play (iOS). Never call them for a key typed into a secure field.
+/// 会话用 setLifecycle: 打开 MSIME_LIFECYCLE_FEEDBACK 之后，keySound:、commitSound、setMusicActive: 和 typingEffect: 的事件 0-4 都变成空操作，改由下面的生命周期调用驱动；typingEffect: 的事件 5 仍由宿主调用。
 /// keyClass is 0 for any other key, 1 space, 2 enter, 3 backspace.
 - (BOOL)keySound:(uint32_t)keyClass;
 /// Call when a transition commits text; plays the commit sample or advances a melody that follows commits.
@@ -119,6 +120,17 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (BOOL)setMusicActive:(BOOL)active;
 /// The typing effect of one key or commit to draw (msime_client_typing_effect): event 0-3 the key class, 4 a commit, 5 a backspace by another route, with 0x100 for an auto-repeat and 0x200 to keep the tier-up sound quiet. Answers the packed combo count, tier-up bit and style; 0 when effects and the combo counter are off or the session is closed. Also for the key path; never for a key typed into a secure field.
 - (uint32_t)typingEffect:(uint32_t)event;
+/// 生命周期核心（msime_client_set_lifecycle、msime_client_key、msime_client_set_field_traits、msime_client_set_active，契约见 msime_client.h）。都在主线程、按键路径上调用：不分配要释放的内存，不读文件；会话已关闭、错线程或库内部出错时返回 0 或 NO。
+/// 选择加入，返回实际启用的位。打开的位和最后报告的字段属性记在这里，词库快照替换会话后照样恢复到新会话上；激活状态不恢复，由宿主按自己的音乐归属重新报告。
+- (uint32_t)setLifecycle:(uint32_t)flags;
+/// setLifecycle: 最后一次实际启用的位；没选择加入时为 0。
+@property(nonatomic, readonly) uint32_t lifecycleFlags;
+/// 一次物理按下（位 0-6 是按键类别 0-3，MSIME_KEY_POINTER 是指针点选或翻页）。必须先于这个键的任何派发。FEEDBACK 下返回这个键的打字特效，位布局同 typingEffect:。
+- (uint32_t)lifecycleKey:(uint32_t)key;
+/// 报告字段属性（MSIME_TRAIT_*）。宿主在每个键之前比较一次，变了才调它，并且先于 lifecycleKey:。返回现在生效的属性。
+- (uint32_t)setFieldTraits:(uint32_t)traits;
+/// 输入法在这个会话里激活或停用；FEEDBACK 下由核心仲裁背景音乐的所有者。会话已选择加入时返回 YES。
+- (BOOL)setLifecycleActive:(BOOL)active;
 /// The session's resolved typing effect (msime_client_typing_effect_settings): {pack, issue, style, intensity, colors, duration_ms, particles, combo_counter}. It may read the selected effect pack's manifest, so call it after a preference update and after a focus-in, never per key.
 - (nullable NSDictionary<NSString *, id> *)typingEffectSettingsWithError:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)setCandidatePageSize:(uint8_t)size error:(NSError **)error;

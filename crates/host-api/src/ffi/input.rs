@@ -217,7 +217,19 @@ pub extern "C" fn msime_client_command(handle: u64, command: u32) -> *mut c_char
         18 => Action::Command(Command::ConversionRight),
         // 宿主已经自己写入了文本：对会话同 Cancel，生命周期里结束原因记 HostCommit。
         lifecycle::COMMAND_CANCEL_AFTER_HOST_COMMIT => {
-            return dispatch_call(handle, Action::Command(Command::Cancel), true)
+            return dispatch_call(
+                handle,
+                Action::Command(Command::Cancel),
+                Some(lifecycle::InputClass::HostCommit),
+            )
+        }
+        // 焦点即将离开，宿主替用户结束组字：对会话同 Finish，上屏来源记 FocusLoss，不出声不画。
+        lifecycle::COMMAND_FINISH_ON_FOCUS_LOSS => {
+            return dispatch_call(
+                handle,
+                Action::Finish,
+                Some(lifecycle::InputClass::FocusLoss),
+            )
         }
         100 => Action::NextPage,
         101 => Action::PreviousPage,

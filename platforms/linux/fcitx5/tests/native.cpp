@@ -1919,7 +1919,7 @@ int main(int argc, char **argv) {
           if (!action->isSeparator()) ++grouped;
         }
       require(grouped == 42, ("option groups hold the moved status actions: " + std::to_string(grouped)).c_str());
-      for (auto *menu : {&engine.scheme_menu_, &engine.desktop_tools_menu_})
+      for (auto *menu : {&engine.scheme_menu_, &engine.desktop_tools_menu_, &engine.helpcode_schema_menu_})
         for (auto *action : menu->actions())
           require(!action->name().empty(), "scheme and desktop tools entries are registered");
     }
@@ -3460,6 +3460,28 @@ int main(int argc, char **argv) {
         require(state->cycleHelpcodeSchema(), "cycle the quanpin helpcode schema");
       require(state->preferences_.value("quanpin_helpcode", Json::object()).value("schema", std::string()) == "xiaohe",
               "quanpin helpcode schema set to xiaohe from the status bar");
+      // 辅助码方案 opens a menu of the built-in schemas; the one in use is the only one checked, and choosing another saves it.
+      const auto helpcodeSchemaItem = [&](std::string_view schema) -> fcitx::Action & {
+        for (auto &item : engine.helpcode_schema_items_)
+          if (item->shortText(&ic) == msime::linux_host::helpcode_schema_label(schema)) return *item;
+        throw std::runtime_error("no helpcode schema menu entry");
+      };
+      require(engine.helpcode_schema_action_.menu() == &engine.helpcode_schema_menu_ &&
+                  engine.helpcode_schema_menu_.actions().size() == msime::linux_host::kHelpcodeSchemaNames.size(),
+              "the helpcode schema menu lists every built-in schema");
+      require(std::count_if(engine.helpcode_schema_items_.begin(), engine.helpcode_schema_items_.end(),
+                            [&](const auto &item) { return item->isChecked(&ic); }) == 1 &&
+                  helpcodeSchemaItem("xiaohe").isChecked(&ic),
+              "the helpcode schema menu checks the schema in use");
+      helpcodeSchemaItem("jiajia").activate(&ic);
+      require(state->preferences_.value("quanpin_helpcode", Json::object()).value("schema", std::string()) == "jiajia" &&
+                  loadStore().at("preferences").value("quanpin_helpcode", Json::object()).value("schema", std::string()) == "jiajia" &&
+                  helpcodeSchemaItem("jiajia").isChecked(&ic) && !helpcodeSchemaItem("xiaohe").isChecked(&ic) &&
+                  engine.helpcode_schema_action_.shortText(&ic) == "辅助码：加加",
+              "choosing a helpcode schema from the menu saves it");
+      helpcodeSchemaItem("xiaohe").activate(&ic);
+      require(state->preferences_.value("quanpin_helpcode", Json::object()).value("schema", std::string()) == "xiaohe",
+              "the helpcode schema menu returns to xiaohe");
       require(state->cycleScheme() && state->view_.value("scheme", 0u) == 1, "status bar to shuangpin");
       const auto storedShuangpin = loadStore().at("preferences").value("shuangpin_helpcode", Json::object())
                                        .value("schema", std::string("lantian"));
@@ -3504,9 +3526,13 @@ int main(int argc, char **argv) {
               "the status bar names the helpcode pack in use");
       const auto packedSchema = storedHelpcodeSchema();
       require(!packedSchema.empty(), "the store keeps a helpcode schema under the pack");
-      require(state->cycleHelpcodeSchema() && !state->preferences_save_retry_ && storedPack().empty() &&
-                  storedHelpcodeSchema() == packedSchema,
-              "the first status bar click clears the pack in the store and keeps its schema");
+      require(std::none_of(engine.helpcode_schema_items_.begin(), engine.helpcode_schema_items_.end(),
+                           [&](const auto &item) { return item->isChecked(&ic); }),
+              "the helpcode schema menu checks no built-in schema while a pack is in use");
+      // Choosing the schema the store already holds is not a no-op while the pack is active: it turns the pack off.
+      helpcodeSchemaItem(packedSchema).activate(&ic);
+      require(!state->preferences_save_retry_ && storedPack().empty() && storedHelpcodeSchema() == packedSchema,
+              "choosing the stored schema from the menu clears the pack in the store and keeps its schema");
       require(sessionPack().empty() && sessionHelpcodeSchema() == packedSchema &&
                   engine.helpcode_schema_action_.shortText(&ic) == schemaLabel(packedSchema),
               "the session returns to the stored built-in schema");

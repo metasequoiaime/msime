@@ -1,6 +1,6 @@
 [package]
 name = "msime-pack-tool"
-description = "msime-pack: checks extension packs (sound, music, command table, effect) by exactly the rules the input method imports them by, for pack authors and the community pack repository's CI."
+description = "msime-pack: checks extension packs (sound, music, command table, effect, script) by exactly the rules the input method imports them by, and runs a desktop script plugin against a fixture of events, for pack authors and the community pack repository's CI."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -15,9 +15,20 @@ path = "src/main.rs"
 [dependencies]
 # Every rule lives in client-core's plugins module; this tool only reports what `plugins::validate` answers.
 msime-client-core = { path = "../client-core" }
+# `run` 读夹具、写一行一个事件的 JSON。两者都已是工作区依赖，不新增第三方 crate。
+serde.workspace = true
+serde_json.workspace = true
+
+# `run` 用输入法进程里同一个沙箱运行时执行脚本插件。只在桌面编译，条件与 client-core、host-api 引用它的那段相同。
+[target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
+msime-script-runtime = { path = "../script-runtime" }
 
 [dev-dependencies]
 tempfile.workspace = true
+
+# 测试用 WAT 写模块（`test-support` 导出 `compile_text`），和 host-api 的脚本插件测试一样；仓库不提交 `.wasm`。
+[target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dev-dependencies]
+msime-script-runtime = { path = "../script-runtime", features = ["test-support"] }
 
 [lints]
 workspace = true

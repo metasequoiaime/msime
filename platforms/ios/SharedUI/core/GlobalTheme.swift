@@ -544,7 +544,8 @@ enum GlobalThemePreference {
     let stored = KeyboardFeedbackPreference.defaults.data(forKey: CustomKeyboardSkinStore.key)
     if let design {
       if stored == nil || design != CustomKeyboardSkinStore.current {
-        CustomKeyboardSkinStore.save(design)
+        // A copy of the document, which marked the change when it was written; not a second edit.
+        CloudSyncState.suppressingMarks { CustomKeyboardSkinStore.save(design) }
         changed = true
       }
     } else if stored != nil {

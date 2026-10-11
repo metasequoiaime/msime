@@ -288,6 +288,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     void _NoteKeyPressStatistics(WPARAM wParam, LPARAM lParam);
     // wch 是分类时布局按出的字符，用来认出 AltGr 打字（见 Global::IsAltGrCharacter）。
     void _NotePassthroughKeySound(WPARAM wParam, LPARAM lParam, WCHAR wch);
+    // 记下当前字段的属性（停用的键盘或空上下文、安全桌面算 SECURE，提权进程算 ELEVATED），下一次发给 Server 的按键或状态快照之前、属性变了时先报（NoteFieldTraitsForServer）。只是转述给 Server：这个 TIP 自己的宿主会话从不调用生命周期的任何 FFI。
+    void _NoteFieldTraitsForServer();
     void _ResetSmartPunctuationHistory();
     // Focus-loss counterpart of the reference's _ClearSmartPunctuationAction: forgets the armed space/revert history and drops a queued repeated-punctuation rewrite, whose Backspace would otherwise land in whatever gains focus next.
     void _ClearSmartPunctuationAction();

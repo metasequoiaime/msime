@@ -110,6 +110,9 @@ size_t InputState::resume_dictionaries() {
       continue;
     try {
       client.session = std::make_unique<FocusedSession>(gate_, id, options_);
+      // 新会话的属性从未知开始，TIP 只在属性变了或换了连接时才重报，所以把记下的交给它。
+      if (client.field_traits)
+        client.session->set_field_traits(*client.field_traits);
       ++rebuilt;
     } catch (...) {
       // A client whose session cannot be rebuilt is left without one. It
@@ -143,6 +146,20 @@ bool InputState::passthrough_key(uint64_t client, uint64_t token, uint32_t key_c
     return false;
   return found->second.session->passthrough_key(token, key_class);
 }
+bool InputState::set_field_traits(const PipeTicket &ticket,
+                                  const FanyImeNamedpipeData &packet) {
+  check_thread();
+  if (!valid_main_frame(packet, ticket.client) ||
+      packet.event_type != FanyImePipeEventType::FieldTraits)
+    throw std::invalid_argument("Invalid field traits notification");
+  const auto found = clients_.find(ticket.client);
+  if (found == clients_.end() || !same_ticket(found->second.ticket, ticket))
+    return false;
+  found->second.field_traits = packet.keycode;
+  if (found->second.session)
+    found->second.session->set_field_traits(packet.keycode);
+  return true;
+}
 void InputState::cleanup(const FocusRoute &route) {
   if (route.cleanup)
     if (auto *owner = session(route.cleanup->transport))
@@ -160,8 +177,10 @@ FocusRoute InputState::connected(const PipeTicket &ticket) {
   else {
     try {
       clients_.emplace(ticket.client,
-                       Client{ticket, std::make_unique<FocusedSession>(
-                                          gate_, ticket.client, options_)});
+                       Client{ticket,
+                              std::make_unique<FocusedSession>(
+                                  gate_, ticket.client, options_),
+                              std::nullopt});
     } catch (...) {
       router_.disconnected(ticket);
       throw;

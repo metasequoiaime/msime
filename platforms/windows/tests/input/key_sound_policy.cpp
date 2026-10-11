@@ -1,4 +1,5 @@
 #include "KeySoundPolicy.h"
+#include "LifecyclePolicy.h"
 #include "TypingEffectPolicy.h"
 
 #include <iostream>
@@ -94,6 +95,46 @@ int main() {
     REQUIRE(!typing_effect_shows_combo(1u, 0u));
     REQUIRE(typing_effect_shows_combo(2u, 2999u));
     REQUIRE(!typing_effect_shows_combo(2u, 3000u));
+
+    // 生命周期核心（FEEDBACK）接手之后，Server 不再自己调 key_sound 和 commit_sound：按键交给 msime_client_key，类别同上，自动重复带 MSIME_KEY_REPEAT；TIP 交给应用的键带 MSIME_KEY_PASSTHROUGH。类别占低 7 位，标志位不和它重叠。
+    REQUIRE(lifecycle_key(1u, false) == 1u);
+    REQUIRE(lifecycle_key(3u, true) == (3u | MSIME_KEY_REPEAT));
+    REQUIRE(lifecycle_passthrough_key(2u) == (2u | MSIME_KEY_PASSTHROUGH));
+    for (uint32_t key_class = 0; key_class <= 3u; ++key_class) {
+      REQUIRE((lifecycle_key(key_class, true) & 0x7Fu) == key_class);
+      REQUIRE((lifecycle_passthrough_key(key_class) & 0x7Fu) == key_class);
+      REQUIRE((lifecycle_key(key_class, false) & (MSIME_KEY_POINTER | MSIME_KEY_PASSTHROUGH)) == 0u);
+    }
+    REQUIRE(lifecycle_flags() == (MSIME_LIFECYCLE_FEEDBACK | MSIME_LIFECYCLE_HOST_HOLDS_PIECES));
+    REQUIRE(lifecycle_flags(true) == (lifecycle_flags() | MSIME_LIFECYCLE_COMMIT_OBSERVE_ONLY));
+    // 整段上屏的那次选词只去掉 HOST_HOLDS_PIECES，FEEDBACK 和 COMMIT_OBSERVE_ONLY 照旧。
+    REQUIRE(lifecycle_flags(false, false) == MSIME_LIFECYCLE_FEEDBACK);
+    REQUIRE(lifecycle_flags(true, false) == (MSIME_LIFECYCLE_FEEDBACK | MSIME_LIFECYCLE_COMMIT_OBSERVE_ONLY));
+    // 全屏前台不再由 Server 自己判断出不出声，而是作为 FULLSCREEN 属性交给核心：声音静音、特效照画。旧 TIP 不报字段属性，属性保持未知，不带 KNOWN。
+    REQUIRE(server_field_traits(std::nullopt, false) == 0u);
+    REQUIRE(server_field_traits(std::nullopt, true) == MSIME_TRAIT_FULLSCREEN);
+    REQUIRE(server_field_traits(0u, false) == MSIME_TRAIT_KNOWN);
+    REQUIRE(server_field_traits(FanyImeFieldTraits::Secure, true) ==
+            (MSIME_TRAIT_SECURE | MSIME_TRAIT_FULLSCREEN | MSIME_TRAIT_KNOWN));
+    REQUIRE(server_field_traits(FanyImeFieldTraits::Elevated, false) == (MSIME_TRAIT_ELEVATED | MSIME_TRAIT_KNOWN));
+    // 核心的其余位只有核心自己或别的宿主会报，TIP 的帧里出现也不转交。
+    REQUIRE(server_field_traits(0xFFFFFFFFu, false) ==
+            (MSIME_TRAIT_SECURE | MSIME_TRAIT_ELEVATED | MSIME_TRAIT_KNOWN));
+    // 上屏的特效只读带上屏的回复里核心写的 feedback，0 也是一个答案；没有上屏、没有 feedback（Server 合成的上屏）都没有特效。
+    REQUIRE(commit_feedback(nlohmann::json{{"commit", "你好"}, {"feedback", {{"typing_effect", 70u}}}}) == 70u);
+    REQUIRE(commit_feedback(nlohmann::json{{"commit", "你好"}, {"feedback", {{"typing_effect", 0u}}}}) == 0u);
+    REQUIRE(!commit_feedback(nlohmann::json{{"commit", nullptr}, {"feedback", {{"typing_effect", 70u}}}}));
+    REQUIRE(!commit_feedback(nlohmann::json{{"commit", "你好"}}));
+    REQUIRE(!commit_feedback(nlohmann::json{{"commit", "你好"}, {"feedback", nullptr}}));
+    REQUIRE(!commit_feedback(nlohmann::json::array()));
+    // TIP 自己写进文档的上屏：韩文（4）、注音（6）、越南文（7）、藏文（8）这些方案，以及整句改字中的全拼、双拼。
+    REQUIRE(!tip_writes_commits(nlohmann::json{{"scheme", 0u}, {"conversion", ""}}));
+    REQUIRE(tip_writes_commits(nlohmann::json{{"scheme", 0u}, {"conversion", "你好"}}));
+    for (uint32_t inline_scheme : {4u, 6u, 7u, 8u})
+      REQUIRE(tip_writes_commits(nlohmann::json{{"scheme", inline_scheme}}));
+    for (uint32_t ordinary : {0u, 1u, 2u, 3u, 5u, 9u})
+      REQUIRE(!tip_writes_commits(nlohmann::json{{"scheme", ordinary}}));
+    REQUIRE(!tip_writes_commits(nlohmann::json()));
 
     std::cout << "Windows key sound policy checks passed\n";
     return 0;

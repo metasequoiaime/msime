@@ -61,10 +61,13 @@ pub(crate) fn parse(table: &toml::map::Map<String, Value>) -> Result<String, Str
 /// 读取并严格解析包目录里的码表。
 pub(crate) fn read(directory: &Path, name: &str) -> Result<HelpcodePack, String> {
     let entries = read_entries(directory, name)?;
+    let count = entries.len();
+    let mut preview = Vec::with_capacity(PREVIEW_ENTRIES.min(count));
+    preview.extend(entries.into_iter().take(PREVIEW_ENTRIES));
     Ok(HelpcodePack {
         table: name.to_owned(),
-        entries: entries.len(),
-        preview: entries.into_iter().take(PREVIEW_ENTRIES).collect(),
+        entries: count,
+        preview,
     })
 }
 
@@ -97,8 +100,10 @@ pub(crate) fn parse_table(bytes: &[u8], name: &str) -> Result<Vec<HelpcodeEntry>
             return Err(format!("{name} 第 {number} 行的码必须是 1 到 2 个小写字母"));
         }
         if entries.is_empty() {
-            entries.reserve(MAX_ENTRIES);
-            seen.reserve(MAX_ENTRIES);
+            // 最短合法行是两字节字符、等号和一个码字母；除最后一行外还要有换行。
+            let capacity = (bytes.len().saturating_add(1) / 5).min(MAX_ENTRIES);
+            entries.reserve_exact(capacity);
+            seen.reserve(capacity);
         }
         if !seen.insert(scalar) {
             return Err(format!("{name} 里「{scalar}」出现了不止一次"));

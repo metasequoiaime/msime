@@ -103,6 +103,92 @@ pub mod log_level {
     pub const ERROR: i32 = 3;
 }
 
+/// `event_scalar` 里各枚举字段的取值：名字和数值。数值是 host-api、input-runtime 对应枚举的判别值（host-api 的测试逐项核对），名字是 `msime-pack run` 夹具和 SDK 里用的写法。和字段编号一样只能追加。
+pub mod scalar_values {
+    /// `ORIGIN`：host-api 的 `CommitOrigin`。
+    pub const ORIGIN: &[(&str, u8)] = &[
+        ("selection", 0),
+        ("raw", 1),
+        ("held_flush", 2),
+        ("scheme_text", 3),
+        ("focus_loss", 4),
+    ];
+    /// `HOW`：input-runtime 的 `SelectionHow`。
+    pub const HOW: &[(&str, u8)] = &[
+        ("finish", 0),
+        ("punctuation_finish", 1),
+        ("wubi_top", 2),
+        ("space_over_list", 3),
+        ("digit", 4),
+        ("grid_raw", 5),
+        ("select", 6),
+        ("any_candidate", 7),
+        ("edge", 8),
+        ("highlighted", 9),
+        ("wubi_auto", 10),
+    ];
+    /// `OUTCOME`：input-runtime 的 `SelectionOutcome`。
+    pub const OUTCOME: &[(&str, u8)] =
+        &[("committed", 0), ("held", 1), ("pinned", 2), ("partial", 3)];
+    /// `REASON`：host-api 的 `EndReason`，组字结束和候选隐藏共用。
+    pub const REASON: &[(&str, u8)] = &[
+        ("commit", 0),
+        ("cancel", 1),
+        ("deleted", 2),
+        ("focus", 3),
+        ("destroyed", 4),
+        ("host_commit", 5),
+        ("other", 6),
+    ];
+    /// `LOCAL_MODE`：host-api 的 `LocalModeClass`，名字同 `commit_context.local_mode`。0 到 5 在 U6 白名单里（[`super::local_mode_allows_text`]），其余模式下文本一律按屏蔽处理。
+    pub const LOCAL_MODE: &[(&str, u8)] = &[
+        ("none", 0),
+        ("temporary_english", 1),
+        ("temporary_japanese", 2),
+        ("super_jianpin", 3),
+        ("emoji", 4),
+        ("kaomoji", 5),
+        ("mention", 6),
+        ("url", 7),
+        ("command", 8),
+        ("expression", 9),
+        ("unicode", 10),
+        ("date_time", 11),
+        ("quick_phrase", 12),
+        ("unknown", 255),
+    ];
+    /// `INPUT_CLASS`：host-api 的 `InputClass`。
+    pub const INPUT_CLASS: &[(&str, u8)] = &[
+        ("character", 0),
+        ("punctuation", 1),
+        ("selection", 2),
+        ("navigation", 3),
+        ("edit", 4),
+        ("commit", 5),
+        ("cancel", 6),
+        ("host_commit", 7),
+        ("other", 8),
+    ];
+    /// `RETRACTION`：input-runtime 的 `SelectionRetraction`。
+    pub const RETRACTION: &[(&str, u8)] = &[("restore", 0), ("drop", 1)];
+
+    /// 按名字查数值。
+    pub fn value(table: &[(&str, u8)], name: &str) -> Option<u8> {
+        table
+            .iter()
+            .find(|(entry, _)| *entry == name)
+            .map(|(_, value)| *value)
+    }
+
+    /// 按数值查名字。
+    pub fn name(table: &[(&'static str, u8)], value: u8) -> Option<&'static str> {
+        table
+            .iter()
+            .find(|(_, entry)| *entry == value)
+            .map(|(name, _)| *name)
+    }
+}
+
 /// 插件在清单 `permissions` 里申请、用户在授权页逐项授予的能力。判别值是位下标，只能追加。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -503,6 +589,11 @@ pub(crate) const IMPORTS: [ImportSpec; 15] = [
         (&[Ty::I32, Ty::I32, Ty::I32], &[Ty::I32]),
     ),
 ];
+
+/// 白名单里全部 import 的名字和所属能力（`None` 表示不需要能力），按 ABI 的顺序。作者文档和 SDK 的一致性测试按它核对。
+pub fn imports() -> impl Iterator<Item = (&'static str, Option<Capability>)> {
+    IMPORTS.iter().map(|spec| (spec.name, spec.capability))
+}
 
 /// 按名字找白名单里的 import。
 pub(crate) fn import_spec(name: &str) -> Option<&'static ImportSpec> {

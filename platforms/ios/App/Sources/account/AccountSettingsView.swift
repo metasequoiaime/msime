@@ -11,7 +11,7 @@ private func isCancellation(_ error: Error) -> Bool {
 
 /// 「我的」页，对应 Android 的 `AccountFragment`：先是资料卡，然后是「我的内容」「同步」「通用」三组，以及一组不带标题的下载、帮助、关于和两个重播入口，铺在季节页面底色上。
 ///
-/// 页面先读本地会话并立即绘制，再去取需要联网的内容（资料和云剪贴板条数）；没拿到数字的行就不显示数字。iOS 上没有自动同步，所以资料卡从不显示「已同步」，「云同步」也是一页手动操作而不是一个开关。
+/// 页面先读本地会话并立即绘制，再去取需要联网的内容（资料和云剪贴板条数）；没拿到数字的行就不显示数字。「云同步」和 Android 一样是一个开关，副标题是同步状态（`CloudSync.statusLine`）；手动上传下载设置、管理云词库在它下面的「手动同步」里。
 struct AccountSettingsView: View {
   @EnvironmentObject private var router: SettingsRouter
   @Environment(\.horizontalSizeClass) private var widthClass
@@ -28,6 +28,7 @@ struct AccountSettingsView: View {
   @State private var showsLogin = false
   @State private var showsAppTheme = false
   @State private var replay: Replay?
+  @ObservedObject private var cloudSync = CloudSync.shared
   private let api = SkinCommunityAPI.shared
 
   /// What 我的 can play again. Both cover the whole window, so neither slides up as a sheet over the tab bar.
@@ -251,14 +252,50 @@ struct AccountSettingsView: View {
 
   private var syncGroup: some View {
     MeGroup(title: "同步") {
+      // 与 Android 的同步行相同：整行是开关，副标题是一行状态。打开时马上比对一次，之后每次回到前台按节流自动同步。
+      Toggle(isOn: Binding(get: { signedIn && cloudSync.record.enabled }, set: setCloudSync)) {
+        HStack(spacing: 12) {
+          Image(systemName: "arrow.triangle.2.circlepath.circle.fill").font(.system(size: 18))
+            .foregroundStyle(MetasequoiaTheme.accent)
+            .frame(width: 28, height: 28)
+            .accessibilityHidden(true)
+          VStack(alignment: .leading, spacing: 1) {
+            Text("云同步").font(.system(size: 16)).foregroundStyle(.primary)
+            Text(signedIn ? CloudSync.statusLine(cloudSync.record) : "登录后可用")
+              .font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.sub)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+      }
+      .toggleStyle(.switch)
+      .tint(MetasequoiaTheme.switchOn)
+      .padding(.vertical, 8)
+      .padding(.horizontal, 14)
+      .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+      .disabled(!signedIn)
+      .opacity(signedIn ? 1 : 0.38)
+      .accessibilityIdentifier("accountCloudSync")
+      MeDivider()
       NavigationLink { AccountCloudSyncView() } label: {
-        MeRow(symbol: "arrow.triangle.2.circlepath.circle.fill", title: "云同步",
-              subtitle: signedIn ? "词库、自造词和设置在设备间同步" : "登录后可用")
+        MeRow(symbol: "arrow.up.arrow.down.circle.fill", title: "手动同步",
+              subtitle: signedIn ? "上传或下载设置，管理云词库；词库不自动同步" : "登录后可用")
       }
       .buttonStyle(PressFillButtonStyle())
       .disabled(!signedIn)
       .opacity(signedIn ? 1 : 0.38)
-      .accessibilityIdentifier("accountCloudSync")
+      .accessibilityIdentifier("accountManualSync")
+    }
+  }
+
+  /// 打开或关闭云同步，与 Android 的 `setSync` 相同：结果用一条提示说明，打开后马上比对一次（首次的「合并 / 使用云端」选择也当场弹出）。
+  private func setCloudSync(_ enabled: Bool) {
+    Task { @MainActor in
+      do {
+        try await cloudSync.setEnabled(enabled)
+        ToastCenter.shared.show(enabled ? "云同步已开启" : "云同步已关闭")
+      } catch {
+        ToastCenter.shared.show(error is CloudSyncState.Failure ? "登录后才能打开云同步" : "云同步设置没有保存，请重试")
+      }
     }
   }
 
@@ -334,6 +371,8 @@ struct AccountSettingsView: View {
       if !isCancellation(error) { needsRecovery = true; report(error) }
       return
     }
+    // 与当前登录对齐：换了账号或已经退出时，这一步关掉开关、清空同步进度。
+    await cloudSync.refresh()
     guard signedIn else {
       profile = nil
       clipboardValue = nil
@@ -367,6 +406,7 @@ struct AccountSettingsView: View {
     user = nil
     profile = nil
     clipboardValue = nil
+    Task { await cloudSync.refresh() }
   }
 
   /// 取消不写进 message,别的都写。alert 绑在 message 上,写进去就是弹出来。
@@ -533,7 +573,7 @@ private struct AccountCardButtonStyle: ButtonStyle {
 
 // MARK: - 子页面
 
-/// 「云同步」：iOS 只能手动同步，所以这一页汇集手动上传、下载设置和云词库，而不是放一个开关。
+/// 「手动同步」：自动同步之外，在这台设备上立刻上传或下载设置；个人词库不在自动同步里（键盘里的 Engine 持有它，应用进程导不出来），云词库的上传下载也在这里。
 private struct AccountCloudSyncView: View {
   var body: some View {
     ScrollView {
@@ -551,18 +591,13 @@ private struct AccountCloudSyncView: View {
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("accountCloudDictionary")
         }
-        Text("在这台设备上手动上传或下载，不会在后台自动同步。")
-          .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
-          .fixedSize(horizontal: false, vertical: true)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, 4)
       }
       .padding(.horizontal, 16)
       .padding(.top, 16)
       .padding(.bottom, 24)
     }
     .background(MetasequoiaTheme.canvas.ignoresSafeArea())
-    .navigationTitle("云同步").navigationBarTitleDisplayMode(.inline)
+    .navigationTitle("手动同步").navigationBarTitleDisplayMode(.inline)
   }
 }
 

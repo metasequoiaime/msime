@@ -3073,6 +3073,9 @@ name = "msime-pack-tool"
 version = "0.1.0"
 dependencies = [
  "msime-client-core",
+ "msime-script-runtime",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 

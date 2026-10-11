@@ -802,6 +802,39 @@ void session_pump_tests(const std::string &options) {
     require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 2);
     queue.stop();
   }
+  {
+    // 字段属性（FieldTraits）在激活之前和按键之间都收下：不断开连接、不交给事件处理器，后面的按键照常处理。Server 的会话选择加入了生命周期核心，上屏的回复里多一个 feedback 键，回复合成器照样读它。
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    auto traits = transport.packets.front();
+    traits.event_type = FanyImePipeEventType::FieldTraits;
+    traits.request_id = 0;
+    traits.keycode = FanyImeFieldTraits::Elevated;
+    transport.packets.insert(transport.packets.begin(), traits);
+    traits.keycode = 0;
+    transport.packets.insert(transport.packets.begin() + 3, traits);
+    size_t keys = 0;
+    bool committed = false;
+    SessionPump pump(
+        transport, queue, gate,
+        [&](InputState &state, const FocusLease &lease,
+            const FanyImeNamedpipeData &packet) {
+          ++keys;
+          auto reply = state.configured_key(lease, packet, TsfPreeditStyle::Pinyin, {});
+          if (reply && !reply->source.transition.at("commit").is_null()) {
+            committed = true;
+            require(reply->source.transition.at("feedback").is_object());
+          }
+          return reply;
+        },
+        [&](const FocusRoute &, const FanyImeNamedpipeData &packet) {
+          require(packet.event_type != FanyImePipeEventType::FieldTraits);
+          return true;
+        });
+    require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 6 && committed);
+    queue.stop();
+  }
   for (auto event : {FanyImePipeEventType::StatusSnapshot,
                      FanyImePipeEventType::IMESwitch,
                      FanyImePipeEventType::FocusRestored}) {

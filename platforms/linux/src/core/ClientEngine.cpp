@@ -50,6 +50,7 @@
 #include "ClientInputModeMemory.h"
 #include "../system/DiagnosticLog.h"
 #include "../system/KeySound.h"
+#include "../system/LifecycleFeedback.h"
 #include "../system/PanelInputChannel.h"
 #include "../system/TypingStatistics.h"
 #include "msime_client.h"
@@ -216,6 +217,7 @@ void patch_preference_object(Json &preferences, const char *name,
 }
 void register_properties(IBusEngine *engine);
 void page(IBusEngine *engine, uint32_t command);
+void pointer_turn(IBusEngine *engine);
 Json response(char *raw) {
   auto owned = msime::host_api::own_string(raw);
   if (!raw)
@@ -327,9 +329,13 @@ struct State {
   std::string focused_client;
   bool blocked = false;
   bool private_input = false;
-  // What the process's sound player was last told about background music; see sync_music.
+  // 输入框最近一次报告的提示位（content_type）。private_input 把隐私和不做拼写检查并成一个判断，管学习和联网；生命周期核心要的字段属性按这里逐个标志换算，见 report_field_traits。
+  guint content_hints = 0;
+  // 生命周期核心现在知道的字段属性，变了才重新报告。
+  msime::linux_host::FieldTraitsReport field_traits;
+  // 背景音乐经 msime_client_set_active 最近一次告诉核心的激活状态，见 sync_music。
   msime::linux_host::MusicActivity music;
-  // The combo count the session last answered msime_client_typing_effect with, shown at the end of the candidate aux line, and the key held down, so an auto-repeat is drawn but not counted.
+  // 生命周期核心最近一次报告的连击数（msime_client_key 的返回值或派发回复的 feedback），画在候选辅助行末尾；以及按住的那个键，自动重复照画但不计连击。
   uint32_t typing_combo = 0;
   msime::linux_host::KeyRepeat key_repeat;
   // Per-key press counts for the key heatmap, written in batches; see KeyPressCounter.
@@ -648,7 +654,8 @@ struct State {
           voice_provider_socket.size(), voice_generation));
     if (voice_active && session)
       msime::host_api::discard_string(msime_client_voice_cancel(session));
-    music.release(session, msime_client_music_set_active);
+    music.release(session, msime_client_set_active);
+    field_traits.reset();
     // The combo lives in the session; the next one starts from none.
     typing_combo = 0;
     key_repeat.reset();
@@ -693,6 +700,21 @@ struct State {
     paired_tracker.clear();
     japanese_conversion.reset();
     backspace_hold.reset();
+  }
+  // 把输入框的属性报告给生命周期核心，变了才调用：IBUS_INPUT_HINT_PRIVATE 按最严处理成 SECURE 加 PRIVATE，IBUS_INPUT_HINT_NO_SPELLCHECK 只报 NO_SPELLCHECK（LifecycleFeedback.h）。密码、PIN、数字一类用途根本不建会话。
+  void report_field_traits() {
+    field_traits.sync(session, current_field_traits(), msime_client_set_field_traits);
+  }
+  uint32_t current_field_traits() const {
+    return msime::linux_host::lifecycle_field_traits(
+        (content_hints & IBUS_INPUT_HINT_PRIVATE) != 0,
+        (content_hints & IBUS_INPUT_HINT_NO_SPELLCHECK) != 0);
+  }
+  // 本宿主对 msime_client_focus 的唯一调用。获得焦点（true）之前不论属性变没变都先报告一次（FieldTraitsReport::confirm）：同一个会话重新获得焦点、切换方案或中英文时 report_field_traits 的去重会省掉这次报告，而脚本运行时要在每次获得焦点之后先看到属性确认才往脚本投递事件。
+  char *focus_session(bool focused) {
+    if (focused)
+      field_traits.confirm(session, current_field_traits(), msime_client_set_field_traits);
+    return msime_client_focus(session, focused);
   }
   void open() {
     auto options = configured;
@@ -830,6 +852,9 @@ struct State {
     view = response(msime_client_create(
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     session = view.at("session").get<uint64_t>();
+    // 按键音、上屏音、打字特效和背景音乐都交给生命周期核心（msime_client.h 的 MSIME_LIFECYCLE_FEEDBACK）；字段属性在第一个键之前就报告。
+    msime_client_set_lifecycle(session, MSIME_LIFECYCLE_FEEDBACK);
+    report_field_traits();
     translation_reset_pending = false;
     key_router.set_lease(
         {client_token, focus_epoch,
@@ -1383,11 +1408,10 @@ void commit_text(
                              source_override ? *source_override : typing_source(s));
   s.remember_commit(text);
 }
-// Background music may play while this input method is focused in a field that is not a secure one (a password, PIN or no-spellcheck field), and not while a recording would pick it up. The player serves the whole process, so this only tells it about a change (KeySound.h); State::close tells it the music is over before the session goes away.
+// 背景音乐只在本输入法获得焦点、没有录音时可以播放。这里只告诉生命周期核心本会话是否激活（msime_client_set_active），变了才说；核心记着哪个会话是音乐的所有者，再按字段属性决定：隐私字段（报成 SECURE）里不放，只带不做拼写检查的普通字段照常放。IBus 的两个输入上下文先进后出时，后获得焦点的那个成为所有者，先失焦的那个关不掉它的音乐。State::close 在会话销毁前告诉核心本会话停用。
 void sync_music(IBusEngine *engine) {
   auto &s = state(engine);
-  s.music.sync(s.session, s.focused && !s.blocked && !s.private_input && !s.voice_active,
-               msime_client_music_set_active);
+  s.music.sync(s.session, s.focused && !s.blocked && !s.voice_active, msime_client_set_active);
 }
 void publish_mode(IBusEngine *engine, bool registration = false);
 void sync_global_input_mode(IBusEngine *engine);
@@ -3600,7 +3624,7 @@ void sync_global_input_mode(IBusEngine *engine) {
   s.open();
   resync_punctuation_for_mode(engine);
   if (s.session)
-    apply(engine, msime_client_focus(s.session, s.input_enabled));
+    apply(engine, s.focus_session(s.input_enabled));
   clear(engine);
   publish_mode(engine);
 }
@@ -3979,7 +4003,8 @@ bool commit_translation_candidate(IBusEngine *engine, size_t index) {
   const auto text = s.translation_options.at(index);
   exit_translation_candidates(engine);
   commit_text(engine, text);
-  (void)apply(engine, msime_client_command(s.session, MSIME_CANCEL));
+  // 译文是宿主自己写进文档的，丢弃组字时告诉生命周期核心组字是这样结束的，而不是被取消（对会话的作用同 MSIME_CANCEL）。
+  (void)apply(engine, msime_client_command(s.session, MSIME_CANCEL_AFTER_HOST_COMMIT));
   return true;
 }
 bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode,
@@ -4021,13 +4046,9 @@ bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode,
     if (!text.empty()) {
       commit_text(engine, text, std::nullopt,
                   !context.is_object() || context.value("typing_statistics", true));
-      // The key sound played when the key went down; this is the commit's own sound, or the next note of a melody that advances on commits. A transition only commits for a key or click in this focused, non-secure field.
-      if (!s.private_input) {
-        msime_client_commit_sound(s.session);
-        // The commit counts nothing; it reports the combo as it stands, which is how one that lapsed while the user paused leaves the aux line drawn just below.
-        s.typing_combo = msime::linux_host::typing_effect_combo(
-            msime_client_typing_effect(s.session, msime::linux_host::kTypingEffectCommit));
-      }
+      // 上屏音（或随上屏前进的旋律音符）由生命周期核心在这次派发里出过了，排在按键音之后；隐私字段里核心什么都不出。回复的 feedback 带着上屏之后的打字特效：上屏不计数，只报告连击现在的样子，停顿后断掉的连击就这样让下面画出的辅助行跟着清掉。focus 等不是派发的调用没有它，连击照旧。
+      if (const auto effect = msime::linux_host::reply_typing_effect(result))
+        s.typing_combo = msime::linux_host::typing_effect_combo(*effect);
       if (space_convert_ascii != 0 && !inserted_pair) {
         // Preserve Engine's actual half (notably opening/closing quotes).
         s.space_convert_mark = space_convert_mark;
@@ -4713,7 +4734,7 @@ void focus_in(IBusEngine *engine) {
     // IBus may replay focus after negotiating client identity. Re-focusing
     // the same runtime would cancel input already typed during negotiation.
     if (s.session && (!already_focused || s.session != previous_session))
-      apply(engine, msime_client_focus(s.session, s.input_enabled));
+      apply(engine, s.focus_session(s.input_enabled));
     if (!s.properties_registered &&
         g_getenv("MSIME_DISABLE_IBUS_PROPERTIES") == nullptr) {
       register_properties(engine);
@@ -4776,13 +4797,13 @@ void focus_out(IBusEngine *engine) {
     if (blur_composition) {
       // The source is read from the view the composition was typed under, before the focus result replaces it.
       const auto source = typing_source(s);
-      const auto left = response(msime_client_focus(s.session, false));
+      const auto left = response(s.focus_session(false));
       // IBus writes the syllable as the preedit, not through commit_text, so it is counted here as typed text.
       if (left.contains("commit") && left.at("commit").is_string())
         record_typing_statistics(engine, left.at("commit").get<std::string>(), source);
       s.view = left.at("view");
     } else if (s.session)
-      apply(engine, msime_client_focus(s.session, false));
+      apply(engine, s.focus_session(false));
     clear(engine);
     publish_mode(engine);
   });
@@ -4800,6 +4821,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       candidate_name == "CandidateNextPage") {
     if (value != PROP_STATE_UNCHECKED && value != PROP_STATE_CHECKED)
       return;
+    // 托盘菜单「候选翻页」里的上一页、下一页也是指针翻页，同面板的翻页按钮一样先开启新的一轮。
+    pointer_turn(engine);
     page(engine, candidate_name == "CandidatePreviousPage"
                    ? MSIME_PREVIOUS_PAGE
                    : MSIME_NEXT_PAGE);
@@ -5142,7 +5165,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.nine_key_override = enabled;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5182,7 +5205,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.local_mode_overrides[key] = enabled;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5231,7 +5254,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.helpcode_schema_override = selected;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5256,7 +5279,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.frequency_mode_override = selected;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5269,7 +5292,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (step) s.frequency_linear_step_override = *step;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
     };
     if (property_name.rfind("FrequencyTriggerCount/", 0) == 0) {
@@ -5319,7 +5342,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.learning_override = enabled;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5341,7 +5364,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.shuangpin_preedit_override = enabled;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5383,7 +5406,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.wubi_auto_commit_unique_override = enabled;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5436,7 +5459,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.shuangpin_profile_override = selected;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5586,7 +5609,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.theme_override = selected;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5632,7 +5655,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       }
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5654,7 +5677,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.preedit_override = selected;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5678,7 +5701,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.layout_override = selected;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5702,7 +5725,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       setting_override = enabled;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5722,7 +5745,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.english_override = enabled;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5760,7 +5783,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.helpcode_override = enabled;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5802,7 +5825,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.scheme_override = selected;
       s.open();
       if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -5872,7 +5895,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.open();
       resync_punctuation_for_mode(engine);
       if (s.session)
-        apply(engine, msime_client_focus(s.session, enabled));
+        apply(engine, s.focus_session(enabled));
       clear(engine);
       if (s.voice_active)
         render(engine, s.view);
@@ -5906,6 +5929,7 @@ void reset(IBusEngine *engine) {
 void content_type(IBusEngine *engine, guint purpose, guint hints) {
   guarded(engine, "content_type", [&] {
     auto &s = state(engine);
+    s.content_hints = hints;
     bool blocked = purpose == IBUS_INPUT_PURPOSE_PASSWORD ||
                    purpose == IBUS_INPUT_PURPOSE_PIN ||
                    purpose == IBUS_INPUT_PURPOSE_NUMBER ||
@@ -5914,15 +5938,18 @@ void content_type(IBusEngine *engine, guint purpose, guint hints) {
     bool private_input =
         (hints & (IBUS_INPUT_HINT_PRIVATE | IBUS_INPUT_HINT_NO_SPELLCHECK)) !=
         0;
-    if (blocked == s.blocked && private_input == s.private_input)
+    if (blocked == s.blocked && private_input == s.private_input) {
+      // 会话照旧，但隐私和不做拼写检查之间的切换也会改变字段属性；现在就报告，音乐不等下一个键。
+      s.report_field_traits();
       return;
+    }
     s.close();
     clear(engine);
     s.blocked = blocked;
     s.private_input = private_input;
     s.open();
     if (s.session)
-      apply(engine, msime_client_focus(s.session, true));
+      apply(engine, s.focus_session(true));
     sync_music(engine);
     publish_mode(engine);
   });
@@ -6096,7 +6123,7 @@ void toggle_input_mode(IBusEngine *engine) {
   s.open();
   resync_punctuation_for_mode(engine);
   if (s.session)
-    apply(engine, msime_client_focus(s.session, s.input_enabled));
+    apply(engine, s.focus_session(s.input_enabled));
   clear(engine);
   if (s.voice_active)
     render(engine, s.view);
@@ -6671,7 +6698,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (!s.input_enabled)
       return;
     if (!s.view.at("focused").get<bool>())
-      apply(engine, msime_client_focus(s.session, true));
+      apply(engine, s.focus_session(true));
     // A key the active local mode or scheme spells with is input before any binding below can claim it: a page key, a paired bracket, smart punctuation or a candidate digit (SpellingSymbols.h). Space is one of them only while a Zhuyin syllable composes, where it is the first tone.
     if ((modifiers & ~IBUS_SHIFT_MASK) == 0) {
       const gunichar spelled = ibus_keyval_to_unicode(key);
@@ -6850,7 +6877,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
           break;
         if (senses.size() == 1) {
           commit_text(engine, senses.front());
-          (void)apply(engine, msime_client_command(s.session, MSIME_CANCEL));
+          // 同 commit_translation_candidate：宿主写入的译文，组字按 HostCommit 结束。
+          (void)apply(engine, msime_client_command(s.session, MSIME_CANCEL_AFTER_HOST_COMMIT));
           handled = true;
           return;
         }
@@ -7429,6 +7457,14 @@ void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation) {
       },
       notice, nullptr);
 }
+// 指针点选和翻页同样先开启新的一轮（msime_client.h 的顺序契约）：MSIME_KEY_POINTER 不出声、不画。
+void pointer_turn(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.session)
+    return;
+  s.report_field_traits();
+  msime_client_key(s.session, MSIME_KEY_POINTER);
+}
 // Modifier and button masks in the state argument are ignored, as the Windows candidate window commits regardless of modifiers; NumLock (Mod2) alone would otherwise block every click.
 void candidate_clicked(IBusEngine *engine, guint index, guint button,
                        G_GNUC_UNUSED guint flags) {
@@ -7436,6 +7472,7 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       state(engine).blocked || !state(engine).input_enabled) return;
   guarded(engine, "candidate_clicked", [&] {
     auto &s = state(engine);
+    pointer_turn(engine);
     if (s.translation_candidates_active) {
       const auto page_size = std::clamp(
           s.translation_saved_view.value("page_size", size_t{9}), size_t{1},
@@ -7577,6 +7614,11 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   auto updated = response(msime_client_update_preferences(
       s.session, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
   ++s.applied_preferences_revision;
+  // 声音设置变了而本会话正激活着：再声明一次激活。进程里什么声音都没开时核心不起播放器，激活那一刻的音乐请求就没人收到；不重新声明，刚在设置里打开的背景音乐要等到下一次换焦点才响。
+  if (s.music.told() && (!s.applied_preferences_snapshot.is_object() ||
+                         s.applied_preferences_snapshot.value("plugins", Json(nullptr)) !=
+                             preferences.value("plugins", Json(nullptr))))
+    msime_client_set_active(s.session, true);
   if (s.applied_preferences_snapshot.is_object() &&
       s.applied_preferences_snapshot.value("ai_assistant", Json(nullptr)) !=
           preferences.value("ai_assistant", Json(nullptr))) {
@@ -8043,29 +8085,35 @@ void destroy(IBusObject *object) {
   self->state = nullptr;
   IBUS_OBJECT_CLASS(msime_ibus_engine_parent_class)->destroy(object);
 }
-// The key sound of one press: every typing key while Chinese input is on in a field that is not a secure one, whether the Engine or the application takes the key, and none while a recording is running. It is asked for after the key is handled, when the session that holds the sound settings exists and the field's state is settled; the call only posts a request (msime_client.h).
-void play_key_sound(IBusEngine *engine, guint key, guint flags) {
+// 一次按下交给生命周期核心：每个打字键，只要中文输入开着、没有在录音，不论之后是引擎还是应用拿走这个键。先比较并报告字段属性，再调 msime_client_key，都在引擎处理这个键之前，这是顺序契约（msime_client.h），按键音因此排在这个键带来的上屏音前面；隐私字段里核心不出声也不画。松开、单独的修饰键和快捷键不算打字（key_press_sounds），不开新的一轮。录音中按 Esc 取消录音的那个键也不出声：这里读到的是引擎处理前的状态，录音还在。打字特效的连击数现在就记下，引擎处理时画出的候选辅助行用的就是它。
+void key_down(IBusEngine *engine, guint key, guint flags) {
   auto &s = state(engine);
-  sync_music(engine);
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
   if (release)
     s.key_repeat.release(key);
-  if (!s.session || !s.focused || s.blocked || s.private_input || !s.input_enabled ||
-      s.voice_active)
-    return;
   const bool shortcut =
       (flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
                 IBUS_META_MASK | IBUS_HYPER_MASK)) != 0;
   if (!msime::linux_host::key_press_sounds(release, modifier(key), shortcut))
     return;
-  const auto key_class = msime::linux_host::key_sound_class(key);
-  msime_client_key_sound(s.session, key_class);
-  // The typing effect of the same press, from the same session: Linux shows only the combo count, in the candidate aux line. The key was rendered before this point, so a count that moved redraws that line alone, from the page the panel holds.
-  const auto combo = msime::linux_host::typing_effect_combo(msime_client_typing_effect(
-      s.session, key_class | (s.key_repeat.press(key) ? msime::linux_host::kTypingEffectRepeat : 0)));
-  if (combo == s.typing_combo)
+  // 会话由 process_key 惰性创建：词库维护结束后、或 guarded 出错关掉会话后，聚焦期间的第一个键到这里时还没有会话。和 Fcitx5 的 ensure() 一样先在这里打开，这个键才有按键音，它引起的派发也才属于它自己这一轮。条件和 process_key 走到它自己的 open() 时一样（聚焦、没被挡、中文输入开着）；open() 在词库维护中什么都不做，会话已在时 process_key 随后的 open() 就成了空操作。
+  if (!s.session && s.client_token != 0 && s.focused && !s.blocked && s.input_enabled &&
+      !s.voice_active)
+    guarded(engine, "key_down", [&] { s.open(); });
+  if (!s.session || !s.focused || s.blocked || !s.input_enabled || s.voice_active)
     return;
-  s.typing_combo = combo;
+  s.report_field_traits();
+  // Linux 只显示打字特效里的连击数，在候选辅助行的末尾。
+  s.typing_combo = msime::linux_host::typing_effect_combo(msime_client_key(
+      s.session, msime::linux_host::lifecycle_key(msime::linux_host::key_sound_class(key),
+                                                  s.key_repeat.press(key))));
+}
+// 引擎处理完这个键之后：焦点、录音这些状态已经定下来，同步背景音乐。连击数变了就用面板手里的那一页单独重画辅助行，这个键交给了应用、没有经过 render 时也一样。
+void key_settled(IBusEngine *engine, uint32_t combo_before) {
+  auto &s = state(engine);
+  sync_music(engine);
+  if (s.typing_combo == combo_before)
+    return;
   if (s.rendered_session == s.session && s.rendered_view.is_object() &&
       s.rendered_candidates.is_array() && !s.rendered_candidates.empty()) {
     const auto auxiliary = candidate_aux_text(engine, s.rendered_view);
@@ -8077,8 +8125,10 @@ void play_key_sound(IBusEngine *engine, guint key, guint flags) {
 gboolean process_key_and_count(IBusEngine *engine, guint key, guint keycode,
                                guint flags) {
   count_key_press(engine, keycode, flags);
+  const auto combo_before = state(engine).typing_combo;
+  key_down(engine, key, flags);
   const gboolean handled = process_key(engine, key, keycode, flags);
-  play_key_sound(engine, key, flags);
+  key_settled(engine, combo_before);
   if (handled || (flags & IBUS_RELEASE_MASK) || !typing_statistics_switch.enabled())
     return handled;
   const auto &s = state(engine);
@@ -8178,14 +8228,24 @@ static void msime_ibus_engine_class_init(MsimeIbusEngineClass *klass) {
   engine->set_content_type = content_type;
   engine->set_surrounding_text = set_surrounding;
   engine->candidate_clicked = candidate_clicked;
-  engine->page_up = [](IBusEngine *e) { page(e, MSIME_PREVIOUS_PAGE); };
-  engine->page_down = [](IBusEngine *e) { page(e, MSIME_NEXT_PAGE); };
+  engine->page_up = [](IBusEngine *e) {
+    pointer_turn(e);
+    page(e, MSIME_PREVIOUS_PAGE);
+  };
+  engine->page_down = [](IBusEngine *e) {
+    pointer_turn(e);
+    page(e, MSIME_NEXT_PAGE);
+  };
   // The IBus GTK panel and GNOME Shell raise cursor_up/down for the wheel over the candidate window; keyboard arrows never come this way, they arrive through process_key_event and NavigationBindings. As on Windows, the wheel pages when 鼠标滚轮 is on and does nothing otherwise.
   engine->cursor_up = [](IBusEngine *e) {
-    if (state(e).navigation.mouse_wheel) page(e, MSIME_PREVIOUS_PAGE);
+    if (!state(e).navigation.mouse_wheel) return;
+    pointer_turn(e);
+    page(e, MSIME_PREVIOUS_PAGE);
   };
   engine->cursor_down = [](IBusEngine *e) {
-    if (state(e).navigation.mouse_wheel) page(e, MSIME_NEXT_PAGE);
+    if (!state(e).navigation.mouse_wheel) return;
+    pointer_turn(e);
+    page(e, MSIME_NEXT_PAGE);
   };
   IBUS_OBJECT_CLASS(klass)->destroy = destroy;
 }

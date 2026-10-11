@@ -207,7 +207,7 @@ pub unsafe extern "C" fn msime_client_plugins(request: *const u8, length: usize)
                 if !absolute_path(&source) {
                     return Err(invalid());
                 }
-                serde_json::to_value(plugins::import(Path::new(&source), &root)?)
+                serde_json::to_value(plugins::import_from_settings(Path::new(&source), &root)?)
             }
             PluginAction::Remove { kind, id } => {
                 plugins::remove_named(&root, &kind, &id)?;

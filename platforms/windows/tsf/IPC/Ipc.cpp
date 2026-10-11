@@ -21,6 +21,12 @@
 
 static thread_local HANDLE hPipe = nullptr;
 static thread_local uint32_t negotiatedServerCapabilities = 0;
+// 本线程当前字段的属性（FanyImeFieldTraits），由 NoteFieldTraitsForServer 记下；还没观察过时不报。
+static thread_local bool fieldTraitsObserved = false;
+static thread_local uint32_t observedFieldTraits = 0;
+// 本条 Main 连接上已经报给 Server 的属性。每次协商成功都清掉：新的连接可能连着一个刚启动的 Server，它还不知道。
+static thread_local bool fieldTraitsDelivered = false;
+static thread_local uint32_t deliveredFieldTraits = 0;
 static thread_local HANDLE hFromServerPipe = nullptr;
 static thread_local HANDLE hToTsfWorkerThreadPipe = nullptr;
 
@@ -511,7 +517,10 @@ bool WaitForProtocolReady(uint64_t requestId)
         {
             const bool accepted = FanyImeProtocol::AcceptReply(reply, requestId);
             if (accepted)
+            {
                 negotiatedServerCapabilities = FanyImeProtocol::ReplyCapabilities(reply);
+                fieldTraitsDelivered = false;
+            }
             return accepted;
         }
         CachePendingReply(reply);
@@ -528,7 +537,7 @@ bool WritePipeHello(HANDLE hPipeHandle, UINT pipeRole)
             FanyImeProtocol::Hello(GetPipeClientId(), NextProtocolId(nextRequestId),
                                    FanyImeProtocol::Capabilities | FanyImeProtocol::CharacterSetShortcut |
                                        FanyImeProtocol::KeyboardCompositionCancel |
-                                       FanyImeProtocol::GameHostCandidate);
+                                       FanyImeProtocol::GameHostCandidate | FanyImeProtocol::FieldTraits);
         BOOL ret = WriteFile(hPipeHandle, &hello, sizeof(hello), &bytesWritten, NULL);
         // Never authorize keys from merely writing a hello. An old Server
         // without negotiation times out into the existing raw-input fallback.
@@ -923,6 +932,18 @@ bool SupportsGameHostCandidate()
            (negotiatedServerCapabilities & FanyImeProtocol::GameHostCandidate) != 0;
 }
 
+bool SupportsFieldTraits()
+{
+    return hPipe && hPipe != INVALID_HANDLE_VALUE &&
+           (negotiatedServerCapabilities & FanyImeProtocol::FieldTraits) != 0;
+}
+
+void NoteFieldTraitsForServer(uint32_t traits)
+{
+    observedFieldTraits = traits & FanyImeFieldTraits::Reported;
+    fieldTraitsObserved = true;
+}
+
 bool SupportsKeyboardCompositionCancel(const void *owner)
 {
     return IsNamedpipeFocusStateOwner(owner) && hPipe && hPipe != INVALID_HANDLE_VALUE &&
@@ -1219,6 +1240,30 @@ bool SendToNamedpipe(bool *deliveryAmbiguous = nullptr)
                 packet.point[1] = Global::Point[1];
             }
         }
+    }
+
+    // 字段属性排在 ClientActivated、按键、状态快照和 FocusRestored 前面，同一条 Main 连接按序投递，Server 处理它们之前已经知道这个字段是不是密码框：激活时 Server 先报属性再让会话成为背景音乐的所有者，用的就是这一次的属性。也放在最终检查之后，理由同上：协商结果要等 Main 打开之后才有。只在协商到 FieldTraits 时发，旧 Server 会把这个事件当作非法帧断开连接。
+    if (fieldTraitsObserved && SupportsFieldTraits() &&
+        (!fieldTraitsDelivered || deliveredFieldTraits != observedFieldTraits) &&
+        (packet.event_type == FanyImePipeEventType::ClientActivated ||
+         packet.event_type == FanyImePipeEventType::KeyEvent ||
+         packet.event_type == FanyImePipeEventType::StatusSnapshot ||
+         packet.event_type == FanyImePipeEventType::FocusRestored))
+    {
+        FanyImeNamedpipeData traits{};
+        traits.event_type = FanyImePipeEventType::FieldTraits;
+        traits.client_id = packet.client_id;
+        traits.keycode = observedFieldTraits;
+        DWORD traitsWritten = 0;
+        if (!WriteFile(hPipe, &traits, sizeof(traits), &traitsWritten, nullptr) || traitsWritten != sizeof(traits))
+        {
+            // 后面的包还没写，这次送达是确定的失败，不是含糊的；连接照常重建，新连接协商后重报属性。
+            ClosePipeHandleIfValid(hPipe);
+            RequestNamedpipeReconnect();
+            return false;
+        }
+        fieldTraitsDelivered = true;
+        deliveredFieldTraits = observedFieldTraits;
     }
 
     DWORD bytesWritten = 0;

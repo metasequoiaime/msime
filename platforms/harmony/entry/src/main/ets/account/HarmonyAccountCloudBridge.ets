@@ -24,6 +24,7 @@ import {
   localAccountPreferences,
   mergeAccountPreferences,
   preferenceSchemaFromDocument,
+  snapshotWithPreferences,
   validLocalPreferenceDocument,
 } from './AccountPreferencePlan';
 import {
@@ -695,7 +696,7 @@ export class HarmonyAccountCloudBridge {
       this.feedbackValues(stateRoot));
     const revision: number = local['revision'] as number;
     const saved: string = client.savePreferences(stateRoot, revision,
-      JSON.stringify(applied.preferences));
+      snapshotWithPreferences(local, applied.preferences));
     try {
       const reply: Record<string, Object> = JSON.parse(saved) as Record<string, Object>;
       if (reply['ok'] !== true) return this.failure('account_storage');

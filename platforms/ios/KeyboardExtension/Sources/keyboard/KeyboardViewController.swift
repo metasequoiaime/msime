@@ -1897,8 +1897,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       },
       KeyboardTool(id: "keySound", title: "按键音", face: .icon(.keySound), isToggle: true,
                    selected: KeyboardFeedbackPreference.soundEnabled) { [weak self] in
-        KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.soundEnabled,
-                                                 forKey: KeyboardFeedbackPreference.soundKey)
+        KeyboardFeedbackPreference.set(!KeyboardFeedbackPreference.soundEnabled,
+                                       forKey: KeyboardFeedbackPreference.soundKey)
         if KeyboardFeedbackPreference.soundEnabled { UIDevice.current.playInputClick() }
         self?.updateShortcutButtons()
       },
@@ -1906,8 +1906,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if KeyboardFeedbackPreference.hapticsAvailable {
       tools.append(KeyboardTool(id: "vibration", title: "振动", accessibilityLabel: "按键振动", face: .icon(.vibration),
                                 isToggle: true, selected: KeyboardFeedbackPreference.hapticsEnabled) { [weak self] in
-        KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.hapticsEnabled,
-                                                 forKey: KeyboardFeedbackPreference.hapticsKey)
+        KeyboardFeedbackPreference.set(!KeyboardFeedbackPreference.hapticsEnabled,
+                                       forKey: KeyboardFeedbackPreference.hapticsKey)
         if KeyboardFeedbackPreference.hapticsEnabled {
           if let self { KeyboardFeedbackPreference.hapticStrength.impact(self.keyFeedback) }
           self?.prepareKeyFeedback()
@@ -1963,7 +1963,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let strengths = KeyboardHapticStrength.allCases
         let current = strengths.firstIndex(of: KeyboardFeedbackPreference.hapticStrength) ?? 0
         let next = strengths[(current + 1) % strengths.count]
-        KeyboardFeedbackPreference.defaults.set(next.rawValue, forKey: KeyboardFeedbackPreference.strengthKey)
+        KeyboardFeedbackPreference.set(next.rawValue, forKey: KeyboardFeedbackPreference.strengthKey)
         next.impact(keyFeedback)
         prepareKeyFeedback()
         updateShortcutButtons()

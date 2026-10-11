@@ -438,6 +438,12 @@ actor BackendAccountSession {
     try load()
     return saved?.tokens.user
   }
+  /// The signed-in account and the login it came from, read from the store without a network request. Every sign-in gets a new `sessionID` and a token refresh keeps it, so a pair that changed means the user signed out, switched accounts or signed in again; nil when nobody is signed in.
+  func login() async throws -> (userID: String, sessionID: UUID)? {
+    try await ensureSessionID()
+    guard let saved, let sessionID = saved.sessionID else { return nil }
+    return (saved.tokens.user.id, sessionID)
+  }
   private var sharesStore: Bool { refreshLock.sharedAcrossProcesses }
   /// A store other processes share is read every time: the other process may have signed out or switched accounts, and an empty store then means signed out here too rather than a cue to keep using the session held in memory.
   private func load() throws {

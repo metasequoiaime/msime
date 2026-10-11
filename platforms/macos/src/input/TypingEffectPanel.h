@@ -47,7 +47,7 @@ FOUNDATION_EXPORT NSColor *_Nullable MSIMETypingEffectColor(id _Nullable value);
 - (void)applyPreferences:(NSDictionary *)preferences;
 /// The session's resolved effect, the value of msime_client_typing_effect_settings, applied after `applyPreferences:`. Its intensity replaces the preference's, and an effect pack's colours, duration_ms and particles replace the panel's accent, flash length and spark count; a hint left null keeps the panel's own. nil, as without a session, drops the pack's hints and keeps the preferences' intensity.
 - (void)applySettings:(nullable NSDictionary *)settings;
-/// Whether there is anything to draw: a style other than off, an effect pack selected, or the combo counter. The controller asks the library for nothing while this is NO.
+/// 有没有东西要画：样式不是 off、选了特效包，或者开着连击计数。为 NO 时控制器什么都不画；按键照样报告给生命周期核心（按键音靠它），答复丢掉。
 @property(nonatomic, readonly) BOOL configured;
 /// `plugins.effect_intensity`, 0-100, or the effect pack's; 50 until set.
 @property(nonatomic, readonly) NSUInteger intensity;

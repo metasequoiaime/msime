@@ -478,6 +478,40 @@ fn the_content_hash_covers_the_manifest_and_the_module_but_not_notices() {
     );
 }
 
+/// `msime-pack run` 读包的入口：规则同 `validate`，交出的字节就是哈希的那一份；不是脚本包、或者包本身不合规时报和 `validate` 同样的错误。
+#[test]
+fn load_script_source_hands_over_what_validate_accepted() {
+    let files = tempdir().unwrap();
+    let (script, wasm) = reader("pangu");
+    let directory = write_pack(files.path(), "pangu", &script, &wasm);
+    let loaded = load_script_source(&directory).unwrap();
+    assert_eq!(loaded.id, "pangu");
+    assert_eq!(loaded.wasm, wasm);
+    assert_eq!(
+        loaded.pack.content_hash,
+        script_pack::content_hash(script.as_bytes(), &wasm)
+    );
+    assert_eq!(loaded.pack.module_bytes, None);
+
+    let phrases = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/plugin-packs/valid/phrase_table-basic");
+    assert!(validate(&phrases).is_ok());
+    assert!(matches!(
+        load_script_source(&phrases),
+        Err(PluginError::Invalid(reason)) if reason.contains("只有脚本插件")
+    ));
+
+    fs::write(directory.join("main.wasm"), b"not wasm").unwrap();
+    assert_eq!(
+        load_script_source(&directory).unwrap_err().to_string(),
+        validate(&directory).unwrap_err().to_string()
+    );
+    assert!(matches!(
+        load_script_source(&files.path().join("missing")),
+        Err(PluginError::UnsupportedSource)
+    ));
+}
+
 #[test]
 fn load_hands_over_the_module_it_hashed_and_scan_lists_scripts_that_pages_leave_out() {
     let files = tempdir().unwrap();
@@ -509,6 +543,31 @@ fn load_hands_over_the_module_it_hashed_and_scan_lists_scripts_that_pages_leave_
     // 脚本插件不能发布到社区。
     assert!(!community::PUBLISHABLE_KINDS.contains(&PluginKind::Script));
     assert!(community::pack(&root, PluginKind::Script, "pangu").is_err());
+}
+
+#[test]
+fn the_settings_import_refuses_script_packs_in_release_builds_before_installing_anything() {
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let (script, wasm) = reader("pangu");
+    let source = write_pack(files.path(), "pangu", &script, &wasm);
+
+    // release 构建里设置页的导入走的就是这条路：和移动端遇到 `script` 一样报未知类型，不留包目录，也不写授权。
+    match super::import::import_inner(&source, &root, false) {
+        Err(PluginError::Invalid(reason)) => assert_eq!(reason, UNKNOWN_KIND),
+        other => panic!("not refused as an unknown kind: {other:?}"),
+    }
+    assert!(!root.join("script/pangu").exists());
+    assert!(!root.join(script_grants::GRANTS_FILE).exists());
+    assert!(script_grants::read(&root).plugins.is_empty());
+
+    // 设置页的导入只在开发构建里接受脚本包。
+    assert_eq!(
+        import_from_settings(&source, &root).is_ok(),
+        cfg!(debug_assertions)
+    );
+    assert_eq!(root.join("script/pangu").is_dir(), cfg!(debug_assertions));
 }
 
 fn read_commit() -> CapabilitySet {

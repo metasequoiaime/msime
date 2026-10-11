@@ -272,14 +272,18 @@ impl ResourcePack {
 
     /// 下载总字节数。从归档取出的资源包下载的是整个归档。
     pub fn size(self) -> u64 {
-        if let Some(archive) = self.archive() {
-            return archive.archive.size;
-        }
-        self.set()
-            .artifacts
+        self.import_artifacts()
             .iter()
             .map(|artifact| artifact.size)
             .sum()
+    }
+
+    /// 安装时要从外面取得的文件：有归档的资源包只有那个归档，其余是锁文件里的全部文件。下载大小和不联网导入要的文件都按它算。
+    pub fn import_artifacts(self) -> Vec<crate::resources::Artifact> {
+        match self.archive() {
+            Some(archive) => vec![archive.archive.clone()],
+            None => self.set().artifacts.clone(),
+        }
     }
 }
 
@@ -400,6 +404,8 @@ pub struct ResourcePackStatus {
     pub state: PackState,
     pub size: u64,
     pub schemes: &'static [&'static str],
+    /// 不联网安装（[`import`]）时用户要自己下载的文件：有归档的资源包是那个归档，其余是锁文件里的每个文件。
+    pub import_files: Vec<local_models::LocalModelImportFile>,
 }
 
 /// 每个资源包在 `state_root` 下的安装状态。
@@ -428,6 +434,15 @@ pub fn list(state_root: &Path) -> Vec<ResourcePackStatus> {
                 state,
                 size: pack.size(),
                 schemes: pack.schemes(),
+                import_files: pack
+                    .import_artifacts()
+                    .iter()
+                    .map(|artifact| local_models::LocalModelImportFile {
+                        name: artifact.name.clone(),
+                        url: artifact.url.clone(),
+                        size: artifact.size,
+                    })
+                    .collect(),
             }
         })
         .collect()
@@ -478,6 +493,59 @@ pub fn install(
         progress,
         cancel,
     )
+}
+
+/// 用用户自己下载好的文件安装一个资源包，不联网，替换旧安装。阻塞调用，不要放在 UI 线程。
+///
+/// 与模型的 [`local_models::import`] 相同：`files` 是宿主文件选择器给出的绝对路径，顺序和文件名都不看，[`ResourcePack::import_artifacts`] 里的每个文件先按长度找，长度相同的不止一个时再按 SHA-256 挑；找到后走与下载完全相同的校验、（有归档时）取成员、暂存和整体发布，所以文件不对时什么也不会装上。进度里的下载阶段报成 `import`；缺文件报 [`LocalModelError::MissingImportFile`]，读不出来报 [`LocalModelError::UnreadableImportFile`]。
+pub fn import(
+    state_root: &Path,
+    pack: ResourcePack,
+    files: &[PathBuf],
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Result<PathBuf, LocalModelError> {
+    let artifacts = pack.import_artifacts();
+    let fetcher = local_models::LocalFileFetcher::matching_sources(
+        artifacts.iter().map(local_models::ImportSource::artifact),
+        files,
+        cancel,
+    )?;
+    let mut report = |event: InstallProgress| {
+        progress(InstallProgress {
+            stage: if event.stage == "download" {
+                "import"
+            } else {
+                event.stage
+            },
+            ..event
+        })
+    };
+    let result = match pack.archive() {
+        Some(archive) => local_models::install_archive_members_with(
+            &root(state_root),
+            pack.id(),
+            &archive.archive,
+            &archive.members,
+            &pack.set().artifacts,
+            &pack.manifest(),
+            &[],
+            &fetcher,
+            &mut report,
+            cancel,
+        ),
+        None => local_models::install_files_with(
+            &root(state_root),
+            pack.id(),
+            &pack.set().artifacts,
+            &pack.manifest(),
+            &[],
+            &fetcher,
+            &mut report,
+            cancel,
+        ),
+    };
+    local_models::imported(result)
 }
 
 /// 把本机已有的一组文件收编为已安装的资源包，不重新下载：升级前的发布包解压在 `source_dir`（比如 Android 的 `files/bootstrap/resources`）里的日文词典或语言词库，新版本不再随包带它们时用这一步保住。
@@ -710,6 +778,92 @@ mod tests {
         assert!(matches!(
             adopt(state.path(), pack, source.path()),
             Err(LocalModelError::MissingFile(name)) if name == "msime-stroke.db"
+        ));
+    }
+
+    #[test]
+    fn import_files_are_the_archive_or_every_pinned_file() {
+        let runtime = ResourcePack::VoiceRuntime.import_artifacts();
+        assert_eq!(runtime.len(), 1);
+        assert_eq!(
+            runtime[0].name,
+            ResourcePack::VoiceRuntime.archive().unwrap().archive.name
+        );
+        let dictionaries = ResourcePack::LanguageDictionaries.import_artifacts();
+        assert_eq!(
+            dictionaries.len(),
+            ResourcePack::LanguageDictionaries.set().artifacts.len()
+        );
+        for pack in ResourcePack::ALL {
+            let listed = list(Path::new("/nonexistent"))
+                .into_iter()
+                .find(|status| status.id == pack.id())
+                .unwrap();
+            assert_eq!(
+                listed
+                    .import_files
+                    .iter()
+                    .map(|file| file.size)
+                    .sum::<u64>(),
+                pack.size()
+            );
+        }
+    }
+
+    #[test]
+    fn importing_matches_by_size_and_publishes_nothing_on_wrong_bytes() {
+        let state = tempfile::tempdir().unwrap();
+        let picked = tempfile::tempdir().unwrap();
+        let cancel = AtomicBool::new(false);
+        let pack = ResourcePack::LanguageDictionaries;
+        let first = pack.import_artifacts()[0].name.clone();
+        assert!(matches!(
+            import(state.path(), pack, &[], &mut |_| {}, &cancel),
+            Err(LocalModelError::MissingImportFile(name)) if name == first
+        ));
+        // Every file has the pinned length under a different name, but not the pinned bytes.
+        let files: Vec<PathBuf> = pack
+            .import_artifacts()
+            .iter()
+            .map(|artifact| {
+                let path = picked.path().join(format!("download-{}", artifact.name));
+                fs::File::create(&path)
+                    .unwrap()
+                    .set_len(artifact.size)
+                    .unwrap();
+                path
+            })
+            .collect();
+        let mut stages = Vec::new();
+        let error = import(
+            state.path(),
+            pack,
+            &files,
+            &mut |event| stages.push(event.stage),
+            &cancel,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, LocalModelError::ChecksumMismatch(_)),
+            "{error:?}"
+        );
+        assert!(
+            stages.contains(&"import") && !stages.contains(&"download"),
+            "{stages:?}"
+        );
+        assert!(list(state.path())
+            .iter()
+            .all(|status| status.state == PackState::Missing));
+        // The archive pack names its archive when nothing matches.
+        let archive = ResourcePack::VoiceRuntime
+            .archive()
+            .unwrap()
+            .archive
+            .name
+            .clone();
+        assert!(matches!(
+            import(state.path(), ResourcePack::VoiceRuntime, &files, &mut |_| {}, &cancel),
+            Err(LocalModelError::MissingImportFile(name)) if name == archive
         ));
     }
 

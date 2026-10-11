@@ -3,6 +3,7 @@
 #include "FloatingToolbarVisibilityPolicy.h"
 #include "InputSchemeTraits.h"
 #include "KeySoundPolicy.h"
+#include "LifecyclePolicy.h"
 #include "TypingEffectPolicy.h"
 #include "TypingEffectSignal.h"
 #include <ctime>
@@ -13,10 +14,6 @@
 #include "FullscreenForeground.h"
 
 namespace msime::windows {
-namespace {
-// Effect sounds and music stay quiet while a full-screen application is in front: a game, a video or a presentation the user did not ask to hear typing in.
-bool sound_allowed() { return !foreground_is_fullscreen(GetForegroundWindow()); }
-} // namespace
 std::string
 FocusedSession::typing_statistics_directory(const std::string &options) {
   try {
@@ -80,26 +77,16 @@ std::optional<FocusedSession::Commit> FocusedSession::pending_commit() const {
                 transition_counts_as_typing(reply.source.transition)};
 }
 void FocusedSession::record_commit(const std::optional<Commit> &delivered) {
-  if (!delivered)
-    return;
-  // Sampled once, at commit time: the achievement jingle a milestone plays follows the same full-screen rule as the commit sound.
-  const bool allowed = sound_allowed();
-  if (allowed)
-    (void)session_.commit_sound();
-  // The commit flash, on the session's current combo: a commit counts nothing and only reports the state.
-  if (session_.input_enabled()) {
-    publish_typing_effect_settings();
-    TypingEffectSignal::instance().publish(
-        typing_effect_mark_commit(session_.typing_effect(typing_effect_commit(allowed))));
-  }
-  if (!delivered->typing)
+  if (!delivered || !delivered->typing)
     return;
   if (statistics_) {
     statistics_(delivered->text, delivered->source);
     return;
   }
+  // 里程碑的成就音和上屏音守同一条规则：全屏应用在前台、或在密码框里时不响。用的是这次上屏之前报给核心的字段属性。
+  const bool quiet = (session_.field_traits() & (MSIME_TRAIT_FULLSCREEN | MSIME_TRAIT_SECURE)) != 0;
   record_typing_statistics_async(statistics_directory_, delivered->text,
-                                 delivered->source, !allowed);
+                                 delivered->source, quiet);
 }
 void FocusedSession::check_thread() const {
   if (std::this_thread::get_id() != thread_)
@@ -176,10 +163,12 @@ bool FocusedSession::prepare(const FocusLease &lease) {
         composer_->cancel();
       preferences_retry_.reset();
       continuation_hide_.clear();
+      // 先算好此刻的字段属性再获得焦点：activate 在 msime_client_focus(true) 之前把它原样再报一次，脚本运行时据此确认属性、把 focus_in 交给脚本。激活的会话随后成为背景音乐的所有者，放不放也看这时的属性，密码框和全屏前台都不放。
+      refresh_field_traits();
       session_.activate(lease.epoch);
       composer_.emplace(client_, lease.epoch);
       lease_ = lease;
-      session_.set_music_active(sound_allowed());
+      session_.set_active(true);
     });
   } catch (...) {
     gate_.deactivate(lease);
@@ -199,6 +188,7 @@ FocusedSession::key(const FocusLease &lease, const FanyImeNamedpipeData &packet,
   gate_.with_active(lease, [&] {
     result = composer_->dispatch(session_, packet, lease.epoch, path, uiless,
                                  std::move(local_text));
+    publish_commit_feedback(result);
     attach_online_query(lease, result);
   });
   return result;
@@ -210,6 +200,7 @@ std::optional<PendingReply> FocusedSession::edit(const FocusLease &lease,
   std::optional<PendingReply> result;
   gate_.with_active(lease, [&] {
     result = composer_->edit(session_, packet, lease.epoch, style);
+    publish_commit_feedback(result);
     attach_online_query(lease, result);
   });
   return result;
@@ -224,6 +215,7 @@ std::optional<PendingReply> FocusedSession::basic_key(
   gate_.with_active(lease, [&] {
     result = composer_->basic_key(session_, packet, lease.epoch, style,
                                   std::move(local_text));
+    publish_commit_feedback(result);
     attach_online_query(lease, result);
   });
   return result;
@@ -252,6 +244,7 @@ FocusedSession::navigate(const FocusLease &lease,
   std::optional<PendingReply> result;
   gate_.with_active(lease, [&] {
     result = composer_->navigate(session_, packet, lease.epoch, bindings);
+    publish_commit_feedback(result);
     attach_online_query(lease, result);
   });
   return result;
@@ -287,7 +280,10 @@ FocusedSession::select_candidate(const FocusLease &lease, uint64_t session,
     return std::nullopt;
   std::optional<PendingReply> result;
   gate_.with_active(lease, [&] {
+    // 指针点选开启新的一轮：先报 MSIME_KEY_POINTER，不出声、不画。
+    (void)session_.key(MSIME_KEY_POINTER);
     result = composer_->select_candidate(session_, session, generation, index);
+    publish_commit_feedback(result);
     attach_online_query(lease, result);
   });
   return result;
@@ -343,6 +339,8 @@ FocusedSession::page_candidate(const FocusLease &lease, uint64_t session,
     // A page turned here would leave the list the TIP drives from its own host session on another page.
     if (scheme::KeyboardOnlyCandidateList(static_cast<int>(current.value("scheme", 0u))))
       return;
+    // 指针翻页同样开启新的一轮。
+    (void)session_.key(MSIME_KEY_POINTER);
     result = session_.page_candidate(lease.epoch, session, generation,
                                      previous, steps);
   });
@@ -456,7 +454,7 @@ bool FocusedSession::cancel(const FocusLease &lease) {
   composer_->cancel();
   preferences_retry_.reset();
   continuation_hide_.clear();
-  session_.set_music_active(false);
+  session_.set_active(false);
   session_.deactivate(lease.epoch);
   composer_.reset();
   lease_.reset();
@@ -598,26 +596,48 @@ std::optional<PendingReply> FocusedSession::configured_key(
   gate_.with_active(lease, [&] {
     // 不论输入法收不收这个键（英文模式也算），都是用户在打字：空闲隐藏的工具栏据此回来。
     ServerKeyActivity::instance().note();
-    result = composer_->configured_key(session_, packet, lease.epoch, style,
-                                       bindings, std::move(local_text),
-                                       word_binding);
-    // After the Engine, so only a key the input method took sounds (with input off, in English mode, the Server answers keys without taking them), and before the online queries are built, so they add no delay to it.
-    if (result && session_.input_enabled()) {
+    // 生命周期的一轮从这个键开始，排在引擎处理之前：先比较一次字段属性，变了先报；再报按键，核心出按键音、算按键特效，候选窗在界面线程上画，这里只发布打包好的值。英文模式下 Server 只回答按键、不接手，不报；快捷键组合和单独的修饰键没有按键类别，也不报。
+    refresh_field_traits();
+    if (session_.input_enabled())
       if (const auto key_class = key_sound_class(packet))
-        sound_key(*key_class, (packet.modifiers_down & PipeMetadata::AutoRepeat) != 0);
+        publish_typing_effect(session_.key(
+            lifecycle_key(*key_class, (packet.modifiers_down & PipeMetadata::AutoRepeat) != 0)));
+    {
+      // TIP 已经从自己的宿主会话把这次的上屏写进文档（韩文、注音、越南文、藏文，整句改字）：这次派发的上屏只能观察。本地回车（ReplyPath::LocalCommit）要等路由选定才知道，由 ReplyComposer::dispatch 自己打开。上屏音只来自 Server 这一个会话的核心，TIP 的会话不选择加入，所以同一次上屏不会响两遍。
+      const CommitObserveOnly observe(session_, session_.input_enabled() && tip_writes_commits(session_.view()));
+      result = composer_->configured_key(session_, packet, lease.epoch, style,
+                                         bindings, std::move(local_text),
+                                         word_binding);
     }
+    // 上屏音在派发时已经由核心出过，这里只画上屏特效；之后才构建在线查询，不给它们添延迟。
+    publish_commit_feedback(result);
     attach_online_query(lease, result);
   });
   return result;
 }
-void FocusedSession::sound_key(uint32_t key_class, bool auto_repeat) {
-  const bool allowed = sound_allowed();
-  if (allowed)
-    (void)session_.key_sound(key_class);
-  // The same keys drive the typing effect and its combo, which keep counting in a full-screen application but stay silent there. The candidate window draws it on the UI thread; this only posts the packed value.
+void FocusedSession::refresh_field_traits() {
+  // 全屏应用在前台（游戏、视频、演示，用户没想在那里听打字声）作为 FULLSCREEN 交给核心：声音和背景音乐静音，特效和连击照常。
+  const bool fullscreen = fullscreen_check_ ? fullscreen_check_() : foreground_is_fullscreen(GetForegroundWindow());
+  session_.set_field_traits(server_field_traits(tip_field_traits_, fullscreen));
+}
+void FocusedSession::set_field_traits(uint32_t traits) {
+  check_thread();
+  tip_field_traits_ = traits & FanyImeFieldTraits::Reported;
+  refresh_field_traits();
+}
+void FocusedSession::publish_typing_effect(uint32_t packed) {
   publish_typing_effect_settings();
-  TypingEffectSignal::instance().publish(
-      session_.typing_effect(typing_effect_key_event(key_class, allowed, auto_repeat)));
+  TypingEffectSignal::instance().publish(packed);
+}
+void FocusedSession::publish_commit_feedback(const std::optional<PendingReply> &reply) {
+  if (!reply)
+    return;
+  // 部分选词那一段还留在前缀里、没进文档（committed_text 为空），核心在 HOST_HOLDS_PIECES 下也不为它出声，这里同样不画，否则那次回复里为 0 的特效会把连击徽标清零；整段送出的那次再画。
+  if (!reply->committed_text)
+    return;
+  // 上屏不计连击，只报告当前状态；打上上屏标记，界面线程画加倍的火花和更长的闪光。
+  if (const auto effect = commit_feedback(reply->source.transition))
+    publish_typing_effect(typing_effect_mark_commit(*effect));
 }
 void FocusedSession::publish_typing_effect_settings() {
   TypingEffectSignal::instance().publish_settings(pack_typing_effect_settings(session_.typing_effect_settings()));
@@ -634,7 +654,8 @@ bool FocusedSession::passthrough_key(uint64_t token, uint32_t key_class) {
     // 英文模式不出声，和 Server 处理的键一样。交给应用的键没有自动重复：TIP 已经把它们滤掉了。
     if (!session_.input_enabled())
       return;
-    sound_key(key_class, false);
+    refresh_field_traits();
+    publish_typing_effect(session_.key(lifecycle_passthrough_key(key_class)));
     sounded = true;
   });
   return sounded;

@@ -228,22 +228,17 @@ pub fn is_secure_endpoint(endpoint: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(endpoint) else {
         return false;
     };
-    if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
-        return false;
-    }
     match url.scheme() {
-        "https" => {
-            endpoint.split_once("://").is_some_and(|(_, authority)| {
-                authority
-                    .as_bytes()
-                    .first()
-                    .is_some_and(|byte| *byte != b'/')
-            }) && url.host_str().is_some_and(|host| !host.is_empty())
+        "https" => crate::endpoint::valid_endpoint_shape(endpoint, &url, "https"),
+        "http" => {
+            url.username().is_empty()
+                && url.password().is_none()
+                && url.fragment().is_none()
+                && matches!(
+                    url.host_str(),
+                    Some("localhost" | "127.0.0.1" | "[::1]" | "::1")
+                )
         }
-        "http" => matches!(
-            url.host_str(),
-            Some("localhost" | "127.0.0.1" | "[::1]" | "::1")
-        ),
         _ => false,
     }
 }

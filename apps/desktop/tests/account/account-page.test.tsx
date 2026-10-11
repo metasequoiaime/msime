@@ -1464,7 +1464,8 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
   // 旧的区块都没了：没有工具分组，没有内嵌的同步卡片，也没有数据区块标题。
   expect(screen.queryByRole("region", { name: "工具" })).toBeNull();
   expect(screen.queryByRole("heading", { name: "本地数据与云端作品" })).toBeNull();
-  expect(screen.getByText(/皮肤设计和打字统计保存在本机/)).not.toBeNull();
+  // 底部那段「保存在本机、不会自动上传」的说明也删了：Android 会自动同步，鸿蒙和 iOS 也要改成自动同步，这句话不成立。
+  expect(screen.queryByText(/皮肤设计和打字统计保存在本机/)).toBeNull();
 });
 
 test("Harmony 应用主题 saves the theme chosen in its action sheet", async () => {
@@ -1578,10 +1579,8 @@ test("Harmony 个人资料 lists the account, copies its ID, renames in a sheet 
   expect(await screen.findByRole("button", { name: "未登录，点按登录" })).not.toBeNull();
 });
 
-test("Harmony 同步 rows confirm in an action sheet and report through a toast", async () => {
-  const upload = vi
-    .fn()
-    .mockResolvedValue({ revision: 8, settings: { "input.schema": "quanpin" } });
+// 鸿蒙手机的「我的」不画「同步」组：键盘扩展有独立沙箱，设置应用里上传、应用的只是它自己那份偏好，键盘读不到。
+test("Harmony 我的 has no manual 同步 rows even with a settings sync client", async () => {
   const settingsSync: SettingsSyncClient = {
     schema: vi.fn().mockResolvedValue({
       fields: {},
@@ -1590,23 +1589,13 @@ test("Harmony 同步 rows confirm in an action sheet and report through a toast"
       revisionRequired: true,
     }),
     load: vi.fn().mockResolvedValue({ revision: 7, settings: {} }),
-    upload,
+    upload: vi.fn(),
     apply: vi.fn(),
   };
   harmonyMe({ client: account({ status: vi.fn().mockResolvedValue({ user }), settingsSync }) });
 
-  const sync = within(await screen.findByRole("region", { name: "同步" }));
-  const uploadRow = sync.getByRole("button", { name: "上传本机设置" }) as HTMLButtonElement;
-  await waitFor(() => expect(uploadRow.disabled).toBe(false));
-  // 云端还什么都没有，所以没有可应用的内容。
-  expect(
-    (sync.getByRole("button", { name: "下载并应用云端设置" }) as HTMLButtonElement).disabled,
-  ).toBe(true);
-  expect(screen.queryByRole("button", { name: "刷新云端设置" })).toBeNull();
-
-  fireEvent.click(uploadRow);
-  const sheet = within(screen.getByRole("dialog", { name: "上传本机设置" }));
-  fireEvent.click(sheet.getByRole("button", { name: "确认上传" }));
-  await waitFor(() => expect(upload).toHaveBeenCalledOnce());
-  expect(await screen.findByText("本机设置已上传")).not.toBeNull();
+  expect((await screen.findAllByText("水杉测试用户")).length).toBeGreaterThan(0);
+  expect(screen.queryByRole("region", { name: "同步" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "上传本机设置" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "下载并应用云端设置" })).toBeNull();
 });

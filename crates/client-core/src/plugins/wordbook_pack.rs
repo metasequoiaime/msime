@@ -74,14 +74,19 @@ pub(crate) fn check_identity(id: &str, name: &str) -> Result<(), String> {
 /// 读取并严格解析包目录里的词表。
 pub(crate) fn read(directory: &Path, file: &str) -> Result<WordbookPack, String> {
     let entries = read_entries(directory, file)?;
-    Ok(WordbookPack {
-        file: file.to_owned(),
-        word_count: entries.len(),
-        first_words: entries
+    let word_count = entries.len();
+    // 预览另用小容器，避免 `collect` 原地复用整本词书的预留缓冲。
+    let mut first_words = Vec::with_capacity(word_count.min(PREVIEW_WORDS));
+    first_words.extend(
+        entries
             .into_iter()
             .take(PREVIEW_WORDS)
-            .map(|entry| entry.word)
-            .collect(),
+            .map(|entry| entry.word),
+    );
+    Ok(WordbookPack {
+        file: file.to_owned(),
+        word_count,
+        first_words,
     })
 }
 
@@ -133,8 +138,10 @@ fn parse_word_entries(bytes: &[u8], name: &str) -> Result<Vec<WordbookEntry>, St
             ));
         }
         if entries.is_empty() {
-            entries.reserve_exact(wordbook::MAX_ENTRIES);
-            seen.reserve(wordbook::MAX_ENTRIES);
+            // 有效双列最短为 `a\tb\n` 四个字节；按输入长度给一次安全上界，避免短词表也保留满额缓冲。
+            let capacity = (bytes.len().saturating_add(1) / 4).min(wordbook::MAX_ENTRIES);
+            entries.reserve_exact(capacity);
+            seen.reserve(capacity);
         }
         if !seen.insert(word) {
             return Err(format!("{name} 里「{}」出现了不止一次", entry.word));

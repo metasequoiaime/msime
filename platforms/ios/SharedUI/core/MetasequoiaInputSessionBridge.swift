@@ -248,6 +248,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var handle: UInt64 = 0
   private var options: [String: Any]
   private var stateRoot: String?
+  /// The session reads the App Group document rather than a test's own directory, so its writes are the user's settings changes that cloud sync uploads.
+  private let sharesStateRoot: Bool
   private var initializationDiagnostic: String?
   private var revision: UInt64 = 0
   /// The shared document's revision as this bridge last saw it.
@@ -276,6 +278,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   init(resources: URL? = nil, stateRoot: URL? = nil) {
     options = [:]
     self.stateRoot = nil
+    sharesStateRoot = stateRoot == nil
     self.appliedFuzzyPinyinRules = nil
     do {
       let bootstrap = Self.bootstrapOptions(resources: resources, stateRoot: stateRoot)
@@ -533,7 +536,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   @discardableResult
   private func persistSharedPreferences(_ mutate: (inout [String: Any]) -> Void) -> Bool {
     guard let stateRoot,
-          let revision = Self.persistSharedPreferences(stateRoot: stateRoot, mutate) else { return false }
+          let revision = Self.persistSharedPreferences(stateRoot: stateRoot, marksCloudSync: sharesStateRoot, mutate)
+    else { return false }
     self.revision = max(self.revision, revision)
     documentRevision = max(documentRevision, revision)
     return true
@@ -554,7 +558,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   @discardableResult
   static func updateSharedPreferences(stateRoot: URL? = nil,
                                       _ mutate: (inout [String: Any]) -> Void) -> Bool {
-    persistSharedPreferences(stateRoot: sharedStateRoot(stateRoot), mutate) != nil
+    persistSharedPreferences(stateRoot: sharedStateRoot(stateRoot), marksCloudSync: stateRoot == nil, mutate) != nil
   }
 
   /// `msime_client_save_preferences`'s snapshot bound: large enough for a custom skin's photo.
@@ -568,7 +572,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   /// Returns the revision the document is at afterwards, or nil when nothing was written.
-  private static func persistSharedPreferences(stateRoot: String,
+  ///
+  /// Every write that changes the App Group document (`marksCloudSync`) is a settings change, from the settings app or from the keyboard, so it marks the settings section for the next cloud sync. A mutation that leaves the document as it was writes nothing and marks nothing; cloud sync applying the cloud's settings runs inside `CloudSyncState.suppressingMarks`.
+  private static func persistSharedPreferences(stateRoot: String, marksCloudSync: Bool,
                                                _ mutate: (inout [String: Any]) -> Void) -> UInt64? {
     let directory = Data(stateRoot.utf8)
     guard !directory.isEmpty, directory.count <= 16_384 else { return nil }
@@ -602,6 +608,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     } catch {
       return nil
     }
+    if marksCloudSync { CloudSyncState.shared.markDirty(.settings) }
     return Self.strictUInt64(saved["revision"]) ?? storedRevision
   }
 

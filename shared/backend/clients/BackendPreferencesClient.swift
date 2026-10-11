@@ -54,8 +54,7 @@ extension BackendAccountClient {
       known[key] = value
     }
     guard !known.isEmpty else { throw Failure(status: 503) }
-    // Preserve every other platform's fields. A revision conflict is returned to
-    // the user, never resolved by an automatic last-writer-wins retry.
+    // Preserve every other platform's fields. A revision conflict is never resolved by replaying the stale document: the 设置同步 page returns it to the user, and automatic sync (`CloudSync`) fetches the cloud again and merges onto that before retrying.
     let merged = Preferences(revision: base.revision, settings: base.settings.merging(known) { _, new in new })
     guard validPreferences(merged), try JSONEncoder().encode(merged).count <= min(schema.maximum_bytes, 1024 * 1024) else { throw Failure(status: 400) }
     return merged

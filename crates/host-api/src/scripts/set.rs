@@ -35,7 +35,7 @@ struct Entry {
     /// 从进程缓存拿到的模块，拿到之后不再查缓存。
     module: Option<ScriptModule>,
     instance: Option<Live>,
-    /// 这次聚焦里 trap 过：实例已经丢弃，到下一次聚焦之前不再重建。否则一个每 50 次故意失败 2 次的插件永远不熔断，每次失败后都在按键路径上重跑一遍初始化。
+    /// 这次聚焦里 trap 过（包括运行到一半被本轮配额截断）：实例已经丢弃，到下一次聚焦之前不再重建。否则一个每 50 次故意失败 2 次的插件永远不熔断，每次失败后都在按键路径上重跑一遍初始化。
     trapped: bool,
     /// 这个插件最近一次投递所在的轮次和那一轮还剩的 fuel。轮配额按插件算：同一轮里重建的实例（换了字段、属性变过）接着用剩下的，而不是重新给满。
     turn: Option<(u64, u64)>,
@@ -62,7 +62,7 @@ pub(crate) struct ScriptSet {
     turn: u64,
     /// 本轮（或这次聚焦以来）还能花在初始化上的 fuel，所有插件合计。用完的插件推迟到下一轮再实例化，不算失败。
     init_left: u64,
-    /// 字段属性确认过：宿主报告过属性（`msime_client_set_field_traits`），或者按过键（契约是每个键之前比较一次属性）。每次聚焦都重新要求确认，否则新字段在第一个键之前沿用上一个字段的属性，聚焦进密码框时插件照样会被实例化、收到 `focus_in`。
+    /// 字段属性确认过：宿主报告过属性（`msime_client_set_field_traits`），或者按过不带 PASSTHROUGH 的键（契约是每个键之前比较一次属性）。每次聚焦都重新要求确认，否则新字段在第一个键之前沿用上一个字段的属性，聚焦进密码框时插件照样会被实例化、收到 `focus_in`。
     traits_confirmed: bool,
     /// 上一个键或上一次聚焦变化之后宿主报告过属性：聚焦前报告的属性属于新字段，可以直接确认。
     traits_since_key: bool,
@@ -92,7 +92,7 @@ impl ScriptSet {
         }
     }
 
-    /// 宿主按了一个键：按契约它在这之前已经比较过属性，现在的属性就是这个字段的。
+    /// 宿主按了一个不带 PASSTHROUGH 的键：按契约它在这之前已经比较过属性，现在的属性就是这个字段的。交给应用的键不算：Windows 的这类键走 Aux 管道，和 Main 管道上的属性帧没有先后保证。
     pub(crate) fn key_reported(&mut self) {
         self.traits_confirmed = true;
         self.traits_since_key = false;
@@ -349,6 +349,10 @@ fn deliver_one(entry: &mut Entry, turn: u64, init_left: &mut u64, event: &Event<
     if !module.declaration().hooks.contains(event.hook) {
         return;
     }
+    // 这个插件本轮的配额已经用完：跳过到下一轮，也不为它在按键路径上重新初始化。
+    if entry.turn == Some((turn, 0)) {
+        return;
+    }
     if entry.instance.is_none() {
         let budget = *init_left;
         if budget == 0 || entry.trapped {
@@ -399,6 +403,17 @@ fn deliver_one(entry: &mut Entry, turn: u64, init_left: &mut u64, event: &Event<
     match outcome {
         Outcome::NotSubscribed => {}
         Outcome::Delivered { .. } => entry.health.record(None, slow),
+        // 本轮配额用完不算失败（宿主不在每次派发前都开一轮）；运行过的照样按墙钟记一次。
+        Outcome::TurnExhausted { fuel } => {
+            if fuel > 0 {
+                entry.health.record(None, slow);
+            }
+            // 运行到一半被截断：wasm 的状态可能停在一半，丢掉；这次聚焦里不再重建，否则一个每轮都花光配额的插件会在每一轮的按键路径上重跑一遍初始化。
+            if !live.instance.is_usable() {
+                entry.trapped = true;
+                entry.instance = None;
+            }
+        }
         Outcome::Failed { failure, .. } => {
             entry.health.record(Some(failure), slow);
             // trap 之后 wasm 的状态可能停在一半，丢掉；这次聚焦里不再重建。

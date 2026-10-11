@@ -101,6 +101,11 @@ public:
       result.accepted = true;
       return result;
     }
+    // 字段属性属于这个客户端，不属于哪一次焦点：不管它此刻是否持有焦点都收下，但既不认领焦点也不带路由。
+    if (packet.event_type == FieldTraits) {
+      result.accepted = true;
+      return result;
+    }
     const bool owns = current_ && same_ticket(current_->transport, ticket);
     if (IsRouteDeactivation(packet.event_type)) {
       if (owns) {

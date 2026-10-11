@@ -183,6 +183,12 @@ impl ScriptModule {
     pub fn reserved_memory_bytes(&self) -> usize {
         self.reserved_pages as usize * limits::PAGE_BYTES
     }
+
+    /// 是否还有别的持有者在使用这个编译好的模块。宿主整理缓存时用它判断能否
+    /// 淘汰，避免模块仍存活却把进程内存总账扣掉。
+    pub fn is_shared(&self) -> bool {
+        Arc::strong_count(&self.linker) > 1
+    }
 }
 
 /// 按 ABI v1 校验并 Eager 编译。耗时与模块大小成正比，不要放在按键或 focus 路径上，进程里由后台编译线程调用。

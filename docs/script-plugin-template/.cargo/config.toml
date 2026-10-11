@@ -1,0 +1,6 @@
+[build]
+target = "wasm32-unknown-unknown"
+
+# Rust 默认给 wasm 留 1 MiB 的栈，线性内存因此至少 17 页，超过清单默认的 16 页（上限 64 页）。插件只需要很小的栈。
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=65536"]

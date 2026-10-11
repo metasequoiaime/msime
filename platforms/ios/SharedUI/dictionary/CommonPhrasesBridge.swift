@@ -42,14 +42,28 @@ enum CommonPhrasesBridge {
     try perform(["operation": "load"], directory: directory)
   }
 
-  /// 追加一条用户输入的常用语，返回追加后存储里的列表。存储会拒绝空白文本、超过 1000 个 UTF-16 单元的文本、重复项，以及用户自建的第 201 条，各自带稳定错误码。
+  /// 追加一条用户输入的常用语，返回追加后存储里的列表。存储会拒绝空白文本、超过 1000 个 UTF-16 单元的文本、重复项，以及用户自建的第 201 条，各自带稳定错误码。成功后记一次常用语改动，云同步下一轮上传。
   static func add(_ text: String, directory: String = MetasequoiaInputSessionBridge.sharedStateDirectory) throws -> [Phrase] {
-    try perform(["operation": "add", "text": text], directory: directory)
+    let phrases = try perform(["operation": "add", "text": text], directory: directory)
+    markCloudSync(directory)
+    return phrases
   }
 
-  /// 按 id 删除一条常用语，返回删除后存储里的列表。
+  /// 按 id 删除一条常用语，返回删除后存储里的列表。成功后记一次常用语改动，云同步下一轮上传。
   static func remove(id: String, directory: String = MetasequoiaInputSessionBridge.sharedStateDirectory) throws -> [Phrase] {
-    try perform(["operation": "remove", "id": id], directory: directory)
+    let phrases = try perform(["operation": "remove", "id": id], directory: directory)
+    markCloudSync(directory)
+    return phrases
+  }
+
+  /// 只有 App Group 里的那份是用户的常用语；测试传入的目录不算。
+  private static func markCloudSync(_ directory: String) {
+    if directory == MetasequoiaInputSessionBridge.sharedStateDirectory { CloudSyncState.shared.markDirty(.phrases) }
+  }
+
+  /// 不用试就知道本机存储收不下的正文先筛掉：全是空白、超过 1000 个 UTF-16 单元（云端每条最多 2000 个）或含 NUL。其余不合规的（例如其他控制字符）由存储以 `common_phrases_invalid` 拒收。
+  static func storable(_ text: String) -> Bool {
+    !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.utf16.count <= 1000 && !text.contains("\0")
   }
 
   /// 操作失败时设置页显示的文案，措辞与 Android 的 `CommonPhrasesStore.failureMessage` 一致。

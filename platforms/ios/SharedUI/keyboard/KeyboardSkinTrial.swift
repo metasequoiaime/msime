@@ -62,6 +62,8 @@ struct KeyboardSkinTrialStore {
     if !keep { restore(trial) }
     try FileManager.default.removeItem(at: file)
   }
+  /// A trial is open: the shared document holds a design the user has not kept yet.
+  var hasPendingTrial: Bool { (try? pending()) != nil }
   func restorePending() throws {
     guard let trial = try pending() else { return }
     try finish(trial.id, keep: false)

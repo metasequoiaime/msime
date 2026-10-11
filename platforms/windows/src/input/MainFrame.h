@@ -25,6 +25,9 @@ inline bool valid_main_frame(const FanyImeNamedpipeData &packet,
   case PairedPunctuationAutoClosed:
     // '<' is the only paired punctuation with nesting state to pay back.
     return packet.keycode == '<';
+  case FieldTraits:
+    // 只有 TIP 会报的那几位；request_id 不用，和其他通知一样随意。
+    return (packet.keycode & ~FanyImeFieldTraits::Reported) == 0;
   case HideCandidateWnd:
   case ShowCandidateWnd:
   case MoveCandidateWnd:

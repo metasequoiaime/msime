@@ -2384,12 +2384,7 @@ pub fn valid_model_mirror(mirror: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(mirror) else {
         return false;
     };
-    url.scheme() == "https"
-        && url.host_str().is_some_and(|host| !host.is_empty())
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.query().is_none()
-        && url.fragment().is_none()
+    crate::endpoint::valid_endpoint_shape(mirror, &url, "https") && url.query().is_none()
 }
 
 fn default_shuangpin_helpcode() -> HelpcodePreferences {

@@ -1032,13 +1032,15 @@ int wmain(int argc, wchar_t **argv) {
     WindowsServerOptions options;
     options.pipes.names = production ? production_pipe_names()
                                      : config.pipe_names();
-    // GameHostCandidate 在开发版和预览版里也宣告，否则它们永远走不到游戏会话的兜底定位和独占抑制。
+    // GameHostCandidate 在开发版和预览版里也宣告，否则它们永远走不到游戏会话的兜底定位和独占抑制。FieldTraits 同理：没有它，密码框里的音乐和提权窗口的属性在开发版里无从验证。
     options.pipes.capabilities =
         production ? (FanyImeProtocol::Capabilities |
                       FanyImeProtocol::CharacterSetShortcut |
-                      FanyImeProtocol::GameHostCandidate)
+                      FanyImeProtocol::GameHostCandidate |
+                      FanyImeProtocol::FieldTraits)
                    : (FanyImeProtocol::RequiredCapabilities |
-                      FanyImeProtocol::GameHostCandidate);
+                      FanyImeProtocol::GameHostCandidate |
+                      FanyImeProtocol::FieldTraits);
     // 管道对端身份对不上时记下 pid 和错误码，用来区分「DLL 加载了但 Server 拒了连接」和「DLL 根本没加载」，比如反作弊剥掉了 Server 打开游戏进程所需的权限。
     // 在握手线程上运行，而 notice 会写盘：反作弊持续拒绝时 TSF 每次重连都会走到这里，所以同一个 pid 一分钟只记一条，免得拖慢排队中的握手。
     auto identity_rejected_logged =

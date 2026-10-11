@@ -280,6 +280,14 @@ fn the_commit_origin_follows_the_facts() {
     );
     // 失焦上屏不论事实如何都是 FocusLoss，而且没有 before_commit。
     assert_eq!(origin(Call::Focus(false), flushed), CommitOrigin::FocusLoss);
+    // 命令 20 替失焦结束组字，引擎即使记了选中候选也按失焦上屏算。
+    assert_eq!(
+        origin(
+            dispatch(InputClass::FocusLoss),
+            picked(SelectionHow::Finish, SelectionOutcome::Committed)
+        ),
+        CommitOrigin::FocusLoss
+    );
     let blur = events(
         Call::Focus(false),
         ordinary(),
@@ -539,37 +547,44 @@ fn input_classes_and_local_modes_map_from_the_runtime() {
                 value: b'a',
                 shift: false
             },
-            false
+            None
         ),
         InputClass::Character
     );
     assert_eq!(
-        InputClass::of(&Action::PunctuationAscii(b','), false),
+        InputClass::of(&Action::PunctuationAscii(b','), None),
         InputClass::Punctuation
     );
     assert_eq!(
-        InputClass::of(&Action::SelectHighlighted, false),
+        InputClass::of(&Action::SelectHighlighted, None),
         InputClass::Selection
     );
     assert_eq!(
-        InputClass::of(&Action::NextPage, false),
+        InputClass::of(&Action::NextPage, None),
         InputClass::Navigation
     );
     assert_eq!(
-        InputClass::of(&Action::Command(Command::Backspace), false),
+        InputClass::of(&Action::Command(Command::Backspace), None),
         InputClass::Edit
     );
     assert_eq!(
-        InputClass::of(&Action::Command(Command::CommitRaw), false),
+        InputClass::of(&Action::Command(Command::CommitRaw), None),
         InputClass::Commit
     );
     assert_eq!(
-        InputClass::of(&Action::Command(Command::Cancel), false),
+        InputClass::of(&Action::Command(Command::Cancel), None),
         InputClass::Cancel
     );
     assert_eq!(
-        InputClass::of(&Action::Command(Command::Cancel), true),
+        InputClass::of(
+            &Action::Command(Command::Cancel),
+            Some(InputClass::HostCommit)
+        ),
         InputClass::HostCommit
+    );
+    assert_eq!(
+        InputClass::of(&Action::Finish, Some(InputClass::FocusLoss)),
+        InputClass::FocusLoss
     );
     assert_eq!(LocalModeClass::of("none"), LocalModeClass::None);
     assert_eq!(LocalModeClass::of("url"), LocalModeClass::Url);
@@ -702,6 +717,60 @@ fn a_commit_draws_the_commit_effect_but_a_focus_loss_commit_does_not() {
     );
     assert_eq!(blur, 0);
     assert_eq!(cues(), [], "a focus-loss commit is silent");
+}
+
+#[test]
+fn a_piece_the_host_holds_sounds_only_when_the_whole_phrase_goes_out() {
+    let sound = effect_sound();
+    // 部分选词：上屏了一段，读音还剩下一截。像真的派发一样先发 input，它清掉按键留下的特效。
+    let piece = |state: &mut LifecycleState| {
+        state.before_dispatch(&sound, InputClass::Selection, "none");
+        state.after(
+            &sound,
+            dispatch(InputClass::Selection),
+            composing(1, 1, true),
+            composing(2, 2, true),
+            picked(SelectionHow::Select, SelectionOutcome::Partial),
+            Some(typed(2)),
+            PageSample::default(),
+        )
+    };
+    // Windows 把这一段留在自己的前缀里：不出上屏音、不画，整段送出的那次上屏才出一次。
+    let mut held = LifecycleState::new(11, FEEDBACK | HOST_HOLDS_PIECES);
+    held.set_traits(&sound, TRAIT_KNOWN);
+    cues();
+    held.key(&sound, 1);
+    assert_eq!(piece(&mut held), 0, "a held piece draws nothing");
+    held.key(&sound, 1);
+    assert_ne!(commit_once(&mut held, &sound), 0);
+    assert_eq!(
+        cues(),
+        [
+            Cue::Key(KeyClass::Space),
+            Cue::Key(KeyClass::Space),
+            Cue::Commit
+        ]
+    );
+    // 事件照常发：将来的脚本照样看得到这一段的 candidate_selected 和 commit。
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let record = seen.clone();
+    held.probe = Some(Box::new(move |event| record.borrow_mut().push(*event)));
+    piece(&mut held);
+    assert!(seen
+        .borrow()
+        .iter()
+        .any(|event| matches!(event, LifecycleEvent::CandidateSelected(_))));
+    assert!(seen
+        .borrow()
+        .iter()
+        .any(|event| matches!(event, LifecycleEvent::Commit { .. })));
+    assert_eq!(cues(), []);
+    // 没有暂存的宿主：这一段已经进了文档，照常出声。
+    let mut direct = LifecycleState::new(12, FEEDBACK);
+    direct.set_traits(&sound, TRAIT_KNOWN);
+    cues();
+    assert_ne!(piece(&mut direct), 0);
+    assert_eq!(cues(), [Cue::Commit]);
 }
 
 #[test]

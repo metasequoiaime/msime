@@ -23,19 +23,9 @@ pub(crate) fn valid_https_endpoint_and_model(endpoint: &str, model: &str) -> boo
     if endpoint.len() > 2048 || model.is_empty() || !crate::text::is_bounded_text(model, 256) {
         return false;
     }
-    reqwest::Url::parse(endpoint).ok().is_some_and(|url| {
-        url.scheme() == "https"
-            && endpoint.split_once("://").is_some_and(|(_, authority)| {
-                authority
-                    .as_bytes()
-                    .first()
-                    .is_some_and(|byte| *byte != b'/')
-            })
-            && url.host_str().is_some_and(|host| !host.is_empty())
-            && url.username().is_empty()
-            && url.password().is_none()
-            && url.fragment().is_none()
-    })
+    reqwest::Url::parse(endpoint)
+        .ok()
+        .is_some_and(|url| crate::endpoint::valid_endpoint_shape(endpoint, &url, "https"))
 }
 
 /// 设置页「测试配置」按钮背后的检查，给自己发请求的宿主用（Tauri 设置在 Windows 和 macOS 上，以及原生 Windows 设置窗口经 `msime_client_test_api_credential`）：`voice.asr` 是豆包时走它的 WebSocket，其余识别服务走 HTTP 上传；`translation.tencent`、`translation.niutrans`、`translation.custom` 各发一次翻译；`ai.assistant` 和 `voice.polish` 发一次最短的对话。`config` 是设置页给的同一份配置。配置不完整时直接回答、不联网；否则会联网，最长约 15 秒，不要在界面线程上调用。

@@ -371,6 +371,56 @@ fn focus_loss_ends_the_composition_before_focus_out_and_its_commit_is_silent() {
     read(msime_client_destroy(handle));
 }
 
+/// 命令 20 是宿主替失焦结束组字（macOS 的 `commitComposition:`）：对会话同命令 9，上的是同一段文字，但来源记 FocusLoss，不可改写、不出提交音也不画；同一段组字用命令 9 结束则照常出声、画。
+#[test]
+fn a_finish_on_focus_loss_commits_like_a_finish_but_silently() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_with_pinyin_fixture(dir.path(), effect_preferences());
+    read(msime_client_focus(handle, true));
+    let trace = record(handle, FEEDBACK);
+    msime_client_set_field_traits(handle, TRAIT_KNOWN);
+    let mut texts = Vec::new();
+    for command in [9, 20] {
+        for key in b"nihao" {
+            letter(handle, *key);
+        }
+        trace.borrow_mut().clear();
+        CUES.with(|cues| cues.borrow_mut().clear());
+        let finished = read(msime_client_command(handle, command));
+        assert_eq!(finished["ok"], true, "{finished}");
+        texts.push(finished["value"]["commit"].as_str().unwrap().to_owned());
+        assert_eq!(finished["value"]["view"]["preedit"], "");
+        let cues = CUES.with(|cues| std::mem::take(&mut *cues.borrow_mut()));
+        let commit = trace.borrow().iter().find_map(|event| match event {
+            LifecycleEvent::BeforeCommit {
+                origin, rewritable, ..
+            } => Some((*origin, *rewritable)),
+            _ => None,
+        });
+        let effect = finished["value"]["feedback"]["typing_effect"]
+            .as_u64()
+            .unwrap();
+        if command == 9 {
+            assert_eq!(cues, [crate::lifecycle::Cue::Commit]);
+            assert_ne!(effect, 0, "a finish draws its commit");
+            assert_ne!(commit.unwrap().0, CommitOrigin::FocusLoss);
+        } else {
+            assert_eq!(cues, [], "a focus-loss finish asks for no commit sound");
+            assert_eq!(effect, 0, "a focus-loss finish draws nothing");
+            assert_eq!(commit, Some((CommitOrigin::FocusLoss, false)));
+            assert!(trace.borrow().iter().any(|event| matches!(
+                event,
+                LifecycleEvent::Input {
+                    class: InputClass::FocusLoss,
+                    ..
+                }
+            )));
+        }
+    }
+    assert_eq!(texts[0], texts[1], "both commit the same text");
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn switching_to_dedicated_english_mid_composition_ends_it() {
     let dir = tempfile::tempdir().unwrap();

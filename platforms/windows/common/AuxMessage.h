@@ -336,7 +336,7 @@ parse_aux_typing_keys(const std::wstring &text) {
 
 // KeySound|<client>|<token>|<class>
 //
-// 一次交给应用的按下：没有组字时的空格、回车、退格、数字和方向键这类 TIP 不接手的键。只为按键音和打字特效的连击而发，所以只带 msime_client_key_sound 的类别（0 其他键、1 空格、2 回车、3 退格），不带是哪个键、打出了什么字。client 是 (pid << 32) | tid，Server 核对发送方的进程号；token 是这个线程当前的焦点令牌，只有正持有焦点的会话会出声。TIP 在线程池上发送、等 "OK"：Server 只在按键音或打字特效开着时回 "OK"，没有回音时 TIP 停一阵再发，功能都关着时不会每个键都连一次管道。
+// 一次交给应用的按下：没有组字时的空格、回车、退格、数字和方向键这类 TIP 不接手的键。只为按键音和打字特效的连击而发，所以只带 msime_client_key 的按键类别（0 其他键、1 空格、2 回车、3 退格，Server 加上 MSIME_KEY_PASSTHROUGH 交给核心），不带是哪个键、打出了什么字。client 是 (pid << 32) | tid，Server 核对发送方的进程号；token 是这个线程当前的焦点令牌，只有正持有焦点的会话会出声。TIP 在线程池上发送、等 "OK"：Server 只在按键音或打字特效开着时回 "OK"，没有回音时 TIP 停一阵再发，功能都关着时不会每个键都连一次管道。
 struct AuxKeySound {
   uint64_t client_id = 0;
   uint64_t focus_token = 0;

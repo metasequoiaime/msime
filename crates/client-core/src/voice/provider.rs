@@ -115,19 +115,9 @@ pub fn valid_mobile_voice_endpoint(endpoint: &str, websocket: bool) -> bool {
         return false;
     }
     let expected_scheme = if websocket { "wss" } else { "https" };
-    reqwest::Url::parse(endpoint).ok().is_some_and(|url| {
-        url.scheme() == expected_scheme
-            && endpoint.split_once("://").is_some_and(|(_, authority)| {
-                authority
-                    .as_bytes()
-                    .first()
-                    .is_some_and(|byte| *byte != b'/')
-            })
-            && url.host_str().is_some_and(|host| !host.is_empty())
-            && url.username().is_empty()
-            && url.password().is_none()
-            && url.fragment().is_none()
-    })
+    reqwest::Url::parse(endpoint)
+        .ok()
+        .is_some_and(|url| crate::endpoint::valid_endpoint_shape(endpoint, &url, expected_scheme))
 }
 
 fn bounded_resolved_voice_fields(fields: &ResolvedVoiceFields) -> bool {
@@ -161,20 +151,13 @@ fn resolve_voice_fields(
     }
 }
 
-pub fn mobile_voice_polish_configuration(
-    preferences: &Preferences,
-) -> Option<MobileVoicePolishConfiguration> {
-    let voice = &preferences.voice_input;
-    if !(voice.polish_enabled || voice.polish_text) {
-        return None;
-    }
-    // The same OpenAI-compatible chat endpoints the AI assistant uses; an unrecognised provider
-    // has no default to fall back to and simply means "not configured".
-    let (default_endpoint, default_model) = match voice.polish_provider.as_str() {
+/// 各润色服务的默认接口与模型（OpenAI 兼容的 Chat Completions）；不认识的服务为 `None`，即「没有配置」。与共享设置页的 `POLISH_PROVIDER_DEFAULTS` 和偏好的出厂润色服务一致：设置页在 `polish_model` 留空时显示的、桌面切换服务时写进去的都是这一份。
+pub fn polish_provider_defaults(provider: &str) -> Option<(&'static str, &'static str)> {
+    Some(match provider {
         "openai" => ("https://api.openai.com/v1/chat/completions", "gpt-4o-mini"),
         "siliconflow" => (
             "https://api.siliconflow.cn/v1/chat/completions",
-            "Qwen/Qwen2.5-7B-Instruct",
+            "Qwen/Qwen3-8B",
         ),
         "groq" => (
             "https://api.groq.com/openai/v1/chat/completions",
@@ -189,11 +172,58 @@ pub fn mobile_voice_polish_configuration(
             "mistral-small-latest",
         ),
         "deepseek" => (
-            "https://api.deepseek.com/v1/chat/completions",
-            "deepseek-chat",
+            "https://api.deepseek.com/chat/completions",
+            "deepseek-v4-flash",
         ),
         _ => return None,
-    };
+    })
+}
+
+/// 各联网识别服务的默认接口与模型；系统识别、本地识别和不认识的服务为 `None`。
+pub fn asr_provider_defaults(provider: &str) -> Option<(&'static str, &'static str)> {
+    Some(match provider {
+        "doubao" => (
+            "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+            "",
+        ),
+        "openai" => (
+            "https://api.openai.com/v1/audio/transcriptions",
+            "whisper-1",
+        ),
+        "siliconflow" => (
+            "https://api.siliconflow.cn/v1/audio/transcriptions",
+            "FunAudioLLM/SenseVoiceSmall",
+        ),
+        "groq" => (
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            "whisper-large-v3-turbo",
+        ),
+        "everyapi" => (
+            "https://api.everyapi.ai/v1/audio/transcriptions",
+            "volc.seedasr.sauc.duration",
+        ),
+        "mistral" => (
+            "https://api.mistral.ai/v1/audio/transcriptions",
+            "voxtral-mini-latest",
+        ),
+        "bailian" => (
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            "qwen3-asr-flash",
+        ),
+        _ => return None,
+    })
+}
+
+pub fn mobile_voice_polish_configuration(
+    preferences: &Preferences,
+) -> Option<MobileVoicePolishConfiguration> {
+    let voice = &preferences.voice_input;
+    if !(voice.polish_enabled || voice.polish_text) {
+        return None;
+    }
+    // The same OpenAI-compatible chat endpoints the AI assistant uses; an unrecognised provider
+    // has no default to fall back to and simply means "not configured".
+    let (default_endpoint, default_model) = polish_provider_defaults(&voice.polish_provider)?;
     let fields = resolve_voice_fields(
         &voice.polish_provider,
         &voice.polish_endpoint,
@@ -227,39 +257,7 @@ pub fn mobile_voice_provider_configuration(
     if voice.asr_provider == "local" {
         return local_provider_configuration(preferences);
     }
-    let (default_endpoint, default_model) = match voice.asr_provider.as_str() {
-        "doubao" => (
-            "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
-            "",
-        ),
-        "openai" => (
-            "https://api.openai.com/v1/audio/transcriptions",
-            "whisper-1",
-        ),
-        "siliconflow" => (
-            "https://api.siliconflow.cn/v1/audio/transcriptions",
-            "FunAudioLLM/SenseVoiceSmall",
-        ),
-        "groq" => (
-            "https://api.groq.com/openai/v1/audio/transcriptions",
-            "whisper-large-v3-turbo",
-        ),
-        "everyapi" => (
-            "https://api.everyapi.ai/v1/audio/transcriptions",
-            "volc.seedasr.sauc.duration",
-        ),
-        "mistral" => (
-            "https://api.mistral.ai/v1/audio/transcriptions",
-            "voxtral-mini-latest",
-        ),
-        "bailian" => (
-            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-            "qwen3-asr-flash",
-        ),
-        _ => {
-            return None;
-        }
-    };
+    let (default_endpoint, default_model) = asr_provider_defaults(&voice.asr_provider)?;
     let request_format = asr_request_format(&voice.asr_provider)?;
     let fields = resolve_voice_fields(
         &voice.asr_provider,
@@ -316,6 +314,71 @@ pub fn mobile_voice_provider_configuration(
     })
 }
 
+/// 设置页「测试」的配置，交给 `credential::test_service`：服务、接口、模型和密钥按键盘同样的规则从偏好解析（空的接口和模型补该服务的默认值，空的密钥取该服务的分槽），所以测的就是键盘会用的那一份。`service` 是 `voice.asr` 或 `voice.polish`；系统识别、本地识别、不认识的服务或其他 `service` 为 `None`。不检查完整性：缺密钥、地址不对由测试本身离线回答。
+pub fn credential_test_config(
+    preferences: &Preferences,
+    service: &str,
+) -> Option<serde_json::Value> {
+    let voice = &preferences.voice_input;
+    match service {
+        "voice.asr" => {
+            let defaults = asr_provider_defaults(&voice.asr_provider)?;
+            let fields = resolve_voice_fields(
+                &voice.asr_provider,
+                &voice.asr_endpoint,
+                &voice.asr_model,
+                &voice.asr_token,
+                &voice.asr_tokens,
+                defaults,
+            );
+            let mut config = serde_json::json!({
+                "provider": voice.asr_provider,
+                "endpoint": fields.endpoint,
+                "model": fields.model,
+                "token": fields.token,
+            });
+            if voice.asr_provider == "doubao" {
+                let legacy = voice.doubao_auth_mode.trim() == "legacy";
+                let resource_id = match voice.asr_resource_id.trim() {
+                    "" => "volc.seedasr.sauc.duration",
+                    value => value,
+                };
+                let extra = serde_json::json!({
+                    "auth_mode": if legacy { "legacy" } else { "api_key" },
+                    "app_id": if legacy { voice.asr_app_key.trim() } else { "" },
+                    "resource_id": resource_id,
+                    "doubao_enable_itn": voice.doubao_enable_itn,
+                    "doubao_enable_punc": voice.doubao_enable_punc,
+                    "doubao_enable_ddc": voice.doubao_enable_ddc,
+                    "doubao_boosting_table_id": voice.doubao_boosting_table_id.trim(),
+                });
+                if let (Some(config), Some(extra)) = (config.as_object_mut(), extra.as_object()) {
+                    config.extend(extra.clone());
+                }
+            }
+            Some(config)
+        }
+        "voice.polish" => {
+            let defaults = polish_provider_defaults(&voice.polish_provider)?;
+            let fields = resolve_voice_fields(
+                &voice.polish_provider,
+                &voice.polish_endpoint,
+                &voice.polish_model,
+                &voice.polish_token,
+                &voice.polish_tokens,
+                defaults,
+            );
+            Some(serde_json::json!({
+                "provider": voice.polish_provider,
+                "endpoint": fields.endpoint,
+                "model": fields.model,
+                "token": fields.token,
+            }))
+        }
+        _ => None,
+    }
+}
+
 /// On-device recognition: no endpoint, token or header applies, only the model the user installed or picked. `None` until a model is chosen, the same "not configured" answer a network provider without a token gets.
 fn local_provider_configuration(
     preferences: &Preferences,
@@ -346,6 +409,54 @@ fn local_provider_configuration(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn credential_test_config_resolves_what_the_keyboard_would_send() {
+        let mut preferences = Preferences::default();
+        preferences.voice_input.asr_provider = "doubao".into();
+        preferences.voice_input.asr_endpoint.clear();
+        preferences.voice_input.asr_resource_id.clear();
+        preferences.voice_input.asr_token.clear();
+        preferences
+            .voice_input
+            .asr_tokens
+            .insert("doubao".into(), "slot-token".into());
+        preferences.voice_input.doubao_auth_mode = "legacy".into();
+        preferences.voice_input.asr_app_key = " app ".into();
+        let asr = credential_test_config(&preferences, "voice.asr").unwrap();
+        assert_eq!(
+            asr["endpoint"],
+            "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+        );
+        assert_eq!(asr["token"], "slot-token");
+        assert_eq!(asr["auth_mode"], "legacy");
+        assert_eq!(asr["app_id"], "app");
+        assert_eq!(asr["resource_id"], "volc.seedasr.sauc.duration");
+
+        preferences.voice_input.doubao_auth_mode = "api_key".into();
+        let api_key = credential_test_config(&preferences, "voice.asr").unwrap();
+        assert_eq!(
+            api_key["app_id"], "",
+            "a stale App ID is not sent in API-key mode"
+        );
+
+        preferences.voice_input.polish_provider = "groq".into();
+        // The shipped default document carries another service's endpoint on some hosts; an empty one is what a provider switch leaves.
+        preferences.voice_input.polish_endpoint.clear();
+        preferences.voice_input.polish_model = " ".into();
+        let polish = credential_test_config(&preferences, "voice.polish").unwrap();
+        assert_eq!(
+            polish["endpoint"],
+            "https://api.groq.com/openai/v1/chat/completions"
+        );
+        assert_eq!(polish["model"], "llama-3.3-70b-versatile");
+
+        for provider in ["system", "local", "unknown"] {
+            preferences.voice_input.asr_provider = provider.into();
+            assert!(credential_test_config(&preferences, "voice.asr").is_none());
+        }
+        assert!(credential_test_config(&preferences, "ai.assistant").is_none());
+    }
 
     #[test]
     fn local_provider_resolves_without_endpoint_or_token() {

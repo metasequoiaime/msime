@@ -72,12 +72,9 @@ pub(super) fn google_authorization_state(url: &str, target: &str) -> Result<Stri
         return Err(AccountError::Unavailable);
     }
     let parsed = Url::parse(url).map_err(|_| AccountError::Unavailable)?;
-    if parsed.scheme() != "https"
+    if !crate::endpoint::valid_endpoint_shape(url, &parsed, "https")
         || parsed.host_str() != Some("accounts.google.com")
         || parsed.port().is_some()
-        || !parsed.username().is_empty()
-        || parsed.password().is_some()
-        || parsed.fragment().is_some()
     {
         return Err(AccountError::Unavailable);
     }

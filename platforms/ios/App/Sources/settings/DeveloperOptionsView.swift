@@ -109,6 +109,8 @@ struct DeveloperOptionsView: View {
       let restored = await Task.detached(priority: .userInitiated) { DeveloperDiagnostics.restoreDefaults() }.value
       if restored {
         DeveloperDiagnostics.resetLocalPreferences()
+        // 文档是由 Rust 整份替换的，不经过 `updateSharedPreferences`，所以这里自己记一次设置改动，云同步下一轮上传重置后的设置。
+        CloudSyncState.shared.markDirty(.settings)
         // 恢复出厂设置会把共享文档里的 `theme` 和 `settings_theme` 一并改回默认值，与「明暗与候选颜色」写这两个键时一样通知窗口重新应用界面样式，不必等 App 回到前台。
         NotificationCenter.default.post(name: AppAppearancePreference.didChange, object: nil)
       }

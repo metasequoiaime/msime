@@ -29,6 +29,7 @@ Status: implemented
 - **一拿不到位置就固定退回底部、不等第一次报告** — 简单；但配置不报告键盘的设备上，第一次实体按键总是拿不到位置，每个输入框的第一段组字都会贴在底部，再在空闲时跳回光标旁。
 - **窗口照旧开着，返回键在 `onKeyDown` / `onKeyUp` 里空闲时返回假，交给应用** — 不必每段组字都收起、叫出一次窗口，也就没有收起落地与组字赛跑的问题；但 API 33 起应用打开了预测返回（`targetSdk` 36 默认打开）时，返回走的是输入法登记在应用那边的回调，`compatHandleBack` 调 `onKeyDown` 时不看返回值，返回假只会让这一下彻底消失，比原来还糟；导航栏的收起箭头和应用读到的键盘可见状态也都不变。
 - **组字时跟着插入点而不是组字起点** — 拿到的就是当前光标；但候选栏会随每个字母往右滑，桌面端（Windows 候选窗）也是按组字起点摆的。
+- **设备套件在编辑器获得焦点后固定休眠 4 秒再注键** — 能避开当前最后一次 3 秒的显示请求，改动只在一处；但编辑器可能因窗口焦点变化重新排定请求，固定休眠无法证明最后一轮已发出，也不能证明空闲输入法窗口已收起。
 
 ## Consequences
 
@@ -38,4 +39,5 @@ Status: implemented
 - 验证：`tests/keyboard/CaretCandidatePolicySmoke.java` 钉住生效、退回、显示和位置规则，`AndroidLocalSettingsSmoke` 钉住设置项默认关、不同步，`SettingsSearchIndexSmoke` 钉住搜索得到这一行，均由 `platforms/android/check-host.sh` 运行。设备套件 `tests/device/keyboard/CaretCandidatesDeviceSmoke.java`（`smoke.sh` 跑）在 API 31 起用系统 `uinput` 接上一块 USB 键盘，核对组字时候选在输入框旁、空闲时不画、点击落到应用上、不报告位置的输入框（`EditorActivity` 的 `msime-test-no-cursor-anchor`）退回底部、窄的多行输入框（`msime-test-wrapping`）里折行的组字下方放候选栏，以及空闲时输入法窗口从窗口列表里消失、按一下返回键合成编辑器就离开。
 - 已验证（2026-10-11，本机模拟器）：API 35 上 `smoke.sh` 全部套件通过，含新套件；另用宿主侧 `uinput` 键盘手动看过组字时候选在组字起点下方、空闲时输入法窗口可触摸区域为空（`dumpsys input` 里是 `<empty>`）、自由窗口（freeform）里候选栏被夹回屏幕内。API 28（`hw.keyboard=yes` 的 AVD，`adb emu event text` 打字）上手动看过同样的位置、不报告位置的输入框退回底部、横屏、以及把 `wm density` 调大后靠近底边时翻到光标上方；`smoke.sh --core` 通过。设置页的新开关在 API 28 和 35 上都点过。以上设备运行都带着 `fix/issue-6781` 的 8a2f502526：develop 上 #6832 引入的 `ImeNineKeyPanel.dismiss` 空指针会让键盘视图建好前的 `onStartInput` 崩溃，不带它时两台模拟器上的冒烟都过不去，与这次改动无关。
 - 返回键与折行（2026-10-11，本机 API 35 模拟器，同样带着 8a2f502526）：`smoke.sh` 全部套件通过；`CaretCandidatesDeviceSmoke` 连跑 12 次全过（第一版只在 `onWindowShown` 之前认自己的收起，连跑时约三成失败在收起落地把组字上屏，加上时限后才稳定）。把 `hidesWindow` 改成恒假、去掉窗口检查再跑，套件失败在 `one back press leaves the editor`，即改动前按一下返回键应用不返回；把合成编辑器整个应用打开 `enableOnBackInvokedCallback` 再跑也通过，logcat 里能看到输入法的 `ImeOnBackInvokedCallback` 随窗口收起被撤下。API 28 上 `smoke.sh --core` 通过（新套件要 API 31 的 `uinput`，那里不跑）。
+- 设备套件启动就绪（2026-10-12）：`EditorActivity` 在输入框获得焦点后按 250、750、1500、3000 毫秒连续要求显示输入法；原套件一见焦点就注入 `nihao`，与这些请求交错。CI 曾在 `caret strip while composing` 读到空的输入法可访问节点，同一提交重跑通过；此前的设备记录也提到机器负载高时丢首键。合成编辑器把最后一轮显示请求已发出的状态放在输入框的 `stateDescription`，套件等待该状态后才注键；首键才使宿主进入候选条模式，首键前允许完整软键盘窗口显示。只调整测试夹具与验收时序，不改变宿主行为。
 - 未验证：真平板接蓝牙键盘、各家定制系统；Chrome、WebView、Compose 等第三方编辑器是否报告 `CursorAnchorInfo`、报告得准不准；分屏（只试了 freeform）。

@@ -175,6 +175,15 @@ add_test(NAME msime-tsf-gloss-column-wiring COMMAND msime-tsf-gloss-column-wirin
 add_executable(msime-tsf-paired-punctuation-wiring-test tests/input/paired_punctuation_wiring.cpp)
 target_compile_features(msime-tsf-paired-punctuation-wiring-test PRIVATE cxx_std_17)
 add_test(NAME msime-tsf-paired-punctuation-wiring COMMAND msime-tsf-paired-punctuation-wiring-test ${CMAKE_CURRENT_SOURCE_DIR})
+# TIP 从不调用生命周期核心的四个 FFI，字段属性只经 Main 管道交给 Server：按源码检查。
+add_executable(msime-tsf-lifecycle-boundary-test tests/input/lifecycle_boundary.cpp)
+target_compile_features(msime-tsf-lifecycle-boundary-test PRIVATE cxx_std_17)
+if(MSVC)
+  target_compile_options(msime-tsf-lifecycle-boundary-test PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(msime-tsf-lifecycle-boundary-test PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME msime-tsf-lifecycle-boundary COMMAND msime-tsf-lifecycle-boundary-test ${CMAKE_CURRENT_SOURCE_DIR})
 # 单按 Caps Lock 切换中英文：共享判定规则逐条钉住，TSF 里的接线检查源码。
 add_executable(msime-tsf-caps-lock-tap-test tests/input/caps_lock_tap.cpp)
 target_compile_features(msime-tsf-caps-lock-tap-test PRIVATE cxx_std_17)

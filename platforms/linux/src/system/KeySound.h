@@ -5,7 +5,7 @@
 
 namespace msime::linux_host {
 
-// The key class msime_client_key_sound takes for a key press: 1 Space, 2 Enter, 3 Backspace, 0 any other key. IBus and Fcitx5 both report X11 keysyms, so one table serves both hosts.
+// 一次按下的按键类别：1 空格，2 回车，3 退格，0 其它键。两个宿主经 lifecycle_key（LifecycleFeedback.h）把它交给 msime_client_key，位布局同 msime_client_key_sound 的 key_class。IBus 和 Fcitx5 报的都是 X11 keysym，一张表两个宿主共用。
 constexpr std::uint32_t key_sound_class(std::uint32_t keysym) {
   switch (keysym) {
   case 0x0020: // space
@@ -21,7 +21,7 @@ constexpr std::uint32_t key_sound_class(std::uint32_t keysym) {
   }
 }
 
-// Whether a key press makes a key sound. A release, a bare modifier and a shortcut (a key with Control, Alt, Super, Hyper or Meta held) are silent: the sound is for typing, and a chord the application handles is not typing. Shift and the level-3 shift only choose which character a key types, so they do not silence it.
+// 一次按下算不算打字，也就是宿主要不要为它调 msime_client_key（出按键音、开新的一轮）。松开、单独的修饰键和快捷键（按着 Control、Alt、Super、Hyper 或 Meta 的键）不算：声音是给打字的，应用处理的组合键不是打字。Shift 和第三层 Shift 只决定这个键打出哪个字符，不让它变成快捷键。不算打字的按下暂时不开新的一轮，见 msime_client.h 顺序契约里的过渡期例外。
 constexpr bool key_press_sounds(bool release, bool modifier_key, bool shortcut) {
   return !release && !modifier_key && !shortcut;
 }
@@ -55,15 +55,15 @@ private:
   std::uint32_t held_ = 0;
 };
 
-// The host's half of msime_client_music_set_active. The player keeps the answer it was told last for the whole process, whichever session told it, so a host tells it only when the answer changes, and counts it told only once a call was accepted: a call made while no sound is switched on starts no player and is not remembered, so the next one repeats it once music is switched on.
+// 宿主这一侧对 msime_client_set_active 的记账：只在激活状态变了时才告诉生命周期核心，调用被接受了才记作已告诉。核心对选择加入的会话总是接受，所以"被拒就下次再说"的重试已经不会发生；进程里什么声音都没开时核心不起播放器，激活那一刻的音乐请求没人收到，设置里的声音（preferences 的 plugins）变了时宿主要在本会话激活着时再声明一次 set_active(true)，不能指望这里重试。
 class MusicActivity {
 public:
-  // Tell the player whether music may play now: the input method is active in a field that is not a secure one. Nothing is sent without a session.
+  // 告诉核心本会话现在是否激活：输入法获得焦点、没有在录音。字段是不是 SECURE 由核心按字段属性判断。没有会话时什么都不发。
   template <class Call> void sync(std::uint64_t session, bool active, Call &&call) {
     if (session == 0 || active == told_) return;
     if (call(session, active)) told_ = active;
   }
-  // Before the session goes away. A player still told the input method is active would go on playing with no session left to say otherwise, so it hears the end now; the next session starts from silence.
+  // 会话销毁之前调用：核心还以为本会话激活着的话，所有者被销毁时虽然也会关掉音乐，这里仍先明确说一声停用；下一个会话从未激活开始。
   template <class Call> void release(std::uint64_t session, Call &&call) {
     if (session != 0 && told_) call(session, false);
     told_ = false;

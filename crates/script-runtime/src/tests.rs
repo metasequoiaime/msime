@@ -528,29 +528,58 @@ fn the_turn_quota_spans_deliveries_and_refills_on_the_next_turn() {
                 spent += fuel;
                 deliveries += 1;
             }
-            Outcome::Failed { failure, fuel } => {
-                assert_eq!(failure, Failure::OutOfFuel);
+            // 截断它的是本轮剩下的配额，不是钩子自己的上限：不算失败。
+            Outcome::TurnExhausted { fuel } => {
+                assert!(fuel < limits::OBSERVE_FUEL);
                 spent += fuel;
                 break;
             }
-            Outcome::NotSubscribed => unreachable!(),
+            other => panic!("{other:?}"),
         }
         assert!(deliveries < 1_000, "the turn quota never ran out");
     }
     assert!(deliveries > 1);
     assert!(spent <= limits::TURN_FUEL);
-    // 撞上本轮配额的那一次 trap 了，实例要换新的；新实例在新一轮里重新拿到完整配额。
+    assert_eq!(script.turn_fuel_left(), 0);
+    // 撞上本轮配额的那一次运行到一半被截断，实例要换新的；新实例在新一轮里重新拿到完整配额。
     let mut fresh = instance(&burner(2_000), declaration(&[], &[Hook::Input]));
     assert!(matches!(
         fresh.deliver(8, &input_event()),
         Outcome::Delivered { .. }
     ));
     assert!(fresh.turn_fuel_left() < limits::TURN_FUEL);
+    // 新一轮剩下的恰好是满额减去这一次：没有重新给满时还要再减去第 8 轮那一次。
+    let refilled = match fresh.deliver(9, &input_event()) {
+        Outcome::Delivered { fuel, .. } => fuel,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(fresh.turn_fuel_left(), limits::TURN_FUEL - refilled);
+}
+
+#[test]
+fn an_exhausted_turn_is_skipped_rather_than_failed() {
+    // 宿主在同一轮里重建实例时交过来的剩余是 0（之前的投递已经花光，派发没经过 `msime_client_key` 开新一轮）：不运行，不算失败，实例照样可用。
+    let mut script = instance(&burner(2_000), declaration(&[], &[Hook::Input]));
+    script.resume_turn(3, 0);
+    assert_eq!(
+        script.deliver(3, &input_event()),
+        Outcome::TurnExhausted { fuel: 0 }
+    );
+    assert!(script.is_usable());
     assert!(matches!(
-        fresh.deliver(9, &input_event()),
+        script.deliver(4, &input_event()),
         Outcome::Delivered { .. }
     ));
-    assert!(fresh.turn_fuel_left() > limits::TURN_FUEL - limits::OBSERVE_FUEL);
+    // 本轮只剩一点：运行到一半被截断，不算失败，但实例不再可用；不够下一段指令的零头也记为用完。
+    let mut cut = instance(&burner(2_000), declaration(&[], &[Hook::Input]));
+    cut.resume_turn(5, 100);
+    let outcome = cut.deliver(5, &input_event());
+    assert!(
+        matches!(outcome, Outcome::TurnExhausted { fuel } if fuel > 0 && fuel <= 100),
+        "{outcome:?}"
+    );
+    assert!(!cut.is_usable());
+    assert_eq!(cut.turn_fuel_left(), 0);
 }
 
 #[test]
@@ -952,6 +981,89 @@ fn modification_imports_are_denied_in_this_phase() {
     let mut event = commit_event("abc");
     event.hook = Hook::BeforeCommit;
     assert_eq!(status_of(script.deliver(1, &event)), -status::DENIED);
+}
+
+/// 调试输出只旁观：修改类 import 照样返回 `DENIED`，`before_commit` 的快照实例上的调用也交给同一个输出，`msime_init` 里的 `log` 在实例化前接上的输出里。
+#[test]
+fn debug_sinks_observe_denied_modifications_and_init_logs() {
+    let wat = module_wat(
+        r#"(import "msime" "commit_text" (func (param i32 i32 i32) (result i32)))
+           (import "msime" "rewrite_commit" (func $rewrite (param i32 i32) (result i32)))
+           (import "msime" "log" (func $log (param i32 i32 i32)))"#,
+        r#"(data (i32.const 0) "up")
+           (func (export "msime_init") (result i32)
+               (call $log (i32.const 2) (i32.const 0) (i32.const 2))
+               i32.const 0)"#,
+        "(i32.sub (i32.const 0) (call $rewrite (i32.const 0) (i32.const 3)))",
+    );
+    let declared = declaration(
+        &[Capability::ReadCommit, Capability::RewriteCommit],
+        &[Hook::BeforeCommit, Hook::Commit],
+    );
+    let module = compile_wat(&wat, declared).unwrap();
+    let logs = Arc::new(Mutex::new(Vec::new()));
+    let actions = Arc::new(Mutex::new(Vec::new()));
+    let (log_sink, action_sink) = (Arc::clone(&logs), Arc::clone(&actions));
+    let mut script = ScriptInstance::with_debug(
+        &module,
+        declared.capabilities,
+        limits::INIT_FUEL,
+        DebugSinks {
+            log: Some(Box::new(move |level, text| {
+                log_sink.lock().unwrap().push((level, text.to_owned()));
+            })),
+            actions: Some(Box::new(move |import, status| {
+                action_sink.lock().unwrap().push((import, status));
+            })),
+        },
+    )
+    .unwrap();
+    assert_eq!(*logs.lock().unwrap(), vec![(2, "up".to_owned())]);
+
+    let mut event = commit_event("abc");
+    event.hook = Hook::BeforeCommit;
+    assert_eq!(status_of(script.deliver(1, &event)), -status::DENIED);
+    assert_eq!(
+        status_of(script.deliver(2, &commit_event("abc"))),
+        -status::DENIED
+    );
+    assert_eq!(
+        *actions.lock().unwrap(),
+        vec![
+            ("rewrite_commit", status::DENIED),
+            ("rewrite_commit", status::DENIED)
+        ]
+    );
+    // 输出交还给了持久实例：之后的调用照样看得到。
+    assert_eq!(status_of(script.deliver(3, &event)), -status::DENIED);
+    assert_eq!(actions.lock().unwrap().len(), 3);
+}
+
+/// `event_scalar` 的取值表：名字和数值一一对应，本地模式表里 0 到 5 正好是 U6 白名单。
+#[test]
+fn the_scalar_value_tables_are_one_to_one() {
+    use crate::abi::scalar_values::{self as values, name, value};
+    for table in [
+        values::ORIGIN,
+        values::HOW,
+        values::OUTCOME,
+        values::REASON,
+        values::LOCAL_MODE,
+        values::INPUT_CLASS,
+        values::RETRACTION,
+    ] {
+        for (entry, number) in table {
+            assert_eq!(value(table, entry), Some(*number));
+            assert_eq!(name(table, *number), Some(*entry));
+        }
+    }
+    for (entry, number) in values::LOCAL_MODE {
+        assert_eq!(
+            abi::local_mode_allows_text(*number),
+            *number <= 5,
+            "{entry}"
+        );
+    }
 }
 
 #[test]

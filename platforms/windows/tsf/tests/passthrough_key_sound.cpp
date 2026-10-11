@@ -1,4 +1,5 @@
 #include "../../common/KeySoundClass.h"
+#include "../../../../shared/contracts/windows_ipc.h"
 
 #include <cstdio>
 
@@ -66,6 +67,29 @@ int main()
     auto injected = Typed('1');
     injected.injected = true;
     Require(!passthrough_key_sound_class(injected), "text a panel injected is silent");
+
+    // Server 把这些键带 MSIME_KEY_PASSTHROUGH 交给生命周期核心：类别只占低 7 位里的 0-3，标志位留给 Server。
+    for (unsigned virtualKey = 1; virtualKey < 0x100; ++virtualKey)
+    {
+        if (const auto keyClass = passthrough_key_sound_class(Typed(virtualKey)))
+        {
+            Require(*keyClass <= 3u, "a passthrough class is one msime_client_key takes");
+        }
+    }
+    // 交给应用的键在哪里不出声，TIP 报给 Server 的字段属性就在哪里是 SECURE：停用的键盘（密码框）和安全桌面。两条路用同一个判据，核心才不会在 Server 处理的键上出声、而交给应用的键却静音，反之亦然。
+    for (bool keyboardDisabled : {false, true})
+    {
+        for (bool secureMode : {false, true})
+        {
+            auto key = Typed('1');
+            key.keyboard_disabled = keyboardDisabled;
+            key.secure = secureMode;
+            const bool fieldSecure =
+                (FanyImeFieldTraits::Observe(keyboardDisabled, secureMode, false) & FanyImeFieldTraits::Secure) != 0;
+            Require(passthrough_key_sound_class(key).has_value() == !fieldSecure,
+                    "passthrough keys are silent exactly where the field is reported SECURE");
+        }
+    }
 
     if (failures == 0)
     {

@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 const RESOURCE_PACK_REQUEST_LIMIT: usize = 16_384;
 /// 一次安装最多接受的镜像前缀个数。
 const MAX_SOURCES: usize = 8;
+/// 不联网安装时一次最多交来的本地文件数，与本地语音模型的导入相同。
+const MAX_IMPORT_FILES: usize = 16;
 
 /// 本进程里正在安装或收编的资源包和它们的取消标记。同一个资源包同时只允许一个：两次安装会互相清掉对方的暂存目录。
 fn resource_pack_tasks() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
@@ -70,10 +72,11 @@ fn known_resource_pack(id: &str) -> Result<ResourcePack, String> {
     ResourcePack::from_id(id).ok_or_else(|| "resource_pack_unknown".to_owned())
 }
 
-/// 进度回调收到的阶段名。资源包安装只有下载、校验和完成三段；从归档取文件也算校验。
+/// 进度回调收到的阶段名。资源包安装只有下载（从本地文件安装时是导入）、校验和完成；从归档取文件也算校验。
 fn progress_phase(stage: &str) -> &'static CStr {
     match stage {
         "download" => c"download",
+        "import" => c"import",
         "done" => c"done",
         _ => c"verify",
     }
@@ -85,7 +88,7 @@ pub type ResourcePackProgress =
 
 /// 每个资源包的安装状态。
 ///
-/// Request `{"state_root": "<absolute dir>"}`; response value `[{"id","state":"missing"|"installed"|"outdated","size","schemes":[...]}]`, one entry per pack id (`japanese`, `language-dictionaries`, `handwriting`, `settled-model`, `offline-glosses`, `voice-runtime`). `size` is the download size in bytes. An installed pack lives in `<state_root>/resource-packs/<id>/`. Reads only a few file attributes.
+/// Request `{"state_root": "<absolute dir>"}`; response value `[{"id","state":"missing"|"installed"|"outdated","size","schemes":[...],"import_files":[{"name","url","size"}]}]`, `import_files` being the files an offline install (`files` on install) needs, one entry per pack id (`japanese`, `language-dictionaries`, `handwriting`, `settled-model`, `offline-glosses`, `voice-runtime`). `size` is the download size in bytes. An installed pack lives in `<state_root>/resource-packs/<id>/`. Reads only a few file attributes.
 ///
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.
@@ -109,7 +112,9 @@ pub unsafe extern "C" fn msime_client_resource_packs(
 ///
 /// Request `{"state_root": "<absolute dir>", "pack": "<id>", "sources": ["https://mirror/", ...]}`; `sources` is optional, the user's mirror prefixes in the order to try (empty strings are skipped). After them come the project's own mirrors and finally the URL in the compiled lock; every byte is checked against the lock's size and SHA-256 whichever source served it, and an unfinished file is resumed with an HTTP Range request on the next call. Response value `{"path": "<state_root>/resource-packs/<id>"}`.
 ///
-/// `progress` (may be null) is called on the calling thread with `(context, phase, done, total)`, phase one of "download", "verify", "done"; the phase string is only valid during the call. `msime_client_resource_pack_cancel` stops it from any thread and the call then fails with "local_model_cancelled". One install or adoption per pack at a time; another fails with "resource_pack_busy". Other failures are "resource_pack_unknown", "invalid resource pack request", "invalid state root" or a "local_model_*" code (network, http_status, size_mismatch, checksum_mismatch, unsafe_archive, missing_file, io, invalid_mirror, invalid_root).
+/// With `"files": ["<absolute path>", ...]` (at most 16) the pack is installed from those local files instead of the network (`resource_packs::import`): files are matched by size and SHA-256, never by name, `sources` is ignored, the download phase is reported as "import", a missing file fails with "local_model_import_missing: <name>" and an unreadable one with "local_model_import_unreadable: <detail>".
+///
+/// `progress` (may be null) is called on the calling thread with `(context, phase, done, total)`, phase one of "download", "import", "verify", "done"; the phase string is only valid during the call. `msime_client_resource_pack_cancel` stops it from any thread and the call then fails with "local_model_cancelled". One install or adoption per pack at a time; another fails with "resource_pack_busy". Other failures are "resource_pack_unknown", "invalid resource pack request", "invalid state root" or a "local_model_*" code (network, http_status, size_mismatch, checksum_mismatch, unsafe_archive, missing_file, io, invalid_mirror, invalid_root).
 ///
 /// # Safety
 /// `request` must point to `length` readable bytes. `progress` must stay valid for the call, must copy the phase string before returning and must not unwind.
@@ -127,6 +132,8 @@ pub unsafe extern "C" fn msime_client_resource_pack_install(
             pack: String,
             #[serde(default)]
             sources: Vec<String>,
+            #[serde(default)]
+            files: Option<Vec<String>>,
         }
         let request: InstallRequest = resource_pack_request(request, length)?;
         let state_root = absolute_directory(&request.state_root, "invalid state root")?;
@@ -134,6 +141,24 @@ pub unsafe extern "C" fn msime_client_resource_pack_install(
         if request.sources.len() > MAX_SOURCES {
             return Err("invalid resource pack request".into());
         }
+        let files = match &request.files {
+            Some(files) => {
+                if files.len() > MAX_IMPORT_FILES
+                    || files
+                        .iter()
+                        .any(|file| !is_bounded_text(file, 4096) || !Path::new(file).is_absolute())
+                {
+                    return Err("invalid resource pack request".into());
+                }
+                Some(
+                    files
+                        .iter()
+                        .map(std::path::PathBuf::from)
+                        .collect::<Vec<_>>(),
+                )
+            }
+            None => None,
+        };
         let sources: Vec<&str> = request.sources.iter().map(String::as_str).collect();
         let task = Task::register(pack)?;
         let mut report = |event: InstallProgress| {
@@ -145,8 +170,13 @@ pub unsafe extern "C" fn msime_client_resource_pack_install(
                 }
             }
         };
-        let path = resource_packs::install(state_root, pack, &sources, &mut report, &task.cancel)
-            .map_err(|error| error.to_string())?;
+        let path = match &files {
+            Some(files) => {
+                resource_packs::import(state_root, pack, files, &mut report, &task.cancel)
+            }
+            None => resource_packs::install(state_root, pack, &sources, &mut report, &task.cancel),
+        }
+        .map_err(|error| error.to_string())?;
         Ok(json!({ "path": path.to_string_lossy() }))
     })
 }
@@ -263,6 +293,10 @@ mod tests {
             assert_eq!(pack["state"], "missing");
             assert!(pack["size"].as_u64().unwrap() > 0);
             assert!(pack["schemes"].is_array());
+            assert!(
+                !pack["import_files"].as_array().unwrap().is_empty(),
+                "{pack}"
+            );
         }
         assert_eq!(
             listed["value"][0]["schemes"],
@@ -277,6 +311,46 @@ mod tests {
             read(unsafe { msime_client_resource_packs(std::ptr::null(), 4) })["ok"],
             false
         );
+    }
+
+    #[test]
+    fn install_from_files_validates_the_list_and_names_a_missing_file() {
+        let state = tempfile::tempdir().unwrap();
+        let relative = install(&json!({
+            "state_root": state.path(),
+            "pack": "voice-runtime",
+            "files": ["runtime.aar"],
+        }));
+        assert_eq!(relative["error"], "invalid resource pack request");
+        let many = install(&json!({
+            "state_root": state.path(),
+            "pack": "voice-runtime",
+            "files": vec!["/picked/file"; MAX_IMPORT_FILES + 1],
+        }));
+        assert_eq!(many["error"], "invalid resource pack request");
+        // Nothing of the right size was picked: the error names the upstream file the user has to download.
+        let unrelated = state.path().join("unrelated.bin");
+        std::fs::write(&unrelated, b"not the archive").unwrap();
+        let missing = install(&json!({
+            "state_root": state.path(),
+            "pack": "voice-runtime",
+            "files": [unrelated],
+        }));
+        let error = missing["error"].as_str().unwrap();
+        assert!(
+            error.starts_with("local_model_import_missing: "),
+            "{missing}"
+        );
+        assert!(error.ends_with(".aar"), "{missing}");
+        // An empty list is still an import, never a download: the Android host sends it when none of the picked documents had a usable size, and the user must see which file is missing rather than a silent network install.
+        let empty = install(&json!({
+            "state_root": state.path(),
+            "pack": "voice-runtime",
+            "files": [],
+        }));
+        let error = empty["error"].as_str().unwrap();
+        assert!(error.starts_with("local_model_import_missing: "), "{empty}");
+        assert!(error.ends_with(".aar"), "{empty}");
     }
 
     #[test]

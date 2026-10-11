@@ -19,6 +19,8 @@ constexpr std::uint32_t CharacterSetShortcut = 1u << 3;
 constexpr std::uint32_t KeyboardCompositionCancel = 1u << 4;
 // 可选：Server 认得 PipeMetadata::GameHost（强制叠加候选窗的游戏宿主）。TSF 只在协商到这一位之后才会在包上设 GameHost；旧 Server 不认这一位时，TSF 照常发包、不带 GameHost。和 KeyboardCompositionCancel 一样不放进 Capabilities 和 RequiredCapabilities，由双方各自在实现后再宣告。
 constexpr std::uint32_t GameHostCandidate = 1u << 5;
+// 可选：Server 认得 Main 事件 FieldTraits（windows_ipc.h）。TIP 只在协商到这一位之后才发它；协商不到时（新 TIP 配旧 Server、旧 TIP 配新 Server）不发，Server 那边的字段属性保持未知。和 GameHostCandidate 一样不放进 Capabilities 和 RequiredCapabilities。
+constexpr std::uint32_t FieldTraits = 1u << 6;
 constexpr std::uint32_t Capabilities = RequestIds | FocusEpochs | FramedVoice;
 constexpr std::uint32_t RequiredCapabilities = RequestIds | FocusEpochs;
 

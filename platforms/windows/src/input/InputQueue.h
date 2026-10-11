@@ -34,6 +34,8 @@ public:
   bool deactivate_terminal(uint64_t client, uint64_t token);
   // TIP 经 Aux 管道报来的一次交给应用的按下：交给那个客户端的会话出按键音、计入连击。客户端不在或没有以 `token` 持有焦点时什么都不做。
   bool passthrough_key(uint64_t client, uint64_t token, uint32_t key_class);
+  // TIP 经 Main 管道报来的字段属性（FieldTraits）。属于这个客户端，不要求持有焦点；记在客户端上，词库维护后重建的会话也拿得到。连接已被替换的旧票据什么都不做。
+  bool set_field_traits(const PipeTicket &ticket, const FanyImeNamedpipeData &packet);
   // Dictionary maintenance runs in another process and needs the exclusive
   // file lock that every Engine session holds a share of. Dropping the
   // sessions is what releases it: the Engine has the dictionary files open,
@@ -148,6 +150,8 @@ private:
   struct Client {
     PipeTicket ticket;
     std::unique_ptr<FocusedSession> session;
+    // TIP 最近一次报的字段属性；没协商到 FieldTraits 的旧 TIP 一直为空。
+    std::optional<uint32_t> field_traits;
   };
   void check_thread() const;
   void cleanup(const FocusRoute &route);

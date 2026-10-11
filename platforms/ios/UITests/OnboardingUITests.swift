@@ -74,6 +74,29 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testCloudSyncIsASwitchWithManualSyncBelowIt() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["我的"].tap()
+    let loginAlert = app.alerts["账号与登录"]
+    if loginAlert.waitForExistence(timeout: 3) { loginAlert.buttons["好"].tap() }
+    // Like Android, 云同步 is a switch whose subtitle is the sync status; the manual upload and download moved to the row below it.
+    let toggle = app.switches["accountCloudSync"]
+    XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+    let manual = app.buttons["accountManualSync"]
+    XCTAssertTrue(manual.exists)
+    if app.buttons["未登录，点按登录"].exists {
+      XCTAssertFalse(toggle.isEnabled)
+      XCTAssertTrue(app.staticTexts["登录后可用"].exists)
+    }
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "我的 › 同步"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+  }
+
+  @MainActor
   func testKeyboardSpacingSettingsPersist() throws {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]

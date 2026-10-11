@@ -53,6 +53,11 @@ public final class CaretCandidatesDeviceSmoke extends DeviceSmoke {
             shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
             await(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused));
+            if (Build.VERSION.SDK_INT >= 30) {
+                stage = "editor IME requests settled";
+                await(field("msime-test-plain").and(node ->
+                    equalsText("ime-requests-settled", node.getStateDescription())));
+            }
 
             // 接着实体键盘时，输入框一获得焦点宿主就要了光标位置，第一次按键的组字直接出现在光标旁。
             stage = "caret strip while composing";

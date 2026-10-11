@@ -104,6 +104,7 @@ public final class EditorActivity extends Activity {
     }
 
     private TextView imageStatus;
+    private int imeRequestGeneration;
 
     /** 合成图片在本测试包缓存里的位置；{@link ImageClipProvider} 只提供这一个文件。 */
     static File syntheticImage(Context context) {
@@ -240,6 +241,8 @@ public final class EditorActivity extends Activity {
     }
 
     private void requestIme(EditText editor) {
+        int generation = ++imeRequestGeneration;
+        if (Build.VERSION.SDK_INT >= 30) editor.setStateDescription("ime-requests-pending");
         for (long delay : new long[] {250, 750, 1500, 3000}) {
             editor.postDelayed(() -> {
                 if (!editor.hasWindowFocus() || !editor.hasFocus()) return;
@@ -249,6 +252,9 @@ public final class EditorActivity extends Activity {
                 if (Build.VERSION.SDK_INT >= 30) {
                     WindowInsetsController controller = editor.getWindowInsetsController();
                     if (controller != null) controller.show(WindowInsets.Type.ime());
+                    // 最后一轮显示请求发出后，设备套件才开始注入第一颗实体键。
+                    if (delay == 3000 && generation == imeRequestGeneration)
+                        editor.setStateDescription("ime-requests-settled");
                 }
             }, delay);
         }

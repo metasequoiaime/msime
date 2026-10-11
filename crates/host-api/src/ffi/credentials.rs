@@ -41,6 +41,51 @@ pub unsafe extern "C" fn msime_client_test_api_credential(
     })
 }
 
+/// The voice page's 「测试」 check for a host whose settings page has no copy of the provider defaults (the Android native app): `{preferences_directory, service}` with `service` `voice.asr` or `voice.polish`. The configuration is resolved from the stored preferences by `voice::provider::credential_test_config`, the same resolution the keyboard uses, then checked by `credential::test_service`. Value `{ok, message}` as for `msime_client_test_api_credential`; a provider with nothing to test (the platform recognizer, on-device models, an unknown id) is answered without the network. Blocks on the network for up to about 15 seconds: call off the UI thread.
+/// # Safety
+/// `request` must point to `length` readable bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_test_voice_credential(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        let document: Value = unsafe {
+            with_bounded_bytes(
+                request,
+                length,
+                CREDENTIAL_TEST_REQUEST_LIMIT,
+                "invalid credential test request",
+                |bytes| {
+                    serde_json::from_slice(bytes)
+                        .map_err(|_| "invalid credential test request".to_owned())
+                },
+            )
+        }?;
+        let service = document
+            .get("service")
+            .and_then(Value::as_str)
+            .filter(|service| matches!(*service, "voice.asr" | "voice.polish"))
+            .ok_or("invalid credential test request")?;
+        let directory = document
+            .get("preferences_directory")
+            .and_then(Value::as_str)
+            .filter(|directory| std::path::Path::new(directory).is_absolute())
+            .ok_or("invalid preferences directory")?;
+        let snapshot = msime_client_core::preferences::PreferencesStore::new(directory)
+            .load()
+            .map_err(|_| "preferences unavailable")?;
+        let Some(config) = msime_client_core::voice::provider::credential_test_config(
+            &snapshot.preferences,
+            service,
+        ) else {
+            return Ok(json!({"ok": false, "message": "当前服务不需要测试。"}));
+        };
+        let result = msime_client_core::credential::test_service(service, &config);
+        Ok(json!({"ok": result.ok, "message": result.message}))
+    })
+}
+
 /// The hint the settings page shows under the custom translation endpoint, `translation::endpoint_issue` (empty when there is none), and whether the preferences store accepts the endpoint (`accepted`: empty, or `translation::is_supported_endpoint`). Value `{issue, accepted}`. No I/O.
 /// # Safety
 /// `endpoint` must point to `length` readable bytes. Null is rejected.

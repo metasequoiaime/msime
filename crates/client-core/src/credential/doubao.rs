@@ -157,19 +157,9 @@ pub fn test(config: &Value, transport: &impl Transport) -> ProbeResult {
         && matches!(get("auth_mode"), "api_key" | "legacy")
         && headers.is_some()
         && endpoint.len() <= 2048
-        && reqwest::Url::parse(endpoint).ok().is_some_and(|url| {
-            url.scheme() == "wss"
-                && endpoint.split_once("://").is_some_and(|(_, authority)| {
-                    authority
-                        .as_bytes()
-                        .first()
-                        .is_some_and(|byte| *byte != b'/')
-                })
-                && url.host_str().is_some_and(|host| !host.is_empty())
-                && url.username().is_empty()
-                && url.password().is_none()
-                && url.fragment().is_none()
-        });
+        && reqwest::Url::parse(endpoint)
+            .ok()
+            .is_some_and(|url| crate::endpoint::valid_endpoint_shape(endpoint, &url, "wss"));
     if !valid {
         return ProbeResult {
             ok: false,

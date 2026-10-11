@@ -2,6 +2,16 @@
 #include "msime_client.h"
 #include <cassert>
 
+// 选择加入生命周期核心和最后报告的字段属性，要随会话替换恢复到新句柄上（restoreLiveModes:）。FEEDBACK 下旧的 typingEffect: 是空操作（没选择加入的会话会答出闪光样式和连击数），SECURE 下按键什么都不出；去掉 SECURE 之后按键才有特效，说明前面的 0 来自恢复的属性，而不是特效关着。最后把 SECURE 设回去，留给下一次替换。
+static void AssertLifecycleRestored(MSIMEClientSession *session) {
+    assert(session.lifecycleFlags == MSIME_LIFECYCLE_FEEDBACK);
+    assert([session typingEffect:0] == 0);
+    assert([session lifecycleKey:0] == 0);
+    assert([session setFieldTraits:MSIME_TRAIT_KNOWN] == MSIME_TRAIT_KNOWN);
+    assert([session lifecycleKey:0] != 0);
+    assert([session setFieldTraits:MSIME_TRAIT_KNOWN | MSIME_TRAIT_SECURE] == (MSIME_TRAIT_KNOWN | MSIME_TRAIT_SECURE));
+}
+
 // Explicit integration test: pass the lock-verified desktop resource directory.
 // Active and staged user data are always created beneath a fresh temporary root.
 int main(int argc, const char *argv[]) {
@@ -20,9 +30,15 @@ int main(int argc, const char *argv[]) {
         NSMutableDictionary *options = [preparedHost mutableCopy];
         NSMutableDictionary *preferences = [options[@"preferences"] mutableCopy];
         preferences[@"learning"] = @NO;
+        // 打字特效开着，AssertLifecycleRestored 才分得出选择加入和 SECURE 有没有恢复。
+        NSMutableDictionary *plugins = [preferences[@"plugins"] isKindOfClass:NSDictionary.class] ? [preferences[@"plugins"] mutableCopy] : [NSMutableDictionary dictionary];
+        plugins[@"effect_style"] = @"flash";
+        preferences[@"plugins"] = plugins;
         options[@"preferences"] = preferences;
         MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
         assert(session && !error && [session setFocused:YES error:&error]);
+        assert([session setLifecycle:MSIME_LIFECYCLE_FEEDBACK] == MSIME_LIFECYCLE_FEEDBACK);
+        assert([session setFieldTraits:MSIME_TRAIT_KNOWN | MSIME_TRAIT_SECURE] == (MSIME_TRAIT_KNOWN | MSIME_TRAIT_SECURE));
         for (NSNumber *enabled in @[@YES, @NO]) {
             assert([session setDedicatedEnglishEnabled:enabled.boolValue error:&error] && !error);
             assert([session setChinesePunctuationEnabled:!enabled.boolValue error:&error] && !error);
@@ -61,11 +77,19 @@ int main(int argc, const char *argv[]) {
             error = nil;
             assert([session command:MSIME_CANCEL error:&error]);
             assert([[MSIMEClientSession snapshotActivationReady][@"ready"] isEqual:@YES]);
+            // 失败恢复：版本对不上时激活失败，旧会话已经销毁，包装层用原选项新建一个会话顶上，同样经 restoreLiveModes: 恢复模式、选择加入和字段属性，并发出替换通知。准备好的快照还在，下面照常激活。
+            error = nil;
+            NSString *staleVersion = [@"" stringByPaddingToLength:64 withString:@"0" startingAtIndex:0];
+            assert(![staleVersion isEqual:version]);
+            assert(![MSIMEClientSession applySnapshotHandle:[prepared[@"handle"] unsignedLongLongValue] expectedVersion:staleVersion error:&error]);
+            assert(error && notifications == 1);
+            AssertLifecycleRestored(session);
             error = nil;
             BOOL activated = [MSIMEClientSession applySnapshotHandle:[prepared[@"handle"] unsignedLongLongValue] expectedVersion:version error:&error];
             if (!activated) NSLog(@"Synthetic snapshot activation failed: %@", error.localizedDescription);
             assert(activated);
-            assert(!error && notifications == 1);
+            assert(!error && notifications == 2);
+            AssertLifecycleRestored(session);
             assert([[MSIMEClientSession snapshotVersion:options][@"generation"] isEqual:activationID]);
             [NSNotificationCenter.defaultCenter removeObserver:observer];
             NSDictionary *view = [session viewWithError:&error];

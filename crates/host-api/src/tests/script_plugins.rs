@@ -525,6 +525,23 @@ fn a_new_field_runs_nothing_until_its_traits_are_confirmed() {
 }
 
 #[test]
+fn a_passthrough_key_does_not_confirm_the_traits_of_a_new_field() {
+    let fixture = fixture();
+    install(&fixture, &[Script::new("logger", logger(), &OBSERVE)], 1);
+    opt_in(&fixture, TRAIT_KNOWN);
+    read(msime_client_focus(fixture.handle, false));
+    take_log();
+    // 新字段，宿主没在聚焦前报告属性。Windows 上交给应用的键经 Aux 管道上报，和 Main 管道上新字段的属性帧没有先后保证：它不能当作属性已经比较过，之后的派发什么都不运行。
+    read(msime_client_focus(fixture.handle, true));
+    msime_client_key(fixture.handle, KEY_PASSTHROUGH);
+    read(msime_client_reset_cache(fixture.handle));
+    assert!(take_log().is_empty());
+    // 不交给应用的键才算确认。
+    letter(fixture.handle, b'n');
+    assert!(kinds(&take_log()).contains(&Hook::Input.code()));
+}
+
+#[test]
 fn a_field_turning_secure_drops_the_running_instance() {
     let fixture = fixture();
     install(
@@ -703,7 +720,7 @@ fn process_health(fixture: &Fixture, id: &str, hash: &str) -> (u32, Option<&'sta
 #[test]
 fn fuel_is_given_per_turn_and_a_new_key_refills_it() {
     let fixture = fixture();
-    install(
+    let hashes = install(
         &fixture,
         &[Script::new("burner", burner(2000), &[Hook::Input])],
         1,
@@ -715,12 +732,13 @@ fn fuel_is_given_per_turn_and_a_new_key_refills_it() {
         read(msime_client_reset_cache(fixture.handle));
     }
     assert_eq!(take_log().len(), 50);
-    // 同一轮里（交给应用的键不开新的一轮）连发：轮配额 125 000 用完后失败。
+    // 同一轮里（交给应用的键不开新的一轮）连发：轮配额 125 000 用完后跳过，不算失败。
     msime_client_key(fixture.handle, KEY_PASSTHROUGH);
     for _ in 0..50 {
         read(msime_client_reset_cache(fixture.handle));
     }
     assert!(take_log().len() < 50);
+    assert_eq!(process_health(&fixture, "burner", &hashes[0]), (0, None));
 }
 
 #[test]
@@ -732,29 +750,60 @@ fn the_turn_quota_belongs_to_the_plugin_not_to_one_instance() {
         1,
     );
     opt_in(&fixture, TRAIT_KNOWN);
-    // 一轮里花光配额：最后一次 fuel 耗尽，实例丢弃。
+    // 一轮的配额够投递几次：花光之后最后一次运行到一半被截断。
     msime_client_key(fixture.handle, 0);
     for _ in 0..50 {
         read(msime_client_reset_cache(fixture.handle));
     }
-    let spent = take_log().len();
-    assert!(spent < 50);
-    assert_eq!(process_health(&fixture, "burner", &hashes[0]).0, 1);
-    // 同一轮里换了个字段（没有按键）：新实例接着这一轮剩下的配额，而不是重新给满 125 000。
-    read(msime_client_focus(fixture.handle, false));
+    let per_turn = take_log().len();
+    assert!(per_turn > 3 && per_turn < 50, "{per_turn}");
+    // 同一轮里换了个字段（没有按键）：这一轮还是花光的，跳过，也不为它重新初始化。
     msime_client_set_field_traits(fixture.handle, TRAIT_KNOWN);
     read(msime_client_focus(fixture.handle, true));
     read(msime_client_reset_cache(fixture.handle));
     assert!(take_log().is_empty());
-    assert_eq!(process_health(&fixture, "burner", &hashes[0]).0, 2);
-    // 新的一轮配额给满，但这次聚焦里它已经 trap 过，不再重建；下一次聚焦才重新运行。
+    // 新的一轮投递 3 次，再在同一轮里换字段：新实例接着这一轮剩下的配额，而不是重新给满，两个实例合计和一轮一样多。
     msime_client_key(fixture.handle, 0);
-    read(msime_client_reset_cache(fixture.handle));
-    assert!(take_log().is_empty());
+    for _ in 0..3 {
+        read(msime_client_reset_cache(fixture.handle));
+    }
+    assert_eq!(take_log().len(), 3);
+    read(msime_client_focus(fixture.handle, false));
+    msime_client_set_field_traits(fixture.handle, TRAIT_KNOWN);
+    read(msime_client_focus(fixture.handle, true));
+    for _ in 0..50 {
+        read(msime_client_reset_cache(fixture.handle));
+    }
+    assert_eq!(take_log().len(), per_turn - 3);
+    // 用完本轮配额不是插件的失败。
+    assert_eq!(process_health(&fixture, "burner", &hashes[0]), (0, None));
+}
+
+#[test]
+fn an_exhausted_turn_skips_the_plugin_and_never_trips_the_breaker() {
+    let fixture = fixture();
+    let hashes = install(
+        &fixture,
+        &[Script::new("burner", burner(2000), &[Hook::Input])],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    // 修饰键组合、快捷键和失焦命令不经过 msime_client_key，这些派发和上一次按键共用一轮。每次聚焦都把这一轮花光：插件只是被跳过，连着四次也不熔断（按失败计时第三次就停用了）。
+    for _ in 0..4 {
+        msime_client_set_field_traits(fixture.handle, TRAIT_KNOWN);
+        read(msime_client_focus(fixture.handle, true));
+        msime_client_key(fixture.handle, 0);
+        for _ in 0..50 {
+            read(msime_client_reset_cache(fixture.handle));
+        }
+        let ran = take_log().len();
+        assert!(ran > 1 && ran < 50, "{ran}");
+    }
+    assert_eq!(process_health(&fixture, "burner", &hashes[0]), (0, None));
+    // 被截断的实例这次聚焦里不再重建；下一次聚焦、新的一轮照常运行。
     read(msime_client_focus(fixture.handle, true));
     letter(fixture.handle, b'n');
     assert_eq!(kinds(&take_log()), [Hook::Input.code()]);
-    assert_eq!(process_health(&fixture, "burner", &hashes[0]), (2, None));
 }
 
 #[test]
@@ -1141,10 +1190,11 @@ fn a_grant_whose_hash_no_longer_matches_the_pack_never_runs() {
         vec![json!({"id": "stale", "hash": stale, "enabled": true, "granted": []})],
     );
     opt_in(&fixture, TRAIT_KNOWN);
-    for _ in 0..20 {
-        commit_nihao(fixture.handle);
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    // 编译请求在聚焦时交给后台线程；它按顺序处理，屏障文件写出来时那次核对已经做完，之后的上屏不再取决于后台线程有没有轮到它。
+    let barrier = fixture.user_data.join("barrier.json");
+    crate::scripts::health_barrier(&barrier);
+    wait_for(|| barrier.exists().then_some(()));
+    assert_eq!(commit_nihao(fixture.handle), "你好");
     assert!(take_log().is_empty());
     assert_eq!(process_health(&fixture, "stale", &stale), (0, None));
 }
@@ -1214,4 +1264,201 @@ fn measure_delivery_cost() {
         if cfg!(debug_assertions) { "dev" } else { "release" }
     );
     assert!(take_log().is_empty());
+}
+
+/// `event_scalar` 里的枚举值就是这些枚举的判别值，SDK 头文件和 `msime-pack run` 的夹具都按 `abi::scalar_values` 的名字和数值写。每个函数都是穷举的 match：枚举加了变体，这里编译不过，提醒同时在 ABI 里追加。
+#[test]
+fn the_abi_scalar_tables_are_the_lifecycle_discriminants() {
+    use crate::lifecycle::{CommitOrigin, EndReason, InputClass, LocalModeClass};
+    use msime_input_runtime::{SelectionHow, SelectionOutcome, SelectionRetraction};
+    use msime_script_runtime::abi::scalar_values as values;
+
+    fn check(table: &[(&'static str, u8)], pairs: &[(&'static str, u8)]) {
+        assert_eq!(table, pairs);
+    }
+    let origin = |value: CommitOrigin| match value {
+        CommitOrigin::Selection => "selection",
+        CommitOrigin::Raw => "raw",
+        CommitOrigin::HeldFlush => "held_flush",
+        CommitOrigin::SchemeText => "scheme_text",
+        CommitOrigin::FocusLoss => "focus_loss",
+    };
+    check(
+        values::ORIGIN,
+        &[
+            CommitOrigin::Selection,
+            CommitOrigin::Raw,
+            CommitOrigin::HeldFlush,
+            CommitOrigin::SchemeText,
+            CommitOrigin::FocusLoss,
+        ]
+        .map(|value| (origin(value), value as u8)),
+    );
+    let how = |value: SelectionHow| match value {
+        SelectionHow::Finish => "finish",
+        SelectionHow::PunctuationFinish => "punctuation_finish",
+        SelectionHow::WubiTop => "wubi_top",
+        SelectionHow::SpaceOverList => "space_over_list",
+        SelectionHow::Digit => "digit",
+        SelectionHow::GridRaw => "grid_raw",
+        SelectionHow::Select => "select",
+        SelectionHow::AnyCandidate => "any_candidate",
+        SelectionHow::Edge => "edge",
+        SelectionHow::Highlighted => "highlighted",
+        SelectionHow::WubiAuto => "wubi_auto",
+    };
+    check(
+        values::HOW,
+        &[
+            SelectionHow::Finish,
+            SelectionHow::PunctuationFinish,
+            SelectionHow::WubiTop,
+            SelectionHow::SpaceOverList,
+            SelectionHow::Digit,
+            SelectionHow::GridRaw,
+            SelectionHow::Select,
+            SelectionHow::AnyCandidate,
+            SelectionHow::Edge,
+            SelectionHow::Highlighted,
+            SelectionHow::WubiAuto,
+        ]
+        .map(|value| (how(value), value as u8)),
+    );
+    let outcome = |value: SelectionOutcome| match value {
+        SelectionOutcome::Committed => "committed",
+        SelectionOutcome::Held => "held",
+        SelectionOutcome::Pinned => "pinned",
+        SelectionOutcome::Partial => "partial",
+    };
+    check(
+        values::OUTCOME,
+        &[
+            SelectionOutcome::Committed,
+            SelectionOutcome::Held,
+            SelectionOutcome::Pinned,
+            SelectionOutcome::Partial,
+        ]
+        .map(|value| (outcome(value), value as u8)),
+    );
+    let reason = |value: EndReason| match value {
+        EndReason::Commit => "commit",
+        EndReason::Cancel => "cancel",
+        EndReason::Deleted => "deleted",
+        EndReason::Focus => "focus",
+        EndReason::Destroyed => "destroyed",
+        EndReason::HostCommit => "host_commit",
+        EndReason::Other => "other",
+    };
+    check(
+        values::REASON,
+        &[
+            EndReason::Commit,
+            EndReason::Cancel,
+            EndReason::Deleted,
+            EndReason::Focus,
+            EndReason::Destroyed,
+            EndReason::HostCommit,
+            EndReason::Other,
+        ]
+        .map(|value| (reason(value), value as u8)),
+    );
+    // 本地模式的名字就是 runtime 的模式名：`LocalModeClass::of` 按名字归类，归回同一个数值。名字和是否放行文本都用穷举的 match 写，枚举加了变体这里编译不过。
+    let mode_name = |value: LocalModeClass| match value {
+        LocalModeClass::None => "none",
+        LocalModeClass::TemporaryEnglish => "temporary_english",
+        LocalModeClass::TemporaryJapanese => "temporary_japanese",
+        LocalModeClass::SuperJianpin => "super_jianpin",
+        LocalModeClass::Emoji => "emoji",
+        LocalModeClass::Kaomoji => "kaomoji",
+        LocalModeClass::Mention => "mention",
+        LocalModeClass::Url => "url",
+        LocalModeClass::Command => "command",
+        LocalModeClass::Expression => "expression",
+        LocalModeClass::Unicode => "unicode",
+        LocalModeClass::DateTime => "date_time",
+        LocalModeClass::QuickPhrase => "quick_phrase",
+        LocalModeClass::Unknown => "unknown",
+    };
+    let allows_text = |value: LocalModeClass| match value {
+        LocalModeClass::None
+        | LocalModeClass::TemporaryEnglish
+        | LocalModeClass::TemporaryJapanese
+        | LocalModeClass::SuperJianpin
+        | LocalModeClass::Emoji
+        | LocalModeClass::Kaomoji => true,
+        LocalModeClass::Mention
+        | LocalModeClass::Url
+        | LocalModeClass::Command
+        | LocalModeClass::Expression
+        | LocalModeClass::Unicode
+        | LocalModeClass::DateTime
+        | LocalModeClass::QuickPhrase
+        | LocalModeClass::Unknown => false,
+    };
+    let modes = [
+        LocalModeClass::None,
+        LocalModeClass::TemporaryEnglish,
+        LocalModeClass::TemporaryJapanese,
+        LocalModeClass::SuperJianpin,
+        LocalModeClass::Emoji,
+        LocalModeClass::Kaomoji,
+        LocalModeClass::Mention,
+        LocalModeClass::Url,
+        LocalModeClass::Command,
+        LocalModeClass::Expression,
+        LocalModeClass::Unicode,
+        LocalModeClass::DateTime,
+        LocalModeClass::QuickPhrase,
+        LocalModeClass::Unknown,
+    ];
+    check(
+        values::LOCAL_MODE,
+        &modes.map(|mode| (mode_name(mode), mode as u8)),
+    );
+    for mode in modes {
+        let name = mode_name(mode);
+        if mode != LocalModeClass::Unknown {
+            assert_eq!(LocalModeClass::of(name), mode, "{name}");
+        }
+        assert_eq!(
+            msime_script_runtime::abi::local_mode_allows_text(mode as u8),
+            allows_text(mode),
+            "{name}"
+        );
+    }
+    let class = |value: InputClass| match value {
+        InputClass::Character => "character",
+        InputClass::Punctuation => "punctuation",
+        InputClass::Selection => "selection",
+        InputClass::Navigation => "navigation",
+        InputClass::Edit => "edit",
+        InputClass::Commit => "commit",
+        InputClass::Cancel => "cancel",
+        InputClass::HostCommit => "host_commit",
+        InputClass::Other => "other",
+    };
+    check(
+        values::INPUT_CLASS,
+        &[
+            InputClass::Character,
+            InputClass::Punctuation,
+            InputClass::Selection,
+            InputClass::Navigation,
+            InputClass::Edit,
+            InputClass::Commit,
+            InputClass::Cancel,
+            InputClass::HostCommit,
+            InputClass::Other,
+        ]
+        .map(|value| (class(value), value as u8)),
+    );
+    let retraction = |value: SelectionRetraction| match value {
+        SelectionRetraction::Restore => "restore",
+        SelectionRetraction::Drop => "drop",
+    };
+    check(
+        values::RETRACTION,
+        &[SelectionRetraction::Restore, SelectionRetraction::Drop]
+            .map(|value| (retraction(value), value as u8)),
+    );
 }

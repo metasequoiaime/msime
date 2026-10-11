@@ -31,5 +31,5 @@ Android 键盘的语音入口早已按共享解析 `msime_client_mobile_voice_co
 
 - 收益：正式包用户可以改用豆包或任一上传式服务，系统识别失败时提示里的出路真的走得通。密钥只存在本机，设置同步只带 `voice_input.language`。
 - 代价：换槽规则在 Java 里多了一份，和 TS 的 `swapTokenSlot` 靠冒烟里的对照用例保持一致。换服务时自定义地址会被清掉。
-- 仍缺：润色服务的配置、凭据测试按钮，Android 原生设置页都还没有。本地模型的下载与选用后来由[本地语音模型那篇](2026-10-12-android-local-voice-models.md)补上，「本地模型」也因此进了可选列表。
+- 仍缺：润色服务的配置和凭据测试按钮后来由[润色与测试那篇](2026-10-12-android-voice-polish-and-credential-test.md)补上；本地模型的下载与选用由[本地语音模型那篇](2026-10-12-android-local-voice-models.md)补上，「本地模型」也因此进了可选列表。
 - 验证：`platforms/android/check-host.sh`（含 `VoiceProviderPolicySmoke`、`SettingsSearchIndexSmoke`）；`gradlew compileFullReleaseJavaWithJavac` 编译 `VoicePage`。没有在真机上用真实密钥走过一遍识别。

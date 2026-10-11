@@ -132,12 +132,41 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger rawCommitCalls;
 @property(nonatomic) NSUInteger commandCalls;
 @property(nonatomic, copy) NSDictionary *rawTransition;
-// The sound requests the controller made, in order: key classes, commits, and each music on/off.
+// 旧的声音调用。生命周期核心接管之后控制器一次都不该再调它们，否则同一个键会响两遍；记下来好断言它们一直是空的。
 @property(nonatomic, strong) NSMutableArray<NSNumber *> *keySounds;
 @property(nonatomic) NSUInteger commitSounds;
 @property(nonatomic, strong) NSMutableArray<NSNumber *> *musicStates;
+// 生命周期调用和派发按发生顺序记在一起："traits:<十六进制>"、"key:<值>"、"active:<0|1>"、"focus:<0|1>"、"ascii"、"command:<值>"、"select"、"maintenance"，用来断言契约的调用顺序。
+@property(nonatomic, strong) NSMutableArray<NSString *> *calls;
+// lifecycleKey: 报告的物理按下（按键类别或 MSIME_KEY_POINTER），以及它要返回的打字特效答复。
+@property(nonatomic, strong) NSMutableArray<NSNumber *> *keys;
+@property(nonatomic) uint32_t keyEffect;
+@property(nonatomic, strong) NSMutableArray<NSNumber *> *reportedTraits;
+@property(nonatomic, strong) NSMutableArray<NSNumber *> *activeStates;
 @end
 @implementation ShortcutSession
+- (void)recordCall:(NSString *)call {
+    if (!self.calls) self.calls = [NSMutableArray array];
+    [self.calls addObject:call];
+}
+- (uint32_t)lifecycleKey:(uint32_t)key {
+    if (!self.keys) self.keys = [NSMutableArray array];
+    [self.keys addObject:@(key)];
+    [self recordCall:[NSString stringWithFormat:@"key:%u", key]];
+    return self.keyEffect;
+}
+- (uint32_t)setFieldTraits:(uint32_t)traits {
+    if (!self.reportedTraits) self.reportedTraits = [NSMutableArray array];
+    [self.reportedTraits addObject:@(traits)];
+    [self recordCall:[NSString stringWithFormat:@"traits:%x", traits]];
+    return traits;
+}
+- (BOOL)setLifecycleActive:(BOOL)active {
+    if (!self.activeStates) self.activeStates = [NSMutableArray array];
+    [self.activeStates addObject:@(active)];
+    [self recordCall:[NSString stringWithFormat:@"active:%d", active ? 1 : 0]];
+    return YES;
+}
 - (BOOL)keySound:(uint32_t)keyClass {
     if (!self.keySounds) self.keySounds = [NSMutableArray array];
     [self.keySounds addObject:@(keyClass)];
@@ -182,19 +211,20 @@ static void CheckMenu(NSMenu *menu, id controller) {
     return @{@"focused":@YES, @"editing_text":@"", @"preedit":@"", @"candidates":@[], @"dedicated_english":@(enabled)};
 }
 - (NSDictionary *)pinGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
-    (void)error; ++self.maintenanceCalls; self.maintenanceAction = 0; self.selectedGeneration = generation; self.selectedIndex = index; return nil;
+    (void)error; [self recordCall:@"maintenance"]; ++self.maintenanceCalls; self.maintenanceAction = 0; self.selectedGeneration = generation; self.selectedIndex = index; return nil;
 }
 - (NSDictionary *)removeGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
-    (void)error; ++self.maintenanceCalls; self.maintenanceAction = 1; self.selectedGeneration = generation; self.selectedIndex = index; return nil;
+    (void)error; [self recordCall:@"maintenance"]; ++self.maintenanceCalls; self.maintenanceAction = 1; self.selectedGeneration = generation; self.selectedIndex = index; return nil;
 }
 - (NSDictionary *)clearPositionGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
-    (void)error; ++self.maintenanceCalls; self.maintenanceAction = 2; self.selectedGeneration = generation; self.selectedIndex = index; return nil;
+    (void)error; [self recordCall:@"maintenance"]; ++self.maintenanceCalls; self.maintenanceAction = 2; self.selectedGeneration = generation; self.selectedIndex = index; return nil;
 }
 - (NSDictionary *)fixGeneration:(uint64_t)generation index:(NSUInteger)index position:(uint8_t)position error:(NSError **)error {
-    (void)error; ++self.maintenanceCalls; self.maintenanceAction = 10 + position; self.selectedGeneration = generation; self.selectedIndex = index; return nil;
+    (void)error; [self recordCall:@"maintenance"]; ++self.maintenanceCalls; self.maintenanceAction = 10 + position; self.selectedGeneration = generation; self.selectedIndex = index; return nil;
 }
 - (NSDictionary *)selectGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
     (void)error; ++self.selectCalls; self.selectedGeneration = generation; self.selectedIndex = index;
+    [self recordCall:@"select"];
     return nil;
 }
 - (NSDictionary *)selectEdgeGeneration:(uint64_t)generation index:(NSUInteger)index edge:(uint8_t)edge error:(NSError **)error {
@@ -230,6 +260,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 - (NSDictionary *)setFocused:(BOOL)focused error:(NSError **)error {
     (void)error;
     ++self.focusCalls;
+    [self recordCall:focused ? @"focus:1" : @"focus:0"];
     return @{@"handled": @NO, @"commit": NSNull.null, @"view": @{@"focused": @(focused), @"editing_text": @"", @"candidates": @[]}};
 }
 - (NSDictionary *)setCandidatePageSize:(uint8_t)size error:(NSError **)error {
@@ -242,6 +273,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
     ++self.asciiCalls;
     self.lastASCII = ascii;
     self.lastShift = shift;
+    [self recordCall:@"ascii"];
     if (self.stall) usleep(self.stall);
     return self.nextTransition;
 }
@@ -268,11 +300,16 @@ static void CheckMenu(NSMenu *menu, id controller) {
     (void)error;
     ++self.commandCalls;
     self.lastCommand = command;
+    [self recordCall:[NSString stringWithFormat:@"command:%u", command]];
     if (command == MSIME_COMMIT_RAW) ++self.rawCommitCalls;
-    if (self.failFinish && command == MSIME_FINISH_COMPOSITION) return nil;
-    if (self.failCancel && command == MSIME_CANCEL) return nil;
-    if (self.finishTransition && command == MSIME_FINISH_COMPOSITION) return self.finishTransition;
-    if (self.cancelTransition && command == MSIME_CANCEL) return self.cancelTransition;
+    // 命令 20 对会话同 MSIME_FINISH_COMPOSITION，只在生命周期里按失焦上屏处理。
+    const BOOL finish = command == MSIME_FINISH_COMPOSITION || command == MSIME_FINISH_ON_FOCUS_LOSS;
+    if (self.failFinish && finish) return nil;
+    // 命令 19 对会话同 MSIME_CANCEL，只在生命周期里把结束原因记成 HostCommit。
+    const BOOL cancel = command == MSIME_CANCEL || command == MSIME_CANCEL_AFTER_HOST_COMMIT;
+    if (self.failCancel && cancel) return nil;
+    if (self.finishTransition && finish) return self.finishTransition;
+    if (self.cancelTransition && cancel) return self.cancelTransition;
     if (self.rawTransition && command == MSIME_COMMIT_RAW) return self.rawTransition;
     if (self.nextTransition) return self.nextTransition;
     return @{@"handled": @YES, @"commit": @"测试", @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
@@ -2530,7 +2567,8 @@ static void TestGlossSensePage(MSIMEAppearancePreferences *appearance) {
     session.lastCommand = UINT32_MAX;
     assert([controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
     assert([client.committed isEqual:@"hello"]);
-    assert(session.lastCommand == MSIME_CANCEL);
+    // 释义是宿主自己写进文档的，丢弃组字用 MSIME_CANCEL_AFTER_HOST_COMMIT：对会话同 MSIME_CANCEL，生命周期把结束原因记成 HostCommit。
+    assert(session.lastCommand == MSIME_CANCEL_AFTER_HOST_COMMIT);
 
     // Several senses open the page instead. The candidates on screen are the senses, and the first
     // one is highlighted.
@@ -2547,7 +2585,7 @@ static void TestGlossSensePage(MSIMEAppearancePreferences *appearance) {
     session.lastCommand = UINT32_MAX;
     assert([controller handleEvent:ModeKey(20, 0, NO) client:client]); // 3
     assert([client.committed isEqual:@"greetings"]);
-    assert(session.lastCommand == MSIME_CANCEL);
+    assert(session.lastCommand == MSIME_CANCEL_AFTER_HOST_COMMIT);
     // The page is gone afterwards, together with the composition it was drawn from.
     assert([[controller valueForKey:@"view"][@"candidates"] count] == 0);
 
@@ -2628,7 +2666,7 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
     session.lastCommand = UINT32_MAX;
     assert([controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
     assert([client.committed isEqual:@"蘋果"]);
-    assert(session.lastCommand == MSIME_CANCEL);
+    assert(session.lastCommand == MSIME_CANCEL_AFTER_HOST_COMMIT);
 
     // The senses page picks the sense through the same conversion it is drawn with.
     compose(@"头发; 苹果", nil);
@@ -2638,7 +2676,7 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
     session.lastCommand = UINT32_MAX;
     assert([controller handleEvent:ModeKey(19, 0, NO) client:client]); // 2
     assert([client.committed isEqual:@"蘋果"]);
-    assert(session.lastCommand == MSIME_CANCEL);
+    assert(session.lastCommand == MSIME_CANCEL_AFTER_HOST_COMMIT);
 
     // Option+digit takes the first gloss column of that candidate.
     compose(@"苹果", nil);
@@ -3388,7 +3426,18 @@ static void TestStaleDeactivationLeavesTheCurrentPairOpen() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
-// Key sounds, the commit sound and background music, as the controller asks the session for them. The session decides whether anything is switched on; what is pinned here is which key class each key reports, that auto-repeat, key-up and secure event input stay silent, that dictated text and results the Engine computed are kept out of what counts as typing, and that music follows the controller that is actually active.
+// 记下控制器要画的每个打字特效答复，不碰共享的特效面板。
+@interface EffectRecordingController : ModeController
+@property(nonatomic, strong) NSMutableArray<NSArray *> *effects;
+@end
+@implementation EffectRecordingController
+- (void)drawTypingEffect:(uint32_t)packed commit:(BOOL)commit {
+    if (!self.effects) self.effects = [NSMutableArray array];
+    [self.effects addObject:@[@(packed), @(commit)]];
+}
+@end
+
+// 按键音、上屏音、打字特效和背景音乐都由生命周期核心驱动，控制器只按 msime_client.h 的契约报告。这里钉住的是：每个键先比较字段属性、变了才报告，再报告这次按下，然后才派发；每个键报告的按键类别；自动重复、松开、英文模式不报告按下；安全输入只改字段属性，按下照样报告但答复不画；上屏特效取自派发回复的 feedback，没有它的上屏（语音转写、失焦）不画；Engine 算出来的结果不算打字；音乐跟随真正处于激活的控制器；旧的 keySound:、commitSound、setMusicActive: 一次都不调，否则同一个键会响两遍。
 static void TestSoundsFollowKeysCommitsAndActivation() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
@@ -3396,7 +3445,7 @@ static void TestSoundsFollowKeysCommitsAndActivation() {
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     appearance.fullWidthInput = NO;
-    ModeController *controller = [ModeController alloc];
+    EffectRecordingController *controller = [EffectRecordingController alloc];
     ShortcutSession *session = [ShortcutSession new];
     ShortcutClient *client = [ShortcutClient new];
     client.insertions = [NSMutableArray array];
@@ -3411,75 +3460,236 @@ static void TestSoundsFollowKeysCommitsAndActivation() {
         return [NSEvent keyEventWithType:type location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0
                                  context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:repeat keyCode:code];
     };
+    NSString *knownTraits = [NSString stringWithFormat:@"traits:%x", MSIME_TRAIT_KNOWN];
 
-    // Space, both enter keys and backspace have classes of their own; letters and digits play the default.
-    for (NSArray *press in @[@[@0, @"a"], @[@49, @" "], @[@36, @"\r"], @[@76, @"\x03"], @[@51, @"\x7f"], @[@18, @"1"]])
+    // 第一个键之前字段属性还没报告过：先报告属性，再报告这次按下，最后才派发。
+    [controller handleEvent:key(NSEventTypeKeyDown, 0, @"a", NO) client:client];
+    assert(([session.calls isEqual:@[knownTraits, @"key:0", @"ascii"]]));
+    // 空格、两个回车键和退格各有自己的类别，字母和数字是默认类别。属性没变就不再报告。
+    for (NSArray *press in @[@[@49, @" "], @[@36, @"\r"], @[@76, @"\x03"], @[@51, @"\x7f"], @[@18, @"1"]])
         [controller handleEvent:key(NSEventTypeKeyDown, [press[0] unsignedShortValue], press[1], NO) client:client];
-    assert(([session.keySounds isEqual:@[@0, @1, @2, @2, @3, @0]]));
-    // A held key is one press, and releasing it is not another.
+    assert(([session.keys isEqual:@[@0, @1, @2, @2, @3, @0]]));
+    assert(([session.reportedTraits isEqual:@[@(MSIME_TRAIT_KNOWN)]]));
+    // 按住一个键算一次按下，松开也不算。
     [controller handleEvent:key(NSEventTypeKeyDown, 0, @"a", YES) client:client];
     [controller handleEvent:key(NSEventTypeKeyUp, 0, @"a", NO) client:client];
-    assert(session.keySounds.count == 6);
-    // English mode is silent, as it is on Windows and Linux.
+    assert(session.keys.count == 6);
+    // 英文模式不出声，与 Windows、Linux 一致：不报告按下，但字段属性先报告了 HOST_ENGLISH。
     appearance.englishMode = YES;
     [controller handleEvent:key(NSEventTypeKeyDown, 0, @"a", NO) client:client];
-    assert(session.keySounds.count == 6);
+    assert(session.keys.count == 6);
+    assert([session.reportedTraits.lastObject isEqual:@(MSIME_TRAIT_KNOWN | MSIME_TRAIT_HOST_ENGLISH)]);
     appearance.englishMode = NO;
+    // 没有会话（会话不可用，或词库维护期间）时没有人可报告：不报告按下，也不去画特效，否则一个 0 答复会把还在屏幕上的连击徽标撤掉。
+    [controller setValue:nil forKey:@"session"];
+    const NSUInteger effectsWithoutSession = controller.effects.count;
+    [controller handleEvent:key(NSEventTypeKeyDown, 0, @"a", NO) client:client];
+    assert(controller.effects.count == effectsWithoutSession && session.keys.count == 6);
+    [controller setValue:session forKey:@"session"];
 
-    // Activation lets music play; secure event input stops it and silences every key and commit until it is off again.
+    // 激活把音乐交给核心仲裁，激活前先报告字段属性。
     [controller claimBackgroundMusic];
-    assert(([session.musicStates isEqual:@[@YES]]));
+    assert(([session.activeStates isEqual:@[@YES]]));
+    assert(([[session.calls subarrayWithRange:NSMakeRange(session.calls.count - 2, 2)] isEqual:@[knownTraits, @"active:1"]]));
+    // 安全输入只是一项字段属性：核心看到 SECURE 就不出声、不出特效、停掉音乐，控制器不再自己开关音乐。按下照样报告，答复不画。
+    [controller.effects removeAllObjects];
+    session.keyEffect = (1u << 17) | 3;
     controller.secureInput = YES;
-    session.nextTransition = @{ @"handled": @YES, @"commit": @"密码", @"view": idle };
+    session.nextTransition = @{ @"handled": @YES, @"commit": @"密码", @"view": idle, @"feedback": @{ @"typing_effect": @0 } };
     [controller handleEvent:key(NSEventTypeKeyDown, 0, @"a", NO) client:client];
     [controller handleEvent:key(NSEventTypeKeyDown, 11, @"b", NO) client:client];
-    assert(session.keySounds.count == 6 && session.commitSounds == 0);
-    assert(([session.musicStates isEqual:@[@YES, @NO]]));
+    assert(session.keys.count == 8);
+    assert(session.reportedTraits.count == 4 && [session.reportedTraits.lastObject isEqual:@(MSIME_TRAIT_KNOWN | MSIME_TRAIT_SECURE)]);
+    assert(([session.activeStates isEqual:@[@YES]]));
+    for (NSArray *effect in controller.effects) assert([effect[0] isEqual:@0]);
     controller.secureInput = NO;
+    [controller.effects removeAllObjects];
+    session.nextTransition = @{ @"handled": @YES, @"commit": NSNull.null, @"view": idle };
     [controller handleEvent:key(NSEventTypeKeyDown, 8, @"c", NO) client:client];
-    assert(session.keySounds.count == 7 && session.commitSounds == 1);
-    assert(([session.musicStates isEqual:@[@YES, @NO, @YES]]));
+    assert(session.keys.count == 9 && [session.reportedTraits.lastObject isEqual:@(MSIME_TRAIT_KNOWN)]);
+    // 按下的特效答复来自 lifecycleKey:，原样交去画。
+    assert(([controller.effects isEqual:@[@[@((1u << 17) | 3), @NO]]]));
+    session.keyEffect = 0;
 
-    // A result the expression, command or mention mode produced makes the commit sound but is not typing; ordinary text is both.
+    // 上屏特效取自派发回复的 feedback；Engine 算出来的结果（表达式、命令、提及）照样有上屏特效，但不算打字，普通文字两者都算。
     PassthroughStatisticsCall(root, @{@"operation": @"set_enabled", @"enabled": @YES});
     MSIMEReloadTypingStatisticsEnabled(root);
     assert(MSIMETypingStatisticsEnabled.load(std::memory_order_relaxed));
-    [controller apply:@{ @"handled": @YES, @"commit": @"一百二十三", @"view": idle,
+    [controller.effects removeAllObjects];
+    [controller apply:@{ @"handled": @YES, @"commit": @"一百二十三", @"view": idle, @"feedback": @{ @"typing_effect": @((1u << 17) | 4) },
                          @"commit_context": @{ @"scheme": @0, @"local_mode": @"expression", @"typing_statistics": @NO } }];
-    assert(session.commitSounds == 2);
+    assert(([controller.effects isEqual:@[@[@((1u << 17) | 4), @YES]]]));
     assert([PassthroughStatisticsDetail(root)[@"characters"][@"han"] integerValue] == 0);
-    [controller apply:@{ @"handled": @YES, @"commit": @"你好", @"view": idle,
+    [controller apply:@{ @"handled": @YES, @"commit": @"你好", @"view": idle, @"feedback": @{ @"typing_effect": @((1u << 17) | 5) },
                          @"commit_context": @{ @"scheme": @0, @"local_mode": @"none", @"typing_statistics": @YES } }];
-    assert(session.commitSounds == 3);
+    assert(controller.effects.count == 2 && [controller.effects[1] isEqual:(@[@((1u << 17) | 5), @YES])]);
     assert([PassthroughStatisticsDetail(root)[@"characters"][@"han"] integerValue] == 2);
     MSIMETypingStatisticsEnabled.store(false, std::memory_order_relaxed);
-    // Dictated text lands through the same path, and is not a keystroke to answer.
+    // 没有 feedback 的上屏不画：语音转写、失焦上屏都不是派发的回复。不是非负整数或超出 32 位的 feedback 也不画，没有上屏的派发带的 feedback 同样不画。
     [controller setValue:@(static_cast<NSInteger>(msime::mac::TypingSource::Voice)) forKey:@"typingSourceOverride"];
     [controller apply:@{ @"handled": @YES, @"commit": @"语音", @"view": idle }];
-    assert(session.commitSounds == 3);
+    [controller apply:@{ @"handled": @NO, @"commit": @"失焦", @"view": idle }];
+    for (id invalid in @[@"1", @(-1), @1.5, @YES, @(1ull << 32), NSNull.null])
+        [controller apply:@{ @"handled": @YES, @"commit": @"坏", @"view": idle, @"feedback": @{ @"typing_effect": invalid } }];
+    [controller apply:@{ @"handled": @YES, @"commit": @"坏", @"view": idle, @"feedback": @7 }];
+    [controller apply:@{ @"handled": @YES, @"commit": NSNull.null, @"view": idle, @"feedback": @{ @"typing_effect": @0 } }];
+    // 有上屏但答 0（失焦上屏、安全输入、特效关闭）也不画，否则会撤掉还在屏幕上的连击徽标。
+    [controller apply:@{ @"handled": @YES, @"commit": @"零", @"view": idle, @"feedback": @{ @"typing_effect": @0 } }];
+    assert(controller.effects.count == 2);
 
-    // Only the controller music last followed may stop it: the next client's activation can arrive before the previous one's deactivation.
+    // 只有音乐最后跟随的控制器能停它：下一个客户端的激活可能先于上一个的停用到达。核心另外按会话仲裁所有者。
     ModeController *next = [ModeController alloc];
     ShortcutSession *nextSession = [ShortcutSession new];
     [next setValue:appearance forKey:@"appearance"];
     [next setValue:nextSession forKey:@"session"];
     [next claimBackgroundMusic];
-    assert(([nextSession.musicStates isEqual:@[@YES]]));
+    assert(([nextSession.calls isEqual:@[knownTraits, @"active:1"]]));
     Method base = class_getInstanceMethod(IMKInputController.class, @selector(deactivateServer:));
     IMP original = method_setImplementation(base, (IMP)RecordBaseDeactivation);
     [controller deactivateServer:client];
-    assert(session.musicStates.count == 3 && nextSession.musicStates.count == 1);
-    // A late deactivation for a client that is no longer this controller's does not reach music either.
+    assert(session.activeStates.count == 1 && nextSession.activeStates.count == 1);
+    // 不再属于这个控制器的客户端迟到的停用也碰不到音乐。
     ShortcutClient *stale = [ShortcutClient new];
     [next setValue:client forKey:@"activeClient"];
     [next deactivateServer:stale];
-    assert(nextSession.musicStates.count == 1);
+    assert(nextSession.activeStates.count == 1);
     [next deactivateServer:client];
-    assert(([nextSession.musicStates isEqual:@[@YES, @NO]]));
+    assert(([nextSession.activeStates isEqual:@[@YES, @NO]]));
+    // 没有会话的控制器（英文模式下激活）认领音乐：核心里的所有者仍是上一个控制器的会话，宿主替它报告停用；它迟到的停用因所有权已转走不再报告，音乐也不会一直放着。
+    [next setValue:client forKey:@"activeClient"];
+    [next claimBackgroundMusic];
+    ModeController *sessionless = [ModeController alloc];
+    [sessionless setValue:appearance forKey:@"appearance"];
+    [sessionless claimBackgroundMusic];
+    assert(([nextSession.activeStates isEqual:@[@YES, @NO, @YES, @NO]]));
+    [next deactivateServer:client];
+    assert(nextSession.activeStates.count == 4);
+    // 再认领一次（偏好更新）不会去碰别的会话。
+    [sessionless claimBackgroundMusic];
+    assert(nextSession.activeStates.count == 4);
+    [sessionless releaseBackgroundMusic];
     method_setImplementation(base, original);
+
+    // 旧的声音调用一次都没有。
+    assert(!session.keySounds.count && session.commitSounds == 0 && !session.musicStates.count);
+    assert(!nextSession.keySounds.count && nextSession.commitSounds == 0 && !nextSession.musicStates.count);
 
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
+// 脚本运行时在每次 msime_client_focus(true) 之后要先确认字段属性才投递事件，同值的报告也算确认。控制器平时只在属性变了时报告，所以每个 setFocused:YES 之前都要不论变没变再报告一次：复用会话的聚焦（快照替换或英文模式之后 _focusPending 的 prepareSession）和按键换了客户端时的聚焦都是这样，报告要紧挨在 focus(true) 之前。
+static void TestFieldTraitsAreConfirmedBeforeEveryFocusIn() {
+    NSString *suite = [@"msime.focus-traits." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.fullWidthInput = NO;
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[], @"scheme": @0 };
+    [controller setValue:idle forKey:@"view"];
+    session.nextTransition = @{ @"handled": @YES, @"commit": NSNull.null, @"view": idle };
+    NSEvent *(^letter)(unsigned short, NSString *) = ^NSEvent *(unsigned short code, NSString *characters) {
+        return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0
+                                 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
+    };
+    NSString *knownTraits = [NSString stringWithFormat:@"traits:%x", MSIME_TRAIT_KNOWN];
+    // 第一个键报告了属性，属性不变的下一个键不再报告。
+    [controller handleEvent:letter(0, @"a") client:client];
+    [controller handleEvent:letter(11, @"b") client:client];
+    assert(([session.calls isEqual:@[knownTraits, @"key:0", @"ascii", @"key:0", @"ascii"]]));
+    // 复用的会话重新聚焦：属性没变，也紧挨着 focus(true) 之前再报告一次。
+    [session.calls removeAllObjects];
+    [controller setValue:@YES forKey:@"focusPending"];
+    [controller prepareSession];
+    const NSUInteger focusIn = [session.calls indexOfObject:@"focus:1"];
+    assert(focusIn != NSNotFound && focusIn > 0 && [session.calls[focusIn - 1] isEqual:knownTraits]);
+    assert([session.reportedTraits.lastObject isEqual:@(MSIME_TRAIT_KNOWN)]);
+    // 按键换了客户端：这个键先报告，旧客户端失焦，新客户端聚焦之前再报告一次属性，最后才为这个键派发。
+    [session.calls removeAllObjects];
+    ShortcutClient *other = [ShortcutClient new];
+    [controller handleEvent:letter(8, @"c") client:other];
+    assert(([session.calls isEqual:@[@"key:0", @"focus:0", knownTraits, @"focus:1", @"ascii"]]));
+    // 没有聚焦的键照旧不重复报告。
+    [session.calls removeAllObjects];
+    [controller handleEvent:letter(2, @"d") client:other];
+    assert(([session.calls isEqual:@[@"key:0", @"ascii"]]));
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+// IMK 在焦点移走或用户点进文档时调 commitComposition:，这是 macOS 失焦上屏最常走的一条路：用 MSIME_FINISH_ON_FOCUS_LOSS 结束组字，核心按失焦上屏处理，不出提交音也不画；回复里 feedback 为 0，控制器也就不画上屏特效。不是当前客户端的调用什么都不做。
+static void TestCommitCompositionFinishesAsAFocusLoss() {
+    NSString *suite = [@"msime.commit-composition." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.fullWidthInput = NO;
+    EffectRecordingController *controller = [EffectRecordingController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    client.insertions = [NSMutableArray array];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[], @"scheme": @0 };
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"nihao", @"candidates": @[], @"scheme": @0 } forKey:@"view"];
+    session.finishTransition = @{ @"handled": @YES, @"commit": @"你好", @"view": idle, @"feedback": @{ @"typing_effect": @0 } };
+    [controller commitComposition:[ShortcutClient new]];
+    assert(session.commandCalls == 0);
+    [controller commitComposition:client];
+    assert(session.commandCalls == 1 && session.lastCommand == MSIME_FINISH_ON_FOCUS_LOSS);
+    assert([client.committed isEqual:@"你好"]);
+    // 核心对失焦上屏答 0，控制器什么都不画，屏幕上的连击徽标不会被撤掉。
+    assert(!controller.effects.count);
+    // 它不是一次按下，不开新的一轮。
+    assert(!session.keys.count);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+// 会话在 handleKeyEvent: 里才建好的控制器：词库维护结束后的第一个键就是这样，按下经过 handleEvent: 时还没有会话。这里用假会话代替真的新建，并照 prepareSession 在聚焦前强制报告的样子把上次报告的字段属性清零。
+@interface SessionOpeningController : EffectRecordingController
+@property(nonatomic, strong) ShortcutSession *opening;
+@end
+@implementation SessionOpeningController
+- (void)prepareSession {
+    if (![self valueForKey:@"session"] && self.opening) {
+        [self setValue:self.opening forKey:@"session"];
+        [self setValue:@0 forKey:@"fieldTraits"];
+        self.opening = nil;
+        return;
+    }
+    [super prepareSession];
+}
+@end
+
+// 打开会话的那个键也要先于为它做的派发报告给生命周期核心：handleEvent: 那时没有会话可报告，会话建好之后补报一次。之后的键照常只报告一次。
+static void TestTheKeyThatOpensTheSessionIsReportedBeforeItsDispatch() {
+    NSString *suite = [@"msime.session-opening-key." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.fullWidthInput = NO;
+    SessionOpeningController *controller = [SessionOpeningController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[], @"scheme": @0 };
+    [controller setValue:idle forKey:@"view"];
+    session.nextTransition = @{ @"handled": @YES, @"commit": NSNull.null, @"view": idle };
+    controller.opening = session;
+    NSEvent *(^letter)(unsigned short, NSString *) = ^NSEvent *(unsigned short code, NSString *characters) {
+        return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0
+                                 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
+    };
+    [controller handleEvent:letter(0, @"a") client:client];
+    assert([controller valueForKey:@"session"] == session);
+    assert(([session.calls isEqual:@[[NSString stringWithFormat:@"traits:%x", MSIME_TRAIT_KNOWN], @"key:0", @"ascii"]]));
+    [controller handleEvent:letter(11, @"b") client:client];
+    assert(([session.keys isEqual:@[@0, @0]]) && session.asciiCalls == 2);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 // Opens a real session from its own options and records, for every music claim, whether a session was there to hear it.
@@ -3530,12 +3740,17 @@ static void TestMusicIsClaimedOnceTheSessionOpens() {
     [owner prepareSession];
     assert([owner valueForKey:@"session"]);
     assert(([owner.claims isEqual:@[@NO, @YES]]));
+    // 新会话一建好就选择加入生命周期核心，由它出声、出特效、仲裁音乐；字段属性也已报告（这个控制器处于英文模式）。选择加入后旧的声音调用变成空操作，由 session-smoke 在声音开着的会话上确认，这里的偏好全关，那样的断言分不出来。
+    MSIMEClientSession *opened = [owner valueForKey:@"session"];
+    assert(opened.lifecycleFlags == MSIME_LIFECYCLE_FEEDBACK);
+    assert([[owner valueForKey:@"fieldTraits"] unsignedIntValue] == (MSIME_TRAIT_KNOWN | MSIME_TRAIT_HOST_ENGLISH));
     // Preparing a session that is already open claims nothing more.
     [owner prepareSession];
     assert(owner.claims.count == 2);
     // A controller music does not follow opens its session without taking music over.
     [other prepareSession];
     assert([other valueForKey:@"session"] && other.claims.count == 0);
+    assert(((MSIMEClientSession *)[other valueForKey:@"session"]).lifecycleFlags == MSIME_LIFECYCLE_FEEDBACK);
 
     [owner releaseBackgroundMusic];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
@@ -3954,16 +4169,16 @@ static void TestPreferenceRevisionSkipsUnchangedDocuments() {
     [controller setValue:client forKey:@"activeClient"];
     [controller setValue:session forKey:@"session"];
     [controller setValue:@"/synthetic-preferences" forKey:@"preferencesDirectory"];
-    // Music switched on while nothing else was sounding starts only once the player hears the input method is active, so each applied document says so again; an unchanged one is not applied and says nothing.
+    // 没有别的声音时打开的音乐要等播放器听到输入法处于激活才响，所以每份应用了的文档都经 msime_client_set_active 再报告一次；没变的文档不应用，也不报告。
     [controller claimBackgroundMusic];
-    assert(session.musicStates.count == 1);
+    assert(([session.activeStates isEqual:@[@YES]]));
 
     [controller reloadPreferences];
     assert(dispatch_semaphore_wait(controller.reads[0].started, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
     dispatch_semaphore_signal(controller.reads[0].released);
     WaitForPreferenceCompletions(controller, 1);
     assert(controller.appliedPreferences.count == 1 && session.updates == 1);
-    assert(([session.musicStates isEqual:@[@YES, @YES]]));
+    assert(([session.activeStates isEqual:@[@YES, @YES]]));
 
     // The second read finds the same revision: nothing is applied and the Engine is not disturbed.
     [controller reloadPreferences];
@@ -3980,7 +4195,7 @@ static void TestPreferenceRevisionSkipsUnchangedDocuments() {
     WaitForPreferenceCompletions(controller, 3);
     assert(controller.appliedPreferences.count == 2 && session.updates == 2);
     assert([controller.appliedPreferences[1][@"chinese_punctuation"] isEqual:@NO]);
-    assert(session.musicStates.count == 3);
+    assert(session.activeStates.count == 3 && !session.musicStates.count);
     [controller releaseBackgroundMusic];
 
     // A local edit invalidating what was applied - so a document rolled back to a revision this
@@ -4305,10 +4520,15 @@ static void TestModifierTaps() {
     session.cancelTransition = session.finishTransition;
     [controller setValue:@{@"editing_text":@"msime", @"caret_position":@5, @"candidates":@[]} forKey:@"view"];
     NSUInteger rawBefore = session.rawCommitCalls;
+    const NSUInteger tapKeys = session.keys.count;
     assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 3.0) client:client]);
     assert([controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 3.1) client:client]);
     assert(session.rawCommitCalls == rawBefore + 1);
     assert([client.committed isEqual:@"msime"] && prefs.englishMode);
+    // 单按修饰键是一次物理按下：原样上屏之前先按指针报告（不出按键音），这次派发才属于它自己的一轮。
+    assert(session.keys.count == tapKeys + 1 && [session.keys.lastObject isEqual:@(MSIME_KEY_POINTER)]);
+    const NSUInteger tapKey = [session.calls indexOfObject:[NSString stringWithFormat:@"key:%u", MSIME_KEY_POINTER]];
+    assert((tapKey != NSNotFound && [session.calls[tapKey + 1] isEqual:[NSString stringWithFormat:@"command:%u", MSIME_COMMIT_RAW]]));
 
     // Nothing composing, nothing to send out: the tap is only the mode switch.
     prefs.englishMode = NO;
@@ -4317,6 +4537,8 @@ static void TestModifierTaps() {
     assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 4.0) client:client]);
     assert([controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 4.1) client:client]);
     assert(session.rawCommitCalls == rawBefore && prefs.englishMode);
+    // 没有派发就不开一轮。
+    assert(session.keys.count == tapKeys + 1);
     session.rawTransition = nil;
     session.finishTransition = previousFinish;
     session.cancelTransition = previousCancel;
@@ -9209,6 +9431,8 @@ int main(int argc, char **argv) {
         // button must still be rejected, just like detached candidate buttons.
         MSIMECandidateButton *oldPageButton = next;
         [controller renderCandidates];
+        // 被拒绝的翻页点击不派发，也不报告 MSIME_KEY_POINTER：报告和派发的条件必须一致。
+        NSUInteger pageKeys = session.keys.count;
         session.lastCommand = UINT32_MAX;
         [controller changeCandidatePage:oldPageButton];
         assert(session.lastCommand == UINT32_MAX && oldPageButton.superview != layoutPanel.contentView);
@@ -9234,18 +9458,24 @@ int main(int argc, char **argv) {
             [controller changeCandidatePage:next];
             assert(session.lastCommand == UINT32_MAX);
         }
+        assert(session.keys.count == pageKeys);
         next.candidateID = pageIdentity;
         [controller setValue:[pageView copy] forKey:@"view"];
         pageView[@"page"] = @1;
         session.nextTransition = @{@"handled": @YES, @"commit": NSNull.null, @"view": [pageView copy]};
         client.committed = nil;
+        [controller setValue:@0 forKey:@"fieldTraits"];
         [next performClick:nil];
         assert(session.lastCommand == MSIME_NEXT_PAGE && client.committed == nil);
+        // 指针翻页同样先报告变了的字段属性和 MSIME_KEY_POINTER。
+        NSString *pageTraits = [NSString stringWithFormat:@"traits:%x", [[controller valueForKey:@"fieldTraits"] unsignedIntValue]];
+        assert(([[session.calls subarrayWithRange:NSMakeRange(session.calls.count - 3, 3)] isEqual:@[pageTraits, [NSString stringWithFormat:@"key:%u", MSIME_KEY_POINTER], [NSString stringWithFormat:@"command:%u", MSIME_NEXT_PAGE]]]));
         assert([client.marked isEqual:@"ceshi"]);
+        pageKeys = session.keys.count;
         // A previous page's retained button must not advance the current page.
         session.lastCommand = UINT32_MAX;
         [controller changeCandidatePage:next];
-        assert(session.lastCommand == UINT32_MAX);
+        assert(session.lastCommand == UINT32_MAX && session.keys.count == pageKeys);
         previous = (id)PageButton(layoutPanel.contentView, -1);
         next = (id)PageButton(layoutPanel.contentView, -2);
         assert(previous.enabled && next.enabled);
@@ -9253,6 +9483,29 @@ int main(int argc, char **argv) {
         session.nextTransition = @{@"handled": @YES, @"commit": NSNull.null, @"view": [pageView copy]};
         [previous performClick:nil];
         assert(session.lastCommand == MSIME_PREVIOUS_PAGE);
+        // 面板的 pageHandler（滚轮和触控板翻页）同样先报告 MSIME_KEY_POINTER 再派发。它只挂在控制器自己建的面板上，所以让控制器建一次面板把它取出来，再换回测试面板。
+        [controller setValue:[pageView copy] forKey:@"view"];
+        [controller setValue:nil forKey:@"panel"];
+        [controller renderCandidates];
+        MSIMECandidatePanel *ownPanel = [controller valueForKey:@"panel"];
+        void (^pageHandler)(BOOL) = ownPanel.pageHandler;
+        [ownPanel orderOut:nil];
+        [controller setValue:layoutPanel forKey:@"panel"];
+        assert(pageHandler && ownPanel != layoutPanel);
+        NSMutableDictionary *secondPage = [pageView mutableCopy];
+        secondPage[@"page"] = @1;
+        session.nextTransition = @{@"handled": @YES, @"commit": NSNull.null, @"view": [secondPage copy]};
+        session.lastCommand = UINT32_MAX;
+        pageHandler(NO);
+        assert(session.lastCommand == MSIME_NEXT_PAGE);
+        assert(([[session.calls subarrayWithRange:NSMakeRange(session.calls.count - 2, 2)] isEqual:@[[NSString stringWithFormat:@"key:%u", MSIME_KEY_POINTER], [NSString stringWithFormat:@"command:%u", MSIME_NEXT_PAGE]]]));
+        // 面板不可见时它什么都不做，也不报告。
+        pageKeys = session.keys.count;
+        layoutPanel.requestedVisible = NO;
+        session.lastCommand = UINT32_MAX;
+        pageHandler(NO);
+        assert(session.lastCommand == UINT32_MAX && session.keys.count == pageKeys);
+        layoutPanel.requestedVisible = YES;
         for (NSString *changed in @[@"session", @"generation", @"focused"]) {
             [controller setValue:[pageView copy] forKey:@"view"];
             [controller renderCandidates];
@@ -9276,6 +9529,7 @@ int main(int argc, char **argv) {
         [layoutPanel orderOut:nil];
         [controller changeCandidatePage:previous];
         assert(session.lastCommand == UINT32_MAX);
+        assert(session.keys.count == pageKeys);
         pageView[@"page"] = @0;
         pageView[@"page_count"] = @1;
         // The candidate preedit uses Engine display text, independent of candidate font.
@@ -9548,6 +9802,8 @@ int main(int argc, char **argv) {
             [NSApp sendAction:operation.action to:operation.target from:operation];
             assert(session.maintenanceCalls == calls + 1 && session.maintenanceAction == operation.tag);
             assert(session.selectedGeneration == 2 && session.selectedIndex == 1);
+            // 右键菜单的每一项和点选一样先报告 MSIME_KEY_POINTER 开新的一轮，再派发。
+            assert(([[session.calls subarrayWithRange:NSMakeRange(session.calls.count - 2, 2)] isEqual:@[[NSString stringWithFormat:@"key:%u", MSIME_KEY_POINTER], @"maintenance"]]));
         }
         // 置顶 is one of the operations above, so the loop leaves 布局 pinned. That reorders every later
         // render in this function - including the external-skin block, which reads the first button as the
@@ -9562,6 +9818,14 @@ int main(int argc, char **argv) {
         NSMenuItem *retainedOperation = [candidateMenu itemAtIndex:0];
         NSDictionary *validContext = retainedOperation.representedObject;
         NSUInteger maintenanceCalls = session.maintenanceCalls;
+        // 被拒绝的菜单操作不派发，也不报告。
+        const NSUInteger menuKeys = session.keys.count;
+        const NSInteger validTag = retainedOperation.tag;
+        for (NSInteger unknownTag : {-1, 3, 10, 16}) {
+            retainedOperation.tag = unknownTag;
+            [controller candidateMenuAction:retainedOperation];
+        }
+        retainedOperation.tag = validTag;
         retainedOperation.enabled = NO;
         [controller candidateMenuAction:retainedOperation];
         retainedOperation.enabled = YES;
@@ -9582,15 +9846,21 @@ int main(int argc, char **argv) {
             [controller candidateMenuAction:retainedOperation];
         }
         retainedOperation.representedObject = validContext;
-        assert(session.maintenanceCalls == maintenanceCalls);
+        assert(session.maintenanceCalls == maintenanceCalls && session.keys.count == menuKeys);
         for (NSString *text in @[@"中", @"𠀀", @"测试"]) {
             NSMenu *menu = [controller menuForCandidate:@{@"id":clickCandidate.candidateID, @"text":text}];
             assert(menu.numberOfItems == ([text isEqual:@"测试"] ? 3 : 2));
         }
         NSDictionary *validClickID = clickCandidate.candidateID;
         NSUInteger selectedCalls = session.selectCalls;
+        // 让上次报告的字段属性作废：指针点选和按键一样，先比较属性、变了先报告。
+        [controller setValue:@0 forKey:@"fieldTraits"];
         [controller selectCandidate:clickCandidate];
         assert(session.selectCalls == selectedCalls + 1 && session.selectedGeneration == 2 && session.selectedIndex == 1);
+        // 指针点选先报告属性和一次 MSIME_KEY_POINTER 开新的一轮，再派发；被拒绝的点选什么都不报告。
+        NSString *clickTraits = [NSString stringWithFormat:@"traits:%x", [[controller valueForKey:@"fieldTraits"] unsignedIntValue]];
+        assert(([[session.calls subarrayWithRange:NSMakeRange(session.calls.count - 3, 3)] isEqual:@[clickTraits, [NSString stringWithFormat:@"key:%u", MSIME_KEY_POINTER], @"select"]]));
+        const NSUInteger pointerKeys = session.keys.count;
         for (NSString *field in @[@"session", @"generation", @"index"]) {
             for (id invalid in @[@(-1), @YES, @1.5, @"1", NSNull.null, @"missing"]) {
                 NSMutableDictionary *bad = [validClickID mutableCopy];
@@ -9613,6 +9883,7 @@ int main(int argc, char **argv) {
         layoutPanel.requestedVisible = NO;
         [controller selectCandidate:clickCandidate];
         assert(session.selectCalls == selectedCalls + 1);
+        assert(session.keys.count == pointerKeys);
         layoutPanel.requestedVisible = YES;
         clickCandidate.enabled = NO;
         [controller selectCandidate:clickCandidate];
@@ -10368,6 +10639,9 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestStaleClientDeactivation(); }
         @autoreleasepool { TestStaleDeactivationLeavesTheCurrentPairOpen(); }
         @autoreleasepool { TestSoundsFollowKeysCommitsAndActivation(); }
+        @autoreleasepool { TestTheKeyThatOpensTheSessionIsReportedBeforeItsDispatch(); }
+        @autoreleasepool { TestCommitCompositionFinishesAsAFocusLoss(); }
+        @autoreleasepool { TestFieldTraitsAreConfirmedBeforeEveryFocusIn(); }
         @autoreleasepool { TestMusicIsClaimedOnceTheSessionOpens(); }
         @autoreleasepool { TestPreferenceClientGeneration(); }
         @autoreleasepool { TestPreferenceReadDoesNotDeallocControllerOffMain(); }

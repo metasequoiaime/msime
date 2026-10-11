@@ -179,9 +179,11 @@ pub(super) fn request(root: &Path, id: &str, hash: &str) {
 /// 淘汰 `root` 登记的、授权里已经不再启用的模块，免得反复更新的包让旧版本一直占着总账。还在编译的不动：编译完发现条目已经不在就丢掉结果。会话手上已有的克隆照样能用到它下一次重读授权。
 pub(super) fn retain(root: &Path, hashes: &[&str]) {
     lock(&CACHE).retain(|hash, cached| {
+        let live_clone = matches!(&cached.slot, Slot::Ready(module) if module.is_shared());
         let keep = cached.root != root
             || matches!(cached.slot, Slot::Pending)
-            || hashes.contains(&hash.as_str());
+            || hashes.contains(&hash.as_str())
+            || live_clone;
         if !keep {
             BYTECODE_BYTES.fetch_sub(cached.bytecode, Ordering::AcqRel);
         }
@@ -557,5 +559,56 @@ pub(super) fn flush_health(root: &Path, file: &Path) {
             path: file.to_owned(),
             bytes,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use msime_script_runtime::{compile_text, Declaration, Hook, HookSet};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn retaining_a_cache_entry_with_live_clones_keeps_its_memory_charge() {
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let root = PathBuf::from(format!("/script-cache-test-{id}"));
+        let hash = format!("cache-test-{id}");
+        let module = compile_text(
+            r#"(module
+                (memory (export "memory") 1)
+                (func (export "msime_abi") (result i32) i32.const 1)
+                (func (export "msime_on_event") (param i32) (result i32) i32.const 0))"#,
+            Declaration {
+                capabilities: Default::default(),
+                hooks: HookSet::EMPTY.with(Hook::Commit),
+                memory_pages: 1,
+            },
+        )
+        .expect("test module compiles");
+        let charged = 123usize;
+        let before = BYTECODE_BYTES.fetch_add(charged, Ordering::AcqRel);
+        lock(&CACHE).insert(
+            hash.clone(),
+            Cached {
+                root: root.clone(),
+                slot: Slot::Ready(module),
+                bytecode: charged,
+            },
+        );
+
+        let live_clone = match lookup(&hash) {
+            Lookup::Ready(module) => module,
+            _ => panic!("cache entry was not ready"),
+        };
+        retain(&root, &[]);
+        assert_eq!(BYTECODE_BYTES.load(Ordering::Acquire), before + charged);
+        assert!(matches!(lookup(&hash), Lookup::Ready(_)));
+
+        drop(live_clone);
+        retain(&root, &[]);
+        assert_eq!(BYTECODE_BYTES.load(Ordering::Acquire), before);
+        assert!(matches!(lookup(&hash), Lookup::Waiting));
     }
 }

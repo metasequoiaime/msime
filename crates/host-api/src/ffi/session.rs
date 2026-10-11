@@ -206,6 +206,13 @@ pub extern "C" fn msime_client_reset_cache(handle: u64) -> *mut c_char {
     dispatch(handle, Action::ResetCache)
 }
 
+/// Releases process-level model caches without requiring a live session handle. This is for host
+/// memory-pressure callbacks after an input session has already been destroyed.
+#[no_mangle]
+pub extern "C" fn msime_client_release_process_cache() {
+    release_japanese_dictionary_cache();
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_voice_start(handle: u64) -> *mut c_char {
     response(|| {

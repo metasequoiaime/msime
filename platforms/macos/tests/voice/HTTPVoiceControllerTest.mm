@@ -53,6 +53,8 @@
 - (BOOL)setCapsLockEnabled:(BOOL)enabled error:(NSError **)error { (void)enabled; (void)error; return YES; }
 // 换客户端获得焦点后控制器会读一次打字特效设置（429ce0d01）；这个夹具没有特效可给。
 - (NSDictionary *)typingEffectSettingsWithError:(NSError **)error { (void)error; return nil; }
+// 换客户端聚焦之前控制器不论属性变没变都报告一次字段属性；这个夹具没有选择加入生命周期核心，按库的约定答 0。
+- (uint32_t)setFieldTraits:(uint32_t)traits { (void)traits; return 0; }
 - (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error {
     (void)error; assert(NSThread.isMainThread && generation == 42 && [text isEqual:@"synthetic"]);
     ++self.submissions; return @{@"commit": text};

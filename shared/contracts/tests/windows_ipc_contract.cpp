@@ -78,6 +78,55 @@ int main()
     CHECK(gameOldClient.accepted);
     CHECK((gameOldClient.capabilities & FanyImeProtocol::GameHostCandidate) == 0);
 
+    // FieldTraits 同样是可选能力，事件号 17 紧接着 PairedPunctuationAutoClosed，不和已有的 Main 事件撞号。
+    static_assert((FanyImeProtocol::Capabilities & FanyImeProtocol::FieldTraits) == 0);
+    static_assert((FanyImeProtocol::RequiredCapabilities & FanyImeProtocol::FieldTraits) == 0);
+    static_assert((FanyImeProtocol::FieldTraits &
+                   (FanyImeProtocol::RequestIds | FanyImeProtocol::FocusEpochs | FanyImeProtocol::FramedVoice |
+                    FanyImeProtocol::CharacterSetShortcut | FanyImeProtocol::KeyboardCompositionCancel |
+                    FanyImeProtocol::GameHostCandidate)) == 0);
+    static_assert(FanyImePipeEventType::FieldTraits == 17);
+    for (const auto taken :
+         {FanyImePipeEventType::KeyEvent, FanyImePipeEventType::HideCandidateWnd,
+          FanyImePipeEventType::ShowCandidateWnd, FanyImePipeEventType::MoveCandidateWnd,
+          FanyImePipeEventType::LangbarRightClick, FanyImePipeEventType::IMESwitch, FanyImePipeEventType::PuncSwitch,
+          FanyImePipeEventType::DoubleSingleByteSwitch, FanyImePipeEventType::ClientHello,
+          FanyImePipeEventType::ClientActivated, FanyImePipeEventType::ClientDeactivated,
+          FanyImePipeEventType::StatusSnapshot, FanyImePipeEventType::ClientSuspended,
+          FanyImePipeEventType::FocusRestored, FanyImePipeEventType::PairedPunctuationAutoClosed})
+        CHECK(taken != FanyImePipeEventType::FieldTraits);
+    // 三种组合：新 TIP 配旧 Server、旧 TIP 配新 Server 都协商不到，TIP 不发，Server 的属性保持未知；只有双方都宣告时才发。
+    const auto traitsCapabilities = FanyImeProtocol::Capabilities | FanyImeProtocol::FieldTraits;
+    const auto traitsHello = FanyImeProtocol::Hello(7, 22, traitsCapabilities);
+    const auto traitsOldServer = FanyImeProtocol::Negotiate(traitsHello);
+    CHECK(traitsOldServer.accepted);
+    CHECK((traitsOldServer.capabilities & FanyImeProtocol::FieldTraits) == 0);
+    CHECK((FanyImeProtocol::ReplyCapabilities(FanyImeProtocol::Reply(traitsHello, traitsOldServer)) &
+           FanyImeProtocol::FieldTraits) == 0);
+    const auto traitsNewServer = FanyImeProtocol::Negotiate(traitsHello, traitsCapabilities);
+    CHECK(traitsNewServer.accepted);
+    const auto traitsReply = FanyImeProtocol::Reply(traitsHello, traitsNewServer);
+    CHECK(FanyImeProtocol::AcceptReply(traitsReply, 22));
+    CHECK((FanyImeProtocol::ReplyCapabilities(traitsReply) & FanyImeProtocol::FieldTraits) != 0);
+    const auto traitsOldClient = FanyImeProtocol::Negotiate(hello, traitsCapabilities);
+    CHECK(traitsOldClient.accepted);
+    CHECK((traitsOldClient.capabilities & FanyImeProtocol::FieldTraits) == 0);
+    // 载荷：停用的键盘、空上下文和安全桌面都是 SECURE，提权进程是 ELEVATED，别的位从不出现。
+    static_assert(FanyImeFieldTraits::Reported == (FanyImeFieldTraits::Secure | FanyImeFieldTraits::Elevated));
+    CHECK(FanyImeFieldTraits::Observe(false, false, false) == 0u);
+    CHECK(FanyImeFieldTraits::Observe(true, false, false) == FanyImeFieldTraits::Secure);
+    CHECK(FanyImeFieldTraits::Observe(false, true, false) == FanyImeFieldTraits::Secure);
+    CHECK(FanyImeFieldTraits::Observe(false, false, true) == FanyImeFieldTraits::Elevated);
+    CHECK(FanyImeFieldTraits::Observe(true, true, true) == FanyImeFieldTraits::Reported);
+    for (unsigned flags = 0; flags < 8; ++flags)
+        CHECK((FanyImeFieldTraits::Observe((flags & 1u) != 0, (flags & 2u) != 0, (flags & 4u) != 0) &
+               ~FanyImeFieldTraits::Reported) == 0);
+    // 查不出令牌时当作提权：提权窗口里不运行脚本靠的就是这一位，ELEVATED 又不让声音静音，多报没有代价。
+    static_assert(FanyImeFieldTraits::ProcessElevated(true, true));
+    static_assert(!FanyImeFieldTraits::ProcessElevated(true, false));
+    static_assert(FanyImeFieldTraits::ProcessElevated(false, false));
+    static_assert(FanyImeFieldTraits::ProcessElevated(false, true));
+
     hello.wch += 1;
     result = FanyImeProtocol::Negotiate(hello);
     CHECK(!result.accepted);

@@ -31,7 +31,8 @@ int main() {
     require(!valid_main_frame(packet, 43));
     require(!valid_main_frame(packet, 0));
   }
-  for (auto event : {LangbarRightClick, 5u, 6u, 17u, UINT32_MAX}) {
+  // 17 是 FieldTraits，旧 Server 走到这里的 default 拒绝它，所以 TIP 只在协商到能力位之后才发。
+  for (auto event : {LangbarRightClick, 5u, 6u, 18u, UINT32_MAX}) {
     packet.event_type = event;
     require(!valid_main_frame(packet, 42));
   }
@@ -96,6 +97,20 @@ int main() {
   require(!valid_main_frame(packet, 0));
   // Only the book title nests, so any other opening is a malformed notification.
   for (uint32_t keycode : {0u, uint32_t('('), uint32_t('>'), uint32_t(u'《')}) {
+    packet.keycode = keycode;
+    require(!valid_main_frame(packet, 42));
+  }
+  // FieldTraits 只带 TIP 会报的 SECURE 和 ELEVATED；别的位（包括核心的 KNOWN、FULLSCREEN）是 Server 自己加的，出现在帧里就是非法帧。
+  packet = {};
+  packet.client_id = 42;
+  packet.event_type = FieldTraits;
+  for (uint32_t keycode : {0u, FanyImeFieldTraits::Secure, FanyImeFieldTraits::Elevated,
+                           FanyImeFieldTraits::Reported}) {
+    packet.keycode = keycode;
+    require(valid_main_frame(packet, 42));
+    require(!valid_main_frame(packet, 43));
+  }
+  for (uint32_t keycode : {0x02u, 0x08u, 0x80000000u, FanyImeFieldTraits::Reported | 0x10u}) {
     packet.keycode = keycode;
     require(!valid_main_frame(packet, 42));
   }

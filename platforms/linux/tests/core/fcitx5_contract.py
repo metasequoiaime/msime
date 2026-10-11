@@ -155,36 +155,136 @@ for name in emitted:
     if name != "none":
         assert f'{{"{name}", "' in labels, name
 # Plugin input modes and sounds are wired the same way in both hosts. A key the local mode or the scheme spells with (View.spelling_symbols) is sent to the Engine before any host binding, digits gate on the listed symbols rather than on a mode name, generated commits stay out of typing statistics, and sounds only post requests to the Host API.
+# 声音、打字特效和背景音乐由生命周期核心驱动（MSIME_LIFECYCLE_FEEDBACK）：两个宿主不再调旧的 key_sound、commit_sound、typing_effect 和 music_set_active，它们在 FEEDBACK 下是空操作，留着就是一个永远不响的调用。
 for host_source in (source, ibus_source):
     assert "msime::linux_host::engine_spelling(" in host_source
     assert "msime::linux_host::spelling_space(" in host_source
     assert "msime::linux_host::spelling_digits(" in host_source
     assert 'context.value("typing_statistics", true)' in host_source
-    assert "msime_client_key_sound(" in host_source
-    assert "msime_client_commit_sound(" in host_source
-    assert "msime_client_music_set_active" in host_source
+    assert "msime_client_set_lifecycle(" in host_source
+    assert "MSIME_LIFECYCLE_FEEDBACK" in host_source
+    assert "msime_client_key(" in host_source
+    assert "msime_client_set_field_traits" in host_source
+    assert "msime_client_set_active" in host_source
+    for retired in (
+        "msime_client_key_sound(",
+        "msime_client_commit_sound(",
+        "msime_client_music_set_active",
+        "msime_client_typing_effect(",
+    ):
+        assert retired not in host_source, retired
     assert "local_mode_enabled_by_default(" in host_source
     for mode in ('"expression"', '"command"', '"mention"'):
         assert mode in host_source, mode
 assert "const bool unicodeMode" not in source
 assert "unicode_digit" not in ibus_source
-# The key sound is asked for from the key event, after ensure(): never for a restricted or private context, and the session must be released (music told to stop) before it is destroyed.
+# 会话销毁之前先释放（告诉核心本会话停用，音乐随之停下）。
 assert source.index("music_.release(session_") < source.index(
     "msime_client_destroy(session_)"
 )
-assert "state->playKeySound(event);" in source
-assert "play_key_sound(engine, key, flags);" in ibus_source
-# The typing effect is asked for at the same two points as the sounds, and Linux shows only its combo count: IBus at the end of the candidate aux line, Fcitx5 in the aux line below the page, never in setAuxUp, which the voice, emoji search and configuration notices own.
-for host in (source, ibus_source):
-    assert host.count("msime_client_typing_effect(") == 2
-    assert "kTypingEffectCommit" in host and "kTypingEffectRepeat" in host
-    assert "typing_combo_label(" in host
-assert ibus_source.index(
-    "msime_client_key_sound(s.session, key_class)"
-) < ibus_source.index("kTypingEffectRepeat")
-assert source.index("msime_client_key_sound(session_, keyClass)") < source.index(
-    "kTypingEffectRepeat"
+
+
+def body(text, signature):
+    """返回从 signature 开始、到与它配对的右花括号为止的函数体。"""
+    start = text.index(signature)
+    depth = 0
+    for position in range(text.index("{", start), len(text)):
+        if text[position] == "{":
+            depth += 1
+        elif text[position] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : position + 1]
+    raise AssertionError(signature)
+
+
+# 每个会话一建好就选择加入 FEEDBACK 并报告字段属性，排在任何一个键之前。
+for host, create, opt_in, report in (
+    (source, "msime_client_create(", "msime_client_set_lifecycle(session_, MSIME_LIFECYCLE_FEEDBACK);", "syncFieldTraits();"),
+    (ibus_source, "msime_client_create(", "msime_client_set_lifecycle(session, MSIME_LIFECYCLE_FEEDBACK);", "report_field_traits();"),
+):
+    created = host.index(create)
+    assert created < host.index(opt_in) < host.index(report, host.index(opt_in))
+    assert host.count("msime_client_set_lifecycle(") == 1
+# 顺序契约：msime_client_key 在引擎处理这个键之前，按键音因此排在这个键带来的上屏音前面；字段属性在 msime_client_key 之前比较和报告。IBus 原来在 process_key 之后才出按键音，上屏音反而先响。
+key_event = body(source, "void keyEvent(const fcitx::InputMethodEntry &, fcitx::KeyEvent &event) override")
+assert key_event.index("state->countKeyPress(event);") < key_event.index("state->keyDown(event);")
+assert key_event.index("state->keyDown(event);") < key_event.index("state->key(event)")
+assert key_event.index("state->key(event)") < key_event.index("state->keySettled(comboBefore);")
+ibus_key_event = body(ibus_source, "gboolean process_key_and_count(")
+assert ibus_key_event.index("key_down(engine, key, flags);") < ibus_key_event.index(
+    "process_key(engine, key, keycode, flags)"
 )
+assert ibus_key_event.index("process_key(engine, key, keycode, flags)") < ibus_key_event.index(
+    "key_settled(engine, combo_before);"
+)
+for key_down in (body(source, "void keyDown(const fcitx::KeyEvent &event)"), body(ibus_source, "void key_down(IBusEngine *engine, guint key, guint flags)")):
+    traits = "syncFieldTraits();" if "syncFieldTraits" in key_down else "s.report_field_traits();"
+    assert key_down.index(traits) < key_down.index("msime_client_key(")
+    # 自动重复照旧出声（设计待决问题 Q3），只是带上 MSIME_KEY_REPEAT。
+    assert "lifecycle_key(msime::linux_host::key_sound_class(" in key_down
+    assert "key_press_sounds(" in key_down
+    # 隐私字段不由宿主拦着：核心按字段属性决定静音，这样只带 NoSpellCheck 的字段才能照常出声。
+    assert "privateInput()" not in key_down and "private_input" not in key_down
+# 字段属性逐个标志映射，不复用 privateInput() / private_input 那个把隐私和不做拼写检查并在一起的布尔值。
+fcitx_traits = body(source, "std::uint32_t fieldTraits() const")
+assert "flags.test(fcitx::CapabilityFlag::Sensitive)" in fcitx_traits
+assert "flags.test(fcitx::CapabilityFlag::NoSpellCheck)" in fcitx_traits
+assert "privateInput()" not in fcitx_traits
+assert "field_traits_.sync(session_, fieldTraits(), msime_client_set_field_traits);" in body(source, "void syncFieldTraits()")
+ibus_traits = body(ibus_source, "uint32_t current_field_traits() const")
+assert "(content_hints & IBUS_INPUT_HINT_PRIVATE) != 0" in ibus_traits
+assert "(content_hints & IBUS_INPUT_HINT_NO_SPELLCHECK) != 0" in ibus_traits
+assert "private_input" not in ibus_traits
+assert "field_traits.sync(session, current_field_traits(), msime_client_set_field_traits);" in body(ibus_source, "void report_field_traits()")
+# 每次 msime_client_focus(true) 之前都不经去重报告一次字段属性：脚本运行时在每次获得焦点之后要先看到属性确认（focus 之前的一次 set_field_traits，值相同也算）才往脚本投递事件。两个宿主各只有一处调用 msime_client_focus，就在这个辅助函数里，排在 confirm 之后。
+for host, helper, confirm in (
+    (source, "char *focusSession(bool focused)", "if (focused) field_traits_.confirm(session_, fieldTraits(), msime_client_set_field_traits);"),
+    (ibus_source, "char *focus_session(bool focused)", "field_traits.confirm(session, current_field_traits(), msime_client_set_field_traits);"),
+):
+    assert host.count("msime_client_focus(") == 1
+    focus = body(host, helper)
+    assert focus.index(confirm) < focus.index("msime_client_focus(")
+lifecycle_header = (root / "src/system/LifecycleFeedback.h").read_text()
+assert "MSIME_TRAIT_KNOWN | (private_field ? MSIME_TRAIT_SECURE | MSIME_TRAIT_PRIVATE : 0u) |" in lifecycle_header
+assert "(no_spellcheck ? MSIME_TRAIT_NO_SPELLCHECK : 0u)" in lifecycle_header
+# 输入框属性变了但会话不重建（隐私与不做拼写检查之间的切换）时也立刻报告，音乐不等下一个键。
+ibus_content_type = body(ibus_source, "void content_type(IBusEngine *engine, guint purpose, guint hints)")
+assert "s.content_hints = hints;" in ibus_content_type
+unchanged = ibus_content_type.index("if (blocked == s.blocked && private_input == s.private_input) {")
+assert unchanged < ibus_content_type.index("s.report_field_traits();", unchanged) < ibus_content_type.index("return;", unchanged) < ibus_content_type.index("s.close();")
+assert "state->syncFieldTraits();" in source[source.index("InputContextCapabilityChanged") :]
+# IBus 的会话由 process_key 惰性创建：key_down 在判断会话之前先打开它（同 Fcitx5 在 keyDown 之前跑的 ensure()），词库维护或出错关掉会话后的第一个键才有按键音，它的派发也才属于它自己这一轮。
+ibus_key_down = body(ibus_source, "void key_down(IBusEngine *engine, guint key, guint flags)")
+assert ibus_key_down.index("key_press_sounds(") < ibus_key_down.index("s.open();") < ibus_key_down.index("if (!s.session ||") < ibus_key_down.index("msime_client_key(")
+# 设置里的声音（plugins）变了而本会话正激活着时，两个宿主都再声明一次激活：set_active 对选择加入的会话总是返回 true，MusicActivity 不会重试，不重新声明的话刚打开的背景音乐要等下一次换焦点才响。
+ibus_live = body(ibus_source, "void apply_live_preferences(IBusEngine *engine, Json snapshot) {")
+ibus_plugins = ibus_live.index('value("plugins", Json(nullptr)) !=')
+assert ibus_live.index("s.music.told()") < ibus_plugins < ibus_live.index("msime_client_set_active(s.session, true);", ibus_plugins)
+fcitx_plugins = source.index('preferences_.value("plugins", Json(nullptr)) !=')
+assert source.rindex("music_.told()", 0, fcitx_plugins) > fcitx_plugins - 200
+assert fcitx_plugins < source.index("msime_client_set_active(session_, true);", fcitx_plugins) < fcitx_plugins + 300
+# 背景音乐只说激活与否，SECURE 由核心按字段属性处理。
+for music in (body(source, "void syncMusic()"), body(ibus_source, "void sync_music(IBusEngine *engine)")):
+    assert "msime_client_set_active" in music
+    assert "privateInput()" not in music and "private_input" not in music
+# 上屏音不再由宿主出，连击数取自派发回复的 feedback（解析器容忍并读取这个新键）。
+for host in (source, ibus_source):
+    assert host.count("reply_typing_effect(result)") == 1
+    assert "typing_combo_label(" in host
+# 指针点选和翻页先开启新的一轮（MSIME_KEY_POINTER）。
+assert "msime_client_key(session_, MSIME_KEY_POINTER);" in source
+assert "state->pointerTurn();" in body(source, "void select(fcitx::InputContext *ic) const override")
+assert "state->pointerTurn();" in body(source, "void move(uint32_t command)")
+assert "msime_client_key(s.session, MSIME_KEY_POINTER);" in ibus_source
+assert "pointer_turn(engine);" in body(ibus_source, "void candidate_clicked(IBusEngine *engine, guint index, guint button,")
+assert ibus_source.count("pointer_turn(e);") == 4
+# 托盘菜单「候选翻页」的上一页、下一页走 property_activate 再调 page()，同样是指针翻页。
+menu_paging = ibus_source.index('if (candidate_name == "CandidatePreviousPage" ||')
+assert menu_paging < ibus_source.index("pointer_turn(engine);", menu_paging) < ibus_source.index("page(engine, candidate_name == \"CandidatePreviousPage\"", menu_paging)
+# 宿主自己写入译文后丢弃组字用命令 19，生命周期核心把组字的结束记成 HostCommit 而不是取消。
+assert source.count("command(MSIME_CANCEL_AFTER_HOST_COMMIT);") == 2
+assert ibus_source.count("msime_client_command(s.session, MSIME_CANCEL_AFTER_HOST_COMMIT)") == 2
 assert "setAuxDown(fcitx::Text(candidateAux()))" in source
 assert "setAuxUp(fcitx::Text(candidateAux()))" not in source
 # /fy's translation goes to the selected service whatever the gloss switches say, and never to an offline gloss.

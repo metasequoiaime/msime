@@ -1,0 +1,4 @@
+/target/
+/Cargo.lock
+# 仓库不提交编译出来的模块。
+*.wasm

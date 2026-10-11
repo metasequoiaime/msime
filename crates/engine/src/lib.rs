@@ -100,3 +100,10 @@ pub fn preload_japanese_dictionary(path: &std::path::Path, bytes: Box<[u8]>) -> 
 pub fn unload_japanese_dictionary(path: &std::path::Path) {
     japanese::decoder::JapaneseDictionary::unload(path);
 }
+
+/// Releases the process-level Japanese model cache while sessions that still use a model keep it
+/// alive. Mobile hosts call this from their memory-pressure callback when there is no session
+/// handle to pass to `Session::reset_cache`.
+pub fn release_japanese_dictionary_cache() {
+    japanese::decoder::JapaneseDictionary::release_shared();
+}

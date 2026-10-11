@@ -1550,6 +1550,36 @@ public final class MSIMEInputService extends InputMethodService {
         renderLayoutSettingsState();
         render();
     }
+
+    @Override public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (!AndroidMemoryPolicy.shouldReleaseProcessCache(level)) return;
+        try {
+            if (session != 0) {
+                // A live session owns its provider until destroy; reset its Engine caches as well
+                // as dropping the process-level pin, matching the iOS memory-warning boundary.
+                apply(NativeClient.resetCache(session));
+            }
+        } catch (JSONException | RuntimeException | LinkageError ignored) {
+            // Memory callbacks must never break the IME; the process cache is still released below.
+        } finally {
+            try { NativeClient.releaseProcessCache(); }
+            catch (RuntimeException | LinkageError ignored) { }
+        }
+    }
+
+    @Override public void onLowMemory() {
+        super.onLowMemory();
+        try {
+            if (session != 0) apply(NativeClient.resetCache(session));
+        } catch (JSONException | RuntimeException | LinkageError ignored) {
+            // Memory callbacks must never break the IME; the process cache is still released below.
+        } finally {
+            try { NativeClient.releaseProcessCache(); }
+            catch (RuntimeException | LinkageError ignored) { }
+        }
+    }
+
     @Override public void onDestroy() {
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
         if (clipboard != null) clipboard.removePrimaryClipChangedListener(clipboardWatcher);

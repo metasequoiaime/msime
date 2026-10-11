@@ -59,7 +59,7 @@ public:
 
 private:
   static constexpr uint32_t tier_up_bit = 0x10000u;
-  // 还没被界面线程取走的新档位和上屏标记会带到下一个值上，和 macOS 的 typingEffect:commit: 合并未画的那一下一样：上屏后紧接着的一个键不会吞掉上屏加倍的火花。
+  // 还没被界面线程取走的新档位和上屏标记会带到下一个值上，和 macOS 的 `drawTypingEffect:commit:`（接入生命周期核心前叫 `typingEffect:commit:`）合并未画的那一下一样：上屏后紧接着的一个键不会吞掉上屏加倍的火花。
   static constexpr uint32_t carried_bits = tier_up_bit | typing_effect_commit_mark;
   // Marks a published value, so a published 0 is told apart from nothing waiting. The answer never uses bit 31.
   static constexpr uint32_t waiting_bit = 0x80000000u;

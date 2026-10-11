@@ -270,6 +270,21 @@ export function localPreferenceRevision(document: Document): number | null {
     : null;
 }
 
+/**
+ * 把应用后的偏好放回本地快照，交给 `client.savePreferences`。
+ *
+ * 那个接口要的是整份快照 `{format_version, revision, preferences}`，不是只有里面那层偏好：只传偏好会被它当成格式不对的快照拒掉，「下载并应用云端设置」从写出来起就因此一直报存储失败。快照的其余字段原样保留。
+ */
+export function snapshotWithPreferences(
+  local: Record<string, Object>,
+  preferences: Record<string, Object>,
+): string {
+  const snapshot: Record<string, Object> = {};
+  for (const key of Object.keys(local)) snapshot[key] = local[key];
+  snapshot["preferences"] = preferences;
+  return JSON.stringify(snapshot);
+}
+
 /** 本地偏好文档必须带有真正的对象，否则不能交给偏好映射器读取。 */
 export function validLocalPreferenceDocument(value: unknown): value is Document {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;

@@ -265,10 +265,11 @@ else()
 endif()
 add_test(NAME windows-edit-policy COMMAND windows-edit-policy)
 set_tests_properties(windows-edit-policy PROPERTIES TIMEOUT 10)
-# Which keys the Server sounds, and as which class: a key the input method took, never a shortcut chord or a bare modifier.
+# Server 让哪些键出声、按哪一类：输入法接手的键，从不是快捷键组合或单独的修饰键。还有交给生命周期核心的按键值、字段属性和上屏特效（LifecyclePolicy.h）。
 add_executable(windows-key-sound-policy tests/input/key_sound_policy.cpp)
 target_include_directories(windows-key-sound-policy PRIVATE src/input common
-                           ../../shared/contracts)
+                           ../../shared/contracts ../../crates/host-api/include)
+target_link_libraries(windows-key-sound-policy PRIVATE nlohmann_json::nlohmann_json)
 if(MSVC)
   target_compile_options(windows-key-sound-policy PRIVATE /W4 /WX /utf-8)
 else()
@@ -1165,6 +1166,19 @@ add_executable(windows-input-queue tests/input/input_queue.cpp)
 target_link_libraries(windows-input-queue PRIVATE msime-windows-input)
 add_test(NAME windows-input-queue COMMAND windows-input-queue)
 set_tests_properties(windows-input-queue PROPERTIES TIMEOUT 30)
+# 接入生命周期核心后宿主库的调用顺序：测试自己实现 Server 用到的 msime_client_* 并逐条记录，所以直接编 Server 的源文件（含 InputState，核对字段属性记在客户端上），不链共享宿主库。
+add_executable(windows-lifecycle-call-order tests/input/lifecycle_call_order.cpp src/input/FocusedSession.cpp
+               src/input/InputQueue.cpp src/ipc/ServerSession.cpp src/ipc/ReplyComposer.cpp
+               src/input/ChineseTextConversion.cpp)
+target_include_directories(windows-lifecycle-call-order PRIVATE src ../../crates/host-api/include ../../shared/contracts)
+target_link_libraries(windows-lifecycle-call-order PRIVATE msime-windows-replies nlohmann_json::nlohmann_json Threads::Threads)
+if(MSVC)
+  target_compile_options(windows-lifecycle-call-order PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-lifecycle-call-order PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-lifecycle-call-order COMMAND windows-lifecycle-call-order)
+set_tests_properties(windows-lifecycle-call-order PROPERTIES TIMEOUT 10)
 add_executable(windows-tsf-config-frames tests/runtime/tsf_config_frames.cpp)
 target_link_libraries(windows-tsf-config-frames PRIVATE msime-windows-replies)
 if(MSVC)

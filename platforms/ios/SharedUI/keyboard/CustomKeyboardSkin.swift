@@ -103,9 +103,14 @@ enum CustomKeyboardSkinStore {
   static var stored: CustomKeyboardSkin? {
     KeyboardFeedbackPreference.defaults.data(forKey: key) == nil ? nil : cache.load()
   }
+  /// 保存当前设计；内容变了时记一次设置改动，云同步下一轮上传。把共享文档里的设计抄过来（`GlobalThemePreference.mirror`）不是用户的改动，它在 `CloudSyncState.suppressingMarks` 里调用。
   static func save(_ skin: CustomKeyboardSkin) {
-    guard let data = try? JSONEncoder().encode(skin.normalized) else { return }
+    let skin = skin.normalized
+    guard let data = try? JSONEncoder().encode(skin) else { return }
+    // Compared as designs, not bytes: the encoding of the same design is not byte-stable.
+    let changed = stored != skin
     KeyboardFeedbackPreference.defaults.set(data, forKey: key)
+    if changed { CloudSyncState.shared.markDirty(.settings) }
   }
 
   private final class Cache: @unchecked Sendable {

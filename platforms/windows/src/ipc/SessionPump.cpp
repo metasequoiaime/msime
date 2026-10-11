@@ -78,6 +78,15 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
         packet->modifiers_down |= FanyImePipeFlags::UiLess;
       if (packet->event_type == FanyImePipeEventType::ClientHello)
         continue;
+      // 字段属性记在这个客户端上，不经过焦点，也没有回复。管道按序投递，所以它先于 TIP 紧接着发的按键或状态快照生效。
+      if (packet->event_type == FanyImePipeEventType::FieldTraits) {
+        if (!enqueue([&, ticket, packet = *packet](InputState &state) {
+              if (transport_.current(ticket))
+                (void)state.set_field_traits(ticket, packet);
+            }))
+          return PumpResult::QueueUnavailable;
+        continue;
+      }
       if (route.route && route.fence) {
         const auto bytes =
             focus_ready_bytes(route.route->transport.client, route.route->epoch,

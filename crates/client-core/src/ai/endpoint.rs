@@ -31,16 +31,8 @@ pub fn validate(endpoint: &str) -> Result<Url, AiEndpointError> {
         return Err(AiEndpointError::Invalid);
     }
     let url = Url::parse(endpoint).map_err(|_| AiEndpointError::Invalid)?;
-    // `https:///v1` 会被解析成主机 `v1`；要求 `://` 后面紧跟主机，免得路径被当成主机。
-    let explicit_authority = endpoint
-        .split_once("://")
-        .is_some_and(|(_, rest)| rest.as_bytes().first().is_some_and(|byte| *byte != b'/'));
     if !matches!(url.scheme(), "https" | "http")
-        || !explicit_authority
-        || url.host_str().is_none_or(str::is_empty)
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.fragment().is_some()
+        || !crate::endpoint::valid_endpoint_shape(endpoint, &url, url.scheme())
     {
         return Err(AiEndpointError::Invalid);
     }

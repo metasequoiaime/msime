@@ -52,6 +52,11 @@ async function settingsReady() {
   await settingsFormReady();
 }
 
+async function openInputSettings() {
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((accept) => {
@@ -146,7 +151,7 @@ test("macOS exposes the non-activating input-mode HUD preference", async () => {
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  await openInputSettings();
   const toggle = screen.getByRole("switch", {
     name: "中英文切换提示",
   }) as HTMLInputElement;
@@ -178,7 +183,7 @@ test("Wubi unique-candidate auto-commit is a shared preference on every host", a
         client={{ load: async () => wubiInitial, save, host: testHost({ platform }) }}
       />,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+    await openInputSettings();
     const toggle = (await screen.findByRole("switch", {
       name: "五笔四码唯一候选自动上屏",
     })) as HTMLInputElement;
@@ -254,7 +259,7 @@ test("Android fuzzy-pinyin first enable seeds every rule once", async () => {
     preferences,
   }));
   render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  await openInputSettings();
   const enabled = screen.getByRole("switch", { name: "启用模糊音" }) as HTMLInputElement;
   fireEvent.click(enabled);
   for (const id of [
@@ -333,7 +338,7 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
       client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  await openInputSettings();
   const group = screen.getByRole("group", { name: "输入方案" });
   expect(
     within(group)
@@ -349,7 +354,7 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
   ).toBe(false);
   enabled.unmount();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  await openInputSettings();
   expect(screen.queryByRole("switch", { name: "显示输入方案 全拼 26 键" })).toBeNull();
 });
 
@@ -374,7 +379,7 @@ test("touch hosts offering Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke lis
       client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true, host }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  await openInputSettings();
   const group = screen.getByRole("group", { name: "输入方案" });
   expect(
     within(group)
@@ -415,7 +420,7 @@ test("a touch host without the Cantonese dictionary does not list the Cantonese 
       client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true, host }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  await openInputSettings();
   expect(screen.queryByRole("switch", { name: "显示输入方案 粤拼 26 键" })).toBeNull();
   expect(screen.queryByRole("switch", { name: "显示输入方案 笔画" })).toBeNull();
   expect(screen.getByRole("switch", { name: "显示输入方案 大千注音" })).toBeTruthy();
@@ -658,7 +663,7 @@ test("Android touch scheme selection, fallback, last-visible guard and save payl
     preferences,
   }));
   render(<SettingsPage client={{ load: async () => initial, save, touchKeyboardSchemes: true }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  await openInputSettings();
   fireEvent.click(screen.getByRole("button", { name: "设为当前输入方案 全拼 9 键" }));
   expect(
     screen.getByRole("button", { name: "设为当前输入方案 全拼 9 键" }).getAttribute("aria-pressed"),
@@ -700,7 +705,7 @@ test("Android selecting nine-key saves the shared selected scheme and matching e
     preferences,
   }));
   render(<SettingsPage client={{ load: async () => initial, save, touchKeyboardSchemes: true }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  await openInputSettings();
   fireEvent.click(screen.getByRole("button", { name: "设为当前输入方案 全拼 9 键" }));
   saveSettingsNow();
   await screen.findByText("已保存");
@@ -724,7 +729,7 @@ test("Android touch schemes display the first enabled fallback for a valid selec
       client={{ load: async () => snapshot, save: vi.fn(), touchKeyboardSchemes: true }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  await openInputSettings();
   expect(
     screen.getByRole("button", { name: "设为当前输入方案 86 五笔" }).getAttribute("aria-pressed"),
   ).toBe("true");
@@ -752,7 +757,7 @@ test("the touch Wubi keyboard is titled by the Wubi profile, which stays selecta
       client={{ load: async () => snapshot, save: onSave, touchKeyboardSchemes: true }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  await openInputSettings();
   expect(screen.getByRole("button", { name: "设为当前输入方案 98 五笔" })).toBeDefined();
   expect(screen.queryByRole("button", { name: "设为当前输入方案 86 五笔" })).toBeNull();
   fireEvent.change(screen.getByRole("combobox", { name: "五笔方案" }), {
