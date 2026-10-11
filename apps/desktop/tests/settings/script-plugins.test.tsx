@@ -390,3 +390,134 @@ test("the settings page shows the script group only where the host declares scri
   expect(await screen.findByText("脚本插件（实验）")).toBeTruthy();
   expect(client.scriptGrants).toHaveBeenCalled();
 });
+
+test("a macOS page without the keychain key says it cannot check a grant instead of calling it forged", async () => {
+  const grant = { id: "pangu", hash: HASH, enabled: true, granted: [], verified: false };
+  // 设置应用读不到密钥时算出的 `verified` 一律是 false，说明不了输入法运不运行它。
+  expect(scriptGrantState(pangu, grant, false)).toBe("unchecked");
+  expect(scriptGrantState(pangu, { ...grant, enabled: false }, false)).toBe("disabled");
+  expect(scriptGrantState(pangu, grant, true)).toBe("unverified");
+  renderSection(
+    fakeClient({
+      scriptGrants: vi.fn(async () =>
+        grants({
+          mac_required: true,
+          signed: false,
+          plugins: [
+            { id: "pangu", hash: HASH, enabled: true, granted: ["read_commit"], verified: false },
+          ],
+        }),
+      ),
+    }),
+  );
+  const list = await screen.findByLabelText("已安装的插件");
+  const row = await within(list).findByRole("button", { name: "中英文之间加空格" });
+  await waitFor(() => expect(row.textContent).toContain("已启用 · 无法核对授权"));
+  expect(row.textContent).not.toContain("需要重新授权");
+  fireEvent.click(row);
+  await screen.findByRole("heading", { name: "中英文之间加空格" });
+  const status = screen.getByRole("status");
+  expect(status.textContent).toContain("无法核对这条授权");
+  expect(status.textContent).not.toContain("不会运行");
+  const toggle = screen.getByRole("switch", { name: "启用" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(true);
+  expect(toggle.disabled).toBe(true);
+  expect(screen.getByText(/其他脚本插件的授权会一起失效/)).toBeTruthy();
+});
+
+test("a pack changed after the page read it is reread before the dialog explains", async () => {
+  let current = catalog;
+  const catalogCall = vi.fn(async () => current);
+  const setScriptGrant = vi.fn(async () => {
+    current = {
+      ...catalog,
+      packages: catalog.packages.map((pack) =>
+        pack.id === "pangu" ? { ...pack, content_hash: NEW_HASH } : pack,
+      ),
+    };
+    throw { code: "plugin_script_changed" };
+  });
+  renderSection(fakeClient({ catalog: catalogCall, setScriptGrant }));
+  await openScript("中英文之间加空格");
+  expect(screen.getByText("0123456789ab")).toBeTruthy();
+  fireEvent.click(screen.getByRole("switch", { name: "启用" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "授权并启用" }));
+  });
+  expect(screen.getByRole("alert").textContent).toContain("页面已经重新读取");
+  expect(catalogCall).toHaveBeenCalledTimes(2);
+  // 页面换成了现在的内容哈希，再确认就按它写入。
+  expect(screen.getByText("fedcba987654")).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "授权并启用" }));
+  });
+  expect(setScriptGrant).toHaveBeenLastCalledWith("pangu", NEW_HASH, true, []);
+});
+
+test("the grant dialog starts on cancel and gives focus back to the switch that opened it", async () => {
+  renderSection(fakeClient());
+  await openScript("中英文之间加空格");
+  const toggle = screen.getByRole("switch", { name: "启用" });
+  toggle.focus();
+  fireEvent.click(toggle);
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "取消" })),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole("switch", { name: "启用" }));
+});
+
+test("deleting a script pack without the keychain key warns that the other grants go too", async () => {
+  const confirm = vi.fn(async (_request: unknown) => false);
+  render(
+    <PluginsSection
+      client={fakeClient({
+        scriptGrants: vi.fn(async () =>
+          grants({
+            mac_required: true,
+            signed: false,
+            plugins: [
+              { id: "pangu", hash: HASH, enabled: true, granted: [], verified: false },
+              { id: "counter", hash: NEW_HASH, enabled: true, granted: [], verified: false },
+            ],
+          }),
+        ),
+      })}
+      preferences={defaultPluginPreferences}
+      keySound
+      music
+      triggers
+      active
+      scriptPlugins
+      platform="macos"
+      onChange={vi.fn()}
+      onError={vi.fn()}
+      confirm={confirm}
+    />,
+  );
+  await openScript("中英文之间加空格");
+  await waitFor(() => expect(screen.getByText(/无法核对这条授权/)).toBeTruthy());
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "删除中英文之间加空格" }));
+  });
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(confirm.mock.calls[0][0])).toContain("其他脚本插件的授权也会一起失效");
+});
+
+test("an IME stop is reported only while the pack is enabled", async () => {
+  const health = [{ id: "pangu", hash: HASH, disabled: "failed" as const }];
+  renderSection(
+    fakeClient({
+      scriptGrants: vi.fn(async () =>
+        grants({
+          health,
+          plugins: [{ id: "pangu", hash: HASH, enabled: false, granted: [], verified: true }],
+        }),
+      ),
+    }),
+  );
+  await openScript("中英文之间加空格");
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已停用"));
+  expect(screen.getByRole("status").textContent).not.toContain("输入法已停用它");
+});

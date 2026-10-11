@@ -1,6 +1,6 @@
 import type { EffectStyle } from "./plugin-preferences";
 
-/** Mirrors `client-core::plugins::PluginKind`. `script` 只在桌面（macOS、Windows、Linux）出现，页面只在宿主声明了 `script_plugins` 时展示它。 */
+/** 对应 `client-core::plugins::PluginKind`。`script` 只在桌面（macOS、Windows、Linux）出现，页面只在宿主声明了 `script_plugins` 时展示它。 */
 export type PluginKind =
   | "sound"
   | "music"

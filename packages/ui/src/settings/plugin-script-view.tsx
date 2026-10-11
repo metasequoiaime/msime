@@ -153,25 +153,40 @@ export function toggleCapability(
   return sortCapabilities(next);
 }
 
-/** 一个脚本插件的授权状态，按页面要说的先后：没授权过、内容变了要重新授权、签名校验不过要重新授权、启用、停用。 */
-export type ScriptGrantState = "ungranted" | "stale" | "unverified" | "enabled" | "disabled";
+/** 一个脚本插件的授权状态，按页面要说的先后：没授权过、内容变了要重新授权、启用了但设置应用核对不了签名、签名校验不过要重新授权、启用、停用。 */
+export type ScriptGrantState =
+  | "ungranted"
+  | "stale"
+  | "unchecked"
+  | "unverified"
+  | "enabled"
+  | "disabled";
 
+/** 设置应用能不能核对授权的签名：不要求签名的平台（Windows、Linux）总能；要求签名的 macOS 上要拿到钥匙串里的密钥。 */
+export function scriptGrantsCheckable(grants: ScriptGrantsResult | null): boolean {
+  return !grants?.mac_required || grants.signed;
+}
+
+/** `checkable` 为 false 时（macOS 上设置应用读不到钥匙串），本应用算出的 `verified` 一律是 false，可输入法有自己的密钥，照样运行签名正确的条目：这时启用的条目是「无法核对」，而不是「签名校验不过」。 */
 export function scriptGrantState(
   pack: Pick<PluginPackage, "content_hash">,
   grant: ScriptGrant | undefined,
+  checkable = true,
 ): ScriptGrantState {
   if (!grant) return "ungranted";
   if (grant.hash !== pack.content_hash) return "stale";
+  // 停用的条目不论签名如何都不运行。
+  if (!checkable) return grant.enabled ? "unchecked" : "disabled";
   if (!grant.verified) return "unverified";
   return grant.enabled ? "enabled" : "disabled";
 }
 
-/** 宿主会运行的插件 id，按执行顺序：启用、校验通过、内容哈希对得上的条目，最多 8 个（`ScriptGrants::enabled`）。 */
+/** 宿主会运行的插件 id，按执行顺序：启用、校验通过、内容哈希对得上的条目，最多 8 个（`ScriptGrants::enabled`）。设置应用核对不了签名时不知道输入法运行哪些，为空。 */
 export function runningScriptIds(
   grants: ScriptGrantsResult | null,
   packages: readonly PluginPackage[],
 ): string[] {
-  if (!grants) return [];
+  if (!grants || !scriptGrantsCheckable(grants)) return [];
   return grants.plugins
     .filter((grant) => grant.enabled && grant.verified)
     .slice(0, 8)
@@ -200,11 +215,13 @@ export function scriptMarker(
 ): string {
   const grant = grants?.plugins.find((entry) => entry.id === pack.id);
   const health = scriptHealth(grants, pack);
-  switch (scriptGrantState(pack, grant)) {
+  switch (scriptGrantState(pack, grant, scriptGrantsCheckable(grants))) {
     case "ungranted":
       return "未授权";
     case "stale":
       return "已更新，需要重新授权";
+    case "unchecked":
+      return health ? "已被输入法停用" : "已启用 · 无法核对授权";
     case "unverified":
       return "需要重新授权";
     case "disabled":
@@ -259,10 +276,11 @@ export function ScriptGrantDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const titleId = useId();
-  const confirmButton = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
   const risk = scriptResidualRisk(platform);
+  // 从「取消」开始：对话框是从开关打开的，按住不放的空格或回车不该直接把读写文字的权限授出去。
   useEffect(() => {
-    confirmButton.current?.focus();
+    cancelButton.current?.focus();
   }, []);
   const items = requested.map((capability) => {
     const partner = exclusivePartner(capability);
@@ -326,7 +344,7 @@ export function ScriptGrantDialog({
         )}
         {unverified && !stale && (
           <p className={dialogStyle.warning} role="status">
-            这条授权没有通过签名校验（可能是被别的程序改过），输入法不会运行它，需要重新授权。
+            这条授权没有通过签名校验（可能被别的程序改过，或者钥匙串里的密钥换过），输入法不会运行它，需要重新授权。
           </p>
         )}
         <p className="m-0 leading-relaxed text-secondary">
@@ -352,12 +370,17 @@ export function ScriptGrantDialog({
           </p>
         )}
         <div className={dialogStyle.dialogActions}>
-          <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
+          <button
+            type="button"
+            ref={cancelButton}
+            className="secondary"
+            disabled={busy}
+            onClick={onCancel}
+          >
             取消
           </button>
           <button
             type="button"
-            ref={confirmButton}
             className="primary"
             disabled={busy}
             aria-busy={busy}
@@ -402,20 +425,35 @@ export function ScriptPluginDetailView({
   onBack,
 }: ScriptPluginDetailViewProps) {
   const [dialog, setDialog] = useState(false);
+  // 打开对话框的那个控件（启用开关或「调整授权」），对话框关掉后焦点回到它。
+  const opener = useRef<HTMLElement | null>(null);
   const grant = grants?.plugins.find((entry) => entry.id === pack.id);
-  const state = scriptGrantState(pack, grant);
+  const state = scriptGrantState(pack, grant, scriptGrantsCheckable(grants));
+  const active = state === "enabled" || state === "unchecked";
   const health = scriptHealth(grants, pack);
   const requested = sortCapabilities(pack.permissions ?? []);
-  const granted = state === "enabled" ? sortCapabilities(grant?.granted ?? []) : [];
+  const granted = active ? sortCapabilities(grant?.granted ?? []) : [];
   const position = running.indexOf(pack.id);
   const risk = scriptResidualRisk(platform);
-  const unsigned = Boolean(grants?.mac_required && !grants.signed);
+  const unsigned = !scriptGrantsCheckable(grants);
   const stateText: Record<ScriptGrantState, string> = {
     ungranted: "还没有授权，不会运行。",
     stale: "已更新，需要重新授权：插件的内容和授权时不同，之前的授权已经作废，不会运行。",
+    unchecked:
+      "已启用。设置读不到钥匙串里的授权密钥，无法核对这条授权；输入法自己核对，核对通过就照常运行它。",
     unverified: "授权没有通过签名校验，不会运行，需要重新授权。",
     enabled: "已启用。",
     disabled: "已停用，不会运行。",
+  };
+  const openDialog = () => {
+    const focused = document.activeElement;
+    opener.current = focused instanceof HTMLElement ? focused : null;
+    setDialog(true);
+  };
+  const closeDialog = () => {
+    setDialog(false);
+    opener.current?.focus();
+    opener.current = null;
   };
   return (
     <>
@@ -468,32 +506,28 @@ export function ScriptPluginDetailView({
       <GroupList title="状态">
         <SettingsGroupNote role="status">
           {stateText[state]}
-          {health ? `${healthLabels[health.disabled]}，重新授权或重启输入法后恢复。` : ""}
+          {active && health ? `${healthLabels[health.disabled]}，重新授权或重启输入法后恢复。` : ""}
         </SettingsGroupNote>
         <SwitchRow
           title="启用"
           description="打开时先确认要授予的权限。关闭会撤销全部授权，输入法在下一次切换输入框时停止运行它。"
-          checked={state === "enabled"}
+          checked={active}
           disabled={working || unsigned}
           onChange={(checked) => {
-            if (checked) setDialog(true);
+            if (checked) openDialog();
             else onRevoke();
           }}
         />
         {state === "enabled" && requested.length > 0 && (
           <SettingsManagerBlock>
             <SettingsManagerActions>
-              <ActionButton
-                action={() => setDialog(true)}
-                disabled={working || unsigned}
-                label="调整授权"
-              />
+              <ActionButton action={openDialog} disabled={working || unsigned} label="调整授权" />
             </SettingsManagerActions>
           </SettingsManagerBlock>
         )}
         {unsigned && (
           <SettingsGroupNote>
-            读不到钥匙串里的授权密钥，现在不能启用或调整脚本插件。重新打开这个页面会再试一次；系统询问时请允许水杉输入法设置访问钥匙串。
+            读不到钥匙串里的授权密钥，现在不能启用、停用或调整脚本插件；这期间导入或删除脚本插件，其他脚本插件的授权会一起失效。重新打开这个页面会再试一次；系统询问时请允许水杉输入法设置访问钥匙串。
           </SettingsGroupNote>
         )}
       </GroupList>
@@ -550,10 +584,10 @@ export function ScriptPluginDetailView({
           stale={state === "stale"}
           unverified={state === "unverified"}
           platform={platform}
-          onCancel={() => setDialog(false)}
+          onCancel={closeDialog}
           onConfirm={async (next) => {
             await onGrant(next);
-            setDialog(false);
+            closeDialog();
           }}
         />
       )}

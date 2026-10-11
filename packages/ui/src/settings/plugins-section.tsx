@@ -7,6 +7,7 @@ import { withoutRemovedPack, type PluginPreferences } from "./plugin-preferences
 import {
   missingSelections,
   packKindLabel,
+  pluginErrorCode,
   pluginErrorMessage,
   schemeOpensTableModes,
 } from "./plugin-catalog-helpers";
@@ -21,7 +22,12 @@ import type {
   ScriptGrantsResult,
 } from "./plugin-types";
 import { PluginListView } from "./plugin-list-view";
-import { runningScriptIds, scriptResidualRisk, ScriptPluginDetailView } from "./plugin-script-view";
+import {
+  runningScriptIds,
+  scriptGrantsCheckable,
+  scriptResidualRisk,
+  ScriptPluginDetailView,
+} from "./plugin-script-view";
 import { MissingPluginView, PluginDetailView } from "./plugin-detail-view";
 import { PluginSoundEffectsView } from "./plugin-sound-effects-view";
 import { mentionListIssue, PluginMentionsView } from "./plugin-mentions-view";
@@ -323,9 +329,16 @@ export function PluginsSection({
   };
 
   const removePack = async (pack: PluginPackage) => {
+    // macOS 上读不到钥匙串时删脚本包，授权文件里其余条目没法重新签名，一起失效：先说清楚。
+    const voidsOtherGrants =
+      pack.kind === "script" &&
+      !scriptGrantsCheckable(scriptGrants) &&
+      Boolean(scriptGrants?.plugins.some((grant) => grant.id !== pack.id));
     const confirmed = await confirm({
       title: `删除${packKindLabel(pack)}`,
-      message: `删除「${pack.name}」？包里的文件会从本机移除。`,
+      message: voidsOtherGrants
+        ? `删除「${pack.name}」？包里的文件会从本机移除。现在读不到钥匙串里的授权密钥：删除时如果仍然读不到，其他脚本插件的授权也会一起失效，之后需要重新授权。`
+        : `删除「${pack.name}」？包里的文件会从本机移除。`,
       confirmLabel: "删除",
       danger: true,
     });
@@ -345,16 +358,30 @@ export function PluginsSection({
   const scriptPacks = scriptsShown ? catalog.packages.filter((pack) => pack.kind === "script") : [];
   const runningScripts = runningScriptIds(scriptGrants, scriptPacks);
 
+  // 写授权：包在页面读到之后被换过（`plugin_script_changed`）时重读目录和授权，页面换成现在的内容哈希，再把错误抛给调用方说明。
+  const writeScriptGrant = async (
+    pack: PluginPackage,
+    enabled: boolean,
+    granted: ScriptCapability[],
+  ) => {
+    try {
+      return await client!.setScriptGrant!(pack.id, pack.content_hash ?? "", enabled, granted);
+    } catch (error) {
+      if (pluginErrorCode(error) === "plugin_script_changed") await refresh();
+      throw error;
+    }
+  };
+
   // 授权对话框里的确认：失败时抛出，由对话框说明原因（例如超出内存总账）。
   const grantScript = async (pack: PluginPackage, granted: ScriptCapability[]) => {
     const generation = clientGeneration.current;
-    const next = await client!.setScriptGrant!(pack.id, pack.content_hash ?? "", true, granted);
+    const next = await writeScriptGrant(pack, true, granted);
     if (generation === clientGeneration.current) setScriptGrants(next);
   };
 
   const revokeScript = async (pack: PluginPackage) => {
     await runPluginAction(async (isCurrent) => {
-      const next = await client!.setScriptGrant!(pack.id, pack.content_hash ?? "", false, []);
+      const next = await writeScriptGrant(pack, false, []);
       if (isCurrent()) setScriptGrants(next);
     }, "停用失败，请重试。");
   };

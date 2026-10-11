@@ -26,7 +26,7 @@ export function packKindLabel(pack: Pick<PluginPackage, "kind" | "mode">): strin
     : kindLabels[pack.kind];
 }
 
-/** The order the 我的插件 list groups the installed packs in. 脚本插件不在其中：它们有自己的「脚本插件（实验）」分组，只在宿主运行脚本插件时显示。 */
+/** 我的插件列表给已安装插件分组的顺序。脚本插件不在其中：它们有自己的「脚本插件（实验）」分组，只在宿主运行脚本插件时显示。 */
 export const kindOrder: readonly PluginKind[] = [
   "sound",
   "effect",
@@ -49,12 +49,16 @@ export function effectStyleLabel(style: EffectStyle): string {
   return effectStyleOptions.find((option) => option.value === style)?.label ?? style;
 }
 
+/** 宿主调用失败时 `{code, detail}` 里的 `code`；不是这个形状时为空串。 */
+export function pluginErrorCode(error: unknown): string {
+  return typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code: unknown }).code)
+    : "";
+}
+
 /** The sentence for a failed host call. The desktop shell's commands and the HarmonyOS bridge both reject with `{code, detail}`, the codes being client-core's `PluginFailure`; `detail`, when present, is the rule client-core reports. */
 export function pluginErrorMessage(error: unknown, fallback: string): string {
-  const code =
-    typeof error === "object" && error !== null && "code" in error
-      ? String((error as { code: unknown }).code)
-      : "";
+  const code = pluginErrorCode(error);
   const detail =
     typeof error === "object" && error !== null && "detail" in error
       ? (error as { detail: unknown }).detail
@@ -76,7 +80,7 @@ export function pluginErrorMessage(error: unknown, fallback: string): string {
     case "plugin_script_limit":
       return "最多同时启用 8 个脚本插件，先停用一个再试。";
     case "plugin_script_changed":
-      return "这个插件在你打开授权之后被换成了别的内容，请返回列表重新打开它再授权。";
+      return "这个插件的内容在你打开之后变了，页面已经重新读取，请看过现在的内容再试。";
     case "plugin_script_keychain":
       return "读不到钥匙串里的授权密钥，授权没有写入。请在系统询问时允许水杉输入法设置访问钥匙串，然后再试。";
     case "plugin_script_grants_format":
