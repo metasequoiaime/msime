@@ -2051,6 +2051,103 @@ fn uppercase_helpcode_and_duplicate_apostrophe_gates() {
     assert!(!disabled.character(b'H', false).handled);
 }
 
+fn preedit_letters(session: &Session) -> String {
+    session
+        .snapshot()
+        .preedit
+        .chars()
+        .filter(|c| *c != '\'' && *c != ' ')
+        .collect()
+}
+
+// #7106：拼写还不完整时，组字中的大写字母不会被读成辅助码，关掉辅助码时也要和开着时一样并入组字，不能交还宿主让它先把首选上屏。
+#[test]
+fn capital_after_incomplete_spelling_joins_composition_when_helpcode_is_off() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut disabled = fixture.session_with(|options| options.helpcode = false);
+    type_text(&mut disabled, "mac");
+    let joined = disabled.character(b'O', true);
+    assert!(joined.handled);
+    assert_eq!(joined.commit, None);
+    assert_eq!(preedit_letters(&disabled), "macO");
+    let joined = disabled.character(b'S', true);
+    assert!(joined.handled);
+    assert_eq!(joined.commit, None);
+    assert_eq!(preedit_letters(&disabled), "macOS");
+    assert_eq!(
+        disabled.command(Command::CommitRaw).commit.as_deref(),
+        Some("macOS")
+    );
+
+    // 完整拼音后的大写字母处在辅助码的位置，关掉辅助码时仍照参考引擎交还宿主（上屏加插入），这样它不会被全拼切分不看开关地剥掉，「我用Mac」的打法也保持不变。
+    for spelling in ["nihao", "woyong"] {
+        type_text(&mut disabled, spelling);
+        let capital = if spelling == "nihao" { b'O' } else { b'M' };
+        assert!(
+            !disabled.character(capital, true).handled,
+            "{spelling}+{}",
+            capital as char
+        );
+        disabled.command(Command::Cancel);
+    }
+    // 没有组字时大写字母照旧交给宿主。
+    assert!(!disabled.character(b'O', false).handled);
+
+    // 辅助码开着时行为不变：不完整拼写后并入，完整拼音后按辅助码接收。
+    let mut enabled = fixture.session();
+    type_text(&mut enabled, "mac");
+    assert!(enabled.character(b'O', true).handled);
+    assert_eq!(preedit_letters(&enabled), "macO");
+    enabled.command(Command::Cancel);
+    type_text(&mut enabled, "nihao");
+    assert!(enabled.character(b'O', true).handled);
+}
+
+#[test]
+fn capital_inserted_at_the_caret_follows_the_same_helpcode_boundary() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut disabled = fixture.session_with(|options| options.helpcode = false);
+    type_text(&mut disabled, "mac");
+    disabled.command(Command::MoveLeft);
+    let inserted = disabled.character(b'X', true);
+    assert!(inserted.handled);
+    assert_eq!(inserted.commit, None);
+    assert_eq!(
+        disabled.command(Command::CommitRaw).commit.as_deref(),
+        Some("maXc")
+    );
+}
+
+#[test]
+fn shuangpin_capital_joins_only_where_it_cannot_read_as_a_helpcode() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut disabled = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+        options.helpcode = false;
+    });
+    // `ni` 是完整的双拼，后面奇数位的大写字母是辅助码的位置。
+    type_text(&mut disabled, "ni");
+    assert!(!disabled.character(b'H', true).handled);
+    disabled.command(Command::Cancel);
+    // `m` 还没凑成音节，大写字母并入组字。
+    type_text(&mut disabled, "m");
+    let joined = disabled.character(b'A', true);
+    assert!(joined.handled);
+    assert_eq!(joined.commit, None);
+    assert_eq!(
+        disabled.command(Command::CommitRaw).commit.as_deref(),
+        Some("mA")
+    );
+
+    let mut enabled = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+    });
+    type_text(&mut enabled, "ni");
+    assert!(enabled.character(b'H', true).handled);
+}
+
 #[test]
 fn segment_boundaries_per_scheme() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);

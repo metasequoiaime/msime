@@ -300,12 +300,16 @@ impl InputSession {
         let microsoft_final =
             value == b';' && scheme == SchemeType::Shuangpin && self.profile.uses_semicolon_key();
         let japanese_long_vowel = value == b'-' && scheme == SchemeType::JapaneseRomaji;
-        let active_helpcode = value.is_ascii_uppercase()
+        // 组字中的大写字母：辅助码开着时都收下；关着时只有会被读成辅助码的那个交还宿主，其余作为字面字母并入组字。
+        let composing_capital = value.is_ascii_uppercase()
             && self.has_composition()
-            && ((scheme == SchemeType::Quanpin && self.quanpin_helpcode_enabled)
-                || (scheme == SchemeType::Shuangpin && self.shuangpin_helpcode_enabled));
+            && self.accepts_composing_capital(&format!(
+                "{}{}",
+                self.raw_with_cases(),
+                value as char
+            ));
         if !lowercase_letter
-            && !active_helpcode
+            && !composing_capital
             && value != b'\''
             && !microsoft_final
             && !japanese_long_vowel

@@ -130,6 +130,11 @@ fn active_shuangpin_helpcode_length(request: &QueryRequest, profile: &ShuangpinP
     } else {
         &request.raw_input_with_cases
     };
+    shuangpin_helpcode_length(raw, raw_with_cases, profile)
+}
+
+/// 不看辅助码开关的双拼辅助码检测：完整双拼后的两位大写辅助码得 2，完整双拼后的奇数位得 1，否则得 0。
+fn shuangpin_helpcode_length(raw: &str, raw_with_cases: &str, profile: &ShuangpinProfile) -> usize {
     if effective_input_length(raw) == 0 {
         return 0;
     }
@@ -614,6 +619,30 @@ impl InputSession {
                         &request.raw_input_with_cases,
                     ) > 0
             }
+        }
+    }
+
+    /// 全拼或双拼组字中按下的大写字母能不能进组字；`raw_with_cases` 是收下它之后的带大小写原文。辅助码开着时一律收下，由方案按辅助码规则解读。关着时只拒收会被读成辅助码的那个字母（完整拼音后的位置）：全拼切分不看开关地剥掉活动辅助码，收下它会在选词时静默丢字，所以照参考引擎交还宿主（上屏加插入）；其余大写字母（前面的拼写还不完整，如 `mac` 后的 `O`）不会被剥掉，和开关开着时一样作为字面字母并入组字，回车按原样上屏（#7106）。
+    pub(super) fn accepts_composing_capital(&self, raw_with_cases: &str) -> bool {
+        match self.scheme() {
+            SchemeType::Quanpin if self.quanpin_helpcode_enabled => true,
+            SchemeType::Shuangpin if self.shuangpin_helpcode_enabled => true,
+            SchemeType::Quanpin => {
+                let raw = raw_with_cases.to_ascii_lowercase();
+                detect_active_helpcode_length(&raw, raw_with_cases) == 0
+            }
+            SchemeType::Shuangpin => {
+                let raw = raw_with_cases.to_ascii_lowercase();
+                shuangpin_helpcode_length(&raw, raw_with_cases, self.shuangpin_profile()) == 0
+            }
+            SchemeType::Wubi
+            | SchemeType::JapaneseRomaji
+            | SchemeType::Korean
+            | SchemeType::Cantonese
+            | SchemeType::Zhuyin
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan
+            | SchemeType::Stroke => false,
         }
     }
 

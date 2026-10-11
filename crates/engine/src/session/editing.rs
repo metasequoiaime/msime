@@ -150,11 +150,13 @@ impl InputSession {
                 }
                 LocalInputMode::None => {
                     let scheme = self.scheme();
+                    // 大写字母与行末键入同一条界线，按插入后的原文判断。
                     accepted = lower
-                        || (upper
-                            && ((scheme == SchemeType::Quanpin && self.quanpin_helpcode_enabled)
-                                || (scheme == SchemeType::Shuangpin
-                                    && self.shuangpin_helpcode_enabled)));
+                        || (upper && {
+                            let mut inserted = text.clone();
+                            inserted.insert(caret, value as char);
+                            self.accepts_composing_capital(&inserted)
+                        });
                     if value == b';'
                         && scheme == SchemeType::Shuangpin
                         && self.profile.uses_semicolon_key()
