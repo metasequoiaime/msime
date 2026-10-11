@@ -1,6 +1,6 @@
 // 脚本插件授权的 MAC 密钥（见 client-core 的 `plugins::script_grants`）：登录钥匙串里的一个通用密码项，32 字节随机数。输入法进程（platforms/macos 的 input_method_main.mm）在启动时、设置应用（crates/host-macos 的 `script_grant_key`）在第一次读写授权之前各取一次；还没有这一项时由先到的一方生成并写入。两边编译的是同一个文件。
 //
-// - 只放在登录钥匙串（旧式的文件钥匙串）里。数据保护钥匙串靠 keychain-access-groups 在两个应用之间共享，那是要描述文件背书的受限权利，Developer ID 签名的输入法带上它会被 AMFI 拒绝启动（platforms/macos/tests/settings/entitlements_guard.py）。旧式钥匙串的访问控制表按代码签名信任应用：创建者信任自己和对方（输入法信任设置应用，设置应用信任输入法），别的程序读它时系统会弹出授权框。输入法进程不允许弹框，读不到就当没有密钥，那样没有任何授权条目生效。
+// - 只放在登录钥匙串（旧式的文件钥匙串）里。数据保护钥匙串靠 keychain-access-groups 在两个应用之间共享，那是要描述文件背书的受限权利，Developer ID 签名的输入法带上它会被 AMFI 拒绝启动（platforms/macos/tests/settings/entitlements_guard.py）。旧式钥匙串的访问控制表按代码签名信任应用：创建者信任自己和对方（输入法信任设置应用，设置应用信任输入法），别的程序读它时系统会弹出授权框。输入法进程不允许弹框（关掉本进程的钥匙串交互，见 msime_macos_script_grant_key），读不到就当没有密钥，那样没有任何授权条目生效。
 // - 只在登录钥匙串里查找，不走搜索列表：同一用户下的程序能新建一个它知道密码的钥匙串，在里面放一个同名的项、改成任意分区，再把它排到搜索列表前面。
 // - 读到的项还要核对分区（partition ID）。系统在创建一项时按创建者的签名写下分区（Developer ID 签名的程序是 `teamid:<团队标识>`），改分区要钥匙串的密码，登录钥匙串的密码就是用户的登录密码。本进程有团队标识时只认分区里有本团队的项：同一用户下别的程序抢先放进来的项（分区是 `unsigned:`、`apple-tool:` 或别的团队）不认，否则它知道这把密钥，就能给自己写的授权签名。本进程没有团队标识（ad-hoc 签名或没签名的开发构建）时这一项检查跳过，开发构建不防这种预先放置。
 //
@@ -180,7 +180,7 @@ extern "C" bool msime_macos_script_grant_partitions_include(const char *descript
     }
 }
 
-// 取出（没有就生成并写入）`service` 下的授权密钥，成功时把 32 字节写进 `out` 并返回 0，否则返回 OSStatus。`peers` 是要一起信任的对方应用 bundle 的路径，只在生成时用到，不存在的路径跳过。`allow_interaction` 为 false 时（输入法进程）不让系统弹出钥匙串授权框。
+// 取出（没有就生成并写入）`service` 下的授权密钥，成功时把 32 字节写进 `out` 并返回 0，否则返回 OSStatus。`peers` 是要一起信任的对方应用 bundle 的路径，只在生成时用到，不存在的路径跳过。`allow_interaction` 为 false 时（输入法进程）不让系统弹出钥匙串授权框或解锁框：调用期间关掉本进程的钥匙串交互（进程级设置，调用结束恢复），所以要在没有别的线程用钥匙串时调用。
 extern "C" int32_t msime_macos_script_grant_key(const char *service, const char *const *peers, size_t peer_count,
                                                 bool allow_interaction, uint8_t *out, size_t out_length) {
     if (!service || !*service || !out || out_length != kKeyBytes || (peer_count > 0 && !peers)) return errSecParam;
@@ -190,12 +190,25 @@ extern "C" int32_t msime_macos_script_grant_key(const char *service, const char 
         SecKeychainRef keychain = CopyLoginKeychain();
         if (!keychain) return errSecNoSuchKeychain;
         NSString *team = OwnTeam();
+        // 不许弹框时（输入法进程）关掉本进程的钥匙串交互，用完恢复原来的设置。只靠查询里的 kSecUseAuthenticationUIFail 不够：它管不到旧式钥匙串访问控制表的确认框和解锁框，不在访问控制表里的程序带着它读这一项，会停在系统弹出的确认框上一直等（在临时钥匙串上实测：带 kSecUseAuthenticationUIFail 的读取等了 30 秒仍没返回，关掉交互后立即返回 errSecAuthFailed）。输入法在 main 里、IMK 服务起来之前取密钥，停在这里就是输入法起不来；同一用户下的程序抢先放一个只信任它自己的同名项，就能让每次启动都停在确认框上。关不掉交互时不碰钥匙串，当作没有密钥。
+        Boolean interactionWas = true;
+        const bool quiet = !allow_interaction;
+        if (quiet) {
+            if (SecKeychainGetUserInteractionAllowed(&interactionWas) != errSecSuccess) interactionWas = true;
+            const OSStatus silenced = SecKeychainSetUserInteractionAllowed(false);
+            if (silenced != errSecSuccess) {
+                CFRelease(keychain);
+                std::memset(out, 0, out_length);
+                return silenced;
+            }
+        }
         OSStatus status = ReadKey(keychain, serviceName, team, allow_interaction, out);
         if (status == errSecItemNotFound) {
             status = CreateKey(keychain, serviceName, peers, peer_count, out);
             // 另一方刚好同时写入了：用它写的那一把。
             if (status == errSecDuplicateItem) status = ReadKey(keychain, serviceName, team, allow_interaction, out);
         }
+        if (quiet) SecKeychainSetUserInteractionAllowed(interactionWas);
         CFRelease(keychain);
         if (status != errSecSuccess) std::memset(out, 0, out_length);
         return status;
