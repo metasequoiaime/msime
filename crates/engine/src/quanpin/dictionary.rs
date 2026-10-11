@@ -97,6 +97,14 @@ struct CachedFuzzyCandidates {
 }
 
 #[derive(Clone)]
+struct CachedFuzzyRows {
+    rules: u32,
+    limit: usize,
+    typed: String,
+    rows: Vec<DictRow>,
+}
+
+#[derive(Clone)]
 struct CachedLatticeSpan {
     span_limit: usize,
     span: String,
@@ -162,7 +170,7 @@ pub struct QuanpinDictionary {
     /// 每条切分的 `query_longer_phrases` 结果，键是切分本身。
     longer_row_cache: FifoCache<String, Vec<DictRow>>,
     /// `fuzzy_candidates` 里每个前缀那一次批量查询的结果，键是模糊规则、路径上限和前缀切分；三者定下来，查的路径和返回的行就定了。
-    fuzzy_row_cache: FifoCache<String, Vec<DictRow>>,
+    fuzzy_row_cache: FifoCache<u64, CachedFuzzyRows>,
     /// 上面四个行缓存填入时的 `PRAGMA data_version`。它们只存词典行，随其他缓存一起清空；此外每次真正计算一个查询前都对一次版本，别的连接写过词典就先清掉，所以命中的行永远和此刻直接查库一样，不会像 `cache` 那样等到下次 `reset_cache_if_database_changed` 才更新。
     row_cache_version: Option<i64>,
     /// `RowCacheBatch` 存活期间为当前这段读事务开始的时刻：版本在这段开始时对过，段内的查询不再逐条对；一段超过 `ROW_CACHE_BATCH_SPAN` 就提交、重开并重新对版本。
@@ -377,22 +385,20 @@ impl QuanpinDictionary {
             let prefix = &segments[..count];
             let limit = FUZZY_SEGMENTATION_LIMIT.min(budget);
             let typed = join_segments(prefix);
-            let row_key = format!("{}:{limit}:{typed}", options.rules);
             // 路径照样算出来（纯计算，不查库），预算照旧按路径数扣；只有查库这一步走缓存。
             let paths = fuzzy_segmentations(prefix, options, limit);
             if paths.is_empty() {
                 continue;
             }
             budget -= paths.len();
-            let rows = if let Some(rows) = self.fuzzy_row_cache.get_ref(&row_key) {
-                rows.clone()
-            } else {
-                let rows = self
-                    .database
-                    .query_exact_segmentations_keyed_flat(&paths, FUZZY_ROW_LIMIT);
-                self.fuzzy_row_cache.insert(row_key, rows.clone());
-                rows
-            };
+            let rows = cached_fuzzy_rows(
+                &self.database,
+                &mut self.fuzzy_row_cache,
+                &paths,
+                options.rules,
+                limit,
+                &typed,
+            );
             result.reserve(rows.len());
             let mut rows = rows.into_iter();
             if let Some(row) = rows.next() {
@@ -1216,6 +1222,50 @@ fn fuzzy_cache_hash(rules: u32, segmentation: &str) -> u64 {
 
 fn fuzzy_cache_key_matches(cached: &CachedFuzzyCandidates, rules: u32, segmentation: &str) -> bool {
     cached.rules == rules && cached.segmentation == segmentation
+}
+
+fn cached_fuzzy_rows(
+    database: &PinyinDatabase,
+    cache: &mut FifoCache<u64, CachedFuzzyRows>,
+    paths: &[Vec<String>],
+    rules: u32,
+    limit: usize,
+    typed: &str,
+) -> Vec<DictRow> {
+    let hash = fuzzy_row_cache_hash(rules, limit, typed);
+    if let Some(cached) = cache.get_ref(&hash) {
+        if fuzzy_row_cache_key_matches(cached, rules, limit, typed) {
+            return cached.rows.clone();
+        }
+    }
+    let rows = database.query_exact_segmentations_keyed_flat(paths, FUZZY_ROW_LIMIT);
+    cache.insert(
+        hash,
+        CachedFuzzyRows {
+            rules,
+            limit,
+            typed: typed.to_owned(),
+            rows: rows.clone(),
+        },
+    );
+    rows
+}
+
+fn fuzzy_row_cache_hash(rules: u32, limit: usize, typed: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    rules.hash(&mut hasher);
+    limit.hash(&mut hasher);
+    typed.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn fuzzy_row_cache_key_matches(
+    cached: &CachedFuzzyRows,
+    rules: u32,
+    limit: usize,
+    typed: &str,
+) -> bool {
+    cached.rules == rules && cached.limit == limit && cached.typed == typed
 }
 
 fn path_cache_key<'a>(raw: &'a str, segmentation: &'a str) -> &'a str {
