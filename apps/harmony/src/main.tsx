@@ -5,6 +5,7 @@ import {
   SettingsPage,
   SettingsStartupPage,
   WelcomeFlowPage,
+  openKeyboardSwitchGuide,
   type DictionaryClient,
   type DictionaryCollectionsClient,
   type DictionaryCollectionsView,
@@ -1426,9 +1427,13 @@ function makeClient(
       // The reply is unwrapped rather than ignored so a host that could not open the picker says
       // so, which the card reports; the welcome flow's own copy of this call is the exception,
       // because that screen has its own failure to show and nothing to add to it.
-      showInputMethodPicker: async () => {
-        unwrap<boolean>(native.showInputMethodPicker());
-      },
+      // 手机上不弹系统的选择对话框（OpenHarmony 自带的那个没有样式的列表），改成引导用户长按键盘下方的 🌐，见 `openKeyboardSwitchGuide`。2in1 用实体键盘，键盘下方没有 🌐，照旧弹系统对话框。
+      showInputMethodPicker:
+        host.mobile_settings !== false
+          ? openKeyboardSwitchGuide
+          : async () => {
+              unwrap<boolean>(native.showInputMethodPicker());
+            },
       // 「设置」卡片各项检查背后的两项设置状态，在 2in1 上也是「输入」和「关于」页警告条的依据。2in1 没有首页要画，但仍需要这些操作：警告条调用的是同样两个。
       setup,
     },
@@ -1524,9 +1529,12 @@ function HarmonyWelcomeFlow({
         // 资源由键盘启动时就绪，这里没有单独的步骤要执行；流程需要的是这个 promise，而不是实际工作。
         prepareResources: async () => {},
         openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
-        showInputMethodPicker: async () => {
-          native.showInputMethodPicker();
-        },
+        showInputMethodPicker:
+          mobileSettings !== false
+            ? openKeyboardSwitchGuide
+            : async () => {
+                native.showInputMethodPicker();
+              },
       }}
       // 方案步骤只提供本版本和本宿主具备的键盘。
       edition={client.host?.edition}

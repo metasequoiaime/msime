@@ -7,6 +7,7 @@ import { msimeFramePath, msimeStrokePath } from "../core/brand-logo";
 import { appThemeStyle, seasonAttr } from "../core/app-theme-style";
 import type { HostChromeClient, ImeSetupClient, ResolvedAppTheme } from "../core/host-contracts";
 import { makeDefaultAction, useImeSetupState } from "../keyboard/setup-status-card";
+import { KeyboardSwitchGuideHost } from "../keyboard/keyboard-switch-guide";
 import { useSettingsPlatform } from "../theme/settings-platform";
 import { useHarmonyWelcomeSystemBars } from "../settings/use-settings-theme";
 import type { EditionInfo, InputScheme, Preferences } from "../index";
@@ -724,6 +725,7 @@ export function WelcomeFlowPage({
           swipeStart.current = null;
         }}
       >
+        <KeyboardSwitchGuideHost setup={setup} />
         <div className={onboarding.hTopRow}>
           <span className={onboarding.hCounter}>{`${step + 1} / ${steps.length}`}</span>
           {skipFlow && (
