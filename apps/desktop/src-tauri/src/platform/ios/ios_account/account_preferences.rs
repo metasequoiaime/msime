@@ -31,19 +31,21 @@ pub(crate) fn local_account_preferences(
         return Err(AccountError::Storage);
     }
     let mut settings = BTreeMap::new();
-    // 云端的 `input.schema` 装不下粤拼、注音、越南文、藏文和笔画（旧设备会拒收整份文档），所以这几个方案不写方案和九键开关，云端保留原有的值。
-    // 全拼 14 键在云端还没有自己的键，按全拼、不是九键上传，在别的设备上落成全拼 26 键。
+    // 云端的 `input.schema` 装不下粤拼、注音、越南文、藏文和笔画（旧设备会拒收整份文档），所以这几个方案不写方案、九键开关和触屏布局，云端保留原有的值。
+    // 全拼的 26 键、9 键、14 键和手写都上传成全拼，用哪种键盘写进 `platform.ios.keyboard_layout`（与 Android 的 `platform.android.keyboard_layout` 同一套词）；还不认识它的旧版本只读 `platform.ios.nine_key`，所以两个键一起上传。
     let scheme = match native.input_scheme.as_str() {
-        "quanpin" | "handwriting" | "fourteenKey" => Some(("quanpin", None, false)),
-        "nineKey" => Some(("quanpin", None, true)),
-        "shuangpin" => Some(("shuangpin", Some("xiaohe"), false)),
-        "ziranma" => Some(("shuangpin", Some("ziranma"), false)),
-        "microsoft" => Some(("shuangpin", Some("microsoft"), false)),
-        "shoudao" => Some(("shuangpin", Some("shoudao"), false)),
-        "wubi" => Some(("wubi", None, false)),
-        "japanese" => Some(("japanese", None, false)),
-        "japaneseNineKey" => Some(("japanese", None, true)),
-        "korean" => Some(("korean", None, false)),
+        "quanpin" => Some(("quanpin", None, "twenty_six_key")),
+        "nineKey" => Some(("quanpin", None, "nine_key")),
+        "fourteenKey" => Some(("quanpin", None, "fourteen_key")),
+        "handwriting" => Some(("quanpin", None, "handwriting")),
+        "shuangpin" => Some(("shuangpin", Some("xiaohe"), "twenty_six_key")),
+        "ziranma" => Some(("shuangpin", Some("ziranma"), "twenty_six_key")),
+        "microsoft" => Some(("shuangpin", Some("microsoft"), "twenty_six_key")),
+        "shoudao" => Some(("shuangpin", Some("shoudao"), "twenty_six_key")),
+        "wubi" => Some(("wubi", None, "twenty_six_key")),
+        "japanese" => Some(("japanese", None, "twenty_six_key")),
+        "japaneseNineKey" => Some(("japanese", None, "nine_key")),
+        "korean" => Some(("korean", None, "twenty_six_key")),
         "cantonese" | "zhuyin" | "vietnamese" | "tibetan" | "stroke" => None,
         _ => return Err(AccountError::Storage),
     };
@@ -73,8 +75,9 @@ pub(crate) fn local_account_preferences(
             "simplified"
         },
     );
-    if let Some((_, _, nine_key)) = scheme {
-        insert_bool(&mut settings, "platform.ios.nine_key", nine_key);
+    if let Some((_, _, layout)) = scheme {
+        insert_string(&mut settings, IOS_KEYBOARD_LAYOUT, layout);
+        insert_bool(&mut settings, "platform.ios.nine_key", layout == "nine_key");
     }
     insert_bool(
         &mut settings,
@@ -158,9 +161,16 @@ fn integer_setting(
     }
 }
 
+/// iOS 的触屏布局键，取值与 Android 的 `platform.android.keyboard_layout` 相同。服务端只限它是不超过 32 字节的字符串，以后可能多出别的取值，所以下载时不认识的取值当作没有这一项。
+const IOS_KEYBOARD_LAYOUT: &str = "platform.ios.keyboard_layout";
+const IOS_KEYBOARD_LAYOUTS: [&str; 4] =
+    ["twenty_six_key", "nine_key", "fourteen_key", "handwriting"];
+
 #[derive(Debug, PartialEq)]
 pub(crate) struct IosPreferencePlan {
     input_scheme: Option<String>,
+    /// 云端写着认得的 `platform.ios.keyboard_layout`：方案的键盘布局由它说了算，见 `requested_native`。
+    has_keyboard_layout: bool,
     wubi_profile: Option<WubiProfile>,
     traditional_chinese_output: Option<bool>,
     sound_enabled: Option<bool>,
@@ -179,11 +189,26 @@ impl IosPreferencePlan {
     pub(crate) fn from_cloud(cloud: &AccountPreferences) -> Result<Self, AccountError> {
         validate_account_preferences(cloud)?;
         let values = &cloud.settings;
-        let nine_key = bool_setting(values, "platform.ios.nine_key")? == Some(true);
+        // 有 `keyboard_layout` 时以它为准，没有（旧版本上传的文档、服务端还不认识这个键）时退回 `nine_key`。
+        let layout = string_setting(values, IOS_KEYBOARD_LAYOUT)?
+            .filter(|value| IOS_KEYBOARD_LAYOUTS.contains(&value.as_str()));
+        let nine_key_setting = bool_setting(values, "platform.ios.nine_key")?;
+        let nine_key = match layout.as_deref() {
+            Some(layout) => layout == "nine_key",
+            None => nine_key_setting == Some(true),
+        };
         let mut wubi_profile = None;
         let input_scheme = match string_setting(values, "input.schema")?.as_deref() {
             None => None,
-            Some("quanpin") => Some(if nine_key { "nineKey" } else { "quanpin" }.into()),
+            Some("quanpin") => Some(
+                match layout.as_deref() {
+                    Some("fourteen_key") => "fourteenKey",
+                    Some("handwriting") => "handwriting",
+                    _ if nine_key => "nineKey",
+                    _ => "quanpin",
+                }
+                .into(),
+            ),
             Some("shuangpin") => {
                 let profile = string_setting(values, "input.shuangpin_schema")?
                     .unwrap_or_else(|| "xiaohe".into());
@@ -278,6 +303,7 @@ impl IosPreferencePlan {
             .transpose()?;
         Ok(Self {
             input_scheme,
+            has_keyboard_layout: layout.is_some(),
             wubi_profile,
             traditional_chinese_output,
             sound_enabled: bool_setting(values, "platform.ios.sound_enabled")?,
@@ -301,8 +327,9 @@ impl IosPreferencePlan {
             return Err(AccountError::Storage);
         }
         let mut requested = current.clone();
-        // 云端还没有 14 键自己的键，本机的 14 键上传成全拼、不是九键（`local_account_preferences`）。云端是这一组值时本机的 14 键保留，免得在本机「应用云端设置」把 14 键改回 26 键；云端是九键或别的方案时照常切换。
-        let keeps_fourteen_key = self.input_scheme.as_deref() == Some("quanpin")
+        // 云端写着 `platform.ios.keyboard_layout` 时它就是那台设备选的布局，照常切换，26 键也会把本机的 14 键换掉。没有这一项的文档来自还不上传它的版本，那时 14 键上传成全拼、不是九键：云端是这一组值时本机的 14 键保留，免得在本机「应用云端设置」把 14 键改回 26 键；云端是九键或别的方案时照常切换。
+        let keeps_fourteen_key = !self.has_keyboard_layout
+            && self.input_scheme.as_deref() == Some("quanpin")
             && current.input_scheme == "fourteenKey";
         if let Some(value) = self.input_scheme.as_ref().filter(|_| !keeps_fourteen_key) {
             requested.input_scheme.clone_from(value);
@@ -574,6 +601,10 @@ mod tests {
             assert!(!settings.contains_key("input.schema"), "{scheme}");
             assert!(!settings.contains_key("input.shuangpin_schema"), "{scheme}");
             assert!(!settings.contains_key("platform.ios.nine_key"), "{scheme}");
+            assert!(
+                !settings.contains_key("platform.ios.keyboard_layout"),
+                "{scheme}"
+            );
             assert_eq!(
                 settings["input.character_set"],
                 AccountPreferenceValue::String("traditional".into()),
@@ -641,7 +672,7 @@ mod tests {
         }
     }
 
-    /// 全拼 14 键：原生 id `fourteenKey` 选中全拼的 14 键布局；上传时按全拼、不是九键，云端还没有 14 键自己的键。
+    /// 全拼 14 键：原生 id `fourteenKey` 选中全拼的 14 键布局；上传时按全拼，布局写进 `platform.ios.keyboard_layout`，给旧版本的 `platform.ios.nine_key` 照旧是 false。
     #[test]
     fn the_fourteen_key_scheme_selects_quanpin_on_the_fourteen_key_layout_and_uploads_as_quanpin() {
         use msime_client_core::preferences::ChineseScheme;
@@ -696,6 +727,119 @@ mod tests {
             settings["platform.ios.nine_key"],
             AccountPreferenceValue::Boolean(false)
         );
+        assert_eq!(
+            settings["platform.ios.keyboard_layout"],
+            AccountPreferenceValue::String("fourteen_key".into())
+        );
+    }
+
+    /// 每个全拼入口上传的触屏布局：26 键、九键、14 键和手写各有自己的值，九键开关只在九键时为真。
+    #[test]
+    fn upload_names_the_touch_layout_of_each_quanpin_entry() {
+        for (scheme, layout, nine_key) in [
+            ("quanpin", "twenty_six_key", false),
+            ("nineKey", "nine_key", true),
+            ("fourteenKey", "fourteen_key", false),
+            ("handwriting", "handwriting", false),
+            ("japaneseNineKey", "nine_key", true),
+            ("wubi", "twenty_six_key", false),
+        ] {
+            let mut native = native();
+            native.input_scheme = scheme.into();
+            let settings =
+                local_account_preferences(&native, &Preferences::default(), None).unwrap();
+            assert_eq!(
+                settings["platform.ios.keyboard_layout"],
+                AccountPreferenceValue::String(layout.into()),
+                "{scheme}"
+            );
+            assert_eq!(
+                settings["platform.ios.nine_key"],
+                AccountPreferenceValue::Boolean(nine_key),
+                "{scheme}"
+            );
+        }
+    }
+
+    /// 云端有 `platform.ios.keyboard_layout` 时按它落成方案，写明的 26 键也会换掉本机的 14 键；它和九键开关说法不一时听它的；不认识的取值当作没有，退回九键开关和保留 14 键的规则。
+    #[test]
+    fn applying_cloud_prefers_the_ios_keyboard_layout() {
+        let cloud = |schema: &str, layout: Option<&str>, nine_key: bool| AccountPreferences {
+            revision: 7,
+            settings: BTreeMap::from_iter(
+                [
+                    (
+                        "input.schema".to_owned(),
+                        AccountPreferenceValue::String(schema.into()),
+                    ),
+                    (
+                        "platform.ios.nine_key".to_owned(),
+                        AccountPreferenceValue::Boolean(nine_key),
+                    ),
+                ]
+                .into_iter()
+                .chain(layout.map(|layout| {
+                    (
+                        "platform.ios.keyboard_layout".to_owned(),
+                        AccountPreferenceValue::String(layout.into()),
+                    )
+                })),
+            ),
+        };
+        let requested = |cloud: &AccountPreferences, local: &str| {
+            let mut current = native();
+            current.input_scheme = local.into();
+            IosPreferencePlan::from_cloud(cloud)
+                .unwrap()
+                .requested_native(&current)
+                .unwrap()
+                .input_scheme
+        };
+        assert_eq!(
+            requested(&cloud("quanpin", Some("fourteen_key"), false), "quanpin"),
+            "fourteenKey"
+        );
+        assert_eq!(
+            requested(&cloud("quanpin", Some("handwriting"), false), "quanpin"),
+            "handwriting"
+        );
+        assert_eq!(
+            requested(
+                &cloud("quanpin", Some("twenty_six_key"), false),
+                "fourteenKey"
+            ),
+            "quanpin"
+        );
+        assert_eq!(
+            requested(&cloud("quanpin", Some("twenty_six_key"), true), "quanpin"),
+            "quanpin"
+        );
+        assert_eq!(
+            requested(&cloud("quanpin", Some("nine_key"), false), "quanpin"),
+            "nineKey"
+        );
+        assert_eq!(
+            requested(&cloud("japanese", Some("nine_key"), false), "quanpin"),
+            "japaneseNineKey"
+        );
+        assert_eq!(
+            requested(&cloud("wubi", Some("fourteen_key"), false), "quanpin"),
+            "wubi"
+        );
+        assert_eq!(
+            requested(&cloud("quanpin", Some("twelve_key"), true), "quanpin"),
+            "nineKey"
+        );
+        assert_eq!(
+            requested(&cloud("quanpin", Some("twelve_key"), false), "fourteenKey"),
+            "fourteenKey"
+        );
+        let mut wrong_type = cloud("quanpin", None, false);
+        wrong_type.settings.insert(
+            "platform.ios.keyboard_layout".into(),
+            AccountPreferenceValue::Boolean(true),
+        );
+        assert!(IosPreferencePlan::from_cloud(&wrong_type).is_err());
     }
 
     /// 云端的全拼、不是九键可能就是本机 14 键上传的：本机是 14 键时保留，云端是九键或别的方案时照常切换，本机不是 14 键时照常落成全拼 26 键。
@@ -796,6 +940,10 @@ mod tests {
         assert_eq!(
             settings["platform.ios.nine_key"],
             AccountPreferenceValue::Boolean(true)
+        );
+        assert_eq!(
+            settings["platform.ios.keyboard_layout"],
+            AccountPreferenceValue::String("nine_key".into())
         );
         assert_eq!(
             settings["input.character_set"],

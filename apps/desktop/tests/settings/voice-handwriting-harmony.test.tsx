@@ -410,17 +410,26 @@ test("the phone keyboard page opens with 布局 and its Chinese keyboard choice"
   const page = screen.getByRole("group", { name: "屏幕键盘" });
   await waitFor(() => expect(groupTitles(page)).toContain("按键反馈"));
   const titles = groupTitles(page);
-  expect(titles.slice(0, 2)).toEqual(["布局", "屏幕键盘"]);
-  expect(titles).not.toContain("尺寸");
+  // 「布局」只放键盘的选择；预览、三个滑块和「恢复默认」在同一张「尺寸」卡片里，预览在最上面。
+  expect(titles.slice(0, 2)).toEqual(["布局", "尺寸"]);
+  expect(titles).not.toContain("屏幕键盘");
   const layout = within(page).getByRole("region", { name: "布局" });
-  for (const row of ["中文键盘", "键盘高度", "按键间距", "行间距", "恢复默认"]) {
-    expect(within(layout).getAllByText(row).length).toBeGreaterThan(0);
+  expect(within(layout).getAllByText("中文键盘").length).toBeGreaterThan(0);
+  expect(within(layout).queryByText("键盘高度")).toBeNull();
+  const size = within(page).getByRole("region", { name: "尺寸" });
+  for (const row of ["键盘高度", "按键间距", "行间距"]) {
+    expect(within(size).getAllByText(row).length).toBeGreaterThan(0);
   }
-  expect(within(layout).getByText(/下方预览/)).toBeTruthy();
-  // 预览跟随它所展示的控件。
-  expect(
-    within(within(page).getByRole("region", { name: "屏幕键盘" })).getByLabelText("屏幕键盘预览"),
-  ).toBeTruthy();
+  expect(within(size).getByRole("button", { name: "恢复屏幕键盘默认设置" }).textContent).toBe(
+    "恢复默认",
+  );
+  const preview = within(size).getByRole("group", { name: "屏幕键盘预览" });
+  expect(within(preview).getByText(/在预览上左右拖动/)).toBeTruthy();
+  // 手机上的行只留标题和取值，没有长说明。
+  expect(within(page).queryByText(/26 键按 123 时的数字键盘/)).toBeNull();
+  expect(within(page).queryByText(/高度和间距只改变触屏键位的外观/)).toBeNull();
+  // 高度为 0 时显示「标准」，不显示 dp。
+  expect(within(size).getByText("标准")).toBeTruthy();
   // HarmonyOS 键盘的工具栏上没有语音按钮可供这个开关显示。
   expect(within(page).queryByRole("switch", { name: "顶部语音入口" })).toBeNull();
   expect(shownValue("中文键盘").textContent).toContain("26 键");

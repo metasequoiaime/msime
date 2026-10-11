@@ -23,8 +23,8 @@ export const rowText = "flex min-w-0 flex-1 flex-col gap-0.5";
 export const rowTitle = "block [font-size:var(--p-row-fs)] [color:var(--p-text)]";
 export const rowDescription = "block [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 export const rowControl = "flex shrink-0 items-center gap-2";
-/** 控件要整行宽度的行（文本框）。HarmonyOS 手机只有约 360px 宽，控件放在标题旁边会把说明挤成几个字一行、把地址截断，所以那里控件换到标题下方独占一行；其余平台与 `row` 相同。 */
-export const wideRow = `${row} harmony:flex-wrap`;
+/** 控件要整行宽度的行（文本框、整行滑块）。HarmonyOS 手机只有约 360px 宽，控件放在标题旁边会把说明挤成几个字一行、把地址截断，所以那里控件换到标题下方独占一行，和标题之间只隔 6px；其余平台与 `row` 相同。 */
+export const wideRow = `${row} harmony:flex-wrap harmony:gap-y-1.5`;
 export const wideRowControl = `${rowControl} harmony:w-full harmony:shrink`;
 /** 跳转行：整行是一个按钮，外形与 `row` 相同，悬停时变色。 */
 export const linkRow = `${row} w-full cursor-pointer border-0 text-left hover:bg-[var(--p-hover)]`;

@@ -81,13 +81,7 @@ public final class AppleWebSignIn {
 
     /** 回调里的 grant：服务端生成的 32 字节 base64url（43 个字符），只接受这个形状。 */
     public static boolean validGrant(String grant) {
-        if (grant == null || grant.length() < 32 || grant.length() > MAX_GRANT_LENGTH) return false;
-        for (int index = 0; index < grant.length(); index++) {
-            char c = grant.charAt(index);
-            boolean allowed = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_';
-            if (!allowed) return false;
-        }
-        return true;
+        return TextPolicy.validAsciiToken(grant, 32, MAX_GRANT_LENGTH);
     }
 
     /**

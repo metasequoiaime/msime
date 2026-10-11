@@ -1,3 +1,4 @@
+import { downloadBlob } from "../core/download-blob";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ActionSheet } from "../core/action-sheet";
 import { useConfirm } from "../core/confirm";
@@ -377,12 +378,7 @@ async function exportUserPinyin(
       const path = await saveExport(name, payload.body);
       return path === null ? "" : `已导出 ${formatZhNumber(payload.rows)} 条`;
     }
-    const url = URL.createObjectURL(new Blob([payload.body], { type: "text/plain;charset=utf-8" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = name;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(new Blob([payload.body], { type: "text/plain;charset=utf-8" }), name);
     return `已导出 ${formatZhNumber(payload.rows)} 条`;
   } catch (error) {
     return error instanceof Error && error.message && !error.message.startsWith("dictionary_")

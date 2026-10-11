@@ -59,4 +59,14 @@ public final class BoundsPolicy {
         return Math.max(value, minimum);
     }
 
+    /** Validate a bounded page cursor without allowing backward or skipped pages. */
+    public static boolean validPageCursor(int requestedOffset, int count, int pageSize,
+            long nextOffset, boolean complete) {
+        return requestedOffset >= 0 && pageSize > 0 && count >= 0 && count <= pageSize
+            && nextOffset >= requestedOffset
+            && nextOffset <= (long) requestedOffset + pageSize
+            && nextOffset <= Integer.MAX_VALUE
+            && (complete || nextOffset > requestedOffset);
+    }
+
 }

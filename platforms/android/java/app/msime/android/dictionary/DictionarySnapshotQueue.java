@@ -139,9 +139,7 @@ public final class DictionarySnapshotQueue {
     }
 
     private static boolean validOwner(String value) {
-        if ("legacy".equals(value)) return true;
-        try { return UUID.fromString(value).toString().equals(value); }
-        catch (IllegalArgumentException error) { return false; }
+        return JsonPolicy.snapshotOwnerUuid(value);
     }
 
     public static boolean validDigest(String value) {

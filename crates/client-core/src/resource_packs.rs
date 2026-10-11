@@ -435,7 +435,7 @@ pub fn list(state_root: &Path) -> Vec<ResourcePackStatus> {
 
 /// 本项目自己的下载镜像前缀，按顺序排在用户镜像之后、锁文件原地址之前。形式与用户镜像相同（`https://mirror/` 加原地址）。镜像只提供字节，完整性始终按编译进来的锁文件校验。
 ///
-/// `dl.msime.app` 是阿里云 OSS 香港的 bucket（msime-web 的 README「国内镜像」）：国内连 GitHub Release 常常只有几十 KB/s。`gh/` 下按原地址存放 msime-dictionary 和 chinese-ime-lm 的 release 资产，没缓存过的文件由 OSS 回源 GitHub 取一次后留存。sherpa-onnx 和 msime-engine 原始文件不在镜像范围内，镜像对它们答 403，按换源规则落到原地址。
+/// `dl.msime.app` 是 Cloudflare R2 前面的一个 Worker（msime-web 的 README「国内镜像」）：国内连 GitHub Release 常常只有几十 KB/s。`gh/` 下按原地址存放放行名单里的文件（msime-dictionary、chinese-ime-lm 和 sherpa-onnx 的 release 资产，以及钉在提交上的 msime-engine raw 文件），没缓存过的由 Worker 从 GitHub 取一次后留存。名单之外的地址镜像答 403，按换源规则落到原地址。
 pub const PROJECT_MIRRORS: &[&str] = &["https://dl.msime.app/gh/"];
 
 /// 一个文件依次尝试的镜像前缀：先是用户填的 `mirrors`（空串跳过），再是 [`PROJECT_MIRRORS`]；都失败后用锁文件里的原地址。

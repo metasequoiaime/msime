@@ -408,6 +408,17 @@ export class GlobalTheme {
   }
 
   /** The catalog entry for an id, or `null` when the catalog does not carry it. */
+  /** 固定明暗的主题只属于那一种明暗：浅色模式下不提供深色主题，深色模式下不提供浅色主题，否则键盘和周围的界面颜色反着，风格割裂。`system` 和 `custom` 没有固定明暗，两种模式都提供。 */
+  static fitsMode(appearance: string | null, dark: boolean): boolean {
+    return appearance === null || (appearance === "dark") === dark;
+  }
+
+  /** 某一明暗下实际生效的全局主题：所选主题属于另一种明暗时按 `system` 画。 */
+  static effectiveId(catalog: ThemeCatalogEntry[], id: string, dark: boolean): string {
+    const chosen: ThemeCatalogEntry | null = GlobalTheme.entry(catalog, id);
+    return chosen !== null && !GlobalTheme.fitsMode(chosen.appearance, dark) ? "system" : id;
+  }
+
   static entry(catalog: ThemeCatalogEntry[], id: string): ThemeCatalogEntry | null {
     for (const entry of catalog) {
       if (entry.id === id) {

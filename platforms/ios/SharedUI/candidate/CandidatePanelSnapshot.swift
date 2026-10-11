@@ -21,6 +21,20 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
     case invalidResponse
   }
 
+  /// 换了一代之后，是不是只有 AI 座位上那一行变了：「…」换成「—」或换成 AI 候选，同一批多出来的 AI 候选接在末尾，组字和其余每一行都没动。展开的候选网格据此留着、原地换上新的一代，而不是在用户看着它时收起（#6888）。
+  func onlyTheAISeatChanged(since previous: CandidatePanelSnapshot) -> Bool {
+    guard preedit == previous.preedit, entries.count >= previous.entries.count,
+          previous.entries.contains(where: { $0.source == CandidateMarker.aiPendingSource }) else { return false }
+    for (old, new) in zip(previous.entries, entries) {
+      if old.source == CandidateMarker.aiPendingSource {
+        guard new.source == CandidateMarker.aiPendingSource || new.source == CandidateMarker.aiSource else { return false }
+      } else if old.text != new.text || old.source != new.source {
+        return false
+      }
+    }
+    return entries.dropFirst(previous.entries.count).allSatisfy { $0.source == CandidateMarker.aiSource }
+  }
+
   static func decode(_ value: [String: Any]) throws -> CandidatePanelSnapshot {
     guard let generationValue = value["generation"] as? NSNumber,
           let generation = CandidateGlossModel.integerValue(generationValue, maximum: UInt64.max),

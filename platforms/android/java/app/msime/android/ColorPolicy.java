@@ -90,4 +90,12 @@ public final class ColorPolicy {
         long parsed = Long.parseLong(value.substring(1), 16);
         return value.length() == 7 ? 0xff000000 | (int) parsed : (int) parsed;
     }
+
+    /** Parse the shared contract's RGB or alpha-last RGBA string into Android ARGB. */
+    public static Integer contractArgb(String value) {
+        if (value == null || !value.matches("#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}")) return null;
+        long parsed = Long.parseLong(value.substring(1), 16);
+        if (value.length() == 7) return (int) (0xFF000000L | parsed);
+        return (int) (((parsed & 0xFF) << 24) | (parsed >>> 8));
+    }
 }

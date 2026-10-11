@@ -1,7 +1,10 @@
 package app.msime.android;
 
+import java.util.UUID;
+
 /** Shared strict interpretations for values read from untyped JSON documents. */
 public final class JsonPolicy {
+    private static final UUID NIL_UUID = new UUID(0L, 0L);
     private JsonPolicy() {}
 
     /** Accept only the JSON boolean {@code true}; strings and numbers are not truthy. */
@@ -34,6 +37,28 @@ public final class JsonPolicy {
     /** Accept only a JSON string, using an empty string for every other value. */
     public static String strictStringOrEmpty(Object value) {
         return strictString(value, "");
+    }
+
+    /** Accept a canonical UUID in either letter case, except for the all-zero UUID. */
+    public static boolean nonNilUuid(String value) {
+        if (value == null) return false;
+        try {
+            UUID parsed = UUID.fromString(value);
+            return !NIL_UUID.equals(parsed) && parsed.toString().equalsIgnoreCase(value);
+        } catch (IllegalArgumentException error) {
+            return false;
+        }
+    }
+
+    /** Accept a canonical lower-case UUID, or the snapshot queue's legacy owner marker. */
+    public static boolean snapshotOwnerUuid(String value) {
+        if ("legacy".equals(value)) return true;
+        if (value == null) return false;
+        try {
+            return UUID.fromString(value).toString().equals(value);
+        } catch (IllegalArgumentException error) {
+            return false;
+        }
     }
 
     /** Accept only a JSON integer that fits in a Java int. */

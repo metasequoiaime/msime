@@ -11,6 +11,8 @@ public final class VoiceRequestPolicySmoke {
             "language is bounded by UTF-8 bytes rather than UTF-16 units");
         check(VoiceRequestPolicy.valid("x".repeat(64), "l".repeat(64)),
             "the shared 64-byte ceilings remain inclusive");
+        check(VoiceRequestPolicy.valid("fixture-request-1", " "),
+            "a non-empty language keeps its historical whitespace allowance");
         check(!VoiceRequestPolicy.valid("x".repeat(65), "zh-CN"),
             "request ids over 64 bytes are refused");
         System.out.println("Android voice request policy passed");

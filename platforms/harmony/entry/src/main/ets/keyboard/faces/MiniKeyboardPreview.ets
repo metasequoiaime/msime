@@ -1,7 +1,8 @@
 /** 设计稿 MiniKb 的虚拟画布；缩略图里的一切都按这个单位排版，再按缩略图的宽度缩放。 */
 const MINI_WIDTH: number = 390;
 const MINI_HEIGHT: number = 292;
-const MINI_PADDING: number = 3;
+/** 键行左右的内边距。设计稿是 3，但面板里的缩略图只有 80vp 左右宽，3 个单位不到 1vp，最外侧的键贴着描边、底排两角的键被圆角切掉，所以这里加宽到 10。 */
+const MINI_PADDING: number = 10;
 const TOOLBAR_HEIGHT: number = 50;
 const TOOLBAR_GAP: number = 8;
 const TOOLBAR_COLUMNS: number = 7;
@@ -14,9 +15,11 @@ const KEY_RADIUS: number = 5;
 /** 第二排字母键两侧各向内缩进一行宽度的 5%，和真实键盘一致。 */
 const MIDDLE_ROW_INSET: number = 0.05;
 const THUMB_RADIUS_VP: number = 9;
-/** 在缩略图上方和两侧给选中环留出的空间，让环永远碰不到格子边缘，否则网格或 swiper 会把它裁掉。缩略图下方由到名称的间距容纳它。 */
-const RING_ROOM_VP: number = 2;
-const NAME_GAP_VP: number = 6;
+/** 选中环和缩略图之间的间隙，透出面板底色，对应设计稿 `box-shadow: 0 0 0 2px <页面底色>, 0 0 0 4px <强调色>` 里的第一圈。没有它，环直接贴着缩略图，看上去像压住了两侧的按键。 */
+const RING_GAP_VP: number = 2;
+/** 选中环本身的宽度。间隙和环在每张卡片上都占着位置（未选中时透明），选中时卡片不会变大，环也不会伸出格子被网格裁掉。 */
+const RING_VP: number = 2;
+const NAME_GAP_VP: number = 4;
 const NAME_FONT_SIZE: number = 12;
 
 /** 迷你键的填充方式。 */
@@ -60,7 +63,7 @@ const MINI_ROWS: MiniKey[][] = [
  *
  * 缩略图保持设计稿 MiniKb 的 390:292 比例、圆角 9，在那块 390 单位宽的画布上排版并按自身宽度缩放：工具栏的品牌块用 `accent`，然后是 `keyboardBackground` 上四排 `keyFill` 圆角格子，其中 ⇧、⌫、123 和 中 用 `functionKey`，回车键用 `accent`。键面文字、工具栏图标和 home indicator 都不画：它们需要皮肤的文字颜色，而选择器格子拿不到；在这个尺寸下，区分皮肤靠的正是色块。
  *
- * 名称在缩略图下方 6vp，字号 12fp。选中时缩略图外围是 2vp 的 `accent` 环，名称用 `accent`、字重 600；否则环是 1vp 的 `hair`，名称用 `nameColor`（面板的文字颜色，设计稿叫 `kb.fg`）、字重 400。环画在缩略图外侧，落在格子在上方和两侧保留的 2vp 内边距里，所以相邻格子之间的间距可以相应减少（见 `PagedTiles`）。按下时格子缩小到 .96，和设计稿一致。
+ * 名称在选中环下方 4vp，字号 12fp。选中时缩略图外侧隔 2vp 间隙是 2vp 的 `accent` 环，名称用 `accent`、字重 600；否则缩略图外侧是 1vp 的 `hair` 细线，名称用 `nameColor`（面板的文字颜色，设计稿叫 `kb.fg`）、字重 400。间隙和环在格子四周各占 4vp，不管选没选中都占着，所以相邻格子之间的间距可以相应减少（见 `PagedTiles`）。按下时格子缩小到 .96，和设计稿一致。
  */
 @Component
 export struct MiniKeyboardPreview {
@@ -93,12 +96,7 @@ export struct MiniKeyboardPreview {
     return row === 1 ? (MINI_WIDTH - MINI_PADDING * 2) * MIDDLE_ROW_INSET * this.unit() : 0;
   }
 
-  private ringWidth(): number {
-    return this.selected ? 2 : 1;
-  }
-
   build() {
-    // 选中环落在名称上方 6vp 的间距里，和设计稿的 box-shadow 环一样。
     Column({ space: NAME_GAP_VP }) {
       Column() {
         Column({ space: TOOLBAR_GAP * this.unit() }) {
@@ -142,16 +140,18 @@ export struct MiniKeyboardPreview {
         .borderRadius(THUMB_RADIUS_VP)
         .backgroundColor(this.keyboardBackground)
         .clip(true)
+        // 未选中时缩略图外侧一条细线，与设计稿的 `box-shadow: 0 0 0 1px` 一致。
+        .outline({ width: this.selected ? 0 : 1, color: this.hair, radius: THUMB_RADIUS_VP + 1 })
         .onAreaChange((_old: Area, now: Area): void => {
           this.thumbWidth = Number(now.width);
         })
       }
       .width('100%')
-      // 画在缩略图外侧，对应设计稿的 `box-shadow: 0 0 0 2px`，这样环永远不会盖住缩略图。
-      .outline({
-        width: this.ringWidth(),
-        color: this.selected ? this.accent : this.hair,
-        radius: THUMB_RADIUS_VP + this.ringWidth()
+      .padding(RING_GAP_VP)
+      .border({
+        width: RING_VP,
+        color: this.selected ? this.accent : Color.Transparent,
+        radius: THUMB_RADIUS_VP + RING_GAP_VP + RING_VP
       })
 
       Text(this.name)
@@ -164,7 +164,6 @@ export struct MiniKeyboardPreview {
         .width('100%')
     }
     .width('100%')
-    .padding({ left: RING_ROOM_VP, right: RING_ROOM_VP, top: RING_ROOM_VP })
     .stateStyles({
       normal: {
         .scale({ x: 1, y: 1 })

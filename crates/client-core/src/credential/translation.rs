@@ -171,7 +171,7 @@ pub fn test(
     }
 }
 
-/// DeepL 用状态码区分常见错误，测试按钮据此给出能照着改的提示；只用状态码，不转述服务端正文。鸿蒙设置页的 `deepLFailure` 有一份逐字相同的文案，改这里要一起改，scripts/test-harmony-custom-translation-probe.py 会核对。
+/// DeepL 用状态码区分常见错误，测试按钮据此给出能照着改的提示；只用状态码，不转述服务端正文。鸿蒙设置页拿不到这个函数，`CustomTranslationProbePolicy.failureMessage` 有一份逐字相同的文案，改这里要一起改：scripts/test-harmony-custom-translation-probe.py 和 platforms/harmony/tests/custom-translation-probe.test.ts 都会核对。
 fn deepl_failure_message(status: Option<u16>) -> &'static str {
     match status {
         Some(403) => {

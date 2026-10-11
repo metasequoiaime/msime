@@ -15,7 +15,7 @@ const DOTS_GAP_VP: number = 8;
  * 三个键盘面板这样使用它：
  * - 功能面板（功能）：`rowHeight` 52，使用默认间距（行间 16、列间 4），每格一个 `PanelTile`。
  * - 方案选择（输入方式）：与功能面板相同，每格是带 9/26 下标的 `PanelTile` 字形框。
- * - 皮肤选择（皮肤）：每格一个 `MiniKeyboardPreview`，`rowHeight` 约 92，`topPadding` 6，`rowsGap` 4，`columnsGap` 6。设计稿的间距是行间 6、缩略图之间 10，但每个预览在缩略图上方和两侧各留了 2vp 给选中环，所以网格的行间距小 2（只有下方的缩略图有这段边距），列间距小 4。
+ * - 皮肤选择（皮肤）：每格一个 `MiniKeyboardPreview`，`topPadding` 4，`rowsGap` 2，`columnsGap` 至少 6。设计稿的间距是行间 6、缩略图之间 10，但每个预览在缩略图四周各留了 4vp 给选中环，所以网格的行间距小 4，列间距小 8（列间距按屏宽撑开，通常大于这个值）。
  */
 @Component
 export struct PagedTiles {

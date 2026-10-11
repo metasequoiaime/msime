@@ -346,17 +346,56 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertNotEqual(OnlineCandidateProvider.signature(query), OnlineCandidateProvider.signature(aiIneligible))
   }
 
-  func testCloudSuccessStillAllowsRetryWhenAIHasNoAnswer() {
-    XCTAssertTrue(
-      OnlineCandidateProvider.shouldRetryAfterFetch(
-        cloudRequested: true, cloudApplied: true, aiRequested: true, aiApplied: false),
-      "云候选成功但 AI 没有结果时必须释放签名，以便同一组字重试 AI")
-    XCTAssertFalse(
-      OnlineCandidateProvider.shouldRetryAfterFetch(
-        cloudRequested: true, cloudApplied: true, aiRequested: true, aiApplied: true))
-    XCTAssertFalse(
-      OnlineCandidateProvider.shouldRetryAfterFetch(
-        cloudRequested: true, cloudApplied: true, aiRequested: false, aiApplied: false))
+  /// 只有云候选失败才重试；AI 没有结果时占位行已经换成「—」，同一组字不再问（#6888）。
+  func testOnlyACloudFailureIsRetried() {
+    XCTAssertTrue(OnlineCandidateProvider.shouldRetryAfterFetch(cloudRequested: true, cloudApplied: false))
+    XCTAssertFalse(OnlineCandidateProvider.shouldRetryAfterFetch(cloudRequested: true, cloudApplied: true))
+    XCTAssertFalse(OnlineCandidateProvider.shouldRetryAfterFetch(cloudRequested: false, cloudApplied: false))
+  }
+
+  /// AI 回答为空：AI 座位上的「…」换成「—」，之后同一组字的重画不再向 AI 发请求，组字变了才再问（#6888）。
+  func testAnEmptyAIAnswerResolvesTheSeatAndIsNotAskedAgain() throws {
+    CloudCandidatePreference.enabled = false
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0["ai_assistant"] = ["enabled": true, "provider": "custom", "model": "synthetic-model",
+                            "endpoint": "https://ai.example.invalid/v1/chat/completions", "candidate_limit": 1]
+    })
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(bridge.setAICredential("synthetic-token"))
+    let transport = CountingTransport(body: Data(#"{"choices":[{"message":{"content":"{\"candidates\":[]}"}}]}"#.utf8))
+    let provider = OnlineCandidateProvider(session: bridge, transport: transport)
+
+    _ = bridge.cancel()
+    var typed: MetasequoiaInputSnapshot?
+    for letter in "nihao" { typed = bridge.handleCharacter(String(letter)) }
+    let waiting = try XCTUnwrap(typed)
+    let seat = try XCTUnwrap(waiting.candidates.firstIndex(of: "…"), "an AI seat is reserved before the answer: \(waiting.candidates)")
+    XCTAssertEqual(waiting.candidateSources[seat], CandidateMarker.aiPendingSource)
+    let resolved = expectation(description: "placeholder resolved")
+    var candidates: [String] = []
+    provider.onApplied = { candidates = $0.candidates; resolved.fulfill() }
+    provider.refresh(allowed: true)
+    wait(for: [resolved], timeout: 5)
+    XCTAssertTrue(candidates.contains("—"), "\(candidates)")
+    XCTAssertFalse(candidates.contains("…"))
+    XCTAssertEqual(transport.callCount, 1)
+
+    // 键盘之后的每次重画都会调 refresh：同一组字不再发请求。
+    provider.onApplied = nil
+    for _ in 0..<3 {
+      provider.refresh(allowed: true)
+      RunLoop.main.run(until: Date().addingTimeInterval(OnlineCandidateProvider.quietInterval + 0.2))
+    }
+    XCTAssertEqual(transport.callCount, 1)
+
+    let askedAgain = expectation(description: "a new composition asks again")
+    provider.onApplied = { _ in askedAgain.fulfill() }
+    type(bridge, "zhongguo")
+    provider.refresh(allowed: true)
+    wait(for: [askedAgain], timeout: 5)
+    XCTAssertEqual(transport.callCount, 2)
+    provider.cancel()
   }
 
   private func type(_ bridge: MetasequoiaInputSessionBridge, _ letters: String) {
@@ -376,6 +415,21 @@ private final class RecordingTransport: OnlineCandidateTransport, @unchecked Sen
 
   func fetch(_ request: OnlineCandidateRequest) async -> Data? {
     lock.withLock { recorded.append(request) }
+    return body
+  }
+}
+
+private final class CountingTransport: OnlineCandidateTransport, @unchecked Sendable {
+  private let body: Data
+  private let lock = NSLock()
+  private var calls = 0
+
+  init(body: Data) { self.body = body }
+
+  var callCount: Int { lock.withLock { calls } }
+
+  func fetch(_ request: OnlineCandidateRequest) async -> Data? {
+    lock.withLock { calls += 1 }
     return body
   }
 }

@@ -228,6 +228,12 @@ public final class MSIMEInputService extends InputMethodService {
     // 会话的 `preferences_directory`（state_root）：随包没有的非英文离线释义从它下面下载的 offline-glosses 资源包里读。
     private String candidateGlossStateRoot = "";
     private String onlineSignature = "";
+    /**
+     * 问过 AI 却没有结果、占位行已换成「—」的那次请求的签名：同一组字不再向 AI 发请求，只在本地把占位行再换成「—」（#6888）。
+     *
+     * <p>失败后释放 {@link #onlineSignature} 是为了让云候选下次渲染时重试；没有这一条，AI 会跟着在每次渲染时重问；释义到达、设置轮询都会重画，模拟器上一个回答为空的组字因此每秒发一次 AI 请求。组字一变就清掉，回到这个组字时重新问。
+     */
+    private volatile String aiResolvedSignature = "";
     /** Read from the online worker as an early-out, so it must not tear across threads. */
     private volatile long onlineEpoch;
     private Runnable onlineTask;
@@ -2222,7 +2228,9 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousPreferencesReady = preferencesSnapshot != null;
         String previousView = view == null ? "" : view.toString();
         String previousNotice = preferencesNotice;
-        String previousSkin = skin.key();
+        // 比的是实际画出来的皮肤（经应用主题着色后），不是 `skin.key()`：渲染时 `skin` 被换成当季配色，重读时又按偏好重建回 classic 基础色，两者永远不等（见 KeyboardSkin#displayKey）。
+        String previousSkin = skin.displayKey(imeStyler.appThemeSeed());
+        AndroidLocalSettings.Snapshot previousLocalSettings = localSettings;
         String previousAppearance = candidateAppearanceKey();
         String previousGeometry = touchGeometryKey();
         AiPolishConfiguration previousAi = aiPolishConfiguration;
@@ -2247,7 +2255,9 @@ public final class MSIMEInputService extends InputMethodService {
         }
         offerRecentClipOnHistoryEnabled(previousClipboard);
         if (previousPreferencesReady != (preferencesSnapshot != null)
-                || !previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.key())
+                || !previousNotice.equals(preferencesNotice)
+                || !previousSkin.equals(skin.displayKey(imeStyler.appThemeSeed()))
+                || !previousLocalSettings.equals(localSettings)
                 || !previousAppearance.equals(candidateAppearanceKey())
                 || !previousGeometry.equals(touchGeometryKey())
                 || (previousAi == null ? aiPolishConfiguration != null
@@ -2268,6 +2278,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void applyPreferencesSnapshot(JSONObject snapshot) throws JSONException {
         refreshLocalSettings();
+        // 应用主题在本地设置里，季节随月份变：每次重读都按刚读到的本地设置重新解析种子，下面的候选条外观和 reloadPreferences 的皮肤比较才用的是同一个当前种子。渲染时的 refreshSeasonIfNeeded 一分钟才查一次，只靠它的话设置页换了应用主题，键盘最多要等一分钟。
+        imeStyler.refreshAppTheme(true);
         JSONObject previousPreferences = preferencesSnapshot == null
             ? null : preferencesSnapshot.optJSONObject("preferences");
         boolean previousCloudCandidates = previousPreferences == null
@@ -2945,6 +2957,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** Invalidate delayed and in-flight optional provider work at an editor boundary. */
     private void invalidateOnlineProviders() {
         onlineSignature = "";
+        aiResolvedSignature = "";
         if (onlineTask != null) {
             main.removeCallbacks(onlineTask);
             onlineTask = null;
@@ -3052,9 +3065,12 @@ public final class MSIMEInputService extends InputMethodService {
         String signature = OnlineCandidatePolicy.signature(querySession,
             query.optString("cache_key", ""), query.optString("identity", ""),
             InputViewValuePolicy.booleanValue(query, "cloud_candidates", false),
+            InputViewValuePolicy.booleanValue(query, "cloud_eligible", false),
+            InputViewValuePolicy.booleanValue(query, "ai_eligible", false),
             InputViewValuePolicy.booleanValue(assistant, "enabled", false) ? assistant.toString() : "");
         if (signature.equals(onlineSignature)) return;
         onlineSignature = signature;
+        if (!signature.equals(aiResolvedSignature)) aiResolvedSignature = "";
         if (onlineTask != null) main.removeCallbacks(onlineTask);
         onlineEpoch = onlineEpoch == Long.MAX_VALUE ? 0 : onlineEpoch + 1;
         final long epoch = onlineEpoch;
@@ -3107,6 +3123,8 @@ public final class MSIMEInputService extends InputMethodService {
             }
             final String queryDocument = aiDocument;
             aiResolveDocument = aiDocument;
+            // 这个组字问过 AI 而没有结果：不再发请求，finally 只把占位行换成「—」。
+            if (requestSignature.equals(aiResolvedSignature)) return;
             JSONObject descriptor = aiRequestDescriptor(onSessionThread(targetSession, epoch,
                 () -> NativeClient.aiRequestForQuery(targetSession, queryDocument)));
             if (descriptor == null) return;
@@ -3127,6 +3145,9 @@ public final class MSIMEInputService extends InputMethodService {
                 final String resolveDocument = aiResolveDocument;
                 applyOnlineResult(targetSession, epoch,
                     () -> NativeClient.resolveOnlineCandidates(targetSession, resolveDocument, 1));
+                // AI 这一边到此为止：只有云候选失败时才释放签名重试，重试也不再问 AI（见 aiResolvedSignature）。
+                aiResolvedSignature = requestSignature;
+                aiComplete = true;
             }
             if (!cloudComplete || !aiComplete)
                 releaseOnlineSignatureIfCurrent(requestSignature, epoch, targetSession);
@@ -4551,7 +4572,7 @@ public final class MSIMEInputService extends InputMethodService {
     /**
      * The global theme's keyboard resolved for one panel's own light/dark setting.
      *
-     * <p>An explicit `dark` or `light` on the surface wins; `follow` inherits the app mode (`theme`), and a `system` app mode follows the Android night mode. A missing or unknown value is `follow`, so an older snapshot keeps the keyboard's appearance rather than jumping to light. A theme with a fixed appearance then overrides that mode, which is what the shared resolver's `appearance` says.
+     * <p>面板自己的 `dark` 或 `light` 优先；`follow` 跟随应用的明暗（`theme`），应用为 `system` 时跟随 Android 的夜间模式。缺失或不认识的值按 `follow` 处理，旧快照因此保持键盘原来的明暗，不会跳回浅色。所选主题属于另一种明暗时按 `system` 画（{@link KeyboardSkin#effectiveTheme}），键盘因此始终和这块面板的明暗一致。
      */
     private KeyboardSkin surfaceSkin(JSONObject preferences, String key) {
         String surfaceMode = preferences == null ? "follow" : preferences.optString(key, "follow");
@@ -4562,7 +4583,7 @@ public final class MSIMEInputService extends InputMethodService {
             : InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONObject customTheme = preferences == null ? null
             : preferences.optJSONObject("custom_theme");
-        return themeSkin(globalTheme, customTheme, dark);
+        return themeSkin(KeyboardSkin.effectiveTheme(themeCatalog(), globalTheme, dark), customTheme, dark);
     }
 
     /**
@@ -6636,15 +6657,19 @@ public final class MSIMEInputService extends InputMethodService {
         configureCandidateTextLayout(button, labelLines);
         KeyboardTypographyPolicy.setKeyTextSize(button, candidateFontSize);
         ViewPolicy.setSelected(button, highlighted);
-        // AI 座位上的占位行（Engine 候选来源 12，「…」或「—」）画淡一些，和真候选区分开；按钮会复用，其他候选恢复不透明（#6888）。
-        button.setAlpha(InputViewValuePolicy.integer(candidate, "source", -1) == 12 ? 0.45f : 1f);
+        // AI 座位上的占位行（Engine 候选来源 12，「…」或「—」）画淡一些，和真候选区分开；按钮会复用，其他候选恢复不透明。读屏念它的状态，不提示长按管理（#6888）。
+        int source = InputViewValuePolicy.integer(candidate, "source", -1);
+        button.setAlpha(AiPendingCandidatePolicy.alpha(source));
         // render() attaches the button and applies the complete skin tree once below.
         // Avoid creating its candidate drawables before that pass.
-        String description = "候选 " + (slot + 1) + "：" + text
-            + candidateAccessibilitySuffix(candidate, typed);
+        String description = AiPendingCandidatePolicy.description(source, "候选 " + (slot + 1) + "：", text,
+            candidateAccessibilitySuffix(candidate, typed));
         JSONObject id = candidate.optJSONObject("id");
         button.setContentDescription(id != null && candidateManagementEnabled()
+                && AiPendingCandidatePolicy.offersMenu(source)
             ? description + "；长按管理" : description);
+        // 按钮会复用：占位行不可长按，读屏也就不提示长按；换回真候选时恢复。
+        button.setLongClickable(AiPendingCandidatePolicy.offersMenu(source));
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(highlighted ? "已选中" : "未选中");
         ViewPolicy.setEnabled(button, id != null);
@@ -8089,6 +8114,7 @@ public final class MSIMEInputService extends InputMethodService {
      */
     private void restartSessionForPrivacy() {
         if (session == 0 || runtimeOptionsBase.isEmpty()) return;
+        long startGeneration = ++engineStartGeneration;
         if (connection != null && view != null && !InputViewValuePolicy.editingText(view).isEmpty())
             command(FINISH_COMPOSITION_COMMAND);
         boolean panelOpen = ViewPolicy.isVisible(moreToolsScroll);
@@ -8100,11 +8126,13 @@ public final class MSIMEInputService extends InputMethodService {
             if (learningSuppressed()) options.getJSONObject("preferences").put("learning", false);
             runtimeOptionsForSnapshot = options.toString();
             message = "共享运行时准备中";
-            scheduleEngineStartup(runtimeOptionsForSnapshot, ++engineStartGeneration);
+            scheduleEngineStartup(runtimeOptionsForSnapshot, startGeneration);
         } catch (JSONException error) {
             message = "共享运行时未就绪：仅直接输入";
         }
     }
+
+    long inputLifecycleGeneration() { return engineStartGeneration; }
 
     /** 功能面板的手写：切到手写方案；已经是手写时切回上一个中文方案。 */
     void toggleHandwritingScheme() {

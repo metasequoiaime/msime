@@ -29,9 +29,11 @@ Host API 在 AI 请求真的发得出去时打开：AI 开着、接口地址有�
 | Windows | 序号色，无右键动作 | `AiCandidateWorker` 对发问了的查询把空回答和异常交给 `SessionController` |
 | Linux IBus | 序号色，无主题色时灰色 | 网络请求（不是只查缓存的探测）落空；没有在线服务或私密输入框 |
 | Linux Fcitx5 | 斜体、DontCommit（文本格式没有颜色） | 同上 |
-| Android | 候选条和展开的候选面板都是按钮 0.45 透明度 | 向 AI 发问了却没有采用回答 |
-| iOS | 候选条和展开的候选网格都是次要色，读屏念「AI 候选等待中 / 没有结果」 | 同上；宿主不让发问（没有完全访问权限）时 |
+| Android | 候选条和展开的候选面板都是按钮 0.45 透明度，读屏念「AI 候选等待中 / 没有结果」，不可长按；在展开的面板里点它不收起面板（`AiPendingCandidatePolicy`） | 向 AI 发问了却没有采用回答 |
+| iOS | 候选条和展开的候选网格都是次要色，读屏念「AI 候选等待中 / 没有结果」；网格开着时座位变了就原地刷新，不收起、不跳回开头 | 同上；宿主不让发问（没有完全访问权限）时 |
 | HarmonyOS | 次要色 | 向 AI 发问了却没有采用回答 |
+
+Android、iOS、HarmonyOS 都记下 resolve 过的那次请求的签名（`aiResolvedSignature`）：同一组字之后不再向 AI 发请求，云候选失败触发的重试也只重问云候选，AI 那一边只在本地再 resolve 一次；签名一变（组字变了、AI 设置变了）就清掉，回到原来的组字时重新问。三个宿主原来在 AI 失败后都释放签名、在下一次渲染时重问，这是 #6888 之前为「云候选成功掩盖了 AI 失败」加的重试（iOS `cd033bdd57`）；有了「—」之后它和上面「留到组字变化为止」矛盾，而 Android 键盘在模拟器上每秒都重画一次，一个回答为空的组字因此每秒发一次 AI 请求。
 
 同一批修了 macOS 的 `MSIMEViewContainsAICandidate`：它按 `source == 1` 判断，而视图里的 source 是 Engine 的 CandidateSource，1 是用户词库，AI 是 3，候选里有用户词时 AI 缓存一直被跳过。
 
@@ -50,7 +52,7 @@ Host API 在 AI 请求真的发得出去时打开：AI 开着、接口地址有�
 
 - 开着 AI 并配好密钥时，每个可以问 AI 的组字都占一个座位（没有英文、云候选时是第 2 个，有英文时第 3 个），即使最后没有回答。
 - 同一批多出来的 AI 候选排到列表末尾，通常不在第一页；`candidate_limit` 默认 3 的用户第一页只看到一条 AI 候选。
-- 回答失败后同一组字不再重试（macOS 原来会在下次渲染时重发），组字一变就重新问。
+- 回答失败后同一组字不再重试（macOS 原来会在下次渲染时重发，Android、iOS、HarmonyOS 原来会在下次渲染时重问，见上文），组字一变就重新问。一次偶然的网络失败因此要等组字变了才再问。
 - 引擎回答在线批次的顺序变了：`online_batch.rs`、`positions.rs` 和 input-runtime 的座位测试改了期望，golden 基准里没有多条 AI 的批次，不受影响。
 - 没处理：desktop 的落定重排（`rerank_settled`，默认关）在回答到达后会被普通刷新覆盖一次，再在下一次停顿后重排，开着它的用户仍可能看到一次次序变化。
 - 与 [英文、emoji 跟着它描绘的词](../feature/2026-10-08-expressive-rows-follow-their-word.md) 部分重叠：英文优先位「有 AI 候选时再往后一位」现在也包括占位行。
@@ -61,3 +63,4 @@ Host API 在 AI 请求真的发得出去时打开：AI 开着、接口地址有�
 - `cargo test -p msime-input-runtime`：`several_candidates_from_one_provider_take_their_seat_as_a_group` 的座位与末尾、真 Engine 上回答前后同页候选不动、数字键不上屏、resolve 后组字变化回到「…」，以及重排模型不比较来源 3 和 12。
 - `cargo test -p msime-host-api`：没有密钥不留座位，会话密钥一到就留，resolve 只认来源 1，关掉 AI 立刻去掉占位行。
 - macOS `ctest`（149 项）里 `shortcut` 新增回答为空时 resolve 且不重发、视图有用户词时仍用 AI 缓存。Windows 只做了相关文件的 MinGW 语法检查，Wine 套件和真机渲染没跑；Linux、Android 原生、iOS、HarmonyOS 的整包构建和设备验收没跑。Android、iOS 展开面板画暗占位行的改动（iOS 新增 `testTheExpandedPanelDrawsTheAIPlaceholderAsSecondary`）只做了 Swift 语法解析，Android 构建、iOS 测试和模拟器验收没跑。
+- 后续（Android、iOS、HarmonyOS 的设备与模拟器验收）：Android 在专用 AVD 上跑过。API 35 上 `smoke.sh` 全套通过，新增的 `AiPlaceholderDeviceSmoke` 在应用进程里起一个只听回环地址的 OpenAI 兼容桩服务，验证「…」出现在第 2 位并读作等待中、不可长按，点它不上屏，回答为空后换成「—」且前六个候选不动，之后 3 秒内不再有 AI 请求（修之前是每秒一次），回答到达时答案坐进这个座位、其他候选不动并能上屏；截图里「…」「—」确实画淡。API 28 上 `smoke.sh --core` 通过；这个套件在 API 28 上取不到候选条的无障碍节点（与 DeviceSmoke 里记的 API 28 限制相同），改用截图确认「…」画淡、空回答后换成「—」。`AiPendingCandidatePolicySmoke` 在 `check-host.sh` 里钉住画法与长按规则。iOS 在 iOS 27 模拟器上跑了 `MSIMEClientTests`，新增 `testAnEmptyAIAnswerResolvesTheSeatAndIsNotAskedAgain`（「…」→「—」、同一组字重画不再请求、换组字再问）、`testOnlyAChangeInTheAISeatKeepsTheExpandedPanel` 和 `testReloadingTheAISeatKeepsTheScrollPosition`；控制器层「网格开着时 AI 回答到达」没有自动化用例（测试宿主没有完全访问权限，座位在打字时就已 resolve）。HarmonyOS 跑了 `tests/run.sh` 和 `hvigorw assembleHap`，没有在模拟器上验收。

@@ -94,9 +94,10 @@ const TWENTY_SIX_KEY_NUMBER_LAYOUTS = ["row", "nine_key"];
 
 // 账号设置里 `input.schema` 认得的取值，即 client-core `InputScheme` 的全部方案。不在这里的取值不归版本过滤管，留给下面的规则处理。
 const ACCOUNT_SCHEMES = SCHEMES.concat(LOCAL_ONLY_SCHEMES);
-// 随 `input.schema` 一起同步的键：它们和方案一起才决定键盘上的那个入口（全拼加九键是全拼 9 键，加手写是手写），方案不同步时它们也不同步，否则 full 那边选的全拼 9 键会把五笔版的键盘换成九键布局。前两个是 client-core 的规则里列出的 iOS、Android 的键，最后一个是本机的同类键。
+// 随 `input.schema` 一起同步的键：它们和方案一起才决定键盘上的那个入口（全拼加九键是全拼 9 键，加手写是手写），方案不同步时它们也不同步，否则 full 那边选的全拼 9 键会把五笔版的键盘换成九键布局。前三个是 client-core 的规则里列出的 iOS、Android 的键，最后一个是本机的同类键。
 const SCHEME_COMPANION_KEYS = [
   "platform.ios.nine_key",
+  "platform.ios.keyboard_layout",
   "platform.android.keyboard_layout",
   "platform.harmony.keyboard_layout",
 ];

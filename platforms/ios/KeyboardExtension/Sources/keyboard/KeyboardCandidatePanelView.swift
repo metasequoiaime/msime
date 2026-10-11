@@ -250,15 +250,15 @@ final class KeyboardCandidatePanelView: UIView {
     setNeedsLayout()
   }
 
-  /// 换成另一代候选（九键面板里选拼音、退格或筛选之后），面板不关，回到列表开头。
+  /// 换成另一代候选，面板不关。九键面板里选拼音、退格或筛选之后回到列表开头；只是 AI 座位那一行变了时 `keepingScrollPosition` 留在原处，用户正看着的那几行不动（#6888）。
   func reload(candidates: [String], annotations: [KeyboardCandidateAnnotation], markers: [[CandidateMarker]],
-              aiPlaceholders: Set<Int> = []) {
+              aiPlaceholders: Set<Int> = [], keepingScrollPosition: Bool = false) {
     self.candidates = candidates
     self.annotations = annotations
     self.markers = markers
     self.aiPlaceholders = aiPlaceholders
     count.text = "\(candidates.count) 个候选"
-    scrollView.setContentOffset(.zero, animated: false)
+    if !keepingScrollPosition { scrollView.setContentOffset(.zero, animated: false) }
     rebuildChips()
     setNeedsLayout()
   }

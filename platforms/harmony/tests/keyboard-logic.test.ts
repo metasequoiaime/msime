@@ -879,6 +879,28 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
   );
 });
 
+group("online candidate identity changes with provider eligibility", () => {
+  const query = {
+    generation: 1,
+    session_id: 7,
+    identity: "fixture",
+    cache_key: "ni'hao",
+    cloud_eligible: true,
+    ai_eligible: true,
+    cloud_candidates: true,
+    ai_assistant: { enabled: true, model: "fixture", candidate_limit: 2 },
+  };
+  const original = OnlineCandidatePolicy.signature(query);
+  check(
+    OnlineCandidatePolicy.signature({ ...query, cloud_eligible: false }) !== original,
+    "cloud eligibility invalidates an online request while AI remains eligible",
+  );
+  check(
+    OnlineCandidatePolicy.signature({ ...query, ai_eligible: false }) !== original,
+    "AI eligibility invalidates an online request while cloud remains eligible",
+  );
+});
+
 group("native success replies require a value", () => {
   check(NativeReplyPolicy.hasValue({}), "an object value is present");
   check(
@@ -3862,6 +3884,53 @@ group("resolves external candidate skin tokens without trusting missing fields",
       [0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x02, 0, 0, 0, 0x01],
     ) === 2,
     "PNG dimensions preserve the decoration aspect ratio",
+  );
+});
+
+group("a theme with a fixed mode is offered and drawn only in that mode", () => {
+  const theme = (id: string, appearance: string | null) => ({
+    id,
+    title: id,
+    appearance,
+    preview: null,
+    candidate: null,
+    keyboard: null,
+  });
+  const catalog = [
+    theme("system", null),
+    theme("shuishan", "dark"),
+    theme("light", "light"),
+    theme("night", "dark"),
+    theme("custom", null),
+  ];
+  const offered = (dark: boolean) =>
+    catalog
+      .filter((entry) => GlobalTheme.fitsMode(entry.appearance, dark))
+      .map((entry) => entry.id);
+  check(
+    offered(false).join() === "system,light,custom",
+    `light mode offers no dark themes: ${offered(false).join()}`,
+  );
+  check(
+    offered(true).join() === "system,shuishan,night,custom",
+    `dark mode offers no light themes: ${offered(true).join()}`,
+  );
+  check(
+    GlobalTheme.effectiveId(catalog, "night", false) === "system",
+    "夜青 draws as system in light mode",
+  );
+  check(
+    GlobalTheme.effectiveId(catalog, "night", true) === "night",
+    "夜青 draws itself in dark mode",
+  );
+  check(
+    GlobalTheme.effectiveId(catalog, "light", true) === "system",
+    "浅色 draws as system in dark mode",
+  );
+  check(GlobalTheme.effectiveId(catalog, "custom", false) === "custom", "custom has no fixed mode");
+  check(
+    GlobalTheme.effectiveId(catalog, "unknown", true) === "unknown",
+    "an id outside the catalog is left alone",
   );
 });
 

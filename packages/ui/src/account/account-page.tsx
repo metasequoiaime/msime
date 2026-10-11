@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import type { Preferences } from "../index";
 import { ActionButton } from "../core/action-button";
 import { ActionSheet } from "../core/action-sheet";
@@ -36,6 +36,8 @@ import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { StatusMessage } from "../core/status-message";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
 import { useAccountAction } from "./account-operation";
+import { useAccountGoogleLogin } from "./use-account-google-login";
+import { useAccountVerification, type AccountChannel } from "./use-account-verification";
 import { useMobilePopState } from "../settings/use-mobile-pop-state";
 
 export type AccountUser = {
@@ -135,7 +137,6 @@ export type AccountCommunityDestination =
   | "published-reply"
   | "saved-reply";
 
-type Channel = "email" | "phone";
 type Confirmation = "logout-all" | "delete" | null;
 
 /** 触屏宿主在「我的」里推入的页面；鸿蒙手机还会推入「其他平台下载」。它们记在历史条目的 `accountSubpage` 里，所以系统返回手势能关掉它们。 */
@@ -1022,37 +1023,43 @@ function AccountDetailsPage({
   const [providers, setProviders] = useState<AccountProviders>({ email: false, phone: false });
   const [user, setUser] = useState<AccountUser | null>(null);
   const [profile, setProfile] = useState<AccountProfile | null>(null);
-  const [channel, setChannel] = useState<Channel | null>(null);
-  const [target, setTarget] = useState("");
-  const [code, setCode] = useState("");
-  const [challenge, setChallenge] = useState<AccountChallenge | null>(null);
-  const [expiresAt, setExpiresAt] = useState(0);
-  const [resendAt, setResendAt] = useState(0);
-  const [now, setNow] = useState(() => Date.now());
   const [name, setName] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
   const [editingProfile, setEditingProfile] = useState(false);
   const [mobileSubpage, setMobileSubpage] = useState<AccountSubpage | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [copiedAccountId, setCopiedAccountId] = useState(false);
-  const [googleWaiting, setGoogleWaiting] = useState(false);
-  const googleWaitingRef = useRef(false);
   const { busy, mounted, clientGeneration, perform } = useAccountAction(
     client,
     setError,
     setNotice,
   );
+  const {
+    channel,
+    setChannel,
+    target,
+    code,
+    setCode,
+    challenge,
+    setChallenge,
+    expiresAt,
+    resendSeconds,
+    expired,
+    selectChannel,
+    updateTarget,
+    sendCode,
+    signIn: runVerificationSignIn,
+  } = useAccountVerification({ client, mounted, clientGeneration, setNotice });
+  const {
+    waiting: googleWaiting,
+    resetWaiting: resetGoogleWaiting,
+    cancel: cancelGoogle,
+    signIn: runGoogleLogin,
+  } = useAccountGoogleLogin({ client, mounted, clientGeneration });
 
   useEffect(() => {
-    googleWaitingRef.current = false;
-    setGoogleWaiting(false);
+    resetGoogleWaiting();
   }, [client]);
-
-  const cancelGoogle = () => {
-    if (!googleWaitingRef.current || !client.googleCancel) return;
-    // The pending googleLogin reports the outcome; a failed cancel only means there was nothing left to cancel.
-    void client.googleCancel().catch(() => undefined);
-  };
 
   // Leaving the page must not leave the loopback listener waiting for a browser the user abandoned.
   useEffect(() => () => cancelGoogle(), [client]);
@@ -1116,53 +1123,25 @@ function AccountDetailsPage({
     });
   }, [client, clientGeneration, mounted]);
 
-  useEffect(() => {
-    if (!challenge) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [challenge]);
-
-  const chooseChannel = (value: Channel) => {
+  const chooseChannel = (value: AccountChannel) => {
     cancelGoogle();
-    setChannel(value);
-    setTarget("");
-    setCode("");
-    setChallenge(null);
+    selectChannel(value);
     setError("");
     setNotice("");
   };
 
-  const requestCode = () =>
-    void perform(async () => {
-      const generation = clientGeneration.current;
-      if (!channel) return;
-      const normalized = target.trim();
-      if (!normalized) throw { code: "account_invalid" };
-      const value = await client.requestCode(channel, normalized);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      const timestamp = Date.now();
-      setNow(timestamp);
-      setChallenge(value);
-      setExpiresAt(timestamp + value.expiresIn * 1000);
-      setResendAt(timestamp + 60_000);
-      setCode("");
-      setNotice("验证码已发送，请查收。");
-    });
+  const requestCode = () => void perform(sendCode);
 
   const signIn = () =>
     void perform(async () => {
-      const generation = clientGeneration.current;
-      if (!challenge || code.length !== 6 || !/^\d{6}$/.test(code) || expiresAt <= Date.now())
-        throw { code: "account_invalid" };
-      const result = await client.login(challenge.challengeId, code);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      if (!result.user) throw { code: "account_unavailable" };
+      const result = await runVerificationSignIn();
+      if (!result) return;
       setUser(result.user);
       setChannel(null);
       setChallenge(null);
       setCode("");
-      await loadProfile(generation);
-      if (!mounted.current || generation !== clientGeneration.current) return;
+      await loadProfile(result.generation);
+      if (!mounted.current || result.generation !== clientGeneration.current) return;
       setNotice("登录成功。");
       onLoginComplete?.();
     });
@@ -1313,8 +1292,6 @@ function AccountDetailsPage({
       />
     );
 
-  const resendSeconds = Math.max(0, Math.ceil((resendAt - now) / 1000));
-  const expired = Boolean(challenge) && expiresAt <= now;
   // Count only providers this host can render; the backend may enable Apple or Google for hosts without a native client for them.
   const appleAvailable = providers.apple === true && Boolean(client.appleLogin);
   const googleAvailable = providers.google === true && Boolean(client.googleLogin);
@@ -1340,24 +1317,11 @@ function AccountDetailsPage({
 
   const signInWithGoogle = () =>
     void perform(async () => {
-      const generation = clientGeneration.current;
-      if (!client.googleLogin) throw { code: "account_unavailable" };
-      googleWaitingRef.current = true;
-      setGoogleWaiting(true);
-      let result: { user?: AccountUser | null };
-      try {
-        result = await client.googleLogin();
-      } finally {
-        if (mounted.current && generation === clientGeneration.current) {
-          googleWaitingRef.current = false;
-          setGoogleWaiting(false);
-        }
-      }
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      if (!result.user) throw { code: "account_unavailable" };
+      const result = await runGoogleLogin();
+      if (!result) return;
       setUser(result.user);
-      await loadProfile(generation);
-      if (!mounted.current || generation !== clientGeneration.current) return;
+      await loadProfile(result.generation);
+      if (!mounted.current || result.generation !== clientGeneration.current) return;
       setNotice("登录成功。");
       onLoginComplete?.();
     });
@@ -1750,9 +1714,7 @@ function AccountDetailsPage({
                 value={target}
                 disabled={busy}
                 onChange={(value) => {
-                  setTarget(value);
-                  setChallenge(null);
-                  setCode("");
+                  updateTarget(value);
                 }}
               />
               <ActionButton

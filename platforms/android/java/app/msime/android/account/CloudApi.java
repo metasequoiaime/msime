@@ -382,7 +382,7 @@ public final class CloudApi {
         String value = TextPolicy.trimmed(header);
         if (value.isEmpty() || value.length() > 9) return 0L;
         for (int index = 0; index < value.length(); index++) {
-            if (value.charAt(index) < '0' || value.charAt(index) > '9') return 0L;
+            if (!TextPolicy.isAsciiDigit(value.charAt(index))) return 0L;
         }
         return Long.parseLong(value);
     }
@@ -439,13 +439,8 @@ public final class CloudApi {
     }
 
     private static String requireBoundary(String boundary) {
-        if (boundary == null || boundary.isEmpty() || boundary.length() > 70) {
+        if (!TextPolicy.validAsciiToken(boundary, 1, 70)) {
             throw new IllegalArgumentException("invalid multipart boundary");
-        }
-        for (int index = 0; index < boundary.length(); index++) {
-            char c = boundary.charAt(index);
-            boolean allowed = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_';
-            if (!allowed) throw new IllegalArgumentException("invalid multipart boundary");
         }
         return boundary;
     }

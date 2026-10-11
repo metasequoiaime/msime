@@ -423,6 +423,11 @@ struct InputSettingsView: View {
                         }))
           .accessibilityIdentifier("wubiAutoCommitUnique")
         DesignDivider()
+        // 五笔查码（#6789）：与三个五笔开关一样，只在启用了五笔时列出。
+        navRow("五笔查码", subtitle: "查汉字的 86、98 五笔编码", identifier: "wubiCodeLookupLink") {
+          WubiCodeLookupView(profile: wubiProfile)
+        }
+        DesignDivider()
       }
       DesignSelectRow(title: "默认中英文", subtitle: "新打开的键盘从这里开始",
                       options: [DesignOption(title: "中文", value: false), DesignOption(title: "英文", value: true)],

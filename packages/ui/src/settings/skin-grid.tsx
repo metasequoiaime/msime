@@ -1,10 +1,14 @@
 import { useId } from "react";
 import type { Preferences } from "../index";
 import { ActionButton } from "../core/action-button";
+import { deepEqual } from "../core/deep-equal";
 import { FluentIcon } from "../core/fluent-icons";
 import * as controls from "../core/platform-controls-style";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
-import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
+import type {
+  SavedTouchKeyboardSkin,
+  TouchKeyboardSkinDesign,
+} from "../keyboard/touch-keyboard-skin-design";
 import type { ExternalSkin } from "../skin/external-skins";
 import {
   applyCandidateSkin,
@@ -37,6 +41,14 @@ export interface SkinGridProps {
   packages: ExternalSkin[];
   /** 在有键盘皮肤编辑器（`customTouchKeyboardSkins`）的宿主上提供；它的卡片取代目录里的自定义。 */
   customDesign?: SkinGridCustomDesign;
+  /** 本机皮肤库里的设计：在「社区」里获取的皮肤和命名保存的设计，排在我的皮肤之后，与 Android 皮肤页的「我的设计」一致。 */
+  savedDesigns?: SavedTouchKeyboardSkin[];
+  /** 选中皮肤库里的一个设计：把它设为自定义主题的键盘。 */
+  onSelectSavedDesign?: (design: TouchKeyboardSkinDesign) => void;
+  /** 社区里的皮肤，排在皮肤库的设计之后；已经获取过的（皮肤库里有同一 id 或同一设计）不再重复列出。与 Android 键盘皮肤面板列出社区目录一致，不用先去「社区」获取。 */
+  communitySkins?: SavedTouchKeyboardSkin[];
+  /** 选中一款社区皮肤：获取（存进皮肤库）并换上。获取失败时返回 false，这次点击就不计入换装统计。 */
+  onSelectCommunitySkin?: (skin: SavedTouchKeyboardSkin) => Promise<boolean>;
   /** 键盘绘制所用的浅色或深色模式，供跟随模式的皮肤使用。 */
   keyboardTheme: "dark" | "light";
   /** 把卡片的选择应用到偏好设置草稿，与主题轮播的切换做的更新相同。 */
@@ -56,7 +68,8 @@ type Card = {
   design?: TouchKeyboardSkinDesign;
   /** 换装达人徽章把这张卡片计为什么。 */
   statisticsId: string;
-  select: () => void;
+  /** 返回 false（或解析为 false）表示没有换上，例如社区皮肤获取失败。 */
+  select: () => void | boolean | Promise<boolean>;
   /** 再点一次已在使用的卡片时做什么；没有时什么也不改。皮肤包卡片把它从所在的槽位取下，我的皮肤卡片打开编辑器。 */
   deselect?: () => void;
   /** 再点一次是打开别处（编辑器），标题后画一个 ›。 */
@@ -107,6 +120,10 @@ function skinGridCards({
   customTheme,
   packages,
   customDesign,
+  savedDesigns = [],
+  onSelectSavedDesign,
+  communitySkins = [],
+  onSelectCommunitySkin,
   keyboardTheme,
   onApply,
 }: SkinGridProps): Card[] {
@@ -123,8 +140,17 @@ function skinGridCards({
     const skin = packages.find((entry) => entry.id === id);
     return skin ? skinSlot(skin.base) : undefined;
   };
-  const designInUse = !packageInUse && customDesign !== undefined && customDesign.selected;
   const storedDesign = customTheme?.keyboard ?? undefined;
+  // 正在使用的设计就是皮肤库里的某一款时，选中的是那张有名字的卡片，我的皮肤不再同时打勾。
+  const savedInUse =
+    globalTheme === "custom" && !packageInUse
+      ? savedDesigns.find((item) => deepEqual(item.design, storedDesign))
+      : undefined;
+  const designInUse =
+    !packageInUse &&
+    savedInUse === undefined &&
+    customDesign !== undefined &&
+    customDesign.selected;
   // 自定义主题在 `base` 之上绘制的键盘：有设计时用设计，否则用该 base 的键盘。
   const customKeyboard = (base: BaseGlobalTheme | undefined) => ({
     skin: keyboardThemeId("custom", { ...customTheme, base }),
@@ -132,8 +158,16 @@ function skinGridCards({
     theme: themeEntry(base ?? "system").appearance ?? keyboardTheme,
   });
   const cards: Card[] = [];
+  // 固定明暗的主题只在那种明暗下提供，否则键盘和周围的界面颜色反着、风格割裂，与键盘的皮肤面板（`GlobalTheme.fitsMode`）一致。所选主题属于另一种明暗时，键盘按「跟随系统」画，选中的也就是那张卡片。
+  const dark = keyboardTheme === "dark";
+  const chosen = themes.find((entry) => entry.id === globalTheme);
+  const effectiveTheme =
+    chosen && chosen.appearance !== null && (chosen.appearance === "dark") !== dark
+      ? "system"
+      : globalTheme;
   for (const entry of themes) {
     const id = entry.id;
+    if (entry.appearance !== null && (entry.appearance === "dark") !== dark) continue;
     if (id === "custom") {
       // 在有编辑器的宿主上，我的皮肤代表自定义主题，与 Android 皮肤页一致；再加一张卡片会绘制出相同的键盘。
       if (customDesign) continue;
@@ -155,7 +189,7 @@ function skinGridCards({
     cards.push({
       key: `theme:${id}`,
       title: entry.title,
-      selected: globalTheme === id,
+      selected: effectiveTheme === id,
       theme: entry.appearance ?? keyboardTheme,
       skin: id,
       statisticsId: id,
@@ -175,7 +209,40 @@ function skinGridCards({
       deselect: customDesign.onEdit,
       opens: Boolean(customDesign.onEdit),
     });
-  for (const skin of packages)
+  if (onSelectSavedDesign)
+    for (const item of savedDesigns)
+      cards.push({
+        key: `saved:${item.id}`,
+        title: item.name,
+        selected: item === savedInUse,
+        theme: keyboardTheme,
+        skin: "custom",
+        design: item.design,
+        statisticsId: "custom",
+        select: () => onSelectSavedDesign(item.design),
+      });
+  if (onSelectCommunitySkin) {
+    const savedIds = new Set(savedDesigns.map((item) => item.id.toLowerCase()));
+    for (const skin of communitySkins) {
+      if (
+        savedIds.has(skin.id.toLowerCase()) ||
+        savedDesigns.some((item) => deepEqual(item.design, skin.design))
+      )
+        continue;
+      cards.push({
+        key: `community:${skin.id}`,
+        title: skin.name,
+        selected: false,
+        theme: keyboardTheme,
+        skin: "custom",
+        design: skin.design,
+        statisticsId: "custom",
+        select: () => onSelectCommunitySkin(skin),
+      });
+    }
+  }
+  // 社区和本机的皮肤包是用户自己装的，两种明暗下都列出，不按 base 的明暗过滤；只有目录里的内置主题按明暗提供。
+  for (const skin of packages) {
     cards.push({
       key: `package:${skin.id}`,
       title: skin.name,
@@ -194,6 +261,7 @@ function skinGridCards({
           custom_theme: removeCandidateSkin(customTheme, skin.id),
         }),
     });
+  }
   return cards;
 }
 
@@ -215,8 +283,13 @@ export function SkinGrid(props: SkinGridProps) {
               card.selected
                 ? (card.deselect ?? (() => undefined))
                 : () => {
-                    card.select();
-                    props.onApplied?.(card.statisticsId);
+                    const applied = card.select();
+                    // 社区皮肤要先获取，等它换上了才计数；其余卡片当场就换上了。
+                    if (applied instanceof Promise)
+                      void applied.then((ok) => {
+                        if (ok) props.onApplied?.(card.statisticsId);
+                      });
+                    else if (applied !== false) props.onApplied?.(card.statisticsId);
                   }
             }
             className={cardButton}

@@ -451,8 +451,12 @@ final class ImeVoiceEntry {
         VoiceContributionApi.Contribution contribution = new VoiceContributionApi.Contribution(language, provider,
             VoiceContributionApi.durationMillis(pcm.length), transcript, version == null ? "" : version, wav);
         if (!VoiceContributionApi.valid(contribution)) return;
+        final long lifecycleGeneration = s.inputLifecycleGeneration();
         try {
             worker.execute(() -> {
+                if (lifecycleGeneration != s.inputLifecycleGeneration()
+                        || !s.imePrivacyGate.contributesVoice()
+                        || !AndroidLocalSettings.load(s).bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO)) return;
                 try {
                     new VoiceContributionApi(new CloudApi(s)).upload(contribution);
                 } catch (CloudApi.Failure | RuntimeException error) {

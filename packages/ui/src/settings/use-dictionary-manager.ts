@@ -1,3 +1,4 @@
+import { downloadBlob } from "../core/download-blob";
 import { useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
 import { randomRequestId } from "../core/random-id";
@@ -330,12 +331,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
       return path;
     }
     if (!isCurrent()) return undefined;
-    const url = URL.createObjectURL(new Blob([body], { type: "text/plain;charset=utf-8" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = name;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(new Blob([body], { type: "text/plain;charset=utf-8" }), name);
     return null;
   }
 

@@ -9,7 +9,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -35,7 +34,6 @@ public final class CommunityCatalog {
     private static final int MAX_NAME_CHARACTERS = 32;
     private static final int MAX_DESCRIPTION_CHARACTERS = 280;
     private static final int MAX_AUTHOR_CHARACTERS = 128;
-    private static final UUID NIL_UUID = new UUID(0L, 0L);
 
     /**
      * One catalogue entry, flattened to what a list row shows.
@@ -422,13 +420,7 @@ public final class CommunityCatalog {
     }
 
     private static boolean validUuid(String value) {
-        if (value == null) return false;
-        try {
-            UUID parsed = UUID.fromString(value);
-            return !NIL_UUID.equals(parsed) && parsed.toString().equalsIgnoreCase(value);
-        } catch (IllegalArgumentException error) {
-            return false;
-        }
+        return JsonPolicy.nonNilUuid(value);
     }
 
     private static boolean validName(String value, int maximum) {

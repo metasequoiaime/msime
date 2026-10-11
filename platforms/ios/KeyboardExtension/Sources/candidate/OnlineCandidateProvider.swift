@@ -17,13 +17,15 @@ final class OnlineCandidateProvider {
   private let session: MetasequoiaInputSessionBridge
   private let transport: any OnlineCandidateTransport
   private var signature: String?
+  /// 问过 AI 却没有结果、占位行已换成「—」的那次请求的签名：同一组字不再向 AI 发请求，只在本地把占位行再换成「—」；组字一变就清掉（#6888）。
+  private var aiResolvedSignature: String?
   private var epoch: UInt64 = 0
   private var debounce: Timer?
   private var task: Task<Void, Never>?
 
-  static func shouldRetryAfterFetch(cloudRequested: Bool, cloudApplied: Bool,
-                                    aiRequested: Bool, aiApplied: Bool) -> Bool {
-    (cloudRequested && !cloudApplied) || (aiRequested && !aiApplied)
+  /// 只有云候选失败才释放签名、在下一次渲染时重试。AI 没有结果时占位行已经换成「—」，同一组字不再问（#6888）；重试时也不再问 AI，见 `aiResolvedSignature`。
+  static func shouldRetryAfterFetch(cloudRequested: Bool, cloudApplied: Bool) -> Bool {
+    cloudRequested && !cloudApplied
   }
 
   init(session: MetasequoiaInputSessionBridge,
@@ -37,6 +39,8 @@ final class OnlineCandidateProvider {
     guard allowed, let document = session.onlineQuery(), let query = Self.object(document),
           Self.requestsCloud(query) || Self.requestsAI(query) else {
       cancel()
+      // 组字变到一个问不了的状态（例如拼音没打完）：回到原来的组字时重新问 AI。
+      aiResolvedSignature = nil
       // 宿主不让问（没有完全访问权限等）而组字本可以问 AI：AI 座位上的占位行直接换成「—」，不会一直等下去（#6888）。
       if !allowed, let document = session.onlineQuery(), let query = Self.object(document),
          Self.requestsAI(query) {
@@ -48,12 +52,13 @@ final class OnlineCandidateProvider {
     guard signature != self.signature else { return }
     cancel()
     self.signature = signature
+    if aiResolvedSignature != signature { aiResolvedSignature = nil }
     let target = epoch
     let timer = Timer(timeInterval: Self.quietInterval, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated {
         guard let self, self.epoch == target else { return }
         self.debounce = nil
-        self.task = Task { [weak self] in await self?.fetch(document: document, epoch: target) }
+        self.task = Task { [weak self] in await self?.fetch(document: document, epoch: target, signature: signature) }
       }
     }
     RunLoop.main.add(timer, forMode: .common)
@@ -69,16 +74,14 @@ final class OnlineCandidateProvider {
     epoch &+= 1
   }
 
-  private func fetch(document: Data, epoch target: UInt64) async {
+  private func fetch(document: Data, epoch target: UInt64, signature requestSignature: String) async {
     let initialQuery = Self.object(document)
     let cloudRequested = initialQuery.map(Self.requestsCloud) ?? false
     var cloudApplied = false
-    var aiRequested = false
     var aiApplied = false
     defer {
-      // 云候选成功不代表后续 AI 也成功；只要当前代次还有失败的请求，就释放签名允许重试。
-      if Self.shouldRetryAfterFetch(cloudRequested: cloudRequested, cloudApplied: cloudApplied,
-                                    aiRequested: aiRequested, aiApplied: aiApplied),
+      // 云候选失败时释放签名，下一次渲染重试；AI 没有结果时占位行已换成「—」，不为它重试。
+      if Self.shouldRetryAfterFetch(cloudRequested: cloudRequested, cloudApplied: cloudApplied),
          target == epoch { signature = nil }
     }
     var aiDocument = document
@@ -92,15 +95,17 @@ final class OnlineCandidateProvider {
     }
     guard target == epoch, let query = Self.object(aiDocument), Self.requestsAI(query) else { return }
     defer {
-      // 向 AI 发问了却没有采用任何回答（请求发不出去、失败、空回答、被拒）：AI 座位上的占位行换成「—」，后面的候选不挪位（#6888）。
+      // 向 AI 发问了却没有采用任何回答（请求发不出去、失败、空回答、被拒）：AI 座位上的占位行换成「—」，后面的候选不挪位，同一组字不再问（#6888）。
       if !aiApplied, target == epoch {
         _ = apply { try self.session.resolveOnlineCandidates(query: aiDocument, source: 1) }
+        aiResolvedSignature = requestSignature
       }
     }
-    guard let limit = Self.aiCandidateLimit(query),
+    // 这个组字问过 AI 而没有结果（云候选失败触发的重试走到这里）：不再发请求，上面的 defer 只把占位行换成「—」。
+    guard aiResolvedSignature != requestSignature,
+          let limit = Self.aiCandidateLimit(query),
           let descriptor = session.aiRequest(query: aiDocument),
           let request = Self.aiRequest(descriptor) else { return }
-    aiRequested = true
     guard let body = await transport.fetch(request), target == epoch else { return }
     let candidates = MetasequoiaInputSessionBridge.parseAIResponse(body, limit: limit)
     guard !candidates.isEmpty else { return }

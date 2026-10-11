@@ -120,7 +120,7 @@ while IFS="$(printf '\t')" read -r name version; do
   : > "$work/paths"
   find "$directory" -maxdepth 1 -type f | while IFS= read -r path; do
     base="$(basename "$path")"
-    if printf '%s\n' "$base" | grep -qiE '^(licen[cs]e|copying|copyright|notice|unlicense)([-._].*)?$'; then
+    if grep -qiE '^(licen[cs]e|copying|copyright|notice|unlicense)([-._].*)?$' <<< "$base"; then
       echo "$path"
     fi
   done | sort >> "$work/paths"

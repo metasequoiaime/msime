@@ -90,7 +90,7 @@ public final class ArithmeticResultPolicy {
     }
 
     private static boolean isDigit(char c) {
-        return c >= '0' && c <= '9';
+        return TextPolicy.isAsciiDigit(c);
     }
 
     private static boolean expressionChar(char c) {

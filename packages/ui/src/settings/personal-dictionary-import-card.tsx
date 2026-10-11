@@ -1,3 +1,4 @@
+import { downloadBlob } from "../core/download-blob";
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
@@ -85,13 +86,10 @@ export function PersonalDictionaryImportCard({
   };
 
   const saveExample = () => {
-    const blob = new Blob([personalDictionaryExample], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "msime-personal-dictionary-example.json";
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(
+      new Blob([personalDictionaryExample], { type: "application/json" }),
+      "msime-personal-dictionary-example.json",
+    );
   };
 
   const countByKind = entries

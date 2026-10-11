@@ -104,6 +104,12 @@ public final class Bootstrap {
         SafePaths.ensureDirectory(directory);
     }
 
+    /** Only a single ASCII asset component may be appended beneath a bootstrap directory. */
+    static void requireAssetName(String name) {
+        if (name == null || !name.matches("[A-Za-z0-9_.-]+") || name.contains(".."))
+            throw new IllegalArgumentException("Invalid asset name");
+    }
+
     /**
      * Non-English candidate glosses (scripts/build_offline_glosses.py), extracted beside the resources where the Engine looks for one zh-&lt;lang&gt;.db per target language.
      *
@@ -122,7 +128,7 @@ public final class Bootstrap {
             ensureSafeDirectory(staging.toPath());
             String[] names = context.getAssets().list("offline-glosses");
             for (String name : names == null ? new String[0] : names) {
-                if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
+                requireAssetName(name);
                 try (InputStream input = context.getAssets().open("offline-glosses/" + name)) {
                     copyAsset(input, new File(staging, name).toPath());
                 }
@@ -152,7 +158,7 @@ public final class Bootstrap {
             ensureSafeDirectory(destination.toPath());
             String[] names = context.getAssets().list("helpcodes");
             for (String name : names == null ? new String[0] : names) {
-                if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
+                requireAssetName(name);
                 try (InputStream input = context.getAssets().open("helpcodes/" + name)) {
                     copyAsset(input, new File(destination, name).toPath());
                 }
@@ -182,7 +188,7 @@ public final class Bootstrap {
             ensureSafeDirectory(staging.toPath());
             String[] names = context.getAssets().list("language-dictionaries");
             for (String name : names == null ? new String[0] : names) {
-                if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
+                requireAssetName(name);
                 try (InputStream input = context.getAssets().open("language-dictionaries/" + name)) {
                     copyAsset(input, new File(staging, name).toPath());
                 }
@@ -215,13 +221,13 @@ public final class Bootstrap {
             ensureSafeDirectory(staging.toPath());
             String[] packs = context.getAssets().list("sound-packs");
             for (String pack : packs == null ? new String[0] : packs) {
-                if (!pack.matches("[A-Za-z0-9_.-]+") || pack.contains("..")) throw new IllegalArgumentException("Invalid asset name");
+                requireAssetName(pack);
                 String[] names = context.getAssets().list("sound-packs/" + pack);
                 if (names == null || names.length == 0) continue;
                 File directory = new File(staging, pack);
                 ensureSafeDirectory(directory.toPath());
                 for (String name : names) {
-                    if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
+                    requireAssetName(name);
                     try (InputStream input = context.getAssets().open("sound-packs/" + pack + "/" + name)) {
                         copyAsset(input, new File(directory, name).toPath());
                     }
@@ -275,7 +281,7 @@ public final class Bootstrap {
         java.util.Set<String> names = new java.util.HashSet<>(artifacts.length());
         for (int index = 0; index < artifacts.length(); index++) {
             String name = artifacts.getJSONObject(index).getString("name");
-            if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
+            requireAssetName(name);
             names.add(name);
         }
         return names;

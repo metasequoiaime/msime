@@ -199,12 +199,7 @@ public final class AppThemePalette {
      * @return 读不懂时为 null
      */
     public static Integer contractColor(String value) {
-        if (value == null || !value.startsWith("#")) return null;
-        String digits = value.substring(1);
-        if (!digits.matches("[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8}")) return null;
-        long parsed = Long.parseLong(digits, 16);
-        if (digits.length() == 6) return (int) (0xFF000000L | parsed);
-        return (int) (((parsed & 0xFF) << 24) | (parsed >>> 8));
+        return ColorPolicy.contractArgb(value);
     }
 
     /**

@@ -51,6 +51,11 @@ import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settin
 import { HTTP_ASR_CHAT_AUDIO, HttpAsrConfigurationPolicy } from '../keyboard/input/HttpAsrConfigurationPolicy';
 import { AiAuthenticationPolicy } from '../keyboard/settings/AiAuthenticationPolicy';
 import { AiEndpointPolicy } from '../keyboard/settings/AiEndpointPolicy';
+import {
+  CustomTranslationProbeDescriptor,
+  CustomTranslationProbePolicy,
+  CustomTranslationProbeRequest
+} from '../keyboard/settings/CustomTranslationProbePolicy';
 import { HarmonyTelemetry } from '../telemetry/Telemetry';
 import { TelemetryPolicy } from '../telemetry/TelemetryPolicy';
 import { NoticeItem, NoticePolicy } from '../notices/NoticePolicy';
@@ -461,25 +466,6 @@ interface ApiCredentialResult {
 interface ApiCredentialReply {
   ok: boolean;
   value: ApiCredentialResult;
-}
-
-interface CustomTranslationProbeConfig {
-  enabled: boolean;
-  endpoint: string;
-  api_key: string;
-}
-
-interface CustomTranslationProbeRequest {
-  config: CustomTranslationProbeConfig;
-  text: string;
-  source_language: string;
-  target_language: string;
-}
-
-interface CustomTranslationProbeDescriptor {
-  url: string;
-  headers: Record<string, string>;
-  body: Object;
 }
 
 interface CustomTranslationProbeDescriptorReply {
@@ -2241,10 +2227,7 @@ class SettingsBridge {
       return this.credentialReply(false, '请填写有效的翻译接口地址和 API Key。');
     }
     // 与键盘同一个共享描述器：DeepL 官方地址换成 DeepL 的鉴权和正文，其余按 DeepLX 兼容格式，测试与实际翻译不会各说各的。
-    const probe: CustomTranslationProbeRequest = {
-      config: { enabled: true, endpoint: endpoint, api_key: apiKey },
-      text: '测试', source_language: 'zh', target_language: 'en'
-    };
+    const probe: CustomTranslationProbeRequest = CustomTranslationProbePolicy.request(endpoint, apiKey);
     let descriptor: CustomTranslationProbeDescriptor | null = null;
     try {
       const reply: CustomTranslationProbeDescriptorReply = JSON.parse(
@@ -2256,9 +2239,8 @@ class SettingsBridge {
     if (descriptor === null || this.validCredentialEndpoint(descriptor.url, true) === null) {
       return this.credentialReply(false, '请填写有效的翻译接口地址和 API Key。');
     }
-    const deepl: boolean = (descriptor.headers['Authorization'] ?? '').startsWith('DeepL-Auth-Key ');
-    const headers: Record<string, string> = descriptor.headers;
-    headers['Accept'] = 'application/json';
+    const deepl: boolean = CustomTranslationProbePolicy.isDeepL(descriptor);
+    const headers: Record<string, string> = CustomTranslationProbePolicy.headers(descriptor);
     const request = http.createHttp();
     installNoRedirectGuard(request);
     try {
@@ -2269,31 +2251,20 @@ class SettingsBridge {
         readTimeout: 15000,
         extraData: JSON.stringify(descriptor.body)
       });
-      if (response.responseCode < 200 || response.responseCode >= 300
-        || typeof response.result !== 'string' || utf8Length(response.result) > 256 * 1024) {
-        return this.credentialReply(false, deepl ? this.deepLFailure(response.responseCode)
-          : '测试失败：翻译服务未返回有效译文。');
+      if (!CustomTranslationProbePolicy.acceptsResponse(response.responseCode, response.result)) {
+        return this.credentialReply(false, CustomTranslationProbePolicy.failureMessage(deepl, response.responseCode));
       }
       const parsed: CustomTranslationProbeGlossReply = JSON.parse(
-        client.parseCustomTranslationResponse(response.result)) as CustomTranslationProbeGlossReply;
+        client.parseCustomTranslationResponse(response.result as string)) as CustomTranslationProbeGlossReply;
       const translated: string | null = parsed.ok === true && typeof parsed.value === 'string' ? parsed.value : null;
-      if (translated !== null) return this.credentialReply(true, '连接成功，翻译服务配置有效。');
-      return this.credentialReply(false, deepl ? this.deepLFailure(response.responseCode)
-        : '测试失败：翻译服务未返回有效译文。');
+      if (translated !== null) return this.credentialReply(true, CustomTranslationProbePolicy.SUCCESS);
+      return this.credentialReply(false, CustomTranslationProbePolicy.failureMessage(deepl, response.responseCode));
     } catch (error) {
       KeyboardLog.error(`translation credential unavailable: ${describeError(error)}`);
       return this.credentialReply(false, '连接失败，请检查翻译接口地址、API Key 和网络。');
     } finally {
       request.destroy();
     }
-  }
-
-  /** DeepL 用状态码区分常见错误，与 crates/client-core/src/credential/translation.rs 的提示逐字相同，scripts/test-harmony-custom-translation-probe.py 核对；只用状态码，不转述服务端正文。 */
-  private deepLFailure(status: number): string {
-    if (status === 403) return '测试失败：DeepL 拒绝了这个 API Key（HTTP 403），请检查密钥是否正确、是否已停用。';
-    if (status === 456) return '测试失败：DeepL API 的字符额度已用完（HTTP 456）。';
-    if (status === 429) return '测试失败：DeepL 请求过于频繁（HTTP 429），请稍后再试。';
-    return '测试失败：DeepL 未返回有效译文，请检查 API Key 和网络。';
   }
 
   private async tencentCredential(config: ApiCredentialConfig): Promise<string> {

@@ -86,4 +86,53 @@ final class CandidateMarkerTests: XCTestCase {
     XCTAssertEqual(try chip(3).configuration?.baseForegroundColor, skin.secondary)
     XCTAssertEqual(try chip(3).accessibilityLabel, "候选词 3：AI 候选没有结果")
   }
+
+  /// AI 的回答或「—」到达时换了一代，但只有 AI 座位那一行变了：展开的网格据此原地刷新、不收起（#6888）。别的行变了、组字变了、行数变少都不算。
+  func testOnlyAChangeInTheAISeatKeepsTheExpandedPanel() throws {
+    func snapshot(_ generation: UInt64, _ rows: [(String, Int)], preedit: String = "nihao") throws -> CandidatePanelSnapshot {
+      try CandidatePanelSnapshot.decode([
+        "generation": generation, "preedit": preedit,
+        "candidates": rows.enumerated().map { index, row in
+          ["text": row.0, "id": ["generation": generation, "index": index], "source": row.1] as [String: Any]
+        },
+      ])
+    }
+    let waiting = try snapshot(4, [("你好", 0), ("…", 12), ("倪好", 0)])
+    XCTAssertTrue(try snapshot(5, [("你好", 0), ("—", 12), ("倪好", 0)]).onlyTheAISeatChanged(since: waiting))
+    XCTAssertTrue(try snapshot(5, [("你好", 0), ("合成一", 3), ("倪好", 0), ("合成二", 3)]).onlyTheAISeatChanged(since: waiting),
+                  "the rest of the batch is appended after every local row")
+    XCTAssertFalse(try snapshot(5, [("你好", 0), ("—", 12), ("拟好", 0)]).onlyTheAISeatChanged(since: waiting))
+    XCTAssertFalse(try snapshot(5, [("倪好", 0), ("—", 12), ("你好", 0)]).onlyTheAISeatChanged(since: waiting))
+    XCTAssertFalse(try snapshot(5, [("你好", 0), ("—", 12)]).onlyTheAISeatChanged(since: waiting))
+    XCTAssertFalse(try snapshot(5, [("你好", 0), ("—", 12), ("倪好", 0), ("云", 2)]).onlyTheAISeatChanged(since: waiting))
+    XCTAssertFalse(try snapshot(5, [("你好", 0), ("—", 12), ("倪好", 0)], preedit: "nihaoa").onlyTheAISeatChanged(since: waiting))
+    let noSeat = try snapshot(4, [("你好", 0), ("倪好", 0)])
+    XCTAssertFalse(try snapshot(5, [("你好", 0), ("倪好", 0)]).onlyTheAISeatChanged(since: noSeat),
+                   "a list without a placeholder is refreshed the way it always was")
+  }
+
+  /// 原地刷新时网格留在用户滚到的位置，「…」换成「—」；九键面板换拼音那样的重建仍回到开头。
+  func testReloadingTheAISeatKeepsTheScrollPosition() throws {
+    var candidates = (1...80).map { "候选\($0)" }
+    candidates[1] = "…"
+    let panel = KeyboardCandidatePanelView(
+      candidates: candidates, preedit: "nihao", aiPlaceholders: [1],
+      display: { $0 }, onSelect: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+    panel.layoutIfNeeded()
+    func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
+    let scroll = try XCTUnwrap(descendants(panel).compactMap { $0 as? UIScrollView }.first)
+    XCTAssertGreaterThan(scroll.contentSize.height, scroll.bounds.height + 100, "the grid has to scroll for this test")
+    scroll.setContentOffset(CGPoint(x: 0, y: 100), animated: false)
+
+    candidates[1] = "—"
+    panel.reload(candidates: candidates, annotations: [], markers: [], aiPlaceholders: [1], keepingScrollPosition: true)
+    panel.layoutIfNeeded()
+    XCTAssertEqual(scroll.contentOffset.y, 100, accuracy: 0.5)
+    let seat = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-2" } as? UIButton)
+    XCTAssertEqual(seat.accessibilityLabel, "候选词 2：AI 候选没有结果")
+
+    panel.reload(candidates: candidates, annotations: [], markers: [], aiPlaceholders: [1])
+    XCTAssertEqual(scroll.contentOffset.y, 0, accuracy: 0.5)
+  }
 }

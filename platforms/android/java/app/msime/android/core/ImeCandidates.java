@@ -167,6 +167,8 @@ final class ImeCandidates {
             JSONObject current = s.visibleCandidate(slot);
             JSONObject id = current == null ? null : current.optJSONObject("id");
             if (id == null || (!s.candidateManagementEnabled() && !s.candidateGlossInsertionEnabled())) return false;
+            // AI 座位上的占位行没有可管理的词，长按不弹菜单（#6888）；平时它也不可长按，见 updateCandidateButton。
+            if (!AiPendingCandidatePolicy.offersMenu(InputViewValuePolicy.integer(current, "source", -1))) return false;
             String text = s.chineseOutput(InputViewValuePolicy.textOr(current, "text", ""), s.view);
             return showCandidateMenu(button, slot, id, text);
         });
@@ -188,7 +190,9 @@ final class ImeCandidates {
         KeyboardTypographyPolicy.setKeyTextSize(button, 17);
         ViewPolicy.setSelected(button, highlighted);
         // AI 座位上的占位行（Engine 候选来源 12，「…」或「—」）和候选条一样画淡，免得在完整候选列表里像真候选（#6888）。
-        button.setAlpha(InputViewValuePolicy.integer(candidate, "source", -1) == 12 ? 0.45f : 1f);
+        int source = InputViewValuePolicy.integer(candidate, "source", -1);
+        boolean placeholder = AiPendingCandidatePolicy.isPlaceholder(source);
+        button.setAlpha(AiPendingCandidatePolicy.alpha(source));
         expandedCells.add(button);
         ViewPolicy.setMinimumSize(button, s.pixels(64), s.pixels(44));
         LayoutPolicy.setHorizontalPaddingDp(button, s, 10);
@@ -196,8 +200,8 @@ final class ImeCandidates {
         // Styling here would be repeated immediately after this button is attached.
         long index = id == null ? -1
             : CandidateGlossPolicy.strictOr(id.opt("index"), -1);
-        button.setContentDescription(index < 0 ? "候选" : "候选 " + (index + 1) + "："
-            + text + s.candidateAccessibilitySuffix(candidate, typed));
+        button.setContentDescription(index < 0 ? "候选" : AiPendingCandidatePolicy.description(source,
+            "候选 " + (index + 1) + "：", text, s.candidateAccessibilitySuffix(candidate, typed)));
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(highlighted ? "已选中" : "未选中");
         if (id == null || index < 0) {
@@ -205,7 +209,8 @@ final class ImeCandidates {
         } else {
             ViewPolicy.bindClick(button, () -> {
                 s.imeKeyFeedback.playFeedback(button);
-                if (s.session == 0
+                // 点占位行什么也不发生：Engine 本来就不上屏，这里连面板也不收起，用户还在看完整列表（#6888）。
+                if (placeholder || s.session == 0
                         || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE)
                             != s.session) return;
                 s.candidatePanelOpen = false;
@@ -216,7 +221,8 @@ final class ImeCandidates {
                         MSIMEInputService.strictCandidateLong(id, "index")));
                 } catch (JSONException | LinkageError error) { s.fail(); }
             });
-            button.setOnLongClickListener(ignored -> {
+            // 占位行不挂长按：没有可管理的词，读屏也不该提示长按（#6888）。
+            if (AiPendingCandidatePolicy.offersMenu(source)) button.setOnLongClickListener(ignored -> {
                 if (!s.candidateManagementEnabled() && !s.candidateGlossInsertionEnabled()) return false;
                 return showCandidateMenu(button, -1, id, text, candidate, true);
             });

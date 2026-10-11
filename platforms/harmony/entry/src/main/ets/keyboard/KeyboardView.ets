@@ -297,9 +297,9 @@ const EXPANDED_CELL_RADIUS_VP: number = 8;
 const EXPANDED_FONT_SIZE: number = 17;
 const EXPANDED_PRESSED_BRIGHTNESS: number = 0.88;
 const EXPANDED_FOOTER_VP: number = 40;
-// 皮肤选择器的分页：网格上方 6vp、行间 4vp（预览自带 2vp 的描边余量），列间至少 6vp；有多页需要显示圆点时，圆点占 8vp 间距加自身 6vp，下方再留 4vp。
-const SKIN_TOP_PADDING_VP: number = 6;
-const SKIN_ROWS_GAP_VP: number = 4;
+// 皮肤选择器的分页：网格上方 4vp、行间 2vp（预览四周自带 4vp 的选中环余量，所以缩略图离面板上沿 8vp、离上一行的名称 6vp），列间至少 6vp；有多页需要显示圆点时，圆点占 8vp 间距加自身 6vp，下方再留 4vp。
+const SKIN_TOP_PADDING_VP: number = 4;
+const SKIN_ROWS_GAP_VP: number = 2;
 const SKIN_MIN_COLUMNS_GAP_VP: number = 6;
 const PANEL_DOTS_ROOM_VP: number = 14;
 // 功能面板和方案选择的磁贴网格：上方 10vp、行间 16vp，每行至少 52vp（设计稿和 Android 的 `FunctionPanelView`）；面板比这高时两行平分多出来的高度，而不是在底下空着一块。
@@ -309,9 +309,9 @@ const TILE_MIN_ROW_VP: number = 52;
 const PANEL_BOTTOM_PADDING_VP: number = 4;
 const PANEL_SIDE_PADDING_VP: number = 4;
 const PANEL_COLUMNS: number = 4;
-/** `MiniKeyboardPreview` 在缩略图下方和两侧额外占用的空间：上方和两侧各 2vp 描边余量，下方 6vp 间距和 12fp 的名称。 */
-const SKIN_NAME_ROOM_VP: number = 24;
-const SKIN_RING_ROOM_VP: number = 4;
+/** `MiniKeyboardPreview` 在缩略图之外额外占用的空间：四周各 4vp 选中环余量（2vp 间隙加 2vp 环），环下方 4vp 间距和 12fp 的名称。 */
+const SKIN_NAME_ROOM_VP: number = 28;
+const SKIN_RING_ROOM_VP: number = 8;
 /** 预览缩略图的高宽比，即设计稿 `MiniKb` 的 292:390。 */
 const SKIN_THUMB_ASPECT: number = 292 / 390;
 // The surfaces that cover the key rows. Only one is ever showing.

@@ -46,7 +46,12 @@ const sample: ExternalSkin = {
 
 // 网格只画在鸿蒙手机上，所以按鸿蒙提供的主题排。
 const themeCatalog = offeredThemeCatalog("harmony");
-const builtinTitles = themeCatalog.filter((entry) => entry.id !== "custom").map((e) => e.title);
+// 固定明暗的主题只在那种明暗下列出；测试默认在浅色下渲染。
+const fitsMode = (appearance: string | null, dark: boolean) =>
+  appearance === null || (appearance === "dark") === dark;
+const builtinTitles = themeCatalog
+  .filter((entry) => entry.id !== "custom" && fitsMode(entry.appearance, false))
+  .map((e) => e.title);
 
 function grid(props: Partial<ComponentProps<typeof SkinGrid>> = {}) {
   const onApply = vi.fn();
@@ -102,25 +107,30 @@ test("reports the applied skin's id for the badge", () => {
   cleanup();
 
   const inUse = vi.fn();
-  grid({ globalTheme: "night", onApplied: inUse });
+  grid({ globalTheme: "night", keyboardTheme: "dark", onApplied: inUse });
   fireEvent.click(screen.getByRole("button", { name: "夜青" }));
   expect(inUse).not.toHaveBeenCalled();
 });
 
 test("keeps the catalog's 自定义 card on a host without the keyboard skin editor", () => {
   grid({ customDesign: undefined });
-  expect(cardNames()).toEqual(themeCatalog.map((entry) => entry.title).concat("Sample skin"));
+  expect(cardNames()).toEqual(
+    themeCatalog
+      .filter((entry) => fitsMode(entry.appearance, false))
+      .map((entry) => entry.title)
+      .concat("Sample skin"),
+  );
 });
 
 test("rings and checks only the theme in use", () => {
-  grid({ globalTheme: "night" });
+  grid({ globalTheme: "night", keyboardTheme: "dark" });
   const selected = screen.getByRole("button", { name: "夜青" });
   expect(selected.getAttribute("aria-pressed")).toBe("true");
   expect(selected.querySelector("[data-skin-check]")).not.toBeNull();
   expect(selected.querySelector("[data-skin-frame]")!.className).toContain(
     "0_0_0_4px_var(--accent-color)",
   );
-  const other = screen.getByRole("button", { name: "纸白" });
+  const other = screen.getByRole("button", { name: "墨" });
   expect(other.getAttribute("aria-pressed")).toBe("false");
   expect(other.querySelector("[data-skin-check]")).toBeNull();
   expect(other.querySelector("[data-skin-frame]")!.className).toContain("0_0_0_1px_var(--p-hair)");
@@ -141,19 +151,30 @@ test("a package in use wins over the custom design it is drawn with", () => {
   );
 });
 
-// 浅色、深色两个槽位里的皮肤包都算在用：两张卡片都打勾，再点一次只把它从自己的槽位取下。
+// 浅色、深色两个槽位里的皮肤包都算在用，两种明暗下都列出、都打勾；再点一次只把它从自己的槽位取下。
 test("skins in the light and the dark slot are both in use, and tapping one again takes it out", () => {
   const night: ExternalSkin = { ...sample, id: "midnight", name: "Midnight skin", base: "night" };
+  const customTheme = {
+    base: "night",
+    candidate_skin: "sample",
+    candidate_skin_dark: "midnight",
+  } as const;
+  for (const keyboardTheme of ["light", "dark"] as const) {
+    grid({ globalTheme: "custom", customTheme, packages: [sample, night], keyboardTheme });
+    for (const name of ["Sample skin", "Midnight skin"])
+      expect(screen.getByRole("button", { name }).getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelectorAll("[data-skin-check]")).toHaveLength(2);
+    cleanup();
+  }
+
   const onApplied = vi.fn();
   const { onApply } = grid({
     globalTheme: "custom",
-    customTheme: { base: "night", candidate_skin: "sample", candidate_skin_dark: "midnight" },
+    customTheme,
     packages: [sample, night],
+    keyboardTheme: "dark",
     onApplied,
   });
-  for (const name of ["Sample skin", "Midnight skin"])
-    expect(screen.getByRole("button", { name }).getAttribute("aria-pressed")).toBe("true");
-  expect(document.querySelectorAll("[data-skin-check]")).toHaveLength(2);
   fireEvent.click(screen.getByRole("button", { name: "Midnight skin" }));
   expect(onApply).toHaveBeenLastCalledWith({
     global_theme: "custom",
@@ -162,12 +183,32 @@ test("skins in the light and the dark slot are both in use, and tapping one agai
   expect(onApplied).not.toHaveBeenCalled();
 });
 
+// 浅色模式下不列深色主题；已选的深色主题在浅色下按「跟随系统」画，选中的也就是「跟随系统」。深色模式反过来。
+test("each mode offers only its own themes and shows a theme of the other mode as 跟随系统", () => {
+  grid({ globalTheme: "night" });
+  for (const name of ["水杉", "夜青", "墨"])
+    expect(screen.queryByRole("button", { name })).toBeNull();
+  expect(screen.getByRole("button", { name: "跟随系统" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  cleanup();
+
+  grid({ globalTheme: "paper", keyboardTheme: "dark" });
+  for (const name of ["浅色", "纸白"]) expect(screen.queryByRole("button", { name })).toBeNull();
+  // 皮肤包不按明暗过滤：base 是浅色主题的包在深色下照样列出。
+  expect(screen.getByRole("button", { name: "Sample skin" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "跟随系统" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+});
+
 test("a dark skin goes into the dark slot and keeps the light one", () => {
   const night: ExternalSkin = { ...sample, id: "midnight", name: "Midnight skin", base: "night" };
   const { onApply } = grid({
     globalTheme: "custom",
     customTheme: { base: "paper", candidate_skin: "sample" },
     packages: [sample, night],
+    keyboardTheme: "dark",
   });
   fireEvent.click(screen.getByRole("button", { name: "Midnight skin" }));
   expect(onApply).toHaveBeenLastCalledWith({
@@ -193,8 +234,8 @@ test("tapping a card applies it at once", () => {
   const { onApply, onSelectDesign } = grid({
     customTheme: { base: "light", candidate_colors: { text: "#112233" } },
   });
-  fireEvent.click(screen.getByRole("button", { name: "夜青" }));
-  expect(onApply).toHaveBeenLastCalledWith({ global_theme: "night" });
+  fireEvent.click(screen.getByRole("button", { name: "纸白" }));
+  expect(onApply).toHaveBeenLastCalledWith({ global_theme: "paper" });
   fireEvent.click(screen.getByRole("button", { name: "Sample skin" }));
   expect(onApply).toHaveBeenLastCalledWith({
     global_theme: "custom",
@@ -443,4 +484,77 @@ test("desktop hosts and the HarmonyOS 2-in-1 keep the carousel", async () => {
   const page = screen.getByRole("group", { name: "主题" });
   expect(within(page).getByRole("region", { name: "主题列表" })).toBeTruthy();
   expect(page.querySelector("[data-skin-grid]")).toBeNull();
+});
+
+// 皮肤库里的设计（在「社区」获取的皮肤也存在这里）排在我的皮肤之后，两种明暗下都列出；正在用的那款打勾，我的皮肤不再同时打勾。
+test("saved designs follow 我的皮肤, the one in use is checked, and tapping one applies it", () => {
+  const panda = { ...design, accent: 0x1f6b4a };
+  const fox = { ...design, background: 0x1b2340 };
+  const savedDesigns = [
+    { id: "panda", name: "竹林熊猫茶会", design: panda },
+    { id: "fox", name: "月光狐狸茶屋", design: fox },
+  ];
+  for (const keyboardTheme of ["light", "dark"] as const) {
+    const onSelectSavedDesign = vi.fn();
+    grid({
+      globalTheme: "custom",
+      customTheme: { base: "paper", keyboard: fox },
+      customDesign: { design: fox, selected: true, onSelect: vi.fn() },
+      savedDesigns,
+      onSelectSavedDesign,
+      keyboardTheme,
+    });
+    const names = cardNames();
+    expect(names.slice(names.indexOf("我的皮肤"), names.indexOf("我的皮肤") + 3)).toEqual([
+      "我的皮肤",
+      "竹林熊猫茶会",
+      "月光狐狸茶屋",
+    ]);
+    expect(screen.getByRole("button", { name: "月光狐狸茶屋" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    for (const name of ["我的皮肤", "竹林熊猫茶会"])
+      expect(screen.getByRole("button", { name }).getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "竹林熊猫茶会" }));
+    expect(onSelectSavedDesign).toHaveBeenLastCalledWith(panda);
+    cleanup();
+  }
+});
+
+// 社区皮肤排在皮肤库的设计之后，已获取的（同一 id，大小写不论）不再重复；点一下就获取并换上，获取失败时不计入换装统计。
+test("community skins follow the saved designs, skip ones already taken, and count only when applied", async () => {
+  const panda = { ...design, accent: 0x1f6b4a };
+  const fox = { ...design, background: 0x1b2340 };
+  const snow = { ...design, background: 0xdde6f0 };
+  const onSelectCommunitySkin = vi.fn(async () => true);
+  const onApplied = vi.fn();
+  grid({
+    savedDesigns: [{ id: "PANDA", name: "竹林熊猫茶会", design: panda }],
+    onSelectSavedDesign: vi.fn(),
+    communitySkins: [
+      { id: "panda", name: "竹林熊猫茶会", design: panda },
+      { id: "fox", name: "月光狐狸茶屋", design: fox },
+      { id: "snow", name: "极光雪山小屋", design: snow },
+    ],
+    onSelectCommunitySkin,
+    onApplied,
+  });
+  const names = cardNames();
+  expect(names.filter((name) => name === "竹林熊猫茶会")).toHaveLength(1);
+  expect(names.indexOf("月光狐狸茶屋")).toBeGreaterThan(names.indexOf("竹林熊猫茶会"));
+  expect(names.indexOf("极光雪山小屋")).toBeGreaterThan(names.indexOf("月光狐狸茶屋"));
+  fireEvent.click(screen.getByRole("button", { name: "月光狐狸茶屋" }));
+  await waitFor(() => expect(onApplied).toHaveBeenCalledWith("custom"));
+  expect(onSelectCommunitySkin).toHaveBeenCalledWith({
+    id: "fox",
+    name: "月光狐狸茶屋",
+    design: fox,
+  });
+
+  onApplied.mockClear();
+  onSelectCommunitySkin.mockResolvedValueOnce(false);
+  fireEvent.click(screen.getByRole("button", { name: "极光雪山小屋" }));
+  await waitFor(() => expect(onSelectCommunitySkin).toHaveBeenCalledTimes(2));
+  await act(async () => undefined);
+  expect(onApplied).not.toHaveBeenCalled();
 });

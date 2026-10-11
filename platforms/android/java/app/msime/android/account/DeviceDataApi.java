@@ -323,13 +323,7 @@ public final class DeviceDataApi {
 
     /** 会话 id 只拼进路径，所以只认 1–128 个字母、数字、`-`、`_`。 */
     public static boolean validSessionId(String id) {
-        if (id == null || id.isEmpty() || id.length() > 128) return false;
-        for (int index = 0; index < id.length(); index++) {
-            char c = id.charAt(index);
-            boolean allowed = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_';
-            if (!allowed) return false;
-        }
-        return true;
+        return TextPolicy.validAsciiToken(id, 1, 128);
     }
 
     /** 数组长度检查独立出来供无 `org.json` 的宿主冒烟测试覆盖。 */

@@ -29,9 +29,10 @@ if ! grep -qF "await KeyboardSession.commonPhrasesCall(directory, { operation: '
   exit 1
 fi
 # 字母键的 ForEach 按 faceKey() 判定子树是否重建。「双拼键位提示」不在这个键里时，键盘开着切换开关，已经画好的字母键会一直留着旧提示。
-if ! sed -n '/^  private faceKey(): string {$/,/^  }$/p' \
-    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
-    | grep -qF 'this.shuangpinKeyHints'; then
+face_key_body=$(sed -n '/^  private faceKey(): string {$/,/^  }$/p' \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
+# 先取进变量再判断：管道交给 `grep -q` 时它命中即退出，sed 还没写完的输出会收到 SIGPIPE，pipefail 下这一步偶发失败。
+if ! grep -qF 'this.shuangpinKeyHints' <<< "$face_key_body"; then
   echo "KeyboardView.faceKey must include the shuangpin key hint switch so a live change redraws the letter keys" >&2
   exit 1
 fi

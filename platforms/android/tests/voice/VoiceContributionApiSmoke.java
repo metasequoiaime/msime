@@ -10,6 +10,9 @@ public final class VoiceContributionApiSmoke {
         VoiceContributionApi.Contribution ok = new VoiceContributionApi.Contribution("zh-CN", "local", 1000,
             "今天下午三点开会。", "1.2.3", wav);
         check(VoiceContributionApi.valid(ok), "a well-formed contribution passes");
+        check(VoiceContributionApi.valid(new VoiceContributionApi.Contribution("zh-CN", " ", 1000,
+            "synthetic transcript", "1.2.3", wav)),
+            "non-empty metadata keeps its historical whitespace allowance");
         check(!VoiceContributionApi.valid(null), "nothing");
         check(!VoiceContributionApi.valid(new VoiceContributionApi.Contribution("zh-CN", "local", 1000, " ", "1.2.3", wav)),
             "an empty transcript is not uploaded");

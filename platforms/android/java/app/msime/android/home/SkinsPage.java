@@ -49,8 +49,13 @@ public final class SkinsPage extends ReloadingDetailPage {
     @Nullable private static Model read(Context context, boolean systemDark, String season) {
         JSONObject preferences = KeyboardSheets.preferences(context);
         if (preferences == null) return null;
-        String current = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONArray catalog = HostStore.themeCatalog();
+        // 键盘的明暗，与 HostStore.keyboardSkin 的算法相同。只列这一明暗下的主题；所选主题属于另一种明暗时键盘按跟随系统画，选中态也落在跟随系统上。
+        boolean keyboardDark = KeyboardSkin.resolveDark(
+            InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
+            InputViewValuePolicy.textOr(preferences, "theme", "system"), systemDark);
+        String current = KeyboardSkin.effectiveTheme(catalog,
+            InputViewValuePolicy.textOr(preferences, "global_theme", "system"), keyboardDark);
         List<Card> themes = new ArrayList<>(catalog.length());
         try {
             for (int index = 0; index < catalog.length(); index++) {
@@ -59,6 +64,7 @@ public final class SkinsPage extends ReloadingDetailPage {
                 String id = InputViewValuePolicy.textOr(entry, "id", "");
                 // 「自定义」由下面的我的设计代替：它画的就是当前选中的那个设计。
                 if (id.isEmpty() || "custom".equals(id)) continue;
+                if (!KeyboardSkin.fitsMode(KeyboardSkin.themeAppearance(catalog, id), keyboardDark)) continue;
                 String title = InputViewValuePolicy.textOr(entry, "title", id);
                 if (entry.optBoolean("seasonal", false)) title = title + " · " + season;
                 JSONObject probe = new JSONObject(preferences.toString()).put("global_theme", id);

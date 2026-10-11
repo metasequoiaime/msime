@@ -10,7 +10,7 @@ case "$variant" in
   *) echo "Usage: $0 [device|simulator]" >&2; exit 2 ;;
 esac
 
-if ! rustup target list --installed | grep -qx "$rust_target"; then
+if ! grep -qx "$rust_target" <<< "$(rustup target list --installed)"; then
   echo "Install Rust target first: rustup target add $rust_target" >&2
   exit 1
 fi

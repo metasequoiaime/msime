@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ThemeMode } from "../../index";
 import * as settings from "../settings-style";
 import { SettingsGroupBlock } from "../settings-group-block";
@@ -32,6 +32,8 @@ import {
   AiSkinGeneration,
   TouchKeyboardSkinEditor,
 } from "../../keyboard/touch-keyboard-skin-editor";
+import type { SavedTouchKeyboardSkin } from "../../keyboard/touch-keyboard-skin-design";
+import { communitySkinMessage } from "../../community/community-helpers";
 import { GroupList } from "../../core/platform-controls";
 import { CandidateColorsSection } from "../candidate-colors-section";
 import { ThemeSettingsSection } from "../theme-settings-section";
@@ -157,6 +159,68 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
   // 从网格的 AI 图块打开的「AI 皮肤抽卡」是 WebView 返回栈上单独的一个视图，所以系统返回手势能关掉它。
   const { aiSkins, customSkinLibrary } = client;
   const [aiOpen, setAiOpen] = useState(false);
+  // 网格里列出皮肤库的设计（在「社区」获取的皮肤也存在这里）。每次回到网格都重读：从别的标签页回来，或从编辑器、AI 抽卡这两个子视图返回，刚获取或刚保存的皮肤就能出现。
+  const [savedDesigns, setSavedDesigns] = useState<SavedTouchKeyboardSkin[]>([]);
+  const gridVisible = phoneGrid && shown && !showTouchSkinEditor && !aiOpen;
+  useEffect(() => {
+    if (!gridVisible || !customSkinLibrary) return;
+    let current = true;
+    customSkinLibrary.load().then(
+      (items) => {
+        if (current) setSavedDesigns(items);
+      },
+      // 皮肤库读不出来时只是少了这几张卡片，内置主题照常显示，与 Android 皮肤页一致。
+      () => {
+        if (current) setSavedDesigns([]);
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [gridVisible, customSkinLibrary]);
+  // 社区的第一页也列在网格里，不用先去「社区」获取，与 Android 键盘皮肤面板一致。离线或服务不可用时只是没有这几张卡片。
+  const { communitySkins } = client;
+  const [communityList, setCommunityList] = useState<SavedTouchKeyboardSkin[]>([]);
+  const [communityNotice, setCommunityNotice] = useState("");
+  const taking = useRef(false);
+  useEffect(() => {
+    if (!gridVisible || !communitySkins) return;
+    let current = true;
+    communitySkins.list(0, "", false, null).then(
+      (page) => {
+        if (current)
+          setCommunityList(page.skins.map(({ id, name, design }) => ({ id, name, design })));
+      },
+      () => {
+        if (current) setCommunityList([]);
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [gridVisible, communitySkins]);
+  /** 点社区皮肤：和社区页的「获取」一样下载（服务器计入一次下载，设计以社区 id 存进皮肤库），结束试用但不保留，再经表单换上，与「使用」相同。 */
+  const takeCommunitySkin = async (skin: SavedTouchKeyboardSkin): Promise<boolean> => {
+    if (!communitySkins || taking.current) return false;
+    taking.current = true;
+    setCommunityNotice("");
+    try {
+      const result = await communitySkins.download(skin.id, skin.name);
+      await communitySkins.finishTrial(result.trial.id, false);
+      setSavedDesigns((items) => [
+        ...items.filter((item) => item.id.toLowerCase() !== result.skin.id.toLowerCase()),
+        result.skin,
+      ]);
+      onCustomKeyboardChange(result.skin.design);
+      return true;
+    } catch (failure) {
+      // 例如未登录、皮肤库已满十二个设计，`communitySkinMessage` 会写明。
+      setCommunityNotice(communitySkinMessage(failure));
+      return false;
+    } finally {
+      taking.current = false;
+    }
+  };
   // 鸿蒙手机上「设计我的皮肤」同样是返回栈上的一个视图，不在这页里就地展开。从「我的 → 我的设计」进来时没有这一条记录，编辑器直接打开；返回离开这页时记录里没有它，编辑器随之关上，下次进来不会再自己打开。
   useMobilePopState(phoneGrid, (event) => {
     setAiOpen(event.state?.skinSubpage === "ai");
@@ -306,12 +370,23 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                     }
                   : undefined
               }
+              savedDesigns={savedDesigns}
+              onSelectSavedDesign={
+                client.customTouchKeyboardSkins ? onCustomKeyboardChange : undefined
+              }
+              communitySkins={communityList}
+              onSelectCommunitySkin={
+                client.customTouchKeyboardSkins && communitySkins ? takeCommunitySkin : undefined
+              }
               keyboardTheme={keyboardPreviewTheme}
               onApply={onPreferencesChange}
               onApplied={(id) => void client.typingStatistics?.recordSkin?.(id)}
               onOpenAi={aiSkins && customSkinLibrary ? openAi : undefined}
             />
-            {/* 设计里这页没有设置行，只有网格。颜色模式和各界面的明暗覆盖不提供；在线皮肤在「社区」标签页；我的皮肤是网格里的卡片，选中后再点一次打开编辑器（`onEdit`），「我的 → 我的设计」也能进入。 */}
+            {communityNotice && (
+              <SettingsExternalMeta role="status">{communityNotice}</SettingsExternalMeta>
+            )}
+            {/* 设计里这页没有设置行，只有网格。颜色模式和各界面的明暗覆盖不提供；社区第一页的皮肤直接列在网格里，更多在「社区」标签页；我的皮肤是网格里的卡片，选中后再点一次打开编辑器（`onEdit`），「我的 → 我的设计」也能进入。 */}
           </>
         ) : (
           <>

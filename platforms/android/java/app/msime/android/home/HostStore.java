@@ -130,7 +130,8 @@ public final class HostStore {
         boolean dark = KeyboardSkin.resolveDark(
             InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
             InputViewValuePolicy.textOr(preferences, "theme", "system"), systemDark);
-        String globalTheme = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
+        String globalTheme = KeyboardSkin.effectiveTheme(themeCatalog(),
+            InputViewValuePolicy.textOr(preferences, "global_theme", "system"), dark);
         JSONObject customTheme = preferences.optJSONObject("custom_theme");
         JSONObject theme = value(call(() -> NativeClient.resolveTheme(
             KeyboardSkin.themeRequest(globalTheme, customTheme, dark))));
@@ -148,11 +149,13 @@ public final class HostStore {
      */
     public static KeyboardSkin keyboardSkin(JSONObject preferences, boolean systemDark,
             AppThemePalette.Seed seed) {
-        if (!"system".equals(InputViewValuePolicy.textOr(preferences, "global_theme", "system")))
-            return keyboardSkin(preferences, systemDark);
         boolean dark = KeyboardSkin.resolveDark(
             InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
             InputViewValuePolicy.textOr(preferences, "theme", "system"), systemDark);
+        // 所选主题属于另一种明暗时键盘按跟随系统画，这里也要走跟随系统的种子配色。
+        if (!"system".equals(KeyboardSkin.effectiveTheme(themeCatalog(),
+                InputViewValuePolicy.textOr(preferences, "global_theme", "system"), dark)))
+            return keyboardSkin(preferences, systemDark);
         return KeyboardSkin.system(dark, seed);
     }
 
