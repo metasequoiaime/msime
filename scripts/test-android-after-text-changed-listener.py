@@ -7,7 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 HOME = ROOT / "platforms/android/java/app/msime/android/home"
-UI = HOME / "Ui.java"
+POLICY = ROOT / "platforms/android/java/app/msime/android/ViewPolicy.java"
 CONSUMERS = {
     "SearchPill.java": 1,
     "InputDialog.java": 1,
@@ -19,7 +19,7 @@ CONSUMERS = {
 
 def main() -> int:
     errors = []
-    ui = UI.read_text(encoding="utf-8")
+    policy = POLICY.read_text(encoding="utf-8")
     required = (
         "public static void afterTextChanged(TextView view, Consumer<Editable> listener)",
         "view.addTextChangedListener(new TextWatcher()",
@@ -28,23 +28,21 @@ def main() -> int:
         "@Override public void afterTextChanged(Editable text) { listener.accept(text); }",
     )
     for snippet in required:
-        if snippet not in ui:
-            errors.append(f"{UI}: 文本监听器适配方法缺少：{snippet}")
+        if snippet not in policy:
+            errors.append(f"{POLICY}: 文本监听器适配方法缺少：{snippet}")
 
     for name, expected in CONSUMERS.items():
         path = HOME / name
         source = path.read_text(encoding="utf-8")
-        actual = source.count("Ui.afterTextChanged(")
+        actual = source.count("ViewPolicy.afterTextChanged(")
         if actual != expected:
-            errors.append(f"{path}: 应有 {expected} 处 Ui.afterTextChanged，实际为 {actual}")
+            errors.append(f"{path}: 应有 {expected} 处 ViewPolicy.afterTextChanged，实际为 {actual}")
         if "new TextWatcher()" in source or "import android.text.TextWatcher;" in source:
             errors.append(f"{path}: 仍在直接实现 TextWatcher")
 
     for path in HOME.glob("*.java"):
-        if path == UI:
-            continue
         if "new TextWatcher()" in path.read_text(encoding="utf-8"):
-            errors.append(f"{path}: 应复用 Ui.afterTextChanged")
+            errors.append(f"{path}: 应复用 ViewPolicy.afterTextChanged")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)
