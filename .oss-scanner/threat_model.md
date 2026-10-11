@@ -23,6 +23,7 @@ Treat these as untrusted:
 - `cargo test --locked` runs the Rust workspace tests (built in the image under `/src/target`).
 - The Linux native host is built under `/src/build/linux`; `ctest --test-dir /src/build/linux` runs its unit tests.
 - `target/debug/msime-pack validate <pack>` exercises extension-pack import; `target/debug/msime-mcp` speaks MCP over stdio.
+- `fuzz/fuzz_targets/` holds libFuzzer harnesses for the two highest-exposure entry points: `plugin_pack` (an untrusted `.zip` through extension-pack validation) and `host_session` (a byte stream decoded into a sequence of `host-api` C ABI calls on a live session, across input schemes). They show how to drive those entry points from Rust; building them needs nightly Rust and cargo-fuzz, which this image does not include.
 
 ## How we rate severity
 
