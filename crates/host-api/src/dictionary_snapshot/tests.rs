@@ -128,6 +128,84 @@ fn queue_state_can_be_polled_while_an_engine_session_holds_shared_access() {
 }
 
 #[test]
+fn snapshot_line_buffer_is_lazy_and_reused_for_short_lines() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("snapshot.ndjson");
+    std::fs::write(&path, b"").unwrap();
+    let mut empty = super::SnapshotFileRecords::open(&path).unwrap();
+    assert_eq!(empty.line.capacity(), 0);
+    assert!(!empty.read_line().unwrap());
+    assert_eq!(empty.line.capacity(), 0);
+
+    std::fs::write(&path, b"synthetic first line\nshort\n").unwrap();
+    let mut stream = super::SnapshotFileRecords::open(&path).unwrap();
+    assert_eq!(stream.line.capacity(), 0);
+    assert!(stream.read_line().unwrap());
+    assert_eq!(stream.line, b"synthetic first line");
+    let capacity = stream.line.capacity();
+    let pointer = stream.line.as_ptr();
+    assert!(capacity < 1024);
+    assert!(stream.read_line().unwrap());
+    assert_eq!(stream.line, b"short");
+    assert_eq!(stream.line.capacity(), capacity);
+    assert_eq!(stream.line.as_ptr(), pointer);
+    assert!(!stream.read_line().unwrap());
+}
+
+#[test]
+fn snapshot_line_buffer_preserves_limits_across_read_chunks() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("snapshot.ndjson");
+    for newline in [false, true] {
+        for accepted in [true, false] {
+            let length = super::MAX_SNAPSHOT_LINE_BYTES - usize::from(accepted);
+            let mut bytes = b"short\n".to_vec();
+            bytes.extend(std::iter::repeat_n(b'x', length));
+            if newline {
+                bytes.push(b'\n');
+            }
+            std::fs::write(&path, bytes).unwrap();
+            let mut stream = super::SnapshotFileRecords::open(&path).unwrap();
+            assert!(stream.read_line().unwrap());
+            if accepted {
+                assert!(stream.read_line().unwrap());
+                assert_eq!(stream.line, vec![b'x'; length]);
+                assert!(!stream.read_line().unwrap());
+            } else {
+                assert!(stream.read_line().is_err());
+            }
+        }
+    }
+}
+
+#[test]
+fn inspection_preserves_checksum_for_a_line_at_the_byte_limit() {
+    use sha2::{Digest, Sha256};
+
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("snapshot.ndjson");
+    let header =
+        r#"{"type":"header","format":"msime-dictionary-snapshot","version":1,"revision":7}"#;
+    let padding = " ".repeat(super::MAX_SNAPSHOT_LINE_BYTES - header.len() - 1);
+    let body = format!("{header}{padding}\n");
+    let digest = hex::encode(Sha256::digest(body.as_bytes()));
+    let complete = format!("{body}{{\"type\":\"footer\",\"records\":1,\"sha256\":\"{digest}\"}}\n");
+    std::fs::write(&path, &complete).unwrap();
+    let metadata = super::inspect_snapshot(&path).unwrap();
+    assert_eq!(metadata.bytes, complete.len() as u64);
+    assert_eq!(metadata.records, 1);
+    assert_eq!(metadata.file_sha256, hex::encode(Sha256::digest(&complete)));
+
+    let oversized_body = format!(" {body}");
+    let oversized_digest = hex::encode(Sha256::digest(oversized_body.as_bytes()));
+    let oversized = format!(
+        "{oversized_body}{{\"type\":\"footer\",\"records\":1,\"sha256\":\"{oversized_digest}\"}}\n"
+    );
+    std::fs::write(&path, oversized).unwrap();
+    assert!(super::inspect_snapshot(&path).is_err());
+}
+
+#[test]
 fn inspection_requires_the_complete_counted_snapshot_envelope() {
     use sha2::{Digest, Sha256};
     use std::fs;
