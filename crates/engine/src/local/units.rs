@@ -174,7 +174,7 @@ pub fn query_units(code: &str) -> Option<Vec<String>> {
     }
     let value: f64 = number.parse().ok()?;
     let (source, target) = parse_units(letters)?;
-    let mut rows: Vec<String> = Vec::with_capacity(RESULT_LIMIT);
+    let mut rows: Vec<String> = Vec::with_capacity(result_capacity(source, target));
     let mut push = |row: String| {
         if rows.len() < RESULT_LIMIT
             && row.encode_utf16().count() <= TEXT_UTF16_LIMIT
@@ -264,6 +264,23 @@ fn lookup(alias: &str) -> Option<&'static Unit> {
     UNITS.iter().find(|unit| unit.aliases.contains(&alias))
 }
 
+fn result_capacity(source: &Unit, target: Option<&Unit>) -> usize {
+    let targets = target.map_or_else(
+        || {
+            UNITS
+                .iter()
+                .filter(|unit| {
+                    unit.default_target
+                        && unit.quantity == source.quantity
+                        && !std::ptr::eq(*unit, source)
+                })
+                .count()
+        },
+        |_| 3,
+    );
+    targets.min(RESULT_LIMIT)
+}
+
 /// `value` of `source` in `target`. `number` is the typed digits, which go into the rink query as written so a decimal stays exact.
 fn convert(number: &str, value: f64, source: &Unit, target: &Unit) -> Option<f64> {
     if source.quantity == Quantity::Temperature {
@@ -334,6 +351,14 @@ mod tests {
             let (actual, count) = allocations::count(|| query_units(code));
             assert_eq!(actual.unwrap(), expected);
             assert!(count <= budget, "{code}: {count} > {budget}");
+        }
+    }
+
+    #[test]
+    fn unit_queries_reserve_only_their_result_bound() {
+        for (code, expected_capacity) in [("2jin", 3), ("100c", 2), ("1m", 7)] {
+            let result = query_units(code).unwrap();
+            assert_eq!(result.capacity(), expected_capacity, "{code}");
         }
     }
 
