@@ -100,4 +100,4 @@ Mac Studio（arm64，同时跑着 CI runner，数字有抖动，同一份测量�
 - 同一用户下伪造了授权的进程（U11）也能改 `revision` 让熔断复位，每复位一次就能再触发一次停用、读一次健康文件。macOS 上 `revision` 签在 MAC 里，熔断只认签过名、比以前大的 `revision`，换文件、删文件、放回旧文件都不复位（[授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md)）；Linux 和 Windows 上这是 U11 已接受的残余风险的一部分。同一用户下的进程还能直接结束输入法进程让它重启，重启同样清空熔断，这条在三个平台上都挡不住，每用一次都要让输入法重启一次。
 - 已知缺口：x64 DLL 和 macOS 输入法可执行文件的体积增量没量；wasmi 2.0 与 1.1.0 的差分 fuzz 没做（见 [沙箱运行时](2026-10-12-script-runtime-sandbox.md)）；pack-tool 还没有直接依赖运行时，`msime-pack run` 在第 6 阶段。
 
-相关：[桌面端生命周期核心](../../proposed/architecture/2026-10-11-desktop-lifecycle-core.md) 推导出这里投递的事件；[沙箱运行时](2026-10-12-script-runtime-sandbox.md) 提供 `ScriptInstance`、ABI 和配额；数据类插件的门控与诊断见 [插件门控如实显示](../bug-fix/2026-10-09-plugin-gates-and-wubi-table-modes.md)。
+相关：[桌面端生命周期核心](../../implemented/architecture/2026-10-11-desktop-lifecycle-core.md) 推导出这里投递的事件；[沙箱运行时](2026-10-12-script-runtime-sandbox.md) 提供 `ScriptInstance`、ABI 和配额；数据类插件的门控与诊断见 [插件门控如实显示](../bug-fix/2026-10-09-plugin-gates-and-wubi-table-modes.md)。

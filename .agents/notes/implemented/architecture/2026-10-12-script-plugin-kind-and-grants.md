@@ -55,4 +55,4 @@ Status: implemented
 - `scan` 现在会完整编译每个已安装的脚本包（dev 构建里 512 KiB 约 20 ms），设置页的目录命令在后台线程上跑，输入法进程的按键和 focus 路径不调用 `scan`。每次校验用一个随结果释放的 Engine，反复刷新目录不会越攒越多。
 - 导入命令不拦脚本包。页面的类型表随授权页加上了 `script`（「脚本插件」），导入脚本包后的提示写得出类型名。
 
-相关：[桌面端生命周期核心](../../proposed/architecture/2026-10-11-desktop-lifecycle-core.md) 产生投递给脚本的事件；[沙箱运行时](2026-10-12-script-runtime-sandbox.md) 提供本篇用到的 `Capability`、`Hook`、模块校验和 `limits`；数据类插件的门控与诊断见 [插件门控如实显示](../../implemented/bug-fix/2026-10-09-plugin-gates-and-wubi-table-modes.md)；社区可发布类型见 [特效包可分享](../../implemented/feature/2026-10-10-community-effect-packs-shareable.md)。
+相关：[桌面端生命周期核心](../../implemented/architecture/2026-10-11-desktop-lifecycle-core.md) 产生投递给脚本的事件；[沙箱运行时](2026-10-12-script-runtime-sandbox.md) 提供本篇用到的 `Capability`、`Hook`、模块校验和 `limits`；数据类插件的门控与诊断见 [插件门控如实显示](../../implemented/bug-fix/2026-10-09-plugin-gates-and-wubi-table-modes.md)；社区可发布类型见 [特效包可分享](../../implemented/feature/2026-10-10-community-effect-packs-shareable.md)。
